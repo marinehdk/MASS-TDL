@@ -40,6 +40,9 @@ add_library(m7_lib STATIC
   src/common/time_utils.cpp
   src/common/safety_constants.cpp
   src/sotif/assumption_monitor.cpp
+  src/iec61508/watchdog_monitor.cpp
+  src/iec61508/fault_monitor.cpp
+  src/iec61508/diagnostic_coverage.cpp
 )
 
 target_include_directories(m7_lib
@@ -97,6 +100,28 @@ if(BUILD_TESTING)
     spdlog::spdlog
   )
   ament_target_dependencies(test_assumption_monitor
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+
+  ament_add_gtest(test_watchdog_monitor
+    test/unit/test_watchdog_monitor.cpp
+  )
+  target_link_libraries(test_watchdog_monitor m7_lib)
+  ament_target_dependencies(test_watchdog_monitor
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+
+  ament_add_gtest(test_fault_monitor
+    test/unit/test_fault_monitor.cpp
+  )
+  target_link_libraries(test_fault_monitor m7_lib)
+  ament_target_dependencies(test_fault_monitor
     rclcpp
     l3_msgs
     l3_external_msgs
