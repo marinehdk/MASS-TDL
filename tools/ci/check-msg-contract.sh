@@ -11,8 +11,11 @@ EXTERNAL_DIR="src/l3_external_msgs/msg"
 # Messages that are pure commands (rationale not required, confidence still required)
 COMMAND_MSGS="ToRRequest|ReactiveOverrideCmd|EmergencyCommand|CheckerVetoNotification"
 
+# Messages that use non-standard timestamp field name (trigger_time instead of stamp)
+TIMESTAMP_EXCEPTION_MSGS="ReactiveOverrideCmd"
+
 # Messages that are pure data/classification (no requirement for stamp/confidence/rationale)
-PURE_DATA_MSGS="EncounterClassification|ZoneConstraint|AvoidanceWaypoint|SpeedSegment|Constraint|SAT1Data|SAT2Data|SAT3Data|SATData|TimeWindow"
+PURE_DATA_MSGS="EncounterClassification|ZoneConstraint|AvoidanceWaypoint|SpeedSegment|Constraint|SAT1Data|SAT2Data|SAT3Data|SATData|TimeWindow|TrackedTarget|OwnShipState|RuleActive|ASDRRecord"
 
 errors=0
 
@@ -34,13 +37,20 @@ check_file() {
         is_command=true
     fi
 
+    local has_trigger_time=false
+
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "$line" ]] && continue
         if echo "$line" | grep -q "builtin_interfaces/Time stamp"; then has_stamp=true; fi
+        if echo "$line" | grep -q "builtin_interfaces/Time trigger_time"; then has_trigger_time=true; fi
         if echo "$line" | grep -q "^float32 confidence"; then has_confidence=true; fi
         if echo "$line" | grep -q "^string rationale"; then has_rationale=true; fi
     done < "$file"
+
+    if echo "$basename" | grep -qE "^(${TIMESTAMP_EXCEPTION_MSGS})$"; then
+        has_stamp=$has_trigger_time
+    fi
 
     if ! $has_stamp; then
         echo "VIOLATION: $file missing required field 'builtin_interfaces/Time stamp'"
