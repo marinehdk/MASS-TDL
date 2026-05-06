@@ -31,11 +31,12 @@ void SafetyArbitrator::collect_iec61508_candidates(
                       || !diag.colregs_target_id_match;
   if (any_fault) {
     AlertCandidate c{};
-    c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
-    c.severity   = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
+    c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
+    c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
-    c.confidence = 0.80F;
-    c.rationale  = "IEC61508: diagnostic validity check failed";
+    c.confidence  = 0.80F;
+    c.rationale   = "IEC61508: diagnostic validity check failed";
+    c.description = "Safety monitor: internal consistency check failed — verify system status";
     push_candidate(c);
   }
 
@@ -48,8 +49,9 @@ void SafetyArbitrator::collect_iec61508_candidates(
                    ? l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED
                    : l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
-    c.confidence = 0.95F;
-    c.rationale  = "IEC61508: watchdog heartbeat loss — module(s) critical";
+    c.confidence  = 0.95F;
+    c.rationale   = "IEC61508: watchdog heartbeat loss — module(s) critical";
+    c.description = "CRITICAL: System module(s) unresponsive — manual intervention advised";
     push_candidate(c);
   }
 }
@@ -64,27 +66,30 @@ void SafetyArbitrator::collect_sotif_candidates(
 {
   if (extreme_scenario) {
     AlertCandidate c{};
-    c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
-    c.severity   = l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED;
+    c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
+    c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
-    c.confidence = 0.95F;
-    c.rationale  = "SOTIF: extreme scenario — >= 3 assumptions violated simultaneously";
+    c.confidence  = 0.95F;
+    c.rationale   = "SOTIF: extreme scenario — >= 3 assumptions violated simultaneously";
+    c.description = "EMERGENCY: Multiple safety assumptions violated — MRC required";
     push_candidate(c);
   } else if (ctx.assumption.total_violation_count >= 2u) {
     AlertCandidate c{};
-    c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
-    c.severity   = l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL;
+    c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
+    c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
-    c.confidence = 0.85F;
-    c.rationale  = "SOTIF: 2+ assumptions violated — critical degradation";
+    c.confidence  = 0.85F;
+    c.rationale   = "SOTIF: 2+ assumptions violated — critical degradation";
+    c.description = "CRITICAL: Performance degraded — reduced operational capability";
     push_candidate(c);
   } else if (ctx.assumption.total_violation_count >= 1u) {
     AlertCandidate c{};
-    c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
-    c.severity   = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
+    c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
+    c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
     c.recommended_mrm = mrm::MrmId::kNone;
-    c.confidence = 0.70F;
-    c.rationale  = "SOTIF: single assumption violated — monitoring";
+    c.confidence  = 0.70F;
+    c.rationale   = "SOTIF: single assumption violated — monitoring";
+    c.description = "WARNING: Safety assumption violated — monitor and prepare";
     push_candidate(c);
   }
 }
@@ -98,11 +103,12 @@ void SafetyArbitrator::collect_perf_candidates(
 {
   if (ctx.performance.cpa_trend_degrading || ctx.performance.multiple_targets_nearby) {
     AlertCandidate c{};
-    c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_PERFORMANCE_DEGRADED;
-    c.severity   = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
+    c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_PERFORMANCE_DEGRADED;
+    c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
-    c.confidence = 0.75F;
-    c.rationale  = "SOTIF: performance degraded — CPA trend worsening or multiple targets";
+    c.confidence  = 0.75F;
+    c.rationale   = "SOTIF: performance degraded — CPA trend worsening or multiple targets";
+    c.description = "WARNING: CPA degrading or multiple vessels nearby — heightened vigilance";
     push_candidate(c);
   }
 }
@@ -175,7 +181,7 @@ l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
       mrm::to_string(mrm_decision.mrm_id),
       top.confidence,
       top.rationale,
-      top.rationale);
+      top.description);  // now distinct from rationale
 }
 
 }  // namespace mass_l3::m7::arbitrator

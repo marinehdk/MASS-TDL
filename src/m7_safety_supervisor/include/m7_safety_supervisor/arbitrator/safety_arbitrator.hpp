@@ -12,14 +12,15 @@
 
 namespace mass_l3::m7::arbitrator {
 
-// AlertCandidate: zero-allocation alert entry using string_view for rationale.
-// rationale MUST point to a static literal (lifetime: entire program).
+// AlertCandidate: zero-allocation alert entry using string_view for both fields.
+// Both rationale and description MUST point to static literals (lifetime: entire program).
 struct AlertCandidate {
   uint8_t alert_type{0};
   uint8_t severity{0};
   mrm::MrmId recommended_mrm{mrm::MrmId::kNone};
   float confidence{0.0F};
-  std::string_view rationale{};  // points to static literal; zero allocation
+  std::string_view rationale{};     // technical justification for ASDR audit
+  std::string_view description{};   // human-readable text for ROC operator
 };
 
 constexpr uint32_t kMaxAlertCandidates = 8u;
