@@ -46,9 +46,13 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
 
  private:
   // ---------------------------------------------------------------------------
-  // Initialization
+  // Initialization (not on control path; noexcept not required)
   // ---------------------------------------------------------------------------
   void initialize_parameters();
+  void init_state_machine(const ParameterSet& p);
+  void init_conformance_calc(const ParameterSet& p);
+  void init_tmr_tdl(const ParameterSet& p);
+  void init_mrc(const ParameterSet& p);
   void initialize_publishers();
   void initialize_subscribers();
   void initialize_timers();
@@ -78,12 +82,31 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   void on_sat_data_publish_tick() noexcept;     // 10 Hz
 
   // ---------------------------------------------------------------------------
-  // Internal helpers
+  // Main-loop sub-helpers (all noexcept per PATH-S)
   // ---------------------------------------------------------------------------
-  void publish_odd_state_event(EnvelopeState old_state,
-                               EnvelopeState new_state) noexcept;
-  void publish_mode_cmd(uint8_t new_level,
-                        std::string_view reason) noexcept;
+  [[nodiscard]] ScoringInputs build_scoring_inputs() const noexcept;
+  [[nodiscard]] SystemHealthSnapshot build_system_health(bool m7_critical) const noexcept;
+  [[nodiscard]] double compute_min_tcpa() const noexcept;
+  [[nodiscard]] EventFlags build_event_flags(
+      const rclcpp::Time& now_ros,
+      bool m7_critical,
+      bool m7_mrc_required) const noexcept;
+  void handle_state_change(
+      EnvelopeState old_state,
+      EnvelopeState new_state,
+      const ScoreTriple& scores,
+      const TmrTdlPair& tmrtdl) noexcept;
+  void check_mrc_if_needed(
+      EnvelopeState new_state,
+      bool m7_mrc_required,
+      MrcType m7_mrm,
+      const ScoringInputs& scoring) noexcept;
+
+  // ---------------------------------------------------------------------------
+  // Publish helpers (all noexcept per PATH-S)
+  // ---------------------------------------------------------------------------
+  void publish_odd_state_event() noexcept;
+  void publish_mode_cmd(std::string_view reason) noexcept;
   void publish_asdr_record(std::string_view decision_type,
                            std::string_view rationale_json) noexcept;
   void publish_sat_data() noexcept;
@@ -114,12 +137,14 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Time last_world_state_received_;
   rclcpp::Time last_env_state_received_;
   rclcpp::Time last_own_ship_received_;
+  rclcpp::Time last_safety_alert_received_;
 
   // Input-received flags (since default rclcpp::Time{} uses different clock
   // type than now(), preventing reliable comparison against zero).
   bool has_received_world_state_;
   bool has_received_env_state_;
   bool has_received_own_ship_;
+  bool has_received_safety_alert_;
 
   // Override / reflex state
   bool override_active_;

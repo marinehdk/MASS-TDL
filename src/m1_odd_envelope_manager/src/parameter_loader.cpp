@@ -34,9 +34,8 @@ ParameterSet defaults() noexcept {
   p.sea_state_degraded_hs = 3.0;
   p.sea_state_marginal_hs = 4.0;
   p.comm_delay_ok_s = 2.0;
-  p.t_score_nominal = 1.0;
-  p.t_score_degraded = 0.6;
-  p.t_score_critical = 0.3;
+  p.t_score_comm_ok = 0.6;
+  p.t_score_comm_bad = 0.3;
   p.h_score_available = 1.0;
   p.h_score_unavailable = 0.5;
   p.tmr_baseline_s = 60.0;
@@ -114,17 +113,15 @@ ParameterSet load_parameters(const std::string& yaml_path) noexcept {
   const YAML::Node ts = config["t_score"];
   if (ts && !ts.IsNull()) {
     p.comm_delay_ok_s = read_double(ts, "comm_delay_ok_s", p.comm_delay_ok_s);
-    p.t_score_nominal = read_double(ts, "nominal", p.t_score_nominal);
-    p.t_score_degraded = read_double(ts, "degraded", p.t_score_degraded);
-    p.t_score_critical = read_double(ts, "critical", p.t_score_critical);
+    p.t_score_comm_ok = read_double(ts, "comm_ok", p.t_score_comm_ok);
+    p.t_score_comm_bad = read_double(ts, "comm_bad", p.t_score_comm_bad);
   }
 
   // --- h_score section (all [TBD-HAZID]) ---
   const YAML::Node hs = config["h_score"];
   if (hs && !hs.IsNull()) {
     p.h_score_available = read_double(hs, "available", p.h_score_available);
-    p.h_score_unavailable =
-        read_double(hs, "unavailable", p.h_score_unavailable);
+    p.h_score_unavailable = read_double(hs, "unavailable", p.h_score_unavailable);
   }
 
   // --- tmr_tdl section ---

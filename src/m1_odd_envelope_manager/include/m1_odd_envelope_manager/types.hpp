@@ -116,9 +116,9 @@ struct ScoringInputs {
 
 /// Thresholds for the Task (T) score computation.
 struct TScoreThresholds {
-  double comm_delay_ok_s;     // [TBD-HAZID] 2.0
-  double t_score_comm_ok;     // [TBD-HAZID] 0.6
-  double t_score_comm_bad;    // [TBD-HAZID] 0.3
+  double comm_delay_ok_s;   // [TBD-HAZID] 2.0
+  double t_score_comm_ok;   // [TBD-HAZID] 0.6 — sensor degraded, comm within limit
+  double t_score_comm_bad;  // [TBD-HAZID] 0.3 — comm late or critical sensor failure
 };
 
 /// Thresholds for the Human (H) score computation.
@@ -212,9 +212,8 @@ struct ParameterSet {
 
   // T-score thresholds
   double comm_delay_ok_s;
-  double t_score_nominal;
-  double t_score_degraded;
-  double t_score_critical;
+  double t_score_comm_ok;   // sensor degraded, comm within limit
+  double t_score_comm_bad;  // comm late or critical sensor failure
 
   // H-score thresholds
   double h_score_available;

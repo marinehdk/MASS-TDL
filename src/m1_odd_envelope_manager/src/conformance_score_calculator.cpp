@@ -144,17 +144,8 @@ ScoreTriple ConformanceScoreCalculator::compute(
   // Weighted sum.
   double combined = weights_.w_e * e + weights_.w_t * t + weights_.w_h * h;
 
-  // Clamp to [0, 1].
-  if (std::isnan(combined)) {
-    combined = 0.0;
-  } else {
-    if (combined < 0.0) {
-      combined = 0.0;
-    }
-    if (combined > 1.0) {
-      combined = 1.0;
-    }
-  }
+  // Clamp to [0, 1]; NaN treated as 0.
+  combined = std::clamp(std::isnan(combined) ? 0.0 : combined, 0.0, 1.0);
 
   return ScoreTriple{e, t, h, combined};
 }

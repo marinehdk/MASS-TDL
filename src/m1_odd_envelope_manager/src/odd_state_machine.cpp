@@ -93,21 +93,6 @@ namespace {
   return EnvelopeState::Out;
 }
 
-/// Handle transitions from Overridden state.
-/// Called only when override and reflex flags are already false.
-/// CC = 3
-[[nodiscard]] EnvelopeState handle_overridden_state(double eff_score,
-                                                    double in_to_edge,
-                                                    double edge_to_out) noexcept {
-  if (eff_score >= in_to_edge) {
-    return EnvelopeState::In;
-  }
-  if (eff_score >= edge_to_out) {
-    return EnvelopeState::Edge;
-  }
-  return EnvelopeState::Out;
-}
-
 /// Apply stale-input degradation factor to score.
 /// CC = 2
 [[nodiscard]] double apply_stale_degradation(double score,
@@ -175,8 +160,8 @@ EnvelopeState OddStateMachine::compute_next(
       return handle_out_state(eff_score, thresholds_.in_to_edge,
                               thresholds_.edge_to_out);
     case EnvelopeState::Overridden:
-      return handle_overridden_state(eff_score, thresholds_.in_to_edge,
-                                     thresholds_.edge_to_out);
+      return handle_out_state(eff_score, thresholds_.in_to_edge,
+                              thresholds_.edge_to_out);
   }
   // All enum values covered; unreachable.
   return current_;

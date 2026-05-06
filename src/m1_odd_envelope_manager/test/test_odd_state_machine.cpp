@@ -30,7 +30,9 @@ class OddStateMachineTest : public ::testing::Test {
 
     no_events_ = EventFlags{};
 
-    default_thresholds_ = StateMachineThresholds{0.8, 0.5, 0.5};
+    default_thresholds_ = StateMachineThresholds{.in_to_edge = 0.8,
+                                               .edge_to_out = 0.5,
+                                               .stale_degradation_factor = 0.5};
   }
 
   /// Create a valid default FSM (IN state).
@@ -50,7 +52,9 @@ class OddStateMachineTest : public ::testing::Test {
 /// 1. ConstructionRejectsNonMonotonicThresholds
 /// in_to_edge must be > edge_to_out, otherwise ThresholdsNonMonotonic.
 TEST_F(OddStateMachineTest, ConstructionRejectsNonMonotonicThresholds) {
-  StateMachineThresholds bad{0.3, 0.6};  // in_to_edge < edge_to_out
+  StateMachineThresholds bad{.in_to_edge = 0.3,
+                             .edge_to_out = 0.6,
+                             .stale_degradation_factor = 0.5};  // in_to_edge < edge_to_out
   auto result = OddStateMachine::create(bad);
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(ErrorCode::ThresholdsNonMonotonic, result.error());
@@ -200,7 +204,9 @@ TEST_F(OddStateMachineTest, M2InputStaleCausesScoreDegradation) {
 /// 14. StateMachineCreateReturnsErrorForZeroThresholds
 /// Both thresholds at 0 should produce an error (non-monotonic).
 TEST_F(OddStateMachineTest, StateMachineCreateReturnsErrorForZeroThresholds) {
-  StateMachineThresholds zero{0.0, 0.0};
+  StateMachineThresholds zero{.in_to_edge = 0.0,
+                              .edge_to_out = 0.0,
+                              .stale_degradation_factor = 0.5};
   auto result = OddStateMachine::create(zero);
   ASSERT_FALSE(result.has_value());
 }
