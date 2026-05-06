@@ -1,0 +1,9 @@
+m6_colregs_reasoner:
+  ros__parameters:
+    reasoning_period_ms: 500
+    health_check_period_ms: 1000
+    asdr_snapshot_period_ms: 500
+    sat_publish_period_ms: 100
+    world_state_timeout_s: 5.0
+    odd_state_timeout_s: 10.0
+    max_targets: 50
