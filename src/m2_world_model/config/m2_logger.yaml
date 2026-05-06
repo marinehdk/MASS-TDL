@@ -1,0 +1,6 @@
+logger_name: "mass_l3_m2"
+log_level: "info"
+log_file: "/var/log/mass-l3/m2_world_model.log"
+pattern: "[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v"
+rotation_size_mb: 10
+max_files: 5

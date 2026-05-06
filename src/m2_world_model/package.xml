@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>m2_world_model</name>
+  <version>1.0.0</version>
+  <description>M2 World Model — unified world view generation</description>
+  <maintainer email="team-m2@mass-l3-tdl.local">Team-M2</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>Eigen3</depend>
+  <depend>GeographicLib</depend>
+  <depend>spdlog</depend>
+  <depend>yaml-cpp</depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
