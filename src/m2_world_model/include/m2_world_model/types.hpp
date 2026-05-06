@@ -74,4 +74,16 @@ struct AggregatedHealth {
   ViewHealth dv_health; ViewHealth ev_health; ViewHealth sv_health;
 };
 
+// ── CPA / TCPA 结果 ──
+struct CpaUncertainty {
+  double cpa_sigma_m;
+  double tcpa_sigma_s;
+};
+
+struct CpaResult {
+  double cpa_m;
+  double tcpa_s;
+  CpaUncertainty uncertainty;
+};
+
 }  // namespace mass_l3::m2

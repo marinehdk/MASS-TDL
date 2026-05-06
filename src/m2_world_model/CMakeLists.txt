@@ -19,6 +19,13 @@ find_package(yaml-cpp REQUIRED)
 add_library(${PROJECT_NAME}_lib
   src/error.cpp
   src/coord_transform.cpp
+  src/cpa_tcpa_calculator.cpp
+  src/encounter_classifier.cpp
+  src/track_buffer.cpp
+  src/view_health_monitor.cpp
+  src/world_state_aggregator.cpp
+  src/enc_loader.cpp
+  src/world_model_node.cpp
 )
 target_include_directories(${PROJECT_NAME}_lib
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
