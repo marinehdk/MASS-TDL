@@ -29,6 +29,10 @@ include_directories(${CMAKE_SOURCE_DIR}/../../tools/third-party/tl-expected-1.1.
 add_library(${PROJECT_NAME}_lib
   src/odd_state_machine.cpp
   src/conformance_score_calculator.cpp
+  src/tmr_tdl_estimator.cpp
+  src/mrc_trigger_logic.cpp
+  src/parameter_loader.cpp
+  src/odd_envelope_manager_node.cpp
 )
 target_include_directories(${PROJECT_NAME}_lib
   PUBLIC

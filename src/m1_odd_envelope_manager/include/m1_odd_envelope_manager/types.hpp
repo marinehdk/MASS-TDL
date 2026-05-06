@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace mass_l3::m1 {
 
@@ -126,16 +128,110 @@ struct HScoreThresholds {
 };
 
 // ---------------------------------------------------------------------------
-// Placeholder types for Tasks 3-5 (remaining).
-// Keep as empty structs; will be expanded in future tasks.
+// TMR/TDL input types (Task 3).
 // ---------------------------------------------------------------------------
 
-struct TmrTdlInputs {};
-struct TmrTdlParams {};
-struct MrcParams {};
-struct MrcSelectionInputs {};
-struct MrcSelection {};
-struct SystemHealthSnapshot {};
-struct ParameterSet {};
+/// Snapshot of system health for TDL estimation.
+struct SystemHealthSnapshot {
+  double mttf_estimate_s;          // estimated mean time to failure [s]
+  double heartbeat_recency_s;      // seconds since last heartbeat [s]
+  uint32_t fault_count;             // faults in recent window
+  bool has_redundancy;              // redundant systems available
+};
+
+/// Inputs for TMR and TDL computation.
+struct TmrTdlInputs {
+  double tcpa_min_s;               // closest TCPA across all targets [s]
+  double current_rtt_s;            // communication round-trip time [s]
+  SystemHealthSnapshot system_health;
+  bool h_score_tmr_available;      // from HScoreInputs
+};
+
+/// Configuration parameters for TMR/TDL estimation.
+struct TmrTdlParams {
+  double tmr_baseline_s;      // [TBD-HAZID] 60.0 -- Veitch 2024 baseline
+  double tcpa_coefficient;    // [TBD-HAZID] 0.6 -- TCPA multiplier for TDL
+  double tmr_min_s;           // 30.0 -- minimum TMR clamp
+  double tmr_max_s;           // 600.0 -- maximum TMR clamp
+  double tdl_min_s;           // 0.0 -- minimum TDL clamp
+  double tdl_max_s;           // 600.0 -- maximum TDL clamp
+};
+
+// ---------------------------------------------------------------------------
+// MRC selection types (Task 4).
+// ---------------------------------------------------------------------------
+
+/// Configuration parameters for MRC feasibility checks.
+struct MrcParams {
+  double max_anchor_depth_m;        // [TBD-HAZID] 50.0
+  double max_heave_to_sea_state_hs; // [TBD-HAZID] 4.0
+  double max_heave_to_wind_kn;      // [TBD-HAZID] 40.0
+};
+
+/// A selected Minimum Risk Condition with speed command and rationale.
+struct MrcSelection {
+  MrcType type;
+  double speed_cmd_kn;
+  std::string_view rationale;
+};
+
+/// Inputs driving the MRC selection algorithm.
+struct MrcSelectionInputs {
+  bool m7_safety_mrc_required;
+  MrcType m7_recommended_mrm;
+  double water_depth_m;
+  bool in_anchorage_zone;
+  double sea_state_hs;
+  double wind_speed_kn;
+  bool is_moored;
+  EnvelopeState current_state;
+};
+
+/// YAML-loaded superset of all M1 runtime parameters.
+/// All [TBD-HAZID] parameters are loaded here -- no hardcoded thresholds.
+/// Individual domain classes (OddStateMachine, ConformanceScoreCalculator,
+/// TmrTdlEstimator, MrcTriggerLogic) receive their subset during node init.
+struct ParameterSet {
+  // State machine
+  double in_to_edge;
+  double edge_to_out;
+  double stale_degradation_factor;
+
+  // Scoring weights
+  double w_e;
+  double w_t;
+  double w_h;
+
+  // E-score thresholds (visibility in nm, sea state in Hs metres)
+  double visibility_full_nm;
+  double visibility_degraded_nm;
+  double visibility_marginal_nm;
+  double sea_state_full_hs;
+  double sea_state_degraded_hs;
+  double sea_state_marginal_hs;
+
+  // T-score thresholds
+  double comm_delay_ok_s;
+  double t_score_nominal;
+  double t_score_degraded;
+  double t_score_critical;
+
+  // H-score thresholds
+  double h_score_available;
+  double h_score_unavailable;
+
+  // TMR/TDL
+  double tmr_baseline_s;
+  double tcpa_coefficient;
+  double tmr_min_s;
+  double tmr_max_s;
+  double tdl_min_s;
+  double tdl_max_s;
+
+  // MRC
+  double max_anchor_depth_m;
+  double max_heave_to_sea_state_hs;
+  double max_heave_to_wind_kn;
+};
 
 }  // namespace mass_l3::m1
