@@ -233,8 +233,8 @@ mass_l3_tdl/                            # workspace 根（git 单仓 monorepo）
 
 **Wave 划分**：
 - **Wave 0（2026-05-06 完成 + review）**：基础设施（colcon workspace + l3_msgs + l3_external_msgs + Mock publisher + Docker + tools/ci + .gitmodules + .gitlab-ci.yml + .clang-tidy + .clang-tidy.path-s）— ✅ **质量门通过**（详见 §8.2 + `Wave-0-review-report.md`）
-- **Wave 1 第一批（2026-05-06 全部完成）**：M1 / M2 / M3 / M6 — 4 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成（详见 §8.4）；main 含 132 cpp+hpp 文件 / ~15,160 行代码
-- **Wave 2（Week 3–6，部分重叠）**：M4 / M7 — 依赖 Wave 1 接口稳定（用 Wave 1 的 mock 桩开始）
+- **Wave 1 第一批（2026-05-06 全部完成 — tag v0.1.0）**：M1 / M2 / M3 / M6 — 4 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成（详见 §8.4）；main 含 132 cpp+hpp 文件 / ~15,160 行代码
+- **Wave 2（2026-05-06 全部完成 — tag v0.2.0）**：M4 + M7 — 2 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成；M4 PATH-D（5 cpp+hpp，IvP 紧凑）+ M7 PATH-S 独立路径（56 cpp+hpp，1802 impl + 2428 test = 134.7% test/impl，0 forbidden include/lib violation）
 - **Wave 3（Week 5–8）**：M5 / M8 — 依赖 Wave 1+2 完成
 - **Wave 4（Week 7–10）**：跨模块集成测试 + HIL 准备（详见 `docs/Test Plan/`）
 
@@ -520,9 +520,14 @@ Epic-IMPL-Wave1-Foundation       (✅ 全部完成 + 合并到 main 2026-05-06)
    ├── ✅ 4 模块 README（104/111/108/112 行）
    └── ✅ 4 worktree --no-ff merge main（保留分支拓扑）
 
-Epic-IMPL-Wave2-Decision         (Week 3–6 — Wave 1 阻断清后启动)
-   ├── ⏳ M4 Phase E1 (依赖 M2/M6 mock；Haiku 4.5 适合)
-   └── ⏳ M7 Phase E1 (独立路径，PATH-S；Haiku 4.5 启动 → BLOCKED 时切 Opus 4.7)
+Epic-IMPL-Wave2-Decision         (✅ 全部完成 + 合并到 main 2026-05-06 — tag v0.2.0)
+   ├── ✅ M4 Phase E1 — PATH-D，5 cpp+hpp + README，IvP solver self-impl Pieces=32
+   └── ✅ M7 Phase E1 — PATH-S + 独立路径，56 cpp+hpp + README，1802 impl + 2428 test
+        - 0 forbidden internal headers / 0 forbidden 3rd-party libs
+        - Independent OS process + spdlog instance
+        - SHA-256 ASDR signature (RFC-004)
+        - 100-cycle 15s sliding window (RFC-003 lock)
+        - RFC-003 enum-only veto handling
 
 Epic-IMPL-Wave3-Planning&HMI     (Week 5–8)
    ├── ⏳ M5 Phase E1 (CasADi + IPOPT 集成)
