@@ -1,0 +1,163 @@
+stages:
+  - lint
+  - unit-test
+  - static-analysis
+  - integration-test
+  - release
+
+variables:
+  FULL_PIPELINE: "false"
+  RUN_RELEASE: "false"
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        FULL_PIPELINE: "true"
+        RUN_RELEASE: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        FULL_PIPELINE: "true"
+        RUN_RELEASE: "false"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      variables:
+        FULL_PIPELINE: "true"
+        RUN_RELEASE: "true"
+    - if: $CI_COMMIT_BRANCH =~ /^feature\//
+      variables:
+        FULL_PIPELINE: "false"
+        RUN_RELEASE: "false"
+    - when: never
+
+default:
+  image: mass-l3/ci:jazzy-ubuntu22.04
+  cache:
+    - key: ccache-${CI_COMMIT_REF_SLUG}
+      paths:
+        - .ccache/
+      policy: pull-push
+  before_script:
+    - export CCACHE_DIR=$CI_PROJECT_DIR/.ccache
+    - export CCACHE_MAXSIZE=5G
+    - ccache --zero-stats
+  after_script:
+    - ccache --show-stats
+
+detect-changes:
+  stage: .pre
+  script:
+    - |
+      CHANGED_PKGS=$(git diff --name-only origin/main...HEAD | \
+                     awk -F/ '/^src\// {print $2}' | sort -u | tr '\n' ' ')
+      echo "CHANGED_PACKAGES=$CHANGED_PKGS" >> build.env
+      echo "Affected packages: $CHANGED_PKGS"
+  artifacts:
+    reports:
+      dotenv: build.env
+
+stage-1-lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    # C++ format check (non-blocking)
+    - find src -name "*.cpp" -o -name "*.hpp" | xargs clang-format-20 --dry-run --Werror || true
+    # Python lint
+    - ruff check src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python || true
+    - mypy src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python || true
+    # ROS2 .msg checks
+    - bash tools/ci/check-msg-naming.sh
+    - bash tools/ci/check-msg-contract.sh
+  artifacts:
+    when: always
+    reports:
+      codequality: build/lint-quality.json
+
+stage-2-unit-test:
+  stage: unit-test
+  needs: [stage-1-lint]
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  parallel:
+    matrix:
+      - PACKAGE: [m1_odd_envelope_manager, m2_world_model, m3_mission_manager,
+                  m4_behavior_arbiter, m5_tactical_planner, m6_colregs_reasoner,
+                  m7_safety_supervisor, m8_hmi_transparency_bridge, l3_msgs]
+  script:
+    - source /opt/ros/jazzy/setup.bash
+    - colcon build --packages-up-to ${PACKAGE} \
+        --cmake-args -DCMAKE_BUILD_TYPE=Debug \
+                     -DCMAKE_CXX_FLAGS="-fprofile-arcs -ftest-coverage" \
+                     -DCMAKE_EXE_LINKER_FLAGS="-fprofile-arcs -ftest-coverage"
+    # ASan + UBSan
+    - colcon build --packages-select ${PACKAGE} \
+        --cmake-args -DCMAKE_BUILD_TYPE=Debug \
+                     -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    - ASAN_OPTIONS=halt_on_error=1:abort_on_error=1 \
+      UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+      colcon test --packages-select ${PACKAGE} --return-code-on-test-failure
+    - colcon test-result --verbose --test-result-base build/${PACKAGE}
+    # Coverage
+    - lcov --capture --directory build/${PACKAGE} --output-file coverage-${PACKAGE}.info
+    - lcov --remove coverage-${PACKAGE}.info "*/test/*" "*/install/*" --output-file coverage-${PACKAGE}.info
+    - genhtml coverage-${PACKAGE}.info --output-directory coverage-html-${PACKAGE}
+    - bash tools/ci/check-coverage-threshold.sh coverage-${PACKAGE}.info ${PACKAGE}
+  artifacts:
+    when: always
+    paths:
+      - coverage-html-${PACKAGE}/
+      - coverage-${PACKAGE}.info
+    reports:
+      junit: build/${PACKAGE}/test_results/**/*.xml
+
+stage-3-clang-tidy:
+  stage: static-analysis
+  needs: [stage-2-unit-test]
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  parallel:
+    matrix:
+      - PACKAGE: [m1_odd_envelope_manager, m2_world_model, m3_mission_manager,
+                  m4_behavior_arbiter, m5_tactical_planner, m6_colregs_reasoner,
+                  m7_safety_supervisor, m8_hmi_transparency_bridge]
+  script:
+    - source /opt/ros/jazzy/setup.bash
+    - colcon build --packages-select ${PACKAGE} --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    - run-clang-tidy-20 -p build/${PACKAGE} \
+                        -warnings-as-errors='*' \
+                        $(find src/${PACKAGE} -name "*.cpp")
+  artifacts:
+    when: always
+    reports:
+      codequality: build/clang-tidy-${PACKAGE}.sarif
+
+stage-3-doer-checker-independence:
+  stage: static-analysis
+  needs: [stage-1-lint]
+  script:
+    - bash tools/ci/check-doer-checker-independence.sh
+  allow_failure: false
+
+stage-4-integration:
+  stage: integration-test
+  needs: [stage-3-clang-tidy, stage-3-doer-checker-independence]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - source /opt/ros/jazzy/setup.bash
+    - colcon build
+    - source install/setup.bash
+    - echo "Integration tests placeholder — expand in Wave 2"
+  artifacts:
+    when: always
+
+stage-5-release:
+  stage: release
+  needs: [stage-4-integration]
+  rules:
+    - if: $RUN_RELEASE == "true"
+  script:
+    - source /opt/ros/jazzy/setup.bash
+    - colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+    - echo "Release artifacts placeholder — expand when release process defined"
