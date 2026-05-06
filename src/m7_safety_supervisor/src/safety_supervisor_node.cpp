@@ -1,6 +1,7 @@
 #include "m7_safety_supervisor/safety_supervisor_node.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <functional>
 
 namespace mass_l3::m7 {
@@ -269,6 +270,11 @@ void SafetySupervisorNode::on_main_loop_tick() noexcept
   // Advance veto window cursor (no veto in this cycle; vetoes arrive asynchronously)
   veto_handler_->on_cycle_tick(false);
 
+  // L3 freeze: reflex arc active — hold current MRM, do not re-evaluate
+  if (reflex_freeze_required_) {
+    return;
+  }
+
   // Evaluate all monitors
   auto const watchdog_result  = watchdog_->evaluate(now);
   auto const diag_result      = fault_monitor_->run(last_odd_, last_world_, last_colregs_);
@@ -280,15 +286,16 @@ void SafetySupervisorNode::on_main_loop_tick() noexcept
   auto const assumption_status = assumption_monitor_->evaluate(
     last_odd_, last_world_, last_colregs_,
     veto_rate,
-    0.0,   // rtt_s — [TBD] comm monitor not yet integrated
-    0.0,   // packet_loss_pct — [TBD]
+    0.0,   // [TBD-comm-monitor] rtt_s and packet_loss_pct are zero until a communication
+    0.0,   // monitor is integrated; tracked in HAZID calibration. Blocker: medium.
     now);
 
   auto const perf_status = performance_monitor_->evaluate(last_world_, now);
   bool const extreme     = triggering_detector_->detect(assumption_status);
 
-  // Update diagnostic coverage metric
+  // Update diagnostic coverage metric and capture result
   diag_coverage_->update(diag_result, watchdog_result);
+  last_coverage_ = diag_coverage_->current();
 
   // Build scenario context and select MRM
   mrm::ScenarioContext ctx{assumption_status, watchdog_result, perf_status};
@@ -302,7 +309,7 @@ void SafetySupervisorNode::on_main_loop_tick() noexcept
 
   // Arbitrate and publish if severity > INFO
   auto const alert = arbitrator_->arbitrate(
-    ros_stamp, ctx, mrm_decision, diag_result, extreme, now);
+    ros_stamp, ctx, mrm_decision, diag_result, extreme);
 
   if (alert.severity > l3_msgs::msg::SafetyAlert::SEVERITY_INFO) {
     pub_alert_->publish(alert);
@@ -340,11 +347,17 @@ void SafetySupervisorNode::on_asdr_periodic_tick() noexcept
   ros_stamp.sec     = static_cast<int32_t>(stamp.seconds());
   ros_stamp.nanosec = static_cast<uint32_t>(stamp.nanoseconds() % 1000000000LL);
 
+  // Build summary with latest diagnostic coverage ratio
+  char summary_buf[64];
+  std::snprintf(summary_buf, sizeof(summary_buf),
+      "status=nominal dc_ratio=%.3f",
+      static_cast<double>(last_coverage_.coverage_ratio));
+
   auto const asdr = arbitrator::AlertGenerator::build_asdr_record(
     ros_stamp,
     "M7_Safety_Supervisor",
     "periodic_health_check",
-    "status=nominal");
+    summary_buf);
 
   pub_asdr_->publish(asdr);
 }

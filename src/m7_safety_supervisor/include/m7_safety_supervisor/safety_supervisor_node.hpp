@@ -83,6 +83,9 @@ private:
   bool override_active_{false};
   bool reflex_freeze_required_{false};
 
+  // Last diagnostic coverage metric (updated each 4 Hz tick)
+  iec61508::DiagnosticCoverageMetric last_coverage_{};
+
   // Callbacks — main_loop group
   void on_odd_state(l3_msgs::msg::ODDState::ConstSharedPtr msg) noexcept;
   void on_world_state(l3_msgs::msg::WorldState::ConstSharedPtr msg) noexcept;

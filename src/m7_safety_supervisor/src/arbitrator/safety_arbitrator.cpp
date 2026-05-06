@@ -1,6 +1,7 @@
 #include "m7_safety_supervisor/arbitrator/safety_arbitrator.hpp"
 
 #include <cstring>
+#include "m7_safety_supervisor/arbitrator/alert_generator.hpp"
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
 
 namespace mass_l3::m7::arbitrator {
@@ -146,39 +147,35 @@ l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
     mrm::ScenarioContext const& ctx,
     mrm::MrmDecision const& mrm_decision,
     iec61508::DiagnosticResult const& diag,
-    bool extreme_scenario_detected,
-    std::chrono::steady_clock::time_point /*now*/) noexcept
+    bool extreme_scenario_detected) noexcept
 {
   pool_size_ = 0u;  // reset pool without heap allocation
 
   collect_candidates(ctx, diag, extreme_scenario_detected);
   sort_candidates();
 
-  l3_msgs::msg::SafetyAlert alert{};
-
   if (pool_size_ == 0u) {
-    // No active conditions: emit informational no-alert
-    alert.stamp        = stamp;
-    alert.alert_type   = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
-    alert.severity     = l3_msgs::msg::SafetyAlert::SEVERITY_INFO;
-    alert.description  = "M7: all monitors nominal";
-    alert.recommended_mrm = std::string{mrm::to_string(mrm::MrmId::kNone)};
-    alert.confidence   = mrm_decision.confidence;
-    alert.rationale    = "no active safety conditions";
-    return alert;
+    // No active conditions: emit informational no-alert via factory
+    return AlertGenerator::build_safety_alert(
+        stamp,
+        l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT,
+        l3_msgs::msg::SafetyAlert::SEVERITY_INFO,
+        mrm::to_string(mrm::MrmId::kNone),
+        mrm_decision.confidence,
+        "no active safety conditions",
+        "M7: all monitors nominal");
   }
 
-  // Emit highest-priority candidate (pool_[0] after descending sort)
+  // Emit highest-priority candidate (pool_[0] after descending sort) via factory
   AlertCandidate const& top = pool_[0];
-  alert.stamp       = stamp;
-  alert.alert_type  = top.alert_type;
-  alert.severity    = top.severity;
-  alert.description = std::string{top.rationale};
-  alert.recommended_mrm = std::string{mrm::to_string(mrm_decision.mrm_id)};
-  alert.confidence  = mrm_decision.confidence;
-  alert.rationale   = std::string{top.rationale};
-
-  return alert;
+  return AlertGenerator::build_safety_alert(
+      stamp,
+      top.alert_type,
+      top.severity,
+      mrm::to_string(mrm_decision.mrm_id),
+      top.confidence,
+      top.rationale,
+      top.rationale);
 }
 
 }  // namespace mass_l3::m7::arbitrator

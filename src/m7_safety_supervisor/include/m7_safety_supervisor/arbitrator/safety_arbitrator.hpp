@@ -2,7 +2,6 @@
 #define M7_SAFETY_SUPERVISOR_ARBITRATOR_SAFETY_ARBITRATOR_HPP_
 
 #include <array>
-#include <chrono>
 #include <cstdint>
 #include <string_view>
 
@@ -41,8 +40,7 @@ public:
             mrm::ScenarioContext const& ctx,
             mrm::MrmDecision const& mrm_decision,
             iec61508::DiagnosticResult const& diag,
-            bool extreme_scenario_detected,
-            std::chrono::steady_clock::time_point now) noexcept;
+            bool extreme_scenario_detected) noexcept;
 
 private:
   std::array<AlertCandidate, kMaxAlertCandidates> pool_{};

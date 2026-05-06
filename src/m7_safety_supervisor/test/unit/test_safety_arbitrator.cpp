@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "builtin_interfaces/msg/time.hpp"
 #include "m7_safety_supervisor/arbitrator/safety_arbitrator.hpp"
 #include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
@@ -67,7 +68,13 @@ static MrmDecision make_mrm_drift()
   return m;
 }
 
-static auto now() { return std::chrono::steady_clock::now(); }
+static builtin_interfaces::msg::Time make_stamp(int32_t sec = 0, uint32_t nanosec = 0u)
+{
+  builtin_interfaces::msg::Time t{};
+  t.sec     = sec;
+  t.nanosec = nanosec;
+  return t;
+}
 
 // ---------------------------------------------------------------------------
 // Test 1: No faults, no violations, no perf issues → SEVERITY_INFO
@@ -79,7 +86,7 @@ TEST(SafetyArbitratorTest, NominalConditions_SeverityInfo)
   auto diag = make_diag_ok();
   auto mrm  = make_mrm_none();
 
-  auto const alert = arb.arbitrate(ctx, mrm, diag, false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, mrm, diag, false);
 
   EXPECT_EQ(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_INFO);
 }
@@ -94,7 +101,7 @@ TEST(SafetyArbitratorTest, DiagnosticFaultActive_Iec61508Alert)
   auto diag = make_diag_fault();
   auto mrm  = make_mrm_drift();
 
-  auto const alert = arb.arbitrate(ctx, mrm, diag, false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, mrm, diag, false);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT);
   EXPECT_GE(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_WARNING);
@@ -110,7 +117,7 @@ TEST(SafetyArbitratorTest, WatchdogCritical_Iec61508AlertCritical)
   ctx.watchdog.any_critical = true;
   ctx.watchdog.critical_count = 1u;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_drift(), make_diag_ok(), false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_drift(), make_diag_ok(), false);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT);
   EXPECT_GE(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL);
@@ -125,7 +132,7 @@ TEST(SafetyArbitratorTest, OneSotifViolation_AssumptionWarning)
   auto ctx = make_nominal_ctx();
   ctx.assumption.total_violation_count = 1u;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_none(), make_diag_ok(), false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_none(), make_diag_ok(), false);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION);
   EXPECT_EQ(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_WARNING);
@@ -140,7 +147,7 @@ TEST(SafetyArbitratorTest, TwoSotifViolations_AssumptionCritical)
   auto ctx = make_nominal_ctx();
   ctx.assumption.total_violation_count = 2u;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_drift(), make_diag_ok(), false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_drift(), make_diag_ok(), false);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION);
   EXPECT_EQ(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL);
@@ -155,7 +162,7 @@ TEST(SafetyArbitratorTest, ExtremeScenario_MrcRequired)
   auto ctx = make_nominal_ctx();
   ctx.assumption.total_violation_count = 3u;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_drift(), make_diag_ok(), true, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_drift(), make_diag_ok(), true);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION);
   EXPECT_EQ(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED);
@@ -170,7 +177,7 @@ TEST(SafetyArbitratorTest, PerformanceDegrading_PerfAlert)
   auto ctx = make_nominal_ctx();
   ctx.performance.cpa_trend_degrading = true;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_drift(), make_diag_ok(), false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_drift(), make_diag_ok(), false);
 
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_PERFORMANCE_DEGRADED);
 }
@@ -187,9 +194,27 @@ TEST(SafetyArbitratorTest, WatchdogAndPerf_WatchdogPriority)
   ctx.watchdog.critical_count = 1u;
   ctx.performance.cpa_trend_degrading = true;
 
-  auto const alert = arb.arbitrate(ctx, make_mrm_drift(), make_diag_ok(), false, now());
+  auto const alert = arb.arbitrate(make_stamp(), ctx, make_mrm_drift(), make_diag_ok(), false);
 
   // Watchdog critical has SEVERITY_CRITICAL; perf has SEVERITY_WARNING → watchdog wins
   EXPECT_EQ(alert.alert_type, l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT);
   EXPECT_GE(alert.severity, l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: stamp passed into arbitrate() is echoed in the returned alert
+// ---------------------------------------------------------------------------
+TEST(SafetyArbitratorTest, Arbitrate_StampIsPopulated)
+{
+  SafetyArbitrator arb;
+  builtin_interfaces::msg::Time stamp{};
+  stamp.sec     = 42;
+  stamp.nanosec = 0u;
+
+  auto ctx  = make_nominal_ctx();
+  auto dec  = make_mrm_none();
+  auto diag = make_diag_ok();
+
+  auto const alert = arb.arbitrate(stamp, ctx, dec, diag, false);
+  EXPECT_EQ(alert.stamp.sec, 42);
 }

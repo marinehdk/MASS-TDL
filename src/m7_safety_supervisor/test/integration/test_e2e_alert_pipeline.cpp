@@ -18,7 +18,7 @@ TEST(E2EAlertPipelineTest, FusionConfidenceDrop_TriggersSotifAlertWithin100ms)
   // SafetyArbitrator emits SOTIF alert → publish within 250ms cycle period.
   // [TBD-HIL]: Implement as rclcpp::test_node fixture in tools/test/hil/ after
   // ROS2 environment is available. Blocking: HIL rig (planned Week 5).
-  SUCCEED();
+  GTEST_SKIP() << "[TBD-HIL] Full e2e requires ROS2 executor + mock publishers; see tools/test/hil/";
 }
 
 TEST(E2EAlertPipelineTest, M2HeartbeatLost_TriggersIec61508Alert)
@@ -26,7 +26,7 @@ TEST(E2EAlertPipelineTest, M2HeartbeatLost_TriggersIec61508Alert)
   // Stop M2 publisher → WatchdogMonitor exceeds tolerance after kM2 timeout (300ms) →
   // SafetyArbitrator emits ALERT_IEC61508_FAULT at SEVERITY_CRITICAL.
   // [TBD-HIL]: Implement in tools/test/hil/. Blocking: same as above.
-  SUCCEED();
+  GTEST_SKIP() << "[TBD-HIL] Full e2e requires ROS2 executor + mock publishers; see tools/test/hil/";
 }
 
 TEST(E2EAlertPipelineTest, RevertingFromOverride_M7ReadyWithin100ms)
@@ -35,5 +35,5 @@ TEST(E2EAlertPipelineTest, RevertingFromOverride_M7ReadyWithin100ms)
   // revert_from_override() → mrm_selector_->reset() → next main_loop tick selects
   // nominal MRM within one 250ms cycle.
   // [TBD-HIL]: Implement in tools/test/hil/. Blocking: same as above.
-  SUCCEED();
+  GTEST_SKIP() << "[TBD-HIL] Full e2e requires ROS2 executor + mock publishers; see tools/test/hil/";
 }
