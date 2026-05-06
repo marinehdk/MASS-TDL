@@ -36,21 +36,27 @@ static constexpr uint32_t K[64] = {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: load first 16 words from block bytes (big-endian)
+// ---------------------------------------------------------------------------
+static void load_message_words(uint8_t const* block, uint32_t* w) noexcept
+{
+    for (uint32_t i = 0U; i < 16U; ++i) {
+        uint32_t const base = i * 4U;
+        w[i] = (static_cast<uint32_t>(block[base])      << 24U)
+             | (static_cast<uint32_t>(block[base + 1U]) << 16U)
+             | (static_cast<uint32_t>(block[base + 2U]) <<  8U)
+             |  static_cast<uint32_t>(block[base + 3U]);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // process_block: compress one 512-bit (64-byte) block into state[8]
 // ---------------------------------------------------------------------------
 static void process_block(std::array<uint32_t, 8>& state,
                           uint8_t const* block) noexcept
 {
     uint32_t w[64]{};
-
-    // Load first 16 words from block (big-endian)
-    for (uint32_t i = 0U; i < 16U; ++i) {
-        uint32_t const base = i * 4U;
-        w[i] = (static_cast<uint32_t>(block[base])     << 24U)
-             | (static_cast<uint32_t>(block[base + 1U]) << 16U)
-             | (static_cast<uint32_t>(block[base + 2U]) <<  8U)
-             |  static_cast<uint32_t>(block[base + 3U]);
-    }
+    load_message_words(block, w);
 
     // Extend to 64 words via σ0 / σ1
     for (uint32_t i = 16U; i < 64U; ++i) {
@@ -83,6 +89,35 @@ static void process_block(std::array<uint32_t, 8>& state,
 }
 
 // ---------------------------------------------------------------------------
+// Helper: write 64-bit bit-length as big-endian into buf (upper 32 bits zero)
+// ---------------------------------------------------------------------------
+static void write_bit_length_be(uint8_t* buf, std::size_t count_offset,
+                                std::size_t bit_len) noexcept
+{
+    buf[count_offset + 4U] = static_cast<uint8_t>((bit_len >> 24U) & 0xffU);
+    buf[count_offset + 5U] = static_cast<uint8_t>((bit_len >> 16U) & 0xffU);
+    buf[count_offset + 6U] = static_cast<uint8_t>((bit_len >>  8U) & 0xffU);
+    buf[count_offset + 7U] = static_cast<uint8_t>( bit_len         & 0xffU);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: produce big-endian 32-byte digest from state words
+// ---------------------------------------------------------------------------
+[[nodiscard]] static std::array<uint8_t, 32>
+produce_digest(std::array<uint32_t, 8> const& state) noexcept
+{
+    std::array<uint8_t, 32> digest{};
+    for (uint32_t i = 0U; i < 8U; ++i) {
+        uint32_t const base = i * 4U;
+        digest[base    ] = static_cast<uint8_t>(state[i] >> 24U);
+        digest[base + 1U] = static_cast<uint8_t>(state[i] >> 16U);
+        digest[base + 2U] = static_cast<uint8_t>(state[i] >>  8U);
+        digest[base + 3U] = static_cast<uint8_t>(state[i]);
+    }
+    return digest;
+}
+
+// ---------------------------------------------------------------------------
 // sha256: pad message, iterate blocks, finalize
 // Uses stack buffer (max 2 blocks = 128 bytes).
 // ---------------------------------------------------------------------------
@@ -111,15 +146,11 @@ sha256(std::string_view input) noexcept
     std::memcpy(buf, input.data() + offset, tail_len);
     buf[tail_len] = 0x80U;
 
-    // Append 8-byte big-endian bit count at the end of the padding block(s)
+    // Append 8-byte big-endian bit count at end of padding block(s)
     // If tail fits in one block (<= 55 bytes after data), use 1 block;
     // otherwise use 2 blocks (buf spans 128 bytes).
     std::size_t const count_offset = (tail_len < 56U) ? 56U : 120U;
-    // Write 64-bit bit_len big-endian (we cap at 32-bit length for this impl)
-    buf[count_offset + 4U] = static_cast<uint8_t>((bit_len >> 24U) & 0xffU);
-    buf[count_offset + 5U] = static_cast<uint8_t>((bit_len >> 16U) & 0xffU);
-    buf[count_offset + 6U] = static_cast<uint8_t>((bit_len >>  8U) & 0xffU);
-    buf[count_offset + 7U] = static_cast<uint8_t>( bit_len         & 0xffU);
+    write_bit_length_be(buf, count_offset, bit_len);
 
     // Process final 1 or 2 padding blocks
     process_block(state, buf);
@@ -127,16 +158,7 @@ sha256(std::string_view input) noexcept
         process_block(state, buf + 64U);
     }
 
-    // Produce big-endian digest
-    std::array<uint8_t, 32> digest{};
-    for (uint32_t i = 0U; i < 8U; ++i) {
-        uint32_t const base = i * 4U;
-        digest[base    ] = static_cast<uint8_t>(state[i] >> 24U);
-        digest[base + 1U] = static_cast<uint8_t>(state[i] >> 16U);
-        digest[base + 2U] = static_cast<uint8_t>(state[i] >>  8U);
-        digest[base + 3U] = static_cast<uint8_t>(state[i]);
-    }
-    return digest;
+    return produce_digest(state);
 }
 
 }  // namespace mass_l3::m7::common
