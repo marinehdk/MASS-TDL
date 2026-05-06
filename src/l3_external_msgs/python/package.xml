@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>l3_external_mock_publisher</name>
+  <version>0.1.0</version>
+  <description>Mock publisher for external cross-layer messages</description>
+  <maintainer email="mass-adas@sango.com">MASS ADAS Team</maintainer>
+  <license>Proprietary</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>l3_external_msgs</exec_depend>
+
+  <test_depend>pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
