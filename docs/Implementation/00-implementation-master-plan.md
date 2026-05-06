@@ -233,7 +233,7 @@ mass_l3_tdl/                            # workspace 根（git 单仓 monorepo）
 
 **Wave 划分**：
 - **Wave 0（2026-05-06 完成 + review）**：基础设施（colcon workspace + l3_msgs + l3_external_msgs + Mock publisher + Docker + tools/ci + .gitmodules + .gitlab-ci.yml + .clang-tidy + .clang-tidy.path-s）— ✅ **质量门通过**（详见 §8.2 + `Wave-0-review-report.md`）
-- **Wave 1 第一批（2026-05-06 编码 + review fix 完成）**：M1 / M2 / M3 / M6 — 4 模块全部 Phase E1 编码 + review + fix，各 worktree 完成；剩 4 个工作流阻断项待清（详见 §8.4 W1-BLOCK-001~004）
+- **Wave 1 第一批（2026-05-06 全部完成）**：M1 / M2 / M3 / M6 — 4 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成（详见 §8.4）；main 含 132 cpp+hpp 文件 / ~15,160 行代码
 - **Wave 2（Week 3–6，部分重叠）**：M4 / M7 — 依赖 Wave 1 接口稳定（用 Wave 1 的 mock 桩开始）
 - **Wave 3（Week 5–8）**：M5 / M8 — 依赖 Wave 1+2 完成
 - **Wave 4（Week 7–10）**：跨模块集成测试 + HIL 准备（详见 `docs/Test Plan/`）
@@ -499,25 +499,26 @@ main 当前 HEAD = `ddc4c9c merge: M6 COLREGs Reasoner Phase E1 (PATH-D)`，`git
 实施阶段建议在 GitLab Issue 中创建以下 epic：
 
 ```
-Epic-IMPL-Wave0-Infrastructure   (✅ 完成 + review fixed 2026-05-06)
-   ├── ✅ l3_msgs 包搭建（26 .msg）
-   ├── ✅ l3_external_msgs 包（11 .msg + Mock publisher）
-   ├── ✅ Docker 开发镜像 (jammy 锁定)
-   ├── ✅ CI 5 阶段 pipeline (.gitlab-ci.yml)
-   ├── ✅ tools/ci/ 5 个 check 脚本
-   ├── ✅ .clang-tidy + .clang-tidy.path-s
-   └── ⏳ Wave 0 review fixes commit 到 main（W1-BLOCK-001 待）
+Epic-IMPL-Wave0-Infrastructure   (✅ 完成 + review fixed + 合并到 main 2026-05-06)
+   ├── ✅ l3_msgs 包搭建（25 .msg；TimeWindow 移到 l3_external_msgs）
+   ├── ✅ l3_external_msgs 包（12 .msg + Mock publisher 修复）
+   ├── ✅ Docker 开发镜像 (jammy 锁定 + Polyspace/Coverity 占位)
+   ├── ✅ CI 5 阶段 pipeline (.gitlab-ci.yml — 删 || true / 补 cppcheck/Polyspace/TSan/pytest/SBOM)
+   ├── ✅ tools/ci/ 5 个 check 脚本（修复后含 IDL 完整性 / lcov 锚定 / Polyspace 严格）
+   ├── ✅ .clang-tidy 9 大类 + .clang-tidy.path-s（M1/M7 严格阈值）
+   ├── ✅ .gitmodules 11 submodules branch 锁定
+   └── ✅ commit e6a3d45（W1-BLOCK-001 完成）
 
-Epic-IMPL-Wave1-Foundation       (✅ Phase E1 编码 + review 完成 2026-05-06)
-   ├── ✅ M1 Phase E1 — PATH-S，907 impl + 756 test，37 [TBD-HAZID]，commit 62935db
-   ├── ✅ M2 Phase E1 — PATH-D，1071 impl + 931 test，9 [TBD-HAZID]，commit 9562a6a
-   ├── ✅ M3 Phase E1 — PATH-D，770 impl + 680 test，21 [TBD-HAZID]，commit d6b22b6
-   └── ✅ M6 Phase E1 — PATH-D，853 impl + 1058 test，36 [TBD-HAZID]，commit 29eac7e
-   剩待办（4 工作流阻断项 — 详见 §8.4）：
-   ├── ⏳ W1-BLOCK-001: Wave 0 fixes commit
-   ├── ⏳ W1-BLOCK-002: 4 worktree rebase + 跑修复后 CI
-   ├── ⏳ W1-BLOCK-003: 4 模块各补 README.md
-   └── ⏳ W1-BLOCK-004: 4 个 MR 顺序合并到 main
+Epic-IMPL-Wave1-Foundation       (✅ 全部完成 + 合并到 main 2026-05-06)
+   ├── ✅ M1 Phase E1 — PATH-S，22 cpp+hpp，merge 4b8c962
+   ├── ✅ M2 Phase E1 — PATH-D，30 cpp+hpp，merge 79435ad
+   ├── ✅ M3 Phase E1 — PATH-D，24 cpp+hpp，merge 9533e3e
+   └── ✅ M6 Phase E1 — PATH-D，56 cpp+hpp，merge ddc4c9c
+   收尾完成（W1-BLOCK-001~004 全部 ✅ — 详见 §8.4）：
+   ├── ✅ Wave 0 fixes commit e6a3d45（29 文件，+1745/-304）
+   ├── ✅ 4 worktree rebase main（0 conflict）
+   ├── ✅ 4 模块 README（104/111/108/112 行）
+   └── ✅ 4 worktree --no-ff merge main（保留分支拓扑）
 
 Epic-IMPL-Wave2-Decision         (Week 3–6 — Wave 1 阻断清后启动)
    ├── ⏳ M4 Phase E1 (依赖 M2/M6 mock；Haiku 4.5 适合)
