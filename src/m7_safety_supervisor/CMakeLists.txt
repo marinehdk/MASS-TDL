@@ -30,6 +30,7 @@ find_package(l3_external_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Static library — all M7 source files
@@ -51,6 +52,10 @@ add_library(m7_lib STATIC
   src/mrm/mrm_03_heave_to.cpp
   src/mrm/mrm_04_mooring.cpp
   src/mrm/mrm_selector.cpp
+  src/sotif/triggering_condition_detector.cpp
+  src/arbitrator/safety_arbitrator.cpp
+  src/arbitrator/alert_generator.cpp
+  src/safety_supervisor_node.cpp
 )
 
 target_include_directories(m7_lib
@@ -64,6 +69,7 @@ ament_target_dependencies(m7_lib
   l3_msgs
   l3_external_msgs
   builtin_interfaces
+  std_msgs
 )
 
 target_link_libraries(m7_lib PUBLIC
@@ -91,6 +97,19 @@ install(TARGETS m7_lib
 )
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+
+add_executable(m7_safety_supervisor src/main.cpp)
+target_link_libraries(m7_safety_supervisor PRIVATE m7_lib)
+ament_target_dependencies(m7_safety_supervisor
+  rclcpp
+  l3_msgs
+  l3_external_msgs
+  builtin_interfaces
+  std_msgs
+)
+install(TARGETS m7_safety_supervisor
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # ---------------------------------------------------------------------------
 # Tests (PATH-S ≥95% branch coverage target)
@@ -181,9 +200,35 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_performance_monitor
     rclcpp l3_msgs l3_external_msgs builtin_interfaces
   )
+
+  ament_add_gtest(test_triggering_condition_detector
+    test/unit/test_triggering_condition_detector.cpp)
+  target_link_libraries(test_triggering_condition_detector m7_lib)
+  ament_target_dependencies(test_triggering_condition_detector
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+
+  ament_add_gtest(test_safety_arbitrator
+    test/unit/test_safety_arbitrator.cpp)
+  target_link_libraries(test_safety_arbitrator m7_lib)
+  ament_target_dependencies(test_safety_arbitrator
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+
+  ament_add_gtest(test_alert_generator
+    test/unit/test_alert_generator.cpp)
+  target_link_libraries(test_alert_generator m7_lib)
+  ament_target_dependencies(test_alert_generator
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces std_msgs)
+
+  ament_add_gtest(test_doer_checker_independence
+    test/integration/test_doer_checker_independence.cpp)
+  target_link_libraries(test_doer_checker_independence m7_lib)
+
+  ament_add_gtest(test_e2e_alert_pipeline
+    test/integration/test_e2e_alert_pipeline.cpp)
+  target_link_libraries(test_e2e_alert_pipeline m7_lib)
 endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(m7_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces std_msgs)
 ament_package()
