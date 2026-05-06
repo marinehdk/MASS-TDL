@@ -43,6 +43,7 @@ add_library(m7_lib STATIC
   src/iec61508/watchdog_monitor.cpp
   src/iec61508/fault_monitor.cpp
   src/iec61508/diagnostic_coverage.cpp
+  src/checker/veto_handler.cpp
 )
 
 target_include_directories(m7_lib
@@ -133,6 +134,17 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_sliding_window_15s m7_lib)
   ament_target_dependencies(test_sliding_window_15s
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+
+  ament_add_gtest(test_veto_handler
+    test/unit/test_veto_handler.cpp
+  )
+  target_link_libraries(test_veto_handler m7_lib spdlog::spdlog)
+  ament_target_dependencies(test_veto_handler
     rclcpp
     l3_msgs
     l3_external_msgs
