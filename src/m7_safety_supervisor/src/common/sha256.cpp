@@ -1,5 +1,6 @@
 #include "m7_safety_supervisor/common/sha256.hpp"
 
+#include <cstdint>
 #include <cstring>
 
 namespace mass_l3::m7::common {
@@ -89,11 +90,15 @@ static void process_block(std::array<uint32_t, 8>& state,
 }
 
 // ---------------------------------------------------------------------------
-// Helper: write 64-bit bit-length as big-endian into buf (upper 32 bits zero)
+// Helper: write 64-bit bit-length as big-endian into buf (all 8 bytes)
 // ---------------------------------------------------------------------------
 static void write_bit_length_be(uint8_t* buf, std::size_t count_offset,
-                                std::size_t bit_len) noexcept
+                                 std::uint64_t bit_len) noexcept
 {
+    buf[count_offset    ] = static_cast<uint8_t>((bit_len >> 56U) & 0xffU);
+    buf[count_offset + 1U] = static_cast<uint8_t>((bit_len >> 48U) & 0xffU);
+    buf[count_offset + 2U] = static_cast<uint8_t>((bit_len >> 40U) & 0xffU);
+    buf[count_offset + 3U] = static_cast<uint8_t>((bit_len >> 32U) & 0xffU);
     buf[count_offset + 4U] = static_cast<uint8_t>((bit_len >> 24U) & 0xffU);
     buf[count_offset + 5U] = static_cast<uint8_t>((bit_len >> 16U) & 0xffU);
     buf[count_offset + 6U] = static_cast<uint8_t>((bit_len >>  8U) & 0xffU);
@@ -150,7 +155,7 @@ sha256(std::string_view input) noexcept
     // If tail fits in one block (<= 55 bytes after data), use 1 block;
     // otherwise use 2 blocks (buf spans 128 bytes).
     std::size_t const count_offset = (tail_len < 56U) ? 56U : 120U;
-    write_bit_length_be(buf, count_offset, bit_len);
+    write_bit_length_be(buf, count_offset, static_cast<std::uint64_t>(bit_len));
 
     // Process final 1 or 2 padding blocks
     process_block(state, buf);

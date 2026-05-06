@@ -82,3 +82,17 @@ TEST(Sha256Test, Sha256_DifferentInputsDifferentOutput)
     auto const d2 = sha256("input_two");
     EXPECT_NE(d1, d2);
 }
+
+// ---------------------------------------------------------------------------
+// Test 6: NIST FIPS 180-4 Appendix B.2 — 56-byte input, two-block padding path
+// Expected: 248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1
+// ---------------------------------------------------------------------------
+TEST(Sha256Test, Sha256_TwoBlockPadding_NistAppendixB2)
+{
+    auto const result = sha256(
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq");
+    auto const expected = hex_to_bytes(
+        "248d6a61d20638b8e5c026930c3e6039"
+        "a33ce45964ff2167f6ecedd419db06c1");
+    EXPECT_EQ(result, expected);
+}
