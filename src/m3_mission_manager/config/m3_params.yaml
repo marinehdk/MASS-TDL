@@ -1,0 +1,32 @@
+m3_mission_manager:
+  ros__parameters:
+    voyage_task:
+      departure_distance_max_km: 2.0
+      eta_window_min_s: 600
+      eta_window_max_s: 259200
+      waypoint_max_distance_nm: 50.0
+      exclusion_zone_buffer_m: 500.0
+    eta:
+      sampling_interval_s: 60
+      forecast_horizon_max_s: 3600
+      sea_current_uncertainty_kn: 0.3
+      world_state_age_threshold_s: 0.5
+    replan:
+      deadline_mrc_required_s: 30.0
+      deadline_odd_exit_critical_s: 60.0
+      deadline_odd_exit_degraded_s: 120.0
+      deadline_mission_infeasible_s: 120.0
+      deadline_congestion_s: 300.0
+      attempt_max_count: 3
+    odd:
+      degraded_threshold: 0.7
+      critical_threshold: 0.3
+      degraded_buffer_s: 1.0
+    eta_infeasible_margin_s: 600.0
+    mission_goal_publish_rate_hz: 0.5
+    asdr_heartbeat_rate_hz: 2.0
+    timeout:
+      voyage_task_s: 600.0
+      planned_route_s: 3.0
+      speed_profile_s: 3.0
+      odd_state_s: 2.0
