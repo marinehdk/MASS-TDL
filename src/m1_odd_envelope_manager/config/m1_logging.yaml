@@ -1,0 +1,8 @@
+# M1 spdlog logger configuration
+# Independent logger instance per third-party-library-policy.md §3.1
+logger_name: "mass_l3_m1"
+log_level: "info"
+log_file: "/var/log/mass-l3/m1_odd_envelope_manager.log"
+pattern: "[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v"
+rotation_size_mb: 10
+max_files: 5
