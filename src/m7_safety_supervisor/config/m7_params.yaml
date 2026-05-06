@@ -1,0 +1,82 @@
+/**:
+  ros__parameters:
+    # M7 Safety Supervisor — Runtime Parameters
+    # All [TBD-HAZID] values are defaults awaiting RUN-001 calibration (2026-05-13 kickoff).
+    # RFC-003 LOCKED values must not be changed without a new RFC.
+    # CCS i-Ship §9 + v1.1.2 §11 compliance.
+
+    # -------------------------------------------------------------------------
+    # SOTIF Assumption Monitor (§5.4)
+    # -------------------------------------------------------------------------
+    sotif:
+      # Assumption 1: AIS/Radar consistency
+      # Minimum fusion confidence below which a degradation event is recorded.
+      # [TBD-HAZID-SOTIF-001]: FCB sea trial calibration required.
+      fusion_confidence_low: 0.5
+
+      # Duration (seconds) a sustained low-confidence condition must persist
+      # before assumption violation is declared.
+      # [TBD-HAZID-SOTIF-001]: FCB sea trial calibration required.
+      ais_radar_duration_threshold_s: 30
+
+      # Assumption 2: Motion predictability
+      # RMSE proxy threshold in metres (design placeholder; replaced by M2 field post-HAZID).
+      # [TBD-HAZID-SOTIF-002]
+      motion_rmse_threshold_m: 50.0
+
+      # Window (seconds) over which sustained poor motion confidence triggers violation.
+      # [TBD-HAZID-SOTIF-002]
+      motion_window_s: 30
+
+      # Assumption 3: Perception coverage
+      # Maximum acceptable fraction of unknown/unclassified targets before blind-zone
+      # assumption is declared violated.
+      # [TBD-HAZID-SOTIF-003]: Replace with dedicated M2 blind-zone-fraction field post-HAZID.
+      max_blind_zone_fraction: 0.20
+
+      # Assumption 4: COLREGs solvability
+      # Number of consecutive M6 outputs below kColregsConfidenceFailThreshold (0.3)
+      # before solvability violation is declared.
+      # [TBD-HAZID-SOTIF-004]: FCB sea trial calibration required.
+      colregs_consecutive_failure_count: 3
+
+      # COLREGs confidence threshold below which a single output counts as a failure.
+      # [TBD-HAZID]: FCB sea trial calibration required.
+      colregs_confidence_fail_threshold: 0.3
+
+      # Assumption 5: Communication link
+      # Maximum acceptable round-trip time (seconds) to shore ROC.
+      # [TBD-HAZID-SOTIF-005]: NEMO telemetry analysis required.
+      rtt_threshold_s: 2.0
+
+      # Maximum acceptable packet loss percentage (%) to shore ROC.
+      # [TBD-HAZID-SOTIF-006]: NEMO telemetry analysis required.
+      packet_loss_pct_threshold: 20.0
+
+      # Assumption 6: Checker veto rate
+      # RFC-003 LOCKED: M7 self-veto rate >= 0.20 triggers MRC recommendation.
+      # DO NOT CHANGE without a new RFC.
+      checker_veto_rate_threshold: 0.20
+
+    # -------------------------------------------------------------------------
+    # Sliding window (RFC-003 LOCKED)
+    # -------------------------------------------------------------------------
+    sliding_window_capacity: 100
+
+    # -------------------------------------------------------------------------
+    # Watchdog timeouts for input topic staleness (node-level, not SOTIF predicates)
+    # -------------------------------------------------------------------------
+    watchdog:
+      odd_state_max_age_ms: 2000       # M1 publishes at 1 Hz + event-driven
+      world_state_max_age_ms: 500      # M2 publishes at 4 Hz (~250 ms nominal)
+      colregs_constraint_max_age_ms: 1000  # M6 publishes at 1-4 Hz
+
+    # -------------------------------------------------------------------------
+    # Output topics and QoS
+    # -------------------------------------------------------------------------
+    topics:
+      safety_alert_topic: "/m7/safety_alert"
+      veto_topic: "/m7/veto_cmd"
+      sat1_topic: "/m7/sat1_data"
+      qos_reliability: "reliable"
+      qos_history_depth: 10
