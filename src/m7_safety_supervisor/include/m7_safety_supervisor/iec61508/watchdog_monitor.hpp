@@ -20,7 +20,9 @@ struct WatchdogConfig {
   // Indexed by MonitoredModule enum value
   std::array<std::chrono::milliseconds,
              static_cast<std::size_t>(MonitoredModule::kCount)> timeout_ms;
-  // tolerance_count[i]: consecutive missed beats before critical
+  // tolerance_count[i]: number of consecutive missed beats PERMITTED (grace).
+  // Critical when loss_count[i] STRICTLY GREATER THAN tolerance_count[i],
+  // i.e., tolerance_count=3 allows 3 missed beats before going critical on the 4th.
   std::array<std::uint32_t,
              static_cast<std::size_t>(MonitoredModule::kCount)> tolerance_count;
 
@@ -31,7 +33,11 @@ struct WatchdogConfig {
 };
 
 // WatchdogMonitor: single-threaded (main_loop callback group)
-// No internal mutex — caller ensures single-thread access
+// INVARIANT: Only ONE thread may call evaluate(), on_message_received(), or reset*() at any time.
+// This class is NOT thread-safe. In particular: evaluate() is marked const but mutates
+// loss_count_ via mutable — two concurrent calls to evaluate() are a data race.
+// The caller (SafetySupervisorNode) ensures this by placing all invocations in the
+// MutuallyExclusive main_loop callback group.
 class WatchdogMonitor {
 public:
   explicit WatchdogMonitor(WatchdogConfig const& cfg) noexcept;

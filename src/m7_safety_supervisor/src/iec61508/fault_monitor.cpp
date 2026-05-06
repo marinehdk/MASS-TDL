@@ -1,5 +1,8 @@
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
 
+// Type note: ODDState::conformance_score is float32 (ROS2 IDL → float);
+// TrackedTarget::cpa_m is float64 (ROS2 IDL → double). Both correct per ros2-idl-implementation-guide.md.
+
 namespace mass_l3::m7::iec61508 {
 
 // ---------------------------------------------------------------------------

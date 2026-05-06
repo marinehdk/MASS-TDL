@@ -7,13 +7,15 @@
 
 namespace mass_l3::m7::iec61508 {
 
-// IEC 61508-2 Diagnostic Coverage (DC) tracking
-// DC = (detected dangerous failures) / (total diagnostic checks)
-// Target: DC >= 0.90 for SIL 2 (High DC per IEC 61508 Table 3)
+// NOTE: This is a RUNTIME FAULT-DETECTION RATE proxy, NOT the IEC 61508 §7.4.5.1
+// Diagnostic Coverage (DC = λ_DD / (λ_DD + λ_DU)) figure.
+// The IEC 61508 DC value is computed offline via FMEDA and submitted as a
+// certification document. The coverage_ratio here tracks "fault-containing cycles /
+// total cycles" for runtime health monitoring and ASDR record-keeping only.
 struct DiagnosticCoverageMetric {
   std::uint64_t total_checks{0};    // total diagnostic cycles run
   std::uint64_t detected_faults{0}; // cycles in which at least one fault was found
-  float coverage_ratio{0.0f};       // detected_faults / total_checks
+  float coverage_ratio{0.0f};       // runtime fault-detection rate (not IEC 61508 DC)
 };
 
 class DiagnosticCoverage {
