@@ -26,6 +26,8 @@ NamespaceIndentation: None
 PointerAlignment: Left
 ReferenceAlignment: Left
 SortIncludes: true
+# 保护 Doxygen 注释 tag 不被 wrap（@brief / @param / @return / @note / @pre / @post）
+CommentPragmas: '^[ \t]*[@\\]'
 SpaceAfterTemplateKeyword: true
 SpaceBeforeCtorInitializerColon: true
 SpaceBeforeParens: ControlStatements

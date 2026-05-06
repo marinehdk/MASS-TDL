@@ -38,7 +38,6 @@ set(MSG_FILES
   msg/SAT1Data.msg
   msg/SAT2Data.msg
   msg/SAT3Data.msg
-  msg/TimeWindow.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

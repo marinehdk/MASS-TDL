@@ -1,34 +1,89 @@
 {
     "names": {
         "l3_msgs": {
-            "build-order": 1
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "l3_external_msgs": {
-            "build-order": 2
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
+        },
+        "l3_external_mock_publisher": {
+            "cmake-args": [
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m1_odd_envelope_manager": {
-            "build-order": 3
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m2_world_model": {
-            "build-order": 4
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m3_mission_manager": {
-            "build-order": 5
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m4_behavior_arbiter": {
-            "build-order": 6
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m5_tactical_planner": {
-            "build-order": 7
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m6_colregs_reasoner": {
-            "build-order": 8
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m7_safety_supervisor": {
-            "build-order": 9
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         },
         "m8_hmi_transparency_bridge": {
-            "build-order": 10
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
         }
     }
 }

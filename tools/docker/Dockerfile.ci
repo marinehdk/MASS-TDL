@@ -1,4 +1,8 @@
-FROM ros:jazzy-ros-base
+# MASS L3 TDL — CI Docker 镜像
+# 详见: docs/Implementation/ci-cd-pipeline.md §4.2
+# 镜像: mass-l3/ci:jazzy-ubuntu22.04
+# Wave 0 修订: F-IMP-A-001 (锁定 jammy) + F-CRIT-A-009 (Polyspace + Coverity + cppcheck-premium 占位)
+FROM ros:jazzy-ros-base-jammy
 
 # System tools and compilers
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,10 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ninja-build \
         ccache \
         git curl wget \
-        python3.10 python3-pip \
+        python3.10 python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck \
+        jq \
+        yamllint \
     && rm -rf /var/lib/apt/lists/*
 
 # Python tools
@@ -27,5 +33,49 @@ RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
 # Set GCC 14 as default
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+
+# ===== 商业静态分析工具占位（F-CRIT-A-009 修复） =====
+#
+# Polyspace Code Prover R2025b — IEC 61508 SIL 4 / DO-178C DAL A 认证
+# 详见: docs/Implementation/static-analysis-policy.md §5.3
+# License 通过 GitLab Vault POLYSPACE_LIC 注入，详见 .gitlab-ci.yml stage-3-polyspace-path-s
+#
+# COPY 路径要求项目仓库根 tools/third-party/polyspace-r2025b-cli.tar.gz 存在
+# 占位规则：tarball 可在镜像构建时缺失（写在 .dockerignore 中），fallback 路径为运行时检测
+#
+# COPY tools/third-party/polyspace-r2025b-cli.tar.gz /opt/
+# RUN if [ -f /opt/polyspace-r2025b-cli.tar.gz ]; then \
+#         tar -xzf /opt/polyspace-r2025b-cli.tar.gz -C /opt && \
+#         rm /opt/polyspace-r2025b-cli.tar.gz; \
+#     else \
+#         echo "WARNING: Polyspace tarball 不可用 — PATH-S 路径 CI job 会 skip"; \
+#     fi
+# ENV PATH="/opt/polyspace/polyspaceserver/R2025b/polyspace/bin:${PATH}"
+
+# Coverity (Black Duck) — 多样性 cross-check
+# 详见: docs/Implementation/static-analysis-policy.md §5.4
+#
+# COPY tools/third-party/cov-analysis-linux64-2026.x.tar.gz /opt/
+# RUN if [ -f /opt/cov-analysis-linux64-2026.x.tar.gz ]; then \
+#         tar -xzf /opt/cov-analysis-linux64-2026.x.tar.gz -C /opt && \
+#         rm /opt/cov-analysis-linux64-2026.x.tar.gz; \
+#     fi
+# ENV PATH="/opt/cov-analysis-linux64-2026.x/bin:${PATH}"
+
+# cppcheck Premium 26.1.0 — MISRA C++:2023 完整规则集
+# 详见: docs/Implementation/static-analysis-policy.md §5.2
+# 商业 license — 与 OSS cppcheck 共存（CI 优先 Premium，fallback OSS）
+#
+# COPY tools/third-party/cppcheck-premium-26.1.0.tar.gz /opt/
+# RUN if [ -f /opt/cppcheck-premium-26.1.0.tar.gz ]; then \
+#         tar -xzf /opt/cppcheck-premium-26.1.0.tar.gz -C /opt && \
+#         rm /opt/cppcheck-premium-26.1.0.tar.gz && \
+#         ln -sf /opt/cppcheck-premium-26.1.0/bin/cppcheck-premium /usr/local/bin/cppcheck-premium; \
+#     fi
+
+# ===== Wave 0 备注 =====
+# 上述 3 个商业工具的 tarball 由项目购买后通过私有 artifactory 提供。
+# 当前镜像在缺失 tarball 时仍可构建（OSS fallback）；CCS 入级前必须打开。
+# 跟踪: docs/Implementation/00-implementation-master-plan.md §8.1 Wave 0 finding F-CRIT-A-009
 
 WORKDIR /workspace

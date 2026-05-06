@@ -1,6 +1,10 @@
-FROM ros:jazzy-ros-base
+# MASS L3 TDL — Dev Docker 镜像（开发者本地容器）
+# 详见: docs/Implementation/ci-cd-pipeline.md §4.1
+# 镜像: mass-l3/dev:jazzy-ubuntu22.04
+# Wave 0 修订: F-IMP-A-001 (jammy 锁定) + F-IMP-A-002 (与 .ci 区分 — 加 dev 工具)
+FROM ros:jazzy-ros-base-jammy
 
-# System tools and compilers
+# System tools and compilers (与 Dockerfile.ci 同基线)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc-14 g++-14 \
@@ -9,23 +13,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ninja-build \
         ccache \
         git curl wget \
-        python3.10 python3-pip \
+        python3.10 python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck \
+        jq \
+        yamllint \
     && rm -rf /var/lib/apt/lists/*
 
-# Python tools
+# ===== Dev 专属工具（Dockerfile.ci 不含）=====
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gdb \
+        lldb-20 \
+        strace ltrace \
+        tmux htop \
+        vim nano \
+        less \
+        man-db \
+        bash-completion \
+        sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python tools (与 Dockerfile.ci 一致)
 RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
         colcon-core==0.20.1 \
         colcon-common-extensions \
         ruff==0.6.9 \
         mypy==1.10.1 \
         pytest==8.3.3 \
-        pytest-cov==5.0.0
+        pytest-cov==5.0.0 \
+        ipython \
+        ipdb
 
 # Set GCC 14 as default
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
-    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100 && \
+    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 100 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 100
+
+# Source ROS2 environment by default in interactive shells
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc
 
 WORKDIR /workspace

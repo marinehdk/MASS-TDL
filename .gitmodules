@@ -1,33 +1,59 @@
+# MASS L3 TDL — 第三方库 vendor（git submodule）
+# 详见: docs/Implementation/third-party-library-policy.md §2.1 + §5.1
+# 强约束（F-CRIT-A-006 修复）：每个 submodule 必须锁定到具体 tag/branch（非浮动 main/master）
+# 初始化命令: git submodule update --init --recursive
+
 [submodule "tools/third-party/eigen-5.0.0"]
 	path = tools/third-party/eigen-5.0.0
 	url = https://gitlab.com/libeigen/eigen.git
+	branch = 5.0.0
+
 [submodule "tools/third-party/nlohmann-json-3.12.0"]
 	path = tools/third-party/nlohmann-json-3.12.0
 	url = https://github.com/nlohmann/json.git
+	branch = v3.12.0
+
 [submodule "tools/third-party/googletest-1.17.0"]
 	path = tools/third-party/googletest-1.17.0
 	url = https://github.com/google/googletest.git
+	branch = v1.17.0
+
 [submodule "tools/third-party/spdlog-1.17.0"]
 	path = tools/third-party/spdlog-1.17.0
 	url = https://github.com/gabime/spdlog.git
+	branch = v1.17.0
+
 [submodule "tools/third-party/yaml-cpp-0.8.0"]
 	path = tools/third-party/yaml-cpp-0.8.0
 	url = https://github.com/jbeder/yaml-cpp.git
+	branch = 0.8.0
+
 [submodule "tools/third-party/geographiclib-2.7"]
 	path = tools/third-party/geographiclib-2.7
 	url = https://github.com/geographiclib/geographiclib.git
-[submodule "tools/third-party/fmt-11.0.x"]
-	path = tools/third-party/fmt-11.0.x
+	branch = v2.7
+
+[submodule "tools/third-party/fmt-11.0.2"]
+	path = tools/third-party/fmt-11.0.2
 	url = https://github.com/fmtlib/fmt.git
+	branch = 11.0.2
+
 [submodule "tools/third-party/tl-expected-1.1.0"]
 	path = tools/third-party/tl-expected-1.1.0
 	url = https://github.com/TartanLlama/expected.git
+	branch = v1.1.0
+
 [submodule "tools/third-party/casadi-3.7.2"]
 	path = tools/third-party/casadi-3.7.2
 	url = https://github.com/casadi/casadi.git
+	branch = 3.7.2
+
 [submodule "tools/third-party/ipopt-3.14.19"]
 	path = tools/third-party/ipopt-3.14.19
 	url = https://github.com/coin-or/Ipopt.git
+	branch = releases/3.14.19
+
 [submodule "tools/third-party/boost-1.91.0"]
 	path = tools/third-party/boost-1.91.0
 	url = https://github.com/boostorg/boost.git
+	branch = boost-1.91.0

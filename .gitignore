@@ -2,11 +2,29 @@
 build/
 install/
 log/
+.colcon/
 *.o
 *.obj
 *.a
 *.so
 *.dylib
+
+# ROS2 / colcon artifacts
+*.bag
+*.db3
+ros2_ws/
+
+# Static analysis artifacts (Wave 1+ generated)
+polyspace-results/
+polyspace-*-report.html
+cov-int/
+*.sarif
+clang-tidy-fixes-*.yaml
+
+# Release artifacts
+sbom-*.json
+mass-l3-tdl-*.tar.gz
+RELEASE_NOTES.md
 
 # IDE / OS
 .DS_Store
@@ -48,6 +66,10 @@ compile_commands.json
 # ccache
 .ccache/
 
-# Temp
+# Temp / Editor / Logs
 *.tmp
 *.temp
+*.log
+*.bak
+tags
+cscope.out

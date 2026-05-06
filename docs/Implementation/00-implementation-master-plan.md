@@ -232,7 +232,8 @@ mass_l3_tdl/                            # workspace 根（git 单仓 monorepo）
 ```
 
 **Wave 划分**：
-- **Wave 1（Week 1–4，并行启动）**：M1 / M2 / M3 / M6 — 单元测试为主，无强跨模块依赖
+- **Wave 0（2026-05-06 完成 + review）**：基础设施（colcon workspace + l3_msgs + l3_external_msgs + Mock publisher + Docker + tools/ci + .gitmodules + .gitlab-ci.yml + .clang-tidy + .clang-tidy.path-s）— ✅ **质量门通过**（详见 §8.2 + `Wave-0-review-report.md`）
+- **Wave 1 第一批（2026-05-06 编码 + review fix 完成）**：M1 / M2 / M3 / M6 — 4 模块全部 Phase E1 编码 + review + fix，各 worktree 完成；剩 4 个工作流阻断项待清（详见 §8.4 W1-BLOCK-001~004）
 - **Wave 2（Week 3–6，部分重叠）**：M4 / M7 — 依赖 Wave 1 接口稳定（用 Wave 1 的 mock 桩开始）
 - **Wave 3（Week 5–8）**：M5 / M8 — 依赖 Wave 1+2 完成
 - **Wave 4（Week 7–10）**：跨模块集成测试 + HIL 准备（详见 `docs/Test Plan/`）
@@ -388,6 +389,89 @@ Phase E4: 实船 FCB 试航             — 4 周（2026-06，与 HAZID Phase 2 
 | **F-IMPL-001** | `tl::expected`（C++17 期间作为 `std::expected` polyfill）已添加到 `third-party-library-policy.md` §2.1 白名单 + §3.1 矩阵 | 已修复 | 无 | 已关闭 |
 | **F-IMPL-002** | M1 详细设计 §3.1 提到 `MRC_RequestMsg → M5`，但架构 v1.1.2 §15.2 接口矩阵未定义此 topic | M1 spec §3.3 末尾标注 | 仅文档不一致；当前通过 `Safety_AlertMsg.recommended_mrm` + ASDR 间接通知 M5 | v1.1.3 RFC：(a) 新增独立 `MRCRequest.msg` topic；或 (b) 将 §3.1 描述改为通过现有 `Safety_AlertMsg` 链路传递（推荐 b — 不破坏 §15.2 锁定） |
 
+### 8.2 Wave 0 状态（2026-05-06 review 后）
+
+Wave 0 基础设施代码（colcon workspace + l3_msgs + l3_external_msgs + Mock publisher + tools/ci + Docker + .gitmodules）已经过 **3 路并行严格代码审查**（顶层配置 / 消息包 / CI 脚本）。完整审查报告见 `docs/Implementation/Wave-0-review-report.md`。
+
+**初次评分**（review 时）：
+- Reviewer A（顶层配置 + Docker）：**D**（10 Critical / 10 Important / 6 Minor）
+- Reviewer B（消息包）：**C**（6 Critical / 8 Important / 5 Minor）
+- Reviewer C（CI 脚本）：**C+**（5 Critical / 5 Important / 5 Minor）
+
+**修复状态**（截至 2026-05-06）：
+
+| 维度 | Critical 修复 | Important 修复 | Minor 修复 |
+|---|---|---|---|
+| 顶层配置 + Docker | ✅ 10/10 | ✅ 10/10 | ⏳ 6/6（建议在 Wave 1 第一周内完成） |
+| 消息包 | ✅ 6/6 | ✅ 5/8（剩 3 项 Minor 风格） | ⏳ 2/5 |
+| CI 脚本 | ✅ 5/5 | ✅ 4/5 | ⏳ 3/5 |
+| **submodule init** | ⏳ 待用户手动执行（CI 自动 fetch via .pre 阶段） | — | — |
+
+**Wave 0 当前状态**：✅ **质量门通过，可启动 Wave 1**（M1 / M2 / M3 / M6 模块开发）。Important / Minor 剩余项不阻塞。
+
+**给开发团队的关键操作**：
+1. **首次拉代码后**执行 `git submodule update --init --recursive --depth 1`（或通过 CI `.pre_vendor_libs` 自动）
+2. **macOS 开发者**须 `brew install bash` 升级到 bash 4+（CI Ubuntu 22.04 自带 5.1 不受影响）
+3. **PATH-S 团队**（M1 / M7）注意 `.clang-tidy.path-s` 比主 `.clang-tidy` 更严（LineThreshold=40 / Complexity=8 + 禁动态分配）
+
+### 8.3 Wave 0 修订引入的 spec 偏差（v1.1.3 候选记录）
+
+修复 F-CRIT-B-003 时 `TimeWindow.msg` 从 `l3_msgs/` 移到 `l3_external_msgs/`（避免 l3_msgs 反向依赖 l3_external_msgs）。原 spec `ros2-idl-implementation-guide.md` §1.1 列 TimeWindow 在 l3_msgs；实际实施位置已变。
+
+| 编号 | 描述 | 处置建议 |
+|---|---|---|
+| **F-IMPL-003** | TimeWindow.msg 从 l3_msgs 移到 l3_external_msgs | 在 v1.1.3 spec 修订时同步更新 `ros2-idl-implementation-guide.md` §1.1 文件清单（l3_external_msgs 增加 TimeWindow）+ §3.1 共享子类型 note |
+| **F-IMPL-004** | l3_external_msgs 现在依赖 l3_msgs（TrackedTargetArray AoS 用 l3_msgs/TrackedTarget[]）| 已在 `src/l3_external_msgs/CMakeLists.txt` + `package.xml` 添加；spec §1.1 / §5.2 应同步反映此跨包依赖 |
+| **F-IMPL-005** | Polyspace + Coverity + cppcheck Premium 商业 tarball 暂不可用，Dockerfile.ci 用注释占位 | 项目购买商业 license 后取消注释；在此之前 PATH-S 路径 `stage-3-polyspace-path-s` job 会 FATAL（合理 — 暴露问题）|
+
+### 8.4 Wave 1 第一批状态（M1 / M2 / M3 / M6 — 2026-05-06 review 完成）
+
+Wave 1 第一批 4 个模块的 Phase E1 编码 + 单元测试 + review fix 全部在各自 worktree **完成**。代码质量审查覆盖每模块 review + fix（详见各 worktree commit history）。
+
+| 模块 | 路径 | 实现量 | 测试量 | test/impl | [TBD-HAZID] | ASDR refs | pub/sub 拓扑 | worktree 最新 commit | Phase E1 状态 |
+|---|---|---|---|---|---|---|---|---|---|
+| **M1** ODD/Envelope | PATH-S | 907 行 | 756 行 | 83.4% | 37 | 12 | 4/6 | `62935db fix(m1): address code review issues — PATH-S violations, bugs, naming` | ✅ **已 review + fix** |
+| **M2** World Model | PATH-D | 1,071 行 | 931 行 | 86.9% | 9 | 7 | 3/4 | `9562a6a fix(m2): address code-review issues from Phase E1 strict review` | ✅ **已 review + fix** |
+| **M3** Mission Manager | PATH-D | 770 行 | 680 行 | 88.3% | 21 | 14 | 3/6 | `d6b22b6 fix(m3): resolve 5 critical + 7 important bugs found in Phase E1 review` | ✅ **已 review + fix** |
+| **M6** COLREGs Reasoner | PATH-D | 853 行 | 1,058 行 | **124%** | 36 | 9 | 3/2 | `29eac7e fix(m6): address code review findings C1-C6, I1-I4, I6-I7` | ✅ **已 review + fix** |
+| **合计** | — | **3,601 行** | **3,425 行** | **95.1%** | **103** | **42** | **13/18** | — | — |
+
+**§15.2 接口契约对齐**（4 模块的 ROS2 topic 引用）：
+
+```
+M1 → /l3/m1/odd_state, /l3/m1/mode_cmd  (发布 4)
+M1 ← /l3/m7/safety_alert, /reflex/activation_notification, /override/active_signal,
+     /fusion/own_ship_state, /fusion/environment_state, /l3/m2/world_state  (订阅 6)
+
+M2 → /l3/m2/world_state  (发布 3 含 ASDR + SAT)
+M2 ← /fusion/tracked_targets, /fusion/own_ship_state, /fusion/environment_state,
+     /l3/m1/odd_state  (订阅 4)
+
+M3 → /l3/m3/mission_goal, /l3/m3/route_replan_request  (发布 3 含 ASDR)
+M3 ← /l1/voyage_task, /l2/planned_route, /l2/speed_profile, /l2/replan_response,
+     /l3/m1/odd_state, /l3/m2/world_state  (订阅 6)
+
+M6 → /l3/m6/colregs_constraint  (发布 3 含 ASDR + SAT)
+M6 ← /l3/m1/odd_state, /l3/m2/world_state  (订阅 2)
+```
+
+✅ **全部 topic 与架构 v1.1.2 §15.2 接口矩阵一一对齐**。
+
+**Wave 1 第一批正式完成的剩余阻断项（4 个工作流缺口）**：
+
+| 编号 | 阻断项 | 影响 | 处置 |
+|---|---|---|---|
+| **W1-BLOCK-001** | Wave 0 review fixes（27 文件 + `Wave-0-review-report.md`）仍在 main 的 working tree 未 commit | 4 个 worktree base 在 c7a670a，未继承 Wave 0 修复（.clang-tidy 9 大类 / .clang-tidy.path-s / .gitmodules 11 branch 锁定 / l3_external_msgs 6 .msg 修复 / TimeWindow 移动 / 5 CI 脚本 / Dockerfiles）| **Action 1**：在 main 上 commit Wave 0 fixes |
+| **W1-BLOCK-002** | 4 个 worktree 都未 rebase 到含 Wave 0 修复的 main | rebase 后须再跑修复后的 .clang-tidy / cppcheck / CI 验证（特别 M1 PATH-S `.clang-tidy.path-s` 严格阈值会暴露新 finding）| **Action 2**：4 worktree 各自 `git rebase origin/main` + 解 conflict + 跑 CI |
+| **W1-BLOCK-003** | 4 个模块 src/m{N}/README.md 缺失（master plan §6.3 文件交叉引用要求）| 模块独立交付件不全；CCS 入级证据缺单模块文档 | **Action 3**：每 worktree 补 1 个 ~50 行 README 链接到 detailed design + code-skeleton-spec + DoD checklist |
+| **W1-BLOCK-004** | 4 个模块未走 MR 合并到 main | main 的 src/m{1,2,3,6}/ 目录仍是 Wave 0 创建的空骨架；Wave 2 (M4/M7) 启动会找不到上游 mock 桩之外的真实节点 | **Action 4**：4 个 MR 顺序合并（M1 → M2 → M3 → M6 — M2/M3/M6 依赖 M1 接口稳定）|
+
+**关键说明 — CI 真实运行未验证**：所有"已 review + fix"的判断基于 worktree commit history + 静态扫描（test/impl 比 / topic 对齐 / HAZID 标注）。**修复后 .clang-tidy 9 大类 + .clang-tidy.path-s 在 GitLab runner 上的真实运行结果尚未验证**——可能在 W1-BLOCK-002 rebase 后暴露新的 lint/static-analysis violations，需逐一修复。这是 Wave 1 真正"收尾"的最后一步。
+
+**Wave 2 启动门槛**：
+- M4 / M7 可以在 Wave 1 第一批"实质完成"基础上启动（Wave 2 设计上"部分重叠"，用 mock 桩开发）
+- ✅ 已可启动条件：消息 IDL 锁定 + l3_external_msgs 修复（在 Wave 0 fix 中）+ Mock publisher 修复（在 Wave 0 fix 中）
+- ⚠️ 但 W1-BLOCK-001 + W1-BLOCK-002 应先完成，否则 M4 / M7 worktree 也会缺 Wave 0 修复
 
 ---
 
@@ -396,25 +480,37 @@ Phase E4: 实船 FCB 试航             — 4 周（2026-06，与 HAZID Phase 2 
 实施阶段建议在 GitLab Issue 中创建以下 epic：
 
 ```
-Epic-IMPL-Wave1-Foundation       (Week 1–4)
-   ├── Issue: l3_msgs 包搭建 + 全部 §15 .msg 定义
-   ├── Issue: Docker 开发镜像 + CI runner 部署
-   ├── Issue: M1 Phase E1
-   ├── Issue: M2 Phase E1
-   ├── Issue: M3 Phase E1
-   └── Issue: M6 Phase E1
+Epic-IMPL-Wave0-Infrastructure   (✅ 完成 + review fixed 2026-05-06)
+   ├── ✅ l3_msgs 包搭建（26 .msg）
+   ├── ✅ l3_external_msgs 包（11 .msg + Mock publisher）
+   ├── ✅ Docker 开发镜像 (jammy 锁定)
+   ├── ✅ CI 5 阶段 pipeline (.gitlab-ci.yml)
+   ├── ✅ tools/ci/ 5 个 check 脚本
+   ├── ✅ .clang-tidy + .clang-tidy.path-s
+   └── ⏳ Wave 0 review fixes commit 到 main（W1-BLOCK-001 待）
 
-Epic-IMPL-Wave2-Decision         (Week 3–6)
-   ├── Issue: M4 Phase E1 (依赖 M2/M6 mock)
-   └── Issue: M7 Phase E1 (独立路径)
+Epic-IMPL-Wave1-Foundation       (✅ Phase E1 编码 + review 完成 2026-05-06)
+   ├── ✅ M1 Phase E1 — PATH-S，907 impl + 756 test，37 [TBD-HAZID]，commit 62935db
+   ├── ✅ M2 Phase E1 — PATH-D，1071 impl + 931 test，9 [TBD-HAZID]，commit 9562a6a
+   ├── ✅ M3 Phase E1 — PATH-D，770 impl + 680 test，21 [TBD-HAZID]，commit d6b22b6
+   └── ✅ M6 Phase E1 — PATH-D，853 impl + 1058 test，36 [TBD-HAZID]，commit 29eac7e
+   剩待办（4 工作流阻断项 — 详见 §8.4）：
+   ├── ⏳ W1-BLOCK-001: Wave 0 fixes commit
+   ├── ⏳ W1-BLOCK-002: 4 worktree rebase + 跑修复后 CI
+   ├── ⏳ W1-BLOCK-003: 4 模块各补 README.md
+   └── ⏳ W1-BLOCK-004: 4 个 MR 顺序合并到 main
+
+Epic-IMPL-Wave2-Decision         (Week 3–6 — Wave 1 阻断清后启动)
+   ├── ⏳ M4 Phase E1 (依赖 M2/M6 mock；Haiku 4.5 适合)
+   └── ⏳ M7 Phase E1 (独立路径，PATH-S；Haiku 4.5 启动 → BLOCKED 时切 Opus 4.7)
 
 Epic-IMPL-Wave3-Planning&HMI     (Week 5–8)
-   ├── Issue: M5 Phase E1 (CasADi + IPOPT 集成)
-   └── Issue: M8 Phase E1
+   ├── ⏳ M5 Phase E1 (CasADi + IPOPT 集成)
+   └── ⏳ M8 Phase E1 (C++ + Python 双栈)
 
 Epic-IMPL-Wave4-Integration      (Week 7–10)
-   ├── Issue: 全模块集成测试 (Phase E2)
-   └── Issue: HIL 准备 (与 docs/Test Plan/ 协同)
+   ├── ⏳ 全模块集成测试 (Phase E2)
+   └── ⏳ HIL 准备 (与 docs/Test Plan/ 协同)
 ```
 
 **关键 KPI**：

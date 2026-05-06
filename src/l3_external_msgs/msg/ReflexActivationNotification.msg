@@ -1,11 +1,10 @@
-# Y-axis Reflex Arc → M1 ODD Manager (event-driven)
-# Per RFC-005 resolution
-builtin_interfaces/Time stamp
+# Y-axis Reflex Arc → M1 ODD/Envelope Manager (event-driven)
+# Per architecture v1.1.2 §15.1 ReflexActivationNotification + RFC-005 resolution
+# Wave 0 fix: F-CRIT-B-005 — fields rewritten to match v1.1.2 IDL
+#                            critical: l3_freeze_required is required by M1 state machine (§11.8)
+builtin_interfaces/Time activation_time
 
-bool is_active                            # true = reflex engaged, false = disengaged
-string activation_reason                  # "collision_imminent" | "grounding_risk" | ...
-float32 estimated_bypass_duration_s
-uint8 bypassed_layers                     # bitmask: bit0=M3, bit1=M4, bit2=M5, bit3=all
+string reason                             # "cpa_emergency" | "grounding_risk" | "collision_imminent"
 
-float32 confidence
-string rationale
+# Tells M1 whether L3 must enter OVERRIDDEN mode (architecture §11.8)
+bool l3_freeze_required

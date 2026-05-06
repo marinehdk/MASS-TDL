@@ -1,11 +1,7 @@
-# Hardware Override Arbiter → M1 ODD Manager (event-driven)
-# Per v1.1.2 §15.1 + RFC-005
+# Hardware Override Arbiter → M1 ODD/Envelope Manager (event-driven)
+# Per architecture v1.1.2 §15.1 OverrideActiveSignal
+# Wave 0 fix: F-CRIT-B-006 — field renamed override_source → activation_source per spec
 builtin_interfaces/Time stamp
 
-bool override_active                       # true = hardware override engaged
-string override_source                    # "helm" | "throttle" | "joystick" | "emergency_stop"
-builtin_interfaces/Time engaged_stamp
-string expected_duration                  # "momentary" | "extended" | "indefinite"
-
-float32 confidence
-string rationale
+bool override_active                       # true = hardware override engaged; false = released
+string activation_source                   # "manual_button" | "automatic_trigger" | "joystick" | "emergency_stop"
