@@ -8,3 +8,4 @@ float32 speed_cmd_kn
 float32 rot_cmd_deg_s
 float32 duration_s
 bool maintain_after_expiry                # hold last cmd after duration expires
+float32 confidence

@@ -114,6 +114,7 @@ class ExternalMockPublisher(Node):
         msg.veto_reason_detail = "Mock veto"
         msg.fallback_provided = True
         msg.confidence = 1.0
+        msg.rationale = "Mock veto notification"
         self.pub_veto.publish(msg)
 
         # ReflexActivationNotification

@@ -15,3 +15,4 @@ uint8 VETO_REASON_OTHER = 5
 string veto_reason_detail
 bool fallback_provided
 float32 confidence
+string rationale
