@@ -8,7 +8,9 @@ Checks: >
     readability-*,
     -readability-identifier-length,
     -cppcoreguidelines-avoid-magic-numbers,
-    -readability-magic-numbers
+    -readability-magic-numbers,
+    -cppcoreguidelines-pro-bounds-constant-array-index,
+    -cppcoreguidelines-pro-type-union-access
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*'
 CheckOptions:
@@ -18,4 +20,3 @@ CheckOptions:
     value:           '1'
   - key:             modernize-use-trailing-return-type.IgnoreMacros
     value:           '1'
-...

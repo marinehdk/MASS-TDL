@@ -31,4 +31,3 @@ SpaceBeforeCtorInitializerColon: true
 SpaceBeforeParens: ControlStatements
 Standard: c++17
 UseTab: Never
-...

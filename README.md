@@ -43,7 +43,7 @@ The authoritative architecture document is:
 | ROS2        | Jazzy           |
 | GCC         | 14.3            |
 | colcon      | 0.20.1          |
-| CMake       | 3.26+           |
+| CMake       | 3.22+           |
 | Python      | 3.12+           |
 
 ## Quick Start
