@@ -1,12 +1,14 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <spdlog/spdlog.h>
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/colregs_constraint.hpp"
@@ -70,6 +72,9 @@ class ColregsReasonerNode : public rclcpp::Node {
   std::optional<l3_msgs::msg::WorldState> last_world_state_;
   rclcpp::Time last_world_stamp_;
   rclcpp::Time last_odd_stamp_;
+
+  // Mutex protecting shared state accessed from subscriber and timer callbacks
+  mutable std::mutex state_mutex_;
 
   // Logger
   std::shared_ptr<spdlog::logger> logger_;

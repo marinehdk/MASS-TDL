@@ -22,7 +22,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
 
     l3_msgs::msg::RuleActive ra;
     ra.rule_id = static_cast<uint8_t>(eval.rule_id);
-    ra.target_id = 0;  // caller should populate if needed
+    ra.target_id = eval.target_id;
     ra.rule_confidence = eval.confidence;
     ra.rationale = eval.rationale;
     msg.active_rules.push_back(ra);

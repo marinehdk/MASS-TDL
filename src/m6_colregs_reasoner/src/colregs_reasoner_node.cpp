@@ -6,10 +6,12 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include <spdlog/spdlog.h>
 #include <yaml-cpp/yaml.h>
 
 #include "m6_colregs_reasoner/error_codes.hpp"
@@ -150,13 +152,14 @@ void ColregsReasonerNode::load_odd_thresholds() {
     }
 
     RuleParameters params{};
-    params.t_standOn_s        = node["t_standOn_s"].as<double>(480.0);
-    params.t_act_s            = node["t_act_s"].as<double>(240.0);
-    params.t_emergency_s      = node["t_emergency_s"].as<double>(60.0);
-    params.min_alteration_deg = node["min_alteration_deg"].as<double>(15.0);
-    params.cpa_safe_m         = node["cpa_safe_m"].as<double>(1852.0);
-    params.max_turn_rate_deg_s = 5.0;    // default, [TBD-HAZID]
-    params.rule_9_weight       = 0.0;    // default, not used in Phase E1
+    params.t_standOn_s         = node["t_standOn_s"].as<double>(480.0);
+    params.t_act_s             = node["t_act_s"].as<double>(240.0);
+    params.t_emergency_s       = node["t_emergency_s"].as<double>(60.0);
+    params.min_alteration_deg  = node["min_alteration_deg"].as<double>(15.0);
+    params.cpa_safe_m          = node["cpa_safe_m"].as<double>(1852.0);
+    params.max_speed_kn        = node["max_speed_kn"].as<double>(20.0);
+    params.max_turn_rate_deg_s = node["max_turn_rate_deg_s"].as<double>(5.0);
+    params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
     RCLCPP_DEBUG(get_logger(), "Loaded thresholds for %s: act=%f, emergency=%f",
@@ -186,12 +189,20 @@ void ColregsReasonerNode::create_components() {
   try {
     RuleLibraryLoader loader(rule_lib_path);
     rules_ = loader.load_colregs_rules();
-    RCLCPP_INFO(get_logger(), "Loaded %zu COLREGs rules from %s",
-                rules_.size(), rule_lib_path.c_str());
   } catch (const std::exception& e) {
-    RCLCPP_WARN(get_logger(), "Failed to load COLREGs rules: %s", e.what());
-    rules_.clear();
+    const std::string msg = std::string("Failed to load COLREGs rules: ") + e.what();
+    RCLCPP_FATAL(get_logger(), "%s", msg.c_str());
+    throw std::runtime_error(msg);
   }
+
+  if (rules_.empty()) {
+    const std::string msg = "No COLREGs rules loaded from: " + rule_lib_path;
+    RCLCPP_FATAL(get_logger(), "%s", msg.c_str());
+    throw std::runtime_error(msg);
+  }
+
+  RCLCPP_INFO(get_logger(), "Loaded %zu COLREGs rules from %s",
+              rules_.size(), rule_lib_path.c_str());
 }
 
 // ------------------------------------------------------------------
@@ -269,21 +280,25 @@ void ColregsReasonerNode::setup_logger() {
 
 void ColregsReasonerNode::on_odd_state(
     const l3_msgs::msg::ODDState::SharedPtr msg) {
-  current_odd_ = odd_domain_from_zone(msg->current_zone);
-
-  // Convert ROS2 Time stamp
-  last_odd_stamp_ = rclcpp::Time(msg->stamp);
-
+  const OddDomain new_odd = odd_domain_from_zone(msg->current_zone);
+  const rclcpp::Time new_stamp(msg->stamp);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    current_odd_ = new_odd;
+    last_odd_stamp_ = new_stamp;
+  }
   RCLCPP_DEBUG(get_logger(), "ODD state updated: zone=%s, health=%d, score=%.3f",
-               odd_domain_str(*current_odd_).c_str(),
+               odd_domain_str(new_odd).c_str(),
                static_cast<int>(msg->health),
                msg->conformance_score);
 }
 
 void ColregsReasonerNode::on_world_state(
     const l3_msgs::msg::WorldState::SharedPtr msg) {
+  const rclcpp::Time new_stamp(msg->stamp);
+  std::lock_guard<std::mutex> lock(state_mutex_);
   last_world_state_ = *msg;
-  last_world_stamp_ = rclcpp::Time(msg->stamp);
+  last_world_stamp_ = new_stamp;
 }
 
 // ==================================================================
@@ -295,23 +310,34 @@ void ColregsReasonerNode::on_world_state(
 // ------------------------------------------------------------------
 
 void ColregsReasonerNode::run_reasoning() {
-  if (!last_world_state_.has_value()) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-      "run_reasoning: no world state received yet");
-    return;
+  // Take a consistent snapshot of shared state under the lock
+  std::optional<l3_msgs::msg::WorldState> ws_snapshot;
+  rclcpp::Time ws_stamp;
+  OddDomain domain;
+  float ws_confidence = 0.0f;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!last_world_state_.has_value()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+        "run_reasoning: no world state received yet");
+      return;
+    }
+    ws_snapshot = last_world_state_;
+    ws_stamp = last_world_stamp_;
+    domain = current_odd_.value_or(OddDomain::ODD_A);
+    ws_confidence = last_world_state_->confidence;
   }
 
-  const auto now = now();
-  const double world_age = (now - last_world_stamp_).seconds();
+  const rclcpp::Time now_time = this->now();
+  const double world_age = (now_time - ws_stamp).seconds();
   const double timeout = get_parameter("world_state_timeout_s").as_double();
 
   if (world_age > timeout) {
-    // Publish degraded constraint on stale world state
     RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s) — publishing degraded constraint",
                 world_age, timeout);
 
     l3_msgs::msg::COLREGsConstraint degraded;
-    degraded.stamp = now;
+    degraded.stamp = now_time;
     degraded.phase = "DEGRADED";
     degraded.confidence = 0.5f;
     degraded.rationale = "World state stale: age=" + std::to_string(world_age) + "s";
@@ -330,7 +356,7 @@ void ColregsReasonerNode::run_reasoning() {
   }
 
   // 1. Convert WorldState targets to geometric states
-  const auto target_states = convert_world_state(*last_world_state_);
+  const auto target_states = convert_world_state(*ws_snapshot);
 
   // 2. Update cache
   target_cache_->update(target_states);
@@ -338,23 +364,22 @@ void ColregsReasonerNode::run_reasoning() {
   // 3. Determine RuleParameters from current ODD
   const RuleParameters params = get_current_rule_params();
 
-  // 4. Run all rules against all targets
-  const OddDomain domain = current_odd_.value_or(OddDomain::ODD_A);
+  // 4. Run all rules against all targets; propagate target_id after each evaluate()
   std::vector<RuleEvaluation> evaluations;
   evaluations.reserve(target_states.size() * rules_.size());
 
   for (const auto& target : target_states) {
     for (const auto& rule : rules_) {
       auto eval = rule->evaluate(target, domain, params);
+      eval.target_id = target.target_id;
       evaluations.push_back(eval);
     }
   }
 
   // 5. Generate and publish COLREGsConstraint
   auto constraint = constraint_gen_->generate(
-    evaluations, params,
-    static_cast<double>(last_world_state_->confidence));
-  constraint.stamp = now;
+    evaluations, params, static_cast<double>(ws_confidence));
+  constraint.stamp = now_time;
 
   constraint_pub_->publish(constraint);
 
@@ -368,48 +393,53 @@ void ColregsReasonerNode::run_reasoning() {
 // ------------------------------------------------------------------
 
 void ColregsReasonerNode::check_health() {
-  const auto now = now();
-  bool all_healthy = true;
+  const rclcpp::Time now_time = this->now();
+  rclcpp::Time odd_stamp;
+  rclcpp::Time world_stamp;
+  bool world_received = false;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    odd_stamp = last_odd_stamp_;
+    world_stamp = last_world_stamp_;
+    world_received = last_world_state_.has_value();
+  }
 
-  // ODD state freshness
+  bool all_healthy = true;
   const double odd_timeout = get_parameter("odd_state_timeout_s").as_double();
-  if (last_odd_stamp_.nanoseconds() == 0) {
+  const double world_timeout = get_parameter("world_state_timeout_s").as_double();
+
+  if (odd_stamp.nanoseconds() == 0) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
       "ODD state never received");
     all_healthy = false;
   } else {
-    const double odd_age = (now - last_odd_stamp_).seconds();
+    const double odd_age = (now_time - odd_stamp).seconds();
     if (odd_age > odd_timeout) {
-      RCLCPP_WARN(get_logger(), "ODD state stale (%f s > %f s)",
-                  odd_age, odd_timeout);
+      RCLCPP_WARN(get_logger(), "ODD state stale (%f s > %f s)", odd_age, odd_timeout);
       all_healthy = false;
     }
   }
 
-  // World state freshness
-  const double world_timeout = get_parameter("world_state_timeout_s").as_double();
-  if (!last_world_state_.has_value()) {
+  if (!world_received) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
       "World state never received");
     all_healthy = false;
   } else {
-    const double world_age = (now - last_world_stamp_).seconds();
+    const double world_age = (now_time - world_stamp).seconds();
     if (world_age > world_timeout) {
-      RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s)",
-                  world_age, world_timeout);
+      RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s)", world_age, world_timeout);
       all_healthy = false;
     }
   }
 
   if (!all_healthy) {
+    const bool odd_stale = (odd_stamp.nanoseconds() != 0) &&
+      ((now_time - odd_stamp).seconds() > odd_timeout);
+    const bool ws_stale = world_received &&
+      ((now_time - world_stamp).seconds() > world_timeout);
     publish_asdr_record("health_degraded",
-      "{\"status\":\"degraded\",\"odd_stale\":" +
-      std::to_string(last_odd_stamp_.nanoseconds() != 0 &&
-        (now - last_odd_stamp_).seconds() > odd_timeout) +
-      ",\"world_stale\":" +
-      std::to_string(last_world_state_.has_value() &&
-        (now - last_world_stamp_).seconds() > world_timeout) +
-      "}");
+      "{\"status\":\"degraded\",\"odd_stale\":" + std::to_string(static_cast<int>(odd_stale)) +
+      ",\"world_stale\":" + std::to_string(static_cast<int>(ws_stale)) + "}");
   }
 }
 
@@ -418,9 +448,11 @@ void ColregsReasonerNode::check_health() {
 // ------------------------------------------------------------------
 
 void ColregsReasonerNode::publish_asdr_snapshot() {
-  const std::string odd_str = current_odd_.has_value()
-    ? odd_domain_str(*current_odd_)
-    : "unknown";
+  std::string odd_str;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    odd_str = current_odd_.has_value() ? odd_domain_str(*current_odd_) : "unknown";
+  }
 
   const std::string json =
     std::string("{") +
@@ -437,25 +469,26 @@ void ColregsReasonerNode::publish_asdr_snapshot() {
 // ------------------------------------------------------------------
 
 void ColregsReasonerNode::publish_sat_data() {
+  std::string odd_str;
+  float ws_confidence = 0.0f;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    odd_str = current_odd_.has_value() ? odd_domain_str(*current_odd_) : "unknown";
+    ws_confidence = last_world_state_.has_value()
+      ? last_world_state_->confidence : 0.0f;
+  }
+
   l3_msgs::msg::SATData msg;
-  msg.stamp = now();
+  msg.stamp = this->now();
   msg.source_module = "M6_COLREGs_Reasoner";
 
-  // SAT1: current state
-  const std::string odd_str = current_odd_.has_value()
-    ? odd_domain_str(*current_odd_)
-    : "unknown";
   msg.sat1.state_summary = "M6 active: targets=" +
-    std::to_string(target_cache_->size()) +
-    ", odd=" + odd_str;
+    std::to_string(target_cache_->size()) + ", odd=" + odd_str;
 
-  // SAT2: reasoning — periodic (no trigger)
   msg.sat2.trigger_reason = "periodic";
   msg.sat2.reasoning_chain = "";
-  msg.sat2.system_confidence = last_world_state_.has_value()
-    ? last_world_state_->confidence : 0.0f;
+  msg.sat2.system_confidence = ws_confidence;
 
-  // SAT3: forecast
   const double t_act = get_current_rule_params().t_act_s;
   msg.sat3.forecast_horizon_s = t_act;
   msg.sat3.predicted_state = "nominal";
@@ -474,11 +507,11 @@ void ColregsReasonerNode::publish_sat_data() {
 void ColregsReasonerNode::publish_asdr_record(
     const std::string& type, const std::string& json) {
   l3_msgs::msg::ASDRRecord msg;
-  msg.stamp = now();
+  msg.stamp = this->now();
   msg.source_module = "M6_COLREGs_Reasoner";
   msg.decision_type = type;
   msg.decision_json = json;
-  // SHA-256 signature not computed in Phase E1
+  msg.signature = "UNSIGNED_PHASE_E1";  // SHA-256 not computed in Phase E1
   asdr_pub_->publish(msg);
 }
 
@@ -502,18 +535,21 @@ ColregsReasonerNode::convert_world_state(
 
     gs.target_id = tgt.target_id;
 
-    // Compute bearing from ownship to target
+    // Absolute bearing from ownship to target [0, 360)
     const double bearing_to_target = bearing_between(
       own_lat, own_lon,
       tgt.position.latitude, tgt.position.longitude);
+    gs.bearing_deg = normalize_bearing_deg(bearing_to_target);
 
-    // Use M2's pre-classified bearing/aspect if available; else compute
-    gs.bearing_deg = normalize_bearing_deg(bearing_to_target - own_heading);
-    gs.aspect_deg = normalize_bearing_deg(
-      tgt.heading_deg - own_heading - gs.bearing_deg + 180.0);
+    // Target's true heading [0, 360)
+    gs.target_heading_deg = normalize_bearing_deg(tgt.heading_deg);
 
-    // Relative speed: component along line-of-sight
-    const double bearing_rad = deg2rad(gs.bearing_deg);
+    // Aspect angle: angle from target's bow to the bearing-from-target-to-ownship
+    // Convention: 0° = target facing us (red), 180° = target facing away (stern)
+    gs.aspect_deg = normalize_bearing_deg(gs.target_heading_deg - bearing_to_target + 180.0);
+
+    // Relative speed: component along LOS using absolute bearing
+    const double bearing_rad = deg2rad(bearing_to_target);
     const double own_cog_rad = deg2rad(ws.own_ship.cog_deg);
     const double tgt_cog_rad = deg2rad(tgt.cog_deg);
     gs.relative_speed_kn =
@@ -545,7 +581,11 @@ ColregsReasonerNode::convert_world_state(
 // ------------------------------------------------------------------
 
 RuleParameters ColregsReasonerNode::get_current_rule_params() const {
-  const OddDomain domain = current_odd_.value_or(OddDomain::ODD_A);
+  OddDomain domain;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    domain = current_odd_.value_or(OddDomain::ODD_A);
+  }
 
   auto it = odd_thresholds_.find(domain);
   if (it != odd_thresholds_.end()) {

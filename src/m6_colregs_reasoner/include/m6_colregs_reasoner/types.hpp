@@ -23,8 +23,9 @@ enum class TimingPhase : uint8_t {
 
 struct TargetGeometricState {
   uint64_t target_id;
-  double bearing_deg;           // [0, 360)
-  double aspect_deg;            // [0, 360)
+  double bearing_deg;           // absolute bearing from ownship [0, 360)
+  double target_heading_deg;    // target's true heading [0, 360)
+  double aspect_deg;            // aspect angle from target's bow [0, 360)
   double relative_speed_kn;
   double cpa_m;                 // >= 0
   double tcpa_s;                // >= 0
@@ -40,19 +41,21 @@ struct RuleParameters {
   double t_emergency_s;          // [TBD-HAZID]
   double min_alteration_deg;     // [TBD-HAZID]
   double cpa_safe_m;             // [TBD-HAZID]
-  double max_turn_rate_deg_s;
+  double max_speed_kn;           // [TBD-HAZID] Rule 6 safe speed ceiling
+  double max_turn_rate_deg_s;    // [TBD-HAZID]
   double rule_9_weight;
 };
 
 struct RuleEvaluation {
-  bool is_active;
-  int32_t rule_id;
-  EncounterType encounter_type;
-  Role role;
-  TimingPhase phase;
-  double min_alteration_deg;
-  std::string preferred_direction;  // STARBOARD | PORT | REDUCE_SPEED | HOLD
-  float confidence;
+  bool is_active{false};
+  int32_t rule_id{0};
+  uint64_t target_id{0};           // populated by run_reasoning after evaluate()
+  EncounterType encounter_type{EncounterType::NONE};
+  Role role{Role::FREE};
+  TimingPhase phase{TimingPhase::PRESERVE_COURSE};
+  double min_alteration_deg{0.0};
+  std::string preferred_direction{"HOLD"};  // STARBOARD | PORT | REDUCE_SPEED | HOLD
+  float confidence{0.0f};
   std::string rationale;
 };
 

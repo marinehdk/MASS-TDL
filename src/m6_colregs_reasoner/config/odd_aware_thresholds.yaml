@@ -1,26 +1,34 @@
-# ODD-aware COLREG timing parameters per detailed design section 5.3
-# All values [TBD-HAZID] -- FCB initial baselines
+# ODD-aware COLREGs timing parameters per detailed design section 5.3
+# All values [TBD-HAZID] — FCB initial baselines; will be calibrated in HAZID RUN-001
 odd_a:  # Open water
-  t_standOn_s: 480.0    # 8 min
-  t_act_s: 240.0        # 4 min
-  t_emergency_s: 60.0
-  min_alteration_deg: 15.0
-  cpa_safe_m: 1852.0
+  t_standOn_s: 480.0          # [TBD-HAZID] 8 min
+  t_act_s: 240.0              # [TBD-HAZID] 4 min
+  t_emergency_s: 60.0         # [TBD-HAZID]
+  min_alteration_deg: 15.0    # [TBD-HAZID]
+  cpa_safe_m: 1852.0          # [TBD-HAZID] 1 nm
+  max_speed_kn: 20.0          # [TBD-HAZID] Rule 6 safe speed ceiling
+  max_turn_rate_deg_s: 5.0    # [TBD-HAZID]
 odd_b:  # Narrow channel / VTS
-  t_standOn_s: 360.0
-  t_act_s: 180.0
-  t_emergency_s: 45.0
-  min_alteration_deg: 20.0
-  cpa_safe_m: 926.0
+  t_standOn_s: 360.0          # [TBD-HAZID]
+  t_act_s: 180.0              # [TBD-HAZID]
+  t_emergency_s: 45.0         # [TBD-HAZID]
+  min_alteration_deg: 20.0    # [TBD-HAZID]
+  cpa_safe_m: 926.0           # [TBD-HAZID] 0.5 nm
+  max_speed_kn: 12.0          # [TBD-HAZID]
+  max_turn_rate_deg_s: 5.0    # [TBD-HAZID]
 odd_c:  # Harbor
-  t_standOn_s: 180.0
-  t_act_s: 90.0
-  t_emergency_s: 30.0
-  min_alteration_deg: 30.0
-  cpa_safe_m: 463.0
+  t_standOn_s: 180.0          # [TBD-HAZID]
+  t_act_s: 90.0               # [TBD-HAZID]
+  t_emergency_s: 30.0         # [TBD-HAZID]
+  min_alteration_deg: 30.0    # [TBD-HAZID]
+  cpa_safe_m: 463.0           # [TBD-HAZID] 0.25 nm
+  max_speed_kn: 8.0           # [TBD-HAZID]
+  max_turn_rate_deg_s: 3.0    # [TBD-HAZID]
 odd_d:  # Restricted visibility
-  t_standOn_s: 600.0
-  t_act_s: 300.0
-  t_emergency_s: 90.0
-  min_alteration_deg: 10.0
-  cpa_safe_m: 2778.0
+  t_standOn_s: 600.0          # [TBD-HAZID] 10 min
+  t_act_s: 300.0              # [TBD-HAZID]
+  t_emergency_s: 90.0         # [TBD-HAZID]
+  min_alteration_deg: 10.0    # [TBD-HAZID]
+  cpa_safe_m: 2778.0          # [TBD-HAZID] 1.5 nm
+  max_speed_kn: 8.0           # [TBD-HAZID] safe speed in restricted visibility
+  max_turn_rate_deg_s: 5.0    # [TBD-HAZID]

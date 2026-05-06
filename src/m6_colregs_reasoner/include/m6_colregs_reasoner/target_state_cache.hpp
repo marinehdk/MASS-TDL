@@ -21,7 +21,10 @@ class TargetStateCache {
   std::optional<TargetGeometricState> get(uint64_t target_id) const;
   std::vector<TargetGeometricState> all_targets() const;
 
-  size_t size() const { return cache_.size(); }
+  size_t size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return cache_.size();
+  }
   int32_t capacity() const { return cfg_.max_targets; }
 
  private:

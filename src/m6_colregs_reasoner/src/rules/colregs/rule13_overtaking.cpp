@@ -41,7 +41,8 @@ RuleEvaluation Rule13_Overtaking::evaluate(const TargetGeometricState& geo,
   // We conservatively assume: if target is in overtaking sector AND aspect indicates
   // the target's heading is roughly same direction, it's being overtaken (they are faster).
   // Otherwise, own ship is overtaking.
-  const double aspect = aspect_angle_deg(geo.ownship_heading_deg, geo.bearing_deg, rel_bearing);
+  const double aspect = aspect_angle_deg(geo.ownship_heading_deg, geo.target_heading_deg,
+                                          rel_bearing);
   const bool target_heading_same_dir = (aspect > 315.0 || aspect < 45.0);
 
   if (target_heading_same_dir && geo.relative_speed_kn > 0.0) {

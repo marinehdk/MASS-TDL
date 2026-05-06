@@ -82,4 +82,37 @@ TEST(Rule13_OvertakingTest, BearingNotInSector) {
   EXPECT_FALSE(result.is_active);
 }
 
+// --- Non-zero heading test (verify absolute bearing fix) ---
+
+TEST(Rule13_OvertakingTest, NonZeroHeading_InOvertakingSector) {
+  // Own heading 090° (east), target at absolute bearing 270° (due west = directly astern).
+  // rel_bearing = 270 - 90 = 180° → in overtaking sector [112.5, 247.5] → active
+  Rule13_Overtaking rule;
+  TargetGeometricState geo{};
+  geo.target_id = 7;
+  geo.bearing_deg = 270.0;         // absolute: target directly astern
+  geo.target_heading_deg = 90.0;   // target heading same direction (east)
+  geo.ownship_heading_deg = 90.0;
+  geo.relative_speed_kn = 3.0;
+
+  RuleParameters params{};
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_TRUE(result.is_active);
+}
+
+TEST(Rule13_OvertakingTest, NonZeroHeading_NotInSector) {
+  // Own heading 090° (east), target at absolute bearing 090° (directly ahead).
+  // rel_bearing = 0° → NOT in overtaking sector
+  Rule13_Overtaking rule;
+  TargetGeometricState geo{};
+  geo.target_id = 8;
+  geo.bearing_deg = 90.0;          // absolute: target due east (ahead)
+  geo.target_heading_deg = 270.0;
+  geo.ownship_heading_deg = 90.0;
+
+  RuleParameters params{};
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_FALSE(result.is_active);
+}
+
 }  // namespace mass_l3::m6_colregs::rules::colregs
