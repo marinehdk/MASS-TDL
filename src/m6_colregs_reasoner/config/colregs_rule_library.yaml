@@ -1,0 +1,25 @@
+# COLREGs 1972 default rule library manifest
+# Format expected by RuleLibraryLoader::load_colregs_rules()
+colregs_rules:
+  - rule_id: 5
+    enabled: true
+  - rule_id: 6
+    enabled: true
+  - rule_id: 7
+    enabled: true
+  - rule_id: 8
+    enabled: true
+  - rule_id: 13
+    enabled: true
+  - rule_id: 14
+    enabled: true
+  - rule_id: 15
+    enabled: true
+  - rule_id: 16
+    enabled: true
+  - rule_id: 17
+    enabled: true
+  - rule_id: 18
+    enabled: true
+  - rule_id: 19
+    enabled: true
