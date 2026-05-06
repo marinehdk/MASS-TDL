@@ -102,8 +102,7 @@ TEST(SlidingWindow15sTest, IsFilledAfter100Ticks)
 TEST(SlidingWindow15sTest, CountConsistency_RandomPattern)
 {
   SlidingWindow15s w;
-  // Pattern: true on multiples of 3 (indices 0,3,6,...,99) → 34 true values
-  // indices 0..99: 0,3,6,...,99 → ceil(100/3) = 34 events
+  // Pattern: true on i % 3 == 0 (indices 0, 3, 6, …, 99) → 34 events
   std::uint32_t expected = 0u;
   for (std::uint32_t i = 0; i < SlidingWindow15s::kCapacity; ++i) {
     bool ev = ((i % 3u) == 0u);

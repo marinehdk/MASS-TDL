@@ -10,6 +10,11 @@ namespace mass_l3::m7::checker {
 // At M7's main_loop rate (~6.7 Hz effective check rate), 100 cycles ≈ 15 seconds.
 // Implementation: fixed-size circular buffer with O(1) push/count.
 // No dynamic allocation; no exceptions.
+//
+// INVARIANT: Single-threaded. tick(), rate(), count(), is_filled(), and reset()
+// must all be invoked from a single MutuallyExclusive callback group (M7's
+// main_loop). This class is NOT thread-safe; it deliberately uses no atomics
+// or mutexes to keep the Checker path allocation- and lock-free.
 class SlidingWindow15s {
 public:
   static constexpr std::uint32_t kCapacity = 100;  // RFC-003 LOCKED
@@ -21,15 +26,18 @@ public:
   // event = false: this cycle had no event
   void tick(bool event) noexcept;
 
-  // Fraction of cycles in the current window that had an event ∈ [0.0, 1.0]
-  // Returns 0.0 if not yet filled (fewer than kCapacity ticks received).
-  // NOTE: RFC-003 uses this rate for the ≥ 0.20 threshold check.
+  // Fraction of the fixed 100-slot window that recorded an event ∈ [0.0, 1.0].
+  // Denominator is always kCapacity, so during the startup period (< kCapacity
+  // ticks) the rate is biased downward. Callers that must distinguish "not yet
+  // measurable" from "low rate" MUST gate on is_filled() separately.
+  // NOTE: RFC-003 ≥ 0.20 threshold check uses this raw rate directly.
   [[nodiscard]] double rate() const noexcept;
 
   // Raw event count in the current window
   [[nodiscard]] std::uint32_t count() const noexcept { return event_count_; }
 
-  // True after kCapacity ticks have been received (window is fully populated)
+  // True after kCapacity ticks since construction or last reset() (window fully populated).
+  // reset() clears this flag, restarting the startup period.
   [[nodiscard]] bool is_filled() const noexcept { return filled_; }
 
   // Reset window to empty state (e.g., after MRC activation)
