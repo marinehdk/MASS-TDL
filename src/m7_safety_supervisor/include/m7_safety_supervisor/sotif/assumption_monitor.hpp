@@ -20,7 +20,7 @@ enum class AssumptionId : std::uint8_t {
   kColregsSolvability,
   kCommLink,
   kCheckerVetoRate,
-  kCount
+  kCount  // sentinel — must remain last; used as array cardinality
 };
 
 struct AssumptionConfig {
@@ -36,8 +36,8 @@ struct AssumptionConfig {
 };
 
 struct AssumptionStatus {
-  std::array<bool, 6> violation_active{};
-  std::array<float, 6> violation_metric{};
+  std::array<bool, static_cast<std::size_t>(AssumptionId::kCount)> violation_active{};
+  std::array<float, static_cast<std::size_t>(AssumptionId::kCount)> violation_metric{};
   std::uint32_t total_violation_count{0};
 };
 
@@ -83,6 +83,10 @@ public:
   void reset() noexcept;
 
 private:
+  // Private helpers
+  [[nodiscard]] float compute_blind_zone_fraction(
+      l3_msgs::msg::WorldState const& world) const noexcept;
+
   AssumptionConfig cfg_;
 
   // Assumption 1 state — sustained low-confidence tracking
@@ -92,11 +96,6 @@ private:
   // Assumption 2 state — sustained low world-confidence proxy
   std::chrono::steady_clock::time_point motion_low_since_{};
   bool motion_tracking_{false};
-
-  // Assumption 2 history — 30-sample circular buffer of per-update confidence proxy
-  std::array<float, 30> motion_rmse_history_{};
-  std::uint32_t motion_history_idx_{0};
-  bool motion_history_filled_{false};
 
   // Assumption 4 state — consecutive COLREGs failure counter
   std::uint32_t colregs_failure_count_{0};

@@ -18,6 +18,7 @@ constexpr double kDefaultPacketLossPctThreshold{20.0};      // [TBD-HAZID-SOTIF-
 constexpr double kCheckerVetoRateThreshold{0.20};           // RFC-003 LOCKED — do not change
 constexpr std::uint32_t kSlidingWindowCapacity{100};        // RFC-003 LOCKED — do not change
 constexpr double kColregsConfidenceFailThreshold{0.3};      // [TBD-HAZID]
+constexpr double kClassificationConfidenceMin{0.3};         // [TBD-HAZID-SOTIF-003b]: classify < 0.3 as "unknown"
 
 }  // namespace mass_l3::m7::common
 

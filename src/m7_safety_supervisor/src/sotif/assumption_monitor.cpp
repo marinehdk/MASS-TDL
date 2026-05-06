@@ -2,7 +2,6 @@
 #include "m7_safety_supervisor/common/time_utils.hpp"
 
 #include <cmath>
-#include <cstring>
 
 namespace mass_l3::m7::sotif {
 
@@ -11,9 +10,7 @@ namespace mass_l3::m7::sotif {
 // ---------------------------------------------------------------------------
 
 AssumptionMonitor::AssumptionMonitor(AssumptionConfig const& cfg) noexcept
-  : cfg_{cfg} {
-  motion_rmse_history_.fill(0.0f);
-}
+  : cfg_{cfg} {}
 
 // ---------------------------------------------------------------------------
 // Assumption 1: AIS/Radar consistency — sustained low fusion confidence
@@ -50,12 +47,9 @@ bool AssumptionMonitor::check_motion_predictability(
   constexpr float kMotionProxyThreshold{0.4f};
   bool const poor = world.confidence < kMotionProxyThreshold;
 
-  // Update circular history buffer
-  motion_rmse_history_[motion_history_idx_] = world.confidence;
-  motion_history_idx_ = (motion_history_idx_ + 1u) % 30u;
-  if (motion_history_idx_ == 0u) {
-    motion_history_filled_ = true;
-  }
+  // [TBD-HAZID-SOTIF-002]: When M2 WorldState exposes a prediction RMSE field,
+  // add a 30-sample sliding window here to track trend (30s @ 1 Hz).
+  // For now, the sustained-low-confidence proxy is the operative check.
 
   if (poor) {
     if (!motion_tracking_) {
@@ -75,26 +69,24 @@ bool AssumptionMonitor::check_motion_predictability(
 // Assumption 3: Perception coverage — fraction of unknown targets
 // ---------------------------------------------------------------------------
 
+float AssumptionMonitor::compute_blind_zone_fraction(
+    l3_msgs::msg::WorldState const& world) const noexcept {
+  std::size_t const total = world.targets.size();
+  if (total == 0u) { return 0.0f; }
+  std::size_t unknown_count = 0u;
+  for (auto const& target : world.targets) {
+    bool const unknown_class =
+        (target.classification == "unknown") ||
+        (static_cast<double>(target.classification_confidence) < common::kClassificationConfidenceMin);
+    if (unknown_class) { ++unknown_count; }
+  }
+  return static_cast<float>(unknown_count) / static_cast<float>(total);
+}
+
 bool AssumptionMonitor::check_perception_coverage(
     l3_msgs::msg::WorldState const& world) const noexcept {
-  // [TBD-HAZID-SOTIF-003]: Replace with dedicated blind-zone-fraction field
-  // when M2 WorldState exposes it (planned for v1.1.3 post-HAZID calibration).
-  std::size_t const total = world.targets.size();
-  if (total == 0u) {
-    return false;  // No targets present; no blind zone measurable
-  }
-  std::size_t unknown_count = 0u;
-  for (auto const& t : world.targets) {
-    bool const unknown_class =
-        (t.classification == "unknown") ||
-        (static_cast<double>(t.classification_confidence) < 0.3);
-    if (unknown_class) {
-      ++unknown_count;
-    }
-  }
-  double const fraction =
-      static_cast<double>(unknown_count) / static_cast<double>(total);
-  return fraction > cfg_.max_blind_zone_fraction;
+  // [TBD-HAZID-SOTIF-003]: Replace fraction proxy with M2's dedicated blind-zone-fraction.
+  return compute_blind_zone_fraction(world) > static_cast<float>(cfg_.max_blind_zone_fraction);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,8 +151,9 @@ AssumptionStatus AssumptionMonitor::evaluate(
   status.violation_metric[kIdxAis]    = world.confidence;
   status.violation_active[kIdxMotion] = check_motion_predictability(world, now);
   status.violation_metric[kIdxMotion] = world.confidence;
-  status.violation_active[kIdxCovg]   = check_perception_coverage(world);
-  status.violation_metric[kIdxCovg]   = world.confidence;
+  float const blind_fraction = compute_blind_zone_fraction(world);
+  status.violation_active[kIdxCovg]   = blind_fraction > static_cast<float>(cfg_.max_blind_zone_fraction);
+  status.violation_metric[kIdxCovg]   = blind_fraction;  // actual fraction for ASDR transparency
   status.violation_active[kIdxColreg] = check_colregs_solvability(colregs);
   status.violation_metric[kIdxColreg] = colregs.confidence;
   status.violation_active[kIdxComm]   = check_comm_link(current_rtt_s, current_packet_loss_pct);
@@ -169,7 +162,7 @@ AssumptionStatus AssumptionMonitor::evaluate(
   status.violation_metric[kIdxVeto]   = static_cast<float>(current_checker_veto_rate);
   // Aggregate violation count
   std::uint32_t count = 0u;
-  for (bool const v : status.violation_active) { if (v) { ++count; } }
+  for (bool const is_violation : status.violation_active) { if (is_violation) { ++count; } }
   status.total_violation_count = count;
   return status;
 }
@@ -183,9 +176,6 @@ void AssumptionMonitor::reset() noexcept {
   ais_radar_tracking_ = false;
   motion_low_since_ = {};
   motion_tracking_ = false;
-  motion_rmse_history_.fill(0.0f);
-  motion_history_idx_ = 0u;
-  motion_history_filled_ = false;
   colregs_failure_count_ = 0u;
 }
 
