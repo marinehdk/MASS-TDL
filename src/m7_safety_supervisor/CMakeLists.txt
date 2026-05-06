@@ -40,6 +40,7 @@ add_library(m7_lib STATIC
   src/common/error.cpp
   src/common/time_utils.cpp
   src/common/safety_constants.cpp
+  src/common/sha256.cpp
   src/sotif/assumption_monitor.cpp
   src/sotif/performance_monitor.cpp
   src/iec61508/watchdog_monitor.cpp
@@ -218,6 +219,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_alert_generator m7_lib)
   ament_target_dependencies(test_alert_generator
     rclcpp l3_msgs l3_external_msgs builtin_interfaces std_msgs)
+
+  ament_add_gtest(test_sha256
+    test/unit/test_sha256.cpp)
+  target_link_libraries(test_sha256 m7_lib)
 
   ament_add_gtest(test_doer_checker_independence
     test/integration/test_doer_checker_independence.cpp)

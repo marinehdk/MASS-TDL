@@ -1,4 +1,5 @@
 #include "m7_safety_supervisor/arbitrator/alert_generator.hpp"
+#include "m7_safety_supervisor/common/sha256.hpp"
 
 namespace mass_l3::m7::arbitrator {
 
@@ -29,7 +30,7 @@ l3_msgs::msg::SafetyAlert AlertGenerator::build_safety_alert(
 // ---------------------------------------------------------------------------
 // build_asdr_record
 // decision_json carries key=value text summary per spec (no JSON serialization).
-// signature is left empty — SHA-256 signing is Task 7.
+// SHA-256 digest of decision_json is written to signature (32 bytes).
 // ---------------------------------------------------------------------------
 
 l3_msgs::msg::ASDRRecord AlertGenerator::build_asdr_record(
@@ -43,7 +44,8 @@ l3_msgs::msg::ASDRRecord AlertGenerator::build_asdr_record(
   msg.source_module = std::string{source_module};
   msg.decision_type = std::string{decision_type};
   msg.decision_json = std::string{decision_summary};
-  // msg.signature left empty (Task 7)
+  auto const digest = common::sha256(msg.decision_json);
+  msg.signature.assign(digest.begin(), digest.end());
   return msg;
 }
 

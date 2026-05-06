@@ -44,9 +44,9 @@ TEST(AlertGeneratorTest, BuildSafetyAlert_FieldsCorrect)
 
 // ---------------------------------------------------------------------------
 // Test 2: build_asdr_record — source_module, decision_type correct;
-//          signature is empty
+//          signature is 32 bytes (SHA-256 of decision_json)
 // ---------------------------------------------------------------------------
-TEST(AlertGeneratorTest, BuildAsdrRecord_FieldsAndEmptySignature)
+TEST(AlertGeneratorTest, BuildAsdrRecord_FieldsAndSignature)
 {
   auto const stamp = make_stamp(2000, 500u);
   auto const msg = AlertGenerator::build_asdr_record(
@@ -60,7 +60,14 @@ TEST(AlertGeneratorTest, BuildAsdrRecord_FieldsAndEmptySignature)
   EXPECT_EQ(msg.source_module,   "M7_Safety_Supervisor");
   EXPECT_EQ(msg.decision_type,   "mrm_triggered");
   EXPECT_EQ(msg.decision_json,   "mrm_id=MRM-01-DRIFT confidence=0.90");
-  EXPECT_TRUE(msg.signature.empty());
+  EXPECT_EQ(msg.signature.size(), 32u);
+  // Verify signature is idempotent (same input -> same digest)
+  auto const msg2 = AlertGenerator::build_asdr_record(
+    stamp,
+    "M7_Safety_Supervisor",
+    "mrm_triggered",
+    "mrm_id=MRM-01-DRIFT confidence=0.90");
+  EXPECT_EQ(msg.signature, msg2.signature);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +122,14 @@ TEST(AlertGeneratorTest, BuildAsdrRecord_LongDecisionSummary)
     long_summary);
 
   EXPECT_EQ(msg.decision_json, long_summary);
-  EXPECT_TRUE(msg.signature.empty());
+  EXPECT_EQ(msg.signature.size(), 32u);
+  // Verify signature is idempotent
+  auto const msg2 = AlertGenerator::build_asdr_record(
+    stamp,
+    "M7_Safety_Supervisor",
+    "periodic_health_check",
+    long_summary);
+  EXPECT_EQ(msg.signature, msg2.signature);
 }
 
 // ---------------------------------------------------------------------------

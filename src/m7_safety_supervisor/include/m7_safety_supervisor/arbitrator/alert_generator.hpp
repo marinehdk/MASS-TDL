@@ -30,7 +30,7 @@ public:
 
   // Build an ASDRRecord message for decision audit trail.
   // decision_json is set to decision_summary (key=value text per spec).
-  // signature is left empty — SHA-256 signing is Task 7.
+  // SHA-256 digest of decision_json is written to signature (32 bytes).
   [[nodiscard]] static l3_msgs::msg::ASDRRecord
   build_asdr_record(builtin_interfaces::msg::Time const& stamp,
                     std::string_view source_module,
