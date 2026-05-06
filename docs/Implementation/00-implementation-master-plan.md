@@ -457,21 +457,40 @@ M6 ← /l3/m1/odd_state, /l3/m2/world_state  (订阅 2)
 
 ✅ **全部 topic 与架构 v1.1.2 §15.2 接口矩阵一一对齐**。
 
-**Wave 1 第一批正式完成的剩余阻断项（4 个工作流缺口）**：
+**Wave 1 第一批工作流阻断项**（2026-05-06 全部清完）：
 
-| 编号 | 阻断项 | 影响 | 处置 |
+| 编号 | 阻断项 | 处置 | 状态 |
 |---|---|---|---|
-| **W1-BLOCK-001** | Wave 0 review fixes（27 文件 + `Wave-0-review-report.md`）仍在 main 的 working tree 未 commit | 4 个 worktree base 在 c7a670a，未继承 Wave 0 修复（.clang-tidy 9 大类 / .clang-tidy.path-s / .gitmodules 11 branch 锁定 / l3_external_msgs 6 .msg 修复 / TimeWindow 移动 / 5 CI 脚本 / Dockerfiles）| **Action 1**：在 main 上 commit Wave 0 fixes |
-| **W1-BLOCK-002** | 4 个 worktree 都未 rebase 到含 Wave 0 修复的 main | rebase 后须再跑修复后的 .clang-tidy / cppcheck / CI 验证（特别 M1 PATH-S `.clang-tidy.path-s` 严格阈值会暴露新 finding）| **Action 2**：4 worktree 各自 `git rebase origin/main` + 解 conflict + 跑 CI |
-| **W1-BLOCK-003** | 4 个模块 src/m{N}/README.md 缺失（master plan §6.3 文件交叉引用要求）| 模块独立交付件不全；CCS 入级证据缺单模块文档 | **Action 3**：每 worktree 补 1 个 ~50 行 README 链接到 detailed design + code-skeleton-spec + DoD checklist |
-| **W1-BLOCK-004** | 4 个模块未走 MR 合并到 main | main 的 src/m{1,2,3,6}/ 目录仍是 Wave 0 创建的空骨架；Wave 2 (M4/M7) 启动会找不到上游 mock 桩之外的真实节点 | **Action 4**：4 个 MR 顺序合并（M1 → M2 → M3 → M6 — M2/M3/M6 依赖 M1 接口稳定）|
+| **W1-BLOCK-001** | Wave 0 review fixes（27 文件 + `Wave-0-review-report.md`）须 commit 到 main | commit `e6a3d45 fix(wave-0): address 22 critical + 18 important review findings`（29 文件，+1745/-304）| ✅ **完成** |
+| **W1-BLOCK-002** | 4 个 worktree 须 rebase 到含 Wave 0 修复的 main | 4 worktree 全部 rebase 成功，**0 conflict**；每个 worktree 验证已合入 .clang-tidy 9 大类 + .clang-tidy.path-s + .gitmodules 11 branch 锁定 | ✅ **完成** |
+| **W1-BLOCK-003** | 4 个模块 src/m{N}/README.md 缺失 | 4 个 README 写入并 commit（M1=104 行 / M2=111 行 / M3=108 行 / M6=112 行；含路径强度 / topic 拓扑 / DoD / 库白名单 / 开发命令）| ✅ **完成** |
+| **W1-BLOCK-004** | 4 个 worktree 未走 MR 合并到 main | 4 worktree 顺序 `--no-ff` merge 到 main（M1→M2→M3→M6），保留每个分支的 review fix history（CCS 审计可追溯）；merge commits: 4b8c962 / 79435ad / 9533e3e / ddc4c9c | ✅ **完成** |
 
-**关键说明 — CI 真实运行未验证**：所有"已 review + fix"的判断基于 worktree commit history + 静态扫描（test/impl 比 / topic 对齐 / HAZID 标注）。**修复后 .clang-tidy 9 大类 + .clang-tidy.path-s 在 GitLab runner 上的真实运行结果尚未验证**——可能在 W1-BLOCK-002 rebase 后暴露新的 lint/static-analysis violations，需逐一修复。这是 Wave 1 真正"收尾"的最后一步。
+**Wave 1 第一批 main 上最终交付物**（2026-05-06 完成）：
 
-**Wave 2 启动门槛**：
-- M4 / M7 可以在 Wave 1 第一批"实质完成"基础上启动（Wave 2 设计上"部分重叠"，用 mock 桩开发）
-- ✅ 已可启动条件：消息 IDL 锁定 + l3_external_msgs 修复（在 Wave 0 fix 中）+ Mock publisher 修复（在 Wave 0 fix 中）
-- ⚠️ 但 W1-BLOCK-001 + W1-BLOCK-002 应先完成，否则 M4 / M7 worktree 也会缺 Wave 0 修复
+| 模块 | main 上 cpp+hpp 文件 | README | merge commit |
+|---|---|---|---|
+| M1 ODD/Envelope Manager | 22 | ✅ 104 行 | 4b8c962 |
+| M2 World Model | 30 | ✅ 111 行 | 79435ad |
+| M3 Mission Manager | 24 | ✅ 108 行 | 9533e3e |
+| M6 COLREGs Reasoner | 56 | ✅ 112 行 | ddc4c9c |
+| **合计** | **132 cpp+hpp 文件 / ~15,160 行** | **4 README** | **4 merge commits** |
+
+main 当前 HEAD = `ddc4c9c merge: M6 COLREGs Reasoner Phase E1 (PATH-D)`，`git log --oneline --graph --all` 显示完整 4 module 分支拓扑（CCS 入级证据可追溯）。
+
+**关键说明 — CI 真实运行尚未验证**：所有 Wave 1 "完成"判断基于代码合入 + 静态校验（YAML 语法 / 字段对齐 / 测试存在 / HAZID 标注）。**真实 GitLab CI runner 的 5 阶段 pipeline（lint / unit-test / static-analysis / integration-test / release）尚未运行**。建议下一步：
+- 部署 mass-l3/ci:jazzy-ubuntu22.04 镜像到 GitLab runner
+- 跑首次 main 全量 pipeline，可能暴露新的 .clang-tidy.path-s 严格阈值 violations（M1 PATH-S 受影响最大）
+- 任何 finding 都通过新 hotfix commit 修复（不破坏分支拓扑）
+
+**Wave 2 启动门槛**（全部 ✅）：
+- ✅ Wave 0 修复完整（W1-BLOCK-001 已 commit）
+- ✅ 消息 IDL 锁定（v1.1.2 §15.1 + 6 .msg 修复在 main）
+- ✅ Mock publisher 修复（频率正确 + 字段齐全）
+- ✅ CI 脚本修复（doer-checker 独立性自动验证）
+- ✅ 4 个上游模块 main 可用（M4/M7 不需要 mock 桩 — 可直接订阅真实 ODD/World/Mission/COLREGs topic）
+
+**Wave 2 (M4/M7) 现已可立即启动**（按之前 §6.2 提供的 Haiku 4.5 提示词）。
 
 ---
 
