@@ -1,0 +1,137 @@
+# Batch 2 · R13–R24（引用核验）
+# domain_notebook 字段：标注该引用应路由到的 NLM 领域笔记本 key（见 .nlm/config.json）
+# 笔记本 UUID 对照：
+#   maritime_regulations   → 560b6ca4-6c27-4ff9-a010-c2706dbebc0e
+#   safety_verification    → 5d3d717a-d814-4ffd-846a-ef658dbf6fe6
+#   ship_maneuvering       → 133ccbd1-8afc-4573-aa0f-78f9a12ba399
+#   maritime_human_factors → 92272313-8707-4335-9a15-ead963f9f150
+#   colav_algorithms       → 9387989c-389d-4476-8253-c18eb292c58a
+
+- ref_id: R13
+  full_citation: |
+    Albus, J.S. (1991). Outline for a theory of intelligence. IEEE Transactions on Systems, Man, and Cybernetics, 21(3), 473–509. NIST Real-time Control System (RCS) Reference Architecture.
+  type: 学术
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §6.4
+      lines: 504
+      claim: "Albus NIST RCS（参考体系结构）各节点独立 World Model 原则"
+
+- ref_id: R14
+  full_citation: |
+    Fjørtoft, K. & Rødseth, Ø.J. (2020). Using the Operational Envelope to Make Autonomous Ships Safer. Proceedings of the NMDC 2020, Ålesund, Norway. (Semantic Scholar CorpusID: 226236357)
+  type: 学术
+  domain_notebook: safety_verification
+  inline_locations:
+    - section: §5.5（参考文献块）
+      lines: 418
+      claim: "'Using the Operational Envelope to Make Autonomous Ships Safer'"
+
+- ref_id: R15
+  full_citation: |
+    MUNIN Consortium (2015). MUNIN D5.2: Advanced Sensor Module (ASM) Design. FP7 Project 314286. Fraunhofer CML, Hamburg.
+  type: 工业
+  domain_notebook: ship_maneuvering
+  inline_locations:
+    - section: §6.4
+      lines: 505
+      claim: "MUNIN FP7 D5.2 Advanced Sensor Module (ASM) 设计"
+
+- ref_id: R16
+  full_citation: |
+    Pirjanian, P. (1999). Behavior coordination mechanisms – State-of-the-art. USC Computer Science Technical Report IRIS-99-375. USC Robotics Research Labs.
+  type: 学术
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §8.2
+      lines: 551
+      claim: "传统优先级仲裁缺陷：固定优先级会导致低优先级行为零贡献"
+    - section: §8.5
+      lines: 594
+      claim: "'Behavior Coordination Mechanisms' — 优先级仲裁缺陷分析"
+
+- ref_id: R17
+  full_citation: |
+    Wang, T., Zhao, Z., Liu, J., Peng, Y., & Zheng, Y. (2021). Research on Collision Avoidance Algorithm of Unmanned Surface Vehicles Based on Dynamic Window Method and Quantum Particle Swarm Optimization. Journal of Marine Science and Engineering, 9(6), 584. DOI: 10.3390/jmse9060584
+  type: 学术
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §9.3
+      lines: 641
+      claim: "T_standOn 阈值 8/6/10 min 来自 Wang et al. 2021 直航船四阶段定量分析"
+    - section: §9.3
+      lines: 642
+      claim: "T_act 独立避让阈值 4/3/5 min"
+
+- ref_id: R18
+  full_citation: |
+    IMO (1972/2002). Convention on the International Regulations for Preventing Collisions at Sea, 1972 (COLREGS), as amended. London: IMO.
+  type: 规范
+  domain_notebook: maritime_regulations
+  inline_locations:
+    - section: §9.4
+      lines: 648
+      claim: "COLREGs 1972 现行版 Rule 5, 6, 7, 8, 9, 13–19"
+
+- ref_id: R19
+  full_citation: |
+    Bitar, G.I., Breivik, M., & Lekkas, A.M. (2019). Hybrid Collision Avoidance for ASVs Compliant with COLREGs Rules 8 and 13–17. arXiv:1907.00198.
+  type: 学术
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §9.4
+      lines: 650
+      claim: "Bitar et al. 2019 — COLREGs 状态机分离可验证设计"
+
+- ref_id: R20
+  full_citation: |
+    Eriksen, B.H., Bitar, G., Breivik, M., & Lekkas, A.M. (2020). Hybrid Collision Avoidance for ASVs Compliant With COLREGs Rules 8 and 13–17. Frontiers in Robotics and AI, 7:11. DOI: 10.3389/frobt.2020.00011
+  type: 学术
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §10.4
+      lines: 708
+      claim: "BC-MPC 采用 Eriksen 等 (2020) 分支树算法"
+    - section: §10.6
+      lines: 732
+      claim: "Eriksen, Bitar, Breivik et al. (2020) Frontiers — BC-MPC 算法原理"
+
+- ref_id: R21
+  full_citation: |
+    Yasukawa, H. & Sano, M. (2024). MMG 4-DOF extended model for asymmetric inshore flow correction. Journal of Marine Science and Technology. (引用于 Patch-B §6.10 注记)
+  type: 学术
+  domain_notebook: ship_maneuvering
+  inline_locations:
+    - section: §10.5
+      lines: 728
+      claim: "Hs > 1.5m 引入波浪扰动项，参照 Yasukawa & Sano 2024 近岸修正"
+
+- ref_id: R22
+  full_citation: |
+    Neurohr, D., et al. (2025). Towards Efficient Certification of Maritime Remote Operations Centres via ISO 21448 SOTIF. arXiv:2508.00543.
+  type: 学术
+  domain_notebook: safety_verification
+  inline_locations:
+    - section: §11.5
+      lines: 807
+      claim: "SOTIF 在海事 ROC 认证中的应用"
+
+- ref_id: R23
+  full_citation: |
+    Veitch, E., & Alsos, O.A. (2022). "From captain to button-presser: operators' perspectives on navigating highly automated ferries." Journal of Physics: Conference Series, 2311(1). NTNU Shore Control Lab.
+  type: 学术
+  domain_notebook: maritime_human_factors
+  inline_locations:
+    - section: §12.5
+      lines: 885
+      claim: "NTNU Shore Control Lab — 从'船长'到'按钮操作员'的认知退化研究"
+
+- ref_id: R24
+  full_citation: |
+    Sea Machines Robotics (2024). SM300-NG Class-Approved Autonomous Command System. 在线: https://sea-machines.com/sm300-ng/
+  type: 工业
+  domain_notebook: colav_algorithms
+  inline_locations:
+    - section: §13.3
+      lines: 931
+      claim: "Sea Machines SM300 商业化 TALOS + SMLink Control-API，已在 200+ 艘船 (20 国) 部署，是当前最强工业验证"

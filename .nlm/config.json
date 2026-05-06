@@ -1,0 +1,96 @@
+{
+  "local_notebook": {
+    "id": "44d53308-d54d-4cbc-bb7e-0c06c6a5abb5",
+    "title": "PROJ · MASS-L3 · Local",
+    "source_count": 0,
+    "description": ""
+  },
+  "global_notebooks": [],
+  "synthesis_notebook": {
+    "id": "340bda34-3278-4901-9194-309168b89514",
+    "name": "META · MASS-L3 Research · Synthesis",
+    "source_count": 0,
+    "last_distilled": null
+  },
+  "domain_notebooks": {
+    "safety_verification": {
+      "id": "5d3d717a-d814-4ffd-846a-ef658dbf6fe6",
+      "name": "DOMAIN · Safety & Verification · Research",
+      "description": "Safety analysis and formal verification methods for autonomous systems",
+      "keywords": [
+        "safety",
+        "verification",
+        "formal methods",
+        "risk assessment",
+        "fault tolerance",
+        "redundancy"
+      ],
+      "source_count": 64,
+      "last_distilled": null
+    },
+    "ship_maneuvering": {
+      "id": "133ccbd1-8afc-4573-aa0f-78f9a12ba399",
+      "name": "DOMAIN · Ship Maneuvering · Research",
+      "description": "Ship maneuvering dynamics, hydrodynamics, and motion control",
+      "keywords": [
+        "ship maneuvering",
+        "vessel dynamics",
+        "hydrodynamics",
+        "propulsion",
+        "motion control",
+        "MMG model"
+      ],
+      "source_count": 0,
+      "last_distilled": null
+    },
+    "maritime_human_factors": {
+      "id": "92272313-8707-4335-9a15-ead963f9f150",
+      "name": "DOMAIN · Maritime Human Factors · Research",
+      "description": "Maritime human factors, bridge HMI, and operator situation awareness",
+      "keywords": [
+        "human factors",
+        "HMI",
+        "bridge design",
+        "operator",
+        "situation awareness",
+        "watchkeeping"
+      ],
+      "source_count": 19,
+      "last_distilled": null
+    },
+    "maritime_regulations": {
+      "id": "560b6ca4-6c27-4ff9-a010-c2706dbebc0e",
+      "name": "DOMAIN · Maritime Regulations · Research",
+      "description": "Maritime regulations including COLREGs, SOLAS, and IMO guidelines",
+      "keywords": [
+        "COLREGs",
+        "SOLAS",
+        "IMO",
+        "regulations",
+        "rules of the road",
+        "maritime law",
+        "compliance"
+      ],
+      "source_count": 89,
+      "last_distilled": null
+    },
+    "colav_algorithms": {
+      "id": "9387989c-389d-4476-8253-c18eb292c58a",
+      "name": "DOMAIN · COLAV Algorithms · Research",
+      "description": "Collision avoidance algorithms and path planning for autonomous vessels",
+      "keywords": [
+        "collision avoidance",
+        "COLREGs",
+        "TCPA",
+        "DCPA",
+        "path planning",
+        "obstacle avoidance",
+        "MPC",
+        "VO",
+        "velocity obstacle"
+      ],
+      "source_count": 91,
+      "last_distilled": null
+    }
+  }
+}

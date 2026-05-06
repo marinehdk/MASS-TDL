@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MASS L3 TDL 架构可视化 v1.1.2</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#f0f4f8;color:#1e293b;font-size:14px;line-height:1.5}
+.app{max-width:1180px;margin:0 auto;padding:20px 24px}
+h1{font-size:20px;font-weight:700;color:#0f172a}
+.sub{font-size:12px;color:#64748b;margin-top:3px}
+.badges{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.badge{font-size:11px;padding:3px 10px;border-radius:100px;font-weight:600}
+.bg{background:#dcfce7;color:#166534}.bb{background:#dbeafe;color:#1e40af}
+.ba{background:#fef3c7;color:#92400e}.bgr{background:#f1f5f9;color:#475569}
+.tabbar{display:flex;gap:4px;background:#e2e8f0;border-radius:10px;padding:4px;margin:18px 0 14px}
+.tbtn{flex:1;padding:8px 0;border:none;border-radius:7px;background:transparent;font-size:13px;color:#64748b;cursor:pointer;transition:all .15s;font-family:inherit;font-weight:500}
+.tbtn.on{background:#fff;color:#0f172a;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.panel{display:none}.panel.on{display:block}
+.svgwrap{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;overflow-x:auto}
+svg{display:block}
+.node{cursor:pointer;transition:opacity .15s}
+.node:hover{opacity:.82}
+#detail{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-top:13px;min-height:78px;transition:all .2s}
+.d0{color:#94a3b8;font-style:italic;font-size:13px}
+.dname{font-size:16px;font-weight:700;color:#0f172a}
+.dlayer{font-size:12px;color:#64748b;margin:3px 0 10px}
+.ddesc{font-size:13px;color:#475569;line-height:1.65;margin-bottom:12px}
+.dsec{margin-bottom:10px}
+.dsec-t{font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid;font-family:inherit}
+.cin{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.cout{background:#f0fdf4;border-color:#bbf7d0;color:#15803d}
+.crfc{background:#dcfce7;border-color:#86efac;color:#166534;font-weight:700}
+.csil{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+.dnote{font-size:12px;color:#64748b;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;line-height:1.6}
+/* RFC tab */
+.ib{padding:12px 16px;border-radius:10px;font-size:13px;font-weight:500;margin-bottom:14px}
+.ibg{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+.ibw{background:#fffbeb;color:#92400e;border:1px solid #fde68a;margin-top:12px;font-weight:400}
+.rfc-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 13px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;background:#f8fafc}
+td{padding:11px 13px;border-bottom:1px solid #f1f5f9;vertical-align:top;line-height:1.5}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f8fafc}
+.lok{color:#16a34a;font-weight:700;font-size:12px}
+.haz{color:#d97706;font-size:12px}
+code{font-size:10px;background:#f1f5f9;padding:1px 5px;border-radius:3px;font-family:monospace}
+.pbox{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-top:14px}
+.pbox h4{font-size:13px;font-weight:700;margin-bottom:8px}
+.pflow{font-size:13px;color:#475569;line-height:2}
+.p1{color:#b91c1c;font-weight:700}.p2{color:#c2410c;font-weight:700}
+.p3{color:#1d4ed8}.p4{color:#1d4ed8}.p5{color:#64748b}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div style="margin-bottom:16px">
+  <h1>MASS L3 战术决策层 — 架构可视化</h1>
+  <div class="sub">MASS ADAS L3 TDL · 架构基线 v1.1.2 · 接口锁定 2026-05-06 · 首发船型 45m FCB</div>
+  <div class="badges">
+    <span class="badge bg">✅ 6 RFC 全部锁定</span>
+    <span class="badge bg">P0=0 · 全部 finding 关闭</span>
+    <span class="badge ba">🔬 HAZID 进行中 → v1.1.3</span>
+    <span class="badge bb">CCS i-Ship 入级</span>
+    <span class="badge bgr">IMO D2 / D3 / D4</span>
+    <span class="badge bgr">IEC 61508 · ISO 21448 SOTIF</span>
+  </div>
+</div>
+
+<div class="tabbar">
+  <button class="tbtn on" onclick="tab('arch')">L3 模块架构</button>
+  <button class="tbtn" onclick="tab('ctx')">系统上下文</button>
+  <button class="tbtn" onclick="tab('rfc')">接口状态 · RFC</button>
+</div>
+
+<!-- ═══════════════ L3 ARCHITECTURE ═══════════════ -->
+<div id="p-arch" class="panel on">
+<div class="svgwrap">
+<svg viewBox="0 0 980 620" width="100%" style="min-width:720px;max-width:100%">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<!-- ── LAYER BACKGROUNDS ── -->
+<rect x="20" y="66" width="900" height="84" rx="10" fill="#f0fdf4" stroke="#86efac" stroke-width="0.8" stroke-dasharray="6 3"/>
+<text x="30" y="80" font-size="11" fill="#166534" font-weight="700" font-family="system-ui,sans-serif">包络控制层  Envelope Control</text>
+
+<rect x="20" y="162" width="900" height="214" rx="10" fill="#eff6ff" stroke="#93c5fd" stroke-width="0.8" stroke-dasharray="6 3"/>
+<text x="30" y="177" font-size="11" fill="#1e40af" font-weight="700" font-family="system-ui,sans-serif">决策规划层  Decision &amp; Planning</text>
+
+<rect x="20" y="388" width="900" height="82" rx="10" fill="#fffbeb" stroke="#fcd34d" stroke-width="0.8" stroke-dasharray="6 3"/>
+<text x="30" y="402" font-size="11" fill="#92400e" font-weight="700" font-family="system-ui,sans-serif">安全接口层  Safety &amp; HMI</text>
+
+<!-- ── EXTERNAL INPUTS (top) ── -->
+<g class="node" id="ext-L1" onclick="sm('L1')">
+  <rect x="28" y="12" width="86" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="71" y="30" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L1 任务层</text>
+</g>
+<g class="node" id="ext-L2" onclick="sm('L2')">
+  <rect x="125" y="12" width="114" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="182" y="30" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L2 航路规划</text>
+</g>
+<rect x="128" y="52" width="68" height="14" rx="4" fill="#dcfce7"/>
+<text x="162" y="63" text-anchor="middle" font-size="10" fill="#166534" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-006 ✅</text>
+
+<g class="node" id="ext-Fusion" onclick="sm('Fusion')">
+  <rect x="253" y="12" width="142" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="324" y="30" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">多模态感知融合</text>
+</g>
+<rect x="278" y="52" width="68" height="14" rx="4" fill="#dcfce7"/>
+<text x="312" y="63" text-anchor="middle" font-size="10" fill="#166534" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-002 ✅</text>
+
+<g class="node" onclick="sm('ParamDB')">
+  <rect x="410" y="12" width="118" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="469" y="30" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">参数数据库</text>
+</g>
+<g class="node" onclick="sm('Shore')">
+  <rect x="542" y="12" width="108" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="596" y="30" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">Shore Link</text>
+</g>
+
+<!-- Inputs → M1 arrows -->
+<line x1="182" y1="48" x2="182" y2="75" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="324" y1="48" x2="324" y2="75" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="469" y1="48" x2="469" y2="75" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<!-- ── M1 ── -->
+<g class="node" id="mod-M1" onclick="sm('M1')">
+  <rect x="28" y="75" width="904" height="66" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="480" y="99" text-anchor="middle" font-size="16" fill="#14532d" font-weight="800" font-family="system-ui,sans-serif" dominant-baseline="central">M1 — ODD / Envelope Manager</text>
+  <text x="480" y="123" text-anchor="middle" font-size="12" fill="#166534" font-family="system-ui,sans-serif" dominant-baseline="central">L3 调度枢纽 · D2/D3/D4 状态机 · TMR/TDL 量化 · MRC 触发 · Conformance_Score</text>
+</g>
+
+<!-- M1 → Row A dashed (ODD_StateMsg broadcast) -->
+<line x1="160" y1="141" x2="160" y2="170" stroke="#16a34a" stroke-width="0.9" stroke-dasharray="3 2" marker-end="url(#ar)"/>
+<line x1="456" y1="141" x2="456" y2="170" stroke="#16a34a" stroke-width="0.9" stroke-dasharray="3 2" marker-end="url(#ar)"/>
+<line x1="730" y1="141" x2="730" y2="170" stroke="#16a34a" stroke-width="0.9" stroke-dasharray="3 2" marker-end="url(#ar)"/>
+<text x="862" y="151" font-size="10.5" fill="#16a34a" font-weight="600" font-family="system-ui,sans-serif">ODD_StateMsg</text>
+<text x="862" y="165" font-size="10.5" fill="#16a34a" font-family="system-ui,sans-serif">→ ALL 模块</text>
+
+<!-- ── ROW A: M2, M3, M4 ── -->
+<g class="node" id="mod-M2" onclick="sm('M2')">
+  <rect x="28" y="170" width="268" height="88" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+  <text x="162" y="196" text-anchor="middle" font-size="14" fill="#1e3a8a" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M2 · World Model</text>
+  <text x="162" y="220" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">目标跟踪 · CPA/TCPA 计算</text>
+  <text x="162" y="240" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">COLREG 几何预分类 · 4 Hz</text>
+</g>
+
+<g class="node" id="mod-M3" onclick="sm('M3')">
+  <rect x="312" y="170" width="288" height="88" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+  <text x="456" y="196" text-anchor="middle" font-size="14" fill="#1e3a8a" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M3 · Mission Manager</text>
+  <text x="456" y="220" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">ETA 投影 · 重规划触发</text>
+  <text x="456" y="240" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">0.5 Hz · RFC-006 ✅</text>
+</g>
+
+<g class="node" id="mod-M4" onclick="sm('M4')">
+  <rect x="616" y="170" width="312" height="88" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+  <text x="772" y="196" text-anchor="middle" font-size="14" fill="#1e3a8a" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M4 · Behavior Arbiter</text>
+  <text x="772" y="220" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">IvP 多目标仲裁 · 行为字典</text>
+  <text x="772" y="240" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">1–4 Hz · SIL 1</text>
+</g>
+
+<!-- Row A internal arrows -->
+<line x1="296" y1="214" x2="312" y2="214" stroke="#2563eb" stroke-width="0.8" marker-end="url(#ar)"/>
+<!-- M2 → M6 (drop to row B) -->
+<line x1="162" y1="258" x2="162" y2="280" stroke="#2563eb" stroke-width="0.8" marker-end="url(#ar)"/>
+<!-- M4 → M5 (drop to row B) -->
+<line x1="772" y1="258" x2="772" y2="280" stroke="#2563eb" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<!-- ── ROW B: M6, M5 ── -->
+<g class="node" id="mod-M6" onclick="sm('M6')">
+  <rect x="28" y="280" width="308" height="84" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+  <text x="182" y="306" text-anchor="middle" font-size="14" fill="#1e3a8a" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M6 · COLREGs Reasoner</text>
+  <text x="182" y="328" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">Rule 5–19 · ODD-aware 参数</text>
+  <text x="182" y="348" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">1–2 Hz · SIL 2</text>
+</g>
+
+<g class="node" id="mod-M5" onclick="sm('M5')">
+  <rect x="590" y="274" width="338" height="96" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="2.2"/>
+  <text x="759" y="300" text-anchor="middle" font-size="15" fill="#1e3a8a" font-weight="800" font-family="system-ui,sans-serif" dominant-baseline="central">M5 ★ · Tactical Planner</text>
+  <text x="759" y="324" text-anchor="middle" font-size="11.5" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">Mid-MPC ≥90s · BC-MPC 10–30s</text>
+  <text x="759" y="345" text-anchor="middle" font-size="11" fill="#1e40af" font-family="system-ui,sans-serif" dominant-baseline="central">AvoidancePlanMsg + ReactiveOverrideCmd → L4</text>
+  <text x="759" y="362" text-anchor="middle" font-size="10.5" fill="#1d4ed8" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-001 ✅ 接口锁定</text>
+</g>
+
+<!-- M6 → M5 arrow with label -->
+<line x1="336" y1="322" x2="590" y2="322" stroke="#2563eb" stroke-width="1" marker-end="url(#ar)"/>
+<text x="463" y="312" text-anchor="middle" font-size="11" fill="#1d4ed8" font-weight="600" font-family="system-ui,sans-serif">COLREGs 约束集</text>
+
+<!-- ── SAFETY LAYER: M7, M8 ── -->
+<g class="node" id="mod-M7" onclick="sm('M7')">
+  <rect x="28" y="398" width="398" height="64" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.2"/>
+  <text x="227" y="422" text-anchor="middle" font-size="14" fill="#78350f" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M7 · Safety Supervisor</text>
+  <text x="227" y="446" text-anchor="middle" font-size="11.5" fill="#92400e" font-family="system-ui,sans-serif" dominant-baseline="central">IEC 61508 + SOTIF · SIL 2 · 15s 滑窗 · RFC-003 ✅</text>
+</g>
+
+<g class="node" id="mod-M8" onclick="sm('M8')">
+  <rect x="444" y="398" width="484" height="64" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.2"/>
+  <text x="686" y="422" text-anchor="middle" font-size="14" fill="#78350f" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">M8 · HMI / Transparency Bridge</text>
+  <text x="686" y="446" text-anchor="middle" font-size="11.5" fill="#92400e" font-family="system-ui,sans-serif" dominant-baseline="central">SAT-1/2/3 · ToR 接管协议 · 50–100 Hz</text>
+</g>
+
+<!-- M7 ↔ M1: left margin path -->
+<path d="M30 398 L12 398 L12 100 L28 100" fill="none" stroke="#d97706" stroke-width="0.9" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="6" y="260" font-size="10" fill="#d97706" font-family="system-ui,sans-serif" transform="rotate(-90 6 260)">安全告警 ↕ MRC</text>
+
+<!-- ── EXTERNAL OUTPUTS ── -->
+<g class="node" id="ext-L4" onclick="sm('L4')">
+  <rect x="644" y="490" width="140" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="714" y="508" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L4 引导层</text>
+</g>
+<g class="node" id="ext-ASDR" onclick="sm('ASDR')">
+  <rect x="800" y="490" width="128" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="864" y="508" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">ASDR</text>
+</g>
+<g class="node" onclick="sm('ROC')">
+  <rect x="258" y="490" width="128" height="36" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+  <text x="322" y="508" text-anchor="middle" font-size="12" fill="#475569" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">ROC / 船长</text>
+</g>
+
+<!-- M5 → L4 (main output, green emphasized) -->
+<path d="M759 370 L759 476 L714 476 L714 490" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="680" y="438" width="70" height="18" rx="5" fill="#dcfce7"/>
+<text x="715" y="451" text-anchor="middle" font-size="10" fill="#166534" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-001 ✅</text>
+
+<!-- ASDR dashed right rail -->
+<path d="M928 322 L946 322 L946 508 L928 508" fill="none" stroke="#94a3b8" stroke-width="0.7" stroke-dasharray="4 2" marker-end="url(#ar)"/>
+<text x="951" y="416" font-size="10" fill="#64748b" font-family="system-ui,sans-serif" transform="rotate(90 951 416)">ASDR 决策记录 RFC-004 ✅</text>
+
+<!-- M8 → ROC -->
+<path d="M444 430 L322 430 L322 490" fill="none" stroke="#d97706" stroke-width="0.9" marker-end="url(#ar)"/>
+
+<!-- ── SYSTEM AXES ── -->
+<g class="node" id="mod-Xaxis" onclick="sm('Xaxis')">
+  <rect x="28" y="552" width="266" height="48" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+  <text x="161" y="570" text-anchor="middle" font-size="13" fill="#4c1d95" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">X-axis Deterministic Checker</text>
+  <text x="161" y="590" text-anchor="middle" font-size="11" fill="#6d28d9" font-family="system-ui,sans-serif" dominant-baseline="central">VETO 权 · 跨 L2-L5 · RFC-003 ✅</text>
+</g>
+<!-- X-axis → M7 path -->
+<path d="M161 552 L161 480 L190 480 L190 462" fill="none" stroke="#7c3aed" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+<rect x="158" y="506" width="68" height="14" rx="4" fill="#f5f3ff"/>
+<text x="192" y="517" text-anchor="middle" font-size="10" fill="#6d28d9" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-003 ✅</text>
+
+<g class="node" id="mod-Yaxis" onclick="sm('Yaxis')">
+  <rect x="314" y="552" width="240" height="48" rx="9" fill="#fff7ed" stroke="#ea580c" stroke-width="1.2"/>
+  <text x="434" y="570" text-anchor="middle" font-size="13" fill="#7c2d12" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">Y-axis Reflex Arc</text>
+  <text x="434" y="590" text-anchor="middle" font-size="11" fill="#c2410c" font-family="system-ui,sans-serif" dominant-baseline="central">&lt;500ms · SIL 3 · RFC-005 ✅</text>
+</g>
+<!-- Reflex → M1 notification (dashed, long) -->
+<path d="M314 576 L295 576 L295 140 L312 140" fill="none" stroke="#ea580c" stroke-width="0.7" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+
+<g class="node" onclick="sm('HWOverride')">
+  <rect x="574" y="552" width="210" height="48" rx="9" fill="#fef2f2" stroke="#dc2626" stroke-width="1.2"/>
+  <text x="679" y="570" text-anchor="middle" font-size="13" fill="#7f1d1d" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">Hardware Override</text>
+  <text x="679" y="590" text-anchor="middle" font-size="11" fill="#b91c1c" font-family="system-ui,sans-serif" dominant-baseline="central">Z-bottom 硬连线 · 最高优先级</text>
+</g>
+
+<!-- Priority + version footer -->
+<text x="28" y="614" font-size="11" fill="#64748b" font-family="system-ui,sans-serif">
+  优先级: HW Override › Reflex Arc (SIL3) › M5 ReactiveOverride › M5 AvoidancePlan › L4 LOS
+</text>
+<text x="930" y="614" text-anchor="end" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif">v1.1.2 · 2026-05-06</text>
+</svg>
+</div>
+<div id="detail"><p class="d0">↑ 点击任意模块查看详情 — 8 模块 · 3 层架构 · 6 RFC 全部锁定</p></div>
+</div>
+
+<!-- ═══════════════ SYSTEM CONTEXT ═══════════════ -->
+<div id="p-ctx" class="panel">
+<div class="svgwrap">
+<svg viewBox="0 0 980 520" width="100%" style="min-width:720px">
+<defs>
+<marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<!-- Z-TOP -->
+<rect x="216" y="10" width="540" height="34" rx="7" fill="#f5f3ff" stroke="#a78bfa" stroke-width="1"/>
+<text x="486" y="27" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">Z-TOP 网络安全墙 + DMZ · IACS UR E26/E27</text>
+
+<!-- Multimodal Fusion (left) -->
+<rect x="10" y="55" width="188" height="106" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="104" y="84" text-anchor="middle" font-size="13" fill="#1e293b" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">多模态感知融合</text>
+<text x="104" y="104" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui,sans-serif" dominant-baseline="central">Radar / AIS / Camera</text>
+<text x="104" y="122" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui,sans-serif" dominant-baseline="central">LiDAR / GNSS / IMU</text>
+<text x="104" y="144" text-anchor="middle" font-size="10.5" fill="#94a3b8" font-family="system-ui,sans-serif" dominant-baseline="central">独立感知子系统</text>
+
+<!-- L1 -->
+<rect x="216" y="55" width="540" height="42" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="486" y="76" text-anchor="middle" font-size="13" fill="#334155" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L1 任务层 Mission Layer</text>
+<text x="762" y="76" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif" dominant-baseline="central">[hrs~days]</text>
+
+<!-- L2 -->
+<rect x="216" y="107" width="540" height="42" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="486" y="128" text-anchor="middle" font-size="13" fill="#334155" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L2 航路规划层 Voyage Planner</text>
+<text x="762" y="128" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif" dominant-baseline="central">[min~hrs]</text>
+
+<!-- L3 HIGHLIGHTED -->
+<rect x="216" y="159" width="540" height="56" rx="9" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
+<text x="486" y="181" text-anchor="middle" font-size="15" fill="#14532d" font-weight="800" font-family="system-ui,sans-serif" dominant-baseline="central">L3 战术层 Tactical Layer  ◀  本仓库</text>
+<text x="486" y="203" text-anchor="middle" font-size="12" fill="#166534" font-family="system-ui,sans-serif" dominant-baseline="central">D2/D3/D4 · COLREGs 实时决策 · 8 模块三层架构 · v1.1.2</text>
+<text x="762" y="190" font-size="11" fill="#16a34a" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">[sec~min]</text>
+
+<!-- L4 -->
+<rect x="216" y="225" width="540" height="42" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="486" y="246" text-anchor="middle" font-size="13" fill="#334155" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L4 引导层 Guidance Layer</text>
+<text x="762" y="246" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif" dominant-baseline="central">[100ms~1s]</text>
+
+<!-- L5 -->
+<rect x="216" y="277" width="540" height="42" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="486" y="298" text-anchor="middle" font-size="13" fill="#334155" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">L5 控制分配层 Control &amp; Allocation</text>
+<text x="762" y="298" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif" dominant-baseline="central">[10ms~100ms]</text>
+
+<!-- X-axis Checker (right, spans L2-L5) -->
+<rect x="766" y="107" width="154" height="214" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+<text x="843" y="170" text-anchor="middle" font-size="14" fill="#4c1d95" font-weight="800" font-family="system-ui,sans-serif" dominant-baseline="central">X-axis</text>
+<text x="843" y="194" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="system-ui,sans-serif" dominant-baseline="central">Deterministic</text>
+<text x="843" y="212" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="system-ui,sans-serif" dominant-baseline="central">Checker</text>
+<text x="843" y="236" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="system-ui,sans-serif" dominant-baseline="central">VETO 权</text>
+<text x="843" y="256" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="system-ui,sans-serif" dominant-baseline="central">L2–L5 全层</text>
+<text x="843" y="280" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-003 ✅</text>
+<text x="843" y="300" text-anchor="middle" font-size="10" fill="#7c3aed" font-family="system-ui,sans-serif" dominant-baseline="central">物理隔离</text>
+
+<!-- Y-axis Reflex Arc (left, spans L3-L5) -->
+<rect x="10" y="159" width="188" height="162" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="1.2"/>
+<text x="104" y="210" text-anchor="middle" font-size="14" fill="#7c2d12" font-weight="800" font-family="system-ui,sans-serif" dominant-baseline="central">Y-axis</text>
+<text x="104" y="230" text-anchor="middle" font-size="12" fill="#c2410c" font-family="system-ui,sans-serif" dominant-baseline="central">Reflex Arc</text>
+<text x="104" y="252" text-anchor="middle" font-size="12" fill="#c2410c" font-family="system-ui,sans-serif" dominant-baseline="central">bypass L3/L4</text>
+<text x="104" y="274" text-anchor="middle" font-size="12" fill="#c2410c" font-family="system-ui,sans-serif" dominant-baseline="central">&lt;500ms · SIL 3</text>
+<text x="104" y="298" text-anchor="middle" font-size="11" fill="#ea580c" font-weight="700" font-family="system-ui,sans-serif" dominant-baseline="central">RFC-005 ✅</text>
+
+<!-- Layer arrows -->
+<line x1="486" y1="97" x2="486" y2="107" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="486" y1="149" x2="486" y2="159" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="486" y1="215" x2="486" y2="225" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="486" y1="267" x2="486" y2="277" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="198" y1="187" x2="216" y2="187" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="198" y1="248" x2="216" y2="248" stroke="#94a3b8" stroke-width="0.8" marker-end="url(#ar2)"/>
+<line x1="198" y1="298" x2="216" y2="298" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#ar2)"/>
+
+<!-- Z-BOTTOM -->
+<rect x="216" y="332" width="258" height="36" rx="7" fill="#fef2f2" stroke="#fca5a5" stroke-width="0.9"/>
+<text x="345" y="350" text-anchor="middle" font-size="12" fill="#7f1d1d" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">Hardware Override 硬连线</text>
+<rect x="484" y="332" width="258" height="36" rx="7" fill="#fffbeb" stroke="#fcd34d" stroke-width="0.9"/>
+<text x="613" y="350" text-anchor="middle" font-size="12" fill="#78350f" font-weight="600" font-family="system-ui,sans-serif" dominant-baseline="central">ASDR 决策追溯记录</text>
+<rect x="216" y="378" width="252" height="32" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="342" y="394" text-anchor="middle" font-size="12" fill="#475569" font-weight="500" font-family="system-ui,sans-serif" dominant-baseline="central">Shore Link / ROC</text>
+<rect x="478" y="378" width="264" height="32" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="610" y="394" text-anchor="middle" font-size="12" fill="#475569" font-weight="500" font-family="system-ui,sans-serif" dominant-baseline="central">Parameter Database</text>
+
+<!-- Legend -->
+<rect x="10" y="424" width="930" height="84" rx="9" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
+<text x="26" y="446" font-size="12" fill="#1e293b" font-weight="700" font-family="system-ui,sans-serif">图例</text>
+<rect x="72" y="434" width="40" height="16" rx="4" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.2"/>
+<text x="120" y="446" font-size="11" fill="#334155" font-family="system-ui,sans-serif" dominant-baseline="central">本仓库 L3</text>
+<rect x="200" y="434" width="40" height="16" rx="4" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1"/>
+<text x="248" y="446" font-size="11" fill="#334155" font-family="system-ui,sans-serif" dominant-baseline="central">X-axis Checker (VETO)</text>
+<rect x="420" y="434" width="40" height="16" rx="4" fill="#fff7ed" stroke="#ea580c" stroke-width="1"/>
+<text x="468" y="446" font-size="11" fill="#334155" font-family="system-ui,sans-serif" dominant-baseline="central">Y-axis Reflex Arc (SIL 3)</text>
+<rect x="660" y="434" width="40" height="16" rx="4" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.9"/>
+<text x="708" y="446" font-size="11" fill="#334155" font-family="system-ui,sans-serif" dominant-baseline="central">外部系统（不在本仓库）</text>
+<text x="26" y="472" font-size="11.5" fill="#475569" font-family="system-ui,sans-serif">
+  船型: 45m FCB 快速船员艇 (首发) · 自主等级: D2/D3/D4 · 认证: CCS i-Ship (Nx, Ri/Ai) · 基线: v1.1.2 · 接口锁定: 2026-05-06
+</text>
+<text x="26" y="494" font-size="11" fill="#94a3b8" font-family="system-ui,sans-serif">
+  参考: Kongsberg v3.0 工业基线 · IMO MASS Code MSC 110/111 · IACS UR E26/E27 · IEC 61508 · ISO 21448 SOTIF · DNV-CG-0264
+</text>
+</svg>
+</div>
+</div>
+
+<!-- ═══════════════ RFC INTERFACES ═══════════════ -->
+<div id="p-rfc" class="panel">
+<div class="ib ibg">✅ 所有 6 个跨团队 RFC 已批准 — 接口锁定: 2026-05-06 — 架构基线: v1.1.2 — 跨团队改造总工作量: ≈ 31 人月 — 关键路径: 8 周</div>
+<div class="rfc-wrap">
+<table>
+<thead><tr><th>RFC</th><th>接口主题</th><th>关键消息 / 参数</th><th>状态</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>RFC-001</strong><br><span style="font-size:11px;color:#64748b">M5 → L4</span></td>
+  <td>L4 三模式切换<br><span style="font-size:11px;color:#64748b">方案 B: AvoidancePlan + ReactiveOverrideCmd</span></td>
+  <td><code>AvoidancePlanMsg</code> 1–2 Hz<br><code>ReactiveOverrideCmd</code> 事件 / 上限 10Hz<br><span style="font-size:11px;color:#64748b">normal_LOS / avoidance_planning / reactive_override</span></td>
+  <td><span class="lok">✅ 已锁定</span><br><span class="haz">PoC T+5周 · HIL T+8周</span></td>
+</tr>
+<tr>
+  <td><strong>RFC-002</strong><br><span style="font-size:11px;color:#64748b">M2 ← Fusion</span></td>
+  <td>三话题感知聚合</td>
+  <td><code>TrackedTargetArray</code> 10 Hz<br><code>FilteredOwnShipState</code> 50 Hz<br><code>EnvironmentState</code> 0.2 Hz · <strong>nav_mode</strong> 字段新增</td>
+  <td><span class="lok">✅ 已锁定</span><br><span style="font-size:11px;color:#64748b">(u,v) 不含海流估计</span></td>
+</tr>
+<tr>
+  <td><strong>RFC-003</strong><br><span style="font-size:11px;color:#64748b">M7 ↔ X-axis</span></td>
+  <td>Checker VETO 协议<br><span style="font-size:11px;color:#64748b">CheckerVetoNotification enum 化</span></td>
+  <td><code>CheckerVetoNotification</code> enum (6 项)<br>VetoReasonClass: COLREGS / CPA / ENC / ACTUATOR / TIMEOUT / OTHER<br>15s 滑窗 = 100 周期 @ 6.7 Hz</td>
+  <td><span class="lok">✅ 已锁定</span><br><span class="haz">⚠ 否决率 20% 阈值 → HAZID</span></td>
+</tr>
+<tr>
+  <td><strong>RFC-004</strong><br><span style="font-size:11px;color:#64748b">L3 → ASDR</span></td>
+  <td>决策追溯日志</td>
+  <td><code>ASDR_RecordMsg</code> · SHA-256 签名<br>50 events/s · 7 模块发布 (M1–M7)<br>REST API · Shore Link 5min 同步</td>
+  <td><span class="lok">✅ 已锁定</span><br><span style="font-size:11px;color:#64748b">HMAC 升级留 v1.2</span></td>
+</tr>
+<tr>
+  <td><strong>RFC-005</strong><br><span style="font-size:11px;color:#64748b">Reflex Arc</span></td>
+  <td>紧急旁路量化<br><span style="font-size:11px;color:#64748b">多团队联合接受</span></td>
+  <td>触发 (初始值): CPA &lt; 50m / range &lt; 100m / TTC &lt; 3s<br>E2E &lt; 500ms · L3 冻结 &lt; 50ms · SIL 3<br><code>/perception/proximity_emergency</code> 50 Hz (distance &lt; 200m)</td>
+  <td><span class="lok">✅ 已锁定</span><br><span class="haz">⚠ 触发阈值 → HAZID 校准</span></td>
+</tr>
+<tr>
+  <td><strong>RFC-006</strong><br><span style="font-size:11px;color:#64748b">M3 → L2</span></td>
+  <td>反向重规划请求<br><span style="font-size:11px;color:#64748b">引发 v1.1.2 patch</span></td>
+  <td><code>RouteReplanRequest</code> 事件<br><code>ReplanResponseMsg</code> <strong>v1.1.2 新增</strong> (4 状态 enum)<br>SLA: MRC ≤ 30s / EXIT ≤ 60s / INFEASIBLE ≤ 120s / CONG ≤ 300s</td>
+  <td><span class="lok">✅ 已锁定 + 增补</span><br><span style="font-size:11px;color:#64748b">exclusion_zones: GeoJSON Polygon</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="pbox">
+  <h4>执行优先级层级 (RFC-005 决议)</h4>
+  <div class="pflow">
+    <span class="p1">① Hardware Override (Z-bottom 硬连线)</span> &ensp;›&ensp;
+    <span class="p2">② Reflex Arc (SIL 3, &lt;500ms)</span> &ensp;›&ensp;
+    <span class="p3">③ M5 ReactiveOverrideCmd</span> &ensp;›&ensp;
+    <span class="p4">④ M5 AvoidancePlanMsg</span> &ensp;›&ensp;
+    <span class="p5">⑤ L4 LOS 正常跟踪</span>
+  </div>
+</div>
+
+<div class="ib ibw">
+  🔬 <strong>HAZID 工作组进行中</strong> — 第 1 次会议: 2026-05-13 — 目标版本 v1.1.3: 2026-08-19<br>
+  待校准: ODD Conformance_Score 权重 · COLREGs 阈值 (CPA/TCPA/DCPA) · MRM 制动参数 (4kn 基准) · MPC 权重矩阵 (Q/R) · Reflex Arc 触发阈值 · X-axis 否决率阈值 (20% 初始值)
+</div>
+</div><!-- /p-rfc -->
+
+</div><!-- /app -->
+
+<script>
+const D = {
+  M1:{name:'ODD / Envelope Manager',layer:'包络控制层 · 0.1–1 Hz + 事件补发',rfc:'',sil:'SIL 2 (MRC触发)',
+    desc:'L3内部所有模块的调度枢纽，维护唯一权威"当前安全语境"。运行D2/D3/D4模式状态机，量化TMR（最大操作员响应时间≥60s基线）和TDL（自动化响应截止时间）。ODD越界时并行广播降级指令，避免级联失效。Conformance_Score=[0,1]实时评估ODD合规性，EDGE→OUT事件型补发不等待下一周期。',
+    note:'ADR-002: ODD作为L3组织原则（非旁路监控）；M1不替代系统层ODD监控(IACS UR/Z-TOP/X-axis)，形成分层协作 | Conformance_Score权重待HAZID校准',
+    ins:['VoyageTask (L1)','PlannedRoute + SpeedProfile (L2)','SOTIF告警 (M7)','ReflexActivationNotification (Y-axis · RFC-005)','OverrideActiveSignal (Z-bottom)'],
+    outs:['ODD_StateMsg @ 1Hz+事件 → ALL模块','MRC命令集 via M7仲裁','模式状态 → M8','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M2:{name:'World Model',layer:'决策规划层 · 4 Hz (2Hz输入聚合+插值)',rfc:'RFC-002 ✅',sil:'',
+    desc:'唯一权威世界视图，聚合三话题感知输入。计算CPA/TCPA，执行COLREGs几何预分类（give-way/stand-on判断）。时间对齐多源数据（World_StateMsg时戳不超200ms前）。对水速度 = FilteredOwnShipState(u,v) − current_speed/direction（Fusion不含海流估计，M2自行计算）。',
+    note:'(u,v)不含海流估计 | EnvironmentState 0.2Hz满足M5 TSS多边形约束更新(典型5s) | confidence阈值: 安全0.5(Mid-MPC) / 0.7(BC-MPC)',
+    ins:['TrackedTargetArray (Fusion, 10Hz)','FilteredOwnShipState (Fusion, 50Hz)','EnvironmentState (Fusion, 0.2Hz)','ODD_StateMsg (M1)'],
+    outs:['World_StateMsg → M3/M4/M5/M6 @ 4Hz','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M3:{name:'Mission Manager',layer:'决策规划层 · 0.5 Hz',rfc:'RFC-006 ✅',sil:'',
+    desc:'航次计划看门人。校验VoyageTask，投影ETA，监控任务可行性。不做实际重规划——向L2发起RouteReplanRequest(RFC-006)，等待ReplanResponseMsg。等待期(REPLAN_WAIT状态)通知M4继续当前航迹。超时时触发ToR_RequestMsg。SLA按reason分级: MRC_REQUIRED≤30s / ODD_EXIT≤60s / INFEASIBLE≤120s / CONGESTION≤300s。',
+    note:'ReplanResponseMsg (SUCCESS/FAILED_TIMEOUT/FAILED_INFEASIBLE/FAILED_NO_RESOURCES) 为v1.1.2新增 | 重发限速30s | T0+D×0.8启动超时预警 → ROC提前知情',
+    ins:['VoyageTask (L1)','World_StateMsg (M2)','ODD_StateMsg (M1)','ReplanResponseMsg (L2 · RFC-006新增)'],
+    outs:['Mission_GoalMsg → M4 @ 0.5Hz','RouteReplanRequest → L2 (RFC-006)','ToR_RequestMsg → M8','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M4:{name:'Behavior Arbiter',layer:'决策规划层 · 1–4 Hz · IvP多目标仲裁',rfc:'',sil:'SIL 1 (行为激活) / SIL 2 (与M6联合)',
+    desc:'行为字典 + IvP（区间规划）多目标仲裁器。将任务目标、COLREGs约束、ODD包络转化为可执行行为计划，输出M5规划约束。基于Benjamin (2010) MOOS-IvP框架，piecewise linear效用函数。保持Doer-Checker独立性：不共享M6的COLREGs推理代码，不共享L4 Checker的约束库。',
+    note:'IvP求解库首选MOOS-IvP原生库(Benjamin et al.)，备选lpsolve | 独立性: 不共享M6推理代码，不自行进行COLREGs推理（仅调用M6输出）',
+    ins:['Mission_GoalMsg (M3, 0.5Hz)','World_StateMsg (M2, 4Hz)','ODD_StateMsg (M1, 1Hz)'],
+    outs:['Behavior_PlanMsg → M5 @ 2Hz','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M5:{name:'Tactical Planner ★',layer:'决策规划层 · Mid-MPC @1Hz + BC-MPC @事件/10Hz',rfc:'RFC-001 ✅',sil:'',
+    desc:'计算强度最高的模块。双层MPC：Mid-MPC（≥90s时域，输出4航点序列+速度调整，与COLREGs和ODD约束协调）+ BC-MPC（10–30s，紧急输出(ψ,u,ROT)应对预测外威胁）。在X-axis Checker VETO约束下生成避碰轨迹。M5失联时L4自动退化为normal_LOS。',
+    note:'ReactiveOverrideCmd validity_s=1-3s，BC-MPC周期保证刷新 | L4切换速度: normal→avoidance<100ms，avoidance→reactive<50ms | 回切顺序: M7先启(恢复安全监控)→100ms→M5启动(恢复规划)',
+    ins:['Behavior_PlanMsg (M4, 2Hz)','COLREGs_ConstraintMsg (M6, 2Hz)','World_StateMsg (M2, 4Hz)','ODD_StateMsg (M1, 1Hz)','PlannedRoute+SpeedProfile (L2, ~0.5Hz)'],
+    outs:['AvoidancePlanMsg → L4 @ 1-2Hz (RFC-001)','ReactiveOverrideCmd → L4 @ 事件/10Hz (RFC-001)','SAT_DataMsg → M8','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M6:{name:'COLREGs Reasoner',layer:'决策规划层 · 1–2 Hz · SIL 2',rfc:'',sil:'SIL 2',
+    desc:'COLREGs Rule 5–19状态机推理。ODD-aware参数化：阈值随ODD子域切换（FCB高速场景Rule 8最小转向幅度需重新量化，18kn时停止距离600–800m，与通常船舶30°经验值不同）。插件接口支持规则库扩展。与M4联合提供SIL 2级COLREGs合规。',
+    note:'HAZID校准项: CPA/TCPA/DCPA阈值 · Rule 8最小转向幅度FCB修正 · 停止距离曲线参数 · 转弯半径高速修正(Yasukawa & Yoshimura 2015 MMG)',
+    ins:['World_StateMsg (M2, 4Hz)','ODD_StateMsg (M1, 1Hz)'],
+    outs:['COLREGs_ConstraintMsg → M5 @ 2Hz','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M7:{name:'Safety Supervisor',layer:'安全接口层 · ~6.7 Hz监控窗口',rfc:'RFC-003 ✅',sil:'SIL 2',
+    desc:'Doer-Checker中的Checker。双轨监控: IEC 61508功能安全 + ISO 21448 SOTIF感知降质。接受X-axis VETO(RFC-003 enum，6类VetoReasonClass)，15s滑窗(100周期@6.7Hz)监控否决率(初始阈值20%，待HAZID)。X-axis VETO直接生效（最高优先级），M7 MRM通过M1仲裁后置。SOTIF暂停期间M8实时显示降级告警(<100ms)。',
+    note:'优先级: X-axis VETO直接生效(最高) > M7 MRM通过M1仲裁后置 | M7仅按enum分类升级SOTIF告警，不解析自由文本（保持Doer-Checker独立性 F-NEW-002）| 否决率20%→HAZID',
+    ins:['CheckerVetoNotification (X-axis · RFC-003)','World_StateMsg (M2)','ODD_StateMsg (M1)'],
+    outs:['SOTIF告警 → M1','MRM命令 via M1仲裁','SAT降级告警 → M8 (<100ms · F-NEW-005)','ASDR_RecordMsg → ASDR (RFC-004)']},
+  M8:{name:'HMI / Transparency Bridge',layer:'安全接口层 · 50–100 Hz实时刷新',rfc:'',sil:'',
+    desc:'唯一对ROC/船长说话的实体。SAT三层透明性模型自适应触发: SAT-1（知悉当前状态）/ SAT-2（理解决策依据+rationale字段）/ SAT-3（预期系统行为）。ToR方案(C): 操作员主动点击"已知悉"按钮——满足IMO MASS Code"有意味的人为干预"要求(F-NEW-004)。接管时窗≥60s(Veitch et al. 2024)。',
+    note:'ToR方案(C): 交互验证（非静默确认）| ASDR记录tor_acknowledgment_clicked事件 | SAT-2 rationale字段: 所有消息强制 | M8响应降级告警<100ms(F-NEW-005)',
+    ins:['ODD_StateMsg (M1)','SAT_DataMsg (M5, M7)','ToR_RequestMsg (M3)'],
+    outs:['ToR交互确认 → ROC/船长','Shore Link透明性数据','ASDR_RecordMsg → ASDR (RFC-004)']},
+  L1:{name:'L1 任务层',layer:'外部系统 (上游) [hrs~days]',rfc:'',sil:'',note:'不在本仓库',desc:'航次令、气象路由、ETA/油耗优化。向M1/M3发送VoyageTask。L1设计不在本仓库。',ins:[],outs:['VoyageTask → M1/M3']},
+  L2:{name:'L2 航路规划层 Voyage Planner',layer:'外部系统 (上游) [min~hrs]',rfc:'RFC-006 ✅',sil:'',
+    desc:'ENC导航、WP序列生成、速度剖面、安全门检查。向L3提供PlannedRoute和SpeedProfile。接受M3的RouteReplanRequest(RFC-006)，按优先级在deadline内重规划，回复ReplanResponseMsg(v1.1.2新增)。',
+    note:'exclusion_zones格式: GeoJSON Polygon（与ENC SUL兼容）| L2失败回复deadline_s×0.5 | 重规划期间M4继续当前PlannedRoute',
+    ins:['RouteReplanRequest (M3 · RFC-006)'],outs:['PlannedRoute → M3/M5 @~0.5Hz','SpeedProfile → M5','ReplanResponseMsg → M3 (v1.1.2新增)']},
+  Fusion:{name:'多模态感知融合',layer:'外部独立感知子系统',rfc:'RFC-002 ✅, RFC-005 ✅',sil:'',
+    desc:'融合GNSS/Gyro/IMU/Radar/AIS/Camera/LiDAR，向M2输出三话题(RFC-002)。新增nav_mode字段(OPTIMAL/DR_SHORT/DR_LONG/DEGRADED)作为健康度信号。添加/perception/proximity_emergency @50Hz供Reflex Arc触发(RFC-005)，仅在distance<200m时启用。(u,v)不含海流估计。',
+    note:'(u,v)不含海流估计，M2自行从current_speed/direction减去 | proximity_emergency: distance<200m时启用，50Hz高频',
+    ins:['GNSS/Gyro/IMU/Radar/AIS/Camera/LiDAR原始数据'],
+    outs:['TrackedTargetArray → M2 @10Hz','FilteredOwnShipState → M2 @50Hz','EnvironmentState → M2 @0.2Hz','/perception/proximity_emergency → Reflex Arc @50Hz (RFC-005)']},
+  L4:{name:'L4 引导层 Guidance Layer',layer:'外部系统 (下游) [100ms~1s]',rfc:'RFC-001 ✅',sil:'',
+    desc:'接受M5双接口(RFC-001)，支持三模式切换: normal_LOS(跟踪L2 PlannedRoute, LOS+WOP) / avoidance_planning(消费M5 AvoidancePlan覆盖L2) / reactive_override(直接转发ReactiveOverrideCmd，旁路自身LOS)。输出(ψ_cmd, u_cmd, ROT_cmd) → L5。',
+    note:'改造工作量≈6周 | normal→avoidance<100ms，avoidance→reactive<50ms | M5失联→退化normal_LOS+通知M1 | 三模式下L5输出格式一致(ψ,u,ROT)',
+    ins:['AvoidancePlanMsg (M5 · RFC-001)','ReactiveOverrideCmd (M5 · RFC-001)','PlannedRoute (L2)'],outs:['(ψ_cmd, u_cmd, ROT_cmd) → L5']},
+  ASDR:{name:'ASDR 决策追溯记录器',layer:'Z-bottom · 外部系统 (Extended VDR)',rfc:'RFC-004 ✅',sil:'',
+    desc:'接受全部7个L3模块(M1–M7)的ASDR_RecordMsg，SHA-256签名保证完整性，吞吐量50 events/s（峰值HIL已验证）。提供REST API供CCS审计时间窗查询。本地存储+Shore Link同步(5min周期)。记录tor_acknowledgment_clicked等关键事件。',
+    note:'HMAC安全升级留v1.2 | CCS审计回放: REST API时间窗查询 | AiDecisionRecord JSON schema与v1.1.1 §15.1对齐',
+    ins:['ASDR_RecordMsg (M1/M2/M3/M4/M5/M6/M7)'],outs:['REST API → CCS审计','Shore Link同步备份 @5min']},
+  ROC:{name:'ROC / 船长',layer:'外部人员 · 岸基/船上',rfc:'',sil:'',note:'接管时窗须≥60s（Veitch et al. 2024实证基线）',desc:'远程操控中心(Remote Operation Centre)操作员或船上船长。通过M8接收SAT透明性信息，通过ToR协议主动点击确认接管（方案C: 有意味的人为干预）。',ins:['SAT可视化 (M8)','ToR交互 (M8)'],outs:['接管指令','ToR确认点击']},
+  ParamDB:{name:'Parameter Database 参数数据库',layer:'横向支持系统',rfc:'',sil:'',note:'C3约束: 支持FCB/拖船/渡船参数化扩展，不允许一船一设计，水动力模型/推进配置可独立替换',desc:'存储多船型参数：操纵系数、停船距离、吃水/风流/推进配置、降级回退参数。通过ODD模板库向M1提供船型能力清单(Capability Manifest)，支持多船型扩展而不侵入决策逻辑。',ins:[],outs:['船型能力清单 → M1','操纵参数 → M5/M6']},
+  Shore:{name:'Shore Link',layer:'横向通信链路 (via DMZ · IACS UR E26/E27)',rfc:'',sil:'',note:'受IACS UR E26/E27网络安全保护，通过Z-TOP DMZ隔离',desc:'通过DMZ的远程遥测+遥控接管+自主等级仲裁通道。M8向ROC发送SAT透明性数据，ASDR通过Shore Link 5min周期同步备份。',ins:[],outs:[]},
+  Xaxis:{name:'X-axis Deterministic Checker',layer:'v3.0系统层独立轴 · 跨L2/L3/L4/L5',rfc:'RFC-003 ✅',sil:'',
+    desc:'独立确定性验证器，对L2/L3/L4/L5决策具VETO权（最高优先级，直接生效）。VETO后回退nearest_compliant。向M7发送CheckerVetoNotification(enum化，RFC-003)，6类VetoReasonClass。物理隔离确认（L2/L3/L4/L5子项独立）。L3内部冻结<50ms（M1并行广播）。心跳监控由Checker自身维护（Reflex Arc心跳也由X-axis监控）。',
+    note:'M7仅按enum分类升级SOTIF告警，不解析veto_reason_detail自由文本（保持Doer-Checker独立性）| 物理隔离确认 | ASDR记录含checker_veto_received decision_type',
+    ins:['L2/L3/L4/L5全层决策输出'],outs:['CheckerVetoNotification → M7 (RFC-003)','nearest_compliant → 各层']},
+  Yaxis:{name:'Y-axis Reflex Arc',layer:'v3.0系统层紧急旁路 · SIL 3',rfc:'RFC-005 ✅ (SIL 3)',sil:'SIL 3',
+    desc:'感知极近距离威胁时旁路L3/L4直达L5，端到端<500ms。触发阈值(初始值，全部待HAZID校准): CPA<50m / range<100m / TTC<3s，任一条件触发；多目标聚合升级HARD_TURN。L3内部冻结<50ms（M1并行广播）。心跳监控由X-axis Checker维护（最高独立性）。',
+    note:'触发阈值全部标注[HAZID校准] | proximity_emergency话题50Hz(distance<200m时启用) | 优先级: Hardware Override > Reflex Arc > M5 ReactiveOverride',
+    ins:['/perception/proximity_emergency (Fusion, 50Hz · RFC-005)'],
+    outs:['EmergencyCommand (STOP/REVERSE/HARD_TURN) → L5','ReflexActivationNotification → M1']},
+  HWOverride:{name:'Hardware Override Arbiter',layer:'Z-bottom · 零软件硬连线 · 最高优先级',rfc:'',sil:'',note:'凌驾于所有软件决策之上，满足IMO MASS 4-level模式指示要求',desc:'零软件硬连线急停，优先级凌驾于所有软件决策。向M1发送OverrideActiveSignal。与ASDR(Extended VDR)共同构成Z-bottom层，满足IMO MASS 4-level模式指示要求。',ins:['物理紧急按钮/硬连线触发'],outs:['OverrideActiveSignal → M1','ASDR记录']}
+};
+
+function sm(id) {
+  const m = D[id]; if(!m) return;
+  document.querySelectorAll('.node').forEach(n => n.style.opacity='0.45');
+  const el = document.getElementById('mod-'+id) || document.getElementById('ext-'+id);
+  if(el) el.style.opacity='1';
+
+  const rfc = m.rfc ? `<span class="chip crfc">${m.rfc}</span>` : '';
+  const sil = m.sil ? `<span class="chip csil">${m.sil}</span>` : '';
+  const insH = m.ins.length ? `<div class="dsec"><div class="dsec-t">输入接口</div><div class="chips">${m.ins.map(i=>`<span class="chip cin">↓ ${i}</span>`).join('')}</div></div>` : '';
+  const outH = m.outs.length ? `<div class="dsec"><div class="dsec-t">输出接口</div><div class="chips">${m.outs.map(o=>`<span class="chip cout">↑ ${o}</span>`).join('')}</div></div>` : '';
+  const noteH = m.note ? `<div class="dnote">📎 ${m.note}</div>` : '';
+  document.getElementById('detail').innerHTML =
+    `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><span class="dname">${m.name}</span>${rfc}${sil}</div>`+
+    `<div class="dlayer">${m.layer}</div><div class="ddesc">${m.desc}</div>${insH}${outH}${noteH}`;
+}
+
+function tab(n) {
+  const names = ['arch','ctx','rfc'];
+  document.querySelectorAll('.tbtn').forEach((b,i) => b.classList.toggle('on', names[i]===n));
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('on', names[i]===n));
+  document.querySelectorAll('.node').forEach(el => el.style.opacity='1');
+}
+</script>
+</body>
+</html>

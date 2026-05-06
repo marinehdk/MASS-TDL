@@ -1,0 +1,53 @@
+# Build artifacts
+build/
+install/
+log/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+.venv/
+venv/
+
+# Coverage
+coverage/
+coverage-*.info
+coverage-html-*/
+*.gcda
+*.gcno
+*.gcov
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+compile_commands.json
+
+# Docker
+.docker/
+
+# claude worktrees
+.worktrees/
+
+# ccache
+.ccache/
+
+# Temp
+*.tmp
+*.temp

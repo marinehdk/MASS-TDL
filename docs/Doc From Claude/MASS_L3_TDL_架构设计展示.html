@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MASS ADAS · L3 战术决策层架构设计</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b1628;--surface:#112039;--card:#19304f;--card2:#1e3a5f;
+  --border:rgba(80,140,220,0.18);--border2:rgba(80,140,220,0.35);
+  --text:#cde0ff;--text2:#7a9cc5;--text3:#456080;
+  --blue:#4a9eff;--cyan:#00cfff;--teal:#1ae0c0;
+  --green:#3ecf7a;--amber:#ffb340;--red:#ff5252;--purple:#a87fff;
+  --primary:#1d4fd8;--primary-light:#3b6ef8;
+  --r:8px;--r2:12px;--r3:16px;
+  --transition:0.25s cubic-bezier(.4,0,.2,1);
+}
+html{scroll-behavior:smooth;font-size:14px}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;display:flex;min-height:100vh;overflow-x:hidden}
+
+/* SIDEBAR */
+.sidebar{
+  position:fixed;left:0;top:0;width:200px;height:100vh;
+  background:rgba(11,22,40,0.96);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;z-index:100;backdrop-filter:blur(10px);
+  padding:24px 0 16px;
+}
+.sidebar-logo{
+  padding:0 20px 20px;border-bottom:1px solid var(--border);
+  font-size:11px;letter-spacing:.08em;color:var(--text2);line-height:1.6;
+}
+.sidebar-logo strong{display:block;font-size:13px;color:var(--text);margin-bottom:4px}
+.sidebar-logo span{color:var(--cyan);font-weight:600}
+.sidebar-nav{flex:1;overflow-y:auto;padding:12px 0}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 20px;cursor:pointer;
+  font-size:12px;color:var(--text2);transition:all var(--transition);border-left:2px solid transparent;
+  text-decoration:none;
+}
+.nav-item:hover{color:var(--text);background:rgba(74,158,255,0.06);border-left-color:var(--blue)}
+.nav-item.active{color:var(--blue);background:rgba(74,158,255,0.1);border-left-color:var(--blue)}
+.nav-num{font-size:10px;color:var(--text3);min-width:18px;font-family:monospace}
+.nav-item.active .nav-num{color:var(--blue)}
+.sidebar-footer{padding:12px 20px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);line-height:1.7}
+
+/* MAIN */
+main{margin-left:200px;flex:1;min-width:0}
+section{min-height:100vh;padding:48px 48px 64px;position:relative;scroll-margin-top:0}
+section:nth-child(even){background:rgba(17,32,57,0.4)}
+
+/* SECTION HEADER */
+.sec-header{margin-bottom:36px}
+.sec-tag{font-size:10px;letter-spacing:.12em;color:var(--cyan);font-weight:600;text-transform:uppercase;margin-bottom:8px}
+.sec-title{font-size:28px;font-weight:700;color:var(--text);line-height:1.3;margin-bottom:8px}
+.sec-sub{font-size:14px;color:var(--text2);line-height:1.7;max-width:700px}
+
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:20px;transition:border-color var(--transition)}
+.card:hover{border-color:var(--border2)}
+.card-label{font-size:10px;letter-spacing:.1em;font-weight:600;text-transform:uppercase;margin-bottom:10px}
+.card-title{font-size:16px;font-weight:600;margin-bottom:6px;line-height:1.4}
+.card-body{font-size:13px;color:var(--text2);line-height:1.8}
+.card-grid{display:grid;gap:16px}
+.card-grid.col2{grid-template-columns:1fr 1fr}
+.card-grid.col3{grid-template-columns:1fr 1fr 1fr}
+.card-grid.col4{grid-template-columns:1fr 1fr 1fr 1fr}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;line-height:1.5}
+.badge-blue{background:rgba(74,158,255,0.15);color:#80bcff;border:1px solid rgba(74,158,255,0.3)}
+.badge-green{background:rgba(62,207,122,0.15);color:#6de49c;border:1px solid rgba(62,207,122,0.3)}
+.badge-amber{background:rgba(255,179,64,0.15);color:#ffca7a;border:1px solid rgba(255,179,64,0.3)}
+.badge-red{background:rgba(255,82,82,0.15);color:#ff8a8a;border:1px solid rgba(255,82,82,0.3)}
+.badge-cyan{background:rgba(0,207,255,0.12);color:#50d8ff;border:1px solid rgba(0,207,255,0.25)}
+.badge-purple{background:rgba(168,127,255,0.15);color:#c4a0ff;border:1px solid rgba(168,127,255,0.3)}
+
+/* DIVIDER */
+hr.div{border:none;border-top:1px solid var(--border);margin:28px 0}
+
+/* TABLES */
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{background:var(--card2);color:var(--text2);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;text-align:left;border-bottom:1px solid var(--border2)}
+.tbl td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top;line-height:1.6}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:rgba(74,158,255,0.04)}
+code{font-family:'Consolas','Monaco',monospace;font-size:11.5px;background:rgba(74,158,255,0.1);color:var(--cyan);padding:1px 6px;border-radius:4px}
+
+/* DECISION CARDS */
+.decision-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;overflow:hidden;transition:border-color var(--transition)}
+.decision-card:hover{border-color:var(--border2)}
+.decision-card.open{border-color:var(--blue)}
+.dc-head{display:flex;align-items:flex-start;gap:16px;padding:22px 24px}
+.dc-num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.dc-body{flex:1}
+.dc-title{font-size:15px;font-weight:600;margin-bottom:4px}
+.dc-sub{font-size:12.5px;color:var(--text2);line-height:1.6}
+.dc-chevron{color:var(--text3);font-size:18px;transition:transform var(--transition);margin-top:2px}
+.decision-card.open .dc-chevron{transform:rotate(90deg);color:var(--blue)}
+.dc-detail{max-height:0;overflow:hidden;transition:max-height 0.35s cubic-bezier(.4,0,.2,1)}
+.decision-card.open .dc-detail{max-height:600px}
+.dc-inner{padding:0 24px 24px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.dc-block{background:rgba(11,22,40,0.5);border-radius:var(--r);padding:16px;border:1px solid var(--border)}
+.dc-block-title{font-size:10px;letter-spacing:.1em;font-weight:600;text-transform:uppercase;color:var(--text2);margin-bottom:8px}
+.dc-block-body{font-size:12.5px;color:var(--text);line-height:1.8}
+.dc-alt{color:var(--red);font-size:12px;margin-top:6px}
+
+/* ODD SECTION */
+.odd-axes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:32px}
+.axis-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:20px;position:relative;overflow:hidden}
+.axis-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.axis-e::before{background:linear-gradient(90deg,var(--blue),var(--cyan))}
+.axis-t::before{background:linear-gradient(90deg,var(--teal),var(--green))}
+.axis-h::before{background:linear-gradient(90deg,var(--purple),var(--amber))}
+.axis-label{font-size:11px;letter-spacing:.1em;font-weight:600;text-transform:uppercase;margin-bottom:10px}
+.axis-e .axis-label{color:var(--cyan)}
+.axis-t .axis-label{color:var(--teal)}
+.axis-h .axis-label{color:var(--purple)}
+.axis-items{font-size:12.5px;color:var(--text2);line-height:2}
+.axis-items span{color:var(--text);font-weight:500}
+
+/* ODD TABS */
+.odd-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px}
+.odd-tab{background:var(--card);border:1.5px solid var(--border);border-radius:var(--r);padding:12px;cursor:pointer;text-align:left;transition:all var(--transition);color:var(--text2)}
+.odd-tab:hover{background:var(--card2);color:var(--text)}
+.odd-tab.active{color:var(--text)}
+.odd-tab .ot-name{font-size:13px;font-weight:600;margin-bottom:2px}
+.odd-tab .ot-sub{font-size:11px;opacity:.8}
+
+.odd-content{display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start}
+.odd-params{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:16px}
+.odd-param-title{font-size:13px;font-weight:600;margin-bottom:4px}
+.odd-param-sub{font-size:11px;color:var(--text2);margin-bottom:14px}
+.param-row{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.param-row:last-child{border-bottom:none}
+.param-key{color:var(--text2)}
+.param-val{font-weight:600;color:var(--text);text-align:right;max-width:55%}
+
+/* ARCHITECTURE SVG */
+.arch-wrap{position:relative}
+.arch-svg{width:100%;overflow:visible}
+.mbox{transition:fill .35s,stroke .35s;cursor:pointer}
+.mbox:hover{filter:brightness(1.1)}
+.mtxt{transition:fill .35s;pointer-events:none}
+.arr-line{fill:none;stroke-width:1;marker-end:url(#ah)}
+
+/* MODULE DETAIL PANEL */
+.mod-panel{
+  position:fixed;bottom:0;left:200px;right:0;z-index:200;
+  background:var(--surface);border-top:2px solid var(--blue);
+  transform:translateY(100%);transition:transform var(--transition);
+  max-height:50vh;overflow-y:auto;
+}
+.mod-panel.open{transform:translateY(0)}
+.mp-head{display:flex;align-items:flex-start;gap:16px;padding:20px 32px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}
+.mp-num{width:44px;height:44px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0}
+.mp-title{font-size:18px;font-weight:700;color:var(--text)}
+.mp-subtitle{font-size:12px;color:var(--text2);margin-top:2px}
+.mp-close{margin-left:auto;cursor:pointer;color:var(--text2);font-size:22px;padding:4px;line-height:1;transition:color var(--transition)}
+.mp-close:hover{color:var(--text)}
+.mp-body{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;padding:0}
+.mp-block{padding:20px 24px;border-right:1px solid var(--border)}
+.mp-block:last-child{border-right:none}
+.mp-block-title{font-size:10px;letter-spacing:.1em;font-weight:600;text-transform:uppercase;color:var(--text2);margin-bottom:10px}
+.mp-block-body{font-size:12.5px;color:var(--text);line-height:1.8}
+.mp-tag{display:inline-block;font-size:10.5px;background:rgba(74,158,255,0.12);color:var(--blue);border:1px solid rgba(74,158,255,0.2);border-radius:4px;padding:1px 7px;margin:2px 2px 2px 0;font-family:monospace}
+
+/* MODULE TABS (Section 5) */
+.mod-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:24px}
+.mod-nav-btn{padding:7px 14px;border-radius:var(--r);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text2);transition:all var(--transition)}
+.mod-nav-btn:hover{color:var(--text);border-color:var(--border2)}
+.mod-nav-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.mod-content{display:none}
+.mod-content.active{display:grid;grid-template-columns:1fr 1fr;gap:20px;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* MULTI-VESSEL */
+.mv-layers{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden}
+.mv-layer{padding:24px 28px;position:relative}
+.mv-layer:not(:last-child){border-bottom:1px solid var(--border2)}
+.mv-layer-label{font-size:10px;letter-spacing:.1em;font-weight:700;text-transform:uppercase;margin-bottom:12px}
+.mv-layer-title{font-size:15px;font-weight:600;margin-bottom:6px}
+.mv-layer-body{font-size:12.5px;color:var(--text2);line-height:1.8}
+.mv-a{background:rgba(62,207,122,0.06)}.mv-a .mv-layer-label{color:var(--green)}
+.mv-b{background:rgba(74,158,255,0.06)}.mv-b .mv-layer-label{color:var(--blue)}
+.mv-c{background:rgba(255,179,64,0.06)}.mv-c .mv-layer-label{color:var(--amber)}
+.mv-modules{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.mv-mod{background:rgba(62,207,122,0.12);border:1px solid rgba(62,207,122,0.25);border-radius:5px;padding:3px 10px;font-size:11px;color:#6de49c;font-family:monospace}
+.mv-b .mv-mod{background:rgba(74,158,255,0.12);border-color:rgba(74,158,255,0.25);color:#80bcff}
+.mv-c .mv-mod{background:rgba(255,179,64,0.12);border-color:rgba(255,179,64,0.25);color:#ffca7a}
+
+/* CERT TIMELINE */
+.cert-phases{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+.cert-phase{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:20px;position:relative}
+.cp-phase-num{font-size:11px;letter-spacing:.1em;font-weight:700;text-transform:uppercase;color:var(--blue);margin-bottom:8px}
+.cp-title{font-size:14px;font-weight:600;margin-bottom:10px}
+.cp-target{font-size:12px;color:var(--amber);margin-bottom:10px}
+.cp-items{font-size:12px;color:var(--text2);line-height:2}
+.cp-items li{list-style:none;padding-left:16px;position:relative}
+.cp-items li::before{content:'·';position:absolute;left:4px;color:var(--blue)}
+
+/* LEGEND */
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.leg-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* SCROLL PROGRESS */
+.progress{position:fixed;top:0;left:0;right:0;height:2px;background:rgba(74,158,255,0.12);z-index:999}
+.progress-bar{height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));width:0;transition:width .1s}
+
+/* HERO STATS */
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:32px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:18px;text-align:center}
+.stat-val{font-size:26px;font-weight:700;margin-bottom:4px}
+.stat-label{font-size:11px;color:var(--text2);line-height:1.5}
+
+/* STATE MACHINE */
+.fsm-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:20px}
+.fsm-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:16px;text-transform:uppercase;letter-spacing:.08em}
+.fsm-states{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.fsm-state{padding:8px 16px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid}
+.fsm-in{background:rgba(62,207,122,0.12);border-color:var(--green);color:#6de49c}
+.fsm-edge{background:rgba(255,179,64,0.12);border-color:var(--amber);color:#ffca7a}
+.fsm-out{background:rgba(255,82,82,0.12);border-color:var(--red);color:#ff8a8a}
+.fsm-mrc{background:rgba(168,127,255,0.12);border-color:var(--purple);color:#c4a0ff}
+.fsm-arrows{font-size:12px;color:var(--text2);line-height:2.2}
+.fsm-arrow{display:flex;align-items:center;gap:8px}
+.fsm-arrow .from{color:var(--text);font-weight:500}
+.fsm-arrow .to{color:var(--text);font-weight:500}
+.fsm-arrow .cond{color:var(--text2);font-style:italic}
+.arr-sym{color:var(--blue);font-size:14px}
+</style>
+</head>
+<body>
+
+<div class="progress"><div class="progress-bar" id="pbar"></div></div>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <strong>MASS ADAS</strong>
+    <span>L3 战术决策层</span><br>
+    架构设计 v1.0
+  </div>
+  <div class="sidebar-nav">
+    <a class="nav-item active" href="#s1" data-sec="s1"><span class="nav-num">01</span>设计概览</a>
+    <a class="nav-item" href="#s2" data-sec="s2"><span class="nav-num">02</span>核心决策</a>
+    <a class="nav-item" href="#s3" data-sec="s3"><span class="nav-num">03</span>ODD 框架</a>
+    <a class="nav-item" href="#s4" data-sec="s4"><span class="nav-num">04</span>系统架构</a>
+    <a class="nav-item" href="#s5" data-sec="s5"><span class="nav-num">05</span>模块设计</a>
+    <a class="nav-item" href="#s6" data-sec="s6"><span class="nav-num">06</span>多船型设计</a>
+    <a class="nav-item" href="#s7" data-sec="s7"><span class="nav-num">07</span>CCS 认证路径</a>
+  </div>
+  <div class="sidebar-footer">
+    45m FCB 首发 · CCS 单一入级<br>
+    D2–D4 自主等级覆盖
+  </div>
+</nav>
+
+<main>
+
+<!-- ==================== S1: OVERVIEW ==================== -->
+<section id="s1">
+<div class="sec-header">
+  <div class="sec-tag">Section 01</div>
+  <div class="sec-title">MASS ADAS L3 战术决策层<br>系统架构设计</div>
+  <div class="sec-sub">基于 ODD-centric（运行设计域驱动）原则的 8 模块战术决策层架构，首发于 45m FCB，设计上支持无限船型扩展。目标入级：CCS i-Ship (Nx, Ri/Ai)。</div>
+</div>
+
+<div class="hero-stats">
+  <div class="stat-card"><div class="stat-val" style="color:var(--blue)">8</div><div class="stat-label">功能模块<br>按职责精确分解</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:var(--cyan)">D2–D4</div><div class="stat-label">自主等级覆盖<br>含完整降级链路</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:var(--green)">100%</div><div class="stat-label">DNV-CG-0264<br>导航子功能覆盖</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:var(--amber)">∞</div><div class="stat-label">船型扩展<br>Capability Manifest 驱动</div></div>
+</div>
+
+<hr class="div">
+
+<div class="card-grid col3" style="margin-top:0">
+  <div class="card">
+    <div class="card-label" style="color:var(--blue)">C1 — CCS 合规约束</div>
+    <div class="card-title">白盒可审计，软件证据完整</div>
+    <div class="card-body">满足 CCS《智能船舶规范》(2025) 和《船用软件安全及可靠性评估指南》。决策逻辑全程可追溯，ASDR 黑匣子完整记录每次决策依据。</div>
+  </div>
+  <div class="card">
+    <div class="card-label" style="color:var(--cyan)">C2 — IMO MASS Code</div>
+    <div class="card-title">能识别并响应包络越界</div>
+    <div class="card-body">符合 MSC 110/111 MASS Code 草案要求：系统必须独立识别是否处于 Operational Envelope 之外，并触发规范化降级或 MRC 流程。</div>
+  </div>
+  <div class="card">
+    <div class="card-label" style="color:var(--green)">C3 — 多船型兼容</div>
+    <div class="card-title">一套核心代码，无限船型</div>
+    <div class="card-body">Capability Manifest + 水动力插件机制将船型参数完全外化。换船型时零修改决策算法，仅替换 YAML 配置文件和动力学 .so 库。</div>
+  </div>
+  <div class="card">
+    <div class="card-label" style="color:var(--purple)">C4 — 人机工程</div>
+    <div class="card-title">≥60s 接管时窗，SAT 三层透明</div>
+    <div class="card-body">基于 Veitch et al. (2024) 实证研究，ROC 操作员接管时窗须 ≥ 60s。SAT-1/2/3 三层透明接口确保操作员始终知晓系统在做什么、为什么这么做、接下来会怎样。</div>
+  </div>
+  <div class="card">
+    <div class="card-label" style="color:var(--amber)">C5 — 功能安全</div>
+    <div class="card-title">IEC 61508 SIL 2 + ISO 21448 SOTIF</div>
+    <div class="card-body">核心安全链路（ODD Monitor + MRC 触发）满足 SIL 2；ISO 21448 SOTIF 处理"系统按设计运行但设计本身不足"的场景——如 AIS 关闭目标的碰撞风险。</div>
+  </div>
+  <div class="card">
+    <div class="card-label" style="color:var(--red)">设计边界</div>
+    <div class="card-title">TDL 范围：从感知输出到 L2 指令</div>
+    <div class="card-body">TDL 上接 L2 战略层（Voyage Planner），下接 L4/L5 执行控制（Heading/Speed Controller）。不包含传感器融合内部算法、全局航次优化、舵机 PID。</div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== S2: CORE DECISIONS ==================== -->
+<section id="s2">
+<div class="sec-header">
+  <div class="sec-tag">Section 02</div>
+  <div class="sec-title">四项核心架构决策</div>
+  <div class="sec-sub">以下四项决策驱动了整个 TDL 的架构形态。每项决策都有明确的被弃用替代方案和弃用理由。点击展开查看详细分析。</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+
+<div class="decision-card open" id="dc1">
+  <div class="dc-head" onclick="toggleDC('dc1')">
+    <div class="dc-num" style="background:rgba(74,158,255,0.15);color:var(--blue)">D1</div>
+    <div class="dc-body">
+      <div class="dc-title">ODD 作为组织原则，而非监控模块</div>
+      <div class="dc-sub">ODD/Envelope Manager (M1) 是所有模块的中央调度枢纽。ODD 状态变化是驱动系统行为切换的唯一权威来源。</div>
+    </div>
+    <div class="dc-chevron">›</div>
+  </div>
+  <div class="dc-detail">
+    <div class="dc-inner">
+      <div class="dc-block">
+        <div class="dc-block-title">决策理由</div>
+        <div class="dc-block-body">IMO MASS Code MSC 110（2025）§15 要求"系统必须能独立识别是否处于 Operational Envelope 之外"。Rødseth et al.（2022）证明：海事 ODD 必须包含人机责任分配维度，不同于汽车行业 SAE J3016 的 ODD 定义。当 ODD 变化时，所有模块的行为语义同时改变——不是参数微调，而是语义切换。</div>
+      </div>
+      <div class="dc-block">
+        <div class="dc-block-title">被弃用的替代方案</div>
+        <div class="dc-block-body">旁路监控模式：算法先执行，ODD 偶尔检查。
+        <div class="dc-alt">✕ 弃用理由：各算法模块各自维护世界假设，当假设失效时没有统一更新机制，产生"部分模块认为安全、部分已越界"的一致性危机，是难以调试的隐性故障模式。</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="decision-card" id="dc2">
+  <div class="dc-head" onclick="toggleDC('dc2')">
+    <div class="dc-num" style="background:rgba(0,207,255,0.12);color:var(--cyan)">D2</div>
+    <div class="dc-body">
+      <div class="dc-title">8 模块功能分解（三层职责架构）</div>
+      <div class="dc-sub">按包络控制层 / 决策规划层 / 安全接口层三层组织 8 个功能边界清晰的模块，对 DNV-CG-0264 9 个导航子功能实现 100% 覆盖。</div>
+    </div>
+    <div class="dc-chevron">›</div>
+  </div>
+  <div class="dc-detail">
+    <div class="dc-inner">
+      <div class="dc-block">
+        <div class="dc-block-title">决策理由</div>
+        <div class="dc-block-body">DNV-CG-0264 §4 将导航功能分为 9 个独立子功能（§4.2–§4.10），每个须独立验证。CCS 接受 DNV 等效性验证，因此本设计 8 模块对 9 子功能的 100% 覆盖是认证入口的必要条件。CMU Boss（DARPA Urban Challenge 冠军）的三层规划栈是按职责而非算法划分模块的最强工业证据。</div>
+      </div>
+      <div class="dc-block">
+        <div class="dc-block-title">被弃用的替代方案</div>
+        <div class="dc-block-body">候选 A（7 模块算法导向）：按算法功能切分，ODD 作为旁路监控，HMI 作为接口适配。
+        <div class="dc-alt">✕ 弃用理由：COLREGs 推理嵌入 Behavior Arbiter 无法独立 SIL 验证；HMI 多点分散无法保证责任移交原子性；无显式的 SOTIF 监督模块。</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="decision-card" id="dc3">
+  <div class="dc-head" onclick="toggleDC('dc3')">
+    <div class="dc-num" style="background:rgba(168,127,255,0.12);color:var(--purple)">D3</div>
+    <div class="dc-body">
+      <div class="dc-title">CMM 映射为 SAT-1/2/3 三层透明性接口</div>
+      <div class="dc-sub">船长心智模型（CMM）不作为系统内部状态机，而是通过三层 API 对外可观测：current_state / rationale / forecast+uncertainty。</div>
+    </div>
+    <div class="dc-chevron">›</div>
+  </div>
+  <div class="dc-detail">
+    <div class="dc-inner">
+      <div class="dc-block">
+        <div class="dc-block-title">决策理由</div>
+        <div class="dc-block-body">Chen et al.（ARL-TR-7180）的 SAT 模型实证：SAT-1+2+3 全部可见时操作员 SA 提升且工作负荷不增加。Veitch et al.（2024）实证证明 DSS 可用性是 ROC 绩效最强影响因子。M8 作为唯一 ROC/船长接口，确保"谁在控制"的答案在任何时刻唯一确定。</div>
+      </div>
+      <div class="dc-block">
+        <div class="dc-block-title">被弃用的替代方案</div>
+        <div class="dc-block-body">将 CMM 实现为"模拟船长决策"的内部状态机，外部暴露简单操作界面。
+        <div class="dc-alt">✕ 弃用理由：产生"算法语言 vs 船员语言"语义鸿沟——CCS 验船师、船长、ROC 操作员无法对同一场景达成共识。认证时无法向验船师解释"系统为什么做了这个决策"。</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="decision-card" id="dc4">
+  <div class="dc-head" onclick="toggleDC('dc4')">
+    <div class="dc-num" style="background:rgba(255,82,82,0.12);color:var(--red)">D4</div>
+    <div class="dc-body">
+      <div class="dc-title">Doer-Checker 双轨安全模式</div>
+      <div class="dc-sub">M1–M6 作为 Doer（自主决策执行），M7 作为 Checker（运行时安全仲裁），Checker 逻辑须比 Doer 简单 100 倍以上且独立实现。</div>
+    </div>
+    <div class="dc-chevron">›</div>
+  </div>
+  <div class="dc-detail">
+    <div class="dc-inner">
+      <div class="dc-block">
+        <div class="dc-block-title">决策理由</div>
+        <div class="dc-block-body">Jackson et al.（MIT CSAIL, arXiv:2104.06178, 2021）从形式验证角度论证：主控制器找高性能解，安全监督器只验证解是否满足安全约束，后者的规约必须足够简单以支持形式化证明。Boeing 777 飞行控制系统和 NASA F/A-18 Auto GCAS 是 SIL 3 认证的同类工业先例。</div>
+      </div>
+      <div class="dc-block">
+        <div class="dc-block-title">核心设计要求</div>
+        <div class="dc-block-body">M7 的 6 类硬约束须能在 10ms 内完成检查（独立于 MPC 优化求解）：CPA 违反、TCPA 越界、速度超限、转艏率超限、ODD 边界越界、通信链路失效。
+        <br><br>M7 有权直接向 M5 注入安全轨迹（绕过 M4 行为仲裁）——这是系统中唯一一处紧急快捷路径。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</section>
+
+<!-- ==================== S3: ODD FRAMEWORK ==================== -->
+<section id="s3">
+<div class="sec-header">
+  <div class="sec-tag">Section 03</div>
+  <div class="sec-title">ODD / Operational Envelope 框架</div>
+  <div class="sec-sub">Operational Envelope = E × T × H（环境 × 任务 × 人机责任）三轴状态空间。这是 Rødseth et al.（2022）对汽车行业 ODD 概念在海事领域的关键扩展——H 轴（人机责任分配）是 MASS 独有的安全维度。</div>
+</div>
+
+<div class="odd-axes">
+  <div class="axis-card axis-e">
+    <div class="axis-label">E — Environment（环境维度）</div>
+    <div class="axis-items">
+      水域类型：<span>开阔 / 狭水道 / 港内</span><br>
+      气象能见度：<span>≥2nm / &lt;2nm (Rule 19)</span><br>
+      海况 Hs：<span>≤1.5m / ≤2.5m / &gt;2.5m</span><br>
+      交通密度：<span>稀疏 / 中等 / 密集</span><br>
+      水深裕量：<span>UKC 百分比</span>
+    </div>
+  </div>
+  <div class="axis-card axis-t">
+    <div class="axis-label">T — Task（任务维度）</div>
+    <div class="axis-items">
+      任务阶段：<span>Transit / Approach / Berthing</span><br>
+      速度域：<span>巡航 / 低速 / DP精控 (&lt;2kn)</span><br>
+      作业类型：<span>Crew Transfer / Standby / Port</span><br>
+      VTS 区要求：<span>是 / 否</span><br>
+      锚地操作：<span>是 / 否</span>
+    </div>
+  </div>
+  <div class="axis-card axis-h">
+    <div class="axis-label">H — Human Availability（人机责任）</div>
+    <div class="axis-items">
+      控制位置：<span>船上 / ROC / 无人</span><br>
+      TMR：<span>最大操作员响应时间</span><br>
+      TDL：<span>自主系统安全维持时间</span><br>
+      通信链路质量：<span>RTT / 丢包率</span><br>
+      约束：<span>TDL &gt; TMR（安全约束）</span>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<div class="sec-sub" style="margin-bottom:16px">四个 ODD 子域 — 点击查看参数详情</div>
+
+<div class="odd-tabs" id="odd-tabs3">
+  <div class="odd-tab active" data-odd3="0" onclick="selectODD3(0)">
+    <div class="ot-name">🌊 开阔水域</div>
+    <div class="ot-sub">Open Water · D2–D4</div>
+  </div>
+  <div class="odd-tab" data-odd3="1" onclick="selectODD3(1)">
+    <div class="ot-name">🚢 狭水道 / VTS</div>
+    <div class="ot-sub">Narrow Channel · D2–D3</div>
+  </div>
+  <div class="odd-tab" data-odd3="2" onclick="selectODD3(2)">
+    <div class="ot-name">⚓ 港内 / 靠泊</div>
+    <div class="ot-sub">Port / Berthing · D2推荐</div>
+  </div>
+  <div class="odd-tab" data-odd3="3" onclick="selectODD3(3)">
+    <div class="ot-name">🌫️ 能见度不良</div>
+    <div class="ot-sub">Low Visibility · D2–D3</div>
+  </div>
+</div>
+
+<div class="odd-content">
+  <div class="odd-params" id="odd-params3"><!-- filled by JS --></div>
+  <div class="fsm-wrap">
+    <div class="fsm-title">ODD 主状态机（简化）</div>
+    <div class="fsm-states">
+      <div class="fsm-state fsm-in">ODD 内 (IN)</div>
+      <div class="fsm-state fsm-edge">ODD 边缘 (EDGE)</div>
+      <div class="fsm-state fsm-out">ODD 外 (OUT)</div>
+      <div class="fsm-state fsm-mrc">MRC 激活</div>
+    </div>
+    <div class="fsm-arrows">
+      <div class="fsm-arrow"><span class="from">IN</span><span class="arr-sym">→</span><span class="to">EDGE</span><span class="cond">· Conformance_Score 降至 0.5–0.8</span></div>
+      <div class="fsm-arrow"><span class="from">EDGE</span><span class="arr-sym">→</span><span class="to">OUT</span><span class="cond">· Score &lt; 0.5，或 TDL 接近 TMR</span></div>
+      <div class="fsm-arrow"><span class="from">OUT</span><span class="arr-sym">→</span><span class="to">MRC 激活</span><span class="cond">· 立即触发（Drift / Anchor / Heave-to）</span></div>
+      <div class="fsm-arrow"><span class="from">MRC 激活</span><span class="arr-sym">→</span><span class="to">IN</span><span class="cond">· 人工接管完成 + 系统复位</span></div>
+      <div class="fsm-arrow"><span class="from">D4</span><span class="arr-sym">↔</span><span class="to">D3</span><span class="cond">· TMR 窗口收窄 / 操作员授权</span></div>
+      <div class="fsm-arrow"><span class="from">D3</span><span class="arr-sym">↔</span><span class="to">D2</span><span class="cond">· 人工接管 / ODD 收紧 / 操作员授权</span></div>
+    </div>
+    <hr class="div">
+    <div class="fsm-title">TMR / TDL 安全约束</div>
+    <div style="font-size:12.5px;color:var(--text2);line-height:2">
+      <span style="color:var(--text)">安全必要条件：</span><code>TDL &gt; TMR</code> 在所有非 MRC 状态下须成立<br>
+      <span style="color:var(--text)">推荐 TMR 设计值：</span><code>≥ 60s</code>（Veitch et al. 2024 实证）<br>
+      <span style="color:var(--text)">TDL 实时计算：</span><code>min(TCPA_min × 0.6, T_comm_ok, T_sys_health)</code>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== S4: ARCHITECTURE (INTERACTIVE) ==================== -->
+<section id="s4">
+<div class="sec-header">
+  <div class="sec-tag">Section 04</div>
+  <div class="sec-title">系统架构总览 — ODD 驱动激活映射</div>
+  <div class="sec-sub">选择 ODD 子域，查看 8 个模块的激活状态如何随运行环境变化。点击任意模块查看详细设计。</div>
+</div>
+
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#3ecf7a"></div>主动激活 — 核心职责执行</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ffb340"></div>适应调整 — 行为参数变化</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#3d5a7a"></div>低活跃待命 — 非主导场景</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff5252"></div>高警戒 — 近界面强制介入</div>
+</div>
+
+<div class="odd-tabs" id="odd-tabs4">
+  <div class="odd-tab active" data-idx="0" onclick="selectArch(0)"><div class="ot-name">🌊 开阔水域</div><div class="ot-sub">Open Water · D2–D4</div></div>
+  <div class="odd-tab" data-idx="1" onclick="selectArch(1)"><div class="ot-name">🚢 狭水道 / VTS</div><div class="ot-sub">Narrow Channel · D2–D3</div></div>
+  <div class="odd-tab" data-idx="2" onclick="selectArch(2)"><div class="ot-name">⚓ 港内 / 靠泊</div><div class="ot-sub">Port / Berthing · D2推荐</div></div>
+  <div class="odd-tab" data-idx="3" onclick="selectArch(3)"><div class="ot-name">🌫️ 能见度不良</div><div class="ot-sub">Low Visibility · D2–D3</div></div>
+</div>
+
+<div class="arch-wrap" style="margin-top:16px">
+<svg class="arch-svg" viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+<!-- M1 -->
+<g class="mod-g" id="gm1" onclick="showModule('m1')" style="cursor:pointer">
+  <rect id="rm1" class="mbox" x="20" y="20" width="860" height="52" rx="7" stroke-width="0.5"/>
+  <text id="tm1" class="mtxt" x="450" y="39" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="600" font-family="inherit">ODD / Envelope Manager</text>
+  <text id="sm1" class="mtxt" x="450" y="57" text-anchor="middle" dominant-baseline="central" font-size="11" font-family="inherit">M1 · Operational Envelope监控 · 模式状态机 (D2/D3/D4) · TMR/TDL计算 · MRC触发</text>
+</g>
+<!-- M2 -->
+<g class="mod-g" id="gm2" onclick="showModule('m2')" style="cursor:pointer">
+  <rect id="rm2" class="mbox" x="20" y="92" width="110" height="190" rx="7" stroke-width="0.5"/>
+  <text id="tm2a" class="mtxt" x="75" y="172" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">World</text>
+  <text id="tm2b" class="mtxt" x="75" y="188" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">Model</text>
+  <text id="sm2" class="mtxt" x="75" y="206" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M2 · 事实层</text>
+</g>
+<!-- M3 -->
+<g class="mod-g" id="gm3" onclick="showModule('m3')" style="cursor:pointer">
+  <rect id="rm3" class="mbox" x="150" y="92" width="210" height="90" rx="7" stroke-width="0.5"/>
+  <text id="tm3" class="mtxt" x="255" y="129" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">Mission Manager</text>
+  <text id="sm3" class="mtxt" x="255" y="149" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M3 · 战略-战术接口</text>
+</g>
+<!-- M4 -->
+<g class="mod-g" id="gm4" onclick="showModule('m4')" style="cursor:pointer">
+  <rect id="rm4" class="mbox" x="380" y="92" width="210" height="90" rx="7" stroke-width="0.5"/>
+  <text id="tm4" class="mtxt" x="485" y="129" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">Behavior Arbiter</text>
+  <text id="sm4" class="mtxt" x="485" y="149" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M4 · IvP行为状态机</text>
+</g>
+<!-- M6 -->
+<g class="mod-g" id="gm6" onclick="showModule('m6')" style="cursor:pointer">
+  <rect id="rm6" class="mbox" x="610" y="92" width="270" height="90" rx="7" stroke-width="0.5"/>
+  <text id="tm6" class="mtxt" x="745" y="129" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">COLREGs Reasoner</text>
+  <text id="sm6" class="mtxt" x="745" y="149" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M6 · 规则推理 · ODD-aware</text>
+</g>
+<!-- M5 -->
+<g class="mod-g" id="gm5" onclick="showModule('m5')" style="cursor:pointer">
+  <rect id="rm5" class="mbox" x="150" y="202" width="730" height="78" rx="7" stroke-width="0.5"/>
+  <text id="tm5" class="mtxt" x="515" y="234" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">Tactical Planner</text>
+  <text id="sm5" class="mtxt" x="515" y="254" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M5 · 中程 MPC (1–60 s) + 短程 BC-MPC (0.1–10 s) · 轨迹规划 · 速度规划 · 安全校验</text>
+</g>
+<!-- M7 -->
+<g class="mod-g" id="gm7" onclick="showModule('m7')" style="cursor:pointer">
+  <rect id="rm7" class="mbox" x="150" y="300" width="300" height="72" rx="7" stroke-width="0.5"/>
+  <text id="tm7" class="mtxt" x="300" y="329" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">Safety Supervisor</text>
+  <text id="sm7" class="mtxt" x="300" y="349" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M7 · SOTIF + IEC 61508 · MRC</text>
+</g>
+<!-- M8 -->
+<g class="mod-g" id="gm8" onclick="showModule('m8')" style="cursor:pointer">
+  <rect id="rm8" class="mbox" x="470" y="300" width="410" height="72" rx="7" stroke-width="0.5"/>
+  <text id="tm8" class="mtxt" x="675" y="329" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="600" font-family="inherit">HMI / Transparency Bridge</text>
+  <text id="sm8" class="mtxt" x="675" y="349" text-anchor="middle" dominant-baseline="central" font-size="10" font-family="inherit">M8 · ROC接口 · SAT-1/2/3 · 责任移交</text>
+</g>
+
+<!-- ARROWS -->
+<path d="M 450 72 L 450 82 L 255 82 L 255 92 M 450 82 L 485 82 L 485 92 M 450 82 L 745 82 L 745 92"
+  fill="none" stroke="rgba(74,158,255,0.4)" stroke-width="1" marker-end="url(#ah)"/>
+<line x1="130" y1="137" x2="150" y2="137" fill="none" stroke="rgba(74,158,255,0.3)" stroke-width="1" marker-end="url(#ah)"/>
+<line x1="130" y1="241" x2="150" y2="241" fill="none" stroke="rgba(74,158,255,0.3)" stroke-width="1" marker-end="url(#ah)"/>
+<line x1="485" y1="182" x2="485" y2="202" fill="none" stroke="rgba(74,158,255,0.4)" stroke-width="1" marker-end="url(#ah)"/>
+<line x1="745" y1="182" x2="745" y2="202" fill="none" stroke="rgba(74,158,255,0.4)" stroke-width="1" marker-end="url(#ah)"/>
+<line x1="460" y1="280" x2="460" y2="396" fill="none" stroke="rgba(74,158,255,0.3)" stroke-width="1" marker-end="url(#ah)"/>
+<text x="466" y="412" font-size="11" fill="rgba(122,156,197,0.7)" font-family="inherit">L2 执行层</text>
+
+<!-- Layer labels -->
+<text x="886" y="46" font-size="10" fill="rgba(62,207,122,0.6)" text-anchor="end" font-family="inherit" font-weight="600">包络控制层</text>
+<text x="886" y="195" font-size="10" fill="rgba(74,158,255,0.6)" text-anchor="end" font-family="inherit" font-weight="600">决策规划层</text>
+<text x="886" y="340" font-size="10" fill="rgba(255,179,64,0.6)" text-anchor="end" font-family="inherit" font-weight="600">安全接口层</text>
+</svg>
+</div>
+</section>
+
+<!-- ==================== S5: MODULE DETAILS ==================== -->
+<section id="s5">
+<div class="sec-header">
+  <div class="sec-tag">Section 05</div>
+  <div class="sec-title">各模块详细设计</div>
+  <div class="sec-sub">8 个模块的职责、关键设计决策、接口契约和设计依据。选择模块查看详情。</div>
+</div>
+
+<div class="mod-nav" id="mod-nav">
+  <button class="mod-nav-btn active" onclick="showMod('m1')">M1 ODD Manager</button>
+  <button class="mod-nav-btn" onclick="showMod('m2')">M2 World Model</button>
+  <button class="mod-nav-btn" onclick="showMod('m3')">M3 Mission Mgr</button>
+  <button class="mod-nav-btn" onclick="showMod('m4')">M4 Behavior Arbiter</button>
+  <button class="mod-nav-btn" onclick="showMod('m5')">M5 Tactical Planner</button>
+  <button class="mod-nav-btn" onclick="showMod('m6')">M6 COLREGs</button>
+  <button class="mod-nav-btn" onclick="showMod('m7')">M7 Safety Supervisor</button>
+  <button class="mod-nav-btn" onclick="showMod('m8')">M8 HMI Bridge</button>
+</div>
+
+<div id="mod-contents"><!-- filled by JS --></div>
+</section>
+
+<!-- ==================== S6: MULTI-VESSEL ==================== -->
+<section id="s6">
+<div class="sec-header">
+  <div class="sec-tag">Section 06</div>
+  <div class="sec-title">多船型参数化设计</div>
+  <div class="sec-sub">三层解耦架构实现"一套核心代码，无限船型扩展"。换船型时 A 层（通用决策核心）零修改，仅更新 B 层（Capability Manifest）和 C 层（船型适配器）。</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+<div>
+<div class="mv-layers">
+  <div class="mv-layer mv-a">
+    <div class="mv-layer-label">A 层 — Vessel-Agnostic Core（通用决策核心）</div>
+    <div class="mv-layer-title">8 个 TDL 模块，无任何船型常量</div>
+    <div class="mv-layer-body">所有决策算法从 Capability Manifest 读取参数，不硬编码任何船型特定值。换船型时本层代码零修改。</div>
+    <div class="mv-modules">
+      <span class="mv-mod">M1 ODD Manager</span>
+      <span class="mv-mod">M2 World Model</span>
+      <span class="mv-mod">M3–M6 决策模块</span>
+      <span class="mv-mod">M7 Safety</span>
+      <span class="mv-mod">M8 HMI</span>
+    </div>
+  </div>
+  <div class="mv-layer mv-b">
+    <div class="mv-layer-label">B 层 — Capability Manifest（船型声明文件）</div>
+    <div class="mv-layer-title">vessel_capability.yaml — CCS 签名验证</div>
+    <div class="mv-layer-body">定义船型的所有参数化约束：主尺度、操纵极限（ROT_max、旋回半径、制动距离）、ODD 模板（各子域速度上限、CPA 参数）、推进配置、传感器配置、水动力插件路径。</div>
+    <div class="mv-modules">
+      <span class="mv-mod">loa / beam / draft</span>
+      <span class="mv-mod">ROT_max(speed)</span>
+      <span class="mv-mod">ODD templates</span>
+      <span class="mv-mod">hydro plugin path</span>
+    </div>
+  </div>
+  <div class="mv-layer mv-c">
+    <div class="mv-layer-label">C 层 — Vessel-Specific Adapter（船型适配器）</div>
+    <div class="mv-layer-title">PVA 接口适配 + 水动力插件 + 传感器适配</div>
+    <div class="mv-layer-body">标准 PVA 接口（Position-Velocity-Actuator）对外暴露 (ψ_cmd, u_cmd, ROT_cmd)；内部实现船型特定的 MMG / Abkowitz / 神经网络水动力模型。</div>
+    <div class="mv-modules">
+      <span class="mv-mod">PVA Interface</span>
+      <span class="mv-mod">MMG 4-DOF Plugin</span>
+      <span class="mv-mod">Sensor Adapter</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div>
+<div class="card" style="margin-bottom:16px">
+  <div class="card-label" style="color:var(--green)">Backseat Driver 范式</div>
+  <div class="card-body" style="font-size:13px;line-height:1.9">
+    本设计直接继承 MIT MOOS-IvP 的 Backseat Driver 范式（Benjamin et al. 2010）：自主系统向船舶控制系统提供 (heading, speed) 指令，控制系统执行并回传导航信息。自主系统对控制系统的内部实现完全不感知。<br><br>
+    Sea Machines SM300（TALOS + SMLink API）将此范式商业化，已在 200+ 艘船（20 国）部署——是当前最强工业验证。
+  </div>
+</div>
+
+<div class="card-label" style="color:var(--blue);margin-bottom:12px">典型船型扩展成本</div>
+<table class="tbl">
+  <tr><th>新船型</th><th>与 FCB 差异</th><th>修改层</th></tr>
+  <tr><td>45m FCB（基准）</td><td>—</td><td>基准</td></tr>
+  <tr><td>25m 拖船</td><td>低速大推力，全旋推进</td><td>C 层 + Manifest</td></tr>
+  <tr><td>70m PSV</td><td>DP 系统，慢响应，大尺寸</td><td>C 层 + Manifest</td></tr>
+  <tr><td>长江内河船</td><td>内水规则（非 COLREGs）</td><td>C 层 + M6 规则库</td></tr>
+</table>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-label" style="color:var(--amber)">水动力插件 C++ 接口（ABI 稳定）</div>
+  <pre style="font-size:11px;color:var(--cyan);overflow-x:auto;line-height:1.8"><code style="background:transparent;padding:0;color:var(--cyan);font-size:11px">VesselState predict(current, cmd, dt_s);
+ActuatorLimits getLimits(speed_kn);
+double getBrakingDistance_m(speed_kn);</code></pre>
+</div>
+</div>
+</div>
+</section>
+
+<!-- ==================== S7: CERTIFICATION ==================== -->
+<section id="s7">
+<div class="sec-header">
+  <div class="sec-tag">Section 07</div>
+  <div class="sec-title">CCS 入级路径映射</div>
+  <div class="sec-sub">8 模块对 DNV-CG-0264 九导航子功能 100% 覆盖，是 CCS 接受 DNV 等效性验证的认证入口。三阶段递进申请降低单次认证风险。</div>
+</div>
+
+<div class="cert-phases">
+  <div class="cert-phase" style="border-top:3px solid var(--blue)">
+    <div class="cp-phase-num">第一阶段 · M1 完成时</div>
+    <div class="cp-title">AIP — 原则认可</div>
+    <div class="cp-target">目标标志: 概念认可 (AIP)</div>
+    <ul class="cp-items">
+      <li>ConOps（运营概念）文档</li>
+      <li>ODD-Spec（三轴包络规格书）</li>
+      <li>HARA 风险分析初版</li>
+      <li>提交 CCS 项目组征询</li>
+    </ul>
+  </div>
+  <div class="cert-phase" style="border-top:3px solid var(--cyan)">
+    <div class="cp-phase-num">第二阶段 · M2 末 HIL 完成</div>
+    <div class="cp-title">i-Ship (I, N, R1) 基础标志</div>
+    <div class="cp-target">目标标志: i-Ship (I, N, Ri)</div>
+    <ul class="cp-items">
+      <li>系统架构设计认可</li>
+      <li>SIL 2 安全评估报告</li>
+      <li>COLREGs 场景覆盖率报告 (≥1000 场景)</li>
+      <li>HIL 测试报告 (800h+)</li>
+      <li>网络安全测试 (IACS UR E26)</li>
+    </ul>
+  </div>
+  <div class="cert-phase" style="border-top:3px solid var(--teal)">
+    <div class="cp-phase-num">第三阶段 · M4 实船试航后</div>
+    <div class="cp-title">i-Ship (I, Nx, Ri/Ai) 进阶标志</div>
+    <div class="cp-target">目标标志: i-Ship (I.Nx, Ri, Ai)</div>
+    <ul class="cp-items">
+      <li>实船试航报告 (≥50 nm 自主)</li>
+      <li>ROC 接管演示 (≥10 次, ≥60s 时窗)</li>
+      <li>ASDR 日志完整性审查</li>
+      <li>CCS 验船师现场见证</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card-label" style="color:var(--blue);margin-bottom:12px">DNV-CG-0264 导航子功能覆盖矩阵</div>
+<table class="tbl">
+  <tr><th>DNV-CG-0264 §4 子功能</th><th>对应 TDL 模块</th><th>证据类型</th><th>状态</th></tr>
+  <tr><td>§4.2 Planning prior to voyage</td><td><code>M3</code> Mission Manager</td><td>航次计划验证测试报告</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.3 Condition detection</td><td><code>M2</code> + <code>M1</code></td><td>感知测试 + ODD 边界检测</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.4 Condition analysis</td><td><code>M1</code> + <code>M7</code></td><td>ODD 评分验证 + SOTIF FMEA</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.5 Deviation from planned route</td><td><code>M3</code> + <code>M4</code></td><td>重规划触发测试</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.6 Contingency plans</td><td><code>M7</code> + <code>M1</code></td><td>MRC 触发测试（各类型）</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.7 Safe speed</td><td><code>M6</code> + <code>M5</code></td><td>COLREGs Rule 6 覆盖率</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.8 Manoeuvring</td><td><code>M5</code> Tactical Planner</td><td>轨迹跟踪精度测试</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.9 Docking</td><td><code>M4</code> (Docking) + <code>M5</code></td><td>HIL 靠泊演示</td><td><span class="badge badge-green">覆盖</span></td></tr>
+  <tr><td>§4.10 Alert management</td><td><code>M8</code> + <code>M7</code></td><td>HMI 告警响应时间测试</td><td><span class="badge badge-green">覆盖</span></td></tr>
+</table>
+
+<div style="margin-top:16px;padding:16px;background:rgba(62,207,122,0.06);border:1px solid rgba(62,207,122,0.2);border-radius:var(--r2);font-size:13px;color:var(--text2)">
+  <strong style="color:var(--green)">9/9 覆盖（100%）</strong> — DNV-CG-0264 §4 全部 9 个导航子功能由本架构 8 模块完整覆盖。CCS 接受 DNV 等效性验证，本映射表即 CCS 认证审查时的 Traceability Matrix 主体。
+</div>
+</section>
+
+</main>
+
+<!-- MODULE DETAIL PANEL -->
+<div class="mod-panel" id="mod-panel">
+  <div class="mp-head">
+    <div id="mp-icon" class="mp-num" style="background:rgba(74,158,255,0.15);color:var(--blue)">M1</div>
+    <div>
+      <div class="mp-title" id="mp-title">ODD / Envelope Manager</div>
+      <div class="mp-subtitle" id="mp-subtitle">包络控制层</div>
+    </div>
+    <div class="mp-close" onclick="closePanel()">×</div>
+  </div>
+  <div class="mp-body">
+    <div class="mp-block">
+      <div class="mp-block-title">模块职责</div>
+      <div class="mp-block-body" id="mp-role"></div>
+    </div>
+    <div class="mp-block">
+      <div class="mp-block-title">关键设计决策</div>
+      <div class="mp-block-body" id="mp-design"></div>
+    </div>
+    <div class="mp-block">
+      <div class="mp-block-title">接口摘要</div>
+      <div class="mp-block-body" id="mp-interface"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============ DATA ============
+const ODD_DATA = [
+  {name:'开阔水域',en:'Open Water',acc:'D2 – D4',
+   col:'rgba(74,158,255,0.12)',colb:'rgba(74,158,255,0.5)',colt:'#80bcff',
+   params:[{k:'CPA 安全距离',v:'1.0 – 2.0 nm'},{k:'TCPA 阈值',v:'12 – 20 min'},{k:'速度限制',v:'≤ V_max（无限制）'},{k:'接管时窗 TMR',v:'≥ 60 s'},{k:'COLREGs 主导',v:'Rule 13–17'},{k:'自主挑战',v:'目标稀疏，长时自主'}],
+   mods:{m1:'primary',m2:'primary',m3:'primary',m4:'primary',m5:'primary',m6:'primary',m7:'standby',m8:'modified'}},
+  {name:'狭水道 / VTS',en:'Narrow Channel',acc:'D2 – D3',
+   col:'rgba(30,224,192,0.1)',colb:'rgba(30,224,192,0.4)',colt:'#5ce8cf',
+   params:[{k:'CPA 安全距离',v:'0.3 – 0.5 nm'},{k:'TCPA 阈值',v:'4 – 8 min'},{k:'速度限制',v:'≤ VTS 区域限速'},{k:'接管时窗 TMR',v:'30 – 60 s'},{k:'COLREGs 主导',v:'Rule 9（狭水道）'},{k:'自主挑战',v:'路径约束强，VTS 规则'}],
+   mods:{m1:'primary',m2:'primary',m3:'modified',m4:'primary',m5:'modified',m6:'primary',m7:'primary',m8:'primary'}},
+  {name:'港内 / 靠泊',en:'Port / Berthing',acc:'D2 推荐',
+   col:'rgba(168,127,255,0.1)',colb:'rgba(168,127,255,0.4)',colt:'#c4a0ff',
+   params:[{k:'CPA 安全距离',v:'< 50 m'},{k:'TCPA 阈值',v:'< 2 min'},{k:'速度限制',v:'≤ 2 kn'},{k:'接管时窗 TMR',v:'≤ 20 s（强制人工）'},{k:'COLREGs 主导',v:'港内规章 / DP 规则'},{k:'自主挑战',v:'精确控制，人工强制兜底'}],
+   mods:{m1:'critical',m2:'primary',m3:'modified',m4:'primary',m5:'modified',m6:'standby',m7:'critical',m8:'critical'}},
+  {name:'能见度不良',en:'Low Visibility',acc:'D2 – D3',
+   col:'rgba(255,179,64,0.1)',colb:'rgba(255,179,64,0.4)',colt:'#ffca7a',
+   params:[{k:'CPA 安全距离',v:'标准值 × 1.5'},{k:'TCPA 阈值',v:'标准值 × 1.5'},{k:'速度限制',v:'按能见度自动降档'},{k:'接管时窗 TMR',v:'≥ 60 s'},{k:'COLREGs 主导',v:'Rule 19（能见不良）'},{k:'自主挑战',v:'感知降质，包络主动收缩'}],
+   mods:{m1:'primary',m2:'modified',m3:'modified',m4:'modified',m5:'modified',m6:'primary',m7:'primary',m8:'primary'}}
+];
+
+const STATE_C = {
+  primary:{f:'rgba(62,207,122,0.15)',s:'#3ecf7a',t:'#6de49c',u:'#4dbd7c'},
+  modified:{f:'rgba(255,179,64,0.15)',s:'#ffb340',t:'#ffca7a',u:'#e09c30'},
+  standby:{f:'rgba(61,90,122,0.4)',s:'#3d5a7a',t:'#6a8db5',u:'#4a6a8a'},
+  critical:{f:'rgba(255,82,82,0.2)',s:'#ff5252',t:'#ff8a8a',u:'#cc3333'}
+};
+
+const MODULE_DATA = {
+  m1:{id:'M1',name:'ODD / Envelope Manager',layer:'包络控制层',color:'var(--green)',
+    role:'整个 TDL 的调度枢纽，以 Operational Envelope 三轴状态机（E×T×H）驱动所有其他模块的行为参数和激活条件。ODD 状态变化是驱动行为切换的唯一权威来源。',
+    design:'三轴状态空间 E×T×H（环境×任务×人机责任），持续计算 Conformance_Score 和 TMR/TDL。当 TDL ≤ TMR 时立即触发接管请求，当 Score < 0.5 时触发 MRC 序列。Capability Manifest 在启动时加载，配置所有 ODD 子域参数。',
+    iface:'输出: odd_state (1Hz) / mode_cmd (事件) / mrc_request (事件)　　输入: ownship_state (M2) / threat_summary (M2) / safety_alert (M7) / Capability Manifest'},
+  m2:{id:'M2',name:'World Model',layer:'决策规划层',color:'var(--blue)',
+    role:'维护三视图（静态图/动态目标/自身状态）作为所有决策模块的单一权威事实来源。将"从传感器读什么"与"基于数据做什么决策"彻底解耦。',
+    design:'三视图：静态（ENC图、浅水、禁区）、动态（目标跟踪+AIS融合+天气）、自身（位置航速航向）。对每个输出字段附加 confidence ∈ [0,1]，供 M7 做 SOTIF 假设验证。对每个目标做 COLREGs 几何预分类，减轻 M6 计算负担。',
+    iface:'输出: world_state (4Hz) → M3/M4/M5/M6　　输入: Track (L1感知层, 50Hz) / AIS / ENC / GNSS / IMU'},
+  m3:{id:'M3',name:'Mission Manager',layer:'决策规划层',color:'var(--blue)',
+    role:'战略-战术接口，负责航次计划的完整生命周期管理：接收、验证、激活、ETA 跟踪、ODD 变化触发的局部重规划。',
+    design:'航次计划看门人（Voyage Plan Gatekeeper）：对每条输入计划做水深/禁区/VTS/速度可行性/自主等级兼容性验证。ODD 变化时评估当前计划是否仍然合法，必要时建议局部修改。M3 不做避碰决策，只管计划合法性。',
+    iface:'输出: mission_goal (0.5Hz) → M4　　输入: voyage_plan (L2战略层) / odd_state (M1) / world_state (M2)'},
+  m4:{id:'M4',name:'Behavior Arbiter',layer:'决策规划层',color:'var(--blue)',
+    role:'通过 IvP（Interval Programming）多目标优化仲裁并发行为冲突。维护 ODD-aware 行为字典，将多个行为目标的偏好函数联合优化为单一行为计划。',
+    design:'行为字典覆盖：Transit / COLREGs_Avoidance / Restricted_Visibility / Channel_Following / Approach / DP_Hold / Crew_Transfer_Standby / MRC_Drift。IvP 求解器对解空间 (heading × speed) 做多目标优化，COLREGs 约束以硬约束形式嵌入，不可被其他行为压倒。',
+    iface:'输出: behavior_plan (2Hz) → M5　　输入: mission_goal (M3) / colregs_constraints (M6) / odd_state (M1) / world_state (M2)'},
+  m5:{id:'M5',name:'Tactical Planner',layer:'决策规划层',color:'var(--blue)',
+    role:'将行为计划和 COLREGs 约束转化为可执行轨迹指令。双层 MPC 架构：中程 MPC (1–60s) 负责 COLREG 合规规划，短程 BC-MPC (0.1–10s) 负责鲁棒紧急执行。',
+    design:'Mid-MPC：预测步数 N=12，步长 5s，总时域 60s，优化代价含 COLREG 合规、到达目标、速度效率、环境约束四项。BC-MPC：生成 k=7 条候选航向（Δ10°），选最坏情况 CPA 最大分支。FCB 高速修正：ROT_max 按速度查表，制动模型单独标定。',
+    iface:'输出: trajectory_cmd (10Hz) → L2执行层　　输入: behavior_plan (M4) / colregs_constraints (M6) / world_state (M2) / odd_state (M1)'},
+  m6:{id:'M6',name:'COLREGs Reasoner',layer:'决策规划层',color:'var(--blue)',
+    role:'独立的 COLREGs 推理引擎，跨 ODD 域规则语义切换（Open Water: Rule 13-17 / Narrow: Rule 9 / Low Vis: Rule 19 / Port: 港内规章）。独立存在确保 SIL 认证可分性。',
+    design:'五层推理架构：(1) 适用规则判定（ODD-aware），(2) 会遇分类（追越/对遇/交叉），(3) 责任分配（让路船/直航船/Rule 18 类型序），(4) 行动方向（最小 30° 转向，首选右转），(5) 时机判定（直航船三阶段：T_standOn=8min / T_act=4min / T_emergency=1min）。',
+    iface:'输出: colregs_constraints (2Hz) → M5 + M4　　输入: world_state (M2) / odd_state (M1)'},
+  m7:{id:'M7',name:'Safety Supervisor',layer:'安全接口层',color:'var(--amber)',
+    role:'双轨安全监督器：IEC 61508 轨道处理组件失效，ISO 21448 SOTIF 轨道处理功能不足（系统按设计运行但设计本身在边界条件下不足）。',
+    design:'IEC 61508 轨道：看门狗心跳检测 + SIL 2 诊断覆盖（关键输出一致性校验）。SOTIF 轨道：假设违反检测（AIS/雷达不一致、预测残差超限、感知盲区超比、COLREGs 多次不可解析）。Safety Arbitrator 汇聚两轨告警，有权直接向 M5 注入安全轨迹（绕过 M4）。',
+    iface:'输出: safety_alert → M1 / emergency_cmd → M5（紧急）　　输入: 监控所有模块输出的 confidence 字段'},
+  m8:{id:'M8',name:'HMI / Transparency Bridge',layer:'安全接口层',color:'var(--amber)',
+    role:'系统中唯一与 ROC 和船长交互的模块。聚合所有模块的 SAT-1/2/3 数据，编排差异化视图（ROC vs 船长），管理责任移交协议。',
+    design:'SAT 三层：SAT-1（当前状态/态势）/ SAT-2（推理过程/决策依据）/ SAT-3（预测/不确定性）。责任移交（ToR）协议：60s 时窗 / handshake 确认 / 上下文充分性验证 / 超时触发 MRC。ROC 与船长视图差异化：ROC 看完整数字量化，船长看直觉式可视化 + 关键时间节点。',
+    iface:'输出: UI_StateMsg (50Hz) → ROC/船长 / tor_request (事件)　　输入: SAT_DataMsg (10Hz) ← M1-M7 所有模块'}
+};
+
+// ============ ARCH INTERACTION ============
+function applyMod(id, state) {
+  const c = STATE_C[state];
+  const r = document.getElementById('r'+id);
+  const t = document.getElementById('t'+id);
+  const s = document.getElementById('s'+id);
+  if(r){r.setAttribute('fill',c.f);r.setAttribute('stroke',c.s);}
+  if(t)t.setAttribute('fill',c.t);
+  if(s)s.setAttribute('fill',c.u);
+  if(id==='m2'){
+    const ta=document.getElementById('tm2a'),tb=document.getElementById('tm2b');
+    if(ta)ta.setAttribute('fill',c.t);
+    if(tb)tb.setAttribute('fill',c.t);
+    if(s)s.setAttribute('fill',c.u);
+  }
+}
+
+function selectArch(i) {
+  const o = ODD_DATA[i];
+  document.querySelectorAll('#odd-tabs4 .odd-tab').forEach((b,j)=>{
+    b.classList.toggle('active',j===i);
+    b.style.borderColor = j===i ? o.colb : '';
+    b.style.background = j===i ? o.col : '';
+    b.style.color = j===i ? o.colt : '';
+  });
+  Object.entries(o.mods).forEach(([id,st])=>applyMod(id,st));
+}
+
+// ============ ODD SECTION 3 ============
+function selectODD3(i) {
+  const o = ODD_DATA[i];
+  document.querySelectorAll('#odd-tabs3 .odd-tab').forEach((b,j)=>{
+    b.classList.toggle('active',j===i);
+    b.style.borderColor = j===i ? o.colb : '';
+    b.style.background = j===i ? o.col : '';
+    b.style.color = j===i ? o.colt : '';
+  });
+  document.getElementById('odd-params3').innerHTML =
+    `<div class="odd-param-title">${o.name}</div>
+     <div class="odd-param-sub">${o.en}</div>
+     <div style="display:inline-block;background:${o.col};color:${o.colt};border:1px solid ${o.colb};border-radius:20px;padding:2px 12px;font-size:11px;font-weight:600;margin-bottom:12px">${o.acc}</div>`+
+    o.params.map(p=>`<div class="param-row"><span class="param-key">${p.k}</span><span class="param-val">${p.v}</span></div>`).join('');
+}
+
+// ============ MODULE PANEL ============
+function showModule(id) {
+  const m = MODULE_DATA[id];
+  if(!m) return;
+  document.getElementById('mp-icon').textContent = m.id;
+  document.getElementById('mp-icon').style.background = id==='m1'?'rgba(62,207,122,0.15)':id==='m7'||id==='m8'?'rgba(255,179,64,0.15)':'rgba(74,158,255,0.15)';
+  document.getElementById('mp-icon').style.color = id==='m1'?'var(--green)':id==='m7'||id==='m8'?'var(--amber)':'var(--blue)';
+  document.getElementById('mp-title').textContent = m.name;
+  document.getElementById('mp-subtitle').textContent = m.layer;
+  document.getElementById('mp-role').textContent = m.role;
+  document.getElementById('mp-design').textContent = m.design;
+  document.getElementById('mp-interface').innerHTML = m.iface.split('　　').map(s=>`<div style="margin-bottom:6px">${s}</div>`).join('');
+  document.getElementById('mod-panel').classList.add('open');
+}
+function closePanel() {
+  document.getElementById('mod-panel').classList.remove('open');
+}
+
+// ============ MODULE SECTION 5 ============
+function renderModContents() {
+  const cont = document.getElementById('mod-contents');
+  Object.entries(MODULE_DATA).forEach(([id, m]) => {
+    const div = document.createElement('div');
+    div.className = 'mod-content';
+    div.id = 'mc-'+id;
+    const color = id==='m1'?'var(--green)':id==='m7'||id==='m8'?'var(--amber)':'var(--blue)';
+    div.innerHTML = `
+      <div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-label" style="color:${color}">${m.id} · ${m.layer}</div>
+          <div class="card-title" style="font-size:18px;margin-bottom:12px">${m.name}</div>
+          <div class="card-body">${m.role}</div>
+        </div>
+        <div class="card">
+          <div class="card-label" style="color:${color}">关键设计决策</div>
+          <div class="card-body">${m.design}</div>
+        </div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-label" style="color:${color}">接口契约</div>
+          <div class="card-body" style="font-size:12.5px">${m.iface.split('　　').map(s=>`<div style="margin-bottom:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:5px;border-left:2px solid ${color}">${s}</div>`).join('')}</div>
+        </div>
+        <div id="odd-mini-${id}"></div>
+      </div>`;
+    cont.appendChild(div);
+  });
+  document.getElementById('mc-m1').classList.add('active');
+}
+
+function showMod(id) {
+  document.querySelectorAll('.mod-content').forEach(el=>el.classList.remove('active'));
+  document.getElementById('mc-'+id)?.classList.add('active');
+  document.querySelectorAll('.mod-nav-btn').forEach((btn,i)=>{
+    const mids = ['m1','m2','m3','m4','m5','m6','m7','m8'];
+    btn.classList.toggle('active', mids[i]===id);
+  });
+}
+
+// ============ DECISION CARDS ============
+function toggleDC(id) {
+  const card = document.getElementById(id);
+  card.classList.toggle('open');
+}
+
+// ============ NAVIGATION ============
+function updateNav() {
+  const sections = document.querySelectorAll('section');
+  const scrollY = window.scrollY;
+  const total = document.documentElement.scrollHeight - window.innerHeight;
+  document.getElementById('pbar').style.width = (scrollY/total*100)+'%';
+  let active = 's1';
+  sections.forEach(s=>{
+    if(s.getBoundingClientRect().top <= 80) active = s.id;
+  });
+  document.querySelectorAll('.nav-item').forEach(a=>{
+    a.classList.toggle('active', a.dataset.sec===active);
+  });
+}
+
+// ============ INIT ============
+function init() {
+  // Initial arch state
+  ['m1','m2','m3','m4','m5','m6','m7','m8'].forEach(id=>applyMod(id,'standby'));
+  selectArch(0);
+  selectODD3(0);
+  renderModContents();
+  window.addEventListener('scroll', updateNav, {passive:true});
+  updateNav();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MASS ADAS L3 · 第一阶段开发计划</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f2f5;--white:#ffffff;--surface:#fafbfc;
+  --border:#e2e6ed;--border2:#c8d0db;
+  --text:#1a2332;--text2:#4a5568;--text3:#8a9ab0;
+  --blue:#1d4fd8;--blue-l:#e8eeff;--blue-b:#c7d2f0;
+  --green:#0f7a4a;--green-l:#e6f5ee;--green-b:#b6dfc8;
+  --amber:#b45309;--amber-l:#fef3e2;--amber-b:#f9d094;
+  --red:#c0392b;--red-l:#fdf0ee;--red-b:#f5b9b3;
+  --purple:#5b21b6;--purple-l:#f0ebff;--purple-b:#d4c0f8;
+  --teal:#0d7a70;--teal-l:#e4f5f4;--teal-b:#a8ddd9;
+  --gray:#374151;--gray-l:#f3f4f6;--gray-b:#d1d5db;
+  --r:6px;--r2:10px;--r3:14px;
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.05);
+  --shadow2:0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.05);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6}
+@media print{
+  body{background:#fff;font-size:12px}
+  .no-print{display:none!important}
+  section{break-inside:avoid;page-break-inside:avoid}
+  .page-break{page-break-before:always}
+}
+
+/* LAYOUT */
+.container{max-width:1100px;margin:0 auto;padding:32px 24px}
+
+/* TOP HEADER */
+.page-header{
+  background:linear-gradient(135deg,#1a2f5e 0%,#1d4fd8 60%,#2563eb 100%);
+  color:#fff;padding:32px 40px;border-radius:var(--r3);
+  margin-bottom:28px;position:relative;overflow:hidden;
+  box-shadow:0 4px 20px rgba(29,79,216,0.3);
+}
+.page-header::before{
+  content:'';position:absolute;top:-40px;right:-40px;width:200px;height:200px;
+  border-radius:50%;background:rgba(255,255,255,0.05);
+}
+.page-header::after{
+  content:'';position:absolute;bottom:-60px;right:80px;width:300px;height:200px;
+  border-radius:50%;background:rgba(255,255,255,0.03);
+}
+.ph-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+.ph-badge{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;display:inline-block;margin-bottom:8px}
+.ph-title{font-size:26px;font-weight:800;margin-bottom:4px;letter-spacing:-.3px}
+.ph-sub{font-size:13px;opacity:.8;line-height:1.6}
+.ph-meta{text-align:right;flex-shrink:0}
+.ph-meta-item{font-size:12px;opacity:.75;margin-bottom:2px}
+.ph-meta-item strong{opacity:1;font-weight:700;font-size:14px}
+.ph-stats{display:flex;gap:28px}
+.ph-stat{text-align:center}
+.ph-stat-val{font-size:22px;font-weight:800;margin-bottom:2px}
+.ph-stat-label{font-size:11px;opacity:.7}
+
+/* SECTION TITLE */
+.sec-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:16px;
+  display:flex;align-items:center;gap:8px}
+.sec-title::before{content:'';width:3px;height:18px;border-radius:2px;background:var(--blue);flex-shrink:0}
+.sec-title small{font-size:12px;font-weight:400;color:var(--text3);margin-left:4px}
+
+/* PHASE OVERVIEW */
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.phase-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r2);
+  padding:16px;position:relative;box-shadow:var(--shadow);cursor:default}
+.phase-card.current{border-color:var(--blue);background:linear-gradient(135deg,#f0f5ff,#fff);
+  box-shadow:0 0 0 3px rgba(29,79,216,0.1),var(--shadow2)}
+.phase-card.future{opacity:.65}
+.pc-phase{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  margin-bottom:6px;color:var(--text3)}
+.phase-card.current .pc-phase{color:var(--blue)}
+.pc-title{font-size:13px;font-weight:700;margin-bottom:6px;line-height:1.4}
+.pc-period{font-size:11px;color:var(--text3);margin-bottom:10px}
+.pc-goals{font-size:11.5px;color:var(--text2);line-height:1.9}
+.pc-goals li{list-style:none;padding-left:14px;position:relative}
+.pc-goals li::before{content:'·';position:absolute;left:4px;font-weight:700}
+.phase-card.current .pc-goals li::before{color:var(--blue)}
+.pc-current-badge{position:absolute;top:12px;right:12px;background:var(--blue);color:#fff;
+  font-size:9px;font-weight:700;letter-spacing:.06em;padding:2px 7px;border-radius:20px}
+.pc-deliverable-count{margin-top:10px;padding-top:8px;border-top:1px solid var(--border);
+  font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px}
+.pc-deliverable-count strong{color:var(--text2)}
+
+/* GANTT */
+.gantt-wrap{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);
+  overflow:hidden;box-shadow:var(--shadow);margin-bottom:28px}
+.gantt-header{display:grid;grid-template-columns:180px 1fr 1fr 1fr 1fr;background:var(--surface);
+  border-bottom:1.5px solid var(--border2)}
+.gh-cell{padding:10px 14px;font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;border-right:1px solid var(--border)}
+.gh-cell.week{text-align:center;position:relative}
+.gh-cell.week .wk-days{font-size:10px;font-weight:400;color:var(--text3);margin-top:1px}
+.gantt-row{display:grid;grid-template-columns:180px 1fr 1fr 1fr 1fr;border-bottom:1px solid var(--border)}
+.gantt-row:last-child{border-bottom:none}
+.gr-label{padding:11px 14px;font-size:12px;font-weight:600;color:var(--text);
+  border-right:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--surface)}
+.gr-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.gr-cell{padding:8px;border-right:1px solid var(--border);display:flex;align-items:center}
+.gr-cell:last-child{border-right:none}
+.task-bar{border-radius:4px;padding:4px 10px;font-size:11px;font-weight:600;
+  width:100%;text-align:center;line-height:1.4}
+.task-bar.half{width:50%;margin-left:50%}
+.task-bar.full{width:100%}
+.task-bar.left-half{width:50%}
+.empty-bar{color:var(--text3);font-size:11px;padding:4px 8px}
+.gantt-legend{display:flex;gap:20px;padding:12px 14px;background:var(--surface);border-top:1px solid var(--border);flex-wrap:wrap}
+.gl-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)}
+.gl-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+
+/* DELIVERABLE CARDS */
+.deliverables{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}
+.del-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);
+  overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .15s}
+.del-card:hover{box-shadow:var(--shadow2)}
+.del-header{padding:14px 16px 12px;border-bottom:1px solid var(--border);
+  display:flex;align-items:flex-start;gap:12px}
+.del-id{font-size:11px;font-weight:800;letter-spacing:.06em;padding:3px 8px;border-radius:20px;flex-shrink:0;margin-top:1px}
+.del-title-wrap{flex:1}
+.del-title{font-size:14px;font-weight:700;line-height:1.4;margin-bottom:3px}
+.del-meta{display:flex;gap:10px;font-size:11px;color:var(--text3)}
+.del-body{padding:12px 16px}
+.del-section{margin-bottom:10px}
+.del-section:last-child{margin-bottom:0}
+.del-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  margin-bottom:5px}
+.del-section-body{font-size:12.5px;color:var(--text2);line-height:1.8}
+.dod-list{margin:0}
+.dod-item{display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;font-size:12px;color:var(--text2)}
+.dod-check{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--border2);
+  flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;
+  background:var(--surface);cursor:pointer;transition:all .15s}
+.dod-check.checked{background:var(--green);border-color:var(--green);color:#fff}
+.dod-check.checked::after{content:'✓';font-size:9px;font-weight:700}
+.del-footer{padding:10px 16px;background:var(--surface);border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text3)}
+.del-owner{display:flex;align-items:center;gap:5px}
+.owner-tag{background:var(--gray-l);border-radius:20px;padding:1px 8px;color:var(--gray);font-weight:600}
+
+/* RISK TABLE */
+.risk-table{width:100%;border-collapse:collapse;background:var(--white);
+  border-radius:var(--r2);overflow:hidden;box-shadow:var(--shadow);margin-bottom:28px}
+.risk-table th{background:var(--surface);padding:10px 14px;font-size:11px;font-weight:700;
+  color:var(--text2);letter-spacing:.06em;text-transform:uppercase;text-align:left;
+  border-bottom:1.5px solid var(--border2)}
+.risk-table td{padding:11px 14px;font-size:12.5px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.7}
+.risk-table tr:last-child td{border-bottom:none}
+.risk-table tr:hover td{background:var(--surface)}
+.risk-level{display:inline-block;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px}
+.rl-high{background:var(--red-l);color:var(--red);border:1px solid var(--red-b)}
+.rl-med{background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)}
+.rl-low{background:var(--green-l);color:var(--green);border:1px solid var(--green-b)}
+.risk-num{font-weight:700;color:var(--text3);font-size:12px}
+
+/* TEAM */
+.team-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.team-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);
+  padding:16px;box-shadow:var(--shadow)}
+.tc-role{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  margin-bottom:6px;color:var(--text3)}
+.tc-name{font-size:14px;font-weight:700;margin-bottom:8px}
+.tc-tasks{font-size:11.5px;color:var(--text2);line-height:2}
+.tc-tasks li{list-style:none;padding-left:14px;position:relative}
+.tc-tasks li::before{content:'→';position:absolute;left:0;color:var(--blue);font-size:10px;top:2px}
+.tc-ratio{margin-top:10px;padding-top:8px;border-top:1px solid var(--border);
+  font-size:11px;color:var(--text3)}
+.ratio-bar{height:4px;border-radius:2px;background:var(--border);margin-top:5px;overflow:hidden}
+.ratio-fill{height:100%;border-radius:2px;background:var(--blue)}
+
+/* FOOTER */
+.plan-footer{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);
+  padding:20px 24px;display:flex;justify-content:space-between;align-items:center;
+  font-size:12px;color:var(--text3);box-shadow:var(--shadow)}
+.pf-note{line-height:1.8;max-width:600px}
+.pf-note strong{color:var(--text2)}
+
+/* PRINT BTN */
+.print-btn{
+  position:fixed;bottom:24px;right:24px;
+  background:var(--blue);color:#fff;border:none;border-radius:20px;
+  padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;
+  box-shadow:0 4px 12px rgba(29,79,216,0.4);
+  display:flex;align-items:center;gap:6px;transition:transform .15s;
+  font-family:inherit;
+}
+.print-btn:hover{transform:translateY(-1px)}
+.progress-summary{
+  background:var(--white);border:1px solid var(--border);border-radius:var(--r2);
+  padding:18px 20px;margin-bottom:28px;box-shadow:var(--shadow);
+  display:flex;gap:24px;align-items:center;
+}
+.ps-item{flex:1;text-align:center}
+.ps-val{font-size:24px;font-weight:800;margin-bottom:3px}
+.ps-label{font-size:11px;color:var(--text3)}
+.ps-divider{width:1px;background:var(--border);height:40px}
+code{font-family:'Consolas','Monaco',monospace;font-size:11.5px;background:var(--gray-l);
+  color:var(--gray);padding:1px 5px;border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- PAGE HEADER -->
+<div class="page-header">
+  <div class="ph-top">
+    <div>
+      <div class="ph-badge">第一阶段开发计划</div>
+      <div class="ph-title">MASS ADAS · L3 战术决策层</div>
+      <div class="ph-sub">45m FCB 首发 · CCS 入级（i-Ship Nx/Ri）· D2–D4 全谱自主</div>
+    </div>
+    <div class="ph-meta">
+      <div class="ph-meta-item">计划起始</div>
+      <div class="ph-meta-item"><strong id="start-date"></strong></div>
+      <div style="height:10px"></div>
+      <div class="ph-meta-item">阶段截止</div>
+      <div class="ph-meta-item"><strong id="end-date"></strong></div>
+    </div>
+  </div>
+  <div class="ph-stats">
+    <div class="ph-stat"><div class="ph-stat-val">4 周</div><div class="ph-stat-label">第一阶段工期</div></div>
+    <div class="ph-stat"><div class="ph-stat-val">8 项</div><div class="ph-stat-label">可交付物</div></div>
+    <div class="ph-stat"><div class="ph-stat-val">2 模块</div><div class="ph-stat-label">完整实现 (M1/M2)</div></div>
+    <div class="ph-stat"><div class="ph-stat-val">6 模块</div><div class="ph-stat-label">框架代码 (M3-M8)</div></div>
+    <div class="ph-stat"><div class="ph-stat-val">1 次</div><div class="ph-stat-label">CCS 征询提交</div></div>
+  </div>
+</div>
+
+<!-- FOUR PHASE OVERVIEW -->
+<div class="sec-title">四阶段总览 <small>（月度里程碑，第二至四阶段计划将在阶段评审后细化）</small></div>
+<div class="phases">
+  <div class="phase-card current">
+    <div class="pc-current-badge">进行中</div>
+    <div class="pc-phase">第一阶段</div>
+    <div class="pc-title">架构基线 + 核心基础模块</div>
+    <div class="pc-period" id="p1-period">— 第 1–21 工作日</div>
+    <ul class="pc-goals">
+      <li>开发环境与仿真平台搭建</li>
+      <li>接口契约冻结（所有 8 模块）</li>
+      <li>M1 ODD Manager 完整实现</li>
+      <li>M2 World Model 完整实现</li>
+      <li>M3–M8 框架代码全链路贯通</li>
+      <li>ODD-Spec v1.0（CCS AIP 准备）</li>
+    </ul>
+    <div class="pc-deliverable-count">🎯 <strong>8</strong> 项交付物</div>
+  </div>
+  <div class="phase-card future">
+    <div class="pc-phase">第二阶段</div>
+    <div class="pc-title">核心决策模块实现</div>
+    <div class="pc-period">— 第 22–43 工作日</div>
+    <ul class="pc-goals">
+      <li>M4 Behavior Arbiter (IvP)</li>
+      <li>M6 COLREGs Reasoner</li>
+      <li>M5 Tactical Planner (Mid-MPC)</li>
+      <li>M3 Mission Manager 完整实现</li>
+      <li>初步仿真闭环测试</li>
+      <li>CCS 设计认可申请准备</li>
+    </ul>
+    <div class="pc-deliverable-count">🎯 <strong>待细化</strong> 项交付物</div>
+  </div>
+  <div class="phase-card future">
+    <div class="pc-phase">第三阶段</div>
+    <div class="pc-title">HIL 集成 + 安全认证</div>
+    <div class="pc-period">— 第 44–64 工作日</div>
+    <ul class="pc-goals">
+      <li>M5 BC-MPC 短程避碰</li>
+      <li>M7 Safety Supervisor</li>
+      <li>M8 HMI/Transparency Bridge</li>
+      <li>HIL 测试台集成验证</li>
+      <li>SIL 2 第三方初评</li>
+      <li>多船型插件验证</li>
+    </ul>
+    <div class="pc-deliverable-count">🎯 <strong>待细化</strong> 项交付物</div>
+  </div>
+  <div class="phase-card future">
+    <div class="pc-phase">第四阶段</div>
+    <div class="pc-title">实船调试 + CCS 见证</div>
+    <div class="pc-period">— 第 65–84 工作日</div>
+    <ul class="pc-goals">
+      <li>FCB 实船集成与调试</li>
+      <li>试航（≥50 nm 自主）</li>
+      <li>ROC 接管演示 × 10 次</li>
+      <li>CCS 验船师现场见证</li>
+      <li>AIP/设计认可取得</li>
+    </ul>
+    <div class="pc-deliverable-count">🎯 <strong>待细化</strong> 项交付物</div>
+  </div>
+</div>
+
+<!-- PROGRESS SUMMARY -->
+<div class="progress-summary">
+  <div class="ps-item"><div class="ps-val" style="color:var(--blue)">0/8</div><div class="ps-label">交付物完成</div></div>
+  <div class="ps-divider"></div>
+  <div class="ps-item"><div class="ps-val" style="color:var(--green)">0%</div><div class="ps-label">第一阶段进度</div></div>
+  <div class="ps-divider"></div>
+  <div class="ps-item"><div class="ps-val" style="color:var(--amber)">5</div><div class="ps-label">风险项（需关注）</div></div>
+  <div class="ps-divider"></div>
+  <div class="ps-item"><div class="ps-val" style="color:var(--text2)" id="days-remaining">—</div><div class="ps-label">剩余工作日</div></div>
+</div>
+
+<!-- GANTT CHART -->
+<div class="sec-title">第一阶段工作计划 <small>（按工作流分解，工期以工作日计）</small></div>
+<div class="gantt-wrap">
+  <div class="gantt-header">
+    <div class="gh-cell">工作流</div>
+    <div class="gh-cell week">第 1 周<div class="wk-days">Day 1–5</div></div>
+    <div class="gh-cell week">第 2 周<div class="wk-days">Day 6–10</div></div>
+    <div class="gh-cell week">第 3 周<div class="wk-days">Day 11–15</div></div>
+    <div class="gh-cell week">第 4 周<div class="wk-days">Day 16–21</div></div>
+  </div>
+
+  <!-- Row 1: Infrastructure -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#1d4fd8"></div>基础设施搭建</div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ROS2 + 仿真平台 + CI/CD</div></div>
+    <div class="gr-cell"><div class="task-bar left-half" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">FCB 仿真模型</div></div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+  </div>
+
+  <!-- Row 2: M1 -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#0f7a4a"></div>M1 ODD/Envelope Manager</div>
+    <div class="gr-cell"><span class="empty-bar">架构设计</span></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">三轴状态机 + TMR/TDL</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">边界检测 + MRC触发</div></div>
+    <div class="gr-cell"><div class="task-bar left-half" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">单元测试</div></div>
+  </div>
+
+  <!-- Row 3: M2 -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#1d4fd8"></div>M2 World Model</div>
+    <div class="gr-cell"><span class="empty-bar">架构设计</span></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">三视图数据结构</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ENC接口 + 置信度管理</div></div>
+    <div class="gr-cell"><div class="task-bar left-half" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">单元测试</div></div>
+  </div>
+
+  <!-- Row 4: Interface Contract -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#5b21b6"></div>接口契约设计</div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">IDL 初稿（8 模块）</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">迭代与细化</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:#5b21b6;color:#fff">技术评审 → 冻结</div></div>
+    <div class="gr-cell"><span class="empty-bar">冻结后不变更</span></div>
+  </div>
+
+  <!-- Row 5: Capability Manifest -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#0d7a70"></div>Capability Manifest</div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">Schema 设计 + 船型参数收集</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">FCB 45m 参数填充</div></div>
+    <div class="gr-cell"><div class="task-bar left-half" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">M1 加载验证</div></div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+  </div>
+
+  <!-- Row 6: Safety Analysis -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#b45309"></div>安全分析（HARA）</div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+    <div class="gr-cell"><span class="empty-bar">调研准备</span></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">HARA Workshop（≥30 危险）</div></div>
+    <div class="gr-cell"><div class="task-bar left-half" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">报告编写</div></div>
+  </div>
+
+  <!-- Row 7: CCS Docs -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#6b21a8"></div>CCS 认证准备</div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+    <div class="gr-cell"><span class="empty-bar">ODD-Spec 起草</span></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">ODD-Spec 编写</div></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">ConOps 初版 + CCS 征询</div></div>
+  </div>
+
+  <!-- Row 8: Framework Code -->
+  <div class="gantt-row">
+    <div class="gr-label"><div class="gr-dot" style="background:#374151"></div>M3–M8 框架代码</div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+    <div class="gr-cell"><span class="empty-bar">—</span></div>
+    <div class="gr-cell"><span class="empty-bar">设计细化</span></div>
+    <div class="gr-cell"><div class="task-bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b)">6 模块接口完整 + 全链路心跳</div></div>
+  </div>
+
+  <div class="gantt-legend">
+    <div class="gl-item"><div class="gl-dot" style="background:var(--blue-l);border:1px solid var(--blue-b)"></div>基础设施 / World Model</div>
+    <div class="gl-item"><div class="gl-dot" style="background:var(--green-l);border:1px solid var(--green-b)"></div>ODD Manager</div>
+    <div class="gl-item"><div class="gl-dot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>接口契约 / CCS 文档</div>
+    <div class="gl-item"><div class="gl-dot" style="background:var(--teal-l);border:1px solid var(--teal-b)"></div>Capability Manifest</div>
+    <div class="gl-item"><div class="gl-dot" style="background:var(--amber-l);border:1px solid var(--amber-b)"></div>安全分析</div>
+    <div class="gl-item"><div class="gl-dot" style="background:var(--gray-l);border:1px solid var(--gray-b)"></div>框架代码</div>
+  </div>
+</div>
+
+<!-- DELIVERABLE CARDS -->
+<div class="sec-title">交付物清单 <small>（含验收标准 DoD，可勾选跟踪进度）</small></div>
+<div class="deliverables">
+
+  <!-- D1.1 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--blue-l);color:var(--blue)">D1.1</div>
+      <div class="del-title-wrap">
+        <div class="del-title">开发环境验证报告</div>
+        <div class="del-meta"><span>📅 第 1 周末</span><span>👤 基础设施负责人</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--blue)">交付内容</div>
+        <div class="del-section-body">ROS2 + 仿真平台（推荐 Gazebo/Unity）安装验证文档；45m FCB MMG 水动力基础模型跑通记录；CI/CD 流水线配置说明；Hello World 级联调测试截图/视频。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>FCB 单船仿真连续运行 10 分钟无崩溃</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>控制回路频率达到 50 Hz（M5 目标频率）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>CI/CD 可自动执行单元测试并生成报告</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>文档通过技术负责人审核</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：确保后续所有开发活动可正常进行的基础条件</span>
+      <div class="del-owner">验收：<span class="owner-tag">技术负责人</span></div>
+    </div>
+  </div>
+
+  <!-- D1.2 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--purple-l);color:var(--purple)">D1.2</div>
+      <div class="del-title-wrap">
+        <div class="del-title">接口契约文档 v1.0</div>
+        <div class="del-meta"><span>📅 第 3 周末</span><span>👤 系统架构师</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--purple)">交付内容</div>
+        <div class="del-section-body">8 个模块全部输入/输出消息的 IDL 定义；消息频率要求表；置信度（confidence）字段规范；时间戳规范；版本控制说明。此文档冻结后，模块间接口不允许无评审变更。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>8 个模块的全部消息类型有完整 IDL 定义（≥12 条消息）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>每条消息包含：数据字段 + 频率 + 置信度 + 时间戳</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>技术评审会议通过（各模块负责人签字确认）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>纳入版本管理，后续变更走变更控制流程</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：防止并行模块开发时接口不兼容导致集成阶段大量返工</span>
+      <div class="del-owner">验收：<span class="owner-tag">架构师+各负责人</span></div>
+    </div>
+  </div>
+
+  <!-- D1.3 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--teal-l);color:var(--teal)">D1.3</div>
+      <div class="del-title-wrap">
+        <div class="del-title">Capability Manifest 规格书 v1.0（FCB 45m）</div>
+        <div class="del-meta"><span>📅 第 3 周末</span><span>👤 系统架构师</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--teal)">交付内容</div>
+        <div class="del-section-body">45m FCB 的 YAML 格式 Capability Manifest 文件及说明文档；包含：主尺度、操纵极限（ROT_max、旋回半径、制动距离）、ODD 各子域参数、水动力插件接口规范。此文件须经船厂确认后送 CCS 项目组。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>Manifest 文件可被 M1 正确加载并通过 Schema 验证</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>ODD-A/B/C/D 四个子域的关键参数全部填写</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>FCB 船型参数经船厂设计部门书面确认</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>水动力插件接口完成第一版 C++ 接口定义</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：多船型扩展的核心文件，也是 CCS 入级 AIP 申请的必要输入</span>
+      <div class="del-owner">验收：<span class="owner-tag">架构师+CCS</span></div>
+    </div>
+  </div>
+
+  <!-- D1.4 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--green-l);color:var(--green)">D1.4</div>
+      <div class="del-title-wrap">
+        <div class="del-title">M1 ODD/Envelope Manager 实现及测试报告</div>
+        <div class="del-meta"><span>📅 第 4 周末</span><span>👤 M1 负责人</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">交付内容</div>
+        <div class="del-section-body">M1 模块完整实现代码（含三轴状态机、TMR/TDL 实时计算、ODD 边界检测、D2/D3/D4 模式切换、MRC 触发逻辑）；单元测试套件；测试覆盖率报告；10 个标准 ODD 场景测试记录。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>单元测试覆盖率 ≥ 80%（分支覆盖）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>10 个标准 ODD 场景（各子域切换 + MRC 触发）全部通过</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>ODD_StateMsg 发布频率稳定在 1 Hz ± 10%</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>代码审查（Code Review）通过，无阻塞性问题</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>与 M2 联调：从 M2 威胁摘要正确触发 ODD 边界警告</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：整个系统的调度枢纽，M3–M8 开发的先决依赖模块</span>
+      <div class="del-owner">验收：<span class="owner-tag">技术负责人</span></div>
+    </div>
+  </div>
+
+  <!-- D1.5 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--blue-l);color:var(--blue)">D1.5</div>
+      <div class="del-title-wrap">
+        <div class="del-title">M2 World Model 实现及测试报告</div>
+        <div class="del-meta"><span>📅 第 4 周末</span><span>👤 M2 负责人</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--blue)">交付内容</div>
+        <div class="del-section-body">M2 模块完整实现代码（含三视图数据结构、Mock 传感器接口、ENC 查询接口、目标 COLREGs 几何预分类、置信度管理）；单元测试套件；与 M1 的联调测试记录。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>单元测试覆盖率 ≥ 80%</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>仿真中 World_StateMsg 稳定以 4 Hz 发布</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>Mock AIS 接入：10 目标场景下 CPA/TCPA 计算误差 ≤ 1%</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>ENC 查询接口：给定坐标能正确返回水深和禁区信息</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>M1 + M2 联调：威胁 TCPA 变化正确触发 ODD 状态变更</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：所有决策模块（M3–M6）的唯一事实来源，后续所有模块强依赖</span>
+      <div class="del-owner">验收：<span class="owner-tag">技术负责人</span></div>
+    </div>
+  </div>
+
+  <!-- D1.6 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--purple-l);color:var(--purple)">D1.6</div>
+      <div class="del-title-wrap">
+        <div class="del-title">ODD-Spec v1.0（CCS AIP 核心申请文件）</div>
+        <div class="del-meta"><span>📅 第 4 周末</span><span>👤 系统架构师</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--purple)">交付内容</div>
+        <div class="del-section-body">Operational Envelope 三轴（E/T/H）完整定义文档；四个 ODD 子域（开阔/狭水道/港内/能见度不良）的参数表；TMR/TDL 量化基础说明；ODD 主状态机规格；格式满足 CCS 提交要求。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>三轴 E/T/H 定义完整，每轴各维度有量化范围</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>四个 ODD 子域参数表完整（CPA/TCPA/速度/TMR/主导规则）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>文档格式通过内部技术评审</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>已提交 CCS 项目组进行 AIP 前预沟通（邮件留存）</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：CCS i-Ship 入级 AIP（原则认可）的核心申请材料，启动认证流程的起点</span>
+      <div class="del-owner">验收：<span class="owner-tag">架构师+CCS征询</span></div>
+    </div>
+  </div>
+
+  <!-- D1.7 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--amber-l);color:var(--amber)">D1.7</div>
+      <div class="del-title-wrap">
+        <div class="del-title">HARA 风险分析初版（含 SIL 候选分配）</div>
+        <div class="del-meta"><span>📅 第 4 周末</span><span>👤 安全工程师</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--amber)">交付内容</div>
+        <div class="del-section-body">基于 8 模块架构的顶层危险识别（≥30 个 Hazard）；危险等级初步评估（严重度 × 频率）；SIL 候选分配表（MRC 触发链 SIL 2 等）；关键假设清单。后续 HAZID Workshop 将以此为输入细化。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>识别 ≥ 30 个顶层危险，覆盖所有 8 个模块</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>每个危险有：描述 / 严重度 / 频率 / 初步风险等级</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>SIL 候选分配覆盖 MRC 链路和 COLREGs 推理模块</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>通过内部安全评审（安全工程师+技术负责人）</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：SIL 分配的前提，也是 CCS 认证阶段安全论证（Safety Case）的基础文件</span>
+      <div class="del-owner">验收：<span class="owner-tag">安全工程师</span></div>
+    </div>
+  </div>
+
+  <!-- D1.8 -->
+  <div class="del-card">
+    <div class="del-header">
+      <div class="del-id" style="background:var(--gray-l);color:var(--gray)">D1.8</div>
+      <div class="del-title-wrap">
+        <div class="del-title">M3–M8 框架代码（全链路心跳验证）</div>
+        <div class="del-meta"><span>📅 第 4 周末</span><span>👤 技术负责人</span></div>
+      </div>
+    </div>
+    <div class="del-body">
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--gray)">交付内容</div>
+        <div class="del-section-body">M3（Mission Manager）、M4（Behavior Arbiter）、M5（Tactical Planner）、M6（COLREGs Reasoner）、M7（Safety Supervisor）、M8（HMI Bridge）六个模块的框架代码；接口完整（有正确的订阅和发布），业务逻辑为占位实现（返回合法的默认值）。</div>
+      </div>
+      <div class="del-section">
+        <div class="del-section-title" style="color:var(--green)">验收标准（DoD）</div>
+        <div class="dod-list">
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>全部 8 个模块可在仿真环境中同时启动，无启动报错</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>8 模块全链路心跳测试：M1 发出 odd_state → 各模块正确接收</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>M5 能发出格式合法的 Trajectory_CmdMsg（即使是占位值）</div>
+          <div class="dod-item"><div class="dod-check" onclick="toggleCheck(this)"></div>代码结构符合第 2 阶段正式实现的扩展要求</div>
+        </div>
+      </div>
+    </div>
+    <div class="del-footer">
+      <span>战略价值：第二阶段并行开发的前提条件，确保各模块负责人可立即开始第 2 阶段工作</span>
+      <div class="del-owner">验收：<span class="owner-tag">技术负责人</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- RISK REGISTER -->
+<div class="sec-title">风险登记册 <small>（第一阶段，共 5 项需管控）</small></div>
+<table class="risk-table">
+  <tr>
+    <th style="width:40px">#</th>
+    <th style="width:90px">风险等级</th>
+    <th style="width:200px">风险描述</th>
+    <th>影响范围</th>
+    <th>缓解措施</th>
+    <th style="width:100px">责任人</th>
+  </tr>
+  <tr>
+    <td class="risk-num">R1</td>
+    <td><span class="risk-level rl-high">高</span></td>
+    <td><strong>FCB 水动力参数缺失</strong><br><small>船厂未能及时提供操纵性试验数据</small></td>
+    <td>D1.3 Capability Manifest 无法用真实参数填充；M2 仿真精度受影响</td>
+    <td>W1 立即与船厂签数据共享协议；备用方案：先用 clarke83 主尺度估算模型（参数标注为 ESTIMATE，后续替换），不阻塞开发进度</td>
+    <td>架构师<br><em>W1 跟进</em></td>
+  </tr>
+  <tr>
+    <td class="risk-num">R2</td>
+    <td><span class="risk-level rl-high">高</span></td>
+    <td><strong>接口契约 W3 后仍发生变更</strong><br><small>模块开发中发现接口设计缺陷</small></td>
+    <td>导致已完成的 M1/M2 代码返工；延误第 2 阶段</td>
+    <td>W1 投入 40% 精力做 IDL 初稿；W2 各模块负责人提前 Mock 接口试用；W3 评审时执行 30 分钟压力测试（提意见窗口）；W3 末强制冻结，后续走 ECO 变更流程</td>
+    <td>架构师<br><em>W3 强制冻结</em></td>
+  </tr>
+  <tr>
+    <td class="risk-num">R3</td>
+    <td><span class="risk-level rl-med">中</span></td>
+    <td><strong>CCS 项目组对接延迟</strong><br><small>CCS 响应周期不确定，影响 ODD-Spec 评审</small></td>
+    <td>D1.6 ODD-Spec 无法获得 CCS 反馈；AIP 申请推迟</td>
+    <td>W2 前完成 CCS 项目组首次接洽（发送项目介绍 + 时间表）；内部冻结 ODD-Spec 后提交，CCS 反馈与开发并行推进，不以 CCS 反馈作为第一阶段阻塞条件</td>
+    <td>项目经理<br><em>W2 前接洽</em></td>
+  </tr>
+  <tr>
+    <td class="risk-num">R4</td>
+    <td><span class="risk-level rl-med">中</span></td>
+    <td><strong>仿真平台选型与许可证问题</strong><br><small>商业仿真软件许可证申请周期长</small></td>
+    <td>D1.1 开发环境验证延迟；M1/M2 开发无仿真环境</td>
+    <td>W1 首日确认选型（优先开源：Gazebo/ROS2 组合，零许可证风险）；如选商业软件，W1 内提交采购申请并准备 Gazebo 备用环境</td>
+    <td>基础设施负责人<br><em>W1 首日决策</em></td>
+  </tr>
+  <tr>
+    <td class="risk-num">R5</td>
+    <td><span class="risk-level rl-low">低</span></td>
+    <td><strong>ENC 电子海图数据获取</strong><br><small>测试水域 ENC 数据版权或接入问题</small></td>
+    <td>M2 ENC 接口无法用真实数据验证（D1.5 影响）</td>
+    <td>先用 OpenSeaMap 开源数据验证接口逻辑；与海图提供方（航海图志局/PRIMAR）提前接洽，获取开发测试授权</td>
+    <td>M2 负责人<br><em>W2 前确认</em></td>
+  </tr>
+</table>
+
+<!-- TEAM ALLOCATION -->
+<div class="sec-title">团队资源假设 <small>（建议配置，实际以项目人力为准）</small></div>
+<div class="team-grid">
+  <div class="team-card">
+    <div class="tc-role">系统架构师 × 1</div>
+    <div class="tc-name">系统级设计与协调</div>
+    <ul class="tc-tasks">
+      <li>接口契约 IDL 设计与评审</li>
+      <li>ODD-Spec + Capability Manifest</li>
+      <li>CCS 征询文件准备</li>
+      <li>架构评审主持</li>
+    </ul>
+    <div class="tc-ratio">第一阶段投入比例
+      <div class="ratio-bar"><div class="ratio-fill" style="width:100%"></div></div>
+    </div>
+  </div>
+  <div class="team-card">
+    <div class="tc-role">高级工程师 × 1（M1）</div>
+    <div class="tc-name">ODD 管理器专项</div>
+    <ul class="tc-tasks">
+      <li>M1 三轴状态机实现</li>
+      <li>TMR/TDL 实时计算</li>
+      <li>MRC 触发逻辑</li>
+      <li>M1 单元测试 (≥80%)</li>
+    </ul>
+    <div class="tc-ratio">第一阶段投入比例（M1 专项）
+      <div class="ratio-bar"><div class="ratio-fill" style="width:85%"></div></div>
+    </div>
+  </div>
+  <div class="team-card">
+    <div class="tc-role">高级工程师 × 1（M2）</div>
+    <div class="tc-name">World Model 专项</div>
+    <ul class="tc-tasks">
+      <li>M2 三视图数据结构</li>
+      <li>ENC 查询接口</li>
+      <li>置信度管理机制</li>
+      <li>M2 单元测试 (≥80%)</li>
+    </ul>
+    <div class="tc-ratio">第一阶段投入比例（M2 专项）
+      <div class="ratio-bar"><div class="ratio-fill" style="width:85%"></div></div>
+    </div>
+  </div>
+  <div class="team-card">
+    <div class="tc-role">工程师 × 1（基础设施）</div>
+    <div class="tc-name">环境与框架代码</div>
+    <ul class="tc-tasks">
+      <li>ROS2 + 仿真环境搭建</li>
+      <li>CI/CD 流水线配置</li>
+      <li>M3–M8 框架代码</li>
+      <li>HARA 数据整理支持</li>
+    </ul>
+    <div class="tc-ratio">第一阶段投入比例（多任务并行）
+      <div class="ratio-bar"><div class="ratio-fill" style="width:70%"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER NOTE -->
+<div class="plan-footer">
+  <div class="pf-note">
+    <strong>第二至四阶段计划说明：</strong>
+    本计划仅覆盖第一阶段（4 周）的详细内容。第二至四阶段的详细计划将在第一阶段末尾评审会议（Day 21）后，基于 M1/M2 实际完成情况和 CCS 初步反馈进行细化。
+    计划变更须由架构师和项目经理共同确认后更新本文档版本。<br>
+    <strong>文档版本：</strong> v1.0 · <span id="doc-date"></span> · 下次更新：第一阶段评审后（Day 21）
+  </div>
+  <div style="font-size:12px;color:var(--text3);text-align:right;line-height:1.8">
+    MASS ADAS L3 战术决策层<br>
+    第一阶段开发计划
+  </div>
+</div>
+
+</div>
+
+<!-- PRINT BUTTON -->
+<button class="print-btn no-print" onclick="window.print()">
+  🖨️ 导出 / 打印
+</button>
+
+<script>
+// DATES
+function addWorkdays(date, days) {
+  let d = new Date(date), n = 0;
+  while(n < days) {
+    d.setDate(d.getDate()+1);
+    if(d.getDay()!==0 && d.getDay()!==6) n++;
+  }
+  return d;
+}
+const today = new Date();
+const startDate = today;
+const endDate = addWorkdays(today, 20);
+const fmt = d => d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
+document.getElementById('start-date').textContent = fmt(startDate);
+document.getElementById('end-date').textContent = fmt(endDate);
+document.getElementById('doc-date').textContent = fmt(today);
+
+// P1 period
+const p1end = addWorkdays(today, 20);
+document.getElementById('p1-period').textContent = '— '+fmt(today)+'~'+fmt(p1end);
+
+// Remaining days
+let remaining = 21;
+document.getElementById('days-remaining').textContent = remaining+'天';
+
+// DOD CHECKBOXES
+function toggleCheck(el) {
+  el.classList.toggle('checked');
+  updateProgress();
+}
+function updateProgress() {
+  const all = document.querySelectorAll('.dod-check');
+  const done = document.querySelectorAll('.dod-check.checked');
+  const pct = Math.round(done.length/all.length*100);
+  document.querySelector('.ps-item:nth-child(3) .ps-val').textContent = pct+'%';
+}
+
+// DECISION CARDS (from previous page compatibility)
+function toggleDC(id) {}
+</script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<svg width="100%" viewBox="0 0 760 620" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>L3 战术层候选 C 架构图 v2 (修复 NotebookLM 3 项优化)</title>
+<desc>L3 战术层候选 C：心智骨架 + 算法插件。v2 增加：(1) Stage 4 到 Stage 2 反向反馈虚线 (升级触发)；(2) Stage 4 到控制层反射弧虚线 (紧急通道，绕过 Stage 2/3)；(3) Checker 闸门提为跨 Stage 2-3 横向组件；(4) 全 Stage 到 ASDR 的写入流。</desc>
+
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1 L8 5 L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M2 1 L8 5 L2 9" fill="none" stroke="rgb(190, 70, 60)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arrowGray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M2 1 L8 5 L2 9" fill="none" stroke="rgb(140, 140, 135)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<!-- 上游 boxes -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="55" y="20" width="170" height="48" rx="8" fill="rgb(241, 239, 232)" stroke="rgb(95, 94, 90)" stroke-width="0.5"/>
+  <text x="140" y="40" text-anchor="middle" fill="rgb(68, 68, 65)" font-size="14" font-weight="500">感知融合</text>
+  <text x="140" y="56" text-anchor="middle" fill="rgb(95, 94, 90)" font-size="12">目标 + ENC + 自船</text>
+</g>
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="295" y="20" width="170" height="48" rx="8" fill="rgb(241, 239, 232)" stroke="rgb(95, 94, 90)" stroke-width="0.5"/>
+  <text x="380" y="40" text-anchor="middle" fill="rgb(68, 68, 65)" font-size="14" font-weight="500">战略层 (L2)</text>
+  <text x="380" y="56" text-anchor="middle" fill="rgb(95, 94, 90)" font-size="12">全局航路 + 时序约束</text>
+</g>
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="535" y="20" width="170" height="48" rx="8" fill="rgb(241, 239, 232)" stroke="rgb(95, 94, 90)" stroke-width="0.5"/>
+  <text x="620" y="40" text-anchor="middle" fill="rgb(68, 68, 65)" font-size="14" font-weight="500">ROC</text>
+  <text x="620" y="56" text-anchor="middle" fill="rgb(95, 94, 90)" font-size="12">override + 模式切换</text>
+</g>
+
+<line x1="140" y1="68" x2="140" y2="100" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+<line x1="380" y1="68" x2="380" y2="100" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+<line x1="620" y1="68" x2="620" y2="100" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+
+<!-- 容器 (扩大向上15px,留出反向反馈线空间) -->
+<rect x="20" y="100" width="720" height="338" rx="20" fill="none" stroke="rgb(115, 114, 108)" stroke-width="0.8" stroke-dasharray="6 4" opacity="0.5"/>
+<text x="40" y="120" fill="rgb(20, 20, 19)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="14" font-weight="500">L3 战术层 — 候选 C · 心智骨架 + 算法插件</text>
+<text x="40" y="138" fill="rgb(61, 61, 58)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="12" opacity="0.7">4 阶段心智闭环 (CMM 语义) · 骨架 white-box · 插件可独立替换 · v2 含跨层反馈</text>
+
+<!-- 升级反馈虚线 (红色,Stage 4 → Stage 2,⌐ 形,容器顶部) -->
+<path d="M 615 195 L 615 165 L 295 165 L 295 195" fill="none" stroke="rgb(190, 70, 60)" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrowRed)"/>
+<rect x="385" y="155" width="140" height="20" rx="4" fill="rgb(252, 240, 238)" stroke="rgb(190, 70, 60)" stroke-width="0.6"/>
+<text x="455" y="166" text-anchor="middle" fill="rgb(155, 50, 42)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="11" font-weight="500" dominant-baseline="middle">① 升级反馈触发 (非紧急)</text>
+
+<!-- Stage 1 -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="55" y="195" width="125" height="170" rx="8" fill="rgb(225, 245, 238)" stroke="rgb(15, 110, 86)" stroke-width="0.5"/>
+  <text x="117" y="215" text-anchor="middle" fill="rgb(8, 80, 65)" font-size="14" font-weight="500">Stage 1「看」</text>
+  <text x="117" y="232" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">感知 · SA L1+L2</text>
+  <line x1="67" y1="245" x2="168" y2="245" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="117" y="262" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">CPA/TCPA</text>
+  <text x="117" y="280" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">EKF 跟踪</text>
+  <text x="117" y="298" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">运动预测</text>
+  <text x="117" y="316" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">威胁评分</text>
+  <line x1="67" y1="329" x2="168" y2="329" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="117" y="345" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="11">4 算法插件</text>
+  <!-- ASDR 写入标签 -->
+  <text x="117" y="360" text-anchor="middle" fill="rgb(110, 100, 80)" font-size="10" font-style="italic">→ ASDR ④</text>
+</g>
+
+<line x1="184" y1="280" x2="200" y2="280" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+
+<!-- Stage 2 -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="205" y="195" width="125" height="170" rx="8" fill="rgb(225, 245, 238)" stroke="rgb(15, 110, 86)" stroke-width="0.5"/>
+  <text x="267" y="215" text-anchor="middle" fill="rgb(8, 80, 65)" font-size="14" font-weight="500">Stage 2「判」</text>
+  <text x="267" y="232" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">决策 · COLREGs</text>
+  <line x1="217" y1="245" x2="318" y2="245" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="267" y="262" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">规则推理</text>
+  <text x="267" y="280" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">Rule 18 优先序</text>
+  <text x="267" y="298" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">多目标消解</text>
+  <text x="267" y="316" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="11" font-weight="500">Doer 主决策 ★</text>
+  <line x1="217" y1="329" x2="318" y2="329" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="267" y="345" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="11">4 插件 + Doer</text>
+  <!-- ASDR 写入标签 -->
+  <text x="267" y="360" text-anchor="middle" fill="rgb(110, 100, 80)" font-size="10" font-style="italic">→ ASDR ④</text>
+</g>
+
+<!-- Checker 闸门 (跨 Stage 2-3 横向组件,在 Stage 2 → Stage 3 箭头中段) -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="335" y="225" width="100" height="110" rx="6" fill="rgb(255, 244, 220)" stroke="rgb(195, 130, 30)" stroke-width="0.8"/>
+  <text x="385" y="244" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="12" font-weight="600">② Checker</text>
+  <text x="385" y="259" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="11" font-weight="500">闸门 (跨层)</text>
+  <line x1="345" y1="269" x2="425" y2="269" stroke="rgb(140, 90, 15)" stroke-width="0.4" opacity="0.4"/>
+  <text x="385" y="282" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="10">CHK-03 Rule 8</text>
+  <text x="385" y="296" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="10">CHK-04 Rule 14/17</text>
+  <text x="385" y="310" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="10">CHK-01 CPA</text>
+  <text x="385" y="324" text-anchor="middle" fill="rgb(140, 90, 15)" font-size="10">CHK-02 UKC · 05 禁区</text>
+</g>
+<text x="285" y="218" text-anchor="middle" fill="rgb(110, 100, 80)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="10" font-style="italic">决策证书</text>
+<line x1="330" y1="280" x2="335" y2="280" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+<line x1="435" y1="280" x2="450" y2="280" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+<text x="445" y="218" text-anchor="middle" fill="rgb(110, 100, 80)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="10" font-style="italic">校验通过</text>
+
+<!-- Stage 3 -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="455" y="195" width="125" height="170" rx="8" fill="rgb(225, 245, 238)" stroke="rgb(15, 110, 86)" stroke-width="0.5"/>
+  <text x="517" y="215" text-anchor="middle" fill="rgb(8, 80, 65)" font-size="14" font-weight="500">Stage 3「动」</text>
+  <text x="517" y="232" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">执行 · 多时间尺度</text>
+  <line x1="467" y1="245" x2="568" y2="245" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="517" y="262" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">中程 MPC</text>
+  <text x="517" y="280" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">近距 BC-MPC</text>
+  <text x="517" y="298" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">航点 + Tube</text>
+  <text x="517" y="316" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">时间尺度协调</text>
+  <line x1="467" y1="329" x2="568" y2="329" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="517" y="345" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="11">4 插件 + 协调器</text>
+  <!-- ASDR 写入标签 -->
+  <text x="517" y="360" text-anchor="middle" fill="rgb(110, 100, 80)" font-size="10" font-style="italic">→ ASDR ④</text>
+</g>
+
+<line x1="584" y1="280" x2="600" y2="280" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+
+<!-- Stage 4 -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="605" y="195" width="125" height="170" rx="8" fill="rgb(225, 245, 238)" stroke="rgb(15, 110, 86)" stroke-width="0.5"/>
+  <text x="667" y="215" text-anchor="middle" fill="rgb(8, 80, 65)" font-size="14" font-weight="500">Stage 4「盯」</text>
+  <text x="667" y="232" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">监控 · SA L3 闭环</text>
+  <text x="667" y="246" text-anchor="middle" fill="rgb(155, 50, 42)" font-size="10" font-weight="500">[与 Stage 3 并行]</text>
+  <line x1="617" y1="256" x2="718" y2="256" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="667" y="272" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">CPA 趋势</text>
+  <text x="667" y="290" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">升级决策 (DM)</text>
+  <text x="667" y="308" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">解除判定</text>
+  <text x="667" y="326" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">紧急通道</text>
+  <line x1="617" y1="338" x2="718" y2="338" stroke="rgb(60, 60, 60)" stroke-width="0.5" opacity="0.3"/>
+  <text x="667" y="349" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="11">4 算法插件</text>
+  <!-- ASDR 写入标签 -->
+  <text x="667" y="360" text-anchor="middle" fill="rgb(110, 100, 80)" font-size="10" font-style="italic">→ ASDR ④</text>
+</g>
+
+<!-- 闭环到 Stage 1 (重新看) -->
+<text x="667" y="382" text-anchor="middle" fill="rgb(61, 61, 58)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="11" opacity="0.6" font-style="italic">→ 重新看 (闭环)</text>
+
+<!-- Mode Manager -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="55" y="398" width="675" height="32" rx="6" fill="rgb(225, 245, 238)" stroke="rgb(15, 110, 86)" stroke-width="0.5" stroke-dasharray="4 3"/>
+  <text x="392" y="414" text-anchor="middle" fill="rgb(8, 80, 65)" font-size="14" font-weight="500">Mode Manager · 模式管理器</text>
+  <text x="392" y="426" text-anchor="middle" fill="rgb(15, 110, 86)" font-size="12">D2-D4 + MRC + ROC · 跨层贯通</text>
+</g>
+
+<!-- 主决策路径到 控制层 -->
+<line x1="220" y1="438" x2="220" y2="475" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+<line x1="500" y1="438" x2="500" y2="475" marker-end="url(#arrow)" stroke="rgb(115, 114, 108)" stroke-width="1.5"/>
+
+<!-- 反射弧虚线 (红色 L 形,Stage 4 → 控制层,绕过容器右侧外部) -->
+<path d="M 667 365 L 667 380 L 745 380 L 745 460 L 320 460 L 285 475" fill="none" stroke="rgb(190, 70, 60)" stroke-width="1.6" stroke-dasharray="6 3" marker-end="url(#arrowRed)"/>
+<rect x="425" y="450" width="170" height="20" rx="4" fill="rgb(252, 240, 238)" stroke="rgb(190, 70, 60)" stroke-width="0.6"/>
+<text x="510" y="461" text-anchor="middle" fill="rgb(155, 50, 42)" font-family="&quot;Anthropic Sans&quot;, sans-serif" font-size="11" font-weight="500" dominant-baseline="middle">③ 反射弧 RTA · 紧急通道 (绕过 S2/S3)</text>
+
+<!-- 下游 boxes -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="135" y="475" width="170" height="48" rx="8" fill="rgb(241, 239, 232)" stroke="rgb(95, 94, 90)" stroke-width="0.5"/>
+  <text x="220" y="495" text-anchor="middle" fill="rgb(68, 68, 65)" font-size="14" font-weight="500">控制层 (L4)</text>
+  <text x="220" y="511" text-anchor="middle" fill="rgb(95, 94, 90)" font-size="12">航向 / 航速 / 紧急级别</text>
+</g>
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="415" y="475" width="170" height="48" rx="8" fill="rgb(241, 239, 232)" stroke="rgb(95, 94, 90)" stroke-width="0.5"/>
+  <text x="500" y="494" text-anchor="middle" fill="rgb(68, 68, 65)" font-size="14" font-weight="500">公共服务</text>
+  <text x="500" y="508" text-anchor="middle" fill="rgb(155, 50, 42)" font-size="11" font-weight="500">ASDR ④ ← 全 Stage 写入</text>
+  <text x="500" y="519" text-anchor="middle" fill="rgb(95, 94, 90)" font-size="10">日志 / 健康 / 4 元组记录</text>
+</g>
+
+<!-- 图例 -->
+<g style="font-family:&quot;Anthropic Sans&quot;, sans-serif">
+  <rect x="20" y="540" width="720" height="68" rx="6" fill="rgb(248, 247, 243)" stroke="rgb(180, 178, 170)" stroke-width="0.6"/>
+  <text x="35" y="557" fill="rgb(40, 40, 38)" font-size="12" font-weight="500">图例</text>
+
+  <!-- 实线: 主决策流 -->
+  <line x1="80" y1="571" x2="115" y2="571" stroke="rgb(115, 114, 108)" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="123" y="575" fill="rgb(40, 40, 38)" font-size="11">主决策流 (实线)</text>
+
+  <!-- 红色虚线 ①: 升级反馈 -->
+  <line x1="265" y1="571" x2="300" y2="571" stroke="rgb(190, 70, 60)" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrowRed)"/>
+  <text x="308" y="575" fill="rgb(40, 40, 38)" font-size="11">① 升级反馈 (非紧急,触发 S2/S3 重决策)</text>
+
+  <!-- 黄色框 ②: Checker -->
+  <rect x="80" y="588" width="35" height="14" rx="3" fill="rgb(255, 244, 220)" stroke="rgb(195, 130, 30)" stroke-width="0.8"/>
+  <text x="123" y="600" fill="rgb(40, 40, 38)" font-size="11">② Checker 跨层闸门 (校验决策证书)</text>
+
+  <!-- 红色虚线 ③: 反射弧 -->
+  <line x1="395" y1="595" x2="430" y2="595" stroke="rgb(190, 70, 60)" stroke-width="1.6" stroke-dasharray="6 3" marker-end="url(#arrowRed)"/>
+  <text x="438" y="600" fill="rgb(40, 40, 38)" font-size="11">③ 反射弧 RTA (紧急,绕过 S2/S3 直达控制层)</text>
+
+  <!-- ④ ASDR -->
+  <text x="265" y="600" fill="rgb(110, 100, 80)" font-size="11" font-style="italic">→ ASDR ④</text>
+  <text x="333" y="600" fill="rgb(40, 40, 38)" font-size="11" opacity="0">    </text>
+</g>
+
+</svg>

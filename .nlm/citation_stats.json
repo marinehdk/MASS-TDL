@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "citation_freq": {
+    "61a85e3b-d57b-4c7f-abbd-a6067c2ef4c5": {
+      "count": 2,
+      "first_cited_at": 1777527449,
+      "last_cited_at": 1777528724
+    },
+    "1594df69-2774-43ff-8601-09018c7dfea9": {
+      "count": 2,
+      "first_cited_at": 1777528846,
+      "last_cited_at": 1777538900
+    },
+    "c2e10bf3-f747-4754-ba49-6b98ed13d61e": {
+      "count": 1,
+      "first_cited_at": 1777532219,
+      "last_cited_at": 1777532219
+    },
+    "a94ec254-0b55-4991-aa88-cb4bcc7c84f2": {
+      "count": 1,
+      "first_cited_at": 1777540418,
+      "last_cited_at": 1777540418
+    }
+  },
+  "cited_urls": []
+}
