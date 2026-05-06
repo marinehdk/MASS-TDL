@@ -40,10 +40,17 @@ add_library(m7_lib STATIC
   src/common/time_utils.cpp
   src/common/safety_constants.cpp
   src/sotif/assumption_monitor.cpp
+  src/sotif/performance_monitor.cpp
   src/iec61508/watchdog_monitor.cpp
   src/iec61508/fault_monitor.cpp
   src/iec61508/diagnostic_coverage.cpp
   src/checker/veto_handler.cpp
+  src/mrm/mrm_command_set.cpp
+  src/mrm/mrm_01_drift.cpp
+  src/mrm/mrm_02_anchor.cpp
+  src/mrm/mrm_03_heave_to.cpp
+  src/mrm/mrm_04_mooring.cpp
+  src/mrm/mrm_selector.cpp
 )
 
 target_include_directories(m7_lib
@@ -149,6 +156,30 @@ if(BUILD_TESTING)
     l3_msgs
     l3_external_msgs
     builtin_interfaces
+  )
+
+  ament_add_gtest(test_mrm_command_set
+    test/unit/test_mrm_command_set.cpp
+  )
+  target_link_libraries(test_mrm_command_set m7_lib)
+  ament_target_dependencies(test_mrm_command_set
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces
+  )
+
+  ament_add_gtest(test_mrm_selector
+    test/unit/test_mrm_selector.cpp
+  )
+  target_link_libraries(test_mrm_selector m7_lib)
+  ament_target_dependencies(test_mrm_selector
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces
+  )
+
+  ament_add_gtest(test_performance_monitor
+    test/unit/test_performance_monitor.cpp
+  )
+  target_link_libraries(test_performance_monitor m7_lib)
+  ament_target_dependencies(test_performance_monitor
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces
   )
 endif()
 
