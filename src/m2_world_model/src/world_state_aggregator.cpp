@@ -13,7 +13,11 @@
 #include <l3_msgs/msg/own_ship_state.hpp>
 #include <l3_msgs/msg/zone_constraint.hpp>
 
+#include "m2_world_model/detail/time_utils.hpp"
+
 namespace mass_l3::m2 {
+
+using detail::to_msg_time;
 
 // ── Helper: compute initial bearing (forward azimuth) from own to target ──
 // Uses the spherical Earth approximation (haversine formula) for v1.0.
@@ -33,19 +37,6 @@ static double compute_bearing_deg_(double own_lat, double own_lon,
     bearing_rad += 2.0 * M_PI;
   }
   return bearing_rad / deg2rad;
-}
-
-// ── Helper: convert steady_clock time_point to builtin_interfaces Time ──
-// Uses system_clock for the wall-clock time suitable for ROS messages.
-static builtin_interfaces::msg::Time to_msg_time() {
-  using namespace std::chrono;
-  auto sys_now = system_clock::now();
-  auto sys_sec = duration_cast<seconds>(sys_now.time_since_epoch());
-  auto sys_ns = duration_cast<nanoseconds>(sys_now.time_since_epoch()) - sys_sec;
-  builtin_interfaces::msg::Time t;
-  t.sec = static_cast<int32_t>(sys_sec.count());
-  t.nanosec = static_cast<uint32_t>(sys_ns.count());
-  return t;
 }
 
 // ── Helper: convert 6x6 row-major float[36] to Eigen::Matrix6d ──
@@ -108,7 +99,6 @@ void WorldStateAggregator::update_own_ship(
 
 void WorldStateAggregator::update_environment(
     const l3_external_msgs::msg::EnvironmentState& msg) {
-  (void)msg;
   const auto now = std::chrono::steady_clock::now();
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -117,6 +107,8 @@ void WorldStateAggregator::update_environment(
   snap.in_tss = false;
   snap.in_narrow_channel = false;
   snap.min_water_depth_m = 0.0;
+  snap.current_speed_kn = msg.current_speed_kn;
+  snap.current_direction_deg = msg.current_direction_deg;
   snap.stamp = now;
 
   // Query ENC loader for zone at current own-ship position
@@ -160,8 +152,16 @@ void WorldStateAggregator::update_odd_state(
 std::optional<l3_msgs::msg::WorldState>
 WorldStateAggregator::compose_world_state(
     std::chrono::steady_clock::time_point now) {
-  // 1. Lock and capture current snapshots under mutex
-  std::lock_guard<std::mutex> lock(mutex_);
+  // 1. Snapshot caches under mutex, then release before heavy computation.
+  std::optional<OwnShipSnapshot> own_ship_snap;
+  std::optional<OddSnapshot> odd_snap;
+  std::optional<ZoneSnapshot> env_snap;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    own_ship_snap = own_ship_cache_;
+    odd_snap = odd_cache_;
+    env_snap = environment_cache_;
+  }
 
   const auto health = health_->aggregated_health();
 
@@ -171,11 +171,17 @@ WorldStateAggregator::compose_world_state(
   }
 
   // We must have an own-ship snapshot to compose anything meaningful.
-  if (!own_ship_cache_.has_value()) {
+  if (!own_ship_snap.has_value()) {
     return std::nullopt;
   }
 
-  // 3. Get active targets from TrackBuffer
+  // Merge current water data from environment snapshot (RFC-002).
+  if (env_snap.has_value()) {
+    own_ship_snap->current_speed_kn = env_snap->current_speed_kn;
+    own_ship_snap->current_direction_deg = env_snap->current_direction_deg;
+  }
+
+  // 3. Get active targets from TrackBuffer (TrackBuffer has its own mutex)
   track_buffer_->evict_stale(now);
   const auto targets = track_buffer_->active_targets();
 
@@ -183,8 +189,8 @@ WorldStateAggregator::compose_world_state(
   std::vector<l3_msgs::msg::TrackedTarget> world_targets;
   world_targets.reserve(targets.size());
 
-  const auto current_zone = odd_cache_.has_value()
-    ? odd_cache_->current_zone
+  const auto current_zone = odd_snap.has_value()
+    ? odd_snap->current_zone
     : OddZone::A;
 
   for (const auto& target : targets) {
@@ -192,7 +198,7 @@ WorldStateAggregator::compose_world_state(
 
     // 4a. Compute CPA/TCPA
     auto cpa_opt = cpa_calc_->compute(
-        own_ship_cache_.value(), target, current_zone);
+        own_ship_snap.value(), target, current_zone);
 
     if (cpa_opt.has_value()) {
       wt.cpa_m = cpa_opt->cpa_m;
@@ -205,22 +211,22 @@ WorldStateAggregator::compose_world_state(
 
     // 4b. Compute relative bearing
     const double bearing_deg = compute_bearing_deg_(
-        own_ship_cache_->latitude_deg,
-        own_ship_cache_->longitude_deg,
+        own_ship_snap->latitude_deg,
+        own_ship_snap->longitude_deg,
         target.latitude_deg,
         target.longitude_deg);
-    double relative_bearing_deg = bearing_deg - own_ship_cache_->heading_deg;
+    double relative_bearing_deg = bearing_deg - own_ship_snap->heading_deg;
     // Normalise to [-180, 180)
     relative_bearing_deg = std::fmod(relative_bearing_deg + 540.0, 360.0) - 180.0;
 
     // 4c. Relative speed (absolute value — sign handled by classifier)
     const double rel_speed_mps =
-        std::abs((target.sog_kn - own_ship_cache_->sog_kn) * 0.514444);
+        std::abs((target.sog_kn - own_ship_snap->sog_kn) * 0.514444);
 
     // 4d. Classify encounter
     wt.encounter = classifier_->classify(
         relative_bearing_deg,
-        own_ship_cache_->heading_deg,
+        own_ship_snap->heading_deg,
         target.heading_deg,
         rel_speed_mps,
         wt.cpa_m);
@@ -253,37 +259,37 @@ WorldStateAggregator::compose_world_state(
     world_targets.push_back(std::move(wt));
   }
 
-  // 5. Build OwnShipState from cache
+  // 5. Build OwnShipState from snapshot
   l3_msgs::msg::OwnShipState os_msg;
   os_msg.stamp = to_msg_time();
-  os_msg.position.latitude = own_ship_cache_->latitude_deg;
-  os_msg.position.longitude = own_ship_cache_->longitude_deg;
+  os_msg.position.latitude = own_ship_snap->latitude_deg;
+  os_msg.position.longitude = own_ship_snap->longitude_deg;
   os_msg.position.altitude = 0.0;
-  os_msg.sog_kn = own_ship_cache_->sog_kn;
-  os_msg.cog_deg = own_ship_cache_->cog_deg;
-  os_msg.heading_deg = own_ship_cache_->heading_deg;
-  os_msg.u_water = own_ship_cache_->u_water;
-  os_msg.v_water = own_ship_cache_->v_water;
+  os_msg.sog_kn = own_ship_snap->sog_kn;
+  os_msg.cog_deg = own_ship_snap->cog_deg;
+  os_msg.heading_deg = own_ship_snap->heading_deg;
+  os_msg.u_water = own_ship_snap->u_water;
+  os_msg.v_water = own_ship_snap->v_water;
   // r_dot_deg_s and nav_mode not available from OwnShipSnapshot — use defaults
   os_msg.r_dot_deg_s = 0.0;
-  os_msg.current_speed_kn = own_ship_cache_->current_speed_kn;
-  os_msg.current_direction_deg = own_ship_cache_->current_direction_deg;
+  os_msg.current_speed_kn = own_ship_snap->current_speed_kn;
+  os_msg.current_direction_deg = own_ship_snap->current_direction_deg;
 
   for (int r = 0; r < 6; ++r) {
     for (int c = 0; c < 6; ++c) {
-      os_msg.covariance[r * 6 + c] = own_ship_cache_->covariance(r, c);
+      os_msg.covariance[r * 6 + c] = own_ship_snap->covariance(r, c);
     }
   }
   os_msg.nav_mode = "OPTIMAL";
 
-  // 6. Build ZoneConstraint from environment cache
+  // 6. Build ZoneConstraint from environment snapshot
   l3_msgs::msg::ZoneConstraint zc_msg;
-  if (environment_cache_.has_value()) {
-    zc_msg.zone_type = environment_cache_->zone_type;
-    zc_msg.in_tss = environment_cache_->in_tss;
-    zc_msg.in_narrow_channel = environment_cache_->in_narrow_channel;
+  if (env_snap.has_value()) {
+    zc_msg.zone_type = env_snap->zone_type;
+    zc_msg.in_tss = env_snap->in_tss;
+    zc_msg.in_narrow_channel = env_snap->in_narrow_channel;
     zc_msg.min_water_depth_m =
-        static_cast<float>(environment_cache_->min_water_depth_m);
+        static_cast<float>(env_snap->min_water_depth_m);
   } else {
     zc_msg.zone_type = "unknown";
     zc_msg.in_tss = false;
@@ -305,9 +311,9 @@ WorldStateAggregator::compose_world_state(
 
   // Compute SV age for rationale
   double sv_age_s = std::numeric_limits<double>::max();
-  if (environment_cache_.has_value()) {
+  if (env_snap.has_value()) {
     sv_age_s = std::chrono::duration<double>(
-        now - environment_cache_->stamp).count();
+        now - env_snap->stamp).count();
   }
 
   ws.rationale = compose_rationale_(

@@ -34,4 +34,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_world_model_node_smoke PRIVATE ${PROJECT_NAME}_lib)
   target_include_directories(test_world_model_node_smoke PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
+
+  ament_add_gtest(test_environment_degraded_path
+      integration/test_environment_degraded_path.cpp)
+  target_link_libraries(test_environment_degraded_path PRIVATE ${PROJECT_NAME}_lib)
+  target_include_directories(test_environment_degraded_path PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 endif()

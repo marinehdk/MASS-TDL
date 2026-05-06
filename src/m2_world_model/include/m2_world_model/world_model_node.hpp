@@ -26,9 +26,9 @@
 
 namespace mass_l3::m2 {
 
-class WorldModelNode : public rclcpp::Node {
+class WorldModelNode final : public rclcpp::Node {
  public:
-  WorldModelNode();
+  explicit WorldModelNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions{});
   ~WorldModelNode() override = default;
   WorldModelNode(const WorldModelNode&) = delete;
   WorldModelNode& operator=(const WorldModelNode&) = delete;
@@ -81,6 +81,8 @@ class WorldModelNode : public rclcpp::Node {
       double overtaking_bearing_min_deg;
       double overtaking_bearing_max_deg;
       double head_on_heading_diff_tol_deg;
+      double safe_pass_speed_threshold_mps;
+      double safe_pass_min_cpa_m;
     } colreg;
     struct {
       int32_t dv_loss_periods_to_degraded;

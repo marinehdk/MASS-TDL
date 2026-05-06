@@ -19,6 +19,8 @@ class TrackBuffer final {
     int32_t max_targets;                    // [TBD-HAZID] 256 — pre-allocation cap
     int32_t disappearance_periods;          // [TBD-HAZID] 10 — evict after N periods
     double max_target_age_s;                // [TBD-HAZID] 5.0 — max age before eviction
+    double position_default_sigma_m = 50.0; // default position σ when msg has no covariance
+    double velocity_default_sigma_mps = 1.0;
   };
 
   explicit TrackBuffer(Config cfg);
@@ -37,6 +39,13 @@ class TrackBuffer final {
 
   /// Get all active targets within disappearance_periods.
   [[nodiscard]] std::vector<TargetSnapshot> active_targets() const;
+
+  /// Get active targets linearly extrapolated to align_t using sog/cog.
+  [[nodiscard]] std::vector<TargetSnapshot>
+  snapshot_aligned_to(std::chrono::steady_clock::time_point align_t) const;
+
+  /// Current active target count (miss_count < disappearance_periods).
+  [[nodiscard]] int32_t active_count() const;
 
   /// Evict targets that have exceeded disappearance_periods.
   void evict_stale(std::chrono::steady_clock::time_point now);
@@ -60,7 +69,8 @@ class TrackBuffer final {
   static TargetSnapshot snapshot_from_msg(
       const l3_external_msgs::msg::TrackedTargetArray& msg,
       size_t index,
-      std::chrono::steady_clock::time_point now);
+      std::chrono::steady_clock::time_point now,
+      double position_default_sigma_m);
 
   Config cfg_;
   std::unordered_map<uint64_t, TrackEntry> buffer_;

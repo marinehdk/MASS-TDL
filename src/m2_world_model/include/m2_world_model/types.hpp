@@ -52,6 +52,8 @@ struct ZoneSnapshot {
   bool in_tss;
   bool in_narrow_channel;
   double min_water_depth_m;
+  double current_speed_kn{0.0};       // from EnvironmentState (RFC-002)
+  double current_direction_deg{0.0};  // from EnvironmentState (RFC-002)
   std::chrono::steady_clock::time_point stamp;
 };
 

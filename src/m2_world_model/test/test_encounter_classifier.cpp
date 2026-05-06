@@ -129,16 +129,22 @@ TEST(EncounterClassifierTest, OvertakenByFaster) {
 TEST(EncounterClassifierTest, BearingNormalization) {
   EncounterClassifier ec(default_config());
 
-  // Bearing -10° (10° port side) should be normalised correctly
+  // Bearing -10° is normalised correctly; own=0°, target=185°:
+  // heading_diff = smallest_angle_diff(0°, 185°) = 175°; |175 - 180| = 5 ≤ 6 → HEAD_ON.
+  // Negative bearing normalises to 350° (not in stern sector 112.5–247.5°).
   auto result = ec.classify(-10.0, 0.0, 185.0, 10.0, 200.0);
 
-  // Head-on check: heading difference = |0 - 185| → 175° → not head-on (tol=6°)
-  // Bearing = -10° (350° in 0-360 range) → not in stern sector
-  // → crossing
   EXPECT_EQ(result.encounter_type,
-            l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_CROSSING);
+            l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_HEAD_ON);
   EXPECT_NEAR(result.relative_bearing_deg, -10.0, 1e-9);
-  EXPECT_FALSE(result.is_giveway);  // port side → stand-on
+  // Head-on: both vessels are give-way
+  EXPECT_TRUE(result.is_giveway);
+
+  // Verify that a target with heading clearly not reciprocal IS crossing instead.
+  auto crossing = ec.classify(-10.0, 0.0, 100.0, 10.0, 200.0);
+  EXPECT_EQ(crossing.encounter_type,
+            l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_CROSSING);
+  EXPECT_FALSE(crossing.is_giveway);  // port side → stand-on
 }
 
 // ──────────────────────────────────────────────

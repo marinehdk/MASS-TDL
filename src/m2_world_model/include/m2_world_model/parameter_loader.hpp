@@ -29,6 +29,8 @@ inline void declare_m2_parameters(rclcpp::Node& node) {
   node.declare_parameter("overtaking_bearing_min_deg", 112.5);
   node.declare_parameter("overtaking_bearing_max_deg", 247.5);
   node.declare_parameter("head_on_heading_diff_tol_deg", 6.0);
+  node.declare_parameter("safe_pass_speed_threshold_mps", 0.5);
+  node.declare_parameter("safe_pass_min_cpa_m", 926.0);
 
   // ── View health thresholds ──
   node.declare_parameter("dv_loss_periods_to_degraded", 2);

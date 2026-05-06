@@ -79,8 +79,8 @@ EncounterClassifier::classify(double relative_bearing_deg,
   // ── 3–4. Heading difference for head-on check ──
   double heading_diff = smallest_angle_diff_deg_(own_heading_deg, target_heading_deg);
 
-  // ── 4. Head-on (Rule 14) ──
-  if (heading_diff <= cfg_.head_on_heading_diff_tol_deg) {
+  // ── 4. Head-on (Rule 14): reciprocal courses (heading_diff ≈ 180°, not same) ──
+  if (std::abs(heading_diff - kHalfCircleDeg) <= cfg_.head_on_heading_diff_tol_deg) {
     result.encounter_type =
         l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_HEAD_ON;
     // Both vessels are give-way in head-on situations

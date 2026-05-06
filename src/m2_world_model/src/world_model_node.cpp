@@ -19,27 +19,18 @@
 #include "l3_msgs/msg/sat2_data.hpp"
 #include "l3_msgs/msg/sat3_data.hpp"
 
+#include "m2_world_model/detail/time_utils.hpp"
+
 namespace mass_l3::m2 {
 
 using namespace std::chrono_literals;
+using detail::to_msg_time;
 using std::placeholders::_1;
-
-// ── Helper: convert steady_clock now to builtin_interfaces Time ──
-static builtin_interfaces::msg::Time to_msg_time() {
-  using namespace std::chrono;
-  auto sys_now = system_clock::now();
-  auto sys_sec = duration_cast<seconds>(sys_now.time_since_epoch());
-  auto sys_ns = duration_cast<nanoseconds>(sys_now.time_since_epoch()) - sys_sec;
-  builtin_interfaces::msg::Time t;
-  t.sec = static_cast<int32_t>(sys_sec.count());
-  t.nanosec = static_cast<uint32_t>(sys_ns.count());
-  return t;
-}
 
 // ── Constructor ─────────────────────────────────────────────────────────────
 
-WorldModelNode::WorldModelNode()
-  : Node("m2_world_model") {
+WorldModelNode::WorldModelNode(const rclcpp::NodeOptions& options)
+  : Node("m2_world_model", options) {
   load_parameters();
   create_components();
   setup_subscribers();
@@ -107,6 +98,10 @@ void WorldModelNode::load_parameters() {
       get_parameter("overtaking_bearing_max_deg").as_double();
   params_.colreg.head_on_heading_diff_tol_deg =
       get_parameter("head_on_heading_diff_tol_deg").as_double();
+  params_.colreg.safe_pass_speed_threshold_mps =
+      get_parameter("safe_pass_speed_threshold_mps").as_double();
+  params_.colreg.safe_pass_min_cpa_m =
+      get_parameter("safe_pass_min_cpa_m").as_double();
 
   // View health
   params_.health.dv_loss_periods_to_degraded =
@@ -144,8 +139,8 @@ void WorldModelNode::create_components() {
   enc_cfg.overtaking_bearing_min_deg = params_.colreg.overtaking_bearing_min_deg;
   enc_cfg.overtaking_bearing_max_deg = params_.colreg.overtaking_bearing_max_deg;
   enc_cfg.head_on_heading_diff_tol_deg = params_.colreg.head_on_heading_diff_tol_deg;
-  enc_cfg.safe_pass_speed_threshold_mps = 0.5;
-  enc_cfg.safe_pass_min_cpa_m = 926.0;
+  enc_cfg.safe_pass_speed_threshold_mps = params_.colreg.safe_pass_speed_threshold_mps;
+  enc_cfg.safe_pass_min_cpa_m = params_.colreg.safe_pass_min_cpa_m;
   classifier_ = std::make_shared<EncounterClassifier>(enc_cfg);
 
   // Track buffer
@@ -454,12 +449,12 @@ void WorldModelNode::publish_world_state() {
   auto ws = aggregator_->compose_world_state(now);
 
   if (ws.has_value()) {
+    const auto target_count = ws->targets.size();
+    const float confidence = ws->confidence;
     world_state_pub_->publish(std::move(ws.value()));
 
     if (logger_) {
-      logger_->info("WS pub | targets={} conf={:.3f}",
-                     ws->targets.size(),
-                     ws->confidence);
+      logger_->info("WS pub | targets={} conf={:.3f}", target_count, confidence);
     }
   }
   // If no value (EV critical or no own-ship snapshot), silently skip publication.
