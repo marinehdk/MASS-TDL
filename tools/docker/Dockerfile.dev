@@ -1,0 +1,31 @@
+FROM ros:jazzy-ros-base
+
+# System tools and compilers
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc-14 g++-14 \
+        clang-20 lld-20 clang-tidy-20 clang-format-20 \
+        cmake \
+        ninja-build \
+        ccache \
+        git curl wget \
+        python3.10 python3-pip \
+        lcov gcovr \
+        valgrind \
+        cppcheck \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python tools
+RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
+        colcon-core==0.20.1 \
+        colcon-common-extensions \
+        ruff==0.6.9 \
+        mypy==1.10.1 \
+        pytest==8.3.3 \
+        pytest-cov==5.0.0
+
+# Set GCC 14 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+
+WORKDIR /workspace

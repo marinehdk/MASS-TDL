@@ -1,0 +1,25 @@
+build-dev-image:
+  stage: build
+  image: docker:27.5.1
+  services:
+    - docker:27.5.1-dind
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/dev:jazzy-ubuntu22.04 -f tools/docker/Dockerfile.dev .
+    - docker push $CI_REGISTRY_IMAGE/dev:jazzy-ubuntu22.04
+  only:
+    changes:
+      - tools/docker/Dockerfile.dev
+      - tools/docker/Dockerfile.ci
+
+build-ci-image:
+  stage: build
+  image: docker:27.5.1
+  services:
+    - docker:27.5.1-dind
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/ci:jazzy-ubuntu22.04 -f tools/docker/Dockerfile.ci .
+    - docker push $CI_REGISTRY_IMAGE/ci:jazzy-ubuntu22.04
+  only:
+    changes:
+      - tools/docker/Dockerfile.ci
+      - tools/docker/Dockerfile.dev

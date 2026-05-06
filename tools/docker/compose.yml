@@ -1,0 +1,29 @@
+services:
+  dev:
+    build:
+      context: ../../
+      dockerfile: tools/docker/Dockerfile.dev
+    image: mass-l3/dev:jazzy-ubuntu22.04
+    container_name: mass-l3-dev
+    volumes:
+      - ../../:/workspace
+      - ccache:/root/.ccache
+    working_dir: /workspace
+    network_mode: host
+    stdin_open: true
+    tty: true
+
+  ci:
+    build:
+      context: ../../
+      dockerfile: tools/docker/Dockerfile.ci
+    image: mass-l3/ci:jazzy-ubuntu22.04
+    container_name: mass-l3-ci
+    volumes:
+      - ../../:/workspace
+      - ccache:/root/.ccache
+    working_dir: /workspace
+    network_mode: host
+
+volumes:
+  ccache:
