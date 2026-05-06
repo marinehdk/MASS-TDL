@@ -17,12 +17,17 @@ struct PerformanceConfig {
 
 struct PerformanceStatus {
   bool cpa_trend_degrading;
+  // Slope in NM/sample (≈ NM/s when evaluate() is called at 1 Hz per design assumption).
+  // [TBD-HAZID]: Validate actual call rate against this assumption during FCB calibration.
   double cpa_trend_slope_nm_s;
   double max_cpa_in_window_nm;
   bool multiple_targets_nearby;
   std::uint32_t critical_target_count;
 };
 
+// INVARIANT: Designed for 1 Hz call rate (30 samples ≈ 30 s window).
+// cpa_trend_slope_nm_s is NM/sample; at 1 Hz this equals NM/s.
+// [TBD-HAZID]: If call rate deviates from 1 Hz, threshold must be rescaled.
 // INVARIANT: Single-threaded (main_loop callback group only).
 class PerformanceMonitor {
 public:

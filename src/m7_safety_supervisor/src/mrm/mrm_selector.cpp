@@ -1,7 +1,5 @@
 #include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 
-#include <string>
-
 namespace mass_l3::m7::mrm {
 
 // ---------------------------------------------------------------------------
@@ -88,10 +86,12 @@ MrmDecision MrmSelector::select(ScenarioContext const& ctx,
   // Apply 30s lockout: if candidate differs from last and insufficient time
   // has passed, keep last. Skip lockout when last_id_ is kNone (first call).
   MrmId chosen = candidate;
+  bool lockout_active = false;
   if (candidate != last_id_) {
     auto const elapsed = now - last_change_;
     if (elapsed < cfg_.change_lockout && last_id_ != MrmId::kNone) {
       chosen = last_id_;  // lockout: keep current
+      lockout_active = true;
     } else {
       last_id_ = candidate;
       last_change_ = now;
@@ -110,8 +110,8 @@ MrmDecision MrmSelector::select(ScenarioContext const& ctx,
 
   MrmDecision dec;
   dec.mrm_id = chosen;
-  dec.confidence = applicable ? cfg_.upgrade_confidence_threshold : 0.5F;
-  dec.rationale = std::string{to_string(chosen)};
+  dec.confidence = lockout_active ? 0.5F : (applicable ? cfg_.upgrade_confidence_threshold : 0.5F);
+  dec.rationale = to_string(chosen);
   return dec;
 }
 

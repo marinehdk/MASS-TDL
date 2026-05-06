@@ -175,6 +175,17 @@ TEST_F(MrmSelectorTest, HarborZoneDegraded_SelectsMrm04)
   EXPECT_EQ(dec.mrm_id, MrmId::kMrm04_Mooring);
 }
 
+// Counterpart to HarborZoneDegraded_SelectsMrm04: same violation count but
+// outside harbor zone must select MRM-02, not MRM-04.
+TEST_F(MrmSelectorTest, MultipleSotifViolations_OutsideHarbor_SelectsMrm02)
+{
+  auto ctx = build_ctx(2u, 0u, false, false);  // 2 violations
+  auto odd = build_odd(l3_msgs::msg::ODDState::ODD_ZONE_A);  // open water
+  auto world = build_world_with_targets(5.0, 20.0f, 0u, 9999.0);
+  auto dec = selector_->select(ctx, odd, world, t(0));
+  EXPECT_EQ(dec.mrm_id, mass_l3::m7::mrm::MrmId::kMrm02_Anchor);
+}
+
 TEST_F(MrmSelectorTest, ChangeWithin30s_KeepsLastMrm)
 {
   auto world = build_world_with_targets(3.0, 20.0f, 0u, 9999.0);
@@ -189,6 +200,8 @@ TEST_F(MrmSelectorTest, ChangeWithin30s_KeepsLastMrm)
   auto ctx2 = build_ctx(2u, 0u, false, false);
   auto dec2 = selector_->select(ctx2, odd, world, t(15));  // only 15s later
   EXPECT_EQ(dec2.mrm_id, MrmId::kMrm01_Drift);  // lockout keeps MRM-01
+  // Confidence is degraded during lockout to signal "wanted to escalate but couldn't"
+  EXPECT_LT(dec2.confidence, dec1.confidence);
 
   // After 30s: new selection takes effect
   auto dec3 = selector_->select(ctx2, odd, world, t(31));

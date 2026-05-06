@@ -2,7 +2,7 @@
 #define M7_SAFETY_SUPERVISOR_MRM_MRM_SELECTOR_HPP_
 
 #include <chrono>
-#include <string>
+#include <string_view>
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
 #include "m7_safety_supervisor/mrm/mrm_01_drift.hpp"
 #include "m7_safety_supervisor/mrm/mrm_02_anchor.hpp"
@@ -25,7 +25,7 @@ struct ScenarioContext {
 struct MrmDecision {
   MrmId mrm_id{MrmId::kNone};
   float confidence{0.0F};
-  std::string rationale{};
+  std::string_view rationale{};  // points to static literal from to_string(mrm_id); zero allocation
 };
 
 // MrmSelector: selects MRM from ScenarioContext using an 8-entry priority table.

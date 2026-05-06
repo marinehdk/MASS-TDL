@@ -21,8 +21,8 @@ bool Mrm04Mooring::is_applicable(
     l3_msgs::msg::ODDState const& odd,
     l3_msgs::msg::WorldState const& world) const noexcept
 {
-  bool const in_harbor =
-      (odd.current_zone == l3_msgs::msg::ODDState::ODD_ZONE_C);
+  bool const in_harbor = (!params_.requires_harbor_zone) ||
+                          (odd.current_zone == l3_msgs::msg::ODDState::ODD_ZONE_C);
   bool const speed_ok = world.own_ship.sog_kn <= params_.max_speed_kn;
   return in_harbor && speed_ok;
 }
