@@ -2,8 +2,9 @@
 # All [TBD-HAZID] values: FCB initial baselines, to be calibrated in HAZID Phase 2
 
 state_machine:
-  in_to_edge: 0.8        # [TBD-HAZID] score threshold for IN->EDGE
-  edge_to_out: 0.5       # [TBD-HAZID] score threshold for EDGE->OUT
+  in_to_edge: 0.8                  # [TBD-HAZID] score threshold for IN->EDGE
+  edge_to_out: 0.5                 # [TBD-HAZID] score threshold for EDGE->OUT
+  stale_degradation_factor: 0.5    # [TBD-HAZID] score multiplier when inputs stale
 
 conformance_score:
   weights:

@@ -56,6 +56,7 @@ struct EScoreThresholds {
 struct StateMachineThresholds {
   double in_to_edge;
   double edge_to_out;
+  double stale_degradation_factor;  // [TBD-HAZID] 0.5; score multiplier when inputs stale
 };
 
 /// Event flags consumed by step().

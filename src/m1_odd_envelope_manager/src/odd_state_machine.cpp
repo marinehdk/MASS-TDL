@@ -111,9 +111,10 @@ namespace {
 /// Apply stale-input degradation factor to score.
 /// CC = 2
 [[nodiscard]] double apply_stale_degradation(double score,
-                                             const EventFlags& events) noexcept {
+                                             const EventFlags& events,
+                                             double factor) noexcept {
   if (events.m2_input_stale || events.m7_input_stale) {
-    return score * 0.5;
+    return score * factor;
   }
   return score;
 }
@@ -135,6 +136,11 @@ tl::expected<OddStateMachine, ErrorCode> OddStateMachine::create(
     const StateMachineThresholds& thresholds) noexcept {
   // Validate non-negative thresholds
   if (thresholds.in_to_edge < 0.0 || thresholds.edge_to_out < 0.0) {
+    return tl::unexpected(ErrorCode::ParameterOutOfRange);
+  }
+  // Validate stale degradation factor in (0, 1]
+  if (thresholds.stale_degradation_factor <= 0.0 ||
+      thresholds.stale_degradation_factor > 1.0) {
     return tl::unexpected(ErrorCode::ParameterOutOfRange);
   }
   // Validate monotonicity: in_to_edge must be strictly > edge_to_out
@@ -195,8 +201,21 @@ EnvelopeState OddStateMachine::step(double score,
     return current_;
   }
 
+  // --- NaN score safety check (IEC 61508-3 Table C.1) ---
+  // NaN causes all comparisons to return false, which silently stays In.
+  // Guard: any NaN score forces immediate Out in the current cycle.
+  if (std::isnan(score)) {
+    if (current_ != EnvelopeState::Out) {
+      current_ = EnvelopeState::Out;
+      last_transition_at_ = now;
+      current_rationale_ = "NaN score detected — immediate OUT (IEC 61508 guard)";
+    }
+    return current_;
+  }
+
   // --- Apply stale input degradation ---
-  double eff_score = apply_stale_degradation(score, events);
+  double eff_score = apply_stale_degradation(score, events,
+                                              thresholds_.stale_degradation_factor);
 
   // --- Compute next state ---
   EnvelopeState next = compute_next(eff_score, tdl_s, tmr_s, events);
@@ -219,6 +238,7 @@ std::string_view OddStateMachine::rationale() const noexcept {
   return current_rationale_;
 }
 
+/// CC = 2 (base 1 + switch 1)
 StateForecast OddStateMachine::forecast(
     std::chrono::seconds horizon) const noexcept {
   if (horizon.count() <= 0) {

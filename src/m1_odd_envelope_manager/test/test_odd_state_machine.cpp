@@ -1,9 +1,10 @@
 /// Unit tests for OddStateMachine (5-state FSM + OVERRIDDEN).
 /// PATH-S constraints apply: no exceptions, no dynamic allocation in step().
-/// Test count: 26 (>= 20 required by spec).
+/// Test count: 28 (>= 20 required by spec).
 
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 #include <gtest/gtest.h>
 #include <tl/expected.hpp>
@@ -29,7 +30,7 @@ class OddStateMachineTest : public ::testing::Test {
 
     no_events_ = EventFlags{};
 
-    default_thresholds_ = StateMachineThresholds{0.8, 0.5};
+    default_thresholds_ = StateMachineThresholds{0.8, 0.5, 0.5};
   }
 
   /// Create a valid default FSM (IN state).
@@ -380,6 +381,30 @@ TEST_F(OddStateMachineTest, OverriddenStaysWhenOverrideActive) {
   // Override still active -> stays Overridden
   EnvelopeState result = fsm->step(0.9, 100.0, 60.0, override_event, t2_);
   EXPECT_EQ(EnvelopeState::Overridden, result);
+}
+
+/// 27. NaNScoreTriggersOut
+/// NaN score must trigger immediate Out per IEC 61508 safety guard.
+TEST_F(OddStateMachineTest, NaNScoreTriggersOut) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  EnvelopeState result = fsm->step(std::numeric_limits<double>::quiet_NaN(),
+                                   100.0, 60.0, no_events_, t1_);
+  EXPECT_EQ(EnvelopeState::Out, result);
+}
+
+/// 28. StaleDegradationFactorApplied
+/// Stale input factor should be configurable via thresholds.
+TEST_F(OddStateMachineTest, StaleDegradationFactorApplied) {
+  StateMachineThresholds agg{.in_to_edge = 0.8, .edge_to_out = 0.5,
+                              .stale_degradation_factor = 0.1};
+  auto fsm = OddStateMachine::create(agg);
+  ASSERT_TRUE(fsm.has_value());
+  EventFlags stale{};
+  stale.m2_input_stale = true;
+  // score 0.9 * 0.1 = 0.09 -> below edge_to_out -> Out
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, stale, t1_);
+  EXPECT_EQ(EnvelopeState::Out, result);
 }
 
 }  // namespace
