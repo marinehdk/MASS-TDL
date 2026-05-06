@@ -9,5 +9,10 @@ uint8 REASON_SAFETY_ALERT = 2
 float32 deadline_s                       # 接管时间窗口（典型 60 s）[R4]
 
 uint8 target_level                       # AutoLevel D2/D3/D4
+uint8 TARGET_LEVEL_D2 = 2
+uint8 TARGET_LEVEL_D3 = 3
+uint8 TARGET_LEVEL_D4 = 4
+
+float32 confidence
 string context_summary                   # SAT-1 摘要（操作员须阅读）
 string recommended_action
