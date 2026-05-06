@@ -82,21 +82,60 @@ struct TmrTdlPair {
 };
 
 // ---------------------------------------------------------------------------
-// Placeholder types for Tasks 2-5.
-// Keep minimal for compilation; will be expanded in future tasks.
+// Scoring input / threshold types for Tasks 2-5.
 // ---------------------------------------------------------------------------
 
-struct TScoreInputs {};
-struct HScoreInputs {};
-struct ScoringInputs {};
+/// Telemetry / health inputs for Task (T) score evaluation.
+struct TScoreInputs {
+  bool gnss_quality_good;
+  bool radar_health_ok;
+  bool comm_ok;
+  double comm_delay_s;
+  bool any_sensor_critical;
+};
+
+/// Human / operator (H) score inputs.
+struct HScoreInputs {
+  bool tmr_available;
+  bool comm_ok;
+};
+
+/// Composite inputs driving all three score axes (E, T, H).
+struct ScoringInputs {
+  double visibility_nm;
+  double sea_state_hs;
+  bool gnss_quality_good;
+  bool radar_health_ok;
+  bool comm_ok;
+  double comm_delay_s;
+  bool any_sensor_critical;
+  bool tmr_available;
+};
+
+/// Thresholds for the Task (T) score computation.
+struct TScoreThresholds {
+  double comm_delay_ok_s;     // [TBD-HAZID] 2.0
+  double t_score_comm_ok;     // [TBD-HAZID] 0.6
+  double t_score_comm_bad;    // [TBD-HAZID] 0.3
+};
+
+/// Thresholds for the Human (H) score computation.
+struct HScoreThresholds {
+  double h_score_tmr_available;   // [TBD-HAZID] 1.0
+  double h_score_tmr_unavailable; // [TBD-HAZID] 0.5
+};
+
+// ---------------------------------------------------------------------------
+// Placeholder types for Tasks 3-5 (remaining).
+// Keep as empty structs; will be expanded in future tasks.
+// ---------------------------------------------------------------------------
+
 struct TmrTdlInputs {};
 struct TmrTdlParams {};
 struct MrcParams {};
 struct MrcSelectionInputs {};
 struct MrcSelection {};
 struct SystemHealthSnapshot {};
-struct TScoreThresholds {};
-struct HScoreThresholds {};
 struct ParameterSet {};
 
 }  // namespace mass_l3::m1
