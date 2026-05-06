@@ -19,8 +19,8 @@ enum class EnvelopeState : std::uint8_t {
   In = 0,
   Edge = 1,
   Out = 2,
-  MrcPrep = 3,
-  MrcActive = 4,
+  MrCPrep = 3,
+  MrCActive = 4,
   Overridden = 5
 };
 
