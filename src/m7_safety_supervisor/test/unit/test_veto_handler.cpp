@@ -138,7 +138,10 @@ TEST(VetoHandlerTest, OutOfRange_99_MapsToKOther)
 
 // ============================================================================
 // Test 8: veto_reason_detail set to arbitrary string — histogram/rate identical
-// to without it (proves M7 does not parse free text, RFC-003).
+// to without it (RFC-003 regression guard). The definitive non-access proof is
+// code review of the 5-line on_veto_received body + grep confirming zero
+// references to veto_reason_detail in src/checker/. This test catches any
+// future regression where parsing logic is added that affects observable state.
 // ============================================================================
 TEST(VetoHandlerTest, FreeTextDetail_DoesNotAffectHistogramOrRate)
 {

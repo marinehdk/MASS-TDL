@@ -143,7 +143,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_veto_handler
     test/unit/test_veto_handler.cpp
   )
-  target_link_libraries(test_veto_handler m7_lib spdlog::spdlog)
+  target_link_libraries(test_veto_handler m7_lib)
   ament_target_dependencies(test_veto_handler
     rclcpp
     l3_msgs
