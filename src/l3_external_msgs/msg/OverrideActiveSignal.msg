@@ -4,7 +4,7 @@ builtin_interfaces/Time stamp
 
 bool override_active                       # true = hardware override engaged
 string override_source                    # "helm" | "throttle" | "joystick" | "emergency_stop"
-float64 engaged_timestamp_sec
+builtin_interfaces/Time engaged_stamp
 string expected_duration                  # "momentary" | "extended" | "indefinite"
 
 float32 confidence

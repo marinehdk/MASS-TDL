@@ -4,9 +4,9 @@ builtin_interfaces/Time stamp
 
 uint64[] target_ids
 geographic_msgs/GeoPoint[] positions
-float64[] sog_knots
-float64[] cog_degrees
-float64[] heading_degrees
+float64[] sog_kn
+float64[] cog_deg
+float64[] heading_deg
 string[] classifications
 float32[] classification_confidences
 uint8[] status                            # 0=new, 1=tracked, 2=coasting, 3=lost
