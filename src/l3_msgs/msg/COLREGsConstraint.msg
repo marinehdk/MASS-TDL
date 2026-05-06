@@ -1,0 +1,9 @@
+# Per v1.1.2 §15.1 COLREGs_ConstraintMsg
+builtin_interfaces/Time stamp
+
+l3_msgs/RuleActive[] active_rules        # Rule 8/13/14/15/16/17 ...
+string phase                             # "T_standOn" | "T_act" | "T_postAvoid"
+l3_msgs/Constraint[] constraints
+
+float32 confidence
+string rationale
