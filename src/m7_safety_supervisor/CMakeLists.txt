@@ -127,6 +127,17 @@ if(BUILD_TESTING)
     l3_external_msgs
     builtin_interfaces
   )
+
+  ament_add_gtest(test_sliding_window_15s
+    test/unit/test_sliding_window_15s.cpp
+  )
+  target_link_libraries(test_sliding_window_15s m7_lib)
+  ament_target_dependencies(test_sliding_window_15s
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
 endif()
 
 ament_export_include_directories(include)
