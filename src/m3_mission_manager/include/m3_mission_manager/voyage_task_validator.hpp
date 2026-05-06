@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
 #include "geographic_msgs/msg/geo_point.hpp"
 #include "l3_external_msgs/msg/voyage_task.hpp"
 #include "m3_mission_manager/error_codes.hpp"
@@ -55,8 +54,8 @@ class VoyageTaskValidator {
       const geographic_msgs::msg::GeoPoint& departure,
       const geographic_msgs::msg::GeoPoint& current_position) const;
   ValidationResult check_destination(const geographic_msgs::msg::GeoPoint& dest) const;
-  ValidationResult check_eta_window(int64_t earliest_ns, int64_t latest_ns,
-                                    int64_t now_ns) const;
+  // Check eta_requirement_s is within [eta_window_min_s, eta_window_max_s].
+  ValidationResult check_eta_window(int64_t eta_requirement_s) const;
   ValidationResult check_mandatory_waypoints(
       const std::vector<geographic_msgs::msg::GeoPoint>& waypoints) const;
   ValidationResult check_exclusion_zones(

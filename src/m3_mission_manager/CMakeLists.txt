@@ -17,11 +17,14 @@ add_compile_options(
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(geographic_msgs REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(Eigen3 3.4 REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(nlohmann_json 3.12.0 REQUIRED)
 
 add_library(${PROJECT_NAME}_lib
   src/voyage_task_validator.cpp
@@ -38,10 +41,10 @@ target_include_directories(${PROJECT_NAME}_lib
     $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(${PROJECT_NAME}_lib
-  rclcpp l3_msgs l3_external_msgs
+  rclcpp builtin_interfaces geographic_msgs l3_msgs l3_external_msgs
 )
 target_link_libraries(${PROJECT_NAME}_lib PUBLIC
-  Eigen3::Eigen spdlog::spdlog yaml-cpp::yaml-cpp
+  Eigen3::Eigen spdlog::spdlog yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json
 )
 
 add_executable(${PROJECT_NAME} src/main.cpp)

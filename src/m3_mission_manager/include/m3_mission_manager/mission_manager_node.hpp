@@ -13,6 +13,8 @@
 #include <optional>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "l3_msgs/msg/asdr_record.hpp"
@@ -66,7 +68,7 @@ class MissionManagerNode : public rclcpp::Node {
   // Internal helpers
   void publish_replan_request(ReplanReason reason, double deadline_s,
                               const geographic_msgs::msg::GeoPoint& current_pos);
-  void publish_asdr_record(const std::string& type, const std::string& json);
+  void publish_asdr_record(const std::string& type, const nlohmann::json& payload);
   void check_and_trigger_replan(const l3_msgs::msg::ODDState& odd,
                                 double current_eta_s, double planned_eta_s);
 

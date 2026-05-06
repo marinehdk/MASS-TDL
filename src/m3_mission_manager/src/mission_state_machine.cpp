@@ -54,9 +54,13 @@ void MissionStateMachine::reset() {
 
 MissionState MissionStateMachine::handle_event(const MissionEvent& event) {
   switch (state_) {
-    // INIT → IDLE: any first event triggers initialisation
+    // INIT → IDLE: only NodeReady (sent by MissionManagerNode after setup).
+    // All other events in Init are ignored — the node is not yet operational.
     case MissionState::Init:
-      return transit_(MissionState::Idle);
+      if (event.type == MissionEvent::Type::NodeReady) {
+        return transit_(MissionState::Idle);
+      }
+      return state_;
 
     // IDLE: waiting for a voyage task
     case MissionState::Idle:

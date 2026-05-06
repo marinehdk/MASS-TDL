@@ -28,7 +28,7 @@ ReplanDecision ReplanRequestTrigger::evaluate(
   // 1. MRC required (highest priority)
   if (check_mrc_required(odd_state)) {
     return ReplanDecision{true,
-                          ReplanReason::MrCRequired,
+                          ReplanReason::MrcRequired,
                           config_.deadline_mrc_required_s,
                           "MRC required: envelope state signals MRC transition"};
   }

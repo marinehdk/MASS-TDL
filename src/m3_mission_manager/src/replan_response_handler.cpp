@@ -1,7 +1,6 @@
 #include "m3_mission_manager/replan_response_handler.hpp"
 
 #include <string>
-#include <utility>
 
 namespace mass_l3::m3 {
 
@@ -18,17 +17,17 @@ ReplanResponseHandler::ReplanResponseHandler(ReplanResponseHandlerConfig config)
 
 ReplanOutcome ReplanResponseHandler::handle_response(
     const l3_external_msgs::msg::ReplanResponse& response,
-    const std::optional<l3_external_msgs::msg::PlannedRoute>& new_route,
-    int32_t attempt_count) {
+    int32_t attempt_count) const {
   switch (response.status) {
     case l3_external_msgs::msg::ReplanResponse::STATUS_SUCCESS:
-      return handle_success(new_route);
+      return handle_success();
     case l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_TIMEOUT:
       return handle_failed_timeout(attempt_count);
     case l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_INFEASIBLE:
       return handle_failed_infeasible();
     case l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_NO_RESOURCES:
       return handle_failed_no_resources();
+
     default:
       return ReplanOutcome{false,
                            true,
@@ -38,24 +37,20 @@ ReplanOutcome ReplanResponseHandler::handle_response(
 }
 
 // ---------------------------------------------------------------------------
-// handle_success — SUCCESS with or without valid route
+// handle_success — STATUS_SUCCESS: L2 accepted the request.
+// Per spec RFC-006: new PlannedRoute arrives separately on /l2/planned_route,
+// not embedded in ReplanResponse. Accept unconditionally here.
 // ---------------------------------------------------------------------------
 
-ReplanOutcome ReplanResponseHandler::handle_success(
-    const std::optional<l3_external_msgs::msg::PlannedRoute>& new_route) {
-  if (new_route.has_value() &&
-      new_route->route_id > 0 &&
-      new_route->total_distance_nm > 0.0) {
-    return ReplanOutcome{true, false, "route accepted"};
-  }
-  return ReplanOutcome{false, true, "no valid route provided"};
+ReplanOutcome ReplanResponseHandler::handle_success() const {
+  return ReplanOutcome{true, false, "replan accepted by L2"};
 }
 
 // ---------------------------------------------------------------------------
 // handle_failed_timeout — retry-eligible; escalate only when exhausted
 // ---------------------------------------------------------------------------
 
-ReplanOutcome ReplanResponseHandler::handle_failed_timeout(int32_t attempt_count) {
+ReplanOutcome ReplanResponseHandler::handle_failed_timeout(int32_t attempt_count) const {
   if (attempt_count >= config_.attempt_max_count) {
     return ReplanOutcome{false,
                          true,
@@ -75,7 +70,7 @@ ReplanOutcome ReplanResponseHandler::handle_failed_timeout(int32_t attempt_count
 // handle_failed_infeasible — route cannot be found, escalate immediately
 // ---------------------------------------------------------------------------
 
-ReplanOutcome ReplanResponseHandler::handle_failed_infeasible() {
+ReplanOutcome ReplanResponseHandler::handle_failed_infeasible() const {
   return ReplanOutcome{false, true, "L2: route infeasible"};
 }
 
@@ -83,7 +78,7 @@ ReplanOutcome ReplanResponseHandler::handle_failed_infeasible() {
 // handle_failed_no_resources — L2 overloaded, escalate immediately
 // ---------------------------------------------------------------------------
 
-ReplanOutcome ReplanResponseHandler::handle_failed_no_resources() {
+ReplanOutcome ReplanResponseHandler::handle_failed_no_resources() const {
   return ReplanOutcome{false, true, "L2: no resources available"};
 }
 

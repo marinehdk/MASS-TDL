@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
 #include "geographic_msgs/msg/geo_point.hpp"
 #include "l3_external_msgs/msg/voyage_task.hpp"
 
@@ -24,8 +23,7 @@ constexpr double kMaxLatitude = 90.0;
 constexpr double kMinLongitude = -180.0;
 constexpr double kMaxLongitude = 180.0;
 
-// Haversine distance in km between two lat/lon points.
-// Uses Eigen for vector operations; returns great-circle distance.
+// Haversine great-circle distance in km between two WGS84 lat/lon points.
 double haversineKm(double lat1_deg, double lon1_deg,
                    double lat2_deg, double lon2_deg) noexcept {
   const double lat1 = lat1_deg * kDegToRad;
@@ -35,16 +33,10 @@ double haversineKm(double lat1_deg, double lon1_deg,
 
   const double dlat = lat2 - lat1;
   const double dlon = lon2 - lon1;
-
-  // Use Eigen::Vector2d for intermediate computation
-  const Eigen::Vector2d src(lat1, lon1);
-  const Eigen::Vector2d dst(lat2, lon2);
-  const Eigen::Vector2d delta = dst - src;
-
-  const double sinDlat = std::sin(delta.x() * 0.5);
-  const double sinDlon = std::sin(delta.y() * 0.5);
-  const double a = sinDlat * sinDlat +
-                   std::cos(src.x()) * std::cos(dst.x()) * sinDlon * sinDlon;
+  const double sin_dlat = std::sin(dlat * 0.5);
+  const double sin_dlon = std::sin(dlon * 0.5);
+  const double a = sin_dlat * sin_dlat +
+                   std::cos(lat1) * std::cos(lat2) * sin_dlon * sin_dlon;
   const double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
 
   return kEarthRadiusKm * c;
@@ -91,12 +83,10 @@ ValidationResult VoyageTaskValidator::validate(
     result = check_destination(task.destination);
     if (!result.is_valid) { return result; }
   }
-  // 4. ETA window
+  // 4. ETA window: eta_requirement_s must be in [min_s, max_s] (voyage duration)
   {
-    const int64_t eta_ns = static_cast<int64_t>(task.eta_requirement_s) * kNanoPerSec;
-    const int64_t earliest_ns = current_time_ns + config_.eta_window_min_s * kNanoPerSec;
-    const int64_t latest_ns = current_time_ns + eta_ns;
-    const auto result = check_eta_window(earliest_ns, latest_ns, current_time_ns);
+    const int64_t eta_s = static_cast<int64_t>(task.eta_requirement_s);
+    const auto result = check_eta_window(eta_s);
     if (!result.is_valid) { return result; }
   }
   // 5. Waypoints (convert lat/lon arrays to vector)
@@ -172,23 +162,17 @@ ValidationResult VoyageTaskValidator::check_destination(
   return ValidationResult{true, ErrorCode::Ok, ""};
 }
 
-// 4. Reject if ETA window is outside configured bounds or has zero/negative width
+// 4. Reject if eta_requirement_s is outside [min_s, max_s].
+// VoyageTask carries a single ETA duration, not an earliest/latest pair.
 ValidationResult VoyageTaskValidator::check_eta_window(
-    int64_t earliest_ns, int64_t latest_ns, int64_t now_ns) const {
-  const int64_t min_allowed_ns = now_ns + config_.eta_window_min_s * kNanoPerSec;
-  const int64_t max_allowed_ns = now_ns + config_.eta_window_max_s * kNanoPerSec;
-
-  if (earliest_ns < min_allowed_ns) {
+    int64_t eta_requirement_s) const {
+  if (eta_requirement_s < config_.eta_window_min_s) {
     return ValidationResult{false, ErrorCode::EtaOutOfBounds,
-                            "earliest ETA is before minimum allowed window"};
+                            "ETA requirement below minimum window (too short voyage)"};
   }
-  if (latest_ns > max_allowed_ns) {
+  if (eta_requirement_s > config_.eta_window_max_s) {
     return ValidationResult{false, ErrorCode::EtaWindowExceeded,
-                            "latest ETA exceeds maximum allowed window"};
-  }
-  if (earliest_ns >= latest_ns) {
-    return ValidationResult{false, ErrorCode::EtaOutOfBounds,
-                            "earliest ETA is not strictly before latest ETA"};
+                            "ETA requirement exceeds maximum window (72h operational ceiling)"};
   }
   return ValidationResult{true, ErrorCode::Ok, ""};
 }

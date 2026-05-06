@@ -1,11 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
-#include <optional>
 #include <string>
 
-#include "fixtures/route_fixtures.hpp"
-#include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_external_msgs/msg/replan_response.hpp"
 #include "m3_mission_manager/replan_response_handler.hpp"
 #include "m3_mission_manager/types.hpp"
@@ -36,18 +33,16 @@ l3_external_msgs::msg::ReplanResponse make_replan_response(
 }
 
 // ---------------------------------------------------------------------------
-// 1. SuccessWithValidRoute — STATUS_SUCCESS + new route -> success
+// 1. SuccessAccepted — STATUS_SUCCESS -> success (route arrives separately)
 // ---------------------------------------------------------------------------
-TEST(ReplanResponseHandlerTest, SuccessWithValidRoute) {
+TEST(ReplanResponseHandlerTest, SuccessAccepted) {
   const auto config = make_default_replan_config();
   ReplanResponseHandler handler(config);
 
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_SUCCESS);
-  std::optional<l3_external_msgs::msg::PlannedRoute> new_route =
-      make_valid_route(42);
 
-  const auto outcome = handler.handle_response(response, new_route, 0);
+  const auto outcome = handler.handle_response(response, 0);
 
   EXPECT_TRUE(outcome.success);
   EXPECT_FALSE(outcome.escalate_to_mrc);
@@ -55,21 +50,22 @@ TEST(ReplanResponseHandlerTest, SuccessWithValidRoute) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. SuccessWithoutRoute — STATUS_SUCCESS without route -> escalate
+// 2. SuccessRouteArrivesSepa — STATUS_SUCCESS: per RFC-006 route comes
+// separately on /l2/planned_route, not attached to ReplanResponse
 // ---------------------------------------------------------------------------
-TEST(ReplanResponseHandlerTest, SuccessWithoutRoute) {
+TEST(ReplanResponseHandlerTest, SuccessRouteArrivesSepa) {
   const auto config = make_default_replan_config();
   ReplanResponseHandler handler(config);
 
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_SUCCESS);
-  const std::optional<l3_external_msgs::msg::PlannedRoute> no_route =
-      std::nullopt;
 
-  const auto outcome = handler.handle_response(response, no_route, 0);
+  // Second invocation (e.g. attempt_count 0) also succeeds — route is not
+  // part of the response, so the accept is unconditional.
+  const auto outcome = handler.handle_response(response, 0);
 
-  EXPECT_FALSE(outcome.success);
-  EXPECT_TRUE(outcome.escalate_to_mrc);
+  EXPECT_TRUE(outcome.success);
+  EXPECT_FALSE(outcome.escalate_to_mrc);
   EXPECT_FALSE(outcome.rationale.empty());
 }
 
@@ -82,10 +78,8 @@ TEST(ReplanResponseHandlerTest, FailedTimeoutBelowMax) {
 
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_TIMEOUT);
-  const std::optional<l3_external_msgs::msg::PlannedRoute> no_route =
-      std::nullopt;
 
-  const auto outcome = handler.handle_response(response, no_route, 1);
+  const auto outcome = handler.handle_response(response, 1);
 
   EXPECT_FALSE(outcome.success);
   EXPECT_FALSE(outcome.escalate_to_mrc);
@@ -101,10 +95,8 @@ TEST(ReplanResponseHandlerTest, FailedTimeoutAtMax) {
 
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_TIMEOUT);
-  const std::optional<l3_external_msgs::msg::PlannedRoute> no_route =
-      std::nullopt;
 
-  const auto outcome = handler.handle_response(response, no_route, 3);
+  const auto outcome = handler.handle_response(response, 3);
 
   EXPECT_FALSE(outcome.success);
   EXPECT_TRUE(outcome.escalate_to_mrc);
@@ -121,8 +113,7 @@ TEST(ReplanResponseHandlerTest, FailedInfeasible) {
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_INFEASIBLE);
 
-  const auto outcome = handler.handle_response(
-      response, std::nullopt, 0);
+  const auto outcome = handler.handle_response(response, 0);
 
   EXPECT_FALSE(outcome.success);
   EXPECT_TRUE(outcome.escalate_to_mrc);
@@ -139,8 +130,7 @@ TEST(ReplanResponseHandlerTest, FailedNoResources) {
   const auto response = make_replan_response(
       l3_external_msgs::msg::ReplanResponse::STATUS_FAILED_NO_RESOURCES);
 
-  const auto outcome = handler.handle_response(
-      response, std::nullopt, 0);
+  const auto outcome = handler.handle_response(response, 0);
 
   EXPECT_FALSE(outcome.success);
   EXPECT_TRUE(outcome.escalate_to_mrc);
@@ -159,7 +149,7 @@ TEST(ReplanResponseHandlerTest, MultipleAttemptsIncrement) {
 
   // attempt 1/3: below max, no escalate
   {
-    const auto outcome = handler.handle_response(response, std::nullopt, 1);
+    const auto outcome = handler.handle_response(response, 1);
     EXPECT_FALSE(outcome.success);
     EXPECT_FALSE(outcome.escalate_to_mrc);
     EXPECT_TRUE(outcome.rationale.find("retrying") != std::string::npos);
@@ -167,7 +157,7 @@ TEST(ReplanResponseHandlerTest, MultipleAttemptsIncrement) {
 
   // attempt 2/3: below max, no escalate
   {
-    const auto outcome = handler.handle_response(response, std::nullopt, 2);
+    const auto outcome = handler.handle_response(response, 2);
     EXPECT_FALSE(outcome.success);
     EXPECT_FALSE(outcome.escalate_to_mrc);
     EXPECT_TRUE(outcome.rationale.find("retrying") != std::string::npos);
@@ -175,7 +165,7 @@ TEST(ReplanResponseHandlerTest, MultipleAttemptsIncrement) {
 
   // attempt 3/3: at max, escalate
   {
-    const auto outcome = handler.handle_response(response, std::nullopt, 3);
+    const auto outcome = handler.handle_response(response, 3);
     EXPECT_FALSE(outcome.success);
     EXPECT_TRUE(outcome.escalate_to_mrc);
     EXPECT_TRUE(outcome.rationale.find("max") != std::string::npos);
@@ -183,7 +173,7 @@ TEST(ReplanResponseHandlerTest, MultipleAttemptsIncrement) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. SuccessAfterAttempts — later success accepted after failures
+// 8. SuccessAfterAttempts — success accepted after previous failures
 // ---------------------------------------------------------------------------
 TEST(ReplanResponseHandlerTest, SuccessAfterAttempts) {
   const auto config = make_default_replan_config();  // max = 3
@@ -195,19 +185,16 @@ TEST(ReplanResponseHandlerTest, SuccessAfterAttempts) {
       l3_external_msgs::msg::ReplanResponse::STATUS_SUCCESS);
 
   // Two failures, then success
-  auto outcome1 = handler.handle_response(timeout_resp, std::nullopt, 1);
+  auto outcome1 = handler.handle_response(timeout_resp, 1);
   EXPECT_FALSE(outcome1.success);
   EXPECT_FALSE(outcome1.escalate_to_mrc);
 
-  auto outcome2 = handler.handle_response(timeout_resp, std::nullopt, 2);
+  auto outcome2 = handler.handle_response(timeout_resp, 2);
   EXPECT_FALSE(outcome2.success);
   EXPECT_FALSE(outcome2.escalate_to_mrc);
 
-  // Success on third attempt
-  std::optional<l3_external_msgs::msg::PlannedRoute> new_route =
-      make_valid_route(99);
-  auto outcome3 = handler.handle_response(
-      success_resp, new_route, 0);  // attempt_count resets for success
+  // Success on third attempt (attempt_count resets to 0 for a success check)
+  auto outcome3 = handler.handle_response(success_resp, 0);
 
   EXPECT_TRUE(outcome3.success);
   EXPECT_FALSE(outcome3.escalate_to_mrc);

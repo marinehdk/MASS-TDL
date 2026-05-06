@@ -103,9 +103,9 @@ TEST(ReplanRequestTriggerTest, TriggerMissionInfeasibleWhenEtaExceeded) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. TriggerMrCRequiredFromOddState — envelope state signals MRC
+// 4. TriggerMrcRequiredFromOddState — envelope state signals MRC
 // ---------------------------------------------------------------------------
-TEST(ReplanRequestTriggerTest, TriggerMrCRequiredFromOddState) {
+TEST(ReplanRequestTriggerTest, TriggerMrcRequiredFromOddState) {
   const auto config = make_default_replan_config();
   ReplanRequestTrigger trigger(config);
 
@@ -117,7 +117,7 @@ TEST(ReplanRequestTriggerTest, TriggerMrCRequiredFromOddState) {
         0.9f, l3_msgs::msg::ODDState::ENVELOPE_MRC_PREP);
     const auto result = trigger.evaluate(odd, 3600.0, 3600.0, 0, now);
     EXPECT_TRUE(result.should_trigger);
-    EXPECT_EQ(result.reason, ReplanReason::MrCRequired);
+    EXPECT_EQ(result.reason, ReplanReason::MrcRequired);
     EXPECT_DOUBLE_EQ(result.deadline_s, config.deadline_mrc_required_s);
   }
 
@@ -127,7 +127,7 @@ TEST(ReplanRequestTriggerTest, TriggerMrCRequiredFromOddState) {
         0.9f, l3_msgs::msg::ODDState::ENVELOPE_MRC_ACTIVE);
     const auto result = trigger.evaluate(odd, 3600.0, 3600.0, 0, now);
     EXPECT_TRUE(result.should_trigger);
-    EXPECT_EQ(result.reason, ReplanReason::MrCRequired);
+    EXPECT_EQ(result.reason, ReplanReason::MrcRequired);
   }
 }
 
@@ -229,7 +229,7 @@ TEST(ReplanRequestTriggerTest, MrcRequiredHasHighestPriority) {
       0.9f, l3_msgs::msg::ODDState::ENVELOPE_MRC_PREP);
   const auto result = trigger.evaluate(odd, 5000.0, 100.0, 5, now);
   EXPECT_TRUE(result.should_trigger);
-  EXPECT_EQ(result.reason, ReplanReason::MrCRequired);
+  EXPECT_EQ(result.reason, ReplanReason::MrcRequired);
 }
 
 }  // namespace

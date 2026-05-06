@@ -42,15 +42,14 @@ TEST(MissionStateMachineTest, InitialStateIsInit) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. InitToIdle — handle_event transitions to Idle
+// 2. InitToIdle — NodeReady event transitions Init -> Idle
 // ---------------------------------------------------------------------------
 TEST(MissionStateMachineTest, InitToIdle) {
   const auto config = make_default_msm_config();
   MissionStateMachine msm(config);
 
-  // Any event from Init transitions to Idle
   const auto result = msm.handle_event(make_event(
-      MissionEvent::Type::VoyageTaskReceived));
+      MissionEvent::Type::NodeReady));
 
   EXPECT_EQ(result, MissionState::Idle);
   EXPECT_EQ(msm.current(), MissionState::Idle);
@@ -66,7 +65,7 @@ TEST(MissionStateMachineTest, IdleToTaskValidation) {
   MissionStateMachine msm(config);
 
   // Init -> Idle
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   // Idle -> TaskValidation
   const auto result = msm.handle_event(make_event(
       MissionEvent::Type::VoyageTaskReceived));
@@ -85,7 +84,7 @@ TEST(MissionStateMachineTest, TaskValidationToAwaitingRoute) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   // TaskValidation -> AwaitingRoute
   const auto result = msm.handle_event(make_event(
@@ -105,7 +104,7 @@ TEST(MissionStateMachineTest, AwaitingRouteToActive) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   // AwaitingRoute -> Active
@@ -126,7 +125,7 @@ TEST(MissionStateMachineTest, ActiveToReplanWait) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
@@ -148,7 +147,7 @@ TEST(MissionStateMachineTest, ReplanWaitToActive) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active -> ReplanWait
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
@@ -170,7 +169,7 @@ TEST(MissionStateMachineTest, ReplanWaitToMrcTransit) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active -> ReplanWait
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
@@ -193,7 +192,7 @@ TEST(MissionStateMachineTest, ActiveToIdleMissionComplete) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
@@ -214,7 +213,7 @@ TEST(MissionStateMachineTest, MrcTransitToIdle) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active -> ReplanWait
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
@@ -239,14 +238,13 @@ TEST(MissionStateMachineTest, InvalidTransitionReturnsError) {
   MissionStateMachine msm(config);
 
   // Init -> Idle -> TaskValidation -> AwaitingRoute -> Active
-  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
   msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
   msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
   msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
   // State is now Active
 
-  // Send an event that is invalid for Active state
-  // VoyageTaskReceived is only valid from Idle
+  // VoyageTaskReceived is only valid from Idle — ignored in Active
   const auto result = msm.handle_event(make_event(
       MissionEvent::Type::VoyageTaskReceived));
 

@@ -18,10 +18,10 @@ enum class MissionState : uint8_t {
 };
 
 enum class ReplanReason : uint8_t {
-  OddExit = 0,
+  OddExit        = 0,
   MissionInfeasible = 1,
-  MrcRequired = 2,
-  Congestion = 3,
+  MrcRequired    = 2,   // was MrCRequired; corrected to MrcRequired per naming standard
+  Congestion     = 3,
 };
 
 struct EtaProjection {

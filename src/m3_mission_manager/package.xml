@@ -14,6 +14,7 @@
   <depend>Eigen3</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
+  <depend>nlohmann-json</depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <export>

@@ -23,6 +23,8 @@ struct MissionStateMachineConfig {
 /// Events that drive state transitions.
 struct MissionEvent {
   enum class Type : uint8_t {
+    // Lifecycle: node setup complete, Init → Idle
+    NodeReady,
     VoyageTaskReceived,
     ValidationPassed,
     ValidationFailed,

@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 
+#include <nlohmann/json.hpp>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
 
@@ -33,6 +34,12 @@ MissionManagerNode::MissionManagerNode()
   setup_publishers();
   setup_subscribers();
   setup_timers();
+
+  // Transition state machine from Init to Idle now that all subscribers/timers
+  // are ready. Per spec §3.5: Init→Idle on "节点初始化完成、subscribers 就绪".
+  MissionEvent ready_event;
+  ready_event.type = MissionEvent::Type::NodeReady;
+  state_machine_->handle_event(ready_event);
 
   RCLCPP_INFO(get_logger(), "M3 MissionManagerNode initialised");
   if (logger_) {
@@ -74,8 +81,9 @@ void MissionManagerNode::declare_parameters()
 
   // General
   declare_parameter("eta_infeasible_margin_s", 600.0);
-  declare_parameter("mission_goal_publish_rate_hz", 0.5);
-  declare_parameter("asdr_heartbeat_rate_hz", 2.0);
+  declare_parameter("mission_goal.publish_rate_hz", 0.5);
+  declare_parameter("asdr.heartbeat_rate_hz", 2.0);
+  declare_parameter("timeout.world_state_s", 0.5);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,13 +233,13 @@ void MissionManagerNode::setup_subscribers()
 
 void MissionManagerNode::setup_timers()
 {
-  const double goal_hz = get_parameter("mission_goal_publish_rate_hz").as_double();
+  const double goal_hz = get_parameter("mission_goal.publish_rate_hz").as_double();
   const auto goal_period = std::chrono::duration<double>(1.0 / goal_hz);
   mission_goal_timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(goal_period),
       [this]() { publish_mission_goal(); });
 
-  const double asdr_hz = get_parameter("asdr_heartbeat_rate_hz").as_double();
+  const double asdr_hz = get_parameter("asdr.heartbeat_rate_hz").as_double();
   const auto asdr_period = std::chrono::duration<double>(1.0 / asdr_hz);
   asdr_timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(asdr_period),
@@ -266,24 +274,32 @@ void MissionManagerNode::on_voyage_task(
   const auto result = validator_->validate(
       *msg, pos, now().nanoseconds());
 
+  // Step 1: Idle → TaskValidation (unconditionally on receipt)
+  {
+    MissionEvent recv_event;
+    recv_event.type = MissionEvent::Type::VoyageTaskReceived;
+    state_machine_->handle_event(recv_event);
+  }
+
+  // Step 2: TaskValidation → AwaitingRoute (valid) or → Idle (invalid)
   if (result.is_valid) {
-    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning");
-    MissionEvent event;
-    event.type = MissionEvent::Type::VoyageTaskReceived;
-    state_machine_->handle_event(event);
+    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning to AwaitingRoute");
+    MissionEvent pass_event;
+    pass_event.type = MissionEvent::Type::ValidationPassed;
+    state_machine_->handle_event(pass_event);
     publish_asdr_record("voyage_task_accepted",
-                        "{\"task_id\":" + std::to_string(msg->task_id) + "}");
+                        nlohmann::json{{"task_id", msg->task_id}});
     if (logger_) {
       logger_->info("VoyageTask accepted: id={}", msg->task_id);
     }
   } else {
     RCLCPP_WARN(get_logger(), "VoyageTask validation FAILED: %s",
                 result.failed_check.c_str());
-    MissionEvent event;
-    event.type = MissionEvent::Type::ValidationFailed;
-    state_machine_->handle_event(event);
+    MissionEvent fail_event;
+    fail_event.type = MissionEvent::Type::ValidationFailed;
+    state_machine_->handle_event(fail_event);
     publish_asdr_record("voyage_task_rejected",
-                        "{\"reason\":\"" + result.failed_check + "\"}");
+                        nlohmann::json{{"reason", result.failed_check}});
     if (logger_) {
       logger_->warn("VoyageTask rejected: {}", result.failed_check);
     }
@@ -327,8 +343,7 @@ void MissionManagerNode::on_replan_response(
   RCLCPP_INFO(get_logger(), "ReplanResponse received: status=%u",
               static_cast<unsigned>(msg->status));
 
-  const auto outcome = replan_handler_->handle_response(
-      *msg, std::nullopt, replan_attempt_count_);
+  const auto outcome = replan_handler_->handle_response(*msg, replan_attempt_count_);
 
   MissionEvent event;
   event.type = MissionEvent::Type::ReplanResponseReceived;
@@ -340,7 +355,7 @@ void MissionManagerNode::on_replan_response(
     replan_deadline_.reset();
     replan_trigger_->reset_degraded_timer();
     RCLCPP_INFO(get_logger(), "Replan succeeded — back to ACTIVE");
-    publish_asdr_record("replan_success", "{}");
+    publish_asdr_record("replan_success", nlohmann::json::object());
     if (logger_) {
       logger_->info("Replan succeeded, resuming ACTIVE");
     }
@@ -348,7 +363,7 @@ void MissionManagerNode::on_replan_response(
     replan_deadline_.reset();
     RCLCPP_WARN(get_logger(), "Replan failed — escalating to MRC");
     publish_asdr_record("replan_escalate_mrc",
-                        "{\"rationale\":\"" + outcome.rationale + "\"}");
+                        nlohmann::json{{"rationale", outcome.rationale}});
     if (logger_) {
       logger_->warn("Replan escalation to MRC: {}", outcome.rationale);
     }
@@ -356,7 +371,7 @@ void MissionManagerNode::on_replan_response(
     RCLCPP_WARN(get_logger(), "Replan failed (no escalation): %s",
                 outcome.rationale.c_str());
     publish_asdr_record("replan_failed",
-                        "{\"rationale\":\"" + outcome.rationale + "\"}");
+                        nlohmann::json{{"rationale", outcome.rationale}});
     if (logger_) {
       logger_->warn("Replan failed: {}", outcome.rationale);
     }
@@ -430,10 +445,10 @@ void MissionManagerNode::publish_asdr_snapshot()
   msg.source_module = "M3_Mission_Manager";
   msg.decision_type = "heartbeat";
 
-  // Build JSON manually (no nlohmann dependency)
-  msg.decision_json =
-      "{\"mission_state\":\"" + std::string(state_machine_->state_name()) +
-      "\",\"replan_attempts\":" + std::to_string(replan_attempt_count_) + "}";
+  const nlohmann::json j = {
+      {"mission_state", std::string(state_machine_->state_name())},
+      {"replan_attempts", replan_attempt_count_}};
+  msg.decision_json = j.dump();
 
   msg.confidence = 1.0F;
   msg.rationale = "periodic ASDR heartbeat";
@@ -457,7 +472,7 @@ void MissionManagerNode::check_replan_deadline()
     event.type = MissionEvent::Type::ReplanDeadlineExpired;
     state_machine_->handle_event(event);
     publish_asdr_record("replan_deadline_expired",
-                        "{\"attempts\":" + std::to_string(replan_attempt_count_) + "}");
+                        nlohmann::json{{"attempts", replan_attempt_count_}});
     replan_deadline_.reset();
     if (logger_) {
       logger_->warn("Replan deadline expired, attempts={}", replan_attempt_count_);
@@ -515,13 +530,13 @@ void MissionManagerNode::publish_replan_request(
 }
 
 void MissionManagerNode::publish_asdr_record(const std::string& type,
-                                              const std::string& json)
+                                              const nlohmann::json& payload)
 {
   auto msg = l3_msgs::msg::ASDRRecord();
   msg.stamp = now();
   msg.source_module = "M3_Mission_Manager";
   msg.decision_type = type;
-  msg.decision_json = json;
+  msg.decision_json = payload.dump();
   msg.confidence = 1.0F;
   msg.rationale = type;
   asdr_pub_->publish(std::move(msg));
@@ -553,8 +568,8 @@ void MissionManagerNode::check_and_trigger_replan(
   replan_deadline_ = now + std::chrono::duration<double>(decision.deadline_s);
 
   publish_asdr_record("replan_triggered",
-      "{\"reason\":\"" + decision.rationale +
-      "\",\"deadline_s\":" + std::to_string(decision.deadline_s) + "}");
+      nlohmann::json{{"reason", decision.rationale},
+                     {"deadline_s", decision.deadline_s}});
 
   if (logger_) {
     logger_->warn("Replan triggered: {}, deadline={}s",

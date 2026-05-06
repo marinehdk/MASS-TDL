@@ -6,7 +6,6 @@
 #include <string>
 
 #include "l3_external_msgs/msg/replan_response.hpp"
-#include "l3_external_msgs/msg/planned_route.hpp"
 #include "m3_mission_manager/types.hpp"
 
 namespace mass_l3::m3 {
@@ -32,20 +31,17 @@ class ReplanResponseHandler {
   ReplanResponseHandler& operator=(ReplanResponseHandler&&) = default;
 
   /// Process ReplanResponse per RFC-006 4-status branching.
-  ReplanOutcome handle_response(
+  /// Per spec: STATUS_SUCCESS → accept (REPLAN_WAIT→ACTIVE); new PlannedRoute
+  /// arrives separately on /l2/planned_route, not attached to this response.
+  [[nodiscard]] ReplanOutcome handle_response(
       const l3_external_msgs::msg::ReplanResponse& response,
-      const std::optional<l3_external_msgs::msg::PlannedRoute>& new_route,
-      int32_t attempt_count);
-
-  /// Reset attempt counter (e.g., after successful cycle).
-  void reset() { /* no-op for now */ }
+      int32_t attempt_count) const;
 
  private:
-  ReplanOutcome handle_success(
-      const std::optional<l3_external_msgs::msg::PlannedRoute>& new_route);
-  ReplanOutcome handle_failed_timeout(int32_t attempt_count);
-  ReplanOutcome handle_failed_infeasible();
-  ReplanOutcome handle_failed_no_resources();
+  [[nodiscard]] ReplanOutcome handle_success() const;
+  [[nodiscard]] ReplanOutcome handle_failed_timeout(int32_t attempt_count) const;
+  [[nodiscard]] ReplanOutcome handle_failed_infeasible() const;
+  [[nodiscard]] ReplanOutcome handle_failed_no_resources() const;
 
   ReplanResponseHandlerConfig config_;
 };
