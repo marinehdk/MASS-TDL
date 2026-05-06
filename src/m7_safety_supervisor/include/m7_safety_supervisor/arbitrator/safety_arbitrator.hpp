@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string_view>
 
+#include "builtin_interfaces/msg/time.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
@@ -36,7 +37,8 @@ public:
   // Collect candidates from all monitor results, sort by severity, and
   // return the highest-priority SafetyAlert ROS2 message.
   [[nodiscard]] l3_msgs::msg::SafetyAlert
-  arbitrate(mrm::ScenarioContext const& ctx,
+  arbitrate(builtin_interfaces::msg::Time const& stamp,
+            mrm::ScenarioContext const& ctx,
             mrm::MrmDecision const& mrm_decision,
             iec61508::DiagnosticResult const& diag,
             bool extreme_scenario_detected,
@@ -50,6 +52,12 @@ private:
   void collect_candidates(mrm::ScenarioContext const& ctx,
                           iec61508::DiagnosticResult const& diag,
                           bool extreme_scenario) noexcept;
+
+  void collect_iec61508_candidates(mrm::ScenarioContext const& ctx,
+                                   iec61508::DiagnosticResult const& diag) noexcept;
+  void collect_sotif_candidates(mrm::ScenarioContext const& ctx,
+                                 bool extreme_scenario) noexcept;
+  void collect_perf_candidates(mrm::ScenarioContext const& ctx) noexcept;
 
   // Insertion sort by severity descending (higher severity = higher priority).
   // Avoids std::sort to prevent potential hidden allocation.

@@ -20,38 +20,12 @@ SafetySupervisorNode::SafetySupervisorNode(rclcpp::NodeOptions const& options)
   cb_group_events_ = create_callback_group(
     rclcpp::CallbackGroupType::Reentrant);
 
-  // Boot-time module construction (heap allocation allowed here)
-  watchdog_ = std::make_unique<iec61508::WatchdogMonitor>(
-    iec61508::WatchdogConfig::make_default());
+  instantiate_modules();
 
-  fault_monitor_   = std::make_unique<iec61508::FaultMonitor>();
-  diag_coverage_   = std::make_unique<iec61508::DiagnosticCoverage>();
-
-  assumption_monitor_ = std::make_unique<sotif::AssumptionMonitor>(
-    sotif::AssumptionConfig{});
-
-  performance_monitor_ = std::make_unique<sotif::PerformanceMonitor>(
-    sotif::PerformanceConfig{});
-
-  triggering_detector_ = std::make_unique<sotif::TriggeringConditionDetector>();
-
-  veto_handler_ = std::make_unique<checker::VetoHandler>();
-
-  {
-    mrm::MrmSelector::Config cfg{};
-    mrm::MrmCommandSet cmd = mrm::MrmCommandSetLoader::safe_default();
-    mrm_selector_ = std::make_unique<mrm::MrmSelector>(cfg, cmd, last_odd_);
-  }
-
-  arbitrator_ = std::make_unique<arbitrator::SafetyArbitrator>();
-
-  // QoS profiles
-  rclcpp::QoS const qos_reliable =
-    rclcpp::QoS(rclcpp::KeepLast(50)).reliable();
-  rclcpp::QoS const qos_besteffort =
-    rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
-
-  setup_subscriptions(qos_reliable, qos_besteffort);
+  rclcpp::QoS const qos_reliable = rclcpp::QoS(rclcpp::KeepLast(50)).reliable();
+  rclcpp::QoS const qos_events   = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+  setup_main_loop_subscriptions(qos_reliable);
+  setup_event_subscriptions(qos_events);
   setup_publishers();
   setup_timers();
 
@@ -59,88 +33,109 @@ SafetySupervisorNode::SafetySupervisorNode(rclcpp::NodeOptions const& options)
 }
 
 // ---------------------------------------------------------------------------
-// setup_subscriptions
+// instantiate_modules — boot-time heap allocation (called from constructor)
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::setup_subscriptions(
-    rclcpp::QoS const& qos_reliable,
-    rclcpp::QoS const& /*qos_besteffort*/)
+void SafetySupervisorNode::instantiate_modules() noexcept
 {
-  rclcpp::QoS const qos_events = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
-
-  // Main-loop group subscriptions
+  watchdog_ = std::make_unique<iec61508::WatchdogMonitor>(
+    iec61508::WatchdogConfig::make_default());
+  fault_monitor_       = std::make_unique<iec61508::FaultMonitor>();
+  diag_coverage_       = std::make_unique<iec61508::DiagnosticCoverage>();
+  assumption_monitor_  = std::make_unique<sotif::AssumptionMonitor>(sotif::AssumptionConfig{});
+  performance_monitor_ = std::make_unique<sotif::PerformanceMonitor>(sotif::PerformanceConfig{});
+  triggering_detector_ = std::make_unique<sotif::TriggeringConditionDetector>();
+  veto_handler_        = std::make_unique<checker::VetoHandler>();
   {
-    rclcpp::SubscriptionOptions opts;
-    opts.callback_group = cb_group_main_;
-
-    sub_odd_ = create_subscription<l3_msgs::msg::ODDState>(
-      "/l3/m2/odd_state", qos_reliable,
-      [this](l3_msgs::msg::ODDState::ConstSharedPtr msg) { on_odd_state(msg); },
-      opts);
-
-    sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
-      "/l3/m2/world_state", qos_reliable,
-      [this](l3_msgs::msg::WorldState::ConstSharedPtr msg) { on_world_state(msg); },
-      opts);
-
-    sub_behavior_ = create_subscription<l3_msgs::msg::BehaviorPlan>(
-      "/l3/m4/behavior_plan", qos_reliable,
-      [this](l3_msgs::msg::BehaviorPlan::ConstSharedPtr msg) { on_behavior_plan(msg); },
-      opts);
-
-    sub_avoidance_ = create_subscription<l3_msgs::msg::AvoidancePlan>(
-      "/l3/m5/avoidance_plan", qos_reliable,
-      [this](l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg) { on_avoidance_plan(msg); },
-      opts);
-
-    sub_colregs_ = create_subscription<l3_msgs::msg::COLREGsConstraint>(
-      "/l3/m6/colregs_constraint", qos_reliable,
-      [this](l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg) {
-        on_colregs_constraint(msg);
-      },
-      opts);
+    mrm::MrmSelector::Config cfg{};
+    mrm::MrmCommandSet cmd = mrm::MrmCommandSetLoader::safe_default();
+    mrm_selector_ = std::make_unique<mrm::MrmSelector>(cfg, cmd, last_odd_);
   }
+  arbitrator_ = std::make_unique<arbitrator::SafetyArbitrator>();
+}
 
-  // Events group subscriptions
-  {
-    rclcpp::SubscriptionOptions opts;
-    opts.callback_group = cb_group_events_;
+// ---------------------------------------------------------------------------
+// setup_main_loop_subscriptions
+// ---------------------------------------------------------------------------
 
-    sub_override_cmd_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
-      "/l3/m4/reactive_override_cmd", qos_events,
-      [this](l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr msg) {
-        on_override_cmd(msg);
-      },
-      opts);
+void SafetySupervisorNode::setup_main_loop_subscriptions(
+    rclcpp::QoS const& qos_reliable) noexcept
+{
+  rclcpp::SubscriptionOptions opts;
+  opts.callback_group = cb_group_main_;
 
-    sub_veto_ = create_subscription<l3_external_msgs::msg::CheckerVetoNotification>(
-      "/l3/checker/veto", qos_events,
-      [this](l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg) {
-        on_checker_veto(msg);
-      },
-      opts);
+  sub_odd_ = create_subscription<l3_msgs::msg::ODDState>(
+    "/l3/m2/odd_state", qos_reliable,
+    [this](l3_msgs::msg::ODDState::ConstSharedPtr msg) { on_odd_state(msg); },
+    opts);
 
-    sub_reflex_ = create_subscription<l3_external_msgs::msg::ReflexActivationNotification>(
-      "/l3/reflex/activation", qos_events,
-      [this](l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg) {
-        on_reflex_activation(msg);
-      },
-      opts);
+  sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
+    "/l3/m2/world_state", qos_reliable,
+    [this](l3_msgs::msg::WorldState::ConstSharedPtr msg) { on_world_state(msg); },
+    opts);
 
-    sub_override_signal_ = create_subscription<l3_external_msgs::msg::OverrideActiveSignal>(
-      "/l3/override/active", qos_events,
-      [this](l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg) {
-        on_override_signal(msg);
-      },
-      opts);
-  }
+  sub_behavior_ = create_subscription<l3_msgs::msg::BehaviorPlan>(
+    "/l3/m4/behavior_plan", qos_reliable,
+    [this](l3_msgs::msg::BehaviorPlan::ConstSharedPtr msg) { on_behavior_plan(msg); },
+    opts);
+
+  sub_avoidance_ = create_subscription<l3_msgs::msg::AvoidancePlan>(
+    "/l3/m5/avoidance_plan", qos_reliable,
+    [this](l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg) { on_avoidance_plan(msg); },
+    opts);
+
+  sub_colregs_ = create_subscription<l3_msgs::msg::COLREGsConstraint>(
+    "/l3/m6/colregs_constraint", qos_reliable,
+    [this](l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg) {
+      on_colregs_constraint(msg);
+    },
+    opts);
+}
+
+// ---------------------------------------------------------------------------
+// setup_event_subscriptions
+// ---------------------------------------------------------------------------
+
+void SafetySupervisorNode::setup_event_subscriptions(
+    rclcpp::QoS const& qos_events) noexcept
+{
+  rclcpp::SubscriptionOptions opts;
+  opts.callback_group = cb_group_events_;
+
+  sub_override_cmd_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
+    "/l3/m4/reactive_override_cmd", qos_events,
+    [this](l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr msg) {
+      on_override_cmd(msg);
+    },
+    opts);
+
+  sub_veto_ = create_subscription<l3_external_msgs::msg::CheckerVetoNotification>(
+    "/l3/checker/veto", qos_events,
+    [this](l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg) {
+      on_checker_veto(msg);
+    },
+    opts);
+
+  sub_reflex_ = create_subscription<l3_external_msgs::msg::ReflexActivationNotification>(
+    "/l3/reflex/activation", qos_events,
+    [this](l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg) {
+      on_reflex_activation(msg);
+    },
+    opts);
+
+  sub_override_signal_ = create_subscription<l3_external_msgs::msg::OverrideActiveSignal>(
+    "/l3/override/active", qos_events,
+    [this](l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg) {
+      on_override_signal(msg);
+    },
+    opts);
 }
 
 // ---------------------------------------------------------------------------
 // setup_publishers
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::setup_publishers()
+void SafetySupervisorNode::setup_publishers() noexcept
 {
   pub_alert_ = create_publisher<l3_msgs::msg::SafetyAlert>(
     "/l3/m7/safety_alert",
@@ -163,7 +158,7 @@ void SafetySupervisorNode::setup_publishers()
 // setup_timers — all in main_loop callback group
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::setup_timers()
+void SafetySupervisorNode::setup_timers() noexcept
 {
   timer_main_ = create_timer(
     250ms,
@@ -191,7 +186,7 @@ void SafetySupervisorNode::setup_timers()
 // ---------------------------------------------------------------------------
 
 void SafetySupervisorNode::on_odd_state(
-    l3_msgs::msg::ODDState::ConstSharedPtr msg)
+    l3_msgs::msg::ODDState::ConstSharedPtr msg) noexcept
 {
   auto const now = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM1, now);
@@ -199,7 +194,7 @@ void SafetySupervisorNode::on_odd_state(
 }
 
 void SafetySupervisorNode::on_world_state(
-    l3_msgs::msg::WorldState::ConstSharedPtr msg)
+    l3_msgs::msg::WorldState::ConstSharedPtr msg) noexcept
 {
   auto const now = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM2, now);
@@ -207,14 +202,14 @@ void SafetySupervisorNode::on_world_state(
 }
 
 void SafetySupervisorNode::on_behavior_plan(
-    l3_msgs::msg::BehaviorPlan::ConstSharedPtr /*msg*/)
+    l3_msgs::msg::BehaviorPlan::ConstSharedPtr /*msg*/) noexcept
 {
   auto const now = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM4, now);
 }
 
 void SafetySupervisorNode::on_avoidance_plan(
-    l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg)
+    l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg) noexcept
 {
   auto const now = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM5, now);
@@ -222,7 +217,7 @@ void SafetySupervisorNode::on_avoidance_plan(
 }
 
 void SafetySupervisorNode::on_colregs_constraint(
-    l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg)
+    l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg) noexcept
 {
   auto const now = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM6, now);
@@ -234,7 +229,7 @@ void SafetySupervisorNode::on_colregs_constraint(
 // ---------------------------------------------------------------------------
 
 void SafetySupervisorNode::on_override_cmd(
-    l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr /*msg*/)
+    l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr /*msg*/) noexcept
 {
   // M3 reactive override command: update watchdog for M3 messages
   auto const now = std::chrono::steady_clock::now();
@@ -242,20 +237,20 @@ void SafetySupervisorNode::on_override_cmd(
 }
 
 void SafetySupervisorNode::on_checker_veto(
-    l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg)
+    l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg) noexcept
 {
   // Forward to VetoHandler for rate tracking (events group)
   veto_handler_->on_veto_received(*msg);
 }
 
 void SafetySupervisorNode::on_reflex_activation(
-    l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg)
+    l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg) noexcept
 {
   reflex_freeze_required_ = msg->l3_freeze_required;
 }
 
 void SafetySupervisorNode::on_override_signal(
-    l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg)
+    l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg) noexcept
 {
   override_active_ = msg->override_active;
   if (!override_active_) {
@@ -267,7 +262,7 @@ void SafetySupervisorNode::on_override_signal(
 // on_main_loop_tick — 4 Hz (250 ms)
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::on_main_loop_tick()
+void SafetySupervisorNode::on_main_loop_tick() noexcept
 {
   auto const now = std::chrono::steady_clock::now();
 
@@ -299,9 +294,15 @@ void SafetySupervisorNode::on_main_loop_tick()
   mrm::ScenarioContext ctx{assumption_status, watchdog_result, perf_status};
   auto const mrm_decision = mrm_selector_->select(ctx, last_odd_, last_world_, now);
 
+  // Get ROS2 clock stamp for the alert
+  builtin_interfaces::msg::Time ros_stamp{};
+  auto const wall_now = get_clock()->now();
+  ros_stamp.sec    = static_cast<int32_t>(wall_now.seconds());
+  ros_stamp.nanosec = static_cast<uint32_t>(wall_now.nanoseconds() % 1000000000LL);
+
   // Arbitrate and publish if severity > INFO
   auto const alert = arbitrator_->arbitrate(
-    ctx, mrm_decision, diag_result, extreme, now);
+    ros_stamp, ctx, mrm_decision, diag_result, extreme, now);
 
   if (alert.severity > l3_msgs::msg::SafetyAlert::SEVERITY_INFO) {
     pub_alert_->publish(alert);
@@ -312,7 +313,7 @@ void SafetySupervisorNode::on_main_loop_tick()
 // on_sat_tick — 10 Hz (100 ms)
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::on_sat_tick()
+void SafetySupervisorNode::on_sat_tick() noexcept
 {
   auto const stamp = get_clock()->now();
   builtin_interfaces::msg::Time ros_stamp{};
@@ -332,7 +333,7 @@ void SafetySupervisorNode::on_sat_tick()
 // on_asdr_periodic_tick — 2 Hz (500 ms)
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::on_asdr_periodic_tick()
+void SafetySupervisorNode::on_asdr_periodic_tick() noexcept
 {
   auto const stamp = get_clock()->now();
   builtin_interfaces::msg::Time ros_stamp{};
@@ -352,7 +353,7 @@ void SafetySupervisorNode::on_asdr_periodic_tick()
 // on_heartbeat_tick — 10 Hz (100 ms)
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::on_heartbeat_tick()
+void SafetySupervisorNode::on_heartbeat_tick() noexcept
 {
   std_msgs::msg::Header hb{};
   hb.stamp    = get_clock()->now();
@@ -364,7 +365,7 @@ void SafetySupervisorNode::on_heartbeat_tick()
 // revert_from_override
 // ---------------------------------------------------------------------------
 
-void SafetySupervisorNode::revert_from_override()
+void SafetySupervisorNode::revert_from_override() noexcept
 {
   mrm_selector_->reset();
   reflex_freeze_required_ = false;

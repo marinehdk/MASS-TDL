@@ -4,12 +4,10 @@ namespace mass_l3::m7::arbitrator {
 
 // ---------------------------------------------------------------------------
 // build_safety_alert
-// Note: SafetyAlert.msg has no stamp field; stamp arg is accepted for API
-// uniformity but not applied to this message type.
 // ---------------------------------------------------------------------------
 
 l3_msgs::msg::SafetyAlert AlertGenerator::build_safety_alert(
-    builtin_interfaces::msg::Time const& /*stamp*/,
+    builtin_interfaces::msg::Time const& stamp,
     uint8_t alert_type,
     uint8_t severity,
     std::string_view recommended_mrm,
@@ -18,6 +16,7 @@ l3_msgs::msg::SafetyAlert AlertGenerator::build_safety_alert(
     std::string_view description) noexcept
 {
   l3_msgs::msg::SafetyAlert msg{};
+  msg.stamp           = stamp;
   msg.alert_type      = alert_type;
   msg.severity        = severity;
   msg.description     = std::string{description};

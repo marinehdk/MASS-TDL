@@ -17,16 +17,13 @@ void SafetyArbitrator::push_candidate(AlertCandidate const& candidate) noexcept 
 }
 
 // ---------------------------------------------------------------------------
-// collect_candidates — populate pool_ from monitor results
+// collect_iec61508_candidates — IEC 61508 fault sub-section
 // ---------------------------------------------------------------------------
 
-void SafetyArbitrator::collect_candidates(
+void SafetyArbitrator::collect_iec61508_candidates(
     mrm::ScenarioContext const& ctx,
-    iec61508::DiagnosticResult const& diag,
-    bool extreme_scenario) noexcept
+    iec61508::DiagnosticResult const& diag) noexcept
 {
-  // --- IEC 61508 fault candidates ---
-
   // Diagnostic fault: any validity check failed in FaultMonitor
   bool const any_fault = !diag.conformance_score_valid
                       || !diag.cpa_internal_consistent
@@ -54,9 +51,16 @@ void SafetyArbitrator::collect_candidates(
     c.rationale  = "IEC61508: watchdog heartbeat loss — module(s) critical";
     push_candidate(c);
   }
+}
 
-  // --- SOTIF assumption candidates ---
+// ---------------------------------------------------------------------------
+// collect_sotif_candidates — SOTIF assumption sub-section
+// ---------------------------------------------------------------------------
 
+void SafetyArbitrator::collect_sotif_candidates(
+    mrm::ScenarioContext const& ctx,
+    bool extreme_scenario) noexcept
+{
   if (extreme_scenario) {
     AlertCandidate c{};
     c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
@@ -82,9 +86,15 @@ void SafetyArbitrator::collect_candidates(
     c.rationale  = "SOTIF: single assumption violated — monitoring";
     push_candidate(c);
   }
+}
 
-  // --- Performance degradation candidate ---
+// ---------------------------------------------------------------------------
+// collect_perf_candidates — performance degradation sub-section
+// ---------------------------------------------------------------------------
 
+void SafetyArbitrator::collect_perf_candidates(
+    mrm::ScenarioContext const& ctx) noexcept
+{
   if (ctx.performance.cpa_trend_degrading || ctx.performance.multiple_targets_nearby) {
     AlertCandidate c{};
     c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_PERFORMANCE_DEGRADED;
@@ -94,6 +104,20 @@ void SafetyArbitrator::collect_candidates(
     c.rationale  = "SOTIF: performance degraded — CPA trend worsening or multiple targets";
     push_candidate(c);
   }
+}
+
+// ---------------------------------------------------------------------------
+// collect_candidates — populate pool_ from monitor results
+// ---------------------------------------------------------------------------
+
+void SafetyArbitrator::collect_candidates(
+    mrm::ScenarioContext const& ctx,
+    iec61508::DiagnosticResult const& diag,
+    bool extreme_scenario) noexcept
+{
+  collect_iec61508_candidates(ctx, diag);
+  collect_sotif_candidates(ctx, extreme_scenario);
+  collect_perf_candidates(ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +142,7 @@ void SafetyArbitrator::sort_candidates() noexcept {
 // ---------------------------------------------------------------------------
 
 l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
+    builtin_interfaces::msg::Time const& stamp,
     mrm::ScenarioContext const& ctx,
     mrm::MrmDecision const& mrm_decision,
     iec61508::DiagnosticResult const& diag,
@@ -133,6 +158,7 @@ l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
 
   if (pool_size_ == 0u) {
     // No active conditions: emit informational no-alert
+    alert.stamp        = stamp;
     alert.alert_type   = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
     alert.severity     = l3_msgs::msg::SafetyAlert::SEVERITY_INFO;
     alert.description  = "M7: all monitors nominal";
@@ -144,6 +170,7 @@ l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
 
   // Emit highest-priority candidate (pool_[0] after descending sort)
   AlertCandidate const& top = pool_[0];
+  alert.stamp       = stamp;
   alert.alert_type  = top.alert_type;
   alert.severity    = top.severity;
   alert.description = std::string{top.rationale};

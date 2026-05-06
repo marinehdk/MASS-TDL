@@ -84,30 +84,31 @@ private:
   bool reflex_freeze_required_{false};
 
   // Callbacks — main_loop group
-  void on_odd_state(l3_msgs::msg::ODDState::ConstSharedPtr msg);
-  void on_world_state(l3_msgs::msg::WorldState::ConstSharedPtr msg);
-  void on_behavior_plan(l3_msgs::msg::BehaviorPlan::ConstSharedPtr msg);
-  void on_avoidance_plan(l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg);
-  void on_colregs_constraint(l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg);
+  void on_odd_state(l3_msgs::msg::ODDState::ConstSharedPtr msg) noexcept;
+  void on_world_state(l3_msgs::msg::WorldState::ConstSharedPtr msg) noexcept;
+  void on_behavior_plan(l3_msgs::msg::BehaviorPlan::ConstSharedPtr msg) noexcept;
+  void on_avoidance_plan(l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg) noexcept;
+  void on_colregs_constraint(l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg) noexcept;
 
   // Callbacks — events group
-  void on_override_cmd(l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr msg);
-  void on_checker_veto(l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg);
-  void on_reflex_activation(l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg);
-  void on_override_signal(l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg);
+  void on_override_cmd(l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr msg) noexcept;
+  void on_checker_veto(l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg) noexcept;
+  void on_reflex_activation(l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg) noexcept;
+  void on_override_signal(l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg) noexcept;
 
   // Timer callbacks
-  void on_main_loop_tick();
-  void on_sat_tick();
-  void on_asdr_periodic_tick();
-  void on_heartbeat_tick();
+  void on_main_loop_tick() noexcept;
+  void on_sat_tick() noexcept;
+  void on_asdr_periodic_tick() noexcept;
+  void on_heartbeat_tick() noexcept;
 
   // Helpers
-  void setup_subscriptions(rclcpp::QoS const& qos_reliable,
-                           rclcpp::QoS const& qos_besteffort);
-  void setup_publishers();
-  void setup_timers();
-  void revert_from_override();
+  void instantiate_modules() noexcept;
+  void setup_main_loop_subscriptions(rclcpp::QoS const& qos_reliable) noexcept;
+  void setup_event_subscriptions(rclcpp::QoS const& qos_events) noexcept;
+  void setup_publishers() noexcept;
+  void setup_timers() noexcept;
+  void revert_from_override() noexcept;
 };
 
 }  // namespace mass_l3::m7
