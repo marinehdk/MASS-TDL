@@ -1,0 +1,28 @@
+# M1 ODD/Envelope Manager parameters
+# All [TBD-HAZID] values: FCB initial baselines, to be calibrated in HAZID Phase 2
+
+state_machine:
+  in_to_edge: 0.8        # [TBD-HAZID] score threshold for IN->EDGE
+  edge_to_out: 0.5       # [TBD-HAZID] score threshold for EDGE->OUT
+
+conformance_score:
+  weights:
+    w_e: 0.4             # [TBD-HAZID] environment weight
+    w_t: 0.3             # [TBD-HAZID] task weight
+    w_h: 0.3             # [TBD-HAZID] human weight
+  e_score:
+    visibility_full_nm: 2.0
+    visibility_degraded_nm: 1.0
+    visibility_marginal_nm: 0.5
+    sea_state_full_hs: 2.5
+    sea_state_degraded_hs: 3.0
+    sea_state_marginal_hs: 4.0
+
+tmr_tdl:
+  tmr_baseline_s: 60     # [TBD-HAZID] Veitch 2024 baseline
+  tcpa_coefficient: 0.6  # [TBD-HAZID] TCPA * 0.6 for TDL
+
+mrc:
+  max_anchor_depth_m: 50.0
+  max_heave_to_sea_state_hs: 4.0
+  max_heave_to_wind_kn: 40.0
