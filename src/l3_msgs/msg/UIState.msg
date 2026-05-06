@@ -13,3 +13,4 @@ uint8 active_alert_count
 uint8 critical_alert_count
 
 float32 confidence
+string rationale
