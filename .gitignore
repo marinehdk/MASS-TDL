@@ -51,4 +51,3 @@ compile_commands.json
 # Temp
 *.tmp
 *.temp
-.worktrees/

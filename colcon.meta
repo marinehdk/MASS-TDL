@@ -1,0 +1,34 @@
+{
+    "names": {
+        "l3_msgs": {
+            "build-order": 1
+        },
+        "l3_external_msgs": {
+            "build-order": 2
+        },
+        "m1_odd_envelope_manager": {
+            "build-order": 3
+        },
+        "m2_world_model": {
+            "build-order": 4
+        },
+        "m3_mission_manager": {
+            "build-order": 5
+        },
+        "m4_behavior_arbiter": {
+            "build-order": 6
+        },
+        "m5_tactical_planner": {
+            "build-order": 7
+        },
+        "m6_colregs_reasoner": {
+            "build-order": 8
+        },
+        "m7_safety_supervisor": {
+            "build-order": 9
+        },
+        "m8_hmi_transparency_bridge": {
+            "build-order": 10
+        }
+    }
+}

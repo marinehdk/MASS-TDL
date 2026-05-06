@@ -1,0 +1,6 @@
+colcon-core==0.20.1
+colcon-common-extensions
+pytest==8.3.3
+pytest-cov==5.0.0
+ruff==0.6.9
+mypy==1.10.1
