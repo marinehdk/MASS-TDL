@@ -6,6 +6,7 @@
 #include <boost/geometry/geometries/point_xy.hpp>
 #include <boost/geometry/geometries/polygon.hpp>
 #include <casadi/casadi.hpp>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
