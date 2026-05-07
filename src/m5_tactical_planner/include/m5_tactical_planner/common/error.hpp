@@ -7,6 +7,7 @@
 //
 // Error codes occupy range 5000–5999 (M5 reservation per system error table).
 
+#include <cassert>
 #include <cstdint>
 #include <string_view>
 #include <variant>
@@ -89,8 +90,18 @@ class M5Result {
   [[nodiscard]] bool has_value() const noexcept {
     return std::holds_alternative<T>(data_);
   }
-  [[nodiscard]] T const& value() const noexcept { return std::get<T>(data_); }
+  // Pre-condition: has_value() == true.
+  // Violating this terminates the process via std::terminate()
+  // (std::get throws on wrong variant type, noexcept propagates to terminate).
+  // This is intentional: precondition violation is non-recoverable in PATH-D.
+  [[nodiscard]] T const& value() const noexcept {
+    assert(has_value() && "M5Result::value() called on error result");
+    return std::get<T>(data_);
+  }
+  // Pre-condition: has_value() == false.
+  // Violating this terminates the process (same reason as value()).
   [[nodiscard]] ErrorCode error() const noexcept {
+    assert(!has_value() && "M5Result::error() called on success result");
     return std::get<ErrorCode>(data_);
   }
 

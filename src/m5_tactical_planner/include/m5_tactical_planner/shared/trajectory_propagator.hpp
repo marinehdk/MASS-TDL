@@ -75,9 +75,11 @@ class TrajectoryPropagator {
   [[nodiscard]] static double clamp_rudder(double rudder_rad) noexcept;
 
   // Apply intent to evolve target position by one dt step.
-  // Returns updated (x, y, cog, sog) — minimal kinematic model.
+  // cog_rad and sog_mps are mutated in place (evolve under intent).
+  // Returns updated (x, y) position.
+  // Single evolution code path — propagate_target() calls this iteratively.
   [[nodiscard]] static Eigen::Vector2d step_target(
-      double x, double y, double cog_rad, double sog_mps, double dt_s,
+      double x, double y, double& cog_rad, double& sog_mps, double dt_s,
       mass_l3::m5::TargetIntent intent) noexcept;
 };
 

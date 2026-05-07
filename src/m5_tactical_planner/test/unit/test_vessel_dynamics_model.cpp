@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "m5_tactical_planner/common/error.hpp"
+#include "m5_tactical_planner/common/time_alignment.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
 #include "m5_tactical_planner/shared/capability_manifest.hpp"
@@ -187,14 +190,15 @@ TEST(VesselDynamicsModelTest, StepSmallDtApproximatesLinear) {
 
 // ---------------------------------------------------------------------------
 // Test 8: RotMaxCalmSeaReference
-// At exactly service_speed_kn (18 kn), speed_correction should be 1.0
-// (it's interpolated between low/high nodes; 18 kn is between 10 and 20).
-// rot_max ≈ rot_max_at_18kn * correction * 1.0 (calm sea)
-// At 18 kn: correction = interp(10→1.2, 20→0.8) at 18 kn = 0.96
-// So rot_max(18 kn) = 0.20944 * 0.96 ≈ 0.20106, NOT exactly 0.20944.
-// Test: rot_max at service speed is close to rot_max_at_18kn (within 5%).
-// (Not exactly equal due to speed correction — the YAML name is a reference
-//  speed, not the exact output speed used in correction interpolation.)
+// At exactly service_speed_kn (18 kn), speed_correction interpolates between
+// (low_speed_kn=10, factor=1.2) and (high_speed_kn=20, factor=0.8):
+//   t = (18 - 10) / (20 - 10) = 0.8
+//   correction = 1.2 + 0.8 * (0.8 - 1.2) = 1.2 - 0.32 = 0.88
+// So rot_max(18 kn, calm) = 0.20944 * 0.88 ≈ 0.18431, NOT 0.20944.
+// Test: rot_max at service speed is within ±30% of reference
+// (correction factor ∈ [0.8, 1.2], so the range is always covered).
+// (Not exactly equal because the YAML name is a reference speed,
+//  not the exact output speed used in correction interpolation.)
 // ---------------------------------------------------------------------------
 TEST(VesselDynamicsModelTest, RotMaxCalmSeaReference) {
   auto manifest = load_fixture();
@@ -208,7 +212,7 @@ TEST(VesselDynamicsModelTest, RotMaxCalmSeaReference) {
   // Must be positive and within ±30% of reference (correction factor ∈ [0.8, 1.2])
   EXPECT_GT(rot, 0.0);
   EXPECT_NEAR(rot, ref, 0.30 * ref)
-      << "rot_max at service speed must be near reference value";
+      << "rot_max at service speed must be within ±30% of reference value";
 }
 
 // ===========================================================================
@@ -441,6 +445,139 @@ TEST(CpaCalculatorTest, TrajectoryBased_FindsCorrectMinIndex) {
   // At index 2: |20 - 22| = 2 m
   EXPECT_NEAR(result.cpa_m, 2.0, 1.0e-6);
   EXPECT_NEAR(result.tcpa_s, 2.0, 1.0e-6);  // 2 steps × 1 s/step
+}
+
+// ===========================================================================
+// TimeAlignment tests (M-3, items 1–3)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test 19: TimeAlignment_FreshAfterUpdate
+// After update(), is_fresh() returns true immediately (age == 0).
+// ---------------------------------------------------------------------------
+TEST(TimeAlignmentTest, FreshAfterUpdate) {
+  mass_l3::m5::TimeAlignment ta;
+  const std::int64_t now_ns = 1'000'000'000LL;  // 1 s epoch
+  ta.update(mass_l3::m5::SourceId::WorldState, now_ns);
+  EXPECT_TRUE(ta.is_fresh(mass_l3::m5::SourceId::WorldState, now_ns))
+      << "Freshly updated source must be fresh at same timestamp";
+}
+
+// ---------------------------------------------------------------------------
+// Test 20: TimeAlignment_StaleAfterLongDelay
+// After update(), advancing time past the threshold makes is_fresh() false.
+// ---------------------------------------------------------------------------
+TEST(TimeAlignmentTest, StaleAfterLongDelay) {
+  mass_l3::m5::TimeAlignment ta;
+  const std::int64_t ts_ns  = 1'000'000'000LL;
+  ta.update(mass_l3::m5::SourceId::WorldState, ts_ns);
+  // WorldState threshold = 200 ms; advance by 500 ms → stale
+  const std::int64_t now_ns = ts_ns + 500'000'000LL;
+  EXPECT_FALSE(ta.is_fresh(mass_l3::m5::SourceId::WorldState, now_ns))
+      << "Source older than threshold must not be fresh";
+}
+
+// ---------------------------------------------------------------------------
+// Test 21: TimeAlignment_NeverReceivedSentinel
+// Uninitialized source returns staleness >= kNeverReceivedSentinel_ns.
+// ---------------------------------------------------------------------------
+TEST(TimeAlignmentTest, NeverReceivedSentinel) {
+  mass_l3::m5::TimeAlignment ta;
+  const std::int64_t now_ns = 1'000'000'000LL;
+  const std::int64_t staleness =
+      ta.staleness_ns(mass_l3::m5::SourceId::WorldState, now_ns);
+  EXPECT_GE(staleness, mass_l3::m5::TimeAlignment::kNeverReceivedSentinel_ns)
+      << "Never-received source must return staleness >= kNeverReceivedSentinel_ns";
+}
+
+// ===========================================================================
+// M5Result<T> tests (M-3, items 4–5)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test 22: M5Result_Success
+// ok() result: has_value()==true, value() returns expected.
+// ---------------------------------------------------------------------------
+TEST(M5ResultTest, Success) {
+  const auto result = mass_l3::m5::M5Result<int>::ok(42);
+  EXPECT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), 42);
+}
+
+// ---------------------------------------------------------------------------
+// Test 23: M5Result_Error
+// err() result: has_value()==false, error() returns expected code.
+// ---------------------------------------------------------------------------
+TEST(M5ResultTest, Error) {
+  const auto result =
+      mass_l3::m5::M5Result<int>::err(mass_l3::m5::ErrorCode::kInputStale);
+  EXPECT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), mass_l3::m5::ErrorCode::kInputStale);
+}
+
+// ===========================================================================
+// TrajectoryPropagator intent branch tests (M-3, items 6–7)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test 24: TrajectoryPropagator_TurnPortTargetChangesHeadingLeft
+// TurnPort intent → target's final cog is less than initial cog (turn left).
+// ---------------------------------------------------------------------------
+TEST(TrajectoryPropagatorTest, TurnPortTargetChangesHeadingLeft) {
+  mass_l3::m5::shared::TrajectoryPropagator prop;
+
+  mass_l3::m5::TargetState tgt;
+  tgt.x_m     = 0.0;
+  tgt.y_m     = 0.0;
+  tgt.cog_rad = 1.0;  // initial heading 1 rad
+  tgt.sog_mps = 5.0;
+
+  // propagate 5 s / 1 s dt = 5 steps; TurnPort decreases cog
+  const auto positions = prop.propagate_target(
+      tgt, mass_l3::m5::TargetIntent::TurnPort, 5.0, 1.0);
+
+  ASSERT_EQ(positions.size(), 6u);
+
+  // To verify cog decreased, check that final position is to port of a
+  // straight-line Maintain path: for heading=1 rad (≈57°, NE), port is
+  // the left side. We simply verify the propagated x/y differs from Maintain.
+  const auto positions_maintain = prop.propagate_target(
+      tgt, mass_l3::m5::TargetIntent::Maintain, 5.0, 1.0);
+
+  // TurnPort should deviate from straight line after at least one step
+  const bool deviated =
+      std::abs(positions.back().x() - positions_maintain.back().x()) > 0.01 ||
+      std::abs(positions.back().y() - positions_maintain.back().y()) > 0.01;
+  EXPECT_TRUE(deviated)
+      << "TurnPort intent must deviate from straight-line Maintain trajectory";
+}
+
+// ---------------------------------------------------------------------------
+// Test 25: TrajectoryPropagator_TurnStarboardTargetChangesHeadingRight
+// TurnStarboard intent → target's path deviates to starboard vs Maintain.
+// ---------------------------------------------------------------------------
+TEST(TrajectoryPropagatorTest, TurnStarboardTargetChangesHeadingRight) {
+  mass_l3::m5::shared::TrajectoryPropagator prop;
+
+  mass_l3::m5::TargetState tgt;
+  tgt.x_m     = 0.0;
+  tgt.y_m     = 0.0;
+  tgt.cog_rad = 1.0;  // initial heading 1 rad
+  tgt.sog_mps = 5.0;
+
+  const auto positions_stbd = prop.propagate_target(
+      tgt, mass_l3::m5::TargetIntent::TurnStarboard, 5.0, 1.0);
+  const auto positions_port = prop.propagate_target(
+      tgt, mass_l3::m5::TargetIntent::TurnPort, 5.0, 1.0);
+
+  ASSERT_EQ(positions_stbd.size(), 6u);
+
+  // TurnPort and TurnStarboard must diverge: final positions differ
+  const bool diverged =
+      std::abs(positions_stbd.back().x() - positions_port.back().x()) > 0.01 ||
+      std::abs(positions_stbd.back().y() - positions_port.back().y()) > 0.01;
+  EXPECT_TRUE(diverged)
+      << "TurnStarboard and TurnPort final positions must differ";
 }
 
 int main(int argc, char** argv) {

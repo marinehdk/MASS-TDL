@@ -86,21 +86,19 @@ std::vector<TrajectoryPoint> TrajectoryPropagator::propagate_own(
 // calibrated against AIS track statistics from FCB operational area.
 // ---------------------------------------------------------------------------
 Eigen::Vector2d TrajectoryPropagator::step_target(
-    double x, double y, double cog_rad, double sog_mps,
+    double x, double y, double& cog_rad, double& sog_mps,
     double dt_s, TargetIntent intent) noexcept {
 
-  double cog   = cog_rad;
-  double speed = sog_mps;
-
+  // Evolve cog/sog under intent (single code path — no duplication in caller).
   switch (intent) {
     case TargetIntent::TurnPort:
-      cog -= kTurnRate_rad_s * dt_s;
+      cog_rad -= kTurnRate_rad_s * dt_s;
       break;
     case TargetIntent::TurnStarboard:
-      cog += kTurnRate_rad_s * dt_s;
+      cog_rad += kTurnRate_rad_s * dt_s;
       break;
     case TargetIntent::Decelerate:
-      speed = std::max(0.0, speed - kDecel_mps_s * dt_s);
+      sog_mps = std::max(0.0, sog_mps - kDecel_mps_s * dt_s);
       break;
     case TargetIntent::Maintain:
     case TargetIntent::Unknown:
@@ -108,9 +106,9 @@ Eigen::Vector2d TrajectoryPropagator::step_target(
       break;  // constant course + speed
   }
 
-  // NED kinematic propagation
-  const double new_x = x + speed * std::cos(cog) * dt_s;
-  const double new_y = y + speed * std::sin(cog) * dt_s;
+  // NED kinematic propagation using already-evolved cog/sog
+  const double new_x = x + sog_mps * std::cos(cog_rad) * dt_s;
+  const double new_y = y + sog_mps * std::sin(cog_rad) * dt_s;
   return Eigen::Vector2d{new_x, new_y};
 }
 
@@ -141,15 +139,9 @@ std::vector<Eigen::Vector2d> TrajectoryPropagator::propagate_target(
   positions.emplace_back(x, y);
 
   for (std::size_t i = 0u; i < n_steps; ++i) {
+    // step_target() evolves cog/sog in place and returns new position.
+    // No separate cog/sog update needed here — single evolution code path.
     const Eigen::Vector2d next = step_target(x, y, cog, sog, dt_s, intent);
-    // Update cog/sog for next step (stateful evolution)
-    if (intent == TargetIntent::TurnPort) {
-      cog -= kTurnRate_rad_s * dt_s;
-    } else if (intent == TargetIntent::TurnStarboard) {
-      cog += kTurnRate_rad_s * dt_s;
-    } else if (intent == TargetIntent::Decelerate) {
-      sog = std::max(0.0, sog - kDecel_mps_s * dt_s);
-    }
     x = next.x();
     y = next.y();
     positions.push_back(next);

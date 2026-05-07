@@ -60,26 +60,6 @@ VesselDynamicsModel::compute_accelerations(const State& s,
 }
 
 // ===========================================================================
-// euler_step() — single first-order Euler update (used by RK4 substeps)
-// ===========================================================================
-State VesselDynamicsModel::euler_step(const State& s,
-                                       const Input& cmd,
-                                       double dt_s) const {
-  auto [du, dv, dr] = compute_accelerations(s, cmd);
-  State sn;
-  sn.u_mps   = s.u_mps   + du * dt_s;
-  sn.v_mps   = s.v_mps   + dv * dt_s;
-  sn.r_rad_s = s.r_rad_s + dr * dt_s;
-  sn.psi_rad = s.psi_rad + s.r_rad_s * dt_s;
-  sn.x_m = s.x_m + (s.u_mps * std::cos(s.psi_rad) -
-                     s.v_mps * std::sin(s.psi_rad)) * dt_s;
-  sn.y_m = s.y_m + (s.u_mps * std::sin(s.psi_rad) +
-                     s.v_mps * std::cos(s.psi_rad)) * dt_s;
-  sn.t_s = s.t_s + dt_s;
-  return sn;
-}
-
-// ===========================================================================
 // File-local helpers for RK4 (anonymous namespace = internal linkage)
 // Must appear AFTER class member definitions that they reference.
 // ===========================================================================

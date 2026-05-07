@@ -11,7 +11,7 @@
 //
 // Key design constraints (Backseat Driver pattern):
 //   - No vessel constants inside this class — all coefficients from manifest
-//   - step() function splits computation via euler_step() helper to stay ≤60 lines
+//   - step() uses file-local eval_deriv()/advance() RK4 helpers (see .cpp)
 //   - compute_accelerations() kept ≤60 lines
 
 #include <cstdint>
@@ -42,6 +42,7 @@ class VesselDynamicsModel {
   // @param dt_s Integration timestep [s]; MUST be > 0
   // @returns    New state at t0 + dt_s
   // Pre-condition: dt_s > 0 (enforced by assertion in debug, silently clamped in release)
+  // step() uses file-local eval_deriv()/advance() RK4 helpers (see .cpp).
   // -------------------------------------------------------------------------
   [[nodiscard]] State step(const State& s0,
                            const Input& cmd,
@@ -73,12 +74,6 @@ class VesselDynamicsModel {
 
  private:
   CapabilityManifest manifest_;
-
-  // Euler substep helper — evaluates one first-order step; used by RK4.
-  // Kept separate so step() itself stays ≤ 60 lines.
-  [[nodiscard]] State euler_step(const State& s,
-                                 const Input& cmd,
-                                 double dt_s) const;
 
   // Speed correction factor — linear interp between (low_speed, factor) and
   // (high_speed, factor) nodes from CapabilityManifest.

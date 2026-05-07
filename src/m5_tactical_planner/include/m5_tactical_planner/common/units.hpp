@@ -21,8 +21,8 @@ inline constexpr double kPi              = M_PI;
 inline constexpr double kTwoPi           = 2.0 * M_PI;
 inline constexpr double kDegPerRad       = 180.0 / M_PI;
 inline constexpr double kRadPerDeg       = M_PI / 180.0;
-inline constexpr double kKnPerMs         = 1.94384;   // 1 m/s = 1.94384 kn
-inline constexpr double kMsPerKn         = 0.514444;  // 1 kn  = 0.514444 m/s
+inline constexpr double kMsPerKn         = 1852.0 / 3600.0;   // exact SI: 1 knot = 1852 m / 3600 s
+inline constexpr double kKnPerMs         = 3600.0 / 1852.0;   // exact SI inverse
 inline constexpr double kMetresPerNm     = 1852.0;    // 1 NM  = 1852 m (exact)
 inline constexpr double kNmPerMetre      = 1.0 / 1852.0;
 

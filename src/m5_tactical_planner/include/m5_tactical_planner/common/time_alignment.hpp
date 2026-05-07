@@ -48,6 +48,11 @@ class TimeAlignment {
   static constexpr std::int64_t kOddStateMaxStale_ns    = 1'000'000'000LL; // 1 s
   static constexpr std::int64_t kPlannedRouteMaxStale_ns = 5'000'000'000LL; // 5 s
 
+  // Sentinel returned by staleness_ns() when a source has never been received.
+  // Value = 2.5 hours in nanoseconds — large enough to exceed any real staleness
+  // threshold while still fitting in int64 with room for arithmetic.
+  static constexpr std::int64_t kNeverReceivedSentinel_ns = 9'000'000'000'000LL;  // 2.5 hours
+
   // ---------------------------------------------------------------------------
   // update() — record the latest timestamp for a given source
   // @param src    Source identifier

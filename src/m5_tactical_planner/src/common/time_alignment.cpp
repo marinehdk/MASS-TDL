@@ -54,7 +54,7 @@ std::int64_t TimeAlignment::last_ts(SourceId src) const noexcept {
 std::int64_t TimeAlignment::staleness_ns(SourceId src,
                                           std::int64_t now_ns) const noexcept {
   const std::int64_t ts = last_ts(src);
-  if (ts < 0LL) { return std::int64_t{9'000'000'000'000LL}; }  // sentinel
+  if (ts < 0LL) { return kNeverReceivedSentinel_ns; }
   return now_ns - ts;
 }
 

@@ -83,6 +83,19 @@ CpaCalculator::CpaResult CpaCalculator::compute_trajectory(
   assert(!own_traj.empty() && !tgt_traj.empty());
   assert(own_traj.size() == tgt_traj.size());
 
+  // Release-mode guard: treat mismatched or empty trajectories as worst-case
+  // (zero separation / collision threat). Using DBL_MAX here would be the WRONG
+  // safe side — a downstream check of "cpa_m > cpa_safe" would conclude no
+  // threat, which is unsafe. Zero separation forces the alarm path.
+  if (own_traj.empty() || tgt_traj.empty() ||
+      own_traj.size() != tgt_traj.size()) {
+    CpaResult result;
+    result.cpa_m         = 0.0;   // worst-case: collision threat
+    result.tcpa_s        = 0.0;
+    result.uncertainty_m = 0.0;
+    return result;
+  }
+
   const std::size_t n = std::min(own_traj.size(), tgt_traj.size());
 
   double min_dist_m    = std::numeric_limits<double>::max();
