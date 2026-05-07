@@ -64,7 +64,7 @@ double ModuleHealthMonitor::timeout_for(
         case SatAggregator::SourceModule::kM4: return thresholds_.m4_timeout_s;
         case SatAggregator::SourceModule::kM6: return thresholds_.m6_timeout_s;
         case SatAggregator::SourceModule::kM7: return thresholds_.m7_timeout_s;
-        default: return 1.0;
+        default: return kDefaultTimeoutS;
     }
 }
 

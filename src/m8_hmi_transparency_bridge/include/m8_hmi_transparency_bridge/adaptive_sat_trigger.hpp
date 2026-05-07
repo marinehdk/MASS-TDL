@@ -35,6 +35,7 @@ class AdaptiveSatTrigger final {
     double sat2_system_confidence_threshold{0.6};  // [TBD-HAZID]
     float threat_confidence_threshold{0.7F};       // [TBD-HAZID]
     float rule_confidence_threshold{0.8F};         // [TBD-HAZID]
+    double stale_threshold_s{2.0};                 // skip confidence check for sources silent > N s
   };
 
   explicit AdaptiveSatTrigger(Thresholds t) noexcept : thresholds_(t) {}

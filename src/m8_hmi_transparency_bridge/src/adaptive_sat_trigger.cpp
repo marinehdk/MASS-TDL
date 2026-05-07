@@ -83,14 +83,13 @@ bool AdaptiveSatTrigger::system_confidence_dropped(
     const SatAggregator& sat_cache,
     SatAggregator::TimePoint now) const
 {
-  // Suppress unused-parameter warning: now is passed for API consistency
-  // (future: age-gate stale entries before checking confidence)
-  (void)now;
-
   const auto threshold = static_cast<float>(thresholds_.sat2_system_confidence_threshold);
 
   for (uint8_t i = 0; i < static_cast<uint8_t>(SatAggregator::SourceModule::kCount); ++i) {
     const auto src = static_cast<SatAggregator::SourceModule>(i);
+    if (sat_cache.is_stale(src, now, thresholds_.stale_threshold_s)) {
+      continue;
+    }
     auto maybe_sat2 = sat_cache.latest_sat2(src);
     if (maybe_sat2.has_value() && maybe_sat2->system_confidence < threshold) {
       return true;

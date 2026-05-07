@@ -63,7 +63,8 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   UiStateBuilder::Scenario infer_scenario_from(
       const std::optional<l3_msgs::msg::ODDState>& odd,
       const std::optional<l3_msgs::msg::COLREGsConstraint>& colreg,
-      bool override_active) const;
+      bool override_active,
+      TorProtocol::State tor_state) const;
   /// Triggers a ToR cycle. Caller must NOT hold state_mutex_.
   void publish_tor_request(TorProtocol::Reason reason);
   void emit_asdr_event(const std::string& event_type, const std::string& decision_json);

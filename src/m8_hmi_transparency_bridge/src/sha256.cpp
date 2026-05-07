@@ -136,6 +136,7 @@ sha256(std::string_view input) noexcept
     };
 
     std::size_t const msg_len  = input.size();
+    // Inputs are bounded ASDR JSON strings (<<1 MB); SIZE_MAX/8 overflow is unreachable.
     std::size_t const bit_len  = msg_len * 8U;
 
     // Process all full blocks directly from input

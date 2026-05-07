@@ -53,6 +53,7 @@ class RosBridge:
         """
         if not self._ready:
             return False
-        # In production: publish OperatorAction ROS2 message via rclpy
+        # TODO(Phase-E2): publish OperatorAction ROS2 message via rclpy and return False
+        #   if the C++ TorProtocol rejects the click (duplicate or wrong state).
         logger.info("Sending operator action: %s from %s", action_type, operator_id)
         return True

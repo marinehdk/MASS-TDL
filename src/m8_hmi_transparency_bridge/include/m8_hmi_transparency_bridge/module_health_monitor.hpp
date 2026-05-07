@@ -49,6 +49,8 @@ class ModuleHealthMonitor final {
   std::map<SatAggregator::SourceModule, TimePoint> last_heartbeat_{};
 
   [[nodiscard]] double timeout_for(SatAggregator::SourceModule src) const noexcept;
+
+  static constexpr double kDefaultTimeoutS{1.0};
 };
 
 }  // namespace mass_l3::m8
