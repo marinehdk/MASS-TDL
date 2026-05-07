@@ -34,6 +34,7 @@ find_package(spdlog 1.17.0 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(m8_core
+  src/sha256.cpp
   src/sat_aggregator.cpp
   src/adaptive_sat_trigger.cpp
   src/tor_protocol.cpp
