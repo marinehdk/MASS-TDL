@@ -38,6 +38,10 @@ constexpr double kRule17_epsilon_rad = 5.0 * M_PI / 180.0;
 // IPOPT convention: upper bound = +infinity for one-sided inequalities.
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
+// CasADi MX fmin/fmax reduction identity values.
+const casadi::DM kMxPosInf = casadi::DM(std::numeric_limits<double>::infinity());
+const casadi::DM kMxNegInf = casadi::DM(-std::numeric_limits<double>::infinity());
+
 // Build a name vector by repeating a base name N times with index suffix [k].
 std::vector<std::string> make_names(const std::string& base, int32_t n) {
   std::vector<std::string> v;
@@ -142,6 +146,7 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rot_limit(
 
 // ===========================================================================
 // compile_rule14() — Rule 14 (Head-on): psi[N-1] >= psi_0 + 5°
+// Phase E1 simplified: full encounter geometry (target bearing, CPA) deferred to Phase E2.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule14(
     const casadi::MX& psi_seq, double psi_initial_rad) const {
@@ -154,16 +159,24 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule14(
 }
 
 // ===========================================================================
-// compile_rule15() — Rule 15 (Crossing): psi[N-1] >= psi_0 + 5°
+// compile_rule15() — Rule 15 (Crossing): psi[k] >= psi_0 + 5° for ALL k in [0..N-1]
+// Phase E1 simplified: full encounter geometry (target bearing, CPA) deferred to Phase E2.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule15(
     const casadi::MX& psi_seq, double psi_initial_rad) const {
   const int32_t N = static_cast<int32_t>(psi_seq.size1());
-  casadi::MX psi_last = psi_seq(casadi::Slice(N - 1, N));
-  casadi::MX g = psi_last - casadi::DM(psi_initial_rad + kRule1415_min_turn_rad);
-  casadi::DM lb = casadi::DM::zeros(1, 1);
-  casadi::DM ub = casadi::DM(kInf);
-  return {g, lb, ub, {"rule_15_starboard_turn"}};
+  CompiledConstraints result{};
+  for (int32_t k = 0; k < N; ++k) {
+    casadi::MX psi_k = psi_seq(casadi::Slice(k, k + 1));
+    casadi::MX g_k   = psi_k - casadi::DM(psi_initial_rad + kRule1415_min_turn_rad);
+    CompiledConstraints cc_k;
+    cc_k.g     = g_k;
+    cc_k.g_lb  = casadi::DM::zeros(1, 1);
+    cc_k.g_ub  = casadi::DM(kInf);
+    cc_k.names = {"rule_15_starboard_turn[" + std::to_string(k) + "]"};
+    result = stack(std::move(result), cc_k);
+  }
+  return result;
 }
 
 // ===========================================================================
@@ -172,6 +185,7 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule15(
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule16(
     const casadi::MX& psi_seq, double psi_initial_rad) const {
   const int32_t N   = static_cast<int32_t>(psi_seq.size1());
+  if (N < 2) { return {}; }
   const int32_t mid = (N / 2 > 0) ? (N / 2) : 0;
   casadi::MX psi_mid = psi_seq(casadi::Slice(mid, mid + 1));
   casadi::MX g = psi_mid - casadi::DM(psi_initial_rad + kRule16_substantial_rad);
@@ -191,19 +205,19 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule17(
   casadi::MX dpsi = psi_seq - casadi::DM(psi_initial_rad);
 
   // eps - dpsi >= 0  (upper bound: psi[k] - psi_0 <= eps)
-  casadi::MX g_ub = eps - dpsi;
+  casadi::MX g_upper_expr = eps - dpsi;
   // dpsi + eps >= 0  (lower bound: psi[k] - psi_0 >= -eps)
-  casadi::MX g_lb = dpsi + eps;
+  casadi::MX g_lower_expr = dpsi + eps;
 
-  casadi::MX g_all  = casadi::MX::vertcat({g_ub, g_lb});
+  casadi::MX g_all  = casadi::MX::vertcat({g_upper_expr, g_lower_expr});
   const int32_t total = 2 * N;
-  casadi::DM lb     = casadi::DM::zeros(total, 1);
-  casadi::DM ub_dm  = casadi::DM::ones(total, 1) * kInf;
+  casadi::DM g_lb_dm  = casadi::DM::zeros(total, 1);
+  casadi::DM g_ub_dm  = casadi::DM::ones(total, 1) * kInf;
 
   auto names_ub = make_names("rule_17_stand_on_bound_upper", N);
   auto names_lb = make_names("rule_17_stand_on_bound_lower", N);
   names_ub.insert(names_ub.end(), names_lb.begin(), names_lb.end());
-  return {g_all, lb, ub_dm, names_ub};
+  return {g_all, g_lb_dm, g_ub_dm, names_ub};
 }
 
 // ===========================================================================
@@ -223,7 +237,18 @@ ConstraintCompiler::compile_colregs_rules(
       case 15u: cc = compile_rule15(psi_seq, psi_0); break;
       case 16u: cc = compile_rule16(psi_seq, psi_0); break;
       case 17u: cc = compile_rule17(psi_seq, psi_0); break;
-      default:  break;  // unknown rule: skip silently
+      default:
+        // Unknown rule: produce a trivially satisfied g=0 sentinel so it appears
+        // in the active-set log (SAT-2 audit trail requires all requested rules visible).
+        {
+          CompiledConstraints placeholder;
+          placeholder.g     = casadi::DM(0.0);
+          placeholder.g_lb  = casadi::DM::zeros(1, 1);
+          placeholder.g_ub  = casadi::DM(kInf);
+          placeholder.names = {"colreg_unsupported_rule_" + std::to_string(rule)};
+          cc = placeholder;
+        }
+        break;
     }
     result = stack(std::move(result), cc);
   }
@@ -237,7 +262,11 @@ casadi::MX ConstraintCompiler::point_inside_convex(
     const casadi::MX& px,
     const casadi::MX& py,
     const Polygon2D& polygon) const {
-  casadi::MX result(1.0e6);
+  if (polygon.size() < 3u) {
+    // Degenerate polygon — treat as no constraint (trivially satisfied).
+    return casadi::MX(0.0);
+  }
+  casadi::MX result(kMxPosInf);
   const auto n = static_cast<int32_t>(polygon.size());
   for (int32_t i = 0; i < n; ++i) {
     const Eigen::Vector2d& v0 = polygon[static_cast<std::size_t>(i)];
@@ -254,6 +283,27 @@ casadi::MX ConstraintCompiler::point_inside_convex(
 }
 
 // ===========================================================================
+// normalize_ccw() — ensure CCW orientation for point_inside_convex half-plane test.
+// bg::correct may reorder; re-derive orientation from signed area.
+// ===========================================================================
+Polygon2D ConstraintCompiler::normalize_ccw(const Polygon2D& polygon) {
+  double signed_area = 0.0;
+  const std::size_t nv = polygon.size();
+  for (std::size_t i = 0u; i < nv; ++i) {
+    const auto& a = polygon[i];
+    const auto& b = polygon[(i + 1u) % nv];
+    signed_area += (a.x() * b.y() - b.x() * a.y());
+  }
+  // Negative signed area means CW. Provide a CCW copy for triangulation.
+  if (signed_area < 0.0) {
+    Polygon2D ccw = polygon;
+    std::reverse(ccw.begin(), ccw.end());
+    return ccw;
+  }
+  return polygon;
+}
+
+// ===========================================================================
 // decompose_polygon() — convexity check, then fan triangulation from centroid
 // ===========================================================================
 std::vector<Polygon2D> ConstraintCompiler::decompose_polygon(
@@ -266,18 +316,21 @@ std::vector<Polygon2D> ConstraintCompiler::decompose_polygon(
   }
   bg::correct(bg_poly);
 
-  if (bg::is_convex(bg_poly)) { return {polygon}; }
+  // Ensure CCW orientation for point_inside_convex half-plane test.
+  const Polygon2D ccw_polygon = normalize_ccw(polygon);
+
+  if (bg::is_convex(bg_poly)) { return {ccw_polygon}; }
 
   // Fan triangulation from centroid
   Eigen::Vector2d centroid = Eigen::Vector2d::Zero();
-  for (const auto& v : polygon) { centroid += v; }
-  centroid /= static_cast<double>(polygon.size());
+  for (const auto& v : ccw_polygon) { centroid += v; }
+  centroid /= static_cast<double>(ccw_polygon.size());
 
-  const std::size_t n = polygon.size();
+  const std::size_t nv = ccw_polygon.size();
   std::vector<Polygon2D> result;
-  result.reserve(n);
-  for (std::size_t i = 0u; i < n; ++i) {
-    result.push_back({centroid, polygon[i], polygon[(i + 1u) % n]});
+  result.reserve(nv);
+  for (std::size_t i = 0u; i < nv; ++i) {
+    result.push_back({centroid, ccw_polygon[i], ccw_polygon[(i + 1u) % nv]});
   }
   return result;
 }
@@ -329,7 +382,7 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::build_zone_steps(
     cum_y = cum_y + u_k * casadi::DM(dt_s) * casadi::MX::cos(psi_k);
 
     // Union of sub-polygons: point is inside union if inside any sub-polygon
-    casadi::MX best(-1.0e6);
+    casadi::MX best(kMxNegInf);
     for (const Polygon2D& sub : sub_polygons) {
       casadi::MX inside = point_inside_convex(cum_x, cum_y, sub);
       best = casadi::MX::fmax(best, inside);

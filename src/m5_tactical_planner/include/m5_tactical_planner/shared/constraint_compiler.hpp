@@ -150,6 +150,10 @@ class ConstraintCompiler {
   [[nodiscard]] CompiledConstraints stack(
       CompiledConstraints a,
       const CompiledConstraints& b) const;
+
+  // Normalize polygon to CCW orientation (required for point_inside_convex).
+  // Returns input unchanged if already CCW; returns reversed copy if CW.
+  [[nodiscard]] static Polygon2D normalize_ccw(const Polygon2D& polygon);
 };
 
 }  // namespace mass_l3::m5::shared

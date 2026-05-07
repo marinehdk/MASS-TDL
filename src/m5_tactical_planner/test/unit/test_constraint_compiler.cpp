@@ -92,8 +92,43 @@ TEST(ConstraintCompilerTest, Rule14_HeadOn_ConstraintPresent) {
 }
 
 // ===========================================================================
+// Test 1b: Rule14_HeadOn_NumericCorrectness
+// Evaluate Rule 14 constraint at psi[N-1] = psi_0 + 10° → constraint g >= 0.
+// ===========================================================================
+TEST(ConstraintCompilerTest, Rule14_HeadOn_NumericCorrectness) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  constexpr int32_t N = 4;
+  casadi::MX psi_sym = casadi::MX::sym("psi", N, 1);
+  casadi::MX u_sym   = casadi::MX::sym("u",   N, 1);
+
+  mass_l3::m5::ConstraintInputs in = default_inputs();
+  in.applicable_rules = {14u};
+
+  const auto compiled = cc.compile(psi_sym, u_sym, in, 5.0, 0.1);
+
+  casadi::Function f("f", std::vector<casadi::MX>{psi_sym, u_sym},
+                         std::vector<casadi::MX>{compiled.g});
+
+  // psi[3] = psi_0 + 10deg satisfies Rule 14 (min turn is 5deg)
+  casadi::DM psi_val = casadi::DM::zeros(N, 1);
+  psi_val(3)         = in.own_ship_psi_rad + 10.0 * M_PI / 180.0;
+  casadi::DM u_val   = casadi::DM::ones(N, 1) * 5.0;
+
+  const std::vector<casadi::DM> g_out =
+      f(std::vector<casadi::DM>{psi_val, u_val});
+
+  const auto it = std::find(compiled.names.begin(), compiled.names.end(),
+                            "rule_14_starboard_turn");
+  ASSERT_NE(it, compiled.names.end());
+  const int64_t idx = std::distance(compiled.names.begin(), it);
+  EXPECT_GE(static_cast<double>(g_out[0](idx)), 0.0)
+      << "Rule 14: psi[N-1] = psi_0 + 10deg must satisfy constraint (g >= 0)";
+}
+
+// ===========================================================================
 // Test 2: Rule15_Crossing_GiveWayStarboard
-// Compile Rule 15 constraint → names contain "rule_15_starboard_turn"
+// Compile Rule 15 constraint → produces N constraints (one per step), not 1.
+// After fix: Rule 15 constrains psi[k] >= psi_0 + 5° for ALL k in [0..N-1].
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule15_Crossing_GiveWayStarboard) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -105,8 +140,18 @@ TEST(ConstraintCompilerTest, Rule15_Crossing_GiveWayStarboard) {
   inputs.applicable_rules = {15u};
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
-  EXPECT_TRUE(has_name(result.names, "rule_15_starboard_turn"))
-      << "Rule 15 must produce a constraint named 'rule_15_starboard_turn'";
+  // Rule 15 must produce N per-step constraints named "rule_15_starboard_turn[k]"
+  const int32_t rule15_count = static_cast<int32_t>(
+      std::count_if(result.names.begin(), result.names.end(),
+                    [](const std::string& n) {
+                      return n.find("rule_15_starboard_turn") != std::string::npos;
+                    }));
+  EXPECT_EQ(rule15_count, N)
+      << "Rule 15 (crossing) must produce N per-step constraints, not 1";
+  EXPECT_TRUE(has_name(result.names, "rule_15_starboard_turn[0]"))
+      << "Rule 15 must produce a constraint named 'rule_15_starboard_turn[0]'";
+  EXPECT_TRUE(has_name(result.names, "rule_15_starboard_turn[4]"))
+      << "Rule 15 must produce a constraint named 'rule_15_starboard_turn[4]'";
 }
 
 // ===========================================================================
@@ -267,8 +312,9 @@ TEST(ConstraintCompilerTest, CompoundConstraints_Stacked) {
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
 
-  // Expected: 2N heading + 2N speed + (N-1) rot + 1 rule14 + 1 rule15
-  const int32_t expected = 2 * N + 2 * N + (N - 1) + 1 + 1;
+  // Expected: 2N heading + 2N speed + (N-1) rot + 1 rule14 + N rule15
+  // (Rule 15 after fix produces N per-step constraints, Rule 14 produces 1)
+  const int32_t expected = 2 * N + 2 * N + (N - 1) + 1 + N;
   EXPECT_EQ(static_cast<int32_t>(result.names.size()), expected)
       << "Stacked constraints must equal the sum of individual counts";
   EXPECT_EQ(static_cast<int32_t>(result.g.size1()), expected)
@@ -338,6 +384,17 @@ TEST(ConstraintCompilerTest, ZoneConstraint_OutsideConvexPolygon_Negative) {
 }
 
 // ===========================================================================
+// Test 13b: EmptyPolygon_NoConstraint
+// decompose_polygon with empty polygon → returns {empty}, no crash.
+// ===========================================================================
+TEST(ConstraintCompilerTest, EmptyPolygon_NoConstraint) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  mass_l3::m5::Polygon2D empty;
+  const auto result = cc.decompose_polygon(empty);
+  EXPECT_EQ(result.size(), 1u) << "Empty polygon must return a vector of size 1";
+}
+
+// ===========================================================================
 // Test 14: FullCompile_NoThrow
 // compile() with all constraint types active → no exception, g is non-empty MX
 // ===========================================================================
@@ -363,6 +420,13 @@ TEST(ConstraintCompilerTest, FullCompile_NoThrow) {
         << "Full compile must produce at least one constraint";
     EXPECT_GT(result.g.size1(), 0)
         << "g must be non-empty after full compile";
+    // Verify each COLREGs rule appeared in the active-set log.
+    EXPECT_TRUE(std::any_of(result.names.begin(), result.names.end(),
+        [](const std::string& n){ return n.find("rule_14") != std::string::npos; }))
+        << "Rule 14 must appear in active-set log";
+    EXPECT_TRUE(std::any_of(result.names.begin(), result.names.end(),
+        [](const std::string& n){ return n.find("rule_15") != std::string::npos; }))
+        << "Rule 15 must appear in active-set log";
   });
 }
 
