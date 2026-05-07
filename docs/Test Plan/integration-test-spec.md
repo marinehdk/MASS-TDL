@@ -281,6 +281,14 @@ M1–M8  → /l3/asdr/record   (l3_msgs/ASDRRecord, 事件 + 定期)
 [Mock ASDR 订阅者收集所有记录]
 ```
 
+### 时序约束
+
+| 约束 | 要求 |
+|---|---|
+| 从触发到各模块发布 ASDRRecord | ≤ 5 秒（全 8 模块） |
+| ASDRRecord.timestamp 与触发时间差 | ≤ 2 秒（本地时钟漂移容忍） |
+| SHA-256 签名长度 | 精确 32 字节（uint8[32]） |
+
 ### 通过判据
 
 对每个 `source_module` 值（M1 至 M8）：
@@ -335,6 +343,15 @@ M8 → /l3_external/m8/tor_request  (l3_msgs/ToRRequest)
        └─ deadline_seconds: 60
        └─ trigger_reason: 对应的 4 种原因之一
 ```
+
+### 时序约束
+
+| 约束 | 要求 |
+|---|---|
+| SAT-2 触发 → AdaptiveSatTrigger 决策 | ≤ 100 ms |
+| ToRRequest 发布后 deadline 字段 | = 触发时间 + 60s |
+| ROC 操作员确认窗口 | 55 秒（剩余 5 秒缓冲） |
+| M8 UI_State 渲染延迟 | ≤ 20 ms（50 Hz 周期内） |
 
 ### 通过判据
 
