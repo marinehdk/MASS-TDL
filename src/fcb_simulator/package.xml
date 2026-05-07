@@ -21,7 +21,6 @@
   <depend>geographic_msgs</depend>
   <depend>l3_msgs</depend>
   <depend>l3_external_msgs</depend>
-  <depend>yaml-cpp</depend>
   <depend>eigen3</depend>
 
   <test_depend>ament_lint_auto</test_depend>
