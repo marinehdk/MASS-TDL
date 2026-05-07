@@ -16,10 +16,12 @@
   <depend>m1_odd_envelope_manager</depend>
   <depend>m2_world_model</depend>
   <depend>m3_mission_manager</depend>
+  <!-- M4 omitted: stub package with no compiled node yet (Wave 4a) -->
   <depend>m5_tactical_planner</depend>
   <depend>m6_colregs_reasoner</depend>
   <depend>m7_safety_supervisor</depend>
   <depend>m8_hmi_transparency_bridge</depend>
+  <exec_depend>l3_external_mock_publisher</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
