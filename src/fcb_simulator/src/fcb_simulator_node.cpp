@@ -140,6 +140,7 @@ void FcbSimulatorNode::on_avoidance_plan(
   const double tgt_y = dlat * kEarthMperDeg;
   const double tgt_x = dlon * kEarthMperDeg
                        * std::cos(cfg_.origin_lat * kDegToRad);
+  // state_ reads are safe under SingleThreadedExecutor (no concurrent timer callbacks)
   const double dx = tgt_x - state_.x;
   const double dy = tgt_y - state_.y;
   if (std::hypot(dx, dy) > 1.0) {
@@ -212,7 +213,7 @@ void FcbSimulatorNode::publish_own_ship_state() {
 
   msg.u_water = state_.u;
   msg.v_water = state_.v;
-  msg.r_dot_deg_s = state_.r * kRadToDeg;
+  msg.r_dot_deg_s = state_.r * kRadToDeg;  // r = yaw rate — IDL field named r_dot per legacy convention
 
   msg.current_speed_kn = 0.0;
   msg.current_direction_deg = 0.0;

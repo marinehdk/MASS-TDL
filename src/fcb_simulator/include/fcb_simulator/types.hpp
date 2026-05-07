@@ -8,8 +8,8 @@
 namespace fcb_sim {
 
 // State vector: [x, y, psi, u, v, r, phi, phi_dot]
-// x, y       : NED position relative to origin (m, East/North)
-// psi        : heading (rad)
+// x, y       : position relative to origin (m); x=East, y=North (ENU flat-earth)
+// psi        : heading, math convention (rad, CCW from East; 0=East, π/2=North)
 // u, v       : surge / sway through-water velocity (m/s)
 // r          : yaw rate (rad/s)
 // phi        : roll angle (rad)

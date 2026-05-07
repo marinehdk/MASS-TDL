@@ -75,7 +75,7 @@ RudderForces compute_rudder_forces(double u, double v, double r,
     const double thrust = compute_thrust(u, n_rps, p);
     const double denom = 0.5 * p.rho * (kPi * 0.25 * p.D_P * p.D_P)
                          * u * u;
-    C_Th = thrust / std::max(denom, 1.0);
+    C_Th = std::min(thrust / std::max(denom, 1e-6), 20.0);  // cap prevents blow-up below ~0.03 m/s
   }
 
   const double eta = p.D_P / p.d;  // propeller-to-rudder height ratio (approx)
@@ -140,7 +140,8 @@ FcbState compute_derivatives(const FcbState& s,
                         + p.x_G * mass * s.r * s.r) / (mass + m_x);
 
   // Roll (1-DOF linear pendulum, weakly coupled):
-  //   phi_ddot = -(2π/T_phi)^2 * phi - 2 ζ ω phi_dot + (sway-induced)
+  //   phi_ddot = -omega_n^2 * phi - 2*zeta*omega_n * phi_dot  (linearised 1-DOF; sway coupling deferred to HAZID)
+  // G_M exposed in YAML for HAZID calibration; omega_n derived from T_phi only until roll model matures
   const double omega_n = 2.0 * kPi / p.T_phi;
   constexpr double kZeta = 0.05;
   const double phi_ddot = -omega_n * omega_n * s.phi
