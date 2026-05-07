@@ -7,7 +7,7 @@ HmiTransparencyBridgeNode::HmiTransparencyBridgeNode(
     : rclcpp::Node{"m8_hmi_transparency_bridge", options},
       aggregator_{std::make_unique<SatAggregator>()},
       sat_trigger_{std::make_unique<AdaptiveSatTrigger>()},
-      tor_protocol_{std::make_unique<TorProtocol>()},
+      tor_protocol_{std::make_unique<TorProtocol>(TorProtocol::Config{})},
       ui_builder_{std::make_unique<UiStateBuilder>()},
       tor_generator_{std::make_unique<TorRequestGenerator>()},
       asdr_logger_{std::make_unique<AsdrLogger>()},
