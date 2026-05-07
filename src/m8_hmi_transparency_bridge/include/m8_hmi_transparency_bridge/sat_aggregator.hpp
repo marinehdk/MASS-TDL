@@ -38,15 +38,15 @@ class SatAggregator final {
 
   void ingest(const l3_msgs::msg::SATData& msg, TimePoint receive_time);
 
-  std::optional<l3_msgs::msg::SAT1Data> latest_sat1(SourceModule src) const;
-  std::optional<l3_msgs::msg::SAT2Data> latest_sat2(SourceModule src) const;
-  std::optional<l3_msgs::msg::SAT3Data> latest_sat3(SourceModule src) const;
+  [[nodiscard]] std::optional<l3_msgs::msg::SAT1Data> latest_sat1(SourceModule src) const;
+  [[nodiscard]] std::optional<l3_msgs::msg::SAT2Data> latest_sat2(SourceModule src) const;
+  [[nodiscard]] std::optional<l3_msgs::msg::SAT3Data> latest_sat3(SourceModule src) const;
 
-  double age_seconds(SourceModule src, TimePoint now) const;
-  bool is_stale(SourceModule src, TimePoint now, double stale_threshold_s) const;
+  [[nodiscard]] double age_seconds(SourceModule src, TimePoint now) const;
+  [[nodiscard]] bool is_stale(SourceModule src, TimePoint now, double stale_threshold_s) const;
 
-  static std::string to_string(SourceModule src);
-  static std::optional<SourceModule> from_string(const std::string& name);
+  [[nodiscard]] static std::string to_string(SourceModule src);
+  [[nodiscard]] static std::optional<SourceModule> from_string(const std::string& name);
 
  private:
   struct PerSourceCache {

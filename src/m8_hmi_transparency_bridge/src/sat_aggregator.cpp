@@ -28,7 +28,7 @@ void SatAggregator::ingest(const l3_msgs::msg::SATData& msg,
 // latest_sat1 / latest_sat2 / latest_sat3
 // ---------------------------------------------------------------------------
 
-std::optional<l3_msgs::msg::SAT1Data>
+[[nodiscard]] std::optional<l3_msgs::msg::SAT1Data>
 SatAggregator::latest_sat1(SourceModule src) const
 {
   std::lock_guard<std::mutex> lock{mutex_};
@@ -39,7 +39,7 @@ SatAggregator::latest_sat1(SourceModule src) const
   return it->second.sat1;
 }
 
-std::optional<l3_msgs::msg::SAT2Data>
+[[nodiscard]] std::optional<l3_msgs::msg::SAT2Data>
 SatAggregator::latest_sat2(SourceModule src) const
 {
   std::lock_guard<std::mutex> lock{mutex_};
@@ -50,7 +50,7 @@ SatAggregator::latest_sat2(SourceModule src) const
   return it->second.sat2;
 }
 
-std::optional<l3_msgs::msg::SAT3Data>
+[[nodiscard]] std::optional<l3_msgs::msg::SAT3Data>
 SatAggregator::latest_sat3(SourceModule src) const
 {
   std::lock_guard<std::mutex> lock{mutex_};
@@ -65,7 +65,7 @@ SatAggregator::latest_sat3(SourceModule src) const
 // age_seconds / is_stale
 // ---------------------------------------------------------------------------
 
-double SatAggregator::age_seconds(SourceModule src, TimePoint now) const
+[[nodiscard]] double SatAggregator::age_seconds(SourceModule src, TimePoint now) const
 {
   std::lock_guard<std::mutex> lock{mutex_};
   auto it = cache_.find(src);
@@ -75,7 +75,7 @@ double SatAggregator::age_seconds(SourceModule src, TimePoint now) const
   return std::chrono::duration<double>(now - it->second.last_receive_time).count();
 }
 
-bool SatAggregator::is_stale(SourceModule src, TimePoint now,
+[[nodiscard]] bool SatAggregator::is_stale(SourceModule src, TimePoint now,
                               double stale_threshold_s) const
 {
   return age_seconds(src, now) > stale_threshold_s;
@@ -85,7 +85,7 @@ bool SatAggregator::is_stale(SourceModule src, TimePoint now,
 // to_string / from_string
 // ---------------------------------------------------------------------------
 
-std::string SatAggregator::to_string(SourceModule src)
+[[nodiscard]] std::string SatAggregator::to_string(SourceModule src)
 {
   switch (src) {
     case SourceModule::kM1: return "M1";
@@ -97,7 +97,7 @@ std::string SatAggregator::to_string(SourceModule src)
   }
 }
 
-std::optional<SatAggregator::SourceModule>
+[[nodiscard]] std::optional<SatAggregator::SourceModule>
 SatAggregator::from_string(const std::string& name)
 {
   if (name == "M1") return SourceModule::kM1;

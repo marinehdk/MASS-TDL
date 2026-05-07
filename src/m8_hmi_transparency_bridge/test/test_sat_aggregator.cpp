@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <gtest/gtest.h>
 
 #include "m8_hmi_transparency_bridge/sat_aggregator.hpp"
@@ -57,7 +59,7 @@ TEST(SatAggregator, MissingModule_AgeReturnsInfinity)
 {
   SatAggregator agg;
   auto now = SatAggregator::Clock::now();
-  EXPECT_GT(agg.age_seconds(SrcMod::kM7, now), 1e9);
+  EXPECT_TRUE(std::isinf(agg.age_seconds(SrcMod::kM7, now)));
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ TEST(SatAggregator, MultipleModulesAreIndependent)
   EXPECT_FALSE(agg.latest_sat1(SrcMod::kM7).has_value());
   EXPECT_FALSE(agg.latest_sat2(SrcMod::kM7).has_value());
   EXPECT_FALSE(agg.latest_sat3(SrcMod::kM7).has_value());
-  EXPECT_GT(agg.age_seconds(SrcMod::kM7, now), 1e9);
+  EXPECT_TRUE(std::isinf(agg.age_seconds(SrcMod::kM7, now)));
 }
 
 // ---------------------------------------------------------------------------
