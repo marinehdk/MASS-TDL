@@ -42,6 +42,7 @@
 | **MUST-8** | **PATH-S 独立性 CI 检查启用时点**（D1.2 5/24 启用 vs M7 7/20 才动工，期间 M1–M6 ~22 人周代码可能引入跨边界依赖）| 基础设施 + M7 负责人 | **5/13** | A P1-A8; gantt:120,498 |
 | **MUST-9** | **M5 自触 MRM-01（FM-2）违反 Doer-Checker**（决策四：MRM 命令集只能由 M7 触发）| M5 负责人 | **5/13** | B P1-B-08; M5:672 / arch §11.6:988-1007 |
 | **MUST-10** | **DOMAIN 笔记本扩充**（ship_maneuvering 当前 89 sources 但 maritime_human_factors 19 sources 偏少；safety_verification 缺 DNV-RP-0671/ABS Autonomous Guide/Yara Birkeland 证据；建议汇总阶段批量 deep research） | 架构师 | 5/13 前完成 ≥ 2 项 deep research | A/B/C/D/F NLM 缺口 |
+| **MUST-11** | **M7 effort 6 → 9 人周**（用户 2026-05-07 决策保留 8/31 硬关门，必须以 effort 上调补偿；M7 拆为 M7-core 6w + M7-sotif 3w）| M7 负责人 + PM | **5/13** | A P0-A3; 用户决策 §13.2 |
 
 ---
 
@@ -265,6 +266,27 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-05-07 | 首版 — 跨 7 angle 整合（30 P0 / 52 P1 / 29 P2 → 12 must-fix + 12 phase-1 fix + 30 P1 + 8 P2 + 17 architecture missing + 14 multi-vessel blocker）|
+| v1.1 | 2026-05-07 | 用户 3 项决策入库（§13）：① 创建 2 个新笔记本（实际绑定 global，不在 domain_notebooks 路径）② 8/31 不拆，需 M7 6→9 人周补偿（新增 MUST-11）③ 12 月实船降级"非认证级技术验证试航"（影响 D4.5 计划修订与 P1-A4 整改）|
+
+---
+
+## 13. 用户决策（2026-05-07）
+
+### 13.1 DOMAIN 笔记本创建结果
+- ✅ `SIL/HIL Platform Engineering` UUID `968983cc-56f4-4203-90fb-02b0739a0594`（绑 `global_notebooks`）
+- ✅ `Maritime Cybersecurity & Onboard Networks` UUID `6cb48f75-4bd5-4d61-b161-ff83377ab013`（绑 `global_notebooks`）
+- ⚠️ `nlm-setup` 当前不支持 `--create-domain`，本子目前在 `global_notebooks` 而非 `domain_notebooks`；后续若要让 `/nlm-ask` DOMAIN 路由命中需 nlm-setup 工具升级 / nlm-migrate 流程；当前可用 `--notebook <UUID>` 直接指定查询
+
+### 13.2 8/31 硬承诺保留
+- 用户决定**不拆 8/31**——接受 P0-A1+A3+E2+G1 阳性风险
+- **新增 MUST-11**（升级到 must-fix 表）：**M7 effort 6 → 9 人周**（A P0-A3 整改建议 #1）。Owner = M7 负责人 + PM；关闭日期 = **5/13**（PR + 工时表更新）；证据 = A P0-A3 + IEC 61508 SIL 2 软件 2–4× 安全开销系数 [R3]
+- **加严 P1-FIX-12**：D3.5/D3.6/D3.7 owner 必须强制分离（架构师 / V&V 工程师 / 技术负责人）；关键路径"加载图"在 5/15 前出，每周每人 ≤ 35h/周硬限制；任何 D3.x 在 8/24 仍未达成 90% 完成率即触发 escalation
+
+### 13.3 12 月 FCB 实船试航降级
+- **D4.5 修订**：12 月 FCB 实船仅作"**非认证级技术验证试航 + AIS 数据采集**"，**不**作为 i-Ship 证据；CCS 验船师**不**到场（避免"非认证试航被记入认证档案"风险）
+- 影响 P1-A4（实船准入门槛）：原拟 7 项门槛降为 4 项（无需 AIP / 无需 SIL 2 第三方意见 / 仅需 D3.7 8h 无崩溃 + D4.2 HIL ≥ 50h + Hs ≤ ODD-A 边界 + ROC 接管链路独立验证 ≥ 60s）
+- 路线图修订：**2027 Q1/Q2 AIP 受理后**重启认证级试航（独立 D5.x 增量计划）；当前 8 个月计划文档应在 5/13 前补"D4.5 修订"声明
+- Owner = PM；关闭日期 = 5/13
 
 ---
 
