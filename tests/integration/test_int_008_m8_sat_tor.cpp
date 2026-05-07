@@ -286,23 +286,15 @@ TEST_F(Int008Test, INT008_M8_ToR_TriggeredBy_COLREGs) {
 // This is a parameter-level test — does not require ToR to actually publish.
 // Per v1.1.2 §12.4: TMR (Maximum Operator Response Time) >= 60s [R4].
 TEST_F(Int008Test, INT008_M8_ToR_Deadline_60s) {
-  // The test node (not M8 itself) — we check M8's declared parameter.
-  // Since M8 is running as a separate process, we verify via the expected
-  // deadline value that any generated ToRRequest would carry.
-  // The generator sets deadline_s = tor_deadline_s_ (default 60.0).
-  //
-  // If a ToRRequest was received in the previous test, check its deadline.
-  // If not received (impl gap), we confirm the expected value matches spec.
-  EXPECT_GE(kExpectedDeadlineS008, 60.0)
-      << "INT-008: Expected deadline " << kExpectedDeadlineS008
-      << "s is below TMR minimum 60s per v1.1.2 §12.4 [R4]";
-
-  // Verify tolerance constant is reasonable (prevents trivially false tests).
-  EXPECT_LE(kDeadlineTolerance008, 2.0F)
-      << "INT-008: kDeadlineTolerance008 too large — may accept wrong deadlines";
-
-  SUCCEED() << "INT-008: tor_deadline_s default verified as "
-            << kExpectedDeadlineS008 << "s (>= 60s per v1.1.2 §12.4 [R4]).";
+  // ToR deadline validation requires M8's publish_tor_request() to be wired to
+  // an automatic trigger (e.g., on_safety_alert() when severity >= SEVERITY_MRC_REQUIRED,
+  // or on_ui_publish_tick() when sat_decision.sat2_visible == true).
+  // Fix location: hmi_transparency_bridge_node.cpp — add publish_tor_request() callsite.
+  // Once wired: assert ToRRequest.deadline_s ∈ [kExpectedDeadlineS008 - kDeadlineTolerance008,
+  //                                              kExpectedDeadlineS008 + kDeadlineTolerance008]
+  // where kExpectedDeadlineS008 = 60.0s and kDeadlineTolerance008 = 1.0s.
+  GTEST_SKIP() << "M8 ToR callsite not yet wired (see hmi_transparency_bridge_node.cpp). "
+                  "Re-enable once publish_tor_request() has an automatic trigger.";
 }
 
 // ── Test 4: M8 SAT-2 adaptive trigger classifies ≥2 conditions ────────────────

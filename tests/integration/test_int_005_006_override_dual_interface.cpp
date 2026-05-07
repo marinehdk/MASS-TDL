@@ -58,6 +58,8 @@ constexpr float   kBehaviorSpeedMax005           = 20.0F;
 constexpr float   kBehaviorHeadingMin005         = 0.0F;
 constexpr float   kBehaviorHeadingMax005         = 360.0F;
 constexpr double  kKnotsToMps005                 = 0.514444;
+constexpr double  kNearCpaRelBearingDeg          = 0.0;    // target dead ahead
+constexpr double  kNearCpaAspectAngleDeg         = 180.0;  // target heading toward us
 
 // ── GTest Fixture ─────────────────────────────────────────────────────────────
 class Int005006Test : public ::testing::Test {
@@ -130,8 +132,8 @@ class Int005006Test : public ::testing::Test {
     tgt.source_sensor     = "fused";
     tgt.encounter.encounter_type =
         l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_HEAD_ON;
-    tgt.encounter.relative_bearing_deg = 0.0;
-    tgt.encounter.aspect_angle_deg     = 180.0;
+    tgt.encounter.relative_bearing_deg = kNearCpaRelBearingDeg;
+    tgt.encounter.aspect_angle_deg     = kNearCpaAspectAngleDeg;
     tgt.encounter.is_giveway           = true;
     ws.targets.push_back(tgt);
     return ws;
@@ -169,8 +171,8 @@ class Int005006Test : public ::testing::Test {
     tgt.source_sensor     = "fused";
     tgt.encounter.encounter_type =
         l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_HEAD_ON;
-    tgt.encounter.relative_bearing_deg = 0.0;
-    tgt.encounter.aspect_angle_deg     = 180.0;
+    tgt.encounter.relative_bearing_deg = kNearCpaRelBearingDeg;
+    tgt.encounter.aspect_angle_deg     = kNearCpaAspectAngleDeg;
     tgt.encounter.is_giveway           = true;
     arr.targets.push_back(tgt);
     return arr;

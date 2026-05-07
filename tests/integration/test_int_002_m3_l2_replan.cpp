@@ -230,7 +230,7 @@ TEST_F(Int002Test, INT002_M3_HandlesReplanSuccess) {
   auto goal_sub =
       node_->create_subscription<l3_msgs::msg::MissionGoal>(
           "/l3/m3/mission_goal",
-          rclcpp::QoS(5).reliable(),
+          rclcpp::QoS(5).reliable(),  // depth 5: mission_goal rate ≤ 0.5 Hz; depth-5 sufficient within 3s spin window
           [&mission_goal_received, &last_goal](
               const l3_msgs::msg::MissionGoal::SharedPtr msg) {
             last_goal = *msg;

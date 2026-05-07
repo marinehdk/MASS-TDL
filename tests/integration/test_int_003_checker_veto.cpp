@@ -210,6 +210,7 @@ TEST_F(Int003Test, INT003_M7_ODDState_TopicMismatch) {
   bool heartbeat_received_before = false;
   bool heartbeat_received_after  = false;
 
+  // best_effort() matches M7 publisher QoS (safety_supervisor_node.cpp, pub_heartbeat_)
   auto heartbeat_sub = node_->create_subscription<std_msgs::msg::Header>(
       "/l3/m7/heartbeat",
       rclcpp::QoS(10).best_effort(),
