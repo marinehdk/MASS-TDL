@@ -213,6 +213,7 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   casadi::DM p = casadi::DM::zeros(parameter_dim_(), 1);
 
   // Initial state.
+  // kIdxPsi0/kIdxU0 reserved for Phase E2 warm-start initial heading/speed.
   p(kIdxPsi0) = input.own_ship.psi_rad;
   p(kIdxU0)   = input.own_ship.u_mps;
   p(kIdxX0)   = input.own_ship.x_m;
@@ -228,9 +229,11 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxSpeedMin)   = input.constraints.speed_min_mps;
   p(kIdxSpeedMax)   = input.constraints.speed_max_mps;
   p(kIdxCpaSafe)    = input.constraints.cpa_safe_m;
+  // kIdxOwnPsi reserved for Phase E2 hard COLREGs directional constraints.
   p(kIdxOwnPsi)     = input.constraints.own_ship_psi_rad;
 
-  // [TBD-HAZID] ROT max default; MidMpcSolver overrides via VesselDynamicsModel.
+  // [TBD-HAZID] ROT max: hard-coded FCB default (0.2094 rad/s ≈ 12°/s).
+  // Phase E2: thread rot_max_rad_s through ConstraintInputs from VesselDynamicsModel.
   p(kIdxRotMax) = kDefaultRotMaxRadS;
 
   // Targets: zero-padded up to cfg_.max_targets.
@@ -260,6 +263,31 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
     const casadi::DM& x_opt, const casadi::Dict& stats) const {
   MidMpcSolution sol;
   const int32_t N = cfg_.n_horizon;
+
+  // Map IPOPT return_status string to Status enum.
+  if (stats.count("return_status") > 0u) {
+    const std::string ipopt_status =
+        static_cast<std::string>(stats.at("return_status"));
+    if (ipopt_status == "Solve_Succeeded" ||
+        ipopt_status == "Feasible_Point_Found") {
+      sol.status = MidMpcSolution::Status::Converged;
+    } else if (ipopt_status == "Maximum_Iterations_Exceeded" ||
+               ipopt_status == "Maximum_CpuTime_Exceeded") {
+      sol.status = MidMpcSolution::Status::Timeout;
+    } else if (ipopt_status == "Infeasible_Problem_Detected") {
+      sol.status = MidMpcSolution::Status::Infeasible;
+    } else {
+      sol.status = MidMpcSolution::Status::NumericalFailure;
+    }
+  }
+
+  // Guard against degenerate x_opt (IPOPT failure may return wrong-size vector).
+  const int32_t expected_dim = 2 * N;
+  if (static_cast<int32_t>(x_opt.numel()) != expected_dim) {
+    sol.status = MidMpcSolution::Status::NumericalFailure;
+    return sol;  // trajectory stays empty
+  }
+
   sol.trajectory.resize(static_cast<std::size_t>(N));
   for (int32_t k = 0; k < N; ++k) {
     auto& point = sol.trajectory[static_cast<std::size_t>(k)];
@@ -267,7 +295,6 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
     point.u_mps   = static_cast<double>(x_opt(N + k));
     point.t_s     = static_cast<double>(k) * cfg_.dt_s;
   }
-  sol.cost_total = 0.0;
   if (stats.count("iter_count") > 0u) {
     sol.ipopt_iterations = static_cast<int32_t>(
         static_cast<int64_t>(stats.at("iter_count")));

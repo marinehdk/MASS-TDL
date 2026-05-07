@@ -63,11 +63,14 @@ TEST(MidMpcNlpFormulationTest, PackParameters_CorrectDim) {
 }
 
 TEST(MidMpcNlpFormulationTest, GDim_Matches5NMinus1) {
-  MidMpcNlpFormulation::Config cfg;
-  cfg.n_horizon  = 6;
-  cfg.max_targets = 4;
-  MidMpcNlpFormulation formulation(cfg);
-  formulation.build_symbolic_graph();
-  // 5N - 1 = 5*6 - 1 = 29
-  EXPECT_EQ(formulation.g_dim(), 29);
+  // Verify formula 5N-1 at multiple horizon lengths.
+  for (const int32_t n : {2, 6, 12}) {
+    MidMpcNlpFormulation::Config cfg;
+    cfg.n_horizon   = n;
+    cfg.max_targets = 4;
+    MidMpcNlpFormulation formulation(cfg);
+    formulation.build_symbolic_graph();
+    EXPECT_EQ(formulation.g_dim(), 5 * n - 1)
+        << "g_dim mismatch for N=" << n;
+  }
 }

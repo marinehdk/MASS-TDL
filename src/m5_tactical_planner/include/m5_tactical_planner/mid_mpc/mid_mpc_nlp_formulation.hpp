@@ -54,6 +54,7 @@ constexpr int32_t kIdxTargets        = 13;
 constexpr int32_t kTargetStride      = 5;
 constexpr int32_t kMaxTargets        = 16;
 constexpr int32_t kParamDim          = kIdxTargets + kMaxTargets * kTargetStride;  // 93
+static_assert(kParamDim == 93, "parameter layout mismatch — update kParamDim if constants change");
 
 class MidMpcNlpFormulation {
  public:
