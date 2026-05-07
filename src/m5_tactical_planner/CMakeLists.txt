@@ -56,9 +56,16 @@ find_package(casadi 3.7.2 EXACT REQUIRED)
 find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
 
 # ---------------------------------------------------------------------------
-# m5_shared_lib — Task 1.1 source files
-# TODO(Task-2.x): Add mid_mpc/ source files here when implementing Mid-MPC
+# m5_shared_lib — Task 1.1 + Task 2.1 source files
+# TODO(Task-2.2): Add src/mid_mpc/mid_mpc_solver.cpp when MidMpcSolver lands
+# TODO(Task-2.3): Add src/mid_mpc/mid_mpc_node.cpp when MidMpcNode lands
 # TODO(Task-3.x): Add bc_mpc/ source files here when implementing BC-MPC
+# ---------------------------------------------------------------------------
+# IPOPT note: CasADi loads its IPOPT backend dynamically at runtime via the
+# libcasadi_nlpsol_ipopt plugin. Linking against `casadi` (already configured
+# below) is sufficient; no separate find_package(IPOPT) is required for this
+# Function-based API. If a future task uses IPOPT's C++ API directly, the
+# commented find_package(IPOPT) block above must be re-enabled.
 # ---------------------------------------------------------------------------
 add_library(m5_shared_lib STATIC
   # --- common/ ---
@@ -72,8 +79,10 @@ add_library(m5_shared_lib STATIC
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
   src/shared/constraint_compiler.cpp
-  # TODO(Task-2.x): src/mid_mpc/mid_mpc_solver.cpp
-  # TODO(Task-2.x): src/mid_mpc/mid_mpc_node.cpp
+  # --- mid_mpc/ (Task 2.1: NLP formulation only) ---
+  src/mid_mpc/mid_mpc_nlp_formulation.cpp
+  # TODO(Task-2.2): src/mid_mpc/mid_mpc_solver.cpp
+  # TODO(Task-2.3): src/mid_mpc/mid_mpc_node.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_evaluator.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_node.cpp
 )
@@ -167,7 +176,28 @@ if(BUILD_TESTING)
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
-  # TODO(Task-2.x): ament_add_gtest(test_mid_mpc_solver ...)
+  # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
+  ament_add_gtest(test_mid_mpc_nlp_formulation
+    test/unit/test_mid_mpc_nlp_formulation.cpp
+  )
+  target_link_libraries(test_mid_mpc_nlp_formulation
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+    casadi
+  )
+  ament_target_dependencies(test_mid_mpc_nlp_formulation
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_mid_mpc_nlp_formulation
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+
+  # TODO(Task-2.2): ament_add_gtest(test_mid_mpc_solver ...)
   # TODO(Task-3.x): ament_add_gtest(test_bc_mpc_evaluator ...)
 endif()
 
