@@ -353,6 +353,9 @@ stage-4-integration:
     - ros2 launch tools/ci/full_l3_stack.launch.py &
     - L3_PID=$!
     - sleep 5
+    # Run C++ GTest integration tests via colcon
+    - colcon test --packages-select l3_integration_tests --event-handlers console_direct+
+    - colcon test-result --verbose
     - pytest tests/integration/ --junit-xml=build/integration-junit.xml --timeout=300
     - kill $L3_PID
     # 接口契约校验（始终运行）
