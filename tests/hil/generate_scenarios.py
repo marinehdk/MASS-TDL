@@ -171,7 +171,7 @@ def _gen_rule14(counters: dict) -> List[Scenario]:
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                     counters[rule_tag] += 1
-                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
                         mmsi=_next_mmsi(),
                         vessel_type="motor_vessel",
@@ -248,7 +248,7 @@ def _gen_rule15(counters: dict) -> List[Scenario]:
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                     counters[rule_tag] += 1
-                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
                         mmsi=_next_mmsi(),
                         vessel_type="motor_vessel",
@@ -323,7 +323,7 @@ def _gen_rule13(counters: dict) -> List[Scenario]:
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                     counters[rule_tag] += 1
-                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
                         mmsi=_next_mmsi(),
                         vessel_type="motor_vessel",
@@ -401,7 +401,7 @@ def _gen_rule17(counters: dict) -> List[Scenario]:
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                         counters[rule_tag] += 1
-                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                         tgt = TargetShipInit(
                             mmsi=_next_mmsi(),
                             vessel_type="motor_vessel",
@@ -454,6 +454,7 @@ def _gen_rule18(counters: dict) -> List[Scenario]:
 
     priority_types = [
         ("fishing_vessel", "fishing", [60, 80, 100]),
+        ("sailing_vessel", "sailing_vessel", [60, 80, 100, 120]),
         ("restricted_maneuvering", "restricted_maneuvering", [80, 100, 120, 150]),
     ]
     rel_bearings = [0, 45, 90, 135, 180, 225, 270, 315]
@@ -475,7 +476,7 @@ def _gen_rule18(counters: dict) -> List[Scenario]:
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                         counters[rule_tag] += 1
-                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                         tgt = TargetShipInit(
                             mmsi=_next_mmsi(),
                             vessel_type=vessel_type,
@@ -550,7 +551,7 @@ def _gen_rule19(counters: dict) -> List[Scenario]:
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                     counters[rule_tag] += 1
-                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                    sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
                         mmsi=_next_mmsi(),
                         vessel_type="motor_vessel",
@@ -622,7 +623,7 @@ def _gen_fault_injection(counters: dict) -> List[Scenario]:
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                         counters[rule_tag] += 1
-                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:03d}"
+                        sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                         tgt = TargetShipInit(
                             mmsi=_next_mmsi(),
                             vessel_type="motor_vessel",
