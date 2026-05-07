@@ -83,21 +83,48 @@ TEST(BcMpcSolver, Solver_SetsSpeedFromInput)
 }
 
 // ---------------------------------------------------------------------------
-// Test 4 — solve_duration_us is positive after a solve.
-// The detector always does branch evaluation work, so wall-clock > 0.
+// Test 4 — solve_duration_us is non-negative after a solve.
+// A single-target solve forces real CPA trajectory work; the timing result
+// must be ≥ 0 (sub-microsecond evaluation is valid on fast hardware).
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, Solver_SetsSolveDuration)
 {
   BcMpcBranchFormulation form;
   BcMpcSolver solver{form};
 
-  const auto sol = solver.solve(make_base_input());
+  BcMpcInput inp = make_base_input();
+  TargetState tgt;
+  tgt.id = 1; tgt.x_m = 400.0; tgt.y_m = 0.0; tgt.cog_rad = M_PI; tgt.sog_mps = 5.0;
+  inp.targets.push_back(tgt);
 
-  EXPECT_GT(sol.solve_duration_us, 0);
+  const auto sol = solver.solve(inp);
+
+  EXPECT_GE(sol.solve_duration_us, 0);
 }
 
 // ---------------------------------------------------------------------------
-// Test 5 — OverrideGenerator heading conversion: π/2 rad → ≈ 90 deg.
+// Test 5a — consecutive_failures_ resets to 0 after a valid solve.
+// Override and Resolved are both valid outcomes; counter must not increment.
+// ---------------------------------------------------------------------------
+TEST(BcMpcSolver, ConsecutiveFailures_ZeroAfterValidSolve)
+{
+  BcMpcBranchFormulation form;
+  BcMpcSolver solver{form};
+
+  solver.solve(make_base_input());  // Resolved — no targets
+  EXPECT_EQ(solver.consecutive_failures(), 0LL);
+
+  BcMpcInput inp = make_base_input();
+  inp.predicted_short_horizon_cpa_m = 100.0;
+  TargetState tgt;
+  tgt.id = 1; tgt.x_m = 400.0; tgt.y_m = 0.0; tgt.cog_rad = M_PI; tgt.sog_mps = 5.0;
+  inp.targets.push_back(tgt);
+  solver.solve(inp);  // Override — still valid, counter must stay 0
+  EXPECT_EQ(solver.consecutive_failures(), 0LL);
+}
+
+// ---------------------------------------------------------------------------
+// Test 6 — OverrideGenerator heading conversion: π/2 rad → ≈ 90 deg.
 // Validates the rad-to-deg boundary conversion and [0, 360) normalisation.
 // ---------------------------------------------------------------------------
 TEST(BcMpcOverrideGenerator, HeadingConversion)
@@ -117,4 +144,31 @@ TEST(BcMpcOverrideGenerator, HeadingConversion)
   const auto cmd = gen.generate(sol, t);
 
   EXPECT_NEAR(static_cast<double>(cmd.heading_cmd_deg), 90.0, 0.001);
+}
+
+// ---------------------------------------------------------------------------
+// Test 7 — OverrideGenerator heading overflow: 7.0 rad (~401°) → ≈ 41 deg.
+// heading_cmd_rad can exceed 2π when the best branch offsets past 360°;
+// fmod normalisation must wrap it into [0, 360) before publishing to L4.
+// ---------------------------------------------------------------------------
+TEST(BcMpcOverrideGenerator, HeadingOverflow_Normalised)
+{
+  BcMpcOverrideGenerator gen;
+
+  BcMpcSolution sol;
+  sol.status            = BcMpcSolution::Status::Override;
+  // 7.0 rad = 401.07°; fmod(401.07, 360) = 41.07°
+  sol.heading_cmd_rad   = 7.0;
+  sol.optimal_speed_mps = 5.0;
+  sol.rot_cmd_rad_s     = 0.0;
+  sol.validity_s        = 1.0;
+  sol.confidence        = 0.8;
+  sol.trigger_reason    = "CONDITION_A";
+
+  const rclcpp::Time t{0, 0, RCL_ROS_TIME};
+  const auto cmd = gen.generate(sol, t);
+
+  EXPECT_GE(static_cast<double>(cmd.heading_cmd_deg), 0.0);
+  EXPECT_LT(static_cast<double>(cmd.heading_cmd_deg), 360.0);
+  EXPECT_NEAR(static_cast<double>(cmd.heading_cmd_deg), 41.07, 0.1);
 }

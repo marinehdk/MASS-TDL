@@ -15,6 +15,10 @@ namespace mass_l3::m5::bc_mpc {
 // may expose as a parameter once HAZID WP-04 FM-3 timing data is available.
 namespace {
 constexpr double kTickInterval_s = 0.1;
+// Sentinel for predicted_short_horizon_cpa_m when M2 has no CPA estimates.
+// Distinct from the detector's 1e9 "no-targets" sentinel — this field enters
+// compute_urgency_() and must be >> cpa_safe_m (≈1852 m) to yield urgency ≈ 0.
+constexpr double kNoCpaEstimate_m = 1.0e6;
 }
 
 // ===========================================================================
@@ -44,7 +48,8 @@ BcMpcNode::BcMpcNode(const Config& cfg)
       "/m5/asdr_record_bc", 10);
 
   validity_timer_ = create_wall_timer(
-      std::chrono::milliseconds(100),
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::duration<double>(kTickInterval_s)),
       [this]() { on_validity_tick_(); });
 }
 
@@ -134,8 +139,8 @@ BcMpcInput BcMpcNode::assemble_input_() const
 
   inp.cpa_safe_m = cfg_.cpa_safe_m;
 
-  // predicted_short_horizon_cpa_m: min CPA across targets; 1e6 if no targets.
-  double min_cpa = 1.0e6;
+  // predicted_short_horizon_cpa_m: min CPA across targets; far-safe sentinel if none.
+  double min_cpa = kNoCpaEstimate_m;
   for (const auto& ts : inp.targets) {
     if (ts.cpa_m < min_cpa) {
       min_cpa = ts.cpa_m;
