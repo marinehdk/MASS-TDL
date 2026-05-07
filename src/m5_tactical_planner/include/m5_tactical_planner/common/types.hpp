@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 // Eigen 3 — column-major Dense matrices; NO_MODULE ensures modern CMake target.
@@ -57,6 +58,21 @@ struct TargetState {
 };
 
 // ---------------------------------------------------------------------------
+// Polygon2D: 2D convex/non-convex polygon (ENC/TSS zone boundary).
+// Vertices listed counter-clockwise; closes automatically (last→first implied).
+// ---------------------------------------------------------------------------
+using Polygon2D = std::vector<Eigen::Vector2d>;
+
+// ---------------------------------------------------------------------------
+// ZoneConstraint: ENC or TSS zone that own-ship must stay inside (or outside).
+// ---------------------------------------------------------------------------
+struct ZoneConstraint {
+  Polygon2D polygon;
+  bool must_stay_inside{true};  // true = stay inside (TSS lane); false = avoid
+  std::string name;             // for active-set logging
+};
+
+// ---------------------------------------------------------------------------
 // ConstraintInputs — compiled constraint context passed to ConstraintCompiler
 // All values sourced from upstream M1/M4/M6 messages; no vessel constants here.
 // ---------------------------------------------------------------------------
@@ -79,6 +95,13 @@ struct ConstraintInputs {
   // Default 15 m/s ≈ 29 kn; calibrate per ODD domain (coastal vs. open sea).
   double speed_min_mps{0.0};
   double speed_max_mps{15.0};
+
+  // Current own-ship heading [rad] — used by COLREGs directional constraints
+  // (Rule 14/15/16/17) as the reference initial heading psi_0.
+  double own_ship_psi_rad{0.0};
+
+  // ENC / TSS zone constraints (stay-inside lanes or avoid zones).
+  std::vector<ZoneConstraint> zone_constraints;
 };
 
 // ---------------------------------------------------------------------------

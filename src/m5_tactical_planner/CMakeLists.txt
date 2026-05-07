@@ -43,9 +43,8 @@ find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 
 # CasADi — dynamic linking required (LGPL-3.0 compliance: §6 distribution clause).
-# Must NOT be STATIC-linked. Task 2.x (Mid-MPC) will add casadi usages.
-# TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
-# find_package(casadi 3.7.2 EXACT REQUIRED)
+# Must NOT be STATIC-linked.
+find_package(casadi 3.7.2 EXACT REQUIRED)
 
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
 # find_package(IPOPT 3.14.19 EXACT REQUIRED)
@@ -53,8 +52,8 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 # GeographicLib — TODO(Task-2.x/3.x): Uncomment when geo conversions needed.
 # find_package(GeographicLib 2.7 EXACT REQUIRED)
 
-# Boost headers — TODO(Task-2.x): Uncomment when geometry structures needed.
-# find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
+# Boost headers — used by ConstraintCompiler polygon decomposition.
+find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
 
 # ---------------------------------------------------------------------------
 # m5_shared_lib — Task 1.1 source files
@@ -72,7 +71,7 @@ add_library(m5_shared_lib STATIC
   src/shared/vessel_dynamics_model.cpp
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
-  # TODO(Task-2.x): src/mid_mpc/constraint_compiler.cpp
+  src/shared/constraint_compiler.cpp
   # TODO(Task-2.x): src/mid_mpc/mid_mpc_solver.cpp
   # TODO(Task-2.x): src/mid_mpc/mid_mpc_node.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_evaluator.cpp
@@ -96,7 +95,8 @@ target_link_libraries(m5_shared_lib PUBLIC
   spdlog::spdlog
   yaml-cpp::yaml-cpp
   Eigen3::Eigen
-  # TODO(Task-2.x): casadi  (dynamic — LGPL-3.0 requirement)
+  casadi                  # dynamic — LGPL-3.0 requirement (no STATIC linking)
+  Boost::headers
 )
 
 # ---------------------------------------------------------------------------
@@ -142,11 +142,36 @@ if(BUILD_TESTING)
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
+  ament_add_gtest(test_constraint_compiler
+    test/unit/test_constraint_compiler.cpp
+  )
+  target_link_libraries(test_constraint_compiler
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+    casadi
+    Boost::headers
+  )
+  ament_target_dependencies(test_constraint_compiler
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_constraint_compiler
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+  target_compile_definitions(test_constraint_compiler
+    PRIVATE
+      "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
+  )
+
   # TODO(Task-2.x): ament_add_gtest(test_mid_mpc_solver ...)
   # TODO(Task-3.x): ament_add_gtest(test_bc_mpc_evaluator ...)
 endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(m5_shared_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces casadi Boost)
 ament_package()

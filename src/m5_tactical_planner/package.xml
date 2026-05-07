@@ -22,8 +22,7 @@
   <depend>l3_external_msgs</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
-  <!-- TODO(Task-2.x): uncomment when Mid-MPC NLP is implemented -->
-  <!-- <depend>casadi</depend> -->
+  <depend>casadi</depend>
   <depend>eigen3</depend>
 
   <!-- Test dependencies -->
