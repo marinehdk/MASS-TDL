@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>l3_integration_tests</name>
+  <version>1.0.0</version>
+  <description>Integration tests for MASS L3 Tactical Layer (Wave 4a — INT-001 through INT-008)</description>
+  <maintainer email="l3-team@sango.example.com">MASS L3 Team</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_gtest</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>m1_odd_envelope_manager</depend>
+  <depend>m2_world_model</depend>
+  <depend>m3_mission_manager</depend>
+  <depend>m4_behavior_arbiter</depend>
+  <depend>m5_tactical_planner</depend>
+  <depend>m6_colregs_reasoner</depend>
+  <depend>m7_safety_supervisor</depend>
+  <depend>m8_hmi_transparency_bridge</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

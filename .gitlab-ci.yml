@@ -349,17 +349,12 @@ stage-4-integration:
     - source /opt/ros/jazzy/setup.bash
     - colcon build
     - source install/setup.bash
-    # INT-001..INT-008 集成场景（Wave 4 扩展 — 详见 docs/Test Plan/integration-test-spec.md）
-    - |
-      if [[ -d "tests/integration" ]]; then
-        ros2 launch tools/ci/full_l3_stack.launch.py &
-        L3_PID=$!
-        sleep 5
-        pytest tests/integration/ --junit-xml=build/integration-junit.xml --timeout=300
-        kill $L3_PID || true
-      else
-        echo "INFO: tests/integration/ 不存在 — Wave 4 扩展（详见 docs/Test Plan/）"
-      fi
+    # INT-001..INT-008 集成场景（详见 docs/Test Plan/integration-test-spec.md）
+    - ros2 launch tools/ci/full_l3_stack.launch.py &
+    - L3_PID=$!
+    - sleep 5
+    - pytest tests/integration/ --junit-xml=build/integration-junit.xml --timeout=300
+    - kill $L3_PID
     # 接口契约校验（始终运行）
     - bash tools/ci/check-msg-contract.sh
   artifacts:
