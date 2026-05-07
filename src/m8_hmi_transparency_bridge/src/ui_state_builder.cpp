@@ -13,7 +13,8 @@ l3_msgs::msg::UIState UiStateBuilder::build(
     const BuildContext& ctx,
     const SatAggregator& sat_cache) const
 {
-  (void)sat_cache;  // reserved for future sat-cache-driven fields
+  // TODO(Phase-E2): populate SAT display duration fields from sat_cache when UIState.msg is extended
+  (void)sat_cache;
 
   l3_msgs::msg::UIState msg{};
   // stamp left at zero — node will stamp before publishing
