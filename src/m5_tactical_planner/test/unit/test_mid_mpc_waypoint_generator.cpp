@@ -65,6 +65,7 @@ TEST(MidMpcWaypointGeneratorTest, DegradedPlan_OnNonConverged)
   EXPECT_EQ(plan.status, "DEGRADED");
   EXPECT_TRUE(plan.waypoints.empty());
   EXPECT_FLOAT_EQ(plan.confidence, 0.0F);
+  EXPECT_FALSE(plan.rationale.empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +111,24 @@ TEST(MidMpcWaypointGeneratorTest, SpeedConversion_CorrectKnots)
 }
 
 // ---------------------------------------------------------------------------
-// 6. Zero-movement trajectory at origin → first waypoint near (0, 0)
+// 6. Converged + empty trajectory → DEGRADED (safety guard)
+// ---------------------------------------------------------------------------
+TEST(MidMpcWaypointGeneratorTest, ConvergedEmptyTrajectory_IsDegraded)
+{
+  MidMpcWaypointGenerator gen;
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;  // converged but no points
+
+  const auto plan = gen.generate(sol, 30.0, 122.0);
+
+  EXPECT_EQ(plan.status, "DEGRADED");
+  EXPECT_TRUE(plan.waypoints.empty());
+  EXPECT_FLOAT_EQ(plan.confidence, 0.0F);
+  EXPECT_FALSE(plan.rationale.empty());
+}
+
+// ---------------------------------------------------------------------------
+// 8. Zero-movement trajectory at origin → first waypoint near (0, 0)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, NedToGeopoint_ZeroOffset)
 {

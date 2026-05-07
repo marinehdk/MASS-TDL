@@ -25,6 +25,8 @@ inline constexpr double kMsPerKn         = 1852.0 / 3600.0;   // exact SI: 1 kno
 inline constexpr double kKnPerMs         = 3600.0 / 1852.0;   // exact SI inverse
 inline constexpr double kMetresPerNm     = 1852.0;    // 1 NM  = 1852 m (exact)
 inline constexpr double kNmPerMetre      = 1.0 / 1852.0;
+// Spherical-earth mean radius [m]. Accurate < 0.01% for MPC horizons < 1 km.
+inline constexpr double kEarthRadiusMean_m = 6371000.0;
 
 // ---------------------------------------------------------------------------
 // Angle conversions

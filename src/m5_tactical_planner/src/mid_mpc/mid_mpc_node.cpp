@@ -10,6 +10,7 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/common/units.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -97,11 +98,7 @@ MidMpcInput MidMpcNode::assemble_input_() const
 {
   MidMpcInput inp;
 
-  constexpr double kDeg2Rad      = M_PI / 180.0;
-  constexpr double kKn2Mps       = 0.514444;
-  constexpr double kEarthRadius_m = 6371000.0;
-
-  inp.own_ship.psi_rad = own_ship_state_->heading_deg * kDeg2Rad;
+  inp.own_ship.psi_rad = own_ship_state_->heading_deg * units::kRadPerDeg;
   inp.own_ship.u_mps   = own_ship_state_->u_water;
 
   const double own_lat = own_ship_state_->position.latitude;
@@ -110,20 +107,20 @@ MidMpcInput MidMpcNode::assemble_input_() const
   for (const auto& tgt : tracked_targets_->targets) {
     TargetState ts;
     ts.id       = static_cast<int32_t>(tgt.target_id & 0x7FFFFFFFu);
-    ts.x_m      = (tgt.position.latitude  - own_lat) * kDeg2Rad * kEarthRadius_m;
-    ts.y_m      = (tgt.position.longitude - own_lon) * kDeg2Rad * kEarthRadius_m
-                  * std::cos(own_lat * kDeg2Rad);
-    ts.sog_mps  = tgt.sog_kn * kKn2Mps;
-    ts.cog_rad  = tgt.cog_deg * kDeg2Rad;
+    ts.x_m      = (tgt.position.latitude  - own_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+    ts.y_m      = (tgt.position.longitude - own_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
+                  * std::cos(own_lat * units::kRadPerDeg);
+    ts.sog_mps  = tgt.sog_kn * units::kMsPerKn;
+    ts.cog_rad  = tgt.cog_deg * units::kRadPerDeg;
     ts.cpa_m    = tgt.cpa_m;
     ts.tcpa_s   = tgt.tcpa_s;
     inp.targets.push_back(ts);
   }
 
-  inp.constraints.heading_min_rad = static_cast<double>(behavior_plan_->heading_min_deg) * kDeg2Rad;
-  inp.constraints.heading_max_rad = static_cast<double>(behavior_plan_->heading_max_deg) * kDeg2Rad;
-  inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn)  * kKn2Mps;
-  inp.constraints.speed_max_mps   = static_cast<double>(behavior_plan_->speed_max_kn)  * kKn2Mps;
+  inp.constraints.heading_min_rad = static_cast<double>(behavior_plan_->heading_min_deg) * units::kRadPerDeg;
+  inp.constraints.heading_max_rad = static_cast<double>(behavior_plan_->heading_max_deg) * units::kRadPerDeg;
+  inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
+  inp.constraints.speed_max_mps   = static_cast<double>(behavior_plan_->speed_max_kn) * units::kMsPerKn;
   inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
   inp.constraints.cpa_safe_m       = kCpaSafeFallback_m;  // [TBD-HAZID] from ODD state
 
@@ -134,9 +131,9 @@ MidMpcInput MidMpcNode::assemble_input_() const
     const double p0_lon = planned_route_->route.poses[0].pose.position.longitude;
     const double p1_lat = planned_route_->route.poses[1].pose.position.latitude;
     const double p1_lon = planned_route_->route.poses[1].pose.position.longitude;
-    const double ddx = (p1_lat - p0_lat) * kDeg2Rad * kEarthRadius_m;
-    const double ddy = (p1_lon - p0_lon) * kDeg2Rad * kEarthRadius_m
-                       * std::cos(p0_lat * kDeg2Rad);
+    const double ddx = (p1_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+    const double ddy = (p1_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
+                       * std::cos(p0_lat * units::kRadPerDeg);
     inp.planned_route_bearing_rad = std::atan2(ddy, ddx);
   } else {
     inp.planned_route_bearing_rad = 0.0;
@@ -145,7 +142,7 @@ MidMpcInput MidMpcNode::assemble_input_() const
   const bool has_speed = speed_profile_ != nullptr
       && !speed_profile_->target_speeds_kn.empty();
   inp.planned_speed_mps = has_speed
-      ? speed_profile_->target_speeds_kn[0] * kKn2Mps
+      ? speed_profile_->target_speeds_kn[0] * units::kMsPerKn
       : kDefaultPlannedSpeed_mps;
 
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
