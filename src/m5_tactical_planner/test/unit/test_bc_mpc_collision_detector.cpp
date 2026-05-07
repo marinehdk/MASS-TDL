@@ -38,6 +38,7 @@ TEST(BcMpcCollisionDetector, NoTargets_ResolvedImmediately) {
 
   EXPECT_EQ(sol.status, BcMpcSolution::Status::Resolved);
   EXPECT_GT(sol.worst_case_cpa_m, 1852.0);
+  EXPECT_NEAR(sol.confidence, 1.0, 1.0e-9);  // no threat → maximum confidence
 }
 
 // ---------------------------------------------------------------------------

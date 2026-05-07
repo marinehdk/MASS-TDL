@@ -11,6 +11,10 @@ namespace mass_l3::m5::bc_mpc {
 
 using mass_l3::m5::shared::CpaCalculator;
 
+// [TBD-HAZID] Mid-MPC consecutive-failure count that forces maximum urgency.
+// Calibrate via HAZID RUN-001 WP-04 FM-3 (BC-MPC activation sensitivity).
+constexpr int32_t kConsecutiveFailureUrgencyThreshold = 2;
+
 BcMpcCollisionDetector::BcMpcCollisionDetector(
     const BcMpcBranchFormulation& formulation)
     : formulation_(formulation) {}
@@ -21,7 +25,7 @@ BcMpcCollisionDetector::BcMpcCollisionDetector(
 double BcMpcCollisionDetector::compute_urgency_(
     const BcMpcInput& input) const noexcept
 {
-  if (input.mid_mpc_consecutive_failures > 2) {
+  if (input.mid_mpc_consecutive_failures > kConsecutiveFailureUrgencyThreshold) {
     return 1.0;
   }
 
@@ -87,9 +91,9 @@ BcMpcSolution BcMpcCollisionDetector::evaluate(const BcMpcInput& input) const
 
   const double best_cpa = cpa_vals[static_cast<std::size_t>(best_idx)];
 
-  // confidence: measures how far above the safe threshold the best branch is.
-  // Clamped to [0, 1]; inverted sense from urgency — higher CPA = higher conf.
-  double confidence = 1.0 - best_cpa / input.cpa_safe_m;
+  // confidence: fraction of cpa_safe achieved; higher CPA → higher confidence.
+  // Inverted sense from urgency (which measures deficit).
+  double confidence = best_cpa / input.cpa_safe_m;
   if (confidence < 0.0) { confidence = 0.0; }
   if (confidence > 1.0) { confidence = 1.0; }
 
