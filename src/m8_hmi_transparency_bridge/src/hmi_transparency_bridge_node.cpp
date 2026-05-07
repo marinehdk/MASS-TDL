@@ -126,6 +126,7 @@ void HmiTransparencyBridgeNode::init_timers()
 void HmiTransparencyBridgeNode::on_sat_data(const l3_msgs::msg::SATData::SharedPtr msg)
 {
   auto now = SatAggregator::Clock::now();
+  // SatAggregator and ModuleHealthMonitor are internally thread-safe; no state_mutex_ needed.
   sat_aggregator_->ingest(*msg, now);
   auto src = SatAggregator::from_string(msg->source_module);
   if (src.has_value()) {
@@ -189,30 +190,47 @@ void HmiTransparencyBridgeNode::on_override_signal(
 
 void HmiTransparencyBridgeNode::on_ui_publish_tick()
 {
-  std::lock_guard<std::mutex> lock{state_mutex_};
+  // Snapshot state under lock
+  std::optional<l3_msgs::msg::ODDState> odd_snap;
+  std::optional<l3_msgs::msg::WorldState> world_snap;
+  std::optional<l3_msgs::msg::BehaviorPlan> behavior_snap;
+  std::optional<l3_msgs::msg::COLREGsConstraint> colreg_snap;
+  std::optional<l3_msgs::msg::SafetyAlert> alert_snap;
+  bool override_snap = false;
+  bool op_sat2_snap = false;
+  {
+    std::lock_guard lock{state_mutex_};
+    odd_snap      = latest_odd_;
+    world_snap    = latest_world_;
+    behavior_snap = latest_behavior_;
+    colreg_snap   = latest_colreg_;
+    alert_snap    = latest_alert_;
+    override_snap = override_active_;
+    op_sat2_snap  = operator_requested_sat2_;
+  }
+  // Build and publish without holding the lock
   auto now = SatAggregator::Clock::now();
-
   auto sat_decision = adaptive_trigger_->decide(
-      latest_odd_.value_or(l3_msgs::msg::ODDState{}),
+      odd_snap.value_or(l3_msgs::msg::ODDState{}),
       *sat_aggregator_,
-      latest_alert_,
-      latest_colreg_,
-      operator_requested_sat2_,
+      alert_snap,
+      colreg_snap,
+      op_sat2_snap,
       now);
 
   UiStateBuilder::BuildContext ctx{};
   ctx.now             = now;
   ctx.role            = UiStateBuilder::Role::kRocOperator;
-  ctx.scenario        = infer_scenario();
+  ctx.scenario        = infer_scenario_from(odd_snap, colreg_snap, override_snap);
   ctx.sat_decision    = sat_decision;
-  ctx.odd             = latest_odd_;
-  ctx.world           = latest_world_;
-  ctx.behavior        = latest_behavior_;
-  ctx.colreg          = latest_colreg_;
-  ctx.latest_alert    = latest_alert_;
+  ctx.odd             = odd_snap;
+  ctx.world           = world_snap;
+  ctx.behavior        = behavior_snap;
+  ctx.colreg          = colreg_snap;
+  ctx.latest_alert    = alert_snap;
   ctx.tor_state       = tor_protocol_->state();
   ctx.tor_remaining_s = tor_protocol_->remaining_deadline_s(now);
-  ctx.override_active = override_active_;
+  ctx.override_active = override_snap;
 
   auto msg = ui_builder_->build(ctx, *sat_aggregator_);
   msg.stamp = get_clock()->now();
@@ -260,10 +278,12 @@ void HmiTransparencyBridgeNode::on_asdr_snapshot_tick()
 // Helpers
 // ---------------------------------------------------------------------------
 
-UiStateBuilder::Scenario HmiTransparencyBridgeNode::infer_scenario() const
+UiStateBuilder::Scenario HmiTransparencyBridgeNode::infer_scenario_from(
+    const std::optional<l3_msgs::msg::ODDState>& /*odd*/,
+    const std::optional<l3_msgs::msg::COLREGsConstraint>& colreg,
+    bool override_active) const
 {
-  // Caller holds state_mutex_
-  if (override_active_) {
+  if (override_active) {
     return UiStateBuilder::Scenario::kOverrideActive;
   }
   if (tor_protocol_->state() == TorProtocol::State::kTimeoutMrc) {
@@ -272,7 +292,7 @@ UiStateBuilder::Scenario HmiTransparencyBridgeNode::infer_scenario() const
   if (tor_protocol_->state() == TorProtocol::State::kRequested) {
     return UiStateBuilder::Scenario::kMrcPreparation;
   }
-  if (latest_colreg_.has_value() && latest_colreg_->conflict_detected) {
+  if (colreg.has_value() && colreg->conflict_detected) {
     return UiStateBuilder::Scenario::kColregAvoidance;
   }
   return UiStateBuilder::Scenario::kTransit;
