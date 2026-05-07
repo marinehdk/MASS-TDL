@@ -742,7 +742,7 @@ def generate(min_count: int) -> List[Scenario]:
         tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
         extra_counter["R14"] += 1
-        sid = f"SCN-R14-EX{extra_counter['R14']:03d}"
+        sid = f"SCN-R14-EX{extra_counter['R14']:04d}"
         tgt = TargetShipInit(
             mmsi=_next_mmsi(),
             vessel_type="motor_vessel",
