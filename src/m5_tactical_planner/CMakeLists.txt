@@ -56,9 +56,7 @@ find_package(casadi 3.7.2 EXACT REQUIRED)
 find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
 
 # ---------------------------------------------------------------------------
-# m5_shared_lib — Task 1.1 + Task 2.1 source files
-# TODO(Task-2.2): Add src/mid_mpc/mid_mpc_solver.cpp when MidMpcSolver lands
-# TODO(Task-2.3): Add src/mid_mpc/mid_mpc_node.cpp when MidMpcNode lands
+# m5_shared_lib — shared library (Tasks 1.x + 2.x)
 # TODO(Task-3.x): Add bc_mpc/ source files here when implementing BC-MPC
 # ---------------------------------------------------------------------------
 # IPOPT note: CasADi loads its IPOPT backend dynamically at runtime via the
@@ -82,7 +80,7 @@ add_library(m5_shared_lib STATIC
   # --- mid_mpc/ ---
   src/mid_mpc/mid_mpc_nlp_formulation.cpp
   src/mid_mpc/mid_mpc_solver.cpp
-  # TODO(Task-2.3): src/mid_mpc/mid_mpc_node.cpp
+  src/mid_mpc/mid_mpc_waypoint_generator.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_evaluator.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_node.cpp
 )
@@ -109,8 +107,33 @@ target_link_libraries(m5_shared_lib PUBLIC
 )
 
 # ---------------------------------------------------------------------------
+# m5_mid_mpc_node executable
+# ---------------------------------------------------------------------------
+add_executable(m5_mid_mpc_node
+  src/mid_mpc/mid_mpc_node.cpp
+  src/mid_mpc/main_mid_mpc.cpp
+)
+target_include_directories(m5_mid_mpc_node
+  PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+ament_target_dependencies(m5_mid_mpc_node
+  rclcpp
+  l3_msgs
+  l3_external_msgs
+  builtin_interfaces
+)
+target_link_libraries(m5_mid_mpc_node
+  m5_shared_lib
+  spdlog::spdlog
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
+install(TARGETS m5_mid_mpc_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 install(TARGETS m5_shared_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -214,6 +237,25 @@ if(BUILD_TESTING)
     builtin_interfaces
   )
   target_include_directories(test_mid_mpc_solver
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+
+  # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
+  ament_add_gtest(test_mid_mpc_waypoint_generator
+    test/unit/test_mid_mpc_waypoint_generator.cpp
+  )
+  target_link_libraries(test_mid_mpc_waypoint_generator
+    m5_shared_lib
+    spdlog::spdlog
+  )
+  ament_target_dependencies(test_mid_mpc_waypoint_generator
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_mid_mpc_waypoint_generator
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test
   )
