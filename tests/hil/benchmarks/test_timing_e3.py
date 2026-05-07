@@ -91,8 +91,8 @@ def _teardown_node(node) -> None:
 def test_m5_mid_mpc_latency() -> None:
     """
     Publishes a COLREGsConstraint with conflict_detected=True to
-    /l3/m6/colregs_constraint and waits for AvoidancePlan on
-    /l3/m5/avoidance_plan.  P99 must be < 100 ms.
+    /m6/colregs_constraint and waits for AvoidancePlan on
+    /m5/avoidance_plan.  P99 must be < 100 ms.
     """
     _require_msgs()
 
@@ -117,9 +117,12 @@ def test_m5_mid_mpc_latency() -> None:
 
         samples: list[float] = []
         for _ in range(_ITERATIONS):
+            # Topic without /l3/ prefix — matches actual M5/M6 publish topics
+            # (INT-001 documents F-INT-001: M6 publishes /l3/m6/colregs_constraint
+            #  but M5 subscribes /m6/colregs_constraint — benchmark uses M5's actual topic)
             latency = verifier.measure_round_trip(
-                trigger_topic="/l3/m6/colregs_constraint",
-                response_topic="/l3/m5/avoidance_plan",
+                trigger_topic="/m6/colregs_constraint",
+                response_topic="/m5/avoidance_plan",
                 trigger_msg=trigger,
                 timeout_s=5.0,
                 trigger_msg_type=COLREGsConstraint,
@@ -127,6 +130,7 @@ def test_m5_mid_mpc_latency() -> None:
             )
             if latency is None:
                 pytest.skip("L3 stack not responding")
+            assert latency is not None  # type guard: skip above ensures we don't reach here with None
             samples.append(latency)
             time.sleep(0.05)
 
@@ -176,6 +180,7 @@ def test_m5_bc_mpc_latency() -> None:
             )
             if latency is None:
                 pytest.skip("L3 stack not responding")
+            assert latency is not None  # type guard: skip above ensures we don't reach here with None
             samples.append(latency)
             time.sleep(0.02)
 
@@ -253,6 +258,7 @@ def test_reflex_arc_e2e_latency() -> None:
             )
             if latency is None:
                 pytest.skip("L3 stack not responding")
+            assert latency is not None  # type guard: skip above ensures we don't reach here with None
             samples.append(latency)
             time.sleep(0.1)
 
@@ -307,6 +313,7 @@ def test_l4_mode_switch_latency() -> None:
             )
             if latency is None:
                 pytest.skip("L3 stack not responding")
+            assert latency is not None  # type guard: skip above ensures we don't reach here with None
             samples.append(latency)
             time.sleep(0.05)
 

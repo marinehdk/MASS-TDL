@@ -9,11 +9,18 @@ No external dependencies beyond the Python stdlib and rclpy.
 
 from __future__ import annotations
 
+import math
 import statistics
 import threading
 import time
 from collections import deque
 from typing import Any, Optional
+
+try:
+    import rclpy
+    _RCLPY_AVAILABLE = True
+except ImportError:
+    _RCLPY_AVAILABLE = False
 
 
 class TimingVerifier:
@@ -63,6 +70,8 @@ class TimingVerifier:
                 t_response.append(time.monotonic())
                 arrived.set()
 
+        pub = None
+        sub = None
         try:
             pub = self._node.create_publisher(trigger_msg_type, trigger_topic, 10)
             sub = self._node.create_subscription(
@@ -72,13 +81,21 @@ class TimingVerifier:
             return None
 
         try:
+            # Wait for DDS peer discovery before publishing
+            discovery_deadline = time.monotonic() + 1.0
+            while (pub.get_subscription_count() == 0
+                   and time.monotonic() < discovery_deadline):
+                try:
+                    rclpy.spin_once(self._node, timeout_sec=0.01)
+                except Exception:  # noqa: BLE001
+                    time.sleep(0.01)
+
             t0 = time.monotonic()
             pub.publish(trigger_msg)
 
             deadline = t0 + timeout_s
             while not arrived.is_set() and time.monotonic() < deadline:
                 try:
-                    import rclpy
                     rclpy.spin_once(self._node, timeout_sec=0.01)
                 except Exception:  # noqa: BLE001
                     time.sleep(0.01)
@@ -90,11 +107,16 @@ class TimingVerifier:
             self._samples.append(latency)
             return latency
         finally:
-            try:
-                self._node.destroy_publisher(pub)
-                self._node.destroy_subscription(sub)
-            except Exception:  # noqa: BLE001
-                pass
+            if pub is not None:
+                try:
+                    self._node.destroy_publisher(pub)
+                except Exception:  # noqa: BLE001
+                    pass
+            if sub is not None:
+                try:
+                    self._node.destroy_subscription(sub)
+                except Exception:  # noqa: BLE001
+                    pass
 
     def measure_topic_rate(self, topic: str, duration_s: float, msg_type: Any) -> float:
         """
@@ -118,7 +140,6 @@ class TimingVerifier:
         try:
             while time.monotonic() < t_end:
                 try:
-                    import rclpy
                     rclpy.spin_once(self._node, timeout_sec=0.05)
                 except Exception:  # noqa: BLE001
                     time.sleep(0.05)
@@ -151,7 +172,7 @@ class TimingVerifier:
         if n == 1:
             return sorted_s[0]
         # nearest-rank: index = ceil(p/100 * n) - 1, clamped
-        idx = max(0, min(n - 1, int((p / 100.0) * n + 0.5) - 1))
+        idx = max(0, min(n - 1, math.ceil((p / 100.0) * n) - 1))
         return sorted_s[idx]
 
     def p99(self) -> float:
