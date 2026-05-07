@@ -104,6 +104,13 @@ if(BUILD_TESTING)
                   test/test_module_health_monitor.cpp)
   target_link_libraries(test_module_health_monitor m8_core)
 
+  ament_add_gtest(test_hmi_transparency_bridge_node
+      test/test_hmi_transparency_bridge_node.cpp
+      src/hmi_transparency_bridge_node.cpp)
+  target_link_libraries(test_hmi_transparency_bridge_node m8_core)
+  ament_target_dependencies(test_hmi_transparency_bridge_node
+      rclcpp l3_msgs l3_external_msgs)
+
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(m8_python_tests python/tests/
     PYTHON_EXECUTABLE python3
