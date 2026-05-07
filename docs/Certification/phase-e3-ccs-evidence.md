@@ -36,6 +36,8 @@
 
 ## §3 CCS i-Ship 阶段二申请证据清单
 
+参照架构报告 v1.1.2 §14.4（关键证据文件清单）。
+
 | 证据文件 | 产生阶段 | E3 贡献 | 状态 |
 |---|---|---|---|
 | COLREGs 覆盖率测试报告 | E3 | `tests/hil/scenarios/scenarios_all.json`（3209 场景）；`tests/hil/scenarios/scenarios_100.json`（100 基准场景） | ✅ 就绪 |
