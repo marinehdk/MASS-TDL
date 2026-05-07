@@ -79,9 +79,9 @@ add_library(m5_shared_lib STATIC
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
   src/shared/constraint_compiler.cpp
-  # --- mid_mpc/ (Task 2.1: NLP formulation only) ---
+  # --- mid_mpc/ ---
   src/mid_mpc/mid_mpc_nlp_formulation.cpp
-  # TODO(Task-2.2): src/mid_mpc/mid_mpc_solver.cpp
+  src/mid_mpc/mid_mpc_solver.cpp
   # TODO(Task-2.3): src/mid_mpc/mid_mpc_node.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_evaluator.cpp
   # TODO(Task-3.x): src/bc_mpc/bc_mpc_node.cpp
@@ -197,7 +197,27 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/test
   )
 
-  # TODO(Task-2.2): ament_add_gtest(test_mid_mpc_solver ...)
+  # ── Task 2.2: Mid-MPC solver integration tests (real IPOPT solves) ─────────
+  ament_add_gtest(test_mid_mpc_solver
+    test/unit/test_mid_mpc_solver.cpp
+  )
+  target_link_libraries(test_mid_mpc_solver
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+    casadi
+  )
+  ament_target_dependencies(test_mid_mpc_solver
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_mid_mpc_solver
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+
   # TODO(Task-3.x): ament_add_gtest(test_bc_mpc_evaluator ...)
 endif()
 
