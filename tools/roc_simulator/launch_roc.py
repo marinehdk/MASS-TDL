@@ -1,17 +1,16 @@
 """
 launch_roc.py — Combined launcher for the ROC HMI Simulator.
 
-Starts the Flask web server in a subprocess, then runs the ROS2 node in the
-main process (blocking on rclpy.spin).  On Ctrl-C both are shut down cleanly.
+Starts the Flask web server in a daemon thread (same process as the ROS2
+node), then blocks on rclpy.spin in the main thread.  On Ctrl-C the daemon
+thread exits automatically when the main thread exits.
 
 Usage:
   python tools/roc_simulator/launch_roc.py [--auto-respond] [--port 8765]
 """
 
 import argparse
-import os
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -39,15 +38,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def start_web_server(port: int) -> subprocess.Popen:
-    """Start web_server.py in a child process."""
-    env = os.environ.copy()
-    env["ROC_WEB_PORT"] = str(port)
-    proc = subprocess.Popen(
-        [sys.executable, str(_HERE / "web_server.py"), "--port", str(port)],
-        env=env,
+def start_web_server_thread(port: int) -> threading.Thread:
+    """Start the Flask web server in a daemon thread (same process as the ROS2 node)."""
+    import web_server as _web_server_module
+
+    t = threading.Thread(
+        target=_web_server_module.serve,
+        kwargs={"port": port, "debug": False},
+        daemon=True,
+        name="roc-flask",
     )
-    return proc
+    t.start()
+    return t
 
 
 def wait_for_server(port: int, timeout: float = 10.0) -> bool:
@@ -67,9 +69,13 @@ def wait_for_server(port: int, timeout: float = 10.0) -> bool:
 def main() -> None:
     args = parse_args()
 
-    # ── 1. Start Flask web server subprocess ────────────────────────
+    # ── 1. Initialise roc_node singleton (must happen before Flask starts
+    #        so that get_node() is non-None when the first HTTP request arrives)
+    import roc_node
+
+    # ── 2. Start Flask web server in a daemon thread ─────────────────
     print(f"[launch_roc] Starting web server on port {args.port} …")
-    web_proc = start_web_server(args.port)
+    start_web_server_thread(port=args.port)
 
     if wait_for_server(args.port):
         print(f"[launch_roc] Dashboard available at http://localhost:{args.port}")
@@ -79,34 +85,35 @@ def main() -> None:
             f"(port {args.port}). Continuing anyway."
         )
 
-    # ── 2. Register shutdown handler ────────────────────────────────
+    # ── 3. Register shutdown handler ────────────────────────────────
     def shutdown(signum=None, frame=None):
         print("\n[launch_roc] Shutting down …")
-        web_proc.terminate()
+        # Daemon thread exits automatically; just stop the ROS2 runtime.
         try:
-            web_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            web_proc.kill()
+            import rclpy
+            rclpy.shutdown()
+        except Exception:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGINT,  shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # ── 3. Start ROS2 node (blocks until shutdown) ───────────────────
+    # ── 4. Start ROS2 node (blocks on rclpy.spin in main thread) ────
     print(
         f"[launch_roc] Starting ROS2 node "
         f"(auto_respond={'on' if args.auto_respond else 'off'}) …"
     )
     try:
-        import roc_node
         roc_node.start_node(auto_response_mode=args.auto_respond)
     except ImportError as exc:
         print(f"[launch_roc] ERROR: could not import roc_node: {exc}")
         print("[launch_roc] Is rclpy available in this environment?")
-        # Keep the web server alive so the UI can still be inspected
+        # Keep the web server thread alive so the UI can still be inspected
         print("[launch_roc] Web server remains running. Press Ctrl-C to stop.")
         try:
-            web_proc.wait()
+            while True:
+                time.sleep(1)
         except KeyboardInterrupt:
             shutdown()
     except KeyboardInterrupt:

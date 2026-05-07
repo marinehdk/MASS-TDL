@@ -40,6 +40,7 @@ class RocHmiSimulatorNode(Node):
         super().__init__("roc_hmi_simulator")
 
         self._lock = threading.Lock()
+        self._auto_timer: threading.Timer | None = None
         self._auto_response_mode = auto_response_mode
 
         # Shared state consumed by the web server
@@ -113,20 +114,20 @@ class RocHmiSimulatorNode(Node):
             "recommended_action": msg.recommended_action,
         }
         with self._lock:
-            already_pending = self._state["tor_request"] is not None and self._state["tor_response"] is None
             self._state["tor_request"] = tor_dict
             self._state["tor_received_at"] = time.time()
             self._state["tor_response"] = None
 
+            if self._auto_response_mode:
+                if self._auto_timer is not None:
+                    self._auto_timer.cancel()
+                self._auto_timer = threading.Timer(AUTO_RESPONSE_DELAY_S, self._auto_accept)
+                self._auto_timer.daemon = True
+                self._auto_timer.start()
+
         self.get_logger().info(
             f"ToR received: reason={tor_dict['reason_text']} deadline={msg.deadline_s}s"
         )
-
-        if self._auto_response_mode and not already_pending:
-            # Schedule auto-ACCEPT in a daemon thread so we don't block the spin
-            t = threading.Timer(AUTO_RESPONSE_DELAY_S, self._auto_accept)
-            t.daemon = True
-            t.start()
 
     def _on_sat_data(self, msg: "SATData") -> None:
         sat_dict = {
@@ -162,6 +163,11 @@ class RocHmiSimulatorNode(Node):
             if self._state["tor_request"] is None:
                 self.get_logger().warn("respond_to_tor called but no pending ToR")
                 return False
+            if self._state["tor_response"] is not None:
+                return False  # already responded
+            if self._auto_timer is not None:
+                self._auto_timer.cancel()
+                self._auto_timer = None
             self._state["tor_response"] = response
 
         msg = String()
@@ -183,12 +189,15 @@ class RocHmiSimulatorNode(Node):
         """Auto-ACCEPT callback triggered after AUTO_RESPONSE_DELAY_S seconds."""
         with self._lock:
             if self._state["tor_response"] is not None:
-                # Already responded manually
                 return
-        self.get_logger().info(
-            f"auto_response_mode: auto-ACCEPT after {AUTO_RESPONSE_DELAY_S}s"
-        )
-        self.respond_to_tor("ACCEPT")
+            if self._state["tor_request"] is None:
+                return
+            self._state["tor_response"] = "ACCEPT"
+        # publish outside lock
+        msg = String()
+        msg.data = "ACCEPT"
+        self._tor_pub.publish(msg)
+        self.get_logger().info(f"auto_response_mode: auto-ACCEPT after {AUTO_RESPONSE_DELAY_S}s")
 
 
 # ------------------------------------------------------------------
