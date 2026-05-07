@@ -22,7 +22,7 @@ class AsdrLogger final {
   [[nodiscard]] l3_msgs::msg::ASDRRecord build_record(
       const builtin_interfaces::msg::Time& stamp,
       std::string_view decision_type,
-      std::string_view decision_json) const noexcept;
+      std::string_view decision_json) const;
 
   /// Build ASDRRecord for ToR acknowledgment event.
   [[nodiscard]] l3_msgs::msg::ASDRRecord build_tor_acknowledgment_record(
@@ -30,12 +30,12 @@ class AsdrLogger final {
       std::string_view operator_id,
       double sat1_display_duration_s,
       const std::string& odd_zone,
-      float conformance_score) const noexcept;
+      float conformance_score) const;
 
   /// Build ASDRRecord for periodic UI state snapshot.
   [[nodiscard]] l3_msgs::msg::ASDRRecord build_ui_snapshot_record(
       const builtin_interfaces::msg::Time& stamp,
-      std::string_view ui_state_summary) const noexcept;
+      std::string_view ui_state_summary) const;
 };
 
 }  // namespace mass_l3::m8

@@ -7,7 +7,7 @@ namespace mass_l3::m8 {
 l3_msgs::msg::ASDRRecord AsdrLogger::build_record(
     const builtin_interfaces::msg::Time& stamp,
     std::string_view decision_type,
-    std::string_view decision_json) const noexcept
+    std::string_view decision_json) const
 {
     l3_msgs::msg::ASDRRecord msg{};
     msg.stamp = stamp;
@@ -24,7 +24,7 @@ l3_msgs::msg::ASDRRecord AsdrLogger::build_tor_acknowledgment_record(
     std::string_view operator_id,
     double sat1_display_duration_s,
     const std::string& odd_zone,
-    float conformance_score) const noexcept
+    float conformance_score) const
 {
     std::string json =
         "{\"operator_id\":\"" + std::string{operator_id} +
@@ -36,7 +36,7 @@ l3_msgs::msg::ASDRRecord AsdrLogger::build_tor_acknowledgment_record(
 
 l3_msgs::msg::ASDRRecord AsdrLogger::build_ui_snapshot_record(
     const builtin_interfaces::msg::Time& stamp,
-    std::string_view ui_state_summary) const noexcept
+    std::string_view ui_state_summary) const
 {
     std::string json = "{\"ui_state\":\"" + std::string{ui_state_summary} + "\"}";
     return build_record(stamp, "ui_state_snapshot", json);
