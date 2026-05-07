@@ -109,7 +109,7 @@ class TargetInjectorNode:
     # Public API
     # ------------------------------------------------------------------
 
-    def load_scenario(self, scenario: Scenario) -> None:
+    def load_scenario(self, scenario: Optional[Scenario]) -> None:
         """Update the active scenario; takes effect on the next timer tick."""
         with self._lock:
             self._scenario = scenario
