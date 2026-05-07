@@ -81,6 +81,22 @@ finding/建议
 | 关键决策、选型、合规裁决 | `/nlm-research --depth deep --add-sources` | 默认入本地笔记本，不允许 `--no-add-sources` |
 | 仓库内已有结论 | 直接引用，不重复调研 | 引用 v1.1.2 章节锚点或 audit/ |
 
+### 4.1 DOMAIN 笔记本路由规则
+- subagent **不直接创建** DOMAIN 笔记本（避免 7 并行竞争产生重叠）
+- 若发现某查询主题在现有 5 个 DOMAIN（safety_verification / ship_maneuvering / maritime_human_factors / maritime_regulations / colav_algorithms）无良好归属，subagent 在报告 §6 调研引用清单末尾追加：
+  ```
+  ## 6.x 建议新增 DOMAIN 笔记本
+  - 名称：DOMAIN · {领域} · Research
+  - 关键词：[...]
+  - 触发原因：本评审中 N 个 finding 缺乏对标 DOMAIN（列出 finding 编号）
+  ```
+- 主 agent 汇总阶段统一审查并创建（避免重复）
+
+### 4.2 ship_maneuvering 当前为空（0 sources）的应对
+- B/G angle 在涉及 MMG / 4-DOF / FCB 水动力 / 停船距离 / ROT 等查询时
+- 优先 `/nlm-research --depth deep --add-sources` 直接补给 ship_maneuvering DOMAIN
+- subagent 在报告中说明本次为 ship_maneuvering 注入了哪些来源
+
 ---
 
 ## 5. 行业基准对标（cross-cutting，所有 angle 强制）
@@ -187,3 +203,4 @@ finding/建议
 |---|---|---|
 | v0.1 | 2026-05-07 | 初稿（6 angle，无证据链铁律）|
 | v0.2 | 2026-05-07 | 加入 G SIL 角度；加入用户三条硬约束（零幻觉/行业对标/多船型泛化）|
+| v0.3 | 2026-05-07 | §4 增加 DOMAIN 路由规则 + ship_maneuvering 空补给策略 |
