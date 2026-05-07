@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MASS ADAS L3 · 四阶段完整开发计划</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f2f5;--white:#fff;--surface:#fafbfc;
+  --border:#e2e6ed;--border2:#c8d0db;
+  --text:#1a2332;--text2:#4a5568;--text3:#8a9ab0;
+  --blue:#1d4fd8;--blue-l:#e8eeff;--blue-b:#c7d2f0;
+  --green:#0f7a4a;--green-l:#e6f5ee;--green-b:#b6dfc8;
+  --amber:#b45309;--amber-l:#fef3e2;--amber-b:#f9d094;
+  --red:#c0392b;--red-l:#fdf0ee;--red-b:#f5b9b3;
+  --purple:#5b21b6;--purple-l:#f0ebff;--purple-b:#d4c0f8;
+  --teal:#0d7a70;--teal-l:#e4f5f4;--teal-b:#a8ddd9;
+  --gray:#374151;--gray-l:#f3f4f6;--gray-b:#d1d5db;
+  --p1:#1d4fd8;--p2:#0d7a70;--p3:#5b21b6;--p4:#c0392b;
+  --r:6px;--r2:10px;--r3:14px;
+  --sh:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.05);
+  --sh2:0 4px 12px rgba(0,0,0,.1),0 2px 4px rgba(0,0,0,.06);
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6}
+@media print{
+  body{background:#fff;font-size:12px}
+  .no-print{display:none!important}
+  .phase-content{display:block!important}
+  .pg-break{page-break-before:always}
+}
+.container{max-width:1160px;margin:0 auto;padding:28px 24px}
+
+/* ── HEADER ── */
+.hdr{color:#fff;padding:28px 36px;border-radius:var(--r3);margin-bottom:24px;position:relative;overflow:hidden;box-shadow:0 4px 24px rgba(29,79,216,.28)}
+.hdr::before{content:'';position:absolute;top:-50px;right:-50px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.05)}
+.hdr::after{content:'';position:absolute;bottom:-70px;right:100px;width:340px;height:200px;border-radius:50%;background:rgba(255,255,255,.03)}
+.hdr-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.hdr-badge{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;background:rgba(255,255,255,.15);padding:3px 12px;border-radius:20px;display:inline-block;margin-bottom:7px}
+.hdr-title{font-size:24px;font-weight:800;margin-bottom:3px;letter-spacing:-.3px}
+.hdr-sub{font-size:13px;opacity:.8}
+.hdr-meta{text-align:right;flex-shrink:0;font-size:12px;opacity:.8;line-height:1.9}
+.hdr-meta strong{font-size:14px;opacity:1;font-weight:700}
+.hdr-stats{display:flex;gap:32px}
+.hs{text-align:center}
+.hs-val{font-size:20px;font-weight:800;margin-bottom:1px}
+.hs-lbl{font-size:10px;opacity:.7}
+
+/* ── TIMELINE STRIP ── */
+.timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
+.tl-card{border-radius:var(--r2);padding:14px 16px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;border:2px solid transparent}
+.tl-card.active{box-shadow:var(--sh2)}
+.tl-num{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;opacity:.8}
+.tl-title{font-size:13px;font-weight:700;margin-bottom:3px;line-height:1.4}
+.tl-period{font-size:11px;opacity:.75;margin-bottom:8px}
+.tl-bar{height:3px;border-radius:2px;background:rgba(255,255,255,.25);margin-bottom:8px;overflow:hidden}
+.tl-fill{height:100%;border-radius:2px;background:rgba(255,255,255,.8)}
+.tl-count{font-size:11px;opacity:.8;font-weight:600}
+.tl-tag{position:absolute;top:10px;right:10px;font-size:9px;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.2);padding:2px 7px;border-radius:20px}
+
+/* ── PHASE TABS ── */
+.phase-tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:4px;box-shadow:var(--sh)}
+.ptab{flex:1;padding:9px 14px;border-radius:var(--r);border:none;background:transparent;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--text2);font-family:inherit;transition:all .2s;text-align:center}
+.ptab:hover{background:var(--surface);color:var(--text)}
+.ptab.active{color:#fff;box-shadow:var(--sh)}
+
+/* ── PHASE CONTENT ── */
+.phase-content{display:none}
+.phase-content.active{display:block;animation:fadeUp .2s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ── SECTION TITLE ── */
+.sec-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.sec-title::before{content:'';width:3px;height:17px;border-radius:2px;flex-shrink:0}
+.sec-title small{font-size:11.5px;font-weight:400;color:var(--text3);margin-left:4px}
+.p1 .sec-title::before{background:var(--p1)}
+.p2 .sec-title::before{background:var(--p2)}
+.p3 .sec-title::before{background:var(--p3)}
+.p4 .sec-title::before{background:var(--p4)}
+
+/* ── GANTT ── */
+.gantt{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;box-shadow:var(--sh);margin-bottom:24px}
+.ghead{display:grid;background:var(--surface);border-bottom:1.5px solid var(--border2)}
+.gcol{padding:9px 12px;font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;border-right:1px solid var(--border)}
+.gcol.wk{text-align:center}
+.gcol .wday{font-size:9.5px;font-weight:400;color:var(--text3);margin-top:1px}
+.grow{display:grid;border-bottom:1px solid var(--border)}
+.grow:last-child{border-bottom:none}
+.glbl{padding:9px 12px;font-size:12px;font-weight:600;color:var(--text);border-right:1px solid var(--border);display:flex;align-items:center;gap:7px;background:var(--surface)}
+.gdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.gcell{padding:6px;border-right:1px solid var(--border);display:flex;align-items:center}
+.gcell:last-child{border-right:none}
+.bar{border-radius:4px;padding:4px 8px;font-size:11px;font-weight:600;text-align:center;line-height:1.3}
+.bar.full{width:100%}
+.bar.half{width:50%;margin-left:50%}
+.bar.lhalf{width:50%}
+.bar.w75{width:75%}
+.bar.w25{width:25%}
+.bar.mkey{color:#fff}
+.gcell .empty{color:var(--text3);font-size:11px;padding:3px 6px}
+.gantt-leg{display:flex;gap:16px;padding:10px 12px;background:var(--surface);border-top:1px solid var(--border);flex-wrap:wrap}
+.gl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.gldot{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+
+/* milestone rows */
+.ms-row{background:rgba(255,235,190,.15);border-left:3px solid var(--amber)}
+.ms-row .glbl{font-style:italic;color:var(--amber)}
+
+/* ── DELIVERABLES ── */
+.dels{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+.dc{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;box-shadow:var(--sh);transition:box-shadow .15s}
+.dc:hover{box-shadow:var(--sh2)}
+.dc-hd{padding:13px 15px 11px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:11px}
+.dc-id{font-size:11px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:20px;flex-shrink:0;margin-top:1px}
+.dc-tw{flex:1}
+.dc-title{font-size:13.5px;font-weight:700;line-height:1.4;margin-bottom:2px}
+.dc-meta{display:flex;gap:10px;font-size:11px;color:var(--text3)}
+.dc-bd{padding:11px 15px}
+.dc-s{margin-bottom:9px}
+.dc-s:last-child{margin-bottom:0}
+.dc-sl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+.dc-sb{font-size:12px;color:var(--text2);line-height:1.8}
+.dod-list{}
+.dod-item{display:flex;align-items:flex-start;gap:6px;margin-bottom:3px;font-size:11.5px;color:var(--text2)}
+.chk{width:13px;height:13px;border-radius:3px;border:1.5px solid var(--border2);flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;background:var(--surface);cursor:pointer;transition:all .15s}
+.chk.done{background:var(--green);border-color:var(--green)}
+.chk.done::after{content:'✓';font-size:8px;font-weight:700;color:#fff}
+.dc-ft{padding:9px 15px;background:var(--surface);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text3)}
+.otag{background:var(--gray-l);border-radius:20px;padding:1px 8px;color:var(--gray);font-weight:600;font-size:11px}
+
+/* ── RISK TABLE ── */
+.rtbl{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r2);overflow:hidden;box-shadow:var(--sh);margin-bottom:24px}
+.rtbl th{background:var(--surface);padding:9px 13px;font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;text-align:left;border-bottom:1.5px solid var(--border2)}
+.rtbl td{padding:10px 13px;font-size:12px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.7}
+.rtbl tr:last-child td{border-bottom:none}
+.rtbl tr:hover td{background:var(--surface)}
+.rl{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px}
+.rl-h{background:var(--red-l);color:var(--red);border:1px solid var(--red-b)}
+.rl-m{background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)}
+.rl-l{background:var(--green-l);color:var(--green);border:1px solid var(--green-b)}
+
+/* ── PROGRESS BAR ── */
+.phase-prog{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:16px 20px;margin-bottom:20px;box-shadow:var(--sh);display:flex;gap:0;align-items:center}
+.pp-item{flex:1;text-align:center}
+.pp-val{font-size:22px;font-weight:800;margin-bottom:2px}
+.pp-lbl{font-size:10.5px;color:var(--text3)}
+.pp-div{width:1px;background:var(--border);height:36px;margin:0 4px}
+
+/* ── MILESTONE BADGE ── */
+.ms-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 14px;border-radius:20px;margin-bottom:14px}
+
+/* ── FOOTER ── */
+.plan-ft{background:var(--white);border:1px solid var(--border);border-radius:var(--r2);padding:18px 22px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text3);box-shadow:var(--sh);margin-top:8px}
+.pft-note{line-height:1.8;max-width:640px}
+.pft-note strong{color:var(--text2)}
+
+/* ── PRINT / UTIL ── */
+.print-btn{position:fixed;bottom:22px;right:22px;background:var(--blue);color:#fff;border:none;border-radius:20px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(29,79,216,.35);display:flex;align-items:center;gap:6px;font-family:inherit;transition:transform .15s}
+.print-btn:hover{transform:translateY(-1px)}
+code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--gray-l);color:var(--gray);padding:1px 5px;border-radius:3px}
+hr.div{border:none;border-top:1px solid var(--border);margin:20px 0}
+.tag{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:20px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ══════════════════ HEADER ══════════════════ -->
+<div class="hdr" style="background:linear-gradient(135deg,#1a2f5e 0%,#1d4fd8 60%,#2563eb 100%)">
+  <div class="hdr-top">
+    <div>
+      <div class="hdr-badge">四阶段完整开发计划</div>
+      <div class="hdr-title">MASS ADAS · L3 战术决策层</div>
+      <div class="hdr-sub">45m FCB 首发 · CCS 入级（i-Ship Nx/Ri）· D2–D4 全谱自主 · 多船型兼容</div>
+    </div>
+    <div class="hdr-meta">
+      <div>总工期</div><div><strong>4 个月 / 84 工作日</strong></div>
+      <div style="height:6px"></div>
+      <div>目标</div><div><strong>CCS AIP + 设计认可</strong></div>
+      <div style="height:6px"></div>
+      <div>版本</div><div><strong>v2.0 · <span id="doc-date"></span></strong></div>
+    </div>
+  </div>
+  <div class="hdr-stats">
+    <div class="hs"><div class="hs-val">84</div><div class="hs-lbl">总工作日</div></div>
+    <div class="hs"><div class="hs-val">28</div><div class="hs-lbl">总交付物</div></div>
+    <div class="hs"><div class="hs-val">8</div><div class="hs-lbl">核心模块</div></div>
+    <div class="hs"><div class="hs-val" style="color:#6ee7b7">v0.3.0</div><div class="hs-lbl">Phase E1 完成</div></div>
+    <div class="hs"><div class="hs-val">100%</div><div class="hs-lbl">DNV-CG-0264 覆盖</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════ TIMELINE STRIP ══════════════════ -->
+<div class="timeline">
+  <div class="tl-card active" id="tl1" onclick="switchPhase(1)" style="background:linear-gradient(135deg,#054f46,#0f7a4a);color:#fff;border-color:#0f7a4a">
+    <div class="tl-tag">✅ 已完成</div>
+    <div class="tl-num">第一阶段</div>
+    <div class="tl-title">架构基线 + 基础模块</div>
+    <div class="tl-period">已完成 2026-05-06 · 1–2 天</div>
+    <div class="tl-bar"><div class="tl-fill" style="width:0%"></div></div>
+    <div class="tl-count">🎯 8 项交付物 · M1/M2 完整实现</div>
+  </div>
+  <div class="tl-card" id="tl2" onclick="switchPhase(2)" style="background:var(--white);color:var(--text);border-color:var(--border)">
+    <div class="tl-tag" style="background:rgba(13,122,112,.15);color:var(--teal)">编码完成 ⏳</div>
+    <div class="tl-num" style="color:var(--p2)">第二阶段</div>
+    <div class="tl-title">核心决策模块实现</div>
+    <div class="tl-period">已完成 2026-05 · 4 周</div>
+    <div class="tl-bar" style="background:var(--border)"><div class="tl-fill" style="width:0%;background:var(--p2)"></div></div>
+    <div class="tl-count" style="color:var(--text3)">🎯 4/8 交付物完成 · 认证/测试待推进</div>
+  </div>
+  <div class="tl-card" id="tl3" onclick="switchPhase(3)" style="background:var(--white);color:var(--text);border-color:var(--border)">
+    <div class="tl-tag" style="background:rgba(91,33,182,.18);color:var(--purple)">🏃 进行中</div>
+    <div class="tl-num" style="color:var(--p3)">第三阶段</div>
+    <div class="tl-title">集成测试 + HIL + 安全认证</div>
+    <div class="tl-period">2026-05-07 → 07-01 · 8 周</div>
+    <div class="tl-bar" style="background:var(--border)"><div class="tl-fill" style="width:0%;background:var(--p3)"></div></div>
+    <div class="tl-count" style="color:var(--text3)">🎯 3/7 编码完成 · E2 集成测试进行中</div>
+  </div>
+  <div class="tl-card" id="tl4" onclick="switchPhase(4)" style="background:var(--white);color:var(--text);border-color:var(--border)">
+    <div class="tl-tag" style="background:rgba(192,57,43,.1);color:var(--red)">待启动</div>
+    <div class="tl-num" style="color:var(--p4)">第四阶段</div>
+    <div class="tl-title">实船调试 + CCS 见证</div>
+    <div class="tl-period">2026-07-03 → 08-20 · 6 周</div>
+    <div class="tl-bar" style="background:var(--border)"><div class="tl-fill" style="width:0%;background:var(--p4)"></div></div>
+    <div class="tl-count" style="color:var(--text3)">🎯 5 项交付物 · AIP 取得</div>
+  </div>
+</div>
+
+<!-- ══════════════════ PHASE TABS ══════════════════ -->
+<div class="phase-tabs">
+  <button class="ptab active" id="ptab1" onclick="switchPhase(1)" style="background:var(--p1)">第一阶段 · 架构基线</button>
+  <button class="ptab" id="ptab2" onclick="switchPhase(2)">第二阶段 · 决策模块</button>
+  <button class="ptab" id="ptab3" onclick="switchPhase(3)">▶ 第三阶段 · 集成测试 [当前]</button>
+  <button class="ptab" id="ptab4" onclick="switchPhase(4)">第四阶段 · 实船见证</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 1
+══════════════════════════════════════════════════════ -->
+<div class="phase-content active p1" id="phase1">
+
+<div class="ms-badge" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">
+  ✅ 已完成（2026-05）— Wave 0 基础设施 + M1/M2 全部 Phase E1 完成 · 8 模块框架 + 接口契约冻结 · v1.1.2 架构锁定
+</div>
+
+<div class="phase-prog">
+  <div class="pp-item"><div class="pp-val" style="color:var(--blue)" id="p1-done">32/32</div><div class="pp-lbl">交付物完成</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--green)">0%</div><div class="pp-lbl">阶段进度</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--text2)">Day 1–21</div><div class="pp-lbl">工期范围</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--amber)">5</div><div class="pp-lbl">风险项</div></div>
+</div>
+
+<div class="sec-title">甘特图 · 第 1–4 周</div>
+<div class="gantt">
+  <div class="ghead" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="gcol">工作流</div>
+    <div class="gcol wk">第 1 周<div class="wday">Day 1–5</div></div>
+    <div class="gcol wk">第 2 周<div class="wday">Day 6–10</div></div>
+    <div class="gcol wk">第 3 周<div class="wday">Day 11–15</div></div>
+    <div class="gcol wk">第 4 周<div class="wday">Day 16–21</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>基础设施</div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ROS2 + 仿真 + CI/CD</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">FCB仿真模型</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>接口契约 IDL</div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">8模块 IDL 初稿</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">迭代 + 压力评审</div></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#5b21b6">技术评审 → 冻结✓</div></div>
+    <div class="gcell"><span class="empty">冻结后不变更</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#0f7a4a"></div>M1 ODD Manager</div>
+    <div class="gcell"><span class="empty">架构设计</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">三轴状态机 + TMR/TDL</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">边界检测 + MRC触发</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">单元测试≥80%</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>M2 World Model</div>
+    <div class="gcell"><span class="empty">架构设计</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">三视图数据结构</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ENC接口 + 置信度</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">单元测试≥80%</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#0d7a70"></div>Capability Manifest</div>
+    <div class="gcell"><div class="bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">Schema 设计</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">FCB 参数填充</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">M1 加载验证</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>HARA 安全分析</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">调研准备</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">HARA Workshop ≥30危险</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">报告初版</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#6b21a8"></div>CCS AIP 准备</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">ODD-Spec 起草</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">ODD-Spec v1.0</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">ConOps + CCS 征询提交</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#374151"></div>M3–M8 框架代码</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">设计细化</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b)">6模块框架 + 全链路心跳</div></div>
+  </div>
+  <div class="grow ms-row" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl">📍 M1 里程碑评审</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--amber)">Day 21 · 阶段门控评审</div></div>
+  </div>
+  <div class="gantt-leg">
+    <div class="gl"><div class="gldot" style="background:var(--blue-l);border:1px solid var(--blue-b)"></div>基础设施/M2</div>
+    <div class="gl"><div class="gldot" style="background:var(--green-l);border:1px solid var(--green-b)"></div>M1 ODD Manager</div>
+    <div class="gl"><div class="gldot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>接口契约/CCS</div>
+    <div class="gl"><div class="gldot" style="background:var(--teal-l);border:1px solid var(--teal-b)"></div>Capability Manifest</div>
+    <div class="gl"><div class="gldot" style="background:var(--amber-l);border:1px solid var(--amber-b)"></div>安全分析</div>
+    <div class="gl"><div class="gldot" style="background:#1d4fd8"></div>强制里程碑</div>
+  </div>
+</div>
+
+<div class="sec-title">第一阶段交付物 <small>（8 项，含 DoD 验收标准）</small></div>
+<div class="dels">
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D1.1</div><div class="dc-tw"><div class="dc-title">✅ 开发环境验证报告</div><div class="dc-meta"><span>📅 Day 5</span><span>👤 基础设施负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--blue)">交付内容</div><div class="dc-sb">ROS2 环境、仿真平台（Gazebo/Unity）安装验证文档；FCB MMG 水动力基础模型跑通记录；CI/CD 流水线说明；联调测试截图/视频。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>FCB 仿真连续运行 10 分钟无崩溃</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>控制回路频率 ≥ 45 Hz</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>CI/CD 自动执行单元测试并生成报告</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>文档通过技术负责人审核</div></div></div></div><div class="dc-ft"><span>基础前提，阻塞所有后续开发</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D1.2</div><div class="dc-tw"><div class="dc-title">✅ 接口契约文档 v1.0（冻结版）</div><div class="dc-meta"><span>📅 Day 15</span><span>👤 系统架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">8 模块全部 IDL 消息定义（≥12 条）；消息频率要求表；置信度/时间戳规范；变更控制说明（冻结后走 ECO 流程）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>≥12 条消息全部有完整 IDL 定义</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>各模块负责人评审会议签字确认</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div><code>git tag idl/l3-tdl-v1.0</code> 打标完成</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Mock 接入验证：8 节点无报错接收</div></div></div></div><div class="dc-ft"><span>防止集成阶段大量返工的核心控制点</span><div class="del-owner">验收：<span class="otag">架构师+各负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--teal-l);color:var(--teal)">D1.3</div><div class="dc-tw"><div class="dc-title">✅ Capability Manifest v1.0（FCB 45m）</div><div class="dc-meta"><span>📅 Day 15</span><span>👤 系统架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--teal)">交付内容</div><div class="dc-sb">YAML Schema 规格书；FCB 45m 参数文件（含主尺度、操纵极限、ODD 四子域参数、水动力插件路径）；C++ <code>VesselHydroPlugin</code> 纯虚接口定义。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Manifest 被 M1 正确加载并通过 Schema 验证</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ODD-A/B/C/D 四子域参数全部填写</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>船厂设计部门书面确认参数</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>C++ 插件接口可编译</div></div></div></div><div class="dc-ft"><span>多船型扩展的核心载体，也是 CCS AIP 必要输入</span><div class="del-owner">验收：<span class="otag">架构师+CCS</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green)">D1.4</div><div class="dc-tw"><div class="dc-title">✅ M1 ODD/Envelope Manager 实现及测试报告</div><div class="dc-meta"><span>📅 Day 21</span><span>👤 M1 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--green)">交付内容</div><div class="dc-sb">完整实现：三轴状态机、TMR/TDL 计算、ODD 边界检测（Conformance_Score）、D2/D3/D4 模式切换、MRC 触发；单元测试套件；10 标准场景测试记录。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>单元测试覆盖率 ≥ 80%（分支覆盖）</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>10 个标准场景（ODD切换+MRC触发）全通过</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div><code>ODD_StateMsg</code> 发布频率 1 Hz ± 10%</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Code Review 通过；M1+M2 联调正常</div></div></div></div><div class="dc-ft"><span>整个系统调度枢纽，M3–M8 开发的先决依赖</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D1.5</div><div class="dc-tw"><div class="dc-title">✅ M2 World Model 实现及测试报告</div><div class="dc-meta"><span>📅 Day 21</span><span>👤 M2 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--blue)">交付内容</div><div class="dc-sb">三视图（静态/动态/自身）完整实现；Mock 传感器接口；ENC 查询接口；COLREGs 几何预分类；置信度管理；单元测试 + M1 联调记录。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>单元测试覆盖率 ≥ 80%</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>10 目标场景下 CPA/TCPA 计算误差 ≤ 1%</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ENC 查询：坐标→水深/禁区信息正确返回</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M1+M2 联调：威胁 TCPA 变化触发 ODD 状态变更</div></div></div></div><div class="dc-ft"><span>所有决策模块的唯一事实来源</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D1.6</div><div class="dc-tw"><div class="dc-title">✅ ODD-Spec v1.0（CCS AIP 核心申请文件）</div><div class="dc-meta"><span>📅 Day 21</span><span>👤 系统架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">三轴（E/T/H）完整定义；四子域参数表（CPA/TCPA/速度/TMR/主导规则）；TMR/TDL 量化基础说明；ODD 主状态机规格；格式满足 CCS 提交要求。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>三轴各维度均有量化范围</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>四子域参数表完整</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>内部评审通过</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>已提交 CCS 项目组 AIP 前预沟通（邮件留存）</div></div></div></div><div class="dc-ft"><span>CCS i-Ship 入级的起点文件</span><div class="del-owner">验收：<span class="otag">架构师+CCS征询</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D1.7</div><div class="dc-tw"><div class="dc-title">✅ HARA 风险分析初版（含 SIL 候选分配）</div><div class="dc-meta"><span>📅 Day 21</span><span>👤 安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--amber)">交付内容</div><div class="dc-sb">基于 8 模块架构的顶层危险识别（≥30 个 Hazard）；危险等级初步评估；SIL 候选分配表（MRC 触发链 SIL 2 等）；关键假设清单。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>识别 ≥ 30 个顶层危险，覆盖所有 8 模块</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>每个危险：描述/严重度/频率/初步风险等级</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>SIL 候选覆盖 MRC 链路和 COLREGs 模块</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>通过内部安全评审</div></div></div></div><div class="dc-ft"><span>SIL 分配前提，Safety Case 基础文件</span><div class="del-owner">验收：<span class="otag">安全工程师</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--gray-l);color:var(--gray)">D1.8</div><div class="dc-tw"><div class="dc-title">✅ M3–M8 框架代码（全链路心跳验证）</div><div class="dc-meta"><span>📅 Day 21</span><span>👤 技术负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--gray)">交付内容</div><div class="dc-sb">M3–M8 六个模块框架代码（接口完整，业务逻辑为合法默认值占位）；8 模块全链路心跳测试记录；第二阶段扩展性说明。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>8 模块同时启动，无启动报错</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M1 发出 ODD_StateMsg → 各模块正确接收</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M5 能发出格式合法的 Trajectory_CmdMsg</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>代码结构满足第二阶段扩展要求</div></div></div></div><div class="dc-ft"><span>第二阶段并行开发的起跑线</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+</div>
+
+<div class="sec-title">风险登记 <small>（第一阶段，5 项）</small></div>
+<table class="rtbl"><tr><th>风险</th><th width="70">等级</th><th>影响</th><th>缓解措施</th><th width="80">责任人</th></tr>
+<tr><td><strong>FCB 水动力参数缺失</strong><br><small>船厂未能及时提供操纵性试验数据</small></td><td><span class="rl rl-h">高</span></td><td>D1.3 Manifest 无法用真实参数</td><td>Week 1 内发船厂催函；先用 <code>clarke83</code> 估算值标注 ESTIMATE，不阻塞开发</td><td>架构师</td></tr>
+<tr><td><strong>接口契约 Day 15 后仍变更</strong><br><small>模块开发中发现设计缺陷</small></td><td><span class="rl rl-h">高</span></td><td>M1/M2 代码返工，延误 P2</td><td>Week 1 投入 40% 精力做 IDL；Week 3 评审强制冻结；后续走 ECO 变更流程</td><td>架构师</td></tr>
+<tr><td><strong>CCS 项目组响应延迟</strong></td><td><span class="rl rl-m">中</span></td><td>AIP 申请推迟</td><td>Week 2 前完成首次接洽；CCS 反馈与开发并行，不作为阻塞条件</td><td>PM</td></tr>
+<tr><td><strong>仿真平台版本冲突</strong></td><td><span class="rl rl-m">中</span></td><td>D1.1 环境延误</td><td>Day 1 确认版本组合（Gazebo Harmonic + ROS2 Jazzy）；备用 bag 回放方案</td><td>基础设施</td></tr>
+<tr><td><strong>ENC 数据获取授权问题</strong></td><td><span class="rl rl-l">低</span></td><td>M2 ENC 接口无真实数据验证</td><td>先用 OpenSeaMap 开源数据验证逻辑；Week 2 前与航海图志局联系</td><td>M2 负责人</td></tr>
+</table>
+</div><!-- /phase1 -->
+
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 2
+══════════════════════════════════════════════════════ -->
+<div class="phase-content p2" id="phase2">
+
+<div class="ms-badge" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">
+  ✅ 编码已完成（D2.1–D2.4，2026-05） → ⏳ 当前待推进：仿真集成测试（E2）· SIL/HAZID 校准 · CCS 设计认可申请 · 第二船型插件
+</div>
+
+<div class="phase-prog">
+  <div class="pp-item"><div class="pp-val" style="color:var(--teal)">0/8</div><div class="pp-lbl">交付物完成</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--green)">0%</div><div class="pp-lbl">阶段进度</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--text2)">Day 22–43</div><div class="pp-lbl">工期范围</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--amber)">4</div><div class="pp-lbl">风险项</div></div>
+</div>
+
+<div class="sec-title">甘特图 · 第 5–8 周</div>
+<div class="gantt">
+  <div class="ghead" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="gcol">工作流</div>
+    <div class="gcol wk">第 5 周<div class="wday">Day 22–26</div></div>
+    <div class="gcol wk">第 6 周<div class="wday">Day 27–31</div></div>
+    <div class="gcol wk">第 7 周<div class="wday">Day 32–37</div></div>
+    <div class="gcol wk">第 8 周<div class="wday">Day 38–43</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#0d7a70"></div>M3 Mission Manager</div>
+    <div class="gcell"><div class="bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">计划解析 + ETA跟踪</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">ODD联动重规划 + 验证</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--teal-l);color:var(--teal);border:1px solid var(--teal-b)">单元测试 ≥80%</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>M4 Behavior Arbiter</div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">行为字典 + IvP 求解器集成</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ODD驱动行为切换</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">多行为冲突仲裁测试</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>M6 COLREGs Reasoner</div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">五层推理架构设计</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">Rule 13-17 + Rule 9/19 实现</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">≥500 场景覆盖测试</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">独立 SIL 验证准备</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#0f7a4a"></div>M5 Tactical Planner</div>
+    <div class="gcell"><span class="empty">接口预研</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">Mid-MPC 代价函数 + 约束</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">Mid-MPC 与 M4/M6 集成</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--green-l);color:var(--green);border:1px solid var(--green-b)">仿真闭环联调</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>HARA 深化 + SIL</div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">LOPA 分析 / SIL 量化</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b)">SIL 报告终版</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#374151"></div>仿真闭环集成测试</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b)">M1-M6 六模块集成</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b)">50 开阔水域避碰场景</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#6b21a8"></div>CCS 设计认可准备</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">系统架构提交材料整理</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">CCS 设计认可申请提交</div></div>
+  </div>
+  <div class="grow ms-row" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl">📍 M2 里程碑评审</div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--amber)">Day 43 · 阶段门控评审</div></div>
+  </div>
+  <div class="gantt-leg">
+    <div class="gl"><div class="gldot" style="background:var(--teal-l);border:1px solid var(--teal-b)"></div>M3 Mission Mgr</div>
+    <div class="gl"><div class="gldot" style="background:var(--blue-l);border:1px solid var(--blue-b)"></div>M4 Behavior</div>
+    <div class="gl"><div class="gldot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>M6 COLREGs</div>
+    <div class="gl"><div class="gldot" style="background:var(--green-l);border:1px solid var(--green-b)"></div>M5 Mid-MPC</div>
+    <div class="gl"><div class="gldot" style="background:var(--amber-l);border:1px solid var(--amber-b)"></div>安全分析</div>
+    <div class="gl"><div class="gldot" style="background:#b45309"></div>强制里程碑</div>
+  </div>
+</div>
+
+<div class="sec-title">第二阶段交付物 <small>（8 项）</small></div>
+<div class="dels">
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--teal-l);color:var(--teal)">D2.1</div><div class="dc-tw"><div class="dc-title">✅ M3 Mission Manager 实现及测试报告</div><div class="dc-meta"><span>📅 Day 31</span><span>👤 M3 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--teal)">交付内容</div><div class="dc-sb">航次计划解析（RTZ/GeoJSON 格式）；水深/禁区/VTS 合法性验证；ETA 跟踪器；ODD 变化触发局部重规划；与 M4 目标投影接口。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>单元测试覆盖率 ≥ 80%</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>非法计划（浅水/禁区）被正确拒绝</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ODD-B 进入时速度约束更新正确</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M3 → M4 Mission_GoalMsg 正常发布</div></div></div></div><div class="dc-ft"><span>战略-战术接口，航次计划生命周期管理</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D2.2</div><div class="dc-tw"><div class="dc-title">✅ M4 Behavior Arbiter 实现及测试报告</div><div class="dc-meta"><span>📅 Day 31</span><span>👤 M4 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--blue)">交付内容</div><div class="dc-sb">8 种行为字典实现（Transit/COLREGs_Avoidance/DP_Hold/MRC_Drift 等）；IvP 多目标求解器集成；ODD-aware 行为切换；COLREGs 硬约束嵌入；行为冲突仲裁测试。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>8 种行为各有独立单元测试通过</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>IvP 求解器 < 50ms 完成一次仲裁</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ODD 切换时行为集正确变更</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>COLREGs 约束不被其他行为压倒（硬约束验证）</div></div></div></div><div class="dc-ft"><span>并发行为冲突的仲裁核心</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D2.3</div><div class="dc-tw"><div class="dc-title">✅ M6 COLREGs Reasoner 实现及覆盖率报告</div><div class="dc-meta"><span>📅 Day 37</span><span>👤 M6 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">五层推理架构完整实现（规则判定/会遇分类/责任分配/行动方向/时机判定）；ODD-aware 参数表（T_standOn/T_act 各子域值）；≥500 遭遇场景测试报告。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Rule 13/14/15/16/17 全分支覆盖</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ODD-D（能见度不良）时 Rule 19 正确覆盖 Rule 13-17</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>≥500 场景测试通过，误判率 < 1%</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>推理输出包含完整决策链（满足 SAT-2 可审计要求）</div></div></div></div><div class="dc-ft"><span>独立 SIL 可验证，CCS 认证的法规核心</span><div class="del-owner">验收：<span class="otag">安全工程师+技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green)">D2.4</div><div class="dc-tw"><div class="dc-title">✅ M5 Tactical Planner（Mid-MPC）实现报告</div><div class="dc-meta"><span>📅 Day 43</span><span>👤 M5 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--green)">交付内容</div><div class="dc-sb">中程 MPC（时域 60–120s，步长 5s）完整实现；FCB 线性化操纵模型；COLREG 合规代价函数；ODD 速度约束动态更新；仿真中与 M4/M6 集成验证。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Mid-MPC 求解时间 < 500ms（1 Hz 可持续）</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>10 个开阔水域遭遇场景生成 COLREGs 合规轨迹</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ODD-B 时速度约束自动收紧</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Trajectory_CmdMsg 10 Hz 稳定发布至 L2</div></div></div></div><div class="dc-ft"><span>轨迹规划核心，第三阶段 BC-MPC 的前提</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D2.5</div><div class="dc-tw"><div class="dc-title">SIL 评级报告（第三方初稿）</div><div class="dc-meta"><span>📅 Day 31</span><span>👤 安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--amber)">交付内容</div><div class="dc-sb">基于 HARA + LOPA 的 SIL 量化分析；MRC 触发链路 SIL 2 论证；COLREGs 推理 SIL 2 论证；架构分离性（Separability）说明；提交第三方预评估。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>SIL 分配覆盖全部 8 个模块</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>MRC 链路 SIL 2 论证完整</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>提交第三方机构预评估（收到受理回执）</div></div></div></div><div class="dc-ft"><span>第三阶段 HIL 认证的前置文件</span><div class="del-owner">验收：<span class="otag">安全工程师</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--gray-l);color:var(--gray)">D2.6</div><div class="dc-tw"><div class="dc-title">仿真闭环集成测试报告（M1–M6）</div><div class="dc-meta"><span>📅 Day 43</span><span>👤 技术负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--gray)">交付内容</div><div class="dc-sb">M1–M6 六模块仿真闭环运行记录；50 个开阔水域典型遭遇场景测试（Head-on/Crossing/Overtaking 各覆盖）；Bug 清单及修复状态。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>50 个场景通过率 ≥ 90%（≥45/50）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>连续运行 2 小时无系统崩溃</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>所有 P0 级 Bug 已修复，P1 有修复计划</div></div></div></div><div class="dc-ft"><span>第三阶段 HIL 的质量入口条件</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D2.7</div><div class="dc-tw"><div class="dc-title">CCS 设计认可申请材料包</div><div class="dc-meta"><span>📅 Day 43</span><span>👤 系统架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">系统架构总图（8 模块）；ODD-Spec v1.0；接口契约文档；HARA 初版；SIL 候选分配表；DNV-CG-0264 覆盖矩阵（9/9）；软件安全开发计划（IEC 62443-4-1）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>7 类文件齐备，内部评审通过</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>DNV-CG-0264 覆盖矩阵 9/9 完整</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>已提交 CCS 设计认可申请（受理回执留存）</div></div></div></div><div class="dc-ft"><span>CCS i-Ship 设计认可阶段的核心提交</span><div class="del-owner">验收：<span class="otag">架构师+CCS</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--teal-l);color:var(--teal)">D2.8</div><div class="dc-tw"><div class="dc-title">第二船型水动力插件验证报告</div><div class="dc-meta"><span>📅 Day 43</span><span>👤 系统架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--teal)">交付内容</div><div class="dc-sb">第二船型（推荐用 Fossen MSS mariner 参考模型）的 Capability Manifest + 水动力插件；验证"A 层核心代码零修改、仅替换插件"承诺成立。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>A 层（M1–M8）代码 git diff 为空</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>第二船型可在仿真中完成 Transit 行为</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>文档记录插件替换步骤（≤30 分钟完成替换）</div></div></div></div><div class="dc-ft"><span>多船型兼容承诺的实证，防止"一船一设计"</span><div class="del-owner">验收：<span class="otag">架构师</span></div></div></div>
+</div>
+
+<div class="sec-title">风险登记 <small>（第二阶段，4 项）</small></div>
+<table class="rtbl"><tr><th>风险</th><th width="70">等级</th><th>影响</th><th>缓解措施</th><th width="80">责任人</th></tr>
+<tr><td><strong>IvP 求解器集成性能不达标</strong><br><small>M4 IvP 求解时间 > 50ms 影响实时性</small></td><td><span class="rl rl-h">高</span></td><td>M4 无法满足 2 Hz 实时要求</td><td>Week 5 先用简化优先级仲裁验证逻辑；IvP 集成问题升级时改用 MOOS-IvP 开源实现；性能不达标降级到 1 Hz</td><td>M4 负责人</td></tr>
+<tr><td><strong>Mid-MPC 求解时间超限</strong><br><small>非线性约束导致求解 > 500ms</small></td><td><span class="rl rl-h">高</span></td><td>M5 无法维持 1 Hz 发布频率</td><td>先用线性化模型（Nomoto 一阶）降低求解复杂度；备用：缩短预测时域 N 从 12 降至 8</td><td>M5 负责人</td></tr>
+<tr><td><strong>COLREGs 覆盖率不足 500 场景</strong></td><td><span class="rl rl-m">中</span></td><td>D2.3 无法达到 CCS 证据要求</td><td>Week 5 起开始自动化场景生成脚本；覆盖率不足时补充规则边界场景（Head-on ±5° 范围等）</td><td>M6 负责人</td></tr>
+<tr><td><strong>CCS 设计认可反馈重大修改意见</strong></td><td><span class="rl rl-m">中</span></td><td>P3 HIL 工作受阻，需要架构调整</td><td>P2 中期（Day 32）主动与 CCS 预审；反馈修改在 P3 Week 1 并行处理，不作为 P3 启动阻塞条件</td><td>架构师</td></tr>
+</table>
+</div><!-- /phase2 -->
+
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 3
+══════════════════════════════════════════════════════ -->
+<div class="phase-content p3" id="phase3">
+
+<div class="ms-badge" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">
+  ✅ M5 BC-MPC + M7 + M8 编码全部完成（v0.3.0，2026-05）→ 🏃 当前：集成测试 E2（INT-001–008）→ ⏳ 待启动：HIL · SIL2 第三方认证 · COLREGs ≥1000
+</div>
+
+<div class="phase-prog">
+  <div class="pp-item"><div class="pp-val" style="color:var(--purple)">0/7</div><div class="pp-lbl">交付物完成</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--green)">0%</div><div class="pp-lbl">阶段进度</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--text2)">2026-05-07→07-01</div><div class="pp-lbl">工期范围</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--amber)">4</div><div class="pp-lbl">风险项</div></div>
+</div>
+
+<div class="sec-title">甘特图 · 2026-05-07 → 2026-07-01（8 周）</div>
+<div class="gantt">
+  <div class="ghead" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="gcol">工作流</div>
+    <div class="gcol wk">W1<div class="wday">5/07–5/13</div></div>
+    <div class="gcol wk">W2<div class="wday">5/14–5/20</div></div>
+    <div class="gcol wk">W3<div class="wday">5/21–5/27</div></div>
+    <div class="gcol wk">W4<div class="wday">5/28–6/03</div></div>
+    <div class="gcol wk">W5<div class="wday">6/04–6/10</div></div>
+    <div class="gcol wk">W6<div class="wday">6/11–6/17</div></div>
+    <div class="gcol wk">W7<div class="wday">6/18–6/24</div></div>
+    <div class="gcol wk">W8<div class="wday">6/25–7/01</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#0f7a4a"></div>✅ M5 BC-MPC</div>
+    <div class="gcell" style="grid-column:span 8"><div class="bar full mkey" style="background:#0f7a4a">✅ 编码完成 2026-05-07 — BcMpcBranchFormulation + BcMpcSolver + BcMpcOverrideGenerator + SHA-256</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>✅ M7 Safety Supervisor</div>
+    <div class="gcell" style="grid-column:span 8"><div class="bar full mkey" style="background:#b45309">✅ 编码完成 2026-05-07 — IEC61508 WatchdogMonitor + SOTIF AssumptionMonitor + VetoHandler + 4 MRM + SHA-256 ASDR</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>✅ M8 HMI Bridge</div>
+    <div class="gcell" style="grid-column:span 8"><div class="bar full mkey" style="background:#1d4fd8">✅ 编码完成 2026-05-07 — SatAggregator + TorProtocol + AsdrLogger + UiStateBuilder + FastAPI WebSocket/REST</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#059669"></div>🏃 集成测试 E2</div>
+    <div class="gcell"><div class="bar full" style="background:#d1fae5;color:#059669;border:1px solid #6ee7b7;font-size:10px">E2-1 ✅<br>INT-001–002</div></div>
+    <div class="gcell"><div class="bar full" style="background:#d1fae5;color:#059669;border:1px solid #6ee7b7;font-size:10px">INT-003–005<br>M4↔M6 + Planner</div></div>
+    <div class="gcell"><div class="bar full" style="background:#d1fae5;color:#059669;border:1px solid #6ee7b7;font-size:10px">INT-006–008<br>MRM + ToR + smoke</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:#d1fae5;color:#059669;border:1px solid #6ee7b7;font-size:10px">缺陷修复</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>HIL 测试台搭建</div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">硬件采购申请<br>PLC / 舵机</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">等待交货<br>（2–4 周）</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">设备到位</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">HIL台搭建接线</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">TDL↔HIL<br>双向 hook</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>HIL 集成测试</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">8模块联调<br>计时开始</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">累计 ≥100h<br>P0 Bug 清零</div></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#5b21b6;font-size:10px">≥200h ✓<br>阶段门控</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#374151"></div>COLREGs 全量测试</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">场景脚本<br>500→800</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">≥1000 生成<br>边界场景补充</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">覆盖率报告<br>提交 CCS</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#c0392b"></div>网络安全 UR E26/E27</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">30 项能力<br>实现验证</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">渗透测试<br>+ 自评估</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">整改闭环</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">提交 CCS</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>HAZID 校准 + SIL 准备</div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W1 第1次<br>会议 5/13</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W2 参数<br>量化</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W3 参数<br>量化</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W4 参数<br>量化</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W5 参数<br>量化</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W6 参数<br>量化</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W7 SIL2<br>第三方预评审</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">W8 SIL2<br>预评审回复</div></div>
+  </div>
+  <div class="grow ms-row" style="grid-template-columns:180px repeat(8,1fr)">
+    <div class="glbl">📍 Phase 3 门控评审</div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--amber)">~2026-07-01 · 门控评审</div></div>
+  </div>
+  <div class="gantt-leg">
+    <div class="gl"><div class="gldot" style="background:#0f7a4a"></div>✅ 已完成模块</div>
+    <div class="gl"><div class="gldot" style="background:#d1fae5;border:1px solid #6ee7b7"></div>集成测试 E2（当前）</div>
+    <div class="gl"><div class="gldot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>HIL</div>
+    <div class="gl"><div class="gldot" style="background:var(--gray-l);border:1px solid var(--gray-b)"></div>COLREGs ≥1000</div>
+    <div class="gl"><div class="gldot" style="background:var(--red-l);border:1px solid var(--red-b)"></div>网络安全</div>
+    <div class="gl"><div class="gldot" style="background:var(--amber-l);border:1px solid var(--amber-b)"></div>HAZID/SIL</div>
+    <div class="gl"><div class="gldot" style="background:#b45309"></div>门控里程碑</div>
+  </div>
+</div>
+
+<div class="sec-title">第三阶段交付物 <small>（7 项）</small></div>
+<div class="dels">
+  <div class="dc" style="border-color:#059669"><div class="dc-hd"><div class="dc-id" style="background:#d1fae5;color:#059669">E2</div><div class="dc-tw"><div class="dc-title">🏃 集成测试基础设施（E2-1）已完成</div><div class="dc-meta"><span>📅 2026-05-07</span><span>👤 集成测试负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:#059669">当前状态</div><div class="dc-sb">E2-1 基础设施已就绪：<code>l3_integration_tests</code> package + 7 个 RED GTest 桩（INT-001–008）+ Python conftest + <code>full_l3_stack.launch.py</code>（M1–M8 + mock publisher）+ CI 阶段4集成测试触发已启用；<code>docs/Test Plan/</code> 已建立（测试主计划 + 集成测试规格）。</div></div><div class="dc-s"><div class="dc-sl" style="color:#059669">后续任务</div><div class="dc-sb">RED → GREEN：INT-001（M1↔M2 ODD触发）→ INT-002（M2↔M4 行为仲裁）→ INT-003（M4↔M6 COLREGs约束）→ INT-004（M1↔M5 Planner）→ INT-005（M5↔M7 Checker VETO）→ INT-006（M7 MRM端到端）→ INT-007（M5↔M8 ToR链）→ INT-008（全链路 smoke）</div></div></div><div class="dc-ft"><span>进入 HIL 的入口门控条件</span><div class="del-owner">状态：<span class="otag" style="background:#d1fae5;color:#059669">🏃 进行中</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green)">D3.1</div><div class="dc-tw"><div class="dc-title">✅ M5 BC-MPC 短程避碰实现及测试报告</div><div class="dc-meta"><span>📅 Day 53</span><span>👤 M5 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--green)">交付内容</div><div class="dc-sb">BC-MPC 分支树算法（k=7 候选航向，Δ10°）；最坏情况 CPA 最大化选择；目标意图不确定性建模；与 Mid-MPC 双层联动；FCB 高速段 ROT_max 速度查表修正。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>BC-MPC 响应时间 < 100ms（10 Hz 可持续）</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>5 个紧急遭遇场景（TCPA < 2min）成功规避</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Mid-MPC + BC-MPC 双层无冲突切换</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>FCB 20kn 时转艏率约束正确</div></div></div></div><div class="dc-ft"><span>紧急避碰的最后一道算法防线</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D3.2</div><div class="dc-tw"><div class="dc-title">✅ M7 Safety Supervisor 实现及验证报告</div><div class="dc-meta"><span>📅 Day 53</span><span>👤 安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--amber)">交付内容</div><div class="dc-sb">双轨实现（IEC 61508 看门狗+诊断；ISO 21448 SOTIF 假设违反检测）；6 类硬约束检查（CPA/TCPA/速度/ROT/ODD越界/通信失效）；M7→M5 紧急轨迹注入。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>6 类硬约束各有注入故障测试通过</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M7 检查回路 < 10ms（独立于 MPC 求解）</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>AIS 目标丢失场景触发 SOTIF 告警</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>⏳ 紧急注入路径绕过 M4 直达 M5 验证（集成测试 INT-005 待通过）</div></div></div></div><div class="dc-ft"><span>Doer-Checker 架构的 Checker，SIL 2 核心</span><div class="del-owner">验收：<span class="otag">安全工程师+第三方</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D3.3</div><div class="dc-tw"><div class="dc-title">✅ M8 HMI/Transparency Bridge 实现报告</div><div class="dc-meta"><span>📅 Day 59</span><span>👤 M8 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--blue)">交付内容</div><div class="dc-sb">SAT-1/2/3 三层数据聚合接口；ROC 与船长差异化视图；ToR 责任移交协议（60s 时窗 + handshake）；接管演示记录（≥5 次，测量实际接管时间）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>SAT-1/2/3 接口全部可查询</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ToR 60s 时窗内操作员确认→切换成功</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>超时未确认→自动触发 MRC 准备</div><div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ASDR 日志记录完整 ToR 事件链</div></div></div></div><div class="dc-ft"><span>唯一 ROC/船长接口，IMO MASS Code §2.8.4 合规</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D3.4</div><div class="dc-tw"><div class="dc-title">HIL 集成测试报告（800h 目标阶段）<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:6px">⏳ 待启动</span></div><div class="dc-meta"><span>📅 Day 64</span><span>👤 技术负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">8 模块 HIL 联调运行记录（从 Day 54 开始计时）；真实 PLC/舵机/油门接口验证；HIL 期间 Bug 清单及修复；阶段性覆盖 800h 的测试大纲（跨 P3/P4）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>HIL 无致命故障运行时长 ≥ 200h（P3 内）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>PLC/舵机接口双向通信验证通过</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>MRC Drift 在 HIL 中端到端触发验证</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>P0 级 HIL Bug 清零</div></div></div></div><div class="dc-ft"><span>实船前的最后集成屏障，也是 CCS 见证准备</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--red-l);color:var(--red)">D3.5</div><div class="dc-tw"><div class="dc-title">网络安全测试报告（IACS UR E26）</div><div class="dc-meta"><span>📅 Day 64</span><span>👤 安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--red)">交付内容</div><div class="dc-sb">UR E27 30 项基础安全能力验证（通信加密/认证/事件日志/隔离/恢复）；渗透测试报告；WORM 日志完整性验证；SDL（安全开发生命周期）符合性说明。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>UR E27 30 项能力自评估通过 ≥ 27/30</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>渗透测试无高危漏洞</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>ASDR 日志不可篡改（哈希链验证）</div></div></div></div><div class="dc-ft"><span>45m FCB GT 若≥500t 则强制；否则主动合规</span><div class="del-owner">验收：<span class="otag">安全工程师</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--gray-l);color:var(--gray)">D3.6</div><div class="dc-tw"><div class="dc-title">COLREGs ≥1000 场景覆盖率报告</div><div class="dc-meta"><span>📅 Day 64</span><span>👤 M6 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--gray)">交付内容</div><div class="dc-sb">≥1000 个遭遇场景测试结果（含边界场景：Head-on ±5°、Crossing 各象限、Restricted Visibility、能见度不良叠加交叉）；规则分支覆盖矩阵；提交 CCS 作为型式认可证据。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>≥1000 场景总通过率 ≥ 98%</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>COLREGs Rule 5/6/7/8/9/13-17/19 全部有场景覆盖</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>已提交 CCS 作为 Type Approval 证据</div></div></div></div><div class="dc-ft"><span>CCS 型式认可的核心法规证据</span><div class="del-owner">验收：<span class="otag">CCS+技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D3.7</div><div class="dc-tw"><div class="dc-title">SIL 2 第三方评估通过证书</div><div class="dc-meta"><span>📅 Day 64</span><span>👤 安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--amber)">交付内容</div><div class="dc-sb">基于 D2.5 SIL 报告，经第三方机构（TÜV/DNV/BV 等）完成初步评估；MRC 触发链路、COLREGs Reasoner 获得 SIL 2 初步认可；评估意见回复记录。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>第三方出具 SIL 2 初步评估意见（书面）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>所有重大不符合项有整改计划</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>CCS 已知晓 SIL 2 评估进展</div></div></div></div><div class="dc-ft"><span>功能安全认证最重要的第三方背书</span><div class="del-owner">验收：<span class="otag">安全工程师</span></div></div></div>
+</div>
+
+<div class="sec-title">风险登记 <small>（第三阶段，4 项）</small></div>
+<table class="rtbl"><tr><th>风险</th><th width="70">等级</th><th>影响</th><th>缓解措施</th><th width="80">责任人</th></tr>
+<tr><td><strong>HIL 硬件采购延误</strong><br><small>PLC/嵌入式控制器交货期超预期</small></td><td><span class="rl rl-h">高</span></td><td>HIL 搭建延至 Week 11，挤压联调时间</td><td>P2 末期（Day 37）即提交采购申请；备用方案：用 Raspberry Pi + ROS2 bridge 做软 HIL 临时替代</td><td>技术负责人</td></tr>
+<tr><td><strong>BC-MPC 实时性不满足</strong><br><small>分支树搜索耗时 > 100ms</small></td><td><span class="rl rl-h">高</span></td><td>M5 10 Hz 无法维持</td><td>先用 k=3 减少分支数验证逻辑；C++ 优化（SIMD 向量化）；最坏情况降级到 5 Hz</td><td>M5 负责人</td></tr>
+<tr><td><strong>SIL 2 评估重大不符合项</strong><br><small>第三方发现架构分离性不足</small></td><td><span class="rl rl-m">中</span></td><td>需要架构调整，影响 P4 进度</td><td>P2 中（Day 32）组织内部预审；P3 Week 1 与第三方进行预评审会议</td><td>安全工程师</td></tr>
+<tr><td><strong>天气/试航窗口冲突（P4 风险前置）</strong></td><td><span class="rl rl-m">中</span></td><td>P4 试航日期无法保证</td><td>P3 末期与 MSA 协调试航许可；预留 2 个备用试航窗口</td><td>PM</td></tr>
+</table>
+</div><!-- /phase3 -->
+
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 4
+══════════════════════════════════════════════════════ -->
+<div class="phase-content p4" id="phase4">
+
+<div class="ms-badge" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">
+  🏁 阶段目标：FCB 实船集成 · ≥50 nm 自主试航 · ROC 接管演示 × 10 · CCS 现场见证 · AIP 取得
+</div>
+
+<div class="phase-prog">
+  <div class="pp-item"><div class="pp-val" style="color:var(--red)">0/5</div><div class="pp-lbl">交付物完成</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--green)">0%</div><div class="pp-lbl">阶段进度</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--text2)">2026-07-03→08-20</div><div class="pp-lbl">工期范围</div></div>
+  <div class="pp-div"></div>
+  <div class="pp-item"><div class="pp-val" style="color:var(--amber)">4</div><div class="pp-lbl">风险项</div></div>
+</div>
+
+<div class="sec-title">甘特图 · 2026-07-03 → 2026-08-20（6 周）</div>
+<div class="gantt">
+  <div class="ghead" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="gcol">工作流</div>
+    <div class="gcol wk">第 13 周<div class="wday">Day 65–69</div></div>
+    <div class="gcol wk">第 14 周<div class="wday">Day 70–74</div></div>
+    <div class="gcol wk">第 15 周<div class="wday">Day 75–79</div></div>
+    <div class="gcol wk">第 16 周<div class="wday">Day 80–84</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#c0392b"></div>FCB 实船集成</div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">板载安装 + 网络配置</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">靠码头静态联调</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#c0392b"></div>实船动态调试</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">D2 近港低速自主</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">D3 开阔水域自主</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>试航（≥50 nm）</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#c0392b">正式试航 Day 1-3</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b)">备用试航窗口</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>ROC 接管演示</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">ROC 接管预演（×5）</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b)">正式接管演示（×5）</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>CCS 见证</div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b)">见证大纲提交 + 确认</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#5b21b6">CCS 验船师现场见证</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl"><div class="gdot" style="background:#374151"></div>完整文档包提交</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">文档汇总整理</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b)">试航报告编写</div></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--gray)">AIP/设计认可申请提交</div></div>
+  </div>
+  <div class="grow ms-row" style="grid-template-columns:170px 1fr 1fr 1fr 1fr">
+    <div class="glbl">📍 M4 项目终审</div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--amber)">Day 84 · 项目终审 + AIP申请</div></div>
+  </div>
+  <div class="gantt-leg">
+    <div class="gl"><div class="gldot" style="background:var(--red-l);border:1px solid var(--red-b)"></div>实船集成/调试</div>
+    <div class="gl"><div class="gldot" style="background:var(--blue-l);border:1px solid var(--blue-b)"></div>ROC 接管演示</div>
+    <div class="gl"><div class="gldot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>CCS 见证</div>
+    <div class="gl"><div class="gldot" style="background:var(--gray-l);border:1px solid var(--gray-b)"></div>文档包提交</div>
+    <div class="gl"><div class="gldot" style="background:#c0392b"></div>试航（强制里程碑）</div>
+    <div class="gl"><div class="gldot" style="background:#b45309"></div>AIP（项目终审）</div>
+  </div>
+</div>
+
+<div class="sec-title">第四阶段交付物 <small>（5 项）</small></div>
+<div class="dels">
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--red-l);color:var(--red)">D4.1</div><div class="dc-tw"><div class="dc-title">FCB 实船集成验证报告</div><div class="dc-meta"><span>📅 Day 74</span><span>👤 技术负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--red)">交付内容</div><div class="dc-sb">板载安装记录（硬件安装、网络配置、接地）；靠码头静态联调（传感器校验、通信链路、控制回路延迟）；D2 近港低速动态验证（航向保持、减速停车）；Bug 修复记录。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>传感器数据实时显示在 ROC 界面</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>控制回路端到端延迟 < 200ms（船岸通信链）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>D2 低速自主直线航行 500m 无介入</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>ODD Manager 在实船环境正确读取传感器</div></div></div></div><div class="dc-ft"><span>正式试航前的实船联调门控</span><div class="del-owner">验收：<span class="otag">技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--red-l);color:var(--red)">D4.2</div><div class="dc-tw"><div class="dc-title">正式试航报告（≥50 nm 自主航行）</div><div class="dc-meta"><span>📅 Day 80</span><span>👤 技术负责人+PM</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--red)">交付内容</div><div class="dc-sb">试航计划大纲（预报审批）；试航数据完整包（GPS 轨迹/日志/视频/HMI 截图）；实际遭遇处理记录；ASDR 日志分析摘要；试航结论报告。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>自主航行里程 ≥ 50 nm（连续或累计）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>试航期间无人工干预碰撞风险事件</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>覆盖开阔水域 + 至少 1 次 ODD-B 狭水道段</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>ASDR 日志完整，无记录空白段</div></div></div></div><div class="dc-ft"><span>CCS i-Ship 入级的核心实证，无可替代</span><div class="del-owner">验收：<span class="otag">CCS+技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D4.3</div><div class="dc-tw"><div class="dc-title">ROC 接管演示报告（×10 次）</div><div class="dc-meta"><span>📅 Day 80</span><span>👤 M8 负责人</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--blue)">交付内容</div><div class="dc-sb">10 次完整 ToR 责任移交录像和日志；每次记录：接管请求发出时刻、操作员响应时刻、实际接管完成时刻；时窗统计分析（平均值、P95 值）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>10 次接管演示全部成功（100%）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>操作员平均响应时间 < 30s（设计目标 60s 时窗内）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>覆盖 D4→D3→D2 完整降级链 ≥ 2 次</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>每次接管均有完整 SAT-1/2/3 信息呈现记录</div></div></div></div><div class="dc-ft"><span>MASS Code §2.8.4 人机责任移交合规证明</span><div class="del-owner">验收：<span class="otag">CCS+技术负责人</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D4.4</div><div class="dc-tw"><div class="dc-title">CCS 现场见证记录</div><div class="dc-meta"><span>📅 Day 80</span><span>👤 PM+架构师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--purple)">交付内容</div><div class="dc-sb">CCS 验船师现场见证大纲（事先提交）；见证当日记录（时间、地点、见证内容、验船师签字）；验船师意见回复记录（如有）。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>CCS 验船师现场见证 ≥ 1 次</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>见证大纲提前 10 工作日提交 CCS 确认</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>见证记录有 CCS 验船师签字</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>无重大否定性意见，或意见有书面整改承诺</div></div></div></div><div class="dc-ft"><span>入级流程的关键节点，无法通过文件代替</span><div class="del-owner">验收：<span class="otag">CCS验船师</span></div></div></div>
+  <div class="dc"><div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D4.5</div><div class="dc-tw"><div class="dc-title">完整认证文档包 + AIP/设计认可申请</div><div class="dc-meta"><span>📅 Day 84</span><span>👤 PM+架构师+安全工程师</span></div></div></div><div class="dc-bd"><div class="dc-s"><div class="dc-sl" style="color:var(--amber)">交付内容</div><div class="dc-sb">全部 10 类认证文件汇编（ConOps / ODD-Spec / 系统架构 / HARA+FMEA / SIL报告 / 仿真测试报告 / HIL报告 / 试航报告 / COLREGs覆盖报告 / 网络安全报告）；AIP + 设计认可正式申请提交。</div></div><div class="dc-s"><div class="dc-sl" style="color:var(--green)">验收标准 DoD</div><div class="dod-list"><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>10 类文件齐全，版本正确</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>AIP 申请已正式提交 CCS（受理编号取得）</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>设计认可申请已正式提交 CCS</div><div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>项目终审会议通过（领导层确认）</div></div></div></div><div class="dc-ft"><span>4 个月开发周期的最终交付，项目终点</span><div class="del-owner">验收：<span class="otag">PM+领导层</span></div></div></div>
+</div>
+
+<div class="sec-title">风险登记 <small>（第四阶段，4 项）</small></div>
+<table class="rtbl"><tr><th>风险</th><th width="70">等级</th><th>影响</th><th>缓解措施</th><th width="80">责任人</th></tr>
+<tr><td><strong>试航海域许可未批复</strong><br><small>MSA 审批周期不确定</small></td><td><span class="rl rl-h">高</span></td><td>试航延期，整个 P4 后移</td><td>P3 Week 11（Day 59）前向 MSA 提交试航申请；同时备选港内/锚地 D2 场景作为 P0 方案</td><td>PM</td></tr>
+<tr><td><strong>实船集成发现重大硬件兼容问题</strong><br><small>传感器接口/控制总线不兼容</small></td><td><span class="rl rl-h">高</span></td><td>Week 13 调试超期，压缩试航时间</td><td>P3 末期安排船厂接口预查；配置适配层（协议转换器）作为备用方案</td><td>技术负责人</td></tr>
+<tr><td><strong>CCS 见证当日天气恶劣取消</strong></td><td><span class="rl rl-m">中</span></td><td>见证推迟，AIP 申请延后</td><td>预约 2 个见证备用日期；港内码头静态演示可作为部分见证替代</td><td>PM</td></tr>
+<tr><td><strong>AIP 申请获得重大修改意见</strong></td><td><span class="rl rl-l">低</span></td><td>4 个月内无法完成最终入级</td><td>P3 主动与 CCS 进行中期预审；重大意见在 P4 并行整改；接受"申请已受理"作为里程碑终点（不强求 4 月内拿证）</td><td>架构师</td></tr>
+</table>
+</div><!-- /phase4 -->
+
+<!-- ══════════════════ FOOTER ══════════════════ -->
+<div class="plan-ft">
+  <div class="pft-note">
+    <strong>计划说明：</strong>每个阶段结束时进行门控评审（Day 21/43/64/84），评审未通过则后续阶段不启动。阶段二至四的详细周计划将在前一阶段评审通过后在本文档中更新。<br>
+    <strong>版本管理：</strong>本文档版本 v2.0 · <span id="ft-date"></span> · 变更须经架构师+PM 双签。<br>
+    <strong>HIL 说明：</strong>HIL 台搭建预计 2026-06-04 联调开始，P3 内完成 ≥200h（~2026-07-01），P4 实船试航期间继续累计。总里程碑：HAZID 完成 2026-08-19，CCS AIP 申请 2026-08-09~2026-08-20。
+  </div>
+  <div style="text-align:right;font-size:12px;color:var(--text3);line-height:1.9">
+    MASS ADAS L3 · 四阶段计划<br>
+    总工期 84 工作日 · 28 项交付物
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<button class="print-btn no-print" onclick="window.print()">🖨️ 打印 / 导出</button>
+
+<script>
+// ── PHASE COLORS ──
+const PC = {
+  1:{bg:'linear-gradient(135deg,#1a3a8f,#1d4fd8)',border:'#1d4fd8',tab:'#1d4fd8'},
+  2:{bg:'linear-gradient(135deg,#054f46,#0d7a70)',border:'#0d7a70',tab:'#0d7a70'},
+  3:{bg:'linear-gradient(135deg,#3b1a82,#5b21b6)',border:'#5b21b6',tab:'#5b21b6'},
+  4:{bg:'linear-gradient(135deg,#8b1a1a,#c0392b)',border:'#c0392b',tab:'#c0392b'}
+<div class="gantt">
+  <div class="ghead" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="gcol">工作流</div>
+    <div class="gcol wk">W1<div class="wday">7/03–7/09</div></div>
+    <div class="gcol wk">W2<div class="wday">7/10–7/16</div></div>
+    <div class="gcol wk">W3<div class="wday">7/17–7/23</div></div>
+    <div class="gcol wk">W4<div class="wday">7/24–7/30</div></div>
+    <div class="gcol wk">W5<div class="wday">7/31–8/06</div></div>
+    <div class="gcol wk">W6<div class="wday">8/07–8/20<br><span style="color:#c0392b;font-weight:700">HAZID完成</span></div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#c0392b"></div>FCB 实船集成</div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">板载安装<br>网络配置接地</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">靠码头静态联调<br>传感器校验</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#c0392b"></div>实船动态调试</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">D2 近港低速自主<br>航向保持 + 减速</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">D3 开阔水域<br>避碰自主</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>正式试航（≥50 nm）</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#c0392b;font-size:10px">正式试航<br>Day 1–3</div></div>
+    <div class="gcell"><div class="bar lhalf" style="background:var(--red-l);color:var(--red);border:1px solid var(--red-b);font-size:10px">备用试航<br>窗口</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#1d4fd8"></div>ROC 接管演示 ×10</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b);font-size:10px">预演 ×5<br>时窗测量</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--blue-l);color:var(--blue);border:1px solid var(--blue-b);font-size:10px">正式演示 ×5<br>D4→D3→D2 链</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#5b21b6"></div>CCS 验船师见证</div>
+    <div class="gcell"><div class="bar full" style="background:var(--purple-l);color:var(--purple);border:1px solid var(--purple-b);font-size:10px">见证大纲提交<br>（提前 10 工作日）</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#5b21b6;font-size:10px">CCS 验船师<br>现场见证</div></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#b45309"></div>HAZID 回填 + v1.1.3</div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">HAZID W9<br>参数校准</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">HAZID W10<br>参数校准</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">HAZID W11<br>参数校准</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">HAZID W12<br>参数校准</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px">HAZID W12<br>终版确认</div></div>
+    <div class="gcell"><div class="bar full mkey" style="background:#b45309;font-size:10px">HAZID 完成 8/19<br>v1.1.3 发布</div></div>
+  </div>
+  <div class="grow" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl"><div class="gdot" style="background:#374151"></div>完整认证文档包</div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">文档汇总<br>10 类整理</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">试航报告<br>编写</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">SIL2 + COLREGs<br>证据整合</div></div>
+    <div class="gcell"><div class="bar full" style="background:var(--gray-l);color:var(--gray);border:1px solid var(--gray-b);font-size:10px">AIP 申请<br>材料准备</div></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--gray);font-size:10px">AIP 正式提交<br>~8/09–8/20</div></div>
+  </div>
+  <div class="grow ms-row" style="grid-template-columns:180px repeat(6,1fr)">
+    <div class="glbl">📍 项目终审 + AIP</div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div><div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><span class="empty">—</span></div>
+    <div class="gcell"><div class="bar full mkey" style="background:var(--amber)">Day 84 · ~2026-08-20 · AIP 申请提交</div></div>
+  </div>
+  <div class="gantt-leg">
+    <div class="gl"><div class="gldot" style="background:var(--red-l);border:1px solid var(--red-b)"></div>实船集成/调试</div>
+    <div class="gl"><div class="gldot" style="background:var(--blue-l);border:1px solid var(--blue-b)"></div>ROC 接管演示</div>
+    <div class="gl"><div class="gldot" style="background:var(--purple-l);border:1px solid var(--purple-b)"></div>CCS 见证</div>
+    <div class="gl"><div class="gldot" style="background:var(--amber-l);border:1px solid var(--amber-b)"></div>HAZID 校准 + v1.1.3</div>
+    <div class="gl"><div class="gldot" style="background:var(--gray-l);border:1px solid var(--gray-b)"></div>文档包 / AIP</div>
+    <div class="gl"><div class="gldot" style="background:#c0392b"></div>试航（强制里程碑）</div>
+    <div class="gl"><div class="gldot" style="background:#b45309"></div>AIP 提交（项目终审）</div>
+  </div>
+</div>
+</body>
+</html>
