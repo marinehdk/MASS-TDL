@@ -331,7 +331,7 @@ TEST(CapabilityManifestTest, LoadFromYaml) {
       << "vessel_id must match fixture value";
   EXPECT_NEAR(cfg.rot_max_at_18kn_rad_s, 0.20944, 1.0e-5)
       << "rot_max must match fixture value";
-  EXPECT_NEAR(cfg.service_speed_mps(),
+  EXPECT_NEAR(manifest.service_speed_mps(),
               mass_l3::m5::units::kn_to_mps(18.0), 1.0e-6)
       << "service_speed_mps derived value must match kn_to_mps(18)";
 }

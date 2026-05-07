@@ -7,6 +7,12 @@
 
 #include "m5_tactical_planner/common/units.hpp"
 
+namespace {
+// [TBD-HAZID] Calibrate from AIS track statistics for FCB operational area (RUN-001).
+constexpr double kTurnRate_rad_s = 0.05236;  // 3 deg/s
+constexpr double kDecel_mps_s    = 0.1;       // m/s per second
+}  // namespace
+
 namespace mass_l3::m5::shared {
 
 using mass_l3::m5::TrajectoryPoint;
@@ -83,9 +89,6 @@ Eigen::Vector2d TrajectoryPropagator::step_target(
     double x, double y, double cog_rad, double sog_mps,
     double dt_s, TargetIntent intent) noexcept {
 
-  constexpr double kTurnRate_rad_s = 0.05236;  // 3 deg/s [TBD-HAZID]
-  constexpr double kDecel_mps_s    = 0.1;      // [TBD-HAZID]
-
   double cog   = cog_rad;
   double speed = sog_mps;
 
@@ -141,11 +144,11 @@ std::vector<Eigen::Vector2d> TrajectoryPropagator::propagate_target(
     const Eigen::Vector2d next = step_target(x, y, cog, sog, dt_s, intent);
     // Update cog/sog for next step (stateful evolution)
     if (intent == TargetIntent::TurnPort) {
-      cog -= 0.05236 * dt_s;  // kTurnRate_rad_s
+      cog -= kTurnRate_rad_s * dt_s;
     } else if (intent == TargetIntent::TurnStarboard) {
-      cog += 0.05236 * dt_s;
+      cog += kTurnRate_rad_s * dt_s;
     } else if (intent == TargetIntent::Decelerate) {
-      sog = std::max(0.0, sog - 0.1 * dt_s);  // kDecel_mps_s
+      sog = std::max(0.0, sog - kDecel_mps_s * dt_s);
     }
     x = next.x();
     y = next.y();
