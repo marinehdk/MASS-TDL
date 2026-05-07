@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>m8_hmi_transparency_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    M8 HMI/Transparency Bridge — SAT-1/2/3 三层透明性 + ToR 协议 + Web 后端
+    （L3 战术决策层；架构 v1.1.2 §12 + RFC-004）
+  </description>
+  <maintainer email="team-m8@mass-l3.local">Team-M8</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_gtest</buildtool_depend>
+  <buildtool_depend>ament_cmake_pytest</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>eigen</depend>
+  <depend>nlohmann-json-dev</depend>
+  <depend>spdlog</depend>
+  <depend>yaml-cpp</depend>
+
+  <exec_depend>python3-fastapi</exec_depend>
+  <exec_depend>python3-uvicorn</exec_depend>
+  <exec_depend>python3-websockets</exec_depend>
+  <exec_depend>python3-pydantic</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-pytest-cov</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

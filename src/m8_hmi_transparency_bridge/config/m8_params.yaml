@@ -1,0 +1,25 @@
+m8_hmi_transparency_bridge:
+  ros__parameters:
+    sat_threat_confidence_threshold: 0.7        # [TBD-HAZID]
+    sat2_rule_confidence_threshold: 0.8         # [TBD-HAZID]
+    sat3_priority_high_tdl_s: 30.0              # [TBD-HAZID]
+    sat2_system_confidence_drop_threshold: 0.6  # [TBD-HAZID]
+    tor_deadline_s: 60.0                        # [TBD-HAZID]
+    tor_sat1_min_display_s: 5.0
+    tor_retry_interval_s: 30.0
+    tor_max_retries: 1
+    comm_latency_warn_m1_ms: 500                # [TBD-HAZID]
+    comm_latency_warn_m2_ms: 1000               # [TBD-HAZID]
+    comm_latency_critical_m7_ms: 200            # [TBD-HAZID]
+    heartbeat_timeout_m1_s: 2.0
+    heartbeat_timeout_m2_s: 1.0
+    heartbeat_timeout_m4_s: 1.0
+    heartbeat_timeout_m6_s: 1.0
+    heartbeat_timeout_m7_s: 2.0
+    msg_loss_critical_m7_frames: 2              # [TBD-HAZID]
+    msg_loss_critical_m2_frames: 5              # [TBD-HAZID]
+    msg_loss_degraded_general_frames: 3
+    asdr_periodic_snapshot_hz: 2.0
+    asdr_signature_alg: "SHA256"
+    ui_state_pub_hz: 50.0
+    sat_aggregation_hz: 10.0

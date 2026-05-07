@@ -1,0 +1,11 @@
+m8_web_backend:
+  ros__parameters:
+    fastapi_host: "0.0.0.0"
+    fastapi_port: 8080
+    cors_allowed_origins:
+      - "http://localhost:3000"
+      - "http://hmi.roc.local"
+    websocket_max_clients: 8
+    websocket_ping_interval_s: 10.0
+    websocket_send_timeout_s: 1.0
+    rclpy_spin_threads: 2
