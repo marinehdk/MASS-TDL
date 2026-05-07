@@ -42,9 +42,8 @@ from scenario_schema import (
 )
 
 # ---------------------------------------------------------------------------
-# Reproducible RNG
+# Reproducible RNG  (seed is set inside generate(), not at import time)
 # ---------------------------------------------------------------------------
-random.seed(42)
 
 # ---------------------------------------------------------------------------
 # Geometry helpers
@@ -238,10 +237,10 @@ def _gen_rule15(counters: dict) -> List[Scenario]:
                     # Target position at rel bearing rb, range r
                     tx, ty = _target_position(OWN_PSI_MET, float(rb), r)
 
-                    # Target COG: heading roughly perpendicular (will cross own bow)
-                    # Target crosses from starboard → target heading roughly West/left of own path
-                    # Own heading North (0° met), target from starboard heading toward port side
-                    tgt_cog = (OWN_PSI_MET + 180.0 + (90.0 - rb)) % 360.0
+                    # Target COG: heading back toward own ship's position.
+                    # For a target at relative bearing rb, heading rb+180° sends it
+                    # directly toward own ship — ensures closing encounter.
+                    tgt_cog = (rb + 180.0) % 360.0
 
                     ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
                     tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
@@ -294,7 +293,8 @@ def _gen_rule15(counters: dict) -> List[Scenario]:
 def _gen_rule13(counters: dict) -> List[Scenario]:
     """
     Target from aft sector (rel bearing 112.5°–247.5° from bow, i.e. from astern).
-    Target faster than own ship.  Own is the overtaking vessel (give way).
+    Target faster than own ship — target is the overtaking vessel (from aft), own is stand-on.
+    Under COLREGs Rule 13, the overtaking vessel (target) must keep clear.
     Vary: aft bearing, speed differential, range.
     Target: ≥ 150 scenarios.
     """
@@ -335,8 +335,8 @@ def _gen_rule13(counters: dict) -> List[Scenario]:
                     )
                     expected = ExpectedOutcome(
                         colregs_rule=rule,
-                        own_role="give_way",
-                        m5_expected_action="turn_right",
+                        own_role="stand_on",
+                        m5_expected_action="maintain_course",
                         cpa_m=round(cpa, 1),
                         tcpa_s=round(tcpa, 1),
                     )
@@ -529,11 +529,13 @@ def _gen_rule19(counters: dict) -> List[Scenario]:
     rule_tag = "R19"
 
     geometries = [
-        # (description_template, rel_bearing_met, target_cog_offset_from_south, tags)
-        ("head-on geometry", 0.0, 0.0, ["head_on_geometry"]),
-        ("crossing_stbd geometry", 90.0, -90.0, ["crossing_geometry"]),
-        ("crossing_045 geometry", 45.0, -135.0, ["crossing_geometry"]),
-        ("overtaking_aft geometry", 180.0, 10.0, ["overtaking_geometry"]),
+        # (description, rel_bearing_deg, tgt_cog_off_from_S, tags)
+        # tgt_cog = (180.0 + tgt_cog_off + jitter) % 360 in meteorological convention
+        # For closing encounter: target at rel_bearing rb heading toward own ship
+        ("head-on geometry",       0.0,    0.0, ["head_on_geometry"]),      # tgt heading S (180°) → approaching own from N
+        ("crossing_stbd geometry", 90.0,  90.0, ["crossing_geometry"]),     # tgt at E, heading W (270°) → crossing
+        ("crossing_045 geometry",  45.0,  45.0, ["crossing_geometry"]),     # tgt at NE, heading SW (225°) → crossing
+        ("overtaking_aft geometry",180.0,-180.0, ["overtaking_geometry"]),  # tgt at S heading N (0°) → coming from astern
     ]
     ranges_m = [200, 400, 700, 1000, 1500, 2000]
     own_speeds = [4, 6, 8, 10]
@@ -545,9 +547,11 @@ def _gen_rule19(counters: dict) -> List[Scenario]:
                 for tgt_spd in tgt_speeds:
                     tx, ty = _target_position(OWN_PSI_MET, rb, r)
                     tgt_cog = (180.0 + tgt_cog_off + random.uniform(-5, 5)) % 360.0
+                    # For overtaking_aft geometry ensure target is genuinely faster
+                    effective_tgt_spd = (own_spd + 3.0) if "overtaking_geometry" in geom_tags else tgt_spd
 
                     ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
-                    tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
+                    tvx, tvy = _velocity_components(tgt_cog, effective_tgt_spd)
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
                     counters[rule_tag] += 1
@@ -558,7 +562,7 @@ def _gen_rule19(counters: dict) -> List[Scenario]:
                         x_m=round(tx, 1),
                         y_m=round(ty, 1),
                         cog_deg=round(tgt_cog, 1),
-                        sog_kn=float(tgt_spd),
+                        sog_kn=float(effective_tgt_spd),
                         length_m=random.choice([60, 80, 100, 120]),
                     )
                     expected = ExpectedOutcome(
@@ -701,7 +705,8 @@ def _select_100(all_scenarios: List[Scenario]) -> List[Scenario]:
 
     # Fallback: if still short (shouldn't happen with ≥1000 scenarios), top up
     if len(selected) < 100:
-        remaining = [s for s in all_scenarios if s not in set(selected)]
+        selected_ids = {s.scenario_id for s in selected}
+        remaining = [s for s in all_scenarios if s.scenario_id not in selected_ids]
         selected.extend(remaining[: 100 - len(selected)])
 
     return selected[:100]
@@ -711,8 +716,11 @@ def _select_100(all_scenarios: List[Scenario]) -> List[Scenario]:
 # Main
 # ---------------------------------------------------------------------------
 
-def generate(min_count: int) -> List[Scenario]:
+def generate(min_count: int, seed: int = 42) -> List[Scenario]:
     """Generate all scenarios (at minimum min_count total)."""
+    random.seed(seed)
+    global _mmsi_counter
+    _mmsi_counter = _BASE_MMSI_START  # reset for reproducibility
     counters: dict = {
         "R14": 0, "R15": 0, "R13": 0, "R17": 0,
         "R18": 0, "R19": 0, "FAULT": 0,
