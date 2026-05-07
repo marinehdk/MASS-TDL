@@ -56,8 +56,7 @@ find_package(casadi 3.7.2 EXACT REQUIRED)
 find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
 
 # ---------------------------------------------------------------------------
-# m5_shared_lib — shared library (Tasks 1.x + 2.x)
-# TODO(Task-3.x): Add bc_mpc/ source files here when implementing BC-MPC
+# m5_shared_lib — shared library (Tasks 1.x + 2.x + 3.x)
 # ---------------------------------------------------------------------------
 # IPOPT note: CasADi loads its IPOPT backend dynamically at runtime via the
 # libcasadi_nlpsol_ipopt plugin. Linking against `casadi` (already configured
@@ -81,8 +80,10 @@ add_library(m5_shared_lib STATIC
   src/mid_mpc/mid_mpc_nlp_formulation.cpp
   src/mid_mpc/mid_mpc_solver.cpp
   src/mid_mpc/mid_mpc_waypoint_generator.cpp
-  # TODO(Task-3.x): src/bc_mpc/bc_mpc_evaluator.cpp
-  # TODO(Task-3.x): src/bc_mpc/bc_mpc_node.cpp
+  # --- bc_mpc/ ---
+  src/bc_mpc/bc_mpc_branch_formulation.cpp
+  src/bc_mpc/bc_mpc_collision_detector.cpp
+  # TODO(Task-3.2): src/bc_mpc/bc_mpc_node.cpp
 )
 
 target_include_directories(m5_shared_lib
@@ -260,7 +261,25 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/test
   )
 
-  # TODO(Task-3.x): ament_add_gtest(test_bc_mpc_evaluator ...)
+  # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
+  ament_add_gtest(test_bc_mpc_collision_detector
+    test/unit/test_bc_mpc_collision_detector.cpp
+  )
+  target_link_libraries(test_bc_mpc_collision_detector
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+  )
+  ament_target_dependencies(test_bc_mpc_collision_detector
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_bc_mpc_collision_detector
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
 endif()
 
 ament_export_include_directories(include)

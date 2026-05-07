@@ -169,6 +169,27 @@ struct BcMpcInput {
 // ---------------------------------------------------------------------------
 using TargetIntent = TargetState::Intent;
 
+// ---------------------------------------------------------------------------
+// BcMpcSolution — result from one BC-MPC evaluation cycle
+// ---------------------------------------------------------------------------
+struct BcMpcSolution {
+  enum class Status : std::uint8_t {
+    Override       = 0u,   // heading command issued; L4 must track
+    Resolved       = 1u,   // CPA restored to safe; revert to Mid-MPC
+    NotInitialized = 2u,
+  };
+
+  Status status{Status::NotInitialized};
+  double heading_cmd_rad{0.0};    // optimal branch heading [rad]
+  double worst_case_cpa_m{0.0};  // worst-case CPA of selected branch [m]
+  std::int32_t selected_branch_idx{0};
+  // [TBD-HAZID] validity_s: calibrate via HAZID RUN-001 WP-04 FM-3 (1-3 s range).
+  double validity_s{1.0};         // override validity [s]
+  std::string trigger_reason;     // "CONDITION_A".."CONDITION_D"
+  double confidence{0.0};         // ∈ [0, 1]
+  std::int64_t stamp_ns{0};
+};
+
 }  // namespace mass_l3::m5
 
 #endif  // MASS_L3_M5_COMMON_TYPES_HPP_
