@@ -30,13 +30,13 @@
 | §4.7 Safe speed | M6 COLREGs Reasoner + M5 Tactical Planner | 100 场景套件（`test_hil_100_scenario_suite`）；`test_hil_rule17_standon`（Rule 17 hold-course — 无不当机动） | ✅ HIL 覆盖 |
 | §4.8 Manoeuvring | M5 Tactical Planner | `src/fcb_simulator/`（FCB MMG 4-DOF 仿真器，RK4 50 Hz）；`tests/hil/benchmarks/test_timing_e3.py`（Mid-MPC P99 <100ms，BC-MPC P99 <50ms） | ✅ HIL 覆盖 |
 | §4.9 Docking | M4 Behavior Arbiter (Docking) + M5 TP | 不在 E3 范围（E4 实船演示） | 待 E4 |
-| §4.10 Alert management | M8 HMI/Transparency Bridge + M7 SS | `tools/roc_simulator/`（ROC HMI ToR 交互流）；`tests/hil/test_hil_e2e.py`（含 ToR 响应路径） | ✅ HIL 覆盖 |
+| §4.10 Alert management | M8 HMI/Transparency Bridge + M7 SS | `tools/roc_simulator/`（ROC HMI ToR 交互流）；`tests/hil/test_hil_e2e.py`（含 ToR 响应路径） | ⏳ 部分覆盖（ToR 路径待 fix/m8-tor-callsite 合并后确认） |
 
 ---
 
 ## §3 CCS i-Ship 阶段二申请证据清单
 
-参照架构报告 v1.1.2 §14.4（关键证据文件清单）。
+参照架构报告 v1.1.2 §14（CCS 入级路径映射）— 本表扩展 §14.4 关键证据文件清单，按实现阶段（E1–E4）标注产出，与 §14.4 认证里程碑（M1–M4）对应。
 
 | 证据文件 | 产生阶段 | E3 贡献 | 状态 |
 |---|---|---|---|
