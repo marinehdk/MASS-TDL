@@ -135,7 +135,7 @@ def test_hil_rule17_standon(ros2_node):
     try:
         for scenario in rule17:
             result = runner.run_scenario(scenario, timeout_s=_TIMEOUT_S)
-            assert result.actual_action in ("maintain_course", "no_response"), (
+            assert result.actual_action == "maintain_course", (
                 f"[{scenario.scenario_id}] Rule 17 stand-on vessel "
                 f"received avoidance action '{result.actual_action}': "
                 f"{result.failure_reason}"

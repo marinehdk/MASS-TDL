@@ -29,16 +29,18 @@ def ros2_node():
     Gracefully skips if rclpy is not installed (non-HIL CI environments).
     """
     rclpy = pytest.importorskip("rclpy")
+    node = None
     try:
         if not rclpy.ok():
             rclpy.init()
         node = rclpy.create_node("hil_test_node")
         yield node
     finally:
-        try:
-            node.destroy_node()
-        except Exception:  # noqa: BLE001
-            pass
+        if node is not None:
+            try:
+                node.destroy_node()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             if rclpy.ok():
                 rclpy.shutdown()

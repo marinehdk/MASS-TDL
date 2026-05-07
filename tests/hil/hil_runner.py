@@ -35,6 +35,10 @@ except ImportError:
 from scenario_schema import Scenario
 from target_injector import TargetInjectorNode
 
+# Minimum observation window for stand-on scenarios: wait to see if M5
+# emits a spurious avoidance plan before declaring a pass.
+_STANDON_OBSERVATION_S = 2.0
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -65,9 +69,6 @@ class HilScenarioRunner:
     injects the scenario targets via TargetInjectorNode, and spins until
     pass criteria are satisfied or the timeout expires.
     """
-
-    # COLREGsConstraint.phase values that indicate an active constraint
-    _ACTIVE_PHASES = {"T_act", "T_standOn", "T_postAvoid"}
 
     def __init__(self, ros_node: "Node") -> None:
         self._node = ros_node
@@ -177,7 +178,7 @@ class HilScenarioRunner:
         finally:
             # Stop injecting after each scenario so the next scenario starts clean
             if self._injector is not None:
-                self._injector.load_scenario(scenario)  # keep injector alive
+                self._injector.load_scenario(None)  # silence injector between scenarios
 
         elapsed = time.monotonic() - start
         with self._lock:
@@ -192,10 +193,17 @@ class HilScenarioRunner:
         return result
 
     def destroy(self) -> None:
-        """Clean up subscriptions and injector."""
+        """Release subscriptions and stop injector."""
         if self._injector is not None:
             self._injector.stop()
             self._injector = None
+        try:
+            self._node.destroy_subscription(self._constraint_sub)
+            self._node.destroy_subscription(self._plan_sub)
+            if hasattr(self, "_odd_sub") and self._odd_sub is not None:
+                self._node.destroy_subscription(self._odd_sub)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------------
     # Pass / fail criteria
@@ -306,7 +314,10 @@ class HilScenarioRunner:
                 plan is None
                 or len(plan.waypoints) == 0
             )
-            if constraint_ok and plan_is_empty:
+            # Require minimum observation window before declaring pass so that
+            # a spurious M5 plan arriving slightly after the constraint is caught.
+            observation_elapsed = elapsed >= _STANDON_OBSERVATION_S
+            if constraint_ok and plan_is_empty and observation_elapsed:
                 actual_role = "stand_on"
                 actual_action = "maintain_course"
                 return True, HilResult(

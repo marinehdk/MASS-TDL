@@ -11,6 +11,7 @@ Per v1.1.2 §15.1 message contracts + RFC-002 (AoS TrackedTargetArray).
 
 from __future__ import annotations
 
+import math
 import threading
 from typing import Optional
 
@@ -27,9 +28,26 @@ try:
     from l3_external_msgs.msg import TrackedTargetArray, EnvironmentState
     from l3_msgs.msg import TrackedTarget, EncounterClassification
     from builtin_interfaces.msg import Time as RosTime
+    from geographic_msgs.msg import GeoPoint
     _MSGS_AVAILABLE = True
 except ImportError:
     _MSGS_AVAILABLE = False
+
+# Geographic origin matching fcb_dynamics.yaml defaults
+_GEO_ORIGIN_LAT = 30.5    # degrees North
+_GEO_ORIGIN_LON = 122.0   # degrees East
+_EARTH_M_PER_DEG = 111320.0
+
+
+def _enu_to_geopoint(x_m: float, y_m: float) -> "GeoPoint":
+    """Convert ENU metres (x=East, y=North from origin) to absolute GeoPoint."""
+    pt = GeoPoint()
+    pt.latitude = _GEO_ORIGIN_LAT + y_m / _EARTH_M_PER_DEG
+    pt.longitude = _GEO_ORIGIN_LON + x_m / (
+        _EARTH_M_PER_DEG * math.cos(math.radians(_GEO_ORIGIN_LAT))
+    )
+    pt.altitude = 0.0
+    return pt
 
 from scenario_schema import Scenario
 
@@ -132,28 +150,16 @@ class TargetInjectorNode:
         msg.confidence = 0.95
         msg.rationale = "hil_target_injector"
 
-        own = scenario.own_ship
         targets = []
         for t in scenario.targets:
             tt = TrackedTarget()
             tt.stamp = _ros_time_now(self._node)
             tt.target_id = t.mmsi
 
-            # Position: scenario stores absolute ENU; compute relative NED
-            # rel_x = East offset, rel_y = North offset (ENU convention)
-            rel_x = t.x_m - own.x_m
-            rel_y = t.y_m - own.y_m
-
-            # geographic_msgs/GeoPoint uses lat/lon/alt.
-            # For HIL we encode relative offset in the lat/lon fields
-            # (degrees = metres / 111120 approximation; altitude unused).
-            _DEG_PER_M = 1.0 / 111_120.0
-            from geographic_msgs.msg import GeoPoint
-            gp = GeoPoint()
-            gp.latitude = rel_y * _DEG_PER_M   # North offset → latitude delta
-            gp.longitude = rel_x * _DEG_PER_M  # East offset  → longitude delta
-            gp.altitude = 0.0
-            tt.position = gp
+            # Position: convert absolute ENU metres to absolute WGS-84 GeoPoint.
+            # tgt.x_m / tgt.y_m are absolute ENU from the geographic origin
+            # (matching fcb_dynamics.yaml origin_lat/lon); no own-ship subtraction.
+            tt.position = _enu_to_geopoint(t.x_m, t.y_m)
 
             tt.sog_kn = float(t.sog_kn)
             tt.cog_deg = float(t.cog_deg)
