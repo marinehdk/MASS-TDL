@@ -1,0 +1,261 @@
+/* ── Reset & base ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0d1117;
+  --bg-card:   #161b22;
+  --bg-card2:  #1c2330;
+  --border:    #30363d;
+  --text:      #c9d1d9;
+  --muted:     #8b949e;
+  --accent:    #58a6ff;
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  --orange:    #e3843d;
+  --radius:    8px;
+  --gap:       16px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: var(--gap);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: var(--gap);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--gap);
+}
+
+header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.badge-ok   { background: #1a3a1e; color: var(--green); }
+.badge-warn { background: #3a2e0a; color: var(--yellow); }
+.badge-err  { background: #3a0d0d; color: var(--red); }
+
+/* ── Cards ────────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.card h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Grid helpers ─────────────────────────────────────────────────── */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.stat label {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+.stat span {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ── Counters ─────────────────────────────────────────────────────── */
+.counter        { color: var(--green); }
+.counter-red    { color: var(--muted); }
+.counter-red-lit { color: var(--red) !important; }
+
+/* ── Confidence bar ───────────────────────────────────────────────── */
+.confidence-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.confidence-bar-wrap label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.confidence-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-card2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.conf-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* ── Rationale ────────────────────────────────────────────────────── */
+.rationale {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* ── SAT panels ───────────────────────────────────────────────────── */
+.sat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--gap);
+}
+
+.sat-panel {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.sat-panel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.sat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.sat-triggered .sat-value { color: var(--orange); }
+.sat3-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── ToR card ─────────────────────────────────────────────────────── */
+.card-tor {
+  border-color: var(--orange);
+  background: #1e1408;
+}
+.card-tor h2 { color: var(--orange); border-color: #3a2a10; }
+
+.tor-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.tor-reason {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--yellow);
+}
+.tor-level {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tor-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.tor-field label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.tor-field p { font-size: 12px; color: var(--text); margin-top: 2px; }
+
+.tor-deadline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.tor-deadline label { font-size: 11px; color: var(--muted); }
+
+.countdown {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s;
+}
+.countdown-warn    { color: var(--yellow); }
+.countdown-expired { color: var(--red); }
+
+/* ── ToR action buttons ───────────────────────────────────────────── */
+.tor-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 10px 28px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  font-family: inherit;
+}
+.btn:active { transform: scale(0.97); }
+.btn:hover  { opacity: 0.88; }
+
+.btn-accept { background: var(--green);  color: #0d1117; }
+.btn-defer  { background: var(--yellow); color: #0d1117; }
+.btn-reject { background: var(--red);   color: #fff; }
+
+.tor-responded {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.tor-responded strong { color: var(--text); }
+
+/* ── Utilities ────────────────────────────────────────────────────── */
+.muted  { color: var(--muted); }
+.small  { font-size: 11px; }
+.hidden { display: none !important; }
