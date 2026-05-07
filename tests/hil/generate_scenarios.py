@@ -55,6 +55,8 @@ from scenario_schema import (
 # We fix own ship at origin (0, 0) heading North (psi = 90° math = 0° met).
 # Target positions are expressed in ENU metres relative to own ship.
 
+_MIN_TCPA_S = 30.0  # discard scenarios where encounter is already past CPA or too imminent
+
 _BASE_MMSI_START = 123456000
 _mmsi_counter = _BASE_MMSI_START
 
@@ -105,8 +107,7 @@ def _cpa_tcpa(
         dist = math.sqrt(dx * dx + dy * dy)
         return dist, 0.0
     tcpa = -(dx * dvx + dy * dvy) / dv2
-    if tcpa < 0:
-        tcpa = 0.0
+    # Note: tcpa may be negative (encounter already past CPA)
     cx = dx + dvx * tcpa
     cy = dy + dvy * tcpa
     cpa = math.sqrt(cx * cx + cy * cy)
@@ -168,6 +169,9 @@ def _gen_rule14(counters: dict) -> List[Scenario]:
                     ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
                     tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
+
+                    if tcpa < _MIN_TCPA_S:
+                        continue  # skip degenerate/already-past scenarios
 
                     counters[rule_tag] += 1
                     sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
@@ -246,6 +250,9 @@ def _gen_rule15(counters: dict) -> List[Scenario]:
                     tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
+                    if tcpa < _MIN_TCPA_S:
+                        continue  # skip degenerate/already-past scenarios
+
                     counters[rule_tag] += 1
                     sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
@@ -321,6 +328,9 @@ def _gen_rule13(counters: dict) -> List[Scenario]:
                     ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
                     tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
+
+                    if tcpa < _MIN_TCPA_S:
+                        continue  # skip degenerate/already-past scenarios
 
                     counters[rule_tag] += 1
                     sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
@@ -400,6 +410,9 @@ def _gen_rule17(counters: dict) -> List[Scenario]:
                         tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
+                        if tcpa < _MIN_TCPA_S:
+                            continue  # skip degenerate/already-past scenarios
+
                         counters[rule_tag] += 1
                         sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                         tgt = TargetShipInit(
@@ -474,6 +487,9 @@ def _gen_rule18(counters: dict) -> List[Scenario]:
                         ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
                         tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
+
+                        if tcpa < _MIN_TCPA_S:
+                            continue  # skip degenerate/already-past scenarios
 
                         counters[rule_tag] += 1
                         sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
@@ -554,6 +570,9 @@ def _gen_rule19(counters: dict) -> List[Scenario]:
                     tvx, tvy = _velocity_components(tgt_cog, effective_tgt_spd)
                     cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
 
+                    if tcpa < _MIN_TCPA_S:
+                        continue  # skip degenerate/already-past scenarios
+
                     counters[rule_tag] += 1
                     sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
                     tgt = TargetShipInit(
@@ -625,6 +644,9 @@ def _gen_fault_injection(counters: dict) -> List[Scenario]:
                         ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
                         tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
                         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
+
+                        if tcpa < _MIN_TCPA_S:
+                            continue  # skip degenerate/already-past scenarios
 
                         counters[rule_tag] += 1
                         sid = f"SCN-{rule_tag}-{counters[rule_tag]:04d}"
@@ -749,6 +771,8 @@ def generate(min_count: int, seed: int = 42) -> List[Scenario]:
         ovx, ovy = _velocity_components(OWN_PSI_MET, own_spd)
         tvx, tvy = _velocity_components(tgt_cog, tgt_spd)
         cpa, tcpa = _cpa_tcpa(0, 0, ovx, ovy, tx, ty, tvx, tvy)
+        if tcpa < _MIN_TCPA_S:
+            continue  # skip degenerate/already-past scenarios
         extra_counter["R14"] += 1
         sid = f"SCN-R14-EX{extra_counter['R14']:04d}"
         tgt = TargetShipInit(
