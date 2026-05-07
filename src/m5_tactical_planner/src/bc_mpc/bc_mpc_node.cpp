@@ -7,6 +7,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/units.hpp"
 
 namespace mass_l3::m5::bc_mpc {
@@ -172,6 +173,8 @@ void BcMpcNode::publish_override_(const BcMpcSolution& sol)
       std::string("{\"heading_deg\":") + std::to_string(cmd.heading_cmd_deg)
       + ",\"validity_s\":"  + std::to_string(cmd.validity_s)
       + ",\"worst_cpa_m\":" + std::to_string(sol.worst_case_cpa_m) + "}";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
   pub_asdr_->publish(record);
 }
 

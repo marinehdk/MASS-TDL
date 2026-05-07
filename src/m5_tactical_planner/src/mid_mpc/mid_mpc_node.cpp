@@ -9,6 +9,7 @@
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
+#include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
 
@@ -193,6 +194,8 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   record.source_module = "M5_Tactical_Planner";
   record.decision_type = "avoid_wp";
   record.decision_json = json;
+  const auto digest = mass_l3::m5::common::sha256(json);
+  record.signature.assign(digest.begin(), digest.end());
   pub_asdr_record_->publish(record);
 
   l3_msgs::msg::SATData sat;

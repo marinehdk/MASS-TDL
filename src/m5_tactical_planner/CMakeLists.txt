@@ -70,6 +70,7 @@ add_library(m5_shared_lib STATIC
   src/common/types.cpp
   src/common/units.cpp
   src/common/time_alignment.cpp
+  src/common/sha256.cpp
   # --- shared/ ---
   src/shared/capability_manifest.cpp
   src/shared/vessel_dynamics_model.cpp
@@ -324,6 +325,26 @@ if(BUILD_TESTING)
     builtin_interfaces
   )
   target_include_directories(test_bc_mpc_solver
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+
+  # ── Task 4.1: BC-MPC handover state machine + ASDR signature tests ──────────
+  ament_add_gtest(test_bc_mpc_node_handover
+    test/unit/test_bc_mpc_node_handover.cpp
+  )
+  target_link_libraries(test_bc_mpc_node_handover
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+  )
+  ament_target_dependencies(test_bc_mpc_node_handover
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_bc_mpc_node_handover
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test
   )
