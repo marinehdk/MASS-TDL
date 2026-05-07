@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ROC HMI Simulator — MASS L3 Tactical Layer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>ROC HMI Simulator</h1>
+    <span id="conn-badge" class="badge badge-warn">Connecting…</span>
+    <span id="server-time" class="muted"></span>
+  </header>
+
+  <!-- ── Ship State ───────────────────────────────────────────────── -->
+  <section class="card" id="ship-card">
+    <h2>Ship State <span class="muted small">(UIState @ 50 Hz)</span></h2>
+    <div class="grid-2">
+      <div class="stat">
+        <label>Autonomy Level</label>
+        <span id="auto-level">—</span>
+      </div>
+      <div class="stat">
+        <label>View Mode</label>
+        <span id="view-mode">—</span>
+      </div>
+      <div class="stat">
+        <label>Latitude (°)</label>
+        <span id="lat">—</span>
+      </div>
+      <div class="stat">
+        <label>Longitude (°)</label>
+        <span id="lon">—</span>
+      </div>
+      <div class="stat">
+        <label>Heading (°)</label>
+        <span id="hdg">—</span>
+      </div>
+      <div class="stat">
+        <label>SOG (kn)</label>
+        <span id="sog">—</span>
+      </div>
+      <div class="stat">
+        <label>Active Alerts</label>
+        <span id="active-alerts" class="counter">—</span>
+      </div>
+      <div class="stat">
+        <label>Critical Alerts</label>
+        <span id="critical-alerts" class="counter counter-red">—</span>
+      </div>
+    </div>
+    <div class="confidence-bar-wrap">
+      <label>M8 Confidence</label>
+      <div class="confidence-bar">
+        <div id="conf-fill" class="conf-fill" style="width:0%"></div>
+      </div>
+      <span id="conf-val">—</span>
+    </div>
+    <p class="rationale" id="rationale">—</p>
+  </section>
+
+  <!-- ── SAT-1/2/3 ────────────────────────────────────────────────── -->
+  <section class="card" id="sat-card">
+    <h2>SAT Transparency Data</h2>
+    <div class="sat-grid">
+      <div class="sat-panel">
+        <h3>SAT-1 — Current State</h3>
+        <p id="sat1-state" class="sat-value">—</p>
+        <p id="sat1-rationale" class="muted small">—</p>
+        <div class="confidence-bar-wrap">
+          <div class="confidence-bar">
+            <div id="sat1-conf-fill" class="conf-fill" style="width:0%"></div>
+          </div>
+          <span id="sat1-conf-val">—</span>
+        </div>
+      </div>
+      <div class="sat-panel" id="sat2-panel">
+        <h3>SAT-2 — Reasoning</h3>
+        <p id="sat2-triggered" class="sat-value">—</p>
+        <p id="sat2-source" class="muted small">—</p>
+        <p id="sat2-reasoning" class="muted">—</p>
+      </div>
+      <div class="sat-panel">
+        <h3>SAT-3 — Prediction (TDL)</h3>
+        <p id="sat3-state" class="sat-value">—</p>
+        <p id="sat3-tdl" class="muted small">—</p>
+        <div class="sat3-meta">
+          <span>Horizon: <strong id="sat3-horizon">—</strong>s</span>
+          <span>Uncertainty: <strong id="sat3-uncertainty">—</strong></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── ToR Panel ─────────────────────────────────────────────────── -->
+  <section class="card card-tor hidden" id="tor-card">
+    <h2>Transfer of Responsibility Request</h2>
+    <div class="tor-header">
+      <span class="tor-reason" id="tor-reason">—</span>
+      <span class="tor-level">Target Level: <strong id="tor-level">—</strong></span>
+    </div>
+    <div class="tor-body">
+      <div class="tor-field">
+        <label>Context</label>
+        <p id="tor-context">—</p>
+      </div>
+      <div class="tor-field">
+        <label>Recommended Action</label>
+        <p id="tor-recommended">—</p>
+      </div>
+    </div>
+    <div class="tor-deadline">
+      <label>Time Remaining</label>
+      <span id="tor-countdown" class="countdown">—</span>
+    </div>
+    <div class="tor-actions" id="tor-actions">
+      <button class="btn btn-accept" onclick="sendTorResponse('ACCEPT')">ACCEPT</button>
+      <button class="btn btn-defer"  onclick="sendTorResponse('DEFER')">DEFER</button>
+      <button class="btn btn-reject" onclick="sendTorResponse('REJECT')">REJECT</button>
+    </div>
+    <p id="tor-responded" class="tor-responded hidden">Response sent: <strong id="tor-response-val">—</strong></p>
+  </section>
+
+  <script>
+    /* ── State ─────────────────────────────────────────────────── */
+    let _torDeadline = null;   // absolute JS timestamp (ms) when ToR expires
+    let _torResponded = false;
+
+    /* ── Helpers ───────────────────────────────────────────────── */
+    function setText(id, val, fallback) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (val !== null && val !== undefined) ? val : (fallback ?? '—');
+    }
+
+    function setWidth(id, pct) {
+      const el = document.getElementById(id);
+      if (el) el.style.width = pct + '%';
+    }
+
+    function show(id)   { document.getElementById(id)?.classList.remove('hidden'); }
+    function hide(id)   { document.getElementById(id)?.classList.add('hidden'); }
+    function hasClass(id, cls) { return document.getElementById(id)?.classList.contains(cls); }
+
+    function fmtFloat(v, decimals) {
+      return (v !== null && v !== undefined) ? Number(v).toFixed(decimals) : '—';
+    }
+
+    /* ── Update Ship State ────────────────────────────────────── */
+    function updateShipState(ui) {
+      if (!ui) { return; }
+      setText('auto-level',      ui.auto_level_text);
+      setText('view-mode',       ui.view_mode);
+      setText('lat',             fmtFloat(ui.ship_latitude_deg, 5));
+      setText('lon',             fmtFloat(ui.ship_longitude_deg, 5));
+      setText('hdg',             fmtFloat(ui.ship_heading_deg, 1));
+      setText('sog',             fmtFloat(ui.ship_sog_kn, 1));
+      setText('active-alerts',   ui.active_alert_count);
+      setText('critical-alerts', ui.critical_alert_count);
+      setText('conf-val',        fmtFloat(ui.confidence * 100, 0) + '%');
+      setWidth('conf-fill',      Math.min(100, Math.max(0, ui.confidence * 100)));
+      setText('rationale',       ui.rationale);
+
+      const ca = document.getElementById('critical-alerts');
+      if (ca) ca.classList.toggle('counter-red-lit', ui.critical_alert_count > 0);
+    }
+
+    /* ── Update SAT panels ────────────────────────────────────── */
+    function updateSat(sat) {
+      if (!sat) { return; }
+
+      if (sat.sat1) {
+        setText('sat1-state',    sat.sat1.current_state);
+        setText('sat1-rationale', sat.sat1.rationale);
+        setText('sat1-conf-val', fmtFloat(sat.sat1.confidence * 100, 0) + '%');
+        setWidth('sat1-conf-fill', Math.min(100, Math.max(0, sat.sat1.confidence * 100)));
+      }
+
+      if (sat.sat2) {
+        const triggered = sat.sat2.triggered;
+        setText('sat2-triggered', triggered ? 'TRIGGERED' : 'nominal');
+        document.getElementById('sat2-panel')?.classList.toggle('sat-triggered', triggered);
+        setText('sat2-source',    sat.sat2.trigger_source);
+        setText('sat2-reasoning', sat.sat2.reasoning);
+      }
+
+      if (sat.sat3) {
+        setText('sat3-state',       sat.sat3.predicted_state);
+        setText('sat3-tdl',         sat.sat3.tdl_summary);
+        setText('sat3-horizon',     fmtFloat(sat.sat3.horizon_s, 0));
+        setText('sat3-uncertainty', fmtFloat(sat.sat3.uncertainty, 3));
+      }
+    }
+
+    /* ── Update ToR panel ─────────────────────────────────────── */
+    function updateTor(tor, receivedAt, torResponse, serverTime) {
+      if (!tor) {
+        hide('tor-card');
+        _torDeadline = null;
+        _torResponded = false;
+        return;
+      }
+
+      show('tor-card');
+      setText('tor-reason',      tor.reason_text);
+      setText('tor-level',       'D' + tor.target_level);
+      setText('tor-context',     tor.context_summary);
+      setText('tor-recommended', tor.recommended_action);
+
+      // Compute deadline from server perspective
+      if (receivedAt && tor.deadline_s) {
+        // receivedAt is a Unix epoch float; align with server_time
+        const elapsed = serverTime - receivedAt;
+        const remaining = tor.deadline_s - elapsed;
+        _torDeadline = Date.now() + remaining * 1000;
+      }
+
+      if (torResponse) {
+        _torResponded = true;
+        hide('tor-actions');
+        show('tor-responded');
+        setText('tor-response-val', torResponse);
+      } else {
+        _torResponded = false;
+        show('tor-actions');
+        hide('tor-responded');
+      }
+    }
+
+    /* ── Countdown ticker (runs at 100 ms) ───────────────────── */
+    function tickCountdown() {
+      const el = document.getElementById('tor-countdown');
+      if (!el) return;
+      if (!_torDeadline) { el.textContent = '—'; return; }
+      const remaining = (_torDeadline - Date.now()) / 1000;
+      if (remaining <= 0) {
+        el.textContent = 'EXPIRED';
+        el.classList.add('countdown-expired');
+        return;
+      }
+      el.textContent = remaining.toFixed(1) + 's';
+      el.classList.remove('countdown-expired');
+      el.classList.toggle('countdown-warn', remaining < 15);
+    }
+
+    setInterval(tickCountdown, 100);
+
+    /* ── Send ToR response ────────────────────────────────────── */
+    async function sendTorResponse(choice) {
+      try {
+        const resp = await fetch('/api/tor_response', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({response: choice}),
+        });
+        const body = await resp.json();
+        if (!body.ok) {
+          alert('Error: ' + body.error);
+        }
+      } catch (e) {
+        alert('Network error: ' + e);
+      }
+    }
+
+    /* ── Polling loop ─────────────────────────────────────────── */
+    async function poll() {
+      try {
+        const resp = await fetch('/api/state');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+
+        document.getElementById('conn-badge').textContent = 'Connected';
+        document.getElementById('conn-badge').className = 'badge badge-ok';
+
+        const st = data.server_time ? new Date(data.server_time * 1000).toLocaleTimeString() : '';
+        setText('server-time', st);
+
+        updateShipState(data.ui_state);
+        updateSat(data.sat_data);
+        updateTor(data.tor_request, data.tor_received_at, data.tor_response, data.server_time);
+
+      } catch (e) {
+        document.getElementById('conn-badge').textContent = 'Disconnected';
+        document.getElementById('conn-badge').className = 'badge badge-err';
+      }
+    }
+
+    poll();
+    setInterval(poll, 1000);
+  </script>
+</body>
+</html>
