@@ -5,8 +5,7 @@
 // KNOWN BUG: M6 publishes /l3/m6/colregs_constraint but M5 subscribes /m6/colregs_constraint
 // INT001_FullChain_TopicMismatch surfaces this via asserting the gap between the two topics.
 //
-// Per v1.1.2 §9, §10; MISRA C++:2023 subset (no magic numbers, stack/shared_ptr only,
-// function bodies ≤40 lines per PATH-D).
+// Per v1.1.2 §9, §10; MISRA C++:2023 PATH-D (full 179 rules; 40-line limit is PATH-S only).
 
 #include <chrono>
 #include <functional>
@@ -39,13 +38,17 @@ constexpr float  kBehaviorSpeedMinKn      = 0.0F;
 constexpr float  kBehaviorSpeedMaxKn      = 20.0F;
 constexpr float  kBehaviorHeadingMinDeg   = 0.0F;
 constexpr float  kBehaviorHeadingMaxDeg   = 360.0F;
-constexpr double kKnotsToMps              = 0.514444;  // 1 kn = 0.514444 m/s (exact SI)
+constexpr double kKnotsToMps              = 0.514444;  // standard IMO/IACS conversion (1852 m/nm ÷ 3600 s/h ≈ 0.5144 m/s)
+constexpr double kMockTcpaS               = 120.0;     // within Rule 14 T_act engagement range
+constexpr double kHeadOnCpaM              = 0.0;       // collision course geometry for HEAD_ON scenario
 
 // ── GTest Fixture ─────────────────────────────────────────────────────────────
 class Int001Test : public ::testing::Test {
  protected:
   void SetUp() override {
-    rclcpp::init(0, nullptr);
+    if (!rclcpp::ok()) {
+      rclcpp::init(0, nullptr);
+    }
     node_ = std::make_shared<rclcpp::Node>("int001_test_node");
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
@@ -107,8 +110,8 @@ class Int001Test : public ::testing::Test {
     tgt.heading_deg          = kTargetCogDeg;
     tgt.classification       = "vessel";
     tgt.classification_confidence = kMockConfidence;
-    tgt.cpa_m                = 0.0;
-    tgt.tcpa_s               = 120.0;
+    tgt.cpa_m                = kHeadOnCpaM;
+    tgt.tcpa_s               = kMockTcpaS;
     tgt.confidence           = kMockConfidence;
     tgt.source_sensor        = "fused";
 
@@ -149,8 +152,8 @@ class Int001Test : public ::testing::Test {
     tgt.heading_deg       = kTargetCogDeg;
     tgt.classification    = "vessel";
     tgt.classification_confidence = kMockConfidence;
-    tgt.cpa_m             = 0.0;
-    tgt.tcpa_s            = 120.0;
+    tgt.cpa_m             = kHeadOnCpaM;
+    tgt.tcpa_s            = kMockTcpaS;
     tgt.confidence        = kMockConfidence;
     tgt.source_sensor     = "fused";
     tgt.encounter.encounter_type =
@@ -255,6 +258,8 @@ TEST_F(Int001Test, INT001_M2ToM6_WorldStateTriggersConstraint) {
 
   bool ok = spin_until([&received]() { return received; }, kSpinTimeout);
 
+  constraint_sub.reset();  // explicit lifetime: prevent callbacks during assertion
+
   ASSERT_TRUE(ok)
       << "INT-001: M6 did not publish COLREGsConstraint within "
       << kSpinTimeout.count() << "s of WorldState+ODDState input";
@@ -281,6 +286,8 @@ TEST_F(Int001Test, INT001_M5_ReceivesConstraintOnActualTopic) {
   auto publish_timer = make_m5_prerequisite_publisher();
 
   bool ok = spin_until([&received]() { return received; }, kSpinTimeout);
+
+  plan_sub.reset();  // explicit lifetime: prevent callbacks during assertion
 
   ASSERT_TRUE(ok)
       << "INT-001: M5 did not publish AvoidancePlan within "
@@ -321,6 +328,9 @@ TEST_F(Int001Test, INT001_FullChain_TopicMismatch) {
   // Give the chain up to 2 s — enough for M6 to react but capped for CI.
   spin_until([&received_on_l3_topic]() { return received_on_l3_topic; },
              kMismatchTimeout);
+
+  l3_sub.reset();   // explicit lifetime: prevent callbacks during assertion
+  m5_sub.reset();   // explicit lifetime: prevent callbacks during assertion
 
   // M6 MUST have published to its own topic.
   EXPECT_TRUE(received_on_l3_topic)
