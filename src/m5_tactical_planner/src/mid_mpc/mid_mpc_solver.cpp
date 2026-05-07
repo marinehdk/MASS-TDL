@@ -15,7 +15,8 @@
 
 namespace mass_l3::m5::mid_mpc {
 
-// Consecutive failures before escalating to CRITICAL (detailed design §7.1).
+// [TBD-HAZID] Consecutive-failure threshold before MRM-02 escalation.
+// Calibrate via HAZID RUN-001 WP-04 FM-2 sensitivity analysis (detailed design §7.1).
 constexpr int64_t kConsecutiveFailureEscalation = 5;
 
 // ===========================================================================
@@ -34,15 +35,17 @@ int32_t MidMpcSolver::g_dim_() const noexcept {
 
 // ===========================================================================
 // pack_warm_start_() — extract previous-cycle trajectory into x0 = [psi; u].
-// If warm trajectory is shorter than N (degenerate), zero-pads remainder.
+// If warm trajectory is shorter than N (degenerate), repeats the last valid
+// point rather than leaving zeros (avoids psi=0/u=0 starting outside bounds).
 // ===========================================================================
 casadi::DM MidMpcSolver::pack_warm_start_(const MidMpcSolution& warm) const {
-  const int32_t N = formulation_.config().n_horizon;
-  casadi::DM x0 = casadi::DM::zeros(2 * N, 1);
+  const int32_t N     = formulation_.config().n_horizon;
   const int32_t n_warm = static_cast<int32_t>(warm.trajectory.size());
+  casadi::DM x0 = casadi::DM::zeros(2 * N, 1);
   for (int32_t k = 0; k < N; ++k) {
-    if (k < n_warm) {
-      const auto& pt = warm.trajectory[static_cast<std::size_t>(k)];
+    const int32_t src = (k < n_warm) ? k : (n_warm - 1);
+    if (src >= 0) {
+      const auto& pt = warm.trajectory[static_cast<std::size_t>(src)];
       x0(k)     = pt.psi_rad;
       x0(N + k) = pt.u_mps;
     }
@@ -92,10 +95,17 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   try {
     res = formulation_.solver()(arg);
   } catch (const std::exception& e) {
+    const auto t_ex = std::chrono::steady_clock::now();
     spdlog::error("[M5][MidMPC] IPOPT threw: {}", e.what());
     ++consecutive_failures_;
+    if (consecutive_failures_ > kConsecutiveFailureEscalation) {
+      spdlog::critical("[M5][MidMPC] {} consecutive failures; M7 MRM-02 escalation",
+                       consecutive_failures_);
+    }
     MidMpcSolution fail;
     fail.status = SolveStatus::NumericalFailure;
+    fail.solve_duration_ms = static_cast<int32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(t_ex - t_start).count());
     return fail;
   }
 

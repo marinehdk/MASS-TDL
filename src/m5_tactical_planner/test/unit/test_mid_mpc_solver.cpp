@@ -75,6 +75,8 @@ MidMpcInput make_base_input() {
   inp.constraints.speed_min_mps   = 0.0;
   inp.constraints.speed_max_mps   = 15.0;
   inp.constraints.cpa_safe_m      = 1852.0;
+  // Mirror own_ship heading into COLREGs directional reference (Phase E2 hard constraints).
+  inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
   return inp;
 }
 
@@ -195,11 +197,8 @@ TEST_F(MidMpcNlpTest, InfeasibleProblem) {
 }
 
 // ---------------------------------------------------------------------------
-// 场景 5: Warm start — starting from the optimal should require fewer iterations.
-// Cold solve first, then warm start from that solution; warm should be faster.
-//
-// Note: on extremely fast hardware both may round to 0 ms. The test is
-// considered informational; hard-fail is expected only on standard targets.
+// 场景 5: Warm start — starting from the optimal requires fewer IPOPT iterations.
+// Uses ipopt_iterations (deterministic) rather than wall-clock (hardware-dependent).
 // ---------------------------------------------------------------------------
 TEST_F(MidMpcNlpTest, WarmStartFasterThanColdStart) {
   const MidMpcInput input = make_crossing_give_way_input();
@@ -209,7 +208,8 @@ TEST_F(MidMpcNlpTest, WarmStartFasterThanColdStart) {
   // Both must converge for the comparison to be meaningful.
   ASSERT_EQ(cold.status, MidMpcSolver::SolveStatus::Converged);
   ASSERT_EQ(warm.status, MidMpcSolver::SolveStatus::Converged);
-  EXPECT_LT(warm.solve_duration_ms, cold.solve_duration_ms);
+  // Warm start is near-optimal: IPOPT should need strictly fewer iterations.
+  EXPECT_LT(warm.ipopt_iterations, cold.ipopt_iterations);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +222,6 @@ TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
 
   // A successful solve must reset the counter.
   const auto sol = solver_->solve(make_straight_line_input(), nullptr);
-  if (sol.status == MidMpcSolver::SolveStatus::Converged) {
-    EXPECT_EQ(solver_->consecutive_failures(), 0);
-  }
+  ASSERT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
+  EXPECT_EQ(solver_->consecutive_failures(), 0);
 }
