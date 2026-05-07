@@ -31,8 +31,8 @@ class TorProtocol final {
   struct Config {
     double deadline_s{60.0};           // [R4] Veitch 2024 — [TBD-HAZID]
     double sat1_min_display_s{5.0};    // button enabled after this duration
-    double retry_interval_s{30.0};
-    int max_retries{1};
+    double retry_interval_s{30.0};     // [NOT-YET: retry scheduling deferred to Phase E2]
+    int max_retries{1};                // [NOT-YET: retry scheduling deferred to Phase E2]
   };
 
   /// Snapshot written to ASDR when operator clicks Acknowledge

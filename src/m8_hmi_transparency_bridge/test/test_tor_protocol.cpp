@@ -254,3 +254,29 @@ TEST(TorProtocol, RemainingDeadlineIsZeroWhenAcknowledged)
   ASSERT_EQ(p.state(), TorProtocol::State::kAcknowledged);
   EXPECT_DOUBLE_EQ(p.remaining_deadline_s(t_click + std::chrono::seconds(5)), 0.0);
 }
+
+// ---------------------------------------------------------------------------
+// Additional test 19: tick idempotency — second tick after timeout returns false
+// ---------------------------------------------------------------------------
+TEST(TorProtocol, TickIdempotencyAfterTimeout)
+{
+  TorProtocol p(default_cfg());
+  auto t0 = TorProtocol::Clock::now();
+  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  auto t_late = t0 + std::chrono::seconds(61);
+  EXPECT_TRUE(p.tick(t_late));                              // first: transitions to kTimeoutMrc
+  EXPECT_FALSE(p.tick(t_late + std::chrono::seconds(10))); // second: already kTimeoutMrc
+}
+
+// ---------------------------------------------------------------------------
+// Additional test 20: remaining_deadline_s clamped to 0.0 after timeout
+// ---------------------------------------------------------------------------
+TEST(TorProtocol, RemainingDeadlineIsZeroAfterTimeout)
+{
+  TorProtocol p(default_cfg());
+  auto t0 = TorProtocol::Clock::now();
+  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  auto t_late = t0 + std::chrono::seconds(70);
+  p.tick(t_late);
+  EXPECT_DOUBLE_EQ(p.remaining_deadline_s(t_late), 0.0);
+}

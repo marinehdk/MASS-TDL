@@ -38,9 +38,6 @@ TorProtocol::on_acknowledgment_clicked(
   if (!is_acknowledgment_button_enabled(now)) {
     return std::nullopt;
   }
-  if (state_ != State::kRequested) {
-    return std::nullopt;
-  }
 
   AcknowledgmentSnapshot snap{};
   snap.click_time = now;
