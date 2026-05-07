@@ -187,6 +187,9 @@ struct BcMpcSolution {
   double validity_s{1.0};         // override validity [s]
   std::string trigger_reason;     // "CONDITION_A".."CONDITION_D"
   double confidence{0.0};         // ∈ [0, 1]
+  double optimal_speed_mps{0.0};  // Phase E1: maintain current speed; Phase E2: optimize
+  double rot_cmd_rad_s{0.0};      // Phase E1: 0.0 (no ROT cmd); Phase E2: from ROT solver
+  std::int64_t solve_duration_us{0};  // solve wall-clock time [microseconds]
   std::int64_t stamp_ns{0};
 };
 

@@ -83,7 +83,8 @@ add_library(m5_shared_lib STATIC
   # --- bc_mpc/ ---
   src/bc_mpc/bc_mpc_branch_formulation.cpp
   src/bc_mpc/bc_mpc_collision_detector.cpp
-  # TODO(Task-3.2): src/bc_mpc/bc_mpc_node.cpp
+  src/bc_mpc/bc_mpc_solver.cpp
+  src/bc_mpc/bc_mpc_override_generator.cpp
 )
 
 target_include_directories(m5_shared_lib
@@ -130,8 +131,34 @@ target_link_libraries(m5_mid_mpc_node
 )
 
 # ---------------------------------------------------------------------------
+# m5_bc_mpc_node executable
+# ---------------------------------------------------------------------------
+add_executable(m5_bc_mpc_node
+  src/bc_mpc/bc_mpc_node.cpp
+  src/bc_mpc/main_bc_mpc.cpp
+)
+target_include_directories(m5_bc_mpc_node
+  PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+ament_target_dependencies(m5_bc_mpc_node
+  rclcpp
+  l3_msgs
+  l3_external_msgs
+  builtin_interfaces
+)
+target_link_libraries(m5_bc_mpc_node
+  m5_shared_lib
+  spdlog::spdlog
+  Eigen3::Eigen
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
+install(TARGETS m5_bc_mpc_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 install(TARGETS m5_mid_mpc_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
@@ -277,6 +304,26 @@ if(BUILD_TESTING)
     builtin_interfaces
   )
   target_include_directories(test_bc_mpc_collision_detector
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+  )
+
+  # ── Task 3.2: BC-MPC solver + override generator unit tests ──────────────────
+  ament_add_gtest(test_bc_mpc_solver
+    test/unit/test_bc_mpc_solver.cpp
+  )
+  target_link_libraries(test_bc_mpc_solver
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+  )
+  ament_target_dependencies(test_bc_mpc_solver
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_include_directories(test_bc_mpc_solver
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test
   )
