@@ -147,9 +147,9 @@ def test_hil_rule17_standon(ros2_node):
 @pytest.mark.hil
 def test_hil_rule19_degraded(ros2_node):
     """
-    Rule 19 / DEGRADED scenarios: M1 ODD mode must transition to DEGRADED
-    within the timeout.  Verified by checking that an ODD state message
-    with mode != 'NORMAL' is received.
+    Rule 19 / DEGRADED scenarios: M1 must set ODDState.health >= 1
+    (HEALTH_DEGRADED or HEALTH_CRITICAL) within the timeout.
+    ODDState.msg: health 0=FULL, 1=DEGRADED, 2=CRITICAL.
     """
     all_scenarios = _load_scenarios()
     rule19 = [
@@ -201,10 +201,8 @@ def test_hil_rule19_degraded(ros2_node):
                 except Exception:  # noqa: BLE001
                     pass
                 for state in odd_states:
-                    mode = getattr(state, "odd_mode", None) or getattr(
-                        state, "mode", None
-                    )
-                    if mode is not None and str(mode).upper() not in ("NORMAL", "0"):
+                    # ODDState.health: 0=HEALTH_FULL, 1=HEALTH_DEGRADED, 2=HEALTH_CRITICAL
+                    if getattr(state, "health", 0) >= 1:
                         degraded_seen = True
                         break
                 if degraded_seen:
