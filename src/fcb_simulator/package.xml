@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fcb_simulator</name>
+  <version>0.1.0</version>
+  <description>
+    FCB (Fast Craft/Boat) 4-DOF MMG ship dynamics simulator for HIL testing.
+    Implements Yasukawa &amp; Yoshimura 2015 [R7] MMG model (surge/sway/yaw/roll)
+    integrated via 4th-order Runge-Kutta. Replaces the Multimodal Fusion mock
+    publisher by generating FilteredOwnShipState + TrackedTargetArray streams
+    driven by L3 (M5) avoidance commands. PATH-H tooling code (relaxed MISRA).
+    Reference: Yasukawa &amp; Yoshimura 2015 [R7]; FCB tuning per Luo &amp; Zou 2019.
+  </description>
+  <maintainer email="team-e3@mass-l3-tdl.local">Team-E3</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>geographic_msgs</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>yaml-cpp</depend>
+  <depend>eigen3</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,71 @@
+# FCB 4-DOF MMG simulator parameters (Yasukawa & Yoshimura 2015 [R7],
+# tuned per Luo & Zou 2019 patrol-vessel adaptation).
+# Units: SI; primed quantities are non-dimensional per MMG convention.
+fcb_simulator:
+  ros__parameters:
+    # Ship particulars
+    L: 46.0                  # m, LBP
+    d: 2.8                   # m, draft
+    B: 8.0                   # m, beam
+    displacement_t: 450.0    # tonnes
+    x_G: 0.0                 # m, CG offset from midship
+
+    # Added mass (non-dimensional)
+    m_x_prime: 0.00831
+    m_y_prime: 0.1284
+    J_zz_prime: 0.00676
+
+    # Hull derivatives (Abkowitz)
+    X_vv: -0.0407
+    X_vr:  0.0441
+    X_rr:  0.0127
+    X_vvvv: -0.0607
+    Y_v:  -0.3073
+    Y_r:   0.1521
+    Y_vvv: -0.7256
+    Y_vvr: -0.1338
+    Y_vrr:  0.1657
+    Y_rrr: -0.0303
+    N_v:  -0.1084
+    N_r:  -0.0585
+    N_vvv:  0.0040
+    N_vvr: -0.0498
+    N_vrr: -0.0151
+    N_rrr: -0.0061
+
+    # Roll (1-DOF pendulum) — [TBD-HAZID] G_M and T_phi pending FCB inclining experiment
+    G_M: 1.2                 # m, metacentric height
+    T_phi: 5.0               # s, natural roll period
+
+    # Propeller
+    t_P: 0.184
+    w_P: 0.200
+    D_P: 1.5
+    k_0: 0.6
+    k_1: -0.3
+    k_2: -0.25
+
+    # Rudder
+    t_R: 0.387
+    a_H: 0.312
+    x_H_prime: -0.464
+    x_R_prime: -0.500
+    gamma_R: 0.395
+    l_R_prime: -0.710
+    kappa: 0.50
+    epsilon: 1.09
+    A_R: 1.65
+    f_alpha: 2.747
+
+    # Integration
+    dt: 0.02
+
+    # Initial conditions
+    x0: 0.0
+    y0: 0.0
+    psi0: 1.5708
+    u0: 9.26
+
+    # Geographic origin for NED→WGS84
+    origin_lat: 30.5
+    origin_lon: 122.0
