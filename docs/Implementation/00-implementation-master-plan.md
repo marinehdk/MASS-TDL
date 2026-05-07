@@ -236,7 +236,8 @@ mass_l3_tdl/                            # workspace 根（git 单仓 monorepo）
 - **Wave 1 第一批（2026-05-06 全部完成 — tag v0.1.0）**：M1 / M2 / M3 / M6 — 4 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成（详见 §8.4）；main 含 132 cpp+hpp 文件 / ~15,160 行代码
 - **Wave 2（2026-05-06 全部完成 — tag v0.2.0）**：M4 + M7 — 2 模块 Phase E1 编码 + review + fix + README + 合并到 main 全部完成；M4 PATH-D（5 cpp+hpp，IvP 紧凑）+ M7 PATH-S 独立路径（56 cpp+hpp，1802 impl + 2428 test = 134.7% test/impl，0 forbidden include/lib violation）
 - **Wave 3（2026-05-06 全部完成 — tag v0.3.0）**：M5 + M8 — 2 模块 Phase E1 完成；M5 PATH-D（48 cpp+hpp，双 MPC + CasADi/IPOPT，RFC-001 方案 B 双接口）+ M8 PATH-H（28 cpp+hpp + 13 py，C++ ROS2 + Python FastAPI 双进程，TorProtocol IMO MASS Code 合规）。**🎯 L3 TDL 8 模块 Phase E1 编码 + review 全部完成**
-- **Wave 4（待启动）**：跨模块集成测试 (Phase E2) + HIL 准备 (Phase E3) + FCB 实船试航 (Phase E4)（详见 `docs/Test Plan/`）
+- **Wave 4a（2026-05-06 完成 — tag v0.4.0）**：Phase E2 跨模块集成（8 INT 场景 INT-001~008，覆盖全部 6 RFC + 决策三 SAT/ToR）+ Phase E3 HIL 仿真（src/fcb_simulator 4-DOF MMG + tests/hil 1000+ COLREGs scenarios + tools/roc_simulator Flask + 性能基准 M5/Reflex/L4 KPI 验证）。详见 `docs/Test Plan/integration-test-report-phase-e3.md`（CCS 入级证据）
+- **Wave 4b（⏸️ 推迟到 2026-12 部署上船后启动）**：Phase E4 FCB 实船试航（≥ 50 nm + ≥ 100 h + ≥ 50 COLREGs 场景）— 推迟原因：年底前不能部署上船。预期产物：v1.0.0-rc1（实船 + HAZID v1.1.3 校准回填后）
 
 > **预计实施时长**：单团队 4–8 周/模块（取决于规模）；8 团队并行下，**关键路径 ~10 周到模块级稳定**；跨模块集成 + HIL 共需 10–14 周完成。**总计实施阶段约 6 个月（2026-05–2026-11）**，与 HAZID 完成时点（2026-08-19）+ FCB 实船试航（2026-06）互相支撑。
 
