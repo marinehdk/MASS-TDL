@@ -7,9 +7,9 @@ Routes:
   POST /api/tor_response  Accept {"response": "ACCEPT"|"REJECT"|"DEFER"}
                           and forward to the ROS2 node
 
-This module is imported by launch_roc.py, which starts it in a subprocess
-after the ROS2 node is initialised.  It can also be run standalone for
-UI development (state will be empty/None).
+This module is imported by launch_roc.py, which starts it in a daemon
+thread in the same process as the ROS2 node.  It can also be run standalone
+for UI development (state will be empty/None).
 """
 
 import json
@@ -19,8 +19,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-# Lazy import of roc_node so that the Flask app can start even when
-# rclpy is not yet initialised (subprocess mode used by launch_roc.py).
+# roc_node is in the same process; get_node() returns the live singleton.
 import roc_node as _roc_node_module
 
 app = Flask(
