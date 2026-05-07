@@ -1,0 +1,37 @@
+# FCB Capability Fixture for Unit Tests
+# Uses KNOWN values for exact assertions in test_vessel_dynamics_model.cpp
+# All values are deliberately set to round numbers for predictable arithmetic.
+
+vessel:
+  vessel_id: "TEST-FCB-001"
+  vessel_class: "fast-crew-boat-test"
+
+  geometry:
+    length_m: 28.0
+    beam_m: 6.5
+    draft_m: 1.4
+    mass_kg: 95000.0
+
+  maneuvering:
+    # rot_max at 18 kn = exactly 12 deg/s = 0.20944 rad/s
+    rot_max_at_18kn_rad_s: 0.20944
+    low_speed_kn: 10.0
+    low_speed_factor: 1.2
+    high_speed_kn: 20.0
+    high_speed_factor: 0.8
+    # 10% reduction per metre Hs — used in RoughSeaReducesRotMax test
+    rough_sea_factor_per_hs: 0.10
+
+  braking:
+    stopping_distance_at_18kn_m: 250.0
+    crash_stop_max_decel_mps2: 0.8
+
+  speed:
+    speed_min_kn: 0.0
+    speed_max_kn: 28.0
+    service_speed_kn: 18.0
+
+  mmg_coefficients:
+    surge_added_mass_factor: 0.05
+    sway_added_mass_factor: 0.40
+    yaw_added_inertia_factor: 0.07
