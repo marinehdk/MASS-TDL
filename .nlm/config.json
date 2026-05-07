@@ -91,6 +91,50 @@
       ],
       "source_count": 91,
       "last_distilled": null
+    },
+    "silhil_platform": {
+      "id": "968983cc-56f4-4203-90fb-02b0739a0594",
+      "name": "DOMAIN · SIL/HIL Platform Engineering · Research",
+      "description": "SIL/HIL platform engineering, scenario library, coverage metrics, simulator V&V, tool qualification for autonomous ship verification",
+      "keywords": [
+        "SIL",
+        "HIL",
+        "FMI 2.0",
+        "FMU",
+        "OSP",
+        "scenario library",
+        "coverage metrics",
+        "simulator V&V",
+        "tool qualification",
+        "deterministic replay",
+        "MASS verification",
+        "scenario-based testing",
+        "DNV OSP",
+        "Kongsberg HIL"
+      ],
+      "source_count": 0,
+      "last_distilled": null
+    },
+    "cybersecurity": {
+      "id": "6cb48f75-4bd5-4d61-b161-ff83377ab013",
+      "name": "DOMAIN · Maritime Cybersecurity & Onboard Networks · Research",
+      "description": "Maritime cybersecurity, IACS UR E26/E27, OT network zoning, DDS-Security, ASDR integrity, ECDIS chart signing",
+      "keywords": [
+        "IACS UR E26",
+        "IACS UR E27",
+        "IACS UR E22",
+        "OT network zoning",
+        "DDS-Security",
+        "mTLS",
+        "shore link",
+        "ECDIS chart signing",
+        "ASDR HMAC",
+        "cyber resilience",
+        "DMZ",
+        "trust zone"
+      ],
+      "source_count": 0,
+      "last_distilled": null
     }
   }
 }
