@@ -1,0 +1,55 @@
+# FCB (Fast Crew Boat) Vessel Capability Manifest
+# M5 Tactical Planner — Backseat Driver pattern configuration
+# Reference: Yasukawa & Yoshimura (2015), J. Mar. Sci. Technol. 20, 37-52 [R7]
+#
+# [TBD-HAZID] parameters are marked below and must be updated with measured
+# values from FCB sea trials and pool tests (HAZID RUN-001, target 2026-08-19).
+# See: docs/Design/HAZID/04-mpc-parameters.md
+
+vessel:
+  vessel_id: "FCB-SANGO-001"
+  vessel_class: "fast-crew-boat"
+
+  geometry:
+    length_m: 28.0
+    beam_m: 6.5
+    draft_m: 1.4
+    mass_kg: 95000.0  # [TBD-HAZID] from inclining experiment
+
+  maneuvering:
+    # Maximum ROT at 18 kn (calm sea, straight course)
+    # [TBD-HAZID] from IMO turning circle trial (ahead full, 35 deg rudder)
+    rot_max_at_18kn_rad_s: 0.20944  # 12 deg/s — preliminary estimate
+
+    # Speed-dependent ROT correction (linear interpolation)
+    # [TBD-HAZID] both factors from maneuvering trials at low/high speed
+    low_speed_kn: 10.0
+    low_speed_factor: 1.2    # ROT increases at low speed (tighter turns)
+    high_speed_kn: 20.0
+    high_speed_factor: 0.8   # ROT decreases at high speed (wider turns)
+
+    # Rough-sea ROT degradation: 10% reduction per metre of significant wave height
+    # [TBD-HAZID] validate in Hs = 1, 2, 3 m sea states during open-sea trials
+    rough_sea_factor_per_hs: 0.10
+
+  braking:
+    # Stopping distance from 18 kn full ahead to stopped (ahead-to-astern trial)
+    # [TBD-HAZID] from IMO stopping test (crash stop, engine to astern full)
+    stopping_distance_at_18kn_m: 250.0
+
+    # Maximum deceleration during crash stop (structural and comfort limit)
+    # [TBD-HAZID] from structural analysis and crew comfort assessment
+    crash_stop_max_decel_mps2: 0.8
+
+  speed:
+    speed_min_kn: 0.0
+    speed_max_kn: 28.0       # [TBD-HAZID] from propulsion design spec + ODD cap
+    service_speed_kn: 18.0   # design service speed (also used for ROT reference)
+
+  mmg_coefficients:
+    # Non-dimensional added mass / inertia factors (Yasukawa 2015 [R7] notation)
+    # [TBD-HAZID] all three: from CFD simulation or system identification on trials
+    # Typical ranges given in comments for sanity checking
+    surge_added_mass_factor: 0.05   # m_x / m  (typical: 0.03-0.10 for planing hulls)
+    sway_added_mass_factor: 0.40    # m_y / m  (typical: 0.20-0.60)
+    yaw_added_inertia_factor: 0.07  # J_z / I_zz (typical: 0.05-0.15)
