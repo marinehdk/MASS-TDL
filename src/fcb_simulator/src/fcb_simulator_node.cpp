@@ -195,7 +195,7 @@ void FcbSimulatorNode::publish_own_ship_state() {
   l3_external_msgs::msg::FilteredOwnShipState msg;
   msg.stamp = now();
 
-  // NED → WGS84 (flat earth)
+  // ENU → WGS84 (flat earth)
   msg.position.latitude  = cfg_.origin_lat + state_.y / kEarthMperDeg;
   msg.position.longitude = cfg_.origin_lon
       + state_.x / (kEarthMperDeg * std::cos(cfg_.origin_lat * kDegToRad));
