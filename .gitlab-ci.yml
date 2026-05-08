@@ -111,6 +111,61 @@ stage-1-lint:
     reports:
       codequality: build/lint-quality.json
 
+multi_vessel_lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - |
+      echo "=== Multi-vessel lint: scanning for vessel-specific literals ==="
+      grep -rn --include="*.py" -E "(\bFCB\b|45\s*m\b|18\s*kn\b|22\s*kn\b|ROT_max\s*=\s*[0-9]|sog\s*<=?\s*30)" src/ > multi_vessel_lint_report.txt 2>&1 || true
+      HITS=$(wc -l < multi_vessel_lint_report.txt | tr -d ' ')
+      echo "Violations found: $HITS"
+      if [ "$HITS" -gt "0" ]; then
+        echo "WARNING: Vessel-specific literals detected (see artifact)"
+        cat multi_vessel_lint_report.txt
+      else
+        echo "OK: No vessel-specific literals found in src/"
+      fi
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - multi_vessel_lint_report.txt
+    expire_in: 7 days
+
+path_s_dry_run:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - |
+      echo "=== PATH-S dry run: checking Doer-Checker independence ==="
+      grep -rn --include="*.py" -E "(from\s+m7_safety_supervisor|import\s+m7_safety_supervisor|#include.*m7.checker)" \
+        src/m1_odd_envelope_manager/ \
+        src/m2_world_model/ \
+        src/m3_mission_manager/ \
+        src/m4_behavior_arbiter/ \
+        src/m5_tactical_planner/ \
+        src/m6_colregs_reasoner/ \
+        2>/dev/null > path_s_report.txt || true
+      HITS=$(wc -l < path_s_report.txt | tr -d ' ')
+      echo "Doer→Checker violations: $HITS"
+      if [ "$HITS" -gt "0" ]; then
+        echo "WARNING: Doer module(s) importing M7 Checker detected (see artifact)"
+        cat path_s_report.txt
+      else
+        echo "OK: No Doer→Checker boundary violations found"
+      fi
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - path_s_report.txt
+    expire_in: 7 days
+
 # ===============================================================
 # Stage 2: Unit Test (含 ASan + UBSan + Coverage)
 # ===============================================================
