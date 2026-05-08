@@ -103,6 +103,11 @@ if(BUILD_TESTING)
     test/test_rk4_energy.cpp
   )
   target_link_libraries(test_rk4_energy fcb_simulator_core)
+
+  ament_add_gtest(test_stopping_error
+    test/test_stopping_error.cpp
+  )
+  target_link_libraries(test_stopping_error fcb_simulator_core)
 endif()
 
 ament_package()
