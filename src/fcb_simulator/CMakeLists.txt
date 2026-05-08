@@ -67,6 +67,9 @@ ament_target_dependencies(fcb_simulator_node
   geographic_msgs
   l3_msgs
   l3_external_msgs
+  pluginlib
+  ship_sim_interfaces
+  ament_index_cpp
 )
 
 install(TARGETS fcb_simulator_node

@@ -7,7 +7,7 @@
 #include <chrono>
 #include <cmath>
 
-#include "fcb_simulator/rk4_integrator.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 namespace fcb_sim {
 
@@ -64,67 +64,40 @@ FcbSimulatorNode::FcbSimulatorNode()
       500ms, [this]() { publish_tracked_targets(); });
 
   RCLCPP_INFO(get_logger(),
-              "fcb_simulator started: L=%.1fm, dt=%.3fs, u0=%.2f m/s",
-              params_.L, cfg_.dt, cfg_.u0);
+              "fcb_simulator started: dt=%.3fs, u0=%.2f m/s",
+              cfg_.dt, cfg_.u0);
 }
 
 void FcbSimulatorNode::load_params() {
-  // Ship particulars
-  params_.L = declare_parameter<double>("L", params_.L);
-  params_.d = declare_parameter<double>("d", params_.d);
-  params_.B = declare_parameter<double>("B", params_.B);
-  params_.displacement_t = declare_parameter<double>("displacement_t", params_.displacement_t);
-  params_.x_G = declare_parameter<double>("x_G", params_.x_G);
+  cfg_.dt         = declare_parameter("dt",         0.02);
+  cfg_.x0         = declare_parameter("x0",         0.0);
+  cfg_.y0         = declare_parameter("y0",         0.0);
+  cfg_.psi0       = declare_parameter("psi0",       1.5708);
+  cfg_.u0         = declare_parameter("u0",         9.26);
+  cfg_.origin_lat = declare_parameter("origin_lat", 30.5);
+  cfg_.origin_lon = declare_parameter("origin_lon", 122.0);
 
-  params_.m_x_prime  = declare_parameter<double>("m_x_prime",  params_.m_x_prime);
-  params_.m_y_prime  = declare_parameter<double>("m_y_prime",  params_.m_y_prime);
-  params_.J_zz_prime = declare_parameter<double>("J_zz_prime", params_.J_zz_prime);
+  std::string vessel_class = declare_parameter("vessel_class", std::string("FCB"));
+  std::string plugin_name  = "fcb_simulator/" + vessel_class + "Simulator";
 
-  params_.X_vv   = declare_parameter<double>("X_vv",   params_.X_vv);
-  params_.X_vr   = declare_parameter<double>("X_vr",   params_.X_vr);
-  params_.X_rr   = declare_parameter<double>("X_rr",   params_.X_rr);
-  params_.X_vvvv = declare_parameter<double>("X_vvvv", params_.X_vvvv);
-  params_.Y_v    = declare_parameter<double>("Y_v",    params_.Y_v);
-  params_.Y_r    = declare_parameter<double>("Y_r",    params_.Y_r);
-  params_.Y_vvv  = declare_parameter<double>("Y_vvv",  params_.Y_vvv);
-  params_.Y_vvr  = declare_parameter<double>("Y_vvr",  params_.Y_vvr);
-  params_.Y_vrr  = declare_parameter<double>("Y_vrr",  params_.Y_vrr);
-  params_.Y_rrr  = declare_parameter<double>("Y_rrr",  params_.Y_rrr);
-  params_.N_v    = declare_parameter<double>("N_v",    params_.N_v);
-  params_.N_r    = declare_parameter<double>("N_r",    params_.N_r);
-  params_.N_vvv  = declare_parameter<double>("N_vvv",  params_.N_vvv);
-  params_.N_vvr  = declare_parameter<double>("N_vvr",  params_.N_vvr);
-  params_.N_vrr  = declare_parameter<double>("N_vrr",  params_.N_vrr);
-  params_.N_rrr  = declare_parameter<double>("N_rrr",  params_.N_rrr);
+  try {
+    class_loader_ = std::make_unique<pluginlib::ClassLoader<ship_sim::ShipMotionSimulator>>(
+        "ship_sim_interfaces", "ship_sim::ShipMotionSimulator");
+    plugin_ = class_loader_->createSharedInstance(plugin_name);
+  } catch (const pluginlib::PluginlibException& ex) {
+    RCLCPP_FATAL(get_logger(), "Cannot load plugin '%s': %s", plugin_name.c_str(), ex.what());
+    throw;
+  }
 
-  params_.G_M   = declare_parameter<double>("G_M",   params_.G_M);
-  params_.T_phi = declare_parameter<double>("T_phi", params_.T_phi);
-
-  params_.t_P = declare_parameter<double>("t_P", params_.t_P);
-  params_.w_P = declare_parameter<double>("w_P", params_.w_P);
-  params_.D_P = declare_parameter<double>("D_P", params_.D_P);
-  params_.k_0 = declare_parameter<double>("k_0", params_.k_0);
-  params_.k_1 = declare_parameter<double>("k_1", params_.k_1);
-  params_.k_2 = declare_parameter<double>("k_2", params_.k_2);
-
-  params_.t_R       = declare_parameter<double>("t_R",       params_.t_R);
-  params_.a_H       = declare_parameter<double>("a_H",       params_.a_H);
-  params_.x_H_prime = declare_parameter<double>("x_H_prime", params_.x_H_prime);
-  params_.x_R_prime = declare_parameter<double>("x_R_prime", params_.x_R_prime);
-  params_.gamma_R   = declare_parameter<double>("gamma_R",   params_.gamma_R);
-  params_.l_R_prime = declare_parameter<double>("l_R_prime", params_.l_R_prime);
-  params_.kappa     = declare_parameter<double>("kappa",     params_.kappa);
-  params_.epsilon   = declare_parameter<double>("epsilon",   params_.epsilon);
-  params_.A_R       = declare_parameter<double>("A_R",       params_.A_R);
-  params_.f_alpha   = declare_parameter<double>("f_alpha",   params_.f_alpha);
-
-  cfg_.dt   = declare_parameter<double>("dt",   cfg_.dt);
-  cfg_.x0   = declare_parameter<double>("x0",   cfg_.x0);
-  cfg_.y0   = declare_parameter<double>("y0",   cfg_.y0);
-  cfg_.psi0 = declare_parameter<double>("psi0", cfg_.psi0);
-  cfg_.u0   = declare_parameter<double>("u0",   cfg_.u0);
-  cfg_.origin_lat = declare_parameter<double>("origin_lat", cfg_.origin_lat);
-  cfg_.origin_lon = declare_parameter<double>("origin_lon", cfg_.origin_lon);
+  try {
+    std::string config_path = ament_index_cpp::get_package_share_directory("fcb_simulator")
+                              + "/config/fcb_dynamics.yaml";
+    plugin_->load_params(config_path);
+    RCLCPP_INFO(get_logger(), "Loaded plugin '%s'", plugin_name.c_str());
+  } catch (const std::exception& ex) {
+    RCLCPP_FATAL(get_logger(), "Cannot load plugin params: %s", ex.what());
+    throw;
+  }
 }
 
 void FcbSimulatorNode::on_avoidance_plan(
@@ -187,12 +160,15 @@ void FcbSimulatorNode::step_dynamics() {
   double delta = 0.0;
   double n = 0.0;
   compute_control(delta, n);
-  state_ = rk4_step(state_, delta, n, params_, cfg_.dt);
-  state_.psi = wrap_pi(state_.psi);
+  state_ = plugin_->step(state_, delta, n, cfg_.dt);
+  constexpr double kPi = 3.14159265358979323846;
+  while (state_.psi >  kPi) { state_.psi -= 2.0 * kPi; }
+  while (state_.psi < -kPi) { state_.psi += 2.0 * kPi; }
 }
 
 void FcbSimulatorNode::publish_own_ship_state() {
   l3_external_msgs::msg::FilteredOwnShipState msg;
+  msg.schema_version = "v1.1.2";
   msg.stamp = now();
 
   // ENU → WGS84 (flat earth)
@@ -231,6 +207,7 @@ void FcbSimulatorNode::publish_own_ship_state() {
 
 void FcbSimulatorNode::publish_tracked_targets() {
   l3_external_msgs::msg::TrackedTargetArray msg;
+  msg.schema_version = "v1.1.2";
   msg.stamp = now();
   msg.targets.clear();  // Static empty scenario; populate via scenario file later.
   msg.confidence = 0.95F;

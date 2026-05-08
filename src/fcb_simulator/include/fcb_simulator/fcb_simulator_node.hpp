@@ -4,10 +4,13 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include <rclcpp/rclcpp.hpp>
+#include <pluginlib/class_loader.hpp>
 
-#include "fcb_simulator/types.hpp"
+#include "ship_sim_interfaces/ship_motion_simulator.hpp"
+#include "fcb_simulator/types.hpp"   // SimConfig only
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/tracked_target_array.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
@@ -24,22 +27,20 @@ class FcbSimulatorNode : public rclcpp::Node {
   void on_avoidance_plan(const l3_msgs::msg::AvoidancePlan::SharedPtr msg);
   void on_reactive_override(const l3_msgs::msg::ReactiveOverrideCmd::SharedPtr msg);
 
-  void step_dynamics();              // 50 Hz timer
-  void publish_own_ship_state();     // 50 Hz timer
-  void publish_tracked_targets();    // 2  Hz timer
-
-  // Heading auto-pilot: convert (psi_target, u_target) → (delta, n).
+  void step_dynamics();
+  void publish_own_ship_state();
+  void publish_tracked_targets();
   void compute_control(double& delta_rad, double& n_rps) const;
 
-  MmgParams params_;
-  SimConfig cfg_;
-  FcbState  state_{};
+  std::unique_ptr<pluginlib::ClassLoader<ship_sim::ShipMotionSimulator>> class_loader_;
+  std::shared_ptr<ship_sim::ShipMotionSimulator> plugin_;
 
-  // Latest commands from L3 (default: hold initial)
+  SimConfig cfg_;
+  ship_sim::ShipState state_{};
+
   double psi_target_rad_{0.0};
   double u_target_mps_{0.0};
 
-  // Reactive override (validity-gated)
   bool override_active_{false};
   rclcpp::Time override_expires_;
   double override_psi_rad_{0.0};
