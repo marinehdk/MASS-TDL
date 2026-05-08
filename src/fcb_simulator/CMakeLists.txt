@@ -89,6 +89,7 @@ install(TARGETS fcb_simulator_plugin
 install(FILES plugins.xml DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # ---------------------------------------------------------------------------
 # Tests
