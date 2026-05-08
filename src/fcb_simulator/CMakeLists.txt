@@ -27,12 +27,14 @@ find_package(ament_index_cpp REQUIRED)
 add_library(fcb_simulator_core STATIC
   src/mmg_model.cpp
   src/rk4_integrator.cpp
+  src/scenario_runner.cpp
 )
 target_include_directories(fcb_simulator_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(fcb_simulator_core PUBLIC Eigen3::Eigen)
+ament_target_dependencies(fcb_simulator_core PUBLIC ship_sim_interfaces)
 set_property(TARGET fcb_simulator_core PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # Plugin shared library (loaded at runtime by pluginlib ClassLoader)
@@ -114,6 +116,11 @@ if(BUILD_TESTING)
     TIMEOUT 70
   )
   target_link_libraries(test_stability_1h fcb_simulator_core)
+
+  ament_add_gtest(test_scenario_runner
+    test/test_scenario_runner.cpp
+  )
+  target_link_libraries(test_scenario_runner fcb_simulator_core)
 endif()
 
 ament_package()
