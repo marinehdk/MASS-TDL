@@ -2,7 +2,7 @@
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.2
 # 镜像: mass-l3/ci:jazzy-ubuntu22.04
 # Wave 0 修订: F-IMP-A-001 (锁定 jammy) + F-CRIT-A-009 (Polyspace + Coverity + cppcheck-premium 占位)
-FROM ros:jazzy-ros-base-jammy
+FROM ros:jazzy-ros-base-noble
 
 # System tools and compilers
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ninja-build \
         ccache \
         git curl wget \
-        python3.10 python3-pip python3-venv \
+        python3.12 python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck \

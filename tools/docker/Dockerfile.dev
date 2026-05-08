@@ -2,7 +2,7 @@
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.1
 # 镜像: mass-l3/dev:jazzy-ubuntu22.04
 # Wave 0 修订: F-IMP-A-001 (jammy 锁定) + F-IMP-A-002 (与 .ci 区分 — 加 dev 工具)
-FROM ros:jazzy-ros-base-jammy
+FROM ros:jazzy-ros-base-noble
 
 # System tools and compilers (与 Dockerfile.ci 同基线)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ninja-build \
         ccache \
         git curl wget \
-        python3.10 python3-pip python3-venv \
+        python3.12 python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck \
