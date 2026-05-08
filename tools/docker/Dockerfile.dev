@@ -1,22 +1,31 @@
 # MASS L3 TDL — Dev Docker 镜像（开发者本地容器）
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.1
 # 镜像: mass-l3/dev:jazzy-ubuntu22.04
-# Wave 0 修订: F-IMP-A-001 (jammy 锁定) + F-IMP-A-002 (与 .ci 区分 — 加 dev 工具)
-FROM ros:jazzy-ros-base-noble
+# D1.2 修订: Docker 版本固定 — SHA256 + apt 版本 ARG
+# 构建命令: docker build --build-arg-file tools/docker/version-lock.txt -f tools/docker/Dockerfile.dev .
+ARG ROS_BASE_DIGEST
+FROM ros:jazzy-ros-base-noble@${ROS_BASE_DIGEST}
+
+ARG GCC_14_VER
+ARG CLANG_TIDY_20_VER
+ARG CMAKE_VER
+ARG CPPCHECK_VER
+ARG PYTHON3_12_VER
 
 # System tools and compilers (与 Dockerfile.ci 同基线)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        gcc-14 g++-14 \
-        clang-20 lld-20 clang-tidy-20 clang-format-20 \
-        cmake \
+        gcc-14=${GCC_14_VER} g++-14=${GCC_14_VER} \
+        clang-20=${CLANG_TIDY_20_VER} lld-20=${CLANG_TIDY_20_VER} \
+        clang-tidy-20=${CLANG_TIDY_20_VER} clang-format-20=${CLANG_TIDY_20_VER} \
+        cmake=${CMAKE_VER} \
         ninja-build \
         ccache \
         git curl wget \
-        python3.12 python3-pip python3-venv \
+        python3.12=${PYTHON3_12_VER} python3-pip python3-venv \
         lcov gcovr \
         valgrind \
-        cppcheck \
+        cppcheck=${CPPCHECK_VER} \
         jq \
         yamllint \
     && rm -rf /var/lib/apt/lists/*
