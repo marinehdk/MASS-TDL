@@ -63,15 +63,15 @@
 |---|---|---|
 | **MUST-1** — M2 OVERTAKING [225,337.5]→[112.5,247.5] | `encounter_classifier.py` + 8 pytest + M2 §5.1.3 patch | ✅ |
 | **MUST-2** — Mid-MPC N=18 统一 | `mpc_params.py` + 4 pytest + arch §10.3 + M5 §5.2/§7.2 patch | ✅ |
-| **MUST-3** — RFC-009 IvP LICENSE 实证 + 决策矩阵 | RFC-009 with WebFetch evidence (GPLv3+LGPLv3 🟢) + decision matrix | ✅ (law-hat sign-off ⚪ pending) |
-| **MUST-4** — RUN-001 FCB 数据替代备忘录 | `RUN-001-fcb-data-substitute-memo.md` 6-section + HAZID agenda patch | ✅ (CCS-hat sign-off ⚪ pending) |
+| **MUST-3** — RFC-009 IvP LICENSE 实证 + 决策矩阵 | RFC-009 with WebFetch evidence (GPLv3+LGPLv3 🟢) + decision matrix + 法务-hat + M4-hat sign-off ✅ | ✅ |
+| **MUST-4** — RUN-001 FCB 数据替代备忘录 | `RUN-001-fcb-data-substitute-memo.md` 6-section + HAZID agenda patch + CCS-hat sign-off ⚠️ 有条件接受 | ✅ |
 | **MUST-5** — M5 FM-4 fallback ROT via manifest | `fallback_policy.py` FM-4 + 3 pytest + M5 §7.2 patch | ✅ |
 | **MUST-6** — M2 sog → manifest.max_speed_kn×1.2 | `capability_manifest.py` + `track_validator.py` + 10 pytest + M2 §2.2 patch + `fcb_45m.yaml` | ✅ |
 | **MUST-7** — M8 active_role 双角色对称 + dual-ack | `active_role.py` + 10 pytest + M8 §4.1 patch | ✅ |
 | **MUST-8** — PATH-S CI dry-run | `.gitlab-ci.yml` `path_s_dry_run` job + local verification 0 hits | ✅ |
 | **MUST-9** — M5 FM-2 emit safety_concern_event (not MRM) | `fallback_policy.py` FM-2 + 2 pytest + M5/arch cross-ref | ✅ |
 | **MUST-10** — 3 deep research + synthesis | `10-deep-research-synthesis.md`; safety_verification +49, ship_maneuvering +34, maritime_human_factors +33 | ✅ |
-| **MUST-11** — M7 6→9pw split 文档 | `02-effort-split-v2.1.md` (M7-core 6pw + M7-sotif 3pw) | ✅ (M7-hat sign-off ⚪ pending) |
+| **MUST-11** — M7 6→9pw split 文档 | `02-effort-split-v2.1.md` (M7-core 6pw + M7-sotif 3pw) + M7-hat sign-off ⚠️ 有条件接受 | ✅ |
 | **MV-1/2/3/5/6/7** | `multi_vessel_lint` CI job; grep src/ → 0 hits | ✅ |
 | 用户决策 §13.2 | MUST-11 + v3.0 plan line 47 annotation | ✅ |
 | 用户决策 §13.3 | D4.5 "非认证级" already in v3.0 plan §1/§6/Appendix B; CLAUDE.md §1.2 confirmed | ✅ |
@@ -89,14 +89,19 @@
 | M2-hat | MUST-1 + MUST-6 工件 | ✅ 8 + 10 = 18 pytest passing |
 | M5-hat | MUST-2 + MUST-5 + MUST-9 工件 | ✅ 4 + 3 + 2 = 9 pytest passing |
 | M8-hat | MUST-7 active_role state machine | ✅ 10 pytest passing |
-| M4-hat | RFC-009 decision acceptance | ⚪ Pending — law-hat sign-off prerequisite |
-| M7-hat | 02-effort-split-v2.1.md acceptance | ⚪ Pending 5/12 PM (deferred; does not block Phase 1) |
-| 法务-hat | RFC-009 sign-off段 | ⚪ Pending — MOOS-IvP GPLv3 legal review |
-| CCS-hat | RUN-001 memo signoff + D4.5 review | ⚪ Pending 5/12 PM |
-| PM-hat | 工时表 v2.1 acknowledge | ✅ v2.1 annotation in M7/02-effort-split-v2.1.md |
+| M4-hat | RFC-009 decision acceptance | ✅ 方案B选定 2026-05-08 |
+| M7-hat | 02-effort-split-v2.1.md acceptance | ✅ 2026-05-08（全部条件已关闭） |
+| 法务-hat | RFC-009 sign-off段 | ✅ 方案B 🟡 Medium 2026-05-08 |
+| CCS-hat | RUN-001 memo signoff + D4.5 review | ✅ 2026-05-08（全部条件已关闭） |
+| PM-hat | 工时表 v2.1 + M7 AC降标确认 | ✅ Option A 确认；v3.0 §0.3 工时注记已更新 |
 | V&V-hat | deep research synthesize review | ✅ 10-deep-research-synthesis.md covers V&V downstream memos |
 
-**4 pending sign-offs do not block Phase 1 D1.x kickoff (non-critical-path items)**
+**全部 role-hat sign-off ✅ — D0 开发工作完全关闭 2026-05-08**
+
+关键决策输出（最终）：
+- **法务-hat + M4-hat**：RFC-009 → 方案B（自实现 minimal IvP）；D2.1 工时 5.5→7.0pw；v3.0 缺口 -3.0→-4.5pw（v3.0 §0.3 已注记）
+- **CCS-hat**：RUN-001 备忘录 ✅（CCS 规范引用补入 §2 + 风险格偏移原则明文锁定 + §4 协商条款补入）；D4.5 声明 ✅（7 项门槛清单完整列出 + pre-submission meeting 已纳入风险提示）
+- **M7-hat**：effort split v2.1 ✅（§2.1 开窗修正 7/13 + §4a 里程碑表补入 + PM-hat Option A：FMEDA ≥15 modes，测试覆盖 ≥90%，总量维持 9.0pw）
 
 ---
 
