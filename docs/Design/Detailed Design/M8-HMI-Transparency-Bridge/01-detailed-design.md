@@ -108,7 +108,9 @@
 ```python
 class M8_State:
     # 当前视图上下文
-    active_role: Enum[ROC_OPERATOR, SHIP_CAPTAIN] = ROC_OPERATOR  # 配置决定，运行时固定
+    active_role: ActiveRole = manifest.primary_role  # PRIMARY_ON_BOARD | PRIMARY_ROC | DUAL_OBSERVATION（双 ack 协议）
+    # 角色切换：PRIMARY ↔ PRIMARY 单 ack；任何涉及 DUAL_OBSERVATION 的转移需两名不同操作员 ack
+    # 实现：src/m8_hmi_bridge/active_role.py ActiveRoleStateMachine
     active_scenario: Enum[TRANSIT, COLREG_AVOIDANCE, MRC_PREPARATION, MRC_ACTIVE, OVERRIDE_ACTIVE] = TRANSIT
     
     # SAT 聚合缓冲
@@ -873,6 +875,7 @@ for module, age in module_heartbeat_age_s.items():
 | 版本 | 日期 | 修订人 | 变更摘要 |
 |---|---|---|---|
 | v1.0 | 2026-05-05 | Claude（Agent） | 初稿：完整 12 章节详细设计；基于 v1.1.1 架构；包含 SAT 自适应触发、ToR 交互验证、接管回切时序、HI HIL 场景、测试 KPI |
+| v1.0-patch1 | 2026-05-11 | Claude（Agent） | MUST-7: §4.1 active_role 改用 manifest.primary_role；三角色 Enum + 双 ack 协议；删除 ROC_OPERATOR 字面量 |
 
 ---
 
