@@ -1,4 +1,4 @@
-from m5_tactical_planner.mpc_params import MID_MPC_N, MID_MPC_T_STEP, MID_MPC_HORIZON_S
+from m5_tactical_planner.mpc_params import MID_MPC_HORIZON_S, MID_MPC_N, MID_MPC_T_STEP
 
 
 def test_mid_mpc_n_is_18():

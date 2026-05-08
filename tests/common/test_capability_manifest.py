@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from common.capability_manifest import CapabilityManifest, HullClass
 
 

@@ -1,6 +1,6 @@
 import pytest
-from m8_hmi_bridge.active_role import ActiveRole, ActiveRoleStateMachine, TransitionError
 
+from m8_hmi_bridge.active_role import ActiveRole, ActiveRoleStateMachine, TransitionError
 
 # ── 6 legal transitions ───────────────────────────────────────────────────────
 
