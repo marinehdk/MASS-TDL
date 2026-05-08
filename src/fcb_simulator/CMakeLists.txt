@@ -16,6 +16,10 @@ find_package(geographic_msgs REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(ship_sim_interfaces REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Core simulation library (no ROS deps — pure dynamics, easy to unit-test)
@@ -30,6 +34,19 @@ target_include_directories(fcb_simulator_core PUBLIC
 )
 target_link_libraries(fcb_simulator_core PUBLIC Eigen3::Eigen)
 set_property(TARGET fcb_simulator_core PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+# Plugin shared library (loaded at runtime by pluginlib ClassLoader)
+add_library(fcb_simulator_plugin SHARED
+  src/fcb_simulator_plugin.cpp
+)
+target_include_directories(fcb_simulator_plugin PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(fcb_simulator_plugin PUBLIC fcb_simulator_core yaml-cpp)
+ament_target_dependencies(fcb_simulator_plugin pluginlib ship_sim_interfaces)
+set_property(TARGET fcb_simulator_plugin PROPERTY POSITION_INDEPENDENT_CODE ON)
+pluginlib_export_plugin_description_file(ship_sim_interfaces plugins.xml)
 
 # ---------------------------------------------------------------------------
 # ROS2 node executable
@@ -59,6 +76,12 @@ install(TARGETS fcb_simulator_core
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
 )
+install(TARGETS fcb_simulator_plugin
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+install(FILES plugins.xml DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 

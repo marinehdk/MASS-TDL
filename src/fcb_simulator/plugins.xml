@@ -1,0 +1,7 @@
+<library path="fcb_simulator_plugin">
+  <class name="fcb_simulator/FCBSimulator"
+         type="fcb_sim::FCBSimulator"
+         base_class_type="ship_sim::ShipMotionSimulator">
+    <description>FCB 45m semi-planing patrol vessel dynamics plugin. MV-4 fix.</description>
+  </class>
+</library>
