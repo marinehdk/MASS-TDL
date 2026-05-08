@@ -1,0 +1,9 @@
+# AIS replay node configuration for D1.3a SIL testing.
+# replay_rate_x: 1 = realtime, 5 = 5x faster, 10 = 10x faster
+ais_replay:
+  ros__parameters:
+    dataset_path: "data/ais_datasets/AIS_synthetic_1h.csv"
+    dataset_format: "noaa_csv"
+    replay_rate_x: 1.0
+    publish_rate_hz: 2.0
+    max_targets: 50

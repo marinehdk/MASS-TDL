@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ais_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    AIS historical data pipeline for D1.3a SIL testing.
+    Decodes NOAA/DMA AIVDM/AIVDO sentences via pyais and publishes
+    TrackedTargetArray at 2 Hz with configurable replay rate (1x/5x/10x).
+    No vessel-type literals in Python code (multi_vessel_lint compliance).
+  </description>
+  <maintainer email="team-e3@mass-l3-tdl.local">Team-E3</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>l3_external_msgs</exec_depend>
+  <exec_depend>l3_msgs</exec_depend>
+  <exec_depend>geographic_msgs</exec_depend>
+  <exec_depend>python3-pyais</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
