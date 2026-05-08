@@ -1,22 +1,31 @@
 # MASS L3 TDL — CI Docker 镜像
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.2
 # 镜像: mass-l3/ci:jazzy-ubuntu22.04
-# Wave 0 修订: F-IMP-A-001 (锁定 jammy) + F-CRIT-A-009 (Polyspace + Coverity + cppcheck-premium 占位)
-FROM ros:jazzy-ros-base-noble
+# D1.2 修订: Docker 版本固定 — SHA256 + apt 版本 ARG
+# 构建命令: docker build --build-arg-file tools/docker/version-lock.txt -f tools/docker/Dockerfile.ci .
+ARG ROS_BASE_DIGEST
+FROM ros:jazzy-ros-base-noble@${ROS_BASE_DIGEST}
+
+ARG GCC_14_VER
+ARG CLANG_TIDY_20_VER
+ARG CMAKE_VER
+ARG CPPCHECK_VER
+ARG PYTHON3_12_VER
 
 # System tools and compilers
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        gcc-14 g++-14 \
-        clang-20 lld-20 clang-tidy-20 clang-format-20 \
-        cmake \
+        gcc-14=${GCC_14_VER} g++-14=${GCC_14_VER} \
+        clang-20=${CLANG_TIDY_20_VER} lld-20=${CLANG_TIDY_20_VER} \
+        clang-tidy-20=${CLANG_TIDY_20_VER} clang-format-20=${CLANG_TIDY_20_VER} \
+        cmake=${CMAKE_VER} \
         ninja-build \
         ccache \
         git curl wget \
-        python3.12 python3-pip python3-venv \
+        python3.12=${PYTHON3_12_VER} python3-pip python3-venv \
         lcov gcovr \
         valgrind \
-        cppcheck \
+        cppcheck=${CPPCHECK_VER} \
         jq \
         yamllint \
     && rm -rf /var/lib/apt/lists/*
