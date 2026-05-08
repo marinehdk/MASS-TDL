@@ -10,7 +10,7 @@
 | Owner | 架构师-hat（统筹）；solo user 戴多角色 hat 并行执行（见 [user_solo_multi_role memory](file:///Users/marine/.claude/projects/-Users-marine-Code-MASS-L3-Tactical-Layer/memory/user_solo_multi_role.md)） |
 | 上游依据 | v3.0 plan §2（[gantt:93-196](../../Architecture%20Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md)）；评审整合 §1+§13（[Review:29-46,273-289](../../Review/2026-05-07/00-consolidated-findings.md)） |
 | 下游消费 | D1.1 ROS2 工作区 / D1.2 CI/CD / D1.3a MMG / D1.5 V&V Plan / D2.6 船长 ground truth / D2.7 HARA / D3.5 HAZID 132 [TBD] 回填 |
-| 状态 | Draft → 5/8 EOD self-review → 5/12 EOD closure |
+| 状态 | ✅ CLOSED 2026-05-08 — 15/15 findings, 39 pytest, tag v1.1.2-patch1 |
 
 ---
 
