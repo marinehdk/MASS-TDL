@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ship_sim_interfaces</name>
+  <version>0.1.0</version>
+  <description>Header-only C++ abstract interface for pluginlib-based ship motion simulators. MV-4 fix: decouples FCB-specific MMG model from the simulation node.</description>
+  <maintainer email="team-e3@mass-l3-tdl.local">Team-E3</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
