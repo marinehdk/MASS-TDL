@@ -1,0 +1,57 @@
+{
+  "$defs": {
+    "HullClass": {
+      "enum": [
+        "DISPLACEMENT",
+        "SEMI_PLANING",
+        "PLANING",
+        "CATAMARAN"
+      ],
+      "title": "HullClass",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "max_speed_kn": {
+      "title": "Max Speed Kn",
+      "type": "number"
+    },
+    "rot_max_curve": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "title": "Rot Max Curve",
+      "type": "array"
+    },
+    "length_m": {
+      "title": "Length M",
+      "type": "number"
+    },
+    "hull_class": {
+      "$ref": "#/$defs/HullClass"
+    },
+    "primary_role": {
+      "default": "PRIMARY_ON_BOARD",
+      "title": "Primary Role",
+      "type": "string"
+    }
+  },
+  "required": [
+    "max_speed_kn",
+    "rot_max_curve",
+    "length_m",
+    "hull_class"
+  ],
+  "title": "CapabilityManifest",
+  "type": "object"
+}

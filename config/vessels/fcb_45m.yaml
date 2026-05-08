@@ -1,0 +1,10 @@
+# FCB 45m class crew boat — Capability Manifest v0.1
+# ⚫ HAZID-UNVERIFIED: values are placeholders pending HAZID RUN-001 (due 2026-08-19)
+max_speed_kn: 22.0        # ⚫ design speed; HAZID will calibrate operational limit
+length_m: 45.0
+hull_class: SEMI_PLANING
+primary_role: PRIMARY_ON_BOARD
+rot_max_curve:            # ⚫ all values pending D1.3a MMG hydrodynamic validation
+  - [0.0, 8.0]            # at 0 kn: max ROT 8 deg/s
+  - [10.0, 6.0]           # at 10 kn: max ROT 6 deg/s
+  - [22.0, 3.0]           # at 22 kn: max ROT 3 deg/s

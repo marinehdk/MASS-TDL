@@ -45,7 +45,7 @@
 | 校验项 | 规则 | 违反动作 |
 |---|---|---|
 | **位置有效性** | lat ∈ [-90°, 90°], lon ∈ [-180°, 180°], 与前一刻位移 < 1 nm （排除 GPS 跳跃） | 标记目标为 INVALID；不进入 DV；ASDR 记录异常位置 |
-| **速度范围** | sog ∈ [0, 30] kn；u,v ∈ [-15, 15] m/s（FCB 满载极限） | 标记目标为 INVALID；向 M7 报告传感器故障迹象 |
+| **速度范围** | sog ≤ manifest.max_speed_kn × 1.2；u,v ∈ [-15, 15] m/s | 标记目标为 INVALID；向 M7 报告传感器故障迹象 |
 | **时间戳递增** | 同源消息（如连续 TrackedTargetArray）时间戳严格递增 | 警告日志；丢弃乱序包 |
 | **坐标系一致性** | 目标 sog/cog 与 TrackedTarget 源标记一致（"对地"）；u/v 与 FilteredOwnShipState 源标记一致（"对水"） | 若标记不一致，拒绝处理；ASDR 记录坐标系错误 |
 | **协方差正定性** | position_covariance 与 velocity_covariance 矩阵均正定 | 强制设为对角矩阵，用保守值填充（默认 σ_pos=50m, σ_vel=1 m/s） |
@@ -1019,6 +1019,7 @@ print(f"CPA: {cpa/1852} nm, TCPA: {t_cpa} s")  # 转换为海里
 |---|---|---|---|
 | v1.0 | 2026-05-05 | Claude (Agent) | 初稿：12 章节完整，基于 v1.1.1 架构，含算法伪代码、参数表、HIL 场景 |
 | v1.0-patch1 | 2026-05-11 | Claude (MUST-1) | 修正：§5.1.3 OVERTAKING 扇区 [225°,337.5°]→[112.5°,247.5°] (COLREGs Rule 13) |
+| v1.0-patch2 | 2026-05-11 | Claude (MUST-6) | MUST-6: §2.2 sog 校验改为 manifest.max_speed_kn × 1.2，删除 FCB 字面量；引入 CapabilityManifest pydantic 模型 |
 
 ---
 
