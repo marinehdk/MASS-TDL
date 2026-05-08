@@ -1,6 +1,7 @@
 # L1 Mission Layer → M3 Mission Manager (event-driven)
 # Per architecture v1.1.2 §15.1 VoyageTask + ros2-idl-implementation-guide.md §3.3
 # Wave 0 fix: F-CRIT-B-002 — fields rewritten to match v1.1.2 IDL exactly
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint64 task_id

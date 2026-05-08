@@ -1,5 +1,6 @@
 # L2 Voyage Planner → M3, M5 (1 Hz / event-driven)
 # Per v1.1.2 §15.1 SpeedProfile
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint64 profile_id
