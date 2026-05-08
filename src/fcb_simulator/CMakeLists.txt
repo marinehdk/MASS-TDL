@@ -108,6 +108,12 @@ if(BUILD_TESTING)
     test/test_stopping_error.cpp
   )
   target_link_libraries(test_stopping_error fcb_simulator_core)
+
+  ament_add_gtest(test_stability_1h
+    test/test_stability_1h.cpp
+    TIMEOUT 70
+  )
+  target_link_libraries(test_stability_1h fcb_simulator_core)
 endif()
 
 ament_package()
