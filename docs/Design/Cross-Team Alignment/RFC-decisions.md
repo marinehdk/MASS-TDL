@@ -18,6 +18,7 @@
 | RFC-004 | L3 → ASDR（决策追溯日志）| L3 + ASDR | ✅ **已批准** | 无 |
 | RFC-005 | Y-axis Reflex Arc spec 量化 | L3 + Reflex Arc + Fusion + L5 + Override | ✅ **已批准** | 无（触发阈值仍标 [HAZID 校准]） |
 | RFC-006 | M3 → L2 反向 RouteReplanRequest | L3 + L2 Voyage Planner | ✅ **已批准 + 协议增补** | **v1.1.2 §15.1 新增 ReplanResponseMsg** |
+| RFC-007 | M7 ↔ X-axis 心跳契约 | L3 + X-axis + Cyber | ⏳ **Pending** — 5/13 评审 | 依评审结果（预期 v1.1.2 / v1.1.3） |
 
 ---
 
@@ -172,10 +173,39 @@ message ReplanResponseMsg {
 
 ---
 
+---
+
+## RFC-007 预注册（Pending 状态，5/13 评审后锁定）
+
+**草稿**：`RFC-007-M7-X-axis-Heartbeat.md`
+
+**关键待定项**：
+- 心跳频率（10 Hz vs 20 Hz）— DDS QoS budget 可行性
+- DEGRADED 级 VETO 语义归属（X-axis 自主决定 vs M7 显式触发）
+- `liveness_token` salt 轮换策略与 IACS UR E27 §3.4 映射
+- `internal_health` 字段是否需扩展到 8 值以区分失效模式
+
+**评审目标**：5/13 HAZID RUN-001 kickoff 后，X-axis 团队 + Cyber 团队 + L3 架构师-hat 三方 30 分钟对齐会议
+
+**关联 Finding**：F P0-F-05（7 角度评审 2026-05-07）；MUST-11（D0 must-fix 拆分 M7-core / M7-sotif）
+
+**预期产出**：
+- v0.2（5/13 评审后）：锁定心跳周期 + DEGRADED 语义 + salt 策略 → 转 D3.9 实装
+- D3.9 落地（8/19–8/31）：完整 HeartbeatMsg IDL + QoS profile + 超时状态机
+
+修订记录：
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| v0.1 | 2026-05-08 | RFC-007 草稿初版；D0.2 产出；待 5/13 评审 |
+
+---
+
 ## 后续动作
 
 1. ✅ **v1.1.2 patch**：将 ReplanResponseMsg + ASDR 矩阵更新合并到架构文档
 2. ✅ **M5 / M7 详细设计**：状态从"草稿"升至"正式"
-3. ⏳ **跨团队实现启动**：各团队按改造时间表开工
-4. ⏳ **HAZID 启动**：详见 `docs/Design/HAZID/RUN-001-kickoff.md`
-5. ⏳ **CCS AIP 申请准备**：HAZID 校准 + 实现 PoC 完成后启动（预计 T+14–16 周）
+3. ⏳ **RFC-007 评审**：5/13 HAZID kickoff 后与 X-axis + Cyber 团队评审（D0.2 产出）
+4. ⏳ **跨团队实现启动**：各团队按改造时间表开工
+5. ⏳ **HAZID 启动**：详见 `docs/Design/HAZID/RUN-001-kickoff.md`
+6. ⏳ **CCS AIP 申请准备**：HAZID 校准 + 实现 PoC 完成后启动（预计 T+14–16 周）
