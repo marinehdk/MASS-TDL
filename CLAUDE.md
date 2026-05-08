@@ -325,6 +325,56 @@ v3.0 (~1500 行) ── 2026-05-08 ⬅ 当前权威 [gantt/主文件]
                     + 87.0 人周工作 / 84.0 产能 / -3.0 闭口
 ```
 
+## 13. Git 分支与 Worktree 规范（2026-05-08 确立）
+
+### 13.1 默认分支
+
+| 分支 | 角色 | 规则 |
+|---|---|---|
+| `main` | 集成分支（GitHub default） | **禁止直接 commit**；所有改动通过 feat/* 分支 merge 进入 |
+
+### 13.2 功能分支命名
+
+每个 D-task 对应一个分支，格式：
+
+```
+feat/d{阶段}.{序号}-{短描述}
+```
+
+示例：`feat/d1.3b-scenario-mgmt` / `feat/d2.1-m1-odd-manager` / `feat/d3.1-m4-behavior-arbiter`
+
+- **一个 D-task = 一个 branch**，不同 D-task 不共用
+- 从 `main` 切出，merge 回 `main` 后立即删除（本地 + remote）
+- 禁止保留"备用"分支——已 merge 历史在 git log 中，不需要分支指针
+
+### 13.3 Worktree 规范
+
+- 路径统一：`.worktrees/{branch-slug}/`（slug = 分支名 `/` → `-`）
+- 由 `superpowers:using-git-worktrees` 统一创建和清理；**不要手动 mkdir/rm**
+- Worktree 与分支同生命周期：分支删除时同步 `git worktree remove`
+
+### 13.4 subagent 临时分支
+
+- `superpowers:subagent-driven-development` 自动创建 `claude/{random-name}` 分支 + worktree
+- 任务完成后由 `superpowers:finishing-a-development-branch` 自动清理
+- **禁止手动保留 `claude/*` 分支**；若发现残留且有独立 commit，重命名为 `feat/d*` 再评估
+
+### 13.5 何时可以删分支（清理判据）
+
+```bash
+git log --oneline {branch} ^main   # 输出为空 → 0 个独立 commit → 可直接删除
+```
+
+### 13.6 当前活跃分支（2026-05-08）
+
+| 分支 | 状态 | 对应 D-task |
+|---|---|---|
+| `main` | ✅ 集成，GitHub default | D0–D1.3a 全部已入 |
+| `feat/d3.1-m4-behavior-arbiter` | ⏳ 待 Phase 3 rebase | D3.1 M4 BehaviorArbiter（Tasks 1-6，3180 行）|
+| `feat/d3.3b-m7-sotif` | ⏳ 待 Phase 3 review | D3.3b M7 SotifAssumptionMonitor（1 commit）|
+
+---
+
 ### 12.3 累计 finding 状态
 
 **架构 v1.1.2 时点**（5 角色复审 + 6 RFC 后）：
