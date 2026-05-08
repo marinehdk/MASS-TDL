@@ -1006,6 +1006,8 @@ M7 ARBITRATOR 不再动态生成轨迹，仅触发**预定义 MRM 命令集**（
 
 M7 输出 `Safety_AlertMsg.recommended_mrm` = MRM-{01|02|03|04} 索引；M5 解析索引并执行预定义指令（参数从 Capability Manifest 读取）；**M7 不持 MPC / 规划逻辑**（决策四独立性约束）。
 
+**Doer-Checker 指挥链 [v1.1.2 新增]**：M5（Doer）在碰撞紧迫（FM-2）或 ODD 越界（FM-4）等失效场景下，发送 `safety_concern_event` 至 M7（Checker），而**不直接下发 MRM 命令**。M7 作为 Checker 唯一权限者评估事件、仲裁响应，是实现 Doer-Checker 独立性的关键环节。
+
 ### 11.7 与 X-axis Deterministic Checker 的协作（v1.1 新增 — ADR-001）[F-P0-D3-002]
 
 本设计 M7 与 v3.0 X-axis Deterministic Checker **不在同一层级，是分层互补关系**：
@@ -1978,4 +1980,16 @@ v1.1 沿用 v1.0 的章节顺序：§9 = M6 COLREGs Reasoner（先），§10 = M
 
 ---
 
-*本报告版本 v1.1.2。基于 v1.1.1（2026-05-05）+ 2026-05-06 RFC 决议 patch（6 RFC 全部已批准；跨团队接口锁定）。简化 Phase 3+6 复审落点：A 档（加严版）— 全表综合分 2.89 / P0=0。所有 [初始设计值] / [TBD-HAZID] / [HAZID 校准] 项详见附录 E，HAZID 工作组已启动（2026-05-06；详见 docs/Design/HAZID/RUN-001-kickoff.md）。文档变更须经系统架构评审委员会批准。*
+## 附录 D'''' 修订记录（v1.1.2 → v1.1.2-patch2）[v1.1.2-patch2 新增]
+
+**MUST-5 & MUST-9 修订**：D0 must-fix sprint 实现验证项
+
+### MUST-5 & MUST-9 修订摘要
+
+- **MUST-5（FM-4 ROT 限制）**：§11.6 + M5 详细设计 §7.2 修订 — FM-4 不再使用硬编码 `ROT_max = 8°/s`，改为通过 `Capability Manifest.rot_max(u)` 查询，确保船型适配性与 Doer-Checker 独立性
+- **MUST-9（FM-2 碰撞应急）**：§11.6 + M5 详细设计 §7.2 修订 — FM-2 不再 M5 直接发送 MRM 命令，改为 M5 发送 `safety_concern_event` 至 M7（Checker），由 M7 唯一权限决策 MRM 执行。强化了 Doer（M5 规划）与 Checker（M7 仲裁）的职责隔离。
+- **实现验证**：7 单元测试 + pytest / ruff 检查已通过（详见 `tests/m5/test_fallback_policy.py`）
+
+---
+
+*本报告版本 v1.1.2。基于 v1.1.1（2026-05-05）+ 2026-05-06 RFC 决议 patch（6 RFC 全部已批准；跨团队接口锁定）+ D0 must-fix sprint 补丁（MUST-2 / MUST-5 / MUST-9）。简化 Phase 3+6 复审落点：A 档（加严版）— 全表综合分 2.89 / P0=0。所有 [初始设计值] / [TBD-HAZID] / [HAZID 校准] 项详见附录 E，HAZID 工作组已启动（2026-05-06；详见 docs/Design/HAZID/RUN-001-kickoff.md）。文档变更须经系统架构评审委员会批准。*

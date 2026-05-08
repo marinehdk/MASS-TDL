@@ -669,9 +669,9 @@ graph TD
 | 失效模式 | 源 | 检测方式 | 容错措施 | 下游影响 |
 |---|---|---|---|---|
 | **FM-1：Mid-MPC 求解超时** | CasADi 问题病态 | solver.stats().t_cpu_solve > 500 ms | 重用上周期解，升级 DEGRADED，通知 M7 | L4 收不到新 AvoidancePlan；应维持旧计划 |
-| **FM-2：CPA 约束无可行解** | 碰撞不可避免 | solver.stats().success == false && g 全部活跃 | 降速至安全速度（MRM-01 预案），触发 CRITICAL | M7 将接管（强制 MRM） |
+| **FM-2：CPA 约束无可行解** | 碰撞不可避免 | solver.stats().success == false && g 全部活跃 | 触发 CRITICAL 并发送 safety_concern_event 至 M7 | M7（Checker）将接管并发起 MRM |
 | **FM-3：World_StateMsg 缺失** | 传感器/网络故障 | timestamp 落后 > 500 ms | BC-MPC 自动激活（保守应急模式），输出 CPA_safe ×1.5 | 系统进入高度警戒状态 |
-| **FM-4：ROT_max 计算错误** | Capability Manifest 数据坏 | 首次启动或更新船型后验证 | Fallback ROT_max = 8°/s（极保守），通知 M8 | 转向能力受限，但安全 |
+| **FM-4：ROT_max 计算错误** | Capability Manifest 数据坏 | 首次启动或更新船型后验证 | 查询 manifest.rot_max(u)，发送 safety_concern_event 至 M7 | M7 验证转向能力；若异常则 M7 触发 MRM |
 | **FM-5：TSS 多边形数据过期** | ENC 更新延迟 | timestamp(ENC_zone) > 10 min | 禁用 TSS 约束，改用 CPA 保守阈值 | 可能偏离 lane，但避免过度受限 |
 | **FM-6：目标意图预测误差** | ML 模型 / 目标突变 | CPA 实际 < 预测 ×2（严重低估）| BC-MPC 立即触发，阈值下调；M7 SOTIF 监测激活 | 快速反应，短期成本升高 |
 
@@ -960,6 +960,7 @@ M5 每周期向 M8 发送 SAT_DataMsg（10 Hz 聚合，或事件驱动）：
 |---|---|---|---|
 | v1.0（初稿） | 2026-05-05 | Claude Code | 基于 v1.1.1 + RFC-001 方案 B，完成 M5 详细设计 12 章；DoD 全部满足 |
 | v1.0-patch1 | 2026-05-11 | Claude Code | MUST-2: Mid-MPC N=18 统一（T_step=5s, horizon=90s）|
+| v1.0-patch2 | 2026-05-08 | Claude Code | MUST-5: FM-4 改为查询 manifest.rot_max(u)，不再硬编码 8°/s；MUST-9: FM-2 改为发送 safety_concern_event 至 M7，M7 为 MRM 唯一权限者 |
 
 ---
 
