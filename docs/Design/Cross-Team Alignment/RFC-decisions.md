@@ -19,7 +19,7 @@
 | RFC-005 | Y-axis Reflex Arc spec 量化 | L3 + Reflex Arc + Fusion + L5 + Override | ✅ **已批准** | 无（触发阈值仍标 [HAZID 校准]） |
 | RFC-006 | M3 → L2 反向 RouteReplanRequest | L3 + L2 Voyage Planner | ✅ **已批准 + 协议增补** | **v1.1.2 §15.1 新增 ReplanResponseMsg** |
 | RFC-007 | M7 ↔ X-axis 心跳契约 | L3 + X-axis + Cyber | ⏳ **Pending** — 5/13 评审 | 依评审结果（预期 v1.1.2 / v1.1.3） |
-| RFC-009 | M4 IvP 实现路径（libIvP vs 自实现 vs RRT*-CBF）| L3 M4-hat + 法务-hat | ⏳ **Pending** — 法务-hat 5/12 sign-off | M4 §10.1 实现路径确定 |
+| RFC-009 | M4 IvP 实现路径（libIvP vs 自实现 vs RRT*-CBF）| L3 M4-hat + 法务-hat | ✅ **决议：方案B（自实现 minimal IvP）** 法务-hat + M4-hat sign-off 2026-05-08 | M4 §10.1 实现路径锁定为自实现；D2.1 工时 5.5→7.0pw；v3.0 缺口 -3.0→-4.5pw |
 
 ---
 

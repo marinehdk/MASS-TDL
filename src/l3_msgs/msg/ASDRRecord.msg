@@ -1,5 +1,6 @@
 # Per v1.1.2 §15.1 + RFC-004 决议
 # Frequency: 事件 + 2 Hz
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 string source_module                     # "M1_ODD_Manager" | "M2_World_Model" | ... | "M7_Safety_Supervisor"
 

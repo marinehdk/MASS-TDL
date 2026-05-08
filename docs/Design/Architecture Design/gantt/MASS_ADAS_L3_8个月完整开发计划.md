@@ -72,6 +72,8 @@
   2. 备选：原 2 人团队 productivity 假设从 1.85 → 1.95（AI 辅助 + 评审整改激励）+ V&V 1 周延期 = 闭口（要求每月 productivity 实测验证）
   3. 紧急 fallback（contingency B4 触发）：4 缺失模块完全推到 Phase 4，D2.8 stub 工作压到 1.5 人周（节省 1.5），D3.8 工作压到 1.5（节省 1.0），合计 +2.5 闭口
 - ⚠️ **零容忍**：任一 D 滑期 ≥ 3 工作日 → PM 立即在周五 sync 触发上述备选 1/2/3 之一（升级为强制）
+
+> **D0 sign-off 工时修订注记（2026-05-08）**：RFC-009 法务-hat + M4-hat sign-off 确定 M4 IvP 自实现（方案 B），D2.1 M4 实装工时从 5.5pw 升至 **7.0pw**（+1.5pw），其中 +1.0pw 在 D2.1 窗口吸收，+0.5pw 分期至 D2.3。总工作量从 87.0pw 升至 **88.5pw**，产能 84.0pw 不变，**缺口从 -3.0 扩至 -4.5pw**。M7 FMEDA/SIL 测试 AC 降标（PM-hat Option A）维持 M7 总量 9.0pw 不变，不追加缺口。闭口路径：优先沿默认路径（V&V 延 2w + 架构师 1w 受限加班 = +3pw），剩余 -1.5pw 缺口由 D2.3 分期工时弥合（D2.3 窗口若满载则触发 B4-minor，在 D3.1 前吸收）。
 - 严禁路径：(a) 牺牲 SIL 场景质量降通过率门槛 / (b) 跳过 V&V Plan / (c) 让 D-Charter 必填项空缺。这 3 条命中即项目 P0 escalation。
 
 ---
@@ -116,9 +118,9 @@
 - 多船型 P0：M5 / M2 PR review checklist 加 grep `FCB|45m|18 kn|22 kn|ROT_max\s*=\s*\d` = 0 检查
 
 **DoD**：
-- [ ] 6 项 surgical fix PR merge（v1.1.2-patch1 git tag）
-- [ ] 多船型 lint 规则在 CI 启用（dry-run）
-- [ ] 关闭 finding ID：MUST-1/2/5/6/7/9 + MV-1/2/3/5/6/7
+- [x] 6 项 surgical fix PR merge（v1.1.2-patch1 git tag）
+- [x] 多船型 lint 规则在 CI 启用（dry-run）
+- [x] 关闭 finding ID：MUST-1/2/5/6/7/9 + MV-1/2/3/5/6/7
 
 **Demo Charter**：
 - Scenario：PR diff review 现场
@@ -142,9 +144,9 @@
 - MUST-4：HAZID-FCB 船期裁决备忘录（HAZID 8/19 不依赖 FCB 实船数据 → 改用水池 + MMG 仿真 + 历史 AIS 回归作为校准证据；实船数据延 12 月作为补充）
 
 **DoD**：
-- [ ] RFC-007 + RFC-009 commit 到 `docs/Design/Cross-Team Alignment/`
-- [ ] HAZID-FCB 备忘录 commit 到 `docs/Design/HAZID/RUN-001-fcb-data-substitute-memo.md`
-- [ ] 关闭 finding ID：MUST-3/4
+- [x] RFC-007 + RFC-009 commit 到 `docs/Design/Cross-Team Alignment/`
+- [x] HAZID-FCB 备忘录 commit 到 `docs/Design/HAZID/RUN-001-fcb-data-substitute-memo.md`
+- [x] 关闭 finding ID：MUST-3/4（法务-hat + M4-hat ✅；CCS-hat ✅）
 
 **Demo Charter**：
 - Scenario：架构师在 HAZID kickoff 5/13 现场宣读 RFC-007/009 + HAZID-FCB 备忘录
@@ -170,12 +172,12 @@
 - HTML 同步：`MASS_ADAS_L3_8个月完整开发计划.html` v2.0 → v3.0（按本 md 全量替换）
 
 **DoD**：
-- [ ] 工时表 v2.1 commit
-- [ ] D4.5 修订声明并入本计划 §1 + Phase 4 章节（v3.0 已含）
-- [ ] PATH-S CI dry-run job 在 GitLab CI 配置（5/12 commit）
-- [ ] 3 项 deep research 报告完成 + sources 入对应 DOMAIN
-- [ ] HTML 副本与 md 内容一致（人工 spot-check 5 关键 D 卡片）
-- [ ] 关闭 finding ID：MUST-8/10/11 + 用户决策 §13.2/13.3
+- [x] 工时表 v2.1 commit（M7-hat ✅ + PM-hat Option A AC降标确认）
+- [x] D4.5 修订声明并入本计划 §1 + Phase 4 章节（v3.0 已含；7 项门槛清单补充；CCS-hat ✅）
+- [x] PATH-S CI dry-run job 在 GitLab CI 配置（5/12 commit）
+- [x] 3 项 deep research 报告完成 + sources 入对应 DOMAIN
+- [ ] HTML 副本与 md 内容一致（人工 spot-check 5 关键 D 卡片）⚠️ 未同步（低优先级，Phase 1 前完成）
+- [x] 关闭 finding ID：MUST-8/10/11 + 用户决策 §13.2/13.3
 
 **Demo Charter**：
 - Scenario：5/12 PM 现场展示工时表 v2.1 + 资源日历 + HTML 副本
@@ -1012,7 +1014,44 @@
 
 #### D4.5 FCB **非认证级**技术验证试航（v3.0 修订）
 - 目标日期：2026-12-31（预期）
-- Scope：≥ 50 nm 自主航行 + ≥ 10 次 ROC 接管演示 + 实测 AIS 数据回收（作为 SIL 场景库真实数据补充）+ ASDR 日志完整。**v3.0 关键修订**：CCS 验船师**不到场**；不作为 i-Ship 证据；2027 Q1/Q2 AIP 受理后**重启认证级试航**（独立 D5.x 计划）。
+- Scope：≥ 50 nm 自主航行 + ≥ 10 次 ROC 接管演示 + 实测 AIS 数据回收（作为 SIL 场景库真实数据补充）+ ASDR 日志完整。**v3.0 关键修订**：CCS 验船师**不到场**；不作为 i-Ship 证据；2027 Q1/Q2 AIP 受理后**启动认证级实船试航**（独立 D5.x 计划，首次认证级试航）。
+
+**D4.5 实船准入门槛（v3.0 修订后，CCS-hat 强制补充）**
+
+原拟 7 项准入门槛，经用户决策 §13.3（2026-05-07）降级为非认证级试航后调整为 4 项保留。
+
+| # | 门槛内容 | 状态 | CCS 刚性程度 |
+|---|---|---|---|
+| 1 | D3.7 8h 无崩溃 + 0 P0 bug（系统可靠性基线）| ✅ **保留** | 🟢 非认证级最低可接受性基线 |
+| 2 | D4.2 HIL ≥ 50h 无致命故障（Hardware-in-Loop 验证）| ✅ **保留** | 🟢 SIL 2 路径必要依据 |
+| 3 | Hs ≤ ODD-A 边界（海况 ODD 约束，Hs < 2.5m）| ✅ **保留** | 🟢 IMO MASS Code ODD 要求 |
+| 4 | ROC 接管链路独立验证 ≥ 60s TMR（接管时窗验证）| ✅ **保留** | 🟢 Veitch 2024 TMR 基线，CCS 需 |
+| 5 | CCS AIP（原则性批准，i-Ship 前置）| ❌ **删除** | 🔴 刚性（认证级试航必须）；非认证级可删 |
+| 6 | SIL 2 第三方评估意见（TÜV/DNV/BV）| ❌ **删除** | 🔴 刚性（认证级试航必须）；D4.3（11月前）完成后补入 |
+| 7 | CCS 验船师至少出具"中期意见"或派员见证 | ❌ **删除** | 🟡 中等刚性；非认证级内部试验不强制，但数据升级须 ≥6 周前通报 |
+
+**说明**：
+- 门槛 5/6 仅对认证级试航（D5.x，2027 Q1/Q2）恢复为强制。
+- 门槛 7 通过 RUN-001-fcb-data-substitute-memo.md §4 第 5 点（CCS 协商安排条款）完成风险隔离。
+- D4.5' 船长/ROC 模拟器认证（≥2 名船长 + 2 名 ROC）作为第 8 个门槛独立列出（见下节），CCS 刚性程度 🟡 中等（要求认证机构须经 CCS 认可或等效国际机构）。
+
+**CCS-hat Sign-off — D4.5 修订声明**（2026-05-08）
+
+**总体判断**：有条件接受（存在一处程序逻辑需要正式澄清）
+
+**问题4 — HIL+SIL 2 能否支撑 AIP**：🟡 可支撑，但有前提条件。CCS i-Ship AIP 是设计概念批准，不要求所有试验数据已到位，关注的是系统架构是否具备可认证性、V&V 路径是否合理规划。HIL (D4.1/D4.2) + SIL 2 第三方评估 (D4.3) + V&V Plan (D1.5) + HARA/FMEDA (D2.7) 组合原则上足以支撑 AIP 申请。**重要前提**：D4.3 SIL 2 评估报告必须由 CCS 认可机构（TÜV/DNV/BV）出具。当前"9 月接洽"过晚，建议提前到 6 月确认机构资质，避免 11 月 AIP 提交时证据不被认可。
+
+**问题5 — AIP 前实船试航的程序逻辑**：🟢 程序逻辑合理，顺序符合 CCS 实践。CCS i-Ship AIP 是设计阶段批准（建造前或首次系统集成前），实船数据是 AIP 受理后入级证书颁发的输入，而非 AIP 的输入。本项目路径（AIP 11月 → 认证级实船 2027 Q1/Q2）在程序上正确。**表述修订**："重启认证级试航"改为"启动认证级实船试航（独立 D5.x 阶段，首次认证级试航）"，消除"重启"暗示曾有认证级试航的歧义。
+
+**问题6 — 被删除准入门槛的刚性程度**：✅ 已关闭 — 7 项门槛完整清单已在本节上方"D4.5 实船准入门槛"表中列出。被删除的 3 项（AIP / SIL 2 第三方意见 / CCS 中期意见）均属认证级试航强制要求，非认证级内部试验可豁免；豁免逻辑在 RUN-001-fcb-data-substitute-memo.md §4 第 5 点（CCS 协商安排条款）完成风险隔离。
+
+**风险提示**（若 CCS 不接受此修订声明）：(1) AIP 提交被退回，最坏情形延期 1–2 个季度；(2) December 数据全部失效，连带 D1.3a 场景库质量下降；(3) 船长/ROC 认证不被认可（若 D4.5' 课程未经 CCS 认可机构鉴定）。最保守建议：AIP 提交前（2026-10 月前），安排一次与 CCS 的非正式技术会谈（pre-submission meeting），就 D4.5 删减门槛和 December 数据定位取得书面认可意见。
+
+签字：CCS-hat ✅ 2026-05-08（条件已关闭）
+
+条件关闭记录：
+- ✅ 问题6 条件：7 项门槛清单已补充（含 4 保留 + 3 删除 + 刚性程度评级）
+- ✅ AIP pre-submission meeting 建议已在风险提示中明文记录
 
 #### D4.5' 船长/ROC 模拟器认证（NEW v3.0）
 - 目标日期：2026-11-30

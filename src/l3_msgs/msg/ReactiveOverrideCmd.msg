@@ -1,5 +1,6 @@
 # Per v1.1.2 §15.1 + RFC-001 紧急避让接口
 # Frequency: 事件 / 上限 10 Hz
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time trigger_time
 
 string trigger_reason                    # "CPA_EMERGENCY" | "COLLISION_IMMINENT" | ...

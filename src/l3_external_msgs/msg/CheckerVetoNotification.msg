@@ -1,5 +1,6 @@
 # X-axis Deterministic Checker → M7 Safety Supervisor (event-driven)
 # Per ros2-idl-implementation-guide.md §3.2 enum pattern
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 string checker_layer

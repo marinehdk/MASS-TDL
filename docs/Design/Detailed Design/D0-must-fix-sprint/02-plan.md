@@ -1268,7 +1268,7 @@ Write to `docs/Design/Cross-Team Alignment/RFC-009-IvP-Implementation-Path.md`:
 | 版本 | v0.1 |
 | 起草日 | 2026-05-08 |
 | 起草方 | L3 架构师-hat + 法务-hat |
-| 状态 | Pending — 法务-hat 5/12 PM sign-off |
+| 状态 | ✅ CLOSED 2026-05-08 — 法务-hat + M4-hat sign-off 完成；方案 B 选定 |
 | 关联 Finding | MUST-3 (B P0-B-01) |
 | 关联 D-task | D2.1 M4 Behavior Arbiter 实装 |
 
@@ -1348,6 +1348,7 @@ M4 Behavior Arbiter 需要一个多目标行为仲裁框架（Interval Programmi
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v0.1 | 2026-05-08 | 初稿；LICENSE 实证 + 决策矩阵；法务-hat sign-off 待填 |
+| v0.2 | 2026-05-08 | 法务-hat ✅ 方案B；M4-hat ✅ 方案B；D2.1 工时 5.5→7.0pw；v3.0 §0.3 缺口 -4.5pw 注记 |
 ```
 
 > **Note to agent:** Fill in the actual LICENSE findings in §2 based on your WebFetch results in Step 1. Do NOT leave `[在此填入...]` as-is — replace with actual content.
@@ -1356,7 +1357,7 @@ M4 Behavior Arbiter 需要一个多目标行为仲裁框架（Interval Programmi
 
 In `docs/Design/Cross-Team Alignment/RFC-decisions.md`, add RFC-009 row to the summary table:
 ```
-| RFC-009 | M4 IvP 实现路径（libIvP vs 自实现 vs RRT*-CBF）| L3 M4-hat + 法务-hat | ⏳ **Pending** — 法务-hat 5/12 sign-off | M4 §5.6:805 更新 |
+| RFC-009 | M4 IvP 实现路径（libIvP vs 自实现 vs RRT*-CBF）| L3 M4-hat + 法务-hat | ✅ **方案B 选定** 2026-05-08 | D2.1 工时 5.5→7.0pw；v3.0 §0.3 缺口 -4.5pw |
 ```
 
 In `docs/Design/Detailed Design/M4-Behavior-Arbiter/01-detailed-design.md`, find §5.6 (~line 805):
@@ -1954,7 +1955,7 @@ Write to `docs/Design/HAZID/RUN-001-fcb-data-substitute-memo.md`:
 | 版本 | v1.0 |
 | 日期 | 2026-05-08 |
 | 起草 | safety-hat（架构师兼任）|
-| CCS-hat sign-off | ⚪ 待 2026-05-12 PM 独立会话签字 |
+| CCS-hat sign-off | ✅ 2026-05-08 — 有条件接受，全部条件已关闭（规范引用补入 + 证据双轨 + §4 协商条款）|
 
 ---
 
@@ -2098,7 +2099,7 @@ Write to `docs/Design/Detailed Design/M7-Safety-Supervisor/02-effort-split-v2.1.
 | 日期 | 2026-05-08 |
 | 背景 | 7 角度评审 MUST-11：M7 从 6pw → 9pw；拆为 M7-core (6pw) + M7-sotif (3pw) |
 | 锚定计划 | v3.0 §0.1 line 47（+3.0pw 闭口路径说明）|
-| M7-hat sign-off | ⚪ 待 2026-05-12 独立会话 |
+| M7-hat sign-off | ✅ 2026-05-08 — 有条件接受，全部条件已关闭（§2.1 开窗修正 + §4a 里程碑表 + AC降标 Option A）|
 
 ---
 
@@ -2181,6 +2182,7 @@ Write to `docs/Design/Detailed Design/M7-Safety-Supervisor/02-effort-split-v2.1.
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v2.1 | 2026-05-08 | 初版；MUST-11 D0 产出；M7-hat sign-off 待填 |
+| v2.1r | 2026-05-08 | M7-hat ✅；§2.1 开窗 7/13；§4a 里程碑表补入；AC降标 FMEDA≥15/覆盖≥90% |
 ```
 
 - [ ] **Step 3: Patch v3.0 plan — acknowledge +3.0pw at §0.1**

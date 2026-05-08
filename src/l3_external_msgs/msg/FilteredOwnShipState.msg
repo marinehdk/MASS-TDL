@@ -1,6 +1,7 @@
 # Multimodal Fusion Nav Filter → M2 World Model (50 Hz)
 # Per architecture v1.1.2 §15.1 + §6 + RFC-002 resolution
 # Wave 0 fix: F-IMP-B-008 — added nav_mode (RFC-002 required), current_speed/direction
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 geographic_msgs/GeoPoint position

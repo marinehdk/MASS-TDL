@@ -1,4 +1,5 @@
 import pytest
+
 from common.capability_manifest import CapabilityManifest, HullClass
 from m2_world_model.track_validator import validate_track
 

@@ -1,5 +1,6 @@
 # M8 HMI Bridge → ROC HMI frontend (50 Hz)
 # Contains rendering data for operator display
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 string view_mode                      # "chart" | "radar" | "dashboard"

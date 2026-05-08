@@ -1,5 +1,6 @@
 # Per v1.1.2 §15.1 ODD_StateMsg + §3.5 state machine + §3.6 Conformance_Score
 # Frequency: 1 Hz + event-driven补发 (EDGE→OUT 不等周期)
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 current_zone                       # ODD-A/B/C/D

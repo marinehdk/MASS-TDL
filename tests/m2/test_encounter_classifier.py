@@ -1,6 +1,4 @@
-import pytest
 from m2_world_model.encounter_classifier import Encounter, classify_encounter
-
 
 # ── 4 boundary tests ──────────────────────────────────────────────────────────
 

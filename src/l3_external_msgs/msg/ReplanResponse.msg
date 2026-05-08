@@ -1,5 +1,6 @@
 # L2 Voyage Planner → M3 (event-driven) per RFC-006
 # Per v1.1.2 §15.1 + ros2-idl-implementation-guide.md §3.3
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 status

@@ -1,5 +1,6 @@
 # Multimodal Fusion → M2 World Model (0.2 Hz)
 # Per v1.1.2 §15.1 EnvironmentState
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 float64 wind_speed_kn

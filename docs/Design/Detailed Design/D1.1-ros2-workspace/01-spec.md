@@ -305,11 +305,11 @@
 
 | 判据 | 证据 | 状态 |
 |---|---|---|
-| colcon build exit 0 无 warning | 截图路径：`docs/Design/Detailed Design/D1.1-ros2-workspace/evidence/colcon-build-ok.png` | ⬜ |
-| 25 + 11 条顶层 .msg 含 schema_version | `grep -rl "schema_version" src/l3_msgs/msg src/l3_external_msgs/msg \| wc -l` = 27 | ⬜ |
-| TimeWindow 豁免确认 | `grep "schema_version" src/l3_external_msgs/msg/TimeWindow.msg` → exit 1 | ⬜ |
-| mock publisher 50 Hz | `ros2 topic hz /fusion/own_ship_state` 截图 | ⬜ |
-| D0 CI job 不 break | 本地 `grep -rE "(\bFCB\b|45\s*m\b)" src/l3_msgs/ src/l3_external_msgs/` → exit 1 | ⬜ |
-| F P1-F-04 关闭证据 | 本 spec §3.1 + T2a/T2b 完成记录 | ⬜ |
-| F P1-F-06 关闭证据 | T5 colcon build 截图 | ⬜ |
+| colcon build exit 0 无 warning | `evidence/colcon-build-ok.log`：exit 0，warning lines: 0（mass-l3/ci:jazzy-ubuntu22.04 容器验证）| ✅ |
+| 25 + 11 条顶层 .msg 含 schema_version | `grep -rl "schema_version" src/l3_msgs/msg src/l3_external_msgs/msg \| wc -l` = 27 | ✅ |
+| TimeWindow 豁免确认 | `grep "schema_version" src/l3_external_msgs/msg/TimeWindow.msg` → exit 1 | ✅ |
+| mock publisher 50 Hz | `evidence/hz-50-own-ship-state.log`：average rate: 49.845~50.015 Hz（容器验证）| ✅ |
+| D0 CI job 不 break | `grep -rE "(\bFCB\b|45\s*m\b)" src/l3_msgs/ src/l3_external_msgs/` → exit 1 | ✅ |
+| F P1-F-04 关闭证据 | 本 spec §3.1 + T2a/T2b 完成；schema_version 字段选型 string "v1.1.2" | ✅ |
+| F P1-F-06 关闭证据 | `evidence/colcon-build-ok.log`（mass-l3/ci:jazzy-ubuntu22.04 容器）| ✅ |
 | ARCH-GAP 9 条完整记录 | 本 spec §4 | ✅ |

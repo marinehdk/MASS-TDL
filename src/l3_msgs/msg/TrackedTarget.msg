@@ -1,5 +1,6 @@
 # Tracked target with classification + COLREG-relevant geometry
 # Per v1.1.2 §6.2 (M2 World Model) + §15.1 World_StateMsg
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp           # 跟踪起点时间
 uint64 target_id                         # 全局唯一 ID
 geographic_msgs/GeoPoint position        # WGS84 (lat/lon/alt)
