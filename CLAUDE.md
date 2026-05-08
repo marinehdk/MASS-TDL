@@ -9,8 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 1. 项目当前状态（强制阅读 — 2026-05-08 更新，对齐 8 月计划 v3.0）
 
 ### 1.1 阶段
-- **设计 → 实现交界**：仓库目前仍 100% 为 `docs/`（无源代码、无构建、无测试），但 **8 月计划 v3.0 已锁定（2026-05-08）**，D0 must-fix sprint 5/8–5/12 后 5/13 起进入实现阶段
-- 涉及"跑一下/编译/测试"的请求：5/13 之前一律回到设计文档；5/13 之后参考 v3.0 主计划对应 D 编号判断
+- **实现阶段进行中**：**8 月计划 v3.0 已锁定（2026-05-08）**；D0 must-fix sprint（5/8–5/12）已启动源代码 + 测试 + CI 并行演进（`src/`、`tests/`、`.gitlab-ci.yml` 已建立）；5/13 起 Phase 1 D1.x 工程基础正式起跑
+- 涉及"跑一下/编译/测试"的请求：参考 v3.0 主计划对应 D 编号判断（D0 范围：pure-logic Python；D1.1 起：ROS2 wrapping）
+- **判定基准**：v3.0 plan 32 个 D 编号（D0–D4.7）是所有实现决策的权威参照
 - **三档强制 DEMO**：DEMO-1 (6/15 Skeleton Live) / DEMO-2 (7/31 Decision-Capable) / DEMO-3 (8/31 Full-Stack with Safety + ToR) —— 不可取消；详见 v3.0 §10/§11/§12
 
 ### 1.2 路线进度

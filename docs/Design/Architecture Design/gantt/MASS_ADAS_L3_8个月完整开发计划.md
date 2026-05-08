@@ -44,7 +44,7 @@
 | D2.7 HARA + FMEDA M1 | +2.5 |
 | D2.8 v1.1.3 stub（§16/§15.0/§12.5/§12.3/§10.5/4 缺失模块）| +3.0 |
 | M5 micro 调整（FM-4 删除 + MRM 走 M7）| -0.5 |
-| M7 拆 6→9（MUST-11，M7-core 6 + M7-sotif 3）| +3.0 |
+| M7 拆 6→9（MUST-11，M7-core 6 + M7-sotif 3）| +3.0 | <!-- v2.1: split 6pw M7-core + 3pw M7-sotif; see M7/02-effort-split-v2.1.md -->
 | M8 上调（双角色 + 50Hz 三档 + ToR 矩阵 + BNWAS + Y-axis + ECDIS）| +1.5 |
 | D3.5' 培训课程大纲 | +1.5 |
 | D3.6 SIL 1000+ 上调（立方体覆盖 + Adversarial 比例）| +0.5 |
