@@ -113,7 +113,8 @@ void FcbSimulatorNode::on_avoidance_plan(
   const double tgt_y = dlat * kEarthMperDeg;
   const double tgt_x = dlon * kEarthMperDeg
                        * std::cos(cfg_.origin_lat * kDegToRad);
-  // state_ reads are safe under SingleThreadedExecutor (no concurrent timer callbacks)
+  // state_ reads are safe under SingleThreadedExecutor (no concurrent timer callbacks).
+  // If switching to MultiThreadedExecutor for SIL harness, move state_ under cmd_mutex_.
   const double dx = tgt_x - state_.x;
   const double dy = tgt_y - state_.y;
   if (std::hypot(dx, dy) > 1.0) {
@@ -161,9 +162,7 @@ void FcbSimulatorNode::step_dynamics() {
   double n = 0.0;
   compute_control(delta, n);
   state_ = plugin_->step(state_, delta, n, cfg_.dt);
-  constexpr double kPi = 3.14159265358979323846;
-  while (state_.psi >  kPi) { state_.psi -= 2.0 * kPi; }
-  while (state_.psi < -kPi) { state_.psi += 2.0 * kPi; }
+  state_.psi = wrap_pi(state_.psi);
 }
 
 void FcbSimulatorNode::publish_own_ship_state() {
