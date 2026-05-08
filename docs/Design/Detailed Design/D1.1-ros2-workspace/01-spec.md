@@ -305,11 +305,11 @@
 
 | 判据 | 证据 | 状态 |
 |---|---|---|
-| colcon build exit 0 无 warning | 截图路径：`docs/Design/Detailed Design/D1.1-ros2-workspace/evidence/colcon-build-ok.png` | ⬜ |
-| 25 + 11 条顶层 .msg 含 schema_version | `grep -rl "schema_version" src/l3_msgs/msg src/l3_external_msgs/msg \| wc -l` = 27 | ⬜ |
-| TimeWindow 豁免确认 | `grep "schema_version" src/l3_external_msgs/msg/TimeWindow.msg` → exit 1 | ⬜ |
-| mock publisher 50 Hz | `ros2 topic hz /fusion/own_ship_state` 截图 | ⬜ |
-| D0 CI job 不 break | 本地 `grep -rE "(\bFCB\b|45\s*m\b)" src/l3_msgs/ src/l3_external_msgs/` → exit 1 | ⬜ |
-| F P1-F-04 关闭证据 | 本 spec §3.1 + T2a/T2b 完成记录 | ⬜ |
-| F P1-F-06 关闭证据 | T5 colcon build 截图 | ⬜ |
+| colcon build exit 0 无 warning | 截图路径：`docs/Design/Detailed Design/D1.1-ros2-workspace/evidence/colcon-build-ok.png` | 🔄 CI-pending（ROS2 not available locally） |
+| 25 + 11 条顶层 .msg 含 schema_version | `grep -rl "schema_version" src/l3_msgs/msg src/l3_external_msgs/msg \| wc -l` = 27 | ✅ 验证通过 |
+| TimeWindow 豁免确认 | `grep "schema_version" src/l3_external_msgs/msg/TimeWindow.msg` → exit 1 | ✅ 验证通过 |
+| mock publisher 50 Hz | `ros2 topic hz /fusion/own_ship_state` 截图 | 🔄 CI-pending（ROS2 not available locally） |
+| D0 CI job 不 break | 本地 `grep -rE "(\bFCB\b|45\s*m\b)" src/l3_msgs/ src/l3_external_msgs/` → exit 1 | ✅ 验证通过 |
+| F P1-F-04 关闭证据 | 本 spec §3.1 + T2a/T2b 完成记录 | ✅ 完成 |
+| F P1-F-06 关闭证据 | T5 colcon build 截图 | 🔄 CI-pending（colcon 需 ROS2） |
 | ARCH-GAP 9 条完整记录 | 本 spec §4 | ✅ |
