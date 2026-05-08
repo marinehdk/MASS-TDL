@@ -7,7 +7,6 @@ Usage:
 """
 import argparse
 import json
-import sys
 
 
 def build_metadata(input_path: str, output_path: str) -> None:

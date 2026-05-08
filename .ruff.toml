@@ -1,0 +1,25 @@
+target-version = "py311"
+line-length = 100
+indent-width = 4
+
+exclude = [
+    # Pre-existing ROS2 packages — not D0 scope
+    "src/l3_external_mock_publisher",
+    "src/l3_external_msgs",
+    "src/l3_msgs",
+    "src/m8_hmi_transparency_bridge",
+    "src/fcb_simulator",
+    "tests/hil",
+    "tests/integration",
+]
+
+[lint]
+select = ["E", "F", "I", "N", "W", "UP", "B"]
+ignore = ["E501"]
+
+[lint.isort]
+known-first-party = ["src", "common"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
