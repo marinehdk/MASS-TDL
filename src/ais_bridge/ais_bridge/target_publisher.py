@@ -2,7 +2,6 @@
 """Build TrackedTargetArray from AISRecord list per v1.1.2 IDL."""
 from __future__ import annotations
 
-from typing import List
 from ais_bridge.nmea_decoder import AISRecord
 
 
@@ -15,20 +14,21 @@ def _classification_from_type(ship_type: int) -> str:
     return 'fixed_object'
 
 
-def build_tracked_target_array(records: List[AISRecord], stamp, node=None):
+def build_tracked_target_array(records: list[AISRecord], stamp, node=None):
     """Build a TrackedTargetArray message from a list of AIS records.
 
     No vessel-type literals anywhere in this function (multi_vessel_lint compliant).
     """
-    from l3_external_msgs.msg import TrackedTargetArray
-    from l3_msgs.msg import TrackedTarget, EncounterClassification
     from geographic_msgs.msg import GeoPoint
 
-    SIGMA_POS_M = 50.0
-    SIGMA_HDG_DEG = 5.0
-    sigma_pos_sq = SIGMA_POS_M ** 2
-    sigma_hdg_sq = SIGMA_HDG_DEG ** 2
-    AIS_CONFIDENCE = 0.7
+    from l3_external_msgs.msg import TrackedTargetArray
+    from l3_msgs.msg import EncounterClassification, TrackedTarget
+
+    sigma_pos_m = 50.0
+    sigma_hdg_deg = 5.0
+    sigma_pos_sq = sigma_pos_m ** 2
+    sigma_hdg_sq = sigma_hdg_deg ** 2
+    ais_confidence = 0.7
 
     targets = []
     for rec in records:
@@ -54,12 +54,12 @@ def build_tracked_target_array(records: List[AISRecord], stamp, node=None):
         ]
 
         t.classification = _classification_from_type(rec.ship_type)
-        t.classification_confidence = AIS_CONFIDENCE
+        t.classification_confidence = ais_confidence
         t.source_sensor = 'ais'
         t.cpa_m = 0.0
         t.tcpa_s = 0.0
         t.encounter = EncounterClassification()
-        t.confidence = AIS_CONFIDENCE
+        t.confidence = ais_confidence
 
         targets.append(t)
 
@@ -67,6 +67,6 @@ def build_tracked_target_array(records: List[AISRecord], stamp, node=None):
     msg.schema_version = 'v1.1.2'
     msg.stamp = stamp
     msg.targets = targets
-    msg.confidence = AIS_CONFIDENCE
+    msg.confidence = ais_confidence
     msg.rationale = 'ais_bridge replay'
     return msg

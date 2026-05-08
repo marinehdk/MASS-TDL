@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Optional, Generator
 
 from pyais.stream import FileReaderStream
+
 
 @dataclass
 class AISRecord:

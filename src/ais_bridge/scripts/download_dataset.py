@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Proprietary
 """Download NOAA AccessAIS or generate synthetic AIS dataset for D1.3a SIL testing."""
 import argparse
-import os
 import sys
 import urllib.request
 import zipfile
@@ -44,7 +43,9 @@ def download_noaa(output_dir: Path) -> Path:
 
 def generate_synthetic_fallback(output_dir: Path, n_records: int = 72000) -> Path:
     """Generate synthetic NOAA-format CSV as R3.2 fallback. 72000 records = 1h at 2Hz for 10 vessels."""
-    import csv, math, random
+    import csv
+    import math
+    import random
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "AIS_synthetic_1h.csv"
 

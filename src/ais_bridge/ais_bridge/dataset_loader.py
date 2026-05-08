@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import csv
-from typing import Generator
+from collections.abc import Generator
 
 from ais_bridge.nmea_decoder import AISRecord, decode_file
 
 
 def load_noaa_csv(filepath: str) -> Generator[AISRecord, None, None]:
     """Parse NOAA marinecadastre.gov AccessAIS CSV format."""
-    with open(filepath, 'r', encoding='utf-8-sig') as f:
+    with open(filepath, encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         for row in reader:
             try:

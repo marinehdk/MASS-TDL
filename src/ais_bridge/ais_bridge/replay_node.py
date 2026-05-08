@@ -2,13 +2,11 @@
 """ROS2 node: replay NOAA/DMA AIS data as TrackedTargetArray at configurable speed."""
 from __future__ import annotations
 
-from typing import List
-
 import rclpy
 from rclpy.node import Node
 
+from ais_bridge.dataset_loader import load_dma_nmea, load_noaa_csv
 from ais_bridge.nmea_decoder import AISRecord
-from ais_bridge.dataset_loader import load_noaa_csv, load_dma_nmea
 from ais_bridge.target_publisher import build_tracked_target_array
 
 
@@ -47,7 +45,7 @@ class AISReplayNode(Node):
         self.get_logger().info(
             f'AIS replay: {len(self._records)} records, {rate_x}x speed, {pub_hz} Hz, fmt={fmt}')
 
-    def _load(self, path: str, fmt: str) -> List[AISRecord]:
+    def _load(self, path: str, fmt: str) -> list[AISRecord]:
         try:
             if fmt == 'noaa_csv':
                 return list(load_noaa_csv(path))

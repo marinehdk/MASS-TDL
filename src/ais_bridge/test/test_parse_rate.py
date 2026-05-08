@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: Proprietary
 """Test that AIS dataset parse rate meets the >= 95% DoD gate."""
+import csv
 import os
 import sys
-import csv
-
-import pytest
 
 _NOAA_PATH = os.environ.get(
     'AIS_DATASET_PATH',
@@ -18,7 +16,7 @@ def _count_noaa_csv(filepath: str) -> tuple:
     """Count (total_rows, successfully_parsed_rows) for a NOAA CSV file."""
     total = 0
     parsed = 0
-    with open(filepath, 'r', encoding='utf-8-sig') as f:
+    with open(filepath, encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         for row in reader:
             total += 1
@@ -37,7 +35,7 @@ def _count_nmea_file(filepath: str) -> tuple:
     from ais_bridge.nmea_decoder import decode_file
     total = 0
     parsed = 0
-    with open(filepath, 'r', errors='ignore') as f:
+    with open(filepath, errors='ignore') as f:
         for line in f:
             if '!AIVDM' in line or '!AIVDO' in line:
                 total += 1
