@@ -271,7 +271,7 @@
 | 目标完成 | 2026-05-31 |
 | Owner | 技术负责人 |
 
-**Scope**：FCB 4-DOF MMG 仿真器（Yasukawa 2015 标准参数 + Euler 积分；初始 YAML 参数 [HAZID 校准前]；hull_class = SEMI_PLANING 标注）；AIS NMEA 0183 解析 → TrackedTargetArray；NOAA + ChAIS 数据集；可配置回放速率 1×/5×/10×；**v3.0 新增**：仿真器接口为 `ShipMotionSimulator`（abstract），FCB 是 plugin。
+**Scope**：FCB 4-DOF MMG 仿真器（Yasukawa 2015 标准参数 + RK4, dt=0.02s（代替 Euler；精度满足 D1.3.1 ≤5% 参考解误差门槛；现有单元测试基于 RK4，不改动）；初始 YAML 参数 [HAZID 校准前]；hull_class = SEMI_PLANING 标注）；AIS NMEA 0183 解析 → TrackedTargetArray；NOAA + ChAIS 数据集；可配置回放速率 1×/5×/10×；**v3.0 新增**：仿真器接口为 `ShipMotionSimulator`（abstract），FCB 是 plugin。
 
 **DoD**：
 - [ ] 仿真器连续 1h 无崩溃；停船误差 ≤ 10%（vs 解析参考解）
@@ -459,7 +459,7 @@
 |---|---|---|---|
 | R1.1 | DEMO-1 mock M2/M6 被业主误读为"进度空心化" | 中 | DEMO-1 narrative 强调 "skeleton + scenario schema 走通"是 Phase 1 的真实里程碑；CCS 邮件回执 + 资深船长签字反馈作为客观证据 |
 | R1.2 | V&V 工程师 5/8 onboard 失败 | **高** | A1 闭环刚性依赖；R0.2 已识别；不到位则 D1.5/D1.6 推 1 周 + DEMO-1 拆为 6/15 简版 + 6/22 完整版 |
-| R1.3 | CasADi/IPOPT 编译复杂阻塞 SIL 框架 | 中 | D1.3a 先用 Euler 积分 + 简化 MMG；CasADi/IPOPT 留 Phase 3 M5 |
+| R1.3 | CasADi/IPOPT 编译复杂阻塞 SIL 框架 | **解决** | D1.3a 已用 RK4 积分 + 标准 Yasukawa MMG（不简化）；单元测试验证 ≤5% 参考解误差；CasADi/IPOPT 留 Phase 3 M5 优化 |
 | R1.4 | ChAIS 授权未到位 | 中 | NOAA AIS 优先（格式相同）；ChAIS 授权同步申请 |
 | R1.5 | CI 首次启用 PATH-S 检查暴露大量 violations | 高 | D0.3 已让 dry-run 提前 1 周收集 violation 清单；本 D 仅升级强制 |
 | R1.6 | 资深船长 6/15 不愿到场 | 中 | PM 5/13 起预约；备选业主船员部门代理船长 |

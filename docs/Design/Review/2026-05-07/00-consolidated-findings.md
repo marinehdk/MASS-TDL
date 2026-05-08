@@ -166,9 +166,9 @@
 | MV-1 | M5 §7.2 FM-4 fallback `ROT_max=8°/s` 硬编 | M5:674 | 拖船/70m PSV ROT_max < 8°/s，fallback 反而激进 | **P0** | 改为 `OUT_of_ODD → MRM`；删硬数 |
 | MV-2 | M2 §2.2 校验 `sog ∈ [0,30] kn (FCB 满载极限)` | M2:48 | 高速渡船自身被标 INVALID | **P0** | `f(Manifest.max_speed)` |
 | MV-3 | M8 `active_role: ROC_OPERATOR` 默认 | M8:111 | 拖船/渡船 on-board primary 不兼容 | **P0** | 对称双角色 PRIMARY_ON_BOARD/PRIMARY_ROC/DUAL |
-| MV-4 | SIL 仿真器与 FCB 耦合（D1.3 命名 / 顶层无 vessel 抽象 / 18 kn 巡航 baseline）| gantt:124-141 | 换船型必须重写仿真器内核 | **P0** | `ShipMotionSimulator` 抽象 + FCB plugin + YAML `vessel_class` |
+| MV-4 | SIL 仿真器与 FCB 耦合（D1.3 命名 / 顶层无 vessel 抽象 / 18 kn 巡航 baseline）| gantt:124-141 | 换船型必须重写仿真器内核 | **CLOSED** | Closed by D1.3a T3：ship_sim_interfaces + FCBSimulator plugin (feat/d1.2-cicd-pipeline，2026-05-13) |
 | MV-5 | Mid-MPC N=18 / 90s 覆盖"FCB 18kn 制动 600–800m"逻辑 | arch §10.3 / M5:184,272 | N 应 = f(vessel_class)；拖船 12kn 制动 200m 严重过度 | **P0** | Capability Manifest `mpc_horizon_steps` 字段 |
-| MV-6 | 4-DOF MMG 假设普适 | arch §10.5 | FCB 半滑行需 6-DOF；其他可继 4-DOF | **P0** | `hull_class ∈ {DISP, SEMI_PLAN, PLANING}` 触发维度选择 |
+| MV-6 | 4-DOF MMG 假设普适 | arch §10.5 | FCB 半滑行需 6-DOF；其他可继 4-DOF | **CLOSED** | Closed by D1.3a T2：hull_class: SEMI_PLANING 已添加到 fcb_dynamics.yaml (feat/d1.2-cicd-pipeline，2026-05-13) |
 | MV-7 | ROT_max(u) 速度修正表系数（1.2/1.0/0.8）| arch §10.5:534-538 | 拖船 ROT_max << FCB；6kn 拖船 1.2× = "幻觉转向" | **P0** | Capability Manifest `rot_max_curve` 字段 |
 | MV-8 | HAZID RUN-002/003 各仅 4 周 vs RUN-001 12 周 | HAZID kickoff:194-198 | 路径深度不对称，多船型 i-Ship 认证可信度受损 | P1 | RUN-002/003 ≥ 6 周 |
 | MV-9 | f_speed_correction 段间断点 10/20 kn | arch §10.5 | 渡船半排水 max ~18kn，10kn 是巡航而非低速段 | P1 | Capability Manifest 化 |
