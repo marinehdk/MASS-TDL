@@ -105,7 +105,7 @@ stage-1-lint:
     - bash tools/ci/check-msg-naming.sh
     - bash tools/ci/check-msg-contract.sh
     # commit message format
-    - bash tools/ci/check-commit-msg.sh || echo "commit-msg check optional in Wave 0"
+    - bash tools/ci/check-commit-msg.sh
   artifacts:
     when: always
     reports:
@@ -128,7 +128,6 @@ multi_vessel_lint:
       else
         echo "OK: No vessel-specific literals found in src/"
       fi
-  allow_failure: true
   artifacts:
     when: always
     paths:
@@ -151,13 +150,21 @@ path_s_dry_run:
         src/m5_tactical_planner/ \
         src/m6_colregs_reasoner/ \
         2>/dev/null > path_s_report.txt || true
-      HITS=$(wc -l < path_s_report.txt | tr -d ' ')
-      echo "Doer→Checker violations: $HITS"
+      # --- C++ boundary detection (D1.2 addition) ---
+      grep -rn --include="*.cpp" --include="*.hpp" \
+        -E '#include\s*[<"]m7_safety_supervisor/' \
+        src/m1_odd_envelope_manager/ src/m2_world_model/ \
+        src/m3_mission_manager/ src/m4_behavior_arbiter/ \
+        src/m5_tactical_planner/ src/m6_colregs_reasoner/ \
+        2>/dev/null >> path_s_report.txt || true
+      CPP_HITS=$(grep -cE '\.(cpp|hpp):' path_s_report.txt 2>/dev/null || echo 0)
+      echo "C++ Doer→Checker violations: ${CPP_HITS}"
+      HITS=$((HITS + CPP_HITS))
       if [ "$HITS" -gt "0" ]; then
-        echo "WARNING: Doer module(s) importing M7 Checker detected (see artifact)"
+        echo "WARNING: Doer→Checker boundary violations detected (Python+C++)"
         cat path_s_report.txt
       else
-        echo "OK: No Doer→Checker boundary violations found"
+        echo "OK: No Doer→Checker violations (Python + C++)"
       fi
   allow_failure: true
   artifacts:
@@ -227,15 +234,20 @@ stage-2-pytest:
         - src/l3_external_mock_publisher/**/*
         - tools/**/*
   script:
-    - pytest --cov=src/m2_world_model/python \
-             --cov=src/m8_hmi_transparency_bridge/python \
-             --cov=src/l3_external_mock_publisher \
-             --cov-report=html:coverage-py-html \
-             --cov-report=xml:coverage-py.xml \
-             --cov-report=term-missing \
-             --cov-fail-under=90 \
-             --junit-xml=build/pytest-junit.xml \
-             tests/python/ || echo "tests/python/ not yet present in Wave 0"
+    - |
+      if find tests/python -name "*.py" -print -quit 2>/dev/null | grep -q .; then
+        pytest --cov=src/m2_world_model/python \
+               --cov=src/m8_hmi_transparency_bridge/python \
+               --cov=src/l3_external_mock_publisher \
+               --cov-report=html:coverage-py-html \
+               --cov-report=xml:coverage-py.xml \
+               --cov-report=term-missing \
+               --cov-fail-under=90 \
+               --junit-xml=build/pytest-junit.xml \
+               tests/python/
+      else
+        echo "INFO: tests/python/ does not exist (Wave 0 skip)" && exit 0
+      fi
   artifacts:
     when: always
     paths:
