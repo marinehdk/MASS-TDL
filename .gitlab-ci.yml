@@ -150,6 +150,8 @@ path_s_dry_run:
         src/m5_tactical_planner/ \
         src/m6_colregs_reasoner/ \
         2>/dev/null > path_s_report.txt || true
+      HITS=$(wc -l < path_s_report.txt | tr -d ' ')
+      echo "Doer→Checker violations (Python): $HITS"
       # --- C++ boundary detection (D1.2 addition) ---
       grep -rn --include="*.cpp" --include="*.hpp" \
         -E '#include\s*[<"]m7_safety_supervisor/' \
@@ -246,7 +248,7 @@ stage-2-pytest:
                --junit-xml=build/pytest-junit.xml \
                tests/python/
       else
-        echo "INFO: tests/python/ does not exist (Wave 0 skip)" && exit 0
+        echo "INFO: no .py files found in tests/python/ (Wave 0 skip)" && exit 0
       fi
   artifacts:
     when: always
