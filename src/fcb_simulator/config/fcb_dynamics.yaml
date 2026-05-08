@@ -1,21 +1,28 @@
 # FCB 4-DOF MMG simulator parameters (Yasukawa & Yoshimura 2015 [R7],
 # tuned per Luo & Zou 2019 patrol-vessel adaptation).
 # Units: SI; primed quantities are non-dimensional per MMG convention.
+#
+# ALL numerical values below are HAZID-UNVERIFIED initial estimates.
+# RUN-001 (2026-08-19) calibration will update this file; D1.3.1 will re-run.
 fcb_simulator:
   ros__parameters:
-    # Ship particulars
-    L: 46.0                  # m, LBP
-    d: 2.8                   # m, draft
-    B: 8.0                   # m, beam
-    displacement_t: 450.0    # tonnes
-    x_G: 0.0                 # m, CG offset from midship
+    # --- Vessel identity (pluginlib + multi_vessel_lint safe: only YAML, not Python) ---
+    vessel_class: FCB          # pluginlib load key → "fcb_simulator/FCBSimulator"
+    hull_class: SEMI_PLANING   # MV-4 fix: Fn=0.45–0.63 semi-planing regime (Yasukawa 2015 [R7])
 
-    # Added mass (non-dimensional)
+    # --- Ship particulars [HAZID-UNVERIFIED: RUN-001 2026-08-19 校准] ---
+    L: 46.0                  # m, LBP  [HAZID-UNVERIFIED: RUN-001]
+    d: 2.8                   # m, draft [HAZID-UNVERIFIED: RUN-001]
+    B: 8.0                   # m, beam  [HAZID-UNVERIFIED: RUN-001]
+    displacement_t: 450.0    # tonnes   [HAZID-UNVERIFIED: RUN-001]
+    x_G: 0.0                 # m, CG offset from midship [HAZID-UNVERIFIED: RUN-001]
+
+    # --- Added mass (non-dimensional) [HAZID-UNVERIFIED: RUN-001] ---
     m_x_prime: 0.00831
     m_y_prime: 0.1284
     J_zz_prime: 0.00676
 
-    # Hull derivatives (Abkowitz)
+    # --- Hull derivatives Abkowitz form [HAZID-UNVERIFIED: RUN-001] ---
     X_vv: -0.0407
     X_vr:  0.0441
     X_rr:  0.0127
@@ -33,11 +40,11 @@ fcb_simulator:
     N_vrr: -0.0151
     N_rrr: -0.0061
 
-    # Roll (1-DOF pendulum) — [TBD-HAZID] G_M and T_phi pending FCB inclining experiment
-    G_M: 1.2                 # m, metacentric height
-    T_phi: 5.0               # s, natural roll period
+    # --- Roll (1-DOF pendulum) [HAZID-UNVERIFIED: RUN-001 — pending inclining experiment] ---
+    G_M: 1.2                 # m, metacentric height [HAZID-UNVERIFIED: RUN-001]
+    T_phi: 5.0               # s, natural roll period [HAZID-UNVERIFIED: RUN-001]
 
-    # Propeller
+    # --- Propeller [HAZID-UNVERIFIED: RUN-001] ---
     t_P: 0.184
     w_P: 0.200
     D_P: 1.5
@@ -45,7 +52,7 @@ fcb_simulator:
     k_1: -0.3
     k_2: -0.25
 
-    # Rudder
+    # --- Rudder [HAZID-UNVERIFIED: RUN-001] ---
     t_R: 0.387
     a_H: 0.312
     x_H_prime: -0.464
@@ -57,15 +64,15 @@ fcb_simulator:
     A_R: 1.65
     f_alpha: 2.747
 
-    # Integration
+    # --- Integration (RK4, dt=0.02s — replaces v3.0 "Euler" note; see spec §1.3) ---
     dt: 0.02
 
-    # Initial conditions
+    # --- Initial conditions ---
     x0: 0.0
     y0: 0.0
-    psi0: 1.5708
-    u0: 9.26
+    psi0: 1.5708   # rad = 90° = North (math convention)
+    u0: 9.26       # m/s ≈ 18 kn cruise [HAZID-UNVERIFIED: RUN-001]
 
-    # Geographic origin for NED→WGS84
+    # --- Geographic origin for NED→WGS84 flat-earth approximation ---
     origin_lat: 30.5
     origin_lon: 122.0
