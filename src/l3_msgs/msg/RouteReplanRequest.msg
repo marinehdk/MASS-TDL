@@ -1,4 +1,5 @@
 # Per v1.1.2 §15.1 + RFC-006 决议
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 reason                             # 见下 enum

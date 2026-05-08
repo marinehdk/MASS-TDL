@@ -1,4 +1,5 @@
 # Per v1.1.2 §15.1 + §12.4 ToR 协议（C 交互验证：操作员主动点击）
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 reason

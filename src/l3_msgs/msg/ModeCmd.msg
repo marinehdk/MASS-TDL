@@ -1,5 +1,6 @@
 # M1 ODD/Envelope Manager → M4 Behavior Arbiter (event-driven)
 # Communicates the commanded operational mode based on ODD state
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 mode

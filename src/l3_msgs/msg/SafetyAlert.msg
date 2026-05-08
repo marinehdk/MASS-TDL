@@ -1,4 +1,5 @@
 # Per v1.1.2 §15.1 + ADR-001 (M7 仅触发预定义 MRM 命令集，不注入轨迹)
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 uint8 alert_type

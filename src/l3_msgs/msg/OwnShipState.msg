@@ -1,4 +1,5 @@
 # Own ship state from latest FilteredOwnShipState snapshot per v1.1.2 §15.1
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 geographic_msgs/GeoPoint position
 float64 sog_kn                           # 对地速度（用于 CPA 计算）

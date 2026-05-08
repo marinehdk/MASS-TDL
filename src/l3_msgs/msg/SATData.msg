@@ -1,4 +1,5 @@
 # Per v1.1.2 §15.1 + §12.2 自适应触发策略
+string schema_version  # default: "v1.1.2"
 builtin_interfaces/Time stamp
 
 string source_module                     # 数据来源模块名
