@@ -804,6 +804,9 @@ M4 在以下事件时主动向 ASDR 发送 ASDR_RecordMsg：
 - **IvP 求解库**：
   - 首选：MOOS-IvP 原生库（Benjamin et al. 2010 开源）
   - 备选：lpsolve（线性规划）+ 自实现 piecewise linear 求解
+  
+  > **实现路径待定**：libIvP 许可证（GPL-3.0 vs LGPL-3.0）已经 RFC-009 法务-hat 实证（2026-05-08）；最终实现路径（直接引入 / 自实现 / RRT*-CBF 替代）于 **2026-05-12 PM** 法务-hat sign-off 后确定。参见 `docs/Design/Cross-Team Alignment/RFC-009-IvP-Implementation-Path.md` §4–5。
+  
 - **时间精度**：10 ms（相对于 500 ms 周期，足够）
 - **浮点精度**：float32（单精度，足够；若需 double，需 HAZID 风险评估）
 
@@ -892,6 +895,7 @@ M4（Doer）与潜在的 L4 Checker（如果有）不得共享：
 | 版本 | 日期 | 修订人 | 变更摘要 |
 |---|---|---|---|
 | v1.0 | 2026-05-05 | Claude (Agent) | 初稿完成：12 章节齐全，行为字典 6 个，IvP 算法伪代码，3 个 HIL 场景，权重表含 [HAZID 校准] 标注 |
+| v1.0-patch1 | 2026-05-08 | Claude (Agent) | MUST-3（RFC-009）：§10.1 增 RFC-009 引用注记；IvP 库实现路径待 2026-05-12 法务-hat sign-off 确定 |
 
 ---
 
