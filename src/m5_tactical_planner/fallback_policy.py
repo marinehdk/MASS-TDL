@@ -71,5 +71,5 @@ def fm2_handle_collision_imminent() -> SafetyConcernEvent:
     """
     return SafetyConcernEvent(
         event_type="safety_concern_event",
-        reason="FM-2: collision_imminent — M7 to initiate MRM-01",
+        reason="FM-2: collision_imminent — deferred to M7 Checker for MRM decision",
     )
