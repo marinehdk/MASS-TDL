@@ -2,6 +2,7 @@
 """Decode AIVDM/AIVDO sentences to AISRecord dataclass using pyais."""
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Generator
 
@@ -29,7 +30,8 @@ def decode_file(filepath: str) -> Generator[AISRecord, None, None]:
     for msg in FileReaderStream(filepath):
         try:
             decoded = msg.decode()
-        except Exception:
+        except Exception as e:
+            warnings.warn(f"AIS decode failed: {e}", stacklevel=2)
             continue
 
         if decoded.msg_type not in _POSITION_TYPES:

@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <string>
 
 namespace fcb_sim {
 
@@ -131,6 +133,10 @@ FcbState compute_derivatives(const FcbState& s,
   const double rhs1 = Y - (mass + m_x) * s.u * s.r;
   const double rhs2 = N - mass * p.x_G * s.u * s.r;
   const double det = a11 * a22 - a12 * a21;
+  if (std::abs(det) < 1e-6) {
+    throw std::runtime_error("MMG inertia matrix near-singular (det=" + std::to_string(det) +
+                             "); check x_G in YAML");
+  }
   const double v_dot = (a22 * rhs1 - a12 * rhs2) / det;
   const double r_dot = (-a21 * rhs1 + a11 * rhs2) / det;
 

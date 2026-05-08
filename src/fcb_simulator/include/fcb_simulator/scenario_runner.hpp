@@ -3,6 +3,7 @@
 #pragma once
 #include <vector>
 #include "ship_sim_interfaces/ship_state.hpp"
+#include "fcb_simulator/types.hpp"
 
 namespace fcb_sim {
 
@@ -23,6 +24,13 @@ struct ScenarioResult {
   std::vector<double> psi_deg;
 };
 
+// Uses YAML-loaded MmgParams (preferred for D1.3.1 qualification).
+ScenarioResult run_scenario(ManeuverType type,
+                            const ship_sim::ShipState& initial,
+                            const MmgParams& params,
+                            double dt = 0.02);
+
+// Uses default MmgParams (HAZID-UNVERIFIED RUN-001 values only; for smoke tests).
 ScenarioResult run_scenario(ManeuverType type,
                             const ship_sim::ShipState& initial,
                             double dt = 0.02);

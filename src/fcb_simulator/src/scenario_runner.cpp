@@ -26,9 +26,9 @@ double wrap_180(double deg) {
 
 }  // namespace
 
-ScenarioResult run_scenario(ManeuverType type, const ship_sim::ShipState& initial, double dt) {
+ScenarioResult run_scenario(ManeuverType type, const ship_sim::ShipState& initial,
+                            const MmgParams& p, double dt) {
   ScenarioResult res;
-  MmgParams p;
   FcbState s = from_ship_state(initial);
 
   switch (type) {
@@ -99,6 +99,10 @@ ScenarioResult run_scenario(ManeuverType type, const ship_sim::ShipState& initia
     }
   }
   return res;
+}
+
+ScenarioResult run_scenario(ManeuverType type, const ship_sim::ShipState& initial, double dt) {
+  return run_scenario(type, initial, MmgParams{}, dt);
 }
 
 }  // namespace fcb_sim

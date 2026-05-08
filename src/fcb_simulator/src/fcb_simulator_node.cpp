@@ -138,9 +138,13 @@ void FcbSimulatorNode::compute_control(double& delta_rad,
   std::lock_guard<std::mutex> lk(cmd_mutex_);
   double psi_tgt = psi_target_rad_;
   double u_tgt   = u_target_mps_;
-  if (override_active_ && now() < override_expires_) {
-    psi_tgt = override_psi_rad_;
-    u_tgt   = override_u_mps_;
+  if (override_active_) {
+    if (now() < override_expires_) {
+      psi_tgt = override_psi_rad_;
+      u_tgt   = override_u_mps_;
+    } else {
+      override_active_ = false;
+    }
   }
 
   // Simple proportional autopilot: heading error → rudder.
