@@ -1,0 +1,6 @@
+D1.2 Task-E — docker build verification
+Date: Fri May  8 16:02:24 CST 2026
+
+Dockerfile.ci: exit 0, digest sha256:5eafc4e2306e693ee0c0004575f1abef0efbf75b22eb670317a0a0a64dcc6275
+Dockerfile.dev: exit 0, digest sha256:9a803e5a749b5772aea531609753c0ff6eb95d4448ef04ffb0f45df24b6be6cb
+Digest determinism: PASS (second build matches first)
