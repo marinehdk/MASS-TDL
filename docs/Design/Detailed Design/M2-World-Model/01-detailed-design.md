@@ -382,7 +382,7 @@ flowchart TD
     
     C{"bearing_to_target\n相对于 own_heading?"}
     
-    D1["艉 (225°-337.5°)\n即 bearing ∈ [sw, nw]"]
+    D1["艉 (112.5°-247.5°)\n即 bearing ∈ [port_aft, stbd_aft]"]
     D2["首 (022.5°-157.5°)\n即 bearing ∈ [ne, se]"]
     D3["舷 (其他)"]
     
@@ -397,7 +397,7 @@ flowchart TD
     R4["SAFE_PASS\n(极小相对速度\nCPA > threshold)"]
     
     A --> B --> C
-    C -->|"bearing ∈ [225°, 337.5°]"| D1 --> E1 --> F1
+    C -->|"bearing ∈ [112.5°, 247.5°]"| D1 --> E1 --> F1
     C -->|"bearing ∈ [22.5°, 157.5°]"| D2 --> E1
     C -->|其他| D3
     
@@ -414,10 +414,15 @@ flowchart TD
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| **bearing_艉区间** | [225°, 337.5°] | 相对船尾 ±112.5°（Rule 13） |
+| **bearing_艉区间** | [112.5°, 247.5°] | 相对船尾 ±67.5° abaft the beam（Rule 13） |
 | **bearing_首区间** | [22.5°, 157.5°] | 相对船首 ±67.5° |
 | **heading_diff_对遇容差** | ±6° | 对遇 Rule 14 的航向接近度容差 [HAZID 校准] |
 | **relative_speed_阈值** | 0.2 m/s | 低于此值判为 SAFE_PASS（不需避让） [HAZID 校准] |
+
+**OVERTAKING 扇区边界点**（COLREGs Rule 13 精确定义）：
+- **112.5°** — CROSSING_GIVE_WAY / OVERTAKING 分界（包含于 OVERTAKING，±0.1° 容差）
+- **180°** — OVERTAKING 中心（正艉方向）
+- **247.5°** — OVERTAKING / CROSSING_STAND_ON 分界（包含于 OVERTAKING，±0.1° 容差）
 
 **伪代码**：
 
@@ -430,7 +435,7 @@ def classify_colreg_role(own_heading, own_sog, target_heading, target_sog, beari
     """
     
     # 1. 艉扇区判定
-    if bearing_deg in [225, 337.5]:  # 容差 ±2° 内
+    if 112.5 <= bearing_deg <= 247.5:  # 容差 ±2° 内
         role = OVERTAKING
         confidence = 0.95
         return role, confidence
@@ -542,7 +547,7 @@ flowchart LR
 | **CPA_safe(ODD)** | ODD-A: 1.0 nm; ODD-B: 0.3 nm; ODD-D: 1.5 nm | ODD 变化时切换 | 安全通过的最小 CPA [R17] | [HAZID 校准] — 结合 FCB 船型操纵性 + COLREGs Rule 8 工程实践 |
 | **TCPA_safe(ODD)** | ODD-A: 12 min; ODD-B: 4 min; ODD-D: 10 min | ODD 变化时切换 | 最晚行动时刻的预留时间 [R17] | [HAZID 校准] |
 | **heading_diff_容差** | ±6° | 固定 | 对遇判定的航向接近度 (Rule 14) | IMO COLREGs 1972 Rule 14 定义 [R18] |
-| **bearing_艉区间** | [225°, 337.5°] | 固定 | OVERTAKING 扇区（Rule 13） | IMO COLREGs 1972 Rule 13 定义 [R18] |
+| **bearing_艉区间** | [112.5°, 247.5°] | 固定 | OVERTAKING 扇区（Rule 13 — more than 22.5° abaft the beam） | IMO COLREGs 1972 Rule 13 定义 [R18] |
 | **relative_speed_阈值** | 0.2 m/s | 固定 | SAFE_PASS 判定的相对速度下限 | [HAZID 校准] |
 | **CPA 不确定度处理** | 1-σ + 10% 安全系数 | ODD-D 时 ×1.5 | 蒙特卡洛 100 采样或闭形式 | 工程保守 |
 | **目标消失等待周期** | 10 周期（2.5 秒 @ 4 Hz） | 可调 | 目标失踪后 N 个输出周期才完全移除缓存 | 防止 Fusion 短暂噪声导致目标闪烁 |
@@ -1013,6 +1018,7 @@ print(f"CPA: {cpa/1852} nm, TCPA: {t_cpa} s")  # 转换为海里
 | 版本 | 日期 | 修订人 | 变更摘要 |
 |---|---|---|---|
 | v1.0 | 2026-05-05 | Claude (Agent) | 初稿：12 章节完整，基于 v1.1.1 架构，含算法伪代码、参数表、HIL 场景 |
+| v1.0-patch1 | 2026-05-11 | Claude (MUST-1) | 修正：§5.1.3 OVERTAKING 扇区 [225°,337.5°]→[112.5°,247.5°] (COLREGs Rule 13) |
 
 ---
 
