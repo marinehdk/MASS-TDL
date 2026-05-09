@@ -8,7 +8,7 @@ from __future__ import annotations
 import rclpy
 import rclpy.node
 
-from l3_msgs.msg import ODDState, SAT1Data, SAT2Data, SAT3Data, SATData
+from l3_msgs.msg import ODDState, SAT1Data, SAT2Data, SAT3Data, SATData  # rl-isolation-ok: SIL mock receives kernel outputs for stub publishing
 
 
 class SilMockNode(rclpy.node.Node):

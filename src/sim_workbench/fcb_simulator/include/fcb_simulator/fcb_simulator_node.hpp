@@ -11,10 +11,10 @@
 
 #include "ship_sim_interfaces/ship_motion_simulator.hpp"
 #include "fcb_simulator/types.hpp"   // SimConfig only
-#include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
-#include "l3_external_msgs/msg/tracked_target_array.hpp"
-#include "l3_msgs/msg/avoidance_plan.hpp"
-#include "l3_msgs/msg/reactive_override_cmd.hpp"
+#include "l3_external_msgs/msg/filtered_own_ship_state.hpp"  // rl-isolation-ok: FCB simulator receives kernel-level state inputs
+#include "l3_external_msgs/msg/tracked_target_array.hpp"     // rl-isolation-ok: FCB simulator receives kernel-level environment inputs
+#include "l3_msgs/msg/avoidance_plan.hpp"                    // rl-isolation-ok: FCB simulator inputs kernel-level output commands
+#include "l3_msgs/msg/reactive_override_cmd.hpp"             // rl-isolation-ok: FCB simulator inputs kernel-level output commands
 
 namespace fcb_sim {
 

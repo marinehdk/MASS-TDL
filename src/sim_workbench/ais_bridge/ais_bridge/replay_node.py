@@ -38,7 +38,7 @@ class AISReplayNode(Node):
         self._window_size = max(1, min(max_tgts * 10, len(self._records) // 100 or 1))
 
         timer_period = 1.0 / (pub_hz * max(0.1, rate_x))
-        from l3_external_msgs.msg import TrackedTargetArray
+        from l3_external_msgs.msg import TrackedTargetArray  # rl-isolation-ok: AIS bridge outputs kernel-level tracked targets
         self._pub = self.create_publisher(TrackedTargetArray, '/fusion/tracked_targets', 10)
         self._timer = self.create_timer(timer_period, self._publish_callback)
 
