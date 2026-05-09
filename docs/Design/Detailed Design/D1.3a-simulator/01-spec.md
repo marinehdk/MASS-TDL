@@ -510,3 +510,497 @@ T6 + T7 + T13 + T15 ──→ T15 (集成 launch) ──→ T16 (finding 关闭)
 | multi_vessel_lint 仅扫描 `*.py` | 仓库 `.gitlab-ci.yml` 第 122 行 | 🟢 High |
 | FCB 停船距离 250–350m | D0 deep research synthesis + RUN-001 memo | ⚫ HAZID-UNVERIFIED |
 | semi-planing hull Fn=0.45–0.63 需速度相关系数 | NLM ship_maneuvering (high confidence) | 🟢 High |
+
+---
+
+## v3.1 补丁（2026-05-09 起，5/31 EOD 闭口）
+
+> **范围声明**：本章在 §1–§15 原版 D1.3a（已闭 2026-05-08）之上叠加三项 NEW DoD —— (a) RL 隔离 L1 仓库目录拆分，(b) `ShipMotionSimulator::export_fmu_interface()` 抽象方法签名，(c) CI `rl_isolation_lint` job + 演示。原版 §1–§15 字面不动，原版 DoD 全部保持 ✅ 不得回归。
+>
+> **决策依据**：
+> - 计划主文件 `gantt/MASS_ADAS_L3_8个月完整开发计划.md` v3.1 §0.4（13 项决策中第 1、3 项）+ §3 D1.3a v3.1 修订 Scope/DoD（行 252、322-325）
+> - SIL 决策记录 `docs/Design/SIL/00-architecture-revision-decisions-2026-05-09.md` §1（选项 D 混合架构）+ §4（RL 隔离三层强制边界）
+> - 架构报告 v1.1.3-pre-stub 附录 F.2（FmuPlugin 导出契约说明，行 2122-2145）+ F.4（L1/L2/L3 三层 RL 隔离表，行 2156-2167）
+> - 深度调研 `docs/Doc From Claude/SIL Framework Architecture for L3 Tactical Decision Layer (TDL) COLAV — CCS-Targeted Engineering Recommendation.md` L4/L33/L67/L209（MMG 抽象 + ship_dynamics 节点 topic 拓扑 + pythonfmu/mlfmu 工具链）
+> - 深度调研 `docs/Doc From Claude/SIL Simulation Architecture for Maritime Autonomous COLAV Targeting CCS Certification.md` L3/L4/L91-93（disturbance schema：wind dir/speed + current dir/speed）
+> - PyGemini (Vasstein 2025, arXiv:2506.06262) §Configuration-Driven Development 隔离 precedent；DNV-RP-0671 (2024) AI-enabled systems assurance；DNV-RP-0510 data-driven algorithms
+
+---
+
+### v3.1.1 包归属审计（grep 证据落地）
+
+**证据 A — M1-M8 内核包对 `ship_sim_interfaces` / `fcb_simulator` 的依赖审计**：
+
+```bash
+$ grep -rn "ship_sim_interfaces\|fcb_simulator" \
+    src/m1_odd_envelope_manager src/m2_world_model src/m3_mission_manager \
+    src/m4_behavior_arbiter   src/m5_tactical_planner src/m6_colregs_reasoner \
+    src/m7_safety_supervisor  src/m8_hmi_bridge       src/m8_hmi_transparency_bridge \
+    --include='*.hpp' --include='*.cpp' --include='*.py' \
+    --include='package.xml' --include='CMakeLists.txt'
+# 输出为空 → M1-M8 内核包零依赖 sim 工具包
+```
+
+**证据 B — `ship_sim_interfaces` 唯一消费者**：
+
+```bash
+$ grep -rn "ship_sim_interfaces" src/ --include='*.hpp' --include='*.cpp' \
+    --include='package.xml' --include='CMakeLists.txt'
+# 命中：仅 ship_sim_interfaces/* 自身 + fcb_simulator/* 共 11 行
+```
+
+→ **结论**：`ship_sim_interfaces` 归 sim_workbench/ 安全；M1-M8 与 sim 工具完全解耦。
+
+**包归属定案表**：
+
+| 包 | 归属 | rationale |
+|---|---|---|
+| `m1_odd_envelope_manager` | `l3_tdl_kernel/` | M1 内核节点 |
+| `m2_world_model` | `l3_tdl_kernel/` | M2 内核节点 |
+| `m3_mission_manager` | `l3_tdl_kernel/` | M3 内核节点 |
+| `m4_behavior_arbiter` | `l3_tdl_kernel/` | M4 内核（⚠️ 当前缺 `package.xml` —— v3.1 补丁不补，标 P-1 follow-up，由 D3.1 关闭；本补丁内仅 `git mv` 整目录，不创建 package.xml） |
+| `m5_tactical_planner` | `l3_tdl_kernel/` | M5 内核节点 |
+| `m6_colregs_reasoner` | `l3_tdl_kernel/` | M6 内核节点 |
+| `m7_safety_supervisor` | `l3_tdl_kernel/` | M7 Checker（PATH-S 独立性约束随路径迁移，见 §v3.1.6） |
+| `m8_hmi_transparency_bridge` | `l3_tdl_kernel/` | M8 内核（含 `python/web_server/`，整体随包归 kernel —— web_server/ 内零 sim/rl import，无须 allowlist 例外） |
+| `m8_hmi_bridge` | **删除** | 空目录脚手架，本补丁 P-2 follow-up `git rm`（不阻塞 v3.1 主线） |
+| `l3_msgs` | `l3_tdl_kernel/` | 内核 msg 契约 |
+| `l3_external_msgs` | `l3_tdl_kernel/` | 内核接口 msg |
+| `common` | `l3_tdl_kernel/` | 内核公共库 |
+| `ship_sim_interfaces` | `sim_workbench/` | 证据 A/B：内核零依赖 |
+| `fcb_simulator` | `sim_workbench/` | sim 驱动 + pluginlib 加载器宿主 |
+| `sil_mock_publisher` | `sim_workbench/` | SIL mock |
+| `l3_external_mock_publisher` | `sim_workbench/` | sim mock（命名带 l3_external，仅供 SIL 注入用，非 production） |
+| `ais_bridge` | `sim_workbench/` | AIS 历史回放数据管道（sim 工具） |
+| `rl_workbench/` 占位 | `rl_workbench/` | `.gitkeep` + `README.md` Phase 4 启动；目前禁止任何代码 |
+
+---
+
+### v3.1.2 方案决策：A（物理移动）vs B（声明式边界）
+
+**决策**：方案 A —— 物理子目录 `git mv` 移动。
+
+**Rationale（证据指向 v3.1 DoD 原文）**：
+1. 计划 §0.4 行 92 措辞「**三 colcon 包独立**；CI lint 检测 cross-import 即报错」—— "包独立"在 colcon 语义即"独立 src 子树"，方案 B 仅按文件路径黑白名单 lint 而包仍在同一 `src/` 扁平层，与"包独立"字面不匹配。
+2. SIL 决策 §4.1 表头使用 `/src/l3_tdl_kernel/**` `/src/sim_workbench/**` `/src/rl_workbench/**` 三 glob 路径，强暗示物理子目录拓扑。
+3. 架构 F.4 行 2162 同上路径 glob。
+4. PyGemini (arXiv:2506.06262) §Configuration-Driven Development 工业先例 + NTNU SFI-AutoShip `colav-simulator` 仓库结构均采用物理子目录拆分作为 RL 隔离 L1 落地手段。
+5. CI lint 实现：路径前缀 grep 比白名单维护朴素一个数量级，误报路径明确（`grep -rEn '...' src/sim_workbench src/rl_workbench` vs B 方案需维护跨包 file glob 清单）。
+6. DEMO-1 演示价值：`tree src/ -L 2` 三组目录直观可见，是方案 A 独有；方案 B 演示需打开 OWNERS 文件解释规则，不直观。
+
+**方案 A 代价（已识别且可控）**：约 14 个 `git mv` 一次性操作 + 4 个 CI/test 配置文件路径修订（详见 §v3.1.6）。`git mv` 保留历史血缘；colcon/cmake/ament 按包名解析，不依赖路径。
+
+**方案 B 否决理由**：DoD「独立 colcon 包」字面不达成；DEMO-1 无可视边界；lint 须维护清单（包加进来时易漏，长期维护成本高）。
+
+---
+
+### v3.1.3 目录目标拓扑
+
+```
+src/
+├── l3_tdl_kernel/                         # frozen, DNV-RP-0513 assured, MISRA C++:2023
+│   ├── m1_odd_envelope_manager/
+│   ├── m2_world_model/
+│   ├── m3_mission_manager/
+│   ├── m4_behavior_arbiter/                # ⚠️ 当前缺 package.xml（P-1 follow-up）
+│   ├── m5_tactical_planner/
+│   ├── m6_colregs_reasoner/
+│   ├── m7_safety_supervisor/
+│   ├── m8_hmi_transparency_bridge/         # 含 python/web_server/，整体在 kernel
+│   ├── l3_msgs/
+│   ├── l3_external_msgs/
+│   └── common/
+├── sim_workbench/                          # Python sim 工具 / D1.3a-b 共用
+│   ├── ship_sim_interfaces/                # FMI 导出契约持有方
+│   ├── fcb_simulator/                      # FCBPlugin (C++ MMG) + pluginlib host
+│   ├── sil_mock_publisher/
+│   ├── l3_external_mock_publisher/
+│   └── ais_bridge/
+└── rl_workbench/                           # Phase 4 启动（10–12 月）；目前 .gitkeep + README
+    ├── .gitkeep
+    └── README.md
+```
+
+---
+
+### v3.1.4 `ShipMotionSimulator::export_fmu_interface()` 签名（S1）
+
+**位置**：`src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp`（移动后路径）。
+
+**新增类型 + 纯虚方法**：
+
+```cpp
+#include <vector>
+#include <string>
+
+namespace ship_sim {
+
+struct FmuVariableSpec {
+  std::string name;        // FMI variable name (C identifier-safe)
+  std::string causality;   // "input" | "output" | "parameter" | "local"
+  std::string variability; // "continuous" | "discrete" | "fixed" | "tunable"
+  std::string type;        // "Real" | "Integer" | "Boolean" | "String"
+  std::string unit;        // "m/s", "rad", "rad/s", "1" (dimensionless)
+  double      start;       // initial value (Real); cast for Integer/Boolean
+  std::string description; // human-readable, ≤120 chars
+};
+
+struct FmuInterfaceSpec {
+  std::string fmi_version;       // hard-coded "2.0"
+  std::string model_name;        // e.g. "FCBShipDynamics"
+  std::string model_identifier;  // C identifier; matches model_name w/o spaces
+  double      default_step_size; // seconds; FCB = 0.02 (RK4 step)
+  std::vector<FmuVariableSpec> variables;
+};
+
+class ShipMotionSimulator {
+ public:
+  virtual ~ShipMotionSimulator() = default;
+  virtual void load_params(const std::string& yaml_path) = 0;
+  virtual ShipState step(const ShipState& state, double delta_rad,
+                         double n_rps, double dt_s) = 0;
+  virtual std::string vessel_class() const = 0;
+  virtual std::string hull_class()   const = 0;
+  // v3.1 NEW: FMI 2.0 export contract — D1.3c consumes via dds-fmu mapping XML.
+  // Phase 1 contract-only; D1.3c (Phase 1/2 边界) implements pythonfmu/mlfmu wrap
+  // through pybind11 bindings into this C++ class; this method enumerates the
+  // FMU's variables for modelDescription.xml + dds-fmu mapping generation.
+  virtual FmuInterfaceSpec export_fmu_interface() const = 0;
+};
+
+}  // namespace ship_sim
+```
+
+**FCBSimulator stub 实装**（`src/sim_workbench/fcb_simulator/src/fcb_simulator_plugin.cpp`，新增方法）：
+
+```cpp
+ship_sim::FmuInterfaceSpec FCBSimulator::export_fmu_interface() const {
+  return {
+    "2.0",
+    "FCBShipDynamics",
+    "FCBShipDynamics",
+    0.02,
+    {
+      // ── outputs (own-ship state, 11) ─────────────────────────
+      {"u",     "output", "continuous", "Real", "m/s",   0.0, "surge velocity (body frame)"},
+      {"v",     "output", "continuous", "Real", "m/s",   0.0, "sway velocity (body frame)"},
+      {"r",     "output", "continuous", "Real", "rad/s", 0.0, "yaw rate"},
+      {"x",     "output", "continuous", "Real", "m",     0.0, "position x (NED)"},
+      {"y",     "output", "continuous", "Real", "m",     0.0, "position y (NED)"},
+      {"psi",   "output", "continuous", "Real", "rad",   0.0, "heading"},
+      {"phi",   "output", "continuous", "Real", "rad",   0.0, "roll angle"},
+      {"p",     "output", "continuous", "Real", "rad/s", 0.0, "roll rate"},
+      {"delta", "output", "continuous", "Real", "rad",   0.0, "actual rudder angle"},
+      {"n",     "output", "continuous", "Real", "rev/s", 0.0, "actual propeller rps"},
+      {"sog",   "output", "continuous", "Real", "m/s",   0.0, "speed over ground"},
+
+      // ── control inputs (commands from L4/L5, 2) ──────────────
+      {"delta_cmd", "input", "continuous", "Real", "rad",   0.0, "commanded rudder angle"},
+      {"n_rps_cmd", "input", "continuous", "Real", "rev/s", 0.0, "commanded propeller rps"},
+
+      // ── disturbance inputs (from /disturbance/* topic, 4) ────
+      // Source: SIL Recommendation L91-93 disturbance YAML schema
+      {"wind_dir_deg",     "input", "continuous", "Real", "deg", 0.0, "true wind direction (from)"},
+      {"wind_speed_mps",   "input", "continuous", "Real", "m/s", 0.0, "true wind speed"},
+      {"current_dir_deg",  "input", "continuous", "Real", "deg", 0.0, "current set direction (towards)"},
+      {"current_speed_mps","input", "continuous", "Real", "m/s", 0.0, "current speed"},
+
+      // ── parameters (FCB hydro static, minimum exposed set, 5) ─
+      {"L",   "parameter", "fixed", "Real", "m",     45.0,    "ship length"},
+      {"B",   "parameter", "fixed", "Real", "m",      8.5,    "beam"},
+      {"d",   "parameter", "fixed", "Real", "m",      2.5,    "draft"},
+      {"m",   "parameter", "fixed", "Real", "kg",     3.5e5,  "mass"},
+      {"Izz", "parameter", "fixed", "Real", "kg.m2",  5.0e7,  "yaw inertia"},
+    }
+  };
+}
+```
+
+**变量计数**：11 outputs + 2 control inputs + 4 disturbance inputs + 5 parameters = **22 variables**（FCB 4-DOF baseline；6-DOF planing extension Phase 2 D1.3a TODO 增 q/theta 自由度时再扩，目前 phi/p 已含覆盖 roll 维）。
+
+**D1.3c 消费路径（合约写入，下游 owner 须签字）**：
+1. D1.3c 编薄 Python 适配类 `FCBShipDynamicsFmu`，pybind11（`pybind11/pybind11.h` + `pybind11_add_module`）调 C++ `FCBSimulator::step()`——满足架构 F.2 行 2145「同 FCBPlugin 实例三种调用，**不 fork 模型**」。
+2. D1.3c 起 build 流程：写 `tools/d1_3c/emit_fmu_modeldescription.cpp` 小 CLI，链接 FCBSimulator，序列化 `export_fmu_interface()` 返回值为 modelDescription.xml + dds-fmu mapping XML。
+3. dds-fmu mapping：每个 `causality=="input"` 变量 ↔ 一个 ROS2 subscriber topic（如 `wind_dir_deg` ↔ `/disturbance/wind/dir_deg`）；每个 `causality=="output"` 变量 ↔ 一个 publisher topic（如 `u` ↔ `/own_ship/u` 或聚合到 `/own_ship/state` 复合 message）。
+4. **新 vessel plugin（如 RUN-002 拖船）实装此方法工作量**：仅填变量清单（无业务逻辑），估 0.5 人日（4h）。
+
+**Phase 1 不交付**：FMU 二进制 / dds-fmu mapping XML 实文件 / pythonfmu wrapper —— 全部留 D1.3c。Phase 1 仅锁 C++ 接口签名 + FCBSimulator stub 编译通过。
+
+---
+
+### v3.1.5 CI `rl_isolation_lint`：脚本 + grep 模式 + allowlist
+
+**新文件**：`tools/ci/check-rl-isolation.sh`（独立脚本，与 `check-doer-checker-independence.sh` **并列不扩展**——关注点不同，演化独立）。
+
+**检测语义**：跨组 import / include = violation，**双向同禁**（kernel 不许引 sim/rl，sim/rl 不许引 kernel；sim ↔ rl 同样禁）。
+
+**Python import 检测**（精确模式）：
+
+```bash
+# kernel-from-sim/rl violations
+grep -rEn '^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)([[:space:]]|\.|$)' \
+     src/sim_workbench src/rl_workbench --include='*.py' \
+| grep -v '# rl-isolation-ok:'
+
+# sim/rl-from-kernel violations
+grep -rEn '^[[:space:]]*(from|import)[[:space:]]+(sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)([[:space:]]|\.|$)' \
+     src/l3_tdl_kernel --include='*.py' \
+| grep -v '# rl-isolation-ok:'
+```
+
+**C++ #include 检测**：
+
+```bash
+# kernel-header-from-sim/rl violations
+grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)/' \
+     src/sim_workbench src/rl_workbench \
+     --include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc' \
+| grep -v '// rl-isolation-ok:'
+
+# sim/rl-header-from-kernel violations
+grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)/' \
+     src/l3_tdl_kernel \
+     --include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc' \
+| grep -v '// rl-isolation-ok:'
+```
+
+**False-positive 抑制**：
+- 行首锚 `^[[:space:]]*` → 注释/字符串字面量内的 `# 这里 import m1_...` 不命中（`#` 在 `from/import` 之前已破前缀模式）。
+- Python 后缀 `[[:space:]]|\.|$` → 杜绝匹配 `m1_xxxxxx_var`（变量名相似前缀）。
+- C++ 包名后必须接 `/`（包内子路径）→ 注释里 `// see m1_odd` 不命中。
+- allowlist 同行注释 `# rl-isolation-ok: <reason>` / `// rl-isolation-ok: <reason>`，post-grep `grep -v` 滤掉。每条 allowlist 必须有 `<reason>` 字符串（非空）；脚本第二步扫 allowlist 注释格式合规性。
+
+**脚本骨架**（完整实现见 D1.3a 02-plan.md v3.1 task T8）：
+
+```bash
+#!/usr/bin/env bash
+# tools/ci/check-rl-isolation.sh
+# RL Isolation L1 Repo Boundary Check (per architecture v1.1.3-pre-stub §F.4)
+# Verifies cross-group imports/includes between l3_tdl_kernel/, sim_workbench/, rl_workbench/.
+# Allowlist: same-line comment "# rl-isolation-ok: <reason>" / "// rl-isolation-ok: <reason>"
+
+set -euo pipefail
+errors=0
+
+scan_python_kernel_imports_in_sim_rl() { ... }
+scan_python_sim_rl_imports_in_kernel() { ... }
+scan_cpp_kernel_includes_in_sim_rl()   { ... }
+scan_cpp_sim_rl_includes_in_kernel()   { ... }
+
+# (4 grep invocations as documented above; each piped through `| grep -v rl-isolation-ok`)
+
+if [[ $errors -gt 0 ]]; then
+    echo "FAIL: ${errors} RL-isolation violation(s) detected." >&2
+    echo "      Architecture v1.1.3-pre-stub §F.4 requires three-group separation." >&2
+    echo "      If a cross-group reference is intentional, add same-line marker:" >&2
+    echo "         '# rl-isolation-ok: <non-empty reason>' (Python)" >&2
+    echo "         '// rl-isolation-ok: <non-empty reason>' (C++)" >&2
+    exit 1
+fi
+
+echo "PASS: RL-isolation check clean (kernel × sim_workbench × rl_workbench)."
+exit 0
+```
+
+**`.gitlab-ci.yml` 追加 job**（在 `stage: lint` 内，与 `multi_vessel_lint` 并列，**不改任何已有 job**）：
+
+```yaml
+rl_isolation_lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - bash tools/ci/check-rl-isolation.sh
+  allow_failure: false   # blocking — per v3.1 DoD
+```
+
+**单元测试**：`tools/ci/tests/test-rl-isolation.sh`（新增）：
+- TC-1：clean tree → `bash check-rl-isolation.sh` exit 0 + stdout `PASS:`
+- TC-2：临时往 `src/sim_workbench/fcb_simulator/src/fixture_violation.cpp` 写 `#include "m7_safety_supervisor/safety_supervisor.hpp"` → exit 1 + stderr 含 `VIOLATION`
+- TC-3：上一文件改加同行 allowlist `// rl-isolation-ok: deliberate fixture for unit test` → exit 0
+- TC-4：Python 同样三组（fixture file 在 sim_workbench 下临时 import m1_）
+- TC-5：反向（kernel 中 import sim 包）触发，验证双向检测
+- 每 TC 运行后清理 fixture，最终树状态不变。
+- 该 test 脚本本身不入 CI（避免污染主 lint）；本地 `bash tools/ci/tests/test-rl-isolation.sh` 手工跑，PR 描述附运行日志。
+
+---
+
+### v3.1.6 路径变更清单（一次性）
+
+| 文件 | 变更 | 理由 |
+|---|---|---|
+| `pytest.ini` | `pythonpath = src/l3_tdl_kernel src/l3_tdl_kernel/m8_hmi_transparency_bridge/python src/sim_workbench` | 包目录下沉一层 |
+| `tools/docker/Dockerfile.ci` | `COPY src/ /workspace/src/` 不变 | 整树拷贝，递归透明 |
+| `.gitlab-ci.yml` `detect-changes` job | `awk -F/ '/^src\//{print $2}'` → `awk -F/ '/^src\//{print $2"/"$3}'` | 提取 `<group>/<pkg>` |
+| `.gitlab-ci.yml` `stage-1-lint` ruff/mypy 路径 | `src/m2_world_model/python` → `src/l3_tdl_kernel/m2_world_model/python`；`src/m8_hmi_transparency_bridge/python` 同改；`tools/` 不变；`src/ais_bridge/*.py`（multi_vessel_lint）→ `src/sim_workbench/ais_bridge/*.py` | 硬编码路径修订 |
+| `.gitlab-ci.yml` `stage-2-unit-test` matrix | 包名列表不变（colcon 按包名解析） | colcon 递归发现 |
+| `tools/ci/check-doer-checker-independence.sh` | `M7_SRC="src/m7_safety_supervisor"` → `src/l3_tdl_kernel/m7_safety_supervisor` | PATH-S 路径迁移 |
+| `tools/ci/check-rl-isolation.sh` | **NEW** 文件 | v3.1 NEW |
+| `.gitlab-ci.yml` `rl_isolation_lint` job | **NEW** job，stage: lint | v3.1 NEW |
+| `src/rl_workbench/.gitkeep` | **NEW** 文件 | Phase 4 占位 |
+| `src/rl_workbench/README.md` | **NEW**：说明三层隔离规则 + Phase 4 启动条件 | Phase 4 占位 + 文档警示 |
+| 各 `package.xml` / `CMakeLists.txt` | **不动** | colcon 按包名解析，路径变化对 ament 透明 |
+
+**git mv 操作清单**（验证 `git status` 显示 R 重命名而非 D+A，保留历史血缘）：
+```
+mkdir -p src/l3_tdl_kernel src/sim_workbench src/rl_workbench
+git mv src/{m1_odd_envelope_manager,m2_world_model,m3_mission_manager,m4_behavior_arbiter,m5_tactical_planner,m6_colregs_reasoner,m7_safety_supervisor,m8_hmi_transparency_bridge,l3_msgs,l3_external_msgs,common} src/l3_tdl_kernel/
+git mv src/{ship_sim_interfaces,fcb_simulator,sil_mock_publisher,l3_external_mock_publisher,ais_bridge} src/sim_workbench/
+git rm -r src/m8_hmi_bridge   # 空目录脚手架，P-2 follow-up 同步关闭
+touch src/rl_workbench/.gitkeep
+```
+
+---
+
+### v3.1.7 Task 拆分（每 task ≤ 4h；本补丁 ~1.5 人周追加 = ~7.5 人日）
+
+| # | Task | 时长 | 前置 | Acceptance Criteria |
+|---|---|---|---|---|
+| **T1** | 包归属审计落地（grep 证据 commit 到 spec） | 1h | — | spec §v3.1.1 grep 证据 + 定案表 commit；本 PR 评审者按 spec 表逐行核对无异议 |
+| **T2** | 创建子目录 + `git mv` 物理移动（per §v3.1.6 mv 清单） | 2h | T1 | `git status` 显示全部 R 重命名（保留历史）；`tree src/ -L 2` 显示三组子目录；`git rm src/m8_hmi_bridge` 同步执行 |
+| **T3** | colcon 本地回归 `colcon build`（如本机有 ROS2）+ 容器内 `docker run mass-l3/ci:jazzy ... colcon build --packages-up-to m7_safety_supervisor --packages-skip m4_behavior_arbiter` | 3h | T2 | 容器内 exit 0；`AMENT_PREFIX_PATH` / 链接库无路径硬编码报错 |
+| **T4** | `pytest.ini` + `Dockerfile.ci`（如需）+ `.gitlab-ci.yml` 路径更新 | 2h | T2 | `python3 -m pytest tests/ -q` 仍 39 passed（零回归）；`ruff check src/ tests/` 0 violations |
+| **T5** | `check-doer-checker-independence.sh` `M7_SRC` 路径修订 + 本地 `bash tools/ci/check-doer-checker-independence.sh` | 0.5h | T2 | 脚本退出码 0（含 M7 真路径） |
+| **T6** | `ShipMotionSimulator::export_fmu_interface()` 接口 + 类型声明 commit | 2h | T2 | header compile 通过；`grep -n export_fmu_interface src/sim_workbench/ship_sim_interfaces/include/.../ship_motion_simulator.hpp` 命中 |
+| **T7** | FCBSimulator stub 实装（22 变量清单）+ 单元测试 `test_fcb_export_fmu_interface.cpp` | 3h | T6 | `colcon test --packages-select fcb_simulator` 含新 test PASSED；测试断言 `variables.size()==22` + 类型/causality 取值合法 |
+| **T8** | `tools/ci/check-rl-isolation.sh` 新建 + 单元测试 `tools/ci/tests/test-rl-isolation.sh`（5 TC） | 4h | T2 | 5 TC 全 pass；clean tree 下 `bash check-rl-isolation.sh` exit 0 + stdout `PASS:` |
+| **T9** | `.gitlab-ci.yml` 追加 `rl_isolation_lint` job | 1h | T8 | YAML 语法校验通过；本地 `gitlab-ci-lint` 工具或 `yamllint .gitlab-ci.yml` 0 errors |
+| **T10** | `rl_workbench/` 占位（`.gitkeep` + README 含三层隔离规则原文） | 1h | — | 目录存在；README 引用架构 §F.4 表 + 计划 §0.4 决策 3 |
+| **T11** | 全量回归（pytest + ruff + mypy + colcon + doer-checker + rl-isolation） | 2h | T3-T10 | 全部 exit 0；CI Pipeline 一次过（feature branch 触发） |
+| **T12** | DEMO-1 cross-import 演示文件 + 操作脚本（仅本地 demo，不入 main） | 1h | T8 | demo 脚本可重现 exit 1 → 删行 → exit 0 ≤ 30s |
+| **T13** | spec §v3.1 更新（已闭项打 ✅）+ DoD 复核 + commit + PR 描述 | 1.5h | T1-T12 | spec 内 v3.1 DoD 全部 ✅；PR 描述附 5 条回归命令输出 |
+
+**总工时**：1+2+3+2+0.5+2+3+4+1+1+2+1+1.5 = **24h ≈ 3 人日**（含 T11 buffer）；剩余 ~4.5 人日用于 risk contingency（colcon 容器问题修复 / 路径拼写错误回滚 / D1.3c owner 签字往返）。
+
+---
+
+### v3.1.8 Owner-by-day 矩阵（5/12 → 5/31，~1.5 人周追加）
+
+> 用户为 solo 开发者扮所有角色（per memory `user_solo_multi_role.md`）。下表"role-hat"是用户切换的会话视角。
+
+| 日期 | role-hat | 预计 task | 备注 |
+|---|---|---|---|
+| 5/12 (Mon) | 技术负责人 | T1（审计 commit）+ T10（rl_workbench/ 占位） | 启动；不接触代码移动 |
+| 5/13 (Tue) | 技术负责人 | T2（git mv）+ T4（路径配置）+ T5（PATH-S 路径） | HAZID kickoff 同日；mv 在 HAZID 会前一小段做 |
+| 5/14 (Wed) | 技术负责人 | T3（colcon 容器回归）+ T11 partial（pytest/ruff 回归） | 若 T3 fail 进入 R-P1 contingency |
+| 5/15 (Thu) | 技术负责人 + V&V FTE 视角 | T6（接口签名）+ T7（FCBSimulator stub + 单元测试）| 同时 D1.3c owner 视角对签名签字 |
+| 5/16 (Fri) | 技术负责人 | T8（check-rl-isolation.sh + 5 TC）| |
+| 5/17-18 (Sat-Sun) | — | buffer / 私用 | |
+| 5/19 (Mon) | 技术负责人 | T9（CI job 追加）+ T11 full（全量回归）| feature branch CI 触发 |
+| 5/20 (Tue) | 技术负责人 | T12（demo 脚本）+ T13（spec 更新 + PR 描述） | |
+| 5/21-30 | — | risk contingency / D1.3c owner 反馈窗口 / DEMO-1 rehearsal 雏形 | |
+| 5/31 (Fri) | 技术负责人 | DoD 复核 + 标 v3.1 补丁 CLOSED | 5/31 EOD 闭口 |
+
+---
+
+### v3.1.9 依赖图
+
+```
+T1 (audit commit) ──→ T2 (git mv) ──┬─→ T3 (colcon container)
+                                    ├─→ T4 (paths)
+                                    ├─→ T5 (PATH-S)
+                                    └─→ T6 (interface) ──→ T7 (stub + UT)
+                       T8 (lint script + UT) ──→ T9 (CI job) ──→ T11 (full regression) ──→ T12 (demo) ──→ T13 (spec close)
+T10 (rl_workbench placeholder) ─────────────────────────────────────────────────────────────↑
+
+(D1.3c owner sign-off on T6 signature is async parallel — must close ≤ 5/22)
+```
+
+**关键依赖**：
+- T6（接口签名）解锁 D1.3c V&V FTE 启动条件（D1.3c 6/1 起跑前签名须冻结）
+- T2（目录就位）解锁 T8（lint 路径前缀正确性的前置）
+- T3（colcon 容器通过）是 T11 全量回归门
+- T8/T9 联通 → DEMO-1 6/15 现场演示能力（T12 演示文件依赖 T8 脚本）
+
+---
+
+### v3.1.10 Demo Charter（服务 6/15 DEMO-1 Skeleton Live，~5 分钟）
+
+| 时段 | 内容 | 现场命令 / 预期 |
+|---|---|---|
+| 0:00-1:00 | 三层目录拓扑展示 | `tree src/ -L 2` → 三组目录可见；`git log --oneline -- src/l3_tdl_kernel/m1_odd_envelope_manager/` 显示 `git mv` 后历史保留 |
+| 1:00-2:00 | `ShipMotionSimulator::export_fmu_interface()` 接口 + FCBSimulator stub | `cat src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp \| grep -A3 export_fmu_interface`；`./build/fcb_simulator/test_fcb_export_fmu_interface` PASSED |
+| 2:00-4:00 | RL 隔离 CI lint exit 1 演示 | (1) `cat tools/ci/demo/violation_fixture.cpp` 显示故意 `#include "m7_safety_supervisor/safety_supervisor.hpp"`；(2) `cp tools/ci/demo/violation_fixture.cpp src/sim_workbench/fcb_simulator/src/_demo_violation.cpp`；(3) `bash tools/ci/check-rl-isolation.sh` → exit 1 + 红色 VIOLATION 输出；(4) `rm src/sim_workbench/fcb_simulator/src/_demo_violation.cpp`；(5) 重跑 → exit 0 + `PASS:` |
+| 4:00-5:00 | CI Pipeline 链接展示 | 浏览器打开最新 feature branch pipeline，`rl_isolation_lint` job 绿勾 + `multi_vessel_lint` 绿勾共存 |
+
+**Demo 文件归档位置**：`tools/ci/demo/violation_fixture.cpp`（仅文本片段，入仓 `tools/ci/demo/` 路径不被 lint 扫；演示时 `cp` 到 `src/sim_workbench/fcb_simulator/src/_demo_violation.cpp` 触发 lint，演示完即 `rm`，主分支永远不含 demo 副本，无须 `.gitignore`）。
+
+---
+
+### v3.1.11 Risk + Contingency
+
+| ID | Risk | 触发现象 | Contingency |
+|---|---|---|---|
+| **R-P1** | colcon 容器内 build fail（路径变更引发 cmake 缓存或 install path 问题） | T3 step 失败；`docker run ... colcon build` 非零退出 | (a) `rm -rf build/ install/ log/` 清缓存重试；(b) 检查 `tools/docker/Dockerfile.ci` `WORKDIR` 与 `COPY` 是否假设了 `src/<pkg>` 路径深度（已审计：当前用 `COPY src/` 整拷，递归透明）；(c) 若仍 fail，回滚 T2 mv 到 feature branch，方案 B 兜底（保留 rl_isolation_lint + 接口签名两项），暂跳过 v3.1 §3 物理目录 DoD 项，标 v3.2 修订计划 |
+| **R-P2** | 审计漏报 ship_sim_interfaces 隐式 kernel 依赖 | T3 colcon build fail，error 含 `ship_sim_interfaces` not found in M1-M8 包链路 | 已在 §v3.1.1 grep 证据 A/B 排除；若仍发生，目录归属下沉 `ship_sim_interfaces` → `l3_tdl_kernel/`（牺牲一点工程清洁度换功能正确性），更新 §v3.1.5 lint 模式排除该包 |
+| **R-P3** | `export_fmu_interface()` 签名与 D1.3c V&V FTE 实装预期不符（破坏 ABI） | D1.3c 启动后 owner 反馈需要额外字段（如 `serializeAs` / `aliasName`） | (a) 5/15-22 间发起 D1.3c owner 签字会话（用户切换 role-hat），冻结签名；(b) 万一 D1.3c 启动后仍需扩，沿 `FmuVariableSpec` / `FmuInterfaceSpec` 末尾**追加**字段（C++ struct 末尾追加保持向后兼容），不删不改既有字段，避免 ABI break |
+| **R-P4** | CI lint grep 误报（特别是 `m8_` 前缀在 web_server/ 内出现） | T11 全量回归触发 `rl_isolation_lint` exit 1 但代码合法 | grep 模式已用行首锚 + 后缀边界，理论无误报；若发生：(a) 加同行 `// rl-isolation-ok: <reason>` allowlist；(b) 若 allowlist 滥用（>5 处），脚本退化为白名单 lint，触发 R-P5 |
+| **R-P5** | allowlist 滥用导致 lint 形同虚设 | 6/15 DEMO-1 前 allowlist 行数 >5 | spec 增补：每月扫一次 allowlist 行数，>5 触发架构评审；P-3 follow-up 由 D2.x 合规复核 |
+| **R-P6** | m4_behavior_arbiter 缺 package.xml 影响 colcon build | `colcon build` skip m4 或 fail | 已知问题（标 P-1 follow-up），D3.1 关闭。当前 v3.1 补丁 colcon DoD 改为 `colcon build --packages-up-to m7_safety_supervisor --packages-skip m4_behavior_arbiter` 跳过 m4 包，在 spec §v3.1.12 DoD 明文写出此偏差 |
+| **R-P7** | 现存活跃分支 `feat/d3.1-m4-behavior-arbiter` / `feat/d3.3b-m7-sotif` 与目录移动冲突 | 这两 branch rebase 时大量 conflict | v3.1 补丁分支合并到 main 后，**强制 rebase 这两 branch**，git 自动跟随 R 重命名（`git mv` 历史血缘正确时合并冲突仅在内容修改，路径迁移自动）；若仍冲突，由对应 D 任务 owner 在 rebase 前先 `git mv` 同步 |
+| **R-P8** | pythonpath 改动破坏 39 pytest | T11 pytest 失败 | T4 完成后立即 dry-run pytest 验证；若失败，仅修订 `pytest.ini` `pythonpath` 多路径列表（不修改测试文件） |
+
+---
+
+### v3.1.12 v3.1 补丁全闭判据（5/31 EOD）
+
+> 全部 ✅ 才视为本补丁 CLOSED。原版 D1.3a §13 已闭判据保持 ✅ 不得回归。
+
+#### 基线零回归（继承原版）
+
+- [ ] `colcon build --packages-up-to m7_safety_supervisor --packages-skip m4_behavior_arbiter`（容器内）exit 0  ⚠️ R-P6 偏差，待 D3.1 关闭后转为 `--packages-up-to m7_safety_supervisor` 全包
+- [ ] `python3 -m pytest tests/ -q` 仍 **39 passed**（零回归）
+- [ ] `ruff check src/ tests/` **0 violations**
+- [ ] `bash tools/ci/check-doer-checker-independence.sh` 退出码 0
+- [ ] `multi_vessel_lint` CI job 通过
+
+#### 三项 NEW DoD
+
+- [ ] `/src/l3_tdl_kernel/`、`/src/sim_workbench/`、`/src/rl_workbench/` 三子目录存在；`tree src/ -L 2` 输出与 §v3.1.3 拓扑一致
+- [ ] `git log --follow src/l3_tdl_kernel/m1_odd_envelope_manager/package.xml` 显示历史保留（`git mv` 血缘正确）
+- [ ] `src/rl_workbench/` 仅含 `.gitkeep` + `README.md`（README 含三层隔离规则原文 + Phase 4 启动条件 + 引用架构 F.4 + 计划 §0.4 决策 3）
+- [ ] `ShipMotionSimulator::export_fmu_interface()` 抽象方法签名 commit；header compile 通过
+- [ ] `FCBSimulator::export_fmu_interface()` stub 实装（22 变量清单）；`colcon test --packages-select fcb_simulator` 含 `test_fcb_export_fmu_interface` PASSED
+- [ ] D1.3c owner（V&V FTE role-hat）对 `FmuInterfaceSpec` / `FmuVariableSpec` 签名签字记录入 PR 评论（≤ 5/22）
+- [ ] `tools/ci/check-rl-isolation.sh` 新建；`bash tools/ci/tests/test-rl-isolation.sh` 5 TC 全 pass
+- [ ] `.gitlab-ci.yml` `rl_isolation_lint` job 追加（`allow_failure: false`）；feature branch pipeline 触发该 job 绿勾
+- [ ] `tools/ci/demo/violation_fixture.cpp` + Demo Charter §v3.1.10 操作脚本就位；本地 `≤ 30s` 重现 exit 1 → exit 0
+- [ ] 关闭 finding ID：**G P0-G-1 (a) v3.1 追加项**（RL 隔离目录 + FMI 接口存根）+ 计划 v3.1 §0.4 决策 1 + 决策 3 D1.3a 部分
+
+#### 文档与版本同步
+
+- [ ] 本 spec §v3.1 章节合入 `01-spec.md`，所有 DoD 复选框打 ✅；commit 由 v3.1 补丁同 PR 提交
+- [ ] PR 描述附 5 条回归命令（colcon / pytest / ruff / doer-checker / rl-isolation）的实际输出截图或日志
+- [ ] follow-up 标记入 GitLab issue：P-1（m4 package.xml）/ P-2（m8_hmi_bridge 空目录已删，无 follow-up，可标 CLOSED）/ P-3（allowlist 滥用月度复核）/ R-P6 收尾路径
+
+---
+
+### v3.1.13 与下游 D 的接口（v3.1 补丁视角增量）
+
+| 下游 D | v3.1 补丁产出消费 | 接口契约 |
+|---|---|---|
+| **D1.3b.1** YAML 场景管理基础 | `src/sim_workbench/` 下 Python 路径 | scenario_runner Python 模块继承 sim_workbench 路径；`pytest.ini` pythonpath 已含 `src/sim_workbench` |
+| **D1.3c** FMI bridge / libcosim / dds-fmu（V&V FTE 主导，6/1 起跑） | `ShipMotionSimulator::export_fmu_interface()` 签名 | 签名冻结后才启动；D1.3c owner 签字记录在本补丁 PR；override 模式 + 22 变量清单作 modelDescription.xml + dds-fmu mapping XML 输入；pythonfmu wrap via pybind11 |
+| **D1.5** V&V Plan | `rl_isolation_lint` CI job 状态 | V&V Plan §SIL gate entry 条件加一行：`rl_isolation_lint` 必须绿；纳入 D1.5 §entry-exit gate |
+| **D2.8** v1.1.3 stub §RL 章节（7/31） | RL 隔离 L1 落地证据 | D2.8 §RL §15.0/§F.4 引用本补丁 PR + git history audit 通过证据 |
+| **D3.5** HAZID 132 [TBD] 回填（8/31） | RL 隔离 L1 完整记录 | RUN-001 HAZID 评估 RL 引入风险时直接引用 v3.1 补丁的 L1/L2/L3 边界落地状态 |
+| **Phase 4 D4.6** RL 对抗（10–12 月，B2 触发） | `rl_workbench/` 目录占位 + lint 三向就位 | Phase 4 启动前先做 git history audit（per 架构 F.4 行 2166），确认 D1.3a/b/c 已遵守 L1/L2 边界 |
+
+---
+
+### v3.1.14 来源与置信度（v3.1 补丁部分）
+
+| 断言 | 来源 | 置信度 |
+|---|---|---|
+| 选项 D 混合架构（C++ ROS2 native + FMI 边界）锁定 | SIL 决策 §1.1 + 3 份独立深度调研 + DNV-Brinav MoU 2024 | 🟢 High |
+| RL 隔离 L1 物理子目录落地 | SIL 决策 §4.1 + 架构 F.4 + PyGemini arXiv:2506.06262 + NTNU colav-simulator + Sim2Sea AAMAS 2026 | 🟢 High |
+| `ShipMotionSimulator` 抽象 + FCBPlugin（不 fork 模型）| 架构 F.2 行 2122-2145 + Recommendation L4/L209 | 🟢 High |
+| FMU 工具链 pythonfmu/mlfmu | 架构 F.2 行 2142 + Recommendation L67 + DNV-RP-0671 | 🟢 High |
+| disturbance 4 变量（wind dir/speed + current dir/speed）应作 FMI input | Recommendation L91-93 disturbance YAML schema + Certification L81 disturbance axis | 🟢 High |
+| ship_dynamics 节点 topic 拓扑 `/cmd/{thrust,rudder}` 输入 + `/own_ship/state` 输出 | Recommendation L33 | 🟢 High |
+| pybind11 是 C++/Python 双向绑定标准 | NLM silhil_platform notebook（Phase 1 启动后增补，置信度暂记 🟡）+ pybind11 官方文档（≥10k★）| 🟡 Medium（待 NLM 引证后升 🟢）|
+| colcon 递归发现 `package.xml`（不依赖深度）| colcon 官方文档 + 仓库现状 `find src -name package.xml` 已落地 | 🟢 High |
+| `git mv` 保留历史血缘 | git 官方文档 + `git log --follow` 验证机制 | 🟢 High |
+| FCB 4-DOF 状态变量 11 项（u/v/r/x/y/psi/phi/p/delta/n/sog）| 架构 F.2 + 现有 `ship_motion_simulator.hpp` State struct + Yasukawa 2015 4-DOF MMG 标准变量集 | 🟢 High |
+| FCB 5 个最小暴露参数（L/B/d/m/Izz）足够 D1.3c modelDescription | 架构 F.2 + 工程惯例（其余 hydro 系数封装在 YAML，FMU 不暴露内部参数）| 🟡 Medium（D1.3c 启动后若需更多参数走 R-P3 contingency）|
