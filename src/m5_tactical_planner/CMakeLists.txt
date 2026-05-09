@@ -302,6 +302,23 @@ if(BUILD_TESTING)
     test/unit/test_bc_mpc_node_handover.cpp
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
+
+  # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
+  # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
+  # its own (un-instrumented) libc symbols, causing ASAN to crash on
+  # deallocation of memory it did not tag.
+  # Strip ASAN from the three targets that link against casadi in Debug builds.
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    foreach(_no_asan_tgt
+        test_constraint_compiler
+        test_mid_mpc_nlp_formulation
+        test_mid_mpc_solver)
+      target_compile_options(${_no_asan_tgt} PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(${_no_asan_tgt} PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endforeach()
+  endif()
 endif()
 
 ament_export_include_directories(include)

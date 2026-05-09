@@ -42,7 +42,7 @@ struct TargetSnapshot {
   double cog_deg;
   double heading_deg;
   Eigen::Matrix<double, 3, 3> covariance;  // lat/lon/heading
-  std::string_view classification;
+  std::string classification;
   float classification_confidence;
   std::chrono::steady_clock::time_point stamp;
 };

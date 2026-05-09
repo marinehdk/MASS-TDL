@@ -19,15 +19,15 @@ void TrackBuffer::update(const l3_external_msgs::msg::TrackedTargetArray& msg,
                          std::chrono::steady_clock::time_point now) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  for (size_t i = 0; i < msg.target_ids.size(); ++i) {
-    const uint64_t id = msg.target_ids[i];
+  for (const auto& tgt : msg.targets) {
+    const uint64_t id = tgt.target_id;
     auto it = buffer_.find(id);
 
     if (it != buffer_.end()) {
       // Update existing entry.
       auto& entry = it->second;
-      entry.classification_storage = msg.classifications[i];
-      entry.snapshot = snapshot_from_msg(msg, i, now, cfg_.position_default_sigma_m);
+      entry.classification_storage = tgt.classification;
+      entry.snapshot = snapshot_from_msg(tgt, now, cfg_.position_default_sigma_m);
       entry.snapshot.classification = entry.classification_storage;
       entry.last_seen = now;
       entry.miss_count = 0;
@@ -37,8 +37,8 @@ void TrackBuffer::update(const l3_external_msgs::msg::TrackedTargetArray& msg,
         evict_oldest_locked();
       }
       TrackEntry entry;
-      entry.classification_storage = msg.classifications[i];
-      entry.snapshot = snapshot_from_msg(msg, i, now, cfg_.position_default_sigma_m);
+      entry.classification_storage = tgt.classification;
+      entry.snapshot = snapshot_from_msg(tgt, now, cfg_.position_default_sigma_m);
       entry.snapshot.classification = entry.classification_storage;
       entry.last_seen = now;
       entry.miss_count = 0;
@@ -146,9 +146,13 @@ size_t TrackBuffer::size() const {
 
 void TrackBuffer::evict_oldest_locked() {
   // Linear scan to find the entry with the oldest last_seen time.
+  // Ties are broken by smallest target_id to ensure deterministic eviction order.
   auto oldest_it = buffer_.begin();
   for (auto it = buffer_.begin(); it != buffer_.end(); ++it) {
-    if (it->second.last_seen < oldest_it->second.last_seen) {
+    const bool older_time = it->second.last_seen < oldest_it->second.last_seen;
+    const bool same_time  = it->second.last_seen == oldest_it->second.last_seen;
+    const bool smaller_id = it->first < oldest_it->first;
+    if (older_time || (same_time && smaller_id)) {
       oldest_it = it;
     }
   }
@@ -156,34 +160,44 @@ void TrackBuffer::evict_oldest_locked() {
 }
 
 // static
-TrackBuffer::TargetSnapshot TrackBuffer::snapshot_from_msg(
-    const l3_external_msgs::msg::TrackedTargetArray& msg,
-    size_t index,
+TargetSnapshot TrackBuffer::snapshot_from_msg(
+    const l3_msgs::msg::TrackedTarget& tgt,
     std::chrono::steady_clock::time_point now,
     double position_default_sigma_m) {
   constexpr double kLatM = 111320.0;
   constexpr double kDegToRad = M_PI / 180.0;
 
   TargetSnapshot snap;
-  snap.target_id = msg.target_ids[index];
-  snap.latitude_deg = msg.positions[index].latitude;
-  snap.longitude_deg = msg.positions[index].longitude;
-  snap.sog_kn = msg.sog_kn[index];
-  snap.cog_deg = msg.cog_deg[index];
-  snap.heading_deg = msg.heading_deg[index];
-  snap.classification_confidence = msg.classification_confidences[index];
+  snap.target_id = tgt.target_id;
+  snap.latitude_deg = tgt.position.latitude;
+  snap.longitude_deg = tgt.position.longitude;
+  snap.sog_kn = tgt.sog_kn;
+  snap.cog_deg = tgt.cog_deg;
+  snap.heading_deg = tgt.heading_deg;
+  snap.classification_confidence = tgt.classification_confidence;
   snap.stamp = now;
 
-  // TrackedTargetArray has no per-target covariance; fill default position uncertainty.
-  // CpaTcpaCalculator reads tgt.covariance(0,0) as lat_var_deg² and (1,1) as lon_var_deg².
-  const double lat_sigma_deg = position_default_sigma_m / kLatM;
-  const double lon_m_per_deg = kLatM * std::cos(snap.latitude_deg * kDegToRad);
-  const double lon_sigma_deg = (lon_m_per_deg > 1.0)
-      ? position_default_sigma_m / lon_m_per_deg : lat_sigma_deg;
-  snap.covariance.setZero();
-  snap.covariance(0, 0) = lat_sigma_deg * lat_sigma_deg;
-  snap.covariance(1, 1) = lon_sigma_deg * lon_sigma_deg;
-  snap.covariance(2, 2) = 1.0;  // heading variance (deg²) — not used in CPA calc
+  // Use per-target covariance from message (float64[9] row-major 3×3).
+  // Fall back to default position σ when the message carries a zero matrix.
+  // CpaTcpaCalculator reads covariance(0,0) as lat_var_deg² and (1,1) as lon_var_deg².
+  const bool kCovValid = (tgt.covariance[0] > 0.0) || (tgt.covariance[4] > 0.0);
+  if (kCovValid) {
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        snap.covariance(row, col) =
+            tgt.covariance[static_cast<size_t>(row * 3 + col)];
+      }
+    }
+  } else {
+    const double kLatSigmaDeg = position_default_sigma_m / kLatM;
+    const double kLonMPerDeg = kLatM * std::cos(snap.latitude_deg * kDegToRad);
+    const double kLonSigmaDeg = (kLonMPerDeg > 1.0)
+        ? position_default_sigma_m / kLonMPerDeg : kLatSigmaDeg;
+    snap.covariance.setZero();
+    snap.covariance(0, 0) = kLatSigmaDeg * kLatSigmaDeg;
+    snap.covariance(1, 1) = kLonSigmaDeg * kLonSigmaDeg;
+    snap.covariance(2, 2) = 1.0;
+  }
 
   // classification string_view is set by the caller after backing storage.
   return snap;

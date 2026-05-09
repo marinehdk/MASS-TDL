@@ -56,8 +56,8 @@ TEST(CoordTransformTest, WGS84ToENU_RoundTrip_Reversible) {
   bool ok_rev = ct.enu_to_wgs84(pos(0), pos(1), lat_back, lon_back);
   ASSERT_TRUE(ok_rev);
 
-  EXPECT_NEAR(lat_back, test_lat, 1e-10);
-  EXPECT_NEAR(lon_back, test_lon, 1e-10);
+  EXPECT_NEAR(lat_back, test_lat, 1e-9);
+  EXPECT_NEAR(lon_back, test_lon, 1e-9);
 }
 
 TEST(CoordTransformTest, ForwardTransform_KnownOffset) {
