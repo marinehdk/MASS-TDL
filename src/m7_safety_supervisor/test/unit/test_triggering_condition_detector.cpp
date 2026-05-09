@@ -5,13 +5,17 @@
 
 using namespace mass_l3::m7::sotif;
 
+namespace {
+
 // Helper: build an AssumptionStatus with N violations
-static AssumptionStatus make_status(uint32_t violation_count)
+AssumptionStatus make_status(uint32_t violation_count)
 {
   AssumptionStatus s{};
   s.total_violation_count = violation_count;
   return s;
 }
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Test 1: Zero violations → detect returns false
@@ -19,8 +23,8 @@ static AssumptionStatus make_status(uint32_t violation_count)
 TEST(TriggeringConditionDetectorTest, ZeroViolations_ReturnsFalse)
 {
   TriggeringConditionDetector det;
-  auto const status = make_status(0u);
-  EXPECT_FALSE(det.detect(status));
+  auto const kStatus = make_status(0U);
+  EXPECT_FALSE(det.detect(kStatus));
 }
 
 // ---------------------------------------------------------------------------
@@ -29,8 +33,8 @@ TEST(TriggeringConditionDetectorTest, ZeroViolations_ReturnsFalse)
 TEST(TriggeringConditionDetectorTest, OneViolation_ReturnsFalse)
 {
   TriggeringConditionDetector det;
-  auto const status = make_status(1u);
-  EXPECT_FALSE(det.detect(status));
+  auto const kStatus = make_status(1U);
+  EXPECT_FALSE(det.detect(kStatus));
 }
 
 // ---------------------------------------------------------------------------
@@ -39,8 +43,8 @@ TEST(TriggeringConditionDetectorTest, OneViolation_ReturnsFalse)
 TEST(TriggeringConditionDetectorTest, TwoViolations_ReturnsFalse)
 {
   TriggeringConditionDetector det;
-  auto const status = make_status(2u);
-  EXPECT_FALSE(det.detect(status));
+  auto const kStatus = make_status(2U);
+  EXPECT_FALSE(det.detect(kStatus));
 }
 
 // ---------------------------------------------------------------------------
@@ -49,8 +53,8 @@ TEST(TriggeringConditionDetectorTest, TwoViolations_ReturnsFalse)
 TEST(TriggeringConditionDetectorTest, ThreeViolations_ReturnsTrue)
 {
   TriggeringConditionDetector det;
-  auto const status = make_status(3u);
-  EXPECT_TRUE(det.detect(status));
+  auto const kStatus = make_status(3U);
+  EXPECT_TRUE(det.detect(kStatus));
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +63,8 @@ TEST(TriggeringConditionDetectorTest, ThreeViolations_ReturnsTrue)
 TEST(TriggeringConditionDetectorTest, FourViolations_ReturnsTrue)
 {
   TriggeringConditionDetector det;
-  auto const status = make_status(4u);
-  EXPECT_TRUE(det.detect(status));
+  auto const kStatus = make_status(4U);
+  EXPECT_TRUE(det.detect(kStatus));
 }
 
 // ---------------------------------------------------------------------------
@@ -81,5 +85,5 @@ TEST(TriggeringConditionDetectorTest, MaxViolations_ReturnsTrue)
 // ---------------------------------------------------------------------------
 TEST(TriggeringConditionDetectorTest, ThresholdConstant_IsThree)
 {
-  EXPECT_EQ(TriggeringConditionDetector::kExtremeScenarioThreshold, 3u);
+  EXPECT_EQ(TriggeringConditionDetector::kExtremeScenarioThreshold, 3U);
 }

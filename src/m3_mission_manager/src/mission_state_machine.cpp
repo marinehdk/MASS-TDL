@@ -52,6 +52,7 @@ void MissionStateMachine::reset() {
 // handle_event — process event and transition state per spec §3.5
 // ---------------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 MissionState MissionStateMachine::handle_event(const MissionEvent& event) {
   switch (state_) {
     // INIT → IDLE: only NodeReady (sent by MissionManagerNode after setup).

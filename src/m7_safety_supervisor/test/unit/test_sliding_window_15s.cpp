@@ -18,6 +18,7 @@ TEST(SlidingWindow15sTest, EmptyWindow_RateIsZero)
 // ---------------------------------------------------------------------------
 // Test 2: 100 all-true ticks → rate == 1.0, filled, count == 100
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, AllEventsFull_RateIsOne)
 {
   SlidingWindow15s w;
@@ -32,6 +33,7 @@ TEST(SlidingWindow15sTest, AllEventsFull_RateIsOne)
 // ---------------------------------------------------------------------------
 // Test 3: 100 all-false ticks → rate == 0.0, filled, count == 0
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, NoEventsFull_RateIsZero)
 {
   SlidingWindow15s w;
@@ -46,6 +48,7 @@ TEST(SlidingWindow15sTest, NoEventsFull_RateIsZero)
 // ---------------------------------------------------------------------------
 // Test 4: 100 alternating ticks → rate ≈ 0.5
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, HalfEvents_RateIsHalf)
 {
   SlidingWindow15s w;
@@ -64,6 +67,7 @@ TEST(SlidingWindow15sTest, HalfEvents_RateIsHalf)
 // Then 50 more true evicts the first 50 true → still 50 true (new) + 50 false → rate=0.5
 // Then 50 more true evicts the 50 false → 100 true → rate=1.0
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, CircularOverwrite_OldestEventDropped)
 {
   SlidingWindow15s w;
@@ -85,6 +89,7 @@ TEST(SlidingWindow15sTest, CircularOverwrite_OldestEventDropped)
 // ---------------------------------------------------------------------------
 // Test 6: is_filled transitions correctly at exactly 100 ticks
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, IsFilledAfter100Ticks)
 {
   SlidingWindow15s w;
@@ -99,6 +104,7 @@ TEST(SlidingWindow15sTest, IsFilledAfter100Ticks)
 // ---------------------------------------------------------------------------
 // Test 7: count() matches manual count for known pattern
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, CountConsistency_RandomPattern)
 {
   SlidingWindow15s w;
@@ -116,6 +122,7 @@ TEST(SlidingWindow15sTest, CountConsistency_RandomPattern)
 // ---------------------------------------------------------------------------
 // Test 8: reset() clears all state; subsequent tick starts fresh
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, ResetClearsWindow)
 {
   SlidingWindow15s w;
@@ -138,6 +145,7 @@ TEST(SlidingWindow15sTest, ResetClearsWindow)
 // ---------------------------------------------------------------------------
 // Test 9: RFC-003 threshold boundary — exactly 20 events → rate == 0.20
 // ---------------------------------------------------------------------------
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SlidingWindow15sTest, ExactThreshold_At20Events_Rate02)
 {
   SlidingWindow15s w;

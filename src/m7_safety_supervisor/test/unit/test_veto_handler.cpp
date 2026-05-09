@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "m7_safety_supervisor/checker/veto_handler.hpp"
@@ -7,28 +9,32 @@ using mass_l3::m7::checker::VetoHandler;
 using mass_l3::m7::checker::VetoReasonClass;
 using mass_l3::m7::checker::VetoHistogram;
 
+namespace {
+
 // ---------------------------------------------------------------------------
 // Helper: construct a CheckerVetoNotification with given class and optional detail.
 // veto_reason_detail is set only to verify M7 never inspects it.
 // ---------------------------------------------------------------------------
-static l3_external_msgs::msg::CheckerVetoNotification build_veto_msg(
+l3_external_msgs::msg::CheckerVetoNotification build_veto_msg(
   std::uint8_t reason_class,
   std::string const& detail = "")
 {
   l3_external_msgs::msg::CheckerVetoNotification msg;
   msg.veto_reason_class = reason_class;
   msg.veto_reason_detail = detail;
-  msg.confidence = 0.9f;
+  msg.confidence = 0.9F;
   return msg;
 }
 
 // ---------------------------------------------------------------------------
 // Helper: index cast
 // ---------------------------------------------------------------------------
-static constexpr std::size_t idx(VetoReasonClass c)
+constexpr std::size_t idx(VetoReasonClass c)
 {
   return static_cast<std::size_t>(c);
 }
+
+}  // namespace
 
 // ============================================================================
 // Tests 1–6: Each enum class increments the correct histogram bucket
@@ -38,85 +44,85 @@ static constexpr std::size_t idx(VetoReasonClass c)
 TEST(VetoHandlerTest, EnumClass_ColregsViolation_IncrementsBucket0)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(0u));
+  handler.on_veto_received(build_veto_msg(0U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)], 1u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)], 1U);
   // All other buckets must remain zero
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0U);
 }
 
 // Test 2 — kCpaBelowThreshold (class 1)
 TEST(VetoHandlerTest, EnumClass_CpaBelowThreshold_IncrementsBucket1)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(1u));
+  handler.on_veto_received(build_veto_msg(1U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 1u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 1U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0U);
 }
 
 // Test 3 — kEncConstraint (class 2)
 TEST(VetoHandlerTest, EnumClass_EncConstraint_IncrementsBucket2)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(2u));
+  handler.on_veto_received(build_veto_msg(2U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     1u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     1U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0U);
 }
 
 // Test 4 — kActuatorLimit (class 3)
 TEST(VetoHandlerTest, EnumClass_ActuatorLimit_IncrementsBucket3)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(3u));
+  handler.on_veto_received(build_veto_msg(3U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     1u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     1U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0U);
 }
 
 // Test 5 — kTimeout (class 4)
 TEST(VetoHandlerTest, EnumClass_Timeout_IncrementsBucket4)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(4u));
+  handler.on_veto_received(build_veto_msg(4U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           1u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           1U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             0U);
 }
 
 // Test 6 — kOther (class 5)
 TEST(VetoHandlerTest, EnumClass_Other_IncrementsBucket5)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(5u));
+  handler.on_veto_received(build_veto_msg(5U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             1u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)],             1U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
 }
 
 // ============================================================================
@@ -125,15 +131,15 @@ TEST(VetoHandlerTest, EnumClass_Other_IncrementsBucket5)
 TEST(VetoHandlerTest, OutOfRange_99_MapsToKOther)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(99u));
+  handler.on_veto_received(build_veto_msg(99U));
   VetoHistogram h = handler.histogram();
-  EXPECT_EQ(h[idx(VetoReasonClass::kOther)], 1u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kOther)], 1U);
   // All non-kOther buckets must be zero
-  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0u);
-  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0u);
+  EXPECT_EQ(h[idx(VetoReasonClass::kColregsViolation)],  0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kCpaBelowThreshold)], 0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kEncConstraint)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kActuatorLimit)],     0U);
+  EXPECT_EQ(h[idx(VetoReasonClass::kTimeout)],           0U);
 }
 
 // ============================================================================
@@ -150,8 +156,8 @@ TEST(VetoHandlerTest, FreeTextDetail_DoesNotAffectHistogramOrRate)
 
   // Both receive class 0 (ColregsViolation); handler_with_detail has a
   // populated detail string that M7 must never read.
-  auto msg_no_detail   = build_veto_msg(0u, "");
-  auto msg_with_detail = build_veto_msg(0u, "COLREG Rule 15 starboard crossing — bearing 045 CPA 0.12nm");
+  auto msg_no_detail   = build_veto_msg(0U, "");
+  auto msg_with_detail = build_veto_msg(0U, "COLREG Rule 15 starboard crossing — bearing 045 CPA 0.12nm");
 
   handler_no_detail.on_veto_received(msg_no_detail);
   handler_with_detail.on_veto_received(msg_with_detail);
@@ -174,11 +180,11 @@ TEST(VetoHandlerTest, RFC003Boundary_20VetoTicksOf100_RateIs020)
 {
   VetoHandler handler;
 
-  for (std::uint32_t i = 0u; i < 20u; ++i) {
-    handler.on_veto_received(build_veto_msg(0u));
+  for (std::uint32_t i = 0U; i < 20U; ++i) {
+    handler.on_veto_received(build_veto_msg(0U));
     handler.on_cycle_tick(true);
   }
-  for (std::uint32_t i = 0u; i < 80u; ++i) {
+  for (std::uint32_t i = 0U; i < 80U; ++i) {
     handler.on_cycle_tick(false);
   }
 
@@ -191,7 +197,7 @@ TEST(VetoHandlerTest, RFC003Boundary_20VetoTicksOf100_RateIs020)
 TEST(VetoHandlerTest, NoVetoes_RateIsZero)
 {
   VetoHandler handler;
-  for (std::uint32_t i = 0u; i < 100u; ++i) {
+  for (std::uint32_t i = 0U; i < 100U; ++i) {
     handler.on_cycle_tick(false);
   }
   EXPECT_DOUBLE_EQ(handler.current_rate(), 0.0);
@@ -200,21 +206,22 @@ TEST(VetoHandlerTest, NoVetoes_RateIsZero)
 // ============================================================================
 // Test 11: reset() clears histogram to all zeros and window to 0 rate
 // ============================================================================
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(VetoHandlerTest, Reset_ClearsHistogramAndRate)
 {
   VetoHandler handler;
 
   // Populate with vetoes of various classes
-  handler.on_veto_received(build_veto_msg(0u));
-  handler.on_veto_received(build_veto_msg(1u));
-  handler.on_veto_received(build_veto_msg(2u));
+  handler.on_veto_received(build_veto_msg(0U));
+  handler.on_veto_received(build_veto_msg(1U));
+  handler.on_veto_received(build_veto_msg(2U));
   handler.on_cycle_tick(true);
   handler.on_cycle_tick(true);
 
   // Confirm non-zero state before reset
   EXPECT_GT(handler.current_rate(), 0.0);
   VetoHistogram h_before = handler.histogram();
-  EXPECT_GT(h_before[0], 0u);
+  EXPECT_GT(h_before[0], 0U);
 
   handler.reset();
 
@@ -223,8 +230,8 @@ TEST(VetoHandlerTest, Reset_ClearsHistogramAndRate)
 
   // All histogram buckets must be zero
   VetoHistogram h_after = handler.histogram();
-  for (std::size_t i = 0u; i < h_after.size(); ++i) {
-    EXPECT_EQ(h_after[i], 0u) << "bucket " << i << " not cleared";
+  for (std::size_t i = 0U; i < h_after.size(); ++i) {
+    EXPECT_EQ(h_after[i], 0U) << "bucket " << i << " not cleared";
   }
 }
 
@@ -234,9 +241,9 @@ TEST(VetoHandlerTest, Reset_ClearsHistogramAndRate)
 TEST(VetoHandlerTest, MultipleVetoesSameClass_Accumulate)
 {
   VetoHandler handler;
-  constexpr std::uint32_t kRepeat = 7u;
+  constexpr std::uint32_t kRepeat = 7U;
 
-  for (std::uint32_t i = 0u; i < kRepeat; ++i) {
+  for (std::uint32_t i = 0U; i < kRepeat; ++i) {
     handler.on_veto_received(build_veto_msg(
       static_cast<std::uint8_t>(VetoReasonClass::kCpaBelowThreshold)));
   }
@@ -251,17 +258,17 @@ TEST(VetoHandlerTest, MultipleVetoesSameClass_Accumulate)
 TEST(VetoHandlerTest, Histogram_ReturnsCopy_MutationDoesNotAffectInternal)
 {
   VetoHandler handler;
-  handler.on_veto_received(build_veto_msg(0u));
+  handler.on_veto_received(build_veto_msg(0U));
 
   VetoHistogram copy1 = handler.histogram();
-  EXPECT_EQ(copy1[0], 1u);
+  EXPECT_EQ(copy1[0], 1U);
 
   // Mutate the copy
-  copy1[0] = 999u;
+  copy1[0] = 999U;
 
   // Internal state must remain unchanged
   VetoHistogram copy2 = handler.histogram();
-  EXPECT_EQ(copy2[0], 1u);
+  EXPECT_EQ(copy2[0], 1U);
 }
 
 // ============================================================================
@@ -271,11 +278,11 @@ TEST(VetoHandlerTest, Histogram_ReturnsCopy_MutationDoesNotAffectInternal)
 TEST(VetoHandlerTest, ConstructorParam_SilentlyIgnored_CapacityIs100)
 {
   // Pass an arbitrary non-default value; must NOT cause assertion or warning.
-  VetoHandler handler(42u);
+  VetoHandler handler(42U);
 
   // Fill 20 true ticks and 80 false ticks → rate == 0.20 proves window uses 100
-  for (std::uint32_t i = 0u; i < 20u; ++i) { handler.on_cycle_tick(true); }
-  for (std::uint32_t i = 0u; i < 80u; ++i) { handler.on_cycle_tick(false); }
+  for (std::uint32_t i = 0U; i < 20U; ++i) { handler.on_cycle_tick(true); }
+  for (std::uint32_t i = 0U; i < 80U; ++i) { handler.on_cycle_tick(false); }
 
   EXPECT_NEAR(handler.current_rate(), 0.20, 1e-9);
 }
@@ -283,18 +290,19 @@ TEST(VetoHandlerTest, ConstructorParam_SilentlyIgnored_CapacityIs100)
 // ============================================================================
 // Test 15: All 6 enum classes in one handler — histogram sums correctly
 // ============================================================================
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(VetoHandlerTest, AllSixClasses_HistogramSumsCorrectly)
 {
   VetoHandler handler;
-  for (std::uint8_t c = 0u; c < 6u; ++c) {
+  for (std::uint8_t c = 0U; c < 6U; ++c) {
     handler.on_veto_received(build_veto_msg(c));
   }
   VetoHistogram h = handler.histogram();
-  std::uint32_t total = 0u;
+  std::uint32_t total = 0U;
   for (auto count : h) { total += count; }
-  EXPECT_EQ(total, 6u);
+  EXPECT_EQ(total, 6U);
   // Each bucket must have exactly 1
-  for (std::size_t i = 0u; i < h.size(); ++i) {
-    EXPECT_EQ(h[i], 1u) << "bucket " << i << " expected 1";
+  for (std::size_t i = 0U; i < h.size(); ++i) {
+    EXPECT_EQ(h[i], 1U) << "bucket " << i << " expected 1";
   }
 }

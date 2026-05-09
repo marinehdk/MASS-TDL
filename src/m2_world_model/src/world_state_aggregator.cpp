@@ -149,6 +149,7 @@ void WorldStateAggregator::update_odd_state(
   odd_cache_ = snap;
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 std::optional<l3_msgs::msg::WorldState>
 WorldStateAggregator::compose_world_state(
     std::chrono::steady_clock::time_point now) {

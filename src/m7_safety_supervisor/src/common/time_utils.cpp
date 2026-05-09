@@ -23,6 +23,7 @@ bool is_stale(builtin_interfaces::msg::Time const& msg_stamp,
   return (msg_stamp.sec == 0) && (msg_stamp.nanosec == 0U);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::chrono::seconds elapsed_seconds(
     std::chrono::steady_clock::time_point since,
     std::chrono::steady_clock::time_point now) noexcept {

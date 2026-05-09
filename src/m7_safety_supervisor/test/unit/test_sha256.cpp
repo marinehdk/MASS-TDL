@@ -7,25 +7,30 @@
 
 using mass_l3::m7::common::sha256;
 
+namespace {
+
 // ---------------------------------------------------------------------------
 // Helper: convert 64-char hex string to 32-byte array
 // ---------------------------------------------------------------------------
-static std::array<uint8_t, 32> hex_to_bytes(const char* hex) noexcept
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+std::array<uint8_t, 32> hex_to_bytes(const char* hex) noexcept
 {
-    std::array<uint8_t, 32> result{};
+    std::array<uint8_t, 32> bytes{};
     for (std::size_t i = 0U; i < 32U; ++i) {
-        uint8_t hi = 0U;
-        uint8_t lo = 0U;
-        char const ch  = hex[i * 2U];
-        char const cl  = hex[i * 2U + 1U];
-        hi = (ch >= '0' && ch <= '9') ? static_cast<uint8_t>(ch - '0')
-           : static_cast<uint8_t>(ch - 'a' + 10);
-        lo = (cl >= '0' && cl <= '9') ? static_cast<uint8_t>(cl - '0')
-           : static_cast<uint8_t>(cl - 'a' + 10);
-        result[i] = static_cast<uint8_t>((hi << 4U) | lo);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        char const kCh = hex[i * 2U];
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        char const kCl = hex[(i * 2U) + 1U];
+        uint8_t hi = (kCh >= '0' && kCh <= '9') ? static_cast<uint8_t>(kCh - '0')
+                   : static_cast<uint8_t>(kCh - 'a' + 10);
+        uint8_t lo = (kCl >= '0' && kCl <= '9') ? static_cast<uint8_t>(kCl - '0')
+                   : static_cast<uint8_t>(kCl - 'a' + 10);
+        bytes[i] = static_cast<uint8_t>((static_cast<uint8_t>(hi << 4U)) | lo);
     }
-    return result;
+    return bytes;
 }
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Test 1: NIST FIPS 180-4 known vector — empty string
@@ -33,11 +38,11 @@ static std::array<uint8_t, 32> hex_to_bytes(const char* hex) noexcept
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_EmptyString)
 {
-    auto const result   = sha256("");
-    auto const expected = hex_to_bytes(
+    auto const kResult   = sha256("");
+    auto const kExpected = hex_to_bytes(
         "e3b0c44298fc1c149afbf4c8996fb924"
         "27ae41e4649b934ca495991b7852b855");
-    EXPECT_EQ(result, expected);
+    EXPECT_EQ(kResult, kExpected);
 }
 
 // ---------------------------------------------------------------------------
@@ -46,11 +51,11 @@ TEST(Sha256Test, Sha256_EmptyString)
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_Abc)
 {
-    auto const result   = sha256("abc");
-    auto const expected = hex_to_bytes(
+    auto const kResult   = sha256("abc");
+    auto const kExpected = hex_to_bytes(
         "ba7816bf8f01cfea414140de5dae2ec7"
         "3b00361bbef0469348423f656b7f4fbe");
-    EXPECT_EQ(result, expected);
+    EXPECT_EQ(kResult, kExpected);
 }
 
 // ---------------------------------------------------------------------------
@@ -58,8 +63,8 @@ TEST(Sha256Test, Sha256_Abc)
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_OutputIs32Bytes)
 {
-    auto const result = sha256("any input");
-    EXPECT_EQ(result.size(), 32U);
+    auto const kResult = sha256("any input");
+    EXPECT_EQ(kResult.size(), 32U);
 }
 
 // ---------------------------------------------------------------------------
@@ -67,10 +72,10 @@ TEST(Sha256Test, Sha256_OutputIs32Bytes)
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_Consistency)
 {
-    std::string const input = "consistent input string";
-    auto const first  = sha256(input);
-    auto const second = sha256(input);
-    EXPECT_EQ(first, second);
+    std::string const kInput = "consistent input string";
+    auto const kFirst  = sha256(kInput);
+    auto const kSecond = sha256(kInput);
+    EXPECT_EQ(kFirst, kSecond);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,9 +83,9 @@ TEST(Sha256Test, Sha256_Consistency)
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_DifferentInputsDifferentOutput)
 {
-    auto const d1 = sha256("input_one");
-    auto const d2 = sha256("input_two");
-    EXPECT_NE(d1, d2);
+    auto const kD1 = sha256("input_one");
+    auto const kD2 = sha256("input_two");
+    EXPECT_NE(kD1, kD2);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,10 +94,10 @@ TEST(Sha256Test, Sha256_DifferentInputsDifferentOutput)
 // ---------------------------------------------------------------------------
 TEST(Sha256Test, Sha256_TwoBlockPadding_NistAppendixB2)
 {
-    auto const result = sha256(
+    auto const kResult = sha256(
         "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq");
-    auto const expected = hex_to_bytes(
+    auto const kExpected = hex_to_bytes(
         "248d6a61d20638b8e5c026930c3e6039"
         "a33ce45964ff2167f6ecedd419db06c1");
-    EXPECT_EQ(result, expected);
+    EXPECT_EQ(kResult, kExpected);
 }

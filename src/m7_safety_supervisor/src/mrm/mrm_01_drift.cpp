@@ -1,7 +1,5 @@
 #include "m7_safety_supervisor/mrm/mrm_01_drift.hpp"
 
-#include <string>
-
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"

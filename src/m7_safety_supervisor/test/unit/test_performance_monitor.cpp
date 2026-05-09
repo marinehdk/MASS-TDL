@@ -111,6 +111,7 @@ TEST_F(PerformanceMonitorTest, MultipleTargetsClose_FlagsNearby)
   EXPECT_GE(status.critical_target_count, 2u);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(PerformanceMonitorTest, Reset_ClearsHistory)
 {
   // Populate with several calls, then reset
@@ -127,6 +128,7 @@ TEST_F(PerformanceMonitorTest, Reset_ClearsHistory)
   EXPECT_NEAR(status.max_cpa_in_window_nm, 1000.0 / 1852.0, 0.01);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(PerformanceMonitorTest, SteadilyIncreasingCpa_NotDegrading)
 {
   // CPA improving (increasing) -> slope positive -> not degrading
@@ -143,6 +145,7 @@ TEST_F(PerformanceMonitorTest, SteadilyIncreasingCpa_NotDegrading)
   EXPECT_GE(status.cpa_trend_slope_nm_s, 0.0);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(PerformanceMonitorTest, SteadilyDecreasingCpa_IsDegrading)
 {
   // CPA worsening (decreasing sharply) -> slope very negative -> degrading

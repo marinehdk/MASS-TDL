@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <cstddef>
+#include <cstdint>
 
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
@@ -9,33 +11,35 @@
 
 using namespace mass_l3::m7::iec61508;
 
+namespace {
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-static l3_msgs::msg::ODDState build_odd(float conformance_score) {
+l3_msgs::msg::ODDState build_odd(float conformance_score) {
   l3_msgs::msg::ODDState o;
   o.conformance_score = conformance_score;
-  o.confidence = 1.0f;
+  o.confidence = 1.0F;
   return o;
 }
 
-static l3_msgs::msg::WorldState build_world_empty() {
+l3_msgs::msg::WorldState build_world_empty() {
   return l3_msgs::msg::WorldState{};
 }
 
-static l3_msgs::msg::WorldState build_world_with_cpa(double cpa_m) {
+l3_msgs::msg::WorldState build_world_with_cpa(double cpa_m) {
   l3_msgs::msg::WorldState w;
   l3_msgs::msg::TrackedTarget t;
   t.cpa_m = cpa_m;
   t.tcpa_s = 120.0;
-  t.confidence = 0.9f;
+  t.confidence = 0.9F;
   w.targets.push_back(t);
   return w;
 }
 
-static l3_msgs::msg::WorldState build_world_multiple_targets(
-    double cpa1, double cpa2)
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+l3_msgs::msg::WorldState build_world_multiple_targets(double cpa1, double cpa2)
 {
   l3_msgs::msg::WorldState w;
   {
@@ -53,20 +57,23 @@ static l3_msgs::msg::WorldState build_world_multiple_targets(
   return w;
 }
 
-static l3_msgs::msg::COLREGsConstraint build_colregs_empty() {
+l3_msgs::msg::COLREGsConstraint build_colregs_empty() {
   return l3_msgs::msg::COLREGsConstraint{};
 }
 
-static l3_msgs::msg::COLREGsConstraint build_colregs_with_rules(std::size_t rule_count) {
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+l3_msgs::msg::COLREGsConstraint build_colregs_with_rules(std::size_t rule_count) {
   l3_msgs::msg::COLREGsConstraint c;
-  for (std::size_t i = 0u; i < rule_count; ++i) {
+  for (std::size_t i = 0U; i < rule_count; ++i) {
     l3_msgs::msg::RuleActive r;
     r.rule_id = uint8_t{15};
     c.active_rules.push_back(r);
   }
-  c.confidence = 0.9f;
+  c.confidence = 0.9F;
   return c;
 }
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Test 1: conformance_score in range — valid
@@ -74,10 +81,10 @@ static l3_msgs::msg::COLREGsConstraint build_colregs_with_rules(std::size_t rule
 
 TEST(FaultMonitorTest, ConformanceScore_InRange_Valid) {
   FaultMonitor monitor;
-  auto const odd = build_odd(0.75f);
-  auto const result = monitor.validate_odd_state(odd);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kOdd = build_odd(0.75F);
+  auto const kResult = monitor.validate_odd_state(kOdd);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -86,10 +93,10 @@ TEST(FaultMonitorTest, ConformanceScore_InRange_Valid) {
 
 TEST(FaultMonitorTest, ConformanceScore_OutOfRange_Invalid) {
   FaultMonitor monitor;
-  auto const odd = build_odd(1.5f);
-  auto const result = monitor.validate_odd_state(odd);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(result.value());
+  auto const kOdd = build_odd(1.5F);
+  auto const kResult = monitor.validate_odd_state(kOdd);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_FALSE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +105,10 @@ TEST(FaultMonitorTest, ConformanceScore_OutOfRange_Invalid) {
 
 TEST(FaultMonitorTest, ConformanceScore_ExactBoundary_1_Valid) {
   FaultMonitor monitor;
-  auto const odd = build_odd(1.0f);
-  auto const result = monitor.validate_odd_state(odd);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kOdd = build_odd(1.0F);
+  auto const kResult = monitor.validate_odd_state(kOdd);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -110,10 +117,10 @@ TEST(FaultMonitorTest, ConformanceScore_ExactBoundary_1_Valid) {
 
 TEST(FaultMonitorTest, ConformanceScore_ExactBoundary_0_Valid) {
   FaultMonitor monitor;
-  auto const odd = build_odd(0.0f);
-  auto const result = monitor.validate_odd_state(odd);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kOdd = build_odd(0.0F);
+  auto const kResult = monitor.validate_odd_state(kOdd);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -122,10 +129,10 @@ TEST(FaultMonitorTest, ConformanceScore_ExactBoundary_0_Valid) {
 
 TEST(FaultMonitorTest, CpaConsistency_NegativeCpa_Inconsistent) {
   FaultMonitor monitor;
-  auto const world = build_world_with_cpa(-5.0);
-  auto const result = monitor.validate_cpa_consistency(world);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(result.value());
+  auto const kWorld = build_world_with_cpa(-5.0);
+  auto const kResult = monitor.validate_cpa_consistency(kWorld);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_FALSE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -134,10 +141,10 @@ TEST(FaultMonitorTest, CpaConsistency_NegativeCpa_Inconsistent) {
 
 TEST(FaultMonitorTest, CpaConsistency_ValidCpas_Consistent) {
   FaultMonitor monitor;
-  auto const world = build_world_multiple_targets(500.0, 0.0);
-  auto const result = monitor.validate_cpa_consistency(world);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kWorld = build_world_multiple_targets(500.0, 0.0);
+  auto const kResult = monitor.validate_cpa_consistency(kWorld);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -146,11 +153,11 @@ TEST(FaultMonitorTest, CpaConsistency_ValidCpas_Consistent) {
 
 TEST(FaultMonitorTest, ColregsConsistency_NoRulesNoTargets_Consistent) {
   FaultMonitor monitor;
-  auto const world   = build_world_empty();
-  auto const colregs = build_colregs_empty();
-  auto const result  = monitor.validate_colregs_consistency(world, colregs);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kWorld   = build_world_empty();
+  auto const kColregs = build_colregs_empty();
+  auto const kResult  = monitor.validate_colregs_consistency(kWorld, kColregs);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -159,11 +166,11 @@ TEST(FaultMonitorTest, ColregsConsistency_NoRulesNoTargets_Consistent) {
 
 TEST(FaultMonitorTest, ColregsConsistency_RulesWithNoTargets_Inconsistent) {
   FaultMonitor monitor;
-  auto const world   = build_world_empty();
-  auto const colregs = build_colregs_with_rules(1u);
-  auto const result  = monitor.validate_colregs_consistency(world, colregs);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(result.value());
+  auto const kWorld   = build_world_empty();
+  auto const kColregs = build_colregs_with_rules(1U);
+  auto const kResult  = monitor.validate_colregs_consistency(kWorld, kColregs);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_FALSE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -172,11 +179,11 @@ TEST(FaultMonitorTest, ColregsConsistency_RulesWithNoTargets_Inconsistent) {
 
 TEST(FaultMonitorTest, ColregsConsistency_RulesWithTargets_Consistent) {
   FaultMonitor monitor;
-  auto const world   = build_world_with_cpa(300.0);
-  auto const colregs = build_colregs_with_rules(2u);
-  auto const result  = monitor.validate_colregs_consistency(world, colregs);
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(result.value());
+  auto const kWorld   = build_world_with_cpa(300.0);
+  auto const kColregs = build_colregs_with_rules(2U);
+  auto const kResult  = monitor.validate_colregs_consistency(kWorld, kColregs);
+  ASSERT_TRUE(kResult.has_value());
+  EXPECT_TRUE(kResult.value());
 }
 
 // ---------------------------------------------------------------------------
@@ -187,18 +194,18 @@ TEST(FaultMonitorTest, Run_MultipleFailures_FaultCountAccumulates) {
   FaultMonitor monitor;
 
   // ODD out of range + negative CPA
-  auto const bad_odd    = build_odd(1.5f);
-  auto const bad_world  = build_world_with_cpa(-10.0);
-  auto const ok_colregs = build_colregs_empty();
+  auto const kBadOdd    = build_odd(1.5F);
+  auto const kBadWorld  = build_world_with_cpa(-10.0);
+  auto const kOkColregs = build_colregs_empty();
 
-  auto const result = monitor.run(bad_odd, bad_world, ok_colregs);
+  auto const kResult = monitor.run(kBadOdd, kBadWorld, kOkColregs);
 
   // Two checks failed: ODD score + CPA
-  EXPECT_FALSE(result.conformance_score_valid);
-  EXPECT_FALSE(result.cpa_internal_consistent);
-  EXPECT_TRUE(result.colregs_target_id_match);
-  EXPECT_GE(result.fault_count, 2u);
-  EXPECT_EQ(monitor.fault_count(), result.fault_count);
+  EXPECT_FALSE(kResult.conformance_score_valid);
+  EXPECT_FALSE(kResult.cpa_internal_consistent);
+  EXPECT_TRUE(kResult.colregs_target_id_match);
+  EXPECT_GE(kResult.fault_count, 2U);
+  EXPECT_EQ(monitor.fault_count(), kResult.fault_count);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,16 +215,16 @@ TEST(FaultMonitorTest, Run_MultipleFailures_FaultCountAccumulates) {
 TEST(FaultMonitorTest, Run_AllPassing_FaultCountUnchanged) {
   FaultMonitor monitor;
 
-  auto const good_odd    = build_odd(0.9f);
-  auto const good_world  = build_world_with_cpa(500.0);
-  auto const ok_colregs  = build_colregs_empty();
+  auto const kGoodOdd    = build_odd(0.9F);
+  auto const kGoodWorld  = build_world_with_cpa(500.0);
+  auto const kOkColregs  = build_colregs_empty();
 
-  auto const result = monitor.run(good_odd, good_world, ok_colregs);
+  auto const kResult = monitor.run(kGoodOdd, kGoodWorld, kOkColregs);
 
-  EXPECT_TRUE(result.conformance_score_valid);
-  EXPECT_TRUE(result.cpa_internal_consistent);
-  EXPECT_TRUE(result.colregs_target_id_match);
-  EXPECT_EQ(result.fault_count, 0u);
+  EXPECT_TRUE(kResult.conformance_score_valid);
+  EXPECT_TRUE(kResult.cpa_internal_consistent);
+  EXPECT_TRUE(kResult.colregs_target_id_match);
+  EXPECT_EQ(kResult.fault_count, 0U);
 }
 
 // ---------------------------------------------------------------------------
@@ -227,10 +234,10 @@ TEST(FaultMonitorTest, Run_AllPassing_FaultCountUnchanged) {
 TEST(FaultMonitorTest, ResetCount_ClearsFaultCount) {
   FaultMonitor monitor;
 
-  auto const bad_odd = build_odd(-0.1f);
-  (void)monitor.run(bad_odd, build_world_empty(), build_colregs_empty());
-  EXPECT_GT(monitor.fault_count(), 0u);
+  auto const kBadOdd = build_odd(-0.1F);
+  (void)monitor.run(kBadOdd, build_world_empty(), build_colregs_empty());
+  EXPECT_GT(monitor.fault_count(), 0U);
 
   monitor.reset_count();
-  EXPECT_EQ(monitor.fault_count(), 0u);
+  EXPECT_EQ(monitor.fault_count(), 0U);
 }

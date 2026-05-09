@@ -42,6 +42,7 @@ WorldModelNode::WorldModelNode(const rclcpp::NodeOptions& options)
 
 // ── Parameter loading ──────────────────────────────────────────────────────
 
+// NOLINTNEXTLINE(readability-function-size)
 void WorldModelNode::load_parameters() {
   declare_m2_parameters(*this);
 
@@ -120,6 +121,7 @@ void WorldModelNode::load_parameters() {
 
 // ── Component creation ─────────────────────────────────────────────────────
 
+// NOLINTNEXTLINE(readability-function-size)
 void WorldModelNode::create_components() {
   // Coordinate transform (origin will be set on first own-ship update)
   coord_transform_ = std::make_shared<CoordTransform>();
@@ -460,6 +462,7 @@ void WorldModelNode::publish_world_state() {
   // If no value (EV critical or no own-ship snapshot), silently skip publication.
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 void WorldModelNode::publish_sat_data() {
   const auto health = aggregator_->aggregated_health();
   const auto own_ship = aggregator_->latest_own_ship();
