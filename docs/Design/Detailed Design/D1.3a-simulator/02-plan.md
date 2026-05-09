@@ -2608,3 +2608,1536 @@ Expected: all PASSED, zero FAILED or ERROR.
 
 ### Placeholder scan
 No TBD/TODO/implement-later found in code blocks. All test assertions have concrete threshold values. All file paths are exact. All commands have expected output.
+
+---
+
+## v3.1 补丁实施计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Goal:** 在已闭 D1.3a 之上叠加三项 NEW DoD（RL 隔离 L1 物理目录拆分 + `ShipMotionSimulator::export_fmu_interface()` 抽象签名 + CI `rl_isolation_lint` job），5/31 EOD 闭口，原版 §1–§15 字面不动 / 原 DoD 全部 ✅ 不得回归。
+>
+> **Architecture:** 物理子目录 `git mv` 拆分（方案 A）→ 三组 colcon 包独立，CI 路径前缀 grep 双向 lint。`export_fmu_interface()` 返回 `FmuInterfaceSpec`（22 变量）作为 D1.3c modelDescription.xml + dds-fmu mapping 的纯文本契约源（Phase 1 不打 FMU 二进制）。
+>
+> **Tech Stack:** C++17（接口扩展 + FCB stub）、bash（CI lint 脚本）、YAML（.gitlab-ci.yml）、colcon、ament_cmake、git、ROS2 Jazzy 容器。
+>
+> **Spec 来源**：`docs/Design/Detailed Design/D1.3a-simulator/01-spec.md` §v3.1.1–§v3.1.14（已 commit）。每条 task 末尾的 R-Px 提示对应 spec §v3.1.11 的同 ID 风险条目。
+>
+> **Timeline 锚点**（spec §v3.1.8 owner-by-day 矩阵）：
+>
+> | 日期 | Task |
+> |---|---|
+> | 5/12 (Mon) | T1 + T10 |
+> | 5/13 (Tue) | T2 + T4 + T5 |
+> | 5/14 (Wed) | T3 + 部分 T11 |
+> | 5/15 (Thu) | T6 + T7 |
+> | 5/16 (Fri) | T8 |
+> | 5/19 (Mon) | T9 + 完整 T11 |
+> | 5/20 (Tue) | T12 + T13 |
+> | 5/21–30 | buffer / D1.3c owner 签字反馈 / DEMO 排练 |
+> | 5/31 (Fri) | DoD 复核 + CLOSED |
+
+---
+
+### Task T1：包归属审计 + spec commit 状态验证（1h）
+
+**Files:**
+- Verify: `docs/Design/Detailed Design/D1.3a-simulator/01-spec.md` §v3.1.1（已 commit）
+
+- [ ] **Step 1: 验证 spec 已落入 main**
+
+```bash
+cd "/Users/marine/Code/MASS-L3-Tactical Layer"
+git log --oneline -5 -- "docs/Design/Detailed Design/D1.3a-simulator/01-spec.md"
+```
+
+Expected：最新一条 commit 含 `docs(d1.3a/v3.1): append v3.1 patch spec` 字样。
+
+- [ ] **Step 2: 重跑包归属审计 grep（zero hit 复证）**
+
+```bash
+grep -rn "ship_sim_interfaces\|fcb_simulator" \
+    src/m1_odd_envelope_manager src/m2_world_model src/m3_mission_manager \
+    src/m4_behavior_arbiter src/m5_tactical_planner src/m6_colregs_reasoner \
+    src/m7_safety_supervisor src/m8_hmi_bridge src/m8_hmi_transparency_bridge \
+    --include='*.hpp' --include='*.cpp' --include='*.py' \
+    --include='package.xml' --include='CMakeLists.txt' || true
+```
+
+Expected：**stdout 完全为空** + 退出码 1（grep 无匹配）。若有任何输出 → 触发 R-P2 Contingency（重新评估 ship_sim_interfaces 归属）。
+
+- [ ] **Step 3: 创建 feature branch**
+
+```bash
+git checkout main && git pull --ff-only
+git checkout -b feat/d1.3a-v3.1-rl-isolation-fmi
+```
+
+- [ ] **Step 4: 不需 commit（验证型 task）**
+
+> **Contingency (R-P2)：** 若 Step 2 有命中，停止 T2，回 spec §v3.1.1 修订归属表 + lint 模式（把 ship_sim_interfaces 改归 `l3_tdl_kernel/`）。
+
+---
+
+### Task T2：创建子目录 + `git mv` 物理移动（2h）
+
+**Files:**
+- Create: `src/l3_tdl_kernel/`、`src/sim_workbench/`、`src/rl_workbench/`（空目录占位）
+- Move: 11 包入 `l3_tdl_kernel/` + 5 包入 `sim_workbench/`
+- Delete: `src/m8_hmi_bridge/`（空目录脚手架）
+
+- [ ] **Step 1: 备份当前 src/ 路径快照（应急回滚用）**
+
+```bash
+ls src/ > /tmp/src-tree-pre-v3.1.txt
+git status > /tmp/git-status-pre-v3.1.txt
+```
+
+- [ ] **Step 2: 创建三组子目录**
+
+```bash
+mkdir -p src/l3_tdl_kernel src/sim_workbench src/rl_workbench
+```
+
+- [ ] **Step 3: `git mv` kernel 11 包**
+
+```bash
+git mv src/m1_odd_envelope_manager src/l3_tdl_kernel/
+git mv src/m2_world_model           src/l3_tdl_kernel/
+git mv src/m3_mission_manager       src/l3_tdl_kernel/
+git mv src/m4_behavior_arbiter      src/l3_tdl_kernel/
+git mv src/m5_tactical_planner      src/l3_tdl_kernel/
+git mv src/m6_colregs_reasoner      src/l3_tdl_kernel/
+git mv src/m7_safety_supervisor     src/l3_tdl_kernel/
+git mv src/m8_hmi_transparency_bridge src/l3_tdl_kernel/
+git mv src/l3_msgs                  src/l3_tdl_kernel/
+git mv src/l3_external_msgs         src/l3_tdl_kernel/
+git mv src/common                   src/l3_tdl_kernel/
+```
+
+- [ ] **Step 4: `git mv` sim 5 包**
+
+```bash
+git mv src/ship_sim_interfaces       src/sim_workbench/
+git mv src/fcb_simulator             src/sim_workbench/
+git mv src/sil_mock_publisher        src/sim_workbench/
+git mv src/l3_external_mock_publisher src/sim_workbench/
+git mv src/ais_bridge                src/sim_workbench/
+```
+
+- [ ] **Step 5: 删除空 m8_hmi_bridge/ 脚手架**
+
+```bash
+git rm -r src/m8_hmi_bridge
+```
+
+- [ ] **Step 6: 验证 git status 显示 R 重命名（保留历史血缘）**
+
+```bash
+git status --short | head -30
+```
+
+Expected：所有移动行以 `R  ` 开头（重命名），不是 `D  ` + `??`。若出现 `D` + `??` → R-P7 contingency（中止，`git reset --hard HEAD` + 重新 `git mv`）。
+
+- [ ] **Step 7: 验证 tree 拓扑**
+
+```bash
+ls src/l3_tdl_kernel/ | sort   # 应 11 项
+ls src/sim_workbench/ | sort   # 应 5 项
+ls src/rl_workbench/ 2>/dev/null || echo "empty"
+ls src/ | sort                 # 应仅余 l3_tdl_kernel sim_workbench rl_workbench
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A
+git commit -m "$(cat <<'EOF'
+refactor(d1.3a/v3.1)!: split src/ into l3_tdl_kernel + sim_workbench + rl_workbench
+
+Physical subdirectory move per spec §v3.1.6 git mv plan (decision: Plan A,
+spec §v3.1.2 — three independent colcon package groups for RL isolation L1
+boundary, see architecture v1.1.3-pre-stub §F.4).
+
+Moves:
+  l3_tdl_kernel/ <- m1_odd_envelope_manager m2_world_model m3_mission_manager
+                    m4_behavior_arbiter m5_tactical_planner m6_colregs_reasoner
+                    m7_safety_supervisor m8_hmi_transparency_bridge
+                    l3_msgs l3_external_msgs common
+  sim_workbench/ <- ship_sim_interfaces fcb_simulator sil_mock_publisher
+                    l3_external_mock_publisher ais_bridge
+  rl_workbench/  <- created (placeholder for Phase 4 RL)
+
+Deletes:
+  src/m8_hmi_bridge/ (empty scaffold, P-2 follow-up closed)
+
+git mv preserves history blame; package.xml / CMakeLists.txt unchanged
+(colcon resolves by package name, not path).
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+> **Contingency (R-P7)：** 若 `feat/d3.1-m4-behavior-arbiter` 与 `feat/d3.3b-m7-sotif` 已有 commit，本 commit landed 后这两 branch 须 rebase（git 自动跟随 R 重命名，仅内容修改可能冲突，路径迁移自动）。该步骤在 v3.1 补丁主线之外执行。
+
+---
+
+### Task T3：colcon 容器内回归（3h）
+
+**Files:**
+- Verify only: `docker run` 触发的 colcon build 全程
+
+- [ ] **Step 1: 清理本地构建缓存**
+
+```bash
+rm -rf build/ install/ log/
+```
+
+- [ ] **Step 2: 容器内 colcon build（kernel 子集）**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            colcon build --packages-up-to m7_safety_supervisor \
+                         --packages-skip m4_behavior_arbiter \
+                         --event-handlers console_direct+"
+```
+
+Expected：退出码 0；末尾 `Summary: NN packages finished`，无 `[ERROR]`。
+
+> **R-P6 偏差**：`--packages-skip m4_behavior_arbiter` 因 m4 包当前缺 `package.xml`（spec §v3.1.1 P-1 follow-up，由 D3.1 关闭）。D3.1 关闭后改为不带 skip 的全包构建，DoD §v3.1.12 同步去 skip。
+
+- [ ] **Step 3: 容器内 colcon build（sim 子集）**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            colcon build --packages-up-to fcb_simulator \
+                         --event-handlers console_direct+"
+```
+
+Expected：退出码 0。
+
+- [ ] **Step 4: 容器内 colcon test（fcb_simulator + ais_bridge 烟测）**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            source install/setup.bash && \
+            colcon test --packages-select fcb_simulator ais_bridge \
+                        --event-handlers console_direct+ && \
+            colcon test-result --verbose"
+```
+
+Expected：所有原版 D1.3a test PASSED（`test_mmg_steady_turn` `test_rk4_energy` `test_stopping_error` `test_stability_1h` `test_parse_rate`），零 fail / 零 error。
+
+- [ ] **Step 5: 不 commit（验证型 task；失败进入 R-P1）**
+
+> **Contingency (R-P1)：** 若 Step 2/3/4 任一非零退出，按以下顺序排查：
+> 1. `cat log/latest_build/*/stderr.log | head -50` 看具体错误
+> 2. 若错误含 `Could not find a package configuration file` → 检查 `find_package(ship_sim_interfaces ...)` 是否在某 CMakeLists 内有路径硬编码（grep 全仓 `find_package` 行）
+> 3. 若错误含 `AMENT_PREFIX_PATH` → 检查 Dockerfile.ci 是否有 `ENV AMENT_PREFIX_PATH=/workspace/src/<pkg>` 形态硬编码
+> 4. 若仍不通，回滚 T2（`git revert HEAD`）+ 切方案 B 兜底（spec §v3.1.11 R-P1 末段路径）
+
+---
+
+### Task T4：路径配置文件更新（pytest.ini + .gitlab-ci.yml）（2h）
+
+**Files:**
+- Modify: `pytest.ini`
+- Modify: `.gitlab-ci.yml`
+- Modify: `tools/docker/Dockerfile.ci`（如需 — 当前评估不需）
+
+- [ ] **Step 1: 修订 pytest.ini pythonpath**
+
+```bash
+# 现状：pythonpath = src src/m8_hmi_transparency_bridge/python
+# 目标：pythonpath = src/l3_tdl_kernel src/l3_tdl_kernel/m8_hmi_transparency_bridge/python src/sim_workbench
+```
+
+直接编辑 `pytest.ini`，把 `pythonpath` 行替换为：
+
+```ini
+pythonpath = src/l3_tdl_kernel src/l3_tdl_kernel/m8_hmi_transparency_bridge/python src/sim_workbench
+```
+
+- [ ] **Step 2: dry-run pytest 验证零回归**
+
+```bash
+python3 -m pytest tests/ -q
+```
+
+Expected：`39 passed in N.NNs`（与原版完全一致）。
+
+> **R-P8 Contingency：** 若 pytest 失败、报 `ModuleNotFoundError` → 仅修改 `pytest.ini` `pythonpath` 多路径列表（**不**修改测试 import 语句，**不**修改业务代码）；可加路径如 `src/l3_tdl_kernel/m2_world_model/python` 若 m2 内有 Python 模块；用 `find src -name '__init__.py' | head` 确认所有 Python 包路径。
+
+- [ ] **Step 3: 修订 .gitlab-ci.yml — detect-changes job awk**
+
+定位 `detect-changes:` job，把：
+```yaml
+CHANGED_PKGS=$(git diff --name-only origin/main...HEAD | \
+               awk -F/ '/^src\// {print $2}' | sort -u | tr '\n' ' ')
+```
+替换为：
+```yaml
+CHANGED_PKGS=$(git diff --name-only origin/main...HEAD | \
+               awk -F/ '/^src\// {print $3}' | sort -u | tr '\n' ' ')
+```
+
+(因为路径深度从 `src/<pkg>/...` 变为 `src/<group>/<pkg>/...`，提取的应是 `$3` 即 pkg 名)
+
+- [ ] **Step 4: 修订 .gitlab-ci.yml — stage-1-lint ruff/mypy 路径**
+
+定位 `stage-1-lint:` job，把：
+```yaml
+- ruff check src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python
+- mypy src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python
+```
+替换为：
+```yaml
+- ruff check src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
+- mypy src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
+```
+
+- [ ] **Step 5: 修订 .gitlab-ci.yml — multi_vessel_lint 的 src/ais_bridge 路径**
+
+定位 `multi_vessel_lint:` job，把内嵌 `src/ais_bridge/*.py` 路径替换为 `src/sim_workbench/ais_bridge/*.py`（保持原 grep 模式不动）。
+
+- [ ] **Step 6: 验证 yaml 语法**
+
+```bash
+yamllint .gitlab-ci.yml
+```
+
+Expected：0 errors（warning 可接受）。
+
+- [ ] **Step 7: 验证 ruff + mypy 仍 0 violations**
+
+```bash
+ruff check src/ tests/
+```
+
+Expected：`All checks passed!`（0 violations）。
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add pytest.ini .gitlab-ci.yml
+git commit -m "$(cat <<'EOF'
+chore(d1.3a/v3.1): update path configs for src/ subdir layout
+
+- pytest.ini: pythonpath += src/l3_tdl_kernel + src/sim_workbench
+- .gitlab-ci.yml detect-changes: awk -F/ '/^src\// {print $3}' (depth +1)
+- .gitlab-ci.yml stage-1-lint: ruff/mypy paths l3_tdl_kernel/{m2,m8} prefix
+- .gitlab-ci.yml multi_vessel_lint: src/sim_workbench/ais_bridge/*.py prefix
+
+Verified: pytest 39 passed; ruff 0 violations; yamllint clean.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T5：PATH-S 脚本路径迁移（0.5h）
+
+**Files:**
+- Modify: `tools/ci/check-doer-checker-independence.sh`
+
+- [ ] **Step 1: 修改 M7_SRC 常量**
+
+把脚本第 ~28 行：
+```bash
+readonly M7_SRC="src/m7_safety_supervisor"
+```
+替换为：
+```bash
+readonly M7_SRC="src/l3_tdl_kernel/m7_safety_supervisor"
+```
+
+- [ ] **Step 2: 本地运行验证**
+
+```bash
+bash tools/ci/check-doer-checker-independence.sh
+echo "exit=$?"
+```
+
+Expected：`exit=0`，无 `FATAL` / `VIOLATION` 输出。
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tools/ci/check-doer-checker-independence.sh
+git commit -m "chore(d1.3a/v3.1): update PATH-S M7_SRC for kernel subdir layout
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task T6：`ShipMotionSimulator::export_fmu_interface()` 接口扩展（2h）
+
+**Files:**
+- Modify: `src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp`
+
+- [ ] **Step 1: 写完整 header（保留原有方法，追加新类型 + 新纯虚方法）**
+
+完整替换 `ship_motion_simulator.hpp` 内容为：
+
+```cpp
+// SPDX-License-Identifier: Proprietary
+// Abstract base class for pluginlib-loadable ship motion simulators.
+// MV-4 fix: Capability Manifest pattern — zero vessel-type constants in node.
+// v3.1 NEW: FMI 2.0 export contract for D1.3c dds-fmu mapping (spec §v3.1.4).
+#pragma once
+#include <string>
+#include <vector>
+#include "ship_sim_interfaces/ship_state.hpp"
+namespace ship_sim {
+
+struct FmuVariableSpec {
+  std::string name;
+  std::string causality;
+  std::string variability;
+  std::string type;
+  std::string unit;
+  double      start;
+  std::string description;
+};
+
+struct FmuInterfaceSpec {
+  std::string fmi_version;
+  std::string model_name;
+  std::string model_identifier;
+  double      default_step_size;
+  std::vector<FmuVariableSpec> variables;
+};
+
+class ShipMotionSimulator {
+ public:
+  virtual ~ShipMotionSimulator() = default;
+  virtual void load_params(const std::string& yaml_path) = 0;
+  virtual ShipState step(const ShipState& state, double delta_rad,
+                         double n_rps, double dt_s) = 0;
+  virtual std::string vessel_class() const = 0;
+  virtual std::string hull_class()   const = 0;
+  // v3.1 NEW: FMI 2.0 export contract (spec §v3.1.4).
+  // Phase 1 contract-only; D1.3c implements pythonfmu/mlfmu wrap via pybind11
+  // bindings into this C++ class. This method enumerates FMU variables for
+  // modelDescription.xml + dds-fmu mapping XML generation.
+  virtual FmuInterfaceSpec export_fmu_interface() const = 0;
+};
+
+}  // namespace ship_sim
+```
+
+- [ ] **Step 2: 容器内 header-only 编译验证（用 fcb_simulator 全 build 触发）**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            colcon build --packages-select ship_sim_interfaces \
+                         --event-handlers console_direct+"
+```
+
+Expected：build 成功（FCBSimulator 暂时缺 `export_fmu_interface()` override，会在 T7 补——此处仅验证 header 自身合法）。
+
+> **Note**：Step 2 可能因 FCBSimulator 未实现纯虚方法导致 fcb_simulator build 失败，但 ship_sim_interfaces 单包编译应通过。若顺序问题，先 commit T6 + T7 再统一 build。
+
+- [ ] **Step 3: grep 验证签名落地**
+
+```bash
+grep -n "export_fmu_interface" src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp
+```
+
+Expected：1 行命中 `virtual FmuInterfaceSpec export_fmu_interface() const = 0;`。
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp
+git commit -m "$(cat <<'EOF'
+feat(d1.3a/v3.1): add ShipMotionSimulator::export_fmu_interface() pure virtual
+
+Per spec §v3.1.4 signature S1:
+- FmuVariableSpec struct: name/causality/variability/type/unit/start/description
+- FmuInterfaceSpec struct: fmi_version/model_name/model_identifier/
+                            default_step_size/variables[]
+- export_fmu_interface() const = 0 (pure virtual)
+
+Phase 1 contract-only — D1.3c implements pythonfmu/mlfmu wrap via pybind11.
+FCBSimulator override + unit test follow in T7.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+> **Contingency (R-P3)：** D1.3c owner（V&V FTE role-hat）须在 5/22 前 review 此 commit + 在 PR 评论签字。若 owner 反馈需追加字段（如 `aliasName` / `serializeAs`），仅在 `FmuVariableSpec` / `FmuInterfaceSpec` **末尾追加**字段（C++ struct 末尾追加保证向后兼容）；不删不改既有字段。
+
+---
+
+### Task T7：FCBSimulator stub 实装 + 单元测试（3h）
+
+**Files:**
+- Modify: `src/sim_workbench/fcb_simulator/include/fcb_simulator/fcb_simulator_plugin.hpp`
+- Modify: `src/sim_workbench/fcb_simulator/src/fcb_simulator_plugin.cpp`
+- Create: `src/sim_workbench/fcb_simulator/test/test_fcb_export_fmu_interface.cpp`
+- Modify: `src/sim_workbench/fcb_simulator/CMakeLists.txt`（新增 test target）
+
+- [ ] **Step 1: 写失败的测试**
+
+创建 `src/sim_workbench/fcb_simulator/test/test_fcb_export_fmu_interface.cpp`：
+
+```cpp
+// SPDX-License-Identifier: Proprietary
+// Unit test for FCBSimulator::export_fmu_interface() (spec §v3.1.4 + §v3.1.12 DoD).
+#include <gtest/gtest.h>
+#include "fcb_simulator/fcb_simulator_plugin.hpp"
+#include "ship_sim_interfaces/ship_motion_simulator.hpp"
+
+using ship_sim::FmuInterfaceSpec;
+using ship_sim::FmuVariableSpec;
+
+class FcbExportFmuInterfaceTest : public ::testing::Test {
+ protected:
+  fcb_sim::FCBSimulator sut_;
+};
+
+TEST_F(FcbExportFmuInterfaceTest, ReturnsCorrectFmiVersion) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  EXPECT_EQ(spec.fmi_version, "2.0");
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ReturnsCorrectModelName) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  EXPECT_EQ(spec.model_name, "FCBShipDynamics");
+  EXPECT_EQ(spec.model_identifier, "FCBShipDynamics");
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ReturnsCorrectStepSize) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  EXPECT_DOUBLE_EQ(spec.default_step_size, 0.02);
+}
+
+TEST_F(FcbExportFmuInterfaceTest, HasExactVariableCount) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  EXPECT_EQ(spec.variables.size(), 22u);
+}
+
+TEST_F(FcbExportFmuInterfaceTest, AllCausalityValuesLegal) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  for (const auto& v : spec.variables) {
+    EXPECT_TRUE(v.causality == "input"     ||
+                v.causality == "output"    ||
+                v.causality == "parameter" ||
+                v.causality == "local")
+      << "Variable " << v.name << " has invalid causality: " << v.causality;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, AllVariabilityValuesLegal) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  for (const auto& v : spec.variables) {
+    EXPECT_TRUE(v.variability == "continuous" ||
+                v.variability == "discrete"   ||
+                v.variability == "fixed"      ||
+                v.variability == "tunable")
+      << "Variable " << v.name << " has invalid variability: " << v.variability;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, AllTypeValuesLegal) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  for (const auto& v : spec.variables) {
+    EXPECT_TRUE(v.type == "Real"    ||
+                v.type == "Integer" ||
+                v.type == "Boolean" ||
+                v.type == "String")
+      << "Variable " << v.name << " has invalid type: " << v.type;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ContainsRequiredOutputs) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  std::vector<std::string> required_outputs =
+      {"u","v","r","x","y","psi","phi","p","delta","n","sog"};
+  for (const auto& name : required_outputs) {
+    bool found = false;
+    for (const auto& v : spec.variables) {
+      if (v.name == name && v.causality == "output") { found = true; break; }
+    }
+    EXPECT_TRUE(found) << "Required output variable not found: " << name;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ContainsControlInputs) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  std::vector<std::string> ctrl_inputs = {"delta_cmd", "n_rps_cmd"};
+  for (const auto& name : ctrl_inputs) {
+    bool found = false;
+    for (const auto& v : spec.variables) {
+      if (v.name == name && v.causality == "input") { found = true; break; }
+    }
+    EXPECT_TRUE(found) << "Control input not found: " << name;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ContainsDisturbanceInputs) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  std::vector<std::string> dist_inputs =
+      {"wind_dir_deg","wind_speed_mps","current_dir_deg","current_speed_mps"};
+  for (const auto& name : dist_inputs) {
+    bool found = false;
+    for (const auto& v : spec.variables) {
+      if (v.name == name && v.causality == "input") { found = true; break; }
+    }
+    EXPECT_TRUE(found) << "Disturbance input not found: " << name;
+  }
+}
+
+TEST_F(FcbExportFmuInterfaceTest, ContainsParameters) {
+  FmuInterfaceSpec spec = sut_.export_fmu_interface();
+  std::vector<std::string> params = {"L","B","d","m","Izz"};
+  for (const auto& name : params) {
+    bool found = false;
+    for (const auto& v : spec.variables) {
+      if (v.name == name && v.causality == "parameter") { found = true; break; }
+    }
+    EXPECT_TRUE(found) << "Parameter not found: " << name;
+  }
+}
+```
+
+- [ ] **Step 2: 在 `fcb_simulator_plugin.hpp` 内 class FCBSimulator 内追加方法声明**
+
+定位现有 `FCBSimulator` class 声明（继承自 `ship_sim::ShipMotionSimulator`），在 `public:` 段已有 4 个 override 之后追加：
+
+```cpp
+ship_sim::FmuInterfaceSpec export_fmu_interface() const override;
+```
+
+- [ ] **Step 3: 在 `fcb_simulator_plugin.cpp` 实装方法**
+
+文件末尾追加：
+
+```cpp
+ship_sim::FmuInterfaceSpec FCBSimulator::export_fmu_interface() const {
+  return {
+    "2.0",
+    "FCBShipDynamics",
+    "FCBShipDynamics",
+    0.02,
+    {
+      {"u",     "output", "continuous", "Real", "m/s",   0.0, "surge velocity (body frame)"},
+      {"v",     "output", "continuous", "Real", "m/s",   0.0, "sway velocity (body frame)"},
+      {"r",     "output", "continuous", "Real", "rad/s", 0.0, "yaw rate"},
+      {"x",     "output", "continuous", "Real", "m",     0.0, "position x (NED)"},
+      {"y",     "output", "continuous", "Real", "m",     0.0, "position y (NED)"},
+      {"psi",   "output", "continuous", "Real", "rad",   0.0, "heading"},
+      {"phi",   "output", "continuous", "Real", "rad",   0.0, "roll angle"},
+      {"p",     "output", "continuous", "Real", "rad/s", 0.0, "roll rate"},
+      {"delta", "output", "continuous", "Real", "rad",   0.0, "actual rudder angle"},
+      {"n",     "output", "continuous", "Real", "rev/s", 0.0, "actual propeller rps"},
+      {"sog",   "output", "continuous", "Real", "m/s",   0.0, "speed over ground"},
+      {"delta_cmd", "input", "continuous", "Real", "rad",   0.0, "commanded rudder angle"},
+      {"n_rps_cmd", "input", "continuous", "Real", "rev/s", 0.0, "commanded propeller rps"},
+      {"wind_dir_deg",     "input", "continuous", "Real", "deg", 0.0, "true wind direction (from)"},
+      {"wind_speed_mps",   "input", "continuous", "Real", "m/s", 0.0, "true wind speed"},
+      {"current_dir_deg",  "input", "continuous", "Real", "deg", 0.0, "current set direction (towards)"},
+      {"current_speed_mps","input", "continuous", "Real", "m/s", 0.0, "current speed"},
+      {"L",   "parameter", "fixed", "Real", "m",     45.0,    "ship length"},
+      {"B",   "parameter", "fixed", "Real", "m",      8.5,    "beam"},
+      {"d",   "parameter", "fixed", "Real", "m",      2.5,    "draft"},
+      {"m",   "parameter", "fixed", "Real", "kg",     3.5e5,  "mass"},
+      {"Izz", "parameter", "fixed", "Real", "kg.m2",  5.0e7,  "yaw inertia"},
+    }
+  };
+}
+```
+
+- [ ] **Step 4: 在 `fcb_simulator/CMakeLists.txt` 注册新 test**
+
+定位现有 `if(BUILD_TESTING)` 块（已有 `test_mmg_steady_turn` 等），追加：
+
+```cmake
+  ament_add_gtest(test_fcb_export_fmu_interface
+    test/test_fcb_export_fmu_interface.cpp)
+  target_link_libraries(test_fcb_export_fmu_interface fcb_simulator_core)
+  ament_target_dependencies(test_fcb_export_fmu_interface ship_sim_interfaces)
+```
+
+- [ ] **Step 5: 容器内 build + run test**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            colcon build --packages-select fcb_simulator --event-handlers console_direct+ && \
+            source install/setup.bash && \
+            colcon test --packages-select fcb_simulator --event-handlers console_direct+ && \
+            colcon test-result --verbose"
+```
+
+Expected：build 0 错误；test 输出含 `[  PASSED  ] 11 tests` 中 `FcbExportFmuInterfaceTest.*` 11 个全 PASS（含原有 4 个测试）。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/sim_workbench/fcb_simulator/include/fcb_simulator/fcb_simulator_plugin.hpp \
+        src/sim_workbench/fcb_simulator/src/fcb_simulator_plugin.cpp \
+        src/sim_workbench/fcb_simulator/test/test_fcb_export_fmu_interface.cpp \
+        src/sim_workbench/fcb_simulator/CMakeLists.txt
+git commit -m "$(cat <<'EOF'
+feat(d1.3a/v3.1): FCBSimulator::export_fmu_interface() stub + 11 unit tests
+
+22-variable spec per §v3.1.4 stub:
+  outputs (11): u v r x y psi phi p delta n sog
+  control inputs (2): delta_cmd n_rps_cmd
+  disturbance inputs (4): wind_dir_deg wind_speed_mps current_dir_deg current_speed_mps
+  parameters (5): L B d m Izz
+
+Tests cover: fmi_version / model_name / step_size / variable count /
+             causality / variability / type legality / required outputs /
+             control inputs / disturbance inputs / parameters.
+
+Phase 1 contract-only — no FMU binary built. D1.3c (V&V FTE, Phase 1/2 边界)
+consumes via pybind11 wrap + pythonfmu/mlfmu build chain.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T8：`tools/ci/check-rl-isolation.sh` + 5 TC 单元测试（4h）
+
+**Files:**
+- Create: `tools/ci/check-rl-isolation.sh`
+- Create: `tools/ci/tests/test-rl-isolation.sh`
+
+- [ ] **Step 1: 创建主脚本 `tools/ci/check-rl-isolation.sh`**
+
+完整内容：
+
+```bash
+#!/usr/bin/env bash
+# tools/ci/check-rl-isolation.sh
+# RL Isolation L1 Repo Boundary Check (per architecture v1.1.3-pre-stub §F.4 +
+# spec docs/Design/Detailed Design/D1.3a-simulator/01-spec.md §v3.1.5).
+#
+# Verifies cross-group imports/includes between:
+#   src/l3_tdl_kernel/  (frozen, MISRA C++:2023, DNV-RP-0513 assured)
+#   src/sim_workbench/  (Python sim tools / D1.3a-b)
+#   src/rl_workbench/   (Phase 4 启动；目前 .gitkeep + README only)
+#
+# Bidirectional violation detection:
+#   - sim_workbench/rl_workbench MUST NOT import/include kernel packages
+#   - l3_tdl_kernel MUST NOT import/include sim/rl packages
+#
+# Allowlist: same-line comment "# rl-isolation-ok: <reason>" (Python)
+#         or "// rl-isolation-ok: <reason>" (C++) — reason MUST be non-empty.
+
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "FATAL: requires bash >= 4.0 (got ${BASH_VERSION}). On macOS: 'brew install bash'." >&2
+    exit 2
+fi
+
+# Sanity: required directories exist (post T2 git mv).
+for d in src/l3_tdl_kernel src/sim_workbench src/rl_workbench; do
+    if [[ ! -d "$d" ]]; then
+        echo "FATAL: required directory '$d' not found." >&2
+        echo "       T2 (git mv) may not have landed; investigate before retrying." >&2
+        exit 2
+    fi
+done
+
+errors=0
+
+# Patterns
+readonly PY_KERNEL_RE='^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)([[:space:]]|\.|$)'
+readonly PY_SIMRL_RE='^[[:space:]]*(from|import)[[:space:]]+(sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)([[:space:]]|\.|$)'
+readonly CPP_KERNEL_RE='^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)/'
+readonly CPP_SIMRL_RE='^[[:space:]]*#include[[:space:]]*[<"](sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)/'
+
+scan() {
+    local label="$1"; local pattern="$2"; local comment_marker="$3"; shift 3
+    local -a search_dirs=("$@")
+    # Build --include args at most
+    local includes=()
+    if [[ "$comment_marker" == "#" ]]; then
+        includes=(--include='*.py')
+    else
+        includes=(--include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc')
+    fi
+    local out=""
+    if out=$(grep -rEn "$pattern" "${search_dirs[@]}" "${includes[@]}" 2>/dev/null | grep -v "${comment_marker} rl-isolation-ok:" 2>/dev/null); then
+        :  # captured
+    fi
+    if [[ -n "$out" ]]; then
+        echo "==== VIOLATION (${label}) ===="
+        echo "$out"
+        local count
+        count=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+        errors=$((errors + count))
+    fi
+}
+
+scan "python: kernel-import-from-sim/rl" "$PY_KERNEL_RE"   "#"  src/sim_workbench src/rl_workbench
+scan "python: sim/rl-import-from-kernel" "$PY_SIMRL_RE"    "#"  src/l3_tdl_kernel
+scan "cpp:    kernel-include-from-sim/rl" "$CPP_KERNEL_RE" "//" src/sim_workbench src/rl_workbench
+scan "cpp:    sim/rl-include-from-kernel" "$CPP_SIMRL_RE"  "//" src/l3_tdl_kernel
+
+if [[ $errors -gt 0 ]]; then
+    echo ""
+    echo "FAIL: ${errors} RL-isolation violation(s) detected." >&2
+    echo "      Architecture v1.1.3-pre-stub §F.4 requires three-group separation:" >&2
+    echo "        l3_tdl_kernel × sim_workbench × rl_workbench" >&2
+    echo "      If a cross-group reference is intentional, add same-line marker:" >&2
+    echo "         '# rl-isolation-ok: <non-empty reason>' (Python)" >&2
+    echo "         '// rl-isolation-ok: <non-empty reason>' (C++)" >&2
+    exit 1
+fi
+
+echo "PASS: RL-isolation check clean (kernel × sim_workbench × rl_workbench)."
+exit 0
+```
+
+- [ ] **Step 2: 设置可执行权限**
+
+```bash
+chmod +x tools/ci/check-rl-isolation.sh
+```
+
+- [ ] **Step 3: 创建单元测试 `tools/ci/tests/test-rl-isolation.sh`**
+
+```bash
+#!/usr/bin/env bash
+# tools/ci/tests/test-rl-isolation.sh
+# Unit tests for check-rl-isolation.sh (5 TCs per spec §v3.1.5).
+# Manual run only — not gated in CI to avoid main lint pollution.
+
+set -uo pipefail
+SCRIPT="tools/ci/check-rl-isolation.sh"
+PASS=0
+FAIL=0
+
+assert_eq() {
+    local label="$1"; local expected="$2"; local actual="$3"
+    if [[ "$expected" == "$actual" ]]; then
+        echo "  ✅ PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "  ❌ FAIL: $label (expected=$expected got=$actual)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+cleanup() {
+    rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
+    rm -f src/sim_workbench/fcb_simulator/src/_test_violation.py
+    rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.py
+}
+trap cleanup EXIT
+
+echo "== TC-1: clean tree → exit 0 =="
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-1 exit code" "0" "$rc"
+[[ "$out" == *"PASS:"* ]] && echo "  ✅ TC-1 stdout contains PASS:" || { echo "  ❌ TC-1 stdout missing PASS:"; FAIL=$((FAIL + 1)); }
+
+echo ""
+echo "== TC-2: cpp violation → exit 1 =="
+cat > src/sim_workbench/fcb_simulator/src/_test_violation.cpp <<'EOF'
+#include "m7_safety_supervisor/safety_supervisor.hpp"
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-2 exit code" "1" "$rc"
+[[ "$out" == *"VIOLATION"* ]] && echo "  ✅ TC-2 stderr contains VIOLATION" || { echo "  ❌ TC-2 stderr missing VIOLATION"; FAIL=$((FAIL + 1)); }
+rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
+
+echo ""
+echo "== TC-3: cpp allowlist → exit 0 =="
+cat > src/sim_workbench/fcb_simulator/src/_test_violation.cpp <<'EOF'
+#include "m7_safety_supervisor/safety_supervisor.hpp"  // rl-isolation-ok: deliberate fixture for unit test
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-3 exit code (allowlist)" "0" "$rc"
+rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
+
+echo ""
+echo "== TC-4: python violation in sim_workbench → exit 1 =="
+cat > src/sim_workbench/fcb_simulator/src/_test_violation.py <<'EOF'
+from m1_odd_envelope_manager import something
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-4 exit code" "1" "$rc"
+rm -f src/sim_workbench/fcb_simulator/src/_test_violation.py
+
+echo ""
+echo "== TC-5: reverse direction (kernel imports sim) → exit 1 =="
+cat > src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.py <<'EOF'
+import fcb_simulator
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-5 exit code (reverse)" "1" "$rc"
+rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.py
+
+echo ""
+echo "== Summary: PASS=$PASS FAIL=$FAIL =="
+[[ $FAIL -eq 0 ]] && exit 0 || exit 1
+```
+
+- [ ] **Step 4: 设置可执行权限**
+
+```bash
+mkdir -p tools/ci/tests
+chmod +x tools/ci/tests/test-rl-isolation.sh
+```
+
+- [ ] **Step 5: 运行单元测试（验证 5 TC 全 pass）**
+
+```bash
+bash tools/ci/tests/test-rl-isolation.sh
+echo "exit=$?"
+```
+
+Expected：每 TC 行显示 `✅ PASS:`；末尾 `Summary: PASS=N FAIL=0`；`exit=0`。
+
+> **R-P4 Contingency**：若任何 TC 误报（例如 m8_hmi_transparency_bridge/python/web_server/ 内某 .py 触发 lint），即时调试：
+> 1. 把 grep 输出粘到 stdout 看具体行
+> 2. 若是真实合法跨组引用 → 加同行 `# rl-isolation-ok: <reason>` allowlist
+> 3. 若是 grep 模式 bug → 修 `PY_KERNEL_RE` / `CPP_KERNEL_RE` 等正则，回 Step 5 重跑
+
+- [ ] **Step 6: Clean tree 终态再跑一次主脚本（确保 cleanup trap 工作）**
+
+```bash
+bash tools/ci/check-rl-isolation.sh
+echo "exit=$?"
+```
+
+Expected：`PASS: RL-isolation check clean ...` + `exit=0`。
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add tools/ci/check-rl-isolation.sh tools/ci/tests/test-rl-isolation.sh
+git commit -m "$(cat <<'EOF'
+feat(d1.3a/v3.1): add tools/ci/check-rl-isolation.sh + 5 TC unit tests
+
+Per spec §v3.1.5:
+- Bidirectional grep lint: l3_tdl_kernel × sim_workbench × rl_workbench
+- Python: ^(from|import) m[1-8]_... | l3_msgs | l3_external_msgs | common
+- C++: ^#include [<"](m[1-8]_...|...)/
+- Allowlist: same-line "# rl-isolation-ok: <reason>" / "// rl-isolation-ok: <reason>"
+
+5 TC test (test-rl-isolation.sh, manual run only, not in CI):
+  TC-1 clean tree → exit 0
+  TC-2 cpp violation → exit 1
+  TC-3 cpp allowlist → exit 0
+  TC-4 python violation in sim_workbench → exit 1
+  TC-5 reverse (kernel imports sim) → exit 1
+
+Independent from check-doer-checker-independence.sh (different concern: kernel
+group vs sim/rl group; whereas Doer-Checker is M7 vs M1-M6 within kernel).
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T9：`.gitlab-ci.yml` 追加 `rl_isolation_lint` job（1h）
+
+**Files:**
+- Modify: `.gitlab-ci.yml`
+
+- [ ] **Step 1: 在 `multi_vessel_lint:` job 之后追加新 job**
+
+定位 `multi_vessel_lint:` job 末尾（位于 stage: lint），追加：
+
+```yaml
+
+rl_isolation_lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - bash tools/ci/check-rl-isolation.sh
+  allow_failure: false
+```
+
+- [ ] **Step 2: yamllint 验证**
+
+```bash
+yamllint .gitlab-ci.yml
+```
+
+Expected：0 errors。
+
+- [ ] **Step 3: 本地脚本再跑（CI 同操作）**
+
+```bash
+bash tools/ci/check-rl-isolation.sh
+echo "exit=$?"
+```
+
+Expected：`PASS: ...` + `exit=0`。
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add .gitlab-ci.yml
+git commit -m "$(cat <<'EOF'
+ci(d1.3a/v3.1): add rl_isolation_lint job (allow_failure:false)
+
+Per spec §v3.1.5 + DoD §v3.1.12. Blocking job in stage: lint, runs on:
+  - main branch (FULL_PIPELINE=true)
+  - merge_request_event
+  - feature/* branches
+
+Closes finding G P0-G-1 (a, v3.1) — RL isolation L1 boundary CI gate.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T10：`rl_workbench/` 占位 + README（1h）
+
+**Files:**
+- Create: `src/rl_workbench/.gitkeep`
+- Create: `src/rl_workbench/README.md`
+
+- [ ] **Step 1: 创建 .gitkeep**
+
+```bash
+touch src/rl_workbench/.gitkeep
+```
+
+- [ ] **Step 2: 创建 README.md**
+
+完整文件内容：
+
+```markdown
+# rl_workbench/ — Phase 4 RL 训练工作空间（占位）
+
+> **当前状态（2026-05-09）**：占位目录。**禁止任何 Python/C++ 代码进入**。
+> Phase 4（10–12 月，B2 触发）启动后才允许填充内容。
+
+## 目的
+
+本目录是 MASS L3 TDL 三层 RL 隔离架构 L1 Repo 边界的第三象限（per 架构
+v1.1.3-pre-stub 附录 F.4 + 计划 v3.1 §0.4 决策 3）：
+
+| 层 | 边界 | 强制实现 |
+|---|---|---|
+| **L1 Repo** | `/src/l3_tdl_kernel/**` (C++/MISRA, frozen) vs `/src/sim_workbench/**` (Python sim) vs `/src/rl_workbench/**` (Phase 4) | 三 colcon 包独立；CI lint 检测 cross-import 报错 |
+| **L2 Process** | RL 训练独立 Docker container；通过 OSP libcosim FMI socket 调相同 MMG FMU + scenario YAML | docker-compose 隔离 namespace |
+| **L3 Artefact** | 训练完毕 ONNX → mlfmu → target_policy.fmu → libcosim 加载到 certified SIL；Python/PyTorch 永不入 certified loop | mlfmu build 是边界 |
+
+## Phase 4 启动条件（before any code lands here）
+
+1. B2（RL 对抗启动条件）触发——Phase 3 SIL 1000 场景 baseline 完成
+2. git history audit 通过——D1.3a/b/c 已遵守 L1/L2 边界（架构 F.4 行 2166）
+3. DNV-RP-0671 (2024) AI-enabled systems assurance 计划就位
+4. mlfmu 工具链鉴定通过
+
+## 当前 CI 行为
+
+`tools/ci/check-rl-isolation.sh` 双向扫描：
+- 任何文件在本目录引用 `l3_tdl_kernel/*` 或 `sim_workbench/*` → exit 1
+- `l3_tdl_kernel/*` / `sim_workbench/*` 引用本目录 → exit 1
+
+## 引用
+
+- 架构 v1.1.3-pre-stub 附录 F.4（行 2156-2167）
+- SIL 决策记录 §4 RL 隔离三层强制边界
+- 计划 v3.1 §0.4 决策 3
+- spec D1.3a §v3.1.1 + §v3.1.3
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/rl_workbench/.gitkeep src/rl_workbench/README.md
+git commit -m "$(cat <<'EOF'
+feat(d1.3a/v3.1): rl_workbench/ placeholder for Phase 4 RL isolation L1
+
+.gitkeep + README documenting:
+- Three-layer RL isolation architecture (L1/L2/L3 per arch §F.4)
+- Phase 4 启动 prerequisites (B2 trigger / git audit / DNV-RP-0671 / mlfmu qual)
+- Current CI behavior (rl_isolation_lint bidirectional scan)
+
+No code here yet — strictly forbidden until Phase 4 (10–12 月) starts.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T11：全量回归（2h）
+
+**Files:** none modified — verification only.
+
+- [ ] **Step 1: pytest 回归**
+
+```bash
+python3 -m pytest tests/ -q
+```
+
+Expected：`39 passed in N.NNs`。若失败 → R-P8 contingency。
+
+- [ ] **Step 2: ruff 回归**
+
+```bash
+ruff check src/ tests/
+```
+
+Expected：`All checks passed!`。
+
+- [ ] **Step 3: mypy（如本地装）**
+
+```bash
+mypy src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python 2>&1 | tail -5
+```
+
+Expected：`Success: no issues found in N source files`。
+
+- [ ] **Step 4: 容器内 colcon build 全工作区**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            colcon build --packages-up-to m7_safety_supervisor \
+                         --packages-skip m4_behavior_arbiter \
+                         --event-handlers console_direct+ && \
+            colcon build --packages-up-to fcb_simulator \
+                         --event-handlers console_direct+"
+```
+
+Expected：两条 build 均退出 0。
+
+- [ ] **Step 5: 容器内 colcon test（D1.3a 原版 + v3.1 新增）**
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+  bash -lc "source /opt/ros/jazzy/setup.bash && \
+            source install/setup.bash && \
+            colcon test --packages-select fcb_simulator ais_bridge \
+                        --event-handlers console_direct+ && \
+            colcon test-result --verbose"
+```
+
+Expected：原版 5 test + 新增 11 test FcbExportFmuInterfaceTest.* 全 PASS。
+
+- [ ] **Step 6: PATH-S Doer-Checker 独立性脚本**
+
+```bash
+bash tools/ci/check-doer-checker-independence.sh
+echo "exit=$?"
+```
+
+Expected：`exit=0`。
+
+- [ ] **Step 7: RL 隔离脚本主路径**
+
+```bash
+bash tools/ci/check-rl-isolation.sh
+echo "exit=$?"
+```
+
+Expected：`PASS: RL-isolation check clean ...` + `exit=0`。
+
+- [ ] **Step 8: RL 隔离脚本单元测试**
+
+```bash
+bash tools/ci/tests/test-rl-isolation.sh
+echo "exit=$?"
+```
+
+Expected：5 TC 全 PASS + `exit=0`。
+
+- [ ] **Step 9: 推 feature branch 触发 CI pipeline**
+
+```bash
+git push -u origin feat/d1.3a-v3.1-rl-isolation-fmi
+```
+
+打开 GitLab pipeline 链接（或 `gh` 等价），确认：
+- `stage-1-lint` 全绿（含新 rl_isolation_lint）
+- `multi_vessel_lint` 绿
+- `stage-2-unit-test` 绿（如 m4 由 detect-changes 选中，触发 R-P6 contingency）
+- `stage-3-static-analysis` 绿
+
+- [ ] **Step 10: 不 commit（验证型 task）**
+
+> **R-P1/R-P6/R-P8 Contingency**：任何 step 失败按对应 R-Px 处理，不要绕过。
+
+---
+
+### Task T12：DEMO-1 cross-import 演示文件（1h）
+
+**Files:**
+- Create: `tools/ci/demo/violation_fixture.cpp`
+- Create: `tools/ci/demo/run_demo.sh`
+
+- [ ] **Step 1: 创建 fixture 源**
+
+`tools/ci/demo/violation_fixture.cpp`：
+
+```cpp
+// SPDX-License-Identifier: Proprietary
+// DEMO-1 6/15 fixture — DELIBERATE RL-ISOLATION VIOLATION for live demo only.
+// Per spec §v3.1.10 Demo Charter. Path tools/ci/demo/ is NOT scanned by lint;
+// at demo time, this is `cp`'d into src/sim_workbench/fcb_simulator/src/ as
+// _demo_violation.cpp (lint scans + fails), then `rm`'d. Main branch source
+// tree NEVER contains the copy.
+#include "m7_safety_supervisor/safety_supervisor.hpp"
+
+namespace demo {
+inline void unused() { /* no-op fixture */ }
+}
+```
+
+- [ ] **Step 2: 创建 demo run 脚本**
+
+`tools/ci/demo/run_demo.sh`：
+
+```bash
+#!/usr/bin/env bash
+# tools/ci/demo/run_demo.sh — DEMO-1 6/15 RL-isolation lint live demonstration.
+# Per spec §v3.1.10 Demo Charter (~5 min slot).
+set -uo pipefail
+
+DEMO_SRC="tools/ci/demo/violation_fixture.cpp"
+DEMO_DST="src/sim_workbench/fcb_simulator/src/_demo_violation.cpp"
+
+cleanup() { rm -f "$DEMO_DST"; }
+trap cleanup EXIT
+
+echo "=== STEP 1: Tree topology ==="
+tree src/ -L 2 || ls -R src/ | head -20
+
+echo ""
+echo "=== STEP 2: Interface visibility ==="
+grep -n "export_fmu_interface" \
+     src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp
+
+echo ""
+echo "=== STEP 3: Inject violation fixture ==="
+cp "$DEMO_SRC" "$DEMO_DST"
+echo "Copied $DEMO_SRC -> $DEMO_DST"
+
+echo ""
+echo "=== STEP 4: lint runs, expects exit 1 ==="
+set +e
+bash tools/ci/check-rl-isolation.sh
+rc=$?
+set -e
+echo "lint exit=$rc (expected 1)"
+
+echo ""
+echo "=== STEP 5: cleanup, lint rerun, expects exit 0 ==="
+rm -f "$DEMO_DST"
+set +e
+bash tools/ci/check-rl-isolation.sh
+rc=$?
+set -e
+echo "lint exit=$rc (expected 0)"
+```
+
+- [ ] **Step 3: 设置可执行**
+
+```bash
+mkdir -p tools/ci/demo
+chmod +x tools/ci/demo/run_demo.sh
+```
+
+- [ ] **Step 4: dry-run demo 验证（耗时 ≤ 30s）**
+
+```bash
+time bash tools/ci/demo/run_demo.sh
+```
+
+Expected：含 `lint exit=1 (expected 1)` + `lint exit=0 (expected 0)`；总耗时 ≤ 30s；脚本结束后 `ls src/sim_workbench/fcb_simulator/src/ | grep _demo_violation` 应无输出（cleanup trap 工作）。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tools/ci/demo/violation_fixture.cpp tools/ci/demo/run_demo.sh
+git commit -m "$(cat <<'EOF'
+chore(d1.3a/v3.1): DEMO-1 6/15 RL-isolation lint demonstration fixture
+
+tools/ci/demo/ is NOT scanned by check-rl-isolation.sh (lives outside src/).
+At demo time, run_demo.sh:
+  1. shows tree topology (src/{l3_tdl_kernel,sim_workbench,rl_workbench}/)
+  2. shows export_fmu_interface() interface signature
+  3. cp violation_fixture.cpp -> src/sim_workbench/.../_demo_violation.cpp
+  4. runs lint -> exit 1 with VIOLATION output
+  5. removes copy, reruns lint -> exit 0 PASS
+
+Cleanup trap ensures main branch source tree NEVER contains the copy.
+Total demo runtime ~30s. Per spec §v3.1.10.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task T13：spec DoD 复核 + PR 描述（1.5h）
+
+**Files:**
+- Modify: `docs/Design/Detailed Design/D1.3a-simulator/01-spec.md`（仅勾选 §v3.1.12 DoD checkbox，不改其他章节）
+
+- [ ] **Step 1: 把 §v3.1.12 全部满足项的 `[ ]` 改 `[x]`**
+
+逐条核对 §v3.1.12 三段（基线零回归 5 项 + NEW DoD 9 项 + 文档同步 3 项），凡 T1–T12 实际验证通过的勾选 `[x]`。每勾必有对应 verification 命令的实跑日志。
+
+例：
+```diff
+- - [ ] `python3 -m pytest tests/ -q` 仍 **39 passed**（零回归）
++ - [x] `python3 -m pytest tests/ -q` 仍 **39 passed**（零回归） *(T11 step 1，2026-05-NN)*
+```
+
+- [ ] **Step 2: 复跑 spec self-review grep（无 stray TODO）**
+
+```bash
+grep -nE "TBD|TODO|XXX|FIXME" "docs/Design/Detailed Design/D1.3a-simulator/01-spec.md" \
+  | grep -v "HAZID-UNVERIFIED\|HAZID-TBD\|TBD-HAZID\|^.*v3.1.[0-9]\|placeholder"
+```
+
+Expected：输出仅含合法 `[TBD-HAZID]` 标注 / 历史 `Phase 2 D1.3a TODO` 注释，无新 TODO。
+
+- [ ] **Step 3: 把所有 commit squash？（可选，按团队规范——本计划默认不 squash，保留原子 commit 序列）**
+
+不 squash。
+
+- [ ] **Step 4: Commit spec DoD 勾选**
+
+```bash
+git add "docs/Design/Detailed Design/D1.3a-simulator/01-spec.md"
+git commit -m "docs(d1.3a/v3.1): mark v3.1 patch DoD checkboxes (5/31 EOD CLOSED)
+
+All 17 DoD items verified per T1-T12 acceptance criteria.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+- [ ] **Step 5: 推分支 + 创建 MR/PR（用 PR 描述模板见末段）**
+
+```bash
+git push -u origin feat/d1.3a-v3.1-rl-isolation-fmi
+# 然后 GitLab 创建 MR（用 PR template）；如用 gh 镜像仓：
+# gh pr create --title "..." --body "$(cat <<'EOF' ... EOF)"
+```
+
+> **Contingency (R-P3)**：MR 创建后 @ V&V FTE role-hat（用户自切会话）对 T6 接口签名 review。若 5/22 前未签字，标补丁状态 `BLOCKED-on-d1.3c-owner`，5/31 闭口顺延（v3.1 §0.4 弹性）。
+
+---
+
+## 执行前 dry-run checklist
+
+任何执行者在跑 T2 之前**必须**完成以下 dry-run，零不通过项才能开始：
+
+- [ ] **DR-1**：`git status` 干净（无未提交改动），且当前在 `main` HEAD
+- [ ] **DR-2**：`git log --oneline -1 -- "docs/Design/Detailed Design/D1.3a-simulator/01-spec.md"` 显示最新 v3.1 spec commit 已 landed
+- [ ] **DR-3**：`docker images | grep mass-l3/ci` 至少一个 jazzy-ubuntu22.04 tag（容器镜像可用）
+- [ ] **DR-4**：`docker run --rm mass-l3/ci:jazzy-ubuntu22.04 colcon --version` 输出 colcon 版本号
+- [ ] **DR-5**：`python3 --version` ≥ 3.10
+- [ ] **DR-6**：`python3 -m pytest tests/ -q --collect-only 2>&1 | tail -2` 报告 collected 39 items（基线确认）
+- [ ] **DR-7**：`ruff --version` 可用；`ruff check src/ tests/` 当前状态 0 violations（基线确认）
+- [ ] **DR-8**：`bash tools/ci/check-doer-checker-independence.sh` 当前 exit 0（基线）
+- [ ] **DR-9**：grep 验证零内核耦合（spec §v3.1.1 证据 A）：
+  ```bash
+  grep -rn "ship_sim_interfaces\|fcb_simulator" src/m1_* src/m2_* src/m3_* src/m4_* src/m5_* src/m6_* src/m7_* src/m8_* --include='*.hpp' --include='*.cpp' --include='*.py' --include='package.xml' --include='CMakeLists.txt' || echo "CLEAN"
+  ```
+  Expected：`CLEAN`（grep 无匹配，退出 1，由 `||` 转成 `CLEAN`）
+- [ ] **DR-10**：`yamllint .gitlab-ci.yml` 当前 0 errors（基线）
+- [ ] **DR-11**：feature branch `feat/d1.3a-v3.1-rl-isolation-fmi` 不存在（避免与他人冲突）：
+  ```bash
+  git branch -a | grep d1.3a-v3.1 || echo "BRANCH-FREE"
+  ```
+- [ ] **DR-12**：active branches `feat/d3.1-m4-behavior-arbiter` / `feat/d3.3b-m7-sotif` owner 已通知（R-P7 预防）
+
+任一项 fail → 修复后再跑；不要带 dirty state 进 T2（否则 git mv 历史血缘会被混淆改动污染）。
+
+---
+
+## PR 描述模板
+
+```markdown
+# D1.3a v3.1 补丁：RL 隔离 L1 + FMI 接口存根 + CI lint
+
+> 实施 spec：[01-spec.md §v3.1.1–§v3.1.14](docs/Design/Detailed Design/D1.3a-simulator/01-spec.md)（已 commit `<spec-commit-sha>`）
+> 计划：[02-plan.md ## v3.1 补丁实施计划](docs/Design/Detailed Design/D1.3a-simulator/02-plan.md) T1–T13
+> 关闭 finding：**G P0-G-1 (a) v3.1 追加项** + 计划 v3.1 §0.4 决策 1 + 决策 3（D1.3a 部分）
+
+## 概览
+
+在已闭 D1.3a（5/8 CLOSED）之上叠加三项 v3.1 NEW DoD：
+
+1. **RL 隔离 L1 物理目录拆分**：`src/{l3_tdl_kernel,sim_workbench,rl_workbench}/`（spec §v3.1.2 决策 A，git mv 保留历史血缘）
+2. **`ShipMotionSimulator::export_fmu_interface()` 抽象签名 + FCBSimulator 22-变量 stub**：D1.3c 消费契约（pythonfmu/mlfmu via pybind11，spec §v3.1.4）
+3. **CI `rl_isolation_lint` job**（allow_failure:false）+ 5 TC 单元测试 + DEMO-1 演示脚本
+
+## Commit 序列（13 atomic commits，T1–T13）
+
+- T2 `refactor(d1.3a/v3.1)!: split src/ into l3_tdl_kernel + sim_workbench + rl_workbench`
+- T4 `chore(d1.3a/v3.1): update path configs for src/ subdir layout`
+- T5 `chore(d1.3a/v3.1): update PATH-S M7_SRC for kernel subdir layout`
+- T6 `feat(d1.3a/v3.1): add ShipMotionSimulator::export_fmu_interface() pure virtual`
+- T7 `feat(d1.3a/v3.1): FCBSimulator::export_fmu_interface() stub + 11 unit tests`
+- T8 `feat(d1.3a/v3.1): add tools/ci/check-rl-isolation.sh + 5 TC unit tests`
+- T9 `ci(d1.3a/v3.1): add rl_isolation_lint job (allow_failure:false)`
+- T10 `feat(d1.3a/v3.1): rl_workbench/ placeholder for Phase 4 RL isolation L1`
+- T12 `chore(d1.3a/v3.1): DEMO-1 6/15 RL-isolation lint demonstration fixture`
+- T13 `docs(d1.3a/v3.1): mark v3.1 patch DoD checkboxes (5/31 EOD CLOSED)`
+
+## 5 条回归命令验证（实跑日志）
+
+### 1. pytest（基线零回归）
+```
+$ python3 -m pytest tests/ -q
+.......................................                                  [100%]
+39 passed in N.NNs
+```
+
+### 2. ruff（基线零回归）
+```
+$ ruff check src/ tests/
+All checks passed!
+```
+
+### 3. colcon build（容器内）
+```
+$ docker run --rm -v "$PWD:/workspace" -w /workspace mass-l3/ci:jazzy-ubuntu22.04 \
+    bash -lc "source /opt/ros/jazzy/setup.bash && \
+              colcon build --packages-up-to m7_safety_supervisor \
+                           --packages-skip m4_behavior_arbiter && \
+              colcon build --packages-up-to fcb_simulator"
+Summary: NN packages finished [N.Ns]
+```
+> R-P6 偏差：`--packages-skip m4_behavior_arbiter`（spec §v3.1.11 R-P6，待 D3.1 关闭）
+
+### 4. PATH-S Doer-Checker 独立性
+```
+$ bash tools/ci/check-doer-checker-independence.sh
+exit=0
+```
+
+### 5. RL isolation lint（v3.1 NEW）
+```
+$ bash tools/ci/check-rl-isolation.sh
+PASS: RL-isolation check clean (kernel × sim_workbench × rl_workbench).
+exit=0
+
+$ bash tools/ci/tests/test-rl-isolation.sh
+== TC-1: clean tree → exit 0 ==  ✅ PASS
+== TC-2: cpp violation → exit 1 == ✅ PASS
+== TC-3: cpp allowlist → exit 0 == ✅ PASS
+== TC-4: python violation in sim_workbench → exit 1 == ✅ PASS
+== TC-5: reverse direction (kernel imports sim) → exit 1 == ✅ PASS
+Summary: PASS=10 FAIL=0
+```
+
+## D1.3c owner 签字（R-P3）
+
+@ V&V FTE role-hat：请 review T6 commit `<sha>` 的 `FmuInterfaceSpec` /
+`FmuVariableSpec` 字段定义。如需追加字段请评论说明，不要修改既有字段顺序
+（避免 ABI break）。**签字截止 5/22**。
+
+## DEMO-1 6/15 演示就位
+
+- 目录拓扑可视：`tree src/ -L 2`（5/13 起）
+- 接口签名可见：`grep export_fmu_interface src/sim_workbench/ship_sim_interfaces/include/ship_sim_interfaces/ship_motion_simulator.hpp`
+- Lint exit 1 → exit 0 重现：`bash tools/ci/demo/run_demo.sh`（≤ 30s）
+
+## Follow-up 标记
+
+- **P-1（开放）**：`m4_behavior_arbiter` 缺 `package.xml` → 由 D3.1 关闭，关闭时同步去 colcon `--packages-skip` 偏差
+- **P-2（关闭）**：空目录 `src/m8_hmi_bridge/` 已 git rm
+- **P-3（开放）**：每月扫 `rl-isolation-ok` allowlist 行数；> 5 触发架构评审
+
+## 影响下游 D
+
+- **D1.3b.1**：sim_workbench 下 Python 路径继承
+- **D1.3c**（V&V FTE，6/1 起跑）：消费 `export_fmu_interface()` 22 变量清单
+- **D1.5 V&V Plan**：`rl_isolation_lint` 纳入 SIL gate entry 条件
+- **D2.8 v1.1.3 stub §RL**（7/31）：引用本 PR 作 RL 隔离 L1 落地证据
+- **D3.5 HAZID 132 [TBD] 回填**（8/31）：直接引用 L1/L2/L3 边界状态
+- **Phase 4 D4.6**（10–12 月）：rl_workbench/ 占位 + lint 三向就位为前置
+```
+
+---
+
+## Self-Review Checklist (v3.1 plan)
+
+### Spec coverage（spec §v3.1.x → plan task）
+
+| Spec § | 内容 | Plan Task |
+|---|---|---|
+| §v3.1.1 包归属审计 | grep 证据 + 19 包定案表 | T1（验证）+ 已 commit 落地 |
+| §v3.1.2 方案 A 决策 | 6 条 rationale | T2（git mv 实施） |
+| §v3.1.3 目录拓扑 | 三组子目录 | T2 |
+| §v3.1.4 export_fmu_interface 签名 + 22 变量 stub | FmuVariableSpec / FmuInterfaceSpec / FCBSimulator override | T6 + T7 |
+| §v3.1.5 check-rl-isolation.sh + grep 模式 + allowlist + 5 TC | 完整脚本 + UT | T8 |
+| §v3.1.6 路径变更清单（11 行） | pytest.ini / .gitlab-ci.yml / PATH-S / git mv 命令 | T2 + T4 + T5 |
+| §v3.1.7 Task 拆分 | T1-T13 | 全 plan 主体 |
+| §v3.1.8 Owner-by-day 矩阵 | 5/12 → 5/31 | plan header timeline 锚点表 |
+| §v3.1.9 依赖图 | T1→T2→T3 等 | 隐含在 task Files / 顺序 |
+| §v3.1.10 Demo Charter | 5 分钟脚本 | T12 + PR 模板 §DEMO-1 |
+| §v3.1.11 Risk + Contingency 8 项 | R-P1..R-P8 | 各 task inline `> Contingency` |
+| §v3.1.12 全闭判据 17 项 | 基线 5 + NEW 9 + 文档 3 | T11（验证）+ T13（勾选） |
+| §v3.1.13 与下游 D 接口 | D1.3b.1 / D1.3c / D1.5 / D2.8 / D3.5 / D4.6 | PR 模板 §影响下游 D |
+| §v3.1.14 来源置信度 | 11 断言 | spec 已含，plan 不重复 |
+
+无 spec gap。
+
+### Placeholder scan
+
+无 stray `TODO` / `TBD` / `implement later` / `add appropriate` 等。所有 task 步含具体命令 + 完整代码块；R-Px contingency 提示具体到操作命令。
+
+### Type consistency
+
+- `FmuVariableSpec` / `FmuInterfaceSpec` 字段：T6 定义、T7 stub 实装、T7 unit test 断言——三处全一致（name/causality/variability/type/unit/start/description；fmi_version/model_name/model_identifier/default_step_size/variables）。
+- `ship_sim::ShipMotionSimulator` namespace `ship_sim` 全 plan 一致（继承自原版 §A1）。
+- `fcb_sim::FCBSimulator` namespace 全 plan 一致（沿用原版 §A3）。
+- 22 变量名 plan 内出现 3 次（spec §v3.1.4 / T7 Step 3 stub / T7 Step 1 测试断言）—— 名字、causality、type 三处对齐核对一致。
+
+无 type drift。
+
+---
+
+## Execution Handoff
+
+Plan 已追加至 `docs/Design/Detailed Design/D1.3a-simulator/02-plan.md` 末尾 `## v3.1 补丁实施计划` 章节，含 T1–T13 + dry-run checklist + PR 描述模板。
+
+**两种执行选项：**
+
+**1. Subagent-Driven（推荐）** — 每 task 派一个新 subagent，task 间双阶段 review；适合追求 spec/plan 严守的场景，每 commit 由独立上下文产生，不被前置 task 污染。
+
+**2. Inline Execution** — 当前会话用 `superpowers:executing-plans` 批量执行，checkpoint review；适合追求执行速度的场景。
+
+**选哪条？**
