@@ -50,23 +50,18 @@ async def broadcast_sil_state(sat_msg: object | None, odd_msg: object | None) ->
     odd_panel: SilODDPanel | None = None
 
     if sat_msg is not None:
-        try:
-            sat1_panel = SilSAT1Panel(threat_count=0, threats=[])
-        except Exception:
-            sat1_panel = None
+        # TODO(d2.x): parse actual SAT threat fields from sat_msg once M2 topics are live
+        sat1_panel = SilSAT1Panel(threat_count=0, threats=[])
 
     if odd_msg is not None:
-        try:
-            zone_map = {0: "A", 1: "B", 2: "C", 3: "D"}
-            env_map = {0: "IN", 1: "EDGE", 2: "OUT", 3: "MRC_PREP", 4: "MRC_ACTIVE"}
-            odd_panel = SilODDPanel(
-                zone=zone_map.get(getattr(odd_msg, "current_zone", 0), "A"),
-                envelope_state=env_map.get(getattr(odd_msg, "envelope_state", 0), "IN"),
-                conformance_score=float(getattr(odd_msg, "conformance_score", 0.9)),
-                confidence=float(getattr(odd_msg, "confidence", 0.9)),
-            )
-        except Exception:
-            odd_panel = None
+        zone_map = {0: "A", 1: "B", 2: "C", 3: "D"}
+        env_map = {0: "IN", 1: "EDGE", 2: "OUT", 3: "MRC_PREP", 4: "MRC_ACTIVE"}
+        odd_panel = SilODDPanel(
+            zone=zone_map.get(getattr(odd_msg, "current_zone", 0), "A"),
+            envelope_state=env_map.get(getattr(odd_msg, "envelope_state", 0), "IN"),
+            conformance_score=float(getattr(odd_msg, "conformance_score", 0.9)),
+            confidence=float(getattr(odd_msg, "confidence", 0.9)),
+        )
 
     schema = SilDebugSchema(
         timestamp=datetime.now(tz=timezone.utc),

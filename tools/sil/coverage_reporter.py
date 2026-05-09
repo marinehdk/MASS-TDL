@@ -20,7 +20,6 @@ RULE_ORDER = [
 def generate_report(results_dir: Path, output_path: Path) -> None:
     """Load all JSON results from results_dir, render HTML report to output_path."""
     json_files = sorted(results_dir.glob("*.json"))
-    # Exclude batch_results.json summary
     json_files = [f for f in json_files if f.name != "batch_results.json"]
 
     results = []

@@ -8,16 +8,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 
-def test_batch_runner_imports():
-    import batch_runner
-    assert hasattr(batch_runner, "run_batch")
-
-
-def test_coverage_reporter_imports():
-    import coverage_reporter
-    assert hasattr(coverage_reporter, "generate_report")
-
-
 def test_generate_report_with_fake_results(tmp_path):
     # Write a fake JSON result
     result = {

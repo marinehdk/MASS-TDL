@@ -80,11 +80,14 @@ def run_batch(scenarios_dir: Path, output_dir: Path) -> list[dict]:
         result_na = simulate(spec, apply_avoidance=False)
         no_action_dcpa = result_na.dcpa_m
 
-        # Pass 2: with-action
         result_wa = simulate(spec, apply_avoidance=True)
 
         geometric_pass = no_action_dcpa < spec.pass_criteria.max_dcpa_no_action_m
-        bearing_pass = _check_bearing(spec, rule_info) if rule_info else True
+        if rule_info is None:
+            print(f"  WARNING: {sid} not in SCENARIO_RULE_MAP — bearing check skipped")
+            bearing_pass = False
+        else:
+            bearing_pass = _check_bearing(spec, rule_info)
 
         out_json = result_wa.to_json_dict(
             spec,

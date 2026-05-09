@@ -24,4 +24,4 @@ async def test_broadcast_sends_to_active_client():
         await broadcast_sil_state(None, None)
     fake_ws.send_text.assert_called_once()
     payload = fake_ws.send_text.call_args[0][0]
-    assert "job_status" in payload or "scenario_id" in payload
+    assert "job_status" in payload and "scenario_id" in payload
