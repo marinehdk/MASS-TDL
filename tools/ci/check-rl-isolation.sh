@@ -34,9 +34,9 @@ done
 errors=0
 
 # Patterns
-readonly PY_KERNEL_RE='^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)([[:space:]]|\.|$)'
+readonly PY_KERNEL_RE='^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|common)([[:space:]]|\.|$)'
 readonly PY_SIMRL_RE='^[[:space:]]*(from|import)[[:space:]]+(sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)([[:space:]]|\.|$)'
-readonly CPP_KERNEL_RE='^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)/'
+readonly CPP_KERNEL_RE='^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|common)/'
 readonly CPP_SIMRL_RE='^[[:space:]]*#include[[:space:]]*[<"](sim_workbench|rl_workbench|fcb_simulator|ship_sim_interfaces|sil_mock_publisher|l3_external_mock_publisher|ais_bridge)/'
 
 scan() {

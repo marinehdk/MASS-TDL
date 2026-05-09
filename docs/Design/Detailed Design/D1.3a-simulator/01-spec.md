@@ -738,7 +738,7 @@ ship_sim::FmuInterfaceSpec FCBSimulator::export_fmu_interface() const {
 
 ```bash
 # kernel-from-sim/rl violations
-grep -rEn '^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)([[:space:]]|\.|$)' \
+grep -rEn '^[[:space:]]*(from|import)[[:space:]]+(m[1-8]_[a-z_]+|common)([[:space:]]|\.|$)' \
      src/sim_workbench src/rl_workbench --include='*.py' \
 | grep -v '# rl-isolation-ok:'
 
@@ -752,7 +752,7 @@ grep -rEn '^[[:space:]]*(from|import)[[:space:]]+(sim_workbench|rl_workbench|fcb
 
 ```bash
 # kernel-header-from-sim/rl violations
-grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|l3_msgs|l3_external_msgs|common)/' \
+grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](m[1-8]_[a-z_]+|common)/' \
      src/sim_workbench src/rl_workbench \
      --include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc' \
 | grep -v '// rl-isolation-ok:'
@@ -763,6 +763,8 @@ grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](sim_workbench|rl_workbench|fcb_
      --include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc' \
 | grep -v '// rl-isolation-ok:'
 ```
+
+**设计澄清（2026-05-09 T8 实施时修订）**：`l3_msgs` 与 `l3_external_msgs` 是纯 IDL 契约包（仅含 `msg/` 目录，零业务逻辑），ROS2 publish/subscribe 模式下 sim 节点必须 import 这些包以使用共享 message 类型——这是正常基础设施数据流，不是异常跨组引用。因此 grep 模式从 kernel-forbidden 列表中**移除** `l3_msgs|l3_external_msgs`，仅保留 `m[1-8]_<node>` 业务逻辑包 + `common` 为 kernel-only。msg 契约包视为三组共用基础设施。
 
 **False-positive 抑制**：
 - 行首锚 `^[[:space:]]*` → 注释/字符串字面量内的 `# 这里 import m1_...` 不命中（`#` 在 `from/import` 之前已破前缀模式）。

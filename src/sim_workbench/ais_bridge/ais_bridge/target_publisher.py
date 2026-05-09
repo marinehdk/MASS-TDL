@@ -21,8 +21,8 @@ def build_tracked_target_array(records: list[AISRecord], stamp, node=None):
     """
     from geographic_msgs.msg import GeoPoint
 
-    from l3_external_msgs.msg import TrackedTargetArray  # rl-isolation-ok: AIS bridge outputs kernel-level message types
-    from l3_msgs.msg import EncounterClassification, TrackedTarget  # rl-isolation-ok: AIS bridge outputs kernel-level message types
+    from l3_external_msgs.msg import TrackedTargetArray
+    from l3_msgs.msg import EncounterClassification, TrackedTarget
 
     sigma_pos_m = 50.0
     sigma_hdg_deg = 5.0

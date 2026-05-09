@@ -22,7 +22,7 @@ from builtin_interfaces.msg import Time
 from geographic_msgs.msg import GeoPoint, GeoPath
 from typing import Optional, List
 
-from l3_external_msgs.msg import (  # rl-isolation-ok: mock publisher receives/outputs kernel message types for D1.3b-D2.4 period
+from l3_external_msgs.msg import (
     VoyageTask,
     PlannedRoute,
     SpeedProfile,
@@ -36,7 +36,7 @@ from l3_external_msgs.msg import (  # rl-isolation-ok: mock publisher receives/o
     OverrideActiveSignal,
     TimeWindow,
 )
-from l3_msgs.msg import TrackedTarget, EncounterClassification  # rl-isolation-ok: mock publisher receives/outputs kernel message types for D1.3b-D2.4 period
+from l3_msgs.msg import TrackedTarget, EncounterClassification
 
 
 class ExternalMockPublisher(Node):
