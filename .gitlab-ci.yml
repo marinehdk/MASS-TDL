@@ -134,6 +134,15 @@ multi_vessel_lint:
       - multi_vessel_lint_report.txt
     expire_in: 7 days
 
+rl_isolation_lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - bash tools/ci/check-rl-isolation.sh
+  allow_failure: false
+
 path_s_dry_run:
   stage: lint
   needs: []
