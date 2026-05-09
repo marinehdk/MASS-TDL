@@ -148,7 +148,7 @@ TEST(CoordTransformTest, MultiplePoints_Consistent) {
     bool ok = ct.wgs84_to_enu(pt.lat, pt.lon, 0.0, 0.0, pos, vel);
     ASSERT_TRUE(ok);
     // Points with same latitude should have increasing north
-    if (pt.lon == kOriginLon) {
+    if (std::abs(pt.lon - kOriginLon) < 1e-12) {
       EXPECT_GT(pos(1), prev_north);
       prev_north = pos(1);
     }
@@ -201,5 +201,4 @@ TEST(CoordTransformTest, VelocityVector_DueEast) {
   EXPECT_NEAR(vel(1), 0.0, 1e-9);         // north component = 0
 }
 
-}  // namespace
 }  // namespace mass_l3::m2

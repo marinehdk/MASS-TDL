@@ -79,8 +79,8 @@ class Int002Test : public ::testing::Test {
     t.departure.longitude  = kDepartureLon002;
     t.destination.latitude  = kDestinationLat002;
     t.destination.longitude = kDestinationLon002;
-    t.eta_window.earliest_epoch_s = kEtaWindowEarliest002;
-    t.eta_window.latest_epoch_s   = kEtaWindowLatest002;
+    t.eta_window.earliest.sec = static_cast<int32_t>(kEtaWindowEarliest002);
+    t.eta_window.latest.sec   = static_cast<int32_t>(kEtaWindowLatest002);
     t.optimization_priority = "fuel_optimal";
     t.confidence  = kMockConfidence002;
     t.rationale   = "int002_test_voyage_task";
@@ -100,13 +100,13 @@ class Int002Test : public ::testing::Test {
   }
 
   // Normal ODDState (conformance high → M3 stays Active, no replan).
-  l3_msgs::msg::OddState make_odd_state_normal() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state_normal() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp             = node_->now();
-    odd.current_zone      = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level        = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health            = l3_msgs::msg::OddState::HEALTH_FULL;
-    odd.envelope_state    = l3_msgs::msg::OddState::ENVELOPE_IN;
+    odd.current_zone      = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level        = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health            = l3_msgs::msg::ODDState::HEALTH_FULL;
+    odd.envelope_state    = l3_msgs::msg::ODDState::ENVELOPE_IN;
     odd.conformance_score = kMockConfidence002;
     odd.confidence        = kMockConfidence002;
     odd.rationale         = "int002_normal";
@@ -115,13 +115,13 @@ class Int002Test : public ::testing::Test {
 
   // Critical ODDState (conformance_score < 0.3 critical threshold in M3 config)
   // → ReplanRequestTrigger fires with reason ODD_EXIT.
-  l3_msgs::msg::OddState make_odd_state_critical() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state_critical() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp             = node_->now();
-    odd.current_zone      = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level        = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health            = l3_msgs::msg::OddState::HEALTH_CRITICAL;
-    odd.envelope_state    = l3_msgs::msg::OddState::ENVELOPE_EDGE;
+    odd.current_zone      = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level        = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health            = l3_msgs::msg::ODDState::HEALTH_CRITICAL;
+    odd.envelope_state    = l3_msgs::msg::ODDState::ENVELOPE_EDGE;
     odd.conformance_score = kLowConfidence002;
     odd.confidence        = kLowConfidence002;
     odd.rationale         = "int002_critical";
@@ -182,7 +182,7 @@ TEST_F(Int002Test, INT002_M3_PublishesReplanRequest) {
       "/l1/voyage_task", rclcpp::QoS(50).reliable().transient_local());
   auto pr_pub  = node_->create_publisher<l3_external_msgs::msg::PlannedRoute>(
       "/l2/planned_route", rclcpp::QoS(5).reliable());
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub  = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));
@@ -241,7 +241,7 @@ TEST_F(Int002Test, INT002_M3_HandlesReplanSuccess) {
       "/l1/voyage_task", rclcpp::QoS(50).reliable().transient_local());
   auto pr_pub  = node_->create_publisher<l3_external_msgs::msg::PlannedRoute>(
       "/l2/planned_route", rclcpp::QoS(5).reliable());
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub  = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));
@@ -290,7 +290,7 @@ TEST_F(Int002Test, INT002_M3_HandlesAllReplanStatuses) {
       "/l1/voyage_task", rclcpp::QoS(50).reliable().transient_local());
   auto pr_pub  = node_->create_publisher<l3_external_msgs::msg::PlannedRoute>(
       "/l2/planned_route", rclcpp::QoS(5).reliable());
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub  = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));

@@ -127,6 +127,9 @@ endif()
 # ---------------------------------------------------------------------------
 # pybind11 Python binding (D1.3b) — exposes rk4_step to Python batch runner
 # ---------------------------------------------------------------------------
+# pybind11NewTools.cmake uses python3_add_library which requires FindPython3
+# to be loaded with Development.Module first (pybind11 v2.6+ requirement).
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11_vendor REQUIRED)
 find_package(pybind11 REQUIRED)
 

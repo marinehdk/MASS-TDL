@@ -70,13 +70,13 @@ class Int001Test : public ::testing::Test {
   }
 
   // Build a minimal ODDState (ODD_ZONE_A, D3, HEALTH_FULL, ENVELOPE_IN).
-  l3_msgs::msg::OddState make_odd_state() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp              = node_->now();
-    odd.current_zone       = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level         = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health             = l3_msgs::msg::OddState::HEALTH_FULL;
-    odd.envelope_state     = l3_msgs::msg::OddState::ENVELOPE_IN;
+    odd.current_zone       = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level         = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health             = l3_msgs::msg::ODDState::HEALTH_FULL;
+    odd.envelope_state     = l3_msgs::msg::ODDState::ENVELOPE_IN;
     odd.conformance_score  = kMockConfidence;
     odd.confidence         = kMockConfidence;
     odd.rationale          = "int001_test_mock";
@@ -203,7 +203,7 @@ class Int001Test : public ::testing::Test {
   rclcpp::TimerBase::SharedPtr make_world_odd_publisher() {
     auto ws_pub = node_->create_publisher<l3_msgs::msg::WorldState>(
         "/l3/m2/world_state", 10);
-    auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+    auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
         "/l3/m1/odd_state", 10);
     return node_->create_wall_timer(
         std::chrono::milliseconds(250),

@@ -57,9 +57,9 @@ void WorldModelNode::load_parameters() {
 
   // Buffer
   params_.buffer.max_targets =
-      get_parameter("max_targets").as_int();
+      static_cast<int32_t>(get_parameter("max_targets").as_int());
   params_.buffer.target_disappearance_periods =
-      get_parameter("target_disappearance_periods").as_int();
+      static_cast<int32_t>(get_parameter("target_disappearance_periods").as_int());
   params_.buffer.environment_cache_ttl_s =
       get_parameter("environment_cache_ttl_s").as_double();
 
@@ -105,9 +105,9 @@ void WorldModelNode::load_parameters() {
 
   // View health
   params_.health.dv_loss_periods_to_degraded =
-      get_parameter("dv_loss_periods_to_degraded").as_int();
+      static_cast<int32_t>(get_parameter("dv_loss_periods_to_degraded").as_int());
   params_.health.dv_loss_periods_to_critical =
-      get_parameter("dv_loss_periods_to_critical").as_int();
+      static_cast<int32_t>(get_parameter("dv_loss_periods_to_critical").as_int());
   params_.health.ev_loss_ms_to_critical =
       get_parameter("ev_loss_ms_to_critical").as_double();
   params_.health.sv_loss_s_to_degraded =
@@ -336,7 +336,7 @@ void WorldModelNode::on_tracked_targets(
 
   if (logger_) {
     logger_->info("on_tracked_targets: {} targets, buffer size={}",
-                   msg->target_ids.size(), track_buffer_->size());
+                   msg->targets.size(), track_buffer_->size());
   }
 }
 

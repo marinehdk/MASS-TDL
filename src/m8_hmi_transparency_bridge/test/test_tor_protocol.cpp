@@ -44,7 +44,7 @@ TEST(TorProtocol, ButtonDisabledWithin5sOfRequest)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   EXPECT_FALSE(p.is_acknowledgment_button_enabled(t0 + std::chrono::seconds(3)));
   EXPECT_TRUE(p.is_acknowledgment_button_enabled(t0 + std::chrono::seconds(6)));
 }
@@ -56,7 +56,7 @@ TEST(TorProtocol, ClickBefore5sIsRejected)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto snap = p.on_acknowledgment_clicked(
       t0 + std::chrono::seconds(3), {}, "ODD_A", 0.9F, "OP-001");
   EXPECT_FALSE(snap.has_value());
@@ -70,7 +70,7 @@ TEST(TorProtocol, ClickAfter5sCapturesSnapshotAndAdvances)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto t_click = t0 + std::chrono::seconds(7);
   auto snap = p.on_acknowledgment_clicked(
       t_click, {"target_42", "target_57"}, "ODD_B", 0.72F, "OP-001");
@@ -89,7 +89,7 @@ TEST(TorProtocol, Tick60sTimeoutLeadsToMrc)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   EXPECT_TRUE(p.tick(t0 + std::chrono::seconds(61)));
   EXPECT_EQ(p.state(), TorProtocol::State::kTimeoutMrc);
 }
@@ -101,7 +101,7 @@ TEST(TorProtocol, ResetReturnsToIdle)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   p.reset();
   EXPECT_EQ(p.state(), TorProtocol::State::kIdle);
 }
@@ -113,7 +113,7 @@ TEST(TorProtocol, TickBeforeDeadlineReturnsFalse)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   EXPECT_FALSE(p.tick(t0 + std::chrono::seconds(30)));
   EXPECT_EQ(p.state(), TorProtocol::State::kRequested);
 }
@@ -125,7 +125,7 @@ TEST(TorProtocol, RemainingDeadlineCorrectAt20s)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   EXPECT_DOUBLE_EQ(p.remaining_deadline_s(t0 + std::chrono::seconds(20)), 40.0);
 }
 
@@ -156,10 +156,10 @@ TEST(TorProtocol, ButtonNotEnabledWhenAcknowledged)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   // advance past guard + acknowledge
   auto t_click = t0 + std::chrono::seconds(6);
-  p.on_acknowledgment_clicked(t_click, {}, "ODD_A", 1.0F, "OP-001");
+  static_cast<void>(p.on_acknowledgment_clicked(t_click, {}, "ODD_A", 1.0F, "OP-001"));
   ASSERT_EQ(p.state(), TorProtocol::State::kAcknowledged);
   EXPECT_FALSE(p.is_acknowledgment_button_enabled(t_click + std::chrono::seconds(1)));
 }
@@ -171,7 +171,7 @@ TEST(TorProtocol, DoubleClickProtection)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto t_click = t0 + std::chrono::seconds(6);
   auto first = p.on_acknowledgment_clicked(t_click, {}, "ODD_A", 1.0F, "OP-001");
   ASSERT_TRUE(first.has_value());
@@ -215,7 +215,7 @@ TEST(TorProtocol, SnapshotOperatorIdMatchesPassed)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kManualRequest, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kManualRequest, t0));
   auto snap = p.on_acknowledgment_clicked(
       t0 + std::chrono::seconds(6), {}, "ODD_C", 0.88F, "CAPTAIN-BRIDGE");
   ASSERT_TRUE(snap.has_value());
@@ -229,7 +229,7 @@ TEST(TorProtocol, AfterResetNewTriggerCycleWorks)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   p.reset();
   ASSERT_EQ(p.state(), TorProtocol::State::kIdle);
 
@@ -248,9 +248,9 @@ TEST(TorProtocol, RemainingDeadlineIsZeroWhenAcknowledged)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto t_click = t0 + std::chrono::seconds(6);
-  p.on_acknowledgment_clicked(t_click, {}, "ODD_A", 1.0F, "OP-X");
+  static_cast<void>(p.on_acknowledgment_clicked(t_click, {}, "ODD_A", 1.0F, "OP-X"));
   ASSERT_EQ(p.state(), TorProtocol::State::kAcknowledged);
   EXPECT_DOUBLE_EQ(p.remaining_deadline_s(t_click + std::chrono::seconds(5)), 0.0);
 }
@@ -262,7 +262,7 @@ TEST(TorProtocol, TickIdempotencyAfterTimeout)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto t_late = t0 + std::chrono::seconds(61);
   EXPECT_TRUE(p.tick(t_late));                              // first: transitions to kTimeoutMrc
   EXPECT_FALSE(p.tick(t_late + std::chrono::seconds(10))); // second: already kTimeoutMrc
@@ -275,8 +275,8 @@ TEST(TorProtocol, RemainingDeadlineIsZeroAfterTimeout)
 {
   TorProtocol p(default_cfg());
   auto t0 = TorProtocol::Clock::now();
-  p.trigger(TorProtocol::Reason::kOddExit, t0);
+  static_cast<void>(p.trigger(TorProtocol::Reason::kOddExit, t0));
   auto t_late = t0 + std::chrono::seconds(70);
-  p.tick(t_late);
+  static_cast<void>(p.tick(t_late));
   EXPECT_DOUBLE_EQ(p.remaining_deadline_s(t_late), 0.0);
 }

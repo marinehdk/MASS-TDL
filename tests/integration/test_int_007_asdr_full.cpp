@@ -99,13 +99,13 @@ class Int007Test : public ::testing::Test {
   }
 
   // ODDState: healthy, ODD_ZONE_A, D3, ENVELOPE_IN.
-  l3_msgs::msg::OddState make_odd_state() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp             = node_->now();
-    odd.current_zone      = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level        = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health            = l3_msgs::msg::OddState::HEALTH_FULL;
-    odd.envelope_state    = l3_msgs::msg::OddState::ENVELOPE_IN;
+    odd.current_zone      = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level        = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health            = l3_msgs::msg::ODDState::HEALTH_FULL;
+    odd.envelope_state    = l3_msgs::msg::ODDState::ENVELOPE_IN;
     odd.conformance_score = kMockConfidence007;
     odd.confidence        = kMockConfidence007;
     odd.rationale         = "int007_odd";
@@ -139,8 +139,8 @@ class Int007Test : public ::testing::Test {
     t.departure.longitude  = kDepartureLon007;
     t.destination.latitude  = kDestinationLat007;
     t.destination.longitude = kDestinationLon007;
-    t.eta_window.earliest_epoch_s = kEtaEarliest007;
-    t.eta_window.latest_epoch_s   = kEtaLatest007;
+    t.eta_window.earliest.sec = static_cast<int32_t>(kEtaEarliest007);
+    t.eta_window.latest.sec   = static_cast<int32_t>(kEtaLatest007);
     t.optimization_priority = "fuel_optimal";
     t.confidence  = kMockConfidence007;
     t.rationale   = "int007_voyage_task";
@@ -240,7 +240,7 @@ TEST_F(Int007Test, INT007_AllModules_PublishASDR) {
   // M7: /l3/m2/world_state, /l3/m4/behavior_plan, /l3/m6/colregs_constraint
   // M8: /l3/sat/data, /l3/m1/odd_state, /l3/m2/world_state
 
-  auto odd_pub  = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub  = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub   = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));
@@ -338,7 +338,7 @@ TEST_F(Int007Test, INT007_ASDR_SHA256_Signature_Valid) {
       });
 
   // Publish stimulus to trigger all modules.
-  auto odd_pub  = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub  = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub   = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));

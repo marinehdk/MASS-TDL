@@ -47,7 +47,7 @@ static BcMpcInput make_head_on_input()
 // ---------------------------------------------------------------------------
 TEST(BcMpcNodeHandover, ASDRRecord_SignatureIsNonEmpty)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   const auto sol = solver.solve(make_head_on_input());
@@ -97,7 +97,7 @@ TEST(BcMpcNodeHandover, ASDRRecord_SignatureMatchesSha256OfJson)
 // ---------------------------------------------------------------------------
 TEST(BcMpcNodeHandover, BcMpcHandover_OverrideThenResolved)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   // Step 1: dangerous head-on scenario triggers Override.
@@ -124,7 +124,7 @@ TEST(BcMpcNodeHandover, BcMpcHandover_OverrideThenResolved)
 // ---------------------------------------------------------------------------
 TEST(BcMpcNodeHandover, BcMpcHandover_OverrideStatus_HeadingDiffersFromStraight)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   const auto sol = solver.solve(make_head_on_input());

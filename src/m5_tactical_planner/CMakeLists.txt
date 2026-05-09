@@ -46,6 +46,17 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 # Must NOT be STATIC-linked.
 find_package(casadi 3.7.2 EXACT REQUIRED)
 
+# PATCH: casadi-config.cmake (pip-installed 3.7.2) incorrectly forces
+# _GLIBCXX_USE_CXX11_ABI=0 for GCC, but libcasadi.so.3.7 is compiled with
+# the new C++11 ABI (verified via nm). Stripping the wrong INTERFACE define
+# ensures uniform new-ABI compilation across our code and all ROS2 Jazzy deps.
+get_target_property(_casadi_iface_defs casadi::casadi INTERFACE_COMPILE_DEFINITIONS)
+if(_casadi_iface_defs)
+  list(REMOVE_ITEM _casadi_iface_defs "_GLIBCXX_USE_CXX11_ABI=0")
+  set_target_properties(casadi::casadi PROPERTIES
+    INTERFACE_COMPILE_DEFINITIONS "${_casadi_iface_defs}")
+endif()
+
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
 # find_package(IPOPT 3.14.19 EXACT REQUIRED)
 
@@ -53,7 +64,7 @@ find_package(casadi 3.7.2 EXACT REQUIRED)
 # find_package(GeographicLib 2.7 EXACT REQUIRED)
 
 # Boost headers — used by ConstraintCompiler polygon decomposition.
-find_package(Boost 1.91 EXACT REQUIRED COMPONENTS headers)
+find_package(Boost REQUIRED COMPONENTS headers)
 
 # ---------------------------------------------------------------------------
 # m5_shared_lib — shared library (Tasks 1.x + 2.x + 3.x)
@@ -101,11 +112,11 @@ ament_target_dependencies(m5_shared_lib
   builtin_interfaces
 )
 
-target_link_libraries(m5_shared_lib PUBLIC
+target_link_libraries(m5_shared_lib
   spdlog::spdlog
   yaml-cpp::yaml-cpp
   Eigen3::Eigen
-  casadi                  # dynamic — LGPL-3.0 requirement (no STATIC linking)
+  casadi::casadi          # dynamic — LGPL-3.0 requirement (no STATIC linking)
   Boost::headers
 )
 
@@ -176,52 +187,80 @@ install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  find_package(ament_cmake_gtest REQUIRED)
   ament_lint_auto_find_test_dependencies()
 
-  ament_add_gtest(test_vessel_dynamics_model
+  # Recompile gtest FROM VENDOR SOURCE with new ABI explicitly forced.
+  # Root cause: gtest_vendor was precompiled with _GLIBCXX_USE_CXX11_ABI=0
+  # (old ABI). System libgtest.a uses new ABI but ament prefix-path ordering
+  # causes the linker to find the OLD archive first. Recompiling from source
+  # with the same flags as the rest of the workspace guarantees ABI parity.
+  set(_M5_GTEST_SRC_DIR "/opt/ros/jazzy/src/gtest_vendor")
+  find_package(Threads REQUIRED)
+
+  add_library(m5_gtest STATIC
+    ${_M5_GTEST_SRC_DIR}/src/gtest-all.cc
+  )
+  target_include_directories(m5_gtest SYSTEM PUBLIC
+    ${_M5_GTEST_SRC_DIR}/include
+    ${_M5_GTEST_SRC_DIR}
+  )
+  target_compile_definitions(m5_gtest PUBLIC GTEST_HAS_PTHREAD=1)
+  target_link_libraries(m5_gtest PUBLIC Threads::Threads)
+  # Suppress warnings from third-party gtest source (not our code)
+  target_compile_options(m5_gtest PRIVATE
+    -Wno-error -w
+  )
+
+  add_library(m5_gtest_main STATIC
+    ${_M5_GTEST_SRC_DIR}/src/gtest_main.cc
+  )
+  target_include_directories(m5_gtest_main SYSTEM PUBLIC
+    ${_M5_GTEST_SRC_DIR}/include
+  )
+  target_link_libraries(m5_gtest_main PUBLIC m5_gtest)
+  target_compile_options(m5_gtest_main PRIVATE
+    -Wno-error -w
+  )
+
+  # Helper: plain add_executable + locally-compiled gtest (new ABI).
+  # ARGN = extra link libs (spdlog, Eigen3, yaml-cpp, casadi, …)
+  macro(m5_add_gtest target source)
+    add_executable(${target} ${source})
+    ament_target_dependencies(${target}
+      rclcpp l3_msgs l3_external_msgs builtin_interfaces
+    )
+    target_include_directories(${target}
+      PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test
+    )
+    target_link_libraries(${target}
+      m5_shared_lib
+      m5_gtest_main
+      ${ARGN}
+    )
+    # Pass --gtest_output so colcon test-result can parse the XML.
+    set(_m5_result_file
+      "${CMAKE_BINARY_DIR}/test_results/${PROJECT_NAME}/${target}.xml")
+    ament_add_test(${target}
+      COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${target}
+        --gtest_output=xml:${_m5_result_file}
+      TIMEOUT 120
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+      RESULT_FILE ${_m5_result_file}
+    )
+  endmacro()
+
+  m5_add_gtest(test_vessel_dynamics_model
     test/unit/test_vessel_dynamics_model.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
-  target_link_libraries(test_vessel_dynamics_model
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-  )
-  ament_target_dependencies(test_vessel_dynamics_model
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_vessel_dynamics_model
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
-  )
-  # Inject fixture directory path so tests can locate YAML without install step
   target_compile_definitions(test_vessel_dynamics_model
     PRIVATE
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
-  ament_add_gtest(test_constraint_compiler
+  m5_add_gtest(test_constraint_compiler
     test/unit/test_constraint_compiler.cpp
-  )
-  target_link_libraries(test_constraint_compiler
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-    casadi
-    Boost::headers
-  )
-  ament_target_dependencies(test_constraint_compiler
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_constraint_compiler
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi Boost::headers
   )
   target_compile_definitions(test_constraint_compiler
     PRIVATE
@@ -229,124 +268,39 @@ if(BUILD_TESTING)
   )
 
   # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
-  ament_add_gtest(test_mid_mpc_nlp_formulation
+  m5_add_gtest(test_mid_mpc_nlp_formulation
     test/unit/test_mid_mpc_nlp_formulation.cpp
-  )
-  target_link_libraries(test_mid_mpc_nlp_formulation
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-    casadi
-  )
-  ament_target_dependencies(test_mid_mpc_nlp_formulation
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_mid_mpc_nlp_formulation
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
   )
 
   # ── Task 2.2: Mid-MPC solver integration tests (real IPOPT solves) ─────────
-  ament_add_gtest(test_mid_mpc_solver
+  m5_add_gtest(test_mid_mpc_solver
     test/unit/test_mid_mpc_solver.cpp
-  )
-  target_link_libraries(test_mid_mpc_solver
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-    casadi
-  )
-  ament_target_dependencies(test_mid_mpc_solver
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_mid_mpc_solver
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
   )
 
   # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
-  ament_add_gtest(test_mid_mpc_waypoint_generator
+  m5_add_gtest(test_mid_mpc_waypoint_generator
     test/unit/test_mid_mpc_waypoint_generator.cpp
-  )
-  target_link_libraries(test_mid_mpc_waypoint_generator
-    m5_shared_lib
-    spdlog::spdlog
-  )
-  ament_target_dependencies(test_mid_mpc_waypoint_generator
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_mid_mpc_waypoint_generator
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog yaml-cpp::yaml-cpp
   )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
-  ament_add_gtest(test_bc_mpc_collision_detector
+  m5_add_gtest(test_bc_mpc_collision_detector
     test/unit/test_bc_mpc_collision_detector.cpp
-  )
-  target_link_libraries(test_bc_mpc_collision_detector
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-  )
-  ament_target_dependencies(test_bc_mpc_collision_detector
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_bc_mpc_collision_detector
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 
   # ── Task 3.2: BC-MPC solver + override generator unit tests ──────────────────
-  ament_add_gtest(test_bc_mpc_solver
+  m5_add_gtest(test_bc_mpc_solver
     test/unit/test_bc_mpc_solver.cpp
-  )
-  target_link_libraries(test_bc_mpc_solver
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-  )
-  ament_target_dependencies(test_bc_mpc_solver
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_bc_mpc_solver
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 
   # ── Task 4.1: BC-MPC handover state machine + ASDR signature tests ──────────
-  ament_add_gtest(test_bc_mpc_node_handover
+  m5_add_gtest(test_bc_mpc_node_handover
     test/unit/test_bc_mpc_node_handover.cpp
-  )
-  target_link_libraries(test_bc_mpc_node_handover
-    m5_shared_lib
-    spdlog::spdlog
-    Eigen3::Eigen
-  )
-  ament_target_dependencies(test_bc_mpc_node_handover
-    rclcpp
-    l3_msgs
-    l3_external_msgs
-    builtin_interfaces
-  )
-  target_include_directories(test_bc_mpc_node_handover
-    PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/test
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 endif()
 

@@ -113,13 +113,13 @@ class Int004Test : public ::testing::Test {
 // (1 Hz) or event-driven publish reflects the Overridden state.
 TEST_F(Int004Test, INT004_ReflexArc_M1_EntersOverridden) {
   bool overridden_received = false;
-  l3_msgs::msg::OddState last_odd{};
+  l3_msgs::msg::ODDState last_odd{};
 
-  auto odd_sub = node_->create_subscription<l3_msgs::msg::OddState>(
+  auto odd_sub = node_->create_subscription<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state",
       rclcpp::QoS(10).reliable().transient_local(),
       [&overridden_received, &last_odd](
-          const l3_msgs::msg::OddState::SharedPtr msg) {
+          const l3_msgs::msg::ODDState::SharedPtr msg) {
         last_odd = *msg;
         // kEnvelopeStateOverridden = 5 per types.hpp EnvelopeState::Overridden.
         if (msg->envelope_state == kEnvelopeStateOverridden) {
@@ -156,11 +156,11 @@ TEST_F(Int004Test, INT004_ReflexArc_Latency_Under50ms) {
   bool overridden_received = false;
   std::chrono::steady_clock::time_point t_received{};
 
-  auto odd_sub = node_->create_subscription<l3_msgs::msg::OddState>(
+  auto odd_sub = node_->create_subscription<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state",
       rclcpp::QoS(10).reliable().transient_local(),
       [&overridden_received, &t_received](
-          const l3_msgs::msg::OddState::SharedPtr msg) {
+          const l3_msgs::msg::ODDState::SharedPtr msg) {
         // kEnvelopeStateOverridden = 5 per types.hpp.
         if (!overridden_received &&
             msg->envelope_state == kEnvelopeStateOverridden) {
@@ -206,13 +206,13 @@ TEST_F(Int004Test, INT004_ReflexArc_Latency_Under50ms) {
 // machine does not transition to Overridden on this path.
 TEST_F(Int004Test, INT004_ReflexArc_FreezeNotRequired) {
   bool overridden_received = false;
-  l3_msgs::msg::OddState last_odd{};
+  l3_msgs::msg::ODDState last_odd{};
 
-  auto odd_sub = node_->create_subscription<l3_msgs::msg::OddState>(
+  auto odd_sub = node_->create_subscription<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state",
       rclcpp::QoS(10).reliable().transient_local(),
       [&overridden_received, &last_odd](
-          const l3_msgs::msg::OddState::SharedPtr msg) {
+          const l3_msgs::msg::ODDState::SharedPtr msg) {
         last_odd = *msg;
         // kEnvelopeStateOverridden = 5 per types.hpp.
         if (msg->envelope_state == kEnvelopeStateOverridden) {

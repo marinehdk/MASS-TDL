@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <l3_external_msgs/msg/tracked_target_array.hpp>
+#include <l3_msgs/msg/tracked_target.hpp>
 
 #include "m2_world_model/track_buffer.hpp"
 
@@ -22,16 +23,16 @@ using time_point = std::chrono::steady_clock::time_point;
 auto make_msg(const std::vector<uint64_t>& ids) {
   l3_external_msgs::msg::TrackedTargetArray msg;
   for (const auto id : ids) {
-    msg.target_ids.push_back(id);
-    msg.positions.emplace_back();
-    msg.positions.back().latitude = 35.0;
-    msg.positions.back().longitude = 139.0;
-    msg.sog_kn.push_back(10.0);
-    msg.cog_deg.push_back(45.0);
-    msg.heading_deg.push_back(40.0);
-    msg.classifications.push_back("cargo");
-    msg.classification_confidences.push_back(0.9f);
-    msg.status.push_back(1);
+    l3_msgs::msg::TrackedTarget tgt;
+    tgt.target_id = id;
+    tgt.position.latitude = 35.0;
+    tgt.position.longitude = 139.0;
+    tgt.sog_kn = 10.0;
+    tgt.cog_deg = 45.0;
+    tgt.heading_deg = 40.0;
+    tgt.classification = "cargo";
+    tgt.classification_confidence = 0.9F;
+    msg.targets.push_back(tgt);
   }
   msg.confidence = 1.0f;
   return msg;
@@ -39,8 +40,8 @@ auto make_msg(const std::vector<uint64_t>& ids) {
 
 auto make_msg_with_sog(const std::vector<uint64_t>& ids, double sog) {
   auto msg = make_msg(ids);
-  for (size_t i = 0; i < msg.sog_kn.size(); ++i) {
-    msg.sog_kn[i] = sog;
+  for (auto& tgt : msg.targets) {
+    tgt.sog_kn = sog;
   }
   return msg;
 }
@@ -202,9 +203,9 @@ TEST(TrackBufferTest, ThreadSafety) {
   reader.join();
 
   // After all writes complete, buffer should be in a valid, queryable state.
-  EXPECT_NO_THROW(buf.size());
-  EXPECT_NO_THROW(buf.active_targets());
-  EXPECT_GT(buf.size(), 0);
+  EXPECT_NO_THROW(static_cast<void>(buf.size()));
+  EXPECT_NO_THROW(static_cast<void>(buf.active_targets()));
+  EXPECT_GT(buf.size(), 0U);
 }
 
 // ──────────────────────────────────────────────
@@ -217,7 +218,7 @@ TEST(TrackBufferTest, MultipleTargets) {
   buf.update(make_msg({10, 20, 30, 40, 50}), t0);
   EXPECT_EQ(buf.size(), 5);
 
-  for (const auto id : {10, 20, 30, 40, 50}) {
+  for (const uint64_t id : {uint64_t{10}, uint64_t{20}, uint64_t{30}, uint64_t{40}, uint64_t{50}}) {
     auto snap = buf.get(id);
     ASSERT_TRUE(snap.has_value());
     EXPECT_EQ(snap->target_id, id);

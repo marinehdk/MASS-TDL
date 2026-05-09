@@ -33,7 +33,7 @@ static BcMpcInput make_base_input()
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, NoTargets_StatusResolved)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   const auto sol = solver.solve(make_base_input());
@@ -46,7 +46,7 @@ TEST(BcMpcSolver, NoTargets_StatusResolved)
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, HeadOn_StatusOverride)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   BcMpcInput inp = make_base_input();
@@ -71,7 +71,7 @@ TEST(BcMpcSolver, HeadOn_StatusOverride)
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, Solver_SetsSpeedFromInput)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   BcMpcInput inp = make_base_input();
@@ -89,7 +89,7 @@ TEST(BcMpcSolver, Solver_SetsSpeedFromInput)
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, Solver_SetsSolveDuration)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
   BcMpcInput inp = make_base_input();
@@ -108,10 +108,10 @@ TEST(BcMpcSolver, Solver_SetsSolveDuration)
 // ---------------------------------------------------------------------------
 TEST(BcMpcSolver, ConsecutiveFailures_ZeroAfterValidSolve)
 {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcSolver solver{form};
 
-  solver.solve(make_base_input());  // Resolved — no targets
+  static_cast<void>(solver.solve(make_base_input()));  // Resolved — no targets
   EXPECT_EQ(solver.consecutive_failures(), 0LL);
 
   BcMpcInput inp = make_base_input();
@@ -119,7 +119,7 @@ TEST(BcMpcSolver, ConsecutiveFailures_ZeroAfterValidSolve)
   TargetState tgt;
   tgt.id = 1; tgt.x_m = 400.0; tgt.y_m = 0.0; tgt.cog_rad = M_PI; tgt.sog_mps = 5.0;
   inp.targets.push_back(tgt);
-  solver.solve(inp);  // Override — still valid, counter must stay 0
+  static_cast<void>(solver.solve(inp));  // Override — still valid, counter must stay 0
   EXPECT_EQ(solver.consecutive_failures(), 0LL);
 }
 

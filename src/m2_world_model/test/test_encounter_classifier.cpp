@@ -175,5 +175,4 @@ TEST(EncounterClassifierTest, LowSpeedNoCollision) {
   EXPECT_FALSE(result.is_giveway);
 }
 
-}  // namespace
 }  // namespace mass_l3::m2

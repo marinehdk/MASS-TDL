@@ -232,13 +232,13 @@ class Int005006Test : public ::testing::Test {
 // M1's on_override_signal immediately triggers state machine → Overridden.
 TEST_F(Int005006Test, INT005_HardwareOverride_M1_EntersOverridden) {
   bool overridden_received = false;
-  l3_msgs::msg::OddState last_odd{};
+  l3_msgs::msg::ODDState last_odd{};
 
-  auto odd_sub = node_->create_subscription<l3_msgs::msg::OddState>(
+  auto odd_sub = node_->create_subscription<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state",
       rclcpp::QoS(10).reliable().transient_local(),
       [&overridden_received, &last_odd](
-          const l3_msgs::msg::OddState::SharedPtr msg) {
+          const l3_msgs::msg::ODDState::SharedPtr msg) {
         last_odd = *msg;
         // kEnvelopeStateOverridden005 = 5 per types.hpp EnvelopeState::Overridden.
         if (msg->envelope_state == kEnvelopeStateOverridden005) {

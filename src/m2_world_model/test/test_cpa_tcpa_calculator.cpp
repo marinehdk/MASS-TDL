@@ -371,5 +371,4 @@ TEST(CpaTcpaCalculatorTest, ZeroRelativeVelocity) {
   EXPECT_NEAR(result->cpa_m, 400.0, 2.0);
 }
 
-}  // namespace
 }  // namespace mass_l3::m2
