@@ -122,6 +122,12 @@ if(BUILD_TESTING)
     test/test_scenario_runner.cpp
   )
   target_link_libraries(test_scenario_runner fcb_simulator_core)
+
+  ament_add_gtest(test_fcb_export_fmu_interface
+    test/test_fcb_export_fmu_interface.cpp
+  )
+  target_link_libraries(test_fcb_export_fmu_interface fcb_simulator_core fcb_simulator_plugin)
+  ament_target_dependencies(test_fcb_export_fmu_interface ship_sim_interfaces)
 endif()
 
 # ---------------------------------------------------------------------------

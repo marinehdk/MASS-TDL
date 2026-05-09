@@ -45,6 +45,43 @@ ship_sim::ShipState FCBSimulator::step(const ship_sim::ShipState& state,
   return out;
 }
 
+ship_sim::FmuInterfaceSpec FCBSimulator::export_fmu_interface() const {
+  return {
+    "2.0",
+    "FCBShipDynamics",
+    "FCBShipDynamics",
+    0.02,
+    {
+      // ── outputs (own-ship state, 11) ─────────────────────────
+      {"u",     "output", "continuous", "Real", "m/s",   0.0, "surge velocity (body frame)"},
+      {"v",     "output", "continuous", "Real", "m/s",   0.0, "sway velocity (body frame)"},
+      {"r",     "output", "continuous", "Real", "rad/s", 0.0, "yaw rate"},
+      {"x",     "output", "continuous", "Real", "m",     0.0, "position x (NED)"},
+      {"y",     "output", "continuous", "Real", "m",     0.0, "position y (NED)"},
+      {"psi",   "output", "continuous", "Real", "rad",   0.0, "heading"},
+      {"phi",   "output", "continuous", "Real", "rad",   0.0, "roll angle"},
+      {"p",     "output", "continuous", "Real", "rad/s", 0.0, "roll rate"},
+      {"delta", "output", "continuous", "Real", "rad",   0.0, "actual rudder angle"},
+      {"n",     "output", "continuous", "Real", "rev/s", 0.0, "actual propeller rps"},
+      {"sog",   "output", "continuous", "Real", "m/s",   0.0, "speed over ground"},
+      // ── control inputs (commands from L4/L5, 2) ──────────────
+      {"delta_cmd", "input", "continuous", "Real", "rad",   0.0, "commanded rudder angle"},
+      {"n_rps_cmd", "input", "continuous", "Real", "rev/s", 0.0, "commanded propeller rps"},
+      // ── disturbance inputs (from /disturbance/* topic, 4) ────
+      {"wind_dir_deg",     "input", "continuous", "Real", "deg", 0.0, "true wind direction (from)"},
+      {"wind_speed_mps",   "input", "continuous", "Real", "m/s", 0.0, "true wind speed"},
+      {"current_dir_deg",  "input", "continuous", "Real", "deg", 0.0, "current set direction (towards)"},
+      {"current_speed_mps","input", "continuous", "Real", "m/s", 0.0, "current speed"},
+      // ── parameters (FCB hydro static, minimum exposed set, 5) ─
+      {"L",   "parameter", "fixed", "Real", "m",     45.0,    "ship length"},
+      {"B",   "parameter", "fixed", "Real", "m",      8.5,    "beam"},
+      {"d",   "parameter", "fixed", "Real", "m",      2.5,    "draft"},
+      {"m",   "parameter", "fixed", "Real", "kg",     3.5e5,  "mass"},
+      {"Izz", "parameter", "fixed", "Real", "kg.m2",  5.0e7,  "yaw inertia"},
+    }
+  };
+}
+
 }  // namespace fcb_sim
 
 PLUGINLIB_EXPORT_CLASS(fcb_sim::FCBSimulator, ship_sim::ShipMotionSimulator)
