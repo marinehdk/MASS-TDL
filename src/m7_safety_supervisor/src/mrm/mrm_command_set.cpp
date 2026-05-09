@@ -1,5 +1,7 @@
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
 
+#include <string_view>
+
 namespace mass_l3::m7::mrm {
 
 // ---------------------------------------------------------------------------

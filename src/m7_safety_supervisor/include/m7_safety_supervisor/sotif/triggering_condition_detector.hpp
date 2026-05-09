@@ -18,10 +18,10 @@ public:
 
   // Returns true when assumption.total_violation_count >= kExtremeScenarioThreshold (3).
   // ISO 21448 §5.3: simultaneous multi-assumption failure constitutes a triggering condition.
-  [[nodiscard]] bool detect(AssumptionStatus const& assumption) const noexcept;
+  [[nodiscard]] static bool detect(AssumptionStatus const& assumption) noexcept;
 
   // RFC-003 LOCKED: 3 simultaneous SOTIF assumption violations = extreme scenario.
-  static constexpr uint32_t kExtremeScenarioThreshold = 3u;
+  static constexpr uint32_t kExtremeScenarioThreshold = 3U;
 };
 
 }  // namespace mass_l3::m7::sotif

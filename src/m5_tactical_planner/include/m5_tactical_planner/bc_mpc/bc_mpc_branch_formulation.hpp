@@ -43,7 +43,7 @@ class BcMpcBranchFormulation {
     double override_cpa_multiplier{0.8};
   };
 
-  explicit BcMpcBranchFormulation(const Config& cfg = Config{});
+  explicit BcMpcBranchFormulation(const Config& cfg);
 
   // Return k candidate headings centred on current_heading_rad.
   // k = k_high if urgency_level > urgency_threshold, else k_low.

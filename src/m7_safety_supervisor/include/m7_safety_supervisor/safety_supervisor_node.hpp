@@ -21,7 +21,7 @@
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/reactive_override_cmd.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_external_msgs/msg/checker_veto_notification.hpp"
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
@@ -87,17 +87,17 @@ private:
   iec61508::DiagnosticCoverageMetric last_coverage_{};
 
   // Callbacks — main_loop group
-  void on_odd_state(l3_msgs::msg::ODDState::ConstSharedPtr msg) noexcept;
-  void on_world_state(l3_msgs::msg::WorldState::ConstSharedPtr msg) noexcept;
-  void on_behavior_plan(l3_msgs::msg::BehaviorPlan::ConstSharedPtr msg) noexcept;
-  void on_avoidance_plan(l3_msgs::msg::AvoidancePlan::ConstSharedPtr msg) noexcept;
-  void on_colregs_constraint(l3_msgs::msg::COLREGsConstraint::ConstSharedPtr msg) noexcept;
+  void on_odd_state(l3_msgs::msg::ODDState::ConstSharedPtr const& msg) noexcept;
+  void on_world_state(l3_msgs::msg::WorldState::ConstSharedPtr const& msg) noexcept;
+  void on_behavior_plan(l3_msgs::msg::BehaviorPlan::ConstSharedPtr const& msg) noexcept;
+  void on_avoidance_plan(l3_msgs::msg::AvoidancePlan::ConstSharedPtr const& msg) noexcept;
+  void on_colregs_constraint(l3_msgs::msg::COLREGsConstraint::ConstSharedPtr const& msg) noexcept;
 
   // Callbacks — events group
-  void on_override_cmd(l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr msg) noexcept;
-  void on_checker_veto(l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr msg) noexcept;
-  void on_reflex_activation(l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr msg) noexcept;
-  void on_override_signal(l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr msg) noexcept;
+  void on_override_cmd(l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr const& msg) noexcept;
+  void on_checker_veto(l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr const& msg) noexcept;
+  void on_reflex_activation(l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr const& msg) noexcept;
+  void on_override_signal(l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr const& msg) noexcept;
 
   // Timer callbacks
   void on_main_loop_tick() noexcept;
@@ -112,6 +112,7 @@ private:
   void setup_publishers() noexcept;
   void setup_timers() noexcept;
   void revert_from_override() noexcept;
+  void run_monitor_evaluation(std::chrono::steady_clock::time_point now) noexcept;
 };
 
 }  // namespace mass_l3::m7

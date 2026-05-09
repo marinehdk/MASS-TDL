@@ -38,7 +38,7 @@ target_include_directories(${PROJECT_NAME}_lib
          $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(${PROJECT_NAME}_lib rclcpp l3_msgs)
-target_link_libraries(${PROJECT_NAME}_lib PUBLIC
+target_link_libraries(${PROJECT_NAME}_lib
   Eigen3::Eigen spdlog::spdlog yaml-cpp::yaml-cpp
 )
 

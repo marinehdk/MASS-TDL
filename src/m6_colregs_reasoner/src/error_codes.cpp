@@ -1,5 +1,7 @@
 #include "m6_colregs_reasoner/error_codes.hpp"
 
+#include <string_view>
+
 namespace mass_l3::m6_colregs {
 
 std::string_view error_code_str(ErrorCode code) noexcept {

@@ -6,7 +6,7 @@
 #include "m7_safety_supervisor/common/error.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 
 namespace mass_l3::m7::iec61508 {
 
@@ -25,21 +25,21 @@ public:
   FaultMonitor() noexcept = default;
 
   // Validate ODD conformance_score is in [0, 1]
-  [[nodiscard]] common::NoExceptionResult<bool>
-  validate_odd_state(l3_msgs::msg::ODDState const& msg) const noexcept;
+  [[nodiscard]] static common::NoExceptionResult<bool>
+  validate_odd_state(l3_msgs::msg::ODDState const& msg) noexcept;
 
   // CPA sanity check: if any target has cpa_m < 0 (strictly negative), that is
   // a clear M2 computation bug — CPA is a distance and cannot be negative.
   // M7 does NOT recompute CPA exactly — only catches gross sign errors.
-  [[nodiscard]] common::NoExceptionResult<bool>
-  validate_cpa_consistency(l3_msgs::msg::WorldState const& world) const noexcept;
+  [[nodiscard]] static common::NoExceptionResult<bool>
+  validate_cpa_consistency(l3_msgs::msg::WorldState const& world) noexcept;
 
   // COLREGs active_rules should be non-empty only if targets are present.
   // Simple check: active_rules non-empty and world.targets empty → suspicious.
   // NOTE: this is a simplified plausibility check; M7 does not re-run COLREGs logic.
-  [[nodiscard]] common::NoExceptionResult<bool>
+  [[nodiscard]] static common::NoExceptionResult<bool>
   validate_colregs_consistency(l3_msgs::msg::WorldState const& world,
-                               l3_msgs::msg::COLREGsConstraint const& colregs) const noexcept;
+                               l3_msgs::msg::COLREGsConstraint const& colregs) noexcept;
 
   // Main diagnostic entry point — runs all three checks
   [[nodiscard]] DiagnosticResult run(
@@ -48,10 +48,10 @@ public:
       l3_msgs::msg::COLREGsConstraint const& colregs) noexcept;
 
   [[nodiscard]] std::uint32_t fault_count() const noexcept { return fault_count_; }
-  void reset_count() noexcept { fault_count_ = 0u; }
+  void reset_count() noexcept { fault_count_ = 0U; }
 
 private:
-  std::uint32_t fault_count_{0u};
+  std::uint32_t fault_count_{0U};
 };
 
 }  // namespace mass_l3::m7::iec61508

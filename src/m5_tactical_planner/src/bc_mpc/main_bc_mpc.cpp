@@ -4,7 +4,8 @@
 int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<mass_l3::m5::bc_mpc::BcMpcNode>());
+  rclcpp::spin(std::make_shared<mass_l3::m5::bc_mpc::BcMpcNode>(
+      mass_l3::m5::bc_mpc::BcMpcNode::Config{}));
   rclcpp::shutdown();
   return 0;
 }

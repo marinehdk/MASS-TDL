@@ -14,9 +14,9 @@ class Mrm03HeaveTo {
 public:
   explicit Mrm03HeaveTo(Mrm03Params const& params) noexcept;
 
-  [[nodiscard]] bool is_applicable(l3_msgs::msg::WorldState const& world) const noexcept;
+  [[nodiscard]] static bool is_applicable(l3_msgs::msg::WorldState const& world) noexcept;
 
-  [[nodiscard]] std::string rationale() const noexcept;
+  [[nodiscard]] static std::string rationale() noexcept;
 
 private:
   Mrm03Params params_;

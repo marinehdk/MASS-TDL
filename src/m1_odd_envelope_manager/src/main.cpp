@@ -1,7 +1,8 @@
 // main.cpp — M1 ODD/Envelope Manager ROS2 node entry point.
 #include <memory>
 
-#include <rclcpp/rclcpp.hpp>
+#include "rclcpp/executors/multi_threaded_executor.hpp"
+#include "rclcpp/utilities.hpp"
 
 #include "m1_odd_envelope_manager/odd_envelope_manager_node.hpp"
 

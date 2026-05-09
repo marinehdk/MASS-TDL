@@ -33,7 +33,7 @@ class BcMpcNode : public rclcpp::Node {
     double cpa_safe_m{1852.0};
   };
 
-  explicit BcMpcNode(const Config& cfg = Config{});
+  explicit BcMpcNode(const Config& cfg);
 
  private:
   BcMpcBranchFormulation formulation_;

@@ -1,7 +1,13 @@
 #include "m1_odd_envelope_manager/tmr_tdl_estimator.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+
+#include <tl_expected/expected.hpp>
+
+#include "m1_odd_envelope_manager/error.hpp"
+#include "m1_odd_envelope_manager/types.hpp"
 
 namespace mass_l3::m1 {
 
@@ -64,8 +70,9 @@ TmrTdlEstimator::TmrTdlEstimator(const TmrTdlParams& params) noexcept
 // Communication health estimation
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 double TmrTdlEstimator::estimate_t_comm_ok(
-    const double current_rtt_s) const noexcept {
+    const double current_rtt_s) const noexcept {  // NOLINT(readability-identifier-naming)
   if (std::isnan(current_rtt_s)) {
     return kCommWindowPoor;
   }
@@ -85,6 +92,7 @@ double TmrTdlEstimator::estimate_t_comm_ok(
 // System health estimation
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 double TmrTdlEstimator::estimate_t_sys_health(
     const SystemHealthSnapshot& health) const noexcept {
   // Priority: critical > degraded > healthy > moderate fallback
@@ -99,8 +107,8 @@ double TmrTdlEstimator::estimate_t_sys_health(
   }
   // Healthy: MTTF above threshold with no faults.
   if (health.mttf_estimate_s > kSysHealMttfThreshold) {
-    const double t = health.mttf_estimate_s * kSysHealMttfFactor;
-    return (t > kSysHealHealthyMax) ? kSysHealHealthyMax : t;
+    const double kT = health.mttf_estimate_s * kSysHealMttfFactor;
+    return (kT > kSysHealHealthyMax) ? kSysHealHealthyMax : kT;
   }
   // Moderate: no faults, has redundancy, but MTTF below threshold.
   return kSysHealModerate;
@@ -117,24 +125,16 @@ TmrTdlPair TmrTdlEstimator::compute(const TmrTdlInputs& inputs) const noexcept {
                          estimate_t_sys_health(inputs.system_health)});
 
   // Clamp TDL.
-  if (tdl < params_.tdl_min_s) {
-    tdl = params_.tdl_min_s;
-  }
-  if (tdl > params_.tdl_max_s) {
-    tdl = params_.tdl_max_s;
-  }
+  tdl = std::max(tdl, params_.tdl_min_s);
+  tdl = std::min(tdl, params_.tdl_max_s);
 
   // TMR = baseline * H_score_factor.
-  const double h_factor = inputs.h_score_tmr_available ? 1.0 : 0.5;
-  double tmr = params_.tmr_baseline_s * h_factor;
+  const double kHFactor = inputs.h_score_tmr_available ? 1.0 : 0.5;
+  double tmr = params_.tmr_baseline_s * kHFactor;
 
   // Clamp TMR.
-  if (tmr < params_.tmr_min_s) {
-    tmr = params_.tmr_min_s;
-  }
-  if (tmr > params_.tmr_max_s) {
-    tmr = params_.tmr_max_s;
-  }
+  tmr = std::max(tmr, params_.tmr_min_s);
+  tmr = std::min(tmr, params_.tmr_max_s);
 
   return TmrTdlPair{tmr, tdl};
 }
@@ -145,26 +145,22 @@ TmrTdlPair TmrTdlEstimator::compute(const TmrTdlInputs& inputs) const noexcept {
 
 TmrTdlPair TmrTdlEstimator::forecast(
     const TmrTdlInputs& current,
-    const std::chrono::seconds horizon) const noexcept {
-  const double h = static_cast<double>(horizon.count());
+    const std::chrono::seconds kHorizon) const noexcept {
+  const auto kH = static_cast<double>(kHorizon.count());
   TmrTdlPair base = compute(current);
 
   // Zero horizon returns current estimate unchanged.
-  if (h <= 0.0) {
+  if (kH <= 0.0) {
     return base;
   }
 
   // Degrade both proportionally with horizon.
-  double tdl = base.tdl_s - h * kTdlDegradationPerSecond;
-  double tmr = base.tmr_s - h * kTmrDegradationPerSecond;
+  double tdl = base.tdl_s - (kH * kTdlDegradationPerSecond);
+  double tmr = base.tmr_s - (kH * kTmrDegradationPerSecond);
 
   // Clamp.
-  if (tdl < params_.tdl_min_s) {
-    tdl = params_.tdl_min_s;
-  }
-  if (tmr < params_.tmr_min_s) {
-    tmr = params_.tmr_min_s;
-  }
+  tdl = std::max(tdl, params_.tdl_min_s);
+  tmr = std::max(tmr, params_.tmr_min_s);
 
   return TmrTdlPair{tmr, tdl};
 }

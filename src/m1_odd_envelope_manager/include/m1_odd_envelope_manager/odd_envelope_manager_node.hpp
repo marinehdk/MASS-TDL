@@ -5,6 +5,7 @@
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
+#include <spdlog/spdlog.h>
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
@@ -139,17 +140,17 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Time last_own_ship_received_;
   rclcpp::Time last_safety_alert_received_;
 
+  // Override / reflex state
+  bool override_active_;
+  bool reflex_active_;
+  rclcpp::Time override_entry_at_;
+
   // Input-received flags (since default rclcpp::Time{} uses different clock
   // type than now(), preventing reliable comparison against zero).
   bool has_received_world_state_;
   bool has_received_env_state_;
   bool has_received_own_ship_;
   bool has_received_safety_alert_;
-
-  // Override / reflex state
-  bool override_active_;
-  bool reflex_active_;
-  rclcpp::Time override_entry_at_;
 
   // ---------------------------------------------------------------------------
   // Cached computed values (updated on main loop tick)

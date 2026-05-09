@@ -11,6 +11,23 @@
 
 namespace mass_l3::m7::arbitrator {
 
+// Params struct for build_safety_alert — avoids adjacent same-type parameters.
+struct SafetyAlertParams {
+  uint8_t alert_type{0};
+  uint8_t severity{0};
+  std::string_view recommended_mrm{};
+  float confidence{0.0F};
+  std::string_view rationale{};
+  std::string_view description{};
+};
+
+// Params struct for build_asdr_record — avoids adjacent same-type parameters.
+struct AsdrRecordParams {
+  std::string_view source_module{};
+  std::string_view decision_type{};
+  std::string_view decision_summary{};
+};
+
 // AlertGenerator: static factory for building ROS2 message instances.
 // Note: ROS2 message types internally use std::string — that allocation is
 // within the ROS2 framework boundary and outside M7's PROJ-LR-001 scope.
@@ -21,21 +38,14 @@ public:
   // Build a SafetyAlert message with all mandatory fields populated.
   [[nodiscard]] static l3_msgs::msg::SafetyAlert
   build_safety_alert(builtin_interfaces::msg::Time const& stamp,
-                     uint8_t alert_type,
-                     uint8_t severity,
-                     std::string_view recommended_mrm,
-                     float confidence,
-                     std::string_view rationale,
-                     std::string_view description) noexcept;
+                     SafetyAlertParams const& params) noexcept;
 
   // Build an ASDRRecord message for decision audit trail.
   // decision_json is set to decision_summary (key=value text per spec).
   // SHA-256 digest of decision_json is written to signature (32 bytes).
   [[nodiscard]] static l3_msgs::msg::ASDRRecord
   build_asdr_record(builtin_interfaces::msg::Time const& stamp,
-                    std::string_view source_module,
-                    std::string_view decision_type,
-                    std::string_view decision_summary) noexcept;
+                    AsdrRecordParams const& params) noexcept;
 
   // Build a SATData message for M8 transparency pipeline.
   // sat1.state_summary and sat2.trigger_reason are set from arguments.

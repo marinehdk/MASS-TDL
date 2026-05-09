@@ -1,5 +1,9 @@
 #include "m6_colregs_reasoner/rules/colregs/rule16_give_way.hpp"
 
+#include <string>
+
+#include "m6_colregs_reasoner/types.hpp"
+
 namespace mass_l3::m6_colregs::rules::colregs {
 
 RuleEvaluation Rule16_GiveWay::evaluate(const TargetGeometricState& geo,
@@ -26,14 +30,14 @@ RuleEvaluation Rule16_GiveWay::evaluate(const TargetGeometricState& geo,
     result.phase = TimingPhase::SOUND_WARNING;
     result.preferred_direction = "STARBOARD";
     result.min_alteration_deg = params.min_alteration_deg;
-    result.confidence = 0.7f;
+    result.confidence = 0.7F;
     result.rationale = "Rule 16: Give-way obligations apply. "
                        "Early and substantial action required per COLREGs. "
                        "CPA=" + std::to_string(geo.cpa_m) +
                        " m indicates proximity. Starboard turn preferred.";
   } else {
     result.is_active = false;
-    result.confidence = 0.5f;
+    result.confidence = 0.5F;
     result.rationale = "Rule 16: No give-way obligation triggered at this range. "
                        "CPA=" + std::to_string(geo.cpa_m) + " m.";
   }

@@ -31,7 +31,7 @@ static BcMpcInput make_base_input() {
 // No targets means worst_case_cpa = 1e9 >> cpa_safe; no override needed.
 // ---------------------------------------------------------------------------
 TEST(BcMpcCollisionDetector, NoTargets_ResolvedImmediately) {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcCollisionDetector det{form};
 
   const auto sol = det.evaluate(make_base_input());
@@ -46,7 +46,7 @@ TEST(BcMpcCollisionDetector, NoTargets_ResolvedImmediately) {
 // Worst-case CPA will be < cpa_safe * override_cpa_multiplier → Override.
 // ---------------------------------------------------------------------------
 TEST(BcMpcCollisionDetector, HeadOnThreat_Override) {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcCollisionDetector det{form};
 
   BcMpcInput inp = make_base_input();
@@ -70,7 +70,7 @@ TEST(BcMpcCollisionDetector, HeadOnThreat_Override) {
 // Tests the formulation directly without going through the full evaluator.
 // ---------------------------------------------------------------------------
 TEST(BcMpcBranchFormulation, BranchCount_HighAndLowUrgency) {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
 
   const auto high = form.candidate_headings(0.0, 1.0);  // above urgency_threshold
   EXPECT_EQ(static_cast<std::int32_t>(high.size()), 7);
@@ -84,7 +84,7 @@ TEST(BcMpcBranchFormulation, BranchCount_HighAndLowUrgency) {
 // Head-on scenario at 300 m: best branch must differ from current heading.
 // ---------------------------------------------------------------------------
 TEST(BcMpcCollisionDetector, OptimalBranchAvoidsCollision) {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcCollisionDetector det{form};
 
   BcMpcInput inp = make_base_input();
@@ -110,7 +110,7 @@ TEST(BcMpcCollisionDetector, OptimalBranchAvoidsCollision) {
 // Urgency is forced to 1.0 regardless of predicted_short_horizon_cpa_m.
 // ---------------------------------------------------------------------------
 TEST(BcMpcCollisionDetector, ConsecutiveFailures_ForcesHighBranches) {
-  BcMpcBranchFormulation form;
+  BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
   BcMpcCollisionDetector det{form};
 
   BcMpcInput inp = make_base_input();

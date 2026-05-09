@@ -5,7 +5,7 @@
 #include "m7_safety_supervisor/sotif/assumption_monitor.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/tracked_target.hpp"
 
 using namespace mass_l3::m7::sotif;
@@ -48,7 +48,7 @@ static l3_msgs::msg::COLREGsConstraint build_colregs(float confidence) {
   return c;
 }
 
-static l3_msgs::msg::ODDState build_odd() {
+[[maybe_unused]] static l3_msgs::msg::ODDState build_odd() {
   l3_msgs::msg::ODDState o;
   o.envelope_state = l3_msgs::msg::ODDState::ENVELOPE_IN;
   o.health = l3_msgs::msg::ODDState::HEALTH_FULL;
@@ -118,7 +118,7 @@ TEST_F(AssumptionMonitorTest, AisRadar_RecoveryAfterViolation_StateReset) {
   // Trigger violation, then recover, then confirm state is reset
   auto const world_low = build_world(0.3f);
   auto const world_ok = build_world(0.8f);
-  monitor().check_ais_radar(world_low, t(0));
+  (void)monitor().check_ais_radar(world_low, t(0));
   EXPECT_TRUE(monitor().check_ais_radar(world_low, t(30)));
   // Recovery: good confidence resets tracking
   EXPECT_FALSE(monitor().check_ais_radar(world_ok, t(31)));
@@ -217,17 +217,17 @@ TEST_F(AssumptionMonitorTest, Colregs_FailThenSuccess_CounterReset) {
 // ---------------------------------------------------------------------------
 
 TEST_F(AssumptionMonitorTest, Comm_GoodRttGoodLoss_NoViolation) {
-  EXPECT_FALSE(monitor().check_comm_link(0.5, 5.0));
+  EXPECT_FALSE(monitor().check_comm_link(mass_l3::m7::sotif::CommLinkState{0.5, 5.0}));
 }
 
 TEST_F(AssumptionMonitorTest, Comm_HighRtt_Violation) {
   // rtt_s > 2.0 threshold
-  EXPECT_TRUE(monitor().check_comm_link(2.1, 5.0));
+  EXPECT_TRUE(monitor().check_comm_link(mass_l3::m7::sotif::CommLinkState{2.1, 5.0}));
 }
 
 TEST_F(AssumptionMonitorTest, Comm_HighPacketLoss_Violation) {
   // packet_loss_pct > 20.0 threshold
-  EXPECT_TRUE(monitor().check_comm_link(1.0, 25.0));
+  EXPECT_TRUE(monitor().check_comm_link(mass_l3::m7::sotif::CommLinkState{1.0, 25.0}));
 }
 
 // ---------------------------------------------------------------------------
@@ -256,10 +256,10 @@ TEST_F(AssumptionMonitorTest, ResetClearsAllState) {
   auto const world_low = build_world(0.2f);
   auto const colregs_bad = build_colregs(0.1f);
 
-  monitor().check_ais_radar(world_low, t(0));
-  monitor().check_motion_predictability(world_low, t(0));
-  monitor().check_colregs_solvability(colregs_bad);
-  monitor().check_colregs_solvability(colregs_bad);
+  (void)monitor().check_ais_radar(world_low, t(0));
+  (void)monitor().check_motion_predictability(world_low, t(0));
+  (void)monitor().check_colregs_solvability(colregs_bad);
+  (void)monitor().check_colregs_solvability(colregs_bad);
 
   monitor().reset();
 

@@ -2,6 +2,10 @@
 
 #include <string>
 
+#include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/world_state.hpp"
+#include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
+
 namespace mass_l3::m7::mrm {
 
 // ---------------------------------------------------------------------------
@@ -21,17 +25,17 @@ bool Mrm04Mooring::is_applicable(
     l3_msgs::msg::ODDState const& odd,
     l3_msgs::msg::WorldState const& world) const noexcept
 {
-  bool const in_harbor = (!params_.requires_harbor_zone) ||
+  bool const kInHarbor = (!params_.requires_harbor_zone) ||
                           (odd.current_zone == l3_msgs::msg::ODDState::ODD_ZONE_C);
-  bool const speed_ok = world.own_ship.sog_kn <= params_.max_speed_kn;
-  return in_harbor && speed_ok;
+  bool const kSpeedOk = world.own_ship.sog_kn <= params_.max_speed_kn;
+  return kInHarbor && kSpeedOk;
 }
 
 // ---------------------------------------------------------------------------
 // rationale()
 // ---------------------------------------------------------------------------
 
-std::string Mrm04Mooring::rationale() const noexcept {
+std::string Mrm04Mooring::rationale() noexcept {
   return std::string{"MRM-04 MOORING: harbor zone with speed constraint met"};
 }
 

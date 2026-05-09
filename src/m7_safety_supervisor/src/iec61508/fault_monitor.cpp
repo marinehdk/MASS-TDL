@@ -1,4 +1,9 @@
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
+#include "m7_safety_supervisor/common/error.hpp"
+
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
+#include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/world_state.hpp"
 
 // Type note: ODDState::conformance_score is float32 (ROS2 IDL → float);
 // TrackedTarget::cpa_m is float64 (ROS2 IDL → double). Both correct per ros2-idl-implementation-guide.md.
@@ -11,9 +16,9 @@ namespace mass_l3::m7::iec61508 {
 // ---------------------------------------------------------------------------
 
 common::NoExceptionResult<bool>
-FaultMonitor::validate_odd_state(l3_msgs::msg::ODDState const& msg) const noexcept {
-  bool const valid = (msg.conformance_score >= 0.0f) && (msg.conformance_score <= 1.0f);
-  return common::NoExceptionResult<bool>::ok(valid);
+FaultMonitor::validate_odd_state(l3_msgs::msg::ODDState const& msg) noexcept {
+  bool const kValid = (msg.conformance_score >= 0.0F) && (msg.conformance_score <= 1.0F);
+  return common::NoExceptionResult<bool>::ok(kValid);
 }
 
 // ---------------------------------------------------------------------------
@@ -23,7 +28,7 @@ FaultMonitor::validate_odd_state(l3_msgs::msg::ODDState const& msg) const noexce
 // ---------------------------------------------------------------------------
 
 common::NoExceptionResult<bool>
-FaultMonitor::validate_cpa_consistency(l3_msgs::msg::WorldState const& world) const noexcept {
+FaultMonitor::validate_cpa_consistency(l3_msgs::msg::WorldState const& world) noexcept {
   for (auto const& target : world.targets) {
     // CPA cannot be negative (it is a closest-approach distance)
     if (target.cpa_m < 0.0) {
@@ -42,12 +47,12 @@ FaultMonitor::validate_cpa_consistency(l3_msgs::msg::WorldState const& world) co
 common::NoExceptionResult<bool>
 FaultMonitor::validate_colregs_consistency(
     l3_msgs::msg::WorldState const& world,
-    l3_msgs::msg::COLREGsConstraint const& colregs) const noexcept
+    l3_msgs::msg::COLREGsConstraint const& colregs) noexcept
 {
-  bool const has_rules = !colregs.active_rules.empty();
-  bool const has_targets = !world.targets.empty();
+  bool const kHasRules = !colregs.active_rules.empty();
+  bool const kHasTargets = !world.targets.empty();
   // Rules active with no known targets is suspicious — flag it
-  if (has_rules && !has_targets) {
+  if (kHasRules && !kHasTargets) {
     return common::NoExceptionResult<bool>::ok(false);
   }
   return common::NoExceptionResult<bool>::ok(true);
@@ -62,22 +67,22 @@ DiagnosticResult FaultMonitor::run(
     l3_msgs::msg::WorldState const& world,
     l3_msgs::msg::COLREGsConstraint const& colregs) noexcept
 {
-  auto const odd_result = validate_odd_state(odd);
-  auto const cpa_result = validate_cpa_consistency(world);
-  auto const colregs_result = validate_colregs_consistency(world, colregs);
+  auto const kOddResult     = validate_odd_state(odd);
+  auto const kCpaResult     = validate_cpa_consistency(world);
+  auto const kColregsResult = validate_colregs_consistency(world, colregs);
 
-  bool const odd_ok     = odd_result.has_value() && odd_result.value();
-  bool const cpa_ok     = cpa_result.has_value() && cpa_result.value();
-  bool const colregs_ok = colregs_result.has_value() && colregs_result.value();
+  bool const kOddOk     = kOddResult.has_value() && kOddResult.value();
+  bool const kCpaOk     = kCpaResult.has_value() && kCpaResult.value();
+  bool const kColregsOk = kColregsResult.has_value() && kColregsResult.value();
 
-  if (!odd_ok)     { ++fault_count_; }
-  if (!cpa_ok)     { ++fault_count_; }
-  if (!colregs_ok) { ++fault_count_; }
+  if (!kOddOk)     { ++fault_count_; }
+  if (!kCpaOk)     { ++fault_count_; }
+  if (!kColregsOk) { ++fault_count_; }
 
   DiagnosticResult result{};
-  result.conformance_score_valid = odd_ok;
-  result.cpa_internal_consistent = cpa_ok;
-  result.colregs_target_id_match = colregs_ok;
+  result.conformance_score_valid = kOddOk;
+  result.cpa_internal_consistent = kCpaOk;
+  result.colregs_target_id_match = kColregsOk;
   result.fault_count             = fault_count_;
 
   return result;

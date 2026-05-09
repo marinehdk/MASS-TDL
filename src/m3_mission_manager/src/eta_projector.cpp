@@ -186,7 +186,7 @@ std::optional<EtaProjection> EtaProjector::project(
 
 double EtaProjector::integrate_eta_(
     const l3_msgs::msg::WorldState& world_state,
-    std::chrono::steady_clock::time_point now) const {
+    std::chrono::steady_clock::time_point /*now*/) const {
   if (!route_ || !profile_) {
     return config_.infeasible_margin_s;
   }

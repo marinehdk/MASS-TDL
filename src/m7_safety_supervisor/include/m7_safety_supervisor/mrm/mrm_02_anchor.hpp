@@ -18,7 +18,7 @@ public:
   [[nodiscard]] bool is_applicable(l3_msgs::msg::ODDState const& odd,
                                    l3_msgs::msg::WorldState const& world) const noexcept;
 
-  [[nodiscard]] std::string rationale() const noexcept;
+  [[nodiscard]] static std::string rationale() noexcept;
 
 private:
   Mrm02Params params_;

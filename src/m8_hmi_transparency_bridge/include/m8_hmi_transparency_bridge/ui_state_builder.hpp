@@ -9,7 +9,7 @@
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "m8_hmi_transparency_bridge/adaptive_sat_trigger.hpp"
 #include "m8_hmi_transparency_bridge/sat_aggregator.hpp"

@@ -116,7 +116,7 @@ TEST_F(PerformanceMonitorTest, Reset_ClearsHistory)
   // Populate with several calls, then reset
   auto world = build_world_with_target(1000.0);
   for (int i = 0; i < 5; ++i) {
-    monitor().evaluate(world, t(i));
+    (void)monitor().evaluate(world, t(i));
   }
   monitor().reset();
 
@@ -134,7 +134,7 @@ TEST_F(PerformanceMonitorTest, SteadilyIncreasingCpa_NotDegrading)
   for (int i = 0; i < 5; ++i) {
     double const cpa_m = static_cast<double>(i + 1) * 1000.0;  // 1000m, 2000m, ...
     auto world = build_world_with_target(cpa_m);
-    monitor().evaluate(world, t(i));
+    (void)monitor().evaluate(world, t(i));
   }
   // Last status should show positive slope -> not degrading
   auto world = build_world_with_target(6000.0);
@@ -150,7 +150,7 @@ TEST_F(PerformanceMonitorTest, SteadilyDecreasingCpa_IsDegrading)
     // Large decrease: 10000m, 9000m, 8000m, ...
     double const cpa_m = static_cast<double>(10 - i) * 1000.0;
     auto world = build_world_with_target(cpa_m);
-    monitor().evaluate(world, t(i));
+    (void)monitor().evaluate(world, t(i));
   }
   auto world = build_world_with_target(5000.0);
   auto status = monitor().evaluate(world, t(5));

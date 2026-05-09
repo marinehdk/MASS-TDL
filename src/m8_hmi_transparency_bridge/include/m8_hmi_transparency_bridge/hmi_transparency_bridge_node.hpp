@@ -14,10 +14,10 @@
 #include "l3_msgs/msg/mission_goal.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "l3_msgs/msg/ui_state.hpp"
-#include "l3_msgs/msg/tor_request.hpp"
+#include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 

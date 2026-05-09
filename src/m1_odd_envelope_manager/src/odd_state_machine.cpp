@@ -10,8 +10,13 @@
 #include "m1_odd_envelope_manager/odd_state_machine.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <limits>
+
+#include <tl_expected/expected.hpp>
+
+#include "m1_odd_envelope_manager/error.hpp"
+#include "m1_odd_envelope_manager/types.hpp"
 
 namespace mass_l3::m1 {
 namespace {
@@ -24,7 +29,7 @@ namespace {
 /// Handle transitions from In state.
 /// CC = 4
 [[nodiscard]] EnvelopeState handle_in_state(double eff_score,
-                                            double in_to_edge,
+                                            double in_to_edge,   // NOLINT(bugprone-easily-swappable-parameters)
                                             double edge_to_out) noexcept {
   // score <= 0 OR score < edge_to_out -> Out (immediate)
   if (eff_score <= 0.0 || eff_score < edge_to_out) {
@@ -41,7 +46,7 @@ namespace {
 /// Handle transitions from Edge state.
 /// CC = 4
 [[nodiscard]] EnvelopeState handle_edge_state(double eff_score,
-                                              double in_to_edge,
+                                              double in_to_edge,   // NOLINT(bugprone-easily-swappable-parameters)
                                               double edge_to_out,
                                               double tdl_s,
                                               double tmr_s) noexcept {
@@ -82,7 +87,7 @@ namespace {
 /// Handle transitions from Out state.
 /// CC = 3
 [[nodiscard]] EnvelopeState handle_out_state(double eff_score,
-                                             double in_to_edge,
+                                             double in_to_edge,   // NOLINT(bugprone-easily-swappable-parameters)
                                              double edge_to_out) noexcept {
   if (eff_score >= in_to_edge) {
     return EnvelopeState::In;
@@ -157,8 +162,7 @@ EnvelopeState OddStateMachine::compute_next(
       return handle_mrc_active_state(events.m7_safety_critical, eff_score,
                                      thresholds_.in_to_edge);
     case EnvelopeState::Out:
-      return handle_out_state(eff_score, thresholds_.in_to_edge,
-                              thresholds_.edge_to_out);
+      [[fallthrough]];
     case EnvelopeState::Overridden:
       return handle_out_state(eff_score, thresholds_.in_to_edge,
                               thresholds_.edge_to_out);
@@ -171,7 +175,7 @@ EnvelopeState OddStateMachine::compute_next(
 // step: main entry point for state transitions.
 // CC = 6 (base 1 + override-if 2 + stale-if 2 + transition-if 1)
 // ---------------------------------------------------------------------------
-EnvelopeState OddStateMachine::step(double score,
+EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swappable-parameters)
                                     double tdl_s,
                                     double tmr_s,
                                     EventFlags events,
@@ -199,17 +203,17 @@ EnvelopeState OddStateMachine::step(double score,
   }
 
   // --- Apply stale input degradation ---
-  double eff_score = apply_stale_degradation(score, events,
+  const double kEffScore = apply_stale_degradation(score, events,
                                               thresholds_.stale_degradation_factor);
 
   // --- Compute next state ---
-  EnvelopeState next = compute_next(eff_score, tdl_s, tmr_s, events);
+  const EnvelopeState kNext = compute_next(kEffScore, tdl_s, tmr_s, events);
 
   // --- Update state on transition ---
-  if (next != current_) {
-    current_ = next;
+  if (kNext != current_) {
+    current_ = kNext;
     last_transition_at_ = now;
-    current_rationale_ = detail::rationale_for_state(next);
+    current_rationale_ = detail::rationale_for_state(kNext);
   }
 
   return current_;
@@ -231,6 +235,7 @@ StateForecast OddStateMachine::forecast(
   }
 
   double uncertainty = 0.0;
+  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
   EnvelopeState predicted = current_;
 
   switch (current_) {

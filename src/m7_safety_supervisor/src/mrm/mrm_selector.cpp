@@ -1,6 +1,43 @@
 #include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 
+#include <chrono>
+
+#include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/world_state.hpp"
+#include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
+
 namespace mass_l3::m7::mrm {
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// raw_select_watchdog — watchdog sub-selection (split from raw_select for complexity)
+// ---------------------------------------------------------------------------
+
+MrmId raw_select_watchdog(ScenarioContext const& ctx) noexcept {
+  if (ctx.watchdog.critical_count >= 3U) {
+    return MrmId::kMrm02_Anchor;
+  }
+  if (ctx.watchdog.critical_count >= 1U && ctx.watchdog.critical_count <= 2U) {
+    return MrmId::kMrm01_Drift;
+  }
+  return MrmId::kNone;
+}
+
+// ---------------------------------------------------------------------------
+// compute_confidence — extracted from select() for complexity
+// ---------------------------------------------------------------------------
+
+float compute_confidence(bool lockout_active,
+                         bool applicable,
+                         float upgrade_threshold) noexcept {
+  if (lockout_active) {
+    return 0.5F;
+  }
+  return applicable ? upgrade_threshold : 0.5F;
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -25,11 +62,11 @@ MrmSelector::MrmSelector(Config const& cfg,
 // ---------------------------------------------------------------------------
 
 MrmId MrmSelector::raw_select(ScenarioContext const& ctx,
-                               l3_msgs::msg::ODDState const& odd) const noexcept
+                               l3_msgs::msg::ODDState const& odd) noexcept
 {
   // 1. Harbor + >= 2 violations -> MRM-04 (highest priority)
   if (odd.current_zone == l3_msgs::msg::ODDState::ODD_ZONE_C &&
-      ctx.assumption.total_violation_count >= 2u) {
+      ctx.assumption.total_violation_count >= 2U) {
     return MrmId::kMrm04_Mooring;
   }
 
@@ -39,7 +76,7 @@ MrmId MrmSelector::raw_select(ScenarioContext const& ctx,
   }
 
   // 3. Extreme: >= 3 violations -> MRM-02
-  if (ctx.assumption.total_violation_count >= 3u) {
+  if (ctx.assumption.total_violation_count >= 3U) {
     return MrmId::kMrm02_Anchor;
   }
 
@@ -48,27 +85,23 @@ MrmId MrmSelector::raw_select(ScenarioContext const& ctx,
     return MrmId::kMrm02_Anchor;
   }
 
-  // 5. >= 3 modules critical -> MRM-02
-  if (ctx.watchdog.critical_count >= 3u) {
-    return MrmId::kMrm02_Anchor;
+  // 5/6: Watchdog-based selection (extracted for complexity)
+  MrmId const kWatchdogChoice = raw_select_watchdog(ctx);
+  if (kWatchdogChoice != MrmId::kNone) {
+    return kWatchdogChoice;
   }
 
   // 6. >= 2 SOTIF violations -> MRM-02
-  if (ctx.assumption.total_violation_count >= 2u) {
+  if (ctx.assumption.total_violation_count >= 2U) {
     return MrmId::kMrm02_Anchor;
   }
 
-  // 7. 1-2 modules critical -> MRM-01
-  if (ctx.watchdog.critical_count >= 1u && ctx.watchdog.critical_count <= 2u) {
+  // 7. 1 SOTIF violation -> MRM-01
+  if (ctx.assumption.total_violation_count >= 1U) {
     return MrmId::kMrm01_Drift;
   }
 
-  // 8. 1 SOTIF violation -> MRM-01
-  if (ctx.assumption.total_violation_count >= 1u) {
-    return MrmId::kMrm01_Drift;
-  }
-
-  // 9. Default: no MRM
+  // 8. Default: no MRM
   return MrmId::kNone;
 }
 
@@ -81,19 +114,19 @@ MrmDecision MrmSelector::select(ScenarioContext const& ctx,
                                  l3_msgs::msg::WorldState const& world,
                                  std::chrono::steady_clock::time_point now) noexcept
 {
-  MrmId const candidate = raw_select(ctx, odd);
+  MrmId const kCandidate = raw_select(ctx, odd);
 
   // Apply 30s lockout: if candidate differs from last and insufficient time
   // has passed, keep last. Skip lockout when last_id_ is kNone (first call).
-  MrmId chosen = candidate;
+  MrmId chosen = kCandidate;
   bool lockout_active = false;
-  if (candidate != last_id_) {
-    auto const elapsed = now - last_change_;
-    if (elapsed < cfg_.change_lockout && last_id_ != MrmId::kNone) {
+  if (kCandidate != last_id_) {
+    auto const kElapsed = now - last_change_;
+    if (kElapsed < cfg_.change_lockout && last_id_ != MrmId::kNone) {
       chosen = last_id_;  // lockout: keep current
       lockout_active = true;
     } else {
-      last_id_ = candidate;
+      last_id_ = kCandidate;
       last_change_ = now;
     }
   }
@@ -103,14 +136,14 @@ MrmDecision MrmSelector::select(ScenarioContext const& ctx,
   switch (chosen) {
     case MrmId::kMrm01_Drift:   applicable = mrm01_.is_applicable(odd, world); break;
     case MrmId::kMrm02_Anchor:  applicable = mrm02_.is_applicable(odd, world); break;
-    case MrmId::kMrm03_HeaveTo: applicable = mrm03_.is_applicable(world); break;
+    case MrmId::kMrm03_HeaveTo: applicable = Mrm03HeaveTo::is_applicable(world); break;
     case MrmId::kMrm04_Mooring: applicable = mrm04_.is_applicable(odd, world); break;
     default: applicable = true; break;
   }
 
   MrmDecision dec;
   dec.mrm_id = chosen;
-  dec.confidence = lockout_active ? 0.5F : (applicable ? cfg_.upgrade_confidence_threshold : 0.5F);
+  dec.confidence = compute_confidence(lockout_active, applicable, cfg_.upgrade_confidence_threshold);
   dec.rationale = to_string(chosen);
   return dec;
 }

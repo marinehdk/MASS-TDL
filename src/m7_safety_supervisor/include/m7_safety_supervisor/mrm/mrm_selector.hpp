@@ -50,8 +50,8 @@ public:
   void reset() noexcept;
 
 private:
-  [[nodiscard]] MrmId raw_select(ScenarioContext const& ctx,
-                                  l3_msgs::msg::ODDState const& odd) const noexcept;
+  [[nodiscard]] static MrmId raw_select(ScenarioContext const& ctx,
+                                         l3_msgs::msg::ODDState const& odd) noexcept;
 
   Config cfg_;
   Mrm01Drift mrm01_;

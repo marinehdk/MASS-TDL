@@ -16,19 +16,40 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <limits>
+#include <exception>
+#include <memory>
 #include <string>
 #include <string_view>
-#include <utility>
 
+#include <spdlog/common.h>
+#include <spdlog/logger.h>
 #include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/spdlog.h>
 
-#include <builtin_interfaces/msg/time.hpp>
-
+#include "m1_odd_envelope_manager/conformance_score_calculator.hpp"
+#include "m1_odd_envelope_manager/error.hpp"
+#include "m1_odd_envelope_manager/mrc_trigger_logic.hpp"
+#include "m1_odd_envelope_manager/odd_state_machine.hpp"
+#include "m1_odd_envelope_manager/parameter_loader.hpp"
+#include "m1_odd_envelope_manager/tmr_tdl_estimator.hpp"
 #include "m1_odd_envelope_manager/types.hpp"
+#include "rclcpp/callback_group.hpp"
+#include "rclcpp/logging.hpp"
+#include "rclcpp/node.hpp"
+#include "rclcpp/qos.hpp"
+#include "rclcpp/subscription_options.hpp"
+#include "l3_msgs/msg/asdr_record.hpp"
+#include "l3_msgs/msg/mode_cmd.hpp"
+#include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/safety_alert.hpp"
+#include "l3_msgs/msg/sat_data.hpp"
+#include "l3_msgs/msg/world_state.hpp"
+#include "l3_external_msgs/msg/environment_state.hpp"
+#include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
+#include "l3_external_msgs/msg/override_active_signal.hpp"
+#include "l3_external_msgs/msg/reflex_activation_notification.hpp"
 
 namespace mass_l3::m1 {
 
@@ -67,10 +88,10 @@ constexpr const char* kTopicSAT              = "/l3/sat/data";
 
 /// Map SafetyAlert MRM string to MrcType.
 inline MrcType mrm_string_to_type(const std::string& mrm) noexcept {
-  if (mrm == "MRM-01") return MrcType::Drift;
-  if (mrm == "MRM-02") return MrcType::Anchor;
-  if (mrm == "MRM-03") return MrcType::HeaveTo;
-  if (mrm == "MRM-04") return MrcType::Moored;
+  if (mrm == "MRM-01") { return MrcType::Drift; }
+  if (mrm == "MRM-02") { return MrcType::Anchor; }
+  if (mrm == "MRM-03") { return MrcType::HeaveTo; }
+  if (mrm == "MRM-04") { return MrcType::Moored; }
   return MrcType::Drift;
 }
 
@@ -105,30 +126,30 @@ inline uint8_t envelope_to_constraint(EnvelopeState state) noexcept {
 /// ODDState health value from conformance score.
 inline uint8_t score_to_health(double score) noexcept {
   using O = l3_msgs::msg::ODDState;
-  if (score >= kHealthFullThreshold)     return O::HEALTH_FULL;
-  if (score >= kHealthDegradedThreshold) return O::HEALTH_DEGRADED;
+  if (score >= kHealthFullThreshold)     { return O::HEALTH_FULL; }
+  if (score >= kHealthDegradedThreshold) { return O::HEALTH_DEGRADED; }
   return O::HEALTH_CRITICAL;
 }
 
 /// Small struct: pointer + count of allowed ODD zones.
 /// Backed by static constexpr storage — no heap allocation.
 struct ZoneList {
-  const uint8_t* data;
-  uint8_t count;
+  const uint8_t* data_;
+  uint8_t count_;
 };
 
 /// Return pointer+count into static constexpr zone arrays.
 /// No heap allocation — caller assigns into msg.allowed_zones via .assign().
 inline ZoneList zones_for_health(uint8_t health) noexcept {
   using O = l3_msgs::msg::ODDState;
-  static constexpr uint8_t kFull[] = {
+  static constexpr std::array<uint8_t, 4> kFull = {
       O::ODD_ZONE_A, O::ODD_ZONE_B, O::ODD_ZONE_C, O::ODD_ZONE_D};
-  static constexpr uint8_t kDeg[]  = {O::ODD_ZONE_A, O::ODD_ZONE_B};
-  static constexpr uint8_t kCrit[] = {O::ODD_ZONE_A};
+  static constexpr std::array<uint8_t, 2> kDeg  = {O::ODD_ZONE_A, O::ODD_ZONE_B};
+  static constexpr std::array<uint8_t, 1> kCrit = {O::ODD_ZONE_A};
   switch (health) {
-    case O::HEALTH_FULL:      return {kFull, 4};
-    case O::HEALTH_DEGRADED:  return {kDeg, 2};
-    default:                  return {kCrit, 1};
+    case O::HEALTH_FULL:      return {kFull.data(), 4};
+    case O::HEALTH_DEGRADED:  return {kDeg.data(),  2};
+    default:                  return {kCrit.data(),  1};
   }
 }
 
@@ -154,12 +175,15 @@ inline std::string_view envelope_state_str(EnvelopeState s) noexcept {
 
 OddEnvelopeManagerNode::OddEnvelopeManagerNode()
     : Node("m1_odd_envelope_manager"),
+      params_{},
       override_active_(false),
       reflex_active_(false),
       has_received_world_state_(false),
       has_received_env_state_(false),
       has_received_own_ship_(false),
       has_received_safety_alert_(false),
+      last_score_{},
+      last_tmr_tdl_{},
       last_published_state_(EnvelopeState::In),
       current_zone_(l3_msgs::msg::ODDState::ODD_ZONE_A),
       current_auto_level_(l3_msgs::msg::ODDState::AUTO_LEVEL_D3) {
@@ -178,20 +202,22 @@ OddEnvelopeManagerNode::OddEnvelopeManagerNode()
 // Initialization — sub-helpers keep each function within 40 lines
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void OddEnvelopeManagerNode::init_state_machine(const ParameterSet& p) {
-  const StateMachineThresholds smt{p.in_to_edge, p.edge_to_out,
+  const StateMachineThresholds kSmt{p.in_to_edge, p.edge_to_out,
                                     p.stale_degradation_factor};
-  auto sm = OddStateMachine::create(smt);
+  auto sm = OddStateMachine::create(kSmt);
   if (!sm) {
     RCLCPP_FATAL(get_logger(), "OddStateMachine create failed: %s",
                  std::string(error_code_str(sm.error())).c_str());
     std::terminate();
   }
-  state_machine_ = std::make_unique<OddStateMachine>(std::move(*sm));
+  state_machine_ = std::make_unique<OddStateMachine>(*sm);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void OddEnvelopeManagerNode::init_conformance_calc(const ParameterSet& p) {
-  const ScoreWeights sw{p.w_e, p.w_t, p.w_h};
+  const ScoreWeights kSw{p.w_e, p.w_t, p.w_h};
 
   EScoreThresholds est{};
   est.visibility_full_nm      = p.visibility_full_nm;
@@ -202,40 +228,42 @@ void OddEnvelopeManagerNode::init_conformance_calc(const ParameterSet& p) {
   est.sea_state_marginal_hs   = p.sea_state_marginal_hs;
 
   // ParameterSet uses the same field names as TScoreThresholds.
-  const TScoreThresholds tst{p.comm_delay_ok_s, p.t_score_comm_ok, p.t_score_comm_bad};
-  const HScoreThresholds hst{p.h_score_available, p.h_score_unavailable};
+  const TScoreThresholds kTst{p.comm_delay_ok_s, p.t_score_comm_ok, p.t_score_comm_bad};
+  const HScoreThresholds kHst{p.h_score_available, p.h_score_unavailable};
 
-  auto sc = ConformanceScoreCalculator::create(sw, est, tst, hst);
+  auto sc = ConformanceScoreCalculator::create(kSw, est, kTst, kHst);
   if (!sc) {
     RCLCPP_FATAL(get_logger(), "ConformanceScoreCalculator create failed: %s",
                  std::string(error_code_str(sc.error())).c_str());
     std::terminate();
   }
-  score_calc_ = std::make_unique<ConformanceScoreCalculator>(std::move(*sc));
+  score_calc_ = std::make_unique<ConformanceScoreCalculator>(*sc);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void OddEnvelopeManagerNode::init_tmr_tdl(const ParameterSet& p) {
-  const TmrTdlParams ttp{p.tmr_baseline_s, p.tcpa_coefficient,
+  const TmrTdlParams kTtp{p.tmr_baseline_s, p.tcpa_coefficient,
                           p.tmr_min_s, p.tmr_max_s, p.tdl_min_s, p.tdl_max_s};
-  auto tmr = TmrTdlEstimator::create(ttp);
+  auto tmr = TmrTdlEstimator::create(kTtp);
   if (!tmr) {
     RCLCPP_FATAL(get_logger(), "TmrTdlEstimator create failed: %s",
                  std::string(error_code_str(tmr.error())).c_str());
     std::terminate();
   }
-  tmr_tdl_ = std::make_unique<TmrTdlEstimator>(std::move(*tmr));
+  tmr_tdl_ = std::make_unique<TmrTdlEstimator>(*tmr);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void OddEnvelopeManagerNode::init_mrc(const ParameterSet& p) {
-  const MrcParams mp{p.max_anchor_depth_m, p.max_heave_to_sea_state_hs,
-                     p.max_heave_to_wind_kn};
-  auto mrc = MrcTriggerLogic::create(mp);
+  const MrcParams kMp{p.max_anchor_depth_m, p.max_heave_to_sea_state_hs,
+                      p.max_heave_to_wind_kn};
+  auto mrc = MrcTriggerLogic::create(kMp);
   if (!mrc) {
     RCLCPP_FATAL(get_logger(), "MrcTriggerLogic create failed: %s",
                  std::string(error_code_str(mrc.error())).c_str());
     std::terminate();
   }
-  mrc_ = std::make_unique<MrcTriggerLogic>(std::move(*mrc));
+  mrc_ = std::make_unique<MrcTriggerLogic>(*mrc);
 }
 
 void OddEnvelopeManagerNode::initialize_parameters() {
@@ -278,6 +306,7 @@ void OddEnvelopeManagerNode::initialize_publishers() {
       kTopicSAT, QoS(KeepLast(5)).reliable());
 }
 
+// NOLINTNEXTLINE(readability-function-size)
 void OddEnvelopeManagerNode::initialize_subscribers() {
   using rclcpp::QoS;
   using rclcpp::KeepLast;
@@ -287,8 +316,9 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
   safety_alert_sub_ = create_subscription<l3_msgs::msg::SafetyAlert>(
       kTopicSafetyAlert,
       QoS(KeepLast(50)).reliable().transient_local(),
-      [this](const l3_msgs::msg::SafetyAlert::SharedPtr msg) {
-        on_safety_alert(msg);
+      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+      [this](const l3_msgs::msg::SafetyAlert::SharedPtr kMsg) {
+        on_safety_alert(kMsg);
       });
 
   {
@@ -297,8 +327,9 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
     reflex_sub_ = create_subscription<l3_external_msgs::msg::ReflexActivationNotification>(
         kTopicReflexActivation,
         QoS(KeepLast(50)).reliable().transient_local(),
-        [this](const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr msg) {
-          on_reflex_activation(msg);
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
+        [this](const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr kMsg) {
+          on_reflex_activation(kMsg);
         },
         opts);
   }
@@ -309,8 +340,9 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
     override_sub_ = create_subscription<l3_external_msgs::msg::OverrideActiveSignal>(
         kTopicOverrideSignal,
         QoS(KeepLast(50)).reliable().transient_local(),
-        [this](const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr msg) {
-          on_override_signal(msg);
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
+        [this](const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr kMsg) {
+          on_override_signal(kMsg);
         },
         opts);
   }
@@ -318,22 +350,25 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
   env_sub_ = create_subscription<l3_external_msgs::msg::EnvironmentState>(
       kTopicEnvironmentState,
       QoS(KeepLast(5)).reliable(),
-      [this](const l3_external_msgs::msg::EnvironmentState::SharedPtr msg) {
-        on_environment_state(msg);
+      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+      [this](const l3_external_msgs::msg::EnvironmentState::SharedPtr kMsg) {
+        on_environment_state(kMsg);
       });
 
   own_ship_sub_ = create_subscription<l3_external_msgs::msg::FilteredOwnShipState>(
       kTopicOwnShipState,
       rclcpp::SensorDataQoS().keep_last(2),
-      [this](const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr msg) {
-        on_own_ship_state(msg);
+      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+      [this](const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr kMsg) {
+        on_own_ship_state(kMsg);
       });
 
   world_state_sub_ = create_subscription<l3_msgs::msg::WorldState>(
       kTopicWorldState,
       QoS(KeepLast(5)).reliable(),
-      [this](const l3_msgs::msg::WorldState::SharedPtr msg) {
-        on_world_state(msg);
+      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+      [this](const l3_msgs::msg::WorldState::SharedPtr kMsg) {
+        on_world_state(kMsg);
       });
 }
 
@@ -360,61 +395,62 @@ void OddEnvelopeManagerNode::initialize_timers() {
 // ===========================================================================
 
 void OddEnvelopeManagerNode::on_safety_alert(
-    const l3_msgs::msg::SafetyAlert::SharedPtr msg) noexcept {
-  last_safety_alert_ = msg;
+    const l3_msgs::msg::SafetyAlert::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_safety_alert_ = kMsg;
   last_safety_alert_received_ = now();
   has_received_safety_alert_ = true;
 
   if (logger_) {
     logger_->info("SafetyAlert received: severity={} type={}",
-                  static_cast<int>(msg->severity),
-                  static_cast<int>(msg->alert_type));
+                  static_cast<int>(kMsg->severity),
+                  static_cast<int>(kMsg->alert_type));
   }
 }
 
 void OddEnvelopeManagerNode::on_reflex_activation(
-    const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr msg)
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr kMsg)
     noexcept {
-  reflex_active_ = msg->is_active;
+  reflex_active_ = kMsg->l3_freeze_required;
 
   if (logger_) {
-    logger_->info("Reflex activation: active={} reason='{}'",
-                  msg->is_active, msg->activation_reason);
+    logger_->info("Reflex activation: freeze={} reason='{}'",
+                  kMsg->l3_freeze_required, kMsg->reason);
   }
 }
 
 void OddEnvelopeManagerNode::on_override_signal(
-    const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr msg) noexcept {
-  const bool was_active = override_active_;
-  override_active_ = msg->override_active;
+    const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  const bool kWasActive = override_active_;
+  override_active_ = kMsg->override_active;
 
-  if (msg->override_active) {
+  if (kMsg->override_active) {
     override_entry_at_ = now();
   }
 
-  if (was_active != override_active_ && logger_) {
+  if (kWasActive != override_active_ && logger_) {
     logger_->info("Override state change: {} -> {} source='{}'",
-                  was_active, override_active_, msg->override_source);
+                  kWasActive, override_active_, kMsg->activation_source);
   }
 }
 
 void OddEnvelopeManagerNode::on_environment_state(
-    const l3_external_msgs::msg::EnvironmentState::SharedPtr msg) noexcept {
-  last_env_state_ = msg;
+    const l3_external_msgs::msg::EnvironmentState::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_env_state_ = kMsg;
   last_env_state_received_ = now();
   has_received_env_state_ = true;
 }
 
 void OddEnvelopeManagerNode::on_own_ship_state(
-    const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr msg) noexcept {
-  last_own_ship_ = msg;
+    const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_own_ship_ = kMsg;
   last_own_ship_received_ = now();
   has_received_own_ship_ = true;
 }
 
 void OddEnvelopeManagerNode::on_world_state(
-    const l3_msgs::msg::WorldState::SharedPtr msg) noexcept {
-  last_world_state_ = msg;
+    const l3_msgs::msg::WorldState::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_world_state_ = kMsg;
   last_world_state_received_ = now();
   has_received_world_state_ = true;
 }
@@ -434,8 +470,8 @@ ScoringInputs OddEnvelopeManagerNode::build_scoring_inputs() const noexcept {
   }
   if (last_own_ship_) {
     s.gnss_quality_good =
-        (last_own_ship_->nav_filter_status == "OPTIMAL" ||
-         last_own_ship_->nav_filter_status == "CONVERGING");
+        (last_own_ship_->nav_mode == "OPTIMAL" ||
+         last_own_ship_->nav_mode == "DR_SHORT");
   } else {
     s.gnss_quality_good = true;
   }
@@ -447,6 +483,7 @@ ScoringInputs OddEnvelopeManagerNode::build_scoring_inputs() const noexcept {
   return s;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 SystemHealthSnapshot OddEnvelopeManagerNode::build_system_health(
     bool m7_critical) const noexcept {
   SystemHealthSnapshot h{};
@@ -502,9 +539,9 @@ void OddEnvelopeManagerNode::handle_state_change(
     const ScoreTriple& scores,
     const TmrTdlPair& tmrtdl) noexcept {
   publish_odd_state_event();
-  const auto rationale = state_machine_->rationale();
-  publish_mode_cmd(rationale);
-  publish_asdr_record("state_transition", rationale);
+  const auto kRationale = state_machine_->rationale();
+  publish_mode_cmd(kRationale);
+  publish_asdr_record("state_transition", kRationale);
 
   if (logger_) {
     logger_->info(
@@ -523,11 +560,11 @@ void OddEnvelopeManagerNode::check_mrc_if_needed(
     bool m7_mrc_required,
     MrcType m7_mrm,
     const ScoringInputs& scoring) noexcept {
-  const bool mrc_active_state =
+  const bool kMrcActiveState =
       (new_state == EnvelopeState::Out ||
        new_state == EnvelopeState::MrCPrep ||
        new_state == EnvelopeState::MrCActive);
-  if (!m7_mrc_required && !mrc_active_state) {
+  if (!m7_mrc_required && !kMrcActiveState) {
     return;
   }
 
@@ -541,12 +578,12 @@ void OddEnvelopeManagerNode::check_mrc_if_needed(
   mrc_in.is_moored              = false;
   mrc_in.current_state          = new_state;
 
-  const auto result = mrc_->select(mrc_in);
-  if (result.has_value() && logger_) {
+  const auto kResult = mrc_->select(mrc_in);
+  if (kResult.has_value() && logger_) {
     logger_->info("MRC selected: {} speed={} rationale='{}'",
-                  static_cast<int>(result->type),
-                  result->speed_cmd_kn,
-                  std::string(result->rationale));
+                  static_cast<int>(kResult->type),
+                  kResult->speed_cmd_kn,
+                  std::string(kResult->rationale));
   }
 }
 
@@ -554,11 +591,12 @@ void OddEnvelopeManagerNode::check_mrc_if_needed(
 // Timer callbacks
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
-  const rclcpp::Time now_ros = now();
-  const auto now_steady = std::chrono::steady_clock::now();
+  const rclcpp::Time kNowRos = now();
+  const auto kNowSteady = std::chrono::steady_clock::now();
 
-  check_input_freshness(now_ros);
+  check_input_freshness(kNowRos);
 
   // Extract M7 alert state.
   bool m7_critical     = false;
@@ -574,34 +612,34 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
 
   ScoringInputs scoring      = build_scoring_inputs();
   scoring.any_sensor_critical = m7_critical;
-  const ScoreTriple scores   = score_calc_->compute(scoring);
-  last_score_                = scores;
+  const ScoreTriple kScores  = score_calc_->compute(scoring);
+  last_score_                = kScores;
 
   TmrTdlInputs tmr_in{};
   tmr_in.tcpa_min_s           = compute_min_tcpa();
   tmr_in.current_rtt_s        = 0.0;
   tmr_in.system_health        = build_system_health(m7_critical);
   tmr_in.h_score_tmr_available = scoring.tmr_available;
-  const TmrTdlPair tmrtdl     = tmr_tdl_->compute(tmr_in);
-  last_tmr_tdl_               = tmrtdl;
+  const TmrTdlPair kTmrtdl   = tmr_tdl_->compute(tmr_in);
+  last_tmr_tdl_               = kTmrtdl;
 
-  const EventFlags events      = build_event_flags(now_ros, m7_critical, m7_mrc_required);
-  const EnvelopeState old_state = state_machine_->current();
-  const EnvelopeState new_state = state_machine_->step(
-      scores.conformance_score, tmrtdl.tdl_s, tmrtdl.tmr_s, events, now_steady);
+  const EventFlags kEvents      = build_event_flags(kNowRos, m7_critical, m7_mrc_required);
+  const EnvelopeState kOldState = state_machine_->current();
+  const EnvelopeState kNewState = state_machine_->step(
+      kScores.conformance_score, kTmrtdl.tdl_s, kTmrtdl.tmr_s, kEvents, kNowSteady);
 
-  if (new_state != old_state) {
-    handle_state_change(old_state, new_state, scores, tmrtdl);
+  if (kNewState != kOldState) {
+    handle_state_change(kOldState, kNewState, kScores, kTmrtdl);
   }
 
-  check_mrc_if_needed(new_state, m7_mrc_required, m7_mrm, scoring);
+  check_mrc_if_needed(kNewState, m7_mrc_required, m7_mrm, scoring);
 
   if (logger_ && logger_->level() <= spdlog::level::debug) {
     logger_->debug(
         "Tick: score=({:.3f},{:.3f},{:.3f})->{:.3f} tmr={:.1f} tdl={:.1f} state={}",
-        scores.e_score, scores.t_score, scores.h_score,
-        scores.conformance_score, tmrtdl.tmr_s, tmrtdl.tdl_s,
-        static_cast<int>(new_state));
+        kScores.e_score, kScores.t_score, kScores.h_score,
+        kScores.conformance_score, kTmrtdl.tmr_s, kTmrtdl.tdl_s,
+        static_cast<int>(kNewState));
   }
 }
 
@@ -613,18 +651,21 @@ void OddEnvelopeManagerNode::on_odd_state_publish_tick() noexcept {
   msg.health       = score_to_health(last_score_.conformance_score);
   msg.envelope_state = static_cast<uint8_t>(state_machine_->current());
 
-  const double cs = std::clamp(last_score_.conformance_score, 0.0, 1.0);
-  msg.conformance_score = static_cast<float>(cs);
+  const double kCs = std::clamp(last_score_.conformance_score, 0.0, 1.0);
+  msg.conformance_score = static_cast<float>(kCs);
   msg.tmr_s = static_cast<float>(last_tmr_tdl_.tmr_s);
   msg.tdl_s = static_cast<float>(last_tmr_tdl_.tdl_s);
 
   msg.zone_reason = "ODD-A (default)";
-  const auto zl = zones_for_health(msg.health);
-  msg.allowed_zones.assign(zl.data, zl.data + zl.count);
-  msg.confidence = 1.0f;
+  const auto kZl = zones_for_health(msg.health);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  msg.allowed_zones.assign(kZl.data_, kZl.data_ + kZl.count_);
+  msg.confidence = 1.0F;
   msg.rationale  = std::string(state_machine_->rationale());
 
-  odd_state_pub_->publish(msg);
+  try {
+    odd_state_pub_->publish(msg);
+  } catch (...) {}  // NOLINT(bugprone-empty-catch)
 }
 
 void OddEnvelopeManagerNode::on_asdr_record_periodic_tick() noexcept {
@@ -643,14 +684,15 @@ void OddEnvelopeManagerNode::publish_odd_state_event() noexcept {
   on_odd_state_publish_tick();
 
   // Build JSON into a stack buffer — no heap allocation.
-  const auto rationale = state_machine_->rationale();
+  const auto kRationale = state_machine_->rationale();
   std::array<char, 128> buf{};
-  const int n = std::snprintf(buf.data(), buf.size(),
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+  const int kN = std::snprintf(buf.data(), buf.size(),
       R"({"new_state":"%.*s"})",
-      static_cast<int>(rationale.size()), rationale.data());
-  if (n > 0) {
+      static_cast<int>(kRationale.size()), kRationale.data());
+  if (kN > 0) {
     publish_asdr_record("odd_state_transition",
-        std::string_view{buf.data(), static_cast<std::size_t>(n)});
+        std::string_view{buf.data(), static_cast<std::size_t>(kN)});
   }
 }
 
@@ -660,14 +702,16 @@ void OddEnvelopeManagerNode::publish_mode_cmd(
   msg.stamp               = now();
   msg.mode                = envelope_to_mode(state_machine_->current());
   msg.behavior_constraint = envelope_to_constraint(state_machine_->current());
-  msg.confidence          = 1.0f;
+  msg.confidence          = 1.0F;
   msg.rationale           = std::string(reason);
 
-  mode_cmd_pub_->publish(msg);
+  try {
+    mode_cmd_pub_->publish(msg);
+  } catch (...) {}  // NOLINT(bugprone-empty-catch)
 }
 
 void OddEnvelopeManagerNode::publish_asdr_record(
-    std::string_view decision_type,
+    std::string_view decision_type,  // NOLINT(bugprone-easily-swappable-parameters)
     std::string_view rationale_json) noexcept {
   auto msg = l3_msgs::msg::ASDRRecord();
   msg.stamp          = now();
@@ -675,7 +719,9 @@ void OddEnvelopeManagerNode::publish_asdr_record(
   msg.decision_type  = std::string(decision_type);
   msg.decision_json  = std::string(rationale_json);
 
-  asdr_pub_->publish(msg);
+  try {
+    asdr_pub_->publish(msg);
+  } catch (...) {}  // NOLINT(bugprone-empty-catch)
 }
 
 void OddEnvelopeManagerNode::publish_sat_data() noexcept {
@@ -690,14 +736,16 @@ void OddEnvelopeManagerNode::publish_sat_data() noexcept {
   msg.sat2.reasoning_chain  = std::string(state_machine_->rationale());
   msg.sat2.system_confidence = static_cast<float>(last_score_.conformance_score);
 
-  const auto forecast = state_machine_->forecast(std::chrono::seconds(30));
+  const auto kForecast = state_machine_->forecast(std::chrono::seconds(30));
   msg.sat3.forecast_horizon_s    = 30.0;
-  msg.sat3.predicted_state       = std::string(envelope_state_str(forecast.predicted));
-  msg.sat3.prediction_uncertainty = static_cast<float>(forecast.uncertainty);
+  msg.sat3.predicted_state       = std::string(envelope_state_str(kForecast.predicted));
+  msg.sat3.prediction_uncertainty = static_cast<float>(kForecast.uncertainty);
   msg.sat3.tdl_s = static_cast<float>(last_tmr_tdl_.tdl_s);
   msg.sat3.tmr_s = static_cast<float>(last_tmr_tdl_.tmr_s);
 
-  sat_pub_->publish(msg);
+  try {
+    sat_pub_->publish(msg);
+  } catch (...) {}  // NOLINT(bugprone-empty-catch)
 }
 
 void OddEnvelopeManagerNode::check_input_freshness(

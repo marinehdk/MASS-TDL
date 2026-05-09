@@ -12,7 +12,7 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/own_ship_state.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 
@@ -36,7 +36,7 @@ class MidMpcNode : public rclcpp::Node {
     double own_ship_lon_deg{122.0};
   };
 
-  explicit MidMpcNode(const Config& cfg = Config{});
+  explicit MidMpcNode(const Config& cfg);
 
  private:
   MidMpcNlpFormulation        formulation_;

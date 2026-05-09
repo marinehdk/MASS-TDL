@@ -297,7 +297,7 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
   }
   if (stats.count("iter_count") > 0u) {
     sol.ipopt_iterations = static_cast<int32_t>(
-        static_cast<int64_t>(stats.at("iter_count")));
+        static_cast<int>(stats.at("iter_count")));
   }
   return sol;
 }

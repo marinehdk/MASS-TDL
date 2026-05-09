@@ -1,11 +1,13 @@
 #include "m6_colregs_reasoner/rule_library_loader.hpp"
 
-#include <yaml-cpp/yaml.h>
+#include <yaml-cpp/yaml.h>  // NOLINT(misc-include-cleaner)
 
+#include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <string>
-#include <vector>
+#include <utility>
+
+#include "m6_colregs_reasoner/rules/colregs_rule_base.hpp"
 
 #include "m6_colregs_reasoner/rules/colregs/rule5_lookout.hpp"
 #include "m6_colregs_reasoner/rules/colregs/rule6_safe_speed.hpp"
@@ -54,27 +56,28 @@ rules::RulePtr create_rule_by_id(int32_t rule_id) {
 
 }  // anonymous namespace
 
+// NOLINTNEXTLINE(modernize-pass-by-value)
 RuleLibraryLoader::RuleLibraryLoader(const std::string& yaml_path) : yaml_path_(yaml_path) {}
 
 rules::RuleSet RuleLibraryLoader::load_colregs_rules() {
   rules::RuleSet rules;
 
-  YAML::Node config = YAML::LoadFile(yaml_path_);
-  YAML::Node colregs_node = config["colregs_rules"];
+  YAML::Node config = YAML::LoadFile(yaml_path_);  // NOLINT(misc-include-cleaner)
+  const YAML::Node kColregsNode = config["colregs_rules"];  // NOLINT(misc-include-cleaner)
 
-  if (!colregs_node) {
+  if (!kColregsNode) {
     return rules;  // empty; no COLREGs rules configured
   }
 
-  for (const auto& entry : colregs_node) {
-    int32_t rule_id = entry["rule_id"].as<int32_t>();
-    bool enabled = entry["enabled"].as<bool>(true);
+  for (const auto& entry : kColregsNode) {
+    const auto kRuleId = static_cast<int32_t>(entry["rule_id"].as<int32_t>());
+    const bool kEnabled = entry["enabled"].as<bool>(true);
 
-    if (!enabled) {
+    if (!kEnabled) {
       continue;
     }
 
-    auto rule = create_rule_by_id(rule_id);
+    auto rule = create_rule_by_id(kRuleId);
     if (rule) {
       rules.push_back(std::move(rule));
     }
@@ -83,6 +86,7 @@ rules::RuleSet RuleLibraryLoader::load_colregs_rules() {
   return rules;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 rules::RuleSet RuleLibraryLoader::load_cevni_rules() {
   // Stub: CEVNI (European inland waterways) rules not yet implemented
   return rules::RuleSet{};

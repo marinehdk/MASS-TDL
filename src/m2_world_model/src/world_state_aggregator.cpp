@@ -244,7 +244,7 @@ WorldStateAggregator::compose_world_state(
     // Convert 3x3 Eigen covariance to row-major float64[9]
     for (int r = 0; r < 3; ++r) {
       for (int c = 0; c < 3; ++c) {
-        wt.covariance[r * 3 + c] = target.covariance(r, c);
+        wt.covariance[static_cast<size_t>(r * 3 + c)] = target.covariance(r, c);
       }
     }
 
@@ -277,7 +277,7 @@ WorldStateAggregator::compose_world_state(
 
   for (int r = 0; r < 6; ++r) {
     for (int c = 0; c < 6; ++c) {
-      os_msg.covariance[r * 6 + c] = own_ship_snap->covariance(r, c);
+      os_msg.covariance[static_cast<size_t>(r * 6 + c)] = own_ship_snap->covariance(r, c);
     }
   }
   os_msg.nav_mode = "OPTIMAL";
@@ -333,6 +333,7 @@ OwnShipSnapshot WorldStateAggregator::latest_own_ship() const {
   }
   // Return a default zero-initialised snapshot if never received
   OwnShipSnapshot snap{};
+  snap.covariance.setZero();
   snap.stamp = std::chrono::steady_clock::time_point{};
   return snap;
 }

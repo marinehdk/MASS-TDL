@@ -60,21 +60,21 @@ inline void SlidingWindow15s::tick(bool event) noexcept
   if (evicted) { --event_count_; }
   buffer_[cursor_] = event;
   if (event) { ++event_count_; }
-  cursor_ = (cursor_ + 1u) % kCapacity;
-  if (cursor_ == 0u) { filled_ = true; }
+  cursor_ = (cursor_ + 1U) % kCapacity;
+  if (cursor_ == 0U) { filled_ = true; }
 }
 
 inline double SlidingWindow15s::rate() const noexcept
 {
-  if (event_count_ == 0u) { return 0.0; }
+  if (event_count_ == 0U) { return 0.0; }
   return static_cast<double>(event_count_) / static_cast<double>(kCapacity);
 }
 
 inline void SlidingWindow15s::reset() noexcept
 {
   buffer_.fill(false);
-  cursor_ = 0u;
-  event_count_ = 0u;
+  cursor_ = 0U;
+  event_count_ = 0U;
   filled_ = false;
 }
 

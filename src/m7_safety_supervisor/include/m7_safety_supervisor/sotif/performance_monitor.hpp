@@ -40,6 +40,9 @@ public:
   void reset() noexcept;
 
 private:
+  [[nodiscard]] double compute_slope() const noexcept;
+  [[nodiscard]] double compute_max_cpa_in_window() const noexcept;
+
   PerformanceConfig cfg_;
   std::array<float, 30> cpa_history_{};   // 30-sample ring buffer, CPA in NM
   std::uint32_t history_idx_{0};

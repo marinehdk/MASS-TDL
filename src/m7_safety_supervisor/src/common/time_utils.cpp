@@ -1,9 +1,14 @@
 #include "m7_safety_supervisor/common/time_utils.hpp"
 
+#include <chrono>
+#include <cstdint>
+
+#include "builtin_interfaces/msg/time.hpp"
+
 namespace mass_l3::m7::common {
 
 std::int64_t to_ns(builtin_interfaces::msg::Time const& t) noexcept {
-  return static_cast<std::int64_t>(t.sec) * 1'000'000'000LL
+  return (static_cast<std::int64_t>(t.sec) * 1'000'000'000LL)
        + static_cast<std::int64_t>(t.nanosec);
 }
 
@@ -15,7 +20,7 @@ bool is_stale(builtin_interfaces::msg::Time const& msg_stamp,
   // is performed at the ROS2 node layer using rclcpp::Time comparisons.
   // This function only guards against uninitialized stamps (sec==0, nanosec==0),
   // which indicate a message published before the source node set its stamp.
-  return (msg_stamp.sec == 0) && (msg_stamp.nanosec == 0u);
+  return (msg_stamp.sec == 0) && (msg_stamp.nanosec == 0U);
 }
 
 std::chrono::seconds elapsed_seconds(

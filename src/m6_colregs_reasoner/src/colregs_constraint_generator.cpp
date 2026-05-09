@@ -1,14 +1,26 @@
 #include "m6_colregs_reasoner/colregs_constraint_generator.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <builtin_interfaces/msg/time.hpp>
+#include <l3_msgs/msg/colre_gs_constraint.hpp>
+#include <l3_msgs/msg/constraint.hpp>
+#include <l3_msgs/msg/rule_active.hpp>
+
+#include "m6_colregs_reasoner/types.hpp"
 
 namespace mass_l3::m6_colregs {
 
 using builtin_interfaces::msg::Time;
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,readability-function-cognitive-complexity,readability-function-size)
 l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     const std::vector<RuleEvaluation>& evaluations,
     const RuleParameters& params, double confidence) const {
+  (void)params;
   l3_msgs::msg::COLREGsConstraint msg;
 
   // Collect active rules and determine overall phase
@@ -66,7 +78,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
   }
 
   msg.phase = dominant_phase;
-  msg.confidence = std::min(static_cast<float>(confidence), 1.0f);
+  msg.confidence = std::min(static_cast<float>(confidence), 1.0F);
   msg.rationale = rationale_parts.empty() ? "No active COLREGs rules" : rationale_parts;
 
   return msg;

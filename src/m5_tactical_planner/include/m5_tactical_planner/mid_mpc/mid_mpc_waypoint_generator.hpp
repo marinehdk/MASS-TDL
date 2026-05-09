@@ -34,7 +34,7 @@ class MidMpcWaypointGenerator {
     double dt_s{5.0};
   };
 
-  explicit MidMpcWaypointGenerator(const Config& cfg = Config{});
+  explicit MidMpcWaypointGenerator(const Config& cfg);
 
   // Convert a Converged MidMpcSolution to AvoidancePlan (4 waypoints).
   // Non-Converged status returns an empty plan with status="DEGRADED".

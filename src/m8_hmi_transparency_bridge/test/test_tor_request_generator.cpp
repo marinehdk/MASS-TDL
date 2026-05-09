@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "l3_msgs/msg/odd_state.hpp"
-#include "l3_msgs/msg/tor_request.hpp"
+#include "l3_msgs/msg/to_r_request.hpp"
 #include "m8_hmi_transparency_bridge/tor_protocol.hpp"
 #include "m8_hmi_transparency_bridge/tor_request_generator.hpp"
 

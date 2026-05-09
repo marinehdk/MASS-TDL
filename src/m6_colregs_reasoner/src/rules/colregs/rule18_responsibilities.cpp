@@ -1,5 +1,10 @@
 #include "m6_colregs_reasoner/rules/colregs/rule18_responsibilities.hpp"
 
+#include <cstdint>
+#include <string>
+
+#include "m6_colregs_reasoner/types.hpp"
+
 namespace mass_l3::m6_colregs::rules::colregs {
 
 namespace {
@@ -22,6 +27,7 @@ int32_t effective_priority(int32_t ship_type_priority) {
 
 }  // anonymous namespace
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 RuleEvaluation Rule18_Responsibilities::evaluate(const TargetGeometricState& geo,
                                                    OddDomain odd,
                                                    const RuleParameters& params) const {
@@ -46,15 +52,15 @@ RuleEvaluation Rule18_Responsibilities::evaluate(const TargetGeometricState& geo
 
   // Own vessel is assumed power-driven (priority 5) when not otherwise specified.
   constexpr int32_t kOwnDefaultPriority = 5;
-  const int32_t own_priority = kOwnDefaultPriority;
-  const int32_t target_effective = effective_priority(geo.target_ship_type_priority);
+  const int32_t kOwnPriority = kOwnDefaultPriority;
+  const int32_t kTargetEffective = effective_priority(geo.target_ship_type_priority);
 
-  if (own_priority == target_effective) {
+  if (kOwnPriority == kTargetEffective) {
     // Same priority class — Rule 18 doesn't apply; other rules (13-15) determine role
     result.is_active = false;
-    result.confidence = 0.5f;
+    result.confidence = 0.5F;
     result.rationale = "Rule 18: Same vessel type priority (" +
-                       std::to_string(target_effective) +
+                       std::to_string(kTargetEffective) +
                        "). Rule 18 does not assign role.";
     return result;
   }
@@ -62,26 +68,26 @@ RuleEvaluation Rule18_Responsibilities::evaluate(const TargetGeometricState& geo
   result.is_active = true;
   result.encounter_type = EncounterType::AMBIGUOUS;
 
-  if (own_priority < target_effective) {
+  if (kOwnPriority < kTargetEffective) {
     // Own vessel is more restricted (higher priority) → stand-on
     result.role = Role::STAND_ON;
     result.preferred_direction = "HOLD";
-    result.confidence = 0.8f;
+    result.confidence = 0.8F;
     result.rationale = "Rule 18: Own vessel has higher priority (type=" +
-                       std::to_string(own_priority) +
+                       std::to_string(kOwnPriority) +
                        ") than target (type=" +
-                       std::to_string(target_effective) +
+                       std::to_string(kTargetEffective) +
                        "). Stand-on obligation.";
   } else {
     // Target is more restricted → give-way
     result.role = Role::GIVE_WAY;
     result.preferred_direction = "STARBOARD";
     result.min_alteration_deg = params.min_alteration_deg;
-    result.confidence = 0.8f;
+    result.confidence = 0.8F;
     result.rationale = "Rule 18: Target has higher priority (type=" +
-                       std::to_string(target_effective) +
+                       std::to_string(kTargetEffective) +
                        ") than own vessel (type=" +
-                       std::to_string(own_priority) +
+                       std::to_string(kOwnPriority) +
                        "). Give-way obligation.";
   }
 

@@ -42,7 +42,7 @@ MidMpcSolution make_converged_solution(double psi_rad, double u_mps,
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, ConvergedPlan_Has4Waypoints)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   const auto sol = make_converged_solution(0.0, 5.0);
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
@@ -56,7 +56,7 @@ TEST(MidMpcWaypointGeneratorTest, ConvergedPlan_Has4Waypoints)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, DegradedPlan_OnNonConverged)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   MidMpcSolution sol;
   sol.status = MidMpcSolution::Status::NotInitialized;
 
@@ -73,7 +73,7 @@ TEST(MidMpcWaypointGeneratorTest, DegradedPlan_OnNonConverged)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyNorth)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   const auto sol = make_converged_solution(0.0, 5.0);  // psi=0 = north
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
@@ -87,7 +87,7 @@ TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyNorth)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyEast)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   const auto sol = make_converged_solution(M_PI / 2.0, 5.0);  // psi=pi/2 = east
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
@@ -100,7 +100,7 @@ TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyEast)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, SpeedConversion_CorrectKnots)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   const auto sol = make_converged_solution(0.0, 5.14444);
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
@@ -115,7 +115,7 @@ TEST(MidMpcWaypointGeneratorTest, SpeedConversion_CorrectKnots)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, ConvergedEmptyTrajectory_IsDegraded)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   MidMpcSolution sol;
   sol.status = MidMpcSolution::Status::Converged;  // converged but no points
 
@@ -132,7 +132,7 @@ TEST(MidMpcWaypointGeneratorTest, ConvergedEmptyTrajectory_IsDegraded)
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, NedToGeopoint_ZeroOffset)
 {
-  MidMpcWaypointGenerator gen;
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
   const auto sol = make_converged_solution(0.0, 0.0);  // u=0 → no movement
   const auto plan = gen.generate(sol, 0.0, 0.0);
 

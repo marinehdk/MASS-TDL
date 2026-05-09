@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "m6_colregs_reasoner/geometry_utils.hpp"
+#include "m6_colregs_reasoner/types.hpp"
 
 namespace mass_l3::m6_colregs::rules::colregs {
 
@@ -19,22 +21,22 @@ RuleEvaluation Rule7_RiskOfCollision::evaluate(const TargetGeometricState& geo,
   result.phase = TimingPhase::PRESERVE_COURSE;
   result.min_alteration_deg = 0.0;
   result.preferred_direction = "HOLD";
-  result.confidence = 0.5f;
+  result.confidence = 0.5F;
 
   // Primary check: CPA below safe threshold
-  const bool cpa_risk = (geo.cpa_m < params.cpa_safe_m);
+  const bool kCpaRisk = (geo.cpa_m < params.cpa_safe_m);
 
   // Secondary check: constant bearing, decreasing range.
   // With single-snapshot data, approximate via bearing near own heading
   // and close TCPA.
-  const double rel_bearing = relative_bearing_deg(geo.ownship_heading_deg, geo.bearing_deg);
-  const bool bearing_risk = (rel_bearing < 30.0 || rel_bearing > 330.0) &&
+  const double kRelBearing = relative_bearing_deg(geo.ownship_heading_deg, geo.bearing_deg);
+  const bool kBearingRisk = (kRelBearing < 30.0 || kRelBearing > 330.0) &&
                             geo.tcpa_s < 180.0 &&
                             geo.tcpa_s > 0.0;
 
-  const bool risk_detected = cpa_risk || bearing_risk;
+  const bool kRiskDetected = kCpaRisk || kBearingRisk;
 
-  if (risk_detected) {
+  if (kRiskDetected) {
     result.is_active = true;
     result.encounter_type = EncounterType::AMBIGUOUS;
 
@@ -43,8 +45,8 @@ RuleEvaluation Rule7_RiskOfCollision::evaluate(const TargetGeometricState& geo,
     if (geo.cpa_m > 0.0) {
       margin_ratio = std::min(1.0, (params.cpa_safe_m - geo.cpa_m) / params.cpa_safe_m);
     }
-    result.confidence = static_cast<float>(0.5 + 0.5 * margin_ratio);
-    result.confidence = std::min(1.0f, result.confidence);
+    result.confidence = static_cast<float>(0.5 + (0.5 * margin_ratio));
+    result.confidence = std::min(1.0F, result.confidence);
 
     result.rationale = "Rule 7: Risk of collision detected. "
                        "CPA=" + std::to_string(geo.cpa_m) +

@@ -261,8 +261,8 @@ void MissionManagerNode::setup_timers()
 void MissionManagerNode::on_voyage_task(
     const l3_external_msgs::msg::VoyageTask::SharedPtr msg)
 {
-  RCLCPP_INFO(get_logger(), "VoyageTask received: id=%lu type=%s",
-              msg->task_id, msg->task_type.c_str());
+  RCLCPP_INFO(get_logger(), "VoyageTask received: id=%lu priority=%s",
+              msg->task_id, msg->optimization_priority.c_str());
 
   // Use cached position for validation
   geographic_msgs::msg::GeoPoint pos = current_position_;
@@ -449,9 +449,6 @@ void MissionManagerNode::publish_asdr_snapshot()
       {"mission_state", std::string(state_machine_->state_name())},
       {"replan_attempts", replan_attempt_count_}};
   msg.decision_json = j.dump();
-
-  msg.confidence = 1.0F;
-  msg.rationale = "periodic ASDR heartbeat";
   asdr_pub_->publish(std::move(msg));
 }
 
@@ -537,8 +534,6 @@ void MissionManagerNode::publish_asdr_record(const std::string& type,
   msg.source_module = "M3_Mission_Manager";
   msg.decision_type = type;
   msg.decision_json = payload.dump();
-  msg.confidence = 1.0F;
-  msg.rationale = type;
   asdr_pub_->publish(std::move(msg));
 }
 
@@ -565,7 +560,8 @@ void MissionManagerNode::check_and_trigger_replan(
   state_machine_->handle_event(event);
 
   replan_attempt_count_++;
-  replan_deadline_ = now + std::chrono::duration<double>(decision.deadline_s);
+  replan_deadline_ = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double>(decision.deadline_s));
 
   publish_asdr_record("replan_triggered",
       nlohmann::json{{"reason", decision.rationale},

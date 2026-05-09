@@ -162,7 +162,7 @@ TEST(WatchdogMonitorTest, ResetModule_ClearsLossState) {
 
   monitor.on_message_received(MonitoredModule::kM2, t(0ms));
   // Accumulate loss
-  monitor.evaluate(t(301ms));
+  (void)monitor.evaluate(t(301ms));
 
   // Reset that module
   monitor.reset(MonitoredModule::kM2);
@@ -213,7 +213,7 @@ TEST(WatchdogMonitorTest, ResetAll_ClearsAllModules) {
   // Initialize several modules and accumulate loss
   monitor.on_message_received(MonitoredModule::kM1, t(0ms));
   monitor.on_message_received(MonitoredModule::kM2, t(0ms));
-  monitor.evaluate(t(301ms));
+  (void)monitor.evaluate(t(301ms));
 
   monitor.reset_all();
 
