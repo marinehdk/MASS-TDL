@@ -19,7 +19,7 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 2
 fi
 
-readonly M7_SRC="src/m7_safety_supervisor"
+readonly M7_SRC="src/l3_tdl_kernel/m7_safety_supervisor"
 
 # F-CRIT-C-001: fail if M7 source directory missing — never silent PASS
 if [[ ! -d "${M7_SRC}" ]]; then
