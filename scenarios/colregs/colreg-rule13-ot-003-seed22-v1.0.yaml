@@ -1,0 +1,52 @@
+schema_version: "1.0"
+scenario_id: colreg-rule13-ot-003-v1.0
+description: >
+  Rule 13 overtaking from starboard quarter (198° from target perspective — own ship
+  approaching from starboard-aft sector). Wind 8 kn from West. Target at (300, 926).
+rule_branch_covered:
+  - Rule13_Overtaking
+  - Rule16_GiveWay
+  - Rule8_Action
+vessel_class: FCB
+odd_zone: A
+
+initial_conditions:
+  own_ship:
+    x_m: 0.0
+    y_m: 0.0
+    heading_nav_deg: 0.0
+    speed_kn: 14.0
+    n_rps: 4.2
+  targets:
+    - target_id: 1
+      x_m: 300.0
+      y_m: 926.0
+      cog_nav_deg: 0.0
+      sog_mps: 4.63
+
+encounter:
+  rule: Rule13
+  give_way_vessel: own
+  expected_own_action: turn_starboard
+  avoidance_time_s: 200.0
+  avoidance_delta_rad: 0.3491
+  avoidance_duration_s: 90.0
+
+disturbance_model:
+  wind_kn: 8.0
+  wind_dir_nav_deg: 270.0
+  current_kn: 0.0
+  current_dir_nav_deg: 0.0
+  vis_m: 10000.0
+  wave_height_m: 1.0
+
+prng_seed: 22
+
+pass_criteria:
+  max_dcpa_no_action_m: 926.0
+  min_dcpa_with_action_m: 926.0
+  bearing_sector_deg: [112.5, 247.5]
+
+simulation:
+  duration_s: 600.0
+  dt_s: 0.02

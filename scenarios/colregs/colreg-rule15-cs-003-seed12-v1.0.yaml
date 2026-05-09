@@ -1,0 +1,52 @@
+schema_version: "1.0"
+scenario_id: colreg-rule15-cs-003-v1.0
+description: >
+  Rule 15/17 port-side crossing. Target approaches from 297° (own ship's port bow), heading 070°.
+  Own ship is stand-on vessel (Rule 17), must maintain course and speed.
+  avoidance_delta_rad=0 and avoidance_time_s=0 represent the "maintain" action.
+rule_branch_covered:
+  - Rule15_PortCrossing
+  - Rule17_StandOn
+vessel_class: FCB
+odd_zone: A
+
+initial_conditions:
+  own_ship:
+    x_m: 0.0
+    y_m: 0.0
+    heading_nav_deg: 0.0
+    speed_kn: 10.0
+    n_rps: 3.0
+  targets:
+    - target_id: 1
+      x_m: -2778.0
+      y_m: 1389.0
+      cog_nav_deg: 70.0
+      sog_mps: 6.17
+
+encounter:
+  rule: Rule15_Port
+  give_way_vessel: target
+  expected_own_action: maintain
+  avoidance_time_s: 0.0
+  avoidance_delta_rad: 0.0
+  avoidance_duration_s: 0.0
+
+disturbance_model:
+  wind_kn: 0.0
+  wind_dir_nav_deg: 0.0
+  current_kn: 0.0
+  current_dir_nav_deg: 0.0
+  vis_m: 10000.0
+  wave_height_m: 0.0
+
+prng_seed: 12
+
+pass_criteria:
+  max_dcpa_no_action_m: 926.0
+  min_dcpa_with_action_m: 0.0
+  bearing_sector_deg: [247.5, 345.0]
+
+simulation:
+  duration_s: 600.0
+  dt_s: 0.02
