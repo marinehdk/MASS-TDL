@@ -1,0 +1,52 @@
+# D1.3b YAML Scenario Schema v1.0
+# This file serves as the canonical field reference for all scenario YAML files.
+# D1.6 will add: requirements_traced[], hazid_id[], vessel_class_applicable[]
+
+schema_version: "1.0"            # string, required; D1.6 bumps to "2.0"
+scenario_id: string              # naming: <rule>-<odd>-<encounter>-v<ver>
+description: string              # human-readable, required
+rule_branch_covered:
+  - string                       # e.g. ["Rule14_HeadOn", "Rule8_Action"]
+vessel_class: string             # pluginlib key, e.g. "FCB"
+odd_zone: string                 # "A" | "B" | "C" | "D" (arch §5.2)
+
+initial_conditions:
+  own_ship:
+    x_m: float                   # ENU East (m), typically 0.0
+    y_m: float                   # ENU North (m), typically 0.0
+    heading_nav_deg: float       # nautical heading CW from North (deg)
+    speed_kn: float              # initial speed (kn); batch runner converts to u_mps
+    n_rps: float                 # propeller rpm to maintain initial speed (rev/s)
+  targets:
+    - target_id: int             # unique positive int
+      x_m: float
+      y_m: float
+      cog_nav_deg: float         # Course Over Ground, nautical convention (deg)
+      sog_mps: float             # target speed (m/s); straight-line propagation
+
+encounter:
+  rule: string                   # "Rule13" | "Rule14" | "Rule15_Stbd" | "Rule15_Port"
+  give_way_vessel: string        # "own" | "target" | "none"
+  expected_own_action: string    # "turn_starboard" | "turn_port" | "maintain" | "slow_down"
+  avoidance_time_s: float        # simulation time when own ship applies avoidance
+  avoidance_delta_rad: float     # avoidance rudder angle (+= stbd, rad; 35deg = 0.6109 rad)
+  avoidance_duration_s: float    # duration to hold rudder angle (s)
+
+disturbance_model:               # G P1-G-4 field — metadata only in D1.3b; dynamics in D2.x
+  wind_kn: float
+  wind_dir_nav_deg: float        # direction FROM (nautical convention)
+  current_kn: float
+  current_dir_nav_deg: float     # direction TO (nautical convention)
+  vis_m: float                   # visibility (m); < 2000 triggers Rule 19
+  wave_height_m: float           # significant wave height (m); metadata only in D1.3b
+
+prng_seed: int                   # required for Monte-Carlo reproducibility
+
+pass_criteria:
+  max_dcpa_no_action_m: float    # DCPA without avoidance must be < this (collision risk confirmed)
+  min_dcpa_with_action_m: float  # DCPA with avoidance must be >= this (solvability confirmed)
+  bearing_sector_deg: [float, float]  # [sector_start, sector_end] CW from North
+
+simulation:
+  duration_s: float              # must be >= 600.0
+  dt_s: float                    # must be 0.02 (D1.3.1 baseline)
