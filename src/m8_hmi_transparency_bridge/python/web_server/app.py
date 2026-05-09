@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from web_server.ros_bridge import RosBridge
+from web_server.sil_router import router as sil_router
+from web_server.sil_ws import router as sil_ws_router
 from web_server.tor_endpoint import router as tor_router
 from web_server.websocket import router as ws_router
 
@@ -42,4 +44,6 @@ def create_app(cors_origins: list[str]) -> FastAPI:
     )
     app.include_router(tor_router, prefix="/api")
     app.include_router(ws_router)
+    app.include_router(sil_router, prefix="/sil")
+    app.include_router(sil_ws_router)
     return app

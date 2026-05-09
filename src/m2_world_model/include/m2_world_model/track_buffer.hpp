@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "l3_external_msgs/msg/tracked_target_array.hpp"
+#include "l3_msgs/msg/tracked_target.hpp"
 #include "m2_world_model/types.hpp"
 
 namespace mass_l3::m2 {
@@ -67,8 +68,7 @@ class TrackBuffer final {
   void evict_oldest_locked();
 
   static TargetSnapshot snapshot_from_msg(
-      const l3_external_msgs::msg::TrackedTargetArray& msg,
-      size_t index,
+      const l3_msgs::msg::TrackedTarget& tgt,
       std::chrono::steady_clock::time_point now,
       double position_default_sigma_m);
 

@@ -1,6 +1,7 @@
 #include "m7_safety_supervisor/iec61508/watchdog_monitor.hpp"
 
-#include <algorithm>
+#include <chrono>
+#include <cstddef>
 
 namespace mass_l3::m7::iec61508 {
 
@@ -24,8 +25,8 @@ WatchdogConfig WatchdogConfig::make_default() noexcept {
   cfg.timeout_ms[static_cast<std::size_t>(MonitoredModule::kM8)] = std::chrono::milliseconds{150};
 
   // Tolerance: 3 for most modules; M3 gets 2 (fewer heartbeats expected per window)
-  cfg.tolerance_count.fill(3u);
-  cfg.tolerance_count[static_cast<std::size_t>(MonitoredModule::kM3)] = 2u;
+  cfg.tolerance_count.fill(3U);
+  cfg.tolerance_count[static_cast<std::size_t>(MonitoredModule::kM3)] = 2U;
 
   return cfg;
 }
@@ -36,9 +37,11 @@ WatchdogConfig WatchdogConfig::make_default() noexcept {
 
 WatchdogMonitor::WatchdogMonitor(WatchdogConfig const& cfg) noexcept
   : cfg_{cfg}
+  , loss_count_{}
+  , initialized_{}
 {
   last_received_.fill(std::chrono::steady_clock::time_point{});
-  loss_count_.fill(0u);
+  loss_count_.fill(0U);
   initialized_.fill(false);
 }
 
@@ -50,10 +53,10 @@ void WatchdogMonitor::on_message_received(
     MonitoredModule mod,
     std::chrono::steady_clock::time_point now) noexcept
 {
-  auto const idx = static_cast<std::size_t>(mod);
-  last_received_[idx] = now;
-  loss_count_[idx] = 0u;
-  initialized_[idx] = true;
+  auto const kIdx = static_cast<std::size_t>(mod);
+  last_received_[kIdx] = now;
+  loss_count_[kIdx] = 0U;
+  initialized_[kIdx] = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,25 +68,25 @@ WatchdogMonitor::evaluate(std::chrono::steady_clock::time_point now) const noexc
 {
   WatchdogResult result{};
   result.any_critical = false;
-  result.critical_count = 0u;
+  result.critical_count = 0U;
 
-  for (std::size_t i = 0u; i < kModuleCount; ++i) {
+  for (std::size_t i = 0U; i < kModuleCount; ++i) {
     if (!initialized_[i]) {
       // Startup grace: not yet heard from this module — treat as OK
       result.heartbeat_ok[i] = true;
-      result.loss_count[i] = 0u;
+      result.loss_count[i] = 0U;
       continue;
     }
 
-    auto const elapsed = now - last_received_[i];
-    if (elapsed > cfg_.timeout_ms[i]) {
+    auto const kElapsed = now - last_received_[i];
+    if (kElapsed > cfg_.timeout_ms[i]) {
       ++loss_count_[i];
       result.heartbeat_ok[i] = false;
       result.loss_count[i] = loss_count_[i];
     } else {
-      loss_count_[i] = 0u;
+      loss_count_[i] = 0U;
       result.heartbeat_ok[i] = true;
-      result.loss_count[i] = 0u;
+      result.loss_count[i] = 0U;
     }
 
     if (loss_count_[i] > cfg_.tolerance_count[i]) {
@@ -100,10 +103,10 @@ WatchdogMonitor::evaluate(std::chrono::steady_clock::time_point now) const noexc
 // ---------------------------------------------------------------------------
 
 void WatchdogMonitor::reset(MonitoredModule mod) noexcept {
-  auto const idx = static_cast<std::size_t>(mod);
-  loss_count_[idx] = 0u;
-  initialized_[idx] = false;
-  last_received_[idx] = std::chrono::steady_clock::time_point{};
+  auto const kIdx = static_cast<std::size_t>(mod);
+  loss_count_[kIdx] = 0U;
+  initialized_[kIdx] = false;
+  last_received_[kIdx] = std::chrono::steady_clock::time_point{};
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +115,7 @@ void WatchdogMonitor::reset(MonitoredModule mod) noexcept {
 
 void WatchdogMonitor::reset_all() noexcept {
   last_received_.fill(std::chrono::steady_clock::time_point{});
-  loss_count_.fill(0u);
+  loss_count_.fill(0U);
   initialized_.fill(false);
 }
 

@@ -11,6 +11,12 @@ find_package(ament_cmake_gtest REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+# GeographicLib ships only a Find module (not a config package).
+# Add the system module path so ament's transitive dep resolution from
+# m2_world_model can locate FindGeographicLib.cmake even with
+# CMAKE_FIND_PACKAGE_PREFER_CONFIG=ON (ROS2/ament default).
+list(APPEND CMAKE_MODULE_PATH "/usr/share/cmake/geographiclib")
+find_package(GeographicLib QUIET)
 # TDD RED: module packages found but not yet linked — promoted to REQUIRED in TDD GREEN
 # as each INT stub is implemented and headers are included
 find_package(m1_odd_envelope_manager QUIET)

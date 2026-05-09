@@ -29,8 +29,8 @@ find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(nlohmann_json 3.12.0 REQUIRED)
-find_package(spdlog 1.17.0 REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(m8_core
@@ -78,6 +78,8 @@ install(DIRECTORY python/ DESTINATION lib/${PROJECT_NAME}/python
         FILES_MATCHING PATTERN "*.py")
 
 if(BUILD_TESTING)
+  # gtest headers trigger -Wuseless-cast with GCC; suppress for test targets only.
+  add_compile_options(-Wno-useless-cast)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()

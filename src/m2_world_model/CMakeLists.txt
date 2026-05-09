@@ -19,12 +19,19 @@ find_package(geographic_msgs REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 
-# ─────────── Third-Party (exact versions per third-party-library-policy.md §2.2) ───────────
-find_package(Eigen3 5.0.0 EXACT REQUIRED)
-find_package(GeographicLib 2.7 EXACT REQUIRED)
-find_package(Boost 1.91.0 EXACT REQUIRED COMPONENTS headers)
-find_package(spdlog 1.17.0 EXACT REQUIRED)
-find_package(yaml-cpp 0.8.0 EXACT REQUIRED)
+# ─────────── Third-Party ───────────
+find_package(Eigen3 3.4 REQUIRED)
+list(APPEND CMAKE_MODULE_PATH "/usr/share/cmake/geographiclib")
+find_package(GeographicLib REQUIRED)
+if(NOT TARGET GeographicLib::GeographicLib)
+  add_library(GeographicLib::GeographicLib UNKNOWN IMPORTED)
+  set_target_properties(GeographicLib::GeographicLib PROPERTIES
+    IMPORTED_LOCATION "${GeographicLib_LIBRARIES}"
+    INTERFACE_INCLUDE_DIRECTORIES "${GeographicLib_INCLUDE_DIRS}")
+endif()
+find_package(Boost REQUIRED COMPONENTS headers)
+find_package(spdlog REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # ─────────── Compile Options Interface (per coding-standards.md §2.2) ───────────
 add_library(m2_compile_options INTERFACE)
@@ -71,29 +78,27 @@ target_include_directories(${PROJECT_NAME}_lib PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME}_lib
-    PUBLIC
-        Eigen3::Eigen
-        GeographicLib::GeographicLib
-        Boost::headers
-        spdlog::spdlog
-        yaml-cpp::yaml-cpp
-        m2_compile_options
+    Eigen3::Eigen
+    GeographicLib::GeographicLib
+    Boost::headers
+    spdlog::spdlog
+    yaml-cpp::yaml-cpp
+    m2_compile_options
 )
 
 ament_target_dependencies(${PROJECT_NAME}_lib
-    PUBLIC
-        rclcpp
-        builtin_interfaces
-        geometry_msgs
-        geographic_msgs
-        l3_msgs
-        l3_external_msgs
+    rclcpp
+    builtin_interfaces
+    geometry_msgs
+    geographic_msgs
+    l3_msgs
+    l3_external_msgs
 )
 
 # ─────────── Executable ───────────
 add_executable(${PROJECT_NAME} src/main.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_lib m2_compile_options)
-ament_target_dependencies(${PROJECT_NAME} PRIVATE rclcpp)
+target_link_libraries(${PROJECT_NAME} ${PROJECT_NAME}_lib m2_compile_options)
+ament_target_dependencies(${PROJECT_NAME} rclcpp)
 
 # ─────────── Install ───────────
 install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_lib m2_compile_options

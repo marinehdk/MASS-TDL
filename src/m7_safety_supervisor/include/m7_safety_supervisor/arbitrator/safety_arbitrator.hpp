@@ -23,7 +23,7 @@ struct AlertCandidate {
   std::string_view description{};   // human-readable text for ROC operator
 };
 
-constexpr uint32_t kMaxAlertCandidates = 8u;
+constexpr uint32_t kMaxAlertCandidates = 8U;
 
 // SafetyArbitrator: collects alert candidates from all safety monitors,
 // ranks by severity (highest first), and emits the highest-priority alert.

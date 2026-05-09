@@ -1,8 +1,14 @@
 #include "m7_safety_supervisor/arbitrator/safety_arbitrator.hpp"
 
+#include <cstdint>
 #include <cstring>
+
+#include "builtin_interfaces/msg/time.hpp"
+#include "l3_msgs/msg/safety_alert.hpp"
 #include "m7_safety_supervisor/arbitrator/alert_generator.hpp"
+#include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
+#include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 
 namespace mass_l3::m7::arbitrator {
 
@@ -26,10 +32,10 @@ void SafetyArbitrator::collect_iec61508_candidates(
     iec61508::DiagnosticResult const& diag) noexcept
 {
   // Diagnostic fault: any validity check failed in FaultMonitor
-  bool const any_fault = !diag.conformance_score_valid
+  bool const kAnyFault = !diag.conformance_score_valid
                       || !diag.cpa_internal_consistent
                       || !diag.colregs_target_id_match;
-  if (any_fault) {
+  if (kAnyFault) {
     AlertCandidate c{};
     c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
     c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
@@ -45,7 +51,7 @@ void SafetyArbitrator::collect_iec61508_candidates(
     AlertCandidate c{};
     c.alert_type = l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT;
     // Severity escalates with number of critical modules
-    c.severity = (ctx.watchdog.critical_count >= 2u)
+    c.severity = (ctx.watchdog.critical_count >= 2U)
                    ? l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED
                    : l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL;
     c.recommended_mrm = mrm::MrmId::kMrm01_Drift;
@@ -73,7 +79,7 @@ void SafetyArbitrator::collect_sotif_candidates(
     c.rationale   = "SOTIF: extreme scenario — >= 3 assumptions violated simultaneously";
     c.description = "EMERGENCY: Multiple safety assumptions violated — MRC required";
     push_candidate(c);
-  } else if (ctx.assumption.total_violation_count >= 2u) {
+  } else if (ctx.assumption.total_violation_count >= 2U) {
     AlertCandidate c{};
     c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
     c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL;
@@ -82,7 +88,7 @@ void SafetyArbitrator::collect_sotif_candidates(
     c.rationale   = "SOTIF: 2+ assumptions violated — critical degradation";
     c.description = "CRITICAL: Performance degraded — reduced operational capability";
     push_candidate(c);
-  } else if (ctx.assumption.total_violation_count >= 1u) {
+  } else if (ctx.assumption.total_violation_count >= 1U) {
     AlertCandidate c{};
     c.alert_type  = l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION;
     c.severity    = l3_msgs::msg::SafetyAlert::SEVERITY_WARNING;
@@ -133,14 +139,14 @@ void SafetyArbitrator::collect_candidates(
 
 void SafetyArbitrator::sort_candidates() noexcept {
   // Insertion sort: O(n^2) on n <= 8 — acceptable and deterministic
-  for (uint32_t i = 1u; i < pool_size_; ++i) {
-    AlertCandidate key = pool_[i];
+  for (uint32_t i = 1U; i < pool_size_; ++i) {
+    AlertCandidate const kKey = pool_[i];
     uint32_t j = i;
-    while (j > 0u && pool_[j - 1u].severity < key.severity) {
-      pool_[j] = pool_[j - 1u];
+    while (j > 0U && pool_[j - 1U].severity < kKey.severity) {
+      pool_[j] = pool_[j - 1U];
       --j;
     }
-    pool_[j] = key;
+    pool_[j] = kKey;
   }
 }
 
@@ -155,33 +161,31 @@ l3_msgs::msg::SafetyAlert SafetyArbitrator::arbitrate(
     iec61508::DiagnosticResult const& diag,
     bool extreme_scenario_detected) noexcept
 {
-  pool_size_ = 0u;  // reset pool without heap allocation
+  pool_size_ = 0U;  // reset pool without heap allocation
 
   collect_candidates(ctx, diag, extreme_scenario_detected);
   sort_candidates();
 
-  if (pool_size_ == 0u) {
+  if (pool_size_ == 0U) {
     // No active conditions: emit informational no-alert via factory
-    return AlertGenerator::build_safety_alert(
-        stamp,
+    return AlertGenerator::build_safety_alert(stamp, SafetyAlertParams{
         l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT,
         l3_msgs::msg::SafetyAlert::SEVERITY_INFO,
         mrm::to_string(mrm::MrmId::kNone),
         mrm_decision.confidence,
         "no active safety conditions",
-        "M7: all monitors nominal");
+        "M7: all monitors nominal"});
   }
 
   // Emit highest-priority candidate (pool_[0] after descending sort) via factory
   AlertCandidate const& top = pool_[0];
-  return AlertGenerator::build_safety_alert(
-      stamp,
+  return AlertGenerator::build_safety_alert(stamp, SafetyAlertParams{
       top.alert_type,
       top.severity,
       mrm::to_string(mrm_decision.mrm_id),
       top.confidence,
       top.rationale,
-      top.description);  // now distinct from rationale
+      top.description});  // now distinct from rationale
 }
 
 }  // namespace mass_l3::m7::arbitrator

@@ -98,13 +98,13 @@ class Int003Test : public ::testing::Test {
   }
 
   // ODDState published to M1's actual topic /l3/m1/odd_state.
-  l3_msgs::msg::OddState make_odd_state_from_m1() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state_from_m1() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp             = node_->now();
-    odd.current_zone      = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level        = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health            = l3_msgs::msg::OddState::HEALTH_FULL;
-    odd.envelope_state    = l3_msgs::msg::OddState::ENVELOPE_IN;
+    odd.current_zone      = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level        = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health            = l3_msgs::msg::ODDState::HEALTH_FULL;
+    odd.envelope_state    = l3_msgs::msg::ODDState::ENVELOPE_IN;
     odd.conformance_score = kMockConfidence003;
     odd.confidence        = kMockConfidence003;
     odd.rationale         = "int003_m1_odd";
@@ -229,7 +229,7 @@ TEST_F(Int003Test, INT003_M7_ODDState_TopicMismatch) {
 
   // Now inject ODDState on /l3/m1/odd_state (M1's actual publish topic).
   // M7 subscribes /l3/m2/odd_state — this message will NOT reach M7.
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto odd_timer = node_->create_wall_timer(
       kPublishInterval003,
@@ -258,12 +258,12 @@ TEST_F(Int003Test, INT003_M7_ODDState_TopicMismatch) {
 // state change; either path satisfies this assertion.
 TEST_F(Int003Test, INT003_M1_ODDState_AfterCheckerVeto) {
   bool odd_received = false;
-  l3_msgs::msg::OddState last_odd{};
+  l3_msgs::msg::ODDState last_odd{};
 
-  auto odd_sub = node_->create_subscription<l3_msgs::msg::OddState>(
+  auto odd_sub = node_->create_subscription<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state",
       rclcpp::QoS(10).reliable().transient_local(),
-      [&odd_received, &last_odd](const l3_msgs::msg::OddState::SharedPtr msg) {
+      [&odd_received, &last_odd](const l3_msgs::msg::ODDState::SharedPtr msg) {
         last_odd     = *msg;
         odd_received = true;
       });

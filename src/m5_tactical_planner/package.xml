@@ -8,7 +8,7 @@
     for COLREGs-compliant avoidance trajectory generation.
     Backseat Driver pattern: zero vessel constants in decision-core code
     (all hydrodynamic parameters loaded from CapabilityManifest YAML).
-    Reference: Yasukawa & Yoshimura 2015 [R7] — MMG 4-DOF model.
+    Reference: Yasukawa &amp; Yoshimura 2015 [R7] - MMG 4-DOF model.
   </description>
   <maintainer email="team-m5@mass-l3-tdl.local">Team-M5</maintainer>
   <license>Proprietary</license>

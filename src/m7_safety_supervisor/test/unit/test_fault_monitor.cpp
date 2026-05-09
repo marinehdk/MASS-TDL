@@ -3,7 +3,7 @@
 #include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/tracked_target.hpp"
 #include "l3_msgs/msg/rule_active.hpp"
 
@@ -61,7 +61,7 @@ static l3_msgs::msg::COLREGsConstraint build_colregs_with_rules(std::size_t rule
   l3_msgs::msg::COLREGsConstraint c;
   for (std::size_t i = 0u; i < rule_count; ++i) {
     l3_msgs::msg::RuleActive r;
-    r.rule_id = "COLREG-15";
+    r.rule_id = uint8_t{15};
     c.active_rules.push_back(r);
   }
   c.confidence = 0.9f;
@@ -228,7 +228,7 @@ TEST(FaultMonitorTest, ResetCount_ClearsFaultCount) {
   FaultMonitor monitor;
 
   auto const bad_odd = build_odd(-0.1f);
-  monitor.run(bad_odd, build_world_empty(), build_colregs_empty());
+  (void)monitor.run(bad_odd, build_world_empty(), build_colregs_empty());
   EXPECT_GT(monitor.fault_count(), 0u);
 
   monitor.reset_count();

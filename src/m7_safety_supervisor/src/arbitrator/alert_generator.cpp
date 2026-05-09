@@ -1,6 +1,13 @@
 #include "m7_safety_supervisor/arbitrator/alert_generator.hpp"
 #include "m7_safety_supervisor/common/sha256.hpp"
 
+#include <string_view>
+
+#include "builtin_interfaces/msg/time.hpp"
+#include "l3_msgs/msg/asdr_record.hpp"
+#include "l3_msgs/msg/sat_data.hpp"
+#include "l3_msgs/msg/safety_alert.hpp"
+
 namespace mass_l3::m7::arbitrator {
 
 // ---------------------------------------------------------------------------
@@ -9,21 +16,16 @@ namespace mass_l3::m7::arbitrator {
 
 l3_msgs::msg::SafetyAlert AlertGenerator::build_safety_alert(
     builtin_interfaces::msg::Time const& stamp,
-    uint8_t alert_type,
-    uint8_t severity,
-    std::string_view recommended_mrm,
-    float confidence,
-    std::string_view rationale,
-    std::string_view description) noexcept
+    SafetyAlertParams const& params) noexcept
 {
   l3_msgs::msg::SafetyAlert msg{};
   msg.stamp           = stamp;
-  msg.alert_type      = alert_type;
-  msg.severity        = severity;
-  msg.description     = std::string{description};
-  msg.recommended_mrm = std::string{recommended_mrm};
-  msg.confidence      = confidence;
-  msg.rationale       = std::string{rationale};
+  msg.alert_type      = params.alert_type;
+  msg.severity        = params.severity;
+  msg.description     = std::string{params.description};
+  msg.recommended_mrm = std::string{params.recommended_mrm};
+  msg.confidence      = params.confidence;
+  msg.rationale       = std::string{params.rationale};
   return msg;
 }
 
@@ -35,17 +37,15 @@ l3_msgs::msg::SafetyAlert AlertGenerator::build_safety_alert(
 
 l3_msgs::msg::ASDRRecord AlertGenerator::build_asdr_record(
     builtin_interfaces::msg::Time const& stamp,
-    std::string_view source_module,
-    std::string_view decision_type,
-    std::string_view decision_summary) noexcept
+    AsdrRecordParams const& params) noexcept
 {
   l3_msgs::msg::ASDRRecord msg{};
   msg.stamp         = stamp;
-  msg.source_module = std::string{source_module};
-  msg.decision_type = std::string{decision_type};
-  msg.decision_json = std::string{decision_summary};
-  auto const digest = common::sha256(msg.decision_json);
-  msg.signature.assign(digest.begin(), digest.end());
+  msg.source_module = std::string{params.source_module};
+  msg.decision_type = std::string{params.decision_type};
+  msg.decision_json = std::string{params.decision_summary};
+  auto const kDigest = common::sha256(msg.decision_json);
+  msg.signature.assign(kDigest.begin(), kDigest.end());
   return msg;
 }
 

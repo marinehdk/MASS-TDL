@@ -1,5 +1,9 @@
 #include "m6_colregs_reasoner/rules/colregs/rule19_restricted_visibility.hpp"
 
+#include <string>
+
+#include "m6_colregs_reasoner/types.hpp"
+
 namespace mass_l3::m6_colregs::rules::colregs {
 
 RuleEvaluation Rule19_RestrictedVisibility::evaluate(const TargetGeometricState& geo,
@@ -16,7 +20,7 @@ RuleEvaluation Rule19_RestrictedVisibility::evaluate(const TargetGeometricState&
   // Rule 19 only applies in restricted visibility (ODD Domain D)
   if (odd != OddDomain::ODD_D) {
     result.is_active = false;
-    result.confidence = 0.5f;
+    result.confidence = 0.5F;
     result.rationale = "Rule 19: Restricted visibility not active. "
                        "Current ODD domain is not D.";
     return result;
@@ -31,14 +35,14 @@ RuleEvaluation Rule19_RestrictedVisibility::evaluate(const TargetGeometricState&
   // 3. Rules 11-18 do not apply in restricted visibility (Rule 19(b))
 
   // Scale: in restricted visibility, CPA threshold is more stringent
-  const double cpa_margin = geo.cpa_m / (params.cpa_safe_m * 0.7);
+  const double kCpaMargin = geo.cpa_m / (params.cpa_safe_m * 0.7);
 
-  if (cpa_margin < 1.0) {
+  if (kCpaMargin < 1.0) {
     // Target within reduced CPA threshold — evasive action needed
     result.role = Role::GIVE_WAY;
     result.preferred_direction = "STARBOARD";
     result.min_alteration_deg = params.min_alteration_deg * 1.5;  // larger alteration in restricted vis
-    result.confidence = 0.85f;
+    result.confidence = 0.85F;
     result.rationale = "Rule 19: Restricted visibility. "
                        "Target " + std::to_string(geo.target_id) +
                        " within CPA threshold. "
@@ -51,7 +55,7 @@ RuleEvaluation Rule19_RestrictedVisibility::evaluate(const TargetGeometricState&
     // Target beyond reduced CPA threshold — monitor
     result.role = Role::FREE;
     result.preferred_direction = "REDUCE_SPEED";
-    result.confidence = 0.7f;
+    result.confidence = 0.7F;
     result.rationale = "Rule 19: Restricted visibility. "
                        "Target " + std::to_string(geo.target_id) +
                        " outside CPA threshold. "

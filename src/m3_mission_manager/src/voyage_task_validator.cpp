@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "geographic_msgs/msg/geo_path.hpp"
 #include "geographic_msgs/msg/geo_point.hpp"
 #include "l3_external_msgs/msg/voyage_task.hpp"
 
@@ -16,8 +17,6 @@ constexpr double kEarthRadiusKm = 6371.0;
 constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
 constexpr int64_t kNanoPerSec = 1'000'000'000LL;
 constexpr int64_t kTimestampToleranceNs = 5LL * kNanoPerSec;
-constexpr double kMinSpeedKn = 1.0;
-constexpr double kMaxSpeedKn = 30.0;
 constexpr double kMinLatitude = -90.0;
 constexpr double kMaxLatitude = 90.0;
 constexpr double kMinLongitude = -180.0;
@@ -42,10 +41,10 @@ double haversineKm(double lat1_deg, double lon1_deg,
   return kEarthRadiusKm * c;
 }
 
-bool isKnownTaskType(const std::string& task_type) noexcept {
-  const std::string known_types[] = {"transit", "station_keep", "berth", "anchor"};
+bool isKnownOptimizationPriority(const std::string& optimization_priority) noexcept {
+  const std::string known_types[] = {"fuel_optimal", "time_optimal", "balanced"};
   for (const auto& known : known_types) {
-    if (task_type == known) {
+    if (optimization_priority == known) {
       return true;
     }
   }
@@ -78,42 +77,31 @@ ValidationResult VoyageTaskValidator::validate(
                              static_cast<int64_t>(task.stamp.nanosec);
     auto result = check_timestamp(stamp_ns, current_time_ns);
     if (!result.is_valid) { return result; }
-    result = check_departure_distance(task.origin, current_position);
+    result = check_departure_distance(task.departure, current_position);
     if (!result.is_valid) { return result; }
     result = check_destination(task.destination);
     if (!result.is_valid) { return result; }
   }
-  // 4. ETA window: eta_requirement_s must be in [min_s, max_s] (voyage duration)
+  // 4. ETA window: (latest - stamp) must be in [min_s, max_s]
   {
-    const int64_t eta_s = static_cast<int64_t>(task.eta_requirement_s);
-    const auto result = check_eta_window(eta_s);
+    const int64_t kEtaS = static_cast<int64_t>(task.eta_window.latest.sec) -
+                          static_cast<int64_t>(task.stamp.sec);
+    const auto result = check_eta_window(kEtaS);
     if (!result.is_valid) { return result; }
   }
-  // 5. Waypoints (convert lat/lon arrays to vector)
+  // 5. Mandatory waypoints (already GeoPoint[], no conversion needed)
   {
-    std::vector<geographic_msgs::msg::GeoPoint> waypoints;
-    const size_t n = std::min(task.waypoint_latitudes.size(),
-                              task.waypoint_longitudes.size());
-    waypoints.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-      geographic_msgs::msg::GeoPoint wp;
-      wp.latitude = task.waypoint_latitudes[i];
-      wp.longitude = task.waypoint_longitudes[i];
-      waypoints.push_back(wp);
-    }
-    const auto result = check_mandatory_waypoints(waypoints);
+    const auto result = check_mandatory_waypoints(task.mandatory_waypoints);
     if (!result.is_valid) { return result; }
   }
-  // 6. Exclusion zones (empty until VoyageTask carries zone data)
+  // 6. Exclusion zones
   {
-    const auto result = check_exclusion_zones({}, task.origin);
+    const auto result = check_exclusion_zones(task.exclusion_zones, task.departure);
     if (!result.is_valid) { return result; }
   }
-  // 7-8. Task type and speed command
+  // 7. Optimization priority must be a known value
   {
-    auto result = check_task_type(task.task_type);
-    if (!result.is_valid) { return result; }
-    result = check_speed_cmd(task.speed_cmd_kn);
+    const auto result = check_optimization_priority(task.optimization_priority);
     if (!result.is_valid) { return result; }
   }
   return ValidationResult{true, ErrorCode::Ok, ""};
@@ -203,36 +191,29 @@ ValidationResult VoyageTaskValidator::check_mandatory_waypoints(
 
 // 6. Reject if any exclusion zone contains the departure point (with buffer)
 ValidationResult VoyageTaskValidator::check_exclusion_zones(
-    const std::vector<geographic_msgs::msg::GeoPoint>& exclusion_zones,
+    const std::vector<geographic_msgs::msg::GeoPath>& exclusion_zones,
     const geographic_msgs::msg::GeoPoint& departure) const {
   for (const auto& zone : exclusion_zones) {
-    const double dist_km = haversineKm(
-        departure.latitude, departure.longitude,
-        zone.latitude, zone.longitude);
-    const double dist_m = dist_km * 1000.0;
-    if (dist_m < config_.exclusion_zone_buffer_m) {
-      return ValidationResult{false, ErrorCode::ExclusionZoneOverlap,
-                              "departure point overlaps with exclusion zone"};
+    for (const auto& pose : zone.poses) {
+      const double dist_km = haversineKm(
+          departure.latitude, departure.longitude,
+          pose.pose.position.latitude, pose.pose.position.longitude);
+      const double dist_m = dist_km * 1000.0;
+      if (dist_m < config_.exclusion_zone_buffer_m) {
+        return ValidationResult{false, ErrorCode::ExclusionZoneOverlap,
+                                "departure point overlaps with exclusion zone"};
+      }
     }
   }
   return ValidationResult{true, ErrorCode::Ok, ""};
 }
 
-// 7. Reject if task type is not one of the known types
-ValidationResult VoyageTaskValidator::check_task_type(
-    const std::string& task_type) const {
-  if (!isKnownTaskType(task_type)) {
+// 7. Reject if optimization priority is not one of the known values
+ValidationResult VoyageTaskValidator::check_optimization_priority(
+    const std::string& optimization_priority) const {
+  if (!isKnownOptimizationPriority(optimization_priority)) {
     return ValidationResult{false, ErrorCode::VoyageTaskParseError,
-                            "unknown voyage task type: " + task_type};
-  }
-  return ValidationResult{true, ErrorCode::Ok, ""};
-}
-
-// 8. Reject if speed command is outside [1, 30] knots
-ValidationResult VoyageTaskValidator::check_speed_cmd(double speed_kn) const {
-  if (speed_kn < kMinSpeedKn || speed_kn > kMaxSpeedKn) {
-    return ValidationResult{false, ErrorCode::ParameterOutOfRange,
-                            "speed command out of range [1, 30] kn"};
+                            "unknown optimization priority: " + optimization_priority};
   }
   return ValidationResult{true, ErrorCode::Ok, ""};
 }

@@ -1,4 +1,6 @@
 #include "m7_safety_supervisor/iec61508/diagnostic_coverage.hpp"
+#include "m7_safety_supervisor/iec61508/fault_monitor.hpp"
+#include "m7_safety_supervisor/iec61508/watchdog_monitor.hpp"
 
 namespace mass_l3::m7::iec61508 {
 
@@ -13,13 +15,13 @@ void DiagnosticCoverage::update(
 {
   ++metric_.total_checks;
 
-  bool const fault_detected =
+  bool const kFaultDetected =
       !fault_result.conformance_score_valid ||
       !fault_result.cpa_internal_consistent ||
       !fault_result.colregs_target_id_match ||
       watchdog_result.any_critical;
 
-  if (fault_detected) {
+  if (kFaultDetected) {
     ++metric_.detected_faults;
   }
 
@@ -42,7 +44,7 @@ DiagnosticCoverageMetric DiagnosticCoverage::current() const noexcept {
 // ---------------------------------------------------------------------------
 
 bool DiagnosticCoverage::is_sufficient() const noexcept {
-  return metric_.coverage_ratio >= 0.90f;
+  return metric_.coverage_ratio >= 0.90F;
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@
 #include <l3_msgs/msg/odd_state.hpp>
 #include <l3_external_msgs/msg/filtered_own_ship_state.hpp>
 #include <l3_external_msgs/msg/tracked_target_array.hpp>
+#include <l3_msgs/msg/tracked_target.hpp>
 #include <l3_external_msgs/msg/environment_state.hpp>
 
 #include "m2_world_model/cpa_tcpa_calculator.hpp"
@@ -51,15 +52,15 @@ auto make_own_ship_msg(double lat = 35.0, double lon = 139.0) {
   msg.heading_deg = 40.0;
   msg.u_water = 5.0;
   msg.v_water = 0.0;
-  msg.yaw_rate_deg_s = 0.0;
+  msg.r_dot_deg_s = 0.0;
   msg.roll_deg = 0.0;
   msg.pitch_deg = 0.0;
   // covariance: 6x6 row-major identity
-  msg.covariance.assign(36, 0.0);
+  msg.covariance.fill(0.0);
   msg.covariance[0] = 1.0;   // pos_xx
   msg.covariance[7] = 1.0;   // pos_yy
   msg.covariance[14] = 1.0;  // pos_zz
-  msg.nav_filter_status = "OPTIMAL";
+  msg.nav_mode = "OPTIMAL";
   msg.confidence = 1.0f;
   return msg;
 }
@@ -80,17 +81,17 @@ auto make_odd_msg(uint8_t zone = 0) {
 auto make_target_array(const std::vector<uint64_t>& ids = {1001}) {
   l3_external_msgs::msg::TrackedTargetArray msg;
   for (const auto id : ids) {
-    msg.target_ids.push_back(id);
-    msg.positions.emplace_back();
-    msg.positions.back().latitude = 35.1;
-    msg.positions.back().longitude = 139.1;
-    msg.positions.back().altitude = 0.0;
-    msg.sog_kn.push_back(12.0);
-    msg.cog_deg.push_back(90.0);
-    msg.heading_deg.push_back(85.0);
-    msg.classifications.push_back("cargo");
-    msg.classification_confidences.push_back(0.9f);
-    msg.status.push_back(1);
+    l3_msgs::msg::TrackedTarget tgt;
+    tgt.target_id = id;
+    tgt.position.latitude = 35.1;
+    tgt.position.longitude = 139.1;
+    tgt.position.altitude = 0.0;
+    tgt.sog_kn = 12.0;
+    tgt.cog_deg = 90.0;
+    tgt.heading_deg = 85.0;
+    tgt.classification = "cargo";
+    tgt.classification_confidence = 0.9F;
+    msg.targets.push_back(tgt);
   }
   msg.confidence = 1.0f;
   return msg;

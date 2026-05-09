@@ -8,8 +8,12 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
-#include <yaml-cpp/yaml.h>
+#include <yaml-cpp/node/node.h>
+#include <yaml-cpp/node/parse.h>
+
+#include "m1_odd_envelope_manager/types.hpp"
 
 namespace mass_l3::m1 {
 
@@ -51,13 +55,14 @@ ParameterSet defaults() noexcept {
 }
 
 /// Try to read a double node with a fallback default.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 inline double read_double(const YAML::Node& node, const char* key,
                           double fallback) noexcept {
-  const YAML::Node child = node[key];
-  if (!child || child.IsNull() || !child.IsScalar()) {
+  const YAML::Node kChild = node[key];
+  if (!kChild || kChild.IsNull() || !kChild.IsScalar()) {
     return fallback;
   }
-  return child.as<double>(fallback);
+  return kChild.as<double>(fallback);
 }
 
 }  // anonymous namespace
@@ -66,6 +71,7 @@ inline double read_double(const YAML::Node& node, const char* key,
 // Public API
 // ===========================================================================
 
+// NOLINTNEXTLINE(bugprone-exception-escape,readability-function-cognitive-complexity,readability-function-size)
 ParameterSet load_parameters(const std::string& yaml_path) noexcept {
   ParameterSet p = defaults();
 
@@ -75,75 +81,75 @@ ParameterSet load_parameters(const std::string& yaml_path) noexcept {
   YAML::Node config = YAML::LoadFile(yaml_path);
 
   // --- state_machine section ---
-  const YAML::Node sm = config["state_machine"];
-  if (sm && !sm.IsNull()) {
-    p.in_to_edge = read_double(sm, "in_to_edge", p.in_to_edge);
-    p.edge_to_out = read_double(sm, "edge_to_out", p.edge_to_out);
+  const YAML::Node kSm = config["state_machine"];
+  if (kSm && !kSm.IsNull()) {
+    p.in_to_edge = read_double(kSm, "in_to_edge", p.in_to_edge);
+    p.edge_to_out = read_double(kSm, "edge_to_out", p.edge_to_out);
     p.stale_degradation_factor =
-        read_double(sm, "stale_degradation_factor", p.stale_degradation_factor);
+        read_double(kSm, "stale_degradation_factor", p.stale_degradation_factor);
   }
 
   // --- conformance_score section ---
-  const YAML::Node cs = config["conformance_score"];
-  if (cs && !cs.IsNull()) {
-    const YAML::Node w = cs["weights"];
-    if (w && !w.IsNull()) {
-      p.w_e = read_double(w, "w_e", p.w_e);
-      p.w_t = read_double(w, "w_t", p.w_t);
-      p.w_h = read_double(w, "w_h", p.w_h);
+  const YAML::Node kCs = config["conformance_score"];
+  if (kCs && !kCs.IsNull()) {
+    const YAML::Node kW = kCs["weights"];
+    if (kW && !kW.IsNull()) {
+      p.w_e = read_double(kW, "w_e", p.w_e);
+      p.w_t = read_double(kW, "w_t", p.w_t);
+      p.w_h = read_double(kW, "w_h", p.w_h);
     }
-    const YAML::Node es = cs["e_score"];
-    if (es && !es.IsNull()) {
+    const YAML::Node kEs = kCs["e_score"];
+    if (kEs && !kEs.IsNull()) {
       p.visibility_full_nm =
-          read_double(es, "visibility_full_nm", p.visibility_full_nm);
+          read_double(kEs, "visibility_full_nm", p.visibility_full_nm);
       p.visibility_degraded_nm =
-          read_double(es, "visibility_degraded_nm", p.visibility_degraded_nm);
+          read_double(kEs, "visibility_degraded_nm", p.visibility_degraded_nm);
       p.visibility_marginal_nm =
-          read_double(es, "visibility_marginal_nm", p.visibility_marginal_nm);
+          read_double(kEs, "visibility_marginal_nm", p.visibility_marginal_nm);
       p.sea_state_full_hs =
-          read_double(es, "sea_state_full_hs", p.sea_state_full_hs);
+          read_double(kEs, "sea_state_full_hs", p.sea_state_full_hs);
       p.sea_state_degraded_hs =
-          read_double(es, "sea_state_degraded_hs", p.sea_state_degraded_hs);
+          read_double(kEs, "sea_state_degraded_hs", p.sea_state_degraded_hs);
       p.sea_state_marginal_hs =
-          read_double(es, "sea_state_marginal_hs", p.sea_state_marginal_hs);
+          read_double(kEs, "sea_state_marginal_hs", p.sea_state_marginal_hs);
     }
   }
 
   // --- t_score section (all [TBD-HAZID]) ---
-  const YAML::Node ts = config["t_score"];
-  if (ts && !ts.IsNull()) {
-    p.comm_delay_ok_s = read_double(ts, "comm_delay_ok_s", p.comm_delay_ok_s);
-    p.t_score_comm_ok = read_double(ts, "comm_ok", p.t_score_comm_ok);
-    p.t_score_comm_bad = read_double(ts, "comm_bad", p.t_score_comm_bad);
+  const YAML::Node kTs = config["t_score"];
+  if (kTs && !kTs.IsNull()) {
+    p.comm_delay_ok_s = read_double(kTs, "comm_delay_ok_s", p.comm_delay_ok_s);
+    p.t_score_comm_ok = read_double(kTs, "comm_ok", p.t_score_comm_ok);
+    p.t_score_comm_bad = read_double(kTs, "comm_bad", p.t_score_comm_bad);
   }
 
   // --- h_score section (all [TBD-HAZID]) ---
-  const YAML::Node hs = config["h_score"];
-  if (hs && !hs.IsNull()) {
-    p.h_score_available = read_double(hs, "available", p.h_score_available);
-    p.h_score_unavailable = read_double(hs, "unavailable", p.h_score_unavailable);
+  const YAML::Node kHs = config["h_score"];
+  if (kHs && !kHs.IsNull()) {
+    p.h_score_available = read_double(kHs, "available", p.h_score_available);
+    p.h_score_unavailable = read_double(kHs, "unavailable", p.h_score_unavailable);
   }
 
   // --- tmr_tdl section ---
-  const YAML::Node tt = config["tmr_tdl"];
-  if (tt && !tt.IsNull()) {
-    p.tmr_baseline_s = read_double(tt, "tmr_baseline_s", p.tmr_baseline_s);
-    p.tcpa_coefficient = read_double(tt, "tcpa_coefficient", p.tcpa_coefficient);
-    p.tmr_min_s = read_double(tt, "tmr_min_s", p.tmr_min_s);
-    p.tmr_max_s = read_double(tt, "tmr_max_s", p.tmr_max_s);
-    p.tdl_min_s = read_double(tt, "tdl_min_s", p.tdl_min_s);
-    p.tdl_max_s = read_double(tt, "tdl_max_s", p.tdl_max_s);
+  const YAML::Node kTt = config["tmr_tdl"];
+  if (kTt && !kTt.IsNull()) {
+    p.tmr_baseline_s = read_double(kTt, "tmr_baseline_s", p.tmr_baseline_s);
+    p.tcpa_coefficient = read_double(kTt, "tcpa_coefficient", p.tcpa_coefficient);
+    p.tmr_min_s = read_double(kTt, "tmr_min_s", p.tmr_min_s);
+    p.tmr_max_s = read_double(kTt, "tmr_max_s", p.tmr_max_s);
+    p.tdl_min_s = read_double(kTt, "tdl_min_s", p.tdl_min_s);
+    p.tdl_max_s = read_double(kTt, "tdl_max_s", p.tdl_max_s);
   }
 
   // --- mrc section ---
-  const YAML::Node mr = config["mrc"];
-  if (mr && !mr.IsNull()) {
+  const YAML::Node kMr = config["mrc"];
+  if (kMr && !kMr.IsNull()) {
     p.max_anchor_depth_m =
-        read_double(mr, "max_anchor_depth_m", p.max_anchor_depth_m);
+        read_double(kMr, "max_anchor_depth_m", p.max_anchor_depth_m);
     p.max_heave_to_sea_state_hs =
-        read_double(mr, "max_heave_to_sea_state_hs", p.max_heave_to_sea_state_hs);
+        read_double(kMr, "max_heave_to_sea_state_hs", p.max_heave_to_sea_state_hs);
     p.max_heave_to_wind_kn =
-        read_double(mr, "max_heave_to_wind_kn", p.max_heave_to_wind_kn);
+        read_double(kMr, "max_heave_to_wind_kn", p.max_heave_to_wind_kn);
   }
 
   return p;

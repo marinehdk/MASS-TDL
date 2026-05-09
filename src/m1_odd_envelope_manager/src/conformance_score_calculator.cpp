@@ -1,7 +1,12 @@
 #include "m1_odd_envelope_manager/conformance_score_calculator.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <limits>
+
+#include <tl_expected/expected.hpp>
+
+#include "m1_odd_envelope_manager/error.hpp"
+#include "m1_odd_envelope_manager/types.hpp"
 
 namespace mass_l3::m1 {
 
@@ -22,8 +27,8 @@ ConformanceScoreCalculator::create(
     const EScoreThresholds& e_thresholds,
     const TScoreThresholds& t_thresholds,
     const HScoreThresholds& h_thresholds) noexcept {
-  const double sum = weights.w_e + weights.w_t + weights.w_h;
-  if (std::abs(sum - 1.0) > kWeightEpsilon) {
+  const double kSum = weights.w_e + weights.w_t + weights.w_h;
+  if (std::abs(kSum - 1.0) > kWeightEpsilon) {
     return tl::unexpected(ErrorCode::WeightsNotNormalized);
   }
   return ConformanceScoreCalculator(weights, e_thresholds,
@@ -49,7 +54,8 @@ ConformanceScoreCalculator::ConformanceScoreCalculator(
 // ===========================================================================
 
 double ConformanceScoreCalculator::evaluate_e_score(
-    const double visibility_nm, const double sea_state_hs) const noexcept {
+    const double visibility_nm,  // NOLINT(readability-identifier-naming)
+    const double sea_state_hs) const noexcept {  // NOLINT(readability-identifier-naming)
   // ODD-A: full conformance
   if (visibility_nm >= e_thresholds_.visibility_full_nm &&
       sea_state_hs <= e_thresholds_.sea_state_full_hs) {
@@ -76,20 +82,20 @@ double ConformanceScoreCalculator::evaluate_e_score(
 double ConformanceScoreCalculator::evaluate_t_score(
     const TScoreInputs& t_inputs) const noexcept {
   // All nominal: every measured system is healthy.
-  const bool all_nominal = t_inputs.gnss_quality_good &&
+  const bool kAllNominal = t_inputs.gnss_quality_good &&
                            t_inputs.radar_health_ok &&
                            t_inputs.comm_ok &&
                            !t_inputs.any_sensor_critical &&
                            t_inputs.comm_delay_s < t_thresholds_.comm_delay_ok_s;
-  if (all_nominal) {
+  if (kAllNominal) {
     return 1.0;
   }
 
   // Sensor degradation only -- communication still within limits and no
   // critical failures.
-  const bool comm_ok_delay =
+  const bool kCommOkDelay =
       t_inputs.comm_delay_s < t_thresholds_.comm_delay_ok_s;
-  if (!t_inputs.any_sensor_critical && comm_ok_delay) {
+  if (!t_inputs.any_sensor_critical && kCommOkDelay) {
     return t_thresholds_.t_score_comm_ok;  // [TBD-HAZID] 0.6
   }
 
@@ -117,7 +123,7 @@ ScoreTriple ConformanceScoreCalculator::compute(
     const ScoringInputs& inputs) const noexcept {
   // Evaluate each axis independently.
   double e = evaluate_e_score(inputs.visibility_nm, inputs.sea_state_hs);
-  TScoreInputs t_in;
+  TScoreInputs t_in{};
   t_in.gnss_quality_good = inputs.gnss_quality_good;
   t_in.radar_health_ok = inputs.radar_health_ok;
   t_in.comm_ok = inputs.comm_ok;
@@ -125,7 +131,7 @@ ScoreTriple ConformanceScoreCalculator::compute(
   t_in.any_sensor_critical = inputs.any_sensor_critical;
   double t = evaluate_t_score(t_in);
 
-  HScoreInputs h_in;
+  HScoreInputs h_in{};
   h_in.tmr_available = inputs.tmr_available;
   h_in.comm_ok = inputs.comm_ok;
   double h = evaluate_h_score(h_in);
@@ -142,7 +148,7 @@ ScoreTriple ConformanceScoreCalculator::compute(
   }
 
   // Weighted sum.
-  double combined = weights_.w_e * e + weights_.w_t * t + weights_.w_h * h;
+  double combined = (weights_.w_e * e) + (weights_.w_t * t) + (weights_.w_h * h);
 
   // Clamp to [0, 1]; NaN treated as 0.
   combined = std::clamp(std::isnan(combined) ? 0.0 : combined, 0.0, 1.0);

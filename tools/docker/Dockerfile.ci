@@ -11,6 +11,10 @@ ARG CLANG_TIDY_20_VER
 ARG CMAKE_VER
 ARG CPPCHECK_VER
 ARG PYTHON3_12_VER
+ARG EIGEN3_VER
+ARG GEOGRAPHICLIB_VER
+ARG BOOST_DEV_VER
+ARG NLOHMANN_JSON_VER
 
 # System tools and compilers
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,6 +32,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cppcheck=${CPPCHECK_VER} \
         jq \
         yamllint \
+        ros-jazzy-geographic-msgs \
+        ros-jazzy-tl-expected \
+        libeigen3-dev=${EIGEN3_VER} \
+        libgeographiclib-dev=${GEOGRAPHICLIB_VER} \
+        libboost-dev=${BOOST_DEV_VER} \
+        nlohmann-json3-dev=${NLOHMANN_JSON_VER} \
     && rm -rf /var/lib/apt/lists/*
 
 # Python tools
@@ -37,7 +47,9 @@ RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
         ruff==0.6.9 \
         mypy==1.10.1 \
         pytest==8.3.3 \
-        pytest-cov==5.0.0
+        pytest-cov==5.0.0 \
+        casadi==3.7.2 \
+        empy==3.3.4
 
 # Set GCC 14 as default
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
@@ -86,5 +98,8 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
 # 上述 3 个商业工具的 tarball 由项目购买后通过私有 artifactory 提供。
 # 当前镜像在缺失 tarball 时仍可构建（OSS fallback）；CCS 入级前必须打开。
 # 跟踪: docs/Implementation/00-implementation-master-plan.md §8.1 Wave 0 finding F-CRIT-A-009
+
+# casadi CMake config is inside the pip-installed Python package
+ENV CMAKE_PREFIX_PATH=/usr/local/lib/python3.12/dist-packages/casadi
 
 WORKDIR /workspace

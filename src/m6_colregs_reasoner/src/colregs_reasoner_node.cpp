@@ -1,21 +1,38 @@
 #include "m6_colregs_reasoner/colregs_reasoner_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
-#include <fstream>
-#include <map>
+#include <exception>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include <builtin_interfaces/msg/time.hpp>
+#include <l3_msgs/msg/asdr_record.hpp>
+#include <l3_msgs/msg/colre_gs_constraint.hpp>
+#include <l3_msgs/msg/constraint.hpp>
+#include <l3_msgs/msg/odd_state.hpp>
+#include <l3_msgs/msg/sat_data.hpp>
+#include <l3_msgs/msg/world_state.hpp>
+#include <rclcpp/logging.hpp>
+#include <rclcpp/node.hpp>
+#include <rclcpp/time.hpp>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <yaml-cpp/yaml.h>
+#include <yaml-cpp/yaml.h>  // NOLINT(misc-include-cleaner)
 
-#include "m6_colregs_reasoner/error_codes.hpp"
+#include "m6_colregs_reasoner/colregs_constraint_generator.hpp"
+#include "m6_colregs_reasoner/colregs_phase_classifier.hpp"
 #include "m6_colregs_reasoner/geometry_utils.hpp"
+#include "m6_colregs_reasoner/rule_library_loader.hpp"
+#include "m6_colregs_reasoner/rules/colregs_rule_base.hpp"
+#include "m6_colregs_reasoner/target_state_cache.hpp"
+#include "m6_colregs_reasoner/types.hpp"
 
 namespace mass_l3::m6_colregs {
 
@@ -56,22 +73,22 @@ std::string odd_yaml_key(OddDomain d) {
 }
 
 int32_t classify_ship_priority(const std::string& classification) {
-  if (classification == "vessel") return 1;
-  if (classification == "fixed_object") return 0;
+  if (classification == "vessel") { return 1; }
+  if (classification == "fixed_object") { return 0; }
   return -1;  // unknown
 }
 
 /// Compute initial great-circle bearing (degrees) from point A to point B.
-double bearing_between(double lat_a_deg, double lon_a_deg,
-                       double lat_b_deg, double lon_b_deg) {
-  const double lat_a = deg2rad(lat_a_deg);
-  const double lat_b = deg2rad(lat_b_deg);
-  const double d_lon = deg2rad(lon_b_deg - lon_a_deg);
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+double bearing_between(double lat_a_deg, double lon_a_deg, double lat_b_deg, double lon_b_deg) {
+  const double kLatA = deg2rad(lat_a_deg);
+  const double kLatB = deg2rad(lat_b_deg);
+  const double kDLon = deg2rad(lon_b_deg - lon_a_deg);
 
-  const double y = std::sin(d_lon) * std::cos(lat_b);
-  const double x = std::cos(lat_a) * std::sin(lat_b)
-                 - std::sin(lat_a) * std::cos(lat_b) * std::cos(d_lon);
-  return normalize_bearing_deg(rad2deg(std::atan2(y, x)));
+  const double kY = std::sin(kDLon) * std::cos(kLatB);
+  const double kX = (std::cos(kLatA) * std::sin(kLatB))
+                 - (std::sin(kLatA) * std::cos(kLatB) * std::cos(kDLon));
+  return normalize_bearing_deg(rad2deg(std::atan2(kY, kX)));
 }
 
 /// Convert builtin_interfaces::msg::Time to std::chrono::system_clock::time_point.
@@ -88,10 +105,11 @@ std::chrono::system_clock::time_point to_chrono(
 // Constructor
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 ColregsReasonerNode::ColregsReasonerNode()
   : Node("m6_colregs_reasoner"),
-    last_world_stamp_(0, 0, RCL_ROS_TIME),
-    last_odd_stamp_(0, 0, RCL_ROS_TIME) {
+    last_world_stamp_(0, 0, RCL_ROS_TIME),  // NOLINT(misc-include-cleaner)
+    last_odd_stamp_(0, 0, RCL_ROS_TIME) {   // NOLINT(misc-include-cleaner)
   declare_parameters();
   load_odd_thresholds();
   create_components();
@@ -125,45 +143,46 @@ void ColregsReasonerNode::declare_parameters() {
 // Load ODD-aware thresholds from YAML
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void ColregsReasonerNode::load_odd_thresholds() {
-  const std::string config_dir = get_parameter("config_dir").as_string();
-  const std::string yaml_path = config_dir + "/odd_aware_thresholds.yaml";
+  const std::string kConfigDir = get_parameter("config_dir").as_string();
+  const std::string kYamlPath = kConfigDir + "/odd_aware_thresholds.yaml";
 
-  YAML::Node doc;
+  YAML::Node doc;  // NOLINT(misc-include-cleaner)
   try {
-    doc = YAML::LoadFile(yaml_path);
+    doc = YAML::LoadFile(kYamlPath);  // NOLINT(misc-include-cleaner)
   } catch (const std::exception& e) {
     RCLCPP_WARN(get_logger(), "Cannot load odd_aware_thresholds.yaml: %s", e.what());
     return;
   }
 
   // Four ODD zones
-  const std::vector<OddDomain> zones = {
+  const std::vector<OddDomain> kZones = {
     OddDomain::ODD_A, OddDomain::ODD_B,
     OddDomain::ODD_C, OddDomain::ODD_D
   };
 
-  for (const auto& zone : zones) {
-    const std::string key = odd_yaml_key(zone);
-    const YAML::Node node = doc[key];
-    if (!node) {
-      RCLCPP_WARN(get_logger(), "Missing ODD config section: %s", key.c_str());
+  for (const auto& zone : kZones) {
+    const std::string kKey = odd_yaml_key(zone);
+    const YAML::Node kNode = doc[kKey];
+    if (!kNode) {
+      RCLCPP_WARN(get_logger(), "Missing ODD config section: %s", kKey.c_str());
       continue;
     }
 
     RuleParameters params{};
-    params.t_standOn_s         = node["t_standOn_s"].as<double>(480.0);
-    params.t_act_s             = node["t_act_s"].as<double>(240.0);
-    params.t_emergency_s       = node["t_emergency_s"].as<double>(60.0);
-    params.min_alteration_deg  = node["min_alteration_deg"].as<double>(15.0);
-    params.cpa_safe_m          = node["cpa_safe_m"].as<double>(1852.0);
-    params.max_speed_kn        = node["max_speed_kn"].as<double>(20.0);
-    params.max_turn_rate_deg_s = node["max_turn_rate_deg_s"].as<double>(5.0);
+    params.t_standOn_s         = kNode["t_standOn_s"].as<double>(480.0);
+    params.t_act_s             = kNode["t_act_s"].as<double>(240.0);
+    params.t_emergency_s       = kNode["t_emergency_s"].as<double>(60.0);
+    params.min_alteration_deg  = kNode["min_alteration_deg"].as<double>(15.0);
+    params.cpa_safe_m          = kNode["cpa_safe_m"].as<double>(1852.0);
+    params.max_speed_kn        = kNode["max_speed_kn"].as<double>(20.0);
+    params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(5.0);
     params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
     RCLCPP_DEBUG(get_logger(), "Loaded thresholds for %s: act=%f, emergency=%f",
-                 key.c_str(), params.t_act_s, params.t_emergency_s);
+                 kKey.c_str(), params.t_act_s, params.t_emergency_s);
   }
 }
 
@@ -171,10 +190,11 @@ void ColregsReasonerNode::load_odd_thresholds() {
 // Create components
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void ColregsReasonerNode::create_components() {
   // Target state cache
   TargetStateCache::Config cache_cfg{};
-  cache_cfg.max_targets = get_parameter("max_targets").as_int();
+  cache_cfg.max_targets = static_cast<int32_t>(get_parameter("max_targets").as_int());
   target_cache_ = std::make_unique<TargetStateCache>(cache_cfg);
 
   // Phase classifier
@@ -184,25 +204,25 @@ void ColregsReasonerNode::create_components() {
   constraint_gen_ = std::make_unique<ConstraintGenerator>();
 
   // Rule library loader
-  const std::string config_dir = get_parameter("config_dir").as_string();
-  const std::string rule_lib_path = config_dir + "/colregs_rule_library.yaml";
+  const std::string kConfigDir = get_parameter("config_dir").as_string();
+  const std::string kRuleLibPath = kConfigDir + "/colregs_rule_library.yaml";
   try {
-    RuleLibraryLoader loader(rule_lib_path);
+    RuleLibraryLoader loader(kRuleLibPath);
     rules_ = loader.load_colregs_rules();
   } catch (const std::exception& e) {
-    const std::string msg = std::string("Failed to load COLREGs rules: ") + e.what();
-    RCLCPP_FATAL(get_logger(), "%s", msg.c_str());
-    throw std::runtime_error(msg);
+    const std::string kMsg = std::string("Failed to load COLREGs rules: ") + e.what();
+    RCLCPP_FATAL(get_logger(), "%s", kMsg.c_str());
+    throw std::runtime_error(kMsg);
   }
 
   if (rules_.empty()) {
-    const std::string msg = "No COLREGs rules loaded from: " + rule_lib_path;
-    RCLCPP_FATAL(get_logger(), "%s", msg.c_str());
-    throw std::runtime_error(msg);
+    const std::string kMsg = "No COLREGs rules loaded from: " + kRuleLibPath;
+    RCLCPP_FATAL(get_logger(), "%s", kMsg.c_str());
+    throw std::runtime_error(kMsg);
   }
 
   RCLCPP_INFO(get_logger(), "Loaded %zu COLREGs rules from %s",
-              rules_.size(), rule_lib_path.c_str());
+              rules_.size(), kRuleLibPath.c_str());
 }
 
 // ------------------------------------------------------------------
@@ -231,12 +251,14 @@ void ColregsReasonerNode::setup_subscribers() {
   odd_sub_ = create_subscription<l3_msgs::msg::ODDState>(
     "/l3/m1/odd_state",
     rclcpp::QoS(10).reliable().transient_local(),
-    [this](const l3_msgs::msg::ODDState::SharedPtr msg) { on_odd_state(msg); });
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    [this](const l3_msgs::msg::ODDState::SharedPtr kMsg) { on_odd_state(kMsg); });
 
   world_sub_ = create_subscription<l3_msgs::msg::WorldState>(
     "/l3/m2/world_state",
     rclcpp::SensorDataQoS().keep_last(2),
-    [this](const l3_msgs::msg::WorldState::SharedPtr msg) { on_world_state(msg); });
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    [this](const l3_msgs::msg::WorldState::SharedPtr kMsg) { on_world_state(kMsg); });
 }
 
 // ------------------------------------------------------------------
@@ -244,23 +266,23 @@ void ColregsReasonerNode::setup_subscribers() {
 // ------------------------------------------------------------------
 
 void ColregsReasonerNode::setup_timers() {
-  const auto reasoning_period = std::chrono::milliseconds(
+  const auto kReasoningPeriod = std::chrono::milliseconds(
     get_parameter("reasoning_period_ms").as_int());
-  const auto health_period = std::chrono::milliseconds(
+  const auto kHealthPeriod = std::chrono::milliseconds(
     get_parameter("health_check_period_ms").as_int());
-  const auto asdr_period = std::chrono::milliseconds(
+  const auto kAsdrPeriod = std::chrono::milliseconds(
     get_parameter("asdr_snapshot_period_ms").as_int());
-  const auto sat_period = std::chrono::milliseconds(
+  const auto kSatPeriod = std::chrono::milliseconds(
     get_parameter("sat_publish_period_ms").as_int());
 
   reasoning_timer_ = create_wall_timer(
-    reasoning_period, [this]() { run_reasoning(); });
+    kReasoningPeriod, [this]() { run_reasoning(); });
   health_timer_ = create_wall_timer(
-    health_period, [this]() { check_health(); });
+    kHealthPeriod, [this]() { check_health(); });
   asdr_timer_ = create_wall_timer(
-    asdr_period, [this]() { publish_asdr_snapshot(); });
+    kAsdrPeriod, [this]() { publish_asdr_snapshot(); });
   sat_timer_ = create_wall_timer(
-    sat_period, [this]() { publish_sat_data(); });
+    kSatPeriod, [this]() { publish_sat_data(); });
 }
 
 // ------------------------------------------------------------------
@@ -278,27 +300,27 @@ void ColregsReasonerNode::setup_logger() {
 // Subscriber callbacks
 // ==================================================================
 
-void ColregsReasonerNode::on_odd_state(
-    const l3_msgs::msg::ODDState::SharedPtr msg) {
-  const OddDomain new_odd = odd_domain_from_zone(msg->current_zone);
-  const rclcpp::Time new_stamp(msg->stamp);
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size,performance-unnecessary-value-param)
+void ColregsReasonerNode::on_odd_state(const l3_msgs::msg::ODDState::SharedPtr kMsg) {
+  const OddDomain kNewOdd = odd_domain_from_zone(kMsg->current_zone);
+  const rclcpp::Time kNewStamp(kMsg->stamp);
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    current_odd_ = new_odd;
-    last_odd_stamp_ = new_stamp;
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
+    current_odd_ = kNewOdd;
+    last_odd_stamp_ = kNewStamp;
   }
   RCLCPP_DEBUG(get_logger(), "ODD state updated: zone=%s, health=%d, score=%.3f",
-               odd_domain_str(new_odd).c_str(),
-               static_cast<int>(msg->health),
-               msg->conformance_score);
+               odd_domain_str(kNewOdd).c_str(),
+               static_cast<int>(kMsg->health),
+               kMsg->conformance_score);
 }
 
-void ColregsReasonerNode::on_world_state(
-    const l3_msgs::msg::WorldState::SharedPtr msg) {
-  const rclcpp::Time new_stamp(msg->stamp);
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  last_world_state_ = *msg;
-  last_world_stamp_ = new_stamp;
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
+void ColregsReasonerNode::on_world_state(const l3_msgs::msg::WorldState::SharedPtr kMsg) {
+  const rclcpp::Time kNewStamp(kMsg->stamp);
+  const std::lock_guard<std::mutex> kLock(state_mutex_);
+  last_world_state_ = *kMsg;
+  last_world_stamp_ = kNewStamp;
 }
 
 // ==================================================================
@@ -309,14 +331,15 @@ void ColregsReasonerNode::on_world_state(
 // run_reasoning()        2 Hz
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void ColregsReasonerNode::run_reasoning() {
   // Take a consistent snapshot of shared state under the lock
   std::optional<l3_msgs::msg::WorldState> ws_snapshot;
   rclcpp::Time ws_stamp;
-  OddDomain domain;
-  float ws_confidence = 0.0f;
+  OddDomain domain{};
+  float ws_confidence = 0.0F;
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
     if (!last_world_state_.has_value()) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
         "run_reasoning: no world state received yet");
@@ -328,49 +351,49 @@ void ColregsReasonerNode::run_reasoning() {
     ws_confidence = last_world_state_->confidence;
   }
 
-  const rclcpp::Time now_time = this->now();
-  const double world_age = (now_time - ws_stamp).seconds();
-  const double timeout = get_parameter("world_state_timeout_s").as_double();
+  const rclcpp::Time kNowTime = this->now();
+  const double kWorldAge = (kNowTime - ws_stamp).seconds();
+  const double kTimeout = get_parameter("world_state_timeout_s").as_double();
 
-  if (world_age > timeout) {
+  if (kWorldAge > kTimeout) {
     RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s) — publishing degraded constraint",
-                world_age, timeout);
+                kWorldAge, kTimeout);
 
     l3_msgs::msg::COLREGsConstraint degraded;
-    degraded.stamp = now_time;
+    degraded.stamp = kNowTime;
     degraded.phase = "DEGRADED";
-    degraded.confidence = 0.5f;
-    degraded.rationale = "World state stale: age=" + std::to_string(world_age) + "s";
+    degraded.confidence = 0.5F;
+    degraded.rationale = "World state stale: age=" + std::to_string(kWorldAge) + "s";
 
     l3_msgs::msg::Constraint c;
     c.constraint_type = "colregs_degraded";
     c.description = "Stale world state, using last known configuration";
-    c.numeric_value = world_age;
+    c.numeric_value = kWorldAge;
     c.unit = "s";
     degraded.constraints.push_back(c);
 
     constraint_pub_->publish(degraded);
     publish_asdr_record("world_state_stale",
-      "{\"age_s\":" + std::to_string(world_age) + "}");
+      std::string("{\"age_s\":") + std::to_string(kWorldAge) + "}");
     return;
   }
 
   // 1. Convert WorldState targets to geometric states
-  const auto target_states = convert_world_state(*ws_snapshot);
+  const auto kTargetStates = convert_world_state(*ws_snapshot);
 
   // 2. Update cache
-  target_cache_->update(target_states);
+  target_cache_->update(kTargetStates);
 
   // 3. Determine RuleParameters from current ODD
-  const RuleParameters params = get_current_rule_params();
+  const RuleParameters kParams = get_current_rule_params();
 
   // 4. Run all rules against all targets; propagate target_id after each evaluate()
   std::vector<RuleEvaluation> evaluations;
-  evaluations.reserve(target_states.size() * rules_.size());
+  evaluations.reserve(kTargetStates.size() * rules_.size());
 
-  for (const auto& target : target_states) {
+  for (const auto& target : kTargetStates) {
     for (const auto& rule : rules_) {
-      auto eval = rule->evaluate(target, domain, params);
+      auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
       evaluations.push_back(eval);
     }
@@ -378,13 +401,13 @@ void ColregsReasonerNode::run_reasoning() {
 
   // 5. Generate and publish COLREGsConstraint
   auto constraint = constraint_gen_->generate(
-    evaluations, params, static_cast<double>(ws_confidence));
-  constraint.stamp = now_time;
+    evaluations, kParams, static_cast<double>(ws_confidence));
+  constraint.stamp = kNowTime;
 
   constraint_pub_->publish(constraint);
 
   RCLCPP_DEBUG(get_logger(), "Reasoning cycle: %zu targets, %zu evaluations, %zu active rules",
-               target_states.size(), evaluations.size(),
+               kTargetStates.size(), evaluations.size(),
                constraint.active_rules.size());
 }
 
@@ -392,30 +415,31 @@ void ColregsReasonerNode::run_reasoning() {
 // check_health()         1 Hz
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void ColregsReasonerNode::check_health() {
-  const rclcpp::Time now_time = this->now();
+  const rclcpp::Time kNowTime = this->now();
   rclcpp::Time odd_stamp;
   rclcpp::Time world_stamp;
   bool world_received = false;
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
     odd_stamp = last_odd_stamp_;
     world_stamp = last_world_stamp_;
     world_received = last_world_state_.has_value();
   }
 
   bool all_healthy = true;
-  const double odd_timeout = get_parameter("odd_state_timeout_s").as_double();
-  const double world_timeout = get_parameter("world_state_timeout_s").as_double();
+  const double kOddTimeout = get_parameter("odd_state_timeout_s").as_double();
+  const double kWorldTimeout = get_parameter("world_state_timeout_s").as_double();
 
   if (odd_stamp.nanoseconds() == 0) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
       "ODD state never received");
     all_healthy = false;
   } else {
-    const double odd_age = (now_time - odd_stamp).seconds();
-    if (odd_age > odd_timeout) {
-      RCLCPP_WARN(get_logger(), "ODD state stale (%f s > %f s)", odd_age, odd_timeout);
+    const double kOddAge = (kNowTime - odd_stamp).seconds();
+    if (kOddAge > kOddTimeout) {
+      RCLCPP_WARN(get_logger(), "ODD state stale (%f s > %f s)", kOddAge, kOddTimeout);
       all_healthy = false;
     }
   }
@@ -425,21 +449,22 @@ void ColregsReasonerNode::check_health() {
       "World state never received");
     all_healthy = false;
   } else {
-    const double world_age = (now_time - world_stamp).seconds();
-    if (world_age > world_timeout) {
-      RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s)", world_age, world_timeout);
+    const double kWorldAge = (kNowTime - world_stamp).seconds();
+    if (kWorldAge > kWorldTimeout) {
+      RCLCPP_WARN(get_logger(), "World state stale (%f s > %f s)", kWorldAge, kWorldTimeout);
       all_healthy = false;
     }
   }
 
   if (!all_healthy) {
-    const bool odd_stale = (odd_stamp.nanoseconds() != 0) &&
-      ((now_time - odd_stamp).seconds() > odd_timeout);
-    const bool ws_stale = world_received &&
-      ((now_time - world_stamp).seconds() > world_timeout);
+    const bool kOddStale = (odd_stamp.nanoseconds() != 0) &&
+      ((kNowTime - odd_stamp).seconds() > kOddTimeout);
+    const bool kWsStale = world_received &&
+      ((kNowTime - world_stamp).seconds() > kWorldTimeout);
     publish_asdr_record("health_degraded",
-      "{\"status\":\"degraded\",\"odd_stale\":" + std::to_string(static_cast<int>(odd_stale)) +
-      ",\"world_stale\":" + std::to_string(static_cast<int>(ws_stale)) + "}");
+      std::string(R"({"status":"degraded","odd_stale":)") +
+      std::to_string(static_cast<int>(kOddStale)) +
+      R"(,"world_stale":)" + std::to_string(static_cast<int>(kWsStale)) + "}");
   }
 }
 
@@ -450,18 +475,18 @@ void ColregsReasonerNode::check_health() {
 void ColregsReasonerNode::publish_asdr_snapshot() {
   std::string odd_str;
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
     odd_str = current_odd_.has_value() ? odd_domain_str(*current_odd_) : "unknown";
   }
 
-  const std::string json =
+  const std::string kJson =
     std::string("{") +
-    "\"target_count\":" + std::to_string(target_cache_->size()) + "," +
-    "\"odd_domain\":\"" + odd_str + "\"," +
-    "\"rules_loaded\":" + std::to_string(rules_.size()) +
+    R"("target_count":)" + std::to_string(target_cache_->size()) + "," +
+    R"("odd_domain":")" + odd_str + R"(",)" +
+    R"("rules_loaded":)" + std::to_string(rules_.size()) +
     "}";
 
-  publish_asdr_record("reasoner_snapshot", json);
+  publish_asdr_record("reasoner_snapshot", kJson);
 }
 
 // ------------------------------------------------------------------
@@ -470,12 +495,12 @@ void ColregsReasonerNode::publish_asdr_snapshot() {
 
 void ColregsReasonerNode::publish_sat_data() {
   std::string odd_str;
-  float ws_confidence = 0.0f;
+  float ws_confidence = 0.0F;
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
     odd_str = current_odd_.has_value() ? odd_domain_str(*current_odd_) : "unknown";
     ws_confidence = last_world_state_.has_value()
-      ? last_world_state_->confidence : 0.0f;
+      ? last_world_state_->confidence : 0.0F;
   }
 
   l3_msgs::msg::SATData msg;
@@ -489,13 +514,13 @@ void ColregsReasonerNode::publish_sat_data() {
   msg.sat2.reasoning_chain = "";
   msg.sat2.system_confidence = ws_confidence;
 
-  const double t_act = get_current_rule_params().t_act_s;
-  msg.sat3.forecast_horizon_s = t_act;
+  const double kTAct = get_current_rule_params().t_act_s;
+  msg.sat3.forecast_horizon_s = kTAct;
   msg.sat3.predicted_state = "nominal";
-  msg.sat3.prediction_uncertainty = 0.5f;
+  msg.sat3.prediction_uncertainty = 0.5F;
   msg.sat3.tdl_s = static_cast<float>(
-    get_parameter("reasoning_period_ms").as_int()) / 1000.0f;
-  msg.sat3.tmr_s = 60.0f;
+    get_parameter("reasoning_period_ms").as_int()) / 1000.0F;
+  msg.sat3.tmr_s = 60.0F;
 
   sat_pub_->publish(msg);
 }
@@ -511,7 +536,7 @@ void ColregsReasonerNode::publish_asdr_record(
   msg.source_module = "M6_COLREGs_Reasoner";
   msg.decision_type = type;
   msg.decision_json = json;
-  msg.signature = "UNSIGNED_PHASE_E1";  // SHA-256 not computed in Phase E1
+  // msg.signature: SHA-256 not computed in Phase E1 — field left empty
   asdr_pub_->publish(msg);
 }
 
@@ -520,15 +545,16 @@ void ColregsReasonerNode::publish_asdr_record(
 // ------------------------------------------------------------------
 
 std::vector<TargetGeometricState>
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,readability-function-cognitive-complexity,readability-function-size)
 ColregsReasonerNode::convert_world_state(
     const l3_msgs::msg::WorldState& ws) const {
   std::vector<TargetGeometricState> result;
   result.reserve(ws.targets.size());
 
-  const double own_lat = ws.own_ship.position.latitude;
-  const double own_lon = ws.own_ship.position.longitude;
-  const double own_heading = ws.own_ship.heading_deg;
-  const double own_speed = ws.own_ship.sog_kn;
+  const double kOwnLat = ws.own_ship.position.latitude;
+  const double kOwnLon = ws.own_ship.position.longitude;
+  const double kOwnHeading = ws.own_ship.heading_deg;
+  const double kOwnSpeed = ws.own_ship.sog_kn;
 
   for (const auto& tgt : ws.targets) {
     TargetGeometricState gs{};
@@ -536,33 +562,33 @@ ColregsReasonerNode::convert_world_state(
     gs.target_id = tgt.target_id;
 
     // Absolute bearing from ownship to target [0, 360)
-    const double bearing_to_target = bearing_between(
-      own_lat, own_lon,
+    const double kBearingToTarget = bearing_between(
+      kOwnLat, kOwnLon,
       tgt.position.latitude, tgt.position.longitude);
-    gs.bearing_deg = normalize_bearing_deg(bearing_to_target);
+    gs.bearing_deg = normalize_bearing_deg(kBearingToTarget);
 
     // Target's true heading [0, 360)
     gs.target_heading_deg = normalize_bearing_deg(tgt.heading_deg);
 
     // Aspect angle: angle from target's bow to the bearing-from-target-to-ownship
     // Convention: 0° = target facing us (red), 180° = target facing away (stern)
-    gs.aspect_deg = normalize_bearing_deg(gs.target_heading_deg - bearing_to_target + 180.0);
+    gs.aspect_deg = normalize_bearing_deg(gs.target_heading_deg - kBearingToTarget + 180.0);
 
     // Relative speed: component along LOS using absolute bearing
-    const double bearing_rad = deg2rad(bearing_to_target);
-    const double own_cog_rad = deg2rad(ws.own_ship.cog_deg);
-    const double tgt_cog_rad = deg2rad(tgt.cog_deg);
+    const double kBearingRad = deg2rad(kBearingToTarget);
+    const double kOwnCogRad = deg2rad(ws.own_ship.cog_deg);
+    const double kTgtCogRad = deg2rad(tgt.cog_deg);
     gs.relative_speed_kn =
-      tgt.sog_kn * std::cos(tgt_cog_rad - bearing_rad) -
-      own_speed * std::cos(own_cog_rad - bearing_rad);
+      tgt.sog_kn * std::cos(kTgtCogRad - kBearingRad) -
+      kOwnSpeed * std::cos(kOwnCogRad - kBearingRad);
 
     // CPA / TCPA from M2
     gs.cpa_m = tgt.cpa_m;
     gs.tcpa_s = tgt.tcpa_s;
 
     // Ownship state
-    gs.ownship_heading_deg = own_heading;
-    gs.ownship_speed_kn = own_speed;
+    gs.ownship_heading_deg = kOwnHeading;
+    gs.ownship_speed_kn = kOwnSpeed;
 
     // Ship type priority from classification string
     gs.target_ship_type_priority = classify_ship_priority(tgt.classification);
@@ -581,9 +607,9 @@ ColregsReasonerNode::convert_world_state(
 // ------------------------------------------------------------------
 
 RuleParameters ColregsReasonerNode::get_current_rule_params() const {
-  OddDomain domain;
+  OddDomain domain{};
   {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    const std::lock_guard<std::mutex> kLock(state_mutex_);
     domain = current_odd_.value_or(OddDomain::ODD_A);
   }
 

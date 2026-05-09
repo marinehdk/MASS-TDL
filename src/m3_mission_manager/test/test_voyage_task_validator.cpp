@@ -114,9 +114,9 @@ TEST(VoyageTaskValidatorTest, RejectsEtaWindowBelowMin) {
   const VoyageTaskValidator validator(config);
   const auto current_pos = make_position(38.0, -122.0);
 
-  // eta_requirement_s = 100s, which is less than eta_window_min_s = 600s
   auto task = make_valid_voyage_task(1);
-  task.eta_requirement_s = 100.0f;
+  // Voyage duration = latest.sec - stamp.sec = 1100 - 1000 = 100s < 600s min → reject
+  task.eta_window.latest.sec = 1100;
 
   const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
   EXPECT_FALSE(result.is_valid);
@@ -131,9 +131,9 @@ TEST(VoyageTaskValidatorTest, RejectsEtaWindowAboveMax) {
   const VoyageTaskValidator validator(config);
   const auto current_pos = make_position(38.0, -122.0);
 
-  // eta_requirement_s = 300000s (~3.5 days), which exceeds eta_window_max_s = 259200s (3 days)
   auto task = make_valid_voyage_task(1);
-  task.eta_requirement_s = 300000.0f;
+  // Voyage duration = latest.sec - stamp.sec = 301000 - 1000 = 300000s > 259200s → reject
+  task.eta_window.latest.sec = 301000;
 
   const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
   EXPECT_FALSE(result.is_valid);
@@ -149,7 +149,7 @@ TEST(VoyageTaskValidatorTest, RejectsInvalidTaskType) {
   const auto current_pos = make_position(38.0, -122.0);
 
   auto task = make_valid_voyage_task(1);
-  task.task_type = "unknown_type";
+  task.optimization_priority = "unknown_type";
 
   const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
   EXPECT_FALSE(result.is_valid);
@@ -164,23 +164,13 @@ TEST(VoyageTaskValidatorTest, RejectsSpeedOutOfRange) {
   const VoyageTaskValidator validator(config);
   const auto current_pos = make_position(38.0, -122.0);
 
-  // Speed below minimum
-  {
-    auto task = make_valid_voyage_task(1);
-    task.speed_cmd_kn = 0.5;  // < 1.0
-    const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
-    EXPECT_FALSE(result.is_valid);
-    EXPECT_EQ(result.error_code, ErrorCode::ParameterOutOfRange);
-  }
-
-  // Speed above maximum
-  {
-    auto task = make_valid_voyage_task(1);
-    task.speed_cmd_kn = 35.0;  // > 30.0
-    const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
-    EXPECT_FALSE(result.is_valid);
-    EXPECT_EQ(result.error_code, ErrorCode::ParameterOutOfRange);
-  }
+  // speed_cmd_kn no longer exists in VoyageTask (Wave 0 IDL rewrite).
+  // Verify invalid optimization_priority is rejected.
+  auto task = make_valid_voyage_task(1);
+  task.optimization_priority = "slow_boat";  // not in {"fuel_optimal","time_optimal","balanced"}
+  const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
+  EXPECT_FALSE(result.is_valid);
+  EXPECT_EQ(result.error_code, ErrorCode::VoyageTaskParseError);
 }
 
 // ---------------------------------------------------------------------------
@@ -192,8 +182,7 @@ TEST(VoyageTaskValidatorTest, RejectsEmptyWaypoints) {
   const auto current_pos = make_position(38.0, -122.0);
 
   auto task = make_valid_voyage_task(1);
-  task.waypoint_latitudes.clear();
-  task.waypoint_longitudes.clear();
+  task.mandatory_waypoints.clear();
 
   const auto result = validator.validate(task, current_pos, kCurrentTimeNs);
   EXPECT_FALSE(result.is_valid);

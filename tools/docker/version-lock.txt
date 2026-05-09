@@ -7,4 +7,10 @@ CLANG_TIDY_20_VER=1:20.1.2-0ubuntu1~24.04.2
 CMAKE_VER=3.28.3-1build7
 CPPCHECK_VER=2.13.0-2ubuntu3
 PYTHON3_12_VER=3.12.3-1ubuntu0.13
+EIGEN3_VER=3.4.0-4build0.1
+GEOGRAPHICLIB_VER=2.3-1build1
+BOOST_DEV_VER=1.83.0.1ubuntu2
+NLOHMANN_JSON_VER=3.11.3-1
 # colcon-common-extensions: no PyPI release tag — known exception, not pinned
+# casadi: pip-installed (3.7.2), CMake config at $CMAKE_PREFIX_PATH
+# empy: pinned to 3.3.4 — casadi drags in 4.x which breaks rosidl_generator_rs templates

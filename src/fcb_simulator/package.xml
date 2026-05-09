@@ -14,6 +14,7 @@
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>pybind11_vendor</buildtool_depend>
 
   <depend>rclcpp</depend>
   <depend>builtin_interfaces</depend>

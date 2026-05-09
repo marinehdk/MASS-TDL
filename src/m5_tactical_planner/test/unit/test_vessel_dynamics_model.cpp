@@ -83,15 +83,18 @@ TEST(VesselDynamicsModelTest, RoughSeaReducesRotMax) {
 
 // ---------------------------------------------------------------------------
 // Test 3: StoppingDistanceMonotonicInSpeed
-// stopping_distance increases with speed (0 m/s → 5 m/s → 10 m/s → service)
+// stopping_distance increases with speed (0 m/s → ~5 m/s → 10 kn → 18 kn service)
+// NOTE: all intermediate test points must be converted to m/s consistently so that
+// they form a strictly increasing sequence in speed.
 // ---------------------------------------------------------------------------
 TEST(VesselDynamicsModelTest, StoppingDistanceMonotonicInSpeed) {
   auto manifest = load_fixture();
   mass_l3::m5::shared::VesselDynamicsModel model(manifest);
 
   const double d0  = model.stopping_distance_m(0.0);
-  const double d5  = model.stopping_distance_m(5.0);
-  const double d10 = model.stopping_distance_m(10.0);
+  const double d5  = model.stopping_distance_m(5.0);  // ~9.7 kn in m/s
+  // Use kn_to_mps so all points are in a consistent unit and form an increasing sequence.
+  const double d10 = model.stopping_distance_m(mass_l3::m5::units::kn_to_mps(10.0));
   const double d18 = model.stopping_distance_m(
       mass_l3::m5::units::kn_to_mps(18.0));
 
@@ -350,8 +353,8 @@ TEST(CapabilityManifestTest, LoadFromYaml) {
 // ---------------------------------------------------------------------------
 TEST(CapabilityManifestTest, MissingFile_Throws) {
   EXPECT_THROW(
-      mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
-          "/nonexistent/path/to/no_such_file.yaml"),
+      static_cast<void>(mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
+          "/nonexistent/path/to/no_such_file.yaml")),
       std::runtime_error);
 }
 

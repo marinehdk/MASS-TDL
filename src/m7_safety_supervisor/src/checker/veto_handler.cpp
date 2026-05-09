@@ -1,5 +1,10 @@
 #include "m7_safety_supervisor/checker/veto_handler.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
+#include "l3_external_msgs/msg/checker_veto_notification.hpp"
+
 namespace mass_l3::m7::checker {
 
 // ---------------------------------------------------------------------------
@@ -7,8 +12,6 @@ namespace mass_l3::m7::checker {
 // window_cycle_count is accepted but silently ignored — RFC-003 LOCKED at 100.
 // ---------------------------------------------------------------------------
 VetoHandler::VetoHandler(std::uint32_t /*window_cycle_count*/) noexcept
-  : window_{}
-  , histogram_{}
 {
 }
 
@@ -55,7 +58,7 @@ double VetoHandler::current_rate() const noexcept
 void VetoHandler::reset() noexcept
 {
   window_.reset();
-  histogram_.fill(0u);
+  histogram_.fill(0U);
 }
 
 }  // namespace mass_l3::m7::checker

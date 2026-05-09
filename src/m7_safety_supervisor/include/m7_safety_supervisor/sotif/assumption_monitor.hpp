@@ -9,9 +9,15 @@
 #include "m7_safety_supervisor/common/safety_constants.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 
 namespace mass_l3::m7::sotif {
+
+// CommLinkState: avoids adjacent same-type double parameters in evaluate().
+struct CommLinkState {
+  double rtt_s{0.0};
+  double packet_loss_pct{0.0};
+};
 
 enum class AssumptionId : std::uint8_t {
   kAisRadarConsistency = 0,
@@ -51,8 +57,7 @@ public:
            l3_msgs::msg::WorldState const& world,
            l3_msgs::msg::COLREGsConstraint const& colregs,
            double current_checker_veto_rate,
-           double current_rtt_s,
-           double current_packet_loss_pct,
+           CommLinkState const& comm_link,
            std::chrono::steady_clock::time_point now) noexcept;
 
   // Individual predicates — public for unit test entry points (§5.4).
@@ -74,7 +79,7 @@ public:
   [[nodiscard]] bool check_colregs_solvability(l3_msgs::msg::COLREGsConstraint const& colregs) noexcept;
 
   // Assumption 5: Shore-link RTT or packet loss exceeds thresholds.
-  [[nodiscard]] bool check_comm_link(double rtt_s, double packet_loss_pct) const noexcept;
+  [[nodiscard]] bool check_comm_link(CommLinkState const& comm_link) const noexcept;
 
   // Assumption 6: M7 self-veto rate exceeds RFC-003 locked threshold (0.20).
   [[nodiscard]] bool check_checker_veto_rate(double current_rate) const noexcept;
@@ -84,8 +89,8 @@ public:
 
 private:
   // Private helpers
-  [[nodiscard]] float compute_blind_zone_fraction(
-      l3_msgs::msg::WorldState const& world) const noexcept;
+  [[nodiscard]] static float compute_blind_zone_fraction(
+      l3_msgs::msg::WorldState const& world) noexcept;
 
   AssumptionConfig cfg_;
 

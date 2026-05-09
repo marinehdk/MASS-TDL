@@ -134,7 +134,7 @@ void FcbSimulatorNode::on_reactive_override(
 }
 
 void FcbSimulatorNode::compute_control(double& delta_rad,
-                                       double& n_rps) const {
+                                       double& n_rps) {
   std::lock_guard<std::mutex> lk(cmd_mutex_);
   double psi_tgt = psi_target_rad_;
   double u_tgt   = u_target_mps_;

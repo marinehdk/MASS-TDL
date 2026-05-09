@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # PATH-S compile options (IEC 61508 SIL 2 — Checker side)
-# -fno-exceptions -fno-rtti are mandatory for all M7 translation units
+# -fno-exceptions -fno-rtti applied per-TU below (pure safety logic only).
+# rclcpp headers use try/catch and typeid; the node glue TU must be excluded.
 add_compile_options(
   -Wall -Wextra -Wpedantic -Werror
   -Wshadow -Wconversion -Wsign-conversion
@@ -15,7 +16,6 @@ add_compile_options(
   -Wnull-dereference -Wdouble-promotion -Wfloat-equal
   -Wformat=2 -Wformat-security -Wmissing-declarations -Wundef -Wunused
   -fstack-protector-strong -D_FORTIFY_SOURCE=2
-  -fno-exceptions -fno-rtti
 )
 
 # ---------------------------------------------------------------------------
@@ -29,8 +29,9 @@ find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(std_msgs REQUIRED)
+# yaml-cpp deferred: throws exceptions, incompatible with -fno-exceptions (PATH-S).
+# Full integration pending architectural decision (Task 6 node).
 
 # ---------------------------------------------------------------------------
 # Static library — all M7 source files
@@ -59,6 +60,31 @@ add_library(m7_lib STATIC
   src/safety_supervisor_node.cpp
 )
 
+# IEC 61508 SIL 2 PATH-S: -fno-exceptions -fno-rtti on pure safety-logic TUs.
+# safety_supervisor_node.cpp is excluded — it includes rclcpp which uses try/catch.
+set_source_files_properties(
+  src/common/error.cpp
+  src/common/time_utils.cpp
+  src/common/safety_constants.cpp
+  src/common/sha256.cpp
+  src/sotif/assumption_monitor.cpp
+  src/sotif/performance_monitor.cpp
+  src/iec61508/watchdog_monitor.cpp
+  src/iec61508/fault_monitor.cpp
+  src/iec61508/diagnostic_coverage.cpp
+  src/checker/veto_handler.cpp
+  src/mrm/mrm_command_set.cpp
+  src/mrm/mrm_01_drift.cpp
+  src/mrm/mrm_02_anchor.cpp
+  src/mrm/mrm_03_heave_to.cpp
+  src/mrm/mrm_04_mooring.cpp
+  src/mrm/mrm_selector.cpp
+  src/sotif/triggering_condition_detector.cpp
+  src/arbitrator/safety_arbitrator.cpp
+  src/arbitrator/alert_generator.cpp
+  PROPERTIES COMPILE_OPTIONS "-fno-exceptions;-fno-rtti"
+)
+
 target_include_directories(m7_lib
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -73,9 +99,8 @@ ament_target_dependencies(m7_lib
   std_msgs
 )
 
-target_link_libraries(m7_lib PUBLIC
+target_link_libraries(m7_lib
   spdlog::spdlog
-  yaml-cpp::yaml-cpp
 )
 
 # ---------------------------------------------------------------------------
@@ -100,7 +125,7 @@ install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 add_executable(m7_safety_supervisor src/main.cpp)
-target_link_libraries(m7_safety_supervisor PRIVATE m7_lib)
+target_link_libraries(m7_safety_supervisor m7_lib)
 ament_target_dependencies(m7_safety_supervisor
   rclcpp
   l3_msgs

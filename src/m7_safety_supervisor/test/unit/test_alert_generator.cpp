@@ -24,15 +24,16 @@ static builtin_interfaces::msg::Time make_stamp(int32_t sec, uint32_t nanosec)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildSafetyAlert_FieldsCorrect)
 {
-  auto const stamp = make_stamp(1000, 0u);
+  auto const stamp = make_stamp(1000, 0U);
   auto const msg = AlertGenerator::build_safety_alert(
     stamp,
-    l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT,
-    l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL,
-    "MRM-01-DRIFT",
-    0.90F,
-    "watchdog timeout",
-    "M2 heartbeat lost");
+    SafetyAlertParams{
+      l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT,
+      l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL,
+      "MRM-01-DRIFT",
+      0.90F,
+      "watchdog timeout",
+      "M2 heartbeat lost"});
 
   EXPECT_EQ(msg.alert_type,      l3_msgs::msg::SafetyAlert::ALERT_IEC61508_FAULT);
   EXPECT_EQ(msg.severity,        l3_msgs::msg::SafetyAlert::SEVERITY_CRITICAL);
@@ -48,25 +49,27 @@ TEST(AlertGeneratorTest, BuildSafetyAlert_FieldsCorrect)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildAsdrRecord_FieldsAndSignature)
 {
-  auto const stamp = make_stamp(2000, 500u);
+  auto const stamp = make_stamp(2000, 500U);
   auto const msg = AlertGenerator::build_asdr_record(
     stamp,
-    "M7_Safety_Supervisor",
-    "mrm_triggered",
-    "mrm_id=MRM-01-DRIFT confidence=0.90");
+    AsdrRecordParams{
+      "M7_Safety_Supervisor",
+      "mrm_triggered",
+      "mrm_id=MRM-01-DRIFT confidence=0.90"});
 
   EXPECT_EQ(msg.stamp.sec,       2000);
-  EXPECT_EQ(msg.stamp.nanosec,   500u);
+  EXPECT_EQ(msg.stamp.nanosec,   500U);
   EXPECT_EQ(msg.source_module,   "M7_Safety_Supervisor");
   EXPECT_EQ(msg.decision_type,   "mrm_triggered");
   EXPECT_EQ(msg.decision_json,   "mrm_id=MRM-01-DRIFT confidence=0.90");
-  EXPECT_EQ(msg.signature.size(), 32u);
+  EXPECT_EQ(msg.signature.size(), 32U);
   // Verify signature is idempotent (same input -> same digest)
   auto const msg2 = AlertGenerator::build_asdr_record(
     stamp,
-    "M7_Safety_Supervisor",
-    "mrm_triggered",
-    "mrm_id=MRM-01-DRIFT confidence=0.90");
+    AsdrRecordParams{
+      "M7_Safety_Supervisor",
+      "mrm_triggered",
+      "mrm_id=MRM-01-DRIFT confidence=0.90"});
   EXPECT_EQ(msg.signature, msg2.signature);
 }
 
@@ -75,7 +78,7 @@ TEST(AlertGeneratorTest, BuildAsdrRecord_FieldsAndSignature)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildSatData_StateSummarySet)
 {
-  auto const stamp = make_stamp(3000, 0u);
+  auto const stamp = make_stamp(3000, 0U);
   auto const msg = AlertGenerator::build_sat_data(
     stamp,
     "M7: nominal",
@@ -94,15 +97,16 @@ TEST(AlertGeneratorTest, BuildSatData_StateSummarySet)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildSafetyAlert_MrcRequired)
 {
-  auto const stamp = make_stamp(4000, 0u);
+  auto const stamp = make_stamp(4000, 0U);
   auto const msg = AlertGenerator::build_safety_alert(
     stamp,
-    l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION,
-    l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED,
-    "MRM-01-DRIFT",
-    0.95F,
-    "extreme scenario",
-    "3+ SOTIF assumptions violated");
+    SafetyAlertParams{
+      l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION,
+      l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED,
+      "MRM-01-DRIFT",
+      0.95F,
+      "extreme scenario",
+      "3+ SOTIF assumptions violated"});
 
   EXPECT_EQ(msg.severity, l3_msgs::msg::SafetyAlert::SEVERITY_MRC_REQUIRED);
   EXPECT_EQ(msg.alert_type, l3_msgs::msg::SafetyAlert::ALERT_SOTIF_ASSUMPTION);
@@ -113,22 +117,24 @@ TEST(AlertGeneratorTest, BuildSafetyAlert_MrcRequired)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildAsdrRecord_LongDecisionSummary)
 {
-  auto const stamp = make_stamp(5000, 0u);
+  auto const stamp = make_stamp(5000, 0U);
   std::string const long_summary(512, 'x');
   auto const msg = AlertGenerator::build_asdr_record(
     stamp,
-    "M7_Safety_Supervisor",
-    "periodic_health_check",
-    long_summary);
+    AsdrRecordParams{
+      "M7_Safety_Supervisor",
+      "periodic_health_check",
+      long_summary});
 
   EXPECT_EQ(msg.decision_json, long_summary);
-  EXPECT_EQ(msg.signature.size(), 32u);
+  EXPECT_EQ(msg.signature.size(), 32U);
   // Verify signature is idempotent
   auto const msg2 = AlertGenerator::build_asdr_record(
     stamp,
-    "M7_Safety_Supervisor",
-    "periodic_health_check",
-    long_summary);
+    AsdrRecordParams{
+      "M7_Safety_Supervisor",
+      "periodic_health_check",
+      long_summary});
   EXPECT_EQ(msg.signature, msg2.signature);
 }
 
@@ -137,7 +143,7 @@ TEST(AlertGeneratorTest, BuildAsdrRecord_LongDecisionSummary)
 // ---------------------------------------------------------------------------
 TEST(AlertGeneratorTest, BuildSatData_ConfidenceRange)
 {
-  auto const stamp = make_stamp(6000, 0u);
+  auto const stamp = make_stamp(6000, 0U);
 
   auto const low = AlertGenerator::build_sat_data(stamp, "state", 0.0F, "test");
   EXPECT_FLOAT_EQ(low.sat2.system_confidence, 0.0F);

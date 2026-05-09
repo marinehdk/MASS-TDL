@@ -30,7 +30,7 @@ class FcbSimulatorNode : public rclcpp::Node {
   void step_dynamics();
   void publish_own_ship_state();
   void publish_tracked_targets();
-  void compute_control(double& delta_rad, double& n_rps) const;
+  void compute_control(double& delta_rad, double& n_rps);
 
   std::unique_ptr<pluginlib::ClassLoader<ship_sim::ShipMotionSimulator>> class_loader_;
   std::shared_ptr<ship_sim::ShipMotionSimulator> plugin_;

@@ -45,7 +45,7 @@ target_include_directories(fcb_simulator_plugin PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(fcb_simulator_plugin PUBLIC fcb_simulator_core yaml-cpp)
+target_link_libraries(fcb_simulator_plugin fcb_simulator_core yaml-cpp)
 ament_target_dependencies(fcb_simulator_plugin pluginlib ship_sim_interfaces)
 set_property(TARGET fcb_simulator_plugin PROPERTY POSITION_INDEPENDENT_CODE ON)
 pluginlib_export_plugin_description_file(ship_sim_interfaces plugins.xml)
@@ -59,7 +59,7 @@ add_executable(fcb_simulator_node
 target_include_directories(fcb_simulator_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(fcb_simulator_node PRIVATE
+target_link_libraries(fcb_simulator_node
   fcb_simulator_core
 )
 ament_target_dependencies(fcb_simulator_node
@@ -123,5 +123,27 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_scenario_runner fcb_simulator_core)
 endif()
+
+# ---------------------------------------------------------------------------
+# pybind11 Python binding (D1.3b) — exposes rk4_step to Python batch runner
+# ---------------------------------------------------------------------------
+# pybind11NewTools.cmake uses python3_add_library which requires FindPython3
+# to be loaded with Development.Module first (pybind11 v2.6+ requirement).
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(pybind11_vendor REQUIRED)
+find_package(pybind11 REQUIRED)
+
+pybind11_add_module(fcb_sim_py
+  python/fcb_sim_py/bindings.cpp
+)
+target_include_directories(fcb_sim_py PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_link_libraries(fcb_sim_py PRIVATE fcb_simulator_core Eigen3::Eigen)
+
+ament_get_python_install_dir(PYTHON_INSTALL_DIR)
+install(TARGETS fcb_sim_py
+  LIBRARY DESTINATION ${PYTHON_INSTALL_DIR}
+)
 
 ament_package()

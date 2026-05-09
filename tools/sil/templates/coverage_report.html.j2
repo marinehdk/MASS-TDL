@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COLREGs Scenario Coverage Report — {{ timestamp }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    h1 { color: #1a1a2e; }
+    .summary { background: #f0f0f0; padding: 1em; border-radius: 6px; margin-bottom: 1.5em; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
+    th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
+    th { background: #1a1a2e; color: white; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .pass { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    .warn { color: #cc7700; font-weight: bold; }
+    .rule-col { text-align: left; font-weight: bold; }
+    .scenario-col { text-align: left; }
+    details { margin: 0.5em 0; }
+    summary { cursor: pointer; color: #1a1a2e; }
+    .not-covered { color: #888; font-style: italic; }
+    .footer { margin-top: 2em; font-size: 0.85em; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>COLREGs Scenario Coverage Report</h1>
+  <div class="summary">
+    <strong>Generated:</strong> {{ timestamp }}<br>
+    <strong>Total scenarios:</strong> {{ total }}<br>
+    <strong>Passed:</strong> <span class="pass">{{ passed }}</span> /
+    <strong>Failed:</strong> <span class="fail">{{ failed }}</span><br>
+    <strong>Rules covered:</strong> Rule 13, Rule 14, Rule 15/16<br>
+    <strong>Rules NOT covered in D1.3b:</strong> Rule 5, 6, 7, 8, 9, 17, 19 (planned for D1.6)
+  </div>
+
+  <h2>Rule × Scenario Coverage Matrix</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>COLREGs Rule</th>
+        <th>Scenario ID</th>
+        <th>Geometric Compliance</th>
+        <th>Solvability</th>
+        <th>Stability</th>
+        <th>≤60s Wall-clock</th>
+        <th>Overall</th>
+        <th>Run JSON</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in matrix %}
+      <tr>
+        <td class="rule-col">{{ row.rule }}</td>
+        <td class="scenario-col">{{ row.scenario_id }}</td>
+        <td class="{{ 'pass' if row.geometric else 'fail' }}">{{ '✅' if row.geometric else '❌' }}</td>
+        <td class="{{ 'pass' if row.solvability else 'fail' }}">{{ '✅' if row.solvability else '❌' }}</td>
+        <td class="{{ 'pass' if row.stability else 'fail' }}">{{ '✅' if row.stability else '❌' }}</td>
+        <td class="{{ 'pass' if row.wall_clock else 'fail' }}">{{ '✅' if row.wall_clock else '❌' }}</td>
+        <td class="{{ 'pass' if row.overall else 'fail' }}">{{ 'PASS' if row.overall else 'FAIL' }}</td>
+        <td><a href="{{ row.json_path }}">run.json</a></td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td class="rule-col">Rule 5/6/7/8/9/17/19</td>
+        <td class="not-covered">—</td>
+        <td class="warn" colspan="5">⚠️ Not covered in D1.3b — planned for D1.6</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Scenario Details</h2>
+  {% for detail in details %}
+  <details>
+    <summary>{{ detail.scenario_id }} — {{ 'PASS ✅' if detail.overall else 'FAIL ❌' }}</summary>
+    <table>
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>DCPA no action (m)</td><td>{{ "%.1f" | format(detail.dcpa_no_action_m) }}</td></tr>
+      <tr><td>DCPA with action (m)</td><td>{{ "%.1f" | format(detail.dcpa_with_action_m) }}</td></tr>
+      <tr><td>TCPA no action (s)</td><td>{{ "%.1f" | format(detail.tcpa_no_action_s) }}</td></tr>
+      <tr><td>Wall-clock (s)</td><td>{{ "%.3f" | format(detail.wall_clock_s) }}</td></tr>
+      <tr><td>Wind (kn)</td><td>{{ detail.wind_kn }}</td></tr>
+      <tr><td>Current (kn)</td><td>{{ detail.current_kn }}</td></tr>
+      <tr><td>Visibility (m)</td><td>{{ detail.vis_m }}</td></tr>
+    </table>
+  </details>
+  {% endfor %}
+
+  <div class="footer">
+    D1.3b Coverage Report · MASS ADAS L3 Tactical Layer · findings: G P0-G-1(b), P2-E1
+  </div>
+</body>
+</html>

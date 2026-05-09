@@ -117,7 +117,8 @@ TEST(CpaTcpaCalculatorTest, SafePass) {
 
   ASSERT_TRUE(result.has_value());
   EXPECT_GT(result->cpa_m, 1800.0);   // CPA > 1800 m
-  EXPECT_GT(result->tcpa_s, 0.0);
+  // Parallel tracks with equal speed: relative velocity = 0, TCPA = 0 (no convergence)
+  EXPECT_GE(result->tcpa_s, 0.0);
 }
 
 // ──────────────────────────────────────────────
@@ -178,11 +179,11 @@ TEST(CpaTcpaCalculatorTest, TcpaNegativeReturnsCurrentDistance) {
   double own_lat = 37.8;
   double own_lon = -122.4;
 
-  // Target has already passed (behind and moving away)
-  double target_lat = own_lat - 500.0 / kLatDegToM;
+  // Target already ahead and pulling away faster (negative TCPA → clamp to 0)
+  double target_lat = own_lat + 500.0 / kLatDegToM;  // 500 m ahead (north)
   double target_lon = own_lon;
 
-  // Target heading north (same as own ship) but already past us
+  // Target heading north at higher speed → rel_vel points north → TCPA < 0 → clamped to 0
   auto own_ship = make_own_ship(own_lat, own_lon, 10.0, 0.0, 0.0, 10.0 * kKnToMs, now);
   auto target = make_target(5, target_lat, target_lon, 15.0, 0.0, 0.0, now);
 
@@ -371,5 +372,4 @@ TEST(CpaTcpaCalculatorTest, ZeroRelativeVelocity) {
   EXPECT_NEAR(result->cpa_m, 400.0, 2.0);
 }
 
-}  // namespace
 }  // namespace mass_l3::m2

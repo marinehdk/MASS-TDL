@@ -4,6 +4,8 @@
 #include <mutex>
 #include <string>
 
+#include <spdlog/logger.h>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "l3_msgs/msg/asdr_record.hpp"

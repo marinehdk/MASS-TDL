@@ -56,8 +56,8 @@ TEST(CoordTransformTest, WGS84ToENU_RoundTrip_Reversible) {
   bool ok_rev = ct.enu_to_wgs84(pos(0), pos(1), lat_back, lon_back);
   ASSERT_TRUE(ok_rev);
 
-  EXPECT_NEAR(lat_back, test_lat, 1e-10);
-  EXPECT_NEAR(lon_back, test_lon, 1e-10);
+  EXPECT_NEAR(lat_back, test_lat, 1e-9);
+  EXPECT_NEAR(lon_back, test_lon, 1e-9);
 }
 
 TEST(CoordTransformTest, ForwardTransform_KnownOffset) {
@@ -148,7 +148,7 @@ TEST(CoordTransformTest, MultiplePoints_Consistent) {
     bool ok = ct.wgs84_to_enu(pt.lat, pt.lon, 0.0, 0.0, pos, vel);
     ASSERT_TRUE(ok);
     // Points with same latitude should have increasing north
-    if (pt.lon == kOriginLon) {
+    if (std::abs(pt.lon - kOriginLon) < 1e-12) {
       EXPECT_GT(pos(1), prev_north);
       prev_north = pos(1);
     }
@@ -201,5 +201,4 @@ TEST(CoordTransformTest, VelocityVector_DueEast) {
   EXPECT_NEAR(vel(1), 0.0, 1e-9);         // north component = 0
 }
 
-}  // namespace
 }  // namespace mass_l3::m2

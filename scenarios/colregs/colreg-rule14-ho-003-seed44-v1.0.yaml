@@ -1,0 +1,52 @@
+schema_version: "1.0"
+scenario_id: colreg-rule14-ho-003-v1.0
+description: >
+  Rule 14 / Rule 19 head-on at high speed (15 kn own, 12 kn target) in restricted visibility
+  (1000 m). Own ship must act earlier due to combined closure rate ~14 m/s.
+rule_branch_covered:
+  - Rule14_HeadOn
+  - Rule19_RestrictedVisibility
+  - Rule8_Action
+vessel_class: FCB
+odd_zone: D
+
+initial_conditions:
+  own_ship:
+    x_m: 0.0
+    y_m: 0.0
+    heading_nav_deg: 0.0
+    speed_kn: 15.0
+    n_rps: 4.5
+  targets:
+    - target_id: 1
+      x_m: 0.0
+      y_m: 3704.0
+      cog_nav_deg: 180.0
+      sog_mps: 6.17
+
+encounter:
+  rule: Rule14
+  give_way_vessel: own
+  expected_own_action: turn_starboard
+  avoidance_time_s: 150.0
+  avoidance_delta_rad: 0.6109
+  avoidance_duration_s: 60.0
+
+disturbance_model:
+  wind_kn: 0.0
+  wind_dir_nav_deg: 0.0
+  current_kn: 0.0
+  current_dir_nav_deg: 0.0
+  vis_m: 1000.0
+  wave_height_m: 0.0
+
+prng_seed: 44
+
+pass_criteria:
+  max_dcpa_no_action_m: 50.0
+  min_dcpa_with_action_m: 926.0
+  bearing_sector_deg: [345.0, 15.0]
+
+simulation:
+  duration_s: 600.0
+  dt_s: 0.02

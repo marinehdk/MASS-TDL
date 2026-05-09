@@ -17,6 +17,8 @@ class FakeBridge:
         self.ready = True
         self.last_action: dict | None = None
         self._send_returns = True
+        self.latest_sat = None   # SIL extension
+        self.latest_odd = None   # SIL extension
 
     async def start(self) -> None:
         pass

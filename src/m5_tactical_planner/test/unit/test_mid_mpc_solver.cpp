@@ -217,7 +217,7 @@ TEST_F(MidMpcNlpTest, WarmStartFasterThanColdStart) {
 // ---------------------------------------------------------------------------
 TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
   // Force a failure first (infeasible input increments counter).
-  solver_->solve(make_infeasible_input(), nullptr);
+  static_cast<void>(solver_->solve(make_infeasible_input(), nullptr));
   EXPECT_GT(solver_->consecutive_failures(), 0);
 
   // A successful solve must reset the counter.

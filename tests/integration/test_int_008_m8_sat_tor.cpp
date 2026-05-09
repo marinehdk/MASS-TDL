@@ -27,7 +27,7 @@
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/ui_state.hpp"
-#include "l3_msgs/msg/tor_request.hpp"
+#include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 
 // ── Constants (no magic numbers) ──────────────────────────────────────────────
@@ -109,13 +109,13 @@ class Int008Test : public ::testing::Test {
   }
 
   // ODDState: healthy, ODD_ZONE_A.
-  l3_msgs::msg::OddState make_odd_state() const {
-    l3_msgs::msg::OddState odd{};
+  l3_msgs::msg::ODDState make_odd_state() const {
+    l3_msgs::msg::ODDState odd{};
     odd.stamp             = node_->now();
-    odd.current_zone      = l3_msgs::msg::OddState::ODD_ZONE_A;
-    odd.auto_level        = l3_msgs::msg::OddState::AUTO_LEVEL_D3;
-    odd.health            = l3_msgs::msg::OddState::HEALTH_FULL;
-    odd.envelope_state    = l3_msgs::msg::OddState::ENVELOPE_IN;
+    odd.current_zone      = l3_msgs::msg::ODDState::ODD_ZONE_A;
+    odd.auto_level        = l3_msgs::msg::ODDState::AUTO_LEVEL_D3;
+    odd.health            = l3_msgs::msg::ODDState::HEALTH_FULL;
+    odd.envelope_state    = l3_msgs::msg::ODDState::ENVELOPE_IN;
     odd.conformance_score = kMockConfidence008;
     odd.tdl_s             = 120.0F;
     odd.tmr_s             = 60.0F;
@@ -194,7 +194,7 @@ TEST_F(Int008Test, INT008_M8_ReceivesSATData_PublishesUIState) {
   // Publish SATData + ODDState + WorldState at 4 Hz to feed M8's subscriptions.
   auto sat_pub = node_->create_publisher<l3_msgs::msg::SATData>(
       "/l3/sat/data", rclcpp::SystemDefaultsQoS().keep_last(2));
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto ws_pub  = node_->create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", rclcpp::SystemDefaultsQoS().keep_last(2));
@@ -244,7 +244,7 @@ TEST_F(Int008Test, INT008_M8_ToR_TriggeredBy_COLREGs) {
   // Publish COLREGsConstraint with conflict_detected=true at 4 Hz.
   auto sat_pub = node_->create_publisher<l3_msgs::msg::SATData>(
       "/l3/sat/data", rclcpp::SystemDefaultsQoS().keep_last(2));
-  auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+  auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
       "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
   auto cc_pub  = node_->create_publisher<l3_msgs::msg::COLREGsConstraint>(
       "/l3/m6/colregs_constraint", rclcpp::QoS(5).reliable());
@@ -322,7 +322,7 @@ TEST_F(Int008Test, INT008_M8_SAT_Adaptive_Trigger) {
         "/l3/sat/data", rclcpp::SystemDefaultsQoS().keep_last(2));
     auto cc_pub = node_->create_publisher<l3_msgs::msg::COLREGsConstraint>(
         "/l3/m6/colregs_constraint", rclcpp::QoS(5).reliable());
-    auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+    auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
         "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
 
     auto publish_timer = node_->create_wall_timer(
@@ -357,7 +357,7 @@ TEST_F(Int008Test, INT008_M8_SAT_Adaptive_Trigger) {
     // Publish SATData with system_confidence < sat2_system_confidence_drop_threshold (0.6).
     auto sat_pub = node_->create_publisher<l3_msgs::msg::SATData>(
         "/l3/sat/data", rclcpp::SystemDefaultsQoS().keep_last(2));
-    auto odd_pub = node_->create_publisher<l3_msgs::msg::OddState>(
+    auto odd_pub = node_->create_publisher<l3_msgs::msg::ODDState>(
         "/l3/m1/odd_state", rclcpp::QoS(10).reliable().transient_local());
 
     auto publish_timer = node_->create_wall_timer(

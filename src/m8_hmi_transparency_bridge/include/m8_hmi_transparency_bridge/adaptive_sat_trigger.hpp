@@ -8,7 +8,7 @@
 
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "m8_hmi_transparency_bridge/sat_aggregator.hpp"
 
 namespace mass_l3::m8 {

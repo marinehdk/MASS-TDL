@@ -94,6 +94,19 @@ CpaTcpaCalculator::compute(const OwnShipSnapshot& own_ship,
 
   // ── 3. Relative state ──
   Eigen::Vector2d rel_pos = tgt_pos - own_pos;  // own_pos ~ (0,0)
+
+  // ── 3a. Static target detection ──
+  // Targets below the speed threshold are treated as fixed obstacles:
+  // CPA = current separation, TCPA = 0 (immediate risk based on current range).
+  if (tgt_aligned.sog_kn * kKnToMs < cfg_.static_target_speed_mps) {
+    double cpa_raw = rel_pos.norm();
+    double final_cpa = cpa_raw * cfg_.safety_factor;
+    if (odd_zone == OddZone::D) {
+      final_cpa *= cfg_.odd_d_multiplier;
+    }
+    return CpaResult{final_cpa, 0.0, CpaUncertainty{0.0, 0.0}};
+  }
+
   Eigen::Vector2d rel_vel = tgt_vel - own_vel_total;
 
   // ── 4. CPA / TCPA computation ──

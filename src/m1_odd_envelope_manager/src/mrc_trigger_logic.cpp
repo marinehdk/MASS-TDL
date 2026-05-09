@@ -8,6 +8,13 @@
 
 #include "m1_odd_envelope_manager/mrc_trigger_logic.hpp"
 
+#include <optional>
+
+#include <tl_expected/expected.hpp>
+
+#include "m1_odd_envelope_manager/error.hpp"
+#include "m1_odd_envelope_manager/types.hpp"
+
 namespace mass_l3::m1 {
 namespace {
 
