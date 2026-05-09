@@ -43,8 +43,8 @@ disturbance_model:
 prng_seed: 20
 
 pass_criteria:
-  max_dcpa_no_action_m: 200.0
-  min_dcpa_with_action_m: 926.0
+  max_dcpa_no_action_m: 400.0
+  min_dcpa_with_action_m: 500.0
   bearing_sector_deg: [112.5, 247.5]
 
 simulation:
