@@ -15,8 +15,8 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 2
 fi
 
-readonly MSG_DIR="src/l3_msgs/msg"
-readonly EXTERNAL_DIR="src/l3_external_msgs/msg"
+readonly MSG_DIR="src/l3_tdl_kernel/l3_msgs/msg"
+readonly EXTERNAL_DIR="src/l3_tdl_kernel/l3_external_msgs/msg"
 
 errors=0
 

@@ -18,7 +18,7 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 2
 fi
 
-readonly MSG_DIRS=("src/l3_msgs/msg" "src/l3_external_msgs/msg")
+readonly MSG_DIRS=("src/l3_tdl_kernel/l3_msgs/msg" "src/l3_tdl_kernel/l3_external_msgs/msg")
 
 # Allowed timestamp field names (architecturally-justified exceptions)
 readonly TIMESTAMP_FIELDS_REGEX="^(stamp|received_stamp|activation_time|trigger_time|engaged_stamp)$"

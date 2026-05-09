@@ -104,11 +104,12 @@ def test_fm2_does_not_emit_mrm_command():
 def test_no_hardcoded_rot_literal():
     """Prohibition: no ROT_max = 8 or other hardcoded literals in fallback_policy.py."""
     import re
+    from pathlib import Path
 
-    # Read the fallback_policy.py file
-    with open(
-        "/Users/marine/Code/MASS-L3-Tactical Layer/src/m5_tactical_planner/fallback_policy.py"
-    ) as f:
+    # Read the fallback_policy.py file (relative to test location, respecting new src/ layout)
+    test_dir = Path(__file__).parent.parent.parent  # tests/ -> tests -> Code -> MASS-L3-Tactical Layer
+    fallback_policy_path = test_dir / "src" / "l3_tdl_kernel" / "m5_tactical_planner" / "fallback_policy.py"
+    with open(fallback_policy_path) as f:
         content = f.read()
 
     # Check for hardcoded ROT_max = <digit>
