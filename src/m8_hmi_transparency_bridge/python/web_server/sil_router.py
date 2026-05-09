@@ -66,21 +66,18 @@ def get_latest_report() -> str:
 
 async def _run_batch_job(job_id: str, scenario_ids: list[str]) -> None:
     """Run batch in a thread pool to avoid blocking the event loop."""
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "tools" / "sil"))
-
     try:
         from web_server import sil_ws
         sil_ws.set_job_status("batch", "running")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _sync_batch_run, job_id, scenario_ids)
 
         _jobs[job_id] = {"status": "done", "progress": 100}
         sil_ws.set_job_status("batch", "done")
         logger.info("Batch job %s completed", job_id)
-    except Exception as exc:
-        logger.error("Batch job %s failed: %s", job_id, exc)
+    except Exception:
+        logger.exception("Batch job %s failed", job_id)
         _jobs[job_id] = {"status": "failed", "progress": 0}
         from web_server import sil_ws
         sil_ws.set_job_status("batch", "idle")
