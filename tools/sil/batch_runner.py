@@ -134,7 +134,7 @@ def main() -> None:
     args = parser.parse_args()
 
     import coverage_reporter
-    results = run_batch(args.scenarios, args.output)
+    run_batch(args.scenarios, args.output)
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
     html_path = args.output / f"coverage_report_{ts}.html"
     coverage_reporter.generate_report(args.output, html_path)

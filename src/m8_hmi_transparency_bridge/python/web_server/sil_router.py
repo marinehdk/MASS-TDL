@@ -42,9 +42,10 @@ def list_scenarios() -> list[str]:
 
 @router.post("/scenario/run")
 async def run_scenarios(req: RunRequest) -> dict:
+    # scenario_ids filter deferred to D2.x — currently always runs all scenarios
     job_id = str(uuid.uuid4())[:8]
     _jobs[job_id] = {"status": "running", "progress": 0}
-    asyncio.create_task(_run_batch_job(job_id, req.scenario_ids))
+    asyncio.create_task(_run_batch_job(job_id))
     return {"job_id": job_id}
 
 
@@ -64,14 +65,14 @@ def get_latest_report() -> str:
     return html_files[0].read_text(encoding="utf-8")
 
 
-async def _run_batch_job(job_id: str, scenario_ids: list[str]) -> None:
+async def _run_batch_job(job_id: str) -> None:
     """Run batch in a thread pool to avoid blocking the event loop."""
     try:
         from web_server import sil_ws
         sil_ws.set_job_status("batch", "running")
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _sync_batch_run, job_id, scenario_ids)
+        await loop.run_in_executor(None, _sync_batch_run, job_id)
 
         _jobs[job_id] = {"status": "done", "progress": 100}
         sil_ws.set_job_status("batch", "done")
@@ -79,11 +80,10 @@ async def _run_batch_job(job_id: str, scenario_ids: list[str]) -> None:
     except Exception:
         logger.exception("Batch job %s failed", job_id)
         _jobs[job_id] = {"status": "failed", "progress": 0}
-        from web_server import sil_ws
         sil_ws.set_job_status("batch", "idle")
 
 
-def _sync_batch_run(job_id: str, scenario_ids: list[str]) -> None:
+def _sync_batch_run(job_id: str) -> None:
     tools_dir = Path(__file__).parent.parent.parent.parent.parent / "tools" / "sil"
     import sys
     sys.path.insert(0, str(tools_dir))
@@ -93,7 +93,7 @@ def _sync_batch_run(job_id: str, scenario_ids: list[str]) -> None:
     from datetime import datetime, timezone
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    results = batch_runner.run_batch(SCENARIOS_DIR, REPORTS_DIR)
+    batch_runner.run_batch(SCENARIOS_DIR, REPORTS_DIR)
 
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
     html_path = REPORTS_DIR / f"coverage_report_{ts}.html"
