@@ -8,7 +8,7 @@ from __future__ import annotations
 import rclpy
 import rclpy.node
 
-from l3_msgs.msg import ODDState, SATData, SAT1Data, SAT2Data, SAT3Data
+from l3_msgs.msg import ODDState, SAT1Data, SAT2Data, SAT3Data, SATData
 
 
 class SilMockNode(rclpy.node.Node):
