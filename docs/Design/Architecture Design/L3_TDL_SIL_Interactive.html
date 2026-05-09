@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L3 TDL SIL 架构交互说明</title>
+<link rel="stylesheet" href="https://unpkg.com/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<style>
+/* ══════════════════════════════════════════════
+   CSS DESIGN TOKENS  —  浅色模式
+══════════════════════════════════════════════ */
+:root {
+  /* Backgrounds */
+  --color-background-primary:   #ffffff;
+  --color-background-secondary: #f2f0e9;
+  --color-background-tertiary:  #f7f6f2;
+  --color-background-info:      #e6f1fb;
+  --color-background-success:   #eaf3de;
+  --color-background-warning:   #faeeda;
+  --color-background-danger:    #fcebeb;
+  /* Text */
+  --color-text-primary:   #2c2c2a;
+  --color-text-secondary: #5f5e5a;
+  --color-text-tertiary:  #888780;
+  --color-text-info:      #185fa5;
+  --color-text-success:   #3b6d11;
+  --color-text-warning:   #854f0b;
+  --color-text-danger:    #a32d2d;
+  /* Borders */
+  --color-border-primary:   rgba(0,0,0,0.40);
+  --color-border-secondary: rgba(0,0,0,0.25);
+  --color-border-tertiary:  rgba(0,0,0,0.12);
+  --color-border-info:    #378add;
+  --color-border-success: #639922;
+  --color-border-warning: #ba7517;
+  --color-border-danger:  #e24b4a;
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono","Fira Code","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  /* Radius */
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+}
+
+/* ══════════════════════════════════════════════
+   CSS DESIGN TOKENS  —  深色模式
+══════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background-primary:   #1c1c1a;
+    --color-background-secondary: #252522;
+    --color-background-tertiary:  #141412;
+    --color-background-info:      #082240;
+    --color-background-success:   #0d2204;
+    --color-background-warning:   #291800;
+    --color-background-danger:    #280d0d;
+    --color-text-primary:   #e6e4dc;
+    --color-text-secondary: #aeaca4;
+    --color-text-tertiary:  #6a6960;
+    --color-text-info:      #85b7eb;
+    --color-text-success:   #97c459;
+    --color-text-warning:   #ef9f27;
+    --color-text-danger:    #f09595;
+    --color-border-primary:   rgba(255,255,255,0.40);
+    --color-border-secondary: rgba(255,255,255,0.22);
+    --color-border-tertiary:  rgba(255,255,255,0.10);
+    --color-border-info:    #378add;
+    --color-border-success: #639922;
+    --color-border-warning: #ba7517;
+    --color-border-danger:  #e24b4a;
+  }
+}
+
+/* ══════════════════════════════════════════════
+   RESET + LAYOUT
+══════════════════════════════════════════════ */
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--color-background-tertiary);
+  color: var(--color-text-primary);
+  padding: 24px 16px 48px;
+  min-height: 100vh;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.wrap {
+  max-width: 780px;
+  margin: 0 auto;
+  background: var(--color-background-primary);
+  border-radius: var(--border-radius-xl);
+  padding: 24px;
+  border: 0.5px solid var(--color-border-tertiary);
+}
+.page-title {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 20px;
+  color: var(--color-text-primary);
+}
+
+/* ══════════════════════════════════════════════
+   COMPONENT CLASSES
+══════════════════════════════════════════════ */
+.tn { display:flex; gap:6px; padding-bottom:12px; border-bottom:0.5px solid var(--color-border-tertiary); margin-bottom:18px; flex-wrap:wrap; }
+.tb { padding:6px 14px; border:0.5px solid var(--color-border-secondary); border-radius:var(--border-radius-md); background:transparent; color:var(--color-text-secondary); font-size:13px; cursor:pointer; font-family:var(--font-sans); transition:background .15s,color .15s,border-color .15s; }
+.tb:hover { background:var(--color-background-secondary); }
+.tb.on { background:var(--color-background-info); color:var(--color-text-info); border-color:var(--color-border-info); }
+
+.cd { background:var(--color-background-primary); border:0.5px solid var(--color-border-tertiary); border-radius:var(--border-radius-lg); padding:1rem 1.25rem; }
+.cs { background:var(--color-background-secondary); border-radius:var(--border-radius-md); padding:.75rem 1rem; }
+
+.mp { padding:5px 11px; border:0.5px solid var(--color-border-secondary); border-radius:var(--border-radius-md); background:transparent; color:var(--color-text-secondary); font-size:12px; cursor:pointer; font-family:var(--font-sans); transition:background .15s,color .15s,border-color .15s; }
+.mp:hover,.mp.on { background:var(--color-background-info); color:var(--color-text-info); border-color:var(--color-border-info); }
+
+.bx { display:inline-block; padding:2px 7px; border-radius:var(--border-radius-md); font-size:11px; font-weight:500; }
+.bs { background:var(--color-background-success); color:var(--color-text-success); }
+.bi { background:var(--color-background-info);    color:var(--color-text-info);    }
+.bw { background:var(--color-background-warning); color:var(--color-text-warning); }
+.bd { background:var(--color-background-danger);  color:var(--color-text-danger);  }
+
+.pl-dot { width:22px; height:22px; border-radius:50%; margin:0 auto 4px; border:0.5px solid var(--color-border-secondary); background:var(--color-background-secondary); transition:all .4s; }
+.pl-dot.ok  { background:var(--color-text-success); border-color:var(--color-text-success); }
+.pl-dot.act { background:var(--color-text-warning); border-color:var(--color-text-warning); }
+
+/* SVG cursor */
+svg g[onclick] { cursor:pointer; }
+svg g[onclick]:hover > rect { opacity:.82; transition:opacity .15s; }
+
+/* ══════════════════════════════════════════════
+   TOAST NOTIFICATION
+══════════════════════════════════════════════ */
+#toast {
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  background:var(--color-background-primary);
+  border:0.5px solid var(--color-border-secondary);
+  border-radius:var(--border-radius-lg);
+  padding:10px 18px; font-size:12px; line-height:1.6;
+  color:var(--color-text-secondary);
+  box-shadow:0 4px 24px rgba(0,0,0,0.14);
+  max-width:520px; width:90%; text-align:center;
+  opacity:0; pointer-events:none; transition:opacity .2s;
+  z-index:999;
+}
+#toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="page-title">L3 TDL SIL 架构交互说明 — 从架构选型到8模块完整验证</p>
+
+  <!-- ── Tab navigation ── -->
+  <div class="tn">
+    <button class="tb on" id="tb0" onclick="sT(0)"><i class="ti ti-layers-intersect"></i> 架构选型</button>
+    <button class="tb"    id="tb1" onclick="sT(1)"><i class="ti ti-cpu"></i> 8模块验证</button>
+    <button class="tb"    id="tb2" onclick="sT(2)"><i class="ti ti-grid-dots"></i> 场景覆盖矩阵</button>
+    <button class="tb"    id="tb3" onclick="sT(3)"><i class="ti ti-radar-2"></i> HMI 演示</button>
+  </div>
+
+  <!-- ══════════════════════════════════
+       SECTION 0 · Architecture
+  ══════════════════════════════════ -->
+  <div id="s0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
+      <div class="cd" style="opacity:.62">
+        <p style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:5px">方案 A — DNV/OSP/FMI + Python</p>
+        <p style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:8px;line-height:1.65">测试 Python 编排层，非生产 C++ 代码。CCS 审查员会问：哪个制品对应船上运行的二进制？</p>
+        <span class="bx bw">认证 ★★★</span> <span class="bx bi">RL ★★★★</span>
+      </div>
+      <div class="cd" style="opacity:.62">
+        <p style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:5px">方案 B — 纯 ROS2 SIL</p>
+        <p style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:8px;line-height:1.65">测试真实代码，但证据为私有 rosbag，无标准场景语言，CCS 可移植性差，RL 训练需嵌入整个 ROS2 图。</p>
+        <span class="bx bi">认证 ★★★</span> <span class="bx bw">RL ★★</span>
+      </div>
+      <div class="cd" style="opacity:.62">
+        <p style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:5px">方案 C — NTNU colav-simulator 模式</p>
+        <p style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:8px;line-height:1.65">Gymnasium 接口原生，RL 扩展最容易，但测试 Python 包装器非 C++ 内核，认证链同样断裂。</p>
+        <span class="bx bw">认证 ★★</span> <span class="bx bs">RL ★★★★★</span>
+      </div>
+      <div class="cd" style="border:1.5px solid var(--color-border-info);position:relative">
+        <span style="position:absolute;top:-10px;left:14px" class="bx bi">✓ 推荐选择</span>
+        <p style="font-size:12px;font-weight:500;color:var(--color-text-primary);margin-bottom:5px">方案 D — 混合架构（ROS2 内核 + FMI 边界）</p>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;line-height:1.65">内核运行真实 L3 C++/MISRA 二进制，在动力仿真与 RL 边界处使用 FMI + maritime-schema。测真实代码，输出标准化 CCS 证据，两者兼得。</p>
+        <span class="bx bs">认证 ★★★★★</span> <span class="bx bi">RL ★★★★</span>
+      </div>
+    </div>
+
+    <svg width="100%" viewBox="0 0 680 356" style="display:block" role="img" aria-label="L3 TDL SIL 方案D层级接口架构图">
+      <defs>
+        <marker id="a0" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+      <!-- Harness -->
+      <rect x="8" y="8" width="664" height="338" rx="14" fill="none" stroke="rgba(100,100,100,0.3)" stroke-width=".8" stroke-dasharray="6 4"/>
+      <text x="340" y="27" text-anchor="middle" style="font-size:11px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">SIL 测试框架（GitLab CI · Docker · maritime-schema · farn 场景矩阵）</text>
+      <!-- L1 Mock -->
+      <g onclick="tip('L1智能模拟层支持三种模式。① synthetic合成传感：用于1100场景参数化扫描，注入可控的AIS丢帧/位置噪声/风速/海况，覆盖ODD立方体全部220个单元格。② rosbag历史回放：用于回归测试和真实性验证，回放真实AIS历史片段（NOAA/ChAIS，≥1h）。③ ais_replay实时AIS流：用于端到端集成验证。三种模式由ROS2 launch arg l1_mode切换，无需重编译。')">
+        <rect x="18" y="38" width="200" height="70" rx="8" style="fill:var(--color-background-info);stroke:var(--color-border-info)" stroke-width=".5"/>
+        <text x="118" y="65" text-anchor="middle" dominant-baseline="central" style="font-size:13px;font-weight:500;fill:var(--color-text-info);font-family:var(--font-sans)">L1 智能模拟层</text>
+        <text x="118" y="85" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:var(--color-text-info);font-family:var(--font-sans)">AIS回放 · 合成传感 · rosbag</text>
+      </g>
+      <!-- L2 Stub -->
+      <g onclick="tip('L2航次桩：只需一个YAML文件声明航点序列，由voyage_stub节点读取后发布/voyage/plan IDL消息给M3。L3测试不需要完整的战略规划仿真器——换一个YAML文件就能测试不同任务场景，也可在中途注入ReplanResponse来测试M3的重规划处理逻辑（RFC-006）。')">
+        <rect x="462" y="38" width="200" height="70" rx="8" style="fill:var(--color-background-secondary);stroke:var(--color-border-secondary)" stroke-width=".5"/>
+        <text x="562" y="65" text-anchor="middle" dominant-baseline="central" style="font-size:13px;font-weight:500;fill:var(--color-text-primary);font-family:var(--font-sans)">L2 航次桩</text>
+        <text x="562" y="85" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:var(--color-text-secondary);font-family:var(--font-sans)">YAML 航点 → /voyage/plan IDL</text>
+      </g>
+      <!-- Arrows to L3 -->
+      <line x1="118" y1="108" x2="118" y2="143" stroke="var(--color-border-info)" stroke-width="1" marker-end="url(#a0)"/>
+      <text x="77" y="129" text-anchor="middle" style="font-size:10px;fill:var(--color-text-tertiary);font-family:var(--font-mono)">tracks IDL</text>
+      <line x1="562" y1="108" x2="562" y2="143" stroke="var(--color-border-secondary)" stroke-width="1" marker-end="url(#a0)"/>
+      <text x="604" y="129" text-anchor="middle" style="font-size:10px;fill:var(--color-text-tertiary);font-family:var(--font-mono)">plan IDL</text>
+      <!-- L3 Kernel container -->
+      <rect x="14" y="143" width="652" height="118" rx="10" style="fill:var(--color-background-secondary);stroke:var(--color-border-info)" stroke-width="1"/>
+      <text x="340" y="162" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:500;fill:var(--color-text-info);font-family:var(--font-sans)">L3 TDL 内核 — 生产 ROS2 Jazzy C++ 二进制（MISRA C++:2023）</text>
+      <!-- M1 -->
+      <g onclick="sT(1);later(function(){sM(0)})">
+        <rect x="22" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-secondary)" stroke-width=".5"/>
+        <text x="58" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-primary);font-family:var(--font-sans)">M1</text>
+        <text x="58" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">ODD</text>
+        <text x="58" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Mgr</text>
+      </g>
+      <!-- M2 -->
+      <g onclick="sT(1);later(function(){sM(1)})">
+        <rect x="103" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-info)" stroke-width=".5"/>
+        <text x="139" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-info);font-family:var(--font-sans)">M2</text>
+        <text x="139" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">World</text>
+        <text x="139" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Model</text>
+      </g>
+      <!-- M3 -->
+      <g onclick="sT(1);later(function(){sM(2)})">
+        <rect x="184" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-secondary)" stroke-width=".5"/>
+        <text x="220" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-primary);font-family:var(--font-sans)">M3</text>
+        <text x="220" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Mission</text>
+        <text x="220" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Mgr</text>
+      </g>
+      <!-- M4 -->
+      <g onclick="sT(1);later(function(){sM(3)})">
+        <rect x="265" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-warning)" stroke-width=".5"/>
+        <text x="301" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-warning);font-family:var(--font-sans)">M4</text>
+        <text x="301" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Behavior</text>
+        <text x="301" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Arbiter</text>
+      </g>
+      <!-- M5 -->
+      <g onclick="sT(1);later(function(){sM(4)})">
+        <rect x="346" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-warning)" stroke-width=".5"/>
+        <text x="382" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-warning);font-family:var(--font-sans)">M5</text>
+        <text x="382" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Tactical</text>
+        <text x="382" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Planner</text>
+      </g>
+      <!-- M6 -->
+      <g onclick="sT(1);later(function(){sM(5)})">
+        <rect x="427" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-success)" stroke-width=".5"/>
+        <text x="463" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-success);font-family:var(--font-sans)">M6</text>
+        <text x="463" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">COLREGs</text>
+        <text x="463" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Rsoner</text>
+      </g>
+      <!-- M7 -->
+      <g onclick="sT(1);later(function(){sM(6)})">
+        <rect x="508" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-success)" stroke-width=".5"/>
+        <text x="544" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-success);font-family:var(--font-sans)">M7</text>
+        <text x="544" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Safety</text>
+        <text x="544" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Supvsr</text>
+      </g>
+      <!-- M8 -->
+      <g onclick="sT(1);later(function(){sM(7)})">
+        <rect x="589" y="174" width="72" height="78" rx="6" style="fill:var(--color-background-primary);stroke:var(--color-border-secondary)" stroke-width=".5"/>
+        <text x="625" y="200" text-anchor="middle" dominant-baseline="central" style="font-size:14px;font-weight:500;fill:var(--color-text-primary);font-family:var(--font-sans)">M8</text>
+        <text x="625" y="218" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">HMI</text>
+        <text x="625" y="232" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-secondary);font-family:var(--font-sans)">Bridge</text>
+      </g>
+      <!-- Arrows L3 → bottom -->
+      <line x1="178" y1="261" x2="178" y2="292" stroke="var(--color-border-warning)" stroke-width="1" marker-end="url(#a0)"/>
+      <text x="137" y="280" text-anchor="middle" style="font-size:10px;fill:var(--color-text-tertiary);font-family:var(--font-mono)">cmd IDL</text>
+      <line x1="510" y1="261" x2="510" y2="292" stroke="var(--color-border-success)" stroke-width="1" marker-end="url(#a0)"/>
+      <text x="551" y="280" text-anchor="middle" style="font-size:10px;fill:var(--color-text-tertiary);font-family:var(--font-mono)">证据流</text>
+      <!-- L4/L5 sim box -->
+      <g onclick="tip('FCB MMG动力仿真：基于nikpau/mmgdynamics（MIT）。≤12kn用4-DOF MMG（Yasukawa 2015），>12kn自动切换6-DOF半滑行模型。同一个FCBPlugin既做本船动力学仿真（ship_dynamics_node），也做场景中每艘目标船的动力仿真（N个实例并发）。Stage 3通过mlfmu将训练好的RL策略打包为FMU，也挂在这个接口下——切换成本为零。')">
+        <rect x="18" y="292" width="320" height="52" rx="8" style="fill:var(--color-background-warning);stroke:var(--color-border-warning)" stroke-width=".5"/>
+        <text x="178" y="314" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:500;fill:var(--color-text-warning);font-family:var(--font-sans)">L4/L5 FCB MMG 动力仿真</text>
+        <text x="178" y="332" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-warning);font-family:var(--font-sans)">4-DOF ≤12kn · 6-DOF &gt;12kn · mmgdynamics (MIT)</text>
+      </g>
+      <!-- Evidence box -->
+      <g onclick="tip('CCS认证证据生成器：每次场景运行结束后自动写入一行Parquet记录，字段包括：scenario_id, hazid_ref, colreg_rule, odd_cell, disturbance_id, seed, git_commit, vessel_params_hash, cpa_min_m, tcpa_min_s, rule_compliance_score, verdict。这10类制品直接对应CCS《智能船舶规范》2024版条款，构成AiP申请的核心证据包。')">
+        <rect x="348" y="292" width="320" height="52" rx="8" style="fill:var(--color-background-success);stroke:var(--color-border-success)" stroke-width=".5"/>
+        <text x="508" y="314" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:500;fill:var(--color-text-success);font-family:var(--font-sans)">CCS 认证证据生成器</text>
+        <text x="508" y="332" text-anchor="middle" dominant-baseline="central" style="font-size:10px;fill:var(--color-text-success);font-family:var(--font-sans)">maritime-schema · Parquet ASDR · 追溯矩阵 · AiP 10类</text>
+      </g>
+      <!-- FMI boundary -->
+      <line x1="337" y1="261" x2="337" y2="346" stroke="rgba(128,128,128,0.3)" stroke-width=".5" stroke-dasharray="3 2"/>
+      <text x="340" y="353" text-anchor="middle" style="font-size:9px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">FMI / maritime-schema 边界 — Stage 3: RL Gymnasium 适配器在此之外</text>
+    </svg>
+    <p style="font-size:12px;color:var(--color-text-tertiary);text-align:center;margin-top:6px">点击任意层级或模块查看说明 · 点击模块方块跳转至验证详情</p>
+  </div>
+
+  <!-- ══════════════════════════════════
+       SECTION 1 · Module validation
+  ══════════════════════════════════ -->
+  <div id="s1" style="display:none">
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px" id="mod-pills"></div>
+    <div class="cd" id="m-detail"></div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       SECTION 2 · Coverage matrix
+  ══════════════════════════════════ -->
+  <div id="s2" style="display:none">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+      <div class="cs" style="text-align:center"><div style="font-size:26px;font-weight:500;font-family:var(--font-mono)">1100</div><div style="font-size:11px;color:var(--color-text-tertiary)">总场景数</div></div>
+      <div class="cs" style="text-align:center"><div style="font-size:26px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-info)">22</div><div style="font-size:11px;color:var(--color-text-tertiary)">Imazu 强制基准集</div></div>
+      <div class="cs" style="text-align:center"><div style="font-size:26px;font-weight:500;font-family:var(--font-mono)">220</div><div style="font-size:11px;color:var(--color-text-tertiary)">覆盖立方体单元格</div></div>
+      <div class="cs" style="text-align:center"><div style="font-size:26px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-warning)">60%</div><div style="font-size:11px;color:var(--color-text-tertiary)">对抗场景比例</div></div>
+    </div>
+    <div id="matrix-container" style="margin-bottom:14px"></div>
+    <div class="cd" id="cell-detail"><p style="font-size:12px;color:var(--color-text-tertiary);text-align:center;margin:0">点击矩阵单元格查看场景分配详情</p></div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       SECTION 3 · HMI Demo
+  ══════════════════════════════════ -->
+  <div id="s3" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <div id="scen-select" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <button id="play-btn" class="mp on" style="margin-left:auto" onclick="togglePlay()">▶ 运行场景</button>
+      <button class="mp" onclick="resetSim()">↺ 重置</button>
+    </div>
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:14px;margin-bottom:14px">
+      <!-- Radar -->
+      <div>
+        <svg id="radar-svg" viewBox="0 0 200 200" width="100%" style="display:block;border-radius:var(--border-radius-lg)" role="img" aria-label="COLAV雷达显示">
+          <circle cx="100" cy="100" r="92" style="fill:var(--color-background-secondary);stroke:var(--color-border-secondary)" stroke-width=".5"/>
+          <circle cx="100" cy="100" r="61" fill="none" style="stroke:var(--color-border-tertiary)" stroke-width=".5"/>
+          <circle cx="100" cy="100" r="30" fill="none" style="stroke:var(--color-border-tertiary)" stroke-width=".5"/>
+          <line x1="100" y1="8"   x2="100" y2="192" fill="none" style="stroke:var(--color-border-tertiary)" stroke-width=".3"/>
+          <line x1="8"   y1="100" x2="192" y2="100" fill="none" style="stroke:var(--color-border-tertiary)" stroke-width=".3"/>
+          <text x="100" y="18"  text-anchor="middle" style="font-size:9px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">N</text>
+          <text x="189" y="103" text-anchor="start"  style="font-size:9px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">E</text>
+          <text x="100" y="197" text-anchor="middle" style="font-size:9px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">S</text>
+          <text x="11"  y="103" text-anchor="end"    style="font-size:9px;fill:var(--color-text-tertiary);font-family:var(--font-sans)">W</text>
+          <text x="134" y="71" style="font-size:8px;fill:var(--color-text-tertiary);font-family:var(--font-mono)">2nm</text>
+          <circle id="cpa-ring" cx="100" cy="60" r="14" fill="none" style="stroke:var(--color-text-danger)" stroke-width="1" stroke-dasharray="3 2" opacity="0"/>
+          <path id="avd-arc" d="" fill="none" style="stroke:var(--color-text-info)" stroke-width="1.5" stroke-dasharray="5 3" opacity="0"/>
+          <g id="tgt-ship" transform="translate(100,32)">
+            <polygon points="0,-8 7,0 0,8 -7,0" style="fill:var(--color-text-danger)" stroke="var(--color-background-primary)" stroke-width="1.5"/>
+            <line x1="0" y1="8" x2="0" y2="20" style="stroke:var(--color-text-danger)" stroke-width="1.2"/>
+          </g>
+          <g id="fcb-ship" transform="translate(100,100) rotate(0)">
+            <polygon points="0,-13 9,8 -9,8" style="fill:var(--color-text-info)" stroke="var(--color-background-primary)" stroke-width="2"/>
+            <line x1="0" y1="-13" x2="0" y2="-30" style="stroke:var(--color-text-info)" stroke-width="1.5"/>
+          </g>
+          <text x="113" y="108" style="font-size:8px;fill:var(--color-text-info);font-family:var(--font-mono)">FCB</text>
+          <text x="108" y="36"  style="font-size:8px;fill:var(--color-text-danger);font-family:var(--font-mono)">TGT</text>
+        </svg>
+        <div style="font-size:10px;color:var(--color-text-tertiary);text-align:center;margin-top:4px">视野3nm · 1格=1nm</div>
+      </div>
+      <!-- Data panel -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="cs">
+          <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:2px">CPA 最近接近距离</div>
+          <div id="cpa-val" style="font-size:28px;font-weight:500;font-family:var(--font-mono)">—</div>
+          <div style="font-size:10px;color:var(--color-text-tertiary)">nm · 安全阈值 ≥ 0.50nm</div>
+        </div>
+        <div class="cs">
+          <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:2px">TCPA 最近接近时间</div>
+          <div id="tcpa-val" style="font-size:20px;font-weight:500;font-family:var(--font-mono)">—</div>
+          <div style="font-size:10px;color:var(--color-text-tertiary)">s · 预警阈值 ≤ 600s</div>
+        </div>
+        <div class="cs">
+          <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:2px">M6 COLREGs 分类</div>
+          <div id="rule-val" style="font-size:13px;font-weight:500;font-family:var(--font-mono)">待机</div>
+        </div>
+        <div class="cs">
+          <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:2px">L3 系统决策</div>
+          <div id="dec-val" style="font-size:12px;color:var(--color-text-secondary)">等待运行</div>
+        </div>
+      </div>
+    </div>
+    <!-- Module pipeline -->
+    <div class="cs" style="margin-bottom:10px">
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:8px">L3 模块管道激活状态</div>
+      <div style="display:flex;gap:2px;justify-content:space-around">
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot0"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M1<br>ODD</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot1"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M2<br>World</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot2"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M3<br>Miss</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot3"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M4<br>Arb</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot4"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M5<br>Plan</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot5"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M6<br>COLR</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot6"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M7<br>Safe</div></div>
+        <div style="text-align:center;min-width:60px"><div class="pl-dot" id="mdot7"></div><div style="font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)">M8<br>HMI</div></div>
+      </div>
+    </div>
+    <!-- Evidence log -->
+    <div class="cd">
+      <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:6px">
+        <i class="ti ti-file-text"></i> ASDR 认证证据日志（自动生成）
+      </div>
+      <div id="ev-log" style="height:90px;overflow-y:auto">
+        <div style="font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono)">— 点击「运行场景」启动仿真并自动生成证据记录 —</div>
+      </div>
+    </div>
+  </div>
+</div><!-- /wrap -->
+
+<div id="toast"></div>
+
+<!-- ══════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════ -->
+<script>
+/* ─── DATA ─── */
+var mods=[
+  {id:'M1',name:'ODD / Envelope Manager',
+   desc:'持续监控11维运营设计域（ODD）参数。当传感器质量、海况等级、目标密度、航速任一维度超出包络时，在500ms内触发最小风险操纵（MRM）并通知M8向船长告警。是整个L3系统的"感知边界守门人"。',
+   approach:['合成注入：将风速、能见度、AIS密度逐步推至ODD边界，验证MRM触发精度；11维参数全量扫描边界单元格','rosbag回放：历史传感器故障序列（雷达丢波、AIS中断）验证MRM触发时延 P95 ≤ 500ms','参数敏感性：ODD立方体4个子域×5扰动级别=20种恶劣条件组合全覆盖'],
+   pass:'ODD判定准确率=100%；MRM触发P95≤500ms；IDL schema_version必填验证通过',
+   mock:'L1→world_model_mock（三模式：synthetic/rosbag/ais_replay，由 ROS2 launch arg 切换）',
+   kpi:'100%',kpiLbl:'ODD判定准确率',kpiCls:'bs'},
+  {id:'M2',name:'World Model',
+   desc:'融合AIS、RADAR、摄像头数据，维护所有目标船轨迹，实时计算CPA/TCPA/DCPA。是L3所有决策的唯一信息来源，也是RL目标船状态向量的数据源头。',
+   approach:['Imazu-22全集：22个标准双/三船遭遇场景，CPA/TCPA计算误差<5%（对比解析参考解）','扰动注入：AIS丢帧5-20%、位置噪声σ=25m、雷达多路径，验证多目标跟踪鲁棒性','性能测试：5目标并发跟踪，IDL消息发布延迟P95≤100ms（20Hz输出频率）'],
+   pass:'CPA误差<5%；目标跟踪成功率≥98%；IDL发布延迟P95≤100ms；MMSI唯一性100%',
+   mock:'L1 AIS/RADAR→ais_replay/synth_ais_pub（相同IDL topic）；目标船动力学→MMG FCBPlugin多实例',
+   kpi:'<5%',kpiLbl:'CPA计算误差',kpiCls:'bi'},
+  {id:'M3',name:'Mission Manager',
+   desc:'管理任务目标和航次状态机（领航员/自动/回收模式），协调避碰结束后的原航线恢复请求。实现L2重规划接口（RFC-006：ReplanResponseMsg IDL）。',
+   approach:['状态机完整性：全部模式切换路径（9种组合）零状态丢失验证','RFC-006接口：L2重规划响应格式（SUCCESS/FAILED_TIMEOUT/FAILED_INFEASIBLE）及时延≤500ms','中断测试：避碰中途L2通信中断后的自主状态保持和恢复机制'],
+   pass:'模式切换零丢失；重规划响应P95≤500ms；IDL 100%合规（schema_version必填）',
+   mock:'L2→voyage_stub（YAML航点文件驱动，支持动态换文件测试中断场景）',
+   kpi:'100%',kpiLbl:'状态切换无丢失',kpiCls:'bs'},
+  {id:'M4',name:'Behavior Arbiter (Mid-MPC)',
+   desc:'使用IvP（间隔规划）对多个并发行为目标（避碰/跟随航线/速度保持）进行实时多目标优化仲裁，1Hz生成合并的航向/速度指令集。M4是"战术决策大脑"，M5是"轨迹执行臂"。',
+   approach:['单元测试IvP目标函数：COLREG_AVOIDANCE/WAYPOINT_FOLLOW/SPEED_HOLD三类目标边界输出覆盖','Mid-MPC性能：5艘目标并发场景推理时延P95<500ms验证','多船冲突（≤5艘）：连续10步无振荡（航向指令方差<2°）'],
+   pass:'Mid-MPC时延P95<500ms；行为选择无振荡（连续10步σ<2°）；IvP优先级排序合规',
+   mock:'M1 ODD→mock IDL；M6规则分类→stub（固定输出隔离测试）；M7→直接接入',
+   kpi:'<500ms',kpiLbl:'Mid-MPC P95延迟',kpiCls:'bw'},
+  {id:'M5',name:'Tactical Planner (BC-MPC)',
+   desc:'运行BC-MPC（分支航向模型预测控制），1Hz发布完整避碰轨迹（AvoidancePlan），紧急时事件触发ReactiveOverrideCmd（<150ms）直接发给L4。这是直接影响船舶运动的最后一道规划。',
+   approach:['全量1100场景：最终CPA≥300m，无触礁，无规则违反——全量通过是SIL→HIL的入场券','实时性：BC-MPC单步推理时延P95<150ms（认证文件硬指标）','AvoidancePlan IDL：schema_version/confidence/stamp三字段合规性CI强制检查'],
+   pass:'BC-MPC时延P95<150ms；1100场景最终CPA≥300m；IDL 100%合规；零触礁事件',
+   mock:'L4/L5→ship_dynamics_node（FCB MMG plugin，4-DOF≤12kn/6-DOF>12kn自动切换）；M7→直接接入',
+   kpi:'<150ms',kpiLbl:'BC-MPC P95延迟',kpiCls:'bw'},
+  {id:'M6',name:'COLREGs Reasoner',
+   desc:'推理所有适用规则（R5-R19），确定本船角色（让路方/直航方），生成规则符合度评分（Conformance_Score）。是M4/M5行动的法律合规约束核心，也是CCS认证的"规则合规性见证人"。',
+   approach:['Imazu-22强制验证：22场景规则分类准确率=100%（CCS必验基准，零容忍）','MC/DC覆盖：每条规则（R5-R19）决策树每个分支至少1通过+1失败场景','R9/R19专项：限制水域和能见不良各独立50场景测试套件'],
+   pass:'Imazu-22分类准确率=100%；MC/DC覆盖率≥95%；Conformance_Score值域验证通过',
+   mock:'M2 World Model→直接接入（M6依赖真实目标状态）；额外stub：固定目标状态用于边界测试',
+   kpi:'100%',kpiLbl:'Imazu-22准确率',kpiCls:'bs'},
+  {id:'M7',name:'Safety Supervisor (Doer-Checker)',
+   desc:'独立安全监控层（Doer-Checker架构）。每100ms周期验证M4/M5输出，违反6类硬约束（最小CPA、最大ROT、ODD合规等）时立即否决并触发MRM。PATH-S CI确保M7代码与M4/M5完全独立——这是SIL 2级安全认证的核心架构证据。',
+   approach:['故障注入：强制M5输出CPA<50m危险轨迹，验证否决率=100%，时延P99<10ms','SOTIF压力：15秒滑窗（RFC-003，100周期@15Hz）持续高风险场景，SOTIF告警准确性≥99%','PATH-S CI独立性：check-doer-checker-independence.sh验证M7与M4/M5零代码依赖'],
+   pass:'危险指令否决率=100%；否决时延P99<10ms；PATH-S独立性0 violation；SOTIF准确率≥99%',
+   mock:'M4/M5→故障注入stub（含预定义危险轨迹库：CPA<50m/ROT>8°/s/触礁轨迹）',
+   kpi:'100%',kpiLbl:'危险指令否决率',kpiCls:'bs'},
+  {id:'M8',name:'HMI / Transparency Bridge',
+   desc:'将L3决策实时翻译为船长可读解释（SAT-1/2/3），管理人机责任移交协议（ToR），维护50Hz显示和BNWAS集成。M8的可用性测试是连接技术验证与CCS"人的因素"要求的桥梁，资深船长直接参与评审。',
+   approach:['船长可用性（D2.6）：3位资深船长评价SAT-1/2/3状态解释直观性，评分≥4/5','ToR合规：操作员主动确认按钮=IMO MASS Code"有意味的人为干预"（RFC-004）','实时性：50Hz更新频率下HMI渲染延迟<100ms；M7否决告警到HMI显示<100ms（F-NEW-005）'],
+   pass:'ToR协议合规100%；HMI延迟<100ms；BNWAS集成通过；船长可用性评分≥4/5',
+   mock:'L3全链路→直接接入（M8测试需要真实决策流）；渲染输出→截图存档（CCS证据制品#9）',
+   kpi:'≥4/5',kpiLbl:'船长可用性评分',kpiCls:'bi'},
+];
+
+var rulesArr=['R5 瞭望','R6 安全速度','R7 碰撞风险','R8 避碰行动','R9 狭水道',
+              'R13 追越','R14 正遇','R15 横越','R16 让路','R17 直航','R19 能见不良'];
+var oddsArr=['开阔海域','近海沿岸','限制水域','港口进出'];
+var covArr=[
+  [65,50,40,30],[55,45,35,25],[85,75,60,45],[80,70,55,40],[35,55,85,75],
+  [100,85,65,45],[100,85,65,45],[100,85,65,45],[100,85,65,45],[100,85,65,45],
+  [65,55,45,35]
+];
+var scenData=[
+  {name:'R14 正遇',rule:'R14',steps:[
+    {cpa:.18,tcpa:520,rule:'R14 正遇检测',act:'M2 检测碰撞风险',   mods:[1,0,0,0,0,0,0,0],tgtPos:[100,36],fcbAngle:0, cpaShow:1},
+    {cpa:.18,tcpa:450,rule:'R14 双方让路',act:'M6 分类: 双方各右转',mods:[1,1,0,1,0,1,0,0],tgtPos:[100,52],fcbAngle:0, cpaShow:1},
+    {cpa:.20,tcpa:380,rule:'R14 轨迹规划',act:'M5 BC-MPC 右转10°', mods:[1,1,1,1,1,1,0,0],tgtPos:[100,67],fcbAngle:12,cpaShow:1},
+    {cpa:.74,tcpa:310,rule:'R14 方案验证',act:'M7 Doer-Checker 通过',mods:[1,1,1,1,1,1,1,0],tgtPos:[102,81],fcbAngle:18,cpaShow:0},
+    {cpa:.98,tcpa:260,rule:'R14 避碰完成',act:'M8 恢复航线通知',   mods:[1,1,1,1,1,1,1,1],tgtPos:[105,96],fcbAngle:10,cpaShow:0},
+  ]},
+  {name:'R15 横越',rule:'R15',steps:[
+    {cpa:.22,tcpa:540,rule:'R15 横越检测',act:'M2 右前方目标进入危险区',mods:[1,0,0,0,0,0,0,0],tgtPos:[162,62],fcbAngle:0,cpaShow:1},
+    {cpa:.22,tcpa:470,rule:'R15 本船让路',act:'M6: 本船为让路方',       mods:[1,1,0,1,0,1,0,0],tgtPos:[148,72],fcbAngle:0,cpaShow:1},
+    {cpa:.22,tcpa:400,rule:'R15 减速避让',act:'M5: 减速等目标通过',      mods:[1,1,1,1,1,1,0,0],tgtPos:[133,82],fcbAngle:6,cpaShow:1},
+    {cpa:.85,tcpa:330,rule:'R15 方案验证',act:'M7 确认安全间距',          mods:[1,1,1,1,1,1,1,0],tgtPos:[118,92],fcbAngle:4,cpaShow:0},
+    {cpa:1.10,tcpa:270,rule:'R15 避碰完成',act:'目标已过，恢复原速',      mods:[1,1,1,1,1,1,1,1],tgtPos:[105,100],fcbAngle:0,cpaShow:0},
+  ]},
+  {name:'R13 追越',rule:'R13',steps:[
+    {cpa:.15,tcpa:620,rule:'R13 追越识别',act:'M2 探测后方追越目标',  mods:[1,0,0,0,0,0,0,0],tgtPos:[100,146],fcbAngle:0,cpaShow:1},
+    {cpa:.15,tcpa:540,rule:'R13 右舷超越',act:'M6: 本船右舷超越',     mods:[1,1,0,1,0,1,0,0],tgtPos:[100,132],fcbAngle:0,cpaShow:1},
+    {cpa:.15,tcpa:460,rule:'R13 保持间距',act:'M5: 右偏8°保持距离',  mods:[1,1,1,1,1,1,0,0],tgtPos:[102,116],fcbAngle:9,cpaShow:1},
+    {cpa:.60,tcpa:380,rule:'R13 方案验证',act:'M7 验证横向间距',       mods:[1,1,1,1,1,1,1,0],tgtPos:[104,102],fcbAngle:7,cpaShow:0},
+    {cpa:.90,tcpa:300,rule:'R13 超越完成',act:'超越完成，恢复原航向', mods:[1,1,1,1,1,1,1,1],tgtPos:[106,90], fcbAngle:2,cpaShow:0},
+  ]},
+];
+
+/* ─── STATE ─── */
+var curMod=0, curScenIdx=0, curStep=0, isPlaying=false, playTimer=null, toastTmr=null;
+
+/* ─── UTILITIES ─── */
+function later(fn){ setTimeout(fn,80); }
+
+function tip(msg){
+  var el=document.getElementById('toast');
+  el.textContent=msg;
+  el.classList.add('show');
+  if(toastTmr) clearTimeout(toastTmr);
+  toastTmr=setTimeout(function(){ el.classList.remove('show'); },5000);
+}
+
+/* ─── TAB SWITCHING ─── */
+function sT(n){
+  [0,1,2,3].forEach(function(i){
+    document.getElementById('s'+i).style.display=i===n?'block':'none';
+    document.getElementById('tb'+i).classList.toggle('on',i===n);
+  });
+  if(n===1){ renderPills(); renderMod(curMod); }
+  if(n===2){ renderMatrix(); }
+  if(n===3){ renderScenSel(); resetSim(); }
+}
+
+/* ─── MODULE SECTION ─── */
+function renderPills(){
+  document.getElementById('mod-pills').innerHTML=mods.map(function(m,i){
+    return '<button class="mp'+(i===curMod?' on':'')+'" onclick="sM('+i+')" title="'+m.name+'">'+m.id+'</button>';
+  }).join('');
+}
+function sM(n){
+  curMod=n; renderMod(n);
+  document.querySelectorAll('#mod-pills .mp').forEach(function(el,i){ el.classList.toggle('on',i===n); });
+}
+function renderMod(n){
+  var m=mods[n];
+  document.getElementById('m-detail').innerHTML=
+    '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">'+
+    '<div style="background:var(--color-background-info);color:var(--color-text-info);border-radius:var(--border-radius-md);padding:6px 14px;font-size:20px;font-weight:500;font-family:var(--font-mono);flex-shrink:0">'+m.id+'</div>'+
+    '<div><div style="font-weight:500;font-size:15px;margin-bottom:4px">'+m.name+'</div>'+
+    '<span class="bx '+m.kpiCls+'">'+m.kpiLbl+': '+m.kpi+'</span></div></div>'+
+    '<p style="font-size:13px;line-height:1.7;margin:0 0 14px;color:var(--color-text-secondary)">'+m.desc+'</p>'+
+    '<div class="cs" style="margin-bottom:12px"><div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:8px">SIL 测试策略</div>'+
+    m.approach.map(function(a){
+      return '<div style="display:flex;gap:8px;font-size:12px;color:var(--color-text-secondary);padding:3px 0;line-height:1.6">'+
+             '<span style="color:var(--color-text-info);flex-shrink:0">→</span>'+a+'</div>';
+    }).join('')+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+    '<div class="cs"><div style="font-size:11px;font-weight:500;color:var(--color-text-tertiary);margin-bottom:6px">通过标准（DoD）</div>'+
+    '<div style="font-size:12px;font-family:var(--font-mono);color:var(--color-text-secondary);line-height:1.65">'+m.pass+'</div></div>'+
+    '<div class="cs"><div style="font-size:11px;font-weight:500;color:var(--color-text-tertiary);margin-bottom:6px">模拟层策略</div>'+
+    '<div style="font-size:12px;color:var(--color-text-secondary);line-height:1.65">'+m.mock+'</div></div></div>';
+}
+
+/* ─── COVERAGE MATRIX ─── */
+function renderMatrix(){
+  var h='<div style="overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:3px">';
+  h+='<tr><th style="font-size:11px;color:var(--color-text-tertiary);padding:4px 8px;text-align:left;font-weight:400;white-space:nowrap">COLREGs 规则</th>';
+  oddsArr.forEach(function(o){ h+='<th style="font-size:11px;color:var(--color-text-tertiary);padding:4px 6px;font-weight:400;text-align:center;white-space:nowrap">'+o+'</th>'; });
+  h+='</tr>';
+  rulesArr.forEach(function(r,ri){
+    var isImazu=ri>=5&&ri<=9;
+    h+='<tr><td style="font-size:11px;padding:4px 8px;white-space:nowrap;color:var(--color-text-secondary);font-weight:'+(isImazu?'500':'400')+'">'+r+(isImazu?' ✦':'')+'</td>';
+    covArr[ri].forEach(function(v,oi){
+      var bg=v>=80?'success':v>=50?'info':v>=25?'warning':'secondary';
+      var tc=v>=80?'success':v>=50?'info':v>=25?'warning':'tertiary';
+      var ol=(isImazu&&oi===0)?';outline:1.5px solid var(--color-border-info)':'';
+      h+='<td onclick="showCell('+ri+','+oi+')" style="padding:5px 4px;text-align:center;font-size:11px;font-family:var(--font-mono);border-radius:4px;cursor:pointer;background:var(--color-background-'+bg+');color:var(--color-text-'+tc+')'+ol+'">'+v+'%</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</table></div>';
+  h+='<p style="font-size:11px;color:var(--color-text-tertiary);margin-top:6px">✦ 含 Imazu-22 强制基准集（22个双/三船标准遭遇） · 覆盖率 = Phase 3 目标状态 · 11×4×5种子=220单元格</p>';
+  document.getElementById('matrix-container').innerHTML=h;
+}
+function showCell(ri,oi){
+  var r=rulesArr[ri],o=oddsArr[oi],v=covArr[ri][oi];
+  var total=Math.max(4,Math.round(v*0.22));
+  var adv=Math.round(total*0.6),nom=Math.round(total*0.25),bnd=Math.max(1,total-adv-nom);
+  var isImazu=ri>=5&&ri<=9&&oi===0;
+  var cls=v>=80?'bs':v>=50?'bi':v>=25?'bw':'';
+  var scId=r.split(' ')[0]+'-'+o.replace(/[\/\s]/g,'').substring(0,4);
+  document.getElementById('cell-detail').innerHTML=
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
+    '<span class="bx '+cls+'">'+v+'% 覆盖</span>'+
+    '<span style="font-size:14px;font-weight:500;color:var(--color-text-primary)">'+r+' × '+o+'</span>'+
+    (isImazu?'<span class="bx bi">✦ Imazu-22</span>':'')+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">'+
+    '<div class="cs" style="text-align:center"><div style="font-size:20px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-warning)">'+adv+'</div><div style="font-size:11px;color:var(--color-text-tertiary)">对抗场景 60%</div></div>'+
+    '<div class="cs" style="text-align:center"><div style="font-size:20px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-info)">'+nom+'</div><div style="font-size:11px;color:var(--color-text-tertiary)">标称场景 25%</div></div>'+
+    '<div class="cs" style="text-align:center"><div style="font-size:20px;font-weight:500;font-family:var(--font-mono)">'+bnd+'</div><div style="font-size:11px;color:var(--color-text-tertiary)">边界场景 15%</div></div>'+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--color-text-secondary)">场景命名示例：<code style="font-size:11px;background:var(--color-background-secondary);padding:2px 6px;border-radius:3px">'+scId+'-ADV-s001.yaml</code></div>'+
+    '<div style="font-size:12px;color:var(--color-text-tertiary);margin-top:5px">追溯链：scenario_id → HAZID_ref → '+r.split(' ')[0]+' → '+o+' → Parquet证据行 → CCS AiP</div>';
+}
+
+/* ─── HMI DEMO ─── */
+function renderScenSel(){
+  document.getElementById('scen-select').innerHTML=scenData.map(function(s,i){
+    return '<button class="mp'+(i===curScenIdx?' on':'')+'" onclick="selectScen('+i+')">'+s.name+'</button>';
+  }).join('');
+}
+function selectScen(n){ curScenIdx=n; renderScenSel(); resetSim(); }
+
+function resetSim(){
+  curStep=0; isPlaying=false;
+  if(playTimer){ clearInterval(playTimer); playTimer=null; }
+  document.getElementById('play-btn').textContent='▶ 运行场景';
+  var cv=document.getElementById('cpa-val');
+  cv.textContent='—'; cv.style.color='';
+  document.getElementById('tcpa-val').textContent='—';
+  document.getElementById('rule-val').textContent='待机';
+  document.getElementById('dec-val').textContent='等待运行';
+  document.getElementById('ev-log').innerHTML='<div style="font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono)">— 点击「运行场景」启动仿真并自动生成证据记录 —</div>';
+  for(var i=0;i<8;i++){ var d=document.getElementById('mdot'+i); if(d) d.className='pl-dot'; }
+  var s0=scenData[curScenIdx].steps[0];
+  var tgt=document.getElementById('tgt-ship');
+  if(tgt) tgt.setAttribute('transform','translate('+s0.tgtPos[0]+','+s0.tgtPos[1]+')');
+  var fcb=document.getElementById('fcb-ship');
+  if(fcb) fcb.setAttribute('transform','translate(100,100) rotate(0)');
+  var cr=document.getElementById('cpa-ring'); if(cr) cr.setAttribute('opacity','0');
+  var aa=document.getElementById('avd-arc');  if(aa){ aa.setAttribute('d',''); aa.setAttribute('opacity','0'); }
+}
+
+function togglePlay(){
+  if(isPlaying){
+    clearInterval(playTimer); playTimer=null; isPlaying=false;
+    document.getElementById('play-btn').textContent='▶ 继续';
+    return;
+  }
+  var steps=scenData[curScenIdx].steps;
+  if(curStep>=steps.length-1){
+    curStep=0;
+    document.getElementById('ev-log').innerHTML='';
+    for(var i=0;i<8;i++){ var d=document.getElementById('mdot'+i); if(d) d.className='pl-dot'; }
+  }
+  isPlaying=true;
+  document.getElementById('play-btn').textContent='⏸ 暂停';
+  updateDisplay(steps[curStep]); appendEv(steps[curStep],curStep);
+  playTimer=setInterval(function(){
+    if(curStep>=steps.length-1){
+      clearInterval(playTimer); playTimer=null; isPlaying=false;
+      document.getElementById('play-btn').textContent='↺ 重新运行';
+      return;
+    }
+    curStep++;
+    updateDisplay(scenData[curScenIdx].steps[curStep]);
+    appendEv(scenData[curScenIdx].steps[curStep],curStep);
+  },2200);
+}
+
+function updateDisplay(step){
+  var cv=document.getElementById('cpa-val');
+  cv.textContent=step.cpa.toFixed(2)+' nm';
+  cv.style.color=step.cpa<0.3?'var(--color-text-danger)':step.cpa<0.55?'var(--color-text-warning)':'var(--color-text-success)';
+  document.getElementById('tcpa-val').textContent=step.tcpa+' s';
+  document.getElementById('rule-val').textContent=step.rule;
+  document.getElementById('dec-val').textContent=step.act;
+  step.mods.forEach(function(on,i){ var d=document.getElementById('mdot'+i); if(d) d.className='pl-dot'+(on?' ok':''); });
+  updateRadar(step);
+}
+
+function updateRadar(step){
+  var fcb=document.getElementById('fcb-ship'),tgt=document.getElementById('tgt-ship');
+  var cr=document.getElementById('cpa-ring'),aa=document.getElementById('avd-arc');
+  if(!fcb||!tgt) return;
+  fcb.setAttribute('transform','translate(100,100) rotate('+step.fcbAngle+')');
+  tgt.setAttribute('transform','translate('+step.tgtPos[0]+','+step.tgtPos[1]+')');
+  if(cr){
+    cr.setAttribute('opacity',step.cpaShow?'1':'0');
+    if(step.cpaShow){
+      cr.setAttribute('cx',((100+step.tgtPos[0])/2).toFixed(1));
+      cr.setAttribute('cy',((100+step.tgtPos[1])/2).toFixed(1));
+    }
+  }
+  if(aa){
+    var idx=scenData[curScenIdx].steps.indexOf(step);
+    if(idx>=2&&idx<=3&&step.fcbAngle>0){
+      var r=38,sa=-90*Math.PI/180,ea=(-90+step.fcbAngle*2.5)*Math.PI/180;
+      var x1=(100+r*Math.cos(sa)).toFixed(1),y1=(100+r*Math.sin(sa)).toFixed(1);
+      var x2=(100+r*Math.cos(ea)).toFixed(1),y2=(100+r*Math.sin(ea)).toFixed(1);
+      aa.setAttribute('d','M '+x1+' '+y1+' A '+r+' '+r+' 0 0 1 '+x2+' '+y2);
+      aa.setAttribute('opacity','0.8');
+    } else { aa.setAttribute('d',''); aa.setAttribute('opacity','0'); }
+  }
+}
+
+function appendEv(step,n){
+  var log=document.getElementById('ev-log');
+  var now=new Date();
+  var ss=(now.getSeconds()+n*2)%60;
+  var ts=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+ss.toString().padStart(2,'0');
+  var el=document.createElement('div');
+  el.style.cssText='font-size:10px;font-family:var(--font-mono);padding:2px 0;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+  el.textContent=ts+' [ASDR] step='+n+' rule='+scenData[curScenIdx].rule+' cpa='+step.cpa.toFixed(2)+'nm tcpa='+step.tcpa+'s act="'+step.act+'" verdict='+(step.cpa<0.3?'RISK':'PASS');
+  log.appendChild(el);
+  log.scrollTop=log.scrollHeight;
+}
+
+/* ─── INIT ─── */
+window.addEventListener('DOMContentLoaded', function(){
+  sT(0);
+  renderPills(); renderMod(0);
+  renderMatrix();
+  renderScenSel();
+  document.getElementById('cell-detail').innerHTML='<p style="font-size:12px;color:var(--color-text-tertiary);text-align:center;margin:0">点击矩阵单元格查看该规则×ODD组合的场景分配详情</p>';
+});
+</script>
+</body>
+</html>
