@@ -4,7 +4,7 @@ import { SidePanel } from '../SidePanel';
 
 describe('SidePanel', () => {
   it('renders standby state with null data', () => {
-    render(<SidePanel data={null} />);
+    render(<SidePanel data={null} scenarioId="" onScenarioChange={() => {}} />);
     expect(screen.getByText('Standby')).toBeTruthy();
     expect(screen.getByText('Awaiting run')).toBeTruthy();
   });
@@ -28,7 +28,7 @@ describe('SidePanel', () => {
         timestamp: '14:32:01', event_type: 'step', step: 0, rule: 'R14',
         cpa_nm: 0.08, tcpa_s: 580, action: 'detecting', verdict: 'RISK',
       }],
-    }} />);
+    }} scenarioId="test-scenario" onScenarioChange={() => {}} />);
     expect(screen.getByText('0.18')).toBeTruthy();
     expect(screen.getByText('520')).toBeTruthy();
     expect(screen.getByText('R14 Head-on')).toBeTruthy();
