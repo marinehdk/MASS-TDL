@@ -1,6 +1,9 @@
 # MASS L3 TDL — CI Docker 镜像
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.2
 # D1.3c revision: Humble + Ubuntu 22.04 per SIL decision §3
+# Python: keep 3.10 for ROS2 (rclpy C extensions compiled for 3.10);
+#        DNV tools (farn/ospx/pythonfmu) installed via pip in 3.10 venv
+#        (farn/ospx require >=3.10, satisfied; pythonfmu requires >=3.8)
 # 镜像: mass-l3/ci:humble-ubuntu22.04
 # 构建命令: docker build --build-arg-file tools/docker/version-lock.txt -f tools/docker/Dockerfile.ci .
 ARG ROS_BASE_DIGEST
@@ -10,16 +13,13 @@ ARG GCC_12_VER
 ARG CLANG_TIDY_14_VER
 ARG CMAKE_VER
 ARG CPPCHECK_VER
-ARG PYTHON3_11_VER
 ARG EIGEN3_VER
 ARG GEOGRAPHICLIB_VER
 ARG BOOST_DEV_VER
 ARG NLOHMANN_JSON_VER
 
-# System tools and compilers
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
+# System tools and compilers (Python 3.10 kept for ROS2 rclpy compatibility)
+RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc-12=${GCC_12_VER} g++-12=${GCC_12_VER} \
         clang-14=${CLANG_TIDY_14_VER} lld-14=${CLANG_TIDY_14_VER} \
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         ninja-build \
         ccache \
         git curl wget \
-        python3.11=${PYTHON3_11_VER} python3-pip python3-venv \
+        python3-dev python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck=${CPPCHECK_VER} \
@@ -36,16 +36,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         yamllint \
         ros-humble-geographic-msgs \
         ros-humble-tl-expected \
+        ros-humble-pybind11-dev \
         libeigen3-dev=${EIGEN3_VER} \
         libgeographiclib-dev=${GEOGRAPHICLIB_VER} \
         libboost-dev=${BOOST_DEV_VER} \
         nlohmann-json3-dev=${NLOHMANN_JSON_VER} \
-        libcosim-dev \
-        farn \
-        ospx \
-        pythonfmu \
-        pybind11-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# libcosim: build from source (no apt package for Humble/22.04)
+# RUN git clone --depth 1 --branch v0.9.0 https://github.com/open-simulation-platform/libcosim.git /tmp/libcosim \
+#     && cmake -B /tmp/libcosim/build -S /tmp/libcosim \
+#     && cmake --build /tmp/libcosim/build --parallel \
+#     && cmake --install /tmp/libcosim/build \
+#     && rm -rf /tmp/libcosim
 
 # Python tools
 RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
@@ -57,6 +60,13 @@ RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
         pytest-cov==5.0.0 \
         casadi==3.7.2 \
         empy==3.3.4
+
+# DNV toolchain (MUST per SIL decision §2) — pip packages, Python 3.10 compatible
+RUN pip3 install --no-cache-dir --break-system-packages \
+        farn \
+        ospx \
+        pythonfmu \
+        pyyaml
 
 # Set GCC 12 as default
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 && \
@@ -107,6 +117,6 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 && \
 # 跟踪: docs/Implementation/00-implementation-master-plan.md §8.1 Wave 0 finding F-CRIT-A-009
 
 # casadi CMake config is inside the pip-installed Python package
-ENV CMAKE_PREFIX_PATH=/usr/local/lib/python3.11/dist-packages/casadi
+ENV CMAKE_PREFIX_PATH=/usr/local/lib/python3.10/dist-packages/casadi
 
 WORKDIR /workspace
