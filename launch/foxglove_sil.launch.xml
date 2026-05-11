@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- ============================================================
+       D1.3b.3 foxglove_bridge SIL launch
+       Throttles nav data 50→10Hz, exposes on port 8765 (JSON mode)
+
+       Prerequisites:
+         sudo apt install -y ros-humble-foxglove-bridge ros-humble-topic-tools
+
+       Usage:
+         ros2 launch launch/foxglove_sil.launch.xml
+
+       Ports:
+         foxglove_bridge WebSocket: ws://localhost:8765
+         Expected FastAPI:         http://localhost:8000
+       ============================================================ -->
+
+  <!-- Topic throttle: own-ship nav state 50Hz → 10Hz -->
+  <node pkg="topic_tools" exec="throttle" name="throttle_nav" output="screen">
+    <param name="input_topic" value="/nav/filtered_state"/>
+    <param name="output_topic" value="/nav/filtered_state_viz"/>
+    <param name="message_type" value="l3_msgs/msg/FilteredOwnShipState"/>
+    <param name="rate" value="10.0"/>
+  </node>
+
+  <!-- Topic throttle: tracks 2Hz → 2Hz (passthrough, already low rate) -->
+  <node pkg="topic_tools" exec="throttle" name="throttle_tracks" output="screen">
+    <param name="input_topic" value="/world_model/tracks"/>
+    <param name="output_topic" value="/world_model/tracks_viz"/>
+    <param name="message_type" value="l3_msgs/msg/TrackedTargetArray"/>
+    <param name="rate" value="2.0"/>
+  </node>
+
+  <!-- foxglove_bridge: C++ WebSocket server, port 8765, JSON mode -->
+  <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml">
+    <arg name="port" value="8765"/>
+    <arg name="address" value="0.0.0.0"/>
+    <arg name="topic_whitelist" value='[".*_viz", "/l3/.*"]'/>
+    <arg name="send_buffer_limit" value="10000000"/>
+    <arg name="min_qos_depth" value="1"/>
+    <arg name="max_qos_depth" value="25"/>
+  </include>
+</launch>
