@@ -1,0 +1,36 @@
+# config/dds_fmu_mapping.yaml
+# DDS topic ↔ FMU variable signal map (Phase 1: own-ship MMG only)
+mappings:
+  - topic: /cmd/rudder
+    msg_type: l3_msgs/msg/RudderCmd
+    field: angle_rad
+    fmu_var: delta_cmd
+    direction: to_fmu
+  - topic: /cmd/thrust
+    msg_type: l3_msgs/msg/ThrustCmd
+    field: n_rps
+    fmu_var: n_rps_cmd
+    direction: to_fmu
+  - topic: /disturbance/wind
+    msg_type: l3_msgs/msg/WindState
+    field_map:
+      dir_deg: wind_dir_deg
+      speed_mps: wind_speed_mps
+    direction: to_fmu
+  - topic: /disturbance/current
+    msg_type: l3_msgs/msg/CurrentState
+    field_map:
+      dir_deg: current_dir_deg
+      speed_mps: current_speed_mps
+    direction: to_fmu
+  - topic: /ship/state
+    msg_type: l3_external_msgs/msg/FilteredOwnShipState
+    field_map:
+      u_mps: u
+      v_mps: v
+      r_rads: r
+      x_m: x
+      y_m: y
+      psi_rad: psi
+    direction: from_fmu
+    frequency: 50

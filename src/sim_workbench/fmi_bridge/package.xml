@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fmi_bridge</name>
+  <version>0.1.0</version>
+  <description>OSP libcosim FMI 2.0 bridge with dds-fmu mediator (D1.3c)</description>
+  <maintainer email="vv-engineer@mass-l3.local">V&amp;V Engineer</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>fcb_simulator</depend>
+  <depend>pybind11-dev</depend>
+  <exec_depend>python3-pythonfmu</exec_depend>
+  <exec_depend>python3-pyyaml</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
