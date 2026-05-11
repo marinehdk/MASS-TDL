@@ -1,43 +1,50 @@
 # MASS L3 TDL — CI Docker 镜像
 # 详见: docs/Implementation/ci-cd-pipeline.md §4.2
-# 镜像: mass-l3/ci:jazzy-ubuntu22.04
-# D1.2 修订: Docker 版本固定 — SHA256 + apt 版本 ARG
+# D1.3c revision: Humble + Ubuntu 22.04 per SIL decision §3
+# 镜像: mass-l3/ci:humble-ubuntu22.04
 # 构建命令: docker build --build-arg-file tools/docker/version-lock.txt -f tools/docker/Dockerfile.ci .
 ARG ROS_BASE_DIGEST
-FROM ros:jazzy-ros-base-noble@${ROS_BASE_DIGEST}
+FROM ros:humble-ros-base@${ROS_BASE_DIGEST}
 
-ARG GCC_14_VER
-ARG CLANG_TIDY_20_VER
+ARG GCC_12_VER
+ARG CLANG_TIDY_14_VER
 ARG CMAKE_VER
 ARG CPPCHECK_VER
-ARG PYTHON3_12_VER
+ARG PYTHON3_11_VER
 ARG EIGEN3_VER
 ARG GEOGRAPHICLIB_VER
 ARG BOOST_DEV_VER
 ARG NLOHMANN_JSON_VER
 
 # System tools and compilers
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        gcc-14=${GCC_14_VER} g++-14=${GCC_14_VER} \
-        clang-20=${CLANG_TIDY_20_VER} lld-20=${CLANG_TIDY_20_VER} \
-        clang-tidy-20=${CLANG_TIDY_20_VER} clang-format-20=${CLANG_TIDY_20_VER} \
+        gcc-12=${GCC_12_VER} g++-12=${GCC_12_VER} \
+        clang-14=${CLANG_TIDY_14_VER} lld-14=${CLANG_TIDY_14_VER} \
+        clang-tidy-14=${CLANG_TIDY_14_VER} clang-format-14=${CLANG_TIDY_14_VER} \
         cmake=${CMAKE_VER} \
         ninja-build \
         ccache \
         git curl wget \
-        python3.12=${PYTHON3_12_VER} python3-pip python3-venv \
+        python3.11=${PYTHON3_11_VER} python3-pip python3-venv \
         lcov gcovr \
         valgrind \
         cppcheck=${CPPCHECK_VER} \
         jq \
         yamllint \
-        ros-jazzy-geographic-msgs \
-        ros-jazzy-tl-expected \
+        ros-humble-geographic-msgs \
+        ros-humble-tl-expected \
         libeigen3-dev=${EIGEN3_VER} \
         libgeographiclib-dev=${GEOGRAPHICLIB_VER} \
         libboost-dev=${BOOST_DEV_VER} \
         nlohmann-json3-dev=${NLOHMANN_JSON_VER} \
+        libcosim-dev \
+        farn \
+        ospx \
+        pythonfmu \
+        pybind11-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Python tools
@@ -51,9 +58,9 @@ RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
         casadi==3.7.2 \
         empy==3.3.4
 
-# Set GCC 14 as default
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
-    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+# Set GCC 12 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
 
 # ===== 商业静态分析工具占位（F-CRIT-A-009 修复） =====
 #
@@ -100,6 +107,6 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 && \
 # 跟踪: docs/Implementation/00-implementation-master-plan.md §8.1 Wave 0 finding F-CRIT-A-009
 
 # casadi CMake config is inside the pip-installed Python package
-ENV CMAKE_PREFIX_PATH=/usr/local/lib/python3.12/dist-packages/casadi
+ENV CMAKE_PREFIX_PATH=/usr/local/lib/python3.11/dist-packages/casadi
 
 WORKDIR /workspace
