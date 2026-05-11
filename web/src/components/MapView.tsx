@@ -37,85 +37,98 @@ export default function MapView({ mapRef }: Props) {
             },
           },
           layers: [
-            // Depth areas (water fill)
+            // Depth areas (water fill — darkest = deepest, lighter = shallow)
             {
               id: 'enc-depth',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'dybdeareal',
               type: 'fill',
-              filter: ['==', ['get', '_layer'], 'dybdeareal'],
               paint: {
                 'fill-color': [
                   'interpolate', ['linear'], ['zoom'],
-                  6, '#0d2b4a',
-                  10, '#12406b',
-                  14, '#1a5c8a',
+                  6, '#0a1e33',
+                  8, '#0d2847',
+                  10, '#103560',
+                  12, '#144a7a',
+                  14, '#186099',
                 ],
-                'fill-opacity': 0.85,
+                'fill-opacity': 0.9,
               },
             },
-            // Land areas
+            // Land areas (green-brown, like ECDIS land fill)
             {
               id: 'enc-land',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'landareal',
               type: 'fill',
-              filter: ['==', ['get', '_layer'], 'landareal'],
-              paint: { 'fill-color': '#1e2d1e', 'fill-opacity': 0.9 },
+              paint: {
+                'fill-color': '#2d3520',
+                'fill-opacity': 0.95,
+              },
             },
-            // Coastline
+            // Coastline (bright edge between land and water)
             {
               id: 'enc-coast',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'kystkontur',
               type: 'line',
-              filter: ['==', ['get', '_layer'], 'kystkontur'],
-              paint: { 'line-color': '#2a4020', 'line-width': 0.5 },
+              paint: {
+                'line-color': '#5a7a3a',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 11, 1.0, 14, 1.5],
+              },
             },
-            // Depth contours
+            // Depth contours (subtle blue lines)
             {
               id: 'enc-depth-contour',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'dybdekurve',
               type: 'line',
-              filter: ['==', ['get', '_layer'], 'dybdekurve'],
               paint: {
-                'line-color': 'rgba(100,160,220,0.15)',
-                'line-width': 0.3,
+                'line-color': 'rgba(90,160,210,0.18)',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.2, 12, 0.4],
               },
             },
-            // Danger areas (fareomrade)
+            // Danger areas (red tinted fill)
             {
               id: 'enc-danger',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'fareomrade',
               type: 'fill',
-              filter: ['==', ['get', '_layer'], 'fareomrade'],
-              paint: { 'fill-color': '#F85149', 'fill-opacity': 0.2 },
+              paint: { 'fill-color': '#F85149', 'fill-opacity': 0.15 },
             },
-            // Shoals/rocks (grunne = point)
+            // Shoals (point circles)
             {
               id: 'enc-shoal',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'grunne',
               type: 'circle',
-              filter: ['in', ['get', '_layer'], ['literal', ['grunne', 'skjer']]],
               paint: {
-                'circle-radius': 2.5,
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 12, 3.5],
                 'circle-color': '#F26B6B',
-                'circle-opacity': 0.6,
+                'circle-opacity': 0.55,
               },
             },
-            // Piers/quays (kaibrygge)
+            // Rocks awash (point circles, same style as shoals)
+            {
+              id: 'enc-skjer',
+              source: 'enc',
+              'source-layer': 'skjer',
+              type: 'circle',
+              paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 12, 3],
+                'circle-color': '#F26B6B',
+                'circle-opacity': 0.5,
+              },
+            },
+            // Piers/quays (grey lines)
             {
               id: 'enc-pier',
               source: 'enc',
-              'source-layer': 'enc',
+              'source-layer': 'kaibrygge',
               type: 'line',
-              filter: ['==', ['get', '_layer'], 'kaibrygge'],
               paint: {
-                'line-color': '#8A9AAD',
-                'line-width': 1,
+                'line-color': '#6A7A8A',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 14, 1.5],
                 'line-opacity': 0.5,
               },
             },
