@@ -1,0 +1,8 @@
+landareal
+kystkontur
+dybdeareal
+dybdekurve
+fareomrade
+grunne
+skjer
+kaibrygge

@@ -75,3 +75,6 @@ tags
 cscope.out
 reports/*.json
 reports/*.html
+web/public/tiles/
+web/dist/
+web/node_modules/
