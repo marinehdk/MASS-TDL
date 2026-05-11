@@ -3,11 +3,23 @@ import { SidePanel } from './components/SidePanel';
 import MapView, { updateOwnShipOnMap, updateTargetsOnMap, type maplibregl } from './components/MapView';
 import { useFoxgloveBridge } from './hooks/useFoxgloveBridge';
 import { useSilDebug } from './hooks/useSilDebug';
+import { DEMO_R14_TARGET, DEMO_OWN_SHIP, makeDemoSilData } from './data/demoTarget';
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const silData = useSilDebug();
   const { ownShip, targets, connected } = useFoxgloveBridge();
+
+  // DEMO-1 fallback: when foxglove_bridge is not connected, show static R14 encounter
+  useEffect(() => {
+    if (!connected && mapRef.current) {
+      const timer = setTimeout(() => {
+        updateOwnShipOnMap(mapRef.current, DEMO_OWN_SHIP);
+        updateTargetsOnMap(mapRef.current, [DEMO_R14_TARGET]);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [connected]);
 
   // Update MapLibre layers when foxglove_bridge data changes
   useEffect(() => {
@@ -17,6 +29,9 @@ export default function App() {
   useEffect(() => {
     updateTargetsOnMap(mapRef.current, targets);
   }, [targets]);
+
+  // Use demo SilDebugData when /ws/sil_debug is not connected
+  const effectiveSilData = silData ?? (!connected ? makeDemoSilData() : null);
 
   return (
     <div style={{
@@ -54,7 +69,7 @@ export default function App() {
           {connected ? 'foxglove 8765' : 'fs disconnected'}
         </div>
       </div>
-      <SidePanel data={silData} />
+      <SidePanel data={effectiveSilData} />
     </div>
   );
 }
