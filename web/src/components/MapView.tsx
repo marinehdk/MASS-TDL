@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { default as maplibregl } from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { OWN_SHIP_SPRITE, TARGET_SHIP_SPRITE } from './shipSprite';
 import type { NavState, TargetState } from '../types/sil';
@@ -16,13 +16,14 @@ export default function MapView({ mapRef }: Props) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const internalMapRef = useRef<maplibregl.Map | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [webglError, setWebglError] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current || internalMapRef.current) return;
 
-    // Dynamic import to avoid SSR issues
-    import('maplibre-gl').then(({ default: maplibregl }) => {
-      const map = new maplibregl.Map({
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
         container: mapContainer.current!,
         style: {
           version: 8,
@@ -221,9 +222,15 @@ export default function MapView({ mapRef }: Props) {
         setLoaded(true);
       });
 
-      internalMapRef.current = map;
-      if (mapRef) mapRef.current = map;
-    });
+    } catch (_e) {
+      // WebGL not available (headless browser, no GPU) — show fallback overlay
+      setWebglError(true);
+      setLoaded(true); // dismiss loading overlay
+      return;
+    }
+
+    internalMapRef.current = map;
+    if (mapRef) mapRef.current = map;
 
     return () => {
       if (mapRef) mapRef.current = null;
@@ -253,7 +260,7 @@ export default function MapView({ mapRef }: Props) {
         Z{ZOOM} · 63.43°N 10.40°E · Trondheim Fjord
       </div>
       {/* Loading overlay */}
-      {!loaded && (
+      {!loaded && !webglError && (
         <div style={{
           position: 'absolute',
           inset: 0,
@@ -270,6 +277,43 @@ export default function MapView({ mapRef }: Props) {
             letterSpacing: '0.12em',
           }}>
             Loading ENC Charts...
+          </div>
+        </div>
+      )}
+      {/* WebGL unavailable fallback */}
+      {webglError && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0a1628',
+          gap: '12px',
+          zIndex: 50,
+        }}>
+          <div style={{
+            fontFamily: 'var(--fnt-disp)',
+            fontSize: '18px',
+            color: 'var(--color-phos)',
+            letterSpacing: '0.08em',
+          }}>
+            TRONDHEIM FJORD
+          </div>
+          <div style={{
+            fontFamily: 'var(--fnt-mono)',
+            fontSize: '12px',
+            color: 'var(--txt-2)',
+          }}>
+            63.43°N 10.40°E · Z{ZOOM} · ENC Charts require WebGL
+          </div>
+          <div style={{
+            fontFamily: 'var(--fnt-mono)',
+            fontSize: '10px',
+            color: 'var(--txt-3)',
+          }}>
+            Open in GPU-enabled browser for full MapLibre GL rendering
           </div>
         </div>
       )}
