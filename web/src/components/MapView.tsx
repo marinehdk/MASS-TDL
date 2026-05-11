@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { default as maplibregl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { OWN_SHIP_SPRITE, TARGET_SHIP_SPRITE } from './shipSprite';
+import type { NavState, TargetState } from '../types/sil';
 
 /** Trondheim Fjord demo viewport */
 const CENTER: [number, number] = [10.395, 63.435]; // [lng, lat]
@@ -274,6 +275,87 @@ export default function MapView({ mapRef }: Props) {
       )}
     </div>
   );
+}
+
+/** Update own-ship position, heading, and COG vector on the map */
+export function updateOwnShipOnMap(map: maplibregl.Map | null, nav: NavState | null) {
+  if (!map || !nav || !map.loaded()) return;
+
+  const src = map.getSource('own-ship-src') as maplibregl.GeoJSONSource;
+  if (!src) return;
+
+  src.setData({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [nav.lon, nav.lat] },
+      properties: { heading_deg: nav.heading_deg, sog_kn: nav.sog_kn },
+    }],
+  });
+
+  // COG vector: line from own-ship to predicted position (SOG x 60s)
+  const R = 6371000;
+  const headingRad = (nav.cog_deg * Math.PI) / 180;
+  const distM = nav.sog_kn * 0.514444 * 60;
+  const dLat = (distM * Math.cos(headingRad)) / R;
+  const dLng = (distM * Math.sin(headingRad)) / (R * Math.cos((nav.lat * Math.PI) / 180));
+
+  const cogSrc = map.getSource('cog-vector-src') as maplibregl.GeoJSONSource;
+  if (cogSrc) {
+    cogSrc.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [nav.lon, nav.lat],
+            [nav.lon + (dLng * 180) / Math.PI, nav.lat + (dLat * 180) / Math.PI],
+          ],
+        },
+        properties: {},
+      }],
+    });
+  }
+}
+
+/** Update target ships and CPA ring on the map */
+export function updateTargetsOnMap(map: maplibregl.Map | null, targets: TargetState[]) {
+  if (!map || !map.loaded()) return;
+
+  const tgtSrc = map.getSource('target-ships-src') as maplibregl.GeoJSONSource;
+  const cpaSrc = map.getSource('cpa-ring-src') as maplibregl.GeoJSONSource;
+
+  if (tgtSrc) {
+    tgtSrc.setData({
+      type: 'FeatureCollection',
+      features: targets
+        .filter(t => t.confidence >= 0.7)
+        .map(t => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [t.lon, t.lat] },
+          properties: {
+            heading_deg: t.heading_deg,
+            colreg_role: t.colreg_role,
+            confidence: t.confidence,
+            mmsi: t.mmsi,
+          },
+        })),
+    });
+  }
+
+  // CPA ring on closest threat
+  if (cpaSrc && targets.length > 0) {
+    const closest = targets.reduce((a, b) => a.cpa_nm < b.cpa_nm ? a : b);
+    cpaSrc.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [closest.lon, closest.lat] },
+        properties: { cpa_nm: closest.cpa_nm },
+      }],
+    });
+  }
 }
 
 /** Re-export maplibregl type for use by data hooks */
