@@ -1,0 +1,99 @@
+---
+# MASS L3 TDL — clang-tidy M8 HMI 简化基线（M8 HMI/Transparency Bridge）
+# 详见: docs/Implementation/static-analysis-policy.md §6（M8 裁剪集）
+# 与 .clang-tidy 主基线相比的差异：
+#   - 豁免动态分配（HTTP 请求/响应天然动态）
+#   - 豁免异常禁用（Web 框架普遍用异常）
+#   - 函数尺寸放宽（Web handler 天然长于核心逻辑）
+#   - 移除 AUTOSAR OO 严格规则（模板深度限制等）
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-no-malloc,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -hicpp-no-malloc,
+  -hicpp-special-member-functions,
+  -hicpp-explicit-conversions,
+  -hicpp-use-auto,
+  -hicpp-vararg,
+  -portability-template-virtual-member-function,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-throw-by-value-catch-by-reference,
+  -cert-err58-cpp,
+  -cert-err60-cpp,
+  -modernize-use-auto,
+  -modernize-use-nodiscard,
+  -performance-unnecessary-value-param,
+  -readability-avoid-const-params-in-decls,
+  -readability-convert-member-functions-to-static,
+  -readability-make-member-function-const,
+  -readability-simplify-boolean-expr,
+  -readability-uppercase-literal-suffix
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(mass_l3|m8_hmi|l3_msgs)/.*'
+FormatStyle: file
+CheckOptions:
+  # M8 放宽函数尺寸（Web handler 天然长于核心逻辑）
+  - key: readability-function-size.LineThreshold
+    value: '120'
+  - key: readability-function-size.StatementThreshold
+    value: '80'
+
+  # 命名规则（与 .clang-tidy 主基线一致）
+  - key: readability-identifier-naming.NamespaceCase
+    value: 'lower_case'
+  - key: readability-identifier-naming.ClassCase
+    value: 'CamelCase'
+  - key: readability-identifier-naming.StructCase
+    value: 'CamelCase'
+  - key: readability-identifier-naming.EnumCase
+    value: 'CamelCase'
+  - key: readability-identifier-naming.FunctionCase
+    value: 'lower_case'
+  - key: readability-identifier-naming.MethodCase
+    value: 'lower_case'
+  - key: readability-identifier-naming.VariableCase
+    value: 'lower_case'
+  - key: readability-identifier-naming.ParameterCase
+    value: 'lower_case'
+  - key: readability-identifier-naming.MemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.ConstantCase
+    value: 'CamelCase'
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: 'CamelCase'
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: 'UPPER_CASE'
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: 'CamelCase'
+  - key: bugprone-macro-parentheses.IgnoreMacros
+    value: '1'
+  - key: cppcoreguidelines-avoid-do-while.IgnoreMacros
+    value: 'true'
