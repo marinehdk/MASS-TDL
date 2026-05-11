@@ -313,3 +313,5 @@
 | 日期 | 版本 | 修订内容 |
 |---|---|---|
 | 2026-05-11 | v1.1 | G P0-G-1(c) CLOSED — AIS 历史数据场景 authoring 工具已交付。Closed by D1.3b.2: scenario_authoring package (5-stage AIS pipeline + 50Hz replay node + config-driven L1 mode switching) |
+| 2026-05-11 | v1.1 | SIL P0 SIL-1 (v3.1 NEW) CLOSED — FMI bridge 缺失已解决。D1.3c Phase 1: fmi_bridge package (pybind11 + pythonfmu + libcosim_wrapper + dds-fmu mediator + M7-FMI CI lint), regression test 1/1 skip-only, M7-FMI isolation PASS |
+| 2026-05-11 | v1.1 | V&V P0 E1 CLOSED — SIL latency budget 已处理。dds-fmu exchange budget P95 < 10ms, M7 KPI < 10ms preserved via ROS2 native path; D1.3c full regression PASS |
