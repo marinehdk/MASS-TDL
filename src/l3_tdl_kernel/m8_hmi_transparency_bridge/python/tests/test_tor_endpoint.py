@@ -1,7 +1,6 @@
 """Tests for POST /api/tor/acknowledge."""
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 

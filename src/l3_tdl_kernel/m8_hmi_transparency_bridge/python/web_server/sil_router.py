@@ -61,7 +61,10 @@ def get_latest_report() -> str:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     html_files = sorted(REPORTS_DIR.glob("coverage_report_*.html"), reverse=True)
     if not html_files:
-        raise HTTPException(status_code=404, detail="No coverage report found. Run /sil/scenario/run first.")
+        raise HTTPException(
+            status_code=404,
+            detail="No coverage report found. Run /sil/scenario/run first.",
+        )
     return html_files[0].read_text(encoding="utf-8")
 
 
@@ -88,9 +91,10 @@ def _sync_batch_run(job_id: str) -> None:
     import sys
     sys.path.insert(0, str(tools_dir))
 
+    from datetime import datetime, timezone
+
     import batch_runner
     import coverage_reporter
-    from datetime import datetime, timezone
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     batch_runner.run_batch(SCENARIOS_DIR, REPORTS_DIR)

@@ -1,8 +1,8 @@
 """Unit tests for sil_schemas pydantic models."""
 from datetime import datetime, timezone
 
-from web_server.sil_schemas import SilDebugSchema, SilODDPanel, SilSAT1Panel
 from web_server.schemas import Sat1ThreatSchema
+from web_server.sil_schemas import SilDebugSchema, SilODDPanel, SilSAT1Panel
 
 
 def test_sil_debug_schema_defaults():

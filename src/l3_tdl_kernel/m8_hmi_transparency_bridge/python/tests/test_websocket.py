@@ -8,9 +8,10 @@ def test_websocket_broadcast_smoke() -> None:
     Full end-to-end WS test requires pytest-anyio + uvicorn — deferred to Phase E2.
     """
     import asyncio
-    from web_server.websocket import broadcast_ui_state, _active_clients
-    from web_server.schemas import UiStateSchema
     from datetime import datetime, timezone
+
+    from web_server.schemas import UiStateSchema
+    from web_server.websocket import broadcast_ui_state
 
     # With no active clients, broadcast should complete silently
     async def run() -> None:

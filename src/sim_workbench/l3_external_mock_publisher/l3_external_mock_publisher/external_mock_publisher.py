@@ -16,27 +16,26 @@ Wave 0 fixes:
 Usage:
     ros2 run l3_external_mock_publisher external_mock_publisher
 """
-import rclpy
-from rclpy.node import Node
-from builtin_interfaces.msg import Time
-from geographic_msgs.msg import GeoPoint, GeoPath
-from typing import Optional, List
 
+import rclpy
+from builtin_interfaces.msg import Time
+from geographic_msgs.msg import GeoPoint
 from l3_external_msgs.msg import (
-    VoyageTask,
-    PlannedRoute,
-    SpeedProfile,
-    ReplanResponse,
-    TrackedTargetArray,
-    FilteredOwnShipState,
-    EnvironmentState,
     CheckerVetoNotification,
     EmergencyCommand,
-    ReflexActivationNotification,
+    EnvironmentState,
+    FilteredOwnShipState,
     OverrideActiveSignal,
+    PlannedRoute,
+    ReflexActivationNotification,
+    ReplanResponse,
+    SpeedProfile,
     TimeWindow,
+    TrackedTargetArray,
+    VoyageTask,
 )
-from l3_msgs.msg import TrackedTarget, EncounterClassification
+from l3_msgs.msg import EncounterClassification, TrackedTarget
+from rclpy.node import Node
 
 
 class ExternalMockPublisher(Node):
@@ -130,7 +129,7 @@ class ExternalMockPublisher(Node):
         msg.schema_version = "v1.1.2"
         msg.stamp = stamp
 
-        targets: List[TrackedTarget] = []
+        targets: list[TrackedTarget] = []
         for tid in (1, 2):
             t = TrackedTarget()
             t.stamp = stamp
@@ -280,7 +279,7 @@ class ExternalMockPublisher(Node):
             self._publish_emergency_command(stamp)
 
 
-def main(args: Optional[list[str]] = None) -> None:
+def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = ExternalMockPublisher()
     try:

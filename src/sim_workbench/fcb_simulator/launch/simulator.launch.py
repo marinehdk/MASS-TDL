@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Proprietary
 """Launch fcb_simulator and ais_bridge for D1.3a SIL integration."""
-import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution

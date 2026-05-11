@@ -1,11 +1,12 @@
 """Shared fixtures for M8 Python tests."""
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
-import sys
-import os
 # Ensure web_server package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

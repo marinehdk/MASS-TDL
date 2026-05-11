@@ -5,18 +5,17 @@ Does NOT modify any of the 4 existing test files.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from web_server.app import create_app
-from web_server.sil_schemas import SilDebugSchema, SilODDPanel, SilSAT1Panel
 from web_server.schemas import Sat1ThreatSchema
+from web_server.sil_schemas import SilDebugSchema, SilODDPanel, SilSAT1Panel
 
 
 @pytest.fixture
@@ -151,7 +150,8 @@ def test_report_latest_returns_html_content_type(client, tmp_path, monkeypatch):
     """GET /sil/report/latest returns response with HTML content."""
     from web_server import sil_router
     monkeypatch.setattr(sil_router, "REPORTS_DIR", tmp_path)
-    (tmp_path / "coverage_report_20260615.html").write_text("<html><body>Coverage Results</body></html>")
+    html_content = "<html><body>Coverage Results</body></html>"
+    (tmp_path / "coverage_report_20260615.html").write_text(html_content)
     resp = client.get("/sil/report/latest")
     assert resp.status_code == 200
     assert "Coverage Results" in resp.text
@@ -173,7 +173,7 @@ def test_report_latest_returns_most_recent_file(client, tmp_path, monkeypatch):
 
 def test_ws_sil_debug_accepts_connection(client):
     """WebSocket connection to /ws/sil_debug is accepted."""
-    with client.websocket_connect("/ws/sil_debug") as ws:
+    with client.websocket_connect("/ws/sil_debug"):
         pass  # Connection established without error
 
 
@@ -296,7 +296,7 @@ def test_ws_ui_state_still_works(client):
     """Verify WebSocket /ws/ui_state endpoint is unaffected."""
     # WebSocket endpoint exists (even if it may not return data in test)
     # Just verify it doesn't 404
-    with client.websocket_connect("/ws/ui_state") as ws:
+    with client.websocket_connect("/ws/ui_state"):
         pass  # Should connect
 
 

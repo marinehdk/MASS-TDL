@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import rclpy
 import rclpy.node
-
 from l3_msgs.msg import ODDState, SAT1Data, SAT2Data, SAT3Data, SATData
 
 

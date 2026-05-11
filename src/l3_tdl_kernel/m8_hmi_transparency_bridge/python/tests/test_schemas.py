@@ -1,8 +1,9 @@
 """pydantic model validation tests."""
 from __future__ import annotations
 
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 from pydantic import ValidationError
 
 from web_server.schemas import (

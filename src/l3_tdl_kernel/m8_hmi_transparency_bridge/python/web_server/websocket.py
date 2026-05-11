@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -12,7 +11,7 @@ from web_server.schemas import UiStateSchema
 router = APIRouter()
 logger = logging.getLogger("m8_web_backend.websocket")
 
-_active_clients: Set[WebSocket] = set()
+_active_clients: set[WebSocket] = set()
 _clients_lock = asyncio.Lock()
 
 

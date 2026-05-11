@@ -1,5 +1,5 @@
 """Unit tests for sil_ws WebSocket module."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 

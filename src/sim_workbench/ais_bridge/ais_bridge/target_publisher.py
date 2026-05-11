@@ -20,7 +20,6 @@ def build_tracked_target_array(records: list[AISRecord], stamp, node=None):
     No vessel-type literals anywhere in this function (multi_vessel_lint compliant).
     """
     from geographic_msgs.msg import GeoPoint
-
     from l3_external_msgs.msg import TrackedTargetArray
     from l3_msgs.msg import EncounterClassification, TrackedTarget
 

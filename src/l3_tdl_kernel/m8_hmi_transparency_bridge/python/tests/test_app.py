@@ -1,7 +1,6 @@
 """FastAPI app CORS and lifecycle tests."""
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from web_server.app import create_app
@@ -31,12 +30,10 @@ def test_unknown_origin_does_not_reflect(client: TestClient) -> None:
 
 
 def test_app_has_correct_title() -> None:
-    from web_server.app import create_app
     app = create_app(cors_origins=["*"])
     assert app.title == "MASS L3 M8 HMI Backend"
 
 
 def test_app_version() -> None:
-    from web_server.app import create_app
     app = create_app(cors_origins=["*"])
     assert app.version == "1.0.0"

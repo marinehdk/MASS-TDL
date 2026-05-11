@@ -6,14 +6,14 @@ MUST-9: FM-2 fallback must emit safety_concern_event to M7, not MRM directly.
 """
 
 import pytest
-
-from common.capability_manifest import CapabilityManifest, HullClass
 from m5_tactical_planner.fallback_policy import (
     SafetyConcernEvent,
     fm2_handle_collision_imminent,
     fm4_handle_odd_breach,
     fm4_rot_limit,
 )
+
+from common.capability_manifest import CapabilityManifest, HullClass
 
 
 @pytest.fixture

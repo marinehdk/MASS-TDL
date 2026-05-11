@@ -1,5 +1,4 @@
 """Verify SIL routes are registered in the FastAPI app."""
-import pytest
 from fastapi.testclient import TestClient
 
 
