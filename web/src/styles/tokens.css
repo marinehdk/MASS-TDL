@@ -1,0 +1,61 @@
+/* ═══════════════════════════════════════════
+   HMI Design Tokens — D1.3b.3 DEMO-1
+   Authority: MASS_TDL_HMI_Design_Spec_v1.0.md §8
+   Mode: Night (default)
+   ═══════════════════════════════════════════ */
+:root, [data-theme="night"] {
+  /* ── Backgrounds ── */
+  --bg-0: #070C13;
+  --bg-1: #0B1320;
+  --bg-2: #101B2C;
+  --bg-3: #16263A;
+  /* ── Lines ── */
+  --line-1: #1B2C44;
+  --line-2: #243C58;
+  --line-3: #3A5677;
+  /* ── Text ── */
+  --txt-0: #F1F6FB;
+  --txt-1: #C5D2E0;
+  --txt-2: #8A9AAD;
+  --txt-3: #566578;
+  /* ── Semantic colors ── */
+  --color-phos: #5BC0BE;
+  --color-stbd: #3FB950;
+  --color-port: #F26B6B;
+  --color-warn: #F0B72F;
+  --color-info: #79C0FF;
+  --color-danger: #F85149;
+  --color-magenta: #D070D0;
+  /* ── Chart layer colors ── */
+  --chart-water-deep: #0d2b4a;
+  --chart-water-med: #12406b;
+  --chart-water-shallow: #1a5c8a;
+  --chart-land: #1e2d1e;
+  --chart-coast: #2a4020;
+  --chart-depth-line: rgba(100, 160, 220, 0.15);
+  --chart-grid: rgba(255, 255, 255, 0.04);
+  /* ── Fonts (Design Spec §8.2) ── */
+  --fnt-disp: 'Saira Condensed', 'Noto Sans SC', sans-serif;
+  --fnt-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --fnt-body: 'Noto Sans SC', 'Saira Condensed', sans-serif;
+  /* ── Spacing & radius (Design Spec §8.3) ── */
+  --radius-none: 0;
+  --radius-min: 2px;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 18px;
+  --sp-xl: 24px;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root {
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--txt-1);
+  font-family: var(--fnt-body);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
