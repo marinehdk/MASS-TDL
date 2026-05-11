@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SidePanel } from './components/SidePanel';
 import MapView, { updateOwnShipOnMap, updateTargetsOnMap, type maplibregl } from './components/MapView';
+import ChartLegend from './components/ChartLegend';
 import { useFoxgloveBridge } from './hooks/useFoxgloveBridge';
 import { useSilDebug } from './hooks/useSilDebug';
 import { DEMO_R14_TARGET, DEMO_OWN_SHIP, makeDemoSilData } from './data/demoTarget';
@@ -9,6 +10,7 @@ export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const silData = useSilDebug();
   const { ownShip, targets, connected } = useFoxgloveBridge();
+  const [selectedScenario, setSelectedScenario] = useState('colreg-rule14-ho-001-seed42-v1.0.yaml');
 
   // DEMO-1 fallback: when foxglove_bridge is not connected, show static R14 encounter
   useEffect(() => {
@@ -41,6 +43,7 @@ export default function App() {
     }}>
       <div style={{ position: 'relative' }}>
         <MapView mapRef={mapRef} />
+        <ChartLegend />
         {/* foxglove_bridge connection indicator */}
         <div style={{
           position: 'absolute',
@@ -69,7 +72,11 @@ export default function App() {
           {connected ? 'foxglove 8765' : 'fs disconnected'}
         </div>
       </div>
-      <SidePanel data={effectiveSilData} />
+      <SidePanel
+        data={effectiveSilData}
+        scenarioId={selectedScenario}
+        onScenarioChange={setSelectedScenario}
+      />
     </div>
   );
 }
