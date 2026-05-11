@@ -1,0 +1,9 @@
+# scenario_authoring configuration
+# Populated by subsequent D1.3b.2 tasks
+pipeline:
+  ais_data_dir: ""
+  output_dir: ""
+  colreg_threshold_deg: 30.0
+  min_cpa_nm: 0.5
+  max_cpa_nm: 5.0
+  time_window_s: 600

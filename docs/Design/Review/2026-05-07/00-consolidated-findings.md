@@ -305,3 +305,11 @@
 ---
 
 *汇总完成 · 2026-05-07 · 主 agent 跨 7 angle 整合 · 全部证据链可追溯到具体 angle 报告 §X 与仓库 file:line*
+
+---
+
+## 修订记录
+
+| 日期 | 版本 | 修订内容 |
+|---|---|---|
+| 2026-05-11 | v1.1 | G P0-G-1(c) CLOSED — AIS 历史数据场景 authoring 工具已交付。Closed by D1.3b.2: scenario_authoring package (5-stage AIS pipeline + 50Hz replay node + config-driven L1 mode switching) |
