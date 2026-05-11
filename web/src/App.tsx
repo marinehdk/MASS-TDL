@@ -1,11 +1,17 @@
+import { useState } from 'react';
+import { SidePanel } from './components/SidePanel';
+import type { SilDebugData } from './types/sil';
+
 export default function App() {
+  const [silData, setSilData] = useState<SilDebugData | null>(null);
+
   return (
     <div style={{
       display: 'grid',
       gridTemplateColumns: '1fr 320px',
       height: '100vh',
     }}>
-      {/* Chart Area — MapLibre GL (filled by later tasks) */}
+      {/* Chart Area — MapLibre GL (Task 5 fills this) */}
       <div style={{
         background: 'var(--bg-0)',
         position: 'relative',
@@ -19,29 +25,7 @@ export default function App() {
         </span>
       </div>
 
-      {/* Side Panel — filled by Task 4 */}
-      <div style={{
-        background: 'var(--bg-1)',
-        borderLeft: '1px solid var(--line-1)',
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
-        <div style={{
-          padding: '18px 20px',
-          borderBottom: '1px solid var(--line-1)',
-        }}>
-          <div style={{
-            fontFamily: 'var(--fnt-disp)',
-            fontSize: '11px',
-            letterSpacing: '0.22em',
-            color: 'var(--color-phos)',
-            fontWeight: 600,
-          }}>
-            SIDE PANEL
-          </div>
-        </div>
-      </div>
+      <SidePanel data={silData} />
     </div>
   );
 }
