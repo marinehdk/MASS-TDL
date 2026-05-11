@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from web_server.ros_bridge import RosBridge
 from web_server.sil_router import router as sil_router
@@ -46,4 +48,9 @@ def create_app(cors_origins: list[str]) -> FastAPI:
     app.include_router(ws_router)
     app.include_router(sil_router, prefix="/sil")
     app.include_router(sil_ws_router)
+    # D1.3b.3: Serve React production build as static files
+    # Path from web_server/app.py -> web/dist (4 levels up)
+    _WEB_DIST = Path(__file__).resolve().parents[4] / "web" / "dist"
+    if _WEB_DIST.exists():
+        app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
     return app
