@@ -1,7 +1,7 @@
 # D1.3b.3 · Web HMI + ENC + foxglove_bridge · 执行 Spec
 
-**版本**：v1.0
-**日期**：2026-05-11
+**版本**：v1.1
+**日期**：2026-05-11（v1.0 → v1.1: 对齐 HMI Design Spec v1.0 视觉令牌体系 + 三层演进路线）
 **作者**：M8 前端负责人 + 技术负责人（brainstorming 产出，下一步走 `/writing-plans`）
 **v3.1 D 编号**：D1.3b.3
 **Owner**：M8 前端负责人（React + MapLibre GL）+ 技术负责人（ROS2 foxglove_bridge + 架构审）
@@ -24,6 +24,44 @@
 | **浏览器 ROS2 库** | roslibjs-foxglove (npm, tier4 fork) — JSON mode for DEMO-1 | GitHub tier4/roslibjs-foxglove |
 | **JSON vs Protobuf** | JSON for DEMO-1 (dev speed + debug), Protobuf for DEMO-2 (binary, ~5 KB/s with 50 vessels) | foxglove.dev blog + Auth0 benchmark |
 | **FastAPI static serving** | `StaticFiles` mount React build → port 8000, 不另起 nginx/Node.js | G P1-G-5 铁律 |
+
+### 0.1 与现有 HMI 设计资产的继承关系
+
+D1.3b.3 不是独立于项目 HMI 体系的设计——它复用并实现以下已有规范的**子集**：
+
+| 资产 | 路径 | 关系 |
+|---|---|---|
+| **HMI Design Spec v1.0** | `docs/Design/Detailed Design/HMI-Design/MASS_TDL_HMI_Design_Spec_v1.0.md` | **权威视觉规范**。D1.3b.3 的 CSS tokens、字体分层、颜色编码直接引用 Design Spec §8，不做独立版本 |
+| **Bridge HMI v0.1** | `docs/Design/Detailed Design/HMI-Design/MASS_TDL_Bridge_HMI.html` | **视觉参考实现**。v0.1 是完整的 SVG 桥楼 HMI；D1.3b.3 在 MapLibre GL 上实现其 SA subset |
+| **L3_TDL_SIL_Interactive.html** | `docs/Design/Architecture Design/` | **信息内容基线**。D1.3b.3 复现其侧面板信息块（CPA/TCPA/Rule/Decision/Pulse/ASDR），视觉风格升级为 Design Spec 规范 |
+
+### 0.2 三层演进路线（不推翻重来）
+
+DEMO-1 建地基，代码跨阶段持久。后续只加组件不重构布局骨架：
+
+```
+DEMO-1 (6/15)          DEMO-2 (7/31)          D3.4 (8/31)
+═════════════════      ═════════════════       ═════════════════
+React+Vite+MapLibre     ── 持久 ──▶            ── 持久 ──▶
+CSS tokens (Night)      +Day/Dusk 模式         +Bright 模式
+ENC Trondheim tiles     +SF Bay tiles           —
+foxglove_bridge JSON    +Protobuf               —
+Own/Target (2 vessels)  +50 vessels             —
+CPA ring + COG vector   —                       —
+Side panel (6 cards)    —                       +SAT-2 自然语言摘要
+useThrottledTopic       adjust maxFps           —
+Grounding hazard        ← NEW                  —
+Arrow replay+scrubber   ← NEW                  —
+Puppeteer GIF batch     ← NEW                  —
+Trajectory ghosting                             ← NEW
+ToR countdown panel                             ← NEW
+M7 verdict badge                                ← NEW
+Captain/Operator 双视图                          ← NEW
+ODD badge + TMR/TDL                             ← NEW
+Conning Bar 五仪表                               ← NEW
+```
+
+**关键原则**：DEMO-1 写的每个 React 组件必须能原样用到 D3.4。后续只替换/扩展组件内部，不碰布局。
 
 ---
 
@@ -60,22 +98,53 @@
 | P7 | 场景选择器 | 行内按钮组 | `ScenarioSelector` | REST `/sil/scenario/list` | 有则优 |
 | P8 | Play/Reset 控件 | 按钮 | `PlaybackControls` | REST `/sil/scenario/run` | 有则优 |
 
-### 1.3 视觉设计 Token（从原型继承，不新创）
+### 1.3 视觉设计令牌（对齐 HMI Design Spec v1.0 §8）
 
-原型 CSS 自定义属性须完整迁移到 React 组件：
+D1.3b.3 的 CSS 变量体系、字体分层、颜色编码**直接引用** `MASS_TDL_HMI_Design_Spec_v1.0.md` §8 作为唯一权威来源，不做独立副本。
 
+**DEMO-1 启用模式**：Night（默认），`data-theme="night"`
+
+**核心色板（从 Design Spec §8.1 提取，MapLibre 海图专用）：**
+
+```css
+/* ── 海图层 —— */
+--color-water-deep:    #0d2b4a;   /* 深海 */
+--color-water-med:     #12406b;   /* 中深度 */
+--color-water-shallow: #1a5c8a;   /* 浅水 */
+--color-land:          #1e2d1e;   /* 陆地填充 */
+--color-coast:         #2a4020;   /* 海岸线 */
+
+/* ── 符号层 —— 对齐 Design Spec 语义色 —— */
+--color-phos:   #5BC0BE;   /* phosphor 青 — 本船/雷达航迹 */
+--color-stbd:   #3FB950;   /* 右舷绿 — 安全/通过 */
+--color-port:   #F26B6B;   /* 左舷红 — 危险/威胁 (Give-Way) */
+--color-warn:   #F0B72F;   /* 警告琥珀 — Stand-On 关系 */
+--color-info:   #79C0FF;   /* 信息蓝 — 安全目标 */
+--color-magenta:#D070D0;   /* 预测路径 (MID-MPC trajectory ghosting, D3.4) */
+
+/* ── 侧面板 —— 对齐 Design Spec 背景/文本 —— */
+--bg-0:  #070C13;    --bg-1:  #0B1320;    --bg-2:  #101B2C;
+--txt-0: #F1F6FB;    --txt-1:  #C5D2E0;    --txt-2:  #8A9AAD;    --txt-3: #566578;
+--line-1:#1B2C44;    --line-2: #243C58;
 ```
---color-text-primary:   #2c2c2a (浅色) / #e6e4dc (深色)
---color-text-secondary: #5f5e5a / #aeaca4
---color-text-info:      #185fa5 / #85b7eb
---color-text-success:   #3b6d11 / #97c459
---color-text-warning:   #854f0b / #ef9f27
---color-text-danger:    #a32d2d / #f09595
---font-sans: system-ui, sans-serif
---font-mono: "SF Mono", "Fira Code", monospace
+
+**字体分层（Design Spec §8.2）：**
+
+```css
+--fnt-disp: 'Saira Condensed', 'Noto Sans SC', sans-serif;  /* 标签/标题 */
+--fnt-mono: 'JetBrains Mono', ui-monospace, monospace;       /* 数字/数值 */
+--fnt-body: 'Noto Sans SC', 'Saira Condensed', sans-serif;   /* 正文/摘要 */
 ```
 
-Dark mode 通过 `prefers-color-scheme: dark` 媒体查询自动切换，与原型行为一致。
+**间距与圆角（Design Spec §8.3）：**
+
+```css
+--radius-none: 0;     /* 面板/按钮/卡片 — 船桥工业风格，禁止圆角 ≥4px */
+--radius-min:  2px;   /* 小型徽章/标签 */
+```
+
+**DEMO-2 追加模式**：`data-theme="day"` / `data-theme="dusk"`，仅加 CSS 变量不改造型。
+**D3.4 追加模式**：`data-theme="bright"`（强光甲板）。
 
 ---
 
@@ -234,7 +303,7 @@ const map = new maplibregl.Map({
 });
 ```
 
-### 4.2 Own-ship Layer
+### 4.2 Own-ship Layer（对齐 Design Spec §4.2 + Bridge HMI phosphor 色）
 
 ```typescript
 // GeoJSON source, updated per frame from foxglove_bridge data
@@ -254,7 +323,7 @@ const ownShipSource: GeoJSON.Feature = {
   type: 'symbol',
   source: 'own-ship',
   layout: {
-    'icon-image': 'ship-own',         // custom sprite (24×36px PNG)
+    'icon-image': 'ship-own',         // custom sprite: 正三角 + 艏向线, color: --color-phos (#5BC0BE)
     'icon-rotate': ['get', 'heading_deg'],
     'icon-rotation-alignment': 'map',
     'icon-size': 0.08,
@@ -262,9 +331,13 @@ const ownShipSource: GeoJSON.Feature = {
 }
 ```
 
-Custom sprite: 蓝色三角形 + 艏向线, 24×36px PNG, 与原 HTML `#fcb-ship` polygon 视觉一致。
+Custom sprite 规范（对齐 Design Spec §4.2）：
+- 形状：正三角（顶点朝艏向），填充 `#5BC0BE` (--color-phos)，边框 1px
+- 艏向线：自顶点延伸，长度 = SOG × 6min 比例，同色
+- 尺寸：14px 边长 @ zoom 11
+- 标签："FCB-01" + "HDG 005° · 18.4 kn"，Saira Condensed 11px
 
-### 4.3 Target Ship Layer
+### 4.3 Target Ship Layer（对齐 Design Spec §4.3 COLREGs 颜色编码）
 
 ```typescript
 // GeoJSON FeatureCollection, updated per frame
@@ -273,13 +346,36 @@ Custom sprite: 蓝色三角形 + 艏向线, 24×36px PNG, 与原 HTML `#fcb-ship
   type: 'symbol',
   source: 'target-ships',
   layout: {
-    'icon-image': 'ship-target',      // same sprite, red tint
+    'icon-image': 'ship-target',      // same triangle sprite
     'icon-rotate': ['get', 'heading_deg'],
     'icon-rotation-alignment': 'map',
     'icon-size': 0.06,
   },
+  paint: {
+    'icon-color': [
+      'match', ['get', 'colreg_role'],
+      'give-way',  '#F26B6B',   // --color-port  (Rule 16 GIVE_WAY — 本船让路)
+      'stand-on',  '#F0B72F',   // --color-warn  (Rule 17 STAND_ON — 本船直航)
+      'overtaking','#79C0FF',   // --color-info  (Rule 13 OVERTAKING)
+      'safe',      '#79C0FF',   // --color-info  (安全目标)
+      '#79C0FF',                // default fallback
+    ],
+  },
 }
 ```
+
+COLREGs 角色颜色编码（Design Spec §4.3 强制）：
+| 角色 | 颜色 | CSS 变量 |
+|---|---|---|
+| Give-Way 本船（Rule 16） | 红 | `--color-port` (#F26B6B) |
+| Stand-On 本船（Rule 17） | 琥珀 | `--color-warn` (#F0B72F) |
+| Overtaking（Rule 13） | 蓝 | `--color-info` (#79C0FF) |
+| 安全目标 | 蓝 | `--color-info` |
+
+置信度显示规则（Design Spec §4.3）：
+- confidence ≥ 0.9：实心三角
+- 0.7 ≤ confidence < 0.9：空心三角（仅边框）
+- confidence < 0.7：不显示目标
 
 ### 4.4 CPA Ring Layer
 
@@ -290,11 +386,11 @@ Custom sprite: 蓝色三角形 + 艏向线, 24×36px PNG, 与原 HTML `#fcb-ship
   source: 'cpa-ring',
   paint: {
     'circle-radius': ['/', ['get', 'cpa_m'], 10], // scale: meters → pixels (~1:10 at zoom 11)
-    'circle-color': '#e24b4a',
+    'circle-color': '#F26B6B',        // --color-port (危险)
     'circle-opacity': 0.4,
     'circle-stroke-width': 1,
-    'circle-stroke-color': '#e24b4a',
-    'circle-stroke-dasharray': [3, 2],
+    'circle-stroke-color': '#F26B6B', // --color-port
+    'circle-stroke-dasharray': [3, 2], // dashed (IMO 惯例)
   },
 }
 ```
@@ -308,8 +404,9 @@ Custom sprite: 蓝色三角形 + 艏向线, 24×36px PNG, 与原 HTML `#fcb-ship
   type: 'line',
   source: 'own-track',
   paint: {
-    'line-color': '#185fa5',
+    'line-color': '#5BC0BE',   // --color-phos (phosphor 青)
     'line-width': 1.5,
+    'line-dasharray': [4, 2],  // dashed (区别于 heading line 实线)
   },
 }
 ```
@@ -326,7 +423,7 @@ Custom sprite: 蓝色三角形 + 艏向线, 24×36px PNG, 与原 HTML `#fcb-ship
     ['==', ['get', '_layer'], 'dybdeareal'],
     ['<', ['get', 'depth_m'], 3.0],  // draft of FCB ~2.1m + margin
   ],
-  paint: { 'fill-color': '#e24b4a', 'fill-opacity': 0.3 },
+  paint: { 'fill-color': '#F85149', 'fill-opacity': 0.3 },  // --color-danger (严重危险)
 }
 ```
 
@@ -602,26 +699,42 @@ web/
 │   ├── components/
 │   │   ├── MapView.tsx               ← MapLibre GL map container
 │   │   ├── SidePanel.tsx             ← Right panel container
-│   │   ├── CpaPanel.tsx              ← CPA numeric display
+│   │   ├── CpaPanel.tsx              ← CPA numeric display (JetBrains Mono, color-coded)
 │   │   ├── TcpaPanel.tsx             ← TCPA numeric display
-│   │   ├── RulePanel.tsx             ← COLREGs rule text
-│   │   ├── DecisionPanel.tsx         ← L3 decision text
-│   │   ├── ModulePulseBar.tsx        ← M1-M8 dots
-│   │   └── AsdrLog.tsx               ← ASDR scroll log
+│   │   ├── RulePanel.tsx             ← COLREGs rule text (Saira Condensed, --color-phos)
+│   │   ├── DecisionPanel.tsx         ← L3 decision text (--color-warn)
+│   │   ├── ModulePulseBar.tsx        ← M1-M8 dots (--color-stbd fill when active)
+│   │   └── AsdrLog.tsx               ← ASDR scroll log (JetBrains Mono, --txt-2)
 │   ├── hooks/
 │   │   ├── useFoxgloveBridge.ts      ← roslibjs-foxglove connection
 │   │   ├── useThrottledTopic.ts      ← rAF render throttle
 │   │   └── useSilDebug.ts            ← /ws/sil_debug WebSocket
 │   ├── styles/
-│   │   └── tokens.css                ← CSS custom properties (from prototype)
+│   │   └── tokens.css                ← Design Spec §8 CSS custom properties (Night mode default)
 │   └── types/
 │       └── sil.ts                    ← TypeScript types for SilDebugSchema
 ├── index.html
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts                    ← proxy → localhost:8000
+
+视觉规范来源:
+  tokens.css ← MASS_TDL_HMI_Design_Spec_v1.0.md §8.1 颜色 + §8.2 字体 + §8.3 间距/圆角
+  ship sprites ← Design Spec §4.2 (本船) + §4.3 (目标 COLREGs 颜色编码)
+  侧面板 ← L3_TDL_SIL_Interactive.html (信息内容) + Design Spec §8 (视觉风格)
 ```
 
 ---
 
-*本 spec 版本 v1.0。brainstorming 产出 2026-05-11。下一步: `/writing-plans` → `/executing-plans`。决策记录见 §0。ENC 数据源: Kartverket Trondelag.gdb (已有) + NOAA SF Bay ENC (待提供凭证)。*
+## 14. 修订记录
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| v1.0 | 2026-05-11 | 初版。brainstorming 产出，含完整架构、21 项决策、11 task 拆分 |
+| **v1.1** | 2026-05-11 | 对齐 HMI Design Spec v1.0 §8 视觉令牌体系；新增 §0.2 三层演进路线；更新 §4.2-4.3 船舶符号为 Design Spec 颜色编码；CSS tokens 改为引用 Design Spec 而非独立定义 |
+
+---
+
+*本 spec 版本 v1.1。决策记录见 §0。视觉规范权威来源: `MASS_TDL_HMI_Design_Spec_v1.0.md` §8。*
+*ENC 数据源: Kartverket Trondelag.gdb (已有) + NOAA SF Bay ENC (待提供凭证)。*
+*下一步: `/writing-plans` → `/executing-plans`。*
