@@ -23,6 +23,7 @@ cleanup() {
     rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
     rm -f src/sim_workbench/fcb_simulator/src/_test_violation.py
     rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.py
+    rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.hpp
 }
 trap cleanup EXIT
 
@@ -46,14 +47,25 @@ assert_eq "TC-2 exit code" "1" "$rc"
 rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
 
 echo ""
-echo "== TC-3: cpp allowlist → exit 0 =="
+echo "== TC-3a: cpp allowlist with empty reason → exit 1 =="
+cat > src/sim_workbench/fcb_simulator/src/_test_violation.cpp <<'EOF'
+#include "m7_safety_supervisor/safety_supervisor.hpp"  // rl-isolation-ok:
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-3a exit code (empty reason fails)" "1" "$rc"
+rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
+
+echo ""
+echo "== TC-3b: cpp allowlist with non-empty reason → exit 0 =="
 cat > src/sim_workbench/fcb_simulator/src/_test_violation.cpp <<'EOF'
 #include "m7_safety_supervisor/safety_supervisor.hpp"  // rl-isolation-ok: deliberate fixture for unit test
 EOF
 set +e
 out=$(bash "$SCRIPT" 2>&1); rc=$?
 set -e
-assert_eq "TC-3 exit code (allowlist)" "0" "$rc"
+assert_eq "TC-3b exit code (valid allowlist)" "0" "$rc"
 rm -f src/sim_workbench/fcb_simulator/src/_test_violation.cpp
 
 echo ""
@@ -77,6 +89,17 @@ out=$(bash "$SCRIPT" 2>&1); rc=$?
 set -e
 assert_eq "TC-5 exit code (reverse)" "1" "$rc"
 rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.py
+
+echo ""
+echo "== TC-6: reverse direction C++ (kernel includes sim) → exit 1 =="
+cat > src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.hpp <<'EOF'
+#include "ship_sim_interfaces/ship_motion_simulator.hpp"
+EOF
+set +e
+out=$(bash "$SCRIPT" 2>&1); rc=$?
+set -e
+assert_eq "TC-6 exit code (reverse C++)" "1" "$rc"
+rm -f src/l3_tdl_kernel/m1_odd_envelope_manager/_test_violation.hpp
 
 echo ""
 echo "== Summary: PASS=$PASS FAIL=$FAIL =="

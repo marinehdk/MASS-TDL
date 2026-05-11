@@ -49,7 +49,7 @@ scan() {
         includes=(--include='*.hpp' --include='*.cpp' --include='*.h' --include='*.cc')
     fi
     local out=""
-    if out=$(grep -rEn "$pattern" "${search_dirs[@]}" "${includes[@]}" 2>/dev/null | grep -v "${comment_marker} rl-isolation-ok:" 2>/dev/null); then
+    if out=$(grep -rEn "$pattern" "${search_dirs[@]}" "${includes[@]}" 2>/dev/null | grep -v "${comment_marker} rl-isolation-ok:[[:space:]]*[^[:space:]]" 2>/dev/null); then
         :
     fi
     if [[ -n "$out" ]]; then
