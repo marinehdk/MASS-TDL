@@ -59,3 +59,27 @@ def test_export_creates_valid_yaml():
         assert "ais_source_hash" in meta
         assert meta["ais_mmsi"] == [123456789, 987654321]
         assert "ais_time_window" in meta
+
+
+def test_exported_yaml_passes_cerberus_validation():
+    """AIS-derived YAML has all required Cerberus schema fields."""
+    yaml_path = export_encounter_to_yaml(
+        _make_dummy_encounter(),
+        geo_origin=(63.0, 5.0),
+    )
+    data = yaml.safe_load(yaml_path.read_text())
+
+    # Check required metadata fields are present (Cerberus schema compatibility)
+    meta = data["metadata"]
+    required_meta_fields = [
+        "schema_version", "scenario_id", "scenario_source",
+        "ais_source_hash", "ais_mmsi", "ais_time_window",
+        "vessel_class", "odd_zone", "geo_origin",
+        "encounter", "disturbance_model", "pass_criteria",
+        "simulation",
+    ]
+    for field in required_meta_fields:
+        assert field in meta, f"Missing required metadata field: {field}"
+
+    assert meta["schema_version"] == "2.0"
+    assert len(meta["ais_mmsi"]) == 2
