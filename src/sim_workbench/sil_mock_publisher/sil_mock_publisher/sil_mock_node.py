@@ -18,6 +18,20 @@ class SilMockNode(rclpy.node.Node):
         self._timer = self.create_timer(1.0, self._publish_tick)
         self.get_logger().info("sil_mock_publisher started — publishing SAT + ODD stubs at 1 Hz")
 
+        # D1.3b.3: R14 head-on trajectory (50Hz nav + 2Hz tracks)
+        from l3_external_msgs.msg import TrackedTargetArray, FilteredOwnShipState
+        from l3_msgs.msg import TrackedTarget
+        from geographic_msgs.msg import GeoPoint
+        import math
+        import time
+
+        self._pub_nav = self.create_publisher(FilteredOwnShipState, "/nav/filtered_state", 10)
+        self._pub_tracks = self.create_publisher(TrackedTargetArray, "/world_model/tracks", 10)
+        self._nav_timer = self.create_timer(0.02, self._publish_nav)
+        self._track_timer = self.create_timer(0.5, self._publish_tracks)
+        self._t0 = time.time()
+        self._own_lat0, self._own_lon0 = 63.435, 10.395
+
     def _publish_tick(self) -> None:
         stamp = self.get_clock().now().to_msg()
         self._pub_sat.publish(self._make_sat_stub(stamp))
@@ -52,6 +66,71 @@ class SilMockNode(rclpy.node.Node):
         msg.sat3 = sat3
 
         return msg
+
+    def _publish_nav(self) -> None:
+        elapsed = time.time() - self._t0
+        dist_nm = 18.0 * elapsed / 3600.0
+        lat = self._own_lat0 + dist_nm / 60.0
+        lon = self._own_lon0
+
+        from l3_external_msgs.msg import FilteredOwnShipState
+        from geographic_msgs.msg import GeoPoint
+        msg = FilteredOwnShipState()
+        msg.schema_version = "v1.1.2"
+        msg.stamp = self.get_clock().now().to_msg()
+        pos = GeoPoint()
+        pos.latitude = lat
+        pos.longitude = lon
+        pos.altitude = 0.0
+        msg.position = pos
+        msg.sog_kn = 18.0
+        msg.cog_deg = 0.0
+        msg.heading_deg = 5.0
+        msg.confidence = 0.9
+        self._pub_nav.publish(msg)
+
+    def _publish_tracks(self) -> None:
+        elapsed = time.time() - self._t0
+        dist_nm_own = 18.0 * elapsed / 3600.0
+        dist_nm_ts = 10.0 * elapsed / 3600.0
+        own_lat = self._own_lat0 + dist_nm_own / 60.0
+        ts_lat = 63.458 - dist_nm_ts / 60.0
+        ts_lon = 10.395
+
+        from l3_msgs.msg import TrackedTarget
+        from l3_external_msgs.msg import TrackedTargetArray
+        from geographic_msgs.msg import GeoPoint
+
+        dlat_nm = (ts_lat - own_lat) * 60.0
+        cpa_nm = abs(dlat_nm)
+        closing_speed_kn = 18.0 + 10.0
+        tcpa_s = max(0.0, cpa_nm / (closing_speed_kn / 3600.0))
+
+        t = TrackedTarget()
+        t.schema_version = "v1.1.2"
+        t.target_id = 1
+        t.stamp = self.get_clock().now().to_msg()
+        pos = GeoPoint()
+        pos.latitude = ts_lat
+        pos.longitude = ts_lon
+        pos.altitude = 0.0
+        t.position = pos
+        t.sog_kn = 10.0
+        t.cog_deg = 180.0
+        t.heading_deg = 180.0
+        t.cpa_m = cpa_nm * 1852.0
+        t.tcpa_s = tcpa_s
+        t.classification = "vessel"
+        t.classification_confidence = 0.7
+        t.source_sensor = "ais"
+        t.confidence = 0.7
+
+        msg = TrackedTargetArray()
+        msg.schema_version = "v1.1.2"
+        msg.targets = [t]
+        msg.confidence = 0.7
+        msg.rationale = "R14 head-on mock trajectory"
+        self._pub_tracks.publish(msg)
 
     def _make_odd_stub(self, stamp) -> ODDState:
         msg = ODDState()
