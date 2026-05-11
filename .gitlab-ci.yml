@@ -4,7 +4,9 @@
 
 stages:
   - lint
+  - build
   - unit-test
+  - test
   - static-analysis
   - integration-test
   - release
@@ -268,6 +270,33 @@ stage-2-pytest:
       coverage_report:
         coverage_format: cobertura
         path: coverage-py.xml
+
+# ===============================================================
+# fmi_bridge CI Jobs (D1.3c)
+# ===============================================================
+fmi_bridge_build:
+  stage: build
+  needs: ["fcb_simulator_build"]
+  script:
+    - colcon build --packages-select fmi_bridge --cmake-args -DCMAKE_BUILD_TYPE=Debug
+  artifacts:
+    paths:
+      - build/fmi_bridge/
+      - install/fmi_bridge/
+
+fmi_bridge_test:
+  stage: test
+  needs: ["fmi_bridge_build"]
+  script:
+    - colcon test --packages-select fmi_bridge --return-code-on-test-failure
+    - python3 -m pytest src/sim_workbench/fmi_bridge/test/ -v --tb=short
+
+m7_fmi_isolation_check:
+  stage: lint
+  needs: []
+  script:
+    - bash tools/ci/check-m7-fmi-isolation.sh
+  allow_failure: false
 
 # ===============================================================
 # Stage 3: Static Analysis
