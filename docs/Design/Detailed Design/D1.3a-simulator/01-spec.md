@@ -770,7 +770,7 @@ grep -rEn '^[[:space:]]*#include[[:space:]]*[<"](sim_workbench|rl_workbench|fcb_
 - 行首锚 `^[[:space:]]*` → 注释/字符串字面量内的 `# 这里 import m1_...` 不命中（`#` 在 `from/import` 之前已破前缀模式）。
 - Python 后缀 `[[:space:]]|\.|$` → 杜绝匹配 `m1_xxxxxx_var`（变量名相似前缀）。
 - C++ 包名后必须接 `/`（包内子路径）→ 注释里 `// see m1_odd` 不命中。
-- allowlist 同行注释 `# rl-isolation-ok: <reason>` / `// rl-isolation-ok: <reason>`，post-grep `grep -v` 滤掉。每条 allowlist 必须有 `<reason>` 字符串（非空）；脚本第二步扫 allowlist 注释格式合规性。
+- allowlist 同行注释 `# rl-isolation-ok: <reason>` / `// rl-isolation-ok: <reason>`，post-grep `grep -v` 滤掉。每条 allowlist **必须有 `<reason>` 字符串（非空）**；grep 模式强制 `grep -v "${comment_marker} rl-isolation-ok:[[:space:]]*[^[:space:]]"` 确保冒号后必有至少一个非空格字符（I-2 fix 2026-05-11）。
 
 **脚本骨架**（完整实现见 D1.3a 02-plan.md v3.1 task T8）：
 
@@ -820,11 +820,13 @@ rl_isolation_lint:
 **单元测试**：`tools/ci/tests/test-rl-isolation.sh`（新增）：
 - TC-1：clean tree → `bash check-rl-isolation.sh` exit 0 + stdout `PASS:`
 - TC-2：临时往 `src/sim_workbench/fcb_simulator/src/fixture_violation.cpp` 写 `#include "m7_safety_supervisor/safety_supervisor.hpp"` → exit 1 + stderr 含 `VIOLATION`
-- TC-3：上一文件改加同行 allowlist `// rl-isolation-ok: deliberate fixture for unit test` → exit 0
-- TC-4：Python 同样三组（fixture file 在 sim_workbench 下临时 import m1_）
-- TC-5：反向（kernel 中 import sim 包）触发，验证双向检测
-- 每 TC 运行后清理 fixture，最终树状态不变。
-- 该 test 脚本本身不入 CI（避免污染主 lint）；本地 `bash tools/ci/tests/test-rl-isolation.sh` 手工跑，PR 描述附运行日志。
+- **TC-3a（I-2 fix 2026-05-11）**：allowlist 带空 reason `// rl-isolation-ok:` （冒号后无文字）→ exit 1（拒绝）。验证 grep 强制非空 reason。
+- **TC-3b（I-2 fix 2026-05-11）**：同一文件改加有效 allowlist `// rl-isolation-ok: deliberate fixture for unit test` → exit 0（接受）。
+- TC-4：Python 同样三组（fixture file 在 sim_workbench 下临时 import m1_）→ exit 1
+- TC-5：反向方向 Python（kernel 中 import sim 包 `import fcb_simulator`）触发 → exit 1，验证双向检测
+- **TC-6（I-4 fix 2026-05-11）**：反向方向 C++（kernel 文件 include sim header `#include "ship_sim_interfaces/ship_motion_simulator.hpp"`）→ exit 1。补齐 C++ 反向 TC。
+- 每 TC 运行后清理 fixture，最终树状态不变（trap cleanup）。
+- 该 test 脚本本身不入 CI（避免污染主 lint）；本地 `bash tools/ci/tests/test-rl-isolation.sh` 手工跑，7 TC all PASS，PR 描述附运行日志。
 
 ---
 
@@ -866,7 +868,7 @@ touch src/rl_workbench/.gitkeep
 | **T5** | `check-doer-checker-independence.sh` `M7_SRC` 路径修订 + 本地 `bash tools/ci/check-doer-checker-independence.sh` | 0.5h | T2 | 脚本退出码 0（含 M7 真路径） |
 | **T6** | `ShipMotionSimulator::export_fmu_interface()` 接口 + 类型声明 commit | 2h | T2 | header compile 通过；`grep -n export_fmu_interface src/sim_workbench/ship_sim_interfaces/include/.../ship_motion_simulator.hpp` 命中 |
 | **T7** | FCBSimulator stub 实装（22 变量清单）+ 单元测试 `test_fcb_export_fmu_interface.cpp` | 3h | T6 | `colcon test --packages-select fcb_simulator` 含新 test PASSED；测试断言 `variables.size()==22` + 类型/causality 取值合法 |
-| **T8** | `tools/ci/check-rl-isolation.sh` 新建 + 单元测试 `tools/ci/tests/test-rl-isolation.sh`（5 TC） | 4h | T2 | 5 TC 全 pass；clean tree 下 `bash check-rl-isolation.sh` exit 0 + stdout `PASS:` |
+| **T8** | `tools/ci/check-rl-isolation.sh` 新建 + 单元测试 `tools/ci/tests/test-rl-isolation.sh`（7 TC：I-2 I-4 fix 2026-05-11） | 4h | T2 | 7 TC 全 pass（TC-1 clean, TC-2 cpp vio, TC-3a empty reason fail, TC-3b valid allowlist, TC-4 python vio, TC-5 reverse python, TC-6 reverse C++）；clean tree 下 `bash check-rl-isolation.sh` exit 0 + stdout `PASS:` |
 | **T9** | `.gitlab-ci.yml` 追加 `rl_isolation_lint` job | 1h | T8 | YAML 语法校验通过；本地 `gitlab-ci-lint` 工具或 `yamllint .gitlab-ci.yml` 0 errors |
 | **T10** | `rl_workbench/` 占位（`.gitkeep` + README 含三层隔离规则原文） | 1h | — | 目录存在；README 引用架构 §F.4 表 + 计划 §0.4 决策 3 |
 | **T11** | 全量回归（pytest + ruff + mypy + colcon + doer-checker + rl-isolation） | 2h | T3-T10 | 全部 exit 0；CI Pipeline 一次过（feature branch 触发） |
