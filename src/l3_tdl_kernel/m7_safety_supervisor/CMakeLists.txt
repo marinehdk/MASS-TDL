@@ -108,8 +108,8 @@ target_link_libraries(m7_lib
 # Runs as part of ALL target build to catch violations early
 # ---------------------------------------------------------------------------
 add_custom_target(m7_doer_checker_independence_check ALL
-  COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/ci/check-doer-checker-independence.sh
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/../../../tools/ci/check-doer-checker-independence.sh
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../..
   COMMENT "Verifying M7 Doer-Checker independence (ADR-001)"
 )
 

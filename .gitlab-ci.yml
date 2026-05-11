@@ -80,7 +80,7 @@ detect-changes:
   script:
     - |
       CHANGED_PKGS=$(git diff --name-only origin/main...HEAD | \
-                     awk -F/ '/^src\// {print $2}' | sort -u | tr '\n' ' ')
+                     awk -F/ '/^src\// {print $3}' | sort -u | tr '\n' ' ')
       echo "CHANGED_PACKAGES=$CHANGED_PKGS" >> build.env
       echo "Affected packages: $CHANGED_PKGS"
   artifacts:
@@ -99,8 +99,8 @@ stage-1-lint:
     # C++ format check (BLOCKING — F-CRIT-A-007 修复：删除 || true)
     - find src -name "*.cpp" -o -name "*.hpp" | xargs -r clang-format-20 --dry-run --Werror
     # Python lint (BLOCKING)
-    - ruff check src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python
-    - mypy src/m2_world_model/python tools/ src/m8_hmi_transparency_bridge/python
+    - ruff check src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
+    - mypy src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
     # ROS2 .msg checks
     - bash tools/ci/check-msg-naming.sh
     - bash tools/ci/check-msg-contract.sh
@@ -134,6 +134,15 @@ multi_vessel_lint:
       - multi_vessel_lint_report.txt
     expire_in: 7 days
 
+rl_isolation_lint:
+  stage: lint
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
+  script:
+    - bash tools/ci/check-rl-isolation.sh
+  allow_failure: false
+
 path_s_dry_run:
   stage: lint
   needs: []
@@ -143,21 +152,21 @@ path_s_dry_run:
     - |
       echo "=== PATH-S dry run: checking Doer-Checker independence ==="
       grep -rn --include="*.py" -E "(from\s+m7_safety_supervisor|import\s+m7_safety_supervisor|#include.*m7.checker)" \
-        src/m1_odd_envelope_manager/ \
-        src/m2_world_model/ \
-        src/m3_mission_manager/ \
-        src/m4_behavior_arbiter/ \
-        src/m5_tactical_planner/ \
-        src/m6_colregs_reasoner/ \
+        src/l3_tdl_kernel/m1_odd_envelope_manager/ \
+        src/l3_tdl_kernel/m2_world_model/ \
+        src/l3_tdl_kernel/m3_mission_manager/ \
+        src/l3_tdl_kernel/m4_behavior_arbiter/ \
+        src/l3_tdl_kernel/m5_tactical_planner/ \
+        src/l3_tdl_kernel/m6_colregs_reasoner/ \
         2>/dev/null > path_s_report.txt || true
       HITS=$(wc -l < path_s_report.txt | tr -d ' ')
       echo "Doer→Checker violations (Python): $HITS"
       # --- C++ boundary detection (D1.2 addition) ---
       grep -rn --include="*.cpp" --include="*.hpp" \
         -E '#include\s*[<"]m7_safety_supervisor/' \
-        src/m1_odd_envelope_manager/ src/m2_world_model/ \
-        src/m3_mission_manager/ src/m4_behavior_arbiter/ \
-        src/m5_tactical_planner/ src/m6_colregs_reasoner/ \
+        src/l3_tdl_kernel/m1_odd_envelope_manager/ src/l3_tdl_kernel/m2_world_model/ \
+        src/l3_tdl_kernel/m3_mission_manager/ src/l3_tdl_kernel/m4_behavior_arbiter/ \
+        src/l3_tdl_kernel/m5_tactical_planner/ src/l3_tdl_kernel/m6_colregs_reasoner/ \
         2>/dev/null >> path_s_report.txt || true
       CPP_HITS=$(grep -cE '\.(cpp|hpp):' path_s_report.txt 2>/dev/null || echo 0)
       echo "C++ Doer→Checker violations: ${CPP_HITS}"
@@ -231,16 +240,16 @@ stage-2-pytest:
   rules:
     - if: $FULL_PIPELINE == "true"
       changes:
-        - src/m2_world_model/python/**/*
-        - src/m8_hmi_transparency_bridge/python/**/*
-        - src/l3_external_mock_publisher/**/*
+        - src/l3_tdl_kernel/m2_world_model/python/**/*
+        - src/l3_tdl_kernel/m8_hmi_transparency_bridge/python/**/*
+        - src/sim_workbench/l3_external_mock_publisher/**/*
         - tools/**/*
   script:
     - |
       if find tests/python -name "*.py" -print -quit 2>/dev/null | grep -q .; then
-        pytest --cov=src/m2_world_model/python \
-               --cov=src/m8_hmi_transparency_bridge/python \
-               --cov=src/l3_external_mock_publisher \
+        pytest --cov=src/l3_tdl_kernel/m2_world_model/python \
+               --cov=src/l3_tdl_kernel/m8_hmi_transparency_bridge/python \
+               --cov=src/sim_workbench/l3_external_mock_publisher \
                --cov-report=html:coverage-py-html \
                --cov-report=xml:coverage-py.xml \
                --cov-report=term-missing \
@@ -339,8 +348,8 @@ stage-3-polyspace-path-s:
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
-        - src/m1_odd_envelope_manager/**/*
-        - src/m7_safety_supervisor/**/*
+        - src/l3_tdl_kernel/m1_odd_envelope_manager/**/*
+        - src/l3_tdl_kernel/m7_safety_supervisor/**/*
   parallel:
     matrix:
       - PACKAGE: [m1_odd_envelope_manager, m7_safety_supervisor]
@@ -387,8 +396,8 @@ stage-3-tsan:
   rules:
     - if: $FULL_PIPELINE == "true"
       changes:
-        - src/m2_world_model/**/*
-        - src/m5_tactical_planner/**/*
+        - src/l3_tdl_kernel/m2_world_model/**/*
+        - src/l3_tdl_kernel/m5_tactical_planner/**/*
   parallel:
     matrix:
       - PACKAGE: [m2_world_model, m5_tactical_planner]

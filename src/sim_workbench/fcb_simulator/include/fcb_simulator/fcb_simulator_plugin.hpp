@@ -15,6 +15,7 @@ public:
                            double delta_rad, double n_rps, double dt_s) override;
   std::string vessel_class() const override { return "FCB"; }
   std::string hull_class()   const override { return "SEMI_PLANING"; }
+  ship_sim::FmuInterfaceSpec export_fmu_interface() const override;
 private:
   MmgParams params_;
 };
