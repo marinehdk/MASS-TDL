@@ -1,68 +1,51 @@
-version: '3.8'
+version: "3.9"
 
 services:
-  backend-base:
-    image: mass-l3/ci:jazzy-ubuntu22.04
-    container_name: sil-base
-    user: root
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    command: >
-      bash -c "apt-get update && 
-               apt-get install -y ros-jazzy-topic-tools ros-jazzy-foxglove-bridge &&
-               colcon build --packages-select sil_mock_publisher &&
-               tail -f /dev/null"
-
-  backend-bridge:
-    image: mass-l3/ci:jazzy-ubuntu22.04
-    container_name: sil-bridge
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    command: >
-      bash -c "sleep 10 &&
-               source /opt/ros/jazzy/setup.bash &&
-               source install/setup.bash &&
-               ros2 launch launch/foxglove_sil.launch.xml"
-    ports:
-      - "8765:8765"
-    networks:
-      - sil-net
-    restart: unless-stopped
-
-  backend-mock:
-    image: mass-l3/ci:jazzy-ubuntu22.04
-    container_name: sil-mock
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    command: >
-      bash -c "sleep 15 &&
-               source /opt/ros/jazzy/setup.bash &&
-               source install/setup.bash &&
-               ros2 run sil_mock_publisher sil_mock_node"
-    depends_on:
-      - backend-bridge
-    networks:
-      - sil-net
-    restart: unless-stopped
-
-  frontend-hmi:
-    image: node:20-slim
-    container_name: sil-hmi
-    volumes:
-      - ./web:/app
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host"
+  sil-orchestrator:
+    build:
+      context: .
+      dockerfile: docker/sil_orchestrator.Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ./scenarios:/var/sil/scenarios
+      - ./runs:/var/sil/runs
+      - ./exports:/var/sil/exports
     environment:
-      - VITE_PORT=8000
-    networks:
-      - sil-net
-    restart: unless-stopped
+      - ROS_DOMAIN_ID=0
+    network_mode: host
 
-networks:
-  sil-net:
-    driver: bridge
+  sil-component-container:
+    build:
+      context: .
+      dockerfile: docker/sil_nodes.Dockerfile
+    command: >
+      ros2 run rclcpp_components component_container_mt
+      --ros-args -r __node:=sil_container
+    volumes:
+      - ./scenarios:/var/sil/scenarios
+      - ./runs:/var/sil/runs
+    environment:
+      - ROS_DOMAIN_ID=0
+    network_mode: host
+
+  foxglove-bridge:
+    image: ghcr.io/foxglove/ros-foxglove-bridge:humble
+    command: >
+      ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+      port:=8765
+      config_file:=/config/foxglove_bridge.yaml
+    volumes:
+      - ./config/foxglove_bridge.yaml:/config/foxglove_bridge.yaml
+    environment:
+      - ROS_DOMAIN_ID=0
+    network_mode: host
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - sil-orchestrator
