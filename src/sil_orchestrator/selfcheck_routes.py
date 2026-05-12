@@ -2,6 +2,13 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/v1/selfcheck")
 
+# Numeric state aligned with Protobuf ``sil.ModulePulse.State`` enum
+# (1=GREEN, 2=AMBER, 3=RED) which is also what the React BridgeHMI bottom-bar
+# expects via ``p.state === 1`` etc.
+STATE_GREEN = 1
+STATE_AMBER = 2
+STATE_RED = 3
+
 
 @router.post("/probe")
 async def probe():
@@ -21,15 +28,16 @@ async def probe():
 
 @router.get("/status")
 async def status():
-    """Return current module pulse status."""
+    """Return current module pulse status. camelCase + numeric state to match
+    the Protobuf-derived TS types consumed by the React frontend."""
     modules = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
     return {
-        "module_pulses": [
+        "modulePulses": [
             {
-                "module_id": m,
-                "state": "GREEN",
-                "latency_ms": 2,
-                "message_drops": 0,
+                "moduleId": m,
+                "state": STATE_GREEN,
+                "latencyMs": 2,
+                "messageDrops": 0,
             }
             for m in modules
         ]

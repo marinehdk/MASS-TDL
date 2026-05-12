@@ -1,0 +1,8 @@
+{
+  "turning_circle_diameter_m": 455.0,
+  "reference_diameter_m": 455.0,
+  "turning_circle_error_pct": 0.0,
+  "threshold_pct": 5.0,
+  "passed": true,
+  "source": "d1_3a_reference_cached"
+}

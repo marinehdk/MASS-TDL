@@ -20,6 +20,9 @@ export default defineConfig({
       '/tiles': {
         target: 'http://localhost:8000',
       },
+      '/exports': {
+        target: 'http://localhost:8000',
+      },
     },
   },
   build: {

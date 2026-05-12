@@ -1,0 +1,17 @@
+{
+  "run_id": "run-19e1b2f2108",
+  "scenario_id": "r14_head_on",
+  "started_at": 1778572534.026106,
+  "kpis": {
+    "min_cpa_nm": 0.42,
+    "avg_rot_dpm": 2.1,
+    "distance_nm": 4.8,
+    "duration_s": 342
+  },
+  "rule_chain": [
+    "Rule 14 (Head-on)",
+    "Rule 8 (Action to avoid collision)",
+    "Rule 16 (Give-way)"
+  ],
+  "verdict": "pending"
+}

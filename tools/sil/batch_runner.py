@@ -24,6 +24,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from scenario_spec import ScenarioSpec
 from simulate import simulate
+from coverage_cube import CoverageCube, seed_index_from_filename
 
 
 # Map scenario_id prefix → (rule label, sector_start, sector_end, from_target_perspective)
@@ -65,6 +66,7 @@ def _check_bearing(spec: ScenarioSpec, rule_info: tuple[str, float, float, bool]
 def run_batch(scenarios_dir: Path, output_dir: Path) -> list[dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
+    cube = CoverageCube()
 
     yaml_files = sorted(f for f in scenarios_dir.glob("*.yaml") if f.name != "schema.yaml")
     print(f"Found {len(yaml_files)} scenario files in {scenarios_dir}")
@@ -73,6 +75,13 @@ def run_batch(scenarios_dir: Path, output_dir: Path) -> list[dict]:
         spec = ScenarioSpec.model_validate(yaml.safe_load(yaml_path.read_text()))
         sid = spec.scenario_id.replace("-v1.0", "")
         rule_info = SCENARIO_RULE_MAP.get(sid)
+        cube.mark(
+            rule=spec.encounter.rule,
+            odd_zone="open_sea",  # v1.0 colregs scenarios have no ODD metadata
+            wind_kn=spec.disturbance_model.wind_kn,
+            vis_m=spec.disturbance_model.vis_m,
+            seed_index=seed_index_from_filename(yaml_path.stem),
+        )
 
         print(f"  Running {spec.scenario_id}...")
 
@@ -123,6 +132,13 @@ def run_batch(scenarios_dir: Path, output_dir: Path) -> list[dict]:
     summary_path.write_text(json.dumps(summary, indent=2))
     print(f"\nBatch summary written to {summary_path}")
     print(f"Passed: {summary['passed']}/{summary['total']}, max wall-clock: {summary['max_wall_clock_s']:.3f}s")
+
+    # E1.4 coverage cube
+    Path("test-results").mkdir(exist_ok=True)
+    cube_path = Path("test-results") / "coverage_cube.json"
+    cube_path.write_text(json.dumps(cube.to_json_dict(), indent=2))
+    n_lit = cube.cells_lit()
+    print(f"Coverage cube: {n_lit}/{cube.to_json_dict()['total_cells']} cells lit → {cube_path}")
 
     return results
 

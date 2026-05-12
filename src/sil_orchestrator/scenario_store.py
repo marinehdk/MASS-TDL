@@ -1,10 +1,44 @@
-"""File-backed scenario store. Reads/writes YAML under SCENARIO_DIR."""
+"""File-backed scenario store. Reads/writes YAML under SCENARIO_DIR.
+
+Recursively scans for ``*.yaml`` so the layout can have an ``imazu22/`` subdir,
+and infers the COLREGs encounter type from filename suffix tokens.
+"""
 
 import hashlib
+import re
 import uuid
 from pathlib import Path
 
 from sil_orchestrator.config import SCENARIO_DIR
+
+_ENC_TOKEN_MAP = {
+    "ho": "head-on",
+    "head_on": "head-on",
+    "head-on": "head-on",
+    "headon": "head-on",
+    "cr-gw": "crossing-giveway",
+    "cr-so": "crossing-standon",
+    "cr": "crossing",
+    "cs": "crossing",          # rule15 crossing situation
+    "crossing": "crossing",
+    "ot": "overtaking",
+    "overtaking": "overtaking",
+    "ms": "multi-ship",
+    "multiship": "multi-ship",
+}
+
+
+def _infer_encounter_type(stem: str) -> str:
+    s = stem.lower()
+    # Pass 1: exact split-token match (handles imazu-NN-ho-v1.0)
+    for tok in re.split(r"[-_]", s):
+        if tok in _ENC_TOKEN_MAP:
+            return _ENC_TOKEN_MAP[tok]
+    # Pass 2: substring (handles r14_head_on, custom names with full phrases)
+    for key, value in _ENC_TOKEN_MAP.items():
+        if len(key) >= 3 and key in s:
+            return value
+    return "unspecified"
 
 
 class ScenarioStore:
@@ -17,20 +51,30 @@ class ScenarioStore:
             self._dir.mkdir(parents=True, exist_ok=True)
             self._dir_ready = True
 
+    def _path_for(self, scenario_id: str) -> Path | None:
+        # First try flat layout
+        flat = self._dir / f"{scenario_id}.yaml"
+        if flat.exists():
+            return flat
+        # Fallback: recursive search by stem
+        for f in self._dir.rglob(f"{scenario_id}.yaml"):
+            return f
+        return None
+
     def list(self) -> list[dict]:
         self._ensure_dir()
         results = []
-        for f in sorted(self._dir.glob("*.yaml")):
+        for f in sorted(self._dir.rglob("*.yaml")):
             results.append({
                 "id": f.stem,
-                "name": f.stem.replace("-", " ").title(),
-                "encounter_type": "head-on",
+                "name": f.stem.replace("-", " ").replace("_", " ").title(),
+                "encounter_type": _infer_encounter_type(f.stem),
             })
         return results
 
     def get(self, scenario_id: str) -> dict | None:
-        path = self._dir / f"{scenario_id}.yaml"
-        if not path.exists():
+        path = self._path_for(scenario_id)
+        if path is None:
             return None
         content = path.read_text()
         h = hashlib.sha256(content.encode()).hexdigest()
@@ -45,17 +89,16 @@ class ScenarioStore:
         return {"scenario_id": sid, "hash": h}
 
     def update(self, scenario_id: str, yaml_content: str) -> dict | None:
-        path = self._dir / f"{scenario_id}.yaml"
-        if not path.exists():
+        path = self._path_for(scenario_id)
+        if path is None:
             return None
         path.write_text(yaml_content)
         h = hashlib.sha256(yaml_content.encode()).hexdigest()
         return {"hash": h}
 
     def delete(self, scenario_id: str) -> bool:
-        self._ensure_dir()
-        path = self._dir / f"{scenario_id}.yaml"
-        if not path.exists():
+        path = self._path_for(scenario_id)
+        if path is None:
             return False
         path.unlink()
         return True

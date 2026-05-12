@@ -1,5 +1,9 @@
-import { useState } from 'react';
-import { useExportMarzipMutation, useGetExportStatusQuery } from '../api/silApi';
+import { useEffect, useState } from 'react';
+import {
+  useExportMarzipMutation,
+  useGetExportStatusQuery,
+  useGetLastRunScoringQuery,
+} from '../api/silApi';
 import { useScenarioStore } from '../store';
 
 interface KpiCardProps {
@@ -23,23 +27,54 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
 
 export function RunReport() {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
-  const runId = useScenarioStore((s) => s.runId) || scenarioId || 'latest';
+  const storeRunId = useScenarioStore((s) => s.runId);
+  const { data: scoring, refetch } = useGetLastRunScoringQuery();
+  const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
   const [exportMarzip, { isLoading }] = useExportMarzipMutation();
   const [exportUrl, setExportUrl] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exportRequested, setExportRequested] = useState(false);
   const [verdict, setVerdict] = useState<'PASS' | 'FAIL' | null>(null);
+  const { data: exportStatus } = useGetExportStatusQuery(runId, {
+    skip: !exportRequested || !!exportUrl,
+    pollingInterval: 1500,
+  } as any);
+
+  useEffect(() => { refetch(); }, [refetch]);
+
+  // Numeric formatters with hyphen fallback for missing data
+  const fmt = (v: number | undefined, digits = 2) =>
+    typeof v === 'number' ? v.toFixed(digits) : '—';
+  const kpis = scoring?.kpis ?? null;
+  const ruleChain = scoring?.rule_chain ?? [];
 
   const handleExport = async () => {
+    setExportMsg(null);
+    setExportRequested(true);
     try {
       const result = await exportMarzip(runId).unwrap();
-      setExportUrl(result.download_url);
-    } catch {
-      // Export endpoint may not exist yet — graceful degradation
-      alert('Export queued. Check back in a moment.');
+      setExportMsg(result.status === 'processing'
+        ? 'Marzip pack queued — link will appear when ready'
+        : 'Marzip pack ready');
+      if ((result as any).download_url) setExportUrl((result as any).download_url);
+    } catch (e: any) {
+      setExportMsg(`Export failed: ${e?.data?.detail || e?.error || 'unknown'}`);
+      setExportRequested(false);
     }
   };
 
+  // Promote download URL once the background task finishes
+  useEffect(() => {
+    if (exportStatus?.download_url && exportStatus.download_url !== exportUrl) {
+      setExportUrl(exportStatus.download_url);
+    }
+  }, [exportStatus, exportUrl]);
+
   const handleVerdict = (v: 'PASS' | 'FAIL') => setVerdict(v);
   const handleNewRun = () => {
+    // Reset client state so next run starts clean — Preflight will also call
+    // POST /lifecycle/cleanup to bring backend FSM back to UNCONFIGURED
+    useScenarioStore.getState().reset();
     window.location.hash = '#/builder';
   };
 
@@ -57,23 +92,26 @@ export function RunReport() {
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <KpiCard label="Min CPA" value="0.42" unit="nm" />
-        <KpiCard label="Avg ROT" value="2.1" unit="°/min" />
-        <KpiCard label="Distance" value="4.8" unit="nm" />
-        <KpiCard label="Duration" value="342" unit="s" />
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}
+           data-testid="run-report-kpis">
+        <KpiCard label="Min CPA" value={fmt(kpis?.min_cpa_nm, 2)} unit="nm" />
+        <KpiCard label="Avg ROT" value={fmt(kpis?.avg_rot_dpm, 1)} unit="°/min" />
+        <KpiCard label="Distance" value={fmt(kpis?.distance_nm, 1)} unit="nm" />
+        <KpiCard label="Duration" value={fmt(kpis?.duration_s, 0)} unit="s" />
       </div>
 
       {/* COLREGs chain */}
       <div style={{
         flex: 1, background: '#1a1a2e', borderRadius: 8, padding: 16, marginBottom: 16,
-      }}>
+      }} data-testid="rule-chain">
         <h3 style={{ margin: 0, marginBottom: 8 }}>COLREGs Rule Chain</h3>
         <p style={{ color: '#888', margin: 0 }}>
-          Rule 14 (Head-on) → Rule 8 (Action to avoid collision) → Rule 16 (Give-way)
+          {ruleChain.length > 0 ? ruleChain.join(' → ') : 'No rule events captured'}
         </p>
         <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-          Phase 2: populated from ASDR events
+          {ruleChain.length > 0
+            ? `Run ID: ${runId}`
+            : 'Phase 2: populated from ASDR events via scoring_node'}
         </p>
       </div>
 
@@ -120,9 +158,21 @@ export function RunReport() {
           New Run
         </button>
         {exportUrl && (
-          <a href={exportUrl} style={{ color: '#4fc3f7' }}>Download</a>
+          <a href={exportUrl} style={{ color: '#4fc3f7' }} data-testid="download-link">Download</a>
         )}
       </div>
+      {exportMsg && (
+        <div style={{ marginTop: 12, color: '#4fc3f7', fontFamily: 'monospace', fontSize: 12 }}
+             data-testid="export-msg">
+          {exportMsg}
+        </div>
+      )}
+      {verdict && (
+        <div style={{ marginTop: 8, color: verdict === 'PASS' ? '#34d399' : '#f87171', fontSize: 13 }}
+             data-testid="verdict">
+          Verdict: {verdict}
+        </div>
+      )}
     </div>
   );
 }

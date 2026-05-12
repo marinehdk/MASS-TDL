@@ -30,13 +30,18 @@ def _build_marzip(run_id: str) -> str:
         }
         (tmp_dir / "manifest.yaml").write_text(json.dumps(manifest, indent=2))
 
-        # Copy scenario if exists
-        scenario_file = run_path / "scenario.yaml"
-        if scenario_file.exists():
-            shutil.copy(scenario_file, tmp_dir / "scenario.yaml")
+        # Copy scenario + scoring artefacts if they exist
+        for fname in ("scenario.yaml", "scenario.sha256", "scoring.json"):
+            src = run_path / fname
+            if src.exists():
+                shutil.copy(src, tmp_dir / fname)
 
-        # Create zip archive
-        shutil.make_archive(str(export_path.with_suffix("")), "zip", tmp_dir)
+        # Build zip then rename to .marzip (DNV evidence container suffix)
+        zip_base = str(export_path.with_suffix(""))
+        shutil.make_archive(zip_base, "zip", tmp_dir)
+        zip_path = Path(zip_base + ".zip")
+        if zip_path.exists():
+            zip_path.rename(export_path)
 
     _export_status[run_id] = {
         "status": "complete",

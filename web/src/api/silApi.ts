@@ -23,10 +23,23 @@ export interface ProbeResult {
 }
 
 export interface ModulePulseStatus {
-  module_id: string;
-  state: string;
-  latency_ms: number;
-  message_drops: number;
+  moduleId: string;
+  state: number;       // 1=GREEN, 2=AMBER, 3=RED (matches Protobuf enum)
+  latencyMs: number;
+  messageDrops: number;
+}
+
+export interface ScoringLastRun {
+  run_id: string | null;
+  scenario_id?: string;
+  kpis: {
+    min_cpa_nm: number;
+    avg_rot_dpm: number;
+    distance_nm: number;
+    duration_s: number;
+  } | null;
+  rule_chain: string[];
+  verdict?: 'pass' | 'fail' | 'pending';
 }
 
 export const silApi = createApi({
@@ -81,12 +94,21 @@ export const silApi = createApi({
       }),
     }),
 
-    activateLifecycle: builder.mutation<{ success: boolean; error?: string }, void>({
+    activateLifecycle: builder.mutation<{ success: boolean; error?: string; run_id?: string }, void>({
       query: () => ({ url: '/lifecycle/activate', method: 'POST' }),
     }),
 
-    deactivateLifecycle: builder.mutation<{ success: boolean; error?: string }, void>({
+    deactivateLifecycle: builder.mutation<{ success: boolean; error?: string; run_id?: string }, void>({
       query: () => ({ url: '/lifecycle/deactivate', method: 'POST' }),
+    }),
+
+    cleanupLifecycle: builder.mutation<{ success: boolean; error?: string }, void>({
+      query: () => ({ url: '/lifecycle/cleanup', method: 'POST' }),
+    }),
+
+    // Scoring (Screen ④)
+    getLastRunScoring: builder.query<ScoringLastRun, void>({
+      query: () => '/scoring/last_run',
     }),
 
     // Self-check
@@ -123,6 +145,8 @@ export const {
   useConfigureLifecycleMutation,
   useActivateLifecycleMutation,
   useDeactivateLifecycleMutation,
+  useCleanupLifecycleMutation,
+  useGetLastRunScoringQuery,
   useProbeSelfCheckMutation,
   useGetHealthStatusQuery,
   useExportMarzipMutation,
