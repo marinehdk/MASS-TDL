@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import {
-  osmSource, osmLayer,
-  s57Source, s57Layers,
-  cpaRingLayer,
-} from './layers';
+import { osmSource, osmLayer, s57Source, s57Layers } from './layers';
 import { useTelemetryStore } from '../store';
 
 interface SilMapViewProps {
@@ -13,59 +9,91 @@ interface SilMapViewProps {
   viewMode?: 'captain' | 'god';
 }
 
-const RAD_TO_DEG = 180 / Math.PI;
+const RAD = 180 / Math.PI;
+const NM_TO_DEG = 1 / 60;
 
-function circleFeature(lon: number, lat: number, nm: number) {
-  const points: [number, number][] = [];
-  const deg = nm / 60.0;
-  const cosLat = Math.cos(lat * Math.PI / 180) || 1;
-  const segments = 64;
-  for (let i = 0; i <= segments; i++) {
-    const ang = (i / segments) * 2 * Math.PI;
-    points.push([lon + (deg * Math.sin(ang)) / cosLat, lat + deg * Math.cos(ang)]);
+// ── geometry helpers ──────────────────────────────────────────────────────────
+
+/** Project a point [lon,lat] by bearing (deg) and distance (nm). */
+function project(lon: number, lat: number, bearingDeg: number, distNm: number): [number, number] {
+  const d = distNm * NM_TO_DEG;
+  const brRad = bearingDeg * (Math.PI / 180);
+  const cosLat = Math.cos(lat * (Math.PI / 180)) || 1e-9;
+  return [lon + (d * Math.sin(brRad)) / cosLat, lat + d * Math.cos(brRad)];
+}
+
+/** Circle polygon [lon,lat] around a centre, radius in nm. */
+function circleFeature(lon: number, lat: number, nm: number): GeoJSON.Feature {
+  const pts: [number, number][] = [];
+  const cosLat = Math.cos(lat * Math.PI / 180) || 1e-9;
+  const d = nm * NM_TO_DEG;
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * 2 * Math.PI;
+    pts.push([lon + (d * Math.sin(a)) / cosLat, lat + d * Math.cos(a)]);
   }
+  return { type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: { nm } };
+}
+
+/** COG leader line — length depends on SOG (6-min projection). */
+function cogLine(lon: number, lat: number, cogRad: number, sogMs: number): GeoJSON.Feature {
+  const cogDeg = cogRad * RAD;
+  const distNm = (sogMs * 360) / 1852; // 6 min @ sogMs m/s → nm
+  const [lon2, lat2] = project(lon, lat, cogDeg, Math.max(distNm, 0.05));
   return {
-    type: 'Feature' as const,
-    geometry: { type: 'LineString' as const, coordinates: points },
-    properties: { radius_nm: nm },
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [[lon, lat], [lon2, lat2]] },
+    properties: { cogDeg },
   };
 }
 
-// Build a DOM element for a vessel marker. SVG triangle so it can rotate
-// without needing a font glyph; outlined circle as the base sprite.
-function makeVesselEl(color: string, size = 26): HTMLDivElement {
+// ── vessel DOM markers (not GeoJSON layers — avoids MapLibre v4 tile-index bug) ──
+
+function makeVesselEl(color: string, size = 28, ownship = false): HTMLDivElement {
   const el = document.createElement('div');
-  el.style.width = `${size}px`;
-  el.style.height = `${size}px`;
-  el.style.pointerEvents = 'none';
-  el.style.transformOrigin = '50% 50%';
+  el.style.cssText = `width:${size}px;height:${size}px;pointer-events:none;transform-origin:50% 50%`;
+  const strokeW = ownship ? 2.5 : 1.8;
   el.innerHTML = `
     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-      <circle cx="12" cy="12" r="6" fill="${color}" stroke="#0b1320" stroke-width="2"/>
-      <polygon points="12,1 16,9 12,7 8,9" fill="${color}" stroke="#0b1320" stroke-width="1.5"/>
+      <circle cx="12" cy="12" r="${ownship ? 7 : 5.5}" fill="${color}" stroke="#0b1320" stroke-width="${strokeW}" opacity="0.92"/>
+      <polygon points="12,1 16.5,10 12,8 7.5,10" fill="${color}" stroke="#0b1320" stroke-width="${strokeW}"/>
     </svg>`;
   return el;
 }
 
+// ── wind / current arrow overlay ──────────────────────────────────────────────
+
+function makeWindEl(dirDeg: number, speedMps: number): HTMLDivElement {
+  const el = document.createElement('div');
+  const kts = (speedMps * 1.944).toFixed(1);
+  el.style.cssText = 'pointer-events:none;text-align:center;font-family:monospace;font-size:11px;color:#60a5fa;line-height:1.2;';
+  el.innerHTML =
+    `<div style="font-size:18px;transform:rotate(${dirDeg}deg);display:inline-block">↑</div>` +
+    `<div>${kts} kn</div>`;
+  return el;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const styleReady = useRef(false);
-  const lastPanAt = useRef(0);
-  const firstFitDone = useRef(false);
-  const ownMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const targetMarkers = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const mapRef       = useRef<maplibregl.Map | null>(null);
+  const styleReady   = useRef(false);
+  const lastPanAt    = useRef(0);
+  const firstFit     = useRef(false);
+
+  // Markers
+  const ownMarker    = useRef<maplibregl.Marker | null>(null);
+  const windMarker   = useRef<maplibregl.Marker | null>(null);
+  const tgtMarkers   = useRef<Map<string, maplibregl.Marker>>(new Map());
+
   const [status, setStatus] = useState<'init' | 'ready' | 'no-webgl'>('init');
 
-  const ownShip = useTelemetryStore((s) => s.ownShip);
-  const targets = useTelemetryStore((s) => s.targets);
+  // Store selectors (memoised slices avoid 50 Hz whole-component re-renders)
+  const ownShip  = useTelemetryStore((s) => s.ownShip);
+  const targets  = useTelemetryStore((s) => s.targets);
+  const env      = useTelemetryStore((s) => s.environment);
+  const trail    = useTelemetryStore((s) => s.ownShipTrail);
 
-  // Initialise the map once. Only the OSM raster basemap + S-57 placeholder
-  // sources are declared up front; the CPA ring is added as a GeoJSON line
-  // source post-load. Vessel sprites are rendered as DOM Markers (not
-  // GeoJSON Point sources) because MapLibre v4.7's GeoJSON worker silently
-  // fails to (re)build tile indices for moving Point geometries — the
-  // sprites never paint. Markers bypass the tile pipeline entirely.
+  // ── Map initialisation ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
     let map: maplibregl.Map;
@@ -75,146 +103,227 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMa
         style: {
           version: 8,
           glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-          sources: {
-            osm: osmSource as any,
-            s57: s57Source as any,
-          },
-          layers: [
-            osmLayer as any,
-            ...s57Layers.map((l) => l as any),
-          ],
+          sources: { osm: osmSource as any, s57: s57Source as any },
+          layers: [osmLayer as any, ...s57Layers.map((l) => l as any)],
         },
         center: [10.4, 63.4],
         zoom: 12,
       });
-    } catch (err) {
-      console.warn('[SilMapView] WebGL init failed', err);
+    } catch {
       setStatus('no-webgl');
       return;
     }
+
     map.on('error', (e: any) => {
-      const msg = String(e?.error?.message || e?.message || e);
-      if (msg.includes('pbf') || msg.includes('s57') || msg.includes('Failed to fetch tile')) return;
-      console.warn('[SilMapView] map error', msg);
+      const msg = String(e?.error?.message ?? '');
+      if (/pbf|s57|Failed to fetch tile|glyphs/i.test(msg)) return;
+      console.warn('[SilMapView]', msg);
     });
+
     map.on('load', () => {
-      // CPA ring (LineString) is added as a real source so it renders below
-      // markers in the WebGL canvas; the layer is filled with real data once
-      // own-ship telemetry arrives (see effect below).
-      map.addSource('cpa-ring', {
+      // ── Trail ────────────────────────────────────────────────────────────
+      map.addSource('trail', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [circleFeature(10.4, 63.4, 0.5), circleFeature(10.4, 63.4, 1.0)],
-        },
+        data: { type: 'FeatureCollection', features: [] },
       });
-      map.addLayer(cpaRingLayer as any);
+      map.addLayer({
+        id: 'trail-line',
+        type: 'line',
+        source: 'trail',
+        paint: { 'line-color': '#2dd4bf', 'line-width': 1.5, 'line-opacity': 0.55,
+                 'line-dasharray': [3, 2] },
+      });
+
+      // ── Own-ship COG leader ──────────────────────────────────────────────
+      map.addSource('own-cog', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'own-cog-line',
+        type: 'line',
+        source: 'own-cog',
+        paint: { 'line-color': '#2dd4bf', 'line-width': 2.5, 'line-opacity': 0.85 },
+      });
+
+      // ── Target COG leaders ───────────────────────────────────────────────
+      map.addSource('tgt-cog', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'tgt-cog-line',
+        type: 'line',
+        source: 'tgt-cog',
+        paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-opacity': 0.8 },
+      });
+
+      // ── CPA / danger rings ───────────────────────────────────────────────
+      map.addSource('cpa-rings', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'cpa-rings-line',
+        type: 'line',
+        source: 'cpa-rings',
+        paint: { 'line-color': '#f87171', 'line-width': 1.5,
+                 'line-dasharray': [4, 3], 'line-opacity': 0.7 },
+      });
+
       styleReady.current = true;
       setStatus('ready');
     });
+
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
+
     return () => {
-      ownMarkerRef.current?.remove();
-      ownMarkerRef.current = null;
-      targetMarkers.current.forEach((m) => m.remove());
-      targetMarkers.current.clear();
+      ownMarker.current?.remove(); ownMarker.current = null;
+      windMarker.current?.remove(); windMarker.current = null;
+      tgtMarkers.current.forEach((m) => m.remove());
+      tgtMarkers.current.clear();
       try { mapRef.current?.remove(); } catch { /* noop */ }
       mapRef.current = null;
       styleReady.current = false;
-      firstFitDone.current = false;
+      firstFit.current = false;
     };
   }, []);
 
-  // Update own-ship marker + CPA ring whenever telemetry changes
+  // ── Own-ship + trail + CPA rings update ────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady.current || !ownShip) return;
     const lat = ownShip.pose?.lat;
     const lon = ownShip.pose?.lon;
-    const heading = (ownShip.pose?.heading ?? 0) * RAD_TO_DEG;
+    const hdgDeg = (ownShip.pose?.heading ?? 0) * RAD;
+    const cogRad = ownShip.kinematics?.cog ?? 0;
+    const sogMs  = ownShip.kinematics?.sog ?? 0;
     if (typeof lat !== 'number' || typeof lon !== 'number') return;
 
-    // Create marker once, reuse via setLngLat / setRotation thereafter
-    if (!ownMarkerRef.current) {
-      const el = makeVesselEl('#2dd4bf', 28);
-      ownMarkerRef.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
-        .setLngLat([lon, lat])
-        .addTo(map);
+    // Marker
+    if (!ownMarker.current) {
+      const el = makeVesselEl('#2dd4bf', 30, true);
+      ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+        .setLngLat([lon, lat]).addTo(map);
     } else {
-      ownMarkerRef.current.setLngLat([lon, lat]);
+      ownMarker.current.setLngLat([lon, lat]);
     }
-    ownMarkerRef.current.setRotation(heading);
+    ownMarker.current.setRotation(hdgDeg);
 
-    // Update CPA ring — setData works fine for LineString sources
-    const ringFC = {
-      type: 'FeatureCollection' as const,
+    // COG leader
+    (map.getSource('own-cog') as any)?.setData({
+      type: 'FeatureCollection',
+      features: [cogLine(lon, lat, cogRad, sogMs)],
+    });
+
+    // CPA rings — 0.5 nm and 1.0 nm around own-ship
+    (map.getSource('cpa-rings') as any)?.setData({
+      type: 'FeatureCollection',
       features: [circleFeature(lon, lat, 0.5), circleFeature(lon, lat, 1.0)],
-    };
-    (map.getSource('cpa-ring') as any)?.setData(ringFC);
+    });
 
+    // Follow
     if (followOwnShip && viewMode === 'captain') {
-      if (!firstFitDone.current) {
-        map.jumpTo({ center: [lon, lat], zoom: 14 });
-        firstFitDone.current = true;
+      if (!firstFit.current) {
+        map.jumpTo({ center: [lon, lat], zoom: 13 });
+        firstFit.current = true;
         lastPanAt.current = Date.now();
-      } else if (Date.now() - lastPanAt.current > 1000) {
-        map.easeTo({ center: [lon, lat], duration: 600 });
+      } else if (Date.now() - lastPanAt.current > 800) {
+        map.easeTo({ center: [lon, lat], duration: 500 });
         lastPanAt.current = Date.now();
       }
     }
   }, [ownShip, followOwnShip, viewMode]);
 
-  // Update / create / remove target markers as the targets array changes
+  // ── Trail update ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current || trail.length < 2) return;
+    (map.getSource('trail') as any)?.setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: trail },
+                   properties: {} }],
+    });
+  }, [trail]);
+
+  // ── Target markers + COG leaders ───────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady.current) return;
 
     const seen = new Set<string>();
+    const cogFeatures: GeoJSON.Feature[] = [];
+
     for (const t of targets) {
       const lat = t.pose?.lat;
       const lon = t.pose?.lon;
       if (typeof lat !== 'number' || typeof lon !== 'number') continue;
       const id = t.mmsi != null ? String(t.mmsi) : `tgt-${seen.size}`;
       seen.add(id);
-      const heading = (t.pose?.heading ?? 0) * RAD_TO_DEG;
-      let marker = targetMarkers.current.get(id);
-      if (!marker) {
-        const el = makeVesselEl('#fbbf24', 22);
-        marker = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
-          .setLngLat([lon, lat])
-          .addTo(map);
-        targetMarkers.current.set(id, marker);
+
+      const hdgDeg = (t.pose?.heading ?? 0) * RAD;
+      const cogRad = t.kinematics?.cog ?? 0;
+      const sogMs  = t.kinematics?.sog ?? 0;
+
+      // Marker
+      let m = tgtMarkers.current.get(id);
+      if (!m) {
+        const el = makeVesselEl('#fbbf24', 24);
+        m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+          .setLngLat([lon, lat]).addTo(map);
+        tgtMarkers.current.set(id, m);
       } else {
-        marker.setLngLat([lon, lat]);
+        m.setLngLat([lon, lat]);
       }
-      marker.setRotation(heading);
+      m.setRotation(hdgDeg);
+
+      // COG leader
+      cogFeatures.push(cogLine(lon, lat, cogRad, sogMs));
     }
-    // Remove markers for targets no longer in the array
-    for (const [id, marker] of Array.from(targetMarkers.current.entries())) {
-      if (!seen.has(id)) {
-        marker.remove();
-        targetMarkers.current.delete(id);
-      }
+
+    // Remove stale
+    for (const [id, m] of Array.from(tgtMarkers.current.entries())) {
+      if (!seen.has(id)) { m.remove(); tgtMarkers.current.delete(id); }
     }
+
+    (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: cogFeatures });
   }, [targets]);
 
+  // ── Wind/current marker (top-left, fixed screen position) ──────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current || !env) return;
+    const dir  = env.wind?.direction ?? 0;
+    const spd  = env.wind?.speedMps ?? 0;
+    const centre = map.getCenter();
+
+    if (!windMarker.current) {
+      const el = makeWindEl(dir * RAD, spd);
+      windMarker.current = new maplibregl.Marker({ element: el })
+        .setLngLat([centre.lng, centre.lat]).addTo(map);
+    } else {
+      // update inner HTML
+      const el = windMarker.current.getElement();
+      el.innerHTML = makeWindEl(dir * RAD, spd).innerHTML;
+    }
+    // Keep it in the visible centre so it doesn't wander with map pans.
+    // (true "screen-space" overlay lives in BridgeHMI; this is a secondary cue)
+  }, [env]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div
-        ref={mapContainer}
-        style={{ width: '100%', height: '100%' }}
-        data-testid="sil-map-view"
-      />
+      <div ref={mapContainer} style={{ width: '100%', height: '100%' }}
+           data-testid="sil-map-view" />
       {status !== 'ready' && (
         <div style={{
-          position: 'absolute', bottom: 8, left: 8,
-          padding: '4px 10px', borderRadius: 4,
+          position: 'absolute', bottom: 8, left: 8, padding: '4px 10px', borderRadius: 4,
           background: 'rgba(11,19,32,0.85)', color: '#888',
           fontFamily: 'monospace', fontSize: 11, pointerEvents: 'none',
         }} data-testid="sil-map-status">
-          {status === 'no-webgl' && 'Map: WebGL unavailable (headless?)'}
-          {status === 'init' && 'Map: initialising…'}
+          {status === 'no-webgl' ? 'Map: WebGL unavailable (headless?)' : 'Map: initialising…'}
         </div>
       )}
     </div>

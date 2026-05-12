@@ -132,6 +132,10 @@ export const silApi = createApi({
     getExportStatus: builder.query<{ status: string; download_url?: string }, string>({
       query: (runId) => `/export/status/${runId}`,
     }),
+    // Fault injection
+    triggerFault: builder.mutation<{ fault_id?: string }, { fault_type: string; payload_json: string }>({
+      query: (body) => ({ url: '/fault/trigger', method: 'POST', body }),
+    }),
   }),
 });
 
@@ -151,4 +155,5 @@ export const {
   useGetHealthStatusQuery,
   useExportMarzipMutation,
   useGetExportStatusQuery,
+  useTriggerFaultMutation,
 } = silApi;
