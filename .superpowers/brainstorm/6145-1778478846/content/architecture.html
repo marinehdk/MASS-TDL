@@ -1,0 +1,135 @@
+<h2>D1.3b.3 Architecture — Complete Data Flow</h2>
+<p class="subtitle">ROS2 → foxglove_bridge → Browser · S-57 ENC → GDAL → MVT Tiles · React + MapLibre GL</p>
+
+<div class="section">
+  <h3>Component Topology (DEMO-1, single machine)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Port Map: FastAPI 8000 · foxglove_bridge 8765 · Vite dev 5173 (dev only)</div>
+    <div class="mockup-body" style="padding:16px;font-size:12px;font-family:mono;line-height:1.8">
+┌────────────────────────────────────────────────────────┐
+│  ROS2 Graph (colcon workspace)                          │
+│                                                         │
+│  sil_mock_node ── /nav/filtered_state @50Hz ──┐        │
+│       │                                        │        │
+│       ├── /l3/sat/data @1Hz ──┐               │        │
+│       └── /l3/m1/odd_state @1Hz ──┐           │        │
+│                                     │           │        │
+│              ┌──────────────────────┼───────────┘        │
+│              ▼                      ▼                    │
+│    topic_tools throttle    topic_tools throttle          │
+│    /nav/filtered_state     /world_model/tracks           │
+│    50Hz → 10Hz             (passthrough 2Hz)             │
+│              │                      │                    │
+│              └──────────┬───────────┘                    │
+│                         ▼                                │
+│              foxglove_bridge (C++, port 8765)            │
+│              topic_whitelist: [".*_viz", "/l3/.*"]       │
+└──────────────────────┬──────────────────────────────────┘
+                       │ ws://localhost:8765 (JSON, DEMO-1)
+┌──────────────────────┼──────────────────────────────────┐
+│  Python (FastAPI, port 8000)            │                │
+│                                          │                │
+│  /ws/sil_debug ←── ROS2 subscribe ──────┘                │
+│  (CPA, TCPA, Rule, Decision, M1-M8 pulse, ASDR)          │
+│                                                           │
+│  /sil/scenario/list  →  scenarios/ dir                    │
+│  /sil/scenario/run   →  batch_runner.py                   │
+│  /sil/scenario/status/{id}                                │
+│  /sil/report/latest  →  reports/coverage_*.html           │
+│                                                           │
+│  / → React build static files (production)                │
+└──────────────────────┬────────────────────────────────────┘
+                       │ ws://localhost:8000/ws/sil_debug
+                       │ http://localhost:8000 (REST + static)
+┌──────────────────────┼────────────────────────────────────┐
+│  Browser (React + MapLibre GL)                             │
+│                                                           │
+│  ┌─ MapLibre GL Map ──────────────────────────────────┐  │
+│  │  ENC MVT tiles (S-57 → GDAL → Tippecanoe)          │  │
+│  │  Own-ship symbol layer (icon-rotate: heading_deg)   │  │
+│  │  Target vessel symbol layer (filtered by track_id)  │  │
+│  │  CPA ring (circle layer, radius = CPA_m / scale)    │  │
+│  │  COG/SOG vector (LineString from position to pred)  │  │
+│  └────────────────────────────────────────────────────┘  │
+│  ┌─ Side Panel ───────────────────────────────────────┐  │
+│  │  CPA · TCPA · Rule · Decision · M1-M8 Pulse        │  │
+│  │  ASDR Evidence Log (auto-scroll)                    │  │
+│  └────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────┘
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>ENC Data Pipeline (one-time CI job or manual)</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px">Step</th><th style="padding:8px">Tool</th><th style="padding:8px">Command / Config</th><th style="padding:8px">Output</th>
+    </tr>
+    <tr>
+      <td style="padding:8px">1. Export layers</td>
+      <td style="padding:8px">ogr2ogr</td>
+      <td style="padding:8px;font-size:11px;font-family:mono">ogr2ogr -f GeoJSONSeq -t_srs EPSG:4326<br>/tmp/trondelag_land.geojsons<br>Trondelag.gdb landareal</td>
+      <td style="padding:8px">GeoJSONSeq (newline-delimited)</td>
+    </tr>
+    <tr style="background:#f9f9f9">
+      <td style="padding:8px">2. Merge + simplify</td>
+      <td style="padding:8px">tippecanoe</td>
+      <td style="padding:8px;font-size:11px;font-family:mono">tippecanoe -Z6 -z14 -o trondheim.mbtiles<br>--drop-densest-as-needed --simplification=4<br>land.geojsons depth.geojsons coast.geojsons</td>
+      <td style="padding:8px">trondheim.mbtiles</td>
+    </tr>
+    <tr>
+      <td style="padding:8px">3. Extract tiles</td>
+      <td style="padding:8px">mb-util</td>
+      <td style="padding:8px;font-size:11px;font-family:mono">mb-util trondheim.mbtiles<br>web/public/tiles/trondheim/</td>
+      <td style="padding:8px">/{z}/{x}/{y}.pbf</td>
+    </tr>
+  </table>
+  <p style="font-size:10px;color:#888;margin-top:8px">🟢 Trondelag.gdb already available (colav-simulator). SF Bay NOAA ENC: user provides credentials next week. Pipeline identical for both regions.</p>
+</div>
+
+<div class="section">
+  <h3>Task Breakdown (DEMO-1 partial, 6/15 deadline — 5.0 pw)</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px">ID</th><th style="padding:8px">Task</th><th style="padding:8px;text-align:center">工时</th><th style="padding:8px">依赖</th><th style="padding:8px">产出</th>
+    </tr>
+    <tr><td style="padding:6px">T1</td><td>React + Vite + MapLibre GL 项目初始化</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">—</td><td style="padding:6px">web/ 目录, npm run dev 可启动</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:6px">T2</td><td>ENC 数据转换管线</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">GDAL</td><td style="padding:6px">web/public/tiles/trondheim/{z}/{x}/{y}.pbf</td></tr>
+    <tr><td style="padding:6px">T3</td><td>MapLibre 海图初始化 (ENC tiles + Trondheim viewport)</td><td style="padding:6px;text-align:center">3h</td><td style="padding:6px">T1, T2</td><td style="padding:6px">ENC 底图在浏览器渲染</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:6px">T4</td><td>Own-ship + Target ship symbol layer</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">T3</td><td style="padding:6px">船形图标 + 艏向旋转 + COG/SOG vector</td></tr>
+    <tr><td style="padding:6px">T5</td><td>foxglove_bridge 安装 + launch file + topic_tools</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">ROS2</td><td style="padding:6px">8765端口 WebSocket 可用</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:6px">T6</td><td>foxglove_bridge WebSocket → React 数据流</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">T4, T5</td><td style="padding:6px">roslibjs-foxglove 订阅 nav/tracks</td></tr>
+    <tr><td style="padding:6px">T7</td><td>信息块迁移 (CPA/TCPA/Rule/Decision)</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">—</td><td style="padding:6px">Side panel React 组件</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:6px">T8</td><td>M1-M8 Pulse + ASDR Log</td><td style="padding:6px;text-align:center">3h</td><td style="padding:6px">T7</td><td style="padding:6px">Pulse dots + 日志滚动面板</td></tr>
+    <tr><td style="padding:6px">T9</td><td>FastAPI static serving + dev proxy 配置</td><td style="padding:6px;text-align:center">2h</td><td style="padding:6px">T1</td><td style="padding:6px">生产/开发双模式</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:6px">T10</td><td>DEMO-1 R14 Head-on 端到端联调</td><td style="padding:6px;text-align:center">4h</td><td style="padding:6px">T3-T9</td><td style="padding:6px">5分钟 live demo SOP</td></tr>
+    <tr><td style="padding:6px">T11</td><td>Phase 2 stub (Arrow replay + Puppeteer 接口预留)</td><td style="padding:6px;text-align:center">2h</td><td style="padding:6px">T10</td><td style="padding:6px">接口位预留, DoD 验证</td></tr>
+    <tr style="background:#eaf3de"><td style="padding:6px"></td><td style="padding:6px"><strong>合计</strong></td><td style="padding:6px;text-align:center"><strong>38h</strong></td><td style="padding:6px"></td><td style="padding:6px">≈ 1.0 pw (5.0pw 预算中 Phase 2 占 ~4.0pw)</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Dependencies (no D1.3b.1 dependency for DEMO-1)</h3>
+  <div class="split">
+    <div class="card" style="border-left:4px solid #3b6d11">
+      <div class="card-body">
+        <h3>Hard Deps (available now)</h3>
+        <p>D1.3a MMG 仿真器 (fcb_sim_py_mock)<br>
+        sil_mock_node synthetic 模式<br>
+        FastAPI /ws/sil_debug<br>
+        Trondelag.gdb ENC data<br>
+        <strong>→ DEMO-1 data chain complete</strong></p>
+      </div>
+    </div>
+    <div class="card" style="border-left:4px solid #854f0b">
+      <div class="card-body">
+        <h3>Soft Deps (skippable)</h3>
+        <p>D1.3b.1 Imazu-22 (DEMO-2 覆盖率热图)<br>
+        D1.3b.2 AIS-replay (DEMO-2 ais_replay 模式)<br>
+        NOAA SF Bay ENC (下周提供凭证)<br>
+        <strong>→ DEMO-1 不依赖这些</strong></p>
+      </div>
+    </div>
+  </div>
+</div>

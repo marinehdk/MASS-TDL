@@ -1,0 +1,214 @@
+<h2>Prototype Visual Element Audit → MapLibre Migration Map</h2>
+<p class="subtitle">L3_TDL_SIL_Interactive.html Section 3 (HMI Demo) — 7 display elements, all must survive migration</p>
+
+<div class="section">
+  <h3>Current Prototype Layout (200px left radar + flex right panel)</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">SVG Radar (200×200, viewBox 3nm)</div>
+      <div class="mockup-body" style="background:#f2f0e9;padding:12px;text-align:center;min-height:240px">
+        <div style="position:relative;width:180px;height:180px;margin:0 auto;border-radius:50%;background:radial-gradient(circle,#e6e4dc 0%,#c8c6be 60%,#f2f0e9 100%);border:0.5px solid #ccc">
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:10px;color:#888">N</div>
+          <div style="position:absolute;top:44%;left:62%;font-size:9px;color:#888">E</div>
+          <!-- Own ship triangle (blue) -->
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">
+            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #185fa5;margin-bottom:2px"></div>
+            <div style="width:1px;height:16px;background:#185fa5;margin:0 auto"></div>
+          </div>
+          <!-- Target ship (red, upper area) -->
+          <div style="position:absolute;top:15%;left:50%;transform:translate(-50%,-50%)">
+            <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid #e24b4a;margin-bottom:1px"></div>
+            <div style="width:1px;height:10px;background:#e24b4a;margin:0 auto"></div>
+          </div>
+          <!-- CPA ring (dashed) -->
+          <div style="position:absolute;top:32%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;border:1px dashed #e24b4a"></div>
+          <!-- Range rings -->
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120px;height:120px;border-radius:50%;border:0.3px solid #ddd"></div>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;border:0.3px solid #ddd"></div>
+        </div>
+        <div style="font-size:10px;color:#888;margin-top:4px">范围 3nm · 1格=1nm</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Data Panel (flex column, right side)</div>
+      <div class="mockup-body" style="padding:12px;min-height:240px">
+        <div style="background:#f2f0e9;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+          <div style="font-size:10px;color:#888">CPA 最近接近距离</div>
+          <div style="font-size:22px;font-weight:500;font-family:mono">0.18 nm</div>
+          <div style="font-size:9px;color:#888">安全阈值 &ge; 0.50nm</div>
+        </div>
+        <div style="background:#f2f0e9;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+          <div style="font-size:10px;color:#888">TCPA 最近接近时间</div>
+          <div style="font-size:16px;font-weight:500;font-family:mono">520 s</div>
+          <div style="font-size:9px;color:#888">预警阈值 &le; 600s</div>
+        </div>
+        <div style="background:#f2f0e9;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+          <div style="font-size:10px;color:#888">M6 COLREGs 分类</div>
+          <div style="font-size:13px;font-weight:500;font-family:mono">R14 正遇检测</div>
+        </div>
+        <div style="background:#f2f0e9;border-radius:8px;padding:8px 12px">
+          <div style="font-size:10px;color:#888">L3 系统决策</div>
+          <div style="font-size:12px;color:#666">M2 检测碰撞风险</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Complete Visual Element → MapLibre Equivalent Mapping</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px 12px;text-align:left">#</th>
+      <th style="padding:8px 12px;text-align:left">原型元素</th>
+      <th style="padding:8px 12px;text-align:left">当前实现</th>
+      <th style="padding:8px 12px;text-align:left">MapLibre 等效</th>
+      <th style="padding:8px 12px;text-align:center">数据源</th>
+      <th style="padding:8px 12px;text-align:center">DEMO-1</th>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">1</td>
+      <td><strong>ENC 底图</strong></td>
+      <td>无（空白 SVG 圆）</td>
+      <td>MapLibre S-57 MVT vector tiles<br>(DEPARE/LNDARE/OBSTRN)</td>
+      <td style="text-align:center">—</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">2</td>
+      <td><strong>Own-ship sprite</strong></td>
+      <td>蓝色三角形 + 艏向线</td>
+      <td>MapLibre symbol layer<br>(custom icon + icon-rotate)</td>
+      <td style="text-align:center">foxglove<br>/nav/filtered_state</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">3</td>
+      <td><strong>Target ship sprite</strong></td>
+      <td>红色三角形 + 航向线</td>
+      <td>MapLibre symbol layer<br>(同 icon, 红色 tint)</td>
+      <td style="text-align:center">foxglove<br>/world_model/tracks</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">4</td>
+      <td><strong>CPA ring</strong></td>
+      <td>虚线红圈 (SVG circle)</td>
+      <td>MapLibre circle layer<br>(circle-radius=CPA_m/scale)</td>
+      <td style="text-align:center">foxglove<br>/world_model/tracks.cpa</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">5</td>
+      <td><strong>COG/SOG vector</strong></td>
+      <td>蓝色航向线 (SVG line)</td>
+      <td>MapLibre line layer<br>(LineString from GPS pos to predicted)</td>
+      <td style="text-align:center">foxglove<br>/nav/filtered_state</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">6</td>
+      <td><strong>Grounding hazard</strong></td>
+      <td>无</td>
+      <td>MapLibre fill layer<br>(DEPARE water < draft → red)</td>
+      <td style="text-align:center">ENC tiles</td>
+      <td style="text-align:center"><span class="bx bw">Phase 2</span></td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">7</td>
+      <td><strong>Avoidance arc</strong></td>
+      <td>蓝色弧线 (SVG path)</td>
+      <td>MapLibre line layer<br>(M5 BC-MPC heading sweep)</td>
+      <td style="text-align:center">foxglove + M5</td>
+      <td style="text-align:center"><span class="bx bw">Phase 2</span></td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Side Panel Elements (non-map, React components)</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px 12px;text-align:left">#</th>
+      <th style="padding:8px 12px;text-align:left">原型元素</th>
+      <th style="padding:8px 12px;text-align:left">数据源</th>
+      <th style="padding:8px 12px;text-align:center">DEMO-1</th>
+      <th style="padding:8px 12px;text-align:left">备注</th>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">P1</td>
+      <td><strong>CPA 数值</strong> (大号, 颜色编码)</td>
+      <td>/ws/sil_debug → CPA</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>阈值颜色: 绿 >0.5nm, 橙 0.3-0.5, 红 <0.3</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">P2</td>
+      <td><strong>TCPA 数值</strong></td>
+      <td>/ws/sil_debug → TCPA</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>秒, 预警 ≤600s</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">P3</td>
+      <td><strong>M6 COLREGs 分类</strong></td>
+      <td>/ws/sil_debug → rule_text</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>R13/R14/R15 文字</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">P4</td>
+      <td><strong>L3 系统决策</strong> (动作文字)</td>
+      <td>/ws/sil_debug → decision_text</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>例如 "M5 BC-MPC 右转10&deg;"</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">P5</td>
+      <td><strong>M1-M8 pulse dots</strong></td>
+      <td>/ws/sil_debug → module_status[]</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>8 个圆点, 激活=绿色填充</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd;background:#f9f9f9">
+      <td style="padding:8px 12px">P6</td>
+      <td><strong>ASDR 证据日志</strong></td>
+      <td>/ws/sil_debug → asdr_events[]</td>
+      <td style="text-align:center"><span class="bx bs">必</span></td>
+      <td>滚动日志, mono 字体</td>
+    </tr>
+    <tr style="border-bottom:0.5px solid #ddd">
+      <td style="padding:8px 12px">P7</td>
+      <td><strong>场景选择器</strong></td>
+      <td>/sil/scenario/list</td>
+      <td style="text-align:center"><span class="bx bi">有则优</span></td>
+      <td>DEMO-1 固定为 R14 HO</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Summary: DEMO-1 Must-Have vs Phase 2 Defer</h3>
+  <div class="split">
+    <div class="card" style="border-left:4px solid #3b6d11">
+      <div class="card-body">
+        <h3>DEMO-1 (6/15) — 11 elements</h3>
+        <p>Map: ENC底图 + Own-ship + Target + CPA ring + COG vector<br>
+        Panel: CPA + TCPA + Rule + Decision + Pulse dots + ASDR log<br>
+        <strong>1 scene: R14 head-on, Trondheim Fjord</strong></p>
+      </div>
+    </div>
+    <div class="card" style="border-left:4px solid #854f0b">
+      <div class="card-body">
+        <h3>Phase 2 (7/31) — 5 elements</h3>
+        <p>Map: Grounding hazard + Avoidance arc + Multi-target<br>
+        Panel: Scenario selector + Arrow replay scrubber<br>
+        <strong>Puppeteer GIF batch, TLS/WSS</strong></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="font-size:11px;color:#888;margin-top:24px;text-align:center">
+  原型数据源: SilDebugSchema (via /ws/sil_debug) + foxglove_bridge (via WebSocket port 8765)
+</p>

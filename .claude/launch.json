@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "m8-hmi",
+      "runtimeExecutable": "true",
+      "runtimeArgs": [],
+      "port": 8000
+    }
+  ]
+}

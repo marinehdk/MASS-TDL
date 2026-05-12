@@ -1,0 +1,147 @@
+<h2>foxglove_bridge Frequency Throttle — Three-Layer Solution</h2>
+<p class="subtitle">Layer 1: ROS topic_tools throttle · Layer 2: Protobuf wire encoding · Layer 3: Browser rAF render cap</p>
+
+<div class="section">
+  <h3>Problem Statement</h3>
+  <div class="split">
+    <div class="card">
+      <div class="card-body">
+        <h3>DEMO-1 (6/15)</h3>
+        <p>2 vessels (own-ship + 1 target)<br>
+        50Hz nav state + 2Hz tracks<br>
+        <strong>~53 msg/s → JSON ~50 KB/s</strong><br>
+        No problem, modern browser handles easily</p>
+      </div>
+    </div>
+    <div class="card" style="border-left:4px solid #ba7517">
+      <div class="card-body">
+        <h3>DEMO-2 (7/31)</h3>
+        <p>50+ vessels (own-ship + 50 targets)<br>
+        50Hz nav state + 2Hz × 50 tracks<br>
+        <strong>~150 msg/s → JSON ~500 KB/s</strong><br>
+        HTML DOM + WebSocket parse + MapLibre render = bottleneck</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Layer 1: ROS2 topic_tools throttle (server-side republish)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Phase 1 (DEMO-1): Add throttle node to launch file</div>
+    <div class="mockup-body" style="padding:16px;font-family:mono;font-size:12px;line-height:1.8">
+      <span style="color:#888"># Install (once)</span><br>
+      sudo apt install ros-humble-topic-tools<br><br>
+      <span style="color:#888"># Launch: throttle nav data 50Hz → 10Hz</span><br>
+      ros2 run topic_tools throttle messages \<br>
+      &nbsp;&nbsp;/nav/filtered_state 10 /nav/filtered_state_viz<br><br>
+      <span style="color:#888"># Launch: throttle tracks 2Hz → 2Hz (pass-through, already low)</span><br>
+      ros2 run topic_tools throttle messages \<br>
+      &nbsp;&nbsp;/world_model/tracks 2 /world_model/tracks_viz<br><br>
+      <span style="color:#888"># foxglove_bridge subscribes to *_viz throttled topics</span><br>
+      ros2 launch foxglove_bridge foxglove_bridge_launch.xml \<br>
+      &nbsp;&nbsp;port:=8765 \<br>
+      &nbsp;&nbsp;topic_whitelist:='[".*_viz", "/l3/.*"]'
+    </div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px">Topic</th><th style="padding:8px">Native Rate</th><th style="padding:8px">Throttle Rate</th><th style="padding:8px">Payload Size</th><th style="padding:8px">Bandwidth (50 vessels)</th>
+    </tr>
+    <tr><td style="padding:8px">/nav/filtered_state_viz</td><td style="padding:8px">50 Hz</td><td style="padding:8px;color:#3b6d11;font-weight:500">10 Hz</td><td style="padding:8px">~200 B JSON</td><td style="padding:8px">2 KB/s</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px">/world_model/tracks_viz</td><td style="padding:8px">2 Hz</td><td style="padding:8px;color:#3b6d11;font-weight:500">2 Hz</td><td style="padding:8px">~300 B × 50 targets</td><td style="padding:8px">30 KB/s</td></tr>
+    <tr style="font-weight:500"><td style="padding:8px">Total</td><td style="padding:8px">—</td><td style="padding:8px">—</td><td style="padding:8px">—</td><td style="padding:8px">~32 KB/s</td></tr>
+  </table>
+  <p style="font-size:10px;color:#888;margin-top:6px">🟢 High confidence — topic_tools official ROS Humble package (v1.1.1). Available via apt. Source: <a href="https://index.ros.org/r/topic_tools/">ros index</a></p>
+</div>
+
+<div class="section">
+  <h3>Layer 2: Protobuf Binary Encoding (DEMO-2 switch)</h3>
+  <div class="split">
+    <div class="card">
+      <div class="card-body">
+        <h3>JSON (DEMO-1)</h3>
+        <p>✅ Human-readable, easy debug<br>
+        ✅ Zero config — foxglove_bridge default<br>
+        ✅ Browser WebSocket text frames<br>
+        ❌ 3-10x larger than Protobuf<br>
+        <strong>32 KB/s → fine for DEMO-1</strong></p>
+      </div>
+    </div>
+    <div class="card" style="border-left:4px solid #185fa5">
+      <div class="card-body">
+        <h3>Protobuf (DEMO-2)</h3>
+        <p>✅ 3-10x smaller payload<br>
+        ✅ Binary WebSocket frames (faster parse)<br>
+        ✅ Schema auto-advertised by bridge<br>
+        ⚠️ Requires .proto defs for custom messages<br>
+        <strong>32 KB/s → ~5 KB/s with 50 vessels</strong></p>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:10px;color:#888;margin-top:8px">🟡 Medium confidence — Protobuf gain varies by message structure. foxglove_bridge supports both modes natively. Source: <a href="https://foxglove.dev/blog/announcing-the-new-foxglove-bridge-for-live-ros-data.html">Foxglove blog</a></p>
+</div>
+
+<div class="section">
+  <h3>Layer 3: Browser-Side Throttle (always active)</h3>
+  <div class="mockup">
+    <div class="mockup-header">React hook: useThrottledTopic(ws, topic, maxFps)</div>
+    <div class="mockup-body" style="padding:12px;font-size:12px;font-family:mono;line-height:1.7">
+<span style="color:#888">// Custom hook: throttled WebSocket → React state</span><br>
+<span style="color:#185fa5">function</span> <span style="color:#ba7517">useThrottledTopic</span>(ws, topic, maxFps=<span style="color:#3b6d11">30</span>) {<br>
+&nbsp;&nbsp;<span style="color:#185fa5">const</span> [data, setData] = useState(<span style="color:#185fa5">null</span>);<br>
+&nbsp;&nbsp;<span style="color:#185fa5">const</span> lastUpdate = useRef(<span style="color:#3b6d11">0</span>);<br>
+&nbsp;&nbsp;<span style="color:#185fa5">const</span> minInterval = <span style="color:#3b6d11">1000</span> / maxFps;<br>
+<br>
+&nbsp;&nbsp;useEffect(<span style="color:#185fa5">() =></span> {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ws.on(<span style="color:#3b6d11">'message'</span>, (msg) => {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#185fa5">const</span> now = performance.now();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#185fa5">if</span> (now - lastUpdate.current >= minInterval) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lastUpdate.current = now;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;setData(msg);  <span style="color:#888">// triggers MapLibre setData()</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;});<br>
+&nbsp;&nbsp;}, [ws, topic, minInterval]);<br>
+<br>
+&nbsp;&nbsp;<span style="color:#185fa5">return</span> data;<br>
+}
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Complete Data Pipeline (DEMO-1 → DEMO-2 evolution)</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <tr style="background:#1a1a2e;color:white">
+      <th style="padding:8px">Stage</th><th style="padding:8px">DEMO-1 (6/15)</th><th style="padding:8px">DEMO-2 (7/31)</th>
+    </tr>
+    <tr><td style="padding:8px">ROS2 source</td><td style="padding:8px">sil_mock_node: /nav/filtered_state @50Hz</td><td style="padding:8px">Real M2 World Model: + /world_model/tracks @2Hz × 50 targets</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px">Throttle</td><td style="padding:8px"><code>topic_tools throttle</code> 50→10Hz</td><td style="padding:8px"><code>topic_tools throttle</code> 10Hz + Protobuf</td></tr>
+    <tr><td style="padding:8px">foxglove_bridge</td><td style="padding:8px">JSON text frames, port 8765</td><td style="padding:8px">Protobuf binary frames, port 8765</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px">Browser WS</td><td style="padding:8px">roslibjs-foxglove (npm)</td><td style="padding:8px">@foxglove/ws-protocol (npm)</td></tr>
+    <tr><td style="padding:8px">React state</td><td style="padding:8px">useThrottledTopic(maxFps=30)</td><td style="padding:8px">useThrottledTopic(maxFps=15)</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px">MapLibre render</td><td style="padding:8px">2 symbols @60FPS (trivial)</td><td style="padding:8px">50 symbols @30FPS (symbol layer batch)</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Decision: Start with topic_tools throttle + JSON, upgrade to Protobuf at DEMO-2</h3>
+  <div class="pros-cons">
+    <div class="pros"><h4>Pros</h4>
+      <ul>
+        <li>No custom code — official ROS2 package</li>
+        <li>Throttle rate per-topic, adjustable at launch</li>
+        <li>JSON for DEMO-1 dev speed, Protobuf for DEMO-2 performance</li>
+        <li>Zero foxglove_bridge modification needed</li>
+      </ul>
+    </div>
+    <div class="cons"><h4>Cons</h4>
+      <ul>
+        <li>Extra ROS2 node in launch file (minimal overhead)</li>
+        <li>Protobuf requires .proto message definitions for custom IDL types</li>
+        <li>roslibjs-foxglove does NOT support Protobuf mode — need @foxglove/ws-protocol for DEMO-2</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:11px;color:#888;margin-top:12px">🟡 Medium — Protobuf upgrade path clear but roslibjs-foxglove fork needed for binary mode. Acceptable for DEMO-2 timeline.</p>
+</div>

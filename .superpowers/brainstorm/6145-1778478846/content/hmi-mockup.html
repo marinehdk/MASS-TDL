@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D1.3b.3 HMI Mockup — R14 Head-on DEMO-1</title>
+<style>
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #252525;
+  --bg-tertiary: #0f0f0f;
+  --bg-panel: #1e1e1e;
+  --text-primary: #e6e4dc;
+  --text-secondary: #aeaca4;
+  --text-tertiary: #6a6960;
+  --text-info: #85b7eb;
+  --text-success: #97c459;
+  --text-warning: #ef9f27;
+  --text-danger: #f09595;
+  --border-primary: rgba(255,255,255,0.30);
+  --border-secondary: rgba(255,255,255,0.15);
+  --border-info: #378add;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono","Fira Code","Cascadia Code",Consolas,monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top Bar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+}
+.topbar .title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.topbar .badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.badge-demo { background: #0d3b66; color: #85b7eb; }
+.badge-live { background: #1a3a0a; color: #97c459; }
+.badge-scenario { background: #3a2a00; color: #ef9f27; }
+.topbar .spacer { flex: 1; }
+.topbar .fps {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-success);
+}
+
+/* ── Main Layout ── */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Map Container ── */
+.map-container {
+  flex: 1;
+  position: relative;
+  background: #0a1628;
+  min-width: 0;
+}
+.map-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Side Panel ── */
+.side-panel {
+  width: 320px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.panel-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+.panel-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+/* ── CPA/TCPA Cards ── */
+.metric-row {
+  display: flex;
+  gap: 8px;
+}
+.metric-card {
+  flex: 1;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.metric-card .value {
+  font-size: 28px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  line-height: 1.2;
+}
+.metric-card .unit {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.value-danger { color: var(--text-danger); }
+.value-warning { color: var(--text-warning); }
+.value-success { color: var(--text-success); }
+
+/* ── Rule/Decision ── */
+.rule-text {
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-info);
+  margin-top: 4px;
+}
+.decision-text {
+  font-size: 13px;
+  color: var(--text-warning);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+/* ── Module Pulse ── */
+.pulse-row {
+  display: flex;
+  gap: 4px;
+  justify-content: space-between;
+}
+.pulse-item {
+  text-align: center;
+  flex: 1;
+}
+.pulse-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  margin: 0 auto 3px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  transition: all 0.4s;
+}
+.pulse-dot.active {
+  background: var(--text-success);
+  border-color: var(--text-success);
+  box-shadow: 0 0 8px rgba(151, 196, 89, 0.4);
+}
+.pulse-label {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* ── ASDR Log ── */
+.log-container {
+  height: 100px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.log-entry {
+  padding: 2px 0;
+  border-bottom: 0.5px solid var(--border-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-time { color: var(--text-tertiary); }
+.log-verdict-pass { color: var(--text-success); }
+.log-verdict-risk { color: var(--text-danger); }
+
+/* ── Controls ── */
+.controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--bg-secondary); }
+.btn.primary { background: #0d3b66; border-color: var(--border-info); color: var(--text-info); }
+.btn.primary:hover { background: #0f4475; }
+
+/* ── SIMULATED MAP (canvas) ── */
+#map-canvas {
+  width: 100%;
+  height: 100%;
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <span class="title">L3 TDL SIL HMI</span>
+  <span class="badge badge-demo">DEMO-1</span>
+  <span class="badge badge-live">LIVE</span>
+  <span class="badge badge-scenario">R14 Head-on</span>
+  <span class="spacer"></span>
+  <span class="fps" id="fps-display">60 FPS</span>
+  <span style="font-size:10px;color:var(--text-tertiary);margin-left:4px">foxglove 8765</span>
+  <span style="width:8px;height:8px;border-radius:50%;background:var(--text-success);display:inline-block"></span>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <!-- Map -->
+  <div class="map-container">
+    <canvas id="map-canvas"></canvas>
+  </div>
+
+  <!-- Side Panel -->
+  <div class="side-panel" id="side-panel">
+    <div class="panel-section">
+      <div class="panel-label">CPA · Closest Point of Approach</div>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="value value-danger" id="cpa-val">0.18</div>
+          <div class="unit">nm · CPA</div>
+        </div>
+        <div class="metric-card">
+          <div class="value" style="color:var(--text-warning)" id="tcpa-val">520</div>
+          <div class="unit">s · TCPA</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">安全阈值 CPA ≥ 0.50 nm · TCPA ≤ 600 s</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">M6 COLREGs Classification</div>
+      <div class="rule-text" id="rule-val">R14 Head-on · 双方各右转</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">L3 System Decision</div>
+      <div class="decision-text" id="dec-val">M5 BC-MPC: right turn 10° · Δheading +12°</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Module Pipeline Status</div>
+      <div class="pulse-row" id="pulse-row">
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M1<br>ODD</div></div>
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M2<br>World</div></div>
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M3<br>Miss</div></div>
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M4<br>Arb</div></div>
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M5<br>Plan</div></div>
+        <div class="pulse-item"><div class="pulse-dot active"></div><div class="pulse-label">M6<br>COLR</div></div>
+        <div class="pulse-item"><div class="pulse-dot" style="background:var(--bg-secondary);border-color:var(--border-secondary)"></div><div class="pulse-label">M7<br>Safe</div></div>
+        <div class="pulse-item"><div class="pulse-dot" style="background:var(--bg-secondary);border-color:var(--border-secondary)"></div><div class="pulse-label">M8<br>HMI</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="flex:1;display:flex;flex-direction:column">
+      <div class="panel-label">ASDR Certification Evidence Log</div>
+      <div class="log-container" id="log-container">
+        <div class="log-entry"><span class="log-time">14:32:01</span> [ASDR] step=0 rule=R14 cpa=0.08nm tcpa=580s act="M2 detecting collision risk" <span class="log-verdict-risk">RISK</span></div>
+        <div class="log-entry"><span class="log-time">14:32:03</span> [ASDR] step=1 rule=R14 cpa=0.12nm tcpa=520s act="M6 classifying: both turn starboard" <span class="log-verdict-risk">RISK</span></div>
+        <div class="log-entry"><span class="log-time">14:32:05</span> [ASDR] step=2 rule=R14 cpa=0.18nm tcpa=450s act="M5 BC-MPC right turn 10°" <span class="log-verdict-risk">RISK</span></div>
+        <div class="log-entry"><span class="log-time">14:32:08</span> [ASDR] step=3 rule=R14 cpa=0.74nm tcpa=310s act="M7 Doer-Checker: PASS" <span class="log-verdict-pass">PASS</span></div>
+        <div class="log-entry"><span class="log-time">14:32:10</span> [ASDR] step=4 rule=R14 cpa=0.98nm tcpa=260s act="M8 restore route notification" <span class="log-verdict-pass">PASS</span></div>
+      </div>
+      <div class="controls" style="margin-top:auto;padding-top:8px">
+        <button class="btn" onclick="reset()">↺ Reset</button>
+        <button class="btn primary" onclick="toggleRun()" id="run-btn">▶ Run Scenario</button>
+        <span style="font-size:10px;color:var(--text-tertiary);margin-left:8px">Trondheim Fjord · 63.43°N 10.39°E</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── SIMULATED MAP CANVAS ───
+const canvas = document.getElementById('map-canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let animationId;
+let running = false;
+let step = 0;
+let simTime = 0;
+
+function resize() {
+  W = canvas.width = canvas.offsetWidth * devicePixelRatio;
+  H = canvas.height = canvas.offsetHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ENC cols
+const COLORS = {
+  water_deep: '#0d2b4a',
+  water_med:  '#12406b',
+  water_shallow: '#1a5c8a',
+  land: '#1e2d1e',
+  coast: '#2a4020',
+  depth_line: 'rgba(100,160,220,0.2)',
+  ship_own: '#4da6ff',
+  ship_target: '#ff5555',
+  cpa_ring: '#ff5555',
+  cog_vector: '#4da6ff',
+  grid: 'rgba(255,255,255,0.06)',
+  text: 'rgba(255,255,255,0.5)',
+};
+
+function drawENC() {
+  const cssW = canvas.offsetWidth;
+  const cssH = canvas.offsetHeight;
+  // Water bg
+  const grad = ctx.createRadialGradient(cssW*0.4, cssH*0.35, cssW*0.1, cssW*0.5, cssH*0.5, cssW*0.8);
+  grad.addColorStop(0, COLORS.water_shallow);
+  grad.addColorStop(0.4, COLORS.water_med);
+  grad.addColorStop(1, COLORS.water_deep);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, cssW, cssH);
+
+  // Landmass (simplified Trondheim peninsula shapes)
+  ctx.fillStyle = COLORS.land;
+  ctx.beginPath();
+  // Left landmass
+  ctx.moveTo(cssW*0.05, cssH*0.2);
+  ctx.lineTo(cssW*0.12, cssH*0.15);
+  ctx.lineTo(cssW*0.18, cssH*0.18);
+  ctx.lineTo(cssW*0.20, cssH*0.30);
+  ctx.lineTo(cssW*0.22, cssH*0.45);
+  ctx.lineTo(cssW*0.18, cssH*0.55);
+  ctx.lineTo(cssW*0.10, cssH*0.58);
+  ctx.lineTo(cssW*0.03, cssH*0.40);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right landmass
+  ctx.beginPath();
+  ctx.moveTo(cssW*0.78, cssH*0.10);
+  ctx.lineTo(cssW*0.85, cssH*0.20);
+  ctx.lineTo(cssW*0.92, cssH*0.25);
+  ctx.lineTo(cssW*0.95, cssH*0.50);
+  ctx.lineTo(cssW*0.90, cssH*0.65);
+  ctx.lineTo(cssW*0.82, cssH*0.70);
+  ctx.lineTo(cssW*0.75, cssH*0.55);
+  ctx.closePath();
+  ctx.fill();
+
+  // Bottom land peninsula
+  ctx.beginPath();
+  ctx.moveTo(cssW*0.35, cssH*0.78);
+  ctx.lineTo(cssW*0.42, cssH*0.72);
+  ctx.lineTo(cssW*0.50, cssH*0.74);
+  ctx.lineTo(cssW*0.55, cssH*0.82);
+  ctx.lineTo(cssW*0.52, cssH*0.90);
+  ctx.lineTo(cssW*0.40, cssH*0.88);
+  ctx.lineTo(cssW*0.30, cssH*0.85);
+  ctx.closePath();
+  ctx.fill();
+
+  // Coastline highlight
+  ctx.strokeStyle = COLORS.coast;
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Depth contours
+  ctx.strokeStyle = COLORS.depth_line;
+  ctx.lineWidth = 0.3;
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    const cx = cssW * (0.3 + i * 0.08);
+    const cy = cssH * (0.25 + i * 0.06);
+    ctx.arc(cx, cy, cssW * (0.08 + i * 0.04), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Grid
+  ctx.strokeStyle = COLORS.grid;
+  ctx.lineWidth = 0.2;
+  for (let x = 0; x < cssW; x += cssW/12) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cssH); ctx.stroke();
+  }
+  for (let y = 0; y < cssH; y += cssH/10) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+  }
+
+  // Compass labels
+  ctx.fillStyle = COLORS.text;
+  ctx.font = '9px system-ui';
+  ctx.fillText('N', cssW*0.5, cssH*0.04);
+  ctx.fillText('E', cssW*0.95, cssH*0.51);
+  ctx.fillText('S', cssW*0.5, cssH*0.97);
+  ctx.fillText('W', cssW*0.03, cssH*0.51);
+}
+
+// Ship drawing
+function drawShip(x, y, headingDeg, color, size, label) {
+  const rad = (headingDeg - 90) * Math.PI / 180;
+  const cs = Math.cos(rad), sn = Math.sin(rad);
+
+  // Triangle points
+  const tipX = x + cs * size * 1.4;
+  const tipY = y + sn * size * 1.4;
+  const blX = x - cs * size * 0.6 - sn * size * 0.8;
+  const blY = y - sn * size * 0.6 + cs * size * 0.8;
+  const brX = x - cs * size * 0.6 + sn * size * 0.8;
+  const brY = y - sn * size * 0.6 - cs * size * 0.8;
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(blX, blY);
+  ctx.lineTo(brX, brY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Heading line
+  const hlEndX = x + cs * size * 2.5;
+  const hlEndY = y + sn * size * 2.5;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(hlEndX, hlEndY);
+  ctx.stroke();
+
+  // Label
+  ctx.fillStyle = color;
+  ctx.font = '9px monospace';
+  ctx.fillText(label, x + 10, y - 10);
+}
+
+// Animated ships
+const scenarios = [
+  // Step 0: Approach
+  { ownX:0.48, ownY:0.52, ownHdg:0, tgtX:0.48, tgtY:0.20, tgtHdg:180, cpa:0.08, tcpa:580, rule:'R14 Head-on · Approach detected', dec:'M2: detecting collision risk', cpaShow:true, pulses:[1,1,0,0,0,0,0,0] },
+  // Step 1: Classification
+  { ownX:0.48, ownY:0.50, ownHdg:0, tgtX:0.48, tgtY:0.26, tgtHdg:180, cpa:0.12, tcpa:520, rule:'R14 Head-on · Both give way', dec:'M6: classifying — both turn starboard', cpaShow:true, pulses:[1,1,0,1,0,1,0,0] },
+  // Step 2: Avoidance
+  { ownX:0.49, ownY:0.47, ownHdg:12, tgtX:0.49, tgtY:0.34, tgtHdg:168, cpa:0.20, tcpa:380, rule:'R14 Head-on · Trajectory planned', dec:'M5 BC-MPC: right turn 10°', cpaShow:true, pulses:[1,1,1,1,1,1,0,0] },
+  // Step 3: Verification
+  { ownX:0.52, ownY:0.44, ownHdg:18, tgtX:0.51, tgtY:0.41, tgtHdg:162, cpa:0.74, tcpa:310, rule:'R14 Head-on · Verified safe', dec:'M7 Doer-Checker: PASS ✓', cpaShow:false, pulses:[1,1,1,1,1,1,1,0] },
+  // Step 4: Complete
+  { ownX:0.55, ownY:0.42, ownHdg:10, tgtX:0.53, tgtY:0.48, tgtHdg:170, cpa:0.98, tcpa:260, rule:'R14 Head-on · Avoidance complete', dec:'M8: restore original route', cpaShow:false, pulses:[1,1,1,1,1,1,1,1] },
+];
+
+function drawStep(s) {
+  const cssW = canvas.offsetWidth;
+  const cssH = canvas.offsetHeight;
+
+  // Clear + redraw ENC
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  drawENC();
+
+  // CPA ring
+  if (s.cpaShow) {
+    const midX = (s.ownX + s.tgtX) / 2 * cssW;
+    const midY = (s.ownY + s.tgtY) / 2 * cssH;
+    const dx = (s.tgtX - s.ownX) * cssW;
+    const dy = (s.tgtY - s.ownY) * cssH;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    ctx.setLineDash([6, 3]);
+    ctx.strokeStyle = COLORS.cpa_ring;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(midX, midY, dist/2, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw ships
+  drawShip(s.ownX * cssW, s.ownY * cssH, s.ownHdg, COLORS.ship_own, 12, 'FCB');
+  drawShip(s.tgtX * cssW, s.tgtY * cssH, s.tgtHdg, COLORS.ship_target, 10, 'TGT');
+
+  // COG vector for own-ship
+  const ownRad = (s.ownHdg - 90) * Math.PI / 180;
+  const cogLen = 40;
+  ctx.strokeStyle = COLORS.cog_vector;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 2]);
+  ctx.beginPath();
+  ctx.moveTo(s.ownX * cssW, s.ownY * cssH);
+  ctx.lineTo(s.ownX * cssW + Math.cos(ownRad) * cogLen, s.ownY * cssH + Math.sin(ownRad) * cogLen);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Zoom indicator
+  ctx.fillStyle = COLORS.text;
+  ctx.font = '9px monospace';
+  ctx.fillText('Zoom 11 · 3nm range', cssW*0.02, cssH*0.96);
+  ctx.fillText('63.43°N 10.40°E', cssW*0.02, cssH*0.99);
+
+  ctx.restore();
+}
+
+// ─── Side panel update ───
+function updatePanel(s) {
+  const cpaEl = document.getElementById('cpa-val');
+  cpaEl.textContent = s.cpa.toFixed(2);
+  cpaEl.className = 'value ' + (s.cpa < 0.3 ? 'value-danger' : s.cpa < 0.5 ? 'value-warning' : 'value-success');
+  document.getElementById('tcpa-val').textContent = s.tcpa;
+  document.getElementById('rule-val').textContent = s.rule;
+  document.getElementById('dec-val').textContent = s.dec;
+
+  // Pulses
+  const dots = document.querySelectorAll('.pulse-dot');
+  dots.forEach((dot, i) => dot.classList.toggle('active', s.pulses[i] === 1));
+
+  // Log
+  const now = new Date();
+  const ts = now.getHours().toString().padStart(2,'0') + ':' +
+             now.getMinutes().toString().padStart(2,'0') + ':' +
+             now.getSeconds().toString().padStart(2,'0');
+  const verdictClass = s.cpa < 0.3 ? 'log-verdict-risk' : 'log-verdict-pass';
+  const verdict = s.cpa < 0.3 ? 'RISK' : 'PASS';
+  const log = document.getElementById('log-container');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${ts}</span> [ASDR] step=${step} rule=R14 cpa=${s.cpa.toFixed(2)}nm tcpa=${s.tcpa}s act="${s.dec}" <span class="${verdictClass}">${verdict}</span>`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ─── Animation ───
+let lastFrame = performance.now();
+let frameCount = 0;
+
+function animate(ts) {
+  frameCount++;
+  if (ts - lastFrame >= 1000) {
+    document.getElementById('fps-display').textContent = frameCount + ' FPS';
+    frameCount = 0;
+    lastFrame = ts;
+  }
+
+  if (running && step < scenarios.length) {
+    const s = scenarios[step];
+    drawStep(s);
+  }
+
+  animationId = requestAnimationFrame(animate);
+}
+
+function toggleRun() {
+  if (running) { stop(); return; }
+  running = true;
+  step = 0;
+  document.getElementById('log-container').innerHTML = '';
+  document.getElementById('run-btn').textContent = '⏸ Pause';
+  document.getElementById('run-btn').classList.add('primary');
+
+  function nextStep() {
+    if (!running || step >= scenarios.length) {
+      if (step >= scenarios.length) {
+        document.getElementById('run-btn').textContent = '↺ Replay';
+        document.getElementById('run-btn').classList.remove('primary');
+      }
+      running = false;
+      return;
+    }
+    const s = scenarios[step];
+    updatePanel(s);
+    drawStep(s); // immediate draw for the step
+    step++;
+    setTimeout(nextStep, 2200);
+  }
+  nextStep();
+}
+
+function stop() {
+  running = false;
+  document.getElementById('run-btn').textContent = '▶ Resume';
+  document.getElementById('run-btn').classList.remove('primary');
+}
+
+function reset() {
+  running = false;
+  step = 0;
+  document.getElementById('run-btn').textContent = '▶ Run Scenario';
+  document.getElementById('run-btn').classList.add('primary');
+  document.getElementById('log-container').innerHTML = '<div class="log-entry" style="color:var(--text-tertiary)">— Click Run Scenario to start simulation —</div>';
+  document.getElementById('cpa-val').textContent = '—';
+  document.getElementById('cpa-val').className = 'value';
+  document.getElementById('tcpa-val').textContent = '—';
+  document.getElementById('rule-val').textContent = 'Standby';
+  document.getElementById('dec-val').textContent = 'Awaiting run';
+  document.querySelectorAll('.pulse-dot').forEach(d => d.classList.remove('active'));
+  drawStep({ ownX:0.48, ownY:0.52, ownHdg:0, tgtX:0.48, tgtY:0.20, tgtHdg:180, cpa:0.08, tcpa:580, rule:'', dec:'', cpaShow:false, pulses:[0,0,0,0,0,0,0,0] });
+}
+
+// Init
+drawStep(scenarios[0]);
+animationId = requestAnimationFrame(animate);
+</script>
+</body>
+</html>
