@@ -2002,6 +2002,230 @@
         "M8",
         "Web-based maritime SIL HMI with ENC chart integration and live simulation visualization for autonomous ship COLAV validation. Goal: extend an existing static HTML demo (radar-style mini display + CPA/TCPA panel + M1-M8 pipeline pulse + ASDR log) into a production-grade web HMI that (a) renders S-57 ENC chart background with land/depth/obstacles/buoys/TSS, (b) overlays own-ship + multiple AIS-driven target ships in real-time during SIL run, (c) replays recorded scenarios with timeline scrubber, (d) auto-generates GIF/PNG screenshots per scenario for evidence pack, (e) integrates with ROS2 Humble live data stream. Specific questions: (1) Open-source web ENC chart libraries: OpenSeaMap, NOAA ENC web viewer, Norwegian Kystdatahuset, OpenCPN web, MapLibre GL with maritime style — which is production-ready for S-57 raw data ingestion, what's the rendering performance for 1000+ vessel sprites? (2) S-57 to web tile pipeline: GDAL ogr2ogr + S-57 driver to GeoJSON / MVT / vector tiles — toolchain maturity? (3) Bridge HMI standards: IEC 62288 ECDIS display, S-mode (IMO MSC.1/Circ.1609), how much ECDIS visual grammar should an SIL HMI mimic to be CCS-credible — full ECDIS or just the situational awareness subset? (4) Foxglove Studio for ROS2 — does it support maritime ENC layers, is it suitable as the SIL operator console or just as a developer debug view? (5) NTNU seacharts library — its matplotlib-based architecture, can it be ported to web (likely no), what's the equivalent web-stack (OpenLayers + S-57 plugin)? (6) ROS2 → Web data bridge: rosbridge_server + roslibjs vs Foxglove WebSocket vs custom gRPC-Web — latency, scalability for 50Hz situational awareness updates, security model? (7) Replay + scrubber + GIF export workflow: how do projects like NTNU colav-simulator, PyGemini, Aeolus Ocean do recorded-scenario playback in web/desktop UIs, and how do they generate visual evidence artifacts? (8) Charting + decision rationale overlay: what UI patterns work for showing M6 COLREGs rule classification (R13/R14/R15 etc), L3 decision rationale (M5 BC-MPC right-turn 10 deg), Doer-Checker M7 verdict, ToR countdown — without overwhelming the operator? Reference: IEC 62288, IMO S-mode, NTNU colav-simulator visualization, DNV maritime-schema Apache Arrow output for replay. Recommendation: minimal-effort path to production-grade web HMI for L3 TDL SIL, what's MUST in Phase 1 D1.3b.3, what's Phase 2 D2.6 / Phase 3 D3.4 for full M8 HMI."
       ]
+    },
+    {
+      "text": "maritime-schema TrafficSituation Python API version 2024",
+      "weight": 1.0,
+      "ts": 1778462927,
+      "keywords": [
+        "maritime-schema",
+        "TrafficSituation",
+        "Python",
+        "API",
+        "version",
+        "2024",
+        "maritime-schema TrafficSituation Python API version 2024"
+      ]
+    },
+    {
+      "text": "Imazu 1987 22 canonical encounters initial conditions bearing speed",
+      "weight": 1.0,
+      "ts": 1778463003,
+      "keywords": [
+        "Imazu",
+        "1987",
+        "22",
+        "canonical",
+        "encounters",
+        "initial",
+        "conditions",
+        "bearing",
+        "speed",
+        "Imazu 1987 22 canonical encounters initial conditions bearing speed"
+      ]
+    },
+    {
+      "text": "pyarrow Arrow schema maritime SIL scenario evidence format",
+      "weight": 1.0,
+      "ts": 1778463178,
+      "keywords": [
+        "pyarrow",
+        "Arrow",
+        "schema",
+        "maritime",
+        "SIL",
+        "scenario",
+        "evidence",
+        "format",
+        "pyarrow Arrow schema maritime SIL scenario evidence format"
+      ]
+    },
+    {
+      "text": "cerberus-cpp colcon CMakeLists FetchContent integration",
+      "weight": 1.0,
+      "ts": 1778463254,
+      "keywords": [
+        "cerberus-cpp",
+        "colcon",
+        "CMakeLists",
+        "FetchContent",
+        "integration",
+        "cerberus-cpp colcon CMakeLists FetchContent integration"
+      ]
+    },
+    {
+      "text": "colav-simulator Python package structure how are modules organized ais pipeline scenario generation separation of concerns",
+      "weight": 1.0,
+      "ts": 1778478083,
+      "keywords": [
+        "colav-simulator",
+        "Python",
+        "package",
+        "structure",
+        "modules",
+        "organized",
+        "ais",
+        "pipeline",
+        "scenario",
+        "generation",
+        "separation",
+        "concerns",
+        "colav-simulator Python package structure how are modules organized ais pipeline scenario generation separation of concerns"
+      ]
+    },
+    {
+      "text": "simulation mode switching launch configuration ROS2 multiple mock modes synthetic vs replay how to organize launch files",
+      "weight": 1.0,
+      "ts": 1778478846,
+      "keywords": [
+        "simulation",
+        "mode",
+        "switching",
+        "launch",
+        "configuration",
+        "ROS2",
+        "multiple",
+        "mock",
+        "modes",
+        "synthetic",
+        "vs",
+        "replay",
+        "organize",
+        "files",
+        "simulation mode switching launch configuration ROS2 multiple mock modes synthetic vs replay how to organize launch files"
+      ]
+    },
+    {
+      "text": "foxglove_bridge ROS2 installation apt source build, WebSocket protocol JSON vs Protobuf, browser JavaScript client, 50Hz streaming latency, comparison rosbridge_server",
+      "weight": 2.0,
+      "ts": 1778479276,
+      "keywords": [
+        "foxglove_bridge",
+        "ROS2",
+        "installation",
+        "apt",
+        "source",
+        "build",
+        "WebSocket",
+        "protocol",
+        "JSON",
+        "vs",
+        "Protobuf",
+        "browser",
+        "JavaScript",
+        "client",
+        "50Hz",
+        "streaming",
+        "latency",
+        "comparison",
+        "rosbridge_server",
+        "foxglove_bridge ROS2 installation apt source build, WebSocket protocol JSON vs Protobuf, browser JavaScript client, 50Hz streaming latency, comparison rosbridge_server"
+      ]
+    },
+    {
+      "text": "foxglove_bridge WebSocket protocol specification, how to connect from browser JavaScript, Protobuf vs JSON mode configuration, ROS2 topic subscription API, port default 8765, launch file example, rosbridge_server vs foxglove_bridge latency comparison",
+      "weight": 1.0,
+      "ts": 1778479406,
+      "keywords": [
+        "foxglove_bridge",
+        "WebSocket",
+        "protocol",
+        "specification",
+        "connect",
+        "browser",
+        "JavaScript",
+        "Protobuf",
+        "vs",
+        "JSON",
+        "mode",
+        "configuration",
+        "ROS2",
+        "topic",
+        "subscription",
+        "API",
+        "port",
+        "default",
+        "8765",
+        "launch",
+        "file",
+        "example",
+        "rosbridge_server",
+        "latency",
+        "comparison",
+        "foxglove_bridge WebSocket protocol specification, how to connect from browser JavaScript, Protobuf vs JSON mode configuration, ROS2 topic subscription API, port default 8765, launch file example, rosbridge_server vs foxglove_bridge latency comparison"
+      ]
+    },
+    {
+      "text": "ROS2 topic_tools throttle relay republish node reduce frequency, foxglove_bridge large-scale visualization many topics bandwidth, browser WebSocket binary protobuf vs JSON throughput, ROS2 QoS depth best_effort sensor_data profile, MapLibre GL rendering many vessel performance",
+      "weight": 2.0,
+      "ts": 1778479681,
+      "keywords": [
+        "ROS2",
+        "topic_tools",
+        "throttle",
+        "relay",
+        "republish",
+        "node",
+        "reduce",
+        "frequency",
+        "foxglove_bridge",
+        "large-scale",
+        "visualization",
+        "many",
+        "topics",
+        "bandwidth",
+        "browser",
+        "WebSocket",
+        "binary",
+        "protobuf",
+        "vs",
+        "JSON",
+        "throughput",
+        "QoS",
+        "depth",
+        "best_effort",
+        "sensor_data",
+        "profile",
+        "MapLibre",
+        "GL",
+        "rendering",
+        "vessel",
+        "performance",
+        "ROS2 topic_tools throttle relay republish node reduce frequency, foxglove_bridge large-scale visualization many topics bandwidth, browser WebSocket binary protobuf vs JSON throughput, ROS2 QoS depth best_effort sensor_data profile, MapLibre GL rendering many vessel performance"
+      ]
+    },
+    {
+      "text": "libcosim C++ API async_slave FMI 2.0 co-simulation master how to integrate ROS2 node as async participant dds-fmu mediator architecture",
+      "weight": 1.0,
+      "ts": 1778486158,
+      "keywords": [
+        "libcosim",
+        "C++",
+        "API",
+        "async_slave",
+        "FMI",
+        "co-simulation",
+        "master",
+        "integrate",
+        "ROS2",
+        "node",
+        "async",
+        "participant",
+        "dds-fmu",
+        "mediator",
+        "architecture",
+        "libcosim C++ API async_slave FMI 2.0 co-simulation master how to integrate ROS2 node as async participant dds-fmu mediator architecture"
+      ]
     }
   ]
 }

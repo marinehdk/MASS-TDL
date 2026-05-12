@@ -5,7 +5,13 @@
     "source_count": 0,
     "description": ""
   },
-  "global_notebooks": [],
+  "global_notebooks": [
+    {
+      "id": "3ef2890b-aa1b-4f49-9067-2cd8e40c439e",
+      "name": "GLOBAL · colav-simulator · Reference",
+      "description": "NTNU colav-simulator paper and implementation: scenario generation, Imazu-22, ENC integration, historical AIS processing, simulation framework for COLREGs evaluation"
+    }
+  ],
   "synthesis_notebook": {
     "id": "340bda34-3278-4901-9194-309168b89514",
     "name": "META · MASS-L3 Research · Synthesis",
@@ -112,7 +118,7 @@
         "DNV OSP",
         "Kongsberg HIL"
       ],
-      "source_count": 98,
+      "source_count": 118,
       "last_distilled": null
     },
     "cybersecurity": {
