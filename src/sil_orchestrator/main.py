@@ -6,6 +6,9 @@ Spec: docs/Design/SIL/2026-05-12-sil-architecture-design.md §1 orchestration pl
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from sil_orchestrator.selfcheck_routes import router as selfcheck_router
+from sil_orchestrator.export_routes import router as export_router
+
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState
 
 app = FastAPI(title="SIL Orchestrator", version="0.1.0")
@@ -50,3 +53,12 @@ async def lifecycle_activate():
 async def lifecycle_deactivate():
     result = await bridge.deactivate()
     return {"success": result.success, "error": result.error}
+
+
+# Self-check, export, and scenario CRUD routes
+app.include_router(selfcheck_router)
+app.include_router(export_router)
+
+from sil_orchestrator.scenario_routes import router as scenario_router
+
+app.include_router(scenario_router)
