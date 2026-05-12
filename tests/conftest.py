@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
-# Add src directory to path for imports
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
+# Ensure src/ is on the Python path so tests can import modules directly
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+# Create test-results/ before any test or plugin writes output there
+Path(__file__).parent.parent.joinpath("test-results").mkdir(exist_ok=True)
