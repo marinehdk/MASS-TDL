@@ -186,6 +186,21 @@ path_s_dry_run:
       - path_s_report.txt
     expire_in: 7 days
 
+buf-lint:
+  stage: lint
+  image: bufbuild/buf:latest
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true" || $CI_MERGE_REQUEST_ID
+  script:
+    - cd idl
+    - buf lint
+    - buf breaking --against '.git#branch=main'
+  allow_failure: true
+  artifacts:
+    reports:
+      codequality: build/buf-lint-report.json
+
 # ===============================================================
 # Stage 2: Unit Test (含 ASan + UBSan + Coverage)
 # ===============================================================
@@ -320,6 +335,67 @@ m7_fmi_isolation_check:
   script:
     - bash tools/ci/check-m7-fmi-isolation.sh
   allow_failure: false
+
+# ===============================================================
+# SIL / V&V Test Jobs (D1.3b)
+# ===============================================================
+sil-orchestrator-tests:
+  stage: test
+  image: python:3.11
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  variables:
+    SIL_SCENARIO_DIR: /tmp/sil-test/scenarios
+    SIL_RUN_DIR: /tmp/sil-test/runs
+    SIL_EXPORT_DIR: /tmp/sil-test/exports
+  before_script:
+    - pip install fastapi uvicorn httpx pytest pytest-json-report
+    - export PYTHONPATH=src:$PYTHONPATH
+  script:
+    - mkdir -p test-results
+    - python3 -m pytest tests/sil_orchestrator/ -v --junit-xml=test-results/sil_orchestrator_junit.xml
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+    reports:
+      junit: test-results/sil_orchestrator_junit.xml
+
+sil-tests:
+  stage: test
+  image: python:3.11
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  variables:
+    PYTHONPATH: $CI_PROJECT_DIR:src
+  before_script:
+    - pip install pytest pytest-json-report pyyaml
+  script:
+    - mkdir -p test-results
+    - python3 -m pytest tests/sil/ -v --junit-xml=test-results/sil_junit.xml
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+    reports:
+      junit: test-results/sil_junit.xml
+
+sil-web-tests:
+  stage: test
+  image: node:20
+  needs: []
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  before_script:
+    - cd web && npm ci
+  script:
+    - cd web && npx vitest run --reporter=verbose
+  artifacts:
+    when: always
+    paths:
+      - test-results/
 
 # ===============================================================
 # Stage 3: Static Analysis
