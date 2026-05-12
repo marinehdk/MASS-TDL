@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  backend-base:
+    image: mass-l3/ci:jazzy-ubuntu22.04
+    container_name: sil-base
+    user: root
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      bash -c "apt-get update && 
+               apt-get install -y ros-jazzy-topic-tools ros-jazzy-foxglove-bridge &&
+               colcon build --packages-select sil_mock_publisher &&
+               tail -f /dev/null"
+
+  backend-bridge:
+    image: mass-l3/ci:jazzy-ubuntu22.04
+    container_name: sil-bridge
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      bash -c "sleep 10 &&
+               source /opt/ros/jazzy/setup.bash &&
+               source install/setup.bash &&
+               ros2 launch launch/foxglove_sil.launch.xml"
+    ports:
+      - "8765:8765"
+    networks:
+      - sil-net
+    restart: unless-stopped
+
+  backend-mock:
+    image: mass-l3/ci:jazzy-ubuntu22.04
+    container_name: sil-mock
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      bash -c "sleep 15 &&
+               source /opt/ros/jazzy/setup.bash &&
+               source install/setup.bash &&
+               ros2 run sil_mock_publisher sil_mock_node"
+    depends_on:
+      - backend-bridge
+    networks:
+      - sil-net
+    restart: unless-stopped
+
+  frontend-hmi:
+    image: node:20-slim
+    container_name: sil-hmi
+    volumes:
+      - ./web:/app
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    ports:
+      - "8000:8000"
+    environment:
+      - VITE_PORT=8000
+    networks:
+      - sil-net
+    restart: unless-stopped
+
+networks:
+  sil-net:
+    driver: bridge

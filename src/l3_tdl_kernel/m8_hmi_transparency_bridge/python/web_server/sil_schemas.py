@@ -6,12 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from web_server.schemas import Sat1ThreatSchema
-
 
 class SilSAT1Panel(BaseModel):
     threat_count: int
-    threats: list[Sat1ThreatSchema]
+    threats: list[dict] = []
 
 
 class SilODDPanel(BaseModel):
@@ -19,6 +17,38 @@ class SilODDPanel(BaseModel):
     envelope_state: str
     conformance_score: float
     confidence: float
+
+
+class SilNavState(BaseModel):
+    lat: float
+    lon: float
+    sog_kn: float
+    cog_deg: float
+    heading_deg: float
+
+
+class SilTargetState(BaseModel):
+    mmsi: str
+    lat: float
+    lon: float
+    sog_kn: float
+    cog_deg: float
+    heading_deg: float
+    cpa_nm: float
+    tcpa_s: float
+    colreg_role: str
+    confidence: float
+
+
+class SilAsdrEvent(BaseModel):
+    timestamp: datetime
+    event_type: str
+    step: int
+    rule: str
+    cpa_nm: float
+    tcpa_s: float
+    action: str
+    verdict: Literal["PASS", "RISK"]
 
 
 class SilDebugSchema(BaseModel):
@@ -30,3 +60,13 @@ class SilDebugSchema(BaseModel):
     sat3_tmr_s: float = 0.0
     odd: SilODDPanel | None = None
     job_status: Literal["idle", "running", "done"] = "idle"
+
+    # D1.3b.3 Bridge-less live data
+    own_ship: SilNavState | None = None
+    targets: list[SilTargetState] = []
+    cpa_nm: float = 0.0
+    tcpa_s: float = 0.0
+    rule_text: str = ""
+    decision_text: str = ""
+    module_status: list[bool] = [True] * 8
+    asdr_events: list[SilAsdrEvent] = []

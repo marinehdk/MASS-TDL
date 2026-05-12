@@ -98,12 +98,14 @@ def simulate(spec: ScenarioSpec, apply_avoidance: bool) -> SimResult:
     """
     try:
         import fcb_sim_py
+        if not hasattr(fcb_sim_py, "FcbState"):
+             raise ImportError("fcb_sim_py found but FcbState missing (unbuilt)")
     except ImportError:
         try:
             import fcb_sim_py_mock as fcb_sim_py
         except ImportError as exc:
             raise RuntimeError(
-                "fcb_sim_py not importable. Run: source install/setup.bash"
+                "fcb_sim_py not importable and fcb_sim_py_mock not found."
             ) from exc
 
     own_ic = spec.initial_conditions.own_ship

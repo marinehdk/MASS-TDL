@@ -97,7 +97,7 @@ class SilMockNode(rclpy.node.Node):
         ts_lat = 63.458 - dist_nm_ts / 60.0
         ts_lon = 10.395
 
-        from l3_msgs.msg import TrackedTarget
+        from l3_msgs.msg import TrackedTarget, EncounterClassification
         from l3_external_msgs.msg import TrackedTargetArray
         from geographic_msgs.msg import GeoPoint
 
@@ -105,6 +105,12 @@ class SilMockNode(rclpy.node.Node):
         cpa_nm = abs(dlat_nm)
         closing_speed_kn = 18.0 + 10.0
         tcpa_s = max(0.0, cpa_nm / (closing_speed_kn / 3600.0))
+
+        enc = EncounterClassification()
+        enc.encounter_type = EncounterClassification.ENCOUNTER_TYPE_HEAD_ON
+        enc.is_giveway = True
+        enc.relative_bearing_deg = 0.0
+        enc.aspect_angle_deg = 180.0
 
         t = TrackedTarget()
         t.schema_version = "v1.1.2"
@@ -124,6 +130,7 @@ class SilMockNode(rclpy.node.Node):
         t.classification_confidence = 0.7
         t.source_sensor = "ais"
         t.confidence = 0.7
+        t.encounter = enc
 
         msg = TrackedTargetArray()
         msg.schema_version = "v1.1.2"

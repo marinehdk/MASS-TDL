@@ -19,7 +19,7 @@
   <node pkg="topic_tools" exec="throttle" name="throttle_nav" output="screen">
     <param name="input_topic" value="/nav/filtered_state"/>
     <param name="output_topic" value="/nav/filtered_state_viz"/>
-    <param name="message_type" value="l3_msgs/msg/FilteredOwnShipState"/>
+    <param name="message_type" value="l3_external_msgs/msg/FilteredOwnShipState"/>
     <param name="rate" value="10.0"/>
   </node>
 
@@ -27,7 +27,7 @@
   <node pkg="topic_tools" exec="throttle" name="throttle_tracks" output="screen">
     <param name="input_topic" value="/world_model/tracks"/>
     <param name="output_topic" value="/world_model/tracks_viz"/>
-    <param name="message_type" value="l3_msgs/msg/TrackedTargetArray"/>
+    <param name="message_type" value="l3_external_msgs/msg/TrackedTargetArray"/>
     <param name="rate" value="2.0"/>
   </node>
 

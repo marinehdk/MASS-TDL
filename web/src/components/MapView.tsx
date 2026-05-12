@@ -37,7 +37,9 @@ export default function MapView({ mapRef }: Props) {
             },
           },
           layers: [
-            // Depth areas (water fill — darkest = deepest, lighter = shallow)
+            // Depth areas — data-driven from minimumsdybde (m); seacharts bin scheme
+            // [0, 1, 2, 5, 10, 20, 50, 100, 200] m. Night-mode safety convention:
+            // shallow = bright (warn), deep = dark (recede to background).
             {
               id: 'enc-depth',
               source: 'enc',
@@ -45,14 +47,17 @@ export default function MapView({ mapRef }: Props) {
               type: 'fill',
               paint: {
                 'fill-color': [
-                  'interpolate', ['linear'], ['zoom'],
-                  6, '#0a1e33',
-                  8, '#0d2847',
-                  10, '#103560',
-                  12, '#144a7a',
-                  14, '#186099',
+                  'interpolate', ['linear'],
+                  ['coalesce', ['to-number', ['get', 'minimumsdybde']], 0],
+                  0, '#5a89b8',
+                  1, '#3e6da0',
+                  5, '#23548b',
+                  10, '#143f73',
+                  20, '#0d2f5c',
+                  50, '#082147',
+                  100, '#04152e',
                 ],
-                'fill-opacity': 0.9,
+                'fill-opacity': 0.95,
               },
             },
             // Land areas (green-brown, like ECDIS land fill)
@@ -244,6 +249,8 @@ export default function MapView({ mapRef }: Props) {
 
     internalMapRef.current = map;
     if (mapRef) mapRef.current = map;
+    // @ts-ignore
+    window.map = map;
 
     return () => {
       if (mapRef) mapRef.current = null;

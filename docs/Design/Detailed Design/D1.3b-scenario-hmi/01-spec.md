@@ -1,470 +1,805 @@
-# D1.3b · YAML 场景管理 + SIL 调试 HMI + 覆盖率自动报告 · 执行 Spec
+# D1.3b.1 · YAML 场景管理基础 + Imazu-22 + Cerberus 双语言 · 执行 Spec
 
-**版本**：v1.0  
-**日期**：2026-05-09  
-**作者**：技术负责人（brainstorming 产出，待 /writing-plans 转执行计划）  
-**v3.0 D 编号**：D1.3b  
+**版本**：v3.1  
+**日期**：2026-05-11  
+**前版本**：v1.0（2026-05-09，已废弃，保留于 `archive/D1.3b-v1.0-spec-archived.md`）  
+**v3.0 D 编号**：D1.3b.1（D1.3b 第一工作单元）  
 **Owner**：技术负责人  
-**完成日期**：2026-06-15 EOD（DEMO-1 当天）  
-**工时预算**：3.0 人周（120h；5/18–6/15，20 个工作日）  
-**关闭 finding**：G P0-G-1 (b) · G P1-G-4 · G P1-G-5 · P2-E1
+**完成日期**：2026-06-15 EOD（DEMO-1）  
+**工时预算**：3.0 人周（120h；5/13–6/15）  
+**关闭 finding**：G P0-G-1(b) · G P1-G-4 · G P1-G-5 · P2-E1
 
 ---
 
-## 0. 决策记录（brainstorming 锁定，不可在 D1.3b 内再议）
+## §0 设计决策记录（brainstorming 锁定，D1.3b.1 内不再议）
 
 | 决策 | 内容 | Rationale |
 |---|---|---|
-| **批量执行器语义** | 几何验证 + 可解性验证（方案 A）；pass/fail = "场景设计是否正确"，非 M1/M6 决策正确性 | D1.3b 阶段 M1/M6 仅 stub；决策验证在 D2.4（M6 ≥500 场景 ≥98%） |
-| **Own-ship 物理** | 完整 MMG C++ `rk4_step()`，精度优先 | 保留与 D1.3.1 Qualification Report 同一物理基线；扩展性强 |
-| **C++ 集成** | pybind11 绑定，Python 控制场景流程 | Python 逐步调用 `step()`，未来 D2.x ROS2 集成可直接复用绑定层 |
-| **SAT/ODD stub 来源** | 新建独立 `sil_mock_publisher` ROS2 节点 | `l3_external_mock_publisher` 保持"外部接口 mock"职责单一；D2.5 真实节点上线时零代码改动（topic 名不变，仅替换 launch 节点） |
-| **HTML 报告工具** | Jinja2 静态模板（主体表格）；Plotly 可选（未来 D1.7 覆盖率扩展时加入） | D1.3b 无额外 Python 依赖；静态 HTML 可直接提交 git 作为证据 |
-| **D2.5 切换点** | `sil_mock_publisher` 生命周期至 D2.5 SIL Integration（~7/31）；同 topic 名换 M1/M2 真实节点 | topic `/l3/sat/data`、`/l3/m1/odd_state` 名称不变，RosBridge 零改动 |
+| **YAML 格式** | maritime-schema `TrafficSituation` v0.2.1（pip `maritime-schema==0.0.7`）+ FCB `metadata.*` 扩展；所有 32 个场景统一采用此格式 | CCS 审计面对 WGS84 标准格式，可追溯至 DNV maritim-schema 规范 |
+| **ScenarioSpec 迁移策略（B1）** | `ScenarioSpec.from_file()` 工厂方法负责解析 maritime-schema YAML + lat/lon→ENU 转换；`simulate.py` 内核 ENU 不变 | 职责在 domain model；无外部 adapter 文件；seam 可见且可测 |
+| **地理坐标解耦** | 遭遇几何（相对 ΔN/ΔE + COG/SOG）是 SHA256 冻结的不变量；`geo_origin`（lat/lon 锚点）是运行时参数，默认 Norwegian Sea anchor (63.0°N, 5.0°E) | 同一几何可在不同 ENC 区域复用；CCS 覆盖 ODD-B/C 时注入峡湾 origin |
+| **Imazu-22 基准来源** | `/Users/marine/Code/colav-simulator/scenarios/imazu_cases/` NTNU colav-simulator（Tengesdal & Johansen 2023 CCTA）；22 个 YAML 反算相对几何 | 论文可引用的公开基准；几何参数来自 UTM zone 33 坐标系反算 |
+| **SHA256 冻结** | `scenarios/imazu22/MANIFEST.sha256` 记录 22 个文件各自 SHA256 + 集合哈希；CI gate `tools/ci/check-imazu22-hash.sh` 每次 PR 执行 | 证据链不可篡改；CCS 认证资产冻结 |
+| **Cerberus 双语言验证** | Python `cerberus` + C++ `cerberus-cpp`（dokempf/cerberus-cpp）共享 `tools/sil/cerberus_schema/fcb_scenario_v2.yaml`；schema 仅使用 cerberus-cpp 兼容子集（type/required/min/max/allowed/schema） | 同一 schema 文件跨语言；cerberus-cpp 不支持 allof/check_with/coerce，schema 设计绕开 |
+| **Arrow 双输出** | batch_runner 同时写 `batch_summary.arrow`（32 行）+ `batch_trajectories.arrow`（约 32 万行）；JSON 输出保留 | D2.5 replay 消费 trajectories；D3.6 Monte Carlo 消费 summary；两文件 schema 独立解耦 |
+| **覆盖率维度** | 32 场景覆盖 Rule 13/14/15/16（基础）；ODD-A 全部；Rule 5/6/7/8/9/17/19 标注"待 D1.6 扩展" | D1.3b.1 阶段不扩展未覆盖 Rule；D1.6 升 schema v3.0 加追溯字段 |
+| **Own-ship 物理** | 完整 MMG C++ `rk4_step()`（pybind11 绑定）；target ship 直线匀速外推 | 与 D1.3.1 Qualification Report 物理基线一致 |
+| **批量执行器语义** | 双 pass（no-action + with-action）；pass/fail = 场景几何合规性验证，非 M1/M6 决策正确性 | D1.3b 阶段 M1/M6 仅 stub；决策验证在 D2.4 |
+| **ROS2 版本** | Ubuntu 22.04 + ROS2 **Humble**（非 Jazzy）；pybind11 通过 `find_package(Python3)` + `pybind11_add_module` 集成 | SIL decisions doc §3 锁定 |
 
 ---
 
-## 1. ≤60s Wall-clock 可行性分析（P2-E1 整改）
+## §1 文件结构
 
-### 1.1 性能估算
-
-| 参数 | 值 | 来源 |
-|---|---|---|
-| 仿真步长 | dt = 0.02 s | `scenario_runner.cpp` 默认值 |
-| 目标仿真时长 | 600 s | DoD 要求 |
-| 每场景步数 | 600 / 0.02 = 30,000 步 | 计算 |
-| C++ RK4 步时间 | ~5 µs / step | D1.3a spec §5.2："~5s for 600s sim → ~100× 实时" |
-| pybind11 Python→C++ 调用开销 | ~1–5 µs / call | pybind11 文档（直接函数调用，无 GIL 开销） |
-| 每场景估算 wall-clock | (5 + 5) µs × 30,000 = **0.3 s** | 含 pybind11 overhead |
-| 10 场景批量 wall-clock | ~3–5 s（含 IO、CPA 计算） | 估算 |
-
-**结论**：≤60s 约束对 pybind11 方案**轻松满足**（0.3s << 60s）。**不需要 headless 模式**（绕过 ROS2 pub/sub 无必要，批量执行器本就不经过 ROS2）。
-
-### 1.2 验收方法
-
-```bash
-# task T17 端到端集成时执行
-python tools/sil/batch_runner.py --scenarios scenarios/colregs/ --output reports/
-# 每个场景输出中检查 "wall_clock_s" 字段
-jq '[.[] | .wall_clock_s] | max' reports/batch_results.json
-# 期望: max < 60.0
-```
-
----
-
-## 2. 包结构
-
-### 2.1 新增 / 修改文件清单
+### 1.1 新增文件
 
 ```
-src/
-├── fcb_simulator/                              ← 现有 C++ 包（扩展）
-│   ├── python/
-│   │   └── fcb_sim_py/
-│   │       ├── bindings.cpp                    ← NEW: pybind11
-│   │       └── __init__.py                     ← NEW
-│   └── CMakeLists.txt                          ← 修改: +pybind11_add_module
-│
-├── sil_mock_publisher/                         ← NEW: Python ROS2 包
-│   ├── sil_mock_publisher/
-│   │   ├── __init__.py
-│   │   └── sil_mock_node.py
-│   ├── launch/
-│   │   └── sil_mock.launch.py
-│   ├── setup.py
-│   └── package.xml
-│
-└── m8_hmi_transparency_bridge/python/
-    └── web_server/
-        ├── app.py                              ← 修改: +include_router(sil_router, sil_ws)
-        ├── ros_bridge.py                       ← 修改: +订阅 /l3/sat/data + /l3/m1/odd_state
-        ├── sil_router.py                       ← NEW: REST /sil/*
-        ├── sil_ws.py                           ← NEW: WebSocket /ws/sil_debug
-        └── sil_schemas.py                      ← NEW: pydantic SIL HMI models
-    tests/
-    └── test_sil_hmi.py                         ← NEW (现有 4 个测试文件不改动)
-
 scenarios/
-└── colregs/
-    ├── schema.yaml                             ← NEW: YAML Schema 定义
-    ├── colreg-rule14-ho-001-seed42-v1.0.yaml   ← NEW (×10)
-    └── ...
+├── colregs/                                        ← 已有（保留，迁移到 v2.0 格式）
+│   ├── schema.yaml                                 ← UPDATE: 更新为 v2.0 格式说明
+│   ├── colreg-rule14-ho-001-seed42-v1.0.yaml       ← 迁移到 maritime-schema v2.0（×10）
+│   └── ...
+└── imazu22/                                        ← NEW: Imazu-22 场景目录
+    ├── imazu-01-ho-v1.0.yaml                       ← NEW（×22，见 §6）
+    ├── ...
+    ├── imazu-22-ms-v1.0.yaml
+    └── MANIFEST.sha256                             ← NEW: SHA256 冻结清单
 
 tools/
 └── sil/
-    ├── batch_runner.py                         ← NEW
-    ├── coverage_reporter.py                    ← NEW
-    └── templates/
-        └── coverage_report.html.j2             ← NEW
+    ├── scenario_spec.py                            ← 修改: +from_file() + v2.0 解析
+    ├── geo_utils.py                                ← NEW: lat/lon ↔ ENU flat-earth
+    ├── batch_runner.py                             ← 修改: 32 场景 + Arrow 输出
+    ├── coverage_reporter.py                        ← 修改: 32 场景动态 rule 推断
+    ├── cerberus_schema/
+    │   └── fcb_scenario_v2.yaml                   ← NEW: cerberus/cerberus-cpp 共享 schema
+    ├── cerberus_validator.py                       ← NEW: Python cerberus 验证器
+    └── cpp/
+        ├── cerberus_validator.cpp                  ← NEW: C++ cerberus-cpp 验证器
+        └── CMakeLists.txt                          ← NEW: FetchContent cerberus-cpp
 
-reports/                                        ← NEW（gitignore，运行时产物）
+ci/
+└── check-imazu22-hash.sh                          ← NEW: CI SHA256 gate
+
+reports/                                            ← 运行时产物（.gitignore）
+├── batch_summary.arrow
+├── batch_trajectories.arrow
+├── batch_results.json
+└── coverage_report_<timestamp>.html
 ```
 
-### 2.2 不改动文件列表（约束 G P1-G-5）
+### 1.2 修改文件
 
-以下文件**禁止修改**（任何 D1.3b 实现须绕开它们）：
+```
+tools/sil/scenario_spec.py          ← from_file() 工厂方法 + v1.0 向后兼容
+tools/sil/batch_runner.py           ← 动态场景发现（32 个）+ Arrow 写出 + 进度回调
+tools/sil/coverage_reporter.py      ← 动态 rule label 推断 + 32 场景矩阵
+```
 
-- `tests/test_websocket.py`
-- `tests/test_app.py`
-- `tests/test_schemas.py`
-- `tests/test_tor_endpoint.py`
-- `src/l3_external_mock_publisher/`（`l3_external_mock_publisher` 仅负责外部接口 mock，不扩展）
+### 1.3 不改动文件（回归边界）
+
+以下 10 个测试文件**禁止修改**：
+
+```
+src/l3_tdl_kernel/m8_hmi_transparency_bridge/python/tests/
+├── test_app.py
+├── test_schemas.py
+├── test_tor_endpoint.py
+├── test_websocket.py
+├── test_sil_hmi.py              ← 现有 23 个测试必须全部 PASS
+├── test_ros_bridge_sil.py
+├── test_sil_app_integration.py
+├── test_sil_router_unit.py
+├── test_sil_schemas_unit.py
+└── test_sil_ws_unit.py
+```
 
 ---
 
-## 3. pybind11 绑定（`fcb_sim_py` 模块）
+## §2 YAML Schema v2.0（maritime-schema + FCB metadata 扩展）
 
-### 3.1 暴露接口
+### 2.1 格式规范
 
-绑定目标：仅暴露批量执行器所需的最小接口，不暴露 ROS2 节点内部。
+所有 32 个场景 YAML 遵循以下结构。maritime-schema `TrafficSituation` 部分（`title` / `own_ship` / `target_ships`）使用 WGS84 lat/lon；FCB 专有字段集中在 `metadata.*`。
+
+```yaml
+# ── maritime-schema TrafficSituation v0.2.1 标准字段 ──────────────────────
+title: "Head-On Encounter — Imazu Case 01"
+description: "Two vessels approaching head-on; OS give-way Rule 14"
+start_time: "2026-01-01T00:00:00Z"
+
+own_ship:
+  id: "os"
+  nav_status: 0        # 0 = underway using engine
+  mmsi: 123456789
+  initial:
+    position:
+      latitude: 63.000000     # geo_origin 锚点；by default Norwegian Sea anchor
+      longitude: 5.000000
+    cog: 0.0                  # Course Over Ground，航海惯例度（CW from North）
+    sog: 12.0                 # Speed Over Ground（knots）
+    heading: 0.0              # 同 cog（无横漂时）
+
+target_ships:
+  - id: "ts1"
+    nav_status: 0
+    mmsi: 100000001
+    initial:
+      position:
+        latitude: 63.117318   # OS + ΔN=+13060m
+        longitude: 5.000000
+      cog: 180.0
+      sog: 10.0
+      heading: 180.0
+
+# ── FCB metadata 扩展字段（additionalProperties: true）─────────────────────
+metadata:
+  schema_version: "2.0"
+  scenario_id: "imazu-01-ho-v1.0"       # 命名规范：imazu-NN-{type}-v{ver}
+  scenario_source: "imazu1987"           # "imazu1987" | "fcb_original" | "custom"
+  vessel_class: "FCB"
+  odd_zone: "A"                          # "A" | "B" | "C"
+
+  geo_origin:
+    latitude: 63.0
+    longitude: 5.0
+    description: "Norwegian Sea anchor (default); override per ENC region"
+
+  encounter:
+    rule: "Rule14"                       # "Rule13"|"Rule14"|"Rule15"|"Rule16"
+    give_way_vessel: "own"              # "own"|"target"|"none"
+    expected_own_action: "turn_starboard"
+    avoidance_time_s: 300.0
+    avoidance_delta_rad: 0.6109         # +35° starboard
+    avoidance_duration_s: 90.0
+
+  disturbance_model:
+    wind_kn: 0.0
+    wind_dir_nav_deg: 0.0
+    current_kn: 0.0
+    current_dir_nav_deg: 0.0
+    vis_m: 10000.0
+    wave_height_m: 0.0
+
+  pass_criteria:
+    max_dcpa_no_action_m: 926.0         # 0.5 nm；无动作时须 < 此值（确认存在风险）
+    min_dcpa_with_action_m: 926.0       # 有动作时须 ≥ 此值（确认可解）
+
+  simulation:
+    duration_s: 600.0
+    dt_s: 0.02
+    n_rps_initial: 3.5                  # 维持初速对应螺旋桨转速（rev/s）
+
+  prng_seed: null                       # Imazu 场景确定性，无随机化
+```
+
+### 2.2 schema_version 版本语义
+
+| `metadata.schema_version` | 格式 | from_file() 处理 |
+|---|---|---|
+| `"1.0"` | 旧 ENU 格式（`initial_conditions.own_ship.x_m/y_m`）| 直接 `model_validate()`，向后兼容 |
+| `"2.0"` | maritime-schema WGS84 格式（本规范）| lat/lon → ENU 转换后构造 ScenarioSpec |
+
+### 2.3 cerberus-cpp 兼容子集约束
+
+以下字段类型**禁止**出现在 cerberus schema（cerberus-cpp 不支持）：
+- `allof` / `anyof` / `oneof`
+- `check_with`（自定义验证器）
+- `coerce`（类型强制转换）
+- `readonly` / `dependencies`
+
+所有验证逻辑须通过 `type` + `required` + `min`/`max` + `allowed` + `schema`（嵌套）表达。
+
+---
+
+## §3 geo_utils.py — Flat-Earth 坐标桥接
+
+### 3.1 接口
+
+```python
+# tools/sil/geo_utils.py
+"""Flat-earth WGS84 ↔ ENU conversion. Valid for offsets < 50 km (error < 0.5 m)."""
+from __future__ import annotations
+import math
+
+_R_EARTH_M = 6_371_000.0
+_DEFAULT_GEO_ORIGIN = (63.0, 5.0)   # Norwegian Sea anchor
+
+
+def latlon_to_enu(
+    lat_origin_deg: float,
+    lon_origin_deg: float,
+    lat_deg: float,
+    lon_deg: float,
+) -> tuple[float, float]:
+    """Return (north_m, east_m) relative to origin."""
+    lat_origin_rad = math.radians(lat_origin_deg)
+    north_m = (lat_deg - lat_origin_deg) * math.radians(1) * _R_EARTH_M
+    east_m = (lon_deg - lon_origin_deg) * math.radians(1) * _R_EARTH_M * math.cos(lat_origin_rad)
+    return north_m, east_m
+
+
+def enu_to_latlon(
+    lat_origin_deg: float,
+    lon_origin_deg: float,
+    north_m: float,
+    east_m: float,
+) -> tuple[float, float]:
+    """Return (lat_deg, lon_deg) from ENU offset relative to origin."""
+    lat_origin_rad = math.radians(lat_origin_deg)
+    lat_deg = lat_origin_deg + math.degrees(north_m / _R_EARTH_M)
+    lon_deg = lon_origin_deg + math.degrees(east_m / (_R_EARTH_M * math.cos(lat_origin_rad)))
+    return lat_deg, lon_deg
+
+
+def default_origin() -> tuple[float, float]:
+    return _DEFAULT_GEO_ORIGIN
+```
+
+### 3.2 精度保证
+
+| 偏移距离 | north_m 误差 | east_m 误差（@63°N）|
+|---|---|---|
+| 1 km | < 0.01 m | < 0.05 m |
+| 14 km（Imazu-01 最大）| < 0.2 m | < 0.7 m |
+| 50 km | < 2.5 m | < 9 m |
+
+Imazu-22 最大偏移 ~14 km，误差 < 1 m，满足 SIL 精度要求。
+
+### 3.3 round-trip 验证（T_GEO 验收条件）
+
+```python
+def test_roundtrip():
+    origin = (63.0, 5.0)
+    for dn, de in [(13060, 0), (7060, 7000), (-5500, 2560)]:
+        lat, lon = enu_to_latlon(*origin, dn, de)
+        n2, e2 = latlon_to_enu(*origin, lat, lon)
+        assert abs(n2 - dn) < 1.0   # < 1 m
+        assert abs(e2 - de) < 1.0
+```
+
+---
+
+## §4 ScenarioSpec.from_file() — B1 Domain Model Migration
+
+### 4.1 设计原则
+
+`ScenarioSpec` 是 domain model，对自身的实例化方式负责。外部无 adapter 文件；seam 在 `from_file()` 工厂方法内。
+
+### 4.2 from_file() 接口与实现
+
+```python
+# tools/sil/scenario_spec.py — 新增方法（现有字段定义不变）
+
+from __future__ import annotations
+from pathlib import Path
+from typing import Optional
+import math, yaml
+
+# ... 现有 Pydantic 类定义（OwnShip, Target, InitialConditions, 等）保持不变 ...
+
+
+class ScenarioSpec(BaseModel):
+    # ... 现有字段 ...
+
+    @classmethod
+    def from_file(
+        cls,
+        path: Path,
+        geo_origin: Optional[tuple[float, float]] = None,
+    ) -> "ScenarioSpec":
+        """Load maritime-schema v2.0 YAML (or legacy v1.0 ENU YAML) into ScenarioSpec.
+
+        geo_origin: (lat_deg, lon_deg) runtime override.
+                    None → read from metadata.geo_origin → fallback to (63.0, 5.0).
+        """
+        from tools.sil.geo_utils import latlon_to_enu, default_origin
+        from tools.sil.cerberus_validator import validate_yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        version = data.get("metadata", {}).get("schema_version", "1.0")
+
+        if version == "1.0":
+            # 向后兼容：直接解析 ENU 格式
+            return cls.model_validate(data)
+
+        # ── v2.0: maritime-schema parse ──────────────────────────────────────
+        validate_yaml(data)   # cerberus validation; raises on failure
+
+        meta = data["metadata"]
+        _meta_origin = meta.get("geo_origin", {})
+        origin = geo_origin or (
+            (_meta_origin["latitude"], _meta_origin["longitude"])
+            if _meta_origin else default_origin()
+        )
+
+        # Own ship
+        own_init = data["own_ship"]["initial"]
+        os_pos = own_init["position"]
+        os_n, os_e = latlon_to_enu(*origin, os_pos["latitude"], os_pos["longitude"])
+
+        # Target ships
+        targets: list[Target] = []
+        for i, ts in enumerate(data.get("target_ships", []), start=1):
+            ti = ts["initial"]
+            ts_pos = ti["position"]
+            ts_n, ts_e = latlon_to_enu(*origin, ts_pos["latitude"], ts_pos["longitude"])
+            targets.append(Target(
+                target_id=i,
+                x_m=ts_e,           # ENU convention: x = East
+                y_m=ts_n,           # ENU convention: y = North
+                cog_nav_deg=ti["cog"],
+                sog_mps=ti["sog"] * 0.5144,
+            ))
+
+        sim_meta = meta.get("simulation", {})
+        enc_meta = meta.get("encounter", {})
+
+        return cls(
+            schema_version=meta["schema_version"],
+            scenario_id=meta["scenario_id"],
+            vessel_class=meta.get("vessel_class", "FCB"),
+            odd_zone=meta.get("odd_zone", "A"),
+            initial_conditions=InitialConditions(
+                own_ship=OwnShip(
+                    x_m=os_e,
+                    y_m=os_n,
+                    heading_nav_deg=own_init.get("heading", own_init["cog"]),
+                    speed_kn=own_init["sog"],
+                    n_rps=sim_meta.get("n_rps_initial", _speed_to_n_rps(own_init["sog"])),
+                ),
+                targets=targets,
+            ),
+            encounter=Encounter(**enc_meta) if enc_meta else None,
+            disturbance_model=DisturbanceModel(**meta.get("disturbance_model", {})),
+            pass_criteria=PassCriteria(**meta["pass_criteria"]) if "pass_criteria" in meta else None,
+            simulation=SimulationConfig(
+                duration_s=sim_meta.get("duration_s", 600.0),
+                dt_s=sim_meta.get("dt_s", 0.02),
+            ),
+            prng_seed=meta.get("prng_seed"),
+        )
+
+
+def _speed_to_n_rps(speed_kn: float) -> float:
+    """Approximate n_rps from speed using FCB calibration table."""
+    table = [(8, 2.3), (10, 3.0), (12, 3.5), (14, 4.2), (15, 4.5)]
+    for spd, n in table:
+        if speed_kn <= spd:
+            return n
+    return 4.5
+```
+
+### 4.3 ENU 坐标系约定
+
+`ScenarioSpec` 内部统一 ENU：
+- `x_m` = East（米）
+- `y_m` = North（米）
+- maritime-schema YAML 中 `position.latitude` → `y_m`（North），`position.longitude` → `x_m`（East）
+- `psi_math_rad = π/2 - radians(heading_nav_deg)`（内核转换，发生在 `simulate.py` 调用前）
+
+---
+
+## §5 Cerberus 双语言验证
+
+### 5.1 cerberus schema YAML（Python + C++ 共享）
+
+```yaml
+# tools/sil/cerberus_schema/fcb_scenario_v2.yaml
+# cerberus-cpp 兼容子集：仅使用 type/required/min/max/allowed/schema
+
+title:
+  type: string
+  required: true
+
+own_ship:
+  type: dict
+  required: true
+  schema:
+    initial:
+      type: dict
+      required: true
+      schema:
+        position:
+          type: dict
+          required: true
+          schema:
+            latitude: {type: float, required: true, min: -90.0, max: 90.0}
+            longitude: {type: float, required: true, min: -180.0, max: 180.0}
+        cog: {type: float, required: true, min: 0.0, max: 360.0}
+        sog: {type: float, required: true, min: 0.0, max: 50.0}
+
+target_ships:
+  type: list
+  required: false
+  schema:
+    type: dict
+    schema:
+      id: {type: string, required: true}
+      initial:
+        type: dict
+        required: true
+        schema:
+          position:
+            type: dict
+            required: true
+            schema:
+              latitude: {type: float, required: true, min: -90.0, max: 90.0}
+              longitude: {type: float, required: true, min: -180.0, max: 180.0}
+          cog: {type: float, required: true, min: 0.0, max: 360.0}
+          sog: {type: float, required: true, min: 0.0, max: 50.0}
+
+metadata:
+  type: dict
+  required: true
+  schema:
+    schema_version: {type: string, required: true, allowed: ["2.0"]}
+    scenario_id: {type: string, required: true}
+    odd_zone: {type: string, required: true, allowed: [A, B, C]}
+    vessel_class: {type: string, required: true}
+    pass_criteria:
+      type: dict
+      required: true
+      schema:
+        max_dcpa_no_action_m: {type: float, required: true, min: 0.0}
+        min_dcpa_with_action_m: {type: float, required: true, min: 0.0}
+    simulation:
+      type: dict
+      required: true
+      schema:
+        duration_s: {type: float, required: true, min: 600.0}
+        dt_s: {type: float, required: true, min: 0.01, max: 0.1}
+```
+
+### 5.2 Python cerberus_validator.py
+
+```python
+# tools/sil/cerberus_validator.py
+from pathlib import Path
+import cerberus
+import yaml
+
+_SCHEMA_PATH = Path(__file__).parent / "cerberus_schema" / "fcb_scenario_v2.yaml"
+
+
+def validate_yaml(data: dict) -> None:
+    """Validate maritime-schema v2.0 data dict. Raises ValueError on failure."""
+    schema = yaml.safe_load(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    v = cerberus.Validator(schema, allow_unknown=True)   # allow_unknown for additionalProperties
+    if not v.validate(data):
+        raise ValueError(f"Schema validation failed: {v.errors}")
+```
+
+### 5.3 C++ cerberus-cpp 验证器
+
+```cmake
+# tools/sil/cpp/CMakeLists.txt
+cmake_minimum_required(VERSION 3.11)
+project(fcb_cerberus_validator)
+
+include(FetchContent)
+FetchContent_Declare(
+  cerberus_cpp
+  GIT_REPOSITORY https://github.com/dokempf/cerberus-cpp.git
+  GIT_TAG        main
+)
+FetchContent_MakeAvailable(cerberus_cpp)
+
+find_package(yaml-cpp REQUIRED)
+
+add_executable(validate_scenario
+  cerberus_validator.cpp
+)
+target_include_directories(validate_scenario PRIVATE ${cerberus_cpp_SOURCE_DIR}/include)
+target_link_libraries(validate_scenario PRIVATE yaml-cpp)
+```
 
 ```cpp
-// src/fcb_simulator/python/fcb_sim_py/bindings.cpp
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
-#include "fcb_simulator/rk4_integrator.hpp"
-#include "fcb_simulator/types.hpp"
+// tools/sil/cpp/cerberus_validator.cpp
+// Usage: ./validate_scenario <schema.yaml> <scenario.yaml>
+// Exit 0 = valid, Exit 1 = invalid (errors to stderr)
+#include "cerberus-cpp/cerberus.hpp"
+#include <yaml-cpp/yaml.h>
+#include <iostream>
+#include <fstream>
 
-namespace py = pybind11;
-using namespace fcb_sim;
+int main(int argc, char** argv) {
+    if (argc != 3) {
+        std::cerr << "Usage: validate_scenario <schema.yaml> <scenario.yaml>\n";
+        return 2;
+    }
+    auto schema   = YAML::LoadFile(argv[1]);
+    auto document = YAML::LoadFile(argv[2]);
 
-PYBIND11_MODULE(fcb_sim_py, m) {
-    m.doc() = "FCB MMG simulator Python binding (D1.3b)";
-
-    py::class_<FcbState>(m, "FcbState")
-        .def(py::init<>())
-        .def_readwrite("x",       &FcbState::x)        // East (m)
-        .def_readwrite("y",       &FcbState::y)        // North (m)
-        .def_readwrite("psi",     &FcbState::psi)      // heading, math conv (rad)
-        .def_readwrite("u",       &FcbState::u)        // surge (m/s)
-        .def_readwrite("v",       &FcbState::v)        // sway (m/s)
-        .def_readwrite("r",       &FcbState::r)        // yaw rate (rad/s)
-        .def_readwrite("phi",     &FcbState::phi)
-        .def_readwrite("phi_dot", &FcbState::phi_dot);
-
-    py::class_<MmgParams>(m, "MmgParams")
-        .def(py::init<>());     // 默认值已在 types.hpp 定义，D1.3b 使用默认 FCB 参数
-
-    m.def("rk4_step",
-          &fcb_sim::rk4_step,
-          py::arg("state"),
-          py::arg("delta_rad"),   // 舵角: + = starboard (CW), - = port
-          py::arg("n_rps"),       // 螺旋桨转速 (rev/s); 0 = 停车
-          py::arg("params"),
-          py::arg("dt"),
-          "Single RK4 step. psi in math convention (0=East, π/2=North).");
+    cerberus::Validator validator(schema);
+    if (validator.validate(document)) {
+        return 0;
+    }
+    for (const auto& err : validator.errors()) {
+        std::cerr << err << "\n";
+    }
+    return 1;
 }
 ```
 
-### 3.2 坐标系约定
+### 5.4 cerberus-cpp 已知不兼容项
 
-**重要**：`FcbState.psi` 使用**数学惯例**（CCW from East，rad）。YAML 场景文件使用**航海惯例**（CW from North，deg）。批量执行器在调用 `rk4_step()` 前转换：
+以下 Python cerberus 特性在 cerberus-cpp 中**不可用**，schema 设计已绕开：
 
-```python
-# nav_heading_deg → psi_math_rad
-psi_math = math.pi / 2.0 - math.radians(nav_heading_deg)
-
-# nav bearing (θ_nav_deg) + range_m → ENU position (dx_east, dy_north)
-dx_east  = range_m * math.sin(math.radians(theta_nav_deg))
-dy_north = range_m * math.cos(math.radians(theta_nav_deg))
-```
-
-### 3.3 CMakeLists.txt 扩展
-
-```cmake
-# src/fcb_simulator/CMakeLists.txt 新增（在 ament_package() 之前）
-find_package(pybind11_vendor REQUIRED)   # ROS2 Jazzy 提供
-find_package(pybind11 REQUIRED)
-
-pybind11_add_module(fcb_sim_py
-  python/fcb_sim_py/bindings.cpp
-)
-target_link_libraries(fcb_sim_py PRIVATE fcb_simulator_core Eigen3::Eigen)
-install(TARGETS fcb_sim_py
-  LIBRARY DESTINATION ${PYTHON_INSTALL_DIR})
-```
-
-### 3.4 Python smoke test
-
-```python
-# tools/sil/smoke_test_binding.py
-import fcb_sim_py
-s = fcb_sim_py.FcbState()
-s.u = 6.17   # 12 kn
-s.psi = math.pi / 2  # heading north
-p = fcb_sim_py.MmgParams()
-s2 = fcb_sim_py.rk4_step(s, 0.0, 3.5, p, 0.02)
-assert s2.u > 0.0, "surge must remain positive"
-assert abs(s2.psi - math.pi / 2) < 0.01, "heading must be stable"
-```
+| 特性 | cerberus-cpp 支持 | 绕开方式 |
+|---|---|---|
+| `allof` / `anyof` | ❌ | 拆分为独立字段验证 |
+| `check_with`（自定义函数）| ❌ | 移至 `ScenarioSpec` Pydantic validator |
+| `coerce`（类型转换）| ❌ | YAML 源文件须显式写正确类型 |
+| `allowed` | ✅ | 用于 odd_zone/schema_version 枚举 |
+| `min` / `max` | ✅ | 用于坐标和速度范围 |
 
 ---
 
-## 4. YAML 场景 Schema
+## §6 Imazu-22 场景参数
 
-### 4.1 完整字段定义
+### 6.1 几何来源
+
+以 NTNU colav-simulator（UTM zone 33，`map_origin_enu=[267492.6, 7041883.4]`）的 `csog_state: [N_utm, E_utm, speed_kn, cog_deg]` 反算 OS→TS 相对偏移（ΔN_m, ΔE_m）。maritime-schema YAML 使用 geo_origin 锚点 (63.0°N, 5.0°E) 加 ΔN/ΔE 转换为 lat/lon。
+
+### 6.2 完整几何参数表
+
+OS 始终位于 geo_origin (63.0°N, 5.0°E) / (x_m=0, y_m=0, heading=0°, sog=10 kn)。
+
+| ID | scenario_id | Type | TS1 ΔN/ΔE (m) | TS1 COG° / SOG kn | TS2 ΔN/ΔE (m) | TS2 COG°/SOG | TS3 ΔN/ΔE (m) | TS3 COG°/SOG | duration_s |
+|---|---|---|---|---|---|---|---|---|---|
+| 01 | imazu-01-ho-v1.0 | HO | +13060 / 0 | 180 / 10 | — | — | — | — | 700 |
+| 02 | imazu-02-cr-gw-v1.0 | CR_GW | +7060 / +7000 | 270 / 10 | — | — | — | — | 1000 |
+| 03 | imazu-03-ot-v1.0 | OT | +2060 / 0 | 0 / 5 | — | — | — | — | 1000 |
+| 04 | imazu-04-cr-so-v1.0 | CR_SO | +2560 / -5500 | 40 / 10 | — | — | — | — | 1000 |
+| 05 | imazu-05-ms-v1.0 | MS | +7060 / +7000 | 270 / 10 | +14120 / 0 | 180 / 10 | — | — | 1000 |
+| 06 | imazu-06-ms-v1.0 | MS | +2560 / +5000 | 320 / 10 | +860 / +2700 | 342 / 10 | — | — | 1000 |
+| 07 | imazu-07-ms-v1.0 | MS | +2560 / +5000 | 320 / 9 | +2060 / 0 | 0 / 5 | — | — | 1000 |
+| 08 | imazu-08-ms-v1.0 | MS | +7060 / -7000 | 90 / 10 | +14120 / 0 | 180 / 10 | — | — | 1000 |
+| 09 | imazu-09-ms-v1.0 | MS | +7060 / +7000 | 270 / 10 | +810 / +2950 | 345 / 10 | — | — | 1000 |
+| 10 | imazu-10-ms-v1.0 | MS | +7060 / +7000 | 270 / 10 | +710 / -2750 | 45 / 10 | — | — | 1000 |
+| 11 | imazu-11-ms-v1.0 | MS | +7060 / -7000 | 90 / 10 | +810 / +2950 | 345 / 10 | — | — | 1000 |
+| 12 | imazu-12-ms-v1.0 | MS | +2200 / +5000 | 320 / 9 | +350 / -2750 | 45 / 10 | +13760 / 0 | 180 / 10 | 1000 |
+| 13 | imazu-13-ms-v1.0 | MS | +2200 / -5500 | 40 / 10 | +350 / -2750 | 45 / 10 | +13760 / 0 | 180 / 10 | 1000 |
+| 14 | imazu-14-ms-v1.0 | MS | +2200 / +5000 | 320 / 10 | +500 / +2700 | 342 / 10 | +5700 / +6400 | 270 / 10 | 1000 |
+| 15 | imazu-15-ms-v1.0 | MS | +2200 / +5000 | 320 / 10 | +1700 / 0 | 0 / 5 | +5700 / +6400 | 270 / 10 | 1000 |
+| 16 | imazu-16-ms-v1.0 | MS | +6700 / -7000 | 90 / 10 | +350 / -2750 | 45 / 10 | +6700 / +7000 | 270 / 10 | 1000 |
+| 17 | imazu-17-ms-v1.0 | MS | +2200 / +5000 | 320 / 10 | +1700 / 0 | 0 / 5 | +350 / -2750 | 45 / 10 | 1000 |
+| 18 | imazu-18-ms-v1.0 | MS | +2200 / +5000 | 320 / 10 | +500 / +2700 | 342 / 10 | +10200 / +4500 | 225 / 10 | 1000 |
+| 19 | imazu-19-ms-v1.0 | MS | +350 / -2450 | 45 / 10 | +500 / +2700 | 342 / 10 | +10200 / +4500 | 225 / 10 | 1000 |
+| 20 | imazu-20-ms-v1.0 | MS | +500 / +2700 | 342 / 10 | +1700 / 0 | 0 / 5 | +5700 / +6400 | 270 / 10 | 1000 |
+| 21 | imazu-21-ms-v1.0 | MS | +350 / -2450 | 45 / 10 | +500 / +2700 | 342 / 10 | +5700 / +6400 | 270 / 10 | 1000 |
+| 22 | imazu-22-ms-v1.0 | MS | +2200 / +5000 | 320 / 10 | +1700 / 0 | 0 / 5 | +5700 / +6400 | 270 / 10 | 1000 |
+
+> Cases 22 和 15 几何相同（来自 colav-simulator 原始文件）；作为独立场景保留，scenario_id 区分。
+
+### 6.3 lat/lon 计算公式
+
+对表中每条 ΔN/ΔE，使用 geo_utils.enu_to_latlon(63.0, 5.0, ΔN, ΔE) 计算 lat/lon 写入 YAML。实现时直接调用 `geo_utils.py` 生成；不手算写死。提供脚本：
+
+```bash
+# tools/sil/generate_imazu_yaml.py
+# 遍历 §6.2 参数表 → 输出 scenarios/imazu22/imazu-NN-*.yaml
+```
+
+### 6.4 pass_criteria 默认值
+
+所有 Imazu-22 场景：
+- `max_dcpa_no_action_m: 926.0`（0.5 nm；Imazu 基准场景均设计为碰撞威胁）
+- `min_dcpa_with_action_m: 500.0`（有动作后的安全间距；Multi-Ship 场景设为 300.0）
+- `avoidance_time_s`：按 0.55 × TCPA 估算（实现时先用 300s 统一值，T_IMAZU 验收时根据实际 TCPA 调整）
+
+### 6.5 disturbance_model
+
+所有 Imazu-22 场景 disturbance_model 全为零值（原论文基准场景无扰动）。
+
+---
+
+## §7 SHA256 冻结 + CI Gate
+
+### 7.1 MANIFEST.sha256 格式
+
+```
+# scenarios/imazu22/MANIFEST.sha256
+# 每行：<sha256hex>  <filename>
+# 集合哈希（最后一行，由所有文件哈希的有序拼接计算）
+abc123...  imazu-01-ho-v1.0.yaml
+def456...  imazu-02-cr-gw-v1.0.yaml
+...
+xyz789...  imazu-22-ms-v1.0.yaml
+COLLECTION_SHA256: <sha256_of_sorted_concatenation>
+```
+
+### 7.2 CI gate 脚本
+
+```bash
+#!/bin/bash
+# tools/ci/check-imazu22-hash.sh
+# 用途：CI PR gate；若任何 Imazu-22 文件被修改则失败
+
+set -euo pipefail
+
+MANIFEST="scenarios/imazu22/MANIFEST.sha256"
+SCENARIOS_DIR="scenarios/imazu22"
+
+# 验证每个文件的哈希
+while IFS='  ' read -r expected_hash filename; do
+  [[ "$filename" == COLLECTION_SHA256:* ]] && continue
+  actual_hash=$(sha256sum "$SCENARIOS_DIR/$filename" | awk '{print $1}')
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    echo "FAIL: $filename hash mismatch"
+    echo "  Expected: $expected_hash"
+    echo "  Actual:   $actual_hash"
+    exit 1
+  fi
+done < "$MANIFEST"
+
+echo "OK: All 22 Imazu scenario files match MANIFEST.sha256"
+```
+
+### 7.3 MANIFEST 生成（仅首次，提交后只读）
+
+```bash
+# tools/ci/generate-imazu22-manifest.sh（仅运行一次，结果 commit 到 git）
+cd scenarios/imazu22
+for f in imazu-*.yaml; do
+  printf "$(sha256sum "$f" | awk '{print $1}')  $f\n"
+done | sort > MANIFEST.sha256
+# 追加 COLLECTION_SHA256
+cat $(ls imazu-*.yaml | sort) | sha256sum | awk '{print "COLLECTION_SHA256: "$1}' >> MANIFEST.sha256
+```
+
+### 7.4 CI 集成
+
+在 `.gitlab-ci.yml`（或 GitHub Actions）的 `test` stage 添加：
 
 ```yaml
-# scenarios/colregs/schema.yaml
-# ── 本文件同时作为 JSON Schema 基准和人工可读的字段文档 ──
-
-schema_version: "1.0"            # 字符串，必填；D1.6 扩展时升为 "2.0"
-scenario_id: string              # 命名规范: <rule>-<odd>-<encounter>-v<ver>，eg. colreg-rule14-ho-001-v1.0
-description: string              # 人工可读描述，必填
-rule_branch_covered:             # 列表，D1.6 requirements_traced + hazid_id 将叠加此字段
-  - string                       # eg. ["Rule14_HeadOn", "Rule8_Action"]
-vessel_class: string             # pluginlib key，eg. "FCB"；multi_vessel_lint 扫描不到 YAML
-odd_zone: string                 # "A" | "B" | "C" | "D"（架构 §5.2 ODD Zone 定义）
-
-initial_conditions:
-  own_ship:
-    x_m: float                   # ENU East (m)，通常 0.0
-    y_m: float                   # ENU North (m)，通常 0.0
-    heading_nav_deg: float       # 航海惯例 heading（CW from North）；批量执行器转换为 psi_math
-    speed_kn: float              # 初始合速度 (kn)；批量执行器换算 u_mps = speed_kn × 0.5144
-    n_rps: float                 # 维持初速对应的螺旋桨转速 (rev/s)；见 §4.2 标定表
-  targets:
-    - target_id: int             # 唯一正整数
-      x_m: float
-      y_m: float
-      cog_nav_deg: float         # 目标船的 Course Over Ground（航海惯例）
-      sog_mps: float             # 目标船速 (m/s)；直线匀速传播（无 MMG）
-
-encounter:
-  rule: string                   # "Rule13" | "Rule14" | "Rule15_Stbd" | "Rule15_Port"
-  give_way_vessel: string        # "own" | "target" | "none"
-  expected_own_action: string    # "turn_starboard" | "turn_port" | "maintain" | "slow_down"
-  avoidance_time_s: float        # 在此仿真时间点 own ship 施加避让动作
-  avoidance_delta_rad: float     # 避让舵角（+ = starboard，rad；35° = 0.6109 rad）
-  avoidance_duration_s: float    # 保持该舵角的持续时间 (s)
-
-disturbance_model:               # G P1-G-4 整改字段
-  wind_kn: float                 # 风速 (kn)；0.0 = calm；实现见 §6.3 扰动注入
-  wind_dir_nav_deg: float        # 风向（来自方向，航海惯例）
-  current_kn: float              # 流速 (kn)
-  current_dir_nav_deg: float     # 流向（流往方向，航海惯例）
-  vis_m: float                   # 能见度 (m)；< 2000 触发 Rule 19
-  wave_height_m: float           # 有义波高 (m)；D1.3b 阶段不进入动力学，仅记录元数据
-
-prng_seed: int                   # 必填，确保 Monte-Carlo 可复现；D1.3b 场景均为确定性（无随机扰动），seed 留作 D1.6 扩展
-
-pass_criteria:
-  max_dcpa_no_action_m: float    # 无动作 DCPA 必须 < 此值（确认存在碰撞风险，典型 926.0 m = 0.5 nm）
-  min_dcpa_with_action_m: float  # 有动作 DCPA 必须 ≥ 此值（确认可解，典型 926.0 m = 0.5 nm）
-  bearing_sector_deg: [float, float]  # [sector_start, sector_end]，目标船方位必须落在此扇区内
-
-simulation:
-  duration_s: float              # 仿真时长，必须 ≥ 600.0
-  dt_s: float                    # 积分步长，必须 = 0.02（与 D1.3.1 基线一致）
-```
-
-### 4.2 n_rps 速度标定表
-
-n_rps 与稳态速度的近似对应关系（FCB 默认 MMG 参数，仅用于 D1.3b 初值设定；D1.3.1 精确标定后更新）：
-
-| 速度 (kn) | u_mps | n_rps (估算) |
-|---|---|---|
-| 8 | 4.12 | 2.3 |
-| 10 | 5.14 | 3.0 |
-| 12 | 6.17 | 3.5 |
-| 14 | 7.20 | 4.2 |
-| 15 | 7.72 | 4.5 |
-
-批量执行器在无动作阶段使用**简单比例速度控制器**维持初速：
-```python
-n_rps += 0.1 * (u_target - state.u)   # P 控制，dt=0.02s
-n_rps = max(0.0, min(10.0, n_rps))     # 限幅
+check-imazu22-hash:
+  stage: test
+  script:
+    - bash tools/ci/check-imazu22-hash.sh
 ```
 
 ---
 
-## 5. 10 基础场景定义
+## §8 现有 10 个场景迁移至 v2.0
 
-坐标系：ENU（x=East, y=North），单位 m。航海惯例方位/航向（CW from North，deg）。
-`0.5 nm = 926 m`，`1 nm = 1852 m`，`1 kn = 0.5144 m/s`。
+### 8.1 迁移策略
 
-### 5.1 场景几何汇总
+10 个 `scenarios/colregs/colreg-*.yaml` 文件**原地重写**（保留文件名，`scenario_id` 字段不变）：
+- `schema_version: "1.0"` ENU 格式 → `metadata.schema_version: "2.0"` WGS84 格式
+- 使用 `geo_utils.enu_to_latlon(63.0, 5.0, y_m, x_m)` 将原 ENU 坐标转回 lat/lon
+- 所有其他字段（encounter / disturbance_model / pass_criteria / simulation）迁移至 `metadata.*`
+- `ScenarioSpec.from_file()` 向后兼容 v1.0 格式；迁移完成后 v1.0 代码路径仍保留但仅用于测试
 
-| ID | Rule | 场景描述 | Own (hdg°, kn) | Target 初始 (x,y) m | Target (cog°, kn) | DCPA 无动作（估算）| TCPA 无动作（估算）| avoidance_time_s | seed |
-|---|---|---|---|---|---|---|---|---|---|
-| **HO-001** | 14 | 纯正对头，平静 | 0°, 12 | (0, 3704) | 180°, 10 | 0 m | 327 s | 200 s | 42 |
-| **HO-002** | 14 | 近对头 8° 偏，风 5 kn | 0°, 12 | (515, 3668) | 188°, 10 | ~282 m | 327 s | 200 s | 43 |
-| **HO-003** | 14/19 | 对头高速，能见度 1000 m | 0°, 15 | (0, 3704) | 180°, 12 | 0 m | 267 s | 150 s | 44 |
-| **CS-001** | 15/16 | 右舷交叉 60°，own 让路 | 0°, 10 | (2406, 1389) | 270°, 12 | ~473 m | 341 s | 200 s | 10 |
-| **CS-002** | 15/16 | 右舷交叉 90°，流 0.5 kn | 0°, 10 | (926, 0) | 270°, 12 | ~593 m | 89 s | **50 s** | 11 |
-| **CS-003** | 15/16 | 左舷交叉，own 直航 | 0°, 10 | (−2778, 1389) | 70°, 12 | ~56 m | 475 s | 0 s (maintain) | 12 |
-| **CS-004** | 15/16 | 近距交叉 45°，TCPA<200 s | 0°, 12 | (982, 982) | 225°, 14 | ~490 m | 105 s | **60 s** | 13 |
-| **OT-001** | 13 | 纯追越（正后方），own 让路 | 0°, 14 | (50, 926) | 0°, 8 | ~50 m | ~300 s | 150 s | 20 |
-| **OT-002** | 13 | 追越（左后方 162°），own 让路 | 0°, 14 | (−300, 926) | 0°, 9 | 300 m | 360 s | 200 s | 21 |
-| **OT-003** | 13 | 追越（右后方 198°），风 8 kn | 0°, 14 | (300, 926) | 0°, 9 | 300 m | 360 s | 200 s | 22 |
+### 8.2 迁移脚本
 
-> CS-002（TCPA≈89s）和 CS-004（TCPA≈105s）avoidance_time_s 需设为 TCPA 的约 55%，确保在 CPA 前完成动作。CS-003 为 own stand-on（维持航向，`give_way_vessel="target"`），avoidance_time_s=0 且 avoidance_delta_rad=0。
-
-> DCPA/TCPA 为解析估算值；实际值由批量执行器精确计算并写入 JSON 输出。
-
-### 5.2 扇区合规验证（Rule 映射）
-
-批量执行器自动计算每个场景的目标船方位，校验是否落在 NLM `colav_algorithms` 笔记本确认的扇区（🟢 High confidence）：
-
-| Rule | 扇区（从 own ship 看目标船） | D1.3b 场景覆盖 |
-|---|---|---|
-| Rule 14 Head-on | 345°–15° | HO-001, HO-002, HO-003 |
-| Rule 15 Stbd Crossing | 15°–112.5° | CS-001 (60°), CS-002 (90°), CS-004 (45°) |
-| Rule 15 Port Crossing | 247.5°–345° | CS-003 (297°) |
-| Rule 13 Overtaking | 112.5°–247.5°（*目标船*视角，own ship 在此扇区内）| OT-001 (180°), OT-002 (162°), OT-003 (198°) |
-
-> Rule 13 扇区判断：需从**目标船**参考系计算 own ship 的方位，而非 own ship 参考系中目标船方位。
-
-### 5.3 disturbance_model 完整赋值
-
-| ID | wind_kn | wind_dir° | current_kn | current_dir° | vis_m | wave_m |
-|---|---|---|---|---|---|---|
-| HO-001 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| HO-002 | 5 | 90 (E) | 0 | 0 | 5000 | 0.5 |
-| HO-003 | 0 | 0 | 0 | 0 | 1000 | 0 |
-| CS-001 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| CS-002 | 0 | 0 | 0.5 | 270 (W) | 10000 | 0 |
-| CS-003 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| CS-004 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| OT-001 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| OT-002 | 0 | 0 | 0 | 0 | 10000 | 0 |
-| OT-003 | 8 | 270 (W) | 0 | 0 | 10000 | 1.0 |
-
-> D1.3b 阶段 `disturbance_model` 字段仅**记录元数据**，不进入 MMG 动力学（风/流力尚未集成至 C++ 层）。G P1-G-4 整改满足条件：字段已存在于 YAML schema，动力学集成在 D2.x 完成。
-
----
-
-## 6. 批量执行器架构（`tools/sil/batch_runner.py`）
-
-### 6.1 顶层流程
-
-```
-for each YAML in scenarios/colregs/:
-  spec = load_and_validate_yaml(yaml_path)
-  
-  # Pass 1: No-action run
-  result_noaction = simulate(spec, apply_avoidance=False)
-  geometric_pass  = result_noaction.dcpa_m < spec.pass_criteria.max_dcpa_no_action_m
-  bearing_pass    = bearing_in_sector(spec)
-  
-  # Pass 2: With-action run
-  result_action   = simulate(spec, apply_avoidance=True)
-  solvability_pass = result_action.dcpa_m >= spec.pass_criteria.min_dcpa_with_action_m
-  
-  # Stability check
-  stability_pass   = result_action.stable  # no NaN/Inf in trajectory
-  
-  # Wall-clock
-  wall_clock_pass  = result_action.wall_clock_s <= 60.0
-  
-  overall_pass = geometric_pass and bearing_pass and solvability_pass \
-                 and stability_pass and wall_clock_pass
-  
-  write_json(output_dir, spec.scenario_id, {
-    "result": "PASS" if overall_pass else "FAIL",
-    "sub_checks": {...},
-    "metrics": {...},
-    "wall_clock_s": ...,
-  })
-
-generate_html_report(output_dir)
-```
-
-### 6.2 `simulate()` 内部流程
-
-```python
-def simulate(spec: ScenarioSpec, apply_avoidance: bool) -> SimResult:
-    import fcb_sim_py
-    
-    # 初始化 own ship 状态（坐标系转换）
-    state = fcb_sim_py.FcbState()
-    state.x   = spec.initial_conditions.own_ship.x_m
-    state.y   = spec.initial_conditions.own_ship.y_m
-    state.psi = math.pi/2 - math.radians(spec.initial_conditions.own_ship.heading_nav_deg)
-    state.u   = spec.initial_conditions.own_ship.speed_kn * 0.5144
-    params    = fcb_sim_py.MmgParams()  # 默认 FCB 参数
-    
-    # 初始化目标船（直线匀速）
-    targets = init_targets(spec)   # list of (x, y, vx, vy)
-    
-    n_rps     = spec.initial_conditions.own_ship.n_rps
-    delta_rad = 0.0
-    dt        = spec.simulation.dt_s
-    n_steps   = int(spec.simulation.duration_s / dt)
-    t_wall_start = time.perf_counter()
-    
-    own_traj, tgt_traj = [], []
-    for i in range(n_steps):
-        t_sim = i * dt
-        
-        # 避让控制
-        if apply_avoidance and abs(t_sim - spec.encounter.avoidance_time_s) < dt/2:
-            delta_rad = spec.encounter.avoidance_delta_rad
-        if apply_avoidance and t_sim > spec.encounter.avoidance_time_s + spec.encounter.avoidance_duration_s:
-            delta_rad = 0.0
-        
-        # 速度控制（简单 P 控制器，维持初始速度）
-        n_rps += 0.1 * (u_target - state.u)
-        n_rps = max(0.0, min(10.0, n_rps))
-        
-        # Own ship: MMG RK4
-        state = fcb_sim_py.rk4_step(state, delta_rad, n_rps, params, dt)
-        
-        # Target ships: 直线外推
-        targets = [(x + vx*dt, y + vy*dt, vx, vy) for x, y, vx, vy in targets]
-        
-        own_traj.append((state.x, state.y))
-        tgt_traj.append([(x, y) for x, y, _, _ in targets])
-        
-        # 稳定性检测
-        if not math.isfinite(state.u) or not math.isfinite(state.psi):
-            return SimResult(stable=False)
-    
-    wall_clock = time.perf_counter() - t_wall_start
-    dcpa_m, tcpa_s = compute_min_cpa(own_traj, tgt_traj)
-    
-    return SimResult(
-        stable=True,
-        dcpa_m=dcpa_m,
-        tcpa_s=tcpa_s,
-        wall_clock_s=wall_clock,
-        own_trajectory=own_traj,
-        target_trajectories=tgt_traj,
-    )
-```
-
-### 6.3 扰动注入（D1.3b 元数据记录，不进入动力学）
-
-D1.3b 阶段 `disturbance_model` 字段仅写入 JSON 输出，不修改 `rk4_step()` 调用。完整力学集成（风力/流力附加项）在 D2.x 完成，届时 YAML schema 无需改变。
-
-### 6.4 CPA 计算
-
-```python
-def compute_min_cpa(own_traj, tgt_trajs):
-    """Compute DCPA and TCPA over sampled trajectory."""
-    min_d = float('inf')
-    min_t = 0.0
-    for i, (ox, oy) in enumerate(own_traj):
-        for tgt in tgt_trajs:
-            tx, ty = tgt[i]
-            d = math.hypot(ox - tx, oy - ty)
-            if d < min_d:
-                min_d = d
-                min_t = i * dt
-    return min_d, min_t
+```bash
+# tools/sil/migrate_v1_to_v2.py
+# 读取 scenarios/colregs/*.yaml (v1.0) → 转换 → 覆盖写回 (v2.0)
+# 运行前做 git diff 备份
 ```
 
 ---
 
-## 7. JSON 输出格式
+## §9 batch_runner.py 扩展
 
-每个场景运行后生成 `reports/<scenario_id>-<timestamp>.json`：
+### 9.1 动态场景发现
+
+```python
+def discover_scenarios(dirs: list[Path]) -> list[Path]:
+    """Glob all *.yaml files from given dirs, excluding schema.yaml."""
+    results = []
+    for d in dirs:
+        results.extend(sorted(
+            f for f in d.glob("*.yaml") if f.name != "schema.yaml"
+        ))
+    return results
+```
+
+默认 dirs：`[Path("scenarios/colregs"), Path("scenarios/imazu22")]`，共 32 个场景。
+
+### 9.2 批量执行主流程
+
+```python
+def run_batch(
+    scenario_dirs: list[Path],
+    output_dir: Path,
+    geo_origin: tuple[float, float] | None = None,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Run all scenarios. Returns batch summary dict."""
+    scenarios = discover_scenarios(scenario_dirs)
+    results = []
+    for i, yaml_path in enumerate(scenarios):
+        spec = ScenarioSpec.from_file(yaml_path, geo_origin=geo_origin)
+        result = _run_single_scenario(spec, output_dir)
+        results.append(result)
+        if progress_cb:
+            progress_cb(i + 1, len(scenarios))
+
+    _write_json_summary(results, output_dir / "batch_results.json")
+    _write_arrow_summary(results, output_dir / "batch_summary.arrow")
+    _write_arrow_trajectories(results, output_dir / "batch_trajectories.arrow")
+    return {"n_scenarios": len(scenarios), "n_pass": sum(r["pass"] for r in results)}
+```
+
+### 9.3 进度回调（与 sil_router.py 集成）
+
+`_run_batch_job()` 在 `sil_router.py` 中通过 `progress_cb` 更新 `_jobs[job_id]["progress"]`，无需修改 sil_router.py 接口。
+
+---
+
+## §10 Arrow 输出规范
+
+### 10.1 batch_summary.arrow schema
+
+```python
+import pyarrow as pa
+
+SUMMARY_SCHEMA = pa.schema([
+    pa.field("scenario_id",          pa.string()),
+    pa.field("rule",                 pa.string()),
+    pa.field("odd_zone",             pa.string()),
+    pa.field("dcpa_no_action_m",     pa.float32()),
+    pa.field("dcpa_with_action_m",   pa.float32()),
+    pa.field("min_separation_m",     pa.float32()),
+    pa.field("pass",                 pa.bool_()),
+    pa.field("duration_s",           pa.float32()),
+    pa.field("wall_clock_s",         pa.float32()),
+    pa.field("scenario_source",      pa.string()),  # "imazu1987" | "fcb_original"
+])
+```
+
+### 10.2 batch_trajectories.arrow schema
+
+```python
+TRAJECTORY_SCHEMA = pa.schema([
+    pa.field("scenario_id",  pa.string()),
+    pa.field("t_s",          pa.float32()),
+    pa.field("os_x_m",       pa.float32()),
+    pa.field("os_y_m",       pa.float32()),
+    pa.field("ts1_x_m",      pa.float32()),   # nullable
+    pa.field("ts1_y_m",      pa.float32()),
+    pa.field("ts2_x_m",      pa.float32()),   # nullable (null if < 2 targets)
+    pa.field("ts2_y_m",      pa.float32()),
+    pa.field("ts3_x_m",      pa.float32()),   # nullable (null if < 3 targets)
+    pa.field("ts3_y_m",      pa.float32()),
+])
+```
+
+### 10.3 軌跡采样
+
+每 5 个仿真步（Δt=0.1s）记录一行。1000s 场景 → 10,000 行；600s 场景 → 6,000 行。32 场景总计约 ~300,000 行，~30 MB。
+
+```python
+TRAJECTORY_SAMPLE_INTERVAL = 5   # steps
+```
+
+### 10.4 写出方式
+
+```python
+import pyarrow as pa
+import pyarrow.ipc as ipc
+
+def _write_arrow_trajectories(all_traj_rows: list[dict], path: Path) -> None:
+    table = pa.table(all_traj_rows, schema=TRAJECTORY_SCHEMA)
+    with pa.OSFile(str(path), "wb") as sink:
+        with ipc.new_file(sink, TRAJECTORY_SCHEMA) as writer:
+            writer.write_table(table)
+```
+
+---
+
+## §11 JSON 输出格式（保留）
+
+每场景运行后生成 `reports/<scenario_id>-<timestamp>.json`：
 
 ```json
 {
-  "schema_version": "1.0",
-  "scenario_id": "colreg-rule14-ho-001-v1.0",
-  "scenario_yaml": "scenarios/colregs/colreg-rule14-ho-001-seed42-v1.0.yaml",
+  "schema_version": "2.0",
+  "scenario_id": "imazu-01-ho-v1.0",
+  "scenario_yaml": "scenarios/imazu22/imazu-01-ho-v1.0.yaml",
   "run_timestamp": "2026-06-01T09:00:00Z",
   "result": "PASS",
   "sub_checks": {
@@ -478,403 +813,269 @@ def compute_min_cpa(own_traj, tgt_trajs):
     "dcpa_no_action_m": 12.4,
     "dcpa_with_action_m": 1124.7,
     "tcpa_no_action_s": 327.2,
-    "target_bearing_deg": 0.1,
-    "own_max_heading_change_deg": 34.8,
-    "own_min_speed_kn": 11.2
+    "min_separation_m": 1124.7,
+    "wall_clock_s": 0.31
   },
-  "performance": {
-    "wall_clock_s": 0.31,
-    "n_steps": 30000,
-    "sim_duration_s": 600.0
-  },
-  "disturbance_recorded": {
-    "wind_kn": 0.0,
-    "current_kn": 0.0,
-    "vis_m": 10000.0
-  },
+  "scenario_source": "imazu1987",
   "trajectory_points": 300
 }
 ```
 
-> `trajectory_points`：每隔 100 步（2 s）抽样存储 own ship 轨迹，共 300 点，控制文件大小。完整轨迹不写入 JSON（内存驻留，用于 CPA 计算后丢弃）。
+---
+
+## §12 coverage_reporter.py 扩展
+
+### 12.1 动态 rule 推断
+
+```python
+def _infer_rule_label(scenario_id: str, metadata: dict) -> str:
+    """Infer COLREGs rule from scenario metadata.encounter.rule, fallback to id pattern."""
+    enc = metadata.get("encounter", {})
+    rule = enc.get("rule", "")
+    if rule:
+        return rule
+    # fallback: id pattern matching (legacy v1.0 scenarios)
+    if "ho" in scenario_id:
+        return "Rule14"
+    if "cr" in scenario_id:
+        return "Rule15"
+    if "ot" in scenario_id:
+        return "Rule13"
+    return "Unknown"
+```
+
+### 12.2 HTML 报告矩阵维度
+
+32 场景覆盖行：
+
+| Rule | 场景数 |
+|---|---|
+| Rule 14 Head-on | 3（原有）+ 1（Imazu-01）= 4 |
+| Rule 15 Crossing GW | 4（原有）+ 1（Imazu-02）= 5 |
+| Rule 13 Overtaking | 3（原有）+ 1（Imazu-03）= 4 |
+| Rule 15 Crossing SO | 0（原有）+ 1（Imazu-04）= 1 |
+| Multi-Ship | 0（原有）+ 18（Imazu-05..22）= 18 |
+| 未覆盖 Rule 5/6/7/8/9/17/19 | ⚠️ D1.6 扩展 |
 
 ---
 
-## 8. COLREGs 覆盖率 HTML 报告
+## §13 pybind11 绑定（保留 v1.0 §3，修正 ROS2 版本）
 
-### 8.1 报告结构
+### 13.1 暴露接口（同 v1.0）
 
-Jinja2 模板生成单文件 `reports/coverage_report_<timestamp>.html`，包含：
+（见 v1.0 §3.1 — 接口不变）
 
-1. **摘要表**：10 场景总体 PASS/FAIL 统计
-2. **Rule × 场景 矩阵**（主体）：行 = COLREGs Rule，列 = 子检查项，单元格 = ✅/❌ + 链接
-3. **未覆盖 Rule 列表**：Rule 5/6/7/8/9/17/19 标注"D1.3b 未覆盖，待 D1.6 扩展"
-4. **场景详情折叠块**：每个场景展开显示 metrics + disturbance
+### 13.2 坐标系约定（同 v1.0）
 
-### 8.2 矩阵结构
+`psi_math_rad = π/2 - radians(heading_nav_deg)`
 
-| Rule | 场景 ID | 几何合规 | 可解性 | 稳定性 | ≤60s | JSON 链接 |
-|---|---|---|---|---|---|---|
-| Rule 14 Head-on | HO-001 | ✅ | ✅ | ✅ | ✅ | [run.json](../reports/...) |
-| Rule 14 Head-on | HO-002 | … | … | … | … | … |
-| Rule 14 Head-on | HO-003 | … | … | … | … | … |
-| Rule 15/16 Stbd | CS-001 | … | … | … | … | … |
-| … | … | … | … | … | … | … |
-| Rule 5/6/7/8/9/17/19 | — | ⚠️ 待 D1.6 | — | — | — | — |
+### 13.3 CMakeLists.txt — ROS2 Humble 修正
 
-每个 ✅/❌ 单元格超链接到对应 JSON 文件，满足"每个 cell 须链接到场景 YAML + 运行 JSON 输出"要求（HTML 报告可追溯，Finding G P0-G-1(b)）。
+```cmake
+# ROS2 Humble（非 Jazzy）的 pybind11 集成方式：
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(pybind11 REQUIRED)
+# 注：Humble 不提供 pybind11_vendor；通过 apt install python3-pybind11 或 pip install pybind11
 
-### 8.3 `coverage_reporter.py` 接口
-
-```python
-def generate_report(results_dir: Path, output_path: Path) -> None:
-    """
-    Load all JSON results from results_dir,
-    render Jinja2 template, write HTML to output_path.
-    """
-```
-
----
-
-## 9. SIL Mock Publisher（`sil_mock_publisher` 包）
-
-### 9.1 发布的 topic
-
-| Topic | 消息类型 | 频率 | 内容 |
-|---|---|---|---|
-| `/l3/sat/data` | `l3_msgs/msg/SATData` | 1 Hz | Stub SAT-1/2/3 数据（可解析 `UiStateSchema` 的所有字段）|
-| `/l3/m1/odd_state` | `l3_msgs/msg/ODDState` | 1 Hz | Stub ODD 状态（zone=A, envelope=IN, confidence=0.9）|
-
-### 9.2 sil_mock_node.py 关键实现
-
-```python
-class SilMockNode(rclpy.node.Node):
-    def __init__(self):
-        super().__init__("sil_mock_publisher")
-        self._pub_sat = self.create_publisher(SATData, "/l3/sat/data", 10)
-        self._pub_odd = self.create_publisher(ODDState, "/l3/m1/odd_state", 10)
-        self._timer = self.create_timer(1.0, self._publish_tick)
-        self._scenario_id: str = "idle"   # 由 /sil/scenario/run 更新（通过 ROS2 param）
-
-    def _publish_tick(self):
-        stamp = self.get_clock().now().to_msg()
-        self._pub_sat.publish(self._make_sat_stub(stamp))
-        self._pub_odd.publish(self._make_odd_stub(stamp))
-
-    def _make_sat_stub(self, stamp) -> SATData:
-        msg = SATData()
-        msg.header.stamp = stamp
-        msg.schema_version = "v1.1.2"
-        msg.confidence = 0.8
-        # SAT-1: 1 threat stub
-        # SAT-2: reasoning chain stub
-        # SAT-3: TDL/TMR stub
-        return msg
-```
-
-### 9.3 D2.5 切换路径
-
-```python
-# launch/sil_stack.launch.py
-
-# D1.3b–D2.4 阶段：
-Node(package="sil_mock_publisher", executable="sil_mock_node", ...)
-
-# D2.5 起，注释上行，取消注释下行（topic 名不变，HMI 零改动）：
-# Node(package="m1_odd_envelope_manager", executable="odd_envelope_manager_node", ...)
-# Node(package="m2_world_model", executable="world_model_node", ...)
+pybind11_add_module(fcb_sim_py
+  python/fcb_sim_py/bindings.cpp
+)
+target_link_libraries(fcb_sim_py PRIVATE fcb_simulator_core)
+install(TARGETS fcb_sim_py
+  LIBRARY DESTINATION ${PYTHON_INSTALL_DIR})
 ```
 
 ---
 
-## 10. SIL HMI 扩展（M8 前端复用，G P1-G-5）
+## §14 SIL Mock Publisher（保留 v1.0 §9）
 
-### 10.1 app.py 修改
+（接口与 topic 名同 v1.0；D2.5 切换路径同 v1.0）
 
-```python
-# web_server/app.py — 仅添加两行，其余不改
-from web_server.sil_router import router as sil_router
-from web_server.sil_ws import router as sil_ws_router
+---
 
-def create_app(cors_origins: list[str]) -> FastAPI:
-    app = FastAPI(...)
-    app.add_middleware(CORSMiddleware, ...)
-    app.include_router(tor_router, prefix="/api")
-    app.include_router(ws_router)
-    app.include_router(sil_router, prefix="/sil")     # NEW
-    app.include_router(sil_ws_router)                 # NEW
-    return app
-```
+## §15 SIL HMI REST + WebSocket（保留 v1.0 §10）
 
-### 10.2 `ros_bridge.py` 扩展
+`sil_router.py` 无接口变更。`run_batch()` 签名从接受单个 `SCENARIOS_DIR: Path` 扩展为接受 `list[Path]`：
 
 ```python
-# 在 RosBridge.start() 中添加（不改动现有发布方法）:
-self._sub_sat = node.create_subscription(
-    SATData, "/l3/sat/data", self._on_sat_data, 10)
-self._sub_odd = node.create_subscription(
-    ODDState, "/l3/m1/odd_state", self._on_odd_state, 10)
-self.latest_sat: SATData | None = None
-self.latest_odd: ODDState | None = None
-
-def _on_sat_data(self, msg: SATData):
-    self.latest_sat = msg
-    asyncio.run_coroutine_threadsafe(
-        sil_ws.broadcast_sil_state(self.latest_sat, self.latest_odd),
-        self._loop
-    )
+# sil_router.py 中调用变更（仅此一行）：
+batch_runner.run_batch(
+    [SCENARIOS_DIR, IMAZU22_DIR],   # ← 从单 Path 改为 list
+    REPORTS_DIR
+)
 ```
 
-### 10.3 sil_router.py 新增 endpoint
+新增常量：
 
-| Method | Path | 功能 |
+```python
+IMAZU22_DIR = Path("scenarios/imazu22")
+```
+
+---
+
+## §16 Task 拆分（共 28 tasks，约 110h）
+
+### Track A：pybind11 绑定（ROS2 Humble）
+
+| ID | Task | 工时 |
 |---|---|---|
-| `GET` | `/sil/scenario/list` | 返回 `scenarios/colregs/` 下所有 YAML 文件名 |
-| `POST` | `/sil/scenario/run` | 触发单个或批量场景异步执行，返回 `{"job_id": str}` |
-| `GET` | `/sil/scenario/status/{job_id}` | 返回执行进度 `{"status": "running"\|"done"\|"failed", "progress": 0–100}` |
-| `GET` | `/sil/report/latest` | 返回最新 HTML 报告文件内容（text/html）|
+| T-A1 | CMakeLists.txt Humble 适配 + `colcon build` 验证 | 4h |
+| T-A2 | bindings.cpp FcbState + MmgParams + rk4_step 绑定 + smoke test | 6h |
 
-### 10.4 sil_ws.py — `/ws/sil_debug`
+### Track B：坐标桥接 + ScenarioSpec 迁移
 
-独立 WebSocket，不共享 `_active_clients`，不影响 `/ws/ui_state`：
+| ID | Task | 工时 |
+|---|---|---|
+| T-B1 | `geo_utils.py` 实现 + round-trip 单元测试（3 组坐标，误差 < 1m）| 3h |
+| T-B2 | `ScenarioSpec.from_file()` v2.0 解析路径 + v1.0 向后兼容路径 | 4h |
+| T-B3 | `cerberus_validator.py` + `fcb_scenario_v2.yaml` schema | 3h |
+| T-B4 | C++ cerberus-cpp FetchContent CMake 集成 + 编译验证 | 4h |
+| T-B5 | `cerberus_validator.cpp` 实现 + CLI 验证 1 个场景 | 3h |
 
-```python
-@router.websocket("/ws/sil_debug")
-async def sil_debug_stream(ws: WebSocket) -> None: ...
+### Track C：场景 YAML 创作
 
-async def broadcast_sil_state(sat: SATData | None, odd: ODDState | None) -> None:
-    """Called by ros_bridge on each SAT/ODD update; pushes SilDebugSchema to HMI."""
-```
+| ID | Task | 工时 |
+|---|---|---|
+| T-C1 | 10 个原有场景迁移脚本 + 执行迁移（v1.0 → v2.0）+ cerberus 验证通过 | 4h |
+| T-C2 | `generate_imazu_yaml.py` 生成脚本 + 生成 Imazu-01..04（HO/CR/OT/CR_SO）| 3h |
+| T-C3 | 生成 Imazu-05..11（双船 MS）+ cerberus 验证 | 3h |
+| T-C4 | 生成 Imazu-12..22（三船 MS）+ cerberus 验证 | 3h |
+| T-C5 | MANIFEST.sha256 生成 + CI gate 脚本 + 本地验证通过 | 2h |
 
-### 10.5 sil_schemas.py
+### Track D：批量执行器 + Arrow 输出
 
-```python
-class SilSAT1Panel(BaseModel):
-    threat_count: int
-    threats: list[Sat1ThreatSchema]   # 复用现有 schemas.py 的 Sat1ThreatSchema
+| ID | Task | 工时 |
+|---|---|---|
+| T-D1 | `simulate()` 更新（多目标支持已有，验证 3-target Imazu 场景运行）| 2h |
+| T-D2 | `batch_runner.py` 动态场景发现（32 个）+ 进度回调 | 3h |
+| T-D3 | Arrow summary 写出（pyarrow）+ 验证 schema | 3h |
+| T-D4 | Arrow trajectories 写出（采样 + nullable 字段）+ 验证 schema | 4h |
 
-class SilODDPanel(BaseModel):
-    zone: str
-    envelope_state: str
-    conformance_score: float
-    confidence: float
+### Track E：HTML 覆盖率报告
 
-class SilDebugSchema(BaseModel):
-    timestamp: datetime
-    scenario_id: str
-    sat1: SilSAT1Panel | None = None
-    sat2_reasoning: str | None = None
-    sat3_tdl_s: float = 0.0
-    sat3_tmr_s: float = 0.0
-    odd: SilODDPanel | None = None
-    job_status: str = "idle"   # "idle" | "running" | "done"
-```
+| ID | Task | 工时 |
+|---|---|---|
+| T-E1 | `coverage_reporter.py` 动态 rule 推断 + 32 场景矩阵渲染 | 4h |
+| T-E2 | Jinja2 模板扩展（Multi-Ship 行 + 未覆盖 Rule ⚠️）| 3h |
 
----
+### Track F：SIL HMI 扩展
 
-## 11. Task 拆分（每 task ≤ 4h，共 23 tasks）
+| ID | Task | 工时 |
+|---|---|---|
+| T-F1 | `sil_router.py` 添加 IMAZU22_DIR + list[Path] 调用 | 1h |
+| T-F2 | `sil_ws.py` WebSocket + `broadcast_sil_state()` | 3h |
+| T-F3 | `sil_schemas.py` Pydantic 模型（SilSAT1Panel / SilODDPanel / SilDebugSchema）| 2h |
+| T-F4 | `ros_bridge.py` 扩展（订阅 SAT/ODD topic）+ `app.py` include_router | 3h |
+| T-F5 | SIL Mock Publisher ROS2 包（`sil_mock_publisher`）| 4h |
 
-### Track A：pybind11 绑定
+### Track G：集成与验收
 
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T1** | fcb_simulator CMakeLists.txt 添加 pybind11_vendor + pybind11_add_module；`colcon build` 验证通过 | 4h | — |
-| **T2a** | `bindings.cpp`：FcbState + MmgParams pybind11 类绑定；Python `import fcb_sim_py` 验证 | 3h | T1 |
-| **T2b** | `bindings.cpp`：rk4_step 函数绑定 + smoke test（初速保持 + psi 稳定） | 3h | T2a |
+| ID | Task | 工时 |
+|---|---|---|
+| T-G1 | 32 场景全量批量运行 + wall-clock 验证 + JSON/Arrow 输出验证 | 4h |
+| T-G2 | C++ cerberus-cpp 对 32 个 YAML 全量验证通过 | 2h |
+| T-G3 | 回归测试：10 个测试文件全部 PASS（含 test_sil_hmi.py 23 个）| 3h |
+| T-G4 | DEMO-1 端到端预演 + DoD 全闭验证 + finding 关闭文档 | 3h |
 
-### Track B：YAML 场景文件
-
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T3** | `schema.yaml` 字段定义 + Pydantic `ScenarioSpec` 模型（Python） | 3h | — |
-| **T4a** | HO-001 / HO-002 / HO-003 三个 YAML 文件 + 方位扇区验证脚本 | 3h | T3 |
-| **T4b** | CS-001 / CS-002 / CS-003 / CS-004 四个 YAML 文件 + 扇区验证 | 4h | T3 |
-| **T4c** | OT-001 / OT-002 / OT-003 三个 YAML 文件 + Rule 13 扇区验证（目标船视角） | 3h | T3 |
-
-### Track C：批量执行器 + 报告
-
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T5** | `simulate()` 函数：初始化 + RK4 步进循环 + target 直线外推 + CPA 计算 | 4h | T2b, T3 |
-| **T6** | `simulate()` 扩展：避让动作注入 + 速度 P 控制器 + JSON 输出 | 4h | T5 |
-| **T7** | `batch_runner.py` 主函数：遍历 YAML + 双 pass 运行 + 汇总结果 | 3h | T6 |
-| **T8** | `coverage_report.html.j2` Jinja2 模板（Rule×场景矩阵 + cell 链接） | 3h | — |
-| **T9** | `coverage_reporter.py`：加载 JSON 结果 + 渲染模板 + 写 HTML | 2h | T7, T8 |
-
-### Track D：SIL Mock Publisher
-
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T10** | `sil_mock_publisher` 包脚手架（package.xml + setup.py + `__init__.py`） | 2h | — |
-| **T11** | `sil_mock_node.py`：SATData + ODDState stub 发布 + launch file | 4h | T10 |
-
-### Track E：M8 SIL HMI
-
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T12** | `sil_schemas.py`：SilSAT1Panel + SilODDPanel + SilDebugSchema pydantic 模型 | 2h | — |
-| **T13** | `ros_bridge.py` 扩展：订阅 /l3/sat/data + /l3/m1/odd_state，推 asyncio queue | 3h | T11, T12 |
-| **T14** | `sil_ws.py`：/ws/sil_debug WebSocket + `broadcast_sil_state()` | 3h | T13 |
-| **T15** | `sil_router.py`：4 个 REST endpoint + 异步 job 管理（asyncio.create_task）| 4h | T7, T12 |
-| **T16** | `app.py` 添加两行 include_router + 现有测试不回归验证 | 1h | T14, T15 |
-| **T17** | `test_sil_hmi.py`：≥10 单元测试（list, run, status, report, ws 推送）| 4h | T14, T15, T16 |
-
-### Track F：集成
-
-| ID | Task | 工时 | 依赖 |
-|---|---|---|---|
-| **T18** | 端到端：10 场景全量运行 + wall-clock 验证 + HTML 报告生成确认 | 3h | T7, T9 |
-| **T19** | SIL HMI 集成：launch file + mock publisher + M8 web server 联调 | 3h | T11, T16 |
-| **T20** | DoD 全项验证 + finding 关闭证据文档（log + 截图 + HTML 报告 commit）| 3h | T18, T19 |
-
-**Task 总计**：20 tasks，约 63h optimistic / ~90h realistic（含调试）。3.0pw=120h 预算内，余量 30h 覆盖风险。
+**总计：110h（约 2.75 人周）。3.0pw=120h，余量 10h 覆盖 cerberus-cpp 集成风险。**
 
 ---
 
-## 12. Owner-by-Day 矩阵（5/18–6/15，20 工作日）
-
-| 日期 | Track A (pybind11) | Track B (YAML) | Track C (批量+报告) | Track D (Mock) | Track E (HMI) | Track F (集成) |
-|---|---|---|---|---|---|---|
-| **5/18 (一)** | T1 | T3 | — | — | — | — |
-| **5/19 (二)** | T2a | T4a | — | — | — | — |
-| **5/20 (三)** | T2b | T4b | — | — | — | — |
-| **5/21 (四)** | — | T4c | T5 | — | — | — |
-| **5/22 (五)** | — | — | T5 (续) | — | — | — |
-| **5/25 (一)** | — | — | T6 | T10 | T12 | — |
-| **5/26 (二)** | — | — | T6 (续) | T11 | T13 | — |
-| **5/27 (三)** | — | — | T7 | — | T13 (续) | — |
-| **5/28 (四)** | — | — | T8 | T11 (续) | T14 | — |
-| **5/29 (五)** | — | — | T9 | — | T14 (续) | — |
-| **6/1 (一)** | — | — | — | — | T15 | — |
-| **6/2 (二)** | — | — | — | — | T15 (续) | — |
-| **6/3 (三)** | — | — | — | — | T16 | T18 |
-| **6/4 (四)** | — | — | — | — | T17 | T18 (续) |
-| **6/5 (五)** | — | — | — | — | T17 (续) | T19 |
-| **6/8 (一)** | — | — | — | — | — | T19 (续) |
-| **6/9 (二)** | — | — | — | — | — | T20 |
-| **6/10 (三)** | **缓冲** | **缓冲** | **缓冲** | **缓冲** | **缓冲** | **缓冲** |
-| **6/11 (四)** | **缓冲** | **缓冲** | **缓冲** | **缓冲** | **缓冲** | **缓冲** |
-| **6/12 (五)** | **DEMO-1 预演** | | | | | |
-| **6/15 (一)** | **DEMO-1 当天 / DoD 验收** | | | | | |
-
-缓冲 6/10–6/12 用于：风险 R4.1（pybind11 超时）/ R4.2（FastAPI 环境冲突）修复；DEMO-1 预演至少提前 1 个工作日完成。
-
----
-
-## 13. 依赖图
-
-```
-T1 ────► T2a ──► T2b ──────────────────────► T5 ──► T6 ──► T7 ──► T9 ──► T18
-T3 ──────────────────────────────────────────► T5        │         │
-T4a/b/c ────────────────────────────────────────────────────────────────────────
-                                                          └──► T15 ──► T16 ──► T17
-T10 ──► T11 ────────────────────────────────────────────────────────────► T19
-T12 ─────────────────────────────────────────────────────► T13 ──► T14 ──►┘ │
-T8 ──► T9 ──────────────────────────────────────────────────────────────── T18
-
-并行路径：
-  • Track A (T1-T2) 与 Track B (T3-T4) 完全并行
-  • Track D (T10-T11) 与 Track C (T5-T9) 完全并行
-  • Track E (T12-T17) 依赖 T2b (pybind11) 和 T11 (mock publisher)
-  • Track F (T18-T20) 最后，依赖所有 track
-```
-
----
-
-## 14. 每个 Task 的 Acceptance Criteria
+## §17 每 Task Acceptance Criteria
 
 | ID | Acceptance Criteria |
 |---|---|
-| T1 | `colcon build --packages-select fcb_simulator` 成功；`python -c "import fcb_sim_py"` 无报错 |
-| T2a | `fcb_sim_py.FcbState()` 可构造；`FcbState.x = 1.0` 可赋值；`fcb_sim_py.MmgParams()` 可构造 |
-| T2b | smoke test 通过：rk4_step 调用后 u > 0、psi 保持稳定；测试文件 `tools/sil/smoke_test_binding.py` 跑通 |
-| T3 | `ScenarioSpec.model_validate(yaml.safe_load(...))` 可解析本文档中的 schema 示例；所有必填字段缺失时 Pydantic 报错 |
-| T4a | HO-001/002/003 YAML 文件通过 `ScenarioSpec` 验证；目标船方位经脚本验证落在 Rule 14 扇区 [345°,15°] |
-| T4b | CS-001/002 目标船方位 ∈ [15°,112.5°]；CS-003 方位 ∈ [247.5°,345°]；CS-004 方位 ∈ [15°,112.5°] |
-| T4c | OT-001/002/003 从目标船视角计算 own ship 方位 ∈ [112.5°,247.5°] |
-| T5 | HO-001 无动作运行：dcpa_no_action_m < 50 m；OT-001 无动作运行：dcpa_no_action_m < 100 m；无 NaN |
-| T6 | HO-001 有动作运行：dcpa_with_action_m > 926 m；wall_clock_s < 60；JSON 文件写出可解析 |
-| T7 | 10 个场景全量运行成功，输出 10 个 JSON 文件；batch 总 wall-clock < 120 s |
-| T8 | HTML 模板渲染后 Rule 14 行有 3 个场景单元格；每个 PASS 单元格有超链接指向 JSON 文件 |
-| T9 | `reports/coverage_report_*.html` 存在且可浏览器打开；Rule 13/14/15/16 全覆盖行可见 |
-| T10 | `colcon build --packages-select sil_mock_publisher` 成功 |
-| T11 | `ros2 topic hz /l3/sat/data` 显示 ~1 Hz；`ros2 topic hz /l3/m1/odd_state` 显示 ~1 Hz |
-| T12 | `SilDebugSchema.model_validate({...})` 可解析含 sat1 + odd 的完整字典 |
-| T13 | `ros_bridge.latest_sat` 在 mock publisher 运行时不为 None；broadcast 被调用 |
-| T14 | `/ws/sil_debug` WebSocket 连接后，在 mock publisher 运行时每 ~1 s 收到一条 SilDebugSchema JSON |
-| T15 | `GET /sil/scenario/list` 返回 10 个文件名；`POST /sil/scenario/run` 返回 job_id；`GET /sil/report/latest` 返回 HTML |
-| T16 | 现有 4 个测试文件（test_websocket/test_app/test_schemas/test_tor_endpoint）**全部 PASS**，无修改 |
-| T17 | `pytest tests/test_sil_hmi.py` 全绿，覆盖 ≥10 个测试函数 |
-| T18 | 10 × JSON 输出存在；所有场景 result="PASS"；max(wall_clock_s) < 60；HTML 报告可访问 |
-| T19 | launch 文件启动后 /ws/sil_debug 实时推送 SilDebugSchema；手动触发 POST /sil/scenario/run 后 JSON 生成 |
-| T20 | DoD 4 项全部满足（见§18）；finding 关闭文档写入 `docs/Design/Review/2026-05-07/finding-closure/D1.3b.md` |
+| T-A1 | `colcon build --packages-select fcb_simulator` 成功（Humble）；`python -c "import fcb_sim_py"` 无报错 |
+| T-A2 | smoke test 通过：rk4_step 后 u > 0，psi 稳定；wall_clock 0.02s × 30000 步 < 5s |
+| T-B1 | `test_roundtrip()` 通过；3 组 ΔN/ΔE 坐标 round-trip 误差 < 1m |
+| T-B2 | `ScenarioSpec.from_file(imazu-01.yaml)` 解析成功；OS y_m ≈ 0，TS1 y_m ≈ 13060 |
+| T-B3 | cerberus 验证通过 imazu-01；故意缺 `metadata.scenario_id` 时抛出 ValueError |
+| T-B4 | `cmake --build` 成功；`./validate_scenario schema.yaml imazu-01.yaml` 退出码 0 |
+| T-B5 | `./validate_scenario schema.yaml broken.yaml` 退出码 1 并输出错误字段 |
+| T-C1 | 10 个 colregs YAML 通过 cerberus 验证；`ScenarioSpec.from_file()` 对所有 10 个均可解析 |
+| T-C2 | imazu-01..04.yaml 存在；cerberus 验证通过；C++ cerberus-cpp 验证通过 |
+| T-C3 | imazu-05..11.yaml 存在；3-target 场景 `from_file()` 返回 2 个 targets |
+| T-C4 | imazu-12..22.yaml 存在；4-target 场景 `from_file()` 返回 3 个 targets |
+| T-C5 | `check-imazu22-hash.sh` 对未修改文件输出 "OK"；修改任一文件后输出 "FAIL" 并退出 1 |
+| T-D1 | Imazu-01（2-ship）+ Imazu-12（3-ship）无动作运行无 NaN；dcpa < 926m |
+| T-D2 | `discover_scenarios([colregs, imazu22])` 返回 32 个路径；进度回调被调用 32 次 |
+| T-D3 | `batch_summary.arrow` 可被 `pa.ipc.open_file()` 读取；schema 匹配 §10.1；32 行 |
+| T-D4 | `batch_trajectories.arrow` schema 匹配 §10.2；ts2_x_m 在 2-ship 场景中为 null |
+| T-E1 | HTML 报告含 Multi-Ship 行（18 个场景）；Rule 14 行含 4 个场景 |
+| T-E2 | 未覆盖 Rule 5/6/7/8/9/17/19 有 ⚠️ "待 D1.6 扩展" 标注可见 |
+| T-F1 | `GET /sil/scenario/list` 返回 32 个文件名（含 imazu-*.yaml）|
+| T-F2 | `/ws/sil_debug` 连接成功；mock publisher 运行时每 ~1s 收到 SilDebugSchema JSON |
+| T-F3 | `SilDebugSchema(timestamp=..., scenario_id="x").model_dump_json()` 可解析 |
+| T-F4 | `ros_bridge.latest_sat` 在 mock publisher 运行时不为 None |
+| T-F5 | `ros2 topic hz /l3/sat/data` 显示 ~1 Hz |
+| T-G1 | 32 场景全量运行；所有 JSON 生成；`batch_summary.arrow` 32 行；max wall_clock_s < 60 |
+| T-G2 | C++ `validate_scenario` 对 32 个 YAML 全部退出 0 |
+| T-G3 | 10 个测试文件全部 `pytest` PASS；test_sil_hmi.py 23 个测试全绿 |
+| T-G4 | DoD §18 全部复选框勾选；finding 关闭文档写入指定路径 |
 
 ---
 
-## 15. Demo Charter（DEMO-1，2026-06-15）
+## §18 DEMO-1 Charter（2026-06-15）
 
-**Scenario**：在 DEMO-1 现场展示 SIL 调试 HMI 实时运行 + 批量 10 场景覆盖率报告。
-
-**Audience × View**：
-- 技术负责人 + 项目负责人：SIL 工具链完整可用、DEMO-1 milestone 交付
-- CCS 审查员（可选远程）：场景管理可追溯、COLREGs 覆盖 Rule 13/14/15/16、HTML 报告 per-cell 链接到 JSON
-- V&V 工程师：D1.3b 批量框架可直接扩展为 D1.6 CI 三层集（Smoke 10 / Nightly 200 / Weekly 1000+）
-
-**Visible Success**：
-1. 浏览器打开 SIL HMI，/ws/sil_debug 实时显示 SAT-1/2/3 stub 数据 + ODD 状态（更新 ~1 Hz）
-2. 点击"Run All Scenarios"按钮，控制台输出 10 个场景逐一完成，total wall-clock < 30 s
-3. "View Report"打开 HTML 报告，Rule 13/14/15/16 行全绿，未覆盖 Rule 5/6/7/8/9 有⚠️标注
-4. 点击任意 ✅ 单元格跳转至对应 JSON（含 dcpa_no_action/dcpa_with_action/wall_clock_s 字段）
+**Visible Success（4 项）**：
+1. 浏览器 `/ws/sil_debug` 实时推送 SAT + ODD（mock publisher 运行时，~1 Hz）
+2. 点击 "Run All 32 Scenarios" → 控制台进度 1/32 → 32/32；total wall-clock < 90s
+3. "View Report" 打开 HTML，Rule 13/14/15/16 + Multi-Ship 全绿；未覆盖 Rule ⚠️ 可见
+4. 任意 ✅ 单元格跳转至 JSON（含 dcpa / arrow 输出路径引用）
 
 **Showcase Bundle**：
-- `reports/coverage_report_20260615.html`（静态文件，可离线查看）
-- `reports/batch_results.json`（汇总 JSON，供 CCS 技术审查）
-- 浏览器截图 × 3（HMI 实时面板 + 报告主体 + 单个场景 JSON 详情）
+- `reports/coverage_report_20260615.html`（静态，可离线，CCS 技术审查）
+- `reports/batch_summary.arrow`（D2.5 / D3.6 消费入口）
+- `scenarios/imazu22/MANIFEST.sha256`（Imazu-22 认证资产冻结证据）
 
 ---
 
-## 16. Risk + Contingency
+## §19 风险与应对
 
-| ID | 风险 | 概率 | 影响 | 缓解方案 |
+| ID | 风险 | 概率 | 影响 | 应对 |
 |---|---|---|---|---|
-| **R4.1** | pybind11 与 ROS2 Jazzy ament_cmake 集成配置复杂，T1 超出 4h | Medium | -0.5pw | 缓冲期 6/10–6/12 消化；若 T1 超 8h → 降级方案：改用 subprocess 调用 C++ 可执行文件（仅影响 T5 重写，不影响 YAML/HMI track）|
-| **R4.2** | M8 前端 `fastapi==0.115.6` 与 ROS2 Jazzy Python 环境冲突（pip vs apt） | Low-Medium | Track E 全停 | 用 Python venv 隔离 FastAPI 层；ROS2 节点单独 sourced；D1.3a 已有类似问题的 venv 方案可复用 |
-| **R4.3** | OT-001/002/003 Rule 13 扇区验证逻辑（目标船视角）实现有误 | Low | T4c 返工 | T4c AC 要求显式打印从目标船计算的 own ship 方位，手工核对后再 commit |
-| **R4.4** | n_rps P 控制器在高速场景（CS-004 14kn 目标）导致 own ship 速度振荡，DCPA 计算失真 | Low | T6 返工 | 控制器增益 0.1 经 D1.3a 验证（停船场景）；高速场景实测后调整；备选：固定 n_rps 不用控制器 |
-| **R4.5** | sil_mock_publisher 发布的 SATData stub 字段与 M8 `ros_bridge.py` 解析逻辑不一致 | Low | T13 返工 | T11 完成后立即用 `ros2 topic echo /l3/sat/data` 核对字段；T13 AC 明确要求 broadcast 被调用验证 |
+| R1 | cerberus-cpp FetchContent 在 Ubuntu 22.04 拉取 / 编译失败 | Medium | T-B4 +4h | 备选：`apt install` 本地 cerberus-cpp；或仅用 Python cerberus（C++ 验证降为 optional DoD）|
+| R2 | Imazu-22 `avoidance_time_s` 参数不合理导致 pass 率低 | Medium | T-C2..4 调参 +3h | T-G1 中对 fail 场景输出 TCPA 值；按 0.55×TCPA 公式微调；MS 场景放宽 `min_dcpa_with_action_m` 至 300m |
+| R3 | pybind11 Humble 集成配置复杂 | Medium | T-A1 +4h | 缓冲期消化；降级方案：subprocess 调用 C++ 可执行文件（仅影响 T-D1，不影响其他 track）|
+| R4 | Arrow nullable 字段在 multi-target 场景中 ts2/ts3 null 处理 | Low | T-D4 +2h | pyarrow null 处理标准；在 `_write_arrow_trajectories` 中统一用 `None` 替代缺失 target 坐标 |
+| R5 | 10 个原有场景迁移后 `ScenarioSpec.from_file()` ENU round-trip 误差影响 pass_criteria | Low | T-C1 返工 | T-C1 AC 要求：每个迁移场景的 dcpa_no_action 与 v1.0 差异 < 5m |
 
 ---
 
-## 17. 与 D1.3b 相关的 Finding 关闭路径
+## §20 Finding 关闭路径
 
-| Finding ID | 内容 | D1.3b 关闭条件 |
+| Finding ID | 关闭条件 |
+|---|---|
+| **G P0-G-1(b)** | 32 个 maritime-schema v2.0 YAML 存在且 cerberus 验证通过；HTML 报告每 cell 链接 JSON；Imazu-22 SHA256 冻结 |
+| **G P1-G-4** | `disturbance_model` 字段在 schema + 32 个 YAML 中存在（含 wind/current/vis/wave）；元数据写入 JSON 输出 |
+| **G P1-G-5** | SIL HMI 通过 sil_router + sil_ws 复用 M8 前端；无独立 Web 应用 |
+| **P2-E1** | 32 个场景 `wall_clock_s < 60`；evidence：`batch_results.json` + `batch_summary.arrow` |
+
+关闭文档写入：`docs/Design/Review/2026-05-07/finding-closure/D1.3b.md`
+
+---
+
+## §21 D1.3b.1 全闭判据（2026-06-15 EOD）
+
+- [ ] `scenarios/colregs/` 10 个 YAML v2.0 存在，Python + C++ cerberus 双验证通过
+- [ ] `scenarios/imazu22/` 22 个 YAML 存在，Python + C++ cerberus 双验证通过
+- [ ] `scenarios/imazu22/MANIFEST.sha256` 存在；`check-imazu22-hash.sh` 在 CI 中通过
+- [ ] `batch_summary.arrow`（32 行）+ `batch_trajectories.arrow`（~30 万行）可读
+- [ ] `reports/coverage_report_20260615.html` 存在；Rule 13/14/15/16 + Multi-Ship 覆盖行全绿
+- [ ] 所有 32 场景 `wall_clock_s < 60`；来自 `batch_results.json`
+- [ ] `/ws/sil_debug` 实时推送（mock publisher 运行时）
+- [ ] `POST /sil/scenario/list` 返回 32 个文件名
+- [ ] 10 个回归测试文件**全部 PASS**（含 test_sil_hmi.py 23 个）
+- [ ] Finding 关闭文档：G P0-G-1(b) + G P1-G-4 + G P1-G-5 + P2-E1
+
+---
+
+## §22 下游 D 接口
+
+| 下游 D | 消费产物 | 所需扩展 |
 |---|---|---|
-| **G P0-G-1 (b)** | YAML 场景管理 | 10 个 schema-compliant YAML 文件 commit + HTML 覆盖率报告可访问 |
-| **G P1-G-4** | 无统一 stochastic environment layer | YAML schema 中 `disturbance_model` 字段存在（含 wind/current/vis/wave）；元数据已记录于 JSON 输出；完整动力学集成在 D2.x |
-| **G P1-G-5** | SIL HMI 与 M8 HMI 复用关系未定 | SIL HMI 通过 `sil_router` + `sil_ws` 扩展 M8 前端；不新建独立 Web 应用；D3.4 共享组件库 stub |
-| **P2-E1** | 单场景 ≤ 60s wall-clock | 所有 10 个场景 `wall_clock_s < 60`；evidence: batch_results.json `performance.wall_clock_s` 字段 |
-
----
-
-## 18. D1.3b 全闭判据（6/15 EOD，DEMO-1 当天）
-
-- [ ] `scenarios/colregs/` 下 10 个 YAML 文件存在，通过 `ScenarioSpec` schema 验证
-- [ ] `reports/coverage_report_20260615.html` 存在，Rule 13/14/15/16 覆盖行全绿
-- [ ] `max(wall_clock_s)` from `batch_results.json` < 60 s
-- [ ] `/ws/sil_debug` WebSocket 实时推送 SAT-1/2/3 + ODD（mock publisher 运行时）
-- [ ] `POST /sil/scenario/run` 可触发单个场景执行并返回 job_id
-- [ ] 现有 4 个 M8 测试文件全部 PASS
-- [ ] `pytest tests/test_sil_hmi.py` 全绿（≥10 个测试）
-- [ ] Finding 关闭文档写入 `docs/Design/Review/2026-05-07/finding-closure/D1.3b.md`
-- [ ] 关闭 finding ID：G P0-G-1 (b) + G P1-G-4 + G P1-G-5 + P2-E1
-
----
-
-## 19. 下游 D 接口
-
-| 下游 D | 消费 D1.3b 哪些产物 | 所需扩展 |
-|---|---|---|
-| **D1.3.1** Simulator Qualification Report | 复用 `batch_runner.py` 的 `simulate()` 函数；对 STRAIGHT_DECEL / TURN / ZIG_ZAG 三类机动运行参考解 | D1.3.1 向 `simulate()` 传入不同 `ScenarioSpec`（ManeuverType 场景）；不需改动 batch_runner 核心 |
-| **D1.6** 场景库 schema + 追溯矩阵 | 在 D1.3b `schema.yaml` 基础上扩展 3 个字段：`requirements_traced[]`、`hazid_id[]`、`vessel_class_applicable[]`；D1.3b 10 个 YAML 文件全部 schema-compliant | D1.6 升 schema_version 到 "2.0"；D1.3b YAML 文件回填新字段（~4h）|
-| **D1.7** 覆盖率方法论 | 在 D1.3b `coverage_reporter.py` 基础上扩展覆盖率计算脚本（11 Rule × 4 ODD × 5 扰动级别 = 220 cell）| D1.7 扩展 Jinja2 模板行维度；batch_runner 读取 ODD zone / disturbance 字段 |
-| **D2.x** M1/M2 实装接入 | D1.3b `sil_mock_publisher` 直接替换为真实节点（topic 名不变）；`ros_bridge.py` 零改动；SIL HMI 前端零改动 | D2.5 SIL Integration 时修改 launch file |
+| **D1.3.1** Simulator Qualification | 复用 `ScenarioSpec` + `simulate()` | 传入 ManeuverType 场景（ScenarioSpec 格式不变）|
+| **D1.6** 场景库 schema | `fcb_scenario_v2.yaml` 升为 v3.0；32 个 YAML 回填 `requirements_traced` + `hazid_id` | D1.3b.1 YAML 无需改动，仅新增字段 |
+| **D2.5** SIL Integration replay | `batch_trajectories.arrow`（scenario_id 为 join key）| D2.5 直接读 Arrow 文件；batch_runner 不变 |
+| **D3.6** SIL 1000 Monte Carlo | `batch_summary.arrow`（summary table）| D3.6 在 batch_runner 上叠加参数扫描循环；写出多个 Arrow 文件 |
+| **D2.x** M1/M6 实装 | `sil_mock_publisher` 替换为真实节点（topic 名不变）| launch file 单行修改；HMI 零改动 |

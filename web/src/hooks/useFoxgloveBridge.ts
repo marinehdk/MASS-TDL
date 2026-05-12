@@ -51,12 +51,12 @@ export function useFoxgloveBridge(): FoxgloveData {
         const navTopic = new ROSLIB.Topic({
           ros,
           name: '/nav/filtered_state_viz',
-          messageType: 'l3_msgs/msg/FilteredOwnShipState',
+          messageType: 'l3_external_msgs/msg/FilteredOwnShipState',
         });
         navTopic.subscribe((msg: any) => {
           updateOwnShip({
-            lat: msg.latitude ?? msg.lat ?? 0,
-            lon: msg.longitude ?? msg.lon ?? 0,
+            lat: msg.position?.latitude ?? msg.latitude ?? msg.lat ?? 0,
+            lon: msg.position?.longitude ?? msg.longitude ?? msg.lon ?? 0,
             sog_kn: msg.sog_kn ?? msg.sog ?? 0,
             cog_deg: msg.cog_deg ?? msg.cog ?? 0,
             heading_deg: msg.heading_deg ?? msg.heading ?? 0,
@@ -67,22 +67,30 @@ export function useFoxgloveBridge(): FoxgloveData {
         const tracksTopic = new ROSLIB.Topic({
           ros,
           name: '/world_model/tracks_viz',
-          messageType: 'l3_msgs/msg/TrackedTargetArray',
+          messageType: 'l3_external_msgs/msg/TrackedTargetArray',
         });
         tracksTopic.subscribe((msg: any) => {
           const arr = msg.targets ?? msg.tracks ?? [];
-          updateTargets(arr.map((t: any) => ({
-            mmsi: String(t.mmsi ?? t.id ?? ''),
-            lat: t.latitude ?? t.lat ?? 0,
-            lon: t.longitude ?? t.lon ?? 0,
-            sog_kn: t.sog_kn ?? t.sog ?? 0,
-            cog_deg: t.cog_deg ?? t.cog ?? 0,
-            heading_deg: t.heading_deg ?? t.heading ?? 0,
-            cpa_nm: t.cpa_nm ?? t.cpa ?? 999,
-            tcpa_s: t.tcpa_s ?? t.tcpa ?? 9999,
-            colreg_role: t.colreg_role ?? 'safe',
-            confidence: t.confidence ?? 1.0,
-          })));
+          updateTargets(arr.map((t: any) => {
+            // Map encounter is_giveway to role
+            let role: 'give-way' | 'stand-on' | 'overtaking' | 'safe' = 'safe';
+            if (t.encounter) {
+              role = t.encounter.is_giveway ? 'give-way' : 'stand-on';
+            }
+            
+            return {
+              mmsi: String(t.target_id ?? t.mmsi ?? t.id ?? ''),
+              lat: t.position?.latitude ?? t.latitude ?? t.lat ?? 0,
+              lon: t.position?.longitude ?? t.longitude ?? t.lon ?? 0,
+              sog_kn: t.sog_kn ?? t.sog ?? 0,
+              cog_deg: t.cog_deg ?? t.cog ?? 0,
+              heading_deg: t.heading_deg ?? t.heading ?? 0,
+              cpa_nm: t.cpa_m ? (t.cpa_m / 1852.0) : (t.cpa_nm ?? t.cpa ?? 999),
+              tcpa_s: t.tcpa_s ?? t.tcpa ?? 9999,
+              colreg_role: role,
+              confidence: t.confidence ?? 1.0,
+            };
+          }));
         });
       });
 
