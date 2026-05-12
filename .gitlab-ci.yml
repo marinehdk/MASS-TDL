@@ -271,6 +271,29 @@ stage-2-pytest:
         coverage_format: cobertura
         path: coverage-py.xml
 
+vv-phase1-gate:
+  stage: test
+  needs: [stage-2-pytest]
+  rules:
+    - if: $FULL_PIPELINE == "true"
+  script:
+    # pytest-json-report artifact (pytest-report.json) is produced by stage-2-pytest.
+    # Re-run batch runner to produce coverage_cube.json (fast, pure-Python).
+    - python tools/sil/batch_runner.py --scenarios scenarios/colregs --output reports/
+    # Produce d1_3a_validation.json (uses cached reference when fcb_sim_py not built).
+    - python tools/sil/d1_3a_validate.py
+    # Gate checker exits 1 if any automated gate fails.
+    - python tools/check_entry_gate.py --phase 1 --artifacts-dir test-results/
+  artifacts:
+    when: always
+    paths:
+      - test-results/pytest-report.json
+      - test-results/imazu22_results.json
+      - test-results/coverage_cube.json
+      - test-results/d1_3a_validation.json
+      - reports/batch_results.json
+    expire_in: 30 days
+
 # ===============================================================
 # fmi_bridge CI Jobs (D1.3c)
 # ===============================================================
