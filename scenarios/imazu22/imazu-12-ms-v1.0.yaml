@@ -1,0 +1,78 @@
+title: Imazu Case 12 — MS
+description: 'Imazu (1987) benchmark case 12. OS: heading 0deg, SOG 10 kn. Tengesdal
+  & Johansen (2023 CCTA).'
+start_time: '2026-01-01T00:00:00Z'
+own_ship:
+  id: os
+  nav_status: 0
+  mmsi: 123456789
+  initial:
+    position:
+      latitude: 63.0
+      longitude: 5.0
+    cog: 0.0
+    sog: 10.0
+    heading: 0.0
+target_ships:
+- id: ts1
+  nav_status: 0
+  mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.019785
+      longitude: 5.099046
+    cog: 320.0
+    sog: 9.0
+    heading: 320.0
+- id: ts2
+  nav_status: 0
+  mmsi: 100000002
+  initial:
+    position:
+      latitude: 63.003148
+      longitude: 4.945525
+    cog: 45.0
+    sog: 10.0
+    heading: 45.0
+- id: ts3
+  nav_status: 0
+  mmsi: 100000003
+  initial:
+    position:
+      latitude: 63.123747
+      longitude: 5.0
+    cog: 180.0
+    sog: 10.0
+    heading: 180.0
+metadata:
+  schema_version: '2.0'
+  scenario_id: imazu-12-ms-v1.0
+  scenario_source: imazu1987
+  vessel_class: FCB
+  odd_zone: A
+  geo_origin:
+    latitude: 63.0
+    longitude: 5.0
+    description: Norwegian Sea anchor (default); override per ENC region
+  encounter:
+    rule: Rule14
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 300.0
+    avoidance_delta_rad: 0.6109
+    avoidance_duration_s: 90.0
+  disturbance_model:
+    wind_kn: 0.0
+    wind_dir_nav_deg: 0.0
+    current_kn: 0.0
+    current_dir_nav_deg: 0.0
+    vis_m: 10000.0
+    wave_height_m: 0.0
+  pass_criteria:
+    max_dcpa_no_action_m: 926.0
+    min_dcpa_with_action_m: 300.0
+  simulation:
+    duration_s: 1000
+    dt_s: 0.02
+    n_rps_initial: 3.0
+  prng_seed: null

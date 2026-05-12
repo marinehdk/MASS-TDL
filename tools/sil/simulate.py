@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from scenario_spec import ScenarioSpec
+from tools.sil.scenario_spec import ScenarioSpec
 
 
 @dataclass
@@ -96,17 +96,25 @@ def simulate(spec: ScenarioSpec, apply_avoidance: bool) -> SimResult:
     Requires fcb_sim_py to be importable (source install/setup.bash).
     Falls back to mock implementation on macOS for testing.
     """
-    try:
-        import fcb_sim_py
-        if not hasattr(fcb_sim_py, "FcbState"):
-             raise ImportError("fcb_sim_py found but FcbState missing (unbuilt)")
-    except ImportError:
+    # Try multiple import strategies for fcb_sim_py
+    _fcb = None
+    for _mod in ["fcb_sim_py", "src.sim_workbench.fcb_simulator.python.fcb_sim_py_mock", "fcb_sim_py_mock"]:
         try:
-            import fcb_sim_py_mock as fcb_sim_py
-        except ImportError as exc:
-            raise RuntimeError(
-                "fcb_sim_py not importable and fcb_sim_py_mock not found."
-            ) from exc
+            if _mod == "src.sim_workbench.fcb_simulator.python.fcb_sim_py_mock":
+                from src.sim_workbench.fcb_simulator.python import fcb_sim_py_mock as _m
+                _fcb = _m
+            else:
+                _m = __import__(_mod, fromlist=["FcbState"])
+            if hasattr(_m, "FcbState"):
+                _fcb = _m
+                break
+        except ImportError:
+            pass
+    if _fcb is None:
+        raise RuntimeError(
+            "fcb_sim_py not importable and fcb_sim_py_mock not found."
+        )
+    fcb_sim_py = _fcb
 
     own_ic = spec.initial_conditions.own_ship
     dt = spec.simulation.dt_s
