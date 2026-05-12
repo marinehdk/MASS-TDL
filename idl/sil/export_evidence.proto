@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sil;
+
+service ExportEvidenceService {
+  rpc PackMarzip(PackMarzipRequest) returns (PackMarzipResponse);
+  rpc PostProcessArrow(PostProcessArrowRequest) returns (PostProcessArrowResponse);
+}
+
+message PackMarzipRequest { string run_id = 1; }
+message PackMarzipResponse { string download_url = 1; string status = 2; }
+message PostProcessArrowRequest { string run_id = 1; }
+message PostProcessArrowResponse { string arrow_path = 1; }

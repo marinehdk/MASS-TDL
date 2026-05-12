@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sil;
+
+service SimClockService {
+  rpc SetRate(SetRateRequest) returns (SetRateResponse);
+  rpc GetTime(GetTimeRequest) returns (GetTimeResponse);
+}
+
+message SetRateRequest { double rate = 1; }
+message SetRateResponse { bool success = 1; }
+message GetTimeRequest {}
+message GetTimeResponse { double sim_time = 1; double wall_time = 2; }

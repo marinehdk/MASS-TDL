@@ -1,0 +1,15 @@
+syntax = "proto3";
+package sil;
+
+import "sil/module_pulse.proto";
+
+service SelfCheckService {
+  rpc Probe(ProbeRequest) returns (ProbeResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message ProbeRequest {}
+message ProbeResponse { bool all_clear = 1; repeated CheckItem items = 2; }
+message CheckItem { string name = 1; bool passed = 2; string detail = 3; }
+message StatusRequest {}
+message StatusResponse { repeated ModulePulse module_pulses = 1; }

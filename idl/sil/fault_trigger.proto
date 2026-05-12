@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sil;
+
+service FaultTriggerService {
+  rpc Trigger(TriggerRequest) returns (TriggerResponse);
+  rpc ListFaults(ListFaultsRequest) returns (ListFaultsResponse);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+}
+
+message TriggerRequest { string fault_type = 1; string payload_json = 2; }
+message TriggerResponse { string fault_id = 1; }
+message ListFaultsRequest {}
+message ListFaultsResponse { repeated ActiveFault active = 1; }
+message ActiveFault { string fault_id = 1; string fault_type = 2; string stamp = 3; }
+message CancelRequest { string fault_id = 1; }
+message CancelResponse { bool success = 1; }

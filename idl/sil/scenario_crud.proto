@@ -1,0 +1,25 @@
+syntax = "proto3";
+package sil;
+
+service ScenarioCRUDService {
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+}
+
+message ListRequest {}
+message ListResponse { repeated ScenarioSummary scenarios = 1; }
+message ScenarioSummary { string id = 1; string name = 2; string encounter_type = 3; }
+message GetRequest { string scenario_id = 1; }
+message GetResponse { string yaml_content = 1; string hash = 2; }
+message CreateRequest { string yaml_content = 1; }
+message CreateResponse { string scenario_id = 1; string hash = 2; }
+message UpdateRequest { string scenario_id = 1; string yaml_content = 2; }
+message UpdateResponse { string hash = 1; }
+message DeleteRequest { string scenario_id = 1; }
+message DeleteResponse {}
+message ValidateRequest { string yaml_content = 1; }
+message ValidateResponse { bool valid = 1; repeated string errors = 2; }

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message RadarMeasurement {
+  google.protobuf.Timestamp stamp = 1;
+  repeated PolarTarget polar_targets = 2;
+  uint32 clutter_cardinality = 3;
+
+  message PolarTarget {
+    double range = 1;
+    double bearing = 2;
+    double rcs = 3;
+  }
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message LifecycleStatus {
+  google.protobuf.Timestamp stamp = 1;
+  LifecycleState current_state = 2;
+  string scenario_id = 3;
+  string scenario_hash = 4;
+  double sim_time = 5;
+  double wall_time = 6;
+  double sim_rate = 7;
+
+  enum LifecycleState {
+    LIFECYCLE_STATE_UNSPECIFIED = 0;
+    LIFECYCLE_STATE_UNCONFIGURED = 1;
+    LIFECYCLE_STATE_INACTIVE = 2;
+    LIFECYCLE_STATE_ACTIVE = 3;
+    LIFECYCLE_STATE_DEACTIVATING = 4;
+    LIFECYCLE_STATE_FINALIZED = 5;
+  }
+}

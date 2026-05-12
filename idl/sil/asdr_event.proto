@@ -1,0 +1,20 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message ASDREvent {
+  google.protobuf.Timestamp stamp = 1;
+  string event_type = 2;
+  string rule_ref = 3;
+  string decision_id = 4;
+  Verdict verdict = 5;
+  string payload_json = 6;
+
+  enum Verdict {
+    VERDICT_UNSPECIFIED = 0;
+    VERDICT_PASS = 1;
+    VERDICT_RISK = 2;
+    VERDICT_FAIL = 3;
+  }
+}

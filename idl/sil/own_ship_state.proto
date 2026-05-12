@@ -1,0 +1,29 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message OwnShipState {
+  google.protobuf.Timestamp stamp = 1;
+  Pose pose = 2;
+  Kinematics kinematics = 3;
+  ControlState control_state = 4;
+
+  message Pose {
+    double lat = 1;
+    double lon = 2;
+    double heading = 3;
+  }
+  message Kinematics {
+    double sog = 1;
+    double cog = 2;
+    double rot = 3;
+    double u = 4;
+    double v = 5;
+    double r = 6;
+  }
+  message ControlState {
+    double rudder_angle = 1;
+    double throttle = 2;
+  }
+}

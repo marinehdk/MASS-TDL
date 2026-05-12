@@ -1,0 +1,30 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message ModulePulse {
+  google.protobuf.Timestamp stamp = 1;
+  ModuleId module_id = 2;
+  HealthState state = 3;
+  uint32 latency_ms = 4;
+  uint32 message_drops = 5;
+
+  enum ModuleId {
+    MODULE_ID_UNSPECIFIED = 0;
+    MODULE_ID_M1 = 1;
+    MODULE_ID_M2 = 2;
+    MODULE_ID_M3 = 3;
+    MODULE_ID_M4 = 4;
+    MODULE_ID_M5 = 5;
+    MODULE_ID_M6 = 6;
+    MODULE_ID_M7 = 7;
+    MODULE_ID_M8 = 8;
+  }
+  enum HealthState {
+    HEALTH_STATE_UNSPECIFIED = 0;
+    HEALTH_STATE_GREEN = 1;
+    HEALTH_STATE_AMBER = 2;
+    HEALTH_STATE_RED = 3;
+  }
+}

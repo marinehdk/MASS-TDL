@@ -1,0 +1,39 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message TargetVesselState {
+  google.protobuf.Timestamp stamp = 1;
+  uint32 mmsi = 2;
+  Pose pose = 3;
+  Kinematics kinematics = 4;
+  ShipType ship_type = 5;
+  TargetMode mode = 6;
+
+  enum ShipType {
+    SHIP_TYPE_UNSPECIFIED = 0;
+    SHIP_TYPE_CARGO = 1;
+    SHIP_TYPE_TANKER = 2;
+    SHIP_TYPE_PASSENGER = 3;
+    SHIP_TYPE_FISHING = 4;
+    SHIP_TYPE_TUG = 5;
+    SHIP_TYPE_PLEASURE = 6;
+  }
+  enum TargetMode {
+    TARGET_MODE_UNSPECIFIED = 0;
+    TARGET_MODE_REPLAY = 1;
+    TARGET_MODE_NCDM = 2;
+    TARGET_MODE_INTELLIGENT = 3;
+  }
+  message Pose {
+    double lat = 1;
+    double lon = 2;
+    double heading = 3;
+  }
+  message Kinematics {
+    double sog = 1;
+    double cog = 2;
+    double rot = 3;
+  }
+}

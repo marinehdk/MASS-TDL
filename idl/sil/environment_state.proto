@@ -1,0 +1,21 @@
+syntax = "proto3";
+package sil;
+
+import "google/protobuf/timestamp.proto";
+
+message EnvironmentState {
+  google.protobuf.Timestamp stamp = 1;
+  Wind wind = 2;
+  Current current = 3;
+  double visibility_nm = 4;
+  uint32 sea_state_beaufort = 5;
+
+  message Wind {
+    double direction = 1;
+    double speed_mps = 2;
+  }
+  message Current {
+    double direction = 1;
+    double speed_mps = 2;
+  }
+}

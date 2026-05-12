@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sil;
+
+message AISMessage {
+  uint32 mmsi = 1;
+  double sog = 2;
+  double cog = 3;
+  double lat = 4;
+  double lon = 5;
+  double heading = 6;
+  bool dropout_flag = 7;
+}

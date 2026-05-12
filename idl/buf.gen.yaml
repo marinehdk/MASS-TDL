@@ -1,0 +1,13 @@
+version: v1
+plugins:
+  - plugin: protobuf-ts
+    out: ../web/src/types
+    opt:
+      - generate_dependencies
+      - long_type_string
+  - plugin: python_protobuf
+    out: ../src/sil_orchestrator/sil_proto
+  - plugin: proto2ros
+    out: ../src/sim_workbench/sil_msgs
+    opt:
+      - package_prefix=sil_msgs

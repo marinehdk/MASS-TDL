@@ -1,0 +1,18 @@
+syntax = "proto3";
+package sil;
+
+service LifecycleControlService {
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  rpc Activate(ActivateRequest) returns (ActivateResponse);
+  rpc Deactivate(DeactivateRequest) returns (DeactivateResponse);
+  rpc Cleanup(CleanupRequest) returns (CleanupResponse);
+}
+
+message ConfigureRequest { string scenario_id = 1; }
+message ConfigureResponse { bool success = 1; string error = 2; }
+message ActivateRequest {}
+message ActivateResponse { bool success = 1; string error = 2; }
+message DeactivateRequest {}
+message DeactivateResponse { bool success = 1; string error = 2; }
+message CleanupRequest {}
+message CleanupResponse { bool success = 1; string error = 2; }
