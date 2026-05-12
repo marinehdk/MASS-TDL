@@ -1,0 +1,21 @@
+port: 8765
+send_buffer_limit: 10000000
+use_sim_time: true
+capabilities:
+  - clientPublish
+  - connectionGraph
+  - services
+  - parameters
+topic_whitelist:
+  - /sil/own_ship_state
+  - /sil/target_vessel_state
+  - /sil/environment_state
+  - /sil/module_pulse
+  - /sil/asdr_event
+  - /sil/scoring_row
+  - /sil/lifecycle_status
+  - /sil/fault_event
+service_whitelist:
+  - /lifecycle_mgr/change_state
+  - /sim_clock/set_rate
+  - /fault_inject/trigger
