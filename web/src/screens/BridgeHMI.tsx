@@ -4,6 +4,20 @@ import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useTelemetryStore, useControlStore, useUIStore } from '../store';
 import { useDeactivateLifecycleMutation, useTriggerFaultMutation } from '../api/silApi';
 import type { ASDREvent } from '../store/telemetryStore';
+import { CompassRose } from '../map/CompassRose';
+import { PpiRings } from '../map/PpiRings';
+import { ColregsSectors } from '../map/ColregsSectors';
+import { ImazuGeometry } from '../map/ImazuGeometry';
+import { DistanceScale } from '../map/DistanceScale';
+import { ArpaTargetTable } from './shared/ArpaTargetTable';
+import { ModuleDrilldown } from './shared/ModuleDrilldown';
+import { ScoringGauges } from './shared/ScoringGauges';
+import { TorModal } from './shared/TorModal';
+import { FaultInjectPanel } from './shared/FaultInjectPanel';
+import { ConningBar } from './shared/ConningBar';
+import { ThreatRibbon } from './shared/ThreatRibbon';
+import { useFsmStore } from '../store';
+import { useHotkeys } from '../hooks/useHotkeys';
 
 // ── constants ─────────────────────────────────────────────────────────────────
 const MODULE_NAMES = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'];
@@ -268,6 +282,7 @@ export function BridgeHMI() {
   const asdrEvents      = useTelemetryStore((s) => s.asdrEvents);
   const wsConnected     = useTelemetryStore((s) => s.wsConnected);
   const modulePulses    = useTelemetryStore((s) => s.modulePulses);
+  const ownShip         = useTelemetryStore((s) => s.ownShip);
 
   const simRate  = useControlStore((s) => s.simRate);
   const isPaused = useControlStore((s) => s.isPaused);
@@ -280,6 +295,9 @@ export function BridgeHMI() {
   const toggleAsdr     = useUIStore((s) => s.toggleAsdrLog);
 
   const [showFaultModal, setShowFaultModal] = useState(false);
+  const [arpaExpanded, setArpaExpanded] = useState(viewMode === 'god');
+  const [drilldownVisible, setDrilldownVisible] = useState(false);
+  const [faultPanelOpen, setFaultPanelOpen] = useState(false);
   const [deactivate] = useDeactivateLifecycleMutation();
 
   const handleStop = async () => {
@@ -296,6 +314,23 @@ export function BridgeHMI() {
   const warnPulses   = modulePulses.filter((p) => p.state === 2).length;
   const errPulses    = modulePulses.filter((p) => p.state === 3).length;
 
+  // FSM + hotkeys for runtime semantics (v1.1)
+  const fsmCurrent = useFsmStore((s) => s.currentState);
+  const fsmSet = useFsmStore((s) => s.setState);
+
+  useHotkeys({
+    onTor: () => {
+      if (fsmCurrent === 'TOR') return;
+      fsmSet('TOR', 'HOTKEY_T', simTimeSec);
+    },
+    onFault: () => setFaultPanelOpen((v) => !v),
+    onMrc: () => fsmSet('MRC', 'HOTKEY_M', simTimeSec),
+    onHandback: () => {
+      if (fsmCurrent === 'OVERRIDE') fsmSet('TRANSIT', 'HOTKEY_H', simTimeSec);
+    },
+    onSpace: () => setPaused(!isPaused),
+  });
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0b1320' }}
          data-testid="bridge-hmi">
@@ -306,6 +341,52 @@ export function BridgeHMI() {
 
         {/* IEC 62288 §SA-4 top info bar */}
         <TopInfoBar asdrEvents={asdrEvents} />
+
+        {/* Compass Rose — bottom-left, relative bearing in Captain, North-up in God */}
+        <div style={{ position: 'absolute', bottom: 56, left: 16, zIndex: 15 }}>
+          <CompassRose
+            bearing={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0}
+            relativeMode={viewMode === 'captain'}
+          />
+        </div>
+
+        {/* PPI Range Rings */}
+        <PpiRings
+          centerFraction={viewMode === 'captain' ? [50, 70] : [50, 50]}
+          radiiPx={[40, 80, 160, 320]}
+        />
+
+        {/* COLREGs Sectors — God view only */}
+        {viewMode === 'god' && (
+          <ColregsSectors
+            ownShipFraction={[50, 50]}
+            headingDeg={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0}
+            outerRadiusPx={320}
+          />
+        )}
+
+        {/* Distance Scale — bottom-center */}
+        <div style={{ position: 'absolute', bottom: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+          <DistanceScale nmPerPixel={0.005} />
+        </div>
+
+        {/* ARPA Target Table */}
+        <ArpaTargetTable expanded={arpaExpanded} onToggle={() => setArpaExpanded(!arpaExpanded)} />
+
+        {/* Scoring Gauges — God view only */}
+        <ScoringGauges visible={viewMode === 'god'} />
+
+        {/* Module Drilldown */}
+        <ModuleDrilldown visible={drilldownVisible} onClose={() => setDrilldownVisible(false)} />
+
+        {/* Threat Ribbon */}
+        <ThreatRibbon viewMode={viewMode as 'captain' | 'god'} />
+
+        {/* Conning Bar */}
+        <ConningBar viewMode={viewMode as 'captain' | 'god'} />
+
+        {/* Fault Inject Panel — God view only */}
+        {viewMode === 'god' && faultPanelOpen && <FaultInjectPanel />}
 
         {/* Captain HUD overlay */}
         <CaptainHUD />
@@ -403,7 +484,7 @@ export function BridgeHMI() {
         </div>
 
         {/* Module Pulse */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', cursor: 'pointer' }} onClick={() => setDrilldownVisible(!drilldownVisible)}>
           <ModulePulseBar />
         </div>
 
@@ -450,6 +531,9 @@ export function BridgeHMI() {
           </button>
         </div>
       </div>
+
+      {/* TorModal — renders via portal, always mounted */}
+      <TorModal />
     </div>
   );
 }
