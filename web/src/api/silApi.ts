@@ -136,6 +136,14 @@ export const silApi = createApi({
     triggerFault: builder.mutation<{ fault_id?: string }, { fault_type: string; payload_json: string }>({
       query: (body) => ({ url: '/fault/trigger', method: 'POST', body }),
     }),
+
+    // Fault injection (v1.1 NEW — Task 20)
+    injectFault: builder.mutation<{ accepted: boolean; fault_id: string }, { type: string; duration_s: number; params?: any }>({
+      query: (body) => ({ url: '/fault/inject', method: 'POST', body }),
+    }),
+    cancelFault: builder.mutation<{ cancelled: boolean }, string>({
+      query: (faultId) => ({ url: `/fault/${faultId}`, method: 'DELETE' }),
+    }),
   }),
 });
 
@@ -156,4 +164,6 @@ export const {
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useTriggerFaultMutation,
+  useInjectFaultMutation,
+  useCancelFaultMutation,
 } = silApi;
