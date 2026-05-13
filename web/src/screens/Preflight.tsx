@@ -6,6 +6,10 @@ import {
   useCleanupLifecycleMutation,
   useProbeSelfCheckMutation,
 } from '../api/silApi';
+import { ModuleReadinessGrid } from './shared/ModuleReadinessGrid';
+import { SensorStatusRow } from './shared/SensorStatusRow';
+import { CommLinkStatusRow } from './shared/CommLinkStatusRow';
+import { LiveLogStream } from './shared/LiveLogStream';
 
 interface CheckItem {
   name: string;
@@ -29,6 +33,9 @@ export function Preflight() {
   // Guard against React.StrictMode double-invoke producing duplicate check rows
   const startedRef = useRef(false);
   const activatedRef = useRef(false);
+
+  // Derived state for GO/NO-GO
+  const allPassed = phase === 'passed';
 
   const runChecks = useCallback(async () => {
     setPhase('checking');
@@ -96,41 +103,117 @@ export function Preflight() {
   };
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      height: '100vh', background: '#0b1320', color: '#e6edf3',
-    }} data-testid="preflight">
-      <h2>Pre-flight Check</h2>
-
-      {checks.map((item, i) => (
-        <div key={i} style={{
-          margin: 4, fontFamily: 'monospace', fontSize: 14,
-          color: item.passed ? '#34d399' : '#f87171',
-        }}>
-          {item.passed ? '✓' : '✗'} {item.name} — {item.detail}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', height: '100%' }}>
+      {/* LEFT: Checks area */}
+      <div style={{
+        padding: 16, overflowY: 'auto',
+        display: 'flex', flexDirection: 'column', gap: 14,
+      }}>
+        {/* Header + actions */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{
+              fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--txt-0)',
+              fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase',
+            }}>PRE-FLIGHT CHECK</div>
+            <div style={{
+              fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)', marginTop: 2,
+            }}>
+              scenario · {scenarioId?.slice(0, 8) || 'N/A'} · checking module readiness
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={runChecks} disabled={phase === 'checking'} style={{
+              background: 'transparent', border: '1px solid var(--line-3)', color: 'var(--txt-1)',
+              padding: '8px 16px', fontFamily: 'var(--f-disp)', fontSize: 10.5,
+              letterSpacing: '0.18em', fontWeight: 600, cursor: 'pointer',
+              opacity: phase === 'checking' ? 0.5 : 1,
+            }}>
+              {phase === 'checking' ? 'CHECKING…' : allPassed ? 'RE-RUN' : 'RUN CHECKS'}
+            </button>
+            <button
+              data-testid="go-nogo-gate"
+              disabled={!allPassed}
+              onClick={() => {
+                if (scenarioId) window.location.hash = `#/bridge/${scenarioId}`;
+              }}
+              style={{
+                background: allPassed ? 'var(--c-phos)' : 'transparent',
+                border: `1px solid ${allPassed ? 'var(--c-phos)' : 'var(--line-2)'}`,
+                color: allPassed ? 'var(--bg-0)' : 'var(--txt-3)',
+                padding: '8px 16px', fontFamily: 'var(--f-disp)', fontSize: 10.5,
+                letterSpacing: '0.18em', fontWeight: 700,
+                cursor: allPassed ? 'pointer' : 'not-allowed',
+              }}>
+              {allPassed ? 'GO → BRIDGE' : 'NO-GO'}
+            </button>
+          </div>
         </div>
-      ))}
 
-      {phase === 'checking' && (
-        <div style={{ marginTop: 16, color: '#888' }}>Running checks…</div>
-      )}
+        {/* Module Readiness Grid */}
+        <ModuleReadinessGrid />
 
-      {phase === 'failed' && errorMsg && (
-        <div style={{ marginTop: 16, color: '#f87171', fontFamily: 'monospace', fontSize: 13 }}>
-          ✗ {errorMsg}
+        {/* Sensor Status */}
+        <SensorStatusRow />
+
+        {/* Comm-link Status */}
+        <CommLinkStatusRow />
+
+        {/* Countdown and Error display */}
+        {phase === 'checking' && checks.length > 0 && (
+          <div style={{
+            padding: 10, background: 'rgba(91,192,190,0.08)',
+            border: '1px solid var(--c-phos)',
+            fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-phos)',
+          }}>
+            Running checks… {checks.filter(c => c.passed).length}/{checks.length} passed
+          </div>
+        )}
+
+        {errorMsg && (
+          <div style={{
+            padding: 10, background: 'rgba(248,81,73,0.08)',
+            border: '1px solid var(--c-danger)',
+            fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-danger)',
+          }}>
+            {errorMsg}
+          </div>
+        )}
+
+        {/* Legacy check items (from current probe flow) */}
+        {checks.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {checks.map((c, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 10px', background: 'var(--bg-1)',
+                borderLeft: `2px solid ${c.passed ? 'var(--c-stbd)' : 'var(--c-danger)'}`,
+                fontFamily: 'var(--f-mono)', fontSize: 10,
+              }}>
+                <span style={{ color: c.passed ? 'var(--c-stbd)' : 'var(--c-danger)' }}>
+                  {c.passed ? '✓' : '✗'}
+                </span>
+                <span style={{ color: 'var(--txt-1)' }}>{c.name}</span>
+                <span style={{ color: 'var(--txt-3)', fontSize: 9, marginLeft: 'auto' }}>{c.detail}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Bottom: navigate buttons */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'auto' }}>
+          <button onClick={handleBack} style={{
+            background: 'transparent', border: '1px solid var(--line-3)', color: 'var(--txt-1)',
+            padding: '8px 18px', fontFamily: 'var(--f-disp)', fontSize: 10,
+            letterSpacing: '0.18em', fontWeight: 600, cursor: 'pointer',
+          }}>{'←'} SCENARIO</button>
         </div>
-      )}
+      </div>
 
-      {phase === 'passed' && (
-        <div style={{ fontSize: 48, marginTop: 32, fontWeight: 'bold', color: '#2dd4bf' }}>
-          Starting in {countdown}...
-        </div>
-      )}
-
-      <button onClick={handleBack} style={{ marginTop: 24, padding: '8px 24px' }}>
-        ← Back
-      </button>
+      {/* RIGHT: Live Log Stream */}
+      <div style={{ borderLeft: '1px solid var(--line-2)', overflow: 'hidden' }}>
+        <LiveLogStream />
+      </div>
     </div>
   );
 }
