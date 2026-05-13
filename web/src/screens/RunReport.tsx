@@ -184,32 +184,34 @@ export function RunReport() {
         ))}
       </div>
 
-      {/* Main 3-column area: Trajectory + Timeline + ASDR */}
+      {/* Main 2x2 Grid: Trajectory | ASDR, Timeline | Radar */}
       <div style={{
-        flex: 1, display: 'grid', gridTemplateColumns: '1fr 0.9fr',
-        gap: 8, padding: '0 18px 12px', overflow: 'hidden',
+        flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 220px',
+        gap: 16, padding: '0 18px 12px', overflow: 'hidden',
       }}>
-        {/* LEFT: Trajectory + Timeline */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <TrajectoryReplay durationSec={600} currentTimeSec={currentTimeSec} />
-          </div>
+        <div className="glass-panel" style={{ gridColumn: '1', gridRow: '1', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <TrajectoryReplay durationSec={600} currentTimeSec={currentTimeSec} />
+        </div>
+        
+        <div className="glass-panel" style={{ gridColumn: '2', gridRow: '1', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <AsdrLedger events={ASDR_LEDGER_EVENTS} />
+        </div>
+        
+        <div className="glass-panel" style={{ gridColumn: '1', gridRow: '2', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <TimelineSixLane
             events={REPORT_EVENTS}
             durationSec={600}
             currentTimeSec={currentTimeSec}
             onScrub={setCurrentTimeSec}
           />
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <ScoringRadarChart kpis={{
-              safety: 0.92, ruleCompliance: 1.0, delay: 0.78,
-              magnitude: 0.85, phase: 0.91, plausibility: 0.88,
-            }} />
-          </div>
         </div>
-
-        {/* RIGHT: ASDR Ledger */}
-        <AsdrLedger events={ASDR_LEDGER_EVENTS} />
+        
+        <div className="glass-panel" style={{ gridColumn: '2', gridRow: '2', borderRadius: 8, overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <ScoringRadarChart kpis={{
+            safety: 0.92, ruleCompliance: 1.0, delay: 0.78,
+            magnitude: 0.85, phase: 0.91, plausibility: 0.88,
+          }} />
+        </div>
       </div>
     </div>
   );

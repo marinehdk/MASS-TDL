@@ -80,3 +80,12 @@ input, select, textarea { font-family: inherit; }
 @keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes warn-flash  { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes scan-line   { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* ── Glassmorphism ──────────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}

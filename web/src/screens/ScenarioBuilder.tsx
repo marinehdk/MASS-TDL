@@ -8,54 +8,29 @@ import {
   useDeleteScenarioMutation,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
-import type { ScenarioSummary } from '../api/silApi';
-import { Stepper } from './shared/Stepper';
-import { SummaryRail } from './shared/SummaryRail';
-import { ImazuGrid } from './shared/ImazuGrid';
+import { 
+  LucidePlus, LucideSave, LucideCheckCircle, LucidePlay, 
+  LucideCompass, LucideFolder, LucideFileJson, LucideChevronDown, LucideChevronRight, LucideSearch,
+  LucideSettings2, LucideShip, LucideTarget, LucideCloudRain, LucideWaves, LucideRadio,
+  LucideLayout, LucideDices, LucideBrainCircuit, LucidePanelLeftClose, LucidePanelLeftOpen
+} from 'lucide-react';
 
-const IMAZU_CASES = [
-  { id: 1, name: 'Head-on', rule: 'R14', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }] },
-  { id: 2, name: 'Overtaking', rule: 'R13', ships: [{ x: 50, y: 30, h: 0, role: 'stand-on' }] },
-  { id: 3, name: 'Crossing-give-way', rule: 'R15', ships: [{ x: 78, y: 30, h: 240, role: 'give-way' }] },
-  { id: 4, name: 'Crossing-stand-on', rule: 'R17', ships: [{ x: 22, y: 30, h: 120, role: 'stand-on' }] },
-  { id: 5, name: 'Crossing-fine', rule: 'R15', ships: [{ x: 70, y: 18, h: 220, role: 'give-way' }] },
-  { id: 6, name: 'Crossing-broad', rule: 'R15', ships: [{ x: 85, y: 50, h: 260, role: 'give-way' }] },
-  { id: 7, name: 'Overtaken', rule: 'R13', ships: [{ x: 50, y: 95, h: 0, role: 'give-way' }] },
-  { id: 8, name: 'HO + OT-port', rule: 'R14+R13', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 28, y: 40, h: 0, role: 'stand-on' }] },
-  { id: 9, name: 'HO + CR-stbd', rule: 'R14+R15', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 80, y: 35, h: 240, role: 'give-way' }] },
-  { id: 10, name: 'HO + CR-port', rule: 'R14+R17', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 20, y: 35, h: 120, role: 'stand-on' }] },
-  { id: 11, name: 'CR-stbd + OT', rule: 'R15+R13', ships: [{ x: 78, y: 30, h: 240, role: 'give-way' }, { x: 50, y: 40, h: 0, role: 'stand-on' }] },
-  { id: 12, name: 'CR-port + OT', rule: 'R17+R13', ships: [{ x: 22, y: 30, h: 120, role: 'stand-on' }, { x: 50, y: 40, h: 0, role: 'stand-on' }] },
-  { id: 13, name: 'HO + CR-stbd + OT', rule: 'R14+R15+R13', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 80, y: 35, h: 240, role: 'give-way' }, { x: 50, y: 45, h: 0, role: 'stand-on' }] },
-  { id: 14, name: 'HO + CR-port + OT', rule: 'R14+R17+R13', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 20, y: 35, h: 120, role: 'stand-on' }, { x: 50, y: 45, h: 0, role: 'stand-on' }] },
-  { id: 15, name: 'CR-stbd x2', rule: 'R15x2', ships: [{ x: 78, y: 25, h: 240, role: 'give-way' }, { x: 88, y: 50, h: 260, role: 'give-way' }] },
-  { id: 16, name: 'CR-port x2', rule: 'R17x2', ships: [{ x: 22, y: 25, h: 120, role: 'stand-on' }, { x: 12, y: 50, h: 100, role: 'stand-on' }] },
-  { id: 17, name: 'CR-stbd + CR-port', rule: 'R15+R17', ships: [{ x: 78, y: 30, h: 240, role: 'give-way' }, { x: 22, y: 30, h: 120, role: 'stand-on' }] },
-  { id: 18, name: 'HO + 2x CR-stbd', rule: 'R14+R15x2', ships: [{ x: 50, y: 20, h: 180, role: 'give-way' }, { x: 75, y: 30, h: 230, role: 'give-way' }, { x: 90, y: 50, h: 255, role: 'give-way' }] },
-  { id: 19, name: 'OT + CR-stbd + CR-port', rule: 'R13+R15+R17', ships: [{ x: 50, y: 35, h: 0, role: 'stand-on' }, { x: 78, y: 30, h: 240, role: 'give-way' }, { x: 22, y: 30, h: 120, role: 'stand-on' }] },
-  { id: 20, name: 'HO + CR + CR', rule: 'R14+R15+R17', ships: [{ x: 50, y: 18, h: 180, role: 'give-way' }, { x: 78, y: 40, h: 240, role: 'give-way' }, { x: 22, y: 40, h: 120, role: 'stand-on' }] },
-  { id: 21, name: 'Dense traffic (4)', rule: 'complex', ships: [{ x: 50, y: 22, h: 180, role: 'give-way' }, { x: 75, y: 30, h: 230, role: 'give-way' }, { x: 25, y: 35, h: 130, role: 'stand-on' }, { x: 50, y: 50, h: 0, role: 'stand-on' }] },
-  { id: 22, name: 'Restricted waters', rule: 'R9 complex', ships: [{ x: 50, y: 25, h: 180, role: 'give-way' }, { x: 70, y: 40, h: 220, role: 'give-way' }] },
-];
+type Domain = 'single' | 'mc' | 'rl';
 
 export function ScenarioBuilder() {
+  const [activeDomain, setActiveDomain] = useState<Domain>('single');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'basic' | 'ownship' | 'targets' | 'env' | 'sensor' | 'ais'>('basic');
   const [yamlEditor, setYamlEditor] = useState('');
-  const [activeTab, setActiveTab] = useState<'template' | 'procedural' | 'ais'>('template');
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-  const [imazuId, setImazuId] = useState<number | null>(3);
-  const [validateBtn, setValidateBtn] = useState<'red' | 'yellow' | 'green'>('yellow');
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ 'imazu': true });
+  const [isRailExpanded, setIsRailExpanded] = useState(false);
+  const [isExplorerVisible, setIsExplorerVisible] = useState(true);
 
   const { data: scenarios = [] } = useListScenariosQuery();
   const { data: scenarioDetail } = useGetScenarioQuery(selectedId!, { skip: !selectedId });
   const [validate, { data: validation }] = useValidateScenarioMutation();
   const [createScenario] = useCreateScenarioMutation();
-  const [deleteScenario] = useDeleteScenarioMutation();
   const setScenario = useScenarioStore((s) => s.setScenario);
-
-  const handleSelect = (id: string) => {
-    setSelectedId(id);
-  };
 
   useEffect(() => {
     if (scenarioDetail && selectedId) {
@@ -63,11 +38,24 @@ export function ScenarioBuilder() {
     }
   }, [scenarioDetail, selectedId]);
 
+  const handleSelect = (id: string) => {
+    setSelectedId(id);
+  };
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+  };
+
   const handleValidate = () => validate(yamlEditor);
 
   const handleSave = async () => {
-    const result = await createScenario(yamlEditor).unwrap();
-    setScenario(result.scenario_id, result.hash);
+    try {
+      const result = await createScenario(yamlEditor).unwrap();
+      setScenario(result.scenario_id, result.hash);
+      alert('Scenario saved!');
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleRun = () => {
@@ -78,238 +66,265 @@ export function ScenarioBuilder() {
     }
   };
 
+  // Dynamically group scenarios from the API response (No hardcoding)
+  const imazuChildren = scenarios
+    .filter((s: any) => s.id?.includes('imazu') || s.name?.toLowerCase().includes('imazu'))
+    .map((s: any) => {
+      const match = (s.id || s.name).match(/imazu-\d+/i);
+      return { ...s, name: match ? match[0].toLowerCase() : s.name, type: 'scenario' };
+    });
+
+  const colregsChildren = scenarios
+    .filter((s: any) => s.id?.includes('colreg') || s.name?.toLowerCase().includes('colreg'))
+    .map((s: any) => {
+      const match = (s.id || s.name).match(/colreg-rule\d+/i);
+      return { ...s, name: match ? match[0].toLowerCase() : s.name, type: 'scenario' };
+    })
+    .slice(0, 3); // 仅保留 3 个
+
+  const suites = [
+    { id: 'imazu', name: 'IMAZU标准测试', children: imazuChildren },
+    { id: 'colregs', name: 'COLREGs测试', children: colregsChildren }
+  ];
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 280px', height: '100%' }}>
-      {/* LEFT: Step sidebar + Scenario Library */}
-      <div style={{
-        background: 'var(--bg-1)', borderRight: '1px solid var(--line-2)',
-        padding: '16px 0', display: 'flex', flexDirection: 'column',
-      }}>
-        <div style={{
-          fontFamily: 'var(--f-disp)', fontSize: 9.5, color: 'var(--txt-3)',
-          letterSpacing: '0.22em', textTransform: 'uppercase',
-          padding: '0 16px', marginBottom: 8,
-        }}>SCENARIO STEPS</div>
-
-        {[
-          { id: 1, code: 'A', label: 'ENCOUNTER', zh: '会遇几何 · Imazu 22' },
-          { id: 2, code: 'B', label: 'ENVIRONMENT', zh: '海况 · 传感器 · 本船' },
-          { id: 3, code: 'C', label: 'RUN', zh: '时序 · 故障 · 评估' },
-        ].map((step) => {
-          const active = currentStep === step.id;
-          return (
-            <div key={step.id} onClick={() => setCurrentStep(step.id as 1 | 2 | 3)} style={{
-              padding: '12px 16px', cursor: 'pointer',
-              borderLeft: active ? '3px solid var(--c-phos)' : '3px solid transparent',
-              background: active ? 'var(--bg-0)' : 'transparent',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <div style={{
-                width: 22, height: 22,
-                border: `1px solid ${active ? 'var(--c-phos)' : 'var(--line-2)'}`,
-                color: active ? 'var(--c-phos)' : 'var(--txt-3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: 'var(--f-disp)', fontSize: 11, fontWeight: 700,
-              }}>{step.code}</div>
-              <div>
-                <div style={{
-                  fontFamily: 'var(--f-disp)', fontSize: 11.5,
-                  color: active ? 'var(--txt-0)' : 'var(--txt-1)',
-                  fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase',
-                }}>{step.label}</div>
-                <div style={{
-                  fontFamily: 'var(--f-body)', fontSize: 10, color: 'var(--txt-3)', marginTop: 1,
-                }}>{step.zh}</div>
-              </div>
+    <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', background: '#070c13' }}>
+      
+      {/* TIER 1: Leftmost Nav Rail */}
+      <div 
+        onMouseEnter={() => setIsRailExpanded(true)}
+        onMouseLeave={() => setIsRailExpanded(false)}
+        style={{
+          width: isRailExpanded ? '200px' : '72px', 
+          background: '#0a0f18', 
+          borderRight: '1px solid var(--line-2)',
+          display: 'flex', flexDirection: 'column',
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          zIndex: 110,
+          flexShrink: 0
+        }}
+      >
+        <div style={{ padding: '20px 10px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Domain 1: Single Scenario */}
+          <div style={{ 
+            display: 'flex', alignItems: 'center', gap: 16, padding: '12px',
+            background: activeDomain === 'single' ? 'rgba(91, 192, 190, 0.1)' : 'transparent',
+            borderRadius: 8, cursor: 'pointer',
+            color: activeDomain === 'single' ? 'var(--c-phos)' : 'var(--txt-3)',
+            borderLeft: activeDomain === 'single' ? '3px solid var(--c-phos)' : '3px solid transparent',
+            overflow: 'hidden'
+          }}>
+            <LucideLayout size={24} style={{ minWidth: 24 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', whiteSpace: 'nowrap', opacity: isRailExpanded ? 1 : 0, transition: 'opacity 0.2s' }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>单一场景</span>
+              <span style={{ fontSize: 9, opacity: 0.6, fontFamily: 'var(--f-mono)' }}>SINGLE</span>
             </div>
-          );
-        })}
+          </div>
 
-        <div style={{ flex: 1 }} />
+          {/* Domain 2: Monte Carlo - LOCKED */}
+          <div style={{ 
+            display: 'flex', alignItems: 'center', gap: 16, padding: '12px',
+            borderRadius: 8, cursor: 'not-allowed', opacity: 0.2,
+            color: 'var(--txt-3)', borderLeft: '3px solid transparent', overflow: 'hidden'
+          }}>
+            <LucideDices size={24} style={{ minWidth: 24 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', whiteSpace: 'nowrap', opacity: isRailExpanded ? 1 : 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>蒙特卡洛</span>
+              <span style={{ fontSize: 9, opacity: 0.6, fontFamily: 'var(--f-mono)' }}>MC RUNS</span>
+            </div>
+          </div>
 
-        {/* Scenario Library presets */}
-        <div style={{ padding: '0 16px' }}>
-          <div style={{
-            fontFamily: 'var(--f-disp)', fontSize: 9.5, color: 'var(--txt-3)',
-            letterSpacing: '0.22em', textTransform: 'uppercase', marginBottom: 6,
-          }}>SCENARIO LIBRARY</div>
-          {['IM03_Crossing_GiveWay_v2', 'IM07_Overtaken_FogA', 'IM14_Triple_Conflict', 'IM22_Restricted_Narrow'].map((name, i) => (
-            <div key={i} style={{
-              padding: '5px 8px', marginBottom: 3,
-              background: i === 0 ? 'var(--bg-0)' : 'transparent',
-              borderLeft: i === 0 ? '2px solid var(--c-phos)' : '2px solid transparent',
-            }}>
-              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: i === 0 ? 'var(--txt-0)' : 'var(--txt-2)' }}>
-                {name}
-              </span>
+          {/* Domain 3: RL - LOCKED */}
+          <div style={{ 
+            display: 'flex', alignItems: 'center', gap: 16, padding: '12px',
+            borderRadius: 8, cursor: 'not-allowed', opacity: 0.2,
+            color: 'var(--txt-3)', borderLeft: '3px solid transparent', overflow: 'hidden'
+          }}>
+            <LucideBrainCircuit size={24} style={{ minWidth: 24 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', whiteSpace: 'nowrap', opacity: isRailExpanded ? 1 : 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>强化学习</span>
+              <span style={{ fontSize: 9, opacity: 0.6, fontFamily: 'var(--f-mono)' }}>RL AGENT</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TIER 2: Scenario Explorer Drawer */}
+      <div style={{
+        width: isExplorerVisible ? '260px' : '0px', 
+        background: '#0d131f', 
+        borderRight: isExplorerVisible ? '1px solid var(--line-2)' : 'none',
+        display: 'flex', flexDirection: 'column',
+        flexShrink: 0,
+        transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        overflow: 'hidden',
+        position: 'relative'
+      }}>
+        {/* Toggle Button for Drawer (Floating or at top) */}
+        {!isExplorerVisible && (
+          <button 
+            onClick={() => setIsExplorerVisible(true)}
+            style={{ 
+              position: 'absolute', top: 20, left: 10, zIndex: 120,
+              background: 'var(--bg-1)', border: '1px solid var(--line-2)', color: 'var(--c-phos)',
+              padding: 6, borderRadius: 4, cursor: 'pointer'
+            }}
+          >
+            <LucidePanelLeftOpen size={18} />
+          </button>
+        )}
+
+        {/* Header with Search & New */}
+        <div style={{ padding: '24px 16px 16px', minWidth: 260 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+            {/* Collapse Button */}
+            <button 
+              onClick={() => setIsExplorerVisible(false)}
+              style={{ background: 'transparent', border: 'none', color: 'var(--txt-3)', cursor: 'pointer', padding: 0 }}
+            >
+              <LucidePanelLeftClose size={18} />
+            </button>
+            
+            {/* Centered Title */}
+            <div style={{ 
+              flex: 1, textAlign: 'center', 
+              fontFamily: 'var(--f-disp)', fontSize: 14, fontWeight: 700, 
+              color: 'var(--txt-1)', letterSpacing: 2 
+            }}>场景库</div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button style={{ 
+                background: 'rgba(91,192,190,0.1)', border: '1px solid var(--line-1)', 
+                color: 'var(--c-phos)', fontSize: 10, fontWeight: 700,
+                padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4
+              }}>
+                新建+
+              </button>
+            </div>
+          </div>
+          
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <LucideSearch size={14} color="var(--txt-3)" style={{ position: 'absolute', left: 10 }} />
+            <input type="text" placeholder="搜索场景名称" style={{
+              width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)', 
+              color: 'var(--txt-1)', padding: '10px 12px 10px 36px', fontFamily: 'var(--f-mono)', fontSize: 12,
+              outline: 'none', borderRadius: 6
+            }} />
+          </div>
+        </div>
+
+        {/* Tree View - Scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 24px', minWidth: 260 }}>
+          {suites.map(suite => (
+            <div key={suite.id} style={{ marginBottom: 6 }}>
+              <div onClick={() => toggleFolder(suite.id)} style={{ 
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', 
+                cursor: 'pointer', color: 'var(--txt-1)', borderRadius: 6,
+                background: 'rgba(255,255,255,0.02)'
+              }}>
+                {expandedFolders[suite.id] ? <LucideChevronDown size={14} /> : <LucideChevronRight size={14} />}
+                <LucideFolder size={14} color="#fa0" fill="#fa02" />
+                <span style={{ fontFamily: 'var(--f-body)', fontSize: 13, fontWeight: 500 }}>{suite.name}</span>
+              </div>
+              {expandedFolders[suite.id] && (
+                <div style={{ paddingLeft: 22, marginTop: 4 }}>
+                  {suite.children.map((child: any) => (
+                    <div key={child.id} onClick={() => handleSelect(child.id)} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer',
+                      background: selectedId === child.id ? 'rgba(91,192,190,0.15)' : 'transparent',
+                      color: selectedId === child.id ? 'var(--c-phos)' : 'var(--txt-2)',
+                      borderRadius: 4, marginBottom: 2, transition: 'all 0.1s',
+                      borderLeft: `2px solid ${selectedId === child.id ? 'var(--c-phos)' : 'transparent'}`
+                    }}>
+                      <LucideFileJson size={14} />
+                      <span style={{ fontFamily: 'var(--f-mono)', fontSize: 12 }}>{child.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      {/* CENTER: Step content */}
-      <div style={{ padding: 16, overflow: 'hidden' }}>
-        {currentStep === 1 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 14, height: '100%', overflow: 'hidden' }}>
-            <div style={{ overflowY: 'auto', paddingRight: 8 }}>
-              <ImazuGrid
-                cases={IMAZU_CASES}
-                selected={imazuId}
-                onSelect={(id) => { setImazuId(id); }}
-              />
-            </div>
-            {(() => {
-              const sel = IMAZU_CASES.find(c => c.id === imazuId) || IMAZU_CASES[2];
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
-                  {/* Detail card */}
-                  <div style={{
-                    background: 'var(--bg-1)', border: '1px solid var(--line-2)',
-                    borderLeft: '2px solid var(--c-phos)', padding: 10,
-                  }}>
-                    <div style={{
-                      fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
-                      letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
-                    }}>选中场景 · 详情</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <span style={{ fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--txt-0)', fontWeight: 700, letterSpacing: '0.08em' }}>
-                        IM{String(sel.id).padStart(2, '0')} · {sel.name}
-                      </span>
-                      <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 600 }}>
-                        {sel.rule}
-                      </span>
-                    </div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--txt-2)', marginTop: 4 }}>
-                      Targets = {sel.ships.length} · Give-way {sel.ships.filter(s => s.role === 'give-way').length} · Stand-on {sel.ships.filter(s => s.role === 'stand-on').length}
-                    </div>
-                    {/* Radar SVG */}
-                    <div style={{
-                      marginTop: 8, background: '#050810', border: '1px solid var(--line-1)',
-                      padding: 6,
-                    }}>
-                      <svg viewBox="0 0 100 100" style={{ width: '100%', height: 180 }}>
-                        <circle cx="50" cy="75" r="28" fill="none" stroke="var(--line-2)" strokeWidth="0.5" strokeDasharray="2 3" />
-                        <circle cx="50" cy="75" r="56" fill="none" stroke="var(--line-2)" strokeWidth="0.5" strokeDasharray="2 3" opacity="0.6" />
-                        <line x1="50" y1="75" x2="50" y2="15" stroke="var(--c-phos)" strokeWidth="0.6" opacity="0.5" />
-                        <text x="47" y="12" fontFamily="var(--f-mono)" fontSize="4" fill="var(--c-phos)">N</text>
-                        {sel.ships.map((s, i) => {
-                          const c = s.role === 'give-way' ? 'var(--c-danger)' : s.role === 'stand-on' ? 'var(--c-warn)' : 'var(--c-info)';
-                          const rad = (s.h - 90) * Math.PI / 180;
-                          return (
-                            <g key={i}>
-                              <line x1={s.x} y1={s.y} x2={s.x + Math.cos(rad) * 12} y2={s.y + Math.sin(rad) * 12} stroke={c} strokeWidth="0.8" />
-                              <g transform={`translate(${s.x},${s.y}) rotate(${s.h})`}>
-                                <path d="M 0 -3.5 L 2.5 2.5 L 0 1 L -2.5 2.5 Z" fill="none" stroke={c} strokeWidth="1" />
-                              </g>
-                              <text x={s.x + 4} y={s.y - 2} fontFamily="var(--f-disp)" fontSize="3.5" fill={c}>T0{i + 1}</text>
-                            </g>
-                          );
-                        })}
-                        <g transform="translate(50,75)">
-                          <path d="M 0 -3.5 L 2.5 2.5 L 0 1 L -2.5 2.5 Z" fill="var(--c-phos)" />
-                        </g>
-                        <text x="53" y="78" fontFamily="var(--f-disp)" fontSize="3.5" fill="var(--c-phos)">OWN</text>
-                      </svg>
-                    </div>
-                    {/* Target chips */}
-                    <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                      {sel.ships.map((s, i) => {
-                        const c = s.role === 'give-way' ? 'var(--c-danger)' : s.role === 'stand-on' ? 'var(--c-warn)' : 'var(--c-info)';
-                        return (
-                          <div key={i} style={{
-                            padding: '5px 7px', background: 'var(--bg-0)',
-                            borderLeft: `2px solid ${c}`,
-                          }}>
-                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9.5, color: 'var(--txt-0)', fontWeight: 600, letterSpacing: '0.08em' }}>
-                              T0{i + 1}
-                            </span>
-                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: c, display: 'block', textTransform: 'uppercase' }}>
-                              {s.role}
-                            </span>
-                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 8, color: 'var(--txt-3)' }}>
-                              HDG {s.h}° · pos ({s.x}, {s.y})
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* Parameter tuning */}
-                  <div style={{
-                    background: 'var(--bg-1)', border: '1px solid var(--line-1)',
-                    borderLeft: '2px solid var(--line-3)', padding: 10,
-                  }}>
-                    <div style={{
-                      fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
-                      letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
-                    }}>可选 · 目标参数微调</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>目标船速范围</span>
-                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>10.0 – 18.0 kn</div>
-                      </div>
-                      <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>初始距离</span>
-                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>4.5 – 6.0 nm</div>
-                      </div>
-                      <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>意图扰动</span>
-                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-warn)', marginTop: 2 }}>σ = 4° · σ_SOG = 0.8 kn</div>
-                      </div>
-                      <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>意图突变事件</span>
-                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>1 × @ T+180s</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+      {/* CENTER PANEL: Map View */}
+      <div style={{ flex: 1, position: 'relative', background: '#0a0c10' }}>
+        {/* Toggle button overlay when explorer is hidden */}
+        {!isExplorerVisible && (
+          <button 
+            onClick={() => setIsExplorerVisible(true)}
+            style={{ 
+              position: 'absolute', top: 20, left: 20, zIndex: 120,
+              background: 'var(--bg-1)', border: '1px solid var(--line-2)', color: 'var(--txt-3)',
+              padding: '6px 8px', borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)', fontFamily: 'var(--f-disp)', fontSize: 11
+            }}
+          >
+            <LucidePanelLeftOpen size={16} /> 展开场景库
+          </button>
         )}
-        {currentStep === 2 && (
-          <div style={{ color: 'var(--txt-3)', padding: 20 }}>
-            <h3 style={{ fontFamily: 'var(--f-disp)', color: 'var(--txt-1)', textTransform: 'uppercase' }}>
-              ENVIRONMENT — 海况 · 传感器 · 本船
-            </h3>
-            <p>Environment configuration (Phase 2: full SeaState/Sensor/Hull/ODD cards per spec §3.1.2)</p>
-            {selectedId && scenarios.length > 0 && (
-              <p style={{ color: 'var(--c-phos)' }}>
-                Scenario: {scenarios.find((s: any) => s.id === selectedId)?.name || selectedId}
-              </p>
-            )}
+
+        <SilMapView followOwnShip={false} viewMode="god" />
+        
+        <div className="glass-panel" style={{
+          position: 'absolute', top: 20, right: 20, padding: '12px 16px',
+          display: 'flex', gap: 16, alignItems: 'center'
+        }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--txt-3)', marginBottom: 4 }}>OPERATIONAL DOMAIN</div>
+            <div style={{ fontFamily: 'var(--f-disp)', fontSize: 13, color: 'var(--c-phos)', fontWeight: 700 }}>单一场景 / SINGLE SCENARIO</div>
           </div>
-        )}
-        {currentStep === 3 && (
-          <div style={{ color: 'var(--txt-3)', padding: 20 }}>
-            <h3 style={{ fontFamily: 'var(--f-disp)', color: 'var(--txt-1)', textTransform: 'uppercase' }}>
-              RUN — 时序 · 故障 · 评估
-            </h3>
-            <p>Run configuration (Phase 2: full Timing/IvP Weights/Fault Script/Pass Criteria per spec §3.1.3)</p>
-            <button onClick={handleRun} style={{
-              marginTop: 16, background: 'var(--c-phos)', border: 'none', color: 'var(--bg-0)',
-              padding: '12px 24px', fontFamily: 'var(--f-disp)', fontSize: 11,
-              letterSpacing: '0.18em', fontWeight: 700, cursor: 'pointer',
-            }}>VALIDATE & PRE-FLIGHT →</button>
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* RIGHT: SummaryRail */}
-      <SummaryRail
-        summary={{
-          name: scenarios.find((s: any) => s.id === selectedId)?.name || 'Select scenario',
-          imazuId: imazuId ?? 1,
-          targets: IMAZU_CASES.find(c => c.id === imazuId)?.ships.length ?? 0,
-          duration: 600,
-          seed: 20260513,
-          odd: 'A · OPEN',
-          daypart: 'NIGHT',
-        }}
-        validationStatus={validateBtn}
-        onValidate={handleValidate}
-        onRunPreflight={handleRun}
-      />
+      {/* RIGHT PANEL: 10% - Parameters */}
+      <div style={{ width: '280px', background: '#0a0f18', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--line-2)' }}>
+        <div style={{ 
+          padding: '16px', borderBottom: '1px solid var(--line-1)', 
+          fontFamily: 'var(--f-disp)', fontSize: 14, fontWeight: 700, color: 'var(--txt-0)',
+          display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <LucideSettings2 size={16} color="var(--c-phos)" />
+          <span>PARAMETERS</span>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+          {[
+            { id: 'basic', label: 'Basic Configuration', icon: <LucideSettings2 size={14} /> },
+            { id: 'ownship', label: 'Own Ship Specs', icon: <LucideShip size={14} /> },
+            { id: 'targets', label: 'Target Tracking', icon: <LucideTarget size={14} /> },
+            { id: 'env', label: 'Metocean Data', icon: <LucideCloudRain size={14} /> },
+          ].map(section => (
+            <div 
+              key={section.id} 
+              onClick={() => setActiveTab(section.id as any)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '12px',
+                marginBottom: 2, cursor: 'pointer', borderRadius: 8,
+                background: activeTab === section.id ? 'rgba(91,192,190,0.1)' : 'transparent',
+                color: activeTab === section.id ? 'var(--c-phos)' : 'var(--txt-2)',
+              }}
+            >
+              {section.icon}
+              <span style={{ fontSize: 12, fontWeight: 600 }}>{section.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: '16px', borderTop: '1px solid var(--line-2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button onClick={handleRun} disabled={!selectedId} style={{
+            width: '100%', padding: '14px', background: selectedId ? 'var(--c-phos)' : 'var(--line-2)', 
+            border: 'none', color: '#000', fontFamily: 'var(--f-disp)', fontSize: 12, fontWeight: 800,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, 
+            cursor: selectedId ? 'pointer' : 'not-allowed', borderRadius: 8
+          }}>
+            <LucidePlay size={16} /> RUN PRE-FLIGHT
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }

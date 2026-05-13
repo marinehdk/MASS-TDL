@@ -12,6 +12,14 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/tmp/sil-preview"],
       "port": 8765
+    },
+    {
+      "name": "sil-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "autoPort": true,
+      "cwd": "/Users/marine/Code/MASS-L3-Tactical Layer/web"
     }
   ]
 }

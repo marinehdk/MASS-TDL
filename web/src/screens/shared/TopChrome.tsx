@@ -3,6 +3,7 @@ import { RunStatePill } from './RunStatePill';
 import { DualClock } from './DualClock';
 import { useUIStore } from '../../store';
 import { useTelemetryStore } from '../../store';
+import { LucideCompass } from 'lucide-react';
 
 interface TopChromeProps {
   onNavigate?: (screen: 'builder' | 'preflight' | 'bridge' | 'report') => void;
@@ -58,34 +59,64 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
     >
       {/* Brand */}
       <div style={{
+        width: 'auto', minWidth: 200, boxSizing: 'border-box',
         display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px',
         borderRight: '1px solid var(--line-2)',
       }}>
-        <div style={{
-          width: 32, height: 32, border: '1.5px solid var(--c-phos)',
-          position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
+        <div style={{ 
+          width: 40, height: 40, borderRadius: '50%', 
+          background: '#070c13', 
+          border: '1px solid rgba(91, 192, 190, 0.3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 0 15px rgba(91, 192, 190, 0.2)', flexShrink: 0,
+          position: 'relative', overflow: 'hidden'
         }}>
+          <svg width="32" height="32" viewBox="0 0 100 100" fill="none">
+            {/* Crosshairs */}
+            <line x1="50" y1="10" x2="50" y2="90" stroke="rgba(91, 192, 190, 0.2)" strokeWidth="0.5" />
+            <line x1="10" y1="50" x2="90" y2="50" stroke="rgba(91, 192, 190, 0.2)" strokeWidth="0.5" />
+            
+            {/* Concentric Circles */}
+            <circle cx="50" cy="50" r="15" stroke="rgba(91, 192, 190, 0.3)" strokeWidth="0.5" strokeDasharray="2 2" />
+            <circle cx="50" cy="50" r="30" stroke="rgba(91, 192, 190, 0.3)" strokeWidth="0.5" strokeDasharray="2 2" />
+            <circle cx="50" cy="50" r="44" stroke="rgba(91, 192, 190, 0.15)" strokeWidth="0.5" strokeDasharray="2 2" />
+            
+            {/* Scan Sector */}
+            <path d="M50 50 L82 18 A45 45 0 0 1 95 50 Z" fill="rgba(91, 192, 190, 0.1)" />
+            
+            {/* Ownship (Center) */}
+            <path d="M50 42 L56 58 L50 54 L44 58 Z" fill="var(--c-phos)" />
+            
+            {/* Target 1 (Reddish) */}
+            <path d="M32 28 L38 38 L32 35 L26 38 Z" fill="#ff4d4d" transform="rotate(-40 32 28)" />
+            
+            {/* Target 2 (Yellowish) */}
+            <path d="M72 45 L78 55 L72 52 L66 55 Z" fill="#ffcc00" transform="rotate(30 72 45)" />
+          </svg>
+          {/* Subtle Radar Sweep Animation Effect */}
           <div style={{
-            width: 1.5, height: 14, background: 'var(--c-phos)',
-            transformOrigin: 'bottom center', position: 'absolute', bottom: '50%',
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'conic-gradient(from 0deg, transparent 0deg, rgba(91, 192, 190, 0.05) 90deg, transparent 95deg)',
             animation: 'radar-sweep 4s linear infinite',
+            pointerEvents: 'none'
           }} />
-          <div style={{ width: 4, height: 4, background: 'var(--c-phos)', borderRadius: '50%' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
           <span style={{
-            fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--c-phos)',
-            letterSpacing: '0.08em', fontWeight: 700, textTransform: 'uppercase',
-          }}>战术决策仿真系统</span>
-          <span style={{ fontFamily: 'var(--f-body)', fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>
-            Tactical Decision Simulation System
+            fontFamily: 'var(--f-disp)', fontSize: 18, color: 'var(--c-phos)',
+            letterSpacing: '0.04em', fontWeight: 800, textTransform: 'uppercase',
+          }}>MASS战术决策系统</span>
+          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em', opacity: 0.8 }}>
+            MASS TDL SYSTEM
           </span>
         </div>
       </div>
 
-      {/* Nav Tabs */}
-      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+      {/* Nav Tabs - Centered */}
+      <div style={{ 
+        position: 'absolute', left: '50%', transform: 'translateX(-50%)', 
+        height: '100%', display: 'flex', alignItems: 'stretch' 
+      }}>
         {TABS.map((t) => {
           const active = currentScreen === t.id;
           return (

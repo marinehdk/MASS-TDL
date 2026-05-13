@@ -11,6 +11,7 @@
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
     "@tier4/roslibjs-foxglove": "https://github.com/tier4/roslibjs-foxglove/releases/download/v0.0.4/tier4-roslibjs-foxglove-0.0.4.tgz",
+    "lucide-react": "^1.14.0",
     "maplibre-gl": "^4.7.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
