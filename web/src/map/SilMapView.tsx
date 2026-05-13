@@ -10,7 +10,21 @@ interface SilMapViewProps {
   viewMode?: 'captain' | 'god';
   /** Fraction of viewport to offset own-ship towards. Captain: [0.5, 0.7] (bottom 30%) */
   viewportOffset?: [number, number];
+  /** Optional preview data for Scenario Builder mode */
+  previewData?: {
+    ownShip?: { lat: number; lon: number; heading: number; sog?: number; cog?: number };
+    targets?: Array<{ id: string; lat: number; lon: number; heading: number; sog?: number; cog?: number }>;
+    encRegion?: string;
+  };
+  /** Callback for map clicks (useful for setting positions in Builder) */
+  onMapClick?: (lon: number, lat: number) => void;
+  /** Substrate layer type: 'enc' (vector), 'sat' (satellite raster), 'osm' (standard raster) */
+  substrate?: 'enc' | 'sat' | 'osm';
+  /** Optional geometry (Imazu circles, sectors, etc.) */
+  geometry?: GeoJSON.FeatureCollection | null;
 }
+
+import { ImazuGeometry } from './ImazuGeometry';
 
 const RAD = 180 / Math.PI;
 const NM_TO_DEG = 1 / 60;
@@ -76,7 +90,15 @@ function makeWindEl(dirDeg: number, speedMps: number): HTMLDivElement {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewportOffset = [0.5, 0.5] }: SilMapViewProps) {
+export function SilMapView({ 
+  followOwnShip = true, 
+  viewMode = 'captain', 
+  viewportOffset = [0.5, 0.5],
+  previewData,
+  onMapClick,
+  substrate = 'enc',
+  geometry
+}: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<maplibregl.Map | null>(null);
   const styleReady   = useRef(false);
@@ -96,10 +118,22 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
   useMapPersistence(mapRef, viewMode);
 
   // Store selectors (memoised slices avoid 50 Hz whole-component re-renders)
-  const ownShip  = useTelemetryStore((s) => s.ownShip);
-  const targets  = useTelemetryStore((s) => s.targets);
+  const ownShipFromStore  = useTelemetryStore((s) => s.ownShip);
+  const targetsFromStore  = useTelemetryStore((s) => s.targets);
   const env      = useTelemetryStore((s) => s.environment);
   const trail    = useTelemetryStore((s) => s.ownShipTrail);
+
+  // Use preview data if provided, otherwise use store
+  const ownShip = previewData?.ownShip ? {
+    pose: { lat: previewData.ownShip.lat, lon: previewData.ownShip.lon, heading: previewData.ownShip.heading / RAD },
+    kinematics: { sog: previewData.ownShip.sog || 0, cog: (previewData.ownShip.cog || previewData.ownShip.heading) / RAD }
+  } : ownShipFromStore;
+
+  const targets = (previewData?.targets ? previewData.targets.map(t => ({
+    mmsi: t.id,
+    pose: { lat: t.lat, lon: t.lon, heading: t.heading / RAD },
+    kinematics: { sog: t.sog || 0, cog: (t.cog || t.heading) / RAD }
+  })) : targetsFromStore) || [];
 
   // ── Map initialisation ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -111,8 +145,40 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
         style: {
           version: 8,
           glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-          sources: { osm: osmSource as any, s57: s57Source as any },
-          layers: [osmLayer as any, ...ALL_S57_LAYERS.map((l) => l as any)],
+          sources: { 
+            osm: osmSource as any, 
+            s57: {
+              type: 'vector',
+              url: `http://localhost:3000/${previewData?.encRegion || 'trondelag'}`,
+            },
+            satellite: {
+              type: 'raster',
+              tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tileSize: 256,
+              attribution: 'Esri, Maxar'
+            }
+          },
+          layers: [
+            {
+              id: 'solid-background',
+              type: 'background',
+              paint: { 'background-color': substrate === 'enc' ? '#0369a1' : '#0f172a' }
+            },
+            {
+              id: 'satellite-base',
+              type: 'raster',
+              source: 'satellite',
+              layout: { visibility: substrate === 'sat' ? 'visible' : 'none' }
+            },
+            {
+              ...osmLayer as any,
+              layout: { visibility: substrate === 'osm' ? 'visible' : 'none' }
+            },
+            ...ALL_S57_LAYERS.map((l) => ({
+              ...l as any,
+              layout: { ...((l as any).layout || {}), visibility: substrate === 'enc' ? 'visible' : 'none' }
+            })),
+          ],
         },
         center: viewportFromStore.center,
         zoom: viewportFromStore.zoom,
@@ -124,7 +190,8 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
 
     map.on('error', (e: any) => {
       const msg = String(e?.error?.message ?? '');
-      if (/pbf|s57|Failed to fetch tile|glyphs/i.test(msg)) return;
+      // Suppress expected tile-fetch failures (martin offline, glyphs CDN, etc.)
+      if (/pbf|s57|enc|Failed to fetch|tile|glyphs|3000|source-layer/i.test(msg)) return;
       console.warn('[SilMapView]', msg);
     });
 
@@ -183,6 +250,12 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
       setStatus('ready');
     });
 
+    map.on('click', (e) => {
+      if (onMapClick) {
+        onMapClick(e.lngLat.lng, e.lngLat.lat);
+      }
+    });
+
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
@@ -197,7 +270,24 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
       styleReady.current = false;
       firstFit.current = false;
     };
-  }, []);
+  }, [onMapClick]);
+
+  // ── Substrate update ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current) return;
+
+    // Switch background colour: S-52 ocean for ENC, dark for satellite/OSM
+    map.setPaintProperty('solid-background', 'background-color',
+      substrate === 'enc' ? '#0369a1' : '#0f172a');
+
+    map.setLayoutProperty('satellite-base', 'visibility', substrate === 'sat' ? 'visible' : 'none');
+    map.setLayoutProperty('osm-base', 'visibility', substrate === 'osm' ? 'visible' : 'none');
+    
+    ALL_S57_LAYERS.forEach(l => {
+      map.setLayoutProperty(l.id, 'visibility', substrate === 'enc' ? 'visible' : 'none');
+    });
+  }, [substrate]);
 
   // ── Own-ship + trail + CPA rings update ────────────────────────────────────
   useEffect(() => {
@@ -233,7 +323,7 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
     });
 
     // Follow
-    if (followOwnShip && viewMode === 'captain') {
+    if (followOwnShip && viewMode === 'captain' && !previewData) {
       if (!firstFit.current) {
         map.jumpTo({ center: [lon, lat], zoom: 13 });
         map.setPadding({
@@ -248,19 +338,34 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
         map.easeTo({ center: [lon, lat], duration: 500 });
         lastPanAt.current = Date.now();
       }
+    } else if (previewData) {
+      // Centering for Preview Mode
+      const currentCenter = map.getCenter();
+      const dist = Math.abs(currentCenter.lng - lon) + Math.abs(currentCenter.lat - lat);
+      // If map is far away (e.g. initial load or new scenario), jump to it
+      if (!firstFit.current || dist > 0.5) {
+        map.flyTo({ center: [lon, lat], zoom: 12, duration: 1500 });
+        firstFit.current = true;
+      }
     }
-  }, [ownShip, followOwnShip, viewMode]);
+  }, [ownShip, followOwnShip, viewMode, previewData]);
 
   // ── Trail update ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady.current || trail.length < 2) return;
+    if (!map || !styleReady.current || trail.length < 2 || previewData) {
+      // Clear trail in preview mode
+      if (styleReady.current && map) {
+        (map.getSource('trail') as any)?.setData({ type: 'FeatureCollection', features: [] });
+      }
+      return;
+    }
     (map.getSource('trail') as any)?.setData({
       type: 'FeatureCollection',
       features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: trail },
                    properties: {} }],
     });
-  }, [trail]);
+  }, [trail, previewData]);
 
   // ── Target markers + COG leaders ───────────────────────────────────────────
   useEffect(() => {
@@ -270,31 +375,33 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
     const seen = new Set<string>();
     const cogFeatures: GeoJSON.Feature[] = [];
 
-    for (const t of targets) {
-      const lat = t.pose?.lat;
-      const lon = t.pose?.lon;
-      if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-      const id = t.mmsi != null ? String(t.mmsi) : `tgt-${seen.size}`;
-      seen.add(id);
+    if (Array.isArray(targets)) {
+      for (const t of targets) {
+        const lat = t.pose?.lat;
+        const lon = t.pose?.lon;
+        if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+        const id = t.mmsi != null ? String(t.mmsi) : `tgt-${seen.size}`;
+        seen.add(id);
 
-      const hdgDeg = (t.pose?.heading ?? 0) * RAD;
-      const cogRad = t.kinematics?.cog ?? 0;
-      const sogMs  = t.kinematics?.sog ?? 0;
+        const hdgDeg = (t.pose?.heading ?? 0) * RAD;
+        const cogRad = t.kinematics?.cog ?? 0;
+        const sogMs  = t.kinematics?.sog ?? 0;
 
-      // Marker
-      let m = tgtMarkers.current.get(id);
-      if (!m) {
-        const el = makeVesselEl('#fbbf24', 24);
-        m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
-          .setLngLat([lon, lat]).addTo(map);
-        tgtMarkers.current.set(id, m);
-      } else {
-        m.setLngLat([lon, lat]);
+        // Marker
+        let m = tgtMarkers.current.get(id);
+        if (!m) {
+          const el = makeVesselEl('#fbbf24', 24);
+          m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+            .setLngLat([lon, lat]).addTo(map);
+          tgtMarkers.current.set(id, m);
+        } else {
+          m.setLngLat([lon, lat]);
+        }
+        m.setRotation(hdgDeg);
+
+        // COG leader
+        cogFeatures.push(cogLine(lon, lat, cogRad, sogMs));
       }
-      m.setRotation(hdgDeg);
-
-      // COG leader
-      cogFeatures.push(cogLine(lon, lat, cogRad, sogMs));
     }
 
     // Remove stale
@@ -308,7 +415,10 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
   // ── Wind/current marker (top-left, fixed screen position) ──────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady.current || !env) return;
+    if (!map || !styleReady.current || !env || previewData) {
+      if (windMarker.current) { windMarker.current.remove(); windMarker.current = null; }
+      return;
+    }
     const dir  = env.wind?.direction ?? 0;
     const spd  = env.wind?.speedMps ?? 0;
     const centre = map.getCenter();
@@ -322,15 +432,16 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewpor
       const el = windMarker.current.getElement();
       el.innerHTML = makeWindEl(dir * RAD, spd).innerHTML;
     }
-    // Keep it in the visible centre so it doesn't wander with map pans.
-    // (true "screen-space" overlay lives in BridgeHMI; this is a secondary cue)
-  }, [env]);
+  }, [env, previewData]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapContainer} style={{ width: '100%', height: '100%' }}
            data-testid="sil-map-view" />
+      
+      <ImazuGeometry mapRef={mapRef} geometry={geometry || null} />
+
       {status !== 'ready' && (
         <div style={{
           position: 'absolute', bottom: 8, left: 8, padding: '4px 10px', borderRadius: 4,

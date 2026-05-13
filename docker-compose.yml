@@ -49,3 +49,15 @@ services:
       - "5173:5173"
     depends_on:
       - sil-orchestrator
+
+  martin-tile-server:
+    image: ghcr.io/maplibre/martin:latest
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/tiles:/data/tiles
+    # Automatically scan the /data/tiles directory for any .mbtiles files
+    # and serve them dynamically at /<filename>
+    command: ["/data/tiles"]
+    network_mode: host

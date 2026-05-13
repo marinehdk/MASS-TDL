@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { SilMapView } from '../map/SilMapView';
+import { ImazuGeometry } from '../map/ImazuGeometry';
+import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
+import * as jsyaml from 'js-yaml';
 import {
   useListScenariosQuery,
   useGetScenarioQuery,
@@ -12,7 +15,8 @@ import {
   LucidePlus, LucideSave, LucideCheckCircle, LucidePlay, 
   LucideCompass, LucideFolder, LucideFileJson, LucideChevronDown, LucideChevronRight, LucideSearch,
   LucideSettings2, LucideShip, LucideTarget, LucideCloudRain, LucideWaves, LucideRadio,
-  LucideLayout, LucideDices, LucideBrainCircuit, LucidePanelLeftClose, LucidePanelLeftOpen
+  LucideLayout, LucideDices, LucideBrainCircuit, LucidePanelLeftClose, LucidePanelLeftOpen,
+  LucideMousePointer2, LucideNavigation
 } from 'lucide-react';
 
 type Domain = 'single' | 'mc' | 'rl';
@@ -26,6 +30,10 @@ export function ScenarioBuilder() {
   const [isRailExpanded, setIsRailExpanded] = useState(false);
   const [isExplorerVisible, setIsExplorerVisible] = useState(true);
 
+  // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.
+  const [placementMode, setPlacementMode] = useState<string>('none');
+  const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
+
   const { data: scenarios = [] } = useListScenariosQuery();
   const { data: scenarioDetail } = useGetScenarioQuery(selectedId!, { skip: !selectedId });
   const [validate, { data: validation }] = useValidateScenarioMutation();
@@ -37,6 +45,74 @@ export function ScenarioBuilder() {
       setYamlEditor(scenarioDetail.yaml_content);
     }
   }, [scenarioDetail, selectedId]);
+
+  // Parse YAML to get preview data
+  const previewData = useMemo(() => {
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      if (!doc) return null;
+
+      const ownShip = doc.own_ship?.initial ? {
+        lat: doc.own_ship.initial.position?.latitude ?? 0,
+        lon: doc.own_ship.initial.position?.longitude ?? 0,
+        heading: doc.own_ship.initial.heading ?? 0,
+        cog: doc.own_ship.initial.cog ?? doc.own_ship.initial.heading ?? 0,
+        sog: doc.own_ship.initial.sog ?? 0,
+      } : undefined;
+
+      const targets = doc.target_ships?.map((t: any, idx: number) => ({
+        id: t.id || `target-${idx}`,
+        lat: t.initial?.position?.latitude ?? 0,
+        lon: t.initial?.position?.longitude ?? 0,
+        heading: t.initial?.heading ?? 0,
+        cog: t.initial?.cog ?? t.initial?.heading ?? 0,
+        sog: t.initial?.sog ?? 0,
+      })) || [];
+
+      return { ownShip, targets };
+    } catch (e) {
+      return null;
+    }
+  }, [yamlEditor]);
+
+  // Generate Imazu geometry features
+  const imazuGeometry = useMemo(() => {
+    if (!previewData?.ownShip || !previewData.targets.length) return null;
+    
+    const features: any[] = [];
+    const os = previewData.ownShip;
+
+    // Add a simple DCPA circle around OwnShip (e.g. 0.5nm)
+    const circle = (lat: number, lon: number, radiusNm: number, title: string) => {
+      const pts: [number, number][] = [];
+      const d = radiusNm / 60;
+      const cosLat = Math.cos(lat * Math.PI / 180);
+      for (let i = 0; i <= 64; i++) {
+        const a = (i / 64) * 2 * Math.PI;
+        pts.push([lon + (d * Math.sin(a)) / cosLat, lat + d * Math.cos(a)]);
+      }
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: pts },
+        properties: { type: 'dcpa', title }
+      };
+    };
+
+    features.push(circle(os.lat, os.lon, 0.5, 'OS DCPA 0.5nm'));
+    
+    previewData.targets.forEach(t => {
+      features.push(circle(t.lat, t.lon, 0.5, `${t.id} DCPA 0.5nm`));
+      
+      // Add a line between OS and Target
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [[os.lon, os.lat], [t.lon, t.lat]] },
+        properties: { type: 'trajectory', title: 'Relative Distance' }
+      });
+    });
+
+    return { type: 'FeatureCollection', features };
+  }, [previewData]);
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
@@ -63,6 +139,37 @@ export function ScenarioBuilder() {
       const hash = scenarioDetail?.hash || '';
       setScenario(selectedId, hash);
       window.location.hash = `#/preflight/${selectedId}`;
+    }
+  };
+
+  const handleMapClick = (lon: number, lat: number) => {
+    if (placementMode === 'none') return;
+
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      if (!doc) return;
+
+      if (placementMode === 'ownship') {
+        if (!doc.own_ship) doc.own_ship = {};
+        if (!doc.own_ship.initial) doc.own_ship.initial = {};
+        if (!doc.own_ship.initial.position) doc.own_ship.initial.position = {};
+        doc.own_ship.initial.position.latitude = Number(lat.toFixed(6));
+        doc.own_ship.initial.position.longitude = Number(lon.toFixed(6));
+      } else if (placementMode.startsWith('target-')) {
+        const idx = parseInt(placementMode.split('-')[1]);
+        if (doc.target_ships && doc.target_ships[idx]) {
+          const t = doc.target_ships[idx];
+          if (!t.initial) t.initial = {};
+          if (!t.initial.position) t.initial.position = {};
+          t.initial.position.latitude = Number(lat.toFixed(6));
+          t.initial.position.longitude = Number(lon.toFixed(6));
+        }
+      }
+
+      setYamlEditor(jsyaml.dump(doc));
+      setPlacementMode('none');
+    } catch (e) {
+      console.error('Failed to update YAML on map click', e);
     }
   };
 
@@ -266,7 +373,16 @@ export function ScenarioBuilder() {
           </button>
         )}
 
-        <SilMapView followOwnShip={false} viewMode="god" />
+        <SilMapView 
+          followOwnShip={false} 
+          viewMode="god" 
+          previewData={previewData || undefined}
+          onMapClick={handleMapClick}
+          substrate={substrate}
+          geometry={imazuGeometry}
+        />
+        
+        <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
         
         <div className="glass-panel" style={{
           position: 'absolute', top: 20, right: 20, padding: '12px 16px',
@@ -277,6 +393,25 @@ export function ScenarioBuilder() {
             <div style={{ fontFamily: 'var(--f-disp)', fontSize: 13, color: 'var(--c-phos)', fontWeight: 700 }}>单一场景 / SINGLE SCENARIO</div>
           </div>
         </div>
+
+        {/* Placement Mode Indicator */}
+        {placementMode !== 'none' && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+            padding: '12px 24px', background: 'var(--c-phos)', color: '#000', borderRadius: 30,
+            display: 'flex', alignItems: 'center', gap: 12, fontWeight: 800, fontSize: 14,
+            boxShadow: '0 8px 32px rgba(91,192,190,0.4)', zIndex: 1000
+          }}>
+            <LucideNavigation size={20} className="animate-pulse" />
+            <span>正在设置 {placementMode === 'ownship' ? '本船' : '目标船'} 位置... 点击地图确认</span>
+            <button 
+              onClick={() => setPlacementMode('none')}
+              style={{ background: '#000', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', marginLeft: 12 }}
+            >
+              取消
+            </button>
+          </div>
+        )}
       </div>
 
       {/* RIGHT PANEL: 10% - Parameters */}
@@ -297,23 +432,71 @@ export function ScenarioBuilder() {
             { id: 'targets', label: 'Target Tracking', icon: <LucideTarget size={14} /> },
             { id: 'env', label: 'Metocean Data', icon: <LucideCloudRain size={14} /> },
           ].map(section => (
-            <div 
-              key={section.id} 
-              onClick={() => setActiveTab(section.id as any)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '12px',
-                marginBottom: 2, cursor: 'pointer', borderRadius: 8,
-                background: activeTab === section.id ? 'rgba(91,192,190,0.1)' : 'transparent',
-                color: activeTab === section.id ? 'var(--c-phos)' : 'var(--txt-2)',
-              }}
-            >
-              {section.icon}
-              <span style={{ fontSize: 12, fontWeight: 600 }}>{section.label}</span>
+            <div key={section.id}>
+              <div 
+                onClick={() => setActiveTab(section.id as any)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px',
+                  marginBottom: 2, cursor: 'pointer', borderRadius: 8,
+                  background: activeTab === section.id ? 'rgba(91,192,190,0.1)' : 'transparent',
+                  color: activeTab === section.id ? 'var(--c-phos)' : 'var(--txt-2)',
+                }}
+              >
+                {section.icon}
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{section.label}</span>
+              </div>
+              
+              {/* Placement Tools in Form */}
+              {activeTab === section.id && (
+                <div style={{ padding: '8px 12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {section.id === 'ownship' && (
+                    <button 
+                      onClick={() => setPlacementMode('ownship')}
+                      style={{
+                        padding: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--line-1)',
+                        borderRadius: 6, color: 'var(--txt-1)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <LucideMousePointer2 size={12} /> 点击地图设置初始位置
+                    </button>
+                  )}
+                  {section.id === 'targets' && (previewData?.targets || []).map((t, idx) => (
+                    <button 
+                      key={t.id}
+                      onClick={() => setPlacementMode(`target-${idx}`)}
+                      style={{
+                        padding: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--line-1)',
+                        borderRadius: 6, color: 'var(--txt-1)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <LucideMousePointer2 size={12} /> 设置目标船 {t.id} 位置
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         <div style={{ padding: '16px', borderTop: '1px solid var(--line-2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleSave} style={{
+              flex: 1, padding: '10px', background: 'transparent', border: '1px solid var(--line-2)',
+              color: 'var(--txt-1)', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer'
+            }}>
+              <LucideSave size={14} /> SAVE
+            </button>
+            <button onClick={handleValidate} style={{
+              flex: 1, padding: '10px', background: 'transparent', border: '1px solid var(--line-2)',
+              color: 'var(--txt-1)', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer'
+            }}>
+              <LucideCheckCircle size={14} /> VALIDATE
+            </button>
+          </div>
           <button onClick={handleRun} disabled={!selectedId} style={{
             width: '100%', padding: '14px', background: selectedId ? 'var(--c-phos)' : 'var(--line-2)', 
             border: 'none', color: '#000', fontFamily: 'var(--f-disp)', fontSize: 12, fontWeight: 800,

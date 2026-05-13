@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tiles": "node tile-server.cjs ../data/tiles 3000",
+    "dev:all": "node tile-server.cjs ../data/tiles 3000 & vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
     "@tier4/roslibjs-foxglove": "https://github.com/tier4/roslibjs-foxglove/releases/download/v0.0.4/tier4-roslibjs-foxglove-0.0.4.tgz",
+    "better-sqlite3": "^12.10.0",
+    "js-yaml": "^4.1.1",
     "lucide-react": "^1.14.0",
     "maplibre-gl": "^4.7.0",
     "react": "^18.3.1",
@@ -24,6 +28,7 @@
     "@protobuf-ts/runtime": "^2.11.1",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
