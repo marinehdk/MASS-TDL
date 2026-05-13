@@ -150,11 +150,122 @@ export function ScenarioBuilder() {
       {/* CENTER: Step content */}
       <div style={{ padding: 16, overflow: 'hidden' }}>
         {currentStep === 1 && (
-          <ImazuGrid
-            cases={IMAZU_CASES}
-            selected={imazuId}
-            onSelect={(id) => { setImazuId(id); }}
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 14, height: '100%', overflow: 'hidden' }}>
+            <div style={{ overflowY: 'auto', paddingRight: 8 }}>
+              <ImazuGrid
+                cases={IMAZU_CASES}
+                selected={imazuId}
+                onSelect={(id) => { setImazuId(id); }}
+              />
+            </div>
+            {(() => {
+              const sel = IMAZU_CASES.find(c => c.id === imazuId) || IMAZU_CASES[2];
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+                  {/* Detail card */}
+                  <div style={{
+                    background: 'var(--bg-1)', border: '1px solid var(--line-2)',
+                    borderLeft: '2px solid var(--c-phos)', padding: 10,
+                  }}>
+                    <div style={{
+                      fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
+                      letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
+                    }}>SELECTED CASE · DETAIL</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <span style={{ fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--txt-0)', fontWeight: 700, letterSpacing: '0.08em' }}>
+                        IM{String(sel.id).padStart(2, '0')} · {sel.name}
+                      </span>
+                      <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 600 }}>
+                        {sel.rule}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--txt-2)', marginTop: 4 }}>
+                      Targets = {sel.ships.length} · Give-way {sel.ships.filter(s => s.role === 'give-way').length} · Stand-on {sel.ships.filter(s => s.role === 'stand-on').length}
+                    </div>
+                    {/* Radar SVG */}
+                    <div style={{
+                      marginTop: 8, background: '#050810', border: '1px solid var(--line-1)',
+                      padding: 6,
+                    }}>
+                      <svg viewBox="0 0 100 100" style={{ width: '100%', height: 180 }}>
+                        <circle cx="50" cy="75" r="28" fill="none" stroke="var(--line-2)" strokeWidth="0.5" strokeDasharray="2 3" />
+                        <circle cx="50" cy="75" r="56" fill="none" stroke="var(--line-2)" strokeWidth="0.5" strokeDasharray="2 3" opacity="0.6" />
+                        <line x1="50" y1="75" x2="50" y2="15" stroke="var(--c-phos)" strokeWidth="0.6" opacity="0.5" />
+                        <text x="47" y="12" fontFamily="var(--f-mono)" fontSize="4" fill="var(--c-phos)">N</text>
+                        {sel.ships.map((s, i) => {
+                          const c = s.role === 'give-way' ? 'var(--c-danger)' : s.role === 'stand-on' ? 'var(--c-warn)' : 'var(--c-info)';
+                          const rad = (s.h - 90) * Math.PI / 180;
+                          return (
+                            <g key={i}>
+                              <line x1={s.x} y1={s.y} x2={s.x + Math.cos(rad) * 12} y2={s.y + Math.sin(rad) * 12} stroke={c} strokeWidth="0.8" />
+                              <g transform={`translate(${s.x},${s.y}) rotate(${s.h})`}>
+                                <path d="M 0 -3.5 L 2.5 2.5 L 0 1 L -2.5 2.5 Z" fill="none" stroke={c} strokeWidth="1" />
+                              </g>
+                              <text x={s.x + 4} y={s.y - 2} fontFamily="var(--f-disp)" fontSize="3.5" fill={c}>T0{i + 1}</text>
+                            </g>
+                          );
+                        })}
+                        <g transform="translate(50,75)">
+                          <path d="M 0 -3.5 L 2.5 2.5 L 0 1 L -2.5 2.5 Z" fill="var(--c-phos)" />
+                        </g>
+                        <text x="53" y="78" fontFamily="var(--f-disp)" fontSize="3.5" fill="var(--c-phos)">OWN</text>
+                      </svg>
+                    </div>
+                    {/* Target chips */}
+                    <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                      {sel.ships.map((s, i) => {
+                        const c = s.role === 'give-way' ? 'var(--c-danger)' : s.role === 'stand-on' ? 'var(--c-warn)' : 'var(--c-info)';
+                        return (
+                          <div key={i} style={{
+                            padding: '5px 7px', background: 'var(--bg-0)',
+                            borderLeft: `2px solid ${c}`,
+                          }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9.5, color: 'var(--txt-0)', fontWeight: 600, letterSpacing: '0.08em' }}>
+                              T0{i + 1}
+                            </span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: c, display: 'block', textTransform: 'uppercase' }}>
+                              {s.role}
+                            </span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 8, color: 'var(--txt-3)' }}>
+                              HDG {s.h}° · pos ({s.x}, {s.y})
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* Parameter tuning */}
+                  <div style={{
+                    background: 'var(--bg-1)', border: '1px solid var(--line-1)',
+                    borderLeft: '2px solid var(--line-3)', padding: 10,
+                  }}>
+                    <div style={{
+                      fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
+                      letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
+                    }}>TARGET PARAMETERS</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Speed Range</span>
+                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>10.0 – 18.0 kn</div>
+                      </div>
+                      <div>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Initial Distance</span>
+                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>4.5 – 6.0 nm</div>
+                      </div>
+                      <div>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>HDG Noise</span>
+                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-warn)', marginTop: 2 }}>σ = 4° · σ_SOG = 0.8 kn</div>
+                      </div>
+                      <div>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Intent Change</span>
+                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>1 × @ T+180s</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         )}
         {currentStep === 2 && (
           <div style={{ color: 'var(--txt-3)', padding: 20 }}>

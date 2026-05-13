@@ -3,6 +3,8 @@ import { ScenarioBuilder } from './screens/ScenarioBuilder';
 import { Preflight } from './screens/Preflight';
 import { BridgeHMI } from './screens/BridgeHMI';
 import { RunReport } from './screens/RunReport';
+import { TopChrome } from './screens/shared/TopChrome';
+import { FooterHotkeyHints } from './screens/shared/FooterHotkeyHints';
 
 type Screen = 'builder' | 'preflight' | 'bridge' | 'report';
 
@@ -33,14 +35,23 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  switch (route.screen) {
-    case 'preflight':
-      return <Preflight />;
-    case 'bridge':
-      return <BridgeHMI />;
-    case 'report':
-      return <RunReport />;
-    default:
-      return <ScenarioBuilder />;
-  }
+  const handleNavigate = (screen: Screen) => {
+    window.location.hash = `#/${screen}`;
+  };
+
+  return (
+    <div style={{
+      width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
+      overflow: 'hidden', background: 'var(--bg-0)',
+    }}>
+      <TopChrome onNavigate={handleNavigate} />
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {route.screen === 'builder'   && <ScenarioBuilder />}
+        {route.screen === 'preflight' && <Preflight />}
+        {route.screen === 'bridge'    && <BridgeHMI />}
+        {route.screen === 'report'    && <RunReport />}
+      </div>
+      <FooterHotkeyHints screen={route.screen} />
+    </div>
+  );
 }

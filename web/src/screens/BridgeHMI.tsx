@@ -332,7 +332,7 @@ export function BridgeHMI() {
   });
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0b1320' }}
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}
          data-testid="bridge-hmi">
 
       {/* ── Full-screen map area ── */}
@@ -430,12 +430,13 @@ export function BridgeHMI() {
         {showFaultModal && <FaultInjectModal onClose={() => setShowFaultModal(false)} />}
       </div>
 
-      {/* ── Bottom status bar ── */}
+      {/* Bottom bar */}
       <div style={{
-        height: 48, background: '#060e1a',
-        borderTop: '1px solid rgba(45,212,191,0.12)',
-        display: 'flex', alignItems: 'center', padding: '0 16px', gap: 16,
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#e6edf3',
+        height: 36, background: 'var(--bg-1)',
+        borderTop: '1px solid var(--line-2)',
+        display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12,
+        fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--txt-1)',
+        flexShrink: 0,
       }}>
 
         {/* Sim time + lifecycle state */}
