@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTelemetryStore } from '../store';
-import type { ASDREvent, LifecycleStatus } from '../store/telemetryStore';
+import type { ASDREvent, LifecycleStatus, SensorState, CommLinkState, FaultState, ControlCmdState } from '../store/telemetryStore';
 
 // Reconnect with exponential back-off (max 30 s) so DEMO-1 survives a
 // foxglove_bridge restart without requiring a page refresh.
@@ -63,6 +63,30 @@ export function useFoxgloveLive(wsUrl = 'ws://localhost:8765') {
               break;
             case '/sil/lifecycle_status':
               updateLifecycleStatus(msg.payload as LifecycleStatus);
+              break;
+            case '/sil/scoring_row':
+              useTelemetryStore.getState().updateScoringRow(msg.payload as any);
+              break;
+            case '/sil/sensor_status':
+              useTelemetryStore.getState().updateSensors(
+                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
+              );
+              break;
+            case '/sil/commlink_status':
+              useTelemetryStore.getState().updateCommLinks(
+                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
+              );
+              break;
+            case '/sil/fault_status':
+              useTelemetryStore.getState().updateFaultStatus(
+                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
+              );
+              break;
+            case '/sil/control_cmd':
+              useTelemetryStore.getState().updateControlCmd(msg.payload as any);
+              break;
+            case '/sil/preflight_log':
+              useTelemetryStore.getState().appendPreflightLog(msg.payload as any);
               break;
           }
         } catch {
