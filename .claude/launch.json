@@ -6,6 +6,12 @@
       "runtimeExecutable": "true",
       "runtimeArgs": [],
       "port": 8000
+    },
+    {
+      "name": "sil-design-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/tmp/sil-preview"],
+      "port": 8765
     }
   ]
 }

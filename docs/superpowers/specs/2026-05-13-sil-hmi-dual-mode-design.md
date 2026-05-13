@@ -12,6 +12,30 @@
 
 ---
 
+## 📂 Reference Prototype（**v1.2 顶部 callout — 视觉/结构 ground truth**）
+
+> **本 spec 描述 "意图 / 架构 / 集成"，不再用 ASCII 描述像素级 layout。所有视觉与结构细节以下列文件为权威。**
+
+📁 [`docs/Design/SIL/reference-prototype/`](../../Design/SIL/reference-prototype/) — 用户通过 Claude Design 设计并 export 的 **7 个 babel JSX 源（~2181 行真组件代码）**，覆盖 4 屏 + 顶部 chrome + 共享原子 + Imazu 22 几何数据。
+
+| 文件 | 角色 | 实施 Task 引用 |
+|---|---|---|
+| `01-hmi-atoms.jsx` (220 行) | 共享视觉原子（StatusPill / Chip / Card / COL palette）| Task 1 (tokens.css 已覆盖) + Task 18 (chrome) |
+| `02-sil-imazu.jsx` (80 行) | Imazu 22 例 SVG 几何数据 + COLREGs Rule 标注 | Task 22 (ImazuGrid) |
+| `03-sil-app.jsx` (194 行) | 顶级路由 + 4 nav tab + dual clock + state pill + REC indicator | Task 18 (TopChrome) |
+| `04-sil-builder.jsx` (453 行) | Screen ① 完整实现：A/B/C steps + Imazu grid + Environment 4 cards + Run settings + SummaryRail | Tasks 11 + 22 |
+| `05-sil-preflight.jsx` (309 行) | Screen ② 完整实现：M1-M8 (含 topic/Hz/sub-checks) + 8 命名传感器 + 6 命名 comm-links + LiveLog + GO/NO-GO | Tasks 13 + 23 |
+| `06-sil-bridge.jsx` (553 行) | Screen ③ 完整实现：FCB-A5M ownship + autonomy pill + TMR+TOL + Scene panel + 3 target chips + 7-field Conning + Fault catalog + ToR modal | Tasks 10 + 19 + 20 + 21 |
+| `07-sil-report.jsx` (372 行) | Screen ④ 完整实现：8 KPI cards + Trajectory replay + Event timeline strip + ASDR ledger (4-level filter + SHA chain verify) | Tasks 12 + 24 |
+
+**冲突解决规则**：spec 文本 vs JSX 实际行为冲突 → **以 JSX 为权威**（除非 JSX 明显是 design-time mock，如 hardcoded fixture data）。
+
+详见 [`reference-prototype/README.md`](../../Design/SIL/reference-prototype/README.md) — 含实施者工作流 + 与 spec v1.1 的 11 项已知差异（v1.2 修订表）。
+
+**本 spec 在 §3.1 / §3.3.6 / §3.3.8 / §3.4.1 / §3.4.2 / §3.4.5 等关键节加入"v1.2 design 校准"小框，覆盖与 reference prototype 不一致的旧描述。**
+
+---
+
 ## 0. 设计目标
 
 SIL HMI 作为 MASS L3 TDL 的**算法验证枢纽**，通过 4 个串联屏幕完成"场景定义 → 系统预检 → 实时仿真 → 结果归档"完整闭环。本次 DEMO-1 重塑目标：
@@ -276,6 +300,15 @@ html, body {
 
 ### 3.1 Screen ① — Scenario Builder（**v1.1 重构为 3-Step + 3 Sub-tabs**）
 
+> **🔧 v1.2 design 校准**（依据 `04-sil-builder.jsx` + screenshot）：
+> - **Steps 标签 A/B/C 而非 1/2/3**：A · ENCOUNTER / B · ENVIRONMENT / C · RUN（每个含中文副标 "会遇几何 · Imazu 22" 等）
+> - **不存在 "3 sub-tabs in ENCOUNTER"**（Template/Procedural/AIS Replay）— design 中 ENCOUNTER 直接是 22-Imazu grid + 详情面板。Procedural / AIS 入口属未来扩展，DEMO-1 仅 Template + Imazu
+> - **左侧 sidebar 含独立 SCENARIO LIBRARY 区**（与 Steps stepper 同列下方）：4 个预设 `IM03_Crossing_GiveWay_v2` / `IM07_Overtaken_FogA` / `IM14_Triple_Conflict` / `IM22_Restricted_Narrow`
+> - **Imazu 22 名+规则**: 每例标 `IM{NN}` + `R{Rule}` chip + 名称 + ship 配置。COLREGs Rule 范围: R9 / R13 / R14 / R15 / R17 + 复合（如 R14+R15 / R15×2 / R9 复合）
+> - **Environment Step B 不含 ODD Level dropdown** — ODD/autonomy 在 Step B 仅作为 **"SCO 区域配置" card** (A-OPEN / B-TSS / C-RESTRICTED)；运行时 autonomy level (D2/D3/D4/MRC) 由 Bridge 顶部 pill 显示
+> - **Environment 实际 4 cards**: WIND/SEA/CURRENT · 能见度与气象 · SCO 区域配置 · 本船·动力学（含 FCB-NSM / CONT-100M / TUG-20M 船型选项）
+> - 所有视觉细节以 `04-sil-builder.jsx` 为准
+
 **路由**: `/#/builder`
 
 **布局**: 顶部 3-Step Stepper（① ENCOUNTER · ② ENVIRONMENT · ③ RUN）+ 主区域当前 step 内容 + 右栏 320px 摘要侧栏（Summary Rail）+ 底部 Validate → Pre-flight CTA。ENC 地图预览在所有 step 共享右上区域（4:3 浮动卡片）。
@@ -337,6 +370,24 @@ html, body {
 - `data-testid="validate-cta"` — Validate 按钮按状态变色
 
 ### 3.2 Screen ② — Pre-flight（**v1.1 扩展为 M1-M8 + 8 Sensors + 6 Comm-links + Live Log**）
+
+> **🔧 v1.2 design 校准**（依据 `05-sil-preflight.jsx`）：
+> - **Module cards 字段**: 除 `{id, name}` 外含 `src` (DDS topic path，例 `sango_adas/m1`) · `hz` (publish 频率) · `checks[]` (sub-check 名称数组)
+> - **M5 含展开子检查**: BC-MPC init · warm-start · solver health
+> - **Sensors 用具体 make/model**（不是抽象 "GNSS/Gyro/IMU/Radar/AIS/Camera/LiDAR/ECDIS" 8 dots）：
+>   - GNSS-A: `TrimMV BD992` (RTK FLOAT · 24 sats · backup)
+>   - GNSS-B: `Septentrio mosaic`
+>   - IMU: `Xsens MTi-680G` (200Hz · bias compensated)
+>   - RADAR: `JRC JMA-9230` (27 RPM · 24 nm)
+>   - AIS: `Furuno FA-170` (常出现 WARN)
+>   - LiDAR: `Velodyne VLS-128`
+>   - (其余 sensor 见 `MODULE_LIST` + `SENSOR_LIST` in JSX)
+> - **Live log 格式**: `[HH:MM:SS.ms] preflight.runner: <message>` (例 `[06:42:01.015] preflight.runner: session SIL-0427 attached to scenario`)
+> - **Comm-link 命名**: 含 "Iridium backup 高延迟" 等真实标签
+> - **顶部 actions**: RUN CHECKS / AUTHORIZE → BRIDGE 两按钮
+> - **底部 actions**: ← SCENARIO / START BRIDGE RUN
+> - **底部 hotkey hints**: SPACE 运行/暂停 · R 重启检查
+> - 所有视觉细节以 `05-sil-preflight.jsx` 为准
 
 **路由**: `/#/preflight/:scenarioId`
 
@@ -547,6 +598,19 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 
 #### 3.3.6 ToR Modal（v1.1 NEW — 对齐 Veitch 2024 TMR 框架）
 
+> **🔧 v1.2 design 校准**（依据 `06-sil-bridge.jsx`）：
+> - **TMR + TOL 双倒计时**（不是单 TMR）：
+>   - **TMR** (Time of Maneuver Reservation): 60s 默认 — 用户接管 deadline
+>   - **TOL** (Time of LOITER / Operating Limit): 240s 默认 — 系统持续运行 envelope 限制
+> - Scene panel 顶部同时显示 `TMR 60` 和 `TOL 240`（带进度条）
+> - **3 立式 action buttons**（非仅 modal 内"Take Control"按钮）：
+>   - `REQUEST TAKEOVER` (T) — 主动触发 ToR
+>   - `MRC - DRIFT` (M) — 紧急 MRC 触发（含 "紧急触发 (M)" 副标）
+>   - `FAULT INJECT` (F) — 故障注入（与 §3.3.7 联动）
+> - **Scene + Verdict 双显示**: `SCENE: TRANSIT/COLREG_AVOIDANCE/TOR/OVERRIDE/MRC` + `VERDICT: NOMINAL/CAUTION/CRITICAL`
+> - **Resume / End Report 按钮**: 系统在 ACTIVE 时显示 `▶ RESUME (SPACE)` + `END · REPORT →`
+> - 所有视觉细节以 `06-sil-bridge.jsx` 为准
+
 **触发**: FSM 进入 TOR 状态时全屏 modal overlay（不可关闭，仅 Take Control / Wait 选择）。
 
 **布局** (居中 480×360px modal, backdrop 60% opacity)：
@@ -630,6 +694,19 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 `data-testid="fault-panel"` / `data-testid="fault-inject-ais"` / `data-testid="fault-inject-radar"` / `data-testid="fault-inject-roc"`
 
 #### 3.3.8 Conning Bar（v1.1 NEW — 两视图共享，密度按视图差异）
+
+> **🔧 v1.2 design 校准**（依据 `06-sil-bridge.jsx` Bridge HMI 底部 HUD）：
+> - **7 字段而非 4 字段**：HDG · COG · SOG · OOG · ROT · RUDDER · ROL (RPM/Pitch)
+>   - HDG: 005 (船首向)
+>   - COG: 005° (Course Over Ground)
+>   - SOG: 18.4 kn / 1?.2 nm/cmd (Speed Over Ground + 命令值)
+>   - OOG: 008 (Over Other Ground？查 JSX 源)
+>   - ROT: +0.2 °/min (Rate of Turn)
+>   - RUDDER: -02° (port，舵角实际值)
+>   - ROL: 127 (RPM or Pitch — 详查 JSX `06-sil-bridge.jsx`)
+> - **位置**: 底部 horizontal HUD，跨整个屏幕宽度（不是仅左 50%）
+> - **God 模式额外**: 每字段右侧附 60s sparkline (`requestAnimationFrame` 节流到 30fps)
+> - 所有视觉细节以 `06-sil-bridge.jsx` 为准
 
 **位置**: 底部状态栏正上方 36px 条状区 (左 50%, 与 ARPA 表错位)。
 
@@ -728,6 +805,18 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 
 #### 3.4.1 Verdict + KPI 顶部条
 
+> **🔧 v1.2 design 校准**（依据 `07-sil-report.jsx`）：
+> - **8 KPI cards 而非 4-5**：每个含数值 + sparkline + 单位 / 含义副标
+>   1. **VERDICT**: PASS/FAIL (大字) + criteria 计数 (例 "8/8 criteria · 0 fail · 0 warn") + sealed indicator + 签名行 (例 "signed SHA-256 / VPSB · sealed")
+>   2. **最小 CPA**: 0.52 nm + sparkline (绿色路径)
+>   3. **COLREGs 合规率**: 1.00 + sparkline
+>   4. **最大舵角 RUD**: 0.48 m? 或 rad? + sparkline
+>   5. **TOR 累计时长**: 5.5 s + sparkline
+>   6. **决策延迟 P99**: 24 ms + sparkline + threshold 标注（"<50ms"）
+>   7. **Fault 注入计数**: "2 件 · 注入"
+>   8. **SHA-256 状态**: hash 缩写 + "0 次" 失败计数
+> - 所有视觉细节以 `07-sil-report.jsx` 为准
+
 | KPI | 数据源 | 显示 |
 |---|---|---|
 | **Verdict** | `GET /api/v1/runs/:runId/verdict` | 大号 ● PASS（绿）/ ● FAIL（红）/ ● INCONCLUSIVE（黄）|
@@ -738,7 +827,14 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 
 **Sparkline**: DEMO-1 stub（SVG path with zero data）；Phase 2 接 telemetry buffer。`data-testid="kpi-sparkline-{cpa\|rot\|violations}"`
 
-#### 3.4.2 6-Lane Event Timeline（v1.1 NEW — 可点击 scrub）
+#### 3.4.2 Event Timeline（v1.1 NEW — 可点击 scrub）
+
+> **🔧 v1.2 design 校准**（依据 `07-sil-report.jsx`）：
+> - **不是显式 6-lane 而是 1 紧凑 timeline strip**（多色 segment 堆叠在窄水平条内）
+> - "19 events · click track to scrub" 单行 hint + 时间刻度
+> - 上方独立大型 **Trajectory Replay** map 显示完整航迹 + 播放控制（×0 ×1 ×2 ×4 ×10 + ⏸/▶ + `T+02:20` 时间指示）
+> - 点击 timeline 任意位置 → 跳转 trajectory 到该时刻 + 同步 ASDR ledger 高亮当时事件
+> - 所有视觉细节以 `07-sil-report.jsx` 为准
 
 **6 lanes** (从上到下)：
 
@@ -777,6 +873,22 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 - `data-testid="scoring-radar"`
 
 #### 3.4.5 ASDR Ledger Table（v1.1 NEW — SHA-256 hash chain）
+
+> **🔧 v1.2 design 校准**（依据 `07-sil-report.jsx`）：
+> - **过滤器: 4-level (ALL / INFO / WARN / CRIT)**，非 type+module multi-select
+> - **列结构**: T+TIME (sim time MM:SS) · Module ID (M2/M4/M5/M7/M8) · Event Type (大写下划线 enum) · Description (中文混 English)
+> - **Event Type enum（~18 类型，from `REPORT_EVENTS` fixture）**：
+>   - 生命周期: `INIT` / `END`
+>   - 检测/分类: `TGT_DET` / `CPA_PROJ` / `CPA_MIN`
+>   - 场景转换: `SCENE_CHG` (例 "TRANSIT → COLREG_AVOIDANCE")
+>   - COLREGs: `COLREG_R14` / `COLREG_R13` / `COLREG_R15` / `COLREG_R17`
+>   - 规划: `MPC_BRANCH`
+>   - 故障: `AIS_DROP` / `AIS_REC` / `RUL_LOSS` / `BNSS_BIAS`
+>   - ToR/接管: `TOR_REQ` / `TOR_ACK` / `OVERRIDE` / `HANDBACK` / `TRANSIT`
+>   - WP: `WP_REACH`
+> - **SHA chain section** 在 ledger 底部，含完整 hash 显示 + `VERIFY CHAIN` 按钮 + `EXPORT JSON` 按钮（与单行 SHA 列分离）
+> - **顶部 actions**: ← BACK TO BRIDGE / ↓ EXPORT ASDR / + NEW RUN →
+> - 所有视觉细节以 `07-sil-report.jsx` 为准
 
 **列**: `# | Time | Type | Module | Payload preview | SHA-256 (8 chars)`
 
@@ -1079,6 +1191,16 @@ MapLibre 'moveend' event
 ## 修订记录
 
 - 2026-05-13 v1.0：基线建立。用户决策 Dual-Mode Balanced scope (17 features) + ENC chart persistence + OpenBridge 5.0/S-52 alignment。
+- 2026-05-13 v1.2：**整合用户 export `COLAV SIL Simulator.html` ground truth**（含 7 babel JSX 源 ~2181 行 + 完整 :root token + 132 资源）。
+  - **顶部 callout**: 新增"Reference Prototype"块，明确 `docs/Design/SIL/reference-prototype/` 为视觉/结构权威，spec 文本 vs JSX 行为冲突时**以 JSX 为准**
+  - **§3.1 校准**: Steps A/B/C 而非 1/2/3 / 无 3-sub-tabs / 独立 SCENARIO LIBRARY / Environment 4 真实 cards 字段
+  - **§3.2 校准**: Module 含 src+hz+checks / Sensors 具体 make-model (TrimMV BD992 / Xsens MTi-680G / JRC JMA-9230 等)
+  - **§3.3.6 校准**: TMR + TOL **双倒计时** / 3 立式 action button / Scene + Verdict 双标
+  - **§3.3.8 校准**: Conning **7 字段** (HDG/COG/SOG/OOG/ROT/RUDDER/ROL) 而非 4
+  - **§3.4.1 校准**: **8 KPI cards** 而非 4-5（含 VERDICT sealed / COLREGs 合规率 / 决策延迟 P99 等）
+  - **§3.4.2 校准**: **单 timeline strip** 而非显式 6-lane（多色 segment 堆叠紧凑显示）
+  - **§3.4.5 校准**: ASDR ledger **4-level filter (ALL/INFO/WARN/CRIT)** + **~18 event types enum** (INIT/TGT_DET/CPA_PROJ/SCENE_CHG/COLREG_R14/MPC_BRANCH/AIS_DROP/CPA_MIN/RUL_LOSS/TOR_REQ/TOR_ACK/OVERRIDE/HANDBACK/TRANSIT/BNSS_BIAS/WP_REACH/END)
+  - 视觉 fidelity 预期: 90% → **~98%**（pixel-port via JSX reference）
 - 2026-05-13 v1.1：**整合 Claude Design handoff bundle（colav-simulator）运行时语义**。
   - **DNV 框架重定位**：Dual-Mode 从"信息密度切换"重新框定为 DNVGL-CG-0264 SIL 双轨观测点（Captain = Digital Twin Black Box / God = Test Management White Box）。证据 🟢 silhil_platform notebook nlm-ask + maritime_human_factors notebook nlm-ask。
   - **新增 §3.3.0 Top Chrome** — 跨屏共享（brand + 4 tab + run state pill + dual clock + view toggle + footer hotkey hints）

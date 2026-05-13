@@ -8,7 +8,26 @@
 
 **Tech Stack:** React 18, TypeScript, Zustand, RTK Query, MapLibre GL JS, Protobuf-ts types
 
-**Spec:** `docs/superpowers/specs/2026-05-13-sil-hmi-dual-mode-design.md` (v1.1)
+**Spec:** `docs/superpowers/specs/2026-05-13-sil-hmi-dual-mode-design.md` (v1.2)
+
+**📂 Reference Prototype (v1.2 NEW — 视觉 ground truth)**: `docs/Design/SIL/reference-prototype/` 含 7 个 babel JSX 源（~2181 行真组件代码） + README 实施指南。**每个 Task 必须先读对应 JSX 再写实现 — JSX 是视觉权威**：
+
+| Task | 对应 JSX |
+|---|---|
+| Task 1 (tokens.css) | `01-hmi-atoms.jsx` (COL palette + 共享 atom 组件) |
+| Task 10 (BridgeHMI integration) | `06-sil-bridge.jsx` (553 行) |
+| Task 11 (ScenarioBuilder integration) | `04-sil-builder.jsx` (453 行) |
+| Task 12 (RunReport integration) | `07-sil-report.jsx` (372 行) |
+| Task 13 (Preflight integration) | `05-sil-preflight.jsx` (309 行) |
+| Task 18 (TopChrome + chrome group) | `03-sil-app.jsx` (194 行) |
+| Task 19 (TorModal) | `06-sil-bridge.jsx` 中 ToR modal 部分 |
+| Task 20 (FaultInjectPanel) | `06-sil-bridge.jsx` 中 `FAULT_CATALOG` + Fault inject UI |
+| Task 21 (ConningBar + ThreatRibbon) | `06-sil-bridge.jsx` 底部 conning + 顶部 target chips |
+| Task 22 (Stepper + SummaryRail + ImazuGrid) | `04-sil-builder.jsx` + `02-sil-imazu.jsx` (Imazu 22 数据) |
+| Task 23 (Module/Sensor/CommLink/LiveLog) | `05-sil-preflight.jsx` MODULE_LIST + SENSOR_LIST + COMM_LINK_LIST |
+| Task 24 (Timeline/AsdrLedger/TrajectoryReplay) | `07-sil-report.jsx` REPORT_EVENTS + KPI cards + trajectory logic |
+
+**冲突解决**: spec 文本 vs JSX 行为 → **JSX 为权威**（spec v1.2 callouts 已注明已知 8 项差异；其余靠实施者读 JSX 发现）。
 
 ---
 
