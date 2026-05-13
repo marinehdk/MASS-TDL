@@ -3,6 +3,7 @@ import { create } from 'zustand';
 type ViewMode = 'captain' | 'god' | 'roc';
 
 interface UIState {
+  /** DNV SIL dual-track: 'captain' = Digital Twin Black Box / 'god' = Test Management White Box */
   viewMode: ViewMode;
   asdrLogExpanded: boolean;
   pulseBarExpanded: boolean;
