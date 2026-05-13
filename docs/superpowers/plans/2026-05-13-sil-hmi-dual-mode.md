@@ -135,64 +135,103 @@ web/src/
 - Create: `web/src/styles/tokens.css`
 - Modify: `web/src/main.tsx:1-6`
 
-- [ ] **Step 1: Create tokens.css with all design tokens**
+- [ ] **Step 1: Create tokens.css with all design tokens (v1.1 ground truth from Claude Design HTML export)**
+
+> **依据**: spec §2.1 v1.1 (2026-05-13 用户提供 `COLAV SIL Simulator.html` 实际 token)。**禁止使用 v1.0 token 名**（已废弃，见 spec §2.1.1 映射表）。
 
 ```css
 /* web/src/styles/tokens.css */
 
 :root {
-  /* ── Status colors (OpenBridge 5.0 alert-alarm/warning/caution, night-adapted) ── */
-  --status-green:        #34d399;
-  --status-amber:        #fbbf24;
-  --status-red:          #f87171;
+  /* ── Surface hierarchy (Night Mode default for bridge HMI) ────── */
+  --bg-0: #070C13;          /* deepest — canvas */
+  --bg-1: #0B1320;          /* panel background */
+  --bg-2: #101B2C;          /* card surface */
+  --bg-3: #16263A;          /* elevated card */
 
-  /* ── Accent palette ── */
-  --accent-primary:      #2dd4bf;
-  --accent-info:         #60a5fa;
-  --accent-decision:     #c084fc;
-  --accent-score:        #a3e635;
-  --accent-windsea:      #93c5fd;
+  /* ── Border hierarchy (纯色非透明) ───────────────────────────── */
+  --line-1: #1B2C44;
+  --line-2: #243C58;
+  --line-3: #3A5677;
 
-  /* ── Surface hierarchy (S-52 Night black background) ── */
-  --surface-root:        #0b1320;
-  --surface-panel:       #0f1929;
-  --surface-bar:         #060e1a;
-  --surface-input:       #0d1f2d;
+  /* ── Text hierarchy (4 档) ───────────────────────────────────── */
+  --txt-0: #F1F6FB;         /* critical readouts */
+  --txt-1: #C5D2E0;         /* primary */
+  --txt-2: #8A9AAD;         /* secondary */
+  --txt-3: #566578;         /* labels, units */
 
-  /* ── Border hierarchy ── */
-  --border-subtle:       rgba(45, 212, 191, 0.08);
-  --border-default:      rgba(45, 212, 191, 0.12);
-  --border-active:       rgba(45, 212, 191, 0.22);
-  --border-alert:        #dc2626;
+  /* ── Semantic functional colors (ECDIS conventions) ───────────── */
+  --c-phos:    #5BC0BE;     /* phosphor — radar / brand / own ship */
+  --c-stbd:    #3FB950;     /* starboard green / safe */
+  --c-port:    #F26B6B;     /* port red / threat */
+  --c-warn:    #F0B72F;     /* amber warning */
+  --c-info:    #79C0FF;     /* informational blue */
+  --c-danger:  #F85149;     /* critical red */
+  --c-magenta: #D070D0;     /* predicted track (ECDIS conv.) */
 
-  /* ── Text hierarchy ── */
-  --text-primary:        #e6edf3;
-  --text-secondary:      #9ca3af;
-  --text-dimmed:         #4b6888;
-  --text-inverse:        #0b1320;
+  /* ── Autonomy level colors (IMO MASS Code 4-level) ───────────── */
+  --c-d4: #3FB950;          /* full auto */
+  --c-d3: #79C0FF;          /* supervised — nominal */
+  --c-d2: #F0B72F;          /* manual / RO */
+  --c-mrc: #F85149;         /* minimum risk condition */
 
-  /* ── Typography ── */
-  --font-mono:           'JetBrains Mono', 'Courier New', monospace;
-  --font-sans:           'Inter', system-ui, -apple-system, sans-serif;
+  /* ── Type (3 字体栈，含中文支持) ──────────────────────────────── */
+  --f-disp: 'Saira Condensed', 'Noto Sans SC', sans-serif;
+  --f-body: 'Noto Sans SC', 'Saira Condensed', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* ── Spacing scale (4px base) ── */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
+  /* ── Spacing / radius (strict zero-radius) ───────────────────── */
+  --r-0: 0;
+  --r-min: 2px;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 18px;             /* 注: lg = 18 不是 16 */
+  --sp-xl: 24px;
 }
 
-/* Global reset helpers */
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  background: var(--surface-root);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
+/* ── Global reset + base ──────────────────────────────────────── */
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--txt-1);
+  font-family: var(--f-body);
+  overflow: hidden;
 }
+#root { width: 100vw; height: 100vh; }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-thumb { background: var(--line-2); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+/* ── Atom Classes (reusable across all artboards) ─────────────── */
+.hmi-surface  { background: var(--bg-0); color: var(--txt-1); font-family: var(--f-body); }
+.hmi-mono     { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.hmi-disp     { font-family: var(--f-disp); letter-spacing: 0.18em; text-transform: uppercase; }
+.hmi-label    { font-family: var(--f-disp); font-size: 9.5px; letter-spacing: 0.22em;
+                color: var(--txt-3); text-transform: uppercase; font-weight: 500; }
+
+/* ── Keyframes (4 global animations) ──────────────────────────── */
+@keyframes phos-pulse  { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes warn-flash  { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes scan-line   { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+```
+
+- [ ] **Step 1.b: Add Google Fonts link in `index.html`**（v1.1 NEW）
+
+Modify `web/index.html` `<head>` to load Saira Condensed + Noto Sans SC + JetBrains Mono:
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 ```
 
 - [ ] **Step 2: Import tokens.css in main.tsx**
@@ -398,7 +437,7 @@ export const CompassRose: React.FC<CompassRoseProps> = ({ bearing, relativeMode 
       style={{
         width: 72, height: 72,
         background: 'rgba(11,19,32,0.82)',
-        border: '1px solid var(--border-default)',
+        border: '1px solid var(--line-2)',
         borderRadius: '50%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
@@ -406,14 +445,14 @@ export const CompassRose: React.FC<CompassRoseProps> = ({ bearing, relativeMode 
       <svg width={72} height={72} viewBox="0 0 72 72"
            style={{ transform: relativeMode ? `rotate(${bearing}deg)` : 'none' }}>
         {/* Outer ring */}
-        <circle cx={cx} cy={cy} r={radius} fill="none" stroke="var(--border-subtle)" strokeWidth="0.5" />
+        <circle cx={cx} cy={cy} r={radius} fill="none" stroke="var(--line-1)" strokeWidth="0.5" />
         {/* Cardinal ticks */}
-        <line x1={cx} y1={cy - radius + 4} x2={cx} y2={cy - radius + 12} stroke="var(--status-red)" strokeWidth="1.5" />
-        <line x1={cx} y1={cy + radius - 4} x2={cx} y2={cy + radius - 12} stroke="var(--text-dimmed)" strokeWidth="0.5" />
-        <line x1={cx - radius + 4} y1={cy} x2={cx - radius + 12} y2={cy} stroke="var(--text-dimmed)" strokeWidth="0.5" />
-        <line x1={cx + radius - 4} y1={cy} x2={cx + radius - 12} y2={cy} stroke="var(--text-dimmed)" strokeWidth="0.5" />
+        <line x1={cx} y1={cy - radius + 4} x2={cx} y2={cy - radius + 12} stroke="var(--c-danger)" strokeWidth="1.5" />
+        <line x1={cx} y1={cy + radius - 4} x2={cx} y2={cy + radius - 12} stroke="var(--txt-3)" strokeWidth="0.5" />
+        <line x1={cx - radius + 4} y1={cy} x2={cx - radius + 12} y2={cy} stroke="var(--txt-3)" strokeWidth="0.5" />
+        <line x1={cx + radius - 4} y1={cy} x2={cx + radius - 12} y2={cy} stroke="var(--txt-3)" strokeWidth="0.5" />
         {/* Center dot */}
-        <circle cx={cx} cy={cy} r={2} fill="var(--accent-primary)" />
+        <circle cx={cx} cy={cy} r={2} fill="var(--c-phos)" />
       </svg>
     </div>
   );
@@ -459,7 +498,7 @@ export const PpiRings: React.FC<PpiRingsProps> = React.memo(({ centerFraction, r
           cy={`${centerFraction[1]}%`}
           r={r}
           fill="none"
-          stroke="var(--accent-primary)"
+          stroke="var(--c-phos)"
           strokeWidth="0.5"
           strokeOpacity={0.12 - i * 0.03}
         />
@@ -500,8 +539,8 @@ export const DistanceScale: React.FC<DistanceScaleProps> = React.memo(({ nmPerPi
         gap: 2,
       }}
     >
-      <div style={{ width: pxWidth, height: 2, background: 'var(--text-secondary)' }} />
-      <div style={{ fontSize: 8, color: 'var(--text-dimmed)', fontFamily: 'var(--font-mono)' }}>
+      <div style={{ width: pxWidth, height: 2, background: 'var(--txt-2)' }} />
+      <div style={{ fontSize: 8, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>
         {niceNm} nm
       </div>
     </div>
@@ -690,7 +729,7 @@ export const ImazuGeometry: React.FC<ImazuGeometryProps> = React.memo(({ mapRef,
           'text-anchor': 'bottom',
         },
         paint: {
-          'text-color': 'var(--accent-primary)',
+          'text-color': 'var(--c-phos)',
           'text-opacity': 0.6,
         },
       });
@@ -874,11 +913,11 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
         data-testid="arpa-table-toggle"
         style={{
           position: 'absolute', top: 54, right: 96, zIndex: 15,
-          background: 'var(--surface-panel)',
-          border: '1px solid var(--border-default)',
-          color: 'var(--text-dimmed)',
+          background: 'var(--bg-1)',
+          border: '1px solid var(--line-2)',
+          color: 'var(--txt-3)',
           padding: '4px 10px', borderRadius: 3,
-          fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer',
+          fontFamily: 'var(--f-mono)', fontSize: 10, cursor: 'pointer',
         }}
       >
         ARPA ({targets.length})
@@ -894,19 +933,19 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
       style={{
         position: 'absolute', top: 54, right: 96, zIndex: 15,
         background: 'rgba(11,19,32,0.92)',
-        border: '1px solid var(--border-active)',
+        border: '1px solid var(--line-3)',
         borderRadius: 6, padding: '6px 8px',
-        fontFamily: 'var(--font-mono)', fontSize: 9,
+        fontFamily: 'var(--f-mono)', fontSize: 9,
         minWidth: 260, maxHeight: 240, overflowY: 'auto',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: 8, letterSpacing: 1 }}>ARPA TARGETS</span>
-        <span onClick={onToggle} style={{ color: 'var(--text-dimmed)', cursor: 'pointer', fontSize: 10 }}>✕</span>
+        <span style={{ color: 'var(--txt-3)', fontSize: 8, letterSpacing: 1 }}>ARPA TARGETS</span>
+        <span onClick={onToggle} style={{ color: 'var(--txt-3)', cursor: 'pointer', fontSize: 10 }}>✕</span>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ color: 'var(--text-dimmed)', fontSize: 7 }}>
+          <tr style={{ color: 'var(--txt-3)', fontSize: 7 }}>
             <th style={{ textAlign: 'left', padding: 1 }}>ID</th>
             <th style={{ textAlign: 'left', padding: 1 }}>BRG°</th>
             <th style={{ textAlign: 'left', padding: 1 }}>RNG</th>
@@ -922,11 +961,11 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
             const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
             const cpaVal = cpaInfo?.cpa;
             const cpaColor = cpaVal != null
-              ? cpaVal < 1.0 ? 'var(--status-red)' : cpaVal < 2.0 ? 'var(--status-amber)' : 'var(--text-primary)'
-              : 'var(--text-dimmed)';
+              ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : 'var(--txt-1)'
+              : 'var(--txt-3)';
             return (
-              <tr key={id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                <td style={{ padding: 1, color: 'var(--accent-info)' }}>{id}</td>
+              <tr key={id} style={{ borderTop: '1px solid var(--line-1)' }}>
+                <td style={{ padding: 1, color: 'var(--c-info)' }}>{id}</td>
                 <td style={{ padding: 1 }}>{/* BRG computed in parent */}</td>
                 <td style={{ padding: 1 }}>{/* RNG */}</td>
                 <td style={{ padding: 1 }}>{t.kinematics?.cog != null ? ((t.kinematics.cog * 180 / Math.PI + 360) % 360).toFixed(0) : '—'}°</td>
@@ -937,7 +976,7 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
             );
           })}
           {targets.length === 0 && (
-            <tr><td colSpan={7} style={{ color: 'var(--text-dimmed)', padding: 4, textAlign: 'center' }}>No targets</td></tr>
+            <tr><td colSpan={7} style={{ color: 'var(--txt-3)', padding: 4, textAlign: 'center' }}>No targets</td></tr>
           )}
         </tbody>
       </table>
@@ -960,7 +999,7 @@ interface ModuleDrilldownProps {
 
 const MODULE_NAMES = ['M1 ODD', 'M2 World', 'M3 Mission', 'M4 Behavior', 'M5 Planner', 'M6 COLREGs', 'M7 Safety', 'M8 HMI'];
 const HEALTH_LABELS: Record<number, string> = { 1: 'GREEN', 2: 'AMBER', 3: 'RED' };
-const HEALTH_COLORS: Record<number, string> = { 1: 'var(--status-green)', 2: 'var(--status-amber)', 3: 'var(--status-red)' };
+const HEALTH_COLORS: Record<number, string> = { 1: 'var(--c-stbd)', 2: 'var(--c-warn)', 3: 'var(--c-danger)' };
 
 export const ModuleDrilldown: React.FC<ModuleDrilldownProps> = ({ visible, onClose }) => {
   const pulses = useTelemetryStore((s) => s.modulePulses);
@@ -976,29 +1015,29 @@ export const ModuleDrilldown: React.FC<ModuleDrilldownProps> = ({ visible, onClo
       style={{
         position: 'absolute', bottom: 58, left: 16, zIndex: 30,
         background: 'rgba(11,19,32,0.96)',
-        border: '1px solid var(--border-active)',
+        border: '1px solid var(--line-3)',
         borderRadius: 8, padding: '8px 10px',
-        fontFamily: 'var(--font-mono)', fontSize: 9,
+        fontFamily: 'var(--f-mono)', fontSize: 9,
         minWidth: 340,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: 8, letterSpacing: 1 }}>MODULE HEALTH</span>
-        <span onClick={onClose} style={{ color: 'var(--text-dimmed)', cursor: 'pointer', fontSize: 10 }}>✕</span>
+        <span style={{ color: 'var(--txt-3)', fontSize: 8, letterSpacing: 1 }}>MODULE HEALTH</span>
+        <span onClick={onClose} style={{ color: 'var(--txt-3)', cursor: 'pointer', fontSize: 10 }}>✕</span>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {MODULE_NAMES.map((name, i) => {
           const p = byId[i + 1];
-          const color = p ? HEALTH_COLORS[p.state ?? 0] ?? 'var(--text-dimmed)' : '#333';
+          const color = p ? HEALTH_COLORS[p.state ?? 0] ?? 'var(--txt-3)' : '#333';
           return (
             <div key={name} style={{
               flex: '1 1 45%', minWidth: 140,
-              background: 'var(--surface-panel)',
+              background: 'var(--bg-1)',
               border: `1px solid ${color}22`,
               borderRadius: 4, padding: 4,
             }}>
               <span style={{ color, fontSize: 8 }}>● {name}</span>
-              <div style={{ color: 'var(--text-dimmed)', fontSize: 7, marginTop: 2 }}>
+              <div style={{ color: 'var(--txt-3)', fontSize: 7, marginTop: 2 }}>
                 {p ? (
                   <>
                     state: {HEALTH_LABELS[p.state ?? 0] ?? '?'} · lat: {p.latencyMs ?? '?'}ms · drops: {p.messageDrops ?? 0}
@@ -1029,12 +1068,12 @@ interface ScoringGaugesProps {
 }
 
 const DIMS = [
-  { key: 'safety',        label: 'SAF', color: 'var(--status-green)' },
-  { key: 'ruleCompliance',label: 'RUL', color: 'var(--status-green)' },
-  { key: 'delay',         label: 'DEL', color: 'var(--status-amber)' },
-  { key: 'magnitude',     label: 'MAG', color: 'var(--status-green)' },
-  { key: 'phase',         label: 'PHA', color: 'var(--status-green)' },
-  { key: 'plausibility',  label: 'PLA', color: 'var(--status-amber)' },
+  { key: 'safety',        label: 'SAF', color: 'var(--c-stbd)' },
+  { key: 'ruleCompliance',label: 'RUL', color: 'var(--c-stbd)' },
+  { key: 'delay',         label: 'DEL', color: 'var(--c-warn)' },
+  { key: 'magnitude',     label: 'MAG', color: 'var(--c-stbd)' },
+  { key: 'phase',         label: 'PHA', color: 'var(--c-stbd)' },
+  { key: 'plausibility',  label: 'PLA', color: 'var(--c-warn)' },
 ] as const;
 
 export const ScoringGauges: React.FC<ScoringGaugesProps> = React.memo(({ visible }) => {
@@ -1048,24 +1087,24 @@ export const ScoringGauges: React.FC<ScoringGaugesProps> = React.memo(({ visible
       style={{
         position: 'absolute', bottom: 58, right: 16, zIndex: 15,
         background: 'rgba(11,19,32,0.92)',
-        border: '1px solid var(--border-default)',
+        border: '1px solid var(--line-2)',
         borderRadius: 6, padding: '6px 8px',
-        fontFamily: 'var(--font-mono)', fontSize: 9,
+        fontFamily: 'var(--f-mono)', fontSize: 9,
         minWidth: 90,
       }}
     >
-      <div style={{ color: 'var(--accent-score)', fontSize: 8, marginBottom: 4, letterSpacing: 1 }}>
+      <div style={{ color: 'var(--c-stbd)', fontSize: 8, marginBottom: 4, letterSpacing: 1 }}>
         SCORING
       </div>
       {DIMS.map(({ key, label, color }) => {
         const val = scoringRow?.[key];
         const disp = typeof val === 'number' ? val.toFixed(2) : '—';
         const numVal = typeof val === 'number' ? val : 0;
-        const barColor = numVal >= 0.8 ? 'var(--status-green)' : numVal >= 0.6 ? 'var(--status-amber)' : 'var(--status-red)';
+        const barColor = numVal >= 0.8 ? 'var(--c-stbd)' : numVal >= 0.6 ? 'var(--c-warn)' : 'var(--c-danger)';
         return (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-            <span style={{ color: 'var(--text-dimmed)', width: 22, fontSize: 7 }}>{label}</span>
-            <div style={{ flex: 1, height: 4, background: 'var(--surface-input)', borderRadius: 2 }}>
+            <span style={{ color: 'var(--txt-3)', width: 22, fontSize: 7 }}>{label}</span>
+            <div style={{ flex: 1, height: 4, background: 'var(--bg-2)', borderRadius: 2 }}>
               <div style={{
                 width: `${Math.min(numVal * 100, 100)}%`, height: '100%',
                 background: barColor, borderRadius: 2,
@@ -1142,12 +1181,12 @@ export const ScoringRadarChart: React.FC<RadarProps> = ({ kpis }) => {
       const rad = (angle * Math.PI) / 180;
       return `${CX + R * frac * Math.cos(rad)},${CY + R * frac * Math.sin(rad)}`;
     }).join(' ');
-    return <polygon key={frac} points={pts} fill="none" stroke="var(--border-subtle)" strokeWidth="0.5" />;
+    return <polygon key={frac} points={pts} fill="none" stroke="var(--line-1)" strokeWidth="0.5" />;
   });
 
   return (
     <div data-testid="scoring-radar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <div style={{ color: 'var(--text-dimmed)', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>
+      <div style={{ color: 'var(--txt-3)', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>
         SCORING RADAR — Hagen 2022
       </div>
       <svg width={200} height={200} viewBox="0 0 200 200">
@@ -1160,8 +1199,8 @@ export const ScoringRadarChart: React.FC<RadarProps> = ({ kpis }) => {
           return (
             <g key={label}>
               <line x1={CX} y1={CY} x2={CX + R * Math.cos(rad)} y2={CY + R * Math.sin(rad)}
-                    stroke="var(--border-subtle)" strokeWidth="0.5" />
-              <text x={lx} y={ly} textAnchor="middle" fill="var(--text-dimmed)" fontSize="7">
+                    stroke="var(--line-1)" strokeWidth="0.5" />
+              <text x={lx} y={ly} textAnchor="middle" fill="var(--txt-3)" fontSize="7">
                 {label} {kpis?.[AXES.find(a=>a.label===label)?.key ?? ''] != null
                   ? (kpis?.[AXES.find(a=>a.label===label)?.key ?? ''] ?? 0).toFixed(2)
                   : '—'}
@@ -1170,7 +1209,7 @@ export const ScoringRadarChart: React.FC<RadarProps> = ({ kpis }) => {
           );
         })}
         {/* Data polygon */}
-        <polygon points={dataPoints} fill="var(--accent-score)" fillOpacity="0.2" stroke="var(--accent-score)" strokeWidth="1.5" />
+        <polygon points={dataPoints} fill="var(--c-stbd)" fillOpacity="0.2" stroke="var(--c-stbd)" strokeWidth="1.5" />
       </svg>
     </div>
   );
@@ -1200,7 +1239,7 @@ interface DecisionTreeProps {
 export const ColregsDecisionTree: React.FC<DecisionTreeProps> = ({ ruleChain, events }) => {
   if (ruleChain.length === 0 && events.length === 0) {
     return (
-      <div data-testid="decision-tree" style={{ color: 'var(--text-dimmed)', fontSize: 10 }}>
+      <div data-testid="decision-tree" style={{ color: 'var(--txt-3)', fontSize: 10 }}>
         No rule events captured
       </div>
     );
@@ -1211,21 +1250,21 @@ export const ColregsDecisionTree: React.FC<DecisionTreeProps> = ({ ruleChain, ev
   for (const e of events) {
     const indent = nodes.length === 0 ? 0 : 1;
     if (e.rule_ref) {
-      nodes.push({ indent: 0, text: e.rule_ref, color: 'var(--accent-info)' });
+      nodes.push({ indent: 0, text: e.rule_ref, color: 'var(--c-info)' });
     }
     if (e.event_type) {
-      nodes.push({ indent: 1, text: e.event_type.replace(/_/g, ' '), color: 'var(--accent-decision)' });
+      nodes.push({ indent: 1, text: e.event_type.replace(/_/g, ' '), color: 'var(--c-magenta)' });
     }
     if (e.verdict != null) {
       const vLabel = e.verdict === 1 ? 'PASS' : e.verdict === 2 ? 'RISK' : 'FAIL';
-      const vColor = e.verdict === 1 ? 'var(--status-green)' : e.verdict === 2 ? 'var(--status-amber)' : 'var(--status-red)';
+      const vColor = e.verdict === 1 ? 'var(--c-stbd)' : e.verdict === 2 ? 'var(--c-warn)' : 'var(--c-danger)';
       nodes.push({ indent: 2, text: vLabel, color: vColor });
     }
   }
 
   return (
     <div data-testid="decision-tree">
-      <div style={{ color: 'var(--text-dimmed)', fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>
+      <div style={{ color: 'var(--txt-3)', fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>
         COLREGs DECISION TREE
       </div>
       {nodes.map((n, i) => (
@@ -1234,15 +1273,15 @@ export const ColregsDecisionTree: React.FC<DecisionTreeProps> = ({ ruleChain, ev
           marginBottom: 4,
           fontSize: 9,
           color: n.color,
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--f-mono)',
         }}>
-          {n.indent > 0 && <span style={{ color: 'var(--text-dimmed)', marginRight: 6 }}>{'→'}</span>}
+          {n.indent > 0 && <span style={{ color: 'var(--txt-3)', marginRight: 6 }}>{'→'}</span>}
           {n.text}
         </div>
       ))}
       {/* Also show rule chain as fallback */}
       {events.length === 0 && ruleChain.length > 0 && (
-        <div style={{ color: 'var(--text-secondary)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>
+        <div style={{ color: 'var(--txt-2)', fontSize: 9, fontFamily: 'var(--f-mono)' }}>
           {ruleChain.join(' → ')}
         </div>
       )}
@@ -1277,17 +1316,17 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ durationSec,
       style={{
         display: 'flex', alignItems: 'center', padding: '8px 16px',
         background: 'rgba(15,25,41,0.6)',
-        borderBottom: '1px solid var(--border-subtle)',
+        borderBottom: '1px solid var(--line-1)',
         gap: 12, height: 36,
       }}
     >
-      <span style={{ color: 'var(--text-dimmed)', fontSize: 10 }}>▶</span>
-      <div style={{ flex: 1, height: 4, background: 'var(--surface-input)', borderRadius: 2, position: 'relative' }}>
+      <span style={{ color: 'var(--txt-3)', fontSize: 10 }}>▶</span>
+      <div style={{ flex: 1, height: 4, background: 'var(--bg-2)', borderRadius: 2, position: 'relative' }}>
         {/* Progress bar */}
         <div style={{
           position: 'absolute', left: 0, top: 0,
           width: `${progressPct}%`, height: '100%',
-          background: 'var(--accent-primary)', borderRadius: 2,
+          background: 'var(--c-phos)', borderRadius: 2,
         }} />
         {/* Event markers */}
         {events.map((evt, i) => (
@@ -1309,12 +1348,12 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ durationSec,
           left: `${progressPct}%`,
           top: -4,
           width: 12, height: 12,
-          background: 'var(--accent-primary)',
+          background: 'var(--c-phos)',
           borderRadius: '50%',
           transform: 'translateX(-50%)',
         }} />
       </div>
-      <span style={{ color: 'var(--text-dimmed)', fontSize: 9, fontFamily: 'var(--font-mono)', minWidth: 44 }}>
+      <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', minWidth: 44 }}>
         {formatDuration(currentSec)}
       </span>
     </div>
@@ -1615,18 +1654,18 @@ Replace the right panel (lines 104-107) with:
         <div style={{
           position: 'absolute', top: 8, right: 8, zIndex: 10,
           background: 'rgba(11,19,32,0.88)',
-          border: '1px solid var(--border-default)',
+          border: '1px solid var(--line-2)',
           borderRadius: 4, padding: '4px 8px',
-          fontFamily: 'var(--font-mono)', fontSize: 8,
+          fontFamily: 'var(--f-mono)', fontSize: 8,
           display: 'flex', flexDirection: 'column', gap: 2,
         }}>
-          <label style={{ color: 'var(--accent-primary)', cursor: 'pointer' }}>
+          <label style={{ color: 'var(--c-phos)', cursor: 'pointer' }}>
             <input type="checkbox" defaultChecked data-testid="layer-toggle-imazu" /> Imazu geometry
           </label>
-          <label style={{ color: 'var(--text-dimmed)', cursor: 'pointer' }}>
+          <label style={{ color: 'var(--txt-3)', cursor: 'pointer' }}>
             <input type="checkbox" defaultChecked /> Depth contours
           </label>
-          <label style={{ color: 'var(--text-dimmed)', cursor: 'pointer' }}>
+          <label style={{ color: 'var(--txt-3)', cursor: 'pointer' }}>
             <input type="checkbox" /> Traffic lanes
           </label>
         </div>
@@ -1644,14 +1683,14 @@ Replace lines 57-63 (the tab bar) with labeled tab content:
 
 ```typescript
         {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border-default)' }}>
+        <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--line-2)' }}>
           {(['template', 'procedural', 'ais'] as const).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
-                      color: activeTab === tab ? 'var(--accent-primary)' : 'var(--text-dimmed)',
-                      borderBottom: activeTab === tab ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                      padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 10,
+                      color: activeTab === tab ? 'var(--c-phos)' : 'var(--txt-3)',
+                      borderBottom: activeTab === tab ? '2px solid var(--c-phos)' : '2px solid transparent',
+                      padding: '8px 16px', fontFamily: 'var(--f-mono)', fontSize: 10,
                       fontWeight: activeTab === tab ? 600 : 400,
                     }}>
               {tab === 'template' ? 'Template' : tab === 'procedural' ? 'Procedural' : 'AIS'}
@@ -1665,9 +1704,9 @@ Replace lines 57-63 (the tab bar) with labeled tab content:
             {/* Scenario list */}
             <select size={8} style={{
               width: '100%', marginBottom: 8,
-              background: 'var(--surface-input)', color: 'var(--text-primary)',
-              border: '1px solid var(--border-default)', borderRadius: 4,
-              padding: 4, fontFamily: 'var(--font-mono)', fontSize: 10,
+              background: 'var(--bg-2)', color: 'var(--txt-1)',
+              border: '1px solid var(--line-2)', borderRadius: 4,
+              padding: 4, fontFamily: 'var(--f-mono)', fontSize: 10,
             }}
                     onChange={(e) => handleSelect(e.target.value)}>
               {scenarios.map((s: ScenarioSummary) => (
@@ -1678,51 +1717,51 @@ Replace lines 57-63 (the tab bar) with labeled tab content:
         )}
 
         {activeTab === 'ais' && (
-          <div style={{ color: 'var(--text-secondary)', fontSize: 10, padding: 16 }}>
-            <p style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>AIS Scenario Import</p>
-            <p style={{ color: 'var(--text-dimmed)', marginTop: 8 }}>
+          <div style={{ color: 'var(--txt-2)', fontSize: 10, padding: 16 }}>
+            <p style={{ color: 'var(--c-phos)', fontWeight: 600 }}>AIS Scenario Import</p>
+            <p style={{ color: 'var(--txt-3)', marginTop: 8 }}>
               Import historical AIS trajectories to extract COLREGs encounter scenarios.
               This feature uses the 5-stage AIS pipeline from D1.3b.2.
             </p>
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div>
-                <label style={{ color: 'var(--text-dimmed)', fontSize: 9 }}>Bounding Box</label>
+                <label style={{ color: 'var(--txt-3)', fontSize: 9 }}>Bounding Box</label>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                   <input placeholder="Min Lat" style={{
-                    flex: 1, background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    flex: 1, background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                   <input placeholder="Min Lon" style={{
-                    flex: 1, background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    flex: 1, background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                   <input placeholder="Max Lat" style={{
-                    flex: 1, background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    flex: 1, background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                   <input placeholder="Max Lon" style={{
-                    flex: 1, background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    flex: 1, background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                 </div>
               </div>
               <div>
-                <label style={{ color: 'var(--text-dimmed)', fontSize: 9 }}>Time Window (UTC)</label>
+                <label style={{ color: 'var(--txt-3)', fontSize: 9 }}>Time Window (UTC)</label>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                   <input type="date" style={{
-                    background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                   <input type="date" style={{
-                    background: 'var(--surface-input)', border: '1px solid var(--border-default)',
-                    color: 'var(--text-primary)', padding: 4, borderRadius: 3, fontSize: 9,
+                    background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+                    color: 'var(--txt-1)', padding: 4, borderRadius: 3, fontSize: 9,
                   }} />
                 </div>
               </div>
               <button style={{
-                background: 'var(--accent-primary)', color: 'var(--text-inverse)',
+                background: 'var(--c-phos)', color: 'var(--bg-0)',
                 border: 'none', padding: '6px 16px', borderRadius: 4,
-                fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                fontFamily: 'var(--f-mono)', fontSize: 10, fontWeight: 700,
                 cursor: 'pointer', marginTop: 8,
               }}>
                 Extract Encounters
@@ -1732,7 +1771,7 @@ Replace lines 57-63 (the tab bar) with labeled tab content:
         )}
 
         {activeTab === 'procedural' && (
-          <div style={{ color: 'var(--text-dimmed)', fontSize: 10, padding: 16 }}>
+          <div style={{ color: 'var(--txt-3)', fontSize: 10, padding: 16 }}>
             Procedural scenario generation — Phase 2 (D2.5)
           </div>
         )}
@@ -1785,9 +1824,9 @@ Replace the timeline stub div (lines 87-92):
         events={(scoring?.rule_chain ?? []).map((rule, i, arr) => ({
           timeSec: ((i + 1) / (arr.length + 1)) * (kpis?.duration_s ?? 180),
           label: rule,
-          color: rule.includes('give_way') ? 'var(--status-amber)'
-                : rule.includes('passing') ? 'var(--status-green)'
-                : 'var(--accent-info)',
+          color: rule.includes('give_way') ? 'var(--c-warn)'
+                : rule.includes('passing') ? 'var(--c-stbd)'
+                : 'var(--c-info)',
         }))}
       />
 ```
@@ -1809,8 +1848,8 @@ Replace the KPI + rule chain block (lines 95-116) with a flex layout:
 
         {/* Centre: Scoring Radar Chart */}
         <div style={{
-          flex: 1, background: 'var(--surface-panel)', borderRadius: 8, padding: 16,
-          border: '1px solid var(--border-default)',
+          flex: 1, background: 'var(--bg-1)', borderRadius: 8, padding: 16,
+          border: '1px solid var(--line-2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <ScoringRadarChart kpis={kpis as Record<string, number> | null} />
@@ -1818,14 +1857,14 @@ Replace the KPI + rule chain block (lines 95-116) with a flex layout:
 
         {/* Right: COLREGs Decision Tree */}
         <div style={{
-          flex: 1, background: 'var(--surface-panel)', borderRadius: 8, padding: 16,
-          border: '1px solid var(--border-default)',
+          flex: 1, background: 'var(--bg-1)', borderRadius: 8, padding: 16,
+          border: '1px solid var(--line-2)',
         }} data-testid="rule-chain">
           <ColregsDecisionTree
             ruleChain={scoring?.rule_chain ?? []}
             events={[]} // Phase 2: populate from ASDR events via scoring_node
           />
-          <p style={{ color: 'var(--text-dimmed)', fontSize: 9, marginTop: 8 }}>
+          <p style={{ color: 'var(--txt-3)', fontSize: 9, marginTop: 8 }}>
             Run ID: {runId}
           </p>
         </div>
@@ -1860,27 +1899,27 @@ Insert before the `<button onClick={handleBack}>` on line 131:
       <div style={{
         position: 'absolute', bottom: 16, left: 16, right: 16,
         padding: '8px 12px',
-        background: 'var(--surface-panel)',
-        border: '1px solid var(--border-default)',
+        background: 'var(--bg-1)',
+        border: '1px solid var(--line-2)',
         borderRadius: 6,
         display: 'flex', alignItems: 'center', gap: 12,
-        fontFamily: 'var(--font-mono)', fontSize: 10,
+        fontFamily: 'var(--f-mono)', fontSize: 10,
       }}>
         <div style={{
           width: 60, height: 40,
-          background: 'var(--surface-input)',
-          border: '1px solid var(--border-subtle)',
+          background: 'var(--bg-2)',
+          border: '1px solid var(--line-1)',
           borderRadius: 3,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-dimmed)', fontSize: 7,
+          color: 'var(--txt-3)', fontSize: 7,
         }}>
           chart
         </div>
         <div>
-          <div style={{ color: 'var(--accent-primary)', fontSize: 10, fontWeight: 600 }}>
+          <div style={{ color: 'var(--c-phos)', fontSize: 10, fontWeight: 600 }}>
             {scenarioId ? `Scenario ${scenarioId.slice(0, 8)}` : 'No scenario'}
           </div>
-          <div style={{ color: 'var(--text-dimmed)', fontSize: 8, marginTop: 2 }}>
+          <div style={{ color: 'var(--txt-3)', fontSize: 8, marginTop: 2 }}>
             ENC viewport preserved from ScenarioBuilder
           </div>
         </div>
@@ -2225,7 +2264,7 @@ git commit -m "feat(hmi): add Stepper + SummaryRail + ImazuGrid helpers for Scen
 
 - [ ] **Step 3: Write CommLinkStatusRow.tsx** — 6 comm-link dots (DDS-Bus/L4↓/L2↑/Param-DB/ROC-Lnk/ASDR), 同上结构。数据源: `useTelemetryStore.commLinks[i]`。`data-testid="preflight-commlinks"`
 
-- [ ] **Step 4: Write LiveLogStream.tsx** — 自动滚动到底部 + 暂停按钮 + 关键字过滤 (warn/error/module 名)。颜色规则: INFO `--text-secondary` / WARN `--status-amber` / ERROR `--status-red`。数据源: `useTelemetryStore.preflightLog[]` (1000-entry ring)。`data-testid="preflight-livelog"`
+- [ ] **Step 4: Write LiveLogStream.tsx** — 自动滚动到底部 + 暂停按钮 + 关键字过滤 (warn/error/module 名)。颜色规则: INFO `--txt-2` / WARN `--c-warn` / ERROR `--c-danger`。数据源: `useTelemetryStore.preflightLog[]` (1000-entry ring)。`data-testid="preflight-livelog"`
 
 - [ ] **Step 5: Verify TypeScript + Commit**
 

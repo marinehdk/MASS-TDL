@@ -109,72 +109,166 @@ const DEFAULT_VIEWPORT: MapViewport = {
 
 ---
 
-## 2. Design Token 系统
+## 2. Design Token 系统（**v1.1 修订对齐 Claude Design 输出 HTML ground truth — 2026-05-13**）
 
-### 2.1 色彩 Token（OpenBridge 5.0 Night-adapted）
+> **依据**：用户 export `COLAV SIL Simulator.html`（540KB unbundled HTML）抽取的 `:root` token 块 + 4 个 `.hmi-*` atom 类 + 4 个 keyframes。v1.1 前期 §2.1 基于 OpenBridge 5.0 独立调研选值，与 design 实际不一致；本节为 ground truth。
+
+### 2.1 色彩 Token（ECDIS Night Mode — Bridge HMI 严格语义）
 
 ```css
 /* web/src/styles/tokens.css (NEW) */
 
 :root {
-  /* ── Status colors (OpenBridge alert-alarm/warning/caution) ── */
-  --status-green:        #34d399;   /* alert-caution equivalent, night-adapted */
-  --status-amber:        #fbbf24;   /* alert-warning equivalent */
-  --status-red:          #f87171;   /* alert-alarm equivalent */
+  /* ── Surface hierarchy (Night Mode default for bridge HMI) ────── */
+  --bg-0: #070C13;          /* deepest — canvas */
+  --bg-1: #0B1320;          /* panel background */
+  --bg-2: #101B2C;          /* card surface */
+  --bg-3: #16263A;          /* elevated card */
 
-  /* ── Accent palette ── */
-  --accent-primary:      #2dd4bf;   /* own-ship, active states, COG line */
-  --accent-info:         #60a5fa;   /* RULE chip, data headings */
-  --accent-decision:     #c084fc;   /* DECISION text, M8 HMI */
-  --accent-score:        #a3e635;   /* scoring gauges, ROT value */
-  --accent-windsea:      #93c5fd;   /* wind/sea/vis HUD values */
+  /* ── Border hierarchy (纯色非透明，逐级抬升) ─────────────────── */
+  --line-1: #1B2C44;        /* subtle */
+  --line-2: #243C58;        /* default */
+  --line-3: #3A5677;        /* active / focused */
 
-  /* ── Surface hierarchy (S-52 Night black background) ── */
-  --surface-root:        #0b1320;   /* page background */
-  --surface-panel:       #0f1929;   /* cards, modals, HUD panels */
-  --surface-bar:         #060e1a;   /* top/bottom status bars */
-  --surface-input:       #0d1f2d;   /* textarea, input backgrounds */
+  /* ── Text hierarchy (4 档，注意 txt-0 比我 v1.0 spec 多 1 档) ── */
+  --txt-0: #F1F6FB;         /* critical readouts — 最亮，仅 verdict/min CPA 等关键数值 */
+  --txt-1: #C5D2E0;         /* primary */
+  --txt-2: #8A9AAD;         /* secondary */
+  --txt-3: #566578;         /* labels, units */
 
-  /* ── Border hierarchy ── */
-  --border-subtle:       rgba(45, 212, 191, 0.08);
-  --border-default:      rgba(45, 212, 191, 0.12);
-  --border-active:       rgba(45, 212, 191, 0.22);
-  --border-alert:        #dc2626;
+  /* ── Semantic functional colors (ECDIS conventions) ───────────── */
+  --c-phos:    #5BC0BE;     /* phosphor — radar / brand / own ship */
+  --c-stbd:    #3FB950;     /* starboard green / safe */
+  --c-port:    #F26B6B;     /* port red / threat */
+  --c-warn:    #F0B72F;     /* amber warning */
+  --c-info:    #79C0FF;     /* informational blue */
+  --c-danger:  #F85149;     /* critical red */
+  --c-magenta: #D070D0;     /* predicted track (ECDIS conv.) */
 
-  /* ── Text hierarchy ── */
-  --text-primary:        #e6edf3;
-  --text-secondary:      #9ca3af;
-  --text-dimmed:         #4b6888;
-  --text-inverse:        #0b1320;
+  /* ── Autonomy level colors (IMO MASS Code 4-level mapping) ──── */
+  --c-d4: #3FB950;          /* full auto */
+  --c-d3: #79C0FF;          /* supervised — nominal */
+  --c-d2: #F0B72F;          /* manual / RO */
+  --c-mrc: #F85149;         /* minimum risk condition */
 
-  /* ── Typography ── */
-  --font-mono:           'JetBrains Mono', 'Courier New', monospace;
-  --font-sans:           'Inter', system-ui, -apple-system, sans-serif;
+  /* ── Type (3 字体栈，含中文支持) ──────────────────────────────── */
+  --f-disp: 'Saira Condensed', 'Noto Sans SC', sans-serif;  /* display: 大字号 / chrome / KPI */
+  --f-body: 'Noto Sans SC', 'Saira Condensed', sans-serif;  /* body: 段落 / 中文优先 */
+  --f-mono: 'JetBrains Mono', ui-monospace, monospace;       /* mono: 数字 / 代码 / 时钟 */
 
-  /* ── Spacing scale (4px base) ── */
-  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
-  --space-4: 16px; --space-5: 20px; --space-6: 24px;
+  /* ── Spacing / radius (strict zero-radius for bridge HMI) ─────── */
+  --r-0: 0;                  /* 严格零圆角（桥楼 HMI IEC 标准）*/
+  --r-min: 2px;              /* 极小圆角（仅 hover state / chip）*/
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 18px;             /* 注: lg = 18 不是 16（design 实际值）*/
+  --sp-xl: 24px;
 }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--txt-1);
+  font-family: var(--f-body);
+  overflow: hidden;
+}
+#root { width: 100vw; height: 100vh; }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-thumb { background: var(--line-2); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
 ```
 
-### 2.2 S-52 Display Category → MapLibre Layer Mapping
+### 2.1.1 v1.0 → v1.1 token 名称映射（开发者迁移指南）
+
+| v1.0 名（spec 文中残留引用）| v1.1 真名 | 备注 |
+|---|---|---|
+| `--bg-0` | `--bg-0` | 值变更 `#0b1320` → `#070C13` |
+| `--bg-1` | `--bg-1` | 值变更 `#0f1929` → `#0B1320` |
+| `--bg-0` | `--bg-0`（同 canvas）| 不再独立 token |
+| `--bg-2` | `--bg-2` | 值变更 `#0d1f2d` → `#101B2C` |
+| `--line-1` | `--line-1` | 改纯色 `#1B2C44`（不再 rgba 透明） |
+| `--line-2` | `--line-2` | 改纯色 `#243C58` |
+| `--line-3` | `--line-3` | 改纯色 `#3A5677` |
+| `--txt-1` | `--txt-1` | 值变更 `#e6edf3` → `#C5D2E0` |
+| `--txt-2` | `--txt-2` | 值变更 `#9ca3af` → `#8A9AAD` |
+| `--txt-3` | `--txt-3` | 值变更 `#4b6888` → `#566578` |
+| （无）| `--txt-0` | **v1.1 新增最亮档**，用于关键 readout |
+| `--c-phos` | `--c-phos` | **语义重定位**: 雷达磷光 + 本船 + 品牌色，`#2dd4bf` → `#5BC0BE` |
+| `--c-info` | `--c-info` | 值变更 `#60a5fa` → `#79C0FF` |
+| `--c-magenta` | `--c-magenta` | 语义升级为"ECDIS 预测轨迹"，值变更 `#c084fc` → `#D070D0` |
+| `--c-stbd` | `--c-d4`（autonomy full-auto）或 `--c-stbd` | **拆解**: scoring 各维不再单一色 |
+| `--c-info` | `--c-info` 派生 | 不再独立 token |
+| `--c-stbd` | `--c-stbd` 或 `--c-d4` | **海事语义化**: 舷绿 / autonomy |
+| `--c-warn` | `--c-warn` 或 `--c-d2` | 值变更 `#fbbf24` → `#F0B72F` |
+| `--c-danger` | `--c-port` / `--c-danger` / `--c-mrc` | **拆 3 用途**: 舷红 / 危险 / MRC |
+| `--f-body` | `--f-disp` 或 `--f-body` | **拆 2 字体**: Saira Condensed / Noto Sans SC |
+| `--f-mono` | `--f-mono` | 同名 |
+| `--space-1..6` | `--sp-xs/sm/md/lg/xl` | **5 档非 6 档**，lg = 18 不是 16 |
+
+**全局规则**：spec §3-§8 内残留的 v1.0 token 名称在 Task 1 实施时按上表迁移；token 名 v1.1 起统一用 design 真名。
+
+### 2.2 Atom Classes（4 个 reusable 类）
+
+```css
+/* ── Reusable atoms used across all artboards ──────────────────── */
+.hmi-surface  { background: var(--bg-0); color: var(--txt-1); font-family: var(--f-body); }
+.hmi-mono     { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.hmi-disp     { font-family: var(--f-disp); letter-spacing: 0.18em; text-transform: uppercase; }
+.hmi-label    { font-family: var(--f-disp); font-size: 9.5px; letter-spacing: 0.22em;
+                color: var(--txt-3); text-transform: uppercase; font-weight: 500; }
+```
+
+**使用规约**：
+- `.hmi-disp` — 标题 / chrome 顶部品牌 / KPI 大数 / chip label（大写 + 0.18em 间距）
+- `.hmi-label` — 区块小标签（"ARPA TARGETS" / "SCORING" 等，9.5px + 0.22em）
+- `.hmi-mono` — 所有数字读数（时钟 / CPA / TCPA / ROT / RPM / 坐标）
+- `.hmi-surface` — 顶层 root container
+
+### 2.3 Keyframes（4 个全局动画）
+
+```css
+@keyframes phos-pulse  { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes warn-flash  { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes scan-line   { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+```
+
+**用法**：
+- `phos-pulse` — 本船标记 / `--c-phos` 元素的"活跃"脉动（如 ACTIVE state pill）
+- `radar-sweep` — PPI 雷达扫描线 / preflight loading spinner
+- `warn-flash` — TOR modal 10s 内 / MRC 状态 / fault active chip
+- `scan-line` — preflight self-check 进度 / loading state
+
+### 2.4 S-52 Display Category → MapLibre Layer Mapping（v1.1 用真 token 名）
 
 | S-52 Category | MapLibre Layer ID | Always Visible? | Paint Color |
 |---|---|---|---|
-| Display Base | `coastline`, `safety_contour`, `own_ship` | Yes (locked) | `#93c5fd` |
+| Display Base | `coastline`, `safety_contour`, `own_ship` | Yes (locked) | `var(--c-phos)` |
 | Standard Display | `depth_area`, `land_area`, `buoyage` | Togglable (default on) | S-52 mapped |
 | All Other Info | `spot_soundings`, `contour_labels` | Hidden default | S-52 mapped |
-| Mariner's Info | `route_line`, `waypoints`, `imazu_geom` | On by default | `#fbbf24` / `#f87171` |
+| Mariner's Info | `route_line`, `waypoints`, `imazu_geom` | On by default | `var(--c-warn)` / `var(--c-port)` |
 
-### 2.3 字体 Scale
+### 2.5 字体 Scale（v1.1 校准为 design 实际值）
 
-| Token | Size | Usage |
-|---|---|---|
-| `text-2xs` | 8px | M1-M8 labels, chart annotations |
-| `text-xs` | 10px | HUD values, tooltips, code |
-| `text-sm` | 11-12px | Body text, panel content |
-| `text-base` | 13-14px | Headings, KPI values |
-| `text-lg` | 16px+ | Sim time, verdict badge |
+| Token / 用法 | Size | Family | Usage 举例 |
+|---|---|---|---|
+| label 微 | 9.5px | `--f-disp` (Saira Condensed) letter-spacing 0.22em uppercase | `.hmi-label`: "ARPA TARGETS" / "SCORING" / "CONNING" 区块小标签 |
+| text-2xs | 8px | `--f-mono` | M1-M8 tile 内 KPI / chart annotations |
+| text-xs | 10px | `--f-mono` | HUD 数值 / tooltips / ASDR ledger payload preview |
+| text-sm | 11-12px | `--f-body` (Noto Sans SC) | 正文 / panel 内容 |
+| text-base | 13-14px | `--f-body` 或 `--f-disp` | 顶部信息条 / KPI 值 |
+| text-lg | 16-18px | `--f-disp` letter-spacing 0.18em uppercase | Sim time / verdict badge / TOR modal 标题 |
+| text-xl | 22-26px | `--f-disp` | TOR TMR 倒计时大字 / Top Chrome state pill |
+
+**关键差异 vs v1.0**：
+- 现 spec 增加 9.5px 专用 label 档（matches `.hmi-label`）
+- 字号同档可能用不同字体族（数字 mono / 文字 body / 标题 disp）— 不再是"全 mono 字体栈"
+- 显示字体 Saira Condensed 强制 uppercase + letter-spacing 0.18em（区别于 body）
 
 ---
 
@@ -292,7 +386,7 @@ const DEFAULT_VIEWPORT: MapViewport = {
 #### 3.2.5 Live Log Stream
 
 - 自动滚动到底部 + 暂停按钮 + 关键字过滤（warn / error / module-specific）
-- 颜色规则: INFO `--text-secondary` / WARN `--status-amber` / ERROR `--status-red`
+- 颜色规则: INFO `--txt-2` / WARN `--c-warn` / ERROR `--c-danger`
 - 数据源: 临时 WS topic `/sil/preflight_log` @ event 频率（最多 50/s 限流）
 
 #### 3.2.6 测试点
@@ -679,7 +773,7 @@ WS: ws://localhost:8080/sil  │  ASDR: /var/sil/run-{id}.mcap  │  T·ToR  F·
 - 6 维评分雷达图（SVG polygon）
 - 轴: Safety / Rule / Delay / Magnitude / Phase / Plausibility
 - 数据源: `GET /api/v1/scoring/last_run` 返回的 KPI 对象
-- 颜色: 数据多边形 `--accent-score` 半透明填充
+- 颜色: 数据多边形 `--c-stbd` 半透明填充
 - `data-testid="scoring-radar"`
 
 #### 3.4.5 ASDR Ledger Table（v1.1 NEW — SHA-256 hash chain）
