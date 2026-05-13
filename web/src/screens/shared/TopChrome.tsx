@@ -9,10 +9,10 @@ interface TopChromeProps {
 }
 
 const TABS = [
-  { id: 'builder',  code: '01', label: 'SCENARIO',  zh: '场景编辑' },
-  { id: 'preflight',code: '02', label: 'PRE-FLIGHT',zh: '飞行前检查' },
-  { id: 'bridge',   code: '03', label: 'BRIDGE',    zh: '驾驶台运行' },
-  { id: 'report',   code: '04', label: 'REPORT',    zh: '回放与报告' },
+  { id: 'builder',  code: '01', label: 'SIMULATION SCENARIO', zh: '仿真场景', desc: '负责仿真场景的内容展示' },
+  { id: 'preflight',code: '02', label: 'SIMULATION CHECK',    zh: '仿真检查', desc: '负责检查目前TDL系统中各模块是否正常，前后端接口是否正常' },
+  { id: 'bridge',   code: '03', label: 'SIMULATION BRIDGE',   zh: '仿真运行', desc: '负责接收TDL输出的状态和信息，模拟真实航行中的内容，并通过界面展示态势信息和决策等信息' },
+  { id: 'report',   code: '04', label: 'SIMULATION REPORT',   zh: '仿真报告', desc: '负责对此次运行进行评价，是否完成了规避，各种指标如何，以及对完整的仿真数据进行记录和回放管理' },
 ] as const;
 
 type Screen = typeof TABS[number]['id'];
@@ -48,37 +48,38 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
   };
 
   return (
-    <div
+      <div
       data-testid="top-chrome"
       style={{
-        height: 48, background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)',
+        height: 60, background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)',
         display: 'flex', alignItems: 'stretch', flexShrink: 0, zIndex: 40,
         position: 'relative',
       }}
     >
       {/* Brand */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
-        borderRight: '1px solid var(--line-2)', minWidth: 220,
+        display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px',
+        borderRight: '1px solid var(--line-2)',
       }}>
         <div style={{
-          width: 24, height: 24, border: '1.5px solid var(--c-phos)',
+          width: 32, height: 32, border: '1.5px solid var(--c-phos)',
           position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
         }}>
           <div style={{
-            width: 1, height: 10, background: 'var(--c-phos)',
+            width: 1.5, height: 14, background: 'var(--c-phos)',
             transformOrigin: 'bottom center', position: 'absolute', bottom: '50%',
             animation: 'radar-sweep 4s linear infinite',
           }} />
-          <div style={{ width: 3, height: 3, background: 'var(--c-phos)', borderRadius: '50%' }} />
+          <div style={{ width: 4, height: 4, background: 'var(--c-phos)', borderRadius: '50%' }} />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
           <span style={{
-            fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)',
-            letterSpacing: '0.18em', fontWeight: 700, textTransform: 'uppercase',
-          }}>MASS-L3 SIL</span>
-          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 8.5, color: 'var(--txt-3)' }}>
-            TDL v1.1.2 · Session SIL-0427
+            fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--c-phos)',
+            letterSpacing: '0.08em', fontWeight: 700, textTransform: 'uppercase',
+          }}>战术决策仿真系统</span>
+          <span style={{ fontFamily: 'var(--f-body)', fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>
+            Tactical Decision Simulation System
           </span>
         </div>
       </div>
@@ -88,25 +89,36 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
         {TABS.map((t) => {
           const active = currentScreen === t.id;
           return (
-            <div key={t.id} onClick={() => handleNavigate(t.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', cursor: 'pointer',
+            <div key={t.id} onClick={() => handleNavigate(t.id)} title={t.desc} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '0 24px', cursor: 'pointer',
               borderRight: '1px solid var(--line-1)',
-              background: active ? 'var(--bg-0)' : 'transparent',
-              borderBottom: active ? '2px solid var(--c-phos)' : '2px solid transparent',
+              background: active ? 'linear-gradient(180deg, rgba(91,192,190,0.15) 0%, rgba(7,12,19,0) 100%)' : 'transparent',
+              borderBottom: active ? '3px solid var(--c-phos)' : '3px solid transparent',
+              position: 'relative',
+              transition: 'all 0.2s ease',
             }}>
+              {active && (
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+                  background: 'var(--c-phos)', opacity: 0.5,
+                  boxShadow: '0 0 8px var(--c-phos)'
+                }} />
+              )}
               <span style={{
-                fontFamily: 'var(--f-mono)', fontSize: 9.5,
+                fontFamily: 'var(--f-mono)', fontSize: 14,
                 color: active ? 'var(--c-phos)' : 'var(--txt-3)',
+                fontWeight: active ? 700 : 500,
               }}>{t.code}</span>
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
                 <span style={{
-                  fontFamily: 'var(--f-disp)', fontSize: 10.5,
+                  fontFamily: 'var(--f-disp)', fontSize: 14,
                   color: active ? 'var(--txt-0)' : 'var(--txt-2)',
-                  letterSpacing: '0.14em', fontWeight: 600, textTransform: 'uppercase',
-                }}>{t.label}</span>
-                <span style={{
-                  fontFamily: 'var(--f-body)', fontSize: 8.5, color: 'var(--txt-3)',
+                  letterSpacing: '0.08em', fontWeight: active ? 700 : 500, textTransform: 'uppercase',
                 }}>{t.zh}</span>
+                <span style={{
+                  fontFamily: 'var(--f-body)', fontSize: 10, color: active ? 'var(--txt-1)' : 'var(--txt-3)',
+                  marginTop: 2,
+                }}>{t.label}</span>
               </div>
             </div>
           );
@@ -117,8 +129,8 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
 
       {/* Right: State Pill + Dual Clock + View Toggle + REC */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-        <RunStatePill state={runState} simTime={simTime} />
-        <DualClock simTime={simTime} />
+        <RunStatePill state={runState} />
+        <DualClock simTime={simTime} showSim={currentScreen === 'bridge'} />
 
         {/* View Toggle — only on Bridge screen */}
         {currentScreen === 'bridge' && (
@@ -152,6 +164,14 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
             }}>REC</span>
           </div>
         )}
+
+        {/* Version */}
+        <div style={{
+          fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--txt-3)',
+          borderLeft: '1px solid var(--line-2)', paddingLeft: 14, marginLeft: 6,
+        }}>
+          V1.1.3版本
+        </div>
       </div>
     </div>
   );

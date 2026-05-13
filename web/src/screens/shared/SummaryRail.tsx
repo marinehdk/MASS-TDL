@@ -63,18 +63,23 @@ export const SummaryRail: React.FC<SummaryRailProps> = ({
           letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 4,
         }}>VALIDATION</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {['Geometry complete', 'ODD envelope', 'Criteria set', 'Fault script'].map((label, i) => (
+          {[
+            ['几何参数完整', true],
+            ['ODD 包络一致', true],
+            ['评估指标已配置', true],
+            ['故障剧本已审核', false],
+          ].map((row, i) => (
             <div key={i} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '3px 6px', background: 'var(--bg-0)',
               fontFamily: 'var(--f-body)', fontSize: 10, color: 'var(--txt-1)',
             }}>
-              <span>{label}</span>
+              <span>{row[0]}</span>
               <span style={{
                 fontFamily: 'var(--f-mono)', fontSize: 9,
-                color: i < 3 ? 'var(--c-stbd)' : 'var(--c-warn)', fontWeight: 700,
+                color: row[1] ? 'var(--c-stbd)' : 'var(--c-warn)', fontWeight: 700,
               }}>
-                {i < 3 ? 'OK' : 'PENDING'}
+                {row[1] ? '✓ OK' : '⚠ 待确认'}
               </span>
             </div>
           ))}
@@ -84,23 +89,19 @@ export const SummaryRail: React.FC<SummaryRailProps> = ({
       <div style={{ flex: 1 }} />
 
       {/* Action buttons */}
-      <button onClick={onValidate} data-testid="validate-cta" style={{
-        background: 'transparent', border: `1px solid ${statusColor}`,
-        color: statusColor, padding: '10px 0',
-        fontFamily: 'var(--f-disp)', fontSize: 10.5, letterSpacing: '0.18em',
-        fontWeight: 700, cursor: 'pointer',
+      <button onClick={onValidate} style={{
+        background: 'transparent', border: `1px solid var(--line-3)`,
+        color: 'var(--txt-1)', padding: '10px 0',
+        fontFamily: 'var(--f-disp)', fontSize: 11, letterSpacing: '0.20em',
+        fontWeight: 600, cursor: 'pointer',
       }}>
-        VALIDATE
+        SAVE AS PRESET
       </button>
-      <button onClick={onRunPreflight} disabled={validationStatus !== 'green'} style={{
-        background: validationStatus === 'green' ? 'var(--c-phos)' : 'transparent',
-        border: `1px solid ${validationStatus === 'green' ? 'var(--c-phos)' : 'var(--line-2)'}`,
-        color: validationStatus === 'green' ? 'var(--bg-0)' : 'var(--txt-3)',
-        padding: '12px 0', fontFamily: 'var(--f-disp)', fontSize: 11,
-        letterSpacing: '0.18em', fontWeight: 700,
-        cursor: validationStatus === 'green' ? 'pointer' : 'not-allowed',
+      <button onClick={onRunPreflight} data-testid="validate-cta" style={{
+        background: 'var(--c-phos)', border: `1px solid var(--c-phos)`, color: 'var(--bg-0)',
+        padding: '14px 0', fontFamily: 'var(--f-disp)', fontSize: 12, letterSpacing: '0.22em', fontWeight: 700, cursor: 'pointer',
       }}>
-        PRE-FLIGHT →
+        VALIDATE & PRE-FLIGHT →
       </button>
     </div>
   );

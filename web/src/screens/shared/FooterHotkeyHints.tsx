@@ -29,7 +29,7 @@ export const FooterHotkeyHints: React.FC<FooterHotkeyHintsProps> = ({ screen }) 
       </span>
       <div style={{ width: 1, height: 12, background: 'var(--line-2)' }} />
       <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)' }}>
-        ASDR /var/asdr/run-{'{id}'}.mcap
+        ASDR: /var/sil/run-{'{id}'}.mcap
       </span>
 
       <div style={{ flex: 1 }} />

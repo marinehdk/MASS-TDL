@@ -170,7 +170,7 @@ export function ScenarioBuilder() {
                     <div style={{
                       fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
                       letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
-                    }}>SELECTED CASE · DETAIL</div>
+                    }}>选中场景 · 详情</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                       <span style={{ fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--txt-0)', fontWeight: 700, letterSpacing: '0.08em' }}>
                         IM{String(sel.id).padStart(2, '0')} · {sel.name}
@@ -242,22 +242,22 @@ export function ScenarioBuilder() {
                     <div style={{
                       fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
                       letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6,
-                    }}>TARGET PARAMETERS</div>
+                    }}>可选 · 目标参数微调</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Speed Range</span>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>目标船速范围</span>
                         <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>10.0 – 18.0 kn</div>
                       </div>
                       <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Initial Distance</span>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>初始距离</span>
                         <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>4.5 – 6.0 nm</div>
                       </div>
                       <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>HDG Noise</span>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>意图扰动</span>
                         <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-warn)', marginTop: 2 }}>σ = 4° · σ_SOG = 0.8 kn</div>
                       </div>
                       <div>
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>Intent Change</span>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 7.5, color: 'var(--txt-3)', textTransform: 'uppercase' }}>意图突变事件</span>
                         <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', marginTop: 2 }}>1 × @ T+180s</div>
                       </div>
                     </div>

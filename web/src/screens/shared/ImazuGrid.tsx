@@ -20,11 +20,11 @@ export const ImazuGrid: React.FC<ImazuGridProps> = ({ cases, selected, onSelect 
         display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8,
       }}>
         <span style={{
-          fontFamily: 'var(--f-disp)', fontSize: 12, color: 'var(--txt-1)',
-          letterSpacing: '0.14em', fontWeight: 600, textTransform: 'uppercase',
-        }}>22 IMAZU CASES</span>
-        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)' }}>
-          Imazu 1987 + COLREGs R9/R13/R14/R15/R17
+          fontFamily: 'var(--f-disp)', fontSize: 13, color: 'var(--txt-1)',
+          letterSpacing: '0.16em', fontWeight: 600, textTransform: 'uppercase',
+        }}>22 IMAZU CASES · 经典会遇集</span>
+        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)' }}>
+          来源 · Imazu 1987 + COLREGs 扩展 (含 R9 / R13 / R14 / R15 / R17)
         </span>
       </div>
       <div style={{
