@@ -1,0 +1,82 @@
+/* web/src/styles/tokens.css */
+
+:root {
+  /* ── Surface hierarchy (Night Mode default for bridge HMI) ────── */
+  --bg-0: #070C13;
+  --bg-1: #0B1320;
+  --bg-2: #101B2C;
+  --bg-3: #16263A;
+
+  /* ── Border hierarchy ─────────────────────────────────────────── */
+  --line-1: #1B2C44;
+  --line-2: #243C58;
+  --line-3: #3A5677;
+
+  /* ── Text hierarchy (4 档) ─────────────────────────────────────── */
+  --txt-0: #F1F6FB;
+  --txt-1: #C5D2E0;
+  --txt-2: #8A9AAD;
+  --txt-3: #566578;
+
+  /* ── Semantic functional colors (ECDIS conventions) ────────────── */
+  --c-phos:    #5BC0BE;
+  --c-stbd:    #3FB950;
+  --c-port:    #F26B6B;
+  --c-warn:    #F0B72F;
+  --c-info:    #79C0FF;
+  --c-danger:  #F85149;
+  --c-magenta: #D070D0;
+
+  /* ── Autonomy level colors (IMO MASS Code 4-level) ─────────────── */
+  --c-d4: #3FB950;
+  --c-d3: #79C0FF;
+  --c-d2: #F0B72F;
+  --c-mrc: #F85149;
+
+  /* ── Type (3 font stacks with Chinese support) ─────────────────── */
+  --f-disp: 'Saira Condensed', 'Noto Sans SC', sans-serif;
+  --f-body: 'Noto Sans SC', 'Saira Condensed', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Spacing / radius (strict zero-radius for bridge HMI) ──────── */
+  --r-0: 0;
+  --r-min: 2px;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 18px;
+  --sp-xl: 24px;
+}
+
+/* ── Global reset + base ────────────────────────────────────────── */
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--txt-1);
+  font-family: var(--f-body);
+  overflow: hidden;
+}
+#root { width: 100vw; height: 100vh; }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-thumb { background: var(--line-2); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+/* ── Atom Classes ───────────────────────────────────────────────── */
+.hmi-surface  { background: var(--bg-0); color: var(--txt-1); font-family: var(--f-body); }
+.hmi-mono     { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.hmi-disp     { font-family: var(--f-disp); letter-spacing: 0.18em; text-transform: uppercase; }
+.hmi-label    { font-family: var(--f-disp); font-size: 9.5px; letter-spacing: 0.22em;
+                color: var(--txt-3); text-transform: uppercase; font-weight: 500; }
+
+/* ── Keyframes ──────────────────────────────────────────────────── */
+@keyframes phos-pulse  { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes warn-flash  { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes scan-line   { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
