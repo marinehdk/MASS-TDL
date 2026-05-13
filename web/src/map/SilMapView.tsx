@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { osmSource, osmLayer, s57Source, s57Layers } from './layers';
-import { useTelemetryStore } from '../store';
+import { osmSource, osmLayer, s57Source, ALL_S57_LAYERS } from './layers';
+import { useTelemetryStore, useMapStore } from '../store';
+import { useMapPersistence } from '../hooks/useMapPersistence';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
   viewMode?: 'captain' | 'god';
+  /** Fraction of viewport to offset own-ship towards. Captain: [0.5, 0.7] (bottom 30%) */
+  viewportOffset?: [number, number];
 }
 
 const RAD = 180 / Math.PI;
@@ -73,12 +76,14 @@ function makeWindEl(dirDeg: number, speedMps: number): HTMLDivElement {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMapViewProps) {
+export function SilMapView({ followOwnShip = true, viewMode = 'captain', viewportOffset = [0.5, 0.5] }: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<maplibregl.Map | null>(null);
   const styleReady   = useRef(false);
   const lastPanAt    = useRef(0);
   const firstFit     = useRef(false);
+  const viewportFromStore = useMapStore((s) => s.viewport);
+  const setViewport       = useMapStore((s) => s.setViewport);
 
   // Markers
   const ownMarker    = useRef<maplibregl.Marker | null>(null);
@@ -86,6 +91,9 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMa
   const tgtMarkers   = useRef<Map<string, maplibregl.Marker>>(new Map());
 
   const [status, setStatus] = useState<'init' | 'ready' | 'no-webgl'>('init');
+
+  // Cross-screen viewport persistence
+  useMapPersistence(mapRef, viewMode);
 
   // Store selectors (memoised slices avoid 50 Hz whole-component re-renders)
   const ownShip  = useTelemetryStore((s) => s.ownShip);
@@ -104,10 +112,10 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMa
           version: 8,
           glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
           sources: { osm: osmSource as any, s57: s57Source as any },
-          layers: [osmLayer as any, ...s57Layers.map((l) => l as any)],
+          layers: [osmLayer as any, ...ALL_S57_LAYERS.map((l) => l as any)],
         },
-        center: [10.4, 63.4],
-        zoom: 12,
+        center: viewportFromStore.center,
+        zoom: viewportFromStore.zoom,
       });
     } catch {
       setStatus('no-webgl');
@@ -228,6 +236,12 @@ export function SilMapView({ followOwnShip = true, viewMode = 'captain' }: SilMa
     if (followOwnShip && viewMode === 'captain') {
       if (!firstFit.current) {
         map.jumpTo({ center: [lon, lat], zoom: 13 });
+        map.setPadding({
+          top: map.getContainer().clientHeight * (0.5 - viewportOffset[1]) * 2,
+          bottom: map.getContainer().clientHeight * (viewportOffset[1] - 0.5) * 2,
+          left: 0,
+          right: 0,
+        });
         firstFit.current = true;
         lastPanAt.current = Date.now();
       } else if (Date.now() - lastPanAt.current > 800) {
