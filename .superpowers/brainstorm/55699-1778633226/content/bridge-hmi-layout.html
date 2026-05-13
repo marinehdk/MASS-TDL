@@ -1,0 +1,163 @@
+<h2>Design Section 2: Screen ③ BridgeHMI — Captain vs God Layout</h2>
+<p class="subtitle">Dual-mode: Captain = IEC 62288 bridge fidelity (off-center, PPI rings, compass rose). God = algorithm debug (COLREGs sectors, scoring gauges, topic inspector placeholder).</p>
+
+<div class="section">
+  <h3>Captain View Layout (IEC 62288 SA-aligned)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Captain View — 1920×1080 target, own-ship at bottom 30%</div>
+    <div class="mockup-body" style="padding:0;background:#0b1320;font-family:monospace;font-size:10px;color:#9ca3af;position:relative;height:460px;overflow:hidden">
+      <!-- Top Info Bar -->
+      <div style="height:38px;background:rgba(11,19,32,0.97);border-bottom:1px solid rgba(45,212,191,0.12);display:flex;align-items:center;padding:0 12px;gap:18px;font-size:10px">
+        <span style="color:#4b6888">CPA</span><span style="color:#f87171;font-weight:600">0.85 nm</span>
+        <span style="color:#4b6888">TCPA</span><span style="color:#fbbf24;font-weight:600">6.2 min</span>
+        <span style="color:#4b6888">RULE</span><span style="color:#60a5fa;font-weight:600">Rule-14</span>
+        <span style="color:#4b6888">DECISION</span><span style="color:#c084fc;font-weight:600">give way action</span>
+        <span style="margin-left:auto;background:rgba(52,211,153,0.15);border:1px solid #34d399;color:#34d399;padding:1px 8px;border-radius:3px;font-weight:700">PASS</span>
+      </div>
+      <!-- Map Area -->
+      <div style="position:relative;flex:1;height:370px;background:radial-gradient(ellipse at 50% 70%, #0d1f2d 0%, #0b1320 70%)">
+        <!-- ENC placeholder -->
+        <div style="position:absolute;top:60px;left:40px;right:40px;bottom:40px;border:1px dashed rgba(45,212,191,0.15);border-radius:4px;display:flex;align-items:center;justify-content:center;color:#1f3a50">S-57 ENC (37K tiles)</div>
+        <!-- PPI Range Rings (off-center, ring center at bottom 30%) -->
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%">
+          <circle cx="49%" cy="76%" r="80" fill="none" stroke="rgba(45,212,191,0.10)" stroke-width="0.5"/>
+          <circle cx="49%" cy="76%" r="160" fill="none" stroke="rgba(45,212,191,0.08)" stroke-width="0.5"/>
+          <circle cx="49%" cy="76%" r="240" fill="none" stroke="rgba(45,212,191,0.06)" stroke-width="0.5"/>
+        </svg>
+        <!-- Own-ship symbol (at bottom 30%) -->
+        <div style="position:absolute;left:49%;top:74%;width:16px;height:20px;background:#2dd4bf;clip-path:polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%);transform:translate(-50%,-50%) rotate(45deg)"></div>
+        <!-- COG vector -->
+        <div style="position:absolute;left:calc(49% + 6px);top:calc(74% - 60px);width:0;height:60px;border-left:2px solid rgba(45,212,191,0.6)"></div>
+        <!-- Target ship + CPA rings -->
+        <div style="position:absolute;left:44%;top:58%;width:8px;height:8px;background:#fbbf24;border-radius:50%"></div>
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%"><circle cx="44%" cy="58%" r="30" fill="none" stroke="rgba(248,113,113,0.3)" stroke-width="0.5" stroke-dasharray="3,2"/></svg>
+        <!-- Compass Rose (bottom-left) -->
+        <div style="position:absolute;left:16px;bottom:16px;width:70px;height:70px;border:1px solid rgba(45,212,191,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(11,19,32,0.8)">
+          <svg width="60" height="60"><circle cx="30" cy="30" r="27" fill="none" stroke="rgba(45,212,191,0.1)" stroke-width="0.5"/><line x1="30" y1="6" x2="30" y2="14" stroke="#f87171" stroke-width="1.5"/><line x1="30" y1="30" x2="30" y2="10" stroke="rgba(45,212,191,0.4)" stroke-width="0.5"/><circle cx="30" cy="30" r="2" fill="#2dd4bf"/></svg>
+        </div>
+        <!-- Distance Scale (bottom-center) -->
+        <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);height:2px;width:100px;background:rgba(225,225,225,0.5)"><div style="position:absolute;left:0;top:4px;color:#4b6888;font-size:8px">1.0 nm</div></div>
+        <!-- Captain HUD (top-left) -->
+        <div style="position:absolute;top:8px;left:12px;background:rgba(11,19,32,0.88);border:1px solid rgba(45,212,191,0.22);border-radius:6px;padding:6px 10px;min-width:150px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#4b6888;font-size:8px">SOG</span><span style="color:#2dd4bf;font-weight:600;font-size:9px">18.3 kn</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#4b6888;font-size:8px">COG</span><span style="color:#2dd4bf;font-weight:600;font-size:9px">045.0°</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#4b6888;font-size:8px">HDG</span><span style="color:#60a5fa;font-weight:600;font-size:9px">046.2°</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#4b6888;font-size:8px">ROT</span><span style="color:#a3e635;font-weight:600;font-size:9px">2.1°/min</span></div>
+          <div style="height:1px;background:rgba(45,212,191,0.12);margin:4px 0"></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:1px"><span style="color:#4b6888;font-size:8px">WIND</span><span style="color:#93c5fd;font-weight:600;font-size:9px">225° 8kn</span></div>
+        </div>
+        <!-- View toggle (top-right) -->
+        <div style="position:absolute;top:8px;right:12px;display:flex;flex-direction:column;gap:2px">
+          <span style="background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px solid #2dd4bf;padding:2px 10px;border-radius:3px;font-size:9px;text-align:center">CAPTAIN</span>
+          <span style="background:rgba(11,19,32,0.8);color:#4b6888;border:1px solid #1f2d3d;padding:2px 10px;border-radius:3px;font-size:9px;text-align:center">GOD</span>
+        </div>
+        <!-- WS badge -->
+        <div style="position:absolute;bottom:16px;right:16px;background:rgba(52,211,153,0.15);border:1px solid #34d399;color:#34d399;padding:2px 8px;border-radius:10px;font-size:9px">● LIVE</div>
+      </div>
+      <!-- Bottom Bar -->
+      <div style="height:42px;background:#060e1a;border-top:1px solid rgba(45,212,191,0.12);display:flex;align-items:center;padding:0 12px;gap:12px;font-size:10px">
+        <span style="color:#2dd4bf;font-weight:700;font-size:13px">00:23</span>
+        <span style="color:#34d399;border:1px solid currentColor;padding:0 4px;border-radius:2px;font-size:8px">▶ ACTIVE</span>
+        <span style="color:#1f3a50;font-size:8px">#a3f2e1b</span>
+        <span style="margin-left:8px">⏸</span>
+        <span style="color:#2dd4bf">×1</span><span style="color:#4b6888">×2 ×4 ×10</span>
+        <div style="flex:1;display:flex;justify-content:center;gap:4px">
+          <span style="color:#34d399">●M1</span><span style="color:#34d399">●M2</span><span style="color:#fbbf24">●M3</span><span style="color:#333">●M4</span><span style="color:#333">●M5</span><span style="color:#34d399">●M6</span><span style="color:#f87171">●M7</span><span style="color:#333">●M8</span>
+        </div>
+        <span style="margin-left:auto">ASDR(12)</span>
+        <span style="background:#7c1d1d;color:#fca5a5;border:1px solid #dc2626;padding:2px 8px;border-radius:3px;font-size:9px">⚠ FAULT</span>
+        <span style="background:#7f1d1d;color:#fff;border:1px solid #ef4444;padding:2px 12px;border-radius:3px;font-weight:700;font-size:9px">⏹ STOP</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>God View Layout — Algorithm Debug Overlay Differences</h3>
+  <div class="mockup">
+    <div class="mockup-header">God View — same base + algorithm-specific layers. Diff markers show what's added vs Captain.</div>
+    <div class="mockup-body" style="padding:0;background:#0b1320;font-family:monospace;font-size:10px;color:#9ca3af;position:relative;height:380px;overflow:hidden">
+      <div style="height:38px;background:rgba(11,19,32,0.97);border-bottom:1px solid rgba(45,212,191,0.12);display:flex;align-items:center;padding:0 12px;gap:18px;font-size:10px">
+        <span style="color:#4b6888">CPA</span><span style="color:#f87171;font-weight:600">0.85 nm</span>
+        <span style="color:#4b6888">TCPA</span><span style="color:#fbbf24;font-weight:600">6.2 min</span>
+        <span style="color:#4b6888">RULE</span><span style="color:#60a5fa;font-weight:600">Rule-14</span>
+        <span style="color:#4b6888">DECISION</span><span style="color:#c084fc;font-weight:600">give way action</span>
+        <span style="margin-left:auto;background:rgba(52,211,153,0.15);border:1px solid #34d399;color:#34d399;padding:1px 8px;border-radius:3px;font-weight:700">PASS</span>
+      </div>
+      <div style="position:relative;height:300px;background:radial-gradient(ellipse at 50% 50%, #0d1f2d 0%, #0b1320 70%)">
+        <!-- COLREGs Sector Overlay (new - God only) -->
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%">
+          <defs>
+            <radialGradient id="headon"><stop offset="0%" stop-color="rgba(248,113,113,0.08)"/><stop offset="100%" stop-color="transparent"/></radialGradient>
+            <radialGradient id="crossing"><stop offset="0%" stop-color="rgba(251,191,36,0.06)"/><stop offset="100%" stop-color="transparent"/></radialGradient>
+          </defs>
+          <!-- Head-on sector 354°-6° -->
+          <path d="M49% 55% L45% 20% L53% 20% Z" fill="rgba(248,113,113,0.06)" stroke="rgba(248,113,113,0.15)" stroke-width="0.5"/>
+          <!-- Crossing Stbd 6°-112.5° -->
+          <path d="M49% 55% L53% 20% A180 180 0 0 1 85% 65% Z" fill="rgba(96,165,250,0.05)" stroke="rgba(96,165,250,0.12)" stroke-width="0.5"/>
+          <!-- Crossing Port 247.5°-354° -->
+          <path d="M49% 55% L45% 20% A180 180 0 0 0 13% 65% Z" fill="rgba(96,165,250,0.05)" stroke="rgba(96,165,250,0.12)" stroke-width="0.5"/>
+          <!-- Overtaking sector 112.5°-247.5° -->
+          <path d="M49% 55% L85% 65% A180 180 0 0 0 13% 65% Z" fill="rgba(163,230,53,0.04)" stroke="rgba(163,230,53,0.1)" stroke-width="0.5"/>
+          <!-- Sector labels -->
+          <text x="49%" y="16%" text-anchor="middle" fill="#f87171" font-size="7" opacity="0.5">HEAD-ON</text>
+          <text x="72%" y="42%" text-anchor="middle" fill="#60a5fa" font-size="7" opacity="0.5">GIVE-WAY</text>
+          <text x="26%" y="42%" text-anchor="middle" fill="#60a5fa" font-size="7" opacity="0.5">STAND-ON</text>
+          <text x="49%" y="92%" text-anchor="middle" fill="#a3e635" font-size="7" opacity="0.5">OVERTAKING</text>
+        </svg>
+        <!-- Own-ship (centered in God mode) -->
+        <div style="position:absolute;left:49%;top:55%;width:14px;height:18px;background:#2dd4bf;clip-path:polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%);transform:translate(-50%,-50%) rotate(45deg)"></div>
+        <!-- Imazu Geometry Overlay (R14 head-on) -->
+        <div style="position:absolute;left:47%;top:43%;border:1px dashed rgba(45,212,191,0.2);border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;color:rgba(45,212,191,0.3);font-size:7px">R14 zone</div>
+        <!-- Target with sector info -->
+        <div style="position:absolute;left:44%;top:38%;width:8px;height:8px;background:#fbbf24;border-radius:50%"></div>
+        <div style="position:absolute;left:45%;top:36%;color:#fbbf24;font-size:7px">MMSI:123456</div>
+        <!-- View toggle -->
+        <div style="position:absolute;top:8px;right:12px;display:flex;flex-direction:column;gap:2px">
+          <span style="background:rgba(11,19,32,0.8);color:#4b6888;border:1px solid #1f2d3d;padding:2px 10px;border-radius:3px;font-size:9px;text-align:center">CAPTAIN</span>
+          <span style="background:rgba(45,212,191,0.15);color:#2dd4bf;border:1px solid #2dd4bf;padding:2px 10px;border-radius:3px;font-size:9px;text-align:center">GOD</span>
+        </div>
+        <!-- Scoring Gauges (bottom-right panel) -->
+        <div style="position:absolute;right:12px;bottom:40px;background:rgba(11,19,32,0.92);border:1px solid rgba(45,212,191,0.15);border-radius:6px;padding:6px 8px;min-width:100px">
+          <div style="color:#a3e635;font-size:8px;margin-bottom:3px">SCORING</div>
+          <div style="display:flex;justify-content:space-between;font-size:7px;margin-bottom:1px"><span style="color:#4b6888">SAF</span><span style="color:#34d399">0.92</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:7px;margin-bottom:1px"><span style="color:#4b6888">RUL</span><span style="color:#34d399">0.88</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:7px;margin-bottom:1px"><span style="color:#4b6888">DEL</span><span style="color:#fbbf24">0.71</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:7px;margin-bottom:1px"><span style="color:#4b6888">MAG</span><span style="color:#34d399">0.85</span></div>
+        </div>
+      </div>
+      <!-- Bottom Bar (same as Captain) -->
+      <div style="height:42px;background:#060e1a;border-top:1px solid rgba(45,212,191,0.12);display:flex;align-items:center;padding:0 12px;gap:12px;font-size:10px">
+        <span style="color:#2dd4bf;font-weight:700;font-size:13px">00:23</span>
+        <span style="color:#34d399;border:1px solid currentColor;padding:0 4px;border-radius:2px;font-size:8px">▶ ACTIVE</span>
+        <span style="color:#1f3a50;font-size:8px">#a3f2e1b</span>
+        <span style="margin-left:8px">⏸</span>
+        <span style="color:#2dd4bf">×1</span><span style="color:#4b6888">×2 ×4 ×10</span>
+        <div style="flex:1;display:flex;justify-content:center;gap:4px">
+          <span style="color:#34d399">●M1</span><span style="color:#34d399">●M2</span><span style="color:#fbbf24">●M3</span><span style="color:#333">●M4</span><span style="color:#333">●M5</span><span style="color:#34d399">●M6</span><span style="color:#f87171">●M7</span><span style="color:#333">●M8</span>
+        </div>
+        <span style="margin-left:auto">ASDR(12)</span>
+        <span style="background:#7c1d1d;color:#fca5a5;border:1px solid #dc2626;padding:2px 8px;border-radius:3px;font-size:9px">⚠ FAULT</span>
+        <span style="background:#7f1d1d;color:#fff;border:1px solid #ef4444;padding:2px 12px;border-radius:3px;font-weight:700;font-size:9px">⏹ STOP</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>Captain ↔ God Diff Summary</h3>
+  <table style="width:100%;font-size:11px;border-collapse:collapse">
+    <tr style="color:#4b6888;font-size:9px;text-transform:uppercase">
+      <th style="text-align:left;padding:2px">Element</th><th style="text-align:left;padding:2px">Captain</th><th style="text-align:left;padding:2px">God</th>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">Own-ship position</td><td style="padding:4px;color:#2dd4bf">Bottom 30% (off-center)</td><td style="padding:4px;color:#a3e635">Center (free pan)</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">Map follow</td><td style="padding:4px;color:#2dd4bf">heading-up, follow ownShip</td><td style="padding:4px;color:#a3e635">free (north-up default)</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">PPI rings</td><td style="padding:4px;color:#2dd4bf">0.5/1/2/4 nm (off-center)</td><td style="padding:4px;color:#a3e635">0.5/1/2/4 nm (centered)</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">Compass rose</td><td style="padding:4px;color:#2dd4bf">Relative bearing (bottom-left)</td><td style="padding:4px;color:#a3e635">North-up (bottom-left)</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">COLREGs sectors</td><td style="padding:4px;color:#4b6888">Hidden</td><td style="padding:4px;color:#a3e635">4-sector overlay (head-on/cross-stbd/cross-port/overtake)</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">Imazu geometry</td><td style="padding:4px;color:#4b6888">Hidden</td><td style="padding:4px;color:#a3e635">Scenario-specific overlay</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">Scoring gauges</td><td style="padding:4px;color:#4b6888">Hidden (report only)</td><td style="padding:4px;color:#a3e635">6-dim real-time HUD</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">ARPA target table</td><td style="padding:4px;color:#2dd4bf">Collapsible side panel</td><td style="padding:4px;color:#a3e635">Expanded default</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:4px">M1-M8 drill-down</td><td style="padding:4px;color:#4b6888">Pulse dots + tooltip only</td><td style="padding:4px;color:#a3e635">Click to expand panel</td></tr>
+  </table>
+</div>

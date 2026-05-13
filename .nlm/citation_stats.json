@@ -7,9 +7,9 @@
       "last_cited_at": 1777528724
     },
     "1594df69-2774-43ff-8601-09018c7dfea9": {
-      "count": 6,
+      "count": 8,
       "first_cited_at": 1777528846,
-      "last_cited_at": 1778463178
+      "last_cited_at": 1778635798
     },
     "c2e10bf3-f747-4754-ba49-6b98ed13d61e": {
       "count": 1,
@@ -65,6 +65,11 @@
       "count": 1,
       "first_cited_at": 1778486158,
       "last_cited_at": 1778486158
+    },
+    "e2faa7f7-6879-48a2-99a1-1e3daf1da257": {
+      "count": 1,
+      "first_cited_at": 1778579013,
+      "last_cited_at": 1778579013
     }
   },
   "cited_urls": []

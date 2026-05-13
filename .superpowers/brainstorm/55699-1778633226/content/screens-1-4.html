@@ -1,0 +1,226 @@
+<h2>Design Section 3: Screen ① ScenarioBuilder + Screen ④ RunReport + Shared Components</h2>
+<p class="subtitle">Screen ①: Imazu geometry preview, AIS tab wire-up. Screen ④: Timeline scrubber, scoring radar, decision tree. Plus: ARPA target table, M1-M8 drill-down, COLREGs rule tree.</p>
+
+<div class="section">
+  <h3>Screen ① — ScenarioBuilder (Enhanced)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Left: Form + YAML editor. Right: ENC + Imazu geometry preview (new: scenario overlay)</div>
+    <div class="mockup-body" style="padding:0;background:#0b1320;font-family:monospace;font-size:10px;color:#9ca3af;display:flex;height:360px">
+      <!-- Left Panel (400px) -->
+      <div style="width:400px;border-right:1px solid rgba(45,212,191,0.12);display:flex;flex-direction:column">
+        <!-- Tab bar -->
+        <div style="display:flex;border-bottom:1px solid rgba(45,212,191,0.12)">
+          <div style="padding:8px 16px;color:#2dd4bf;border-bottom:2px solid #2dd4bf;font-size:10px;font-weight:600">Template</div>
+          <div style="padding:8px 16px;color:#4b6888;font-size:10px">Procedural</div>
+          <div style="padding:8px 16px;color:#4b6888;font-size:10px">AIS</div>
+        </div>
+        <!-- Scenario list -->
+        <div style="padding:8px;flex:1;overflow-y:auto">
+          <div style="background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.15);padding:6px 8px;border-radius:3px;margin-bottom:4px">
+            <div style="color:#e6edf3;font-size:10px">R14 Head-On</div><div style="color:#4b6888;font-size:8px">head_on · Imazu #1</div>
+          </div>
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:3px">
+            <div style="color:#e6edf3;font-size:10px">R15 Crossing Stbd</div><div style="color:#4b6888;font-size:8px">crossing_give_way · Imazu #2</div>
+          </div>
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:3px">
+            <div style="color:#e6edf3;font-size:10px">R13 Overtaking</div><div style="color:#4b6888;font-size:8px">overtaking · Imazu #3</div>
+          </div>
+          <div style="padding:6px 8px;margin-bottom:4px;border-radius:3px">
+            <div style="color:#e6edf3;font-size:10px">R14 Head-On Night</div><div style="color:#4b6888;font-size:8px">head_on · Imazu #4</div>
+          </div>
+        </div>
+        <!-- YAML editor -->
+        <div style="border-top:1px solid rgba(45,212,191,0.12);padding:8px">
+          <div style="background:#0d1f2d;border:1px solid rgba(45,212,191,0.10);border-radius:4px;padding:6px;min-height:80px;font-size:9px;color:#93c5fd">
+            encounter_type: head_on<br/>own_ship: {lat: 63.44, lon: 10.38, sog: 12}<br/>targets:<br/>  - {mmsi: 123456, lat: 63.45, lon: 10.38,<br/>     cog: 180, sog: 12}
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <span style="background:#1f2937;border:1px solid #374151;color:#9ca3af;padding:4px 12px;border-radius:3px;font-size:9px">Validate</span>
+            <span style="background:#1f2937;border:1px solid #374151;color:#9ca3af;padding:4px 12px;border-radius:3px;font-size:9px">Save</span>
+            <span style="background:#2dd4bf;color:#0b1320;padding:4px 12px;border-radius:3px;font-size:9px;font-weight:700;margin-left:auto">Run →</span>
+          </div>
+        </div>
+      </div>
+      <!-- Right Panel: Map Preview with Imazu overlay -->
+      <div style="flex:1;position:relative;background:radial-gradient(ellipse at 50% 50%, #0d1f2d 0%, #0b1320 70%)">
+        <div style="position:absolute;top:8px;left:8px;color:#4b6888;font-size:9px">ENC + Imazu Preview</div>
+        <!-- Imazu Geometry — R14 Head-On -->
+        <svg style="position:absolute;top:0;left:0;width:100%;height:100%">
+          <!-- Target approach line -->
+          <line x1="48%" y1="18%" x2="48%" y2="78%" stroke="rgba(248,113,113,0.25)" stroke-width="1" stroke-dasharray="4,3"/>
+          <!-- Own-ship (bottom) -->
+          <circle cx="48%" cy="78%" r="6" fill="none" stroke="#2dd4bf" stroke-width="1.5"/>
+          <!-- Target (top) -->
+          <circle cx="48%" cy="22%" r="5" fill="none" stroke="#f87171" stroke-width="1.5"/>
+          <!-- Imazu geometry label -->
+          <text x="55%" y="50%" fill="rgba(45,212,191,0.35)" font-size="8">R14 Head-On</text>
+          <text x="55%" y="56%" fill="rgba(45,212,191,0.2)" font-size="7">d=6.0 nm · bearing=000°</text>
+        </svg>
+        <!-- Layer toggles -->
+        <div style="position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:2px;font-size:8px">
+          <span style="color:#2dd4bf">☑ Imazu geometry</span>
+          <span style="color:#4b6888">☐ Depth contours</span>
+          <span style="color:#4b6888">☐ Traffic lanes</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>Screen ④ — RunReport (Enhanced)</h3>
+  <div class="mockup">
+    <div class="mockup-header">4 KPI cards + timeline scrubber + scoring radar + COLREGs decision tree + export</div>
+    <div class="mockup-body" style="padding:0;background:#0b1320;font-family:monospace;font-size:10px;color:#9ca3af;height:340px;display:flex;flex-direction:column">
+      <!-- Timeline Scrubber -->
+      <div style="height:48px;background:rgba(15,25,41,0.6);border-bottom:1px solid rgba(45,212,191,0.10);display:flex;align-items:center;padding:0 16px;gap:12px">
+        <span style="color:#4b6888;font-size:9px">▶</span>
+        <div style="flex:1;height:4px;background:#1f2d3d;border-radius:2px;position:relative">
+          <div style="position:absolute;left:0;width:65%;height:100%;background:#2dd4bf;border-radius:2px"></div>
+          <div style="position:absolute;left:65%;top:-4px;width:12px;height:12px;background:#2dd4bf;border-radius:50%"></div>
+          <!-- Event markers -->
+          <div style="position:absolute;left:10%;top:-6px;width:2px;height:16px;background:#fbbf24" title="give_way_action"></div>
+          <div style="position:absolute;left:40%;top:-6px;width:2px;height:16px;background:#f87171" title="cpa_min"></div>
+        </div>
+        <span style="color:#4b6888;font-size:9px">03:00</span>
+      </div>
+      <!-- Main content: KPI cards + Scoring Radar + Decision Tree -->
+      <div style="flex:1;display:flex;padding:12px;gap:12px">
+        <!-- Left: KPI cards -->
+        <div style="width:220px;display:flex;flex-direction:column;gap:8px">
+          <div style="background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px">
+            <div style="color:#4b6888;font-size:8px;letter-spacing:1px">MIN CPA</div>
+            <div style="color:#f87171;font-size:20px;font-weight:700">0.85<span style="font-size:10px;color:#4b6888"> nm</span></div>
+          </div>
+          <div style="background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px">
+            <div style="color:#4b6888;font-size:8px;letter-spacing:1px">AVG ROT</div>
+            <div style="color:#a3e635;font-size:20px;font-weight:700">2.1<span style="font-size:10px;color:#4b6888"> °/min</span></div>
+          </div>
+          <div style="background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px">
+            <div style="color:#4b6888;font-size:8px;letter-spacing:1px">DISTANCE</div>
+            <div style="color:#93c5fd;font-size:20px;font-weight:700">12.3<span style="font-size:10px;color:#4b6888"> nm</span></div>
+          </div>
+          <div style="background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px">
+            <div style="color:#4b6888;font-size:8px;letter-spacing:1px">DURATION</div>
+            <div style="color:#e6edf3;font-size:20px;font-weight:700">180<span style="font-size:10px;color:#4b6888"> s</span></div>
+          </div>
+        </div>
+        <!-- Center: Scoring Radar Chart (6-dim) -->
+        <div style="flex:1;background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="color:#4b6888;font-size:9px;letter-spacing:1px;margin-bottom:6px">SCORING RADAR — Hagen 2022</div>
+          <svg width="200" height="200" viewBox="0 0 200 200">
+            <polygon points="100,30 160,70 150,140 50,140 40,70" fill="none" stroke="rgba(45,212,191,0.12)" stroke-width="0.5"/>
+            <polygon points="100,50 145,78 138,125 62,125 55,78" fill="none" stroke="rgba(45,212,191,0.08)" stroke-width="0.5"/>
+            <polygon points="100,92 112,102 108,114 92,114 88,102" fill="rgba(163,230,53,0.20)" stroke="#a3e635" stroke-width="1.5"/>
+            <text x="100" y="18" text-anchor="middle" fill="#4b6888" font-size="7">Safety 0.92</text>
+            <text x="172" y="70" text-anchor="start" fill="#4b6888" font-size="7">Rule 0.88</text>
+            <text x="172" y="140" text-anchor="start" fill="#4b6888" font-size="7">Delay 0.71</text>
+            <text x="100" y="188" text-anchor="middle" fill="#4b6888" font-size="7">Magnitude 0.85</text>
+            <text x="10" y="140" text-anchor="end" fill="#4b6888" font-size="7">Phase 0.93</text>
+            <text x="10" y="70" text-anchor="end" fill="#4b6888" font-size="7">Plausibility 0.79</text>
+          </svg>
+        </div>
+        <!-- Right: COLREGs Decision Tree -->
+        <div style="flex:1;background:#0f1929;border:1px solid rgba(45,212,191,0.10);border-radius:6px;padding:10px">
+          <div style="color:#4b6888;font-size:9px;letter-spacing:1px;margin-bottom:8px">COLREGs DECISION TREE</div>
+          <div style="font-size:9px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="color:#60a5fa;font-weight:600">Rule-14</span><span style="color:#4b6888">→</span><span style="color:#c084fc">Head-on Situation</span>
+            </div>
+            <div style="height:12px;border-left:1px solid rgba(45,212,191,0.15);margin-left:8px"></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+              <span style="color:#fbbf24">Both give-way</span><span style="color:#4b6888">→</span><span style="color:#34d399">Alter Stbd</span>
+            </div>
+            <div style="height:12px;border-left:1px solid rgba(45,212,191,0.15);margin-left:8px"></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-left:16px">
+              <span style="color:#a3e635">Action</span><span style="color:#4b6888">:</span><span style="color:#e6edf3">ΔCOG +15° for 45s</span>
+            </div>
+            <div style="height:12px;border-left:1px solid rgba(45,212,191,0.15);margin-left:8px;border-left-style:dashed"></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-left:16px">
+              <span style="color:#34d399;font-weight:700">PASS</span><span style="color:#4b6888">· CPA 0.85nm &gt; threshold 0.5nm</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Action bar -->
+      <div style="height:44px;background:#060e1a;border-top:1px solid rgba(45,212,191,0.12);display:flex;align-items:center;padding:0 16px;gap:8px">
+        <span style="background:#34d399;color:#0b1320;padding:4px 16px;border-radius:3px;font-weight:700;font-size:10px">PASS</span>
+        <span style="background:#1f2937;border:1px solid #374151;color:#f87171;padding:4px 16px;border-radius:3px;font-size:10px">FAIL</span>
+        <span style="background:#1f2937;border:1px solid #374151;color:#9ca3af;padding:4px 16px;border-radius:3px;font-size:10px;margin-left:12px">Export .marzip</span>
+        <span style="color:#4b6888;font-size:8px;margin-left:6px">⏳ Processing…</span>
+        <span style="margin-left:auto;background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.15);color:#2dd4bf;padding:4px 16px;border-radius:3px;font-size:10px">New Run →</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>New Shared Components</h3>
+  <div class="split">
+    <!-- ARPA Target Table -->
+    <div class="mockup" style="flex:1">
+      <div class="mockup-header">ARPA Target Table (Captain view right sidebar)</div>
+      <div class="mockup-body" style="padding:6px;background:#0b1320;font-family:monospace;font-size:9px;color:#9ca3af">
+        <table style="width:100%;border-collapse:collapse;font-size:9px">
+          <tr style="color:#4b6888;font-size:7px;text-transform:uppercase">
+            <th style="text-align:left;padding:2px">ID</th><th style="text-align:left;padding:2px">BRG</th><th style="text-align:left;padding:2px">RNG</th><th style="text-align:left;padding:2px">COG</th><th style="text-align:left;padding:2px">SOG</th><th style="text-align:left;padding:2px">CPA</th><th style="text-align:left;padding:2px">TCPA</th>
+          </tr>
+          <tr style="border-top:1px solid rgba(45,212,191,0.08)">
+            <td style="padding:2px;color:#fbbf24">T1</td><td style="padding:2px">000°</td><td style="padding:2px">6.0nm</td><td style="padding:2px">180°</td><td style="padding:2px">12.0kn</td><td style="padding:2px;color:#f87171">0.85</td><td style="padding:2px;color:#fbbf24">6.2</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <!-- M1-M8 Drill-down panel -->
+    <div class="mockup" style="flex:1">
+      <div class="mockup-header">M1-M8 Drill-Down (click pulse dot in God view)</div>
+      <div class="mockup-body" style="padding:6px;background:#0b1320;font-family:monospace;font-size:9px;color:#9ca3af">
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          <div style="flex:1;min-width:45%;background:#0f1929;border:1px solid rgba(45,212,191,0.08);border-radius:3px;padding:4px">
+            <span style="color:#34d399;font-size:8px">● M1 ODD</span>
+            <div style="font-size:7px;color:#4b6888;margin-top:2px">lat: 2ms · drops: 0<br/>state: COASTAL · alive: 180s</div>
+          </div>
+          <div style="flex:1;min-width:45%;background:#0f1929;border:1px solid rgba(45,212,191,0.08);border-radius:3px;padding:4px">
+            <span style="color:#fbbf24;font-size:8px">● M3 Mission</span>
+            <div style="font-size:7px;color:#4b6888;margin-top:2px">lat: 8ms · drops: 2<br/>WP: 3/12 · ETA: +2min</div>
+          </div>
+          <div style="flex:1;min-width:45%;background:#0f1929;border:1px solid rgba(45,212,191,0.08);border-radius:3px;padding:4px">
+            <span style="color:#34d399;font-size:8px">● M6 COLREGs</span>
+            <div style="font-size:7px;color:#4b6888;margin-top:2px">lat: 3ms · active: R14<br/>rule chain: 2 active</div>
+          </div>
+          <div style="flex:1;min-width:45%;background:#0f1929;border:1px solid rgba(248,113,113,0.15);border-radius:3px;padding:4px">
+            <span style="color:#f87171;font-size:8px">● M7 Safety</span>
+            <div style="font-size:7px;color:#4b6888;margin-top:2px">lat: 5ms · veto: 0<br/>CPA guard: active</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>All Features — Demo-1 Implementation Checklist</h3>
+  <table style="width:100%;font-size:11px;border-collapse:collapse">
+    <tr style="color:#4b6888;font-size:9px;text-transform:uppercase">
+      <th style="text-align:left;padding:3px">#</th><th style="text-align:left;padding:3px">Feature</th><th style="text-align:left;padding:3px">Screen</th><th style="text-align:left;padding:3px">Mode</th><th style="text-align:left;padding:3px">Est.</th>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">1</td><td style="padding:3px">CSS design tokens (color+type+spacing)</td><td style="padding:3px">All</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">2</td><td style="padding:3px">S-57 ENC vector tiles (37K existing)</td><td style="padding:3px">③</td><td style="padding:3px">Captain</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">3</td><td style="padding:3px">Off-center own-ship (bottom 30%)</td><td style="padding:3px">③</td><td style="padding:3px">Captain</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">4</td><td style="padding:3px">PPI range rings (0.5/1/2/4 nm)</td><td style="padding:3px">③</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">5</td><td style="padding:3px">Relative bearing compass rose</td><td style="padding:3px">③</td><td style="padding:3px">Captain</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">6</td><td style="padding:3px">Heading-up / North-up toggle</td><td style="padding:3px">③</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">7</td><td style="padding:3px">Distance scale bar</td><td style="padding:3px">③</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.3d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">8</td><td style="padding:3px">ARPA target table</td><td style="padding:3px">③</td><td style="padding:3px">Captain</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">9</td><td style="padding:3px">COLREGs 4-sector overlay</td><td style="padding:3px">③</td><td style="padding:3px">God</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">10</td><td style="padding:3px">Imazu-22 geometry overlay</td><td style="padding:3px">①③</td><td style="padding:3px">God</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">11</td><td style="padding:3px">M1-M8 drill-down panel</td><td style="padding:3px">③</td><td style="padding:3px">God</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">12</td><td style="padding:3px">6-dim scoring real-time gauge</td><td style="padding:3px">③</td><td style="padding:3px">God</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">13</td><td style="padding:3px">Scoring radar chart</td><td style="padding:3px">④</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">14</td><td style="padding:3px">COLREGs decision tree</td><td style="padding:3px">④</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">15</td><td style="padding:3px">Timeline scrubber (stub)</td><td style="padding:3px">④</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">0.5d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">16</td><td style="padding:3px">ScenarioBuilder Imazu preview</td><td style="padding:3px">①</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d"><td style="padding:3px">17</td><td style="padding:3px">AIS tab wire-up (D1.3b.2)</td><td style="padding:3px">①</td><td style="padding:3px">Both</td><td style="padding:3px;color:#4b6888">1d</td></tr>
+    <tr style="border-top:1px solid #1f2d3d;background:rgba(45,212,191,0.04)"><td style="padding:3px"></td><td style="padding:3px;color:#2dd4bf;font-weight:600">TOTAL</td><td style="padding:3px"></td><td style="padding:3px"></td><td style="padding:3px;color:#2dd4bf;font-weight:600">~12.3 days</td></tr>
+  </table>
+</div>

@@ -1,0 +1,129 @@
+<h2>SIL HMI Current State: Gap Analysis</h2>
+<p class="subtitle">4 screens built (044e278), 50Hz telemetry live, WS connected — what's missing for Demo-1?</p>
+
+<div class="section">
+  <h3>What Works (DEMO-1 baseline)</h3>
+  <div class="split">
+    <div class="mockup" style="flex:1">
+      <div class="mockup-header">① ScenarioBuilder — ✅ Core OK</div>
+      <div class="mockup-body" style="padding:12px;font-size:11px;color:#9ca3af">
+        <div style="display:flex;gap:12px">
+          <div style="flex:1;background:#0b1320;border:1px solid #1f2d3d;border-radius:4px;padding:8px">
+            <div style="color:#2dd4bf;font-weight:700;margin-bottom:4px">Template Tab</div>
+            <div style="background:#1f2d3d;padding:4px;border-radius:2px;margin:2px 0">R14 Head-On</div>
+            <div style="background:#1f2d3d;padding:4px;border-radius:2px;margin:2px 0">R15 Crossing</div>
+            <div style="background:#1f2d3d;padding:4px;border-radius:2px;margin:2px 0">R13 Overtaking</div>
+            <div style="margin-top:8px;display:flex;gap:4px">
+              <span class="mock-button" style="font-size:9px">Validate</span>
+              <span class="mock-button" style="font-size:9px">Save</span>
+              <span class="mock-button" style="font-size:9px;background:#2dd4bf;color:#0b1320">Run →</span>
+            </div>
+          </div>
+          <div style="flex:1;background:#0b1320;border:1px solid #1f2d3d;border-radius:4px;padding:8px">
+            <div style="color:#4b6888;font-size:10px">ENC Preview</div>
+            <div class="placeholder" style="height:120px;font-size:10px">MapLibre OSM raster<br/>No Imazu geometry</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mockup" style="flex:1">
+      <div class="mockup-header">③ BridgeHMI — ✅ 50Hz Live</div>
+      <div class="mockup-body" style="padding:12px;font-size:11px;color:#9ca3af">
+        <div style="background:#0b1320;border:1px solid #1f2d3d;border-radius:4px;padding:8px;text-align:center">
+          <div style="color:#2dd4bf;margin-bottom:4px">TopInfoBar: CPA/TCPA/Rule/Decision</div>
+          <div class="placeholder" style="height:100px;font-size:10px">MapLibre fullscreen<br/>Own-ship + target markers<br/>COG vectors + CPA rings</div>
+          <div style="display:flex;gap:4px;justify-content:center;margin-top:4px">
+            <span class="mock-button" style="font-size:9px">⏸</span>
+            <span class="mock-button" style="font-size:9px">×1</span>
+            <span class="mock-button" style="font-size:9px">×2</span>
+            <span class="mock-button" style="font-size:9px">ASDR(0)</span>
+            <span class="mock-button" style="font-size:9px;background:#dc2626">⏹ STOP</span>
+          </div>
+          <div style="margin-top:4px;display:flex;gap:4px;justify-content:center">
+            <span style="color:#34d399">●M1</span><span style="color:#34d399">●M2</span><span style="color:#fb0">●M3</span>
+            <span style="color:#333">●M4</span><span style="color:#333">●M5</span><span style="color:#333">●M6</span>
+            <span style="color:#333">●M7</span><span style="color:#333">●M8</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Known Gaps (from HMI spec §Limitations + spec §7 MUST list)</h3>
+  <table style="width:100%;font-size:12px;border-collapse:collapse">
+    <tr style="color:#4b6888;font-size:10px;text-transform:uppercase">
+      <th style="text-align:left;padding:4px">Gap</th><th style="text-align:left;padding:4px">Screen</th><th style="text-align:left;padding:4px">Severity</th><th style="text-align:left;padding:4px">Category</th>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#f87171">No Imazu-22 geometry overlay on map</td>
+      <td style="padding:4px">①</td><td style="padding:4px;color:#f87171">P1</td><td style="padding:4px">Visual verification</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#fbbf24">Procedural / AIS tabs are stubs</td>
+      <td style="padding:4px">①</td><td style="padding:4px;color:#fbbf24">P2</td><td style="padding:4px">Scenario variety</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#f87171">No S-57 MVT tiles connected (OSM fallback)</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#f87171">P2</td><td style="padding:4px">ECDIS fidelity</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#f87171">Run report timeline is placeholder</td>
+      <td style="padding:4px">④</td><td style="padding:4px;color:#f87171">P2</td><td style="padding:4px">Post-run analysis</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#fbbf24">No target ship info card / detail panel</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#fbbf24">P1</td><td style="padding:4px">Situational awareness</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#fbbf24">No relative bearing compass rose</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#fbbf24">P1</td><td style="padding:4px">Captain view fidelity</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#fbbf24">No distance scale / PPI ring</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#fbbf24">P1</td><td style="padding:4px">IEC 62288 §SA-3</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#f87171">No COLREGs rule zone visualization</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#f87171">P0</td><td style="padding:4px">Algorithm verification</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#f87171">No M1-M8 health detail drill-down</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#f87171">P0</td><td style="padding:4px">Dev self-test</td>
+    </tr>
+    <tr style="border-top:1px solid #1f2d3d">
+      <td style="padding:4px;color:#fbbf24">No waypoints / route line on map</td>
+      <td style="padding:4px">③</td><td style="padding:4px;color:#fbbf24">P1</td><td style="padding:4px">Scenario context</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Three Redesign Directions</h3>
+  <p style="color:#9ca3af;font-size:12px">Which direction should drive the Demo-1 redesign? Pick the primary emphasis.</p>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="algo-hub" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Algorithm Verification Hub</h3>
+      <p style="font-size:12px;color:#9ca3af">Maximize developer insight: COLREGs rule zone overlays on map, M1-M8 internal state drill-down, decision rationale tree view, ROS2 topic inspector, real-time latency waterfall. <strong>SIL as debug tool first.</strong></p>
+    </div>
+  </div>
+  <div class="option" data-choice="bridge-fidelity" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Bridge HMI Fidelity (IEC 62288)</h3>
+      <p style="font-size:12px;color:#9ca3af">Maximize maritime realism: S-57 ENC tiles, off-center own-ship PPI display, relative bearing compass rose, proper ECDIS color palette (S-52), range rings, ARPA-style target tables, BNWAS integration. <strong>SIL as bridge surrogate first.</strong></p>
+    </div>
+  </div>
+  <div class="option" data-choice="both" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Dual-Mode: Dev ↔ Bridge</h3>
+      <p style="font-size:12px;color:#9ca3af">Captain view = maritime fidelity (IEC 62288). God view = full algorithm debug overlay. Mode toggle already exists — flesh out both modes fully. <strong>Higher effort but covers both use cases.</strong></p>
+    </div>
+  </div>
+</div>

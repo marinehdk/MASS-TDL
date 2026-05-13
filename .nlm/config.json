@@ -61,7 +61,7 @@
         "situation awareness",
         "watchkeeping"
       ],
-      "source_count": 52,
+      "source_count": 106,
       "last_distilled": null
     },
     "maritime_regulations": {
@@ -118,7 +118,7 @@
         "DNV OSP",
         "Kongsberg HIL"
       ],
-      "source_count": 118,
+      "source_count": 201,
       "last_distilled": null
     },
     "cybersecurity": {

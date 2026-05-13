@@ -1,0 +1,88 @@
+<h2>Design Section 1: Color System & Design Tokens</h2>
+<p class="subtitle">Foundation layer — OpenBridge 5.0 aligned + S-52 Night palette adapted for our dark-themed SIL HMI</p>
+
+<div class="section">
+  <h3>Why This Matters</h3>
+  <p style="font-size:12px;color:#9ca3af">Current code has hardcoded colors scattered across BridgeHMI.tsx (e.g., <code>#0b1320</code>, <code>#2dd4bf</code>, <code>#f87171</code>, <code>#fbbf24</code>). No systematic color token system = inconsistent screens, hard to maintain. OpenBridge 5.0 + IHO S-52 PresLib 4.0 give us industry-standard tokens.</p>
+</div>
+
+<div class="section">
+  <h3>Color Tokens (design-tokens.css or Tailwind config)</h3>
+  <div class="split">
+    <div style="flex:1">
+      <div class="label">Semantic Tokens (OpenBridge-aligned)</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px">
+        <tr style="color:#4b6888;font-size:9px;text-transform:uppercase">
+          <th style="text-align:left;padding:2px">Token</th><th style="text-align:left;padding:2px">Value</th><th style="text-align:left;padding:2px">Usage</th>
+        </tr>
+        <tr><td style="padding:2px;color:#34d399">--status-green</td><td style="padding:2px">#34d399</td><td style="padding:2px;color:#9ca3af;font-size:10px">Module pulse, PASS verdict</td></tr>
+        <tr><td style="padding:2px;color:#fbbf24">--status-amber</td><td style="padding:2px">#fbbf24</td><td style="padding:2px;color:#9ca3af;font-size:10px">Warning, RISK verdict</td></tr>
+        <tr><td style="padding:2px;color:#f87171">--status-red</td><td style="padding:2px">#f87171</td><td style="padding:2px;color:#9ca3af;font-size:10px">Alarm, FAIL verdict</td></tr>
+        <tr><td style="padding:2px;color:#2dd4bf">--accent-primary</td><td style="padding:2px">#2dd4bf</td><td style="padding:2px;color:#9ca3af;font-size:10px">Own-ship, active state, COG line</td></tr>
+        <tr><td style="padding:2px;color:#60a5fa">--accent-info</td><td style="padding:2px">#60a5fa</td><td style="padding:2px;color:#9ca3af;font-size:10px">RULE chip, headings</td></tr>
+        <tr><td style="padding:2px;color:#c084fc">--accent-decision</td><td style="padding:2px">#c084fc</td><td style="padding:2px;color:#9ca3af;font-size:10px">Decision text, M8</td></tr>
+        <tr><td style="padding:2px;color:#a3e635">--accent-score</td><td style="padding:2px">#a3e635</td><td style="padding:2px;color:#9ca3af;font-size:10px">Scoring gauges, ROT</td></tr>
+      </table>
+    </div>
+    <div style="flex:1">
+      <div class="label">Surface Tokens (dark theme, S-52 Night)</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px">
+        <tr style="color:#4b6888;font-size:9px;text-transform:uppercase">
+          <th style="text-align:left;padding:2px">Token</th><th style="text-align:left;padding:2px">Value</th><th style="text-align:left;padding:2px">Usage</th>
+        </tr>
+        <tr><td style="padding:2px;color:#e6edf3">--surface-root</td><td style="padding:2px">#0b1320</td><td style="padding:2px;color:#9ca3af;font-size:10px">Page background</td></tr>
+        <tr><td style="padding:2px;color:#e6edf3">--surface-panel</td><td style="padding:2px">#0f1929</td><td style="padding:2px;color:#9ca3af;font-size:10px">Cards, modals, HUD</td></tr>
+        <tr><td style="padding:2px;color:#e6edf3">--surface-bar</td><td style="padding:2px">#060e1a</td><td style="padding:2px;color:#9ca3af;font-size:10px">Bottom bar, top bar</td></tr>
+        <tr><td style="padding:2px;color:#e6edf3">--border-subtle</td><td style="padding:2px">rgba(45,212,191,0.12)</td><td style="padding:2px;color:#9ca3af;font-size:10px">Panel borders</td></tr>
+        <tr><td style="padding:2px;color:#e6edf3">--border-active</td><td style="padding:2px">rgba(45,212,191,0.22)</td><td style="padding:2px;color:#9ca3af;font-size:10px">Active element border</td></tr>
+        <tr><td style="padding:2px;color:#9ca3af">--text-primary</td><td style="padding:2px">#e6edf3</td><td style="padding:2px;color:#9ca3af;font-size:10px">Body, labels</td></tr>
+        <tr><td style="padding:2px;color:#4b6888">--text-secondary</td><td style="padding:2px">#4b6888</td><td style="padding:2px;color:#9ca3af;font-size:10px">Hints, units, dimmed</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>S-52 Display Category → MapLibre Layer Mapping</h3>
+  <table style="width:100%;font-size:11px;border-collapse:collapse">
+    <tr style="color:#4b6888;font-size:9px;text-transform:uppercase">
+      <th style="text-align:left;padding:2px">S-52 Category</th><th style="text-align:left;padding:2px">Our Layer</th><th style="text-align:left;padding:2px">Always Visible?</th><th style="text-align:left;padding:2px">Color</th>
+    </tr>
+    <tr><td style="padding:2px">Display Base</td><td style="padding:2px">coastline, safety_contour, own_ship</td><td style="padding:2px;color:#34d399">✅ Yes</td><td style="padding:2px;color:#93c5fd">#93c5fd</td></tr>
+    <tr><td style="padding:2px">Standard Display</td><td style="padding:2px">depth_area, land_area, buoyage</td><td style="padding:2px;color:#fbbf24">⚠️ Togglable</td><td style="padding:2px;color:#4b6888">S-52 mapped</td></tr>
+    <tr><td style="padding:2px">All Other Info</td><td style="padding:2px">spot_soundings, contour_labels</td><td style="padding:2px;color:#f87171">❌ Hidden default</td><td style="padding:2px;color:#4b6888">S-52 mapped</td></tr>
+    <tr><td style="padding:2px">Mariner's Info</td><td style="padding:2px">route_line, waypoints, imazu_geom</td><td style="padding:2px;color:#2dd4bf">✅ On by default</td><td style="padding:2px;color:#fbbf24">#fbbf24 / #f87171</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Typography Scale</h3>
+  <div style="display:flex;gap:24px;font-size:12px;color:#9ca3af">
+    <div>
+      <div class="label">Font Family</div>
+      <p style="margin:4px 0">JetBrains Mono (monospace — dev tool DNA)<br/>Inter or system-ui (UI chrome — labels, buttons)</p>
+    </div>
+    <div>
+      <div class="label">Size Scale</div>
+      <p style="margin:4px 0"><code style="color:#2dd4bf">text-2xs: 8px</code> — M1-M8 labels<br/>
+      <code style="color:#2dd4bf">text-xs: 10px</code> — HUD values, tooltips<br/>
+      <code style="color:#2dd4bf">text-sm: 11-12px</code> — body, panel text<br/>
+      <code style="color:#2dd4bf">text-base: 13-14px</code> — headings, KPIs<br/>
+      <code style="color:#2dd4bf">text-lg: 16px</code> — sim time, verdict badge</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros"><h4>Why this works</h4><ul>
+    <li>OpenBridge 5.0 colors = defendable to DNV/CCS auditors</li>
+    <li>S-52 layer hierarchy = correct ECDIS rendering order</li>
+    <li>Monospace for data + sans for chrome = clear visual separation</li>
+    <li>Single CSS custom properties file → all screens consistent</li>
+  </ul></div>
+  <div class="cons"><h4>Risks</h4><ul>
+    <li>Dark-only theme = no Day/Dusk/Night toggle for Demo-1</li>
+    <li>OpenBridge is designed for light backgrounds — our night adaptation is a derivative, not certified</li>
+    <li>CSS custom properties need to work with MapLibre's GL JSON style spec (not CSS)</li>
+  </ul></div>
+</div>
