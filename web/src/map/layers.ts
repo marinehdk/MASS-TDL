@@ -59,6 +59,79 @@ export const s57Layers: LayerSpecification[] = [
   },
 ];
 
+// Additional S-52 layers
+export const s57BuoyageLayer: LayerSpecification = {
+  id: 's57-buoyage',
+  type: 'symbol',
+  source: 's57',
+  'source-layer': 'buoyage',
+  minzoom: 10,
+  layout: {
+    'text-field': ['get', 'name'],
+    'text-font': ['Open Sans Regular'],
+    'text-size': 9,
+    'text-allow-overlap': false,
+  },
+  paint: {
+    'text-color': '#60a5fa',
+  },
+};
+
+export const s57SpotSoundingLayer: LayerSpecification = {
+  id: 's57-spot-sounding',
+  type: 'symbol',
+  source: 's57',
+  'source-layer': 'spot_soundings',
+  minzoom: 12,
+  layout: {
+    'text-field': ['get', 'depth'],
+    'text-font': ['Open Sans Regular'],
+    'text-size': 8,
+    'text-allow-overlap': false,
+    'visibility': 'none',
+  },
+  paint: {
+    'text-color': '#93c5fd',
+  },
+};
+
+export const s57ContourLabelLayer: LayerSpecification = {
+  id: 's57-contour-label',
+  type: 'symbol',
+  source: 's57',
+  'source-layer': 'contour_labels',
+  minzoom: 12,
+  layout: {
+    'text-field': ['get', 'label'],
+    'text-font': ['Open Sans Regular'],
+    'text-size': 8,
+    'text-allow-overlap': false,
+    'visibility': 'none',
+  },
+  paint: {
+    'text-color': '#93c5fd',
+  },
+};
+
+// Union all S-57 layers
+export const ALL_S57_LAYERS: LayerSpecification[] = [
+  ...s57Layers,
+  s57BuoyageLayer,
+  s57SpotSoundingLayer,
+  s57ContourLabelLayer,
+];
+
+// GeoJSON source placeholders for dynamic overlays
+export const colregsSectorsSource: SourceSpecification = {
+  type: 'geojson',
+  data: { type: 'FeatureCollection', features: [] },
+};
+
+export const imazuGeometrySource: SourceSpecification = {
+  type: 'geojson',
+  data: { type: 'FeatureCollection', features: [] },
+};
+
 // Vessel sources (GeoJSON, updated from telemetryStore).
 //
 // IMPORTANT: MapLibre v4 GeoJSON sources created with an empty FeatureCollection
