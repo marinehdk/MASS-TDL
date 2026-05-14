@@ -7,7 +7,7 @@ import type { ASDREvent, LifecycleStatus, SensorState, CommLinkState, FaultState
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS  = 30_000;
 
-export function useFoxgloveLive(wsUrl = 'ws://localhost:8765') {
+export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
   const wsRef     = useRef<WebSocket | null>(null);
   const delayRef  = useRef(BASE_DELAY_MS);
   const deadRef   = useRef(false); // set true on component unmount

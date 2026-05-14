@@ -18,6 +18,7 @@ import {
   LucideLayout, LucideDices, LucideBrainCircuit, LucidePanelLeftClose, LucidePanelLeftOpen,
   LucideMousePointer2, LucideNavigation
 } from 'lucide-react';
+import { BuilderRightRail } from './shared/BuilderRightRail';
 
 type Domain = 'single' | 'mc' | 'rl';
 
@@ -195,7 +196,7 @@ export function ScenarioBuilder() {
   ];
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', background: '#070c13' }}>
+    <div data-testid="scenario-builder" style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', background: '#070c13' }}>
       
       {/* TIER 1: Leftmost Nav Rail */}
       <div 
@@ -385,7 +386,7 @@ export function ScenarioBuilder() {
         <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
         
         <div className="glass-panel" style={{
-          position: 'absolute', top: 20, right: 20, padding: '12px 16px',
+          position: 'absolute', top: 145, right: 20, padding: '12px 16px',
           display: 'flex', gap: 16, alignItems: 'center'
         }}>
           <div>
@@ -414,100 +415,12 @@ export function ScenarioBuilder() {
         )}
       </div>
 
-      {/* RIGHT PANEL: 10% - Parameters */}
-      <div style={{ width: '280px', background: '#0a0f18', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--line-2)' }}>
-        <div style={{ 
-          padding: '16px', borderBottom: '1px solid var(--line-1)', 
-          fontFamily: 'var(--f-disp)', fontSize: 14, fontWeight: 700, color: 'var(--txt-0)',
-          display: 'flex', alignItems: 'center', gap: 8
-        }}>
-          <LucideSettings2 size={16} color="var(--c-phos)" />
-          <span>PARAMETERS</span>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-          {[
-            { id: 'basic', label: 'Basic Configuration', icon: <LucideSettings2 size={14} /> },
-            { id: 'ownship', label: 'Own Ship Specs', icon: <LucideShip size={14} /> },
-            { id: 'targets', label: 'Target Tracking', icon: <LucideTarget size={14} /> },
-            { id: 'env', label: 'Metocean Data', icon: <LucideCloudRain size={14} /> },
-          ].map(section => (
-            <div key={section.id}>
-              <div 
-                onClick={() => setActiveTab(section.id as any)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px',
-                  marginBottom: 2, cursor: 'pointer', borderRadius: 8,
-                  background: activeTab === section.id ? 'rgba(91,192,190,0.1)' : 'transparent',
-                  color: activeTab === section.id ? 'var(--c-phos)' : 'var(--txt-2)',
-                }}
-              >
-                {section.icon}
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{section.label}</span>
-              </div>
-              
-              {/* Placement Tools in Form */}
-              {activeTab === section.id && (
-                <div style={{ padding: '8px 12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {section.id === 'ownship' && (
-                    <button 
-                      onClick={() => setPlacementMode('ownship')}
-                      style={{
-                        padding: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--line-1)',
-                        borderRadius: 6, color: 'var(--txt-1)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <LucideMousePointer2 size={12} /> 点击地图设置初始位置
-                    </button>
-                  )}
-                  {section.id === 'targets' && (previewData?.targets || []).map((t, idx) => (
-                    <button 
-                      key={t.id}
-                      onClick={() => setPlacementMode(`target-${idx}`)}
-                      style={{
-                        padding: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--line-1)',
-                        borderRadius: 6, color: 'var(--txt-1)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <LucideMousePointer2 size={12} /> 设置目标船 {t.id} 位置
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div style={{ padding: '16px', borderTop: '1px solid var(--line-2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleSave} style={{
-              flex: 1, padding: '10px', background: 'transparent', border: '1px solid var(--line-2)',
-              color: 'var(--txt-1)', borderRadius: 6, fontSize: 11, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer'
-            }}>
-              <LucideSave size={14} /> SAVE
-            </button>
-            <button onClick={handleValidate} style={{
-              flex: 1, padding: '10px', background: 'transparent', border: '1px solid var(--line-2)',
-              color: 'var(--txt-1)', borderRadius: 6, fontSize: 11, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer'
-            }}>
-              <LucideCheckCircle size={14} /> VALIDATE
-            </button>
-          </div>
-          <button onClick={handleRun} disabled={!selectedId} style={{
-            width: '100%', padding: '14px', background: selectedId ? 'var(--c-phos)' : 'var(--line-2)', 
-            border: 'none', color: '#000', fontFamily: 'var(--f-disp)', fontSize: 12, fontWeight: 800,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, 
-            cursor: selectedId ? 'pointer' : 'not-allowed', borderRadius: 8
-          }}>
-            <LucidePlay size={16} /> RUN PRE-FLIGHT
-          </button>
-        </div>
-      </div>
-
+      <BuilderRightRail
+        previewData={previewData}
+        onRun={handleRun}
+        onSave={handleSave}
+        onValidate={handleValidate}
+      />
     </div>
   );
 }

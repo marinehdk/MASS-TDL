@@ -197,6 +197,23 @@ export function BridgeHMI() {
         <ModulePulseBar />
         <SilMapView followOwnShip={viewMode === 'captain'} viewMode={viewMode as 'captain' | 'god'} />
 
+        {/* Waiting overlay — shown until first WS frame arrives */}
+        {!ownShip && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 50,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(7,12,19,0.82)',
+            fontFamily: 'var(--f-mono)',
+          }}>
+            <div style={{ fontSize: 24, marginBottom: 12, opacity: 0.4 }}>◌</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-1)', marginBottom: 6 }}>
+              Waiting for simulation data…
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--txt-3)' }}>ws://127.0.0.1:8765</div>
+          </div>
+        )}
+
         <div style={{ position: 'absolute', bottom: 64, left: 16, zIndex: 15 }}>
           <CompassRose bearing={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0} relativeMode={viewMode === 'captain'} />
         </div>
@@ -206,7 +223,7 @@ export function BridgeHMI() {
         {viewMode === 'god' && <ColregsSectors ownShipFraction={[50, 50]} headingDeg={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0} outerRadiusPx={320} />}
 
         <div style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
-          <DistanceScale nmPerPixel={0.005} />
+          <DistanceScale nmPerPixel={0.01} />
         </div>
 
         <CaptainHUD asdrEvents={asdrEvents} />

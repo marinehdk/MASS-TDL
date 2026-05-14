@@ -29,7 +29,7 @@ export const FooterHotkeyHints: React.FC<FooterHotkeyHintsProps> = ({ screen }) 
           WebSocket地址
         </span>
         <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 600 }}>
-          ● WS://m8.local:7820
+          ● ws://127.0.0.1:8765
         </span>
       </div>
 

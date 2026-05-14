@@ -155,25 +155,67 @@ export function RunReport() {
         display: 'flex', gap: 8, padding: '12px 18px', flexWrap: 'wrap',
       }}>
         {[
-          { label: 'VERDICT', value: 'PASS', sub: '8/8 criteria · sealed', accent: 'var(--c-stbd)' },
-          { label: 'Min CPA', value: '0.52 nm', sub: '≥ 0.40 nm', accent: 'var(--c-phos)' },
-          { label: 'COLREGs', value: '1.00', sub: 'compliance rate', accent: 'var(--c-stbd)' },
-          { label: 'Max RUD', value: '0.48°', sub: 'rudder angle', accent: 'var(--c-info)' },
-          { label: 'TOR Time', value: '5.5 s', sub: 'total duration', accent: 'var(--c-warn)' },
-          { label: 'Decision P99', value: '24 ms', sub: '<50ms target', accent: 'var(--c-stbd)' },
-          { label: 'Faults', value: '2', sub: 'injected', accent: 'var(--c-warn)' },
-          { label: 'SHA-256', value: '0 fails', sub: 'chain verified', accent: 'var(--c-phos)' },
+          {
+            label: 'VERDICT',
+            value: scoring?.verdict ? scoring.verdict.toUpperCase() : '—',
+            sub: scoring?.verdict === 'pass' ? '✓ criteria met' : scoring?.verdict === 'fail' ? '✗ criteria failed' : 'pending',
+            accent: scoring?.verdict === 'pass' ? 'var(--c-stbd)' : scoring?.verdict === 'fail' ? 'var(--c-danger)' : 'var(--txt-3)',
+          },
+          {
+            label: 'Min CPA',
+            value: kpis?.min_cpa_nm != null ? `${kpis.min_cpa_nm.toFixed(3)} nm` : '—',
+            sub: '≥ 0.27 nm threshold',
+            accent: kpis?.min_cpa_nm != null && kpis.min_cpa_nm >= 0.27 ? 'var(--c-phos)' : 'var(--c-danger)',
+          },
+          {
+            label: 'COLREGs',
+            value: ruleChain.length > 0 ? '1.00' : '—',
+            sub: ruleChain[0] ?? 'no rule applied',
+            accent: 'var(--c-stbd)',
+          },
+          {
+            label: 'Max Rudder',
+            value: (kpis as any)?.max_rud_deg != null ? `${((kpis as any).max_rud_deg as number).toFixed(1)}°` : '—',
+            sub: 'rudder angle',
+            accent: 'var(--c-info)',
+          },
+          {
+            label: 'ToR Time',
+            value: (kpis as any)?.tor_time_s != null ? `${(kpis as any).tor_time_s}s` : 'N/A',
+            sub: 'transfer of control',
+            accent: 'var(--c-warn)',
+          },
+          {
+            label: 'Decision P99',
+            value: (kpis as any)?.decision_p99_ms != null ? `${(kpis as any).decision_p99_ms} ms` : '—',
+            sub: '<500ms target',
+            accent: 'var(--c-stbd)',
+          },
+          {
+            label: 'Faults',
+            value: (kpis as any)?.faults_injected != null ? String((kpis as any).faults_injected) : '—',
+            sub: 'injected',
+            accent: 'var(--c-warn)',
+          },
+          {
+            label: 'SHA-256',
+            value: (kpis as any)?.scenario_sha256 ? '✓ verified' : '—',
+            sub: 'chain integrity',
+            accent: 'var(--c-phos)',
+          },
         ].map((kpi, i) => (
           <div key={i} style={{
             display: 'flex', flexDirection: 'column', gap: 2,
             padding: '6px 10px', borderLeft: '1px solid var(--line-1)',
             minWidth: 85,
           }}>
-            <div style={{ fontFamily: 'var(--f-disp)', fontSize: 8, color: 'var(--txt-3)', textTransform: 'uppercase', letterSpacing: '0.16em' }}>
+            <div style={{ fontFamily: 'var(--f-disp)', fontSize: 8, color: 'var(--txt-3)',
+                          textTransform: 'uppercase', letterSpacing: '0.16em' }}>
               {kpi.label}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: kpi.accent, fontWeight: 600 }}>
+              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16,
+                             color: kpi.accent, fontWeight: 600 }}>
                 {kpi.value}
               </span>
             </div>

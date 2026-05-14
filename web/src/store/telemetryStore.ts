@@ -123,7 +123,8 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
       const trail = [...s.ownShipTrail, [lon, lat] as [number, number]];
       return { ownShip, ownShipTrail: trail.length > MAX_TRAIL ? trail.slice(-MAX_TRAIL) : trail };
     }
-    return { ownShip };
+    // Keep ownShip null when decoded proto has no valid pose coordinates
+    return {};
   }),
   updateTargets: (targets) => set({ targets }),
   updateEnvironment: (environment) => set({ environment }),

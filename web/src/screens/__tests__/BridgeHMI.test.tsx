@@ -11,6 +11,8 @@ const mockMap = {
   getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
   jumpTo: vi.fn(),
   easeTo: vi.fn(),
+  setPaintProperty: vi.fn(),
+  setLayoutProperty: vi.fn(),
 };
 vi.mock('maplibre-gl', () => ({
   default: {

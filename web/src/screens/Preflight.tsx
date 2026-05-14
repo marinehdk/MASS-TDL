@@ -108,7 +108,7 @@ export function Preflight() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-0)' }}>
+    <div data-testid="preflight" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-0)' }}>
       <div className="glass-panel" style={{ width: 480, padding: 32, borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 24 }}>
         
         <div style={{ textAlign: 'center' }}>

@@ -10,6 +10,11 @@ vi.mock('../../map/SilMapView', () => ({
   SilMapView: () => <div data-testid="sil-map-view" />,
 }));
 
+// Mock BuilderRightRail since it's a complex UI component
+vi.mock('../shared/BuilderRightRail', () => ({
+  BuilderRightRail: (props: any) => <div data-testid="builder-right-rail" />,
+}));
+
 function renderWithProviders() {
   const store = configureStore({
     reducer: { [silApi.reducerPath]: silApi.reducer },

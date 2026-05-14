@@ -142,14 +142,17 @@ export function SilMapView({
     try {
       map = new maplibregl.Map({
         container: mapContainer.current,
+        attributionControl: false,
         style: {
           version: 8,
           glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-          sources: { 
-            osm: osmSource as any, 
+          sources: {
+            osm: osmSource as any,
             s57: {
               type: 'vector',
-              url: `http://localhost:3000/${previewData?.encRegion || 'trondelag'}`,
+              tiles: [`http://localhost:3000/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}`],
+              minzoom: 0,
+              maxzoom: 16,
             },
             satellite: {
               type: 'raster',
@@ -259,6 +262,7 @@ export function SilMapView({
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
+    if (typeof window !== 'undefined') { (window as any).__maplibre_map = map; }
 
     return () => {
       ownMarker.current?.remove(); ownMarker.current = null;
@@ -325,7 +329,7 @@ export function SilMapView({
     // Follow
     if (followOwnShip && viewMode === 'captain' && !previewData) {
       if (!firstFit.current) {
-        map.jumpTo({ center: [lon, lat], zoom: 13 });
+        map.jumpTo({ center: [lon, lat], zoom: 12 });
         map.setPadding({
           top: map.getContainer().clientHeight * (0.5 - viewportOffset[1]) * 2,
           bottom: map.getContainer().clientHeight * (viewportOffset[1] - 0.5) * 2,
