@@ -1,14 +1,29 @@
-"""Target Vessel Node — 3 modes: ais_replay, ncdm, intelligent."""
+"""Target Vessel Node — LifecycleNode publishing TargetVesselState @ 10Hz."""
 from __future__ import annotations
 
+import json
 import math
 from enum import Enum
+
+import rclpy
+from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+
+from sil_msgs.msg import TargetVesselState
 
 
 class TargetMode(str, Enum):
     REPLAY = "replay"
     NCDM = "ncdm"
     INTELLIGENT = "intelligent"
+
+
+# Mapping from TargetMode string value → uint8 per TargetVesselState.msg
+_TARGET_MODE_TO_UINT8 = {
+    "replay": 1,
+    "ncdm": 2,
+    "intelligent": 3,
+}
 
 
 class TargetVessel:
@@ -73,15 +88,23 @@ class TargetVessel:
         }
 
 
-class TargetVesselNode:
-    """Container managing a collection of target vessels.
+class TargetVesselNode(LifecycleNode):
+    """Lifecycle-managed ROS2 node that publishes target vessel states at 10 Hz.
 
-    Intended to be wrapped by a ROS2 node (target_vessel_node entry point)
-    that publishes ``TargetVesselArray`` messages at a configurable rate.
+    Full lifecycle:
+      *configure*  → declare parameters, load default targets from JSON
+      *activate*   → create publisher + timer (10 Hz)
+      *deactivate* → destroy timer + publisher
+      *cleanup*    → clear target list
     """
 
     def __init__(self) -> None:
+        super().__init__("target_vessel_node")
         self._targets: list[TargetVessel] = []
+        self._tv_pub = None
+        self._timer = None
+
+    # ── Public helpers (preserved from original stub) ────────────────────
 
     def add_target(
         self,
@@ -99,7 +122,73 @@ class TargetVesselNode:
     def step_all(self, dt: float = 0.1) -> list[dict]:
         return [t.step(dt) for t in self._targets]
 
+    # ── Lifecycle callbacks ─────────────────────────────────────────────
 
-def main() -> None:
-    """Entry point for console_scripts (ROS2 node placeholder)."""
-    print("TargetVesselNode ready")
+    def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self.declare_parameter("default_targets_json", "[]")
+        raw = self.get_parameter("default_targets_json").value
+        if raw:
+            try:
+                for entry in json.loads(raw):
+                    self.add_target(**entry)
+            except (json.JSONDecodeError, TypeError, KeyError) as exc:
+                self._logger.error("Failed to parse default_targets_json: %s", exc)
+                return TransitionCallbackReturn.ERROR
+        self._logger.info("Configured with %d target(s)", len(self._targets))
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
+        qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self._tv_pub = self.create_lifecycle_publisher(
+            TargetVesselState, "/sil/target_vessel_state", qos
+        )
+        self._timer = self.create_timer(0.1, self._step_callback)
+        self._logger.info("Activated — publishing TargetVesselState @ 10 Hz")
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_deactivate(self, state: LifecycleState) -> TransitionCallbackReturn:
+        if self._timer is not None:
+            self.destroy_timer(self._timer)
+            self._timer = None
+        if self._tv_pub is not None:
+            self.destroy_publisher(self._tv_pub)
+            self._tv_pub = None
+        self._logger.info("Deactivated")
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self._targets.clear()
+        self._logger.info("Cleaned up — targets cleared")
+        return TransitionCallbackReturn.SUCCESS
+
+    # ── Internal ────────────────────────────────────────────────────────
+
+    def _step_callback(self) -> None:
+        now = self.get_clock().now().to_msg()
+        for t in self._targets:
+            state = t.step(dt=0.1)
+            msg = TargetVesselState()
+            msg.stamp = now
+            msg.mmsi = state["mmsi"]
+            msg.lat = state["lat"]
+            msg.lon = state["lon"]
+            msg.heading = state["heading"]
+            msg.sog = state["sog"]
+            msg.cog = state["cog"]
+            msg.rot = state["rot"]
+            msg.ship_type = 1  # CARGO
+            msg.mode = _TARGET_MODE_TO_UINT8.get(state["mode"], 0)
+            self._tv_pub.publish(msg)
+
+
+def main(args: list[str] | None = None) -> None:
+    """Entry point for console_scripts — spins the lifecycle node."""
+    rclpy.init(args=args)
+    node = TargetVesselNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
