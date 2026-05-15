@@ -29,12 +29,14 @@ def test_gate_runner_run_all_stubs():
              patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2, \
              patch("sil_orchestrator.gate_runner.gate_3_scenario_integrity", new_callable=AsyncMock) as mock_g3, \
              patch("sil_orchestrator.gate_runner.gate_4_odd_alignment", new_callable=AsyncMock) as mock_g4, \
-             patch("sil_orchestrator.gate_runner.gate_5_time_base", new_callable=AsyncMock) as mock_g5:
+             patch("sil_orchestrator.gate_runner.gate_5_time_base", new_callable=AsyncMock) as mock_g5, \
+             patch("sil_orchestrator.gate_runner.gate_6_doer_checker", new_callable=AsyncMock) as mock_g6:
             mock_g1.return_value = GateResult(gate_id=1, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g2.return_value = GateResult(gate_id=2, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g3.return_value = GateResult(gate_id=3, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g4.return_value = GateResult(gate_id=4, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g5.return_value = GateResult(gate_id=5, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
+            mock_g6.return_value = GateResult(gate_id=6, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             runner = GateRunner(scenario_id="test-01")
             results = await runner.run_all()
         assert len(results) == 6
@@ -287,3 +289,42 @@ async def test_gate_5_utc_drift_fail():
         mock_asdr.return_value = ("ok", "ASDR ready")
         result = await gate_5_time_base("test-01")
         assert result.passed == False
+
+
+from sil_orchestrator.gate_runner import gate_6_doer_checker
+
+@pytest.mark.asyncio
+async def test_gate_6_all_pass():
+    """GATE 6: all 5 checks pass -> PASS"""
+    with patch("sil_orchestrator.gate_runner.verify_m7_pid_independent", new_callable=AsyncMock) as mock_pid, \
+         patch("sil_orchestrator.gate_runner.verify_m7_container_independent", new_callable=AsyncMock) as mock_ctr, \
+         patch("sil_orchestrator.gate_runner.verify_m7_import_lint") as mock_lint, \
+         patch("sil_orchestrator.gate_runner.verify_checker_veto_topic", new_callable=AsyncMock) as mock_veto, \
+         patch("sil_orchestrator.gate_runner.run_veto_latency_test", new_callable=AsyncMock) as mock_lat:
+        mock_pid.return_value = (True, "M7 PID independent")
+        mock_ctr.return_value = (True, "M7 container ID unique")
+        mock_lint.return_value = (True, "no OR-Tools import")
+        mock_veto.return_value = (True, "/l3/checker_veto topic found")
+        mock_lat.return_value = (True, "VETO latency 12ms < 50ms")
+        result = await gate_6_doer_checker()
+        assert result.gate_id == 6
+        assert result.passed == True
+        assert len(result.checks) == 5
+
+
+@pytest.mark.asyncio
+async def test_gate_6_container_fails():
+    """GATE 6: M7 container not independent -> FAIL"""
+    with patch("sil_orchestrator.gate_runner.verify_m7_pid_independent", new_callable=AsyncMock) as mock_pid, \
+         patch("sil_orchestrator.gate_runner.verify_m7_container_independent", new_callable=AsyncMock) as mock_ctr, \
+         patch("sil_orchestrator.gate_runner.verify_m7_import_lint") as mock_lint, \
+         patch("sil_orchestrator.gate_runner.verify_checker_veto_topic", new_callable=AsyncMock) as mock_veto, \
+         patch("sil_orchestrator.gate_runner.run_veto_latency_test", new_callable=AsyncMock) as mock_lat:
+        mock_pid.return_value = (True, "M7 PID independent")
+        mock_ctr.return_value = (False, "M7 shares container ID with M5")
+        mock_lint.return_value = (True, "clean")
+        mock_veto.return_value = (True, "veto topic ok")
+        mock_lat.return_value = (True, "latency ok")
+        result = await gate_6_doer_checker()
+        assert result.passed == False
+        assert any("container" in c.lower() for c in result.checks)

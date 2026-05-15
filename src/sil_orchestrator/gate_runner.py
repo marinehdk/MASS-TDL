@@ -15,6 +15,14 @@ from typing import Callable, Awaitable, Any
 
 import yaml
 
+from sil_orchestrator.checker_verification import (
+    verify_m7_pid_independent,
+    verify_m7_container_independent,
+    verify_m7_import_lint,
+    verify_checker_veto_topic,
+    run_veto_latency_test,
+)
+
 CHECK_OK = "ok"
 CHECK_FAIL = "fail"
 
@@ -65,7 +73,7 @@ class GateRunner:
                      handler=lambda: gate_4_odd_alignment(self.scenario_id, self.scenario_data)),
             GateSpec(gate_id=5, label="Time Base & Evidence Chain",
                      handler=lambda: gate_5_time_base(self.scenario_id)),
-            GateSpec(gate_id=6, label="Doer-Checker Independence", handler=self._stub_handler(6)),
+            GateSpec(gate_id=6, label="Doer-Checker Independence", handler=gate_6_doer_checker),
         ]
 
     def _stub_handler(self, gate_id: int):
@@ -464,3 +472,37 @@ async def _check_asdr_ready(run_dir: str | None = None) -> tuple[str, str]:
         return CHECK_OK, f"ASDR {target} writable"
     except Exception as e:
         return CHECK_FAIL, f"ASDR {target} not writable: {e}"
+
+
+async def gate_6_doer_checker() -> GateResult:
+    """GATE 6: Doer-Checker Independence — M7 PID/container/import + veto topic + latency."""
+    checks: list[str] = []
+    passed = True
+
+    ok, msg = await verify_m7_pid_independent()
+    checks.append(f"[{'ok' if ok else 'fail'}] M7 PID: {msg}")
+    if not ok:
+        passed = False
+
+    ok, msg = await verify_m7_container_independent()
+    checks.append(f"[{'ok' if ok else 'fail'}] M7 container: {msg}")
+    if not ok:
+        passed = False
+
+    ok, msg = verify_m7_import_lint()
+    checks.append(f"[{'ok' if ok else 'fail'}] M7 import lint: {msg}")
+    if not ok:
+        passed = False
+
+    ok, msg = await verify_checker_veto_topic()
+    checks.append(f"[{'ok' if ok else 'fail'}] checker_veto topic: {msg}")
+    if not ok:
+        passed = False
+
+    ok, msg = await run_veto_latency_test()
+    checks.append(f"[{'ok' if ok else 'fail'}] VETO latency: {msg}")
+    if not ok:
+        passed = False
+
+    rationale = "Doer-Checker isolation 5/5 verified" if passed else "isolation failure(s)"
+    return GateResult(gate_id=6, passed=passed, checks=checks, duration_ms=0.0, rationale=rationale)
