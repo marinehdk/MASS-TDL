@@ -1,51 +1,68 @@
-schema_version: "1.0"
-scenario_id: colreg-rule14-ho-002-v1.0
-description: >
-  Rule 14 near-head-on encounter with 8° offset (target slightly to starboard of own bow).
-  Wind 5 kn from East. DCPA ≈ 282 m without action — within Rule 14 head-on zone (≤15° deviation).
-rule_branch_covered:
-  - Rule14_HeadOn
-  - Rule8_Action
-vessel_class: FCB
-odd_zone: A
+title: 'Scenario: colreg-rule14-ho-002-v1.0'
+description: 'Rule 14 near-head-on encounter with 8° offset (target slightly to starboard of own bow). Wind 5 kn from East.
+  DCPA ≈ 282 m without action — within Rule 14 head-on zone (≤15° deviation).
 
-initial_conditions:
-  own_ship:
-    x_m: 0.0
-    y_m: 0.0
-    heading_nav_deg: 0.0
-    speed_kn: 12.0
-    n_rps: 3.5
-  targets:
-    - target_id: 1
-      x_m: 515.0
-      y_m: 3668.0
-      cog_nav_deg: 188.0
-      sog_mps: 5.14
-
-encounter:
-  rule: Rule14
-  give_way_vessel: own
-  expected_own_action: turn_starboard
-  avoidance_time_s: 200.0
-  avoidance_delta_rad: 0.6109
-  avoidance_duration_s: 60.0
-
-disturbance_model:
-  wind_kn: 5.0
-  wind_dir_nav_deg: 90.0
-  current_kn: 0.0
-  current_dir_nav_deg: 0.0
-  vis_m: 5000.0
-  wave_height_m: 0.5
-
-prng_seed: 43
-
-pass_criteria:
-  max_dcpa_no_action_m: 926.0
-  min_dcpa_with_action_m: 926.0
-  bearing_sector_deg: [345.0, 15.0]
-
-simulation:
-  duration_s: 600.0
-  dt_s: 0.02
+  '
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 12.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+  initial:
+    position:
+      latitude: 63.472987
+      longitude: 10.390358
+    cog: 188.0
+    sog: 9.99
+    heading: 188.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 90.0
+    speed_mps: 2.5722
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 2.7
+  significant_wave_height_m: 0.5
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule14-ho-002-v1.0
+  colregs_rules:
+  - R14
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule14
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 200.0
+    avoidance_delta_rad: 0.6109
+    avoidance_duration_s: 60.0
+  seed: 43
+  expected_outcome:
+    cpa_min_m_ge: 926.0
+  simulation_settings:
+    total_time: 600.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    dynamics_mode: internal
+  disturbance:
+    wind: *id001
+    current: *id002

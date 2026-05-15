@@ -1,0 +1,258 @@
+[
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule13-ot-2.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule13-ot-2.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "fa058e38c8e6915269576957fd7fcdfcd91b93295c2878f086d3d0e59d8130a2",
+    "sha256_after": "ea4a06442158abfd11bd0215946615c85fee6036ea46cae47da38accd21bb2c5",
+    "timestamp": "2026-05-15T05:08:47.974214+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule13-ot-3.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule13-ot-3.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "0892bc41151f8570a2cf01585d05c040935a1f8d9be05deda4acd2363231b98d",
+    "sha256_after": "933713ef3888806abc9a508c5911f88aba5bb287e3113d5f45e53812ff187040",
+    "timestamp": "2026-05-15T05:08:47.976960+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule13-ot.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule13-ot.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "4d2eacc6d91f6c8412a60bb44a4e39778b237852c255f3a6ef90d513562484a1",
+    "sha256_after": "6906f5a5817fc3aebe16797ca125acee7a16c22ed6fb11455ba9b1fcad5f1d97",
+    "timestamp": "2026-05-15T05:08:47.979340+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule14-ho-2.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule14-ho-2.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "22db99f3b94b35bd9c20f3d9826033050e27f41a555f43606f7a8db0d7b8341d",
+    "sha256_after": "c5d2fef7f80da58d65c289b35409b9de77db22cc0e99ad247057fd769bf8dec8",
+    "timestamp": "2026-05-15T05:08:47.982093+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule14-ho-3.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule14-ho-3.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "a971cb01c6568808745f45c4a3bfc25ca068735ec8c90da30191c678475ba0a0",
+    "sha256_after": "45b74431989309248d1b7305f4275282bc3fd436f981aa5e7276b50a2d86e341",
+    "timestamp": "2026-05-15T05:08:47.984477+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule14-ho.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule14-ho.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "4b41db47afb1aee44ef2281c0a83a44c03a1c98a33a3bec519c234d6410e517e",
+    "sha256_after": "e3f531b989b9cf44016b9efd23708554fffe6d6d58a519da8af605c11fab9e50",
+    "timestamp": "2026-05-15T05:08:47.986776+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule15-cs-2.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule15-cs-2.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "18e0acfd39c9d7c07317bd74ead3dc8d64dad2e718075309cc36023d6c82d7b1",
+    "sha256_after": "d74168d0eb0d1c9a229b56863c10e448dc2776009ed671e9dfe8486c1fbfa003",
+    "timestamp": "2026-05-15T05:08:47.988997+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule15-cs-3.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule15-cs-3.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "fc6273cc5bcb3c0f87ce93c302d360993dcdb31eaa9fce14287930c2704b9fe3",
+    "sha256_after": "394f4dbfa57e8cba906590fe9d42f7626a14c3e598472273d8256c42b754ee2a",
+    "timestamp": "2026-05-15T05:08:47.991259+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule15-cs-4.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule15-cs-4.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "f6a368678dca6df741a781072cd3025d91ef6baf3bcc9de9791a13592eb8f921",
+    "sha256_after": "50a2b0aaa11fbb4cb9236cdfa9221e1b391373b492c83da77b28179bae8fbab0",
+    "timestamp": "2026-05-15T05:08:47.993507+00:00"
+  },
+  {
+    "file": "scenarios/COLREGs测试/colreg-rule15-cs.yaml",
+    "backup": "scenarios/COLREGs测试/colreg-rule15-cs.v1-bak.yaml",
+    "version": "v1",
+    "sha256_before": "6f87b0c4a3d1946a5ed548f58c0785653e2ff4f2249f09d62c85a9285848ff53",
+    "sha256_after": "e17d9b5fb47743628ecf116385cb042aec7b0ca152e222e12d1f416e3dea5c40",
+    "timestamp": "2026-05-15T05:08:47.996125+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-01-ho.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-01-ho.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "a4c9867406aff081859ed928e7427c828a9d876d9c04ca659ed0e9fe1a7f06ae",
+    "sha256_after": "61ed3872ec7794e53eb16327264870ee9fd9e1836b4cd2ba0b3a84f85375e4aa",
+    "timestamp": "2026-05-15T05:08:47.999006+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-02-cr-gw.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-02-cr-gw.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "166aad8f91a3cbc67665a9401893552a6b090c6eb2c378416f1c0af925416e58",
+    "sha256_after": "c4db5eaa2f61e080f927b88a1262668849897875f5a99df071a04fb1da99409d",
+    "timestamp": "2026-05-15T05:08:48.002035+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-03-ot.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-03-ot.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "aa833d9d332b05053780abbbdff70b13624f65fa1a4e5f578fe1d3ed8a8154db",
+    "sha256_after": "86a14a3f04d20f3512b013114b8320e60aef843cec7c441e6659871f5dd35745",
+    "timestamp": "2026-05-15T05:08:48.004741+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-04-cr-so.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-04-cr-so.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "f0cd0c4c625dc7c77e2ebfdc6ddbc9ec4218c4e03d0815bcd605cf8656b1dd35",
+    "sha256_after": "3846f0b4e5d781910a6e9dafbfc632f78c34c22945dc826054ac8db0804fb1bb",
+    "timestamp": "2026-05-15T05:08:48.007413+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-05-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-05-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "0042c301694516e2a0e401def36822494f2cca60f113f7ea041fa8a44a63cf2a",
+    "sha256_after": "58f3739c5fce9d5e6dbf5323c693aee23569f4e538616d446bb8993217031387",
+    "timestamp": "2026-05-15T05:08:48.010655+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-06-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-06-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "cd6a2384aea13428ba5db88c99fa644f1430a76c943db1832176530bbaa59852",
+    "sha256_after": "df23adf3609566beca47bf0469b915ad0fc77309d6527abc7841620c69b014f6",
+    "timestamp": "2026-05-15T05:08:48.013911+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-07-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-07-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "ef7c7f2c6b054a10d27396026ed27f560910fa8b9c3d6a8ffe45de29439d261a",
+    "sha256_after": "cb2e9ad9caa277453c8146214cd464c572af295264670333dbf94806d0939710",
+    "timestamp": "2026-05-15T05:08:48.016997+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-08-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-08-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "3d115bd7f795bc292c6ec8175488396507b53751fcf12e0fef417bd6a268d875",
+    "sha256_after": "ec64741649ecd58275e49484d62e86d7068e870911c0022586280557fd309905",
+    "timestamp": "2026-05-15T05:08:48.020006+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-09-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-09-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "c7f1af8b7b91b3e49bda245e5a5712349050fb77fda8a1fb8d273533072af7b7",
+    "sha256_after": "7b8e5ea29345e379d55a93ad683e8e842e503cd9554558aed1c591ec4ccc23b9",
+    "timestamp": "2026-05-15T05:08:48.023179+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-10-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-10-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "b9d10f54dcbb4293d50a1636314afe2cdd5c6cd34066198e6d0df16fa2f7b61a",
+    "sha256_after": "1b7c98e072a3455b120b85507a2e4f280700a8b6d052d8e5839d9dd467c62f8e",
+    "timestamp": "2026-05-15T05:08:48.027676+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-11-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-11-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "8f06e276d5164bda7cb0c0f64547b3d220da5d52f18f45f81861004d7215c0a5",
+    "sha256_after": "67dd64f666f305c257ba66e37654466f6af3b785d4a2b6e2e3b4abd74c80b8c7",
+    "timestamp": "2026-05-15T05:08:48.032292+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-12-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-12-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "8069f27e91d0b31b37f66f237989bf829b736e4a63c39486a82b443b41b8206b",
+    "sha256_after": "09e8e56b3624f6888708679e733887c3504fa64c1d1dc440a47de7a2db7ddfc8",
+    "timestamp": "2026-05-15T05:08:48.037188+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-13-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-13-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "35a4cc49ce96a697535671c7dc31fe4349293e4d9865918d0b8158715a5dc174",
+    "sha256_after": "020a5e626e1f827d666ef72a2decca1cf1e128abeed14f595618456aaa408fd7",
+    "timestamp": "2026-05-15T05:08:48.041232+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-14-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-14-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "6e0516c46e74957d5e771a137e2f68be5634656c4bfd6f8e34c68281a8e67529",
+    "sha256_after": "a85989220315db7768e8fb6185455e67f092c5d1a772bb19895194dea5ab5f72",
+    "timestamp": "2026-05-15T05:08:48.044974+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-15-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-15-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "6202446e97ff02bda2f25cd2f6c53503465916baa2e9f99c890c193df01d73b1",
+    "sha256_after": "fa5cdcde5bd8175b1de6b2a9aeeeac332f67e080eb5576ec2cf1e7c96992a4d3",
+    "timestamp": "2026-05-15T05:08:48.048971+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-16-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-16-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "84947d5968bc36be7adfe178014f7acdc3807aeead79827809afa239c79c441f",
+    "sha256_after": "657452d945a086216473a672025435d6d14b1ca733804a2736a8798d34e22c3c",
+    "timestamp": "2026-05-15T05:08:48.054598+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-17-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-17-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "d05995d5882e05a16461f58881409dc8365a3d9c9209281d7ddfe94d3b64206c",
+    "sha256_after": "9010d93d36ef55217c5cb4e38e31321741d3204ac077e90be578c56f4b0a81dc",
+    "timestamp": "2026-05-15T05:08:48.058808+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-18-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-18-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "d0947ed10c73447f45f9f70bbf46d31a367354a0f24ccbbbc6f986461c778daa",
+    "sha256_after": "e0d735a5c337d1ed71566cc6e76b2441cbd95309667f82688caee86e59962be9",
+    "timestamp": "2026-05-15T05:08:48.065325+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-19-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-19-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "e39a21bc9b20ca2f12901d60e7f13dcbea29321a1ce5191bd812c502b46b7ac7",
+    "sha256_after": "b86d659e7e811bcf68759502bc489629555af8d9f185b7d0d46f6a277d80b065",
+    "timestamp": "2026-05-15T05:08:48.072872+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-20-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-20-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "a21836bb761eb0d32e084e9a96d2b4dfe41475b24cb98a30cbcd9d6dad6752b8",
+    "sha256_after": "1b8030e5cd67ef901914916c2d9722127c166987f3053f24c288963e1a69a4ed",
+    "timestamp": "2026-05-15T05:08:48.078109+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-21-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-21-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "0ca97d878a12218298d6a59c1aacd5258183a5fc063912e327cd26407befc174",
+    "sha256_after": "1e94f80187a4c691c14d5cc63497b25a95eec03ea3447b483eea0f24abe39716",
+    "timestamp": "2026-05-15T05:08:48.081882+00:00"
+  },
+  {
+    "file": "scenarios/IMAZU标准测试/imazu-22-ms.yaml",
+    "backup": "scenarios/IMAZU标准测试/imazu-22-ms.v2-bak.yaml",
+    "version": "v2",
+    "sha256_before": "d7e128816c6623c0fa8d621281de611700ef9a23382ee020d6b11e7b5ac0cbd3",
+    "sha256_after": "2eae36170f8f590c1be6adc0686860136dce6ca815ad6b4276793f981947795c",
+    "timestamp": "2026-05-15T05:08:48.085621+00:00"
+  }
+]

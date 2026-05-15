@@ -1,51 +1,67 @@
-schema_version: "1.0"
-scenario_id: colreg-rule14-ho-001-v1.0
-description: >
-  Rule 14 pure head-on encounter in calm conditions. Own ship heading 000°, target heading 180°,
-  initial separation 2.0 nm (3704 m). Both vessels on reciprocal courses, DCPA ≈ 0 m without action.
-rule_branch_covered:
-  - Rule14_HeadOn
-  - Rule8_Action
-vessel_class: FCB
-odd_zone: A
+title: 'Scenario: colreg-rule14-ho-001-v1.0'
+description: 'Rule 14 pure head-on encounter in calm conditions. Own ship heading 000°, target heading 180°, initial separation
+  2.0 nm (3704 m). Both vessels on reciprocal courses, DCPA ≈ 0 m without action.
 
-initial_conditions:
-  own_ship:
-    x_m: 0.0
-    y_m: 0.0
-    heading_nav_deg: 0.0
-    speed_kn: 12.0
-    n_rps: 3.5
-  targets:
-    - target_id: 1
-      x_m: 0.0
-      y_m: 3704.0
-      cog_nav_deg: 180.0
-      sog_mps: 5.14
-
-encounter:
-  rule: Rule14
-  give_way_vessel: own
-  expected_own_action: turn_starboard
-  avoidance_time_s: 200.0
-  avoidance_delta_rad: 1.2217
-  avoidance_duration_s: 90.0
-
-disturbance_model:
-  wind_kn: 0.0
-  wind_dir_nav_deg: 0.0
-  current_kn: 0.0
-  current_dir_nav_deg: 0.0
-  vis_m: 10000.0
-  wave_height_m: 0.0
-
-prng_seed: 42
-
-pass_criteria:
-  max_dcpa_no_action_m: 900.0
-  min_dcpa_with_action_m: 500.0
-  bearing_sector_deg: [345.0, 15.0]
-
-simulation:
-  duration_s: 600.0
-  dt_s: 0.02
+  '
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 12.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+  initial:
+    position:
+      latitude: 63.473311
+      longitude: 10.38
+    cog: 180.0
+    sog: 9.99
+    heading: 180.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule14-ho-001-v1.0
+  colregs_rules:
+  - R14
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule14
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 200.0
+    avoidance_delta_rad: 1.2217
+    avoidance_duration_s: 90.0
+  seed: 42
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+  simulation_settings:
+    total_time: 600.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    dynamics_mode: internal
+  disturbance:
+    wind: *id001
+    current: *id002

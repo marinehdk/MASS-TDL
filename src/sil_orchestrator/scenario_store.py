@@ -5,9 +5,12 @@ and infers the COLREGs encounter type from filename suffix tokens.
 """
 
 import hashlib
+import json
 import re
 import uuid
 from pathlib import Path
+
+import yaml
 
 from sil_orchestrator.config import SCENARIO_DIR
 
@@ -41,6 +44,9 @@ def _infer_encounter_type(stem: str) -> str:
     return "unspecified"
 
 
+_SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "scenarios" / "schema" / "fcb_traffic_situation.schema.json"
+
+
 class ScenarioStore:
     def __init__(self, base_dir: Path | None = None) -> None:
         self._dir = base_dir or SCENARIO_DIR
@@ -65,10 +71,20 @@ class ScenarioStore:
         self._ensure_dir()
         results = []
         for f in sorted(self._dir.rglob("*.yaml")):
+            # Skip schemas or non-scenario files
+            if f.name == "schema.yaml":
+                continue
+            # folder is relative to base dir
+            try:
+                folder = f.relative_to(self._dir).parent.name
+            except ValueError:
+                folder = f.parent.name
+            
             results.append({
                 "id": f.stem,
                 "name": f.stem.replace("-", " ").replace("_", " ").title(),
                 "encounter_type": _infer_encounter_type(f.stem),
+                "folder": folder or "root"
             })
         return results
 
@@ -104,8 +120,40 @@ class ScenarioStore:
         return True
 
     def validate(self, yaml_content: str) -> dict:
+        """Validate YAML content against fcb_traffic_situation.schema.json (JSON Schema Draft-07).
+
+        Returns {"valid": bool, "errors": [str], "schema_version": str}.
+        """
         errors = []
+        schema_version = "unknown"
+
         if not yaml_content.strip():
-            errors.append("YAML content is empty")
-        # Phase 2: add cerberus-cpp / pyyaml schema validation
-        return {"valid": len(errors) == 0, "errors": errors}
+            return {"valid": False, "errors": ["YAML content is empty"], "schema_version": "unknown"}
+
+        try:
+            doc = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            return {"valid": False, "errors": [f"YAML parse error: {e}"], "schema_version": "unknown"}
+
+        if doc is None:
+            return {"valid": False, "errors": ["YAML parsed to None (empty document)"], "schema_version": "unknown"}
+
+        if isinstance(doc, dict):
+            schema_version = doc.get("metadata", {}).get("schema_version", "unknown")
+
+        try:
+            import jsonschema
+        except ImportError:
+            return {"valid": True, "errors": ["jsonschema not installed — schema validation skipped"], "schema_version": schema_version}
+
+        try:
+            with open(_SCHEMA_PATH) as f:
+                schema = json.load(f)
+            validator = jsonschema.Draft7Validator(schema)
+            for err in validator.iter_errors(doc):
+                path = ".".join(str(p) for p in err.absolute_path) if err.absolute_path else "(root)"
+                errors.append(f"{path}: {err.message}")
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            errors.append(f"Schema loading error: {e}")
+
+        return {"valid": len(errors) == 0, "errors": errors, "schema_version": schema_version}

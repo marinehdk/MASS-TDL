@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import * as jsyaml from 'js-yaml';
+import { useSchemaValidation } from '../../hooks/useSchemaValidation';
 import { 
   LucideSettings2, LucideShip, LucideTarget, LucideCloudRain, LucideRadio, 
   LucideFileJson, LucideSave, LucideCheckCircle, LucidePlay, LucideChevronRight
@@ -129,6 +130,136 @@ function BasicConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) 
   );
 }
 
+function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
+  const ownShip = doc?.own_ship || {};
+  const pos = ownShip?.initial?.position || {};
+  const initial = ownShip?.initial || {};
+  const metadata = doc?.metadata || {};
+
+  return (
+    <div>
+      <SectionTitle title="船舶基本信息" />
+      <Field 
+        label="船型名称" 
+        value={metadata?.vessel_class || ownShip?.vessel_class || ''} 
+        onChange={(v) => onUpdate({ 'metadata.vessel_class': v })} 
+        description="本船的物理模型类别 (例如: FCB)"
+      />
+
+      <SectionTitle title="初始状态设置" />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field 
+          label="初始纬度" 
+          value={pos?.latitude ?? ''} 
+          onChange={(v) => onUpdate({ 'own_ship.initial.position.latitude': Number(v) })} 
+          unit="LAT"
+        />
+        <Field 
+          label="初始经度" 
+          value={pos?.longitude ?? ''} 
+          onChange={(v) => onUpdate({ 'own_ship.initial.position.longitude': Number(v) })} 
+          unit="LON"
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field 
+          label="初始航向" 
+          value={initial?.heading ?? pos?.heading ?? ''} 
+          onChange={(v) => onUpdate({ 'own_ship.initial.heading': Number(v) })} 
+          unit="°"
+        />
+        <Field 
+          label="初始航速" 
+          value={initial?.sog ?? pos?.speed ?? ''} 
+          onChange={(v) => onUpdate({ 'own_ship.initial.sog': Number(v) })} 
+          unit="kn"
+          description="系统统一以 '节' (SOG) 为单位存储"
+        />
+      </div>
+    </div>
+  );
+}
+
+function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
+  const targets = doc?.target_ships || doc?.targets || [];
+
+  return (
+    <div style={{ paddingTop: 10 }}>
+      {targets.length === 0 && (
+        <div style={{ color: 'var(--txt-3)', padding: '40px 20px', textAlign: 'center', fontSize: 12 }}>
+          当前场景无目标船数据
+        </div>
+      )}
+      
+      {targets.map((tgt: any, idx: number) => {
+        const pos = tgt?.initial?.position || {};
+        const initial = tgt?.initial || {};
+        const prefix = `target_ships.${idx}`;
+
+        return (
+          <div key={idx} style={{ marginBottom: 40 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <span style={{ 
+                background: 'var(--c-phos)', color: '#000', padding: '2px 8px', 
+                borderRadius: 4, fontSize: 10, fontWeight: 800, fontFamily: 'var(--f-mono)' 
+              }}>目标船</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt-1)', fontFamily: 'var(--f-mono)' }}>
+                {tgt.id || 'Unknown'}
+              </span>
+              <div style={{ flex: 1, height: 1, background: 'var(--line-1)', opacity: 0.3 }} />
+            </div>
+
+            <SectionTitle title="目标船信息" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Target ID" value={tgt.id || ''} onChange={(v) => onUpdate({ [`${prefix}.id`]: v })} />
+              <Field label="MMSI" value={tgt.mmsi || ''} onChange={(v) => onUpdate({ [`${prefix}.mmsi`]: Number(v) })} />
+            </div>
+
+            <Select 
+              label="运动控制模式" 
+              value={tgt.control_mode || '固定航路'} 
+              onChange={(v) => onUpdate({ [`${prefix}.control_mode`]: v })}
+              options={['固定航路', '历史AIS', '仿真导入', 'NCDM', '自主模式']}
+            />
+
+            <SectionTitle title="初始状态设置" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field 
+                label="初始纬度" 
+                value={pos?.latitude ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.position.latitude`]: Number(v) })} 
+                unit="LAT"
+              />
+              <Field 
+                label="初始经度" 
+                value={pos?.longitude ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.position.longitude`]: Number(v) })} 
+                unit="LON"
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field 
+                label="初始航向" 
+                value={initial?.heading ?? pos?.heading ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.heading`]: Number(v) })} 
+                unit="°"
+              />
+              <Field 
+                label="初始航速" 
+                value={initial?.sog ?? pos?.speed ?? tgt?.sog ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.sog`]: Number(v) })} 
+                unit="kn"
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'basic',       label: '基本配置',    icon: <LucideSettings2 size={24} /> },
   { id: 'ownship',     label: '本船配置',    icon: <LucideShip size={24} /> },
@@ -151,6 +282,7 @@ export interface BuilderRightRailProps {
 
 export function BuilderRightRail({ yamlEditor, onUpdateYaml, onRun, onSave, onValidate }: BuilderRightRailProps) {
   const [activeTab, setActiveTab] = useState<TabId | null>(null);
+  const validation = useSchemaValidation(yamlEditor);
 
   const doc = useMemo(() => {
     try {
@@ -199,10 +331,53 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onRun, onSave, onVa
               </span>
             </div>
 
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 12px', borderRadius: 6,
+              background: validation.valid ? 'rgba(0,255,0,0.06)' : 'rgba(255,60,60,0.10)',
+              border: `1px solid ${validation.valid ? 'rgba(0,255,0,0.15)' : 'rgba(255,60,60,0.25)'}`,
+              marginBottom: 8, marginTop: 4
+            }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: validation.valid ? '#4ade80' : '#f87171',
+                boxShadow: `0 0 6px ${validation.valid ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)'}`
+              }} />
+              <span style={{
+                fontFamily: 'var(--f-mono, monospace)', fontSize: 11,
+                color: validation.valid ? '#4ade80' : '#f87171',
+                fontWeight: 500
+              }}>
+                {validation.valid ? 'Schema Valid ✓' : `Schema Errors: ${validation.errors.length}`}
+              </span>
+            </div>
+
+            {!validation.valid && validation.errors.length > 0 && (
+              <div style={{
+                maxHeight: 110, overflowY: 'auto',
+                background: 'rgba(255,60,60,0.04)', borderRadius: 4,
+                padding: '8px 10px', marginBottom: 8,
+                border: '1px solid rgba(255,60,60,0.08)'
+              }}>
+                {validation.errors.slice(0, 5).map((err, i) => (
+                  <div key={i} style={{
+                    fontFamily: 'var(--f-mono, monospace)', fontSize: 10,
+                    color: '#fca5a5', lineHeight: 1.6,
+                    wordBreak: 'break-word'
+                  }}>✗ {err}</div>
+                ))}
+                {validation.errors.length > 5 && (
+                  <div style={{ fontSize: 10, color: 'var(--txt-3, #666)', marginTop: 4, fontStyle: 'italic' }}>
+                    ...and {validation.errors.length - 5} more errors
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 40px' }}>
               {activeTab === 'basic' && <BasicConfigTab doc={doc} onUpdate={onUpdateYaml} />}
-              {activeTab === 'ownship' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Ownship Configuration (WIP)</div>}
-              {activeTab === 'targets' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Target Configuration (WIP)</div>}
+              {activeTab === 'ownship' && <OwnShipConfigTab doc={doc} onUpdate={onUpdateYaml} />}
+              {activeTab === 'targets' && <TargetsConfigTab doc={doc} onUpdate={onUpdateYaml} />}
               {activeTab === 'environment' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Environment Configuration (WIP)</div>}
               {activeTab === 'sensor' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Sensor Configuration (WIP)</div>}
               {activeTab === 'ais' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>AIS Data Configuration (WIP)</div>}

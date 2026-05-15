@@ -26,3 +26,105 @@ include = ["src*", "tests*", "common*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+# ============================================================
+# Ruff — Linter + Formatter（Python LSP 核心）
+# ============================================================
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = [
+    "**/sil_proto/*_pb2.py",
+    "**/sil_proto/*_pb2_grpc.py",
+    "**/__pycache__",
+    ".venv",
+    "**/.claude/worktrees/**",
+    "archive/**",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort（自动排序 import）
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print（禁止漏掉的 print）
+    "RUF",  # ruff 特有规则
+]
+ignore = [
+    "E501",  # 行长由 formatter 统一管理（line-length=120）
+    "B008",  # 允许函数参数中直接调用（ROS2 回调需要）
+    "SIM108", # 允许 if-else 赋值风格
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["l3_tdl_kernel", "sim_workbench", "sil_orchestrator"]
+force-sort-within-sections = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = ["classmethod"]
+
+# ============================================================
+# MyPy — 类型检查
+# ============================================================
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+show_error_codes = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+# 忽略 protobuf 生成的代码
+exclude = [
+    ".*/_pb2\\.py$",
+    ".*/_pb2_grpc\\.py$",
+    ".*/\\.claude/worktrees/.*",
+    "archive/.*",
+]
+# ROS2 相关库尚无 stub，放宽
+[[tool.mypy.overrides]]
+module = [
+    "rclpy.*",
+    "builtin_interfaces.*",
+    "geometry_msgs.*",
+    "nav_msgs.*",
+    "sensor_msgs.*",
+    "std_msgs.*",
+    "visualization_msgs.*",
+    "ament_index_python.*",
+    "launch.*",
+    "launch_ros.*",
+    "sil_proto.*",
+]
+ignore_missing_imports = true
+
+# ============================================================
+# Pyright / Pylance — 编辑器内联类型检查
+# ============================================================
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportGeneralTypeIssues = true
+reportOptionalMemberAccess = true
+reportOptionalSubscript = true
+reportPrivateUsage = false
+exclude = [
+    "**/sil_proto/*_pb2.py",
+    "**/sil_proto/*_pb2_grpc.py",
+    "**/__pycache__",
+    ".venv",
+    "**/.claude/worktrees/**",
+    "archive/**",
+]

@@ -1,11 +1,12 @@
 title: Imazu Case 12 — MS
-description: 'Imazu (1987) benchmark case 12. OS: heading 0deg, SOG 10 kn. Tengesdal
-  & Johansen (2023 CCTA).'
-start_time: '2026-01-01T00:00:00Z'
-own_ship:
-  id: os
-  nav_status: 0
-  mmsi: 123456789
+description: 'Imazu (1987) benchmark case 12. OS: heading 0deg, SOG 10 kn. Tengesdal & Johansen (2023 CCTA).'
+startTime: '2026-01-01T00:00:00Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+    mmsi: 123456789
   initial:
     position:
       latitude: 63.44
@@ -13,10 +14,14 @@ own_ship:
     cog: 0.0
     sog: 10.0
     heading: 0.0
-target_ships:
+    navStatus: Under way using engine
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
 - id: ts1
-  nav_status: 0
-  mmsi: 100000001
+  static:
+    id: 2
+    mmsi: 100000001
   initial:
     position:
       latitude: 63.459785
@@ -24,9 +29,11 @@ target_ships:
     cog: 320.0
     sog: 9.0
     heading: 320.0
+  model: ais_replay_vessel
 - id: ts2
-  nav_status: 0
-  mmsi: 100000002
+  static:
+    id: 3
+    mmsi: 100000002
   initial:
     position:
       latitude: 63.443148
@@ -34,9 +41,11 @@ target_ships:
     cog: 45.0
     sog: 10.0
     heading: 45.0
+  model: ais_replay_vessel
 - id: ts3
-  nav_status: 0
-  mmsi: 100000003
+  static:
+    id: 4
+    mmsi: 100000003
   initial:
     position:
       latitude: 63.563747
@@ -44,16 +53,21 @@ target_ships:
     cog: 180.0
     sog: 10.0
     heading: 180.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
 metadata:
-  schema_version: '2.0'
+  schema_version: '3.0'
   scenario_id: imazu-12-ms-v1.0
-  scenario_source: imazu1987
   vessel_class: FCB
-  odd_zone: A
-  geo_origin:
-    latitude: 63.44
-    longitude: 10.38
-    description: Norwegian Sea anchor (default); override per ENC region
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
   encounter:
     rule: Rule14
     give_way_vessel: own
@@ -61,18 +75,17 @@ metadata:
     avoidance_time_s: 300.0
     avoidance_delta_rad: 0.6109
     avoidance_duration_s: 90.0
-  disturbance_model:
-    wind_kn: 0.0
-    wind_dir_nav_deg: 0.0
-    current_kn: 0.0
-    current_dir_nav_deg: 0.0
-    vis_m: 10000.0
-    wave_height_m: 0.0
-  pass_criteria:
-    max_dcpa_no_action_m: 926.0
-    min_dcpa_with_action_m: 300.0
-  simulation:
-    duration_s: 1000
-    dt_s: 0.02
+  scenario_source: imazu1987
+  expected_outcome:
+    cpa_min_m_ge: 300.0
+  simulation_settings:
+    total_time: 1000.0
+    dt: 0.02
     n_rps_initial: 3.0
-  prng_seed: null
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+  disturbance:
+    wind: *id001
+    current: *id002

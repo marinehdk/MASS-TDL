@@ -397,6 +397,25 @@ sil-web-tests:
     paths:
       - test-results/
 
+scenario-schema-validate:
+  stage: test
+  image: python:3.10-slim
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  before_script:
+    - pip install --quiet jsonschema pyyaml
+  script:
+    - python3 tools/validate_scenarios.py --all
+  artifacts:
+    when: always
+    paths:
+      - tools/validation_report.json
+    expire_in: 30 days
+  allow_failure: false
+
 # ===============================================================
 # Stage 3: Static Analysis
 # ===============================================================

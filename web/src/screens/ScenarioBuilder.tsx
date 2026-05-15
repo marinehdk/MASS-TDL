@@ -11,6 +11,7 @@ import {
   useDeleteScenarioMutation,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
+import { useSchemaValidation } from '../hooks/useSchemaValidation';
 import { 
   LucidePlus, LucideSave, LucideCheckCircle, LucidePlay, 
   LucideCompass, LucideFolder, LucideFileJson, LucideChevronDown, LucideChevronRight, LucideSearch,
@@ -40,6 +41,7 @@ export function ScenarioBuilder() {
   const { data: scenarios = [] } = useListScenariosQuery();
   const { data: scenarioDetail } = useGetScenarioQuery(selectedId!, { skip: !selectedId });
   const [validate, { data: validation }] = useValidateScenarioMutation();
+  const schemaValidation = useSchemaValidation(yamlEditor);
   const [createScenario] = useCreateScenarioMutation();
   const setScenario = useScenarioStore((s) => s.setScenario);
 
@@ -132,6 +134,11 @@ export function ScenarioBuilder() {
   const handleValidate = () => validate(yamlEditor);
 
   const handleSave = async () => {
+    if (!schemaValidation.valid) {
+      const errList = schemaValidation.errors.slice(0, 5).join('\n• ');
+      alert(`Cannot save — ${schemaValidation.errors.length} schema validation error(s):\n\n• ${errList}${schemaValidation.errors.length > 5 ? `\n\n...and ${schemaValidation.errors.length - 5} more` : ''}`);
+      return;
+    }
     try {
       const result = await createScenario(yamlEditor).unwrap();
       setScenario(result.scenario_id, result.hash);
