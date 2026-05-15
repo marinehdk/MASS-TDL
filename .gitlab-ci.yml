@@ -10,6 +10,8 @@ stages:
   - static-analysis
   - integration-test
   - release
+  - sil-smoke
+  - sil-baseline
 
 variables:
   FULL_PIPELINE: "false"
@@ -619,5 +621,48 @@ stage-5-release:
   artifacts:
     paths:
       - "mass-l3-tdl-*.tar.gz"
-      - "sbom-*.json"
+       - "sbom-*.json"
     expire_in: never
+
+# ===============================================================
+# Stage 6: SIL Smoke Test (every MR)
+# ===============================================================
+sil-smoke:
+  stage: sil-smoke
+  image: mass-l3/ci:humble-ubuntu22.04
+  needs: []
+  script:
+    - source /opt/ros/humble/setup.bash
+    - source install/setup.bash || true
+    - pip install pyarrow polars pyyaml fastapi uvicorn
+    - python -m pytest tests/integration/test_cutover_parallel_run.py -v --timeout=120
+  artifacts:
+    when: always
+    paths:
+      - test-results/
+    expire_in: 7 days
+  only:
+    - merge_requests
+    - main
+
+# ===============================================================
+# Stage 7: SIL Imazu-22 Baseline (main only)
+# ===============================================================
+sil-baseline-imazu22:
+  stage: sil-baseline
+  image: mass-l3/ci:humble-ubuntu22.04
+  needs: []
+  script:
+    - source /opt/ros/humble/setup.bash
+    - source install/setup.bash || true
+    - pip install pyarrow polars pyyaml fastapi uvicorn
+    - mkdir -p test-results
+    - python tools/run_imazu22.py --backend ros2 --output test-results/imazu22_results.json || true
+    - python tools/check_entry_gate.py --phase 1 --artifacts-dir test-results/ || true
+  artifacts:
+    paths:
+      - test-results/
+      - runs/
+    expire_in: 30 days
+  only:
+    - main

@@ -168,40 +168,40 @@ export function RunReport() {
             accent: kpis?.min_cpa_nm != null && kpis.min_cpa_nm >= 0.27 ? 'var(--c-phos)' : 'var(--c-danger)',
           },
           {
-            label: 'COLREGs',
-            value: ruleChain.length > 0 ? '1.00' : '—',
-            sub: ruleChain[0] ?? 'no rule applied',
-            accent: 'var(--c-stbd)',
-          },
-          {
-            label: 'Max Rudder',
-            value: (kpis as any)?.max_rud_deg != null ? `${((kpis as any).max_rud_deg as number).toFixed(1)}°` : '—',
-            sub: 'rudder angle',
+            label: 'TCPA Min',
+            value: kpis?.tcpa_min_s != null ? `${kpis.tcpa_min_s.toFixed(0)} s` : '—',
+            sub: 'time to min CPA',
             accent: 'var(--c-info)',
           },
           {
-            label: 'ToR Time',
-            value: (kpis as any)?.tor_time_s != null ? `${(kpis as any).tor_time_s}s` : 'N/A',
-            sub: 'transfer of control',
+            label: 'Avg ROT',
+            value: kpis?.avg_rot_dpm != null ? `${kpis.avg_rot_dpm.toFixed(1)} °/min` : '—',
+            sub: 'mean rate of turn',
+            accent: 'var(--c-info)',
+          },
+          {
+            label: 'Max Rudder',
+            value: kpis?.max_rudder_deg != null ? `${kpis.max_rudder_deg.toFixed(1)}°` : '—',
+            sub: 'peak rudder angle',
+            accent: kpis?.max_rudder_deg != null && kpis.max_rudder_deg <= 35 ? 'var(--c-stbd)' : 'var(--c-danger)',
+          },
+          {
+            label: 'Grounding Risk',
+            value: kpis?.grounding_risk_score != null ? `${(kpis.grounding_risk_score * 100).toFixed(1)}%` : '—',
+            sub: 'min depth/draft ratio',
+            accent: kpis?.grounding_risk_score != null && kpis.grounding_risk_score >= 0.9 ? 'var(--c-stbd)' : 'var(--c-danger)',
+          },
+          {
+            label: 'Route Dev',
+            value: kpis?.route_deviation_nm != null ? `${kpis.route_deviation_nm.toFixed(2)} nm` : '—',
+            sub: 'max cross-track error',
             accent: 'var(--c-warn)',
           },
           {
-            label: 'Decision P99',
-            value: (kpis as any)?.decision_p99_ms != null ? `${(kpis as any).decision_p99_ms} ms` : '—',
-            sub: '<500ms target',
-            accent: 'var(--c-stbd)',
-          },
-          {
-            label: 'Faults',
-            value: (kpis as any)?.faults_injected != null ? String((kpis as any).faults_injected) : '—',
-            sub: 'injected',
+            label: 'Time to MRC',
+            value: kpis?.time_to_mrm_s != null && kpis.time_to_mrm_s > 0 ? `${kpis.time_to_mrm_s.toFixed(0)} s` : 'N/A',
+            sub: kpis?.time_to_mrm_s != null && kpis.time_to_mrm_s > 0 ? 'MSO to MRC' : 'no MRC triggered',
             accent: 'var(--c-warn)',
-          },
-          {
-            label: 'SHA-256',
-            value: (kpis as any)?.scenario_sha256 ? '✓ verified' : '—',
-            sub: 'chain integrity',
-            accent: 'var(--c-phos)',
           },
         ].map((kpi, i) => (
           <div key={i} style={{
@@ -250,8 +250,12 @@ export function RunReport() {
         
         <div className="glass-panel" style={{ gridColumn: '2', gridRow: '2', borderRadius: 8, overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
           <ScoringRadarChart kpis={{
-            safety: 0.92, ruleCompliance: 1.0, delay: 0.78,
-            magnitude: 0.85, phase: 0.91, plausibility: 0.88,
+            safety: scoring?.scoring_dimensions?.safety ?? 0,
+            ruleCompliance: scoring?.scoring_dimensions?.rule_compliance ?? 0,
+            delay: Math.max(0, 1 - (scoring?.scoring_dimensions?.delay_penalty ?? 0)),
+            magnitude: Math.max(0, 1 - (scoring?.scoring_dimensions?.action_magnitude_penalty ?? 0)),
+            phase: scoring?.scoring_dimensions?.phase_score ?? 0,
+            plausibility: scoring?.scoring_dimensions?.plausibility ?? 0,
           }} />
         </div>
       </div>

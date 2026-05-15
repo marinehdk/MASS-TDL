@@ -12,10 +12,15 @@ RUN apt-get update && apt-get install -y python3-pip && \
     websockets==12.0 \
     pydantic==2.9.2 \
     protobuf==5.28.2 \
-    pyyaml==6.0.2
+    pyyaml==6.0.2 \
+    pyarrow \
+    polars
 
 # Copy orchestrator package
 COPY src/sil_orchestrator /opt/sil/sil_orchestrator
+
+# Copy scoring module for KpiDeriver (Arrow reading in scoring_routes.py)
+COPY src/sim_workbench/sil_nodes/scoring /opt/sil/scoring
 
 # Copy and build sil_msgs so rclpy can use it
 COPY src/sim_workbench/sil_msgs /opt/sil/src/sil_msgs

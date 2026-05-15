@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule14-ho-002-v1.0'
-description: 'Rule 14 near-head-on encounter with 8° offset (target slightly to starboard of own bow). Wind 5 kn from East.
-  DCPA ≈ 282 m without action — within Rule 14 head-on zone (≤15° deviation).
+description: 'Rule 14 near-head-on encounter with 8° offset (target slightly to starboard
+  of own bow). Wind 5 kn from East. DCPA ≈ 282 m without action — within Rule 14 head-on
+  zone (≤15° deviation).
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.5
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

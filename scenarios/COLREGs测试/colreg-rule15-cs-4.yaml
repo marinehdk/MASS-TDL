@@ -1,6 +1,6 @@
 title: 'Scenario: colreg-rule15-cs-004-v1.0'
-description: 'Rule 15/16 near-crossing at 45° starboard. High-speed target (14 kn) from 045°, short TCPA ≈ 105 s. Own ship
-  must act early at 60 s.
+description: 'Rule 15/16 near-crossing at 45° starboard. High-speed target (14 kn)
+  from 045°, short TCPA ≈ 105 s. Own ship must act early at 60 s.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +63,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.5
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

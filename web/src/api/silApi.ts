@@ -54,6 +54,36 @@ export interface ScoringLastRun {
   verdict?: 'pass' | 'fail' | 'pending';
 }
 
+export interface ScoringLastRunFull {
+  run_id: string | null;
+  scenario_id?: string;
+  kpis: {
+    // Legacy fields (demo backend)
+    min_cpa_nm: number;
+    avg_rot_dpm: number;
+    distance_nm: number;
+    duration_s: number;
+    // New fields (Arrow path)
+    tcpa_min_s: number;
+    max_rudder_deg: number;
+    grounding_risk_score: number;
+    route_deviation_nm: number;
+    time_to_mrm_s: number;
+    decision_count: number;
+  } | null;
+  scoring_dimensions: {
+    safety: number;
+    rule_compliance: number;
+    delay_penalty: number;
+    action_magnitude_penalty: number;
+    phase_score: number;
+    plausibility: number;
+    total: number;
+  } | null;
+  rule_chain: string[];
+  verdict?: 'pass' | 'fail' | 'pending';
+}
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
@@ -119,7 +149,7 @@ export const silApi = createApi({
     }),
 
     // Scoring (Screen ④)
-    getLastRunScoring: builder.query<ScoringLastRun, void>({
+    getLastRunScoring: builder.query<ScoringLastRunFull, void>({
       query: () => '/scoring/last_run',
     }),
 

@@ -1,3 +1,5 @@
+# NOTE: demo services (demo-server, demo_ws, etc.) were run standalone,
+# not via docker-compose. This compose file is ROS2-only (SIL + viz stack).
 version: "3.9"
 
 services:
@@ -25,6 +27,7 @@ services:
     command: >
       bash -c "apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp && /opt/ws/sil_entrypoint.sh"
     environment:
+      - SIL_RUN_DIR=/var/sil/runs
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     network_mode: host

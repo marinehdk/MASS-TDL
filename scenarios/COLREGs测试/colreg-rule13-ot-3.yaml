@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule13-ot-003-v1.0'
-description: 'Rule 13 overtaking from starboard quarter (198° from target perspective — own ship approaching from starboard-aft
-  sector). Wind 8 kn from West. Target at (300, 926).
+description: 'Rule 13 overtaking from starboard quarter (198° from target perspective
+  — own ship approaching from starboard-aft sector). Wind 8 kn from West. Target at
+  (300, 926).
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -64,6 +65,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 4.2
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

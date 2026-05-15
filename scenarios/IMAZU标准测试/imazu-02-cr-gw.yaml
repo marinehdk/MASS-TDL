@@ -1,5 +1,6 @@
 title: Imazu Case 02 — CR_GW
-description: 'Imazu (1987) benchmark case 02. OS: heading 0deg, SOG 10 kn. Tengesdal & Johansen (2023 CCTA).'
+description: 'Imazu (1987) benchmark case 02. OS: heading 0deg, SOG 10 kn. Tengesdal
+  & Johansen (2023 CCTA).'
 startTime: '2026-01-01T00:00:00Z'
 ownShip:
   static:
@@ -62,6 +63,7 @@ metadata:
     - 63.44
     - 10.38
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002
