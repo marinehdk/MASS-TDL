@@ -1,0 +1,31 @@
+# M4 Behavior Arbiter — Behavior Definitions
+#
+# This file defines the set of behaviours the IvP-based arbiter may activate.
+# Fields:
+#   type             — uint8 matching BehaviorPlan.msg constants
+#   name             — human-readable label (SAT-2 / SAT-3 transparency)
+#   priority_weight  — IvP weight when behaviour is active (HAZID-calibrated)
+#   activation_rule  — predicate name used by BehaviorActivationCondition
+#   ivp_function_type— IvP function shape identifier for IvPFunctionFactory
+#
+# [TBD-HAZID]: priority_weight values are placeholder until HAZID RUN-001
+#              (see docs/Design/HAZID/RUN-001-kickoff.md)
+
+behaviors:
+  - type: 0
+    name: "Keep Lane / Route Following"
+    priority_weight: 1.0
+    activation_rule: "odd_in_or_edge"
+    ivp_function_type: "transit"
+
+  - type: 1
+    name: "COLREGs-Compliant Collision Avoidance"
+    priority_weight: 10.0
+    activation_rule: "colregs_conflict_detected"
+    ivp_function_type: "colreg_avoid"
+
+  - type: 2
+    name: "Dynamic Positioning Hold"
+    priority_weight: 100.0
+    activation_rule: "mrc_requested"
+    ivp_function_type: "dp_hold"

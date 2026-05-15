@@ -16,7 +16,7 @@
   <depend>m1_odd_envelope_manager</depend>
   <depend>m2_world_model</depend>
   <depend>m3_mission_manager</depend>
-  <!-- M4 omitted: stub package with no compiled node yet (Wave 4a) -->
+  <depend>m4_behavior_arbiter</depend>
   <depend>m5_tactical_planner</depend>
   <depend>m6_colregs_reasoner</depend>
   <depend>m7_safety_supervisor</depend>

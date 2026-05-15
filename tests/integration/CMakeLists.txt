@@ -24,6 +24,7 @@ find_package(m2_world_model QUIET)
 find_package(m3_mission_manager QUIET)
 find_package(m5_tactical_planner QUIET)
 find_package(m6_colregs_reasoner QUIET)
+find_package(m4_behavior_arbiter QUIET)
 find_package(m7_safety_supervisor QUIET)
 find_package(m8_hmi_transparency_bridge QUIET)
 
@@ -54,5 +55,17 @@ ament_target_dependencies(test_int_007 rclcpp l3_msgs l3_external_msgs)
 # INT-008: M8 SAT/ToR
 ament_add_gtest(test_int_008 test_int_008_m8_sat_tor.cpp)
 ament_target_dependencies(test_int_008 rclcpp l3_msgs l3_external_msgs)
+
+# M4 Node Lifecycle — node construction and interface advertisement
+if(m4_behavior_arbiter_FOUND)
+  ament_add_gtest(test_m4_node_lifecycle test_m4_node_lifecycle.cpp)
+  ament_target_dependencies(test_m4_node_lifecycle rclcpp l3_msgs m4_behavior_arbiter)
+else()
+  message(WARNING "m4_behavior_arbiter not found — skipping test_m4_node_lifecycle")
+endif()
+
+# INT-009: M1+M6→M4 arbitration chain
+ament_add_gtest(test_int_009 test_int_009_m4_arbitration_chain.cpp)
+ament_target_dependencies(test_int_009 rclcpp l3_msgs)
 
 ament_package()

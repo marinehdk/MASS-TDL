@@ -1,0 +1,9 @@
+m4:
+  arbitration:
+    interval_ms: 500
+    heading_domain_resolution_deg: 1.0
+    speed_domain_min_kn: 0.0
+    speed_domain_max_kn: 22.0
+    speed_domain_resolution_kn: 0.5
+    ivp_timeout_ms: 50
+  config_dir: ""

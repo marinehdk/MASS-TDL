@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>m4_behavior_arbiter</name>
+  <version>0.1.0</version>
+  <description>M4 Behavior Arbiter — IvP-based multi-objective decision arbitration for L3 Tactical Decision Layer.</description>
+  <maintainer email="dev@sango-group.com">SANGO ADAS Team</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>Eigen3</depend>
+  <depend>spdlog</depend>
+  <depend>yaml-cpp</depend>
+  <depend>builtin_interfaces</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,8 @@
+/**:
+    ros__parameters:
+        mid_mpc:
+            horizon_s: 90.0
+            n_steps: 18
+            dt_s: 5.0
+            rpm_nom: 300.0
+            rot_max_deg_s: 3.0
