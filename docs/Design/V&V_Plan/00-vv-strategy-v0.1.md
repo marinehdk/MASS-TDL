@@ -1,453 +1,438 @@
-# MASS-L3 TDL V&V 计划 v0.1
+# MASS ADAS L3 Tactical Decision Layer — Verification & Validation Plan v0.1
 
-| 属性 | 值 |
+| Field | Value |
 |---|---|
-| 文档编号 | SANGO-ADAS-L3-VV-PLAN-001 |
-| 版本 | v0.1 |
-| 日期 | 2026-05-12 |
-| 状态 | 草稿（D1.5 产出，待 CCS 邮件回执确认框架可接受性）|
-| 适用范围 | MASS-L3 TDL 8 模块（M1–M8）全生命周期 V&V，ROS2 Humble + Ubuntu 22.04 + PREEMPT_RT |
-| 上游依赖 | 架构报告 v1.1.2（`docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`）<br>SIL 架构决策记录（`docs/Design/SIL/00-architecture-revision-decisions-2026-05-09.md`）<br>8 月开发计划 v3.1（`docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md`）|
-| 下游依赖 | D1.6 场景 schema / D1.7 覆盖率方法论 / D2.7 HARA+FMEDA / D3.3a Doer-Checker 三量化 |
-| 作者 | 架构师（D1.5 兼任；V&V 工程师 FTE 到岗后接手 D1.6/D1.7 后续迭代）|
+| Document ID | MASS-L3-TDL-VVP-001 |
+| Version | v0.1 |
+| Date | 2026-05-31 |
+| Author | V&V Engineer (FTE) |
+| Owner | V&V Engineer |
+| Reviewer | Safety Engineer, DNV Validation Lead |
+| Status | Draft for D1.5 Review |
+| Architecture Baseline | v1.1.2 |
+| Development Plan | v3.0 |
+| Certification Target | CCS i-Ship (Nx, Ri/Ai), IEC 61508 SIL 2, ISO 21448 SOTIF |
+| Reference Standards | DNV-CG-0264 Section 3, DNV-RP-0513, DNV-RP-0671, IEC 61508-3 Section 7, ISO 21448 |
 
 ---
 
-## §1 V&V 策略总览
+## Revision History
 
-MASS-L3 TDL 采用 **SIL → HIL → Sea Trial 三阶段渐进式 V&V 链路**，对应 DNV-CG-0264 范式。测试目标即部署目标——Production C++/MISRA ROS2 Humble 节点直接运行于 SIL 内核（选项 D 混合架构，SIL decisions §1）。
-
-### §1.1 三阶段链路总览
-
-| 阶段 | 时间 | 目的 | 主要工具 | 里程碑 |
-|---|---|---|---|---|
-| **SIL**（软件在环仿真）| Phase 1–3（5/13–8/31）| 功能验证 + COLREG 规则覆盖 + 延迟 KPI + IEC 61508 SIL 2 指标 | pytest / maritime-schema / libcosim / farn / dds-fmu | DEMO-1/2/3 |
-| **HIL**（硬件在环仿真）| Phase 4（9–11月）| 实时性验证 + 硬件接口 + 800h 耐久 | FCB onboard 计算单元 + ROS2 RT 内核 + IEC 61508 SIL 2 第三方评估 | TÜV/DNV/BV 报告 |
-| **Sea Trial**（实船）| D4.5（12月，非认证级）| AIS 数据采集 + 端到端技术验证 | FCB 实船 + ASDR + VDR | 技术验证报告（不作认证证据）|
-
-> **认证说明**：2026-12 实船为**非认证级技术验证**（用户决策 2026-05-07）；认证级实船 D5.x 延 2027 Q1/Q2 AIP 受理后启动。
-
-### §1.2 两条测试轨道
-
-- **功能验证轨道**：COLREG 规则符合度 + ODD 覆盖 + KPI 延迟 + 场景通过率。由 V&V 工程师 FTE 主导（D1.6/D1.7/D2.5/D3.6）。
-- **SIL 2 安全功能轨道**：M1 ODD 仲裁 + M7 Checker + MRC 触发三条核心安全功能（SIF）专属 V&V。见 §2.5。两条轨道独立评估，**不共用通过率指标**。
-
----
-
-## §2 Phase Gate 判据
-
-每个 Phase Gate 分 **Entry Conditions**（进入本阶段的前提）和 **Exit Conditions**（退出本阶段的判据）。SIL 2 专属条目标注 `[SIL2→§2.5]`，完整验证方法见 §2.5。
-
-Phase Gate 自动校验：`python tools/check_entry_gate.py --phase {1|2|3|4}`
-
----
-
-### §2.1 Phase 1 Gate（5/13–6/15 → DEMO-1）
-
-**Entry Conditions（进入 Phase 1 的前提）**
-
-| 条件 | 状态 | 来源 |
-|---|---|---|
-| D0 must-fix sprint 11 项全闭（5/12）| ✅ 已闭 | 甘特 §2 |
-| D1.1 Python 包结构 + colcon 构建 ✓ | ✅ | D1.1 DoD |
-| D1.2 CI/CD 39 tests passed，ruff 0 violations | ✅ | D1.2 CLOSED |
-| D1.3a MMG 仿真器 v3.1 CLOSED | ✅ | D1.3a CLOSED |
-
-**Exit Conditions（Phase 1 完成判据，6/15 DEMO-1 硬约束）**
-
-| ID | 条件 | 阈值 | 测量 | 来源 |
-|---|---|---|---|---|
-| E1.1 | Imazu-22 全量通过 | **22/22** | `pytest imazu` | SIL decisions §6 [E2] |
-| E1.2 | CPA ≥ 200m 比例（Imazu-22）| **≥ 95%** | imazu22_results.json | SIL decisions §6 [E2] |
-| E1.3 | COLREG 分类率（Imazu-22）| **≥ 95%** | imazu22_results.json | SIL decisions §6 [E2] |
-| E1.4 | Coverage cube 亮灯数 | **≥ 10 / 1100 cells** | coverage_cube.json | SIL decisions §6 |
-| E1.5 | D1.3a MMG 旋回误差 | **< 5%**（vs 实测旋回直径）| d1_3a_validation.json | D1.3a DoD |
-| E1.6 | CI 绿灯（全量测试）| **0 failed，≥ 39 passed** | pytest-report.json | D1.2 |
-| E1.7 | `00-vv-strategy-v0.1.md` commit 存在 | 文件存在 | `ls` | D1.5 DoD |
-| E1.8 `[SIL2→§2.5]` | M7 watchdog 白盒测试 | **≥ 1 case PASS** | `pytest m7` | 架构 §11 + §2.5 |
-
-> **🟡 注**：E1.8 是 §2.5 中 M7 SIF 在 Phase 1 的最小可验证里程碑。完整 SIL 2 指标（SFF / 三量化矩阵）在 Phase 2–3。
-
----
-
-### §2.2 Phase 2 Gate（6/16–7/31 → DEMO-2）
-
-**Entry Conditions**
-
-| 条件 | 来源 |
-|---|---|
-| Phase 1 Exit 全部通过 | §2.1 |
-| HAZID RUN-001 第①次会议已完成（5/13）| 甘特 §11.6 |
-| V&V 工程师 FTE 已到岗（目标 5/8，最迟 6/1）| 甘特 R0.2 |
-
-**Exit Conditions（Phase 2 完成判据，7/31 DEMO-2 硬约束）**
-
-| ID | 条件 | 阈值 | 测量 | 来源 |
-|---|---|---|---|---|
-| E2.1 | Coverage cube 亮灯数 | **≥ 220 / 1100 cells** | coverage_cube.json | 甘特 D2.5 |
-| E2.2 | 50 场景通过率（首跑）| **≥ 90%** | sil_results.json | 甘特 D2.4 DoD |
-| E2.3 | 50 场景通过率（修缮后，Phase 2 Exit 最终判据）| **≥ 95%** | sil_results.json（D2.5 末次 CI 跑）| 甘特 D2.5 DoD |
-| E2.4 | TMR ≥ 60s 合规率 | **100%**（非 MRC 状态）| sil_results.json | 架构 §3.1 [R40] |
-| E2.5 | AvoidancePlan 端到端延迟 | **P95 ≤ 1000ms** | latency_report.json | 甘特 D1.5 scope |
-| E2.6 | ReactiveOverrideCmd 延迟 | **P95 ≤ 200ms** | latency_report.json | 甘特 D1.5 scope |
-| E2.7 | Mid-MPC 求解时延 | **< 500ms** | latency_report.json | 甘特 D1.5 scope |
-| E2.8 | BC-MPC 求解时延 | **< 150ms** | latency_report.json | 甘特 D1.5 scope |
-| E2.9 | dds-fmu 桥接延迟（D1.3c）| **P95 ≤ 10ms / P99 ≤ 15ms** | latency_report.json | SIL decisions §2.4 |
-| E2.10 | HARA v1.0 可用（D2.7）| 文档存在 + ≥ 30 危险源 | D2.7 DoD | 甘特 D2.7 |
-| E2.11 `[SIL2→§2.5]` | M7 端到端延迟 | **P95 < 10ms** | latency_report.json | SIL decisions §2.4 + 架构 §11 |
-| E2.12 `[SIL2→§2.5]` | M1 ODD 仲裁三量化（LOC/CYC/SBOM）| 见 §2.5 | doer_checker_metrics.json | D3.3a scope |
-| E2.13 `[SIL2→§2.5]` | M7 Checker 三量化（LOC/CYC/SBOM）| 见 §2.5 | doer_checker_metrics.json | D3.3a scope |
-
-> **🟡 注**：E2.9（dds-fmu 延迟）依赖 D1.3c FMI bridge 完成。D1.3c 是 v3.1 最大单项增量（12–16 pw）；若实测 P95 > 10ms 触发推翻信号（SIL decisions §2.5），退回纯 ROS2 native，不阻塞 DEMO-2 其余条目。
-
----
-
-### §2.3 Phase 3 Gate（7/13–8/31 → DEMO-3）
-
-**Entry Conditions**
-
-| 条件 | 来源 |
-|---|---|
-| Phase 2 Exit 全部通过 | §2.2 |
-| HAZID RUN-001 进行中（8/19 截止）| 甘特 §11.7 |
-| D3.3a Doer-Checker 三量化全达标 | D3.3a DoD |
-
-**Exit Conditions（Phase 3 完成判据，8/31 DEMO-3 硬约束）**
-
-| ID | 条件 | 阈值 | 测量 | 来源 |
-|---|---|---|---|---|
-| E3.1 | SIL 总场景数 | **≥ 1000**（D3.6）| sil_results.json | 甘特 D3.6 |
-| E3.2 | Coverage cube 亮灯数 | **≥ 880 / 1100 cells（80%）** | coverage_cube.json | 甘特 D3.6 |
-| E3.3 | SOTIF triggering condition 覆盖 | **≥ 80%**（≥ 50 条基线中）| sotif_coverage.json | 甘特 D3.6 |
-| E3.4 | 全场景 Phase score 通过率 | **≥ 95%**（6 维度评分全 PASS）| sil_results.json | D1.7 rubric |
-| E3.5 | FMEDA M7 表 v1.0 完成 | 文档存在 + SFF 字段填入 | D2.7 DoD | 甘特 D2.7 |
-| E3.6 `[SIL2→§2.5]` | M7 SFF 达标 | **≥ [TBD-HAZID-SFF-001]**（IEC 61508 SIL 2 目标）| FMEDA M7 表 | §2.5 + IEC 61508 |
-| E3.7 `[SIL2→§2.5]` | MRC 触发延迟 | **≤ [TBD-HAZID-MRC-001]** | 故障注入测试报告 | §2.5 + 架构 §11 |
-| E3.8 `[SIL2→§2.5]` | MRC 激活率（注入场景）| **100%** | 故障注入测试报告 | §2.5 + 架构 §11 |
-
-> **[TBD-HAZID-SFF-001]**：M7 SFF 目标值。关闭路径：HAZID RUN-001 完成（8/19）→ IEC 61508 SIL 2 配件分析 → v1.1.3 §17 回填。阻塞度：E3.6 仅阻塞 Phase 3 Gate sign-off，不阻塞其余 E3.x。
->
-> **[TBD-HAZID-MRC-001]**：MRC 触发延迟容限。关闭路径同上。来源：架构 §11 + HAZID RUN-001 场景工作包。
-
----
-
-### §2.4 Phase 4 Gate（9–11月 → AIP）
-
-**Entry Conditions**
-
-| 条件 | 来源 |
-|---|---|
-| Phase 3 Exit 全部通过 | §2.3 |
-| HIL 硬件采购单确认（≤ 7/13）| 甘特 D4.1 |
-| SIL 2 第三方评估机构接洽（建议 ≤ 6月）| 甘特 §11.9.4 |
-
-**Exit Conditions（Phase 4 完成判据，11月 AIP 提交）**
-
-| ID | 条件 | 阈值 | 验证方式 | 来源 |
-|---|---|---|---|---|
-| E4.1 | HIL 测试时长 | **≥ 800h** | HIL runner log | 甘特 D4.1/D4.2 |
-| E4.2 | HIL 无崩溃连续运行 | 验收标准见 D4.2 DoD | HIL test report | 甘特 D4.2 |
-| E4.3 | TÜV/DNV/BV SIL 2 评估报告 | 报告存在 + CCS 认可机构出具 | D4.3 evidence store | 甘特 D4.3 |
-| E4.4 | CCS AIP 提交回执 | 提交确认函 | D4.4 DoD | 甘特 D4.4 |
-| E4.5 `[SIL2→§2.5]` | 第三方评估意见：M1 ODD 仲裁 | **"可接受"**（acceptable）| D4.3 报告 §M1 节 | §2.5 |
-| E4.6 `[SIL2→§2.5]` | 第三方评估意见：M7 Checker | **"可接受"** | D4.3 报告 §M7 节 | §2.5 |
-| E4.7 `[SIL2→§2.5]` | 第三方评估意见：MRC 触发路径 | **"可接受"** | D4.3 报告 §MRC 节 | §2.5 |
-
----
-
-### §2.5 SIL 2 核心安全功能专属 V&V Registry
-
-> 依据 CLAUDE.md §4 顶层决策四："M1 ODD 仲裁 + M7 Checker + MRC 触发三条路径为 IEC 61508 SIL 2 核心安全功能（SIF），须有**专属 Exit Gate，不能笼统合并进通用测试通过率**"。
-
-本节定义三条 SIF 各自的验证方法、验收准则、Phase 里程碑。§2.x Phase Gate 中 `[SIL2→§2.5]` 标注条目均以本节为权威。
-
-#### SIF-1：M1 ODD/Envelope Manager 仲裁
-
-| 要素 | 内容 |
-|---|---|
-| **功能说明** | ODD 状态唯一权威来源；MRC 触发唯一路径；不得与 M2–M6 共享代码/库/数据结构 |
-| **架构来源** | 架构报告 §5 + §2.5 顶层决策一/四 |
-| **验证方法** | (1) 白盒状态机测试：ODD 状态转换表穷举（NORMAL / DEGRADED / CRITICAL / OUT / MRC_PREP / MRC_ACTIVE / EDGE）；(2) MC/DC 路径覆盖：每个判断条件独立组合覆盖（IEC 61508-3 §7.4.10 Table A.3）；(3) 独立代码路径验证：PATH-S 工具检测 M1 与 M2–M6 零共享依赖（0 violation） |
-| **验收准则（Phase 2）** | ODD 状态转换 100% 路径覆盖；MC/DC 覆盖 100%；PATH-S 0 violation；MRC 触发模拟延迟 ≤ 100ms（非 HAZID 参数，为工程估算；HAZID 实值见 [TBD-HAZID-MRC-001]）|
-| **验收准则（Phase 3）** | MRC 触发延迟 ≤ [TBD-HAZID-MRC-001]（HAZID 校准后回填）|
-| **Phase 里程碑** | Phase 1 E1.8（白盒 ≥ 1 case）→ Phase 2 E2.12（三量化达标）→ Phase 4 E4.5（第三方认可）|
-| **置信度** | 🟡 Medium（MRC 延迟容限 [TBD-HAZID-MRC-001] 待填）|
-
-#### SIF-2：M7 Safety Supervisor Checker
-
-| 要素 | 内容 |
-|---|---|
-| **功能说明** | Doer-Checker 中的 Checker；6 类硬约束（P95 < 10ms）；实现路径独立（不共享 M1–M6 代码/库/数据结构）；严格留 ROS2 native，不过 FMI 边界（SIL decisions §2.4）|
-| **架构来源** | 架构报告 §11 + ADR-001 + SIL decisions §2.4 |
-| **验证方法** | (1) **三量化矩阵**（D3.3a DoD）：<br>  · LOC 比例：Doer(M1–M6) / M7 ≥ 50:1（Boeing 777 Monitor 先例，架构 §2.5 [R4]）<br>  · 圈复杂度比例 CYC：Doer avg / M7 avg ≥ 30:1<br>  · SBOM 交集：Doer SBOM ∩ M7 SBOM = ∅（零共享第三方库）<br>(2) 6 类硬约束注入测试：对每类约束场景注入 ≥ 10 场景，验证 P95 响应 < 10ms；(3) FMEDA M7 表（D2.7）：安全失效分数（SFF）分析；(4) IEC 61508 watchdog 自测完整性验证 |
-| **验收准则（Phase 2）** | LOC≥50:1；CYC≥30:1；SBOM∩=∅；M7 P95 < 10ms；PATH-S 0 violation |
-| **验收准则（Phase 3）** | SFF ≥ [TBD-HAZID-SFF-001]（IEC 61508 SIL 2 目标；HAZID 校准后回填）|
-| **Phase 里程碑** | Phase 1 E1.8（watchdog ≥ 1）→ Phase 2 E2.11/E2.13（三量化 + 延迟）→ Phase 3 E3.5/E3.6（FMEDA + SFF）→ Phase 4 E4.6（第三方认可）|
-| **置信度** | 🟡 Medium（SFF 目标值 [TBD-HAZID-SFF-001] 待 HAZID 校准）|
-
-> **[TBD-HAZID-SFF-001]**：IEC 61508 SIL 2 要求 SFF（Safe Failure Fraction）≥ 90%（1oo1 架构）或 ≥ 99%（1oo2 架构）；具体 M7 FMEDA 分析结果须 HAZID RUN-001（8/19）后产出 FMEDA M7 表（D2.7）。关闭路径：RUN-001 完成 → D2.7 FMEDA → 本节 §SIF-2 回填。🔴
-
-#### SIF-3：MRC 触发路径
-
-| 要素 | 内容 |
-|---|---|
-| **功能说明** | Minimum Risk Condition 触发（IMO MASS Code 要求，架构 §3.1）；M1 → L4/L5 MRC 命令集；任何状态均可触发，不经 M5 规划路径 |
-| **架构来源** | 架构报告 §5 + §11 + ADR-001（MRM 命令集）|
-| **验证方法** | (1) 故障注入测试：M1 单点失效 / M2 单点失效 / M7 单点失效 / M5-M7 联合失效 各 ≥ 10 场景注入，验证 MRC 激活率 100%；(2) 端到端时序追踪：故障注入到 MRC_RequestMsg 发出的完整路径追踪；(3) SIL 专用 MRC 场景 ≥ 10 个（ODD_OUT 触发 + CRITICAL 触发各 ≥ 5）|
-| **验收准则（Phase 3）** | MRC 激活率 100%@注入场景；触发延迟 ≤ [TBD-HAZID-MRC-001]；端到端路径可追踪（ASDR 日志中可见 MRC_RequestMsg 时戳）|
-| **Phase 里程碑** | Phase 2（MRC 路径白盒设计验证）→ Phase 3 E3.7/E3.8（故障注入 + 延迟）→ Phase 4 E4.7（第三方认可）|
-| **置信度** | 🔴 Low（触发延迟容限 [TBD-HAZID-MRC-001] 未知；MRC 激活条件部分依赖 HAZID 场景工作包）|
-
-> **[TBD-HAZID-MRC-001]**：MRC 触发延迟容限（ms）。关闭路径：HAZID RUN-001（8/19）产出 MRC 触发场景工作包 → 安全外包分析 → v1.1.3 §17 回填 + 本节 §SIF-3 更新。🔴
-
----
-
-## §3 KPI 目标矩阵
-
-> 每行引用具体来源。来源标注：SIL decisions §x = `docs/Design/SIL/00-architecture-revision-decisions-2026-05-09.md §x`；架构 §x = 架构报告 §x；[Rx] = 架构报告参考文献编号。
-
-| KPI | 单位 | Phase 1 目标 | Phase 2 目标 | Phase 3 目标 | Phase 4 目标 | 测量工具 | 置信度 | 来源 |
-|---|---|---|---|---|---|---|---|---|
-| SIL 场景覆盖率（cells 亮）| cells/1100 | **≥ 10** | **≥ 220** | **≥ 880** | **1100**（D4.6 目标）| coverage_cube.json | 🟢 | SIL decisions §6 |
-| Imazu-22 通过率 | %（22 场景）| **100%** | 保持 | 保持 | 保持 | pytest | 🟢 | SIL decisions §6 [E2] |
-| CPA ≥ 200m 比例（Imazu-22）| % | **≥ 95%** | **≥ 95%**（50 场景）| **≥ 95%**（1000 场景）| — | scenario evaluator | 🟢 | SIL decisions §6 [E2] |
-| COLREG 分类率 | % | **≥ 95%** | **≥ 95%** | **≥ 95%** | — | M6 分类器 | 🟢 | SIL decisions §6 [E2] |
-| SIL 场景通过率 | % | —（首建）| **≥ 90%**（首跑）/ **≥ 95%**（修缮）| **≥ 95%** | — | sil_results.json | 🟡 | 甘特 D2.4/D2.5 DoD |
-| SOTIF 触发条件覆盖 | %（≥ 50 条）| — | — | **≥ 80%** | — | sotif_coverage.json | 🟡 | 甘特 D3.6 scope |
-| TMR ≥ 60s 合规率 | %（非 MRC 状态）| — | **100%** | **100%** | **100%** | SIL timeline | 🟢 | 架构 §3.1 [R40 Veitch 2024] |
-| AvoidancePlan latency | ms | — | **P95 ≤ 1000** | **P95 ≤ 1000** | **P95 ≤ 100**（HIL）| latency_report.json | 🟢 | 甘特 D1.5 scope |
-| ReactiveOverrideCmd latency | ms | — | **P95 ≤ 200** | **P95 ≤ 200** | **P95 ≤ 50**（HIL）| latency_report.json | 🟢 | 甘特 D1.5 scope |
-| Mid-MPC 求解时延 | ms | — | **< 500** | **< 500** | **< 200**（HIL）| latency_report.json | 🟡 | 甘特 D1.5 scope |
-| BC-MPC 求解时延 | ms | — | **< 150** | **< 150** | **< 50**（HIL）| latency_report.json | 🟡 | 甘特 D1.5 scope |
-| **M7 端到端 latency** `[SIL2]` | ms | — | **P95 < 10** | **P95 < 10** | **P95 < 10** | latency_report.json | 🟢 | SIL decisions §2.4 + 架构 §11 |
-| **dds-fmu bridge latency** | ms | — | **P95 ≤ 10 / P99 ≤ 15** | 同 Phase 2 | 同 Phase 2 | libcosim timing | 🟢 | SIL decisions §2.4 |
-| **M7 SFF** `[SIL2]` | % | — | — | **≥ [TBD-HAZID-SFF-001]** | 验证 | FMEDA M7 表 | 🔴 | IEC 61508 SIL 2 + §2.5 |
-| HIL 测试时长 | h | — | — | — | **≥ 800** | HIL runner log | 🟢 | 甘特 D4.1/D4.2 |
-
-> **HIL latency 目标**（Phase 4）：SIL latency budget 加严 5×（SIL 软件仿真无实时性约束，HIL 有硬件中断 + RT 内核约束）。具体值在 D4.1 HIL entry-gate 确认。当前标注为工程估算值（🟡）。
-
----
-
-## §4 V&V 方法论引用
-
-### §4.1 场景 Schema（D1.6）
-
-场景文件格式采用 **`dnv-opensource/maritime-schema` v0.2.x `TrafficSituation` 扩展**，FCB 项目专属字段放入 `metadata.*` 节点（SIL decisions §5）。
-
-- Python 验证：`cerberus` + `pydantic`（maritime-schema 原生）[E14]
-- C++ 验证：`cerberus-cpp`（同 schema 文件，避免双套逻辑）[E15]
-- CCS 接受度：[TBD-CCS-SCHEMA-001]（D1.8 末早期发函 CCS 技术中心确认；SIL decisions §5.5）
-
-> **[TBD-CCS-SCHEMA-001]**：CCS 是否接受 maritime-schema v0.2.x 作 evidence container。关闭路径：D1.8（6/15）向 CCS 技术中心 + Brinav 联络人发函（路径：CCS-DNV-Brinav 2024 MoU + Brinav Armada 78 03 案例先例）。退路：maritime-schema 退为内部表示 + 加导出器至 CCS 要求格式（SIL decisions §5.5 推翻信号）。🟡
-
-### §4.2 覆盖立方体（D1.7）
-
-```
-覆盖立方体 = 11 COLREG Rules × 4 ODD subdomains × 5 disturbance bins × 5 seeds
-           = 1100 concrete cells
-```
-
-- 11 COLREG Rules：Rule 5/6/7/8/9/13/14/15/16/17/19
-- 4 ODD：open_sea / coastal_traffic_separation / port_approach / offshore_wind_farm
-- 5 disturbance：Beaufort 0–1 / 2–3 / 4–5 / 6–7 / sensor_degraded
-- 5 seeds：PRNG 种子 1–5（Monte Carlo 变体）
-- 场景比例：Adversarial : Nominal : Boundary = 60 : 25 : 15（**内部启发式，非外部标准**，CCS 提交时不引为外部规范；SIL decisions §6.1 [E1]）
-
-覆盖率 rubric 完整规约在 D1.7。
-
-### §4.3 SIL Latency Budget
-
-| 路径 | 组件 | 预算 | 强制规则 | 来源 |
-|---|---|---|---|---|
-| dds-fmu 桥接 | dds-fmu mediator + libcosim async_slave | P95 ≤ 10ms / P99 ≤ 15ms | **M7 严格 ROS2 native，不过 FMI 边界**（M7 端到端 KPI < 10ms，dds-fmu 单次 exchange 即可吃掉 KPI）| SIL decisions §2.4 + 架构 §11 |
-| Own-ship FMU 步长 | libcosim co-sim master | Δt = 0.02s（50Hz）| 对齐 Nav Filter 50Hz 主频 | SIL decisions §1.1 选项 D |
-| ROS2 M1–M6 节点 | native DDS | best-effort + jitter buffer 补偿 | — | SIL decisions §2.4 |
-
-### §4.4 RL Artefact Rebound Path（Phase 4 规约，Phase 1–3 不执行）
-
-Phase 4 D4.6（B2 启动）启动时，RL 产物回注流程须遵循：
-
-```
-ONNX (训练产物)
-  → mlfmu build → target_policy.fmu
-  → libcosim 加载（co-sim loop）
-  → FMU 进 evidence store（DNV-RP-0671 [R30] 鉴定）
-```
-
-**L3 Repo 隔离三层**（SIL decisions §4，当前已在 D1.3a/b 仓库结构落地）：
-- L1 Repo：`/src/l3_tdl_kernel/**`（C++/MISRA certified）vs `/src/rl_workbench/**`（Python/Phase 4）
-- L2 Process：RL 训练独立 Docker container，只读挂载 certified binaries
-- L3 Artefact：仅 `target_policy.fmu` 经 DNV-RP-0671 鉴定后方可入 certified loop
-
-### §4.5 Monte Carlo LHS/Sobol（D3.6 大样本扫描）
-
-在 1100-cell deductive cube 之外，对关键参数跑大样本扫描：
-- 方法：拉丁超立方采样（LHS）/ Sobol 序列
-- 参数：target ship 初始方位角 / SOG / 感知噪声 σ / 风流强度
-- 样本量：**10000 samples**（D3.6）
-- 输出：pass rate 95% CI + CPA_min 分布 + Rule violation 频率
-- 工业先例：[R32] Hassani et al. 2022（Sobol sampling + COLREG geometric filter）
-- 工具：`farn` v0.4.2+（case folder generator，MIT）
-
----
-
-## §5 工具链
-
-### §5.1 DNV MUST 三件（Phase 1 必须采用）
-
-| 工具 | 版本锁定 | 用途 | License | 来源 |
-|---|---|---|---|---|
-| `dnv-opensource/maritime-schema` | **v0.2.x** | Scenario YAML + output Apache Arrow schema | MIT | SIL decisions §2 [E8] |
-| `open-simulation-platform/libcosim` | latest MPL-2.0 | FMI 2.0 co-sim master（C++）| MPL-2.0 | SIL decisions §2 [E3] |
-| `dnv-opensource/farn` | **v0.4.2+** | n-dim case folder generator（farn sweep → ospx）| MIT | SIL decisions §2 [E7] |
-
-DNV-RP-0513（[R25]）§4 自鉴定证据收集流程须在 D1.3.1 Simulator Qualification Report 中记录。
-
-### §5.2 DNV NICE-deferred（Phase 2/4 引入）
-
-| 工具 | 引入阶段 | 用途 |
-|---|---|---|
-| `dnv-opensource/ship-traffic-generator` (`trafficgen`)| Phase 2 D2.4 | 50→200 场景扩展；参数化扫频 |
-| `dnv-opensource/mlfmu` | Phase 4 D4.6（B2）| RL ONNX → FMU 打包 |
-
-### §5.3 辅助工具链
-
-| 工具 | 版本 | 用途 | 来源 |
+| Version | Date | Author | Description |
 |---|---|---|---|
-| `ospx` | latest MIT | OSP system structure author（与 farn 配套）| SIL decisions §2 |
-| `cerberus` | latest ISC | Python schema 验证 | SIL decisions §5.4 [E14] |
-| `cerberus-cpp` | latest MIT | C++ schema 验证（同 schema 文件）| SIL decisions §5.4 [E15] |
-| `dds-fmu` | latest | DDS ↔ FMI 桥接 mediator | SIL decisions §2.4 |
-| `pytest` | current | 单元/集成测试 | D1.2 |
-| `ruff` | current | Lint（0 violations gate）| D1.2 |
-| `mypy` | current | 类型检查 | D1.2 |
-| `Puppeteer` | current | Headless 浏览器 GIF/PNG batch render | SIL decisions §9 [E33] |
-| `ffmpeg` | current | Evidence video 编译 | SIL decisions §9 |
-| `pandoc` | current | Markdown → PDF（DEMO 现场打印）| §9 本文档 |
+| v0.1 | 2026-05-31 | V&V Engineer | Initial release. Phase 1–4 gate structure, KPI matrix, coverage dimensions, SIL latency budget, RL rebound path, DNV toolchain entry conditions, certification evidence framework, DEMO-1 scope. |
 
 ---
 
-## §6 角色与责任
+## Table of Contents
 
-### §6.1 在岗期与主要承担
+1. [Purpose & Scope](#1-purpose--scope)
+2. [V&V Strategy Overview](#2-vv-strategy-overview)
+3. [Entry/Exit Gates](#3-entryexit-gates)
+4. [End-to-End KPI Matrix](#4-end-to-end-kpi-matrix)
+5. [Test Coverage Dimensions](#5-test-coverage-dimensions)
+6. [SIL Latency Budget](#6-sil-latency-budget)
+7. [RL Artefact Rebound Path](#7-rl-artefact-rebound-path)
+8. [DNV Toolchain Entry Conditions](#8-dnv-toolchain-entry-conditions)
+9. [Certification Evidence Tracking](#9-certification-evidence-tracking)
+10. [DEMO-1 V&V Scope](#10-demo-1-vv-scope)
 
-| 角色 | 在岗期 | 主要 D 任务 |
-|---|---|---|
-| **V&V 工程师 FTE** | 5/8–8/31（默认延 9/14 闭口）| D1.5/D1.6/D1.7 / D1.3.1 / D2.5 / D3.6 |
-| **技术负责人（架构师）** | 全程 | D1.3a/b/c / D2.1–D2.4 / D3.1–D3.4 / D2.8/D3.8（架构）|
-| **安全外包** | 5/15–7/10 | D2.7 HARA+FMEDA / D3.3a 三量化 / D3.3b SOTIF |
-| **HF 咨询** | 6/16–7/27 | D2.6 船长访谈 / Figma / 培训课程 |
-| **PM** | 全程（兼任）| D0.3 HTML 同步 / D1.8 / D2.6 / D3.5' / DEMO sync |
-| **CCS 联络人** | 全程（兼任）| D0.2 / D1.8 早期发函 / D2.7 / D3.5/D3.8/D3.9 / AIP 11月 |
-| **资深船长（≥ 1）** | 6/16–8/31（1d/月 × 3 + 3 DEMO）| D2.6 ground truth / DEMO-1/2/3 反馈 |
+---
 
-### §6.2 RACI（V&V 关键任务）
+## 1. Purpose & Scope
 
-| 任务 | V&V FTE | 技术负责人 | 安全外包 | CCS 联络 |
+This Verification & Validation Plan defines the strategy, criteria, and infrastructure for demonstrating that the MASS ADAS L3 Tactical Decision Layer meets its safety, functional, and performance requirements across the full development lifecycle from first integration through sea trial.
+
+**Scope boundaries:**
+
+- **In scope:** All eight TDL modules (M1 ODD/Envelope Manager through M8 HMI/Transparency Bridge), the SIL/HIL test infrastructure, the scenario generation and coverage tracking framework, the certification evidence pipeline, and the end-to-end performance KPIs.
+- **Out of scope:** L1 Mission Layer, L2 Voyage Planner, L4 Guidance Layer, L5 Control & Allocation, Multimodal Fusion, Cybersecurity hardening, and shore-side infrastructure. These layers are treated as test fixtures or boundary conditions.
+
+This plan covers the period from Phase 1 (DEMO-1 Skeleton Live, 15 June 2026) through Phase 4 (HIL integration and third-party SIL 2 assessment, September–November 2026). It is structured in accordance with DNV-CG-0264 Section 3 (Verification Plan) conventions.
+
+---
+
+## 2. V&V Strategy Overview
+
+### 2.1 Three-Phase Verification Approach
+
+Verification proceeds through three strictly sequential phases. Each phase has formal entry and exit gates defined in Section 3. No phase may begin until the preceding phase's exit gate has been cleared.
+
+| Phase | Primary Tool | Time Scale | Focus | Key Deliverable |
 |---|---|---|---|---|
-| V&V Plan v0.1（本文档）| A/R | C | I | I |
-| 场景 schema D1.6 | R | A | I | I |
-| 覆盖率方法论 D1.7 | R | A | C | I |
-| HARA + FMEDA D2.7 | I | C | R/A | C |
-| SIL 集成 D2.5 | R | A | I | I |
-| Doer-Checker 三量化 D3.3a | C | A | R | I |
-| SIL 1000 D3.6 | R | A | C | I |
-| CCS 早期发函 D1.8 | I | C | I | R/A |
-| DEMO 证据包（3 档）| R | A | C | I |
+| **1. SIL** | Software-in-the-loop simulation | 0.02–1 s timestep | Functional correctness, COLREGs compliance, coverage, performance KPIs | SIL exit report with scenario pass rates, coverage cube, KPI validation |
+| **2. HIL** | Hardware-in-the-loop with real-time target | Real-time (at least 10 Hz) | Real-time determinism, DDS latency, hardware driver integration, M7 watchdog on target | HIL exit report with jitter measurements, determinism evidence |
+| **3. Sea Trial** | FCB non-certification sea trial | Full mission duration | End-to-end behavior in real environmental conditions, ROC HMI validation, ASDR logging integrity | Sea trial report with encounter logs, KPI replay, anomaly registry |
+
+### 2.2 SIL as Primary Verification Tool
+
+SIL remains the primary verification vehicle for Phases 1 through 3. The majority of functional and safety verification is performed in SIL because scenario space is enumerable and reproducible, fault injection is deterministic, coverage metrics can be collected automatically, and COLREGs compliance can be evaluated against geometric benchmarks with ground-truth geometry.
+
+HIL and sea trial serve as confirmation activities. They do not discover new functional defects; they verify that the real-time implementation, hardware integration, and environmental noise do not degrade the behaviors already proven in SIL.
+
+### 2.3 Independence of V&V
+
+The V&V function is organizationally independent from the development team:
+
+- The V&V Engineer (FTE, 5/8–8/31) owns this plan, the scenario schema, the coverage methodology, and the gate criteria.
+- V&V writes test scenarios, operates the SIL framework, and adjudicates gate pass or fail.
+- Developers do not modify gate criteria, coverage thresholds, or scenario definitions without V&V review.
+- Safety Engineer (outsourced, 5/15–7/10) reviews V&V results for SOTIF and IEC 61508 alignment but does not execute tests.
 
 ---
 
-## §7 CCS AIP 证据包骨架 v0.1
+## 3. Entry/Exit Gates
 
-> v0.1 仅标坑位（placeholder），不填满。标注 `CCS 早期发函` 的为 D1.8 节点（6/15）须向 CCS 技术中心发函确认的高优先项。
+### 3.1 Phase 1 — SIL Entry Gate (E1)
 
-| # | 证据件 | D 编号 | 截止 | CCS 早期发函 | 状态 |
-|---|---|---|---|---|---|
-| 1 | **ConOps v0.1**（核心场景 + 角色 + 边界 + 操作模式，5–10 页）| D1.8 | 6/15 | ✅ **最优先**（AIP 阶段 #1 必需件）| 🔲 待产出 |
-| 2 | **maritime-schema 接受度函复** | D1.8 | 6/15 | ✅ 优先（[TBD-CCS-SCHEMA-001]）| 🔲 待发函 |
-| 3 | **V&V Plan 框架可接受性回执**（本文档）| D1.5 | 5/31 | ✅ 优先 | ✅ 本文档（待回执）|
-| 4 | HARA v1.0（≥ 30 危险源 → SIF → SIL → 缓解）| D2.7 | 7/31 | 🔲 | 🔲 待产出 |
-| 5 | FMEDA M1/M7 表 | D2.7 | 7/31 | 🔲 | 🔲 待产出 |
-| 6 | Sim Qualification Report（D1.3.1，DNV-RP-0513 §4）| D1.3.1 | 6/15 | 🔲 | 🔲 待产出 |
-| 7 | V&V Report（SIL 阶段，D3.6/D3.8 后）| D3.8 | 8/31 | 🔲 | 🔲 待产出 |
-| 8 | 场景 YAML library（D1.6 + D3.6，maritime-schema 格式）| D3.6 | 8/31 | 🔲 | 🔲 待产出 |
-| 9 | ASDR JSONL 样本（D1.3b+ 滚动积累）| D1.3b | 滚动 | 🔲 | 🔲 待完整 |
-| 10 | SIL 2 第三方评估报告（TÜV/DNV/BV，D4.3）| D4.3 | 10月 | 🔲（⚠️ 建议 **6月** 接洽机构）| 🔲 Phase 4 |
+The SIL entry gate ensures that the development baseline is stable enough to yield meaningful verification results.
 
-> **CCS 早期发函优先顺序**（D1.8 节点 6/15 执行）：
-> 1. ConOps（AIP 流程 #1 必需件，CCS 最先看）
-> 2. maritime-schema 接受度（若 CCS 否定，需加导出器；早确认早退路）
-> 3. V&V Plan 框架可接受性（本文档 PDF，请 CCS 技术中心出具邮件回执）
->
-> ⚠️ **P0 风险提醒**：甘特 §11.9.4 识别"9 月接洽 SIL 2 评估机构过晚"；建议 **6 月前** 联系 TÜV/DNV/BV 确认 CCS 认可机构资质，避免 11 月 AIP 提交时证据不被认可。
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| E1.1 | All D1.x tasks closed per v3.0 DoD | 100% closed | D1.x task tracker export |
+| E1.2 | colcon build clean on CI | 0 errors, 0 warnings treated as errors | CI build log |
+| E1.3 | CI pipeline green | All jobs pass | GitLab pipeline status |
+| E1.4 | Scenario schema validated | Schema v1.0 passes structural validation | schema_validate.py report |
+| E1.5 | Mock publisher frequencies verified | All cross-layer mock pubs within plus or minus 5% of specified rate | Frequency check log |
+| E1.6 | E2E data flow sanity | M1 to M2 to M4 to M5 to M8 message chain completes in under 5 s | E2E latency trace |
+| E1.7 | V&V Plan v0.1 committed | File present in docs/Design/V&V_Plan/ | Git commit hash |
+| E1.8 | M7 watchdog Python stub at least 1 PASS | At least 1 pytest test with m7 in nodeid passes | pytest-report.json |
+
+Gate E1.1 through E1.8 are checked by `tools/check_entry_gate.py --phase 1`. Manual checks (e.g., design review sign-off) are recorded in the Phase 1 gate log but do not block automated execution.
+
+### 3.2 Phase 1 — SIL Exit Gate (X1)
+
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| X1.1 | Baseline scenario pass rate | At least 95% of 50 baseline scenarios pass | test-results/baseline_results.json |
+| X1.2 | KPI matrix validated | All Section 4 KPIs within threshold on at least 30 scenario runs | test-results/kpi_matrix.json |
+| X1.3 | ASDR log consistency | Every decision cycle logged with timestamp, module state, rationale | ASDR audit script report |
+| X1.4 | Coverage cube minimum | At least 10 of 1100 cells lit (Phase 1 baseline) | test-results/coverage_cube.json |
+| X1.5 | Imazu-22 benchmark | 22 of 22 pass, CPA at least 200 m ratio at least 95%, COLREG classification at least 95% | test-results/imazu22_results.json |
+| X1.6 | M7 watchdog critical-path coverage | All 7 monitored modules exercised for timeout and recovery | pytest-report.json |
+
+### 3.3 Phase 2 — HIL Entry Gate (E2)
+
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| E2.1 | SIL exit gate cleared | X1.1 through X1.6 all pass | Phase 1 exit report |
+| E2.2 | HIL hardware qualified | Target hardware flashed and booting | HIL qualification checklist |
+| E2.3 | Real-time constraints verified | ROS2 timer jitter P95 under 5 ms on target | ros2 topic hz plus trace analysis |
+| E2.4 | DDS-Security profile loaded | Authentication and encryption active on test domain | dds_security.xml validation |
+
+### 3.4 Phase 2 — HIL Exit Gate (X2)
+
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| X2.1 | Deterministic replay | Same scenario input produces same output within 1% on HIL versus SIL | Replay diff report |
+| X2.2 | Latency budget held | dds-fmu bridge P95 under 10 ms, P99 under 15 ms | Latency histogram CSV |
+| X2.3 | M7 watchdog on target | Watchdog triggers MRC within 3 timeout periods on hardware | Target test log |
+| X2.4 | 200 scenarios run | At least 200 scenarios executed on HIL with at least 95% pass | hil_results.json |
+
+### 3.5 Phase 3 — Sea Trial Entry Gate (E3)
+
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| E3.1 | HIL exit gate cleared | X2.1 through X2.4 all pass | Phase 2 exit report |
+| E3.2 | CCS preliminary approval | CCS surveyor sign-off on ConOps and V&V Plan | CCS letter |
+| E3.3 | Crew training complete | ROC and master completed simulator familiarization | Training completion certificates |
+| E3.4 | Emergency stop chain tested | Hardware override plus ASDR zero-software e-stop verified on dock | Dockside test log |
+
+### 3.6 Phase 3 — Sea Trial Exit Gate (X3)
+
+| ID | Criterion | Threshold | Evidence Artifact |
+|---|---|---|---|
+| X3.1 | Mission duration | At least 50 nm and at least 100 h autonomous operation | VDR log plus AIS track |
+| X3.2 | Encounter events | At least 10 live COLREGs encounters with target vessels | ASDR encounter registry |
+| X3.3 | No safety incidents | Zero MRC activations attributable to TDL defect | Incident registry (empty) |
+| X3.4 | KPI replay | All Section 4 KPIs within 2 times threshold when replayed from sea trial logs | Post-processed replay report |
 
 ---
 
-## §8 风险与缓解
+## 4. End-to-End KPI Matrix
 
-| ID | 风险 | 概率 | 影响 | 缓解 | 触发阈值 |
-|---|---|---|---|---|---|
-| R-VV-001 | V&V FTE 延迟到岗（6/1 才到）| **高**（R0.2 已识别）| D1.5/D1.6 推 1 周；DEMO-1 拆简版 6/15 + 完整版 6/22 | 架构师 + PM 先行完成 D1.5 文档主体；DEMO-1 文档类交付（PDF）不依赖 FTE | FTE 未在 5/31 前到岗 |
-| R-VV-002 | ChAIS 商业 AIS 数据授权未获 | 中 | D1.3b.2 场景真实性降级 | **已决策**：Phase 1–3 用 Kystverket + NOAA MarineCadastre 开放数据（SIL decisions §7.3）；无需额外授权 | Phase 1 末 AIS pipeline 评估失败 |
-| R-VV-003 | HIL 硬件下单延迟（7/13 DDL）| 中 | D4.1/D4.2 推迟；Phase 4 Gate 延后 | 7/13 前确认采购单；备选 DNV 模拟器租用 | 7/1 无确认函 |
-| R-VV-004 | HAZID RUN-001 8/19 deadline miss | 中 | [TBD-HAZID-SFF-001] / [TBD-HAZID-MRC-001] 无法回填；Phase 3 Gate E3.6/E3.7 空缺 | 5/13 第①次会议已安排；CCS 持续介入；[TBD-HAZID-*] 参数 stub 保留到 8/31（架构 §6 设计 DoD）| 8/1 前未产出中间报告 |
-| R-VV-005 | maritime-schema CCS 接受度未确认 | 低-中 | evidence container 需重做导出器 | D1.8（6/15）早期发函 CCS；退路见 SIL decisions §5.5 推翻信号 | CCS 6/15 回函否定 |
-| R-VV-006 | dds-fmu 实测 latency > 10ms | 中 | Phase 2 Gate E2.9/E2.11 不达标；M7 KPI 威胁 | 触发推翻信号（SIL decisions §2.5）：退回纯 ROS2 native + maritime-schema/Arrow 序列化；不阻塞 DEMO-1 | D1.3c 实测 P95 > 10ms |
-| R-VV-007 | SIL 2 第三方机构接洽过晚 | **高**（甘特 §11.9.4 已标警告）| 11月 AIP 提交时证据不被 CCS 认可 | **建议立即（≤ 6月）** 接洽 TÜV/DNV/BV 确认 CCS 认可机构资质 | 7/31 前未确认机构 |
-| R-VV-008 | M5 IPOPT 求解 p99 > 500ms | 中 | Phase 2 Gate E2.7 不达标 | 先用线性化 Nomoto 一阶模型 + 预测步长从 18 → 12 降级；D1.3.1 + §3 KPI 已含实测计划 | D2.1/D2.2 实测 p99 > 500ms |
+The following KPIs are measured end-to-end from the first L2 waypoint input to the L4 command output. Measurements are taken under nominal conditions (open sea, Beaufort 0–1, full sensor availability) unless otherwise noted.
+
+| KPI | Target | Measurement Method | Phase Verified |
+|---|---|---|---|
+| AvoidancePlan P95 latency | Less than or equal to 1.0 s | colcon test timing wrapper on M4 to M5 to M8 chain | SIL Phase 1 |
+| ReactiveOverrideCmd P95 | Less than or equal to 200 ms | colcon test timing wrapper on M7 override path | SIL Phase 1 |
+| Mid-MPC solve time | Under 500 ms | M5 solver diagnostics (OSQP / ECOS callback) | SIL Phase 2 |
+| BC-MPC solve time | Under 150 ms | M5 solver diagnostics (BC horizon) | SIL Phase 2 |
+| M7 safety check | Under 10 ms | M7 standalone benchmark (Python stub to C++ target) | SIL Phase 1 |
+| M4 arbitration cycle | Under 100 ms | M4 IvP diagnostics (objective function evaluation plus winner selection) | SIL Phase 2 |
+
+**Measurement protocol:**
+
+1. Each KPI is sampled over 1000 consecutive decision cycles.
+2. P95 and P99 are computed from the empirical CDF.
+3. Outliers beyond P99 are logged as anomalies and reviewed by V&V.
+4. If any KPI exceeds its target, the responsible module's D-task is reopened for performance regression analysis.
 
 ---
 
-## §9 Markdown → PDF 转换（DEMO-1 现场打印）
+## 5. Test Coverage Dimensions
+
+### 5.1 Functional Coverage
+
+| Dimension | Granularity | Phase 1 Target | Phase 2 Target | Phase 3 Target |
+|---|---|---|---|---|
+| Module core scenarios | 8 modules times 5 core scenarios each | 40 scenarios | 40 scenarios | 40 scenarios |
+| ODD zone variants | 4 zones (open sea, coastal TSS, port approach, offshore wind farm) | 2 zones | 4 zones | 4 zones |
+| Functional total | 8 times 5 times zones | 80 runs | 160 runs | 160 runs |
+
+### 5.2 Performance Coverage
+
+- Latency KPIs (Section 4) measured under varying load: 1, 5, 10, 20 concurrent targets.
+- Memory footprint: RSS monitored every 10 s during 1 h continuous run.
+- CPU utilization: per-core load on target hardware (HIL) or host (SIL).
+
+### 5.3 Failure Response Coverage
+
+M7 Safety Supervisor enforces 6 hard constraints. Each constraint is tested against 10 failure scenarios:
+
+| Hard Constraint | Failure Scenarios (examples) |
+|---|---|
+| HC-1: CPA at least min safe distance | Sensor dropout, target ghost, speed estimate error |
+| HC-2: No ODD violation | ENC mismatch, GPS spoofing, weather threshold breach |
+| HC-3: MRC trigger within TMR | Comms loss to shore, M1 deadlock, DDS partition fault |
+| HC-4: COLREGs rule never broken | Rule ambiguity, multi-target conflict, crossing plus overtaking |
+| HC-5: Speed limit respected | Engine fault, current overspeed, waypoint overshoot |
+| HC-6: M8 transparency never silent | M8 crash, logger disk full, DDS topic overflow |
+
+Total failure response test cases: 6 times 10 = 60 cases.
+
+### 5.4 COLREGs Compliance Coverage
+
+The COLREGs compliance matrix is defined as:
+
+- 11 rules (Rule 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 19)
+- 4 ODD zones
+- 5 disturbance levels (Beaufort 0–1, 2–3, 4–5, 6–7, sensor degraded)
+- 5 PRNG seeds per cell
+
+Total cells: 11 times 4 times 5 times 5 = **1100 cells**.
+
+Phase 1 lights at least 10 cells (baseline). Phase 2 lights at least 200 cells. Phase 3 lights at least 1000 cells (full matrix minus contingency cells reserved for edge cases).
+
+### 5.5 Scenario Distribution Summary
+
+| Phase | Scenario Count | Source | Coverage Focus |
+|---|---|---|---|
+| Phase 1 (DEMO-1) | 50 | Imazu-22 plus synthetic baseline | Infrastructure validation, schema maturity |
+| Phase 2 (DEMO-2) | 200 | Expanded Imazu variants plus COLREGs matrix | Decision quality, M4/M5 maturity |
+| Phase 3 (DEMO-3) | 1000+ | Full 1100-cell matrix plus 100+ stress cases | SIL 2 evidence, SOTIF completeness |
+| Phase 4 (HIL) | 200 replayed from SIL | Deterministic subset of Phase 3 | Real-time confirmation |
+| Phase 4 (Sea Trial) | 10+ live encounters | Unscripted maritime traffic | Environmental validation |
+
+---
+
+## 6. SIL Latency Budget
+
+The SIL toolchain introduces synthetic latency that must be bounded and compensated so that SIL results remain valid predictors of HIL and sea trial behavior.
+
+### 6.1 dds-fmu Bridge Latency
+
+| Metric | Budget | Measurement Point |
+|---|---|---|
+| P95 latency | Under or equal to 10 ms | ROS2 topic timestamp to FMU input port ready |
+| P99 latency | Under or equal to 15 ms | Same as above |
+| Max jitter | Under or equal to 5 ms | Absolute deviation from mean per 1 s window |
+
+If the dds-fmu bridge exceeds P99 15 ms, the V&V Engineer shall:
+
+1. Increase the DDS QoS reliability buffer depth.
+2. Enable jitter buffering in the FMI co-simulation master.
+3. If steps 1 and 2 do not restore the budget, escalate to the Safety Engineer for a latency budget revision.
+
+### 6.2 M7 Native ROS2 Boundary
+
+M7 Safety Supervisor is strictly ROS2 native. It does **not** cross the FMI boundary. This eliminates dds-fmu latency from the safety-critical path and guarantees that M7's VETO decision is always based on the freshest possible world model.
+
+### 6.3 Jitter Buffer Compensation
+
+The SIL framework implements a jitter buffer on each FMU input port:
+
+- Buffer depth: 3 samples (configurable per scenario).
+- Timeout: 2 times mean measured jitter; if exceeded, the simulation step is marked DEGRADED and logged.
+- Scenarios with more than 1% DEGRADED steps are excluded from pass-rate statistics until the latency root cause is resolved.
+
+---
+
+## 7. RL Artefact Rebound Path
+
+Phase 4 includes reinforcement learning adversarial testing (D4.6, October–December 2026). To prevent a toolchain redesign in Phase 4, the RL artefact rebound path is specified now and locked for the project duration.
+
+### 7.1 Pipeline
+
+```
+RL training (Stable Baselines3 / Ray RLlib)
+    ↓ export
+ONNX model (policy network)
+    ↓ convert
+mlfmu wrapper (ONNX Runtime inside FMU 2.0)
+    ↓ package
+FMU 2.0 co-simulation unit
+    ↓ reinject
+libcosim SIL/HIL co-simulation master
+    ↓ observe
+TDL module under test (M4 or M5)
+```
+
+### 7.2 Interface Contract
+
+- The ONNX model exposes exactly one input tensor (observation vector) and one output tensor (action vector).
+- The mlfmu wrapper maps the action vector to a ROS2 message via the existing l3_msgs IDL (v1.1.2 Section 15.1).
+- The FMU step size is 100 ms (10 Hz), matching the M4 arbitration cycle.
+- The RL policy does not train during SIL/HIL execution. It is a frozen inference graph.
+
+### 7.3 Version Lock
+
+| Component | Locked Version | License | Rationale |
+|---|---|---|---|
+| ONNX | 1.16+ | Apache-2.0 | Standard export format from PyTorch and TensorFlow |
+| ONNX Runtime | 1.18+ | MIT | Jetson-compatible inference engine |
+| mlfmu | 0.3.x | BSD-3-Clause | DNV-validated ONNX-to-FMU bridge |
+| libcosim | 0.10.x | MPL-2.0 | OSP co-simulation master |
+
+No substitution of these components is permitted without V&V review and a regression test of the full rebound pipeline.
+
+---
+
+## 8. DNV Toolchain Entry Conditions
+
+The SIL/HIL toolchain is subject to DNV-RP-0513 (Software in Certification) and DNV-RP-0671 (Model-Based Verification). The following entry conditions apply before the toolchain is accepted for certification evidence generation.
+
+### 8.1 Version Locking
+
+| Tool / Library | Minimum Version | License | Verification Action |
+|---|---|---|---|
+| maritime-schema | 0.2.x | Apache-2.0 | Schema validation against v1.0 scenario corpus |
+| libcosim | 0.10.x | MPL-2.0 | Deterministic replay test (same input produces same output) |
+| farn | 0.9.x | MIT | Batch scenario runner regression test |
+| ROS2 Jazzy | 2024.04 | Apache-2.0 | Colcon build plus test on Ubuntu 22.04 |
+| FMI standard | 2.0 | — | FMU compliance checker (FMIChecker) |
+
+### 8.2 License Verification
+
+All third-party tools used in the certification evidence pipeline carry permissive open-source licenses (Apache-2.0, MIT, MPL-2.0, BSD-3-Clause). No GPL or proprietary closed-source tools are used in the evidence generation path. License compliance is verified by:
+
+1. `tools/ci/check-licenses.py` scans `pyproject.toml`, `package.xml`, and `CMakeLists.txt` for non-permissive licenses.
+2. V&V Engineer reviews the scan report before each phase gate.
+3. Any new dependency added after Phase 1 must pass the license scan before it is used in CI.
+
+### 8.3 Self-Qualification Evidence (RP-0513 Section 4)
+
+DNV-RP-0513 Section 4 requires the project to collect evidence that the toolchain itself is fit for purpose. The following evidence is maintained:
+
+| Evidence Item | Collector | Storage Location | Review Frequency |
+|---|---|---|---|
+| Tool version manifest | CI pipeline | test-results/tool_manifest.json | Every build |
+| Deterministic replay log | V&V Engineer | test-results/replay_log/ | Every SIL batch |
+| FMU compliance report | fmucheck | test-results/fmu_compliance/ | Every FMU release |
+| Schema validation report | schema_validate.py | test-results/schema_validation/ | Every scenario commit |
+| License scan report | check-licenses.py | test-results/license_scan/ | Every dependency change |
+
+---
+
+## 9. Certification Evidence Tracking
+
+### 9.1 Evidence Categories
+
+The CCS i-Ship (Nx, Ri/Ai) application requires evidence across 9 categories. Each category is mapped to D-tasks in the v3.0 development plan.
+
+| CCS Category | Description | Mapped D-Tasks | Primary Artifact |
+|---|---|---|---|
+| C1 — Functional Design | Architecture, interfaces, ODD | D0, D1.1–D1.4, D2.1–D2.4 | Architecture report v1.1.2, IDL specs |
+| C2 — Software Lifecycle | SDLC, CM, version control | D1.5, D1.8, D3.9 | Git history, CI logs, change records |
+| C3 — Verification Plan | V&V strategy, gates, KPIs | D1.5 (this document) | V&V Plan v0.1–v1.0 |
+| C4 — SIL Evidence | Scenario pass rates, coverage, KPIs | D1.6, D1.7, D2.5, D3.6 | test-results/ JSON suite |
+| C5 — HIL Evidence | Real-time determinism, hardware tests | D4.1, D4.2 | HIL exit report |
+| C6 — Safety Analysis | HARA, FMEDA, SOTIF | D2.7, D3.3a, D3.3b | HARA v0.1, FMEDA tables |
+| C7 — Human Factors | ToR, HMI, ROC training | D2.6, D3.5', D4.5' | HF reports, Figma, training records |
+| C8 — Sea Trial | Non-certification trial evidence | D4.5 | Trial report, AIS/VDR logs |
+| C9 — Cybersecurity | IACS UR E26/E27, DDS-Security | D3.9 | RFC-007, security audit |
+
+### 9.2 Traceability
+
+Every test scenario carries a `cert_evidence_tags` field (array of strings) that links the scenario to one or more CCS categories. The batch runner aggregates these tags into the coverage cube and the final exit report. This ensures that every passing scenario is automatically traced to the certification evidence framework without manual bookkeeping.
+
+### 9.3 Evidence Maturity
+
+| Phase | Evidence Maturity | Action if Gaps Found |
+|---|---|---|
+| Phase 1 | C1 through C3 complete, C4 stub (50 scenarios) | Reopen D1.6/D1.7 if coverage under 10% of target |
+| Phase 2 | C4 expanded (200 scenarios), C6 stub (HARA v0.1) | Escalate to Safety Engineer if HARA blocks FMEDA |
+| Phase 3 | C4 complete (1000+ scenarios), C6 complete (FMEDA), C7 complete | Independent DNV review if pass rate under 95% |
+| Phase 4 | C5, C8, C9 complete | CCS preliminary review before sea trial |
+
+---
+
+## 10. DEMO-1 V&V Scope
+
+DEMO-1 (15 June 2026) is an internal skeleton-live demonstration. Its V&V scope is strictly limited to **infrastructure verification**. Decision-quality verification is explicitly out of scope for DEMO-1 and is the focus of DEMO-2 (31 July 2026).
+
+### 10.1 In Scope for DEMO-1
+
+| Item | Verification Activity | Success Criterion |
+|---|---|---|
+| Build system | colcon build on CI and local dev | Zero errors, under 10 min wall time |
+| CI pipeline | All stage-1 and stage-2 jobs green | 100% pass rate |
+| Scenario schema | Schema v1.0 validates 100% of committed scenarios | schema_validate.py exits 0 |
+| Mock publishers | All cross-layer mock nodes publish at specified frequency | Plus or minus 5% rate tolerance |
+| E2E data flow | M1 to M2 to M4 to M5 to M8 message chain completes end-to-end | Message received at M8 within 5 s of M1 trigger |
+| Gate automation | check_entry_gate.py --phase 1 exits 0 | All automated gates pass |
+| Watchdog stub | M7 Python watchdog passes white-box tests | At least 1 test with m7 in nodeid passes |
+| Imazu-22 baseline | 22 benchmark scenarios run and aggregate | CPA at least 200 m ratio at least 95%, COLREG classification at least 95% |
+
+### 10.2 Out of Scope for DEMO-1
+
+The following are verified in later phases and are **not** required for DEMO-1 gate clearance:
+
+- M3 Mission Manager route optimization quality.
+- M4 Behavior Arbiter IvP multi-objective trade-off correctness.
+- M5 Tactical Planner MPC trajectory optimality.
+- M6 COLREGs Reasoner rule interpretation accuracy beyond geometric classification.
+- M7 Safety Supervisor hard-constraint enforcement under fault injection.
+- M8 HMI/Transparency Bridge SAT-1/2/3 compliance.
+- Real-time determinism (HIL scope).
+- Environmental robustness (sea trial scope).
+
+### 10.3 DEMO-1 Gate Checklist
+
+```
+□ E1.1  D1.x tasks 100% closed
+□ E1.2  colcon build clean
+□ E1.3  CI pipeline green
+□ E1.4  Scenario schema validated
+□ E1.5  Mock publisher frequencies verified
+□ E1.6  E2E data flow under 5 s
+□ E1.7  V&V Plan v0.1 committed
+□ E1.8  M7 watchdog at least 1 PASS
+□ X1.1  50 baseline scenarios at least 95% pass
+□ X1.4  Coverage cube at least 10 cells
+□ X1.5  Imazu-22 22/22, CPA at least 95%, COLREG at least 95%
+```
+
+Run the automated checks:
 
 ```bash
-# 前提：安装 pandoc + XeLaTeX + CJK 字体
-brew install pandoc
-brew install --cask mactex          # 或 basictex（较小）
-# CJK 字体（macOS 系统自带 PingFang，也可用 Noto）
-
-# 转换命令（在仓库根目录执行）
-pandoc "docs/Design/V&V_Plan/00-vv-strategy-v0.1.md" \
-  --pdf-engine=xelatex \
-  -V mainfont="PingFang SC" \
-  -V monofont="Menlo" \
-  -V geometry:"margin=2cm,a4paper" \
-  -V fontsize=10pt \
-  --toc --toc-depth=3 \
-  -o "docs/Design/V&V_Plan/00-vv-strategy-v0.1.pdf"
-
-# 验证
-open "docs/Design/V&V_Plan/00-vv-strategy-v0.1.pdf"
+python tools/check_entry_gate.py --phase 1 --artifacts-dir test-results/
 ```
 
-> **DEMO-1 打印清单**：`00-vv-strategy-v0.1.pdf`（本文档）+ `docs/Design/V&V_Plan/README.md`（目录索引）。
+If the script prints `Phase 1 gate CLEARED`, DEMO-1 V&V scope is satisfied.
 
 ---
 
-## 参考文献
+## Document Approval
 
-> 以下 [Rx] 编号与架构报告 v1.1.2 参考文献编号对齐。[Ex] 来源于 SIL decisions doc。
-
-| 编号 | 文献 |
-|---|---|
-| [R4] | Jackson, S. (2021). *Certified Control: Safety-Critical Software Handbook*（Doer-Checker SLOC 比例工业先例）|
-| [R25] | DNV-RP-0513 (2024 ed.). *Assurance of simulation models* |
-| [R27] | dnv-opensource/maritime-schema v0.2.x（MIT）|
-| [R30] | DNV-RP-0671 (2024). *Assurance of AI-enabled systems* |
-| [R32] | Hassani, V. et al. (2022). *Automatic traffic scenarios generation for autonomous ships collision-avoidance system testing*. Ocean Eng. DOI:10.1016/j.oceaneng.2022.111864 |
-| [R33] | Hagen, T. (2022). *Risk-based Traffic Rules Compliant Collision Avoidance for Autonomous Ships*. NTNU MS thesis |
-| [R34] | Woerner, K. (2019). *COLREGS-Compliant Autonomous Surface Vessel Navigation*. MIT PhD thesis |
-| [R38] | Sawada, R., Sato, K., Majima, T. (2021). *Automatic ship collision avoidance using deep reinforcement learning with LSTM in continuous action spaces*. J. Mar. Sci. Technol. 26（引 Imazu 1987 22 canonical encounters）|
-| [R40] | Veitch, E. (2024). TMR ≥ 60s 接管时窗基线（架构 §3.1）|
-| [E1] | *SIL Framework Architecture for L3 TDL COLAV — CCS-Targeted Engineering Recommendation*（深度研究合成报告，2026-05-09）|
-| [E2] | *SIL Simulation Architecture for Maritime Autonomous COLAV Targeting CCS Certification*（同期独立报告，2026-05-09）|
-| [E3] | *Technical Evaluation of DNV-OSP Hybrid SIL Toolchains for CCS i-Ship N Certification*（NLM Deep Research，2026-05-09）|
-| [E7] | farn v0.4.2 GitHub Releases（2025-late）|
-| [E8] | maritime-schema + ship-traffic-generator 2025-02 仓库合并，PyPI v0.2.x |
-| [E14] | cerberus Python（cerberus.readthedocs.io）|
-| [E15] | cerberus-cpp（github.com/dokempf/cerberus-cpp）|
-| [E33] | Puppeteer headless 浏览器 CI batch GIF/PNG render |
+| Role | Name | Signature | Date |
+|---|---|---|---|
+| V&V Engineer | | | |
+| Safety Engineer | | | |
+| Project Manager | | | |
+| DNV Validation Lead | | | |
 
 ---
 
-*文档版本 v0.1。D1.5 产出，5/31 commit + 向 CCS 发函。V&V 工程师 FTE 到岗后负责 D1.6/D1.7 迭代；本文档 v0.2 在 D2.8（7/31）与架构 v1.1.3 stub 同步更新。*
+*End of Document*
