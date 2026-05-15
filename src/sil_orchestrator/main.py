@@ -18,6 +18,13 @@ from sil_orchestrator.export_routes import router as export_router
 from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState  # noqa: F401
 
+import rclpy
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+import threading
+
+rclpy.init(args=None)
+
 app = FastAPI(title="SIL Orchestrator", version="0.1.0")
 
 app.add_middleware(
@@ -27,7 +34,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-bridge = LifecycleBridge()
+_cb_group = ReentrantCallbackGroup()
+bridge = LifecycleBridge(callback_group=_cb_group)
+
+def _spin_bridge():
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(bridge)
+    executor.spin()
+
+threading.Thread(target=_spin_bridge, daemon=True).start()
+
 _store = ScenarioStore()
 _last_run_id: str | None = None
 

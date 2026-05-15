@@ -1,24 +1,107 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+import { Ros, Topic } from '@tier4/roslibjs-foxglove';
 import { useTelemetryStore } from '../store';
-import type { ASDREvent, LifecycleStatus, SensorState, CommLinkState, FaultState, ControlCmdState } from '../store/telemetryStore';
 
-// Reconnect with exponential back-off (max 30 s) so DEMO-1 survives a
-// foxglove_bridge restart without requiring a page refresh.
+// Topic subscription map: topic → handler
+const TOPIC_MAP: Array<{
+  topic: string;
+  messageType: string;
+  handler: (store: ReturnType<typeof useTelemetryStore.getState>, msg: any) => void;
+}> = [
+  {
+    topic: '/sil/own_ship_state',
+    messageType: 'sil_msgs/OwnShipState',
+    handler: (s, msg) => s.updateOwnShip(msg),
+  },
+  {
+    topic: '/sil/target_vessel_state',
+    messageType: 'sil_msgs/TargetVesselState',
+    handler: (s, msg) => s.updateTargets(Array.isArray(msg) ? msg : [msg]),
+  },
+  {
+    topic: '/sil/environment',
+    messageType: 'sil_msgs/EnvironmentState',
+    handler: (s, msg) => s.updateEnvironment(msg),
+  },
+  {
+    topic: '/sil/module_pulse',
+    messageType: 'sil_msgs/ModulePulse',
+    handler: (s, msg) => s.updateModulePulses(Array.isArray(msg) ? msg : [msg]),
+  },
+  {
+    topic: '/sil/asdr_event',
+    messageType: 'sil_msgs/ASDREvent',
+    handler: (s, msg) => s.appendAsdrEvent(msg),
+  },
+  {
+    topic: '/sil/lifecycle_status',
+    messageType: 'sil_msgs/LifecycleStatus',
+    handler: (s, msg) => s.updateLifecycleStatus(msg),
+  },
+  {
+    topic: '/sil/scoring',
+    messageType: 'sil_msgs/ScoringRow',
+    handler: (s, msg) => s.updateScoringRow(msg),
+  },
+  {
+    topic: '/sil/sensor_status',
+    messageType: 'sil_msgs/ModulePulse',
+    handler: (s, msg) => s.updateSensors(Array.isArray(msg) ? msg : [msg]),
+  },
+  {
+    topic: '/sil/commlink_status',
+    messageType: 'sil_msgs/ModulePulse',
+    handler: (s, msg) => s.updateCommLinks(Array.isArray(msg) ? msg : [msg]),
+  },
+  {
+    topic: '/sil/fault_status',
+    messageType: 'sil_msgs/FaultEvent',
+    handler: (s, msg) => s.updateFaultStatus(Array.isArray(msg) ? msg : [msg]),
+  },
+  {
+    topic: '/sil/control_cmd',
+    messageType: 'ship_sim_interfaces/ActuatorCmd',
+    handler: (s, msg) => s.updateControlCmd(msg),
+  },
+];
+
+// Reconnect config
 const BASE_DELAY_MS = 1_000;
-const MAX_DELAY_MS  = 30_000;
+const MAX_DELAY_MS = 30_000;
 
 export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
-  const wsRef     = useRef<WebSocket | null>(null);
-  const delayRef  = useRef(BASE_DELAY_MS);
-  const deadRef   = useRef(false); // set true on component unmount
+  const rosRef = useRef<Ros | null>(null);
+  const topicsRef = useRef<Array<{ unsubscribe: () => void }>>([]);
+  const delayRef = useRef(BASE_DELAY_MS);
+  const deadRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const updateOwnShip          = useTelemetryStore((s) => s.updateOwnShip);
-  const updateTargets          = useTelemetryStore((s) => s.updateTargets);
-  const updateEnvironment      = useTelemetryStore((s) => s.updateEnvironment);
-  const updateModulePulses     = useTelemetryStore((s) => s.updateModulePulses);
-  const appendAsdrEvent        = useTelemetryStore((s) => s.appendAsdrEvent);
-  const updateLifecycleStatus  = useTelemetryStore((s) => s.updateLifecycleStatus);
-  const setWsConnected         = useTelemetryStore((s) => s.setWsConnected);
+  const setWsConnected = useTelemetryStore((s) => s.setWsConnected);
+
+  const subscribeAll = useCallback((ros: Ros) => {
+    const subs: Array<{ unsubscribe: () => void }> = [];
+
+    for (const { topic, messageType, handler } of TOPIC_MAP) {
+      const rosTopic = new Topic({
+        ros,
+        name: topic,
+        messageType,
+      });
+
+      rosTopic.subscribe((msg: unknown) => {
+        const store = useTelemetryStore.getState();
+        try {
+          handler(store, msg);
+        } catch (err) {
+          console.warn(`[Foxglove] Error handling ${topic}:`, err);
+        }
+      });
+
+      subs.push({ unsubscribe: () => rosTopic.unsubscribe() });
+    }
+
+    topicsRef.current = subs;
+  }, []);
 
   useEffect(() => {
     deadRef.current = false;
@@ -26,99 +109,52 @@ export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
     function connect() {
       if (deadRef.current) return;
       console.log('[Foxglove] connecting to', wsUrl);
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
 
-      ws.onopen = () => {
-        console.log('[Foxglove] WS connected');
-        delayRef.current = BASE_DELAY_MS; // reset back-off on success
+      const ros = new Ros({ url: wsUrl });
+      rosRef.current = ros;
+
+      ros.on('connection', () => {
+        console.log('[Foxglove] connected');
+        delayRef.current = BASE_DELAY_MS;
         setWsConnected(true);
-      };
+      });
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data as string) as {
-            topic: string;
-            payload: unknown;
-          };
-          switch (msg.topic) {
-            case '/sil/own_ship_state':
-              updateOwnShip(msg.payload as any);
-              break;
-            case '/sil/target_vessel_state':
-              updateTargets(
-                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
-              );
-              break;
-            case '/sil/environment_state':
-              updateEnvironment(msg.payload as any);
-              break;
-            case '/sil/module_pulse':
-              updateModulePulses(
-                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
-              );
-              break;
-            case '/sil/asdr_event':
-              appendAsdrEvent(msg.payload as ASDREvent);
-              break;
-            case '/sil/lifecycle_status':
-              updateLifecycleStatus(msg.payload as LifecycleStatus);
-              break;
-            case '/sil/scoring_row':
-              useTelemetryStore.getState().updateScoringRow(msg.payload as any);
-              break;
-            case '/sil/sensor_status':
-              useTelemetryStore.getState().updateSensors(
-                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
-              );
-              break;
-            case '/sil/commlink_status':
-              useTelemetryStore.getState().updateCommLinks(
-                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
-              );
-              break;
-            case '/sil/fault_status':
-              useTelemetryStore.getState().updateFaultStatus(
-                Array.isArray(msg.payload) ? msg.payload : [msg.payload as any],
-              );
-              break;
-            case '/sil/control_cmd':
-              useTelemetryStore.getState().updateControlCmd(msg.payload as any);
-              break;
-            case '/sil/preflight_log':
-              useTelemetryStore.getState().appendPreflightLog(msg.payload as any);
-              break;
-          }
-        } catch {
-          // Silently ignore malformed frames
-        }
-      };
-
-      ws.onerror = () => {
-        console.warn('[Foxglove] WS error');
-      };
-
-      ws.onclose = () => {
+      ros.on('close', () => {
         setWsConnected(false);
         if (deadRef.current) return;
-        console.log(`[Foxglove] WS closed — reconnecting in ${delayRef.current}ms`);
-        setTimeout(() => {
+        console.log(`[Foxglove] closed — reconnecting in ${delayRef.current}ms`);
+        reconnectTimerRef.current = setTimeout(() => {
           delayRef.current = Math.min(delayRef.current * 2, MAX_DELAY_MS);
           connect();
         }, delayRef.current);
-      };
+      });
+
+      ros.on('error', (err: Error) => {
+        console.warn('[Foxglove] error:', err.message);
+      });
+
+      // Subscribe to all topics once connected
+      subscribeAll(ros);
     }
 
     connect();
 
     return () => {
       deadRef.current = true;
-      wsRef.current?.close();
-      wsRef.current = null;
+      // Cleanup all topic subscriptions
+      for (const sub of topicsRef.current) {
+        try { sub.unsubscribe(); } catch {}
+      }
+      topicsRef.current = [];
+      // Close ROS connection
+      try { rosRef.current?.close(); } catch {}
+      rosRef.current = null;
+      // Clear reconnect timer
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       setWsConnected(false);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsUrl]);
 
-  return wsRef;
+  return rosRef;
 }

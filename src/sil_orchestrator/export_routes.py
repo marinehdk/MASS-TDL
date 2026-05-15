@@ -1,11 +1,10 @@
 import json
-import shutil
-import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from sil_orchestrator.config import RUN_DIR, EXPORT_DIR
+from sil_orchestrator.marzip_builder import assemble_marzip
 
 router = APIRouter(prefix="/api/v1/export")
 
@@ -14,34 +13,12 @@ _export_status: dict[str, dict] = {}
 
 
 def _build_marzip(run_id: str) -> str:
-    """Background task: assemble Marzip evidence pack."""
+    """Background task: assemble complete 7-piece Marzip evidence pack."""
     run_path = RUN_DIR / run_id
-    export_path = EXPORT_DIR / f"{run_id}_evidence.marzip"
-    export_path.parent.mkdir(parents=True, exist_ok=True)
+    if not run_path.exists():
+        raise FileNotFoundError(f"Run directory not found: {run_path}")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-
-        # Write manifest
-        manifest = {
-            "run_id": run_id,
-            "toolchain": "sil_orchestrator v0.1.0",
-            "format": "marzip-1.0",
-        }
-        (tmp_dir / "manifest.yaml").write_text(json.dumps(manifest, indent=2))
-
-        # Copy scenario + scoring artefacts if they exist
-        for fname in ("scenario.yaml", "scenario.sha256", "scoring.json"):
-            src = run_path / fname
-            if src.exists():
-                shutil.copy(src, tmp_dir / fname)
-
-        # Build zip then rename to .marzip (DNV evidence container suffix)
-        zip_base = str(export_path.with_suffix(""))
-        shutil.make_archive(zip_base, "zip", tmp_dir)
-        zip_path = Path(zip_base + ".zip")
-        if zip_path.exists():
-            zip_path.rename(export_path)
+    export_path = assemble_marzip(run_id, run_dir_parent=RUN_DIR, export_dir=EXPORT_DIR)
 
     _export_status[run_id] = {
         "status": "complete",

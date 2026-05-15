@@ -32,10 +32,29 @@ services:
   foxglove-bridge:
     image: mass-l3/ci:humble-ubuntu22.04
     command: >
-      bash -c "source /opt/ros/humble/setup.bash && ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765"
+      bash -c "source /opt/ros/humble/setup.bash &&
+               source /workspace/install/setup.bash &&
+               ros2 run foxglove_bridge foxglove_bridge
+               --ros-args
+               -p port:=8765
+               -p num_threads:=4
+               -p send_buffer_limit:=10000000
+               -p use_sim_time:=true
+               -p topic_whitelist:='[\"/sim_clock\",
+                                     \"/sil/own_ship_state\",
+                                     \"/sil/target_vessel_state\",
+                                     \"/sil/radar_meas\",
+                                     \"/sil/ais_msg\",
+                                     \"/sil/environment\",
+                                     \"/sil/tracked_targets\",
+                                     \"/sil/lifecycle_status\",
+                                     \"/sil/module_pulse\",
+                                     \"/sil/scoring\",
+                                     \"/sil/asdr_event\"]'"
     environment:
       - ROS_DOMAIN_ID=0
     network_mode: host
+    restart: unless-stopped
 
   web:
     build:

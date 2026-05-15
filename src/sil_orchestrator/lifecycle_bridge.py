@@ -4,6 +4,11 @@ Phase 1: mock implementation (no ROS2 node running yet).
 Phase 2 (Week 3): replace with actual rclpy service clients.
 """
 
+import asyncio
+import rclpy
+from rclpy.node import Node
+from lifecycle_msgs.srv import ChangeState, GetState
+from lifecycle_msgs.msg import Transition
 from dataclasses import dataclass
 from enum import Enum
 
@@ -22,12 +27,17 @@ class LifecycleResult:
     error: str = ""
 
 
-class LifecycleBridge:
-    """Thin wrapper over rclpy lifecycle service calls."""
+class LifecycleBridge(Node):
+    """Real rclpy wrapper over ROS2 lifecycle service calls."""
 
-    def __init__(self) -> None:
+    def __init__(self, callback_group=None) -> None:
+        super().__init__('sil_orchestrator_lifecycle_bridge')
         self._state = LifecycleState.UNCONFIGURED
         self._scenario_id: str | None = None
+        
+        # ROS 2 service clients
+        self.change_state_client = self.create_client(ChangeState, '/scenario_lifecycle_mgr/change_state', callback_group=callback_group)
+        self.get_state_client = self.create_client(GetState, '/scenario_lifecycle_mgr/get_state', callback_group=callback_group)
 
     @property
     def current_state(self) -> LifecycleState:
@@ -37,40 +47,49 @@ class LifecycleBridge:
     def scenario_id(self) -> str | None:
         return self._scenario_id
 
+    async def _change_state(self, transition_id: int) -> LifecycleResult:
+        if not self.change_state_client.wait_for_service(timeout_sec=2.0):
+            return LifecycleResult(success=False, error="Lifecycle service /scenario_lifecycle_mgr/change_state not available")
+        
+        req = ChangeState.Request()
+        req.transition.id = transition_id
+        
+        try:
+            # We use an executor or asyncio wrapper to await the ROS 2 future
+            future = self.change_state_client.call_async(req)
+            while not future.done():
+                await asyncio.sleep(0.1)
+            response = future.result()
+            if response.success:
+                return LifecycleResult(success=True)
+            else:
+                return LifecycleResult(success=False, error="Transition rejected by node")
+        except Exception as e:
+            return LifecycleResult(success=False, error=str(e))
+
     async def configure(self, scenario_id: str) -> LifecycleResult:
-        if self._state != LifecycleState.UNCONFIGURED:
-            return LifecycleResult(
-                success=False,
-                error=f"Cannot configure from {self._state.value}",
-            )
-        self._scenario_id = scenario_id
-        self._state = LifecycleState.INACTIVE
-        return LifecycleResult(success=True)
+        res = await self._change_state(Transition.TRANSITION_CONFIGURE)
+        if res.success:
+            self._scenario_id = scenario_id
+            self._state = LifecycleState.INACTIVE
+        return res
 
     async def activate(self) -> LifecycleResult:
-        if self._state != LifecycleState.INACTIVE:
-            return LifecycleResult(
-                success=False,
-                error=f"Cannot activate from {self._state.value}",
-            )
-        self._state = LifecycleState.ACTIVE
-        return LifecycleResult(success=True)
+        res = await self._change_state(Transition.TRANSITION_ACTIVATE)
+        if res.success:
+            self._state = LifecycleState.ACTIVE
+        return res
 
     async def deactivate(self) -> LifecycleResult:
-        if self._state != LifecycleState.ACTIVE:
-            return LifecycleResult(
-                success=False,
-                error=f"Cannot deactivate from {self._state.value}",
-            )
-        self._state = LifecycleState.INACTIVE
-        return LifecycleResult(success=True)
+        res = await self._change_state(Transition.TRANSITION_DEACTIVATE)
+        if res.success:
+            self._state = LifecycleState.INACTIVE
+        return res
 
     async def cleanup(self) -> LifecycleResult:
-        if self._state not in (LifecycleState.INACTIVE, LifecycleState.FINALIZED):
-            return LifecycleResult(
-                success=False,
-                error=f"Cannot cleanup from {self._state.value}",
-            )
-        self._state = LifecycleState.UNCONFIGURED
-        self._scenario_id = None
-        return LifecycleResult(success=True)
+        res = await self._change_state(Transition.TRANSITION_CLEANUP)
+        if res.success:
+            self._state = LifecycleState.UNCONFIGURED
+            self._scenario_id = None
+        return res
+
