@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>MASS L3 TDL · 融合战术终端</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* 航海夜间主题 Bridge Palette */
+            --bg-base: #070C13;
+            --bg-panel: #0B1320;
+            --bg-card: #101B2C;
+            --border-dim: #1B2C44;
+            --border-lit: #243C58;
+            
+            --text-main: #93B5C6;
+            --text-bright: #E2F1F8;
+            --text-dim: #54748C;
+            
+            --color-safe: #2EAB5B;
+            --color-warn: #F2A93B;
+            --color-danger: #E63946;
+            --color-info: #3BACD6;
+        }
+
+        body {
+            font-family: 'Saira Condensed', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-dim);
+            border-radius: 8px;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-lit);
+            border-radius: 4px;
+        }
+
+        /* 模块标签 */
+        .mod-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(59, 172, 214, 0.15);
+            color: var(--color-info);
+            border: 1px solid rgba(59, 172, 214, 0.3);
+        }
+
+        /* 雷达扫描与波纹 */
+        .radar-view {
+            background: radial-gradient(circle at 50% 70%, #101B2C 0%, #070C13 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .radar-grid {
+            position: absolute;
+            border: 1px dashed var(--border-lit);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            left: 50%;
+            top: 70%; /* 偏心显示 */
+        }
+
+        .scan-line {
+            position: absolute;
+            left: 50%; top: 70%;
+            width: 100%; height: 2px;
+            background: linear-gradient(90deg, rgba(59, 172, 214, 0) 0%, var(--color-info) 100%);
+            transform-origin: left center;
+            animation: radarScan 4s linear infinite;
+            z-index: 10;
+        }
+
+        @keyframes radarScan {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 呼吸灯 */
+        .pulse-danger { animation: pulseDanger 1.5s infinite; }
+        @keyframes pulseDanger {
+            0% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.6); }
+            70% { box-shadow: 0 0 0 8px rgba(230, 57, 70, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0); }
+        }
+
+        /* 进度条动画 */
+        .bar-fill { transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.5s; }
+        
+        /* 弹窗遮罩 */
+        .overlay {
+            background: rgba(7, 12, 19, 0.85);
+            backdrop-filter: blur(8px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-lit); border-radius: 2px; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col p-3 gap-3">
+
+    <!-- Header: M1 全局状态 -->
+    <header class="panel flex justify-between items-center p-3 shrink-0">
+        <div class="flex items-center gap-6">
+            <div>
+                <div class="text-[10px] text-text-dim tracking-widest mb-1 flex items-center gap-2">
+                    <span class="mod-tag">M1</span> SYSTEM MODE
+                </div>
+                <div class="flex items-center gap-2">
+                    <div id="badge-dot" class="w-3 h-3 rounded-full bg-[#2EAB5B] shadow-[0_0_8px_#2EAB5B]"></div>
+                    <span id="sys-mode-text" class="text-2xl font-bold text-[#E2F1F8] tracking-wider">D4 · FULL AUTO</span>
+                </div>
+            </div>
+            <div class="h-10 w-px bg-border-lit"></div>
+            <div class="flex gap-8">
+                <div>
+                    <div class="text-[10px] text-text-dim tracking-widest mb-1">ODD SCORE</div>
+                    <div id="odd-val" class="mono text-xl text-[#3BACD6]">0.96</div>
+                </div>
+                <div>
+                    <div class="text-[10px] text-text-dim tracking-widest mb-1">LATENCY (H-AXIS)</div>
+                    <div id="latency-val" class="mono text-xl text-[#2EAB5B]">42 ms</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="header-alert" class="hidden items-center gap-3 bg-[#E63946]/20 border border-[#E63946] px-4 py-1.5 rounded pulse-danger">
+            <span class="text-[#E63946] font-bold tracking-widest">⚠️ TAKEOVER REQUEST (TOR)</span>
+            <span id="header-tmr" class="mono font-bold text-xl text-white">60s</span>
+        </div>
+
+        <div class="text-right">
+            <div class="text-lg font-bold text-text-bright tracking-widest">45M FCB "SANGO-01"</div>
+            <div class="text-xs text-text-dim mono">TDL ARCHITECTURE v1.1.2</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 grid grid-cols-12 gap-3 min-h-0">
+        
+        <!-- 左侧：环境与系统基石 (M2 & M1) -->
+        <aside class="col-span-3 flex flex-col gap-3 overflow-y-auto">
+            <!-- M2 World Model -->
+            <div class="panel p-3 flex-1 flex flex-col">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="mod-tag">M2</span>
+                    <span class="font-bold tracking-widest text-sm text-text-bright">WORLD MODEL FUSION</span>
+                </div>
+                
+                <div class="card p-3 mb-3">
+                    <div class="text-xs text-text-dim mb-2 flex justify-between">
+                        <span>RADAR CONFIDENCE</span> <span id="conf-radar" class="mono text-text-bright">98%</span>
+                    </div>
+                    <div class="h-1.5 bg-bg-base rounded overflow-hidden">
+                        <div id="bar-radar" class="h-full bg-[#2EAB5B] bar-fill" style="width: 98%;"></div>
+                    </div>
+                </div>
+                
+                <div class="card p-3">
+                    <div class="text-xs text-text-dim mb-2 flex justify-between">
+                        <span>VISION CONFIDENCE</span> <span id="conf-vision" class="mono text-text-bright">92%</span>
+                    </div>
+                    <div class="h-1.5 bg-bg-base rounded overflow-hidden">
+                        <div id="bar-vision" class="h-full bg-[#2EAB5B] bar-fill" style="width: 92%;"></div>
+                    </div>
+                </div>
+
+                <div class="mt-auto pt-3 border-t border-border-dim">
+                    <div class="text-[10px] text-text-dim mb-1">FUSED TARGETS</div>
+                    <div id="target-count" class="mono text-2xl text-text-bright">00</div>
+                </div>
+            </div>
+
+            <!-- M1 ODD Matrix -->
+            <div class="panel p-3 flex-1 flex flex-col">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="mod-tag">M1</span>
+                    <span class="font-bold tracking-widest text-sm text-text-bright">ODD MATRIX</span>
+                </div>
+                <div class="flex flex-col gap-3">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1"><span class="text-text-dim">E-AXIS (Environment)</span> <span class="mono">0.98</span></div>
+                        <div class="h-1 bg-bg-base rounded"><div class="h-full bg-[#3BACD6] w-[98%]"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1"><span class="text-text-dim">T-AXIS (Technical)</span> <span class="mono">0.99</span></div>
+                        <div class="h-1 bg-bg-base rounded"><div class="h-full bg-[#3BACD6] w-[99%]"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1"><span class="text-text-dim">H-AXIS (Human/Comms)</span> <span id="val-h" class="mono text-[#2EAB5B]">0.98</span></div>
+                        <div class="h-1 bg-bg-base rounded"><div id="bar-h" class="h-full bg-[#2EAB5B] w-[98%] bar-fill"></div></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 中间：战术偏心雷达 (M5/M6) -->
+        <section class="col-span-6 panel radar-view border-border-lit rounded-lg shadow-2xl relative">
+            <!-- 比例尺和向上模式 -->
+            <div class="absolute top-3 left-3 z-20 flex gap-2">
+                <span class="card px-2 py-1 text-xs mono text-text-main border-border-dim">RANGE 3 NM</span>
+                <span class="card px-2 py-1 text-xs mono text-[#3BACD6] border-border-dim">HEAD-UP</span>
+            </div>
+
+            <!-- SVG 绘图区 -->
+            <svg class="w-full h-full absolute top-0 left-0 z-10 pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <!-- 偏心距 70% 处为本船 -->
+                
+                <!-- 原始L2航线 -->
+                <line x1="50" y1="70" x2="50" y2="0" stroke="#3A5677" stroke-width="0.3" stroke-dasharray="2,2"/>
+                
+                <!-- M5 平滑轨迹 -->
+                <path id="path-m5" d="M 50 70 L 50 0" stroke="#2EAB5B" stroke-width="0.8" fill="none" class="transition-all duration-1000"/>
+
+                <!-- 目标船 (初始隐藏) -->
+                <g id="svg-target" class="transition-all duration-1000" style="opacity: 0; transform: translate(75px, 20px);">
+                    <!-- APF 船舶领域 (非对称水滴形) -->
+                    <ellipse cx="0" cy="0" rx="15" ry="8" transform="rotate(-30) translate(-8, 0)" fill="url(#apf-grad)" />
+                    <!-- M2 波门 -->
+                    <circle cx="0" cy="0" r="5" stroke="#F2A93B" stroke-width="0.2" stroke-dasharray="1,1" fill="none"/>
+                    <!-- 目标本身 -->
+                    <polygon points="-1,1.5 0,-1.5 1,1.5" fill="#E63946" transform="rotate(-120)"/>
+                    <text x="2" y="-2" fill="#E63946" font-family="JetBrains Mono" font-size="2.5" font-weight="bold">TRK-042</text>
+                    <!-- 速度矢量线 -->
+                    <line x1="0" y1="0" x2="-8" y2="4.6" stroke="#E63946" stroke-width="0.3"/>
+                </g>
+
+                <defs>
+                    <radialGradient id="apf-grad">
+                        <stop offset="0%" stop-color="rgba(230,57,70,0.4)"/>
+                        <stop offset="100%" stop-color="rgba(230,57,70,0)"/>
+                    </radialGradient>
+                </defs>
+            </svg>
+
+            <!-- 雷达刻度圈 (DOM实现) -->
+            <div class="radar-grid w-[120%] aspect-square"></div>
+            <div class="radar-grid w-[80%] aspect-square"></div>
+            <div class="radar-grid w-[40%] aspect-square"></div>
+            <div class="scan-line"></div>
+
+            <!-- 本船 (Own Ship) -->
+            <div class="absolute left-1/2 top-[70%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center">
+                <!-- M7 绝对安全警戒圈 -->
+                <div class="absolute w-12 h-12 rounded-full border border-[#2EAB5B]/40 bg-[#2EAB5B]/10"></div>
+                <!-- 船首三角 -->
+                <div class="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[16px] border-transparent border-b-[#3BACD6]"></div>
+            </div>
+        </section>
+
+        <!-- 右侧：决策审计与执行反馈 -->
+        <aside class="col-span-3 flex flex-col gap-3 overflow-y-auto">
+            
+            <!-- M4: COLREGs -->
+            <div class="panel p-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="mod-tag">M4</span>
+                    <span class="font-bold tracking-widest text-sm text-text-bright">COLREGs ENGINE</span>
+                </div>
+                <div id="m4-status-box" class="card p-2 bg-[#2EAB5B]/10 border-[#2EAB5B]/30 transition-colors">
+                    <div id="m4-title" class="text-sm font-bold text-[#2EAB5B]">NO CONFLICT</div>
+                    <div class="mono text-[10px] text-text-dim mt-1">Status: STAND_ON</div>
+                </div>
+                <div id="m4-json" class="mt-2 p-2 bg-[#070C13] border border-border-dim rounded text-[9px] mono text-text-dim hidden">
+<span class="text-[#F2A93B]">"constraints"</span>: {
+  "type": "CROSSING_STBD",
+  "forbidden_heading": [310, 360],
+  "recommend": "ALTER_STBD"
+}
+                </div>
+            </div>
+
+            <!-- M5/M6: Action Sequence (保留用户极佳的设计) -->
+            <div class="panel p-3 flex-1 flex flex-col">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="mod-tag">M5/M6</span>
+                    <span class="font-bold tracking-widest text-sm text-text-bright">ACTION SEQUENCE</span>
+                </div>
+                <div class="relative flex-1">
+                    <!-- 时间线轴 -->
+                    <div class="absolute left-[11px] top-2 bottom-2 w-px bg-border-dim"></div>
+                    
+                    <!-- 动作节点 1 -->
+                    <div class="relative pl-6 mb-4">
+                        <div id="seq-1-dot" class="absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-[#2EAB5B]"></div>
+                        <div id="seq-1-text" class="text-xs text-text-bright">TRACKING L2 WAYPOINTS</div>
+                        <div class="text-[10px] mono text-text-dim">Current phase</div>
+                    </div>
+
+                    <!-- 动作节点 2 -->
+                    <div class="relative pl-6 opacity-40 transition-opacity" id="seq-2">
+                        <div id="seq-2-dot" class="absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-bg-base border border-border-lit"></div>
+                        <div id="seq-2-text" class="text-xs text-text-bright">COLLISION AVOIDANCE</div>
+                        <div id="seq-2-sub" class="text-[10px] mono text-text-dim">Pending...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- M7: Safety Checker -->
+            <div class="panel p-3">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="mod-tag">M7</span>
+                        <span class="font-bold tracking-widest text-sm text-text-bright">VETO CHECKER</span>
+                    </div>
+                    <span id="m7-badge" class="text-[10px] bg-[#2EAB5B]/20 text-[#2EAB5B] px-1.5 py-0.5 rounded mono">PASS</span>
+                </div>
+                <div class="flex gap-2">
+                    <div class="card p-2 flex-1">
+                        <div class="text-[9px] text-text-dim mb-1">PRED CPA</div>
+                        <div id="val-cpa" class="mono text-sm text-text-bright">-- m</div>
+                    </div>
+                    <div class="card p-2 flex-1">
+                        <div class="text-[9px] text-text-dim mb-1">PRED TTC</div>
+                        <div id="val-ttc" class="mono text-sm text-text-bright">-- s</div>
+                    </div>
+                </div>
+            </div>
+
+        </aside>
+    </main>
+
+    <!-- 底部模拟器注入盘 -->
+    <footer class="panel p-3 flex gap-3 shrink-0 items-center justify-between border-t-2 border-t-[#a87fff]/30">
+        <div class="text-xs text-[#a87fff] font-bold tracking-widest flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+            SIMULATION INJECTOR
+        </div>
+        <div class="flex gap-2">
+            <button onclick="simTarget()" class="card px-4 py-1.5 text-xs text-text-bright hover:bg-border-dim hover:text-white transition">1. M2/M4/M5: 规避目标</button>
+            <button onclick="simDegrade()" class="card px-4 py-1.5 text-xs text-[#F2A93B] border-[#F2A93B]/30 hover:bg-[#F2A93B]/10 transition">2. M1/M8: 链路降级/接管</button>
+            <button onclick="simVeto()" class="card px-4 py-1.5 text-xs text-[#E63946] border-[#E63946]/30 hover:bg-[#E63946]/10 transition">3. M7: 触发 VETO 否决</button>
+            <button onclick="simReset()" class="card px-4 py-1.5 text-xs text-text-dim hover:bg-border-dim transition">↺ 重置</button>
+        </div>
+    </footer>
+
+    <!-- M8 紧急接管弹窗 (Overlay) -->
+    <div id="modal-tor" class="fixed inset-0 z-50 overlay flex items-center justify-center">
+        <div class="bg-bg-panel border border-[#E63946] rounded-lg shadow-[0_0_50px_rgba(230,57,70,0.3)] w-[500px] flex flex-col overflow-hidden transform scale-95 transition-transform duration-300" id="tor-box">
+            <div class="bg-[#E63946] text-white p-4 flex justify-between items-center">
+                <div class="font-bold text-xl tracking-widest pulse-danger">TAKEOVER REQUEST</div>
+                <div class="mono text-2xl font-bold" id="modal-tmr">60.0</div>
+            </div>
+            <div class="p-6">
+                <p class="text-[#E2F1F8] mb-4 text-lg">System degraded. Human intervention required immediately.</p>
+                <div class="grid grid-cols-2 gap-4 text-sm mono mb-6">
+                    <div class="bg-bg-base p-3 border border-border-dim rounded">
+                        <div class="text-text-dim mb-1">REASON</div>
+                        <div class="text-[#F2A93B]">H-AXIS LOST</div>
+                    </div>
+                    <div class="bg-bg-base p-3 border border-border-dim rounded">
+                        <div class="text-text-dim mb-1">DEFAULT MRC</div>
+                        <div class="text-[#E63946]">CRASH STOP</div>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="acceptTakeover()" class="flex-1 bg-[#2EAB5B] hover:bg-[#2EAB5B]/80 text-white font-bold py-3 rounded tracking-widest transition">ACCEPT CONTROL</button>
+                    <button class="flex-1 border border-border-dim text-text-dim py-3 rounded tracking-widest pointer-events-none">IGNORE (MRC)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Nodes
+        const domMode = document.getElementById('sys-mode-text');
+        const domDot = document.getElementById('badge-dot');
+        const domAlert = document.getElementById('header-alert');
+        
+        const domTarget = document.getElementById('svg-target');
+        const domPath = document.getElementById('path-m5');
+        const domTargetCount = document.getElementById('target-count');
+        
+        const m4StatusBox = document.getElementById('m4-status-box');
+        const m4Title = document.getElementById('m4-title');
+        const m4Json = document.getElementById('m4-json');
+        
+        const seq1Text = document.getElementById('seq-1-text');
+        const seq2 = document.getElementById('seq-2');
+        const seq2Dot = document.getElementById('seq-2-dot');
+        const seq2Text = document.getElementById('seq-2-text');
+        const seq2Sub = document.getElementById('seq-2-sub');
+
+        const m7Badge = document.getElementById('m7-badge');
+        const valCpa = document.getElementById('val-cpa');
+        const valTtc = document.getElementById('val-ttc');
+        
+        const domHVal = document.getElementById('val-h');
+        const domHBar = document.getElementById('bar-h');
+        const modalTor = document.getElementById('modal-tor');
+        const torBox = document.getElementById('tor-box');
+        const modalTmr = document.getElementById('modal-tmr');
+        const headerTmr = document.getElementById('header-tmr');
+
+        let tmrInterval;
+
+        // 场景 1: 发现目标并规划避让 (M2, M4, M5, M6)
+        function simTarget() {
+            simReset();
+            setTimeout(() => {
+                // M2
+                domTarget.style.opacity = '1';
+                domTargetCount.textContent = '01';
+                
+                // M5 Path (向右画一条贝塞尔曲线)
+                domPath.setAttribute('d', 'M 50 70 Q 75 45, 50 0');
+                domPath.setAttribute('stroke', '#F2A93B');
+
+                // M4 Constraints
+                m4StatusBox.className = 'card p-2 bg-[#F2A93B]/10 border-[#F2A93B]/30 transition-colors';
+                m4Title.className = 'text-sm font-bold text-[#F2A93B]';
+                m4Title.textContent = 'COLLISION RISK';
+                m4StatusBox.querySelector('div.mono').textContent = 'Status: GIVE_WAY';
+                m4Json.classList.remove('hidden');
+
+                // M5 Action Sequence
+                seq2.classList.remove('opacity-40');
+                seq2Dot.className = 'absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-[#F2A93B] pulse-danger';
+                seq2Text.textContent = 'EXECUTING EVASION';
+                seq2Sub.textContent = 'Rudder STBD 15°';
+
+                // M7 Checker
+                valCpa.textContent = '125 m';
+                valCpa.className = 'mono text-sm text-[#F2A93B]';
+                valTtc.textContent = '38 s';
+                valTtc.className = 'mono text-sm text-[#F2A93B]';
+            }, 100);
+        }
+
+        // 场景 2: 链路降级与紧急接管 (M1, M8)
+        function simDegrade() {
+            // M1 状态降级
+            domMode.textContent = 'D3 · SUPERVISED';
+            domMode.className = 'text-2xl font-bold text-[#F2A93B] tracking-wider';
+            domDot.className = 'w-3 h-3 rounded-full bg-[#F2A93B] shadow-[0_0_8px_#F2A93B] pulse-danger';
+            
+            // H轴数值下跌
+            domHVal.textContent = '0.24';
+            domHVal.className = 'mono text-[#E63946]';
+            domHBar.style.width = '24%';
+            domHBar.className = 'h-full bg-[#E63946] bar-fill';
+
+            // 触发 M8 Alert 和 Modal
+            domAlert.classList.remove('hidden');
+            domAlert.classList.add('flex');
+            modalTor.classList.add('active');
+            torBox.style.transform = 'scale(1)';
+
+            // 倒计时逻辑
+            let timeLeft = 60.0;
+            clearInterval(tmrInterval);
+            tmrInterval = setInterval(() => {
+                timeLeft -= 0.1;
+                if(timeLeft <= 0) {
+                    timeLeft = 0;
+                    clearInterval(tmrInterval);
+                    simVeto(); // 超时未接管自动 MRC
+                }
+                let text = timeLeft.toFixed(1);
+                modalTmr.textContent = text;
+                headerTmr.textContent = text + 's';
+            }, 100);
+        }
+
+        function acceptTakeover() {
+            clearInterval(tmrInterval);
+            modalTor.classList.remove('active');
+            torBox.style.transform = 'scale(0.95)';
+            
+            domMode.textContent = 'D2 · MANUAL (RO)';
+            domMode.className = 'text-2xl font-bold text-[#3BACD6] tracking-wider';
+            domDot.className = 'w-3 h-3 rounded-full bg-[#3BACD6] shadow-[0_0_8px_#3BACD6]';
+            domAlert.classList.add('hidden');
+            domAlert.classList.remove('flex');
+            
+            seq2.classList.remove('opacity-40');
+            seq2Dot.className = 'absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-[#3BACD6]';
+            seq2Text.textContent = 'REMOTE CONTROL OVERRIDE';
+            seq2Sub.textContent = 'Operator at helm';
+        }
+
+        // 场景 3: M7 安全否决 (M7, L4)
+        function simVeto() {
+            clearInterval(tmrInterval);
+            modalTor.classList.remove('active');
+            
+            // M1 触底
+            domMode.textContent = 'MRC · CRASH STOP';
+            domMode.className = 'text-2xl font-bold text-[#E63946] tracking-wider';
+            domDot.className = 'w-3 h-3 rounded-full bg-[#E63946] shadow-[0_0_8px_#E63946] pulse-danger';
+            domAlert.classList.add('hidden');
+
+            // M7 拦截
+            m7Badge.textContent = 'VETO';
+            m7Badge.className = 'text-[10px] bg-[#E63946] text-white px-1.5 py-0.5 rounded mono font-bold pulse-danger';
+            valCpa.textContent = '15 m';
+            valCpa.className = 'mono text-sm text-[#E63946] font-bold';
+            valTtc.textContent = '6 s';
+            valTtc.className = 'mono text-sm text-[#E63946] font-bold';
+
+            // 切断雷达轨迹 (急停)
+            domPath.setAttribute('d', 'M 50 70 L 45 65');
+            domPath.setAttribute('stroke', '#E63946');
+
+            // Action Sequence
+            seq1Text.textContent = 'VETO OVERRIDE';
+            seq2.classList.remove('opacity-40');
+            seq2Dot.className = 'absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-[#E63946] pulse-danger';
+            seq2Text.textContent = 'EXECUTING MRM';
+            seq2Sub.textContent = 'Full Astern. Commencing Crash Stop.';
+            seq2Text.className = 'text-xs text-[#E63946] font-bold';
+        }
+
+        // 重置
+        function simReset() {
+            clearInterval(tmrInterval);
+            modalTor.classList.remove('active');
+            torBox.style.transform = 'scale(0.95)';
+
+            domMode.textContent = 'D4 · FULL AUTO';
+            domMode.className = 'text-2xl font-bold text-[#E2F1F8] tracking-wider';
+            domDot.className = 'w-3 h-3 rounded-full bg-[#2EAB5B] shadow-[0_0_8px_#2EAB5B]';
+            domAlert.classList.add('hidden');
+            domAlert.classList.remove('flex');
+
+            domHVal.textContent = '0.98';
+            domHVal.className = 'mono text-[#2EAB5B]';
+            domHBar.style.width = '98%';
+            domHBar.className = 'h-full bg-[#2EAB5B] bar-fill';
+
+            domTarget.style.opacity = '0';
+            domTargetCount.textContent = '00';
+            domPath.setAttribute('d', 'M 50 70 L 50 0');
+            domPath.setAttribute('stroke', '#2EAB5B');
+
+            m4StatusBox.className = 'card p-2 bg-[#2EAB5B]/10 border-[#2EAB5B]/30 transition-colors';
+            m4Title.className = 'text-sm font-bold text-[#2EAB5B]';
+            m4Title.textContent = 'NO CONFLICT';
+            m4StatusBox.querySelector('div.mono').textContent = 'Status: STAND_ON';
+            m4Json.classList.add('hidden');
+
+            seq1Text.textContent = 'TRACKING L2 WAYPOINTS';
+            seq2.classList.add('opacity-40');
+            seq2Dot.className = 'absolute left-[8px] top-1.5 w-2 h-2 rounded-full bg-bg-base border border-border-lit';
+            seq2Text.textContent = 'COLLISION AVOIDANCE';
+            seq2Text.className = 'text-xs text-text-bright';
+            seq2Sub.textContent = 'Pending...';
+
+            m7Badge.textContent = 'PASS';
+            m7Badge.className = 'text-[10px] bg-[#2EAB5B]/20 text-[#2EAB5B] px-1.5 py-0.5 rounded mono';
+            valCpa.textContent = '-- m';
+            valCpa.className = 'mono text-sm text-text-bright';
+            valTtc.textContent = '-- s';
+            valTtc.className = 'mono text-sm text-text-bright';
+        }
+    </script>
+</body>
+</html>
