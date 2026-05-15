@@ -250,8 +250,12 @@ export function RunReport() {
         
         <div className="glass-panel" style={{ gridColumn: '2', gridRow: '2', borderRadius: 8, overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
           <ScoringRadarChart kpis={{
-            safety: 0.92, ruleCompliance: 1.0, delay: 0.78,
-            magnitude: 0.85, phase: 0.91, plausibility: 0.88,
+            safety: scoring?.scoring_dimensions?.safety ?? 0,
+            ruleCompliance: scoring?.scoring_dimensions?.rule_compliance ?? 0,
+            delay: Math.max(0, 1 - (scoring?.scoring_dimensions?.delay_penalty ?? 0)),
+            magnitude: Math.max(0, 1 - (scoring?.scoring_dimensions?.action_magnitude_penalty ?? 0)),
+            phase: scoring?.scoring_dimensions?.phase_score ?? 0,
+            plausibility: scoring?.scoring_dimensions?.plausibility ?? 0,
           }} />
         </div>
       </div>
