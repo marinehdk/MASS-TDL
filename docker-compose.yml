@@ -13,6 +13,7 @@ services:
       - ./exports:/var/sil/exports
     environment:
       - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     network_mode: host
 
   sil-nodes:
@@ -22,15 +23,22 @@ services:
     volumes:
       - ./scenarios:/var/sil/scenarios
       - ./runs:/var/sil/runs
+    command: >
+      bash -c "apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp && /opt/ws/sil_entrypoint.sh"
     environment:
       - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     network_mode: host
 
   foxglove-bridge:
     image: mass-l3/ci:humble-ubuntu22.04
+    volumes:
+      - ./.docker/sil_install:/opt/sil_install:ro
     command: |
       bash -c '
+        apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp 2>/dev/null &&
         source /opt/ros/humble/setup.bash &&
+        source /opt/sil_install/setup.bash &&
         ros2 run foxglove_bridge foxglove_bridge \
           --ros-args \
           -p port:=8765 \
@@ -41,8 +49,11 @@ services:
       '
     environment:
       - ROS_DOMAIN_ID=0
-    network_mode: host
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    network_mode: "service:sil-nodes"
     restart: unless-stopped
+    depends_on:
+      - sil-nodes
 
   web:
     build:

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { FoxgloveClient } from '@foxglove/ws-protocol';
 import { Ros, Topic } from '@tier4/roslibjs-foxglove';
 import { useTelemetryStore } from '../store';
+
+// foxglove_bridge 3.3.0 (ROS2 Humble, foxglove-sdk-cpp v0.23.0) uses
+// foxglove.sdk.v1 subprotocol. @foxglove/ws-protocol hardcodes
+// foxglove.websocket.v1. Patch before any connection is made.
+(FoxgloveClient as unknown as { SUPPORTED_SUBPROTOCOL: string }).SUPPORTED_SUBPROTOCOL = 'foxglove.sdk.v1';
 
 // Topic subscription map: topic → handler
 const TOPIC_MAP: Array<{
