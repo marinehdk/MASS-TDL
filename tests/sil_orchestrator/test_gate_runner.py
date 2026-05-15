@@ -1,4 +1,5 @@
 import asyncio
+import yaml
 from sil_orchestrator.gate_runner import GateResult, GateRunner, GateSpec
 
 def test_gate_result_fields():
@@ -25,9 +26,11 @@ def test_gate_runner_registers_gates():
 def test_gate_runner_run_all_stubs():
     async def _run():
         with patch("sil_orchestrator.gate_runner.gate_1_system_readiness", new_callable=AsyncMock) as mock_g1, \
-             patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2:
+             patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2, \
+             patch("sil_orchestrator.gate_runner.gate_3_scenario_integrity", new_callable=AsyncMock) as mock_g3:
             mock_g1.return_value = GateResult(gate_id=1, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g2.return_value = GateResult(gate_id=2, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
+            mock_g3.return_value = GateResult(gate_id=3, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             runner = GateRunner(scenario_id="test-01")
             results = await runner.run_all()
         assert len(results) == 6
@@ -136,3 +139,60 @@ async def test_gate_2_m7_not_independent():
         mock_m7.return_value = ("fail", "M7 PID 12345 found inside component_container — Doer-Checker isolation violated")
         result = await gate_2_module_health()
         assert result.passed == False
+
+
+from sil_orchestrator.gate_runner import gate_3_scenario_integrity
+import hashlib
+
+FAKE_SCENARIO_VALID = {
+    "yaml_content": "name: test\nversion: 1.0\n",
+    "hash": "",  # computed below
+}
+FAKE_SCENARIO_VALID["hash"] = hashlib.sha256(FAKE_SCENARIO_VALID["yaml_content"].encode()).hexdigest()
+
+SCENARIO_WITH_EXPECTED_OUTCOME = {
+    "yaml_content": "name: test\nversion: 1.0\nexpected_outcome:\n  cpa_min_m_ge: 0.5\n  colregs_rules: [14]\n  grounding: forbidden\n",
+    "hash": "",
+}
+SCENARIO_WITH_EXPECTED_OUTCOME["hash"] = hashlib.sha256(SCENARIO_WITH_EXPECTED_OUTCOME["yaml_content"].encode()).hexdigest()
+
+@pytest.mark.asyncio
+async def test_gate_3_hash_match():
+    """GATE 3: hash match -> PASS"""
+    data = {"yaml_content": FAKE_SCENARIO_VALID["yaml_content"], "hash": FAKE_SCENARIO_VALID["hash"]}
+    with patch("sil_orchestrator.gate_runner.yaml") as mock_yaml:
+        mock_yaml.safe_load.return_value = {"name": "test", "version": "1.0", "expected_outcome": {"cpa_min_m_ge": 0.5}}
+        mock_yaml.YAMLError = yaml.YAMLError
+        result = await gate_3_scenario_integrity("test-01", data)
+        assert result.gate_id == 3
+        assert result.passed == True
+        assert any("hash" in c.lower() and "ok" in c.lower() for c in result.checks)
+
+@pytest.mark.asyncio
+async def test_gate_3_hash_mismatch():
+    """GATE 3: hash mismatch -> FAIL"""
+    data = {"yaml_content": FAKE_SCENARIO_VALID["yaml_content"], "hash": "wrong_hash_000"}
+    with patch("sil_orchestrator.gate_runner.yaml") as mock_yaml:
+        mock_yaml.safe_load.return_value = {"name": "test"}
+        mock_yaml.YAMLError = yaml.YAMLError
+        result = await gate_3_scenario_integrity("test-01", data)
+        assert result.passed == False
+        assert any("hash" in c.lower() and "fail" in c.lower() for c in result.checks)
+
+@pytest.mark.asyncio
+async def test_gate_3_no_expected_outcome():
+    """GATE 3: YAML without expected_outcome -> FAIL"""
+    data = {"yaml_content": "name: bare\n", "hash": hashlib.sha256(b"name: bare\n").hexdigest()}
+    with patch("sil_orchestrator.gate_runner.yaml") as mock_yaml:
+        mock_yaml.safe_load.return_value = {"name": "bare"}
+        mock_yaml.YAMLError = yaml.YAMLError
+        result = await gate_3_scenario_integrity("test-01", data)
+        assert result.passed == False
+        assert any("expected_outcome" in c.lower() for c in result.checks)
+
+@pytest.mark.asyncio
+async def test_gate_3_no_scenario_data():
+    """GATE 3: scenario_data=None -> FAIL gracefully"""
+    result = await gate_3_scenario_integrity("unknown", None)
+    assert result.passed == False
+    assert any("not found" in c.lower() for c in result.checks)

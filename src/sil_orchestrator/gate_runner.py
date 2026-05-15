@@ -6,10 +6,13 @@ GateRunner orchestrates sequential execution with per-gate timing.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Awaitable, Any
+
+import yaml
 
 CHECK_OK = "ok"
 CHECK_FAIL = "fail"
@@ -55,7 +58,8 @@ class GateRunner:
         self.gates = [
             GateSpec(gate_id=1, label="System Readiness", handler=gate_1_system_readiness),
             GateSpec(gate_id=2, label="Module Health (M1-M8)", handler=gate_2_module_health),
-            GateSpec(gate_id=3, label="Scenario Integrity", handler=self._stub_handler(3)),
+            GateSpec(gate_id=3, label="Scenario Integrity",
+                     handler=lambda: gate_3_scenario_integrity(self.scenario_id, self.scenario_data)),
             GateSpec(gate_id=4, label="ODD-Scenario Alignment", handler=self._stub_handler(4)),
             GateSpec(gate_id=5, label="Time Base & Evidence Chain", handler=self._stub_handler(5)),
             GateSpec(gate_id=6, label="Doer-Checker Independence", handler=self._stub_handler(6)),
@@ -257,3 +261,48 @@ async def _verify_m7_independent() -> tuple[str, str]:
         return CHECK_OK, f"M7 PID {pid} independent ({pname})"
     except (asyncio.TimeoutError, FileNotFoundError, ValueError):
         return CHECK_OK, "M7 independent (no pgrep/ps on dev host)"
+
+
+async def gate_3_scenario_integrity(scenario_id: str, scenario_data: dict | None) -> GateResult:
+    """GATE 3: Scenario Integrity — hash match + YAML parseable + expected_outcome."""
+    checks: list[str] = []
+    passed = True
+
+    if scenario_data is None:
+        checks.append("[fail] scenario not found in store")
+        return GateResult(gate_id=3, passed=False, checks=checks, duration_ms=0.0,
+                          rationale="scenario not found in store")
+
+    yaml_content = scenario_data.get("yaml_content", "")
+    stored_hash = scenario_data.get("hash", "")
+
+    # Check 1: SHA256 hash match
+    computed = hashlib.sha256(yaml_content.encode()).hexdigest()
+    if computed == stored_hash and stored_hash:
+        checks.append(f"[ok] SHA256 hash match: {stored_hash[:16]}...")
+    else:
+        checks.append(f"[fail] SHA256 hash mismatch: stored={stored_hash[:16] if stored_hash else 'MISSING'}... computed={computed[:16]}...")
+        passed = False
+
+    # Check 2: YAML parseable
+    try:
+        yaml.safe_load(yaml_content)
+        checks.append("[ok] YAML parseable")
+    except yaml.YAMLError as e:
+        checks.append(f"[fail] YAML parse error: {e}")
+        passed = False
+
+    # Check 3: expected_outcome block present
+    try:
+        parsed = yaml.safe_load(yaml_content)
+        if isinstance(parsed, dict) and "expected_outcome" in parsed:
+            checks.append("[ok] expected_outcome block present")
+        else:
+            checks.append("[fail] missing expected_outcome block (cpa_min_m_ge / colregs_rules / grounding)")
+            passed = False
+    except Exception:
+        checks.append("[fail] cannot parse YAML for expected_outcome check")
+        passed = False
+
+    rationale = "hash match + YAML ok + expected_outcome present" if passed else "integrity check(s) failed"
+    return GateResult(gate_id=3, passed=passed, checks=checks, duration_ms=0.0, rationale=rationale)
