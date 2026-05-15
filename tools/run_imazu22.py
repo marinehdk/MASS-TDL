@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 IMAZU_SCENARIOS = [
-    f"imazu-{i:02d}-{enc}-v1.0"
+    f"imazu-{i:02d}-{enc}"
     for i, enc in [
         (1, "ho"), (2, "cr-gw"), (3, "ot"), (4, "cr-so"),
         (5, "ms"), (6, "ms"), (7, "ms"), (8, "ms"),

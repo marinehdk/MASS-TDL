@@ -18,7 +18,7 @@ from target_vessel.node import TargetVesselNode
 from sensor_mock.node import SensorMockNode
 from tracker_mock.node import TrackerMockNode
 from fault_injection.node import FaultInjectionNode
-from scoring.node import ScoringNode
+from scoring.node import ScoringLifecycleNode as ScoringNode
 from scenario_authoring.node import ScenarioAuthoringNode
 
 rclpy.init()

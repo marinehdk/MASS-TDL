@@ -19,7 +19,7 @@ COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
 COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 
 # Python deps
-RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2
+RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
 
 # Build the workspace
 RUN . /opt/ros/humble/setup.sh && \
