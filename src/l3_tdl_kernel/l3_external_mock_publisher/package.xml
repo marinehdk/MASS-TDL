@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>l3_external_mock_publisher</name>
+  <version>0.1.0</version>
+  <description>Mock publishers for all external (cross-layer) ROS2 topics consumed by L3 TDL</description>
+  <maintainer email="mass-l3@example.com">MASS L3 Team</maintainer>
+  <license>Proprietary</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>l3_msgs</exec_depend>
+  <exec_depend>l3_external_msgs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>geographic_msgs</exec_depend>
+  <exec_depend>python3-pyyaml</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
