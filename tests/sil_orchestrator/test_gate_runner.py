@@ -28,11 +28,13 @@ def test_gate_runner_run_all_stubs():
         with patch("sil_orchestrator.gate_runner.gate_1_system_readiness", new_callable=AsyncMock) as mock_g1, \
              patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2, \
              patch("sil_orchestrator.gate_runner.gate_3_scenario_integrity", new_callable=AsyncMock) as mock_g3, \
-             patch("sil_orchestrator.gate_runner.gate_4_odd_alignment", new_callable=AsyncMock) as mock_g4:
+             patch("sil_orchestrator.gate_runner.gate_4_odd_alignment", new_callable=AsyncMock) as mock_g4, \
+             patch("sil_orchestrator.gate_runner.gate_5_time_base", new_callable=AsyncMock) as mock_g5:
             mock_g1.return_value = GateResult(gate_id=1, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g2.return_value = GateResult(gate_id=2, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g3.return_value = GateResult(gate_id=3, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g4.return_value = GateResult(gate_id=4, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
+            mock_g5.return_value = GateResult(gate_id=5, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             runner = GateRunner(scenario_id="test-01")
             results = await runner.run_all()
         assert len(results) == 6
@@ -252,3 +254,36 @@ async def test_gate_4_odd_out_of_bounds():
     result = await gate_4_odd_alignment("test-01", data)
     assert result.passed == False
     assert any("visibility" in c.lower() for c in result.checks)
+
+
+from sil_orchestrator.gate_runner import gate_5_time_base
+
+@pytest.mark.asyncio
+async def test_gate_5_all_pass():
+    """GATE 5: all 4 checks pass -> PASS"""
+    with patch("sil_orchestrator.gate_runner._check_utc_ptp", new_callable=AsyncMock) as mock_utc, \
+         patch("sil_orchestrator.gate_runner._check_sim_clock", new_callable=AsyncMock) as mock_clock, \
+         patch("sil_orchestrator.gate_runner._check_rosbag2_ready", new_callable=AsyncMock) as mock_bag, \
+         patch("sil_orchestrator.gate_runner._check_asdr_ready", new_callable=AsyncMock) as mock_asdr:
+        mock_utc.return_value = ("ok", "PTP offset 0.5ms < 10ms")
+        mock_clock.return_value = ("ok", "/clock publishing at 50Hz")
+        mock_bag.return_value = ("ok", "rosbag2 recorder running")
+        mock_asdr.return_value = ("ok", "ASDR /runs/ directory writable")
+        result = await gate_5_time_base("test-01")
+        assert result.gate_id == 5
+        assert result.passed == True
+        assert len(result.checks) == 4
+
+@pytest.mark.asyncio
+async def test_gate_5_utc_drift_fail():
+    """GATE 5: PTP drift > 10ms -> FAIL"""
+    with patch("sil_orchestrator.gate_runner._check_utc_ptp", new_callable=AsyncMock) as mock_utc, \
+         patch("sil_orchestrator.gate_runner._check_sim_clock", new_callable=AsyncMock) as mock_clock, \
+         patch("sil_orchestrator.gate_runner._check_rosbag2_ready", new_callable=AsyncMock) as mock_bag, \
+         patch("sil_orchestrator.gate_runner._check_asdr_ready", new_callable=AsyncMock) as mock_asdr:
+        mock_utc.return_value = ("fail", "PTP offset 45ms > 10ms threshold")
+        mock_clock.return_value = ("ok", "/clock publishing")
+        mock_bag.return_value = ("ok", "rosbag2 ready")
+        mock_asdr.return_value = ("ok", "ASDR ready")
+        result = await gate_5_time_base("test-01")
+        assert result.passed == False
