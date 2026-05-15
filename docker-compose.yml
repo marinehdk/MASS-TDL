@@ -13,7 +13,6 @@ services:
       - ./exports:/var/sil/exports
     environment:
       - ROS_DOMAIN_ID=0
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     network_mode: host
 
   sil-nodes:
