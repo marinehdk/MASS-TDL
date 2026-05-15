@@ -763,6 +763,24 @@ docs/Design/SIL/D1.3.1-simulator-qualification/
 
 D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构成 CCS AIP 证据包。仿真器鉴定是其中**头号必需件**。
 
+### 11.6 D1.3.1 交付状态（2026-05-15 更新）
+
+| 交付物 | 文件 | 状态 |
+|---|---|---|
+| 01-overview.md | 范围 + 验证策略 + 4 核心证明 + 风险表 | ✅ committed |
+| 02-model-fidelity-report.md | MMG 4-DOF 保真度 vs Nomoto 3 参考解 | ✅ committed（🟡 实测数据待 D1.3a 5/31 交付）|
+| 03-determinism-replay.md | 1000 次重放方法论 + 4 组 1300 次试验设计 | ✅ committed（🟡 实测数据待 D1.3b.3 6/15 交付）|
+| 04-sensor-confidence.md | Radar/AIS/GNSS 退化模型 vs CG-0264 §6 限值 | ✅ committed（🟡 实测数据待 sensor_mock 交付）|
+| 05-orchestration-trace.md | libcosim 5 API trace + 8 项步长审计清单 | ✅ committed（🟡 实测数据待 libcosim observer 集成）|
+| 06-evidence-matrix.md | 4 项证明 → DNV-RP-0513 §4–§7 17 行条款映射 | ✅ committed（🔴 DNV 完整条款文字待 GAP-032 PDF 采购）|
+| 07-ccs-mapping.md | CCS §9.1 12 条款映射 + i-Ship 标志 + surveyor 审核清单 | ✅ committed |
+| annex/ccs-communication-schedule.md | CCS surveyor 沟通日历 + 2 封发函模板 | ✅ committed |
+| annex/test-results/ | CI artifact dump（3 Nomoto CSV + 5 次重放 CSV）| ✅ committed |
+| annex/csv/ + annex/plots/ | 数据原件 + 图表目录 | ✅ 目录就绪 |
+| 自动化工具 × 4 | `tools/sil/d1_3_1_{mmg_fidelity,determinism_replay,sensor_calibrate,orch_trace}.py` + 各测试文件 | ✅ committed（25 测试通过）|
+| GAP-005 | self_check 硬编码 PASS → 6 真实探针函数 | ✅ CLOSED（commit `b07d7ff`）|
+| GAP-032 | DNV-RP-0513/CG-0264 完整付费 PDF | ⏳ 采购中（条款映射使用公开摘要作 interim）|
+
 ---
 
 ## 12. 文件谱系 + 调研记录（增量）
@@ -817,7 +835,8 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 |---|---|---|---|---|
 | **GAP-030** | 2 套 schema（v1.0 ENU + v2.0 lat/lon）并存，无统一 maritime-schema | scenarios/ 35 个 YAML | D1.6 迁移到 maritime-schema TrafficSituation + metadata 扩展节 | D1.6 |
 | **GAP-031** | DEMO-1 用 standalone `demo_server.py` + `demo_ws_server.py` + analytical trajectory（非 ROS2 真链路） | tools/demo/ | DEMO-2 前 cutover 到 sil_orchestrator + ROS2 真链路；feature flag `simulation_settings.backend: demo|ros2` | D2.4 |
-| **GAP-032** | DNV-RP-0513 / CG-0264 完整付费 PDF 未访问 | V&V Plan v0.1 仅引摘要 | D1.3.1 鉴定报告正式提交前从 DNV 官方购买或 CCS 渠道 | D1.3.1 |
+| **GAP-005** | self_check 5 项硬编码 PASS（非真链路探测）| `src/sil_orchestrator/selfcheck_routes.py` | ✅ **CLOSED** — 6 真实探针函数（commit `b07d7ff`），含 ros2 lifecycle/ENC/ASDR/UTC/Scenario hash/M7 watchdog 探针 | D1.3.1 |
+| **GAP-032** | DNV-RP-0513 / CG-0264 完整付费 PDF 未访问 | V&V Plan v0.1 仅引摘要 | ⏳ IN PROGRESS — D1.3.1 报告已用公开摘要完成条款映射（06-evidence-matrix.md）；完整文字待 PDF 购入后回填 | D1.3.1 |
 
 ### 13.4 GAP 按修复 D-task 分布
 
@@ -827,7 +846,7 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 | D1.3b.3 | GAP-015 (WS 端口) + GAP-016 (Executor) + GAP-018 (LifecycleNode 升级) + GAP-023/024/025 (Preflight 重设计) + GAP-026 (foxglove client) + GAP-028 (OpenBridge ver) + GAP-029 (4 屏文件重命名) | 6/15 |
 | D1.6 | GAP-003 (head_on.yaml schema) + GAP-017 (validate stub) + GAP-022 (客户端 schema 校验) + GAP-030 (双 schema 统一) | 6/9 |
 | D1.3c | GAP-001 (jazzy → humble Dockerfile) | 7/15 |
-| D1.3.1 | GAP-005 (selfcheck 真) + GAP-032 (DNV 完整规范) | 6/15 |
+| D1.3.1 | GAP-005 (selfcheck 真 ✅ CLOSED) + GAP-032 (DNV 完整规范 ⏳ 采购中) | 6/15 |
 | D2.4 | GAP-002 (Mock 退役) + GAP-021 (scoring 真) + GAP-027 (8 KPI 完整) + GAP-031 (DEMO-1 → DEMO-2 cutover) | 7/27 |
 | D2.5 | GAP-006 (Marzip 完整) | 7/31 |
 | D2.8 | GAP-019 (Protobuf 评估) | 7/31 |
@@ -842,6 +861,7 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 | 版本 | 日期 | 改动 | 责任 |
 |---|---|---|---|
 | v1.0 | 2026-05-15 | 基线建立 + **套件 v1.0 完整化**。整合 V&V Plan v0.1 §3-§8 + DEMO-1 spec + 35 场景库实际盘点 + ASDR/Marzip 设计 + DNV-RP-0513/CG-0264 映射。3 新 GAP（030/031/032）入完整台账，累计 32 GAP 跨 5 文档。Doc 0 README §4 屏命名 + Doc 3 §0 "起飞" → "仿真" 文字修正联动 | 套件维护者 |
+| v1.0.1 | 2026-05-15 | **D1.3.1 仿真器鉴定报告 v0.1 完成**。新增 §11.6 交付状态表；GAP-005 CLOSED（self_check 真实探针）；GAP-032 IN PROGRESS；7 交付物 + 4 自动化工具 + 25 测试通过。详见 `docs/Design/SIL/D1.3.1-simulator-qualification/` | 技术负责人 |
 
 ---
 
