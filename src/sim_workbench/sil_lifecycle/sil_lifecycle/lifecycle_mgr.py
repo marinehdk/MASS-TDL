@@ -40,6 +40,7 @@ class ScenarioLifecycleMgr:
         self._scenario_hash: str = ""
         self._tick_hz = tick_hz
         self._sim_rate: float = 1.0
+        self._dynamics_mode: str = "internal"  # "internal" | "fmi"
         self._sim_time: float = 0.0
         self._wall_start: float = 0.0
 
@@ -63,11 +64,19 @@ class ScenarioLifecycleMgr:
     def sim_rate(self) -> float:
         return self._sim_rate
 
-    def configure(self, scenario_id: str, scenario_hash: str = "") -> bool:
+    @property
+    def dynamics_mode(self) -> str:
+        return self._dynamics_mode
+
+    def configure(self, scenario_id: str, scenario_hash: str = "",
+                  dynamics_mode: str = "internal") -> bool:
         if self._state != LifecycleState.UNCONFIGURED:
+            return False
+        if dynamics_mode not in ("internal", "fmi"):
             return False
         self._scenario_id = scenario_id
         self._scenario_hash = scenario_hash
+        self._dynamics_mode = dynamics_mode
         self._state = LifecycleState.INACTIVE
         return True
 
@@ -100,6 +109,22 @@ class ScenarioLifecycleMgr:
         self._sim_rate = rate
         return True
 
+    def set_dynamics_mode(self, mode: str) -> bool:
+        """Switch between internal sim and FMI co-sim mode.
+
+        Args:
+            mode: "internal" (Phase 1 default) or "fmi" (Phase 2+)
+
+        Returns:
+            True if mode was accepted (only in INACTIVE or UNCONFIGURED state)
+        """
+        if self._state not in (LifecycleState.INACTIVE, LifecycleState.UNCONFIGURED):
+            return False
+        if mode not in ("internal", "fmi"):
+            return False
+        self._dynamics_mode = mode
+        return True
+
     def tick(self) -> None:
         """Advance simulation time by one tick (called at tick_hz)."""
         if self._state == LifecycleState.ACTIVE:
@@ -110,6 +135,7 @@ class ScenarioLifecycleMgr:
             "current_state": self._state.name,
             "scenario_id": self._scenario_id,
             "scenario_hash": self._scenario_hash,
+            "dynamics_mode": self._dynamics_mode,
             "sim_time": self._sim_time,
             "wall_time": time.time() - self._wall_start if self._wall_start > 0 else 0.0,
             "sim_rate": self._sim_rate,

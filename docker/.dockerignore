@@ -1,0 +1,15 @@
+# docker/.dockerignore — prevent COPY of large/unnecessary files into containers
+.claude/
+.worktrees/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+data/tiles/
+build/
+install/
+log/
+*.log
+*.bag
+*.mcap

@@ -30,13 +30,9 @@ services:
     network_mode: host
 
   foxglove-bridge:
-    image: ghcr.io/foxglove/ros-foxglove-bridge:humble
+    image: mass-l3/ci:humble-ubuntu22.04
     command: >
-      ros2 launch foxglove_bridge foxglove_bridge_launch.xml
-      port:=8765
-      config_file:=/config/foxglove_bridge.yaml
-    volumes:
-      - ./config/foxglove_bridge.yaml:/config/foxglove_bridge.yaml
+      bash -c "source /opt/ros/humble/setup.bash && ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765"
     environment:
       - ROS_DOMAIN_ID=0
     network_mode: host
@@ -57,7 +53,5 @@ services:
       - "3000:3000"
     volumes:
       - ./data/tiles:/data/tiles
-    # Automatically scan the /data/tiles directory for any .mbtiles files
-    # and serve them dynamically at /<filename>
     command: ["/data/tiles"]
     network_mode: host

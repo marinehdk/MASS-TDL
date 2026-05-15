@@ -1,102 +1,88 @@
-"""dds-fmu exchange latency: DDS roundtrip P95 must be < 10ms.
-
-Per D1.3c spec §8.2 + SIL decision §2.4: dds-fmu exchange budget 2-10ms.
-Per plan v3.1 D1.5: P95 ≤ 10ms / P99 ≤ 15ms (V&V Plan latency budget).
-"""
+"""Measure FMI co-sim single exchange latency: p95 < 10ms (per decision record §2.4 KPI)."""
 from __future__ import annotations
+import time
+import numpy as np
+from pathlib import Path
 
 
-def test_dds_latency_imports():
-    """Verify latency test dependencies are importable."""
-    try:
-        import rclpy  # noqa: F401
-    except ImportError:
-        import pytest
-        pytest.skip("rclpy not available (requires ROS2 Humble runtime)")
-    assert True
+def test_fmu_exchange_latency_p95_under_10ms():
+    from fmi_bridge.python.pyfmi_adapter import PyFmiAdapter
 
+    fmu_path = Path("fcb_mmg_4dof.fmu")
+    if not fmu_path.exists():
+        from fmi_bridge.python.build_fmu import build
+        fmu_path = build(str(fmu_path))
 
-def test_dds_roundtrip_latency_p95():
-    """DDS loopback (local host, no FMU loaded): roundtrip P95 < 10ms.
+    adapter = PyFmiAdapter(str(fmu_path), instance_name="own_ship")
+    adapter.load()
+    adapter.setup_experiment(start_time=0.0, stop_time=20.0)
+    adapter.enter_initialization_mode()
+    adapter.exit_initialization_mode()
 
-    Test methodology:
-      1. Create ROS2 node with a publisher/subscriber on a loopback topic
-      2. For 1000 iterations: publish → spin_once → receive → measure elapsed
-      3. Assert P95 < 10ms (Phase 1 budget)
-      4. Assert P99 < 15ms (V&V Plan contingency)
-
-    Phase 1 uses local DDS loopback without FMU. Phase 2 will measure
-    end-to-end through libcosim async_slave.
-    """
-    import rclpy
-    import time
-    import numpy as np
-    from std_msgs.msg import String
-
-    rclpy.init(args=[])
-    node = rclpy.create_node("latency_test_node")
-
-    pub = node.create_publisher(String, "/dds_fmu/latency_test", 10)
-    received_times: list[float] = []
-
-    def callback(msg: String):
-        received_times.append(time.perf_counter())
-
-    sub = node.create_subscription(String, "/dds_fmu/latency_test", callback, 10)
-
-    # Warm-up: 100 iterations to stabilize DDS discovery
-    for _ in range(100):
-        msg = String(data="warmup")
-        pub.publish(msg)
-        rclpy.spin_once(node, timeout_sec=0.005)
-
-    # Measurement: 1000 iterations
-    latencies_ms: list[float] = []
-    for _ in range(1000):
+    latencies = []
+    for i in range(1000):
+        t = i * 0.02
         t0 = time.perf_counter()
-        msg = String(data="ping")
-        pub.publish(msg)
+        adapter.set_real("delta_cmd", 0.0)
+        adapter.set_real("n_rps_cmd", 3.5)
+        adapter.do_step(t, 0.02)
+        _ = adapter.get_real("u")
+        _ = adapter.get_real("v")
+        _ = adapter.get_real("r")
+        _ = adapter.get_real("x")
+        _ = adapter.get_real("y")
+        _ = adapter.get_real("psi")
+        t1 = time.perf_counter()
+        latencies.append((t1 - t0) * 1000.0)
 
-        # Spin with timeout to receive the echo
-        start_spin = time.perf_counter()
-        while time.perf_counter() - start_spin < 0.05:
-            rclpy.spin_once(node, timeout_sec=0.005)
-            if received_times and received_times[-1] >= t0:
-                break
+    adapter.terminate()
 
-        if received_times and received_times[-1] >= t0:
-            elapsed_ms = (received_times[-1] - t0) * 1000.0
-        else:
-            elapsed_ms = 50.0  # timeout penalty
+    latencies = np.array(latencies)
+    p50 = float(np.percentile(latencies, 50))
+    p95 = float(np.percentile(latencies, 95))
+    p99 = float(np.percentile(latencies, 99))
+    avg = float(np.mean(latencies))
 
-        latencies_ms.append(elapsed_ms)
+    print(f"\n  Latency profile (1000 exchanges):")
+    print(f"    p50={p50:.3f}ms  p95={p95:.3f}ms  p99={p99:.3f}ms  avg={avg:.3f}ms")
 
-    node.destroy_node()
-    rclpy.shutdown()
+    assert p95 < 10.0, \
+        f"p95 latency {p95:.3f}ms exceeds 10ms KPI (decision record §2.4)"
+    assert p99 < 20.0, \
+        f"p99 latency {p99:.3f}ms exceeds reasonable worst-case bound"
 
-    latencies_sorted = sorted(latencies_ms)
-    p95 = float(np.percentile(latencies_sorted, 95))
-    p99 = float(np.percentile(latencies_sorted, 99))
-    p50 = float(np.percentile(latencies_sorted, 50))
 
-    print(f"\nDDS latency results (1000 samples, local loopback):")
-    print(f"  P50 = {p50:.2f} ms")
-    print(f"  P95 = {p95:.2f} ms")
-    print(f"  P99 = {p99:.2f} ms")
-    print(f"  Min = {min(latencies_sorted):.2f} ms")
-    print(f"  Max = {max(latencies_sorted):.2f} ms")
+def test_fmu_exchange_latency_p95_deterministic_across_runs():
+    from fmi_bridge.python.pyfmi_adapter import PyFmiAdapter
+    import numpy as np
 
-    # Phase 1 budget assertions
-    assert p95 < 10.0, (
-        f"DDS roundtrip P95={p95:.1f}ms exceeds 10ms budget. "
-        f"This violates SIL decision §2.4 dds-fmu exchange budget."
-    )
+    fmu_path = Path("fcb_mmg_4dof.fmu")
+    if not fmu_path.exists():
+        from fmi_bridge.python.build_fmu import build
+        fmu_path = build(str(fmu_path))
 
-    # V&V Plan contingency: P99 < 15ms
-    if p99 >= 15.0:
-        import warnings
-        warnings.warn(
-            f"DDS roundtrip P99={p99:.1f}ms exceeds 15ms contingency. "
-            f"Per D1.5 V&V Plan: if P99 > 15ms, investigate zero-copy DDS or "
-            f"IPC transport as mitigation."
-        )
+    p95s = []
+    for run_idx in range(3):
+        adapter = PyFmiAdapter(str(fmu_path), instance_name=f"run{run_idx}")
+        adapter.load()
+        adapter.setup_experiment()
+        adapter.enter_initialization_mode()
+        adapter.exit_initialization_mode()
+
+        lats = []
+        for i in range(200):
+            t = i * 0.02
+            t0 = time.perf_counter()
+            adapter.do_step(t, 0.02)
+            _ = adapter.get_real("u")
+            t1 = time.perf_counter()
+            lats.append((t1 - t0) * 1000.0)
+        adapter.terminate()
+
+        p95 = float(np.percentile(lats, 95))
+        p95s.append(p95)
+        print(f"  Run {run_idx+1}: p95={p95:.3f}ms")
+
+    p95s = np.array(p95s)
+    assert np.std(p95s) < 2.0, \
+        f"p95 latency unstable across runs: std={np.std(p95s):.3f}ms, values={p95s}"
