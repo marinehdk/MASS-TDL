@@ -178,6 +178,7 @@ export function BridgeHMI() {
 
   const [showFaultModal, setShowFaultModal] = useState(false);
   const [deactivate] = useDeactivateLifecycleMutation();
+  const autoNavRef = useRef(false);
 
   const handleStop = async () => {
     await deactivate();
@@ -187,6 +188,18 @@ export function BridgeHMI() {
   const simTimeSec = lifecycleStatus?.sim_time ?? 0;
   const lcState    = lifecycleStatus?.current_state;
   const lcLabel    = ['?', 'UNCONFIGURED', 'INACTIVE', '▶ ACTIVE', 'DEACTIVATING', 'FINALIZED'][lcState ?? 0] ?? '?';
+
+  // Auto-navigate to Report when simulation completes
+  useEffect(() => {
+    if (lcState === 5 && !autoNavRef.current) {
+      autoNavRef.current = true;
+      // Small delay so user sees the final state before transition
+      const timer = setTimeout(() => {
+        window.location.hash = '#/report/latest';
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [lcState]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}
@@ -203,14 +216,58 @@ export function BridgeHMI() {
             position: 'absolute', inset: 0, zIndex: 50,
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(7,12,19,0.82)',
+            background: 'rgba(7,12,19,0.88)',
             fontFamily: 'var(--f-mono)',
           }}>
-            <div style={{ fontSize: 24, marginBottom: 12, opacity: 0.4 }}>◌</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-1)', marginBottom: 6 }}>
-              Waiting for simulation data…
+            {/* Animated radar sweep */}
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%',
+              border: '2px solid rgba(45,212,191,0.2)',
+              position: 'relative', marginBottom: 24,
+            }}>
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                border: '2px solid transparent',
+                borderTopColor: 'var(--c-phos)',
+                animation: 'spin 2s linear infinite',
+              }} />
+              <div style={{
+                position: 'absolute', top: '50%', left: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: 8, height: 8, borderRadius: '50%',
+                background: 'var(--c-phos)', opacity: 0.8,
+                boxShadow: '0 0 16px var(--c-phos)',
+                animation: 'pulse-glow 1.5s ease-in-out infinite',
+              }} />
             </div>
-            <div style={{ fontSize: 10, color: 'var(--txt-3)' }}>ws://127.0.0.1:8765</div>
+            <div style={{ fontSize: 14, color: 'var(--txt-1)', marginBottom: 8, letterSpacing: '0.16em', fontWeight: 600 }}>
+              AWAITING TELEMETRY
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--txt-3)', marginBottom: 16 }}>
+              Connecting to simulation data feed…
+            </div>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 16px', borderRadius: 20,
+              background: wsConnected ? 'rgba(45,212,191,0.1)' : 'rgba(248,81,73,0.1)',
+              border: `1px solid ${wsConnected ? 'rgba(45,212,191,0.3)' : 'rgba(248,81,73,0.3)'}`,
+            }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: wsConnected ? '#2dd4bf' : '#f87171',
+                animation: wsConnected ? 'pulse-glow 1.5s ease-in-out infinite' : 'none',
+              }} />
+              <span style={{ fontSize: 10, color: wsConnected ? '#2dd4bf' : '#f87171' }}>
+                {wsConnected ? 'WS CONNECTED' : 'WS DISCONNECTED'} · ws://127.0.0.1:8765
+              </span>
+            </div>
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+              @keyframes pulse-glow {
+                0%, 100% { opacity: 0.5; box-shadow: 0 0 8px var(--c-phos); }
+                50% { opacity: 1; box-shadow: 0 0 24px var(--c-phos); }
+              }
+            `}</style>
           </div>
         )}
 

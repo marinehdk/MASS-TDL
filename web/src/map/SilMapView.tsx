@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { osmSource, osmLayer, s57Source, ALL_S57_LAYERS } from './layers';
 import { useTelemetryStore, useMapStore } from '../store';
+import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
 
 interface SilMapViewProps {
@@ -25,6 +26,7 @@ interface SilMapViewProps {
 }
 
 import { ImazuGeometry } from './ImazuGeometry';
+import { MapZoomControl } from './MapZoomControl';
 
 const RAD = 180 / Math.PI;
 const NM_TO_DEG = 1 / 60;
@@ -104,6 +106,7 @@ export function SilMapView({
   const styleReady   = useRef(false);
   const lastPanAt    = useRef(0);
   const firstFit     = useRef(false);
+  const onMapClickRef = useRef(onMapClick);
   const viewportFromStore = useMapStore((s) => s.viewport);
   const setViewport       = useMapStore((s) => s.setViewport);
 
@@ -113,6 +116,11 @@ export function SilMapView({
   const tgtMarkers   = useRef<Map<string, maplibregl.Marker>>(new Map());
 
   const [status, setStatus] = useState<'init' | 'ready' | 'no-webgl'>('init');
+  const [mousePos, setMousePos] = useState<{ lng: number, lat: number } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lng: number, lat: number } | null>(null);
+
+  // Keep click handler ref in sync without re-initializing map
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
   // Cross-screen viewport persistence
   useMapPersistence(mapRef, viewMode);
@@ -184,7 +192,8 @@ export function SilMapView({
           ],
         },
         center: viewportFromStore.center,
-        zoom: viewportFromStore.zoom,
+        zoom: Math.min(viewportFromStore.zoom, MAP_MAX_ZOOM),
+        maxZoom: MAP_MAX_ZOOM,
       });
     } catch {
       setStatus('no-webgl');
@@ -251,16 +260,28 @@ export function SilMapView({
 
       styleReady.current = true;
       setStatus('ready');
+      setMapCenter(map.getCenter());
     });
 
     map.on('click', (e) => {
-      if (onMapClick) {
-        onMapClick(e.lngLat.lng, e.lngLat.lat);
+      if (onMapClickRef.current) {
+        onMapClickRef.current(e.lngLat.lng, e.lngLat.lat);
       }
     });
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'nautical' }), 'bottom-left');
+    map.on('mousemove', (e) => {
+      setMousePos({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+    });
+
+    map.on('mouseleave', () => {
+      setMousePos(null);
+    });
+
+    map.on('move', () => {
+      setMapCenter(map.getCenter());
+    });
+
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
     if (typeof window !== 'undefined') { (window as any).__maplibre_map = map; }
 
@@ -274,7 +295,8 @@ export function SilMapView({
       styleReady.current = false;
       firstFit.current = false;
     };
-  }, [onMapClick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Substrate update ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -329,7 +351,7 @@ export function SilMapView({
     // Follow
     if (followOwnShip && viewMode === 'captain' && !previewData) {
       if (!firstFit.current) {
-        map.jumpTo({ center: [lon, lat], zoom: 12 });
+        map.jumpTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM});
         map.setPadding({
           top: map.getContainer().clientHeight * (0.5 - viewportOffset[1]) * 2,
           bottom: map.getContainer().clientHeight * (viewportOffset[1] - 0.5) * 2,
@@ -343,12 +365,24 @@ export function SilMapView({
         lastPanAt.current = Date.now();
       }
     } else if (previewData) {
-      // Centering for Preview Mode
+      // Fit all vessels (OS + targets) in view with padding
+      const allLons = [lon, ...(previewData.targets || []).map(t => t.lon)];
+      const allLats = [lat, ...(previewData.targets || []).map(t => t.lat)];
+      const minLon = Math.min(...allLons), maxLon = Math.max(...allLons);
+      const minLat = Math.min(...allLats), maxLat = Math.max(...allLats);
+
       const currentCenter = map.getCenter();
       const dist = Math.abs(currentCenter.lng - lon) + Math.abs(currentCenter.lat - lat);
-      // If map is far away (e.g. initial load or new scenario), jump to it
       if (!firstFit.current || dist > 0.5) {
-        map.flyTo({ center: [lon, lat], zoom: 12, duration: 1500 });
+        if (allLons.length > 1 && (maxLon - minLon > 0.001 || maxLat - minLat > 0.001)) {
+          map.fitBounds([[minLon - 0.02, minLat - 0.02], [maxLon + 0.02, maxLat + 0.02]], {
+            padding: { top: 60, bottom: 60, left: 60, right: 100 },
+            maxZoom: MAP_MAX_ZOOM,
+            duration: 1500,
+          });
+        } else {
+          map.flyTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM, duration: 1500 });
+        }
         firstFit.current = true;
       }
     }
@@ -438,6 +472,14 @@ export function SilMapView({
     }
   }, [env, previewData]);
 
+  const formatCoord = (val: number, isLat: boolean) => {
+    const absVal = Math.abs(val);
+    const suffix = isLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'W');
+    return `${absVal.toFixed(4)}°${suffix}`;
+  };
+
+  const displayCoords = mousePos || mapCenter;
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -445,6 +487,48 @@ export function SilMapView({
            data-testid="sil-map-view" />
       
       <ImazuGeometry mapRef={mapRef} geometry={geometry || null} />
+
+      <style>{`
+        .maplibregl-ctrl-scale {
+          background: rgba(15, 23, 42, 0.6) !important;
+          backdrop-filter: blur(12px) !important;
+          border: 1px solid var(--line-1) !important;
+          color: var(--c-phos) !important;
+          font-family: var(--f-mono) !important;
+          font-size: 11px !important;
+          font-weight: 600 !important;
+          height: 38px !important;
+          width: 90px !important;
+          min-width: 90px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          padding: 0 !important;
+          border-radius: 4px !important;
+          margin-bottom: 20px !important;
+          margin-left: 20px !important;
+          box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3) !important;
+        }
+      `}</style>
+
+      {/* Coordinate Display next to Scale */}
+      {status === 'ready' && displayCoords && (
+        <div className="glass-panel hmi-surface" style={{
+          position: 'absolute', bottom: 20, left: 120, padding: '0 16px',
+          height: 38, display: 'flex', alignItems: 'center', gap: 12,
+          border: '1px solid var(--line-1)', borderRadius: 4,
+          fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)',
+          zIndex: 10, pointerEvents: 'none', letterSpacing: '0.02em'
+        }}>
+          <span style={{ color: 'var(--c-phos)', transition: 'color 0.2s', fontWeight: 600 }}>
+            {formatCoord(displayCoords.lat, true)}
+          </span>
+          <div style={{ width: 1, height: 14, background: 'var(--line-3)', opacity: 0.5 }} />
+          <span style={{ color: 'var(--c-phos)', transition: 'color 0.2s', fontWeight: 600 }}>
+            {formatCoord(displayCoords.lng, false)}
+          </span>
+        </div>
+      )}
 
       {status !== 'ready' && (
         <div style={{
@@ -455,6 +539,8 @@ export function SilMapView({
           {status === 'no-webgl' ? 'Map: WebGL unavailable (headless?)' : 'Map: initialising…'}
         </div>
       )}
+
+      {status === 'ready' && <MapZoomControl mapRef={mapRef} />}
     </div>
   );
 }

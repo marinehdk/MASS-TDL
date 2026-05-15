@@ -28,8 +28,20 @@ export function Preflight() {
     { id: 'sig', name: 'Scenario Hash Signature', status: 'pending' }
   ]);
 
-  const scenarioId = useScenarioStore((s) => s.scenarioId);
+  // Fall back to URL hash (#/preflight/<id>) when the store hasn't been seeded
+  // — e.g. on direct nav or page reload. Without this, configure() is skipped
+  // and the server stays UNCONFIGURED, so activate() returns 409 ("activate failed").
+  const scenarioIdFromStore = useScenarioStore((s) => s.scenarioId);
+  const scenarioIdFromHash = (() => {
+    const raw = window.location.hash.replace('#/preflight/', '').split('/')[0];
+    return raw && raw !== '#' && raw !== 'preflight' ? raw : null;
+  })();
+  const scenarioId = scenarioIdFromStore || scenarioIdFromHash;
+  const setScenario = useScenarioStore((s) => s.setScenario);
   const setRunId = useScenarioStore((s) => s.setRunId);
+  useEffect(() => {
+    if (!scenarioIdFromStore && scenarioIdFromHash) setScenario(scenarioIdFromHash, '');
+  }, [scenarioIdFromStore, scenarioIdFromHash, setScenario]);
   const [configure] = useConfigureLifecycleMutation();
   const [activate] = useActivateLifecycleMutation();
   const [cleanup] = useCleanupLifecycleMutation();
@@ -113,7 +125,7 @@ export function Preflight() {
         
         <div style={{ textAlign: 'center' }}>
           <h2 style={{ fontFamily: 'var(--f-disp)', color: 'var(--txt-0)', margin: 0, fontSize: 24, letterSpacing: '0.1em' }}>PRE-FLIGHT CHECK</h2>
-          <p style={{ fontFamily: 'var(--f-mono)', color: 'var(--txt-3)', fontSize: 12, margin: '8px 0 0' }}>SCENARIO: {scenarioId?.slice(0, 8) || 'UNKNOWN'}</p>
+          <p style={{ fontFamily: 'var(--f-mono)', color: 'var(--txt-3)', fontSize: 12, margin: '8px 0 0' }}>SCENARIO: {scenarioId || 'N/A'}</p>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

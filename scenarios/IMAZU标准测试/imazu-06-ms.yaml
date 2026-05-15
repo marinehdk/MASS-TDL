@@ -1,5 +1,5 @@
-title: Imazu Case 14 — MS
-description: 'Imazu (1987) benchmark case 14. OS: heading 0deg, SOG 10 kn. Tengesdal
+title: Imazu Case 06 — MS
+description: 'Imazu (1987) benchmark case 06. OS: heading 0deg, SOG 10 kn. Tengesdal
   & Johansen (2023 CCTA).'
 start_time: '2026-01-01T00:00:00Z'
 own_ship:
@@ -8,8 +8,8 @@ own_ship:
   mmsi: 123456789
   initial:
     position:
-      latitude: 63.0
-      longitude: 5.0
+      latitude: 63.44
+      longitude: 10.38
     cog: 0.0
     sog: 10.0
     heading: 0.0
@@ -19,8 +19,8 @@ target_ships:
   mmsi: 100000001
   initial:
     position:
-      latitude: 63.019785
-      longitude: 5.099046
+      latitude: 63.463023
+      longitude: 10.479046
     cog: 320.0
     sog: 10.0
     heading: 320.0
@@ -29,30 +29,20 @@ target_ships:
   mmsi: 100000002
   initial:
     position:
-      latitude: 63.004497
-      longitude: 5.053485
+      latitude: 63.447734
+      longitude: 10.433485
     cog: 342.0
     sog: 10.0
     heading: 342.0
-- id: ts3
-  nav_status: 0
-  mmsi: 100000003
-  initial:
-    position:
-      latitude: 63.051261
-      longitude: 5.126779
-    cog: 270.0
-    sog: 10.0
-    heading: 270.0
 metadata:
   schema_version: '2.0'
-  scenario_id: imazu-14-ms-v1.0
+  scenario_id: imazu-06-ms-v1.0
   scenario_source: imazu1987
   vessel_class: FCB
   odd_zone: A
   geo_origin:
-    latitude: 63.0
-    longitude: 5.0
+    latitude: 63.44
+    longitude: 10.38
     description: Norwegian Sea anchor (default); override per ENC region
   encounter:
     rule: Rule14

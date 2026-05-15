@@ -1,5 +1,5 @@
-title: Imazu Case 04 — CR_SO
-description: 'Imazu (1987) benchmark case 04. OS: heading 0deg, SOG 10 kn. Tengesdal
+title: Imazu Case 03 — OT
+description: 'Imazu (1987) benchmark case 03. OS: heading 0deg, SOG 10 kn. Tengesdal
   & Johansen (2023 CCTA).'
 start_time: '2026-01-01T00:00:00Z'
 own_ship:
@@ -8,8 +8,8 @@ own_ship:
   mmsi: 123456789
   initial:
     position:
-      latitude: 63.0
-      longitude: 5.0
+      latitude: 63.44
+      longitude: 10.38
     cog: 0.0
     sog: 10.0
     heading: 0.0
@@ -19,25 +19,25 @@ target_ships:
   mmsi: 100000001
   initial:
     position:
-      latitude: 63.023023
-      longitude: 4.891049
-    cog: 40.0
-    sog: 10.0
-    heading: 40.0
+      latitude: 63.458526
+      longitude: 10.38
+    cog: 0.0
+    sog: 5.0
+    heading: 0.0
 metadata:
   schema_version: '2.0'
-  scenario_id: imazu-04-cr-so-v1.0
+  scenario_id: imazu-03-ot-v1.0
   scenario_source: imazu1987
   vessel_class: FCB
   odd_zone: A
   geo_origin:
-    latitude: 63.0
-    longitude: 5.0
+    latitude: 63.44
+    longitude: 10.38
     description: Norwegian Sea anchor (default); override per ENC region
   encounter:
-    rule: Rule15
-    give_way_vessel: target
-    expected_own_action: maintain
+    rule: Rule13
+    give_way_vessel: own
+    expected_own_action: turn_starboard
     avoidance_time_s: 300.0
     avoidance_delta_rad: 0.6109
     avoidance_duration_s: 90.0
