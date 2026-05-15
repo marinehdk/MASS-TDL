@@ -23,11 +23,11 @@
 | 04 | `04-sensor-confidence.md` | 传感器退化 vs CG-0264 §6 限值 | ⏳ 在制 |
 | 05 | `05-orchestration-trace.md` | libcosim API trace + 通信步长审计 | ⏳ 在制 |
 | 06 | `06-evidence-matrix.md` | 4 项证明 → DNV-RP-0513 条款映射 | ⏳ 在制 |
-| 07 | `07-ccs-mapping.md` | CCS 智能船舶规范 §9.1 条款映射 | ⏳ 在制 |
+| 07 | `07-ccs-mapping.md` | CCS 智能船舶规范 §9.1 条款映射 | ✅ v0.1-draft（🟢 方法论 | ⚫ CCS PDF 待送达）|
 | — | `annex/test-results/` | CI artifact dump | ✅ 目录已创建 |
 | — | `annex/csv/` | 数据原件（CSV）| ✅ 目录已创建 |
 | — | `annex/plots/` | 图表（PNG/SVG）| ✅ 目录已创建 |
-| — | `annex/ccs-communication-schedule.md` | CCS surveyor 沟通时间表 | ⏳ 在制 |
+| — | `annex/ccs-communication-schedule.md` | CCS surveyor 沟通时间表 | ✅ v0.1-draft（🟢 方法论 | ⚫ 联系人 TBD）|
 
 ## 数据可用性分级
 
