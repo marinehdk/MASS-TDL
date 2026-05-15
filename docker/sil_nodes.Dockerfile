@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2
 
 # Build the workspace
 RUN . /opt/ros/humble/setup.sh && \
-    colcon build --symlink-install --merge-install \
+    colcon build --symlink-install \
         --packages-select sil_msgs sil_lifecycle \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
@@ -31,7 +31,8 @@ RUN . /opt/ros/humble/setup.sh && \
 
 RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 
-# Launch all 10 Python LifecycleNodes + lifecycle auto-activation
-CMD ["/bin/bash", "-lc", \
-     "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && \
-      ros2 launch sil_lifecycle sil_all_nodes.launch.py"]
+# Launch all 10 Python LifecycleNodes directly (ament_python packages
+# have no libexec dir; ros2 launch fails. Use ros2 run + lifecycle cli instead.)
+COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
+RUN chmod +x /opt/ws/sil_entrypoint.sh
+CMD ["/opt/ws/sil_entrypoint.sh"]
