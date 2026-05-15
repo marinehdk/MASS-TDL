@@ -94,7 +94,18 @@ class ScenarioStore:
             return None
         content = path.read_text()
         h = hashlib.sha256(content.encode()).hexdigest()
-        return {"yaml_content": content, "hash": h}
+        backend: str = "demo"
+        try:
+            yaml_data = yaml.safe_load(content)
+            if isinstance(yaml_data, dict):
+                metadata = yaml_data.get("metadata", {})
+                if isinstance(metadata, dict):
+                    sim_settings = metadata.get("simulation_settings", {})
+                    if isinstance(sim_settings, dict):
+                        backend = sim_settings.get("backend", "demo")
+        except (yaml.YAMLError, AttributeError):
+            pass
+        return {"yaml_content": content, "hash": h, "backend": backend}
 
     def create(self, yaml_content: str) -> dict:
         self._ensure_dir()

@@ -4,7 +4,9 @@ Spec: docs/Design/SIL/2026-05-12-sil-architecture-design.md §1 orchestration pl
 """
 
 import json
+import os
 import time
+import warnings
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -49,7 +51,17 @@ _last_run_id: str | None = None
 
 
 def _seed_run_dir(scenario_id: str) -> str:
-    """Create a run directory with scenario YAML so Marzip export has artefacts.
+    """DEPRECATED: use _seed_run_dir_ros2() instead."""
+    warnings.warn(
+        "_seed_run_dir is deprecated; use _seed_run_dir_ros2",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _seed_run_dir_demo(scenario_id)
+
+
+def _seed_run_dir_demo(scenario_id: str) -> str:
+    """Legacy DEMO-1 path: write hardcoded scoring stub.
 
     Phase 1: stubs scoring KPIs from the YAML's expected block. Phase 2 wires
     real bag + Arrow output from the rosbag2_recorder + scoring_node.
@@ -63,7 +75,6 @@ def _seed_run_dir(scenario_id: str) -> str:
     if detail is not None:
         (run_path / "scenario.yaml").write_text(detail["yaml_content"])
         (run_path / "scenario.sha256").write_text(detail["hash"])
-    # Stub scoring (replaced by scoring_node Arrow output in Phase 2)
     stub = {
         "run_id": run_id,
         "scenario_id": scenario_id,
@@ -82,6 +93,22 @@ def _seed_run_dir(scenario_id: str) -> str:
         "verdict": "pending",
     }
     (run_path / "scoring.json").write_text(json.dumps(stub, indent=2))
+    return run_id
+
+
+def _seed_run_dir_ros2(scenario_id: str) -> str:
+    """ROS2 path: create run dir with scenario YAML only; scoring.arrow written by scoring_node."""
+    global _last_run_id
+    run_id = f"run-{int(time.time() * 1000):x}"
+    _last_run_id = run_id
+    run_path = RUN_DIR / run_id
+    run_path.mkdir(parents=True, exist_ok=True)
+    detail = _store.get(scenario_id)
+    if detail is not None:
+        (run_path / "scenario.yaml").write_text(detail["yaml_content"])
+        (run_path / "scenario.sha256").write_text(detail["hash"])
+    os.environ["SIL_RUN_DIR"] = str(RUN_DIR)
+    os.environ["SIL_RUN_ID"] = run_id
     return run_id
 
 
@@ -111,7 +138,12 @@ async def lifecycle_activate():
     result = await bridge.activate()
     run_id = None
     if result.success and bridge.scenario_id:
-        run_id = _seed_run_dir(bridge.scenario_id)
+        detail = _store.get(bridge.scenario_id)
+        backend = detail.get("backend", "demo") if detail else "demo"
+        if backend == "ros2":
+            run_id = _seed_run_dir_ros2(bridge.scenario_id)
+        else:
+            run_id = _seed_run_dir_demo(bridge.scenario_id)
     return {"success": result.success, "error": result.error, "run_id": run_id}
 
 
