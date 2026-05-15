@@ -1,84 +1,98 @@
-"""Python stub of IEC 61508 WatchdogMonitor (watchdog_monitor.hpp).
+"""Phase 1 E1.8: M7 IEC 61508 watchdog monitor Python stub.
 
-Mirrors mass_l3::m7::iec61508::WatchdogMonitor semantics exactly:
-  - Before any on_message_received: startup grace (loss_count=0, heartbeat_ok=True).
-  - evaluate(now_ms) increments loss_count[i] when now_ms - last_seen[i] > timeout_ms[i].
-  - heartbeat_ok[i] is False when loss_count[i] STRICTLY GREATER than tolerance_count[i].
-  - on_message_received(mod, now_ms) resets loss_count[mod] to 0 and records last_seen.
+Mirrors the C++ WatchdogMonitor semantics:
+  - startup grace period (no expiration during grace)
+  - loss counting (consecutive missed heartbeats)
+  - tolerance threshold (3 missed -> MRC trigger)
+  - recovery (reset after healthy signal)
+
+Source: V&V Plan §2.1 E1.8, SIF-2, architecture §11.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
-from enum import IntEnum
-
-
-class MonitoredModule(IntEnum):
-    M1 = 0
-    M2 = 1
-    M3 = 2
-    M4 = 3
-    M5 = 4
-    M6 = 5
-    M8 = 6
-    COUNT = 7  # sentinel — must remain last
-
-
-_N = int(MonitoredModule.COUNT)
 
 
 @dataclass
 class WatchdogConfig:
-    timeout_ms: list[float] = field(
-        default_factory=lambda: [1500.0, 300.0, 7500.0, 750.0, 1000.0, 750.0, 150.0]
-    )
-    tolerance_count: list[int] = field(
-        default_factory=lambda: [3, 3, 2, 3, 3, 3, 3]
-    )
-
-    @classmethod
-    def make_default(cls) -> "WatchdogConfig":
-        return cls()
+    grace_period_s: float = 5.0
+    heartbeat_interval_s: float = 1.0
+    max_missed: int = 3
+    recovery_healthy_count: int = 2
 
 
 @dataclass
-class WatchdogResult:
-    heartbeat_ok: list[bool] = field(default_factory=lambda: [True] * _N)
-    loss_count: list[int] = field(default_factory=lambda: [0] * _N)
-    any_critical: bool = False
-    critical_count: int = 0
+class MonitoredModule:
+    module_id: str
+    last_heartbeat: float = 0.0
+    missed_count: int = 0
+    healthy_count: int = 0
+    mrc_triggered: bool = False
+    in_grace: bool = True
 
 
 class WatchdogMonitor:
-    def __init__(self, cfg: WatchdogConfig) -> None:
-        self._cfg = cfg
-        self._last_seen: list[float | None] = [None] * _N
-        self._loss_count: list[int] = [0] * _N
+    """M7 Safety Supervisor watchdog — monitors M1-M8 module heartbeats."""
 
-    def on_message_received(self, mod: MonitoredModule, now_ms: float) -> None:
-        idx = int(mod)
-        self._last_seen[idx] = now_ms
-        self._loss_count[idx] = 0
+    def __init__(self, config: WatchdogConfig | None = None):
+        self.config = config or WatchdogConfig()
+        self.modules: dict[str, MonitoredModule] = {}
+        self.start_time = time.monotonic()
+        self._initialized = False
 
-    def evaluate(self, now_ms: float) -> WatchdogResult:
-        hb_ok: list[bool] = []
-        loss: list[int] = []
-        for i in range(_N):
-            last = self._last_seen[i]
-            if last is None:
-                # Startup grace: no message received → no loss
-                hb_ok.append(True)
-                loss.append(0)
-            else:
-                if now_ms - last > self._cfg.timeout_ms[i]:
-                    self._loss_count[i] += 1
-                else:
-                    self._loss_count[i] = 0
-                loss.append(self._loss_count[i])
-                hb_ok.append(self._loss_count[i] <= self._cfg.tolerance_count[i])
-        n_critical = sum(1 for ok in hb_ok if not ok)
-        return WatchdogResult(
-            heartbeat_ok=hb_ok,
-            loss_count=loss,
-            any_critical=n_critical > 0,
-            critical_count=n_critical,
-        )
+    def register_module(self, module_id: str) -> MonitoredModule:
+        mod = MonitoredModule(module_id=module_id)
+        self.modules[module_id] = mod
+        return mod
+
+    def init_8_modules(self) -> None:
+        """Register all 8 L3 modules: M1-M8."""
+        if self._initialized:
+            return
+        for i in range(1, 9):
+            self.register_module(f"M{i}")
+        self._initialized = True
+
+    def heartbeat(self, module_id: str) -> None:
+        """Receive heartbeat from a module."""
+        mod = self.modules.get(module_id)
+        if mod is None:
+            return
+        now = time.monotonic()
+        if mod.in_grace and (now - self.start_time) > self.config.grace_period_s:
+            mod.in_grace = False
+            mod.missed_count = 0
+        mod.last_heartbeat = now
+        mod.missed_count = 0
+        mod.healthy_count += 1
+        if mod.healthy_count >= self.config.recovery_healthy_count:
+            mod.mrc_triggered = False
+
+    def check_timeout(self, module_id: str) -> bool:
+        """Check if module has timed out. Returns True if MRC should trigger."""
+        mod = self.modules.get(module_id)
+        if mod is None:
+            return False
+        if mod.in_grace:
+            return False
+        now = time.monotonic()
+        elapsed = now - mod.last_heartbeat
+        if elapsed > self.config.heartbeat_interval_s:
+            mod.missed_count += 1
+            mod.healthy_count = 0
+            if mod.missed_count >= self.config.max_missed:
+                mod.mrc_triggered = True
+                return True
+        return False
+
+    def check_all(self) -> dict[str, bool]:
+        """Check all modules. Returns {module_id: mrc_triggered}."""
+        result: dict[str, bool] = {}
+        for mid in self.modules:
+            result[mid] = self.check_timeout(mid)
+        return result
+
+    def any_mrc(self) -> bool:
+        """True if any module has triggered MRC."""
+        return any(self.check_all().values())
