@@ -1,0 +1,34 @@
+{
+  "report_version": "1.0",
+  "generated_at": "2026-05-15T07:02:24.343676+00:00",
+  "overall_pass": true,
+  "results": [
+    {
+      "scenario_id": "deceleration",
+      "reference_name": "deceleration",
+      "rms_position_pct": 0.0,
+      "rms_heading_deg": 0.0,
+      "rms_speed_pct": 0.0,
+      "passed": true,
+      "data_path": "docs/Design/SIL/D1.3.1-simulator-qualification/annex/test-results/reference_deceleration.csv"
+    },
+    {
+      "scenario_id": "turning_circle",
+      "reference_name": "turning_circle",
+      "rms_position_pct": 0.0,
+      "rms_heading_deg": 0.0,
+      "rms_speed_pct": 0.0,
+      "passed": true,
+      "data_path": "docs/Design/SIL/D1.3.1-simulator-qualification/annex/test-results/reference_turning_circle.csv"
+    },
+    {
+      "scenario_id": "zigzag",
+      "reference_name": "zigzag",
+      "rms_position_pct": 0.0,
+      "rms_heading_deg": 0.0,
+      "rms_speed_pct": 0.0,
+      "passed": true,
+      "data_path": "docs/Design/SIL/D1.3.1-simulator-qualification/annex/test-results/reference_zigzag.csv"
+    }
+  ]
+}
