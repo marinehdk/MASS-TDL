@@ -51,12 +51,10 @@ class ScoringNode(LifecycleNode):
         parsed = json.loads(raw)
         for d in self.DIMS:
             if d not in parsed:
-                self._logger.warning(
-                    "Missing weight '%s', defaulting to 1/%d", d, len(self.DIMS)
-                )
+                self._logger.warning(f"Missing weight '{d}', defaulting to 1/{len(self.DIMS)}")
                 parsed[d] = 1.0 / len(self.DIMS)
         self._weights = parsed
-        self._logger.info("configured with weights=%s", self._weights)
+        self._logger.info(f"configured with weights={self._weights}")
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state) -> TransitionCallbackReturn:
@@ -210,7 +208,7 @@ class ScoringNode(LifecycleNode):
         msg.total = row["total"]
 
         self._score_pub.publish(msg)
-        self._logger.debug("published ScoringRow total=%.3f", row["total"])
+        self._logger.debug(f"published ScoringRow total={row['total']:.3f}")
 
 
 def main(args: list[str] | None = None) -> None:

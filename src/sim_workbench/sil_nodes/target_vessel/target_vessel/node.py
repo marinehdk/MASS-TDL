@@ -132,9 +132,9 @@ class TargetVesselNode(LifecycleNode):
                 for entry in json.loads(raw):
                     self.add_target(**entry)
             except (json.JSONDecodeError, TypeError, KeyError) as exc:
-                self._logger.error("Failed to parse default_targets_json: %s", exc)
+                self._logger.error(f"Failed to parse default_targets_json: {exc}")
                 return TransitionCallbackReturn.ERROR
-        self._logger.info("Configured with %d target(s)", len(self._targets))
+        self._logger.info(f"Configured with {len(self._targets)} target(s)")
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:

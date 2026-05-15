@@ -72,11 +72,7 @@ class SensorMockNode(LifecycleNode):
         self.declare_parameter("radar_max_range", 12000.0)
         self.ais_drop_pct = self.get_parameter("ais_drop_pct").value
         self.radar_max_range = self.get_parameter("radar_max_range").value
-        self._logger.info(
-            "Configured — ais_drop_pct=%.2f radar_max_range=%.1f",
-            self.ais_drop_pct,
-            self.radar_max_range,
-        )
+        self._logger.info(f"Configured — ais_drop_pct={self.ais_drop_pct:.2f} radar_max_range={self.radar_max_range:.1f}")
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
