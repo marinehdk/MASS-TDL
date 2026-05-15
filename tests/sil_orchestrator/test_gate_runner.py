@@ -24,16 +24,10 @@ def test_gate_runner_registers_gates():
 
 def test_gate_runner_run_all_stubs():
     async def _run():
-        with patch("sil_orchestrator.gate_runner._check_docker_services", new_callable=AsyncMock) as mock_docker, \
-             patch("sil_orchestrator.gate_runner._check_ros2_discovery", new_callable=AsyncMock) as mock_ros2, \
-             patch("sil_orchestrator.gate_runner._check_foxglove_bridge", new_callable=AsyncMock) as mock_fox, \
-             patch("sil_orchestrator.gate_runner._check_martin_tileserver", new_callable=AsyncMock) as mock_martin, \
-             patch("sil_orchestrator.gate_runner._check_ws_connected", new_callable=AsyncMock) as mock_ws:
-            mock_docker.return_value = ("ok", "docker compose 5/5 healthy")
-            mock_ros2.return_value = ("ok", "ROS2 DDS discovery: 3/3 nodes visible")
-            mock_fox.return_value = ("ok", "foxglove_bridge :8765 listening")
-            mock_martin.return_value = ("ok", "martin :3000 responsive")
-            mock_ws.return_value = ("ok", "telemetry WS connected")
+        with patch("sil_orchestrator.gate_runner.gate_1_system_readiness", new_callable=AsyncMock) as mock_g1, \
+             patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2:
+            mock_g1.return_value = GateResult(gate_id=1, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
+            mock_g2.return_value = GateResult(gate_id=2, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             runner = GateRunner(scenario_id="test-01")
             results = await runner.run_all()
         assert len(results) == 6
@@ -84,3 +78,61 @@ async def test_gate_1_docker_fail():
         result = await gate_1_system_readiness()
         assert result.passed == False
         assert any("fail" in c for c in result.checks)
+
+
+from sil_orchestrator.gate_runner import gate_2_module_health, ModulePulseCheck
+
+FAKE_PULSES_ALL_GREEN = [
+    ModulePulseCheck(module="M1", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M2", state=1, latency_ms=3, drops=0),
+    ModulePulseCheck(module="M3", state=1, latency_ms=1, drops=0),
+    ModulePulseCheck(module="M4", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M5", state=1, latency_ms=4, drops=0),
+    ModulePulseCheck(module="M6", state=1, latency_ms=3, drops=0),
+    ModulePulseCheck(module="M7", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M8", state=1, latency_ms=1, drops=0),
+]
+
+FAKE_PULSES_M3_RED = [
+    ModulePulseCheck(module="M1", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M2", state=1, latency_ms=3, drops=0),
+    ModulePulseCheck(module="M3", state=3, latency_ms=120, drops=5),
+    ModulePulseCheck(module="M4", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M5", state=1, latency_ms=4, drops=0),
+    ModulePulseCheck(module="M6", state=1, latency_ms=3, drops=0),
+    ModulePulseCheck(module="M7", state=1, latency_ms=2, drops=0),
+    ModulePulseCheck(module="M8", state=1, latency_ms=1, drops=0),
+]
+
+
+@pytest.mark.asyncio
+async def test_gate_2_all_green():
+    """GATE 2: 8/8 GREEN + M7 independent -> PASS"""
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_ALL_GREEN), \
+         patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
+        mock_m7.return_value = ("ok", "M7 PID 12345 independent from component_container")
+        result = await gate_2_module_health()
+        assert result.gate_id == 2
+        assert result.passed == True
+        assert len(result.checks) == 9
+
+
+@pytest.mark.asyncio
+async def test_gate_2_m3_red_fails():
+    """GATE 2: M3 RED -> FAIL"""
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_M3_RED), \
+         patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
+        mock_m7.return_value = ("ok", "M7 PID independent")
+        result = await gate_2_module_health()
+        assert result.passed == False
+        assert any("M3" in c and "RED" in c for c in result.checks)
+
+
+@pytest.mark.asyncio
+async def test_gate_2_m7_not_independent():
+    """GATE 2: M7 process not independent -> FAIL"""
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_ALL_GREEN), \
+         patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
+        mock_m7.return_value = ("fail", "M7 PID 12345 found inside component_container — Doer-Checker isolation violated")
+        result = await gate_2_module_health()
+        assert result.passed == False
