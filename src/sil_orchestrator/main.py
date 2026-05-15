@@ -18,6 +18,7 @@ from sil_orchestrator.scenario_store import ScenarioStore
 from sil_orchestrator.selfcheck_routes import router as selfcheck_router
 from sil_orchestrator.export_routes import router as export_router
 from sil_orchestrator.scenario_routes import router as scenario_router
+from sil_orchestrator.scoring_routes import router as scoring_router
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState  # noqa: F401
 
 import rclpy
@@ -171,21 +172,11 @@ async def lifecycle_cleanup():
     return {"success": result.success, "error": result.error}
 
 
-@app.get("/api/v1/scoring/last_run")
-async def scoring_last_run():
-    """Return KPIs + rule chain for the most recent run, for Screen ④."""
-    if _last_run_id is None:
-        return {"run_id": None, "kpis": None, "rule_chain": []}
-    path = RUN_DIR / _last_run_id / "scoring.json"
-    if not path.exists():
-        return {"run_id": _last_run_id, "kpis": None, "rule_chain": []}
-    return json.loads(path.read_text())
-
-
-# Self-check, export, and scenario CRUD routes
+# Self-check, export, scenario CRUD, and scoring routes
 app.include_router(selfcheck_router)
 app.include_router(export_router)
 app.include_router(scenario_router)
+app.include_router(scoring_router)
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
