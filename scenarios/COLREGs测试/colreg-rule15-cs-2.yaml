@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule15-cs-002-v1.0'
-description: 'Rule 15/16 starboard crossing at 90°. Target approaches from 090° (dead abeam starboard), heading 270°. Current
-  0.5 kn from West. Short TCPA ≈ 89 s requires early avoidance at 50 s.
+description: 'Rule 15/16 starboard crossing at 90°. Target approaches from 090° (dead
+  abeam starboard), heading 270°. Current 0.5 kn from West. Short TCPA ≈ 89 s requires
+  early avoidance at 50 s.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.0
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

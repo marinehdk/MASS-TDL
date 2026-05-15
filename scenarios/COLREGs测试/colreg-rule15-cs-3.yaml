@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule15-cs-003-v1.0'
-description: 'Rule 15/17 port-side crossing. Target approaches from 297° (own ship''s port bow), heading 070°. Own ship is
-  stand-on vessel (Rule 17), must maintain course and speed. avoidance_delta_rad=0 and avoidance_time_s=0 represent the "maintain"
+description: 'Rule 15/17 port-side crossing. Target approaches from 297° (own ship''s
+  port bow), heading 070°. Own ship is stand-on vessel (Rule 17), must maintain course
+  and speed. avoidance_delta_rad=0 and avoidance_time_s=0 represent the "maintain"
   action.
 
   '
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.0
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

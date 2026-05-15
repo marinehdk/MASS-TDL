@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule13-ot-001-v1.0'
-description: 'Rule 13 pure overtaking from dead astern (180° from target''s perspective). Target at (50, 926) heading 000°
-  at 8 kn. Own ship heading 000° at 14 kn, overtaking. Own ship is give-way.
+description: 'Rule 13 pure overtaking from dead astern (180° from target''s perspective).
+  Target at (50, 926) heading 000° at 8 kn. Own ship heading 000° at 14 kn, overtaking.
+  Own ship is give-way.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 4.2
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

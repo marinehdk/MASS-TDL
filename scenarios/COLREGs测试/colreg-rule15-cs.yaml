@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule15-cs-001-v1.0'
-description: 'Rule 15/16 starboard crossing encounter. Target approaches from 060° (own ship''s starboard bow), heading 270°.
-  Own ship is give-way vessel, must turn starboard. DCPA ≈ 473 m without action.
+description: 'Rule 15/16 starboard crossing encounter. Target approaches from 060°
+  (own ship''s starboard bow), heading 270°. Own ship is give-way vessel, must turn
+  starboard. DCPA ≈ 473 m without action.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.0
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

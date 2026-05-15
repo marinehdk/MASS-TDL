@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule14-ho-003-v1.0'
-description: 'Rule 14 / Rule 19 head-on at high speed (15 kn own, 12 kn target) in restricted visibility (1000 m). Own ship
-  must act earlier due to combined closure rate ~14 m/s.
+description: 'Rule 14 / Rule 19 head-on at high speed (15 kn own, 12 kn target) in
+  restricted visibility (1000 m). Own ship must act earlier due to combined closure
+  rate ~14 m/s.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -63,6 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 4.5
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002

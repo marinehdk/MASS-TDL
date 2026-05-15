@@ -1,6 +1,7 @@
 title: 'Scenario: colreg-rule14-ho-001-v1.0'
-description: 'Rule 14 pure head-on encounter in calm conditions. Own ship heading 000°, target heading 180°, initial separation
-  2.0 nm (3704 m). Both vessels on reciprocal courses, DCPA ≈ 0 m without action.
+description: 'Rule 14 pure head-on encounter in calm conditions. Own ship heading
+  000°, target heading 180°, initial separation 2.0 nm (3704 m). Both vessels on reciprocal
+  courses, DCPA ≈ 0 m without action.
 
   '
 startTime: '2026-05-15T05:08:47Z'
@@ -62,6 +63,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 3.5
     dynamics_mode: internal
+    backend: demo
   disturbance:
     wind: *id001
     current: *id002
