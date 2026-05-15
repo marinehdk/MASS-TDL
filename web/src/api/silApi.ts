@@ -17,9 +17,21 @@ export interface ValidateResult {
   errors: string[];
 }
 
+export interface GateCheckResult {
+  gate_id: number;
+  label: string;
+  passed: boolean;
+  checks: string[];
+  duration_ms: number;
+  rationale: string;
+}
+
 export interface ProbeResult {
   all_clear: boolean;
-  items: { name: string; passed: boolean; detail: string }[];
+  go_no_go: 'GO' | 'NO-GO';
+  scenario_id: string;
+  gates: GateCheckResult[];
+  items?: { name: string; passed: boolean; detail: string }[];
 }
 
 export interface ModulePulseStatus {
@@ -112,8 +124,13 @@ export const silApi = createApi({
     }),
 
     // Self-check
-    probeSelfCheck: builder.mutation<ProbeResult, void>({
-      query: () => ({ url: '/selfcheck/probe', method: 'POST' }),
+    probeSelfCheck: builder.mutation<ProbeResult, { scenario_id?: string } | void>({
+      query: (arg) => {
+        const params = (arg && 'scenario_id' in arg && arg.scenario_id)
+          ? `?scenario_id=${encodeURIComponent(arg.scenario_id)}`
+          : '';
+        return { url: `/selfcheck/probe${params}`, method: 'POST' };
+      },
     }),
 
     getHealthStatus: builder.query<{ module_pulses: ModulePulseStatus[] }, void>({
@@ -144,6 +161,13 @@ export const silApi = createApi({
     cancelFault: builder.mutation<{ cancelled: boolean }, string>({
       query: (faultId) => ({ url: `/fault/${faultId}`, method: 'DELETE' }),
     }),
+    skipPreflight: builder.mutation<{ skipped: boolean; verdict: string }, { scenario_id: string; reason: string }>({
+      query: (body) => ({
+        url: `/selfcheck/skip`,
+        method: 'POST',
+        params: { scenario_id: body.scenario_id, reason: body.reason },
+      }),
+    }),
   }),
 });
 
@@ -166,4 +190,5 @@ export const {
   useTriggerFaultMutation,
   useInjectFaultMutation,
   useCancelFaultMutation,
+  useSkipPreflightMutation,
 } = silApi;
