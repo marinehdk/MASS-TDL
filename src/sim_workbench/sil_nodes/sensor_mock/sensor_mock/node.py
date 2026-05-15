@@ -106,12 +106,18 @@ class SensorMockNode(LifecycleNode):
         self._radar_timer = self.create_timer(0.2, self._radar_callback)
         self._ais_timer = self.create_timer(10.0, self._ais_callback)
 
-        # Subscriptions to upstream state topics
+        # Subscriptions to upstream state topics — BEST_EFFORT to match publishers
+        state_sub_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self._own_state_sub = self.create_subscription(
-            OwnShipState, "/sil/own_ship_state", self._own_state_cb, 10
+            OwnShipState, "/sil/own_ship_state", self._own_state_cb, state_sub_qos
         )
         self._target_state_sub = self.create_subscription(
-            TargetVesselState, "/sil/target_vessel_state", self._target_state_cb, 10
+            TargetVesselState, "/sil/target_vessel_state", self._target_state_cb, state_sub_qos
         )
 
         self._logger.info(

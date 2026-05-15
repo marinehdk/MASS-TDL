@@ -70,17 +70,23 @@ class ScoringNode(LifecycleNode):
         self._score_pub = self.create_publisher(ScoringRow, "/sil/scoring", qos)
         self._timer = self.create_timer(1.0, self._score_callback)
 
+        sub_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self._own_ship_sub = self.create_subscription(
             OwnShipState,
             "/sil/own_ship_state",
             self._on_own_ship,
-            10,
+            sub_qos,
         )
         self._target_sub = self.create_subscription(
             TargetVesselState,
             "/sil/target_vessel_state",
             self._on_target,
-            10,
+            sub_qos,
         )
 
         self._logger.info("activated — publishing ScoringRow @ 1 Hz on /sil/scoring")

@@ -188,11 +188,18 @@ if _HAS_RCLPY:
 
             from sil_msgs.msg import AISMessage, RadarMeasurement
 
+            # Radar subscription: BEST_EFFORT to match sensor_mock publisher
+            radar_sub_qos = QoSProfile(
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=2,
+            )
             self._sub_radar = self.create_subscription(
                 RadarMeasurement,
                 "/sil/radar_meas",
                 self._radar_callback,
-                10,
+                radar_sub_qos,
             )
             self._sub_ais = self.create_subscription(
                 AISMessage,
