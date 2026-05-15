@@ -60,7 +60,8 @@ class GateRunner:
             GateSpec(gate_id=2, label="Module Health (M1-M8)", handler=gate_2_module_health),
             GateSpec(gate_id=3, label="Scenario Integrity",
                      handler=lambda: gate_3_scenario_integrity(self.scenario_id, self.scenario_data)),
-            GateSpec(gate_id=4, label="ODD-Scenario Alignment", handler=self._stub_handler(4)),
+            GateSpec(gate_id=4, label="ODD-Scenario Alignment",
+                     handler=lambda: gate_4_odd_alignment(self.scenario_id, self.scenario_data)),
             GateSpec(gate_id=5, label="Time Base & Evidence Chain", handler=self._stub_handler(5)),
             GateSpec(gate_id=6, label="Doer-Checker Independence", handler=self._stub_handler(6)),
         ]
@@ -306,3 +307,69 @@ async def gate_3_scenario_integrity(scenario_id: str, scenario_data: dict | None
 
     rationale = "hash match + YAML ok + expected_outcome present" if passed else "integrity check(s) failed"
     return GateResult(gate_id=3, passed=passed, checks=checks, duration_ms=0.0, rationale=rationale)
+
+
+_VALID_ODD_DOMAINS = {"open_sea", "coastal", "fairway", "port_entry", "ofw"}
+_ODD_BOUNDS = {
+    "visibility_nm": (0.1, 50.0),
+    "sea_state_beaufort": (0, 9),
+    "max_wind_kn": (0, 65),
+}
+
+
+async def gate_4_odd_alignment(scenario_id: str, scenario_data: dict | None) -> GateResult:
+    """GATE 4: ODD-Scenario Alignment — scenario.odd_cell within bounds."""
+    checks: list[str] = []
+    passed = True
+
+    if scenario_data is None:
+        checks.append("[warn] no scenario data, skipping ODD check")
+        return GateResult(gate_id=4, passed=True, checks=checks, duration_ms=0.0,
+                          rationale="no scenario data — ODD check skipped")
+
+    try:
+        parsed = yaml.safe_load(scenario_data.get("yaml_content", ""))
+    except yaml.YAMLError:
+        checks.append("[fail] YAML parse error")
+        return GateResult(gate_id=4, passed=False, checks=checks, duration_ms=0.0, rationale="YAML unparseable")
+
+    if not isinstance(parsed, dict):
+        checks.append("[fail] YAML root is not a mapping")
+        return GateResult(gate_id=4, passed=False, checks=checks, duration_ms=0.0, rationale="invalid YAML structure")
+
+    metadata = parsed.get("metadata", {})
+    odd_cell = metadata.get("odd_cell") if isinstance(metadata, dict) else None
+
+    if not isinstance(odd_cell, dict):
+        checks.append("[ok] no odd_cell in scenario metadata — Phase 1: PASS (scenario schema not yet standardized)")
+        return GateResult(gate_id=4, passed=True, checks=checks, duration_ms=0.0,
+                          rationale="no odd_cell metadata — Phase 1 graceful pass")
+
+    # Validate domain
+    domain = odd_cell.get("domain", "")
+    if domain in _VALID_ODD_DOMAINS:
+        checks.append(f"[ok] domain={domain} valid")
+    else:
+        checks.append(f"[fail] domain={domain} not in {_VALID_ODD_DOMAINS}")
+        passed = False
+
+    # Validate numeric bounds
+    for field, (lo, hi) in _ODD_BOUNDS.items():
+        val = odd_cell.get(field)
+        if val is not None:
+            try:
+                v = float(val)
+                if lo <= v <= hi:
+                    checks.append(f"[ok] {field}={v} in [{lo}, {hi}]")
+                else:
+                    checks.append(f"[fail] {field}={v} out of bounds [{lo}, {hi}]")
+                    passed = False
+            except (TypeError, ValueError):
+                checks.append(f"[fail] {field}={val} not numeric")
+                passed = False
+
+    # Phase 2: cross-check vs M1 ODD state via /health endpoint
+    checks.append("[info] M1 ODD cross-check: Phase 2 (D2.1 M1 /health endpoint not yet available)")
+
+    rationale = "ODD alignment verified" if passed else "ODD bounds violation(s)"
+    return GateResult(gate_id=4, passed=passed, checks=checks, duration_ms=0.0, rationale=rationale)

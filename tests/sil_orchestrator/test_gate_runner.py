@@ -27,10 +27,12 @@ def test_gate_runner_run_all_stubs():
     async def _run():
         with patch("sil_orchestrator.gate_runner.gate_1_system_readiness", new_callable=AsyncMock) as mock_g1, \
              patch("sil_orchestrator.gate_runner.gate_2_module_health", new_callable=AsyncMock) as mock_g2, \
-             patch("sil_orchestrator.gate_runner.gate_3_scenario_integrity", new_callable=AsyncMock) as mock_g3:
+             patch("sil_orchestrator.gate_runner.gate_3_scenario_integrity", new_callable=AsyncMock) as mock_g3, \
+             patch("sil_orchestrator.gate_runner.gate_4_odd_alignment", new_callable=AsyncMock) as mock_g4:
             mock_g1.return_value = GateResult(gate_id=1, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g2.return_value = GateResult(gate_id=2, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             mock_g3.return_value = GateResult(gate_id=3, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
+            mock_g4.return_value = GateResult(gate_id=4, passed=True, checks=["ok"], duration_ms=0, rationale="ok")
             runner = GateRunner(scenario_id="test-01")
             results = await runner.run_all()
         assert len(results) == 6
@@ -196,3 +198,57 @@ async def test_gate_3_no_scenario_data():
     result = await gate_3_scenario_integrity("unknown", None)
     assert result.passed == False
     assert any("not found" in c.lower() for c in result.checks)
+
+
+from sil_orchestrator.gate_runner import gate_4_odd_alignment
+
+SCENARIO_WITH_ODD = """
+name: test
+version: "1.0"
+metadata:
+  odd_cell:
+    domain: open_sea
+    visibility_nm: 5.0
+    sea_state_beaufort: 3
+    max_wind_kn: 25
+"""
+
+SCENARIO_WITHOUT_ODD = """
+name: test_no_odd
+version: "1.0"
+"""
+
+SCENARIO_ODD_OUT_OF_BOUNDS = """
+name: test
+version: "1.0"
+metadata:
+  odd_cell:
+    domain: open_sea
+    visibility_nm: 0.05
+    sea_state_beaufort: 10
+    max_wind_kn: 60
+"""
+
+@pytest.mark.asyncio
+async def test_gate_4_odd_match():
+    """GATE 4: odd_cell within bounds -> PASS"""
+    data = {"yaml_content": SCENARIO_WITH_ODD}
+    result = await gate_4_odd_alignment("test-01", data)
+    assert result.gate_id == 4
+    assert result.passed == True
+
+@pytest.mark.asyncio
+async def test_gate_4_no_odd_graceful():
+    """GATE 4: no metadata.odd_cell -> PASS with warning (Phase 1)"""
+    data = {"yaml_content": SCENARIO_WITHOUT_ODD}
+    result = await gate_4_odd_alignment("test-01", data)
+    assert result.passed == True
+    assert any("no odd_cell" in c.lower() for c in result.checks)
+
+@pytest.mark.asyncio
+async def test_gate_4_odd_out_of_bounds():
+    """GATE 4: visibility < 0.1 -> FAIL"""
+    data = {"yaml_content": SCENARIO_ODD_OUT_OF_BOUNDS}
+    result = await gate_4_odd_alignment("test-01", data)
+    assert result.passed == False
+    assert any("visibility" in c.lower() for c in result.checks)
