@@ -24,8 +24,18 @@ def test_gate_runner_registers_gates():
 
 def test_gate_runner_run_all_stubs():
     async def _run():
-        runner = GateRunner(scenario_id="test-01")
-        results = await runner.run_all()
+        with patch("sil_orchestrator.gate_runner._check_docker_services", new_callable=AsyncMock) as mock_docker, \
+             patch("sil_orchestrator.gate_runner._check_ros2_discovery", new_callable=AsyncMock) as mock_ros2, \
+             patch("sil_orchestrator.gate_runner._check_foxglove_bridge", new_callable=AsyncMock) as mock_fox, \
+             patch("sil_orchestrator.gate_runner._check_martin_tileserver", new_callable=AsyncMock) as mock_martin, \
+             patch("sil_orchestrator.gate_runner._check_ws_connected", new_callable=AsyncMock) as mock_ws:
+            mock_docker.return_value = ("ok", "docker compose 5/5 healthy")
+            mock_ros2.return_value = ("ok", "ROS2 DDS discovery: 3/3 nodes visible")
+            mock_fox.return_value = ("ok", "foxglove_bridge :8765 listening")
+            mock_martin.return_value = ("ok", "martin :3000 responsive")
+            mock_ws.return_value = ("ok", "telemetry WS connected")
+            runner = GateRunner(scenario_id="test-01")
+            results = await runner.run_all()
         assert len(results) == 6
         assert all(r.passed for r in results)
     asyncio.run(_run())
@@ -34,3 +44,43 @@ def test_gate_label_for():
     runner = GateRunner(scenario_id="test-01")
     assert runner._gate_label_for(1) == "System Readiness"
     assert runner._gate_label_for(99) == "Gate 99"
+
+
+import pytest
+from unittest.mock import AsyncMock, patch
+from sil_orchestrator.gate_runner import gate_1_system_readiness
+
+@pytest.mark.asyncio
+async def test_gate_1_all_pass():
+    """GATE 1: all 5 sub-checks pass -> PASS"""
+    with patch("sil_orchestrator.gate_runner._check_docker_services", new_callable=AsyncMock) as mock_docker, \
+         patch("sil_orchestrator.gate_runner._check_ros2_discovery", new_callable=AsyncMock) as mock_ros2, \
+         patch("sil_orchestrator.gate_runner._check_foxglove_bridge", new_callable=AsyncMock) as mock_fox, \
+         patch("sil_orchestrator.gate_runner._check_martin_tileserver", new_callable=AsyncMock) as mock_martin, \
+         patch("sil_orchestrator.gate_runner._check_ws_connected", new_callable=AsyncMock) as mock_ws:
+        mock_docker.return_value = ("ok", "docker compose 5/5 healthy")
+        mock_ros2.return_value = ("ok", "ROS2 DDS discovery: 3/3 nodes visible")
+        mock_fox.return_value = ("ok", "foxglove_bridge :8765 listening")
+        mock_martin.return_value = ("ok", "martin :3000 responsive")
+        mock_ws.return_value = ("ok", "telemetry WS connected")
+        result = await gate_1_system_readiness()
+        assert result.gate_id == 1
+        assert result.passed == True
+        assert len(result.checks) == 5
+
+@pytest.mark.asyncio
+async def test_gate_1_docker_fail():
+    """GATE 1: docker unhealthy -> FAIL"""
+    with patch("sil_orchestrator.gate_runner._check_docker_services", new_callable=AsyncMock) as mock_docker, \
+         patch("sil_orchestrator.gate_runner._check_ros2_discovery", new_callable=AsyncMock) as mock_ros2, \
+         patch("sil_orchestrator.gate_runner._check_foxglove_bridge", new_callable=AsyncMock) as mock_fox, \
+         patch("sil_orchestrator.gate_runner._check_martin_tileserver", new_callable=AsyncMock) as mock_martin, \
+         patch("sil_orchestrator.gate_runner._check_ws_connected", new_callable=AsyncMock) as mock_ws:
+        mock_docker.return_value = ("fail", "docker compose: 3/5 healthy")
+        mock_ros2.return_value = ("ok", "ROS2 DDS discovery ok")
+        mock_fox.return_value = ("fail", "foxglove_bridge not listening")
+        mock_martin.return_value = ("fail", "martin :3000 not responsive")
+        mock_ws.return_value = ("ok", "telemetry WS connected")
+        result = await gate_1_system_readiness()
+        assert result.passed == False
+        assert any("fail" in c for c in result.checks)
