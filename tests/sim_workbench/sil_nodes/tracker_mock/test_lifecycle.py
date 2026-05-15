@@ -211,15 +211,15 @@ class TestTrackerMockLifecycleNode:
         """Without l3_external_msgs, publisher uses std_msgs/String."""
         try:
             import tracker_mock.node as tn
-        except ImportError:
-            pytest.skip("tracker_mock.node not available (rclpy guard)")
+            node = tn.TrackerMockNode()
+        except (ImportError, AttributeError):
+            pytest.skip("TrackerMockNode not available (rclpy guard)")
 
         original_flag = tn._USE_REAL_MSGS
         tn._USE_REAL_MSGS = False
 
         rclpy.init()
         try:
-            node = tn.TrackerMockNode()
             node.trigger_configure()
             node.trigger_activate()
             assert node._pub.topic_name == "/sil/tracked_targets"
