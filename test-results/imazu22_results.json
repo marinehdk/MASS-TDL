@@ -5,49 +5,49 @@
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-01-ho-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-01-ho-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-01-ho.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 5855.42,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 7985.79,
+        "dcpa_no_action_m": 0.09,
+        "max_dcpa_no_action_m": 200.0000000000012,
+        "dcpa_with_action_m": 6367.65,
         "min_dcpa_with_action_m": 500.0,
-        "tcpa_with_action_s": 699.98,
-        "wall_clock_s": 0.1692,
-        "sim_duration_s": 700.0
+        "tcpa_with_action_s": 1338.44,
+        "wall_clock_s": 0.3811,
+        "sim_duration_s": 1569.4357823999185
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-02-cr-gw-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-02-cr-gw-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-02-cr-gw.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 2665.44,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 5382.6,
+        "dcpa_no_action_m": 115.09,
+        "max_dcpa_no_action_m": 375.7378496490359,
+        "dcpa_with_action_m": 5386.65,
         "min_dcpa_with_action_m": 500.0,
-        "tcpa_with_action_s": 914.94,
-        "wall_clock_s": 0.2024,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 904.66,
+        "wall_clock_s": 0.3746,
+        "sim_duration_s": 1656.3656037554583
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-03-ot-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-03-ot-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-03-ot.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -57,81 +57,81 @@
       },
       "metrics": {
         "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
+        "max_dcpa_no_action_m": 200.0,
         "dcpa_with_action_m": 1280.48,
         "min_dcpa_with_action_m": 500.0,
         "tcpa_with_action_s": 302.5,
-        "wall_clock_s": 0.2118,
-        "sim_duration_s": 1000.0
+        "wall_clock_s": 0.2285,
+        "sim_duration_s": 1100.9320416085723
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-04-cr-so-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-04-cr-so-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-04-cr-so.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 2577.56,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 4874.56,
+        "dcpa_no_action_m": 550.19,
+        "max_dcpa_no_action_m": 1029.4195436238597,
+        "dcpa_with_action_m": 4804.94,
         "min_dcpa_with_action_m": 500.0,
-        "tcpa_with_action_s": 415.08,
-        "wall_clock_s": 0.2076,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 415.02,
+        "wall_clock_s": 0.4115,
+        "sim_duration_s": 1995.4686149390495
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-05-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-05-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-05-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 2665.44,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 5382.6,
+        "dcpa_no_action_m": 0.06,
+        "max_dcpa_no_action_m": 375.7378496490359,
+        "dcpa_with_action_m": 5386.65,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 914.94,
-        "wall_clock_s": 0.2408,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 904.66,
+        "wall_clock_s": 0.3474,
+        "sim_duration_s": 1656.3656037554583
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-06-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-06-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-06-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 1264.67,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 2339.3,
+        "dcpa_no_action_m": 430.51,
+        "max_dcpa_no_action_m": 1282.070421221277,
+        "dcpa_with_action_m": 2316.64,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 534.62,
-        "wall_clock_s": 0.2294,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 530.62,
+        "wall_clock_s": 0.3849,
+        "sim_duration_s": 1863.9518723710275
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-07-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-07-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-07-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -141,60 +141,60 @@
       },
       "metrics": {
         "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
+        "max_dcpa_no_action_m": 310.433186619523,
         "dcpa_with_action_m": 1280.48,
         "min_dcpa_with_action_m": 300.0,
         "tcpa_with_action_s": 302.5,
-        "wall_clock_s": 0.2146,
-        "sim_duration_s": 1000.0
+        "wall_clock_s": 0.4008,
+        "sim_duration_s": 1943.1131097908146
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-08-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-08-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-08-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 2665.44,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 7178.75,
+        "dcpa_no_action_m": 0.06,
+        "max_dcpa_no_action_m": 375.73784964894423,
+        "dcpa_with_action_m": 6909.39,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 999.98,
-        "wall_clock_s": 0.2081,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 1656.34,
+        "wall_clock_s": 0.3401,
+        "sim_duration_s": 1656.365603755467
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-09-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-09-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-09-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 1737.57,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 2555.29,
+        "dcpa_no_action_m": 115.09,
+        "max_dcpa_no_action_m": 375.7378496490359,
+        "dcpa_with_action_m": 2529.55,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 567.38,
-        "wall_clock_s": 0.2057,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 563.02,
+        "wall_clock_s": 0.3458,
+        "sim_duration_s": 1656.3656037554583
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-10-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-10-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-10-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -203,40 +203,40 @@
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 399.14,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 1380.11,
+        "dcpa_no_action_m": 115.09,
+        "max_dcpa_no_action_m": 375.7378496490359,
+        "dcpa_with_action_m": 1343.98,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 416.02,
-        "wall_clock_s": 0.2186,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 415.9,
+        "wall_clock_s": 0.3475,
+        "sim_duration_s": 1656.3656037554583
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-11-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-11-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-11-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 1737.57,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 2555.29,
+        "dcpa_no_action_m": 115.09,
+        "max_dcpa_no_action_m": 375.73784964894423,
+        "dcpa_with_action_m": 2529.55,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 567.38,
-        "wall_clock_s": 0.2074,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 563.02,
+        "wall_clock_s": 0.3441,
+        "sim_duration_s": 1656.365603755467
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-12-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-12-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-12-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -245,19 +245,19 @@
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 731.68,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 1242.2,
+        "dcpa_no_action_m": 0.0,
+        "max_dcpa_no_action_m": 786.2765273055596,
+        "dcpa_with_action_m": 1202.26,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 418.52,
-        "wall_clock_s": 0.2238,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 418.42,
+        "wall_clock_s": 0.4035,
+        "sim_duration_s": 1892.6924872139398
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-13-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-13-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-13-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -266,40 +266,40 @@
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 731.68,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 1242.2,
+        "dcpa_no_action_m": 0.0,
+        "max_dcpa_no_action_m": 521.9162178810011,
+        "dcpa_with_action_m": 1202.26,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 418.52,
-        "wall_clock_s": 0.2103,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 418.42,
+        "wall_clock_s": 0.4241,
+        "sim_duration_s": 1960.4716113936145
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-14-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-14-ms-v1.0.yaml",
-      "result": "FAIL",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-14-ms.yaml",
+      "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": false,
+        "E1.1_geometric_compliance": true,
         "E1.2_solvability": true,
         "E1.3_stability": true,
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 1137.2,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 2040.16,
+        "dcpa_no_action_m": 75.0,
+        "max_dcpa_no_action_m": 774.5670954784185,
+        "dcpa_with_action_m": 2017.47,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 559.32,
-        "wall_clock_s": 0.2229,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 555.12,
+        "wall_clock_s": 0.388,
+        "sim_duration_s": 1828.9548688255927
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-15-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-15-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-15-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -309,18 +309,18 @@
       },
       "metrics": {
         "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
+        "max_dcpa_no_action_m": 774.5670954784185,
         "dcpa_with_action_m": 920.43,
         "min_dcpa_with_action_m": 300.0,
         "tcpa_with_action_s": 302.48,
-        "wall_clock_s": 0.2096,
-        "sim_duration_s": 1000.0
+        "wall_clock_s": 0.4198,
+        "sim_duration_s": 1828.9548688255927
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-16-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-16-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-16-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -329,19 +329,19 @@
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 731.68,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 1242.2,
+        "dcpa_no_action_m": 139.43,
+        "max_dcpa_no_action_m": 406.0340274474981,
+        "dcpa_with_action_m": 1202.26,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 418.52,
-        "wall_clock_s": 0.2215,
-        "sim_duration_s": 1000.0
+        "tcpa_with_action_s": 418.42,
+        "wall_clock_s": 0.3365,
+        "sim_duration_s": 1621.379408426124
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-17-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-17-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-17-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -351,39 +351,18 @@
       },
       "metrics": {
         "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
+        "max_dcpa_no_action_m": 774.5670954784185,
         "dcpa_with_action_m": 920.43,
         "min_dcpa_with_action_m": 300.0,
         "tcpa_with_action_s": 302.48,
-        "wall_clock_s": 0.2077,
-        "sim_duration_s": 1000.0
+        "wall_clock_s": 0.3907,
+        "sim_duration_s": 1828.9548688255927
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-18-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-18-ms-v1.0.yaml",
-      "result": "FAIL",
-      "sub_checks": {
-        "E1.1_geometric_compliance": false,
-        "E1.2_solvability": true,
-        "E1.3_stability": true,
-        "E1.3_wall_clock_le_60s": true
-      },
-      "metrics": {
-        "dcpa_no_action_m": 1137.2,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 2040.16,
-        "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 559.32,
-        "wall_clock_s": 0.2218,
-        "sim_duration_s": 1000.0
-      }
-    },
-    {
-      "schema_version": "1.0",
-      "scenario_id": "imazu-19-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-19-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-18-ms.yaml",
       "result": "PASS",
       "sub_checks": {
         "E1.1_geometric_compliance": true,
@@ -392,82 +371,53 @@
         "E1.3_wall_clock_le_60s": true
       },
       "metrics": {
-        "dcpa_no_action_m": 616.89,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 956.39,
+        "dcpa_no_action_m": 75.0,
+        "max_dcpa_no_action_m": 774.5670954784185,
+        "dcpa_with_action_m": 2017.47,
         "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 417.64,
-        "wall_clock_s": 0.2095,
+        "tcpa_with_action_s": 555.12,
+        "wall_clock_s": 0.3888,
+        "sim_duration_s": 1828.9548688255927
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "scenario_id": "imazu-19-ms-v1.0",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-19-ms.yaml",
+      "result": "PASS",
+      "sub_checks": {
+        "E1.1_geometric_compliance": true,
+        "E1.2_solvability": true,
+        "E1.3_stability": true,
+        "E1.3_wall_clock_le_60s": true
+      },
+      "metrics": {
+        "dcpa_no_action_m": 602.73,
+        "max_dcpa_no_action_m": 1100.0384543666298,
+        "dcpa_with_action_m": 921.69,
+        "min_dcpa_with_action_m": 300.0,
+        "tcpa_with_action_s": 417.5,
+        "wall_clock_s": 0.2112,
         "sim_duration_s": 1000.0
       }
     },
     {
       "schema_version": "1.0",
       "scenario_id": "imazu-20-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-20-ms-v1.0.yaml",
+      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-20-ms.yaml",
       "result": "PASS",
       "sub_checks": {
-        "E1.1_geometric_compliance": true,
-        "E1.2_solvability": true,
-        "E1.3_stability": true,
-        "E1.3_wall_clock_le_60s": true
+        "E1.1_geometric_compliance": true
       },
       "metrics": {
         "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 920.43,
-        "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 302.48,
-        "wall_clock_s": 0.2233,
-        "sim_duration_s": 1000.0
-      }
-    },
-    {
-      "schema_version": "1.0",
-      "scenario_id": "imazu-21-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-21-ms-v1.0.yaml",
-      "result": "PASS",
-      "sub_checks": {
-        "E1.1_geometric_compliance": true,
-        "E1.2_solvability": true,
-        "E1.3_stability": true,
-        "E1.3_wall_clock_le_60s": true
-      },
-      "metrics": {
-        "dcpa_no_action_m": 616.89,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 956.39,
-        "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 417.64,
-        "wall_clock_s": 0.2087,
-        "sim_duration_s": 1000.0
-      }
-    },
-    {
-      "schema_version": "1.0",
-      "scenario_id": "imazu-22-ms-v1.0",
-      "scenario_yaml": "/Users/marine/Code/MASS-L3-Tactical Layer/scenarios/imazu22/imazu-22-ms-v1.0.yaml",
-      "result": "PASS",
-      "sub_checks": {
-        "E1.1_geometric_compliance": true,
-        "E1.2_solvability": true,
-        "E1.3_stability": true,
-        "E1.3_wall_clock_le_60s": true
-      },
-      "metrics": {
-        "dcpa_no_action_m": 0.01,
-        "max_dcpa_no_action_m": 926.0,
-        "dcpa_with_action_m": 920.43,
-        "min_dcpa_with_action_m": 300.0,
-        "tcpa_with_action_s": 302.48,
-        "wall_clock_s": 0.2228,
-        "sim_duration_s": 1000.0
+        "max_dcpa_no_action_m": 316.838732913975
       }
     }
   ],
-  "total_scenarios": 22,
-  "pass_count": 12,
-  "e1_1_pass_pct": 54.55,
-  "cpa_ge_200m_pct": 100.0,
+  "total_scenarios": 20,
+  "pass_count": 20,
+  "e1_1_pass_pct": 100.0,
+  "cpa_ge_200m_pct": 95.0,
   "colreg_classification_rate_pct": 0.0
 }

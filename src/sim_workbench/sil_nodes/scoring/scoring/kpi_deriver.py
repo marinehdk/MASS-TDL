@@ -32,7 +32,8 @@ class KpiDeriver:
         min_cpa_nm = float(df["cpa_nm"].min())  # type: ignore[arg-type]
         min_idx_raw = df["cpa_nm"].arg_min()
         min_idx = min_idx_raw if min_idx_raw is not None else 0
-        tcpa_min_s = float(df["stamp"][min_idx])
+        # tcpa_min_s = time elapsed from simulation start to CPA moment (seconds)
+        tcpa_min_s = float(df["stamp"][min_idx]) - float(df["stamp"][0])
         decision_count = len(df)
 
         # --- own_ship 派生的 KPI ---

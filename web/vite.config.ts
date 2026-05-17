@@ -8,20 +8,20 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://host.docker.internal:8000',
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://host.docker.internal:8000',
       },
       '/sil': {
-        target: 'http://localhost:8000',
+        target: 'http://host.docker.internal:8000',
       },
       '/tiles': {
-        target: 'http://localhost:8000',
+        target: 'http://host.docker.internal:8000',
       },
       '/exports': {
-        target: 'http://localhost:8000',
+        target: 'http://host.docker.internal:8000',
       },
     },
   },

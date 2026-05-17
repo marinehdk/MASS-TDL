@@ -6,24 +6,28 @@ import { useTelemetryStore } from '../../store';
 import { LucideCompass } from 'lucide-react';
 
 interface TopChromeProps {
-  onNavigate?: (screen: 'builder' | 'preflight' | 'bridge' | 'report') => void;
+  onNavigate?: (screen: 'scenario' | 'check' | 'monitor' | 'evaluator') => void;
 }
 
 const TABS = [
-  { id: 'builder',  code: '01', label: 'SIMULATION SCENARIO', zh: '仿真场景', desc: '负责仿真场景的内容展示' },
-  { id: 'preflight',code: '02', label: 'SIMULATION CHECK',    zh: '仿真检查', desc: '负责检查目前TDL系统中各模块是否正常，前后端接口是否正常' },
-  { id: 'bridge',   code: '03', label: 'SIMULATION BRIDGE',   zh: '仿真运行', desc: '负责接收TDL输出的状态和信息，模拟真实航行中的内容，并通过界面展示态势信息和决策等信息' },
-  { id: 'report',   code: '04', label: 'SIMULATION REPORT',   zh: '仿真报告', desc: '负责对此次运行进行评价，是否完成了规避，各种指标如何，以及对完整的仿真数据进行记录和回放管理' },
+  { id: 'scenario',   code: '01', label: 'SIMULATION SCENARIO',  zh: '仿真场景', desc: '负责仿真场景的内容展示' },
+  { id: 'check',      code: '02', label: 'SIMULATION CHECK',     zh: '仿真检查', desc: '负责检查目前TDL系统中各模块是否正常，前后端接口是否正常' },
+  { id: 'monitor',    code: '03', label: 'SIMULATION MONITOR',   zh: '仿真运行', desc: '负责接收TDL输出的状态和信息，模拟真实航行中的内容，并通过界面展示态势信息和决策等信息' },
+  { id: 'evaluator',  code: '04', label: 'SIMULATION EVALUATOR', zh: '仿真报告', desc: '负责对此次运行进行评价，是否完成了规避，各种指标如何，以及对完整的仿真数据进行记录和回放管理' },
 ] as const;
 
 type Screen = typeof TABS[number]['id'];
 
 function getCurrentScreen(): Screen {
   const hash = window.location.hash.replace('#/', '');
-  if (hash.startsWith('preflight')) return 'preflight';
-  if (hash.startsWith('bridge')) return 'bridge';
-  if (hash.startsWith('report')) return 'report';
-  return 'builder';
+  if (hash.startsWith('check'))     return 'check';
+  if (hash.startsWith('monitor'))   return 'monitor';
+  if (hash.startsWith('evaluator')) return 'evaluator';
+  // Legacy route aliases
+  if (hash.startsWith('preflight')) return 'check';
+  if (hash.startsWith('bridge'))    return 'monitor';
+  if (hash.startsWith('report'))    return 'evaluator';
+  return 'scenario';
 }
 
 export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
@@ -161,10 +165,10 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
       {/* Right: State Pill + Dual Clock + View Toggle + REC */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
         <RunStatePill state={runState} />
-        <DualClock simTime={simTime} showSim={currentScreen === 'bridge'} />
+        <DualClock simTime={simTime} showSim={currentScreen === 'monitor'} />
 
         {/* View Toggle — only on Bridge screen */}
-        {currentScreen === 'bridge' && (
+        {currentScreen === 'monitor' && (
           <div data-testid="view-toggle" style={{
             display: 'flex', border: '1px solid var(--line-2)',
           }}>

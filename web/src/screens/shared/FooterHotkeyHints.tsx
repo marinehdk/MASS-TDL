@@ -1,14 +1,14 @@
 import React from 'react';
 
 interface FooterHotkeyHintsProps {
-  screen: 'builder' | 'preflight' | 'bridge' | 'report';
+  screen: 'scenario' | 'check' | 'monitor' | 'evaluator';
 }
 
 const HINTS: Record<string, [string, string][]> = {
-  builder: [['1/2/3', '切换步骤'], ['CLICK', '选择场景'], ['SAVE', '保存'], ['→', '仿真预检']],
-  preflight: [['SPACE', '运行检查'], ['R', '重试失败项'], ['→', '启动仿真']],
-  bridge: [['SPACE', '暂停/继续'], ['T', '请求接管 (ToR)'], ['F', '故障面板'], ['M', '最小风险 (MRC)'], ['H', '交还控制权']],
-  report: [['◀ ▶', '快进/快退'], ['SPACE', '播放/暂停'], ['E', '导出记录 (ASDR)'], ['←', '返回仿真']],
+  scenario:  [['1/2/3', '切换步骤'], ['CLICK', '选择场景'], ['SAVE', '保存'], ['→', '仿真预检']],
+  check:     [['SPACE', '运行检查'], ['R', '重试失败项'], ['→', '启动仿真']],
+  monitor:   [['SPACE', '暂停/继续'], ['T', '请求接管 (ToR)'], ['F', '故障面板'], ['M', '最小风险 (MRC)'], ['H', '交还控制权']],
+  evaluator: [['◀ ▶', '快进/快退'], ['SPACE', '播放/暂停'], ['E', '导出记录 (ASDR)'], ['←', '返回仿真']],
 };
 
 export const FooterHotkeyHints: React.FC<FooterHotkeyHintsProps> = ({ screen }) => {

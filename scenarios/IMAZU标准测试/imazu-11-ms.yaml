@@ -75,7 +75,7 @@ metadata:
     - 63.44
     - 10.38
     dynamics_mode: internal
-    backend: demo
+    backend: ros2
   disturbance:
     wind: *id001
     current: *id002

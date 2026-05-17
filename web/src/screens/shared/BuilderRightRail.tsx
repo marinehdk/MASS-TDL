@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import * as jsyaml from 'js-yaml';
+import Editor from '@monaco-editor/react';
 import { useSchemaValidation } from '../../hooks/useSchemaValidation';
 import { 
   LucideSettings2, LucideShip, LucideTarget, LucideCloudRain, LucideRadio, 
@@ -131,7 +132,7 @@ function BasicConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) 
 }
 
 function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
-  const ownShip = doc?.own_ship || {};
+  const ownShip = doc?.ownShip || {};
   const pos = ownShip?.initial?.position || {};
   const initial = ownShip?.initial || {};
   const metadata = doc?.metadata || {};
@@ -151,13 +152,13 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
         <Field 
           label="初始纬度" 
           value={pos?.latitude ?? ''} 
-          onChange={(v) => onUpdate({ 'own_ship.initial.position.latitude': Number(v) })} 
+          onChange={(v) => onUpdate({ 'ownShip.initial.position.latitude': Number(v) })} 
           unit="LAT"
         />
         <Field 
           label="初始经度" 
           value={pos?.longitude ?? ''} 
-          onChange={(v) => onUpdate({ 'own_ship.initial.position.longitude': Number(v) })} 
+          onChange={(v) => onUpdate({ 'ownShip.initial.position.longitude': Number(v) })} 
           unit="LON"
         />
       </div>
@@ -166,13 +167,13 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
         <Field 
           label="初始航向" 
           value={initial?.heading ?? pos?.heading ?? ''} 
-          onChange={(v) => onUpdate({ 'own_ship.initial.heading': Number(v) })} 
+          onChange={(v) => onUpdate({ 'ownShip.initial.heading': Number(v) })} 
           unit="°"
         />
         <Field 
           label="初始航速" 
           value={initial?.sog ?? pos?.speed ?? ''} 
-          onChange={(v) => onUpdate({ 'own_ship.initial.sog': Number(v) })} 
+          onChange={(v) => onUpdate({ 'ownShip.initial.sog': Number(v) })} 
           unit="kn"
           description="系统统一以 '节' (SOG) 为单位存储"
         />
@@ -182,7 +183,7 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
 }
 
 function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
-  const targets = doc?.target_ships || doc?.targets || [];
+  const targets = doc?.targetShips || doc?.targets || [];
 
   return (
     <div style={{ paddingTop: 10 }}>
@@ -195,7 +196,7 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
       {targets.map((tgt: any, idx: number) => {
         const pos = tgt?.initial?.position || {};
         const initial = tgt?.initial || {};
-        const prefix = `target_ships.${idx}`;
+        const prefix = `targetShips.${idx}`;
 
         return (
           <div key={idx} style={{ marginBottom: 40 }}>
@@ -213,14 +214,14 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
             <SectionTitle title="目标船信息" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field label="Target ID" value={tgt.id || ''} onChange={(v) => onUpdate({ [`${prefix}.id`]: v })} />
-              <Field label="MMSI" value={tgt.mmsi || ''} onChange={(v) => onUpdate({ [`${prefix}.mmsi`]: Number(v) })} />
+              <Field label="MMSI" value={tgt.static?.mmsi || tgt.mmsi || ''} onChange={(v) => onUpdate({ [`${prefix}.static.mmsi`]: Number(v) })} />
             </div>
 
             <Select 
               label="运动控制模式" 
-              value={tgt.control_mode || '固定航路'} 
-              onChange={(v) => onUpdate({ [`${prefix}.control_mode`]: v })}
-              options={['固定航路', '历史AIS', '仿真导入', 'NCDM', '自主模式']}
+              value={tgt.model || '固定航路'} 
+              onChange={(v) => onUpdate({ [`${prefix}.model`]: v })}
+              options={['fcb_mmg_vessel', 'ais_replay_vessel', 'psbmpc_wrapper']}
             />
 
             <SectionTitle title="初始状态设置" />
@@ -266,7 +267,7 @@ const TABS = [
   { id: 'targets',     label: '目标船配置',  icon: <LucideTarget size={24} /> },
   { id: 'environment', label: '环境配置',    icon: <LucideCloudRain size={24} /> },
   { id: 'sensor',      label: '传感器配置',  icon: <LucideRadio size={24} /> },
-  { id: 'ais',         label: 'AIS 数据',    icon: <LucideFileJson size={24} /> },
+  { id: 'raw',         label: '源码 (YAML)', icon: <LucideFileJson size={24} /> },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -274,13 +275,14 @@ type TabId = typeof TABS[number]['id'];
 export interface BuilderRightRailProps {
   yamlEditor: string;
   onUpdateYaml: (updates: any) => void;
+  onChangeRawYaml: (val: string) => void;
   previewData: any;
   onRun: () => void;
   onSave: () => void;
   onValidate: () => void;
 }
 
-export function BuilderRightRail({ yamlEditor, onUpdateYaml, onRun, onSave, onValidate }: BuilderRightRailProps) {
+export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, onRun, onSave, onValidate }: BuilderRightRailProps) {
   const [activeTab, setActiveTab] = useState<TabId | null>(null);
   const validation = useSchemaValidation(yamlEditor);
 
@@ -380,7 +382,23 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onRun, onSave, onVa
               {activeTab === 'targets' && <TargetsConfigTab doc={doc} onUpdate={onUpdateYaml} />}
               {activeTab === 'environment' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Environment Configuration (WIP)</div>}
               {activeTab === 'sensor' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Sensor Configuration (WIP)</div>}
-              {activeTab === 'ais' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>AIS Data Configuration (WIP)</div>}
+              {activeTab === 'raw' && (
+                <div style={{ flex: 1, height: '400px', margin: '0 -20px' }}>
+                  <Editor
+                    height="100%"
+                    language="yaml"
+                    theme="vs-dark"
+                    value={yamlEditor}
+                    onChange={(value) => onChangeRawYaml(value ?? '')}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 12,
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Actions Footer */}

@@ -44,7 +44,7 @@ def _infer_encounter_type(stem: str) -> str:
     return "unspecified"
 
 
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "scenarios" / "schema" / "fcb_traffic_situation.schema.json"
+_SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "scenarios" / "fcb_traffic_situation.schema.json"
 
 
 class ScenarioStore:
@@ -71,12 +71,14 @@ class ScenarioStore:
         self._ensure_dir()
         results = []
         for f in sorted(self._dir.rglob("*.yaml")):
-            # Skip schemas or non-scenario files
-            if f.name == "schema.yaml":
+            # Skip schemas, manifests, or hidden files
+            if f.name == "schema.yaml" or f.name.startswith("."):
                 continue
+            
             # folder is relative to base dir
             try:
-                folder = f.relative_to(self._dir).parent.name
+                rel = f.relative_to(self._dir)
+                folder = rel.parent.name if len(rel.parts) > 1 else "root"
             except ValueError:
                 folder = f.parent.name
             

@@ -317,7 +317,7 @@ badge 在报告屏渲染时联动 `ScoringResult`，Builder 中仅显示阈值�
 
 只读面板，聚合当前 YAML 解析结果：
 - 场景 ID、ENC 区域、OS 坐标/航向/航速、TS 坐标/航向/航速、仿真时长
-- 底部三个操作按钮：**[保存]**（`useCreateScenarioMutation`）、**[验证 YAML]**（`useValidateScenarioMutation`）、**[Run →]**（跳转 Preflight）
+- 底部三个操作按钮：**[保存]**（`PUT /api/v1/scenarios/{id}`，调用 `useUpdateScenarioMutation`）、**[验证 YAML]**（`useValidateScenarioMutation`）、**[Run →]**（跳转 Preflight）
 
 ### 4.2 BridgeHMI.tsx — "等待遥测"覆层
 

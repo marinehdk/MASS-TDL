@@ -4,8 +4,8 @@ FROM mass-l3/ci:humble-ubuntu22.04
 
 WORKDIR /opt/sil
 
-# Install python dependencies for FastAPI
-RUN apt-get update && apt-get install -y python3-pip && \
+# Install CycloneDDS (must match sil-nodes RMW) + python dependencies
+RUN apt-get update && apt-get install -y python3-pip ros-humble-rmw-cyclonedds-cpp && \
     pip3 install --no-cache-dir \
     fastapi==0.115.4 \
     uvicorn[standard]==0.32.0 \
@@ -20,7 +20,10 @@ RUN apt-get update && apt-get install -y python3-pip && \
 COPY src/sil_orchestrator /opt/sil/sil_orchestrator
 
 # Copy scoring module for KpiDeriver (Arrow reading in scoring_routes.py)
-COPY src/sim_workbench/sil_nodes/scoring /opt/sil/scoring
+# Must mirror host path so scoring_routes.py sys.path calc resolves correctly:
+#   Path(__file__).parent.parent / "sim_workbench" / "sil_nodes" / "scoring"
+#   = /opt/sil/sim_workbench/sil_nodes/scoring
+COPY src/sim_workbench/sil_nodes/scoring /opt/sil/sim_workbench/sil_nodes/scoring
 
 # Copy and build sil_msgs so rclpy can use it
 COPY src/sim_workbench/sil_msgs /opt/sil/src/sil_msgs

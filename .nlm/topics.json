@@ -2348,6 +2348,49 @@
         "是否必须保持单一标准化展示？给具体条款引用",
         "IEC 62288 / IMO S-Mode (MSC.466(101)) / IMO MSC.302(87) Bridge Alert Management 对桥楼 HMI 的模式切换立场是什么？是否允许 captain view 和 developer/inspector view 双模式？Captain 操作时 HMI 是否必须保持单一标准化展示？给具体条款引用。"
       ]
+    },
+    {
+      "text": "自主船舶最小可行避碰算法集：动态避碰（COLREGs规则13-17）后航路回归的标准方法，多目标场景下避碰优先级排序算法",
+      "weight": 2.0,
+      "ts": 1778749055,
+      "keywords": [
+        "自主船舶最小可行避碰算法集",
+        "动态避碰（COLREGs规则13-17）后航路回归的标准方法",
+        "多目标场景下避碰优先级排序算法",
+        "自主船舶最小可行避碰算法集：动态避碰（COLREGs规则13-17）后航路回归的标准方法，多目标场景下避碰优先级排序算法"
+      ]
+    },
+    {
+      "text": "COLREGs规则13-17追越对遇交叉相遇的核心判断逻辑，DEMO-1级别的简化合规实现，航路回归和避碰后航路恢复标准",
+      "weight": 2.0,
+      "ts": 1778749059,
+      "keywords": [
+        "COLREGs规则13-17追越对遇交叉相遇的核心判断逻辑",
+        "DEMO-1级别的简化合规实现",
+        "航路回归和避碰后航路恢复标准",
+        "COLREGs规则13-17追越对遇交叉相遇的核心判断逻辑，DEMO-1级别的简化合规实现，航路回归和避碰后航路恢复标准"
+      ]
+    },
+    {
+      "text": "FMI 2.0 Co-Simulation vs Model Exchange maritime ROS2 SIL; FMI 3.0 adoption status 2026; when to upgrade",
+      "weight": 2.0,
+      "ts": 1778811343,
+      "keywords": [
+        "FMI",
+        "Co-Simulation",
+        "vs",
+        "Model",
+        "Exchange",
+        "maritime",
+        "ROS2",
+        "SIL",
+        "adoption",
+        "status",
+        "2026",
+        "when",
+        "upgrade",
+        "FMI 2.0 Co-Simulation vs Model Exchange maritime ROS2 SIL; FMI 3.0 adoption status 2026; when to upgrade"
+      ]
     }
   ]
 }

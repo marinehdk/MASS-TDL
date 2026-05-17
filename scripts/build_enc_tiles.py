@@ -288,9 +288,13 @@ def build_mbtiles(geojson_files: dict[str, Path], output_path: Path, name: str):
         "--force",
         "--minimum-zoom=0",
         "--maximum-zoom=16",
-        "--no-tile-compression",    # martin handles gzip itself
-        "--simplification=4",       # moderate simplification for perf
-        "--detect-shared-borders",  # important for depth area polygons
+        "--buffer=64",
+        "--full-detail=12",
+        "--simplification=2",
+        "--simplification-at-maximum-zoom=1",
+        "--detect-shared-borders",
+        "--no-tile-compression",
+        "--no-tile-size-limit",
     ]
 
     for mvt_layer, geojson_path in geojson_files.items():

@@ -13,7 +13,7 @@ from typing import Optional
 import jsonschema
 import yaml
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent / "scenarios" / "schema" / "fcb_traffic_situation.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "scenarios" / "fcb_traffic_situation.schema.json"
 SCENARIO_DIR = Path(__file__).resolve().parent.parent / "scenarios"
 
 

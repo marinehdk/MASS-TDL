@@ -38,7 +38,7 @@ workflow:
     - when: never
 
 default:
-  image: mass-l3/ci:jazzy-ubuntu22.04
+  image: mass-l3/ci:humble-ubuntu22.04
   cache:
     - key: ccache-${CI_COMMIT_REF_SLUG}
       paths:
@@ -227,7 +227,7 @@ stage-2-unit-test:
         - "install/${PACKAGE}/"
       policy: pull-push
   script:
-    - source /opt/ros/jazzy/setup.bash
+    - source /opt/ros/humble/setup.bash
     - colcon build --packages-up-to ${PACKAGE} \
         --cmake-args -DCMAKE_BUILD_TYPE=Debug \
                      -DCMAKE_CXX_FLAGS="-fprofile-arcs -ftest-coverage -fsanitize=address,undefined -fno-omit-frame-pointer" \
@@ -261,14 +261,14 @@ stage-2-pytest:
       changes:
         - src/l3_tdl_kernel/m2_world_model/python/**/*
         - src/l3_tdl_kernel/m8_hmi_transparency_bridge/python/**/*
-        - src/sim_workbench/l3_external_mock_publisher/**/*
+        - src/sim_workbench/sil_nodes/**/*
         - tools/**/*
   script:
     - |
       if find tests/python -name "*.py" -print -quit 2>/dev/null | grep -q .; then
         pytest --cov=src/l3_tdl_kernel/m2_world_model/python \
                --cov=src/l3_tdl_kernel/m8_hmi_transparency_bridge/python \
-               --cov=src/sim_workbench/l3_external_mock_publisher \
+               --cov=src/sim_workbench/sil_nodes \
                --cov-report=html:coverage-py-html \
                --cov-report=xml:coverage-py.xml \
                --cov-report=term-missing \
@@ -432,7 +432,7 @@ stage-3-clang-tidy:
                   m4_behavior_arbiter, m5_tactical_planner, m6_colregs_reasoner,
                   m7_safety_supervisor, m8_hmi_transparency_bridge]
   script:
-    - source /opt/ros/jazzy/setup.bash
+    - source /opt/ros/humble/setup.bash
     - colcon build --packages-select ${PACKAGE} --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     # PATH-S 路径用 .clang-tidy.path-s（更严阈值）
     - |
@@ -464,7 +464,7 @@ stage-3-cppcheck-misra:
                   m4_behavior_arbiter, m5_tactical_planner, m6_colregs_reasoner,
                   m7_safety_supervisor, m8_hmi_transparency_bridge]
   script:
-    # cppcheck Premium 在 mass-l3/ci:jazzy-ubuntu22.04 镜像中预装
+    # cppcheck Premium 在 mass-l3/ci:humble-ubuntu22.04 镜像中预装
     # 如商业 license 暂不可用，fallback 到 OSS cppcheck（PATH-D/H 可降级，PATH-S 必须 Premium）
     - |
       if command -v cppcheck-premium &> /dev/null; then
@@ -551,7 +551,7 @@ stage-3-tsan:
     matrix:
       - PACKAGE: [m2_world_model, m5_tactical_planner]
   script:
-    - source /opt/ros/jazzy/setup.bash
+    - source /opt/ros/humble/setup.bash
     - colcon build --packages-select ${PACKAGE} \
         --cmake-args -DCMAKE_BUILD_TYPE=Debug \
                      -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
@@ -573,7 +573,7 @@ stage-4-integration:
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - source /opt/ros/jazzy/setup.bash
+    - source /opt/ros/humble/setup.bash
     - colcon build
     - source install/setup.bash
     # INT-001..INT-008 集成场景（详见 docs/Test Plan/integration-test-spec.md）
@@ -606,7 +606,7 @@ stage-5-release:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
   script:
-    - source /opt/ros/jazzy/setup.bash
+    - source /opt/ros/humble/setup.bash
     - colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
     # 打包 colcon install 为 tarball
     - tar -czf mass-l3-tdl-${CI_COMMIT_TAG:-${CI_COMMIT_SHA:0:8}}.tar.gz install/

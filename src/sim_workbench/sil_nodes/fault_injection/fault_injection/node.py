@@ -36,7 +36,7 @@ class FaultInjectionNode(LifecycleNode):
     def __init__(self) -> None:
         super().__init__("fault_injection_node")
         self._active: dict[str, dict] = {}
-        self._publishers: dict[str, rclpy.publisher.Publisher] = {}
+        self._pub_map: dict[str, rclpy.publisher.Publisher] = {}
 
     def on_configure(self, state) -> TransitionCallbackReturn:
         self.declare_parameter("fault_types", list(self.FAULT_TYPES))
@@ -50,13 +50,13 @@ class FaultInjectionNode(LifecycleNode):
         )
         for ft in self.FAULT_TYPES:
             topic = _FAULT_TOPICS[ft]
-            self._publishers[ft] = self.create_publisher(FaultEvent, topic, qos)
+            self._pub_map[ft] = self.create_publisher(FaultEvent, topic, qos)
         return super().on_activate(state)
 
     def on_deactivate(self, state) -> TransitionCallbackReturn:
-        for pub in self._publishers.values():
+        for pub in self._pub_map.values():
             self.destroy_publisher(pub)
-        self._publishers.clear()
+        self._pub_map.clear()
         return super().on_deactivate(state)
 
     def on_cleanup(self, state) -> TransitionCallbackReturn:
@@ -68,7 +68,7 @@ class FaultInjectionNode(LifecycleNode):
         msg.stamp = self.get_clock().now().to_msg()
         msg.fault_type = fault_type
         msg.payload_json = json.dumps(payload)
-        pub = self._publishers.get(fault_type)
+        pub = self._pub_map.get(fault_type)
         if pub is not None:
             pub.publish(msg)
 

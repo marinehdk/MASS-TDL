@@ -1,29 +1,43 @@
 import { useState, useEffect } from 'react';
-import { ScenarioBuilder } from './screens/ScenarioBuilder';
-import { Preflight } from './screens/Preflight';
-import { BridgeHMI } from './screens/BridgeHMI';
-import { RunReport } from './screens/RunReport';
+import { SimulationScenario } from './screens/SimulationScenario';
+import { SimulationCheck } from './screens/SimulationCheck';
+import { SimulationMonitor } from './screens/SimulationMonitor';
+import { SimulationEvaluator } from './screens/SimulationEvaluator';
 import { TopChrome } from './screens/shared/TopChrome';
 import { FooterHotkeyHints } from './screens/shared/FooterHotkeyHints';
 
-type Screen = 'builder' | 'preflight' | 'bridge' | 'report';
+type Screen = 'scenario' | 'check' | 'monitor' | 'evaluator';
 
 function parseHash(): { screen: Screen; runId?: string } {
   const hash = window.location.hash.replace('#/', '');
-  if (hash.startsWith('builder')) return { screen: 'builder' };
+  if (hash.startsWith('scenario')) return { screen: 'scenario' };
+  if (hash.startsWith('check')) {
+    const runId = hash.split('/')[1];
+    return { screen: 'check', runId };
+  }
+  if (hash.startsWith('monitor')) {
+    const runId = hash.split('/')[1];
+    return { screen: 'monitor', runId };
+  }
+  if (hash.startsWith('evaluator')) {
+    const runId = hash.split('/')[1];
+    return { screen: 'evaluator', runId };
+  }
+  // Legacy route aliases — redirect to canonical names
+  if (hash.startsWith('builder')) return { screen: 'scenario' };
   if (hash.startsWith('preflight')) {
     const runId = hash.split('/')[1];
-    return { screen: 'preflight', runId };
+    return { screen: 'check', runId };
   }
   if (hash.startsWith('bridge')) {
     const runId = hash.split('/')[1];
-    return { screen: 'bridge', runId };
+    return { screen: 'monitor', runId };
   }
   if (hash.startsWith('report')) {
     const runId = hash.split('/')[1];
-    return { screen: 'report', runId };
+    return { screen: 'evaluator', runId };
   }
-  return { screen: 'builder' };
+  return { screen: 'scenario' };
 }
 
 export default function App() {
@@ -46,10 +60,10 @@ export default function App() {
     }}>
       <TopChrome onNavigate={handleNavigate} />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {route.screen === 'builder'   && <ScenarioBuilder />}
-        {route.screen === 'preflight' && <Preflight />}
-        {route.screen === 'bridge'    && <BridgeHMI />}
-        {route.screen === 'report'    && <RunReport />}
+        {route.screen === 'scenario'   && <SimulationScenario />}
+        {route.screen === 'check'      && <SimulationCheck />}
+        {route.screen === 'monitor'    && <SimulationMonitor />}
+        {route.screen === 'evaluator'  && <SimulationEvaluator />}
       </div>
       <FooterHotkeyHints screen={route.screen} />
     </div>

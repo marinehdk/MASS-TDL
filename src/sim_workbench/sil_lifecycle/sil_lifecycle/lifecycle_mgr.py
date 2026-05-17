@@ -177,12 +177,18 @@ class LifecycleManagerNode(LifecycleNode):
 
     # ── Lifecycle callbacks ──────────────────────────────────────────────
 
+    _PARAMS = ("scenario_id", "scenario_hash", "tick_hz", "status_hz")
+
     def on_configure(self, state) -> TransitionCallbackReturn:
         """Declare ROS params and transition FSM UNCONFIGURED → INACTIVE."""
-        self.declare_parameter("scenario_id", "")
-        self.declare_parameter("scenario_hash", "")
-        self.declare_parameter("tick_hz", 1000.0)
-        self.declare_parameter("status_hz", 1.0)
+        for name, default in (
+            ("scenario_id", ""),
+            ("scenario_hash", ""),
+            ("tick_hz", 1000.0),
+            ("status_hz", 1.0),
+        ):
+            if not self.has_parameter(name):
+                self.declare_parameter(name, default)
 
         sid = self.get_parameter("scenario_id").value
         shash = self.get_parameter("scenario_hash").value

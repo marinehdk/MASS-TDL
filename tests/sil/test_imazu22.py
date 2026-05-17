@@ -19,31 +19,31 @@ from tools.sil.simulate import SimResult, simulate
 
 # All 22 imazu YAML files (in scenario order)
 IMAZU22_YAMLS = [
-    f"imazu-{i:02d}-{kind}-v1.0.yaml"
+    f"imazu-{i:02d}-{kind}.yaml"
     for i, kind in enumerate(
         [
-            "ho",   # 01
+            "ho",     # 01
             "cr-gw",  # 02
-            "ot",   # 03
+            "ot",     # 03
             "cr-so",  # 04
-            "ms",   # 05
-            "ms",   # 06
-            "ms",   # 07
-            "ms",   # 08
-            "ms",   # 09
-            "ms",   # 10
-            "ms",   # 11
-            "ms",   # 12
-            "ms",   # 13
-            "ms",   # 14
-            "ms",   # 15
-            "ms",   # 16
-            "ms",   # 17
-            "ms",   # 18
-            "ms",   # 19
-            "ms",   # 20
-            "ms",   # 21
-            "ms",   # 22
+            "ms",     # 05
+            "ms",     # 06
+            "ms",     # 07
+            "ms",     # 08
+            "ms",     # 09
+            "ms",     # 10
+            "ms",     # 11
+            "ms",     # 12
+            "ms",     # 13
+            "ms",     # 14
+            "ms",     # 15
+            "ms",     # 16
+            "ms",     # 17
+            "ms",     # 18
+            "ms",     # 19
+            "ms",     # 20
+            "ms",     # 21
+            "ms",     # 22
         ],
         start=1,
     )
@@ -53,7 +53,7 @@ IMAZU22_YAMLS = [
 @pytest.fixture(params=IMAZU22_YAMLS, scope="module")
 def scenario_path(request) -> Path:
     """Absolute path to an imazu22 YAML file."""
-    return Path(__file__).parent.parent.parent / "scenarios" / "imazu22" / request.param
+    return Path(__file__).parent.parent.parent / "scenarios" / "IMAZU标准测试" / request.param
 
 
 @pytest.fixture(scope="module")

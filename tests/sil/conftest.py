@@ -47,7 +47,7 @@ def imazu22_collector() -> Generator[dict, None, None]:
 @pytest.fixture
 def imazu_yaml(request) -> Path:
     """Return path to an imazu22 YAML file based on the requesting test param."""
-    scenario_dir = Path(__file__).parent.parent.parent / "scenarios" / "imazu22"
+    scenario_dir = Path(__file__).parent.parent.parent / "scenarios" / "IMAZU标准测试"
     return scenario_dir / request.param
 
 

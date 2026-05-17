@@ -64,7 +64,7 @@ metadata:
     dt: 0.02
     n_rps_initial: 4.2
     dynamics_mode: internal
-    backend: demo
+    backend: ros2
   disturbance:
     wind: *id001
     current: *id002

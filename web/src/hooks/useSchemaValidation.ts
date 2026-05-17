@@ -20,9 +20,11 @@ async function loadSchema(): Promise<object> {
 
 function getAjv(): Ajv {
   if (!ajvInstance) {
-    ajvInstance = new Ajv({ allErrors: true, verbose: true });
-    // Allow additional properties in metadata extension
-    ajvInstance.addKeyword('additionalProperties');
+    ajvInstance = new Ajv({ 
+      allErrors: true, 
+      verbose: true,
+      strict: false, // Disable strict mode to allow unknown formats/keywords
+    });
   }
   return ajvInstance;
 }
