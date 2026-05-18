@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import type React from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { osmSource, osmLayer, s57Source, ALL_S57_LAYERS } from './layers';
@@ -10,18 +9,34 @@ import { useMapPersistence } from '../hooks/useMapPersistence';
 interface SilMapViewProps {
   followOwnShip?: boolean;
   viewMode?: 'captain' | 'god';
+  /** Fraction of viewport to offset own-ship towards. Captain: [0.5, 0.7] (bottom 30%) */
   viewportOffset?: [number, number];
+  /** Optional preview data for Scenario Builder mode */
   previewData?: {
     ownShip?: { lat: number; lon: number; heading: number; sog?: number; cog?: number };
     targets?: Array<{ id: string; lat: number; lon: number; heading: number; sog?: number; cog?: number }>;
     encRegion?: string;
   };
+  /** Callback for map clicks (useful for setting positions in Builder) */
   onMapClick?: (lon: number, lat: number) => void;
+  /** Substrate layer type: 'enc' (vector), 'sat' (satellite raster), 'osm' (standard raster) */
   substrate?: 'enc' | 'sat' | 'osm';
+  /** Optional geometry (Imazu circles, sectors, etc.) */
   geometry?: GeoJSON.FeatureCollection | null;
-  mapRef?: React.MutableRefObject<maplibregl.Map | null>;
-  dragState?: { active: { kind: string; id?: string; idx?: number }; ghostPos: [number, number] | null };
+
+  // ── New props (Scheme B, Screen ① drag interaction) ──
+  /** External mapRef for useMapInteraction hook to bind events */
+  mapRef?: React.RefObject<maplibregl.Map | null>;
+  /** Vessel sprite drag end callback */
+  onFeatureDragEnd?: (id: string, lon: number, lat: number) => void;
+  /** COG line endpoint drag callback */
+  onCogDrag?: (id: string, bearingDeg: number) => void;
+  /** Waypoint node drag callback */
+  onWpDrag?: (idx: number, lon: number, lat: number) => void;
+  /** Visible WP nodes on map */
   wpNodes?: Array<{ idx: number; lon: number; lat: number }>;
+  /** Current drag state for ghost overlay rendering */
+  dragState?: { active: { kind: string; id?: string; idx?: number }; ghostPos: [number, number] | null };
 }
 
 import { ImazuGeometry } from './ImazuGeometry';
@@ -91,21 +106,23 @@ function makeWindEl(dirDeg: number, speedMps: number): HTMLDivElement {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export function SilMapView({
-  followOwnShip = true,
-  viewMode = 'captain',
+export function SilMapView({ 
+  followOwnShip = true, 
+  viewMode = 'captain', 
   viewportOffset = [0.5, 0.5],
   previewData,
   onMapClick,
   substrate = 'enc',
   geometry,
   mapRef: externalMapRef,
+  onFeatureDragEnd,
+  onCogDrag,
+  onWpDrag,
+  wpNodes,
   dragState,
-  wpNodes
 }: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const internalMapRef = useRef<maplibregl.Map | null>(null);
-  const mapRef = externalMapRef ?? internalMapRef;
+  const mapRef       = useRef<maplibregl.Map | null>(null);
   const styleReady   = useRef(false);
   const lastPanAt    = useRef(0);
   const firstFit     = useRef(false);
@@ -286,6 +303,7 @@ export function SilMapView({
 
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
+    // Scheme B: sync to parent ref so useMapInteraction hook can bind events
     if (externalMapRef) {
       (externalMapRef as React.MutableRefObject<maplibregl.Map | null>).current = map;
     }
@@ -296,10 +314,11 @@ export function SilMapView({
       windMarker.current?.remove(); windMarker.current = null;
       tgtMarkers.current.forEach((m) => m.remove());
       tgtMarkers.current.clear();
+      try { mapRef.current?.remove(); } catch { /* noop */ }
+      // Scheme B: clear external ref
       if (externalMapRef) {
         (externalMapRef as React.MutableRefObject<maplibregl.Map | null>).current = null;
       }
-      try { mapRef.current?.remove(); } catch { /* noop */ }
       mapRef.current = null;
       styleReady.current = false;
       firstFit.current = false;

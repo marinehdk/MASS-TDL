@@ -5,7 +5,8 @@ export interface ScenarioSummary {
   id: string;
   name: string;
   encounter_type: string;
-  is_baseline?: boolean;
+  folder: string;
+  is_baseline: boolean;
   folder_tags?: string[];
   last_ci_result?: string | null;
 }

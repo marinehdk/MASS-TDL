@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
-import maplibregl from 'maplibre-gl';
+import type maplibregl from 'maplibre-gl';
+
+// ── Types ───────────────────────────────────────────────────────────────
 
 export type DragTarget =
   | { kind: 'vessel'; id: string }
@@ -36,10 +38,13 @@ export interface MapInteractionReturn {
   setWpNodes: Dispatch<SetStateAction<WaypointNode[]>>;
 }
 
+// ── Hit-test helpers ────────────────────────────────────────────────────
+
 const VESSEL_HIT_RADIUS_PX = 20;
 const WP_HIT_RADIUS_PX = 15;
 const COG_HIT_RADIUS_PX = 12;
 
+// ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useMapInteraction(opts: MapInteractionOptions): MapInteractionReturn {
   const { mapRef, previewData, onYamlPatch } = opts;
@@ -51,12 +56,11 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
   const handleMouseDown = useCallback((e: maplibregl.MapMouseEvent) => {
     const map = mapRef.current;
     if (!map) return;
-
     const point = e.point;
 
+    // 1. Check WP nodes
     for (const wp of wpNodes) {
-      const wpLngLat = new maplibregl.LngLat(wp.lon, wp.lat);
-      const px = map.project(wpLngLat);
+      const px = map.project([wp.lon, wp.lat]);
       const dx = point.x - px.x;
       const dy = point.y - px.y;
       if (Math.sqrt(dx * dx + dy * dy) < WP_HIT_RADIUS_PX) {
@@ -69,6 +73,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
       }
     }
 
+    // 2. Check vessel markers
     const vessels: Array<{ id: string; lon: number; lat: number }> = [];
     if (previewData?.ownShip) {
       vessels.push({ id: 'ownship', lon: previewData.ownShip.lon, lat: previewData.ownShip.lat });
@@ -79,8 +84,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
       }
     }
     for (const v of vessels) {
-      const vLngLat = new maplibregl.LngLat(v.lon, v.lat);
-      const px = map.project(vLngLat);
+      const px = map.project([v.lon, v.lat]);
       const dx = point.x - px.x;
       const dy = point.y - px.y;
       if (Math.sqrt(dx * dx + dy * dy) < VESSEL_HIT_RADIUS_PX) {
@@ -93,14 +97,15 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
       }
     }
 
+    // 3. COG line endpoints — compute tip position from vessel position + heading
     const checkCog = (_id: string, lon: number, lat: number, cogDeg: number, sogMs: number) => {
       if (sogMs <= 0) return false;
       const distNm = Math.max((sogMs * 360) / 1852, 0.5);
       const cogRad = cogDeg * Math.PI / 180;
-      const cosLat = Math.cos(lat * Math.PI / 180);
+      const cosLat = Math.cos(lat * Math.PI / 180) || 1e-9;
       const tipLon = lon + (distNm / 60 * Math.sin(cogRad)) / cosLat;
       const tipLat = lat + (distNm / 60 * Math.cos(cogRad));
-      const tipPx = map.project([tipLon, tipLat] as [number, number]);
+      const tipPx = map.project([tipLon, tipLat]);
       const dx = point.x - tipPx.x;
       const dy = point.y - tipPx.y;
       return Math.sqrt(dx * dx + dy * dy) < COG_HIT_RADIUS_PX;
@@ -136,11 +141,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
   const handleMouseMove = useCallback((e: maplibregl.MapMouseEvent) => {
     const active = dragActiveRef.current;
     if (active.kind === 'none') return;
-
-    setDragState(prev => ({
-      ...prev,
-      ghostPos: [e.lngLat.lng, e.lngLat.lat],
-    }));
+    setDragState(prev => ({ ...prev, ghostPos: [e.lngLat.lng, e.lngLat.lat] }));
   }, []);
 
   const handleMouseUp = useCallback((e: maplibregl.MapMouseEvent) => {
