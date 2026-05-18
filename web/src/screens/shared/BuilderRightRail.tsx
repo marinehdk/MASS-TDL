@@ -3,8 +3,9 @@ import * as jsyaml from 'js-yaml';
 import Editor from '@monaco-editor/react';
 import { useSchemaValidation } from '../../hooks/useSchemaValidation';
 import { 
-  LucideSettings2, LucideShip, LucideTarget, LucideCloudRain, LucideRadio, 
-  LucideFileJson, LucideSave, LucideCheckCircle, LucidePlay, LucideChevronRight
+  LucideShip, LucideCloudRain, 
+  LucideFileJson, LucideSave, LucideChevronRight,
+  LucideLayout, LucideDices
 } from 'lucide-react';
 
 interface FieldProps {
@@ -76,7 +77,7 @@ function SectionTitle({ title }: { title: string }) {
   );
 }
 
-function BasicConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
+function _BasicConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
   const metadata = doc?.metadata || {};
   const encounter = doc?.encounter || {};
 
@@ -262,11 +263,9 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
 }
 
 const TABS = [
-  { id: 'basic',       label: '基本配置',    icon: <LucideSettings2 size={24} /> },
-  { id: 'ownship',     label: '本船配置',    icon: <LucideShip size={24} /> },
-  { id: 'targets',     label: '目标船配置',  icon: <LucideTarget size={24} /> },
-  { id: 'environment', label: '环境配置',    icon: <LucideCloudRain size={24} /> },
-  { id: 'sensor',      label: '传感器配置',  icon: <LucideRadio size={24} /> },
+  { id: 'vessels',     label: '船舶与任务',  icon: <LucideShip size={24} /> },
+  { id: 'environment', label: '环境与故障',  icon: <LucideCloudRain size={24} /> },
+  { id: 'assertions',  label: '行为断言',    icon: <LucideLayout size={24} /> },
   { id: 'raw',         label: '源码 (YAML)', icon: <LucideFileJson size={24} /> },
 ] as const;
 
@@ -280,15 +279,17 @@ export interface BuilderRightRailProps {
   onRun: () => void;
   onSave: () => void;
   onValidate: () => void;
+  isBaseline?: boolean;
+  scenarioHash?: string;
 }
 
-export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, onRun, onSave, onValidate }: BuilderRightRailProps) {
+export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, onRun, onSave, isBaseline, scenarioHash }: BuilderRightRailProps) {
   const [activeTab, setActiveTab] = useState<TabId | null>(null);
   const validation = useSchemaValidation(yamlEditor);
 
   const doc = useMemo(() => {
     try {
-      return jsyaml.load(yamlEditor) || {};
+      return (jsyaml.load(yamlEditor) as any) || {};
     } catch (e) {
       return {};
     }
@@ -333,55 +334,67 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
               </span>
             </div>
 
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 12px', borderRadius: 6,
-              background: validation.valid ? 'rgba(0,255,0,0.06)' : 'rgba(255,60,60,0.10)',
-              border: `1px solid ${validation.valid ? 'rgba(0,255,0,0.15)' : 'rgba(255,60,60,0.25)'}`,
-              marginBottom: 8, marginTop: 4
-            }}>
-              <div style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: validation.valid ? '#4ade80' : '#f87171',
-                boxShadow: `0 0 6px ${validation.valid ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)'}`
-              }} />
-              <span style={{
-                fontFamily: 'var(--f-mono, monospace)', fontSize: 11,
-                color: validation.valid ? '#4ade80' : '#f87171',
-                fontWeight: 500
-              }}>
-                {validation.valid ? 'Schema Valid ✓' : `Schema Errors: ${validation.errors.length}`}
-              </span>
-            </div>
-
-            {!validation.valid && validation.errors.length > 0 && (
-              <div style={{
-                maxHeight: 110, overflowY: 'auto',
-                background: 'rgba(255,60,60,0.04)', borderRadius: 4,
-                padding: '8px 10px', marginBottom: 8,
-                border: '1px solid rgba(255,60,60,0.08)'
-              }}>
-                {validation.errors.slice(0, 5).map((err, i) => (
-                  <div key={i} style={{
-                    fontFamily: 'var(--f-mono, monospace)', fontSize: 10,
-                    color: '#fca5a5', lineHeight: 1.6,
-                    wordBreak: 'break-word'
-                  }}>✗ {err}</div>
-                ))}
-                {validation.errors.length > 5 && (
-                  <div style={{ fontSize: 10, color: 'var(--txt-3, #666)', marginTop: 4, fontStyle: 'italic' }}>
-                    ...and {validation.errors.length - 5} more errors
-                  </div>
-                )}
-              </div>
-            )}
-
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 40px' }}>
-              {activeTab === 'basic' && <BasicConfigTab doc={doc} onUpdate={onUpdateYaml} />}
-              {activeTab === 'ownship' && <OwnShipConfigTab doc={doc} onUpdate={onUpdateYaml} />}
-              {activeTab === 'targets' && <TargetsConfigTab doc={doc} onUpdate={onUpdateYaml} />}
-              {activeTab === 'environment' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Environment Configuration (WIP)</div>}
-              {activeTab === 'sensor' && <div style={{ color: 'var(--txt-3)', padding: 20 }}>Sensor Configuration (WIP)</div>}
+              {activeTab === 'vessels' && (
+                <div>
+                  <SectionTitle title="本船配置" />
+                  <OwnShipConfigTab doc={doc} onUpdate={onUpdateYaml} />
+                  <SectionTitle title="目标船" />
+                  <TargetsConfigTab doc={doc} onUpdate={onUpdateYaml} />
+                </div>
+              )}
+              {activeTab === 'environment' && (
+                <div style={{ padding: '20px 0' }}>
+                  <div style={{
+                    textAlign: 'center', padding: '40px 20px',
+                    background: 'rgba(240,183,47,0.05)', borderRadius: 8,
+                    border: '1px solid rgba(240,183,47,0.15)'
+                  }}>
+                    <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
+                    <div style={{ fontFamily: 'var(--f-disp)', fontSize: 14, color: 'var(--txt-1)', marginBottom: 8 }}>
+                      Phase 2 功能 (D2.x)
+                    </div>
+                    <div style={{ fontFamily: 'var(--f-body)', fontSize: 11, color: 'var(--txt-3)', lineHeight: 1.6 }}>
+                      当前版本: 仅展示 metadata.environment 字段摘要
+                    </div>
+                  </div>
+                  {doc?.environment && (
+                    <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
+                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
+                        <div>风速: {doc.environment?.wind?.speed_mps ?? '—'} m/s @ {doc.environment?.wind?.dir_deg ?? '—'}°</div>
+                        <div>海流: {doc.environment?.current?.speed_mps ?? '—'} m/s @ {doc.environment?.current?.dir_deg ?? '—'}°</div>
+                        <div>能见度: {doc.environment?.visibility_nm ?? '—'} nm</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {activeTab === 'assertions' && (
+                <div style={{ padding: '20px 0' }}>
+                  <div style={{
+                    textAlign: 'center', padding: '40px 20px',
+                    background: 'rgba(240,183,47,0.05)', borderRadius: 8,
+                    border: '1px solid rgba(240,183,47,0.15)'
+                  }}>
+                    <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
+                    <div style={{ fontFamily: 'var(--f-disp)', fontSize: 14, color: 'var(--txt-1)', marginBottom: 8 }}>
+                      Phase 2 功能 (D2.x)
+                    </div>
+                    <div style={{ fontFamily: 'var(--f-body)', fontSize: 11, color: 'var(--txt-3)', lineHeight: 1.6 }}>
+                      当前版本: 仅展示 expected_outcome 字段摘要
+                    </div>
+                  </div>
+                  {doc?.metadata?.expected_outcome && (
+                    <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
+                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
+                        {doc.metadata.expected_outcome.cpa_min_m_ge != null && <div>CPA min ≥ {doc.metadata.expected_outcome.cpa_min_m_ge}m</div>}
+                        {doc.metadata.expected_outcome.colregs_rules && <div>COLREGs: [{Array.isArray(doc.metadata.expected_outcome.colregs_rules) ? doc.metadata.expected_outcome.colregs_rules.join(', ') : doc.metadata.expected_outcome.colregs_rules}]</div>}
+                        {doc.metadata.expected_outcome.grounding && <div>Grounding: {doc.metadata.expected_outcome.grounding}</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {activeTab === 'raw' && (
                 <div style={{ flex: 1, height: '400px', margin: '0 -20px' }}>
                   <Editor
@@ -401,18 +414,46 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
               )}
             </div>
 
-            {/* Actions Footer */}
+            {/* Sticky Action Footer */}
             <div style={{ padding: '16px 20px', borderTop: '1px solid var(--line-1)', background: 'rgba(0,0,0,0.2)' }}>
+              {/* Schema validation status bar */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+                padding: '6px 10px', borderRadius: 4,
+                background: validation.valid ? 'rgba(74,222,128,0.06)' : 'rgba(248,113,113,0.08)',
+                border: `1px solid ${validation.valid ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
+              }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: validation.valid ? '#4ade80' : '#f87171',
+                  boxShadow: `0 0 6px ${validation.valid ? 'rgba(74,222,128,0.5)' : 'rgba(248,113,113,0.5)'}`
+                }} />
+                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: validation.valid ? '#4ade80' : '#f87171', fontWeight: 500 }}>
+                  {validation.valid ? 'Schema 通过' : `Schema 错误: ${validation.errors.length}`}
+                </span>
+                {!validation.valid && validation.errors.length > 0 && (
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: '#fca5a5', marginLeft: 'auto' }}>
+                    {validation.errors[0]?.split(':')[0]}
+                  </span>
+                )}
+                {scenarioHash && (
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginLeft: 'auto' }}>
+                    sha256: {scenarioHash.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <button onClick={onSave} style={btnStyle('line')}>
-                  <LucideSave size={14} /> SAVE
+                  <LucideSave size={14} /> {isBaseline ? '另存为 Custom' : 'SAVE'}
                 </button>
-                <button onClick={onValidate} style={btnStyle('line')}>
-                  <LucideCheckCircle size={14} /> VALIDATE
+                <button disabled style={{ ...btnStyle('line'), opacity: 0.4, cursor: 'not-allowed' }} title="Phase 2 (D2.4)">
+                  <LucideDices size={14} /> MC 扫掠
                 </button>
               </div>
               <button onClick={onRun} style={btnStyle('phos')}>
-                RUN SCENARIO <LucidePlay size={14} />
+                🚀 RUN → ②
               </button>
             </div>
           </div>
