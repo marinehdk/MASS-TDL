@@ -29,7 +29,7 @@ function getAjv(): Ajv {
   return ajvInstance;
 }
 
-export function useSchemaValidation(yamlContent: string): SchemaValidationResult {
+export function useSchemaValidation(yamlContent: string = ''): SchemaValidationResult {
   const [result, setResult] = useState<SchemaValidationResult>({ valid: true, errors: [] });
   const lastContentRef = useRef<string>('');
 
