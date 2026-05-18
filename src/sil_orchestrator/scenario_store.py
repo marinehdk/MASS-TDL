@@ -44,6 +44,8 @@ def _infer_encounter_type(stem: str) -> str:
     return "unspecified"
 
 
+BASELINE_FOLDERS = frozenset({"imazu22", "colregs", "ais_accident"})
+
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "scenarios" / "fcb_traffic_situation.schema.json"
 
 
@@ -86,7 +88,10 @@ class ScenarioStore:
                 "id": f.stem,
                 "name": f.stem.replace("-", " ").replace("_", " ").title(),
                 "encounter_type": _infer_encounter_type(f.stem),
-                "folder": folder or "root"
+                "folder": folder or "root",
+                "is_baseline": folder in BASELINE_FOLDERS if folder != "root" else False,
+                "folder_tags": [],
+                "last_ci_result": None
             })
         return results
 
@@ -131,6 +136,13 @@ class ScenarioStore:
             return False
         path.unlink()
         return True
+
+    def is_baseline(self, scenario_id: str) -> bool:
+        path = self._path_for(scenario_id)
+        if path is None:
+            return False
+        folder = path.parent.name
+        return folder in BASELINE_FOLDERS
 
     def validate(self, yaml_content: str) -> dict:
         """Validate YAML content against fcb_traffic_situation.schema.json (JSON Schema Draft-07).

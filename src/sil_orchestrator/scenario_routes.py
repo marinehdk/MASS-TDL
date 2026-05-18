@@ -26,6 +26,11 @@ async def create_scenario(request: dict):
 
 @router.put("/{scenario_id}")
 async def update_scenario(scenario_id: str, request: dict):
+    if store.is_baseline(scenario_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Baseline scenarios are read-only. Use POST /scenarios to duplicate."
+        )
     result = store.update(scenario_id, request.get("yaml_content", ""))
     if result is None:
         raise HTTPException(status_code=404, detail="Scenario not found")
