@@ -44,7 +44,7 @@ def _infer_encounter_type(stem: str) -> str:
     return "unspecified"
 
 
-BASELINE_FOLDERS = frozenset({"imazu22", "colregs", "ais_accident"})
+BASELINE_FOLDERS = frozenset({"IMAZU标准测试", "COLREGs测试", "ais_accident"})
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "scenarios" / "fcb_traffic_situation.schema.json"
 
