@@ -1,5 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { LifecycleStatus } from '../types';
+import type { OpsResult } from '../types/gateStream';
 
 export interface ScenarioSummary {
   id: string;
@@ -211,6 +212,23 @@ export const silApi = createApi({
         params: { scenario_id: body.scenario_id, reason: body.reason },
       }),
     }),
+
+    // --- Ops Quick Fix mutations ---
+    restartNode: builder.mutation<OpsResult, string>({
+      query: (name) => ({ url: `/api/v1/ops/restart_node?name=${encodeURIComponent(name)}`, method: 'POST' }),
+    }),
+    restartServices: builder.mutation<OpsResult, void>({
+      query: () => ({ url: '/api/v1/ops/restart_services', method: 'POST' }),
+    }),
+    syncTime: builder.mutation<OpsResult, void>({
+      query: () => ({ url: '/api/v1/ops/sync_time', method: 'POST' }),
+    }),
+    clearHashCache: builder.mutation<OpsResult, string>({
+      query: (scenarioId) => ({ url: `/api/v1/ops/clear_hash_cache?scenario_id=${encodeURIComponent(scenarioId)}`, method: 'POST' }),
+    }),
+    ensureAsdrDir: builder.mutation<OpsResult, string>({
+      query: (runId) => ({ url: `/api/v1/ops/ensure_asdr_dir?run_id=${encodeURIComponent(runId)}`, method: 'POST' }),
+    }),
   }),
 });
 
@@ -235,4 +253,9 @@ export const {
   useInjectFaultMutation,
   useCancelFaultMutation,
   useSkipPreflightMutation,
+  useRestartNodeMutation,
+  useRestartServicesMutation,
+  useSyncTimeMutation,
+  useClearHashCacheMutation,
+  useEnsureAsdrDirMutation,
 } = silApi;
