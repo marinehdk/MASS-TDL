@@ -20,6 +20,7 @@ from sil_orchestrator.export_routes import router as export_router
 from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.schema_routes import router as schema_router
 from sil_orchestrator.scoring_routes import router as scoring_router
+from sil_orchestrator.ops_routes import router as ops_router
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState  # noqa: F401
 
 import rclpy
@@ -179,6 +180,7 @@ app.include_router(export_router)
 app.include_router(scenario_router)
 app.include_router(schema_router)
 app.include_router(scoring_router)
+app.include_router(ops_router)
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
