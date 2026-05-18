@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore } from '../store';

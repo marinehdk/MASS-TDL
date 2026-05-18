@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { GateSSEEvent } from '../../types/gateStream';
 import {
   useRestartServicesMutation, useRestartNodeMutation, useSyncTimeMutation,

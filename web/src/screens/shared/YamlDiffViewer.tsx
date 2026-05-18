@@ -1,4 +1,3 @@
-import React from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { GateSSEEvent } from '../../types/gateStream';
 
@@ -9,7 +8,6 @@ interface YamlDiffViewerProps {
 }
 
 export function YamlDiffViewer({ original, modified, gate }: YamlDiffViewerProps) {
-  const hasDiff = original !== modified;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>

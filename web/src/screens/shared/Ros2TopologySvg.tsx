@@ -1,4 +1,3 @@
-import React from 'react';
 import type { GateSSEEvent } from '../../types/gateStream';
 
 interface Ros2TopologySvgProps { gates: GateSSEEvent[] }

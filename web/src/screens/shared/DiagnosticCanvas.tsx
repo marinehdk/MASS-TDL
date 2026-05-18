@@ -1,4 +1,3 @@
-import React from 'react';
 import type { GateSSEEvent } from '../../types/gateStream';
 import { Ros2TopologySvg } from './Ros2TopologySvg';
 import { YamlDiffViewer } from './YamlDiffViewer';
