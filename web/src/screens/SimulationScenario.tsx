@@ -14,44 +14,99 @@ import { useSchemaValidation } from '../hooks/useSchemaValidation';
 import { useMapInteraction } from '../hooks/useMapInteraction';
 import {
   LucideCompass, LucideFolder, LucideChevronDown, LucideChevronRight, LucideSearch,
-  LucideNavigation, LucideLock, LucidePencil, LucideMapPin
+  LucideNavigation, LucideLock, LucidePencil, LucideMapPin, LucideShip, LucideChevronLeft
 } from 'lucide-react';
 import { BuilderRightRail } from './shared/BuilderRightRail';
 
-// ── ODD Select inline sub-component ────────────────────────────────────
-function ODDSelect({ label, value, onChange, options }: {
+// ── ODD Select inline sub-component with Dynamic Suffix ────────────────
+function ODDSelect({ label, value, onChange, options, suffix }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Array<{ value: string; label: string }>;
+  suffix?: string;
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <label style={{ fontSize: 9, fontFamily: 'var(--f-mono)', color: 'var(--txt-3)' }}>{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{
-        background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
-        color: 'var(--txt-1)', padding: '6px 8px', borderRadius: 4,
-        fontFamily: 'var(--f-mono)', fontSize: 11, outline: 'none', width: '100%',
-        cursor: 'pointer'
-      }}>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--f-mono)', color: 'var(--txt-2)' }}>{label}</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <select value={value} onChange={(e) => onChange(e.target.value)} style={{
+          flex: 1,
+          background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
+          color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 6,
+          fontFamily: 'var(--f-mono)', fontSize: 14, outline: 'none',
+          cursor: 'pointer'
+        }}>
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {suffix && (
+          <div style={{
+            background: 'rgba(91,192,190,0.12)',
+            border: '1px solid rgba(91,192,190,0.3)',
+            borderRadius: 6,
+            padding: '8px 12px',
+            color: 'var(--c-phos)',
+            fontFamily: 'var(--f-mono)',
+            fontSize: 13,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            minWidth: '105px',
+            textAlign: 'center'
+          }}>
+            {suffix}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+// ── Left Sidebar Rail Configuration ──
+const LEFT_TABS = [
+  { id: 'odd',     label: '运行域', icon: <LucideCompass size={24} /> },
+  { id: 'vessel',  label: '船型',   icon: <LucideShip size={24} /> },
+  { id: 'library', label: '场景库', icon: <LucideFolder size={24} /> },
+] as const;
+
+type LeftTabId = typeof LEFT_TABS[number]['id'];
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <div style={{ 
+      fontSize: 15, fontWeight: 700, color: 'var(--c-phos)', 
+      fontFamily: 'var(--f-disp)', letterSpacing: '0.1em', 
+      marginTop: 20, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8
+    }}>
+      <div style={{ width: 5, height: 15, background: 'var(--c-phos)', borderRadius: 2 }} />
+      {title.toUpperCase()}
+    </div>
+  );
+}
+
+const btnStyle = (variant: 'line' | 'phos'): React.CSSProperties => ({
+  flex: 1, padding: '12px 0', borderRadius: 6, cursor: 'pointer',
+  fontFamily: 'var(--f-disp)', fontSize: 11, fontWeight: 700,
+  letterSpacing: '0.12em', textAlign: 'center',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+  background: variant === 'phos' ? 'var(--c-phos)' : 'transparent',
+  color: variant === 'phos' ? '#000' : 'var(--txt-1)',
+  border: variant === 'phos' ? 'none' : '1px solid var(--line-2)',
+  transition: 'all 0.2s',
+});
 
 export function SimulationScenario() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [yamlEditor, setYamlEditor] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('odd');
 
   // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.
   const [placementMode, setPlacementMode] = useState<string>('none');
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
 
   // ── ODD Filter state ──
-  const [oddDomain, setOddDomain] = useState<string>('open_sea');
+  const [oddDomain, setOddDomain] = useState<string>('open_sea_offshore_wind_farm');
   const [oddSeaState, setOddSeaState] = useState<string>('5');
   const [oddVisibility, setOddVisibility] = useState<string>('2.0');
   const [vesselClass] = useState<string>('FCB-45m');
@@ -68,6 +123,24 @@ export function SimulationScenario() {
       setYamlEditor(scenarioDetail.yaml_content);
     }
   }, [scenarioDetail, selectedId]);
+
+  // Synchronize ODD filter states from loaded YAML
+  useEffect(() => {
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      if (doc?.metadata?.odd_cell) {
+        const domain = doc.metadata.odd_cell.domain;
+        const seaState = doc.metadata.odd_cell.sea_state_beaufort;
+        const visibility = doc.metadata.odd_cell.visibility_nm;
+        
+        if (domain) setOddDomain(domain);
+        if (seaState !== undefined) setOddSeaState(String(seaState));
+        if (visibility !== undefined) setOddVisibility(String(visibility));
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+  }, [selectedId, scenarioDetail]);
 
   // ODD change → write to yamlDoc.metadata.odd_cell (GAP-023)
   const lastOddRef = useRef('');
@@ -306,153 +379,316 @@ const handleUpdateYaml = useCallback((updates: any) => {
         />
       </div>
 
-      {/* LEFT PANE: ODD Filter + Vessel Capability + Scenario Library */}
+      {/* TIER 1: Left Content Panel (Independent Floating Module) */}
       <div style={{
-        position: 'absolute', top: 20, left: 20, bottom: 20,
-        width: '280px', zIndex: 100,
-        display: 'flex', flexDirection: 'column', gap: 12,
+        position: 'absolute', top: 20, left: 100, 
+        width: '320px', 
+        maxHeight: 'calc(100% - 120px)',
+        height: 'fit-content',
+        background: 'rgba(13, 19, 31, 0.95)', 
+        backdropFilter: 'blur(16px)',
+        border: '1px solid var(--line-2)',
+        borderRadius: 12,
+        display: 'flex', flexDirection: 'column',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        opacity: activeLeftTab ? 1 : 0,
+        transform: activeLeftTab ? 'translateX(0)' : 'translateX(-20px)',
+        pointerEvents: activeLeftTab ? 'auto' : 'none',
+        zIndex: 105,
+        boxShadow: activeLeftTab ? '20px 0 50px rgba(0,0,0,0.5)' : 'none',
+        overflow: 'hidden'
       }}>
-        {/* ODD Global Filter card */}
-        <div style={{
-          background: 'rgba(13, 19, 31, 0.95)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid var(--line-2)',
-          borderRadius: 12, padding: '16px',
-        }}>
-          <div style={{
-            fontFamily: 'var(--f-disp)', fontSize: 11, fontWeight: 700,
-            color: 'var(--txt-1)', letterSpacing: '0.1em',
-            marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6
-          }}>
-            <LucideCompass size={14} color="var(--c-phos)" /> ODD 全局过滤器
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ODDSelect label="航区域" value={oddDomain} onChange={setOddDomain}
-              options={[
-                { value: 'open_sea', label: 'Open Sea' },
-                { value: 'coastal', label: 'Coastal' },
-                { value: 'fairway', label: 'Fairway' },
-                { value: 'port_entry', label: 'Port Entry' },
-                { value: 'ofw', label: 'Offshore Wind Farm' },
-              ]} />
-            <ODDSelect label="海况" value={oddSeaState} onChange={setOddSeaState}
-              options={[
-                { value: '3', label: 'Beaufort ≤ 3' },
-                { value: '5', label: 'Beaufort ≤ 5' },
-                { value: '7', label: 'Beaufort ≤ 7' },
-                { value: '9', label: 'Beaufort ≤ 9' },
-              ]} />
-            <ODDSelect label="能见度" value={oddVisibility} onChange={setOddVisibility}
-              options={[
-                { value: '0.5', label: '> 0.5 nm' },
-                { value: '1.0', label: '> 1 nm' },
-                { value: '2.0', label: '> 2 nm' },
-                { value: '5.0', label: '> 5 nm' },
-              ]} />
-          </div>
-        </div>
-
-        {/* Vessel Capability Manifest */}
-        <div style={{
-          background: 'rgba(13, 19, 31, 0.95)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid var(--line-2)',
-          borderRadius: 12, padding: '12px 16px',
-        }}>
-          <div style={{ fontFamily: 'var(--f-disp)', fontSize: 10, color: 'var(--txt-2)', letterSpacing: '0.08em', marginBottom: 4 }}>
-            船型能力清单
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--c-phos)', fontWeight: 700 }}>
-              🚢 {vesselClass}
-            </span>
-          </div>
-          <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)', marginTop: 4 }}>
-            吃水 3.2m · 旋回半径 340m · 制动 ≥0.6nm
-          </div>
-        </div>
-
-        {/* Scenario Library */}
-        <div style={{
-          flex: 1, background: 'rgba(13, 19, 31, 0.95)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid var(--line-2)',
-          borderRadius: 12, display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          {/* Search bar + quick filters */}
-          <div style={{ padding: '14px 14px 10px' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-              <LucideSearch size={14} color="var(--txt-3)" style={{ position: 'absolute', left: 10 }} />
-              <input
-                type="text" placeholder="搜索场景..." value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                  color: 'var(--txt-1)', padding: '8px 10px 8px 32px', fontFamily: 'var(--f-mono)', fontSize: 11,
-                  outline: 'none', borderRadius: 6
-                }}
-              />
+        {activeLeftTab && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Panel Header */}
+            <div style={{
+              padding: '24px 20px 16px', borderBottom: '1px solid var(--line-1)',
+              display: 'flex', justifyContent: 'center', alignItems: 'center'
+            }}>
+              <span style={{
+                fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 700,
+                color: 'var(--txt-1)', letterSpacing: '0.2em'
+              }}>
+                {LEFT_TABS.find(t => t.id === activeLeftTab)?.label}
+              </span>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['多船', '含故障', '上次PASS', '上次FAIL'].map(tag => (
-                <span key={tag} style={{
-                  padding: '2px 8px', borderRadius: 4,
-                  background: 'rgba(91,192,190,0.08)', color: 'var(--txt-3)',
-                  fontFamily: 'var(--f-mono)', fontSize: 9, border: '1px solid var(--line-1)',
-                }}>{tag}</span>
-              ))}
-            </div>
-          </div>
 
-          {/* Scenario tree (keep existing tree logic, add baseline lock icons) */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 16px' }}>
-            {filteredSuites.map(suite => (
-              <div key={suite.id} style={{ marginBottom: 4 }}>
-                <div onClick={() => toggleFolder(suite.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
-                  cursor: 'pointer', color: 'var(--txt-1)', borderRadius: 4,
-                }}>
-                  {isFolderExpanded(suite.id) ? <LucideChevronDown size={12} /> : <LucideChevronRight size={12} />}
-                  <LucideFolder size={12} color="#fa0" />
-                  <span style={{ fontFamily: 'var(--f-body)', fontSize: 12, fontWeight: 500 }}>{suite.name}</span>
-                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginLeft: 'auto' }}>
-                    {suite.children.length}
-                  </span>
+            {/* Panel Scrollable Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 30px' }}>
+              
+              {/* TAB 1: RUNNING DOMAIN (运行域) */}
+              {activeLeftTab === 'odd' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 10 }}>
+                  <SectionTitle title="场景运行域设置" />
+                  <ODDSelect 
+                    label="航行区域" 
+                    value={oddDomain} 
+                    onChange={setOddDomain}
+                    options={[
+                      { value: 'open_sea_offshore_wind_farm', label: '开阔水域' },
+                      { value: 'coastal_archipelago', label: '近海群岛' },
+                      { value: 'restricted_fairway', label: '限制航道' },
+                      { value: 'harbour_approach', label: '港口水域' },
+                    ]} 
+                    suffix={
+                      oddDomain === 'open_sea_offshore_wind_farm' ? 'Open Sea' :
+                      oddDomain === 'coastal_archipelago' ? 'Coastal' :
+                      oddDomain === 'restricted_fairway' ? 'Restricted' :
+                      oddDomain === 'harbour_approach' ? 'Harbour' : ''
+                    }
+                  />
+                  <ODDSelect 
+                    label="风力/海况" 
+                    value={oddSeaState} 
+                    onChange={setOddSeaState}
+                    options={[
+                      { value: '3', label: '微浪' },
+                      { value: '5', label: '轻浪' },
+                      { value: '7', label: '巨浪' },
+                      { value: '9', label: '狂涛' },
+                    ]} 
+                    suffix={`<= ${oddSeaState}`}
+                  />
+                  <ODDSelect 
+                    label="能见度距离" 
+                    value={oddVisibility} 
+                    onChange={setOddVisibility}
+                    options={[
+                      { value: '0.5', label: '极差' },
+                      { value: '1.0', label: '一般' },
+                      { value: '2.0', label: '良好' },
+                      { value: '5.0', label: '极佳' },
+                    ]} 
+                    suffix={`> ${Number(oddVisibility).toFixed(1)} nm`}
+                  />
                 </div>
-                {isFolderExpanded(suite.id) && (
-                  <div style={{ paddingLeft: 20 }}>
-                    {suite.children.map((child: any) => (
-                      <div key={child.id} onClick={() => handleSelect(child.id)} style={{
-                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer',
-                        background: selectedId === child.id ? 'rgba(91,192,190,0.12)' : 'transparent',
-                        color: selectedId === child.id ? 'var(--c-phos)' : child.oddCompatible ? 'var(--txt-2)' : '#f87171',
-                        borderRadius: 4, transition: 'all 0.1s',
-                        borderLeft: `2px solid ${selectedId === child.id ? 'var(--c-phos)' : 'transparent'}`
-                      }}>
-                        <div style={{
-                          width: 6, height: 6, borderRadius: '50%',
-                          background: child.oddCompatible ? '#4ade80' : '#f87171',
-                        }} />
-                        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {child.name}
-                        </span>
-                        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', padding: '1px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 3 }}>
-                          {child.encounter_type?.toUpperCase() || '—'}
-                        </span>
-                        {child.is_baseline ? (
-                          <span title="Baseline (只读)"><LucideLock size={10} color="var(--c-warn)" /></span>
-                        ) : (
-                          <LucidePencil size={10} color="var(--txt-3)" />
+              )}
+
+              {/* TAB 2: VESSEL CLASS (船型) */}
+              {activeLeftTab === 'vessel' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 10 }}>
+                  <SectionTitle title="船舶基础参数" />
+                  <div style={{
+                    background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                    padding: '14px 16px', borderRadius: 8,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 20 }}>🚢</span>
+                      <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: 'var(--c-phos)', fontWeight: 700 }}>
+                        {vesselClass}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
+                      <div>• 满载吃水: 3.2 m</div>
+                      <div>• 旋回半径: 340 m</div>
+                      <div>• 制动距离: ≥ 0.6 nm</div>
+                      <div>• 推进系统: 双主推浆 + 首侧推</div>
+                    </div>
+                  </div>
+                  
+                  <SectionTitle title="可用传感器套件" />
+                  <div style={{
+                    background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                    padding: '12px 16px', borderRadius: 8,
+                    fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)',
+                    lineHeight: 1.6
+                  }}>
+                    <div>• 航海雷达 (x-band radar)</div>
+                    <div>• 船载 AIS 收发机 (AIS transponder)</div>
+                    <div>• 高精度 GNSS 定位仪</div>
+                    <div>• 电子海图系统 (ECS)</div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: SCENARIO LIBRARY (场景库) */}
+              {activeLeftTab === 'library' && (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: 10 }}>
+                  <SectionTitle title="测试资源库" />
+                  
+                  {/* Search bar + quick filters */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                      <LucideSearch size={14} color="var(--txt-3)" style={{ position: 'absolute', left: 10 }} />
+                      <input
+                        type="text" placeholder="搜索场景..." value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        style={{
+                          width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                          color: 'var(--txt-1)', padding: '8px 10px 8px 32px', fontFamily: 'var(--f-mono)', fontSize: 11,
+                          outline: 'none', borderRadius: 6
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {['多船', '含故障', '上次PASS', '上次FAIL'].map(tag => (
+                        <span key={tag} style={{
+                          padding: '2px 8px', borderRadius: 4,
+                          background: 'rgba(91,192,190,0.08)', color: 'var(--txt-3)',
+                          fontFamily: 'var(--f-mono)', fontSize: 9, border: '1px solid var(--line-1)',
+                        }}>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scenario Tree */}
+                  <div style={{ flex: 1, overflowY: 'auto', maxHeight: '350px' }}>
+                    {filteredSuites.map(suite => (
+                      <div key={suite.id} style={{ marginBottom: 4 }}>
+                        <div onClick={() => toggleFolder(suite.id)} style={{
+                          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+                          cursor: 'pointer', color: 'var(--txt-1)', borderRadius: 4,
+                        }}>
+                          {isFolderExpanded(suite.id) ? <LucideChevronDown size={12} /> : <LucideChevronRight size={12} />}
+                          <LucideFolder size={12} color="#fa0" />
+                          <span style={{ fontFamily: 'var(--f-body)', fontSize: 12, fontWeight: 500 }}>{suite.name}</span>
+                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginLeft: 'auto' }}>
+                            {suite.children.length}
+                          </span>
+                        </div>
+                        {isFolderExpanded(suite.id) && (
+                          <div style={{ paddingLeft: 16 }}>
+                            {suite.children.map((child: any) => (
+                              <div key={child.id} onClick={() => handleSelect(child.id)} style={{
+                                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer',
+                                background: selectedId === child.id ? 'rgba(91,192,190,0.12)' : 'transparent',
+                                color: selectedId === child.id ? 'var(--c-phos)' : child.oddCompatible ? 'var(--txt-2)' : '#f87171',
+                                borderRadius: 4, transition: 'all 0.1s',
+                                borderLeft: `2px solid ${selectedId === child.id ? 'var(--c-phos)' : 'transparent'}`
+                              }}>
+                                <div style={{
+                                  width: 6, height: 6, borderRadius: '50%',
+                                  background: child.oddCompatible ? '#4ade80' : '#f87171',
+                                }} />
+                                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {child.name}
+                                </span>
+                                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', padding: '1px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 3 }}>
+                                  {child.encounter_type?.toUpperCase() || '—'}
+                                </span>
+                                {child.is_baseline ? (
+                                  <span title="Baseline (只读)"><LucideLock size={10} color="var(--c-warn)" /></span>
+                                ) : (
+                                  <LucidePencil size={10} color="var(--txt-3)" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              )}
+
+            </div>
+
+            {/* Panel Footer containing the Confirm buttons */}
+            <div style={{ 
+              padding: '16px 20px', 
+              borderTop: '1px solid var(--line-1)', 
+              background: 'rgba(0,0,0,0.2)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              {activeLeftTab === 'odd' && (
+                <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('phos'), maxWidth: '200px' }}>
+                  下一步
+                </button>
+              )}
+              {activeLeftTab === 'vessel' && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setActiveLeftTab('odd')} style={btnStyle('line')}>
+                    上一步
+                  </button>
+                  <button onClick={() => setActiveLeftTab('library')} style={btnStyle('phos')}>
+                    确认并载入场景库 ➔
+                  </button>
+                </div>
+              )}
+              {activeLeftTab === 'library' && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setActiveLeftTab('vessel')} style={btnStyle('line')}>
+                    上一步
+                  </button>
+                  <button 
+                    onClick={() => setActiveLeftTab(null)} 
+                    style={btnStyle('phos')} 
+                    disabled={!selectedId}
+                  >
+                    {selectedId ? '确认并锁定场景' : '请在上方选择场景'}
+                  </button>
+                </div>
+              )}
+            </div>
+
           </div>
-        </div>
+        )}
+      </div>
+
+      {/* TIER 2: Left Sidebar Rail (Fixed Floating Rail at left) */}
+      <div style={{
+        position: 'absolute', top: 20, left: 20,
+        width: 72, 
+        height: 'fit-content',
+        flexShrink: 0, 
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', paddingTop: 20, paddingBottom: 10, gap: 8,
+        background: 'rgba(10, 15, 24, 0.95)',
+        backdropFilter: 'blur(16px)',
+        border: '1px solid var(--line-2)',
+        borderRadius: 12,
+        transition: 'all 0.2s',
+        zIndex: 110
+      }}>
+        {LEFT_TABS.map((tab) => (
+          <button 
+            key={tab.id} 
+            title={tab.label}
+            onClick={() => setActiveLeftTab(prev => prev === tab.id ? null : tab.id)} 
+            style={{
+              width: 48, height: 48, borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: activeLeftTab === tab.id ? 'rgba(91,192,190,0.15)' : 'transparent',
+              color: activeLeftTab === tab.id ? 'var(--c-phos)' : 'var(--txt-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s',
+              borderLeft: activeLeftTab === tab.id ? '3px solid var(--c-phos)' : '3px solid transparent',
+              position: 'relative'
+            }}
+            className="rail-item-left"
+          >
+            {tab.icon}
+            <style>{`
+              .rail-item-left:hover::after {
+                content: attr(title);
+                position: absolute;
+                left: 100%;
+                margin-left: 12px;
+                background: #0d131f;
+                color: var(--txt-1);
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 11px;
+                white-space: nowrap;
+                z-index: 1000;
+                border: 1px solid var(--line-2);
+                pointer-events: none;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+              }
+            `}</style>
+          </button>
+        ))}
+
+        {activeLeftTab && (
+          <button title="收起面板" onClick={() => setActiveLeftTab(null)} style={{
+            marginTop: 12, marginBottom: 10, width: 48, height: 32, borderRadius: 4,
+            border: '1px solid var(--line-2)', background: 'transparent',
+            color: 'var(--txt-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            <LucideChevronLeft size={18} />
+          </button>
+        )}
       </div>
 
       {/* CENTER: Bottom placement mode indicator + controls */}

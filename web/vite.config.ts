@@ -1,6 +1,11 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+
+const isDocker = fs.existsSync('/.dockerenv');
+const target = isDocker ? 'http://host.docker.internal:8000' : 'http://127.0.0.1:8000';
+const wsTarget = isDocker ? 'ws://host.docker.internal:8000' : 'ws://127.0.0.1:8000';
 
 export default defineConfig({
   plugins: [react()],
@@ -8,20 +13,25 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ws': {
-        target: 'ws://host.docker.internal:8000',
+        target: wsTarget,
         ws: true,
+        changeOrigin: true,
       },
       '/api': {
-        target: 'http://host.docker.internal:8000',
+        target: target,
+        changeOrigin: true,
       },
       '/sil': {
-        target: 'http://host.docker.internal:8000',
+        target: target,
+        changeOrigin: true,
       },
       '/tiles': {
-        target: 'http://host.docker.internal:8000',
+        target: target,
+        changeOrigin: true,
       },
       '/exports': {
-        target: 'http://host.docker.internal:8000',
+        target: target,
+        changeOrigin: true,
       },
     },
   },
