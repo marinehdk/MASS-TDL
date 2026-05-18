@@ -1,7 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTelemetryStore } from '../../store';
 
-export const LiveLogStream: React.FC = () => {
+interface LiveLogStreamProps {
+  nodeFilter?: string;
+  maxLines?: number;
+}
+
+export const LiveLogStream: React.FC<LiveLogStreamProps> = ({ nodeFilter, maxLines = 200 }) => {
   const logEntries = useTelemetryStore((s) => (s as any).preflightLog ?? []);
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('');
@@ -17,6 +22,19 @@ export const LiveLogStream: React.FC = () => {
         return txt.includes(filter.toLowerCase());
       })
     : logEntries;
+
+  const displayLines = useMemo(() => {
+    let lines = filtered;
+    if (nodeFilter) {
+      const lower = nodeFilter.toLowerCase();
+      lines = lines.filter((e: any) => {
+        const txt = (e.message ?? '').toLowerCase();
+        return lower.split('|').some(term => txt.includes(term));
+      });
+    }
+    if (maxLines && lines.length > maxLines) lines = lines.slice(-maxLines);
+    return lines;
+  }, [filtered, nodeFilter, maxLines]);
 
   const colorForLevel = (level: string) => {
     if (level === 'error') return 'var(--c-danger)';
@@ -63,12 +81,12 @@ export const LiveLogStream: React.FC = () => {
         flex: 1, overflowY: 'auto', padding: '4px 8px',
         fontFamily: 'var(--f-mono)', fontSize: 9, lineHeight: 1.5,
       }}>
-        {filtered.length === 0 ? (
+        {displayLines.length === 0 ? (
           <div style={{ color: 'var(--txt-3)', padding: 8 }}>
             {logEntries.length === 0 ? 'No log entries yet...' : 'No matching entries'}
           </div>
         ) : (
-          filtered.map((entry: any, i: number) => {
+          displayLines.map((entry: any, i: number) => {
             const color = colorForLevel(entry.level ?? 'info');
             return (
               <div key={i} style={{ color }}>
