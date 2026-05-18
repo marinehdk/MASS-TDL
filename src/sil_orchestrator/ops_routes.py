@@ -14,12 +14,15 @@ def _validate_name(name: str) -> str:
     return name
 
 def _audit(action: str, params: dict, success: bool) -> None:
-    _AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with open(_AUDIT_LOG, "a") as f:
-        f.write(json.dumps({
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "action": action, "params": params, "success": success,
-        }) + "\n")
+    try:
+        _AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_AUDIT_LOG, "a") as f:
+            f.write(json.dumps({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "action": action, "params": params, "success": success,
+            }) + "\n")
+    except OSError:
+        pass  # audit log is best-effort; never fail the request
 
 async def _run(cmd: list[str], timeout: float) -> tuple[bool, str]:
     try:
