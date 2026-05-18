@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { OwnShipState, TargetVesselState, EnvironmentState, ModulePulse } from '../types';
+import type { SAT2Data, SAT3Data, SotifMetrics } from '../types/sat';
 
 // ------------------------------------------------------------------
 // Lightweight local types for topics not yet in generated Protobuf TS
@@ -79,6 +80,9 @@ interface TelemetryState {
   controlCmd: ControlCmdState | null;
   /** Preflight log ring buffer */
   preflightLog: Array<{ timestamp: string; level: string; message: string }>;
+  sat2: SAT2Data | null;
+  sat3: SAT3Data | null;
+  sotifMetrics: SotifMetrics | null;
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
@@ -93,6 +97,9 @@ interface TelemetryState {
   updateFaultStatus: (faults: FaultState[]) => void;
   updateControlCmd: (cmd: ControlCmdState) => void;
   appendPreflightLog: (entry: { timestamp: string; level: string; message: string }) => void;
+  updateSat2: (data: SAT2Data) => void;
+  updateSat3: (data: SAT3Data) => void;
+  updateSotifMetrics: (metrics: SotifMetrics) => void;
   reset: () => void;
 }
 
@@ -111,6 +118,9 @@ const initialState = {
   faultStatus: [],
   controlCmd: null,
   preflightLog: [],
+  sat2: null,
+  sat3: null,
+  sotifMetrics: null,
 };
 
 export const useTelemetryStore = create<TelemetryState>((set) => ({
@@ -156,5 +166,8 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   appendPreflightLog: (entry) => set((s) => ({
     preflightLog: [...s.preflightLog, entry].slice(-1000),
   })),
+  updateSat2: (sat2) => set({ sat2 }),
+  updateSat3: (sat3) => set({ sat3 }),
+  updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics }),
   reset: () => set(initialState),
 }));

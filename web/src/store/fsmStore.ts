@@ -12,10 +12,10 @@ export interface FsmTransition {
 export interface TorRequest {
   reason: string;
   triggeredAtSimTime: number;
-  tmrDeadlineSimTime: number;       // +60s by default
-  sat1LockUntilSimTime: number;     // +5s SAT-1 lock
+  tmrDeadlineSimTime: number;        // triggeredAtSimTime + 60s
   currentSituation: string;
   proposedAction: string;
+  recommendedMrm?: 'MRM-01' | 'MRM-02' | 'MRM-03' | 'MRM-04';
 }
 
 interface FsmStore {
