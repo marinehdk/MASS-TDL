@@ -5,13 +5,20 @@ import { SilMapView } from '../SilMapView';
 const mockMap = {
   addControl: vi.fn(),
   remove: vi.fn(),
-  on: vi.fn((event: string, cb: () => void) => { if (event === 'load') cb(); }),
+  on: vi.fn(),
+  off: vi.fn(),
   addSource: vi.fn(),
   addLayer: vi.fn(),
   getSource: vi.fn(() => ({ setData: vi.fn() })),
   getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
+  getContainer: vi.fn(() => ({ clientHeight: 800 })),
   jumpTo: vi.fn(),
   easeTo: vi.fn(),
+  setPadding: vi.fn(),
+  isStyleLoaded: vi.fn(() => true),
+  once: vi.fn(),
+  setPaintProperty: vi.fn(),
+  setLayoutProperty: vi.fn(),
 };
 
 vi.mock('maplibre-gl', () => ({

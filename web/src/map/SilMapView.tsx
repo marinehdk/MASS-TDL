@@ -8,7 +8,7 @@ import { useMapPersistence } from '../hooks/useMapPersistence';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
-  viewMode?: 'captain' | 'god';
+  viewMode?: 'captain' | 'engineer' | 'roc';
   /** Fraction of viewport to offset own-ship towards. Captain: [0.5, 0.7] (bottom 30%) */
   viewportOffset?: [number, number];
   /** Optional preview data for Scenario Builder mode */

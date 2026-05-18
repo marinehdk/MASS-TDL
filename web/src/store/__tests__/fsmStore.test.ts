@@ -43,9 +43,9 @@ describe('fsmStore', () => {
       reason: 'M7 Veto',
       triggeredAtSimTime: 200,
       tmrDeadlineSimTime: 260,
-      sat1LockUntilSimTime: 205,
       currentSituation: 'Target too close',
       proposedAction: 'Starboard turn',
+      recommendedMrm: 'MRM-01' as const,
     };
     useFsmStore.getState().setTorRequest(req);
     expect(useFsmStore.getState().torRequest).toEqual(req);
@@ -54,7 +54,7 @@ describe('fsmStore', () => {
   it('setTorRequest(null) clears request', () => {
     useFsmStore.getState().setTorRequest({
       reason: 'test', triggeredAtSimTime: 0, tmrDeadlineSimTime: 60,
-      sat1LockUntilSimTime: 5, currentSituation: '', proposedAction: '',
+      currentSituation: '', proposedAction: '',
     });
     useFsmStore.getState().setTorRequest(null);
     expect(useFsmStore.getState().torRequest).toBeNull();
