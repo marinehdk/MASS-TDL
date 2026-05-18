@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore } from '../store';
@@ -10,7 +10,7 @@ import { ActionLogs } from './shared/ActionLogs';
 const IS_DEV = typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV;
 
 export function SimulationCheck() {
-  const scenarioId = window.location.hash.replace('#/check/', '') || null;
+  const scenarioId = window.location.hash.match(/^#\/check\/([^/?#]+)/)?.[1] ?? null;
   const { runId } = useScenarioStore();
   const { data: scenarioDetail } = useGetScenarioQuery(scenarioId ?? '', { skip: !scenarioId });
   const [activateLifecycle] = useActivateLifecycleMutation();
@@ -20,24 +20,32 @@ export function SimulationCheck() {
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [devSkipReason, setDevSkipReason] = useState('');
+  const countdownRef = useRef(0);
 
   useEffect(() => {
     const lastFail = [...gates].reverse().find(g => !g.passed);
     if (lastFail) setFocusedGateId(lastFail.gate_id);
   }, [gates]);
 
+  // GO countdown timer — separated from side-effect
   useEffect(() => {
-    if (verdict === 'GO') {
-      setCountdown(3);
-      const timer = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) { clearInterval(timer); handleProceed(); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    }
+    if (verdict !== 'GO') return;
+    setCountdown(3);
+    countdownRef.current = 3;
+    const timer = setInterval(() => {
+      countdownRef.current -= 1;
+      setCountdown(countdownRef.current);
+      if (countdownRef.current <= 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
   }, [verdict]);
+
+  // GO path: when countdown reaches 0, trigger proceed
+  useEffect(() => {
+    if (countdown === 0 && verdict === 'GO') {
+      handleProceed();
+    }
+  }, [countdown, verdict, handleProceed]);
 
   useHotkeys({
     onTor: verdict !== 'GO' ? () => start() : undefined,
@@ -48,7 +56,7 @@ export function SimulationCheck() {
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
     try {
-      await activateLifecycle({ scenario_id: scenarioId } as any);
+      await activateLifecycle();
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) { console.error('activate failed:', e); }
   }, [scenarioId, activateLifecycle]);
