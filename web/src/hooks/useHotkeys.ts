@@ -34,10 +34,14 @@ export function useHotkeys(handlers: HotkeyHandlers) {
 
       switch (e.key.toLowerCase()) {
         case 't': handlers.onTor?.(); break;
+        case 'r': handlers.onTor?.(); break;
         case 'f': handlers.onFault?.(); break;
+        case 'escape': handlers.onFault?.(); break;
         case 'm': handlers.onMrc?.(); break;
+        case 'd': handlers.onMrc?.(); break;
         case 'h': handlers.onHandback?.(); break;
         case ' ': handlers.onSpace?.(); e.preventDefault(); break;
+        case 'enter': handlers.onSpace?.(); e.preventDefault(); break;
         case 'arrowleft':  handlers.onArrowLeft?.(); break;
         case 'arrowright': handlers.onArrowRight?.(); break;
         case 'arrowup':    handlers.onArrowUp?.(); break;
