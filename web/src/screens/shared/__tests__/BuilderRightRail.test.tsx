@@ -4,71 +4,40 @@ import { BuilderRightRail } from '../BuilderRightRail';
 
 const noop = () => {};
 const defaultProps = {
-  previewData: null,
+  yamlEditor: 'ownship:\n  name: TestVessel',
+  onUpdateYaml: noop,
+  onChangeRawYaml: noop,
   onRun: noop,
   onSave: noop,
-  onValidate: noop,
+  isBaseline: false,
 };
 
 describe('BuilderRightRail', () => {
-  it('renders collapsed at 48px by default', () => {
+  it('renders with 400px width', () => {
     const { container } = render(<BuilderRightRail {...defaultProps} />);
     const rail = container.firstChild as HTMLElement;
-    expect(rail.style.width).toBe('48px');
+    expect(rail.style.width).toBe('400px');
   });
 
-  it('shows 4 tab icons in collapsed state', () => {
+  it('shows tab buttons', () => {
     render(<BuilderRightRail {...defaultProps} />);
-    expect(screen.getByTitle('Encounter')).toBeTruthy();
-    expect(screen.getByTitle('Environment')).toBeTruthy();
-    expect(screen.getByTitle('Run')).toBeTruthy();
-    expect(screen.getByTitle('Summary')).toBeTruthy();
+    expect(screen.getByTitle('船舶与任务')).toBeTruthy();
+    expect(screen.getByTitle('环境与故障')).toBeTruthy();
+    expect(screen.getByTitle('行为断言')).toBeTruthy();
+    expect(screen.getByTitle('源码 (YAML)')).toBeTruthy();
   });
 
-  it('expands to 320px when tab is clicked', () => {
-    const { container } = render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Encounter'));
-    const rail = container.firstChild as HTMLElement;
-    expect(rail.style.width).toBe('320px');
-  });
-
-  it('shows Encounter fields when Encounter tab is active', () => {
+  it('activates tab on click', () => {
     render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Encounter'));
-    expect(screen.getByText(/DCPA Target/i)).toBeTruthy();
+    fireEvent.click(screen.getByTitle('船舶与任务'));
+    expect(screen.getByText('船舶与任务')).toBeTruthy();
   });
 
-  it('shows Environment fields when Environment tab is active', () => {
+  it('deactivates tab on second click', () => {
     render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Environment'));
-    expect(screen.getByText(/Beaufort/i)).toBeTruthy();
-  });
-
-  it('shows Run fields when Run tab is active', () => {
-    render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Run'));
-    expect(screen.getByText(/Duration/i)).toBeTruthy();
-  });
-
-  it('shows Summary with Run button when Summary tab is active', () => {
-    render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Summary'));
-    expect(screen.getByText(/RUN/i)).toBeTruthy();
-  });
-
-  it('collapses when collapse button is clicked', () => {
-    const { container } = render(<BuilderRightRail {...defaultProps} />);
-    fireEvent.click(screen.getByTitle('Encounter'));
-    fireEvent.click(screen.getByTitle('Collapse panel'));
-    const rail = container.firstChild as HTMLElement;
-    expect(rail.style.width).toBe('48px');
-  });
-
-  it('calls onRun when Run button is clicked', () => {
-    const onRun = vi.fn();
-    render(<BuilderRightRail {...defaultProps} onRun={onRun} />);
-    fireEvent.click(screen.getByTitle('Summary'));
-    fireEvent.click(screen.getByText(/RUN/i));
-    expect(onRun).toHaveBeenCalledOnce();
+    const tab = screen.getByTitle('船舶与任务');
+    fireEvent.click(tab);
+    fireEvent.click(tab);
+    expect(screen.queryByText('本船配置')).toBeNull();
   });
 });
