@@ -109,7 +109,7 @@ export function SimulationScenario() {
   const [oddDomain, setOddDomain] = useState<string>('open_sea_offshore_wind_farm');
   const [oddSeaState, setOddSeaState] = useState<string>('5');
   const [oddVisibility, setOddVisibility] = useState<string>('2.0');
-  const [vesselClass] = useState<string>('FCB-45m');
+  const [vesselClass, setVesselClass] = useState<string>('FCB-45m');
 
   const { data: scenarios = [] } = useListScenariosQuery();
   const { data: scenarioDetail } = useGetScenarioQuery(selectedId!, { skip: !selectedId });
@@ -124,7 +124,7 @@ export function SimulationScenario() {
     }
   }, [scenarioDetail, selectedId]);
 
-  // Synchronize ODD filter states from loaded YAML
+  // Synchronize ODD filter states and vessel class from loaded YAML
   useEffect(() => {
     try {
       const doc = jsyaml.load(yamlEditor) as any;
@@ -136,6 +136,14 @@ export function SimulationScenario() {
         if (domain) setOddDomain(domain);
         if (seaState !== undefined) setOddSeaState(String(seaState));
         if (visibility !== undefined) setOddVisibility(String(visibility));
+      }
+      if (doc?.metadata?.vessel_class) {
+        const vc = doc.metadata.vessel_class;
+        if (vc === 'FCB' || vc === 'FCB-45m') {
+          setVesselClass('FCB-45m');
+        } else if (vc === 'ASD' || vc === 'ASD-28m' || vc === 'TUG-28m') {
+          setVesselClass('ASD-28m');
+        }
       }
     } catch (e) {
       // Ignore parsing errors
@@ -154,6 +162,21 @@ export function SimulationScenario() {
       'metadata.odd_cell.visibility_nm': Number(oddVisibility),
     });
   }, [oddDomain, oddSeaState, oddVisibility]);
+
+  // Vessel change → write to yamlDoc.metadata.vessel_class and model
+  const lastVesselRef = useRef('');
+  useEffect(() => {
+    if (!yamlEditor) return;
+    const vcValue = vesselClass === 'FCB-45m' ? 'FCB' : 'ASD';
+    if (vcValue === lastVesselRef.current) return;
+    lastVesselRef.current = vcValue;
+    const modelValue = vesselClass === 'FCB-45m' ? 'fcb_mmg_vessel' : 'asd_tug_vessel';
+    handleUpdateYaml({
+      'metadata.vessel_class': vcValue,
+      'ownShip.static.name': vesselClass === 'FCB-45m' ? 'FCB Own Ship' : 'ASD Own Ship',
+      'ownShip.model': modelValue
+    });
+  }, [vesselClass]);
 
   // Parse YAML to get preview data
   const previewData = useMemo(() => {
@@ -467,36 +490,117 @@ const handleUpdateYaml = useCallback((updates: any) => {
               {/* TAB 2: VESSEL CLASS (船型) */}
               {activeLeftTab === 'vessel' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 10 }}>
-                  <SectionTitle title="船舶基础参数" />
+                  <SectionTitle title="基础船型选择" />
+                  <ODDSelect 
+                    label="船型选择" 
+                    value={vesselClass} 
+                    onChange={setVesselClass}
+                    options={[
+                      { value: 'FCB-45m', label: '快速运兵船' },
+                      { value: 'ASD-28m', label: '全回转拖轮' },
+                    ]} 
+                    suffix={vesselClass === 'FCB-45m' ? 'FCB' : 'ASD'}
+                  />
                   <div style={{
                     background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                     padding: '14px 16px', borderRadius: 8,
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <span style={{ fontSize: 20 }}>🚢</span>
-                      <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: 'var(--c-phos)', fontWeight: 700 }}>
-                        {vesselClass}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      paddingBottom: 8, 
+                      borderBottom: '1px dashed var(--line-1)',
+                      marginBottom: 12 
+                    }}>
+                      <span style={{ fontSize: 18 }}>🚢</span>
+                      <span style={{ 
+                        fontFamily: 'var(--f-mono)', 
+                        fontSize: 14, 
+                        fontWeight: 600, 
+                        color: 'var(--txt-1)',
+                        marginLeft: 4
+                      }}>
+                        主要参数
                       </span>
                     </div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
-                      <div>• 满载吃水: 3.2 m</div>
-                      <div>• 旋回半径: 340 m</div>
-                      <div>• 制动距离: ≥ 0.6 nm</div>
-                      <div>• 推进系统: 双主推浆 + 首侧推</div>
+                    <div style={{ 
+                      fontFamily: 'var(--f-mono)', 
+                      fontSize: 14, 
+                      color: 'var(--txt-1)', 
+                      lineHeight: 1.8,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4
+                    }}>
+                      {vesselClass === 'FCB-45m' ? (
+                        <>
+                          <div>• 船型类别: 快速运兵船</div>
+                          <div>• 总长: 45.00 m</div>
+                          <div>• 两柱间长: 44.10 m</div>
+                          <div>• 型宽: 8.00 m</div>
+                          <div>• 型深: 3.85 m</div>
+                          <div>• 设计吃水: 1.55 m</div>
+                          <div>• 最大吃水: 2.00 m</div>
+                          <div>• 最大航速: 25 节 @ 30吨载重</div>
+                          <div>• 推进主机: 3台 康明斯 1350马力</div>
+                          <div>• 首侧推器: 2台 10KN 侧推器</div>
+                        </>
+                      ) : (
+                        <>
+                          <div>• 船型类别: 全回转拖轮</div>
+                          <div>• 总长: 28.00 m</div>
+                          <div>• 两柱间长: 24.50 m</div>
+                          <div>• 型宽: 9.80 m</div>
+                          <div>• 型深: 4.60 m</div>
+                          <div>• 设计吃水: 3.80 m</div>
+                          <div>• 最大吃水: 4.20 m</div>
+                          <div>• 最大航速: 12.5 节</div>
+                          <div>• 推进主机: 2台 柴油主机 1800马力</div>
+                          <div>• 推进装置: 双全回转舵桨</div>
+                        </>
+                      )}
                     </div>
                   </div>
                   
-                  <SectionTitle title="可用传感器套件" />
+                  <SectionTitle title="传感器配置" />
                   <div style={{
                     background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                    padding: '12px 16px', borderRadius: 8,
-                    fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)',
-                    lineHeight: 1.6
+                    padding: '14px 16px', borderRadius: 8,
                   }}>
-                    <div>• 航海雷达 (x-band radar)</div>
-                    <div>• 船载 AIS 收发机 (AIS transponder)</div>
-                    <div>• 高精度 GNSS 定位仪</div>
-                    <div>• 电子海图系统 (ECS)</div>
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      paddingBottom: 8, 
+                      borderBottom: '1px dashed var(--line-1)',
+                      marginBottom: 12 
+                    }}>
+                      <span style={{ fontSize: 18 }}>📡</span>
+                      <span style={{ 
+                        fontFamily: 'var(--f-mono)', 
+                        fontSize: 14, 
+                        fontWeight: 600, 
+                        color: 'var(--txt-1)',
+                        marginLeft: 4
+                      }}>
+                        传感器清单
+                      </span>
+                    </div>
+                    <div style={{ 
+                      fontFamily: 'var(--f-mono)', 
+                      fontSize: 14, 
+                      color: 'var(--txt-1)', 
+                      lineHeight: 1.8,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4
+                    }}>
+                      <div>• 航海雷达: X波段雷达</div>
+                      <div>• 船载 AIS: AIS收发机</div>
+                      <div>• 定位系统: 高精度 GNSS 定位仪</div>
+                      <div>• 导航海图: 电子海图系统</div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -593,28 +697,28 @@ const handleUpdateYaml = useCallback((updates: any) => {
               alignItems: 'center'
             }}>
               {activeLeftTab === 'odd' && (
-                <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('phos'), maxWidth: '200px' }}>
+                <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('phos'), flex: 'none', width: 120 }}>
                   下一步
                 </button>
               )}
               {activeLeftTab === 'vessel' && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setActiveLeftTab('odd')} style={btnStyle('line')}>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button onClick={() => setActiveLeftTab('odd')} style={{ ...btnStyle('line'), flex: 'none', width: 120 }}>
                     上一步
                   </button>
-                  <button onClick={() => setActiveLeftTab('library')} style={btnStyle('phos')}>
-                    确认并载入场景库 ➔
+                  <button onClick={() => setActiveLeftTab('library')} style={{ ...btnStyle('phos'), flex: 'none', width: 120 }}>
+                    下一步
                   </button>
                 </div>
               )}
               {activeLeftTab === 'library' && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setActiveLeftTab('vessel')} style={btnStyle('line')}>
+                <div style={{ display: 'flex', gap: 12, width: '100%', justifyContent: 'center' }}>
+                  <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('line'), flex: 'none', width: 120 }}>
                     上一步
                   </button>
                   <button 
                     onClick={() => setActiveLeftTab(null)} 
-                    style={btnStyle('phos')} 
+                    style={{ ...btnStyle('phos'), flex: 1, maxWidth: '180px' }} 
                     disabled={!selectedId}
                   >
                     {selectedId ? '确认并锁定场景' : '请在上方选择场景'}
