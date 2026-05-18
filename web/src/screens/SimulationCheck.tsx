@@ -22,6 +22,33 @@ export function SimulationCheck() {
   const [devSkipReason, setDevSkipReason] = useState('');
   const countdownRef = useRef(0);
 
+  // useCallback definitions MUST come before effects that reference them
+  const handleProceed = useCallback(async () => {
+    if (!scenarioId) return;
+    try {
+      await activateLifecycle();
+      window.location.hash = `#/monitor/${scenarioId}`;
+    } catch (e) { console.error('activate failed:', e); }
+  }, [scenarioId, activateLifecycle]);
+
+  const handleAbort = useCallback(async () => {
+    abort();
+    try { await cleanupLifecycle(); } catch {}
+    window.location.hash = '#/scenario';
+  }, [abort, cleanupLifecycle]);
+
+  const handleDevSkip = useCallback(async () => {
+    if (!scenarioId || !devSkipReason.trim()) return;
+    try {
+      await fetch('/api/v1/selfcheck/skip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario_id: scenarioId, reason: devSkipReason }),
+      });
+      window.location.hash = `#/monitor/${scenarioId}`;
+    } catch (e) { console.error('dev skip failed:', e); }
+  }, [scenarioId, devSkipReason]);
+
   useEffect(() => {
     const lastFail = [...gates].reverse().find(g => !g.passed);
     if (lastFail) setFocusedGateId(lastFail.gate_id);
@@ -52,32 +79,6 @@ export function SimulationCheck() {
     onFault: () => handleAbort(),
     onMrc: IS_DEV && verdict === 'NO-GO' ? () => handleDevSkip() : undefined,
   });
-
-  const handleProceed = useCallback(async () => {
-    if (!scenarioId) return;
-    try {
-      await activateLifecycle();
-      window.location.hash = `#/monitor/${scenarioId}`;
-    } catch (e) { console.error('activate failed:', e); }
-  }, [scenarioId, activateLifecycle]);
-
-  const handleAbort = useCallback(async () => {
-    abort();
-    try { await cleanupLifecycle(); } catch {}
-    window.location.hash = '#/scenario';
-  }, [abort, cleanupLifecycle]);
-
-  const handleDevSkip = useCallback(async () => {
-    if (!scenarioId || !devSkipReason.trim()) return;
-    try {
-      await fetch('/api/v1/selfcheck/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario_id: scenarioId, reason: devSkipReason }),
-      });
-      window.location.hash = `#/monitor/${scenarioId}`;
-    } catch (e) { console.error('dev skip failed:', e); }
-  }, [scenarioId, devSkipReason]);
 
   if (!scenarioId) {
     return <div style={{ padding: 40, color: 'var(--c-danger)', fontFamily: 'var(--f-body)' }}>No scenario selected</div>;
