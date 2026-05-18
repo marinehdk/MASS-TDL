@@ -23,6 +23,20 @@ interface SilMapViewProps {
   substrate?: 'enc' | 'sat' | 'osm';
   /** Optional geometry (Imazu circles, sectors, etc.) */
   geometry?: GeoJSON.FeatureCollection | null;
+
+  // ── New props (Scheme B, Screen ① drag interaction) ──
+  /** External mapRef for useMapInteraction hook to bind events */
+  mapRef?: React.RefObject<maplibregl.Map | null>;
+  /** Vessel sprite drag end callback */
+  onFeatureDragEnd?: (id: string, lon: number, lat: number) => void;
+  /** COG line endpoint drag callback */
+  onCogDrag?: (id: string, bearingDeg: number) => void;
+  /** Waypoint node drag callback */
+  onWpDrag?: (idx: number, lon: number, lat: number) => void;
+  /** Visible WP nodes on map */
+  wpNodes?: Array<{ idx: number; lon: number; lat: number }>;
+  /** Current drag state for ghost overlay rendering */
+  dragState?: { active: { kind: string; id?: string; idx?: number }; ghostPos: [number, number] | null };
 }
 
 import { ImazuGeometry } from './ImazuGeometry';
@@ -99,7 +113,13 @@ export function SilMapView({
   previewData,
   onMapClick,
   substrate = 'enc',
-  geometry
+  geometry,
+  mapRef: externalMapRef,
+  onFeatureDragEnd,
+  onCogDrag,
+  onWpDrag,
+  wpNodes,
+  dragState,
 }: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<maplibregl.Map | null>(null);
@@ -283,6 +303,10 @@ export function SilMapView({
 
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'nautical' }), 'bottom-left');
     mapRef.current = map;
+    // Scheme B: sync to parent ref so useMapInteraction hook can bind events
+    if (externalMapRef) {
+      (externalMapRef as React.MutableRefObject<maplibregl.Map | null>).current = map;
+    }
     if (typeof window !== 'undefined') { (window as any).__maplibre_map = map; }
 
     return () => {
@@ -291,6 +315,10 @@ export function SilMapView({
       tgtMarkers.current.forEach((m) => m.remove());
       tgtMarkers.current.clear();
       try { mapRef.current?.remove(); } catch { /* noop */ }
+      // Scheme B: clear external ref
+      if (externalMapRef) {
+        (externalMapRef as React.MutableRefObject<maplibregl.Map | null>).current = null;
+      }
       mapRef.current = null;
       styleReady.current = false;
       firstFit.current = false;
