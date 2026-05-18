@@ -112,7 +112,15 @@ class ScenarioStore:
                         backend = sim_settings.get("backend", "demo")
         except (yaml.YAMLError, AttributeError):
             pass
-        return {"yaml_content": content, "hash": h, "backend": backend}
+        # Determine is_baseline from folder
+        is_bl = False
+        try:
+            rel = path.relative_to(self._dir)
+            folder = rel.parent.name if len(rel.parts) > 1 else "root"
+        except ValueError:
+            folder = path.parent.name
+        is_bl = folder in BASELINE_FOLDERS
+        return {"yaml_content": content, "hash": h, "backend": backend, "is_baseline": is_bl}
 
     def create(self, yaml_content: str) -> dict:
         self._ensure_dir()
@@ -137,12 +145,21 @@ class ScenarioStore:
         path.unlink()
         return True
 
+    def _folder_for(self, path: Path) -> str:
+        """Get the first-level folder name relative to base directory."""
+        try:
+            rel = path.relative_to(self._dir)
+            # Return the topmost subfolder (first component of relative path)
+            return rel.parts[0] if len(rel.parts) > 1 else "root"
+        except ValueError:
+            return path.parent.name
+
     def is_baseline(self, scenario_id: str) -> bool:
+        """Check if a scenario is in a baseline folder (read-only)."""
         path = self._path_for(scenario_id)
         if path is None:
             return False
-        folder = path.parent.name
-        return folder in BASELINE_FOLDERS
+        return self._folder_for(path) in BASELINE_FOLDERS
 
     def validate(self, yaml_content: str) -> dict:
         """Validate YAML content against fcb_traffic_situation.schema.json (JSON Schema Draft-07).

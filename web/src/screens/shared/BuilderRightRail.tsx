@@ -77,61 +77,6 @@ function SectionTitle({ title }: { title: string }) {
   );
 }
 
-function _BasicConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
-  const metadata = doc?.metadata || {};
-  const encounter = doc?.encounter || {};
-
-  return (
-    <div>
-      <SectionTitle title="场景元数据" />
-      <Field 
-        label="场景名称" 
-        value={doc?.title || doc?.name || ''} 
-        onChange={(v) => onUpdate({ title: v })} 
-      />
-      <Field 
-        label="描述" 
-        value={doc?.description || ''} 
-        onChange={(v) => onUpdate({ description: v })}
-        description="场景的详细用途描述"
-      />
-      
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Schema Version" value={metadata?.schema_version || ''} onChange={(v) => onUpdate({ 'metadata.schema_version': v })} />
-        <Field label="Scenario ID" value={metadata?.scenario_id || ''} onChange={(v) => onUpdate({ 'metadata.scenario_id': v })} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Source" value={metadata?.scenario_source || ''} onChange={(v) => onUpdate({ 'metadata.scenario_source': v })} />
-        <Field label="ODD Zone" value={metadata?.odd_zone || ''} onChange={(v) => onUpdate({ 'metadata.odd_zone': v })} />
-      </div>
-
-      <SectionTitle title="遭遇类型 (COLREGs)" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Select 
-          label="遭遇类型" 
-          value={encounter?.type || doc?.type || 'HO'} 
-          onChange={(v) => onUpdate({ 'encounter.type': v, 'type': v })}
-          options={['HO', 'CR_GW', 'CR_SO', 'OT', 'Custom']}
-        />
-        <Select 
-          label="COLREGs 规则" 
-          value={encounter?.rule || 'Rule14'} 
-          onChange={(v) => onUpdate({ 'encounter.rule': v })}
-          options={['Rule14', 'Rule15', 'Rule13', 'Rule16', 'Other']}
-        />
-      </div>
-
-      <SectionTitle title="航行区域" />
-      <Select 
-        label="底图区域" 
-        value={metadata?.geo_origin?.description || 'Norwegian Sea'} 
-        onChange={(v) => onUpdate({ 'metadata.geo_origin.description': v })}
-        options={['Norwegian Sea', 'Trondheim Fjord', 'Singapore Strait', 'Rotterdam']}
-      />
-    </div>
-  );
-}
-
 function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
   const ownShip = doc?.ownShip || {};
   const pos = ownShip?.initial?.position || {};
@@ -185,6 +130,7 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
 
 function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any) => void }) {
   const targets = doc?.targetShips || doc?.targets || [];
+  const [schemaMode, setSchemaMode] = useState<'latlon' | 'enu'>('latlon');
 
   return (
     <div style={{ paddingTop: 10 }}>
@@ -226,6 +172,22 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
             />
 
             <SectionTitle title="初始状态设置" />
+            {/* Schema format toggle: Lat/Lon ↔ ENU */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button onClick={() => setSchemaMode('latlon')} style={{
+                padding: '4px 10px', borderRadius: 4, border: `1px solid ${schemaMode === 'latlon' ? 'var(--c-phos)' : 'var(--line-1)'}`,
+                background: schemaMode === 'latlon' ? 'rgba(91,192,190,0.12)' : 'transparent',
+                color: schemaMode === 'latlon' ? 'var(--c-phos)' : 'var(--txt-3)',
+                fontFamily: 'var(--f-mono)', fontSize: 10, cursor: 'pointer'
+              }}>Lat/Lon</button>
+              <button onClick={() => setSchemaMode('enu')} style={{
+                padding: '4px 10px', borderRadius: 4, border: `1px solid ${schemaMode === 'enu' ? 'var(--c-phos)' : 'var(--line-1)'}`,
+                background: schemaMode === 'enu' ? 'rgba(91,192,190,0.12)' : 'transparent',
+                color: schemaMode === 'enu' ? 'var(--c-phos)' : 'var(--txt-3)',
+                fontFamily: 'var(--f-mono)', fontSize: 10, cursor: 'pointer'
+              }}>ENU (x_m/y_m)</button>
+            </div>
+            {schemaMode === 'latlon' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field 
                 label="初始纬度" 
@@ -240,6 +202,22 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
                 unit="LON"
               />
             </div>
+            ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field 
+                label="X 坐标 (m)" 
+                value={tgt?.initial?.x_m ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.x_m`]: Number(v) })} 
+                unit="m"
+              />
+              <Field 
+                label="Y 坐标 (m)" 
+                value={tgt?.initial?.y_m ?? ''} 
+                onChange={(v) => onUpdate({ [`${prefix}.initial.y_m`]: Number(v) })} 
+                unit="m"
+              />
+            </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field 
@@ -275,10 +253,8 @@ export interface BuilderRightRailProps {
   yamlEditor: string;
   onUpdateYaml: (updates: any) => void;
   onChangeRawYaml: (val: string) => void;
-  previewData: any;
   onRun: () => void;
   onSave: () => void;
-  onValidate: () => void;
   isBaseline?: boolean;
   scenarioHash?: string;
 }
@@ -438,7 +414,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
                 )}
                 {scenarioHash && (
                   <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginLeft: 'auto' }}>
-                    sha256: {scenarioHash.slice(0, 8)}
+                    sha256: {scenarioHash.slice(0, 12)}
                   </span>
                 )}
               </div>

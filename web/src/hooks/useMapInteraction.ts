@@ -30,6 +30,7 @@ export interface MapInteractionOptions {
   mapRef: RefObject<maplibregl.Map | null>;
   previewData: PreviewData | null;
   onYamlPatch: (path: string, value: unknown) => void;
+  initialWpNodes?: WaypointNode[];
 }
 
 export interface MapInteractionReturn {
@@ -47,11 +48,15 @@ const COG_HIT_RADIUS_PX = 12;
 // ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useMapInteraction(opts: MapInteractionOptions): MapInteractionReturn {
-  const { mapRef, previewData, onYamlPatch } = opts;
+  const { mapRef, previewData, onYamlPatch, initialWpNodes } = opts;
 
   const [dragState, setDragState] = useState<DragState>({ active: { kind: 'none' }, ghostPos: null });
-  const [wpNodes, setWpNodes] = useState<WaypointNode[]>([]);
+  const [wpNodes, setWpNodes] = useState<WaypointNode[]>(initialWpNodes || []);
   const dragActiveRef = useRef<DragTarget>({ kind: 'none' });
+
+  useEffect(() => {
+    if (initialWpNodes) setWpNodes(initialWpNodes);
+  }, [initialWpNodes]);
 
   const handleMouseDown = useCallback((e: maplibregl.MapMouseEvent) => {
     const map = mapRef.current;
@@ -98,7 +103,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
     }
 
     // 3. COG line endpoints — compute tip position from vessel position + heading
-    const checkCog = (_id: string, lon: number, lat: number, cogDeg: number, sogMs: number) => {
+    const checkCog = (lon: number, lat: number, cogDeg: number, sogMs: number) => {
       if (sogMs <= 0) return false;
       const distNm = Math.max((sogMs * 360) / 1852, 0.5);
       const cogRad = cogDeg * Math.PI / 180;
@@ -113,7 +118,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
 
     if (previewData?.ownShip) {
       const os = previewData.ownShip;
-      if (checkCog('ownship', os.lon, os.lat, os.heading, os.sog ?? 0)) {
+      if (checkCog(os.lon, os.lat, os.heading, os.sog ?? 0)) {
         const target: DragTarget = { kind: 'cog', id: 'ownship' };
         dragActiveRef.current = target;
         setDragState({ active: target, ghostPos: null });
@@ -124,7 +129,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
     }
     if (previewData?.targets) {
       for (const t of previewData.targets) {
-        if (checkCog(t.id, t.lon, t.lat, t.heading, t.sog ?? 0)) {
+        if (checkCog(t.lon, t.lat, t.heading, t.sog ?? 0)) {
           const target: DragTarget = { kind: 'cog', id: t.id };
           dragActiveRef.current = target;
           setDragState({ active: target, ghostPos: null });

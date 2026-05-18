@@ -39,6 +39,11 @@ async def update_scenario(scenario_id: str, request: dict):
 
 @router.delete("/{scenario_id}")
 async def delete_scenario(scenario_id: str):
+    if store.is_baseline(scenario_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Baseline scenarios are read-only and cannot be deleted."
+        )
     if not store.delete(scenario_id):
         raise HTTPException(status_code=404, detail="Scenario not found")
     return {"deleted": True}

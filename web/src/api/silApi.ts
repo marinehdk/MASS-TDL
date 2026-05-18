@@ -122,6 +122,15 @@ export const silApi = createApi({
       invalidatesTags: ['Scenario'],
     }),
 
+    updateScenario: builder.mutation<{ hash: string }, { id: string; yaml_content: string }>({
+      query: ({ id, yaml_content }) => ({
+        url: `/scenarios/${id}`,
+        method: 'PUT',
+        body: { yaml_content },
+      }),
+      invalidatesTags: (_result, _error, { id }) => [{ type: 'Scenario', id }],
+    }),
+
     deleteScenario: builder.mutation<void, string>({
       query: (id) => ({ url: `/scenarios/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Scenario'],
@@ -210,6 +219,7 @@ export const {
   useGetScenarioQuery,
   useValidateScenarioMutation,
   useCreateScenarioMutation,
+  useUpdateScenarioMutation,
   useDeleteScenarioMutation,
   useGetLifecycleStatusQuery,
   useConfigureLifecycleMutation,

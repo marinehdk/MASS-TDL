@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { osmSource, osmLayer, s57Source, ALL_S57_LAYERS } from './layers';
+import { osmSource, osmLayer, ALL_S57_LAYERS } from './layers';
 import { useTelemetryStore, useMapStore } from '../store';
 import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
@@ -26,17 +26,7 @@ interface SilMapViewProps {
 
   // ── New props (Scheme B, Screen ① drag interaction) ──
   /** External mapRef for useMapInteraction hook to bind events */
-  mapRef?: React.RefObject<maplibregl.Map | null>;
-  /** Vessel sprite drag end callback */
-  onFeatureDragEnd?: (id: string, lon: number, lat: number) => void;
-  /** COG line endpoint drag callback */
-  onCogDrag?: (id: string, bearingDeg: number) => void;
-  /** Waypoint node drag callback */
-  onWpDrag?: (idx: number, lon: number, lat: number) => void;
-  /** Visible WP nodes on map */
-  wpNodes?: Array<{ idx: number; lon: number; lat: number }>;
-  /** Current drag state for ghost overlay rendering */
-  dragState?: { active: { kind: string; id?: string; idx?: number }; ghostPos: [number, number] | null };
+  mapRef?: React.MutableRefObject<maplibregl.Map | null>;
 }
 
 import { ImazuGeometry } from './ImazuGeometry';
@@ -115,11 +105,6 @@ export function SilMapView({
   substrate = 'enc',
   geometry,
   mapRef: externalMapRef,
-  onFeatureDragEnd,
-  onCogDrag,
-  onWpDrag,
-  wpNodes,
-  dragState,
 }: SilMapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<maplibregl.Map | null>(null);

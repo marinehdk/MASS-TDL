@@ -6,15 +6,15 @@ import * as jsyaml from 'js-yaml';
 import {
   useListScenariosQuery,
   useGetScenarioQuery,
-  useValidateScenarioMutation,
   useCreateScenarioMutation,
+  useUpdateScenarioMutation,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
 import { useSchemaValidation } from '../hooks/useSchemaValidation';
 import { useMapInteraction } from '../hooks/useMapInteraction';
 import {
   LucideCompass, LucideFolder, LucideChevronDown, LucideChevronRight, LucideSearch,
-  LucideNavigation, LucideLock, LucidePencil
+  LucideNavigation, LucideLock, LucidePencil, LucideMapPin
 } from 'lucide-react';
 import { BuilderRightRail } from './shared/BuilderRightRail';
 
@@ -52,15 +52,15 @@ export function SimulationScenario() {
 
   // ── ODD Filter state ──
   const [oddDomain, setOddDomain] = useState<string>('open_sea');
-  const [oddSeaState, setOddSeaState] = useState<number>(5);
-  const [oddVisibility, setOddVisibility] = useState<number>(2.0);
+  const [oddSeaState, setOddSeaState] = useState<string>('5');
+  const [oddVisibility, setOddVisibility] = useState<string>('2.0');
   const [vesselClass] = useState<string>('FCB-45m');
 
   const { data: scenarios = [] } = useListScenariosQuery();
   const { data: scenarioDetail } = useGetScenarioQuery(selectedId!, { skip: !selectedId });
-  const [_validate, { data: _validationResult }] = useValidateScenarioMutation();
   const schemaValidation = useSchemaValidation(yamlEditor);
   const [createScenario] = useCreateScenarioMutation();
+  const [updateScenario] = useUpdateScenarioMutation();
   const setScenario = useScenarioStore((s) => s.setScenario);
 
   useEffect(() => {
@@ -77,8 +77,8 @@ export function SimulationScenario() {
     lastOddRef.current = sig;
     handleUpdateYaml({
       'metadata.odd_cell.domain': oddDomain,
-      'metadata.odd_cell.sea_state_beaufort': oddSeaState,
-      'metadata.odd_cell.visibility_nm': oddVisibility,
+      'metadata.odd_cell.sea_state_beaufort': Number(oddSeaState),
+      'metadata.odd_cell.visibility_nm': Number(oddVisibility),
     });
   }, [oddDomain, oddSeaState, oddVisibility]);
 
@@ -125,10 +125,22 @@ export function SimulationScenario() {
     };
   }, [onYamlPatchRaw]);
 
-  const { dragState, wpNodes } = useMapInteraction({
+  const initialWpNodes = useMemo(() => {
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      return (doc?.voyageTask?.waypoints || []).map((wp: any, idx: number) => ({
+        idx,
+        lon: wp.lon ?? 0,
+        lat: wp.lat ?? 0,
+      }));
+    } catch { return []; }
+  }, [yamlEditor]);
+
+  useMapInteraction({
     mapRef,
     previewData,
     onYamlPatch,
+    initialWpNodes,
   });
 
   // Generate Imazu geometry features
@@ -182,8 +194,6 @@ export function SimulationScenario() {
     setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
   };
 
-  const handleValidate = () => _validate(yamlEditor);
-
   const handleSave = async () => {
     if (!schemaValidation.valid) {
       const errList = schemaValidation.errors.slice(0, 5).join('\n• ');
@@ -191,10 +201,18 @@ export function SimulationScenario() {
       return;
     }
     try {
-      const result = await createScenario(yamlEditor).unwrap();
-      setScenario(result.scenario_id, result.hash);
-      alert('Scenario saved!');
-    } catch (err) {
+      const currentScenario = scenarios.find((s: any) => s.id === selectedId);
+      if (currentScenario?.is_baseline || !selectedId) {
+        const result = await createScenario(yamlEditor).unwrap();
+        setSelectedId(result.scenario_id);
+        setScenario(result.scenario_id, result.hash);
+      } else {
+        const result = await updateScenario({ id: selectedId, yaml_content: yamlEditor }).unwrap();
+        setScenario(selectedId, result.hash);
+      }
+    } catch (err: any) {
+      const msg = err?.data?.detail || err?.message || 'Save failed';
+      alert(`Save error: ${msg}`);
       console.error(err);
     }
   };
@@ -285,8 +303,6 @@ const handleUpdateYaml = useCallback((updates: any) => {
           substrate={substrate}
           geometry={imazuGeometry}
           mapRef={mapRef}
-          dragState={dragState}
-          wpNodes={wpNodes}
         />
       </div>
 
@@ -319,14 +335,14 @@ const handleUpdateYaml = useCallback((updates: any) => {
                 { value: 'port_entry', label: 'Port Entry' },
                 { value: 'ofw', label: 'Offshore Wind Farm' },
               ]} />
-            <ODDSelect label="海况" value={String(oddSeaState)} onChange={(v) => setOddSeaState(Number(v))}
+            <ODDSelect label="海况" value={oddSeaState} onChange={setOddSeaState}
               options={[
                 { value: '3', label: 'Beaufort ≤ 3' },
                 { value: '5', label: 'Beaufort ≤ 5' },
                 { value: '7', label: 'Beaufort ≤ 7' },
                 { value: '9', label: 'Beaufort ≤ 9' },
               ]} />
-            <ODDSelect label="能见度" value={String(oddVisibility)} onChange={(v) => setOddVisibility(Number(v))}
+            <ODDSelect label="能见度" value={oddVisibility} onChange={setOddVisibility}
               options={[
                 { value: '0.5', label: '> 0.5 nm' },
                 { value: '1.0', label: '> 1 nm' },
@@ -439,14 +455,14 @@ const handleUpdateYaml = useCallback((updates: any) => {
         </div>
       </div>
 
-      {/* CENTER: Bottom placement mode indicator */}
+      {/* CENTER: Bottom placement mode indicator + controls */}
       <div style={{
         position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-        zIndex: 100, display: 'flex', alignItems: 'center', gap: 16,
+        zIndex: 100, display: 'flex', alignItems: 'center', gap: 12,
         background: 'rgba(10, 15, 24, 0.85)', backdropFilter: 'blur(12px)',
         border: '1px solid var(--line-2)', borderRadius: 8, padding: '6px 16px',
       }}>
-        {placementMode !== 'none' && (
+        {placementMode !== 'none' ? (
           <>
             <LucideNavigation size={14} color="var(--c-phos)" />
             <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-phos)' }}>
@@ -456,6 +472,23 @@ const handleUpdateYaml = useCallback((updates: any) => {
               background: 'rgba(255,255,255,0.1)', color: 'var(--txt-1)', border: 'none',
               padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10
             }}>取消</button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => setPlacementMode('ownship')} style={{
+              background: 'rgba(91,192,190,0.1)', color: 'var(--c-phos)', border: '1px solid var(--line-1)',
+              padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 10,
+              fontFamily: 'var(--f-disp)', display: 'flex', alignItems: 'center', gap: 6
+            }}>
+              <LucideMapPin size={12} /> 放置本船
+            </button>
+            <button onClick={() => setPlacementMode(`target-${(previewData?.targets?.length || 0)}`)} style={{
+              background: 'rgba(91,192,190,0.1)', color: 'var(--txt-1)', border: '1px solid var(--line-1)',
+              padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 10,
+              fontFamily: 'var(--f-disp)', display: 'flex', alignItems: 'center', gap: 6
+            }}>
+              <LucideMapPin size={12} /> 添加目标船
+            </button>
           </>
         )}
       </div>
@@ -468,10 +501,8 @@ const handleUpdateYaml = useCallback((updates: any) => {
         yamlEditor={yamlEditor}
         onUpdateYaml={handleUpdateYaml}
         onChangeRawYaml={setYamlEditor}
-        previewData={previewData}
         onRun={handleRun}
         onSave={handleSave}
-        onValidate={handleValidate}
         isBaseline={selectedId ? scenarios.find((s: any) => s.id === selectedId)?.is_baseline : false}
         scenarioHash={scenarioDetail?.hash}
       />
