@@ -37,6 +37,15 @@ _SIL2_CLAUSE_MAP = {
     6: "IEC 61508-2 Clause 7.3 Independence — Doer-Checker physical separation",
 }
 
+def _parse_check_item(c: str) -> dict:
+    """Parse '[ok] item detail' into {item, status, detail} dict."""
+    if "] " in c:
+        status_part, detail = c.split("] ", 1)
+        status = status_part.lstrip("[")
+        item_word = detail.split(" ", 1)[0] if " " in detail else detail
+        return {"item": item_word, "status": status, "detail": detail}
+    return {"item": c[:40], "status": "unknown", "detail": c}
+
 def _write_gate_evidence(scenario_id: str, result) -> None:
     """Write staging evidence artifact: scenarios/{id}/.preflight/gate_N.json"""
     staging_dir = SCENARIO_DIR / scenario_id / ".preflight"
@@ -161,8 +170,7 @@ async def probe_stream(scenario_id: str | None = None):
                 "label": runner._gate_label_for(result.gate_id),
                 "passed": result.passed,
                 "checks": [
-                    {"item": c.split("]", 1)[0].lstrip("["), "status": c.split("]", 1)[0].lstrip("["), "detail": c.split("]", 1)[1].strip() if "]" in c else c}
-                    if isinstance(c, str) else c
+                    _parse_check_item(c) if isinstance(c, str) else c
                     for c in result.checks
                 ],
                 "duration_ms": result.duration_ms,
