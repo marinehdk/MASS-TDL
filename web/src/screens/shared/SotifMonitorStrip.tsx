@@ -3,70 +3,61 @@ import type { SotifMetrics } from '../../types/sat';
 
 interface SotifMonitorStripProps {
   metrics: SotifMetrics | null;
+  recommendedMrm?: string;
 }
 
-interface MetricRow {
-  testId: string;
-  label: string;
-  value: number;
-  displayValue: string;
-  maxValue: number;
-  threshold: number;
-  violated: boolean;
-  unit: string;
-  higherIsBad: boolean;
-}
-
-function buildRows(m: SotifMetrics): MetricRow[] {
+function buildRows(m: SotifMetrics) {
   return [
     {
       testId: 'ais', label: 'AIS/雷达一致性',
       value: m.ais_radar_consistency_sigma, displayValue: `${m.ais_radar_consistency_sigma.toFixed(1)}σ`,
       maxValue: 4, threshold: 2.0, violated: m.ais_radar_consistency_sigma > 2.0,
-      unit: 'σ', higherIsBad: true,
     },
     {
       testId: 'predictability', label: '目标可预测性 RMS',
       value: m.target_predictability_rms_m, displayValue: `${m.target_predictability_rms_m.toFixed(0)}m`,
       maxValue: 100, threshold: 50, violated: m.target_predictability_rms_m > 50,
-      unit: 'm', higherIsBad: true,
     },
     {
       testId: 'coverage', label: '感知覆盖充分性',
       value: m.perception_coverage_pct, displayValue: `${m.perception_coverage_pct.toFixed(0)}%`,
       maxValue: 100, threshold: 80, violated: m.perception_coverage_pct < 80,
-      unit: '%', higherIsBad: false,
     },
     {
       testId: 'colregs', label: 'COLREGs解析失败',
       value: m.colregs_parse_failures, displayValue: `${m.colregs_parse_failures}次`,
       maxValue: 10, threshold: 3, violated: m.colregs_parse_failures > 3,
-      unit: '次', higherIsBad: true,
     },
     {
       testId: 'comm', label: '通信链路质量',
       value: m.comm_link_rtt_ms, displayValue: `${m.comm_link_rtt_ms}ms`,
       maxValue: 3000, threshold: 2000, violated: m.comm_link_rtt_ms > 2000,
-      unit: 'ms', higherIsBad: true,
     },
     {
       testId: 'checker', label: 'Checker否决率',
       value: m.checker_veto_rate_pct, displayValue: `${m.checker_veto_rate_pct.toFixed(0)}%`,
       maxValue: 40, threshold: 20, violated: m.checker_veto_rate_pct > 20,
-      unit: '%', higherIsBad: true,
     },
   ];
 }
 
-export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics }) => {
+const MRM_LABELS: Record<string, string> = {
+  'MRM-01': '减速至安全速度，保持航向',
+  'MRM-02': '紧急转向避让',
+  'MRM-03': '立即停车',
+  'MRM-04': '全速倒车',
+};
+
+export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics, recommendedMrm }) => {
   if (!metrics) return null;
 
   const rows = buildRows(metrics);
   const anyViolated = rows.some((r) => r.violated);
+  const mrm = recommendedMrm ?? 'MRM-01';
+  const mrmDesc = MRM_LABELS[mrm] ?? '减速至安全速度，保持航向';
 
   return (
     <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)' }}>
-      {/* Header */}
       <div style={{
         padding: '6px 12px', background: 'var(--bg-0)',
         borderBottom: '1px solid var(--line-2)',
@@ -84,7 +75,6 @@ export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics })
         </span>
       </div>
 
-      {/* 6 metric rows */}
       {rows.map((row) => {
         const barPct = Math.min(100, (row.value / row.maxValue) * 100);
         const barColor = row.violated ? '#f87171' : barPct > 79 ? '#fbbf24' : '#34d399';
@@ -120,14 +110,13 @@ export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics })
         );
       })}
 
-      {/* MRM recommendation when violated */}
       {anyViolated && (
         <div style={{
           margin: '8px 12px', padding: '6px 8px',
           background: 'rgba(248,81,73,0.1)', border: '1px solid #f87171',
           fontSize: 9, color: '#f87171',
         }}>
-          推荐: MRM-01（减速至安全速度，保持航向）· 等待 M1 仲裁
+          推荐: {mrm}（{mrmDesc}）· 等待 M1 仲裁
         </div>
       )}
 

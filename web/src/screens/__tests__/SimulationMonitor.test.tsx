@@ -29,10 +29,9 @@ vi.mock('maplibre-gl', () => ({
 vi.mock('../../hooks/useFoxgloveLive', () => ({ useFoxgloveLive: vi.fn() }));
 vi.mock('../../hooks/useHotkeys', () => ({
   useHotkeys: vi.fn((handlers: Record<string, () => void>) => {
-    const handler = (e: KeyboardEvent) => {
-      if (handlers[e.key]) handlers[e.key]();
-    };
+    const handler = (e: KeyboardEvent) => { if (handlers[e.key]) handlers[e.key](); };
     document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }),
 }));
 vi.mock('../../api/silApi', () => ({

@@ -1,12 +1,13 @@
-import React from 'react';
-import type { IvpContribution } from '../types/sat';
+import React, { useEffect, useState } from 'react';
+import type maplibregl from 'maplibre-gl';
+import type { IvpContribution, OwnShipState } from '../types/sat';
 
 interface IvpRiskGradientLayerProps {
+  mapRef: React.MutableRefObject<maplibregl.Map | null>;
+  ownShip: OwnShipState | null;
   contributions: IvpContribution[];
   activeBehavior: string | null;
   activeBehaviorWeight: number;
-  ownShipScreenPos: [number, number];
-  headingDeg: number;
 }
 
 const MAX_ARROW_PX = 60;
@@ -18,11 +19,36 @@ function costToColor(cost: number): string {
 }
 
 export const IvpRiskGradientLayer: React.FC<IvpRiskGradientLayerProps> = React.memo(({
-  contributions, activeBehavior, activeBehaviorWeight, ownShipScreenPos, headingDeg,
+  mapRef, ownShip, contributions, activeBehavior, activeBehaviorWeight,
 }) => {
-  if (contributions.length === 0) return null;
+  const [screenPos, setScreenPos] = useState<[number, number] | null>(null);
+  const [headingDeg, setHeadingDeg] = useState(0);
 
-  const [cx, cy] = ownShipScreenPos;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ownShip) {
+      setScreenPos(null);
+      return;
+    }
+
+    function update() {
+      const lon = ownShip?.pose?.lon;
+      const lat = ownShip?.pose?.lat;
+      if (typeof lon === 'number' && typeof lat === 'number') {
+        const px = map!.project([lon, lat]);
+        setScreenPos([px.x, px.y]);
+        setHeadingDeg((ownShip!.pose?.heading ?? 0) * 180 / Math.PI);
+      }
+    }
+
+    update();
+    map.on('move', update);
+    return () => { map.off('move', update); };
+  }, [mapRef, ownShip]);
+
+  if (contributions.length === 0 || !screenPos) return null;
+
+  const [cx, cy] = screenPos;
 
   return (
     <svg
@@ -43,7 +69,6 @@ export const IvpRiskGradientLayer: React.FC<IvpRiskGradientLayerProps> = React.m
               data-testid={`ivp-arrow-${c.direction_deg}`}
               x1={cx} y1={cy} x2={x2} y2={y2}
               stroke={color} strokeWidth={2.5} strokeLinecap="round"
-              fill={color}
             />
             <polygon
               fill={color}

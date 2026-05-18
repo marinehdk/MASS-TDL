@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, memo } from 'react';
 import { SilMapView } from '../map/SilMapView';
 import { SafetyDomainLayer } from '../map/SafetyDomainLayer';
 import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
@@ -48,7 +48,7 @@ const FSM_GLOW: Record<string, string> = {
   MRC: '0 0 0 3px rgba(139,0,0,0.6)',
 };
 
-function ModulePulseBar() {
+const ModulePulseBar = memo(function ModulePulseBar() {
   const pulses = useTelemetryStore((s) => s.modulePulses);
   const byId: Record<number, typeof pulses[0]> = {};
   for (const p of pulses) { if (p.moduleId != null) byId[Number(p.moduleId)] = p; }
@@ -74,7 +74,7 @@ function ModulePulseBar() {
       })}
     </div>
   );
-}
+});
 
 function LeftDrawer() {
   const sat2 = useTelemetryStore((s) => s.sat2);
@@ -120,7 +120,7 @@ function RightDrawer() {
       background: 'rgba(7,12,19,0.92)', backdropFilter: 'blur(8px)',
       borderLeft: '1px solid var(--line-2)', zIndex: 20, overflowY: 'auto',
     }}>
-      <SotifMonitorStrip metrics={sotifMetrics} />
+      <SotifMonitorStrip metrics={sotifMetrics} recommendedMrm={useFsmStore.getState().torRequest?.recommendedMrm} />
 
       <div style={{ borderTop: '1px solid var(--line-2)', padding: '6px 12px' }}>
         <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -211,11 +211,7 @@ export function SimulationMonitor() {
   const borderColor = FSM_BORDER[fsmState] ?? 'transparent';
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';
   const isEngineer  = viewMode === 'engineer';
-
-  const ownShipScreenPos: [number, number] = [
-    window.innerWidth * (isEngineer ? 0.55 : 0.5),
-    window.innerHeight * (viewMode === 'captain' ? 0.7 : 0.5),
-  ];
+  const isRoc       = viewMode === 'roc';
 
   return (
     <div
@@ -235,7 +231,7 @@ export function SimulationMonitor() {
         <SilMapView
           externalMapRef={externalMapRef}
           followOwnShip={viewMode === 'captain' || viewMode === 'roc'}
-          viewMode={viewMode as 'captain' | 'engineer' | 'roc'}
+          viewMode={viewMode}
         />
 
         {isEngineer && (
@@ -252,11 +248,11 @@ export function SimulationMonitor() {
             />
             {ownShip && sat2 && (
               <IvpRiskGradientLayer
+                mapRef={externalMapRef}
+                ownShip={ownShip}
                 contributions={sat2.ivp_contributions}
                 activeBehavior={sat2.active_behavior}
                 activeBehaviorWeight={sat2.active_behavior_weight}
-                ownShipScreenPos={ownShipScreenPos}
-                headingDeg={(ownShip.pose?.heading ?? 0) * 180 / Math.PI}
               />
             )}
           </>
@@ -303,13 +299,13 @@ export function SimulationMonitor() {
           display: 'flex', gap: 4, borderRadius: 6, padding: 4,
         }}>
           {(['captain', 'engineer', 'roc'] as const).map((mode) => (
-            <button key={mode} onClick={() => setViewMode(mode)} style={{
-              background: viewMode === mode ? '#2dd4bf22' : 'transparent',
-              color: viewMode === mode ? '#2dd4bf' : '#8A9AAD',
-              border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer',
-              fontFamily: 'var(--f-disp)', fontSize: 10, letterSpacing: 1,
-              fontWeight: viewMode === mode ? 700 : 500, textTransform: 'uppercase',
-            }}>
+          <button key={mode} onClick={() => setViewMode(mode)} style={{
+            background: viewMode === mode ? '#2dd4bf22' : 'transparent',
+            color: viewMode === mode ? '#2dd4bf' : '#8A9AAD',
+            border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer',
+            fontFamily: 'var(--f-disp)', fontSize: isRoc && mode === 'roc' ? 14 : 10, letterSpacing: 1,
+            fontWeight: viewMode === mode ? 700 : 500, textTransform: 'uppercase',
+          }}>
               {mode === 'engineer' ? 'ENG' : mode === 'captain' ? 'CAPT' : 'ROC'}
             </button>
           ))}
@@ -353,6 +349,9 @@ export function SimulationMonitor() {
       </div>
 
       {isEngineer && <DecisionChainTimingBar pulses={modulePulses} />}
+
+      {/* ConningBar — captain/ROC IEC 62288 S-Mode */}
+      {!isEngineer && <ConningBar viewMode={viewMode} />}
 
       <div style={{
         height: 48, background: 'var(--bg-1)', borderTop: '1px solid var(--line-2)',

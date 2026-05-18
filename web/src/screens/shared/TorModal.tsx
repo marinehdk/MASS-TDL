@@ -30,6 +30,7 @@ export const TorModal: React.FC = () => {
       const progress = Math.min(1, elapsed / HOLD_DURATION_MS);
       setHoldProgress(progress);
       if (progress >= 1) {
+        // clearHold before setState — idempotent if pointer-up also fires
         clearHold();
         setState('OVERRIDE', 'CAPTAIN_TAKE_CONTROL', simTime);
         setTorRequest(null);
@@ -38,9 +39,11 @@ export const TorModal: React.FC = () => {
   }, [simTime, setState, setTorRequest, clearHold]);
 
   const handlePointerUp = useCallback(() => {
+    // Capture elapsed BEFORE clearHold nulls holdStartRef
     const elapsed = holdStartRef.current ? Date.now() - holdStartRef.current : 0;
     clearHold();
     if (elapsed >= HOLD_DURATION_MS) {
+      // handlePointerDown interval may also have fired — double setState is idempotent
       setState('OVERRIDE', 'CAPTAIN_TAKE_CONTROL', simTime);
       setTorRequest(null);
     }
