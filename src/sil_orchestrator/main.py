@@ -21,7 +21,7 @@ from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.schema_routes import router as schema_router
 from sil_orchestrator.scoring_routes import router as scoring_router
 from sil_orchestrator.ops_routes import router as ops_router
-from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState  # noqa: F401
+from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState, _copy_preflight_evidence  # noqa: F401
 
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -147,6 +147,7 @@ async def lifecycle_activate():
             run_id = _seed_run_dir_ros2(bridge.scenario_id)
         else:
             run_id = _seed_run_dir_demo(bridge.scenario_id)
+        _copy_preflight_evidence(bridge.scenario_id, run_id)
     return {"success": result.success, "error": result.error, "run_id": run_id}
 
 

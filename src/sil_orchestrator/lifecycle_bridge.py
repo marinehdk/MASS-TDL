@@ -7,7 +7,9 @@ with a single orchestrator call.
 """
 
 import asyncio
+import shutil
 import rclpy
+from pathlib import Path
 from rclpy.node import Node
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition
@@ -95,8 +97,14 @@ class LifecycleBridge(Node):
 
         try:
             future = self.change_state_client.call_async(req)
-            while not future.done():
+            deadline = 50  # 50 × 0.1 s = 5 s timeout
+            while not future.done() and deadline > 0:
                 await asyncio.sleep(0.1)
+                deadline -= 1
+            if not future.done():
+                return LifecycleResult(
+                    success=False,
+                    error="Lifecycle service call timed out (5s) — node may not be ready")
             response = future.result()
             if response.success:
                 return LifecycleResult(success=True)
@@ -159,4 +167,16 @@ class LifecycleBridge(Node):
             self._scenario_id = None
             asyncio.ensure_future(self._broadcast_transition(Transition.TRANSITION_CLEANUP))
         return res
+
+
+def _copy_preflight_evidence(scenario_id: str, run_id: str) -> None:
+    """Archive staging evidence from .preflight/ to runs/{run_id}/preflight/"""
+    from sil_orchestrator.config import SCENARIO_DIR, RUN_DIR
+    src = SCENARIO_DIR / scenario_id / ".preflight"
+    dst = RUN_DIR / run_id / "preflight"
+    if not src.exists():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for gate_file in src.glob("gate_*.json"):
+        shutil.copy2(gate_file, dst / gate_file.name)
 
