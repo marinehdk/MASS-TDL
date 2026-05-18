@@ -40,11 +40,6 @@ const VESSEL_HIT_RADIUS_PX = 20;
 const WP_HIT_RADIUS_PX = 15;
 const COG_HIT_RADIUS_PX = 12;
 
-function lngLatDistance(a: maplibregl.LngLat, b: maplibregl.LngLat): number {
-  const dx = a.lng - b.lng;
-  const dy = a.lat - b.lat;
-  return Math.sqrt(dx * dx + dy * dy);
-}
 
 export function useMapInteraction(opts: MapInteractionOptions): MapInteractionReturn {
   const { mapRef, previewData, onYamlPatch } = opts;
@@ -98,7 +93,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
       }
     }
 
-    const checkCog = (id: string, lon: number, lat: number, cogDeg: number, sogMs: number) => {
+    const checkCog = (_id: string, lon: number, lat: number, cogDeg: number, sogMs: number) => {
       if (sogMs <= 0) return false;
       const distNm = Math.max((sogMs * 360) / 1852, 0.5);
       const cogRad = cogDeg * Math.PI / 180;

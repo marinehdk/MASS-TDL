@@ -19,7 +19,7 @@ interface SilMapViewProps {
   onMapClick?: (lon: number, lat: number) => void;
   substrate?: 'enc' | 'sat' | 'osm';
   geometry?: GeoJSON.FeatureCollection | null;
-  mapRef?: React.RefObject<maplibregl.Map | null>;
+  mapRef?: React.MutableRefObject<maplibregl.Map | null>;
   dragState?: { active: { kind: string; id?: string; idx?: number }; ghostPos: [number, number] | null };
   wpNodes?: Array<{ idx: number; lon: number; lat: number }>;
 }
