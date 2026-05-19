@@ -91,11 +91,18 @@ class GateRunner:
         results: list[GateResult] = []
         for spec in self.gates:
             t0 = time.monotonic()
-            result = await spec.handler()
+            try:
+                result = await spec.handler()
+            except Exception as exc:
+                result = GateResult(
+                    gate_id=spec.gate_id,
+                    passed=False,
+                    checks=[f"[fail] unhandled exception: {exc}"],
+                    duration_ms=0.0,
+                    rationale=f"gate crashed: {type(exc).__name__}",
+                )
             result.duration_ms = (time.monotonic() - t0) * 1000
             results.append(result)
-            if not result.passed:
-                break
         return results
 
     def _gate_label_for(self, gate_id: int) -> str:
@@ -231,14 +238,18 @@ async def _check_foxglove_bridge() -> tuple[str, str]:
 
 
 async def _check_martin_tileserver() -> tuple[str, str]:
-    """HTTP GET localhost:3000/health — martin tile server."""
+    """TCP connect to localhost:3000 — martin tile server (async, non-blocking)."""
     try:
-        import urllib.request
-        req = urllib.request.Request("http://127.0.0.1:3000/health")
-        urllib.request.urlopen(req, timeout=5)
-        return CHECK_OK, ":3000 responsive"
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", 3000), timeout=5
+        )
+        writer.close()
+        await writer.wait_closed()
+        return CHECK_OK, ":3000 listening"
+    except asyncio.TimeoutError:
+        return CHECK_FAIL, ":3000 not responsive (timeout 5s)"
     except Exception as e:
-        return CHECK_FAIL, f":3000 not responsive: {e}"
+        return CHECK_FAIL, f":3000 not reachable: {e}"
 
 
 async def _check_ws_connected() -> tuple[str, str]:
