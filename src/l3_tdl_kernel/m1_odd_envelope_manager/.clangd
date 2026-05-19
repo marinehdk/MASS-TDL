@@ -1,0 +1,19 @@
+# PATH-S（安全关键路径）覆盖 — IEC 61508 SIL 2
+# 覆盖根 .clangd 的宽松策略，启用完整 lint
+Diagnostics:
+  ClangTidy:
+    # PATH-S 启用所有 check（与 .clang-tidy.path-s 对齐）
+    Add:
+      - "*"
+      - "clang-analyzer-*"
+      - "cert-*"
+      - "hicpp-*"
+    Remove: []
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+
+# PATH-S: 禁异常 + 禁 RTTI（与 CMake set_source_files_properties 对齐）
+CompileFlags:
+  Add:
+    - "-fno-exceptions"
+    - "-fno-rtti"

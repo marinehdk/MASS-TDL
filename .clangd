@@ -1,0 +1,44 @@
+CompileFlags:
+  # colcon build 生成的 compile_commands.json
+  CompilationDatabase: build/
+
+  Add:
+    - "-xc++"
+    - "--std=c++17"
+    # PATH-S TUs 编译选项（与 CMake 中 set_source_files_properties 对齐）
+    # 通过 .clangd 预注入，避免 clangd 对 -fno-exceptions/-fno-rtti 报 unknown argument
+  Remove:
+    - "-fno-exceptions"
+    - "-fno-rtti"
+    - "-m*"
+    - "-fprofile-arcs"
+    - "-ftest-coverage"
+    - "-fsanitize=*"
+
+Diagnostics:
+  # 使用项目 .clang-tidy 运行 lint 检查（仅 clangd 内联显示，不替代 CI 的 run-clang-tidy）
+  ClangTidy:
+    Add:
+      - "*"
+    Remove:
+      # 以下规则通过 CI 独立 run-clang-tidy 执行，clangd 内关闭以降低编辑延迟
+      - "clang-analyzer-*"
+      - "cert-*"
+      - "hicpp-*"
+
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+  Designators: Yes
+
+Hover:
+  ShowAKA: Yes
+
+---
+# PATH-S 模块覆盖（M1/M7）——通过子目录 .clangd 文件生效
+# 在 src/l3_tdl_kernel/m1_odd_envelope_manager/.clangd 和
+# src/l3_tdl_kernel/m7_safety_supervisor/.clangd 中分别配置
