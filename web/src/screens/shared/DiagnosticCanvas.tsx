@@ -10,17 +10,36 @@ interface DiagnosticCanvasProps {
   storedYaml: string;
   verdict: 'GO' | 'NO-GO' | null;
   countdown: number;
+  transitioning: boolean;
 }
 
-export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYaml, verdict, countdown }: DiagnosticCanvasProps) {
+export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYaml, verdict, countdown, transitioning }: DiagnosticCanvasProps) {
+  if (transitioning) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(0,227,179,0.08)' }}>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', border: '3px solid var(--c-stbd)', borderTopColor: 'transparent', animation: 'spin 1s linear infinite', marginBottom: 20 }} />
+        <div style={{ fontFamily: 'var(--f-disp)', fontSize: 20, color: 'var(--c-stbd)', marginBottom: 8 }}>
+          正在激活 L3 核心...
+        </div>
+        <div style={{ fontFamily: 'var(--f-body)', fontSize: 13, color: 'var(--txt-2)' }}>
+          ROS2 生命周期节点启动中
+        </div>
+      </div>
+    );
+  }
   if (verdict === 'GO') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(0,227,179,0.08)' }}>
-        <div style={{ fontFamily: 'var(--f-disp)', fontSize: 22, color: 'var(--c-stbd)', marginBottom: 8 }}>
-          ALL GATES CLEAR \u2014 ENGAGING L3 KERNEL
+        <div style={{ fontFamily: 'var(--f-disp)', fontSize: 22, color: 'var(--c-stbd)', marginBottom: 12 }}>
+          所有安全门控通过
         </div>
-        <div style={{ fontFamily: 'var(--f-body)', fontSize: 13, color: 'var(--txt-2)' }}>
-          Auto-activating in {countdown} seconds...
+        {countdown > 0 && (
+          <div style={{ fontFamily: 'var(--f-disp)', fontSize: 72, color: 'var(--c-phos)', fontWeight: 700, lineHeight: 1, textAlign: 'center' }}>
+            {countdown}
+          </div>
+        )}
+        <div style={{ fontFamily: 'var(--f-body)', fontSize: 14, color: 'var(--txt-2)', marginTop: countdown > 0 ? 8 : 0 }}>
+          {countdown > 0 ? '秒后自动激活 L3 核心' : '准备激活 L3 核心...'}
         </div>
       </div>
     );

@@ -86,6 +86,49 @@ class LifecycleBridge(Node):
     def scenario_id(self) -> str | None:
         return self._scenario_id
 
+    async def _get_ros2_state(self) -> str | None:
+        """Query the actual ROS2 node state (not the Python mirror).
+
+        Returns the state label string (e.g. 'unconfigured', 'inactive', 'active')
+        or None if the service is unavailable.
+        """
+        if not self.get_state_client.wait_for_service(timeout_sec=2.0):
+            return None
+        req = GetState.Request()
+        try:
+            future = self.get_state_client.call_async(req)
+            deadline = 20  # 2 s
+            while not future.done() and deadline > 0:
+                await asyncio.sleep(0.1)
+                deadline -= 1
+            if not future.done():
+                return None
+            return future.result().current_state.label
+        except Exception:
+            return None
+
+    async def _reset_to_unconfigured(self) -> LifecycleResult:
+        """Drive the ROS2 node to unconfigured regardless of its current state.
+
+        Needed after an orchestrator restart where _state is stale but the node
+        may still be active/inactive from the previous session.
+        """
+        ros2_state = await self._get_ros2_state()
+        _log.info("_reset_to_unconfigured: actual ROS2 state = %s", ros2_state)
+        if ros2_state in (None, "unconfigured", "finalized"):
+            self._state = LifecycleState.UNCONFIGURED
+            return LifecycleResult(success=True)
+        if ros2_state == "active":
+            res = await self._change_state(Transition.TRANSITION_DEACTIVATE)
+            if not res.success:
+                return res
+            self._state = LifecycleState.INACTIVE
+        # Now in inactive — cleanup to unconfigured
+        res = await self._change_state(Transition.TRANSITION_CLEANUP)
+        if res.success:
+            self._state = LifecycleState.UNCONFIGURED
+        return res
+
     async def _change_state(self, transition_id: int) -> LifecycleResult:
         if not self.change_state_client.wait_for_service(timeout_sec=2.0):
             return LifecycleResult(
@@ -97,14 +140,14 @@ class LifecycleBridge(Node):
 
         try:
             future = self.change_state_client.call_async(req)
-            deadline = 50  # 50 × 0.1 s = 5 s timeout
+            deadline = 150  # 150 × 0.1 s = 15 s timeout (generous for loaded executors)
             while not future.done() and deadline > 0:
                 await asyncio.sleep(0.1)
                 deadline -= 1
             if not future.done():
                 return LifecycleResult(
                     success=False,
-                    error="Lifecycle service call timed out (5s) — node may not be ready")
+                    error="Lifecycle service call timed out (15s) — node may not be ready")
             response = future.result()
             if response.success:
                 return LifecycleResult(success=True)
@@ -112,41 +155,52 @@ class LifecycleBridge(Node):
         except Exception as exc:
             return LifecycleResult(success=False, error=str(exc))
 
-    async def _broadcast_transition(self, transition_id: int) -> None:
-        """Send transition to every SIL lifecycle node; log failures, never raise."""
-        for node_name, client in self._sil_change_state_clients.items():
-            try:
-                if not client.wait_for_service(timeout_sec=0.5):
-                    _log.debug("broadcast: /%s/change_state not available — skipping", node_name)
-                    continue
-                req = ChangeState.Request()
-                req.transition.id = transition_id
-                future = client.call_async(req)
-                # Wait at most 2 s per node so broadcast can't block the main call
-                deadline = 20  # 20 × 0.1 s = 2 s
-                while not future.done() and deadline > 0:
-                    await asyncio.sleep(0.1)
-                    deadline -= 1
-                if future.done():
-                    resp = future.result()
-                    if resp.success:
-                        _log.info("broadcast: /%s transition %d → OK", node_name, transition_id)
-                    else:
-                        _log.warning("broadcast: /%s transition %d → rejected", node_name, transition_id)
+    async def _broadcast_to_node(self, node_name: str, client, transition_id: int) -> None:
+        """Send one lifecycle transition to a single SIL node (best-effort, never raises)."""
+        try:
+            if not client.wait_for_service(timeout_sec=0.5):
+                _log.debug("broadcast: /%s/change_state not available — skipping", node_name)
+                return
+            req = ChangeState.Request()
+            req.transition.id = transition_id
+            future = client.call_async(req)
+            deadline = 20  # 20 × 0.1 s = 2 s
+            while not future.done() and deadline > 0:
+                await asyncio.sleep(0.1)
+                deadline -= 1
+            if future.done():
+                resp = future.result()
+                if resp.success:
+                    _log.info("broadcast: /%s transition %d → OK", node_name, transition_id)
                 else:
-                    _log.warning("broadcast: /%s transition %d timed out", node_name, transition_id)
-            except Exception as exc:
-                _log.debug("broadcast: /%s error: %s", node_name, exc)
+                    _log.warning("broadcast: /%s transition %d → rejected", node_name, transition_id)
+            else:
+                _log.warning("broadcast: /%s transition %d timed out", node_name, transition_id)
+        except Exception as exc:
+            _log.debug("broadcast: /%s error: %s", node_name, exc)
+
+    async def _broadcast_transition(self, transition_id: int) -> None:
+        """Send transition to every SIL lifecycle node in parallel; log failures, never raise."""
+        tasks = [
+            self._broadcast_to_node(node_name, client, transition_id)
+            for node_name, client in self._sil_change_state_clients.items()
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def configure(self, scenario_id: str) -> LifecycleResult:
+        # Always sync with the real ROS2 state first — the Python mirror can be
+        # stale after an orchestrator restart (node stays active, bridge resets).
+        reset = await self._reset_to_unconfigured()
+        if not reset.success:
+            return reset
         res = await self._change_state(Transition.TRANSITION_CONFIGURE)
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
-            # Await broadcast so CONFIGURE is applied to all SIL nodes before
-            # the caller is allowed to proceed to activate(). This prevents
-            # ACTIVATE arriving at a node still in UNCONFIGURED state.
-            await self._broadcast_transition(Transition.TRANSITION_CONFIGURE)
+            # Fire broadcast as background task so configure() returns quickly
+            # and activate() can proceed without waiting for all SIL node responses.
+            asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
         return res
 
     async def activate(self) -> LifecycleResult:

@@ -19,14 +19,16 @@ export function SimulationCheck() {
 
   const { gates, verdict, streaming, error, start, abort } = useGateStream(scenarioId, true);
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(-1);
   const [devSkipReason, setDevSkipReason] = useState('');
   const [lifecycleError, setLifecycleError] = useState('');
-  const countdownRef = useRef(0);
+  const [transitioning, setTransitioning] = useState(false);
+  const countdownRef = useRef(-1);
 
   // useCallback definitions MUST come before effects that reference them
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
+    setTransitioning(true);
     try {
       // ROS2 lifecycle requires CONFIGURE → ACTIVATE in sequence.
       // cleanup first so re-runs don't get "already configured" rejection.
@@ -34,17 +36,20 @@ export function SimulationCheck() {
       const cfgResult = await configureLifecycle(scenarioId).unwrap();
       if (!cfgResult.success) {
         setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
+        setTransitioning(false);
         return;
       }
       const actResult = await activateLifecycle().unwrap();
       if (!actResult.success) {
         setLifecycleError(`Activate failed: ${actResult.error || 'unknown error'}`);
+        setTransitioning(false);
         return;
       }
       setLifecycleError('');
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) {
       setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
+      setTransitioning(false);
     }
   }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle]);
 
@@ -109,7 +114,8 @@ export function SimulationCheck() {
       <DiagnosticCanvas focusedGateId={focusedGateId} gates={gates}
         scenarioYaml={scenarioDetail?.yaml_content ?? ''}
         storedYaml={scenarioDetail?.yaml_content ?? ''}
-        verdict={verdict} countdown={countdown} />
+        verdict={verdict} countdown={countdown}
+        transitioning={transitioning} />
 
       <ActionLogs focusedGateId={focusedGateId} gates={gates}
         scenarioId={scenarioId} runId={runId ?? 'unknown'}
