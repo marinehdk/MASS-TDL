@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## 1. 项目当前状态（强制阅读 — 2026-05-08 更新，对齐 8 月计划 v3.0）
+## 1. 项目当前状态（强制阅读 — 2026-05-19 更新，对齐 8 月计划 v3.0）
 
 ### 1.1 阶段
-- **实现阶段进行中**：**8 月计划 v3.0 已锁定（2026-05-08）**；D0 must-fix sprint（5/8–5/12）已启动源代码 + 测试 + CI 并行演进（`src/`、`tests/`、`.gitlab-ci.yml` 已建立）；5/13 起 Phase 1 D1.x 工程基础正式起跑
+- **实现阶段进行中**：**8 月计划 v3.0 已锁定（2026-05-08）**；D0 must-fix sprint（5/8–5/12）✅ **已关闭**；当前处于 **Phase 1 中段**（D1.x 并行进行，目标 DEMO-1 Skeleton Live 6/15）
+- **Phase 1 进度（截至 5/19）**：D1.5 V&V Plan ✅ 完成（`docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md`）；SIL v1.0-unified 4 文档套件 ✅ 锁定（01 架构 / 02 后端 / 03 前端 / 04 场景联调，2026-05-15 起持续修订）；Screen 1/2/3 spec+plan 全部吸收进 SIL 设计套件；D1.3a 仿真器 / D1.3b scenario HMI / D1.3c FMI 桥已建分支并行推进
 - 涉及"跑一下/编译/测试"的请求：参考 v3.0 主计划对应 D 编号判断（D0 范围：pure-logic Python；D1.1 起：ROS2 wrapping）
 - **判定基准**：v3.0 plan 32 个 D 编号（D0–D4.7）是所有实现决策的权威参照
 - **三档强制 DEMO**：DEMO-1 (6/15 Skeleton Live) / DEMO-2 (7/31 Decision-Capable) / DEMO-3 (8/31 Full-Stack with Safety + ToR) —— 不可取消；详见 v3.0 §10/§11/§12
@@ -30,9 +31,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    │       v3.0 主文件: gantt/MASS_ADAS_L3_8个月完整开发计划.md
    │       含 D0–D4.7 共 32 个 D 编号 + 三档 DEMO milestone
    │
-   ├── D0 Pre-Kickoff Must-Fix Sprint                   ← ⏳ 5/8–5/12（关闭 11 must-fix）
-   ├── HAZID RUN-001 kickoff                            ← ⏳ 5/13 第 ① 次会议
-   ├── Phase 1 工程基础 + V&V 基线 (D1.1–D1.8)         ← ⏳ 5/13–6/15 → DEMO-1
+   ├── D0 Pre-Kickoff Must-Fix Sprint                   ← ✅ 完成 5/12（11 must-fix 关闭）
+   ├── HAZID RUN-001 kickoff                            ← ⏳ 5/13 第 ① 次会议（进行中）
+   ├── Phase 1 工程基础 + V&V 基线 (D1.1–D1.8)         ← ⏳ 5/13–6/15 → DEMO-1（中段）
+   │       ✅ D1.5 V&V Plan（v0.1 + Phase1 artifacts）
+   │       ✅ SIL v1.0-unified 4 文档套件（01/02/03/04，2026-05-15 起持续修订）
+   │       ✅ Screen 1/2/3 spec+plan 吸收进 SIL 套件
+   │       ⏳ D1.3a/D1.3b/D1.3c 并行（分支推进中）
    ├── Phase 2 M1/M2/M3/M6 + Cert + HF (D2.1–D2.8)     ← ⏳ 6/16–7/31 → DEMO-2
    ├── Phase 3 M4/M5/M7/M8 + SIL 1000 (D3.1–D3.9)      ← ⏳ 7/13–8/31 → DEMO-3
    ├── HAZID 完成 → v1.1.3 回填 (D3.5/D3.8)             ← 8/19 / 8/31
@@ -54,6 +59,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **架构主文件**：`docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`（**v1.1.2 当前权威，2026-05-06**）
 - **8 月开发计划主文件**：`docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md`（**v3.0 当前权威，2026-05-08，已锁定**）
+- **SIL 设计套件 v1.0-unified**（D1.3 系列工程权威，2026-05-15 起持续修订）：
+  - `docs/Design/SIL/v1.0-unified/01-sil-architecture.md`（v1.0，2026-05-15）
+  - `docs/Design/SIL/v1.0-unified/02-sil-backend-design.md`（**v1.0.3 当前**）
+  - `docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md`（**v1.0.4 当前**）
+  - `docs/Design/SIL/v1.0-unified/04-sil-scenario-integration-test.md`（**v1.0.3 当前**）
+  - 整合指导：`docs/Doc From Claude/L3 TDL SIL 架构整合与修订指导书.md`（SIL 套件演进路线图）
+- **V&V 基线**：`docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md`（D1.5 ✅）
 - v1.1.3 进度：D2.8（7/31）出 stub（§16 cyber + §15.0 时基 + §12.5 培训 + §12.3 心智 + §10.5 4-DOF 边界 + 4 缺失模块 stub）→ D3.8（8/31）完整化 → D3.5（8/31）HAZID 132 [TBD] 回填
 - 历史版本（v1.0 / v1.1 / v1.1.1）已归档到 `archive/`，开发计划 v2.0 已归档到 `gantt/archive/v2.0_2026-05-07_archived.md`，**不要从归档读取，永远引用主文件**
 - 文件索引：`docs/Design/Architecture Design/README.md`
@@ -243,6 +255,17 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 8. **跨团队接口契约**：`docs/Design/Cross-Team Alignment/RFC-decisions.md`（6 RFC 决议；v3.0 D0.2/D3.9 起加 RFC-007/008/009）
 9. **HAZID 校准任务**：`docs/Design/HAZID/RUN-001-kickoff.md` + `RUN-001-fcb-data-substitute-memo.md`（D0.2 产出）
 
+### 10.3.1 SIL 设计套件入口（D1.3 系列工程权威，新增）
+
+凡涉及 SIL orchestrator / scenario HMI / FMI 桥 / 联调测试的实现任务，先读 SIL v1.0-unified 套件：
+
+- `docs/Design/SIL/v1.0-unified/01-sil-architecture.md`（v1.0，系统拓扑 + 生命周期 + IDL）
+- `docs/Design/SIL/v1.0-unified/02-sil-backend-design.md`（**v1.0.3**，orchestrator REST + ROS2 topics + scenario authoring）
+- `docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md`（**v1.0.4**，Screen 1/2/3 三屏 + 地图交互 + SSE gate stream）
+- `docs/Design/SIL/v1.0-unified/04-sil-scenario-integration-test.md`（**v1.0.3**，Imazu22 / 联调 / Playwright E2E）
+- `docs/Doc From Claude/L3 TDL SIL 架构整合与修订指导书.md`（套件演进路线图与修订指引）
+- **V&V Plan**：`docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md`（SIL→HIL→实船 entry-exit gates，D1.5 ✅）
+
 ### 10.4 评审与决策回溯入口（v3.0 起新增）
 
 10. **7 角度评审报告**：`docs/Design/Review/2026-05-07/{A-G}-*.md`（按当前任务关联 angle 选读）
@@ -262,7 +285,7 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 
 ---
 
-## 11. 当前工作流状态（2026-05-08）
+## 11. 当前工作流状态（2026-05-19）
 
 | 工作流 | 状态 | 关键产出位置 |
 |---|---|---|
@@ -273,9 +296,15 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 | **跨团队 RFC** | ✅ 6 RFC 已批准；v3.0 起加 RFC-007/008/009 | `docs/Design/Cross-Team Alignment/RFC-decisions.md` |
 | **7 角度多角度评审** | ✅ 完成 2026-05-07（30 P0 / 52 P1 / 29 P2 → 124 finding 整合）| `docs/Design/Review/2026-05-07/00-consolidated-findings.md` |
 | **8 月开发计划 v3.0** | ✅ 锁定 2026-05-08 | `docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md` |
-| **D0 must-fix sprint** | ⏳ 5/8–5/12（11 must-fix + RFC-007/009 + 工时表 v2.1 + HTML 同步）| `docs/Design/Detailed Design/D0-*` |
-| **HAZID RUN-001** | ⏳ 5/13 第 ① 次会议；议程已重排（≥ 2 个 full-day workshop + CCS 持续介入）；8/19 完成 | `docs/Design/HAZID/` |
-| **Phase 1 (D1.1–D1.8)** | ⏳ 5/13–6/15 → **DEMO-1 Skeleton Live 6/15** | `docs/Design/{V&V_Plan,SIL,Cert,ConOps}/` |
+| **D0 must-fix sprint** | ✅ 完成 5/12（11 must-fix + RFC-007/009 + 工时表 v2.1 + HTML 同步）| `docs/Design/Detailed Design/D0-must-fix-sprint/` |
+| **HAZID RUN-001** | ⏳ 5/13 已 kickoff，进行中；8/19 目标完成 | `docs/Design/HAZID/` |
+| **Phase 1 (D1.1–D1.8)** | ⏳ 5/13–6/15 中段，目标 **DEMO-1 Skeleton Live 6/15** | `docs/Design/{V&V_Plan,SIL,Cert,ConOps}/` |
+| **D1.3a 仿真器** | ⏳ 分支推进中（Head-On analytical generator 已落地）| `feat/sil-demo1-head-on` |
+| **D1.3b scenario HMI** | ⏳ 分支并行（YAML mgmt + web HMI + GAP-015 fixes 三分支）| `feat/d1.3b.1-*` / `feat/d1.3b.3-*` |
+| **D1.3c FMI 桥** | ⏳ Docker jazzy→humble 迁移完成 | `feat/d1.3b.3-gap-015-sil-fixes` |
+| **D1.5 V&V Plan** | ✅ v0.1 + Phase1 artifacts 落地 | `docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md` |
+| **SIL 设计套件 v1.0-unified** | ✅ 4 文档套件锁定（01 v1.0 / 02 v1.0.3 / 03 v1.0.4 / 04 v1.0.3）| `docs/Design/SIL/v1.0-unified/` |
+| **Screen 1/2/3 spec+plan** | ✅ 全部吸收进 SIL 套件 03 前端 | `docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md` |
 | **Phase 2 (D2.1–D2.8)** | ⏳ 6/16–7/31 → **DEMO-2 Decision-Capable 7/31** | 各模块 + `docs/Design/{HF,Safety/HARA,Safety/FMEDA}/` |
 | **Phase 3 (D3.1–D3.9)** | ⏳ 7/13–8/31 → **DEMO-3 Full-Stack with Safety + ToR 8/31** | 各模块 + `docs/Design/Cybersecurity/` |
 | **HIL 测试 (D4.1/D4.2)** | ⏳ 9–11月，硬件 7/13 下单（800h+ 目标）| 待 `docs/Test Plan/HIL/` |
@@ -365,13 +394,19 @@ feat/d{阶段}.{序号}-{短描述}
 git log --oneline {branch} ^main   # 输出为空 → 0 个独立 commit → 可直接删除
 ```
 
-### 13.6 当前活跃分支（2026-05-08）
+### 13.6 当前活跃分支（2026-05-19）
 
 | 分支 | 状态 | 对应 D-task |
 |---|---|---|
-| `main` | ✅ 集成，GitHub default | D0–D1.3a 全部已入 |
-| `feat/d3.1-m4-behavior-arbiter` | ⏳ 待 Phase 3 rebase | D3.1 M4 BehaviorArbiter（Tasks 1-6，3180 行）|
+| `main` | ✅ 集成，GitHub default | D0 + D1.x 多数 + Screen 1/2/3 SIL HMI 全部已入 |
+| `feat/d1.3b.1-yaml-scenario-mgmt` | ⏳ Phase 1 在制（T14 integration + coverage_reporter + sil_router 3 commits ahead）| D1.3b.1 YAML scenario mgmt |
+| `feat/d1.3b.3-gap-015-sil-fixes` | ⏳ Phase 1 在制（Docker jazzy→humble + D1.3c FMI 桥，1 commit ahead）| D1.3b.3 / D1.3c |
+| `feat/d1.3b.3-web-hmi` | 🟡 本地分支无独立 commit | D1.3b.3 web HMI <!-- TODO[确认]: 是否已 merge 到 main 可删除？ --> |
+| `feat/sil-demo1-head-on` | ⏳ Phase 1 在制（Head-On analytical generator + tests，1 commit ahead）| D1.3a DEMO-1 head-on 场景 |
+| `feat/d3.1-m4-behavior-arbiter` | ⏳ 待 Phase 3 rebase | D3.1 M4 BehaviorArbiter（Tasks 1-6 + Task 6 quality fixes）|
 | `feat/d3.3b-m7-sotif` | ⏳ 待 Phase 3 review | D3.3b M7 SotifAssumptionMonitor（1 commit）|
+
+> 另存在 `worktree-agent-*` 临时分支若干，由 subagent 框架自动管理，**不要手动操作**。
 
 ---
 
