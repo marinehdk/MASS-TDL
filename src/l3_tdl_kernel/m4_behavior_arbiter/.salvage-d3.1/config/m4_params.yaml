@@ -1,0 +1,39 @@
+m4_behavior_arbiter:
+  ros__parameters:
+    arbitration_period_ms: 500
+    timeout_m1_s: 2.0      # [TBD-HAZID]
+    timeout_m2_s: 2.0      # [TBD-HAZID]
+    timeout_m3_s: 4.0      # [TBD-HAZID]
+    timeout_m6_s: 2.0      # [TBD-HAZID]
+    degraded_to_critical_s: 5.0  # [TBD-HAZID]
+    m2_confidence_min: 0.5       # [TBD-HAZID]
+    weight:
+      transit:        0.30  # [TBD-HAZID]
+      colreg_avoid:   0.70  # [TBD-HAZID]
+      restricted_vis: 0.60  # [TBD-HAZID]
+      channel_follow: 0.50  # [TBD-HAZID]
+      dp_hold:        0.85  # [TBD-HAZID]
+      berth:          0.80  # [TBD-HAZID]
+      mrc_drift:      1.00
+      mrc_anchor:     1.00
+      mrc_heave_to:   1.00
+    degraded_scale:
+      colreg_avoid: 1.30  # [TBD-HAZID]
+      transit:      0.80  # [TBD-HAZID]
+      cpa_safe:     1.20  # [TBD-HAZID]
+    cpa_safe_nm:
+      odd_a: 1.0   # [TBD-HAZID]
+      odd_b: 0.3   # [TBD-HAZID]
+      odd_c: 0.15  # [TBD-HAZID]
+      odd_d: 1.5   # [TBD-HAZID]
+    ivp:
+      heading_resolution_deg:  1.0
+      speed_resolution_kn:     0.5
+      timeout_ms:              100
+      max_pieces_per_function: 32
+    priority:
+      mrc_overrides_all:        true
+      colreg_overrides_transit: true
+    log:
+      level: "info"
+      file:  "/var/log/mass_l3/m4_behavior_arbiter.log"

@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>m4_behavior_arbiter</name>
+  <version>0.1.0</version>
+  <description>
+    L3 Tactical Layer — Module M4 Behavior Arbiter (PATH-D).
+    ODD-aware behavior dictionary + IvP multi-objective solver.
+  </description>
+  <maintainer email="team-m4@sango-mass.local">Team-M4</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>geographic_msgs</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>eigen</depend>
+  <depend>spdlog_vendor</depend>
+  <depend>yaml-cpp</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
