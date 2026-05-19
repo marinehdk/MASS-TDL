@@ -68,7 +68,7 @@ metadata:
   scenario_id: imazu-16-ms-v1.0
   vessel_class: FCB
   odd_cell:
-    domain: open_sea
+    domain: open_sea_offshore_wind_farm
   encounter:
     rule: Rule14
     give_way_vessel: own

@@ -4,10 +4,13 @@ Spec: docs/Design/SIL/2026-05-12-sil-architecture-design.md §1 orchestration pl
 """
 
 import json
+import math
 import os
 import time
 import warnings
 from pathlib import Path
+
+import yaml
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,6 +54,8 @@ threading.Thread(target=_spin_bridge, daemon=True).start()
 
 _store = ScenarioStore()
 _last_run_id: str | None = None
+_demo_initial_state: dict | None = None
+_demo_start_wall: float | None = None
 
 
 def _seed_run_dir(scenario_id: str) -> str:
@@ -132,17 +137,29 @@ async def lifecycle_status():
 @app.post("/api/v1/lifecycle/configure")
 async def lifecycle_configure(request: dict):
     scenario_id = request.get("scenario_id", "")
-    result = await bridge.configure(scenario_id)
-    return {"success": result.success, "error": result.error}
+    detail = _store.get(scenario_id)
+    backend = detail.get("backend", "demo") if detail else "demo"
+    if backend == "ros2":
+        result = await bridge.configure(scenario_id)
+        return {"success": result.success, "error": result.error}
+    # Demo/internal mode: bypass ROS2 lifecycle service
+    bridge._scenario_id = scenario_id
+    bridge._state = LifecycleState.INACTIVE
+    return {"success": True, "error": ""}
 
 
 @app.post("/api/v1/lifecycle/activate")
 async def lifecycle_activate():
+    detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
+    backend = detail.get("backend", "demo") if detail else "demo"
+    if backend != "ros2" and bridge.scenario_id:
+        bridge._state = LifecycleState.ACTIVE
+        run_id = _seed_run_dir_demo(bridge.scenario_id)
+        _copy_preflight_evidence(bridge.scenario_id, run_id)
+        return {"success": True, "error": "", "run_id": run_id}
     result = await bridge.activate()
     run_id = None
     if result.success and bridge.scenario_id:
-        detail = _store.get(bridge.scenario_id)
-        backend = detail.get("backend", "demo") if detail else "demo"
         if backend == "ros2":
             run_id = _seed_run_dir_ros2(bridge.scenario_id)
         else:
@@ -165,13 +182,18 @@ async def lifecycle_cleanup():
     the FSM in ACTIVE (which the strict 4-state lifecycle would reject), this
     transparently deactivates first. Always converges to UNCONFIGURED.
     """
+    global _demo_initial_state, _demo_start_wall
     if bridge.current_state == LifecycleState.UNCONFIGURED:
+        _demo_initial_state = None
+        _demo_start_wall = None
         return {"success": True, "error": ""}
     if bridge.current_state == LifecycleState.ACTIVE:
         deact = await bridge.deactivate()
         if not deact.success:
             return {"success": False, "error": deact.error}
     result = await bridge.cleanup()
+    _demo_initial_state = None
+    _demo_start_wall = None
     return {"success": result.success, "error": result.error}
 
 
@@ -182,6 +204,115 @@ app.include_router(scenario_router)
 app.include_router(schema_router)
 app.include_router(scoring_router)
 app.include_router(ops_router)
+
+# ── Demo telemetry (non-ROS2 dead-reckoning) ─────────────────────────
+
+def _dead_reckon_step(lat: float, lon: float, heading_rad: float, sog_ms: float, dt: float):
+    lat_rad = math.radians(lat)
+    lat += sog_ms * math.cos(heading_rad) * dt / 111120.0
+    lon += sog_ms * math.sin(heading_rad) * dt / (111120.0 * math.cos(lat_rad))
+    return lat, lon
+
+
+@app.get("/api/v1/demo/telemetry")
+async def demo_telemetry():
+    global _demo_initial_state, _demo_start_wall
+    if bridge.current_state != LifecycleState.ACTIVE:
+        return {"error": "Lifecycle not active"}
+    if bridge.scenario_id is None:
+        return {"error": "No scenario configured"}
+
+    detail = _store.get(bridge.scenario_id)
+    if detail is None:
+        return {"error": "Scenario not found"}
+
+    now = time.time()
+    if _demo_initial_state is None or _demo_start_wall is None:
+        yaml_data = yaml.safe_load(detail["yaml_content"])
+        if not isinstance(yaml_data, dict):
+            return {"error": "Invalid YAML"}
+        own = yaml_data.get("ownShip", {})
+        own_init = own.get("initial", {})
+        own_pos = own_init.get("position", {})
+        target_ships = yaml_data.get("targetShips", [])
+        targets = []
+        for ts in target_ships:
+            ts_init = ts.get("initial", {})
+            ts_pos = ts_init.get("position", {})
+            ts_static = ts.get("static", {})
+            mmsi = ts_static.get("mmsi")
+            if mmsi is None and ts.get("id"):
+                mmsi = abs(hash(ts["id"])) % 900000000 + 100000000
+            targets.append({
+                "mmsi": mmsi or 0,
+                "lat": float(ts_pos.get("latitude", 0)),
+                "lon": float(ts_pos.get("longitude", 0)),
+                "heading_deg": float(ts_init.get("heading", 0)),
+                "sog_kn": float(ts_init.get("sog", 0)),
+            })
+        _demo_initial_state = {
+            "own_lat": float(own_pos.get("latitude", 0)),
+            "own_lon": float(own_pos.get("longitude", 0)),
+            "own_heading_deg": float(own_init.get("heading", 0)),
+            "own_sog_kn": float(own_init.get("sog", 0)),
+            "own_cog_deg": float(own_init.get("cog", 0)),
+            "targets": targets,
+        }
+        _demo_start_wall = now
+
+    init = _demo_initial_state
+    dt = now - _demo_start_wall
+    own_heading_rad = math.radians(init["own_heading_deg"])
+    own_sog_ms = init["own_sog_kn"] * 0.514444
+    own_lat, own_lon = _dead_reckon_step(
+        init["own_lat"], init["own_lon"], own_heading_rad, own_sog_ms, dt
+    )
+
+    target_states = []
+    for t in init["targets"]:
+        t_heading_rad = math.radians(t["heading_deg"])
+        t_sog_ms = t["sog_kn"] * 0.514444
+        t_lat, t_lon = _dead_reckon_step(
+            t["lat"], t["lon"], t_heading_rad, t_sog_ms, dt
+        )
+        target_states.append({
+            "mmsi": t["mmsi"],
+            "lat": t_lat,
+            "lon": t_lon,
+            "heading": t_heading_rad,
+            "sog": t_sog_ms,
+            "cog": t_heading_rad,
+            "rot": 0.0,
+            "ship_type": "Cargo",
+            "mode": "replay",
+        })
+
+    return {
+        "own_ship": {
+            "lat": own_lat,
+            "lon": own_lon,
+            "heading": own_heading_rad,
+            "sog": own_sog_ms,
+            "cog": math.radians(init["own_cog_deg"]),
+            "rot": 0.0,
+            "u": own_sog_ms,
+            "v": 0.0,
+            "r": 0.0,
+            "rudder_angle": 0.0,
+            "throttle": 0.0,
+        },
+        "targets": target_states,
+        "sim_time": dt,
+    }
+
+
+@app.post("/api/v1/demo/reset")
+async def demo_reset():
+    global _demo_initial_state, _demo_start_wall
+    _demo_initial_state = None
+    _demo_start_wall = None
+    return {"success": True}
+
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)

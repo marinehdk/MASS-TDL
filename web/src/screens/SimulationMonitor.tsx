@@ -4,6 +4,7 @@ import { SafetyDomainLayer } from '../map/SafetyDomainLayer';
 import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
+import { useDemoTelemetry } from '../hooks/useDemoTelemetry';
 import { useTelemetryStore, useControlStore, useUIStore } from '../store';
 import { useDeactivateLifecycleMutation } from '../api/silApi';
 import { CompassRose } from '../map/CompassRose';
@@ -152,7 +153,9 @@ function RightDrawer() {
 }
 
 export function SimulationMonitor() {
+  const [useDemo, setUseDemo] = useState(false);
   useFoxgloveLive();
+  useDemoTelemetry(useDemo);
 
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
   const asdrEvents      = useTelemetryStore((s) => s.asdrEvents);
@@ -207,6 +210,21 @@ export function SimulationMonitor() {
       return () => clearTimeout(timer);
     }
   }, [lcState]);
+
+  useEffect(() => {
+    if (wsConnected) {
+      setUseDemo(false);
+      return;
+    }
+    if (lcState !== 3) {
+      setUseDemo(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setUseDemo(true);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [lcState, wsConnected]);
 
   const borderColor = FSM_BORDER[fsmState] ?? 'transparent';
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';

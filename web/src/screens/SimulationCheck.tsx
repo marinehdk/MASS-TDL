@@ -21,6 +21,7 @@ export function SimulationCheck() {
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [devSkipReason, setDevSkipReason] = useState('');
+  const [lifecycleError, setLifecycleError] = useState('');
   const countdownRef = useRef(0);
 
   // useCallback definitions MUST come before effects that reference them
@@ -32,16 +33,19 @@ export function SimulationCheck() {
       await cleanupLifecycle();
       const cfgResult = await configureLifecycle(scenarioId).unwrap();
       if (!cfgResult.success) {
-        console.error('configure failed:', cfgResult.error);
+        setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
         return;
       }
       const actResult = await activateLifecycle().unwrap();
       if (!actResult.success) {
-        console.error('activate failed:', actResult.error);
+        setLifecycleError(`Activate failed: ${actResult.error || 'unknown error'}`);
         return;
       }
+      setLifecycleError('');
       window.location.hash = `#/monitor/${scenarioId}`;
-    } catch (e) { console.error('lifecycle launch failed:', e); }
+    } catch (e) {
+      setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle]);
 
   const handleAbort = useCallback(async () => {
@@ -115,6 +119,11 @@ export function SimulationCheck() {
         onDevSkipReasonChange={setDevSkipReason}
         onDevSkip={handleDevSkip} />
 
+      {lifecycleError && (
+        <div style={{ position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 101, padding: '10px 20px', background: 'rgba(248,81,73,0.2)', border: '1px solid var(--c-danger)', borderRadius: 6, fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--c-danger)', textAlign: 'center', maxWidth: '80vw' }}>
+          {lifecycleError}
+        </div>
+      )}
       {error && (
         <div style={{ position: 'fixed', top: 8, right: 320, zIndex: 100, padding: '8px 16px', background: 'rgba(248,81,73,0.15)', border: '1px solid var(--c-danger)', borderRadius: 4, fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-danger)' }}>
           SSE Error: {error}

@@ -48,7 +48,7 @@ metadata:
   - R17
   vessel_class: FCB
   odd_cell:
-    domain: open_sea
+    domain: open_sea_offshore_wind_farm
   encounter:
     rule: Rule15_Port
     give_way_vessel: target
