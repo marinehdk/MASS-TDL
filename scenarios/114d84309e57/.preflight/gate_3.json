@@ -1,0 +1,28 @@
+{
+  "gate_id": 3,
+  "gate_name": "Scenario Integrity",
+  "timestamp_utc": "2026-05-18T08:27:41.311568Z",
+  "scenario_id": "114d84309e57",
+  "passed": false,
+  "checks": [
+    {
+      "item": "SHA256",
+      "status": "fail",
+      "detail": "SHA256 hash mismatch: stored=MISSING... computed=e3b0c44298fc1c14..."
+    },
+    {
+      "item": "YAML",
+      "status": "ok",
+      "detail": "YAML parseable"
+    },
+    {
+      "item": "missing",
+      "status": "fail",
+      "detail": "missing expected_outcome block (cpa_min_m_ge / colregs_rules / grounding)"
+    }
+  ],
+  "duration_ms": 0.6,
+  "rationale": "integrity check(s) failed",
+  "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
+  "hazid_scenario_ref": null
+}
