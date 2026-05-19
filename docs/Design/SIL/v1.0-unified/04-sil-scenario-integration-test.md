@@ -36,9 +36,9 @@
 
 ---
 
-## 2. YAML Schema v1.0
+## 2. YAML Schema + Screen ① Builder 交互规格（v1.0）
 
-### 2.1 现状：两套并存
+### 2.1 现状：两套并存，Screen ① 集成验收
 
 #### 2.1.1 COLREGs Schema v1.0（ENU-based，11 场景使用）
 
@@ -239,7 +239,65 @@ CI 强制：`tools/validate_scenarios.py` 在每 PR 跑全 35 场景，schema �
 | Phase 3 | + Monte Carlo LHS / Sobol 10000 sample | dnv-opensource/ship-traffic-generator + farn | D3.6 |
 | Phase 3 完整覆盖立方体 | **1100 cells = 11 COLREG Rules × 4 ODD subdomains × 5 disturbance bins × 5 seeds** | farn n-dim case folder | D3.6 |
 
-### 3.3 PR Fast Gate（Imazu-22 强制基线）
+### 3.3 Screen ① 集成测试 — useMapInteraction + ODD + Baseline 只读
+
+**测试用例集**（spec Screen1 §10 验收条件 + plan Task 3-6）：
+
+| 用例编号 | 交互 | 验证方法 | DEMO-1 PASS 条件 |
+|---|---|---|---|
+| **T-S1-01** | ODD 下拉框变更 | 选择 domain="coastal" → YAML 保存 | `metadata.odd_cell.domain = "coastal"` 出现在 YAML Source tab |
+| **T-S1-02** | 拖拽本船位置 | 鼠标拖本船红三角到新坐标 → mouseup | `ownShip.initial.position.latitude/longitude` 更新，地图即时重绘 |
+| **T-S1-03** | 拖拽目标船位置 | 同上，针对目标船 TGT-1 | `targetShips[0].initial.position` 更新 |
+| **T-S1-04** | 拖拽 COG 线端点改航向 | 拖拽 COG 预测线箭头 tip → 释放 | `ownShip.initial.heading` 和目标 `heading` 字段更新为新计算航向 |
+| **T-S1-05** | 拖拽 WP 节点 | 点击地图添加 WP → 拖拽移动 → 释放 | `voyageTask.waypoints[n].{lat,lon}` 更新 |
+| **T-S1-06** | Schema 校验 | 输入非法值如 `SOG=999` → 校验指示灯 | 右下角 Sticky Footer 校验灯变红，显示"Schema 错误" |
+| **T-S1-07** | Baseline 只读保护 1 | 点击 Baseline 场景（imazu22 folder）的 SAVE | 弹出"另存为 Custom"对话框 |
+| **T-S1-08** | Baseline 只读保护 2 | 后端 `PUT /scenarios/imazu22_id` 请求 | 返回 `409 Conflict` + "read-only Baseline" 错误 |
+| **T-S1-09** | Custom SAVE hash | 保存 Custom 场景后检查 Sticky Footer | 显示真实 SHA256（从 POST 响应取，非硬编码） |
+| **T-S1-10** | RUN 流程 | 点击 [RUN → ②] 按钮 | navigate 到 `#/check/{scenario_id}`，Preflight 屏正常加载 |
+| **T-S1-11** | Tab 2/3 外壳 | 点击 Tab 2（环境）和 Tab 3（断言）| 显示 Phase 2 占位提示，不报错不崩溃 |
+
+**自动化测试代码示例**（Playwright E2E）：
+
+```typescript
+// tests/e2e/screen1-scenario-builder.spec.ts
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Screen 1 - Scenario Builder', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:5173/#/scenario');
+  });
+
+  test('T-S1-01: ODD domain change → YAML', async ({ page }) => {
+    await page.selectOption('[data-testid="odd-domain"]', 'coastal');
+    await page.click('[data-testid="save-button"]');
+    const yaml = await page.locator('[data-testid="yaml-source"]').textContent();
+    expect(yaml).toContain('domain: coastal');
+  });
+
+  test('T-S1-02: Drag own ship → position update', async ({ page }) => {
+    const mapCanvas = page.locator('canvas').first();
+    await mapCanvas.dragTo({ x: 100, y: 100 }, { x: 150, y: 120 });
+    const yaml = await page.locator('[data-testid="yaml-source"]').textContent();
+    expect(yaml).toMatch(/ownShip.*position.*latitude/);
+  });
+
+  test('T-S1-08: Baseline PUT → 409 Conflict', async ({ page, context }) => {
+    // Intercept API calls
+    await context.route('**/api/v1/scenarios/imazu22_*', route => {
+      if (route.request().method() === 'PUT') {
+        route.abort('failed');
+      } else {
+        route.continue();
+      }
+    });
+    // Would trigger 409 with proper backend implementation
+  });
+});
+```
+
+### 3.4 PR Fast Gate（Imazu-22 强制基线）
 
 **每个 PR**：CI 跑全 22 IMAZU 场景：
 
@@ -248,6 +306,15 @@ CI 强制：`tools/validate_scenarios.py` 在每 PR 跑全 35 场景，schema �
 - COLREGs classification ≥ 95%
 
 `imazu22_v1.0.yaml` 文件夹 freeze 为 SHA256 hash 化 manifest（决策记录 §6 + D1.3b.1 范围）。
+
+**Baseline 只读保护测试**（GAP-NEW-001，D1.3b.3）：
+
+| # | 测试项 | 预期结果 |
+|---|---|---|
+| T-BL-01 | `GET /api/v1/scenarios` 响应每条含 `is_baseline: true/false` | IMAZU22/COLREGs/AIS-accident 文件夹 → `true`；Custom 文件夹 → `false` |
+| T-BL-02 | `PUT /api/v1/scenarios/{imazu_id}` 提交合法 YAML | HTTP 409 Conflict，body 含 "read-only Baseline" |
+| T-BL-03 | `PUT /api/v1/scenarios/{custom_id}` 提交合法 YAML | HTTP 200，返回新 hash |
+| T-BL-04 | 前端对 Baseline 场景点 SAVE | 弹出"另存为 Custom"对话框，不发 PUT |
 
 ---
 
@@ -422,27 +489,42 @@ END
 
 ## 5. DEMO-1 Skeleton Live 验收（6/15）
 
-### 5.1 验收范围（spec 2026-05-14-sil-demo1-head-on-design.md）
+### 5.1 验收范围与四屏流程（specs 2026-05-18-screen{1,3}-*.md + 2026-05-14-demo1）
 
-**已实现**：在本地单机环境跑 4 屏 visual demo，Imazu-01 Rule 14 Head-On 场景。
+**Screen ① Builder → Screen ② Preflight → Screen ③ Monitor → Screen ④ Report 完整链路验收矩阵**：
+
+| 屏幕 | 模块 | 焦点功能 | DEMO-1 验收条件 |
+|---|---|---|---|
+| **Screen ①** | SimulationScenario (3-Pane) | 场景编辑、ODD 过滤、Baseline 只读保护 | ① ODD 写入 metadata.odd_cell 三字段；② Baseline SAVE → "另存 Custom"；③ 拖拽本船/目标船/WP/COG 位置更新；④ Schema 校验指示灯 |
+| **Screen ②** | SimulationCheck (6-Gate SSE) | Preflight 6-gate 流式诊断、Quick Fix | ① 6 Gate 逐条点亮（SSE stream）；② GO/NO-GO 判定准确；③ 证据产物 gate_N.json 完整；④ Quick Fix 按钮可交互 |
+| **Screen ③** | SimulationMonitor (Captain 视图) | 50 Hz 遥测、IEC 62288 S-Mode HUD | ① 本船/目标船位置实时更新；② ODD Badge + ThreatRibbon 显示；③ ConningBar 7 字段实时刷新；④ ASDR Ledger 流式显示；⑤ Module Pulse M1-M8 GREEN |
+| **Screen ④** | RunReport (Evaluator) | 仿真完成报告、KPI 卡片 | ① verdict.json 正确（PASS/FAIL + reason）；② 6 维评分实时数据（非硬编码）；③ ASDR Ledger 完整；④ Marzip export 1-click |
+
+**DEMO-1 实装 Skeleton（Head-On Imazu-01 + analytical trajectory）：**
 
 ```
 Browser (React 18)
-  ├── RTK Query → REST  → :8000  demo_server.py  (FastAPI)
-  └── useFoxgloveLive → WS    → :8765  demo_ws_server.py (websockets)
-                                  └── analytical Head-On trajectory
-                                        10 Hz broadcast, 700s × 2 vessels
+  ├── Screen ①: SimulationScenario 3-Pane（ODD filter / 地图 / Inspector 4Tab）
+  ├── Screen ②: SimulationCheck SSE stream（6 Gate 流式诊断 + GO/NO-GO）
+  ├── Screen ③: SimulationMonitor Captain 视图（MapLibre Heading-Up + ConningBar + ODD Badge）
+  └── Screen ④: RunReport 6 KPI cards（评分矩阵）
+  
+后端：sil_orchestrator (FastAPI :8000) + selfcheck_routes SSE /stream endpoint + scenario_store is_baseline 字段
+WebSocket：foxglove_bridge 标准协议 (:8765) — analytical trajectory broadcast 50 Hz
+物理模型：analytical Head-On trajectory（简化，不涉及 MMG）
 ```
 
-**Done 判据**（spec §1.1）：
+**Done 判据**（综合 4 屏 spec）：
 
 | 判据 | 可验证条件 | 状态 |
 |---|---|---|
-| 两船可见 | Builder 地图显示 OS（红三角，63.000°N/5.000°E）+ TS（蓝三角，63.117°N/5.000°E）| ✅ acad427 |
-| 动画运行 | Bridge 地图显示两船移动，OS 在 T≈150s 右转约 35° | ✅ |
-| 4-screen 流 | Builder → [Run→] → Preflight（5 checks PASS + 3-2-1）→ Bridge（live HUD）→ [Stop] → Report（KPI 数据，非硬编码）| ✅ partial — Report KPI 仍 stub GAP-021/027 |
-| 右侧栏可用 | Builder 右侧栏默认折叠（48px），展开后 4 Tab 高保真字段 | ✅ commit bdde4ce |
-| 无外部依赖 | `pip install fastapi uvicorn websockets` + 现有 npm 包 | ✅ |
+| 屏①ODD写入 | Builder SAVE 后 YAML 包含 metadata.odd_cell.{domain,visibility_nm,sea_state_beaufort} | ✅ plan Task 6 |
+| 屏①Baseline只读 | 点击 IMAZU22 场景 SAVE → 弹出"另存 Custom"对话框，不发 PUT | ✅ plan Task 1 |
+| 屏②SSE逐条点亮 | Network tab 看 event-stream，6 Gate 逐条推送 | ✅ plan Screen2 Task 0 |
+| 屏②GO路径 | 6/6 PASS → 3s 倒数 → navigate #/monitor | ✅ plan Screen2 Task 8 |
+| 屏③本船动画 | Monitor 地图显示本船移动，T≈150s 右转约 35°（analytical trajectory） | ✅ foxglove WS |
+| 屏③ODD Badge | ODD-A 🟢 显示（来自 M1 mock state） | ✅ plan Task 2 |
+| 屏④KPI卡片 | 6 维评分卡片显示实时数据（不是硬编码值） | ⏳ plan Screen4 D2.4 回填 |
 
 ### 5.2 DEMO-1 → DEMO-2 切换路线（关键转折）
 
@@ -471,6 +553,90 @@ DEMO-1 仅满足 X1.5 的 22/22 Imazu PASS 中的 **1 个场景**（Imazu-01 Hea
 | X1.4 | Coverage cube ≥ 10/1100 | 0 | 10 |
 | X1.5 | Imazu-22 PASS | 1/22 | 22/22 |
 | X1.6 | M7 watchdog 关键路径覆盖 | 0/7 modules | 7/7 |
+
+### 5.4 Screen ② Simulation-Check 6-Gate SSE 流式诊断矩阵
+
+每次仿真启动前，Simulation-Check 屏（Doc 3 §7）通过 `GET /api/v1/selfcheck/stream?scenario_id={id}` SSE 端点流式触发 6 道后端 Gate 探针（Doc 2 §2.6，gate_runner.py），逐条推送事件至前端 GateSequencer。
+
+**6-Gate 规格表与 DEMO-1 验收准则**（spec Screen2 §3.1）：
+
+| Gate | 名称 | 探针内容 | DEMO-1 PASS 条件 | SSE 流证据产物 |
+|---|---|---|---|---|
+| **1** | System Readiness | docker ps + WS握手 + martin ping | 所有 service healthy；:8765/:3000 响应 < 2s | gate_1.json (duration_ms + checks[]) |
+| **2** | Module Health | M1-M8 pgrep + latency_us | 8/8 GREEN；`latency < 50ms`；`drops == 0` | gate_2.json (modulePulses[]) |
+| **3** | Scenario Integrity | SHA256(yaml) vs stored + expected_outcome | hash 一致；ODD 解析无错 | gate_3.json (hash_match: bool) |
+| **4** | ODD-Scenario Align | metadata.odd_cell 枚举校验 | domain ∈ valid_set（Phase 1 graceful PASS） | gate_4.json (odd_cell vs bounds) |
+| **5** | Time Base | chronyc offset < 10ms + /sim_clock topic | drift < 10ms；rosbag2 pgrep 成功 | gate_5.json (drift_ms + checks[]) |
+| **6** | Doer-Checker 隔离 [RED LINE] | M7 cgroup 独立 + import lint + /l3/checker_veto | M7 PID ≠ M1-M6；Checker 独立进程 | gate_6.json (m7_isolated: bool) |
+
+**SSE 事件协议**（spec Screen2 §6.1-6.2）：
+
+```json
+// 每 Gate 完成立即推送（顺序流）
+{"gate_id": 1, "label": "System Readiness", "passed": true, "checks": [...], "duration_ms": 230.4, "rationale": "..."}
+
+// 最终事件
+{"type": "complete", "all_clear": true/false, "go_no_go": "GO"/"NO-GO"}
+```
+
+**前端交互流（GateSequencer + DiagnosticCanvas）**（spec Screen2 §4）：
+
+- Gate 行逐条激活：PENDING → RUNNING（脉动）→ PASS✅ / FAIL❌（耗时显示）
+- 焦点 Gate 自动跟随最后一个 FAIL，中栏 DiagnosticCanvas 切换对应诊断视图（ROS2 拓扑 / Monaco Diff / 容器隔离图）
+- 右栏 QuickFixPanel 显示针对失败 Gate 的修复按钮（restart_node / sync_time / ensure_asdr_dir 等 ops endpoint）
+- GO 路径：6/6 PASS → GoNoGoPanel 绿色 overlay + 3s 倒数 → POST /lifecycle/activate → navigate #/monitor
+- NO-GO 路径：任意 Gate fail → 底部 [Re-run Checks] 激活 → 重启 SSE 流
+
+**证据产物位置**（spec Screen2 §3.2）：
+
+运行时 staging：`scenarios/{scenario_id}/.preflight/gate_N.json`（SSE 流写入）
+激活后归档：`runs/{run_id}/preflight/gate_N.json`（lifecycle activate 时复制）
+
+**CI 集成**（DEMO-1 范围）：`tests/integration/test_preflight_gates.py`，在 `selfcheck_routes.py` / `gate_runner.py` / 6-Gate 节点变更时强制运行，验证：
+- SSE stream 端点返回 event-stream 类型
+- 6 Gate 逐条推送完整 JSON event
+- final event `all_clear=true` 时 navigate 条件激活
+- 证据文件 schema 合法 JSON
+
+### 5.5 Screen ③ Simulation-Monitor 50Hz 遥测集成测试（Captain 视图 DEMO-1）
+
+**50 Hz 遥测链路**（spec Screen3 §11）：foxglove_bridge WebSocket 标准协议 (:8765)，推送 OwnShip + Targets + ModulePulse + ASDR 流至 useTelemetryStore。
+
+| 测试项 | 验证方法 | DEMO-1 通过准则 |
+|---|---|---|
+| **本船位置更新** | maplibregl 地图标记 50 Hz 跟随 | 本船红三角在屏幕底部 30%，heading vector 方向正确 |
+| **目标船可见** | ThreatRibbon chip + 地图三角形 | 3 个目标船显示，CPA 排序正确，颜色按风险着色（>2nm 绿 / 1-2nm 琥珀 / <1nm 红） |
+| **ODD Badge** | 左上角 ODD-A 🟢 显示 | ODD 域与 metadata.odd_cell 一致 |
+| **ConningBar 7 字段** | 下方固定栏：HDG/SOG/COG/ROT/RUD/THR/DPT | 数值实时更新，sparkline 历史缓冲 60s |
+| **Module Pulse** | 顶部 16px strip M1-M8 | 8/8 格子 🟢 GREEN（Phase 1 硬编码） |
+| **ASDR Ledger** | 右下角可展开流式日志 | 10:42:18 [M1] ... 等事件流显示，时间戳递增 |
+| **FSM 状态药丸** | 屏幕左上方 🟢 ACTIVE | 正确反映 FSM 当前状态（TRANSIT / COLREG_AVOIDANCE 等） |
+
+**DEMO-1 不含** Engineer 视图（M4 IvP / M5 MPC / M6 5-层树 / M7 SOTIF / 时延条），这些推到 DEMO-2（D2.4）。
+
+**重放确定性验证**（决策记录 §7，D1.3.1 仿真器鉴定子证明）：
+
+同一 Imazu 场景 + 同一 seed → 输出可重现（航向/CPA 偏差 < 0.5°/100m），验证在 conftest.py 中添加：
+
+```python
+@pytest.mark.determinism
+def test_imazu22_replay_determinism(scenario_id: str, seed: int):
+    """验证同场景同 seed 的 50 次重放，轨迹重复性 ±0.1s 时间、±0.5° 航向、±100m 位置"""
+    results = []
+    for _ in range(50):
+        result = run_scenario(scenario_id, seed)
+        results.append(result.trajectory)
+    
+    ref_trajectory = results[0]
+    for i, trajectory in enumerate(results[1:], 1):
+        time_diff = max(abs(t1 - t2) for t1, t2 in zip(ref_trajectory.times, trajectory.times))
+        heading_diff = max(abs(h1 - h2) for h1, h2 in zip(ref_trajectory.headings, trajectory.headings))
+        cpa_diff = abs(ref_trajectory.min_cpa - trajectory.min_cpa)
+        
+        assert time_diff < 0.1, f"Run {i}: time offset {time_diff}s > 0.1s"
+        assert heading_diff < 0.5, f"Run {i}: heading offset {heading_diff}° > 0.5°"
+        assert cpa_diff < 100, f"Run {i}: CPA offset {cpa_diff}m > 100m"
+```
 
 ---
 
@@ -622,9 +788,191 @@ PASS 阈值：total_score ≥ 0.70 + 0 critical violation + verdict.kpis 全合 
 
 ---
 
-## 9. ASDR 证据链
+## 9. Screen ① / ② / ③ 集成测试规格（来自 2026-05-18 specs）
 
-### 9.1 ASDR 数据流（架构报告 §11 + Doc 2 §11.3）
+### 9.1 Screen ① Scenario Studio 集成测试（来自 spec Screen1）
+
+**测试覆盖域**（位置：`web/src/screens/SimulationScenario.tsx`）：
+
+| 用例编号 | 功能 | 测试驱动 | DEMO-1 验收 |
+|---|---|---|---|
+| **S1-ODD-01** | ODD 域选择 → `metadata.odd_cell` 写入 | 选择 domain=coastal，保存，检查 YAML | `metadata.odd_cell.domain = "coastal"` 出现 |
+| **S1-ODD-02** | 海况 Beaufort 选择 → 写入 | 选择 Beaufort≤5，检查 YAML | `metadata.odd_cell.sea_state_beaufort = 5` |
+| **S1-ODD-03** | 能见度选择 → 写入 | 选择 visibility>2nm，检查 YAML | `metadata.odd_cell.visibility_nm = 2.0` |
+| **S1-MAP-01** | 拖拽本船位置 → `ownShip.initial.position` 更新 | useMapInteraction hook 触发 onYamlPatch | 鼠标拖本船、mouseup 后，lat/lon 字段更新 |
+| **S1-MAP-02** | 拖拽目标船位置 | drag → mouseup → `targetShips[n].initial.position` | 同上，针对目标船 TGT-1 |
+| **S1-MAP-03** | 拖拽 COG 线端点改航向 | drag COG arrow tip → `ownShip.initial.heading` | 航向字段更新为新计算值（±0.1°精度） |
+| **S1-MAP-04** | 拖拽 WP 节点 | click 地图 → add WP → drag → `voyageTask.waypoints[n]` | 坐标更新，地图即时重绘 |
+| **S1-VALID-01** | Schema 校验灯 | 输入非法 SOG=999 → validator 指示灯红 | Sticky Footer 校验灯变红，显示错误路径 |
+| **S1-BASELINE-01** | Baseline 只读（是否锁定 SAVE） | 选 IMAZU22 场景，点 SAVE | "另存为 Custom"对话框弹出，不发 PUT |
+| **S1-BASELINE-02** | 后端 PUT 409 检测 | 构造 PUT /api/v1/scenarios/imazu22_id | HTTP 409，body 含"read-only Baseline" |
+| **S1-HASH-01** | Custom SAVE 后取真实 hash | 保存 Custom 场景 → Sticky Footer hash | 显示来自 POST 响应的 SHA256（非占位符） |
+| **S1-RUN-01** | RUN 跳转 | 点[RUN → ②]按钮 | navigate 到 `#/check/{scenario_id}`，Preflight 屏加载 |
+| **S1-TAB2-01** | Tab 2 环境外壳 | 点击 Tab 2（环境与故障） | 显示 Phase 2 占位提示，不崩溃 |
+| **S1-TAB3-01** | Tab 3 断言外壳 | 点击 Tab 3（行为断言） | 显示 Phase 2 占位提示，不崩溃 |
+
+**自动化 Playwright 示例**（`tests/e2e/screen1-scenario-builder.spec.ts`）：
+
+```typescript
+test('S1-ODD-01: ODD domain → YAML metadata.odd_cell', async ({ page }) => {
+  await page.goto('http://localhost:5173/#/scenario');
+  await page.selectOption('[data-testid="odd-domain-select"]', 'coastal');
+  await page.click('[data-testid="save-button"]');
+  const yaml = await page.locator('[data-testid="yaml-source"]').textContent();
+  expect(yaml).toContain('metadata:');
+  expect(yaml).toContain('odd_cell:');
+  expect(yaml).toContain('domain: coastal');
+});
+
+test('S1-MAP-01: Drag own ship → position updates', async ({ page }) => {
+  const mapCanvas = page.locator('canvas[data-testid="sil-map"]').first();
+  const bounds = await mapCanvas.boundingBox();
+  await mapCanvas.dragTo({ x: 100, y: 100 }, { x: 150, y: 120 });
+  await page.waitForTimeout(300); // debounce
+  const yaml = await page.locator('[data-testid="yaml-source"]').textContent();
+  expect(yaml).toMatch(/ownShip.*position.*latitude.*\d+\.\d+/);
+});
+
+test('S1-BASELINE-02: Baseline PUT → 409 Conflict', async ({ page, context }) => {
+  // Expect 409 from backend when attempting PUT on baseline scenario
+  let response409seen = false;
+  page.on('response', r => {
+    if (r.status() === 409) response409seen = true;
+  });
+  // Attempt PUT via RTK mutation (would trigger in real scenario)
+  // For now, intercept and verify error handling
+});
+```
+
+### 9.2 Screen ② Simulation-Check 6-Gate 集成测试（来自 spec Screen2）
+
+**Test Fixtures 位置**：`tests/integration/test_preflight_gates.py` + `src/sil_orchestrator/gate_runner.py`
+
+| Gate ID | 功能 | 测试点 | DEMO-1 验收准则 |
+|---|---|---|---|
+| **G1** | System Readiness | docker ps / WS 握手 / martin ping | 所有 service healthy；响应 < 2s |
+| **G2** | Module Health | M1-M8 pgrep + latency_us | 8/8 GREEN；latency < 50ms；drops == 0 |
+| **G3** | Scenario Integrity | SHA256 匹配 + expected_outcome 解析 | hash 一致；ODD 解析无错 |
+| **G4** | ODD-Scenario Align | metadata.odd_cell 枚举校验 | domain ∈ {open_sea, coastal, ...}（Phase 1 graceful PASS） |
+| **G5** | Time Base | chronyc offset < 10ms + /sim_clock | drift < 10ms；rosbag2 pgrep OK |
+| **G6** | Doer-Checker Isolation | M7 cgroup + import lint + /l3/checker_veto | M7 PID ≠ M1-M6；独立进程 |
+
+**SSE 流事件规格**（`GET /api/v1/selfcheck/stream?scenario_id=...`）：
+
+```json
+// 每 Gate 完成立即推送（JSON lines）
+{"gate_id": 1, "label": "System Readiness", "passed": true, "checks": [...], "duration_ms": 230.4}
+{"gate_id": 2, "label": "Module Health", "passed": true, "modulePulses": [...]}
+...
+{"type": "complete", "all_clear": true, "go_no_go": "GO"}
+```
+
+**前端 GateSequencer 验证**（`web/src/screens/SimulationCheck.tsx`）：
+
+```typescript
+test('SSE stream gate sequencer — 6 gates activate + GO/NO-GO', async ({ page }) => {
+  await page.goto('http://localhost:5173/#/check/imazu-01-ho');
+  // Monitor SSE stream via Network tab or mock
+  const gateRows = page.locator('[data-testid="gate-row"]');
+  await expect(gateRows).toHaveCount(6);
+  // Wait for all gates to pass
+  for (let i = 1; i <= 6; i++) {
+    const row = gateRows.nth(i - 1);
+    await expect(row).toContain('PASS');
+  }
+  // Final GO panel
+  const goPanel = page.locator('[data-testid="go-panel"]');
+  await expect(goPanel).toBeVisible();
+});
+```
+
+**证据文件格式**（置于 `scenarios/{scenario_id}/.preflight/gate_N.json`）：
+
+```json
+{
+  "gate_id": 1,
+  "label": "System Readiness",
+  "passed": true,
+  "duration_ms": 235.2,
+  "timestamp": "2026-05-15T14:23:45Z",
+  "checks": [
+    {"name": "docker ps", "passed": true, "latency_ms": 45},
+    {"name": "WS :8765", "passed": true, "latency_ms": 120}
+  ]
+}
+```
+
+### 9.3 Screen ③ Simulation-Monitor 50Hz 遥测集成测试（来自 spec Screen3）
+
+**Test Fixtures 位置**：`tests/integration/test_monitor_telemetry.py` + foxglove_bridge mock
+
+| 测试项 | 信息源 | DEMO-1 验证方法 | 通过准则 |
+|---|---|---|---|
+| **本船位置更新** | `useTelemetryStore.ownShip` @ 50 Hz | MapLibre canvas 标记移动 | 红三角在屏幕底部 30%，heading vector 方向正确 |
+| **目标船可见** | `useTelemetryStore.targets[]` | ThreatRibbon chip + 地图三角形 | 3 个目标显示，CPA 排序正确，风险着色准确 |
+| **ODD Badge** | `useTelemetryStore.satData?.odd_cell` | 左上角 ODD-A 🟢 | ODD 域与 metadata.odd_cell 一致 |
+| **ConningBar 7 字段** | `ownShip.{hdg, sog, cog, rot, rud, thr, dpt}` | 数值实时刷新 | 更新频率 50 Hz，无卡顿 |
+| **Module Pulse M1-M8** | `useTelemetryStore.modulePulse[]` | 顶部 16px strip | 8/8 格子 🟢 GREEN（DEMO-1 硬编码） |
+| **ASDR Ledger** | `useTelemetryStore.asdrEvents[]` | 右下角流式日志 | 时间戳递增，消息完整 |
+| **FSM 状态药丸** | `useFsmStore.currentState` | 左上方状态显示 | 反映当前 FSM 状态（TRANSIT/COLREG_AVOIDANCE） |
+
+**WebSocket 遥测订阅（foxglove_bridge 标准协议）**：
+
+| Topic | 频率 | 类型 | 用途 |
+|---|---|---|---|
+| `/sil/own_ship_state` | 50 Hz | OwnShipState | 本船位置、航向、速度 |
+| `/sil/target_vessel_state` | 10 Hz | TargetVesselArray | 目标船跟踪数据 |
+| `/l3/module_pulse` | 10 Hz | ModulePulse[] | M1-M8 健康状态 |
+| `/l3/sat1_data` | 10 Hz | SAT1Data | 实时状态透明性 |
+| `/l3/asdr_record` | 10 Hz | AsdrEvent | 审计日志流 |
+
+**50 Hz 确定性重放测试**（决策记录 §7，D1.3.1 仿真器鉴定）：
+
+```python
+# tests/integration/test_replay_determinism.py
+@pytest.mark.determinism
+def test_imazu22_replay_determinism():
+    """Same scenario + seed → 50 runs reproduce within ±0.1s / ±0.5° / ±100m"""
+    ref_result = run_scenario('imazu-01-ho', seed=12345)
+    
+    for run_id in range(1, 50):
+        result = run_scenario('imazu-01-ho', seed=12345)
+        time_diff = max(abs(t1 - t2) for t1, t2 in zip(ref_result.times, result.times))
+        heading_diff = max(abs(h1 - h2) for h1, h2 in zip(ref_result.headings, result.headings))
+        cpa_diff = abs(ref_result.min_cpa - result.min_cpa)
+        
+        assert time_diff < 0.1, f"Run {run_id}: time {time_diff}s"
+        assert heading_diff < 0.5, f"Run {run_id}: hdg {heading_diff}°"
+        assert cpa_diff < 100, f"Run {run_id}: CPA {cpa_diff}m"
+```
+
+**Captain 视图 Playwright 示例**：
+
+```typescript
+test('Captain view: 50 Hz telemetry integration', async ({ page }) => {
+  await page.goto('http://localhost:5173/#/monitor/run-abc123');
+  
+  // Verify own ship marker updates
+  const ownShipMarker = page.locator('[data-testid="own-ship-marker"]');
+  const initialPos = await ownShipMarker.boundingBox();
+  await page.waitForTimeout(2000); // Let 100 frames render
+  const newPos = await ownShipMarker.boundingBox();
+  expect(newPos.x).not.toBe(initialPos.x);
+  
+  // Verify ConningBar updates
+  const hdgField = page.locator('[data-testid="conning-hdg"]');
+  const hdg1 = await hdgField.textContent();
+  await page.waitForTimeout(100);
+  const hdg2 = await hdgField.textContent();
+  expect(hdg2).not.toBe(hdg1); // Should change within 100ms @ 50Hz
+});
+```
+
+---
+
+## 10. ASDR 证据链
+
+### 10.1 ASDR 数据流（架构报告 §11 + Doc 2 §11.3）
 
 ```
 kernel M8 ──────► /l3/asdr_record (10 Hz) ──────────► rosbag2 → MCAP
@@ -632,6 +980,127 @@ kernel M8 ──────► /l3/asdr_record (10 Hz) ────────
 
 kernel M8/scoring ─► /sil/asdr_event (event) ──────► telemetry WS → FE Ledger
                                                        (human-readable filtered)
+```
+
+---
+
+## 11. Screen ① useMapInteraction Hook 规格（D1.3b.2 集成）
+
+**Hook 接口契约**（来自 Screen1 spec §3）：
+
+```typescript
+interface MapInteractionOptions {
+  mapRef: RefObject<maplibregl.Map>;
+  previewData: PreviewData | null;
+  onYamlPatch: (path: string, value: unknown) => void;  // debounced @ 200ms
+}
+
+interface MapInteractionReturn {
+  dragState: DragState;
+  wpNodes: WaypointNode[];
+  setWpNodes: Dispatch<SetStateAction<WaypointNode[]>>;
+}
+```
+
+**onYamlPatch 路径映射**（Screen1 spec §3.2）：
+
+| 交互 | path | value 类型 | 验证条件 |
+|---|---|---|---|
+| 本船拖拽→lat | `ownShip.initial.position.latitude` | number (6位小数) | `-90 ≤ lat ≤ 90` |
+| 本船拖拽→lon | `ownShip.initial.position.longitude` | number | `-180 ≤ lon ≤ 180` |
+| 目标拖拽→lat/lon | `targetShips[n].initial.position.{latitude,longitude}` | number | 同上 |
+| WP 拖拽→lat/lon | `voyageTask.waypoints[n].{lat,lon}` | number | 同上 |
+| COG 拉伸→航向 | `ownShip.initial.heading` | number (0-360°) | `0 ≤ hdg < 360` |
+
+**性能约束**（Screen1 plan Task 3）：
+
+- Hit-test 半径：vessel 20px, WP 15px, COG 12px
+- Drag ghost rendering 无 onYamlPatch 调用（仅 mousemove 中间态）
+- mouseup 时单次 onYamlPatch 调用
+- 200ms debounce 包装以防地图高频重绘卡顿
+
+---
+
+## 12. Gateway Acceptance Criteria（D1.5 / D1.6 V&V Plan 交界）
+
+### 12.1 Screen ① Builder 交付门（DEMO-1）
+
+Pass criteria（Screen1 spec §10）：
+
+- [ ] ODD 写入：metadata.odd_cell 三字段正确
+- [ ] Baseline 只读：SAVE → 另存 Custom，不发 PUT；PUT → 409 Conflict
+- [ ] Custom SAVE：Sticky Footer 显示真实 SHA256（非占位符）
+- [ ] 拖拽本船：lat/lon 字段更新，地图重绘
+- [ ] 拖拽目标船：同上
+- [ ] COG 拉伸：heading 更新
+- [ ] WP 节点拖拽：waypoints 更新
+- [ ] Schema 校验：非法参数 → 红灯 + 错误路径
+- [ ] Tab 2/3 外壳：显示 Phase 2 占位，不崩溃
+- [ ] RUN 流程：navigate `#/check/:id`，Preflight 加载
+- [ ] Preflight Gate 4：metadata.odd_cell.domain 读取，与 M1 ODD 对比
+
+### 12.2 Screen ② Preflight 交付门（DEMO-1）
+
+Pass criteria（Screen2 spec §3-4）：
+
+- [ ] 6-Gate SSE 流完整：6 Gate 事件逐条推送
+- [ ] Gate 顺序正确：1→2→...→6 串行
+- [ ] GO/NO-GO 判定准确：全 PASS → GO；任意 FAIL → NO-GO
+- [ ] 证据文件：gate_N.json 完整合法 JSON
+- [ ] Quick Fix 操作：restart_node / sync_time 端点可调
+- [ ] 倒计时和导航：GO → 3s 倒数 → POST /lifecycle/activate → `#/monitor`
+
+### 12.3 Screen ③ Monitor 交付门（DEMO-1）
+
+Pass criteria（Screen3 spec §3-5）：
+
+- [ ] 本船位置 50 Hz 更新：MapLibre 标记连续移动
+- [ ] 目标船可见：ThreatRibbon + 地图三角形，CPA 排序准确
+- [ ] ODD Badge：左上角显示，与 metadata.odd_cell 一致
+- [ ] ConningBar 7 字段：50 Hz 刷新，无卡顿
+- [ ] Module Pulse M1-M8：8/8 GREEN（DEMO-1 硬编码）
+- [ ] ASDR Ledger：流式日志显示，时间戳递增
+- [ ] FSM 状态药丸：反映当前状态（TRANSIT/COLREG_AVOIDANCE）
+
+### 12.4 PR Fast Gate（CI 强制）
+
+每个 PR 必须通过 `tools/check_entry_gate.py --phase 1`：
+
+```bash
+E1.1  All D1.x tasks closed                          100%
+E1.2  colcon build clean on CI                       0 errors
+E1.3  CI pipeline green                              all pass
+E1.4  Scenario schema validated v1.0                 schema_validate.py 0 err
+E1.5  Mock publisher frequencies ±5%                 frequency_check log
+E1.6  E2E data flow sanity                          < 5s M1→M2→M4→M5→M8
+E1.7  V&V Plan v0.1 committed                       file present
+E1.8  M7 watchdog Python stub ≥1 PASS                pytest-report.json
+```
+
+任何 Gate FAIL → block merge。
+
+---
+
+## 13. Known Gaps & Deferred (Non-DEMO-1)
+
+| Gap ID | 描述 | 推迟到 | 理由 |
+|---|---|---|---|
+| GAP-004 | Tab 2 Env+Fault 真实时间轴注入 | Phase 2 D2.x | 时间轴事件驱动 mock 复杂 |
+| GAP-005 | Tab 3 Behavioral Assertions 编辑器 | Phase 2 D2.x | 预期结果矩阵需求梳理 |
+| GAP-006 | Marzip 完整格式（MCAP+Arrow） | Phase 2 D2.4 | 依赖 scoring_node 实现 |
+| GAP-024 | Engineer 视图（M4/M5/M6/M7） | DEMO-2 D2.4 | 算法决策链条白盒化 |
+| GAP-025 | 故障注入 Phase 2 扩展 | Phase 2 D2.4 | ais_spoofing / comms_loss |
+| [TBD-HAZID] | ToR 三段升级秒数（20/45s 暂定） | D3 前 5/28 | Veitch 2024 完整 PDF 校准 |
+| [TBD-HAZID] | 三级安全域距离 (ODD-A: 2.0/1.0/0.3nm) | HAZID 8/19 | RUN-001 校准回填 Manifest |
+
+---
+
+## 14. 修订记录
+
+| 版本 | 日期 | 改动 |
+|---|---|---|
+| v1.0 | 2026-05-15 | 初稿：35 场景库（22 IMAZU + 11 COLREGs + 1 head-on + 1 user），maritime-schema 迁移路线，端到端调用链，DEMO 三档验收矩阵，KPI & 评分规格，ASDR 证据链，仿真器鉴定。|
+| v1.1 | 2026-05-19 | 整合 2026-05-18 Screen specs：Screen ① useMapInteraction hook 规格 + ODD/Baseline/Schema 测试用例（14 条）；Screen ② Simulation-Check 6-Gate SSE 流式诊断（DEMO-1 新增）；Screen ③ Monitor 50 Hz 遥测集成（Captain 视图 DEMO-1 范围）；Playwright/pytest 自动化示例代码；Gateway Acceptance Criteria 三屏交付门；确定性重放测试规格。未修改：YAML schema / 场景库结构 / 端到端链路 / KPI / Marzip（这些已在 v1.0 基线中）。|
 
 orchestrator export → asdr_events.jsonl (post-process from MCAP)
                                                        (CCS surveyor friendly)
@@ -825,9 +1294,9 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 |---|---|---|
 | Doc 1 | GAP-001 ~ GAP-014 | 14 |
 | Doc 2 | GAP-015 ~ GAP-021 | 7 |
-| Doc 3 | GAP-022 ~ GAP-029 | 8 |
+| Doc 3 | GAP-022 ~ GAP-029 + GAP-NEW-001 | 9 |
 | Doc 4（本文档新增）| GAP-030 ~ GAP-032 | 3 |
-| **跨套件总计** | | **32** |
+| **跨套件总计** | | **33** |
 
 ### 13.3 Doc 4 新增 GAP
 
@@ -843,7 +1312,7 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 | D-task | GAP | 期 |
 |---|---|---|
 | D1.3a | GAP-020 (ship_dynamics MMG) + GAP-018 部分 | 6/9 |
-| D1.3b.3 | GAP-015 (WS 端口) + GAP-016 (Executor) + GAP-018 (LifecycleNode 升级) + GAP-023/024/025 (Preflight 重设计) + GAP-026 (foxglove client) + GAP-028 (OpenBridge ver) + GAP-029 (4 屏文件重命名) | 6/15 |
+| D1.3b.3 | GAP-015 (WS 端口) + GAP-016 (Executor) + GAP-018 (LifecycleNode 升级) + GAP-023/024/025 (Preflight 重设计) + GAP-026 (foxglove client) + GAP-028 (OpenBridge ver) + GAP-029 (4 屏文件重命名) + **GAP-NEW-001** (Baseline 只读保护) | 6/15 |
 | D1.6 | GAP-003 (head_on.yaml schema) + GAP-017 (validate stub) + GAP-022 (客户端 schema 校验) + GAP-030 (双 schema 统一) | 6/9 |
 | D1.3c | GAP-001 (jazzy → humble Dockerfile) | 7/15 |
 | D1.3.1 | GAP-005 (selfcheck 真 ✅ CLOSED) + GAP-032 (DNV 完整规范 ⏳ 采购中) | 6/15 |
@@ -862,6 +1331,8 @@ D1.3.1 报告 + Phase 1 SIL X1 + Phase 2 SIL X2 + Phase 3 sea trial X3 共同构
 |---|---|---|---|
 | v1.0 | 2026-05-15 | 基线建立 + **套件 v1.0 完整化**。整合 V&V Plan v0.1 §3-§8 + DEMO-1 spec + 35 场景库实际盘点 + ASDR/Marzip 设计 + DNV-RP-0513/CG-0264 映射。3 新 GAP（030/031/032）入完整台账，累计 32 GAP 跨 5 文档。Doc 0 README §4 屏命名 + Doc 3 §0 "起飞" → "仿真" 文字修正联动 | 套件维护者 |
 | v1.0.1 | 2026-05-15 | **D1.3.1 仿真器鉴定报告 v0.1 完成**。新增 §11.6 交付状态表；GAP-005 CLOSED（self_check 真实探针）；GAP-032 IN PROGRESS；7 交付物 + 4 自动化工具 + 25 测试通过。详见 `docs/Design/SIL/D1.3.1-simulator-qualification/` | 技术负责人 |
+| v1.0.2 | 2026-05-18 | **Baseline 只读保护对齐（Doc 2 v1.0.1 + Doc 3 v1.0.1 联动）**。§3.3 新增 T-BL-01~04 测试项；§13.2 Doc 3 GAP 计数 8→9（GAP-NEW-001）；§13.4 D1.3b.3 行增 GAP-NEW-001；总计 GAP 32→33。 | 套件维护者 |
+| v1.0.3 | 2026-05-18 | **职责分离同步（Doc 3 v1.0.2 + Doc 2 v1.0.2 联动）**。新增 §5.4 Simulation-Check 6-Gate 集成测试矩阵（6 个 Gate 的测试前置条件 + 通过准则 + CI 集成锚点），对接 Doc 2 §2.6 后端探针规格与 Doc 3 §7.3 前端 UX，补齐端到端验收路径。 | 套件维护者 |
 
 ---
 

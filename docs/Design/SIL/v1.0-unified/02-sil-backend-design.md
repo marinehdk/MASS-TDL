@@ -84,10 +84,158 @@ ROS2 Humble + Ubuntu 22.04 + PREEMPT_RT（决策记录 §3 锁定 🟢 [E9][E10]
 | `lifecycle_bridge.py` | 95 | ✅ | `LifecycleBridge(Node)` rclpy service client → `/scenario_lifecycle_mgr/change_state` |
 | `telemetry_bridge.py` | 128 | ✅ | `TelemetryBridge(Node)` + WebSocket server :8765 + 4 topic subscription |
 | `scenario_routes.py` | 45 | ✅ | `/api/v1/scenarios` CRUD |
-| `scenario_store.py` | 121 | ✅ | File-backed YAML store + 递归扫描 + encounter type 推断（HO/CR/OT/MS）|
-| `selfcheck_routes.py` | 44 | ⏳ stub | 硬编码 5 项"all PASS"；GAP-005 |
+| `scenario_store.py` | 121 | ✅ | File-backed YAML store + 递归扫描 + encounter type 推断（HO/CR/OT/MS）+ `is_baseline` 字段（BASELINE_FOLDERS 判定，§4.4）|
+| `selfcheck_routes.py` | 44 | ⏳ stub | 硬编码 5 项"all PASS"；GAP-005。→ D1.3b.3 新增 SSE `/stream` 端点 + ops endpoints 转接 |
 | `export_routes.py` | 69 | ⏳ partial | 后台 task 构建 Marzip 容器；scenario.yaml + sha256 + scoring.json 已就位，MCAP/Arrow 未集成 |
 | `__init__.py` | 0 | ✅ | 包标记 |
+| `ops_routes.py` | NEW | ⏳ D1.3b.3 | 新增 5 个诊断/修复端点：restart_node / restart_services / sync_time / clear_hash_cache / ensure_asdr_dir |
+
+### 2.1.1 selfcheck_routes.py 升级（D1.3b.3：屏 ② SSE 实装）
+
+**新增 SSE 流式端点**（源于屏 ② 规格 §6.1）：
+
+```
+GET /api/v1/selfcheck/stream?scenario_id={id}
+Content-Type: text/event-stream
+Cache-Control: no-cache
+X-Accel-Buffering: no
+```
+
+**流式协议**：逐 Gate 完成推送 JSON，最后一条为 `{type:"complete", all_clear: bool, go_no_go: "GO"|"NO-GO"}`
+
+**SSE 流骨架**（FastAPI `StreamingResponse`）：
+
+```python
+@router.get("/stream")
+async def probe_stream(scenario_id: str | None = None):
+    runner = GateRunner(scenario_id)
+    async def event_generator():
+        for spec in runner.gates:
+            result = await spec.handler()  # 执行 6-gate
+            _write_gate_evidence(scenario_id, result)  # 证据产物
+            payload = json.dumps({
+                "gate_id": result.gate_id,
+                "label": runner._gate_label_for(result.gate_id),
+                "passed": result.passed,
+                "checks": result.checks,
+                "duration_ms": round(result.duration_ms, 1),
+            })
+            yield f"data: {payload}\n\n"
+        all_pass = all(r.passed for r in results)
+        yield f'data: {json.dumps({"type":"complete","all_clear":all_pass,"go_no_go":"GO" if all_pass else "NO-GO"})}\n\n'
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+        headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
+```
+
+**证据产物写入**（`_write_gate_evidence`）→ `scenarios/{scenario_id}/.preflight/gate_N.json` staging 路径，见 §2.2.1。
+
+### 2.1.2 ops_routes.py 新增（D1.3b.3：屏 ② Quick Fix 后端）
+
+**五个 ops 诊断/修复端点**（对应屏 ② §4.4 Quick Fix 按钮）：
+
+| 端点 | 参数 | 行为 | 白名单 |
+|---|---|---|---|
+| `POST /api/v1/ops/restart_node` | `?name=<pattern>` | `docker restart $(docker ps -q --filter name=pattern)` | 正则 `^[a-zA-Z0-9_-]{1,64}$` |
+| `POST /api/v1/ops/restart_services` | — | `docker compose restart` | N/A |
+| `POST /api/v1/ops/sync_time` | — | `chronyc makestep` | N/A |
+| `POST /api/v1/ops/clear_hash_cache` | `?scenario_id=<id>` | `rm scenarios/{id}/.hash_cache` | 路径验证 |
+| `POST /api/v1/ops/ensure_asdr_dir` | `?run_id=<id>` | `mkdir -p runs/{id}/preflight && chmod` | 路径验证 |
+
+所有操作日志写 `runs/ops_audit.jsonl`（timestamp + action + params + result）。
+
+**ops_routes.py 实现骨架**（D1.3b.3 屏 ② Quick Fix 后端）：
+
+```python
+# src/sil_orchestrator/ops_routes.py
+import re, time, asyncio, json, subprocess
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, Query
+from sil_orchestrator.config import SCENARIO_DIR, RUN_DIR
+
+router = APIRouter(prefix="/api/v1/ops")
+_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_AUDIT_LOG = RUN_DIR / "ops_audit.jsonl"
+
+def _validate_name(name: str) -> str:
+    if not _NAME_PATTERN.match(name):
+        raise HTTPException(status_code=422, detail=f"Invalid name pattern: {name}")
+    return name
+
+def _audit(action: str, params: dict, success: bool) -> None:
+    _AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(_AUDIT_LOG, "a") as f:
+        f.write(json.dumps({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "action": action, "params": params, "success": success,
+        }) + "\n")
+
+async def _run(cmd: list[str], timeout: float) -> tuple[bool, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        ok = proc.returncode == 0
+        return ok, (stdout.decode()[:500] if ok else stderr.decode()[:500])
+    except asyncio.TimeoutError:
+        proc.kill()
+        return False, "timeout"
+    except Exception as e:
+        return False, str(e)
+
+@router.post("/restart_node")
+async def restart_node(name: str = Query(...)):
+    validated_name = _validate_name(name)
+    ok, msg = await _run(
+        ["docker", "restart", f"$(docker ps -q --filter name={validated_name})"],
+        timeout=15.0
+    )
+    _audit("restart_node", {"name": name}, ok)
+    return {"success": ok, "output": msg}
+
+@router.post("/restart_services")
+async def restart_services():
+    ok, msg = await _run(["docker", "compose", "restart"], timeout=30.0)
+    _audit("restart_services", {}, ok)
+    return {"success": ok, "output": msg}
+
+@router.post("/sync_time")
+async def sync_time():
+    ok, msg = await _run(["chronyc", "makestep"], timeout=5.0)
+    _audit("sync_time", {}, ok)
+    return {"success": ok, "output": msg}
+
+@router.post("/clear_hash_cache")
+async def clear_hash_cache(scenario_id: str = Query(...)):
+    try:
+        cache_file = SCENARIO_DIR / scenario_id / ".hash_cache"
+        if cache_file.exists():
+            cache_file.unlink()
+        _audit("clear_hash_cache", {"scenario_id": scenario_id}, True)
+        return {"success": True}
+    except Exception as e:
+        _audit("clear_hash_cache", {"scenario_id": scenario_id}, False)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/ensure_asdr_dir")
+async def ensure_asdr_dir(run_id: str = Query(...)):
+    try:
+        asdr_dir = RUN_DIR / run_id / "preflight"
+        asdr_dir.mkdir(parents=True, exist_ok=True)
+        asdr_dir.chmod(0o755)
+        _audit("ensure_asdr_dir", {"run_id": run_id}, True)
+        return {"success": True}
+    except Exception as e:
+        _audit("ensure_asdr_dir", {"run_id": run_id}, False)
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+**在 `main.py` 中注册**：
+
+```python
+from sil_orchestrator.ops_routes import router as ops_router
+# ... 在 app.include_router 调用区末尾
+app.include_router(ops_router)
+```
 
 ### 2.2 启动流程（main.py）
 
@@ -139,10 +287,10 @@ app.mount("/exports", StaticFiles(...))
 | POST | `/api/v1/lifecycle/deactivate` | `bridge.deactivate()` | `{success, error, run_id}` | ③ → ④ | ✅ |
 | POST | `/api/v1/lifecycle/cleanup` | `bridge.cleanup()` (含 ACTIVE 自动 deactivate) | `{success, error}` | ④ → ① | ✅ |
 | GET | `/api/v1/scoring/last_run` | reads `runs/{id}/scoring.json` | `{run_id, kpis, rule_chain, verdict}` | ④ | ⏳ stub（_seed_run_dir 写假值）|
-| GET | `/api/v1/scenarios` | `store.list()` | `[{id, name, encounter_type, folder}]` | ① | ✅ 递归扫描 + encounter 推断 |
+| GET | `/api/v1/scenarios` | `store.list()` | `[{id, name, encounter_type, folder, is_baseline}]` | ① | ✅ 递归扫描 + encounter 推断 + Baseline 判定（§4.4）|
 | GET | `/api/v1/scenarios/{id}` | `store.get(id)` | `{yaml_content, hash}` | ① | ✅ SHA256 |
 | POST | `/api/v1/scenarios` | `store.create(yaml_content)` | `{scenario_id, hash}` | ① | ✅ |
-| PUT | `/api/v1/scenarios/{id}` | `store.update(id, yaml_content)` | `{hash}` | ① | ✅ |
+| PUT | `/api/v1/scenarios/{id}` | `store.update(id, yaml_content)` | `{hash}`；Baseline 场景 → **409 Conflict** | ① | ✅（§4.4 BASELINE_FOLDERS 保护）|
 | DELETE | `/api/v1/scenarios/{id}` | `store.delete(id)` | `{deleted: true}` | ① | ✅ |
 | POST | `/api/v1/scenarios/validate` | `store.validate(yaml_content)` | `{valid, errors}` | ① | ⏳ stub（仅查空）|
 | POST | `/api/v1/selfcheck/probe` | hardcoded 5 checks | `{all_clear, items: [...]}` | ② | ⏳ GAP-005 |
@@ -178,6 +326,37 @@ volumes:
 ```
 
 ROS_DOMAIN_ID 由 `config.py:31` 读取（默认 0），容器 env 注入。
+
+### 2.6 selfcheck_routes 6-Gate 后端探针规格（GAP-005 细化 → D1.3b.3）
+
+Doc 3 §7.3 定义前端 Simulation-Check 屏的 6-Gate 呈现与 UX；本节定义 `selfcheck_routes.py` 中 `POST /api/v1/selfcheck/probe` 后端探针的实现契约。
+
+| Gate | 探针方法 | 通过条件 |
+|---|---|---|
+| **GATE 1** 系统就绪 | `docker compose ps` 健康检查 + foxglove_bridge WS 握手 | 所有 service `healthy` + WS 握手 < 2 s |
+| **GATE 2** 模块脉搏 | 缓存 `/sil/module_pulse` 最近 3 s 心跳；统计 M1–M8 存活与延迟 | 8/8 模块活跃；`latency_ms < 50`；`message_drops == 0` |
+| **GATE 3** 场景完整性 | 读 `scenarios/{id}` SHA256 与 `runs/{run_id}/sha256` 比对；调 M1 ODD schema 解析 YAML | hash 一致 + ODD 解析 0 错误 |
+| **GATE 4** 数据源就绪 | `GET http://localhost:3000/health`（martin）；检查目标船行为模型文件挂载 | martin 200 OK + 模型文件路径存在 |
+| **GATE 5** 时基严密性 | 读系统 UTC 与 `/sim_clock` 最新消息时间戳差；检查 clock topic 10 s 内有消息 | 时间漂移 < 10 ms + `/sim_clock` 活跃 |
+| **GATE 6** Doer-Checker 隔离 | `docker inspect` M7 container cgroup 与 M1–M6 container cgroup；检查 `/var/sil/runs/{run_id}/` 写权限 | M7 独立 cgroup + 写权限 OK |
+
+`POST /api/v1/selfcheck/probe` 响应 schema：
+
+```json
+{
+  "all_clear": true,
+  "gates": [
+    {"id": 1, "name": "system_ready",     "pass": true,  "detail": "all services healthy"},
+    {"id": 2, "name": "module_pulse",     "pass": true,  "latencies_ms": {"M1": 12, "M7": 8}},
+    {"id": 3, "name": "scenario_integrity","pass": true,  "hash_match": true},
+    {"id": 4, "name": "asset_ready",      "pass": true,  "detail": "martin OK, models mounted"},
+    {"id": 5, "name": "time_sync",        "pass": true,  "drift_ms": 3.2},
+    {"id": 6, "name": "doer_checker_isolation","pass": true, "m7_cgroup_isolated": true}
+  ]
+}
+```
+
+**状态**：⏳ GAP-005 关闭路径；D1.3b.3 实施。前端消费见 Doc 3 §7.3。
 
 ---
 
@@ -323,6 +502,40 @@ v1.0 暂取 **选项 A**，但保留 `sil_proto/` 包占位 + 在 Doc 4 §10 evi
 **目标**：迁移到 `dnv-opensource/maritime-schema` TrafficSituation + `metadata.*` 扩展节（决策 §5 + §10 完整 YAML 模板 🟢 [E1][E8][E13]）。
 
 **修复路径**：Doc 4 §2 schema 章节锁定字段映射 + `stage5_export.py` 输出格式切换。
+
+### 4.4 Baseline 判定（scenario_index.py）
+
+`src/sim_workbench/scenario_authoring/scenario_authoring/scenario_index.py` 中新增以下常量和判定逻辑（2026-05-18 锁定，Doc 3 §6.3.1 / GAP-NEW-001 关闭路径）：
+
+```python
+# Baseline 文件夹集合：这些文件夹下的场景为只读 Baseline，禁止覆写
+BASELINE_FOLDERS: frozenset[str] = frozenset({"imazu22", "colregs", "ais_accident"})
+
+def is_baseline_scenario(folder: str) -> bool:
+    """判断场景是否属于 Baseline（只读）集合。
+    folder 取自 scenario_store.py 递归扫描时解析的子目录名（小写规范化）。
+    """
+    return folder.strip().lower() in BASELINE_FOLDERS
+```
+
+`scenario_store.py` 在 `list()` 方法返回每个 `ScenarioMeta` 时调用 `is_baseline_scenario(meta.folder)` 写入 `is_baseline: bool`。
+
+`scenario_routes.py` 的 `PUT /api/v1/scenarios/{id}` 处理器在执行写操作前先调用 `store.get_meta(id)` 检查 `is_baseline`：
+
+```python
+@router.put("/scenarios/{scenario_id}")
+async def update_scenario(scenario_id: str, body: ScenarioUpdateBody) -> dict:
+    meta = _store.get_meta(scenario_id)
+    if meta and meta.is_baseline:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scenario '{scenario_id}' is a read-only Baseline; "
+                   "save as a new Custom scenario instead."
+        )
+    return _store.update(scenario_id, body.yaml_content)
+```
+
+前端收到 409 时显示"另存为 Custom"弹窗（Doc 3 §6.3.3 锁定）。
 
 ---
 
@@ -813,6 +1026,229 @@ orchestrator `LifecycleBridge.cleanup()`（main.py:124-139）做了贴心处理�
 
 ---
 
+## 2.2 证据产物 Schema（D1.3b.3：屏 ② 6-Gate）
+
+### 2.2.1 Gate 证据产物文件结构
+
+**路径**：`runs/{run_id}/preflight/gate_N.json`（activate 时从 staging 复制到此）
+
+```json
+{
+  "gate_id": 1,
+  "gate_name": "System Readiness",
+  "timestamp_utc": "2026-05-18T14:32:05.123Z",
+  "scenario_id": "imazu22/head_on_r14",
+  "run_id": "rx-78-001",
+  "passed": true,
+  "checks": [
+    {"item": "docker_compose", "status": "ok",   "detail": "5/5 healthy"},
+    {"item": "ros2_discovery", "status": "ok",   "detail": "9 SIL nodes visible"},
+    {"item": "foxglove_ws",    "status": "ok",   "detail": ":8765 listening"}
+  ],
+  "duration_ms": 230.4,
+  "rationale": "all 5/5 sub-checks passed",
+  "sil2_clause": "IEC 61508-3 §5.2 Systematicity — test environment readiness",
+  "hazid_scenario_ref": null
+}
+```
+
+**`sil2_clause` 映射**（Gate 专属）：
+
+| Gate | IEC 61508 条款 |
+|---|---|
+| 1 | §5.2 Systematicity |
+| 2 | §7.4 Software module testing |
+| 3 | §7.2 Software V&V — artifact integrity |
+| 4 | §7.2 Software V&V — ODD conformance |
+| 5 | §8.2.9 Data recording — time base |
+| 6 | Part 2 Clause 7.3 Independence |
+
+**`hazid_scenario_ref`**：Gate 3/4 填入场景对应 HAZID 编号（如 `"RUN-001-FCB-HO-001"`），其他 Gate 为 `null`。
+
+**_write_gate_evidence 实现**（selfcheck_routes.py，D1.3b.3）：
+
+```python
+import datetime
+from pathlib import Path
+from sil_orchestrator.config import SCENARIO_DIR
+
+_SIL2_CLAUSE_MAP = {
+    1: "IEC 61508-3 §5.2 Systematicity — test environment readiness",
+    2: "IEC 61508-3 §7.4 Software module testing — component liveness",
+    3: "IEC 61508-3 §7.2 Software V&V — artifact integrity",
+    4: "IEC 61508-3 §7.2 Software V&V — ODD conformance",
+    5: "IEC 61508-1 §8.2.9 Data recording — time base traceability",
+    6: "IEC 61508-2 Clause 7.3 Independence — Doer-Checker physical separation",
+}
+
+def _write_gate_evidence(scenario_id: str, result) -> None:
+    """写 staging 证据产物：scenarios/{id}/.preflight/gate_N.json"""
+    staging_dir = SCENARIO_DIR / scenario_id / ".preflight"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    # 规范化 checks 为 dict 列表
+    checks_out = []
+    for c in result.checks:
+        if isinstance(c, str):
+            # 简单字符串 → 分解为 item/detail
+            parts = c.split("]", 1)
+            item = parts[0].lstrip("[")
+            detail = parts[1].strip() if len(parts) > 1 else ""
+            checks_out.append({"item": item, "status": "ok" if "]" in c else "fail", "detail": detail})
+        else:
+            checks_out.append(c)
+
+    out = {
+        "gate_id": result.gate_id,
+        "gate_name": _SIX_GATE_LABELS.get(result.gate_id, f"Gate {result.gate_id}"),
+        "timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
+        "scenario_id": scenario_id,
+        "run_id": "unknown",  # 由 activate 时归档时补填
+        "passed": result.passed,
+        "checks": checks_out,
+        "duration_ms": round(result.duration_ms, 1),
+        "rationale": result.rationale,
+        "sil2_clause": _SIL2_CLAUSE_MAP.get(result.gate_id, ""),
+        "hazid_scenario_ref": None,  # 由 Gate 3/4 handler 填入
+    }
+    (staging_dir / f"gate_{result.gate_id}.json").write_text(json.dumps(out, indent=2))
+```
+
+---
+
+## 2.3 实时遥测 WebSocket + REST 接口（屏 ③ 数据源）
+
+### 2.3.1 WebSocket 端点（50 Hz 遥测 → 屏 ③）
+
+**协议**：foxglove_bridge 标准（源于屏 ③ 规格 §11）
+
+```
+ws://host:8765
+Content: OwnShip / Targets / ModulePulse / ASDR / SAT1/2/3Data @ 50 Hz
+```
+
+**telemetry_bridge.py 转接话题**：
+
+| ROS2 话题 | 消息类型 | 频率 | WebSocket 消息 |
+|---|---|---|---|
+| `/l3/own_ship_state` | `L3ExternalMsg.OwnShipState` | 50 Hz | OwnShip {hdg/sog/cog/rot/rud/thr/dpt} |
+| `/l3/tracked_targets` | `L3ExternalMsg.TrackedTargetArray` | 10 Hz | Targets[]{mmsi/pos/cog/sog/cpa/tcpa} |
+| `/system_state/module_pulse` | `SystemState.ModulePulse[]` | 10 Hz | ModulePulse[M1-M8]{state/latency_us} |
+| `/asdr/events` | `ASDR.Event` | streaming | ASDR event log |
+| `/l3/sat1_data` | `L3ExternalMsg.SAT1Data` | 1 Hz | ODD domain, threat chips |
+| `/l3/sat2_data` | `L3ExternalMsg.SAT2Data` | 1 Hz | IvP weights, COLREGs chain (engineer view) |
+| `/l3/sat3_data` | `L3ExternalMsg.SAT3Data` | 1-4 Hz | MPC trajectory candidates (engineer view) |
+
+### 2.3.2 REST 仿真控制端点（屏 ③ 控制）
+
+| Method | 路径 | 参数 | 频率 |
+|---|---|---|---|
+| POST | `/api/v1/sim_clock/set_rate` | `{rate: 0.5\|1\|2\|4\|10\|20\|50}` | 按需 |
+| POST | `/api/v1/lifecycle/pause` | — | 按需 |
+| POST | `/api/v1/lifecycle/resume` | — | 按需 |
+| POST | `/api/v1/lifecycle/deactivate` | — | 停止/完成 |
+| POST | `/api/v1/fault/trigger` | `{type: string, duration_s: number}` | 测试 |
+| GET | `/api/v1/lifecycle/status` | — | 轮询 1 Hz（FSM state） |
+
+### 2.3.3 SAT 三级透明性数据源（屏 ③ 工程视图，D2.4+）
+
+**SAT-1/2/3 消息定义**（源于屏 ③ 规格 §8）——当前 telemetry_bridge 缺失，D2.4 完整化：
+
+| SAT 级 | ROS2 话题 | 消息字段 | 频率 | 消费端 |
+|---|---|---|---|---|
+| **SAT-1** 当前状态 | `/l3/sat1_data` | `current_odd_domain`, `threat_targets[]{mmsi, cpa_nm, tcpa_min}`, `fsm_state` | 1 Hz | 全 |
+| **SAT-2** 推理 | `/l3/sat2_data` | `ivp_contribution[]{behavior_name, weight, confidence}`, `colregs_chain[]{layer, input, output}` | 1 Hz | Engineer view |
+| **SAT-3** 预测 | `/l3/sat3_data` | `trajectory_candidates[]{bearing, cost, waypoints[]{t, x, y}}`, `uncertainty_ellipses[]{center, axes}` | 1-4 Hz | Engineer view (D3.4) |
+
+**实施时序**：SAT-1 已消费于 Captain 视图（thr threat_ribbon）；SAT-2/3 待 D2.4 内核模块（M4/M5/M6）序列化 + telemetry_bridge 转接完成。
+
+---
+
+## 2.4 屏 ① + 屏 ② 场景与门控集成（D1.3b.3）
+
+### 2.4.1 scenario_store.py 扩展（屏 ① → ②）
+
+**新增字段**（源于屏 ① 规格 §8）：
+
+```python
+@dataclass
+class ScenarioMeta:
+    id: str
+    folder: str
+    yaml_content: str
+    hash: str
+    is_baseline: bool           # 新增 — BASELINE_FOLDERS 判定
+    folder_tags: list[str]      # 新增 — CI 标签预留
+    last_ci_result: str | None  # 新增 — "pass"/"fail"/None
+```
+
+**BASELINE_FOLDERS 规则**（屏 ① 规格 §4.3）：
+
+```python
+BASELINE_FOLDERS = frozenset({"imazu22", "colregs", "ais_accident"})
+```
+
+Baseline 场景禁止 `PUT /scenarios/{id}` → 返回 409：
+
+```python
+@router.put("/{scenario_id}")
+async def update_scenario(scenario_id: str, request: dict):
+    if store.is_baseline(scenario_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Baseline scenarios are read-only. Use POST /scenarios to duplicate."
+        )
+    # ... normal update logic
+```
+
+### 2.4.2 gate_runner.py + 6-Gate 门控链（屏 ② 核心）
+
+**GateRunner 类**（源于屏 ② 规格 §3）：
+
+```python
+class GateRunner:
+    gates = [
+        Gate(1, "System Readiness", handler=_check_docker_ros_ports),
+        Gate(2, "Module Health", handler=_check_m1_m8_pulse),
+        Gate(3, "Scenario Integrity", handler=_check_sha256_yaml),
+        Gate(4, "ODD-Scenario Alignment", handler=_check_odd_cell),
+        Gate(5, "Time Base + Evidence Chain", handler=_check_chronyc_asdr),
+        Gate(6, "Doer-Checker Independence", handler=_check_m7_isolation),
+    ]
+```
+
+**证据产物写入流程**（屏 ② 规格 §7.2）：
+
+- SSE 流运行时 → staging path `scenarios/{scenario_id}/.preflight/gate_N.json`
+- `activate()` 成功后 → 复制到 `runs/{run_id}/preflight/gate_N.json`（不可变快照）
+
+**lifecycle_bridge.py 中归档方法**（D1.3b.3）：
+
+```python
+# src/sil_orchestrator/lifecycle_bridge.py
+import shutil
+from pathlib import Path
+from sil_orchestrator.config import SCENARIO_DIR, RUN_DIR
+
+def _copy_preflight_evidence(scenario_id: str, run_id: str) -> None:
+    """将 staging 证据从 .preflight/ 归档到 runs/{run_id}/preflight/"""
+    src = SCENARIO_DIR / scenario_id / ".preflight"
+    dst = RUN_DIR / run_id / "preflight"
+    if not src.exists():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for gate_file in src.glob("gate_*.json"):
+        shutil.copy2(gate_file, dst / gate_file.name)
+```
+
+在 `LifecycleBridge.activate()` 成功返回后或 `main.py` 的 `POST /api/v1/lifecycle/activate` 路由处理中调用此方法，形成不可变证据快照。
+
+**ops 端点调用链**（屏 ② 快速修复）：
+
+快速修复按钮 → POST `/api/v1/ops/{restart_node|restart_services|sync_time|...}` → 执行诊断动作 → 日志写 `runs/ops_audit.jsonl` → 前端轮询 `/selfcheck/stream` 重新运行 SSE
+
+---
+
 ## 12. 差距台账（GAP 增量，跨 Doc 1 编号续接）
 
 | GAP | 描述 | 现状 | 修复路径 | 责任 D-task |
@@ -824,8 +1260,11 @@ orchestrator `LifecycleBridge.cleanup()`（main.py:124-139）做了贴心处理�
 | **GAP-019** | Protobuf IDL `sil_proto/` 空 — 现行实现是 ROS2 .msg + JSON WS（与 2026-05-12 设计偏离）| 实际仅 `sil_msgs/msg/*.msg`（10 个）| v1.0 选项 A：接受 ROS2 .msg + JSON 桥；Phase 2 评估 Protobuf 收益 | Doc 4 §10 复评 |
 | **GAP-020** | ship_dynamics_node kinematic-only stub，非 4-DOF MMG | node.py:10-17 简化 | 实施 Yasukawa 2015 4-DOF MMG（surge/sway/yaw/roll）+ RK4 dt=0.02s + FCB 系数 | D1.3a |
 | **GAP-021** | scoring stub 写入 `_seed_run_dir`（main.py:67-83），非 scoring_node 真输出 | 硬编码 KPI {min_cpa_nm: 0.42, ...} | scoring_node 启 Arrow append → orchestrator MCAP→Arrow 后处理 | D2.4 |
+| **GAP-NEW-001** | Baseline 场景无只读保护 — `PUT /scenarios/{id}` 可覆写 imazu22/colregs 基线 | scenario_routes.py 无 is_baseline 检查 | `BASELINE_FOLDERS` 常量 + `is_baseline: bool` 字段 + 409 响应（§4.4 实现细节）| D1.3b.3 |
+| **GAP-NEW-002** | Simulation-Check 快速修复控制端点缺失 | 无此端点 | 新增 `POST /api/v1/ops/restart_node?name=<node>` 重启单节点容器；`POST /api/v1/ops/sync_time` 强制 chrony 同步（支持 Doc 3 §7.4.2 Quick Fix 动作）| D1.3b.3 |
+| **GAP-NEW-003** | Simulation-Evaluator 影子推演后端计算缺失 | 无此计算 | ToR 发生后，后台并行推演纯算法兜底轨迹（MRC），结果写入 `runs/{run_id}/shadow_mrc.arrow`；orchestrator export 时打包入 Marzip；供前端屏 ④ 展示 Manual vs MRC Δ（见 Doc 3 §9.3）| D2.4 |
 
-跨文档汇总（Doc 1 GAP-001 ~ GAP-014 + Doc 2 GAP-015 ~ GAP-021）共 **21 GAP**。
+跨文档汇总（Doc 1 GAP-001 ~ GAP-014 + Doc 2 GAP-015 ~ GAP-021 + GAP-NEW-001 + GAP-NEW-002 + GAP-NEW-003）共 **24 GAP**（Doc 2 范围）。
 
 ---
 
@@ -860,12 +1299,31 @@ orchestrator `LifecycleBridge.cleanup()`（main.py:124-139）做了贴心处理�
 
 ---
 
+### 2.5 Ops 诊断/修复端点（D1.3b.3：屏 ② Quick Fix）
+
+**后端端点清单**（对应屏 ② 规格 §4.4 / GAP-NEW-002）：
+
+| Method | 路径 | 参数 | 行为 | 安全约束 |
+|---|---|---|---|---|
+| POST | `/api/v1/ops/restart_node` | `?name=<pattern>` | `docker restart $(docker ps -q --filter name=pattern)` | 正则 `^[a-zA-Z0-9_-]{1,64}$` 白名单 |
+| POST | `/api/v1/ops/restart_services` | — | `docker compose restart` | N/A |
+| POST | `/api/v1/ops/sync_time` | — | `chronyc makestep` | N/A |
+| POST | `/api/v1/ops/clear_hash_cache` | `?scenario_id=<id>` | `rm scenarios/{id}/.hash_cache` | 路径验证（禁 /..） |
+| POST | `/api/v1/ops/ensure_asdr_dir` | `?run_id=<id>` | `mkdir -p runs/{id}/preflight && chmod 0755` | 路径验证 |
+
+所有操作日志写 `runs/ops_audit.jsonl`（timestamp + action + params + result）。快速修复完成后前端自动重新启动 SSE `/api/v1/selfcheck/stream`。
+
+---
+
 ## 14. 修订记录
 
 | 版本 | 日期 | 改动 | 责任 |
 |---|---|---|---|
 | v1.0 | 2026-05-15 | 基线建立。整合 Doc 1 §3/§7/§8 + 实际代码读（sil_orchestrator 9 文件 693 行 + sim_workbench 11 colcon 包 + sil_msgs 10 IDL）+ 决策记录 §2/§3/§5/§7 + subagent web 调研 [W37–W48]（Yasukawa MMG DOI 修正 + MultiThreadedExecutor 50 Hz 实测 + Doer-Checker IEC 61508 独立进程 + Nav2 lifecycle_manager + MCAP 0.15.16 + DDS multicast host mode）。21 GAP 入完整台账。 | 套件维护者 |
+| v1.0.1 | 2026-05-18 | **Baseline 只读保护对齐（Doc 3 §6.3.1 + GAP-NEW-001）**。§2.1 scenario_store.py 描述增 `is_baseline`；§2.3 GET /scenarios 响应 schema 增 `is_baseline`，PUT 增 409 Conflict 说明；新增 §4.4 BASELINE_FOLDERS 常量 + scenario_index.py 判定逻辑 + scenario_routes.py 409 实现契约；§12 GAP 台账增 GAP-NEW-001（22 GAP）。与 Doc 3 v1.0.1 联动对齐。 | 套件维护者 |
+| v1.0.2 | 2026-05-18 | **职责分离同步（Doc 3 v1.0.2 联动）**。新增 §2.6 selfcheck_routes 6-Gate 后端探针规格（GAP-005 细化，6 个 Gate 的探针方法 + 通过条件 + 响应 schema）；新增 §2.5 Ops 诊断端点规格（GAP-NEW-002，5 个 `/ops/*` 端点 + 白名单 + 审计日志）；扩展 §2.3 WebSocket/REST 接口包含 SAT2/3 数据源；§12 GAP 台账新增 GAP-NEW-002 + GAP-NEW-003，Doc 2 范围累计 24 GAP。后端跨屏幕（①②③④）接口完整性对齐。 | 套件维护者 |
+| v1.0.3 | 2026-05-19 | **屏 ② 后端实装规格补充（Doc 3 Screen 2 计划 v1.0 对标）**。新增 §2.1.2 `ops_routes.py` 完整实现骨架（5 个端点全量代码 + _audit 日志函数 + _validate_name 白名单 + main.py 注册示例）；扩展 §2.2.1 Gate 证据写入加入 `_write_gate_evidence()` 实现（含 _SIL2_CLAUSE_MAP 常量 + staging 路径 + checks 规范化）；新增 lifecycle_bridge.py 中 `_copy_preflight_evidence()` 归档方法（staging → runs/{run_id}/preflight 迁移）。屏 ② SSE + ops endpoints + 证据产物全链路后端实装细节已完整化。 | 套件维护者 |
 
 ---
 
-*Doc 2 后端 v1.0 · 2026-05-15 · 与 Doc 1 联动交付。Doc 3 前端将在用户评审通过后启动。*
+*Doc 2 后端 v1.0.3 · 2026-05-19 · 屏 ② Quick Fix + 证据归档全链路实装。*
