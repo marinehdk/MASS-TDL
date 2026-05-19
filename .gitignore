@@ -79,3 +79,24 @@ web/public/tiles/
 web/dist/
 web/node_modules/
 .gstack/
+
+# Build / test artifacts
+node_modules/
+**/.vite/
+.playwright-mcp/
+web/test-results/
+src/sil_orchestrator/test-results/
+test-results/
+runs/
+artifacts/
+data/enc/
+data/tiles/
+web/debug.cjs
+web/debug.js
+.pytest_cache/
+
+# Local-only docs (per CODE_WIKI policy)
+CODE_WIKI.md
+
+# Superpowers transient
+.superpowers/brainstorm/
