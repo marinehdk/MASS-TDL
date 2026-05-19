@@ -143,21 +143,24 @@ class LifecycleBridge(Node):
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
-            asyncio.ensure_future(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
+            # Await broadcast so CONFIGURE is applied to all SIL nodes before
+            # the caller is allowed to proceed to activate(). This prevents
+            # ACTIVATE arriving at a node still in UNCONFIGURED state.
+            await self._broadcast_transition(Transition.TRANSITION_CONFIGURE)
         return res
 
     async def activate(self) -> LifecycleResult:
         res = await self._change_state(Transition.TRANSITION_ACTIVATE)
         if res.success:
             self._state = LifecycleState.ACTIVE
-            asyncio.ensure_future(self._broadcast_transition(Transition.TRANSITION_ACTIVATE))
+            await self._broadcast_transition(Transition.TRANSITION_ACTIVATE)
         return res
 
     async def deactivate(self) -> LifecycleResult:
         res = await self._change_state(Transition.TRANSITION_DEACTIVATE)
         if res.success:
             self._state = LifecycleState.INACTIVE
-            asyncio.ensure_future(self._broadcast_transition(Transition.TRANSITION_DEACTIVATE))
+            await self._broadcast_transition(Transition.TRANSITION_DEACTIVATE)
         return res
 
     async def cleanup(self) -> LifecycleResult:
@@ -165,7 +168,7 @@ class LifecycleBridge(Node):
         if res.success:
             self._state = LifecycleState.UNCONFIGURED
             self._scenario_id = None
-            asyncio.ensure_future(self._broadcast_transition(Transition.TRANSITION_CLEANUP))
+            await self._broadcast_transition(Transition.TRANSITION_CLEANUP)
         return res
 
 

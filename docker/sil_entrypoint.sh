@@ -1,11 +1,16 @@
 #!/bin/bash
-set -e
+# sil_entrypoint.sh — start 9 ROS2 lifecycle nodes and keep them alive.
+#
+# NO set -e: lifecycle state-machine errors (invalid transition) must not
+# terminate the container. The Python spin loop handles them gracefully.
+
 source /opt/ros/humble/setup.bash
 source /opt/ws/install/setup.bash
 
 echo "=== Starting SIL Lifecycle Nodes ==="
 
 python3 -c "
+import sys
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
@@ -37,5 +42,26 @@ for cls in node_classes:
     print(f'  Created {node.get_name()}')
 
 print('=== Nodes created. Waiting for orchestrator lifecycle commands. ===')
-executor.spin()
+sys.stdout.flush()
+
+# Resilient spin loop: lifecycle state-machine errors (e.g. ACTIVATE received
+# before CONFIGURE, or duplicate transitions from the broadcast) raise RCLError.
+# Catch them per-cycle so the entire process never dies from a bad transition.
+try:
+    while rclpy.ok():
+        try:
+            executor.spin_once(timeout_sec=1.0)
+        except Exception as exc:
+            # Log and continue — do NOT re-raise.
+            print(f'[WARN] executor spin_once error (lifecycle transition rejected, continuing): '
+                  f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+finally:
+    print('=== SIL nodes shutting down ===', flush=True)
+    executor.shutdown()
+    for node in nodes:
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+    rclpy.shutdown()
 " 2>&1

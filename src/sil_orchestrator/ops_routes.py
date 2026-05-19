@@ -75,3 +75,23 @@ async def ensure_asdr_dir(run_id: str = Query(...)):
     preflight_dir.chmod(0o755)
     _audit("ensure_asdr_dir", {"run_id": run_id}, True)
     return {"success": True, "message": f"ensured: {preflight_dir}", "duration_ms": round((time.monotonic()-t0)*1000, 1)}
+
+
+@router.get("/compose_content")
+async def compose_content():
+    """Read the docker-compose.yml file content and return it to the frontend code viewer."""
+    try:
+        # Check standard relative paths or absolute path
+        paths = [
+            Path("docker-compose.yml"),
+            Path(__file__).resolve().parents[2] / "docker-compose.yml",
+            Path("/Users/marine/Code/MASS-L3-Tactical Layer/docker-compose.yml")
+        ]
+        
+        for p in paths:
+            if p.exists():
+                return {"success": True, "content": p.read_text()}
+                
+        return {"success": False, "message": "docker-compose.yml file not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

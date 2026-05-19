@@ -65,7 +65,6 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
       <div style={{
         width: 'auto', minWidth: 200, boxSizing: 'border-box',
         display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px',
-        borderRight: '1px solid var(--line-2)',
       }}>
         <div style={{ 
           width: 40, height: 40, borderRadius: '50%', 
@@ -164,7 +163,6 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
 
       {/* Right: State Pill + Dual Clock + View Toggle + REC */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-        <RunStatePill state={runState} />
         <DualClock simTime={simTime} showSim={currentScreen === 'monitor'} />
 
         {/* View Toggle — only on Bridge screen */}

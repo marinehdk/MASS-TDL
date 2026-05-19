@@ -8,16 +8,12 @@ from fastapi import APIRouter, Query
 import time
 import json
 from fastapi.responses import StreamingResponse
-from sil_orchestrator.gate_runner import GateRunner, GateResult
+from sil_orchestrator.gate_runner import GateRunner, GateResult, _fetch_module_pulses_real
 from sil_orchestrator.scenario_store import ScenarioStore
 from sil_orchestrator.config import RUN_DIR
 
 router = APIRouter(prefix="/api/v1/selfcheck")
 store = ScenarioStore()
-
-STATE_GREEN = 1
-STATE_AMBER = 2
-STATE_RED = 3
 
 import datetime
 from pathlib import Path
@@ -109,17 +105,21 @@ async def probe(scenario_id: str | None = None):
 
 @router.get("/status")
 async def status():
-    """Return M1-M8 module pulse status. Matches existing TS type contract."""
-    modules = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
+    """Return M1-M8 module pulse status from DDS bus (via foxglove WS).
+
+    Returns UNSPECIFIED when /sil/module_pulse is absent (Phase 1: L3 kernel
+    nodes not deployed). Never returns hardcoded GREEN values.
+    """
+    pulses = await _fetch_module_pulses_real()
     return {
         "modulePulses": [
             {
-                "moduleId": m,
-                "state": STATE_GREEN,
-                "latencyMs": 2,
-                "messageDrops": 0,
+                "moduleId": p.module,
+                "state": p.state,
+                "latencyMs": int(p.latency_ms),
+                "messageDrops": p.drops,
             }
-            for m in modules
+            for p in pulses
         ]
     }
 
@@ -146,7 +146,8 @@ async def skip_preflight(scenario_id: str, reason: str = Query(..., min_length=1
 async def probe_stream(scenario_id: str | None = None):
     """SSE streaming selfcheck — pushes each gate event as it completes"""
     sid = scenario_id or "unknown"
-    runner = GateRunner(sid, None)
+    data = store.get(sid)
+    runner = GateRunner(sid, data)
 
     async def event_generator():
         results: list[GateResult] = []

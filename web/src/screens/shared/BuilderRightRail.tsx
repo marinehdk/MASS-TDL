@@ -539,7 +539,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
       <div style={{
         position: 'absolute', top: 20, right: 100, 
         width: '400px', 
-        maxHeight: 'calc(100% - 120px)',
+        maxHeight: 'calc(100% - 40px)',
         height: 'auto',
         background: 'rgba(13, 19, 31, 0.95)', 
         backdropFilter: 'blur(16px)',
@@ -555,10 +555,11 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
         overflow: 'hidden'
       }}>
         {activeTab && (
-          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', overflow: 'hidden', minHeight: 0 }}>
             <div style={{
               padding: '24px 20px 16px', borderBottom: '1px solid var(--line-1)',
-              display: 'flex', justifyContent: 'center', alignItems: 'center'
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
+              flexShrink: 0
             }}>
               <span style={{
                 fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 700,
@@ -568,7 +569,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
               </span>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 40px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 40px', minHeight: 0 }}>
               {activeTab === 'vessels' && (
                 <div>
                   <VoyageConfigTab doc={doc} onUpdate={onUpdateYaml} />
@@ -648,7 +649,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
             </div>
 
             {/* Sticky Action Footer */}
-            <div style={{ padding: '16px 20px', borderTop: '1px solid var(--line-1)', background: 'rgba(0,0,0,0.2)' }}>
+            <div style={{ padding: '16px 20px', borderTop: '1px solid var(--line-1)', background: 'rgba(0,0,0,0.2)', flexShrink: 0 }}>
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <button onClick={onSave} style={btnStyle('line')}>

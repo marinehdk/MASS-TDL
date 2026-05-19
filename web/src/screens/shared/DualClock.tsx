@@ -23,10 +23,7 @@ export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 12,
-      fontFamily: 'var(--f-mono)', fontSize: 12,
-      background: 'var(--bg-0)',
-      border: '1px solid var(--line-2)',
-      borderRadius: 4,
+      fontFamily: 'var(--f-mono)', fontSize: 16,
       padding: showSim ? '4px 12px 4px 6px' : '4px 12px',
     }}>
       {showSim && (
@@ -51,7 +48,7 @@ export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
           style={{
             background: 'transparent', border: 'none', 
             color: showSim ? 'var(--txt-3)' : 'var(--c-info)',
-            fontFamily: 'var(--f-mono)', fontSize: 12, cursor: 'pointer', outline: 'none',
+            fontFamily: 'var(--f-mono)', fontSize: 16, cursor: 'pointer', outline: 'none',
             fontWeight: showSim ? 500 : 700,
           }}
         >

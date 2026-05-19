@@ -9,6 +9,11 @@ import { useTelemetryStore } from '../store';
 (FoxgloveClient as unknown as { SUPPORTED_SUBPROTOCOL: string }).SUPPORTED_SUBPROTOCOL = 'foxglove.sdk.v1';
 
 // Topic subscription map: topic → handler
+//
+// IMPORTANT: foxglove_bridge sends ROS2 CDR-decoded messages with the same
+// field structure as the .msg file (flat). The TypeScript types are generated
+// from proto files which use a nested structure (pose.lat/lon/heading,
+// kinematics.sog/cog/rot, etc.). The handlers below adapt flat → nested.
 const TOPIC_MAP: Array<{
   topic: string;
   messageType: string;
@@ -17,12 +22,31 @@ const TOPIC_MAP: Array<{
   {
     topic: '/sil/own_ship_state',
     messageType: 'sil_msgs/OwnShipState',
-    handler: (s, msg) => s.updateOwnShip(msg),
+    // ROS2 msg: flat {lat, lon, heading, sog, cog, rot, u, v, r, rudder_angle, throttle}
+    // TS type:  nested {pose:{lat,lon,heading}, kinematics:{sog,cog,rot,u,v,r}, controlState:{rudderAngle,throttle}}
+    handler: (s, msg: any) => {
+      s.updateOwnShip({
+        pose: { lat: msg.lat, lon: msg.lon, heading: msg.heading },
+        kinematics: { sog: msg.sog, cog: msg.cog, rot: msg.rot, u: msg.u, v: msg.v, r: msg.r },
+        controlState: { rudderAngle: msg.rudder_angle, throttle: msg.throttle },
+      });
+    },
   },
   {
     topic: '/sil/target_vessel_state',
     messageType: 'sil_msgs/TargetVesselState',
-    handler: (s, msg) => s.updateTargets(Array.isArray(msg) ? msg : [msg]),
+    // ROS2 msg: flat {mmsi, lat, lon, heading, sog, cog, rot, ship_type, mode}
+    // TS type:  nested {mmsi, pose:{lat,lon,heading}, kinematics:{sog,cog,rot}, shipType, mode}
+    handler: (s, msg: any) => {
+      const adapt = (m: any) => ({
+        mmsi: m.mmsi,
+        pose: { lat: m.lat, lon: m.lon, heading: m.heading },
+        kinematics: { sog: m.sog, cog: m.cog, rot: m.rot },
+        shipType: m.ship_type,
+        mode: m.mode,
+      });
+      s.updateTargets(Array.isArray(msg) ? msg.map(adapt) : [adapt(msg)]);
+    },
   },
   {
     topic: '/sil/environment',
@@ -123,6 +147,9 @@ export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
         console.log('[Foxglove] connected');
         delayRef.current = BASE_DELAY_MS;
         setWsConnected(true);
+        // Subscribe AFTER connection is established so foxglove_bridge
+        // can match requests against its channel advertisement list.
+        subscribeAll(ros);
       });
 
       ros.on('close', () => {
@@ -139,8 +166,7 @@ export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
         console.warn('[Foxglove] error:', err.message);
       });
 
-      // Subscribe to all topics once connected
-      subscribeAll(ros);
+      // subscribeAll is now called inside ros.on('connection') above.
     }
 
     connect();

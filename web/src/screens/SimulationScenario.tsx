@@ -404,6 +404,40 @@ const handleUpdateYaml = useCallback((updates: any) => {
     setPlacementMode('none');
   }, [placementMode, handleUpdateYaml]);
 
+  // Handle keyboard shortcuts (1/2/3 tab switcher, ArrowRight to proceed, Cmd/Ctrl+S to save)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        activeEl.getAttribute('contenteditable') === 'true' ||
+        activeEl.classList.contains('input') ||
+        activeEl.closest('.monaco-editor')
+      )) {
+        return;
+      }
+
+      if (e.key === '1') {
+        setActiveLeftTab('odd');
+      } else if (e.key === '2') {
+        setActiveLeftTab('vessel');
+      } else if (e.key === '3') {
+        setActiveLeftTab('library');
+      } else if (e.key === 'ArrowRight') {
+        if (selectedId) {
+          handleRun();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, handleRun, handleSave]);
+
   // Dynamically group scenarios from the API response
   const suites = useMemo(() => {
     const groups: Record<string, any[]> = {};
@@ -455,7 +489,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
       <div style={{
         position: 'absolute', top: 20, left: 100, 
         width: '400px', 
-        maxHeight: 'calc(100% - 120px)',
+        maxHeight: 'calc(100% - 40px)',
         height: 'auto',
         background: 'rgba(13, 19, 31, 0.95)', 
         backdropFilter: 'blur(16px)',
@@ -471,11 +505,12 @@ const handleUpdateYaml = useCallback((updates: any) => {
         overflow: 'hidden'
       }}>
         {activeLeftTab && (
-          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', overflow: 'hidden', minHeight: 0 }}>
             {/* Panel Header */}
             <div style={{
               padding: '24px 20px 16px', borderBottom: '1px solid var(--line-1)',
-              display: 'flex', justifyContent: 'center', alignItems: 'center'
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
+              flexShrink: 0
             }}>
               <span style={{
                 fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 700,
@@ -486,7 +521,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
             </div>
 
             {/* Panel Scrollable Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 30px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 30px', minHeight: 0 }}>
               
               {/* TAB 1: RUNNING DOMAIN (运行域) */}
               {activeLeftTab === 'odd' && (
@@ -747,7 +782,8 @@ const handleUpdateYaml = useCallback((updates: any) => {
               background: 'rgba(0,0,0,0.2)',
               display: 'flex',
               justifyContent: 'center',
-              alignItems: 'center'
+              alignItems: 'center',
+              flexShrink: 0
             }}>
               {activeLeftTab === 'odd' && (
                 <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('phos'), flex: 'none', width: 120 }}>

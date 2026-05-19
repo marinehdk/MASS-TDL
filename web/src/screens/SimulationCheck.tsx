@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore } from '../store';
-import { useGetScenarioQuery, useActivateLifecycleMutation, useCleanupLifecycleMutation } from '../api/silApi';
+import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation } from '../api/silApi';
 import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
 import { ActionLogs } from './shared/ActionLogs';
@@ -13,6 +13,7 @@ export function SimulationCheck() {
   const scenarioId = window.location.hash.match(/^#\/check\/([^/?#]+)/)?.[1] ?? null;
   const { runId } = useScenarioStore();
   const { data: scenarioDetail } = useGetScenarioQuery(scenarioId ?? '', { skip: !scenarioId });
+  const [configureLifecycle] = useConfigureLifecycleMutation();
   const [activateLifecycle] = useActivateLifecycleMutation();
   const [cleanupLifecycle] = useCleanupLifecycleMutation();
 
@@ -26,10 +27,22 @@ export function SimulationCheck() {
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
     try {
-      await activateLifecycle();
+      // ROS2 lifecycle requires CONFIGURE → ACTIVATE in sequence.
+      // cleanup first so re-runs don't get "already configured" rejection.
+      await cleanupLifecycle();
+      const cfgResult = await configureLifecycle(scenarioId).unwrap();
+      if (!cfgResult.success) {
+        console.error('configure failed:', cfgResult.error);
+        return;
+      }
+      const actResult = await activateLifecycle().unwrap();
+      if (!actResult.success) {
+        console.error('activate failed:', actResult.error);
+        return;
+      }
       window.location.hash = `#/monitor/${scenarioId}`;
-    } catch (e) { console.error('activate failed:', e); }
-  }, [scenarioId, activateLifecycle]);
+    } catch (e) { console.error('lifecycle launch failed:', e); }
+  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle]);
 
   const handleAbort = useCallback(async () => {
     abort();
@@ -85,7 +98,7 @@ export function SimulationCheck() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 300px', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 400px', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
       <GateSequencer gates={gates} streaming={streaming} focusedGateId={focusedGateId}
         onGateSelect={setFocusedGateId} verdict={verdict} />
 
@@ -96,19 +109,11 @@ export function SimulationCheck() {
 
       <ActionLogs focusedGateId={focusedGateId} gates={gates}
         scenarioId={scenarioId} runId={runId ?? 'unknown'}
-        onRerun={start} onAbort={handleAbort} onFixApplied={() => {}} />
-
-      {IS_DEV && verdict === 'NO-GO' && (
-        <div style={{ position: 'fixed', bottom: 40, right: 320, zIndex: 100, padding: '12px 16px', background: 'var(--bg-2)', border: '1px solid var(--c-warn)', borderRadius: 6 }}>
-          <div style={{ fontFamily: 'var(--f-body)', fontSize: 11, color: 'var(--c-warn)', marginBottom: 8 }}>DEV MODE: SKIP PREFLIGHT</div>
-          <input value={devSkipReason} onChange={e => setDevSkipReason(e.target.value)}
-            placeholder="Reason for skip..." style={{ padding: '4px 8px', marginRight: 8, border: '1px solid var(--line-2)', borderRadius: 3, background: 'var(--bg-0)', color: 'var(--txt-0)', fontSize: 11 }} />
-          <button onClick={handleDevSkip} disabled={!devSkipReason.trim()}
-            style={{ padding: '4px 12px', background: 'var(--c-warn)', color: '#000', border: 'none', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--f-disp)', fontSize: 11 }}>
-            SKIP {'\u2192'} MONITOR
-          </button>
-        </div>
-      )}
+        onRerun={start} onAbort={handleAbort} onFixApplied={() => {}}
+        isDev={IS_DEV && verdict === 'NO-GO'}
+        devSkipReason={devSkipReason}
+        onDevSkipReasonChange={setDevSkipReason}
+        onDevSkip={handleDevSkip} />
 
       {error && (
         <div style={{ position: 'fixed', top: 8, right: 320, zIndex: 100, padding: '8px 16px', background: 'rgba(248,81,73,0.15)', border: '1px solid var(--c-danger)', borderRadius: 4, fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-danger)' }}>

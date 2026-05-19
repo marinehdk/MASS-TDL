@@ -48,7 +48,7 @@ metadata:
   - R8
   vessel_class: FCB
   odd_cell:
-    domain: open_sea_offshore_wind_farm
+    domain: open_sea
   encounter:
     rule: Rule13
     give_way_vessel: own

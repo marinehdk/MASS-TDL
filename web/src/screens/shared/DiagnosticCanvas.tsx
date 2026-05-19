@@ -44,7 +44,7 @@ export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYam
   if (!gate) return null;
 
   if (focusedGateId === 1 || focusedGateId === 2) {
-    return <Ros2TopologySvg gates={gates} />;
+    return <Ros2TopologySvg gates={gates} focusedGateId={focusedGateId} />;
   }
   if (focusedGateId === 3 || focusedGateId === 4) {
     return <YamlDiffViewer original={storedYaml} modified={scenarioYaml} gate={gate} />;
