@@ -19,12 +19,12 @@ interface FieldProps {
 
 function Field({ label, value, onChange, type = 'text', unit = '', description }: FieldProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <label style={{ fontSize: 10, color: 'var(--txt-3)', fontFamily: 'var(--f-disp)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--f-mono)', color: 'var(--txt-2)' }}>
           {label}
         </label>
-        {unit && <span style={{ fontSize: 9, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>{unit}</span>}
+        {unit && <span style={{ fontSize: 12, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>{unit}</span>}
       </div>
       <input 
         type={type} 
@@ -32,29 +32,29 @@ function Field({ label, value, onChange, type = 'text', unit = '', description }
         onChange={(e) => onChange(e.target.value)}
         style={{
           background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
-          color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 4,
-          fontFamily: 'var(--f-mono)', fontSize: 12, outline: 'none', width: '100%',
+          color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 6,
+          fontFamily: 'var(--f-mono)', fontSize: 14, outline: 'none', width: '100%',
           transition: 'border-color 0.2s'
         }}
         onFocus={(e) => e.target.style.borderColor = 'var(--c-phos)'}
         onBlur={(e) => e.target.style.borderColor = 'var(--line-1)'}
       />
-      {description && <div style={{ fontSize: 9, color: 'var(--txt-3)', fontStyle: 'italic', marginTop: 2 }}>{description}</div>}
+      {description && <div style={{ fontSize: 12, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', marginTop: 2 }}>{description}</div>}
     </div>
   );
 }
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (val: string) => void; options: string[] }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16 }}>
-      <label style={{ fontSize: 10, color: 'var(--txt-3)', fontFamily: 'var(--f-disp)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--f-mono)', color: 'var(--txt-2)' }}>{label}</label>
       <select 
         value={value} 
         onChange={(e) => onChange(e.target.value)}
         style={{
           background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
-          color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 4,
-          fontFamily: 'var(--f-mono)', fontSize: 12, outline: 'none', width: '100%',
+          color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 6,
+          fontFamily: 'var(--f-mono)', fontSize: 14, outline: 'none', width: '100%',
           cursor: 'pointer'
         }}
       >
@@ -67,11 +67,11 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 function SectionTitle({ title }: { title: string }) {
   return (
     <div style={{ 
-      fontSize: 11, fontWeight: 700, color: 'var(--c-phos)', 
+      fontSize: 15, fontWeight: 700, color: 'var(--c-phos)', 
       fontFamily: 'var(--f-disp)', letterSpacing: '0.1em', 
-      marginTop: 24, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8
+      marginTop: 20, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8
     }}>
-      <div style={{ width: 4, height: 12, background: 'var(--c-phos)', borderRadius: 2 }} />
+      <div style={{ width: 5, height: 15, background: 'var(--c-phos)', borderRadius: 2 }} />
       {title.toUpperCase()}
     </div>
   );
@@ -81,18 +81,9 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
   const ownShip = doc?.ownShip || {};
   const pos = ownShip?.initial?.position || {};
   const initial = ownShip?.initial || {};
-  const metadata = doc?.metadata || {};
 
   return (
     <div>
-      <SectionTitle title="船舶基本信息" />
-      <Field 
-        label="船型名称" 
-        value={metadata?.vessel_class || ownShip?.vessel_class || ''} 
-        onChange={(v) => onUpdate({ 'metadata.vessel_class': v })} 
-        description="本船的物理模型类别 (例如: FCB)"
-      />
-
       <SectionTitle title="初始状态设置" />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field 
@@ -117,11 +108,10 @@ function OwnShipConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
           unit="°"
         />
         <Field 
-          label="初始航速" 
+          label="初始航速(SOG)" 
           value={initial?.sog ?? pos?.speed ?? ''} 
           onChange={(v) => onUpdate({ 'ownShip.initial.sog': Number(v) })} 
           unit="kn"
-          description="系统统一以 '节' (SOG) 为单位存储"
         />
       </div>
     </div>
@@ -135,7 +125,7 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
   return (
     <div style={{ paddingTop: 10 }}>
       {targets.length === 0 && (
-        <div style={{ color: 'var(--txt-3)', padding: '40px 20px', textAlign: 'center', fontSize: 12 }}>
+        <div style={{ fontFamily: 'var(--f-mono)', color: 'var(--txt-3)', padding: '40px 20px', textAlign: 'center', fontSize: 13 }}>
           当前场景无目标船数据
         </div>
       )}
@@ -149,10 +139,10 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
           <div key={idx} style={{ marginBottom: 40 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
               <span style={{ 
-                background: 'var(--c-phos)', color: '#000', padding: '2px 8px', 
-                borderRadius: 4, fontSize: 10, fontWeight: 800, fontFamily: 'var(--f-mono)' 
+                background: 'var(--c-phos)', color: '#000', padding: '4px 10px', 
+                borderRadius: 6, fontSize: 12, fontWeight: 800, fontFamily: 'var(--f-mono)' 
               }}>目标船</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt-1)', fontFamily: 'var(--f-mono)' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt-1)', fontFamily: 'var(--f-mono)' }}>
                 {tgt.id || 'Unknown'}
               </span>
               <div style={{ flex: 1, height: 1, background: 'var(--line-1)', opacity: 0.3 }} />
@@ -175,16 +165,18 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
             {/* Schema format toggle: Lat/Lon ↔ ENU */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <button onClick={() => setSchemaMode('latlon')} style={{
-                padding: '4px 10px', borderRadius: 4, border: `1px solid ${schemaMode === 'latlon' ? 'var(--c-phos)' : 'var(--line-1)'}`,
+                padding: '6px 12px', borderRadius: 6, border: `1px solid ${schemaMode === 'latlon' ? 'var(--c-phos)' : 'var(--line-1)'}`,
                 background: schemaMode === 'latlon' ? 'rgba(91,192,190,0.12)' : 'transparent',
                 color: schemaMode === 'latlon' ? 'var(--c-phos)' : 'var(--txt-3)',
-                fontFamily: 'var(--f-mono)', fontSize: 10, cursor: 'pointer'
+                fontFamily: 'var(--f-mono)', fontSize: 12, cursor: 'pointer',
+                transition: 'all 0.2s'
               }}>Lat/Lon</button>
               <button onClick={() => setSchemaMode('enu')} style={{
-                padding: '4px 10px', borderRadius: 4, border: `1px solid ${schemaMode === 'enu' ? 'var(--c-phos)' : 'var(--line-1)'}`,
+                padding: '6px 12px', borderRadius: 6, border: `1px solid ${schemaMode === 'enu' ? 'var(--c-phos)' : 'var(--line-1)'}`,
                 background: schemaMode === 'enu' ? 'rgba(91,192,190,0.12)' : 'transparent',
                 color: schemaMode === 'enu' ? 'var(--c-phos)' : 'var(--txt-3)',
-                fontFamily: 'var(--f-mono)', fontSize: 10, cursor: 'pointer'
+                fontFamily: 'var(--f-mono)', fontSize: 12, cursor: 'pointer',
+                transition: 'all 0.2s'
               }}>ENU (x_m/y_m)</button>
             </div>
             {schemaMode === 'latlon' ? (
@@ -303,7 +295,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
               display: 'flex', justifyContent: 'center', alignItems: 'center'
             }}>
               <span style={{
-                fontFamily: 'var(--f-disp)', fontSize: 16, fontWeight: 700,
+                fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 700,
                 color: 'var(--txt-1)', letterSpacing: '0.2em'
               }}>
                 {TABS.find(t => t.id === activeTab)?.label}
@@ -327,16 +319,16 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
                     border: '1px solid rgba(240,183,47,0.15)'
                   }}>
                     <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
-                    <div style={{ fontFamily: 'var(--f-disp)', fontSize: 14, color: 'var(--txt-1)', marginBottom: 8 }}>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, fontWeight: 600, color: 'var(--txt-1)', marginBottom: 8 }}>
                       Phase 2 功能 (D2.x)
                     </div>
-                    <div style={{ fontFamily: 'var(--f-body)', fontSize: 11, color: 'var(--txt-3)', lineHeight: 1.6 }}>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--txt-3)', lineHeight: 1.6 }}>
                       当前版本: 仅展示 metadata.environment 字段摘要
                     </div>
                   </div>
                   {doc?.environment && (
                     <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
+                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, color: 'var(--txt-1)', lineHeight: 1.8 }}>
                         <div>风速: {doc.environment?.wind?.speed_mps ?? '—'} m/s @ {doc.environment?.wind?.dir_deg ?? '—'}°</div>
                         <div>海流: {doc.environment?.current?.speed_mps ?? '—'} m/s @ {doc.environment?.current?.dir_deg ?? '—'}°</div>
                         <div>能见度: {doc.environment?.visibility_nm ?? '—'} nm</div>
@@ -353,16 +345,16 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
                     border: '1px solid rgba(240,183,47,0.15)'
                   }}>
                     <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
-                    <div style={{ fontFamily: 'var(--f-disp)', fontSize: 14, color: 'var(--txt-1)', marginBottom: 8 }}>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, fontWeight: 600, color: 'var(--txt-1)', marginBottom: 8 }}>
                       Phase 2 功能 (D2.x)
                     </div>
-                    <div style={{ fontFamily: 'var(--f-body)', fontSize: 11, color: 'var(--txt-3)', lineHeight: 1.6 }}>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--txt-3)', lineHeight: 1.6 }}>
                       当前版本: 仅展示 expected_outcome 字段摘要
                     </div>
                   </div>
                   {doc?.metadata?.expected_outcome && (
                     <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-2)', lineHeight: 1.8 }}>
+                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, color: 'var(--txt-1)', lineHeight: 1.8 }}>
                         {doc.metadata.expected_outcome.cpa_min_m_ge != null && <div>CPA min ≥ {doc.metadata.expected_outcome.cpa_min_m_ge}m</div>}
                         {doc.metadata.expected_outcome.colregs_rules && <div>COLREGs: [{Array.isArray(doc.metadata.expected_outcome.colregs_rules) ? doc.metadata.expected_outcome.colregs_rules.join(', ') : doc.metadata.expected_outcome.colregs_rules}]</div>}
                         {doc.metadata.expected_outcome.grounding && <div>Grounding: {doc.metadata.expected_outcome.grounding}</div>}
