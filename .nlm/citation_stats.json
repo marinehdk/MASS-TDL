@@ -7,9 +7,9 @@
       "last_cited_at": 1777528724
     },
     "1594df69-2774-43ff-8601-09018c7dfea9": {
-      "count": 8,
+      "count": 9,
       "first_cited_at": 1777528846,
-      "last_cited_at": 1778635798
+      "last_cited_at": 1779088585
     },
     "c2e10bf3-f747-4754-ba49-6b98ed13d61e": {
       "count": 1,
@@ -22,9 +22,9 @@
       "last_cited_at": 1777540418
     },
     "c8d54f40-4042-4831-a3fd-84016d465428": {
-      "count": 3,
+      "count": 4,
       "first_cited_at": 1778146329,
-      "last_cited_at": 1778479406
+      "last_cited_at": 1779088526
     },
     "d986ce9f-387e-4dab-81a3-409aba728625": {
       "count": 1,
@@ -52,9 +52,9 @@
       "last_cited_at": 1778463254
     },
     "bf72e928-e293-4415-959d-10be12fcbdd0": {
-      "count": 1,
+      "count": 2,
       "first_cited_at": 1778478083,
-      "last_cited_at": 1778478083
+      "last_cited_at": 1779088371
     },
     "7184664a-28ea-4b15-8add-9ec3eac6493d": {
       "count": 1,
@@ -70,6 +70,11 @@
       "count": 1,
       "first_cited_at": 1778579013,
       "last_cited_at": 1778579013
+    },
+    "a43832f5-1bfc-412f-a0da-d984ac41483a": {
+      "count": 1,
+      "first_cited_at": 1779088437,
+      "last_cited_at": 1779088437
     }
   },
   "cited_urls": []
