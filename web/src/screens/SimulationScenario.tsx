@@ -16,7 +16,7 @@ import {
   LucideCompass, LucideFolder, LucideChevronDown, LucideChevronRight, LucideSearch,
   LucideNavigation, LucideLock, LucidePencil, LucideMapPin, LucideShip, LucideChevronLeft
 } from 'lucide-react';
-import { BuilderRightRail } from './shared/BuilderRightRail';
+import { BuilderRightRail, CollapsibleSection } from './shared/BuilderRightRail';
 
 // ── ODD Select inline sub-component with Dynamic Suffix ────────────────
 function ODDSelect({ label, value, onChange, options, suffix }: {
@@ -120,7 +120,50 @@ export function SimulationScenario() {
 
   useEffect(() => {
     if (scenarioDetail && selectedId) {
-      setYamlEditor(scenarioDetail.yaml_content);
+      setScenario(selectedId, scenarioDetail.hash || '');
+      let yamlStr = scenarioDetail.yaml_content;
+      try {
+        const doc = jsyaml.load(yamlStr) as any;
+        if (doc && !doc.voyageTask) {
+          // Auto-initialize voyageTask with sensible defaults
+          const ownShip = doc.ownShip || {};
+          const pos = ownShip.initial?.position || { latitude: 63.44, longitude: 10.38 };
+          const heading = ownShip.initial?.heading || 0;
+          const headingRad = (heading * Math.PI) / 180;
+          
+          // Project destination 2.0 nautical miles ahead (approx 0.033 degrees lat/lon)
+          const destLat = Number((pos.latitude + 0.033 * Math.cos(headingRad)).toFixed(6));
+          const destLon = Number((pos.longitude + (0.033 * Math.sin(headingRad)) / Math.cos((pos.latitude * Math.PI) / 180)).toFixed(6));
+          
+          // Compute default ETA (startTime + 10 minutes)
+          let etaStr = '2026-05-15T05:20:00Z';
+          if (doc.startTime) {
+            try {
+              const startDate = new Date(doc.startTime);
+              startDate.setMinutes(startDate.getMinutes() + 10);
+              etaStr = startDate.toISOString().split('.')[0] + 'Z';
+            } catch {}
+          }
+
+          doc.voyageTask = {
+            destination: {
+              latitude: destLat,
+              longitude: destLon
+            },
+            eta: etaStr,
+            optimization_preference: '安全优先',
+            waypoints: [
+              { lat: pos.latitude, lon: pos.longitude },
+              { lat: destLat, lon: destLon }
+            ]
+          };
+          
+          yamlStr = jsyaml.dump(doc);
+        }
+      } catch (e) {
+        console.error('Failed to parse and auto-inject voyageTask', e);
+      }
+      setYamlEditor(yamlStr);
     }
   }, [scenarioDetail, selectedId]);
 
@@ -321,6 +364,12 @@ export function SimulationScenario() {
     }
   };
 
+  const handleReset = () => {
+    if (scenarioDetail?.yaml_content) {
+      setYamlEditor(scenarioDetail.yaml_content);
+    }
+  };
+
 const handleUpdateYaml = useCallback((updates: any) => {
     try {
       const doc = jsyaml.load(yamlEditor) as any;
@@ -405,9 +454,9 @@ const handleUpdateYaml = useCallback((updates: any) => {
       {/* TIER 1: Left Content Panel (Independent Floating Module) */}
       <div style={{
         position: 'absolute', top: 20, left: 100, 
-        width: '320px', 
+        width: '400px', 
         maxHeight: 'calc(100% - 120px)',
-        height: 'fit-content',
+        height: 'auto',
         background: 'rgba(13, 19, 31, 0.95)', 
         backdropFilter: 'blur(16px)',
         border: '1px solid var(--line-2)',
@@ -422,7 +471,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
         overflow: 'hidden'
       }}>
         {activeLeftTab && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%' }}>
             {/* Panel Header */}
             <div style={{
               padding: '24px 20px 16px', borderBottom: '1px solid var(--line-1)',
@@ -490,118 +539,122 @@ const handleUpdateYaml = useCallback((updates: any) => {
               {/* TAB 2: VESSEL CLASS (船型) */}
               {activeLeftTab === 'vessel' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 10 }}>
-                  <SectionTitle title="基础船型选择" />
-                  <ODDSelect 
-                    label="船型选择" 
-                    value={vesselClass} 
-                    onChange={setVesselClass}
-                    options={[
-                      { value: 'FCB-45m', label: '快速运兵船' },
-                      { value: 'ASD-28m', label: '全回转拖轮' },
-                    ]} 
-                    suffix={vesselClass === 'FCB-45m' ? 'FCB' : 'ASD'}
-                  />
-                  <div style={{
-                    background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                    padding: '14px 16px', borderRadius: 8,
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 8, 
-                      paddingBottom: 8, 
-                      borderBottom: '1px dashed var(--line-1)',
-                      marginBottom: 12 
-                    }}>
-                      <span style={{ fontSize: 18 }}>🚢</span>
-                      <span style={{ 
-                        fontFamily: 'var(--f-mono)', 
-                        fontSize: 14, 
-                        fontWeight: 600, 
-                        color: 'var(--txt-1)',
-                        marginLeft: 4
+                  <CollapsibleSection title="基础船型选择" defaultExpanded={true}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      <ODDSelect 
+                        label="船型选择" 
+                        value={vesselClass} 
+                        onChange={setVesselClass}
+                        options={[
+                          { value: 'FCB-45m', label: '快速运兵船' },
+                          { value: 'ASD-28m', label: '全回转拖轮' },
+                        ]} 
+                        suffix={vesselClass === 'FCB-45m' ? 'FCB' : 'ASD'}
+                      />
+                      <div style={{
+                        background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                        padding: '14px 16px', borderRadius: 8,
                       }}>
-                        主要参数
-                      </span>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 8, 
+                          paddingBottom: 8, 
+                          borderBottom: '1px dashed var(--line-1)',
+                          marginBottom: 12 
+                        }}>
+                          <span style={{ fontSize: 18 }}>🚢</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', 
+                            fontSize: 14, 
+                            fontWeight: 600, 
+                            color: 'var(--txt-1)',
+                            marginLeft: 4
+                          }}>
+                            主要参数
+                          </span>
+                        </div>
+                        <div style={{ 
+                          fontFamily: 'var(--f-mono)', 
+                          fontSize: 14, 
+                          color: 'var(--txt-1)', 
+                          lineHeight: 1.8,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4
+                        }}>
+                          {vesselClass === 'FCB-45m' ? (
+                            <>
+                              <div>• 船型类别: 快速运兵船</div>
+                              <div>• 总长: 45.00 m</div>
+                              <div>• 两柱间长: 44.10 m</div>
+                              <div>• 型宽: 8.00 m</div>
+                              <div>• 型深: 3.85 m</div>
+                              <div>• 设计吃水: 1.55 m</div>
+                              <div>• 最大吃水: 2.00 m</div>
+                              <div>• 最大航速: 25 节 @ 30吨载重</div>
+                              <div>• 推进主机: 3台 康明斯 1350马力</div>
+                              <div>• 首侧推器: 2台 10KN 侧推器</div>
+                            </>
+                          ) : (
+                            <>
+                              <div>• 船型类别: 全回转拖轮</div>
+                              <div>• 总长: 28.00 m</div>
+                              <div>• 两柱间长: 24.50 m</div>
+                              <div>• 型宽: 9.80 m</div>
+                              <div>• 型深: 4.60 m</div>
+                              <div>• 设计吃水: 3.80 m</div>
+                              <div>• 最大吃水: 4.20 m</div>
+                              <div>• 最大航速: 12.5 节</div>
+                              <div>• 推进主机: 2台 柴油主机 1800马力</div>
+                              <div>• 推进装置: 双全回转舵桨</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ 
-                      fontFamily: 'var(--f-mono)', 
-                      fontSize: 14, 
-                      color: 'var(--txt-1)', 
-                      lineHeight: 1.8,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4
-                    }}>
-                      {vesselClass === 'FCB-45m' ? (
-                        <>
-                          <div>• 船型类别: 快速运兵船</div>
-                          <div>• 总长: 45.00 m</div>
-                          <div>• 两柱间长: 44.10 m</div>
-                          <div>• 型宽: 8.00 m</div>
-                          <div>• 型深: 3.85 m</div>
-                          <div>• 设计吃水: 1.55 m</div>
-                          <div>• 最大吃水: 2.00 m</div>
-                          <div>• 最大航速: 25 节 @ 30吨载重</div>
-                          <div>• 推进主机: 3台 康明斯 1350马力</div>
-                          <div>• 首侧推器: 2台 10KN 侧推器</div>
-                        </>
-                      ) : (
-                        <>
-                          <div>• 船型类别: 全回转拖轮</div>
-                          <div>• 总长: 28.00 m</div>
-                          <div>• 两柱间长: 24.50 m</div>
-                          <div>• 型宽: 9.80 m</div>
-                          <div>• 型深: 4.60 m</div>
-                          <div>• 设计吃水: 3.80 m</div>
-                          <div>• 最大吃水: 4.20 m</div>
-                          <div>• 最大航速: 12.5 节</div>
-                          <div>• 推进主机: 2台 柴油主机 1800马力</div>
-                          <div>• 推进装置: 双全回转舵桨</div>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  </CollapsibleSection>
                   
-                  <SectionTitle title="传感器配置" />
-                  <div style={{
-                    background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                    padding: '14px 16px', borderRadius: 8,
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 8, 
-                      paddingBottom: 8, 
-                      borderBottom: '1px dashed var(--line-1)',
-                      marginBottom: 12 
+                  <CollapsibleSection title="传感器配置" defaultExpanded={true}>
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '14px 16px', borderRadius: 8,
                     }}>
-                      <span style={{ fontSize: 18 }}>📡</span>
-                      <span style={{ 
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 8, 
+                        paddingBottom: 8, 
+                        borderBottom: '1px dashed var(--line-1)',
+                        marginBottom: 12 
+                      }}>
+                        <span style={{ fontSize: 18 }}>📡</span>
+                        <span style={{ 
+                          fontFamily: 'var(--f-mono)', 
+                          fontSize: 14, 
+                          fontWeight: 600, 
+                          color: 'var(--txt-1)',
+                          marginLeft: 4
+                        }}>
+                          传感器清单
+                        </span>
+                      </div>
+                      <div style={{ 
                         fontFamily: 'var(--f-mono)', 
                         fontSize: 14, 
-                        fontWeight: 600, 
-                        color: 'var(--txt-1)',
-                        marginLeft: 4
+                        color: 'var(--txt-1)', 
+                        lineHeight: 1.8,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4
                       }}>
-                        传感器清单
-                      </span>
+                        <div>• 航海雷达: X波段雷达</div>
+                        <div>• 船载 AIS: AIS收发机</div>
+                        <div>• 定位系统: 高精度 GNSS 定位仪</div>
+                        <div>• 导航海图: 电子海图 system</div>
+                      </div>
                     </div>
-                    <div style={{ 
-                      fontFamily: 'var(--f-mono)', 
-                      fontSize: 14, 
-                      color: 'var(--txt-1)', 
-                      lineHeight: 1.8,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4
-                    }}>
-                      <div>• 航海雷达: X波段雷达</div>
-                      <div>• 船载 AIS: AIS收发机</div>
-                      <div>• 定位系统: 高精度 GNSS 定位仪</div>
-                      <div>• 导航海图: 电子海图系统</div>
-                    </div>
-                  </div>
+                  </CollapsibleSection>
                 </div>
               )}
 
@@ -843,6 +896,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
         onChangeRawYaml={setYamlEditor}
         onRun={handleRun}
         onSave={handleSave}
+        onReset={handleReset}
         isBaseline={selectedId ? scenarios.find((s: any) => s.id === selectedId)?.is_baseline : false}
         scenarioHash={scenarioDetail?.hash}
       />

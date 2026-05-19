@@ -207,6 +207,55 @@
         }
       }
     },
+    "voyageTask": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "object",
+          "required": ["latitude", "longitude"],
+          "properties": {
+            "latitude": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "longitude": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          }
+        },
+        "eta": {
+          "type": "string",
+          "description": "Estimated arrival time window"
+        },
+        "optimization_preference": {
+          "type": "string",
+          "enum": ["安全优先", "经济优先", "时间优先", "航线长度优先"],
+          "description": "Detour/routing optimization preference"
+        },
+        "waypoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["lat", "lon"],
+            "properties": {
+              "lat": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "lon": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              }
+            }
+          }
+        }
+      }
+    },
     "targetShips": {
       "type": "array",
       "items": {

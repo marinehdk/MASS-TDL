@@ -1,4 +1,5 @@
 import React from 'react';
+import { useScenarioStore } from '../../store';
 
 interface FooterHotkeyHintsProps {
   screen: 'scenario' | 'check' | 'monitor' | 'evaluator';
@@ -13,6 +14,7 @@ const HINTS: Record<string, [string, string][]> = {
 
 export const FooterHotkeyHints: React.FC<FooterHotkeyHintsProps> = ({ screen }) => {
   const hints = HINTS[screen] ?? [];
+  const { yamlValid, yamlError, scenarioHash } = useScenarioStore();
 
   return (
     <div
@@ -42,6 +44,27 @@ export const FooterHotkeyHints: React.FC<FooterHotkeyHintsProps> = ({ screen }) 
         </span>
         <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 600 }}>
           ● /var/sil/run-{'{id}'}.mcap
+        </span>
+      </div>
+
+      <div style={{ width: 1, height: 16, background: 'var(--line-2)' }} />
+
+      {/* YAML Schema Validation Status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontFamily: 'var(--f-body)', fontSize: 12, color: 'var(--txt-2)' }}>
+          YAML状态
+        </span>
+        <span style={{
+          fontFamily: 'var(--f-mono)', fontSize: 11,
+          color: yamlValid ? '#4ade80' : '#f87171', fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 6
+        }}>
+          <span>● {yamlValid ? 'Schema 通过' : `Schema 错误: ${yamlError || '格式不符'}`}</span>
+          {scenarioHash && (
+            <span style={{ color: 'var(--txt-3)', fontSize: 10, fontWeight: 400, marginLeft: 4 }}>
+              sha256: {scenarioHash.slice(0, 12)}
+            </span>
+          )}
         </span>
       </div>
 

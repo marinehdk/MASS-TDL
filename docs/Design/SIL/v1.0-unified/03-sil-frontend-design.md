@@ -544,12 +544,14 @@ sequenceDiagram
 > *映射 Schema 节点：`ownShip`, `targetShips`, `voyageTask`*
 - **本船与任务配置 (Own Ship & Voyage) [支撑 M3]**：
   - **初始姿态**：航速 (SOG)、航向 (Heading)。
-  - **任务要求**：关联中栏地图绘制的全局航线，配置终点坐标、抵达时间窗 (ETA) 与绕航优化偏好，为 M3 (Mission Manager) 跟踪与重规划测试提供输入。
-  - *(注：船型等全局能力清单已上提至左侧 ODD 全局过滤器中统一选择)*。
+  - **任务要求**：展示“航行任务”子标题在最上方（可折叠），默认展开。展示抵达终点的时间窗与绕航偏好，不再提供 ETA 时间窗的手工编辑，完全回归可视化与 Schema 自动推导。
+  - *(注：船型等全局能力清单已上提至左侧 ODD 全局过滤器中统一选择，左侧栏整体拓宽至 400px 宽度以与右侧栏完美视觉对称，且基础船型选择和传感器配置均引入折叠手风琴与滚动展示)*。
 - **目标船列表 (Target Ships Array)**：
-  - 采用可折叠的手风琴列表，**必须提供完整的动态增删 `[+ Add Target] / [- Remove]` 功能**。
-  - **态势定位与双 Schema 兼容**：支持**绝对坐标 (Lat/Lon, 兼容 IMAZU v2.0)** 和 **相对/局部坐标 (ENU x_m/y_m, 兼容 COLREGs v1.0)** 两种格式。
-  - **驱动模型 (Model)**：为每个目标指定如 `NCDM`、`AIS_Replay`、`Constant_Velocity` 等博弈或固定引擎。
+  - 采用可折叠的手风琴列表，**默认展开，支持折叠，且支持整体上下滚动展示**。
+  - 提供完整的动态增删 `[添加船只] / [删除船只]` 功能，删除按钮位于船只卡片头部右侧，样式与添加按钮保持一致。
+  - 列表项命名从 `TS #1` 统一优化为更具工业感与中文习惯的 **`目标船只 #1`**。
+  - **态戏定位与双 Schema 兼容**：支持**绝对坐标 (Lat/Lon, 兼容 IMAZU v2.0)** 和 **相对/局部坐标 (ENU x_m/y_m, 兼容 COLREGs v1.0)** 两种格式。
+  - **驱动模型**：标签重构为更简洁的 **“驱动模型”**，下拉菜单显示友好中文（如 *“AIS轨迹回放”*、*“FCB动力学模型”* 等），并在右侧同行以紧凑半透明青色（Cyan Accent）徽章形式展示精简英文简称（如 *`AIS`*、*`MMG`*、*`Tug`*、*`Const`*）。
 
 ##### Tab 2: 环境与时间轴故障 (Environment & Timeline Faults)
 > *映射 Schema 节点：`environment`, `sensor_degradation`, `events_timeline`*
@@ -581,12 +583,17 @@ sequenceDiagram
 
 **底部动作锁定栏 (Sticky Action Footer)**
 固定在右侧栏最下方，不随 Tab 面板滚动，承担最终的持久化与调度：
-- **实时校验屏显**：小型指示灯带（`useSchemaValidation` hook）。当参数引发 Schema 冲突时，指示灯变红，并抛出精确定位的 JSON Path 错误（GAP-022 闭环）。
-- **SHA256 展示（GAP-025 闭环）**：SAVE 完成后，Sticky Footer 展示来自后端 `POST /scenarios` 响应的真实 hash 值，**严禁前端计算或硬编码占位符**。Baseline 场景执行"另存为 Custom"后同样从响应取 hash。
 - **执行与批量生成按钮组**：当校验全部通过（绿灯）时激活：
-  - `[另存为变体]`：若当前为 Custom → `PUT /scenarios/{id}`；若为 Baseline → `POST /scenarios`（新建 Custom 副本）。
-  - `[⚄ 生成参数扫掠 (Monte Carlo Sweep)]`：**DEMO-1 显示按钮但 disabled**（Phase 2 D2.4 实现）。
-  - `[🚀 RUN → ②]`：`scenarioStore.setScenario(id, hash)` → `window.location.hash = '#/check/:id'`。
+  - `[另存为]`：统一代替原“另存为 Custom / SAVE”字样，用于另存新变体或自定义用例。
+  - `[重置]`（配有 `LucideRotateCcw` 旋转刷新图标）：一键抛弃临时编辑，将 YAML 还原回后端数据库里该场景的 baseline 官方基线。
+  - `[🚀 进行仿真检查]`：置底大按钮，将 `scenarioStore.setScenario(id, hash)` 并快速流转至下一步。
+  - *(注：原右侧栏的绿色 Schema 校验条已彻底移除净化，相关 Schema 通过/失败状态及 sha256 校验和完全交由底部的全局状态栏 FooterHotkeyHints 进行整合展示)*。
+
+**FooterHotkeyHints 全局底部状态栏**
+不仅提供快捷键备忘，还作为系统级的健康与配置文件校验屏显（从 scenarioStore 全局共享状态库中动态取数）：
+- **WebSocket地址**：在线呈现通信服务地址。
+- **ASDR地址**：显示当前测试的 mcap 归档保存路径。
+- **YAML状态**：以高对比度配色（通过为极客绿 `● Schema 通过`，报错为珊瑚红）即时呈现当前 YAML 在 Monaco 中计算的校验状态，并同步紧跟展示场景文件的 **`sha256: [hash]`** 散列值。
 
 ### 6.4 实施红线与 GAP 对齐台账（2026-05-18 更新）
 
