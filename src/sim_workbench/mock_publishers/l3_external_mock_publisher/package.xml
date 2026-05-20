@@ -6,8 +6,13 @@
   <maintainer email="mass-adas@sango.com">MASS ADAS Team</maintainer>
   <license>Proprietary</license>
 
+  <buildtool_depend>ament_python</buildtool_depend>
+
   <exec_depend>rclpy</exec_depend>
   <exec_depend>l3_external_msgs</exec_depend>
+  <exec_depend>l3_msgs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>geographic_msgs</exec_depend>
 
   <test_depend>pytest</test_depend>
 
