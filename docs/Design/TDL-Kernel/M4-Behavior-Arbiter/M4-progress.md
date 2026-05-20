@@ -1,5 +1,11 @@
 # M4 · Progress · D 任务联动
 
+| 维度 | 说明 |
+|---|---|
+| 数据更新规则 | PR 合并涉及 M4 时同步更新本表 |
+| 最近更新 | 2026-05-20 |
+| **Currently Implementing** | D3.1（4.0pw，IvP solver 在）|
+
 | D 任务 | 关系 | 状态 | 详情 |
 |---|---|---|---|
 | D0.2 | Closed in | ✅ | RFC-009 IvP 实现路径 = 自实现 |
@@ -11,3 +17,8 @@
 
 - 🔴 **P0 高阻塞**：Engineer 视图 IvpRiskGradientLayer 数据源完全依赖 M4 SAT-2 输出；当前消费端壳已 mount，生产端未到位 = Screen 3 双端真空
 - 建议 7/26 前提供 IvP 贡献 stub（哪怕固定权重表）
+
+---
+## 参考 D 任务文档
+- D3.1: [Phase 3/D3.1-m4-behavior-arbiter/](../../Phase%203/D3.1-m4-behavior-arbiter/)（待建）
+- 分支: `feat/d3.1-m4-behavior-arbiter`（Tasks 1-6 + Task 6 quality fixes 已 commit）

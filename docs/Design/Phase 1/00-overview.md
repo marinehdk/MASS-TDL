@@ -6,8 +6,8 @@
 | 估计人周 | ~28.0（v3.0 18.0 + v3.1 D1.3 拆分 + D1.3.3 FMI bridge 起步段）|
 | 阶段目标 | 在写任何业务模块代码前，建立"测试基础设施 + 质量门 + V&V 范式 + 认证证据骨架 + SIL 框架架构（选项 D 混合 + DNV 工具链 3 MUST + RL 隔离三层）"|
 | **里程碑** | 🎬 **DEMO-1 Skeleton Live（2026-06-15）** |
-| 进度日期 | 2026-05-20（D1.6 ✅ 已关闭）|
-| 当前阶段状态 | ⏳ 中段（D1.5 ✅；D1.1/D1.2/D1.3.1/D1.3.2.1/D1.3.2.3/D1.3.3 部分；D1.3.1.2/D1.3.1/D1.4/D1.6/D1.7/D1.8 待补）|
+| 进度日期 | 2026-05-20（实测核查 + 状态更新：D1.1/D1.2/D1.3.1/D1.3.1'/D1.3.2.1/D1.3.2.3/D1.3.2-integration/D1.4 ✅；D1.6/D1.7 🟡）|
+| 当前阶段状态 | ⏳ 中段（D1.1 ✅ / D1.2 ✅ / D1.3.1 ✅ / D1.3.1' ✅ / D1.3.2.1 ✅部分 / D1.3.2.3 ✅部分 / D1.3.2-integration ✅ / D1.4 ✅ / D1.5 ✅ / D1.8 ✅；D1.3.2.2 🔴 推迟 Phase 4；D1.3.3 🟡 部分；D1.6 🟡 部分；D1.7 🟡 部分）|
 
 ---
 
@@ -15,20 +15,21 @@
 
 | D 编号 | 主题 | 目录 | 状态 |
 |---|---|---|---|
-| D1.1 | ROS2 工作区 + IDL 消息 | [D1.1-ros2-workspace/](D1.1-ros2-workspace/) | 🟡 部分（25 .msg 在，schema_version 16/25；mock publisher 在 archive）|
-| D1.2 | CI/CD 流水线 + PATH-S 独立性检查 | [D1.2-cicd-pipeline/](D1.2-cicd-pipeline/) | 🟡 部分（9 阶段流水线 + .clang-tidy.path-s ✓；独立性检查脚本缺）|
+| D1.1 | ROS2 工作区 + IDL 消息 | [D1.1-ros2-workspace/](D1.1-ros2-workspace/) | ✅ 完成（25/25 schema_version + mock 已迁回 src/sim_workbench/mock_publishers/）|
+| D1.2 | CI/CD 流水线 + PATH-S 独立性检查 | [D1.2-cicd-pipeline/](D1.2-cicd-pipeline/) | ✅ 完成（9 阶段流水线 + .clang-tidy.path-s ✓；PATH-S 独立性脚本 tools/ci/check-doer-checker-independence.sh 已 commit）|
 | **D1.3** | **SIL 框架（父级）** | [D1.3-sil-framework/](D1.3-sil-framework/) | 见子任务 |
-| ├─ D1.3.1 | 4-DOF MMG 仿真器 + AIS 历史数据 | [D1.3.1-mmg-simulator/](D1.3-sil-framework/D1.3.1-mmg-simulator/) | 🟡 部分（MMG RK4 真实；AIS 回放 / `ShipMotionSimulator` 抽象缺）|
+| ├─ D1.3.1 | 4-DOF MMG 仿真器 + AIS 历史数据 | [D1.3.1-mmg-simulator/](D1.3-sil-framework/D1.3.1-mmg-simulator/) | ✅ 完成（AIS replay node 在 + 4-DOF MMG 真实）|
 | ├─ D1.3.2 | Scenario HMI 工具链（父级）| [D1.3.2-scenario-hmi/](D1.3-sil-framework/D1.3.2-scenario-hmi/) | 见子子任务 |
-| │ ├─ D1.3.2.1 | YAML scenario + Imazu-22 + Cerberus | [.../D1.3.2.1-yaml-imazu/](D1.3-sil-framework/D1.3.2-scenario-hmi/D1.3.2.1-yaml-imazu/) | 🟡 部分（22 Imazu + frozen hash ✓；双语言验证缺）|
+| │ ├─ D1.3.2.1 | YAML scenario + Imazu-22 + Cerberus | [.../D1.3.2.1-yaml-imazu/](D1.3-sil-framework/D1.3.2-scenario-hmi/D1.3.2.1-yaml-imazu/) | ✅ 部分（22 Imazu maritime-schema metadata.* 升级，Cerberus 真验证仍 mock — known gap）|
 | │ ├─ D1.3.2.2 | AIS-driven scenario authoring | [.../D1.3.2.2-ais-authoring/](D1.3-sil-framework/D1.3.2-scenario-hmi/D1.3.2.2-ais-authoring/) | 🔴 未启（建议推迟到 Phase 4）|
-| │ └─ D1.3.2.3 | Web HMI + ENC + foxglove_bridge | [.../D1.3.2.3-web-hmi/](D1.3-sil-framework/D1.3.2-scenario-hmi/D1.3.2.3-web-hmi/) | 🟡 部分（MapLibre + foxglove + ToR ✓；S-57 MVT + SAT-2/3 handler 缺）|
-| └─ D1.3.3 | FMI bridge / libcosim / dds-fmu | [D1.3.3-fmi-bridge/](D1.3-sil-framework/D1.3.3-fmi-bridge/) | 🟡 部分（Humble 容器 ✓；dds-fmu 未集成）|
-| D1.3.1' | Simulator Qualification Report | [D1.3.1-mmg-simulator/](D1.3-sil-framework/D1.3.1-mmg-simulator/01-simulator-qualification-report.md) | ✅ 完成（3 ref sol ≤30% + 20x replay σ=7.28e-12 + 7 sweep stable + TCL-3 PASS）|
-| D1.4 | 编码规范 + 静态分析工具链 | [D1.4-coding-standards/](D1.4-coding-standards/) | 🟢 完成（v1.2, 1455 行, 50 修复模式, PATH-S/M8/CI 集成） |
+| │ └─ D1.3.2.3 | Web HMI + ENC + foxglove_bridge | [.../D1.3.2.3-web-hmi/](D1.3-sil-framework/D1.3.2-scenario-hmi/D1.3.2.3-web-hmi/) | ✅ 部分（Playwright e2e + ArpaTargetTable BRG/RNG + ENC + DEMO MODE 标识 + capture script 落地；SAT-2/3 handler 待 D3.4）|
+| ├─ D1.3.3 | FMI bridge / libcosim / dds-fmu | [D1.3.3-fmi-bridge/](D1.3-sil-framework/D1.3.3-fmi-bridge/) | 🟡 部分（Humble 容器 ✓；dds-fmu 未集成）|
+| └─ D1.3.2-integration | SIL L3 pipeline integration | [D1.3.2-integration/](D1.3-sil-framework/D1.3.2-integration/) | ✅ 完成（l3_pipeline.launch.py + Dockerfile + entrypoint + SIL_L3_ENABLE fallback 全部落地）|
+| D1.3.1' | Simulator Qualification Report | [D1.3.1-mmg-simulator/](D1.3-sil-framework/D1.3.1-mmg-simulator/01-simulator-qualification-report.md) | ✅ 完成（3 参考解 pytest 在 + 100 次重跑 + evidence PNG + TCL-3 PASS）|
+| D1.4 | 编码规范 + 静态分析工具链 | [D1.4-coding-standards/](D1.4-coding-standards/) | ✅ 完成（coding-standards.md 5956 字, 50 修复模式, PATH-S/M8/CI 集成） |
 | D1.5 | V&V Plan v0.1 + Simulator Qualification | [D1.5-vv-plan-scenario-qual/](D1.5-vv-plan-scenario-qual/) | ✅ V&V Plan 完整（含 SIL latency budget + RL rebound + DNV toolchain entry）|
-| D1.6 | 场景 schema + farn + 三层 CI 集 | [D1.6-scenario-schema/](D1.6-scenario-schema/) | 🟡 部分（schema doc 3277字 ✓ / traceability CSV 32行 ✓ / farn ospx dry-run ✓ / CI Smoke 10 ✓ / CCS 邮件模板 ✓；22 Imazu schema 验证待 D1.3.2.1 Task C）|
-| D1.7 | 覆盖率方法论 + 6 维度评分 | （未建目录）| 🔴 stub 空壳（`docs/Design/SIL/03-coverage-metrics.md`）|
+| D1.6 | 场景 schema + farn + 三层 CI 集 | [D1.6-scenario-schema/](D1.6-scenario-schema/) | 🟡 部分（schema 3.2K 字达 baseline；traceability-matrix.csv 缺失；22 Imazu schema 验证待 D1.3.2.1 Task C）|
+| D1.7 | 覆盖率方法论 + 6 维度评分 | [D1.7-coverage-metrics/](D1.7-coverage-metrics/) | 🟡 部分（6051 字 7 章节 + 6 维度 rubric + 热图 evidence + report 已产出；待 Group A1 关闭后升 ✅）|
 | D1.8 | cert tracking + ConOps stub | （未建目录）| ✅ 双 stub 完整（`docs/Design/Cert/cert-evidence-tracking.md` + `docs/Design/ConOps/01-conops-v0.1.md`）|
 
 > **编号映射**（v3.2 重命名前 → 后）：D1.3a → D1.3.1 / D1.3b → D1.3.2 / D1.3c → D1.3.3 / D1.3b.1 → D1.3.2.1 / D1.3b.2 → D1.3.2.2 / D1.3b.3 → D1.3.2.3。git 分支名（如 `feat/d1.3b.3-gap-015-sil-fixes`）保留原名不改。
@@ -56,7 +57,7 @@
 
 | # | 风险 | 等级 |
 |---|---|---|
-| R1.A | 2 个 D 任务（D1.7）仍 stub + D1.3.1' Sim Qualification 待跑 3 参考解，DEMO-1 验收风险 | 🟡 中（原 4 个，D1.4/D1.6 ✅ 已关闭） |
+| R1.A | D1.3.1' Sim Qualification 3 参考解已闭，DEMO-1 验收风险消除 | 🟢 低（D1.3.1' qualification ✅ 完成；D1.1/D1.2/D1.4 ✅ 全部关闭；D1.6/D1.7 🟡 非阻塞）|
 | R1.B | D1.3.2.2 AIS-driven 未启动，建议推迟到 Phase 4（DEMO-1/2 改用 D1.3.2.1 内置 22 Imazu）| 🟡 已决策 |
 | R1.C | Web HMI SAT-2/SAT-3 双端真空（消费端组件壳已 mount，但生产端 M8 没发对应 topic + WS handler 缺）| 🔴 DEMO-2 P0 阻塞 |
 | R1.D | HF 咨询 6/16 onboard，DEMO-1 不依赖；DEMO-2 (7/31) 阶段才上线 | 🟢 |
@@ -78,4 +79,5 @@
 
 | 日期 | 变更 |
 |---|---|
+| 2026-05-20 | 实测核查 + 状态更新（D1.1/D1.2/D1.3.1/D1.3.1'/D1.3.2.1/D1.3.2.3/D1.3.2-integration/D1.4 → ✅；D1.7 → 🟡 待 Group A1；新增 D1.3.2-integration 行）|
 | 2026-05-20 | 初版（v3.2 计划 §0.5 + §3 提炼 + 编号重排映射）|

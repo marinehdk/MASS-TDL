@@ -3,7 +3,7 @@
 > **权威引用**: 架构报告 v1.1.3-pre-stub §15.2 接口契约总表
 > **适用范围**: DEMO-1 SIL↔L3 桥接实现（ros2_topic_bridge）
 > **对应任务**: D1.3.2 Task 1
-> **状态**: 定稿
+> **状态**: 定稿（2026-05-20 更新：§4 扩展至 F1-F11）
 
 ---
 
@@ -124,19 +124,44 @@ Bridge 订阅 8 个 L3 模块的发布主题:
 
 ---
 
-## 4. 发现的 5 个 L3 内部主题不匹配
+## 4. 发现的 L3 内部主题不匹配（共 11 项：F1-F5 基础 + F6-F11 扩展）
 
-在探索阶段发现 L3 内核 C++ 源代码中 5 个硬编码主题字符串错误。这些错误必须在 bridge 工作前修复,否则 M4→M5→M7/M8 内部链路不通。
+在探索阶段（2026-05-15）发现 L3 内核 C++ 源代码中 5 个硬编码主题字符串错误。2026-05-20 全量 `grep` M1-M8 源码后又发现 6 个额外不一致，总计 **11 项**。这些错误必须在 bridge 工作前修复，否则 M4→M5→M7/M8 内部链路不通。
+
+### 4.1 基础修复项 F1-F5（2026-05-15 发现）
 
 | # | 文件 | 当前值(错误) | 应改为 | 影响 |
 |---|------|------------|-------|------|
-| F1 | `mid_mpc_node.cpp` | `/m2/own_ship_state` | `/l3/m2/world_state` | M5 收不到 M2 世界状态 |
-| F2 | `mid_mpc_node.cpp` | `/m2/tracked_targets` | `/l3/m2/world_state` (world_state 已含 targets) | M5 收不到目标 |
-| F3 | `mid_mpc_node.cpp` | `/m4/behavior_plan` | `/l3/m4/behavior_plan` | M5 收不到 M4 行为计划 |
-| F4 | `mid_mpc_node.cpp` | `/m6/colregs_constraint` | `/l3/m6/colregs_constraint` | M5 收不到 COLREGs 约束 |
-| F5 | `safety_supervisor_node.cpp` | `/l3/m2/odd_state` | `/l3/m1/odd_state` (M1 发布,非 M2) | M7 收不到 ODD 状态 |
+| F1 | `mid_mpc_node.cpp:39-43` | `/m2/own_ship_state` | `/l3/m2/world_state` | M5 收不到 M2 世界状态 |
+| F2 | `mid_mpc_node.cpp`（已随 F1 合并） | `/m2/tracked_targets` | `/l3/m2/world_state` (world_state 已含 targets) | M5 收不到目标 |
+| F3 | `mid_mpc_node.cpp:45-49` | `/m4/behavior_plan` | `/l3/m4/behavior_plan` | M5 收不到 M4 行为计划 |
+| F4 | `mid_mpc_node.cpp:51-55` | `/m6/colregs_constraint` | `/l3/m6/colregs_constraint` | M5 收不到 COLREGs 约束 |
+| F5 | `safety_supervisor_node.cpp:125-128` | `/l3/m2/odd_state` | `/l3/m1/odd_state` (M1 发布,非 M2) | M7 收不到 ODD 状态 |
 
-> F1+F2 修复涉及类型变更:从两个独立订阅(`OwnShipState` + `TrackedTargetArray`)合并为单个 `WorldState` 订阅。`WorldState.msg` 已包含 `own_ship` 和 `targets` 字段(架构报告 §6.3)。
+> F1+F2 修复涉及类型变更:从两个独立订阅(`OwnShipState` + `TrackedTargetArray`)合并为单个 `WorldState` 订阅。`WorldState.msg` 已包含 `own_ship` 和 `targets` 字段(架构报告 §6.3)。实测:2026-05 版本 `mid_mpc_node.cpp` 已正确订阅 `/l3/m2/world_state`（单独一行），`/m2/own_ship_state` 和 `/m2/tracked_targets` 旧行已删除。**F1-F5 中多数已在 2026-05 版本修复，需逐项确认。**
+
+### 4.2 扩展发现 F6-F11（2026-05-20 全量 grep 实测）
+
+| # | 文件 | 当前值(实测) | 架构标准 | 影响 | 严重度 |
+|---|------|-------------|---------|------|--------|
+| F6 | `bc_mpc_node.cpp:34-38` | `/m2/world_state` | `/l3/m2/world_state` | M5-BC 收不到 M2 WorldState（BC-MPC 使用无 `/l3/` 前缀的主题名，与系统其他 7 个模块不一致）| 🔴 高 |
+| F7 | `mid_mpc_node.cpp:69` → vs `safety_supervisor_node.cpp:140-143` + `hmi_transparency_bridge_node.cpp:76-78` | **Pub**: `/m5/avoidance_plan` → **Sub**: `/l3/m5/avoidance_plan` | `/l3/m5/avoidance_plan` | M5-Mid 发布 `/m5/avoidance_plan`，但 M7 和 M8 订阅 `/l3/m5/avoidance_plan` — **发布/订阅不匹配**。`m5_mid_mpc.launch.py:17` 有 remap `("/m6/colregs_constraint", "/l3/m6/colregs_constraint")` 但缺少 avoidance_plan 的 remap | 🔴 高 |
+| F8 | `mid_mpc_node.cpp:70-71` → vs M1/M2/M3/M6/M7/M8 | **Pub**: `/m5/asdr_record`, `/m5/sat_data` → 其余模块 **Pub/Sub**: `/l3/asdr/record`, `/l3/sat/data` | `/l3/asdr/record`, `/l3/sat/data` | M5-Mid 的 ASDR 和 SAT 输出不走标准主题，其余模块无法消费。另 `bc_mpc_node.cpp:48-49` 发布 `/m5/asdr_record_bc`（同样偏离）| 🔴 高 |
+| F9 | `odd_envelope_manager_node.cpp:327-334` → vs `safety_supervisor_node.cpp:177-182` | M1 Sub: `/reflex/activation_notification` → M7 Sub: `/l3/reflex/activation` | 应统一为单一主题 | 两个模块监听同一 Reflex Arc 事件但使用不同主题名。若 Reflex 发布者用任一主题，另一模块将收不到 | 🟡 中 |
+| F10 | `odd_envelope_manager_node.cpp:340-347` + `hmi_transparency_bridge_node.cpp:89-92` → vs `safety_supervisor_node.cpp:184-189` | M1 Sub: `/override/active_signal`, M8 Sub: `/override/active_signal` → M7 Sub: `/l3/override/active` | 应统一为单一主题 | Override 信号在三模块间使用两种主题名 — M1+M8 与 M7 不互通 | 🟡 中 |
+| F11 | `bc_mpc_node.cpp:46-47` → vs `safety_supervisor_node.cpp:163-168` | **Pub**: `/m5/reactive_override_cmd` → **Sub**: `/l3/m4/reactive_override_cmd` | `/l3/m4/reactive_override_cmd` | BC-MPC 发布到 `/m5/` 前缀，但 M7 Safety Supervisor 从 `/l3/m4/` 前缀订阅 — **完全不匹配** | 🔴 高 |
+
+### 4.3 修复决策
+
+| 项 | DEMO-1 修复? | 修复方式 | 理由 |
+|----|-------------|---------|------|
+| F1-F5 | ✅ 已在 2026-05 源码版本修复 | 直接修改 C++ 字符串 + 合并订阅 | L3 内核内部链路基础前提 |
+| F6 | ✅ 必须修复 | 修改 `bc_mpc_node.cpp:34` → `/l3/m2/world_state` | BC-MPC 无合理理由使用无前缀主题名 |
+| F7 | ✅ 必须修复 | 在 `m5_mid_mpc.launch.py` 增加 remap `("/m5/avoidance_plan", "/l3/m5/avoidance_plan")` | 最小改动，launch remap 不改源码；或修改 `mid_mpc_node.cpp:69` 直接改为 `/l3/m5/avoidance_plan` |
+| F8 | 🟡 DEMO-1 可选 | 在 bridge 中增加 `/m5/asdr_record` → `/l3/asdr/record` 和 `/m5/sat_data` → `/l3/sat/data` 中继 | DEMO-1 中 ASDR/SAT 为日志用途，非关键实时链路。Bridge 已实现 ASDR 中继（`/l3/asdr/record` → `/sil/asdr_event`），增加 `/m5/*` 源订阅即可 |
+| F9 | 🟡 DEMO-1 低优先 | 在 bridge 中增加 `/reflex/activation_notification` ↔ `/l3/reflex/activation` 双向中继 | Reflex Arc 触发频率极低；DEMO-1 无 Reflex 场景 |
+| F10 | 🟡 DEMO-1 低优先 | 在 bridge 中增加 `/override/active_signal` ↔ `/l3/override/active` 双向中继 | Override 触发频率极低；DEMO-1 无 Override 场景 |
+| F11 | ✅ 必须修复 | 修改 `bc_mpc_node.cpp:46-47` → `/l3/m4/reactive_override_cmd` | Reactive Override 是 M7 Doer-Checker 关键链路，不匹配将导致 Safety Supervisor 无法监视 BC-MPC 快速避碰指令 |
 
 ---
 
