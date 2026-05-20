@@ -18,12 +18,16 @@ export function computeBearing(
 
 /**
  * Haversine range in nautical miles.
+ *
+ * Uses mean Earth radius (3440.065 NM). Accuracy: ≤0.5% error vs WGS-84
+ * ellipsoid at mid-latitudes. For DEMO-1 display use this is sufficient;
+ * precision navigation should use GeographicLib or similar.
  */
 export function computeRangeNm(
   lat1: number, lon1: number,
   lat2: number, lon2: number,
 ): number {
-  const R = 3440.065; // NM
+  const R = 3440.065; // Earth mean radius in nautical miles
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;

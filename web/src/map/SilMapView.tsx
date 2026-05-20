@@ -5,6 +5,7 @@ import { osmSource, osmLayer, ALL_S57_LAYERS } from './layers';
 import { useTelemetryStore, useMapStore } from '../store';
 import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
+import type { TargetVesselState } from '../types/sil/target_vessel_state';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
@@ -393,8 +394,14 @@ export function SilMapView({
         // Initial load: fit all ships in view so the operator can see the full
         // encounter before the viewport locks to own ship.
         const freshTargets = useTelemetryStore.getState().targets;
-        const allLons = [lon, ...freshTargets.map((t: any) => t.pose?.lon).filter((v: any) => typeof v === 'number')];
-        const allLats = [lat, ...freshTargets.map((t: any) => t.pose?.lat).filter((v: any) => typeof v === 'number')];
+        const targetLons = freshTargets
+          .map((t: TargetVesselState) => t.pose?.lon)
+          .filter((v): v is number => typeof v === 'number');
+        const targetLats = freshTargets
+          .map((t: TargetVesselState) => t.pose?.lat)
+          .filter((v): v is number => typeof v === 'number');
+        const allLons = [lon, ...targetLons];
+        const allLats = [lat, ...targetLats];
         if (allLons.length > 1 && (Math.max(...allLons) - Math.min(...allLons) > 0.001 || Math.max(...allLats) - Math.min(...allLats) > 0.001)) {
           map.fitBounds([[Math.min(...allLons) - 0.02, Math.min(...allLats) - 0.02], [Math.max(...allLons) + 0.02, Math.max(...allLats) + 0.02]], {
             padding: { top: 60, bottom: 60, left: 60, right: 100 },

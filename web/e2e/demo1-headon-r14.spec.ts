@@ -19,6 +19,7 @@ test.describe('DEMO-1 R14 Head-On — Captain View End-to-End', () => {
   test('target vessel populates in ArpaTargetTable with real BRG/RNG', async ({ page }) => {
     await page.goto(MONITOR_URL);
     await page.waitForSelector('[data-testid="simulation-monitor"]', { timeout: 15_000 });
+    await page.waitForSelector('[data-testid="left-drawer-toggle"]', { timeout: 10_000 });
 
     await page.click('[data-testid="left-drawer-toggle"]');
 
@@ -80,6 +81,7 @@ test.describe('DEMO-1 R14 Head-On — Captain View End-to-End', () => {
   test('ASDR Ledger receives take_over event after TOR→OVERRIDE', async ({ page }) => {
     await page.goto(MONITOR_URL);
     await page.waitForSelector('[data-testid="simulation-monitor"]', { timeout: 15_000 });
+    await page.waitForSelector('[data-testid="right-drawer-toggle"]', { timeout: 10_000 });
 
     await page.click('[data-testid="right-drawer-toggle"]');
 

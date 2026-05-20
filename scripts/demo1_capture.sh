@@ -85,7 +85,19 @@ await page.waitForTimeout(duration * 1000);
 
 await context.close();
 await browser.close();
-console.log(`Done: ${outFile}`);
+
+// Rename the auto-generated video to our timestamped filename
+const fs = await import('fs');
+const path = await import('path');
+const files = fs.readdirSync('demo-evidence');
+const videoFile = files.find(f => f.endsWith('.webm'));
+if (videoFile) {
+  const src = path.join('demo-evidence', videoFile);
+  fs.renameSync(src, outFile);
+  console.log(`Renamed: ${videoFile} → ${outFile}`);
+} else {
+  console.warn('No .webm video found in demo-evidence/');
+}
 EORECORDER
 
 node /tmp/demo1-recorder.mjs "$MONITOR_URL" "$CAPTURE_DURATION_S" \
