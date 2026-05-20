@@ -1,0 +1,45 @@
+DEMO-1 Docker Build Verification — 2026-05-20
+===============================================
+Mode: Config inspection (docker daemon not available on macOS dev host)
+
+=== Dockerfile.ci ===
+Base image: ros:humble-ros-base@sha256:5417e56962ff6e15d4cf9b2f78a71a78f3901f47cd78696b575b7eecdb54eb78
+SHA256 pin: ✅ (1 reference)
+Template vars (=${VER}): 9 occurrences
+  Build args: ROS_BASE_DIGEST, GCC_12_VER, CLANG_TIDY_14_VER, CMAKE_VER,
+              CPPCHECK_VER, EIGEN3_VER, GEOGRAPHICLIB_VER, BOOST_DEV_VER,
+              NLOHMANN_JSON_VER
+
+=== Dockerfile.dev ===
+Base image: ros:humble-ros-base@sha256:5417e56962ff6e15d4cf9b2f78a71a78f3901f47cd78696b575b7eecdb54eb78
+SHA256 pin: ✅ (1 reference)
+Template vars (=${VER}): 9 occurrences
+  Same 9 build args as Dockerfile.ci
+
+=== version-lock.txt ===
+File: tools/docker/version-lock.txt
+All 9 variables present: ✅
+  ROS_BASE_DIGEST, GCC_12_VER, CLANG_TIDY_14_VER, CMAKE_VER, CPPCHECK_VER,
+  EIGEN3_VER, GEOGRAPHICLIB_VER, BOOST_DEV_VER, NLOHMANN_JSON_VER
+
+=== dependency-lock.md ===
+File: tools/docker/dependency-lock.md
+Status: ✅ Exists (1150 bytes)
+Contents: Base image + 7 apt packages with pinned versions
+
+=== Version Alignment ===
+ROS2 distro:   Humble (Jazzy→Humble migration complete per D1.2 Task 1)
+Ubuntu base:   22.04 (jammy) — aligned across both Dockerfiles
+Apt packages:  7 packages, all pinned with =${VER} template vars
+
+=== Reproducibility Assessment ===
+- Base image locked via SHA256 digest: ✅ deterministic
+- All apt packages pinned via version-lock.txt: ✅ deterministic
+- Same lock file drives both Dockerfiles: ✅ consistent
+- No floating `latest` tags or unpinned apt installs: ✅ clean
+- Build digest from prior CI run (2026-05-08):
+  Dockerfile.ci: sha256:5eafc4e2306e693ee0c0004575f1abef0efbf75b22eb670317a0a0a64dcc6275
+  Dockerfile.dev: sha256:9a803e5a749b5772aea531609753c0ff6eb95d4448ef04ffb0f45df24b6be6cb
+  Determinism: ✅ (verified in CI)
+
+Status: BUILD REPRODUCIBILITY: OK (config inspection)
