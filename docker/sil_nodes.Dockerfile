@@ -53,6 +53,10 @@ RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
 RUN chmod +x /opt/ws/sil_entrypoint.sh
 
+# Add topic probe script for staged startup
+COPY scripts/wait_for_topic.sh /opt/ws/wait_for_topic.sh
+RUN chmod +x /opt/ws/wait_for_topic.sh
+
 # Copy L3 kernel launch files
 COPY src/l3_tdl_kernel/launch /opt/ws/src/l3_tdl_kernel/launch
 CMD ["/opt/ws/sil_entrypoint.sh"]
