@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
+from rclpy.lifecycle import TransitionCallbackReturn
 
 # ── Timestamp helper ──────────────────────────────────────────
 def ts() -> str:
@@ -92,6 +93,31 @@ liveness_sub = liveness_node.create_subscription(
     Header, '/sil/own_ship_state', on_own_ship, sq)
 executor.add_node(liveness_node)
 nodes.append(liveness_node)
+
+# ── Stage 1.5: Validating critical node on_configure ──────────
+# Explicitly call on_configure for key SIL nodes that may detect sentinel defaults.
+# If any returns FAILURE, abort immediately rather than run a 'zombie simulation'.
+print(f'[{ts()}] Stage 1.5: Validating node configuration...')
+cfg_failures = []
+for node in nodes:
+    name = node.get_name()
+    if name in ('ship_dynamics_node', 'target_vessel_node'):
+        try:
+            cfg_result = node.on_configure(None)
+            if cfg_result is not None and cfg_result != TransitionCallbackReturn.SUCCESS:
+                cfg_failures.append(f'{name}: on_configure returned {cfg_result}')
+                print(f'  [{ts()}] FATAL: {name} on_configure FAILED → {cfg_result}', file=sys.stderr)
+            else:
+                print(f'  [{ts()}] {name} on_configure OK')
+        except Exception as exc:
+            cfg_failures.append(f'{name}: on_configure raised {type(exc).__name__}: {exc}')
+            print(f'  [{ts()}] FATAL: {name} on_configure crashed: {exc}', file=sys.stderr)
+
+if cfg_failures:
+    print(f'[{ts()}] FATAL: {len(cfg_failures)} node(s) failed on_configure:', file=sys.stderr)
+    for f in cfg_failures:
+        print(f'  - {f}', file=sys.stderr)
+    sys.exit(1)
 
 sil_count = len(nodes) - 1  # exclude liveness probe
 print(f'[{ts()}] Stage 1 complete: {sil_count} SIL nodes created')
