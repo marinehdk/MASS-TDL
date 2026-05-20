@@ -28,7 +28,27 @@ echo " Container: $CONTAINER"
 echo " Timeout:   ${TIMEOUT}s"
 echo "============================================"
 
-echo ""; echo "[1/2] Waiting for SIL+L3 nodes to initialize (${TIMEOUT}s max)..."
+echo ""; echo "[1/3] Stage check: /sil/own_ship_state first frame (max 30s)..."
+STAGE1_ELAPSED=0
+STAGE1_GOT_FRAME=0
+while [ $STAGE1_ELAPSED -lt 30 ]; do
+    if docker compose exec -T "$CONTAINER" bash -c "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && ros2 topic hz /sil/own_ship_state --window 3 2>&1 | grep -q 'average rate'" 2>/dev/null; then
+        echo -e "  ${GREEN}/sil/own_ship_state publishing after ${STAGE1_ELAPSED}s${NC}"
+        STAGE1_GOT_FRAME=1
+        break
+    fi
+    sleep 2; STAGE1_ELAPSED=$((STAGE1_ELAPSED + 2))
+done
+if [ "$STAGE1_GOT_FRAME" -eq 0 ]; then
+    echo -e "${RED}FAIL: /sil/own_ship_state not publishing after 30s${NC}"
+    echo "=== Diagnostic: container logs (last 50 lines) ==="
+    docker compose logs --tail=50 sil-nodes 2>/dev/null || true
+    echo "=== Diagnostic: node list ==="
+    docker compose exec -T "$CONTAINER" bash -c "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && ros2 node list" 2>/dev/null || true
+    exit 1
+fi
+
+echo ""; echo "[2/3] Waiting for all 16+ nodes active (max ${TIMEOUT}s)..."
 ELAPSED=0
 while [ $ELAPSED -lt $TIMEOUT ]; do
     NODE_COUNT=$(docker compose exec -T "$CONTAINER" bash -c "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && ros2 node list 2>/dev/null | wc -l" 2>/dev/null || echo "0")
@@ -41,10 +61,16 @@ done
 if [ "$NODE_COUNT" -lt 16 ]; then
     echo -e "${RED}FAIL: Only $NODE_COUNT nodes after ${TIMEOUT}s${NC}"
     docker compose exec -T "$CONTAINER" bash -c "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && ros2 node list" 2>/dev/null || true
+    # Dump detailed node info for debugging
+    echo ""; echo "=== Diagnostic: node info for each node ==="
+    for node_name in m1_odd_manager m2_world_model m3_mission_manager m4_behavior_arbiter m5_tactical_planner m6_colregs_reasoner m7_safety_supervisor m8_hmi_bridge ship_dynamics_node; do
+        echo "--- $node_name ---"
+        docker compose exec -T "$CONTAINER" bash -c "source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && ros2 node info /$node_name 2>&1 || echo 'NOT FOUND'" 2>/dev/null || true
+    done
     exit 1
 fi
 
-echo ""; echo "[2/2] Running verification checks..."
+echo ""; echo "[3/3] Running verification checks..."
 
 # Check 1: 7 L3 nodes present
 for node in m1_odd_manager m2_world_model m3_mission_manager m4_behavior_arbiter m5_tactical_planner m6_colregs_reasoner m7_safety_supervisor m8_hmi_bridge; do
