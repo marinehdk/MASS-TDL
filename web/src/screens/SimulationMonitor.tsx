@@ -408,6 +408,27 @@ export function SimulationMonitor() {
             <LucideAlertTriangle size={18} /> FAULT
           </button>
         </div>
+        {useDemo && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            borderLeft: '1px solid var(--line-2)', paddingLeft: 24,
+            marginLeft: 8,
+          }}>
+            <div style={{
+              background: 'rgba(248,81,73,0.15)',
+              border: '1px solid var(--c-danger)',
+              borderRadius: 'var(--radius-none)',
+              padding: '3px 10px',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 9,
+              color: 'var(--c-danger)',
+              letterSpacing: '0.08em',
+              fontWeight: 600,
+            }}>
+              DEMO MODE — dead-reckon fallback
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
