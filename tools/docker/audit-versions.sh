@@ -18,7 +18,7 @@ echo "ROS_BASE_DIGEST=${DIGEST}"
 docker run --rm "${IMAGE}" bash -c "
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq 2>/dev/null
-  for pkg in gcc-12 clang-tidy-14 cmake cppcheck libeigen3-dev libgeographic-dev libboost-dev nlohmann-json3-dev; do
+  for pkg in gcc-12 clang-tidy-14 cmake cppcheck libeigen3-dev libgeographiclib-dev libboost-dev nlohmann-json3-dev; do
     ver=\$(apt-cache show \"\$pkg\" 2>/dev/null | grep '^Version:' | head -1 | awk '{print \$2}')
     varname=\$(echo \"\${pkg^^}_VER\" | sed 's/[-.]/_/g')
     echo \"\${varname}=\${ver}\"

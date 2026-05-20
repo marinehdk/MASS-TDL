@@ -102,7 +102,7 @@ stage-1-lint:
     - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
   script:
     # C++ format check (BLOCKING — F-CRIT-A-007 修复：删除 || true)
-    - find src -name "*.cpp" -o -name "*.hpp" | xargs -r clang-format-20 --dry-run --Werror
+    - find src -name "*.cpp" -o -name "*.hpp" | xargs -r clang-format-14 --dry-run --Werror
     # Python lint (BLOCKING)
     - ruff check src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
     - mypy src/l3_tdl_kernel/m2_world_model/python tools/ src/l3_tdl_kernel/m8_hmi_transparency_bridge/python
@@ -445,7 +445,7 @@ stage-3-clang-tidy:
       else
         CONFIG=".clang-tidy"
       fi
-    - run-clang-tidy-20 -p build/${PACKAGE} \
+    - run-clang-tidy-14 -p build/${PACKAGE} \
                         -config-file=${CONFIG} \
                         -warnings-as-errors='*' \
                         -export-fixes=clang-tidy-fixes-${PACKAGE}.yaml \
@@ -573,7 +573,7 @@ path_s_independence:
   needs: [stage-1-lint]
   script:
     - echo "=== PATH-S Independence Quantitative Check ==="
-    - bash tools/ci/check-doer-checker-independence.sh
+    - bash tools/ci/check-doer-checker-independence.sh 2>&1 | tee path_s_independence_report.txt
     - echo "=== PATH-S Independence Report Complete ==="
   allow_failure: true
   artifacts:
