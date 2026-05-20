@@ -22,6 +22,10 @@ import yaml
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+import time
+
+import pyarrow as pa
+
 from scenario_spec import ScenarioSpec
 from simulate import simulate
 from coverage_cube import CoverageCube, seed_index_from_filename
@@ -141,6 +145,195 @@ def run_batch(scenarios_dir: Path, output_dir: Path) -> list[dict]:
     print(f"Coverage cube: {n_lit}/{cube.to_json_dict()['total_cells']} cells lit → {cube_path}")
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# v2 — Multi-dir discovery + Arrow dual output (D1.3.2.1)
+# ---------------------------------------------------------------------------
+
+SUMMARY_SCHEMA = pa.schema([
+    pa.field("scenario_id", pa.string()),
+    pa.field("pass", pa.bool_()),
+    pa.field("dcpa_m", pa.float32()),
+    pa.field("wall_clock_s", pa.float32()),
+    pa.field("duration_s", pa.float32()),
+])
+
+TRAJECTORY_POINT_SCHEMA = pa.schema([
+    pa.field("scenario_id", pa.string()),
+    pa.field("t_s", pa.float64()),
+    pa.field("x_m", pa.float64()),
+    pa.field("y_m", pa.float64()),
+    pa.field("psi_rad", pa.float32()),
+    pa.field("u_mps", pa.float32()),
+    pa.field("v_mps", pa.float32()),
+    pa.field("r_radps", pa.float32()),
+])
+
+
+def discover_scenarios(dirs=None):
+    """Discover scenario YAML files from multiple directories.
+
+    Default directories: scenarios/IMAZU标准测试, scenarios/COLREGs测试.
+
+    Args:
+        dirs: List of directory paths to search. Defaults to the two
+              standard scenario directories.
+
+    Returns:
+        Sorted list of ``Path`` objects for all ``*.yaml`` files,
+        excluding schema files.
+    """
+    if dirs is None:
+        dirs = [
+            Path("scenarios/IMAZU标准测试"),
+            Path("scenarios/COLREGs测试"),
+        ]
+
+    files: list[Path] = []
+    for d in dirs:
+        dp = Path(d)
+        if dp.exists():
+            files.extend(
+                f for f in sorted(dp.glob("*.yaml")) if f.name != "schema.yaml"
+            )
+
+    return sorted(files, key=lambda p: p.stem)
+
+
+def _extract_trajectory(result, scenario_id, max_points=200):
+    """Extract sampled trajectory points from a simulation result.
+
+    Returns a list of dicts matching *TRAJECTORY_POINT_SCHEMA*.
+    """
+    rows = []
+    traj = getattr(result, "trajectory", None)
+    if traj is None:
+        traj = getattr(result, "waypoints", None)
+    if traj is None:
+        traj = getattr(result, "path", None)
+
+    if traj:
+        step = max(1, len(traj) // max_points)
+        for point in traj[::step]:
+            rows.append({
+                "scenario_id": scenario_id,
+                "t_s": float(
+                    getattr(point, "t_s", getattr(point, "time", 0.0))
+                ),
+                "x_m": float(
+                    getattr(point, "x_m", getattr(point, "x", 0.0))
+                ),
+                "y_m": float(
+                    getattr(point, "y_m", getattr(point, "y", 0.0))
+                ),
+                "psi_rad": float(
+                    getattr(point, "psi_rad", getattr(point, "heading", 0.0))
+                ),
+                "u_mps": float(
+                    getattr(point, "u_mps", getattr(point, "speed", 0.0))
+                ),
+                "v_mps": float(getattr(point, "v_mps", 0.0)),
+                "r_radps": float(
+                    getattr(point, "r_radps", getattr(point, "yaw_rate", 0.0))
+                ),
+            })
+    return rows
+
+
+def __arrow_table(rows, schema, path):
+    """Write *rows* to an Arrow IPC file at *path* using *schema*."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    col_names = [f.name for f in schema]
+    data = {col: [r[col] for r in rows] for col in col_names}
+    table = pa.table(data, schema=schema)
+    with pa.ipc.new_file(str(path), schema) as writer:
+        writer.write_table(table)
+    return table.num_rows
+
+
+def run_batch_arrow(scenario_dirs, output_dir, progress_cb=None):
+    """Run a batch of scenarios and produce Arrow dual output.
+
+    Discovers all YAML scenario files under *scenario_dirs*, runs each
+    scenario through the simulator, and writes:
+
+    - ``batch_summary.arrow``    — one row per scenario (pass/fail + metrics)
+    - ``trajectories.arrow``     — sampled own-ship trajectory points
+    - ``batch_results.json``     — backward-compatible JSON summary
+
+    Args:
+        scenario_dirs: One or more directory paths (``str``, ``Path``,
+                       or iterable thereof).
+        output_dir:   Directory for output artifacts.
+        progress_cb:  Optional ``progress_cb(i, total)`` called after each
+                      scenario completes.
+
+    Returns:
+        Dict with summary metadata (total, passed, failed, output paths).
+    """
+    if isinstance(scenario_dirs, (str, Path)):
+        scenario_dirs = [scenario_dirs]
+    scenario_dirs = [Path(d) for d in scenario_dirs]
+
+    yaml_files = discover_scenarios(scenario_dirs)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_rows: list[dict] = []
+    trajectory_rows: list[dict] = []
+    total = len(yaml_files)
+
+    for i, yaml_path in enumerate(yaml_files):
+        spec = ScenarioSpec.model_validate(yaml.safe_load(yaml_path.read_text()))
+        sid = spec.scenario_id.replace("-v1.0", "")
+
+        t0 = time.perf_counter()
+        result_na = simulate(spec, apply_avoidance=False)
+        result_wa = simulate(spec, apply_avoidance=True)
+        wall_clock = time.perf_counter() - t0
+
+        dcpa_na = result_na.dcpa_m
+        dcpa_wa = result_wa.dcpa_m
+        passed = dcpa_na < spec.pass_criteria.max_dcpa_no_action_m
+
+        sim_duration = getattr(result_wa, "duration_s", wall_clock)
+        summary_rows.append({
+            "scenario_id": sid,
+            "pass": bool(passed),
+            "dcpa_m": float(dcpa_wa),
+            "wall_clock_s": float(wall_clock),
+            "duration_s": float(sim_duration),
+        })
+        trajectory_rows.extend(
+            _extract_trajectory(result_wa, sid)
+        )
+
+        if progress_cb:
+            progress_cb(i + 1, total)
+
+    summary_path = output_dir / "batch_summary.arrow"
+    n_summary = __arrow_table(summary_rows, SUMMARY_SCHEMA, summary_path)
+
+    traj_path = output_dir / "trajectories.arrow"
+    n_traj = __arrow_table(trajectory_rows, TRAJECTORY_POINT_SCHEMA, traj_path)
+
+    summary_json = {
+        "batch_timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "total": total,
+        "passed": sum(1 for r in summary_rows if r["pass"]),
+        "failed": sum(1 for r in summary_rows if not r["pass"]),
+        "arrow_summary": str(summary_path),
+        "arrow_trajectories": str(traj_path),
+    }
+    json_path = output_dir / "batch_results.json"
+    json_path.write_text(json.dumps(summary_json, indent=2))
+
+    print(f"Arrow summary:  {summary_path} ({n_summary} rows)")
+    print(f"Arrow traj:     {traj_path} ({n_traj} rows)")
+
+    return summary_json
 
 
 def main() -> None:
