@@ -127,14 +127,54 @@ class TargetVesselNode(LifecycleNode):
     def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
         self.declare_parameter("default_targets_json", "[]")
         raw = self.get_parameter("default_targets_json").value
-        if raw:
+        if raw and raw != "[]":
             try:
-                for entry in json.loads(raw):
+                entries = json.loads(raw)
+                if not isinstance(entries, list):
+                    self.get_logger().fatal(
+                        f"default_targets_json must be a JSON array, got {type(entries).__name__}"
+                    )
+                    return TransitionCallbackReturn.FAILURE
+                for i, entry in enumerate(entries):
+                    # ── 必填字段校验 ──
+                    mmsi = entry.get("mmsi", 0)
+                    lat = entry.get("lat", 0.0)
+                    lon = entry.get("lon", 0.0)
+                    heading_deg = entry.get("heading_deg", -1.0)
+                    sog_kn = entry.get("sog_kn", -1.0)
+
+                    errors = []
+                    if not isinstance(mmsi, int) or mmsi <= 0:
+                        errors.append(f"mmsi={mmsi} (must be > 0)")
+                    if not isinstance(lat, (int, float)) or math.isnan(float(lat)) or not (-90.0 <= lat <= 90.0) or lat == 0.0:
+                        errors.append(f"lat={lat} (must be in [-90,90] and != 0 sentinel)")
+                    if not isinstance(lon, (int, float)) or math.isnan(float(lon)) or not (-180.0 <= lon <= 180.0):
+                        errors.append(f"lon={lon} (must be in [-180,180])")
+                    if not isinstance(heading_deg, (int, float)) or not (0.0 <= heading_deg < 360.0):
+                        errors.append(f"heading_deg={heading_deg} (must be in [0,360))")
+                    if not isinstance(sog_kn, (int, float)) or sog_kn < 0.0:
+                        errors.append(f"sog_kn={sog_kn} (must be >= 0)")
+
+                    if errors:
+                        for err in errors:
+                            self.get_logger().fatal(
+                                f"Target #{i} (mmsi={entry.get('mmsi', 'N/A')}) invalid field: {err}"
+                            )
+                        return TransitionCallbackReturn.FAILURE
+
                     self.add_target(**entry)
             except (json.JSONDecodeError, TypeError, KeyError) as exc:
-                self._logger.error(f"Failed to parse default_targets_json: {exc}")
-                return TransitionCallbackReturn.ERROR
-        self._logger.info(f"Configured with {len(self._targets)} target(s)")
+                self.get_logger().fatal(f"Failed to parse default_targets_json: {exc}")
+                return TransitionCallbackReturn.FAILURE
+
+        # ── 加载值 echo (debug-friendly) ──
+        target_summary = ", ".join(
+            f"#{t.mmsi}@({t.lat:.4f},{t.lon:.4f}) h={math.degrees(t.heading):.1f}° sog={t.sog/0.514444:.1f}kn"
+            for t in self._targets
+        ) if self._targets else "(none)"
+        self.get_logger().info(
+            f"target_vessel initial: {len(self._targets)} target(s) — {target_summary}"
+        )
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
