@@ -1,0 +1,4 @@
+ship_dynamics:
+  ros__parameters:
+    vessel_class: FCB
+    hull_class: SEMI_PLANING
