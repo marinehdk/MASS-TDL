@@ -289,12 +289,16 @@ def build_mbtiles(geojson_files: dict[str, Path], output_path: Path, name: str):
         "--minimum-zoom=0",
         "--maximum-zoom=16",
         "--buffer=64",
-        "--full-detail=12",
-        "--simplification=2",
-        "--simplification-at-maximum-zoom=1",
+        "--full-detail=14",                    # Increase detail mapping level
+        "--simplification=0.0001",             # Extremely small tolerance to preserve polygon smooth curves
+        "--simplify-only-low-zooms",           # Disable simplification at high zooms
+        "--no-line-simplification",            # Prevent contour lines from crossing
+        "--no-simplification-of-shared-nodes", # Keep shared boundaries between polygons exact
+        "--no-tiny-polygon-reduction",         # Do not drop small islands or shoals
         "--detect-shared-borders",
         "--no-tile-compression",
         "--no-tile-size-limit",
+        "--no-feature-limit",
     ]
 
     for mvt_layer, geojson_path in geojson_files.items():
