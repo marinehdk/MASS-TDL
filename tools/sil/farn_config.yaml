@@ -1,0 +1,41 @@
+# farn case folder generator configuration
+# 1100-cell = 11 Rule × 4 ODD × 5 Disturbance × 5 Seed
+# NOTE: farn 0.5.1 uses dictIO native format (JSON), not YAML.
+# This YAML file serves as the design reference artifact.
+# The JSON equivalent generated alongside (farn_config.json) is used for actual farn execution.
+
+sampling_strategies:
+  - name: fixed_grid
+    type: full_factorial
+    factors:
+      rule: [Rule14, Rule15, Rule13]
+      odd_zone: [A, B, C]
+      disturbance_level: [0, 1, 2, 3, 4]
+      seed: [1, 2, 3, 4, 5]
+    output_dir: scenarios/farn/1100-cell/fixed-grid/
+
+  - name: lhs
+    type: latin_hypercube
+    samples: 500
+    factors:
+      rule: [Rule14, Rule15, Rule13]
+      odd_zone: [A, B, C]
+      target_bearing_deg: [0, 360]
+      target_sog_kn: [5, 20]
+      wind_kn: [0, 30]
+      current_kn: [0, 5]
+    output_dir: scenarios/farn/1100-cell/lhs/
+
+  - name: sobol
+    type: sobol
+    samples: 500
+    factors:
+      rule: [Rule14, Rule15, Rule13]
+      odd_zone: [A, B, C]
+      target_bearing_deg: [0, 360]
+      target_sog_kn: [5, 20]
+      wind_kn: [0, 30]
+      current_kn: [0, 5]
+    output_dir: scenarios/farn/1100-cell/sobol/
+
+scenario_template: tools/sil/templates/maritime-schema-v2.0.yaml.j2

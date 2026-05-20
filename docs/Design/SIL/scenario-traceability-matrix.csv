@@ -1,0 +1,33 @@
+scenario_id,scenario_file,rule,rule_branch,hazid_id,odd_zone,vessel_class,encounter_type,give_way_vessel,expected_own_action,scenario_source,pass_criteria_max_dcpa_no_action_m,pass_criteria_min_dcpa_with_action_m,duration_s,n_targets,status,notes
+imazu-01-ho-v1.0,scenarios/imazu22/imazu-01-ho-v1.0.yaml,Rule14,Rule14_HeadOn,HAZ-023,A,FCB,HO,own,turn_starboard,imazu1987,926.0,926.0,700,1,frozen,Imazu (1987) benchmark case 01
+imazu-02-cr-gw-v1.0,scenarios/imazu22/imazu-02-cr-gw-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-024,A,FCB,CR_GW,own,turn_starboard,imazu1987,500.0,500.0,1000,1,frozen,Imazu (1987) benchmark case 02
+imazu-03-ot-v1.0,scenarios/imazu22/imazu-03-ot-v1.0.yaml,Rule13,Rule13_Overtaking,HAZ-025,A,FCB,OT,own,turn_starboard,imazu1987,500.0,500.0,1000,1,frozen,Imazu (1987) benchmark case 03
+imazu-04-cr-so-v1.0,scenarios/imazu22/imazu-04-cr-so-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-026,A,FCB,CR_SO,target,maintain,imazu1987,500.0,500.0,1000,1,frozen,Imazu (1987) benchmark case 04
+imazu-05-ms-v1.0,scenarios/imazu22/imazu-05-ms-v1.0.yaml,Rule14,Rule14_HeadOn,HAZ-027,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 05 (2 targets)
+imazu-06-ms-v1.0,scenarios/imazu22/imazu-06-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-028,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 06 (2 targets)
+imazu-07-ms-v1.0,scenarios/imazu22/imazu-07-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-029,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 07 (2 targets)
+imazu-08-ms-v1.0,scenarios/imazu22/imazu-08-ms-v1.0.yaml,Rule14,Rule14_HeadOn,HAZ-030,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 08 (2 targets E)
+imazu-09-ms-v1.0,scenarios/imazu22/imazu-09-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-031,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 09 (2 targets)
+imazu-10-ms-v1.0,scenarios/imazu22/imazu-10-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-032,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 10 (2 targets)
+imazu-11-ms-v1.0,scenarios/imazu22/imazu-11-ms-v1.0.yaml,Rule14,Rule14_HeadOn,HAZ-033,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,2,frozen,Imazu (1987) benchmark case 11 (2 targets E)
+imazu-12-ms-v1.0,scenarios/imazu22/imazu-12-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-034,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 12 (3 targets)
+imazu-13-ms-v1.0,scenarios/imazu22/imazu-13-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-035,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 13 (3 targets)
+imazu-14-ms-v1.0,scenarios/imazu22/imazu-14-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-036,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 14 (3 targets)
+imazu-15-ms-v1.0,scenarios/imazu22/imazu-15-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-037,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 15 (3 targets)
+imazu-16-ms-v1.0,scenarios/imazu22/imazu-16-ms-v1.0.yaml,Rule14,Rule14_HeadOn,HAZ-038,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 16 (3 targets symmetric)
+imazu-17-ms-v1.0,scenarios/imazu22/imazu-17-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-039,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 17 (3 targets)
+imazu-18-ms-v1.0,scenarios/imazu22/imazu-18-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-040,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 18 (3 targets)
+imazu-19-ms-v1.0,scenarios/imazu22/imazu-19-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-041,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 19 (3 targets)
+imazu-20-ms-v1.0,scenarios/imazu22/imazu-20-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-042,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 20 (3 targets)
+imazu-21-ms-v1.0,scenarios/imazu22/imazu-21-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-043,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 21 (3 targets)
+imazu-22-ms-v1.0,scenarios/imazu22/imazu-22-ms-v1.0.yaml,Rule15,Rule15_CrossingStarboard,HAZ-044,A,FCB,MS,own,turn_starboard,imazu1987,500.0,300.0,1000,3,frozen,Imazu (1987) benchmark case 22 (3 targets)
+self-authored-01-v1.0,scenarios/self-authored/rule14-odda-ho-s001-v1.0.yaml,Rule14,Rule14_HeadOn,[TBD-HAZID-D1.6-01],A,FCB,HO,own,turn_starboard,fcb_original,926.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-02-v1.0,scenarios/self-authored/rule15-odda-cs-s001-v1.0.yaml,Rule15,Rule15_CrossingStarboard,[TBD-HAZID-D1.6-02],A,FCB,CR_GW,own,turn_starboard,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-03-v1.0,scenarios/self-authored/rule13-odda-ot-s001-v1.0.yaml,Rule13,Rule13_Overtaking,[TBD-HAZID-D1.6-03],A,FCB,OT,own,turn_starboard,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-04-v1.0,scenarios/self-authored/rule15-odda-cs-s001-v1.0.yaml,Rule15,Rule15_CrossingStarboard,[TBD-HAZID-D1.6-04],A,FCB,CR_SO,target,maintain,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-05-v1.0,scenarios/self-authored/rule14-oddb-ho-s001-v1.0.yaml,Rule14,Rule14_HeadOn,[TBD-HAZID-D1.6-05],B,FCB,HO,own,turn_starboard,fcb_original,926.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-06-v1.0,scenarios/self-authored/rule15-oddb-cs-s001-v1.0.yaml,Rule15,Rule15_CrossingStarboard,[TBD-HAZID-D1.6-06],B,FCB,CR_GW,own,turn_starboard,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-07-v1.0,scenarios/self-authored/rule13-oddb-ot-s001-v1.0.yaml,Rule13,Rule13_Overtaking,[TBD-HAZID-D1.6-07],B,FCB,OT,own,turn_starboard,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-08-v1.0,scenarios/self-authored/rule15-oddb-cs-s001-v1.0.yaml,Rule15,Rule15_CrossingStarboard,[TBD-HAZID-D1.6-08],B,FCB,CR_SO,target,maintain,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-09-v1.0,scenarios/self-authored/rule14-oddc-ho-s001-v1.0.yaml,Rule14,Rule14_HeadOn,[TBD-HAZID-D1.6-09],C,FCB,HO,own,turn_starboard,fcb_original,926.0,500.0,600,1,planned,待 Phase 2 自编场景
+self-authored-10-v1.0,scenarios/self-authored/rule15-oddc-cs-s001-v1.0.yaml,Rule15,Rule15_CrossingStarboard,[TBD-HAZID-D1.6-10],C,FCB,CR_GW,own,turn_starboard,fcb_original,500.0,500.0,600,1,planned,待 Phase 2 自编场景

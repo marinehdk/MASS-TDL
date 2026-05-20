@@ -1,0 +1,23 @@
+{
+    "_version": "0.5",
+    "_environment": {
+        "CASEDIR": "../../scenarios/farn/1100-cell/lhs/cases",
+        "LOGDIR": "logs"
+    },
+    "_layers": {
+        "lhs_continuous": {
+            "_sampling": {
+                "_type": "uniformLhs",
+                "_case_name": ["lhs_{index:04d}"],
+                "_names": ["target_bearing_deg", "target_sog_kn", "wind_kn", "current_kn"],
+                "_ranges": [
+                    [0.0, 360.0],
+                    [5.0, 20.0],
+                    [0.0, 30.0],
+                    [0.0, 5.0]
+                ],
+                "_numberOfSamples": 500
+            }
+        }
+    }
+}

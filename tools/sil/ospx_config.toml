@@ -1,0 +1,24 @@
+# ospx OSP system structure configuration for FCB own-ship FMU
+
+[system]
+name = "FCB_OwnShip_MMG"
+description = "FCB 4-DOF MMG own-ship model for SIL simulation"
+
+[components.fmu]
+name = "FCB_MMG_4DOF"
+source = "src/sim_workbench/fcb_simulator/fmu/FCB_MMG_4DOF.fmu"
+step_size = 0.02
+parameters = { L_pp = 120.0, B = 20.0, d = 8.0, C_b = 0.75 }
+
+[components.controller]
+name = "NomotoAutopilot"
+source = "src/sim_workbench/fcb_simulator/fmu/NomotoAutopilot.fmu"
+
+[connections]
+[[connections.coupling]]
+source = "FCB_MMG_4DOF.state"
+target = "NomotoAutopilot.ship_state"
+
+[[connections.coupling]]
+source = "NomotoAutopilot.rudder_command"
+target = "FCB_MMG_4DOF.rudder_input"

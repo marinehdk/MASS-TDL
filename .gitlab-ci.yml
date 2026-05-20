@@ -621,7 +621,7 @@ stage-5-release:
   artifacts:
     paths:
       - "mass-l3-tdl-*.tar.gz"
-       - "sbom-*.json"
+      - "sbom-*.json"
     expire_in: never
 
 # ===============================================================
@@ -644,6 +644,27 @@ sil-smoke:
   only:
     - merge_requests
     - main
+
+# ===============================================================
+# Stage 6b: SIL Scenario Schema Validation — Smoke 10 (D1.6)
+# ===============================================================
+smoke-10-scenario-validation:
+  stage: sil-smoke
+  image: mass-l3/ci:humble-ubuntu22.04
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - pip install cerberus pyyaml 2>/dev/null || true
+    - bash tools/ci/run_smoke_10.sh
+  artifacts:
+    when: always
+    paths:
+      - smoke10_results.txt
+    expire_in: 7 days
+  timeout: 10 minutes
+  allow_failure: false
 
 # ===============================================================
 # Stage 7: SIL Imazu-22 Baseline (main only)

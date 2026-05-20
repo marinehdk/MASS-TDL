@@ -1,0 +1,22 @@
+{
+    "_version": "0.5",
+    "_environment": {
+        "CASEDIR": "../../scenarios/farn/1100-cell/fixed-grid/cases",
+        "LOGDIR": "logs"
+    },
+    "_layers": {
+        "fixed_grid": {
+            "_sampling": {
+                "_type": "fixed",
+                "_case_name": ["rule_{rule}_zone_{odd_zone}_dist_{disturbance_level}_seed_{seed}"],
+                "_names": ["rule", "odd_zone", "disturbance_level", "seed"],
+                "_values": [
+                    ["Rule14", "Rule15", "Rule13"],
+                    ["A", "B", "C"],
+                    [0, 1, 2, 3, 4],
+                    [1, 2, 3, 4, 5]
+                ]
+            }
+        }
+    }
+}
