@@ -1,19 +1,22 @@
 #!/bin/bash
-# CI gate: verify Imazu-22 scenario files match frozen SHA256 manifest
-# Uses Python hashlib for cross-platform compatibility (macOS + Linux)
+# CI gate: verify Imazu scenario files match MANIFEST.sha256
+# Uses Python's hashlib for cross-platform SHA256 (macOS + Linux compatible)
 # Exit 0 = all match; Exit 1 = mismatch found; Exit 2 = manifest missing
 #
-# Manifest: scenarios/.imazu22_sha256_manifest.yaml
-# Scenarios: scenarios/IMAZU标准测试/imazu-*.yaml
+# TODO(salvaged-from-d1.3b.1): Path scenarios/imazu22/ is obsolete — main hosts
+# Imazu YAMLs at scenarios/IMAZU标准测试/ under DNV schema v3.0. Regenerate
+# MANIFEST.sha256 against the current path before wiring into CI:
+#   (cd scenarios/IMAZU标准测试 && sha256sum *.yaml > MANIFEST.sha256)
+# Then point MANIFEST/SCENARIOS_DIR below to the new location.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-MANIFEST="${REPO_ROOT}/scenarios/.imazu22_sha256_manifest.yaml"
-SCENARIOS_DIR="${REPO_ROOT}/scenarios/IMAZU标准测试"
+MANIFEST="${REPO_ROOT}/scenarios/imazu22/MANIFEST.sha256"
+SCENARIOS_DIR="${REPO_ROOT}/scenarios/imazu22"
 
 if [[ ! -f "$MANIFEST" ]]; then
-  echo "FAIL: Manifest not found at $MANIFEST"
+  echo "FAIL: MANIFEST.sha256 not found at $MANIFEST"
   exit 2
 fi
 
@@ -21,7 +24,8 @@ fi
 _sha256() {
   python3 -c "
 import hashlib, sys
-with open(sys.argv[1], 'rb') as f:
+path = sys.argv[1]
+with open(path, 'rb') as f:
     print(hashlib.sha256(f.read()).hexdigest())
 " "$1"
 }
@@ -29,13 +33,19 @@ with open(sys.argv[1], 'rb') as f:
 fail=0
 file_count=0
 
-# Parse YAML manifest (collection.files map)
-while IFS=: read -r filename expected_hash; do
-  [[ -z "$filename" || -z "$expected_hash" ]] && continue
-  
-  # Trim whitespace
-  filename=$(echo "$filename" | xargs)
-  expected_hash=$(echo "$expected_hash" | xargs)
+while IFS= read -r line; do
+  # Skip COLLECTION_SHA256 line and empty lines
+  [[ "$line" == COLLECTION_SHA256:* ]] && continue
+  [[ -z "$line" ]] && continue
+
+  expected_hash="${line:0:64}"
+  filename="${line:66}"
+
+  if [[ -z "$filename" ]]; then
+    echo "FAIL: Malformed line in manifest: $line"
+    fail=1
+    continue
+  fi
 
   filepath="${SCENARIOS_DIR}/${filename}"
   if [[ ! -f "$filepath" ]]; then
@@ -53,14 +63,9 @@ while IFS=: read -r filename expected_hash; do
     fail=1
   fi
   ((file_count++)) || true
-done < <(python3 -c "
-import yaml
-m = yaml.safe_load(open('$MANIFEST', encoding='utf-8'))
-for fname, h in m.get('files', {}).items():
-    print(f'{fname}: {h}')
-")
+done < "$MANIFEST"
 
 if [[ $fail -eq 0 ]]; then
-  echo "OK: All ${file_count} Imazu scenario files match frozen manifest"
+  echo "OK: All ${file_count} Imazu scenario files match MANIFEST.sha256"
 fi
 exit $fail

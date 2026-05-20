@@ -65,10 +65,6 @@ class SilMockNode(rclpy.node.Node):
         sat3.tmr_s = 60.0
         msg.sat3 = sat3
 
-        # D1.1: SATData now requires confidence + rationale (v3.0 mandatory fields)
-        msg.confidence = 0.9
-        msg.rationale = "sil_mock_publisher stub SAT data for D1.3b scenario testing"
-
         return msg
 
     def _publish_nav(self) -> None:

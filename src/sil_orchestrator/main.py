@@ -178,20 +178,20 @@ async def lifecycle_deactivate():
 async def lifecycle_cleanup():
     """Reset to UNCONFIGURED so a new scenario can be configured.
 
-    Idempotent + tolerant of stale ACTIVE state: if a previous test session left
-    the FSM in ACTIVE (which the strict 4-state lifecycle would reject), this
-    transparently deactivates first. Always converges to UNCONFIGURED.
+    Idempotent + tolerant of stale ACTIVE state: uses the real ROS2 node state
+    (not the Python mirror which can be stale after a restart) to decide which
+    transitions to issue before cleanup.
     """
     global _demo_initial_state, _demo_start_wall
-    if bridge.current_state == LifecycleState.UNCONFIGURED:
+    detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
+    backend = detail.get("backend", "demo") if detail else "demo"
+    if backend != "ros2":
+        bridge._state = LifecycleState.UNCONFIGURED
+        bridge._scenario_id = None
         _demo_initial_state = None
         _demo_start_wall = None
         return {"success": True, "error": ""}
-    if bridge.current_state == LifecycleState.ACTIVE:
-        deact = await bridge.deactivate()
-        if not deact.success:
-            return {"success": False, "error": deact.error}
-    result = await bridge.cleanup()
+    result = await bridge._reset_to_unconfigured()
     _demo_initial_state = None
     _demo_start_wall = None
     return {"success": result.success, "error": result.error}

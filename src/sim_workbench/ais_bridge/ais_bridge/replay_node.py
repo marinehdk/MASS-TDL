@@ -9,12 +9,6 @@ from ais_bridge.dataset_loader import load_dma_nmea, load_noaa_csv
 from ais_bridge.nmea_decoder import AISRecord
 from ais_bridge.target_publisher import build_tracked_target_array
 
-# DEMO-1: dual-publish lead target to /sil/target_vessel_state
-try:
-    from sil_msgs.msg import TargetVesselState
-except ImportError:
-    TargetVesselState = None  # /sil/target_vessel_state publisher disabled
-
 
 class AISReplayNode(Node):
     """Publish TrackedTargetArray from pre-recorded AIS data."""
@@ -46,10 +40,6 @@ class AISReplayNode(Node):
         timer_period = 1.0 / (pub_hz * max(0.1, rate_x))
         from l3_external_msgs.msg import TrackedTargetArray
         self._pub = self.create_publisher(TrackedTargetArray, '/fusion/tracked_targets', 10)
-        self._pub_target = (
-            self.create_publisher(TargetVesselState, '/sil/target_vessel_state', 10)
-            if TargetVesselState is not None else None
-        )
         self._timer = self.create_timer(timer_period, self._publish_callback)
 
         self.get_logger().info(
@@ -80,21 +70,6 @@ class AISReplayNode(Node):
         stamp = self.get_clock().now().to_msg()
         msg = build_tracked_target_array(active, stamp, self)
         self._pub.publish(msg)
-
-        if self._pub_target is not None and active:
-            lead = active[0]
-            tgt = TargetVesselState()
-            tgt.stamp = stamp
-            tgt.mmsi = int(lead.mmsi)
-            tgt.lat = float(lead.lat)
-            tgt.lon = float(lead.lon)
-            tgt.heading = float(lead.heading_deg)
-            tgt.sog = float(lead.sog_kn * 0.514444)  # kn → m/s
-            tgt.cog = float(lead.cog_deg)
-            tgt.rot = 0.0
-            tgt.ship_type = int(lead.ship_type)
-            tgt.mode = 1  # REPLAY
-            self._pub_target.publish(tgt)
 
 
 def main(args=None):

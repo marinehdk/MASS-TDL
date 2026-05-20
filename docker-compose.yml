@@ -31,6 +31,7 @@ services:
       - SIL_RUN_DIR=/var/sil/runs
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - SIL_L3_ENABLE=1               # Set 0 to bypass L3 kernel (sim-only mode)
     network_mode: host
 
   foxglove-bridge:

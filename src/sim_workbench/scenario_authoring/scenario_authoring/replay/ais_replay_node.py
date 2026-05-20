@@ -85,11 +85,11 @@ class AisReplayNode:
                 from l3_external_msgs.msg import TrackedTargetArray
                 from l3_msgs.msg import EncounterClassification, TrackedTarget
                 msg = TrackedTargetArray()
-                msg.schema_version = 112
+                msg.schema_version = "v1.1.2"
                 msg.confidence = 0.7
                 msg.rationale = "ais_replay_node"
                 t = TrackedTarget()
-                t.schema_version = 112
+                t.schema_version = "v1.1.2"
                 t.target_id = 0
                 pos = GeoPoint()
                 pos.latitude = state["lat"]

@@ -42,6 +42,59 @@ for cls in node_classes:
     print(f'  Created {node.get_name()}')
 
 print('=== Nodes created. Waiting for orchestrator lifecycle commands. ===')
+
+# === L3 Kernel Bridge & Nodes (DEMO-1 integration) ===
+import os
+if os.environ.get('SIL_L3_ENABLE', '1') == '1':
+    print('=== Starting L3 Kernel Bridge & Nodes ===')
+    sys.stdout.flush()
+
+    # Start topic bridge in background process
+    import subprocess
+    bridge_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/sil_topic_bridge.py'],
+        stdout=sys.stdout, stderr=sys.stderr
+    )
+    print(f'  Bridge PID: {bridge_proc.pid}')
+
+    # Import and create L3 kernel nodes
+    try:
+        from m1_odd_envelope_manager.odd_envelope_manager_node import OddEnvelopeManagerNode
+        from m2_world_model.world_model_node import WorldModelNode
+        from m3_mission_manager.mission_manager_node import MissionManagerNode
+        from m4_behavior_arbiter.behavior_arbiter_node import BehaviorArbiterNode
+        from m6_colregs_reasoner.colregs_reasoner_node import ColregsReasonerNode
+        from m5_tactical_planner.mid_mpc.mid_mpc_node import MidMpcNode
+        from m8_hmi_transparency_bridge.hmi_transparency_bridge_node import HmiTransparencyBridgeNode
+        from m7_safety_supervisor.safety_supervisor_node import SafetySupervisorNode
+
+        l3_node_classes = [
+            (OddEnvelopeManagerNode, 'm1_odd_manager'),
+            (WorldModelNode, 'm2_world_model'),
+            (MissionManagerNode, 'm3_mission_manager'),
+            (BehaviorArbiterNode, 'm4_behavior_arbiter'),
+            (ColregsReasonerNode, 'm6_colregs_reasoner'),
+            (MidMpcNode, 'm5_tactical_planner'),
+            (HmiTransparencyBridgeNode, 'm8_hmi_bridge'),
+            (SafetySupervisorNode, 'm7_safety_supervisor'),
+        ]
+
+        for node_cls, name in l3_node_classes:
+            try:
+                node = node_cls()
+                executor.add_node(node)
+                nodes.append(node)
+                print(f'  Created L3 {node.get_name()}')
+            except Exception as exc:
+                print(f'  [WARN] Failed to create {name}: {exc}', file=sys.stderr)
+
+        print('=== L3 Kernel: nodes active ===')
+    except ImportError as exc:
+        print(f'  [WARN] L3 kernel import failed: {exc}', file=sys.stderr)
+        print('  [WARN] L3 nodes not started — sim-only mode', file=sys.stderr)
+else:
+    print('=== SIL_L3_ENABLE=0 — L3 kernel bypassed ===')
+
 sys.stdout.flush()
 
 # Resilient spin loop: lifecycle state-machine errors (e.g. ACTIVATE received

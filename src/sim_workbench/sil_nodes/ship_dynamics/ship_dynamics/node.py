@@ -1,10 +1,8 @@
-"""ShipDynamicsNode — 4-DOF MMG 船舶动力学 LifecycleNode @ 50Hz。
+"""ShipDynamicsNode — FCB 4-DOF MMG 模型 LifecycleNode @ 50Hz。
 
 发布: /sil/own_ship_state (sil_msgs/OwnShipState)
 订阅: /sil/actuator_cmd (sil_msgs/OwnShipState — rudder_angle + throttle)
       /sil/environment  (sil_msgs/EnvironmentState)
-
-船型通过 YAML vessel_class 字段动态加载 ShipMotionSimulator plugin。
 """
 
 import math
@@ -20,10 +18,8 @@ except ImportError:
     State = object
     TransitionCallbackReturn = object
 
-from .fcb_plugin import FCBPlugin
-from .ship_motion_simulator import ShipMotionSimulator
-from .mmg_model import ShipState
-import os
+from .mmg_coefficients import MMGCoefficients
+from .mmg_model import MMGModel, ShipState
 
 
 def _lat_offset(meters: float, lat_ref_rad: float) -> float:
@@ -46,21 +42,11 @@ def _lon_offset(meters: float, lat_rad: float) -> float:
 
 
 class ShipDynamicsNode(LifecycleNode):
-    """船舶动力学仿真节点 — rclpy LifecycleNode。
+    """FCB 4-DOF MMG 动力学节点 — rclpy LifecycleNode。
 
     Lifecycle:
       configure → activate → deactivate → cleanup → shutdown
-
-    船型通过 _PLUGIN_REGISTRY + YAML vessel_class 字段动态加载。
     """
-
-    # Vessel plugin registry — single mapping point for multi-vessel support.
-    # Add new vessel types by adding entries here only (YAML vessel_class driven).
-    _PLUGIN_REGISTRY: dict[str, type[ShipMotionSimulator]] = {
-        "FCB": FCBPlugin,
-        # "TUG": TugPlugin,      # RUN-002 (Phase 4)
-        # "FERRY": FerryPlugin,  # RUN-003 (Phase 4)
-    }
 
     def __init__(self, node_name: str = "ship_dynamics_node"):
         if LifecycleNode is not object:
@@ -69,7 +55,7 @@ class ShipDynamicsNode(LifecycleNode):
             self._node_name = node_name
 
         # 状态变量
-        self._plugin: ShipMotionSimulator | None = None
+        self._model: MMGModel | None = None
         self._state: ShipState = ShipState()
 
         # 命令缓存 (线程安全)
@@ -94,21 +80,17 @@ class ShipDynamicsNode(LifecycleNode):
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
-        """加载插件，创建物理模型和初始状态。"""
+        """加载 MMG 参数，创建物理模型和初始状态。"""
         try:
-            self._plugin = self._load_plugin()
-            # Get initial state from plugin's coefficients
-            try:
-                coeffs = self._plugin._coeffs
-                self._state = ShipState(
-                    x=coeffs.x0, y=coeffs.y0, psi=coeffs.psi0, phi=0.0,
-                    u=coeffs.u0, v=0.0, r=0.0, p=0.0,
-                )
-                self._origin_lat_rad = math.radians(coeffs.origin_lat)
-                self._origin_lon_rad = math.radians(coeffs.origin_lon)
-                self._n_rps_cmd = coeffs.u0 / (coeffs.D_P * 3.0)  # 巡航转速估算
-            except Exception:
-                self._state = ShipState(u=9.26, psi=1.5708)
+            coeffs = self._load_coefficients()
+            self._model = MMGModel(coeffs)
+            self._state = ShipState(
+                x=coeffs.x0, y=coeffs.y0, psi=coeffs.psi0, phi=0.0,
+                u=coeffs.u0, v=0.0, r=0.0, p=0.0,
+            )
+            self._origin_lat_rad = math.radians(coeffs.origin_lat)
+            self._origin_lon_rad = math.radians(coeffs.origin_lon)
+            self._n_rps_cmd = coeffs.u0 / (coeffs.D_P * 3.0)  # 巡航转速估算
         except Exception as exc:
             if hasattr(self, "get_logger"):
                 self.get_logger().error(f"on_configure 失败: {exc}")
@@ -120,7 +102,7 @@ class ShipDynamicsNode(LifecycleNode):
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """激活发布器、订阅器和 50Hz 定时器。"""
-        if self._plugin is None:
+        if self._model is None:
             if hasattr(self, "get_logger"):
                 self.get_logger().error("on_activate: 模型未配置，请先调用 configure")
             return TransitionCallbackReturn.FAILURE
@@ -181,43 +163,11 @@ class ShipDynamicsNode(LifecycleNode):
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         """重置模型状态。"""
-        self._plugin = None
+        self._model = None
         self._state = ShipState()
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已清理")
         return TransitionCallbackReturn.SUCCESS
-
-    def _load_plugin(self) -> ShipMotionSimulator:
-        """Load ShipMotionSimulator plugin based on YAML vessel_class parameter.
-
-        Plugin registry maps vessel_class string to plugin class.
-        Add new vessel types by adding entries to _PLUGIN_REGISTRY only.
-        Multi_vessel_lint compliant: vessel_class value comes from YAML, not hardcoded.
-        """
-        # Read vessel_class from ROS parameter (defaults to "FCB")
-        try:
-            vessel_class = self.get_parameter("vessel_class").get_parameter_value().string_value
-        except Exception:
-            vessel_class = "FCB"
-
-        plugin_cls = self._PLUGIN_REGISTRY.get(vessel_class)
-        if plugin_cls is None:
-            raise ValueError(
-                f"Unknown vessel_class '{vessel_class}'. "
-                f"Available: {list(self._PLUGIN_REGISTRY.keys())}"
-            )
-
-        plugin = plugin_cls()
-
-        # Locate YAML config file
-        config_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "config"
-        )
-        yaml_path = os.path.join(config_dir, "fcb_dynamics.yaml")
-
-        plugin.load_params(yaml_path)
-        self.get_logger().info(f"Loaded plugin '{vessel_class}' ({plugin.vessel_class()})")
-        return plugin
 
     # ─── 回调 ─────────────────────────────────────────────────
 
@@ -236,8 +186,8 @@ class ShipDynamicsNode(LifecycleNode):
             self._current_dir = math.radians(getattr(msg, "current_direction", 0.0))
 
     def _step_callback(self):
-        """50Hz 推进步 — plugin step + 发布 OwnShipState。"""
-        if self._plugin is None:
+        """50Hz 推进步 — RK4 积分 + 发布 OwnShipState。"""
+        if self._model is None:
             return
 
         with self._cmd_lock:
@@ -248,9 +198,8 @@ class ShipDynamicsNode(LifecycleNode):
             cs = self._current_speed
             cd = self._current_dir
 
-        dt_s = self._plugin.export_fmu_interface().default_step_size
-        self._state = self._plugin.step(
-            self._state, dc, nr, dt_s, ws, wd, cs, cd,
+        self._state = self._model.rk4_step(
+            self._state, dc, nr, ws, wd, cs, cd,
         )
 
         lat = self._origin_lat_rad + math.radians(
@@ -277,6 +226,42 @@ class ShipDynamicsNode(LifecycleNode):
         self._state_pub.publish(msg)
 
     # ─── 辅助方法 ─────────────────────────────────────────────
+
+    def _load_coefficients(self) -> MMGCoefficients:
+        """从 ROS 参数服务器加载 MMG 系数 (fallback: 默认值)。"""
+        coeffs = MMGCoefficients()
+        param_map = {
+            "L": "L", "d": "d", "B": "B",
+            "displacement_t": "displacement_t", "x_G": "x_G",
+            "m_x_prime": "m_x_prime", "m_y_prime": "m_y_prime",
+            "J_zz_prime": "J_zz_prime",
+            "X_vv": "X_vv", "X_vr": "X_vr", "X_rr": "X_rr", "X_vvvv": "X_vvvv",
+            "Y_v": "Y_v", "Y_r": "Y_r",
+            "Y_vvv": "Y_vvv", "Y_vvr": "Y_vvr", "Y_vrr": "Y_vrr", "Y_rrr": "Y_rrr",
+            "N_v": "N_v", "N_r": "N_r",
+            "N_vvv": "N_vvv", "N_vvr": "N_vvr", "N_vrr": "N_vrr", "N_rrr": "N_rrr",
+            "G_M": "G_M", "T_phi": "T_phi",
+            "t_P": "t_P", "w_P": "w_P", "D_P": "D_P",
+            "k_0": "k_0", "k_1": "k_1", "k_2": "k_2",
+            "t_R": "t_R", "a_H": "a_H",
+            "x_H_prime": "x_H_prime", "x_R_prime": "x_R_prime",
+            "gamma_R": "gamma_R", "l_R_prime": "l_R_prime",
+            "kappa": "kappa", "epsilon": "epsilon",
+            "A_R": "A_R", "f_alpha": "f_alpha",
+            "dt": "dt",
+            "x0": "x0", "y0": "y0", "psi0": "psi0", "u0": "u0",
+            "origin_lat": "origin_lat", "origin_lon": "origin_lon",
+        }
+        for py_attr, ros_param in param_map.items():
+            try:
+                if hasattr(self, "get_parameter") and not hasattr(self, "declare_parameter"):
+                    pass  # avoid declare_parameter on non-LifecycleNode
+                elif hasattr(self, "get_parameter"):
+                    declared = self.declare_parameter(ros_param, getattr(coeffs, py_attr))
+                    setattr(coeffs, py_attr, declared.value)
+            except Exception:
+                pass
+        return coeffs
 
     def _get_own_ship_state_msg(self):
         """延迟导入 OwnShipState 消息类型。"""

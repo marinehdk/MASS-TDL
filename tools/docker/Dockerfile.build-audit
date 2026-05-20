@@ -1,0 +1,18 @@
+FROM ros:jazzy-ros-base
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    libeigen3-dev \
+    libgeographiclib-dev \
+    libboost-dev \
+    libyaml-cpp-dev \
+    libspdlog-dev \
+    nlohmann-json3-dev \
+    libfmt-dev \
+    python3-colcon-common-extensions \
+    ros-jazzy-geographic-msgs \
+    ros-jazzy-rosidl-default-generators \
+    ros-jazzy-builtin-interfaces \
+    ros-jazzy-std-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
