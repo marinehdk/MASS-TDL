@@ -8,10 +8,13 @@ with a single orchestrator call.
 
 import asyncio
 import json
+import logging
 import math
+import os
 import shutil
-import yaml
+
 import rclpy
+import yaml
 from pathlib import Path
 from rclpy.node import Node
 from lifecycle_msgs.srv import ChangeState, GetState
@@ -36,9 +39,12 @@ _SIL_LIFECYCLE_NODES = [
 ]
 
 # Scenario YAML root directories, keyed by a short label.
-_SCENARIO_DIRS: dict[str, Path] = {
-    "imazu22": Path("scenarios/IMAZU标准测试"),
-    "colregs": Path("scenarios/COLREGs测试"),
+# Docker: scenarios are mounted at /var/sil/scenarios/ (per docker-compose.yml)
+# Local: scenarios are at ./scenarios/ relative to repo root
+_SCENARIO_BASE = Path(os.environ.get("SIL_SCENARIO_DIR", "/var/sil/scenarios" if Path("/var/sil/scenarios").exists() else "scenarios"))
+_SCENARIO_DIRS = {
+    "imazu22": _SCENARIO_BASE / "IMAZU标准测试",
+    "colregs": _SCENARIO_BASE / "COLREGs测试",
 }
 
 
@@ -115,6 +121,41 @@ def _inject_scenario_params(yaml_path: Path) -> dict[str, dict[str, object]]:
         "target_vessel_node": target_vessel_params,
         "env_disturbance_node": env_disturbance_params,
     }
+
+
+def _set_ros_params_on_node(bridge: Node, target_node_name: str, params: dict[str, object]) -> None:
+    """Set ROS2 parameters on a target lifecycle node via SetParameters service.
+    
+    Best-effort: logs warning but does not raise on timeout or rejection.
+    """
+    from rcl_interfaces.srv import SetParameters
+    
+    service_name = f"/{target_node_name}/set_parameters"
+    client = bridge.create_client(SetParameters, service_name)
+    
+    if not client.wait_for_service(timeout_sec=1.0):
+        _log.warning("Param service %s not available — params for %s not set",
+                     service_name, target_node_name)
+        return
+    
+    req = SetParameters.Request()
+    for name, value in params.items():
+        param = rclpy.parameter.Parameter(name, value=value)
+        req.parameters.append(param.to_parameter_msg())
+    
+    try:
+        future = client.call_async(req)
+        rclpy.spin_until_future_complete(bridge, future, timeout_sec=2.0)
+        if future.done() and future.result() is not None:
+            for result in future.result().results:
+                if not result.successful:
+                    _log.warning("Param set rejected on %s: %s",
+                                 target_node_name, result.reason)
+            _log.info("Set %d params on %s", len(params), target_node_name)
+        else:
+            _log.warning("Param set on %s timed out", target_node_name)
+    except Exception as exc:
+        _log.warning("Param set on %s failed: %s", target_node_name, exc)
 
 
 class LifecycleState(str, Enum):
@@ -286,11 +327,9 @@ class LifecycleBridge(Node):
         if yaml_path is not None:
             try:
                 node_params = _inject_scenario_params(yaml_path)
+                _log.info("Injecting scenario params from %s", yaml_path.name)
                 for node_name, params in node_params.items():
-                    for k, v in params.items():
-                        self.declare_parameter(f"{node_name}.{k}", value=v)
-                    _log.info("Set %d params for %s from scenario %s",
-                              len(params), node_name, scenario_id)
+                    _set_ros_params_on_node(self, node_name, params)
             except Exception as exc:
                 _log.error("Failed to inject params from %s: %s", yaml_path, exc)
         else:
