@@ -34,7 +34,7 @@ class FCBPlugin(ShipMotionSimulator):
 
     def load_params(self, yaml_path: str) -> None:
         """读取 YAML，构造 MMGCoefficients → MMGModel。"""
-        with open(yaml_path, "r") as f:
+        with open(yaml_path) as f:
             raw = yaml.safe_load(f)
 
         # 导航到 ros__parameters 子字典
