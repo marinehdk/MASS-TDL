@@ -7,7 +7,10 @@ with a single orchestrator call.
 """
 
 import asyncio
+import json
+import math
 import shutil
+import yaml
 import rclpy
 from pathlib import Path
 from rclpy.node import Node
@@ -31,6 +34,87 @@ _SIL_LIFECYCLE_NODES = [
     "scoring_node",
     "scenario_authoring_node",
 ]
+
+# Scenario YAML root directories, keyed by a short label.
+_SCENARIO_DIRS: dict[str, Path] = {
+    "imazu22": Path("scenarios/IMAZU标准测试"),
+    "colregs": Path("scenarios/COLREGs测试"),
+}
+
+
+def _resolve_scenario_yaml(scenario_id: str) -> Path | None:
+    """Search _SCENARIO_DIRS for {scenario_id}.yaml; return first match or None."""
+    for label, d in _SCENARIO_DIRS.items():
+        candidate = d / f"{scenario_id}.yaml"
+        if candidate.exists():
+            _log.info("Resolved scenario %s → %s (%s)", scenario_id, candidate, label)
+            return candidate.resolve()
+    _log.warning("Scenario YAML not found for id=%s (searched %d dirs)",
+                 scenario_id, len(_SCENARIO_DIRS))
+    return None
+
+
+def _inject_scenario_params(yaml_path: Path) -> dict[str, dict[str, object]]:
+    """Parse a scenario YAML and return per-node param dicts.
+
+    Returns
+    -------
+    dict[str, dict[str, object]]
+        Keys are ROS2 node names; values are ``{param_name: value}`` dicts.
+        Always includes ``"ship_dynamics_node"``, ``"target_vessel_node"``,
+        and ``"env_disturbance_node"``.
+    """
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    own = data["ownShip"]
+    pos = own["initial"]["position"]
+    heading_deg = own["initial"]["heading"]
+    sog_kn = own["initial"]["sog"]
+
+    psi0 = math.pi / 2.0 - math.radians(heading_deg)
+    u0 = sog_kn * 0.514444
+
+    ship_dynamics_params: dict[str, object] = {
+        "origin_lat": pos["latitude"],
+        "origin_lon": pos["longitude"],
+        "psi0": psi0,
+        "u0": u0,
+        "x0": 0.0,
+        "y0": 0.0,
+    }
+
+    # Build target vessel JSON from targetShips[]
+    targets = []
+    for ts in data.get("targetShips", []):
+        tp = ts["initial"]["position"]
+        th = ts["initial"]["heading"]
+        tk = ts["initial"]["sog"]
+        targets.append({
+            "mmsi": ts.get("static", {}).get("mmsi", 0),
+            "latitude": tp["latitude"],
+            "longitude": tp["longitude"],
+            "heading_deg": th,
+            "sog_kn": tk,
+        })
+    target_vessel_params: dict[str, object] = {
+        "default_targets_json": json.dumps(targets),
+    }
+
+    # Environment parameters
+    env = data.get("environment", {})
+    env_disturbance_params: dict[str, object] = {
+        "wind_dir_deg": env.get("wind", {}).get("dir_deg", 0.0),
+        "wind_speed_mps": env.get("wind", {}).get("speed_mps", 0.0),
+        "current_dir_deg": env.get("current", {}).get("dir_deg", 0.0),
+        "current_speed_mps": env.get("current", {}).get("speed_mps", 0.0),
+    }
+
+    return {
+        "ship_dynamics_node": ship_dynamics_params,
+        "target_vessel_node": target_vessel_params,
+        "env_disturbance_node": env_disturbance_params,
+    }
 
 
 class LifecycleState(str, Enum):
@@ -194,6 +278,24 @@ class LifecycleBridge(Node):
         reset = await self._reset_to_unconfigured()
         if not reset.success:
             return reset
+
+        # Resolve scenario YAML and inject per-node parameters before any
+        # lifecycle transition so target nodes see correct initial conditions
+        # during their on_configure() callback (GAP 3 fix).
+        yaml_path = _resolve_scenario_yaml(scenario_id)
+        if yaml_path is not None:
+            try:
+                node_params = _inject_scenario_params(yaml_path)
+                for node_name, params in node_params.items():
+                    for k, v in params.items():
+                        self.declare_parameter(f"{node_name}.{k}", value=v)
+                    _log.info("Set %d params for %s from scenario %s",
+                              len(params), node_name, scenario_id)
+            except Exception as exc:
+                _log.error("Failed to inject params from %s: %s", yaml_path, exc)
+        else:
+            _log.warning("Proceeding without YAML params for scenario=%s", scenario_id)
+
         res = await self._change_state(Transition.TRANSITION_CONFIGURE)
         if res.success:
             self._scenario_id = scenario_id
