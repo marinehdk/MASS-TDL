@@ -263,6 +263,62 @@ class LifecycleBridge(Node):
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _broadcast_and_wait(self, transition_id: int, target_state: str, timeout_s: float = 15.0) -> LifecycleResult:
+        """Broadcast transition to all SIL nodes and wait for every node to reach target_state.
+
+        Unlike the old fire-and-forget asyncio.create_task() pattern, this blocks
+        until all nodes confirm they've transitioned (or timeout). This prevents
+        the race where configure() returns before ship_dynamics publishes.
+        """
+        _log.info("[broadcast] Sending transition %d to %d SIL nodes, waiting for '%s' (timeout=%.0fs)",
+                  transition_id, len(self._sil_change_state_clients), target_state, timeout_s)
+
+        # 1. Send transitions in parallel (fire)
+        tasks = [
+            self._broadcast_to_node(node_name, client, transition_id)
+            for node_name, client in self._sil_change_state_clients.items()
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 2. Wait for all nodes to report target_state (poll)
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        failed_nodes: list[str] = []
+
+        for node_name, client in self._sil_change_state_clients.items():
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    if not client.wait_for_service(timeout_sec=0.5):
+                        await asyncio.sleep(0.5)
+                        continue
+                    req = GetState.Request()
+                    future = client.call_async(req)
+                    # Resolve the future with a short deadline
+                    state_deadline = 10  # 10 × 0.1s = 1s per attempt
+                    while not future.done() and state_deadline > 0:
+                        await asyncio.sleep(0.1)
+                        state_deadline -= 1
+                    if not future.done():
+                        continue
+                    current = future.result().current_state.label
+                    if current == target_state:
+                        _log.info("[broadcast] %s → %s ✓", node_name, target_state)
+                        break  # this node done
+                except Exception:
+                    await asyncio.sleep(0.5)
+            else:
+                # Timeout for this node
+                failed_nodes.append(node_name)
+                _log.error("[broadcast] %s did NOT reach '%s' within %.0fs", node_name, target_state, timeout_s)
+
+        if failed_nodes:
+            # Fail-loud: dump diagnostic info
+            _log.error("[broadcast] %d/%d nodes failed: %s",
+                       len(failed_nodes), len(self._sil_change_state_clients), ", ".join(failed_nodes))
+            return LifecycleResult(
+                success=False,
+                error=f"Broadcast timeout: {len(failed_nodes)} nodes stuck before '{target_state}': {', '.join(failed_nodes)}")
+        return LifecycleResult(success=True)
+
     async def configure(self, scenario_id: str) -> LifecycleResult:
         # Step 1-3: Load scenario YAML, extract params, log summary
         yaml_data = _load_scenario_yaml(scenario_id)
@@ -288,7 +344,13 @@ class LifecycleBridge(Node):
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
-            asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
+            # Explicit sync: wait for all SIL nodes to reach 'inactive' before returning.
+            # This replaces the old asyncio.create_task() fire-and-forget pattern (line 291)
+            # which allowed configure() to return before ship_dynamics was ready.
+            broadcast_result = await self._broadcast_and_wait(
+                Transition.TRANSITION_CONFIGURE, "inactive", timeout_s=15.0)
+            if not broadcast_result.success:
+                return broadcast_result
         return res
 
     async def activate(self) -> LifecycleResult:
