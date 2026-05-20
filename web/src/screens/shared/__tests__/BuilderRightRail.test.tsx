@@ -10,6 +10,8 @@ const defaultProps = {
   onRun: noop,
   onSave: noop,
   isBaseline: false,
+  activeTab: null as string | null,
+  onActiveTabChange: noop as (tab: string | null) => void,
 };
 
 describe('BuilderRightRail', () => {
@@ -28,16 +30,16 @@ describe('BuilderRightRail', () => {
   });
 
   it('activates tab on click', () => {
-    render(<BuilderRightRail {...defaultProps} />);
+    const onTabChange = vi.fn();
+    render(<BuilderRightRail {...defaultProps} activeTab={null} onActiveTabChange={onTabChange} />);
     fireEvent.click(screen.getByTitle('船舶与任务'));
-    expect(screen.getByText('船舶与任务')).toBeTruthy();
+    expect(onTabChange).toHaveBeenCalledWith('vessels');
   });
 
   it('deactivates tab on second click', () => {
-    render(<BuilderRightRail {...defaultProps} />);
-    const tab = screen.getByTitle('船舶与任务');
-    fireEvent.click(tab);
-    fireEvent.click(tab);
-    expect(screen.queryByText('本船配置')).toBeNull();
+    const onTabChange = vi.fn();
+    render(<BuilderRightRail {...defaultProps} activeTab="vessels" onActiveTabChange={onTabChange} />);
+    fireEvent.click(screen.getByTitle('船舶与任务'));
+    expect(onTabChange).toHaveBeenCalledWith(null);
   });
 });

@@ -67,7 +67,7 @@ Where m11 = mass·(1+m_x'), m22 = mass·(1+m_y'), m33 = I_zz, m44 = I_xx.
 | d (Draft) | 2.8 m | MMGCoefficients / YAML |
 | Displacement | 450 t | MMGCoefficients / YAML |
 | D_P (Propeller diameter) | 1.5 m | MMGCoefficients / YAML |
-| A_R (Rudder area) | 1.65 m² | MMGCoefficients / YAML |
+| A_R (Rudder area) | 2.5 m² | MMGCoefficients / YAML |
 | G_M (Metacentric height) | 1.02 m | MMGCoefficients / YAML |
 | m_x' (Added mass, surge) | 0.00831 | MMGCoefficients / YAML |
 | m_y' (Added mass, sway) | 0.1284 | MMGCoefficients / YAML |
@@ -137,7 +137,7 @@ Where m11 = mass·(1+m_x'), m22 = mass·(1+m_y'), m33 = I_zz, m44 = I_xx.
 **Conditions:**
 - Initial speed: u₀ = 9.26 m/s (18 kn)
 - Rudder: execute 10°/10° zigzag (first rudder execute at heading = 10°, then reverse at heading = 0°)
-- Duration: 300 s (6 rudder switches complete at ~73 s; simulation stops early)
+- Duration: 90 s
 
 **Measured Overshoot Sequence:**
 
@@ -171,7 +171,7 @@ Where m11 = mass·(1+m_x'), m22 = mass·(1+m_y'), m33 = I_zz, m44 = I_xx.
 | Simulated time per run | 3600 s (1 hour) |
 | Integration steps per run | 180,000 |
 | dt | 0.02 s |
-| Control input | δ = 0°, n_rps = 5 rev/s (constant cruise) |
+| Control input | δ = 0°, n_rps = 10 rev/s (constant cruise) |
 | Seed | None (deterministic computation) |
 
 ### 4.2 Results
@@ -273,7 +273,7 @@ Three diagnostic PNGs were generated from the reference solution test runs and a
 
 ![Zigzag 10°/10°](evidence/zigzag_10_10.png)
 
-*Figure 3: Zigzag 10°/10° maneuver (300 s sim time, 6 rudder switches in ~73 s). First overshoot = 10.01°.*
+*Figure 3: Zigzag 10°/10° maneuver over 90 s. Six rudder executions recorded. First overshoot = 10.01°. Heading (deg, blue) vs time; rudder command (deg, orange dashed). Scale: 0–700 m × –40–60 m.*
 
 ---
 

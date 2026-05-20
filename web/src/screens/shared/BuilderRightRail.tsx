@@ -507,10 +507,11 @@ export interface BuilderRightRailProps {
   onReset?: () => void;
   isBaseline?: boolean;
   scenarioHash?: string;
+  activeTab: TabId | null;
+  onActiveTabChange: (tab: TabId | null) => void;
 }
 
-export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, onRun, onSave, onReset, isBaseline, scenarioHash }: BuilderRightRailProps) {
-  const [activeTab, setActiveTab] = useState<TabId | null>(null);
+export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, onRun, onSave, onReset, isBaseline, scenarioHash, activeTab, onActiveTabChange }: BuilderRightRailProps) {
   const validation = useSchemaValidation(yamlEditor);
 
   // Sync validation status to the global scenario store
@@ -528,10 +529,6 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
       return {};
     }
   }, [yamlEditor]);
-
-  const handleTabClick = (id: TabId) => {
-    setActiveTab(prev => prev === id ? null : id);
-  };
 
   return (
     <>
@@ -685,7 +682,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
           <button 
             key={tab.id} 
             title={tab.label} // Fallback for instant tooltip
-            onClick={() => handleTabClick(tab.id)} 
+            onClick={() => onActiveTabChange(activeTab === tab.id ? null : tab.id)} 
             style={{
               width: 48, height: 48, borderRadius: 8, border: 'none', cursor: 'pointer',
               background: activeTab === tab.id ? 'rgba(91,192,190,0.15)' : 'transparent',
@@ -720,7 +717,7 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
         ))}
 
         {activeTab && (
-          <button title="Collapse panel" onClick={() => setActiveTab(null)} style={{
+          <button title="Collapse panel" onClick={() => onActiveTabChange(null)} style={{
             marginTop: 12, marginBottom: 10, width: 48, height: 32, borderRadius: 4,
             border: '1px solid var(--line-2)', background: 'transparent',
             color: 'var(--txt-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'

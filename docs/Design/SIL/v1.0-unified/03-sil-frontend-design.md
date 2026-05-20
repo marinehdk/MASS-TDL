@@ -475,7 +475,7 @@ sequenceDiagram
 
    | ODD 选项 | YAML 路径 | 值类型 | 示例 |
    |---|---|---|---|
-   | 航区域 | `metadata.odd_cell.domain` | string enum | `open_sea` / `coastal` / `fairway` / `port_entry` / `ofw` |
+   | 航区域 | `metadata.odd_cell.domain` | string enum | `open_sea` / `coastal` / `fairway` / `port_entry` / `ofw` / `open_sea_offshore_wind_farm` |
    | 海况 | `metadata.odd_cell.sea_state_beaufort` | number | `5` |
    | 能见度 | `metadata.odd_cell.visibility_nm` | number | `2.0` |
 

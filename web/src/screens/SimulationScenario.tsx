@@ -99,7 +99,8 @@ export function SimulationScenario() {
   const [yamlEditor, setYamlEditor] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('odd');
+  const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('library');
+  const [activeRightTab, setActiveRightTab] = useState<string | null>(null);
 
   // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.
   const [placementMode, setPlacementMode] = useState<string>('none');
@@ -806,11 +807,14 @@ const handleUpdateYaml = useCallback((updates: any) => {
                     上一步
                   </button>
                   <button 
-                    onClick={() => setActiveLeftTab(null)} 
+                    onClick={() => {
+                      setActiveLeftTab(null);
+                      setActiveRightTab('vessels');
+                    }} 
                     style={{ ...btnStyle('phos'), flex: 1, maxWidth: '180px' }} 
                     disabled={!selectedId}
                   >
-                    {selectedId ? '确认并锁定场景' : '请在上方选择场景'}
+                    {selectedId ? '确认场景' : '请在上方选择场景'}
                   </button>
                 </div>
               )}
@@ -935,6 +939,8 @@ const handleUpdateYaml = useCallback((updates: any) => {
         onReset={handleReset}
         isBaseline={selectedId ? scenarios.find((s: any) => s.id === selectedId)?.is_baseline : false}
         scenarioHash={scenarioDetail?.hash}
+        activeTab={activeRightTab}
+        onActiveTabChange={setActiveRightTab}
       />
     </div>
   );

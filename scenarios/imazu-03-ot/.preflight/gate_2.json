@@ -1,0 +1,58 @@
+{
+  "gate_id": 2,
+  "gate_name": "Module Health (M1-M8)",
+  "timestamp_utc": "2026-05-19T09:59:46.544577Z",
+  "scenario_id": "imazu-03-ot",
+  "passed": true,
+  "checks": [
+    {
+      "item": "M1:",
+      "status": "warn",
+      "detail": "M1: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M2:",
+      "status": "warn",
+      "detail": "M2: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M3:",
+      "status": "warn",
+      "detail": "M3: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M4:",
+      "status": "warn",
+      "detail": "M4: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M5:",
+      "status": "warn",
+      "detail": "M5: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M6:",
+      "status": "warn",
+      "detail": "M6: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M7:",
+      "status": "warn",
+      "detail": "M7: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M8:",
+      "status": "warn",
+      "detail": "M8: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+    },
+    {
+      "item": "M7",
+      "status": "ok",
+      "detail": "M7 isolation: M7 process not running (no containerized deployment)"
+    }
+  ],
+  "duration_ms": 159.7,
+  "rationale": "Phase 1: 8/8 modules UNSPECIFIED (L3 kernel not deployed), 0/8 GREEN \u2014 gate PASS (no RED)",
+  "sil2_clause": "IEC 61508-3 \u00a77.4 Software module testing \u2014 component liveness",
+  "hazid_scenario_ref": null
+}

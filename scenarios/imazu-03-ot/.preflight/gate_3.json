@@ -1,0 +1,28 @@
+{
+  "gate_id": 3,
+  "gate_name": "Scenario Integrity",
+  "timestamp_utc": "2026-05-19T09:59:46.550917Z",
+  "scenario_id": "imazu-03-ot",
+  "passed": true,
+  "checks": [
+    {
+      "item": "SHA256",
+      "status": "ok",
+      "detail": "SHA256 hash match: 753d4766ad7a0bf2..."
+    },
+    {
+      "item": "YAML",
+      "status": "ok",
+      "detail": "YAML parseable"
+    },
+    {
+      "item": "expected_outcome",
+      "status": "ok",
+      "detail": "expected_outcome block present"
+    }
+  ],
+  "duration_ms": 5.5,
+  "rationale": "hash match + YAML ok + expected_outcome present",
+  "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
+  "hazid_scenario_ref": null
+}
