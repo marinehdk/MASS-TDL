@@ -18,6 +18,12 @@ except ImportError:
     State = object
     TransitionCallbackReturn = object
 
+# ── Sentinel values for fail-loud parameter validation ─────────
+_SENTINEL_LAT = -999.0       # 纬度非法 sentinel
+_SENTINEL_LON = -999.0       # 经度非法 sentinel
+_SENTINEL_U0  = -1.0         # 初速非法 sentinel (m/s)
+_SENTINEL_DT  = -1.0         # 步长非法 sentinel (s)
+
 from .mmg_coefficients import MMGCoefficients
 from .mmg_model import MMGModel, ShipState
 
@@ -80,9 +86,31 @@ class ShipDynamicsNode(LifecycleNode):
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
-        """加载 MMG 参数，创建物理模型和初始状态。"""
+        """加载 MMG 参数，创建物理模型和初始状态。
+
+        校验关键初始参数非 sentinel 值（sentinel 表示 ScenarioAuthoringNode
+        未正确注入场景参数）。
+        """
         try:
             coeffs = self._load_coefficients()
+            # ── sentinel 校验 ──
+            errors = []
+            if coeffs.origin_lat == _SENTINEL_LAT or not (-90.0 <= coeffs.origin_lat <= 90.0):
+                errors.append(f"origin_lat={coeffs.origin_lat} (sentinel or out of range [-90,90])")
+            if coeffs.origin_lon == _SENTINEL_LON or not (-180.0 <= coeffs.origin_lon <= 180.0):
+                errors.append(f"origin_lon={coeffs.origin_lon} (sentinel or out of range [-180,180])")
+            if coeffs.u0 <= 0.0:
+                errors.append(f"u0={coeffs.u0} (must be > 0, sentinel or not set)")
+            if coeffs.dt <= 0.0:
+                errors.append(f"dt={coeffs.dt} (must be > 0, sentinel or not set)")
+            if coeffs.psi0 < -6.28319 or coeffs.psi0 > 6.28319:
+                errors.append(f"psi0={coeffs.psi0} (out of range [-2π, 2π], possible sentinel)")
+
+            if errors:
+                for err in errors:
+                    self.get_logger().fatal(f"Required parameter missing/invalid: {err}")
+                return TransitionCallbackReturn.FAILURE
+
             self._model = MMGModel(coeffs)
             self._state = ShipState(
                 x=coeffs.x0, y=coeffs.y0, psi=coeffs.psi0, phi=0.0,
@@ -90,14 +118,20 @@ class ShipDynamicsNode(LifecycleNode):
             )
             self._origin_lat_rad = math.radians(coeffs.origin_lat)
             self._origin_lon_rad = math.radians(coeffs.origin_lon)
-            self._n_rps_cmd = coeffs.u0 / (coeffs.D_P * 3.0)  # 巡航转速估算
+            self._n_rps_cmd = coeffs.u0 / (coeffs.D_P * 3.0)
         except Exception as exc:
             if hasattr(self, "get_logger"):
-                self.get_logger().error(f"on_configure 失败: {exc}")
+                self.get_logger().fatal(f"on_configure 失败: {exc}")
             return TransitionCallbackReturn.FAILURE
 
-        if hasattr(self, "get_logger"):
-            self.get_logger().info("MMG 模型已加载")
+        # ── 加载值 echo (debug-friendly) ──
+        self.get_logger().info(
+            f"ship_dynamics initial: "
+            f"origin=({coeffs.origin_lat:.4f},{coeffs.origin_lon:.4f}) "
+            f"u0={coeffs.u0:.2f}m/s psi0={coeffs.psi0:.4f}rad "
+            f"x0={coeffs.x0:.1f}m y0={coeffs.y0:.1f}m "
+            f"dt={coeffs.dt:.3f}s"
+        )
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
@@ -228,8 +262,30 @@ class ShipDynamicsNode(LifecycleNode):
     # ─── 辅助方法 ─────────────────────────────────────────────
 
     def _load_coefficients(self) -> MMGCoefficients:
-        """从 ROS 参数服务器加载 MMG 系数 (fallback: 默认值)。"""
+        """从 ROS 参数服务器加载 MMG 系数。
+
+        关键初始参数使用非法 sentinel 默认值；场景注入（ScenarioAuthoringNode）
+        必须在 declare_parameter 前设置参数，否则 sentinel 会触发后续校验失败。
+
+        Raises:
+            rclpy.exceptions.ParameterNotDeclaredException: 参数未声明时调用 get_parameter
+        """
+        from rclpy.exceptions import ParameterAlreadyDeclaredException
+
         coeffs = MMGCoefficients()
+
+        # 关键初始状态参数使用 sentinel 默认值
+        # 物理模型参数保留 dataclass 硬编码默认值
+        sentinel_overrides = {
+            "origin_lat": _SENTINEL_LAT,
+            "origin_lon": _SENTINEL_LON,
+            "u0": _SENTINEL_U0,
+            "x0": 0.0,       # x0/y0 可为 0（以原点为参考）
+            "y0": 0.0,
+            "psi0": 0.0,      # heading sentinel（arcsin 超出 [-2π, 2π]）
+            "dt": _SENTINEL_DT,
+        }
+
         param_map = {
             "L": "L", "d": "d", "B": "B",
             "displacement_t": "displacement_t", "x_G": "x_G",
@@ -254,13 +310,12 @@ class ShipDynamicsNode(LifecycleNode):
         }
         for py_attr, ros_param in param_map.items():
             try:
-                if hasattr(self, "get_parameter") and not hasattr(self, "declare_parameter"):
-                    pass  # avoid declare_parameter on non-LifecycleNode
-                elif hasattr(self, "get_parameter"):
-                    declared = self.declare_parameter(ros_param, getattr(coeffs, py_attr))
-                    setattr(coeffs, py_attr, declared.value)
-            except Exception:
-                pass
+                default_val = sentinel_overrides.get(py_attr, getattr(coeffs, py_attr))
+                declared = self.declare_parameter(ros_param, default_val)
+            except ParameterAlreadyDeclaredException:
+                # 场景已在外部声明此参数（如 ScenarioAuthoringNode / YAML）
+                declared = self.get_parameter(ros_param)
+            setattr(coeffs, py_attr, declared.value)
         return coeffs
 
     def _get_own_ship_state_msg(self):

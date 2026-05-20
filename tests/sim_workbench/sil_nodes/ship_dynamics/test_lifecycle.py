@@ -23,6 +23,11 @@ def node():
     rclpy.init(args=None)
     from ship_dynamics.node import ShipDynamicsNode
     n = ShipDynamicsNode(node_name="test_ship_dynamics")
+    # 预注入完整参数以满足 sentinel 校验
+    n.declare_parameter("origin_lat", 63.44)
+    n.declare_parameter("origin_lon", 10.38)
+    n.declare_parameter("u0", 9.26)
+    n.declare_parameter("dt", 0.02)
     yield n
     try:
         n.destroy_node()
