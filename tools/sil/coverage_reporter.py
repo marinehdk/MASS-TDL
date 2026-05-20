@@ -1,4 +1,4 @@
-"""D1.3b COLREGs coverage HTML report generator."""
+"""D1.3b / D1.3.2.1 COLREGs coverage HTML report generator (32-scenario matrix)."""
 from __future__ import annotations
 
 import json
@@ -9,12 +9,96 @@ from jinja2 import Environment, FileSystemLoader
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-RULE_ORDER = [
-    "Rule 14 Head-on",
-    "Rule 15/16 Stbd",
-    "Rule 15/17 Port",
-    "Rule 13 Overtaking",
-]
+RULE_ORDER = ["Rule13", "Rule14", "Rule15", "Multi-Ship"]
+
+RULE_COVERAGE_ROWS = ["Rule13", "Rule14", "Rule15", "Multi-Ship"]
+UNCOVERED_RULES = ["Rule5", "Rule6", "Rule7", "Rule8", "Rule9", "Rule17", "Rule19"]
+
+
+def _infer_rule_label(scenario_id: str, metadata: dict | None = None) -> str:
+    """Infer COLREGs rule label from metadata or scenario_id pattern.
+
+    Priority 1: metadata.encounter.rule (with multi-ship override)
+    Priority 2: ID pattern matching (ho/head → Rule14, cr-gw/cr-so/cs → Rule15,
+                 ot/overtaking → Rule13, ms → Multi-Ship)
+    Fallback: "Unknown"
+    """
+    # Priority 1: metadata.encounter.rule
+    if metadata:
+        enc = metadata.get("encounter", {})
+        if isinstance(enc, dict):
+            rule = enc.get("rule", "")
+            if rule:
+                n_targets = len(
+                    metadata.get("initial_conditions", {}).get("targets", [])
+                )
+                if rule in ("Rule13", "Rule14", "Rule15") and n_targets > 1:
+                    return "Multi-Ship"
+                if rule in ("Rule13", "Rule14", "Rule15"):
+                    return rule
+                return rule
+
+    # Priority 2: ID pattern matching
+    sid = scenario_id.lower()
+
+    # Multi-Ship (check first to avoid matching "-ho" inside something else)
+    if "-ms" in sid or sid.startswith("ms-"):
+        return "Multi-Ship"
+
+    # Head-on → Rule14
+    if "-ho" in sid or "head" in sid:
+        return "Rule14"
+
+    # Overtaking → Rule13
+    if "-ot" in sid or "overtaking" in sid:
+        return "Rule13"
+
+    # Crossing → Rule15 (cr-gw, cr-so, cs- anywhere in ID)
+    if "-cr-" in sid or sid.startswith("cr-") or "-cs" in sid or sid.startswith("cs-"):
+        return "Rule15"
+
+    return "Unknown"
+
+
+def build_coverage_matrix(batch_results: list[dict]) -> list[dict]:
+    """Build the Rule × Scenario coverage matrix from batch results.
+
+    Returns a list of row dicts sorted by RULE_ORDER then scenario_id,
+    with _section_start=True on the first row of each rule group
+    (used by the Jinja2 template for section headers).
+    """
+    matrix = []
+    for r in batch_results:
+        sc = r.get("sub_checks", {})
+        rule_label = _infer_rule_label(
+            r.get("scenario_id", ""),
+            metadata=r,
+        )
+        matrix.append({
+            "rule": rule_label,
+            "scenario_id": r.get("scenario_id", "?"),
+            "geometric": sc.get("geometric_compliance", False),
+            "solvability": sc.get("solvability", False),
+            "stability": sc.get("stability", False),
+            "wall_clock": sc.get("wall_clock_le_60s", False),
+            "overall": r.get("result") == "PASS",
+            "json_path": r.get("_json_filename", ""),
+        })
+
+    # Sort by rule order, then scenario_id
+    matrix.sort(key=lambda x: (
+        RULE_ORDER.index(x["rule"]) if x["rule"] in RULE_ORDER else 99,
+        x["scenario_id"],
+    ))
+
+    # Insert section-start markers for template rendering
+    last_rule: str | None = None
+    for row in matrix:
+        if row["rule"] != last_rule:
+            row["_section_start"] = True
+            last_rule = row["rule"]
+
+    return matrix
 
 
 def generate_report(results_dir: Path, output_path: Path) -> None:
@@ -31,24 +115,8 @@ def generate_report(results_dir: Path, output_path: Path) -> None:
         except (json.JSONDecodeError, KeyError):
             continue
 
-    # Build matrix rows
-    matrix = []
-    for r in results:
-        sc = r.get("sub_checks", {})
-        rule_label = _infer_rule_label(r.get("scenario_id", ""))
-        matrix.append({
-            "rule": rule_label,
-            "scenario_id": r.get("scenario_id", "?"),
-            "geometric": sc.get("geometric_compliance", False),
-            "solvability": sc.get("solvability", False),
-            "stability": sc.get("stability", False),
-            "wall_clock": sc.get("wall_clock_le_60s", False),
-            "overall": r.get("result") == "PASS",
-            "json_path": r["_json_filename"],
-        })
-
-    # Sort matrix by rule order
-    matrix.sort(key=lambda x: (RULE_ORDER.index(x["rule"]) if x["rule"] in RULE_ORDER else 99, x["scenario_id"]))
+    # Build rule × scenario matrix
+    matrix = build_coverage_matrix(results)
 
     # Build details
     details = []
@@ -76,17 +144,7 @@ def generate_report(results_dir: Path, output_path: Path) -> None:
         failed=sum(1 for r in results if r.get("result") == "FAIL"),
         matrix=matrix,
         details=details,
+        rule_coverage_rows=RULE_COVERAGE_ROWS,
+        uncovered_rules=UNCOVERED_RULES,
     )
     output_path.write_text(html, encoding="utf-8")
-
-
-def _infer_rule_label(scenario_id: str) -> str:
-    if "ho-" in scenario_id:
-        return "Rule 14 Head-on"
-    if "cs-001" in scenario_id or "cs-002" in scenario_id or "cs-004" in scenario_id:
-        return "Rule 15/16 Stbd"
-    if "cs-003" in scenario_id:
-        return "Rule 15/17 Port"
-    if "ot-" in scenario_id:
-        return "Rule 13 Overtaking"
-    return "Unknown"

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>COLREGs Scenario Coverage Report — {{ timestamp }}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2em; }
+    body { font-family: Arial, sans-serif; margin: 2em; background: #fafafa; }
     h1 { color: #1a1a2e; }
     .summary { background: #f0f0f0; padding: 1em; border-radius: 6px; margin-bottom: 1.5em; }
     table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
@@ -17,6 +17,9 @@
     .warn { color: #cc7700; font-weight: bold; }
     .rule-col { text-align: left; font-weight: bold; }
     .scenario-col { text-align: left; }
+    .section-header td { background: #dde8f0; font-weight: bold; text-align: left; padding: 6px 12px; border-top: 2px solid #1a1a2e; }
+    .section-header td { color: #1a1a2e; font-size: 0.95em; }
+    .uncovered-row td { background: #fff3e0; font-style: italic; }
     details { margin: 0.5em 0; }
     summary { cursor: pointer; color: #1a1a2e; }
     .not-covered { color: #888; font-style: italic; }
@@ -30,8 +33,8 @@
     <strong>Total scenarios:</strong> {{ total }}<br>
     <strong>Passed:</strong> <span class="pass">{{ passed }}</span> /
     <strong>Failed:</strong> <span class="fail">{{ failed }}</span><br>
-    <strong>Rules covered:</strong> Rule 13, Rule 14, Rule 15/16<br>
-    <strong>Rules NOT covered in D1.3b:</strong> Rule 5, 6, 7, 8, 9, 17, 19 (planned for D1.6)
+    <strong>Rules covered:</strong> {{ rule_coverage_rows|join(", ") }}<br>
+    <strong>Rules NOT covered:</strong> {{ uncovered_rules|join(", ") }} (planned for D1.6)
   </div>
 
   <h2>Rule × Scenario Coverage Matrix</h2>
@@ -43,28 +46,33 @@
         <th>Geometric Compliance</th>
         <th>Solvability</th>
         <th>Stability</th>
-        <th>≤60s Wall-clock</th>
+        <th>&le;60s Wall-clock</th>
         <th>Overall</th>
         <th>Run JSON</th>
       </tr>
     </thead>
     <tbody>
       {% for row in matrix %}
+      {% if row.get('_section_start') %}
+      <tr class="section-header">
+        <td colspan="8">&#9656; {{ row.rule }}</td>
+      </tr>
+      {% endif %}
       <tr>
         <td class="rule-col">{{ row.rule }}</td>
         <td class="scenario-col">{{ row.scenario_id }}</td>
-        <td class="{{ 'pass' if row.geometric else 'fail' }}">{{ '✅' if row.geometric else '❌' }}</td>
-        <td class="{{ 'pass' if row.solvability else 'fail' }}">{{ '✅' if row.solvability else '❌' }}</td>
-        <td class="{{ 'pass' if row.stability else 'fail' }}">{{ '✅' if row.stability else '❌' }}</td>
-        <td class="{{ 'pass' if row.wall_clock else 'fail' }}">{{ '✅' if row.wall_clock else '❌' }}</td>
+        <td class="{{ 'pass' if row.geometric else 'fail' }}">{{ 'PASS' if row.geometric else 'FAIL' }}</td>
+        <td class="{{ 'pass' if row.solvability else 'fail' }}">{{ 'PASS' if row.solvability else 'FAIL' }}</td>
+        <td class="{{ 'pass' if row.stability else 'fail' }}">{{ 'PASS' if row.stability else 'FAIL' }}</td>
+        <td class="{{ 'pass' if row.wall_clock else 'fail' }}">{{ 'PASS' if row.wall_clock else 'FAIL' }}</td>
         <td class="{{ 'pass' if row.overall else 'fail' }}">{{ 'PASS' if row.overall else 'FAIL' }}</td>
         <td><a href="{{ row.json_path }}">run.json</a></td>
       </tr>
       {% endfor %}
-      <tr>
-        <td class="rule-col">Rule 5/6/7/8/9/17/19</td>
+      <tr class="uncovered-row">
+        <td class="rule-col">&#9888;&#65039; {{ uncovered_rules|join(", ") }}</td>
         <td class="not-covered">—</td>
-        <td class="warn" colspan="5">⚠️ Not covered in D1.3b — planned for D1.6</td>
+        <td class="warn" colspan="5">&#9888;&#65039; Not covered in D1.3b — planned for D1.6</td>
         <td>—</td>
       </tr>
     </tbody>
@@ -73,7 +81,7 @@
   <h2>Scenario Details</h2>
   {% for detail in details %}
   <details>
-    <summary>{{ detail.scenario_id }} — {{ 'PASS ✅' if detail.overall else 'FAIL ❌' }}</summary>
+    <summary>{{ detail.scenario_id }} — {{ 'PASS' if detail.overall else 'FAIL' }}</summary>
     <table>
       <tr><th>Metric</th><th>Value</th></tr>
       <tr><td>DCPA no action (m)</td><td>{{ "%.1f" | format(detail.dcpa_no_action_m) }}</td></tr>
@@ -88,7 +96,7 @@
   {% endfor %}
 
   <div class="footer">
-    D1.3b Coverage Report · MASS ADAS L3 Tactical Layer · findings: G P0-G-1(b), P2-E1
+    D1.3b / D1.3.2.1 Coverage Report &middot; MASS ADAS L3 Tactical Layer
   </div>
 </body>
 </html>
