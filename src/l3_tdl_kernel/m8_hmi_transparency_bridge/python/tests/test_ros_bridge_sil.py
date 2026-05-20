@@ -21,7 +21,7 @@ def test_ros_bridge_has_latest_odd_attribute() -> None:
 def test_on_sat_data_updates_latest() -> None:
     bridge = RosBridge()
     fake_msg = MagicMock()
-    fake_msg.schema_version = 112
+    fake_msg.schema_version = "v1.1.2"
     bridge._on_sat_data(fake_msg)
     assert bridge.latest_sat is fake_msg
 

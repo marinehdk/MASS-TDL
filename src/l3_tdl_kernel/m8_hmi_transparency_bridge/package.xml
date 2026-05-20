@@ -18,8 +18,8 @@
   <depend>rclpy</depend>
   <depend>l3_msgs</depend>
   <depend>l3_external_msgs</depend>
-  <depend>eigen</depend>
-  <depend>nlohmann-json-dev</depend>
+  <depend>Eigen3</depend>
+  <depend>nlohmann_json</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
 

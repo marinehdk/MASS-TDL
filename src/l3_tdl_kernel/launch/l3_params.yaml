@@ -1,0 +1,44 @@
+# l3_params.yaml — DEMO-1 initial parameter values for L3 kernel pipeline.
+#
+# Node names (top-level keys) must match the `name` argument in
+# l3_pipeline.launch.py.  Parameters marked [TBD-HAZID] are placeholders
+# pending HAZID RUN-001 calibration (target: 2026-08-19).
+
+m1_odd_manager:
+  ros__parameters:
+    odd_zone: "A"
+    envelope_timeout_s: 5.0
+
+m2_world_model:
+  ros__parameters:
+    prediction_horizon_s: 90.0
+    target_classification_enabled: false
+
+m3_mission_manager:
+  ros__parameters: {}
+
+m4_behavior_arbiter:
+  ros__parameters:
+    ivp_initial_weights: [1.0, 0.5, 0.3, 0.2]
+    arbitration_period_s: 0.5
+
+m5_tactical_planner:
+  ros__parameters:
+    mid_mpc_horizon_s: 90.0
+    mid_mpc_dt_s: 1.0
+    use_ipopt: false  # DEMO-1: analytical stub, no CasADi/IPOPT
+
+m6_colregs_reasoner:
+  ros__parameters:
+    rule_set: ["Rule13", "Rule14", "Rule15", "Rule16"]
+    odd_zone: "A"
+
+m7_safety_supervisor:
+  ros__parameters:
+    monitoring_window_s: 15.0
+    veto_enabled: false  # DEMO-1: no X-axis Deterministic Checker
+
+m8_hmi_bridge:
+  ros__parameters:
+    sat_update_hz: 10.0
+    tor_window_s: 60.0

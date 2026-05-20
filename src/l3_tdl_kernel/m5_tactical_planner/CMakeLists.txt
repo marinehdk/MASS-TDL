@@ -42,19 +42,31 @@ find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 
-# CasADi — dynamic linking required (LGPL-3.0 compliance: §6 distribution clause).
-# Must NOT be STATIC-linked.
-find_package(casadi 3.7.2 EXACT REQUIRED)
-
-# PATCH: casadi-config.cmake (pip-installed 3.7.2) incorrectly forces
-# _GLIBCXX_USE_CXX11_ABI=0 for GCC, but libcasadi.so.3.7 is compiled with
-# the new C++11 ABI (verified via nm). Stripping the wrong INTERFACE define
-# ensures uniform new-ABI compilation across our code and all ROS2 Jazzy deps.
-get_target_property(_casadi_iface_defs casadi::casadi INTERFACE_COMPILE_DEFINITIONS)
-if(_casadi_iface_defs)
-  list(REMOVE_ITEM _casadi_iface_defs "_GLIBCXX_USE_CXX11_ABI=0")
-  set_target_properties(casadi::casadi PROPERTIES
-    INTERFACE_COMPILE_DEFINITIONS "${_casadi_iface_defs}")
+# CasADi — optional, required for Mid-MPC (Task 2.x+).
+# When unavailable, Mid-MPC components and constraint_compiler are excluded.
+# Set -DM5_USE_CASADI=OFF to skip CasADi-dependent targets.
+option(M5_USE_CASADI "Build Mid-MPC and constraint_compiler (requires CasADi/IPOPT)" ON)
+if(M5_USE_CASADI)
+  find_package(casadi 3.7.2 EXACT QUIET)
+  if(NOT casadi_FOUND)
+    message(STATUS "M5: CasADi 3.7.2 not found — Mid-MPC and constraint_compiler will be skipped")
+    set(M5_HAS_CASADI OFF)
+  else()
+    set(M5_HAS_CASADI ON)
+    # PATCH: casadi-config.cmake (pip-installed 3.7.2) incorrectly forces
+    # _GLIBCXX_USE_CXX11_ABI=0 for GCC, but libcasadi.so.3.7 is compiled with
+    # the new C++11 ABI (verified via nm). Stripping the wrong INTERFACE define
+    # ensures uniform new-ABI compilation across our code and all ROS2 Jazzy deps.
+    get_target_property(_casadi_iface_defs casadi::casadi INTERFACE_COMPILE_DEFINITIONS)
+    if(_casadi_iface_defs)
+      list(REMOVE_ITEM _casadi_iface_defs "_GLIBCXX_USE_CXX11_ABI=0")
+      set_target_properties(casadi::casadi PROPERTIES
+        INTERFACE_COMPILE_DEFINITIONS "${_casadi_iface_defs}")
+    endif()
+  endif()
+else()
+  set(M5_HAS_CASADI OFF)
+  message(STATUS "M5: CasADi disabled by option — Mid-MPC and constraint_compiler will be skipped")
 endif()
 
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
@@ -75,7 +87,7 @@ find_package(Boost REQUIRED COMPONENTS headers)
 # Function-based API. If a future task uses IPOPT's C++ API directly, the
 # commented find_package(IPOPT) block above must be re-enabled.
 # ---------------------------------------------------------------------------
-add_library(m5_shared_lib STATIC
+set(M5_SHARED_SOURCES
   # --- common/ ---
   src/common/error.cpp
   src/common/types.cpp
@@ -87,17 +99,33 @@ add_library(m5_shared_lib STATIC
   src/shared/vessel_dynamics_model.cpp
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
-  src/shared/constraint_compiler.cpp
-  # --- mid_mpc/ ---
-  src/mid_mpc/mid_mpc_nlp_formulation.cpp
-  src/mid_mpc/mid_mpc_solver.cpp
-  src/mid_mpc/mid_mpc_waypoint_generator.cpp
   # --- bc_mpc/ ---
   src/bc_mpc/bc_mpc_branch_formulation.cpp
   src/bc_mpc/bc_mpc_collision_detector.cpp
   src/bc_mpc/bc_mpc_solver.cpp
   src/bc_mpc/bc_mpc_override_generator.cpp
 )
+
+set(M5_LINK_LIBS
+  spdlog::spdlog
+  yaml-cpp::yaml-cpp
+  Eigen3::Eigen
+  Boost::headers
+)
+
+if(M5_HAS_CASADI)
+  list(APPEND M5_SHARED_SOURCES
+    # --- shared/ (CasADi-dependent) ---
+    src/shared/constraint_compiler.cpp
+    # --- mid_mpc/ ---
+    src/mid_mpc/mid_mpc_nlp_formulation.cpp
+    src/mid_mpc/mid_mpc_solver.cpp
+    src/mid_mpc/mid_mpc_waypoint_generator.cpp
+  )
+  list(APPEND M5_LINK_LIBS casadi::casadi)
+endif()
+
+add_library(m5_shared_lib STATIC ${M5_SHARED_SOURCES})
 
 target_include_directories(m5_shared_lib
   PUBLIC
@@ -112,35 +140,31 @@ ament_target_dependencies(m5_shared_lib
   builtin_interfaces
 )
 
-target_link_libraries(m5_shared_lib
-  spdlog::spdlog
-  yaml-cpp::yaml-cpp
-  Eigen3::Eigen
-  casadi::casadi          # dynamic — LGPL-3.0 requirement (no STATIC linking)
-  Boost::headers
-)
+target_link_libraries(m5_shared_lib ${M5_LINK_LIBS})
 
 # ---------------------------------------------------------------------------
-# m5_mid_mpc_node executable
+# m5_mid_mpc_node executable (CasADi-dependent)
 # ---------------------------------------------------------------------------
-add_executable(m5_mid_mpc_node
-  src/mid_mpc/mid_mpc_node.cpp
-  src/mid_mpc/main_mid_mpc.cpp
-)
-target_include_directories(m5_mid_mpc_node
-  PRIVATE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-)
-ament_target_dependencies(m5_mid_mpc_node
-  rclcpp
-  l3_msgs
-  l3_external_msgs
-  builtin_interfaces
-)
-target_link_libraries(m5_mid_mpc_node
-  m5_shared_lib
-  spdlog::spdlog
-)
+if(M5_HAS_CASADI)
+  add_executable(m5_mid_mpc_node
+    src/mid_mpc/mid_mpc_node.cpp
+    src/mid_mpc/main_mid_mpc.cpp
+  )
+  target_include_directories(m5_mid_mpc_node
+    PRIVATE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(m5_mid_mpc_node
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+  target_link_libraries(m5_mid_mpc_node
+    m5_shared_lib
+    spdlog::spdlog
+  )
+endif()
 
 # ---------------------------------------------------------------------------
 # m5_bc_mpc_node executable
@@ -171,9 +195,11 @@ target_link_libraries(m5_bc_mpc_node
 install(TARGETS m5_bc_mpc_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
-install(TARGETS m5_mid_mpc_node
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
+if(M5_HAS_CASADI)
+  install(TARGETS m5_mid_mpc_node
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
+  )
+endif()
 install(TARGETS m5_shared_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -258,32 +284,34 @@ if(BUILD_TESTING)
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
-  m5_add_gtest(test_constraint_compiler
-    test/unit/test_constraint_compiler.cpp
-    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi Boost::headers
-  )
-  target_compile_definitions(test_constraint_compiler
-    PRIVATE
-      "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
-  )
+  if(M5_HAS_CASADI)
+    m5_add_gtest(test_constraint_compiler
+      test/unit/test_constraint_compiler.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi Boost::headers
+    )
+    target_compile_definitions(test_constraint_compiler
+      PRIVATE
+        "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
+    )
 
-  # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
-  m5_add_gtest(test_mid_mpc_nlp_formulation
-    test/unit/test_mid_mpc_nlp_formulation.cpp
-    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
-  )
+    # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
+    m5_add_gtest(test_mid_mpc_nlp_formulation
+      test/unit/test_mid_mpc_nlp_formulation.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
 
-  # ── Task 2.2: Mid-MPC solver integration tests (real IPOPT solves) ─────────
-  m5_add_gtest(test_mid_mpc_solver
-    test/unit/test_mid_mpc_solver.cpp
-    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
-  )
+    # ── Task 2.2: Mid-MPC solver integration tests (real IPOPT solves) ─────────
+    m5_add_gtest(test_mid_mpc_solver
+      test/unit/test_mid_mpc_solver.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
 
-  # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
-  m5_add_gtest(test_mid_mpc_waypoint_generator
-    test/unit/test_mid_mpc_waypoint_generator.cpp
-    spdlog::spdlog yaml-cpp::yaml-cpp
-  )
+    # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
+    m5_add_gtest(test_mid_mpc_waypoint_generator
+      test/unit/test_mid_mpc_waypoint_generator.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
+  endif()
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
   m5_add_gtest(test_bc_mpc_collision_detector
@@ -307,8 +335,8 @@ if(BUILD_TESTING)
   # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
   # its own (un-instrumented) libc symbols, causing ASAN to crash on
   # deallocation of memory it did not tag.
-  # Strip ASAN from the three targets that link against casadi in Debug builds.
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  # Strip ASAN from the targets that link against casadi in Debug builds.
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND M5_HAS_CASADI)
     foreach(_no_asan_tgt
         test_constraint_compiler
         test_mid_mpc_nlp_formulation
@@ -323,5 +351,9 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(m5_shared_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces casadi Boost)
+if(M5_HAS_CASADI)
+  ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces casadi Boost)
+else()
+  ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces Boost)
+endif()
 ament_package()

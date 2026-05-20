@@ -22,7 +22,15 @@ find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(tl_expected REQUIRED)
+
+# tl_expected is bundled inside rcpputils on ROS2 Jazzy
+# (no standalone tl_expectedConfig.cmake available).
+# We use rcpputils and add its subdirectory to resolve <tl_expected/expected.hpp>.
+find_package(rcpputils REQUIRED)
+get_target_property(_rcpputils_include_dirs rcpputils::rcpputils INTERFACE_INCLUDE_DIRECTORIES)
+if(NOT _rcpputils_include_dirs)
+  set(_rcpputils_include_dirs "${rcpputils_INCLUDE_DIRS}")
+endif()
 
 add_library(${PROJECT_NAME}_lib
   src/odd_state_machine.cpp
@@ -51,9 +59,12 @@ target_include_directories(${PROJECT_NAME}_lib
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    # Resolve <tl_expected/expected.hpp> from rcpputils' bundled copy
+    # PUBLIC so it propagates to the executable and test targets
+    ${_rcpputils_include_dirs}/rcpputils
 )
 ament_target_dependencies(${PROJECT_NAME}_lib
-  rclcpp l3_msgs l3_external_msgs tl_expected
+  rclcpp l3_msgs l3_external_msgs rcpputils
 )
 target_link_libraries(${PROJECT_NAME}_lib
   spdlog::spdlog yaml-cpp::yaml-cpp
@@ -76,5 +87,5 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs tl_expected)
+ament_export_dependencies(rclcpp l3_msgs l3_external_msgs rcpputils)
 ament_package()

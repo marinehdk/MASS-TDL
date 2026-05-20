@@ -123,7 +123,7 @@ void SafetySupervisorNode::setup_main_loop_subscriptions(
   opts.callback_group = cb_group_main_;
 
   sub_odd_ = create_subscription<l3_msgs::msg::ODDState>(
-    "/l3/m2/odd_state", qos_reliable,
+    "/l3/m1/odd_state", qos_reliable,
     [this](l3_msgs::msg::ODDState::ConstSharedPtr const& msg) { on_odd_state(msg); },
     opts);
 

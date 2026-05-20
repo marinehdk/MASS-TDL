@@ -36,26 +36,20 @@ MidMpcNode::MidMpcNode(const Config& cfg)
 {
   formulation_.build_symbolic_graph();
 
-  sub_own_ship_ = create_subscription<l3_msgs::msg::OwnShipState>(
-      "/m2/own_ship_state", 10,
-      [this](l3_msgs::msg::OwnShipState::SharedPtr msg) {
-        own_ship_state_ = std::move(msg);
-      });
-
-  sub_targets_ = create_subscription<l3_external_msgs::msg::TrackedTargetArray>(
-      "/m2/tracked_targets", 10,
-      [this](l3_external_msgs::msg::TrackedTargetArray::SharedPtr msg) {
-        tracked_targets_ = std::move(msg);
+  sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
+      "/l3/m2/world_state", 10,
+      [this](l3_msgs::msg::WorldState::SharedPtr msg) {
+        world_state_ = std::move(msg);
       });
 
   sub_behavior_ = create_subscription<l3_msgs::msg::BehaviorPlan>(
-      "/m4/behavior_plan", 10,
+      "/l3/m4/behavior_plan", 10,
       [this](l3_msgs::msg::BehaviorPlan::SharedPtr msg) {
         behavior_plan_ = std::move(msg);
       });
 
   sub_colregs_ = create_subscription<l3_msgs::msg::COLREGsConstraint>(
-      "/m6/colregs_constraint", 10,
+      "/l3/m6/colregs_constraint", 10,
       [this](l3_msgs::msg::COLREGsConstraint::SharedPtr msg) {
         colregs_constraint_ = std::move(msg);
       });
@@ -86,8 +80,7 @@ MidMpcNode::MidMpcNode(const Config& cfg)
 // ===========================================================================
 bool MidMpcNode::has_required_inputs_() const noexcept
 {
-  return own_ship_state_    != nullptr
-      && tracked_targets_   != nullptr
+  return world_state_       != nullptr
       && behavior_plan_     != nullptr
       && colregs_constraint_ != nullptr;
 }
@@ -99,13 +92,13 @@ MidMpcInput MidMpcNode::assemble_input_() const
 {
   MidMpcInput inp;
 
-  inp.own_ship.psi_rad = own_ship_state_->heading_deg * units::kRadPerDeg;
-  inp.own_ship.u_mps   = own_ship_state_->u_water;
+  inp.own_ship.psi_rad = world_state_->own_ship.heading_deg * units::kRadPerDeg;
+  inp.own_ship.u_mps   = world_state_->own_ship.u_water;
 
-  const double own_lat = own_ship_state_->position.latitude;
-  const double own_lon = own_ship_state_->position.longitude;
+  const double own_lat = world_state_->own_ship.position.latitude;
+  const double own_lon = world_state_->own_ship.position.longitude;
 
-  for (const auto& tgt : tracked_targets_->targets) {
+  for (const auto& tgt : world_state_->targets) {
     TargetState ts;
     ts.id       = static_cast<int32_t>(tgt.target_id & 0x7FFFFFFFu);
     ts.x_m      = (tgt.position.latitude  - own_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
@@ -165,8 +158,8 @@ void MidMpcNode::on_solve_cycle_()
   const MidMpcSolution sol = solver_.solve(input, warm);
   last_solution_ = sol;
 
-  const double lat = own_ship_state_->position.latitude;
-  const double lon = own_ship_state_->position.longitude;
+  const double lat = world_state_->own_ship.position.latitude;
+  const double lon = world_state_->own_ship.position.longitude;
   const auto plan = wp_gen_.generate(sol, lat, lon);
   publish_outputs_(sol, plan);
 }

@@ -8,13 +8,13 @@
 
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_external_msgs/msg/speed_profile.hpp"
-#include "l3_external_msgs/msg/tracked_target_array.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/own_ship_state.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
+#include "l3_msgs/msg/world_state.hpp"
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
@@ -44,8 +44,7 @@ class MidMpcNode : public rclcpp::Node {
   MidMpcWaypointGenerator     wp_gen_;
   std::optional<MidMpcSolution> last_solution_;
 
-  l3_msgs::msg::OwnShipState::SharedPtr                     own_ship_state_;
-  l3_external_msgs::msg::TrackedTargetArray::SharedPtr       tracked_targets_;
+  l3_msgs::msg::WorldState::SharedPtr                        world_state_;
   l3_msgs::msg::BehaviorPlan::SharedPtr                      behavior_plan_;
   l3_msgs::msg::COLREGsConstraint::SharedPtr                 colregs_constraint_;
   l3_external_msgs::msg::PlannedRoute::SharedPtr             planned_route_;
@@ -55,8 +54,7 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
 
-  rclcpp::Subscription<l3_msgs::msg::OwnShipState>::SharedPtr           sub_own_ship_;
-  rclcpp::Subscription<l3_external_msgs::msg::TrackedTargetArray>::SharedPtr sub_targets_;
+  rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr             sub_world_;
   rclcpp::Subscription<l3_msgs::msg::BehaviorPlan>::SharedPtr           sub_behavior_;
   rclcpp::Subscription<l3_msgs::msg::COLREGsConstraint>::SharedPtr      sub_colregs_;
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr  sub_route_;

@@ -22,8 +22,9 @@
   <depend>l3_external_msgs</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
-  <depend>casadi</depend>
   <depend>eigen3</depend>
+  <!-- casadi is optional: required for Mid-MPC, conditionally loaded via M5_USE_CASADI CMake option -->
+  <!-- <depend>casadi</depend> -->
 
   <!-- Test dependencies -->
   <test_depend>ament_lint_auto</test_depend>
