@@ -21,7 +21,6 @@ from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition
 from dataclasses import dataclass
 from enum import Enum
-import logging
 
 _log = logging.getLogger(__name__)
 
@@ -41,7 +40,11 @@ _SIL_LIFECYCLE_NODES = [
 # Scenario YAML root directories, keyed by a short label.
 # Docker: scenarios are mounted at /var/sil/scenarios/ (per docker-compose.yml)
 # Local: scenarios are at ./scenarios/ relative to repo root
-_SCENARIO_BASE = Path(os.environ.get("SIL_SCENARIO_DIR", "/var/sil/scenarios" if Path("/var/sil/scenarios").exists() else "scenarios"))
+_DOCKER_SCENARIO_PATH = Path("/var/sil/scenarios")
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_SCENARIO_BASE = Path(os.environ.get("SIL_SCENARIO_DIR",
+                    _DOCKER_SCENARIO_PATH if _DOCKER_SCENARIO_PATH.exists()
+                    else _REPO_ROOT / "scenarios"))
 _SCENARIO_DIRS = {
     "imazu22": _SCENARIO_BASE / "IMAZU标准测试",
     "colregs": _SCENARIO_BASE / "COLREGs测试",
@@ -73,10 +76,15 @@ def _inject_scenario_params(yaml_path: Path) -> dict[str, dict[str, object]]:
     with open(yaml_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    own = data["ownShip"]
-    pos = own["initial"]["position"]
-    heading_deg = own["initial"]["heading"]
-    sog_kn = own["initial"]["sog"]
+    try:
+        own = data["ownShip"]
+        pos = own["initial"]["position"]
+        heading_deg = float(own["initial"].get("heading", own["initial"]["cog"]))
+        sog_kn = float(own["initial"]["sog"])
+    except KeyError as e:
+        raise ValueError(
+            f"Scenario YAML {yaml_path.name} missing required field: {e}"
+        ) from e
 
     psi0 = math.pi / 2.0 - math.radians(heading_deg)
     u0 = sog_kn * 0.514444

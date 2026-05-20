@@ -241,7 +241,7 @@ def _extract_trajectory(result, scenario_id, max_points=200):
     return rows
 
 
-def __arrow_table(rows, schema, path):
+def _arrow_table(rows, schema, path):
     """Write *rows* to an Arrow IPC file at *path* using *schema*."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -314,10 +314,10 @@ def run_batch_arrow(scenario_dirs, output_dir, progress_cb=None):
             progress_cb(i + 1, total)
 
     summary_path = output_dir / "batch_summary.arrow"
-    n_summary = __arrow_table(summary_rows, SUMMARY_SCHEMA, summary_path)
+    n_summary = _arrow_table(summary_rows, SUMMARY_SCHEMA, summary_path)
 
     traj_path = output_dir / "trajectories.arrow"
-    n_traj = __arrow_table(trajectory_rows, TRAJECTORY_POINT_SCHEMA, traj_path)
+    n_traj = _arrow_table(trajectory_rows, TRAJECTORY_POINT_SCHEMA, traj_path)
 
     summary_json = {
         "batch_timestamp": datetime.now(tz=timezone.utc).isoformat(),
