@@ -36,20 +36,54 @@ def wind_kn_to_bin(wind_kn: float, vis_m: float) -> str:
 
 
 def _normalize_rule(rule: str) -> str:
-    """Map label variants (e.g. 'Rule 14 Head-on') → canonical key ('Rule14')."""
+    """Map label variants (e.g. 'Rule 14 Head-on') → canonical key ('Rule14').
+
+    Supports:
+      - Numeric extraction: "Rule 14 Head-on" → "Rule14", "Rule13" → "Rule13"
+      - Keyword fallback (no digit found):
+          lookout / look-out           → Rule5
+          safe speed / safespeed       → Rule6
+          risk of collision / roc      → Rule7
+          action to avoid / actionavoid → Rule8
+          narrow channel / narrow      → Rule9
+          restricted visibility / restrvis → Rule19
+    """
     m = re.search(r"\d+", rule)
-    if not m:
-        return rule
-    key = f"Rule{m.group()}"
-    return key if key in COLREG_RULES else rule
+    if m:
+        key = f"Rule{m.group()}"
+        return key if key in COLREG_RULES else rule
+
+    # Keyword-based lookup for rules without explicit number
+    rule_lower = rule.lower().replace("-", "").replace(" ", "").replace("_", "")
+    kw_map: dict[str, str] = {
+        "lookout": "Rule5",
+        "safespeed": "Rule6",
+        "riskofcollision": "Rule7",
+        "roc": "Rule7",
+        "actiontoavoid": "Rule8",
+        "actionavoid": "Rule8",
+        "narrowchannel": "Rule9",
+        "narrow": "Rule9",
+        "restrictedvisibility": "Rule19",
+        "restrvis": "Rule19",
+    }
+    # Longest-match-first to resolve ambiguity (e.g. "narrow channel action to avoid"
+    # matches both "narrow"→Rule9 and "actiontoavoid"→Rule8 — pick the more specific one)
+    matches = [(pattern, mapped) for pattern, mapped in kw_map.items() if pattern in rule_lower]
+    if matches:
+        matches.sort(key=lambda x: len(x[0]), reverse=True)
+        return matches[0][1]
+    return rule
 
 
 def seed_index_from_filename(stem: str) -> int:
-    """Extract seed from filename stem and map to index 1–5 via (seed % 5) + 1."""
+    """Extract seed from filename stem and map to index 1–5.
+    Mapping: seed1→1, seed5→5, seed6→1 (wraps via (seed-1)%5 + 1).
+    """
     m = re.search(r"seed(\d+)", stem)
     if not m:
         return 1
-    return (int(m.group(1)) % 5) + 1
+    return ((int(m.group(1)) - 1) % 5) + 1
 
 
 class CoverageCube:
@@ -74,6 +108,38 @@ class CoverageCube:
 
     def cells_lit(self) -> int:
         return len(self._lit)
+
+    def to_heatmap_matrix(self) -> list[list[int]]:
+        """Return 11 × 4 matrix (rule × ODD) with lit cell counts per (rule, odd)."""
+        matrix: list[list[int]] = []
+        for rule in COLREG_RULES:
+            row: list[int] = []
+            for odd in ODD_ZONES:
+                count = sum(
+                    1 for d in DISTURBANCE_BINS for s in SEEDS
+                    if (rule, odd, d, s) in self._lit
+                )
+                row.append(count)
+            matrix.append(row)
+        return matrix
+
+    @classmethod
+    def load_from_csv(cls, csv_path: str) -> "CoverageCube":
+        """Load coverage state from traceability.csv (columns: scenario_id, rule, odd_zone, wind_kn, vis_m, seed)."""
+        import csv as _csv
+
+        cube = cls()
+        with open(csv_path, newline="") as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                cube.mark(
+                    rule=row.get("rule", ""),
+                    odd_zone=row.get("odd_zone", "open_sea"),
+                    wind_kn=float(row.get("wind_kn", 0.0)),
+                    vis_m=float(row.get("vis_m", 10000.0)),
+                    seed_index=int(row.get("seed", 1)),
+                )
+        return cube
 
     def to_json_dict(self) -> dict:
         return {"cells_lit": len(self._lit), "total_cells": TOTAL_CELLS}
