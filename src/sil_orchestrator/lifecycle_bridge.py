@@ -252,7 +252,7 @@ class LifecycleBridge(Node):
             raise
         except Exception as exc:
             raise ScenarioInjectionError(
-                f"SetParameters call to '{node_name}' failed: {exc}")
+                f"SetParameters call to '{node_name}' failed: {exc}") from exc
 
     async def _broadcast_transition(self, transition_id: int) -> None:
         """Send transition to every SIL lifecycle node in parallel; log failures, never raise."""
@@ -330,7 +330,7 @@ def _load_scenario_yaml(scenario_id: str, base_dir: Path | None = None) -> dict:
         yaml_data = yaml.safe_load(detail["yaml_content"])
     except yaml.YAMLError as exc:
         raise ScenarioInjectionError(
-            f"Failed to parse scenario YAML '{scenario_id}': {exc}")
+            f"Failed to parse scenario YAML '{scenario_id}': {exc}") from exc
     if not isinstance(yaml_data, dict):
         raise ScenarioInjectionError(
             f"Scenario YAML '{scenario_id}' did not parse to a dict")
@@ -425,8 +425,8 @@ def _print_injection_summary(injection_map: dict) -> None:
         total_params, len(injection_map),
     )
     for node_name, params in injection_map.items():
-        for param_name in params:
-            _log.debug("  inject %s :: %s", node_name, param_name)
+        for param_name, param_value in params.items():
+            _log.info("  inject /%s :: %s = %s", node_name, param_name, param_value)
 
 
 def _copy_preflight_evidence(scenario_id: str, run_id: str) -> None:
