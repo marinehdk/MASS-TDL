@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTelemetryStore } from '../../store';
 import type { ASDREvent } from '../../store/telemetryStore';
+import { computeBearing, computeRangeNm } from './navMath';
 
 interface ArpaTargetTableProps {
   expanded: boolean;
@@ -27,6 +28,7 @@ function deriveCpaTcpa(targets: any[], asdrEvents: ASDREvent[]) {
 export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onToggle }) => {
   const targets = useTelemetryStore((s) => s.targets);
   const asdrEvents = useTelemetryStore((s) => s.asdrEvents);
+  const ownShip = useTelemetryStore((s) => s.ownShip);
 
   if (!expanded) {
     return (
@@ -88,8 +90,22 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
             return (
               <tr key={id} style={{ borderTop: '1px solid var(--line-1)' }}>
                 <td style={{ padding: 1, color: 'var(--c-info)' }}>{id}</td>
-                <td style={{ padding: 1 }}>—</td>
-                <td style={{ padding: 1 }}>—</td>
+                <td style={{ padding: 1 }}>
+                  {(ownShip?.pose && t.pose)
+                    ? computeBearing(
+                        ownShip.pose.lat, ownShip.pose.lon,
+                        t.pose.lat, t.pose.lon,
+                      ).toFixed(1) + '\u00b0'
+                    : '\u2014'}
+                </td>
+                <td style={{ padding: 1 }}>
+                  {(ownShip?.pose && t.pose)
+                    ? computeRangeNm(
+                        ownShip.pose.lat, ownShip.pose.lon,
+                        t.pose.lat, t.pose.lon,
+                      ).toFixed(2) + ' nm'
+                    : '\u2014'}
+                </td>
                 <td style={{ padding: 1 }}>{t.kinematics?.cog != null ? ((t.kinematics.cog * 180 / Math.PI + 360) % 360).toFixed(0) : '—'}°</td>
                 <td style={{ padding: 1 }}>{t.kinematics?.sog != null ? (t.kinematics.sog * 1.944).toFixed(1) : '—'}</td>
                 <td style={{ padding: 1, color: cpaColor }}>{cpaInfo?.cpa?.toFixed(2) ?? '—'}</td>
