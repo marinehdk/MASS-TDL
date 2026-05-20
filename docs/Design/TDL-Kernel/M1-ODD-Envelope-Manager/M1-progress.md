@@ -1,0 +1,24 @@
+# M1 · Progress · D 任务联动
+
+| 维度 | 说明 |
+|---|---|
+| 数据更新规则 | PR 合并涉及 M1 时同步更新本表 |
+| 最近更新 | 2026-05-20 |
+
+---
+
+## 联动表
+
+| D 任务 | 关系 | 状态 | 详情 |
+|---|---|---|---|
+| D0.1 | Closed in | ✅ | MUST-6（sog 校验 → 与 M2 协同）+ MUST-7（active_role stub → 仅 M8）。M1 本体未触及 |
+| D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：PATH-S 严格规则（LineThreshold=40, 禁 malloc, 禁全局变量）+ 50 修复模式 + clang-tidy/cppcheck/CI 集成 |
+| D2.1 | Currently Implementing（计划）| 🔴 未启 | M1 完整实现：FMEDA stub + ToR 自适应矩阵 + Capability Manifest 集成；目标 7/6 |
+| D2.7 | Currently Implementing（计划）| 🔴 未启 | FMEDA M1 表 ≥ 20 失效模式；Owner 安全工程师外包 |
+| D3.5 | Blocks | ⏳ | M1 ODD 4 子域热加载参数 132 [TBD-HAZID] 回填依赖本模块完整化（HAZID 8/19）|
+
+---
+
+## DEMO-2 (7/31) 阻塞贡献
+
+- 🟡 中阻塞：M1 ODD-A → ODD-D 切换 live 是 DEMO-2 核心场景之一，FMEDA + ToR 矩阵未到位会影响 CCS 中期意见会议
