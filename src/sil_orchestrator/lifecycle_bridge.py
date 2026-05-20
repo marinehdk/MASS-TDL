@@ -4,9 +4,14 @@ Controls scenario_lifecycle_mgr as primary node, then broadcasts configure/
 activate/deactivate/cleanup to all SIL lifecycle nodes (ship_dynamics, scoring,
 target_vessel, etc.) on a best-effort basis so the full SIL stack comes alive
 with a single orchestrator call.
+
+Also handles scenario YAML → ROS2 parameter injection before the CONFIGURE
+transition so simulation nodes receive initial conditions from the scenario
+definition instead of silently falling back to hardcoded defaults.
 """
 
 import asyncio
+import json
 import shutil
 import rclpy
 from pathlib import Path
@@ -16,6 +21,10 @@ from lifecycle_msgs.msg import Transition
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import yaml
+
+from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 _log = logging.getLogger(__name__)
 
@@ -39,6 +48,10 @@ class LifecycleState(str, Enum):
     ACTIVE = "active"
     DEACTIVATING = "deactivating"
     FINALIZED = "finalized"
+
+
+class ScenarioInjectionError(Exception):
+    """Raised when scenario parameter injection into a ROS2 node fails."""
 
 
 @dataclass
@@ -77,6 +90,18 @@ class LifecycleBridge(Node):
                 self._sil_change_state_clients[node_name] = client
             except Exception as exc:
                 _log.debug("Could not create client for %s: %s", svc, exc)
+
+        # Pre-create SetParameters service clients for scenario param injection
+        self._sil_set_parameters_clients: dict[str, object] = {}
+        for node_name in ("ship_dynamics_node", "target_vessel_node",
+                          "env_disturbance_node", "scenario_lifecycle_mgr"):
+            svc = f"/{node_name}/set_parameters"
+            try:
+                client = self.create_client(SetParameters, svc,
+                                            callback_group=callback_group)
+                self._sil_set_parameters_clients[node_name] = client
+            except Exception as exc:
+                _log.debug("Could not create SetParameters client for %s: %s", svc, exc)
 
     @property
     def current_state(self) -> LifecycleState:
@@ -179,6 +204,56 @@ class LifecycleBridge(Node):
         except Exception as exc:
             _log.debug("broadcast: /%s error: %s", node_name, exc)
 
+    async def _inject_params_to_node(self, node_name: str,
+                                     params: dict) -> None:
+        """Inject ROS2 parameters into a node via SetParameters service.
+
+        Raises ScenarioInjectionError on any failure (service unavailable,
+        timeout, or node rejects a parameter).
+        """
+        client = self._sil_set_parameters_clients.get(node_name)
+        if client is None:
+            raise ScenarioInjectionError(
+                f"SetParameters client for '{node_name}' not available")
+
+        if not client.wait_for_service(timeout_sec=3.0):
+            raise ScenarioInjectionError(
+                f"SetParameters service /{node_name}/set_parameters "
+                "not available after 3s")
+
+        req = SetParameters.Request()
+        for param_name, (value, param_type) in params.items():
+            pv = ParameterValue(type=param_type)
+            if param_type == ParameterType.PARAMETER_DOUBLE:
+                pv.double_value = value
+            elif param_type == ParameterType.PARAMETER_STRING:
+                pv.string_value = value
+            elif param_type == ParameterType.PARAMETER_INTEGER:
+                pv.integer_value = value
+            req.parameters.append(Parameter(name=param_name, value=pv))
+
+        try:
+            future = client.call_async(req)
+            deadline = 30  # 30 * 0.1 s = 3 s
+            while not future.done() and deadline > 0:
+                await asyncio.sleep(0.1)
+                deadline -= 1
+            if not future.done():
+                raise ScenarioInjectionError(
+                    f"SetParameters call to '{node_name}' timed out (3s)")
+            response = future.result()
+            for result in response.results:
+                if not result.successful:
+                    reason = result.reason or "unknown reason"
+                    raise ScenarioInjectionError(
+                        f"Parameter injection to '{node_name}' failed: "
+                        f"{reason}")
+        except ScenarioInjectionError:
+            raise
+        except Exception as exc:
+            raise ScenarioInjectionError(
+                f"SetParameters call to '{node_name}' failed: {exc}")
+
     async def _broadcast_transition(self, transition_id: int) -> None:
         """Send transition to every SIL lifecycle node in parallel; log failures, never raise."""
         tasks = [
@@ -189,8 +264,23 @@ class LifecycleBridge(Node):
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def configure(self, scenario_id: str) -> LifecycleResult:
-        # Always sync with the real ROS2 state first — the Python mirror can be
-        # stale after an orchestrator restart (node stays active, bridge resets).
+        # Step 1-3: Load scenario YAML, extract params, log summary
+        yaml_data = _load_scenario_yaml(scenario_id)
+        injection_map = _extract_injection_params(yaml_data)
+        _print_injection_summary(injection_map)
+
+        # Step 4: Inject params in parallel — fail-loud on first error
+        if injection_map:
+            tasks = [
+                self._inject_params_to_node(node_name, params)
+                for node_name, params in injection_map.items()
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, ScenarioInjectionError):
+                    raise result
+
+        # Step 5-7: Original flow — reset, configure transition, broadcast
         reset = await self._reset_to_unconfigured()
         if not reset.success:
             return reset
@@ -198,8 +288,6 @@ class LifecycleBridge(Node):
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
-            # Fire broadcast as background task so configure() returns quickly
-            # and activate() can proceed without waiting for all SIL node responses.
             asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
         return res
 
@@ -224,6 +312,121 @@ class LifecycleBridge(Node):
             self._scenario_id = None
             await self._broadcast_transition(Transition.TRANSITION_CLEANUP)
         return res
+
+
+def _load_scenario_yaml(scenario_id: str, base_dir: Path | None = None) -> dict:
+    """Load and parse a scenario YAML by ID.
+
+    Uses ScenarioStore to locate and read the file, then parses with
+    yaml.safe_load. Raises ScenarioInjectionError on any failure.
+    """
+    from sil_orchestrator.scenario_store import ScenarioStore
+    store = ScenarioStore(base_dir=base_dir)
+    detail = store.get(scenario_id)
+    if detail is None:
+        raise ScenarioInjectionError(
+            f"Scenario '{scenario_id}' not found in store")
+    try:
+        yaml_data = yaml.safe_load(detail["yaml_content"])
+    except yaml.YAMLError as exc:
+        raise ScenarioInjectionError(
+            f"Failed to parse scenario YAML '{scenario_id}': {exc}")
+    if not isinstance(yaml_data, dict):
+        raise ScenarioInjectionError(
+            f"Scenario YAML '{scenario_id}' did not parse to a dict")
+    return yaml_data
+
+
+def _extract_injection_params(yaml_data: dict) -> dict:
+    """Build parameter injection map from parsed scenario YAML.
+
+    Returns dict of ``node_name -> {param_name: (value, ParameterType constant)}``
+    for all fields that have a defined mapping to ROS2 node parameters.
+    """
+    injection_map: dict = {}
+
+    own_ship = yaml_data.get("ownShip", {})
+    initial = own_ship.get("initial", {}) if isinstance(own_ship, dict) else {}
+    pos = initial.get("position", {}) if isinstance(initial, dict) else {}
+
+    # ownShip.initial.position.{latitude,longitude} + {heading,sog,cog}
+    ship_params: dict = {}
+    if isinstance(pos, dict):
+        lat = pos.get("latitude")
+        if lat is not None:
+            ship_params["initial_lat"] = (float(lat), ParameterType.PARAMETER_DOUBLE)
+        lon = pos.get("longitude")
+        if lon is not None:
+            ship_params["initial_lon"] = (float(lon), ParameterType.PARAMETER_DOUBLE)
+    if isinstance(initial, dict):
+        heading = initial.get("heading")
+        if heading is not None:
+            ship_params["initial_heading"] = (float(heading), ParameterType.PARAMETER_DOUBLE)
+        sog = initial.get("sog")
+        if sog is not None:
+            ship_params["initial_sog"] = (float(sog), ParameterType.PARAMETER_DOUBLE)
+        cog = initial.get("cog")
+        if cog is not None:
+            ship_params["initial_cog"] = (float(cog), ParameterType.PARAMETER_DOUBLE)
+    if ship_params:
+        injection_map["ship_dynamics_node"] = ship_params
+
+    # targetShips[] -> target_vessel_node -> default_targets_json
+    target_ships = yaml_data.get("targetShips", [])
+    if isinstance(target_ships, list) and target_ships:
+        targets_json = json.dumps(target_ships)
+        injection_map["target_vessel_node"] = {
+            "default_targets_json": (targets_json, ParameterType.PARAMETER_STRING)
+        }
+
+    # environment.{wind,current} -> env_disturbance_node
+    env = yaml_data.get("environment", {})
+    env_params: dict = {}
+    if isinstance(env, dict):
+        wind = env.get("wind", {})
+        if isinstance(wind, dict):
+            wdir = wind.get("dir_deg")
+            if wdir is not None:
+                env_params["wind_dir_deg"] = (float(wdir), ParameterType.PARAMETER_DOUBLE)
+            wspd = wind.get("speed_mps")
+            if wspd is not None:
+                env_params["wind_speed_mps"] = (float(wspd), ParameterType.PARAMETER_DOUBLE)
+        current = env.get("current", {})
+        if isinstance(current, dict):
+            cdir = current.get("dir_deg")
+            if cdir is not None:
+                env_params["current_dir_deg"] = (float(cdir), ParameterType.PARAMETER_DOUBLE)
+            cspd = current.get("speed_mps")
+            if cspd is not None:
+                env_params["current_speed_mps"] = (float(cspd), ParameterType.PARAMETER_DOUBLE)
+    if env_params:
+        injection_map["env_disturbance_node"] = env_params
+
+    # metadata.scenario_id -> scenario_lifecycle_mgr -> scenario_id
+    metadata = yaml_data.get("metadata", {})
+    if isinstance(metadata, dict):
+        sid = metadata.get("scenario_id")
+        if sid is not None:
+            injection_map["scenario_lifecycle_mgr"] = {
+                "scenario_id": (str(sid), ParameterType.PARAMETER_STRING)
+            }
+
+    return injection_map
+
+
+def _print_injection_summary(injection_map: dict) -> None:
+    """Log a summary of parameters to be injected per node."""
+    total_params = sum(len(params) for params in injection_map.values())
+    if total_params == 0:
+        _log.info("Scenario parameter injection: no parameters to inject")
+        return
+    _log.info(
+        "Scenario parameter injection: %d params across %d nodes",
+        total_params, len(injection_map),
+    )
+    for node_name, params in injection_map.items():
+        for param_name in params:
+            _log.debug("  inject %s :: %s", node_name, param_name)
 
 
 def _copy_preflight_evidence(scenario_id: str, run_id: str) -> None:

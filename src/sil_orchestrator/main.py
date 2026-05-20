@@ -24,7 +24,7 @@ from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.schema_routes import router as schema_router
 from sil_orchestrator.scoring_routes import router as scoring_router
 from sil_orchestrator.ops_routes import router as ops_router
-from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState, _copy_preflight_evidence  # noqa: F401
+from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState, ScenarioInjectionError, _copy_preflight_evidence  # noqa: F401
 
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -140,7 +140,10 @@ async def lifecycle_configure(request: dict):
     detail = _store.get(scenario_id)
     backend = detail.get("backend", "demo") if detail else "demo"
     if backend == "ros2":
-        result = await bridge.configure(scenario_id)
+        try:
+            result = await bridge.configure(scenario_id)
+        except ScenarioInjectionError as exc:
+            return {"success": False, "error": str(exc)}
         return {"success": result.success, "error": result.error}
     # Demo/internal mode: bypass ROS2 lifecycle service
     bridge._scenario_id = scenario_id
