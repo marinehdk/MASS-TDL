@@ -172,7 +172,14 @@ export function SilMapView({
               tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
               tileSize: 256,
               attribution: 'Esri, Maxar'
-            }
+            },
+            openseamap: {
+              type: 'raster' as const,
+              tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenSeaMap contributors',
+              maxzoom: 18,
+            },
           },
           layers: [
             {
@@ -190,6 +197,18 @@ export function SilMapView({
               ...osmLayer as any,
               layout: { visibility: substrate === 'osm' ? 'visible' : 'none' }
             },
+            {
+              id: 'openseamap',
+              source: 'openseamap',
+              type: 'raster' as const,
+              paint: {
+                'raster-opacity': 0.7,
+                'raster-fade-duration': 200,
+              },
+              layout: {
+                visibility: 'none',
+              },
+            } as maplibregl.RasterLayerSpecification,
             ...ALL_S57_LAYERS.map((l) => ({
               ...l as any,
               layout: { ...((l as any).layout || {}), visibility: substrate === 'enc' ? 'visible' : 'none' }
@@ -322,6 +341,13 @@ export function SilMapView({
 
     map.setLayoutProperty('satellite-base', 'visibility', substrate === 'sat' ? 'visible' : 'none');
     map.setLayoutProperty('osm-base', 'visibility', substrate === 'osm' ? 'visible' : 'none');
+    if (map.getLayer('openseamap')) {
+      map.setLayoutProperty(
+        'openseamap',
+        'visibility',
+        (substrate === 'osm' || substrate === 'enc') ? 'visible' : 'none',
+      );
+    }
     
     ALL_S57_LAYERS.forEach(l => {
       map.setLayoutProperty(l.id, 'visibility', substrate === 'enc' ? 'visible' : 'none');
@@ -364,7 +390,20 @@ export function SilMapView({
     // Follow
     if (followOwnShip && viewMode === 'captain' && !previewData) {
       if (!firstFit.current) {
-        map.jumpTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM});
+        // Initial load: fit all ships in view so the operator can see the full
+        // encounter before the viewport locks to own ship.
+        const freshTargets = useTelemetryStore.getState().targets;
+        const allLons = [lon, ...freshTargets.map((t: any) => t.pose?.lon).filter((v: any) => typeof v === 'number')];
+        const allLats = [lat, ...freshTargets.map((t: any) => t.pose?.lat).filter((v: any) => typeof v === 'number')];
+        if (allLons.length > 1 && (Math.max(...allLons) - Math.min(...allLons) > 0.001 || Math.max(...allLats) - Math.min(...allLats) > 0.001)) {
+          map.fitBounds([[Math.min(...allLons) - 0.02, Math.min(...allLats) - 0.02], [Math.max(...allLons) + 0.02, Math.max(...allLats) + 0.02]], {
+            padding: { top: 60, bottom: 60, left: 60, right: 100 },
+            maxZoom: MAP_MAX_ZOOM,
+            duration: 1500,
+          });
+        } else {
+          map.jumpTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM });
+        }
         map.setPadding({
           top: map.getContainer().clientHeight * (0.5 - viewportOffset[1]) * 2,
           bottom: map.getContainer().clientHeight * (viewportOffset[1] - 0.5) * 2,
