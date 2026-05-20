@@ -166,7 +166,7 @@
 | MV-1 | M5 §7.2 FM-4 fallback `ROT_max=8°/s` 硬编 | M5:674 | 拖船/70m PSV ROT_max < 8°/s，fallback 反而激进 | **P0** | 改为 `OUT_of_ODD → MRM`；删硬数 |
 | MV-2 | M2 §2.2 校验 `sog ∈ [0,30] kn (FCB 满载极限)` | M2:48 | 高速渡船自身被标 INVALID | **P0** | `f(Manifest.max_speed)` |
 | MV-3 | M8 `active_role: ROC_OPERATOR` 默认 | M8:111 | 拖船/渡船 on-board primary 不兼容 | **P0** | 对称双角色 PRIMARY_ON_BOARD/PRIMARY_ROC/DUAL |
-| MV-4 | SIL 仿真器与 FCB 耦合（D1.3 命名 / 顶层无 vessel 抽象 / 18 kn 巡航 baseline）| gantt:124-141 | 换船型必须重写仿真器内核 | **CLOSED** | Closed by D1.3a T3：ship_sim_interfaces + FCBSimulator plugin (feat/d1.2-cicd-pipeline，2026-05-13)；D1.3.1 加固：Python ShipMotionSimulator ABC + FCBPlugin (feat/d1.3.1-mmg-integration，2026-05-20) |
+| MV-4 | SIL 仿真器与 FCB 耦合（D1.3 命名 / 顶层无 vessel 抽象 / 18 kn 巡航 baseline）| gantt:124-141 | 换船型必须重写仿真器内核 | **CLOSED** | Closed by D1.3a T3：ship_sim_interfaces + FCBSimulator plugin (feat/d1.2-cicd-pipeline，2026-05-13) |
 | MV-5 | Mid-MPC N=18 / 90s 覆盖"FCB 18kn 制动 600–800m"逻辑 | arch §10.3 / M5:184,272 | N 应 = f(vessel_class)；拖船 12kn 制动 200m 严重过度 | **P0** | Capability Manifest `mpc_horizon_steps` 字段 |
 | MV-6 | 4-DOF MMG 假设普适 | arch §10.5 | FCB 半滑行需 6-DOF；其他可继 4-DOF | **CLOSED** | Closed by D1.3a T2：hull_class: SEMI_PLANING 已添加到 fcb_dynamics.yaml (feat/d1.2-cicd-pipeline，2026-05-13) |
 | MV-7 | ROT_max(u) 速度修正表系数（1.2/1.0/0.8）| arch §10.5:534-538 | 拖船 ROT_max << FCB；6kn 拖船 1.2× = "幻觉转向" | **P0** | Capability Manifest `rot_max_curve` 字段 |
@@ -315,5 +315,3 @@
 | 2026-05-11 | v1.1 | G P0-G-1(c) CLOSED — AIS 历史数据场景 authoring 工具已交付。Closed by D1.3b.2: scenario_authoring package (5-stage AIS pipeline + 50Hz replay node + config-driven L1 mode switching) |
 | 2026-05-11 | v1.1 | SIL P0 SIL-1 (v3.1 NEW) CLOSED — FMI bridge 缺失已解决。D1.3c Phase 1: fmi_bridge package (pybind11 + pythonfmu + libcosim_wrapper + dds-fmu mediator + M7-FMI CI lint), regression test 1/1 skip-only, M7-FMI isolation PASS |
 | 2026-05-11 | v1.1 | V&V P0 E1 CLOSED — SIL latency budget 已处理。dds-fmu exchange budget P95 < 10ms, M7 KPI < 10ms preserved via ROS2 native path; D1.3c full regression PASS |
-| 2026-05-20 | v1.1 | G P0-G-1(a) CLOSED — ShipMotionSimulator ABC + FCBPlugin (Python) 已交付。Closed by D1.3.1: feat/d1.3.1-mmg-integration (T1 ABC + T2 FCBPlugin + T3 YAML vessel_class 驱动 plugin 加载 + T4 AIS 双 topic 发布 + T5 RL lint 验证 + T6 launch + T7 showcase)。ShipMotionSimulator(ABC) 含 5 抽象方法 + export_fmu_interface()(22 FmuVariableSpec)；hull_class: SEMI_PLANING；multi_vessel_lint 合规（仅 _PLUGIN_REGISTRY 字典键一处 vessel 字面量）。|
-| 2026-05-20 | v1.1 | MV-4 加固 — D1.3.1 Python ShipMotionSimulator ABC + FCBPlugin 为 Python SIL 路径补全了原先仅 C++ pluginlib 存在的 vessel 抽象。Capability Manifest pattern 在 Python 侧落地（YAML vessel_class 字段 + _PLUGIN_REGISTRY 注册表 + 零业务代码硬编码 vessel 字面量）。|

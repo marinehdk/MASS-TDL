@@ -6,14 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## 1. 项目当前状态（强制阅读 — 2026-05-19 更新，对齐 8 月计划 v3.0）
+## 1. 项目当前状态（强制阅读 — 2026-05-20 更新，对齐 v3.2-master 文档重构）
 
 ### 1.1 阶段
-- **实现阶段进行中**：**8 月计划 v3.0 已锁定（2026-05-08）**；D0 must-fix sprint（5/8–5/12）✅ **已关闭**；当前处于 **Phase 1 中段**（D1.x 并行进行，目标 DEMO-1 Skeleton Live 6/15）
-- **Phase 1 进度（截至 5/19）**：D1.5 V&V Plan ✅ 完成（`docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md`）；SIL v1.0-unified 4 文档套件 ✅ 锁定（01 架构 / 02 后端 / 03 前端 / 04 场景联调，2026-05-15 起持续修订）；Screen 1/2/3 spec+plan 全部吸收进 SIL 设计套件；D1.3a 仿真器 / D1.3b scenario HMI / D1.3c FMI 桥已建分支并行推进
-- 涉及"跑一下/编译/测试"的请求：参考 v3.0 主计划对应 D 编号判断（D0 范围：pure-logic Python；D1.1 起：ROS2 wrapping）
-- **判定基准**：v3.0 plan 32 个 D 编号（D0–D4.7）是所有实现决策的权威参照
-- **三档强制 DEMO**：DEMO-1 (6/15 Skeleton Live) / DEMO-2 (7/31 Decision-Capable) / DEMO-3 (8/31 Full-Stack with Safety + ToR) —— 不可取消；详见 v3.0 §10/§11/§12
+- **实现阶段进行中**：**计划 v3.2-master 文档重构已完成（2026-05-20）**；D0 must-fix sprint ✅ **已关闭**；当前处于 **Phase 1 中段**（D1.x 并行进行，目标 DEMO-1 Skeleton Live 6/15）
+- **总账位置**：[docs/Design/00-master-plan.md](docs/Design/00-master-plan.md)（精简 ≤300 行，含进度快照 + 修订记录 + DEMO Charter 摘要）；原 1500 行 gantt 文件已归档到 `Architecture Design/gantt/archive/v3.2_2026-05-20_archived.md`
+- **Phase 1 进度（截至 5/20）**：✅ D1.5 V&V Plan / D1.8 cert+ConOps stub / 22 Imazu 场景 frozen / MMG 4-DOF / foxglove + MapLibre + ToR ≥2s；🔴 stub 空壳 4 项（D1.3.1' Sim Qualification / D1.4 编码规范 / D1.6 场景 schema / D1.7 覆盖率方法论）；详见 [Phase 1/00-overview.md](docs/Design/Phase%201/00-overview.md)
+- **编号重排（v3.2）**：D1.3a → D1.3.1 / D1.3b → D1.3.2 / D1.3c → D1.3.3 / D1.3b.{1,2,3} → D1.3.2.{1,2,3}（git 分支名保留旧 a/b/c 不改）
+- 涉及"跑一下/编译/测试"的请求：参考新结构对应 D 编号；先读 [Phase N/00-overview.md](docs/Design/Phase%201/00-overview.md) 再到 D{x.y} 子文档
+- **三档强制 DEMO**：DEMO-1 (6/15) / DEMO-2 (7/31) / DEMO-3 (8/31) — 不可取消
 
 ### 1.2 路线进度
 
@@ -55,9 +56,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    └── 认证级实船试航 D5.x                               ← 2027 Q1/Q2 AIP 受理后
 ```
 
-### 1.3 当前权威架构文件
+### 1.3 当前权威文件
 
-- **架构主文件**：`docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`（**v1.1.2 当前权威，2026-05-06**）
+- **总开发计划主文件**：[docs/Design/00-master-plan.md](docs/Design/00-master-plan.md)（**v3.2-master 当前权威，2026-05-20**，精简总账 + 文档导航）
+- **架构主文件**：`docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`（**v1.1.3-pre-stub 当前权威，2026-05-09**）
 - **8 月开发计划主文件**：`docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md`（**v3.0 当前权威，2026-05-08，已锁定**）
 - **SIL 设计套件 v1.0-unified**（D1.3 系列工程权威，2026-05-15 起持续修订）：
   - `docs/Design/SIL/v1.0-unified/01-sil-architecture.md`（v1.0，2026-05-15）
@@ -176,25 +178,74 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 
 - 改一个模块的设计 = 只改那一章 + 必要的接口契约表更新。**不要顺手统一格式、改其他章节的措辞、补充其他模块的"小问题"**。
 - 发现其他模块有问题：在 PR/会话里**指出**，不要自己改。
-- 架构报告（**v1.1.2 当前权威**）与早期研究稿（`docs/Doc From Claude/2026-04-2*`）+ 归档版本（`archive/v{X}_*_archived.md`）冲突时，以**当前主文件**为准；但若主文件本身有内部矛盾，**停下来询问用户**，不要静默择一。
+- 架构报告（**v1.1.3-pre-stub 当前权威**）与早期研究稿（`docs/Doc From Claude/2026-04-2*`）+ 归档版本（`archive/v{X}_*_archived.md`）冲突时，以**当前主文件**为准；但若主文件本身有内部矛盾，**停下来询问用户**，不要静默择一。
 - 引用编号 `[Rx]` 是架构文档的硬约束。新增引用须分配新编号并加入参考文献章节，**禁止**裸贴 URL 或 "据某研究"。
-- **修订版本管理**（v1.0 → v1.1 → v1.1.1 → v1.1.2 → 未来 v1.1.3）：
+- **修订版本管理**（v1.0 → v1.1 → v1.1.1 → v1.1.2 → v1.1.3-pre-stub → 未来 v1.1.3）：
   - 主架构文件名永远是 `MASS_ADAS_L3_TDL_架构设计报告.md`（无版本后缀）；版本信息在文件内部头表
   - 旧版本归档到 `archive/v{X.Y.Z}_{YYYY-MM-DD}_archived.md`（不可改）
   - 每次升级版本须在文件附录补 v{X-1} → v{X} 修订记录
 
-## 8. 文件夹语义（决定哪里可写）
+### 7.1 文档分层规则（v3.2-master 重构 2026-05-20）
+
+项目文档采用 **L1 总账 + L2 Phase + L3 双轨（D 任务 + M 模块）** 三层结构，外加跨阶段证据文档夹。新建任何设计/计划/报告类文档时**必须按本规则归属**，不许散落到 `docs/` 根目录或 `docs/Doc From Claude/`。
+
+| 层级 | 路径 | 用途 |
+|---|---|---|
+| **L1 总账** | [docs/Design/00-master-plan.md](docs/Design/00-master-plan.md) | 工时数学 / 三档 DEMO milestone / 修订记录 / 文档导航 ≤300 行 |
+| **L2 阶段** | `docs/Design/Phase {0,1,2,3}/00-overview.md` | 阶段目标 + 甘特 + D 任务索引 + DEMO Charter + 进度快照 |
+| **L3a D 任务（开发流）** | `docs/Design/Phase N/D{x.y}-XXX/D{x.y}-{spec,plan,report}.md` | 单个 D 任务的 spec / plan / report；含 `evidence/` 子目录 |
+| **L3b M 模块（系统流）** | `docs/Design/TDL-Kernel/M{n}-XXX/M{n}-{spec,progress}.md` | M1–M8 模块设计要点 + D 任务联动表（Closed in / Currently Implementing / Blocks）|
+| 跨阶段证据 | `docs/Design/{Architecture Design, SIL/v1.0-unified, V&V_Plan, Cert, ConOps, Safety, HF, Cross-Team Alignment, HAZID}/` | 跨多 Phase / 多 D 任务的稳定 artifact（架构 / SIL 套件 / V&V / 认证 / RFC 等）|
+
+**双轨联动规则**：
+- 每个 PR 合并到对应 M 模块时，**同步更新** `TDL-Kernel/M{n}/M{n}-progress.md` 的联动表
+- 每个 D 任务在其 `D{x.y}-spec.md` 头部声明 `Affects: M2/M5/M8`（涉及哪些模块）
+- 每个 M 模块在其 `M{n}-spec.md` 头部声明 `Currently Implementing: D{x.y}`（当前活跃 D 任务）
+- 这样从任一方向查询都能 1 跳跳到对应另一侧
+
+**新 D 任务启动流程**：
+1. 在 `docs/Design/Phase N/` 下建 `D{x.y}-{kebab-slug}/` 目录
+2. 启动 `superpowers:brainstorming` → 产出 `D{x.y}-spec.md`
+3. 启动 `superpowers:writing-plans` → 产出 `D{x.y}-plan.md`
+4. 启动 `superpowers:executing-plans` → 产出 `evidence/` + 闭口后写 `D{x.y}-report.md`
+5. 同步更新涉及模块的 `TDL-Kernel/M{n}/M{n}-progress.md`
+
+**编号规则**：
+- D 任务统一用纯数字 `.` 分隔，禁字母：D1.1 / D1.3.1 / D1.3.2.3 / D2.4
+- 旧 D1.3a/b/c → D1.3.1/2/3 重排映射详见 [00-master-plan.md](docs/Design/00-master-plan.md) §编号映射
+- git 分支名 **保留原 a/b/c**（如 `feat/d1.3b.3-*`）不强制改名
+
+**Archive 规则**：
+- `Archive/` / `archive/` / `Phase 0/Archive/` 所有归档子目录 **只读**，**不引用为权威**
+- 想引用历史决策时优先找当前权威主文件（master-plan / 架构主文件 / RFC-decisions）
+- 把当前文件归档时 `git mv` 到 `archive/v{X.Y}_{YYYY-MM-DD}_archived.md`，并在新文件修订记录中标"已归档"
+
+## 8. 文件夹语义（决定哪里可写 — v3.2-master 重构后）
 
 | 路径 | 性质 | 可改？ |
 |---|---|---|
-| `docs/Design/Architecture Design/` | 架构主文件 v1.1.2 + README + audit/ | ✅ 主战场 |
-| `docs/Design/Architecture Design/archive/` | 历史归档 v1.0/v1.1/v1.1.1 | ❌ 只读历史 |
-| `docs/Design/Architecture Design/gantt/` | 8 月开发计划 v3.0（主文件）+ HTML 副本 | ✅ 主战场 |
-| `docs/Design/Architecture Design/gantt/archive/` | 计划历史归档 v2.0 | ❌ 只读历史 |
-| `docs/Design/Detailed Design/` | 8 模块详细设计（M1–M8）+ D0/D1.x/D2.x/D3.x sprint spec（v3.0 起）| ✅ 主战场 |
-| `docs/Design/Cross-Team Alignment/` | RFC 决议（v3.0 起 RFC-007/008/009 加入，预计 7+ RFC）| ✅ 主战场 |
-| `docs/Design/HAZID/` | HAZID 工作包 + 运行包 + RUN-001-fcb-data-substitute-memo | ✅ 主战场 |
-| `docs/Design/Review/2026-05-07/` | 7 角度评审报告 + 跨角度整合 + 用户决策 §13 | ⚠️ 仅追加修订记录，**不改主体** |
+| **`docs/Design/00-master-plan.md`** | **L1 总账（v3.2-master 当前权威）** | ✅ 主战场（只在大节奏变更时更新）|
+| **`docs/Design/Phase {0,1}/00-overview.md`** | **L2 阶段索引（含 D 任务列表 + 进度快照）** | ✅ 主战场（每 Phase 启动 + 进度变化时更新）|
+| **`docs/Design/Phase {0,1}/D{x.y}-*/D{x.y}-{spec,plan,report}.md`** | **L3a D 任务开发流文档** | ✅ 主战场（每 D 任务 brainstorm/plan/execute 产出）|
+| **`docs/Design/TDL-Kernel/M{1..8}-*/M{n}-{spec,progress}.md`** | **L3b M 模块系统流文档** | ✅ 主战场（PR 合并涉及对应 M 模块时同步更新 progress）|
+| `docs/Design/Architecture Design/` | 架构主文件 v1.1.3-pre-stub + README + audit/ | ✅ 主战场 |
+| `docs/Design/Architecture Design/archive/` | 历史归档 v1.0/v1.1/v1.1.1/v1.1.2 | ❌ 只读历史 |
+| `docs/Design/Architecture Design/gantt/archive/v3.2_2026-05-20_archived.md` | 原 1500 行计划归档（含完整 D 任务 DoD + finding 闭环表 + 工时附录 A-E，作权威细节参考）| ❌ 只读 |
+| `docs/Design/SIL/v1.0-unified/` | SIL 4 文档套件（01 架构 / 02 后端 / 03 前端 / 04 联调）| ✅ 主战场 |
+| `docs/Design/SIL/0{1,2,3}-*.md` | scenario schema / coverage metrics / sim qualification（当前 stub，DEMO-1 前必须填充）| ✅ 主战场 |
+| `docs/Design/Cross-Team Alignment/` | RFC 决议（新 RFC 在此创建）| ✅ 主战场 |
+| `docs/Design/V&V_Plan/` | V&V 策略（D1.5 已在 Phase 1/D1.5/V&V_Plan/，此根目录预留 v1.1.3 完整版）| ✅ 主战场 |
+| `docs/Design/HF/` | 船长访谈 / Figma / 可用性 / 培训矩阵 | ✅ 主战场 |
+| `docs/Design/Cert/` | cert-evidence-tracking + ConOps stub | ✅ 主战场 |
+| `docs/Design/ConOps/` | ConOps v0.1 → 完整版 | ✅ 主战场 |
+| `docs/Design/Safety/HARA/` | HARA ≥30 危险源 → SIF → SIL | ✅ 主战场 |
+| `docs/Design/Safety/FMEDA/` | M1 / M7 FMEDA 表 | ✅ 主战场 |
+| `docs/Design/Safety/ALARP/` | ALARP demonstration（B3 推 v1.1.4）| ⏳ Phase 4 起 |
+| `docs/Design/SDLC/` | IEC 61508-3 §7 SDLC plan（B3 推 v1.1.4）| ⏳ Phase 4 起 |
+| `docs/Design/Cybersecurity/` | RFC-007 L3↔Z-TOP/Cybersec | ✅ 主战场 |
+| `docs/Design/Phase 0/Archive/` | D0 时期归档 RFC/HAZID/Review | ❌ 只读历史 |
+| `docs/Design/Archive/Old Modules/M{1..8}-*/01-detailed-design.md` | 老 M 模块详设（v3.2 起作 TDL-Kernel/M{n}-spec.md 的指针目标）| ❌ 只读历史 |
+| `docs/Design/Detailed Design/` | ⚠️ **已废弃**（被 Phase 1/D{x.y}/ 替代）| 不要写新文件 |
 | `docs/Design/V&V_Plan/` | V&V 策略 / SIL→HIL→实船 entry-exit gates / 端到端 KPI（D1.5 起）| ✅ 主战场（v3.0 NEW）|
 | `docs/Design/SIL/` | scenario schema / coverage metrics / simulator qualification report（D1.3.1/D1.6/D1.7）| ✅ 主战场（v3.0 NEW）|
 | `docs/Design/HF/` | 船长访谈纪要 / Figma 链接 / 可用性测试 / 培训胜任力矩阵（D2.6/D3.5'）| ✅ 主战场（v3.0 NEW）|
@@ -229,59 +280,47 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 - ship_maneuvering 在 v3.0 评审过程已注入 89 sources（B/G angle deep research 结果）；maritime_human_factors 仍偏稀，HF 类查询建议优先升级到 `/nlm-research --depth deep`
 - 船舶项目专属纪律（E1-E7 证据分级、引用格式硬约束、合规 DoD、入级影响表）见 `~/.claude/templates/marine-project-CLAUDE.md`，开始写正式 ADR 时按需引入对应章节到本文件
 
-## 10. 阅读入口推荐顺序（v3.0 锁定后）
+## 10. 阅读入口推荐顺序（v3.2-master 重构后）
 
-新会话开始时，按需读取，**不要全部读完**——v3.0 主计划 ~1500 行，架构报告 v1.1.2 ~30k tokens，仅按当前任务读对应章节：
+新会话开始时，按需读取，**不要全部读完**。总账精简了，单文件读取成本大幅下降；按当前任务分层读：
 
 ### 10.1 顶层强制（任何 D 任务的 brainstorm/writing-plans/executing-plans 都必读）
 
 1. 本文件 CLAUDE.md（始终在上下文中）
-2. **8 月开发计划主文件 v3.0**：`docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md`，重点读：
-   - §0 工时数学（87.0 vs 84.0 闭口路径）
-   - 当前任务对应的 D 章节（§2 D0 / §3 Phase 1 / §4 Phase 2 / §5 Phase 3 / §6 Phase 4）
-   - §10 Demo Milestones / §11 D-task Demo Charter 模板 / §12 Demo-Driven Sync
-   - 附录 A（工作量汇总）+ B（里程碑）+ D（Findings Closure Map）+ E（角色 + 资源日历）
-3. **评审整合清单**：`docs/Design/Review/2026-05-07/00-consolidated-findings.md`（含 §13 用户决策：8/31 不延期 / 12 月实船降级 / 创建 2 个 global notebooks）
+2. **L1 总账**：[docs/Design/00-master-plan.md](docs/Design/00-master-plan.md)（≤300 行，含进度快照 + DEMO Charter 摘要 + 文档导航 + 修订记录）
+3. **L2 当前阶段 overview**：根据任务所属阶段读 [Phase 0/00-overview.md](docs/Design/Phase%200/00-overview.md) 或 [Phase 1/00-overview.md](docs/Design/Phase%201/00-overview.md)（含 D 任务索引 + 状态表 + DEMO Charter）
 
-### 10.2 通用入口（按需）
+### 10.2 L3 双轨入口（按任务驱动）
 
-4. `docs/Design/Architecture Design/README.md`（架构文件索引 + 当前权威指引）
-5. 架构报告 v1.1.2 **目录与第 1–4 章**（背景、决策、ODD 框架、模块全景）— 约 850 行；**注意读取头表元数据 + 修订记录**
-6. 当前任务涉及模块的架构章节（M1=§5, M2=§6, M3=§7, M4=§8, M6=§9, M5=§10, M7=§11, M8=§12）
+**任务驱动**（当前在做 D{x.y} 任务）：
+4. **L3a D 任务文档**：`docs/Design/Phase N/D{x.y}-*/D{x.y}-{spec,plan,report}.md`（spec → plan → report 顺序）
+5. **L3b 涉及模块的 progress**：`docs/Design/TDL-Kernel/M{n}-*/M{n}-progress.md`（D 任务联动表，确认本任务对哪些模块 add Closed in）
 
-### 10.3 详细设计入口
+**模块驱动**（当前调研某个 M 模块）：
+4'. **L3b M 模块 spec + progress**：`docs/Design/TDL-Kernel/M{n}-*/M{n}-{spec,progress}.md`
+5'. **关联 D 任务**：通过 M{n}-progress.md 表的"Currently Implementing"反向找到 L3a D 任务文档
 
-7. **8 模块详细设计**：`docs/Design/Detailed Design/M{N}/01-detailed-design.md`
-8. **跨团队接口契约**：`docs/Design/Cross-Team Alignment/RFC-decisions.md`（6 RFC 决议；v3.0 D0.2/D3.9 起加 RFC-007/008/009）
-9. **HAZID 校准任务**：`docs/Design/HAZID/RUN-001-kickoff.md` + `RUN-001-fcb-data-substitute-memo.md`（D0.2 产出）
+### 10.3 架构 / 跨阶段证据入口（按需）
 
-### 10.3.1 SIL 设计套件入口（D1.3 系列工程权威，新增）
+6. 架构主文件 v1.1.3-pre-stub：`docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`（按章节读，目录 + §1-4 是骨架，M1=§5, M2=§6, M3=§7, M4=§8, M6=§9, M5=§10, M7=§11, M8=§12）
+7. **SIL 设计套件 v1.0-unified**：[SIL/v1.0-unified/](docs/Design/SIL/v1.0-unified/) 4 文档（01 架构 / 02 后端 / 03 前端 / 04 联调）
+8. **V&V Plan**：[Phase 1/D1.5-vv-plan-scenario-qual/V&V_Plan/00-vv-strategy-v0.1.md](docs/Design/Phase%201/D1.5-vv-plan-scenario-qual/V%26V_Plan/00-vv-strategy-v0.1.md)
+9. **跨团队 RFC**：`docs/Design/Cross-Team Alignment/RFC-decisions.md` + 历史 RFC 在 `docs/Design/Phase 0/Archive/Cross-Team Alignment/`
+10. **HAZID**：`docs/Design/Phase 0/Archive/HAZID/RUN-001-kickoff.md` + `RUN-001-fcb-data-substitute-memo.md`
 
-凡涉及 SIL orchestrator / scenario HMI / FMI 桥 / 联调测试的实现任务，先读 SIL v1.0-unified 套件：
+### 10.4 历史归档入口（仅审计 / 决策回溯需要时）
 
-- `docs/Design/SIL/v1.0-unified/01-sil-architecture.md`（v1.0，系统拓扑 + 生命周期 + IDL）
-- `docs/Design/SIL/v1.0-unified/02-sil-backend-design.md`（**v1.0.3**，orchestrator REST + ROS2 topics + scenario authoring）
-- `docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md`（**v1.0.4**，Screen 1/2/3 三屏 + 地图交互 + SSE gate stream）
-- `docs/Design/SIL/v1.0-unified/04-sil-scenario-integration-test.md`（**v1.0.3**，Imazu22 / 联调 / Playwright E2E）
-- `docs/Doc From Claude/L3 TDL SIL 架构整合与修订指导书.md`（套件演进路线图与修订指引）
-- **V&V Plan**：`docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md`（SIL→HIL→实船 entry-exit gates，D1.5 ✅）
+11. **原 1500 行 v3.2 计划归档**：`docs/Design/Architecture Design/gantt/archive/v3.2_2026-05-20_archived.md`（含完整 D 任务 DoD + finding 闭环表 + 工时附录 A-E，作权威细节参考）
+12. **评审 124 findings**：`docs/Design/Phase 0/Archive/Review/2026-05-07/00-consolidated-findings.md`
+13. **架构历史 v1.0-v1.1.2**：`docs/Design/Architecture Design/archive/`
+14. **老 M 模块详设**：`docs/Design/Archive/Old Modules/M{n}-*/01-detailed-design.md`（TDL-Kernel/M{n}-spec.md 的指针目标）
 
-### 10.4 评审与决策回溯入口（v3.0 起新增）
+### 10.4 审计追溯入口（CCS / DNV / 审计师）
 
-10. **7 角度评审报告**：`docs/Design/Review/2026-05-07/{A-G}-*.md`（按当前任务关联 angle 选读）
-11. **架构 v1.1.3 在制**：D2.8 stub（7/31）/ D3.8 完整（8/31）的产出会在 `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md` 内迭代；同时关注 `docs/Design/V&V_Plan/` `docs/Design/SIL/` `docs/Design/HF/` `docs/Design/Cert/` `docs/Design/ConOps/` `docs/Design/Safety/` `docs/Design/Cybersecurity/` 7 个 v3.0 NEW 子目录
-
-### 10.5 审计追溯入口（CCS / DNV / 审计师）
-
-12. `docs/Design/Architecture Design/audit/2026-04-30/00-executive-summary.md`（A 档复审落点）
-13. `docs/Design/Architecture Design/audit/2026-04-30/08c-adr-deltas.md`（ADR-001/002/003）
-14. `docs/Design/Architecture Design/audit/2026-04-30/10-v1.1-revision-audit.md`（5 角色复审）
-
-### 10.6 历史回溯入口（仅审计需要时）
-
-15. `docs/Design/Architecture Design/archive/v1.0_*_archived.md` / `v1.1_*` / `v1.1.1_*`（架构历史快照）
-16. `docs/Design/Architecture Design/gantt/archive/v2.0_2026-05-07_archived.md`（计划 v2.0 历史）
-17. `docs/Init From Zulip/MASS ADAS L3 Tactical Layer 战术层/`（v1.0 之前的早期 4 模块原始输入）
+15. `docs/Design/Architecture Design/audit/2026-04-30/00-executive-summary.md`（A 档复审落点）
+16. `docs/Design/Architecture Design/audit/2026-04-30/08c-adr-deltas.md`（ADR-001/002/003）
+17. `docs/Design/Architecture Design/audit/2026-04-30/10-v1.1-revision-audit.md`（5 角色复审）
+18. `docs/Init From Zulip/MASS ADAS L3 Tactical Layer 战术层/`（v1.0 之前早期 4 模块原始输入）
 
 ---
 
@@ -289,33 +328,14 @@ L1/L2/L4/L5、Multimodal Fusion、Deterministic Checker、Cybersecurity、Sim �
 
 | 工作流 | 状态 | 关键产出位置 |
 |---|---|---|
-| **架构设计 v1.1.2** | ✅ 当前权威 | `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md` |
-| **架构 v1.1.3** | ⏳ 在制（D2.8 stub 7/31 → D3.8 完整 8/31）| 主文件迭代修订 |
-| **审计** | ✅ v1.0–v1.1.2 全链路完成 | `docs/Design/Architecture Design/audit/2026-04-30/` |
-| **详细设计**（8 模块）| ✅ 全部正式 | `docs/Design/Detailed Design/M{1-8}/01-detailed-design.md` |
-| **跨团队 RFC** | ✅ 6 RFC 已批准；v3.0 起加 RFC-007/008/009 | `docs/Design/Cross-Team Alignment/RFC-decisions.md` |
-| **7 角度多角度评审** | ✅ 完成 2026-05-07（30 P0 / 52 P1 / 29 P2 → 124 finding 整合）| `docs/Design/Review/2026-05-07/00-consolidated-findings.md` |
-| **8 月开发计划 v3.0** | ✅ 锁定 2026-05-08 | `docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md` |
-| **D0 must-fix sprint** | ✅ 完成 5/12（11 must-fix + RFC-007/009 + 工时表 v2.1 + HTML 同步）| `docs/Design/Detailed Design/D0-must-fix-sprint/` |
-| **HAZID RUN-001** | ⏳ 5/13 已 kickoff，进行中；8/19 目标完成 | `docs/Design/HAZID/` |
-| **Phase 1 (D1.1–D1.8)** | ⏳ 5/13–6/15 中段，目标 **DEMO-1 Skeleton Live 6/15** | `docs/Design/{V&V_Plan,SIL,Cert,ConOps}/` |
-| **D1.3a 仿真器** | ⏳ 分支推进中（Head-On analytical generator 已落地）| `feat/sil-demo1-head-on` |
-| **D1.3b scenario HMI** | ⏳ 分支并行（YAML mgmt + web HMI + GAP-015 fixes 三分支）| `feat/d1.3b.1-*` / `feat/d1.3b.3-*` |
-| **D1.3c FMI 桥** | ⏳ Docker jazzy→humble 迁移完成 | `feat/d1.3b.3-gap-015-sil-fixes` |
-| **D1.5 V&V Plan** | ✅ v0.1 + Phase1 artifacts 落地 | `docs/Design/V&V_Plan/00-vv-strategy-v0.1.md` + `2026-05-12-vv-phase1-artifacts.md` |
-| **SIL 设计套件 v1.0-unified** | ✅ 4 文档套件锁定（01 v1.0 / 02 v1.0.3 / 03 v1.0.4 / 04 v1.0.3）| `docs/Design/SIL/v1.0-unified/` |
-| **Screen 1/2/3 spec+plan** | ✅ 全部吸收进 SIL 套件 03 前端 | `docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md` |
-| **Phase 2 (D2.1–D2.8)** | ⏳ 6/16–7/31 → **DEMO-2 Decision-Capable 7/31** | 各模块 + `docs/Design/{HF,Safety/HARA,Safety/FMEDA}/` |
-| **Phase 3 (D3.1–D3.9)** | ⏳ 7/13–8/31 → **DEMO-3 Full-Stack with Safety + ToR 8/31** | 各模块 + `docs/Design/Cybersecurity/` |
-| **HIL 测试 (D4.1/D4.2)** | ⏳ 9–11月，硬件 7/13 下单（800h+ 目标）| 待 `docs/Test Plan/HIL/` |
-| **SIL 2 第三方 (D4.3)** | ⏳ TÜV/DNV/BV 接洽 9 月起 | 待 `docs/Cert/SIL2/` |
-| **CCS AIP 提交 (D4.4)** | ⏳ 11月 | 待 `docs/Cert/AIP/` |
-| **FCB 实船 (D4.5)** | ⏳ 12月 **非认证级技术验证**（用户决策 2026-05-07）| 待 `docs/Test Plan/SeaTrial/` |
-| **船长/ROC 训练 (D4.5')** | ⏳ 11月模拟器认证 | `docs/Design/HF/` 延伸 |
-| **RL 对抗 (D4.6, B2 后移)** | ⏳ 10–12月 | 待 `docs/Design/SIL/RL/` |
-| **4 缺失模块完整 (D4.7, B4)** | ⏳ 9–10月条件触发 | 待 `docs/Design/{ENC,ParamStore,EnvValidator,BNWAS}/` |
-| **多船型扩展 RUN-002/003** | ⏳ 拖船 ≥6w / 渡船 ≥6w（10–12月）| `docs/Design/HAZID/RUN-002,003/` |
-| **认证级实船 D5.x** | ⏳ 2027 Q1/Q2 AIP 受理后启动 | 不在本计划 |
+| **架构设计 v1.1.3-pre-stub** | ✅ 当前权威 | `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md` |
+| **架构 v1.1.3 完整** | ⏳ 在制（D2.8 stub 7/31 → D3.8 完整 8/31）| 主文件迭代 |
+| **总开发计划 v3.2-master** | ✅ 当前权威（精简总账）| [docs/Design/00-master-plan.md](docs/Design/00-master-plan.md) |
+| **Phase 0/1 阶段索引** | ✅ 当前权威 | [Phase 0/00-overview.md](docs/Design/Phase%200/00-overview.md) + [Phase 1/00-overview.md](docs/Design/Phase%201/00-overview.md) |
+| **TDL Kernel 模块设计** | ✅ M1-M8 spec+progress stub 完成（v3.2 重构）| [TDL-Kernel/](docs/Design/TDL-Kernel/) |
+| **进度详情** | — | 见 [00-master-plan.md](docs/Design/00-master-plan.md) §当前进度快照 + [Phase 1/00-overview.md](docs/Design/Phase%201/00-overview.md) D 任务表 |
+| **Phase 2/3 documents** | ⏳ 未建（D2.x/D3.x 实际启动时再建对应目录）| — |
+| **Phase 4 展望（D4.1-D4.7 + D5.x）** | ⏳ 9-12月 + 2027 Q1/Q2 | 待 |
 
 ## 12. 文件版本谱系
 
@@ -340,18 +360,22 @@ v1.1.4 ────────── 2027 Q1（AIP 反馈后）
 v1.2.x (长期) ──── 多船型成熟 + 认证级实船 D5.x 启动
 ```
 
-### 12.2 8 月开发计划谱系（v3.0 起）
+### 12.2 8 月开发计划谱系（v3.0 → v3.2-master）
 
 ```
 v1.0 ────────────── 2026-04-20 原始 4 阶段计划
    │
-v2.0 (671 行) ──── 2026-05-07 8 个月完整计划，含 v1.1.2 接口锁定 [gantt/archive/v2.0_*]
-   │ ↓ 7 角度评审 124 finding 全量整合
-   │ ↓ 用户决策: A1+B2+B3 + 8/31 不延期 + 12 月实船降级 + 2 个新笔记本
-v3.0 (~1500 行) ── 2026-05-08 ⬅ 当前权威 [gantt/主文件]
-                    32 个 D 编号（D0–D4.7）+ 三档 DEMO + Demo Charter 模板
-                    + Demo-Driven Sync + 3 新角色（V&V FTE / 安全外包 / HF 外包）
-                    + 87.0 人周工作 / 84.0 产能 / -3.0 闭口
+v2.0 (671 行) ──── 2026-05-07 8 个月完整计划 [gantt/archive/v2.0_*]
+   │ ↓ 7 角度评审 124 finding 整合
+v3.0 ──────────── 2026-05-08 32 D 编号 + 三档 DEMO + 3 新角色
+   │ ↓ SIL 框架架构 patch + 选项 D 混合 + Web HMI
+v3.1 ──────────── 2026-05-09 累计缺口 -32~-34 pw（用户授权）
+   │ ↓ Phase 1 进度快照 + DEMO-2 GAP 标注
+v3.2 (~1500 行) ── 2026-05-20 [gantt/archive/v3.2_2026-05-20_archived.md]
+   │ ↓ 文档重构：1500 行 → 总账 + Phase overview + D 任务子文档 + TDL-Kernel 模块文档双轨树
+   │ ↓ 编号重排 D1.3a/b/c → D1.3.1/2/3
+v3.2-master ───── 2026-05-20 ⬅ 当前权威 [docs/Design/00-master-plan.md]
+                    精简 ≤300 行；详细 D 任务规格散布于 Phase N/ 子目录
 ```
 
 ## 13. Git 分支与 Worktree 规范（2026-05-08 确立）
