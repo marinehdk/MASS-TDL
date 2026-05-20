@@ -100,3 +100,7 @@ CODE_WIKI.md
 
 # Superpowers transient
 .superpowers/brainstorm/
+docs/superpowers/
+
+# Sisyphus work directory
+.sisyphus/
