@@ -8,6 +8,7 @@ stages:
   - unit-test
   - test
   - static-analysis
+  - path_s_independence
   - integration-test
   - release
   - sil-smoke
@@ -127,8 +128,9 @@ multi_vessel_lint:
       HITS=$(wc -l < multi_vessel_lint_report.txt | tr -d ' ')
       echo "Violations found: $HITS"
       if [ "$HITS" -gt "0" ]; then
-        echo "WARNING: Vessel-specific literals detected (see artifact)"
+        echo "FATAL: Vessel-specific literals detected — see multi_vessel_lint_report.txt"
         cat multi_vessel_lint_report.txt
+        exit 1
       else
         echo "OK: No vessel-specific literals found in src/"
       fi
@@ -153,6 +155,8 @@ path_s_dry_run:
   rules:
     - if: $FULL_PIPELINE == "true" || $CI_COMMIT_BRANCH =~ /^feature\//
   script:
+    # NOTE: This job provides fast import/include grep. Quantitative PATH-S
+    # independence (LOC/CC/SBOM) is checked by the path_s_independence stage.
     - |
       echo "=== PATH-S dry run: checking Doer-Checker independence ==="
       grep -rn --include="*.py" -E "(from\s+m7_safety_supervisor|import\s+m7_safety_supervisor|#include.*m7.checker)" \
@@ -564,12 +568,26 @@ stage-3-doer-checker-independence:
     - bash tools/ci/check-doer-checker-independence.sh
   allow_failure: false   # 决策四 + ADR-001 — 不可豁免
 
+path_s_independence:
+  stage: path_s_independence
+  needs: [stage-1-lint]
+  script:
+    - echo "=== PATH-S Independence Quantitative Check ==="
+    - bash tools/ci/check-doer-checker-independence.sh
+    - echo "=== PATH-S Independence Report Complete ==="
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - path_s_independence_report.txt
+    expire_in: 30 days
+
 # ===============================================================
 # Stage 4: Integration Test
 # ===============================================================
 stage-4-integration:
   stage: integration-test
-  needs: [stage-3-clang-tidy, stage-3-cppcheck-misra, stage-3-doer-checker-independence]
+  needs: [stage-3-clang-tidy, stage-3-cppcheck-misra, stage-3-doer-checker-independence, path_s_independence]
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
