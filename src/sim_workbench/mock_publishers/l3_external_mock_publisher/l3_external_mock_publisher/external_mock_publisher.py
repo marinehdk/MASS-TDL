@@ -79,7 +79,7 @@ class ExternalMockPublisher(Node):
     # --- 1 Hz publishers (VoyageTask / PlannedRoute / SpeedProfile) ---
     def _publish_voyage_task(self, stamp: Time) -> None:
         msg = VoyageTask()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.task_id = self._counter
 
@@ -105,7 +105,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_planned_route(self, stamp: Time) -> None:
         msg = PlannedRoute()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.route_id = self._counter
         msg.total_distance_nm = 50.0
@@ -116,7 +116,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_speed_profile(self, stamp: Time) -> None:
         msg = SpeedProfile()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.profile_id = self._counter
         msg.confidence = 0.95
@@ -126,7 +126,7 @@ class ExternalMockPublisher(Node):
     # --- 2 Hz: TrackedTargetArray (AoS — uses l3_msgs/TrackedTarget[]) ---
     def _publish_targets(self, stamp: Time) -> None:
         msg = TrackedTargetArray()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
 
         targets: list[TrackedTarget] = []
@@ -161,7 +161,7 @@ class ExternalMockPublisher(Node):
     # --- 50 Hz: FilteredOwnShipState ---
     def _publish_ownship(self, stamp: Time) -> None:
         msg = FilteredOwnShipState()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.position = GeoPoint(latitude=22.5, longitude=114.0, altitude=0.0)
         msg.sog_kn = 18.0
@@ -181,7 +181,7 @@ class ExternalMockPublisher(Node):
     # --- 0.2 Hz: EnvironmentState (every 5 s) ---
     def _publish_environment(self, stamp: Time) -> None:
         msg = EnvironmentState()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.wind_speed_kn = 15.0
         msg.wind_direction_deg = 180.0
@@ -194,7 +194,7 @@ class ExternalMockPublisher(Node):
     # --- Event-style (every 30 s for testing): default-state placeholders ---
     def _publish_replan_response(self, stamp: Time) -> None:
         msg = ReplanResponse()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.status = ReplanResponse.STATUS_SUCCESS
         msg.failure_reason = ""
@@ -203,7 +203,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_veto(self, stamp: Time) -> None:
         msg = CheckerVetoNotification()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.checker_layer = "L3"
         msg.vetoed_module = "m5_tactical_planner"
@@ -216,7 +216,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_reflex_state(self, stamp: Time) -> None:
         msg = ReflexActivationNotification()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.activation_time = stamp
         msg.reason = "none"
         msg.l3_freeze_required = False  # F-CRIT-B-005: spec required field
@@ -224,7 +224,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_override_signal(self, stamp: Time) -> None:
         msg = OverrideActiveSignal()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.override_active = False
         msg.activation_source = "none"  # F-CRIT-B-006: renamed from override_source
@@ -232,7 +232,7 @@ class ExternalMockPublisher(Node):
 
     def _publish_emergency_command(self, stamp: Time) -> None:
         msg = EmergencyCommand()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.trigger_time = stamp
         msg.cpa_at_trigger_m = 100.0
         msg.range_at_trigger_m = 200.0
