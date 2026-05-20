@@ -1,3 +1,8 @@
+uint16 schema_version  # 112 = v1.1.2
+builtin_interfaces/Time stamp
+float32 confidence  # [0, 1] — 分类置信度
+string rationale    # SAT-2 摘要
+
 # COLREG geometric pre-classification per v1.1.2 §6.2
 # 由 M2 World Model 在 TrackedTarget 内置；M6 在此基础上做规则推理
 uint8 encounter_type

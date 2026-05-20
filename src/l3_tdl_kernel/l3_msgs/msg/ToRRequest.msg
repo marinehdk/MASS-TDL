@@ -1,5 +1,5 @@
 # Per v1.1.2 §15.1 + §12.4 ToR 协议（C 交互验证：操作员主动点击）
-string schema_version  # default: "v1.1.2"
+uint16 schema_version  # 112 = v1.1.2
 builtin_interfaces/Time stamp
 
 uint8 reason
@@ -15,5 +15,6 @@ uint8 TARGET_LEVEL_D3 = 3
 uint8 TARGET_LEVEL_D4 = 4
 
 float32 confidence
+string rationale    # SAT-2 摘要（接管请求理由）
 string context_summary                   # SAT-1 摘要（操作员须阅读）
 string recommended_action

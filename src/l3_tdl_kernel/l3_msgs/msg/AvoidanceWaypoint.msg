@@ -1,3 +1,8 @@
+uint16 schema_version  # 112 = v1.1.2
+builtin_interfaces/Time stamp
+float32 confidence  # [0, 1] — 此 WP 的路径规划置信度
+string rationale    # SAT-2 摘要
+
 # Avoidance path waypoint per v1.1.2 §10 + RFC-001 方案 B
 geographic_msgs/GeoPoint position
 float64 wp_distance_m                    # 距前一 WP 的距离

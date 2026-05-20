@@ -1,5 +1,5 @@
 # Per v1.1.2 §15.1 Behavior_PlanMsg
-string schema_version  # default: "v1.1.2"
+uint16 schema_version  # 112 = v1.1.2
 builtin_interfaces/Time stamp
 
 uint8 behavior

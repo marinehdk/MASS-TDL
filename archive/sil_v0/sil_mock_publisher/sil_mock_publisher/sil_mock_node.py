@@ -39,7 +39,7 @@ class SilMockNode(rclpy.node.Node):
 
     def _make_sat_stub(self, stamp) -> SATData:
         msg = SATData()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.source_module = "sil_mock_publisher"
 
@@ -76,7 +76,7 @@ class SilMockNode(rclpy.node.Node):
         from l3_external_msgs.msg import FilteredOwnShipState
         from geographic_msgs.msg import GeoPoint
         msg = FilteredOwnShipState()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = self.get_clock().now().to_msg()
         pos = GeoPoint()
         pos.latitude = lat
@@ -113,7 +113,7 @@ class SilMockNode(rclpy.node.Node):
         enc.aspect_angle_deg = 180.0
 
         t = TrackedTarget()
-        t.schema_version = "v1.1.2"
+        t.schema_version = 112
         t.target_id = 1
         t.stamp = self.get_clock().now().to_msg()
         pos = GeoPoint()
@@ -133,7 +133,7 @@ class SilMockNode(rclpy.node.Node):
         t.encounter = enc
 
         msg = TrackedTargetArray()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.targets = [t]
         msg.confidence = 0.7
         msg.rationale = "R14 head-on mock trajectory"
@@ -141,7 +141,7 @@ class SilMockNode(rclpy.node.Node):
 
     def _make_odd_stub(self, stamp) -> ODDState:
         msg = ODDState()
-        msg.schema_version = "v1.1.2"
+        msg.schema_version = 112
         msg.stamp = stamp
         msg.current_zone = ODDState.ODD_ZONE_A
         msg.auto_level = ODDState.AUTO_LEVEL_D3

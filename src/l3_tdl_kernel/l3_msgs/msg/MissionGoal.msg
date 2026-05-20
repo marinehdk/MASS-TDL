@@ -1,5 +1,5 @@
 # Per v1.1.2 §15.1 Mission_GoalMsg
-string schema_version  # default: "v1.1.2"
+uint16 schema_version  # 112 = v1.1.2
 builtin_interfaces/Time stamp
 geographic_msgs/GeoPoint current_target_wp
 float32 eta_to_target_s

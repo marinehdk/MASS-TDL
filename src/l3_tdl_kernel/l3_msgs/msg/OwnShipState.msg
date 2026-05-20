@@ -1,6 +1,8 @@
 # Own ship state from latest FilteredOwnShipState snapshot per v1.1.2 §15.1
-string schema_version  # default: "v1.1.2"
+uint16 schema_version  # 112 = v1.1.2
 builtin_interfaces/Time stamp
+float32 confidence  # [0, 1] — 自船状态置信度
+string rationale    # SAT-2 摘要
 geographic_msgs/GeoPoint position
 float64 sog_kn                           # 对地速度（用于 CPA 计算）
 float64 cog_deg                          # 对地航向

@@ -1,3 +1,8 @@
+uint16 schema_version  # 112 = v1.1.2
+builtin_interfaces/Time stamp
+float32 confidence  # [0, 1]
+string rationale    # SAT-2 摘要
+
 # ENC-derived zone constraints per v1.1.2 §6.4
 string zone_type                         # "open_water" | "narrow_channel" | "tss" | "harbor" | "anchorage"
 bool in_tss                              # 是否处于分道通航制（Rule 10）
