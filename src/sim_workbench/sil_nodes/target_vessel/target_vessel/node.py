@@ -146,8 +146,8 @@ class TargetVesselNode(LifecycleNode):
                     errors = []
                     if not isinstance(mmsi, int) or mmsi <= 0:
                         errors.append(f"mmsi={mmsi} (must be > 0)")
-                    if not isinstance(lat, (int, float)) or math.isnan(float(lat)) or not (-90.0 <= lat <= 90.0) or lat == 0.0:
-                        errors.append(f"lat={lat} (must be in [-90,90] and != 0 sentinel)")
+                    if not isinstance(lat, (int, float)) or math.isnan(float(lat)) or not (-90.0 <= lat <= 90.0):
+                        errors.append(f"lat={lat} (must be in [-90,90])")
                     if not isinstance(lon, (int, float)) or math.isnan(float(lon)) or not (-180.0 <= lon <= 180.0):
                         errors.append(f"lon={lon} (must be in [-180,180])")
                     if not isinstance(heading_deg, (int, float)) or not (0.0 <= heading_deg < 360.0):
@@ -188,7 +188,7 @@ class TargetVesselNode(LifecycleNode):
             TargetVesselState, "/sil/target_vessel_state", qos
         )
         self._timer = self.create_timer(0.1, self._step_callback)
-        self._logger.info("Activated — publishing TargetVesselState @ 10 Hz")
+        self.get_logger().info("Activated — publishing TargetVesselState @ 10 Hz")
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: LifecycleState) -> TransitionCallbackReturn:
@@ -198,12 +198,12 @@ class TargetVesselNode(LifecycleNode):
         if self._tv_pub is not None:
             self.destroy_publisher(self._tv_pub)
             self._tv_pub = None
-        self._logger.info("Deactivated")
+        self.get_logger().info("Deactivated")
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self._targets.clear()
-        self._logger.info("Cleaned up — targets cleared")
+        self.get_logger().info("Cleaned up — targets cleared")
         return TransitionCallbackReturn.SUCCESS
 
     # ── Internal ────────────────────────────────────────────────────────
