@@ -5,3 +5,4 @@ from .ship_motion_simulator import (
     FmuDescriptor,
     FmuVariableSpec,
 )
+from .fcb_plugin import FCBPlugin
