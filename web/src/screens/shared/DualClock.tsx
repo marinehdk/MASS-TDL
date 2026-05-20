@@ -7,7 +7,7 @@ interface DualClockProps {
 
 export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
   const [time, setTime] = useState(new Date());
-  const [tz, setTz] = useState(0); // offset in hours
+  const [tz, setTz] = useState(8); // offset in hours, default to BJT (8)
 
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 1000);
@@ -24,18 +24,17 @@ export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
     <div style={{
       display: 'flex', alignItems: 'center', gap: 12,
       fontFamily: 'var(--f-mono)', fontSize: 16,
-      padding: showSim ? '4px 12px 4px 6px' : '4px 12px',
+      padding: '4px 12px',
     }}>
       {showSim && (
         <>
           <div data-testid="dual-clock-sim" style={{
-            color: 'var(--bg-0)',
-            background: 'var(--c-phos)',
-            padding: '2px 8px', borderRadius: 3,
-            fontWeight: 700,
-            boxShadow: '0 0 10px rgba(91,192,190,0.5)',
+            display: 'flex', alignItems: 'center', gap: 8,
           }}>
-            SIM T+{simM}:{simS}
+            <span style={{ color: 'var(--c-info)', fontWeight: 700 }}>SIM T+</span>
+            <span style={{ color: 'var(--txt-0)', fontWeight: 700, letterSpacing: '0.05em' }}>
+              {simM}:{simS}
+            </span>
           </div>
           <div style={{ width: 1, height: 16, background: 'var(--line-2)' }} />
         </>
@@ -47,9 +46,9 @@ export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
           onChange={(e) => setTz(Number(e.target.value))}
           style={{
             background: 'transparent', border: 'none', 
-            color: showSim ? 'var(--txt-3)' : 'var(--c-info)',
+            color: 'var(--c-info)',
             fontFamily: 'var(--f-mono)', fontSize: 16, cursor: 'pointer', outline: 'none',
-            fontWeight: showSim ? 500 : 700,
+            fontWeight: 700,
           }}
         >
           <option value={0}>UTC</option>
@@ -58,8 +57,8 @@ export const DualClock: React.FC<DualClockProps> = ({ simTime, showSim }) => {
           <option value={-5}>EST</option>
         </select>
         <div data-testid="dual-clock-utc" style={{
-          color: showSim ? 'var(--txt-2)' : 'var(--txt-0)',
-          fontWeight: showSim ? 500 : 700,
+          color: 'var(--txt-0)',
+          fontWeight: 700,
           letterSpacing: '0.05em'
         }}>
           {timeStr}

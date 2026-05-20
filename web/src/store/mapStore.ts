@@ -7,13 +7,12 @@ export interface MapViewport {
   pitch: number;
 }
 
-// Zoom 11 ≈ 1 nm scale at 63°N; capped at 11 to avoid sparse-ENC-tile
-// "land squares" artefact at higher zooms over open-ocean scenario coords.
-export const MAP_MAX_ZOOM = 11;
+// "land squares" artefact at higher zooms resolved via solid-background underlay.
+export const MAP_MAX_ZOOM = 18;
 
 const DEFAULT_VIEWPORT: MapViewport = {
   center: [10.38, 63.44],
-  zoom: MAP_MAX_ZOOM,
+  zoom: 14,
   bearing: 0,
   pitch: 0,
 };

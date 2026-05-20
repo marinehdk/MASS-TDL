@@ -1,7 +1,7 @@
 {
   "gate_id": 4,
   "gate_name": "ODD-Scenario Alignment",
-  "timestamp_utc": "2026-05-20T05:23:58.933011Z",
+  "timestamp_utc": "2026-05-20T08:26:21.547365Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -16,7 +16,7 @@
       "detail": "M1 ODD cross-check: Phase 2 (D2.1 M1 /health endpoint not yet available)"
     }
   ],
-  "duration_ms": 2.2,
+  "duration_ms": 5220.2,
   "rationale": "ODD alignment verified",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 ODD conformance",
   "hazid_scenario_ref": null

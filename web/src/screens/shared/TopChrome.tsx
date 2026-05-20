@@ -170,15 +170,20 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
           <div data-testid="view-toggle" style={{
             display: 'flex', border: '1px solid var(--line-2)',
           }}>
-            {(['captain', 'god'] as const).map((mode) => (
-              <div key={mode} onClick={() => setViewMode(mode)} style={{
-                padding: '3px 10px', cursor: 'pointer',
-                background: viewMode === mode ? 'var(--c-phos)' : 'transparent',
-                color: viewMode === mode ? 'var(--bg-0)' : 'var(--txt-3)',
-                fontFamily: 'var(--f-disp)', fontSize: 9, letterSpacing: '0.14em',
-                fontWeight: 600, textTransform: 'uppercase',
+            {([
+              { id: 'captain', label: '船长' },
+              { id: 'god',     label: '测试' },
+            ] as const).map(({ id, label }) => (
+              <div key={id} onClick={() => setViewMode(id as any)} style={{
+                padding: '4px 14px', cursor: 'pointer',
+                background: viewMode === id ? 'var(--c-phos)' : 'transparent',
+                color: viewMode === id ? '#ffffff' : 'rgba(255, 255, 255, 0.6)',
+                fontFamily: 'var(--f-disp)', fontSize: 13, letterSpacing: '0.1em',
+                fontWeight: viewMode === id ? 700 : 500,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.2s ease',
               }}>
-                {mode}
+                {label}
               </div>
             ))}
           </div>
