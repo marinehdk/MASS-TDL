@@ -1,0 +1,177 @@
+# Cerberus schema for FCB scenario YAML files (maritime-schema v3.0)
+# Compatible with cerberus-cpp subset: type, required, min, max, allowed, schema
+# NO allof/anyof/oneof/check_with/coerce
+---
+title:
+  type: string
+  required: true
+
+description:
+  type: string
+  required: false
+
+startTime:
+  type: string
+  required: true
+
+ownShip:
+  type: dict
+  required: true
+  schema:
+    static:
+      type: dict
+      required: true
+      schema:
+        id:
+          type: integer
+          required: true
+        shipType:
+          type: string
+          required: true
+        name:
+          type: string
+          required: true
+        mmsi:
+          type: integer
+          required: true
+    initial:
+      type: dict
+      required: true
+      schema:
+        position:
+          type: dict
+          required: true
+          schema:
+            latitude:
+              type: float
+              required: true
+              min: -90.0
+              max: 90.0
+            longitude:
+              type: float
+              required: true
+              min: -180.0
+              max: 180.0
+        cog:
+          type: float
+          required: true
+          min: 0.0
+          max: 360.0
+        sog:
+          type: float
+          required: true
+          min: 0.0
+        heading:
+          type: float
+          required: true
+          min: 0.0
+          max: 360.0
+        navStatus:
+          type: string
+          required: true
+    model:
+      type: string
+      required: true
+    controller:
+      type: string
+      required: true
+
+targetShips:
+  type: list
+  required: false
+  schema:
+    type: dict
+    schema:
+      id:
+        type: string
+        required: true
+      static:
+        type: dict
+        required: true
+        schema:
+          id:
+            type: integer
+            required: true
+          mmsi:
+            type: integer
+            required: true
+      initial:
+        type: dict
+        required: true
+        schema:
+          position:
+            type: dict
+            required: true
+            schema:
+              latitude:
+                type: float
+                required: true
+                min: -90.0
+                max: 90.0
+              longitude:
+                type: float
+                required: true
+                min: -180.0
+                max: 180.0
+          cog:
+            type: float
+            required: true
+            min: 0.0
+            max: 360.0
+          sog:
+            type: float
+            required: true
+            min: 0.0
+          heading:
+            type: float
+            required: true
+            min: 0.0
+            max: 360.0
+      model:
+        type: string
+        required: true
+
+environment:
+  type: dict
+  required: false
+  schema:
+    wind:
+      type: dict
+      required: true
+      schema:
+        dir_deg:
+          type: float
+          required: true
+        speed_mps:
+          type: float
+          required: true
+          min: 0.0
+    current:
+      type: dict
+      required: true
+      schema:
+        dir_deg:
+          type: float
+          required: true
+        speed_mps:
+          type: float
+          required: true
+          min: 0.0
+    visibility_nm:
+      type: float
+      required: true
+      min: 0.0
+
+metadata:
+  type: dict
+  required: true
+  schema:
+    schema_version:
+      type: string
+      required: true
+    scenario_id:
+      type: string
+      required: true
+    vessel_class:
+      type: string
+      required: true
