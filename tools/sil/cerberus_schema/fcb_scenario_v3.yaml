@@ -55,17 +55,17 @@ ownShip:
         cog:
           type: float
           required: true
-          min: 0.0
-          max: 360.0
+          min: -0.01
+          max: 360.01
         sog:
           type: float
           required: true
-          min: 0.0
+          min: -0.01
         heading:
           type: float
           required: true
-          min: 0.0
-          max: 360.0
+          min: -0.01
+          max: 360.01
         navStatus:
           type: string
           required: true
@@ -116,17 +116,17 @@ targetShips:
           cog:
             type: float
             required: true
-            min: 0.0
-            max: 360.0
+            min: -0.01
+            max: 360.01
           sog:
             type: float
             required: true
-            min: 0.0
+            min: -0.01
           heading:
             type: float
             required: true
-            min: 0.0
-            max: 360.0
+            min: -0.01
+            max: 360.01
       model:
         type: string
         required: true
@@ -145,7 +145,7 @@ environment:
         speed_mps:
           type: float
           required: true
-          min: 0.0
+          min: -0.01
     current:
       type: dict
       required: true
@@ -156,11 +156,11 @@ environment:
         speed_mps:
           type: float
           required: true
-          min: 0.0
+          min: -0.01
     visibility_nm:
       type: float
       required: true
-      min: 0.0
+      min: -0.01
 
 metadata:
   type: dict
