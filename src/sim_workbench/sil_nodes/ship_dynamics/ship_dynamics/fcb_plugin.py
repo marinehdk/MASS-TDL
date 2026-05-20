@@ -69,6 +69,8 @@ class FCBPlugin(ShipMotionSimulator):
         current_dir_rad: float = 0.0,
     ) -> ShipState:
         """单步积分 → 代理至 MMGModel.rk4_step。"""
+        if self._model is None:
+            raise RuntimeError("FCBPlugin: load_params() must be called before step()")
         return self._model.rk4_step(
             state,
             delta_rad,

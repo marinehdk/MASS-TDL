@@ -1,8 +1,10 @@
-"""ShipDynamicsNode — FCB 4-DOF MMG 模型 LifecycleNode @ 50Hz。
+"""ShipDynamicsNode — 4-DOF MMG 船舶动力学 LifecycleNode @ 50Hz。
 
 发布: /sil/own_ship_state (sil_msgs/OwnShipState)
 订阅: /sil/actuator_cmd (sil_msgs/OwnShipState — rudder_angle + throttle)
       /sil/environment  (sil_msgs/EnvironmentState)
+
+船型通过 YAML vessel_class 字段动态加载 ShipMotionSimulator plugin。
 """
 
 import math
@@ -18,7 +20,6 @@ except ImportError:
     State = object
     TransitionCallbackReturn = object
 
-from .mmg_coefficients import MMGCoefficients
 from .fcb_plugin import FCBPlugin
 from .ship_motion_simulator import ShipMotionSimulator
 from .mmg_model import ShipState
@@ -45,11 +46,21 @@ def _lon_offset(meters: float, lat_rad: float) -> float:
 
 
 class ShipDynamicsNode(LifecycleNode):
-    """FCB 4-DOF MMG 动力学节点 — rclpy LifecycleNode。
+    """船舶动力学仿真节点 — rclpy LifecycleNode。
 
     Lifecycle:
       configure → activate → deactivate → cleanup → shutdown
+
+    船型通过 _PLUGIN_REGISTRY + YAML vessel_class 字段动态加载。
     """
+
+    # Vessel plugin registry — single mapping point for multi-vessel support.
+    # Add new vessel types by adding entries here only (YAML vessel_class driven).
+    _PLUGIN_REGISTRY: dict[str, type[ShipMotionSimulator]] = {
+        "FCB": FCBPlugin,
+        # "TUG": TugPlugin,      # RUN-002 (Phase 4)
+        # "FERRY": FerryPlugin,  # RUN-003 (Phase 4)
+    }
 
     def __init__(self, node_name: str = "ship_dynamics_node"):
         if LifecycleNode is not object:
@@ -189,18 +200,11 @@ class ShipDynamicsNode(LifecycleNode):
         except Exception:
             vessel_class = "FCB"
 
-        # Plugin registry -- single mapping point, no vessel-type literals elsewhere
-        _PLUGIN_REGISTRY: dict[str, type[ShipMotionSimulator]] = {
-            "FCB": FCBPlugin,
-            # "TUG": TugPlugin,      # RUN-002 (Phase 4)
-            # "FERRY": FerryPlugin,  # RUN-003 (Phase 4)
-        }
-
-        plugin_cls = _PLUGIN_REGISTRY.get(vessel_class)
+        plugin_cls = self._PLUGIN_REGISTRY.get(vessel_class)
         if plugin_cls is None:
             raise ValueError(
                 f"Unknown vessel_class '{vessel_class}'. "
-                f"Available: {list(_PLUGIN_REGISTRY.keys())}"
+                f"Available: {list(self._PLUGIN_REGISTRY.keys())}"
             )
 
         plugin = plugin_cls()
@@ -244,8 +248,9 @@ class ShipDynamicsNode(LifecycleNode):
             cs = self._current_speed
             cd = self._current_dir
 
+        dt_s = self._plugin.export_fmu_interface().default_step_size
         self._state = self._plugin.step(
-            self._state, dc, nr, 0.02, ws, wd, cs, cd,
+            self._state, dc, nr, dt_s, ws, wd, cs, cd,
         )
 
         lat = self._origin_lat_rad + math.radians(
@@ -272,42 +277,6 @@ class ShipDynamicsNode(LifecycleNode):
         self._state_pub.publish(msg)
 
     # ─── 辅助方法 ─────────────────────────────────────────────
-
-    def _load_coefficients(self) -> MMGCoefficients:
-        """从 ROS 参数服务器加载 MMG 系数 (fallback: 默认值)。"""
-        coeffs = MMGCoefficients()
-        param_map = {
-            "L": "L", "d": "d", "B": "B",
-            "displacement_t": "displacement_t", "x_G": "x_G",
-            "m_x_prime": "m_x_prime", "m_y_prime": "m_y_prime",
-            "J_zz_prime": "J_zz_prime",
-            "X_vv": "X_vv", "X_vr": "X_vr", "X_rr": "X_rr", "X_vvvv": "X_vvvv",
-            "Y_v": "Y_v", "Y_r": "Y_r",
-            "Y_vvv": "Y_vvv", "Y_vvr": "Y_vvr", "Y_vrr": "Y_vrr", "Y_rrr": "Y_rrr",
-            "N_v": "N_v", "N_r": "N_r",
-            "N_vvv": "N_vvv", "N_vvr": "N_vvr", "N_vrr": "N_vrr", "N_rrr": "N_rrr",
-            "G_M": "G_M", "T_phi": "T_phi",
-            "t_P": "t_P", "w_P": "w_P", "D_P": "D_P",
-            "k_0": "k_0", "k_1": "k_1", "k_2": "k_2",
-            "t_R": "t_R", "a_H": "a_H",
-            "x_H_prime": "x_H_prime", "x_R_prime": "x_R_prime",
-            "gamma_R": "gamma_R", "l_R_prime": "l_R_prime",
-            "kappa": "kappa", "epsilon": "epsilon",
-            "A_R": "A_R", "f_alpha": "f_alpha",
-            "dt": "dt",
-            "x0": "x0", "y0": "y0", "psi0": "psi0", "u0": "u0",
-            "origin_lat": "origin_lat", "origin_lon": "origin_lon",
-        }
-        for py_attr, ros_param in param_map.items():
-            try:
-                if hasattr(self, "get_parameter") and not hasattr(self, "declare_parameter"):
-                    pass  # avoid declare_parameter on non-LifecycleNode
-                elif hasattr(self, "get_parameter"):
-                    declared = self.declare_parameter(ros_param, getattr(coeffs, py_attr))
-                    setattr(coeffs, py_attr, declared.value)
-            except Exception:
-                pass
-        return coeffs
 
     def _get_own_ship_state_msg(self):
         """延迟导入 OwnShipState 消息类型。"""
