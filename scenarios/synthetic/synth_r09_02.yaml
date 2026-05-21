@@ -1,0 +1,68 @@
+title: Synthetic Rule 09 02 — Narrow Channel Overtaking
+description: 'D2.4 synthetic fill: OS N 12kn overtaking N-bound slow vessel 6kn. Coastal archipelago. Turn starboard to pass.'
+startTime: '2026-01-01T00:00:00Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+    mmsi: 123456789
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 12.0
+    heading: 0.0
+    navStatus: Under way using engine
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000044
+  initial:
+    position:
+      latitude: 63.472
+      longitude: 10.38
+    cog: 0.0
+    sog: 6.0
+    heading: 0.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.3
+  visibility_nm: 8.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: synth-r09-02-v1.0
+  vessel_class: FCB
+  odd_cell:
+    domain: coastal_archipelago
+  encounter:
+    rule: Rule9
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 240.0
+    avoidance_delta_rad: 0.5236
+    avoidance_duration_s: 120.0
+  scenario_source: synthetic_d2.4
+  expected_outcome:
+    cpa_min_m_ge: 400.0
+  simulation_settings:
+    total_time: 600.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002
