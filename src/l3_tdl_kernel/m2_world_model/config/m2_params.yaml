@@ -17,3 +17,11 @@ m2_world_model:
     dv_loss_periods_to_critical: 5
     ev_loss_ms_to_critical: 100
     sv_loss_s_to_degraded: 30.0
+    cpa_covariance:
+      method: "ukf_sigma"               # "linear" | "monte_carlo" | "ukf_sigma"
+      ukf_alpha: 0.001
+      ukf_beta: 2.0
+      ukf_kappa: 0.0
+      min_rel_speed_ms: 0.1
+      cpa_covariance_clamp_m2: 2500.0
+      tcpa_covariance_clamp_s2: 100.0

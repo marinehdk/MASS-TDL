@@ -204,10 +204,19 @@ WorldStateAggregator::compose_world_state(
     if (cpa_opt.has_value()) {
       wt.cpa_m = cpa_opt->cpa_m;
       wt.tcpa_s = cpa_opt->tcpa_s;
+      wt.cpa_covariance_m2 = cpa_opt->uncertainty.cpa_sigma_m
+                           * cpa_opt->uncertainty.cpa_sigma_m;
+      wt.tcpa_covariance_s2 = cpa_opt->uncertainty.tcpa_sigma_s
+                            * cpa_opt->uncertainty.tcpa_sigma_s;
+      // Positive-definite safety clamp
+      if (wt.cpa_covariance_m2 > 2500.0) { wt.cpa_covariance_m2 = 2500.0; }
+      if (wt.tcpa_covariance_s2 > 100.0) { wt.tcpa_covariance_s2 = 100.0; }
     } else {
       // Computation failed — mark as invalid
       wt.cpa_m = -1.0;
       wt.tcpa_s = -1.0;
+      wt.cpa_covariance_m2 = 2500.0;   // max uncertainty
+      wt.tcpa_covariance_s2 = 100.0;
     }
 
     // 4b. Compute relative bearing

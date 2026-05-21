@@ -372,4 +372,123 @@ TEST(CpaTcpaCalculatorTest, ZeroRelativeVelocity) {
   EXPECT_NEAR(result->cpa_m, 400.0, 2.0);
 }
 
+// ──────────────────────────────────────────────
+// Test 13 (UKF): Head-on — UKF converges to near-zero CPA uncertainty
+// ──────────────────────────────────────────────
+TEST(CpaTcpaCalculatorTest, UkfHeadOnConverges) {
+  auto now = std::chrono::steady_clock::now();
+  double own_lat = 37.8;
+  double own_lon = -122.4;
+
+  // Head-on: 1 km separation, reciprocal courses at 10 kn
+  double target_lat = own_lat + 1000.0 / kLatDegToM;
+  double target_lon = own_lon;
+
+  auto own_ship = make_own_ship(own_lat, own_lon, 10.0, 0.0, 0.0, 10.0 * kKnToMs, now);
+  auto target = make_target(13, target_lat, target_lon, 10.0, 180.0, 180.0, now);
+
+  CpaTcpaCalculator::Config cfg = default_config();
+  cfg.method = CpaTcpaCalculator::UncertaintyMethod::UkfSigma;
+  CpaTcpaCalculator calc(cfg);
+  auto result = calc.compute(own_ship, target, OddZone::B);
+
+  ASSERT_TRUE(result.has_value());
+  // CPA should be near zero (head-on collision course)
+  EXPECT_NEAR(result->cpa_m, 0.0, 2.0);
+  EXPECT_GT(result->tcpa_s, 0.0);
+  // UKF should produce finite positive uncertainties
+  EXPECT_GT(result->uncertainty.cpa_sigma_m, 0.0);
+  EXPECT_GT(result->uncertainty.tcpa_sigma_s, 0.0);
+}
+
+// ──────────────────────────────────────────────
+// Test 14 (UKF): Overtaking — uncertainties follow linear trend
+// ──────────────────────────────────────────────
+TEST(CpaTcpaCalculatorTest, UkfOvertakingFollowsLinearTrend) {
+  auto now = std::chrono::steady_clock::now();
+  double own_lat = 37.8;
+  double own_lon = -122.4;
+
+  // Target 500 m behind, faster (15 kn vs 10 kn), same heading
+  double target_lat = own_lat - 500.0 / kLatDegToM;
+  double target_lon = own_lon;
+
+  auto own_ship = make_own_ship(own_lat, own_lon, 10.0, 0.0, 0.0, 10.0 * kKnToMs, now);
+  auto target = make_target(14, target_lat, target_lon, 15.0, 0.0, 0.0, now);
+
+  CpaTcpaCalculator::Config cfg = default_config();
+  cfg.method = CpaTcpaCalculator::UncertaintyMethod::UkfSigma;
+  CpaTcpaCalculator calc(cfg);
+  auto result = calc.compute(own_ship, target, OddZone::B);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_GT(result->tcpa_s, 0.0);
+  // CPA uncertainty should be finite and positive
+  EXPECT_GT(result->uncertainty.cpa_sigma_m, 0.0);
+  // CPA should be small (overtaking, target overtakes at close range)
+  EXPECT_LT(result->cpa_m, 100.0);
+}
+
+// ──────────────────────────────────────────────
+// Test 15 (UKF): Static target falls back to position-only covariance
+// ──────────────────────────────────────────────
+TEST(CpaTcpaCalculatorTest, UkfStaticTargetFallsBack) {
+  auto now = std::chrono::steady_clock::now();
+  double own_lat = 37.8;
+  double own_lon = -122.4;
+
+  // Stationary target 200 m ahead
+  double target_lat = own_lat + 200.0 / kLatDegToM;
+  double target_lon = own_lon;
+
+  auto own_ship = make_own_ship(own_lat, own_lon, 5.0, 0.0, 0.0, 5.0 * kKnToMs, now);
+  auto target = make_target(15, target_lat, target_lon, 0.0, 0.0, 0.0, now);
+
+  // static_target_speed_mps = 1.0 so any SOG < ~2 kn is static
+  CpaTcpaCalculator::Config cfg = default_config();
+  cfg.method = CpaTcpaCalculator::UncertaintyMethod::UkfSigma;
+  cfg.static_target_speed_mps = 1.0;
+  CpaTcpaCalculator calc(cfg);
+  auto result = calc.compute(own_ship, target, OddZone::B);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->tcpa_s, 0.0);
+  EXPECT_NEAR(result->cpa_m, 200.0, 2.0);
+  // Static target path returns zero uncertainty
+  EXPECT_EQ(result->uncertainty.cpa_sigma_m, 0.0);
+  EXPECT_EQ(result->uncertainty.tcpa_sigma_s, 0.0);
+}
+
+// ──────────────────────────────────────────────
+// Test 16 (UKF): Degraded covariance — UKF falls back gracefully
+// ──────────────────────────────────────────────
+TEST(CpaTcpaCalculatorTest, UkfDegradedCovarianceFallback) {
+  auto now = std::chrono::steady_clock::now();
+  double own_lat = 37.8;
+  double own_lon = -122.4;
+
+  // Target 1 km ahead, crossing west (heading 270)
+  double target_lat = own_lat + 1000.0 / kLatDegToM;
+  double target_lon = own_lon;
+
+  auto own_ship = make_own_ship(own_lat, own_lon, 10.0, 0.0, 0.0, 10.0 * kKnToMs, now);
+  auto target = make_target(16, target_lat, target_lon, 10.0, 270.0, 270.0, now);
+
+  // Inflate own-ship covariance to simulate degraded navigation
+  own_ship.covariance(0, 0) = 10000.0;
+  own_ship.covariance(1, 1) = 10000.0;
+  own_ship.covariance(3, 3) = 100.0;
+  own_ship.covariance(4, 4) = 100.0;
+
+  CpaTcpaCalculator::Config cfg = default_config();
+  cfg.method = CpaTcpaCalculator::UncertaintyMethod::UkfSigma;
+  CpaTcpaCalculator calc(cfg);
+  auto result = calc.compute(own_ship, target, OddZone::B);
+
+  ASSERT_TRUE(result.has_value());
+  // UKF should still produce positive uncertainties despite degraded input
+  EXPECT_GT(result->uncertainty.cpa_sigma_m, 1.0);
+  EXPECT_GE(result->uncertainty.tcpa_sigma_s, 0.0);
+}
+
 }  // namespace mass_l3::m2

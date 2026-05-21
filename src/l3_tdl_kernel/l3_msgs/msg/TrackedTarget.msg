@@ -16,3 +16,5 @@ l3_msgs/EncounterClassification encounter # COLREG 几何预分类（M2 §6.2 �
 float32 confidence                       # 整体置信度
 string rationale    # SAT-2 摘要（跟踪推理依据）
 string source_sensor                     # "radar" | "ais" | "lidar" | "camera" | "fused"
+float64 cpa_covariance_m2                # CPA 方差 [m^2] — UKF/Linear 传播
+float64 tcpa_covariance_s2               # TCPA 方差 [s^2] — UKF/Linear 传播
