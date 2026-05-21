@@ -42,7 +42,7 @@ def _simulate_geometric(os_lat, os_lon, os_cog, os_sog, ts_lat, ts_lon, ts_cog, 
         rule_state = "full" if dist > 500.0 else "partial" if dist > 200.0 else "violated"
         frames.append({"stamp": t, "cpa_nm": cpa_nm, "rudder_deg": rudder_deg if action_taken else 0.0,
                         "behavior_phase": "give_way" if action_taken else "transit"})
-        if t >= av_time and not action_taken:
+        if rudder_deg > 0 and t >= av_time and not action_taken:
             ocog = math.radians(os_cog + rudder_deg); action_taken = True
         ox += osog * math.sin(ocog) * dt; oy += osog * math.cos(ocog) * dt
         tx += tsog * math.sin(tcog) * dt; ty += tsog * math.cos(tcog) * dt
@@ -58,7 +58,7 @@ def run_scenario_yaml(yaml_path: Path, rule: str, source: str) -> ScenarioBatchR
     encounter = meta.get("encounter", {})
     av_time = float(encounter.get("avoidance_time_s", 300.0))
     av_delta_rad = float(encounter.get("avoidance_delta_rad", 0.6109))
-    rudder = math.degrees(av_delta_rad) if av_delta_rad > 0 else 45.0
+    rudder = math.degrees(av_delta_rad)  # 0 stays 0 for maintain-course scenarios
     os_init = data["ownShip"]["initial"]; ts_list = data.get("targetShips", [])
     if not ts_list:
         return ScenarioBatchResult(sid, source, rule, odd_domain, False, 0.0, 0.0, 0.0, "no target")

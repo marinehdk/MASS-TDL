@@ -1,0 +1,2 @@
+# D2.4 6D scoring → CCS DMV-CG-0264 §9.1 Safety+Rule compliance (per arch §14)
+# Confidence on weight coefficients: Medium (sources: Hagen 2022, Woerner 2019)
