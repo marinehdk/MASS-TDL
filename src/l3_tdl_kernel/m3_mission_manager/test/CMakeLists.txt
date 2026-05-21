@@ -25,4 +25,7 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_idl_schema_version test_idl_schema_version.cpp)
   target_link_libraries(test_idl_schema_version ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_m3_dual_subscription integration/test_m3_dual_subscription.cpp)
+  target_link_libraries(test_m3_dual_subscription ${PROJECT_NAME}_lib)
 endif()
