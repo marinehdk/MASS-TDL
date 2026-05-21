@@ -12,6 +12,7 @@
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
+#include "l3_msgs/msg/colregs_chain_layer.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
@@ -30,6 +31,23 @@ class ColregsReasonerNode : public rclcpp::Node {
   ~ColregsReasonerNode() override = default;
   ColregsReasonerNode(const ColregsReasonerNode&) = delete;
   ColregsReasonerNode& operator=(const ColregsReasonerNode&) = delete;
+
+  static std::string odd_domain_str(OddDomain d);
+
+  struct ColregsChainResult {
+    std::vector<l3_msgs::msg::ColregsChainLayer> layers;
+    std::string target_id;
+  };
+
+  static ColregsChainResult test_build_colregs_chain(
+      const std::vector<RuleEvaluation>& evals, OddDomain domain,
+      const RuleParameters& params,
+      const std::vector<TargetGeometricState>& targets);
+
+  static ColregsChainResult build_colregs_chain(
+      const std::vector<RuleEvaluation>& evals, OddDomain domain,
+      const RuleParameters& params,
+      const std::vector<TargetGeometricState>& targets);
 
  private:
   void declare_parameters();
