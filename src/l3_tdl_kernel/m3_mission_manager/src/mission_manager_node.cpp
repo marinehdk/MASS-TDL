@@ -580,7 +580,10 @@ void MissionManagerNode::publish_mission_goal()
   }
   msg.eta_to_target_s = eta_s;
 
-  // Confidence: 1.0 × watchdog_factor × current_error_factor — spec §4.1
+  // Confidence: watchdog_factor × current_error_factor — spec §4.1
+  // [TBD-D3.x] EtaProjector.confidence 因子未接入：EtaProjector::project() 当前
+  // 不产置信度；spec §4.1 定义的 EtaProjector.confidence × watchdog × 0.85
+  // 公式待 D3.x ETA 增强后补齐。当前以 watchdog_factor 为基数。
   const L1WatchdogResult wd      = l1_watchdog_->evaluate(now_tp);
   const CurrentErrorReading cerd = current_error_monitor_->evaluate(now_tp);
   float confidence = wd.confidence_factor;

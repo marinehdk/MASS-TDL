@@ -1,5 +1,5 @@
 # Per v1.1.2 §15.1 + §12.4 ToR 协议（C 交互验证：操作员主动点击）
-uint16 schema_version  # 112 = v1.1.2
+uint16 schema_version  # 120 = v1.2.0  (was 112 = v1.1.2)
 builtin_interfaces/Time stamp
 
 uint8 reason
