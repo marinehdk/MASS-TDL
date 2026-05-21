@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # generate_demo1_pdfs.sh — Generate professional HTML→PDF documents for DEMO-1
-# Uses pandoc to generate styled HTML (print-ready, can be printed to PDF from browser)
+# Uses pandoc to generate styled HTML, then Playwright to compile high-fidelity PDFs.
 #
 # Usage:
 #   bash scripts/generate_demo1_pdfs.sh
 #
 # Output:
-#   evidence/demo1-pdfs/ConOps-v0.1.html
-#   evidence/demo1-pdfs/VV-Plan-v0.1.html
-#   evidence/demo1-pdfs/cert-evidence-tracking.html
+#   evidence/demo1-pdfs/ConOps-v0.1.pdf
+#   evidence/demo1-pdfs/VV-Plan-v0.1.pdf
+#   evidence/demo1-pdfs/cert-evidence-tracking.pdf
+#   evidence/demo1-pdfs/simulator-qualification-report.pdf
 #
-# To convert to PDF: open in browser and Print → Save as PDF
-# Or install a LaTeX engine: brew install basictex && eval "$(/usr/libexec/path_helper)"
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -151,68 +150,77 @@ blockquote {
 }
 CSSEOF
 
-echo "=== Generating DEMO-1 presentation documents ==="
+echo "=== Generating DEMO-1 HTML presentation documents ==="
+
+# Helper function to convert markdown to HTML
+convert_to_html() {
+  local src="$1"
+  local dest="$2"
+  local title="$3"
+  
+  if [ -f "$src" ]; then
+    pandoc "$src" \
+      -o "$dest" \
+      --standalone \
+      --css=".print-style.css" \
+      --metadata title="$title" \
+      --metadata date="$DATE" \
+      --toc \
+      --toc-depth=3 \
+      -V lang=zh-CN
+    echo "✅ Generated HTML: $(basename "$dest")"
+  else
+    echo "❌ Source not found: $src"
+    return 1
+  fi
+}
 
 # 1. ConOps v0.1
-CONOPS_SRC="$PROJECT_ROOT/docs/Design/ConOps/01-conops-v0.1.md"
-if [ -f "$CONOPS_SRC" ]; then
-  pandoc "$CONOPS_SRC" \
-    -o "$OUT_DIR/ConOps-v0.1.html" \
-    --standalone \
-    --css=".print-style.css" \
-    --metadata title="MASS ADAS L3 — Concept of Operations (ConOps) v0.1" \
-    --metadata date="$DATE" \
-    --toc \
-    --toc-depth=3 \
-    -V lang=zh-CN
-  echo "✅ ConOps-v0.1.html"
-else
-  echo "❌ ConOps source not found: $CONOPS_SRC"
-fi
+convert_to_html \
+  "$PROJECT_ROOT/docs/Design/ConOps/01-conops-v0.1.md" \
+  "$OUT_DIR/ConOps-v0.1.html" \
+  "MASS ADAS L3 — Concept of Operations (ConOps) v0.1"
 
 # 2. V&V Plan v0.1
-VV_SRC="$PROJECT_ROOT/docs/Design/Phase 1/D1.5-vv-plan-scenario-qual/V&V_Plan/00-vv-strategy-v0.1.md"
-if [ -f "$VV_SRC" ]; then
-  pandoc "$VV_SRC" \
-    -o "$OUT_DIR/VV-Plan-v0.1.html" \
-    --standalone \
-    --css=".print-style.css" \
-    --metadata title="MASS ADAS L3 — Verification & Validation Plan v0.1" \
-    --metadata date="$DATE" \
-    --toc \
-    --toc-depth=3 \
-    -V lang=zh-CN
-  echo "✅ VV-Plan-v0.1.html"
-else
-  echo "❌ V&V Plan source not found: $VV_SRC"
-fi
+convert_to_html \
+  "$PROJECT_ROOT/docs/Design/Phase 1/D1.5-vv-plan-scenario-qual/V&V_Plan/00-vv-strategy-v0.1.md" \
+  "$OUT_DIR/VV-Plan-v0.1.html" \
+  "MASS ADAS L3 — Verification & Validation Plan v0.1"
 
 # 3. Cert Evidence Tracking
-CERT_SRC="$PROJECT_ROOT/docs/Design/Cert/cert-evidence-tracking.md"
-if [ -f "$CERT_SRC" ]; then
-  pandoc "$CERT_SRC" \
-    -o "$OUT_DIR/cert-evidence-tracking.html" \
-    --standalone \
-    --css=".print-style.css" \
-    --metadata title="MASS ADAS L3 — Certification Evidence Tracking" \
-    --metadata date="$DATE" \
-    --toc \
-    -V lang=zh-CN
-  echo "✅ cert-evidence-tracking.html"
-else
-  echo "❌ Cert tracking source not found: $CERT_SRC"
-fi
+convert_to_html \
+  "$PROJECT_ROOT/docs/Design/Cert/cert-evidence-tracking.md" \
+  "$OUT_DIR/cert-evidence-tracking.html" \
+  "MASS ADAS L3 — Certification Evidence Tracking"
+
+# 4. Simulator Qualification Report
+convert_to_html \
+  "$PROJECT_ROOT/docs/Design/Phase 1/D1.3-sil-framework/D1.3.1-mmg-simulator/01-simulator-qualification-report.md" \
+  "$OUT_DIR/simulator-qualification-report.html" \
+  "MASS ADAS L3 — Simulator Qualification Report"
+
+echo ""
+echo "=== Converting HTML to professional PDF documents via Playwright ==="
+
+# Helper function to run the node script for HTML-to-PDF conversion
+compile_pdf() {
+  local html="$1"
+  local pdf="$2"
+  
+  if [ -f "$html" ]; then
+    NODE_PATH="$PROJECT_ROOT/web/node_modules" node "$PROJECT_ROOT/tools/sil/html_to_pdf.js" "$html" "$pdf"
+  else
+    echo "⚠️ HTML file not found, skipping PDF conversion: $html"
+  fi
+}
+
+compile_pdf "$OUT_DIR/ConOps-v0.1.html" "$OUT_DIR/ConOps-v0.1.pdf"
+compile_pdf "$OUT_DIR/VV-Plan-v0.1.html" "$OUT_DIR/VV-Plan-v0.1.pdf"
+compile_pdf "$OUT_DIR/cert-evidence-tracking.html" "$OUT_DIR/cert-evidence-tracking.pdf"
+compile_pdf "$OUT_DIR/simulator-qualification-report.html" "$OUT_DIR/simulator-qualification-report.pdf"
 
 echo ""
 echo "=== Done ==="
-echo "Output: $OUT_DIR/"
+echo "Output directory: $OUT_DIR/"
+ls -lh "$OUT_DIR"/*.pdf
 echo ""
-echo "To convert to PDF, open each HTML file in Chrome and:"
-echo "  1. Press Cmd+P (or Ctrl+P)"
-echo "  2. Select 'Save as PDF'"
-echo "  3. Set margins to 'Default'"
-echo ""
-echo "Or install LaTeX for direct PDF generation:"
-echo "  brew install --cask basictex"
-echo "  eval \"\$(/usr/libexec/path_helper)\""
-echo "  Then re-run this script with --pdf flag"

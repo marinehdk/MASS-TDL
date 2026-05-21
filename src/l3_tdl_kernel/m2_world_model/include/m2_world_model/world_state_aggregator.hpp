@@ -35,6 +35,7 @@ class WorldStateAggregator final {
     std::array<double, 4> cpa_safe_m;     // index by OddZone
     std::array<double, 4> tcpa_safe_s;
     double dynamic_horizon_nm{5.0};
+    EnvSanityChecker::Config env_sanity;
   };
 
   WorldStateAggregator(Config cfg,
@@ -78,6 +79,7 @@ class WorldStateAggregator final {
   std::shared_ptr<TrackBuffer> track_buffer_;
   std::shared_ptr<EncLoader> enc_loader_;
   std::shared_ptr<ViewHealthMonitor> health_;
+  std::shared_ptr<EnvSanityChecker> env_sanity_checker_;
 
   mutable std::mutex mutex_;
   std::optional<OwnShipSnapshot> own_ship_cache_;

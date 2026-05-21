@@ -11,6 +11,7 @@
 #include <geographic_msgs/msg/geo_path.hpp>
 #include <geographic_msgs/msg/geo_point.hpp>
 #include <nlohmann/json.hpp>
+#include <rclcpp/logging.hpp>
 #include <l3_msgs/msg/tracked_target.hpp>
 #include <l3_msgs/msg/own_ship_state.hpp>
 #include <l3_msgs/msg/zone_constraint.hpp>
@@ -66,7 +67,8 @@ WorldStateAggregator::WorldStateAggregator(
     classifier_(std::move(classifier)),
     track_buffer_(std::move(track_buffer)),
     enc_loader_(std::move(enc_loader)),
-    health_(std::move(health))
+    health_(std::move(health)),
+    env_sanity_checker_(std::make_shared<EnvSanityChecker>(cfg.env_sanity))
 {}
 
 void WorldStateAggregator::update_own_ship(
@@ -128,6 +130,19 @@ void WorldStateAggregator::update_environment(
   } else {
     // ENC not loaded — mark as unknown zone type
     snap.zone_type = "open_water";
+  }
+
+  // D2.2 Track C: run environmental sanity verification before caching
+  {
+    auto sanity = env_sanity_checker_->validate(snap, now);
+    if (!sanity.passed) {
+      RCLCPP_WARN(rclcpp::get_logger("WorldStateAggregator"),
+                  "EnvSanityChecker: %s confidence_mult=%.2f",
+                  sanity.reason.c_str(), sanity.confidence_multiplier);
+      snap = sanity.corrected_snapshot;
+      // Apply confidence multiplier through health monitor
+      // (full integration via ViewHealthMonitor is a follow-up)
+    }
   }
 
   environment_cache_ = snap;
