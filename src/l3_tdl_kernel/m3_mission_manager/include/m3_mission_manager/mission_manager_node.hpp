@@ -35,11 +35,17 @@
 #include "m3_mission_manager/voyage_task_validator.hpp"
 #include "m3_mission_manager/types.hpp"
 
+#include "l3_msgs/msg/tor_request.hpp"
+#include "l3_external_msgs/msg/tracking_error.hpp"
+#include "m3_mission_manager/current_error_monitor.hpp"
+#include "m3_mission_manager/l1_watchdog_monitor.hpp"
+
 namespace mass_l3::m3 {
 
 class MissionManagerNode : public rclcpp::Node {
  public:
-  MissionManagerNode();
+  explicit MissionManagerNode(
+      const rclcpp::NodeOptions& options = rclcpp::NodeOptions{});
   ~MissionManagerNode() override = default;
   MissionManagerNode(const MissionManagerNode&) = delete;
   MissionManagerNode& operator=(const MissionManagerNode&) = delete;
@@ -72,6 +78,12 @@ class MissionManagerNode : public rclcpp::Node {
   void publish_asdr_record(const std::string& type, const nlohmann::json& payload);
   void check_and_trigger_replan(const l3_msgs::msg::ODDState& odd,
                                 double current_eta_s, double planned_eta_s);
+  void on_tracking_error(
+      const l3_external_msgs::msg::TrackingError::SharedPtr msg);
+  void evaluate_l1_watchdog();
+  void publish_tor_request(uint8_t reason, float deadline_s);
+  void check_current_error_severity_change(
+      std::chrono::steady_clock::time_point now);
 
   // Component pointers
   std::unique_ptr<VoyageTaskValidator> validator_;
@@ -80,12 +92,22 @@ class MissionManagerNode : public rclcpp::Node {
   std::unique_ptr<ReplanResponseHandler> replan_handler_;
   std::unique_ptr<MissionStateMachine> state_machine_;
 
+  // D2.3 component pointers
+  std::unique_ptr<CurrentErrorMonitor>  current_error_monitor_;
+  std::unique_ptr<L1WatchdogMonitor>    l1_watchdog_;
+
   // Cached state
   l3_msgs::msg::ODDState::SharedPtr last_odd_state_;
   l3_msgs::msg::WorldState::SharedPtr last_world_state_;
   int32_t replan_attempt_count_ = 0;
   std::optional<std::chrono::steady_clock::time_point> replan_deadline_;
   geographic_msgs::msg::GeoPoint current_position_;
+
+  // D2.3 state tracking
+  CurrentErrorSeverity last_current_error_severity_ = CurrentErrorSeverity::NORMAL;
+  L1WatchdogStatus     last_l1_watchdog_status_     = L1WatchdogStatus::OK;
+  uint8_t              last_odd_zone_                = 0xFFU;  // 0xFF = uninitialized
+  std::optional<std::chrono::steady_clock::time_point> last_planned_route_time_;
 
   // Logger
   std::shared_ptr<spdlog::logger> logger_;
@@ -94,6 +116,7 @@ class MissionManagerNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::MissionGoal>::SharedPtr mission_goal_pub_;
   rclcpp::Publisher<l3_msgs::msg::RouteReplanRequest>::SharedPtr replan_request_pub_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr asdr_pub_;
+  rclcpp::Publisher<l3_msgs::msg::ToRRequest>::SharedPtr tor_pub_;
 
   // Subscribers
   rclcpp::Subscription<l3_external_msgs::msg::VoyageTask>::SharedPtr voyage_task_sub_;
@@ -102,12 +125,15 @@ class MissionManagerNode : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::ReplanResponse>::SharedPtr replan_response_sub_;
   rclcpp::Subscription<l3_msgs::msg::ODDState>::SharedPtr odd_state_sub_;
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr world_state_sub_;
+  rclcpp::Subscription<l3_external_msgs::msg::TrackingError>::SharedPtr
+      tracking_error_sub_;
 
   // Timers
   rclcpp::TimerBase::SharedPtr mission_goal_timer_;
   rclcpp::TimerBase::SharedPtr asdr_timer_;
   rclcpp::TimerBase::SharedPtr replan_deadline_timer_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+  rclcpp::TimerBase::SharedPtr l1_watchdog_timer_;
 };
 
 }  // namespace mass_l3::m3
