@@ -25,6 +25,8 @@ class ArrowWriter:
         pa.field("total", pa.float64()),
         pa.field("cpa_nm", pa.float64()),
         pa.field("cpa_target_nm", pa.float64()),
+        pa.field("pass_fail", pa.bool_()),
+        pa.field("applicable_rule", pa.string()),
     ])
 
     def __init__(self, output_path: str, batch_size: int = 60) -> None:
