@@ -22,4 +22,7 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_l1_watchdog_monitor test_l1_watchdog_monitor.cpp)
   target_link_libraries(test_l1_watchdog_monitor ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_idl_schema_version test_idl_schema_version.cpp)
+  target_link_libraries(test_idl_schema_version ${PROJECT_NAME}_lib)
 endif()
