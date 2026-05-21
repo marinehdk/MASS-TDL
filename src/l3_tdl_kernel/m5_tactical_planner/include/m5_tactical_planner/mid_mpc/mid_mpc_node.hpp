@@ -64,7 +64,7 @@ class MidMpcNode : public rclcpp::Node {
 
   void on_solve_cycle_();
   [[nodiscard]] bool has_required_inputs_() const noexcept;
-  [[nodiscard]] MidMpcInput assemble_input_() const;
+  [[nodiscard]] MidMpcInput assemble_input_();
   void publish_outputs_(const MidMpcSolution& sol,
                         const l3_msgs::msg::AvoidancePlan& plan);
 };

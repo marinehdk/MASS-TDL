@@ -50,7 +50,11 @@ class ShipDynamicsNode(LifecycleNode):
 
     def __init__(self, node_name: str = "ship_dynamics_node"):
         if LifecycleNode is not object:
-            super().__init__(node_name)
+            super().__init__(
+                node_name,
+                allow_undeclared_parameters=True,
+                automatically_declare_parameters_from_overrides=True
+            )
         else:
             self._node_name = node_name
 
@@ -260,7 +264,11 @@ class ShipDynamicsNode(LifecycleNode):
                     declared = self.declare_parameter(ros_param, getattr(coeffs, py_attr))
                     setattr(coeffs, py_attr, declared.value)
             except Exception:
-                pass
+                try:
+                    if hasattr(self, "get_parameter"):
+                        setattr(coeffs, py_attr, self.get_parameter(ros_param).value)
+                except Exception:
+                    pass
         return coeffs
 
     def _get_own_ship_state_msg(self):

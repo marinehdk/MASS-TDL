@@ -58,7 +58,7 @@ class BcMpcNode : public rclcpp::Node {
   void on_world_state_(l3_msgs::msg::WorldState::SharedPtr msg);
   void on_mid_mpc_plan_(l3_msgs::msg::AvoidancePlan::SharedPtr msg);
   void on_validity_tick_();
-  [[nodiscard]] BcMpcInput assemble_input_() const;
+  [[nodiscard]] BcMpcInput assemble_input_();
   void publish_override_(const BcMpcSolution& sol);
 };
 

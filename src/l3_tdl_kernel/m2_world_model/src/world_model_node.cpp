@@ -257,11 +257,11 @@ void WorldModelNode::setup_subscribers() {
 void WorldModelNode::setup_publishers() {
   world_state_pub_ = create_publisher<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state",
-      rclcpp::SensorDataQoS().keep_last(2));
+      rclcpp::QoS(rclcpp::KeepLast(5)).reliable());
 
   sat_pub_ = create_publisher<l3_msgs::msg::SATData>(
       "/l3/sat/data",
-      rclcpp::SensorDataQoS().keep_last(1));
+      rclcpp::QoS(rclcpp::KeepLast(5)).reliable());
 
   asdr_pub_ = create_publisher<l3_msgs::msg::ASDRRecord>(
       "/l3/asdr/record",

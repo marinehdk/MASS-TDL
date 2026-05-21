@@ -138,6 +138,11 @@ class LifecycleBridge(Node):
         Needed after an orchestrator restart where _state is stale but the node
         may still be active/inactive from the previous session.
         """
+        # Broadcast deactivation and cleanup to all secondary SIL lifecycle nodes best-effort
+        # so they return to UNCONFIGURED and can accept parameter injection and new config.
+        await self._broadcast_transition(Transition.TRANSITION_DEACTIVATE)
+        await self._broadcast_transition(Transition.TRANSITION_CLEANUP)
+
         ros2_state = await self._get_ros2_state()
         _log.info("_reset_to_unconfigured: actual ROS2 state = %s", ros2_state)
         if ros2_state in (None, "unconfigured", "finalized"):
@@ -345,29 +350,52 @@ def _extract_injection_params(yaml_data: dict) -> dict:
     """
     injection_map: dict = {}
 
+    import math
+
     own_ship = yaml_data.get("ownShip", {})
     initial = own_ship.get("initial", {}) if isinstance(own_ship, dict) else {}
     pos = initial.get("position", {}) if isinstance(initial, dict) else {}
 
+    metadata = yaml_data.get("metadata", {})
+    sim_settings = metadata.get("simulation_settings", {}) if isinstance(metadata, dict) else {}
+    coordinate_origin = sim_settings.get("coordinate_origin") if isinstance(sim_settings, dict) else None
+
     # ownShip.initial.position.{latitude,longitude} + {heading,sog,cog}
     ship_params: dict = {}
-    if isinstance(pos, dict):
-        lat = pos.get("latitude")
-        if lat is not None:
-            ship_params["initial_lat"] = (float(lat), ParameterType.PARAMETER_DOUBLE)
-        lon = pos.get("longitude")
-        if lon is not None:
-            ship_params["initial_lon"] = (float(lon), ParameterType.PARAMETER_DOUBLE)
+    lat_own = pos.get("latitude")
+    lon_own = pos.get("longitude")
+
+    if lat_own is not None and lon_own is not None:
+        if coordinate_origin and isinstance(coordinate_origin, list) and len(coordinate_origin) >= 2:
+            lat_origin = float(coordinate_origin[0])
+            lon_origin = float(coordinate_origin[1])
+        else:
+            lat_origin = float(lat_own)
+            lon_origin = float(lon_own)
+
+        ship_params["origin_lat"] = (lat_origin, ParameterType.PARAMETER_DOUBLE)
+        ship_params["origin_lon"] = (lon_origin, ParameterType.PARAMETER_DOUBLE)
+
+        # y_offset represents North component, x_offset represents East component
+        y_offset = (float(lat_own) - lat_origin) * 111120.0
+        x_offset = (float(lon_own) - lon_origin) * 111120.0 * math.cos(math.radians(lat_origin))
+        ship_params["x0"] = (x_offset, ParameterType.PARAMETER_DOUBLE)
+        ship_params["y0"] = (y_offset, ParameterType.PARAMETER_DOUBLE)
+
     if isinstance(initial, dict):
         heading = initial.get("heading")
+        if heading is None:
+            heading = initial.get("cog")
         if heading is not None:
-            ship_params["initial_heading"] = (float(heading), ParameterType.PARAMETER_DOUBLE)
+            # Convert nautical heading CW from North in degrees to math CCW from East in radians
+            psi0_val = math.pi / 2.0 - math.radians(float(heading))
+            ship_params["psi0"] = (psi0_val, ParameterType.PARAMETER_DOUBLE)
+
         sog = initial.get("sog")
         if sog is not None:
-            ship_params["initial_sog"] = (float(sog), ParameterType.PARAMETER_DOUBLE)
-        cog = initial.get("cog")
-        if cog is not None:
-            ship_params["initial_cog"] = (float(cog), ParameterType.PARAMETER_DOUBLE)
+            # Convert knots to m/s
+            u0_val = float(sog) * 0.5144
+            ship_params["u0"] = (u0_val, ParameterType.PARAMETER_DOUBLE)
     if ship_params:
         injection_map["ship_dynamics_node"] = ship_params
 

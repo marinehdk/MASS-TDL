@@ -21,6 +21,7 @@ import threading
 import time
 
 import rclpy
+from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
 
@@ -37,7 +38,6 @@ from sil_msgs.msg import (
 from l3_external_msgs.msg import (
     FilteredOwnShipState,
     TrackedTargetArray,
-    TrackedTarget,
     EnvironmentState as L3EnvironmentState,
 )
 
@@ -52,6 +52,7 @@ from l3_msgs.msg import (
     MissionGoal,
     BehaviorPlan,
     COLREGsConstraint,
+    TrackedTarget,
 )
 
 from std_msgs.msg import Header
@@ -101,7 +102,7 @@ def _latched_qos(depth: int = 50) -> QoSProfile:
 
 # ── Bridge node ──────────────────────────────────────────────
 
-class SilTopicBridge(rclpy.node.Node):
+class SilTopicBridge(Node):
     """Bidirectional topic bridge between SIL and L3 kernel namespaces."""
 
     def __init__(self) -> None:

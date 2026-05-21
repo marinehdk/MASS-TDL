@@ -1,0 +1,73 @@
+title: Smoke 08 — Head-on, Open Sea, Sensor Degraded (low vis)
+description: Smoke test scenario for DEMO-1 coverage cube. Smoke 08 — Head-on, Open
+  Sea, Sensor Degraded (low vis).
+startTime: '2026-01-01T00:00:00Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+    mmsi: 123456789
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 10.0
+    heading: 0.0
+    navStatus: Under way using engine
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.557
+      longitude: 10.38
+    cog: 180.0
+    sog: 10.0
+    heading: 180.0
+  model: ais_replay_vessel
+environment:
+  wind:
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current:
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 0.54
+metadata:
+  schema_version: '3.0'
+  scenario_id: smoke-08-ho-open-degraded-v1.0
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea
+  encounter:
+    rule: Rule14
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 300.0
+    avoidance_delta_rad: 0.6109
+    avoidance_duration_s: 90.0
+  scenario_source: smoke_test_d1.7
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+  simulation_settings:
+    total_time: 700.0
+    dt: 0.02
+    n_rps_initial: 3.0
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind:
+      dir_deg: 0.0
+      speed_mps: 0.0
+    current:
+      dir_deg: 0.0
+      speed_mps: 0.0

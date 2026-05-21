@@ -81,7 +81,8 @@ for cls in sil_node_classes:
 
 # Create a subscriber for liveness detection — attach to a tiny node
 # so we can poll /sil/own_ship_state from the executor.
-from std_msgs.msg import Header
+# IMPORTANT: must use the SAME message type as the publisher (sil_msgs/OwnShipState)
+from sil_msgs.msg import OwnShipState as _LivenessMsg
 liveness_node = rclpy.create_node('_sil_liveness_probe')
 sq = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -90,37 +91,61 @@ sq = QoSProfile(
     depth=1,
 )
 liveness_sub = liveness_node.create_subscription(
-    Header, '/sil/own_ship_state', on_own_ship, sq)
+    _LivenessMsg, '/sil/own_ship_state', on_own_ship, sq)
 executor.add_node(liveness_node)
 nodes.append(liveness_node)
 
-# ── Stage 1.5: Validating critical node on_configure ──────────
-# Explicitly call on_configure for key SIL nodes that may detect sentinel defaults.
-# If any returns FAILURE, abort immediately rather than run a 'zombie simulation'.
-print(f'[{ts()}] Stage 1.5: Validating node configuration...')
+# ── Stage 1.5: Configure + Activate LifecycleNodes ────────────
+# LifecycleNodes must go: unconfigured → configure → activate
+# Only activated nodes create publishers/timers and start publishing.
+print(f'[{ts()}] Stage 1.5: Configuring + activating LifecycleNodes...')
 cfg_failures = []
+lifecycle_nodes_to_activate = ('scenario_lifecycle_mgr', 'ship_dynamics_node', 'target_vessel_node',
+                                'env_disturbance_node', 'sensor_mock_node', 'tracker_mock_node',
+                                'fault_injection_node', 'scoring_node', 'scenario_authoring_node')
+
 for node in nodes:
     name = node.get_name()
-    if name in ('ship_dynamics_node', 'target_vessel_node'):
-        try:
-            cfg_result = node.on_configure(None)
-            if cfg_result is not None and cfg_result != TransitionCallbackReturn.SUCCESS:
-                cfg_failures.append(f'{name}: on_configure returned {cfg_result}')
-                print(f'  [{ts()}] FATAL: {name} on_configure FAILED → {cfg_result}', file=sys.stderr)
-            else:
-                print(f'  [{ts()}] {name} on_configure OK')
-        except Exception as exc:
-            cfg_failures.append(f'{name}: on_configure raised {type(exc).__name__}: {exc}')
-            print(f'  [{ts()}] FATAL: {name} on_configure crashed: {exc}', file=sys.stderr)
+    # Skip non-lifecycle nodes (liveness probe)
+    if not hasattr(node, 'on_configure') or not hasattr(node, 'on_activate'):
+        continue
+    if name.startswith('_'):
+        continue  # Skip liveness probe
+
+    # Step 1: on_configure
+    try:
+        cfg_result = node.on_configure(None)
+        if cfg_result is not None and cfg_result != TransitionCallbackReturn.SUCCESS:
+            cfg_failures.append(f'{name}: on_configure returned {cfg_result}')
+            print(f'  [{ts()}] FATAL: {name} on_configure FAILED → {cfg_result}', file=sys.stderr)
+            continue
+        else:
+            print(f'  [{ts()}] {name} on_configure OK')
+    except Exception as exc:
+        cfg_failures.append(f'{name}: on_configure raised {type(exc).__name__}: {exc}')
+        print(f'  [{ts()}] FATAL: {name} on_configure crashed: {exc}', file=sys.stderr)
+        continue
+
+    # Step 2: on_activate (creates publishers, timers, subscriptions)
+    try:
+        act_result = node.on_activate(None)
+        if act_result is not None and act_result != TransitionCallbackReturn.SUCCESS:
+            cfg_failures.append(f'{name}: on_activate returned {act_result}')
+            print(f'  [{ts()}] WARN: {name} on_activate FAILED → {act_result}', file=sys.stderr)
+        else:
+            print(f'  [{ts()}] {name} on_activate OK')
+    except Exception as exc:
+        # Some nodes may not have on_activate — that's OK (non-lifecycle)
+        print(f'  [{ts()}] [INFO] {name} on_activate skipped: {type(exc).__name__}: {exc}')
 
 if cfg_failures:
-    print(f'[{ts()}] FATAL: {len(cfg_failures)} node(s) failed on_configure:', file=sys.stderr)
+    print(f'[{ts()}] FATAL: {len(cfg_failures)} node(s) failed lifecycle transitions:', file=sys.stderr)
     for f in cfg_failures:
         print(f'  - {f}', file=sys.stderr)
     sys.exit(1)
 
 sil_count = len(nodes) - 1  # exclude liveness probe
-print(f'[{ts()}] Stage 1 complete: {sil_count} SIL nodes created')
+print(f'[{ts()}] Stage 1 complete: {sil_count} SIL nodes configured + activated')
 
 # ── Stage 2: Wait for /sil/own_ship_state ≥ 1 frame ──────────
 print(f'[{ts()}] Stage 2/3: Waiting for /sil/own_ship_state (timeout=60s)...')
@@ -169,84 +194,68 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
 
-    # 3b. Import L3 node classes
-    try:
-        from m1_odd_envelope_manager.odd_envelope_manager_node import OddEnvelopeManagerNode
-        from m2_world_model.world_model_node import WorldModelNode
-        from m3_mission_manager.mission_manager_node import MissionManagerNode
-        from m4_behavior_arbiter.behavior_arbiter_node import BehaviorArbiterNode
-        from m6_colregs_reasoner.colregs_reasoner_node import ColregsReasonerNode
-        from m5_tactical_planner.mid_mpc.mid_mpc_node import MidMpcNode
-        from m8_hmi_transparency_bridge.hmi_transparency_bridge_node import HmiTransparencyBridgeNode
-        from m7_safety_supervisor.safety_supervisor_node import SafetySupervisorNode
+    # 3b. Launch L3 kernel C++ nodes as subprocesses via ros2 run
+    # M1-M8 are ament_cmake packages with C++ executables — they cannot be
+    # imported as Python modules. Each runs in its own process.
+    # Dependency order: M1 → M2 → M4 → M6 → M5 → M3 → M8 → M7 (independent)
+    l3_launch_specs = [
+        ('m1_odd_envelope_manager', 'm1_odd_envelope_manager',  'm1_odd_manager', ['--ros-args', '-p', 'yaml_path:=/opt/ws/install/m1_odd_envelope_manager/share/m1_odd_envelope_manager/config/m1_params.yaml']),
+        ('m2_world_model',          'm2_world_model',           'm2_world_model', []),
+        ('m4_behavior_arbiter',     'm4_behavior_arbiter',      'm4_behavior_arbiter', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m4_behavior_arbiter/share/m4_behavior_arbiter/config']),
+        ('m6_colregs_reasoner',     'm6_colregs_reasoner',      'm6_colregs_reasoner', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m6_colregs_reasoner/share/m6_colregs_reasoner/config']),
+        ('m5_tactical_planner',     'm5_mid_mpc_node',          'm5_tactical_planner', ['--ros-args', '-r', '/m5/avoidance_plan:=/l3/m5/avoidance_plan', '-r', '/m5/sat_data:=/l3/sat/data', '-r', '/m5/asdr_record:=/l3/asdr/record']),
+        ('m3_mission_manager',      'm3_mission_manager',       'm3_mission_manager', []),
+        ('m8_hmi_transparency_bridge', 'm8_hmi_transparency_bridge_node', 'm8_hmi_bridge', []),
+    ]
 
-        # Dependency order: M1 (ODD context) → M2 (world model) → M4 (arbiter) →
-        #                   M6 (COLREGs constraints) → M5 (planner) → M8 (HMI)
-        # M7 (Safety Supervisor) runs as INDEPENDENT SUBPROCESS for Doer-Checker isolation.
-        l3_node_classes = [
-            (OddEnvelopeManagerNode,      'm1_odd_manager'),
-            (WorldModelNode,              'm2_world_model'),
-            (BehaviorArbiterNode,         'm4_behavior_arbiter'),
-            (ColregsReasonerNode,         'm6_colregs_reasoner'),
-            (MidMpcNode,                  'm5_tactical_planner'),
-            (HmiTransparencyBridgeNode,   'm8_hmi_bridge'),
-        ]
-
-        l3_created = 0
-        for node_cls, name in l3_node_classes:
-            try:
-                node = node_cls()
-                executor.add_node(node)
-                nodes.append(node)
-                l3_created += 1
-                print(f'  [{ts()}] Stage 3: created L3 node {node.get_name()}')
-                # Small spin to let the node process incoming messages from
-                # the now-alive SIL topics before the next node starts.
-                executor.spin_once(timeout_sec=0.2)
-            except Exception as exc:
-                print(f'  [{ts()}] [WARN] Failed to create L3 {name}: {exc}', file=sys.stderr)
-
-        # M7 Safety Supervisor — independent subprocess (Doer-Checker isolation)
-        # Uses ros2 run in a separate process so it shares no executor, no GIL, no
-        # shared data with the Doer modules (M1-M6).
-        print(f'  [{ts()}] Stage 3: starting M7 SafetySupervisor as independent subprocess')
-        m7_proc = subprocess.Popen(
-            ['ros2', 'run', 'm7_safety_supervisor', 'safety_supervisor_node'],
-            stdout=sys.stdout, stderr=sys.stderr
-        )
-        print(f'  [{ts()}] M7 PID: {m7_proc.pid}')
-        # Wait briefly and check M7 is alive
-        time.sleep(2.0)
-        if m7_proc.poll() is not None:
-            print(f'  [{ts()}] M7 FAILED to start (exit code {m7_proc.returncode})', file=sys.stderr)
-        else:
-            l3_created += 1
-
-        # M3 MissionManager — long-horizon, starts after M1/M2/M4 are up
+    l3_procs = []
+    l3_created = 0
+    for pkg, exe, label, extra_args in l3_launch_specs:
         try:
-            node = MissionManagerNode()
-            executor.add_node(node)
-            nodes.append(node)
+            proc = subprocess.Popen(
+                ['ros2', 'run', pkg, exe] + extra_args,
+                stdout=sys.stdout, stderr=sys.stderr
+            )
+            l3_procs.append(proc)
+            print(f'  [{ts()}] Stage 3: launched {label} (PID {proc.pid})')
             l3_created += 1
-            print(f'  [{ts()}] Stage 3: created L3 node {node.get_name()}')
-            executor.spin_once(timeout_sec=0.2)
+            # Small delay between launches to respect dependency order
+            time.sleep(1.0)
+            if proc.poll() is not None:
+                print(f'  [{ts()}] [WARN] {label} exited early (code {proc.returncode})', file=sys.stderr)
+                l3_created -= 1
         except Exception as exc:
-            print(f'  [{ts()}] [WARN] Failed to create L3 m3_mission_manager: {exc}', file=sys.stderr)
+            print(f'  [{ts()}] [WARN] Failed to launch {label}: {exc}', file=sys.stderr)
 
-        # Report
-        all_modules = [n.get_name() for n in nodes]
-        total_active = len(all_modules)
-        print(f'[{ts()}] Stage 3 complete: {l3_created} L3 nodes created')
-        print(f'[{ts()}] Total nodes: {total_active}')
-        print(f'[{ts()}] Node list: {\" | \".join(all_modules)}')
+    # M7 Safety Supervisor — independent subprocess (Doer-Checker isolation)
+    # Uses ros2 run in a separate process so it shares no executor, no GIL, no
+    # shared data with the Doer modules (M1-M6).
+    print(f'  [{ts()}] Stage 3: starting M7 SafetySupervisor as independent subprocess')
+    m7_proc = subprocess.Popen(
+        ['ros2', 'run', 'm7_safety_supervisor', 'm7_safety_supervisor'],
+        stdout=sys.stdout, stderr=sys.stderr
+    )
+    l3_procs.append(m7_proc)
+    print(f'  [{ts()}] M7 PID: {m7_proc.pid}')
+    time.sleep(2.0)
+    if m7_proc.poll() is not None:
+        print(f'  [{ts()}] M7 FAILED to start (exit code {m7_proc.returncode})', file=sys.stderr)
+    else:
+        l3_created += 1
 
-    except ImportError as exc:
-        print(f'  [{ts()}] [WARN] L3 kernel import failed: {exc}', file=sys.stderr)
-        print(f'  [{ts()}] [WARN] L3 nodes not started — sim-only mode', file=sys.stderr)
+
+    # Report
+    all_modules = [n.get_name() for n in nodes]
+    total_active = len(all_modules) + l3_created  # SIL nodes + L3 subprocesses
+    print(f'[{ts()}] Stage 3 complete: {l3_created} L3 nodes launched as subprocesses')
+    print(f'[{ts()}] Total active: {total_active} ({len(all_modules)} SIL + {l3_created} L3)')
+    _sep = ' | '
+    print(f'[{ts()}] SIL nodes: {_sep.join(all_modules)}')
+
 else:
     print(f'[{ts()}] Stage 3/3: SIL_L3_ENABLE=0 — L3 kernel bypassed')
     bridge_proc = None
-    m7_proc = None
+    l3_procs = []
 
 sys.stdout.flush()
 
@@ -271,11 +280,16 @@ finally:
         except Exception:
             pass
     rclpy.shutdown()
-    # Clean up subprocesses
-    for proc_var in ('bridge_proc', 'm7_proc'):
-        p = locals().get(proc_var)
+    # Clean up subprocesses (bridge + all L3 processes)
+    if 'bridge_proc' in dir() and bridge_proc and bridge_proc.poll() is None:
+        bridge_proc.terminate()
+        bridge_proc.wait(timeout=5)
+    for p in (l3_procs if 'l3_procs' in dir() else []):
         if p and p.poll() is None:
             p.terminate()
-            p.wait(timeout=5)
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                p.kill()
     sys.stdout.flush()
 " 2>&1

@@ -36,7 +36,11 @@ class EnvDisturbanceNode(LifecycleNode):
     """
 
     def __init__(self, node_name: str = "env_disturbance_node") -> None:
-        super().__init__(node_name)
+        super().__init__(
+            node_name,
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
 
         # Initial conditions
         self._wind_dir: float = 0.0
@@ -52,8 +56,11 @@ class EnvDisturbanceNode(LifecycleNode):
 
     def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
         """Declare parameters and prepare for operation."""
-        self.declare_parameter("tau_wind", 300.0)
-        self.declare_parameter("sigma", 2.0)
+        try:
+            self.declare_parameter("tau_wind", 300.0)
+            self.declare_parameter("sigma", 2.0)
+        except Exception:
+            pass
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:

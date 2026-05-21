@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-05-21" />
+  <title>MASS ADAS L3 — Concept of Operations (ConOps) v0.1</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href=".print-style.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MASS ADAS L3 — Concept of Operations (ConOps)
+v0.1</h1>
+<p class="date">2026-05-21</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#concept-of-operations-conops-mass-l3-tactical-decision-layer-stub"
+id="toc-concept-of-operations-conops-mass-l3-tactical-decision-layer-stub">Concept
+of Operations (ConOps) — MASS L3 Tactical Decision Layer — STUB</a>
+<ul>
+<li><a href="#purpose" id="toc-purpose">Purpose</a></li>
+<li><a href="#required-sections-to-be-filled"
+id="toc-required-sections-to-be-filled">Required Sections (to be
+filled)</a></li>
+<li><a href="#reference-documents"
+id="toc-reference-documents">Reference Documents</a></li>
+<li><a href="#development-timeline"
+id="toc-development-timeline">Development Timeline</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="concept-of-operations-conops-mass-l3-tactical-decision-layer-stub">Concept
+of Operations (ConOps) — MASS L3 Tactical Decision Layer — STUB</h1>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Document ID</td>
+<td>MASS-L3-TDL-CONOPS-001</td>
+</tr>
+<tr>
+<td>Version</td>
+<td>v0.1-stub</td>
+</tr>
+<tr>
+<td>Date</td>
+<td>2026-05-19</td>
+</tr>
+<tr>
+<td>Status</td>
+<td><strong>STUB</strong> — placeholder for D1.8 deliverable</td>
+</tr>
+<tr>
+<td>Architecture Baseline</td>
+<td>v1.1.2</td>
+</tr>
+<tr>
+<td>Development Plan</td>
+<td>v3.0</td>
+</tr>
+<tr>
+<td>CCS i-Ship Requirement</td>
+<td>CG-136 (ConOps is mandatory for AIP)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="purpose">Purpose</h2>
+<p>This Concept of Operations describes the MASS ADAS L3 Tactical
+Decision Layer from the perspective of its users (ROC, Captain, Shore
+Operator), the operational environment, and the system’s intended
+behaviour across its operational envelope. It is a mandatory artefact
+for CCS i-Ship (Nx, Ri/Ai) AIP submission per CG-136.</p>
+<h2 id="required-sections-to-be-filled">Required Sections (to be
+filled)</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" /><strong>§1 Scope &amp; System
+Overview</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />1.1 System boundaries (L3 in MASS
+stack)</label></li>
+<li><label><input type="checkbox" />1.2 Key operational
+capabilities</label></li>
+<li><label><input type="checkbox" />1.3 Relationship to other MASS
+layers (L1/L2/L4/L5)</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§2 User Roles &amp;
+Responsibilities</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />2.1 Remote Operator / Commander
+(ROC) — MASS Code level 3–4 operation</label></li>
+<li><label><input type="checkbox" />2.2 Captain (onboard, override
+authority)</label></li>
+<li><label><input type="checkbox" />2.3 Shore Operator (monitoring,
+limited intervention)</label></li>
+<li><label><input type="checkbox" />2.4 Role transitions under MASS Code
+mode changes</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§3 Operational
+Scenarios</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />3.1 Normal open-water
+transit</label></li>
+<li><label><input type="checkbox" />3.2 COLREGs encounter resolution
+(head-on, crossing, overtaking)</label></li>
+<li><label><input type="checkbox" />3.3 Multi-vessel encounters (3+
+vessels)</label></li>
+<li><label><input type="checkbox" />3.4 Degraded sensor conditions (fog,
+radar outage)</label></li>
+<li><label><input type="checkbox" />3.5 Out-of-ODD situation (return to
+safe state)</label></li>
+<li><label><input type="checkbox" />3.6 Emergency takeover (TMR ≤
+60s)</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§4 Operational
+Envelope</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />4.1 ODD parameter ranges
+(visibility, traffic, waterway)</label></li>
+<li><label><input type="checkbox" />4.2 Permitted vessel types (FCB
+baseline → multi-vessel)</label></li>
+<li><label><input type="checkbox" />4.3 Environmental limits
+(wind/wave/current)</label></li>
+<li><label><input type="checkbox" />4.4 Transition to DEGRADED /
+CRITICAL modes</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§5 User Interface
+Concept</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />5.1 SAT-1/2/3 transparency
+framework</label></li>
+<li><label><input type="checkbox" />5.2 Decision information panels
+(CPA/TCPA/Rule)</label></li>
+<li><label><input type="checkbox" />5.3 Alarm and alert
+philosophy</label></li>
+<li><label><input type="checkbox" />5.4 Takeover request (TOR)
+modalities</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§6 Safety
+Philosophy</strong></label>
+<ul class="task-list">
+<li><label><input type="checkbox" />6.1 Doer-Checker
+architecture</label></li>
+<li><label><input type="checkbox" />6.2 Safe state definition and entry
+conditions</label></li>
+<li><label><input type="checkbox" />6.3 Graceful degradation
+path</label></li>
+</ul></li>
+<li><label><input type="checkbox" /><strong>§7 Assumptions &amp;
+Constraints</strong></label></li>
+<li><label><input type="checkbox" /><strong>§8 Reference
+Documents</strong></label></li>
+</ul>
+<h2 id="reference-documents">Reference Documents</h2>
+<ul>
+<li>Architecture Design v1.1.2:
+<code>docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md</code></li>
+<li>V&amp;V Plan:
+<code>docs/Design/V&amp;V_Plan/00-vv-strategy-v0.1.md</code></li>
+<li>HMI Design (M8):
+<code>docs/Design/Detailed Design/M8/01-detailed-design.md</code></li>
+<li>SIL Frontend:
+<code>docs/Design/SIL/v1.0-unified/03-sil-frontend-design.md</code></li>
+<li>HAZID RUN-001:
+<code>docs/Design/HAZID/RUN-001-kickoff.md</code></li>
+<li>CCS CG-136 (ConOps)</li>
+<li>IMO MASS Code (MSC 110/111)</li>
+</ul>
+<h2 id="development-timeline">Development Timeline</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Version</th>
+<th>Date</th>
+<th>Scope</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1 stub</td>
+<td>2026-05-19</td>
+<td>Framework + placeholder sections</td>
+<td>🔴 <strong>STUB</strong></td>
+</tr>
+<tr>
+<td>v0.2 draft</td>
+<td>2026-07-31 (D2.8)</td>
+<td>Full draft for Phase 2 review</td>
+<td>📅 Planned</td>
+</tr>
+<tr>
+<td>v1.0 final</td>
+<td>2026-08-31 (D3.8)</td>
+<td>AIP-ready version</td>
+<td>📅 Planned</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

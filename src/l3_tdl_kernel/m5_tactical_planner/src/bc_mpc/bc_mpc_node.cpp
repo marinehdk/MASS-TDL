@@ -111,7 +111,7 @@ void BcMpcNode::on_validity_tick_()
 // ===========================================================================
 // assemble_input_ — precondition: world_state_ != nullptr
 // ===========================================================================
-BcMpcInput BcMpcNode::assemble_input_() const
+BcMpcInput BcMpcNode::assemble_input_()
 {
   BcMpcInput inp;
 

@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-05-21" />
+  <title>MASS ADAS L3 — Verification &amp; Validation Plan v0.1</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href=".print-style.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MASS ADAS L3 — Verification &amp; Validation Plan
+v0.1</h1>
+<p class="date">2026-05-21</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#mass-adas-l3-tactical-decision-layer-verification-validation-plan-v0.1"
+id="toc-mass-adas-l3-tactical-decision-layer-verification-validation-plan-v0.1">MASS
+ADAS L3 Tactical Decision Layer — Verification &amp; Validation Plan
+v0.1</a>
+<ul>
+<li><a href="#revision-history" id="toc-revision-history">Revision
+History</a></li>
+<li><a href="#table-of-contents" id="toc-table-of-contents">Table of
+Contents</a></li>
+<li><a href="#purpose-scope" id="toc-purpose-scope">1. Purpose &amp;
+Scope</a></li>
+<li><a href="#vv-strategy-overview" id="toc-vv-strategy-overview">2.
+V&amp;V Strategy Overview</a>
+<ul>
+<li><a href="#three-phase-verification-approach"
+id="toc-three-phase-verification-approach">2.1 Three-Phase Verification
+Approach</a></li>
+<li><a href="#sil-as-primary-verification-tool"
+id="toc-sil-as-primary-verification-tool">2.2 SIL as Primary
+Verification Tool</a></li>
+<li><a href="#independence-of-vv" id="toc-independence-of-vv">2.3
+Independence of V&amp;V</a></li>
+</ul></li>
+<li><a href="#entryexit-gates" id="toc-entryexit-gates">3. Entry/Exit
+Gates</a>
+<ul>
+<li><a href="#phase-1-sil-entry-gate-e1"
+id="toc-phase-1-sil-entry-gate-e1">3.1 Phase 1 — SIL Entry Gate
+(E1)</a></li>
+<li><a href="#phase-1-sil-exit-gate-x1"
+id="toc-phase-1-sil-exit-gate-x1">3.2 Phase 1 — SIL Exit Gate
+(X1)</a></li>
+<li><a href="#phase-2-hil-entry-gate-e2"
+id="toc-phase-2-hil-entry-gate-e2">3.3 Phase 2 — HIL Entry Gate
+(E2)</a></li>
+<li><a href="#phase-2-hil-exit-gate-x2"
+id="toc-phase-2-hil-exit-gate-x2">3.4 Phase 2 — HIL Exit Gate
+(X2)</a></li>
+<li><a href="#phase-3-sea-trial-entry-gate-e3"
+id="toc-phase-3-sea-trial-entry-gate-e3">3.5 Phase 3 — Sea Trial Entry
+Gate (E3)</a></li>
+<li><a href="#phase-3-sea-trial-exit-gate-x3"
+id="toc-phase-3-sea-trial-exit-gate-x3">3.6 Phase 3 — Sea Trial Exit
+Gate (X3)</a></li>
+</ul></li>
+<li><a href="#end-to-end-kpi-matrix" id="toc-end-to-end-kpi-matrix">4.
+End-to-End KPI Matrix</a></li>
+<li><a href="#test-coverage-dimensions"
+id="toc-test-coverage-dimensions">5. Test Coverage Dimensions</a>
+<ul>
+<li><a href="#functional-coverage" id="toc-functional-coverage">5.1
+Functional Coverage</a></li>
+<li><a href="#performance-coverage" id="toc-performance-coverage">5.2
+Performance Coverage</a></li>
+<li><a href="#failure-response-coverage"
+id="toc-failure-response-coverage">5.3 Failure Response
+Coverage</a></li>
+<li><a href="#colregs-compliance-coverage"
+id="toc-colregs-compliance-coverage">5.4 COLREGs Compliance
+Coverage</a></li>
+<li><a href="#scenario-distribution-summary"
+id="toc-scenario-distribution-summary">5.5 Scenario Distribution
+Summary</a></li>
+</ul></li>
+<li><a href="#sil-latency-budget" id="toc-sil-latency-budget">6. SIL
+Latency Budget</a>
+<ul>
+<li><a href="#dds-fmu-bridge-latency"
+id="toc-dds-fmu-bridge-latency">6.1 dds-fmu Bridge Latency</a></li>
+<li><a href="#m7-native-ros2-boundary"
+id="toc-m7-native-ros2-boundary">6.2 M7 Native ROS2 Boundary</a></li>
+<li><a href="#jitter-buffer-compensation"
+id="toc-jitter-buffer-compensation">6.3 Jitter Buffer
+Compensation</a></li>
+</ul></li>
+<li><a href="#rl-artefact-rebound-path"
+id="toc-rl-artefact-rebound-path">7. RL Artefact Rebound Path</a>
+<ul>
+<li><a href="#pipeline" id="toc-pipeline">7.1 Pipeline</a></li>
+<li><a href="#interface-contract" id="toc-interface-contract">7.2
+Interface Contract</a></li>
+<li><a href="#version-lock" id="toc-version-lock">7.3 Version
+Lock</a></li>
+</ul></li>
+<li><a href="#dnv-toolchain-entry-conditions"
+id="toc-dnv-toolchain-entry-conditions">8. DNV Toolchain Entry
+Conditions</a>
+<ul>
+<li><a href="#version-locking" id="toc-version-locking">8.1 Version
+Locking</a></li>
+<li><a href="#license-verification" id="toc-license-verification">8.2
+License Verification</a></li>
+<li><a href="#self-qualification-evidence-rp-0513-section-4"
+id="toc-self-qualification-evidence-rp-0513-section-4">8.3
+Self-Qualification Evidence (RP-0513 Section 4)</a></li>
+</ul></li>
+<li><a href="#certification-evidence-tracking"
+id="toc-certification-evidence-tracking">9. Certification Evidence
+Tracking</a>
+<ul>
+<li><a href="#evidence-categories" id="toc-evidence-categories">9.1
+Evidence Categories</a></li>
+<li><a href="#traceability" id="toc-traceability">9.2
+Traceability</a></li>
+<li><a href="#evidence-maturity" id="toc-evidence-maturity">9.3 Evidence
+Maturity</a></li>
+</ul></li>
+<li><a href="#demo-1-vv-scope" id="toc-demo-1-vv-scope">10. DEMO-1
+V&amp;V Scope</a>
+<ul>
+<li><a href="#in-scope-for-demo-1" id="toc-in-scope-for-demo-1">10.1 In
+Scope for DEMO-1</a></li>
+<li><a href="#out-of-scope-for-demo-1"
+id="toc-out-of-scope-for-demo-1">10.2 Out of Scope for DEMO-1</a></li>
+<li><a href="#demo-1-gate-checklist" id="toc-demo-1-gate-checklist">10.3
+DEMO-1 Gate Checklist</a></li>
+</ul></li>
+<li><a href="#document-approval" id="toc-document-approval">Document
+Approval</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="mass-adas-l3-tactical-decision-layer-verification-validation-plan-v0.1">MASS
+ADAS L3 Tactical Decision Layer — Verification &amp; Validation Plan
+v0.1</h1>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Document ID</td>
+<td>MASS-L3-TDL-VVP-001</td>
+</tr>
+<tr>
+<td>Version</td>
+<td>v0.1</td>
+</tr>
+<tr>
+<td>Date</td>
+<td>2026-05-31</td>
+</tr>
+<tr>
+<td>Author</td>
+<td>V&amp;V Engineer (FTE)</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>V&amp;V Engineer</td>
+</tr>
+<tr>
+<td>Reviewer</td>
+<td>Safety Engineer, DNV Validation Lead</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>Draft for D1.5 Review</td>
+</tr>
+<tr>
+<td>Architecture Baseline</td>
+<td>v1.1.2</td>
+</tr>
+<tr>
+<td>Development Plan</td>
+<td>v3.0</td>
+</tr>
+<tr>
+<td>Certification Target</td>
+<td>CCS i-Ship (Nx, Ri/Ai), IEC 61508 SIL 2, ISO 21448 SOTIF</td>
+</tr>
+<tr>
+<td>Reference Standards</td>
+<td>DNV-CG-0264 Section 3, DNV-RP-0513, DNV-RP-0671, IEC 61508-3 Section
+7, ISO 21448</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="revision-history">Revision History</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Version</th>
+<th>Date</th>
+<th>Author</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1</td>
+<td>2026-05-31</td>
+<td>V&amp;V Engineer</td>
+<td>Initial release. Phase 1–4 gate structure, KPI matrix, coverage
+dimensions, SIL latency budget, RL rebound path, DNV toolchain entry
+conditions, certification evidence framework, DEMO-1 scope.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#1-purpose--scope">Purpose &amp; Scope</a></li>
+<li><a href="#2-vv-strategy-overview">V&amp;V Strategy Overview</a></li>
+<li><a href="#3-entryexit-gates">Entry/Exit Gates</a></li>
+<li><a href="#4-end-to-end-kpi-matrix">End-to-End KPI Matrix</a></li>
+<li><a href="#5-test-coverage-dimensions">Test Coverage
+Dimensions</a></li>
+<li><a href="#6-sil-latency-budget">SIL Latency Budget</a></li>
+<li><a href="#7-rl-artefact-rebound-path">RL Artefact Rebound
+Path</a></li>
+<li><a href="#8-dnv-toolchain-entry-conditions">DNV Toolchain Entry
+Conditions</a></li>
+<li><a href="#9-certification-evidence-tracking">Certification Evidence
+Tracking</a></li>
+<li><a href="#10-demo-1-vv-scope">DEMO-1 V&amp;V Scope</a></li>
+</ol>
+<hr />
+<h2 id="purpose-scope">1. Purpose &amp; Scope</h2>
+<p>This Verification &amp; Validation Plan defines the strategy,
+criteria, and infrastructure for demonstrating that the MASS ADAS L3
+Tactical Decision Layer meets its safety, functional, and performance
+requirements across the full development lifecycle from first
+integration through sea trial.</p>
+<p><strong>Scope boundaries:</strong></p>
+<ul>
+<li><strong>In scope:</strong> All eight TDL modules (M1 ODD/Envelope
+Manager through M8 HMI/Transparency Bridge), the SIL/HIL test
+infrastructure, the scenario generation and coverage tracking framework,
+the certification evidence pipeline, and the end-to-end performance
+KPIs.</li>
+<li><strong>Out of scope:</strong> L1 Mission Layer, L2 Voyage Planner,
+L4 Guidance Layer, L5 Control &amp; Allocation, Multimodal Fusion,
+Cybersecurity hardening, and shore-side infrastructure. These layers are
+treated as test fixtures or boundary conditions.</li>
+</ul>
+<p>This plan covers the period from Phase 1 (DEMO-1 Skeleton Live, 15
+June 2026) through Phase 4 (HIL integration and third-party SIL 2
+assessment, September–November 2026). It is structured in accordance
+with DNV-CG-0264 Section 3 (Verification Plan) conventions.</p>
+<hr />
+<h2 id="vv-strategy-overview">2. V&amp;V Strategy Overview</h2>
+<h3 id="three-phase-verification-approach">2.1 Three-Phase Verification
+Approach</h3>
+<p>Verification proceeds through three strictly sequential phases. Each
+phase has formal entry and exit gates defined in Section 3. No phase may
+begin until the preceding phase’s exit gate has been cleared.</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Primary Tool</th>
+<th>Time Scale</th>
+<th>Focus</th>
+<th>Key Deliverable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1. SIL</strong></td>
+<td>Software-in-the-loop simulation</td>
+<td>0.02–1 s timestep</td>
+<td>Functional correctness, COLREGs compliance, coverage, performance
+KPIs</td>
+<td>SIL exit report with scenario pass rates, coverage cube, KPI
+validation</td>
+</tr>
+<tr>
+<td><strong>2. HIL</strong></td>
+<td>Hardware-in-the-loop with real-time target</td>
+<td>Real-time (at least 10 Hz)</td>
+<td>Real-time determinism, DDS latency, hardware driver integration, M7
+watchdog on target</td>
+<td>HIL exit report with jitter measurements, determinism evidence</td>
+</tr>
+<tr>
+<td><strong>3. Sea Trial</strong></td>
+<td>FCB non-certification sea trial</td>
+<td>Full mission duration</td>
+<td>End-to-end behavior in real environmental conditions, ROC HMI
+validation, ASDR logging integrity</td>
+<td>Sea trial report with encounter logs, KPI replay, anomaly
+registry</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sil-as-primary-verification-tool">2.2 SIL as Primary
+Verification Tool</h3>
+<p>SIL remains the primary verification vehicle for Phases 1 through 3.
+The majority of functional and safety verification is performed in SIL
+because scenario space is enumerable and reproducible, fault injection
+is deterministic, coverage metrics can be collected automatically, and
+COLREGs compliance can be evaluated against geometric benchmarks with
+ground-truth geometry.</p>
+<p>HIL and sea trial serve as confirmation activities. They do not
+discover new functional defects; they verify that the real-time
+implementation, hardware integration, and environmental noise do not
+degrade the behaviors already proven in SIL.</p>
+<h3 id="independence-of-vv">2.3 Independence of V&amp;V</h3>
+<p>The V&amp;V function is organizationally independent from the
+development team:</p>
+<ul>
+<li>The V&amp;V Engineer (FTE, 5/8–8/31) owns this plan, the scenario
+schema, the coverage methodology, and the gate criteria.</li>
+<li>V&amp;V writes test scenarios, operates the SIL framework, and
+adjudicates gate pass or fail.</li>
+<li>Developers do not modify gate criteria, coverage thresholds, or
+scenario definitions without V&amp;V review.</li>
+<li>Safety Engineer (outsourced, 5/15–7/10) reviews V&amp;V results for
+SOTIF and IEC 61508 alignment but does not execute tests.</li>
+</ul>
+<hr />
+<h2 id="entryexit-gates">3. Entry/Exit Gates</h2>
+<h3 id="phase-1-sil-entry-gate-e1">3.1 Phase 1 — SIL Entry Gate
+(E1)</h3>
+<p>The SIL entry gate ensures that the development baseline is stable
+enough to yield meaningful verification results.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>E1.1</td>
+<td>All D1.x tasks closed per v3.0 DoD</td>
+<td>100% closed</td>
+<td>D1.x task tracker export</td>
+</tr>
+<tr>
+<td>E1.2</td>
+<td>colcon build clean on CI</td>
+<td>0 errors, 0 warnings treated as errors</td>
+<td>CI build log</td>
+</tr>
+<tr>
+<td>E1.3</td>
+<td>CI pipeline green</td>
+<td>All jobs pass</td>
+<td>GitLab pipeline status</td>
+</tr>
+<tr>
+<td>E1.4</td>
+<td>Scenario schema validated</td>
+<td>Schema v1.0 passes structural validation</td>
+<td>schema_validate.py report</td>
+</tr>
+<tr>
+<td>E1.5</td>
+<td>Mock publisher frequencies verified</td>
+<td>All cross-layer mock pubs within plus or minus 5% of specified
+rate</td>
+<td>Frequency check log</td>
+</tr>
+<tr>
+<td>E1.6</td>
+<td>E2E data flow sanity</td>
+<td>M1 to M2 to M4 to M5 to M8 message chain completes in under 5 s</td>
+<td>E2E latency trace</td>
+</tr>
+<tr>
+<td>E1.7</td>
+<td>V&amp;V Plan v0.1 committed</td>
+<td>File present in docs/Design/V&amp;V_Plan/</td>
+<td>Git commit hash</td>
+</tr>
+<tr>
+<td>E1.8</td>
+<td>M7 watchdog Python stub at least 1 PASS</td>
+<td>At least 1 pytest test with m7 in nodeid passes</td>
+<td>pytest-report.json</td>
+</tr>
+</tbody>
+</table>
+<p>Gate E1.1 through E1.8 are checked by
+<code>tools/check_entry_gate.py --phase 1</code>. Manual checks (e.g.,
+design review sign-off) are recorded in the Phase 1 gate log but do not
+block automated execution.</p>
+<h3 id="phase-1-sil-exit-gate-x1">3.2 Phase 1 — SIL Exit Gate (X1)</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>X1.1</td>
+<td>Baseline scenario pass rate</td>
+<td>At least 95% of 50 baseline scenarios pass</td>
+<td>test-results/baseline_results.json</td>
+</tr>
+<tr>
+<td>X1.2</td>
+<td>KPI matrix validated</td>
+<td>All Section 4 KPIs within threshold on at least 30 scenario
+runs</td>
+<td>test-results/kpi_matrix.json</td>
+</tr>
+<tr>
+<td>X1.3</td>
+<td>ASDR log consistency</td>
+<td>Every decision cycle logged with timestamp, module state,
+rationale</td>
+<td>ASDR audit script report</td>
+</tr>
+<tr>
+<td>X1.4</td>
+<td>Coverage cube minimum</td>
+<td>At least 10 of 1100 cells lit (Phase 1 baseline)</td>
+<td>test-results/coverage_cube.json</td>
+</tr>
+<tr>
+<td>X1.5</td>
+<td>Imazu-22 benchmark</td>
+<td>22 of 22 pass, CPA at least 200 m ratio at least 95%, COLREG
+classification at least 95%</td>
+<td>test-results/imazu22_results.json</td>
+</tr>
+<tr>
+<td>X1.6</td>
+<td>M7 watchdog critical-path coverage</td>
+<td>All 7 monitored modules exercised for timeout and recovery</td>
+<td>pytest-report.json</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-2-hil-entry-gate-e2">3.3 Phase 2 — HIL Entry Gate
+(E2)</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>E2.1</td>
+<td>SIL exit gate cleared</td>
+<td>X1.1 through X1.6 all pass</td>
+<td>Phase 1 exit report</td>
+</tr>
+<tr>
+<td>E2.2</td>
+<td>HIL hardware qualified</td>
+<td>Target hardware flashed and booting</td>
+<td>HIL qualification checklist</td>
+</tr>
+<tr>
+<td>E2.3</td>
+<td>Real-time constraints verified</td>
+<td>ROS2 timer jitter P95 under 5 ms on target</td>
+<td>ros2 topic hz plus trace analysis</td>
+</tr>
+<tr>
+<td>E2.4</td>
+<td>DDS-Security profile loaded</td>
+<td>Authentication and encryption active on test domain</td>
+<td>dds_security.xml validation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-2-hil-exit-gate-x2">3.4 Phase 2 — HIL Exit Gate (X2)</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>X2.1</td>
+<td>Deterministic replay</td>
+<td>Same scenario input produces same output within 1% on HIL versus
+SIL</td>
+<td>Replay diff report</td>
+</tr>
+<tr>
+<td>X2.2</td>
+<td>Latency budget held</td>
+<td>dds-fmu bridge P95 under 10 ms, P99 under 15 ms</td>
+<td>Latency histogram CSV</td>
+</tr>
+<tr>
+<td>X2.3</td>
+<td>M7 watchdog on target</td>
+<td>Watchdog triggers MRC within 3 timeout periods on hardware</td>
+<td>Target test log</td>
+</tr>
+<tr>
+<td>X2.4</td>
+<td>200 scenarios run</td>
+<td>At least 200 scenarios executed on HIL with at least 95% pass</td>
+<td>hil_results.json</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-3-sea-trial-entry-gate-e3">3.5 Phase 3 — Sea Trial Entry
+Gate (E3)</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>E3.1</td>
+<td>HIL exit gate cleared</td>
+<td>X2.1 through X2.4 all pass</td>
+<td>Phase 2 exit report</td>
+</tr>
+<tr>
+<td>E3.2</td>
+<td>CCS preliminary approval</td>
+<td>CCS surveyor sign-off on ConOps and V&amp;V Plan</td>
+<td>CCS letter</td>
+</tr>
+<tr>
+<td>E3.3</td>
+<td>Crew training complete</td>
+<td>ROC and master completed simulator familiarization</td>
+<td>Training completion certificates</td>
+</tr>
+<tr>
+<td>E3.4</td>
+<td>Emergency stop chain tested</td>
+<td>Hardware override plus ASDR zero-software e-stop verified on
+dock</td>
+<td>Dockside test log</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-3-sea-trial-exit-gate-x3">3.6 Phase 3 — Sea Trial Exit
+Gate (X3)</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Criterion</th>
+<th>Threshold</th>
+<th>Evidence Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>X3.1</td>
+<td>Mission duration</td>
+<td>At least 50 nm and at least 100 h autonomous operation</td>
+<td>VDR log plus AIS track</td>
+</tr>
+<tr>
+<td>X3.2</td>
+<td>Encounter events</td>
+<td>At least 10 live COLREGs encounters with target vessels</td>
+<td>ASDR encounter registry</td>
+</tr>
+<tr>
+<td>X3.3</td>
+<td>No safety incidents</td>
+<td>Zero MRC activations attributable to TDL defect</td>
+<td>Incident registry (empty)</td>
+</tr>
+<tr>
+<td>X3.4</td>
+<td>KPI replay</td>
+<td>All Section 4 KPIs within 2 times threshold when replayed from sea
+trial logs</td>
+<td>Post-processed replay report</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="end-to-end-kpi-matrix">4. End-to-End KPI Matrix</h2>
+<p>The following KPIs are measured end-to-end from the first L2 waypoint
+input to the L4 command output. Measurements are taken under nominal
+conditions (open sea, Beaufort 0–1, full sensor availability) unless
+otherwise noted.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>KPI</th>
+<th>Target</th>
+<th>Measurement Method</th>
+<th>Phase Verified</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AvoidancePlan P95 latency</td>
+<td>Less than or equal to 1.0 s</td>
+<td>colcon test timing wrapper on M4 to M5 to M8 chain</td>
+<td>SIL Phase 1</td>
+</tr>
+<tr>
+<td>ReactiveOverrideCmd P95</td>
+<td>Less than or equal to 200 ms</td>
+<td>colcon test timing wrapper on M7 override path</td>
+<td>SIL Phase 1</td>
+</tr>
+<tr>
+<td>Mid-MPC solve time</td>
+<td>Under 500 ms</td>
+<td>M5 solver diagnostics (OSQP / ECOS callback)</td>
+<td>SIL Phase 2</td>
+</tr>
+<tr>
+<td>BC-MPC solve time</td>
+<td>Under 150 ms</td>
+<td>M5 solver diagnostics (BC horizon)</td>
+<td>SIL Phase 2</td>
+</tr>
+<tr>
+<td>M7 safety check</td>
+<td>Under 10 ms</td>
+<td>M7 standalone benchmark (Python stub to C++ target)</td>
+<td>SIL Phase 1</td>
+</tr>
+<tr>
+<td>M4 arbitration cycle</td>
+<td>Under 100 ms</td>
+<td>M4 IvP diagnostics (objective function evaluation plus winner
+selection)</td>
+<td>SIL Phase 2</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Measurement protocol:</strong></p>
+<ol type="1">
+<li>Each KPI is sampled over 1000 consecutive decision cycles.</li>
+<li>P95 and P99 are computed from the empirical CDF.</li>
+<li>Outliers beyond P99 are logged as anomalies and reviewed by
+V&amp;V.</li>
+<li>If any KPI exceeds its target, the responsible module’s D-task is
+reopened for performance regression analysis.</li>
+</ol>
+<hr />
+<h2 id="test-coverage-dimensions">5. Test Coverage Dimensions</h2>
+<h3 id="functional-coverage">5.1 Functional Coverage</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Granularity</th>
+<th>Phase 1 Target</th>
+<th>Phase 2 Target</th>
+<th>Phase 3 Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Module core scenarios</td>
+<td>8 modules times 5 core scenarios each</td>
+<td>40 scenarios</td>
+<td>40 scenarios</td>
+<td>40 scenarios</td>
+</tr>
+<tr>
+<td>ODD zone variants</td>
+<td>4 zones (open sea, coastal TSS, port approach, offshore wind
+farm)</td>
+<td>2 zones</td>
+<td>4 zones</td>
+<td>4 zones</td>
+</tr>
+<tr>
+<td>Functional total</td>
+<td>8 times 5 times zones</td>
+<td>80 runs</td>
+<td>160 runs</td>
+<td>160 runs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-coverage">5.2 Performance Coverage</h3>
+<ul>
+<li>Latency KPIs (Section 4) measured under varying load: 1, 5, 10, 20
+concurrent targets.</li>
+<li>Memory footprint: RSS monitored every 10 s during 1 h continuous
+run.</li>
+<li>CPU utilization: per-core load on target hardware (HIL) or host
+(SIL).</li>
+</ul>
+<h3 id="failure-response-coverage">5.3 Failure Response Coverage</h3>
+<p>M7 Safety Supervisor enforces 6 hard constraints. Each constraint is
+tested against 10 failure scenarios:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Hard Constraint</th>
+<th>Failure Scenarios (examples)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HC-1: CPA at least min safe distance</td>
+<td>Sensor dropout, target ghost, speed estimate error</td>
+</tr>
+<tr>
+<td>HC-2: No ODD violation</td>
+<td>ENC mismatch, GPS spoofing, weather threshold breach</td>
+</tr>
+<tr>
+<td>HC-3: MRC trigger within TMR</td>
+<td>Comms loss to shore, M1 deadlock, DDS partition fault</td>
+</tr>
+<tr>
+<td>HC-4: COLREGs rule never broken</td>
+<td>Rule ambiguity, multi-target conflict, crossing plus overtaking</td>
+</tr>
+<tr>
+<td>HC-5: Speed limit respected</td>
+<td>Engine fault, current overspeed, waypoint overshoot</td>
+</tr>
+<tr>
+<td>HC-6: M8 transparency never silent</td>
+<td>M8 crash, logger disk full, DDS topic overflow</td>
+</tr>
+</tbody>
+</table>
+<p>Total failure response test cases: 6 times 10 = 60 cases.</p>
+<h3 id="colregs-compliance-coverage">5.4 COLREGs Compliance
+Coverage</h3>
+<p>The COLREGs compliance matrix is defined as:</p>
+<ul>
+<li>11 rules (Rule 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 19)</li>
+<li>4 ODD zones</li>
+<li>5 disturbance levels (Beaufort 0–1, 2–3, 4–5, 6–7, sensor
+degraded)</li>
+<li>5 PRNG seeds per cell</li>
+</ul>
+<p>Total cells: 11 times 4 times 5 times 5 = <strong>1100
+cells</strong>.</p>
+<p>Phase 1 lights at least 10 cells (baseline). Phase 2 lights at least
+200 cells. Phase 3 lights at least 1000 cells (full matrix minus
+contingency cells reserved for edge cases).</p>
+<h3 id="scenario-distribution-summary">5.5 Scenario Distribution
+Summary</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Scenario Count</th>
+<th>Source</th>
+<th>Coverage Focus</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Phase 1 (DEMO-1)</td>
+<td>50</td>
+<td>Imazu-22 plus synthetic baseline</td>
+<td>Infrastructure validation, schema maturity</td>
+</tr>
+<tr>
+<td>Phase 2 (DEMO-2)</td>
+<td>200</td>
+<td>Expanded Imazu variants plus COLREGs matrix</td>
+<td>Decision quality, M4/M5 maturity</td>
+</tr>
+<tr>
+<td>Phase 3 (DEMO-3)</td>
+<td>1000+</td>
+<td>Full 1100-cell matrix plus 100+ stress cases</td>
+<td>SIL 2 evidence, SOTIF completeness</td>
+</tr>
+<tr>
+<td>Phase 4 (HIL)</td>
+<td>200 replayed from SIL</td>
+<td>Deterministic subset of Phase 3</td>
+<td>Real-time confirmation</td>
+</tr>
+<tr>
+<td>Phase 4 (Sea Trial)</td>
+<td>10+ live encounters</td>
+<td>Unscripted maritime traffic</td>
+<td>Environmental validation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="sil-latency-budget">6. SIL Latency Budget</h2>
+<p>The SIL toolchain introduces synthetic latency that must be bounded
+and compensated so that SIL results remain valid predictors of HIL and
+sea trial behavior.</p>
+<h3 id="dds-fmu-bridge-latency">6.1 dds-fmu Bridge Latency</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Budget</th>
+<th>Measurement Point</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P95 latency</td>
+<td>Under or equal to 10 ms</td>
+<td>ROS2 topic timestamp to FMU input port ready</td>
+</tr>
+<tr>
+<td>P99 latency</td>
+<td>Under or equal to 15 ms</td>
+<td>Same as above</td>
+</tr>
+<tr>
+<td>Max jitter</td>
+<td>Under or equal to 5 ms</td>
+<td>Absolute deviation from mean per 1 s window</td>
+</tr>
+</tbody>
+</table>
+<p>If the dds-fmu bridge exceeds P99 15 ms, the V&amp;V Engineer
+shall:</p>
+<ol type="1">
+<li>Increase the DDS QoS reliability buffer depth.</li>
+<li>Enable jitter buffering in the FMI co-simulation master.</li>
+<li>If steps 1 and 2 do not restore the budget, escalate to the Safety
+Engineer for a latency budget revision.</li>
+</ol>
+<h3 id="m7-native-ros2-boundary">6.2 M7 Native ROS2 Boundary</h3>
+<p>M7 Safety Supervisor is strictly ROS2 native. It does
+<strong>not</strong> cross the FMI boundary. This eliminates dds-fmu
+latency from the safety-critical path and guarantees that M7’s VETO
+decision is always based on the freshest possible world model.</p>
+<h3 id="jitter-buffer-compensation">6.3 Jitter Buffer Compensation</h3>
+<p>The SIL framework implements a jitter buffer on each FMU input
+port:</p>
+<ul>
+<li>Buffer depth: 3 samples (configurable per scenario).</li>
+<li>Timeout: 2 times mean measured jitter; if exceeded, the simulation
+step is marked DEGRADED and logged.</li>
+<li>Scenarios with more than 1% DEGRADED steps are excluded from
+pass-rate statistics until the latency root cause is resolved.</li>
+</ul>
+<hr />
+<h2 id="rl-artefact-rebound-path">7. RL Artefact Rebound Path</h2>
+<p>Phase 4 includes reinforcement learning adversarial testing (D4.6,
+October–December 2026). To prevent a toolchain redesign in Phase 4, the
+RL artefact rebound path is specified now and locked for the project
+duration.</p>
+<h3 id="pipeline">7.1 Pipeline</h3>
+<pre><code>RL training (Stable Baselines3 / Ray RLlib)
+    ↓ export
+ONNX model (policy network)
+    ↓ convert
+mlfmu wrapper (ONNX Runtime inside FMU 2.0)
+    ↓ package
+FMU 2.0 co-simulation unit
+    ↓ reinject
+libcosim SIL/HIL co-simulation master
+    ↓ observe
+TDL module under test (M4 or M5)</code></pre>
+<h3 id="interface-contract">7.2 Interface Contract</h3>
+<ul>
+<li>The ONNX model exposes exactly one input tensor (observation vector)
+and one output tensor (action vector).</li>
+<li>The mlfmu wrapper maps the action vector to a ROS2 message via the
+existing l3_msgs IDL (v1.1.2 Section 15.1).</li>
+<li>The FMU step size is 100 ms (10 Hz), matching the M4 arbitration
+cycle.</li>
+<li>The RL policy does not train during SIL/HIL execution. It is a
+frozen inference graph.</li>
+</ul>
+<h3 id="version-lock">7.3 Version Lock</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Component</th>
+<th>Locked Version</th>
+<th>License</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ONNX</td>
+<td>1.16+</td>
+<td>Apache-2.0</td>
+<td>Standard export format from PyTorch and TensorFlow</td>
+</tr>
+<tr>
+<td>ONNX Runtime</td>
+<td>1.18+</td>
+<td>MIT</td>
+<td>Jetson-compatible inference engine</td>
+</tr>
+<tr>
+<td>mlfmu</td>
+<td>0.3.x</td>
+<td>BSD-3-Clause</td>
+<td>DNV-validated ONNX-to-FMU bridge</td>
+</tr>
+<tr>
+<td>libcosim</td>
+<td>0.10.x</td>
+<td>MPL-2.0</td>
+<td>OSP co-simulation master</td>
+</tr>
+</tbody>
+</table>
+<p>No substitution of these components is permitted without V&amp;V
+review and a regression test of the full rebound pipeline.</p>
+<hr />
+<h2 id="dnv-toolchain-entry-conditions">8. DNV Toolchain Entry
+Conditions</h2>
+<p>The SIL/HIL toolchain is subject to DNV-RP-0513 (Software in
+Certification) and DNV-RP-0671 (Model-Based Verification). The following
+entry conditions apply before the toolchain is accepted for
+certification evidence generation.</p>
+<h3 id="version-locking">8.1 Version Locking</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tool / Library</th>
+<th>Minimum Version</th>
+<th>License</th>
+<th>Verification Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>maritime-schema</td>
+<td>0.2.x</td>
+<td>Apache-2.0</td>
+<td>Schema validation against v1.0 scenario corpus</td>
+</tr>
+<tr>
+<td>libcosim</td>
+<td>0.10.x</td>
+<td>MPL-2.0</td>
+<td>Deterministic replay test (same input produces same output)</td>
+</tr>
+<tr>
+<td>farn</td>
+<td>0.9.x</td>
+<td>MIT</td>
+<td>Batch scenario runner regression test</td>
+</tr>
+<tr>
+<td>ROS2 Jazzy</td>
+<td>2024.04</td>
+<td>Apache-2.0</td>
+<td>Colcon build plus test on Ubuntu 22.04</td>
+</tr>
+<tr>
+<td>FMI standard</td>
+<td>2.0</td>
+<td>—</td>
+<td>FMU compliance checker (FMIChecker)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="license-verification">8.2 License Verification</h3>
+<p>All third-party tools used in the certification evidence pipeline
+carry permissive open-source licenses (Apache-2.0, MIT, MPL-2.0,
+BSD-3-Clause). No GPL or proprietary closed-source tools are used in the
+evidence generation path. License compliance is verified by:</p>
+<ol type="1">
+<li><code>tools/ci/check-licenses.py</code> scans
+<code>pyproject.toml</code>, <code>package.xml</code>, and
+<code>CMakeLists.txt</code> for non-permissive licenses.</li>
+<li>V&amp;V Engineer reviews the scan report before each phase
+gate.</li>
+<li>Any new dependency added after Phase 1 must pass the license scan
+before it is used in CI.</li>
+</ol>
+<h3 id="self-qualification-evidence-rp-0513-section-4">8.3
+Self-Qualification Evidence (RP-0513 Section 4)</h3>
+<p>DNV-RP-0513 Section 4 requires the project to collect evidence that
+the toolchain itself is fit for purpose. The following evidence is
+maintained:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Evidence Item</th>
+<th>Collector</th>
+<th>Storage Location</th>
+<th>Review Frequency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tool version manifest</td>
+<td>CI pipeline</td>
+<td>test-results/tool_manifest.json</td>
+<td>Every build</td>
+</tr>
+<tr>
+<td>Deterministic replay log</td>
+<td>V&amp;V Engineer</td>
+<td>test-results/replay_log/</td>
+<td>Every SIL batch</td>
+</tr>
+<tr>
+<td>FMU compliance report</td>
+<td>fmucheck</td>
+<td>test-results/fmu_compliance/</td>
+<td>Every FMU release</td>
+</tr>
+<tr>
+<td>Schema validation report</td>
+<td>schema_validate.py</td>
+<td>test-results/schema_validation/</td>
+<td>Every scenario commit</td>
+</tr>
+<tr>
+<td>License scan report</td>
+<td>check-licenses.py</td>
+<td>test-results/license_scan/</td>
+<td>Every dependency change</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="certification-evidence-tracking">9. Certification Evidence
+Tracking</h2>
+<h3 id="evidence-categories">9.1 Evidence Categories</h3>
+<p>The CCS i-Ship (Nx, Ri/Ai) application requires evidence across 9
+categories. Each category is mapped to D-tasks in the v3.0 development
+plan.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>CCS Category</th>
+<th>Description</th>
+<th>Mapped D-Tasks</th>
+<th>Primary Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1 — Functional Design</td>
+<td>Architecture, interfaces, ODD</td>
+<td>D0, D1.1–D1.4, D2.1–D2.4</td>
+<td>Architecture report v1.1.2, IDL specs</td>
+</tr>
+<tr>
+<td>C2 — Software Lifecycle</td>
+<td>SDLC, CM, version control</td>
+<td>D1.5, D1.8, D3.9</td>
+<td>Git history, CI logs, change records</td>
+</tr>
+<tr>
+<td>C3 — Verification Plan</td>
+<td>V&amp;V strategy, gates, KPIs</td>
+<td>D1.5 (this document)</td>
+<td>V&amp;V Plan v0.1–v1.0</td>
+</tr>
+<tr>
+<td>C4 — SIL Evidence</td>
+<td>Scenario pass rates, coverage, KPIs</td>
+<td>D1.6, D1.7, D2.5, D3.6</td>
+<td>test-results/ JSON suite</td>
+</tr>
+<tr>
+<td>C5 — HIL Evidence</td>
+<td>Real-time determinism, hardware tests</td>
+<td>D4.1, D4.2</td>
+<td>HIL exit report</td>
+</tr>
+<tr>
+<td>C6 — Safety Analysis</td>
+<td>HARA, FMEDA, SOTIF</td>
+<td>D2.7, D3.3a, D3.3b</td>
+<td>HARA v0.1, FMEDA tables</td>
+</tr>
+<tr>
+<td>C7 — Human Factors</td>
+<td>ToR, HMI, ROC training</td>
+<td>D2.6, D3.5’, D4.5’</td>
+<td>HF reports, Figma, training records</td>
+</tr>
+<tr>
+<td>C8 — Sea Trial</td>
+<td>Non-certification trial evidence</td>
+<td>D4.5</td>
+<td>Trial report, AIS/VDR logs</td>
+</tr>
+<tr>
+<td>C9 — Cybersecurity</td>
+<td>IACS UR E26/E27, DDS-Security</td>
+<td>D3.9</td>
+<td>RFC-007, security audit</td>
+</tr>
+</tbody>
+</table>
+<h3 id="traceability">9.2 Traceability</h3>
+<p>Every test scenario carries a <code>cert_evidence_tags</code> field
+(array of strings) that links the scenario to one or more CCS
+categories. The batch runner aggregates these tags into the coverage
+cube and the final exit report. This ensures that every passing scenario
+is automatically traced to the certification evidence framework without
+manual bookkeeping.</p>
+<h3 id="evidence-maturity">9.3 Evidence Maturity</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Evidence Maturity</th>
+<th>Action if Gaps Found</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Phase 1</td>
+<td>C1 through C3 complete, C4 stub (50 scenarios)</td>
+<td>Reopen D1.6/D1.7 if coverage under 10% of target</td>
+</tr>
+<tr>
+<td>Phase 2</td>
+<td>C4 expanded (200 scenarios), C6 stub (HARA v0.1)</td>
+<td>Escalate to Safety Engineer if HARA blocks FMEDA</td>
+</tr>
+<tr>
+<td>Phase 3</td>
+<td>C4 complete (1000+ scenarios), C6 complete (FMEDA), C7 complete</td>
+<td>Independent DNV review if pass rate under 95%</td>
+</tr>
+<tr>
+<td>Phase 4</td>
+<td>C5, C8, C9 complete</td>
+<td>CCS preliminary review before sea trial</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="demo-1-vv-scope">10. DEMO-1 V&amp;V Scope</h2>
+<p>DEMO-1 (15 June 2026) is an internal skeleton-live demonstration. Its
+V&amp;V scope is strictly limited to <strong>infrastructure
+verification</strong>. Decision-quality verification is explicitly out
+of scope for DEMO-1 and is the focus of DEMO-2 (31 July 2026).</p>
+<h3 id="in-scope-for-demo-1">10.1 In Scope for DEMO-1</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Item</th>
+<th>Verification Activity</th>
+<th>Success Criterion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Build system</td>
+<td>colcon build on CI and local dev</td>
+<td>Zero errors, under 10 min wall time</td>
+</tr>
+<tr>
+<td>CI pipeline</td>
+<td>All stage-1 and stage-2 jobs green</td>
+<td>100% pass rate</td>
+</tr>
+<tr>
+<td>Scenario schema</td>
+<td>Schema v1.0 validates 100% of committed scenarios</td>
+<td>schema_validate.py exits 0</td>
+</tr>
+<tr>
+<td>Mock publishers</td>
+<td>All cross-layer mock nodes publish at specified frequency</td>
+<td>Plus or minus 5% rate tolerance</td>
+</tr>
+<tr>
+<td>E2E data flow</td>
+<td>M1 to M2 to M4 to M5 to M8 message chain completes end-to-end</td>
+<td>Message received at M8 within 5 s of M1 trigger</td>
+</tr>
+<tr>
+<td>Gate automation</td>
+<td>check_entry_gate.py –phase 1 exits 0</td>
+<td>All automated gates pass</td>
+</tr>
+<tr>
+<td>Watchdog stub</td>
+<td>M7 Python watchdog passes white-box tests</td>
+<td>At least 1 test with m7 in nodeid passes</td>
+</tr>
+<tr>
+<td>Imazu-22 baseline</td>
+<td>22 benchmark scenarios run and aggregate</td>
+<td>CPA at least 200 m ratio at least 95%, COLREG classification at
+least 95%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="out-of-scope-for-demo-1">10.2 Out of Scope for DEMO-1</h3>
+<p>The following are verified in later phases and are
+<strong>not</strong> required for DEMO-1 gate clearance:</p>
+<ul>
+<li>M3 Mission Manager route optimization quality.</li>
+<li>M4 Behavior Arbiter IvP multi-objective trade-off correctness.</li>
+<li>M5 Tactical Planner MPC trajectory optimality.</li>
+<li>M6 COLREGs Reasoner rule interpretation accuracy beyond geometric
+classification.</li>
+<li>M7 Safety Supervisor hard-constraint enforcement under fault
+injection.</li>
+<li>M8 HMI/Transparency Bridge SAT-1/2/3 compliance.</li>
+<li>Real-time determinism (HIL scope).</li>
+<li>Environmental robustness (sea trial scope).</li>
+</ul>
+<h3 id="demo-1-gate-checklist">10.3 DEMO-1 Gate Checklist</h3>
+<pre><code>□ E1.1  D1.x tasks 100% closed
+□ E1.2  colcon build clean
+□ E1.3  CI pipeline green
+□ E1.4  Scenario schema validated
+□ E1.5  Mock publisher frequencies verified
+□ E1.6  E2E data flow under 5 s
+□ E1.7  V&amp;V Plan v0.1 committed
+□ E1.8  M7 watchdog at least 1 PASS
+□ X1.1  50 baseline scenarios at least 95% pass
+□ X1.4  Coverage cube at least 10 cells
+□ X1.5  Imazu-22 22/22, CPA at least 95%, COLREG at least 95%</code></pre>
+<p>Run the automated checks:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> tools/check_entry_gate.py <span class="at">--phase</span> 1 <span class="at">--artifacts-dir</span> test-results/</span></code></pre></div>
+<p>If the script prints <code>Phase 1 gate CLEARED</code>, DEMO-1
+V&amp;V scope is satisfied.</p>
+<hr />
+<h2 id="document-approval">Document Approval</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Name</th>
+<th>Signature</th>
+<th>Date</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V&amp;V Engineer</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Safety Engineer</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Project Manager</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DNV Validation Lead</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>End of Document</em></p>
+</body>
+</html>

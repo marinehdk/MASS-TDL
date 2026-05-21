@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-05-21" />
+  <title>MASS ADAS L3 — Certification Evidence Tracking</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href=".print-style.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MASS ADAS L3 — Certification Evidence Tracking</h1>
+<p class="date">2026-05-21</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#certification-evidence-tracking-stub"
+id="toc-certification-evidence-tracking-stub">Certification Evidence
+Tracking — STUB</a>
+<ul>
+<li><a href="#purpose" id="toc-purpose">Purpose</a></li>
+<li><a href="#evidence-repository-structure"
+id="toc-evidence-repository-structure">Evidence Repository
+Structure</a></li>
+<li><a href="#evidence-status-matrix"
+id="toc-evidence-status-matrix">Evidence Status Matrix</a></li>
+<li><a href="#key-milestones" id="toc-key-milestones">Key
+Milestones</a></li>
+<li><a href="#reference-documents"
+id="toc-reference-documents">Reference Documents</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="certification-evidence-tracking-stub">Certification Evidence
+Tracking — STUB</h1>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Document ID</td>
+<td>MASS-L3-TDL-CERT-TRACK-001</td>
+</tr>
+<tr>
+<td>Version</td>
+<td>v0.1-stub</td>
+</tr>
+<tr>
+<td>Date</td>
+<td>2026-05-19</td>
+</tr>
+<tr>
+<td>Status</td>
+<td><strong>STUB</strong> — placeholder for D1.8 deliverable</td>
+</tr>
+<tr>
+<td>Architecture Baseline</td>
+<td>v1.1.2</td>
+</tr>
+<tr>
+<td>Development Plan</td>
+<td>v3.0</td>
+</tr>
+<tr>
+<td>Certification Target</td>
+<td>CCS i-Ship (Nx, Ri/Ai), IEC 61508 SIL 2, ISO 21448 SOTIF</td>
+</tr>
+</tbody>
+</table>
+<h2 id="purpose">Purpose</h2>
+<p>This document tracks the production status of all certification
+evidence artefacts required for CCS i-Ship (Nx, Ri/Ai) AIP submission
+and IEC 61508 SIL 2 certification. It serves as the single source of
+truth for certification readiness across all phases.</p>
+<h2 id="evidence-repository-structure">Evidence Repository
+Structure</h2>
+<pre><code>docs/Design/
+├── ConOps/          — Concept of Operations (CCS AIP mandatory)
+├── Safety/HARA/     — Hazard Analysis &amp; Risk Assessment
+├── Safety/FMEDA/    — Failure Mode Effects &amp; Diagnostic Analysis
+├── Safety/ALARP/    — ALARP demonstration (Phase 4)
+├── Cert/            — This tracking document + audit trail
+├── V&amp;V_Plan/        — V&amp;V strategy + gate criteria
+├── SIL/             — Simulation qualification + coverage
+└── Architecture Design/ — Architecture evidence (v1.1.2 baseline)</code></pre>
+<h2 id="evidence-status-matrix">Evidence Status Matrix</h2>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th>Evidence Artefact</th>
+<th>CCS Req</th>
+<th>SIL 2 Req</th>
+<th>Status</th>
+<th>Target Date</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ConOps v0.1 → v1.0</td>
+<td>✅ Mandatory</td>
+<td>—</td>
+<td>🔴 <strong>STUB</strong></td>
+<td>D1.8 (stub) / D2.8 (draft) / D3.8 (final)</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>Hazard Log / HARA</td>
+<td>✅ Mandatory</td>
+<td>✅ Mandatory</td>
+<td>🔴 <strong>Not started</strong></td>
+<td>D2.7 (v0.1) / D3.8 (final)</td>
+<td>Safety Engineer</td>
+</tr>
+<tr>
+<td>FMEDA (M1, M7)</td>
+<td>—</td>
+<td>✅ Mandatory</td>
+<td>🔴 <strong>Not started</strong></td>
+<td>D2.7 (v0.1)</td>
+<td>Safety Engineer</td>
+</tr>
+<tr>
+<td>ALARP Demonstration</td>
+<td>✅ Mandatory</td>
+<td>✅ Mandatory</td>
+<td>🔴 <strong>Not started</strong></td>
+<td>Phase 4</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>SDLC Plan (IEC 61508-3 §7)</td>
+<td>—</td>
+<td>✅ Mandatory</td>
+<td>🔴 <strong>Not started</strong></td>
+<td>Phase 4</td>
+<td>TBD</td>
+</tr>
+<tr>
+<td>V&amp;V Plan v0.1 → v1.0</td>
+<td>✅ Mandatory</td>
+<td>✅ Mandatory</td>
+<td>🟡 Draft complete</td>
+<td>D1.5 (v0.1) / D3.8 (v1.0)</td>
+<td>V&amp;V Engineer</td>
+</tr>
+<tr>
+<td>SIL Qualification Report</td>
+<td>—</td>
+<td>✅ Supporting</td>
+<td>🔴 <strong>Not started</strong></td>
+<td>D1.3.1</td>
+<td>V&amp;V Engineer</td>
+</tr>
+<tr>
+<td>Architecture Report v1.1.2</td>
+<td>✅ Mandatory</td>
+<td>✅ Supporting</td>
+<td>🟢 Complete</td>
+<td>Already delivered</td>
+<td>System Architect</td>
+</tr>
+<tr>
+<td>Detailed Design (M1–M8)</td>
+<td>✅ Mandatory</td>
+<td>✅ Supporting</td>
+<td>🟢 Complete</td>
+<td>Already delivered</td>
+<td>System Architect</td>
+</tr>
+<tr>
+<td>RFC Resolutions</td>
+<td>✅ Supporting</td>
+<td>—</td>
+<td>🟢 Complete</td>
+<td>Already delivered</td>
+<td>Team</td>
+</tr>
+<tr>
+<td>HAZID RUN-001</td>
+<td>✅ Mandatory</td>
+<td>✅ Mandatory</td>
+<td>🟡 In progress</td>
+<td>8/19</td>
+<td>HAZID Team</td>
+</tr>
+<tr>
+<td>Cybersecurity (RFC-007)</td>
+<td>✅ Mandatory</td>
+<td>—</td>
+<td>🔴 Not started</td>
+<td>D3.9</td>
+<td>Cyber Engineer</td>
+</tr>
+<tr>
+<td>Source Code (colcon)</td>
+<td>—</td>
+<td>✅ Required</td>
+<td>🟡 Skeleton</td>
+<td>Ongoing</td>
+<td>Dev Team</td>
+</tr>
+<tr>
+<td>Unit / Integration Tests</td>
+<td>✅ Supporting</td>
+<td>✅ Required</td>
+<td>🟡 In progress</td>
+<td>Ongoing</td>
+<td>Dev + V&amp;V</td>
+</tr>
+<tr>
+<td>Static Analysis (MISRA)</td>
+<td>✅ Supporting</td>
+<td>✅ Required</td>
+<td>🟢 Complete (D1.4)</td>
+<td>2026-05-20</td>
+<td>Dev Team</td>
+</tr>
+<tr>
+<td>SIL 1000 Run Record</td>
+<td>✅ Supporting</td>
+<td>✅ Required</td>
+<td>🔴 Not started</td>
+<td>D3.6</td>
+<td>V&amp;V Engineer</td>
+</tr>
+<tr>
+<td>Training &amp; Competence</td>
+<td>✅ Supporting</td>
+<td>—</td>
+<td>🔴 Not started</td>
+<td>D2.6 / D3.5’</td>
+<td>HF Consultant</td>
+</tr>
+</tbody>
+</table>
+<h2 id="key-milestones">Key Milestones</h2>
+<table>
+<thead>
+<tr>
+<th>Milestone</th>
+<th>Date</th>
+<th>Gates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1.8 Cert evidence stubs</td>
+<td>6/15</td>
+<td>Phase 1 exit</td>
+</tr>
+<tr>
+<td>D2.8 Full evidence draft</td>
+<td>7/31</td>
+<td>Phase 2 exit</td>
+</tr>
+<tr>
+<td>D3.8 AIP-ready evidence</td>
+<td>8/31</td>
+<td>Phase 3 exit</td>
+</tr>
+<tr>
+<td>CCS AIP Submission</td>
+<td>11/2026</td>
+<td>Phase 4 gate</td>
+</tr>
+<tr>
+<td>SIL 2 Third-Party Assessment</td>
+<td>Q4 2026</td>
+<td>DNV/TÜV/BV</td>
+</tr>
+<tr>
+<td>ALARP + SDLC complete</td>
+<td>v1.1.4 (2027 Q1)</td>
+<td>Before cert sea trial</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reference-documents">Reference Documents</h2>
+<ul>
+<li>V&amp;V Plan:
+<code>docs/Design/V&amp;V_Plan/00-vv-strategy-v0.1.md</code></li>
+<li>Architecture:
+<code>docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md</code></li>
+<li>HAZID: <code>docs/Design/HAZID/RUN-001-kickoff.md</code></li>
+<li>Development Plan:
+<code>docs/Design/Architecture Design/gantt/MASS_ADAS_L3_8个月完整开发计划.md</code></li>
+</ul>
+</body>
+</html>

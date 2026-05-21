@@ -122,7 +122,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   const auto primary = BehaviorPriority::select_primary(active_set);
 
   BehaviorPlanMsg plan;
-  plan.schema_version = "v1.1.2";
+  plan.schema_version = 112;  // v1.1.2
   plan.stamp = now();
   plan.behavior = static_cast<uint8_t>(primary.type);
   plan.heading_min_deg = 0.0f;
@@ -135,7 +135,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   pub_plan_->publish(plan);
 
   l3_msgs::msg::ASDRRecord record;
-  record.schema_version = "v1.1.2";
+  record.schema_version = 112;  // v1.1.2
   record.stamp = now();
   record.source_module = "M4_Behavior_Arbiter";
   record.decision_type = "behavior_plan";

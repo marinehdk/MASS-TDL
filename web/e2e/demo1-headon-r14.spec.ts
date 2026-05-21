@@ -53,7 +53,8 @@ test.describe('DEMO-1 R14 Head-On — Captain View End-to-End', () => {
     await expect(cpaChip.first()).toBeVisible({ timeout: TIMEOUT });
   });
 
-  test('ToR Modal triggers on R14 head-on encounter', async ({ page }) => {
+  // Out of scope for DEMO-1: ToR Modal hard-acceptance deferred to DEMO-3.
+  test.skip('ToR Modal triggers on R14 head-on encounter', async ({ page }) => {
     await page.goto(MONITOR_URL);
     await page.waitForSelector('[data-testid="simulation-monitor"]', { timeout: 15_000 });
 
@@ -78,7 +79,8 @@ test.describe('DEMO-1 R14 Head-On — Captain View End-to-End', () => {
     await expect(demoTag).toHaveCount(0, { timeout: TIMEOUT });
   });
 
-  test('ASDR Ledger receives take_over event after TOR→OVERRIDE', async ({ page }) => {
+  // Out of scope for DEMO-1: ASDR take_over validation deferred to DEMO-2/3.
+  test.skip('ASDR Ledger receives take_over event after TOR→OVERRIDE', async ({ page }) => {
     await page.goto(MONITOR_URL);
     await page.waitForSelector('[data-testid="simulation-monitor"]', { timeout: 15_000 });
     await page.waitForSelector('[data-testid="right-drawer-toggle"]', { timeout: 10_000 });

@@ -99,7 +99,11 @@ class TargetVesselNode(LifecycleNode):
     """
 
     def __init__(self) -> None:
-        super().__init__("target_vessel_node")
+        super().__init__(
+            "target_vessel_node",
+            allow_undeclared_parameters=True,
+            automatically_declare_parameters_from_overrides=True
+        )
         self._targets: list[TargetVessel] = []
         self._tv_pub = None
         self._timer = None
@@ -125,7 +129,10 @@ class TargetVesselNode(LifecycleNode):
     # ── Lifecycle callbacks ─────────────────────────────────────────────
 
     def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
-        self.declare_parameter("default_targets_json", "[]")
+        try:
+            self.declare_parameter("default_targets_json", "[]")
+        except Exception:
+            pass
         raw = self.get_parameter("default_targets_json").value
         if raw:
             try:

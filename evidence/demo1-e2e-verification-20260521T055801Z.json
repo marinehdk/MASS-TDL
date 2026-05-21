@@ -1,0 +1,119 @@
+{
+  "timestamp": "20260521T055801Z",
+  "scenario": "imazu-08-ms",
+  "service": "sil-nodes",
+  "scenario_yaml": "scenarios/IMAZU\u6807\u51c6\u6d4b\u8bd5/imazu-08-ms.yaml",
+  "expected_lat": "63.44",
+  "checks": [
+    {
+      "id": "L3 m1_odd_envelope_manager",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m2_world_model",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m3_mission_manager",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 behavior_arbiter",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m5_mid_mpc_node",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m6_colregs_reasoner",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m7_safety_supervisor",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "L3 m8_hmi_transparency_bridge",
+      "result": "PASS",
+      "detail": "/behavior_arbiter\n/env_disturbance_node\n/fault_injection_node\n/foxglove_bridge\n/m1_odd_envelope_manager\n/m2_world_model\n"
+    },
+    {
+      "id": "/sil/own_ship_state publishing",
+      "result": "PASS",
+      "detail": "average rate: 50.050"
+    },
+    {
+      "id": "/l3/m2/world_state publishing",
+      "result": "PASS",
+      "detail": "average rate: 4.004"
+    },
+    {
+      "id": "/l3/m4/behavior_plan publishing",
+      "result": "PASS",
+      "detail": "average rate: 2.001"
+    },
+    {
+      "id": "/l3/m5/avoidance_plan publishing",
+      "result": "PASS",
+      "detail": "average rate: 1.001"
+    },
+    {
+      "id": "/sil/actuator_cmd publishing (bridge)",
+      "result": "PASS",
+      "detail": "average rate: 1.000"
+    },
+    {
+      "id": "/sil/module_pulse publishing (bridge)",
+      "result": "PASS",
+      "detail": "average rate: 3.000"
+    },
+    {
+      "id": "/sil/m8_ui_state publishing (bridge)",
+      "result": "PASS",
+      "detail": "average rate: 49.285"
+    },
+    {
+      "id": "R1a own_ship_state",
+      "result": "PASS",
+      "detail": "hz=50.041 expected>=40"
+    },
+    {
+      "id": "R1b origin_lat=scenario",
+      "result": "FAIL",
+      "detail": "param=30.5 expected=63.44 tol=0.0001; raw=Double value is: 30.5"
+    },
+    {
+      "id": "R1c M4 /l3/m4/behavior_plan",
+      "result": "PASS",
+      "detail": "msg received"
+    },
+    {
+      "id": "R1d M5 /l3/m5/avoidance_plan",
+      "result": "PASS",
+      "detail": "msg received"
+    },
+    {
+      "id": "R1e M7 /l3/m7/heartbeat",
+      "result": "PASS",
+      "detail": "msg received"
+    },
+    {
+      "id": "R1f no-fatal-logs",
+      "result": "PASS",
+      "detail": "no fatal lines"
+    }
+  ],
+  "summary": {
+    "pass": 20,
+    "fail": 1,
+    "total": 21
+  }
+}

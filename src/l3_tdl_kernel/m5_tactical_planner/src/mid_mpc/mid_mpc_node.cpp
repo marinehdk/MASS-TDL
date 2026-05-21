@@ -88,7 +88,7 @@ bool MidMpcNode::has_required_inputs_() const noexcept
 // ===========================================================================
 // assemble_input_ — precondition: has_required_inputs_() == true
 // ===========================================================================
-MidMpcInput MidMpcNode::assemble_input_() const
+MidMpcInput MidMpcNode::assemble_input_()
 {
   MidMpcInput inp;
 

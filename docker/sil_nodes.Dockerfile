@@ -37,12 +37,13 @@ COPY src/l3_tdl_kernel     src/l3_tdl_kernel
 
 # Python deps
 RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
-RUN pip install --no-cache-dir python3-casadi || echo "WARNING: CasADi not available — M5 will use analytical stub"
+RUN pip install --no-cache-dir casadi
 
 # Build the workspace
 RUN . /opt/ros/humble/setup.sh && \
     colcon build --symlink-install \
-        --cmake-args -DBUILD_TESTING=OFF \
+        --parallel-workers 2 \
+        --cmake-args -DBUILD_TESTING=OFF -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake \
         --packages-select \
             l3_msgs l3_external_msgs \
             sil_msgs sil_lifecycle \
@@ -63,6 +64,7 @@ RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 # Launch all 10 Python LifecycleNodes directly (ament_python packages
 # have no libexec dir; ros2 launch fails. Use ros2 run + lifecycle cli instead.)
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
+COPY docker/sil_topic_bridge.py /opt/ws/docker/sil_topic_bridge.py
 RUN chmod +x /opt/ws/sil_entrypoint.sh
 
 # Add topic probe script for staged startup

@@ -39,7 +39,10 @@ class FaultInjectionNode(LifecycleNode):
         self._pub_map: dict[str, rclpy.publisher.Publisher] = {}
 
     def on_configure(self, state) -> TransitionCallbackReturn:
-        self.declare_parameter("fault_types", list(self.FAULT_TYPES))
+        try:
+            self.declare_parameter("fault_types", list(self.FAULT_TYPES))
+        except Exception:
+            pass
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state) -> TransitionCallbackReturn:

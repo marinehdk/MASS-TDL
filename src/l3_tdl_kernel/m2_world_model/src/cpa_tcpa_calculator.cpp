@@ -339,8 +339,8 @@ CpaTcpaCalculator::propagate_ukf_(const Eigen::Vector2d& rel_pos,
   Eigen::Matrix<double, n, n_sig> X_sig;
   X_sig.col(0) = x_mean;
   for (std::size_t i = 0; i < n; ++i) {
-    X_sig.col(i + 1)       = x_mean + L.col(static_cast<Eigen::Index>(i));
-    X_sig.col(i + 1 + n)   = x_mean - L.col(static_cast<Eigen::Index>(i));
+    X_sig.col(static_cast<Eigen::Index>(i + 1))       = x_mean + L.col(static_cast<Eigen::Index>(i));
+    X_sig.col(static_cast<Eigen::Index>(i + 1 + n))   = x_mean - L.col(static_cast<Eigen::Index>(i));
   }
 
   // Weights

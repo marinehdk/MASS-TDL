@@ -1,6 +1,5 @@
 # NOTE: demo services (demo-server, demo_ws, etc.) were run standalone,
 # not via docker-compose. This compose file is ROS2-only (SIL + viz stack).
-version: "3.9"
 
 services:
   sil-orchestrator:

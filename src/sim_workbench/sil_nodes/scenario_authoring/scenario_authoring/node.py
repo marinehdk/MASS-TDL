@@ -32,7 +32,10 @@ class ScenarioAuthoringNode(LifecycleNode):
     # ------------------------------------------------------------------
 
     def on_configure(self, state) -> TransitionCallbackReturn:
-        self.declare_parameter("scenario_dir", "/var/sil/scenarios")
+        try:
+            self.declare_parameter("scenario_dir", "/var/sil/scenarios")
+        except Exception:
+            pass
         scenario_dir = (
             self.get_parameter("scenario_dir")
             .get_parameter_value()

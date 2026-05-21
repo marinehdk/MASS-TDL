@@ -53,6 +53,23 @@ std::vector<std::string> make_names(const std::string& base, int32_t n) {
   return v;
 }
 
+bool is_convex_2d(const mass_l3::m5::Polygon2D& polygon) {
+  if (polygon.size() < 4u) { return true; }
+  const std::size_t n = polygon.size();
+  for (std::size_t i = 0u; i < n; ++i) {
+    const auto& p0 = polygon[i];
+    const auto& p1 = polygon[(i + 1u) % n];
+    const auto& p2 = polygon[(i + 2u) % n];
+    const double dx1 = p1.x() - p0.x();
+    const double dy1 = p1.y() - p0.y();
+    const double dx2 = p2.x() - p1.x();
+    const double dy2 = p2.y() - p1.y();
+    const double cross = dx1 * dy2 - dy1 * dx2;
+    if (cross < -1.0e-9) { return false; }
+  }
+  return true;
+}
+
 }  // namespace
 
 // ===========================================================================
@@ -311,16 +328,10 @@ std::vector<Polygon2D> ConstraintCompiler::decompose_polygon(
     const Polygon2D& polygon) const {
   if (polygon.size() < 3u) { return {polygon}; }
 
-  BgPolygon bg_poly;
-  for (const auto& v : polygon) {
-    bg::append(bg_poly.outer(), BgPoint(v.x(), v.y()));
-  }
-  bg::correct(bg_poly);
-
   // Ensure CCW orientation for point_inside_convex half-plane test.
   const Polygon2D ccw_polygon = normalize_ccw(polygon);
 
-  if (bg::is_convex(bg_poly)) { return {ccw_polygon}; }
+  if (is_convex_2d(ccw_polygon)) { return {ccw_polygon}; }
 
   // Fan triangulation from centroid
   Eigen::Vector2d centroid = Eigen::Vector2d::Zero();

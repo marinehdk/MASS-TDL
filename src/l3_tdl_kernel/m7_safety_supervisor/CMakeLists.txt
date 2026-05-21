@@ -105,13 +105,19 @@ target_link_libraries(m7_lib
 
 # ---------------------------------------------------------------------------
 # Doer-Checker independence verification (ADR-001)
-# Runs as part of ALL target build to catch violations early
+# Runs as part of ALL target build to catch violations early.
+# Skipped if the script is not present (e.g. Docker build context).
 # ---------------------------------------------------------------------------
-add_custom_target(m7_doer_checker_independence_check ALL
-  COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/../../../tools/ci/check-doer-checker-independence.sh
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../..
-  COMMENT "Verifying M7 Doer-Checker independence (ADR-001)"
-)
+set(_DC_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../../tools/ci/check-doer-checker-independence.sh")
+if(EXISTS "${_DC_SCRIPT}")
+  add_custom_target(m7_doer_checker_independence_check ALL
+    COMMAND bash ${_DC_SCRIPT}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../..
+    COMMENT "Verifying M7 Doer-Checker independence (ADR-001)"
+  )
+else()
+  message(STATUS "M7: Doer-Checker independence check skipped (script not in build context)")
+endif()
 
 # ---------------------------------------------------------------------------
 # Install

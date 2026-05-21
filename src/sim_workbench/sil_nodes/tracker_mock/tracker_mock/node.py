@@ -153,7 +153,10 @@ if _HAS_RCLPY:
             self._use_real_msgs = _USE_REAL_MSGS
 
         def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
-            self.declare_parameter("tracker_type", "god")
+            try:
+                self.declare_parameter("tracker_type", "god")
+            except Exception:
+                pass
             self.get_logger().info("TrackerMockNode configured")
             return TransitionCallbackReturn.SUCCESS
 
