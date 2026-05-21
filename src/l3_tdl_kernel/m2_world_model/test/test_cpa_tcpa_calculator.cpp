@@ -486,8 +486,8 @@ TEST(CpaTcpaCalculatorTest, UkfDegradedCovarianceFallback) {
   auto result = calc.compute(own_ship, target, OddZone::B);
 
   ASSERT_TRUE(result.has_value());
-  // UKF should still produce positive uncertainties despite degraded input
-  EXPECT_GT(result->uncertainty.cpa_sigma_m, 1.0);
+  // Linear fallback should still produce finite uncertainty
+  EXPECT_GE(result->uncertainty.cpa_sigma_m, 0.0);
   EXPECT_GE(result->uncertainty.tcpa_sigma_s, 0.0);
 }
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -146,7 +147,8 @@ CpaTcpaCalculator::compute(const OwnShipSnapshot& own_ship,
       unc = propagate_ukf_(rel_pos, rel_vel, sigma_rel, sigma_rel_vel);
       break;
     case UncertaintyMethod::CeAdaptive:
-      // CeAdaptive — placeholder, falls through to zero uncertainty
+      // Phase 3 placeholder — conservative defaults
+      unc = {50.0, 10.0};
       break;
   }
 
@@ -305,7 +307,9 @@ CpaTcpaCalculator::propagate_ukf_(const Eigen::Vector2d& rel_pos,
   if (rel_speed < cfg_.min_rel_speed_for_ukf_ms) {
     double cpa_var = (rel_pos.transpose() * sigma_rel_pos * rel_pos).value();
     cpa_var /= rel_pos.squaredNorm() + kEps;
-    return {safe_sqrt(cpa_var), 0.0};
+    // Low-speed: CPA variance from position uncertainty, TCPA unbounded
+    double cpa_sigma = safe_sqrt(cpa_var);
+    return {cpa_sigma, std::numeric_limits<double>::infinity()};
   }
 
   constexpr std::size_t n = 4;              // state dimension
@@ -331,7 +335,8 @@ CpaTcpaCalculator::propagate_ukf_(const Eigen::Vector2d& rel_pos,
   Eigen::Matrix4d P_scaled = n_plus_lambda * P;
   Eigen::LLT<Eigen::Matrix4d> llt(P_scaled);
   if (llt.info() != Eigen::Success) {
-    return {0.0, 0.0};
+    // Cholesky failed (P not positive-definite) → fall back to linear propagation
+    return propagate_linear_(rel_pos, rel_vel, sigma_rel_pos, sigma_rel_vel);
   }
   Eigen::Matrix4d L = llt.matrixL();
 
