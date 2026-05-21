@@ -142,6 +142,12 @@ CpaTcpaCalculator::compute(const OwnShipSnapshot& own_ship,
     case UncertaintyMethod::MonteCarlo:
       unc = propagate_monte_carlo_(rel_pos, rel_vel, sigma_rel, sigma_rel_vel);
       break;
+    case UncertaintyMethod::UkfSigma:
+      unc = propagate_ukf_(rel_pos, rel_vel, sigma_rel, sigma_rel_vel);
+      break;
+    case UncertaintyMethod::CeAdaptive:
+      // CeAdaptive — placeholder, falls through to zero uncertainty
+      break;
   }
 
   // ── 6. Safety factor ──
@@ -287,6 +293,102 @@ CpaTcpaCalculator::propagate_monte_carlo_(const Eigen::Vector2d& rel_pos,
   }
 
   return {safe_sqrt(variance), tcpa_sigma};
+}
+
+CpaUncertainty
+CpaTcpaCalculator::propagate_ukf_(const Eigen::Vector2d& rel_pos,
+                                   const Eigen::Vector2d& rel_vel,
+                                   const Eigen::Matrix2d& sigma_rel_pos,
+                                   const Eigen::Matrix2d& sigma_rel_vel) const {
+  // ── Low-speed fallback: use position covariance directly ──
+  double rel_speed = rel_vel.norm();
+  if (rel_speed < cfg_.min_rel_speed_for_ukf_ms) {
+    double cpa_var = (rel_pos.transpose() * sigma_rel_pos * rel_pos).value();
+    cpa_var /= rel_pos.squaredNorm() + kEps;
+    return {safe_sqrt(cpa_var), 0.0};
+  }
+
+  constexpr std::size_t n = 4;              // state dimension
+  constexpr std::size_t n_sig = 2 * n + 1;  // 9 sigma points
+
+  // Assemble mean state and covariance
+  Eigen::Vector4d x_mean;
+  x_mean << rel_pos(0), rel_pos(1), rel_vel(0), rel_vel(1);
+
+  Eigen::Matrix4d P = Eigen::Matrix4d::Zero();
+  P.block<2, 2>(0, 0) = sigma_rel_pos;
+  P.block<2, 2>(2, 2) = sigma_rel_vel;
+
+  // UKF scaling parameters
+  const double alpha = cfg_.ukf_alpha;
+  const double beta = cfg_.ukf_beta;
+  const double kappa = cfg_.ukf_kappa;
+  const double lambda = alpha * alpha * (static_cast<double>(n) + kappa)
+                      - static_cast<double>(n);
+  const double n_plus_lambda = static_cast<double>(n) + lambda;
+
+  // Cholesky factor of (n+λ)P
+  Eigen::Matrix4d P_scaled = n_plus_lambda * P;
+  Eigen::LLT<Eigen::Matrix4d> llt(P_scaled);
+  if (llt.info() != Eigen::Success) {
+    return {0.0, 0.0};
+  }
+  Eigen::Matrix4d L = llt.matrixL();
+
+  // Generate 2n+1 sigma points (columns of X_sig)
+  Eigen::Matrix<double, n, n_sig> X_sig;
+  X_sig.col(0) = x_mean;
+  for (std::size_t i = 0; i < n; ++i) {
+    X_sig.col(i + 1)       = x_mean + L.col(static_cast<Eigen::Index>(i));
+    X_sig.col(i + 1 + n)   = x_mean - L.col(static_cast<Eigen::Index>(i));
+  }
+
+  // Weights
+  double w_m0 = lambda / n_plus_lambda;
+  double w_c0 = lambda / n_plus_lambda + (1.0 - alpha * alpha + beta);
+  double w_i  = 1.0 / (2.0 * n_plus_lambda);
+
+  // Propagate each sigma point through observation h(x) = [CPA, TCPA]^T
+  constexpr std::size_t obs_dim = 2;
+  Eigen::Matrix<double, obs_dim, n_sig> Y_sig;
+  for (std::size_t i = 0; i < n_sig; ++i) {
+    Eigen::Vector2d rp = X_sig.block<2, 1>(0, static_cast<Eigen::Index>(i));
+    Eigen::Vector2d rv = X_sig.block<2, 1>(2, static_cast<Eigen::Index>(i));
+
+    double rss = rv.squaredNorm();
+    double cpa, tcpa;
+    if (rss < kEps) {
+      cpa = rp.norm();
+      tcpa = 0.0;
+    } else {
+      tcpa = -rp.dot(rv) / rss;
+      if (tcpa < 0.0) {
+        cpa = rp.norm();
+        tcpa = 0.0;
+      } else {
+        cpa = (rp + rv * tcpa).norm();
+      }
+    }
+    Y_sig(0, static_cast<Eigen::Index>(i)) = cpa;
+    Y_sig(1, static_cast<Eigen::Index>(i)) = tcpa;
+  }
+
+  // Weighted mean of observations
+  Eigen::Vector2d y_mean = w_m0 * Y_sig.col(0);
+  for (std::size_t i = 1; i < n_sig; ++i) {
+    y_mean += w_i * Y_sig.col(static_cast<Eigen::Index>(i));
+  }
+
+  // Weighted observation covariance
+  Eigen::Matrix2d P_yy = Eigen::Matrix2d::Zero();
+  Eigen::Vector2d d0 = Y_sig.col(0) - y_mean;
+  P_yy += w_c0 * d0 * d0.transpose();
+  for (std::size_t i = 1; i < n_sig; ++i) {
+    Eigen::Vector2d d = Y_sig.col(static_cast<Eigen::Index>(i)) - y_mean;
+    P_yy += w_i * d * d.transpose();
+  }
+
+  return {safe_sqrt(P_yy(0, 0)), safe_sqrt(P_yy(1, 1))};
 }
 
 }  // namespace mass_l3::m2
