@@ -25,8 +25,8 @@ namespace mass_l3::m3 {
 // Constructor
 // ---------------------------------------------------------------------------
 
-MissionManagerNode::MissionManagerNode()
-    : Node("m3_mission_manager")
+MissionManagerNode::MissionManagerNode(const rclcpp::NodeOptions& options)
+    : Node("m3_mission_manager", options)
 {
   declare_parameters();
   create_components();
@@ -84,6 +84,19 @@ void MissionManagerNode::declare_parameters()
   declare_parameter("mission_goal.publish_rate_hz", 0.5);
   declare_parameter("asdr.heartbeat_rate_hz", 2.0);
   declare_parameter("timeout.world_state_s", 0.5);
+
+  // CurrentErrorMonitor — D2.3
+  declare_parameter("current_error.xte_high_nm",       0.5);
+  declare_parameter("current_error.xte_medium_nm",     0.3);
+  declare_parameter("current_error.current_high_kn",   2.0);
+  declare_parameter("current_error.current_medium_kn", 1.5);
+  declare_parameter("current_error.l4_stale_s",        2.0);
+
+  // L1WatchdogMonitor — D2.3
+  declare_parameter("l1_watchdog.warning_s",           60.0);
+  declare_parameter("l1_watchdog.timeout_s",           120.0);
+  declare_parameter("l1_watchdog.confidence_warning",  0.6);
+  declare_parameter("l1_watchdog.confidence_timeout",  0.4);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +148,29 @@ void MissionManagerNode::create_components()
   declare_parameter("distance_completion_m", 50.0);
   sm_cfg.distance_completion_m = get_parameter("distance_completion_m").as_double();
   state_machine_ = std::make_unique<MissionStateMachine>(sm_cfg);
+
+  // -- CurrentErrorMonitor — D2.3 --
+  CurrentErrorMonitorConfig cem_cfg;
+  cem_cfg.xte_high_nm       = static_cast<float>(
+      get_parameter("current_error.xte_high_nm").as_double());       // [HAZID 校准]
+  cem_cfg.xte_medium_nm     = static_cast<float>(
+      get_parameter("current_error.xte_medium_nm").as_double());     // [HAZID 校准]
+  cem_cfg.current_high_kn   = static_cast<float>(
+      get_parameter("current_error.current_high_kn").as_double());   // [HAZID 校准]
+  cem_cfg.current_medium_kn = static_cast<float>(
+      get_parameter("current_error.current_medium_kn").as_double()); // [HAZID 校准]
+  cem_cfg.l4_stale_s        = get_parameter("current_error.l4_stale_s").as_double();
+  current_error_monitor_ = std::make_unique<CurrentErrorMonitor>(cem_cfg);
+
+  // -- L1WatchdogMonitor — D2.3 --
+  L1WatchdogConfig wd_cfg;
+  wd_cfg.warning_s          = get_parameter("l1_watchdog.warning_s").as_double();   // [HAZID 校准]
+  wd_cfg.timeout_s          = get_parameter("l1_watchdog.timeout_s").as_double();   // [HAZID 校准]
+  wd_cfg.confidence_warning = static_cast<float>(
+      get_parameter("l1_watchdog.confidence_warning").as_double());
+  wd_cfg.confidence_timeout = static_cast<float>(
+      get_parameter("l1_watchdog.confidence_timeout").as_double());
+  l1_watchdog_ = std::make_unique<L1WatchdogMonitor>(wd_cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +212,10 @@ void MissionManagerNode::setup_publishers()
   asdr_pub_ = create_publisher<l3_msgs::msg::ASDRRecord>(
       "/l3/asdr/record",
       rclcpp::QoS(50).reliable().transient_local());
+
+  tor_pub_ = create_publisher<l3_msgs::msg::ToRRequest>(
+      "/l3/m3/tor_request",
+      rclcpp::QoS(10).reliable().transient_local());
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +265,13 @@ void MissionManagerNode::setup_subscribers()
       [this](const l3_msgs::msg::WorldState::SharedPtr msg) {
         on_world_state(msg);
       });
+
+  tracking_error_sub_ = create_subscription<l3_external_msgs::msg::TrackingError>(
+      "/l4/tracking_error",
+      rclcpp::SensorDataQoS().keep_last(2),
+      [this](const l3_external_msgs::msg::TrackingError::SharedPtr msg) {
+        on_tracking_error(msg);
+      });
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +299,10 @@ void MissionManagerNode::setup_timers()
   heartbeat_timer_ = create_wall_timer(
       std::chrono::seconds(1),
       [this]() { log_heartbeat(); });
+
+  l1_watchdog_timer_ = create_wall_timer(
+      std::chrono::seconds(1),
+      [this]() { evaluate_l1_watchdog(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +312,9 @@ void MissionManagerNode::setup_timers()
 void MissionManagerNode::on_voyage_task(
     const l3_external_msgs::msg::VoyageTask::SharedPtr msg)
 {
+  // Notify watchdog on any VoyageTask arrival (valid or invalid) — spec §4.2
+  l1_watchdog_->notify_voyage_task_received(std::chrono::steady_clock::now());
+
   RCLCPP_INFO(get_logger(), "VoyageTask received: id=%lu priority=%s",
               msg->task_id, msg->optimization_priority.c_str());
 
@@ -292,6 +346,11 @@ void MissionManagerNode::on_voyage_task(
     if (logger_) {
       logger_->info("VoyageTask accepted: id={}", msg->task_id);
     }
+
+    // Immediate publish: new valid VoyageTask — spec §4.4
+    if (state_machine_->current() == MissionState::Active) {
+      publish_mission_goal();
+    }
   } else {
     RCLCPP_WARN(get_logger(), "VoyageTask validation FAILED: %s",
                 result.failed_check.c_str());
@@ -310,6 +369,7 @@ void MissionManagerNode::on_planned_route(
     const l3_external_msgs::msg::PlannedRoute::SharedPtr msg)
 {
   RCLCPP_DEBUG(get_logger(), "PlannedRoute received: id=%lu", msg->route_id);
+  last_planned_route_time_ = std::chrono::steady_clock::now();
 
   if (eta_projector_) {
     eta_projector_->update_route(*msg);
@@ -383,12 +443,13 @@ void MissionManagerNode::on_odd_state(
 {
   last_odd_state_ = msg;
 
-  // Only act when there is an active mission
   if (!state_machine_->has_active_mission()) {
     return;
   }
 
-  // Compute current ETA if possible
+  const bool zone_changed = (msg->current_zone != last_odd_zone_);
+  last_odd_zone_ = msg->current_zone;
+
   double current_eta_s = 0.0;
   if (eta_projector_ && last_world_state_) {
     const auto proj = eta_projector_->project(
@@ -398,18 +459,95 @@ void MissionManagerNode::on_odd_state(
     }
   }
 
-  // planned_eta_s is not available at node level in v1.1.2; pass 0 = unknown
   check_and_trigger_replan(*msg, current_eta_s, 0.0);
+
+  if (zone_changed) {
+    publish_mission_goal();  // immediate trigger: ODD zone change
+  }
 }
 
 void MissionManagerNode::on_world_state(
     const l3_msgs::msg::WorldState::SharedPtr msg)
 {
   last_world_state_ = msg;
-
-  // Cache current position for validation use
-  current_position_.latitude = msg->own_ship.position.latitude;
+  current_position_.latitude  = msg->own_ship.position.latitude;
   current_position_.longitude = msg->own_ship.position.longitude;
+
+  const auto now = std::chrono::steady_clock::now();
+  current_error_monitor_->update_world_state(*msg, now);
+  check_current_error_severity_change(now);
+}
+
+void MissionManagerNode::on_tracking_error(
+    const l3_external_msgs::msg::TrackingError::SharedPtr msg)
+{
+  const auto now = std::chrono::steady_clock::now();
+  current_error_monitor_->update_tracking_error(*msg, now);
+  check_current_error_severity_change(now);
+}
+
+void MissionManagerNode::evaluate_l1_watchdog()
+{
+  if (state_machine_->current() != MissionState::Active) {
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const auto result = l1_watchdog_->evaluate(now);
+
+  if (result.status == last_l1_watchdog_status_) {
+    return;  // no state change
+  }
+
+  const L1WatchdogStatus prev = last_l1_watchdog_status_;
+  last_l1_watchdog_status_ = result.status;
+
+  if (result.status == L1WatchdogStatus::WARNING) {
+    publish_asdr_record("l1_dropout_warning",
+        nlohmann::json{{"elapsed_s", result.elapsed_s}});
+    if (logger_) { logger_->warn("L1 watchdog WARNING: elapsed={:.1f}s", result.elapsed_s); }
+  } else if (result.status == L1WatchdogStatus::TIMEOUT) {
+    publish_asdr_record("l1_dropout_timeout",
+        nlohmann::json{{"elapsed_s", result.elapsed_s}});
+    publish_tor_request(l3_msgs::msg::ToRRequest::REASON_MANUAL_REQUEST, 60.0F);
+    if (logger_) { logger_->error("L1 watchdog TIMEOUT: ToR requested, elapsed={:.1f}s", result.elapsed_s); }
+  } else if (prev != L1WatchdogStatus::OK) {
+    publish_asdr_record("l1_recovered", nlohmann::json{});
+    if (logger_) { logger_->info("L1 watchdog recovered"); }
+  }
+
+  publish_mission_goal();  // immediate trigger: watchdog state change
+}
+
+void MissionManagerNode::check_current_error_severity_change(
+    std::chrono::steady_clock::time_point now)
+{
+  if (state_machine_->current() != MissionState::Active) {
+    return;
+  }
+
+  const CurrentErrorReading reading = current_error_monitor_->evaluate(now);
+  if (reading.severity == last_current_error_severity_) {
+    return;
+  }
+
+  const CurrentErrorSeverity prev = last_current_error_severity_;
+  last_current_error_severity_ = reading.severity;
+
+  if (reading.severity == CurrentErrorSeverity::HIGH) {
+    publish_asdr_record("current_error_high_alert",
+        nlohmann::json{{"xte_nm", reading.xte_nm},
+                       {"sea_current_kn", reading.sea_current_kn}});
+    RCLCPP_WARN(get_logger(), "Current error HIGH: xte=%.2f nm cur=%.2f kn",
+                reading.xte_nm, reading.sea_current_kn);
+  } else if (prev == CurrentErrorSeverity::HIGH) {
+    publish_asdr_record("current_error_resolved",
+        nlohmann::json{{"severity", static_cast<int>(reading.severity)}});
+    RCLCPP_INFO(get_logger(), "Current error resolved to %s",
+                (reading.severity == CurrentErrorSeverity::MEDIUM) ? "MEDIUM" : "NORMAL");
+  }
+
+  publish_mission_goal();  // immediate trigger: severity changed
 }
 
 // ---------------------------------------------------------------------------
@@ -422,19 +560,64 @@ void MissionManagerNode::publish_mission_goal()
     return;
   }
 
+  const auto now_tp = std::chrono::steady_clock::now();
   auto msg = l3_msgs::msg::MissionGoal();
-  msg.stamp = now();
+  msg.stamp          = now();
+  msg.schema_version = 120U;  // IDL v1.2.0
 
-  if (eta_projector_ && last_world_state_) {
-    const auto proj = eta_projector_->project(
-        *last_world_state_, std::chrono::steady_clock::now());
+  // ETA projection
+  float eta_s = -1.0F;
+  const bool route_fresh =
+      last_planned_route_time_.has_value() &&
+      (std::chrono::duration_cast<std::chrono::duration<double>>(
+           now_tp - last_planned_route_time_.value()).count() <= 3.0);
+
+  if (route_fresh && eta_projector_ && last_world_state_) {
+    const auto proj = eta_projector_->project(*last_world_state_, now_tp);
     if (proj.has_value()) {
-      msg.eta_to_target_s = static_cast<float>(proj->eta_s);
+      eta_s = static_cast<float>(proj->eta_s);
     }
   }
+  msg.eta_to_target_s = eta_s;
 
-  msg.confidence = 1.0F;
-  msg.rationale = "periodic mission goal update";
+  // Confidence: watchdog_factor × current_error_factor — spec §4.1
+  // [TBD-D3.x] EtaProjector.confidence 因子未接入：EtaProjector::project() 当前
+  // 不产置信度；spec §4.1 定义的 EtaProjector.confidence × watchdog × 0.85
+  // 公式待 D3.x ETA 增强后补齐。当前以 watchdog_factor 为基数。
+  const L1WatchdogResult wd      = l1_watchdog_->evaluate(now_tp);
+  const CurrentErrorReading cerd = current_error_monitor_->evaluate(now_tp);
+  float confidence = wd.confidence_factor;
+  if (cerd.severity == CurrentErrorSeverity::HIGH && confidence > 0.4F) {
+    confidence = std::max(confidence * 0.85F, 0.4F);
+  }
+  msg.confidence = confidence;
+
+  // New D2.3 fields
+  msg.current_error_severity = static_cast<uint8_t>(cerd.severity);
+  msg.xte_nm                 = cerd.xte_nm;
+  msg.sea_current_kn         = cerd.sea_current_kn;
+  msg.l1_watchdog_status     = static_cast<uint8_t>(wd.status);
+
+  // SAT-2 rationale — spec §4.4
+  const char* odd_zone_str = "?";
+  if (last_odd_state_) {
+    switch (last_odd_state_->current_zone) {
+      case l3_msgs::msg::ODDState::ODD_ZONE_A: odd_zone_str = "A"; break;
+      case l3_msgs::msg::ODDState::ODD_ZONE_B: odd_zone_str = "B"; break;
+      case l3_msgs::msg::ODDState::ODD_ZONE_C: odd_zone_str = "C"; break;
+      case l3_msgs::msg::ODDState::ODD_ZONE_D: odd_zone_str = "D"; break;
+      default: break;
+    }
+  }
+  const char* l1_str =
+      (wd.status == L1WatchdogStatus::OK)      ? "OK"      :
+      (wd.status == L1WatchdogStatus::WARNING)  ? "WARN"    : "TIMEOUT";
+  msg.rationale = "[M3] eta=" + std::to_string(static_cast<int>(eta_s)) + "s" +
+                  " conf=" + std::to_string(confidence).substr(0, 4) +
+                  " xte=" + std::to_string(cerd.xte_nm).substr(0, 4) + "nm" +
+                  " cur=" + std::to_string(cerd.sea_current_kn).substr(0, 4) + "kn" +
+                  " l1=" + l1_str + " odd=" + odd_zone_str;
+
   mission_goal_pub_->publish(std::move(msg));
 }
 
@@ -498,6 +681,7 @@ void MissionManagerNode::publish_replan_request(
 {
   auto msg = l3_msgs::msg::RouteReplanRequest();
   msg.stamp = now();
+  msg.schema_version = 120U;  // IDL v1.2.0
 
   // Map ReplanReason to RouteReplanRequest reason constant
   switch (reason) {
@@ -535,6 +719,20 @@ void MissionManagerNode::publish_asdr_record(const std::string& type,
   msg.decision_type = type;
   msg.decision_json = payload.dump();
   asdr_pub_->publish(std::move(msg));
+}
+
+void MissionManagerNode::publish_tor_request(uint8_t reason, float deadline_s)
+{
+  auto msg = l3_msgs::msg::ToRRequest();
+  msg.stamp        = now();
+  msg.reason       = reason;
+  msg.deadline_s   = deadline_s;
+  msg.target_level = l3_msgs::msg::ToRRequest::TARGET_LEVEL_D2;
+  msg.confidence   = 1.0F;
+  msg.rationale    = "[M3] L1 watchdog TIMEOUT — operator takeover required";
+  msg.context_summary   = "L1 VoyageTask link lost for > 120s";
+  msg.recommended_action = "Assume manual control (D2)";
+  tor_pub_->publish(std::move(msg));
 }
 
 void MissionManagerNode::check_and_trigger_replan(

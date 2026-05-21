@@ -30,3 +30,16 @@ m3_mission_manager:
       planned_route_s: 3.0
       speed_profile_s: 3.0
       odd_state_s: 2.0
+
+    current_error:
+      xte_high_nm: 0.5         # [HAZID 校准] L4 XTE HIGH threshold
+      xte_medium_nm: 0.3       # [HAZID 校准] L4 XTE MEDIUM threshold
+      current_high_kn: 2.0     # [HAZID 校准] sea_current HIGH threshold
+      current_medium_kn: 1.5   # [HAZID 校准] sea_current MEDIUM threshold
+      l4_stale_s: 2.0          # L4 tracking_error staleness → xte_nm = -1
+
+    l1_watchdog:
+      warning_s: 60.0          # [HAZID 校准] L1 dropout → WARNING
+      timeout_s: 120.0         # [HAZID 校准] L1 dropout → TIMEOUT + ToR
+      confidence_warning: 0.6  # MissionGoal.confidence cap at WARNING
+      confidence_timeout: 0.4  # MissionGoal.confidence cap at TIMEOUT

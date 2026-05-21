@@ -29,6 +29,7 @@ set(MSG_FILES
   msg/OverrideActiveSignal.msg
   # Wave 0 fix F-CRIT-B-003: TimeWindow moved here from l3_msgs (only consumer is VoyageTask)
   msg/TimeWindow.msg
+  msg/TrackingError.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
