@@ -302,5 +302,143 @@ TEST(ConformanceScoreTest, ScoreEqualsWeightsAtUnity) {
   EXPECT_DOUBLE_EQ(result.h_score, 1.0);
 }
 
+// ===========================================================================
+// D2.1: EMA smoothing tests
+// ===========================================================================
+
+/// 16. EmaFilterConverges
+TEST(ConformanceScoreTest, EmaFilterConverges) {
+  auto calc = ConformanceScoreCalculator::create(
+      ScoreWeights{0.4, 0.3, 0.3}, MakeDefaultEThresholds(),
+      MakeDefaultTThresholds(), MakeDefaultHThresholds());
+  ASSERT_TRUE(calc.has_value());
+
+  ParameterSet params{};
+  params.ema_tau_s = 2.0;
+  EmaState ema{};
+
+  ScoringInputs inputs{};
+  inputs.visibility_nm = 2.0;
+  inputs.sea_state_hs = 2.5;
+  inputs.gnss_quality_good = true;
+  inputs.radar_health_ok = true;
+  inputs.comm_ok = true;
+  inputs.comm_delay_s = 0.1;
+  inputs.any_sensor_critical = false;
+  inputs.tmr_available = true;
+
+  for (int i = 0; i < 200; ++i) {
+    calc->compute_with_ema(inputs, params, ema, 0.1);
+  }
+  EXPECT_NEAR(ema.filtered_value, 1.0, 0.01);
+}
+
+/// 17. EmaSuppressesSpikes
+TEST(ConformanceScoreTest, EmaSuppressesSpikes) {
+  auto calc = ConformanceScoreCalculator::create(
+      ScoreWeights{0.4, 0.3, 0.3}, MakeDefaultEThresholds(),
+      MakeDefaultTThresholds(), MakeDefaultHThresholds());
+  ASSERT_TRUE(calc.has_value());
+
+  ParameterSet params{};
+  params.ema_tau_s = 10.0;
+  EmaState ema{};
+
+  ScoringInputs good{};
+  good.visibility_nm = 2.0;
+  good.sea_state_hs = 2.5;
+  good.gnss_quality_good = true;
+  good.radar_health_ok = true;
+  good.comm_ok = true;
+  good.comm_delay_s = 0.1;
+  good.any_sensor_critical = false;
+  good.tmr_available = true;
+
+  calc->compute_with_ema(good, params, ema, 0.1);
+  calc->compute_with_ema(good, params, ema, 0.1);
+
+  const double kPreSpike = ema.filtered_value;
+
+  ScoringInputs bad{};
+  bad.visibility_nm = 0.3;
+  bad.sea_state_hs = 5.0;
+  bad.gnss_quality_good = true;
+  bad.radar_health_ok = true;
+  bad.comm_ok = true;
+  bad.comm_delay_s = 0.1;
+  bad.any_sensor_critical = false;
+  bad.tmr_available = true;
+
+  ScoreTriple spike_result = calc->compute_with_ema(bad, params, ema, 0.1);
+  EXPECT_GT(spike_result.conformance_score, 0.8);
+  EXPECT_GT(spike_result.conformance_score, kPreSpike * 0.9);
+}
+
+/// 18. EmaDisabledReturnsRaw
+TEST(ConformanceScoreTest, EmaDisabledReturnsRaw) {
+  auto calc = ConformanceScoreCalculator::create(
+      ScoreWeights{0.4, 0.3, 0.3}, MakeDefaultEThresholds(),
+      MakeDefaultTThresholds(), MakeDefaultHThresholds());
+  ASSERT_TRUE(calc.has_value());
+
+  ParameterSet params{};
+  params.ema_tau_s = 0.0;
+  EmaState ema{};
+
+  ScoringInputs inputs{};
+  inputs.visibility_nm = 0.3;
+  inputs.sea_state_hs = 5.0;
+  inputs.gnss_quality_good = true;
+  inputs.radar_health_ok = true;
+  inputs.comm_ok = true;
+  inputs.comm_delay_s = 0.1;
+  inputs.any_sensor_critical = false;
+  inputs.tmr_available = true;
+
+  ScoreTriple raw = calc->compute(inputs);
+  ScoreTriple filtered = calc->compute_with_ema(inputs, params, ema, 0.1);
+  EXPECT_DOUBLE_EQ(filtered.conformance_score, raw.conformance_score);
+  EXPECT_DOUBLE_EQ(ema.filtered_value, raw.conformance_score);
+}
+
+/// 19. EmaHandlesNan
+TEST(ConformanceScoreTest, EmaHandlesNan) {
+  auto calc = ConformanceScoreCalculator::create(
+      ScoreWeights{0.4, 0.3, 0.3}, MakeDefaultEThresholds(),
+      MakeDefaultTThresholds(), MakeDefaultHThresholds());
+  ASSERT_TRUE(calc.has_value());
+
+  ParameterSet params{};
+  params.ema_tau_s = 5.0;
+  EmaState ema{};
+
+  ScoringInputs good{};
+  good.visibility_nm = 2.0;
+  good.sea_state_hs = 2.5;
+  good.gnss_quality_good = true;
+  good.radar_health_ok = true;
+  good.comm_ok = true;
+  good.comm_delay_s = 0.1;
+  good.any_sensor_critical = false;
+  good.tmr_available = true;
+
+  calc->compute_with_ema(good, params, ema, 0.1);
+  const double kExpected = ema.filtered_value;
+
+  ScoringInputs nan_inputs{};
+  nan_inputs.visibility_nm = std::numeric_limits<double>::quiet_NaN();
+  nan_inputs.sea_state_hs = 2.5;
+  nan_inputs.gnss_quality_good = true;
+  nan_inputs.radar_health_ok = true;
+  nan_inputs.comm_ok = true;
+  nan_inputs.comm_delay_s = 0.1;
+  nan_inputs.any_sensor_critical = false;
+  nan_inputs.tmr_available = true;
+
+  ScoreTriple result = calc->compute_with_ema(nan_inputs, params, ema, 0.1);
+  EXPECT_DOUBLE_EQ(result.conformance_score, kExpected);
+  EXPECT_DOUBLE_EQ(ema.filtered_value, kExpected);
+}
+
 }  // namespace
 }  // namespace mass_l3::m1

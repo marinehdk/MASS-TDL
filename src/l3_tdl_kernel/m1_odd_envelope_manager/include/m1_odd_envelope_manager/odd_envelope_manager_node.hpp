@@ -10,8 +10,10 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
+#include "l3_msgs/msg/tor_request.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_external_msgs/msg/environment_state.hpp"
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
@@ -62,6 +64,10 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   // ---------------------------------------------------------------------------
   // Subscriber callbacks (all noexcept per PATH-S)
   // ---------------------------------------------------------------------------
+  // D2.1: Operator state callback (from M8, not noexcept — calls ROS2 publish)
+  void on_operator_state(const l3_msgs::msg::OperatorState::SharedPtr msg);
+  void publish_tor_request(double deadline_s, double tdl_s, const std::string& rationale);
+
   void on_safety_alert(const l3_msgs::msg::SafetyAlert::SharedPtr msg) noexcept;
   void on_reflex_activation(
       const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr msg)
@@ -163,6 +169,15 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   uint8_t current_zone_;
   uint8_t current_auto_level_;
 
+  // D2.1: Operator state (from M8 subscription)
+  OperatorState current_operator_state_{OperatorState::Bridge_OnDuty};
+  EmaState conformance_ema_{};
+
+  // D2.1: Heartbeat tracking
+  std::chrono::steady_clock::time_point last_m7_heartbeat_{};
+  static constexpr auto M7_HEARTBEAT_TIMEOUT = std::chrono::milliseconds(500);
+  static constexpr auto M2_STALE_TIMEOUT = std::chrono::seconds(2);
+
   // ---------------------------------------------------------------------------
   // Publishers
   // ---------------------------------------------------------------------------
@@ -170,11 +185,13 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ModeCmd>::SharedPtr mode_cmd_pub_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr asdr_pub_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr sat_pub_;
+  rclcpp::Publisher<l3_msgs::msg::ToRRequest>::SharedPtr tor_request_pub_;
 
   // ---------------------------------------------------------------------------
   // Subscribers
   // ---------------------------------------------------------------------------
   rclcpp::Subscription<l3_msgs::msg::SafetyAlert>::SharedPtr safety_alert_sub_;
+  rclcpp::Subscription<l3_msgs::msg::OperatorState>::SharedPtr operator_state_sub_;
   rclcpp::Subscription<l3_external_msgs::msg::ReflexActivationNotification>::SharedPtr
       reflex_sub_;
   rclcpp::Subscription<l3_external_msgs::msg::OverrideActiveSignal>::SharedPtr

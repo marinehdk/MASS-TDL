@@ -152,6 +152,40 @@ ParameterSet load_parameters(const std::string& yaml_path) noexcept {
         read_double(kMr, "max_heave_to_wind_kn", p.max_heave_to_wind_kn);
   }
 
+  // --- tor_matrix section (D2.1: ToR adaptive matrix) ---
+  const YAML::Node kTor = config["tor_matrix"];
+  if (kTor && kTor.IsSequence()) {
+    for (std::size_t i = 0; i < kTor.size() && i < p.tor_matrix.size(); ++i) {
+      const YAML::Node kEntry = kTor[i];
+      if (!kEntry || !kEntry.IsMap()) continue;
+      const int kState = kEntry["state"].as<int>(-1);
+      if (kState < 0 || kState >= static_cast<int>(p.tor_matrix.size())) continue;
+      TorMatrixEntry& kDest = p.tor_matrix[static_cast<std::size_t>(kState)];
+      kDest.state = static_cast<OperatorState>(kState);
+      kDest.tmr_s = kEntry["tmr_s"].as<double>(kDest.tmr_s);
+    }
+  }
+
+  // --- rot_max_curve section (D2.1: Capability Manifest ROT curve) ---
+  const YAML::Node kRot = config["rot_max_curve"];
+  if (kRot && kRot.IsSequence()) {
+    p.rot_max_curve.clear();
+    for (std::size_t i = 0; i < kRot.size(); ++i) {
+      const YAML::Node kPt = kRot[i];
+      if (!kPt || !kPt.IsMap()) continue;
+      RotMaxCurvePoint pt{};
+      pt.speed_kn = kPt["speed_kn"].as<double>(0.0);
+      pt.rot_max_deg_s = kPt["rot_max_deg_s"].as<double>(0.0);
+      p.rot_max_curve.push_back(pt);
+    }
+  }
+
+  // --- ema section (D2.1: score smoothing) ---
+  const YAML::Node kEma = config["ema"];
+  if (kEma && !kEma.IsNull()) {
+    p.ema_tau_s = read_double(kEma, "tau_s", p.ema_tau_s);
+  }
+
   return p;
 }
 

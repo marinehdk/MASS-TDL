@@ -156,4 +156,49 @@ ScoreTriple ConformanceScoreCalculator::compute(
   return ScoreTriple{e, t, h, combined};
 }
 
+// ===========================================================================
+// EMA smoothing
+// ===========================================================================
+
+ScoreTriple ConformanceScoreCalculator::compute_with_ema(
+    const ScoringInputs& inputs,
+    const ParameterSet& params,
+    EmaState& ema_state,
+    const double dt_s) const noexcept {
+  // Raw score from the existing compute().
+  const ScoreTriple kRaw = compute(inputs);
+
+  // NaN guard: if raw score is NaN, return previous filtered value.
+  if (std::isnan(kRaw.conformance_score)) {
+    ema_state.filtered_value = std::isnan(ema_state.filtered_value) ? 1.0
+                                                                     : ema_state.filtered_value;
+    ScoreTriple result = kRaw;
+    result.conformance_score = ema_state.filtered_value;
+    return result;
+  }
+
+  // If tau <= 0, EMA is disabled — return raw score.
+  const double kTau = params.ema_tau_s;
+  if (kTau <= 0.0 || std::isnan(kTau)) {
+    ema_state.filtered_value = kRaw.conformance_score;
+    return kRaw;
+  }
+
+  // Compute alpha = dt / tau, clamped to [0, 1].
+  double alpha = (dt_s > 0.0) ? (dt_s / kTau) : 1.0;
+  alpha = std::clamp(alpha, 0.0, 1.0);
+
+  // Apply EMA filter: filtered = alpha * raw + (1-alpha) * filtered.
+  ema_state.filtered_value = (alpha * kRaw.conformance_score) +
+                             ((1.0 - alpha) * ema_state.filtered_value);
+
+  // Clamp filtered to [0, 1].
+  ema_state.filtered_value = std::clamp(ema_state.filtered_value, 0.0, 1.0);
+
+  // Return raw scores with filtered conformance.
+  ScoreTriple result = kRaw;
+  result.conformance_score = ema_state.filtered_value;
+  return result;
+}
+
 }  // namespace mass_l3::m1

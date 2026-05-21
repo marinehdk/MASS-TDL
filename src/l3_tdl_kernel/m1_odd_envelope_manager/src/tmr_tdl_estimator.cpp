@@ -115,28 +115,70 @@ double TmrTdlEstimator::estimate_t_sys_health(
 }
 
 // ===========================================================================
-// Compute
+// ToR lookup
+// ===========================================================================
+
+double TmrTdlEstimator::lookup_tor_tmr(
+    const OperatorState op_state,
+    const ParameterSet& params) noexcept {
+  const std::size_t kIdx = static_cast<std::size_t>(op_state);
+  if (kIdx >= params.tor_matrix.size()) {
+    return params.tmr_baseline_s;
+  }
+  const double kEntry = params.tor_matrix[kIdx].tmr_s;
+  return (kEntry > 0.0) ? kEntry : params.tmr_baseline_s;
+}
+
+// ===========================================================================
+// Compute (base)
 // ===========================================================================
 
 TmrTdlPair TmrTdlEstimator::compute(const TmrTdlInputs& inputs) const noexcept {
-  // TDL = min(TCPA_component, T_comm_ok, T_sys_health)
+  // TDL = min(TCPA_component, T_comm_ok, T_sys_health, MTTF_estimate)
   double tdl = std::min({inputs.tcpa_min_s * params_.tcpa_coefficient,
                          estimate_t_comm_ok(inputs.current_rtt_s),
                          estimate_t_sys_health(inputs.system_health)});
 
+  // Cap TDL by system MTTF estimate (safety constraint).
+  const double kMttf = inputs.system_health.mttf_estimate_s;
+  if (kMttf > 0.0 && !std::isnan(kMttf)) {
+    tdl = std::min(tdl, kMttf);
+  }
+
   // Clamp TDL.
-  tdl = std::max(tdl, params_.tdl_min_s);
-  tdl = std::min(tdl, params_.tdl_max_s);
+  tdl = std::clamp(tdl, params_.tdl_min_s, params_.tdl_max_s);
 
   // TMR = baseline * H_score_factor.
   const double kHFactor = inputs.h_score_tmr_available ? 1.0 : 0.5;
   double tmr = params_.tmr_baseline_s * kHFactor;
 
   // Clamp TMR.
-  tmr = std::max(tmr, params_.tmr_min_s);
-  tmr = std::min(tmr, params_.tmr_max_s);
+  tmr = std::clamp(tmr, params_.tmr_min_s, params_.tmr_max_s);
 
   return TmrTdlPair{tmr, tdl};
+}
+
+// ===========================================================================
+// Compute (operator-state-aware)
+// ===========================================================================
+
+TmrTdlPair TmrTdlEstimator::compute(
+    const TmrTdlInputs& inputs,
+    const ParameterSet& params,
+    const OperatorState op_state) const noexcept {
+  // Delegate to base compute().
+  TmrTdlPair result = compute(inputs);
+
+  // Override TMR with ToR matrix lookup if non-zero.
+  const double kTorTmr = lookup_tor_tmr(op_state, params);
+  if (kTorTmr > 0.0) {
+    result.tmr_s = kTorTmr;
+  }
+
+  // Re-clamp TMR.
+  result.tmr_s = std::clamp(result.tmr_s, params_.tmr_min_s, params_.tmr_max_s);
+
+  return result;
 }
 
 // ===========================================================================

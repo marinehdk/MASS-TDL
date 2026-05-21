@@ -406,5 +406,98 @@ TEST_F(OddStateMachineTest, StaleDegradationFactorApplied) {
   EXPECT_EQ(EnvelopeState::Out, result);
 }
 
+// ===========================================================================
+// D2.1: Zone/health-aware FSM tests
+// ===========================================================================
+
+/// 29. CriticalHealthForcesMrCPrep
+TEST_F(OddStateMachineTest, CriticalHealthForcesMrCPrep) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  OddZoneHealthPair critical_health{OddZone::A, SystemHealth::Critical};
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, no_events_,
+                                   critical_health, t1_);
+  EXPECT_EQ(EnvelopeState::MrCPrep, result);
+}
+
+/// 30. DegradedHealthReducesScore
+TEST_F(OddStateMachineTest, DegradedHealthReducesScore) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  OddZoneHealthPair degraded_health{OddZone::A, SystemHealth::Degraded};
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, no_events_,
+                                   degraded_health, t1_);
+  EXPECT_EQ(EnvelopeState::Out, result);
+}
+
+/// 31. OddCZoneTightensThreshold
+TEST_F(OddStateMachineTest, OddCZoneTightensThreshold) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  fsm->step(0.79, 100.0, 60.0, no_events_, t1_);
+
+  OddZoneHealthPair zone_c_full{OddZone::C, SystemHealth::Full};
+  EnvelopeState result = fsm->step(0.55, 100.0, 60.0, no_events_,
+                                   zone_c_full, t2_);
+  EXPECT_EQ(EnvelopeState::Out, result);
+
+  auto fsm2 = CreateDefault();
+  ASSERT_TRUE(fsm2.has_value());
+  fsm2->step(0.79, 100.0, 60.0, no_events_, t1_);
+  OddZoneHealthPair zone_a_full{OddZone::A, SystemHealth::Full};
+  EnvelopeState stay_edge = fsm2->step(0.55, 100.0, 60.0, no_events_,
+                                       zone_a_full, t2_);
+  EXPECT_EQ(EnvelopeState::Edge, stay_edge);
+}
+
+/// 32. M7SafetyCriticalForcesMrCPrep
+TEST_F(OddStateMachineTest, M7SafetyCriticalForcesMrCPrep) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  EventFlags m7_crit{};
+  m7_crit.m7_safety_critical = true;
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, m7_crit, t1_);
+  EXPECT_EQ(EnvelopeState::MrCPrep, result);
+}
+
+/// 33. M7MrcRequiredForcesMrCPrep
+TEST_F(OddStateMachineTest, M7MrcRequiredForcesMrCPrep) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  EventFlags m7_req{};
+  m7_req.m7_safety_mrc_required = true;
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, m7_req, t1_);
+  EXPECT_EQ(EnvelopeState::MrCPrep, result);
+}
+
+/// 34. D4AllowedOnlyInOddA
+TEST_F(OddStateMachineTest, D4AllowedOnlyInOddA) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  OddZoneHealthPair zone_a_full{OddZone::A, SystemHealth::Full};
+  EnvelopeState in_state = fsm->step(0.9, 100.0, 60.0, no_events_,
+                                     zone_a_full, t1_);
+  EXPECT_EQ(EnvelopeState::In, in_state);
+
+  auto fsm2 = CreateDefault();
+  ASSERT_TRUE(fsm2.has_value());
+  OddZoneHealthPair zone_b_full{OddZone::B, SystemHealth::Full};
+  EnvelopeState zone_b_state = fsm2->step(0.9, 100.0, 60.0, no_events_,
+                                          zone_b_full, t1_);
+  EXPECT_EQ(EnvelopeState::In, zone_b_state);
+}
+
+/// 35. M7HeartbeatTimeoutTriggersDegraded
+TEST_F(OddStateMachineTest, M7HeartbeatTimeoutTriggersDegraded) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  EventFlags m7_stale{};
+  m7_stale.m7_input_stale = true;
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, m7_stale, t1_);
+  EXPECT_EQ(EnvelopeState::Edge, result);
+  result = fsm->step(0.65, 100.0, 60.0, m7_stale, t2_);
+  EXPECT_EQ(EnvelopeState::Out, result);
+}
+
 }  // namespace
 }  // namespace mass_l3::m1

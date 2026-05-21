@@ -40,3 +40,22 @@ mrc:
   max_anchor_depth_m: 50.0           # [TBD-HAZID] maximum water depth for anchoring [m]
   max_heave_to_sea_state_hs: 4.0     # [TBD-HAZID] maximum Hs for heave-to [m]
   max_heave_to_wind_kn: 40.0         # [TBD-HAZID] maximum wind speed for heave-to [kn]
+
+# D2.1: ToR adaptive matrix [TBD-HAZID]
+tor_matrix:
+  - {state: 0, tmr_s: 30.0}   # Bridge_OnDuty
+  - {state: 1, tmr_s: 60.0}   # Bridge_Nearby
+  - {state: 2, tmr_s: 60.0}   # ROC_Attended
+  - {state: 3, tmr_s: 90.0}   # Mess_Rest
+  - {state: 4, tmr_s: 120.0}  # Cabin_Sleep
+
+# D2.1: ROT_max curve from Capability Manifest (FCB initial values) [TBD-HAZID]
+rot_max_curve:
+  - {speed_kn: 0.0, rot_max_deg_s: 5.0}
+  - {speed_kn: 10.0, rot_max_deg_s: 15.0}
+  - {speed_kn: 18.0, rot_max_deg_s: 12.0}
+  - {speed_kn: 22.0, rot_max_deg_s: 8.0}
+
+# D2.1: EMA smoothing [TBD-HAZID]
+ema:
+  tau_s: 5.0
