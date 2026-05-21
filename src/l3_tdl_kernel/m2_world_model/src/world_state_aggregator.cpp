@@ -225,9 +225,13 @@ WorldStateAggregator::compose_world_state(
                            * cpa_opt->uncertainty.cpa_sigma_m;
       wt.tcpa_covariance_s2 = cpa_opt->uncertainty.tcpa_sigma_s
                             * cpa_opt->uncertainty.tcpa_sigma_s;
-      // Positive-definite safety clamp
-      if (wt.cpa_covariance_m2 > 2500.0) { wt.cpa_covariance_m2 = 2500.0; }
-      if (wt.tcpa_covariance_s2 > 100.0) { wt.tcpa_covariance_s2 = 100.0; }
+      // Positive-definite safety clamp: guard zero/negative and excessive values
+      if (wt.cpa_covariance_m2 <= 0.0 || wt.cpa_covariance_m2 > 2500.0) {
+        wt.cpa_covariance_m2 = 2500.0;  // sigma=50m conservative default
+      }
+      if (wt.tcpa_covariance_s2 <= 0.0 || wt.tcpa_covariance_s2 > 100.0) {
+        wt.tcpa_covariance_s2 = 100.0;   // sigma=10s conservative default
+      }
     } else {
       // Computation failed — mark as invalid
       wt.cpa_m = -1.0;
