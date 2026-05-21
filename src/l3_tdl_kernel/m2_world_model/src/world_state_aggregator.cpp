@@ -261,7 +261,29 @@ WorldStateAggregator::compose_world_state(
     wt.classification.assign(target.classification.data(),
                              target.classification.size());
     wt.classification_confidence = target.classification_confidence;
-    wt.confidence = static_cast<float>(health.aggregated);
+
+    {
+      // Per-target confidence: base × CPA-quality × track-age
+      const double base_conf = health.aggregated;
+      double cpa_quality = 0.5;
+      if (cpa_opt.has_value()) {
+        const double cpa_sigma = cpa_opt->uncertainty.cpa_sigma_m;
+        const double cpa_mean = cpa_opt->cpa_m;
+        if (cpa_mean > 0.1 && cpa_sigma > 0.0) {
+          const double cpa_cv = cpa_sigma / cpa_mean;
+          cpa_quality = 1.0 / (1.0 + cpa_cv);
+        } else if (cpa_mean > 0.1) {
+          cpa_quality = 1.0;  // zero sigma = perfect knowledge
+        }
+      }
+      const double track_age_s =
+          std::chrono::duration<double>(now - target.stamp).count();
+      const double track_age_factor = 1.0 - std::exp(-track_age_s / 60.0);
+
+      double per_target_conf = base_conf * cpa_quality * track_age_factor;
+      per_target_conf = std::max(0.05, std::min(1.0, per_target_conf));
+      wt.confidence = static_cast<float>(per_target_conf);
+    }
     wt.source_sensor = "fused";
 
     wt.encounter.relative_bearing_deg = relative_bearing_deg;
@@ -369,11 +391,16 @@ double WorldStateAggregator::compute_aggregated_confidence_() const {
                            health.ev_confidence,
                            health.sv_confidence});
 
-  // Apply confidence floor when DV is degraded
-  if (health.dv_health == ViewHealth::Degraded) {
-    conf = std::min(conf, cfg_.confidence_floor_dv_degraded);
+  // Downward adjustment when any view is degraded or worse
+  if (health.dv_health >= ViewHealth::Degraded ||
+      health.ev_health >= ViewHealth::Degraded ||
+      health.sv_health >= ViewHealth::Degraded) {
+    const double degraded_penalty = (health.dv_health >= ViewHealth::Degraded)
+      ? cfg_.confidence_floor_dv_degraded : 1.0;
+    conf = std::min(conf, degraded_penalty);
   }
 
+  // Per-target quality weighting is applied inline in the target loop
   return conf;
 }
 
