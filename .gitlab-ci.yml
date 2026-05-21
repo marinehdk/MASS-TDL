@@ -320,7 +320,7 @@ vv-phase1-gate:
 # ===============================================================
 fmi_bridge_build:
   stage: build
-  needs: ["fcb_simulator_build"]
+  needs: []
   script:
     - colcon build --packages-select fmi_bridge --cmake-args -DCMAKE_BUILD_TYPE=Debug
   artifacts:
