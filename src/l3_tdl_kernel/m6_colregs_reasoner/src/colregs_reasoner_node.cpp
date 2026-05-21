@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -15,6 +16,7 @@
 #include <builtin_interfaces/msg/time.hpp>
 #include <l3_msgs/msg/asdr_record.hpp>
 #include <l3_msgs/msg/colre_gs_constraint.hpp>
+#include <l3_msgs/msg/colregs_chain_layer.hpp>
 #include <l3_msgs/msg/constraint.hpp>
 #include <l3_msgs/msg/odd_state.hpp>
 #include <l3_msgs/msg/sat_data.hpp>
@@ -52,14 +54,51 @@ OddDomain odd_domain_from_zone(uint8_t zone) {
   }
 }
 
-std::string odd_domain_str(OddDomain d) {
-  switch (d) {
-    case OddDomain::ODD_A: return "ODD-A";
-    case OddDomain::ODD_B: return "ODD-B";
-    case OddDomain::ODD_C: return "ODD-C";
-    case OddDomain::ODD_D: return "ODD-D";
-    default: return "ODD-UNKNOWN";
+std::string encounter_type_str(EncounterType enc) {
+  switch (enc) {
+    case EncounterType::HEAD_ON: return "Rule14 HEAD-ON";
+    case EncounterType::OVERTAKING: return "Rule13 OVERTAKING";
+    case EncounterType::CROSSING: return "Rule15 CROSSING";
+    case EncounterType::RESTRICTED_VIS: return "Rule19 RESTRICTED-VIS";
+    case EncounterType::AMBIGUOUS: return "AMBIGUOUS";
+    default: return "NONE";
   }
+}
+
+std::string role_str(Role r) {
+  switch (r) {
+    case Role::GIVE_WAY: return "GIVE-WAY";
+    case Role::STAND_ON: return "STAND-ON";
+    case Role::BOTH_GIVE_WAY: return "BOTH-GIVE-WAY";
+    default: return "FREE";
+  }
+}
+
+std::string timing_phase_str(TimingPhase p) {
+  switch (p) {
+    case TimingPhase::PRESERVE_COURSE: return "STAGE_1 preserve_course";
+    case TimingPhase::SOUND_WARNING: return "STAGE_2 sound_warning";
+    case TimingPhase::INDEPENDENT_ACTION: return "STAGE_3 independent_action";
+    case TimingPhase::CRITICAL_ACTION: return "STAGE_4 critical_action";
+    default: return "UNKNOWN";
+  }
+}
+
+l3_msgs::msg::ColregsChainLayer make_chain_layer(
+    uint8_t layer_num, const std::string& label, const std::string& conclusion,
+    const std::vector<std::string>& keys, const std::vector<std::string>& vals,
+    float confidence, uint8_t timing_stage, bool escalation, const std::string& rationale) {
+  l3_msgs::msg::ColregsChainLayer layer;
+  layer.layer = layer_num;
+  layer.label = label;
+  layer.conclusion = conclusion;
+  layer.input_keys = keys;
+  layer.input_vals = vals;
+  layer.confidence = confidence;
+  layer.timing_stage = timing_stage;
+  layer.escalation = escalation;
+  layer.rationale = rationale;
+  return layer;
 }
 
 std::string odd_yaml_key(OddDomain d) {
@@ -100,6 +139,20 @@ std::chrono::system_clock::time_point to_chrono(
 }
 
 }  // anonymous namespace
+
+// ------------------------------------------------------------------
+// Static helpers
+// ------------------------------------------------------------------
+
+std::string ColregsReasonerNode::odd_domain_str(OddDomain d) {
+  switch (d) {
+    case OddDomain::ODD_A: return "ODD-A";
+    case OddDomain::ODD_B: return "ODD-B";
+    case OddDomain::ODD_C: return "ODD-C";
+    case OddDomain::ODD_D: return "ODD-D";
+    default: return "ODD-UNKNOWN";
+  }
+}
 
 // ------------------------------------------------------------------
 // Constructor
@@ -403,6 +456,9 @@ void ColregsReasonerNode::run_reasoning() {
   auto constraint = constraint_gen_->generate(
     evaluations, kParams, static_cast<double>(ws_confidence));
   constraint.stamp = kNowTime;
+  const auto kChain = build_colregs_chain(evaluations, domain, kParams, kTargetStates);
+  constraint.colregs_chain = kChain.layers;
+  constraint.colregs_chain_target_id = kChain.target_id;
 
   constraint_pub_->publish(constraint);
 
@@ -628,6 +684,89 @@ RuleParameters ColregsReasonerNode::get_current_rule_params() const {
   defaults.max_turn_rate_deg_s = 5.0;
   defaults.rule_9_weight = 0.0;
   return defaults;
+}
+
+// ------------------------------------------------------------------
+// build_colregs_chain() — construct 5-layer decision rationale
+// ------------------------------------------------------------------
+
+ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::build_colregs_chain(
+    const std::vector<RuleEvaluation>& evals, OddDomain domain,
+    const RuleParameters& params,
+    const std::vector<TargetGeometricState>& targets) {
+  ColregsChainResult result;
+  if (evals.empty() || targets.empty()) return result;
+
+  const TargetGeometricState* primary_geo = nullptr;
+  double min_cpa = std::numeric_limits<double>::max();
+  for (const auto& t : targets) {
+    if (t.cpa_m < min_cpa) { min_cpa = t.cpa_m; primary_geo = &t; }
+  }
+  if (!primary_geo) return result;
+
+  const RuleEvaluation* primary_eval = nullptr;
+  for (const auto& ev : evals) {
+    if (ev.is_active && ev.target_id == primary_geo->target_id) {
+      primary_eval = &ev; break;
+    }
+  }
+  if (!primary_eval) {
+    for (const auto& ev : evals) {
+      if (ev.is_active) { primary_eval = &ev; break; }
+    }
+  }
+  if (!primary_eval) return result;
+
+  result.target_id = std::to_string(primary_geo->target_id);
+  result.layers.resize(5);
+
+  result.layers[0] = make_chain_layer(1, "ODD", odd_domain_str(domain),
+      {}, {}, 1.0f, 0, false, "Current ODD domain from M1");
+
+  std::string active_rules;
+  for (const auto& ev : evals) {
+    if (ev.is_active && ev.target_id == primary_geo->target_id) {
+      if (!active_rules.empty()) active_rules += " ";
+      active_rules += "R" + std::to_string(ev.rule_id);
+    }
+  }
+  result.layers[1] = make_chain_layer(2, "RuleSet",
+      active_rules.empty() ? "NONE" : active_rules, {}, {}, 0.9f, 0, false,
+      "Active COLREGS rules for primary target");
+
+  double cpa_nm = primary_geo->cpa_m / 1852.0;
+  result.layers[2] = make_chain_layer(3, "Encounter",
+      encounter_type_str(primary_eval->encounter_type),
+      {"bearing_deg", "cpa_nm"},
+      {std::to_string(static_cast<int>(primary_geo->bearing_deg)),
+       std::to_string(cpa_nm).substr(0, 5)},
+      primary_eval->confidence, 0, false, primary_eval->rationale);
+
+  result.layers[3] = make_chain_layer(4, "Role",
+      role_str(primary_eval->role),
+      {"aspect_deg"},
+      {std::to_string(static_cast<int>(primary_geo->aspect_deg))},
+      primary_eval->confidence, 0, false, "Role from M6 rule evaluation");
+
+  bool escalation = (primary_eval->phase == TimingPhase::INDEPENDENT_ACTION
+                     || primary_eval->phase == TimingPhase::CRITICAL_ACTION);
+  result.layers[4] = make_chain_layer(5, "Timing",
+      timing_phase_str(primary_eval->phase),
+      {"tcpa_s", "t_act_s"},
+      {std::to_string(static_cast<int>(primary_geo->tcpa_s)),
+       std::to_string(static_cast<int>(params.t_act_s))},
+      primary_eval->confidence,
+      static_cast<uint8_t>(primary_eval->phase) + 1,
+      escalation, "Timing phase based on TCPA vs ODD thresholds");
+
+  return result;
+}
+
+ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::test_build_colregs_chain(
+    const std::vector<RuleEvaluation>& evals, OddDomain domain,
+    const RuleParameters& params,
+    const std::vector<TargetGeometricState>& targets) {
+  return ColregsReasonerNode::build_colregs_chain(evals, domain, params, targets);
 }
 
 }  // namespace mass_l3::m6_colregs

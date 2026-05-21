@@ -53,4 +53,7 @@ if(BUILD_TESTING)
   set_tests_properties(test_node_lifecycle PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
   )
+
+  ament_add_gtest(test_colregs_chain test_colregs_chain.cpp)
+  target_link_libraries(test_colregs_chain ${PROJECT_NAME}_lib)
 endif()

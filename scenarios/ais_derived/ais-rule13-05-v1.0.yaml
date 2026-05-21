@@ -1,0 +1,76 @@
+title: AIS-derived Rule13 encounter 05
+description: Extracted from synthetic_ais_equiv. Rule Rule13. DCPA ~ 0.00 NM.
+startTime: '2026-01-01T00:00:00Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+    mmsi: 123456789
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 14.0
+    heading: 0.0
+    navStatus: Under way using engine
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000024
+  initial:
+    position:
+      latitude: 63.486
+      longitude: 10.38
+    cog: 0.0
+    sog: 7.0
+    heading: 0.0
+  model: ais_replay_vessel
+environment:
+  wind:
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current:
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 10.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: ais-rule13-05-v1.0
+  vessel_class: FCB
+  colregs_rules:
+  - R13
+  - R16
+  - R8
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule13
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 150.0
+    avoidance_delta_rad: 0.3491
+    avoidance_duration_s: 90.0
+  scenario_source: synthetic_ais_equiv
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+  simulation_settings:
+    total_time: 700.0
+    dt: 0.02
+    n_rps_initial: 4.2
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind:
+      dir_deg: 0.0
+      speed_mps: 0.0
+    current:
+      dir_deg: 0.0
+      speed_mps: 0.0
