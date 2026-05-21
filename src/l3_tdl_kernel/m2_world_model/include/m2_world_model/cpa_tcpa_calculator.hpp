@@ -15,7 +15,7 @@ namespace mass_l3::m2 {
 /// Implements §5.1.2 of the M2 detailed design (v1.1.2).
 class CpaTcpaCalculator final {
  public:
-  enum class UncertaintyMethod : std::uint8_t { Linear = 0, MonteCarlo = 1 };
+  enum class UncertaintyMethod : std::uint8_t { Linear = 0, MonteCarlo = 1, UkfSigma = 2, CeAdaptive = 3 };
 
   struct Config {
     UncertaintyMethod method;
@@ -24,6 +24,12 @@ class CpaTcpaCalculator final {
     double odd_d_multiplier;
     double max_align_dt_s;
     double static_target_speed_mps;
+
+    // UKF sigma-point parameters (§5.1.2 UKF extension)
+    double ukf_alpha{1e-3};
+    double ukf_beta{2.0};
+    double ukf_kappa{0.0};
+    double min_rel_speed_for_ukf_ms{0.1};
   };
 
   explicit CpaTcpaCalculator(Config cfg);
@@ -54,6 +60,16 @@ class CpaTcpaCalculator final {
                          const Eigen::Vector2d& rel_vel,
                          const Eigen::Matrix2d& sigma_rel_pos,
                          const Eigen::Matrix2d& sigma_rel_vel) const;
+
+  /// UKF sigma-point uncertainty propagation (§5.1.2 UKF extension).
+  /// State: x = [Δx, Δy, Δvx, Δvy]^T (4-dim).
+  /// Observation: y = [CPA, TCPA]^T (2-dim).
+  /// Falls back to position-only covariance when ||rel_vel|| < threshold.
+  [[nodiscard]] CpaUncertainty
+  propagate_ukf_(const Eigen::Vector2d& rel_pos,
+                 const Eigen::Vector2d& rel_vel,
+                 const Eigen::Matrix2d& sigma_rel_pos,
+                 const Eigen::Matrix2d& sigma_rel_vel) const;
 
   Config cfg_;
 };
