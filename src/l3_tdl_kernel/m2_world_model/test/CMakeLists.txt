@@ -35,6 +35,18 @@ if(BUILD_TESTING)
   target_include_directories(test_must1_overtaking_sector PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
+  # ── D2.2 Track D: MUST-6 SOG validation ────────────────────────────────────
+  ament_add_gtest(test_must6_sog_validation test_must6_sog_validation.cpp)
+
+  # ── D2.2 Track D: Intent confidence ────────────────────────────────────────
+  ament_add_gtest(test_intent_confidence test_intent_confidence.cpp)
+
+  # ── D2.2 Track D: Environment sanity checker ───────────────────────────────
+  ament_add_gtest(test_env_sanity_checker test_env_sanity_checker.cpp)
+  target_link_libraries(test_env_sanity_checker ${PROJECT_NAME}_lib)
+  target_include_directories(test_env_sanity_checker PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
+
   # ── Integration tests ──────────────────────────────────────────────────────
   ament_add_gtest(test_world_model_node_smoke integration/test_world_model_node_smoke.cpp)
   target_link_libraries(test_world_model_node_smoke ${PROJECT_NAME}_lib)
