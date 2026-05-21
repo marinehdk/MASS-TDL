@@ -1,6 +1,6 @@
 # Per v1.1.2 §15.1 ODD_StateMsg + §3.5 state machine + §3.6 Conformance_Score
 # Frequency: 1 Hz + event-driven补发 (EDGE→OUT 不等周期)
-uint16 schema_version  # 112 = v1.1.2
+uint16 schema_version  # 121 = v1.1 (D2.1)
 builtin_interfaces/Time stamp
 
 uint8 current_zone                       # ODD-A/B/C/D
@@ -32,6 +32,9 @@ float32 tdl_s                            # Automation Response Deadline
 string zone_reason                       # SAT-2: ODD 子域判断理由
 
 uint8[] allowed_zones                    # 当前健康状态下可允许的 ODD 子域
+
+# D2.1: ROT_max interpolated from Capability Manifest rot_max_curve
+float32 rot_max_current
 
 float32 confidence
 string rationale

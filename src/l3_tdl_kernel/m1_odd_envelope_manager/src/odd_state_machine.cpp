@@ -98,16 +98,19 @@ namespace {
   return EnvelopeState::Out;
 }
 
-/// Apply stale-input degradation factor to score.
-/// CC = 2
-[[nodiscard]] double apply_stale_degradation(double score,
-                                             const EventFlags& events,
-                                             double factor) noexcept {
-  if (events.m2_input_stale || events.m7_input_stale) {
+/// Apply M2 stale-input degradation factor to score (m7 handled separately
+/// with heartbeat timeout). CC = 2
+[[nodiscard]] double apply_m2_stale_degradation(double score,
+                                                const EventFlags& events,
+                                                double factor) noexcept {
+  if (events.m2_input_stale) {
     return score * factor;
   }
   return score;
 }
+
+/// M7 heartbeat lost multiplier (0.7) when m7_input_stale is true.
+constexpr double kM7HeartbeatLostFactor = 0.7;
 
 }  // anonymous namespace
 
@@ -141,21 +144,29 @@ tl::expected<OddStateMachine, ErrorCode> OddStateMachine::create(
 }
 
 // ---------------------------------------------------------------------------
-// compute_next: pure transition logic, dispatch to per-state helpers.
+// compute_next: pure transition logic with zone/health awareness.
 // CC = 2 (base 1 + switch 1)
 // ---------------------------------------------------------------------------
 EnvelopeState OddStateMachine::compute_next(
     double eff_score,
     double tdl_s,
     double tmr_s,
-    const EventFlags& events) const noexcept {
+    const EventFlags& events,
+    OddZoneHealthPair zone_health,
+    TimePoint now) const noexcept {
+  // Zone C tightens the OUT threshold to be more conservative.
+  static_cast<void>(now);
+  double edge_to_out = thresholds_.edge_to_out;
+  if (zone_health.zone == OddZone::C && edge_to_out < 0.6) {
+    edge_to_out = 0.6;
+  }
+
   switch (current_) {
     case EnvelopeState::In:
-      return handle_in_state(eff_score, thresholds_.in_to_edge,
-                             thresholds_.edge_to_out);
+      return handle_in_state(eff_score, thresholds_.in_to_edge, edge_to_out);
     case EnvelopeState::Edge:
-      return handle_edge_state(eff_score, thresholds_.in_to_edge,
-                               thresholds_.edge_to_out, tdl_s, tmr_s);
+      return handle_edge_state(eff_score, thresholds_.in_to_edge, edge_to_out,
+                               tdl_s, tmr_s);
     case EnvelopeState::MrCPrep:
       return handle_mrc_prep_state(events.m7_safety_mrc_required);
     case EnvelopeState::MrCActive:
@@ -164,23 +175,33 @@ EnvelopeState OddStateMachine::compute_next(
     case EnvelopeState::Out:
       [[fallthrough]];
     case EnvelopeState::Overridden:
-      return handle_out_state(eff_score, thresholds_.in_to_edge,
-                              thresholds_.edge_to_out);
+      return handle_out_state(eff_score, thresholds_.in_to_edge, edge_to_out);
   }
   // All enum values covered; unreachable.
   return current_;
 }
 
 // ---------------------------------------------------------------------------
-// step: main entry point for state transitions.
-// CC = 6 (base 1 + override-if 2 + stale-if 2 + transition-if 1)
+// step (zone/health-aware): main entry for state transitions (D2.1).
+// Priority order:
+//   1. Override/reflex
+//   2. NaN safety guard
+//   3. M7 safety critical / MRC required → MrCPrep (Checker VETO)
+//   4. SystemHealth::Critical → MrCPrep
+//   5. SystemHealth::Degraded → multiply score by stale_degradation_factor
+//   6. M2 input stale → multiply score by stale_degradation_factor
+//   7. M7 input stale → multiply score by 0.7 (heartbeat timeout)
+//   8. Zone C → tighten edge_to_out threshold to max(0.6, configured)
+//   9. Delegate to compute_next()
+// CC = 8 (base 1 + override-if 2 + nan-if 2 + m7-if 2 + health-if 2)
 // ---------------------------------------------------------------------------
 EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swappable-parameters)
                                     double tdl_s,
                                     double tmr_s,
                                     EventFlags events,
+                                    OddZoneHealthPair zone_health,
                                     TimePoint now) noexcept {
-  // --- Check override (highest priority) ---
+  // --- 1. Check override (highest priority) ---
   if (events.override_active || events.reflex_activation) {
     if (current_ != EnvelopeState::Overridden) {
       current_ = EnvelopeState::Overridden;
@@ -190,9 +211,7 @@ EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swa
     return current_;
   }
 
-  // --- NaN score safety check (IEC 61508-3 Table C.1) ---
-  // NaN causes all comparisons to return false, which silently stays In.
-  // Guard: any NaN score forces immediate Out in the current cycle.
+  // --- 2. NaN score safety check (IEC 61508-3 Table C.1) ---
   if (std::isnan(score)) {
     if (current_ != EnvelopeState::Out) {
       current_ = EnvelopeState::Out;
@@ -202,12 +221,46 @@ EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swa
     return current_;
   }
 
-  // --- Apply stale input degradation ---
-  const double kEffScore = apply_stale_degradation(score, events,
-                                              thresholds_.stale_degradation_factor);
+  // --- 3. M7 safety critical / MRC required → MrCPrep (Checker VETO) ---
+  if (events.m7_safety_critical || events.m7_safety_mrc_required) {
+    if (current_ != EnvelopeState::MrCPrep) {
+      current_ = EnvelopeState::MrCPrep;
+      last_transition_at_ = now;
+      current_rationale_ = "M7 safety alert — MrC_PREP (Checker VETO > Doer)";
+    }
+    return current_;
+  }
 
-  // --- Compute next state ---
-  const EnvelopeState kNext = compute_next(kEffScore, tdl_s, tmr_s, events);
+  // --- 4. SystemHealth::Critical → MrCPrep ---
+  if (zone_health.health == SystemHealth::Critical) {
+    if (current_ != EnvelopeState::MrCPrep) {
+      current_ = EnvelopeState::MrCPrep;
+      last_transition_at_ = now;
+      current_rationale_ = "System health critical — MrC_PREP (ODD zone degraded)";
+    }
+    return current_;
+  }
+
+  // --- Apply health/score modifiers ---
+  double effective_score = score;
+
+  // --- 5. SystemHealth::Degraded → multiply ---
+  if (zone_health.health == SystemHealth::Degraded) {
+    effective_score *= thresholds_.stale_degradation_factor;
+  }
+
+  // --- 6. M2 stale input degradation ---
+  effective_score = apply_m2_stale_degradation(effective_score, events,
+                                               thresholds_.stale_degradation_factor);
+
+  // --- 7. M7 heartbeat timeout ---
+  if (events.m7_input_stale) {
+    effective_score *= kM7HeartbeatLostFactor;
+  }
+
+  // --- 8/9. Compute next with zone/health context ---
+  const EnvelopeState kNext = compute_next(effective_score, tdl_s, tmr_s,
+                                           events, zone_health, now);
 
   // --- Update state on transition ---
   if (kNext != current_) {
@@ -217,6 +270,19 @@ EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swa
   }
 
   return current_;
+}
+
+// ---------------------------------------------------------------------------
+// step (backward-compatible): delegates to zone/health-aware overload with
+// default OddZone::A and SystemHealth::Full.
+// ---------------------------------------------------------------------------
+EnvelopeState OddStateMachine::step(double score,  // NOLINT(bugprone-easily-swappable-parameters)
+                                    double tdl_s,
+                                    double tmr_s,
+                                    EventFlags events,
+                                    TimePoint now) noexcept {
+  return step(score, tdl_s, tmr_s, events,
+              OddZoneHealthPair{OddZone::A, SystemHealth::Full}, now);
 }
 
 // ---------------------------------------------------------------------------

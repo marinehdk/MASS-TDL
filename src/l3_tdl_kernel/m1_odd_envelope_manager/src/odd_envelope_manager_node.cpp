@@ -43,8 +43,10 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
+#include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
+#include "l3_msgs/msg/tor_request.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_external_msgs/msg/environment_state.hpp"
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
@@ -81,6 +83,8 @@ constexpr const char* kTopicOverrideSignal   = "/override/active_signal";
 constexpr const char* kTopicEnvironmentState = "/fusion/environment_state";
 constexpr const char* kTopicOwnShipState     = "/fusion/own_ship_state";
 constexpr const char* kTopicWorldState       = "/l3/m2/world_state";
+constexpr const char* kTopicOperatorState    = "/l3/m8/operator_state";
+constexpr const char* kTopicToRRequest       = "/l3/m1/tor_request";
 constexpr const char* kTopicODDState         = "/l3/m1/odd_state";
 constexpr const char* kTopicModeCmd          = "/l3/m1/mode_cmd";
 constexpr const char* kTopicASDR             = "/l3/asdr/record";
@@ -304,6 +308,9 @@ void OddEnvelopeManagerNode::initialize_publishers() {
 
   sat_pub_ = create_publisher<l3_msgs::msg::SATData>(
       kTopicSAT, QoS(KeepLast(5)).reliable());
+
+  tor_request_pub_ = create_publisher<l3_msgs::msg::ToRRequest>(
+      kTopicToRRequest, QoS(KeepLast(10)).reliable().transient_local());
 }
 
 // NOLINTNEXTLINE(readability-function-size)
@@ -319,6 +326,14 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
       // NOLINTNEXTLINE(performance-unnecessary-value-param)
       [this](const l3_msgs::msg::SafetyAlert::SharedPtr kMsg) {
         on_safety_alert(kMsg);
+      });
+
+  operator_state_sub_ = create_subscription<l3_msgs::msg::OperatorState>(
+      kTopicOperatorState,
+      QoS(KeepLast(5)).reliable(),
+      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+      [this](const l3_msgs::msg::OperatorState::SharedPtr kMsg) {
+        this->on_operator_state(kMsg);
       });
 
   {
@@ -399,6 +414,8 @@ void OddEnvelopeManagerNode::on_safety_alert(
   last_safety_alert_ = kMsg;
   last_safety_alert_received_ = now();
   has_received_safety_alert_ = true;
+  // D2.1: Track M7 heartbeat for watchdog
+  last_m7_heartbeat_ = std::chrono::steady_clock::now();
 
   if (logger_) {
     logger_->info("SafetyAlert received: severity={} type={}",
@@ -453,6 +470,33 @@ void OddEnvelopeManagerNode::on_world_state(
   last_world_state_ = kMsg;
   last_world_state_received_ = now();
   has_received_world_state_ = true;
+}
+
+// ===========================================================================
+// D2.1 callbacks
+// ===========================================================================
+
+void OddEnvelopeManagerNode::on_operator_state(
+    const l3_msgs::msg::OperatorState::SharedPtr msg) {
+  current_operator_state_ = static_cast<OperatorState>(msg->assumed_operator_state);
+}
+
+void OddEnvelopeManagerNode::publish_tor_request(
+    double deadline_s, double tdl_s, const std::string& rationale) {
+  auto msg = l3_msgs::msg::ToRRequest{};
+  msg.schema_version = 121;
+  msg.stamp = this->now();
+  msg.deadline_s = static_cast<float>(deadline_s);
+  msg.tdl_s = static_cast<float>(tdl_s);
+  msg.assumed_operator_state = static_cast<uint8_t>(current_operator_state_);
+  msg.reason = l3_msgs::msg::ToRRequest::REASON_ODD_EXIT;
+  msg.target_level = l3_msgs::msg::ToRRequest::TARGET_LEVEL_D2;
+  msg.confidence = 1.0f;
+  msg.rationale = rationale;
+  msg.context_summary = "ODD boundary violation — operator takeover required";
+  msg.recommended_action = "Assume manual control within deadline";
+
+  tor_request_pub_->publish(msg);
 }
 
 // ===========================================================================
@@ -612,7 +656,9 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
 
   ScoringInputs scoring      = build_scoring_inputs();
   scoring.any_sensor_critical = m7_critical;
-  const ScoreTriple kScores  = score_calc_->compute(scoring);
+  // D2.1: EMA-smoothed conformance score
+  const ScoreTriple kScores  = score_calc_->compute_with_ema(
+      scoring, params_, conformance_ema_, kMainLoopPeriodS);
   last_score_                = kScores;
 
   TmrTdlInputs tmr_in{};
@@ -620,16 +666,57 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
   tmr_in.current_rtt_s        = 0.0;
   tmr_in.system_health        = build_system_health(m7_critical);
   tmr_in.h_score_tmr_available = scoring.tmr_available;
-  const TmrTdlPair kTmrtdl   = tmr_tdl_->compute(tmr_in);
+  // D2.1: Operator-state-aware TMR from ToR matrix
+  const TmrTdlPair kTmrtdl   = tmr_tdl_->compute(tmr_in, params_, current_operator_state_);
   last_tmr_tdl_               = kTmrtdl;
 
-  const EventFlags kEvents      = build_event_flags(kNowRos, m7_critical, m7_mrc_required);
+  // D2.1: M7 heartbeat watchdog
+  const auto kHeartbeatAge = std::chrono::steady_clock::now() - last_m7_heartbeat_;
+  EventFlags kEvents       = build_event_flags(kNowRos, m7_critical, m7_mrc_required);
+  if (kHeartbeatAge > M7_HEARTBEAT_TIMEOUT) {
+    kEvents.m7_input_stale = true;
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+        "M7 heartbeat timeout (>500ms) — safety supervisor unavailable");
+  }
+
+  // D2.1: Zone/health-aware FSM step
+  const uint8_t kHealth = score_to_health(kScores.conformance_score);
+  const OddZoneHealthPair kZhp{
+      static_cast<OddZone>(current_zone_),
+      static_cast<SystemHealth>(kHealth)};
   const EnvelopeState kOldState = state_machine_->current();
   const EnvelopeState kNewState = state_machine_->step(
-      kScores.conformance_score, kTmrtdl.tdl_s, kTmrtdl.tmr_s, kEvents, kNowSteady);
+      kScores.conformance_score, kTmrtdl.tdl_s, kTmrtdl.tmr_s,
+      kEvents, kZhp, kNowSteady);
 
   if (kNewState != kOldState) {
     handle_state_change(kOldState, kNewState, kScores, kTmrtdl);
+  }
+
+  // D2.1: ToR trigger — force FSM to MrCPrep and publish if TDL ≤ TMR
+  if (kTmrtdl.tdl_s <= kTmrtdl.tmr_s &&
+      kNewState != EnvelopeState::MrCPrep &&
+      kNewState != EnvelopeState::MrCActive &&
+      kNewState != EnvelopeState::Overridden) {
+
+    // Force FSM into MrCPrep (MRC preparation) — safety constraint violated
+    EventFlags mrc_events{};
+    mrc_events.m7_safety_mrc_required = true;
+    const EnvelopeState kMrcState = state_machine_->step(
+        kScores.conformance_score, kTmrtdl.tdl_s, kTmrtdl.tmr_s,
+        mrc_events, kZhp, kNowSteady);
+
+    if (kMrcState != kNewState) {
+      handle_state_change(kNewState, kMrcState, kScores, kTmrtdl);
+    }
+
+    publish_tor_request(kTmrtdl.tmr_s, kTmrtdl.tdl_s,
+        "TDL (" + std::to_string(static_cast<int>(kTmrtdl.tdl_s + 0.5)) +
+        "s) ≤ TMR (" + std::to_string(static_cast<int>(kTmrtdl.tmr_s + 0.5)) +
+        "s) — safety constraint violated, MRC preparation triggered");
+
+    check_mrc_if_needed(kMrcState, m7_mrc_required, m7_mrm, scoring);
+    return;  // Skip normal check_mrc_if_needed below — already handled
   }
 
   check_mrc_if_needed(kNewState, m7_mrc_required, m7_mrm, scoring);
@@ -660,6 +747,12 @@ void OddEnvelopeManagerNode::on_odd_state_publish_tick() noexcept {
   const auto kZl = zones_for_health(msg.health);
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   msg.allowed_zones.assign(kZl.data_, kZl.data_ + kZl.count_);
+
+  // D2.1: ROT_max from Capability Manifest
+  const double kSpeedKn = last_own_ship_ ? last_own_ship_->sog_kn : 0.0;
+  msg.rot_max_current = static_cast<float>(
+      interpolate_rot_max(kSpeedKn, params_.rot_max_curve));
+
   msg.confidence = 1.0F;
   msg.rationale  = std::string(state_machine_->rationale());
 
@@ -702,6 +795,7 @@ void OddEnvelopeManagerNode::publish_mode_cmd(
   msg.stamp               = now();
   msg.mode                = envelope_to_mode(state_machine_->current());
   msg.behavior_constraint = envelope_to_constraint(state_machine_->current());
+  msg.assumed_operator_state = static_cast<uint8_t>(current_operator_state_);
   msg.confidence          = 1.0F;
   msg.rationale           = std::string(reason);
 

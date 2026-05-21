@@ -23,6 +23,17 @@ class ConformanceScoreCalculator final {
   /// Evaluate all three axes and produce the combined conformance score.
   [[nodiscard]] ScoreTriple compute(const ScoringInputs& inputs) const noexcept;
 
+  /// Compute with EMA (exponential moving average) smoothing.
+  /// Calls compute() for the raw score, then applies a first-order low-pass
+  /// filter: filtered = alpha * raw + (1-alpha) * filtered.
+  /// tau_s = 0 or NaN disables filtering (returns raw).
+  /// Returns ScoreTriple with filtered conformance_score.
+  [[nodiscard]] ScoreTriple compute_with_ema(
+      const ScoringInputs& inputs,
+      const ParameterSet& params,
+      EmaState& ema_state,
+      double dt_s) const noexcept;
+
   /// Environment score: visibility_nm (nm) and sea_state_hs (Hs, metres).
   [[nodiscard]] double evaluate_e_score(double visibility_nm,
                                         double sea_state_hs) const noexcept;

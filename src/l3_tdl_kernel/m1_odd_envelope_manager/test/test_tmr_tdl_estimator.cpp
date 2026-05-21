@@ -311,5 +311,182 @@ TEST(TmrTdlEstimatorTest, EstimateTSysHealthDegraded) {
   EXPECT_DOUBLE_EQ(result.tdl_s, 60.0);
 }
 
+// ===========================================================================
+// D2.1: System health + ToR matrix tests
+// ===========================================================================
+
+/// 15. SystemHealthReducesTdl
+/// System health MTTF estimate caps the TDL when it is the limiting factor.
+TEST(TmrTdlEstimatorTest, SystemHealthReducesTdl) {
+  auto calc = TmrTdlEstimator::create(MakeDefaultParams());
+  ASSERT_TRUE(calc.has_value());
+
+  SystemHealthSnapshot low_mttf{};
+  low_mttf.mttf_estimate_s = 20.0;
+  low_mttf.heartbeat_recency_s = 0.5;
+  low_mttf.fault_count = 0;
+  low_mttf.has_redundancy = true;
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 500.0;
+  in.current_rtt_s = 0.05;
+  in.system_health = low_mttf;
+  in.h_score_tmr_available = true;
+
+  TmrTdlPair result = calc->compute(in);
+  EXPECT_DOUBLE_EQ(result.tdl_s, 20.0);
+}
+
+/// 16. TdlCappedByMax
+/// TDL should not exceed tdl_max_s regardless of inputs.
+TEST(TmrTdlEstimatorTest, TdlCappedByMax) {
+  TmrTdlParams p = MakeDefaultParams();
+  p.tdl_max_s = 50.0;
+  auto calc = TmrTdlEstimator::create(p);
+  ASSERT_TRUE(calc.has_value());
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 9999.0;
+  in.current_rtt_s = 0.001;
+  in.system_health = MakeHealthySysHealth();
+  in.h_score_tmr_available = true;
+
+  TmrTdlPair result = calc->compute(in);
+  EXPECT_LE(result.tdl_s, 50.0);
+}
+
+/// 17. TdlHasMinimumFloor
+/// TDL should never go below tdl_min_s.
+TEST(TmrTdlEstimatorTest, TdlHasMinimumFloor) {
+  TmrTdlParams p = MakeDefaultParams();
+  p.tdl_min_s = 5.0;
+  auto calc = TmrTdlEstimator::create(p);
+  ASSERT_TRUE(calc.has_value());
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 0.0;
+  in.current_rtt_s = 100.0;
+  in.system_health = MakeHealthySysHealth();
+  in.system_health.mttf_estimate_s = 2.0;
+  in.h_score_tmr_available = true;
+
+  TmrTdlPair result = calc->compute(in);
+  EXPECT_GE(result.tdl_s, 5.0);
+}
+
+/// 18. SafetyConstraintViolationDetected
+/// When system_health.mttf_estimate_s is very low, TDL reflects the safety
+/// constraint (preventing overly optimistic decision deadlines).
+TEST(TmrTdlEstimatorTest, SafetyConstraintViolationDetected) {
+  auto calc = TmrTdlEstimator::create(MakeDefaultParams());
+  ASSERT_TRUE(calc.has_value());
+
+  SystemHealthSnapshot degraded{};
+  degraded.mttf_estimate_s = 5.0;
+  degraded.heartbeat_recency_s = 10.0;
+  degraded.fault_count = 1;
+  degraded.has_redundancy = true;
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 9999.0;
+  in.current_rtt_s = 0.001;
+  in.system_health = degraded;
+  in.h_score_tmr_available = true;
+
+  TmrTdlPair result = calc->compute(in);
+  EXPECT_DOUBLE_EQ(result.tdl_s, 5.0);
+}
+
+/// 19. TorLookupBridgeOnDuty
+/// lookup_tor_tmr returns the correct value for Bridge_OnDuty state.
+TEST(TmrTdlEstimatorTest, TorLookupBridgeOnDuty) {
+  ParameterSet params{};
+  params.tmr_baseline_s = 60.0;
+  params.tor_matrix[0] = TorMatrixEntry{OperatorState::Bridge_OnDuty, 30.0};
+
+  double tmr = TmrTdlEstimator::lookup_tor_tmr(
+      OperatorState::Bridge_OnDuty, params);
+  EXPECT_DOUBLE_EQ(tmr, 30.0);
+}
+
+/// 20. TorLookupCabinSleep
+/// lookup_tor_tmr returns the correct value for Cabin_Sleep state.
+TEST(TmrTdlEstimatorTest, TorLookupCabinSleep) {
+  ParameterSet params{};
+  params.tmr_baseline_s = 60.0;
+  params.tor_matrix[4] = TorMatrixEntry{OperatorState::Cabin_Sleep, 120.0};
+
+  double tmr = TmrTdlEstimator::lookup_tor_tmr(
+      OperatorState::Cabin_Sleep, params);
+  EXPECT_DOUBLE_EQ(tmr, 120.0);
+}
+
+/// 21. AllOperatorStatesHaveTmr
+/// All 5 operator states should have non-zero TMR values.
+TEST(TmrTdlEstimatorTest, AllOperatorStatesHaveTmr) {
+  ParameterSet params{};
+  params.tmr_baseline_s = 60.0;
+  for (int i = 0; i < 5; ++i) {
+    auto state = static_cast<OperatorState>(i);
+    params.tor_matrix[i] = TorMatrixEntry{state, 30.0 + i * 30.0};
+  }
+
+  for (int i = 0; i < 5; ++i) {
+    auto state = static_cast<OperatorState>(i);
+    double tmr = TmrTdlEstimator::lookup_tor_tmr(state, params);
+    EXPECT_GT(tmr, 0.0);
+  }
+}
+
+/// 22. TorLookupFallbackWhenZero
+/// When tor_matrix entry has tmr_s == 0.0, lookup returns baseline.
+TEST(TmrTdlEstimatorTest, TorLookupFallbackWhenZero) {
+  ParameterSet params{};
+  params.tmr_baseline_s = 60.0;
+  params.tor_matrix[0] = TorMatrixEntry{OperatorState::Bridge_OnDuty, 0.0};
+
+  double tmr = TmrTdlEstimator::lookup_tor_tmr(
+      OperatorState::Bridge_OnDuty, params);
+  EXPECT_DOUBLE_EQ(tmr, 60.0);
+}
+
+/// 23. ComputeUsesTorMatrix
+/// The operator-state-aware compute() overrides TMR when tor_matrix
+/// provides a non-zero value.
+TEST(TmrTdlEstimatorTest, ComputeUsesTorMatrix) {
+  auto calc = TmrTdlEstimator::create(MakeDefaultParams());
+  ASSERT_TRUE(calc.has_value());
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 100.0;
+  in.current_rtt_s = 0.05;
+  in.system_health = MakeHealthySysHealth();
+  in.h_score_tmr_available = true;
+
+  ParameterSet params{};
+  params.tmr_baseline_s = 60.0;
+  params.tor_matrix[0] = TorMatrixEntry{OperatorState::Bridge_OnDuty, 45.0};
+
+  TmrTdlPair result = calc->compute(in, params, OperatorState::Bridge_OnDuty);
+  EXPECT_DOUBLE_EQ(result.tmr_s, 45.0);
+  EXPECT_DOUBLE_EQ(result.tdl_s, 60.0);
+}
+
+/// 24. ComputeWithoutOperatorStateUsesBaseline
+/// The old compute() (without operator state) always uses TMR baseline.
+TEST(TmrTdlEstimatorTest, ComputeWithoutOperatorStateUsesBaseline) {
+  auto calc = TmrTdlEstimator::create(MakeDefaultParams());
+  ASSERT_TRUE(calc.has_value());
+
+  TmrTdlInputs in{};
+  in.tcpa_min_s = 100.0;
+  in.current_rtt_s = 0.05;
+  in.system_health = MakeHealthySysHealth();
+  in.h_score_tmr_available = true;
+
+  TmrTdlPair result = calc->compute(in);
+  EXPECT_DOUBLE_EQ(result.tmr_s, 60.0);
+}
+
 }  // namespace
 }  // namespace mass_l3::m1

@@ -23,6 +23,20 @@ class TmrTdlEstimator final {
   /// Compute TMR/TDL from current system inputs.
   [[nodiscard]] TmrTdlPair compute(const TmrTdlInputs& inputs) const noexcept;
 
+  /// Look up the ToR TMR for a given operator state from the parameter set.
+  /// Returns params.tmr_baseline_s if the matrix entry's tmr_s is 0.0
+  /// (fallback for unconfigured states).
+  [[nodiscard]] static double lookup_tor_tmr(
+      OperatorState op_state,
+      const ParameterSet& params) noexcept;
+
+  /// Compute TMR/TDL with operator-state-aware ToR matrix lookup (D2.1).
+  /// Calls the existing compute(), then overrides TMR with the tor_matrix
+  /// value for the given operator state when it is non-zero.
+  [[nodiscard]] TmrTdlPair compute(const TmrTdlInputs& inputs,
+                                   const ParameterSet& params,
+                                   OperatorState op_state) const noexcept;
+
   /// Forecast TMR/TDL at a future horizon from current inputs.
   [[nodiscard]] TmrTdlPair forecast(const TmrTdlInputs& current,
                                     std::chrono::seconds horizon) const noexcept;

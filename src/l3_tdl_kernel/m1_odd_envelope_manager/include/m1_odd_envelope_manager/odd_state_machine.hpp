@@ -40,6 +40,16 @@ class OddStateMachine final {
                      EventFlags events,
                      TimePoint now) noexcept;
 
+  /// Step with zone/health awareness (D2.1).
+  /// The zone_health pair drives health-based score degradation and
+  /// OddZone::C threshold tightening before the FSM transition logic.
+  EnvelopeState step(double score,
+                     double tdl_s,
+                     double tmr_s,
+                     EventFlags events,
+                     OddZoneHealthPair zone_health,
+                     TimePoint now) noexcept;
+
   /// Current envelope state.
   [[nodiscard]] EnvelopeState current() const noexcept { return current_; }
 
@@ -58,10 +68,14 @@ class OddStateMachine final {
   explicit OddStateMachine(const StateMachineThresholds& thresholds) noexcept;
 
   /// Pure transition logic (no side effects).
+  /// zone_health drives Zone::C threshold tightening and health-aware
+  /// edge_to_out selection within per-state helpers.
   EnvelopeState compute_next(double eff_score,
                              double tdl_s,
                              double tmr_s,
-                             const EventFlags& events) const noexcept;
+                             const EventFlags& events,
+                             OddZoneHealthPair zone_health,
+                             TimePoint now) const noexcept;
 
   StateMachineThresholds thresholds_;
   EnvelopeState current_;

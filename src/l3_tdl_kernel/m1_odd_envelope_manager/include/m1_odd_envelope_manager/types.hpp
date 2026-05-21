@@ -1,9 +1,11 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace mass_l3::m1 {
 
@@ -187,6 +189,65 @@ struct MrcSelectionInputs {
   EnvelopeState current_state;
 };
 
+// ---------------------------------------------------------------------------
+// D2.1: ToR adaptive matrix & operator state types
+// ---------------------------------------------------------------------------
+
+/// Operator state enum — mirrors l3_msgs/OperatorState.msg
+enum class OperatorState : std::uint8_t {
+  Bridge_OnDuty = 0,  // TMR=30s
+  Bridge_Nearby = 1,  // TMR=60s
+  ROC_Attended = 2,   // TMR=60s
+  Mess_Rest = 3,      // TMR=90s
+  Cabin_Sleep = 4     // TMR=120s
+};
+
+/// Zone × Health pair for FSM step() extension
+struct OddZoneHealthPair {
+  OddZone zone{OddZone::A};
+  SystemHealth health{SystemHealth::Full};
+};
+
+/// Single entry in the ToR adaptive matrix
+struct TorMatrixEntry {
+  OperatorState state{OperatorState::Bridge_OnDuty};
+  double tmr_s{60.0};  // [TBD-HAZID]
+};
+
+/// EMA filter state (for conformance score smoothing)
+struct EmaState {
+  double filtered_value{1.0};
+  double tau_s{5.0};  // [TBD-HAZID]
+};
+
+/// ROT_max curve point (speed → max turn rate from Capability Manifest)
+struct RotMaxCurvePoint {
+  double speed_kn{0.0};
+  double rot_max_deg_s{0.0};
+};
+
+/// Linear interpolation between ROT_max curve points.
+/// Returns 0.0 for empty curve (safe default).
+inline double interpolate_rot_max(double speed_kn,
+                                   const std::vector<RotMaxCurvePoint>& curve) noexcept {
+  if (curve.empty()) return 0.0;
+  if (curve.size() == 1) return curve[0].rot_max_deg_s;
+
+  if (speed_kn <= curve.front().speed_kn) return curve.front().rot_max_deg_s;
+  if (speed_kn >= curve.back().speed_kn) return curve.back().rot_max_deg_s;
+
+  for (std::size_t i = 0; i < curve.size() - 1; ++i) {
+    double denom = curve[i + 1].speed_kn - curve[i].speed_kn;
+    if (denom <= 0.0) continue;  // skip degenerate segment
+    if (speed_kn >= curve[i].speed_kn && speed_kn <= curve[i + 1].speed_kn) {
+      double t = (speed_kn - curve[i].speed_kn) / denom;
+      return curve[i].rot_max_deg_s +
+             t * (curve[i + 1].rot_max_deg_s - curve[i].rot_max_deg_s);
+    }
+  }
+  return curve.back().rot_max_deg_s;
+}
+
 /// YAML-loaded superset of all M1 runtime parameters.
 /// All [TBD-HAZID] parameters are loaded here -- no hardcoded thresholds.
 /// Individual domain classes (OddStateMachine, ConformanceScoreCalculator,
@@ -231,6 +292,15 @@ struct ParameterSet {
   double max_anchor_depth_m;
   double max_heave_to_sea_state_hs;
   double max_heave_to_wind_kn;
+
+  // D2.1: ToR adaptive matrix (5 operator states × TMR lookup)
+  std::array<TorMatrixEntry, 5> tor_matrix{};
+
+  // D2.1: ROT_max curve from Capability Manifest
+  std::vector<RotMaxCurvePoint> rot_max_curve{};
+
+  // D2.1: EMA smoothing time constant [TBD-HAZID]
+  double ema_tau_s{5.0};
 };
 
 }  // namespace mass_l3::m1
