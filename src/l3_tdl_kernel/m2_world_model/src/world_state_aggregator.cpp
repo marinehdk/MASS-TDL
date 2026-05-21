@@ -290,6 +290,42 @@ WorldStateAggregator::compose_world_state(
 
     wt.encounter.relative_bearing_deg = relative_bearing_deg;
 
+    // ── D2.2 Track C: bearing, range, intent confidence ──
+    wt.brg_deg = bearing_deg;  // true bearing (0°=True North)
+
+    // Haversine distance from own-ship position to target
+    {
+      const double deg2rad = M_PI / 180.0;
+      const double lat1 = own_ship_snap->latitude_deg * deg2rad;
+      const double lon1 = own_ship_snap->longitude_deg * deg2rad;
+      const double lat2 = target.latitude_deg * deg2rad;
+      const double lon2 = target.longitude_deg * deg2rad;
+      const double dlat = lat2 - lat1;
+      const double dlon = lon2 - lon1;
+      const double sin_dlat_2 = std::sin(dlat / 2.0);
+      const double sin_dlon_2 = std::sin(dlon / 2.0);
+      const double a = sin_dlat_2 * sin_dlat_2 +
+                       std::cos(lat1) * std::cos(lat2) *
+                       sin_dlon_2 * sin_dlon_2;
+      wt.rng_m = 2.0 * 6371000.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
+    }
+
+    // Intent confidence: radar-only default 0.30, vessel → 0.50,
+    // young tracks (<30 s) clamped to 0.10, final clamp [0.05, 0.95]
+    {
+      double intent_conf = 0.30;
+      if (target.classification == "vessel") {
+        intent_conf = 0.50;
+      }
+      const double track_age_s =
+          std::chrono::duration<double>(now - target.stamp).count();
+      if (track_age_s < 30.0) {
+        intent_conf = std::min(0.10, intent_conf);
+      }
+      intent_conf = std::max(0.05, std::min(0.95, intent_conf));
+      wt.intent_confidence = static_cast<float>(intent_conf);
+    }
+
     world_targets.push_back(std::move(wt));
   }
 

@@ -18,3 +18,10 @@ string rationale    # SAT-2 摘要（跟踪推理依据）
 string source_sensor                     # "radar" | "ais" | "lidar" | "camera" | "fused"
 float64 cpa_covariance_m2                # CPA 方差 [m^2] — UKF/Linear 传播
 float64 tcpa_covariance_s2               # TCPA 方差 [s^2] — UKF/Linear 传播
+
+# D2.2 NEW: intent confidence scalar per B P1-B-02 resolution
+float32 intent_confidence  # [0, 1]
+
+# D2.2 NEW: bearing and range for ARPA table display
+float64 brg_deg            # true bearing (0°=True North)
+float64 rng_m              # range in meters
