@@ -16,4 +16,7 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_m3_node_lifecycle integration/test_m3_node_lifecycle.cpp)
   target_link_libraries(test_m3_node_lifecycle ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_current_error_monitor test_current_error_monitor.cpp)
+  target_link_libraries(test_current_error_monitor ${PROJECT_NAME}_lib)
 endif()

@@ -32,6 +32,7 @@ add_library(${PROJECT_NAME}_lib
   src/eta_projector.cpp
   src/replan_request_trigger.cpp
   src/replan_response_handler.cpp
+  src/current_error_monitor.cpp
   src/mission_state_machine.cpp
   src/mission_manager_node.cpp
 )
