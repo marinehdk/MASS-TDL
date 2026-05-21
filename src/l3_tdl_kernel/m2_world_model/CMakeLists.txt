@@ -70,6 +70,7 @@ add_library(${PROJECT_NAME}_lib
   src/view_health_monitor.cpp
   src/world_state_aggregator.cpp
   src/enc_loader.cpp
+  src/env_sanity_checker.cpp
   src/world_model_node.cpp
 )
 
