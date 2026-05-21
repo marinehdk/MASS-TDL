@@ -117,6 +117,14 @@ void WorldModelNode::load_parameters() {
   // Defaults for parameters not in YAML
   params_.health.dv_degraded_to_critical_timeout_s = 30.0;
   params_.health.confidence_floor_dv_degraded = 0.5;
+
+  // D2.2 ENC parameters
+  params_.enc.dynamic_horizon_nm =
+      get_parameter("dynamic_horizon_nm").as_double();
+  params_.enc.enc_horizon_nm =
+      get_parameter("enc_horizon_nm").as_double();
+  params_.enc.enc_refresh_rate_s =
+      get_parameter("enc_refresh_rate_s").as_double();
 }
 
 // ── Component creation ─────────────────────────────────────────────────────
@@ -162,6 +170,7 @@ void WorldModelNode::create_components() {
   EncLoader::Config el_cfg{};
   el_cfg.enc_data_root = enc_data_root;
   el_cfg.enc_metadata_file = enc_metadata_file;
+  el_cfg.dynamic_horizon_nm = params_.enc.dynamic_horizon_nm;
   enc_loader_ = std::make_shared<EncLoader>(el_cfg);
   if (!enc_data_root.empty() && !enc_metadata_file.empty()) {
     if (enc_loader_->load()) {
@@ -197,9 +206,10 @@ void WorldModelNode::create_components() {
                          params_.cpa.cpa_safe_c_m,
                          params_.cpa.cpa_safe_d_m};
   agg_cfg.tcpa_safe_s = {params_.cpa.tcpa_safe_a_s,
-                          params_.cpa.tcpa_safe_b_s,
-                          params_.cpa.tcpa_safe_c_s,
-                          params_.cpa.tcpa_safe_d_s};
+                           params_.cpa.tcpa_safe_b_s,
+                           params_.cpa.tcpa_safe_c_s,
+                           params_.cpa.tcpa_safe_d_s};
+  agg_cfg.dynamic_horizon_nm = params_.enc.dynamic_horizon_nm;
 
   aggregator_ = std::make_shared<WorldStateAggregator>(
       agg_cfg, cpa_calc_, classifier_,

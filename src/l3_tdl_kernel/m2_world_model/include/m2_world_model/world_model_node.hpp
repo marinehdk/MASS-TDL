@@ -80,6 +80,11 @@ class WorldModelNode final : public rclcpp::Node {
       double tcpa_safe_a_s, tcpa_safe_b_s, tcpa_safe_c_s, tcpa_safe_d_s;
     } cpa;
     struct {
+      double dynamic_horizon_nm;
+      double enc_horizon_nm;
+      double enc_refresh_rate_s;
+    } enc;
+    struct {
       double overtaking_bearing_min_deg;
       double overtaking_bearing_max_deg;
       double head_on_heading_diff_tol_deg;

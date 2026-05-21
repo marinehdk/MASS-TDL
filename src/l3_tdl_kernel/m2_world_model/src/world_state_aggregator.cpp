@@ -8,7 +8,9 @@
 #include <utility>
 
 #include <builtin_interfaces/msg/time.hpp>
+#include <geographic_msgs/msg/geo_path.hpp>
 #include <geographic_msgs/msg/geo_point.hpp>
+#include <nlohmann/json.hpp>
 #include <l3_msgs/msg/tracked_target.hpp>
 #include <l3_msgs/msg/own_ship_state.hpp>
 #include <l3_msgs/msg/zone_constraint.hpp>
@@ -322,13 +324,73 @@ WorldStateAggregator::compose_world_state(
     zc_msg.in_narrow_channel = env_snap->in_narrow_channel;
     zc_msg.min_water_depth_m =
         static_cast<float>(env_snap->min_water_depth_m);
+
+    // D2.2 Track B: populate TSS lanes, exclusion zones, and min depth
+    // via EncLoader polygon queries.
+    if (own_ship_snap.has_value() && enc_loader_->loaded()) {
+      const double own_lat = own_ship_snap->latitude_deg;
+      const double own_lon = own_ship_snap->longitude_deg;
+
+      // Horizon radius = max(dynamic horizon, 3x CPA-safe for current zone)
+      const auto odd_zone_idx = odd_snap.has_value()
+        ? static_cast<size_t>(odd_snap->current_zone)
+        : 0UL;
+      const double horizon_m = std::max(
+          cfg_.dynamic_horizon_nm * 1852.0,
+          cfg_.cpa_safe_m[odd_zone_idx] * 3.0);
+
+      zc_msg.min_water_depth_m = static_cast<float>(
+          enc_loader_->get_min_depth(own_lat, own_lon));
+
+      // TSS lane polygons → GeoPath[]
+      {
+        const auto lanes = enc_loader_->get_tss_lanes(own_lat, own_lon);
+        zc_msg.tss_lanes.reserve(lanes.size());
+        for (const auto& lane_json : lanes) {
+          try {
+            auto arr = nlohmann::json::parse(lane_json);
+            geographic_msgs::msg::GeoPath path;
+            if (arr.is_array()) {
+              for (const auto& pt : arr) {
+                geographic_msgs::msg::GeoPoint gp;
+                gp.longitude = pt[0].get<double>();
+                gp.latitude = pt[1].get<double>();
+                gp.altitude = 0.0;
+                path.points.push_back(std::move(gp));
+              }
+            }
+            zc_msg.tss_lanes.push_back(std::move(path));
+          } catch (const std::exception&) {
+          }
+        }
+      }
+
+      // Exclusion zone polygons → float64[] (lat,lon pairs serialised)
+      {
+        const auto zones = enc_loader_->get_exclusion_zones(
+            own_lat, own_lon, horizon_m);
+        for (const auto& zone_json : zones) {
+          try {
+            auto arr = nlohmann::json::parse(zone_json);
+            if (arr.is_array()) {
+              for (const auto& pt : arr) {
+                zc_msg.exclusion_zones.push_back(
+                    pt[1].get<double>());
+                zc_msg.exclusion_zones.push_back(
+                    pt[0].get<double>());
+              }
+            }
+          } catch (const std::exception&) {
+          }
+        }
+      }
+    }
   } else {
     zc_msg.zone_type = "unknown";
     zc_msg.in_tss = false;
     zc_msg.in_narrow_channel = false;
     zc_msg.min_water_depth_m = 0.0f;
   }
-  // tss_lanes and exclusion_zones empty for v1.0
 
   // 7. Compute aggregated confidence
   const double agg_conf = compute_aggregated_confidence_();

@@ -41,6 +41,9 @@ inline void declare_m2_parameters(rclcpp::Node& node) {
   // ── ENC ──
   node.declare_parameter("enc_data_root", std::string(""));
   node.declare_parameter("enc_metadata_file", std::string(""));
+  node.declare_parameter("enc_horizon_nm", 5.0);
+  node.declare_parameter("enc_refresh_rate_s", 15.0);
+  node.declare_parameter("dynamic_horizon_nm", 5.0);
 }
 
 }  // namespace mass_l3::m2

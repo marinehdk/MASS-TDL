@@ -19,6 +19,7 @@
 #include "m2_world_model/track_buffer.hpp"
 #include "m2_world_model/enc_loader.hpp"
 #include "m2_world_model/view_health_monitor.hpp"
+#include "m2_world_model/env_sanity_checker.hpp"
 #include "m2_world_model/types.hpp"
 
 namespace mass_l3::m2 {
@@ -33,6 +34,7 @@ class WorldStateAggregator final {
     double confidence_floor_dv_degraded;
     std::array<double, 4> cpa_safe_m;     // index by OddZone
     std::array<double, 4> tcpa_safe_s;
+    double dynamic_horizon_nm{5.0};
   };
 
   WorldStateAggregator(Config cfg,
