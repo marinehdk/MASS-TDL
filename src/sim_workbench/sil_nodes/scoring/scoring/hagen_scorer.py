@@ -77,6 +77,9 @@ class HagenScorer:
         tgt_sog: float,
         tgt_cog: float,
     ) -> float:
+        # [TBD-D3.6] Returns instantaneous Haversine distance, NOT true CPA.
+        # True CPA requires relative-velocity projection (used by M2 World Model).
+        # D2.4 batch runner bypasses this via external geometric-sim min_cpa.
         return self._haversine_nm(own_lat, own_lon, tgt_lat, tgt_lon)
 
     def _score_safety(self, cpa_nm: float) -> float:

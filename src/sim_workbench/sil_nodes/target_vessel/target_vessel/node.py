@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 from enum import Enum
 
 import rclpy
@@ -73,7 +74,6 @@ class TargetVessel:
         """
         self._time += dt
         if self.mode == TargetMode.NCDM:
-            import random
             dH = (-self._ou_theta * (self.heading - self._heading_ref) * dt
                   + self._ou_sigma * math.sqrt(dt) * random.gauss(0, 1))
             self.heading += dH

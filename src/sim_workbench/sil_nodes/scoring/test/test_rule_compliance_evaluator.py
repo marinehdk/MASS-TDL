@@ -73,8 +73,15 @@ def test_rule17_full_maintained_during_stage1():
 
 
 def test_rule17_partial_independent_action_stage3():
-    state = {"heading_change_deg": 35.0, "timing_stage": "STAGE_3"}
+    # STAGE_3 with moderate action (≥15°, <30°) → partial
+    state = {"heading_change_deg": 20.0, "timing_stage": "STAGE_3"}
     assert evaluate_rule_compliance("Rule17", state) == "partial"
+
+
+def test_rule17_full_independent_action_stage3():
+    # STAGE_3 with substantial action (≥30°) → full (proper independent action)
+    state = {"heading_change_deg": 35.0, "timing_stage": "STAGE_3"}
+    assert evaluate_rule_compliance("Rule17", state) == "full"
 
 
 def test_rule17_violated_turned_early_during_stage1():
@@ -84,4 +91,4 @@ def test_rule17_violated_turned_early_during_stage1():
 
 def test_unknown_rule_returns_full_passthrough():
     state = {"heading_change_deg": 0.0}
-    assert evaluate_rule_compliance("Rule99", state) in ("full", "partial", "violated")
+    assert evaluate_rule_compliance("Rule99", state) == "full"

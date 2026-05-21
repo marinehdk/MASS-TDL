@@ -71,6 +71,9 @@ def run_scenario_yaml(yaml_path: Path, rule: str, source: str) -> ScenarioBatchR
     min_cpa_nm, frames = _simulate_geometric(os_lat, os_lon, os_cog, os_sog,
         ts_lat, ts_lon, ts_cog, ts_sog, total_time, rudder_deg=rudder, av_time=av_time)
     wall_clock = time.perf_counter() - t0
+    # [TBD-D3.6] score_frame() receives fixed initial positions for all frames.
+    # The geometric sim computes dynamic min_cpa_nm for verdict; scorer's
+    # per-frame quality_score is based on static positions (known limitation).
     scorer = HagenScorer(cpa_target_nm=0.27)
     for f in frames:
         try:
@@ -79,8 +82,9 @@ def run_scenario_yaml(yaml_path: Path, rule: str, source: str) -> ScenarioBatchR
                 t_action_s=f["stamp"], t_target_action_s=300.0, rudder_deg=f["rudder_deg"],
                 turning_rate_dps=2.0, behavior_phase=f["behavior_phase"],
                 trajectory_curvature=0.0, trajectory_accel_ms2=0.0, applicable_rule=rule)
-        except Exception:
-            pass
+        except Exception as exc:
+            import sys
+            print(f"  [WARN] score_frame failed for {sid}: {exc}", file=sys.stderr)
     verdict = scorer.compute_verdict(min_cpa_nm, {rule: "full" if min_cpa_nm >= 0.27 else "violated"})
     _, quality = scorer.get_quality_score()
     return ScenarioBatchResult(sid, source, rule, odd_domain, verdict, quality, min_cpa_nm, wall_clock)
@@ -89,8 +93,9 @@ def run_batch(output_dir: Path) -> list[ScenarioBatchResult]:
     output_dir.mkdir(parents=True, exist_ok=True)
     results: list[ScenarioBatchResult] = []
 
-    # 22 Imazu from IMAZU标准测试/
-    imazu_dir = REPO_ROOT / "scenarios/IMAZU标准测试"
+    # 22 Imazu — auto-discover directory (handle CJK path portably)
+    imazu_candidates = sorted(REPO_ROOT.glob("scenarios/IMAZU*"))
+    imazu_dir = imazu_candidates[0] if imazu_candidates else REPO_ROOT / "scenarios"
     imazu_rules = {"ho": "Rule14", "cr-gw": "Rule15", "cr-so": "Rule15", "ot": "Rule13", "ms": "Rule14"}
     for yf in sorted(imazu_dir.glob("imazu-*.yaml")):
         stem = yf.stem

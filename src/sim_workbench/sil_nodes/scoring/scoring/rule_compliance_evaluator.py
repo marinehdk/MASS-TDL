@@ -62,7 +62,7 @@ def _eval_rule16(s: dict) -> str:
     hc = abs(s.get("heading_change_deg", 0.0))
     cpa = s.get("cpa_nm", 0.0)
     cpa_target = s.get("cpa_target_nm", 0.27)
-    early = s.get("acted_early", True)
+    early = s.get("acted_early", False)
     if hc >= 30.0 and cpa >= cpa_target and early:
         return "full"
     if hc >= 15.0:
@@ -79,4 +79,9 @@ def _eval_rule17(s: dict) -> str:
         if hc < 15.0:
             return "partial"
         return "violated"
-    return "partial"
+    # STAGE_3+ independent action permitted per Rule 17(b)/(c)
+    if hc >= 30.0:
+        return "full"
+    if hc >= 15.0:
+        return "partial"
+    return "partial"  # small action still better than collision
