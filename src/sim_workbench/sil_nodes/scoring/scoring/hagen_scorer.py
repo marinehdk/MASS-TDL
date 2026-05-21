@@ -31,6 +31,8 @@ class ScoringRow:
     total: float
     cpa_nm: float = 0.0
     cpa_target_nm: float = 0.27
+    pass_fail: bool = False
+    applicable_rule: str = ""
 
 
 class HagenScorer:
@@ -85,8 +87,8 @@ class HagenScorer:
     def _score_rule_compliance(self, rule_states: Dict[str, str]) -> float:
         if not rule_states:
             return 1.0
-        score_map = {"ok": 1.0, "partial": 0.5, "violated": 0.0}
-        scores = [score_map.get(v, 1.0) for v in rule_states.values()]
+        score_map = {"full": 1.0, "partial": 0.5, "violated": 0.0}
+        scores = [score_map.get(v, 0.0) for v in rule_states.values()]
         return sum(scores) / len(scores)
 
     def _score_delay_penalty(self, t_action_s: float, t_target_action_s: float) -> float:
@@ -121,6 +123,15 @@ class HagenScorer:
         )
         return 1.0 - max(ek, ea)
 
+    def compute_verdict(
+        self, min_cpa_nm: float, rule_states: Dict[str, str], grounding: bool = False,
+    ) -> bool:
+        return (
+            min_cpa_nm >= self.cpa_target_nm
+            and all(v in ("full", "partial") for v in rule_states.values())
+            and not grounding
+        )
+
     def score_frame(
         self,
         own_lat: float,
@@ -137,6 +148,7 @@ class HagenScorer:
         trajectory_curvature: float,
         trajectory_accel_ms2: float,
         timestamp: Optional[float] = None,
+        applicable_rule: str = "",
     ) -> ScoringRow:
         stamp = timestamp if timestamp is not None else _time.time()
 
@@ -169,6 +181,8 @@ class HagenScorer:
             + self._weights["plausibility"] * pl
         )
 
+        pf = self.compute_verdict(cpa_nm, rule_states)
+
         row = ScoringRow(
             stamp=stamp,
             safety=s,
@@ -180,6 +194,8 @@ class HagenScorer:
             total=total,
             cpa_nm=cpa_nm,
             cpa_target_nm=self.cpa_target_nm,
+            pass_fail=pf,
+            applicable_rule=applicable_rule,
         )
         self._rows.append(row)
         return row
@@ -187,7 +203,7 @@ class HagenScorer:
     def get_rows(self) -> List[ScoringRow]:
         return list(self._rows)
 
-    def get_final_verdict(self, threshold: float = 0.70) -> Tuple[bool, float]:
+    def get_quality_score(self, threshold: float = 0.70) -> Tuple[bool, float]:
         if not self._rows:
             return False, 0.0
         avg = sum(r.total for r in self._rows) / len(self._rows)
