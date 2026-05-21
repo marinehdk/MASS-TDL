@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -41,6 +42,13 @@ class EnvSanityChecker final {
       const ZoneSnapshot& snapshot,
       std::chrono::steady_clock::time_point now);
 
+  // TODO(D2.2-followup): 4 spec-mandated checks not yet implemented:
+  //   - visibility ∈ [0.01, 50.0] nm → needs EnvironmentState.visibility field
+  //   - Hs (significant wave height) ∈ [0.0, 20.0] m → needs EnvironmentState.sea_state
+  //   - cross-source temperature consistency → needs water_temp vs air_temp fields
+  //   - current vs zone consistency (port current > 5 kn is anomalous)
+  // These require ZoneSnapshot or EnvironmentSnapshot field extensions in types.hpp.
+
   /// Reset cached state (zone transition history, fallback snapshot).
   void reset();
 
@@ -50,6 +58,8 @@ class EnvSanityChecker final {
   bool check_zone_transition_(const ZoneSnapshot& snapshot);
 
   Config cfg_;
+
+  mutable std::mutex state_mutex_;
 
   // Cached last valid zone type for transition checking
   std::optional<std::string> last_zone_type_;

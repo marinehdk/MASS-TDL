@@ -17,6 +17,8 @@ EnvSanityChecker::ValidationResult EnvSanityChecker::validate(
   ValidationResult result;
   result.corrected_snapshot = snapshot;
 
+  std::lock_guard<std::mutex> lock(state_mutex_);
+
   // 1. Staleness check — reject snapshots older than staleness_max_s
   const double age_s =
       std::chrono::duration<double>(now - snapshot.stamp).count();
