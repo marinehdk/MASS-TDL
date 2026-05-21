@@ -237,9 +237,10 @@ inline double interpolate_rot_max(double speed_kn,
   if (speed_kn >= curve.back().speed_kn) return curve.back().rot_max_deg_s;
 
   for (std::size_t i = 0; i < curve.size() - 1; ++i) {
+    double denom = curve[i + 1].speed_kn - curve[i].speed_kn;
+    if (denom <= 0.0) continue;  // skip degenerate segment
     if (speed_kn >= curve[i].speed_kn && speed_kn <= curve[i + 1].speed_kn) {
-      double t = (speed_kn - curve[i].speed_kn) /
-                 (curve[i + 1].speed_kn - curve[i].speed_kn);
+      double t = (speed_kn - curve[i].speed_kn) / denom;
       return curve[i].rot_max_deg_s +
              t * (curve[i + 1].rot_max_deg_s - curve[i].rot_max_deg_s);
     }

@@ -176,7 +176,6 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   // D2.1: Heartbeat tracking
   std::chrono::steady_clock::time_point last_m7_heartbeat_{};
   static constexpr auto M7_HEARTBEAT_TIMEOUT = std::chrono::milliseconds(500);
-  static constexpr auto M2_STALE_TIMEOUT = std::chrono::seconds(2);
 
   // ---------------------------------------------------------------------------
   // Publishers

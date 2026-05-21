@@ -164,16 +164,17 @@ TmrTdlPair TmrTdlEstimator::compute(const TmrTdlInputs& inputs) const noexcept {
 
 TmrTdlPair TmrTdlEstimator::compute(
     const TmrTdlInputs& inputs,
-    const ParameterSet& params,
+    const ParameterSet& /*params*/,
     const OperatorState op_state) const noexcept {
-  // Delegate to base compute().
   TmrTdlPair result = compute(inputs);
 
-  // Override TMR with ToR matrix lookup if non-zero.
-  const double kTorTmr = lookup_tor_tmr(op_state, params);
-  if (kTorTmr > 0.0) {
-    result.tmr_s = kTorTmr;
+  double tor_tmr = lookup_tor_tmr(op_state, params_);
+  if (tor_tmr > 0.0) {
+    result.tmr_s = tor_tmr;
   }
+
+  return result;
+}
 
   // Re-clamp TMR.
   result.tmr_s = std::clamp(result.tmr_s, params_.tmr_min_s, params_.tmr_max_s);

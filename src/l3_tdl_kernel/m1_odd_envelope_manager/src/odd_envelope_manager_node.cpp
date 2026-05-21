@@ -693,15 +693,30 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
     handle_state_change(kOldState, kNewState, kScores, kTmrtdl);
   }
 
-  // D2.1: ToR trigger — publish if TDL ≤ TMR outside MRC/override states
+  // D2.1: ToR trigger — force FSM to MrCPrep and publish if TDL ≤ TMR
   if (kTmrtdl.tdl_s <= kTmrtdl.tmr_s &&
       kNewState != EnvelopeState::MrCPrep &&
       kNewState != EnvelopeState::MrCActive &&
       kNewState != EnvelopeState::Overridden) {
+
+    // Force FSM into MrCPrep (MRC preparation) — safety constraint violated
+    EventFlags mrc_events{};
+    mrc_events.m7_safety_mrc_required = true;
+    const EnvelopeState kMrcState = state_machine_->step(
+        kScores.conformance_score, kTmrtdl.tdl_s, kTmrtdl.tmr_s,
+        mrc_events, kZhp, kNowSteady);
+
+    if (kMrcState != kNewState) {
+      handle_state_change(kNewState, kMrcState, kScores, kTmrtdl);
+    }
+
     publish_tor_request(kTmrtdl.tmr_s, kTmrtdl.tdl_s,
-        "TDL (" + std::to_string(static_cast<int>(kTmrtdl.tdl_s)) +
-        "s) ≤ TMR (" + std::to_string(static_cast<int>(kTmrtdl.tmr_s)) +
-        "s) — safety constraint violated");
+        "TDL (" + std::to_string(static_cast<int>(kTmrtdl.tdl_s + 0.5)) +
+        "s) ≤ TMR (" + std::to_string(static_cast<int>(kTmrtdl.tmr_s + 0.5)) +
+        "s) — safety constraint violated, MRC preparation triggered");
+
+    check_mrc_if_needed(kMrcState, m7_mrc_required, m7_mrm, scoring);
+    return;  // Skip normal check_mrc_if_needed below — already handled
   }
 
   check_mrc_if_needed(kNewState, m7_mrc_required, m7_mrm, scoring);
