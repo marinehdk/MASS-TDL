@@ -1,0 +1,73 @@
+title: 'OU Overtaking 01 — Rule 13 overtaking with OU perturbation'
+description: 'Rule 13 overtaking scenario with Ornstein-Uhlenbeck heading noise on target vessel.'
+startTime: '2026-01-01T00:00:00Z'
+ownShip: &id001
+  static: &id002
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+    mmsi: 123456789
+  initial:
+    position: &id003
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 14.0
+    heading: 0.0
+    navStatus: Under way using engine
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000013
+  initial:
+    position:
+      latitude: 63.486
+      longitude: 10.38
+    cog: 0.0
+    sog: 7.0
+    heading: 0.0
+  model: ncdm_vessel
+  motion_model:
+    type: ncdm
+    ou_theta: 0.03
+    ou_sigma: 0.6
+environment:
+  wind: &id004
+    dir_deg: 0.0
+    speed_mps: 2.0
+  current: &id005
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 10.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: ou-overtaking-01-v1.0
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule13
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 300.0
+    avoidance_delta_rad: 0.5236
+    avoidance_duration_s: 120.0
+  scenario_source: ou_mode_d2.4
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+  simulation_settings:
+    total_time: 800.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    coordinate_origin: &id006
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id004
+    current: *id005
+  coordinate_origin: *id006
