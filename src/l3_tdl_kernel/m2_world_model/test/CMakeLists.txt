@@ -58,4 +58,11 @@ if(BUILD_TESTING)
   target_link_libraries(test_environment_degraded_path ${PROJECT_NAME}_lib)
   target_include_directories(test_environment_degraded_path PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
+
+  # ── D2.2 NEW: End-to-end integration test scaffolds ──────────────────────────
+  ament_add_gtest(test_world_state_end_to_end
+      integration/test_world_state_end_to_end.cpp)
+  target_link_libraries(test_world_state_end_to_end ${PROJECT_NAME}_lib)
+  target_include_directories(test_world_state_end_to_end PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 endif()

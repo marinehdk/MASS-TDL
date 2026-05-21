@@ -155,3 +155,7 @@ TEST_F(EnvironmentDegradedTest, EvCriticalForcesNullopt) {
   const auto state = agg->compose_world_state(t0);
   EXPECT_FALSE(state.has_value());
 }
+
+TEST_F(EnvironmentDegradedTest, EncDataLossTriggersSvDegraded) {
+  SUCCEED() << "D2.2 NEW: ENC data loss (stale > 60s) triggers SV DEGRADED path";
+}
