@@ -97,9 +97,10 @@ check_param_float() {
     if python3 -c "
 import sys
 try:
-    sys.exit(0 if abs(float('$val') - $expected) <= $tol else 1)
-except:
+    val_float = float('$val')
+except ValueError:
     sys.exit(1)
+sys.exit(0 if abs(val_float - $expected) <= $tol else 1)
 " 2>/dev/null; then
         echo -e "${GREEN}PASS${NC} ($val)"; PASS=$((PASS + 1))
         _add_json_result "R1b $desc" "PASS" "param=$val expected=$expected"

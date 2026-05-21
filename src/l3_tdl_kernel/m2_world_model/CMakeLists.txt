@@ -32,6 +32,7 @@ endif()
 find_package(Boost REQUIRED COMPONENTS headers)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # ─────────── Compile Options Interface (per coding-standards.md §2.2) ───────────
 add_library(m2_compile_options INTERFACE)
@@ -83,6 +84,7 @@ target_link_libraries(${PROJECT_NAME}_lib
     Boost::headers
     spdlog::spdlog
     yaml-cpp::yaml-cpp
+    nlohmann_json::nlohmann_json
     m2_compile_options
 )
 
