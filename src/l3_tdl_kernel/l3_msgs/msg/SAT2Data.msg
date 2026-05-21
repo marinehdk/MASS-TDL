@@ -1,9 +1,14 @@
-uint16 schema_version  # 112 = v1.1.2
+uint16 schema_version  # 113 = v1.1.3 D2.4 patch
 builtin_interfaces/Time stamp
-float32 confidence  # [0, 1] — 聚合置信度
-string rationale    # SAT-2 摘要
+float32 confidence  # [0, 1]
+string rationale    # SAT-2 summary
 
-# SAT2Data — Reasoning (按需触发)
-string trigger_reason                    # "colregs_conflict" | "system_low_confidence" | "operator_request"
-string reasoning_chain                   # 推理摘要
-float32 system_confidence                # 系统对当前决策的置信度
+# SAT2Data — Reasoning
+string trigger_reason
+string reasoning_chain
+float32 system_confidence
+
+# D2.4 NEW: structured COLREGs chain
+ColregsChainLayer[] colregs_chain
+string colregs_chain_target_id
+float32 reasoning_latency_ms

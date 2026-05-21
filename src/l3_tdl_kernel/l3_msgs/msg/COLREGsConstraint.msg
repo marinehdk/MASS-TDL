@@ -1,5 +1,5 @@
-# Per v1.1.2 §15.1 COLREGs_ConstraintMsg
-uint16 schema_version  # 112 = v1.1.2
+# Per v1.1.3-stub §15.1 COLREGs_ConstraintMsg
+uint16 schema_version  # 113 = v1.1.3 D2.4 patch
 builtin_interfaces/Time stamp
 
 l3_msgs/RuleActive[] active_rules        # Rule 8/13/14/15/16/17 ...
@@ -10,3 +10,7 @@ bool conflict_detected                   # true when active_rules contain an uns
 
 float32 confidence
 string rationale
+
+# D2.4 NEW: 5-layer decision rationale chain
+ColregsChainLayer[] colregs_chain
+string colregs_chain_target_id           # MMSI of primary target

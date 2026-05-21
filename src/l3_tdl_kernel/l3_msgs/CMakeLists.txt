@@ -19,6 +19,7 @@ set(MSG_FILES
   msg/MissionGoal.msg
   msg/RouteReplanRequest.msg
   msg/BehaviorPlan.msg
+  msg/ColregsChainLayer.msg
   msg/COLREGsConstraint.msg
   msg/AvoidancePlan.msg
   msg/ReactiveOverrideCmd.msg
