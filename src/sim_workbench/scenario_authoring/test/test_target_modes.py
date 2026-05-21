@@ -41,10 +41,13 @@ def test_ais_replay_out_of_range_returns_none():
     assert replayer.get_targets_at(100.0) is None  # after end
 
 
-def test_ncdm_vessel_raises_not_implemented():
-    """NcdmVessel raises NotImplementedError with 'D2.4' message."""
-    with pytest.raises(NotImplementedError, match="D2.4"):
-        NcdmVessel()
+def test_ncdm_vessel_is_implemented():
+    from scenario_authoring.replay.target_modes import NcdmVessel
+    nv = NcdmVessel(lat0=63.44, lon0=10.38, heading0_deg=0.0, sog_kn=10.0,
+                    duration_s=30.0, dt=0.1, seed=0)
+    state = nv.get_targets_at(15.0)
+    assert state is not None
+    assert isinstance(state["lat"], float)
 
 
 def test_intelligent_vessel_raises_not_implemented():

@@ -51,6 +51,8 @@ class TargetVessel:
         heading_deg: float,
         sog_kn: float,
         mode: TargetMode = TargetMode.REPLAY,
+        ou_theta: float = 0.05,
+        ou_sigma: float = 0.5,
     ):
         self.mmsi = mmsi
         self.lat = lat
@@ -59,6 +61,9 @@ class TargetVessel:
         self.sog = sog_kn * 0.514444  # knots → m/s
         self.mode = mode
         self._time = 0.0
+        self._ou_theta = ou_theta
+        self._ou_sigma = ou_sigma
+        self._heading_ref = self.heading
 
     def step(self, dt: float = 0.1) -> dict:
         """Advance simulation by *dt* seconds using simple linear motion.
@@ -67,6 +72,11 @@ class TargetVessel:
         construction or test assertions.
         """
         self._time += dt
+        if self.mode == TargetMode.NCDM:
+            import random
+            dH = (-self._ou_theta * (self.heading - self._heading_ref) * dt
+                  + self._ou_sigma * math.sqrt(dt) * random.gauss(0, 1))
+            self.heading += dH
         # Approximate meridian arc: 1 deg lat ≈ 111 120 m
         lat_rad = math.radians(self.lat)
         self.lat += self.sog * math.cos(self.heading) * dt / 111120.0
