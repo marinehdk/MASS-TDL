@@ -1,3 +1,9 @@
+# ⚠️ DEPRECATED — D2.2 (2026-05-21)
+# This Fast Marching Method² planner belongs to M5 Tactical Planner.
+# It was incorrectly placed in M2 during v1.0 development.
+# Do NOT extend or maintain this file in M2. M5 team will migrate it in D3.2.
+# Last maintained: v1.0
+
 """Fast Marching Method (FMM) and Fast Marching Square (FM²) Route Planner.
 
 Implements FM² path planning and corridor recovery. Focuses on preventing
