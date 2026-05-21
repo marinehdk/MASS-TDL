@@ -35,7 +35,7 @@ TEST(Must6SogValidationTest, AcceptsUnderMaxSpeed) {
   EXPECT_DOUBLE_EQ(result.threshold_kn, 26.4);
 }
 
-TEST(Must6SogValidationTest, ManifestUnavailable) {
+TEST(Must6SogValidationTest, ManifestUnavailableUsesDefault50kn) {
   double const default_max_speed_kn = 50.0;
   auto result = validate_sog(55.0, default_max_speed_kn);
   EXPECT_TRUE(result.valid);
