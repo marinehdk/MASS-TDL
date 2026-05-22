@@ -1447,6 +1447,19 @@ public:
 | 70m PSV | 更大尺寸，DP 系统，较慢响应 | 全新水动力插件 + Manifest | 零修改 |
 | 长江内河船 | 内水规则（非 COLREGs） | 插件 + M6 规则库切换 + Manifest 增加 rules_lib_path | M6 增加 rules_loader 插件接口（架构级修改，非纯参数化扩展，须独立版本分支）[F-P2-D4-027] |
 
+### 13.6 验证与确认策略前向指针 [D2.8 新增]
+
+本节为 L3 TDL 各验证层的前向导航表。架构报告不重复 V&V 规划细节；完整规划见各策略文档。架构决策与 V&V 的双向联动通过 D-task 联动表维护。
+
+| 验证层 | 策略文档 | 关联 D-task | 状态 |
+|---|---|---|---|
+| **SIL（软件在环）** | [D1.5 V&V Plan](../Phase%201/D1.5-vv-plan-scenario-qual/V%26V_Plan/00-vv-strategy-v0.1.md) | D1.3c / D2.5 / D3.6 | ✅ v0.1 完成 2026-05-12 |
+| **场景覆盖率** | §19 场景库与覆盖立方体（本报告）+ D1.6/D1.7 | D1.6 / D1.7 / D3.6 | 🔴 D1.6/D1.7 stub 待 Phase 1 末 |
+| **模块级单元测试** | `src/l3_tdl_kernel/M*/test/` | 每 D{2.x} 模块 D-task | ⏳ 随 Phase 2 推进 |
+| **集成测试（M1-M6 联调）** | [D2.5 spec](../D2.5-sil-m1-m6-integration/D2.5-spec.md) | D2.5 | ⏳ 7/31 目标 |
+| **HIL（硬件在环）** | D4.1/D4.2（Phase 4 启动后建立）| D4.1 / D4.2 | ⏳ Phase 4（9 月起）|
+| **认证级实船试航** | D5.x（2027 Q1/Q2，AIP 受理后）| D5.x | ⏳ Phase 5 |
+
 ---
 
 ## 第十四章 CCS 入级路径映射
