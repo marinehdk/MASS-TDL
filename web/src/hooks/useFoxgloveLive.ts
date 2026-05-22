@@ -114,7 +114,7 @@ const TOPIC_MAP: Array<{
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
 
-export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
+export function useFoxgloveLive(wsUrl = 'wss://127.0.0.1:8765') {
   const rosRef = useRef<Ros | null>(null);
   const topicsRef = useRef<Array<{ unsubscribe: () => void }>>([]);
   const delayRef = useRef(BASE_DELAY_MS);
