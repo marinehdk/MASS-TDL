@@ -1152,6 +1152,33 @@ T0+150 ms: ASDR 标记 "override_released" 事件 + 记录回切顺序时间戳
 
 ---
 
+### 11.10 L3 内部仲裁优先级矩阵 [D2.8 新增 — Finding D P1-D-08 关闭]
+
+L3 TDL 三类横向干预通道的仲裁优先级。高优先级通道可覆盖低优先级通道；被覆盖通道冻结输出。
+
+**优先级顺序（1 = 最高）**：
+
+1. **Hardware Override**（零软件硬连线 Z-BOTTOM）— L3 完全冻结
+2. **Y-axis Reflex Arc**（< 500 ms，直达 L5）— L3 输出被覆盖，M7 告警保留
+3. **X-axis Deterministic Checker VETO** — M7 接收 `CheckerVetoNotification` 触发 MRM
+4. **M7 Doer-Checker 内部否决** — 发布 `Safety_AlertMsg` + `recommended_mrm`，M1 执行 MRM
+5. **M1 ODD 状态切换**（软件决策，最低）— 广播 `ODD_StateMsg`，M4/M5 切换行为集
+
+**触发状态 × 横向通道矩阵**：
+
+| 横向通道 | ODD IN（D4 正常）| CRITICAL / ODD_OUT | 人工接管激活 |
+|---|---|---|---|
+| Hardware Override | 不活跃 | 优先级 1，立即接管 | 优先级 1，L3 完全冻结 |
+| Y-axis Reflex Arc | 监控中（CPA < 200m 触发）| 优先级 2，与 MRC 并行 | 继续运行（不受 L3 冻结约束）|
+| X-axis Det. Checker | 低频 VETO 接收 | 优先级 3，强制 MRM | Override 期间暂停（§11.8）|
+| M7 Doer-Checker | 连续监控，SOTIF 双轨 | 优先级 4，MRM 触发 | 暂停主仲裁，保留降级告警（§11.9.1）|
+| M1 ODD 状态 | 1 Hz 周期 + 事件 | 优先级 5，MRC 序列 | OVERRIDDEN 模式（§11.8）|
+
+> **独立性保证**：Hardware Override 和 Y-axis Reflex Arc 的触发路径不经过任何 L3 软件（含 M7）。L3 仅接收通知（`ReflexActivationNotification` / `OverrideActiveSignal`），不参与触发决策。
+> **D-task 联动**：D2.1 M1（实装矩阵中 M1 行）/ D2.5 SIL 集成（验证优先级通道在 SIL 可测试）/ D3.3b SOTIF（M7 行详细场景分析）。
+
+---
+
 ## 第十二章 M8 — HMI / Transparency Bridge
 
 ### 12.1 决策原因
