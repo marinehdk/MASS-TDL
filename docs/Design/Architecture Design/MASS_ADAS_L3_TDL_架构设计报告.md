@@ -2146,6 +2146,84 @@ w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerne
 
 ---
 
+## 第二十一章 Web HMI 与 ENC 集成 [D2.8 新增 — 原附录 F §F.9 迁入]
+
+本章定义 L3 TDL 操作员 HMI 的参考架构，替代原型 `L3_TDL_SIL_Interactive.html`，以 MapLibre GL JS + S-57 MVT + foxglove_bridge 构建 production-grade web HMI。本章为 D1.3.2.3（Phase 1 基础）、D2.5/D2.6（Phase 2 增项）、D3.4（Phase 3 完整化）的宿主设计文档。
+
+**Finding 关闭**：SIL P0 SIL-7（Web HMI 架构锁定）/ B P1-B-06（foxglove_bridge 选型理由）
+
+### 21.1 技术选型与 XAI overlay（原 F.9）
+
+替代当前静态 SVG 雷达原型，构建 production-grade web HMI [R35] [R36]：
+
+| 项 | 选择 | 理由 |
+|---|---|---|
+| 海图引擎 | **MapLibre GL JS**（WebGL）| 1000+ vessel @60FPS via symbol layers + S-52 expression styling |
+| S-57 管线 | **GDAL → Tippecanoe → MVT vector tiles**（或 `manimaul/s57tiler`）| 工业链成熟 |
+| ROS2 ↔ Web 桥 | **`foxglove_bridge`**（C++, Protobuf）— 不用 rosbridge_server (Python/JSON) | 50Hz 性能；rosbridge_server JSON 序列化吃延迟 |
+| Foxglove Studio | **不作 SIL operator console**，仅作开发 debug 视角 | 缺 ENC + S-52 grammar，改造成本 > 自建 |
+| HMI 标准 | **IEC 62288 SA subset + IMO S-Mode**（不全 ECDIS）[R35] [R36] | 全 ECDIS 太重；SA subset 满足 CCS-credibility |
+| Replay 数据 | **Apache Arrow IPC**（与 maritime-schema 对齐 [R27]）| 零拷贝 + JS 原生 |
+| Timeline scrubber | GSAP（GreenSock Animation Platform）| 帧级 seek < 100ms |
+| Evidence GIF | **Puppeteer headless 浏览器** + ffmpeg | CI batch 全自动 |
+| 框架 | **React** + MapLibre GL | 用户拍板 2026-05-09（生态广 + 招人友好）|
+| seacharts (NTNU Python) | **不直接移植**，重写 web 等价 | matplotlib 50Hz 必坏 |
+
+**XAI overlay 模式**（沿用现 HTML 视觉语言 + 增项）：
+
+现有 ✅：CPA/TCPA、M6 规则文字、M5 决策文字、M1-M8 pulse、ASDR 日志
+
+新增（按 IEC 62288 + colav-simulator 实践）：
+1. **ENC 底图**替代当前空白雷达（地形 + 水深 + 障碍物 + 浮标）
+2. **Trajectory ghosting**：M5 BC-MPC 提议路径（虚线）vs L2 计划路径（实线）双轨叠加
+3. **Encounter zone 高亮**：CPA ring（圆）+ TCPA cone（扇形）实时跟随
+4. **Grounding hazard 高亮**：own-ship 预测路径与陆地 / 浅水多边形碰撞检测，红色闪烁
+5. **ToR 倒计时 panel**（独立非雷达内）— 防 out-of-loop syndrome（IEC 62288 强制），4 操作员状态联动 D2.1 适配矩阵
+6. **M7 Doer-Checker verdict** badge：每决策 PASS / VETO 标识
+7. **多 target 同屏**（≥3 船 multi-encounter）
+
+**3 阶段路线**：
+- **D1.3b.3**（5/27–6/15, ~5 pw, DEMO-1）：MapLibre 骨架 + S-57 MVT + foxglove_bridge + IEC 62288 SA subset + 1 场景 live + 沿用现 HTML 视觉
+- **D2.5 / D2.6 增项**（6/16–7/31, ~3 pw, DEMO-2）：Apache Arrow replay + scrubber + Puppeteer GIF/PNG + 多 target + grounding + TLS/WSS
+- **D3.4 增项**（7/13–8/31, ~1.5 pw, DEMO-3）：trajectory ghosting + ToR 倒计时 + M7 verdict badge + S-Mode 完整对齐 + 1000 场景 evidence pack 一键产出
+
+### 21.2 D-task 产出物映射 [D2.8 新增]
+
+| 产出物 | 来源 D-task | 进入 §21 时间 |
+|---|---|---|
+| MapLibre 骨架 + S-57 MVT + foxglove_bridge | D1.3.2.3 | Phase 1 末 |
+| IEC 62288 SA subset 显示标准落地 | D1.3.2.3 | Phase 1 末 |
+| Apache Arrow replay + scrubber + GIF evidence | D2.5 | 7/31 |
+| 多 target 同屏 + grounding 高亮 + TLS/WSS | D2.5 | 7/31 |
+| Figma 船长可用性 + ToR countdown panel | D2.6 | 7/13 |
+| Trajectory ghosting + M7 verdict badge | D3.4 M8 完整 | Phase 3 |
+| 1000 场景 evidence pack 一键导出 | D3.6 SIL 1000+ | Phase 3 |
+
+### 21.3 IEC 62288 SA subset 范围界定 [D2.8 新增]
+
+- **采用**：SA Presentation Level 2（关键导航数据 + 告警 + 预测轨迹）
+- **不采用**：完整 ECDIS（S-52 complete grammar + TYPE_APPROVED 认证）
+- **理由**：CCS credibility 需求通过 SA subset 满足；完整 ECDIS 认证成本 > 收益
+- **NLM 证据**：maritime_human_factors notebook 🟢 High
+
+### 21.4 IMO S-Mode 占位 [TBD-DNV]
+
+S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定。
+
+**D2.8 stub**：§21 引用 S-Mode 概念 + "本 HMI 设计为 S-Mode ready"。
+**D3.4 + D3.8**：根据 IMO S-Mode 最终版本完善。
+
+### 21.5 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.3.2.3 Web HMI + ENC | Phase 1 基础 2 项产出 → §21.2 Phase 1 行确认 | 填充 §21.2 |
+| D2.5 SIL 集成 | Apache Arrow + scrubber + GIF → §21.2 Phase 2 行 | 填充 §21.2 |
+| D2.6 船长 HF | Figma 原型 + ToR countdown → §21.2 + §21.3 输入 | 填充 §21.2 |
+| D3.4 M8 完整 | Trajectory ghosting + M7 verdict badge → §21.2 Phase 3 | 填充 §21.2 |
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
