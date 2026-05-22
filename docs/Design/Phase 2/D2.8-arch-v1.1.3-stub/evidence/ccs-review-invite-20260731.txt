@@ -1,0 +1,13 @@
+CCS 中期意见邀请函（D2.8 v1.1.3-stub）
+
+收件人：CCS 技术中心（智能船舶审核组）
+主题：MASS ADAS L3 战术决策层架构 v1.1.3-stub 中期意见征询
+附件：MASS_ADAS_L3_TDL_架构设计报告.md（v1.1.3-stub，2026-07-31）
+
+征询事项：
+1. §16 Cybersecurity Spec 信任域划分思路的可接受性意见
+2. §19 maritime-schema 作为 evidence container 的 CCS 接受度
+3. §22 延期支持模块接口位设计的合理性
+4. CCS 中期意见会议时间建议（2026-08 月内）
+
+状态：[待发出 — 需 PM 确认收件人 + 正式发送]

@@ -1,0 +1,11 @@
+DNV 验证官联审邀请函（D2.8 v1.1.3-stub）
+
+收件人：DNV 验证官（maritime autonomy team）
+主题：MASS ADAS L3 - maritime-schema acceptance confirmation request + v1.1.3-stub review
+
+征询事项：
+1. maritime-schema TrafficSituation 作为 evidence container 的 CCS 可接受性意见
+2. [DNV-FEEDBACK-HOOK] §17.A / §19.A 两处 hook 说明
+3. v1.1.3-stub 联审邀请
+
+状态：[待发出 — 需 PM 确认收件人 + 正式发送]
