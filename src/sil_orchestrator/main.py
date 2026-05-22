@@ -12,12 +12,14 @@ from pathlib import Path
 
 import yaml
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from sil_orchestrator.config import RUN_DIR, EXPORT_DIR
 from sil_orchestrator.scenario_store import ScenarioStore
+from sil_orchestrator.arrow_routes import router as arrow_router
 from sil_orchestrator.selfcheck_routes import router as selfcheck_router
 from sil_orchestrator.export_routes import router as export_router
 from sil_orchestrator.scenario_routes import router as scenario_router
@@ -203,6 +205,7 @@ async def lifecycle_cleanup():
 # Self-check, export, scenario CRUD, and scoring routes
 app.include_router(selfcheck_router)
 app.include_router(export_router)
+app.include_router(arrow_router)
 app.include_router(scenario_router)
 app.include_router(schema_router)
 app.include_router(scoring_router)
@@ -315,6 +318,18 @@ async def demo_reset():
     _demo_initial_state = None
     _demo_start_wall = None
     return {"success": True}
+
+
+@app.get("/api/v1/runs/{run_id}/replay.arrow")
+async def download_replay_arrow(run_id: str):
+    replay_path = RUN_DIR / run_id / "replay.arrow"
+    if not replay_path.exists():
+        raise HTTPException(status_code=404, detail="Replay Arrow not found")
+    return FileResponse(
+        str(replay_path),
+        media_type="application/vnd.apache.arrow.file",
+        filename="replay.arrow",
+    )
 
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
