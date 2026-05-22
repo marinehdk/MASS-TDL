@@ -2035,6 +2035,66 @@ class FCBPlugin final : public ShipMotionSimulator {
 
 ---
 
+## 第十九章 场景库与覆盖立方体方法论 [D2.8 新增 — 原附录 F §F.5-F.7 迁入]
+
+本章定义 L3 TDL 场景库工程体系：从 maritime-schema 场景语言到 Imazu-22 强制基线，再到 1100-cell 覆盖立方体和 AIS-driven authoring 工具链。本章为 V&V Plan（D1.5）的场景层补充，由 D1.3b.2（AIS tool）、D1.6（schema 规约）和 D3.6（1000 场景）持续填充。
+
+**Finding 关闭**：SIL P0 SIL-5（maritime-schema 替代决策）/ SIL-6（Imazu-22 + 1100-cell 方法论）/ F P0-F-02 + F P0-F-04 stub + MV-7~11 stub
+
+**[DNV-FEEDBACK-HOOK] §19.A**：`maritime-schema TrafficSituation` 作为 evidence container 的 CCS 接受度（同 §17.A，同一 hook）。7/31 后 DNV 反馈收到后 D3.8 patch。
+
+### 19.1 场景 Schema（原 F.5）
+
+D1.6 场景 schema 由"内部 Pydantic 强类型"改为"`maritime-schema` `TrafficSituation` 扩展" [R27]。FCB 项目专属字段（`scenario_id`, `hazid_refs`, `colregs_rules`, `odd_cell`, `disturbance`, `expected_outcome`, `seed`, `vessel_class`, `pass_criteria`）放入 `metadata.*` 扩展节点（schema 允许 additional properties）。
+
+完整模板见决策记录 §10（双 NTNU + maritime-schema 兼容样例）。
+
+**双语言验证**：Python 用 `cerberus` + `pydantic`（maritime-schema 原生）；C++ 用 `cerberus-cpp`（同 schema 文件，避免双套验证逻辑）。
+
+**CCS 接受度未解项** 🔴：D1.8 早期发函 CCS 技术中心确认 maritime-schema 作 evidence container 可行性；退路是 maritime-schema 退为内部表示 + 加导出器至 CCS 要求格式。
+
+### 19.2 场景库与覆盖立方体（原 F.6）
+
+- **Imazu-22 强制基线** [R38]：22 canonical 2/3/4-ship encounters（Imazu 1987 / Sawada 2021），freeze 为 `imazu22_v1.0.yaml` SHA256 hash 化，每 PR fast gate 必跑（D1.3b.1）
+- **覆盖立方体**：11 COLREG Rules（5,6,7,8,9,13,14,15,16,17,19）× 4 ODD subdomains × 5 disturbance bins × 5 seeds = **1100 cells**（D3.6）。证据：[R32] Hassani 2022 Sobol sampling
+- **Adversarial / Nominal / Boundary = 60 / 25 / 15 比例**：明确标注"内部启发式，**非外部标准**"。AV 文献对应 deductive (requirement-driven) ∪ inductive (data-driven)，60% adversarial 由 RL fuzzer (FREA/AuthSim style) 后置生成，不作 CCS 提交时引用为外部规范
+- **Monte Carlo LHS / Sobol 10000 sample**（D3.6 扩展）：在立方体之外，对关键参数（target ship 初始 bearing、SOG、感知噪声 σ、风流强度）跑 LHS/Sobol 抽样，输出 pass rate 95% CI + CPA min 分布 + Rule violation 频率
+- **Adversarial scenario 回路**：Phase 4 RL 对抗生成器产生新 schema-valid 场景；通过 schema validation + naturalness check 后追加场景库，是覆盖间隙关闭的工程机制
+
+### 19.3 AIS-driven 工具（原 F.7）
+
+参考 NTNU `colav-simulator` [R37] 工程模式，D1.3b.2 实现 AIS-driven scenario authoring：
+
+**5 阶段管线**：
+1. AIS DB 接入（PostGIS / Kystverket / NOAA MarineCadastre 开放数据）
+2. MMSI 分组 + 重排 + 去重 → 单船 track 时间序列
+3. 间隙判定（>5 min 拆段）+ Δt=0.5s 重采样 + NE 线性插值 + COG 圆形插值（避 360° wrap）+ Savitzky-Golay / Kalman 平滑 SOG/COG
+4. bbox + 时间窗 → DB 查询 → DCPA < 500m AND TCPA < N min → 提取 encounter 片段；坐标变换 WGS84 → local NE Cartesian (Transverse Mercator)
+5. COLREG 几何分类（Head-on / Crossing / Overtaking）+ maritime-schema YAML 导出（含 `metadata.*` 扩展字段）
+
+**3 种 target 运动模式**：
+
+| 模式 | 行为 | 引入时机 |
+|---|---|---|
+| `ais_replay_vessel` | 纯回放历史 track，**non-reactive**（不响应 own-ship 动作）| D1.3b.2（必）|
+| `ncdm_vessel` | NCDM 历史邻域统计 + Ornstein-Uhlenbeck 过程概率外推 | D2.4 |
+| `intelligent_vessel` | 目标船跑自己的 COLAV（VO / 简化 MPC），multi-agent 互动 | D3.6（1000 场景必备 multi-agent 论证）|
+
+**数据源**（用户决策 2026-05-09）：Phase 1-3 用 Kystverket + NOAA MarineCadastre 开放数据；Phase 4 实船试航前若 CCS 要求中国海域 AIS 再切。ENC demo 双区域：Trondheim Fjord（NTNU paper 复现）+ NOAA San Francisco Bay。
+
+### 19.4 D-task 联动
+
+| D-task | 联动内容 | 方向 | 目标时间 |
+|---|---|---|---|
+| D1.6 场景 schema | maritime-schema 扩展字段 + 双语言验证实装 | 填充 §19.1 | Phase 1 |
+| D1.3b.2 AIS tool | 5 阶段管线实装 + 数据源连通验证 | 填充 §19.3 | Phase 1/2 |
+| D3.6 SIL 1000+ | 1100-cell 覆盖立方体 full run + LHS/Sobol | 填充 §19.2 | Phase 3 |
+| D4.6 RL 对抗 | adversarial scenario 回路激活（§19.2 60%）| 激活 §19.2 | Phase 4 |
+
+**[TBD-D3.8]**：Monte Carlo 实测分布 / adversarial 60% 生成路径 / 60/25/15 比例最终辩护文件。
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
