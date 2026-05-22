@@ -1523,6 +1523,23 @@ DNV-CG-0264（**2025.01** 现行版）§4 将自主船导航功能分解为 9 �
 
 > **v1.1 重写**：v1.0 §15 接口矩阵不闭包（缺 L1 上游 / ASDR / Reflex Arc / L3→L2 反向 / Override Arbiter），且 M5 → L2 错写应为 L4。v1.1 按 Phase 5 跨层对照实证补全 [F-P1-D4-031~035 + F-P1-D5-012 + F-P2-D5-013 + F-P2-D4-038]。
 
+### 15.0 时基与同步 [D2.8 新增]
+
+所有 L3 消息 `header.stamp` 必须使用同一 PTP 时钟源。任何节点使用系统墙钟（`std::chrono::system_clock`）记录 ASDR 时间戳均为错误。
+
+| 项目 | 规格 |
+|---|---|
+| **PTP Grandmaster** | IEEE 1588v2（PTPv2）；OT 侧部署于 GNSS disciplined master clock |
+| **同步误差预算** | L3 节点间时钟偏差 ≤ 1 ms（`/time/ptp_status` 话题监控）|
+| **`stamp` 字段强制** | 所有 L3 消息 IDL 必须携带 `header.stamp`（ROS2 builtin `Time`，含 sec + nanosec）|
+| **退化路径** | PTP 失锁（≥ 3 s）→ M1 发布 `ODD_EDGE`；系统降级至 ASSISTED；M8 显示"时钟失步"红色告警 |
+| **ASDR 时基** | ASDR JSONL 每行 `timestamp` 使用同一 PTP 时钟；禁止系统墙钟 |
+
+**置信度**：🟢 High（IEEE 1588v2 是 IACS UR E26 工控网络基准要求；ROS2 `rclcpp::Time` 内建 PTP 源绑定支持）
+
+> **D-task 联动**：D1.3c FMI 桥（dds-fmu latency 对照 ≤ 1 ms 预算）/ D2.5 SIL 集成（SIL 内 PTP 模拟路径）/ D3.9 RFC-007（PTP 时基安全性 + replay protection 接口）。
+
+
 ### 15.1 核心消息定义
 
 以下为 TDL 关键消息接口的 IDL 定义（伪代码形式，实际实现需根据技术栈选择 ROS2 IDL、Protobuf 或 DDS IDL）：
