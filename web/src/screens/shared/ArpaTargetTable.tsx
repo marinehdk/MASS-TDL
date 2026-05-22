@@ -4,8 +4,10 @@ import type { ASDREvent } from '../../store/telemetryStore';
 import { computeBearing, computeRangeNm } from './navMath';
 
 interface ArpaTargetTableProps {
-  expanded: boolean;
-  onToggle: () => void;
+  expanded?: boolean;
+  onToggle?: () => void;
+  targets?: any[];
+  compact?: boolean;
 }
 
 function deriveCpaTcpa(targets: any[], asdrEvents: ASDREvent[]) {
@@ -25,12 +27,18 @@ function deriveCpaTcpa(targets: any[], asdrEvents: ASDREvent[]) {
   return cpaMap;
 }
 
-export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onToggle }) => {
-  const targets = useTelemetryStore((s) => s.targets);
+export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ 
+  expanded = true, 
+  onToggle = () => {}, 
+  targets: propTargets, 
+  compact = false 
+}) => {
+  const storeTargets = useTelemetryStore((s) => s.targets);
+  const targets = propTargets ?? storeTargets;
   const asdrEvents = useTelemetryStore((s) => s.asdrEvents);
   const ownShip = useTelemetryStore((s) => s.ownShip);
 
-  if (!expanded) {
+  if (!compact && !expanded) {
     return (
       <button
         onClick={onToggle}
@@ -50,6 +58,71 @@ export const ArpaTargetTable: React.FC<ArpaTargetTableProps> = ({ expanded, onTo
   }
 
   const cpaMap = deriveCpaTcpa(targets, asdrEvents);
+
+  if (compact) {
+    return (
+      <div
+        data-testid="arpa-table"
+        style={{
+          padding: '4px 12px',
+          fontFamily: 'var(--f-mono)', fontSize: 9,
+          width: '100%',
+        }}
+      >
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ color: 'var(--txt-3)', fontSize: 7 }}>
+              <th style={{ textAlign: 'left', padding: 1 }}>ID</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>BRG°</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>RNG</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>COG°</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>SOG</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>CPA</th>
+              <th style={{ textAlign: 'left', padding: 1 }}>TCPA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {targets.map((t: any, i: number) => {
+              const id = t.mmsi ? String(t.mmsi) : `T${i + 1}`;
+              const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
+              const cpaVal = cpaInfo?.cpa;
+              const cpaColor = cpaVal != null
+                ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : 'var(--txt-1)'
+                : 'var(--txt-3)';
+              return (
+                <tr key={id} style={{ borderTop: '1px solid var(--line-1)' }}>
+                  <td style={{ padding: 1, color: 'var(--c-info)' }}>{id}</td>
+                  <td style={{ padding: 1 }}>
+                    {(ownShip?.pose && t.pose)
+                      ? computeBearing(
+                          ownShip.pose.lat, ownShip.pose.lon,
+                          t.pose.lat, t.pose.lon,
+                        ).toFixed(1) + '\u00b0'
+                      : '\u2014'}
+                  </td>
+                  <td style={{ padding: 1 }}>
+                    {(ownShip?.pose && t.pose)
+                      ? computeRangeNm(
+                          ownShip.pose.lat, ownShip.pose.lon,
+                          t.pose.lat, t.pose.lon,
+                        ).toFixed(2) + ' nm'
+                      : '\u2014'}
+                  </td>
+                  <td style={{ padding: 1 }}>{t.kinematics?.cog != null ? ((t.kinematics.cog * 180 / Math.PI + 360) % 360).toFixed(0) : '—'}°</td>
+                  <td style={{ padding: 1 }}>{t.kinematics?.sog != null ? (t.kinematics.sog * 1.944).toFixed(1) : '—'}</td>
+                  <td style={{ padding: 1, color: cpaColor }}>{cpaInfo?.cpa?.toFixed(2) ?? '—'}</td>
+                  <td style={{ padding: 1 }}>{cpaInfo?.tcpa?.toFixed(1) ?? '—'}m</td>
+                </tr>
+              );
+            })}
+            {targets.length === 0 && (
+              <tr><td colSpan={7} style={{ color: 'var(--txt-3)', padding: 4, textAlign: 'center' }}>No targets</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
 
   return (
     <div

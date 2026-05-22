@@ -463,6 +463,24 @@ export function SilMapView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Resize Observer for Map Container ──────────────────────────────────────
+  useEffect(() => {
+    const container = mapContainer.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+    });
+
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   // ── Substrate update ────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -565,7 +583,7 @@ export function SilMapView({
             duration: 1500,
           });
         } else {
-          map.jumpTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM });
+          map.jumpTo({ center: [lon, lat], zoom: Math.min(16, MAP_MAX_ZOOM) });
         }
         map.setPadding({
           top: map.getContainer().clientHeight * (0.5 - viewportOffset[1]) * 2,
@@ -596,7 +614,7 @@ export function SilMapView({
             duration: 1500,
           });
         } else {
-          map.flyTo({ center: [lon, lat], zoom: MAP_MAX_ZOOM, duration: 1500 });
+          map.flyTo({ center: [lon, lat], zoom: Math.min(16, MAP_MAX_ZOOM), duration: 1500 });
         }
         firstFit.current = true;
       }
@@ -820,7 +838,7 @@ export function SilMapView({
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div ref={mapContainer} style={{ width: '100%', height: '100%' }}
+      <div ref={mapContainer} style={{ width: '100%', height: '100%', background: '#070C13' }}
            data-testid="sil-map-view" />
       
       <ImazuGeometry mapRef={mapRef} geometry={geometry || null} />

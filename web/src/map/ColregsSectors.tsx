@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type maplibregl from 'maplibre-gl';
+import type { OwnShipState } from '../types';
 
 interface ColregsSectorsProps {
   ownShipFraction: [number, number];
   headingDeg: number;
   outerRadiusPx: number;
+  mapRef?: React.MutableRefObject<maplibregl.Map | null>;
+  ownShip?: OwnShipState | null;
 }
 
 interface SectorDef {
@@ -21,18 +25,90 @@ const SECTORS: SectorDef[] = [
 ];
 
 export const ColregsSectors: React.FC<ColregsSectorsProps> = React.memo(({
-  ownShipFraction, headingDeg, outerRadiusPx,
+  ownShipFraction, headingDeg, outerRadiusPx, mapRef, ownShip,
 }) => {
   const r = outerRadiusPx;
+  const [centerPx, setCenterPx] = useState<[number, number] | null>(null);
+
+  const ownShipRef = useRef(ownShip);
+  useEffect(() => {
+    ownShipRef.current = ownShip;
+  }, [ownShip]);
+
+  const updatePosition = useCallback(() => {
+    const map = mapRef?.current;
+    const ship = ownShipRef.current;
+    const lat = ship?.pose?.lat;
+    const lon = ship?.pose?.lon;
+    if (map && typeof lat === 'number' && typeof lon === 'number') {
+      try {
+        const point = map.project([lon, lat]);
+        setCenterPx([point.x, point.y]);
+      } catch (e) {
+        // map might not be ready or project failed
+      }
+    } else {
+      setCenterPx(null);
+    }
+  }, [mapRef]);
+
+  // Sync when ship coordinates change
+  const lat = ownShip?.pose?.lat;
+  const lon = ownShip?.pose?.lon;
+  useEffect(() => {
+    updatePosition();
+  }, [lat, lon, updatePosition]);
+
+  // Sync when map events fire
+  const mapInstance = mapRef?.current;
+  useEffect(() => {
+    if (!mapInstance) {
+      setCenterPx(null);
+      return;
+    }
+
+    updatePosition();
+
+    const handler = () => updatePosition();
+
+    mapInstance.on('move', handler);
+    mapInstance.on('zoom', handler);
+    mapInstance.on('rotate', handler);
+    mapInstance.on('resize', handler);
+
+    return () => {
+      mapInstance.off('move', handler);
+      mapInstance.off('zoom', handler);
+      mapInstance.off('rotate', handler);
+      mapInstance.off('resize', handler);
+    };
+  }, [mapInstance, updatePosition]);
+
+  const style: React.CSSProperties = centerPx
+    ? {
+        position: 'absolute',
+        left: `${centerPx[0] - r}px`,
+        top: `${centerPx[1] - r}px`,
+        width: `${r * 2}px`,
+        height: `${r * 2}px`,
+        pointerEvents: 'none',
+        zIndex: 4,
+      }
+    : {
+        position: 'absolute',
+        left: `${ownShipFraction[0]}%`,
+        top: `${ownShipFraction[1]}%`,
+        transform: 'translate(-50%, -50%)',
+        width: `${r * 2}px`,
+        height: `${r * 2}px`,
+        pointerEvents: 'none',
+        zIndex: 4,
+      };
 
   return (
     <svg
       data-testid="colregs-sectors"
-      style={{
-        position: 'absolute', top: 0, left: 0,
-        width: '100%', height: '100%',
-        pointerEvents: 'none', zIndex: 4,
-      }}
+      style={style}
       viewBox={`-${r} -${r} ${r * 2} ${r * 2}`}
     >
       <g transform={`translate(0,0) rotate(${headingDeg})`}>
@@ -66,3 +142,4 @@ export const ColregsSectors: React.FC<ColregsSectorsProps> = React.memo(({
   );
 });
 ColregsSectors.displayName = 'ColregsSectors';
+

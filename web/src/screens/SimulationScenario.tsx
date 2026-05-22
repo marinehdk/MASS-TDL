@@ -100,7 +100,7 @@ export function SimulationScenario() {
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('library');
-  const [activeRightTab, setActiveRightTab] = useState<string | null>(null);
+  const [activeRightTab, setActiveRightTab] = useState<'environment' | 'vessels' | 'assertions' | 'raw' | null>(null);
 
   // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.
   const [placementMode, setPlacementMode] = useState<string>('none');

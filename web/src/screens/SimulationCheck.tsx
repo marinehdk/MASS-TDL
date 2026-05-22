@@ -107,7 +107,7 @@ export function SimulationCheck() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 400px', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
+    <div data-testid="preflight" style={{ display: 'grid', gridTemplateColumns: '300px 1fr 400px', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
       <GateSequencer gates={gates} streaming={streaming} focusedGateId={focusedGateId}
         onGateSelect={setFocusedGateId} verdict={verdict} />
 

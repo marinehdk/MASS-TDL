@@ -16,7 +16,7 @@ uint8 REASON_SAFETY_ALERT = 2
 
 float32 deadline_s                       # 接管时间窗口（典型 60 s）[R4]
 float32 tdl_s                            # D2.1: TDL at time of tor_request — for SAT-3 transparency
-uint8 assumed_operator_state OOS_BRIDGE_ON_DUTY  # D2.1: operator state for TMR lookup
+uint8 assumed_operator_state 0  # D2.1: operator state for TMR lookup
 
 uint8 target_level                       # AutoLevel D2/D3/D4
 uint8 TARGET_LEVEL_D2 = 2

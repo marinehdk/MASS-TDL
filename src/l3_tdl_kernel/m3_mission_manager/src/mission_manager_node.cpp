@@ -539,7 +539,8 @@ void MissionManagerNode::check_current_error_severity_change(
         nlohmann::json{{"xte_nm", reading.xte_nm},
                        {"sea_current_kn", reading.sea_current_kn}});
     RCLCPP_WARN(get_logger(), "Current error HIGH: xte=%.2f nm cur=%.2f kn",
-                reading.xte_nm, reading.sea_current_kn);
+                static_cast<double>(reading.xte_nm),
+                static_cast<double>(reading.sea_current_kn));
   } else if (prev == CurrentErrorSeverity::HIGH) {
     publish_asdr_record("current_error_resolved",
         nlohmann::json{{"severity", static_cast<int>(reading.severity)}});

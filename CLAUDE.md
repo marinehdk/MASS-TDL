@@ -444,3 +444,13 @@ git log --oneline {branch} ^main   # 输出为空 → 0 个独立 commit → 可
 - 30 P0 / 52 P1 / 29 P2 → 跨角度去重 15 个根因簇 → 124 finding 入 v3.0 D-list 闭环
 - 12 项 must-fix 在 D0（5/8–5/12）关闭 / 12 项 phase-1 fix 在 D1.x 关闭 / 其余在 D2.x/D3.x 闭环
 - 详见 `docs/Design/Review/2026-05-07/00-consolidated-findings.md` §10 owner 表 + v3.0 附录 D Findings Closure Map
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

@@ -10,7 +10,7 @@ uint8 OOS_ROC_ATTENDED   = 2   # TMR=60s — ROC operator present
 uint8 OOS_MESS_REST      = 3   # TMR=90s — operator in mess/rest area
 uint8 OOS_CABIN_SLEEP    = 4   # TMR=120s — operator in cabin
 
-uint8 assumed_operator_state OOS_BRIDGE_ON_DUTY
+uint8 assumed_operator_state 0
 
 builtin_interfaces/Time stamp
 float32 confidence 1.0

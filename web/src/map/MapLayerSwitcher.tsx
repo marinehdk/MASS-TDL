@@ -9,8 +9,8 @@ interface MapLayerSwitcherProps {
 export const MapLayerSwitcher: React.FC<MapLayerSwitcherProps> = ({ activeLayer, onLayerChange }) => {
   return (
     <div className="glass-panel" style={{
-      position: 'absolute', bottom: 20, right: 20, padding: '4px',
-      display: 'flex', gap: 4, borderRadius: 4, zIndex: 100,
+      padding: '4px',
+      display: 'flex', gap: 4, borderRadius: 4,
       height: 38, alignItems: 'center', border: '1px solid var(--line-1)'
     }}>
       {[

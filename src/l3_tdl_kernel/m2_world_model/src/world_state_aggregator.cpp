@@ -407,11 +407,11 @@ WorldStateAggregator::compose_world_state(
             geographic_msgs::msg::GeoPath path;
             if (arr.is_array()) {
               for (const auto& pt : arr) {
-                geographic_msgs::msg::GeoPoint gp;
-                gp.longitude = pt[0].get<double>();
-                gp.latitude = pt[1].get<double>();
-                gp.altitude = 0.0;
-                path.points.push_back(std::move(gp));
+                geographic_msgs::msg::GeoPoseStamped gps;
+                gps.pose.position.longitude = pt[0].get<double>();
+                gps.pose.position.latitude = pt[1].get<double>();
+                gps.pose.position.altitude = 0.0;
+                path.poses.push_back(std::move(gps));
               }
             }
             zc_msg.tss_lanes.push_back(std::move(path));
