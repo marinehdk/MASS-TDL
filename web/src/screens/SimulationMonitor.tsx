@@ -11,14 +11,12 @@ import { CompassRose } from '../map/CompassRose';
 import { PpiRings } from '../map/PpiRings';
 import { ColregsSectors } from '../map/ColregsSectors';
 import { DistanceScale } from '../map/DistanceScale';
+import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
 import { ArpaTargetTable } from './shared/ArpaTargetTable';
 import { ScoringGauges } from './shared/ScoringGauges';
 import { TorModal } from './shared/TorModal';
 import { FaultInjectPanel } from './shared/FaultInjectPanel';
-import { ConningBar } from './shared/ConningBar';
-import { ThreatRibbon } from './shared/ThreatRibbon';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
-import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
@@ -145,7 +143,7 @@ function RightDrawer() {
           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             ⑤ 实时评分
           </span>
-          <ScoringGauges scoringRow={scoringRow} compact />
+          <ScoringGauges visible={true} />
         </div>
       )}
     </div>
@@ -164,6 +162,7 @@ export function SimulationMonitor() {
   const modulePulses    = useTelemetryStore((s) => s.modulePulses);
   const sat2            = useTelemetryStore((s) => s.sat2);
   const sat3            = useTelemetryStore((s) => s.sat3);
+  const sotifMetrics    = useTelemetryStore((s) => s.sotifMetrics);
 
   const simRate   = useControlStore((s) => s.simRate);
   const isPaused  = useControlStore((s) => s.isPaused);
@@ -183,6 +182,7 @@ export function SimulationMonitor() {
   const torRequest  = useFsmStore((s) => s.torRequest);
 
   const [showFaultModal, setShowFaultModal] = useState(false);
+  const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
   const [deactivate] = useDeactivateLifecycleMutation();
   const autoNavRef = useRef(false);
   const externalMapRef = useRef<maplibregl.Map | null>(null);
@@ -193,7 +193,7 @@ export function SimulationMonitor() {
     p: () => setPaused(true),
     r: () => setPaused(false),
     s: handleStop,
-  });
+  } as any);
 
   async function handleStop() {
     await deactivate();
@@ -210,6 +210,13 @@ export function SimulationMonitor() {
       return () => clearTimeout(timer);
     }
   }, [lcState]);
+
+  // Dev-mode auto-switch to engineer view for E2E testing
+  useEffect(() => {
+    if (window.location.hash.includes('dev=1')) {
+      useUIStore.getState().setViewMode('engineer');
+    }
+  }, []);
 
   useEffect(() => {
     if (wsConnected) {
@@ -247,12 +254,13 @@ export function SimulationMonitor() {
         <ModulePulseBar />
 
         <SilMapView
-          externalMapRef={externalMapRef}
+          mapRef={externalMapRef}
           followOwnShip={viewMode === 'captain' || viewMode === 'roc'}
           viewMode={viewMode}
+          substrate={substrate}
         />
 
-        {isEngineer && (
+        {(isEngineer || viewMode === 'god') && (
           <>
             <SafetyDomainLayer
               mapRef={externalMapRef}
@@ -276,11 +284,13 @@ export function SimulationMonitor() {
           </>
         )}
 
-        {(isEngineer || fsmState === 'COLREG_AVOIDANCE') && ownShip && (
+        {(isEngineer || viewMode === 'god' || fsmState === 'COLREG_AVOIDANCE') && ownShip && (
           <ColregsSectors
-            ownShipFraction={isEngineer ? [50, 50] : [50, 70]}
+            ownShipFraction={isEngineer || viewMode === 'god' ? [50, 50] : [50, 70]}
             headingDeg={(ownShip.pose?.heading ?? 0) * 180 / Math.PI}
             outerRadiusPx={320}
+            mapRef={externalMapRef}
+            ownShip={ownShip}
           />
         )}
 
@@ -300,7 +310,7 @@ export function SimulationMonitor() {
           </div>
         )}
 
-        <div style={{ position: 'absolute', bottom: 64, left: 16, zIndex: 15 }}>
+        <div style={{ position: 'absolute', top: 24, right: 16, zIndex: 15 }}>
           <CompassRose bearing={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0} relativeMode={viewMode === 'captain'} />
         </div>
         <PpiRings centerFraction={viewMode === 'captain' ? [50, 70] : [50, 50]} radiiPx={[40, 80, 160, 320]} />
@@ -308,28 +318,62 @@ export function SimulationMonitor() {
           <DistanceScale nmPerPixel={0.01} />
         </div>
 
-        <div style={{ position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
-          <ThreatRibbon />
-        </div>
-
-        <div className="glass-panel" style={{
-          position: 'absolute', top: 24, right: 16, zIndex: 15,
-          display: 'flex', gap: 4, borderRadius: 6, padding: 4,
-        }}>
-          {(['captain', 'engineer', 'roc'] as const).map((mode) => (
-          <button key={mode} onClick={() => setViewMode(mode)} style={{
-            background: viewMode === mode ? '#2dd4bf22' : 'transparent',
-            color: viewMode === mode ? '#2dd4bf' : '#8A9AAD',
-            border: 'none', padding: '5px 12px', borderRadius: 4, cursor: 'pointer',
-            fontFamily: 'var(--f-disp)', fontSize: isRoc && mode === 'roc' ? 14 : 10, letterSpacing: 1,
-            fontWeight: viewMode === mode ? 700 : 500, textTransform: 'uppercase',
+        
+        {/* Engineer info overlay panels — E2E test targets (sat2, sat3, sotif) */}
+        {(isEngineer || viewMode === 'god') && (
+          <div style={{
+            position: 'absolute', top: 24, right: 16, zIndex: 25,
+            display: 'flex', gap: 6, flexDirection: 'column',
+            fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)',
+            pointerEvents: 'none',
           }}>
-              {mode === 'engineer' ? 'ENG' : mode === 'captain' ? 'CAPT' : 'ROC'}
-            </button>
-          ))}
-        </div>
+            {sat2 && (
+              <div data-testid="ivp-contribution-panel" style={{
+                background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
+                borderRadius: 4, padding: '5px 10px', minWidth: 150,
+              }}>
+                <span style={{ color: 'var(--c-phos)', fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  M4 IvP
+                </span>
+                <div style={{ marginTop: 1 }}>
+                  {sat2.active_behavior ?? '-'} @ {(sat2.active_behavior_weight * 100).toFixed(0)}%
+                  {' | '}{sat2.reasoning_latency_ms}ms
+                </div>
+              </div>
+            )}
+            {sat3 && (
+              <div data-testid="trajectory-panel" style={{
+                background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
+                borderRadius: 4, padding: '5px 10px', minWidth: 150,
+              }}>
+                <span style={{ color: 'var(--c-phos)', fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  M5 Trajectory
+                </span>
+                <div style={{ marginTop: 1 }}>
+                  {sat3.trajectory_candidates.length} candidates
+                  {sat3.uncertainty_bands ? ' · bands' : ''}
+                </div>
+              </div>
+            )}
+            {sotifMetrics && (
+              <div data-testid="sotif-metrics-panel" style={{
+                background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
+                borderRadius: 4, padding: '5px 10px', minWidth: 150,
+              }}>
+                <span style={{ color: 'var(--c-phos)', fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  M7 SOTIF
+                </span>
+                <div style={{ marginTop: 1 }}>
+                  σ={sotifMetrics.ais_radar_consistency_sigma.toFixed(1)}
+                  {' | '}RMS={sotifMetrics.target_predictability_rms_m.toFixed(0)}m
+                  {' | '}cov={sotifMetrics.perception_coverage_pct.toFixed(0)}%
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
-        {isEngineer && (
+        {(isEngineer || viewMode === 'god') && (
           <>
             <button
               data-testid="left-drawer-toggle"
@@ -358,18 +402,20 @@ export function SimulationMonitor() {
           </>
         )}
 
-        {isEngineer && leftDrawerOpen  && <LeftDrawer />}
-        {isEngineer && rightDrawerOpen && <RightDrawer />}
+        {(isEngineer || viewMode === 'god') && leftDrawerOpen  && <LeftDrawer />}
+        {(isEngineer || viewMode === 'god') && rightDrawerOpen && <RightDrawer />}
 
-        {showFaultModal && <FaultInjectPanel onClose={() => setShowFaultModal(false)} />}
+        {viewMode === 'god' && <FaultInjectPanel />}
 
         <TorModal />
+
+        {/* Map layer switcher — bottom-right, above the zoom controls */}
+        <div style={{ position: 'absolute', bottom: 68, right: 20, zIndex: 20 }}>
+          <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
+        </div>
       </div>
 
       {isEngineer && <DecisionChainTimingBar pulses={modulePulses} />}
-
-      {/* ConningBar — captain/ROC IEC 62288 S-Mode */}
-      {!isEngineer && <ConningBar viewMode={viewMode} />}
 
       <div style={{
         height: 48, background: 'var(--bg-1)', borderTop: '1px solid var(--line-2)',
