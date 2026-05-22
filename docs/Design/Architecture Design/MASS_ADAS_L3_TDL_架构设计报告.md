@@ -818,11 +818,27 @@ flowchart TD
 
 ## 第十章 M5 — Tactical Planner
 
-### 10.1 决策原因
+### 10.1 算法选型矩阵 [D2.8 新增]
+
+M5 Tactical Planner 候选算法评估。评分 1-5（5 最优）。当前默认路径已锁定（Mid-MPC），其余算法仅在特定降级场景激活。
+
+**置信度**：🟢 High（MPC 选型有 Phase 1 SIL 实测 + DNV-CG-0264 §9 白盒要求两个独立来源支持）
+
+| 候选算法 | 实时性（≤1 Hz 帧内求解）| CCS 白盒可审计性 | COLREG 约束表达 | SIL 验证成本 | 总评 |
+|---|---|---|---|---|---|
+| **Mid-MPC N=18/90s** ✅ | 5（CasADi 25ms 实测）| 5（状态轨迹全可视）| 5（约束直接入 QP）| 5（D2.5 pipeline 已建）| **25 — 默认路径** |
+| RRT* | 3（树扩展不确定）| 3（路径采样难审计）| 2（COLREGs 需后处理）| 2（场景 coverage 难量化）| 10 — 障碍物密集 + MPC 超时时备用 |
+| VO（Velocity Obstacle）| 4（反应快）| 4（几何直观）| 3（Rule 8 大动作不自然）| 3（VO + COLREGs patch 验证量大）| 14 — BC-MPC 降级时辅助 |
+| MPPI | 2（GPU 依赖，OT 兼容差）| 1（采样轨迹难审计）| 3（代价函数可编码）| 1（OT 实机部署风险高）| 7 — Phase 4 研究选项，不入认证路径 |
+
+> **降级激活**：RRT* 在障碍物密度 > 8 目标/nm² 且 Mid-MPC 求解连续超时（> 30ms × 3 次）时激活；VO 在 BC-MPC 求解失败时辅助；MPPI 不在 D1-D3 认证路径中。
+> **D-task 联动**：D3.2 M5 完整实现时以此矩阵验证选型；D4.6 RL 对抗启动时 MPPI 路径重评。
+
+### 10.2 决策原因
 
 Tactical Planner（M5）是 TDL 中计算强度最高的模块，负责将 M4 的行为计划和 M6 的规则约束转化为可执行的轨迹指令。采用双层 MPC 架构（Mid-MPC + BC-MPC）的核心原因是：**单层 MPC 无法同时满足长时域规划（COLREG 合规）和短时反应（紧急碰撞规避）的时间尺度需求**。
 
-### 10.2 双层 MPC 设计
+### 10.3 双层 MPC 设计
 
 ```mermaid
 graph LR
@@ -858,7 +874,7 @@ graph LR
 > - 跨团队接口契约清晰：L4 须支持双模式切换（normal_LOS / avoidance_planning / reactive_override）
 > - 弃用方案 A 理由：让 L4 旁路自身 LOS 转发 M5 (ψ, u, ROT) 会浪费 L4 现有 LOS+WOP 设计，且 M5 须自行处理漂流补偿 / look-ahead 等本应 L4 职责的功能
 
-### 10.3 Mid-MPC 详细设计
+### 10.4 Mid-MPC 详细设计
 
 Mid-MPC 采用线性化 MPC，优化问题定义为：
 
@@ -878,7 +894,7 @@ s.t.
   CPA_safe(ODD-A) = 1.0 nm，CPA_safe(ODD-B) = 0.3 nm
 ```
 
-### 10.4 BC-MPC 详细设计
+### 10.5 BC-MPC 详细设计
 
 BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选航向并选择最坏情况 CPA 最大的分支：
 
@@ -894,7 +910,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
   ψ_optimal = argmax_{ψ_i} min_{intent} CPA(ψ_i, intent)
 ```
 
-### 10.5 FCB 高速船型修正
+### 10.6 FCB 高速船型修正
 
 45m FCB 在高速段（> 15 kn）的操纵特性与 MMG 标准方法的低速假设存在显著偏差，须在 Hydro Plugin 中实现 Yasukawa & Yoshimura（2015）的完整 4-DOF MMG 模型 [R7]，并针对半滑行船型补充以下修正：
 
@@ -903,7 +919,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 - **波浪扰动模型**：Hs > 1.5 m 时须引入波浪扰动项，参照 Yasukawa & Yoshimura（2015）4-DOF MMG 标准方法的波浪修正章节 [R7]
   > **v1.1 修订 [F-P1-D9-024]**：v1.0 此处曾引用 "Yasukawa & Sano 2024 [R21]" 近岸修正，但来源未在 JMSE/JMSTech 数据库确证（疑似引用幻觉），已从参考文献移除。FCB 实船试航后 HAZID 校准如需更精细的近岸修正，作为 v1.2 / spec part 2 议题处理。
 
-### 10.6 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
+### 10.7 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
 
 当 `EnvironmentState.in_tss = true` 时，Mid-MPC 状态约束加入 TSS lane polygon：
 
@@ -912,7 +928,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 - 形式化保证：MPC 求解的轨迹完全位于指定 lane 内，不偏离至对向 lane 或分隔带
 - COLREGs Rule 10 推理由 M6 提供（v1.0 §9 已含 Rule 10 条款）；本节补充 §10 MPC 几何约束层的实现
 
-### 10.7 人工接管时 M5 行为 [F-P2-D6-037 新增]
+### 10.8 人工接管时 M5 行为 [F-P2-D6-037 新增]
 
 Hardware Override Arbiter 激活（M1 接收 `override_active` 信号 → 通知 M5）时：
 
@@ -922,7 +938,7 @@ Hardware Override Arbiter 激活（M1 接收 `override_active` 信号 → 通知
 - ASDR 在接管期间标记所有 M5 输出为 `"overridden"`
 - 回切（Arbiter 解除接管）时 M5 重新读取当前状态 + 重启 Mid-MPC + BC-MPC（积分项重置；详见 §11.8）
 
-### 10.8 决策依据
+### 10.9 决策依据
 
 [R20] Eriksen, Bitar, Breivik et al.（2020）Frontiers in Robotics & AI 7:11 — BC-MPC 算法原理
 [R7] Yasukawa & Yoshimura（2015）J Mar Sci Tech 20:37–52 — MMG 标准方法（含波浪修正章节）
