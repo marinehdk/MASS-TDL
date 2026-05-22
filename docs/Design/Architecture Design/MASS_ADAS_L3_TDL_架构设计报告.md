@@ -1242,6 +1242,22 @@ SAT-3（预测与不确定性，What will happen next）:
 | 冲突 COLREGs Avoidance | SAT-2 推送展开（含 Rule 依据 + IvP 仲裁摘要）|
 | MRC 准备 / 进行中 | SAT-3 优先级最高，全屏 / 加粗展示 + 接管时窗倒计时 |
 
+#### 12.3.1 船长心智模型 Ground Truth（D2.6 访谈结果）[D2.8 stub — TBD-D2.6]
+
+5 位 FCB 类场景经验船长的 HF 访谈结果接收位。D2.6 完成（目标 7/13）后填充此表。D3.4 M8 完整实装时以此表为 SAT-1/2/3 接口细节输入。
+
+**[TBD-D2.6]** — 填充时间：D2.6 交付后（7/13）
+
+| 船长 ID | 关注信息优先级 | 干预阈值（CPA/TCPA）| 信任触发 | 不信任触发 | 关键 UX 引言 |
+|---|---|---|---|---|---|
+| Captain #1 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #2 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #3 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #4 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #5 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+
+> **D-task 联动**：D2.6（7/13 填充此表）→ D3.4 M8 完整（以此表为 SAT 接口细节输入）。
+
 ### 12.4 责任移交协议
 
 责任移交（Transfer of Responsibility，ToR）是 MASS Code 要求的强制功能 [R2]，必须满足：
