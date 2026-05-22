@@ -3,9 +3,9 @@
 | 属性 | 值 |
 |---|---|
 | 文档编号 | SANGO-ADAS-L3-ARCH-001 |
-| 版本 | **v1.1.3-pre-stub**（基于 v1.1.2 + 2026-05-06 patch1/2 + 2026-05-09 SIL 框架架构 patch — 选项 D 混合架构锁定）|
-| 日期 | 2026-05-09 |
-| 状态 | 正式设计稿 + SIL 框架架构锁定（接口契约跨团队锁定；选项 D 混合架构 + DNV 工具链 3 MUST + RL 隔离三层 + 结构化评分 + Web HMI 路线已锁；D2.8 7/31 合入 v1.1.3 stub 主体；D3.8 8/31 v1.1.3 完整化）|
+| 版本 | **v1.1.3-stub**（基于 v1.1.3-pre-stub + D2.8 2026-07-31：§16-§22 新建/迁入，附录 F 退役，4 缺失模块 stub，CCS/DNV 邀请发出）|
+| 日期 | 2026-07-31 |
+| 状态 | 正式设计稿 + SIL 框架架构锁定（接口契约跨团队锁定；选项 D 混合架构 + DNV 工具链 3 MUST + RL 隔离三层 + 结构化评分 + Web HMI 路线已锁；D2.8 7/31 合入 v1.1.3 stub 主体；D3.8 8/31 v1.1.3 完整化）；v1.1.3-stub 已完成（2026-07-31，D2.8）；§16-§22 已入；D3.8 2026-08-31 v1.1.3 完整化|
 | 目标船型 | 45m FCB（首发）· 多船型可扩展 |
 | 目标船级社 | CCS（中国船级社）单一入级 |
 | 自主等级覆盖 | D2 – D4 全谱 |
@@ -69,7 +69,14 @@
 13. 多船型参数化设计
 14. CCS 入级路径映射
 15. 接口契约总表
-16. 参考文献
+16. Cybersecurity Spec（Stub）[D2.8]
+17. SIL 框架架构 [D2.8]
+18. RL 隔离架构 [D2.8]
+19. 场景库与覆盖立方体方法论 [D2.8]
+20. 结构化 COLREGs 评分 [D2.8]
+21. Web HMI 与 ENC 集成 [D2.8]
+22. 延期支持模块 Stub [D2.8]
+23. 参考文献
 
 ---
 
@@ -279,6 +286,19 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
   T_comm_ok = 预计通信链路可用时长
   T_sys_health = 按当前降级状态估算的系统可靠维持时间
 ```
+
+**ToR 自适应矩阵 [D2.8 新增 — D2.1 实装参数输入]**
+
+操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[TBD-HAZID]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
+
+| 操作员状态 | ODD-A（正常运营）| ODD-B（受限运营）| ODD-C（边缘）| ODD-D（降级）|
+|---|---|---|---|---|
+| **ROC 在岗** | 60 s \| TDL ≤ TMR 触发 | 60 s \| TDL ≤ TMR 触发 | 45 s \| TDL ≤ 80 s | 30 s \| 立即 |
+| **桥楼备岗** | 90 s \| ODD EDGE + 通知 | 75 s \| TDL ≤ 1.5×TMR | 60 s \| TDL ≤ 100 s | 45 s \| 立即 |
+| **餐厅** | 120 s \| 计划切换点 | 90 s \| EDGE + 广播 | 75 s \| OUT 预警 | 60 s \| 立即 |
+| **睡舱** | 150 s \| D4→D3 预通知 | 120 s \| EDGE 强通知 | 90 s \| 叫醒 + ToR | 75 s \| MRC 准备 |
+
+> **[TBD-HAZID]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
 
 ### 3.5 ODD 状态机设计
 
@@ -805,11 +825,27 @@ flowchart TD
 
 ## 第十章 M5 — Tactical Planner
 
-### 10.1 决策原因
+### 10.1 算法选型矩阵 [D2.8 新增]
+
+M5 Tactical Planner 候选算法评估。评分 1-5（5 最优）。当前默认路径已锁定（Mid-MPC），其余算法仅在特定降级场景激活。
+
+**置信度**：🟢 High（MPC 选型有 Phase 1 SIL 实测 + DNV-CG-0264 §9 白盒要求两个独立来源支持）
+
+| 候选算法 | 实时性（≤1 Hz 帧内求解）| CCS 白盒可审计性 | COLREG 约束表达 | SIL 验证成本 | 总评 |
+|---|---|---|---|---|---|
+| **Mid-MPC N=18/90s** ✅ | 5（CasADi 25ms 实测）| 5（状态轨迹全可视）| 5（约束直接入 QP）| 5（D2.5 pipeline 已建）| **25 — 默认路径** |
+| RRT* | 3（树扩展不确定）| 3（路径采样难审计）| 2（COLREGs 需后处理）| 2（场景 coverage 难量化）| 10 — 障碍物密集 + MPC 超时时备用 |
+| VO（Velocity Obstacle）| 4（反应快）| 4（几何直观）| 3（Rule 8 大动作不自然）| 3（VO + COLREGs patch 验证量大）| 14 — BC-MPC 降级时辅助 |
+| MPPI | 2（GPU 依赖，OT 兼容差）| 1（采样轨迹难审计）| 3（代价函数可编码）| 1（OT 实机部署风险高）| 7 — Phase 4 研究选项，不入认证路径 |
+
+> **降级激活**：RRT* 在障碍物密度 > 8 目标/nm² 且 Mid-MPC 求解连续超时（> 30ms × 3 次）时激活；VO 在 BC-MPC 求解失败时辅助；MPPI 不在 D1-D3 认证路径中。
+> **D-task 联动**：D3.2 M5 完整实现时以此矩阵验证选型；D4.6 RL 对抗启动时 MPPI 路径重评。
+
+### 10.2 决策原因
 
 Tactical Planner（M5）是 TDL 中计算强度最高的模块，负责将 M4 的行为计划和 M6 的规则约束转化为可执行的轨迹指令。采用双层 MPC 架构（Mid-MPC + BC-MPC）的核心原因是：**单层 MPC 无法同时满足长时域规划（COLREG 合规）和短时反应（紧急碰撞规避）的时间尺度需求**。
 
-### 10.2 双层 MPC 设计
+### 10.3 双层 MPC 设计
 
 ```mermaid
 graph LR
@@ -845,7 +881,7 @@ graph LR
 > - 跨团队接口契约清晰：L4 须支持双模式切换（normal_LOS / avoidance_planning / reactive_override）
 > - 弃用方案 A 理由：让 L4 旁路自身 LOS 转发 M5 (ψ, u, ROT) 会浪费 L4 现有 LOS+WOP 设计，且 M5 须自行处理漂流补偿 / look-ahead 等本应 L4 职责的功能
 
-### 10.3 Mid-MPC 详细设计
+### 10.4 Mid-MPC 详细设计
 
 Mid-MPC 采用线性化 MPC，优化问题定义为：
 
@@ -865,7 +901,7 @@ s.t.
   CPA_safe(ODD-A) = 1.0 nm，CPA_safe(ODD-B) = 0.3 nm
 ```
 
-### 10.4 BC-MPC 详细设计
+### 10.5 BC-MPC 详细设计
 
 BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选航向并选择最坏情况 CPA 最大的分支：
 
@@ -881,7 +917,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
   ψ_optimal = argmax_{ψ_i} min_{intent} CPA(ψ_i, intent)
 ```
 
-### 10.5 FCB 高速船型修正
+### 10.6 FCB 高速船型修正
 
 45m FCB 在高速段（> 15 kn）的操纵特性与 MMG 标准方法的低速假设存在显著偏差，须在 Hydro Plugin 中实现 Yasukawa & Yoshimura（2015）的完整 4-DOF MMG 模型 [R7]，并针对半滑行船型补充以下修正：
 
@@ -890,7 +926,19 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 - **波浪扰动模型**：Hs > 1.5 m 时须引入波浪扰动项，参照 Yasukawa & Yoshimura（2015）4-DOF MMG 标准方法的波浪修正章节 [R7]
   > **v1.1 修订 [F-P1-D9-024]**：v1.0 此处曾引用 "Yasukawa & Sano 2024 [R21]" 近岸修正，但来源未在 JMSE/JMSTech 数据库确证（疑似引用幻觉），已从参考文献移除。FCB 实船试航后 HAZID 校准如需更精细的近岸修正，作为 v1.2 / spec part 2 议题处理。
 
-### 10.6 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
+
+**FCBPlugin 4-DOF 适用性边界 [D2.8 新增 — 架构权威声明]**
+
+| 条件 | 规则 | 实现路径 |
+|---|---|---|
+| `SOG ≤ 12 kn` AND `hull_class ≠ SEMI_PLANING` | **4-DOF 适用**（Yasukawa 2015 [R7]）| `FCBPlugin::DisplacementMMG::step()` |
+| `hull_class == SEMI_PLANING` | **6-DOF 激活**（Savitsky / semi-planing empirical）| D2.1 stub → D3.2 完整 |
+| `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学）| Phase 4 实装 D4.7 |
+
+> **[TBD-HAZID]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
+> **D-task 联动**：D1.3a（FCBPlugin 实装）/ D2.1 M1 ODD（hull_class 判断接口）/ D3.2 M5 完整（6-DOF 实装）。
+
+### 10.7 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
 
 当 `EnvironmentState.in_tss = true` 时，Mid-MPC 状态约束加入 TSS lane polygon：
 
@@ -899,7 +947,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 - 形式化保证：MPC 求解的轨迹完全位于指定 lane 内，不偏离至对向 lane 或分隔带
 - COLREGs Rule 10 推理由 M6 提供（v1.0 §9 已含 Rule 10 条款）；本节补充 §10 MPC 几何约束层的实现
 
-### 10.7 人工接管时 M5 行为 [F-P2-D6-037 新增]
+### 10.8 人工接管时 M5 行为 [F-P2-D6-037 新增]
 
 Hardware Override Arbiter 激活（M1 接收 `override_active` 信号 → 通知 M5）时：
 
@@ -909,7 +957,7 @@ Hardware Override Arbiter 激活（M1 接收 `override_active` 信号 → 通知
 - ASDR 在接管期间标记所有 M5 输出为 `"overridden"`
 - 回切（Arbiter 解除接管）时 M5 重新读取当前状态 + 重启 Mid-MPC + BC-MPC（积分项重置；详见 §11.8）
 
-### 10.8 决策依据
+### 10.9 决策依据
 
 [R20] Eriksen, Bitar, Breivik et al.（2020）Frontiers in Robotics & AI 7:11 — BC-MPC 算法原理
 [R7] Yasukawa & Yoshimura（2015）J Mar Sci Tech 20:37–52 — MMG 标准方法（含波浪修正章节）
@@ -1111,6 +1159,33 @@ T0+150 ms: ASDR 标记 "override_released" 事件 + 记录回切顺序时间戳
 
 ---
 
+### 11.10 L3 内部仲裁优先级矩阵 [D2.8 新增 — Finding D P1-D-08 关闭]
+
+L3 TDL 三类横向干预通道的仲裁优先级。高优先级通道可覆盖低优先级通道；被覆盖通道冻结输出。
+
+**优先级顺序（1 = 最高）**：
+
+1. **Hardware Override**（零软件硬连线 Z-BOTTOM）— L3 完全冻结
+2. **Y-axis Reflex Arc**（< 500 ms，直达 L5）— L3 输出被覆盖，M7 告警保留
+3. **X-axis Deterministic Checker VETO** — M7 接收 `CheckerVetoNotification` 触发 MRM
+4. **M7 Doer-Checker 内部否决** — 发布 `Safety_AlertMsg` + `recommended_mrm`，M1 执行 MRM
+5. **M1 ODD 状态切换**（软件决策，最低）— 广播 `ODD_StateMsg`，M4/M5 切换行为集
+
+**触发状态 × 横向通道矩阵**：
+
+| 横向通道 | ODD IN（D4 正常）| CRITICAL / ODD_OUT | 人工接管激活 |
+|---|---|---|---|
+| Hardware Override | 不活跃 | 优先级 1，立即接管 | 优先级 1，L3 完全冻结 |
+| Y-axis Reflex Arc | 监控中（CPA < 200m 触发）| 优先级 2，与 MRC 并行 | 继续运行（不受 L3 冻结约束）|
+| X-axis Det. Checker | 低频 VETO 接收 | 优先级 3，强制 MRM | Override 期间暂停（§11.8）|
+| M7 Doer-Checker | 连续监控，SOTIF 双轨 | 优先级 4，MRM 触发 | 暂停主仲裁，保留降级告警（§11.9.1）|
+| M1 ODD 状态 | 1 Hz 周期 + 事件 | 优先级 5，MRC 序列 | OVERRIDDEN 模式（§11.8）|
+
+> **独立性保证**：Hardware Override 和 Y-axis Reflex Arc 的触发路径不经过任何 L3 软件（含 M7）。L3 仅接收通知（`ReflexActivationNotification` / `OverrideActiveSignal`），不参与触发决策。
+> **D-task 联动**：D2.1 M1（实装矩阵中 M1 行）/ D2.5 SIL 集成（验证优先级通道在 SIL 可测试）/ D3.3b SOTIF（M7 行详细场景分析）。
+
+---
+
 ## 第十二章 M8 — HMI / Transparency Bridge
 
 ### 12.1 决策原因
@@ -1173,6 +1248,22 @@ SAT-3（预测与不确定性，What will happen next）:
 | 常态 Transit | 仅 SAT-1 全展示，SAT-2/3 简化（按 §12.2 触发规则）|
 | 冲突 COLREGs Avoidance | SAT-2 推送展开（含 Rule 依据 + IvP 仲裁摘要）|
 | MRC 准备 / 进行中 | SAT-3 优先级最高，全屏 / 加粗展示 + 接管时窗倒计时 |
+
+#### 12.3.1 船长心智模型 Ground Truth（D2.6 访谈结果）[D2.8 stub — TBD-D2.6]
+
+5 位 FCB 类场景经验船长的 HF 访谈结果接收位。D2.6 完成（目标 7/13）后填充此表。D3.4 M8 完整实装时以此表为 SAT-1/2/3 接口细节输入。
+
+**[TBD-D2.6]** — 填充时间：D2.6 交付后（7/13）
+
+| 船长 ID | 关注信息优先级 | 干预阈值（CPA/TCPA）| 信任触发 | 不信任触发 | 关键 UX 引言 |
+|---|---|---|---|---|---|
+| Captain #1 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #2 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #3 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #4 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| Captain #5 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+
+> **D-task 联动**：D2.6（7/13 填充此表）→ D3.4 M8 完整（以此表为 SAT 接口细节输入）。
 
 ### 12.4 责任移交协议
 
@@ -1246,6 +1337,40 @@ ToR 协议要求操作员在接管确认 UI 中**主动点击"已知悉 SAT-1 �
 [R2] IMO MASS Code Part 2 Chapter 1（运行环境）+ HMI 章节 — Transfer of Responsibility 强制要求
 [R23] **Veitch & Alsos**（2022）"From captain to button-presser"，Journal of Physics: Conference Series 2311(1)，NTNU Shore Control Lab — 从"船长"到"按钮操作员"的认知退化研究 [F-P2-D1-025 作者归属修正]
 [R5-aug] USAARL（2026-02）+ NTNU Handover/Takeover（2024）— 透明度悖论 + SAT 层偏好实证（v1.1 新增引用，详见 §12.2 自适应触发规则）
+
+### 12.6 人员资质 / 培训 / 演练 [D2.8 新增]
+
+本节定义 L3 TDL 操作员资质要求框架。完整矩阵由 D2.6（7/27 可用性测试）和 D3.5' 培训课程大纲填充。
+
+#### 12.6.1 ROC 操作员资质要求 stub
+
+**知识维度**（最低要求，**[TBD-D2.6]** 最终确认）：
+- COLREG Rules 5-19 在 D2-D4 自主等级下的适用边界
+- L3 TDL ODD 子域概念 + M1-M8 功能职责
+- ToR 协议（§12.4）操作流程 + 60-150 s 接管窗口矩阵（§3.4）
+- SAT-1/2/3 界面（§12.2）读法 + M7 Doer-Checker verdict 解读
+
+**最低持证要求**：**[TBD-D2.6]**（STCW 证书等级 + L3 专项证书路径，待 HF 咨询 + CCS 确认）
+
+#### 12.6.2 培训矩阵 stub
+
+**[TBD-D2.6]** — 填充时间：D2.6 可用性测试报告（目标 7/27）
+
+| 角色 | 培训科目 | 时长 (h) | 验收标准 |
+|---|---|---|---|
+| ROC 主操作员 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| ROC 备用操作员 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| 船长（监督角色）| [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+| 维护工程师 | [TBD-D2.6] | [TBD-D2.6] | [TBD-D2.6] |
+
+#### 12.6.3 定期演练制度 stub
+
+**演练频率**（初始建议，**[TBD-HAZID]** 校准）：
+- 月度：ToR 演练（≥ 2 次 / 月，覆盖 ROC 在岗 + 桥楼备岗场景）
+- 季度：DEGRADED 场景演练（传感器降质 + ODD EDGE）
+- 年度：CRITICAL 场景预演（ODD_OUT + MRC 启动 + 完整接管，SIL 仿真）
+
+> **D-task 联动**：D2.6（7/27 填充 §12.6.2）/ D3.5' 培训课程大纲（完整化 §12.6.1/§12.6.3）/ D4.5' 船长/ROC 模拟器认证（最终版本输入）。
 
 ---
 
@@ -1329,6 +1454,19 @@ public:
 | 70m PSV | 更大尺寸，DP 系统，较慢响应 | 全新水动力插件 + Manifest | 零修改 |
 | 长江内河船 | 内水规则（非 COLREGs） | 插件 + M6 规则库切换 + Manifest 增加 rules_lib_path | M6 增加 rules_loader 插件接口（架构级修改，非纯参数化扩展，须独立版本分支）[F-P2-D4-027] |
 
+### 13.6 验证与确认策略前向指针 [D2.8 新增]
+
+本节为 L3 TDL 各验证层的前向导航表。架构报告不重复 V&V 规划细节；完整规划见各策略文档。架构决策与 V&V 的双向联动通过 D-task 联动表维护。
+
+| 验证层 | 策略文档 | 关联 D-task | 状态 |
+|---|---|---|---|
+| **SIL（软件在环）** | [D1.5 V&V Plan](../Phase%201/D1.5-vv-plan-scenario-qual/V%26V_Plan/00-vv-strategy-v0.1.md) | D1.3c / D2.5 / D3.6 | ✅ v0.1 完成 2026-05-12 |
+| **场景覆盖率** | §19 场景库与覆盖立方体（本报告）+ D1.6/D1.7 | D1.6 / D1.7 / D3.6 | 🔴 D1.6/D1.7 stub 待 Phase 1 末 |
+| **模块级单元测试** | `src/l3_tdl_kernel/M*/test/` | 每 D{2.x} 模块 D-task | ⏳ 随 Phase 2 推进 |
+| **集成测试（M1-M6 联调）** | [D2.5 spec](../D2.5-sil-m1-m6-integration/D2.5-spec.md) | D2.5 | ⏳ 7/31 目标 |
+| **HIL（硬件在环）** | D4.1/D4.2（Phase 4 启动后建立）| D4.1 / D4.2 | ⏳ Phase 4（9 月起）|
+| **认证级实船试航** | D5.x（2027 Q1/Q2，AIP 受理后）| D5.x | ⏳ Phase 5 |
+
 ---
 
 ## 第十四章 CCS 入级路径映射
@@ -1391,6 +1529,23 @@ DNV-CG-0264（**2025.01** 现行版）§4 将自主船导航功能分解为 9 �
 ## 第十五章 接口契约总表
 
 > **v1.1 重写**：v1.0 §15 接口矩阵不闭包（缺 L1 上游 / ASDR / Reflex Arc / L3→L2 反向 / Override Arbiter），且 M5 → L2 错写应为 L4。v1.1 按 Phase 5 跨层对照实证补全 [F-P1-D4-031~035 + F-P1-D5-012 + F-P2-D5-013 + F-P2-D4-038]。
+
+### 15.0 时基与同步 [D2.8 新增]
+
+所有 L3 消息 `header.stamp` 必须使用同一 PTP 时钟源。任何节点使用系统墙钟（`std::chrono::system_clock`）记录 ASDR 时间戳均为错误。
+
+| 项目 | 规格 |
+|---|---|
+| **PTP Grandmaster** | IEEE 1588v2（PTPv2）；OT 侧部署于 GNSS disciplined master clock |
+| **同步误差预算** | L3 节点间时钟偏差 ≤ 1 ms（`/time/ptp_status` 话题监控）|
+| **`stamp` 字段强制** | 所有 L3 消息 IDL 必须携带 `header.stamp`（ROS2 builtin `Time`，含 sec + nanosec）|
+| **退化路径** | PTP 失锁（≥ 3 s）→ M1 发布 `ODD_EDGE`；系统降级至 ASSISTED；M8 显示"时钟失步"红色告警 |
+| **ASDR 时基** | ASDR JSONL 每行 `timestamp` 使用同一 PTP 时钟；禁止系统墙钟 |
+
+**置信度**：🟢 High（IEEE 1588v2 是 IACS UR E26 工控网络基准要求；ROS2 `rclcpp::Time` 内建 PTP 源绑定支持）
+
+> **D-task 联动**：D1.3c FMI 桥（dds-fmu latency 对照 ≤ 1 ms 预算）/ D2.5 SIL 集成（SIL 内 PTP 模拟路径）/ D3.9 RFC-007（PTP 时基安全性 + replay protection 接口）。
+
 
 ### 15.1 核心消息定义
 
@@ -1612,33 +1767,35 @@ message SAT_DataMsg {
 
 [F-P1-D4-031~035 + F-P1-D5-012 + F-P2-D5-013 + F-P2-D4-038 修订]
 
-| 发布者 → 订阅者 | 消息类型 | 频率 | 关键内容 |
-|---|---|---|---|
-| **L1 Voyage Order → M3** | VoyageTask | 事件 | 任务级参数（departure/destination/eta_window）**[F-P2-D4-038 新增]** |
-| **L2 WP_Generator → M3,M5** | PlannedRoute | 1 Hz / 事件 | 航点序列（含 wop_distance / turn_radius / safety_corridor）|
-| **L2 Speed_Profiler → M3,M5** | SpeedProfile | 1 Hz / 事件 | 速度曲线（含 phase=accel/cruise/decel）|
-| **Multimodal Fusion → M2** | TrackedTargetArray | 2 Hz | 目标列表（含 covariance / classification）|
-| **Multimodal Fusion → M2** | FilteredOwnShipState | 50 Hz | 自身状态（含对水 u/v + 海流估计）|
-| **Multimodal Fusion → M2** | EnvironmentState | 0.2 Hz | 能见度/海况/交通密度/zone_type/in_tss |
-| M1 → M2,M3,M4,M5,M6,M7,M8 | ODD_StateMsg | 1 Hz + 事件 | ODD 子域、AutoLevel、TMR/TDL |
-| M1 → M4 | Mode_CmdMsg | 事件 | 行为集约束变更 |
-| M2 → M3,M4,M5,M6 | World_StateMsg | 4 Hz | 目标列表（含 CPA/TCPA）+ 自身状态 + ENC 约束 |
-| M3 → M4 | Mission_GoalMsg | 0.5 Hz | 当前任务目标、航段、ETA |
-| **M3 → L2 Voyage Planner** | RouteReplanRequest | 事件 | 重规划请求（ODD 越界 / MRC / 冲突）**[F-P1-D4-035 新增]** |
-| **L2 Voyage Planner → M3** | ReplanResponseMsg | 事件 | 重规划响应（SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES）**[v1.1.2 RFC-006 新增]** |
-| M4 → M5 | Behavior_PlanMsg | 2 Hz | 行为类型、允许航向/速度区间 |
-| M6 → M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段 |
-| **M5 Mid-MPC → L4 Guidance Layer** | AvoidancePlanMsg | 1–2 Hz | WP[] + speed_adj（L4 覆盖 L2 PlannedRoute，自身 LOS+WOP → L5）**[F-P1-D5-012 + F-P1-D4-032 — v1.1 方案 B 升级]** |
-| **M5 BC-MPC → L4 Guidance Layer** | ReactiveOverrideCmd | 事件 / 上限 10 Hz | 紧急 (ψ, u, ROT)（L4 切换到 reactive_override 模式直接转发 → L5）**[v1.1 方案 B 紧急接口]** |
-| M7 → M1 | Safety_AlertMsg | 事件 | 告警类型、严重度、MRC 请求 + recommended_mrm 索引 |
-| **X-axis Checker → M7** | CheckerVetoNotification | 事件 | Checker 否决事件 **[F-P0-D3-002 + F-P2-D3-036 新增]** |
-| **Y-axis Reflex Arc → L5** | EmergencyCommand | 事件 | 紧急停车 / 转向 **[F-P1-D4-034 新增]** |
-| **Y-axis Reflex Arc → M1** | ReflexActivationNotification | 事件 | 通知 L3 进入 OVERRIDDEN 模式 **[F-P1-D4-034 新增]** |
-| **Hardware Override Arbiter → M1** | OverrideActiveSignal | 事件 | 通知 L3 切换到 OVERRIDDEN 模式（M5 冻结 / M7 暂停 SOTIF）**[F-P2-D6-037 新增]** |
-| **M1, M2, M3, M4, M5, M6, M7 → ASDR** | ASDR_RecordMsg | 事件 + 2 Hz | 决策追溯日志（JSON + SHA-256 签名）**[F-P1-D4-033 + v1.1.2 RFC-004 增补 M3/M5]** |
-| M1, M2–M7 → M8 | SAT_DataMsg | 10 Hz | 各模块 SAT-1/2/3 数据流（按 §12.2 自适应触发）|
-| M8 → ROC/Captain | UI_StateMsg | 50 Hz | 渲染就绪的 HMI 数据 |
-| M8 → ROC | ToR_RequestMsg | 事件 | 责任移交请求（含 60 s 时窗）|
+| 发布者 → 订阅者 | 消息类型 | 频率 | 关键内容 | auth_required | integrity_mechanism | replay_protection | dds_security_profile |
+|---|---|---|---|---|---|---|---|
+| **L1 Voyage Order → M3** | VoyageTask | 事件 | 任务级参数（departure/destination/eta_window）**[F-P2-D4-038 新增]** | none | crc32 | none | open |
+| **L2 WP_Generator → M3,M5** | PlannedRoute | 1 Hz / 事件 | 航点序列（含 wop_distance / turn_radius / safety_corridor）| none | crc32 | none | open |
+| **L2 Speed_Profiler → M3,M5** | SpeedProfile | 1 Hz / 事件 | 速度曲线（含 phase=accel/cruise/decel）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | TrackedTargetArray | 2 Hz | 目标列表（含 covariance / classification）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | FilteredOwnShipState | 50 Hz | 自身状态（含对水 u/v + 海流估计）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | EnvironmentState | 0.2 Hz | 能见度/海况/交通密度/zone_type/in_tss | none | crc32 | none | open |
+| M1 → M2,M3,M4,M5,M6,M7,M8 | ODD_StateMsg | 1 Hz + 事件 | ODD 子域、AutoLevel、TMR/TDL | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M1 → M4 | Mode_CmdMsg | 事件 | 行为集约束变更 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M2 → M3,M4,M5,M6 | World_StateMsg | 4 Hz | 目标列表（含 CPA/TCPA）+ 自身状态 + ENC 约束 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M3 → M4 | Mission_GoalMsg | 0.5 Hz | 当前任务目标、航段、ETA | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **M3 → L2 Voyage Planner** | RouteReplanRequest | 事件 | 重规划请求（ODD 越界 / MRC / 冲突）**[F-P1-D4-035 新增]** | none | crc32 | none | open |
+| **L2 Voyage Planner → M3** | ReplanResponseMsg | 事件 | 重规划响应（SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES）**[v1.1.2 RFC-006 新增]** | none | crc32 | none | open |
+| M4 → M5 | Behavior_PlanMsg | 2 Hz | 行为类型、允许航向/速度区间 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M6 → M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **M5 Mid-MPC → L4 Guidance Layer** | AvoidancePlanMsg | 1–2 Hz | WP[] + speed_adj（L4 覆盖 L2 PlannedRoute，自身 LOS+WOP → L5）**[F-P1-D5-012 + F-P1-D4-032 — v1.1 方案 B 升级]** | none | crc32 | none | open |
+| **M5 BC-MPC → L4 Guidance Layer** | ReactiveOverrideCmd | 事件 / 上限 10 Hz | 紧急 (ψ, u, ROT)（L4 切换到 reactive_override 模式直接转发 → L5）**[v1.1 方案 B 紧急接口]** | none | crc32 | none | open |
+| M7 → M1 | Safety_AlertMsg | 事件 | 告警类型、严重度、MRC 请求 + recommended_mrm 索引 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **X-axis Checker → M7** | CheckerVetoNotification | 事件 | Checker 否决事件 **[F-P0-D3-002 + F-P2-D3-036 新增]** | none | crc32 | none | open |
+| **Y-axis Reflex Arc → L5** | EmergencyCommand | 事件 | 紧急停车 / 转向 **[F-P1-D4-034 新增]** | none | crc32 | none | open |
+| **Y-axis Reflex Arc → M1** | ReflexActivationNotification | 事件 | 通知 L3 进入 OVERRIDDEN 模式 **[F-P1-D4-034 新增]** | none | crc32 | none | open |
+| **Hardware Override Arbiter → M1** | OverrideActiveSignal | 事件 | 通知 L3 切换到 OVERRIDDEN 模式（M5 冻结 / M7 暂停 SOTIF）**[F-P2-D6-037 新增]** | none | crc32 | none | open |
+| **M1, M2, M3, M4, M5, M6, M7 → ASDR** | ASDR_RecordMsg | 事件 + 2 Hz | 决策追溯日志（JSON + SHA-256 签名）**[F-P1-D4-033 + v1.1.2 RFC-004 增补 M3/M5]** | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M1, M2–M7 → M8 | SAT_DataMsg | 10 Hz | 各模块 SAT-1/2/3 数据流（按 §12.2 自适应触发）| hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M8 → ROC/Captain | UI_StateMsg | 50 Hz | 渲染就绪的 HMI 数据 | dds-auth | hmac-sha256 | ptp-window | ROC-link |
+| M8 → ROC | ToR_RequestMsg | 事件 | 责任移交请求（含 60 s 时窗）| dds-auth | hmac-sha256 | ptp-window | ROC-link |
+
+> **[D2.8 security columns 注]**：列值为 v1.1.3-stub 初始设计值。L3-internal 和 ROC-link DDS-Security policy XML 在 D3.9 RFC-007 交付。跨系统通道（X-axis / Y-axis / Hardware Override）安全性由物理隔离实现（§16.1 Zone 划分），不依赖 DDS-Security。完整 IACS UR E27 符合性分析见 D3.9。
 
 > **v1.1 关键变更说明**：
 > - 删除 v1.0 "M7 → M5 Emergency_CmdMsg 直接安全轨迹（绕过M4）" 行——M7 不再注入轨迹，改为通过 M7 → M1 Safety_AlertMsg 携带 recommended_mrm 索引（详见 ADR-001 + §11.2 + §11.6）
@@ -1648,7 +1805,564 @@ message SAT_DataMsg {
 
 ---
 
-## 第十六章 参考文献
+## 第十六章 Cybersecurity Spec（Stub）[D2.8 新增 — D3.9 RFC-007 完整化]
+
+本章为 L3 TDL 网络安全框架的 stub 规格，定义 L3 DDS 信任域边界、接口认证机制占位、ASDR 签名升级路径。完整实现（IACS UR E26/E27 分析 + DDS-Security policy XML）在 D3.9 RFC-007 中交付。
+
+**Finding 关闭**：F P0-F-01（cyber 架构位置占位）stub 级别关闭。
+
+### 16.1 信任域划分（Trust Zone）
+
+| Zone | 边界 | 内部协议 | 认证机制 |
+|---|---|---|---|
+| **Zone 1**（L3 DDS 内部）| OT 网络 + Data Diode | ROS2 DDS Humble | DDS-Security `L3-internal`（D3.9 完整化）|
+| **Zone 2**（ROC Shore Link）| DMZ + Data Diode + TLS | TLS 1.3 over DDS | DDS-Security `ROC-link` + mTLS |
+| **Zone 3**（ENC / Chart Server）| 只读 ingress，验证签名 | HTTPS | ENC 来源数字签名（CCS 认可来源）|
+| **Zone 4**（ASDR Evidence Store）| append-only，无删除接口 | JSONL + HMAC | HMAC-SHA256 签名链（§16.3）|
+
+信任域边界：Zone 1 ↔ Zone 2 通过 DMZ 上的 data diode 单向隔离；Zone 3 和 Zone 4 为 L3 发出方向（只写）。
+
+> **[TBD-D3.9]**：Zone 边界防火墙规则 / Zone 1 ↔ Zone 2 data diode 配置 / IACS UR E26 §4 网络分段完整映射。
+
+### 16.2 L3 接口安全矩阵
+
+接口安全分类引用 §15.2 新增 4 列（`auth_required` / `integrity_mechanism` / `replay_protection` / `dds_security_profile`）。
+
+**高风险接口**（D3.9 优先审查）：
+
+| 接口 | 风险原因 | D3.9 审查项 |
+|---|---|---|
+| M8 → ROC（ToR_RequestMsg）| 接管请求伪造 → 操作员错误接管 | ROC-link mTLS + 消息签名 |
+| M7 → M1（Safety_AlertMsg）| VETO 伪造 / 抑制 → 安全监控失效 | L3-internal HMAC + replay counter |
+| X-axis Checker → M7 | 跨系统接口，物理隔离为主保障 | Zone 1 物理路径审查 |
+| M8 → ROC（UI_StateMsg 50Hz）| 高频注入攻击面 | ROC-link rate limiting + auth |
+
+> **[TBD-D3.9]**：完整 IACS UR E27 §3 威胁模型 + 缓解措施映射。
+
+### 16.3 ASDR HMAC 升级 Stub
+
+**当前状态**：ASDR JSONL 每行携带 `signature` 字段（SHA-256 防篡改，§15.1 IDL）但密钥管理机制未定义。
+
+**D2.8 stub 升级路径**：
+- 目标：每行追加 `"hmac_sha256": "<64-char hex>"` — 将 SHA-256 升级为 HMAC-SHA256（密钥化）
+- 签名密钥来源：§22.2 Parameter Store `SafetyMargins` 话题中的 `asdr_hmac_key` 字段（Phase 4 D4.7 实装）
+- 代码占位：ASDR write 路径加注释 `// TODO[D3.9]: replace SHA256 with HMAC-SHA256, key from §22.2 Parameter Store`
+
+**完整实现**：D3.9 RFC-007（密钥管理 + 轮换 + IACS UR E27 §5 符合性）
+
+**[TBD-D3.9]**：密钥管理协议 / 密钥轮换机制 / Zone 4 append-only 强制机制。
+
+### 16.4 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D3.9 RFC-007 Cybersecurity | §16 完整化，IACS UR E26/E27 | 填充方 |
+| D2.1 M1 ODD | Zone 1 DDS-Security `L3-internal` 实装 | 消费方 |
+| D2.5 SIL 集成 | §16.3 ASDR TODO 注释实装 | 实现方 |
+
+### 16.5 前向引用
+
+| 话题 | 位置 |
+|---|---|
+| D3.9 完整 IACS UR E26/E27 分析 | `docs/Design/Phase 3/D3.9-rfc007-cybersecurity/`（D3.9 启动时建立）|
+| Zone 2 ROC-Link 接口细节 | `docs/Design/Cross-Team Alignment/RFC-decisions.md` RFC-005 |
+| DDS-Security policy XML | `src/l3_tdl_kernel/config/dds_security/`（D3.9 产出）|
+
+**置信度**：🟡 Medium — Zone 划分参照 IACS UR E26（2022）§4 概念；DDS-Security profile 细节需 D3.9 工程验证。
+
+---
+
+## 第十七章 SIL 框架架构 [D2.8 新增 — 原附录 F §F.1-F.3 迁入]
+
+本章定义 L3 TDL SIL（Software-in-the-Loop）测试框架的顶层架构，确保"测试目标即部署目标"——production C++/MISRA ROS2 节点直接运行于 SIL 内核。本章由 v1.1.3-pre-stub 附录 F §F.1-F.3 迁入，为架构报告永久章节。填充路径：D1.3c（FMI 桥实装）→ D2.5（50 场景 SIL 集成）→ D3.6（1000 场景扩展）。
+
+**Finding 关闭**：SIL P0 SIL-1（SIL 框架架构决策锁定）/ SIL-2（DNV 工具链 3 MUST）/ SIL-3（ROS2 Humble + RT 锁定）
+
+**[DNV-FEEDBACK-HOOK] §17.A**：以下内容依赖 DNV 验证官对 maritime-schema acceptance 的反馈（预计 7/31 后收到）：`maritime-schema TrafficSituation` 作为 evidence container 的 CCS 可接受性。若 CCS 不接受：回退路径 = maritime-schema 作内部表示 + 导出器（需 D3.8 patch）。本 hook 在 D3.8 完整化时根据反馈决议删除或替换。
+
+### 17.1 SIL Harness 架构（原 F.1）
+
+L3 TDL SIL 框架采用**选项 D 混合架构**：production C++/MISRA ROS2 Humble 节点（M1–M8）直接运行于 SIL 内核（保证"测试目标即部署目标"），FMI 2.0 / OSP `libcosim` 仅在 ship dynamics + 未来 RL FMU 边界使用，DNV `maritime-schema` 作 scenario / output 互认 schema [R25] [R27] [R28]。
+
+```
+┌─ SIL HARNESS BOUNDARY (Python/CI orchestration) ──────────┐
+│ Scenario YAML (maritime-schema TrafficSituation +         │
+│   FCB metadata 扩展) — farn 1100-cell case folder         │
+└──────────────┬─────────────────────────────────────────────┘
+               │ loads
+┌──────────────▼─────────────────────────────────────────────┐
+│ ROS2 Humble SIL graph (production C++/MISRA binaries)      │
+│                                                            │
+│ l1_world_model_mock ── /world_model/tracks ──► [M2 World]  │
+│ voyage_stub        ── /voyage/plan         ──► [M3 Mission]│
+│ ais_replay/synth   ── /ais/contacts        ──► [M2 World]  │
+│                                                            │
+│      [M1 ODD] [M2 World] [M3 Mission]                      │
+│         │       │           │                              │
+│         └─► [M4 Behavior Arbiter — Mid-MPC] ──┐            │
+│         └─► [M5 Tactical Planner — BC-MPC] ───┤            │
+│         └─► [M6 COLREGs Reasoner] ────────────┤            │
+│                       │                       │            │
+│                       ▼                       │            │
+│              [M7 Doer-Checker] ◄──────────────┘            │
+│              （严格 ROS2 native，不过 FMI 边界）           │
+│                       │                                    │
+│                       ▼                                    │
+│                /cmd/setpoint                               │
+│                       │                                    │
+│                       ▼                                    │
+│ [M8 HMI Bridge] ─/hmi/explain ──► Web HMI (MapLibre + ENC) │
+└──────────────┬─────────────────────────────────────────────┘
+               │ /cmd/thrust /cmd/rudder
+               ▼
+┌─ FMI 2.0 / OSP libcosim 边界（dds-fmu mediator）──────────┐
+│  ship_dynamics_node (FCBPlugin: 4-DOF≤12kn / 6-DOF>12kn)   │
+│   own-ship + N× target_ship_pool_node                      │
+│  Phase 4: target_policy.fmu (mlfmu-built, RL re-import)    │
+└──────────────┬─────────────────────────────────────────────┘
+               │ /own_ship/state, /target/N/state
+               ▼
+        (closes the loop into M2)
+
+证据记录 (out-of-band per tick):
+  CagaTimeStep Apache Arrow → evidence/<scenario_id>.parquet
+  + traceability CSV row (scenario_id ↔ git SHA ↔ vessel_params hash
+    ↔ HAZID ↔ rule clause ↔ 6 维度评分)
+```
+
+**三层模拟策略**（详见 [E1] §Q2）：
+
+| 层 | 实现 | Mode 切换（ROS2 launch arg）|
+|---|---|---|
+| L1（感知）| `world_model_mock` 节点 | `l1_mode := {synthetic \| ais_replay \| rosbag}` |
+| L2（航路规划）| `voyage_stub` 节点（YAML stub） | 不需细分模拟（任务慢变）|
+| L4 / L5（推进 + 自驾仪）| `ship_dynamics_node` (full MMG-in-the-loop, FMI/OSP) | 不退化为 command acceptor — BC-MPC Rule 8 鲁棒性依赖真实致动器延迟 |
+
+**禁止的反模式**：
+- ❌ 选项 A/C：Python orchestration 包装器作认证内核（CCS surveyor 会问"哪个 artefact 对应实船 binary"）
+- ❌ 选项 B：纯 ROS2 + 自定义 rosbag 评据（缺产业互认 scenario 语言）
+
+### 17.2 DNV 工具链锁定（原 F.2）
+
+| 工具 | 决策 | 引入时机 | 依据 |
+|---|---|---|---|
+| `dnv-opensource/maritime-schema` v0.2.x | **MUST** | D1.3b.1 | [R27] |
+| `open-simulation-platform/libcosim` (FMI 2.0) | **MUST** | D1.3c (NEW) | [R28] |
+| `dnv-opensource/farn` + `ospx` | **MUST** | D1.6 + D1.7 | [R29] |
+| `dnv-opensource/ship-traffic-generator` (`trafficgen`) | NICE-deferred | Phase 2 D2.4（50→200 场景扩展）| [R27] |
+| `dnv-opensource/mlfmu` (ONNX→FMU) | NICE-deferred | Phase 4 D4.6（B2 RL 启动）| [R29] [R30] |
+
+**ROS2 ↔ FMI 桥接边界**（D1.3c NEW，详见 [E3] §Architectural Integration）：
+- **Bridge mediator**：`dds-fmu` + 自定义 `libcosim::async_slave` C++ 实现
+- **延迟实测预算**：单次 exchange 2-10 ms（dds-fmu）
+- **关键边界规则**：**M7 Safety Supervisor 严格留 ROS2 native，不过 FMI 边界**。理由：M7 端到端 KPI < 10 ms（§11.4），dds-fmu 单次 exchange 即可吃掉 KPI。仅 ship dynamics（own + targets）+ 未来 RL FMU 走 OSP/FMI。
+- D1.5 V&V Plan 必须新增 SIL latency budget 子节，量化 dds-fmu jitter 上限并补偿至 GNC
+
+**ShipMotionSimulator 抽象层 + FCBPlugin（D1.3a 已实现，本附录补 FMI 导出契约）**：
+
+```cpp
+// fcb/sim/ship_motion_simulator.hpp  (MISRA C++:2023)
+class ShipMotionSimulator {
+public:
+  struct State { double u,v,r,x,y,psi; };
+  struct Cmd   { double rudder_rad, nps; };
+  virtual ~ShipMotionSimulator() = default;
+  virtual State step(const Cmd& c, double dt, const Disturbance& d) = 0;
+  virtual ModeTag mode() const = 0;   // DISPLACEMENT_4DOF | PLANING_6DOF
+};
+
+class FCBPlugin final : public ShipMotionSimulator {
+  DisplacementMMG mmg4_;   // wraps Yasukawa 2015 4-DOF (R7)
+  PlaningHull6DOF mmg6_;   // empirical Savitsky/semi-planing (D1.3a TODO Phase 2)
+  State step(const Cmd& c, double dt, const Disturbance& d) override {
+    return (last_speed_kn_ <= 12.0) ? mmg4_.step(c,dt,d) : mmg6_.step(c,dt,d);
+  }
+};
+// FMI 2.0 export via mlfmu/pythonfmu — D1.3c 实现
+```
+
+同 `FCBPlugin` 实例三种调用：(1) own-ship SIL（`ship_dynamics_node`）；(2) target-ship SIL（`target_ship_pool_node`，N× 实例）；(3) Phase 4 RL 训练（Gymnasium Env adapter，与 (1)/(2) **共享**插件，不 fork 模型）。
+
+**[TBD-D2.5]**：dds-fmu latency budget 实测值（D2.5 完成后更新 §17.2 预算表）。
+
+### 17.3 ROS2 + OS + RT 锁定（原 F.3）
+
+**ROS2 Humble + Ubuntu 22.04 + PREEMPT_RT 实时内核**。证据：
+- 实船 OT 部署约束（FCB onboard Ubuntu 22.04 + RT）
+- DNV 工具链最稳路径（[E3] §ROS2 Compatibility）
+- ROS2 Jazzy 官方目标 Ubuntu 24.04，22.04 用 Humble 是 LTS 路径
+
+**风险注**：DNV 工具链最新版部分需 Python 3.11+；Humble 默认 Python 3.10 — 需在容器内安装 3.11，作为 D1.3c sub-task 验证。
+
+### 17.4 D-task 联动
+
+| D-task | 联动内容 | 方向 | 目标时间 |
+|---|---|---|---|
+| D1.3c FMI 桥 | dds-fmu latency 实测值更新 §17.2 预算表 | 填充 | Phase 1 末 |
+| D2.5 SIL 集成 | 50 场景验证 §17.1 架构图各连接真实通 | 验证 | 7/31 |
+| D3.6 SIL 1000+ | 三层模拟策略 1000-cell 扩展验证 | 扩展 | Phase 3 |
+| D4.6 RL 对抗 | NICE-deferred mlfmu 实装，§17.2 更新 | 激活 | Phase 4 |
+
+---
+
+## 第十八章 RL 隔离架构 [D2.8 新增 — 原附录 F §F.4 迁入]
+
+本章定义 RL（强化学习）对抗生成器与认证核心（M1-M8）的三层强制隔离边界。即使 B2 RL 推 Phase 4 启动，本章在 v1.1.3 stub 中锁定边界规则，确保 Phase 1-3 仓库结构和 CI lint 提前合规，避免 Phase 4 启动时回退污染已审认证内核。
+
+**Finding 关闭**：SIL P0 SIL-4（RL 隔离三层边界锁定）
+**置信度**：🟡 Medium — DNV-RP-0671/0510/0513 直接条款引用在 D3.8 完整化时验证；架构报告 §F.4 对应 [R25][R30][R31]。
+
+### 18.1 三层隔离边界（原 F.4）
+
+即使 B2 RL 推 Phase 4（10–12 月）启动，RL 隔离 3 层边界须在 v1.1.3-pre-stub 锁定，并在 D1.3a/b 仓库结构 + CI lint rule 现在落地，避免 Phase 4 启动时回退污染已审认证内核。
+
+| 层 | 边界 | 强制实现 |
+|---|---|---|
+| **L1 Repo** | `/src/l3_tdl_kernel/**` (C++/MISRA, ROS2 nodes M1–M8, frozen, DNV-RP-0513 [R25] assured) vs `/src/sim_workbench/**`（Python sim 工具 / D1.3a-b 共用）vs `/src/rl_workbench/**`（Phase 4 启动；Python, Gymnasium, SB3）| 三 colcon 包独立；CI lint 检测 cross-import 即报错 |
+| **L2 Process** | RL 训练独立 Docker container；通过 OSP `libcosim` FMI socket 调相同 MMG FMU + scenario YAML，**绝不**触 C++ 代码 | docker-compose 隔离 namespace；只读挂载 certified binaries |
+| **L3 Artefact** | 训练完毕 ONNX → `mlfmu build` (Phase 4) → `target_policy.fmu` → `libcosim` 加载到 certified SIL；**Python/PyTorch 永不入 certified loop** | `mlfmu build` 是边界；FMU 进 evidence store 须经 DNV-RP-0671 [R30] 鉴定 |
+
+**Phase 4 启动条件**：4 缺失模块 / RL 启动前必须验证 D1.3a/b/c 已遵守 L1/L2 边界（git history audit 通过）。
+
+### 18.2 技术选型占位 [TBD-D4.6]
+
+- **L1 Repo 隔离**：单体 monorepo（`/src/rl_workbench/` 独立 colcon 包）；具体 CI lint rule 已在 D1.3a/D1.3b 仓库结构落地（§18.1 引用）
+- **L2 Process 隔离**：Docker compose 独立 namespace；K8s pod 隔离为 Phase 4 升级选项（D4.6 启动时评估）
+- **L3 Artefact**：`mlfmu build` → `target_policy.fmu` → evidence store；DNV-RP-0671 鉴定流程 **[TBD-D4.6]**
+
+### 18.3 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.3a / D1.3b | L1 Repo CI lint rule 已落地 → §18 引用确认 | 现状确认 |
+| D1.5 V&V Plan | §18.3 RL artefact 进 V&V 门条件 | 输入 |
+| D4.6 RL 对抗（Phase 4）| §18.2 全部 [TBD] 填充 + mlfmu 鉴定 | 激活 |
+
+**[TBD-D4.6]**：L2/L3 隔离完整技术规格 / mlfmu 鉴定流程 / DNV-RP-0671 条款映射。
+
+---
+
+## 第十九章 场景库与覆盖立方体方法论 [D2.8 新增 — 原附录 F §F.5-F.7 迁入]
+
+本章定义 L3 TDL 场景库工程体系：从 maritime-schema 场景语言到 Imazu-22 强制基线，再到 1100-cell 覆盖立方体和 AIS-driven authoring 工具链。本章为 V&V Plan（D1.5）的场景层补充，由 D1.3b.2（AIS tool）、D1.6（schema 规约）和 D3.6（1000 场景）持续填充。
+
+**Finding 关闭**：SIL P0 SIL-5（maritime-schema 替代决策）/ SIL-6（Imazu-22 + 1100-cell 方法论）/ F P0-F-02 + F P0-F-04 stub + MV-7~11 stub
+
+**[DNV-FEEDBACK-HOOK] §19.A**：`maritime-schema TrafficSituation` 作为 evidence container 的 CCS 接受度（同 §17.A，同一 hook）。7/31 后 DNV 反馈收到后 D3.8 patch。
+
+### 19.1 场景 Schema（原 F.5）
+
+D1.6 场景 schema 由"内部 Pydantic 强类型"改为"`maritime-schema` `TrafficSituation` 扩展" [R27]。FCB 项目专属字段（`scenario_id`, `hazid_refs`, `colregs_rules`, `odd_cell`, `disturbance`, `expected_outcome`, `seed`, `vessel_class`, `pass_criteria`）放入 `metadata.*` 扩展节点（schema 允许 additional properties）。
+
+完整模板见决策记录 §10（双 NTNU + maritime-schema 兼容样例）。
+
+**双语言验证**：Python 用 `cerberus` + `pydantic`（maritime-schema 原生）；C++ 用 `cerberus-cpp`（同 schema 文件，避免双套验证逻辑）。
+
+**CCS 接受度未解项** 🔴：D1.8 早期发函 CCS 技术中心确认 maritime-schema 作 evidence container 可行性；退路是 maritime-schema 退为内部表示 + 加导出器至 CCS 要求格式。
+
+### 19.2 场景库与覆盖立方体（原 F.6）
+
+- **Imazu-22 强制基线** [R38]：22 canonical 2/3/4-ship encounters（Imazu 1987 / Sawada 2021），freeze 为 `imazu22_v1.0.yaml` SHA256 hash 化，每 PR fast gate 必跑（D1.3b.1）
+- **覆盖立方体**：11 COLREG Rules（5,6,7,8,9,13,14,15,16,17,19）× 4 ODD subdomains × 5 disturbance bins × 5 seeds = **1100 cells**（D3.6）。证据：[R32] Hassani 2022 Sobol sampling
+- **Adversarial / Nominal / Boundary = 60 / 25 / 15 比例**：明确标注"内部启发式，**非外部标准**"。AV 文献对应 deductive (requirement-driven) ∪ inductive (data-driven)，60% adversarial 由 RL fuzzer (FREA/AuthSim style) 后置生成，不作 CCS 提交时引用为外部规范
+- **Monte Carlo LHS / Sobol 10000 sample**（D3.6 扩展）：在立方体之外，对关键参数（target ship 初始 bearing、SOG、感知噪声 σ、风流强度）跑 LHS/Sobol 抽样，输出 pass rate 95% CI + CPA min 分布 + Rule violation 频率
+- **Adversarial scenario 回路**：Phase 4 RL 对抗生成器产生新 schema-valid 场景；通过 schema validation + naturalness check 后追加场景库，是覆盖间隙关闭的工程机制
+
+### 19.3 AIS-driven 工具（原 F.7）
+
+参考 NTNU `colav-simulator` [R37] 工程模式，D1.3b.2 实现 AIS-driven scenario authoring：
+
+**5 阶段管线**：
+1. AIS DB 接入（PostGIS / Kystverket / NOAA MarineCadastre 开放数据）
+2. MMSI 分组 + 重排 + 去重 → 单船 track 时间序列
+3. 间隙判定（>5 min 拆段）+ Δt=0.5s 重采样 + NE 线性插值 + COG 圆形插值（避 360° wrap）+ Savitzky-Golay / Kalman 平滑 SOG/COG
+4. bbox + 时间窗 → DB 查询 → DCPA < 500m AND TCPA < N min → 提取 encounter 片段；坐标变换 WGS84 → local NE Cartesian (Transverse Mercator)
+5. COLREG 几何分类（Head-on / Crossing / Overtaking）+ maritime-schema YAML 导出（含 `metadata.*` 扩展字段）
+
+**3 种 target 运动模式**：
+
+| 模式 | 行为 | 引入时机 |
+|---|---|---|
+| `ais_replay_vessel` | 纯回放历史 track，**non-reactive**（不响应 own-ship 动作）| D1.3b.2（必）|
+| `ncdm_vessel` | NCDM 历史邻域统计 + Ornstein-Uhlenbeck 过程概率外推 | D2.4 |
+| `intelligent_vessel` | 目标船跑自己的 COLAV（VO / 简化 MPC），multi-agent 互动 | D3.6（1000 场景必备 multi-agent 论证）|
+
+**数据源**（用户决策 2026-05-09）：Phase 1-3 用 Kystverket + NOAA MarineCadastre 开放数据；Phase 4 实船试航前若 CCS 要求中国海域 AIS 再切。ENC demo 双区域：Trondheim Fjord（NTNU paper 复现）+ NOAA San Francisco Bay。
+
+### 19.4 D-task 联动
+
+| D-task | 联动内容 | 方向 | 目标时间 |
+|---|---|---|---|
+| D1.6 场景 schema | maritime-schema 扩展字段 + 双语言验证实装 | 填充 §19.1 | Phase 1 |
+| D1.3b.2 AIS tool | 5 阶段管线实装 + 数据源连通验证 | 填充 §19.3 | Phase 1/2 |
+| D3.6 SIL 1000+ | 1100-cell 覆盖立方体 full run + LHS/Sobol | 填充 §19.2 | Phase 3 |
+| D4.6 RL 对抗 | adversarial scenario 回路激活（§19.2 60%）| 激活 §19.2 | Phase 4 |
+
+**[TBD-D3.8]**：Monte Carlo 实测分布 / adversarial 60% 生成路径 / 60/25/15 比例最终辩护文件。
+
+---
+
+## 第二十章 结构化 COLREGs 评分 [D2.8 新增 — 原附录 F §F.8 迁入]
+
+本章定义 L3 TDL 结构化 COLREGs 评分方法：PASS/FAIL 二元判定保留基础上，增加 6 维度连续评分作为 CCS surveyor 论据。评分框架由 D1.7 和 D2.4 共同填充，本章为框架宿主。
+
+**Finding 关闭**：SIL P0 SIL-7（6D 评分框架锁定）/ F P1-F-03（COLREGs scoring 方法明确）
+**置信度**：🟡 Medium（6D 维度结构学术圈公认；具体权重需 D1.7 引 Hagen 2022 / Woerner 2019 原文确认）
+
+### 20.1 6 维度评分框架（原 F.8）
+
+D2.4 / D3.6 **PASS / FAIL 二元 verdict 保留**，**新增 6 维度连续评分**作为 CCS surveyor 论据 [R33] [R34]：
+
+| 维度 | 含义 | 算法 |
+|---|---|---|
+| **Safety score** | f(CPA_min / CPA_target) 连续 | [0,1]，CPA ≥ target → 1.0；线性退化到 0 at CPA=0 |
+| **Rule compliance score** | 每条适用 Rule 5/6/7/8/13-17/19 子准则离散评分 → 加权求和 | per-rule {full=1.0 / partial=0.5 / violated=0.0} |
+| **Delay penalty** | 决策启动相对 TCPA 阈值的延迟 | `P_delay = max(0, t_action - t_target_action) × λ_1` |
+| **Action magnitude penalty** | 转向幅度不足或过激（Rule 8 "大幅"）| < 30° 或 > 90° 扣分；2nd-order in deviation |
+| **Phase score** | 让路船 / 直航船角色行为合规度 | give-way 应早期大动作；stand-on 应保持课速直至 in extremis |
+| **Trajectory implausibility** | 物理可行性（避免 RL "作弊"）| M5 BC-MPC 解算约束自动满足；外部 target 检查曲率 + 加速度上限 |
+
+`total_score = w_s · safety + w_r · rule − p_delay − p_mag + w_p · phase`
+
+w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerner 2019 [R34] 原文细节填）。**置信度** 🟡 Medium（维度结构 NTNU/MIT 学术圈公认；具体权重需 D1.7 引原文）。**推翻信号**：若 D1.7 实施时发现维度与 CCS《智能船舶规范 2024》§9.1 性能验证条款不可对齐 → 改为按 CCS 条款重构。
+
+### 20.2 权重参数版本控制 [D2.8 新增]
+
+| 时间点 | 状态 |
+|---|---|
+| D2.8 stub（当前）| w_s / w_r / w_p / λ_1 = **[TBD-D1.7]**（待 D1.7 Hagen 2022 原文细节）|
+| D2.4 实装后 | D2.4 report 提交权重 stub；§20 只引用，不 override |
+| D3.6 1000 场景后 | 用实测 score distribution 回检权重合理性（推翻信号）|
+
+### 20.3 与 D2.4 联动协议
+
+§20 定义框架（维度 + 公式结构），D2.4 填充参数（权重 + per-rule threshold）。
+
+- D2.4 完成后：PR 仅更新 §20.2 权重参数表，不修改维度或公式
+- 避免循环返工：§20 框架在 D2.4 期间不得修改；若 D2.4 发现维度结构需调整 → D2.4 architect review 再改 §20
+
+### 20.4 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.7 覆盖率方法论 | Hagen 2022 [R33] / Woerner 2019 [R34] 权重原文细节 → §20.2 | 填充 §20.2 |
+| D2.4 M6 COLREGs 实装 | 权重 stub + per-rule threshold → §20.2 patch | 填充 §20.2 |
+| D3.6 SIL 1000+ | 实测 score distribution → 权重合理性验证 | 验证 §20.2 |
+
+**推翻信号**：若维度与 CCS《智能船舶规范 2024》§9.1 性能验证条款不可对齐 → 需 D2.4 architect review 重构。
+
+---
+
+## 第二十一章 Web HMI 与 ENC 集成 [D2.8 新增 — 原附录 F §F.9 迁入]
+
+本章定义 L3 TDL 操作员 HMI 的参考架构，替代原型 `L3_TDL_SIL_Interactive.html`，以 MapLibre GL JS + S-57 MVT + foxglove_bridge 构建 production-grade web HMI。本章为 D1.3.2.3（Phase 1 基础）、D2.5/D2.6（Phase 2 增项）、D3.4（Phase 3 完整化）的宿主设计文档。
+
+**Finding 关闭**：SIL P0 SIL-7（Web HMI 架构锁定）/ B P1-B-06（foxglove_bridge 选型理由）
+
+### 21.1 技术选型与 XAI overlay（原 F.9）
+
+替代当前静态 SVG 雷达原型，构建 production-grade web HMI [R35] [R36]：
+
+| 项 | 选择 | 理由 |
+|---|---|---|
+| 海图引擎 | **MapLibre GL JS**（WebGL）| 1000+ vessel @60FPS via symbol layers + S-52 expression styling |
+| S-57 管线 | **GDAL → Tippecanoe → MVT vector tiles**（或 `manimaul/s57tiler`）| 工业链成熟 |
+| ROS2 ↔ Web 桥 | **`foxglove_bridge`**（C++, Protobuf）— 不用 rosbridge_server (Python/JSON) | 50Hz 性能；rosbridge_server JSON 序列化吃延迟 |
+| Foxglove Studio | **不作 SIL operator console**，仅作开发 debug 视角 | 缺 ENC + S-52 grammar，改造成本 > 自建 |
+| HMI 标准 | **IEC 62288 SA subset + IMO S-Mode**（不全 ECDIS）[R35] [R36] | 全 ECDIS 太重；SA subset 满足 CCS-credibility |
+| Replay 数据 | **Apache Arrow IPC**（与 maritime-schema 对齐 [R27]）| 零拷贝 + JS 原生 |
+| Timeline scrubber | GSAP（GreenSock Animation Platform）| 帧级 seek < 100ms |
+| Evidence GIF | **Puppeteer headless 浏览器** + ffmpeg | CI batch 全自动 |
+| 框架 | **React** + MapLibre GL | 用户拍板 2026-05-09（生态广 + 招人友好）|
+| seacharts (NTNU Python) | **不直接移植**，重写 web 等价 | matplotlib 50Hz 必坏 |
+
+**XAI overlay 模式**（沿用现 HTML 视觉语言 + 增项）：
+
+现有 ✅：CPA/TCPA、M6 规则文字、M5 决策文字、M1-M8 pulse、ASDR 日志
+
+新增（按 IEC 62288 + colav-simulator 实践）：
+1. **ENC 底图**替代当前空白雷达（地形 + 水深 + 障碍物 + 浮标）
+2. **Trajectory ghosting**：M5 BC-MPC 提议路径（虚线）vs L2 计划路径（实线）双轨叠加
+3. **Encounter zone 高亮**：CPA ring（圆）+ TCPA cone（扇形）实时跟随
+4. **Grounding hazard 高亮**：own-ship 预测路径与陆地 / 浅水多边形碰撞检测，红色闪烁
+5. **ToR 倒计时 panel**（独立非雷达内）— 防 out-of-loop syndrome（IEC 62288 强制），4 操作员状态联动 D2.1 适配矩阵
+6. **M7 Doer-Checker verdict** badge：每决策 PASS / VETO 标识
+7. **多 target 同屏**（≥3 船 multi-encounter）
+
+**3 阶段路线**：
+- **D1.3b.3**（5/27–6/15, ~5 pw, DEMO-1）：MapLibre 骨架 + S-57 MVT + foxglove_bridge + IEC 62288 SA subset + 1 场景 live + 沿用现 HTML 视觉
+- **D2.5 / D2.6 增项**（6/16–7/31, ~3 pw, DEMO-2）：Apache Arrow replay + scrubber + Puppeteer GIF/PNG + 多 target + grounding + TLS/WSS
+- **D3.4 增项**（7/13–8/31, ~1.5 pw, DEMO-3）：trajectory ghosting + ToR 倒计时 + M7 verdict badge + S-Mode 完整对齐 + 1000 场景 evidence pack 一键产出
+
+### 21.2 D-task 产出物映射 [D2.8 新增]
+
+| 产出物 | 来源 D-task | 进入 §21 时间 |
+|---|---|---|
+| MapLibre 骨架 + S-57 MVT + foxglove_bridge | D1.3.2.3 | Phase 1 末 |
+| IEC 62288 SA subset 显示标准落地 | D1.3.2.3 | Phase 1 末 |
+| Apache Arrow replay + scrubber + GIF evidence | D2.5 | 7/31 |
+| 多 target 同屏 + grounding 高亮 + TLS/WSS | D2.5 | 7/31 |
+| Figma 船长可用性 + ToR countdown panel | D2.6 | 7/13 |
+| Trajectory ghosting + M7 verdict badge | D3.4 M8 完整 | Phase 3 |
+| 1000 场景 evidence pack 一键导出 | D3.6 SIL 1000+ | Phase 3 |
+
+### 21.3 IEC 62288 SA subset 范围界定 [D2.8 新增]
+
+- **采用**：SA Presentation Level 2（关键导航数据 + 告警 + 预测轨迹）
+- **不采用**：完整 ECDIS（S-52 complete grammar + TYPE_APPROVED 认证）
+- **理由**：CCS credibility 需求通过 SA subset 满足；完整 ECDIS 认证成本 > 收益
+- **NLM 证据**：maritime_human_factors notebook 🟢 High
+
+### 21.4 IMO S-Mode 占位 [TBD-DNV]
+
+S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定。
+
+**D2.8 stub**：§21 引用 S-Mode 概念 + "本 HMI 设计为 S-Mode ready"。
+**D3.4 + D3.8**：根据 IMO S-Mode 最终版本完善。
+
+### 21.5 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.3.2.3 Web HMI + ENC | Phase 1 基础 2 项产出 → §21.2 Phase 1 行确认 | 填充 §21.2 |
+| D2.5 SIL 集成 | Apache Arrow + scrubber + GIF → §21.2 Phase 2 行 | 填充 §21.2 |
+| D2.6 船长 HF | Figma 原型 + ToR countdown → §21.2 + §21.3 输入 | 填充 §21.2 |
+| D3.4 M8 完整 | Trajectory ghosting + M7 verdict badge → §21.2 Phase 3 | 填充 §21.2 |
+
+---
+
+## 第二十二章 延期支持模块 Stub [D2.8 新增]
+
+以下 4 个模块为 L3 TDL 架构中识别的必要支持模块，因 Phase 1-3 资源约束（B4 standby）延至 Phase 4 D4.7 完整实现。本章以"接口契约 stub"形式记录，使 M1-M8 模块设计可引用其接口位，CCS 审计员可评估接口完整性，而不需要实现细节。
+
+**格式**：每个子节遵循 M1-M8 接口契约最小模板（不写算法实现）。
+**Finding 关闭**：D P1-D-04（BNWAS stub 设计位置）/ C P1-C-3 partial（§22 接口位确认）/ C P1-C-5 partial（§22 CCS 映射表）
+
+### 22.1 ENC Manager
+
+**职责**：将电子海图（S-57/S-101）数据转化为 L3 可消费的障碍物多边形、水深轮廓线和交通规则区域，作为 M2 World Model 和 M5 Tactical Planner 的地理约束输入源。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M2 World Model / M5 Tactical Planner |
+| 触发方 | 自船位置更新（M2 发布）|
+| 实现推迟至 | Phase 4 D4.7（B4 条件触发）|
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `ENCHazardMap` | `/enc/hazard_polygons` | → M2/M5 | 0.1 Hz + 位置事件 | 当前位置 ±5 nm 内障碍物 + 浅水多边形列表 |
+| `ENCDepthContours` | `/enc/depth_contours` | → M5 | 0.1 Hz | 规划路径相关水深轮廓线 |
+| `ENCTrafficZones` | `/enc/traffic_zones` | → M6 | 0.1 Hz | TSS / VTS / Port 通航规则区域（M6 Rule 10 输入）|
+
+**降级行为**：
+- DEGRADED（ENC 数据 > 24h 未更新）：M1 发布 `ODD_EDGE`；M5 使用保守静水障碍物假设
+- CRITICAL（ENC 完全不可用）：M1 切换 ODD_OUT；系统发出 MRC，禁止自主决策
+- Phase 4 前（stub 期）：M5 使用硬编码 no-go zone 占位（测试场景 Trondheim Fjord 基线）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 4（Route Planning）+ Sub-function 5（Collision Avoidance）。
+
+**[TBD-D4.7]**：S-57 vs S-101 格式支持策略 / ENC 来源认证 / 动态障碍物更新机制 / GDAL pipeline 集成细节。
+
+---
+
+### 22.2 Parameter Store
+
+**职责**：L3 TDL 唯一权威参数源，存储船舶能力清单（Capability Manifest）、水动力系数（MMG 4-DOF/6-DOF）、停船距离、风流补偿表、推进配置和降级回退值。确保"零船型常量"原则（CLAUDE.md §4 顶层决策 4）。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M1 / M4 / M5 / M7 |
+| 触发方 | 系统启动 + 船型切换事件 |
+| 实现推迟至 | Phase 4 D4.7 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `CapabilityManifest` | `/params/capability_manifest` | → M1/M4/M5 | 0.1 Hz 心跳 + 启动 | 船型 + 推进配置 + ROT_max 曲线 + 停船距离 |
+| `VesselDynamics` | `/params/vessel_dynamics` | → M5 | 0.1 Hz 心跳 + 启动 | MMG 系数集（Yasukawa 2015 或外部提供）|
+| `SafetyMargins` | `/params/safety_margins` | → M7 | 0.1 Hz 心跳 + 启动 | CPA_min / TCPA_min / ODD 边界阈值（含 HAZID 初值）|
+| `ParamUpdateEvent` | `/params/update_event` | → M1 | 事件 | 参数热更新通知（需 M7 VETO 验证）|
+
+**降级行为**：
+- DEGRADED（心跳 > 5 s 中断）：M1 发布 `ODD_EDGE`；使用上次缓存值运行 ≤ 60 s
+- CRITICAL（参数完整性校验失败）：M1 切换 ODD_OUT；禁止自主决策
+- Phase 4 前（stub 期）：YAML 配置文件 `/config/fcb_params.yaml` 直接由 M5/M7 读取（无 ROS2 topic 封装）
+
+**CCS 功能映射**：跨切所有 9 个子功能（参数是全局约束输入）+ DMV-CG-0264 §4.2 Configuration Management。
+
+**[TBD-D4.7]**：参数热更新 M7 VETO 验证协议 / HAZID 132 [TBD-HAZID] 参数回填（D3.5 8/19）/ 多船型 PVA 适配路径。
+
+---
+
+### 22.3 Environment Cross-Source Validator
+
+**职责**：验证来自多传感器融合路径（AIS / Radar ARPA / AIS-R / Fusion Pipeline）的环境数据一致性，检测欺骗、陈旧数据、跨源 MMSI 冲突和位置不一致，为 M2 World Model 提供带验证标志的目标状态。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M2 World Model |
+| 上游来源 | AIS / Radar ARPA / Multimodal Fusion（L3 边界外）|
+| 实现推迟至 | Phase 4 D4.7 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `ValidatedTrackSet` | `/env/validated_tracks` | → M2 | 2-5 Hz | 目标列表 + per-target `cross_source_agreement ∈ [0,1]` + `staleness_flag` |
+| `ValidationAlert` | `/env/validation_alerts` | → M1 | 事件 | 欺骗疑似 / MMSI 冲突 / 传感器降质告警 |
+
+**降级行为**：
+- DEGRADED（单一传感器源不可用）：降低 `cross_source_agreement`；M2 提高 TrackedTarget 不确定度
+- CRITICAL（所有融合路径中断 > 10 s）：M1 发布 `ODD_CRITICAL`；系统降级至最低 MRC
+- Phase 4 前（stub 期）：M2 直接消费 `/ais/contacts` + `/fusion/tracks`（无跨源验证）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 2（Situational Awareness）+ 网络安全 §16 Zone 1 完整性保护。
+
+**[TBD-D4.7]**：具体跨源不一致检测算法 / MMSI 冲突解决策略 / 欺骗检测阈值（HAZID 校准）。
+
+---
+
+### 22.4 BNWAS-equivalent
+
+**职责**：L3 TDL 软件级桥梁航行值班报警系统等价物（类 SOLAS CH V Reg 19-1）。在自主运行期间监测 ROC 操作员活跃度，对非响应超时按三级阶梯触发接管请求。
+
+| 属性 | 值 |
+|---|---|
+| 监测对象 | ROC 操作员（主 + 备）|
+| 上游 | `/operator/heartbeat`（ROC 交互事件）+ `/m1/odd_state`（自主等级）|
+| 下游触发 | M1 ODD 状态切换 + M8 告警显示 |
+| 实现推迟至 | Phase 4 D4.7（B4 条件触发）+ 部分功能 D3.4 M8 实装时预留 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `OperatorHeartbeat` | `/operator/heartbeat` | ← ROC 前端 | 事件（操作员交互）| 操作员 ID + 时间戳 + 交互类型 |
+| `BNWASAlertLevel` | `/bnwas/alert_level` | → M8 | 1 Hz 心跳 + 事件 | enum: INACTIVE / WARNING_1(30s) / WARNING_2(60s) / ESCALATED(90s) |
+| `BNWASTakeoverRequest` | `/bnwas/takeover_request` | → M1 | 事件 | 触发 ToR，含当前操作员状态和 elapsed_time |
+
+**三级阶梯**（基线初值，[TBD-HAZID] HAZID RUN-001 校准）：
+- **T1 = 30 s**：ROC 操作员无交互 → 闪灯 WARNING_1（M8 显示）
+- **T2 = 60 s**：持续无响应 → WARNING_2，通知备用操作员（二副相当）
+- **T3 = 90 s（ROC 场景）/ 120 s（睡舱场景）**：ESCALATED，发出 ToR 自适应矩阵（§3.4）驱动的接管请求
+
+**降级行为**：
+- DEGRADED（`/operator/heartbeat` 话题不可用）：立即触发 WARNING_1 并通知 M1
+- CRITICAL（ESCALATED 后无响应 > T3 + 30 s）：M1 发布 `ODD_OUT`；系统执行自主 MRC
+- Phase 4 前（stub 期）：ToR 协议由 M1 定时器直接实现（无独立 BNWAS 节点）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 9（Communication and Control）+ SOLAS CH V Reg 19-1 类比（非 Type-Approved，stub 目的为 CCS 接口评审）。
+
+**Finding 关闭（D2.8 stub 级别）**：D P1-D-04（BNWAS stub 设计位置确认）。
+
+**[TBD-D4.7]**：SOLAS Reg 19-1 合规性完整分析 / 多 ROC 操作员同时在线时的主备切换协议 / T1/T2/T3 HAZID 最终值（D3.5）。
+
+---
+
+## 第二十三章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
 
@@ -2035,226 +2749,10 @@ v1.1 沿用 v1.0 的章节顺序：§9 = M6 COLREGs Reasoner（先），§10 = M
 
 ---
 
-## 附录 F SIL 框架架构 [v1.1.3-pre-stub 新增 — 2026-05-09]
+## 附录 F ~~SIL 框架架构~~ [D2.8 退役 — 2026-07-31]
 
-> **范围**：本附录为 v1.1.3 stub 提前 patch（pre-stub），目的是在 D1.3a/b/c 启动前锁定 SIL 框架架构 + RL 隔离边界 + 评分系统 + Web HMI 路线，避免 Phase 1 实现污染后 Phase 4 重构。D2.8（7/31）将本附录主体迁入正章主体；D3.8（8/31）v1.1.3 完整化合并 HAZID 132 [TBD] 回填。
->
-> **决策记录主文件**：`docs/Design/SIL/00-architecture-revision-decisions-2026-05-09.md`（含全部 33 个外部证据来源 + 置信度标注 + 推翻信号）。本附录引用其 §X.X 对应章节。
-
-### F.1 SIL 框架顶层架构 — 选项 D 混合架构
-
-L3 TDL SIL 框架采用**选项 D 混合架构**：production C++/MISRA ROS2 Humble 节点（M1–M8）直接运行于 SIL 内核（保证"测试目标即部署目标"），FMI 2.0 / OSP `libcosim` 仅在 ship dynamics + 未来 RL FMU 边界使用，DNV `maritime-schema` 作 scenario / output 互认 schema [R25] [R27] [R28]。
-
-```
-┌─ SIL HARNESS BOUNDARY (Python/CI orchestration) ──────────┐
-│ Scenario YAML (maritime-schema TrafficSituation +         │
-│   FCB metadata 扩展) — farn 1100-cell case folder         │
-└──────────────┬─────────────────────────────────────────────┘
-               │ loads
-┌──────────────▼─────────────────────────────────────────────┐
-│ ROS2 Humble SIL graph (production C++/MISRA binaries)      │
-│                                                            │
-│ l1_world_model_mock ── /world_model/tracks ──► [M2 World]  │
-│ voyage_stub        ── /voyage/plan         ──► [M3 Mission]│
-│ ais_replay/synth   ── /ais/contacts        ──► [M2 World]  │
-│                                                            │
-│      [M1 ODD] [M2 World] [M3 Mission]                      │
-│         │       │           │                              │
-│         └─► [M4 Behavior Arbiter — Mid-MPC] ──┐            │
-│         └─► [M5 Tactical Planner — BC-MPC] ───┤            │
-│         └─► [M6 COLREGs Reasoner] ────────────┤            │
-│                       │                       │            │
-│                       ▼                       │            │
-│              [M7 Doer-Checker] ◄──────────────┘            │
-│              （严格 ROS2 native，不过 FMI 边界）           │
-│                       │                                    │
-│                       ▼                                    │
-│                /cmd/setpoint                               │
-│                       │                                    │
-│                       ▼                                    │
-│ [M8 HMI Bridge] ─/hmi/explain ──► Web HMI (MapLibre + ENC) │
-└──────────────┬─────────────────────────────────────────────┘
-               │ /cmd/thrust /cmd/rudder
-               ▼
-┌─ FMI 2.0 / OSP libcosim 边界（dds-fmu mediator）──────────┐
-│  ship_dynamics_node (FCBPlugin: 4-DOF≤12kn / 6-DOF>12kn)   │
-│   own-ship + N× target_ship_pool_node                      │
-│  Phase 4: target_policy.fmu (mlfmu-built, RL re-import)    │
-└──────────────┬─────────────────────────────────────────────┘
-               │ /own_ship/state, /target/N/state
-               ▼
-        (closes the loop into M2)
-
-证据记录 (out-of-band per tick):
-  CagaTimeStep Apache Arrow → evidence/<scenario_id>.parquet
-  + traceability CSV row (scenario_id ↔ git SHA ↔ vessel_params hash
-    ↔ HAZID ↔ rule clause ↔ 6 维度评分)
-```
-
-**三层模拟策略**（详见 [E1] §Q2）：
-
-| 层 | 实现 | Mode 切换（ROS2 launch arg）|
-|---|---|---|
-| L1（感知）| `world_model_mock` 节点 | `l1_mode := {synthetic \| ais_replay \| rosbag}` |
-| L2（航路规划）| `voyage_stub` 节点（YAML stub） | 不需细分模拟（任务慢变）|
-| L4 / L5（推进 + 自驾仪）| `ship_dynamics_node` (full MMG-in-the-loop, FMI/OSP) | 不退化为 command acceptor — BC-MPC Rule 8 鲁棒性依赖真实致动器延迟 |
-
-**禁止的反模式**：
-- ❌ 选项 A/C：Python orchestration 包装器作认证内核（CCS surveyor 会问"哪个 artefact 对应实船 binary"）
-- ❌ 选项 B：纯 ROS2 + 自定义 rosbag 评据（缺产业互认 scenario 语言）
-
-### F.2 DNV 工具链锁定深度 — 3 MUST + 2 NICE-deferred
-
-| 工具 | 决策 | 引入时机 | 依据 |
-|---|---|---|---|
-| `dnv-opensource/maritime-schema` v0.2.x | **MUST** | D1.3b.1 | [R27] |
-| `open-simulation-platform/libcosim` (FMI 2.0) | **MUST** | D1.3c (NEW) | [R28] |
-| `dnv-opensource/farn` + `ospx` | **MUST** | D1.6 + D1.7 | [R29] |
-| `dnv-opensource/ship-traffic-generator` (`trafficgen`) | NICE-deferred | Phase 2 D2.4（50→200 场景扩展）| [R27] |
-| `dnv-opensource/mlfmu` (ONNX→FMU) | NICE-deferred | Phase 4 D4.6（B2 RL 启动）| [R29] [R30] |
-
-**ROS2 ↔ FMI 桥接边界**（D1.3c NEW，详见 [E3] §Architectural Integration）：
-- **Bridge mediator**：`dds-fmu` + 自定义 `libcosim::async_slave` C++ 实现
-- **延迟实测预算**：单次 exchange 2-10 ms（dds-fmu）
-- **关键边界规则**：**M7 Safety Supervisor 严格留 ROS2 native，不过 FMI 边界**。理由：M7 端到端 KPI < 10 ms（§11.4），dds-fmu 单次 exchange 即可吃掉 KPI。仅 ship dynamics（own + targets）+ 未来 RL FMU 走 OSP/FMI。
-- D1.5 V&V Plan 必须新增 SIL latency budget 子节，量化 dds-fmu jitter 上限并补偿至 GNC
-
-**ShipMotionSimulator 抽象层 + FCBPlugin（D1.3a 已实现，本附录补 FMI 导出契约）**：
-
-```cpp
-// fcb/sim/ship_motion_simulator.hpp  (MISRA C++:2023)
-class ShipMotionSimulator {
-public:
-  struct State { double u,v,r,x,y,psi; };
-  struct Cmd   { double rudder_rad, nps; };
-  virtual ~ShipMotionSimulator() = default;
-  virtual State step(const Cmd& c, double dt, const Disturbance& d) = 0;
-  virtual ModeTag mode() const = 0;   // DISPLACEMENT_4DOF | PLANING_6DOF
-};
-
-class FCBPlugin final : public ShipMotionSimulator {
-  DisplacementMMG mmg4_;   // wraps Yasukawa 2015 4-DOF (R7)
-  PlaningHull6DOF mmg6_;   // empirical Savitsky/semi-planing (D1.3a TODO Phase 2)
-  State step(const Cmd& c, double dt, const Disturbance& d) override {
-    return (last_speed_kn_ <= 12.0) ? mmg4_.step(c,dt,d) : mmg6_.step(c,dt,d);
-  }
-};
-// FMI 2.0 export via mlfmu/pythonfmu — D1.3c 实现
-```
-
-同 `FCBPlugin` 实例三种调用：(1) own-ship SIL（`ship_dynamics_node`）；(2) target-ship SIL（`target_ship_pool_node`，N× 实例）；(3) Phase 4 RL 训练（Gymnasium Env adapter，与 (1)/(2) **共享**插件，不 fork 模型）。
-
-### F.3 ROS2 + OS + RT 锁定
-
-**ROS2 Humble + Ubuntu 22.04 + PREEMPT_RT 实时内核**。证据：
-- 实船 OT 部署约束（FCB onboard Ubuntu 22.04 + RT）
-- DNV 工具链最稳路径（[E3] §ROS2 Compatibility）
-- ROS2 Jazzy 官方目标 Ubuntu 24.04，22.04 用 Humble 是 LTS 路径
-
-**风险注**：DNV 工具链最新版部分需 Python 3.11+；Humble 默认 Python 3.10 — 需在容器内安装 3.11，作为 D1.3c sub-task 验证。
-
-### F.4 RL 隔离架构 — 三层强制边界
-
-即使 B2 RL 推 Phase 4（10–12 月）启动，RL 隔离 3 层边界须在 v1.1.3-pre-stub 锁定，并在 D1.3a/b 仓库结构 + CI lint rule 现在落地，避免 Phase 4 启动时回退污染已审认证内核。
-
-| 层 | 边界 | 强制实现 |
-|---|---|---|
-| **L1 Repo** | `/src/l3_tdl_kernel/**` (C++/MISRA, ROS2 nodes M1–M8, frozen, DNV-RP-0513 [R25] assured) vs `/src/sim_workbench/**`（Python sim 工具 / D1.3a-b 共用）vs `/src/rl_workbench/**`（Phase 4 启动；Python, Gymnasium, SB3）| 三 colcon 包独立；CI lint 检测 cross-import 即报错 |
-| **L2 Process** | RL 训练独立 Docker container；通过 OSP `libcosim` FMI socket 调相同 MMG FMU + scenario YAML，**绝不**触 C++ 代码 | docker-compose 隔离 namespace；只读挂载 certified binaries |
-| **L3 Artefact** | 训练完毕 ONNX → `mlfmu build` (Phase 4) → `target_policy.fmu` → `libcosim` 加载到 certified SIL；**Python/PyTorch 永不入 certified loop** | `mlfmu build` 是边界；FMU 进 evidence store 须经 DNV-RP-0671 [R30] 鉴定 |
-
-**Phase 4 启动条件**：4 缺失模块 / RL 启动前必须验证 D1.3a/b/c 已遵守 L1/L2 边界（git history audit 通过）。
-
-### F.5 场景 schema — maritime-schema TrafficSituation 扩展
-
-D1.6 场景 schema 由"内部 Pydantic 强类型"改为"`maritime-schema` `TrafficSituation` 扩展" [R27]。FCB 项目专属字段（`scenario_id`, `hazid_refs`, `colregs_rules`, `odd_cell`, `disturbance`, `expected_outcome`, `seed`, `vessel_class`, `pass_criteria`）放入 `metadata.*` 扩展节点（schema 允许 additional properties）。
-
-完整模板见决策记录 §10（双 NTNU + maritime-schema 兼容样例）。
-
-**双语言验证**：Python 用 `cerberus` + `pydantic`（maritime-schema 原生）；C++ 用 `cerberus-cpp`（同 schema 文件，避免双套验证逻辑）。
-
-**CCS 接受度未解项** 🔴：D1.8 早期发函 CCS 技术中心确认 maritime-schema 作 evidence container 可行性；退路是 maritime-schema 退为内部表示 + 加导出器至 CCS 要求格式。
-
-### F.6 场景库与覆盖立方体方法论
-
-- **Imazu-22 强制基线** [R38]：22 canonical 2/3/4-ship encounters（Imazu 1987 / Sawada 2021），freeze 为 `imazu22_v1.0.yaml` SHA256 hash 化，每 PR fast gate 必跑（D1.3b.1）
-- **覆盖立方体**：11 COLREG Rules（5,6,7,8,9,13,14,15,16,17,19）× 4 ODD subdomains × 5 disturbance bins × 5 seeds = **1100 cells**（D3.6）。证据：[R32] Hassani 2022 Sobol sampling
-- **Adversarial / Nominal / Boundary = 60 / 25 / 15 比例**：明确标注"内部启发式，**非外部标准**"。AV 文献对应 deductive (requirement-driven) ∪ inductive (data-driven)，60% adversarial 由 RL fuzzer (FREA/AuthSim style) 后置生成，不作 CCS 提交时引用为外部规范
-- **Monte Carlo LHS / Sobol 10000 sample**（D3.6 扩展）：在立方体之外，对关键参数（target ship 初始 bearing、SOG、感知噪声 σ、风流强度）跑 LHS/Sobol 抽样，输出 pass rate 95% CI + CPA min 分布 + Rule violation 频率
-- **Adversarial scenario 回路**：Phase 4 RL 对抗生成器产生新 schema-valid 场景；通过 schema validation + naturalness check 后追加场景库，是覆盖间隙关闭的工程机制
-
-### F.7 AIS-driven scenario authoring 工具（D1.3b.2 NEW）
-
-参考 NTNU `colav-simulator` [R37] 工程模式，D1.3b.2 实现 AIS-driven scenario authoring：
-
-**5 阶段管线**：
-1. AIS DB 接入（PostGIS / Kystverket / NOAA MarineCadastre 开放数据）
-2. MMSI 分组 + 重排 + 去重 → 单船 track 时间序列
-3. 间隙判定（>5 min 拆段）+ Δt=0.5s 重采样 + NE 线性插值 + COG 圆形插值（避 360° wrap）+ Savitzky-Golay / Kalman 平滑 SOG/COG
-4. bbox + 时间窗 → DB 查询 → DCPA < 500m AND TCPA < N min → 提取 encounter 片段；坐标变换 WGS84 → local NE Cartesian (Transverse Mercator)
-5. COLREG 几何分类（Head-on / Crossing / Overtaking）+ maritime-schema YAML 导出（含 `metadata.*` 扩展字段）
-
-**3 种 target 运动模式**：
-
-| 模式 | 行为 | 引入时机 |
-|---|---|---|
-| `ais_replay_vessel` | 纯回放历史 track，**non-reactive**（不响应 own-ship 动作）| D1.3b.2（必）|
-| `ncdm_vessel` | NCDM 历史邻域统计 + Ornstein-Uhlenbeck 过程概率外推 | D2.4 |
-| `intelligent_vessel` | 目标船跑自己的 COLAV（VO / 简化 MPC），multi-agent 互动 | D3.6（1000 场景必备 multi-agent 论证）|
-
-**数据源**（用户决策 2026-05-09）：Phase 1-3 用 Kystverket + NOAA MarineCadastre 开放数据；Phase 4 实船试航前若 CCS 要求中国海域 AIS 再切。ENC demo 双区域：Trondheim Fjord（NTNU paper 复现）+ NOAA San Francisco Bay。
-
-### F.8 结构化 COLREGs 评分（Hagen 2022 / Woerner 2019）
-
-D2.4 / D3.6 **PASS / FAIL 二元 verdict 保留**，**新增 6 维度连续评分**作为 CCS surveyor 论据 [R33] [R34]：
-
-| 维度 | 含义 | 算法 |
-|---|---|---|
-| **Safety score** | f(CPA_min / CPA_target) 连续 | [0,1]，CPA ≥ target → 1.0；线性退化到 0 at CPA=0 |
-| **Rule compliance score** | 每条适用 Rule 5/6/7/8/13-17/19 子准则离散评分 → 加权求和 | per-rule {full=1.0 / partial=0.5 / violated=0.0} |
-| **Delay penalty** | 决策启动相对 TCPA 阈值的延迟 | `P_delay = max(0, t_action - t_target_action) × λ_1` |
-| **Action magnitude penalty** | 转向幅度不足或过激（Rule 8 "大幅"）| < 30° 或 > 90° 扣分；2nd-order in deviation |
-| **Phase score** | 让路船 / 直航船角色行为合规度 | give-way 应早期大动作；stand-on 应保持课速直至 in extremis |
-| **Trajectory implausibility** | 物理可行性（避免 RL "作弊"）| M5 BC-MPC 解算约束自动满足；外部 target 检查曲率 + 加速度上限 |
-
-`total_score = w_s · safety + w_r · rule − p_delay − p_mag + w_p · phase`
-
-w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerner 2019 [R34] 原文细节填）。**置信度** 🟡 Medium（维度结构 NTNU/MIT 学术圈公认；具体权重需 D1.7 引原文）。**推翻信号**：若 D1.7 实施时发现维度与 CCS《智能船舶规范 2024》§9.1 性能验证条款不可对齐 → 改为按 CCS 条款重构。
-
-### F.9 Web HMI + ENC 集成（替代当前 `L3_TDL_SIL_Interactive.html`）
-
-替代当前静态 SVG 雷达原型，构建 production-grade web HMI [R35] [R36]：
-
-| 项 | 选择 | 理由 |
-|---|---|---|
-| 海图引擎 | **MapLibre GL JS**（WebGL）| 1000+ vessel @60FPS via symbol layers + S-52 expression styling |
-| S-57 管线 | **GDAL → Tippecanoe → MVT vector tiles**（或 `manimaul/s57tiler`）| 工业链成熟 |
-| ROS2 ↔ Web 桥 | **`foxglove_bridge`**（C++, Protobuf）— 不用 rosbridge_server (Python/JSON) | 50Hz 性能；rosbridge_server JSON 序列化吃延迟 |
-| Foxglove Studio | **不作 SIL operator console**，仅作开发 debug 视角 | 缺 ENC + S-52 grammar，改造成本 > 自建 |
-| HMI 标准 | **IEC 62288 SA subset + IMO S-Mode**（不全 ECDIS）[R35] [R36] | 全 ECDIS 太重；SA subset 满足 CCS-credibility |
-| Replay 数据 | **Apache Arrow IPC**（与 maritime-schema 对齐 [R27]）| 零拷贝 + JS 原生 |
-| Timeline scrubber | GSAP（GreenSock Animation Platform）| 帧级 seek < 100ms |
-| Evidence GIF | **Puppeteer headless 浏览器** + ffmpeg | CI batch 全自动 |
-| 框架 | **React** + MapLibre GL | 用户拍板 2026-05-09（生态广 + 招人友好）|
-| seacharts (NTNU Python) | **不直接移植**，重写 web 等价 | matplotlib 50Hz 必坏 |
-
-**XAI overlay 模式**（沿用现 HTML 视觉语言 + 增项）：
-
-现有 ✅：CPA/TCPA、M6 规则文字、M5 决策文字、M1-M8 pulse、ASDR 日志
-
-新增（按 IEC 62288 + colav-simulator 实践）：
-1. **ENC 底图**替代当前空白雷达（地形 + 水深 + 障碍物 + 浮标）
-2. **Trajectory ghosting**：M5 BC-MPC 提议路径（虚线）vs L2 计划路径（实线）双轨叠加
-3. **Encounter zone 高亮**：CPA ring（圆）+ TCPA cone（扇形）实时跟随
-4. **Grounding hazard 高亮**：own-ship 预测路径与陆地 / 浅水多边形碰撞检测，红色闪烁
-5. **ToR 倒计时 panel**（独立非雷达内）— 防 out-of-loop syndrome（IEC 62288 强制），4 操作员状态联动 D2.1 适配矩阵
-6. **M7 Doer-Checker verdict** badge：每决策 PASS / VETO 标识
-7. **多 target 同屏**（≥3 船 multi-encounter）
-
-**3 阶段路线**：
-- **D1.3b.3**（5/27–6/15, ~5 pw, DEMO-1）：MapLibre 骨架 + S-57 MVT + foxglove_bridge + IEC 62288 SA subset + 1 场景 live + 沿用现 HTML 视觉
-- **D2.5 / D2.6 增项**（6/16–7/31, ~3 pw, DEMO-2）：Apache Arrow replay + scrubber + Puppeteer GIF/PNG + 多 target + grounding + TLS/WSS
-- **D3.4 增项**（7/13–8/31, ~1.5 pw, DEMO-3）：trajectory ghosting + ToR 倒计时 + M7 verdict badge + S-Mode 完整对齐 + 1000 场景 evidence pack 一键产出
+> **附录 F 已退役**：原 §F.1-F.9 全部内容已迁入正章主体（§17-§21）。本附录保留此占位条目用于修订历史追溯。
+> 迁入记录：F.1-F.3 → §17 / F.4 → §18 / F.5-F.7 → §19 / F.8 → §20 / F.9 → §21。
 
 ---
 
@@ -2293,6 +2791,30 @@ v1.1.3-pre-stub 增量：本次为**正向 patch**，不开新 finding；7 角�
 ### v1.1.3 推翻信号汇总
 
 详见决策记录 `docs/Design/SIL/00-architecture-revision-decisions-2026-05-09.md` 各章节末尾"推翻信号"段。一旦触发，须重启相应决策评审，且不得进入 D2.8 stub 主体。
+
+---
+
+## 附录 D'''''' 修订记录（v1.1.3-pre-stub → v1.1.3-stub）[D2.8 — 2026-07-31]
+
+| 决策 / 变更 | 影响章节 | 依据 |
+|---|---|---|
+| 附录 F §F.1-F.9 迁入正章 §17-§21 | §17/§18/§19/§20/§21（新建）| D2.8 spec §6.2-§6.6 |
+| §16 Cybersecurity Spec 新建（stub）| §16 | D2.8 spec §6.1 |
+| §22 延期支持模块 stub 新建（§22.1-§22.4）| §22 | D2.8 spec §6.7 |
+| §16 参考文献 顺延为 §23 | §23 | 章节重排 |
+| 附录 F 退役 | 附录 F（占位）| 内容已入正章 |
+| §3.4 ToR 自适应矩阵新增 | §3.4 | D2.8 spec §5.1 |
+| §10.1 算法选型矩阵新增 + §10.1-§10.8 重排 | §10.1-§10.9 | D2.8 spec §5.2 |
+| §10.6 4-DOF 边界声明新增 | §10.6（原 §10.5）| D2.8 spec §5.3 |
+| §11.10 L3 仲裁优先级矩阵新增 | §11.10 | D2.8 spec §5.4 |
+| §12.3.1 心智模型 Ground Truth stub | §12.3.1 | D2.8 spec §5.5 |
+| §12.6 培训矩阵 stub 新增 | §12.6 | D2.8 spec §5.6 |
+| §13.6 验证策略前向指针新增 | §13.6 | D2.8 spec §5.8 |
+| §15.0 时基与同步新增 | §15.0 | D2.8 spec §5.7 |
+| §15.2 接口矩阵 4 新列（安全字段）| §15.2 | D2.8 spec §5.9 |
+| 版本 v1.1.3-pre-stub → v1.1.3-stub | 文件头 | D2.8 完成 |
+
+Finding 关闭（D2.8）：SIL P0 SIL-1~7 / F P0-F-01/F-02/F-04 stub / F P1-F-03 / C P1-C-3/C-5 partial / B P1-B-06 / D P1-D-04/D-08 / MV-7~11 stub
 
 ---
 
