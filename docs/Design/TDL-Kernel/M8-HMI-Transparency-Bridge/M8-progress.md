@@ -12,7 +12,7 @@
 | D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：M8 HMI 裁剪集（豁免动态分配/异常/全局变量，120行/80句） |
 | D1.3.2.3 (原 D1.3b.3) | Currently Implementing | 🟡 | Web HMI 部分（MapLibre + foxglove + ToR ≥2s ✅）|
 | D3.4 | Currently Implementing | 🟡 | M8 完整 + 7 Web HMI Phase 3 增项；目标 8/24（SAT 桥接子项必须 7/31 前到位，12 个 SAT-1 topic 已发）|
-| D2.6 | Closed in | ✅ 2026-05-22 | 船长 HF Ground Truth：5 访谈模板 + Figma 原型骨架 + 可用性测试报告 + ECDIS/BNWAS 草案 + 培训矩阵 + §12.3 ground truth 输入（16 文件，20 commits）；[R35-§TBD] 占位待 HF 咨询核实；实现推 D2.8 stub |
+| D2.6 | Closed in | ✅ 2026-05-22 | 船长 HF Ground Truth：(a) 5 访谈模板 + (b) Figma 原型骨架 + (c) 可用性测试报告 + (d) ECDIS 集成草案 + (e) 培训矩阵 + (f) BNWAS 等效设计 + (g) Figma ↔ IEC 62288 对齐 + (h) 透明性问卷/评分表 + (i) §12.3 ground truth 输入（16 文件，20 commits）；[R35-§TBD] 占位待 HF 咨询核实；实现推 D2.8 stub |
 
 ## DEMO-2 阻塞贡献
 

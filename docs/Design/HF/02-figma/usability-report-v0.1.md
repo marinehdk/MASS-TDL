@@ -5,7 +5,7 @@
 | 测试日期 | 2026-07-0X – 2026-07-06 |
 | 参与者 | n=[TBD — 待可用性测试]（目标 ≥5）|
 | 测试材料 | Figma v1.1 + Imazu head-on 场景（SAT-2 think-aloud）|
-| Finding 关闭 | D P0-D-03（本报告 commit）|
+| Finding 关闭声明 | D P0-D-03（模板就绪，数据待填 — Finding 实际关闭依赖可用性测试完成）|
 
 ## 测试目标
 

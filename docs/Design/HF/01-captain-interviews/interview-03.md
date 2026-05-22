@@ -1,7 +1,7 @@
 ---
 interviewee_id: captain-FCB-03
 vessel_type: FCB
-years_experience: ~
+years_experience: [TBD]
 current_role: ~
 interview_date: 2026-06-XX
 interview_duration_min: ~

@@ -1,7 +1,7 @@
 ---
 interviewee_id: captain-FERRY-01
 vessel_type: FERRY
-years_experience: ~
+years_experience: [TBD]
 current_role: ~
 interview_date: 2026-06-XX
 interview_duration_min: ~
@@ -26,7 +26,7 @@ annotations: {}
 [TBD — 受访者回答摘要 + 直接引用关键语句（中文）]
 
 **扫视优先级（T1 产出）：** [TBD]
-**注意：** 渡船定线航行模式可能导致信息检查节奏与 FCB 显著不同。
+**注意：** 渡船定线航行模式可能导致信息检查节奏与 FCB 显著不同；港口水域拥挤环境下 COLREGs 冲突频率高但紧迫性可能与开放水域 FCB 不同。
 
 ## 3. T2 — COLREGs 场景响应
 
@@ -34,7 +34,6 @@ annotations: {}
 
 **第一注意点：** [TBD]
 **注意频率：** [TBD]
-**注意：** 渡船港口水域拥挤，COLREGs 冲突频率高但其紧迫性可能与开放水域 FCB 不同。
 
 ## 4. T3 — 异常 / 接管决策
 
