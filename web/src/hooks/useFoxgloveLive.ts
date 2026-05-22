@@ -93,6 +93,21 @@ const TOPIC_MAP: Array<{
     messageType: 'ship_sim_interfaces/ActuatorCmd',
     handler: (s, msg) => s.updateControlCmd(msg),
   },
+  {
+    topic: '/sil/sat2_data',
+    messageType: 'sil_msgs/SAT2Data',
+    handler: (s, msg: any) => s.updateSat2(msg),
+  },
+  {
+    topic: '/sil/sat3_data',
+    messageType: 'sil_msgs/SAT3Data',
+    handler: (s, msg: any) => s.updateSat3(msg),
+  },
+  {
+    topic: '/sil/sotif_metrics',
+    messageType: 'sil_msgs/SotifMetrics',
+    handler: (s, msg: any) => s.updateSotifMetrics(msg),
+  },
 ];
 
 // Reconnect config
