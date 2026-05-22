@@ -1798,6 +1798,73 @@ message SAT_DataMsg {
 
 ---
 
+## 第十六章 Cybersecurity Spec（Stub）[D2.8 新增 — D3.9 RFC-007 完整化]
+
+本章为 L3 TDL 网络安全框架的 stub 规格，定义 L3 DDS 信任域边界、接口认证机制占位、ASDR 签名升级路径。完整实现（IACS UR E26/E27 分析 + DDS-Security policy XML）在 D3.9 RFC-007 中交付。
+
+**Finding 关闭**：F P0-F-01（cyber 架构位置占位）stub 级别关闭。
+
+### 16.1 信任域划分（Trust Zone）
+
+| Zone | 边界 | 内部协议 | 认证机制 |
+|---|---|---|---|
+| **Zone 1**（L3 DDS 内部）| OT 网络 + Data Diode | ROS2 DDS Humble | DDS-Security `L3-internal`（D3.9 完整化）|
+| **Zone 2**（ROC Shore Link）| DMZ + Data Diode + TLS | TLS 1.3 over DDS | DDS-Security `ROC-link` + mTLS |
+| **Zone 3**（ENC / Chart Server）| 只读 ingress，验证签名 | HTTPS | ENC 来源数字签名（CCS 认可来源）|
+| **Zone 4**（ASDR Evidence Store）| append-only，无删除接口 | JSONL + HMAC | HMAC-SHA256 签名链（§16.3）|
+
+信任域边界：Zone 1 ↔ Zone 2 通过 DMZ 上的 data diode 单向隔离；Zone 3 和 Zone 4 为 L3 发出方向（只写）。
+
+> **[TBD-D3.9]**：Zone 边界防火墙规则 / Zone 1 ↔ Zone 2 data diode 配置 / IACS UR E26 §4 网络分段完整映射。
+
+### 16.2 L3 接口安全矩阵
+
+接口安全分类引用 §15.2 新增 4 列（`auth_required` / `integrity_mechanism` / `replay_protection` / `dds_security_profile`）。
+
+**高风险接口**（D3.9 优先审查）：
+
+| 接口 | 风险原因 | D3.9 审查项 |
+|---|---|---|
+| M8 → ROC（ToR_RequestMsg）| 接管请求伪造 → 操作员错误接管 | ROC-link mTLS + 消息签名 |
+| M7 → M1（Safety_AlertMsg）| VETO 伪造 / 抑制 → 安全监控失效 | L3-internal HMAC + replay counter |
+| X-axis Checker → M7 | 跨系统接口，物理隔离为主保障 | Zone 1 物理路径审查 |
+| M8 → ROC（UI_StateMsg 50Hz）| 高频注入攻击面 | ROC-link rate limiting + auth |
+
+> **[TBD-D3.9]**：完整 IACS UR E27 §3 威胁模型 + 缓解措施映射。
+
+### 16.3 ASDR HMAC 升级 Stub
+
+**当前状态**：ASDR JSONL 每行携带 `signature` 字段（SHA-256 防篡改，§15.1 IDL）但密钥管理机制未定义。
+
+**D2.8 stub 升级路径**：
+- 目标：每行追加 `"hmac_sha256": "<64-char hex>"` — 将 SHA-256 升级为 HMAC-SHA256（密钥化）
+- 签名密钥来源：§22.2 Parameter Store `SafetyMargins` 话题中的 `asdr_hmac_key` 字段（Phase 4 D4.7 实装）
+- 代码占位：ASDR write 路径加注释 `// TODO[D3.9]: replace SHA256 with HMAC-SHA256, key from §22.2 Parameter Store`
+
+**完整实现**：D3.9 RFC-007（密钥管理 + 轮换 + IACS UR E27 §5 符合性）
+
+**[TBD-D3.9]**：密钥管理协议 / 密钥轮换机制 / Zone 4 append-only 强制机制。
+
+### 16.4 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D3.9 RFC-007 Cybersecurity | §16 完整化，IACS UR E26/E27 | 填充方 |
+| D2.1 M1 ODD | Zone 1 DDS-Security `L3-internal` 实装 | 消费方 |
+| D2.5 SIL 集成 | §16.3 ASDR TODO 注释实装 | 实现方 |
+
+### 16.5 前向引用
+
+| 话题 | 位置 |
+|---|---|
+| D3.9 完整 IACS UR E26/E27 分析 | `docs/Design/Phase 3/D3.9-rfc007-cybersecurity/`（D3.9 启动时建立）|
+| Zone 2 ROC-Link 接口细节 | `docs/Design/Cross-Team Alignment/RFC-decisions.md` RFC-005 |
+| DDS-Security policy XML | `src/l3_tdl_kernel/config/dds_security/`（D3.9 产出）|
+
+**置信度**：🟡 Medium — Zone 划分参照 IACS UR E26（2022）§4 概念；DDS-Security profile 细节需 D3.9 工程验证。
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
