@@ -919,6 +919,18 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 - **波浪扰动模型**：Hs > 1.5 m 时须引入波浪扰动项，参照 Yasukawa & Yoshimura（2015）4-DOF MMG 标准方法的波浪修正章节 [R7]
   > **v1.1 修订 [F-P1-D9-024]**：v1.0 此处曾引用 "Yasukawa & Sano 2024 [R21]" 近岸修正，但来源未在 JMSE/JMSTech 数据库确证（疑似引用幻觉），已从参考文献移除。FCB 实船试航后 HAZID 校准如需更精细的近岸修正，作为 v1.2 / spec part 2 议题处理。
 
+
+**FCBPlugin 4-DOF 适用性边界 [D2.8 新增 — 架构权威声明]**
+
+| 条件 | 规则 | 实现路径 |
+|---|---|---|
+| `SOG ≤ 12 kn` AND `hull_class ≠ SEMI_PLANING` | **4-DOF 适用**（Yasukawa 2015 [R7]）| `FCBPlugin::DisplacementMMG::step()` |
+| `hull_class == SEMI_PLANING` | **6-DOF 激活**（Savitsky / semi-planing empirical）| D2.1 stub → D3.2 完整 |
+| `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学）| Phase 4 实装 D4.7 |
+
+> **[TBD-HAZID]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
+> **D-task 联动**：D1.3a（FCBPlugin 实装）/ D2.1 M1 ODD（hull_class 判断接口）/ D3.2 M5 完整（6-DOF 实装）。
+
 ### 10.7 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
 
 当 `EnvironmentState.in_tss = true` 时，Mid-MPC 状态约束加入 TSS lane polygon：
