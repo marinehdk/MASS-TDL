@@ -1,5 +1,6 @@
 """Scenario Authoring Node — YAML CRUD, Imazu-22, AIS pipeline."""
 import hashlib
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -26,6 +27,8 @@ class ScenarioAuthoringNode(LifecycleNode):
             self._dir.mkdir(parents=True, exist_ok=True)
         else:
             self._dir = None  # set in on_configure
+        self._loaded_scenario: dict | None = None
+        self._rosbag_proc: subprocess.Popen | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle callbacks
@@ -49,9 +52,14 @@ class ScenarioAuthoringNode(LifecycleNode):
         self._loaded_pub = self.create_lifecycle_publisher(
             String, "/sil/scenario_loaded", 10
         )
+        if self._loaded_scenario:
+            sim = self._loaded_scenario.get("simulation_settings", {})
+            if sim.get("dynamics_mode") == "rosbag":
+                self._start_rosbag_playback(self._loaded_scenario)
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state) -> TransitionCallbackReturn:
+        self._stop_rosbag_playback()
         if self._loaded_pub is not None:
             self.destroy_lifecycle_publisher(self._loaded_pub)
             self._loaded_pub = None
@@ -59,6 +67,33 @@ class ScenarioAuthoringNode(LifecycleNode):
 
     def on_cleanup(self, state) -> TransitionCallbackReturn:
         return TransitionCallbackReturn.SUCCESS
+
+    # ------------------------------------------------------------------
+    # Rosbag third-mode playback
+    # ------------------------------------------------------------------
+
+    def _start_rosbag_playback(self, scenario_yaml: dict) -> None:
+        sim_settings = scenario_yaml.get("simulation_settings", {})
+        bag_path = sim_settings.get("rosbag_path", "")
+        if not bag_path:
+            self.get_logger().warn("rosbag mode but no rosbag_path in YAML — skip")
+            return
+        bag = Path(bag_path)
+        if not bag.exists():
+            self.get_logger().warn(f"rosbag not found: {bag_path}")
+            return
+        self._rosbag_proc = subprocess.Popen(
+            ["ros2", "bag", "play", str(bag), "--loop"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.get_logger().info(
+            f"rosbag playback started: {bag_path} (pid={self._rosbag_proc.pid})")
+
+    def _stop_rosbag_playback(self) -> None:
+        proc = getattr(self, "_rosbag_proc", None)
+        if proc and proc.poll() is None:
+            proc.terminate()
+            self.get_logger().info("rosbag playback stopped")
+        self._rosbag_proc = None
 
     # ------------------------------------------------------------------
     # YAML CRUD operations  (preserved from pure-Python stub)
