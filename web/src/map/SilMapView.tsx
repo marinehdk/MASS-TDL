@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { osmSource, osmLayer, ALL_S57_LAYERS } from './layers';
-import { useTelemetryStore, useMapStore } from '../store';
+import { useTelemetryStore, useMapStore, useUIStore } from '../store';
 import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
 import type { TargetVesselState } from '../types/sil/target_vessel_state';
+import { checkGroundingRisk } from '../utils/groundingDetect';
+import type { OwnShipPosition } from '../utils/groundingDetect';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
-  viewMode?: 'captain' | 'engineer' | 'roc';
+  viewMode?: 'captain' | 'engineer' | 'roc' | 'god';
   /** Fraction of viewport to offset own-ship towards. Captain: [0.5, 0.7] (bottom 30%) */
   viewportOffset?: [number, number];
   /** Optional preview data for Scenario Builder mode */
@@ -74,14 +76,142 @@ function cogLine(lon: number, lat: number, cogRad: number, sogMs: number): GeoJS
 
 function makeVesselEl(color: string, size = 28, ownship = false): HTMLDivElement {
   const el = document.createElement('div');
-  el.style.cssText = `width:${size}px;height:${size}px;pointer-events:none;transform-origin:50% 50%`;
+  el.style.cssText = `width:${size}px;height:${size}px;pointer-events:auto;cursor:pointer;transform-origin:50% 50%;position:relative;`;
   const strokeW = ownship ? 2.5 : 1.8;
   el.innerHTML = `
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" style="pointer-events:none; display:block;">
       <circle cx="12" cy="12" r="${ownship ? 7 : 5.5}" fill="${color}" stroke="#0b1320" stroke-width="${strokeW}" opacity="0.92"/>
       <polygon points="12,1 16.5,10 12,8 7.5,10" fill="${color}" stroke="#0b1320" stroke-width="${strokeW}"/>
     </svg>`;
   return el;
+}
+
+function updatePlaqueDOM(
+  container: HTMLDivElement,
+  isSelected: boolean,
+  vesselId: string,
+  label: string,
+  hdg: string,
+  cog: string,
+  sog: string,
+  rot: string,
+  headingDeg: number,
+  markerSize: number   // DOM element size in px: 30 for own ship, 24 for targets
+) {
+  const isOs = vesselId === 'ownship';
+  const primaryColor  = isOs ? '#2dd4bf' : '#fbbf24';
+  const strokeColor   = isOs ? 'rgba(45, 212, 191, 0.85)' : 'rgba(251, 191, 36, 0.85)';
+  const borderColor   = isOs ? 'rgba(45, 212, 191, 0.75)' : 'rgba(251, 191, 36, 0.75)';
+  const glowColor     = isOs ? 'rgba(45,212,191,0.25)' : 'rgba(251,191,36,0.25)';
+
+  // ── Geometry constants ─────────────────────────────────────────────────────
+  const PLAQUE_LEFT   = 26;   // plaque CSS left in container space (px)
+  const PLAQUE_TOP    = -95;  // plaque CSS top  in container space (px)
+  const PLAQUE_H      = 78;   // approximate plaque height (px) — used to anchor leader line
+  const cx = markerSize / 2;  // ship centre x in container space
+  const cy = markerSize / 2;  // ship centre y in container space
+
+  // Ship centre in *plaque local* space (before any rotation):
+  //   plaque local (0,0) == container point (PLAQUE_LEFT, PLAQUE_TOP)
+  const shipX = cx - PLAQUE_LEFT;  // e.g. -11 (own ship 30px) or -14 (target 24px)
+  const shipY = cy - PLAQUE_TOP;   // e.g.  110 / 107
+
+  // Setting transform-origin to this point means the counter-rotation pivots
+  // around the ship centre → plaque stays at a FIXED screen position.
+  const tOrigin = `${shipX}px ${shipY}px`;
+
+  // Leader SVG: draws from ship centre (shipX, shipY) to plaque bottom-left (0, PLAQUE_H)
+  // Position the SVG so its coordinate space contains both endpoints:
+  const svgLeft   = shipX;            // left of SVG in plaque space  (negative → extends left)
+  const svgTop    = PLAQUE_H;         // top  of SVG in plaque space  (at plaque bottom)
+  const svgW      = Math.abs(shipX);  // SVG width  covers horizontal gap
+  const svgH      = shipY - PLAQUE_H; // SVG height covers vertical  gap
+  // In SVG local coords:  ship centre → (0, svgH),  plaque corner → (svgW, 0)
+  const lx1 = 0,    ly1 = svgH; // ship centre (bottom-left of SVG)
+  const lx2 = svgW, ly2 = 0;    // plaque bottom-left corner (top-right of SVG)
+
+  // ── DOM update ─────────────────────────────────────────────────────────────
+  let plaque = container.querySelector('.hud-plaque') as HTMLDivElement | null;
+
+  if (!isSelected) {
+    if (plaque) plaque.remove();
+    return;
+  }
+
+  if (!plaque) {
+    plaque = document.createElement('div');
+    plaque.className = 'hud-plaque';
+    plaque.style.cssText = `
+      position: absolute;
+      left: ${PLAQUE_LEFT}px;
+      top: ${PLAQUE_TOP}px;
+      z-index: 1000;
+      background: rgba(7, 16, 27, 0.94);
+      backdrop-filter: blur(4px);
+      border: 1px solid ${borderColor};
+      border-radius: 4px;
+      padding: 5px 8px;
+      width: 135px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.6), 0 0 8px ${glowColor};
+      font-family: monospace;
+      pointer-events: auto;
+      cursor: default;
+    `;
+
+    plaque.innerHTML = `
+      <svg class="hud-leader-svg" style="position:absolute;
+           left:${svgLeft}px; top:${svgTop}px;
+           width:${svgW}px; height:${svgH}px;
+           overflow:visible; pointer-events:none;">
+        <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}"
+              stroke="${strokeColor}" stroke-width="1.2" stroke-dasharray="3 3"/>
+      </svg>
+      <div class="plaque-content"></div>
+    `;
+
+    plaque.addEventListener('click',   (e) => e.stopPropagation());
+    plaque.addEventListener('dblclick', (e) => e.stopPropagation());
+    container.appendChild(plaque);
+  }
+
+  // Counter-rotate around the ship centre so the plaque stays upright and
+  // at a fixed screen position regardless of vessel heading.
+  plaque.style.transformOrigin = tOrigin;
+  plaque.style.transform = `rotate(${-headingDeg}deg)`;
+
+  const contentEl = plaque.querySelector('.plaque-content');
+  if (contentEl) {
+    const indicator   = isOs ? '●' : '▲';
+    const displayName = isOs ? 'OWN SHIP' : `TS ${label}`;
+
+    contentEl.innerHTML = `
+      <div style="font-size:10px;font-weight:bold;color:${primaryColor};margin-bottom:4px;
+                  display:flex;align-items:center;gap:4px;letter-spacing:0.05em;
+                  text-transform:uppercase;">
+        <span style="font-size:8px;">${indicator}</span> ${displayName}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;
+                  border-top:1px solid rgba(255,255,255,0.1);padding-top:4px;
+                  text-align:left;text-transform:none;">
+        <div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">HDG</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${hdg}°</div>
+        </div>
+        <div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">COG</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${cog}°</div>
+        </div>
+        <div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">SOG</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${sog}<span style="font-size:8px;font-weight:normal;color:#8A9AAD;"> kn</span></div>
+        </div>
+        <div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">ROT</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${rot}<span style="font-size:8px;font-weight:normal;color:#8A9AAD;">°/m</span></div>
+        </div>
+      </div>
+    `;
+  }
 }
 
 // ── wind / current arrow overlay ──────────────────────────────────────────────
@@ -129,24 +259,26 @@ export function SilMapView({
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
   // Cross-screen viewport persistence
-  useMapPersistence(mapRef, viewMode);
+  useMapPersistence(mapRef, viewMode === 'god' ? 'god' : 'captain');
 
   // Store selectors (memoised slices avoid 50 Hz whole-component re-renders)
   const ownShipFromStore  = useTelemetryStore((s) => s.ownShip);
   const targetsFromStore  = useTelemetryStore((s) => s.targets);
   const env      = useTelemetryStore((s) => s.environment);
   const trail    = useTelemetryStore((s) => s.ownShipTrail);
+  const selectedVesselId = useUIStore((s) => s.selectedVesselId);
+  const setSelectedVesselId = useUIStore((s) => s.setSelectedVesselId);
 
   // Use preview data if provided, otherwise use store
   const ownShip = previewData?.ownShip ? {
     pose: { lat: previewData.ownShip.lat, lon: previewData.ownShip.lon, heading: previewData.ownShip.heading / RAD },
-    kinematics: { sog: previewData.ownShip.sog || 0, cog: (previewData.ownShip.cog || previewData.ownShip.heading) / RAD }
+    kinematics: { sog: previewData.ownShip.sog || 0, cog: (previewData.ownShip.cog || previewData.ownShip.heading) / RAD, rot: 0 }
   } : ownShipFromStore;
 
   const targets = (previewData?.targets ? previewData.targets.map(t => ({
     mmsi: t.id,
     pose: { lat: t.lat, lon: t.lon, heading: t.heading / RAD },
-    kinematics: { sog: t.sog || 0, cog: (t.cog || t.heading) / RAD }
+    kinematics: { sog: t.sog || 0, cog: (t.cog || t.heading) / RAD, rot: 0 }
   })) : targetsFromStore) || [];
 
   // ── Map initialisation ──────────────────────────────────────────────────────
@@ -369,12 +501,36 @@ export function SilMapView({
     // Marker
     if (!ownMarker.current) {
       const el = makeVesselEl('#2dd4bf', 30, true);
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectedVesselId('ownship');
+      });
       ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
         .setLngLat([lon, lat]).addTo(map);
     } else {
       ownMarker.current.setLngLat([lon, lat]);
     }
     ownMarker.current.setRotation(hdgDeg);
+
+    // Plaque update
+    const isSelected = selectedVesselId === 'ownship';
+    const hdgVal = (((ownShip.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+    const cogVal = (((ownShip.kinematics?.cog ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+    const sogVal = ((ownShip.kinematics?.sog ?? 0) * 1.944).toFixed(1);
+    const rotVal = ((ownShip.kinematics?.rot ?? 0) * 180 / Math.PI * 60).toFixed(1);
+
+    updatePlaqueDOM(
+      ownMarker.current.getElement() as HTMLDivElement,
+      isSelected,
+      'ownship',
+      'OWN',
+      hdgVal,
+      cogVal,
+      sogVal,
+      rotVal,
+      hdgDeg,
+      30   // own-ship marker is 30 px
+    );
 
     // COG leader
     (map.getSource('own-cog') as any)?.setData({
@@ -445,7 +601,7 @@ export function SilMapView({
         firstFit.current = true;
       }
     }
-  }, [ownShip, followOwnShip, viewMode, previewData]);
+  }, [ownShip, followOwnShip, viewMode, previewData, selectedVesselId, setSelectedVesselId]);
 
   // ── Trail update ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -488,6 +644,10 @@ export function SilMapView({
         let m = tgtMarkers.current.get(id);
         if (!m) {
           const el = makeVesselEl('#fbbf24', 24);
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setSelectedVesselId(id);
+          });
           m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
             .setLngLat([lon, lat]).addTo(map);
           tgtMarkers.current.set(id, m);
@@ -498,6 +658,26 @@ export function SilMapView({
 
         // COG leader
         cogFeatures.push(cogLine(lon, lat, cogRad, sogMs));
+
+        // Plaque update
+        const isSelected = selectedVesselId === id;
+        const hdgVal = (((t.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+        const cogVal = (((t.kinematics?.cog ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+        const sogVal = ((t.kinematics?.sog ?? 0) * 1.944).toFixed(1);
+        const rotVal = ((t.kinematics?.rot ?? 0) * 180 / Math.PI * 60).toFixed(1);
+
+        updatePlaqueDOM(
+          m.getElement() as HTMLDivElement,
+          isSelected,
+          id,
+          t.mmsi != null ? String(t.mmsi).slice(-3) : id.slice(-3),
+          hdgVal,
+          cogVal,
+          sogVal,
+          rotVal,
+          hdgDeg,
+          24   // target marker is 24 px
+        );
       }
     }
 
@@ -507,7 +687,7 @@ export function SilMapView({
     }
 
     (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: cogFeatures });
-  }, [targets]);
+  }, [targets, selectedVesselId, setSelectedVesselId]);
 
   // ── Wind/current marker (top-left, fixed screen position) ──────────────────
   useEffect(() => {
@@ -530,6 +710,104 @@ export function SilMapView({
       el.innerHTML = makeWindEl(dir * RAD, spd).innerHTML;
     }
   }, [env, previewData]);
+
+  // ── Grounding hazard detection @ 10 Hz ─────────────────────────────────────
+  //
+  // 100 ms interval reading own-ship via store.getState() (no re-render) and
+  // querying ENC fill layers for intersecting hazard polygons. A red
+  // highlight layer is toggled on/off based on checkGroundingRisk().
+  useEffect(() => {
+    const hazardLayerIds = [
+      'enc-depth-area',
+      'enc-drying-area',
+      'enc-unsurveyed',
+      'enc-danger-area',
+      'enc-land',
+    ];
+
+    const interval = setInterval(() => {
+      const map = mapRef.current;
+      if (!map || !styleReady.current) return; // skip — retry next tick
+
+      const ensureHighlightLayer = () => {
+        if (map.getLayer('grounding-hazard-highlight')) return;
+        try {
+          map.addSource('grounding-hazard', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+          });
+          map.addLayer({
+            id: 'grounding-hazard-highlight',
+            type: 'fill',
+            source: 'grounding-hazard',
+            paint: {
+              'fill-color': '#ff0000',
+              'fill-opacity': 0.4,
+              'fill-outline-color': '#cc0000',
+            },
+            layout: { visibility: 'none' },
+          });
+        } catch { /* */ }
+      };
+      ensureHighlightLayer();
+
+      const os = useTelemetryStore.getState().ownShip;
+      if (!os?.pose || !os?.kinematics) {
+        try {
+          map.setLayoutProperty('grounding-hazard-highlight', 'visibility', 'none');
+        } catch { /* */ }
+        return;
+      }
+
+      // OwnShipState → OwnShipPosition: cog rad→deg, sog m/s→kn
+      const ship: OwnShipPosition = {
+        lat: os.pose.lat,
+        lon: os.pose.lon,
+        cog_deg: os.kinematics.cog * (180 / Math.PI),
+        sog_kn: os.kinematics.sog * 1.944,
+      };
+
+      const encFeatures = map.queryRenderedFeatures(undefined, {
+        layers: hazardLayerIds,
+      });
+
+      const result = checkGroundingRisk(ship, encFeatures);
+
+      const intersectingFeats = encFeatures.filter((f) => {
+        return (
+          result.riskPolygonIds.length > 0 &&
+          (result.riskPolygonIds.includes(String(f.id)) ||
+            result.riskPolygonIds.includes(String((f as any).properties?.id)))
+        );
+      });
+
+      try {
+        (map.getSource('grounding-hazard') as any)?.setData({
+          type: 'FeatureCollection',
+          features: intersectingFeats,
+        });
+        map.setLayoutProperty(
+          'grounding-hazard-highlight',
+          'visibility',
+          result.isGroundingRisk ? 'visible' : 'none',
+        );
+      } catch { /* */ }
+    }, 100);
+
+    return () => {
+      clearInterval(interval);
+      try {
+        const m = mapRef.current;
+        if (!m) return;
+        if (m.getLayer('grounding-hazard-highlight')) {
+          m.removeLayer('grounding-hazard-highlight');
+        }
+        if (m.getSource('grounding-hazard')) {
+          m.removeSource('grounding-hazard');
+        }
+      } catch { /* */ }
+    };
+  }, []);
 
   const formatCoord = (val: number, isLat: boolean) => {
     const absVal = Math.abs(val);
@@ -564,7 +842,7 @@ export function SilMapView({
           justify-content: center !important;
           padding: 0 !important;
           border-radius: 4px !important;
-          margin-bottom: 20px !important;
+          margin-bottom: 68px !important;
           margin-left: 20px !important;
           box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3) !important;
         }
@@ -573,7 +851,7 @@ export function SilMapView({
       {/* Coordinate Display next to Scale */}
       {status === 'ready' && displayCoords && (
         <div className="glass-panel hmi-surface" style={{
-          position: 'absolute', bottom: 20, left: 120, padding: '0 16px',
+          position: 'absolute', bottom: 68, left: 120, padding: '0 16px',
           height: 38, display: 'flex', alignItems: 'center', gap: 12,
           border: '1px solid var(--line-1)', borderRadius: 4,
           fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)',

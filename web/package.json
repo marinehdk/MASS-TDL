@@ -17,6 +17,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@reduxjs/toolkit": "^2.11.2",
     "@tier4/roslibjs-foxglove": "https://github.com/tier4/roslibjs-foxglove/releases/download/v0.0.4/tier4-roslibjs-foxglove-0.0.4.tgz",
+    "@turf/turf": "^7.3.5",
     "ajv": "^8.20.0",
     "apache-arrow": "^21.1.0",
     "better-sqlite3": "^12.10.0",
