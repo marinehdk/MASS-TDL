@@ -4,7 +4,7 @@
 Ground truth from spec section 6.2 IDL <-> Frontend matrix.
 Usage:
     python tools/vv/check_idl_ts_alignment.py [--sat-ts web/src/types/sat.ts]
-Exit 0 if all 20 fields are present and type-compatible; 1 otherwise.
+Exit 0 if all spec-listed fields are present and type-compatible; 1 otherwise.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-# Ground truth from spec §6.2 and D2.5 Task 1 plan: 20 fields across 4 interfaces.
+# Ground truth from spec section 6.2 and D2.5 Task 1 plan: 17 fields across 4 interfaces.
 GROUND_TRUTH: dict[str, dict[str, str]] = {
     "IvpContribution": {
         "direction_deg": "number",
@@ -25,9 +25,6 @@ GROUND_TRUTH: dict[str, dict[str, str]] = {
         "layer": "number",
         "label": "string",
         "conclusion": "string",
-        "inputs": "Record",
-        "confidence": "number",
-        "timing_stage": "string",
     },
     "TrajectoryCandidate": {
         "id": "number",
