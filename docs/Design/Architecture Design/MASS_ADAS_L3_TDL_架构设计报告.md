@@ -1865,6 +1865,139 @@ message SAT_DataMsg {
 
 ---
 
+## 第十七章 SIL 框架架构 [D2.8 新增 — 原附录 F §F.1-F.3 迁入]
+
+本章定义 L3 TDL SIL（Software-in-the-Loop）测试框架的顶层架构，确保"测试目标即部署目标"——production C++/MISRA ROS2 节点直接运行于 SIL 内核。本章由 v1.1.3-pre-stub 附录 F §F.1-F.3 迁入，为架构报告永久章节。填充路径：D1.3c（FMI 桥实装）→ D2.5（50 场景 SIL 集成）→ D3.6（1000 场景扩展）。
+
+**Finding 关闭**：SIL P0 SIL-1（SIL 框架架构决策锁定）/ SIL-2（DNV 工具链 3 MUST）/ SIL-3（ROS2 Humble + RT 锁定）
+
+**[DNV-FEEDBACK-HOOK] §17.A**：以下内容依赖 DNV 验证官对 maritime-schema acceptance 的反馈（预计 7/31 后收到）：`maritime-schema TrafficSituation` 作为 evidence container 的 CCS 可接受性。若 CCS 不接受：回退路径 = maritime-schema 作内部表示 + 导出器（需 D3.8 patch）。本 hook 在 D3.8 完整化时根据反馈决议删除或替换。
+
+### 17.1 SIL Harness 架构（原 F.1）
+
+L3 TDL SIL 框架采用**选项 D 混合架构**：production C++/MISRA ROS2 Humble 节点（M1–M8）直接运行于 SIL 内核（保证"测试目标即部署目标"），FMI 2.0 / OSP `libcosim` 仅在 ship dynamics + 未来 RL FMU 边界使用，DNV `maritime-schema` 作 scenario / output 互认 schema [R25] [R27] [R28]。
+
+```
+┌─ SIL HARNESS BOUNDARY (Python/CI orchestration) ──────────┐
+│ Scenario YAML (maritime-schema TrafficSituation +         │
+│   FCB metadata 扩展) — farn 1100-cell case folder         │
+└──────────────┬─────────────────────────────────────────────┘
+               │ loads
+┌──────────────▼─────────────────────────────────────────────┐
+│ ROS2 Humble SIL graph (production C++/MISRA binaries)      │
+│                                                            │
+│ l1_world_model_mock ── /world_model/tracks ──► [M2 World]  │
+│ voyage_stub        ── /voyage/plan         ──► [M3 Mission]│
+│ ais_replay/synth   ── /ais/contacts        ──► [M2 World]  │
+│                                                            │
+│      [M1 ODD] [M2 World] [M3 Mission]                      │
+│         │       │           │                              │
+│         └─► [M4 Behavior Arbiter — Mid-MPC] ──┐            │
+│         └─► [M5 Tactical Planner — BC-MPC] ───┤            │
+│         └─► [M6 COLREGs Reasoner] ────────────┤            │
+│                       │                       │            │
+│                       ▼                       │            │
+│              [M7 Doer-Checker] ◄──────────────┘            │
+│              （严格 ROS2 native，不过 FMI 边界）           │
+│                       │                                    │
+│                       ▼                                    │
+│                /cmd/setpoint                               │
+│                       │                                    │
+│                       ▼                                    │
+│ [M8 HMI Bridge] ─/hmi/explain ──► Web HMI (MapLibre + ENC) │
+└──────────────┬─────────────────────────────────────────────┘
+               │ /cmd/thrust /cmd/rudder
+               ▼
+┌─ FMI 2.0 / OSP libcosim 边界（dds-fmu mediator）──────────┐
+│  ship_dynamics_node (FCBPlugin: 4-DOF≤12kn / 6-DOF>12kn)   │
+│   own-ship + N× target_ship_pool_node                      │
+│  Phase 4: target_policy.fmu (mlfmu-built, RL re-import)    │
+└──────────────┬─────────────────────────────────────────────┘
+               │ /own_ship/state, /target/N/state
+               ▼
+        (closes the loop into M2)
+
+证据记录 (out-of-band per tick):
+  CagaTimeStep Apache Arrow → evidence/<scenario_id>.parquet
+  + traceability CSV row (scenario_id ↔ git SHA ↔ vessel_params hash
+    ↔ HAZID ↔ rule clause ↔ 6 维度评分)
+```
+
+**三层模拟策略**（详见 [E1] §Q2）：
+
+| 层 | 实现 | Mode 切换（ROS2 launch arg）|
+|---|---|---|
+| L1（感知）| `world_model_mock` 节点 | `l1_mode := {synthetic \| ais_replay \| rosbag}` |
+| L2（航路规划）| `voyage_stub` 节点（YAML stub） | 不需细分模拟（任务慢变）|
+| L4 / L5（推进 + 自驾仪）| `ship_dynamics_node` (full MMG-in-the-loop, FMI/OSP) | 不退化为 command acceptor — BC-MPC Rule 8 鲁棒性依赖真实致动器延迟 |
+
+**禁止的反模式**：
+- ❌ 选项 A/C：Python orchestration 包装器作认证内核（CCS surveyor 会问"哪个 artefact 对应实船 binary"）
+- ❌ 选项 B：纯 ROS2 + 自定义 rosbag 评据（缺产业互认 scenario 语言）
+
+### 17.2 DNV 工具链锁定（原 F.2）
+
+| 工具 | 决策 | 引入时机 | 依据 |
+|---|---|---|---|
+| `dnv-opensource/maritime-schema` v0.2.x | **MUST** | D1.3b.1 | [R27] |
+| `open-simulation-platform/libcosim` (FMI 2.0) | **MUST** | D1.3c (NEW) | [R28] |
+| `dnv-opensource/farn` + `ospx` | **MUST** | D1.6 + D1.7 | [R29] |
+| `dnv-opensource/ship-traffic-generator` (`trafficgen`) | NICE-deferred | Phase 2 D2.4（50→200 场景扩展）| [R27] |
+| `dnv-opensource/mlfmu` (ONNX→FMU) | NICE-deferred | Phase 4 D4.6（B2 RL 启动）| [R29] [R30] |
+
+**ROS2 ↔ FMI 桥接边界**（D1.3c NEW，详见 [E3] §Architectural Integration）：
+- **Bridge mediator**：`dds-fmu` + 自定义 `libcosim::async_slave` C++ 实现
+- **延迟实测预算**：单次 exchange 2-10 ms（dds-fmu）
+- **关键边界规则**：**M7 Safety Supervisor 严格留 ROS2 native，不过 FMI 边界**。理由：M7 端到端 KPI < 10 ms（§11.4），dds-fmu 单次 exchange 即可吃掉 KPI。仅 ship dynamics（own + targets）+ 未来 RL FMU 走 OSP/FMI。
+- D1.5 V&V Plan 必须新增 SIL latency budget 子节，量化 dds-fmu jitter 上限并补偿至 GNC
+
+**ShipMotionSimulator 抽象层 + FCBPlugin（D1.3a 已实现，本附录补 FMI 导出契约）**：
+
+```cpp
+// fcb/sim/ship_motion_simulator.hpp  (MISRA C++:2023)
+class ShipMotionSimulator {
+public:
+  struct State { double u,v,r,x,y,psi; };
+  struct Cmd   { double rudder_rad, nps; };
+  virtual ~ShipMotionSimulator() = default;
+  virtual State step(const Cmd& c, double dt, const Disturbance& d) = 0;
+  virtual ModeTag mode() const = 0;   // DISPLACEMENT_4DOF | PLANING_6DOF
+};
+
+class FCBPlugin final : public ShipMotionSimulator {
+  DisplacementMMG mmg4_;   // wraps Yasukawa 2015 4-DOF (R7)
+  PlaningHull6DOF mmg6_;   // empirical Savitsky/semi-planing (D1.3a TODO Phase 2)
+  State step(const Cmd& c, double dt, const Disturbance& d) override {
+    return (last_speed_kn_ <= 12.0) ? mmg4_.step(c,dt,d) : mmg6_.step(c,dt,d);
+  }
+};
+// FMI 2.0 export via mlfmu/pythonfmu — D1.3c 实现
+```
+
+同 `FCBPlugin` 实例三种调用：(1) own-ship SIL（`ship_dynamics_node`）；(2) target-ship SIL（`target_ship_pool_node`，N× 实例）；(3) Phase 4 RL 训练（Gymnasium Env adapter，与 (1)/(2) **共享**插件，不 fork 模型）。
+
+**[TBD-D2.5]**：dds-fmu latency budget 实测值（D2.5 完成后更新 §17.2 预算表）。
+
+### 17.3 ROS2 + OS + RT 锁定（原 F.3）
+
+**ROS2 Humble + Ubuntu 22.04 + PREEMPT_RT 实时内核**。证据：
+- 实船 OT 部署约束（FCB onboard Ubuntu 22.04 + RT）
+- DNV 工具链最稳路径（[E3] §ROS2 Compatibility）
+- ROS2 Jazzy 官方目标 Ubuntu 24.04，22.04 用 Humble 是 LTS 路径
+
+**风险注**：DNV 工具链最新版部分需 Python 3.11+；Humble 默认 Python 3.10 — 需在容器内安装 3.11，作为 D1.3c sub-task 验证。
+
+### 17.4 D-task 联动
+
+| D-task | 联动内容 | 方向 | 目标时间 |
+|---|---|---|---|
+| D1.3c FMI 桥 | dds-fmu latency 实测值更新 §17.2 预算表 | 填充 | Phase 1 末 |
+| D2.5 SIL 集成 | 50 场景验证 §17.1 架构图各连接真实通 | 验证 | 7/31 |
+| D3.6 SIL 1000+ | 三层模拟策略 1000-cell 扩展验证 | 扩展 | Phase 3 |
+| D4.6 RL 对抗 | NICE-deferred mlfmu 实装，§17.2 更新 | 激活 | Phase 4 |
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
