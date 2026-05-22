@@ -16,6 +16,7 @@ def test_script_exits_zero_on_real_file():
 
 def test_script_detects_mismatch(tmp_path):
     broken = tmp_path / "sat.ts"
+    report = tmp_path / "idl_alignment_report.json"
     broken.write_text(textwrap.dedent("""
         export interface IvpContribution {
           direction_deg: number;
@@ -24,7 +25,14 @@ def test_script_detects_mismatch(tmp_path):
         }
     """))
     result = subprocess.run(
-        [sys.executable, "tools/vv/check_idl_ts_alignment.py", "--sat-ts", str(broken)],
+        [
+            sys.executable,
+            "tools/vv/check_idl_ts_alignment.py",
+            "--sat-ts",
+            str(broken),
+            "--output",
+            str(report),
+        ],
         capture_output=True, text=True
     )
     assert result.returncode != 0
