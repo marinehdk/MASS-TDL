@@ -43,6 +43,15 @@ function FixRow({ label, buttonLabel, actionId, running, onClick, variant }: Fix
   );
 }
 
+interface QuickFixPanelProps {
+  focusedGateId: number | null;
+  gates: Array<{ gate_id: number; passed: boolean }>;
+  scenarioId?: string | null;
+  runId?: string | null;
+  onFixApplied: () => void;
+  isEmbed?: boolean;
+}
+
 export function QuickFixPanel({ focusedGateId, gates, scenarioId, runId, onFixApplied, isEmbed }: QuickFixPanelProps) {
   const [restartServices] = useRestartServicesMutation();
   const [restartNode] = useRestartNodeMutation();

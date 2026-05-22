@@ -21,3 +21,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </Provider>
   </React.StrictMode>,
 );
+
+// Expose Zustand telemetry store to Playwright E2E in dev mode
+if (import.meta.env.DEV) {
+  import('./store/telemetryStore').then(({ useTelemetryStore }) => {
+    (window as any).__ZUSTAND_TELEMETRY_STORE__ = useTelemetryStore;
+  });
+}

@@ -136,7 +136,18 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
     // Keep ownShip null when decoded proto has no valid pose coordinates
     return {};
   }),
-  updateTargets: (targets) => set({ targets }),
+  updateTargets: (newTargets) => set((s) => {
+    const merged = [...s.targets];
+    for (const nt of newTargets) {
+      const idx = merged.findIndex((t) => t.mmsi === nt.mmsi);
+      if (idx >= 0) {
+        merged[idx] = nt;
+      } else {
+        merged.push(nt);
+      }
+    }
+    return { targets: merged };
+  }),
   updateEnvironment: (environment) => set({ environment }),
   updateModulePulses: (modulePulses) => set({ modulePulses }),
   appendAsdrEvent: (evt) => set((s) => ({

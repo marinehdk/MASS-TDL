@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
-import type { IvpContribution, OwnShipState } from '../types/sat';
+import type { IvpContribution, OwnShipState } from '../types';
 
 interface IvpRiskGradientLayerProps {
   mapRef: React.MutableRefObject<maplibregl.Map | null>;

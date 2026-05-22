@@ -1,0 +1,112 @@
+{
+  "total_fields_checked": 17,
+  "mismatches_count": 15,
+  "mismatches": [
+    {
+      "interface": "IvpContribution",
+      "field": "label",
+      "reason": "MISSING",
+      "expected_type": "string",
+      "actual_type": null
+    },
+    {
+      "interface": "ColregsChainLayer",
+      "field": "layer",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "ColregsChainLayer",
+      "field": "label",
+      "reason": "MISSING",
+      "expected_type": "string",
+      "actual_type": null
+    },
+    {
+      "interface": "ColregsChainLayer",
+      "field": "conclusion",
+      "reason": "MISSING",
+      "expected_type": "string",
+      "actual_type": null
+    },
+    {
+      "interface": "TrajectoryCandidate",
+      "field": "id",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "TrajectoryCandidate",
+      "field": "points",
+      "reason": "MISSING",
+      "expected_type": "Array",
+      "actual_type": null
+    },
+    {
+      "interface": "TrajectoryCandidate",
+      "field": "cost",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "TrajectoryCandidate",
+      "field": "is_optimal",
+      "reason": "MISSING",
+      "expected_type": "boolean",
+      "actual_type": null
+    },
+    {
+      "interface": "TrajectoryCandidate",
+      "field": "type",
+      "reason": "MISSING",
+      "expected_type": "string",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "ais_radar_consistency_sigma",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "target_predictability_rms_m",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "perception_coverage_pct",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "colregs_parse_failures",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "comm_link_rtt_ms",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    },
+    {
+      "interface": "SotifMetrics",
+      "field": "checker_veto_rate_pct",
+      "reason": "MISSING",
+      "expected_type": "number",
+      "actual_type": null
+    }
+  ],
+  "sat_ts_path": "/private/var/folders/v8/fdl1682s09xgrbmlk51sjtxc0000gp/T/pytest-of-marine/pytest-43/test_script_detects_mismatch0/sat.ts"
+}

@@ -93,13 +93,28 @@ const TOPIC_MAP: Array<{
     messageType: 'ship_sim_interfaces/ActuatorCmd',
     handler: (s, msg) => s.updateControlCmd(msg),
   },
+  {
+    topic: '/sil/sat2_data',
+    messageType: 'sil_msgs/SAT2Data',
+    handler: (s, msg: any) => s.updateSat2(msg),
+  },
+  {
+    topic: '/sil/sat3_data',
+    messageType: 'sil_msgs/SAT3Data',
+    handler: (s, msg: any) => s.updateSat3(msg),
+  },
+  {
+    topic: '/sil/sotif_metrics',
+    messageType: 'sil_msgs/SotifMetrics',
+    handler: (s, msg: any) => s.updateSotifMetrics(msg),
+  },
 ];
 
 // Reconnect config
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
 
-export function useFoxgloveLive(wsUrl = 'ws://127.0.0.1:8765') {
+export function useFoxgloveLive(wsUrl = 'wss://127.0.0.1:8765') {
   const rosRef = useRef<Ros | null>(null);
   const topicsRef = useRef<Array<{ unsubscribe: () => void }>>([]);
   const delayRef = useRef(BASE_DELAY_MS);

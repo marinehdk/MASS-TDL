@@ -1,0 +1,41 @@
+# BNWAS 等效机制配置 spec · D2.6 · 设计草案
+# 实现推 D2.8 v1.1.3 stub（4 缺失模块之一）
+
+bnwas_mode: DUAL  # HEARTBEAT | SAT1_EQUIV | DUAL
+
+heartbeat:
+  interval_s: 180          # 3 分钟，对齐传统 BNWAS A 级 (MSC.282(86))
+  grace_period_s: 30
+  alarm_escalation:
+    - AUDIO_LOCAL           # interval_s 到期
+    - AUDIO_ROC             # interval_s + grace_period_s
+    - MRC_PREPARE           # interval_s + grace_period_s + 30s
+
+sat1_equiv:
+  reset_triggers:
+    - tor_acknowledgment_clicked
+    - sat1_panel_interaction
+    - mode_switch_confirmed
+  timeout_s: 300            # 5 分钟
+  alarm_escalation:
+    - AUDIO_ROC             # timeout_s 到期
+    - MRC_PREPARE           # timeout_s + 60s
+
+asdr_record:
+  heartbeat_events: true
+  sat1_interaction_events: true   # §12.4.1 已有基础
+
+ros2_interface:
+  state_topic: /l3/bnwas/state
+  state_frequency_hz: 1
+  confirm_service: /l3/bnwas/heartbeat_confirm
+  message_schema_version: "1.0.0-draft"   # D2.8 实装时升至 1.0.0
+
+compliance:
+  primary_path: HEARTBEAT
+  secondary_path: SAT1_EQUIV           # 完整论证推 D3.9
+  regulatory_gap:
+    standard: IMO MSC.282(86)
+    gap_reference: "[R-IMO-RSE] IMO RSE 2021"
+    status: MONITORING                  # 监管空白；SOLAS/STCW 修订 2026-2028
+    confidence: medium                  # 监管仍在演进中

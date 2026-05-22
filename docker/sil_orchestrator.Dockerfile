@@ -36,4 +36,4 @@ ENV PYTHONPATH=/opt/sil
 
 EXPOSE 8000
 
-CMD ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && source /opt/sil/install/setup.bash && python3 -m uvicorn sil_orchestrator.main:app --host 0.0.0.0 --port 8000"]
+CMD ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && source /opt/sil/install/setup.bash && python3 -m uvicorn sil_orchestrator.main:app --host 0.0.0.0 --port 8000 --ssl-certfile /certs/sil.crt --ssl-keyfile /certs/sil.key"]

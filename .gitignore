@@ -104,3 +104,11 @@ docs/superpowers/
 
 # Sisyphus work directory
 .sisyphus/
+
+# TLS dev certs (DoD #18)
+certs/*.key
+certs/*.crt
+
+# Graphify
+graphify-out/manifest.json
+graphify-out/cost.json

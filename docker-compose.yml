@@ -12,6 +12,7 @@ services:
       - ./scenarios:/var/sil/scenarios
       - ./runs:/var/sil/runs
       - ./exports:/var/sil/exports
+      - ./certs:/certs:ro
     environment:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -37,6 +38,7 @@ services:
     image: mass-l3/ci:humble-ubuntu22.04
     volumes:
       - ./.docker/sil_install:/opt/sil_install:ro
+      - ./certs:/certs:ro
     command: |
       bash -c '
         apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp 2>/dev/null &&
@@ -48,6 +50,8 @@ services:
           -p num_threads:=4 \
           -p send_buffer_limit:=10000000 \
           -p use_sim_time:=true \
+          -p certfile:=/certs/sil.crt \
+          -p keyfile:=/certs/sil.key \
           -p topic_whitelist:="[/sim_clock,/sil/own_ship_state,/sil/target_vessel_state,/sil/radar_meas,/sil/ais_msg,/sil/environment,/sil/tracked_targets,/sil/lifecycle_status,/sil/module_pulse,/sil/scoring,/sil/asdr_event]"
       '
     environment:

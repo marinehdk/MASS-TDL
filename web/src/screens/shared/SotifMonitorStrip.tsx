@@ -57,7 +57,7 @@ export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics, r
   const mrmDesc = MRM_LABELS[mrm] ?? '减速至安全速度，保持航向';
 
   return (
-    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)' }}>
+    <div data-testid="sotif-metrics-panel" style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)' }}>
       <div style={{
         padding: '6px 12px', background: 'var(--bg-0)',
         borderBottom: '1px solid var(--line-2)',

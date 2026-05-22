@@ -10,8 +10,8 @@ const defaultProps = {
   onRun: noop,
   onSave: noop,
   isBaseline: false,
-  activeTab: null as string | null,
-  onActiveTabChange: noop as (tab: string | null) => void,
+  activeTab: null as 'environment' | 'vessels' | 'assertions' | 'raw' | null,
+  onActiveTabChange: noop as (tab: 'environment' | 'vessels' | 'assertions' | 'raw' | null) => void,
 };
 
 describe('BuilderRightRail', () => {

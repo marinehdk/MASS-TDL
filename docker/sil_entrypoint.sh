@@ -13,6 +13,7 @@ source /opt/ws/install/setup.bash
 
 echo "==================================================================="
 echo "=== SIL Staged Entrypoint — $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
+echo "=== TLS/WSS certs: /certs/sil.{crt,key} (DoD #18)              ==="
 echo "==================================================================="
 
 python3 -c "

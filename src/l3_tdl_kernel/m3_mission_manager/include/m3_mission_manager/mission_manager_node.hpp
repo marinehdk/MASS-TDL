@@ -35,7 +35,7 @@
 #include "m3_mission_manager/voyage_task_validator.hpp"
 #include "m3_mission_manager/types.hpp"
 
-#include "l3_msgs/msg/tor_request.hpp"
+#include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_external_msgs/msg/tracking_error.hpp"
 #include "m3_mission_manager/current_error_monitor.hpp"
 #include "m3_mission_manager/l1_watchdog_monitor.hpp"

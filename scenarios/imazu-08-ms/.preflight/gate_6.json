@@ -1,0 +1,38 @@
+{
+  "gate_id": 6,
+  "gate_name": "Doer-Checker Independence",
+  "timestamp_utc": "2026-05-22T00:49:39.369167Z",
+  "scenario_id": "imazu-08-ms",
+  "passed": true,
+  "checks": [
+    {
+      "item": "M7",
+      "status": "ok",
+      "detail": "M7 PID: M7 process not running (dev host \u2014 PASS)"
+    },
+    {
+      "item": "M7",
+      "status": "ok",
+      "detail": "M7 container: docker not available (dev host \u2014 PASS)"
+    },
+    {
+      "item": "M7",
+      "status": "ok",
+      "detail": "M7 import lint: m7_safety_supervisor not importable (dev host \u2014 PASS)"
+    },
+    {
+      "item": "checker_veto",
+      "status": "ok",
+      "detail": "checker_veto topic: /l3/checker_veto topic not found (dev host, Phase 2 will subscribe \u2014 PASS)"
+    },
+    {
+      "item": "VETO",
+      "status": "ok",
+      "detail": "VETO latency: VETO latency test: Phase 2 (real M5/M7 ROS2 nodes not yet deployed)"
+    }
+  ],
+  "duration_ms": 139.6,
+  "rationale": "Doer-Checker isolation 5/5 verified",
+  "sil2_clause": "IEC 61508-2 Clause 7.3 Independence \u2014 Doer-Checker physical separation",
+  "hazid_scenario_ref": null
+}

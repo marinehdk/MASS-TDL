@@ -147,8 +147,21 @@ class TargetVesselNode(LifecycleNode):
         if raw:
             try:
                 for entry in json.loads(raw):
-                    self.add_target(**entry)
-            except (json.JSONDecodeError, TypeError, KeyError) as exc:
+                    if isinstance(entry, dict) and "static" in entry and "initial" in entry:
+                        mmsi = int(entry["static"].get("mmsi", 0))
+                        initial = entry["initial"]
+                        pos = initial.get("position", {})
+                        lat = float(pos.get("latitude", 0.0))
+                        lon = float(pos.get("longitude", 0.0))
+                        heading_deg = float(initial.get("heading", initial.get("cog", 0.0)))
+                        sog_kn = float(initial.get("sog", 0.0))
+                        mode = entry.get("model", "replay")
+                        if mode == "ais_replay_vessel" or mode not in [m.value for m in TargetMode]:
+                            mode = "replay"
+                        self.add_target(mmsi, lat, lon, heading_deg, sog_kn, mode)
+                    else:
+                        self.add_target(**entry)
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
                 self._logger.error(f"Failed to parse default_targets_json: {exc}")
                 return TransitionCallbackReturn.ERROR
         self._logger.info(f"Configured with {len(self._targets)} target(s)")
@@ -161,12 +174,12 @@ class TargetVesselNode(LifecycleNode):
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
-        self._tv_pub = self.create_lifecycle_publisher(
+        self._tv_pub = self.create_publisher(
             TargetVesselState, "/sil/target_vessel_state", qos
         )
         self._timer = self.create_timer(0.1, self._step_callback)
         self._logger.info("Activated — publishing TargetVesselState @ 10 Hz")
-        return TransitionCallbackReturn.SUCCESS
+        return super().on_activate(state)
 
     def on_deactivate(self, state: LifecycleState) -> TransitionCallbackReturn:
         if self._timer is not None:
@@ -176,7 +189,7 @@ class TargetVesselNode(LifecycleNode):
             self.destroy_publisher(self._tv_pub)
             self._tv_pub = None
         self._logger.info("Deactivated")
-        return TransitionCallbackReturn.SUCCESS
+        return super().on_deactivate(state)
 
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self._targets.clear()
@@ -186,6 +199,8 @@ class TargetVesselNode(LifecycleNode):
     # ── Internal ────────────────────────────────────────────────────────
 
     def _step_callback(self) -> None:
+        if self._tv_pub is None:
+            return
         now = self.get_clock().now().to_msg()
         for t in self._targets:
             state = t.step(dt=0.1)

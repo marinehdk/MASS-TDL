@@ -17,7 +17,7 @@ export const MapZoomControl: React.FC<MapZoomControlProps> = ({ mapRef }) => {
 
   return (
     <div className="glass-panel" style={{
-      position: 'absolute', bottom: 70, right: 20, padding: '4px',
+      position: 'absolute', bottom: 116, right: 20, padding: '4px',
       display: 'flex', gap: 2, borderRadius: 4, zIndex: 100,
       flexDirection: 'column', border: '1px solid var(--line-1)'
     }}>
