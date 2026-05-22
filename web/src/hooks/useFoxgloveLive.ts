@@ -93,6 +93,28 @@ const TOPIC_MAP: Array<{
     messageType: 'ship_sim_interfaces/ActuatorCmd',
     handler: (s, msg) => s.updateControlCmd(msg),
   },
+  {
+    topic: '/sil/sat2_data',
+    messageType: 'sil_msgs/SAT2Data',
+    // ROS2 msg: flat {ivp_contributions[], active_behavior, active_behavior_weight,
+    //                 colregs_chain[], colregs_chain_target_id, reasoning_latency_ms}
+    // TS type:  SAT2Data (already matches flat structure)
+    handler: (s, msg: any) => s.updateSat2(msg),
+  },
+  {
+    topic: '/sil/sat3_data',
+    messageType: 'sil_msgs/SAT3Data',
+    // ROS2 msg: flat {trajectory_candidates[], uncertainty_bands}
+    handler: (s, msg: any) => s.updateSat3(msg),
+  },
+  {
+    topic: '/sil/sotif_metrics',
+    messageType: 'sil_msgs/SotifMetrics',
+    // ROS2 msg: flat {ais_radar_consistency_sigma, target_predictability_rms_m,
+    //                 perception_coverage_pct, colregs_parse_failures,
+    //                 comm_link_rtt_ms, checker_veto_rate_pct}
+    handler: (s, msg: any) => s.updateSotifMetrics(msg),
+  },
 ];
 
 // Reconnect config
