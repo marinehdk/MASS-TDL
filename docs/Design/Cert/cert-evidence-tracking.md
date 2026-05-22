@@ -35,8 +35,8 @@ docs/Design/
 | Evidence Artefact | CCS Req | SIL 2 Req | Status | Target Date | Owner |
 |---|---|---|---|---|---|
 | ConOps v0.1 → v1.0 | ✅ Mandatory | — | 🔴 **STUB** | D1.8 (stub) / D2.8 (draft) / D3.8 (final) | TBD |
-| Hazard Log / HARA | ✅ Mandatory | ✅ Mandatory | 🔴 **Not started** | D2.7 (v0.1) / D3.8 (final) | Safety Engineer |
-| FMEDA (M1, M7) | — | ✅ Mandatory | 🔴 **Not started** | D2.7 (v0.1) | Safety Engineer |
+| Hazard Log / HARA | ✅ Mandatory | ✅ Mandatory | 🟡 **v0.1 complete — D2.7 2026-07-10** | D3.3 (LOPA) / D3.8 (final) | Safety Engineer |
+| FMEDA (M1, M7) | — | ✅ Mandatory | 🟡 **M1 v1.0 complete — D2.7 2026-07-10; M7 → D3.3a** | D3.3a (M7) | Safety Engineer |
 | ALARP Demonstration | ✅ Mandatory | ✅ Mandatory | 🔴 **Not started** | Phase 4 | TBD |
 | SDLC Plan (IEC 61508-3 §7) | — | ✅ Mandatory | 🔴 **Not started** | Phase 4 | TBD |
 | V&V Plan v0.1 → v1.0 | ✅ Mandatory | ✅ Mandatory | 🟡 Draft complete | D1.5 (v0.1) / D3.8 (v1.0) | V&V Engineer |
