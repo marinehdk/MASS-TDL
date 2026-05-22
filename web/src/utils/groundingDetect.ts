@@ -21,7 +21,7 @@ const NM_TO_DEG = 1 / 60;
 const SEGMENTS = 12;
 
 /** One interval in hours (10 s / 3600). */
-const DT_HOURS = 10 / 3600;
+const STEP_HOURS = 10 / 3600;
 
 /**
  * Project a point by bearing and nautical-mile distance.
@@ -33,10 +33,10 @@ function project(
   bearingDeg: number,
   distNm: number,
 ): [number, number] {
-  const d = distNm * NM_TO_DEG;
+  const dLat = distNm * NM_TO_DEG;
+  const dLon = dLat / Math.cos(lat * Math.PI / 180);
   const brRad = bearingDeg * (Math.PI / 180);
-  const cosLat = Math.cos(lat * (Math.PI / 180)) || 1e-9;
-  return [lon + (d * Math.sin(brRad)) / cosLat, lat + d * Math.cos(brRad)];
+  return [lon + dLon * Math.sin(brRad), lat + dLat * Math.cos(brRad)];
 }
 
 /**
@@ -56,7 +56,7 @@ export function predictedPath(
   const coords: [number, number][] = [[lon, lat]];
 
   for (let i = 1; i <= SEGMENTS; i++) {
-    const distNm = sog_kn * DT_HOURS * i; // cumulative
+    const distNm = sog_kn * STEP_HOURS * i; // cumulative
     coords.push(project(lon, lat, cog_deg, distNm));
   }
 

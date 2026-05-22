@@ -56,13 +56,17 @@ export function ArrowScrubber({
     let lo = 0, hi = table.numRows - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if ((tsCol.get(mid) as bigint) < targetNs) lo = mid + 1;
+      const val = tsCol.get(mid) as bigint | null;
+      if (val === null) { lo = mid + 1; continue; }
+      if (val < targetNs) lo = mid + 1;
       else hi = mid;
     }
 
     if (onFrame) {
+      const tsVal = tsCol.get(lo) as bigint | null;
+      if (tsVal === null) return;
       const row = {
-        timestamp_ns: tsCol.get(lo) as bigint,
+        timestamp_ns: tsVal,
         channel: table.getChildAt(1)!.get(lo) as string,
         payload_bytes: table.getChildAt(2)!.get(lo) as Uint8Array,
       };
@@ -75,13 +79,21 @@ export function ArrowScrubber({
     const track = trackRef.current;
     if (!track) return;
 
+    let _rafPending = false;
     const move = (ev: MouseEvent) => {
       const rect = track.getBoundingClientRect();
       const p = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      if (playheadRef.current) {
-        gsap.set(playheadRef.current, { left: `${p * 100}%` });
+      // Throttle GSAP updates to rAF
+      if (!_rafPending) {
+        _rafPending = true;
+        requestAnimationFrame(() => {
+          if (playheadRef.current) {
+            gsap.set(playheadRef.current, { left: `${p * 100}%` });
+          }
+          scrubToProgress(p);
+          _rafPending = false;
+        });
       }
-      scrubToProgress(p);
     };
     const up = () => {
       window.removeEventListener('mousemove', move);

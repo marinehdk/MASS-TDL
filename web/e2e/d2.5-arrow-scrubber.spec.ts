@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 const ORCHESTRATOR = 'http://localhost:8000';
 const MONITOR_URL = '/#/monitor/imazu-01-ho?dev=1&replay=run-19e1b2d248b';
@@ -57,9 +58,8 @@ test.describe('D2.5 — Arrow Scrubber latency < 100ms p95', () => {
     latencies.sort((a, b) => a - b);
     const p95 = latencies[Math.floor(SAMPLES * 0.95)];
 
-    const fs = require('fs');
-    fs.mkdirSync('test-results', { recursive: true });
-    fs.writeFileSync('test-results/arrow_scrubber_latency.json', JSON.stringify({
+    mkdirSync('test-results', { recursive: true });
+    writeFileSync('test-results/arrow_scrubber_latency.json', JSON.stringify({
       samples: SAMPLES, p95_ms: p95, max_ms: latencies[SAMPLES - 1],
       all_ms: latencies, threshold_ms: 100,
       pass: p95 < 100,
