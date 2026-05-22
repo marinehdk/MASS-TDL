@@ -47,7 +47,3 @@
 - 尺寸：1920×1080
 - 格式：PNG（无损）
 - 数量：≥4 张（captain 视图 ≥2 + ROC 视图 ≥2）
-
-## Verification
-
-Confirm file exists and contains the 5 display elements, screenshot export specs, and `[R35-§TBD]`.

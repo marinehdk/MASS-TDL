@@ -74,17 +74,31 @@ def _parse_ts_interface(src: str, iface_name: str) -> dict[str, str]:
 
 
 def _is_type_compatible(expected_type_hint: str, actual_type: str) -> bool:
-    actual = actual_type.lower()
     expected = expected_type_hint.lower()
-    if expected in actual:
-        return True
+    actual = actual_type.strip()
+    actual_unwrapped = actual
+    if actual_unwrapped.startswith("(") and actual_unwrapped.endswith(")"):
+        actual_unwrapped = actual_unwrapped[1:-1].strip()
 
-    union_parts = [part.strip() for part in actual_type.split("|")]
     if expected == "number":
-        return bool(union_parts) and all(re.fullmatch(r"\d+(?:\.\d+)?", part) for part in union_parts)
+        if actual_unwrapped == "number":
+            return True
+        union_parts = [part.strip() for part in actual_unwrapped.split("|")]
+        return len(union_parts) > 1 and all(
+            re.fullmatch(r"\d+(?:\.\d+)?", part) for part in union_parts
+        )
     if expected == "string":
-        return bool(union_parts) and all(
+        if actual_unwrapped == "string":
+            return True
+        union_parts = [part.strip() for part in actual_unwrapped.split("|")]
+        return len(union_parts) > 1 and all(
             re.fullmatch(r"['\"][^'\"]+['\"]", part) for part in union_parts
+        )
+    if expected == "boolean":
+        return actual_unwrapped == "boolean"
+    if expected == "array":
+        return bool(re.fullmatch(r"Array\s*<.+>", actual_unwrapped)) or bool(
+            re.fullmatch(r".+\[\]", actual_unwrapped)
         )
     return False
 
