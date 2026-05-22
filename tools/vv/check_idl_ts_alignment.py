@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check ROS2 IDL field alignment against web/src/types/sat.ts (D2.5 spec §6.2).
 
-Ground truth from §6.2 IDL-Frontend matrix: 20 fields across 4 interfaces.
+Ground truth from §6.2 IDL-Frontend matrix: 17 fields across 4 interfaces.
 
 Usage:
     python tools/vv/check_idl_ts_alignment.py [--sat-ts web/src/types/sat.ts]
@@ -16,7 +16,7 @@ import re
 import sys
 from pathlib import Path
 
-# Ground truth from D2.5 spec §6.2 Table 2 — 20 fields across 4 interfaces
+# Ground truth from D2.5 spec §6.2 IDL ↔ Frontend matrix — 17 fields across 4 interfaces
 GROUND_TRUTH: dict[str, dict[str, str]] = {
     "IvpContribution": {
         "direction_deg": "number",
@@ -43,13 +43,6 @@ GROUND_TRUTH: dict[str, dict[str, str]] = {
         "comm_link_rtt_ms": "number",
         "checker_veto_rate_pct": "number",
     },
-}
-
-# TypeScript literal unions are subtype-compatible with their primitive base
-_LITERAL_UNION_BASE: dict[str, tuple[str, ...]] = {
-    "number": ("number",),
-    "string": ("string",),
-    "boolean": ("boolean",),
 }
 
 
@@ -141,7 +134,11 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    src = Path(args.sat_ts).read_text()
+    sat_ts_path = Path(args.sat_ts)
+    if not sat_ts_path.exists():
+        print(f"[FAIL] {args.sat_ts} not found", file=sys.stderr)
+        return 1
+    src = sat_ts_path.read_text()
     mismatches: list[dict] = []
     total_checked = 0
 
