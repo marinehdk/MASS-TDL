@@ -1998,6 +1998,43 @@ class FCBPlugin final : public ShipMotionSimulator {
 
 ---
 
+## 第十八章 RL 隔离架构 [D2.8 新增 — 原附录 F §F.4 迁入]
+
+本章定义 RL（强化学习）对抗生成器与认证核心（M1-M8）的三层强制隔离边界。即使 B2 RL 推 Phase 4 启动，本章在 v1.1.3 stub 中锁定边界规则，确保 Phase 1-3 仓库结构和 CI lint 提前合规，避免 Phase 4 启动时回退污染已审认证内核。
+
+**Finding 关闭**：SIL P0 SIL-4（RL 隔离三层边界锁定）
+**置信度**：🟡 Medium — DNV-RP-0671/0510/0513 直接条款引用在 D3.8 完整化时验证；架构报告 §F.4 对应 [R25][R30][R31]。
+
+### 18.1 三层隔离边界（原 F.4）
+
+即使 B2 RL 推 Phase 4（10–12 月）启动，RL 隔离 3 层边界须在 v1.1.3-pre-stub 锁定，并在 D1.3a/b 仓库结构 + CI lint rule 现在落地，避免 Phase 4 启动时回退污染已审认证内核。
+
+| 层 | 边界 | 强制实现 |
+|---|---|---|
+| **L1 Repo** | `/src/l3_tdl_kernel/**` (C++/MISRA, ROS2 nodes M1–M8, frozen, DNV-RP-0513 [R25] assured) vs `/src/sim_workbench/**`（Python sim 工具 / D1.3a-b 共用）vs `/src/rl_workbench/**`（Phase 4 启动；Python, Gymnasium, SB3）| 三 colcon 包独立；CI lint 检测 cross-import 即报错 |
+| **L2 Process** | RL 训练独立 Docker container；通过 OSP `libcosim` FMI socket 调相同 MMG FMU + scenario YAML，**绝不**触 C++ 代码 | docker-compose 隔离 namespace；只读挂载 certified binaries |
+| **L3 Artefact** | 训练完毕 ONNX → `mlfmu build` (Phase 4) → `target_policy.fmu` → `libcosim` 加载到 certified SIL；**Python/PyTorch 永不入 certified loop** | `mlfmu build` 是边界；FMU 进 evidence store 须经 DNV-RP-0671 [R30] 鉴定 |
+
+**Phase 4 启动条件**：4 缺失模块 / RL 启动前必须验证 D1.3a/b/c 已遵守 L1/L2 边界（git history audit 通过）。
+
+### 18.2 技术选型占位 [TBD-D4.6]
+
+- **L1 Repo 隔离**：单体 monorepo（`/src/rl_workbench/` 独立 colcon 包）；具体 CI lint rule 已在 D1.3a/D1.3b 仓库结构落地（§18.1 引用）
+- **L2 Process 隔离**：Docker compose 独立 namespace；K8s pod 隔离为 Phase 4 升级选项（D4.6 启动时评估）
+- **L3 Artefact**：`mlfmu build` → `target_policy.fmu` → evidence store；DNV-RP-0671 鉴定流程 **[TBD-D4.6]**
+
+### 18.3 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.3a / D1.3b | L1 Repo CI lint rule 已落地 → §18 引用确认 | 现状确认 |
+| D1.5 V&V Plan | §18.3 RL artefact 进 V&V 门条件 | 输入 |
+| D4.6 RL 对抗（Phase 4）| §18.2 全部 [TBD] 填充 + mlfmu 鉴定 | 激活 |
+
+**[TBD-D4.6]**：L2/L3 隔离完整技术规格 / mlfmu 鉴定流程 / DNV-RP-0671 条款映射。
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
