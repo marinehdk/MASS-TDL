@@ -280,6 +280,19 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
   T_sys_health = 按当前降级状态估算的系统可靠维持时间
 ```
 
+**ToR 自适应矩阵 [D2.8 新增 — D2.1 实装参数输入]**
+
+操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[TBD-HAZID]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
+
+| 操作员状态 | ODD-A（正常运营）| ODD-B（受限运营）| ODD-C（边缘）| ODD-D（降级）|
+|---|---|---|---|---|
+| **ROC 在岗** | 60 s \| TDL ≤ TMR 触发 | 60 s \| TDL ≤ TMR 触发 | 45 s \| TDL ≤ 80 s | 30 s \| 立即 |
+| **桥楼备岗** | 90 s \| ODD EDGE + 通知 | 75 s \| TDL ≤ 1.5×TMR | 60 s \| TDL ≤ 100 s | 45 s \| 立即 |
+| **餐厅** | 120 s \| 计划切换点 | 90 s \| EDGE + 广播 | 75 s \| OUT 预警 | 60 s \| 立即 |
+| **睡舱** | 150 s \| D4→D3 预通知 | 120 s \| EDGE 强通知 | 90 s \| 叫醒 + ToR | 75 s \| MRC 准备 |
+
+> **[TBD-HAZID]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
+
 ### 3.5 ODD 状态机设计
 
 ```mermaid
