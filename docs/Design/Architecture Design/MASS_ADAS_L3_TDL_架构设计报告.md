@@ -1760,33 +1760,35 @@ message SAT_DataMsg {
 
 [F-P1-D4-031~035 + F-P1-D5-012 + F-P2-D5-013 + F-P2-D4-038 修订]
 
-| 发布者 → 订阅者 | 消息类型 | 频率 | 关键内容 |
-|---|---|---|---|
-| **L1 Voyage Order → M3** | VoyageTask | 事件 | 任务级参数（departure/destination/eta_window）**[F-P2-D4-038 新增]** |
-| **L2 WP_Generator → M3,M5** | PlannedRoute | 1 Hz / 事件 | 航点序列（含 wop_distance / turn_radius / safety_corridor）|
-| **L2 Speed_Profiler → M3,M5** | SpeedProfile | 1 Hz / 事件 | 速度曲线（含 phase=accel/cruise/decel）|
-| **Multimodal Fusion → M2** | TrackedTargetArray | 2 Hz | 目标列表（含 covariance / classification）|
-| **Multimodal Fusion → M2** | FilteredOwnShipState | 50 Hz | 自身状态（含对水 u/v + 海流估计）|
-| **Multimodal Fusion → M2** | EnvironmentState | 0.2 Hz | 能见度/海况/交通密度/zone_type/in_tss |
-| M1 → M2,M3,M4,M5,M6,M7,M8 | ODD_StateMsg | 1 Hz + 事件 | ODD 子域、AutoLevel、TMR/TDL |
-| M1 → M4 | Mode_CmdMsg | 事件 | 行为集约束变更 |
-| M2 → M3,M4,M5,M6 | World_StateMsg | 4 Hz | 目标列表（含 CPA/TCPA）+ 自身状态 + ENC 约束 |
-| M3 → M4 | Mission_GoalMsg | 0.5 Hz | 当前任务目标、航段、ETA |
-| **M3 → L2 Voyage Planner** | RouteReplanRequest | 事件 | 重规划请求（ODD 越界 / MRC / 冲突）**[F-P1-D4-035 新增]** |
-| **L2 Voyage Planner → M3** | ReplanResponseMsg | 事件 | 重规划响应（SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES）**[v1.1.2 RFC-006 新增]** |
-| M4 → M5 | Behavior_PlanMsg | 2 Hz | 行为类型、允许航向/速度区间 |
-| M6 → M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段 |
-| **M5 Mid-MPC → L4 Guidance Layer** | AvoidancePlanMsg | 1–2 Hz | WP[] + speed_adj（L4 覆盖 L2 PlannedRoute，自身 LOS+WOP → L5）**[F-P1-D5-012 + F-P1-D4-032 — v1.1 方案 B 升级]** |
-| **M5 BC-MPC → L4 Guidance Layer** | ReactiveOverrideCmd | 事件 / 上限 10 Hz | 紧急 (ψ, u, ROT)（L4 切换到 reactive_override 模式直接转发 → L5）**[v1.1 方案 B 紧急接口]** |
-| M7 → M1 | Safety_AlertMsg | 事件 | 告警类型、严重度、MRC 请求 + recommended_mrm 索引 |
-| **X-axis Checker → M7** | CheckerVetoNotification | 事件 | Checker 否决事件 **[F-P0-D3-002 + F-P2-D3-036 新增]** |
-| **Y-axis Reflex Arc → L5** | EmergencyCommand | 事件 | 紧急停车 / 转向 **[F-P1-D4-034 新增]** |
-| **Y-axis Reflex Arc → M1** | ReflexActivationNotification | 事件 | 通知 L3 进入 OVERRIDDEN 模式 **[F-P1-D4-034 新增]** |
-| **Hardware Override Arbiter → M1** | OverrideActiveSignal | 事件 | 通知 L3 切换到 OVERRIDDEN 模式（M5 冻结 / M7 暂停 SOTIF）**[F-P2-D6-037 新增]** |
-| **M1, M2, M3, M4, M5, M6, M7 → ASDR** | ASDR_RecordMsg | 事件 + 2 Hz | 决策追溯日志（JSON + SHA-256 签名）**[F-P1-D4-033 + v1.1.2 RFC-004 增补 M3/M5]** |
-| M1, M2–M7 → M8 | SAT_DataMsg | 10 Hz | 各模块 SAT-1/2/3 数据流（按 §12.2 自适应触发）|
-| M8 → ROC/Captain | UI_StateMsg | 50 Hz | 渲染就绪的 HMI 数据 |
-| M8 → ROC | ToR_RequestMsg | 事件 | 责任移交请求（含 60 s 时窗）|
+| 发布者 → 订阅者 | 消息类型 | 频率 | 关键内容 | auth_required | integrity_mechanism | replay_protection | dds_security_profile |
+|---|---|---|---|---|---|---|---|
+| **L1 Voyage Order → M3** | VoyageTask | 事件 | 任务级参数（departure/destination/eta_window）**[F-P2-D4-038 新增]** | none | crc32 | none | open |
+| **L2 WP_Generator → M3,M5** | PlannedRoute | 1 Hz / 事件 | 航点序列（含 wop_distance / turn_radius / safety_corridor）| none | crc32 | none | open |
+| **L2 Speed_Profiler → M3,M5** | SpeedProfile | 1 Hz / 事件 | 速度曲线（含 phase=accel/cruise/decel）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | TrackedTargetArray | 2 Hz | 目标列表（含 covariance / classification）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | FilteredOwnShipState | 50 Hz | 自身状态（含对水 u/v + 海流估计）| none | crc32 | none | open |
+| **Multimodal Fusion → M2** | EnvironmentState | 0.2 Hz | 能见度/海况/交通密度/zone_type/in_tss | none | crc32 | none | open |
+| M1 → M2,M3,M4,M5,M6,M7,M8 | ODD_StateMsg | 1 Hz + 事件 | ODD 子域、AutoLevel、TMR/TDL | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M1 → M4 | Mode_CmdMsg | 事件 | 行为集约束变更 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M2 → M3,M4,M5,M6 | World_StateMsg | 4 Hz | 目标列表（含 CPA/TCPA）+ 自身状态 + ENC 约束 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M3 → M4 | Mission_GoalMsg | 0.5 Hz | 当前任务目标、航段、ETA | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **M3 → L2 Voyage Planner** | RouteReplanRequest | 事件 | 重规划请求（ODD 越界 / MRC / 冲突）**[F-P1-D4-035 新增]** | none | crc32 | none | open |
+| **L2 Voyage Planner → M3** | ReplanResponseMsg | 事件 | 重规划响应（SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES）**[v1.1.2 RFC-006 新增]** | none | crc32 | none | open |
+| M4 → M5 | Behavior_PlanMsg | 2 Hz | 行为类型、允许航向/速度区间 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M6 → M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **M5 Mid-MPC → L4 Guidance Layer** | AvoidancePlanMsg | 1–2 Hz | WP[] + speed_adj（L4 覆盖 L2 PlannedRoute，自身 LOS+WOP → L5）**[F-P1-D5-012 + F-P1-D4-032 — v1.1 方案 B 升级]** | none | crc32 | none | open |
+| **M5 BC-MPC → L4 Guidance Layer** | ReactiveOverrideCmd | 事件 / 上限 10 Hz | 紧急 (ψ, u, ROT)（L4 切换到 reactive_override 模式直接转发 → L5）**[v1.1 方案 B 紧急接口]** | none | crc32 | none | open |
+| M7 → M1 | Safety_AlertMsg | 事件 | 告警类型、严重度、MRC 请求 + recommended_mrm 索引 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| **X-axis Checker → M7** | CheckerVetoNotification | 事件 | Checker 否决事件 **[F-P0-D3-002 + F-P2-D3-036 新增]** | none | crc32 | none | open |
+| **Y-axis Reflex Arc → L5** | EmergencyCommand | 事件 | 紧急停车 / 转向 **[F-P1-D4-034 新增]** | none | crc32 | none | open |
+| **Y-axis Reflex Arc → M1** | ReflexActivationNotification | 事件 | 通知 L3 进入 OVERRIDDEN 模式 **[F-P1-D4-034 新增]** | none | crc32 | none | open |
+| **Hardware Override Arbiter → M1** | OverrideActiveSignal | 事件 | 通知 L3 切换到 OVERRIDDEN 模式（M5 冻结 / M7 暂停 SOTIF）**[F-P2-D6-037 新增]** | none | crc32 | none | open |
+| **M1, M2, M3, M4, M5, M6, M7 → ASDR** | ASDR_RecordMsg | 事件 + 2 Hz | 决策追溯日志（JSON + SHA-256 签名）**[F-P1-D4-033 + v1.1.2 RFC-004 增补 M3/M5]** | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M1, M2–M7 → M8 | SAT_DataMsg | 10 Hz | 各模块 SAT-1/2/3 数据流（按 §12.2 自适应触发）| hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M8 → ROC/Captain | UI_StateMsg | 50 Hz | 渲染就绪的 HMI 数据 | dds-auth | hmac-sha256 | ptp-window | ROC-link |
+| M8 → ROC | ToR_RequestMsg | 事件 | 责任移交请求（含 60 s 时窗）| dds-auth | hmac-sha256 | ptp-window | ROC-link |
+
+> **[D2.8 security columns 注]**：列值为 v1.1.3-stub 初始设计值。L3-internal 和 ROC-link DDS-Security policy XML 在 D3.9 RFC-007 交付。跨系统通道（X-axis / Y-axis / Hardware Override）安全性由物理隔离实现（§16.1 Zone 划分），不依赖 DDS-Security。完整 IACS UR E27 符合性分析见 D3.9。
 
 > **v1.1 关键变更说明**：
 > - 删除 v1.0 "M7 → M5 Emergency_CmdMsg 直接安全轨迹（绕过M4）" 行——M7 不再注入轨迹，改为通过 M7 → M1 Safety_AlertMsg 携带 recommended_mrm 索引（详见 ADR-001 + §11.2 + §11.6）
