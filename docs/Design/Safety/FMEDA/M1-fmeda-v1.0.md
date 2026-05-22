@@ -51,7 +51,7 @@
 | λSD（安全，可检测）| 2 | FM-M1-03, FM-M1-15 |
 | λSU（安全，不可检测）| 2 | FM-M1-10, FM-M1-16 |
 | λDD（危险，可检测）| 5 | FM-M1-01, FM-M1-05, FM-M1-08, FM-M1-17, FM-M1-07（partial）|
-| λDU（危险，不可检测）| 9 | FM-M1-02, FM-M1-04, FM-M1-06, FM-M1-09, FM-M1-11, FM-M1-12, FM-M1-13, FM-M1-14, FM-M1-18~20 |
+| λDU（危险，不可检测）| 11 | FM-M1-02, FM-M1-04, FM-M1-06, FM-M1-09, FM-M1-11, FM-M1-12, FM-M1-13, FM-M1-14, FM-M1-18, FM-M1-19, FM-M1-20 |
 | CCF | 2 | FM-M1-07, FM-M1-08 |
 
 **SFF 估算（Route 1H, HFT=1 with M7）：** λSD + λSU + λDD / λtotal ≈ (2+2+5)/20 = 45%  
