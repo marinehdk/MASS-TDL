@@ -22,7 +22,8 @@ from sil_orchestrator.selfcheck_routes import router as selfcheck_router
 from sil_orchestrator.export_routes import router as export_router
 from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.schema_routes import router as schema_router
-from sil_orchestrator.scoring_routes import router as scoring_router
+from sil_orchestrator.scoring_routes import router as scoring_router, \
+    _kpi_router as kpi_router
 from sil_orchestrator.ops_routes import router as ops_router
 from sil_orchestrator.arrow_routes import router as arrow_router
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState, ScenarioInjectionError, _copy_preflight_evidence  # noqa: F401
@@ -209,6 +210,7 @@ app.include_router(schema_router)
 app.include_router(scoring_router)
 app.include_router(ops_router)
 app.include_router(arrow_router)
+app.include_router(kpi_router)
 
 # ── Demo telemetry (non-ROS2 dead-reckoning) ─────────────────────────
 

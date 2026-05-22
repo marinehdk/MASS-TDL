@@ -124,3 +124,29 @@ async def scoring_last_run():
         "scoring_dimensions": None,
         "verdict": None,
     }
+
+
+# --- KPI aggregation endpoint for dashboard ---
+import json as _json
+from pathlib import Path as _Path
+
+_kpi_router = APIRouter(prefix="/api/v1/vv")
+
+@_kpi_router.get("/kpi")
+async def get_kpi():
+    """Aggregate KPI from test-results/*.json for dashboard."""
+    result: dict = {}
+    for fname, _key in [
+        ("test-results/kpi_p95_p99.json", None),
+        ("test-results/coverage_cube.json", None),
+        ("test-results/kpi_colregs.json", None),
+        ("test-results/imazu22_results.json", "batch_results"),
+    ]:
+        p = _Path(fname)
+        if p.exists():
+            data = _json.loads(p.read_text())
+            if _key:
+                result.update({_key: data})
+            else:
+                result.update(data)
+    return result
