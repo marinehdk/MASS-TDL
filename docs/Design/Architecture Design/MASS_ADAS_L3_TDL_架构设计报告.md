@@ -2224,6 +2224,137 @@ S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定�
 
 ---
 
+## 第二十二章 延期支持模块 Stub [D2.8 新增]
+
+以下 4 个模块为 L3 TDL 架构中识别的必要支持模块，因 Phase 1-3 资源约束（B4 standby）延至 Phase 4 D4.7 完整实现。本章以"接口契约 stub"形式记录，使 M1-M8 模块设计可引用其接口位，CCS 审计员可评估接口完整性，而不需要实现细节。
+
+**格式**：每个子节遵循 M1-M8 接口契约最小模板（不写算法实现）。
+**Finding 关闭**：D P1-D-04（BNWAS stub 设计位置）/ C P1-C-3 partial（§22 接口位确认）/ C P1-C-5 partial（§22 CCS 映射表）
+
+### 22.1 ENC Manager
+
+**职责**：将电子海图（S-57/S-101）数据转化为 L3 可消费的障碍物多边形、水深轮廓线和交通规则区域，作为 M2 World Model 和 M5 Tactical Planner 的地理约束输入源。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M2 World Model / M5 Tactical Planner |
+| 触发方 | 自船位置更新（M2 发布）|
+| 实现推迟至 | Phase 4 D4.7（B4 条件触发）|
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `ENCHazardMap` | `/enc/hazard_polygons` | → M2/M5 | 0.1 Hz + 位置事件 | 当前位置 ±5 nm 内障碍物 + 浅水多边形列表 |
+| `ENCDepthContours` | `/enc/depth_contours` | → M5 | 0.1 Hz | 规划路径相关水深轮廓线 |
+| `ENCTrafficZones` | `/enc/traffic_zones` | → M6 | 0.1 Hz | TSS / VTS / Port 通航规则区域（M6 Rule 10 输入）|
+
+**降级行为**：
+- DEGRADED（ENC 数据 > 24h 未更新）：M1 发布 `ODD_EDGE`；M5 使用保守静水障碍物假设
+- CRITICAL（ENC 完全不可用）：M1 切换 ODD_OUT；系统发出 MRC，禁止自主决策
+- Phase 4 前（stub 期）：M5 使用硬编码 no-go zone 占位（测试场景 Trondheim Fjord 基线）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 4（Route Planning）+ Sub-function 5（Collision Avoidance）。
+
+**[TBD-D4.7]**：S-57 vs S-101 格式支持策略 / ENC 来源认证 / 动态障碍物更新机制 / GDAL pipeline 集成细节。
+
+---
+
+### 22.2 Parameter Store
+
+**职责**：L3 TDL 唯一权威参数源，存储船舶能力清单（Capability Manifest）、水动力系数（MMG 4-DOF/6-DOF）、停船距离、风流补偿表、推进配置和降级回退值。确保"零船型常量"原则（CLAUDE.md §4 顶层决策 4）。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M1 / M4 / M5 / M7 |
+| 触发方 | 系统启动 + 船型切换事件 |
+| 实现推迟至 | Phase 4 D4.7 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `CapabilityManifest` | `/params/capability_manifest` | → M1/M4/M5 | 0.1 Hz 心跳 + 启动 | 船型 + 推进配置 + ROT_max 曲线 + 停船距离 |
+| `VesselDynamics` | `/params/vessel_dynamics` | → M5 | 0.1 Hz 心跳 + 启动 | MMG 系数集（Yasukawa 2015 或外部提供）|
+| `SafetyMargins` | `/params/safety_margins` | → M7 | 0.1 Hz 心跳 + 启动 | CPA_min / TCPA_min / ODD 边界阈值（含 HAZID 初值）|
+| `ParamUpdateEvent` | `/params/update_event` | → M1 | 事件 | 参数热更新通知（需 M7 VETO 验证）|
+
+**降级行为**：
+- DEGRADED（心跳 > 5 s 中断）：M1 发布 `ODD_EDGE`；使用上次缓存值运行 ≤ 60 s
+- CRITICAL（参数完整性校验失败）：M1 切换 ODD_OUT；禁止自主决策
+- Phase 4 前（stub 期）：YAML 配置文件 `/config/fcb_params.yaml` 直接由 M5/M7 读取（无 ROS2 topic 封装）
+
+**CCS 功能映射**：跨切所有 9 个子功能（参数是全局约束输入）+ DMV-CG-0264 §4.2 Configuration Management。
+
+**[TBD-D4.7]**：参数热更新 M7 VETO 验证协议 / HAZID 132 [TBD-HAZID] 参数回填（D3.5 8/19）/ 多船型 PVA 适配路径。
+
+---
+
+### 22.3 Environment Cross-Source Validator
+
+**职责**：验证来自多传感器融合路径（AIS / Radar ARPA / AIS-R / Fusion Pipeline）的环境数据一致性，检测欺骗、陈旧数据、跨源 MMSI 冲突和位置不一致，为 M2 World Model 提供带验证标志的目标状态。
+
+| 属性 | 值 |
+|---|---|
+| 订阅模块 | M2 World Model |
+| 上游来源 | AIS / Radar ARPA / Multimodal Fusion（L3 边界外）|
+| 实现推迟至 | Phase 4 D4.7 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `ValidatedTrackSet` | `/env/validated_tracks` | → M2 | 2-5 Hz | 目标列表 + per-target `cross_source_agreement ∈ [0,1]` + `staleness_flag` |
+| `ValidationAlert` | `/env/validation_alerts` | → M1 | 事件 | 欺骗疑似 / MMSI 冲突 / 传感器降质告警 |
+
+**降级行为**：
+- DEGRADED（单一传感器源不可用）：降低 `cross_source_agreement`；M2 提高 TrackedTarget 不确定度
+- CRITICAL（所有融合路径中断 > 10 s）：M1 发布 `ODD_CRITICAL`；系统降级至最低 MRC
+- Phase 4 前（stub 期）：M2 直接消费 `/ais/contacts` + `/fusion/tracks`（无跨源验证）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 2（Situational Awareness）+ 网络安全 §16 Zone 1 完整性保护。
+
+**[TBD-D4.7]**：具体跨源不一致检测算法 / MMSI 冲突解决策略 / 欺骗检测阈值（HAZID 校准）。
+
+---
+
+### 22.4 BNWAS-equivalent
+
+**职责**：L3 TDL 软件级桥梁航行值班报警系统等价物（类 SOLAS CH V Reg 19-1）。在自主运行期间监测 ROC 操作员活跃度，对非响应超时按三级阶梯触发接管请求。
+
+| 属性 | 值 |
+|---|---|
+| 监测对象 | ROC 操作员（主 + 备）|
+| 上游 | `/operator/heartbeat`（ROC 交互事件）+ `/m1/odd_state`（自主等级）|
+| 下游触发 | M1 ODD 状态切换 + M8 告警显示 |
+| 实现推迟至 | Phase 4 D4.7（B4 条件触发）+ 部分功能 D3.4 M8 实装时预留 |
+
+**接口契约（stub）**：
+
+| 消息 | 话题 | 方向 | 频率 | 内容摘要 |
+|---|---|---|---|---|
+| `OperatorHeartbeat` | `/operator/heartbeat` | ← ROC 前端 | 事件（操作员交互）| 操作员 ID + 时间戳 + 交互类型 |
+| `BNWASAlertLevel` | `/bnwas/alert_level` | → M8 | 1 Hz 心跳 + 事件 | enum: INACTIVE / WARNING_1(30s) / WARNING_2(60s) / ESCALATED(90s) |
+| `BNWASTakeoverRequest` | `/bnwas/takeover_request` | → M1 | 事件 | 触发 ToR，含当前操作员状态和 elapsed_time |
+
+**三级阶梯**（基线初值，[TBD-HAZID] HAZID RUN-001 校准）：
+- **T1 = 30 s**：ROC 操作员无交互 → 闪灯 WARNING_1（M8 显示）
+- **T2 = 60 s**：持续无响应 → WARNING_2，通知备用操作员（二副相当）
+- **T3 = 90 s（ROC 场景）/ 120 s（睡舱场景）**：ESCALATED，发出 ToR 自适应矩阵（§3.4）驱动的接管请求
+
+**降级行为**：
+- DEGRADED（`/operator/heartbeat` 话题不可用）：立即触发 WARNING_1 并通知 M1
+- CRITICAL（ESCALATED 后无响应 > T3 + 30 s）：M1 发布 `ODD_OUT`；系统执行自主 MRC
+- Phase 4 前（stub 期）：ToR 协议由 M1 定时器直接实现（无独立 BNWAS 节点）
+
+**CCS 功能映射**：DMV-CG-0264 Sub-function 9（Communication and Control）+ SOLAS CH V Reg 19-1 类比（非 Type-Approved，stub 目的为 CCS 接口评审）。
+
+**Finding 关闭（D2.8 stub 级别）**：D P1-D-04（BNWAS stub 设计位置确认）。
+
+**[TBD-D4.7]**：SOLAS Reg 19-1 合规性完整分析 / 多 ROC 操作员同时在线时的主备切换协议 / T1/T2/T3 HAZID 最终值（D3.5）。
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
