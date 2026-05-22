@@ -97,6 +97,8 @@ def _is_type_compatible(expected_type_hint: str, actual_type: str) -> bool:
     if expected == "boolean":
         return actual_unwrapped == "boolean"
     if expected == "array":
+        if "|" in actual_unwrapped:
+            return False
         return bool(re.fullmatch(r"Array\s*<.+>", actual_unwrapped)) or bool(
             re.fullmatch(r".+\[\]", actual_unwrapped)
         )
