@@ -1,6 +1,7 @@
 """Scenario Authoring Node — YAML CRUD, Imazu-22, AIS pipeline."""
 import hashlib
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 
@@ -84,7 +85,17 @@ class ScenarioAuthoringNode(LifecycleNode):
             return
         self._rosbag_proc = subprocess.Popen(
             ["ros2", "bag", "play", str(bag), "--loop"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        def _log_stderr() -> None:
+            assert self._rosbag_proc.stderr is not None
+            for line in self._rosbag_proc.stderr:
+                self.get_logger().warn(f"rosbag: {line.rstrip()}")
+
+        threading.Thread(target=_log_stderr, daemon=True).start()
         self.get_logger().info(
             f"rosbag playback started: {bag_path} (pid={self._rosbag_proc.pid})")
 

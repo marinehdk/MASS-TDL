@@ -13,10 +13,10 @@ def get_process_rss_mb(process_names: list[str]) -> dict[str, float]:
     result: dict[str, float] = {}
     for name in process_names:
         try:
-            out = subprocess.run(["ps","-C",name,"-o","rss=","--no-headers"],
-                capture_output=True,text=True,timeout=5).stdout.strip()
-            rss_kb = sum(int(x) for x in out.split() if x.isdigit())
-            result[name] = round(rss_kb/1024,1)
+            out = subprocess.run(["bash", "-c", f"ps aux | grep '{name}' | grep -v grep | awk '{{sum+=$6}} END {{print sum}}'"],
+                capture_output=True, text=True, timeout=5).stdout.strip()
+            rss_kb = int(out) if out.isdigit() else 0
+            result[name] = round(rss_kb / 1024, 1)
         except Exception:
             result[name] = -1.0
     return result
@@ -55,7 +55,7 @@ def main() -> int:
                 consecutive_veto = 0
             for proc_name in procs:
                 try:
-                    subprocess.run(["pgrep","-x",proc_name],check=True,capture_output=True,timeout=2)
+                    subprocess.run(["pgrep","-f",proc_name],check=True,capture_output=True,timeout=2)
                 except subprocess.CalledProcessError:
                     status = f"FAIL:CRASH:{proc_name}"; break
             if status != "OK": break

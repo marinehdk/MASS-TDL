@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def collect_latency_via_ros2_echo(
-    topic: str, field_pair: tuple[str, str], samples: int, timeout_s: float
+    topic: str, samples: int, timeout_s: float
 ) -> list[float]:
     """Use ros2 topic echo to collect latency samples.
 
@@ -64,7 +64,7 @@ def collect_latency_via_ros2_echo(
 
 def compute_percentiles(data: list[float]) -> dict:
     if not data:
-        return {"p95": 9999.0, "p99": 9999.0, "mean": 9999.0, "max": 9999.0,
+        return {"p95": None, "p99": None, "mean": None, "max": None,
                 "count": 0, "anomaly_list": []}
     data_sorted = sorted(data)
     p95 = data_sorted[int(len(data_sorted) * 0.95)]
@@ -87,7 +87,7 @@ def main() -> int:
 
     print(f"[kpi_collector] Collecting {args.samples} latency samples from {args.topic}...")
     latencies = collect_latency_via_ros2_echo(
-        args.topic, ("stamp_ns", "m4_trigger_stamp_ns"), args.samples, args.timeout
+        args.topic, args.samples, args.timeout
     )
 
     result = compute_percentiles(latencies)
@@ -102,8 +102,8 @@ def main() -> int:
     out.write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
 
-    p95_ok = result["p95"] <= 800.0
-    p99_ok = result["p99"] <= 1200.0
+    p95_ok = result["p95"] is not None and result["p95"] <= 800.0
+    p99_ok = result["p99"] is not None and result["p99"] <= 1200.0
     print(f"\n[DoD #2] P95={result['p95']}ms <= 800ms: {'PASS' if p95_ok else 'FAIL'}")
     print(f"[DoD #2] P99={result['p99']}ms <= 1200ms: {'PASS' if p99_ok else 'FAIL'}")
     return 0 if (p95_ok and p99_ok) else 1
