@@ -16,7 +16,7 @@ def test_compute_percentiles_basic():
 def test_compute_percentiles_empty():
     from tools.vv.kpi_collector import compute_percentiles
     result = compute_percentiles([])
-    assert result["p95"] == 9999.0
+    assert result["p95"] is None
     assert result["count"] == 0
 
 

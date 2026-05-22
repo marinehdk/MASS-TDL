@@ -37,7 +37,7 @@ describe('useFoxgloveLive', () => {
   it('connects at ws://127.0.0.1:8765 by default', () => {
     renderHook(() => useFoxgloveLive());
     expect(Ros).toHaveBeenCalledWith(
-      expect.objectContaining({ url: 'ws://127.0.0.1:8765' })
+      expect.objectContaining({ url: 'wss://127.0.0.1:8765' })
     );
   });
 
