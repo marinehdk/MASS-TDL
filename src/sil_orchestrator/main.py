@@ -26,6 +26,7 @@ from sil_orchestrator.scoring_routes import router as scoring_router, \
     _kpi_router as kpi_router
 from sil_orchestrator.ops_routes import router as ops_router
 from sil_orchestrator.arrow_routes import router as arrow_router
+from sil_orchestrator.gif_pack_routes import router as gif_pack_router
 from sil_orchestrator.lifecycle_bridge import LifecycleBridge, LifecycleState, ScenarioInjectionError, _copy_preflight_evidence  # noqa: F401
 
 import rclpy
@@ -211,6 +212,7 @@ app.include_router(scoring_router)
 app.include_router(ops_router)
 app.include_router(arrow_router)
 app.include_router(kpi_router)
+app.include_router(gif_pack_router)
 
 # ── Demo telemetry (non-ROS2 dead-reckoning) ─────────────────────────
 

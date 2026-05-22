@@ -1,0 +1,25 @@
+{
+  "name": "mass-l3-tactical-layer",
+  "version": "1.0.0",
+  "description": "Colcon-based ROS2 workspace for the L3 tactical decision layer of the MASS (Maritime Autonomous Surface Ship) ADAS system.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinehdk/MASS-TDL.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/marinehdk/MASS-TDL/issues"
+  },
+  "homepage": "https://github.com/marinehdk/MASS-TDL#readme"
+}
