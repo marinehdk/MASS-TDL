@@ -2095,6 +2095,57 @@ D1.6 场景 schema 由"内部 Pydantic 强类型"改为"`maritime-schema` `Traff
 
 ---
 
+## 第二十章 结构化 COLREGs 评分 [D2.8 新增 — 原附录 F §F.8 迁入]
+
+本章定义 L3 TDL 结构化 COLREGs 评分方法：PASS/FAIL 二元判定保留基础上，增加 6 维度连续评分作为 CCS surveyor 论据。评分框架由 D1.7 和 D2.4 共同填充，本章为框架宿主。
+
+**Finding 关闭**：SIL P0 SIL-7（6D 评分框架锁定）/ F P1-F-03（COLREGs scoring 方法明确）
+**置信度**：🟡 Medium（6D 维度结构学术圈公认；具体权重需 D1.7 引 Hagen 2022 / Woerner 2019 原文确认）
+
+### 20.1 6 维度评分框架（原 F.8）
+
+D2.4 / D3.6 **PASS / FAIL 二元 verdict 保留**，**新增 6 维度连续评分**作为 CCS surveyor 论据 [R33] [R34]：
+
+| 维度 | 含义 | 算法 |
+|---|---|---|
+| **Safety score** | f(CPA_min / CPA_target) 连续 | [0,1]，CPA ≥ target → 1.0；线性退化到 0 at CPA=0 |
+| **Rule compliance score** | 每条适用 Rule 5/6/7/8/13-17/19 子准则离散评分 → 加权求和 | per-rule {full=1.0 / partial=0.5 / violated=0.0} |
+| **Delay penalty** | 决策启动相对 TCPA 阈值的延迟 | `P_delay = max(0, t_action - t_target_action) × λ_1` |
+| **Action magnitude penalty** | 转向幅度不足或过激（Rule 8 "大幅"）| < 30° 或 > 90° 扣分；2nd-order in deviation |
+| **Phase score** | 让路船 / 直航船角色行为合规度 | give-way 应早期大动作；stand-on 应保持课速直至 in extremis |
+| **Trajectory implausibility** | 物理可行性（避免 RL "作弊"）| M5 BC-MPC 解算约束自动满足；外部 target 检查曲率 + 加速度上限 |
+
+`total_score = w_s · safety + w_r · rule − p_delay − p_mag + w_p · phase`
+
+w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerner 2019 [R34] 原文细节填）。**置信度** 🟡 Medium（维度结构 NTNU/MIT 学术圈公认；具体权重需 D1.7 引原文）。**推翻信号**：若 D1.7 实施时发现维度与 CCS《智能船舶规范 2024》§9.1 性能验证条款不可对齐 → 改为按 CCS 条款重构。
+
+### 20.2 权重参数版本控制 [D2.8 新增]
+
+| 时间点 | 状态 |
+|---|---|
+| D2.8 stub（当前）| w_s / w_r / w_p / λ_1 = **[TBD-D1.7]**（待 D1.7 Hagen 2022 原文细节）|
+| D2.4 实装后 | D2.4 report 提交权重 stub；§20 只引用，不 override |
+| D3.6 1000 场景后 | 用实测 score distribution 回检权重合理性（推翻信号）|
+
+### 20.3 与 D2.4 联动协议
+
+§20 定义框架（维度 + 公式结构），D2.4 填充参数（权重 + per-rule threshold）。
+
+- D2.4 完成后：PR 仅更新 §20.2 权重参数表，不修改维度或公式
+- 避免循环返工：§20 框架在 D2.4 期间不得修改；若 D2.4 发现维度结构需调整 → D2.4 architect review 再改 §20
+
+### 20.4 D-task 联动
+
+| D-task | 联动内容 | 方向 |
+|---|---|---|
+| D1.7 覆盖率方法论 | Hagen 2022 [R33] / Woerner 2019 [R34] 权重原文细节 → §20.2 | 填充 §20.2 |
+| D2.4 M6 COLREGs 实装 | 权重 stub + per-rule threshold → §20.2 patch | 填充 §20.2 |
+| D3.6 SIL 1000+ | 实测 score distribution → 权重合理性验证 | 验证 §20.2 |
+
+**推翻信号**：若维度与 CCS《智能船舶规范 2024》§9.1 性能验证条款不可对齐 → 需 D2.4 architect review 重构。
+
+---
+
 ## 第十六章 参考文献
 
 以下为本报告所有引用的原始文献、规范和工业资料的完整来源。
