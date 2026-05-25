@@ -28,6 +28,8 @@ class BcMpcBranchFormulation {
     // HAZID RUN-001 WP-04 (BC-MPC coverage vs. latency tradeoff).
     std::int32_t k_high{7};   // branches when urgency > urgency_threshold
     std::int32_t k_low{5};    // branches when urgency <= urgency_threshold
+    // [TBD-HAZID] k_critical: branches when urgency > 0.95 (±60°, P2-B-01).
+    std::int32_t k_critical{13};
 
     // [TBD-HAZID] delta_psi_rad: 10 deg step. Calibrate per FCB turning dynamics.
     double delta_psi_rad{10.0 * mass_l3::m5::units::kRadPerDeg};  // 10 deg in radians

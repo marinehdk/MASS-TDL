@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -66,16 +67,22 @@ TEST(BcMpcCollisionDetector, HeadOnThreat_Override) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3+4 — Branch count driven by urgency threshold.
+// Test 3+4 — Branch count driven by 3-tier urgency.
 // Tests the formulation directly without going through the full evaluator.
+// urgency=0.9 → k_high (7 branches, between 0.8 and 0.95 thresholds)
+// urgency=1.0 → k_critical (13 branches, above 0.95 critical threshold)
+// urgency=0.0 → k_low (5 branches, below 0.8 threshold)
 // ---------------------------------------------------------------------------
 TEST(BcMpcBranchFormulation, BranchCount_HighAndLowUrgency) {
   BcMpcBranchFormulation form{BcMpcBranchFormulation::Config{}};
 
-  const auto high = form.candidate_headings(0.0, 1.0);  // above urgency_threshold
+  const auto high = form.candidate_headings(0.0, 0.9);  // > 0.8, <= 0.95 → k_high
   EXPECT_EQ(static_cast<std::int32_t>(high.size()), 7);
 
-  const auto low = form.candidate_headings(0.0, 0.0);   // below urgency_threshold
+  const auto critical = form.candidate_headings(0.0, 1.0);  // > 0.95 → k_critical
+  EXPECT_EQ(static_cast<std::int32_t>(critical.size()), 13);
+
+  const auto low = form.candidate_headings(0.0, 0.0);   // <= 0.8 → k_low
   EXPECT_EQ(static_cast<std::int32_t>(low.size()), 5);
 }
 
@@ -126,4 +133,28 @@ TEST(BcMpcCollisionDetector, ConsecutiveFailures_ForcesHighBranches) {
 
   // Sanity: no targets → resolved.
   EXPECT_EQ(sol.status, BcMpcSolution::Status::Resolved);
+}
+
+// ---------------------------------------------------------------------------
+// Test 7 — Critical urgency > 0.95 expands to k_critical = 13 branches
+// covering -60° to +60° (P2-B-01).
+// ---------------------------------------------------------------------------
+TEST(BcMpcCollisionDetector, CriticalUrgencyExpandsToFullRange) {
+  BcMpcBranchFormulation::Config cfg;
+  cfg.k_low = 5;
+  cfg.k_high = 7;
+  cfg.k_critical = 13;
+  cfg.delta_psi_rad = 10.0 * M_PI / 180.0;
+  cfg.urgency_threshold = 0.8;
+  BcMpcBranchFormulation formulation(cfg);
+
+  // urgency = 0.96 → k=13, range ±60°
+  auto headings = formulation.candidate_headings(0.0, 0.96);
+  EXPECT_EQ(headings.size(), 13u);
+
+  double min_psi = *std::min_element(headings.begin(), headings.end());
+  EXPECT_NEAR(min_psi, -60.0 * M_PI / 180.0, 1e-4);
+
+  double max_psi = *std::max_element(headings.begin(), headings.end());
+  EXPECT_NEAR(max_psi, 60.0 * M_PI / 180.0, 1e-4);
 }

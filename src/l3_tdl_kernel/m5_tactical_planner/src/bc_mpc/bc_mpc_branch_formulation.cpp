@@ -14,22 +14,35 @@ std::int32_t BcMpcBranchFormulation::num_steps_() const noexcept {
   return static_cast<std::int32_t>(std::round(cfg_.horizon_s / cfg_.dt_s));
 }
 
-// candidate_headings() — symmetric fan centred on current_heading_rad.
-// Integer half = k/2 gives symmetric offsets regardless of k parity; for odd k
-// the centre branch lands exactly on current heading (offset 0).
+// candidate_headings() — 3-tier urgency branching (P2-B-01).
+// urgency > 0.95  → k_critical (13 branches, ±60°)
+// urgency > 0.80  → k_high     ( 7 branches, ±30°)
+// else           → k_low      ( 5 branches, ±20°)
+//
+// Normalises each heading into [-π, π) so downstream CPA arithmetic stays
+// consistent (no wrap-around artefacts from large offsets).
 std::vector<double> BcMpcBranchFormulation::candidate_headings(
     double current_heading_rad, double urgency_level) const
 {
-  const std::int32_t k =
-      (urgency_level > cfg_.urgency_threshold) ? cfg_.k_high : cfg_.k_low;
+  std::int32_t k;
+  if (urgency_level > 0.95) {
+    k = cfg_.k_critical;
+  } else if (urgency_level > cfg_.urgency_threshold) {
+    k = cfg_.k_high;
+  } else {
+    k = cfg_.k_low;
+  }
 
   std::vector<double> headings;
   headings.reserve(static_cast<std::size_t>(k));
 
   const std::int32_t half = k / 2;
   for (std::int32_t i = 0; i < k; ++i) {
-    headings.push_back(
-        current_heading_rad + static_cast<double>(i - half) * cfg_.delta_psi_rad);
+    double psi = current_heading_rad
+               + static_cast<double>(i - half) * cfg_.delta_psi_rad;
+    while (psi >= M_PI)  { psi -= 2.0 * M_PI; }
+    while (psi < -M_PI)  { psi += 2.0 * M_PI; }
+    headings.push_back(psi);
   }
   return headings;
 }
