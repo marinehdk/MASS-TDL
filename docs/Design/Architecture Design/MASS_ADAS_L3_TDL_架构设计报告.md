@@ -289,7 +289,7 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
 
 **ToR 自适应矩阵 [D2.8 新增 — D2.1 实装参数输入]**
 
-操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[TBD-HAZID]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
+操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
 
 | 操作员状态 | ODD-A（正常运营）| ODD-B（受限运营）| ODD-C（边缘）| ODD-D（降级）|
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
 | **餐厅** | 120 s \| 计划切换点 | 90 s \| EDGE + 广播 | 75 s \| OUT 预警 | 60 s \| 立即 |
 | **睡舱** | 150 s \| D4→D3 预通知 | 120 s \| EDGE 强通知 | 90 s \| 叫醒 + ToR | 75 s \| MRC 准备 |
 
-> **[TBD-HAZID]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
+> **[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
 
 ### 3.5 ODD 状态机设计
 
@@ -349,9 +349,9 @@ Conformance_Score(t) = w_E × E_score(t) + w_T × T_score(t) + w_H × H_score(t)
   < 0.5 → ODD 外（OUT），立即触发 MRC 序列
 
 权重（FCB 特定**[TBD-HAZID 校准]** 初始值 [F-P0-D6-015 + F-P2-D6-018 + F-NEW-003]）：
-  w_E = 0.4 [TBD-HAZID]（环境条件最难干预——能见度 / 海况决定感知可靠性下界）
-  w_T = 0.3 [TBD-HAZID]（任务条件可通过减速/停航干预——通信 / 计算健康度）
-  w_H = 0.3 [TBD-HAZID]（人机责任可通过通信恢复改善；H 轴权重须以 Veitch 2024 TMR 实证 [R4] 校准）
+  w_E = 0.4 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（环境条件最难干预——能见度 / 海况决定感知可靠性下界）
+  w_T = 0.3 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（任务条件可通过减速/停航干预——通信 / 计算健康度）
+  w_H = 0.3 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（人机责任可通过通信恢复改善；H 轴权重须以 Veitch 2024 TMR 实证 [R4] 校准）
 
 **初始权重假设依据**（v1.1.1 补充 — F-NEW-003 关闭）：
   - E 轴权重最高的依据：环境降质（Beaufort 风级 / 能见度 / Hs）直接限制感知与机动能力；不可通过软件干预
@@ -808,11 +808,12 @@ flowchart TD
 
 | 参数 | ODD-A | ODD-B | ODD-D | 依据 |
 |---|---|---|---|---|
-| 最小转向幅度 | 30° | 20°（受限） | 30° | Rule 8"大幅"工业实操量化 |
-| $T_{standOn}$（保向阈值） | 8 min | 6 min | 10 min | Wang et al.（2021）[R17] |
-| $T_{act}$（独立避让阈值） | 4 min | 3 min | 5 min | Wang et al.（2021）[R17] |
+| 最小转向幅度 | 30° | 20°（受限） | 30° | Rule 8"大幅"工业实操量化 **[文献基线 2026-07-31: COLREGs Rule 8 "large alteration" + MMG 灵敏度分析, AoU 20-45°]** |
+| $T_{standOn}$（保向阈值） | 8 min | 6 min | 10 min | Wang et al.（2021）[R17] **[文献基线 2026-07-31: Wang 2021 + Imazu 1987, AoU ODD-A 6-12 min / ODD-B 3-6 min]** |
+| $T_{act}$（独立避让阈值） | 4 min | 3 min | 5 min | Wang et al.（2021）[R17] **[文献基线 2026-07-31: Wang 2021 + Imazu 1987, AoU ODD-A 6-12 min / ODD-B 3-6 min]** |
 | $T_{emergency}$（紧急阈值） | 1 min | 0.75 min | 1.5 min | 保守估计 |
 | CPA 恢复确认时间 | 60 s | 45 s | 90 s | Safety margin |
+| Rule 19 能见度触发阈值 | — | — | 1.0 nm | COLREG Rule 19(b) 字面规范值 **[文献基线 2026-07-31: COLREG Rule 19(b) 字面规范值，固定不接受 HAZID 调整]** |
 
 ### 9.4 决策依据
 
@@ -896,7 +897,7 @@ s.t.
   ENC_check(trajectory) = SAFE    # 水深/禁区约束
 
 参数（FCB Capability Manifest 驱动）：
-  N = 18（预测步数，步长 5s，总时域 90s）
+  N = 18（预测步数，步长 5s，总时域 90s）**[RFC-001 锁定值 — 文献基线 2026-07-31: RFC-001 跨团队决议 + D0 MUST-2 关闭，不接受 HAZID 调整，固定]**
   ROT_max = 12°/s（FCB 18 kn时实测值）
   CPA_safe(ODD-A) = 1.0 nm，CPA_safe(ODD-B) = 0.3 nm
 ```
@@ -908,7 +909,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 ```
 候选航向生成：
   ψ_candidates = {ψ_current + δψ × i | i ∈ [-k/2, k/2]}
-  默认 k=7，δψ = 10°（即 ±30° 范围）
+  默认 k=7，δψ = 10°（即 ±30° 范围）**[文献基线 2026-07-31: Loe 2008 VO 仿真 + 蒙特卡洛鲁棒性, AoU 5-11]**
 
 对每条候选航向，考虑目标不确定性：
   最坏情况CPA(ψ_i) = min_{intent ∈ θ_uncertainty} CPA(ψ_i, intent)
@@ -935,7 +936,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 | `hull_class == SEMI_PLANING` | **6-DOF 激活**（Savitsky / semi-planing empirical）| D2.1 stub → D3.2 完整 |
 | `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学）| Phase 4 实装 D4.7 |
 
-> **[TBD-HAZID]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
+> **[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
 > **D-task 联动**：D1.3a（FCBPlugin 实装）/ D2.1 M1 ODD（hull_class 判断接口）/ D3.2 M5 完整（6-DOF 实装）。
 
 ### 10.7 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
@@ -1016,12 +1017,12 @@ graph TD
 
 | 假设 | 监控指标 | 违反阈值 | 响应 |
 |---|---|---|---|
-| AIS/雷达一致性 | 融合目标位置残差 | > 2σ 持续 10s | 目标置信度下调；超过 30s 触发 M7 告警 |
+| AIS/雷达一致性 | 融合目标位置残差 | > 2σ 持续 10s **[文献基线 2026-07-31: 标准融合置信区间（正态分布），AoU 1.5σ-3σ 持续 7.5-30 s]** | 目标置信度下调；超过 30s 触发 M7 告警 |
 | 目标运动可预测性 | 预测残差 RMS | > 50m/30s | 加大 CPA 安全边距 × 1.3 |
 | 感知覆盖充分性 | 盲区占比 | > 20% of 360° | 降低 D4/D3 允许等级 |
 | COLREGs 可解析性 | 冲突解析失败次数 | 连续 3 次失败 | 触发减速 + ROC 告警 |
 | 通信链路可用性 | RTT / 丢包率 | RTT > 2s 或丢包 > 20% | TMR 窗口收窄；D4 不允许 |
-| **L3 Checker 否决率** [F-P2-D3-036 + v1.1.2 RFC-003 锁定] | X-axis Checker 否决次数 / 100 周期（**= 15 s 滑窗**，M7 周期 ≈ 6.7 Hz）| > 20（即 20% 否决率，**[HAZID 校准]**）| 升级 SOTIF 告警："COLREGs 推理可信度下降"；触发降级到 D2 评估 |
+| **L3 Checker 否决率** [F-P2-D3-036 + v1.1.2 RFC-003 锁定] | X-axis Checker 否决次数 / 100 周期（**= 15 s 滑窗**，M7 周期 ≈ 6.7 Hz）| > 20（即 20% 否决率，**[文献基线 2026-07-31: ADR-001 Doer-Checker 1:100 复杂度比约束, AoU 10-35%/100周期]**）| 升级 SOTIF 告警："COLREGs 推理可信度下降"；触发降级到 D2 评估 |
 
 **M7 SOTIF PERF 监控独立性约束 [F-P1-D3-003]**：
 
@@ -1365,7 +1366,7 @@ ToR 协议要求操作员在接管确认 UI 中**主动点击"已知悉 SAT-1 �
 
 #### 12.6.3 定期演练制度 stub
 
-**演练频率**（初始建议，**[TBD-HAZID]** 校准）：
+**演练频率**（初始建议，**[文献基线 2026-07-31: STCW 模拟器训练最低要求 (STCW A-VI/5), AoU ≥1 次/月]**）：
 - 月度：ToR 演练（≥ 2 次 / 月，覆盖 ROC 在岗 + 桥楼备岗场景）
 - 季度：DEGRADED 场景演练（传感器降质 + ODD EDGE）
 - 年度：CRITICAL 场景预演（ODD_OUT + MRC 启动 + 完整接管，SIL 仿真）
@@ -2344,7 +2345,7 @@ S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定�
 | `BNWASAlertLevel` | `/bnwas/alert_level` | → M8 | 1 Hz 心跳 + 事件 | enum: INACTIVE / WARNING_1(30s) / WARNING_2(60s) / ESCALATED(90s) |
 | `BNWASTakeoverRequest` | `/bnwas/takeover_request` | → M1 | 事件 | 触发 ToR，含当前操作员状态和 elapsed_time |
 
-**三级阶梯**（基线初值，[TBD-HAZID] HAZID RUN-001 校准）：
+**三级阶梯**（基线初值，[HAZID 2026-08-19 校准待填，D3.5 Track B 回填] HAZID RUN-001 校准）：
 - **T1 = 30 s**：ROC 操作员无交互 → 闪灯 WARNING_1（M8 显示）
 - **T2 = 60 s**：持续无响应 → WARNING_2，通知备用操作员（二副相当）
 - **T3 = 90 s（ROC 场景）/ 120 s（睡舱场景）**：ESCALATED，发出 ToR 自适应矩阵（§3.4）驱动的接管请求
@@ -2645,25 +2646,25 @@ v1.1 沿用 v1.0 的章节顺序：§9 = M6 COLREGs Reasoner（先），§10 = M
 
 | 参数 | 章节 | 初始值 | HAZID 校准方法 | 优先级 |
 |---|---|---|---|---|
-| AIS/雷达一致性阈值 | §11.3 | 2σ 持续 10s | 实船融合数据统计 | 中 |
+| AIS/雷达一致性阈值 | §11.3 | 2σ 持续 10s | 实船融合数据统计 **[文献基线 2026-07-31: 标准融合置信区间（正态分布），AoU 1.5σ-3σ 持续 7.5-30 s]** | 中 |
 | 目标运动可预测性 | §11.3 | RMS > 50m/30s | 历史目标轨迹回归 | 中 |
 | 感知盲区占比 | §11.3 | > 20% of 360° | 雷达 + 摄像头覆盖角度统计 | 中 |
-| L3 Checker 否决率 | §11.3 | > 20% / 100 周期 | 实船试航 + 统计基线 | 高 |
+| L3 Checker 否决率 | §11.3 | > 20% / 100 周期 | 实船试航 + 统计基线 **[文献基线 2026-07-31: ADR-001 Doer-Checker 1:100 复杂度比约束, AoU 10-35%/100周期]** | 高 |
 
 ### E.4 M5 双层 MPC 参数（§10）
 
 | 参数 | 章节 | 初始值 | HAZID 校准方法 | 优先级 |
 |---|---|---|---|---|
-| Mid-MPC 时域 | §10.3 | 90 s（N=18 步 × 5 s）| FCB 制动距离约束 + 水池 / 实船试验 | 高 |
+| Mid-MPC 时域 | §10.3 | 90 s（N=18 步 × 5 s）| FCB 制动距离约束 + 水池 / 实船试验 **[RFC-001 锁定值 — 文献基线 2026-07-31: RFC-001 跨团队决议 + D0 MUST-2 关闭，固定]** | 高 |
 | ROT_max | §10.3 | 12°/s（FCB 18 kn）| Yasukawa 2015 + 实船标定 | 高 |
-| BC-MPC 候选航向数 | §10.4 | k=7（±30° 范围）| 蒙特卡洛 + 鲁棒性测试 | 中 |
+| BC-MPC 候选航向数 | §10.4 | k=7（±30° 范围）| 蒙特卡洛 + 鲁棒性测试 **[文献基线 2026-07-31: Loe 2008 VO 仿真 + 蒙特卡洛鲁棒性, AoU 5-11]** | 中 |
 
 ### E.5 M6 COLREGs 参数（§9）
 
 | 参数 | 章节 | 初始值 | HAZID 校准方法 | 优先级 |
 |---|---|---|---|---|
-| T_standOn / T_act 阈值 | §9.3 | 8/6/10 min；4/3/5 min | Wang 2021 + 文献范围 + 实船数据 | 高 |
-| Rule 8 "大幅" 转向角 | §9.2 | 30° | MMG 参数敏感性 + 目标船识别度 | 高 |
+| T_standOn / T_act 阈值 | §9.3 | 8/6/10 min；4/3/5 min | Wang 2021 + 文献范围 + 实船数据 **[文献基线 2026-07-31: Wang 2021 + Imazu 1987, AoU ODD-A 6-12 min / ODD-B 3-6 min]** | 高 |
+| Rule 8 "大幅" 转向角 | §9.2 | 30° | MMG 参数敏感性 + 目标船识别度 **[文献基线 2026-07-31: COLREGs Rule 8 "large alteration" + MMG 灵敏度分析, AoU 20-45°]** | 高 |
 
 ### E.6 校准产出 + 同步策略
 
@@ -2815,6 +2816,24 @@ v1.1.3-pre-stub 增量：本次为**正向 patch**，不开新 finding；7 角�
 | 版本 v1.1.3-pre-stub → v1.1.3-stub | 文件头 | D2.8 完成 |
 
 Finding 关闭（D2.8）：SIL P0 SIL-1~7 / F P0-F-01/F-02/F-04 stub / F P1-F-03 / C P1-C-3/C-5 partial / B P1-B-06 / D P1-D-04/D-08 / MV-7~11 stub
+
+---
+
+## 附录 D-D3.5-A 修订记录（Independent 类参数标注升格）[D3.5 Track A — ≤ 2026-07-31]
+
+> 本节由 D3.5 Track A 追加。仅修改 Independent calibration 类参数的标注行，从 `[初始设计值]` 升格为 `[文献基线]`。值不变，控制流不变，不触发全量回归。
+
+| 日期 | 参数 | 章节 | 旧标注 | 新标注 | 依据 |
+|---|---|---|---|---|---|
+| 2026-07-31 | T_standOn / T_act | §9.3 | [初始设计值] | [文献基线 2026-07-31: Wang 2021 + Imazu 1987, AoU ODD-A 6-12 min / ODD-B 3-6 min] | D3.5 Track A |
+| 2026-07-31 | Rule 19 能见度触发阈值 | §9.3 | [初始设计值] | [文献基线 2026-07-31: COLREG Rule 19(b) 字面规范值，固定不接受 HAZID 调整] | D3.5 Track A |
+| 2026-07-31 | Rule 8 "大幅" 转向角下限 | §9.2 | [初始设计值] | [文献基线 2026-07-31: COLREGs Rule 8 + MMG 灵敏度分析, AoU 20-45°] | D3.5 Track A |
+| 2026-07-31 | Mid-MPC 时域 N=18/90s | §10.3 | [初始设计值] | [RFC-001 锁定值 — 文献基线 2026-07-31: RFC-001 跨团队决议 + D0 MUST-2 关闭，固定] | D3.5 Track A |
+| 2026-07-31 | BC-MPC 候选航向数 k=7 | §10.4 | [初始设计值] | [文献基线 2026-07-31: Loe 2008 VO 仿真 + 蒙特卡洛鲁棒性, AoU 5-11] | D3.5 Track A |
+| 2026-07-31 | L3 Checker 否决率告警阈值 | §11.3 | [HAZID 校准] | [文献基线 2026-07-31: ADR-001 Doer-Checker 1:100 复杂度比约束, AoU 10-35%/100周期] | D3.5 Track A |
+| 2026-07-31 | AIS/雷达一致性阈值 | §11.3 | [初始设计值] | [文献基线 2026-07-31: 标准融合置信区间（正态分布），AoU 1.5σ-3σ 持续 7.5-30 s] | D3.5 Track A |
+| 2026-07-31 | 演练频率最小值 | §12.5 | [TBD-HAZID] | [文献基线 2026-07-31: STCW 模拟器训练最低要求 (STCW A-VI/5), AoU ≥1 次/月] | D3.5 Track A |
+| 2026-07-31 | 全部 Dependent/Config 类 TBD-HAZID | 多章节 | [TBD-HAZID] | [HAZID 2026-08-19 校准待填，D3.5 Track B 回填] | D3.5 Track A-T4 stub |
 
 ---
 
