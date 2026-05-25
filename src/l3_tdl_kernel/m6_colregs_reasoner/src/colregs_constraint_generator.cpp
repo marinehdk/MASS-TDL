@@ -80,6 +80,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
   msg.phase = dominant_phase;
   msg.confidence = std::min(static_cast<float>(confidence), 1.0F);
   msg.rationale = rationale_parts.empty() ? "No active COLREGs rules" : rationale_parts;
+  msg.conflict_detected = !msg.active_rules.empty();
 
   return msg;
 }

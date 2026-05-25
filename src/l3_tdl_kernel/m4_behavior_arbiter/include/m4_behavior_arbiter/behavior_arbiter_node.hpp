@@ -14,6 +14,7 @@
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
+#include "l3_msgs/msg/sat2_data.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
 #include "m4_behavior_arbiter/behavior_dictionary.hpp"
@@ -83,7 +84,7 @@ private:
   // Publishers
   rclcpp::Publisher<BehaviorPlanMsg>::SharedPtr   pub_plan_;
   rclcpp::Publisher<ASDRRecordMsg>::SharedPtr     pub_asdr_;
-  rclcpp::Publisher<BehaviorPlanMsg>::SharedPtr   pub_sat2_;
+  rclcpp::Publisher<l3_msgs::msg::SAT2Data>::SharedPtr   pub_sat2_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 

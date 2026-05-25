@@ -8,7 +8,11 @@ const FAULT_CATALOG = [
   { id: 'roc_link_loss',m: 'M8', sev: 'crit', name: 'ROC Link Loss',         dur: 10 },
 ];
 
-export const FaultInjectPanel: React.FC = () => {
+interface FaultInjectPanelProps {
+  inline?: boolean;
+}
+
+export const FaultInjectPanel: React.FC<FaultInjectPanelProps> = ({ inline = false }) => {
   const viewMode = useUIStore((s) => s.viewMode);
   const [injectFault] = useInjectFaultMutation();
   const [cancelFault] = useCancelFaultMutation();
@@ -16,7 +20,7 @@ export const FaultInjectPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState(30);
 
-  if (viewMode !== 'god') return null;
+  if (viewMode !== 'god' && !inline) return null;
 
   const handleInject = async (fault: typeof FAULT_CATALOG[0]) => {
     try {
@@ -39,14 +43,22 @@ export const FaultInjectPanel: React.FC = () => {
 
   const sevColor = (sev: string) => sev === 'crit' ? 'var(--c-danger)' : 'var(--c-warn)';
 
+  const containerStyle: React.CSSProperties = inline
+    ? {
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+      }
+    : {
+        position: 'absolute', right: 16, bottom: 120, width: 320, zIndex: 20,
+        background: 'rgba(11,19,32,0.95)',
+        border: '1px solid var(--c-danger)',
+        borderLeft: '3px solid var(--c-danger)',
+        padding: 12,
+      };
+
   return (
-    <div data-testid="fault-panel" style={{
-      position: 'absolute', right: 16, bottom: 120, width: 320, zIndex: 20,
-      background: 'rgba(11,19,32,0.95)',
-      border: '1px solid var(--c-danger)',
-      borderLeft: '3px solid var(--c-danger)',
-      padding: 12,
-    }}>
+    <div data-testid="fault-panel" style={containerStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{
           fontFamily: 'var(--f-disp)', fontSize: 10.5, color: 'var(--c-danger)',

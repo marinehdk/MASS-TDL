@@ -96,6 +96,8 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   std::optional<l3_msgs::msg::SafetyAlert> latest_alert_;
   bool override_active_{false};
   bool operator_requested_sat2_{false};
+  bool has_real_sat2_{false};
+  bool has_real_sat3_{false};
 
   // ---- ROS2 infra ----
   rclcpp::Subscription<l3_msgs::msg::SATData>::SharedPtr sub_sat_;

@@ -44,7 +44,7 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
       [this](const COLREGsConstraintMsg::SharedPtr msg) { on_colregs_constraint(msg); });
 
   pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
-  pub_sat2_ = create_publisher<BehaviorPlanMsg>("/sil/sat2_data", qos);
+  pub_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>("/sil/sat2_data", qos);
   pub_asdr_ = create_publisher<ASDRRecordMsg>("/l3/asdr/record", asdr_qos);
 
   timer_ = create_wall_timer(std::chrono::milliseconds(interval_ms_),
@@ -215,21 +215,31 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   pub_plan_->publish(plan);
 
   // --- Publish ivp_contributions (SAT-2) ---
-  auto contributions = compute_ivp_contributions(primary, h_min, h_max, confidence);
-  for (const auto& c : contributions) {
-    // Encode as BehaviorPlanMsg fields until SAT2Data.msg gets ivp_contributions
-    BehaviorPlanMsg sat2;
-    sat2.schema_version = 113;
-    sat2.stamp = now();
-    sat2.behavior = static_cast<uint8_t>(primary);
-    sat2.heading_min_deg = c.direction_deg;
-    sat2.heading_max_deg = c.utility_value;
-    sat2.speed_min_kn = 0.0f;
-    sat2.speed_max_kn = static_cast<float>(confidence);
-    sat2.confidence = c.utility_value;
-    sat2.rationale = c.behavior_id;
-    pub_sat2_->publish(sat2);
+  l3_msgs::msg::SAT2Data sat2_msg;
+  sat2_msg.schema_version = 113;
+  sat2_msg.stamp = now();
+  sat2_msg.confidence = static_cast<float>(confidence);
+  sat2_msg.rationale = rationale;
+  sat2_msg.trigger_reason = "periodic_arbitration";
+  sat2_msg.reasoning_chain = "M4_Behavior_Arbiter";
+  sat2_msg.system_confidence = static_cast<float>(confidence);
+
+  if (colregs_received_ && latest_colregs_) {
+    sat2_msg.colregs_chain = latest_colregs_->colregs_chain;
+    sat2_msg.colregs_chain_target_id = latest_colregs_->colregs_chain_target_id;
   }
+
+  auto contributions = compute_ivp_contributions(primary, h_min, h_max, confidence);
+  for (size_t i = 0; i < 6; ++i) {
+    if (i < contributions.size()) {
+      sat2_msg.ivp_contributions[i] = contributions[i].utility_value;
+      sat2_msg.ivp_labels[i] = std::to_string(contributions[i].direction_deg);
+    } else {
+      sat2_msg.ivp_contributions[i] = 0.0f;
+      sat2_msg.ivp_labels[i] = "0.0";
+    }
+  }
+  pub_sat2_->publish(sat2_msg);
 
   // --- ASDR Events ---
   if (primary != prev_primary_) {

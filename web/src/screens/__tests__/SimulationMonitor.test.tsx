@@ -30,13 +30,23 @@ vi.mock('maplibre-gl', () => ({
 vi.mock('../../hooks/useFoxgloveLive', () => ({ useFoxgloveLive: vi.fn() }));
 vi.mock('../../hooks/useHotkeys', () => ({
   useHotkeys: vi.fn((handlers: Record<string, () => void>) => {
-    const handler = (e: KeyboardEvent) => { if (handlers[e.key]) handlers[e.key](); };
+    const handler = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === 'g') handlers.onToggleEngineer?.();
+      if (key === 'v') handlers.onToggleRoc?.();
+      if (key === ' ') handlers.onSpace?.();
+      if (key === 't') handlers.onTor?.();
+      if (key === 'f') handlers.onFault?.();
+      if (key === 'm') handlers.onMrc?.();
+      if (key === 'h') handlers.onHandback?.();
+    };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }),
 }));
 vi.mock('../../api/silApi', () => ({
   useDeactivateLifecycleMutation: () => [vi.fn().mockResolvedValue({})],
+  useChangeLifecycleRateMutation: () => [vi.fn().mockResolvedValue({})],
   useInjectFaultMutation: () => [vi.fn().mockResolvedValue({})],
   useCancelFaultMutation: () => [vi.fn().mockResolvedValue({})],
 }));

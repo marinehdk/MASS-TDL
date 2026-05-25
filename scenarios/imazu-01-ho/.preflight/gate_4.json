@@ -1,7 +1,7 @@
 {
   "gate_id": 4,
   "gate_name": "ODD-Scenario Alignment",
-  "timestamp_utc": "2026-05-25T02:54:02.682630Z",
+  "timestamp_utc": "2026-05-25T09:40:26.445089Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [

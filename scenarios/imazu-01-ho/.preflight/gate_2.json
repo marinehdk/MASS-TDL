@@ -1,7 +1,7 @@
 {
   "gate_id": 2,
   "gate_name": "Module Health (M1-M8)",
-  "timestamp_utc": "2026-05-25T02:54:02.674462Z",
+  "timestamp_utc": "2026-05-25T09:40:26.436677Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -51,7 +51,7 @@
       "detail": "M7 isolation: M7 process not running (no containerized deployment)"
     }
   ],
-  "duration_ms": 244.8,
+  "duration_ms": 6155.1,
   "rationale": "Phase 1: 8/8 modules UNSPECIFIED (L3 kernel not deployed), 0/8 GREEN \u2014 gate PASS (no RED)",
   "sil2_clause": "IEC 61508-3 \u00a77.4 Software module testing \u2014 component liveness",
   "hazid_scenario_ref": null

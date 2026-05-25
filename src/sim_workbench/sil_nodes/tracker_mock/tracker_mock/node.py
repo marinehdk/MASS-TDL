@@ -203,7 +203,7 @@ if _HAS_RCLPY:
             self._sub_own = None
 
             self._latest_radar = None
-            self._latest_ais = None
+            self._latest_ais = {}
             self._own_state = None
 
             self._use_real_msgs = _USE_REAL_MSGS
@@ -296,7 +296,7 @@ if _HAS_RCLPY:
                 self.destroy_subscription(self._sub_own)
                 self._sub_own = None
             self._latest_radar = None
-            self._latest_ais = None
+            self._latest_ais = {}
             self._own_state = None
             self.get_logger().info("TrackerMockNode deactivated")
             return TransitionCallbackReturn.SUCCESS
@@ -312,7 +312,10 @@ if _HAS_RCLPY:
             self._latest_radar = msg
 
         def _ais_callback(self, msg):
-            self._latest_ais = msg
+            if not isinstance(self._latest_ais, dict):
+                self._latest_ais = {}
+            import time
+            self._latest_ais[int(msg.mmsi)] = (msg, time.time())
 
         def _own_state_callback(self, msg):
             self._own_state = msg
@@ -323,15 +326,24 @@ if _HAS_RCLPY:
 
             targets: list[dict] = []
 
-            if self._latest_ais is not None:
-                ais = self._latest_ais
-                targets.append({
-                    "mmsi": int(ais.mmsi),
-                    "lat": ais.lat,
-                    "lon": ais.lon,
-                    "sog": ais.sog,
-                    "cog": ais.cog,
-                })
+            import time
+            now = time.time()
+            if isinstance(self._latest_ais, dict):
+                # Prune targets older than 5.0 seconds
+                keys_to_delete = []
+                for mmsi, (ais, t_recv) in self._latest_ais.items():
+                    if now - t_recv > 5.0:
+                        keys_to_delete.append(mmsi)
+                    else:
+                        targets.append({
+                            "mmsi": int(ais.mmsi),
+                            "lat": ais.lat,
+                            "lon": ais.lon,
+                            "sog": ais.sog,
+                            "cog": ais.cog,
+                        })
+                for mmsi in keys_to_delete:
+                    del self._latest_ais[mmsi]
 
             _ = self._latest_radar
 

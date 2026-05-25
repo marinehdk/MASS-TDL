@@ -56,11 +56,11 @@ _STATUS_QOS = QoSProfile(
 
 class LifecycleState(IntEnum):
     """Primary states matching lifecycle_msgs/State constants."""
-    UNCONFIGURED = 0
-    INACTIVE = 1
-    ACTIVE = 2
-    DEACTIVATING = 3
-    FINALIZED = 4
+    UNCONFIGURED = 1
+    INACTIVE = 2
+    ACTIVE = 3
+    DEACTIVATING = 4
+    FINALIZED = 5
 
 
 class Transition(IntEnum):

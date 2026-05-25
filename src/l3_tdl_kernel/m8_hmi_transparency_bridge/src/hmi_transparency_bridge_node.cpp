@@ -168,12 +168,14 @@ void HmiTransparencyBridgeNode::on_behavior_plan(const l3_msgs::msg::BehaviorPla
 {
   std::lock_guard<std::mutex> lock{state_mutex_};
   latest_behavior_ = *msg;
+  has_real_sat2_ = true;
 }
 
 void HmiTransparencyBridgeNode::on_avoidance_plan(const l3_msgs::msg::AvoidancePlan::SharedPtr msg)
 {
   std::lock_guard<std::mutex> lock{state_mutex_};
   latest_avoidance_ = *msg;
+  has_real_sat3_ = true;
 }
 
 void HmiTransparencyBridgeNode::on_colreg_constraint(
@@ -366,40 +368,55 @@ void HmiTransparencyBridgeNode::on_sil_stub_tick()
 {
   auto now = get_clock()->now();
 
+  bool publish_sat2 = false;
+  bool publish_sat3 = false;
+  {
+    std::lock_guard<std::mutex> lock{state_mutex_};
+    publish_sat2 = !has_real_sat2_;
+    publish_sat3 = !has_real_sat3_;
+  }
+
   // SAT2Data stub
-  l3_msgs::msg::SAT2Data sat2{};
-  sat2.schema_version = 114;
-  sat2.stamp = now;
-  sat2.confidence = 1.0f;
-  sat2.system_confidence = 1.0f;
-  sat2.rationale = "sil_stub";
-  sat2.trigger_reason = "sil_stub";
-  sat2.reasoning_latency_ms = 0.0f;
-  pub_sil_sat2_->publish(sat2);
+  if (publish_sat2) {
+    l3_msgs::msg::SAT2Data sat2{};
+    sat2.schema_version = 114;
+    sat2.stamp = now;
+    sat2.confidence = 1.0f;
+    sat2.system_confidence = 1.0f;
+    sat2.rationale = "sil_stub";
+    sat2.trigger_reason = "sil_stub";
+    sat2.reasoning_latency_ms = 0.0f;
+    pub_sil_sat2_->publish(sat2);
+  }
 
   // SAT3Data stub
-  l3_msgs::msg::SAT3Data sat3{};
-  sat3.schema_version = 114;
-  sat3.stamp = now;
-  sat3.confidence = 1.0f;
-  sat3.prediction_uncertainty = 0.0f;
-  sat3.rationale = "sil_stub";
-  sat3.tdl_s = 0.0f;
-  sat3.tmr_s = 0.0f;
-  sat3.forecast_horizon_s = 0.0;
-  sat3.primary_trajectory_idx = 0;
-  pub_sil_sat3_->publish(sat3);
+  if (publish_sat3) {
+    l3_msgs::msg::SAT3Data sat3{};
+    sat3.schema_version = 114;
+    sat3.stamp = now;
+    sat3.confidence = 1.0f;
+    sat3.prediction_uncertainty = 0.0f;
+    sat3.rationale = "sil_stub";
+    sat3.tdl_s = 0.0f;
+    sat3.tmr_s = 0.0f;
+    sat3.forecast_horizon_s = 0.0;
+    sat3.primary_trajectory_idx = 0;
+    pub_sil_sat3_->publish(sat3);
+  }
 
   // SotifMetrics stub
-  static uint32_t seq = 0;
-  l3_msgs::msg::SotifMetrics sotif{};
-  sotif.schema_version = 114;
-  sotif.stamp = now;
-  sotif.sequence_number = ++seq;
-  sotif.active_violation_count = 0;
-  sotif.degradation_alert = false;
-  sotif.degradation_display_latency_ms = 0.0f;
-  pub_sil_sotif_->publish(sotif);
+  bool m7_active = health_monitor_ && !health_monitor_->is_m7_timed_out(SatAggregator::Clock::now());
+  if (!m7_active) {
+    static uint32_t seq = 0;
+    l3_msgs::msg::SotifMetrics sotif{};
+    sotif.schema_version = 114;
+    sotif.stamp = now;
+    sotif.sequence_number = ++seq;
+    sotif.active_violation_count = 0;
+    sotif.degradation_alert = false;
+    sotif.degradation_display_latency_ms = 0.0f;
+    pub_sil_sotif_->publish(sotif);
+  }
 }
 
 }  // namespace mass_l3::m8

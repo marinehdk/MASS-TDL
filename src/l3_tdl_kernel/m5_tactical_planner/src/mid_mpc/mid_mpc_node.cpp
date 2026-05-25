@@ -121,12 +121,44 @@ MidMpcInput MidMpcNode::assemble_input_()
     inp.targets.push_back(ts);
   }
 
-  inp.constraints.heading_min_rad = static_cast<double>(behavior_plan_->heading_min_deg) * units::kRadPerDeg;
-  inp.constraints.heading_max_rad = static_cast<double>(behavior_plan_->heading_max_deg) * units::kRadPerDeg;
+  // Normalize heading bounds relative to own ship psi_rad to prevent wrap-around infeasibility
+  auto normalize_angle = [](double angle, double ref) {
+    const double kPi = 3.14159265358979323846;
+    double diff = angle - ref;
+    diff = fmod(diff + kPi, 2.0 * kPi);
+    if (diff < 0) diff += 2.0 * kPi;
+    diff -= kPi;
+    return ref + diff;
+  };
+
+  double h_min_raw = static_cast<double>(behavior_plan_->heading_min_deg) * units::kRadPerDeg;
+  double h_max_raw = static_cast<double>(behavior_plan_->heading_max_deg) * units::kRadPerDeg;
+  inp.constraints.heading_min_rad = normalize_angle(h_min_raw, inp.own_ship.psi_rad);
+  inp.constraints.heading_max_rad = normalize_angle(h_max_raw, inp.own_ship.psi_rad);
+
+  if (inp.constraints.heading_min_rad > inp.constraints.heading_max_rad) {
+    std::swap(inp.constraints.heading_min_rad, inp.constraints.heading_max_rad);
+  }
+
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
   inp.constraints.speed_max_mps   = static_cast<double>(behavior_plan_->speed_max_kn) * units::kMsPerKn;
   inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
-  inp.constraints.cpa_safe_m       = kCpaSafeFallback_m;  // [TBD-HAZID] from ODD state
+
+  // Dynamically adjust CPA safe distance and target weights based on COLREGs constraint
+  double cpa_safe = kCpaSafeFallback_m;
+  if (colregs_constraint_ != nullptr && !colregs_constraint_->active_rules.empty()) {
+    cpa_safe = 2500.0; // increase CPA boundary during active encounter
+    
+    // Scale up weights for the primary target causing the collision conflict
+    std::string target_id = colregs_constraint_->colregs_chain_target_id;
+    for (auto& tgt : inp.targets) {
+      if (std::to_string(tgt.id) == target_id) {
+        tgt.cpa_m = std::max(tgt.cpa_m * 0.2, 50.0);   // reduce CPA by 80% to boost its MPC cost weight
+        tgt.tcpa_s = std::max(tgt.tcpa_s * 0.2, 10.0); // reduce TCPA by 80% to boost its MPC cost weight
+      }
+    }
+  }
+  inp.constraints.cpa_safe_m       = cpa_safe;
 
   const bool has_route = planned_route_ != nullptr
       && planned_route_->route.poses.size() >= 2u;

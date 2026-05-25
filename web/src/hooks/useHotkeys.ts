@@ -7,6 +7,8 @@ export interface HotkeyHandlers {
   onMrc?: () => void;          // M
   onHandback?: () => void;     // H
   onSpace?: () => void;        // SPACE
+  onToggleEngineer?: () => void; // G
+  onToggleRoc?: () => void;      // V
   onArrowLeft?: () => void;    // ← (manual rudder -1°)
   onArrowRight?: () => void;   // → (manual rudder +1°)
   onArrowUp?: () => void;      // ↑ (manual throttle +5%)
@@ -42,6 +44,8 @@ export function useHotkeys(handlers: HotkeyHandlers) {
         case 'h': handlers.onHandback?.(); break;
         case ' ': handlers.onSpace?.(); e.preventDefault(); break;
         case 'enter': handlers.onSpace?.(); e.preventDefault(); break;
+        case 'g': handlers.onToggleEngineer?.(); break;
+        case 'v': handlers.onToggleRoc?.(); break;
         case 'arrowleft':  handlers.onArrowLeft?.(); break;
         case 'arrowright': handlers.onArrowRight?.(); break;
         case 'arrowup':    handlers.onArrowUp?.(); break;
