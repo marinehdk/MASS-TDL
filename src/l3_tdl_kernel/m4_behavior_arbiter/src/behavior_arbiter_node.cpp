@@ -1,163 +1,304 @@
-#include <chrono>
-#include <memory>
-#include <string>
-#include <utility>
-
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
+
+#include <chrono>
+#include <sstream>
+#include <cmath>
+#include <spdlog/spdlog.h>
 
 namespace mass_l3::m4 {
 
 using namespace std::chrono_literals;
 
 BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
-    : Node("behavior_arbiter", options),
-      heading_domain_(declare_parameter<double>(
-          "m4.arbitration.heading_domain_resolution_deg", 1.0)),
-      speed_domain_(
-          declare_parameter<double>(
-              "m4.arbitration.speed_domain_min_kn", 0.0),
-          declare_parameter<double>(
-              "m4.arbitration.speed_domain_max_kn", 22.0),
-          declare_parameter<double>(
-              "m4.arbitration.speed_domain_resolution_kn", 0.5)) {
-  const std::string config_dir =
-      declare_parameter<std::string>("config_dir", "");
+    : Node("behavior_arbiter", options) {
+  const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
+  const auto asdr_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
 
-  const auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1))
-                               .reliable()
-                               .durability_volatile();
+  interval_ms_ = declare_parameter<int>("m4.arbitration.interval_ms", 250);
+  double h_res = declare_parameter<double>("m4.arbitration.heading_domain_resolution_deg", 1.0);
+  double s_min = declare_parameter<double>("m4.arbitration.speed_domain_min_kn", 0.0);
+  speed_max_kn_ = declare_parameter<double>("m4.arbitration.speed_domain_max_kn", 22.0);
+  double s_res = declare_parameter<double>("m4.arbitration.speed_domain_resolution_kn", 0.5);
+  int ivp_to   = declare_parameter<int>("m4.arbitration.ivp_timeout_ms", 50);
+
+  IvPHeadingDomain hd(h_res);
+  IvPSpeedDomain   sd(s_min, speed_max_kn_, s_res);
+  solver_ = std::make_unique<IvPSolver>(hd, sd,
+      std::make_unique<WeightedSumCombination>(),
+      std::chrono::milliseconds(ivp_to));
 
   sub_odd_ = create_subscription<ODDStateMsg>(
-      "/l3/m1/odd_state", qos_profile,
+      "/l3/m1/odd_state", qos,
       [this](const ODDStateMsg::SharedPtr msg) { on_odd_state(msg); });
-
   sub_world_ = create_subscription<WorldStateMsg>(
-      "/l3/m2/world_state", qos_profile,
+      "/l3/m2/world_state", qos,
       [this](const WorldStateMsg::SharedPtr msg) { on_world_state(msg); });
-
   sub_mode_ = create_subscription<ModeCmdMsg>(
-      "/l3/m1/mode_cmd", qos_profile,
+      "/l3/m1/mode_cmd", qos,
       [this](const ModeCmdMsg::SharedPtr msg) { on_mode_cmd(msg); });
-
   sub_mission_ = create_subscription<MissionGoalMsg>(
-      "/l3/m3/mission_goal", qos_profile,
+      "/l3/m3/mission_goal", qos,
       [this](const MissionGoalMsg::SharedPtr msg) { on_mission_goal(msg); });
-
   sub_colregs_ = create_subscription<COLREGsConstraintMsg>(
-      "/l3/m6/colregs_constraint", qos_profile,
-      [this](const COLREGsConstraintMsg::SharedPtr msg) {
-        on_colregs_constraint(msg);
-      });
+      "/l3/m6/colregs_constraint", qos,
+      [this](const COLREGsConstraintMsg::SharedPtr msg) { on_colregs_constraint(msg); });
 
-  pub_plan_ = create_publisher<BehaviorPlanMsg>(
-      "/l3/m4/behavior_plan",
-      rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+  pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
+  pub_sat2_ = create_publisher<BehaviorPlanMsg>("/sil/sat2_data", qos);
+  pub_asdr_ = create_publisher<ASDRRecordMsg>("/l3/asdr/record", asdr_qos);
 
-  pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
-      "/l3/asdr/record",
-      rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
+  timer_ = create_wall_timer(std::chrono::milliseconds(interval_ms_),
+                             [this]() { arbitration_timer_callback(); });
 
-  const auto interval_ms =
-      declare_parameter<int>("m4.arbitration.interval_ms", 500);
-  timer_ = create_wall_timer(
-      std::chrono::milliseconds(interval_ms),
-      [this]() { arbitration_timer_callback(); });
-
+  std::string config_dir = declare_parameter<std::string>("m4.config_dir", "");
   if (!config_dir.empty()) {
-    const std::string dict_path = config_dir + "/behavior_definitions.yaml";
-    if (!dictionary_.load(dict_path)) {
-      RCLCPP_WARN(get_logger(),
-                  "Failed to load behavior definitions from %s",
-                  dict_path.c_str());
-    }
+    dictionary_.load(config_dir + "/behavior_definitions.yaml");
   }
 }
 
 void BehaviorArbiterNode::on_odd_state(const ODDStateMsg::SharedPtr msg) {
-  latest_odd_ = msg;
-  odd_received_ = true;
+  latest_odd_ = msg; odd_received_ = true;
 }
-
 void BehaviorArbiterNode::on_world_state(const WorldStateMsg::SharedPtr msg) {
-  latest_world_ = msg;
-  world_received_ = true;
+  latest_world_ = msg; world_received_ = true;
 }
-
 void BehaviorArbiterNode::on_mode_cmd(const ModeCmdMsg::SharedPtr msg) {
-  latest_mode_ = msg;
-  mode_received_ = true;
+  latest_mode_ = msg; mode_received_ = true;
 }
-
 void BehaviorArbiterNode::on_mission_goal(const MissionGoalMsg::SharedPtr msg) {
-  latest_mission_ = msg;
-  mission_received_ = true;
+  latest_mission_ = msg; mission_received_ = true;
+}
+void BehaviorArbiterNode::on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg) {
+  latest_colregs_ = msg; colregs_received_ = true;
 }
 
-void BehaviorArbiterNode::on_colregs_constraint(
-    const COLREGsConstraintMsg::SharedPtr msg) {
-  latest_colregs_ = msg;
-  colregs_received_ = true;
+ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
+  ArbitrationInputs in;
+  auto now = this->now();
+
+  if (odd_received_ && latest_odd_) {
+    in.odd_zone = latest_odd_->current_zone;
+    in.odd_received = true;
+    in.age_odd_ms = (now - latest_odd_->stamp).nanoseconds() / 1'000'000LL;
+  }
+  if (world_received_ && latest_world_) {
+    in.world_received = true;
+    in.world_visibility_nm = latest_world_->visibility_nm;
+    in.own_speed_kn = latest_world_->own_ship.sog_kn;
+    in.age_world_ms = (now - latest_world_->stamp).nanoseconds() / 1'000'000LL;
+  }
+  if (mode_received_ && latest_mode_) {
+    in.mode_received = true;
+    in.mode_mrc_triggered = (latest_mode_->mode == ModeCmdMsg::MRC_TRIGGERED);
+  }
+  if (mission_received_ && latest_mission_) {
+    in.mission_received = true;
+    in.mission_heading_desired_deg = latest_mission_->target_heading_deg;
+    in.age_mission_ms = (now - latest_mission_->stamp).nanoseconds() / 1'000'000LL;
+  }
+  if (colregs_received_ && latest_colregs_) {
+    in.colregs_received = true;
+    in.colregs_conflict_detected = latest_colregs_->conflict_detected;
+    in.age_colregs_ms = (now - latest_colregs_->stamp).nanoseconds() / 1'000'000LL;
+  }
+
+  return in;
 }
 
 void BehaviorArbiterNode::arbitration_timer_callback() {
-  bool has_inputs = odd_received_ && world_received_;
-  std::vector<BehaviorDescriptor> active_set;
+  ArbitrationInputs inputs = build_inputs();
+  HealthState health = BehaviorActivationCondition::compute_health_state(inputs);
 
-  if (has_inputs) {
-    ArbitrationInputs inputs;
-    inputs.odd_state = *latest_odd_;
-    inputs.world_state = *latest_world_;
-    if (mode_received_)  inputs.mode_cmd = *latest_mode_;
-    if (mission_received_) inputs.mission_goal = *latest_mission_;
-    if (colregs_received_) inputs.colregs_constraint = *latest_colregs_;
-
-    active_set = BehaviorActivationCondition::compute_active_set(
-        inputs, dictionary_);
-  }
-
-  if (!has_inputs || active_set.empty()) {
-    // Publish standby / fallback behavior plan to keep watchdog alive and prevent startup deadlock
+  // Standby: no critical inputs received
+  if (!odd_received_ || !world_received_) {
     BehaviorPlanMsg plan;
-    plan.schema_version = 112;  // v1.1.2
+    plan.schema_version = 113;
     plan.stamp = now();
-    plan.behavior = static_cast<uint8_t>(BehaviorType::TRANSIT); // Default to Transit
+    plan.behavior = BehaviorPlanMsg::BEHAVIOR_TRANSIT;
     plan.heading_min_deg = 0.0f;
     plan.heading_max_deg = 360.0f;
     plan.speed_min_kn = 0.0f;
-    plan.speed_max_kn = 22.0f;
+    plan.speed_max_kn = static_cast<float>(speed_max_kn_);
     plan.confidence = 0.0f;
-    plan.rationale = !has_inputs ? "Standby: waiting for inputs" : "Standby: no active behaviors";
-
+    plan.rationale = "Standby: waiting for inputs";
     pub_plan_->publish(plan);
     return;
   }
 
-  const auto primary = BehaviorPriority::select_primary(active_set);
+  // Step 3: Behavior activation
+  auto active_set = BehaviorActivationCondition::compute_active_set(inputs, dictionary_);
 
+  // Step 4: Check for MRC override
+  bool has_mrc = BehaviorPriority::has_mrc(active_set);
+
+  BehaviorType primary = BehaviorType::MrcDrift;
+  double h_min = 0.0, h_max = 360.0, s_min = 0.0, s_max = speed_max_kn_;
+  double confidence = 0.95;
+  std::string rationale;
+
+  if (has_mrc) {
+    primary = BehaviorType::MrcDrift;
+    h_min = 0.0; h_max = 360.0;
+    s_min = 0.0; s_max = 0.0;
+    confidence = 1.0;
+    rationale = "MRC_DRIFT override: emergency drift active";
+  } else if (!active_set.empty()) {
+    // Build weighted functions (stub for D3.1 E1)
+    std::vector<IvPCombinationStrategy::WeightedFunction> weighted_fns;
+
+    IvPHardConstraints constraints;
+    constraints.speed_min_kn = 0.0;
+    constraints.speed_max_kn = speed_max_kn_;
+
+    // Inject M6 COLREGs heading constraints
+    if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+      for (const auto& c : latest_colregs_->constraints) {
+        if (c.direction == COLREGsConstraintMsg::STARBOARD) {
+          double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+          constraints.heading_allowed_ranges_deg.push_back(
+              {own_hdg + c.min_action_deg, own_hdg + 180.0});
+        }
+      }
+    }
+
+    auto sol = solver_->solve_with_fallback(weighted_fns, constraints);
+
+    // Select primary behavior
+    BehaviorPriority priority;
+    IvPSolution ivp_default{};
+    ArbitrationInputs pri_inputs = inputs;
+    primary = priority.select_primary(active_set, ivp_default, pri_inputs);
+
+    if (sol.has_value()) {
+      h_min = sol->heading_min_deg;
+      h_max = sol->heading_max_deg;
+      s_min = sol->speed_min_kn;
+      s_max = sol->speed_max_kn;
+      confidence = sol->relax_level > 0 ? 0.75 : 0.95;
+      rationale = sol->rationale;
+    } else {
+      // Conservative fallback
+      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+      h_min = fmod(own_hdg - 90.0 + 360.0, 360.0);
+      h_max = fmod(own_hdg + 90.0, 360.0);
+      s_max = latest_world_ ? 0.5 * latest_world_->own_ship.sog_kn : 10.0;
+      confidence = 0.30;
+      rationale = "IvP infeasible fallback";
+
+      // Log infeasibility
+      if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+        std::ostringstream json;
+        json << "{\"constraint_count\":" << latest_colregs_->constraints.size()
+             << ",\"fallback_used\":\"cascading\"}";
+        publish_asdr_event("ivp_infeasible", json.str());
+      }
+    }
+  } else {
+    primary = BehaviorType::Transit;
+    confidence = 0.60;
+    rationale = "No active behaviors; default Transit";
+  }
+
+  // --- Publish Behavior_PlanMsg ---
   BehaviorPlanMsg plan;
-  plan.schema_version = 112;  // v1.1.2
+  plan.schema_version = 113;
   plan.stamp = now();
-  plan.behavior = static_cast<uint8_t>(primary.type);
-  plan.heading_min_deg = 0.0f;
-  plan.heading_max_deg = 360.0f;
-  plan.speed_min_kn = static_cast<float>(speed_domain_.min_kn());
-  plan.speed_max_kn = static_cast<float>(speed_domain_.max_kn());
-  plan.confidence = 1.0f;
-  plan.rationale = "Arbitration: " + primary.name;
-
+  plan.behavior = static_cast<uint8_t>(primary);
+  plan.heading_min_deg = static_cast<float>(h_min);
+  plan.heading_max_deg = static_cast<float>(h_max);
+  plan.speed_min_kn = static_cast<float>(s_min);
+  plan.speed_max_kn = static_cast<float>(s_max);
+  plan.confidence = static_cast<float>(confidence);
+  plan.rationale = rationale;
   pub_plan_->publish(plan);
 
-  l3_msgs::msg::ASDRRecord record;
-  record.schema_version = 112;  // v1.1.2
+  // --- Publish ivp_contributions (SAT-2) ---
+  auto contributions = compute_ivp_contributions(primary, h_min, h_max, confidence);
+  for (const auto& c : contributions) {
+    // Encode as BehaviorPlanMsg fields until SAT2Data.msg gets ivp_contributions
+    BehaviorPlanMsg sat2;
+    sat2.schema_version = 113;
+    sat2.stamp = now();
+    sat2.behavior = static_cast<uint8_t>(primary);
+    sat2.heading_min_deg = c.direction_deg;
+    sat2.heading_max_deg = c.utility_value;
+    sat2.speed_min_kn = 0.0f;
+    sat2.speed_max_kn = static_cast<float>(confidence);
+    sat2.confidence = c.utility_value;
+    sat2.rationale = c.behavior_id;
+    pub_sat2_->publish(sat2);
+  }
+
+  // --- ASDR Events ---
+  if (primary != prev_primary_) {
+    std::ostringstream json;
+    json << "{\"from\":" << static_cast<int>(prev_primary_)
+         << ",\"to\":" << static_cast<int>(primary)
+         << ",\"active_count\":" << active_set.size()
+         << ",\"odd_zone\":" << static_cast<int>(inputs.odd_zone) << "}";
+    publish_asdr_event("behavior_switch", json.str());
+  }
+
+  if (prev_odd_zone_ != 99 && inputs.odd_zone != prev_odd_zone_) {
+    std::ostringstream json;
+    json << "{\"from_zone\":" << static_cast<int>(prev_odd_zone_)
+         << ",\"to_zone\":" << static_cast<int>(inputs.odd_zone) << "}";
+    publish_asdr_event("odd_transition", json.str());
+  }
+
+  // Input timeout ASDR
+  auto now_ts = this->now();
+  if (odd_received_ && (now_ts - latest_odd_->stamp).nanoseconds() / 1'000'000LL > 2000) {
+    publish_asdr_event("input_timeout",
+        "{\"source_module\":\"M1\",\"age_ms\":" +
+        std::to_string((now_ts - latest_odd_->stamp).nanoseconds() / 1'000'000LL) + "}");
+  }
+
+  prev_primary_ = primary;
+  prev_odd_zone_ = inputs.odd_zone;
+  prev_health_ = health;
+}
+
+std::vector<IvpContributionInternal> BehaviorArbiterNode::compute_ivp_contributions(
+    BehaviorType primary, double h_min, double h_max, double confidence) const {
+  static const double kDirections[8] = {0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0};
+  std::vector<IvpContributionInternal> contributions;
+  contributions.reserve(8);
+
+  for (int i = 0; i < 8; ++i) {
+    double dir = kDirections[i];
+    float utility = 0.3f;
+    if (h_min <= h_max) {
+      if (dir >= h_min && dir <= h_max) utility = 1.0f;
+    } else {
+      if (dir >= h_min || dir <= h_max) utility = 1.0f;
+    }
+    utility *= static_cast<float>(confidence);
+
+    std::string behavior_id;
+    switch (primary) {
+      case BehaviorType::Transit:      behavior_id = "Transit"; break;
+      case BehaviorType::ColregAvoid:  behavior_id = "ColregAvoid"; break;
+      case BehaviorType::DpHold:       behavior_id = "RestrictedVis"; break;
+      case BehaviorType::Berth:        behavior_id = "ChannelFollow"; break;
+      case BehaviorType::MrcDrift:     behavior_id = "MrcDrift"; break;
+      default:                         behavior_id = "Unknown"; break;
+    }
+
+    contributions.push_back({static_cast<float>(dir), utility, behavior_id});
+  }
+
+  return contributions;
+}
+
+void BehaviorArbiterNode::publish_asdr_event(
+    const std::string& decision_type, const std::string& decision_json) {
+  ASDRRecordMsg record;
+  record.schema_version = 113;
   record.stamp = now();
   record.source_module = "M4_Behavior_Arbiter";
-  record.decision_type = "behavior_plan";
-  record.decision_json =
-      "{\"behavior_type\":" + std::to_string(static_cast<int>(primary.type)) +
-      ",\"behavior_name\":\"" + primary.name +
-      "\",\"active_count\":" + std::to_string(active_set.size()) +
-      ",\"has_mrc\":" + (BehaviorPriority::has_mrc(active_set) ? "true" : "false") +
-      "}";
+  record.decision_type = decision_type;
+  record.decision_json = decision_json;
   pub_asdr_->publish(record);
 }
 
