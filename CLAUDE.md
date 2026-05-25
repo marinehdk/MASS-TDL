@@ -418,18 +418,14 @@ feat/d{阶段}.{序号}-{短描述}
 git log --oneline {branch} ^main   # 输出为空 → 0 个独立 commit → 可直接删除
 ```
 
-### 13.6 当前活跃分支（2026-05-19）
+### 13.6 当前活跃分支（2026-05-25）
 
 | 分支 | 状态 | 对应 D-task |
 |---|---|---|
-| `main` | ✅ 集成，GitHub default | D0 + D1.x 多数 + Screen 1/2/3 SIL HMI 全部已入 |
-| `feat/d1.3b.1-yaml-scenario-mgmt` | ⏳ Phase 1 在制（T14 integration + coverage_reporter + sil_router 3 commits ahead）| D1.3b.1 YAML scenario mgmt |
-| `feat/d1.3b.3-gap-015-sil-fixes` | ⏳ Phase 1 在制（Docker jazzy→humble + D1.3c FMI 桥，1 commit ahead）| D1.3b.3 / D1.3c |
-| `feat/d1.3b.3-web-hmi` | 🟡 本地分支无独立 commit | D1.3b.3 web HMI <!-- TODO[确认]: 是否已 merge 到 main 可删除？ --> |
-| `feat/sil-demo1-head-on` | ⏳ Phase 1 在制（Head-On analytical generator + tests，1 commit ahead）| D1.3a DEMO-1 head-on 场景 |
-| `feat/d3.1-m4-behavior-arbiter` | ⏳ 待 Phase 3 rebase | D3.1 M4 BehaviorArbiter（Tasks 1-6 + Task 6 quality fixes）|
-| `feat/d3.3b-m7-sotif` | ⏳ 待 Phase 3 review | D3.3b M7 SotifAssumptionMonitor（1 commit）|
+| `main` | ✅ 集成，GitHub default | D0–D2.8 全部已入；D2.1–D2.4 report+evidence 已入 |
+| `remotes/gitlab/l3-tdl` | ✅ 与 main 同步 | GitLab mirror |
 
+> 所有 Phase 0/1 feature 分支（d1.3b.1 / d1.3b.3 / d1.3b.3-web-hmi / sil-demo1-head-on / d3.1-m4-behavior-arbiter / d3.3b-m7-sotif / d2.1-m1-odd-hardening）均已合入 main 并删除。远程 d2.7/d2.8 分支已清理。
 > 另存在 `worktree-agent-*` 临时分支若干，由 subagent 框架自动管理，**不要手动操作**。
 
 ---
