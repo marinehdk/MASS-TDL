@@ -6,8 +6,8 @@
 | 估计人周 | 37.5（v3.1 baseline）|
 | 阶段目标 | 完成 4 个剩余业务模块（M4 IvP 行为仲裁 / M5 双 MPC 轨迹规划 / M7-core+sotif Doer-Checker / M8 HMI 完整）+ HAZID 8/19 完成 → v1.1.3 完整回填 + SIL 1000+ CCS 证据 + RFC-007 cyber 接口 + 架构 v1.1.3 完整化 |
 | **里程碑** | 🎬 **DEMO-3 Full-Stack with Safety + ToR（2026-08-31）** |
-| 进度日期 | 2026-05-25（Phase 3 前期准备阶段快照）|
-| 当前阶段状态 | 🔵 **前期准备**（D3.1/D3.2 DEMO-2 P0 提前子集 7/13 必须开工；D3.3b branch exists；D3.1 salvage C++ exists）|
+| 进度日期 | 2026-05-25（D3.1/D3.2/D3.3a/D3.3b/D3.4 关闭后快照）|
+| 当前阶段状态 | 🟢 **D3.1–D3.4 已关闭**（5/25 提前完成；D3.5–D3.9 待启动）|
 
 > **L1 总账**：[../00-master-plan.md](../00-master-plan.md)（v3.2-master，2026-05-22）
 > **架构权威**：[../Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md](../Architecture%20Design/MASS_ADAS_L3_TDL_架构设计报告.md) v1.1.3-pre-stub
@@ -19,11 +19,11 @@
 
 | D 编号 | 主题 | 目录 | 人周 | 截止 | Affects | 状态 |
 |---|---|---|---|---|---|---|
-| **D3.1** | M4 BehaviorArbiter IvP + ivp_contributions[] | [D3.1-m4-behavior-arbiter/](D3.1-m4-behavior-arbiter/) | 4.0 | **7/26** (DEMO-2 P0 子集) | M4 | 🔵 salvage C++ exists / spec❌ |
-| **D3.2** | M5 TacticalPlanner BC-MPC+Mid-MPC + trajectory_candidates[] | [D3.2-m5-tactical-planner/](D3.2-m5-tactical-planner/) | 6.5 | **7/27** (DEMO-2 P0 子集) → **8/10** (完整) | M5 | 🔵 planning only / spec❌ |
-| **D3.3a** | M7-core Doer-Checker 三量化矩阵 + 6 硬约束 + FMEDA M7 | [D3.3a-m7-core/](D3.3a-m7-core/) | 6.0 | **8/10** | M7 | 🔵 spec❌ |
-| **D3.3b** | M7-sotif 6 类假设违反检测 + sotif_metrics topic | [D3.3b-m7-sotif/](D3.3b-m7-sotif/) | 3.0 | **8/16** | M7 | 🟡 assumption_monitor.cpp (1 commit) / spec❌ |
-| **D3.4** | M8 HMI 完整（7 Phase 3 增项 + 双角色 + ToR 矩阵）| [D3.4-m8-hmi-full/](D3.4-m8-hmi-full/) | 5.5 | **8/24** (SAT 桥接子集 7/31 前) | M8 | 🔵 spec❌ |
+| **D3.1** | M4 BehaviorArbiter IvP + ivp_contributions[] | [D3.1-m4-behavior-arbiter/](D3.1-m4-behavior-arbiter/) | 4.0 | **7/26** (DEMO-2 P0 子集) | M4 | ✅ **Closed 5/25** — 813 LOC src + 916 LOC test; [report](D3.1-m4-behavior-arbiter/D3.1-report.md) |
+| **D3.2** | M5 TacticalPlanner BC-MPC+Mid-MPC + trajectory_candidates[] | [D3.2-m5-tactical-planner/](D3.2-m5-tactical-planner/) | 6.5 | **7/27** (DEMO-2 P0 子集) → **8/10** (完整) | M5 | ✅ **Closed 5/25** — 2751 LOC src + 2218 LOC test; [report](D3.2-m5-tactical-planner/D3.2-report.md) |
+| **D3.3a** | M7-core Doer-Checker 三量化矩阵 + 6 硬约束 + FMEDA M7 | [D3.3a-m7-core/](D3.3a-m7-core/) | 6.0 | **8/10** | M7 | ✅ **Closed 5/25** — 6 HC + FMEDA + MRM + Resume + PATH-S CI; [report](D3.3a-m7-core/D3.3a-report.md) |
+| **D3.3b** | M7-sotif 6 类假设违反检测 + sotif_metrics topic | [D3.3b-m7-sotif/](D3.3b-m7-sotif/) | 3.0 | **8/16** | M7 | ✅ **Closed 5/25** — 459 LOC src + SotifMetrics @10Hz; [report](D3.3b-m7-sotif/D3.3b-report.md) |
+| **D3.4** | M8 HMI 完整（7 Phase 3 增项 + 双角色 + ToR 矩阵）| [D3.4-m8-hmi-full/](D3.4-m8-hmi-full/) | 5.5 | **8/24** (SAT 桥接子集 7/31 前) | M8 | ✅ **Closed 5/25** — 1220 LOC src + 1595 LOC test; SAT-2/3/SOTIF 桥接; [report](D3.4-m8-hmi-full/D3.4-report.md) |
 | **D3.5** | 架构 v1.1.3 HAZID 132 [TBD] 回填 | [D3.5-arch-hazid-backfill/](D3.5-arch-hazid-backfill/) | 2.0 | **8/31** | 架构 | 🔵 spec❌ |
 | **D3.5'** | 模拟器培训课程大纲 v1.0 + 培训胜任力矩阵 | [D3.5p-training-curriculum/](D3.5p-training-curriculum/) | 1.5 | **8/23** | HF, Cert | 🔵 spec❌ |
 | **D3.6** | SIL 1000+ 场景 COLREGs 覆盖率报告（V&V） | [D3.6-sil-1000-scenario-coverage/](D3.6-sil-1000-scenario-coverage/) | 2.5 | **8/31** | V&V, SIL | 🔵 spec❌ |
@@ -41,12 +41,12 @@
 
 | 拉取项 | 来源 | 人周 | 截止 | 当前状态 |
 |---|---|---|---|---|
-| M4 IvP stub → `/sil/sat2_data.ivp_contributions[]` @4Hz | D3.1 | 4.0 | **7/26** | 🔴 开工时点 7/13 不可滑期 |
-| M5 stub → `/sil/sat3_data.trajectory_candidates[]` @2Hz | D3.2 | 6.5 | **7/27** | 🔴 开工时点 7/13 不可滑期 |
-| M8 增发 3 topic + IDL（sat2_data/sat3_data/sotif_metrics）| 拆自 D3.4 | 1.5 | **7/31** | 🔴 未实装 |
-| 前端 useFoxgloveLive 3 handler（IvP/Trajectory/SOTIF）| D1.3.2.3 后段 | 0.5 | **7/31** | 🔴 未实装 |
+| M4 IvP → `/sil/sat2_data.ivp_contributions[]` @4Hz | D3.1 | 4.0 | **7/26** | ✅ **已实装**（D3.1 Closed 5/25）|
+| M5 → `/sil/sat3_data.trajectory_candidates[]` @2Hz | D3.2 | 6.5 | **7/27** | ✅ **已实装**（D3.2 Closed 5/25）|
+| M8 增发 3 topic + IDL（sat2_data/sat3_data/sotif_metrics）| 拆自 D3.4 | 1.5 | **7/31** | ✅ **已实装**（D3.4 Closed 5/25）|
+| 前端 useFoxgloveLive 3 handler（IvP/Trajectory/SOTIF）| D1.3.2.3 后段 | 0.5 | **7/31** | ✅ **已实装**（D1.3.2.3 Closed 5/25）|
 
-> **关键路径**：M4/M5 必须 7/13 开工 → 10.5 pw 无法收口会导致 DEMO-2 P0 崩盘。
+> **关键路径**：✅ D3.1/D3.2/D3.4 已提前完成，DEMO-2 P0 阻塞全部解除。
 
 ---
 
@@ -99,24 +99,22 @@
 
 ---
 
-## 模块实装基线（Phase 3 开始时，2026-05-25）
+## 模块实装基线（D3.1–D3.4 关闭后，2026-05-25）
 
 | 模块 | SIL | 代码基线 | Topic 状态 | Phase 3 主 D 任务 |
 |---|---|---|---|---|
-| **M4** BehaviorArbiter | SIL 1 | `.salvage-d3.1/` C++ 476 LOC（behavior_arbiter.hpp/cpp + ivp_solver.cpp；`feat/d3.1-m4-behavior-arbiter` Tasks 1-6 committed）| `/l3/m4/behavior_plan` 未验证；`/sil/sat2_data.ivp_contributions[]` ❌ | D3.1 |
-| **M5** TacticalPlanner | SIL 1 | D0.1 surgical fix 仅（无 CasADi 集成）| `/l3/m5/avoidance_plan` 未见；`/sil/sat3_data.trajectory_candidates[]` ❌ | D3.2 |
-| **M7** SafetySupervisor | SIL 2 | `assumption_monitor.cpp`（`feat/d3.3b-m7-sotif` 1 commit）+ `Safety_AlertMsg` 真实发布 ✅ | `/sil/sotif_metrics` ❌；6 硬约束 ❌；FMEDA M7 ❌ | D3.3a + D3.3b |
-| **M8** HMI Bridge | SIL 1 | SAT-1 12 topic ✅ / ToR Modal ≥2s ✅ / C++ ROS + Python FastAPI ✅ | `/sil/sat2_data` ❌ `/sil/sat3_data` ❌ `/sil/sotif_metrics` ❌；ToR 自适应矩阵 ❌ | D3.4 |
+| **M4** BehaviorArbiter | SIL 1 | 813 LOC src + 916 LOC test ✅ | `/l3/m4/behavior_plan` ✅；`/sil/sat2_data.ivp_contributions[]` ✅ @4Hz | D3.1 ✅ Closed |
+| **M5** TacticalPlanner | SIL 1 | 2751 LOC src + 2218 LOC test ✅ | `/l3/m5/avoidance_plan` ✅；`/sil/sat3_data.trajectory_candidates[]` ✅ @2Hz | D3.2 ✅ Closed |
+| **M7** SafetySupervisor | SIL 2 | 827 LOC src (core 368 + sotif 459) + 3046 LOC test ✅ | `/sil/sotif_metrics` ✅ @10Hz；6 硬约束 ✅；FMEDA M7 v1.0 ✅ | D3.3a ✅ + D3.3b ✅ Closed |
+| **M8** HMI Bridge | SIL 1 | 1220 LOC src + 1595 LOC test ✅ | `/sil/sat2_data` ✅ `/sil/sat3_data` ✅ `/sil/sotif_metrics` ✅；ToR 自适应 ✅ | D3.4 ✅ Closed |
 
-**共享 IDL 缺口**（M4/M5/M7/M8 共同依赖，优先创建）：
+**共享 IDL 状态**（D3.1–D3.4 关闭后）：
 
-| IDL 消息类型 | Topic | 数据源 | 消费端 |
-|---|---|---|---|
-| `l3_msgs/SAT2Data` | `/sil/sat2_data` | M4 ivp_contributions[] + M6 colregs_chain[5] | 前端 `IvpRiskGradientLayer` + `ColregsRationaleTree` |
-| `l3_msgs/SAT3Data` | `/sil/sat3_data` | M5 trajectory_candidates[13] + primary trajectory | 前端 `MpcTrajectoryLayer` |
-| `l3_msgs/SotifMetrics` | `/sil/sotif_metrics` | M7 6 类假设违反指标 | 前端 `SotifMonitorStrip` |
-
-> **优先级**：D3.4 SAT 桥接子集（1.5pw）在 7/31 前必须先创建这 3 个 IDL + 空 publisher，M4/M5/M7 的实际数据填充跟随各自 D 任务进度。
+| IDL 消息类型 | Topic | 数据源 | 消费端 | 状态 |
+|---|---|---|---|---|
+| `l3_msgs/SAT2Data` | `/sil/sat2_data` | M4 ivp_contributions[] + M6 colregs_chain[5] | 前端 `IvpRiskGradientLayer` + `ColregsRationaleTree` | ✅ 已创建 + 已发布 |
+| `l3_msgs/SAT3Data` | `/sil/sat3_data` | M5 trajectory_candidates[13] + primary trajectory | 前端 `MpcTrajectoryLayer` | ✅ 已创建 + 已发布 |
+| `l3_msgs/SotifMetrics` | `/sil/sotif_metrics` | M7 6 类假设违反指标 | 前端 `SotifMonitorStrip` | ✅ 已创建 + 已发布 |
 
 ---
 
@@ -124,12 +122,12 @@
 
 | # | 风险 | 等级 | 缓解 |
 |---|---|---|---|
-| R3.1 | M5 IPOPT 求解 p99 > 500ms | **高** | DEMO-2/3 阶段允许线性化 Nomoto + N=12 兜底；CasADi 完整版 DEMO-3 升级 |
-| R3.2 | M7 PATH-S CI 发现跨边界引用 | 高 | D0.3/D1.2 dry-run 已提前曝光；D3.3a 第一周修复所有 violation |
+| R3.1 | M5 IPOPT 求解 p99 > 500ms | 🟡→中 | ✅ NomotoFallback 兜底已实装（D3.2 Closed）|
+| R3.2 | M7 PATH-S CI 发现跨边界引用 | 🟢→低 | ✅ PATH-S CI 通过（D3.3a Closed）|
 | R3.3 | HAZID 8/19 滑期 → D3.5 回填窗口紧 | 中 | 行为分支无关参数 7/31 先锁；分支相关参数等 8/19 |
-| R3.4 | M4 IvP libIvP/自实现路径未决 | 低 | RFC-009 已决议"自实现方向"；`.salvage-d3.1/` C++ 476 LOC 作起点 |
+| R3.4 | M4 IvP libIvP/自实现路径未决 | 🟢→低 | ✅ 自实现 IvP solver 已完成（D3.1 Closed）|
 | R3.5 | DEMO-3 12min 节奏太赶 | 中 | 8/24 起每日 dry-run；8/29 完整 dry run；8/30 业主彩排 |
-| R3.6 | 3 IDL 缺失阻塞 M4/M5/M7/M8 前端联调 | **高** | D3.4 SAT 桥接子集 7/31 前创建 IDL 骨架 + stub publisher → 解除前端阻塞 |
+| R3.6 | 3 IDL 缺失阻塞 M4/M5/M7/M8 前端联调 | 🟢→低 | ✅ 3 IDL + publisher 已全部实装（D3.1/D3.2/D3.4 Closed）|
 
 ---
 
@@ -157,3 +155,4 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v0.1 | 2026-05-25 | Phase 3 overview 初建（从 v3.2 archived 计划 §5 提取 + 实测基线补充）|
+| v0.2 | 2026-05-25 | D3.1/D3.2/D3.3a/D3.3b/D3.4 关闭：状态表 ✅、DEMO-2 P0 全部解除、模块基线更新、IDL 缺口→已实装、6 风险降级 |

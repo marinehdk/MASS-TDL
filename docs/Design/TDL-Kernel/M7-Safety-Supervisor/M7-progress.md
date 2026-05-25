@@ -4,23 +4,22 @@
 |---|---|
 | 数据更新规则 | PR 合并涉及 M7 时同步更新本表 |
 | 最近更新 | 2026-05-25 |
-| **Currently Implementing** | D3.3b（SOTIF 5 类假设违反代码在）|
+| **Currently Implementing** | — |
 
 | D 任务 | 关系 | 状态 | 详情 |
 |---|---|---|---|
 | D0.3 | Closed in | ✅ | MUST-11 工时拆 6→9pw（core 6 + sotif 3）|
-| D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：PATH-S 严格规则（LineThreshold=40, 禁 malloc, 禁全局变量, 独立性检查） |
-| D3.3a | Closed in | ✅ 2026-05-25 | M7-core：6 类硬约束 + FMEDA M7 (20 FM) + Doer-Checker 三量化 + Resume 时序 + MRM 命令链；DoD 8/10 |
-| D3.3a FMEDA | Closed in | ✅ 2026-05-25 | FMEDA M7 v1.0：20 失效模式，6 子系统，12 列，SFF 估 45%（HAZID 后定量）|
-| D3.3b | Currently Implementing | ⏳ | `feat/d3.3b-m7-sotif`（1 commit）；目标 8/16 |
-| D2.5 | Blocks | ⏳ | D2.5 依赖 M7 生产 `/sil/sotif_metrics` topic；DEMO-2 阶段可用 stub 值占位，7/31 前须打通 |
-| D2.7 | Blocks reverse | ✅ 2026-05-22 | HARA 32 危险源 + FMEDA M1 v1.0 20 失效模式 + SIF 全覆盖已完成（M7 FMEDA 在 D3.3a）|
+| D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：PATH-S 严格规则 |
+| D3.3a | Closed in | ✅ 2026-05-25 | M7-core：6 硬约束 + FMEDA M7 v1.0 + MRM chain + ResumeHandler + PATH-S CI 通过；report: [D3.3a-report.md](../../Phase%203/D3.3a-m7-core/D3.3a-report.md) |
+| D3.3b | Closed in | ✅ 2026-05-25 | M7-sotif：6 类假设违反检测 + CheckerVetoCounter + SlidingWindow15s + SotifMetricsPublisher；report: [D3.3b-report.md](../../Phase%203/D3.3b-m7-sotif/D3.3b-report.md) |
+| D2.5 | Blocks | 🟡 | D2.5 依赖 M7 生产 `/sil/sotif_metrics` topic（M7 侧已发布 @10Hz）|
+| D2.7 | Closed in | ✅ 2026-05-22 | HARA 32 危险源 + FMEDA M1 v1.0 |
 
 ## DEMO-2 阻塞贡献
 
-- 🟡 中阻塞：SotifMonitorStrip 6 行进度条数据源依赖 `/sil/sotif_metrics`；DEMO-2 阶段可用 stub 值占位
+- ✅ **已解除**：M7 `/sil/sotif_metrics` @10Hz 已实装；前端 `SotifMonitorStrip` 数据源就绪
 
 ---
 ## 参考 D 任务文档
-- D3.3a: [Phase 3/D3.3a-m7-core/](../../Phase%203/D3.3a-m7-core/)（待建）
-- D3.3b: [Phase 3/D3.3b-m7-sotif/](../../Phase%203/D3.3b-m7-sotif/)（待建）；分支: `feat/d3.3b-m7-sotif`
+- D3.3a: [Phase 3/D3.3a-m7-core/](../../Phase%203/D3.3a-m7-core/)（✅ spec + report 已完成）
+- D3.3b: [Phase 3/D3.3b-m7-sotif/](../../Phase%203/D3.3b-m7-sotif/)（✅ spec + plan + report 已完成）

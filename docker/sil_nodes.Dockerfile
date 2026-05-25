@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.5
 # SIL 10-node LifecycleNode container — Python rclpy nodes via launch file.
 # Replaces component_container_mt (C++) with ros2 launch for Python LifecycleNodes.
 FROM ros:humble-ros-base
@@ -16,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgeographic-dev \
         libboost-dev \
         nlohmann-json3-dev \
+        ccache \
     && rm -rf /var/lib/apt/lists/*
 
 # Ubuntu 22.04 libyaml-cpp-dev 0.7.0 exports "yaml-cpp" (no namespace).
@@ -39,11 +41,21 @@ COPY src/l3_tdl_kernel     src/l3_tdl_kernel
 RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
 RUN pip install --no-cache-dir casadi
 
-# Build the workspace
-RUN . /opt/ros/humble/setup.sh && \
+# Build the workspace.
+# --mount=type=cache keeps intermediate build artifacts (CMake cache, .o files) and
+# ccache compiler cache across `docker build` runs — only changed packages recompile.
+# sharing=private: each concurrent session gets its own build/ snapshot (no lock conflict).
+# sharing=shared: ccache is safe for concurrent reads/writes.
+RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
+    --mount=type=cache,target=/opt/ws/build,sharing=private \
+    . /opt/ros/humble/setup.sh && \
     colcon build --symlink-install \
         --parallel-workers 2 \
-        --cmake-args -DBUILD_TESTING=OFF -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake \
+        --cmake-args \
+            -DBUILD_TESTING=OFF \
+            -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         --packages-select \
             l3_msgs l3_external_msgs \
             sil_msgs sil_lifecycle \

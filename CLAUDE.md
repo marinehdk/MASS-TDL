@@ -441,6 +441,64 @@ git log --oneline {branch} ^main   # 输出为空 → 0 个独立 commit → 可
 - 12 项 must-fix 在 D0（5/8–5/12）关闭 / 12 项 phase-1 fix 在 D1.x 关闭 / 其余在 D2.x/D3.x 闭环
 - 详见 `docs/Design/Review/2026-05-07/00-consolidated-findings.md` §10 owner 表 + v3.0 附录 D Findings Closure Map
 
+## 14. Docker 构建优化规范（OrbStack + ROS2 多 session）
+
+### 14.1 核心原则
+
+`sil_nodes.Dockerfile` 的 `colcon build` RUN 步骤使用 BuildKit `--mount=type=cache`，将中间构建产物（CMake cache、`.o` 文件）和 ccache 编译缓存持久化到宿主机 BuildKit cache——跨 `docker build` 调用复用，**只重编译变更的包**。
+
+**不要删除或修改** Dockerfile 顶部的 `# syntax=docker/dockerfile:1.5` 声明，也不要删除 `colcon build` RUN 步骤前的 `--mount=type=cache` 参数——删除会使每次构建退化为全量编译。
+
+### 14.2 挂载策略
+
+| cache mount | sharing | 原因 |
+|---|---|---|
+| `/root/.ccache` | `shared` | ccache 自身线程安全，多 session 并发读写安全 |
+| `/opt/ws/build` | `private` | colcon 中间产物不能并发写；private 保证每个 session 独立副本（仍比无缓存快，首次构建后 seed） |
+
+### 14.3 OrbStack 具体操作
+
+```bash
+# 确认 BuildKit 启用（OrbStack 默认开启，确认即可）
+docker buildx version
+
+# 重建 sil-nodes（第 2 次起明显提速）
+docker compose build sil-nodes
+
+# 查看 BuildKit 缓存占用
+docker buildx du
+# 清理（仅在磁盘告急时）
+docker buildx prune --filter type=exec.cachemount
+```
+
+### 14.4 多 session CPU 限额（Plan D，手动配置）
+
+OrbStack Settings → Resources → CPU：建议限制为物理核数的 70%（如 M系列 10 核 → 限 7）。  
+每个 session 的 `colcon build` 已通过 `--parallel-workers 2` 限制并发编译数，多 session 叠加时不会吃满所有核心。
+
+### 14.5 不需要实施的方案
+
+- **方案 B（base image 分离推 registry）**：`sil_nodes.Dockerfile` 的 `apt install` / `pip install` 已是独立 RUN 层，Docker 层缓存在单机 OrbStack 上等效于 base image 缓存，不需要额外推 registry。
+- **方案 C（独立 ccache 挂载）**：已内含在 §14.2 的 `--mount=type=cache,target=/root/.ccache` 中，无需额外配置。
+
+### 14.6 未来新增 Dockerfile 时的规范
+
+任何新增包含 `colcon build` 或大量 C++ 编译的 RUN 步骤，必须遵循此模板：
+
+```dockerfile
+# syntax=docker/dockerfile:1.5  ← 文件第一行
+...
+RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
+    --mount=type=cache,target=<build_output_dir>,sharing=private \
+    . /opt/ros/humble/setup.sh && \
+    colcon build \
+        --cmake-args -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ...
+```
+
+---
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

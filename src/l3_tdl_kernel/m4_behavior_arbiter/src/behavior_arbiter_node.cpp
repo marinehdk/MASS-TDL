@@ -83,17 +83,17 @@ ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
   }
   if (world_received_ && latest_world_) {
     in.world_received = true;
-    in.world_visibility_nm = latest_world_->visibility_nm;
+    // visibility_nm removed from WorldState (v1.1.2); keep default 999.0 (good vis)
     in.own_speed_kn = latest_world_->own_ship.sog_kn;
     in.age_world_ms = (now - latest_world_->stamp).nanoseconds() / 1'000'000LL;
   }
   if (mode_received_ && latest_mode_) {
     in.mode_received = true;
-    in.mode_mrc_triggered = (latest_mode_->mode == ModeCmdMsg::MRC_TRIGGERED);
+    in.mode_mrc_triggered = (latest_mode_->mode == ModeCmdMsg::MODE_EMERGENCY);
   }
   if (mission_received_ && latest_mission_) {
     in.mission_received = true;
-    in.mission_heading_desired_deg = latest_mission_->target_heading_deg;
+    // target_heading_deg removed from MissionGoal (v1.2.0); keep default 0.0
     in.age_mission_ms = (now - latest_mission_->stamp).nanoseconds() / 1'000'000LL;
   }
   if (colregs_received_ && latest_colregs_) {
@@ -131,13 +131,13 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   // Step 4: Check for MRC override
   bool has_mrc = BehaviorPriority::has_mrc(active_set);
 
-  BehaviorType primary = BehaviorType::MrcDrift;
+  BehaviorType primary = BehaviorType::MRC_DRIFT;
   double h_min = 0.0, h_max = 360.0, s_min = 0.0, s_max = speed_max_kn_;
   double confidence = 0.95;
   std::string rationale;
 
   if (has_mrc) {
-    primary = BehaviorType::MrcDrift;
+    primary = BehaviorType::MRC_DRIFT;
     h_min = 0.0; h_max = 360.0;
     s_min = 0.0; s_max = 0.0;
     confidence = 1.0;
@@ -150,13 +150,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     constraints.speed_min_kn = 0.0;
     constraints.speed_max_kn = speed_max_kn_;
 
-    // Inject M6 COLREGs heading constraints
+    // Inject M6 COLREGs heading constraints.
+    // Constraint.msg (v1.1.2): constraint_type=="colregs", unit=="deg",
+    // numeric_value = minimum heading deviation from own heading (positive = starboard).
     if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
       for (const auto& c : latest_colregs_->constraints) {
-        if (c.direction == COLREGsConstraintMsg::STARBOARD) {
-          double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+        if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
           constraints.heading_allowed_ranges_deg.push_back(
-              {own_hdg + c.min_action_deg, own_hdg + 180.0});
+              {own_hdg + c.numeric_value, own_hdg + 180.0});
         }
       }
     }
@@ -194,7 +196,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       }
     }
   } else {
-    primary = BehaviorType::Transit;
+    primary = BehaviorType::TRANSIT;
     confidence = 0.60;
     rationale = "No active behaviors; default Transit";
   }
@@ -277,11 +279,13 @@ std::vector<IvpContributionInternal> BehaviorArbiterNode::compute_ivp_contributi
 
     std::string behavior_id;
     switch (primary) {
-      case BehaviorType::Transit:      behavior_id = "Transit"; break;
-      case BehaviorType::ColregAvoid:  behavior_id = "ColregAvoid"; break;
-      case BehaviorType::DpHold:       behavior_id = "RestrictedVis"; break;
-      case BehaviorType::Berth:        behavior_id = "ChannelFollow"; break;
-      case BehaviorType::MrcDrift:     behavior_id = "MrcDrift"; break;
+      case BehaviorType::TRANSIT:      behavior_id = "Transit"; break;
+      case BehaviorType::COLREG_AVOID: behavior_id = "ColregAvoid"; break;
+      case BehaviorType::DP_HOLD:      behavior_id = "DpHold"; break;
+      case BehaviorType::BERTH:        behavior_id = "Berth"; break;
+      case BehaviorType::MRC_DRIFT:    behavior_id = "MrcDrift"; break;
+      case BehaviorType::MRC_ANCHOR:   behavior_id = "MrcAnchor"; break;
+      case BehaviorType::MRC_HEAVE_TO: behavior_id = "MrcHeaveTo"; break;
       default:                         behavior_id = "Unknown"; break;
     }
 

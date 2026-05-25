@@ -91,7 +91,7 @@ private:
   std::unique_ptr<IvPSolver>        solver_;
 
   // State tracking
-  BehaviorType prev_primary_{BehaviorType::MrcDrift};
+  BehaviorType prev_primary_{BehaviorType::MRC_DRIFT};
   uint8_t      prev_odd_zone_{99};
   HealthState  prev_health_{HealthState::Normal};
 
