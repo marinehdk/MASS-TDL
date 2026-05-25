@@ -12,9 +12,26 @@ from enum import IntEnum
 import rclpy
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+try:
+    from rclpy.qos import qos_profile_clock
+except ImportError:
+    qos_profile_clock = QoSProfile(
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+    )
+
 
 from builtin_interfaces.msg import Time as TimeMsg
 from sil_msgs.msg import LifecycleStatus
+try:
+    from rosgraph_msgs.msg import Clock as ClockMsg
+except ImportError:
+    class ClockMsg:
+        def __init__(self):
+            self.clock = None
+
 
 
 # ── QoS profiles per Doc 2 §7.3 ────────────────────────────────────────────
@@ -166,11 +183,31 @@ class LifecycleManagerNode(LifecycleNode):
     """
 
     def __init__(self, node_name: str = "scenario_lifecycle_mgr") -> None:
-        super().__init__(node_name)
+        # Force use_sim_time to False during construction to avoid circular dependencies in clock server
+        try:
+            from rclpy.parameter import Parameter
+            overrides = [Parameter('use_sim_time', Parameter.Type.BOOL, False)]
+        except ImportError:
+            overrides = None
+
+        # Dynamically inspect parent class __init__ to support both real rclpy and simpler test mock class signatures
+        import inspect
+        kwargs = {}
+        try:
+            sig = inspect.signature(super().__init__)
+            if "parameter_overrides" in sig.parameters and overrides is not None:
+                kwargs["parameter_overrides"] = overrides
+        except Exception:
+            pass
+
+        super().__init__(node_name, **kwargs)
         self._fsm = ScenarioLifecycleMgr()
+
+
 
         # ROS2 resources — created in on_activate, destroyed in on_deactivate
         self._sim_clock_pub = None
+        self._clock_pub = None
         self._status_pub = None
         self._sim_clock_timer = None
         self._status_timer = None
@@ -199,7 +236,7 @@ class LifecycleManagerNode(LifecycleNode):
         for name, default in (
             ("scenario_id", ""),
             ("scenario_hash", ""),
-            ("tick_hz", 1000.0),
+            ("tick_hz", 250.0),
             ("status_hz", 1.0),
             ("sim_rate", 1.0),
         ):
@@ -225,6 +262,9 @@ class LifecycleManagerNode(LifecycleNode):
         self._sim_clock_pub = self.create_publisher(
             TimeMsg, "/sim_clock", qos_profile=_SIM_CLOCK_QOS
         )
+        self._clock_pub = self.create_publisher(
+            ClockMsg, "/clock", qos_profile=qos_profile_clock
+        )
         self._status_pub = self.create_publisher(
             LifecycleStatus, "/sil/lifecycle_status", qos_profile=_STATUS_QOS
         )
@@ -233,14 +273,24 @@ class LifecycleManagerNode(LifecycleNode):
         tick_hz = self.get_parameter("tick_hz").value
         status_hz = self.get_parameter("status_hz").value
 
-        self._sim_clock_timer = self.create_wall_timer(
-            timer_period_sec=1.0 / float(tick_hz),
-            callback=self._clock_callback,
-        )
-        self._status_timer = self.create_wall_timer(
-            timer_period_sec=1.0 / float(status_hz),
-            callback=self._status_callback,
-        )
+        if hasattr(self, "create_wall_timer"):
+            self._sim_clock_timer = self.create_wall_timer(
+                timer_period_sec=1.0 / float(tick_hz),
+                callback=self._clock_callback,
+            )
+            self._status_timer = self.create_wall_timer(
+                timer_period_sec=1.0 / float(status_hz),
+                callback=self._status_callback,
+            )
+        else:
+            self._sim_clock_timer = self.create_timer(
+                1.0 / float(tick_hz),
+                self._clock_callback,
+            )
+            self._status_timer = self.create_timer(
+                1.0 / float(status_hz),
+                self._status_callback,
+            )
 
         self._fsm.activate()
         self.get_logger().info(
@@ -259,10 +309,11 @@ class LifecycleManagerNode(LifecycleNode):
         self._sim_clock_timer = None
         self._status_timer = None
 
-        for pub in (self._sim_clock_pub, self._status_pub):
+        for pub in (self._sim_clock_pub, self._clock_pub, self._status_pub):
             if pub is not None:
                 self.destroy_publisher(pub)
         self._sim_clock_pub = None
+        self._clock_pub = None
         self._status_pub = None
 
         self.get_logger().info("[on_deactivate] timers + publishers destroyed")
@@ -277,14 +328,23 @@ class LifecycleManagerNode(LifecycleNode):
     # ── Timer callbacks ──────────────────────────────────────────────────
 
     def _clock_callback(self) -> None:
-        """Publish /sim_clock as builtin_interfaces/Time @ tick_hz."""
+        """Publish /sim_clock (builtin_interfaces/Time) and /clock (rosgraph_msgs/Clock) @ tick_hz."""
         self._fsm.tick()
         sim_t = self._fsm.sim_time
-        msg = TimeMsg()
-        msg.sec = int(sim_t)
-        msg.nanosec = int((sim_t - msg.sec) * 1e9)
+        
+        # Build builtin_interfaces/Time message for /sim_clock
+        time_msg = TimeMsg()
+        time_msg.sec = int(sim_t)
+        time_msg.nanosec = int((sim_t - time_msg.sec) * 1e9)
         if self._sim_clock_pub is not None:
-            self._sim_clock_pub.publish(msg)
+            self._sim_clock_pub.publish(time_msg)
+            
+        # Build rosgraph_msgs/Clock message for /clock
+        if self._clock_pub is not None:
+            clock_msg = ClockMsg()
+            clock_msg.clock = time_msg
+            self._clock_pub.publish(clock_msg)
+
 
     def _status_callback(self) -> None:
         """Publish /sil/lifecycle_status @ status_hz."""

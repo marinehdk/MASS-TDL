@@ -1,9 +1,9 @@
 {
   "gate_id": 1,
   "gate_name": "System Readiness",
-  "timestamp_utc": "2026-05-25T02:12:53.865021Z",
+  "timestamp_utc": "2026-05-25T02:54:02.427421Z",
   "scenario_id": "imazu-01-ho",
-  "passed": false,
+  "passed": true,
   "checks": [
     {
       "item": "docker",
@@ -12,8 +12,8 @@
     },
     {
       "item": "ROS2",
-      "status": "fail",
-      "detail": "ROS2 DDS: 2 ROS2 nodes visible but no SIL nodes found (got: ['/foxglove_bridge', '/sil_orchestrator_lifecycle_bridge'])"
+      "status": "ok",
+      "detail": "ROS2 DDS: 20 ROS2 nodes visible, 9 SIL node(s) confirmed"
     },
     {
       "item": "foxglove_bridge:",
@@ -31,8 +31,8 @@
       "detail": "telemetry WS: WS state reported by frontend"
     }
   ],
-  "duration_ms": 802.2,
-  "rationale": "failures detected",
+  "duration_ms": 1136.8,
+  "rationale": "all 5/5 sub-checks passed",
   "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
   "hazid_scenario_ref": null
 }

@@ -118,6 +118,10 @@ class TargetVesselNode(LifecycleNode):
         self._tv_pub = None
         self._timer = None
 
+        # Wall-clock publishing rate limiter
+        self._last_pub_wall_time: float = 0.0
+
+
     # ── Public helpers (preserved from original stub) ────────────────────
 
     def add_target(
@@ -201,21 +205,32 @@ class TargetVesselNode(LifecycleNode):
     def _step_callback(self) -> None:
         if self._tv_pub is None:
             return
-        now = self.get_clock().now().to_msg()
+            
+        # Ticking targets physics at simulation step
         for t in self._targets:
-            state = t.step(dt=0.1)
-            msg = TargetVesselState()
-            msg.stamp = now
-            msg.mmsi = state["mmsi"]
-            msg.lat = state["lat"]
-            msg.lon = state["lon"]
-            msg.heading = state["heading"]
-            msg.sog = state["sog"]
-            msg.cog = state["cog"]
-            msg.rot = state["rot"]
-            msg.ship_type = 1  # CARGO
-            msg.mode = _TARGET_MODE_TO_UINT8.get(state["mode"], 0)
-            self._tv_pub.publish(msg)
+            t.step(dt=0.1)
+
+        # Throttled target-vessel publishing to maximum of 25 Hz wall-clock rate
+        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
+        import time
+        now_wall = time.monotonic()
+        if now_wall - self._last_pub_wall_time >= 0.04:  # ~25 Hz limit
+            now_sim = self.get_clock().now().to_msg()
+            for t in self._targets:
+                msg = TargetVesselState()
+                msg.stamp = now_sim
+                msg.mmsi = t.mmsi
+                msg.lat = t.lat
+                msg.lon = t.lon
+                msg.heading = t.heading
+                msg.sog = t.sog
+                msg.cog = t.heading
+                msg.rot = 0.0
+                msg.ship_type = 1  # CARGO
+                msg.mode = _TARGET_MODE_TO_UINT8.get(t.mode.value, 0)
+                self._tv_pub.publish(msg)
+            self._last_pub_wall_time = now_wall
+
 
 
 def main(args: list[str] | None = None) -> None:

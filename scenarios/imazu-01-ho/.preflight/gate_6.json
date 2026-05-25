@@ -1,7 +1,7 @@
 {
   "gate_id": 6,
   "gate_name": "Doer-Checker Independence",
-  "timestamp_utc": "2026-05-25T02:12:54.187034Z",
+  "timestamp_utc": "2026-05-25T02:54:02.838138Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -31,7 +31,7 @@
       "detail": "VETO latency: VETO latency test: Phase 2 (real M5/M7 ROS2 nodes not yet deployed)"
     }
   ],
-  "duration_ms": 149.9,
+  "duration_ms": 146.1,
   "rationale": "Doer-Checker isolation 5/5 verified",
   "sil2_clause": "IEC 61508-2 Clause 7.3 Independence \u2014 Doer-Checker physical separation",
   "hazid_scenario_ref": null

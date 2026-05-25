@@ -104,6 +104,10 @@ class ShipDynamicsNode(LifecycleNode):
         self._origin_lat_rad: float = 0.0
         self._origin_lon_rad: float = 0.0
 
+        # Wall-clock publishing rate limiter
+        self._last_pub_wall_time: float = 0.0
+
+
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
@@ -250,8 +254,15 @@ class ShipDynamicsNode(LifecycleNode):
         msg.rudder_angle = dc
         msg.throttle = nr / 20.0
 
-        if self._state_pub is not None:
-            self._state_pub.publish(msg)
+        # Throttled own-ship publishing to maximum of 40 Hz wall-clock rate
+        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
+        import time
+        now_wall = time.monotonic()
+        if now_wall - self._last_pub_wall_time >= 0.025:
+            if self._state_pub is not None:
+                self._state_pub.publish(msg)
+            self._last_pub_wall_time = now_wall
+
 
     # ─── 辅助方法 ─────────────────────────────────────────────
 

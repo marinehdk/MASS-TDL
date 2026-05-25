@@ -33,7 +33,7 @@ def ts() -> str:
 sys.stdout.flush()
 print(f'[{ts()}] Stage 1/3: Starting SIL simulation nodes (9 total)')
 
-rclpy.init(args=['--ros-args', '-p', 'use_sim_time:=True'])
+rclpy.init()
 
 # Topic liveness detector — runs inside the spin loop to check if
 # /sil/own_ship_state has published at least one frame.
@@ -56,13 +56,13 @@ from fault_injection.node import FaultInjectionNode
 from scoring.node import ScoringLifecycleNode as ScoringNode
 from scenario_authoring.node import ScenarioAuthoringNode
 
-executor = MultiThreadedExecutor(num_threads=6)
+from rclpy.executors import SingleThreadedExecutor
+
+executor = MultiThreadedExecutor(num_threads=8)
 nodes = []
 
-# Order: LifecycleManagerNode first (manages transitions),
-# then ship_dynamics (produces /sil/own_ship_state), then others
+# Order: ship_dynamics (produces /sil/own_ship_state) first, then others
 sil_node_classes = [
-    LifecycleManagerNode,
     ShipDynamicsNode,
     EnvDisturbanceNode,
     TargetVesselNode,
@@ -73,18 +73,51 @@ sil_node_classes = [
     ScenarioAuthoringNode,
 ]
 
+# 1. Create and spin LifecycleManagerNode in a dedicated SingleThreadedExecutor and thread
+# to prevent executor-level thread starvation and circular time deadlocks.
+mgr_node = LifecycleManagerNode()
+nodes.append(mgr_node)
+print(f'  [{ts()}] Stage 1: created scenario_lifecycle_mgr (dedicated thread)')
+
+from rclpy.executors import SingleThreadedExecutor
+mgr_executor = SingleThreadedExecutor()
+mgr_executor.add_node(mgr_node)
+
+def run_mgr():
+    try:
+        mgr_executor.spin()
+    except Exception as exc:
+        print(f'[{ts()}] [WARN] mgr_executor thread exit: {exc}', file=sys.stderr)
+
+mgr_thread = threading.Thread(target=run_mgr, daemon=True)
+mgr_thread.start()
+
+# 2. Create and add the 8 simulation nodes to the main executor
+from rclpy.parameter import Parameter as _Param
 for cls in sil_node_classes:
     node = cls()
+    try:
+        node.set_parameters([_Param('use_sim_time', _Param.Type.BOOL, True)])
+    except Exception as exc:
+        print(f'  [{ts()}] [WARN] Failed to set use_sim_time on {node.get_name()}: {exc}')
     executor.add_node(node)
     nodes.append(node)
     node_name = node.get_name()
     print(f'  [{ts()}] Stage 1: created {node_name}')
 
+
+
 # Create a subscriber for liveness detection — attach to a tiny node
 # so we can poll /sil/own_ship_state from the executor.
 # IMPORTANT: must use the SAME message type as the publisher (sil_msgs/OwnShipState)
 from sil_msgs.msg import OwnShipState as _LivenessMsg
-liveness_node = rclpy.create_node('_sil_liveness_probe')
+from rclpy.parameter import Parameter as _Param
+liveness_node = rclpy.create_node(
+    '_sil_liveness_probe',
+    parameter_overrides=[_Param('use_sim_time', _Param.Type.BOOL, False)]
+)
+
+
 sq = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
     durability=QoSDurabilityPolicy.VOLATILE,
