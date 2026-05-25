@@ -42,6 +42,14 @@ add_library(m7_lib STATIC
   src/common/time_utils.cpp
   src/common/safety_constants.cpp
   src/common/sha256.cpp
+  src/core/hard_constraint_cpa.cpp
+  src/core/hard_constraint_colregs.cpp
+  src/core/hard_constraint_speed.cpp
+  src/core/hard_constraint_rot.cpp
+  src/core/hard_constraint_watchdog.cpp
+  src/core/hard_constraint_dc.cpp
+  src/core/mrm_chain_executor.cpp
+  src/core/resume_handler.cpp
   src/sotif/assumption_monitor.cpp
   src/sotif/performance_monitor.cpp
   src/iec61508/watchdog_monitor.cpp
@@ -67,6 +75,14 @@ set_source_files_properties(
   src/common/time_utils.cpp
   src/common/safety_constants.cpp
   src/common/sha256.cpp
+  src/core/hard_constraint_cpa.cpp
+  src/core/hard_constraint_colregs.cpp
+  src/core/hard_constraint_speed.cpp
+  src/core/hard_constraint_rot.cpp
+  src/core/hard_constraint_watchdog.cpp
+  src/core/hard_constraint_dc.cpp
+  src/core/mrm_chain_executor.cpp
+  src/core/resume_handler.cpp
   src/sotif/assumption_monitor.cpp
   src/sotif/performance_monitor.cpp
   src/iec61508/watchdog_monitor.cpp
@@ -262,6 +278,33 @@ if(BUILD_TESTING)
   ament_add_gtest(test_e2e_alert_pipeline
     test/integration/test_e2e_alert_pipeline.cpp)
   target_link_libraries(test_e2e_alert_pipeline m7_lib)
+
+  # ---------------------------------------------------------------------------
+  # Hard constraint unit tests (D3.3a M7-core 4)
+  # ---------------------------------------------------------------------------
+  ament_add_gtest(test_hard_constraint_cpa test/unit/test_hard_constraint_cpa.cpp)
+  target_link_libraries(test_hard_constraint_cpa m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_hard_constraint_colregs test/unit/test_hard_constraint_colregs.cpp)
+  target_link_libraries(test_hard_constraint_colregs m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_hard_constraint_speed test/unit/test_hard_constraint_speed.cpp)
+  target_link_libraries(test_hard_constraint_speed m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_hard_constraint_rot test/unit/test_hard_constraint_rot.cpp)
+  target_link_libraries(test_hard_constraint_rot m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_hard_constraint_watchdog test/unit/test_hard_constraint_watchdog.cpp)
+  target_link_libraries(test_hard_constraint_watchdog m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_hard_constraint_dc test/unit/test_hard_constraint_dc.cpp)
+  target_link_libraries(test_hard_constraint_dc m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_mrm_chain_executor test/unit/test_mrm_chain_executor.cpp)
+  target_link_libraries(test_mrm_chain_executor m7_lib spdlog::spdlog)
+
+  ament_add_gtest(test_resume_handler test/unit/test_resume_handler.cpp)
+  target_link_libraries(test_resume_handler m7_lib spdlog::spdlog)
 endif()
 
 ament_export_include_directories(include)

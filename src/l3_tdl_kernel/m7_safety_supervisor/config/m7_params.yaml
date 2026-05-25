@@ -80,3 +80,20 @@
       sat1_topic: "/m7/sat1_data"
       qos_reliability: "reliable"
       qos_history_depth: 10
+
+    # -------------------------------------------------------------------------
+    # Hard Constraints (D3.3a M7-core 4)
+    # -------------------------------------------------------------------------
+    hard_constraints:
+      # HC-1: CPA consistency cross-validation
+      cpa_consistency_threshold: 0.10
+
+      # HC-3: Watchdog tolerance count
+      # [HAZID calibration]: FCB sea trial DDS reliability data may adjust this.
+      watchdog_tolerance_count: 3
+
+      # HC-4: DC self-check target
+      dc_self_check_target: 0.90
+
+      # HC-5/6: Speed/ROT tolerance margin
+      speed_rot_tolerance: 1.05
