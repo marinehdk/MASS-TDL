@@ -30,6 +30,7 @@ target_include_directories(m4_core PUBLIC
 target_link_libraries(m4_core PUBLIC
   yaml-cpp::yaml-cpp
   spdlog::spdlog
+  ${l3_msgs_TARGETS}
 )
 target_compile_options(m4_core PRIVATE -Wall -Wextra -Wpedantic)
 

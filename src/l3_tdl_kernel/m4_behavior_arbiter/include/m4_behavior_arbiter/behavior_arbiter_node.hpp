@@ -11,7 +11,7 @@
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
 #include "l3_msgs/msg/mission_goal.hpp"
-#include "l3_msgs/msg/colregs_constraint.hpp"
+#include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 

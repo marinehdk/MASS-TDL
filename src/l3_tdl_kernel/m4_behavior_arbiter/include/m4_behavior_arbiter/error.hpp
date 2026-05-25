@@ -18,6 +18,7 @@ enum class M4ErrorCode : int32_t {
   kIvPInfeasible = 4002,
   kDictionaryLoadFailed = 4003,
   kPriorityConflict = 4004,
+  kYamlInvalidValue = 4005,
 };
 
 }  // namespace mass_l3::m4

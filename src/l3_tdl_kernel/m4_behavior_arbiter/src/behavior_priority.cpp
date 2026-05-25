@@ -4,16 +4,14 @@
 
 #include <spdlog/spdlog.h>
 
-#include <l3_msgs/msg/odd_state.hpp>  // for ODDState::HEALTH_CRITICAL constant
-
 namespace mass_l3::m4 {
 
 namespace {
 
 bool is_mrc_type(const BehaviorType bt) {
-  return bt == BehaviorType::MrcDrift
-      || bt == BehaviorType::MrcAnchor
-      || bt == BehaviorType::MrcHeaveTo;
+  return bt == BehaviorType::MRC_DRIFT
+      || bt == BehaviorType::MRC_ANCHOR
+      || bt == BehaviorType::MRC_HEAVE_TO;
 }
 
 }  // namespace
@@ -27,8 +25,8 @@ BehaviorType BehaviorPriority::select_primary(
     const IvPSolution& /*ivp_solution*/,
     const ArbitrationInputs& inputs) const {
   // Rule 1: CRITICAL health forces MRC_DRIFT unconditionally (IEC 61508 SIL-2 path)
-  if (inputs.odd_state.health == l3_msgs::msg::ODDState::HEALTH_CRITICAL) {
-    return BehaviorType::MrcDrift;
+  if (BehaviorActivationCondition::compute_health_state(inputs) == HealthState::Critical) {
+    return BehaviorType::MRC_DRIFT;
   }
 
   // Rule 2: Any MRC_* behavior active → freeze IvP, return first MRC found
@@ -40,8 +38,8 @@ BehaviorType BehaviorPriority::select_primary(
 
   // Rule 3: ColregAvoid overrides mission behaviors (safety-critical avoidance)
   for (const BehaviorType bt : active_set) {
-    if (bt == BehaviorType::ColregAvoid) {
-      return BehaviorType::ColregAvoid;
+    if (bt == BehaviorType::COLREG_AVOID) {
+      return BehaviorType::COLREG_AVOID;
     }
   }
 
@@ -52,7 +50,7 @@ BehaviorType BehaviorPriority::select_primary(
 
   // Fallback: empty active_set is a logic error (BehaviorActivation always includes MRC)
   spdlog::error("[M4] BehaviorPriority: empty active_set in select_primary — fallback to MrcDrift");
-  return BehaviorType::MrcDrift;
+  return BehaviorType::MRC_DRIFT;
 }
 
 }  // namespace mass_l3::m4

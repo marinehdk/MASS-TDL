@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "m4_behavior_arbiter/error.hpp"
+
+#include <cstddef>
 #include "m4_behavior_arbiter/types.hpp"
 
 namespace mass_l3::m4 {
@@ -37,12 +39,11 @@ class IvPFunction {
   IvPFunction() = default;
 
   /**
-   * @brief Set pieces; validates count ≤ Pieces and utility ∈ [0,1].
-   * @param pieces Vector of pieces to store.
-   * @return ErrorCode::Ok or YamlInvalidValue on validation failure.
-   * @post piece_count() == pieces.size() if Ok.
+   * @brief Assign pieces and validate each entry.
+   * @param pieces Vector of Piece entries (heading_low, heading_high, speed_low, speed_high, utility).
+   * @return M4ErrorCode::kOk or M4ErrorCode::kYamlInvalidValue on validation failure.
    */
-  ErrorCode set_pieces(const std::vector<Piece>& pieces);
+  M4ErrorCode set_pieces(const std::vector<Piece>& pieces);
 
   /**
    * @brief Evaluate utility at (psi_deg, u_kn) with 360° heading wrap.
@@ -109,34 +110,27 @@ bool IvPFunction<Pieces>::heading_in_piece(double psi_wrapped, const Piece& p) {
 }
 
 template <size_t Pieces>
-ErrorCode IvPFunction<Pieces>::set_pieces(const std::vector<Piece>& pieces) {
-  // Check piece count
-  if (pieces.size() > Pieces) {
-    return ErrorCode::YamlInvalidValue;
+M4ErrorCode IvPFunction<Pieces>::set_pieces(const std::vector<Piece>& pieces) {
+  if (pieces.empty() || pieces.size() > Pieces) {
+    return M4ErrorCode::kYamlInvalidValue;
   }
-
-  // Validate utility values and heading ranges
+  // Each piece must form a valid (heading_min, heading_max, speed_min, speed_max, utility) quintuple.
   for (const auto& p : pieces) {
-    if (p.utility < -kEps || p.utility > 1.0 + kEps) {
-      return ErrorCode::YamlInvalidValue;
+    if (p.heading_min_deg >= p.heading_max_deg) {
+      return M4ErrorCode::kYamlInvalidValue;
     }
-
-    // Validate heading range (must not be degenerate: 0-width or full-circle)
-    const double h_span = (p.heading_max_deg >= p.heading_min_deg)
-        ? (p.heading_max_deg - p.heading_min_deg)
-        : (360.0 - p.heading_min_deg + p.heading_max_deg);
-    if (h_span < kEps || h_span >= 360.0 - kEps) {
-      return ErrorCode::YamlInvalidValue;
+    if (p.speed_min_kn >= p.speed_max_kn) {
+      return M4ErrorCode::kYamlInvalidValue;
+    }
+    if (p.utility < 0.0 || p.utility > 1.0) {
+      return M4ErrorCode::kYamlInvalidValue;
     }
   }
-
-  // Copy to pieces_ array
   for (size_t i = 0; i < pieces.size(); ++i) {
     pieces_[i] = pieces[i];
   }
   piece_count_ = pieces.size();
-
-  return ErrorCode::Ok;
+  return M4ErrorCode::kOk;
 }
 
 template <size_t Pieces>
@@ -159,7 +153,7 @@ double IvPFunction<Pieces>::evaluate(double psi_deg, double u_kn) const {
 template <size_t Pieces>
 const typename IvPFunction<Pieces>::Piece& IvPFunction<Pieces>::piece(size_t i) const {
   if (i >= piece_count_) {
-    throw std::out_of_range("IvPFunction::piece: index out of range");
+    throw std::out_of_range("IvPFunction::piece index out of range");
   }
   return pieces_[i];
 }
