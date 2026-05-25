@@ -110,6 +110,7 @@ void SafetySupervisorNode::instantiate_modules() noexcept
     mrm_selector_ = std::make_unique<mrm::MrmSelector>(kCfg, kCmd, last_odd_);
   }
   arbitrator_ = std::make_unique<arbitrator::SafetyArbitrator>();
+  resume_handler_ = std::make_unique<core::ResumeHandler>();
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +270,15 @@ void SafetySupervisorNode::on_behavior_plan(
 void SafetySupervisorNode::on_avoidance_plan(
     l3_msgs::msg::AvoidancePlan::ConstSharedPtr const& msg) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
-  watchdog_->on_message_received(iec61508::MonitoredModule::kM5, kNow);
   last_avoidance_ = *msg;
+  last_avoidance_speed_          = msg->speed;
+  last_avoidance_rot_            = msg->rot;
+  last_avoidance_heading_change_ = msg->heading_change;
+  last_avoidance_dcpa_           = msg->dcpa;
+
+  if (!override_active_ && !reflex_freeze_required_) {
+    run_hard_constraint_checks(std::chrono::steady_clock::now());
+  }
 }
 
 void SafetySupervisorNode::on_colregs_constraint(
@@ -280,6 +287,37 @@ void SafetySupervisorNode::on_colregs_constraint(
   auto const kNow = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM6, kNow);
   last_colregs_ = *msg;
+
+  // Map incoming COLREGs rule_id (RuleActive) to M7 ColregsRule enum for HC-2 check
+  last_colregs_rule_ = core::ColregsRule::kUnknown;
+  if (!msg->active_rules.empty()) {
+    auto const kRuleId = msg->active_rules[0].rule_id;
+    switch (kRuleId) {
+      case 13:
+        last_colregs_rule_ = core::ColregsRule::kRule13Overtaking;
+        break;
+      case 14:
+        last_colregs_rule_ = core::ColregsRule::kRule14HeadOn;
+        break;
+      case 15:
+        // Rule 15 crossing: distinguish give-way vs stand-on by phase
+        if (msg->phase == "T_standOn") {
+          last_colregs_rule_ = core::ColregsRule::kRule15StandOn;
+        } else {
+          last_colregs_rule_ = core::ColregsRule::kRule15GiveWay;
+        }
+        break;
+      case 16:
+        last_colregs_rule_ = core::ColregsRule::kRule16GiveWay;
+        break;
+      case 17:
+        last_colregs_rule_ = core::ColregsRule::kRule17StandOn;
+        break;
+      default:
+        // Unknown/unmapped rule_id — leave as kUnknown (safe default for HC-2)
+        break;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +349,10 @@ void SafetySupervisorNode::on_override_signal(
     l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr const& msg) noexcept
 {
   override_active_ = msg->override_active;
-  if (!override_active_) {
+  if (override_active_) {
+    resume_handler_->set_override_active(true);
+  } else {
+    resume_handler_->on_override_inactive(std::chrono::steady_clock::now());
     revert_from_override();
   }
 }
@@ -461,6 +502,66 @@ void SafetySupervisorNode::revert_from_override() noexcept
 {
   mrm_selector_->reset();
   reflex_freeze_required_ = false;
+}
+
+void SafetySupervisorNode::run_hard_constraint_checks(
+    std::chrono::steady_clock::time_point now) noexcept
+{
+  float const cpa_m7 = core::compute_cpa_m7(
+    last_world_.own_x, last_world_.own_y,
+    last_world_.own_vx, last_world_.own_vy,
+    last_world_.target_x, last_world_.target_y,
+    last_world_.target_vx, last_world_.target_vy);
+  auto const cpa_result = core::check_cpa_consistency(
+    last_world_.cpa, last_avoidance_dcpa_, cpa_m7, 0.10F);
+
+  auto const colregs_result = core::check_colregs_geometry(
+    last_colregs_rule_, last_avoidance_heading_change_);
+
+  float const speed_limit = last_odd_.current_speed_limit > 0.0F
+    ? last_odd_.current_speed_limit : 20.0F;
+  auto const speed_result = core::check_speed_limit(
+    last_avoidance_speed_, speed_limit);
+
+  float const rot_limit = last_odd_.rot_max > 0.0F
+    ? last_odd_.rot_max : 10.0F;
+  auto const rot_result = core::check_rot_limit(
+    last_avoidance_rot_, rot_limit);
+
+  auto const wd_result = core::evaluate_watchdog_constraint(*watchdog_, now);
+
+  core::DcSelfCheckState dc_state{};
+  // Populate from actual diagnostic coverage state
+  // last_coverage_ is updated in run_monitor_evaluation() via diag_coverage_->update()
+  // DiagnosticCoverageMetric aggregates all checks into coverage_ratio;
+  // use coverage_ratio >= 0.90 (SIL 2 threshold) as proxy for per-function DC health
+  dc_state.ram_integrity_ok    = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.alu_test_passed     = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.control_flow_ok     = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.input_integrity_ok  = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.output_integrity_ok = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.watchdog_ok         = !wd_result.any_critical;
+  auto const dc_result = core::evaluate_dc_constraint(dc_state);
+
+  auto const alert = core::build_safety_alert_from_hard_constraints(
+    cpa_result, colregs_result, speed_result, rot_result,
+    wd_result, dc_result);
+
+  if (alert.severity > l3_msgs::msg::SafetyAlert::SEVERITY_INFO) {
+    publish_hard_constraint_alert(alert);
+  }
+}
+
+void SafetySupervisorNode::publish_hard_constraint_alert(
+    l3_msgs::msg::SafetyAlert const& alert) noexcept
+{
+  try {
+    pub_alert_->publish(alert);
+  } catch (std::exception const& ex) {
+    RCLCPP_DEBUG(get_logger(), "publish_hard_constraint_alert: skipped (%s)", ex.what());
+  } catch (...) {
+    RCLCPP_DEBUG(get_logger(), "publish_hard_constraint_alert: skipped (unknown)");
+  }
 }
 
 }  // namespace mass_l3::m7

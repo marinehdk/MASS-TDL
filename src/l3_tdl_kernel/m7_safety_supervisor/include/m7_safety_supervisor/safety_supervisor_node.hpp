@@ -29,6 +29,14 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "std_msgs/msg/header.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_cpa.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_colregs.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_speed.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_rot.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_watchdog.hpp"
+#include "m7_safety_supervisor/core/hard_constraint_dc.hpp"
+#include "m7_safety_supervisor/core/mrm_chain_executor.hpp"
+#include "m7_safety_supervisor/core/resume_handler.hpp"
 
 namespace mass_l3::m7 {
 
@@ -75,6 +83,15 @@ private:
   std::unique_ptr<mrm::MrmSelector> mrm_selector_;
   std::unique_ptr<arbitrator::SafetyArbitrator> arbitrator_;
 
+  std::unique_ptr<core::ResumeHandler> resume_handler_;
+
+  // Stored fields from last AvoidancePlan (for event-driven HC checks)
+  float last_avoidance_speed_{0.0F};
+  float last_avoidance_rot_{0.0F};
+  float last_avoidance_heading_change_{0.0F};
+  float last_avoidance_dcpa_{0.0F};
+  core::ColregsRule last_colregs_rule_{core::ColregsRule::kUnknown};
+
   // Input snapshots (pre-allocated at boot)
   l3_msgs::msg::ODDState last_odd_{};
   l3_msgs::msg::WorldState last_world_{};
@@ -113,6 +130,8 @@ private:
   void setup_timers() noexcept;
   void revert_from_override() noexcept;
   void run_monitor_evaluation(std::chrono::steady_clock::time_point now) noexcept;
+  void run_hard_constraint_checks(std::chrono::steady_clock::time_point now) noexcept;
+  void publish_hard_constraint_alert(l3_msgs::msg::SafetyAlert const& alert) noexcept;
 };
 
 }  // namespace mass_l3::m7
