@@ -125,6 +125,9 @@ void WorldModelNode::load_parameters() {
       get_parameter("enc_horizon_nm").as_double();
   params_.enc.enc_refresh_rate_s =
       get_parameter("enc_refresh_rate_s").as_double();
+
+  params_.target_classification_enabled =
+      get_parameter("target_classification_enabled").as_bool();
 }
 
 // ── Component creation ─────────────────────────────────────────────────────
@@ -210,6 +213,7 @@ void WorldModelNode::create_components() {
                            params_.cpa.tcpa_safe_c_s,
                            params_.cpa.tcpa_safe_d_s};
   agg_cfg.dynamic_horizon_nm = params_.enc.dynamic_horizon_nm;
+  agg_cfg.target_classification_enabled = params_.target_classification_enabled;
 
   aggregator_ = std::make_shared<WorldStateAggregator>(
       agg_cfg, cpa_calc_, classifier_,
@@ -522,14 +526,23 @@ void WorldModelNode::publish_sat_data() {
     msg.sat2.system_confidence = static_cast<float>(health.aggregated);
   }
 
-  // SAT3 — Forecast / predictions (minimal)
+  // SAT3 — Forecast / predictions
   {
-    msg.sat3.forecast_horizon_s = 90.0;  // Mid-MPC horizon
-    msg.sat3.predicted_state = "nominal";
-    msg.sat3.prediction_uncertainty = static_cast<float>(
-        1.0 - health.aggregated);  // uncertainty = 1 - confidence
-    msg.sat3.tdl_s = 0.0f;  // Not tracked in M2
-    msg.sat3.tmr_s = 0.0f;
+    const auto forecast = aggregator_->compute_sat3_forecast();
+
+    msg.sat3.forecast_horizon_s = 90.0;
+    msg.sat3.predicted_state = forecast.predicted_state;
+    msg.sat3.prediction_uncertainty = forecast.prediction_uncertainty;
+
+    if (aggregator_->has_odd_state()) {
+      const auto odd_snap = aggregator_->latest_odd_state();
+      msg.sat3.tdl_s = odd_snap.tdl_s;
+      msg.sat3.tmr_s = odd_snap.tmr_s;
+    } else {
+      msg.sat3.tdl_s = 0.0f;
+      msg.sat3.tmr_s = 0.0f;
+      msg.rationale = "ODD state unavailable";
+    }
   }
 
   sat_pub_->publish(msg);

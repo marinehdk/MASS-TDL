@@ -44,6 +44,8 @@ inline void declare_m2_parameters(rclcpp::Node& node) {
   node.declare_parameter("enc_horizon_nm", 5.0);
   node.declare_parameter("enc_refresh_rate_s", 15.0);
   node.declare_parameter("dynamic_horizon_nm", 5.0);
+
+  node.declare_parameter("target_classification_enabled", false);
 }
 
 }  // namespace mass_l3::m2

@@ -84,6 +84,7 @@ class WorldModelNode final : public rclcpp::Node {
       double enc_horizon_nm;
       double enc_refresh_rate_s;
     } enc;
+    bool target_classification_enabled{false};
     struct {
       double overtaking_bearing_min_deg;
       double overtaking_bearing_max_deg;

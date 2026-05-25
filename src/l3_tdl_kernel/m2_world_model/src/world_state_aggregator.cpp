@@ -283,6 +283,23 @@ WorldStateAggregator::compose_world_state(
                              target.classification.size());
     wt.classification_confidence = target.classification_confidence;
 
+    if (cfg_.target_classification_enabled) {
+      if (target.sog_kn < 5.0) {
+        wt.classification = "fishing";
+        wt.classification_confidence = (target.sog_kn < 3.0) ? 0.9f : 0.6f;
+      } else if (target.sog_kn > 15.0) {
+        wt.classification = "passenger";
+        wt.classification_confidence = 0.7f;
+      } else if (wt.encounter.encounter_type ==
+                 l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_OVERTAKING) {
+        wt.classification = "cargo";
+        wt.classification_confidence = 0.6f;
+      } else {
+        wt.classification = "tanker";
+        wt.classification_confidence = 0.5f;
+      }
+    }
+
     {
       // Per-target confidence: base × CPA-quality × track-age
       const double base_conf = health.aggregated;
@@ -500,6 +517,87 @@ ZoneSnapshot WorldStateAggregator::latest_zone() const {
 
 AggregatedHealth WorldStateAggregator::aggregated_health() const {
   return health_->aggregated_health();
+}
+
+OddSnapshot WorldStateAggregator::latest_odd_state() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (odd_cache_.has_value()) {
+    return odd_cache_.value();
+  }
+  OddSnapshot snap{};
+  snap.tdl_s = 0.0f;
+  snap.tmr_s = 0.0f;
+  snap.stamp = std::chrono::steady_clock::time_point{};
+  return snap;
+}
+
+bool WorldStateAggregator::has_odd_state() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return odd_cache_.has_value();
+}
+
+WorldStateAggregator::Sat3Forecast WorldStateAggregator::compute_sat3_forecast() const {
+  Sat3Forecast forecast;
+  forecast.predicted_state = "nominal";
+  forecast.prediction_uncertainty = 0.0f;
+
+  std::optional<OwnShipSnapshot> own_ship_snap;
+  std::optional<OddSnapshot> odd_snap;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    own_ship_snap = own_ship_cache_;
+    odd_snap = odd_cache_;
+  }
+
+  if (!own_ship_snap.has_value()) {
+    return forecast;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  track_buffer_->evict_stale(now);
+  const auto targets = track_buffer_->active_targets();
+
+  if (targets.empty()) {
+    return forecast;
+  }
+
+  const auto current_zone = odd_snap.has_value()
+    ? odd_snap->current_zone
+    : OddZone::A;
+
+  bool has_emergency = false;
+  bool has_risk_escalating = false;
+  double max_cpa_cv = 0.0;
+
+  for (const auto& target : targets) {
+    auto cpa_opt = cpa_calc_->compute(
+        own_ship_snap.value(), target, current_zone);
+
+    if (cpa_opt.has_value()) {
+      if (cpa_opt->tcpa_s >= 0.0 && cpa_opt->tcpa_s < 60.0 && cpa_opt->cpa_m < 500.0) {
+        has_emergency = true;
+      } else if (cpa_opt->tcpa_s >= 0.0 && cpa_opt->tcpa_s < 300.0 && cpa_opt->cpa_m < 1000.0) {
+        has_risk_escalating = true;
+      }
+
+      if (cpa_opt->cpa_m > 1.0 && cpa_opt->uncertainty.cpa_sigma_m > 0.0) {
+        double cv = cpa_opt->uncertainty.cpa_sigma_m / cpa_opt->cpa_m;
+        if (cv > max_cpa_cv) {
+          max_cpa_cv = cv;
+        }
+      }
+    }
+  }
+
+  if (has_emergency) {
+    forecast.predicted_state = "emergency";
+  } else if (has_risk_escalating) {
+    forecast.predicted_state = "risk_escalating";
+  }
+
+  forecast.prediction_uncertainty = static_cast<float>(std::min(1.0, max_cpa_cv));
+
+  return forecast;
 }
 
 double WorldStateAggregator::compute_aggregated_confidence_() const {

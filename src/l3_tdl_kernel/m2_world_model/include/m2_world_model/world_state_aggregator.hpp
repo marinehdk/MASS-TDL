@@ -36,6 +36,7 @@ class WorldStateAggregator final {
     std::array<double, 4> tcpa_safe_s;
     double dynamic_horizon_nm{5.0};
     EnvSanityChecker::Config env_sanity;
+    bool target_classification_enabled{false};
   };
 
   WorldStateAggregator(Config cfg,
@@ -66,7 +67,16 @@ class WorldStateAggregator final {
   /// Snapshot accessors for SAT and ASDR publishers.
   [[nodiscard]] OwnShipSnapshot latest_own_ship() const;
   [[nodiscard]] ZoneSnapshot latest_zone() const;
+  [[nodiscard]] OddSnapshot latest_odd_state() const;
+  [[nodiscard]] bool has_odd_state() const;
   [[nodiscard]] AggregatedHealth aggregated_health() const;
+
+  struct Sat3Forecast {
+    std::string predicted_state;
+    float prediction_uncertainty;
+  };
+
+  [[nodiscard]] Sat3Forecast compute_sat3_forecast() const;
 
  private:
   [[nodiscard]] double compute_aggregated_confidence_() const;

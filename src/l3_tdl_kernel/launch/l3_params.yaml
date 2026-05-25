@@ -12,7 +12,7 @@ m1_odd_manager:
 m2_world_model:
   ros__parameters:
     prediction_horizon_s: 90.0
-    target_classification_enabled: false
+    target_classification_enabled: true
 
 m3_mission_manager:
   ros__parameters: {}

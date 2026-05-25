@@ -39,6 +39,9 @@ auto default_wsa_config() {
       0.5,                          // confidence_floor_dv_degraded
       {100.0, 200.0, 50.0, 150.0}, // cpa_safe_m indexed by OddZone
       {60.0, 30.0, 15.0, 45.0},    // tcpa_safe_s indexed by OddZone
+      5.0,                          // dynamic_horizon_nm
+      EnvSanityChecker::Config{},   // env_sanity
+      false,                        // target_classification_enabled
   };
 }
 
@@ -363,6 +366,140 @@ TEST(WorldStateAggregatorTest, SnapshotAccessors) {
   EXPECT_DOUBLE_EQ(os.sog_kn, 10.0);
   EXPECT_DOUBLE_EQ(os.latitude_deg, 35.5);
   EXPECT_DOUBLE_EQ(os.longitude_deg, 139.5);
+}
+
+TEST(WorldStateAggregatorTest, Sat3TdlTmrFromOddState) {
+  auto tf = create_aggregator();
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+
+  l3_msgs::msg::ODDState odd_msg;
+  odd_msg.current_zone = l3_msgs::msg::ODDState::ODD_ZONE_A;
+  odd_msg.auto_level = 3;
+  odd_msg.health = l3_msgs::msg::ODDState::HEALTH_FULL;
+  odd_msg.envelope_state = l3_msgs::msg::ODDState::ENVELOPE_IN;
+  odd_msg.conformance_score = 1.0f;
+  odd_msg.tdl_s = 45.0f;
+  odd_msg.tmr_s = 60.0f;
+  odd_msg.confidence = 1.0f;
+  tf.aggregator->update_odd_state(odd_msg);
+
+  EXPECT_TRUE(tf.aggregator->has_odd_state());
+
+  auto odd_snap = tf.aggregator->latest_odd_state();
+  EXPECT_FLOAT_EQ(odd_snap.tdl_s, 45.0f);
+  EXPECT_FLOAT_EQ(odd_snap.tmr_s, 60.0f);
+}
+
+TEST(WorldStateAggregatorTest, Sat3TdlTmrDefaultWhenNoOddState) {
+  auto tf = create_aggregator();
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+
+  EXPECT_FALSE(tf.aggregator->has_odd_state());
+
+  auto odd_snap = tf.aggregator->latest_odd_state();
+  EXPECT_FLOAT_EQ(odd_snap.tdl_s, 0.0f);
+  EXPECT_FLOAT_EQ(odd_snap.tmr_s, 0.0f);
+}
+
+TEST(WorldStateAggregatorTest, Sat3ForecastNominalWhenNoTargets) {
+  auto tf = create_aggregator();
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_odd_state(make_odd_msg());
+
+  auto forecast = tf.aggregator->compute_sat3_forecast();
+  EXPECT_EQ(forecast.predicted_state, "nominal");
+  EXPECT_FLOAT_EQ(forecast.prediction_uncertainty, 0.0f);
+}
+
+TEST(WorldStateAggregatorTest, TargetClassificationFishingLowSpeed) {
+  auto cfg = default_wsa_config();
+  cfg.target_classification_enabled = true;
+  auto tf = create_aggregator(cfg);
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_odd_state(make_odd_msg());
+
+  l3_external_msgs::msg::TrackedTargetArray tgt_arr;
+  l3_msgs::msg::TrackedTarget tgt;
+  tgt.target_id = 2001;
+  tgt.position.latitude = 35.1;
+  tgt.position.longitude = 139.1;
+  tgt.position.altitude = 0.0;
+  tgt.sog_kn = 2.0;
+  tgt.cog_deg = 90.0;
+  tgt.heading_deg = 85.0;
+  tgt.classification = "unknown";
+  tgt.classification_confidence = 0.1f;
+  tgt_arr.targets.push_back(tgt);
+  tgt_arr.confidence = 1.0f;
+
+  const auto t0 = time_point{};
+  tf.track_buffer->update(tgt_arr, t0);
+
+  const auto now = t0 + std::chrono::seconds(1);
+  auto result = tf.aggregator->compose_world_state(now);
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->targets.size(), 1u);
+  EXPECT_EQ(result->targets[0].classification, "fishing");
+  EXPECT_FLOAT_EQ(result->targets[0].classification_confidence, 0.9f);
+}
+
+TEST(WorldStateAggregatorTest, TargetClassificationPassengerHighSpeed) {
+  auto cfg = default_wsa_config();
+  cfg.target_classification_enabled = true;
+  auto tf = create_aggregator(cfg);
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_odd_state(make_odd_msg());
+
+  l3_external_msgs::msg::TrackedTargetArray tgt_arr;
+  l3_msgs::msg::TrackedTarget tgt;
+  tgt.target_id = 2002;
+  tgt.position.latitude = 35.1;
+  tgt.position.longitude = 139.1;
+  tgt.position.altitude = 0.0;
+  tgt.sog_kn = 20.0;
+  tgt.cog_deg = 90.0;
+  tgt.heading_deg = 85.0;
+  tgt.classification = "unknown";
+  tgt.classification_confidence = 0.1f;
+  tgt_arr.targets.push_back(tgt);
+  tgt_arr.confidence = 1.0f;
+
+  const auto t0 = time_point{};
+  tf.track_buffer->update(tgt_arr, t0);
+
+  const auto now = t0 + std::chrono::seconds(1);
+  auto result = tf.aggregator->compose_world_state(now);
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->targets.size(), 1u);
+  EXPECT_EQ(result->targets[0].classification, "passenger");
+  EXPECT_FLOAT_EQ(result->targets[0].classification_confidence, 0.7f);
+}
+
+TEST(WorldStateAggregatorTest, TargetClassificationDisabledPreservesOriginal) {
+  auto cfg = default_wsa_config();
+  cfg.target_classification_enabled = false;
+  auto tf = create_aggregator(cfg);
+
+  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_odd_state(make_odd_msg());
+
+  const auto t0 = time_point{};
+  tf.track_buffer->update(make_target_array({3001}), t0);
+
+  const auto now = t0 + std::chrono::seconds(1);
+  auto result = tf.aggregator->compose_world_state(now);
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->targets.size(), 1u);
+  EXPECT_EQ(result->targets[0].classification, "cargo");
+  EXPECT_FLOAT_EQ(result->targets[0].classification_confidence, 0.9f);
 }
 
 }  // namespace
