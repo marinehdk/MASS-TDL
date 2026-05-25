@@ -1,0 +1,30 @@
+{
+  "pass_rate": 0.0,
+  "n_filtered": 109,
+  "n_pass": 0,
+  "pass_rate_ci": {
+    "lower": 0.0,
+    "upper": 0.0
+  },
+  "sobol_S1": {
+    "target_bearing_initial": 0.0,
+    "target_sog_initial": 0.0,
+    "target_range_initial": 0.0,
+    "wind_speed": 0.0,
+    "wind_direction": 0.0
+  },
+  "weight_sensitivity": {
+    "safety_+10pct": 0.0,
+    "safety_-10pct": 0.0,
+    "rule_compliance_+10pct": 0.0,
+    "rule_compliance_-10pct": 0.0,
+    "delay_penalty_+10pct": 0.0,
+    "delay_penalty_-10pct": 0.0,
+    "action_magnitude_penalty_+10pct": 0.0,
+    "action_magnitude_penalty_-10pct": 0.0,
+    "phase_+10pct": 0.0,
+    "phase_-10pct": 0.0,
+    "plausibility_+10pct": 0.0,
+    "plausibility_-10pct": 0.0
+  }
+}

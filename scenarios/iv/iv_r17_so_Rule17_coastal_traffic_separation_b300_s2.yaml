@@ -1,0 +1,67 @@
+environment:
+  current:
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 10.0
+  wind:
+    dir_deg: 270.0
+    speed_mps: 5.0
+metadata:
+  encounter:
+    give_way_vessel: own
+    rule: Rule17
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+  intelligent_vessel:
+    nomoto_K: 0.15
+    nomoto_tau: 30.0
+    role: stand_on
+    t_surge: 60.0
+    target_id: ts1
+    vo_dcpa_threshold_nm: 0.5
+  odd_cell:
+    domain: coastal_traffic_separation
+  scenario_id: iv_r17_so_Rule17_coastal_traffic_separation_b300_s2
+  scenario_source: d3.6_iv_runner
+  schema_version: '3.0'
+  simulation_settings:
+    backend: ros2
+    coordinate_origin:
+    - 55.0
+    - 10.0
+    dt: 0.02
+    dynamics_mode: internal
+    n_rps_initial: 3.0
+    total_time: 1000.0
+  vessel_class: FCB
+ownShip:
+  controller: psbmpc_wrapper
+  initial:
+    cog: 0.0
+    heading: 0.0
+    navStatus: Under way using engine
+    position:
+      latitude: 55.0
+      longitude: 10.0
+    sog: 10.0
+  model: fcb_mmg_vessel
+  static:
+    id: 1
+    mmsi: 123456789
+    name: FCB Own Ship
+    shipType: Cargo
+startTime: '2026-01-01T00:00:00Z'
+targetShips:
+- id: ts1
+  initial:
+    cog: 120.0
+    heading: 120.0
+    position:
+      latitude: 55.025
+      longitude: 9.924506539242278
+    sog: 10.0
+  model: ais_replay_vessel
+  static:
+    id: 2
+    mmsi: 100000002
+title: D3.6 IV iv_r17_so_Rule17_coastal_traffic_separation_b300_s2

@@ -1,0 +1,12 @@
+{
+  "stage": "gif",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:13.366024+00:00",
+  "params": {
+    "n_fail_scenarios": 0,
+    "n_gifs": 0
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/report.failures.csv",
+  "row_count": 0,
+  "sha256": ""
+}
