@@ -24,15 +24,32 @@ def generate_launch_description():
         description='Dataset format: noaa_csv or dma_nmea'
     )
 
-    fcb_config = PathJoinSubstitution([
+    fcb_default_config = PathJoinSubstitution([
         FindPackageShare('fcb_simulator'), 'config', 'fcb_dynamics.yaml'
     ])
+
+    params_file_arg = DeclareLaunchArgument(
+        'params_file',
+        default_value=fcb_default_config,
+        description='YAML parameter override (fcb_dynamics.yaml format); '
+                    'defaults to installed config. Used by D3.5 regression.',
+    )
+    scenario_filter_arg = DeclareLaunchArgument(
+        'scenario_filter',
+        default_value='all',
+        description='Scenario filter: "all" or comma-separated Imazu scenario IDs',
+    )
+    output_csv_arg = DeclareLaunchArgument(
+        'output_csv',
+        default_value='/tmp/traceability_calibrated.csv',
+        description='Output traceability CSV for D3.5 diff_traceability.py',
+    )
 
     fcb_node = Node(
         package='fcb_simulator',
         executable='fcb_simulator_node',
         name='fcb_simulator',
-        parameters=[fcb_config],
+        parameters=[LaunchConfiguration('params_file')],
         output='screen',
         emulate_tty=True,
     )
@@ -56,6 +73,9 @@ def generate_launch_description():
         replay_rate_arg,
         dataset_path_arg,
         dataset_format_arg,
+        params_file_arg,
+        scenario_filter_arg,
+        output_csv_arg,
         LogInfo(msg='D1.3a launch: fcb_simulator + ais_bridge'),
         fcb_node,
         ais_node,
