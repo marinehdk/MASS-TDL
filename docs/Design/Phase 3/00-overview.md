@@ -26,7 +26,7 @@
 | **D3.4** | M8 HMI 完整（7 Phase 3 增项 + 双角色 + ToR 矩阵）| [D3.4-m8-hmi-full/](D3.4-m8-hmi-full/) | 5.5 | **8/24** (SAT 桥接子集 7/31 前) | M8 | ✅ **Closed 5/25** — 1220 LOC src + 1595 LOC test; SAT-2/3/SOTIF 桥接; [report](D3.4-m8-hmi-full/D3.4-report.md) |
 | **D3.5** | 架构 v1.1.3 HAZID 132 [TBD] 回填 | [D3.5-arch-hazid-backfill/](D3.5-arch-hazid-backfill/) | 2.0 | **8/31** | 架构 | 🔵 spec❌ |
 | **D3.5'** | 模拟器培训课程大纲 v1.0 + 培训胜任力矩阵 | [D3.5p-training-curriculum/](D3.5p-training-curriculum/) | 1.5 | **8/23** | HF, Cert | 🔵 spec❌ |
-| **D3.6** | SIL 1000+ 场景 COLREGs 覆盖率报告（V&V） | [D3.6-sil-1000-scenario-coverage/](D3.6-sil-1000-scenario-coverage/) | 2.5 | **8/31** | V&V, SIL | 🔵 spec❌ |
+| **D3.6** | SIL 1000+ 场景 COLREGs 覆盖率报告（V&V） | [D3.6-sil-1000-scenario-coverage/](D3.6-sil-1000-scenario-coverage/) | 2.5 | **8/31** | V&V, SIL | 🟡 [spec✅](D3.6-sil-1000-scenario-coverage/D3.6-spec.md) plan❌ |
 | **D3.7** | 8 模块 SIL 全系统 8h 集成测试报告 | [D3.7-sil-8module-integration/](D3.7-sil-8module-integration/) | 3.0 | **8/31** | 全模块 | 🔵 spec❌ |
 | **D3.8** | 架构 v1.1.3 完整化（§17–§21 + 算法矩阵 + 仲裁图）| [D3.8-arch-v1.1.3-complete/](D3.8-arch-v1.1.3-complete/) | 2.5 | **8/31** | 架构 | 🔵 spec❌ |
 | **D3.9** | RFC-007 L3 ↔ Z-TOP/Cybersec 接口（IACS UR E26/E27）| [D3.9-rfc007-cybersec/](D3.9-rfc007-cybersec/) | 1.0 | **8/16** | Cybersec | 🔵 RFC 仍在 archive / spec❌ |
