@@ -10,6 +10,7 @@ interface AsdrEvent {
 
 interface AsdrLedgerProps {
   events: AsdrEvent[];
+  onEventSelect?: (timeSec: number) => void;
 }
 
 type FilterLevel = 'ALL' | 'INFO' | 'WARN' | 'CRIT';
@@ -20,7 +21,17 @@ const SEV_COLORS: Record<string, string> = {
   INFO: 'var(--c-info)', WARN: 'var(--c-warn)', CRIT: 'var(--c-danger)',
 };
 
-export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events }) => {
+const timeToSeconds = (timeStr: string): number => {
+  const match = timeStr.match(/T\+(\d+):(\d+)/);
+  if (match) {
+    const mins = parseInt(match[1], 10);
+    const secs = parseInt(match[2], 10);
+    return mins * 60 + secs;
+  }
+  return 0;
+};
+
+export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect }) => {
   const [filter, setFilter] = useState<FilterLevel>('ALL');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -86,9 +97,10 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events }) => {
               const sevColor = SEV_COLORS[e.type.split('_')[0] === 'CRIT' ? 'CRIT' :
                 e.type.includes('WARN') ? 'WARN' : 'INFO'] ?? 'var(--txt-2)';
               return (
-                <tr key={i} style={{
+                <tr key={i} onClick={() => onEventSelect?.(timeToSeconds(e.time))} style={{
                   borderTop: '1px solid var(--line-1)',
                   color: 'var(--txt-2)',
+                  cursor: onEventSelect ? 'pointer' : 'default',
                 }}>
                   <td style={{ padding: '2px 4px', color: 'var(--txt-3)' }}>
                     {page * PAGE_SIZE + i + 1}

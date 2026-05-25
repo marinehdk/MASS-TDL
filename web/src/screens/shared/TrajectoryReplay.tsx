@@ -14,6 +14,27 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
 
   const progress = durationSec > 0 ? currentTimeSec / durationSec : 0;
 
+  React.useEffect(() => {
+    if (!playing || !onTimeChange) return;
+    const interval = setInterval(() => {
+      const next = currentTimeSec + 0.1 * rate;
+      if (next >= durationSec) {
+        onTimeChange(durationSec);
+        setPlaying(false);
+      } else {
+        onTimeChange(next);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [playing, rate, durationSec, currentTimeSec, onTimeChange]);
+
+  const handlePlayClick = () => {
+    if (currentTimeSec >= durationSec && onTimeChange) {
+      onTimeChange(0);
+    }
+    setPlaying(!playing);
+  };
+
   // Generate simulated ownship trajectory (straight north then jog right)
   const ownshipPts = useMemo(() => {
     const N = 60;
@@ -33,6 +54,18 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   const visOwn = ownshipPts.slice(0, visIdx + 1);
   const visT01 = t01Pts.slice(0, visIdx + 1);
   const cur = ownshipPts[Math.min(visIdx, ownshipPts.length - 1)];
+  const nextPt = ownshipPts[Math.min(visIdx + 1, ownshipPts.length - 1)];
+  const angleRad = cur && nextPt && (nextPt[0] !== cur[0] || nextPt[1] !== cur[1])
+    ? Math.atan2(nextPt[1] - cur[1], nextPt[0] - cur[0])
+    : -Math.PI / 2;
+  const angleDeg = (angleRad * 180) / Math.PI + 90;
+
+  const curT01 = t01Pts[Math.min(visIdx, t01Pts.length - 1)];
+  const nextT01Pt = t01Pts[Math.min(visIdx + 1, t01Pts.length - 1)];
+  const angleT01Rad = curT01 && nextT01Pt && (nextT01Pt[0] !== curT01[0] || nextT01Pt[1] !== curT01[1])
+    ? Math.atan2(nextT01Pt[1] - curT01[1], nextT01Pt[0] - curT01[0])
+    : -Math.PI / 2;
+  const angleT01Deg = (angleT01Rad * 180) / Math.PI + 90;
 
   const fmtT = (t: number) => `T+${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 
@@ -42,11 +75,22 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
       background: 'var(--bg-1)', border: '1px solid var(--line-1)',
     }}>
       <div style={{
-        fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
-        letterSpacing: '0.16em', textTransform: 'uppercase',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '6px 8px', borderBottom: '1px solid var(--line-1)',
       }}>
-        TRAJECTORY REPLAY
+        <span style={{
+          fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
+          letterSpacing: '0.16em', textTransform: 'uppercase',
+        }}>
+          TRAJECTORY REPLAY
+        </span>
+        <span style={{
+          fontFamily: 'var(--f-mono)', fontSize: 8, color: 'var(--c-warn)',
+          border: '1px solid var(--c-warn)', borderRadius: 2, padding: '0 4px',
+          letterSpacing: '0.05em',
+        }}>
+          [DEMO DATA - MOCK ACTIVE]
+        </span>
       </div>
 
       {/* Map area */}
@@ -74,11 +118,25 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
           <path d={visT01.map(([x, y], i) => (i ? 'L' : 'M') + x + ' ' + y).join(' ')}
             stroke="var(--c-danger)" strokeWidth="1.2" fill="none" />
 
-          {/* Current ownship position */}
+          {/* Current ownship position with 3-Tier Safety Domain */}
           {cur && (
-            <g transform={`translate(${cur[0]},${cur[1]})`}>
-              <circle cx="0" cy="0" r="14" fill="none" stroke="var(--c-phos)" strokeWidth="0.6" opacity="0.4" />
-              <path d="M 0 -8 L 5 5 L 0 2 L -5 5 Z" fill="var(--c-phos)" />
+            <g transform={`translate(${cur[0]},${cur[1]}) rotate(${angleDeg})`}>
+              {/* Tier 1: Observation Zone */}
+              <ellipse cx="0" cy="0" rx="32" ry="50" fill="none" stroke="var(--c-info)" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.5" />
+              {/* Tier 2: Action Zone */}
+              <ellipse cx="0" cy="0" rx="18" ry="28" fill="rgba(212, 175, 55, 0.08)" stroke="rgba(212, 175, 55, 0.4)" strokeWidth="1" />
+              {/* Tier 3: Critical Zone */}
+              <ellipse cx="0" cy="0" rx="8" ry="14" fill="rgba(217, 83, 79, 0.05)" stroke="var(--c-danger)" strokeWidth="1.2" />
+              
+              <path d="M 0 -8 L 4 5 L 0 2 L -4 5 Z" fill="var(--c-phos)" />
+            </g>
+          )}
+
+          {/* Current T01 target ship position */}
+          {curT01 && (
+            <g transform={`translate(${curT01[0]},${curT01[1]}) rotate(${angleT01Deg})`}>
+              <circle cx="0" cy="0" r="10" fill="none" stroke="var(--c-danger)" strokeWidth="0.6" opacity="0.3" />
+              <path d="M 0 -6 L 3 4 L 0 1.5 L -3 4 Z" fill="var(--c-danger)" />
             </g>
           )}
 
@@ -98,7 +156,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
         display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
         borderTop: '1px solid var(--line-1)',
       }}>
-        <button onClick={() => setPlaying(!playing)} style={{
+        <button onClick={handlePlayClick} style={{
           background: 'transparent', border: '1px solid var(--line-2)',
           color: 'var(--txt-1)', padding: '2px 8px', cursor: 'pointer',
           fontFamily: 'var(--f-mono)', fontSize: 10,
