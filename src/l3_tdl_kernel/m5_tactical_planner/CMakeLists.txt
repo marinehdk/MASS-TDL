@@ -104,6 +104,8 @@ set(M5_SHARED_SOURCES
   src/bc_mpc/bc_mpc_collision_detector.cpp
   src/bc_mpc/bc_mpc_solver.cpp
   src/bc_mpc/bc_mpc_override_generator.cpp
+  # --- mid_mpc/ (CasADi-free) ---
+  src/mid_mpc/nomoto_fallback.cpp
 )
 
 set(M5_LINK_LIBS
@@ -329,6 +331,16 @@ if(BUILD_TESTING)
   m5_add_gtest(test_bc_mpc_node_handover
     test/unit/test_bc_mpc_node_handover.cpp
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # ── DEMO-2 P0: Nomoto 1st-order fallback solver (CasADi-free) ────────────────
+  m5_add_gtest(test_nomoto_fallback
+    test/unit/test_nomoto_fallback.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+  target_compile_definitions(test_nomoto_fallback
+    PRIVATE
+      "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
   # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
