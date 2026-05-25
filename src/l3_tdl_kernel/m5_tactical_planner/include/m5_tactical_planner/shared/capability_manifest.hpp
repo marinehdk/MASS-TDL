@@ -79,6 +79,11 @@ class CapabilityManifest {
     double surge_added_mass_factor{0.05};   // m_x / m  (typically 0.03–0.10)
     double sway_added_mass_factor{0.40};    // m_y / m  (typically 0.20–0.60)
     double yaw_added_inertia_factor{0.07};  // J_z / I_zz (typically 0.05–0.15)
+
+    // --- Nomoto 1st-order model parameters (DEMO-2 fallback) ---
+    // [TBD-HAZID] nomoto_T_s, nomoto_K_inv_s: from zigzag trial or CFD.
+    double nomoto_T_s{15.0};
+    double nomoto_K_inv_s{0.08};
   };
 
   // -------------------------------------------------------------------------

@@ -80,6 +80,13 @@ static void load_mmg(const YAML::Node& v, CapabilityManifest::Config& cfg) {
       yaml_get<double>(mmg, "yaw_added_inertia_factor", cfg.yaw_added_inertia_factor);
 }
 
+static void load_nomoto(const YAML::Node& v, CapabilityManifest::Config& cfg) {
+  const YAML::Node& nm = v["nomoto"];
+  if (!nm || nm.IsNull()) { return; }
+  cfg.nomoto_T_s     = yaml_get<double>(nm, "T_s",     cfg.nomoto_T_s);
+  cfg.nomoto_K_inv_s = yaml_get<double>(nm, "K_inv_s", cfg.nomoto_K_inv_s);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -117,6 +124,7 @@ CapabilityManifest CapabilityManifest::load_from_yaml(
     load_braking(v, cfg);
     load_speed(v, cfg);
     load_mmg(v, cfg);
+    load_nomoto(v, cfg);
 
     return CapabilityManifest{std::move(cfg)};
   } catch (const YAML::Exception& e) {
