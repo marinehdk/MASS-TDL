@@ -42,6 +42,16 @@ readonly FORBIDDEN_INTERNAL=(
     "mass_l3/m6/"
 )
 
+# M8 isolation (D3.3a spec 7.3) - F-CRIT-C-003
+readonly FORBIDDEN_INTERNAL_M8=("mass_l3/m8/")
+
+for h in "${FORBIDDEN_INTERNAL_M8[@]}"; do
+    if grep -rn "#include.*${h}" "${M7_SRC}" 2>/dev/null; then
+        echo "VIOLATION: M7 includes forbidden M8 internal header pattern '${h}'"
+        errors=$((errors + 1))
+    fi
+done
+
 # Forbidden 3rd-party libraries (per third-party-library-policy.md §3.1 independence matrix)
 # Includes case variants for IPOPT (commonly seen as `coin/IpoptApplication.hpp`)
 readonly FORBIDDEN_3RDPARTY=(
