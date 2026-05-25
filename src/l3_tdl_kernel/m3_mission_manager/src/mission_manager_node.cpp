@@ -557,7 +557,19 @@ void MissionManagerNode::check_current_error_severity_change(
 
 void MissionManagerNode::publish_mission_goal()
 {
-  if (state_machine_->current() != MissionState::Active) {
+  const auto current_state = state_machine_->current();
+  if (current_state != MissionState::Active) {
+    auto msg = l3_msgs::msg::MissionGoal();
+    msg.stamp          = now();
+    msg.schema_version = 120U;  // IDL v1.2.0
+    msg.eta_to_target_s = -1.0F;
+    msg.confidence      = 0.0F;
+    msg.current_error_severity = 0U;
+    msg.xte_nm                 = 0.0F;
+    msg.sea_current_kn         = 0.0F;
+    msg.l1_watchdog_status     = 0U;
+    msg.rationale = "[M3] Standby (Idle)";
+    mission_goal_pub_->publish(std::move(msg));
     return;
   }
 
