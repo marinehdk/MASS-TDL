@@ -5,6 +5,7 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     # parameters omitted: nodes use compiled-in defaults during integration tests;
     # per-module YAML config loading is added in Wave 4b (HIL full stack)
+    # Mock publishers removed — data flows through real SIL pipeline
     nodes = [
         Node(
             package='m1_odd_envelope_manager',
@@ -54,13 +55,6 @@ def generate_launch_description() -> LaunchDescription:
             package='m8_hmi_transparency_bridge',
             executable='m8_hmi_transparency_bridge_node',
             name='m8_hmi_transparency_bridge',
-            output='screen',
-        ),
-        # External-boundary mock: publishes L2/Fusion/Checker/Reflex/Override stimulus topics
-        Node(
-            package='l3_external_mock_publisher',
-            executable='external_mock_publisher',
-            name='l3_external_mock_publisher',
             output='screen',
         ),
     ]

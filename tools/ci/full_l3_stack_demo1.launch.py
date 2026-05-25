@@ -1,4 +1,8 @@
-"""full_l3_stack_demo1.launch.py — DEMO-1 full L3 pipeline launch."""
+"""full_l3_stack_demo1.launch.py — DEMO-1 full L3 pipeline launch.
+
+Mock publishers removed — data flows through real SIL pipeline:
+  ship_dynamics → sensor_mock → tracker_mock → M2 World Model.
+"""
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -8,16 +12,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description() -> LaunchDescription:
     scenario_path = LaunchConfiguration("scenario_path", default="")
-
-    external_mock = TimerAction(period=0.0, actions=[
-        Node(
-            package="l3_external_mock_publisher",
-            executable="external_mock_publisher",
-            name="l3_external_mock_publisher",
-            output="screen",
-            parameters=[{"scenario_path": scenario_path, "use_sim_time": True}],
-        ),
-    ])
 
     m1_node = TimerAction(period=1.0, actions=[
         Node(package="m1_odd_envelope_manager", executable="m1_odd_envelope_manager",
@@ -65,5 +59,5 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument("scenario_path", default_value="",
                               description="Path to scenario YAML file"),
-        external_mock, m1_node, m2_node, m3_node, m6_node, m4_node, m5_node, m7_node,
+        m1_node, m2_node, m3_node, m6_node, m4_node, m5_node, m7_node,
     ])

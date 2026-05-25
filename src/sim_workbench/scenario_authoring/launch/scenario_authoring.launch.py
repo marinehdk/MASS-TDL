@@ -1,10 +1,11 @@
 """scenario_authoring.launch.py — Config-driven L1 mode switching.
 
 Mode selection:
-  scenario_yaml not set              -> sil_mock_publisher (synthetic, D1.3b.1)
+  scenario_yaml not set              -> sensor_mock + tracker_mock (synthetic)
   scenario_yaml + ais_derived source -> ais_replay_node      (AIS, D1.3b.2)
-  scenario_yaml + other source       -> sil_mock_publisher   (Imazu/synthetic)
+  scenario_yaml + other source       -> sensor_mock + tracker_mock (Imazu/synthetic)
 
+Mock publishers removed — data flows through real SIL pipeline nodes.
 rosbag mode: stub, deferred to D2.5.
 """
 from launch import LaunchDescription
@@ -28,18 +29,26 @@ def generate_launch_description() -> LaunchDescription:
             description="Path to maritime-schema scenario YAML. Empty = synthetic mode.",
         ),
 
-        # synthetic mode: sil_mock_publisher (D1.3b.1 existing)
         Node(
-            package="sil_mock_publisher",
-            executable="sil_mock_node",
-            name="sil_mock_publisher",
+            package="sensor_mock",
+            executable="sensor_mock_node",
+            name="sensor_mock_node",
             output="screen",
             condition=IfCondition(PythonExpression([
                 "not bool('", scenario_yaml, "') or not ", is_ais_derived
             ])),
         ),
 
-        # ais_replay mode: scenario_authoring replay node (D1.3b.2 new)
+        Node(
+            package="tracker_mock",
+            executable="tracker_mock_node",
+            name="tracker_mock_node",
+            output="screen",
+            condition=IfCondition(PythonExpression([
+                "not bool('", scenario_yaml, "') or not ", is_ais_derived
+            ])),
+        ),
+
         Node(
             package="scenario_authoring",
             executable="ais_replay_node",
@@ -51,6 +60,6 @@ def generate_launch_description() -> LaunchDescription:
 
         LogInfo(msg=["L1 mode: ", PythonExpression([
             "'ais_replay (D1.3b.2)' if ", is_ais_derived,
-            " else 'synthetic (D1.3b.1)'"
+            " else 'synthetic (sensor_mock + tracker_mock)'"
         ])]),
     ])

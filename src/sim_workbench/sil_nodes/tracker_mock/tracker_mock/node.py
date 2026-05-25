@@ -57,6 +57,60 @@ class KalmanFilter2D:
                 "vx": self.x[2], "vy": self.x[3]}
 
 
+def compute_cpa_tcpa(own_lat, own_lon, own_sog, own_cog, tgt_lat, tgt_lon, tgt_sog, tgt_cog):
+    """Compute CPA (m) and TCPA (s) using linear extrapolation."""
+    R = 1852.0
+    own_vn = own_sog * math.cos(math.radians(own_cog)) * R / 3600.0
+    own_ve = own_sog * math.sin(math.radians(own_cog)) * R / 3600.0
+    tgt_vn = tgt_sog * math.cos(math.radians(tgt_cog)) * R / 3600.0
+    tgt_ve = tgt_sog * math.sin(math.radians(tgt_cog)) * R / 3600.0
+
+    own_y = own_lat * 111320.0
+    own_x = own_lon * 111320.0 * math.cos(math.radians(own_lat))
+    tgt_y = tgt_lat * 111320.0
+    tgt_x = tgt_lon * 111320.0 * math.cos(math.radians(own_lat))
+
+    dy = tgt_y - own_y
+    dx = tgt_x - own_x
+    dvy = tgt_vn - own_vn
+    dvx = tgt_ve - own_ve
+
+    tcpa = -(dx * dvx + dy * dvy) / (dvx**2 + dvy**2 + 1e-9)
+    tcpa = max(tcpa, 0.0)
+
+    cpa_x = dx + dvx * tcpa
+    cpa_y = dy + dvy * tcpa
+    cpa = math.sqrt(cpa_x**2 + cpa_y**2)
+
+    return cpa, tcpa
+
+
+def classify_encounter(relative_bearing_deg, cpa_m, tcpa_s):
+    """Classify encounter type based on relative bearing and CPA/TCPA."""
+    if tcpa_s <= 0 or cpa_m > 3000:
+        return 0
+    rb = relative_bearing_deg % 360
+    if 112.5 <= rb <= 247.5:
+        return 1
+    if (0 <= rb < 22.5) or (337.5 <= rb <= 360):
+        return 2
+    if 22.5 <= rb < 112.5:
+        return 3
+    if 247.5 <= rb < 337.5:
+        return 4
+    return 0
+
+
+def compute_relative_bearing(own_cog, bearing_to_target):
+    """Compute relative bearing of target from own ship."""
+    return (bearing_to_target - own_cog) % 360
+
+
+def compute_aspect_angle(tgt_cog, bearing_from_target):
+    """Compute aspect angle of target."""
+    return (tgt_cog - bearing_from_target - 180) % 360
+
+
 class TrackerMockCore:
     """Tracker mock — 'god' (perfect GT passthrough) or 'kf' (KF smoothed).
 
@@ -146,9 +200,11 @@ if _HAS_RCLPY:
             self._timer = None
             self._sub_radar = None
             self._sub_ais = None
+            self._sub_own = None
 
             self._latest_radar = None
             self._latest_ais = None
+            self._own_state = None
 
             self._use_real_msgs = _USE_REAL_MSGS
 
@@ -189,9 +245,8 @@ if _HAS_RCLPY:
                     "std_msgs/String (l3_external_msgs unavailable)"
                 )
 
-            from sil_msgs.msg import AISMessage, RadarMeasurement
+            from sil_msgs.msg import AISMessage, OwnShipState, RadarMeasurement
 
-            # Radar subscription: BEST_EFFORT to match sensor_mock publisher
             radar_sub_qos = QoSProfile(
                 reliability=ReliabilityPolicy.BEST_EFFORT,
                 durability=DurabilityPolicy.VOLATILE,
@@ -209,6 +264,12 @@ if _HAS_RCLPY:
                 "/sil/ais_msg",
                 self._ais_callback,
                 10,
+            )
+            self._sub_own = self.create_subscription(
+                OwnShipState,
+                "/sil/own_ship_state",
+                self._own_state_callback,
+                radar_sub_qos,
             )
 
             self._timer = self.create_timer(0.1, self._track_callback)
@@ -231,8 +292,12 @@ if _HAS_RCLPY:
             if self._sub_ais is not None:
                 self.destroy_subscription(self._sub_ais)
                 self._sub_ais = None
+            if self._sub_own is not None:
+                self.destroy_subscription(self._sub_own)
+                self._sub_own = None
             self._latest_radar = None
             self._latest_ais = None
+            self._own_state = None
             self.get_logger().info("TrackerMockNode deactivated")
             return TransitionCallbackReturn.SUCCESS
 
@@ -248,6 +313,9 @@ if _HAS_RCLPY:
 
         def _ais_callback(self, msg):
             self._latest_ais = msg
+
+        def _own_state_callback(self, msg):
+            self._own_state = msg
 
         def _track_callback(self):
             if self._core is None:
@@ -265,7 +333,6 @@ if _HAS_RCLPY:
                     "cog": ais.cog,
                 })
 
-            # TODO(D1.3b): integrate sil_msgs/OwnShipState for range/bearing→lat/lon conversion.
             _ = self._latest_radar
 
             if not targets:
@@ -273,14 +340,23 @@ if _HAS_RCLPY:
 
             tracked: list[dict] = self._core.track(targets)
 
-            if self._use_real_msgs:
-                self._publish_real(tracked)
-            else:
-                self._publish_fallback(tracked)
+            own = self._own_state
+            own_dict = None
+            if own is not None:
+                own_dict = {
+                    "lat": own.lat,
+                    "lon": own.lon,
+                    "sog": own.sog,
+                    "cog": own.cog,
+                }
 
-        def _publish_real(self, tracked: list[dict]):
+            if self._use_real_msgs:
+                self._publish_real(tracked, own_dict)
+            else:
+                self._publish_fallback(tracked, own_dict)
+
+        def _publish_real(self, tracked: list[dict], own_dict: dict | None):
             """Publish proper l3_external_msgs/TrackedTargetArray message."""
-            # pylint: disable=import-outside-toplevel
             from builtin_interfaces.msg import Time as BuiltinTime
             from geographic_msgs.msg import GeoPoint
             from l3_external_msgs.msg import TrackedTargetArray
@@ -292,7 +368,7 @@ if _HAS_RCLPY:
             msg.schema_version = "v1.1.2"
             msg.stamp = now_msg
             msg.confidence = 1.0
-            msg.rationale = "mock_tracker"
+            msg.rationale = "tracker_cpa_tcpa"
 
             for t in tracked:
                 tt = TrackedTarget()
@@ -308,13 +384,34 @@ if _HAS_RCLPY:
                 tt.heading_deg = t["cog"]
                 tt.classification = "vessel"
                 tt.classification_confidence = 1.0
-                tt.cpa_m = 0.0
-                tt.tcpa_s = 0.0
+
+                if own_dict is not None:
+                    cpa_m, tcpa_s = compute_cpa_tcpa(
+                        own_dict["lat"], own_dict["lon"],
+                        own_dict["sog"], own_dict["cog"],
+                        t["lat"], t["lon"], t["sog"], t["cog"],
+                    )
+                    dlat = (t["lat"] - own_dict["lat"]) * 111320.0
+                    dlon = (t["lon"] - own_dict["lon"]) * 111320.0 * math.cos(math.radians(own_dict["lat"]))
+                    bearing_to_tgt = math.degrees(math.atan2(dlon, dlat)) % 360
+                    bearing_from_tgt = (bearing_to_tgt + 180.0) % 360
+                    rb = compute_relative_bearing(own_dict["cog"], bearing_to_tgt)
+                    aa = compute_aspect_angle(t["cog"], bearing_from_tgt)
+                    enc_type = classify_encounter(rb, cpa_m, tcpa_s)
+                else:
+                    cpa_m = 0.0
+                    tcpa_s = 0.0
+                    rb = 0.0
+                    aa = 0.0
+                    enc_type = 0
+
+                tt.cpa_m = cpa_m
+                tt.tcpa_s = tcpa_s
                 tt.encounter = EncounterClassification()
-                tt.encounter.encounter_type = 0
-                tt.encounter.relative_bearing_deg = 0.0
-                tt.encounter.aspect_angle_deg = 0.0
-                tt.encounter.is_giveway = False
+                tt.encounter.encounter_type = enc_type
+                tt.encounter.relative_bearing_deg = rb
+                tt.encounter.aspect_angle_deg = aa
+                tt.encounter.is_giveway = (enc_type == 3)
                 tt.confidence = 1.0
                 tt.source_sensor = "ais"
 
@@ -323,25 +420,35 @@ if _HAS_RCLPY:
             if self._pub is not None:
                 self._pub.publish(msg)
 
-        def _publish_fallback(self, tracked: list[dict]):
+        def _publish_fallback(self, tracked: list[dict], own_dict: dict | None):
             """Publish JSON-encoded String when real msgs are unavailable."""
             now_ns = self.get_clock().now().nanoseconds
+
+            targets_out = []
+            for t in tracked:
+                entry = {
+                    "target_id": t["mmsi"],
+                    "lat": t["lat"],
+                    "lon": t["lon"],
+                    "sog_kn": t["sog"],
+                    "cog_deg": t["cog"],
+                }
+                if own_dict is not None:
+                    cpa_m, tcpa_s = compute_cpa_tcpa(
+                        own_dict["lat"], own_dict["lon"],
+                        own_dict["sog"], own_dict["cog"],
+                        t["lat"], t["lon"], t["sog"], t["cog"],
+                    )
+                    entry["cpa_m"] = cpa_m
+                    entry["tcpa_s"] = tcpa_s
+                targets_out.append(entry)
 
             payload = {
                 "schema_version": "v1.1.2_fallback",
                 "stamp_ns": now_ns,
-                "targets": [
-                    {
-                        "target_id": t["mmsi"],
-                        "lat": t["lat"],
-                        "lon": t["lon"],
-                        "sog_kn": t["sog"],
-                        "cog_deg": t["cog"],
-                    }
-                    for t in tracked
-                ],
+                "targets": targets_out,
                 "confidence": 1.0,
-                "rationale": "mock_tracker_fallback",
+                "rationale": "tracker_cpa_tcpa_fallback",
             }
 
             msg = String()

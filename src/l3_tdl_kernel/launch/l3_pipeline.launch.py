@@ -3,6 +3,10 @@
 Launches all M1–M8 nodes in correct dependency order.
 M7 Safety Supervisor runs in a separate GroupAction (PATH-S independence).
 
+Mock publishers (sil_mock_publisher, l3_external_mock_publisher) have been
+removed — data now flows through the real SIL pipeline:
+  ship_dynamics → sensor_mock → tracker_mock → M2 World Model.
+
 Usage:
     ros2 launch src/l3_tdl_kernel/launch/l3_pipeline.launch.py
     ros2 launch src/l3_tdl_kernel/launch/l3_pipeline.launch.py enable_m7:=false

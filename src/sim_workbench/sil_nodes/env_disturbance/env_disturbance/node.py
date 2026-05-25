@@ -59,6 +59,12 @@ class EnvDisturbanceNode(LifecycleNode):
         try:
             self.declare_parameter("tau_wind", 300.0)
             self.declare_parameter("sigma", 2.0)
+            self.declare_parameter("visibility_nm", 2.0)
+            self.declare_parameter("sea_state_beaufort", 4)
+            self.declare_parameter("wind_speed_kn", 15.0)
+            self.declare_parameter("wind_dir_deg", 180.0)
+            self.declare_parameter("current_speed_kn", 0.5)
+            self.declare_parameter("current_dir_deg", 0.0)
         except Exception:
             pass
         return TransitionCallbackReturn.SUCCESS
@@ -111,14 +117,19 @@ class EnvDisturbanceNode(LifecycleNode):
         self._wind_dir = (self._wind_dir + random.gauss(0, 0.1)) % 360.0
         self._prev_wind_speed = self._wind_speed
 
+        visibility_nm = self.get_parameter("visibility_nm").value
+        sea_state_beaufort = self.get_parameter("sea_state_beaufort").value
+        current_speed_kn = self.get_parameter("current_speed_kn").value
+        current_dir_deg = self.get_parameter("current_dir_deg").value
+
         msg = EnvironmentState()
         msg.stamp = self.get_clock().now().to_msg()
         msg.wind_direction = self._wind_dir
         msg.wind_speed_mps = max(0.0, self._wind_speed)
-        msg.current_direction = self._current_dir
-        msg.current_speed_mps = self._current_speed
-        msg.visibility_nm = 10.0
-        msg.sea_state_beaufort = 3
+        msg.current_direction = current_dir_deg
+        msg.current_speed_mps = current_speed_kn * 0.514444
+        msg.visibility_nm = visibility_nm
+        msg.sea_state_beaufort = sea_state_beaufort
 
         if self._env_pub is not None:
             self._env_pub.publish(msg)
