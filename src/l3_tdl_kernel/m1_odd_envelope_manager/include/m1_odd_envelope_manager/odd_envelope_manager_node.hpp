@@ -19,6 +19,7 @@
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
+#include "std_msgs/msg/header.hpp"
 
 #include "m1_odd_envelope_manager/conformance_score_calculator.hpp"
 #include "m1_odd_envelope_manager/mrc_trigger_logic.hpp"
@@ -69,6 +70,7 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   void publish_tor_request(double deadline_s, double tdl_s, const std::string& rationale);
 
   void on_safety_alert(const l3_msgs::msg::SafetyAlert::SharedPtr msg) noexcept;
+  void on_m7_heartbeat(const std_msgs::msg::Header::SharedPtr msg) noexcept;
   void on_reflex_activation(
       const l3_external_msgs::msg::ReflexActivationNotification::SharedPtr msg)
       noexcept;
@@ -190,6 +192,7 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   // Subscribers
   // ---------------------------------------------------------------------------
   rclcpp::Subscription<l3_msgs::msg::SafetyAlert>::SharedPtr safety_alert_sub_;
+  rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr m7_heartbeat_sub_;
   rclcpp::Subscription<l3_msgs::msg::OperatorState>::SharedPtr operator_state_sub_;
   rclcpp::Subscription<l3_external_msgs::msg::ReflexActivationNotification>::SharedPtr
       reflex_sub_;

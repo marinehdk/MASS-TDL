@@ -52,6 +52,7 @@
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
+#include "std_msgs/msg/header.hpp"
 
 namespace mass_l3::m1 {
 
@@ -78,6 +79,7 @@ constexpr double kHealthDegradedThreshold = 0.3;
 
 /// Default topic names.
 constexpr const char* kTopicSafetyAlert      = "/l3/m7/safety_alert";
+constexpr const char* kTopicM7Heartbeat      = "/l3/m7/heartbeat";
 constexpr const char* kTopicReflexActivation = "/reflex/activation_notification";
 constexpr const char* kTopicOverrideSignal   = "/override/active_signal";
 constexpr const char* kTopicEnvironmentState = "/fusion/environment_state";
@@ -328,6 +330,13 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
         on_safety_alert(kMsg);
       });
 
+  m7_heartbeat_sub_ = create_subscription<std_msgs::msg::Header>(
+      kTopicM7Heartbeat,
+      rclcpp::SensorDataQoS().keep_last(5),
+      [this](const std_msgs::msg::Header::SharedPtr kMsg) {
+        on_m7_heartbeat(kMsg);
+      });
+
   operator_state_sub_ = create_subscription<l3_msgs::msg::OperatorState>(
       kTopicOperatorState,
       QoS(KeepLast(5)).reliable(),
@@ -422,6 +431,11 @@ void OddEnvelopeManagerNode::on_safety_alert(
                   static_cast<int>(kMsg->severity),
                   static_cast<int>(kMsg->alert_type));
   }
+}
+
+void OddEnvelopeManagerNode::on_m7_heartbeat(
+    const std_msgs::msg::Header::SharedPtr /*msg*/) noexcept {
+  last_m7_heartbeat_ = std::chrono::steady_clock::now();
 }
 
 void OddEnvelopeManagerNode::on_reflex_activation(

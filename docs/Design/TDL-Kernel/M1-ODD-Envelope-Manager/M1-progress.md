@@ -3,8 +3,8 @@
 | 维度 | 说明 |
 |---|---|
 | 数据更新规则 | PR 合并涉及 M1 时同步更新本表 |
-| 最近更新 | 2026-05-21 |
-| **Currently Implementing** | D2.1（stub 5pw）|
+| 最近更新 | 2026-05-22 |
+| **Currently Implementing** | D2.7（FMEDA M1 ≥20 失效模式完整化；安全工程师外包）|
 
 ---
 
@@ -28,4 +28,5 @@
 ---
 ## 参考 D 任务文档
 - D1.3.2-integration: [Phase 1/D1.3-sil-framework/D1.3.2-integration/](../../Phase%201/D1.3-sil-framework/D1.3.2-integration/)
-- D2.1: [Phase 2/D2.1-m1-odd-manager/](../../Phase%202/D2.1-m1-odd-manager/)（待建）
+- D2.1: [Phase 2/D2.1-m1-odd-hardening/](../../Phase%202/D2.1-m1-odd-hardening/)
+- D2.7: [Phase 2/D2.7-hara-fmeda-m1/](../../Phase%202/D2.7-hara-fmeda-m1/)

@@ -67,11 +67,11 @@ TEST_F(NodeIntegrationTest, HasExpectedPublishers) {
 /// Verify the node has the expected subscribers.
 TEST_F(NodeIntegrationTest, HasExpectedSubscribers) {
   auto node = std::make_shared<mass_l3::m1::OddEnvelopeManagerNode>();
-  auto topic_names = node->get_topic_names_and_types();
-  // The subscriptions use relative topic names, so they'll be
-  // remapped. This test just confirms the node creates them
-  // without error.
-  SUCCEED();
+  EXPECT_GE(node->count_subscribers("/l3/m7/safety_alert"), 1U);
+  EXPECT_GE(node->count_subscribers("/l3/m7/heartbeat"), 1U);
+  EXPECT_GE(node->count_subscribers("/fusion/environment_state"), 1U);
+  EXPECT_GE(node->count_subscribers("/fusion/own_ship_state"), 1U);
+  EXPECT_GE(node->count_subscribers("/l3/m2/world_state"), 1U);
 }
 
 /// Verify parameter loading returns a valid ParameterSet.
