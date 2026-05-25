@@ -23,6 +23,10 @@
 #include "m5_tactical_planner/shared/capability_manifest.hpp"
 #include "m5_tactical_planner/shared/vessel_dynamics_model.hpp"
 
+#include "l3_msgs/msg/sat3_data.hpp"
+#include "l3_msgs/msg/trajectory_candidate.hpp"
+#include "m5_tactical_planner/mid_mpc/nomoto_fallback.hpp"
+
 namespace mass_l3::m5::mid_mpc {
 
 class MidMpcNode : public rclcpp::Node {
@@ -43,6 +47,8 @@ class MidMpcNode : public rclcpp::Node {
  private:
   mass_l3::m5::shared::CapabilityManifest manifest_;
   mass_l3::m5::shared::VesselDynamicsModel vessel_model_;
+  NomotoFallbackConfig nomoto_cfg_;
+  NomotoFallback nomoto_fallback_;
   MidMpcNlpFormulation        formulation_;
   MidMpcSolver                solver_;
   MidMpcWaypointGenerator     wp_gen_;
@@ -57,6 +63,7 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::AvoidancePlan>::SharedPtr  pub_avoidance_plan_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
+  rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
 
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr             sub_world_;
   rclcpp::Subscription<l3_msgs::msg::BehaviorPlan>::SharedPtr           sub_behavior_;
@@ -71,6 +78,7 @@ class MidMpcNode : public rclcpp::Node {
   [[nodiscard]] MidMpcInput assemble_input_();
   void publish_outputs_(const MidMpcSolution& sol,
                         const l3_msgs::msg::AvoidancePlan& plan);
+  void publish_trajectory_candidates_(const MidMpcInput& input);
 };
 
 }  // namespace mass_l3::m5::mid_mpc

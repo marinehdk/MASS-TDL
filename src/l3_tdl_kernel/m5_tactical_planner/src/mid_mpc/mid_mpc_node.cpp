@@ -7,6 +7,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <geometry_msgs/msg/point.hpp>
+
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
@@ -33,6 +35,7 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       manifest_(mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
           "/workspace/src/l3_tdl_kernel/m5_tactical_planner/config/fcb_vessel_capability.yaml")),
       vessel_model_(manifest_),
+      nomoto_fallback_(nomoto_cfg_, manifest_),
       formulation_(cfg.nlp),
       solver_(formulation_, cfg.ipopt),
       wp_gen_(cfg.waypoint)
@@ -72,6 +75,10 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/m5/avoidance_plan", 10);
   pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/m5/asdr_record", 10);
   pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/m5/sat_data", 10);
+  pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
+
+  nomoto_cfg_.n_steps = 12;
+  nomoto_cfg_.dt_s    = 5.0;
 
   solve_timer_ = create_wall_timer(
       std::chrono::seconds(1),
@@ -160,6 +167,7 @@ void MidMpcNode::on_solve_cycle_()
   }
 
   const MidMpcInput input = assemble_input_();
+  publish_trajectory_candidates_(input);
   const MidMpcSolution* warm = last_solution_.has_value() ? &last_solution_.value() : nullptr;
   const MidMpcSolution sol = solver_.solve(input, warm);
   last_solution_ = sol;
@@ -204,6 +212,45 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   sat.sat2.reasoning_chain    = plan.rationale;
   sat.sat2.system_confidence  = plan.confidence;
   pub_sat_data_->publish(sat);
+}
+
+// ===========================================================================
+// publish_trajectory_candidates_ — DEMO-2 P0: SAT3Data with Nomoto fallback
+// ===========================================================================
+void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
+{
+  auto sol = nomoto_fallback_.solve(input);
+  const auto now = this->get_clock()->now();
+
+  l3_msgs::msg::SAT3Data sat3;
+  sat3.stamp = now;
+  sat3.schema_version = 112;
+
+  const std::size_t n_candidates = sol.trajectories.size();
+  for (std::size_t i = 0; i < n_candidates; ++i) {
+    l3_msgs::msg::TrajectoryCandidate tc;
+    tc.stamp = now;
+    tc.confidence = 1.0F;
+    tc.branch_index = static_cast<int32_t>(i);
+    tc.heading_deg = sol.headings_rad[i] * 180.0 / M_PI;
+    tc.speed_kn = input.own_ship.u_mps * 1.94384;
+    tc.cpa_m = sol.cpa_vals[i];
+    tc.rule_compliant = false;
+    tc.is_primary = (i == static_cast<std::size_t>(sol.primary_branch_idx));
+
+    for (const auto& pt : sol.trajectories[i]) {
+      geometry_msgs::msg::Point p;
+      p.x = pt.x();
+      p.y = pt.y();
+      p.z = 0.0;
+      tc.waypoints.push_back(p);
+    }
+
+    sat3.trajectory_candidates[i] = tc;
+  }
+  sat3.primary_trajectory_idx = static_cast<uint8_t>(sol.primary_branch_idx);
+
+  pub_sat3_data_->publish(sat3);
 }
 
 }  // namespace mass_l3::m5::mid_mpc
