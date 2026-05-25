@@ -56,6 +56,8 @@ export interface ControlCmdState {
 const MAX_ASDR = 200;
 const MAX_TRAIL = 600; // 600 points × 50Hz = 12 s of trail
 
+const STALE_MS = 3_000;
+
 interface TelemetryState {
   // Core telemetry
   ownShip: OwnShipState | null;
@@ -84,6 +86,12 @@ interface TelemetryState {
   sat2: SAT2Data | null;
   sat3: SAT3Data | null;
   sotifMetrics: SotifMetrics | null;
+  sat2LastReceivedAt: number | null;
+  sat3LastReceivedAt: number | null;
+  sotifMetricsLastReceivedAt: number | null;
+  isSat2Stale: () => boolean;
+  isSat3Stale: () => boolean;
+  isSotifMetricsStale: () => boolean;
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
@@ -122,11 +130,26 @@ const initialState = {
   sat2: null,
   sat3: null,
   sotifMetrics: null,
+  sat2LastReceivedAt: null,
+  sat3LastReceivedAt: null,
+  sotifMetricsLastReceivedAt: null,
   lastTrailTime: 0,
 };
 
-export const useTelemetryStore = create<TelemetryState>((set) => ({
+export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   ...initialState,
+  isSat2Stale: () => {
+    const t = get().sat2LastReceivedAt;
+    return t === null || Date.now() - t > STALE_MS;
+  },
+  isSat3Stale: () => {
+    const t = get().sat3LastReceivedAt;
+    return t === null || Date.now() - t > STALE_MS;
+  },
+  isSotifMetricsStale: () => {
+    const t = get().sotifMetricsLastReceivedAt;
+    return t === null || Date.now() - t > STALE_MS;
+  },
   updateOwnShip: (ownShip) => set((s) => {
     // Append to trail if coordinates are valid
     const lon = ownShip.pose?.lon;
@@ -187,8 +210,8 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   appendPreflightLog: (entry) => set((s) => ({
     preflightLog: [...s.preflightLog, entry].slice(-1000),
   })),
-  updateSat2: (sat2) => set({ sat2 }),
-  updateSat3: (sat3) => set({ sat3 }),
-  updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics }),
+  updateSat2: (sat2) => set({ sat2, sat2LastReceivedAt: Date.now() }),
+  updateSat3: (sat3) => set({ sat3, sat3LastReceivedAt: Date.now() }),
+  updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics, sotifMetricsLastReceivedAt: Date.now() }),
   reset: () => set(initialState),
 }));

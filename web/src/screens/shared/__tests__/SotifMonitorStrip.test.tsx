@@ -22,9 +22,14 @@ const violated: SotifMetrics = {
 };
 
 describe('SotifMonitorStrip', () => {
-  it('renders null when metrics is null', () => {
-    const { container } = render(<SotifMonitorStrip metrics={null} />);
-    expect(container.firstChild).toBeNull();
+  it('renders waiting prompt when metrics is null', () => {
+    render(<SotifMonitorStrip metrics={null} />);
+    expect(screen.getByText(/Waiting for M7 SOTIF metrics/)).toBeInTheDocument();
+  });
+
+  it('renders waiting prompt when isStale is true', () => {
+    render(<SotifMonitorStrip metrics={nominal} isStale />);
+    expect(screen.getByText(/Waiting for M7 SOTIF metrics/)).toBeInTheDocument();
   });
 
   it('renders 6 rows for 6 assumptions', () => {

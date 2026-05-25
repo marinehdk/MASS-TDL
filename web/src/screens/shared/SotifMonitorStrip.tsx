@@ -4,6 +4,7 @@ import type { SotifMetrics } from '../../types/sat';
 interface SotifMonitorStripProps {
   metrics: SotifMetrics | null;
   recommendedMrm?: string;
+  isStale?: boolean;
 }
 
 function buildRows(m: SotifMetrics) {
@@ -48,8 +49,25 @@ const MRM_LABELS: Record<string, string> = {
   'MRM-04': '全速倒车',
 };
 
-export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics, recommendedMrm }) => {
-  if (!metrics) return null;
+export const SotifMonitorStrip: React.FC<SotifMonitorStripProps> = ({ metrics, recommendedMrm, isStale }) => {
+  if (!metrics || isStale) {
+    return (
+      <div data-testid="sotif-metrics-panel" style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)' }}>
+        <div style={{
+          padding: '6px 12px', background: 'var(--bg-0)',
+          borderBottom: '1px solid var(--line-2)',
+          display: 'flex', justifyContent: 'space-between',
+        }}>
+          <span style={{ color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.1em', fontSize: 9, textTransform: 'uppercase' }}>
+            M7 SOTIF 假设监控
+          </span>
+        </div>
+        <div style={{ padding: '8px 12px', color: 'var(--c-warn)', fontSize: 9, letterSpacing: '0.08em' }}>
+          Waiting for M7 SOTIF metrics...
+        </div>
+      </div>
+    );
+  }
 
   const rows = buildRows(metrics);
   const anyViolated = rows.some((r) => r.violated);

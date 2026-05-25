@@ -121,7 +121,31 @@ export function useFoxgloveLive(wsUrl = 'wss://127.0.0.1:8765') {
   const deadRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // High-frequency telemetry buffers to prevent React rendering congestion
+  const latestOwnShipRef = useRef<any>(null);
+  const latestTargetsRef = useRef<Map<string, any>>(new Map());
+
   const setWsConnected = useTelemetryStore((s) => s.setWsConnected);
+
+  // Batched flush loop running at 25 Hz (every 40ms) wall-clock time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const store = useTelemetryStore.getState();
+
+      if (latestOwnShipRef.current !== null) {
+        store.updateOwnShip(latestOwnShipRef.current);
+        latestOwnShipRef.current = null;
+      }
+
+      if (latestTargetsRef.current.size > 0) {
+        const targetsArray = Array.from(latestTargetsRef.current.values());
+        store.updateTargets(targetsArray);
+        latestTargetsRef.current.clear();
+      }
+    }, 40); // 25 Hz limit
+
+    return () => clearInterval(interval);
+  }, []);
 
   const subscribeAll = useCallback((ros: Ros) => {
     const subs: Array<{ unsubscribe: () => void }> = [];
@@ -136,7 +160,30 @@ export function useFoxgloveLive(wsUrl = 'wss://127.0.0.1:8765') {
       rosTopic.subscribe((msg: unknown) => {
         const store = useTelemetryStore.getState();
         try {
-          handler(store, msg);
+          if (topic === '/sil/own_ship_state') {
+            const ownMsg = msg as any;
+            latestOwnShipRef.current = {
+              pose: { lat: ownMsg.lat, lon: ownMsg.lon, heading: ownMsg.heading },
+              kinematics: { sog: ownMsg.sog, cog: ownMsg.cog, rot: ownMsg.rot, u: ownMsg.u, v: ownMsg.v, r: ownMsg.r },
+              controlState: { rudderAngle: ownMsg.rudder_angle, throttle: ownMsg.throttle },
+            };
+          } else if (topic === '/sil/target_vessel_state') {
+            const targetMsg = msg as any;
+            const adapt = (m: any) => ({
+              mmsi: m.mmsi,
+              pose: { lat: m.lat, lon: m.lon, heading: m.heading },
+              kinematics: { sog: m.sog, cog: m.cog, rot: m.rot },
+              shipType: m.ship_type,
+              mode: m.mode,
+            });
+            const adapted = Array.isArray(targetMsg) ? targetMsg.map(adapt) : [adapt(targetMsg)];
+            
+            for (const t of adapted) {
+              latestTargetsRef.current.set(String(t.mmsi), t);
+            }
+          } else {
+            handler(store, msg);
+          }
         } catch (err) {
           console.warn(`[Foxglove] Error handling ${topic}:`, err);
         }

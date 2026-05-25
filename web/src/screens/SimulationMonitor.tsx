@@ -109,6 +109,7 @@ function LeftDrawer() {
 
 function RightDrawer() {
   const sotifMetrics = useTelemetryStore((s) => s.sotifMetrics);
+  const isSotifMetricsStale = useTelemetryStore((s) => s.isSotifMetricsStale);
   const asdrEvents   = useTelemetryStore((s) => s.asdrEvents);
   const scoringRow   = useTelemetryStore((s) => s.scoringRow);
 
@@ -118,7 +119,7 @@ function RightDrawer() {
       background: 'rgba(7,12,19,0.92)', backdropFilter: 'blur(8px)',
       borderLeft: '1px solid var(--line-2)', zIndex: 20, overflowY: 'auto',
     }}>
-      <SotifMonitorStrip metrics={sotifMetrics} recommendedMrm={useFsmStore.getState().torRequest?.recommendedMrm} />
+      <SotifMonitorStrip metrics={sotifMetrics} recommendedMrm={useFsmStore.getState().torRequest?.recommendedMrm} isStale={isSotifMetricsStale()} />
 
       <div style={{ borderTop: '1px solid var(--line-2)', padding: '6px 12px' }}>
         <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -164,6 +165,8 @@ export function SimulationMonitor() {
   const sat2            = useTelemetryStore((s) => s.sat2);
   const sat3            = useTelemetryStore((s) => s.sat3);
   const sotifMetrics    = useTelemetryStore((s) => s.sotifMetrics);
+  const isSat2Stale     = useTelemetryStore((s) => s.isSat2Stale);
+  const isSat3Stale     = useTelemetryStore((s) => s.isSat3Stale);
 
   const simRate   = useControlStore((s) => s.simRate);
   const isPaused  = useControlStore((s) => s.isPaused);
@@ -339,6 +342,16 @@ export function SimulationMonitor() {
             fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)',
             pointerEvents: 'none',
           }}>
+            {isSat2Stale() && (
+              <div data-testid="ivp-waiting-prompt" style={{
+                background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
+                borderRadius: 4, padding: '5px 10px', minWidth: 150,
+              }}>
+                <span style={{ color: 'var(--c-warn)', fontSize: 9, letterSpacing: '0.08em' }}>
+                  Waiting for M4 IvP data...
+                </span>
+              </div>
+            )}
             {sat2 && (
               <div data-testid="ivp-contribution-panel" style={{
                 background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
@@ -351,6 +364,16 @@ export function SimulationMonitor() {
                   {sat2.active_behavior ?? '-'} @ {(sat2.active_behavior_weight * 100).toFixed(0)}%
                   {' | '}{sat2.reasoning_latency_ms}ms
                 </div>
+              </div>
+            )}
+            {isSat3Stale() && (
+              <div data-testid="mpc-waiting-prompt" style={{
+                background: 'rgba(7,12,19,0.88)', border: '1px solid var(--line-2)',
+                borderRadius: 4, padding: '5px 10px', minWidth: 150,
+              }}>
+                <span style={{ color: 'var(--c-warn)', fontSize: 9, letterSpacing: '0.08em' }}>
+                  Waiting for M5 BC-MPC data...
+                </span>
               </div>
             )}
             {sat3 && (
