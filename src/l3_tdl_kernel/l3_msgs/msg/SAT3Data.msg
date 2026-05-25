@@ -9,3 +9,9 @@ string predicted_state
 float32 prediction_uncertainty           # [0, 1]
 float32 tdl_s
 float32 tmr_s
+
+# D3.4 M5 TacticalPlanner: trajectory candidates (fixed-size 13)
+TrajectoryCandidate[13] trajectory_candidates
+uint8 primary_trajectory_idx
+float64[] cpa_forecast_300s
+float32 takeover_window_s
