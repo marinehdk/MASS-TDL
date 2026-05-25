@@ -203,6 +203,19 @@ async def lifecycle_cleanup():
     return {"success": result.success, "error": result.error}
 
 
+@app.post("/api/v1/lifecycle/rate")
+async def lifecycle_rate(request: dict):
+    rate = request.get("rate", 1.0)
+    detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
+    backend = detail.get("backend", "demo") if detail else "demo"
+    if backend == "ros2":
+        result = await bridge.set_sim_rate(rate)
+        return {"success": result.success, "error": result.error}
+    else:
+        bridge._sim_rate = rate
+        return {"success": True, "error": ""}
+
+
 # Self-check, export, scenario CRUD, and scoring routes
 app.include_router(selfcheck_router)
 app.include_router(export_router)

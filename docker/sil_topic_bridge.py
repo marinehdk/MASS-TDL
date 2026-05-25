@@ -73,10 +73,11 @@ HEALTH_GREEN = 1
 HEALTH_RED = 3
 
 # Pulse timeout: if no message seen in this many seconds, module declared RED
-PULSE_TIMEOUT_S = 3.0
+PULSE_TIMEOUT_S = 10.0
 
 # Max rudder angle for DEMO-1
 MAX_RUDDER_DEG = 35.0
+MAX_RUDDER_RAD = math.radians(MAX_RUDDER_DEG)
 MAX_SPEED_KN = 25.0
 SHIP_LENGTH_M = 46.0   # FCB approximate length for turn-radius→rudder conversion
 
@@ -100,6 +101,15 @@ def _latched_qos(depth: int = 50) -> QoSProfile:
     )
 
 
+def _reliable_volatile_qos(depth: int = 10) -> QoSProfile:
+    return QoSProfile(
+        reliability=QoSReliabilityPolicy.RELIABLE,
+        durability=QoSDurabilityPolicy.VOLATILE,
+        history=QoSHistoryPolicy.KEEP_LAST,
+        depth=depth,
+    )
+
+
 # ── Bridge node ──────────────────────────────────────────────
 
 class SilTopicBridge(Node):
@@ -111,6 +121,7 @@ class SilTopicBridge(Node):
 
         sq = _sensor_qos()
         lq = _latched_qos()
+        rq = _reliable_volatile_qos()
 
         # ── SIL→L3 bridges ──────────────────────────────────
 
@@ -119,21 +130,21 @@ class SilTopicBridge(Node):
             SilOwnShipState, "/sil/own_ship_state",
             self._on_own_ship_state, sq)
         self._pub_foss = self.create_publisher(
-            FilteredOwnShipState, "/fusion/own_ship_state", sq)
+            FilteredOwnShipState, "/fusion/own_ship_state", rq)
 
         # 2. TargetVesselState → TrackedTargetArray
         self._sub_tvs = self.create_subscription(
             TargetVesselState, "/sil/target_vessel_state",
             self._on_target_vessel_state, sq)
         self._pub_tta = self.create_publisher(
-            TrackedTargetArray, "/fusion/tracked_targets", sq)
+            TrackedTargetArray, "/fusion/tracked_targets", rq)
 
         # 3. EnvironmentState → L3 EnvironmentState
         self._sub_env = self.create_subscription(
             SilEnvironmentState, "/sil/environment",
             self._on_environment_state, sq)
         self._pub_env = self.create_publisher(
-            L3EnvironmentState, "/fusion/environment_state", sq)
+            L3EnvironmentState, "/fusion/environment_state", lq)
 
         # ── L3→SIL bridges ──────────────────────────────────
 
@@ -147,7 +158,7 @@ class SilTopicBridge(Node):
         # 5. ASDRRecord → ASDREvent
         self._sub_asdr = self.create_subscription(
             ASDRRecord, "/l3/asdr/record",
-            self._on_asdr_record, lq)
+            self._on_asdr_record, rq)
         self._pub_asdr = self.create_publisher(
             ASDREvent, "/sil/asdr_event", lq)
 
@@ -223,9 +234,9 @@ class SilTopicBridge(Node):
         out.position.latitude = msg.lat
         out.position.longitude = msg.lon
         out.position.altitude = 0.0
-        out.heading_deg = msg.heading            # deg → deg
-        out.sog_kn = msg.sog                     # kn → kn
-        out.cog_deg = msg.cog                    # deg → deg
+        out.heading_deg = math.degrees(msg.heading)  # rad → deg
+        out.sog_kn = msg.sog * 1.94384               # m/s → kn
+        out.cog_deg = math.degrees(msg.cog)          # rad → deg
         out.u_water = msg.u                      # m/s → m/s
         out.v_water = msg.v                      # m/s → m/s
         out.r_dot_deg_s = msg.r * 180.0 / math.pi  # rad/s → deg/s
@@ -249,9 +260,9 @@ class SilTopicBridge(Node):
         tgt.position.latitude = msg.lat
         tgt.position.longitude = msg.lon
         tgt.position.altitude = 0.0
-        tgt.heading_deg = msg.heading
-        tgt.sog_kn = msg.sog
-        tgt.cog_deg = msg.cog
+        tgt.heading_deg = math.degrees(msg.heading)
+        tgt.sog_kn = msg.sog * 1.94384
+        tgt.cog_deg = math.degrees(msg.cog)
         # 3×3 identity covariance
         for i in range(3):
             tgt.covariance[i * 3 + i] = 1.0
@@ -295,11 +306,13 @@ class SilTopicBridge(Node):
         out.stamp = msg.stamp
         if msg.waypoints:
             wp = msg.waypoints[0]
-            # Convert turn_radius → rudder angle using atan(L/R)
-            radius = max(abs(wp.turn_radius_m), 50.0)
-            rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
-            out.rudder_angle = math.degrees(rudder_rad)
-            out.rudder_angle = max(-MAX_RUDDER_DEG, min(MAX_RUDDER_DEG, out.rudder_angle))
+            # Phase E1 M5 uses turn_radius_m=0 as a placeholder, not a turn command.
+            if abs(wp.turn_radius_m) > 1e-6:
+                radius = max(abs(wp.turn_radius_m), 50.0)
+                rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
+                out.rudder_angle = max(-MAX_RUDDER_RAD, min(MAX_RUDDER_RAD, rudder_rad))
+            else:
+                out.rudder_angle = 0.0
             # Normalize speed: target_speed_kn / MAX_SPEED_KN → throttle [0, 1]
             out.throttle = max(0.0, min(1.0, wp.target_speed_kn / MAX_SPEED_KN))
         else:

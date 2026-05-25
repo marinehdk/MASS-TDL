@@ -86,6 +86,10 @@ void HmiTransparencyBridgeNode::init_subscriptions()
       "/l3/m7/safety_alert", rclcpp::QoS(50).reliable().transient_local(),
       [this](const l3_msgs::msg::SafetyAlert::SharedPtr m) { on_safety_alert(m); });
 
+  sub_m7_heartbeat_ = create_subscription<std_msgs::msg::Header>(
+      "/l3/m7/heartbeat", rclcpp::SensorDataQoS().keep_last(5),
+      [this](const std_msgs::msg::Header::SharedPtr m) { on_m7_heartbeat(m); });
+
   sub_override_ = create_subscription<l3_external_msgs::msg::OverrideActiveSignal>(
       "/override/active_signal", rclcpp::QoS(50).reliable().transient_local(),
       [this](const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr m) {
@@ -175,6 +179,13 @@ void HmiTransparencyBridgeNode::on_safety_alert(const l3_msgs::msg::SafetyAlert:
 {
   std::lock_guard<std::mutex> lock{state_mutex_};
   latest_alert_ = *msg;
+}
+
+void HmiTransparencyBridgeNode::on_m7_heartbeat(const std_msgs::msg::Header::SharedPtr /*msg*/)
+{
+  health_monitor_->record_heartbeat(
+      SatAggregator::SourceModule::kM7,
+      SatAggregator::Clock::now());
 }
 
 void HmiTransparencyBridgeNode::on_override_signal(

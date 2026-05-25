@@ -33,7 +33,7 @@ def ts() -> str:
 sys.stdout.flush()
 print(f'[{ts()}] Stage 1/3: Starting SIL simulation nodes (9 total)')
 
-rclpy.init()
+rclpy.init(args=['--ros-args', '-p', 'use_sim_time:=True'])
 
 # Topic liveness detector — runs inside the spin loop to check if
 # /sil/own_ship_state has published at least one frame.
@@ -190,7 +190,7 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
 
     # 3a. Start topic bridge as background process (same as before)
     bridge_proc = subprocess.Popen(
-        ['python3', '/opt/ws/docker/sil_topic_bridge.py'],
+        ['python3', '/opt/ws/docker/sil_topic_bridge.py', '--ros-args', '-p', 'use_sim_time:=True'],
         stdout=sys.stdout, stderr=sys.stderr
     )
     print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
@@ -213,8 +213,19 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     l3_created = 0
     for pkg, exe, label, extra_args in l3_launch_specs:
         try:
+            # Build full arguments list with use_sim_time:=True
+            cmd = ['ros2', 'run', pkg, exe]
+            has_ros_args = False
+            for arg in extra_args:
+                if arg == '--ros-args':
+                    has_ros_args = True
+            if has_ros_args:
+                cmd += extra_args + ['-p', 'use_sim_time:=True']
+            else:
+                cmd += extra_args + ['--ros-args', '-p', 'use_sim_time:=True']
+
             proc = subprocess.Popen(
-                ['ros2', 'run', pkg, exe] + extra_args,
+                cmd,
                 stdout=sys.stdout, stderr=sys.stderr
             )
             l3_procs.append(proc)
@@ -233,7 +244,7 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     # shared data with the Doer modules (M1-M6).
     print(f'  [{ts()}] Stage 3: starting M7 SafetySupervisor as independent subprocess')
     m7_proc = subprocess.Popen(
-        ['ros2', 'run', 'm7_safety_supervisor', 'm7_safety_supervisor'],
+        ['ros2', 'run', 'm7_safety_supervisor', 'm7_safety_supervisor', '--ros-args', '-p', 'use_sim_time:=True'],
         stdout=sys.stdout, stderr=sys.stderr
     )
     l3_procs.append(m7_proc)

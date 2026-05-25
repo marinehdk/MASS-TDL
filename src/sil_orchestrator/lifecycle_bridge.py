@@ -71,6 +71,7 @@ class LifecycleBridge(Node):
         super().__init__('sil_orchestrator_lifecycle_bridge')
         self._state = LifecycleState.UNCONFIGURED
         self._scenario_id: str | None = None
+        self._sim_rate = 1.0
 
         # ROS2 service clients — primary node
         self.change_state_client = self.create_client(
@@ -90,6 +91,17 @@ class LifecycleBridge(Node):
                 self._sil_change_state_clients[node_name] = client
             except Exception as exc:
                 _log.debug("Could not create client for %s: %s", svc, exc)
+
+        # Pre-create GetState service clients for each SIL node (best-effort)
+        self._sil_get_state_clients: dict[str, object] = {}
+        for node_name in _SIL_LIFECYCLE_NODES:
+            svc = f"/{node_name}/get_state"
+            try:
+                client = self.create_client(GetState, svc,
+                                            callback_group=callback_group)
+                self._sil_get_state_clients[node_name] = client
+            except Exception as exc:
+                _log.debug("Could not create GetState client for %s: %s", svc, exc)
 
         # Pre-create SetParameters service clients for scenario param injection
         self._sil_set_parameters_clients: dict[str, object] = {}
@@ -132,16 +144,54 @@ class LifecycleBridge(Node):
         except Exception:
             return None
 
+    async def _reset_secondary_node(self, node_name: str) -> None:
+        """Intelligently reset a secondary SIL node to UNCONFIGURED state based on its current state."""
+        state_client = self._sil_get_state_clients.get(node_name)
+        change_client = self._sil_change_state_clients.get(node_name)
+        if not state_client or not change_client:
+            return
+
+        # Query state with short timeout so we don't block
+        if not state_client.wait_for_service(timeout_sec=0.2):
+            _log.debug("reset_secondary: /%s/get_state not available — skipping", node_name)
+            return
+
+        req = GetState.Request()
+        current_state = None
+        try:
+            future = state_client.call_async(req)
+            deadline = 10  # 1.0 s
+            while not future.done() and deadline > 0:
+                await asyncio.sleep(0.1)
+                deadline -= 1
+            if future.done():
+                current_state = future.result().current_state.label
+        except Exception as exc:
+            _log.debug("reset_secondary: failed to get state for /%s: %s", node_name, exc)
+            return
+
+        _log.info("reset_secondary: /%s current state = %s", node_name, current_state)
+        if current_state in (None, "unconfigured", "finalized"):
+            return
+
+        if current_state == "active":
+            await self._broadcast_to_node(node_name, change_client, Transition.TRANSITION_DEACTIVATE)
+            await asyncio.sleep(0.1)
+            current_state = "inactive"
+
+        if current_state == "inactive":
+            await self._broadcast_to_node(node_name, change_client, Transition.TRANSITION_CLEANUP)
+
     async def _reset_to_unconfigured(self) -> LifecycleResult:
         """Drive the ROS2 node to unconfigured regardless of its current state.
 
         Needed after an orchestrator restart where _state is stale but the node
         may still be active/inactive from the previous session.
         """
-        # Broadcast deactivation and cleanup to all secondary SIL lifecycle nodes best-effort
-        # so they return to UNCONFIGURED and can accept parameter injection and new config.
-        await self._broadcast_transition(Transition.TRANSITION_DEACTIVATE)
-        await self._broadcast_transition(Transition.TRANSITION_CLEANUP)
+        # Reset all secondary SIL lifecycle nodes in parallel intelligently based on their state
+        tasks = [self._reset_secondary_node(node_name) for node_name in _SIL_LIFECYCLE_NODES]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         ros2_state = await self._get_ros2_state()
         _log.info("_reset_to_unconfigured: actual ROS2 state = %s", ros2_state)
@@ -317,6 +367,18 @@ class LifecycleBridge(Node):
             self._scenario_id = None
             await self._broadcast_transition(Transition.TRANSITION_CLEANUP)
         return res
+
+    async def set_sim_rate(self, rate: float) -> LifecycleResult:
+        """Inject sim_rate parameter dynamically into scenario_lifecycle_mgr."""
+        try:
+            await self._inject_params_to_node(
+                "scenario_lifecycle_mgr",
+                {"sim_rate": (float(rate), ParameterType.PARAMETER_DOUBLE)}
+            )
+            return LifecycleResult(success=True)
+        except Exception as exc:
+            _log.error("Failed to set sim_rate dynamic parameter: %s", exc)
+            return LifecycleResult(success=False, error=str(exc))
 
 
 def _load_scenario_yaml(scenario_id: str, base_dir: Path | None = None) -> dict:

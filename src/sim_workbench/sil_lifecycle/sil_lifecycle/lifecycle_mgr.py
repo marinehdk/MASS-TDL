@@ -175,9 +175,24 @@ class LifecycleManagerNode(LifecycleNode):
         self._sim_clock_timer = None
         self._status_timer = None
 
-    # ── Lifecycle callbacks ──────────────────────────────────────────────
+        if hasattr(self, "add_on_set_parameters_callback"):
+            self.add_on_set_parameters_callback(self._on_set_parameters)
 
-    _PARAMS = ("scenario_id", "scenario_hash", "tick_hz", "status_hz")
+    def _on_set_parameters(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        result = SetParametersResult(successful=True)
+        for param in params:
+            if param.name == "sim_rate":
+                rate = param.value
+                if rate < 0.0:
+                    result.successful = False
+                    result.reason = "sim_rate cannot be negative"
+                else:
+                    self._fsm.set_sim_rate(rate)
+                    self.get_logger().info(f"sim_rate updated dynamically to {rate}")
+        return result
+
+    # ── Lifecycle callbacks ──────────────────────────────────────────────
 
     def on_configure(self, state) -> TransitionCallbackReturn:
         """Declare ROS params and transition FSM UNCONFIGURED → INACTIVE."""
@@ -186,17 +201,21 @@ class LifecycleManagerNode(LifecycleNode):
             ("scenario_hash", ""),
             ("tick_hz", 1000.0),
             ("status_hz", 1.0),
+            ("sim_rate", 1.0),
         ):
-            if not self.has_parameter(name):
+            if not hasattr(self, "has_parameter") or not self.has_parameter(name):
                 self.declare_parameter(name, default)
 
         sid = self.get_parameter("scenario_id").value
         shash = self.get_parameter("scenario_hash").value
         self._fsm._tick_hz = self.get_parameter("tick_hz").value
+        initial_rate = self.get_parameter("sim_rate").value
+        if initial_rate is not None:
+            self._fsm.set_sim_rate(float(initial_rate))
 
         self._fsm.configure(str(sid), str(shash))
         self.get_logger().info(
-            f"[on_configure] scenario_id={sid} scenario_hash={shash}"
+            f"[on_configure] scenario_id={sid} scenario_hash={shash} sim_rate={initial_rate}"
         )
         return TransitionCallbackReturn.SUCCESS
 
@@ -214,11 +233,11 @@ class LifecycleManagerNode(LifecycleNode):
         tick_hz = self.get_parameter("tick_hz").value
         status_hz = self.get_parameter("status_hz").value
 
-        self._sim_clock_timer = self.create_timer(
+        self._sim_clock_timer = self.create_wall_timer(
             timer_period_sec=1.0 / float(tick_hz),
             callback=self._clock_callback,
         )
-        self._status_timer = self.create_timer(
+        self._status_timer = self.create_wall_timer(
             timer_period_sec=1.0 / float(status_hz),
             callback=self._status_callback,
         )
@@ -264,7 +283,8 @@ class LifecycleManagerNode(LifecycleNode):
         msg = TimeMsg()
         msg.sec = int(sim_t)
         msg.nanosec = int((sim_t - msg.sec) * 1e9)
-        self._sim_clock_pub.publish(msg)
+        if self._sim_clock_pub is not None:
+            self._sim_clock_pub.publish(msg)
 
     def _status_callback(self) -> None:
         """Publish /sil/lifecycle_status @ status_hz."""
@@ -276,7 +296,8 @@ class LifecycleManagerNode(LifecycleNode):
         msg.sim_time = self._fsm.sim_time
         msg.wall_time = self._fsm.wall_time
         msg.sim_rate = self._fsm.sim_rate
-        self._status_pub.publish(msg)
+        if self._status_pub is not None:
+            self._status_pub.publish(msg)
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────

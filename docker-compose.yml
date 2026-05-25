@@ -35,15 +35,16 @@ services:
     network_mode: host
 
   foxglove-bridge:
-    image: mass-l3/ci:humble-ubuntu22.04
+    build:
+      context: .
+      dockerfile: docker/sil_nodes.Dockerfile
     volumes:
-      - ./.docker/sil_install:/opt/sil_install:ro
       - ./certs:/certs:ro
     command: |
       bash -c '
-        apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp 2>/dev/null &&
+        apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp ros-humble-foxglove-bridge 2>/dev/null &&
         source /opt/ros/humble/setup.bash &&
-        source /opt/sil_install/setup.bash &&
+        source /opt/ws/install/setup.bash &&
         ros2 run foxglove_bridge foxglove_bridge \
           --ros-args \
           -p port:=8765 \

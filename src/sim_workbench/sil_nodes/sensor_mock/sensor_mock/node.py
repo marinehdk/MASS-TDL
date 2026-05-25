@@ -175,7 +175,8 @@ class SensorMockNode(LifecycleNode):
         msg.bearing = [p["bearing"] for p in result["polar_targets"]]
         msg.rcs = [p["rcs"] for p in result["polar_targets"]]
         msg.clutter_cardinality = result["clutter_cardinality"]
-        self._radar_pub.publish(msg)
+        if self._radar_pub is not None:
+            self._radar_pub.publish(msg)
 
     def _ais_callback(self) -> None:
         """Publish an AISMessage per target vessel (subject to dropout)."""
@@ -202,7 +203,8 @@ class SensorMockNode(LifecycleNode):
                 msg.lon = ais_data["lon"]
                 msg.heading = ais_data["heading"]
                 msg.dropout_flag = ais_data["dropout_flag"]
-                self._ais_pub.publish(msg)
+                if self._ais_pub is not None:
+                    self._ais_pub.publish(msg)
 
 
 def main(args: list[str] | None = None) -> None:

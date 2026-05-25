@@ -197,7 +197,7 @@ void SafetySupervisorNode::setup_publishers() noexcept
 {
   pub_alert_ = create_publisher<l3_msgs::msg::SafetyAlert>(
     "/l3/m7/safety_alert",
-    rclcpp::QoS(rclcpp::KeepLast(50)).reliable());
+    rclcpp::QoS(rclcpp::KeepLast(50)).reliable().transient_local());
 
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
     "/l3/asdr/record",

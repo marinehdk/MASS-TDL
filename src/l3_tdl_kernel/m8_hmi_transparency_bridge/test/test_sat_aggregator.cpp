@@ -192,3 +192,12 @@ TEST(SatAggregator, FromStringAcceptsAllValidModules)
   EXPECT_FALSE(SatAggregator::from_string("M3").has_value());
   EXPECT_FALSE(SatAggregator::from_string("").has_value());
 }
+
+TEST(SatAggregator, FromStringAcceptsRuntimeSourceModuleNames)
+{
+  EXPECT_EQ(SatAggregator::from_string("M1_ODD_Manager").value(), SrcMod::kM1);
+  EXPECT_EQ(SatAggregator::from_string("M2_World_Model").value(), SrcMod::kM2);
+  EXPECT_EQ(SatAggregator::from_string("M4_Behavior_Arbiter").value(), SrcMod::kM4);
+  EXPECT_EQ(SatAggregator::from_string("M6_COLREGs_Reasoner").value(), SrcMod::kM6);
+  EXPECT_EQ(SatAggregator::from_string("M7_Safety_Supervisor").value(), SrcMod::kM7);
+}

@@ -320,7 +320,8 @@ if _HAS_RCLPY:
 
                 msg.targets.append(tt)
 
-            self._pub.publish(msg)
+            if self._pub is not None:
+                self._pub.publish(msg)
 
         def _publish_fallback(self, tracked: list[dict]):
             """Publish JSON-encoded String when real msgs are unavailable."""
@@ -345,7 +346,8 @@ if _HAS_RCLPY:
 
             msg = String()
             msg.data = json.dumps(payload)
-            self._pub.publish(msg)
+            if self._pub is not None:
+                self._pub.publish(msg)
 
     def main(args: list[str] | None = None):
         rclpy.init(args=args)

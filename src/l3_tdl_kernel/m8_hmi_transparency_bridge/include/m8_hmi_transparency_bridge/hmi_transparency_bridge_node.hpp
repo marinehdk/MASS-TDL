@@ -20,6 +20,7 @@
 #include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
+#include "std_msgs/msg/header.hpp"
 
 #include "m8_hmi_transparency_bridge/sat_aggregator.hpp"
 #include "m8_hmi_transparency_bridge/adaptive_sat_trigger.hpp"
@@ -46,6 +47,7 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   void on_avoidance_plan(const l3_msgs::msg::AvoidancePlan::SharedPtr msg);
   void on_colreg_constraint(const l3_msgs::msg::COLREGsConstraint::SharedPtr msg);
   void on_safety_alert(const l3_msgs::msg::SafetyAlert::SharedPtr msg);
+  void on_m7_heartbeat(const std_msgs::msg::Header::SharedPtr msg);
   void on_override_signal(
       const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr msg);
 
@@ -99,6 +101,7 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   rclcpp::Subscription<l3_msgs::msg::AvoidancePlan>::SharedPtr sub_avoid_;
   rclcpp::Subscription<l3_msgs::msg::COLREGsConstraint>::SharedPtr sub_colreg_;
   rclcpp::Subscription<l3_msgs::msg::SafetyAlert>::SharedPtr sub_alert_;
+  rclcpp::Subscription<std_msgs::msg::Header>::SharedPtr sub_m7_heartbeat_;
   rclcpp::Subscription<l3_external_msgs::msg::OverrideActiveSignal>::SharedPtr sub_override_;
   rclcpp::Publisher<l3_msgs::msg::UIState>::SharedPtr pub_ui_state_;
   rclcpp::Publisher<l3_msgs::msg::ToRRequest>::SharedPtr pub_tor_;

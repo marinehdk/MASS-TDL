@@ -41,6 +41,29 @@ def _lon_offset(meters: float, lat_rad: float) -> float:
     return meters / (111120.0 * cos_lat)
 
 
+def _normalize_angle_rad(angle_rad: float) -> float:
+    """Normalize an angle to [0, 2π)."""
+    return angle_rad % (2.0 * math.pi)
+
+
+def _math_heading_to_nav_heading(psi_rad: float) -> float:
+    """Convert MMG math heading to nautical heading.
+
+    MMG uses ψ=0 along +x and positive counter-clockwise. The SIL/HMI/L3
+    boundary uses nautical bearing: 0=north, positive clockwise.
+    """
+    return _normalize_angle_rad((math.pi / 2.0) - psi_rad)
+
+
+def _ground_track_to_nav_cog(psi_rad: float, u_mps: float, v_mps: float) -> float:
+    """Return nautical COG from body-frame velocity and MMG heading."""
+    east_mps = u_mps * math.cos(psi_rad) - v_mps * math.sin(psi_rad)
+    north_mps = u_mps * math.sin(psi_rad) + v_mps * math.cos(psi_rad)
+    if math.hypot(east_mps, north_mps) < 1e-9:
+        return _math_heading_to_nav_heading(psi_rad)
+    return _normalize_angle_rad(math.atan2(east_mps, north_mps))
+
+
 class ShipDynamicsNode(LifecycleNode):
     """FCB 4-DOF MMG 动力学节点 — rclpy LifecycleNode。
 
@@ -217,9 +240,9 @@ class ShipDynamicsNode(LifecycleNode):
         msg.stamp = self.get_clock().now().to_msg()
         msg.lat = math.degrees(lat)
         msg.lon = math.degrees(lon)
-        msg.heading = self._state.psi
+        msg.heading = _math_heading_to_nav_heading(self._state.psi)
         msg.sog = math.sqrt(self._state.u ** 2 + self._state.v ** 2)
-        msg.cog = math.atan2(self._state.v, self._state.u)
+        msg.cog = _ground_track_to_nav_cog(self._state.psi, self._state.u, self._state.v)
         msg.rot = self._state.r
         msg.u = self._state.u
         msg.v = self._state.v
@@ -227,7 +250,8 @@ class ShipDynamicsNode(LifecycleNode):
         msg.rudder_angle = dc
         msg.throttle = nr / 20.0
 
-        self._state_pub.publish(msg)
+        if self._state_pub is not None:
+            self._state_pub.publish(msg)
 
     # ─── 辅助方法 ─────────────────────────────────────────────
 

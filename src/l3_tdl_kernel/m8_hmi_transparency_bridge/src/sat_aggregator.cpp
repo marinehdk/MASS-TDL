@@ -100,11 +100,11 @@ SatAggregator::latest_sat3(SourceModule src) const
 [[nodiscard]] std::optional<SatAggregator::SourceModule>
 SatAggregator::from_string(const std::string& name)
 {
-  if (name == "M1") return SourceModule::kM1;
-  if (name == "M2") return SourceModule::kM2;
-  if (name == "M4") return SourceModule::kM4;
-  if (name == "M6") return SourceModule::kM6;
-  if (name == "M7") return SourceModule::kM7;
+  if (name == "M1" || name == "M1_ODD_Manager") return SourceModule::kM1;
+  if (name == "M2" || name == "M2_World_Model") return SourceModule::kM2;
+  if (name == "M4" || name == "M4_Behavior_Arbiter") return SourceModule::kM4;
+  if (name == "M6" || name == "M6_COLREGs_Reasoner") return SourceModule::kM6;
+  if (name == "M7" || name == "M7_Safety_Supervisor") return SourceModule::kM7;
   return std::nullopt;
 }
 

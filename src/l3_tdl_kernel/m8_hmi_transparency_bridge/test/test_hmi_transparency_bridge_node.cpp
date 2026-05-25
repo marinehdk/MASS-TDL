@@ -32,3 +32,9 @@ TEST_F(HmiNodeTest, PublishersCreated) {
   EXPECT_GE(node->count_publishers("/l3/asdr/record"), 1U);
   EXPECT_GE(node->count_publishers("/l3/m8/tor_request"), 1U);
 }
+
+TEST_F(HmiNodeTest, SubscribesToM7Heartbeat) {
+  rclcpp::NodeOptions opts;
+  auto node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(opts);
+  EXPECT_GE(node->count_subscribers("/l3/m7/heartbeat"), 1U);
+}

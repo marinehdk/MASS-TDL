@@ -23,6 +23,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
+    from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     HAS_ROS2 = True
 except ImportError:
     HAS_ROS2 = False
@@ -57,10 +58,16 @@ class ScoringLifecycleNode(LifecycleNode if HAS_ROS2 else object):
     def on_configure(self, state=None):
         if HAS_ROS2:
             self.get_logger().info("scoring_node configuring")
+            sil_state_qos = QoSProfile(
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+            )
             self._own_ship_sub = self.create_subscription(
-                OwnShipState, "/sil/own_ship_state", self._own_ship_cb, 10)
+                OwnShipState, "/sil/own_ship_state", self._own_ship_cb, sil_state_qos)
             self._target_vessel_sub = self.create_subscription(
-                TargetVesselState, "/sil/target_vessel_state", self._target_vessel_cb, 10)
+                TargetVesselState, "/sil/target_vessel_state", self._target_vessel_cb, sil_state_qos)
             self._colregs_sub = self.create_subscription(
                 String, "/l3/colregs_active", self._colregs_cb, 10)
             self._scoring_pub = self.create_publisher(
