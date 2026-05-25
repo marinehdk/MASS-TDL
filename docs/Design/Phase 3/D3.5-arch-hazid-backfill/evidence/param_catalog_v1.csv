@@ -1,33 +1,33 @@
 param_id,source_doc,section,current_value,unit,iec61508_class,aou_range,hazid_priority,manifest_sync
-APE_E.1_Conformance_Score_权重_w_E_w_T_w_H,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.6,"(0.4, 0.3, 0.3)",,[manual review],,高,N
-APE_E.1_Conformance_Score_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.6,>0.8 IN / 0.5–0.8 EDGE / <0.5 OUT,,[manual review],,中,N
-APE_E.1_EDGE_状态阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.5,margin < 20%,%,[manual review],,中,N
-APE_E.1_ODD-ABCD_子域_CPA_TCPA_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.3,1.0nm/0.3nm/...；12min/4min/...,nm,[manual review],,高,N
-APE_E.1_TDL_公式_06_系数,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.4,0.6 (TCPA × 60%),%,[manual review],,高,N
-APE_E.2_MRM-01_减速时间,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 30 s,s,[manual review],,**极高**,N
-APE_E.2_MRM-01_速度目标,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,4 kn,kn,[manual review],,**极高**,N
-APE_E.2_MRM-03_转向角度,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,±60°,°,[manual review],,高,N
-APE_E.2_MRM-03_转艏率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,0.8 × ROT_max,,[manual review],,高,N
-APE_E.2_MRM-04_适用水深,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 30 m,m,[manual review],,中,N
-APE_E.2_MRM-04_适用船速,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 4 kn,kn,[manual review],,中,N
-APE_E.3_AIS雷达一致性阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,2σ 持续 10s,,[manual review],,中,N
-APE_E.3_L3_Checker_否决率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,> 20% / 100 周期,%,[manual review],,高,N
-APE_E.3_感知盲区占比,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,> 20% of 360°,%,[manual review],,中,N
-APE_E.3_目标运动可预测性,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,RMS > 50m/30s,,[manual review],,中,N
-APE_E.4_BC-MPC_候选航向数,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.4,k=7（±30° 范围）,°,[manual review],,中,N
-APE_E.4_Mid-MPC_时域,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.3,90 s（N=18 步 × 5 s）,s,[manual review],,高,N
-APE_E.4_ROT_max,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.3,12°/s（FCB 18 kn）,kn,[manual review],,高,N
-APE_E.5_Rule_8_大幅_转向角,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.5/§9.2,30°,°,[manual review],,高,N
-APE_E.5_T_standOn_T_act_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.5/§9.3,8/6/10 min；4/3/5 min,m,[manual review],,高,N
-ARCH_11.3 假设违反检测清单（初始版）[v1.1 修订]_L3_Checker_否决率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,11.3 假设违反检测清单（初始版）[v1.1 修订],X-axis Checker 否决次数 / 100 周期（**= 15 s 滑窗**，M7 周期 ≈ 6.7 Hz）,,[manual review],,[manual review],N
-ARCH_3.6 ODD 边界检测实现_w_E,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.4,,[manual review],,[manual review],N
-ARCH_3.6 ODD 边界检测实现_w_H,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.3,,[manual review],,[manual review],N
-ARCH_3.6 ODD 边界检测实现_w_T,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.3,,[manual review],,[manual review],N
-YAML_B,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,8.0,m,[manual review],,[manual review],N
-YAML_G_M,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,1.2,m,[manual review],,[manual review],N
-YAML_L,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,46.0,m,[manual review],,[manual review],N
-YAML_T_phi,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,5.0,s,[manual review],,[manual review],N
-YAML_d,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,2.8,m,[manual review],,[manual review],N
-YAML_displacement_t,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,450.0,,[manual review],,[manual review],N
-YAML_u0,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,9.26,m/s,[manual review],,[manual review],N
-YAML_x_G,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,0.0,m,[manual review],,[manual review],N
+APE_E.1_Conformance_Score_权重_w_E_w_T_w_H,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.6,"(0.4, 0.3, 0.3)",,Dependent calibration,,高,N
+APE_E.1_Conformance_Score_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.6,">0.8 IN / 0.5–0.8 EDGE / <0.5 OUT",,Independent calibration,0.7-0.9 IN / 0.3-0.6 EDGE,中,N
+APE_E.1_EDGE_状态阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.5,margin < 20%,%,Independent calibration,10-30%,中,N
+APE_E.1_ODD-ABCD_子域_CPA_TCPA_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.3,1.0nm/0.3nm/...；12min/4min/...,nm,Dependent calibration,,高,N
+APE_E.1_TDL_公式_06_系数,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.1/§3.4,0.6 (TCPA × 60%),%,Independent calibration,0.5-0.7,高,N
+APE_E.2_MRM-01_减速时间,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 30 s,s,Independent calibration,20-45 s,**极高**,Y
+APE_E.2_MRM-01_速度目标,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,4 kn,kn,Independent calibration,2-6 kn,**极高**,Y
+APE_E.2_MRM-03_转向角度,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,±60°,°,Independent calibration,45-90 deg,高,Y
+APE_E.2_MRM-03_转艏率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,0.8 × ROT_max,,Dependent calibration,0.6-1.0 x ROT_max,高,Y
+APE_E.2_MRM-04_适用水深,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 30 m,m,Independent calibration,20-50 m,中,Y
+APE_E.2_MRM-04_适用船速,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.2/§11.6,≤ 4 kn,kn,Independent calibration,2-6 kn,中,Y
+APE_E.3_AIS雷达一致性阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,2σ 持续 10s,,Independent calibration,1.5sigma-3sigma / 7.5-30 s,中,N
+APE_E.3_L3_Checker_否决率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,> 20% / 100 周期,%,Independent calibration,10-35%/100 cycles,高,N
+APE_E.3_感知盲区占比,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,> 20% of 360°,%,Independent calibration,10-30%,中,N
+APE_E.3_目标运动可预测性,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.3/§11.3,RMS > 50m/30s,,Independent calibration,30-80 m / 20-40 s,中,N
+APE_E.4_BC-MPC_候选航向数,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.4,k=7（±30° 范围）,°,Configuration,5-11,中,N
+APE_E.4_Mid-MPC_时域,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.3,90 s（N=18 步 × 5 s）,s,Configuration,fixed (RFC-001 locked N=18/90s),高,N
+APE_E.4_ROT_max,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.4/§10.3,12°/s（FCB 18 kn）,kn,Independent calibration,8-15 deg/s (FCB 18 kn),高,Y
+APE_E.5_Rule_8_大幅_转向角,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.5/§9.2,30°,°,Independent calibration,20-45 deg,高,N
+APE_E.5_T_standOn_T_act_阈值,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,AppE/E.5/§9.3,8/6/10 min；4/3/5 min,m,Independent calibration,6-12 min (ODD-A) / 3-6 min (ODD-B),高,N
+ARCH_11.3 假设违反检测清单（初始版）[v1.1 修订]_L3_Checker_否决率,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,11.3 假设违反检测清单（初始版）[v1.1 修订],X-axis Checker 否决次数 / 100 周期（**= 15 s 滑窗**，M7 周期 ≈ 6.7 Hz）,,Independent calibration,10-35%/100 cycles,[manual review],N
+ARCH_3.6 ODD 边界检测实现_w_E,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.4,,Dependent calibration,,[manual review],N
+ARCH_3.6 ODD 边界检测实现_w_H,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.3,,Dependent calibration,,[manual review],N
+ARCH_3.6 ODD 边界检测实现_w_T,docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md,3.6 ODD 边界检测实现,0.3,,Dependent calibration,,[manual review],N
+YAML_B,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,8.0,m,Independent calibration,,[manual review],Y
+YAML_G_M,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,1.2,m,Independent calibration,1.0-2.5 m,[manual review],Y
+YAML_L,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,46.0,m,Independent calibration,,[manual review],Y
+YAML_T_phi,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,5.0,s,Independent calibration,3-8 s,[manual review],Y
+YAML_d,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,2.8,m,Independent calibration,,[manual review],Y
+YAML_displacement_t,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,450.0,,Independent calibration,,[manual review],Y
+YAML_u0,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,9.26,m/s,Independent calibration,+-2 kn,[manual review],Y
+YAML_x_G,src/sim_workbench/fcb_simulator/config/fcb_dynamics.yaml,fcb_dynamics,0.0,m,Independent calibration,,[manual review],Y
