@@ -1,0 +1,15 @@
+{
+  "stage": "mc",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:13.259205+00:00",
+  "params": {
+    "n": 200,
+    "sobol_n": 1024,
+    "seed": 42,
+    "pass_rate": 0.0,
+    "ci_lower": 0.0
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/mc_results.csv",
+  "row_count": 200,
+  "sha256": "0f8dd2da9e3a0eea7e67e3b64d28d66ef4c11416e69adf6675385f8615b37aed"
+}

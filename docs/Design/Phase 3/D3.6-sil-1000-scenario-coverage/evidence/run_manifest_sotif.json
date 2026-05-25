@@ -1,0 +1,13 @@
+{
+  "stage": "sotif",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:12.306797+00:00",
+  "params": {
+    "seeds": 5,
+    "n_triggers": 50,
+    "coverage": 0.98
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/sotif_results.csv",
+  "row_count": 250,
+  "sha256": "bc53156dd01b43b4e9a32def2621dddd4f3f058f08382cb54c26a02f66b33949"
+}

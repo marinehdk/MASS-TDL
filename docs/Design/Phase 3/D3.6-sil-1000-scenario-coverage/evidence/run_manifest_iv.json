@@ -1,0 +1,13 @@
+{
+  "stage": "iv",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:12.458920+00:00",
+  "params": {
+    "n_scenarios": 50,
+    "pass_rate": 1.0,
+    "gate": true
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/iv_results.csv",
+  "row_count": 50,
+  "sha256": "64393766867e3cd828d1fb5b956ea482189ac40680c15f3cda61cc54736e4b86"
+}

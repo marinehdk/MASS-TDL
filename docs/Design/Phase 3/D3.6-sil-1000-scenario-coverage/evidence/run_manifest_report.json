@@ -1,0 +1,12 @@
+{
+  "stage": "report",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:13.386875+00:00",
+  "params": {
+    "n_failures": 114,
+    "output_html": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/D3.6-coverage-report.html"
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/report.failures.csv",
+  "row_count": 114,
+  "sha256": "bf95c0019b2c2b8ec254b0ee071860c15a025c44b8a2b573b9c5f7caa62c0535"
+}

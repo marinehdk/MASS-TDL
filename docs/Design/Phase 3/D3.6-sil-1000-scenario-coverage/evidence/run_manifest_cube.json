@@ -1,0 +1,15 @@
+{
+  "stage": "cube",
+  "git_commit": "868d912",
+  "timestamp": "2026-05-25T07:32:12.286686+00:00",
+  "params": {
+    "workers": 1,
+    "n_cells": 20,
+    "na_cells": 25,
+    "coverage": 0.0,
+    "gate": false
+  },
+  "output": "/Users/marine/Code/MASS-L3-Tactical Layer/docs/Design/Phase 3/D3.6-sil-1000-scenario-coverage/evidence/cube_results.csv",
+  "row_count": 20,
+  "sha256": "283312ebe769c452900c33611fbecc2e68d3a5d76a80d5198cb73bfdec96098c"
+}

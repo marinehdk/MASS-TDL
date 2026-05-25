@@ -1,0 +1,27 @@
+schema_version: "1.0"
+declarations:
+  - {rule: Rule9, odd: open_sea, disturbance: bf_0_1, seed: 1, reason: "Rule 9 requires narrow channel geometry; open_sea ODD has no channel constraints. Geometrically invalid.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_0_1, seed: 2, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_0_1, seed: 3, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_0_1, seed: 4, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_0_1, seed: 5, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_2_3, seed: 1, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_2_3, seed: 2, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_2_3, seed: 3, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_2_3, seed: 4, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_2_3, seed: 5, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_4_5, seed: 1, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_4_5, seed: 2, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_4_5, seed: 3, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_4_5, seed: 4, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_4_5, seed: 5, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_6_7, seed: 1, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_6_7, seed: 2, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_6_7, seed: 3, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_6_7, seed: 4, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: bf_6_7, seed: 5, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: sensor_degraded, seed: 1, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: sensor_degraded, seed: 2, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: sensor_degraded, seed: 3, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: sensor_degraded, seed: 4, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
+  - {rule: Rule9, odd: open_sea, disturbance: sensor_degraded, seed: 5, reason: "Same as above.", signed_by: "V&V Engineer", signed_date: "2026-08-03"}
