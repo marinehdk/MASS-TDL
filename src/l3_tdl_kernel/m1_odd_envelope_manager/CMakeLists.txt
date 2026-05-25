@@ -20,6 +20,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
@@ -64,7 +65,7 @@ target_include_directories(${PROJECT_NAME}_lib
     ${_rcpputils_include_dirs}/rcpputils
 )
 ament_target_dependencies(${PROJECT_NAME}_lib
-  rclcpp l3_msgs l3_external_msgs rcpputils
+  rclcpp l3_msgs l3_external_msgs diagnostic_msgs rcpputils
 )
 target_link_libraries(${PROJECT_NAME}_lib
   spdlog::spdlog yaml-cpp::yaml-cpp
@@ -87,5 +88,5 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs rcpputils)
+ament_export_dependencies(rclcpp l3_msgs l3_external_msgs diagnostic_msgs rcpputils)
 ament_package()

@@ -4,11 +4,13 @@
 #include <memory>
 #include <string>
 
+#include <gtest/gtest_prod.h>
 #include <rclcpp/rclcpp.hpp>
 #include <spdlog/spdlog.h>
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
+#include "l3_msgs/msg/mission_state.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
@@ -19,6 +21,7 @@
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "std_msgs/msg/header.hpp"
 
 #include "m1_odd_envelope_manager/conformance_score_calculator.hpp"
@@ -49,6 +52,10 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   ~OddEnvelopeManagerNode() override = default;
 
  private:
+  FRIEND_TEST(ScoringInputsDegradedTest, NoDataDefaultsToDegraded);
+  FRIEND_TEST(ScoringInputsDegradedTest, DiagnosticsOverridesDefaults);
+  FRIEND_TEST(ScoringInputsDegradedTest, EnvStateOverridesDefaults);
+  FRIEND_TEST(ScoringInputsDegradedTest, OwnShipOverridesDefaults);
   // ---------------------------------------------------------------------------
   // Initialization (not on control path; noexcept not required)
   // ---------------------------------------------------------------------------
@@ -81,6 +88,10 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   void on_own_ship_state(
       const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr msg) noexcept;
   void on_world_state(const l3_msgs::msg::WorldState::SharedPtr msg) noexcept;
+  void on_diagnostics(
+      const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) noexcept;
+  void on_mission_state(
+      const l3_msgs::msg::MissionState::SharedPtr msg) noexcept;
 
   // ---------------------------------------------------------------------------
   // Timer callbacks (all noexcept per PATH-S)
@@ -143,6 +154,8 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   l3_external_msgs::msg::FilteredOwnShipState::SharedPtr last_own_ship_;
   l3_msgs::msg::WorldState::SharedPtr last_world_state_;
   l3_msgs::msg::SafetyAlert::SharedPtr last_safety_alert_;
+  diagnostic_msgs::msg::DiagnosticArray::SharedPtr last_diagnostics_;
+  l3_msgs::msg::MissionState::SharedPtr last_mission_state_;
   rclcpp::Time last_world_state_received_;
   rclcpp::Time last_env_state_received_;
   rclcpp::Time last_own_ship_received_;
@@ -178,6 +191,9 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   // D2.1: Heartbeat tracking
   std::chrono::steady_clock::time_point last_m7_heartbeat_{};
   static constexpr auto M7_HEARTBEAT_TIMEOUT = std::chrono::milliseconds(500);
+  std::chrono::steady_clock::time_point prev_m7_heartbeat_{};
+  bool has_prev_m7_heartbeat_{false};
+  double mttf_rolling_avg_s_{0.0};
 
   // ---------------------------------------------------------------------------
   // Publishers
@@ -202,6 +218,8 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::FilteredOwnShipState>::SharedPtr
       own_ship_sub_;
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr world_state_sub_;
+  rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
+  rclcpp::Subscription<l3_msgs::msg::MissionState>::SharedPtr mission_state_sub_;
 
   // ---------------------------------------------------------------------------
   // Timers

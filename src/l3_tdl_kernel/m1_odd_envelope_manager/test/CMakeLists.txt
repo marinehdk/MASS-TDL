@@ -18,4 +18,8 @@ if(BUILD_TESTING)
   # Integration test (node construction, pub/sub topology)
   ament_add_gtest(test_node_integration test_node_integration.cpp)
   target_link_libraries(test_node_integration ${PROJECT_NAME}_lib)
+
+  # ScoringInputs degraded defaults test (DEMO-1 Task 3)
+  ament_add_gtest(test_scoring_inputs_degraded test_scoring_inputs_degraded.cpp)
+  target_link_libraries(test_scoring_inputs_degraded ${PROJECT_NAME}_lib)
 endif()

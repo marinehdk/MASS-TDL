@@ -20,7 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -42,6 +44,7 @@
 #include "rclcpp/subscription_options.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/mode_cmd.hpp"
+#include "l3_msgs/msg/mission_state.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
@@ -52,6 +55,7 @@
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "std_msgs/msg/header.hpp"
 
 namespace mass_l3::m1 {
@@ -91,6 +95,8 @@ constexpr const char* kTopicODDState         = "/l3/m1/odd_state";
 constexpr const char* kTopicModeCmd          = "/l3/m1/mode_cmd";
 constexpr const char* kTopicASDR             = "/l3/asdr/record";
 constexpr const char* kTopicSAT              = "/l3/sat/data";
+constexpr const char* kTopicDiagnostics      = "/l3/diagnostics";
+constexpr const char* kTopicMissionState     = "/l3/m3/mission_state";
 
 /// Map SafetyAlert MRM string to MrcType.
 inline MrcType mrm_string_to_type(const std::string& mrm) noexcept {
@@ -171,6 +177,46 @@ inline std::string_view envelope_state_str(EnvelopeState s) noexcept {
     case EnvelopeState::Overridden: return "Overridden"sv;
   }
   return "Unknown"sv;
+}
+
+struct DiagExtract {
+  bool radar_health_ok{false};
+  bool comm_ok{false};
+  bool tmr_available{false};
+  double comm_delay_s{999.0};
+  bool any_sensor_critical{true};
+};
+
+inline DiagExtract extract_diagnostics(
+    const diagnostic_msgs::msg::DiagnosticArray::SharedPtr& diag) noexcept {
+  DiagExtract result{};
+  if (!diag) { return result; }
+  result.any_sensor_critical = false;
+  result.comm_delay_s = 0.0;
+  for (const auto& status : diag->status) {
+    const auto& name = status.name;
+    const auto level = status.level;
+    const bool ok = (level == diagnostic_msgs::msg::DiagnosticStatus::OK);
+    if (name.find("radar") != std::string::npos) {
+      result.radar_health_ok = ok;
+    }
+    if (name.find("comm") != std::string::npos) {
+      result.comm_ok = ok;
+      for (const auto& kv : status.values) {
+        if (kv.key == "delay_s") {
+          result.comm_delay_s = std::strtod(kv.value.c_str(), nullptr);
+        }
+      }
+    }
+    if (name.find("tmr") != std::string::npos) {
+      result.tmr_available = ok;
+    }
+    if (level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
+        level == diagnostic_msgs::msg::DiagnosticStatus::STALE) {
+      result.any_sensor_critical = true;
+    }
+  }
+  return result;
 }
 
 }  // anonymous namespace
@@ -394,6 +440,20 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
       [this](const l3_msgs::msg::WorldState::SharedPtr kMsg) {
         on_world_state(kMsg);
       });
+
+  diag_sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+      kTopicDiagnostics,
+      QoS(KeepLast(10)).reliable(),
+      [this](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr kMsg) {
+        on_diagnostics(kMsg);
+      });
+
+  mission_state_sub_ = create_subscription<l3_msgs::msg::MissionState>(
+      kTopicMissionState,
+      QoS(KeepLast(5)).reliable().transient_local(),
+      [this](const l3_msgs::msg::MissionState::SharedPtr kMsg) {
+        on_mission_state(kMsg);
+      });
 }
 
 void OddEnvelopeManagerNode::initialize_timers() {
@@ -435,7 +495,17 @@ void OddEnvelopeManagerNode::on_safety_alert(
 
 void OddEnvelopeManagerNode::on_m7_heartbeat(
     const std_msgs::msg::Header::SharedPtr /*msg*/) noexcept {
-  last_m7_heartbeat_ = std::chrono::steady_clock::now();
+  const auto kNow = std::chrono::steady_clock::now();
+  if (has_prev_m7_heartbeat_) {
+    const double kInterval =
+        std::chrono::duration<double>(kNow - prev_m7_heartbeat_).count();
+    constexpr double kAlpha = 0.2;
+    mttf_rolling_avg_s_ = (kAlpha * kInterval) +
+                          ((1.0 - kAlpha) * mttf_rolling_avg_s_);
+  }
+  prev_m7_heartbeat_ = last_m7_heartbeat_;
+  has_prev_m7_heartbeat_ = true;
+  last_m7_heartbeat_ = kNow;
 }
 
 void OddEnvelopeManagerNode::on_reflex_activation(
@@ -486,6 +556,16 @@ void OddEnvelopeManagerNode::on_world_state(
   has_received_world_state_ = true;
 }
 
+void OddEnvelopeManagerNode::on_diagnostics(
+    const diagnostic_msgs::msg::DiagnosticArray::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_diagnostics_ = kMsg;
+}
+
+void OddEnvelopeManagerNode::on_mission_state(
+    const l3_msgs::msg::MissionState::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_mission_state_ = kMsg;
+}
+
 // ===========================================================================
 // D2.1 callbacks
 // ===========================================================================
@@ -523,21 +603,22 @@ ScoringInputs OddEnvelopeManagerNode::build_scoring_inputs() const noexcept {
     s.visibility_nm = last_env_state_->visibility_range_nm;
     s.sea_state_hs  = last_env_state_->wave_height_m;
   } else {
-    s.visibility_nm = 10.0;  // default: clear visibility
-    s.sea_state_hs  = 1.0;   // default: calm sea
+    s.visibility_nm = 2.0;
+    s.sea_state_hs  = 2.0;
   }
   if (last_own_ship_) {
     s.gnss_quality_good =
         (last_own_ship_->nav_mode == "OPTIMAL" ||
          last_own_ship_->nav_mode == "DR_SHORT");
   } else {
-    s.gnss_quality_good = true;
+    s.gnss_quality_good = false;
   }
-  s.radar_health_ok      = true;
-  s.comm_ok              = true;
-  s.comm_delay_s         = 0.0;
-  s.any_sensor_critical  = false;  // overridden by caller from M7 data
-  s.tmr_available        = true;
+  const auto kDiag = extract_diagnostics(last_diagnostics_);
+  s.radar_health_ok      = kDiag.radar_health_ok;
+  s.comm_ok              = kDiag.comm_ok;
+  s.comm_delay_s         = kDiag.comm_delay_s;
+  s.any_sensor_critical  = kDiag.any_sensor_critical;
+  s.tmr_available        = kDiag.tmr_available;
   return s;
 }
 
@@ -545,10 +626,11 @@ ScoringInputs OddEnvelopeManagerNode::build_scoring_inputs() const noexcept {
 SystemHealthSnapshot OddEnvelopeManagerNode::build_system_health(
     bool m7_critical) const noexcept {
   SystemHealthSnapshot h{};
-  h.mttf_estimate_s    = 10000.0;
-  h.heartbeat_recency_s = 0.0;
+  h.mttf_estimate_s    = mttf_rolling_avg_s_;
+  const auto kAge = std::chrono::steady_clock::now() - last_m7_heartbeat_;
+  h.heartbeat_recency_s = std::chrono::duration<double>(kAge).count();
   h.fault_count        = m7_critical ? 1U : 0U;
-  h.has_redundancy     = true;
+  h.has_redundancy     = params_.redundancy_enabled;
   return h;
 }
 
@@ -630,10 +712,19 @@ void OddEnvelopeManagerNode::check_mrc_if_needed(
   mrc_in.m7_safety_mrc_required = m7_mrc_required;
   mrc_in.m7_recommended_mrm     = m7_mrm;
   mrc_in.water_depth_m          = 0.0;
-  mrc_in.in_anchorage_zone      = false;
+  if (last_mission_state_ && last_mission_state_->water_depth_m >= 0.0) {
+    mrc_in.water_depth_m = last_mission_state_->water_depth_m;
+  } else {
+    mrc_in.water_depth_m = params_.environment_water_depth_m;
+  }
+  mrc_in.in_anchorage_zone      = last_mission_state_
+                                       ? last_mission_state_->in_anchorage_zone
+                                       : false;
   mrc_in.sea_state_hs           = scoring.sea_state_hs;
   mrc_in.wind_speed_kn          = last_env_state_ ? last_env_state_->wind_speed_kn : 0.0;
-  mrc_in.is_moored              = false;
+  mrc_in.is_moored              = last_mission_state_
+                                       ? last_mission_state_->is_moored
+                                       : false;
   mrc_in.current_state          = new_state;
 
   const auto kResult = mrc_->select(mrc_in);
@@ -757,7 +848,23 @@ void OddEnvelopeManagerNode::on_odd_state_publish_tick() noexcept {
   msg.tmr_s = static_cast<float>(last_tmr_tdl_.tmr_s);
   msg.tdl_s = static_cast<float>(last_tmr_tdl_.tdl_s);
 
-  msg.zone_reason = "ODD-A (default)";
+  ScoringInputs scoring_for_reason = build_scoring_inputs();
+  std::ostringstream zone_reason;
+  if (scoring_for_reason.visibility_nm < params_.visibility_full_nm) {
+    zone_reason << "visibility=" << std::fixed << std::setprecision(1)
+                << scoring_for_reason.visibility_nm
+                << "nm < full_nm=" << params_.visibility_full_nm << "nm; ";
+  }
+  if (scoring_for_reason.sea_state_hs > params_.sea_state_max_hs_for_reason()) {
+    zone_reason << "sea_state=" << scoring_for_reason.sea_state_hs
+                << "m > max=" << params_.sea_state_max_hs_for_reason() << "m; ";
+  }
+  if (!scoring_for_reason.radar_health_ok) zone_reason << "radar_degraded; ";
+  if (!scoring_for_reason.comm_ok) zone_reason << "comm_degraded; ";
+  if (!scoring_for_reason.gnss_quality_good) zone_reason << "gnss_degraded; ";
+  if (!scoring_for_reason.tmr_available) zone_reason << "tmr_unavailable; ";
+  std::string reason_str = zone_reason.str();
+  msg.zone_reason = reason_str.empty() ? "All dimensions nominal" : reason_str;
   const auto kZl = zones_for_health(msg.health);
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   msg.allowed_zones.assign(kZl.data_, kZl.data_ + kZl.count_);

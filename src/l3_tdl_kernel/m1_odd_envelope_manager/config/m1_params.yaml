@@ -59,3 +59,11 @@ rot_max_curve:
 # D2.1: EMA smoothing [TBD-HAZID]
 ema:
   tau_s: 5.0
+
+# Environment fallbacks (scenario YAML — used when M3 mission_state unavailable)
+environment:
+  water_depth_m: 0.0          # default: unknown depth
+
+# System health configuration
+system_health:
+  redundancy_enabled: false   # no redundant systems by default

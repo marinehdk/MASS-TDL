@@ -301,6 +301,16 @@ struct ParameterSet {
 
   // D2.1: EMA smoothing time constant [TBD-HAZID]
   double ema_tau_s{5.0};
+
+  // Environment fallback (scenario YAML)
+  double environment_water_depth_m{0.0};
+
+  // System health
+  bool redundancy_enabled{false};
+
+  double sea_state_max_hs_for_reason() const noexcept {
+    return sea_state_marginal_hs;
+  }
 };
 
 }  // namespace mass_l3::m1

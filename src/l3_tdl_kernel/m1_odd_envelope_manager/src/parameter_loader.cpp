@@ -186,6 +186,22 @@ ParameterSet load_parameters(const std::string& yaml_path) noexcept {
     p.ema_tau_s = read_double(kEma, "tau_s", p.ema_tau_s);
   }
 
+  // --- environment section (scenario YAML fallbacks) ---
+  const YAML::Node kEnv = config["environment"];
+  if (kEnv && !kEnv.IsNull()) {
+    p.environment_water_depth_m =
+        read_double(kEnv, "water_depth_m", p.environment_water_depth_m);
+  }
+
+  // --- system_health section ---
+  const YAML::Node kSh = config["system_health"];
+  if (kSh && !kSh.IsNull()) {
+    const YAML::Node kRed = kSh["redundancy_enabled"];
+    if (kRed && kRed.IsScalar()) {
+      p.redundancy_enabled = kRed.as<bool>(false);
+    }
+  }
+
   return p;
 }
 
