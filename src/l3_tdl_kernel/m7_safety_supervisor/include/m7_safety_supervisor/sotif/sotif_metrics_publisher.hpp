@@ -17,6 +17,7 @@ public:
 
 private:
   rclcpp::Publisher<l3_msgs::msg::SotifMetrics>::SharedPtr publisher_;
+  l3_msgs::msg::SotifMetrics cached_msg_;  // pre-allocated; reused every cycle
   bool stub_mode_{true};
 };
 

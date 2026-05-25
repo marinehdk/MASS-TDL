@@ -15,16 +15,16 @@ namespace {
 
 SotifMetricsPublisher::SotifMetricsPublisher(rclcpp::Node* node)
   : publisher_{node->create_publisher<l3_msgs::msg::SotifMetrics>(
-      "/sil/sotif_metrics", rclcpp::QoS(10).best_effort())} {}
+      "/sil/sotif_metrics", rclcpp::QoS(10).best_effort())} {
+  cached_msg_.metrics.resize(6);  // allocate once; reused every publish() cycle
+}
 
 void SotifMetricsPublisher::publish(AssumptionStatus const& status,
                                      std::uint16_t veto_window_count) noexcept {
-  l3_msgs::msg::SotifMetrics msg;
-  msg.schema_version = 113;
-  msg.metrics.resize(6);
+  cached_msg_.schema_version = 113;
 
   for (std::uint8_t i = 0; i < 6; ++i) {
-    auto& entry = msg.metrics[i];
+    auto& entry = cached_msg_.metrics[i];
     entry.assumption_id = i;
     entry.is_violated = status.violation_active[i];
 
@@ -39,7 +39,7 @@ void SotifMetricsPublisher::publish(AssumptionStatus const& status,
     }
   }
 
-  publisher_->publish(msg);
+  publisher_->publish(cached_msg_);
 }
 
 void SotifMetricsPublisher::set_stub_mode(bool enabled) noexcept {
