@@ -56,6 +56,8 @@ add_library(m7_lib STATIC
   src/mrm/mrm_selector.cpp
   src/sotif/triggering_condition_detector.cpp
   src/sotif/sliding_window_15s.cpp
+  src/sotif/checker_veto_counter.cpp
+  src/sotif/sotif_metrics_publisher.cpp
   src/arbitrator/safety_arbitrator.cpp
   src/arbitrator/alert_generator.cpp
   src/safety_supervisor_node.cpp
@@ -82,6 +84,7 @@ set_source_files_properties(
   src/mrm/mrm_selector.cpp
   src/sotif/triggering_condition_detector.cpp
   src/sotif/sliding_window_15s.cpp
+  src/sotif/checker_veto_counter.cpp
   src/arbitrator/safety_arbitrator.cpp
   src/arbitrator/alert_generator.cpp
   PROPERTIES COMPILE_OPTIONS "-fno-exceptions;-fno-rtti"
@@ -240,6 +243,28 @@ if(BUILD_TESTING)
   target_link_libraries(test_triggering_condition_detector m7_lib)
   ament_target_dependencies(test_triggering_condition_detector
     rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+
+  ament_add_gtest(test_checker_veto_counter
+    test/unit/test_checker_veto_counter.cpp
+  )
+  target_link_libraries(test_checker_veto_counter m7_lib)
+  ament_target_dependencies(test_checker_veto_counter
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
+
+  ament_add_gtest(test_sotif_metrics_publisher
+    test/unit/test_sotif_metrics_publisher.cpp
+  )
+  target_link_libraries(test_sotif_metrics_publisher m7_lib)
+  ament_target_dependencies(test_sotif_metrics_publisher
+    rclcpp
+    l3_msgs
+    l3_external_msgs
+    builtin_interfaces
+  )
 
   ament_add_gtest(test_safety_arbitrator
     test/unit/test_safety_arbitrator.cpp)
