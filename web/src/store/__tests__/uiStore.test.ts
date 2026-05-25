@@ -4,8 +4,8 @@ import { useUIStore } from '../uiStore';
 describe('uiStore', () => {
   beforeEach(() => { useUIStore.getState().reset(); });
 
-  it('viewMode defaults to captain', () => {
-    expect(useUIStore.getState().viewMode).toBe('captain');
+  it('viewMode defaults to god', () => {
+    expect(useUIStore.getState().viewMode).toBe('god');
   });
 
   it('accepts engineer viewMode', () => {
@@ -34,7 +34,7 @@ describe('uiStore', () => {
     useUIStore.getState().toggleLeftDrawer();
     useUIStore.getState().reset();
     const s = useUIStore.getState();
-    expect(s.viewMode).toBe('captain');
+    expect(s.viewMode).toBe('god');
     expect(s.leftDrawerOpen).toBe(false);
     expect(s.rightDrawerOpen).toBe(false);
   });

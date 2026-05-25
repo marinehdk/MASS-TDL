@@ -68,6 +68,7 @@ interface TelemetryState {
   wsConnected: boolean;
   /** [lon, lat] pairs for own-ship trajectory trail */
   ownShipTrail: [number, number][];
+  lastTrailTime: number;
   /** Real-time 6-dim scoring row from /sil/scoring_row @ 1Hz */
   scoringRow: any;
   /** Sensor health (8 sensors) */
@@ -121,6 +122,7 @@ const initialState = {
   sat2: null,
   sat3: null,
   sotifMetrics: null,
+  lastTrailTime: 0,
 };
 
 export const useTelemetryStore = create<TelemetryState>((set) => ({
@@ -130,8 +132,16 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
     const lon = ownShip.pose?.lon;
     const lat = ownShip.pose?.lat;
     if (typeof lon === 'number' && typeof lat === 'number') {
-      const trail = [...s.ownShipTrail, [lon, lat] as [number, number]];
-      return { ownShip, ownShipTrail: trail.length > MAX_TRAIL ? trail.slice(-MAX_TRAIL) : trail };
+      const now = Date.now();
+      if (s.ownShipTrail.length === 0 || now - s.lastTrailTime >= 1000) {
+        const trail = [...s.ownShipTrail, [lon, lat] as [number, number]];
+        return {
+          ownShip,
+          ownShipTrail: trail.length > MAX_TRAIL ? trail.slice(-MAX_TRAIL) : trail,
+          lastTrailTime: now,
+        };
+      }
+      return { ownShip };
     }
     // Keep ownShip null when decoded proto has no valid pose coordinates
     return {};

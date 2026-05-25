@@ -6,6 +6,7 @@ const mockMap = {
   on: vi.fn(), off: vi.fn(),
   addSource: vi.fn(), addLayer: vi.fn(),
   getSource: vi.fn(() => ({ setData: vi.fn() })),
+  getLayer: vi.fn(() => null),
   getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
   getContainer: vi.fn(() => ({ clientHeight: 800 })),
   jumpTo: vi.fn(), easeTo: vi.fn(), setPadding: vi.fn(),
@@ -36,6 +37,8 @@ vi.mock('../../hooks/useHotkeys', () => ({
 }));
 vi.mock('../../api/silApi', () => ({
   useDeactivateLifecycleMutation: () => [vi.fn().mockResolvedValue({})],
+  useInjectFaultMutation: () => [vi.fn().mockResolvedValue({})],
+  useCancelFaultMutation: () => [vi.fn().mockResolvedValue({})],
 }));
 
 import { SimulationMonitor } from '../SimulationMonitor';
@@ -45,6 +48,7 @@ import { useTelemetryStore } from '../../store';
 
 beforeEach(() => {
   useUIStore.getState().reset();
+  useUIStore.getState().setViewMode('captain');
   useFsmStore.setState({ currentState: 'TRANSIT', transitionHistory: [], torRequest: null });
   useTelemetryStore.setState({ wsConnected: true, ownShip: null } as any);
 });

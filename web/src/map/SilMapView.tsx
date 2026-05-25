@@ -6,8 +6,9 @@ import { useTelemetryStore, useMapStore, useUIStore } from '../store';
 import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
 import type { TargetVesselState } from '../types/sil/target_vessel_state';
-import { checkGroundingRisk } from '../utils/groundingDetect';
+import { checkGroundingRisk, predictedPath } from '../utils/groundingDetect';
 import type { OwnShipPosition } from '../utils/groundingDetect';
+import { booleanIntersects } from '@turf/turf';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
@@ -48,23 +49,14 @@ function project(lon: number, lat: number, bearingDeg: number, distNm: number): 
   return [lon + (d * Math.sin(brRad)) / cosLat, lat + d * Math.cos(brRad)];
 }
 
-/** Circle polygon [lon,lat] around a centre, radius in nm. */
-function circleFeature(lon: number, lat: number, nm: number): GeoJSON.Feature {
-  const pts: [number, number][] = [];
-  const cosLat = Math.cos(lat * Math.PI / 180) || 1e-9;
-  const d = nm * NM_TO_DEG;
-  for (let i = 0; i <= 64; i++) {
-    const a = (i / 64) * 2 * Math.PI;
-    pts.push([lon + (d * Math.sin(a)) / cosLat, lat + d * Math.cos(a)]);
-  }
-  return { type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: { nm } };
-}
+// Removed legacy cpa rings helpers
 
 /** COG leader line — length depends on SOG (6-min projection). */
 function cogLine(lon: number, lat: number, cogRad: number, sogMs: number): GeoJSON.Feature {
   const cogDeg = cogRad * RAD;
   const distNm = (sogMs * 360) / 1852; // 6 min @ sogMs m/s → nm
-  const [lon2, lat2] = project(lon, lat, cogDeg, Math.max(distNm, 0.05));
+  const finalDist = sogMs < 0.05 ? 0 : distNm;
+  const [lon2, lat2] = project(lon, lat, cogDeg, finalDist);
   return {
     type: 'Feature',
     geometry: { type: 'LineString', coordinates: [[lon, lat], [lon2, lat2]] },
@@ -296,7 +288,7 @@ export function SilMapView({
             osm: osmSource as any,
             s57: {
               type: 'vector',
-              tiles: [`http://localhost:3000/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}`],
+              tiles: [`http://localhost:3000/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`],
               minzoom: 0,
               maxzoom: 16,
             },
@@ -402,18 +394,7 @@ export function SilMapView({
         paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-opacity': 0.8 },
       });
 
-      // ── CPA / danger rings ───────────────────────────────────────────────
-      map.addSource('cpa-rings', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-      map.addLayer({
-        id: 'cpa-rings-line',
-        type: 'line',
-        source: 'cpa-rings',
-        paint: { 'line-color': '#f87171', 'line-width': 1.5,
-                 'line-dasharray': [4, 3], 'line-opacity': 0.7 },
-      });
+      // cpa concentric rings removed in favor of asymmetric SafetyDomainLayer
 
       styleReady.current = true;
       setStatus('ready');
@@ -466,7 +447,7 @@ export function SilMapView({
   // ── Resize Observer for Map Container ──────────────────────────────────────
   useEffect(() => {
     const container = mapContainer.current;
-    if (!container) return;
+    if (!container || typeof ResizeObserver === 'undefined') return;
 
     const resizeObserver = new ResizeObserver(() => {
       if (mapRef.current) {
@@ -550,17 +531,13 @@ export function SilMapView({
       30   // own-ship marker is 30 px
     );
 
-    // COG leader
+    // COG leader (disabled/removed to prevent overlapping with safety rings)
     (map.getSource('own-cog') as any)?.setData({
       type: 'FeatureCollection',
-      features: [cogLine(lon, lat, cogRad, sogMs)],
+      features: [],
     });
 
-    // CPA rings — 0.5 nm and 1.0 nm around own-ship
-    (map.getSource('cpa-rings') as any)?.setData({
-      type: 'FeatureCollection',
-      features: [circleFeature(lon, lat, 0.5), circleFeature(lon, lat, 1.0)],
-    });
+    // cpa rings update removed
 
     // Follow
     if (followOwnShip && viewMode === 'captain' && !previewData) {
@@ -707,33 +684,48 @@ export function SilMapView({
     (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: cogFeatures });
   }, [targets, selectedVesselId, setSelectedVesselId]);
 
-  // ── Wind/current marker (top-left, fixed screen position) ──────────────────
+  // ── Wind/current marker (disabled/removed as requested by user) ──────────────────
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleReady.current || !env || previewData) {
-      if (windMarker.current) { windMarker.current.remove(); windMarker.current = null; }
-      return;
+    if (windMarker.current) {
+      windMarker.current.remove();
+      windMarker.current = null;
     }
-    const dir  = env.wind?.direction ?? 0;
-    const spd  = env.wind?.speedMps ?? 0;
-    const centre = map.getCenter();
+  }, []);
 
-    if (!windMarker.current) {
-      const el = makeWindEl(dir * RAD, spd);
-      windMarker.current = new maplibregl.Marker({ element: el })
-        .setLngLat([centre.lng, centre.lat]).addTo(map);
-    } else {
-      // update inner HTML
-      const el = windMarker.current.getElement();
-      el.innerHTML = makeWindEl(dir * RAD, spd).innerHTML;
+  /** Check if an ENC feature is a grounding hazard based on safety depth. */
+  const isHazardFeature = (feature: any, safetyDepth = 10.0): boolean => {
+    const layerId = feature.layer?.id;
+    if (!layerId) return false;
+
+    if (
+      layerId === 'enc-land' ||
+      layerId === 'enc-drying-area' ||
+      layerId === 'enc-danger-area' ||
+      layerId === 'enc-unsurveyed'
+    ) {
+      return true;
     }
-  }, [env, previewData]);
 
-  // ── Grounding hazard detection @ 10 Hz ─────────────────────────────────────
+    if (layerId === 'enc-depth-area') {
+      // minimumsdybde represents minimum depth in meters
+      const minDepth = feature.properties?.minimumsdybde;
+      if (typeof minDepth === 'number') {
+        return minDepth < safetyDepth;
+      }
+      // If undefined or null, default to shallow/hazard for safety
+      if (minDepth === undefined || minDepth === null) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // ── Grounding hazard detection @ 2 Hz (500ms downsampled) ──────────────────
   //
-  // 100 ms interval reading own-ship via store.getState() (no re-render) and
-  // querying ENC fill layers for intersecting hazard polygons. A red
-  // highlight layer is toggled on/off based on checkGroundingRisk().
+  // Evaluates grounding risk against S-57 hazard features and highlights
+  // intersecting polygons in red. Bypasses fragile vector tile feature IDs
+  // by writing exact intersecting geometries directly to the GeoJSON source.
   useEffect(() => {
     const hazardLayerIds = [
       'enc-depth-area',
@@ -789,15 +781,26 @@ export function SilMapView({
         layers: hazardLayerIds,
       });
 
-      const result = checkGroundingRisk(ship, encFeatures);
+      // Filter viewport features to actual hazards based on safety threshold
+      const hazardFeatures = encFeatures.filter((f) => isHazardFeature(f, 10.0));
 
-      const intersectingFeats = encFeatures.filter((f) => {
-        return (
-          result.riskPolygonIds.length > 0 &&
-          (result.riskPolygonIds.includes(String(f.id)) ||
-            result.riskPolygonIds.includes(String((f as any).properties?.id)))
-        );
-      });
+      const result = checkGroundingRisk(ship, hazardFeatures);
+
+      // Perform robust Turf geometry intersection check
+      let intersectingFeats: any[] = [];
+      if (ship.sog_kn >= 0.1) {
+        const path = predictedPath(ship);
+        intersectingFeats = hazardFeatures.filter((f) => {
+          if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') {
+            return false;
+          }
+          try {
+            return booleanIntersects(path, f);
+          } catch {
+            return false;
+          }
+        });
+      }
 
       try {
         (map.getSource('grounding-hazard') as any)?.setData({
@@ -810,7 +813,7 @@ export function SilMapView({
           result.isGroundingRisk ? 'visible' : 'none',
         );
       } catch { /* */ }
-    }, 100);
+    }, 500);
 
     return () => {
       clearInterval(interval);

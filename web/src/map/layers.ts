@@ -64,7 +64,7 @@ export const osmLayer: LayerSpecification = {
 // S-57 multi-layer vector tile source hosted by Martin MVT server.
 // The mbtiles is built from Kartverket FGDB by scripts/build_enc_tiles.py
 // and contains 20 named source-layers (land, depth_area, coastline, etc.).
-export const S57_TILE_URL = 'http://localhost:3000/trondelag/{z}/{x}/{y}';
+export const S57_TILE_URL = 'http://localhost:3000/trondelag/{z}/{x}/{y}?v=2';
 export const s57Source: SourceSpecification = {
   type: 'vector',
   tiles: [S57_TILE_URL],

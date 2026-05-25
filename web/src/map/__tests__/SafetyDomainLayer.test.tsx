@@ -1,26 +1,35 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, cleanup } from '@testing-library/react';
 import { useRef } from 'react';
 import { SafetyDomainLayer } from '../SafetyDomainLayer';
 import type { OwnShipState } from '../../types';
 
-const addSourceMock = vi.fn();
-const addLayerMock  = vi.fn();
-const getSourceMock = vi.fn(() => ({ setData: vi.fn() }));
+let mapContainer: HTMLDivElement;
+let layerExists = false;
+let sourceExists = false;
+
+const onMock = vi.fn();
+const offMock = vi.fn();
+const removeLayerMock = vi.fn((layerId: string) => {
+  if (layerId.startsWith('safety-')) layerExists = false;
+});
+const removeSourceMock = vi.fn((sourceId: string) => {
+  if (sourceId === 'safety-domain') sourceExists = false;
+});
 
 const mockMap = {
-  isStyleLoaded: vi.fn(() => true),
-  once: vi.fn(),
-  addSource: addSourceMock,
-  addLayer: addLayerMock,
-  getSource: getSourceMock,
-  removeLayer: vi.fn(),
-  removeSource: vi.fn(),
+  on: onMock,
+  off: offMock,
+  getContainer: vi.fn(() => mapContainer),
+  project: vi.fn(([lon, lat]: [number, number]) => ({
+    x: (lon - 10) * 1000,
+    y: (64 - lat) * 1000,
+  })),
+  getLayer: vi.fn((layerId: string) => (layerExists && layerId.startsWith('safety-') ? {} : null)),
+  getSource: vi.fn((sourceId: string) => (sourceExists && sourceId === 'safety-domain' ? {} : null)),
+  removeLayer: removeLayerMock,
+  removeSource: removeSourceMock,
 };
-
-vi.mock('maplibre-gl', () => ({
-  default: { Map: vi.fn(() => mockMap) },
-}));
 
 function makeOwnShip(lon: number, lat: number): OwnShipState {
   return {
@@ -29,32 +38,59 @@ function makeOwnShip(lon: number, lat: number): OwnShipState {
   } as any;
 }
 
-function Wrapper({ ownShip }: { ownShip: OwnShipState | null }) {
+function Wrapper({ ownShip, visible = true }: { ownShip: OwnShipState | null; visible?: boolean }) {
   const ref = useRef(mockMap as any);
-  return <SafetyDomainLayer mapRef={ref} ownShip={ownShip} visible={true} />;
+  return <SafetyDomainLayer mapRef={ref} ownShip={ownShip} visible={visible} />;
 }
 
+beforeEach(() => {
+  mapContainer = document.createElement('div');
+  Object.defineProperty(mapContainer, 'clientWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(mapContainer, 'clientHeight', { configurable: true, value: 800 });
+  document.body.appendChild(mapContainer);
+  layerExists = false;
+  sourceExists = false;
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  cleanup();
+  mapContainer.remove();
+});
+
 describe('SafetyDomainLayer', () => {
-  it('renders null (map overlay, no DOM output)', () => {
-    const { container } = render(<Wrapper ownShip={null} />);
-    expect(container.firstChild).toBeNull();
+  it('renders null when ownShip is missing', () => {
+    render(<Wrapper ownShip={null} />);
+
+    expect(mapContainer.querySelector('[data-testid="safety-domain-svg"]')).toBeNull();
   });
 
-  it('adds source and layers when ownShip is provided', () => {
-    addSourceMock.mockClear();
-    addLayerMock.mockClear();
+  it('renders safety domains as a DOM SVG overlay instead of MapLibre layers', () => {
     render(<Wrapper ownShip={makeOwnShip(10.4, 63.4)} />);
-    expect(addSourceMock).toHaveBeenCalledWith('safety-domain', expect.objectContaining({ type: 'geojson' }));
-    expect(addLayerMock).toHaveBeenCalledTimes(3);
+
+    const svg = mapContainer.querySelector('[data-testid="safety-domain-svg"]');
+    expect(svg).not.toBeNull();
+    expect(svg?.querySelectorAll('polygon').length).toBe(7);
+    expect(svg?.querySelectorAll('polyline').length).toBe(3);
+    expect(svg?.querySelectorAll('text').length).toBe(4);
   });
 
-  it('updates source data on ownShip change', () => {
-    const setDataMock = vi.fn();
-    getSourceMock.mockReturnValue({ setData: setDataMock });
-    addSourceMock.mockClear();
-    addLayerMock.mockClear();
+  it('removes stale MapLibre safety layers that could be covered by raster tiles', () => {
+    layerExists = true;
+    sourceExists = true;
+
+    render(<Wrapper ownShip={makeOwnShip(10.4, 63.4)} />);
+
+    expect(removeLayerMock).toHaveBeenCalled();
+    expect(removeSourceMock).toHaveBeenCalledWith('safety-domain');
+  });
+
+  it('reprojects overlay geometry on ownShip changes', () => {
     const { rerender } = render(<Wrapper ownShip={makeOwnShip(10.4, 63.4)} />);
+    const firstPoints = mapContainer.querySelector('polygon')?.getAttribute('points');
+
     rerender(<Wrapper ownShip={makeOwnShip(10.5, 63.5)} />);
-    expect(setDataMock).toHaveBeenCalled();
+
+    expect(mapContainer.querySelector('polygon')?.getAttribute('points')).not.toEqual(firstPoints);
   });
 });

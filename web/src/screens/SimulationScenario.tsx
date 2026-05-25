@@ -927,7 +927,9 @@ const handleUpdateYaml = useCallback((updates: any) => {
       </div>
 
       {/* OVERLAY: Map Layer Switcher */}
-      <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
+      <div style={{ position: 'absolute', bottom: 68, right: 20, zIndex: 20 }}>
+        <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
+      </div>
 
       {/* RIGHT PANE: BuilderRightRail Inspector */}
       <BuilderRightRail

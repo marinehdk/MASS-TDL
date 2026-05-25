@@ -162,6 +162,14 @@ export const silApi = createApi({
       query: () => ({ url: '/lifecycle/cleanup', method: 'POST' }),
     }),
 
+    changeLifecycleRate: builder.mutation<{ success: boolean; error?: string }, number>({
+      query: (rate) => ({
+        url: '/lifecycle/rate',
+        method: 'POST',
+        body: { rate },
+      }),
+    }),
+
     // Scoring (Screen ④)
     getLastRunScoring: builder.query<ScoringLastRunFull, void>({
       query: () => '/scoring/last_run',
@@ -244,6 +252,7 @@ export const {
   useActivateLifecycleMutation,
   useDeactivateLifecycleMutation,
   useCleanupLifecycleMutation,
+  useChangeLifecycleRateMutation,
   useGetLastRunScoringQuery,
   useProbeSelfCheckMutation,
   useGetHealthStatusQuery,

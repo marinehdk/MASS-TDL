@@ -6,10 +6,8 @@ import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useDemoTelemetry } from '../hooks/useDemoTelemetry';
 import { useTelemetryStore, useControlStore, useUIStore } from '../store';
-import { useDeactivateLifecycleMutation } from '../api/silApi';
-import { CompassRose } from '../map/CompassRose';
-import { PpiRings } from '../map/PpiRings';
-import { ColregsSectors } from '../map/ColregsSectors';
+import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation } from '../api/silApi';
+import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
 import { DistanceScale } from '../map/DistanceScale';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
 import { ArpaTargetTable } from './shared/ArpaTargetTable';
@@ -18,6 +16,7 @@ import { TorModal } from './shared/TorModal';
 import { FaultInjectPanel } from './shared/FaultInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
+import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
 import {
@@ -152,13 +151,15 @@ function RightDrawer() {
 
 export function SimulationMonitor() {
   const [useDemo, setUseDemo] = useState(false);
-  useFoxgloveLive();
+  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
+  useFoxgloveLive(wsUrl);
   useDemoTelemetry(useDemo);
 
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
   const asdrEvents      = useTelemetryStore((s) => s.asdrEvents);
   const wsConnected     = useTelemetryStore((s) => s.wsConnected);
   const ownShip         = useTelemetryStore((s) => s.ownShip);
+  const targets         = useTelemetryStore((s) => s.targets);
   const modulePulses    = useTelemetryStore((s) => s.modulePulses);
   const sat2            = useTelemetryStore((s) => s.sat2);
   const sat3            = useTelemetryStore((s) => s.sat3);
@@ -184,14 +185,32 @@ export function SimulationMonitor() {
   const [showFaultModal, setShowFaultModal] = useState(false);
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
   const [deactivate] = useDeactivateLifecycleMutation();
+  const [changeRate] = useChangeLifecycleRateMutation();
   const autoNavRef = useRef(false);
   const externalMapRef = useRef<maplibregl.Map | null>(null);
+
+  const handlePlay = async () => {
+    setPaused(false);
+    await changeRate(simRate);
+  };
+
+  const handlePause = async () => {
+    setPaused(true);
+    await changeRate(0.0);
+  };
+
+  const handleRateChange = async (rate: number) => {
+    setSimRate(rate);
+    if (!isPaused) {
+      await changeRate(rate);
+    }
+  };
 
   useHotkeys({
     g: () => setViewMode(viewMode === 'engineer' ? 'captain' : 'engineer'),
     v: () => setViewMode(viewMode === 'roc' ? 'captain' : 'roc'),
-    p: () => setPaused(true),
-    r: () => setPaused(false),
+    p: () => handlePause(),
+    r: () => handlePlay(),
     s: handleStop,
   } as any);
 
@@ -260,13 +279,14 @@ export function SimulationMonitor() {
           substrate={substrate}
         />
 
+        <SafetyDomainLayer
+          mapRef={externalMapRef}
+          ownShip={ownShip}
+          visible={true}
+        />
+
         {(isEngineer || viewMode === 'god') && (
           <>
-            <SafetyDomainLayer
-              mapRef={externalMapRef}
-              ownShip={ownShip}
-              visible={true}
-            />
             <MpcTrajectoryLayer
               mapRef={externalMapRef}
               candidates={sat3?.trajectory_candidates ?? []}
@@ -284,15 +304,7 @@ export function SimulationMonitor() {
           </>
         )}
 
-        {(isEngineer || viewMode === 'god' || fsmState === 'COLREG_AVOIDANCE') && ownShip && (
-          <ColregsSectors
-            ownShipFraction={isEngineer || viewMode === 'god' ? [50, 50] : [50, 70]}
-            headingDeg={(ownShip.pose?.heading ?? 0) * 180 / Math.PI}
-            outerRadiusPx={320}
-            mapRef={externalMapRef}
-            ownShip={ownShip}
-          />
-        )}
+
 
         {!ownShip && (
           <div style={{
@@ -305,15 +317,15 @@ export function SimulationMonitor() {
               AWAITING TELEMETRY
             </div>
             <div style={{ fontSize: 10, color: wsConnected ? '#2dd4bf' : '#f87171' }}>
-              {wsConnected ? '● WS CONNECTED' : '○ WS DISCONNECTED'} · ws://127.0.0.1:8765
+              {wsConnected ? '● WS CONNECTED' : '○ WS DISCONNECTED'} · {wsUrl}
             </div>
           </div>
         )}
 
         <div style={{ position: 'absolute', top: 24, right: 16, zIndex: 15 }}>
-          <CompassRose bearing={ownShip ? (ownShip.pose?.heading ?? 0) * 180 / Math.PI : 0} relativeMode={viewMode === 'captain'} />
+          <RadarPpiDisplay ownShip={ownShip} targets={targets} relativeMode={viewMode === 'captain'} />
         </div>
-        <PpiRings centerFraction={viewMode === 'captain' ? [50, 70] : [50, 50]} radiiPx={[40, 80, 160, 320]} />
+
         <div style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <DistanceScale nmPerPixel={0.01} />
         </div>
@@ -423,10 +435,10 @@ export function SimulationMonitor() {
         fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--txt-1)', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => setPaused(false)} style={{ background: 'transparent', color: !isPaused ? 'var(--c-phos)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}>
+          <button onClick={handlePlay} style={{ background: 'transparent', color: !isPaused ? 'var(--c-phos)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}>
             <LucidePlay size={20} />
           </button>
-          <button onClick={() => setPaused(true)} style={{ background: 'transparent', color: isPaused ? 'var(--c-warn)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}>
+          <button onClick={handlePause} style={{ background: 'transparent', color: isPaused ? 'var(--c-warn)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}>
             <LucidePause size={20} />
           </button>
           <button onClick={handleStop} style={{ background: 'transparent', color: 'var(--c-danger)', border: 'none', cursor: 'pointer', marginLeft: 8 }}>
@@ -439,12 +451,52 @@ export function SimulationMonitor() {
           <span style={{ color: 'var(--txt-1)' }}>{fmtSimTime(simTimeSec)}</span>
         </div>
 
-        <select value={simRate} onChange={(e) => setSimRate(Number(e.target.value))} style={{
-          background: 'var(--bg-2)', color: 'var(--c-phos)',
-          border: '1px solid var(--line-2)', padding: '4px 8px', borderRadius: 4, fontFamily: 'var(--f-mono)',
+        {/* Playback speed selector - Premium Segmented Group */}
+        <div style={{
+          display: 'flex',
+          background: 'var(--bg-2)',
+          border: '1px solid var(--line-2)',
+          borderRadius: 6,
+          padding: 2,
+          gap: 2,
         }}>
-          {[0.5, 1, 2, 4, 10, 20, 50].map((r) => <option key={r} value={r}>{r}x</option>)}
-        </select>
+          {[1, 10, 50].map((r) => {
+            const active = simRate === r;
+            return (
+              <button
+                key={r}
+                onClick={() => handleRateChange(r)}
+                onMouseEnter={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = 'var(--txt-1)';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = 'var(--txt-3)';
+                    e.currentTarget.style.background = 'transparent';
+                  }
+                }}
+                style={{
+                  background: active ? 'rgba(45,212,191,0.15)' : 'transparent',
+                  color: active ? 'var(--c-phos)' : 'var(--txt-3)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 12px',
+                  fontSize: 11,
+                  fontFamily: 'var(--f-mono)',
+                  fontWeight: active ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  borderBottom: active ? '1px solid var(--c-phos)' : 'none',
+                }}
+              >
+                {r}x
+              </button>
+            );
+          })}
+        </div>
 
         <div style={{ display: 'flex', gap: 16, borderLeft: '1px solid var(--line-2)', paddingLeft: 24 }}>
           <button onClick={toggleAsdr} style={{ background: 'transparent', color: asdrExpanded ? 'var(--c-phos)' : 'var(--txt-2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
