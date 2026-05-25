@@ -100,22 +100,35 @@ void BehaviorArbiterNode::on_colregs_constraint(
 }
 
 void BehaviorArbiterNode::arbitration_timer_callback() {
-  if (!odd_received_ || !world_received_) {
-    return;
+  bool has_inputs = odd_received_ && world_received_;
+  std::vector<BehaviorDescriptor> active_set;
+
+  if (has_inputs) {
+    ArbitrationInputs inputs;
+    inputs.odd_state = *latest_odd_;
+    inputs.world_state = *latest_world_;
+    if (mode_received_)  inputs.mode_cmd = *latest_mode_;
+    if (mission_received_) inputs.mission_goal = *latest_mission_;
+    if (colregs_received_) inputs.colregs_constraint = *latest_colregs_;
+
+    active_set = BehaviorActivationCondition::compute_active_set(
+        inputs, dictionary_);
   }
 
-  ArbitrationInputs inputs;
-  inputs.odd_state = *latest_odd_;
-  inputs.world_state = *latest_world_;
-  if (mode_received_)  inputs.mode_cmd = *latest_mode_;
-  if (mission_received_) inputs.mission_goal = *latest_mission_;
-  if (colregs_received_) inputs.colregs_constraint = *latest_colregs_;
+  if (!has_inputs || active_set.empty()) {
+    // Publish standby / fallback behavior plan to keep watchdog alive and prevent startup deadlock
+    BehaviorPlanMsg plan;
+    plan.schema_version = 112;  // v1.1.2
+    plan.stamp = now();
+    plan.behavior = static_cast<uint8_t>(BehaviorType::TRANSIT); // Default to Transit
+    plan.heading_min_deg = 0.0f;
+    plan.heading_max_deg = 360.0f;
+    plan.speed_min_kn = 0.0f;
+    plan.speed_max_kn = 22.0f;
+    plan.confidence = 0.0f;
+    plan.rationale = !has_inputs ? "Standby: waiting for inputs" : "Standby: no active behaviors";
 
-  const auto active_set = BehaviorActivationCondition::compute_active_set(
-      inputs, dictionary_);
-
-  if (active_set.empty()) {
-    RCLCPP_WARN(get_logger(), "No active behaviours — skipping arbitration");
+    pub_plan_->publish(plan);
     return;
   }
 

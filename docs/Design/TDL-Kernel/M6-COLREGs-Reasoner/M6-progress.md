@@ -3,13 +3,14 @@
 | 维度 | 说明 |
 |---|---|
 | 数据更新规则 | PR 合并涉及 M6 时同步更新本表 |
-| 最近更新 | 2026-05-20 |
+| 最近更新 | 2026-05-22 |
 | **Currently Implementing** | D2.4（5.0pw，Rule 5-19 推理真实）|
 
 | D 任务 | 关系 | 状态 |
 |---|---|---|
 | D1.4 | Closed in | ✅ 2026-05-20 |
-| D2.4 | Currently Implementing | 🟡（目标 7/31，Rule 5-19 推理真实）|
+| D2.4 | Currently Implementing | 🟡（IDL + Arrow评分管线✅；chain截图❌ / C++ chain测试❌；目标 7/31）|
+| D2.5 | Blocks | ⏳（M6 colregs_chain SAT-2 序列化是 D2.5 DEMO-2 前端 ColregsRationaleTree 前置条件）|
 | D1.7 | Blocks | 🟡 6 维度评分 rubric 文档已产出（6051 字），待 Group A1 关闭后 D2.4 验收完整依赖 |
 
 ## DEMO-2 阻塞贡献
@@ -19,5 +20,5 @@
 
 ---
 ## 参考 D 任务文档
-- D2.4: [Phase 2/D2.4-m6-colregs-reasoner/](../../Phase%202/D2.4-m6-colregs-reasoner/)（待建）
+- D2.4: [Phase 2/D2.4-m6-colregs-6d-scoring/](../../Phase%202/D2.4-m6-colregs-6d-scoring/)
 - D1.7: [Phase 1/D1.7-coverage-metrics/](../../Phase%201/D1.7-coverage-metrics/)
