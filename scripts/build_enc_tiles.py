@@ -288,12 +288,11 @@ def build_mbtiles(geojson_files: dict[str, Path], output_path: Path, name: str):
         "--force",
         "--minimum-zoom=0",
         "--maximum-zoom=16",
+        "--drop-rate=0",                       # Disable rate-based feature dropping at lower zooms
+        "--base-zoom=16",                      # Ensure 100% feature preservation from zoom 16 downwards
         "--buffer=64",
         "--full-detail=14",                    # Increase detail mapping level
-        "--simplification=0.0001",             # Extremely small tolerance to preserve polygon smooth curves
-        "--simplify-only-low-zooms",           # Disable simplification at high zooms
-        "--no-line-simplification",            # Prevent contour lines from crossing
-        "--no-simplification-of-shared-nodes", # Keep shared boundaries between polygons exact
+        "--simplification=1",                  # Standard high-fidelity simplification to keep vertices < 65,535
         "--no-tiny-polygon-reduction",         # Do not drop small islands or shoals
         "--detect-shared-borders",
         "--no-tile-compression",

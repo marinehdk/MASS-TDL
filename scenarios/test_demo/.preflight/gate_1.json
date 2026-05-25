@@ -1,0 +1,38 @@
+{
+  "gate_id": 1,
+  "gate_name": "System Readiness",
+  "timestamp_utc": "2026-05-22T07:22:36.922015Z",
+  "scenario_id": "test_demo",
+  "passed": true,
+  "checks": [
+    {
+      "item": "docker",
+      "status": "ok",
+      "detail": "docker compose: docker CLI not in PATH (running inside container \u2014 self-health assumed OK)"
+    },
+    {
+      "item": "ROS2",
+      "status": "ok",
+      "detail": "ROS2 DDS: 20 ROS2 nodes visible, 9 SIL node(s) confirmed"
+    },
+    {
+      "item": "foxglove_bridge:",
+      "status": "ok",
+      "detail": "foxglove_bridge: :8765 listening"
+    },
+    {
+      "item": "martin",
+      "status": "ok",
+      "detail": "martin tile server: :3000 listening"
+    },
+    {
+      "item": "telemetry",
+      "status": "ok",
+      "detail": "telemetry WS: WS state reported by frontend"
+    }
+  ],
+  "duration_ms": 537.8,
+  "rationale": "all 5/5 sub-checks passed",
+  "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
+  "hazid_scenario_ref": null
+}

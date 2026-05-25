@@ -63,6 +63,18 @@ docs/Design/
 | SIL 2 Third-Party Assessment | Q4 2026 | DNV/TÜV/BV |
 | ALARP + SDLC complete | v1.1.4 (2027 Q1) | Before cert sea trial |
 
+## D2.7 · HARA v0.1 + FMEDA M1 v1.0（2026-05-22 完成）
+
+| 证据项 | 文件路径 | 状态 | 日期 |
+|---|---|---|---|
+| HARA v0.1（32 危险源 H-01~H-32）| docs/Design/Safety/HARA/01-hara-v0.1.md | ✅ 完成 | 2026-05-22 |
+| FMEDA M1 v1.0（20 失效模式 FM-M1-01~FM-M1-20）| docs/Design/Safety/FMEDA/M1-fmeda-v1.0.md | ✅ 完成 | 2026-05-22 |
+| SIF 覆盖验证（SIF-01~SIF-08 全引用）| 内嵌于 HARA 文件 §SIF 覆盖验证表 | ✅ 完成 | 2026-05-22 |
+| ODD×Health-State 12 格 pivot 表 | 内嵌于 HARA 文件末尾 | ✅ 完成 | 2026-05-22 |
+| Finding C P0-C-1(b) 关闭 | HARA 文件已 commit | ✅ | 2026-05-22 |
+| Finding C P1-C-8 关闭 | FMEDA v1.0（20 条）已 commit | ✅ | 2026-05-22 |
+| Finding C P0-C-3 部分闭环 | 完整独立性矩阵推 D3.3a | 🟡 部分 | — |
+
 ## Reference Documents
 
 - V&V Plan: `docs/Design/V&V_Plan/00-vv-strategy-v0.1.md`

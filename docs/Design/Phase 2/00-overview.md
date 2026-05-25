@@ -6,8 +6,8 @@
 | 估计人周 | ~28.0（v3.1 baseline ~25 + D1.3.2.3 parity / D2.5 Web HMI patches +3）|
 | 阶段目标 | 在 Phase 1 工程基础上交付 **M1/M2/M3/M6 决策级实装** + **Cert tracking 实例化（HARA v0.1 + FMEDA M1）** + **船长 HF ground truth** + **架构 v1.1.3 stub**；为 DEMO-2 提供"决策能力可视化"全栈基础 |
 | **里程碑** | 🎬 **DEMO-2 Decision-Capable（2026-07-31）** |
-| 进度日期 | 2026-05-21（Phase 2 启动前规划基线）|
-| 当前阶段状态 | 🔴 **未启动**（Phase 1 关闭中；D2.x 全部 stub-only — 待 6/16 启动）|
+| 进度日期 | 2026-05-22（Phase 2 进行中快照）|
+| 当前阶段状态 | 🟡 **进行中**（D2.7 ✅ / D2.8 ✅ 已完成；D2.1/D2.2/D2.3/D2.4/D2.5 🟡 spec+plan+实装不同程度推进；D2.6 🔴 框架就绪等 6/16 HF 外包 onboard）|
 
 > **L1 总账**：[../00-master-plan.md](../00-master-plan.md)（v3.2-master，2026-05-20）
 > **架构权威**：[../Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md](../Architecture%20Design/MASS_ADAS_L3_TDL_架构设计报告.md) v1.1.3-pre-stub
@@ -19,14 +19,14 @@
 
 | D 编号 | 主题 | 目录 | 人周 | Window | Affects | 状态 |
 |---|---|---|---|---|---|---|
-| D2.1 | M1 ODD/Envelope Manager 决策级实装 + FMEDA stub | [D2.1-m1-odd-hardening/](D2.1-m1-odd-hardening/) | 5.0 | 6/16–7/6 | M1 | 🔴 未启 |
-| D2.2 | M2 World Model 决策级实装 + ENC 集成 + 协方差链 | [D2.2-m2-world-model-enc/](D2.2-m2-world-model-enc/) | 5.5 | 6/16–7/6 | M2 | 🔴 未启 |
-| D2.3 | M3 Mission Manager + L1/L2 双订阅 + Current error 升级 | [D2.3-m3-mission-manager/](D2.3-m3-mission-manager/) | 3.0 | 6/16–7/13 | M3 | 🔴 未启 |
-| D2.4 | M6 COLREGs Reasoner + 6 维度评分 + SAT-2 colregs_chain[5] | [D2.4-m6-colregs-6d-scoring/](D2.4-m6-colregs-6d-scoring/) | 5.0 | 6/16–7/31 | M6, M8 | 🔴 未启 |
-| D2.5 | M1–M6 SIL Integration Test + 50 场景批量 GIF + KPI 仪表 | [D2.5-sil-m1-m6-integration/](D2.5-sil-m1-m6-integration/) | 2.5 | 6/16–7/31 | M1–M6, V&V | 🔴 未启 |
-| D2.6 | 船长 HF Ground Truth（5 访谈 + Figma + 可用性 + 培训矩阵）| [D2.6-captain-hf-ground-truth/](D2.6-captain-hf-ground-truth/) | 3.0 | 6/16–7/13 | M8, HF | 🔴 未启 |
-| D2.7 | HARA Instantiation v0.1（≥30 危险源）+ FMEDA M1 完整化 | [D2.7-hara-fmeda-m1/](D2.7-hara-fmeda-m1/) | 2.5 | 6/16–7/13 | Cert, M1 | 🔴 未启 |
-| D2.8 | 架构 v1.1.3 stub（4 缺失模块 + §17–§21 SIL/RL/scenario/scoring/HMI）| [D2.8-arch-v1.1.3-stub/](D2.8-arch-v1.1.3-stub/) | 3.0 | 6/16–7/31 | 全模块 | 🔴 未启 |
+| D2.1 | M1 ODD/Envelope Manager 决策级实装 + FMEDA stub | [D2.1-m1-odd-hardening/](D2.1-m1-odd-hardening/) | 5.0 | 6/16–7/6 | M1 | 🟡 spec✅ plan✅ FMEDA-v0.1✅ / evidence❌ report❌ |
+| D2.2 | M2 World Model 决策级实装 + ENC 集成 + 协方差链 | [D2.2-m2-world-model-enc/](D2.2-m2-world-model-enc/) | 5.5 | 6/16–7/6 | M2 | 🟡 spec✅ plan✅（5 轨道设计完整）/ evidence❌ report❌ |
+| D2.3 | M3 Mission Manager + L1/L2 双订阅 + Current error 升级 | [D2.3-m3-mission-manager/](D2.3-m3-mission-manager/) | 3.0 | 6/16–7/13 | M3 | 🟡 spec✅ plan✅ 实装+测试✅ / evidence❌ report❌ |
+| D2.4 | M6 COLREGs Reasoner + 6 维度评分 + SAT-2 colregs_chain[5] | [D2.4-m6-colregs-6d-scoring/](D2.4-m6-colregs-6d-scoring/) | 5.0 | 6/16–7/31 | M6, M8 | 🟡 IDL✅ Arrow评分管线✅ / chain截图❌ C++ chain测试❌ |
+| D2.5 | M1–M6 SIL Integration Test + 50 场景批量 GIF + KPI 仪表 | [D2.5-sil-m1-m6-integration/](D2.5-sil-m1-m6-integration/) | 2.5 | 6/16–7/31 | M1–M6, V&V | 🟡 tools/vv基础设施✅ report壳✅ / KPI全待SIL stack实测（DoD 2/20）|
+| D2.6 | 船长 HF Ground Truth（5 访谈 + Figma + 可用性 + 培训矩阵）| [D2.6-captain-hf-ground-truth/](D2.6-captain-hf-ground-truth/) | 3.0 | 6/16–7/13 | M8, HF | 🔴 框架/模板✅ / 访谈实执行等 6/16 HF 外包 onboard |
+| D2.7 | HARA Instantiation v0.1（≥30 危险源）+ FMEDA M1 完整化 | [D2.7-hara-fmeda-m1/](D2.7-hara-fmeda-m1/) | 2.5 | 6/16–7/13 | Cert, M1 | ✅ HARA 32 危险源 + FMEDA 20 失效模式 + SIF 全覆盖 |
+| D2.8 | 架构 v1.1.3 stub（4 缺失模块 + §17–§21 SIL/RL/scenario/scoring/HMI）| [D2.8-arch-v1.1.3-stub/](D2.8-arch-v1.1.3-stub/) | 3.0 | 6/16–7/31 | 全模块 | ✅ 架构主文件升至 v1.1.3-stub，§16–§22 全部到位 |
 
 **Phase 边界拉取（DEMO-2 P0 GAP，从 Phase 3 提前到 7/31）** — 不属 D2.x，但 DEMO-2 强依赖：
 
@@ -175,3 +175,4 @@ Brainstorming prompt 集中在本会话产出，按 D2.X 逐个粘到独立会�
 | 日期 | 变更 |
 |---|---|
 | 2026-05-21 | 初版（Phase 2 启动前规划基线：D2.1–D2.8 目录 + DoD 摘要 + DEMO-2 Charter + 风险 + Findings 映射；从 v3.2 archived plan §Phase 2 + master-plan §当前进度快照提炼）|
+| 2026-05-22 | 进度评审更新：D2.7 ✅（HARA 32 + FMEDA 20）/ D2.8 ✅（v1.1.3-stub §16-§22）/ D2.1-D2.5 🟡（spec+plan+不同程度实装）/ D2.6 🔴（框架就绪，等 6/16）；阶段状态从"未启动"→"进行中"；TDL-Kernel M1/M6/M7/M8 progress 同步更新 |

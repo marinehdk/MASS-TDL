@@ -1,9 +1,9 @@
 {
   "gate_id": 2,
   "gate_name": "Module Health (M1-M8)",
-  "timestamp_utc": "2026-05-22T00:49:39.213234Z",
+  "timestamp_utc": "2026-05-22T08:49:11.786022Z",
   "scenario_id": "imazu-08-ms",
-  "passed": true,
+  "passed": false,
   "checks": [
     {
       "item": "M1:",
@@ -12,13 +12,13 @@
     },
     {
       "item": "M2:",
-      "status": "warn",
-      "detail": "M2: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+      "status": "ok",
+      "detail": "M2: GREEN latency=0ms drops=0"
     },
     {
       "item": "M3:",
-      "status": "warn",
-      "detail": "M3: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)"
+      "status": "fail",
+      "detail": "M3: RED latency=0ms drops=0"
     },
     {
       "item": "M4:",
@@ -51,8 +51,8 @@
       "detail": "M7 isolation: M7 process not running (no containerized deployment)"
     }
   ],
-  "duration_ms": 1436.2,
-  "rationale": "Phase 1: 2/8 modules UNSPECIFIED (L3 kernel not deployed), 6/8 GREEN \u2014 gate PASS (no RED)",
+  "duration_ms": 782.0,
+  "rationale": "1 module(s) RED",
   "sil2_clause": "IEC 61508-3 \u00a77.4 Software module testing \u2014 component liveness",
   "hazid_scenario_ref": null
 }

@@ -21,7 +21,8 @@ docs/Design/
 ├── Phase 0/00-overview.md           D0 sprint 索引 + finding 闭环
 ├── Phase 1/00-overview.md           D1.x + DEMO-1 Charter + 进度快照
 │   └── D{x.y}-*/{spec,plan,report}.md  D 任务详情
-├── Phase 2/  (待建)                 Phase 2 启动时建：D2.x/00-overview + 各 D{x.y}/
+├── Phase 2/00-overview.md           D2.x + DEMO-2 Charter + 进度快照（🟡 进行中）
+│   └── D{x.y}-*/{spec,plan,report}.md  D 任务详情（D2.7/D2.8 ✅，D2.1-D2.5 🟡）
 ├── Phase 3/  (待建)                 同上
 │
 ├── TDL-Kernel/                      第二套文档树（模块设计导向）
@@ -82,33 +83,51 @@ docs/Design/
 
 ---
 
-## 当前进度快照（2026-05-20）
+## 当前进度快照（2026-05-22）
 
 ### Phase 0
 ✅ **全闭**（D0 11 项 must-fix + RFC-007/009 + 工时表 v2.1）。详见 [Phase 0/00-overview.md](Phase%200/00-overview.md)。
 
 ### Phase 1（DEMO-1 还 ~3.5 周）
-- ✅ 完整：D1.5 V&V Plan（含 SIL latency budget + RL rebound + DNV toolchain entry）/ D1.8 cert+ConOps stub / 22 Imazu frozen / MMG 4-DOF / foxglove + MapLibre + ToR ≥2s
-- 🟡 部分：D1.1 / D1.2 / D1.3.1 / D1.3.2.1 / D1.3.2.3 / D1.3.3
-- 🔴 stub 空壳：**D1.3.1' Sim Qualification / D1.4 编码规范 / D1.6 场景 schema / D1.7 覆盖率方法论**
+- ✅ 完整：D1.1 ROS2 ws / D1.2 CI-CD / D1.3.1 MMG+AIS / **D1.3.1' Sim Qual（3 参考解 + 100次重跑 + TCL-3 PASS）** / D1.3.2-integration L3 pipeline / **D1.4 编码规范 v1.2** / D1.5 V&V Plan / D1.8 cert+ConOps stub
+- 🟡 部分：D1.3.2.1（22 Imazu ✅，Cerberus mock known gap）/ D1.3.2.3（Web HMI SAT-1 ✅，SAT-2/3 handler 待 D3.4）/ D1.3.3（Humble 容器 ✅，dds-fmu 未集成）/ **D1.6**（schema baseline ✅，traceability-matrix.csv 缺）/ **D1.7**（6维度 rubric ✅，Group A1 关闭前升 ✅）
 - 🔴 未启：D1.3.2.2 AIS-driven（**v3.2 决策推迟 Phase 4**）
 
+### Phase 2（DEMO-2 还 ~10 周）
+- ✅ 完整：**D2.7**（HARA 32 危险源 + FMEDA M1 v1.0 20 失效模式 + SIF 全覆盖；C P0-C-1(b) + C P1-C-8 关闭）/ **D2.8**（架构 v1.1.3-stub §16–§22 全部到位，附录 F 退役）
+- 🟡 进行中：**D2.3**（M3 实装+测试✅，缺 report）/ **D2.4**（IDL+Arrow评分管线✅，缺 chain截图）/ **D2.5**（tools/vv 11脚本+前端4组件✅，KPI全待SIL stack实测）
+- 🟡 spec+plan 完整：**D2.1**（M1 ODD FSM 设计+FMEDA v0.1，缺 evidence）/ **D2.2**（M2 5轨道设计详尽，缺 evidence）
+- 🔴 框架就绪等启动：**D2.6**（16文件骨架✅，访谈实数据等 6/16 HF 外包 onboard）
+- 详见 [Phase 2/00-overview.md](Phase%202/00-overview.md)
+
 ### TDL Kernel 模块（DEMO-2 视角）
-- ✅ M1 / M2 / M3 / M6 / M7 / M8 有真实 ROS topic 发布（SAT-1 级）
+- ✅ M1 / M2 / M3 / M6 / M7 / M8 有真实 ROS topic 发布（SAT-1 级）；M1(D2.1)/M2(D2.2)/M3(D2.3) 已完成 Phase 2 决策级实装设计
 - 🔴 **M4 未发 SAT-2 ivp_contributions** / **M5 未发 SAT-3 trajectory_candidates** / **M8 未发 SAT-2/SAT-3/SOTIF metrics 三桥接 topic** / **前端 useFoxgloveLive 缺 3 handler**
 
-### DEMO-2 P0 冲刺 GAP（按急迫度）
-1. **M8 增发 SAT-2/3/SOTIF 3 topic + IDL**（1.5 pw，从 D3.4 拆出 7/31 前）
-2. **前端 useFoxgloveLive 增 3 handler**（0.5 pw，归 D1.3.2.3）
-3. **M4 IvP 提前 7/26 出 stub**（4 pw，D3.1 不可滑期）
-4. **M5 BC-MPC 提前 7/27 出 stub**（6.5 pw，D3.2 不可滑期；初版允许线性化 Nomoto 兜底）
-5. **M6 5 层 colregs_chain SAT-2 序列化**（0.5 pw，D2.4 内吸收）
-6. **D1.7 6 维度评分 rubric 完整化**（1.5 pw，D2.4 评分依赖）
-7. **D2.7 HARA ≥30 危险源 + FMEDA M1**（2.5 pw，CCS 中期意见会议必需）
-8. **D1.3.1 Sim Qualification 真实跑 3 参考解**（1 pw，CCS 现场展示）
-9. **D1.6 场景 schema maritime-schema 完整化**（2 pw，DEMO-2 50 场景前置）
+### DEMO-2 P0 冲刺 GAP（按急迫度，2026-05-22 更新）
 
-合计 P0+P1 ≈ 20 pw；距 7/31 剩 ~10 周；双人 ~18.5pw/周 产能，理论可吸收，前提是 M4/M5 owner 7/13 准时开工。
+**🔴 未完成（仍需执行）**
+
+| # | GAP 项 | 工时 | 截止 | 备注 |
+|---|---|---|---|---|
+| 1 | **M4 IvP 提前出 stub**（分段线性兜底，ivp_contributions[]）| 4.0 pw | **7/26** | D3.1 提前；7/13 必须开工 |
+| 2 | **M5 BC-MPC 提前出 stub**（线性 Nomoto + 13 弧 trajectory_candidates[]）| 6.5 pw | **7/27** | D3.2 提前；7/13 必须开工；初版允许 Nomoto 兜底 |
+| 3 | **M8 增发 SAT-2/3/SOTIF 3 topic + IDL**（从 D3.4 拆出）| 1.5 pw | 7/31 | 前端 4 组件双端真空根因 |
+| 4 | **前端 useFoxgloveLive 增 3 handler**（IvP / Trajectory / SOTIF）| 0.5 pw | 7/31 | 归 D1.3.2.3；依赖 #3 |
+| 5 | **D2.4 chain_screenshots ≥10 场景**（Playwright T10）| 0.5 pw | 7/31 | DEMO-2 ColregsRationaleTree P0；新增项 |
+| 6 | **M6 colregs_chain C++ 填充 + colcon 测试通过**（SIL-6 关闭）| 0.5 pw | 7/31 | D2.4 内吸收 |
+| 7 | **D1.7 6 维度 rubric Group A1 关闭**（D2.4 评分验收依赖）| 1.5 pw | 7/31 | 🟡 rubric 文档已产出，待 D2.4 Group A1 执行 |
+| 8 | **D1.6 场景 schema traceability-matrix.csv**（HAZID 干系人展示）| 2.0 pw | 7/31 | 🟡 schema baseline ✅，matrix 缺失 |
+
+**✅ 已关闭（从 GAP 移除）**
+
+| # | GAP 项 | 关闭日期 | 关闭方式 |
+|---|---|---|---|
+| — | D2.7 HARA ≥30 危险源 + FMEDA M1 | 2026-05-22 | HARA 32 + FMEDA 20 + SIF 全覆盖 ✅ |
+| — | D1.3.1' Sim Qual 3 参考解（CCS 现场展示）| 2026-05-20 | 3 参考解 pytest + 100 次重跑 + TCL-3 PASS ✅ |
+| — | D2.8 架构 v1.1.3 stub | 2026-05-22 | §16–§22 全部到位 ✅ |
+
+**合计剩余**：~16.5 pw；距 7/31 剩 ~10 周；**关键路径：M4/M5 必须 7/13 开工，否则 10.5 pw 无法收口**。
 
 ---
 
@@ -137,6 +156,7 @@ docs/Design/
 | v3.1 | 2026-05-09 | SIL 框架架构 patch：选项 D 混合 + DNV 工具链 3 MUST + ROS2 Humble + RL 隔离 + maritime-schema + Imazu-22 + Web HMI；累计缺口 -32~-34 pw（用户授权"完整实现优先"）|
 | **v3.2** | **2026-05-20** | Phase 1 进度快照 + DEMO-2 冲刺 GAP（实测核查 12 D 任务关闭率 + Screen 3 双端真空诊断）；M4/M5/M8 SAT 桥 + D1.7 + D2.7 + D1.3.1' Sim Qual + D1.6 列为 P0；D1.3.2.2 推 Phase 4 |
 | **v3.2-master** | **2026-05-20** | **文档重构：1500 行单文件 → 总账 + Phase overview + D 任务子文档 + TDL-Kernel 模块文档双轨树**；编号重排 D1.3a/b/c → D1.3.1/2/3 数字层级；原 1500 行归档 |
+| **v3.2-master** | **2026-05-22** | Phase 2 进度评审更新：D2.7/D2.8 ✅；D2.1–D2.5 🟡（report.md 全部补全）；D2.6 🔴 框架就绪；DEMO-2 P0 GAP #7 关闭；Phase 1 快照修正（D1.3.1'/D1.4 从 🔴 stub 改正为 ✅ 实际完成）|
 
 ---
 
