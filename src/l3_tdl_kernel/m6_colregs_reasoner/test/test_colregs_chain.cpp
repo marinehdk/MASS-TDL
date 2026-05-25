@@ -47,39 +47,152 @@ TEST(ColregsChainTest, EmptyEvalsReturnsEmptyChain) {
   EXPECT_TRUE(result.target_id.empty());
 }
 
-TEST(ColregsChainTest, HeadOnEvalPopulatesLayer3) {
+TEST(ColregsChainTest, HeadOnRule14Identification) {
   auto target = make_target(42, 2.0, 500.0, 180.0);
   auto eval = make_eval(42, 14, EncounterType::HEAD_ON, Role::GIVE_WAY,
                         TimingPhase::PRESERVE_COURSE);
   std::vector<RuleEvaluation> evals = {eval};
   std::vector<TargetGeometricState> targets = {target};
   RuleParameters params{};
-  params.t_act_s = 240.0;
+  params.cpa_safe_m = 1852.0;
   auto result = ColregsReasonerNode::test_build_colregs_chain(
       evals, OddDomain::ODD_A, params, targets);
   ASSERT_EQ(result.layers.size(), 5u);
-  EXPECT_NE(result.layers[2].conclusion.find("HEAD-ON"), std::string::npos);
-  EXPECT_EQ(result.target_id, "42");
+
+  EXPECT_EQ(result.layers[0].label, "rule_identification");
+  EXPECT_EQ(result.layers[0].conclusion, "Rule14");
+  EXPECT_FLOAT_EQ(result.layers[0].confidence, 1.0f);
+  EXPECT_NE(result.layers[0].rationale.find("Rule14"), std::string::npos);
+  EXPECT_NE(result.layers[0].rationale.find("HEAD-ON"), std::string::npos);
+
+  EXPECT_EQ(result.layers[1].label, "geometric_classification");
+  EXPECT_EQ(result.layers[1].conclusion, "HEAD-ON");
+  EXPECT_GE(result.layers[1].confidence, 0.5f);
+  EXPECT_LE(result.layers[1].confidence, 1.0f);
+
+  EXPECT_EQ(result.layers[2].label, "action_determination");
+  EXPECT_EQ(result.layers[3].label, "priority_resolution");
+  EXPECT_EQ(result.layers[4].label, "compliance_check");
 }
 
-TEST(ColregsChainTest, GiveWayRolePopulatesLayer4) {
-  auto target = make_target(99, 5.0, 300.0, 120.0);
-  auto eval = make_eval(99, 14, EncounterType::HEAD_ON, Role::GIVE_WAY,
+TEST(ColregsChainTest, CrossingGiveWayRule15) {
+  auto target = make_target(99, 60.0, 300.0, 120.0);
+  auto eval = make_eval(99, 15, EncounterType::CROSSING, Role::GIVE_WAY,
                         TimingPhase::PRESERVE_COURSE);
   std::vector<RuleEvaluation> evals = {eval};
   std::vector<TargetGeometricState> targets = {target};
   RuleParameters params{};
-  params.t_act_s = 240.0;
+  params.cpa_safe_m = 1852.0;
   auto result = ColregsReasonerNode::test_build_colregs_chain(
-      evals, OddDomain::ODD_B, params, targets);
+      evals, OddDomain::ODD_A, params, targets);
   ASSERT_EQ(result.layers.size(), 5u);
-  EXPECT_EQ(result.layers[3].conclusion, "GIVE-WAY");
-  EXPECT_EQ(result.layers[0].conclusion, "ODD-B");
+
+  EXPECT_EQ(result.layers[0].conclusion, "Rule15");
+  EXPECT_EQ(result.layers[2].conclusion, "give_way");
+  EXPECT_NE(result.layers[2].rationale.find("Rule15"), std::string::npos);
+  EXPECT_NE(result.layers[2].rationale.find("GIVE-WAY"), std::string::npos);
+}
+
+TEST(ColregsChainTest, OvertakingRule13) {
+  auto target = make_target(7, 180.0, 400.0, 200.0);
+  auto eval = make_eval(7, 13, EncounterType::OVERTAKING, Role::GIVE_WAY,
+                        TimingPhase::PRESERVE_COURSE);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  params.cpa_safe_m = 1852.0;
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+
+  EXPECT_EQ(result.layers[0].conclusion, "Rule13");
+  EXPECT_EQ(result.layers[1].label, "geometric_classification");
+  EXPECT_EQ(result.layers[1].conclusion, "OVERTAKING");
+}
+
+TEST(ColregsChainTest, GeometricClassificationHasRealValues) {
+  auto target = make_target(42, 2.0, 500.0, 180.0);
+  auto eval = make_eval(42, 14, EncounterType::HEAD_ON, Role::GIVE_WAY,
+                        TimingPhase::PRESERVE_COURSE);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+  const auto& geo = result.layers[1];
+  EXPECT_EQ(geo.label, "geometric_classification");
+  ASSERT_EQ(geo.input_keys.size(), 4u);
+  EXPECT_EQ(geo.input_keys[0], "relative_bearing_deg");
+  EXPECT_EQ(geo.input_keys[1], "aspect_deg");
+  EXPECT_EQ(geo.input_keys[2], "cpa_m");
+  EXPECT_EQ(geo.input_keys[3], "tcpa_s");
+  EXPECT_NE(geo.rationale.find("Relative bearing"), std::string::npos);
+  EXPECT_NE(geo.rationale.find("CPA"), std::string::npos);
+}
+
+TEST(ColregsChainTest, PriorityResolutionSingleRule) {
+  auto target = make_target(1, 0.0, 100.0, 30.0);
+  auto eval = make_eval(1, 14, EncounterType::HEAD_ON, Role::GIVE_WAY,
+                        TimingPhase::PRESERVE_COURSE);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+  EXPECT_EQ(result.layers[3].conclusion, "Single rule applicable");
+  EXPECT_FLOAT_EQ(result.layers[3].confidence, 1.0f);
+}
+
+TEST(ColregsChainTest, ComplianceCheckGiveWayNonCompliant) {
+  auto target = make_target(1, 0.0, 500.0, 30.0);
+  auto eval = make_eval(1, 15, EncounterType::CROSSING, Role::GIVE_WAY,
+                        TimingPhase::SOUND_WARNING);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  params.cpa_safe_m = 1852.0;
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+  EXPECT_EQ(result.layers[4].conclusion, "Non-compliant");
+  EXPECT_LT(result.layers[4].confidence, 1.0f);
+  EXPECT_NE(result.layers[4].rationale.find("CPA"), std::string::npos);
+}
+
+TEST(ColregsChainTest, ComplianceCheckGiveWayCompliant) {
+  auto target = make_target(1, 0.0, 2000.0, 30.0);
+  auto eval = make_eval(1, 15, EncounterType::CROSSING, Role::GIVE_WAY,
+                        TimingPhase::PRESERVE_COURSE);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  params.cpa_safe_m = 1852.0;
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+  EXPECT_EQ(result.layers[4].conclusion, "Compliant");
+  EXPECT_FLOAT_EQ(result.layers[4].confidence, 1.0f);
+}
+
+TEST(ColregsChainTest, ComplianceCheckStandOnIndependentAction) {
+  auto target = make_target(1, 60.0, 500.0, 30.0);
+  auto eval = make_eval(1, 17, EncounterType::CROSSING, Role::STAND_ON,
+                        TimingPhase::INDEPENDENT_ACTION);
+  std::vector<RuleEvaluation> evals = {eval};
+  std::vector<TargetGeometricState> targets = {target};
+  RuleParameters params{};
+  params.cpa_safe_m = 1852.0;
+  auto result = ColregsReasonerNode::test_build_colregs_chain(
+      evals, OddDomain::ODD_A, params, targets);
+  ASSERT_EQ(result.layers.size(), 5u);
+  EXPECT_EQ(result.layers[4].conclusion, "Non-compliant");
+  EXPECT_FLOAT_EQ(result.layers[4].confidence, 0.5f);
+  EXPECT_TRUE(result.layers[4].escalation);
 }
 
 TEST(ColregsChainTest, MultiTargetSelectsMinCpa) {
-  // Two targets: target 10 at CPA=200m, target 20 at CPA=100m.
-  // Primary should be target 20 (min CPA).
   auto t_near = make_target(20, 10.0, 100.0, 60.0);
   auto t_far  = make_target(10, 350.0, 200.0, 300.0);
   auto e_near = make_eval(20, 14, EncounterType::HEAD_ON, Role::GIVE_WAY,
@@ -93,21 +206,7 @@ TEST(ColregsChainTest, MultiTargetSelectsMinCpa) {
       evals, OddDomain::ODD_A, params, targets);
   ASSERT_EQ(result.layers.size(), 5u);
   EXPECT_EQ(result.target_id, "20");
-  EXPECT_NE(result.layers[2].conclusion.find("HEAD-ON"), std::string::npos);
-}
-
-TEST(ColregsChainTest, EscalationFlagWhenIndependentAction) {
-  auto target = make_target(1, 0.0, 100.0, 30.0);
-  auto eval = make_eval(1, 17, EncounterType::CROSSING, Role::STAND_ON,
-                        TimingPhase::INDEPENDENT_ACTION);
-  std::vector<RuleEvaluation> evals = {eval};
-  std::vector<TargetGeometricState> targets = {target};
-  RuleParameters params{};
-  auto result = ColregsReasonerNode::test_build_colregs_chain(
-      evals, OddDomain::ODD_C, params, targets);
-  ASSERT_EQ(result.layers.size(), 5u);
-  EXPECT_TRUE(result.layers[4].escalation);
-  EXPECT_NE(result.layers[4].conclusion.find("STAGE_3"), std::string::npos);
+  EXPECT_EQ(result.layers[0].conclusion, "Rule14");
 }
 
 TEST(ColregsChainTest, AllLayersHaveConfidence) {
@@ -117,6 +216,7 @@ TEST(ColregsChainTest, AllLayersHaveConfidence) {
   std::vector<RuleEvaluation> evals = {eval};
   std::vector<TargetGeometricState> targets = {target};
   RuleParameters params{};
+  params.cpa_safe_m = 1852.0;
   auto result = ColregsReasonerNode::test_build_colregs_chain(
       evals, OddDomain::ODD_A, params, targets);
   ASSERT_EQ(result.layers.size(), 5u);
@@ -124,5 +224,4 @@ TEST(ColregsChainTest, AllLayersHaveConfidence) {
     EXPECT_GE(layer.confidence, 0.0f);
     EXPECT_LE(layer.confidence, 1.0f);
   }
-  EXPECT_FLOAT_EQ(result.layers[2].confidence, 0.85f);
 }

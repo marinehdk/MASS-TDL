@@ -74,16 +74,6 @@ std::string role_str(Role r) {
   }
 }
 
-std::string timing_phase_str(TimingPhase p) {
-  switch (p) {
-    case TimingPhase::PRESERVE_COURSE: return "STAGE_1 preserve_course";
-    case TimingPhase::SOUND_WARNING: return "STAGE_2 sound_warning";
-    case TimingPhase::INDEPENDENT_ACTION: return "STAGE_3 independent_action";
-    case TimingPhase::CRITICAL_ACTION: return "STAGE_4 critical_action";
-    default: return "UNKNOWN";
-  }
-}
-
 l3_msgs::msg::ColregsChainLayer make_chain_layer(
     uint8_t layer_num, const std::string& label, const std::string& conclusion,
     const std::vector<std::string>& keys, const std::vector<std::string>& vals,
@@ -99,6 +89,64 @@ l3_msgs::msg::ColregsChainLayer make_chain_layer(
   layer.escalation = escalation;
   layer.rationale = rationale;
   return layer;
+}
+
+std::string encounter_geometry_str(EncounterType enc) {
+  switch (enc) {
+    case EncounterType::HEAD_ON: return "HEAD-ON";
+    case EncounterType::OVERTAKING: return "OVERTAKING";
+    case EncounterType::CROSSING: return "CROSSING";
+    case EncounterType::RESTRICTED_VIS: return "RESTRICTED-VIS";
+    case EncounterType::AMBIGUOUS: return "AMBIGUOUS";
+    default: return "NONE";
+  }
+}
+
+std::string role_action_str(Role r) {
+  switch (r) {
+    case Role::GIVE_WAY: return "give_way";
+    case Role::STAND_ON: return "stand_on";
+    case Role::BOTH_GIVE_WAY: return "both_give_way";
+    default: return "free";
+  }
+}
+
+float compute_geometry_clarity(double relative_bearing_deg, EncounterType enc_type) {
+  constexpr double kHeadOnHalfWidth = 22.5;
+  constexpr double kCrossingInner = 22.5;
+  constexpr double kCrossingOuter = 112.5;
+  constexpr double kOvertakingStern = 247.5;
+
+  double rb = relative_bearing_deg;
+  if (rb > 180.0) rb = 360.0 - rb;
+
+  double dist_to_boundary = 0.0;
+  double max_dist = 45.0;
+
+  switch (enc_type) {
+    case EncounterType::HEAD_ON:
+      dist_to_boundary = kHeadOnHalfWidth - std::min(rb, kHeadOnHalfWidth);
+      max_dist = kHeadOnHalfWidth;
+      break;
+    case EncounterType::CROSSING:
+      if (rb >= kCrossingInner && rb <= kCrossingOuter) {
+        dist_to_boundary = std::min(rb - kCrossingInner, kCrossingOuter - rb);
+      }
+      max_dist = (kCrossingOuter - kCrossingInner) / 2.0;
+      break;
+    case EncounterType::OVERTAKING:
+      if (rb >= kCrossingOuter && rb <= kOvertakingStern) {
+        dist_to_boundary = std::min(rb - kCrossingOuter, kOvertakingStern - rb);
+      }
+      max_dist = (kOvertakingStern - kCrossingOuter) / 2.0;
+      break;
+    default:
+      return 0.5f;
+  }
+
+  float clarity = 0.5f + 0.5f * static_cast<float>(
+      std::max(0.0, dist_to_boundary) / std::max(1.0, max_dist));
+  return std::min(clarity, 1.0f);
 }
 
 std::string odd_yaml_key(OddDomain d) {
@@ -690,6 +738,7 @@ RuleParameters ColregsReasonerNode::get_current_rule_params() const {
 // build_colregs_chain() — construct 5-layer decision rationale
 // ------------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::build_colregs_chain(
     const std::vector<RuleEvaluation>& evals, OddDomain domain,
     const RuleParameters& params,
@@ -720,44 +769,99 @@ ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::build_colregs_chain
   result.target_id = std::to_string(primary_geo->target_id);
   result.layers.resize(5);
 
-  result.layers[0] = make_chain_layer(1, "ODD", odd_domain_str(domain),
-      {}, {}, 1.0f, 0, false, "Current ODD domain from M1");
+  const double kRelBearing = normalize_bearing_deg(
+      primary_geo->bearing_deg - primary_geo->ownship_heading_deg);
+  const std::string kRuleIdStr = "Rule" + std::to_string(primary_eval->rule_id);
+  const std::string kEncStr = encounter_type_str(primary_eval->encounter_type);
 
-  std::string active_rules;
+  std::vector<const RuleEvaluation*> primary_evals;
   for (const auto& ev : evals) {
     if (ev.is_active && ev.target_id == primary_geo->target_id) {
-      if (!active_rules.empty()) active_rules += " ";
-      active_rules += "R" + std::to_string(ev.rule_id);
+      primary_evals.push_back(&ev);
     }
   }
-  result.layers[1] = make_chain_layer(2, "RuleSet",
-      active_rules.empty() ? "NONE" : active_rules, {}, {}, 0.9f, 0, false,
-      "Active COLREGS rules for primary target");
 
-  double cpa_nm = primary_geo->cpa_m / 1852.0;
-  result.layers[2] = make_chain_layer(3, "Encounter",
-      encounter_type_str(primary_eval->encounter_type),
-      {"bearing_deg", "cpa_nm"},
-      {std::to_string(static_cast<int>(primary_geo->bearing_deg)),
-       std::to_string(cpa_nm).substr(0, 5)},
-      primary_eval->confidence, 0, false, primary_eval->rationale);
+  result.layers[0] = make_chain_layer(1, "rule_identification", kRuleIdStr,
+      {"encounter_type", "odd_domain"},
+      {kEncStr, odd_domain_str(domain)},
+      1.0f, 0, false,
+      "Encounter classified as " + kEncStr + ", applicable " + kRuleIdStr);
 
-  result.layers[3] = make_chain_layer(4, "Role",
-      role_str(primary_eval->role),
-      {"aspect_deg"},
-      {std::to_string(static_cast<int>(primary_geo->aspect_deg))},
-      primary_eval->confidence, 0, false, "Role from M6 rule evaluation");
+  const float kGeoClarity = compute_geometry_clarity(
+      kRelBearing, primary_eval->encounter_type);
+  result.layers[1] = make_chain_layer(2, "geometric_classification",
+      encounter_geometry_str(primary_eval->encounter_type),
+      {"relative_bearing_deg", "aspect_deg", "cpa_m", "tcpa_s"},
+      {std::to_string(static_cast<int>(kRelBearing)),
+       std::to_string(static_cast<int>(primary_geo->aspect_deg)),
+       std::to_string(static_cast<int>(primary_geo->cpa_m)),
+       std::to_string(static_cast<int>(primary_geo->tcpa_s))},
+      kGeoClarity, 0, false,
+      "Relative bearing " + std::to_string(static_cast<int>(kRelBearing)) +
+      "\u00B0, aspect " + std::to_string(static_cast<int>(primary_geo->aspect_deg)) +
+      "\u00B0, CPA " + std::to_string(static_cast<int>(primary_geo->cpa_m)) + "m");
 
-  bool escalation = (primary_eval->phase == TimingPhase::INDEPENDENT_ACTION
-                     || primary_eval->phase == TimingPhase::CRITICAL_ACTION);
-  result.layers[4] = make_chain_layer(5, "Timing",
-      timing_phase_str(primary_eval->phase),
-      {"tcpa_s", "t_act_s"},
-      {std::to_string(static_cast<int>(primary_geo->tcpa_s)),
-       std::to_string(static_cast<int>(params.t_act_s))},
-      primary_eval->confidence,
+  result.layers[2] = make_chain_layer(3, "action_determination",
+      role_action_str(primary_eval->role),
+      {"role", "rule"},
+      {role_str(primary_eval->role), kRuleIdStr},
+      1.0f, 0, false,
+      "Own vessel is " + role_str(primary_eval->role) + " per " + kRuleIdStr);
+
+  std::string priority_conclusion;
+  float priority_confidence = 1.0f;
+  std::string priority_rationale;
+  if (primary_evals.size() <= 1) {
+    priority_conclusion = "Single rule applicable";
+    priority_rationale = "Only " + kRuleIdStr + " is active for primary target";
+  } else {
+    std::string rules_list;
+    for (const auto* ev : primary_evals) {
+      if (!rules_list.empty()) rules_list += " > ";
+      rules_list += "Rule" + std::to_string(ev->rule_id);
+    }
+    priority_conclusion = "Priority: " + rules_list;
+    priority_confidence = 0.8f;
+    priority_rationale = "Multiple rules active, resolved by COLREGs priority hierarchy";
+  }
+  result.layers[3] = make_chain_layer(4, "priority_resolution", priority_conclusion,
+      {"active_rule_count"}, {std::to_string(primary_evals.size())},
+      priority_confidence, 0, false, priority_rationale);
+
+  bool is_compliant = true;
+  std::string non_compliance_reason;
+  float compliance_score = 1.0f;
+
+  if (primary_eval->role == Role::GIVE_WAY) {
+    if (primary_geo->cpa_m < params.cpa_safe_m && primary_geo->tcpa_s > 0) {
+      is_compliant = false;
+      non_compliance_reason = "CPA " + std::to_string(static_cast<int>(primary_geo->cpa_m)) +
+          "m below safe threshold " + std::to_string(static_cast<int>(params.cpa_safe_m)) + "m";
+      compliance_score = (params.cpa_safe_m > 0.0)
+          ? std::max(0.0f, static_cast<float>(primary_geo->cpa_m) /
+                            static_cast<float>(params.cpa_safe_m))
+          : 0.0f;
+    }
+  } else if (primary_eval->role == Role::STAND_ON) {
+    if (primary_eval->phase == TimingPhase::INDEPENDENT_ACTION ||
+        primary_eval->phase == TimingPhase::CRITICAL_ACTION) {
+      is_compliant = false;
+      non_compliance_reason = "Stand-on vessel should take independent action per Rule 17(a)(ii)";
+      compliance_score = 0.5f;
+    }
+  }
+
+  bool escalation = (primary_eval->phase == TimingPhase::INDEPENDENT_ACTION ||
+                     primary_eval->phase == TimingPhase::CRITICAL_ACTION);
+  result.layers[4] = make_chain_layer(5, "compliance_check",
+      is_compliant ? "Compliant" : "Non-compliant",
+      {"cpa_m", "cpa_safe_m"},
+      {std::to_string(static_cast<int>(primary_geo->cpa_m)),
+       std::to_string(static_cast<int>(params.cpa_safe_m))},
+      compliance_score,
       static_cast<uint8_t>(primary_eval->phase) + 1,
-      escalation, "Timing phase based on TCPA vs ODD thresholds");
+      escalation,
+      is_compliant ? "Compliant" : "Non-compliant: " + non_compliance_reason);
 
   return result;
 }
