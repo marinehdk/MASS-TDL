@@ -19,6 +19,10 @@
 #include "l3_msgs/msg/ui_state.hpp"
 #include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
+#include "l3_msgs/msg/sat2_data.hpp"
+#include "l3_msgs/msg/sat3_data.hpp"
+#include "l3_msgs/msg/sotif_metrics.hpp"
+#include "l3_msgs/msg/sotif_violation.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -56,6 +60,7 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   void on_tor_tick();              // 2 Hz
   void on_health_check_tick();     // 1 Hz
   void on_asdr_snapshot_tick();    // 2 Hz
+  void on_sil_stub_tick();         // 1 Hz SIL stub publishers
 
   // ---- Helpers ----
   void load_parameters();
@@ -106,10 +111,14 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::UIState>::SharedPtr pub_ui_state_;
   rclcpp::Publisher<l3_msgs::msg::ToRRequest>::SharedPtr pub_tor_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr pub_asdr_;
+  rclcpp::Publisher<l3_msgs::msg::SAT2Data>::SharedPtr pub_sil_sat2_;
+  rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr pub_sil_sat3_;
+  rclcpp::Publisher<l3_msgs::msg::SotifMetrics>::SharedPtr pub_sil_sotif_;
   rclcpp::TimerBase::SharedPtr timer_ui_;
   rclcpp::TimerBase::SharedPtr timer_tor_;
   rclcpp::TimerBase::SharedPtr timer_health_;
   rclcpp::TimerBase::SharedPtr timer_asdr_snapshot_;
+  rclcpp::TimerBase::SharedPtr timer_sil_stub_;
 
   // ---- Parameters ----
   double tor_deadline_s_{60.0};

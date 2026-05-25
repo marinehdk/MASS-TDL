@@ -12,3 +12,7 @@ float32 system_confidence
 ColregsChainLayer[] colregs_chain
 string colregs_chain_target_id
 float32 reasoning_latency_ms
+
+# D3.4 M4 BehaviorArbiter: IvP contribution vector
+float32[6] ivp_contributions
+string[6] ivp_labels

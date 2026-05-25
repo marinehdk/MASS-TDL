@@ -108,6 +108,13 @@ void HmiTransparencyBridgeNode::init_publishers()
       "/l3/m8/tor_request", rclcpp::QoS(50).reliable().transient_local());
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
       "/l3/asdr/record", rclcpp::QoS(50).reliable().transient_local());
+
+  pub_sil_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>(
+      "/sil/sat2_data", rclcpp::SensorDataQoS().keep_last(5));
+  pub_sil_sat3_ = create_publisher<l3_msgs::msg::SAT3Data>(
+      "/sil/sat3_data", rclcpp::SensorDataQoS().keep_last(10));
+  pub_sil_sotif_ = create_publisher<l3_msgs::msg::SotifMetrics>(
+      "/sil/sotif_metrics", rclcpp::QoS(20).reliable().transient_local());
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +128,7 @@ void HmiTransparencyBridgeNode::init_timers()
   timer_tor_           = create_wall_timer(500ms,  [this] { on_tor_tick(); });
   timer_health_        = create_wall_timer(1000ms, [this] { on_health_check_tick(); });
   timer_asdr_snapshot_ = create_wall_timer(500ms,  [this] { on_asdr_snapshot_tick(); });
+  timer_sil_stub_ = create_wall_timer(1000ms, [this] { on_sil_stub_tick(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -348,6 +356,50 @@ void HmiTransparencyBridgeNode::emit_asdr_event(
 {
   auto record = asdr_logger_->build_record(get_clock()->now(), event_type, decision_json);
   pub_asdr_->publish(record);
+}
+
+// ---------------------------------------------------------------------------
+// Timer: on_sil_stub_tick (1 Hz) — SIL frontend stub publishers
+// ---------------------------------------------------------------------------
+
+void HmiTransparencyBridgeNode::on_sil_stub_tick()
+{
+  auto now = get_clock()->now();
+
+  // SAT2Data stub
+  l3_msgs::msg::SAT2Data sat2{};
+  sat2.schema_version = 114;
+  sat2.stamp = now;
+  sat2.confidence = 1.0f;
+  sat2.system_confidence = 1.0f;
+  sat2.rationale = "sil_stub";
+  sat2.trigger_reason = "sil_stub";
+  sat2.reasoning_latency_ms = 0.0f;
+  pub_sil_sat2_->publish(sat2);
+
+  // SAT3Data stub
+  l3_msgs::msg::SAT3Data sat3{};
+  sat3.schema_version = 114;
+  sat3.stamp = now;
+  sat3.confidence = 1.0f;
+  sat3.prediction_uncertainty = 0.0f;
+  sat3.rationale = "sil_stub";
+  sat3.tdl_s = 0.0f;
+  sat3.tmr_s = 0.0f;
+  sat3.forecast_horizon_s = 0.0;
+  sat3.primary_trajectory_idx = 0;
+  pub_sil_sat3_->publish(sat3);
+
+  // SotifMetrics stub
+  static uint32_t seq = 0;
+  l3_msgs::msg::SotifMetrics sotif{};
+  sotif.schema_version = 114;
+  sotif.stamp = now;
+  sotif.sequence_number = ++seq;
+  sotif.active_violation_count = 0;
+  sotif.degradation_alert = false;
+  sotif.degradation_display_latency_ms = 0.0f;
+  pub_sil_sotif_->publish(sotif);
 }
 
 }  // namespace mass_l3::m8
