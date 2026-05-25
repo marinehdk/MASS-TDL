@@ -3,7 +3,7 @@
 | 属性 | 值 |
 |---|---|
 | 模块代号 | M7 |
-| 职责一句话 | Doer-Checker 中的 Checker，IEC 61508 + SOTIF 双轨；6 类硬约束 + 5 类假设违反监控 |
+| 职责一句话 | Doer-Checker 中的 Checker，IEC 61508 + SOTIF 双轨；6 类硬约束 + 6 类假设违反监控 |
 | 时间尺度 | 短时（< 10 ms 端到端）|
 | SIL 等级 | **SIL 2**（核心安全功能）|
 | 实现路径分类 | **PATH-S**（严格路径，与 M1 并列）|
@@ -17,7 +17,7 @@
 ## v3.0 拆分（MUST-11，6→9 pw）
 
 - **M7-core**（6 pw，D3.3a）：6 类硬约束 + IEC 61508 watchdog + ASDR SHA-256 + Doer-Checker 三量化矩阵 + FMEDA M7 表
-- **M7-sotif**（3 pw，D3.3b）：5 类假设违反检测 + 100 周期 = 15s 滑窗（RFC-003）+ enum-only veto + SOTIF area mapping + ISO 21448 §6 穷举证据
+- **M7-sotif**（3 pw，D3.3b）：6 类假设违反检测 + 100 周期 = 15s 滑窗（RFC-003）+ enum-only veto + SOTIF area mapping + ISO 21448 §6 穷举证据
 
 ---
 

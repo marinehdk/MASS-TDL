@@ -22,7 +22,7 @@
 | **D3.1** | M4 BehaviorArbiter IvP + ivp_contributions[] | [D3.1-m4-behavior-arbiter/](D3.1-m4-behavior-arbiter/) | 4.0 | **7/26** (DEMO-2 P0 子集) | M4 | 🔵 salvage C++ exists / spec❌ |
 | **D3.2** | M5 TacticalPlanner BC-MPC+Mid-MPC + trajectory_candidates[] | [D3.2-m5-tactical-planner/](D3.2-m5-tactical-planner/) | 6.5 | **7/27** (DEMO-2 P0 子集) → **8/10** (完整) | M5 | 🔵 planning only / spec❌ |
 | **D3.3a** | M7-core Doer-Checker 三量化矩阵 + 6 硬约束 + FMEDA M7 | [D3.3a-m7-core/](D3.3a-m7-core/) | 6.0 | **8/10** | M7 | 🔵 spec❌ |
-| **D3.3b** | M7-sotif 5 类假设违反检测 + sotif_metrics topic | [D3.3b-m7-sotif/](D3.3b-m7-sotif/) | 3.0 | **8/16** | M7 | 🟡 assumption_monitor.cpp (1 commit) / spec❌ |
+| **D3.3b** | M7-sotif 6 类假设违反检测 + sotif_metrics topic | [D3.3b-m7-sotif/](D3.3b-m7-sotif/) | 3.0 | **8/16** | M7 | 🟡 assumption_monitor.cpp (1 commit) / spec❌ |
 | **D3.4** | M8 HMI 完整（7 Phase 3 增项 + 双角色 + ToR 矩阵）| [D3.4-m8-hmi-full/](D3.4-m8-hmi-full/) | 5.5 | **8/24** (SAT 桥接子集 7/31 前) | M8 | 🔵 spec❌ |
 | **D3.5** | 架构 v1.1.3 HAZID 132 [TBD] 回填 | [D3.5-arch-hazid-backfill/](D3.5-arch-hazid-backfill/) | 2.0 | **8/31** | 架构 | 🔵 spec❌ |
 | **D3.5'** | 模拟器培训课程大纲 v1.0 + 培训胜任力矩阵 | [D3.5p-training-curriculum/](D3.5p-training-curriculum/) | 1.5 | **8/23** | HF, Cert | 🔵 spec❌ |

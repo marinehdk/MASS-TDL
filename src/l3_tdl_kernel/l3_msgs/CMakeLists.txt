@@ -43,6 +43,7 @@ set(MSG_FILES
   msg/TrajectoryCandidate.msg
   msg/MissionState.msg
   msg/SotifViolation.msg
+  msg/SotifMetricEntry.msg
   msg/SotifMetrics.msg
 )
 

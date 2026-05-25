@@ -12,6 +12,8 @@
 #include "m7_safety_supervisor/sotif/performance_monitor.hpp"
 #include "m7_safety_supervisor/sotif/triggering_condition_detector.hpp"
 #include "m7_safety_supervisor/checker/veto_handler.hpp"
+#include "m7_safety_supervisor/sotif/checker_veto_counter.hpp"
+#include "m7_safety_supervisor/sotif/sotif_metrics_publisher.hpp"
 #include "m7_safety_supervisor/mrm/mrm_command_set.hpp"
 #include "m7_safety_supervisor/mrm/mrm_selector.hpp"
 #include "m7_safety_supervisor/arbitrator/safety_arbitrator.hpp"
@@ -80,6 +82,8 @@ private:
   std::unique_ptr<sotif::PerformanceMonitor> performance_monitor_;
   std::unique_ptr<sotif::TriggeringConditionDetector> triggering_detector_;
   std::unique_ptr<checker::VetoHandler> veto_handler_;
+  std::unique_ptr<sotif::CheckerVetoCounter> checker_veto_counter_;
+  std::unique_ptr<sotif::SotifMetricsPublisher> sotif_metrics_publisher_;
   std::unique_ptr<mrm::MrmSelector> mrm_selector_;
   std::unique_ptr<arbitrator::SafetyArbitrator> arbitrator_;
 

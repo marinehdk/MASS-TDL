@@ -104,6 +104,8 @@ void SafetySupervisorNode::instantiate_modules() noexcept
   performance_monitor_ = std::make_unique<sotif::PerformanceMonitor>(sotif::PerformanceConfig{});
   triggering_detector_ = std::make_unique<sotif::TriggeringConditionDetector>();
   veto_handler_        = std::make_unique<checker::VetoHandler>();
+  checker_veto_counter_ = std::make_unique<sotif::CheckerVetoCounter>();
+  sotif_metrics_publisher_ = std::make_unique<sotif::SotifMetricsPublisher>(this);
   {
     mrm::MrmSelector::Config const kCfg{};
     mrm::MrmCommandSet const kCmd = mrm::MrmCommandSetLoader::safe_default();
@@ -335,8 +337,9 @@ void SafetySupervisorNode::on_override_cmd(
 void SafetySupervisorNode::on_checker_veto(
     l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr const& msg) noexcept
 {
-  // Forward to VetoHandler for rate tracking (events group)
+  // Forward to VetoHandler for rate tracking (events group) + CheckerVetoCounter
   veto_handler_->on_veto_received(*msg);
+  checker_veto_counter_->on_veto(*msg);
 }
 
 void SafetySupervisorNode::on_reflex_activation(
@@ -364,7 +367,8 @@ void SafetySupervisorNode::on_override_signal(
 void SafetySupervisorNode::on_main_loop_tick() noexcept
 {
   auto const kNow = std::chrono::steady_clock::now();
-
+  // Advance CheckerVetoCounter sliding window (pushes true/false per cycle)
+  checker_veto_counter_->on_cycle_tick();
   // Advance veto window cursor (no veto in this cycle; vetoes arrive asynchronously)
   veto_handler_->on_cycle_tick(false);
 
@@ -387,7 +391,7 @@ void SafetySupervisorNode::run_monitor_evaluation(
   // Evaluate all monitors
   auto const kWatchdogResult  = watchdog_->evaluate(now);
   auto const kDiagResult      = fault_monitor_->run(last_odd_, last_world_, last_colregs_);
-  double const kVetoRate      = veto_handler_->current_rate();
+  double const kVetoRate      = checker_veto_counter_->current_rate();
 
   // AssumptionMonitor::evaluate: comm_link zeroed until comm monitor integrated
   // [TBD-comm-monitor] rtt_s and packet_loss_pct are zero until a communication
@@ -398,6 +402,10 @@ void SafetySupervisorNode::run_monitor_evaluation(
     kVetoRate,
     kCommLink,
     now);
+
+  // Publish SotifMetrics to /sil/sotif_metrics (DEMO-2: stub mode by default)
+  auto const kVetoWindowCount = checker_veto_counter_->window_violation_count();
+  sotif_metrics_publisher_->publish(kAssumptionStatus, kVetoWindowCount);
 
   auto const kPerfStatus = performance_monitor_->evaluate(last_world_, now);
   bool const kExtreme    = sotif::TriggeringConditionDetector::detect(kAssumptionStatus);
