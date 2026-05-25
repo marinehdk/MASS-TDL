@@ -20,6 +20,8 @@
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
+#include "m5_tactical_planner/shared/capability_manifest.hpp"
+#include "m5_tactical_planner/shared/vessel_dynamics_model.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -39,6 +41,8 @@ class MidMpcNode : public rclcpp::Node {
   explicit MidMpcNode(const Config& cfg);
 
  private:
+  mass_l3::m5::shared::CapabilityManifest manifest_;
+  mass_l3::m5::shared::VesselDynamicsModel vessel_model_;
   MidMpcNlpFormulation        formulation_;
   MidMpcSolver                solver_;
   MidMpcWaypointGenerator     wp_gen_;

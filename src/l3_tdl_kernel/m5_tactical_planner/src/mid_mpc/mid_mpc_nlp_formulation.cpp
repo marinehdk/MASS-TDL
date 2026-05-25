@@ -232,9 +232,9 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   // kIdxOwnPsi reserved for Phase E2 hard COLREGs directional constraints.
   p(kIdxOwnPsi)     = input.constraints.own_ship_psi_rad;
 
-  // [TBD-HAZID] ROT max: hard-coded FCB default (0.2094 rad/s ≈ 12°/s).
-  // Phase E2: thread rot_max_rad_s through ConstraintInputs from VesselDynamicsModel.
-  p(kIdxRotMax) = kDefaultRotMaxRadS;
+  // [TBD-HAZID] ROT max: from VesselDynamicsModel via MidMpcInput (MUST-5).
+  // Fallback to kDefaultRotMaxRadS if MidMpcInput default is unchanged.
+  p(kIdxRotMax) = input.rot_max_rad_s;
 
   // Targets: zero-padded up to cfg_.max_targets.
   const int32_t n_t = std::min(

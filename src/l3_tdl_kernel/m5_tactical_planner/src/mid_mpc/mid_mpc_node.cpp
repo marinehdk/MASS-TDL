@@ -30,6 +30,9 @@ constexpr double kDefaultPlannedSpeed_mps = 5.0;
 // ===========================================================================
 MidMpcNode::MidMpcNode(const Config& cfg)
     : rclcpp::Node("m5_mid_mpc_node"),
+      manifest_(mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
+          "/workspace/src/l3_tdl_kernel/m5_tactical_planner/config/fcb_vessel_capability.yaml")),
+      vessel_model_(manifest_),
       formulation_(cfg.nlp),
       solver_(formulation_, cfg.ipopt),
       wp_gen_(cfg.waypoint)
@@ -138,6 +141,9 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.planned_speed_mps = has_speed
       ? speed_profile_->target_speeds_kn[0] * units::kMsPerKn
       : kDefaultPlannedSpeed_mps;
+
+  const double hs_m = 0.0;  // [TBD-HAZID] sea state from EnvironmentState
+  inp.rot_max_rad_s = vessel_model_.rot_max_rad_s(inp.own_ship.u_mps, hs_m);
 
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
   return inp;

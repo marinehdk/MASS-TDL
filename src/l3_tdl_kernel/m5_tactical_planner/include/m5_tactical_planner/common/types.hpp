@@ -118,6 +118,9 @@ struct MidMpcInput {
   // Calibrate per vessel service speed profile.
   double planned_speed_mps{5.0};
 
+  /// D3.2: dynamic ROT max [rad/s] from VesselDynamicsModel (replaces D0.1 hardcoded stub)
+  double rot_max_rad_s{0.2094};
+
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 
