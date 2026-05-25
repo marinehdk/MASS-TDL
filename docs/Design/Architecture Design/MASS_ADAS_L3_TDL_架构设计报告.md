@@ -289,7 +289,7 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
 
 **ToR 自适应矩阵 [D2.8 新增 — D2.1 实装参数输入]**
 
-操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[TBD-HAZID]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
+操作员状态 × ODD 子域的 ToR 时限矩阵。格式：`T_ToR (s) | 触发条件`。所有初始值为 v3.1 基线；**[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]** 在 HAZID RUN-001（8/19）校准后由 D3.5 更新。
 
 | 操作员状态 | ODD-A（正常运营）| ODD-B（受限运营）| ODD-C（边缘）| ODD-D（降级）|
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ TDL = min(TCPA_min × 0.6, T_comm_ok, T_sys_health)
 | **餐厅** | 120 s \| 计划切换点 | 90 s \| EDGE + 广播 | 75 s \| OUT 预警 | 60 s \| 立即 |
 | **睡舱** | 150 s \| D4→D3 预通知 | 120 s \| EDGE 强通知 | 90 s \| 叫醒 + ToR | 75 s \| MRC 准备 |
 
-> **[TBD-HAZID]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
+> **[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]**：秒数在 HAZID RUN-001（8/19）以 FCB 实际接管数据校准，D3.5 回填。D2.1 M1 ODD 实装时以此矩阵作参数配置输入；D2.6 HF 访谈（7/13）可能产生 patch。
 
 ### 3.5 ODD 状态机设计
 
@@ -349,9 +349,9 @@ Conformance_Score(t) = w_E × E_score(t) + w_T × T_score(t) + w_H × H_score(t)
   < 0.5 → ODD 外（OUT），立即触发 MRC 序列
 
 权重（FCB 特定**[TBD-HAZID 校准]** 初始值 [F-P0-D6-015 + F-P2-D6-018 + F-NEW-003]）：
-  w_E = 0.4 [TBD-HAZID]（环境条件最难干预——能见度 / 海况决定感知可靠性下界）
-  w_T = 0.3 [TBD-HAZID]（任务条件可通过减速/停航干预——通信 / 计算健康度）
-  w_H = 0.3 [TBD-HAZID]（人机责任可通过通信恢复改善；H 轴权重须以 Veitch 2024 TMR 实证 [R4] 校准）
+  w_E = 0.4 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（环境条件最难干预——能见度 / 海况决定感知可靠性下界）
+  w_T = 0.3 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（任务条件可通过减速/停航干预——通信 / 计算健康度）
+  w_H = 0.3 [HAZID 2026-08-19 校准待填，D3.5 Track B 回填]（人机责任可通过通信恢复改善；H 轴权重须以 Veitch 2024 TMR 实证 [R4] 校准）
 
 **初始权重假设依据**（v1.1.1 补充 — F-NEW-003 关闭）：
   - E 轴权重最高的依据：环境降质（Beaufort 风级 / 能见度 / Hs）直接限制感知与机动能力；不可通过软件干预
@@ -936,7 +936,7 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 | `hull_class == SEMI_PLANING` | **6-DOF 激活**（Savitsky / semi-planing empirical）| D2.1 stub → D3.2 完整 |
 | `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学）| Phase 4 实装 D4.7 |
 
-> **[TBD-HAZID]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
+> **[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
 > **D-task 联动**：D1.3a（FCBPlugin 实装）/ D2.1 M1 ODD（hull_class 判断接口）/ D3.2 M5 完整（6-DOF 实装）。
 
 ### 10.7 TSS（Rule 10）多边形约束 [F-P2-D9-041 新增]
@@ -2345,7 +2345,7 @@ S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定�
 | `BNWASAlertLevel` | `/bnwas/alert_level` | → M8 | 1 Hz 心跳 + 事件 | enum: INACTIVE / WARNING_1(30s) / WARNING_2(60s) / ESCALATED(90s) |
 | `BNWASTakeoverRequest` | `/bnwas/takeover_request` | → M1 | 事件 | 触发 ToR，含当前操作员状态和 elapsed_time |
 
-**三级阶梯**（基线初值，[TBD-HAZID] HAZID RUN-001 校准）：
+**三级阶梯**（基线初值，[HAZID 2026-08-19 校准待填，D3.5 Track B 回填] HAZID RUN-001 校准）：
 - **T1 = 30 s**：ROC 操作员无交互 → 闪灯 WARNING_1（M8 显示）
 - **T2 = 60 s**：持续无响应 → WARNING_2，通知备用操作员（二副相当）
 - **T3 = 90 s（ROC 场景）/ 120 s（睡舱场景）**：ESCALATED，发出 ToR 自适应矩阵（§3.4）驱动的接管请求
@@ -2833,6 +2833,7 @@ Finding 关闭（D2.8）：SIL P0 SIL-1~7 / F P0-F-01/F-02/F-04 stub / F P1-F-03
 | 2026-07-31 | L3 Checker 否决率告警阈值 | §11.3 | [HAZID 校准] | [文献基线 2026-07-31: ADR-001 Doer-Checker 1:100 复杂度比约束, AoU 10-35%/100周期] | D3.5 Track A |
 | 2026-07-31 | AIS/雷达一致性阈值 | §11.3 | [初始设计值] | [文献基线 2026-07-31: 标准融合置信区间（正态分布），AoU 1.5σ-3σ 持续 7.5-30 s] | D3.5 Track A |
 | 2026-07-31 | 演练频率最小值 | §12.5 | [TBD-HAZID] | [文献基线 2026-07-31: STCW 模拟器训练最低要求 (STCW A-VI/5), AoU ≥1 次/月] | D3.5 Track A |
+| 2026-07-31 | 全部 Dependent/Config 类 TBD-HAZID | 多章节 | [TBD-HAZID] | [HAZID 2026-08-19 校准待填，D3.5 Track B 回填] | D3.5 Track A-T4 stub |
 
 ---
 
