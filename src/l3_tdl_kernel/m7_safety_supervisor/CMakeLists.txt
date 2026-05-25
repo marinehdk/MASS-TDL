@@ -55,6 +55,7 @@ add_library(m7_lib STATIC
   src/mrm/mrm_04_mooring.cpp
   src/mrm/mrm_selector.cpp
   src/sotif/triggering_condition_detector.cpp
+  src/sotif/sliding_window_15s.cpp
   src/arbitrator/safety_arbitrator.cpp
   src/arbitrator/alert_generator.cpp
   src/safety_supervisor_node.cpp
@@ -80,6 +81,7 @@ set_source_files_properties(
   src/mrm/mrm_04_mooring.cpp
   src/mrm/mrm_selector.cpp
   src/sotif/triggering_condition_detector.cpp
+  src/sotif/sliding_window_15s.cpp
   src/arbitrator/safety_arbitrator.cpp
   src/arbitrator/alert_generator.cpp
   PROPERTIES COMPILE_OPTIONS "-fno-exceptions;-fno-rtti"
