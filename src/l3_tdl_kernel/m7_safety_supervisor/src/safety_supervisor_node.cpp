@@ -531,12 +531,16 @@ void SafetySupervisorNode::run_hard_constraint_checks(
   auto const wd_result = core::evaluate_watchdog_constraint(*watchdog_, now);
 
   core::DcSelfCheckState dc_state{};
-  dc_state.ram_integrity_ok    = true;
-  dc_state.alu_test_passed     = true;
-  dc_state.control_flow_ok     = true;
-  dc_state.input_integrity_ok  = true;
-  dc_state.output_integrity_ok = true;
-  dc_state.watchdog_ok         = true;
+  // Populate from actual diagnostic coverage state
+  // last_coverage_ is updated in run_monitor_evaluation() via diag_coverage_->update()
+  // DiagnosticCoverageMetric aggregates all checks into coverage_ratio;
+  // use coverage_ratio >= 0.90 (SIL 2 threshold) as proxy for per-function DC health
+  dc_state.ram_integrity_ok    = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.alu_test_passed     = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.control_flow_ok     = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.input_integrity_ok  = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.output_integrity_ok = (last_coverage_.coverage_ratio >= 0.90F);
+  dc_state.watchdog_ok         = !wd_result.any_critical;
   auto const dc_result = core::evaluate_dc_constraint(dc_state);
 
   auto const alert = core::build_safety_alert_from_hard_constraints(
