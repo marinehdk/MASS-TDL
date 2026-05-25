@@ -15,6 +15,10 @@ public:
 
   void on_veto(l3_external_msgs::msg::CheckerVetoNotification const& msg) noexcept;
 
+  // MUST be called every cycle (4 Hz) to advance the sliding window.
+  // Pushes true iff on_veto() was called since the last tick; false otherwise.
+  void on_cycle_tick() noexcept;
+
   [[nodiscard]] float current_rate() const noexcept;
   [[nodiscard]] std::uint16_t window_violation_count() const noexcept;
   [[nodiscard]] std::array<std::uint32_t, 6> reason_counts() const noexcept;
@@ -24,6 +28,7 @@ public:
 private:
   SlidingWindow15s window_;
   std::array<std::uint32_t, 6> reason_counts_{};
+  bool veto_occurred_this_cycle_{false};
 };
 
 }  // namespace mass_l3::m7::sotif

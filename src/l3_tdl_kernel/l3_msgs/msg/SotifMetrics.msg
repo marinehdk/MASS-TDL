@@ -1,7 +1,7 @@
 # M7 SOTIF assumption violation metrics (topic: /sil/sotif_metrics @10Hz)
 # Per v1.1.3 §11.3 + RFC-003 + D3.3b-spec §4.1
 
-uint16 schema_version  # 113 = v1.1.3
+uint16 schema_version 113  # v1.1.3
 builtin_interfaces/Time stamp
 
 # Enumerated assumption IDs — MUST match AssumptionId enum order in assumption_monitor.hpp

@@ -326,7 +326,8 @@ void SafetySupervisorNode::on_override_signal(
 void SafetySupervisorNode::on_main_loop_tick() noexcept
 {
   auto const kNow = std::chrono::steady_clock::now();
-
+  // Advance CheckerVetoCounter sliding window (pushes true/false per cycle)
+  checker_veto_counter_->on_cycle_tick();
   // Advance veto window cursor (no veto in this cycle; vetoes arrive asynchronously)
   veto_handler_->on_cycle_tick(false);
 
