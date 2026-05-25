@@ -287,6 +287,37 @@ void SafetySupervisorNode::on_colregs_constraint(
   auto const kNow = std::chrono::steady_clock::now();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM6, kNow);
   last_colregs_ = *msg;
+
+  // Map incoming COLREGs rule_id (RuleActive) to M7 ColregsRule enum for HC-2 check
+  last_colregs_rule_ = core::ColregsRule::kUnknown;
+  if (!msg->active_rules.empty()) {
+    auto const kRuleId = msg->active_rules[0].rule_id;
+    switch (kRuleId) {
+      case 13:
+        last_colregs_rule_ = core::ColregsRule::kRule13Overtaking;
+        break;
+      case 14:
+        last_colregs_rule_ = core::ColregsRule::kRule14HeadOn;
+        break;
+      case 15:
+        // Rule 15 crossing: distinguish give-way vs stand-on by phase
+        if (msg->phase == "T_standOn") {
+          last_colregs_rule_ = core::ColregsRule::kRule15StandOn;
+        } else {
+          last_colregs_rule_ = core::ColregsRule::kRule15GiveWay;
+        }
+        break;
+      case 16:
+        last_colregs_rule_ = core::ColregsRule::kRule16GiveWay;
+        break;
+      case 17:
+        last_colregs_rule_ = core::ColregsRule::kRule17StandOn;
+        break;
+      default:
+        // Unknown/unmapped rule_id — leave as kUnknown (safe default for HC-2)
+        break;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
