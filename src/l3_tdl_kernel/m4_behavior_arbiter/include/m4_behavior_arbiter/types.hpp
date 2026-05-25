@@ -13,6 +13,18 @@
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 
+// D3.1: Only behaviors 0-4 are active in this release.
+// DpHold(2), Berth(3), MrcAnchor(5), MrcHeaveTo(6) are reserved for DEMO-3 (8/31).
+enum class BehaviorType : uint8_t {
+  TRANSIT = 0,
+  COLREG_AVOID = 1,
+  DP_HOLD = 2,
+  BERTH = 3,
+  MRC_DRIFT = 4,
+  MRC_ANCHOR = 5,
+  MRC_HEAVE_TO = 6,
+};
+
 namespace mass_l3::m4 {
 
 using ODDStateMsg = l3_msgs::msg::ODDState;

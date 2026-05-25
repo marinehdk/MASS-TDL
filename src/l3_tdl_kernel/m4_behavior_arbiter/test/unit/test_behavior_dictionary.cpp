@@ -4,11 +4,11 @@
 
 namespace mass_l3::m4::test {
 
-// Load valid YAML definition and verify 3 behaviours are registered.
+// Load valid YAML definition and verify 5 behaviours are registered (D3.1).
 TEST(BehaviorDictionaryTest, LoadValidYaml) {
   BehaviorDictionary dict;
   ASSERT_TRUE(dict.load(TEST_CONFIG_DIR "/behavior_definitions.yaml"));
-  EXPECT_EQ(dict.size(), 3U);
+  EXPECT_EQ(dict.size(), 5U);
 }
 
 // Find an existing behaviour type returns a valid descriptor with
@@ -20,8 +20,8 @@ TEST(BehaviorDictionaryTest, FindExistingType) {
   const BehaviorDescriptor* desc = dict.find(BehaviorType::TRANSIT);
   ASSERT_NE(desc, nullptr);
   EXPECT_EQ(desc->type, BehaviorType::TRANSIT);
-  EXPECT_EQ(desc->name, "Keep Lane / Route Following");
-  EXPECT_DOUBLE_EQ(desc->priority_weight, 1.0);
+  EXPECT_EQ(desc->name, "Transit — Route Following");
+  EXPECT_DOUBLE_EQ(desc->priority_weight, 0.30);
 }
 
 // Querying a type that is not in the loaded dictionary returns nullptr.

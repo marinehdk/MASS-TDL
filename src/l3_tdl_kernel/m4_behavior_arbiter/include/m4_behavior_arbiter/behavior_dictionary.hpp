@@ -8,16 +8,6 @@
 
 namespace mass_l3::m4 {
 
-enum class BehaviorType : uint8_t {
-  TRANSIT = 0,
-  COLREG_AVOID = 1,
-  DP_HOLD = 2,
-  BERTH = 3,
-  MRC_DRIFT = 4,
-  MRC_ANCHOR = 5,
-  MRC_HEAVE_TO = 6,
-};
-
 struct BehaviorDescriptor {
   BehaviorType type;
   std::string name;

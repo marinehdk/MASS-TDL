@@ -1,31 +1,33 @@
-# M4 Behavior Arbiter — Behavior Definitions
-#
-# This file defines the set of behaviours the IvP-based arbiter may activate.
-# Fields:
-#   type             — uint8 matching BehaviorPlan.msg constants
-#   name             — human-readable label (SAT-2 / SAT-3 transparency)
-#   priority_weight  — IvP weight when behaviour is active (HAZID-calibrated)
-#   activation_rule  — predicate name used by BehaviorActivationCondition
-#   ivp_function_type— IvP function shape identifier for IvPFunctionFactory
-#
-# [TBD-HAZID]: priority_weight values are placeholder until HAZID RUN-001
-#              (see docs/Design/HAZID/RUN-001-kickoff.md)
+# M4 Behavior Arbiter — Behavior Definitions (D3.1: 5 active behaviors)
+# [TBD-HAZID]: priority_weight values are placeholder until HAZID RUN-001 (8/19)
 
 behaviors:
-  - type: 0
-    name: "Keep Lane / Route Following"
-    priority_weight: 1.0
-    activation_rule: "odd_in_or_edge"
+  - type: 0     # TRANSIT
+    name: "Transit — Route Following"
+    priority_weight: 0.30
+    activation_rule: "odd_in_a_b_c_and_no_colregs"
     ivp_function_type: "transit"
 
-  - type: 1
+  - type: 1     # COLREG_AVOID
     name: "COLREGs-Compliant Collision Avoidance"
-    priority_weight: 10.0
+    priority_weight: 0.70
     activation_rule: "colregs_conflict_detected"
     ivp_function_type: "colreg_avoid"
 
-  - type: 2
-    name: "Dynamic Positioning Hold"
-    priority_weight: 100.0
-    activation_rule: "mrc_requested"
-    ivp_function_type: "dp_hold"
+  - type: 2     # RESTRICTED_VIS
+    name: "Restricted Visibility Slow-Down"
+    priority_weight: 0.60
+    activation_rule: "odd_d_and_low_visibility"
+    ivp_function_type: "restricted_vis"
+
+  - type: 3     # CHANNEL_FOLLOW
+    name: "Channel/VTS Following"
+    priority_weight: 0.50
+    activation_rule: "odd_b_and_in_vts"
+    ivp_function_type: "channel_follow"
+
+  - type: 4     # MRC_DRIFT
+    name: "MRC Emergency Drift"
+    priority_weight: 1.00
+    activation_rule: "mrc_requested_or_critical"
+    ivp_function_type: "mrc_drift"
