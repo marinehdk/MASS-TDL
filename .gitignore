@@ -109,6 +109,5 @@ docs/superpowers/
 certs/*.key
 certs/*.crt
 
-# Graphify
-graphify-out/manifest.json
-graphify-out/cost.json
+# Graphify (local index only, not committed)
+graphify-out/
