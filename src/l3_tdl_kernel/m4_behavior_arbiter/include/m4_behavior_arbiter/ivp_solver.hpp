@@ -33,6 +33,10 @@ struct IvPHardConstraints {
   double cpa_safe_m;
 
   double rot_max_deg_s;  ///< [TBD-HAZID] ROT cap from Capability Manifest; not yet enforced per-cell
+
+  /// @brief Cascade relaxation: level 0 = no change, 1 = drop targets+CPA,
+  ///        2 = drop heading ranges, 3 = full relax (all heading).
+  IvPHardConstraints relax(int level) const;
 };
 
 /**
@@ -45,6 +49,7 @@ struct IvPSolution {
   double speed_max_kn;
   double optimality_margin;   ///< Best aggregated utility achieved (unnormalized)
   std::string rationale;      ///< SAT-2 summary string for BehaviorPlan.rationale
+  int relax_level{0};         ///< Cascade relaxation level used (0 = original constraints)
 };
 
 /**
@@ -87,6 +92,13 @@ class IvPSolver {
     size_t grid_cells_evaluated{0};
     size_t grid_cells_feasible{0};
   };
+
+  /// @brief Solve with cascading constraint relaxation fallback.
+  /// Tries original constraints first, then relaxes stepwise (levels 1-3)
+  /// if no feasible solution exists. Sets relax_level on the returned solution.
+  std::optional<IvPSolution> solve_with_fallback(
+      const std::vector<IvPCombinationStrategy::WeightedFunction>& weighted_fns,
+      const IvPHardConstraints& constraints) const;
 
   /// @return Diagnostics from last solve() invocation.
   const SolveDiagnostics& last_diagnostics() const { return diag_; }

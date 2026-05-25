@@ -138,4 +138,74 @@ TEST_F(IvPSolverTest, DiagnosticsPopulated) {
   EXPECT_GT(diag.duration.count(), 0);
 }
 
+TEST(IvPSolverTest, RelaxPreservesOriginalWhenLevelZero) {
+  IvPHardConstraints original;
+  original.speed_min_kn = 0.0;
+  original.speed_max_kn = 22.0;
+  original.heading_allowed_ranges_deg = {{0.0, 90.0}};
+  original.cpa_safe_m = 1852.0;
+
+  IvPHardConstraints relaxed = original.relax(0);
+  EXPECT_EQ(relaxed.speed_max_kn, original.speed_max_kn);
+  EXPECT_EQ(relaxed.heading_allowed_ranges_deg.size(), 1u);
+  EXPECT_GT(relaxed.cpa_safe_m, 0.0);
+}
+
+TEST(IvPSolverTest, RelaxLevelOneClearsCpa) {
+  IvPHardConstraints original;
+  original.cpa_safe_m = 1852.0;
+
+  IvPHardConstraints relaxed = original.relax(1);
+  EXPECT_EQ(relaxed.cpa_safe_m, 0.0);
+  EXPECT_TRUE(relaxed.targets.empty());
+}
+
+TEST(IvPSolverTest, RelaxLevelTwoClearsHeadingRanges) {
+  IvPHardConstraints original;
+  original.heading_allowed_ranges_deg = {{0.0, 90.0}, {270.0, 360.0}};
+
+  IvPHardConstraints relaxed = original.relax(2);
+  EXPECT_TRUE(relaxed.heading_allowed_ranges_deg.empty());
+}
+
+TEST(IvPSolverTest, SolveWithFallbackWorksWithNormalConstraints) {
+  IvPHeadingDomain hd(5.0);
+  IvPSpeedDomain sd(0.0, 22.0, 1.0);
+  auto strategy = std::make_unique<WeightedSumCombination>();
+  IvPSolver solver(hd, sd, std::move(strategy), std::chrono::milliseconds(500));
+
+  IvPFunction<32> fn;
+  fn.set_pieces({{0.0, 360.0, 5.0, 20.0, 0.8}});
+
+  std::vector<IvPCombinationStrategy::WeightedFunction> fns = {{1.0, fn}};
+  IvPHardConstraints constraints;
+  constraints.heading_allowed_ranges_deg = {{170.0, 190.0}};
+  constraints.speed_min_kn = 0.0;
+  constraints.speed_max_kn = 22.0;
+
+  auto sol = solver.solve_with_fallback(fns, constraints);
+  ASSERT_TRUE(sol.has_value());
+  EXPECT_EQ(sol->relax_level, 0);
+}
+
+TEST(IvPSolverTest, SolveWithFallbackDegradesWhenTightlyConstrained) {
+  IvPHeadingDomain hd(5.0);
+  IvPSpeedDomain sd(0.0, 22.0, 1.0);
+  auto strategy = std::make_unique<WeightedSumCombination>();
+  IvPSolver solver(hd, sd, std::move(strategy), std::chrono::milliseconds(500));
+
+  IvPFunction<32> fn;
+  fn.set_pieces({{0.0, 360.0, 5.0, 20.0, 0.8}});
+
+  std::vector<IvPCombinationStrategy::WeightedFunction> fns = {{1.0, fn}};
+  IvPHardConstraints constraints;
+  constraints.heading_allowed_ranges_deg = {};  // empty = unconstrained
+  constraints.speed_min_kn = 0.0;
+  constraints.speed_max_kn = 22.0;
+
+  auto sol = solver.solve_with_fallback(fns, constraints);
+  ASSERT_TRUE(sol.has_value());
+  EXPECT_EQ(sol->relax_level, 0);
+}
+
 }  // namespace mass_l3::m4

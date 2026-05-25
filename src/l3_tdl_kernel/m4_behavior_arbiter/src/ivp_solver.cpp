@@ -8,6 +8,27 @@
 
 namespace mass_l3::m4 {
 
+IvPHardConstraints IvPHardConstraints::relax(int level) const {
+  IvPHardConstraints out = *this;
+  switch (level) {
+    case 0:
+      break;
+    case 1:
+      out.targets.clear();
+      out.cpa_safe_m = 0.0;
+      break;
+    case 2:
+      out.heading_allowed_ranges_deg.clear();
+      break;
+    case 3:
+      out.heading_allowed_ranges_deg.clear();
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
 IvPSolver::IvPSolver(IvPHeadingDomain heading_domain,
                      IvPSpeedDomain speed_domain,
                      std::unique_ptr<IvPCombinationStrategy> strategy,
@@ -140,6 +161,25 @@ std::optional<IvPSolution> IvPSolver::solve(
   }
 
   return collect_interval(weighted_fns, constraints, best);
+}
+
+std::optional<IvPSolution> IvPSolver::solve_with_fallback(
+    const std::vector<IvPCombinationStrategy::WeightedFunction>& weighted_fns,
+    const IvPHardConstraints& constraints) const {
+  auto sol = solve(weighted_fns, constraints);
+  if (sol.has_value()) {
+    sol->relax_level = 0;
+    return sol;
+  }
+  for (int level = 1; level <= 3; ++level) {
+    IvPHardConstraints relaxed = constraints.relax(level);
+    sol = solve(weighted_fns, relaxed);
+    if (sol.has_value()) {
+      sol->relax_level = level;
+      return sol;
+    }
+  }
+  return std::nullopt;
 }
 
 }  // namespace mass_l3::m4
