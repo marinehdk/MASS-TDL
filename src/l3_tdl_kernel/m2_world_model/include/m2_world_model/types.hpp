@@ -7,8 +7,11 @@
 #include <vector>
 
 #include <Eigen/Core>
+#include <rclcpp/time.hpp>
 
 namespace mass_l3::m2 {
+
+using TimePoint = rclcpp::Time;
 
 // ── Zone / ODD ──
 enum class OddZone : uint8_t { A = 0, B = 1, C = 2, D = 3 };
@@ -21,6 +24,7 @@ enum class ViewId : uint8_t { DV = 0, EV = 1, SV = 2, Count = 3 };
 
 // ── Coordinate snapshots ──
 struct OwnShipSnapshot {
+  OwnShipSnapshot() : stamp(0, 0, RCL_ROS_TIME) {}
   double sog_kn;
   double cog_deg;
   double heading_deg;
@@ -31,10 +35,11 @@ struct OwnShipSnapshot {
   double latitude_deg;
   double longitude_deg;
   Eigen::Matrix<double, 6, 6> covariance;  // pos(3) x vel(3)
-  std::chrono::steady_clock::time_point stamp;
+  TimePoint stamp;
 };
 
 struct TargetSnapshot {
+  TargetSnapshot() : stamp(0, 0, RCL_ROS_TIME) {}
   uint64_t target_id;
   double latitude_deg;
   double longitude_deg;
@@ -44,20 +49,22 @@ struct TargetSnapshot {
   Eigen::Matrix<double, 3, 3> covariance;  // lat/lon/heading
   std::string classification;
   float classification_confidence;
-  std::chrono::steady_clock::time_point stamp;
+  TimePoint stamp;
 };
 
 struct ZoneSnapshot {
+  ZoneSnapshot() : stamp(0, 0, RCL_ROS_TIME) {}
   std::string zone_type;
   bool in_tss;
   bool in_narrow_channel;
   double min_water_depth_m;
   double current_speed_kn{0.0};       // from EnvironmentState (RFC-002)
   double current_direction_deg{0.0};  // from EnvironmentState (RFC-002)
-  std::chrono::steady_clock::time_point stamp;
+  TimePoint stamp;
 };
 
 struct OddSnapshot {
+  OddSnapshot() : stamp(0, 0, RCL_ROS_TIME) {}
   OddZone current_zone;
   uint8_t auto_level;
   uint8_t health;
@@ -65,7 +72,7 @@ struct OddSnapshot {
   float conformance_score;
   float tmr_s;
   float tdl_s;
-  std::chrono::steady_clock::time_point stamp;
+  TimePoint stamp;
 };
 
 struct AggregatedHealth {

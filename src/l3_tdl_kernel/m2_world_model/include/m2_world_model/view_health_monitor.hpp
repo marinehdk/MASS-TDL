@@ -27,13 +27,13 @@ class ViewHealthMonitor final {
 
   /// DV: called every aggregation cycle; received_update=false if no target update.
   void report_dv_update(bool received_update,
-                         std::chrono::steady_clock::time_point now);
+                         TimePoint now);
   /// EV: called every EV update; age_s = elapsed since last own-ship msg.
   void report_ev_age(double age_s,
-                     std::chrono::steady_clock::time_point now);
+                     TimePoint now);
   /// SV: called every aggregation cycle; age_s = elapsed since last env msg.
   void report_sv_age(double age_s,
-                     std::chrono::steady_clock::time_point now);
+                     TimePoint now);
 
   /// Reset health for all views (e.g., on startup or after recovery).
   void reset();
@@ -42,12 +42,13 @@ class ViewHealthMonitor final {
   [[nodiscard]] AggregatedHealth aggregated_health() const;
 
  private:
-  struct ViewState {
-    ViewHealth health = ViewHealth::Full;
-    int32_t consecutive_misses = 0;
-    std::chrono::steady_clock::time_point degraded_since;
-    double confidence = 1.0;
-  };
+   struct ViewState {
+     ViewState() : degraded_since(0, 0, RCL_ROS_TIME) {}
+     ViewHealth health = ViewHealth::Full;
+     int32_t consecutive_misses = 0;
+     TimePoint degraded_since;
+     double confidence = 1.0;
+   };
 
   Config cfg_;
   ViewState dv_, ev_, sv_;

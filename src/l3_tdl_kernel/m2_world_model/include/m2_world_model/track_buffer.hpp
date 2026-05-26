@@ -33,7 +33,7 @@ class TrackBuffer final {
 
   /// Upsert a batch of targets from Fusion TrackedTargetArray.
   void update(const l3_external_msgs::msg::TrackedTargetArray& msg,
-              std::chrono::steady_clock::time_point now);
+              TimePoint now);
 
   /// Get latest snapshot for one target.
   [[nodiscard]] std::optional<TargetSnapshot> get(uint64_t target_id) const;
@@ -43,13 +43,13 @@ class TrackBuffer final {
 
   /// Get active targets linearly extrapolated to align_t using sog/cog.
   [[nodiscard]] std::vector<TargetSnapshot>
-  snapshot_aligned_to(std::chrono::steady_clock::time_point align_t) const;
+  snapshot_aligned_to(TimePoint align_t) const;
 
   /// Current active target count (miss_count < disappearance_periods).
   [[nodiscard]] int32_t active_count() const;
 
   /// Evict targets that have exceeded disappearance_periods.
-  void evict_stale(std::chrono::steady_clock::time_point now);
+  void evict_stale(TimePoint now);
 
   /// Current buffer occupancy.
   [[nodiscard]] size_t size() const;
@@ -61,7 +61,7 @@ class TrackBuffer final {
   struct TrackEntry {
     TargetSnapshot snapshot;
     std::string classification_storage;  // backs the string_view in snapshot
-    std::chrono::steady_clock::time_point last_seen;
+    TimePoint last_seen;
     int32_t miss_count;  // consecutive periods without update
   };
 
@@ -69,7 +69,7 @@ class TrackBuffer final {
 
   static TargetSnapshot snapshot_from_msg(
       const l3_msgs::msg::TrackedTarget& tgt,
-      std::chrono::steady_clock::time_point now,
+      TimePoint now,
       double position_default_sigma_m);
 
   Config cfg_;

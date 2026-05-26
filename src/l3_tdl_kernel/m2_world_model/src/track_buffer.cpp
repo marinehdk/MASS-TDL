@@ -16,7 +16,7 @@ TrackBuffer::TrackBuffer(Config cfg) : cfg_(cfg) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 void TrackBuffer::update(const l3_external_msgs::msg::TrackedTargetArray& msg,
-                         std::chrono::steady_clock::time_point now) {
+                         TimePoint now) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   for (const auto& tgt : msg.targets) {
@@ -73,7 +73,7 @@ std::vector<TargetSnapshot> TrackBuffer::active_targets() const {
 }
 
 std::vector<TargetSnapshot> TrackBuffer::snapshot_aligned_to(
-    std::chrono::steady_clock::time_point align_t) const {
+    TimePoint align_t) const {
   constexpr double kKnToMps = 0.514444;
   constexpr double kLatM = 111320.0;
   constexpr double kDegToRad = M_PI / 180.0;
@@ -88,8 +88,7 @@ std::vector<TargetSnapshot> TrackBuffer::snapshot_aligned_to(
       continue;
     }
     TargetSnapshot snap = entry.snapshot;
-    const double dt_s =
-        std::chrono::duration<double>(align_t - entry.last_seen).count();
+    const double dt_s = (align_t - entry.last_seen).seconds();
     if (dt_s > 0.0) {
       const double speed_mps = snap.sog_kn * kKnToMps;
       const double cog_rad = snap.cog_deg * kDegToRad;
@@ -119,14 +118,13 @@ int32_t TrackBuffer::active_count() const {
   return count;
 }
 
-void TrackBuffer::evict_stale(std::chrono::steady_clock::time_point now) {
+void TrackBuffer::evict_stale(TimePoint now) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = buffer_.begin();
   while (it != buffer_.end()) {
     it->second.miss_count++;
 
-    const auto age_s =
-        std::chrono::duration<double>(now - it->second.last_seen).count();
+    const double age_s = (now - it->second.last_seen).seconds();
 
     if (it->second.miss_count >= cfg_.disappearance_periods ||
         age_s >= cfg_.max_target_age_s) {
@@ -162,7 +160,7 @@ void TrackBuffer::evict_oldest_locked() {
 // static
 TargetSnapshot TrackBuffer::snapshot_from_msg(
     const l3_msgs::msg::TrackedTarget& tgt,
-    std::chrono::steady_clock::time_point now,
+    TimePoint now,
     double position_default_sigma_m) {
   constexpr double kLatM = 111320.0;
   constexpr double kDegToRad = M_PI / 180.0;

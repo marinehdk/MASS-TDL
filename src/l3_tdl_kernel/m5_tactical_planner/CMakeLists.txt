@@ -41,6 +41,7 @@ find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
+find_package(ament_index_cpp REQUIRED)
 
 # CasADi — optional, required for Mid-MPC (Task 2.x+).
 # When unavailable, Mid-MPC components and constraint_compiler are excluded.
@@ -161,6 +162,7 @@ if(M5_HAS_CASADI)
     l3_msgs
     l3_external_msgs
     builtin_interfaces
+    ament_index_cpp
   )
   target_link_libraries(m5_mid_mpc_node
     m5_shared_lib

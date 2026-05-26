@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include <geometry_msgs/msg/point.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
@@ -33,7 +34,8 @@ constexpr double kDefaultPlannedSpeed_mps = 5.0;
 MidMpcNode::MidMpcNode(const Config& cfg)
     : rclcpp::Node("m5_mid_mpc_node"),
       manifest_(mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
-          "/workspace/src/l3_tdl_kernel/m5_tactical_planner/config/fcb_vessel_capability.yaml")),
+          ament_index_cpp::get_package_share_directory("m5_tactical_planner") +
+          "/config/fcb_vessel_capability.yaml")),
       vessel_model_(manifest_),
       nomoto_fallback_(nomoto_cfg_, manifest_),
       formulation_(cfg.nlp),

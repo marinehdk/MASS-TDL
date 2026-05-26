@@ -109,10 +109,10 @@ async def verify_checker_veto_topic() -> tuple[bool, str]:
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
         topics = stdout.decode().strip().split("\n") if stdout else []
-        if any("checker_veto" in t for t in topics):
-            return True, "/l3/checker_veto topic found on DDS bus"
+        if any("checker_veto" in t or "checker/veto" in t for t in topics):
+            return True, "/l3/checker/veto topic found on DDS bus"
         if proc.returncode == 0 and topics:
-            return False, "/l3/checker_veto topic NOT found (DDS bus reachable but veto topic absent — M7 cannot VETO)"
+            return False, "/l3/checker/veto topic NOT found (DDS bus reachable but veto topic absent — M7 cannot VETO)"
         if proc.returncode == 0 and not topics:
             return True, "ros2 topic list empty (DDS bus not populated — Phase 1 PASS)"
         return True, "ros2 CLI returned non-zero (dev host — PASS)"

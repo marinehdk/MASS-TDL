@@ -42,12 +42,9 @@ RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
 RUN pip install --no-cache-dir casadi
 
 # Build the workspace.
-# --mount=type=cache keeps intermediate build artifacts (CMake cache, .o files) and
-# ccache compiler cache across `docker build` runs — only changed packages recompile.
-# sharing=private: each concurrent session gets its own build/ snapshot (no lock conflict).
-# sharing=shared: ccache is safe for concurrent reads/writes.
+# --mount=type=cache keeps intermediate build artifacts (ccache compiler cache)
+# across `docker build` runs — only changed packages recompile.
 RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
-    --mount=type=cache,target=/opt/ws/build,sharing=private \
     . /opt/ros/humble/setup.sh && \
     colcon build --symlink-install \
         --parallel-workers 2 \

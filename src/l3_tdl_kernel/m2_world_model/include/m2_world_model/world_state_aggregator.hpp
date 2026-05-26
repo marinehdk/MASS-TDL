@@ -52,17 +52,17 @@ class WorldStateAggregator final {
   WorldStateAggregator& operator=(const WorldStateAggregator&) = delete;
 
   /// Update own-ship snapshot (called from 50 Hz EV callback).
-  void update_own_ship(const l3_external_msgs::msg::FilteredOwnShipState& msg);
+  void update_own_ship(const l3_external_msgs::msg::FilteredOwnShipState& msg, TimePoint now);
 
   /// Update environment snapshot (called from 0.2 Hz SV callback).
-  void update_environment(const l3_external_msgs::msg::EnvironmentState& msg);
+  void update_environment(const l3_external_msgs::msg::EnvironmentState& msg, TimePoint now);
 
   /// Update ODD state cache (called from 1 Hz ODD callback).
-  void update_odd_state(const l3_msgs::msg::ODDState& msg);
+  void update_odd_state(const l3_msgs::msg::ODDState& msg, TimePoint now);
 
   /// Compose World_StateMsg snapshot. Returns nullopt if EV is CRITICAL.
   [[nodiscard]] std::optional<l3_msgs::msg::WorldState>
-  compose_world_state(std::chrono::steady_clock::time_point now);
+  compose_world_state(TimePoint now);
 
   /// Snapshot accessors for SAT and ASDR publishers.
   [[nodiscard]] OwnShipSnapshot latest_own_ship() const;
@@ -76,7 +76,7 @@ class WorldStateAggregator final {
     float prediction_uncertainty;
   };
 
-  [[nodiscard]] Sat3Forecast compute_sat3_forecast() const;
+  [[nodiscard]] Sat3Forecast compute_sat3_forecast(TimePoint now) const;
 
  private:
   [[nodiscard]] double compute_aggregated_confidence_() const;

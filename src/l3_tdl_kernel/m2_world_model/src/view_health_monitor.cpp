@@ -11,7 +11,7 @@ ViewHealthMonitor::ViewHealthMonitor(Config cfg) : cfg_(cfg) {}
 // ── DV health ────────────────────────────────────────────────────────────────
 
 void ViewHealthMonitor::report_dv_update(bool received_update,
-                                          std::chrono::steady_clock::time_point now) {
+                                          TimePoint now) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (received_update) {
@@ -39,8 +39,7 @@ void ViewHealthMonitor::report_dv_update(bool received_update,
 
   // Timer-based: if already Degraded, check whether the timeout has expired.
   if (dv_.health == ViewHealth::Degraded) {
-    const auto elapsed_s =
-        std::chrono::duration<double>(now - dv_.degraded_since).count();
+    const double elapsed_s = (now - dv_.degraded_since).seconds();
     if (elapsed_s >= cfg_.dv_degraded_to_critical_timeout_s) {
       dv_.health = ViewHealth::Critical;
       dv_.confidence = 0.0;
@@ -51,7 +50,7 @@ void ViewHealthMonitor::report_dv_update(bool received_update,
 // ── EV health ────────────────────────────────────────────────────────────────
 
 void ViewHealthMonitor::report_ev_age(double age_s,
-                                       std::chrono::steady_clock::time_point now) {
+                                       TimePoint now) {
   static_cast<void>(now);
   std::lock_guard<std::mutex> lock(mutex_);
 
@@ -67,7 +66,7 @@ void ViewHealthMonitor::report_ev_age(double age_s,
 // ── SV health ────────────────────────────────────────────────────────────────
 
 void ViewHealthMonitor::report_sv_age(double age_s,
-                                       std::chrono::steady_clock::time_point now) {
+                                       TimePoint now) {
   static_cast<void>(now);
   std::lock_guard<std::mutex> lock(mutex_);
 

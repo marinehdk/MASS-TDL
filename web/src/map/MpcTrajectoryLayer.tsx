@@ -19,9 +19,10 @@ function costToColor(cost: number): string {
 }
 
 function buildGeoJSON(candidates: TrajectoryCandidate[]): GeoJSON.FeatureCollection {
+  const validCandidates = (candidates || []).filter((c) => c && Array.isArray(c.points));
   return {
     type: 'FeatureCollection',
-    features: candidates.map((c) => ({
+    features: validCandidates.map((c) => ({
       type: 'Feature',
       geometry: {
         type: 'LineString',

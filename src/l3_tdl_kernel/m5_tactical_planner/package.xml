@@ -23,6 +23,7 @@
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
   <depend>eigen3</depend>
+  <depend>ament_index_cpp</depend>
   <!-- casadi is optional: required for Mid-MPC, conditionally loaded via M5_USE_CASADI CMake option -->
   <!-- <depend>casadi</depend> -->
 

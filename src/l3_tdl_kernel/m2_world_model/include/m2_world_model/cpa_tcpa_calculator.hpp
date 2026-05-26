@@ -45,7 +45,7 @@ class CpaTcpaCalculator final {
   /// Extrapolate a target snapshot to a given time point (constant velocity model).
   [[nodiscard]] TargetSnapshot
   extrapolate_to_(const TargetSnapshot& target,
-                  std::chrono::steady_clock::time_point target_t) const;
+                  TimePoint target_t) const;
 
   /// Linear (analytical Jacobian) uncertainty propagation.
   [[nodiscard]] CpaUncertainty

@@ -65,6 +65,8 @@ class EnvDisturbanceNode(LifecycleNode):
             self.declare_parameter("wind_dir_deg", 180.0)
             self.declare_parameter("current_speed_kn", 0.5)
             self.declare_parameter("current_dir_deg", 0.0)
+            self.declare_parameter("wind_speed_mps", 5.0)
+            self.declare_parameter("current_speed_mps", 0.5 * 0.514444)
         except Exception:
             pass
         return TransitionCallbackReturn.SUCCESS
@@ -75,6 +77,17 @@ class EnvDisturbanceNode(LifecycleNode):
         Publisher is on ``/sil/environment`` with a QoS profile of:
         RELIABLE + VOLATILE + KEEP_LAST(2).
         """
+        try:
+            self._wind_speed = self.get_parameter("wind_speed_mps").value
+            self._wind_dir = self.get_parameter("wind_dir_deg").value
+            self._prev_wind_speed = self._wind_speed
+            self._prev_wind_dir = self._wind_dir
+            self._current_speed = self.get_parameter("current_speed_mps").value
+            self._current_dir = self.get_parameter("current_dir_deg").value
+        except Exception as exc:
+            if hasattr(self, "get_logger"):
+                self.get_logger().warn(f"Failed to read parameters in on_activate: {exc}")
+
         qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
@@ -109,25 +122,35 @@ class EnvDisturbanceNode(LifecycleNode):
         """Advance the model and publish an EnvironmentState message."""
         dt = 1.0
         tau_wind = self.get_parameter("tau_wind").value
-        sigma = self.get_parameter("sigma").value
-        alpha = math.exp(-dt / tau_wind)
-        noise = random.gauss(0, sigma * math.sqrt(1.0 - alpha**2))
+
+        # If wind speed parameter is 0, keep it strictly at 0 (calm)
+        initial_wind_speed = self.get_parameter("wind_speed_mps").value
+        if initial_wind_speed == 0.0:
+            self._wind_speed = 0.0
+            self._wind_dir = self.get_parameter("wind_dir_deg").value
+            self._prev_wind_speed = 0.0
+            noise = 0.0
+            wind_walk = 0.0
+            alpha = 1.0
+        else:
+            sigma = self.get_parameter("sigma").value
+            alpha = math.exp(-dt / tau_wind)
+            noise = random.gauss(0, sigma * math.sqrt(1.0 - alpha**2))
+            wind_walk = random.gauss(0, 0.1)
 
         self._wind_speed = alpha * self._prev_wind_speed + noise
-        self._wind_dir = (self._wind_dir + random.gauss(0, 0.1)) % 360.0
+        self._wind_dir = (self._wind_dir + wind_walk) % 360.0
         self._prev_wind_speed = self._wind_speed
 
         visibility_nm = self.get_parameter("visibility_nm").value
         sea_state_beaufort = self.get_parameter("sea_state_beaufort").value
-        current_speed_kn = self.get_parameter("current_speed_kn").value
-        current_dir_deg = self.get_parameter("current_dir_deg").value
 
         msg = EnvironmentState()
         msg.stamp = self.get_clock().now().to_msg()
         msg.wind_direction = self._wind_dir
         msg.wind_speed_mps = max(0.0, self._wind_speed)
-        msg.current_direction = current_dir_deg
-        msg.current_speed_mps = current_speed_kn * 0.514444
+        msg.current_direction = self._current_dir
+        msg.current_speed_mps = self._current_speed
         msg.visibility_nm = visibility_nm
         msg.sea_state_beaufort = sea_state_beaufort
 

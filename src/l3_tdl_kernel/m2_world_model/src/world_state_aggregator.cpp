@@ -72,9 +72,7 @@ WorldStateAggregator::WorldStateAggregator(
 {}
 
 void WorldStateAggregator::update_own_ship(
-    const l3_external_msgs::msg::FilteredOwnShipState& msg) {
-  const auto now = std::chrono::steady_clock::now();
-
+    const l3_external_msgs::msg::FilteredOwnShipState& msg, TimePoint now) {
   OwnShipSnapshot snap;
   snap.sog_kn = msg.sog_kn;
   snap.cog_deg = msg.cog_deg;
@@ -102,9 +100,7 @@ void WorldStateAggregator::update_own_ship(
 }
 
 void WorldStateAggregator::update_environment(
-    const l3_external_msgs::msg::EnvironmentState& msg) {
-  const auto now = std::chrono::steady_clock::now();
-
+    const l3_external_msgs::msg::EnvironmentState& msg, TimePoint now) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   ZoneSnapshot snap;
@@ -149,9 +145,7 @@ void WorldStateAggregator::update_environment(
 }
 
 void WorldStateAggregator::update_odd_state(
-    const l3_msgs::msg::ODDState& msg) {
-  const auto now = std::chrono::steady_clock::now();
-
+    const l3_msgs::msg::ODDState& msg, TimePoint now) {
   OddSnapshot snap;
   snap.current_zone = static_cast<OddZone>(msg.current_zone);
   snap.auto_level = msg.auto_level;
@@ -169,7 +163,7 @@ void WorldStateAggregator::update_odd_state(
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 std::optional<l3_msgs::msg::WorldState>
 WorldStateAggregator::compose_world_state(
-    std::chrono::steady_clock::time_point now) {
+    TimePoint now) {
   // 1. Snapshot caches under mutex, then release before heavy computation.
   std::optional<OwnShipSnapshot> own_ship_snap;
   std::optional<OddSnapshot> odd_snap;
@@ -263,7 +257,7 @@ WorldStateAggregator::compose_world_state(
         wt.cpa_m);
 
     // 4e. Populate remaining TrackedTarget fields
-    wt.stamp = to_msg_time();
+    wt.stamp = now;
     wt.target_id = target.target_id;
     wt.position.latitude = target.latitude_deg;
     wt.position.longitude = target.longitude_deg;
@@ -314,8 +308,7 @@ WorldStateAggregator::compose_world_state(
           cpa_quality = 1.0;  // zero sigma = perfect knowledge
         }
       }
-      const double track_age_s =
-          std::chrono::duration<double>(now - target.stamp).count();
+      const double track_age_s = (now - target.stamp).seconds();
       const double track_age_factor = 1.0 - std::exp(-track_age_s / 60.0);
 
       double per_target_conf = base_conf * cpa_quality * track_age_factor;
@@ -353,8 +346,7 @@ WorldStateAggregator::compose_world_state(
       if (target.classification == "vessel") {
         intent_conf = 0.50;
       }
-      const double track_age_s =
-          std::chrono::duration<double>(now - target.stamp).count();
+      const double track_age_s = (now - target.stamp).seconds();
       if (track_age_s < 30.0) {
         intent_conf = std::min(0.10, intent_conf);
       }
@@ -367,7 +359,7 @@ WorldStateAggregator::compose_world_state(
 
   // 5. Build OwnShipState from snapshot
   l3_msgs::msg::OwnShipState os_msg;
-  os_msg.stamp = to_msg_time();
+  os_msg.stamp = now;
   os_msg.position.latitude = own_ship_snap->latitude_deg;
   os_msg.position.longitude = own_ship_snap->longitude_deg;
   os_msg.position.altitude = 0.0;
@@ -469,7 +461,7 @@ WorldStateAggregator::compose_world_state(
 
   // 8. Build WorldState
   l3_msgs::msg::WorldState ws;
-  ws.stamp = to_msg_time();
+  ws.stamp = now;
   ws.targets = std::move(world_targets);
   ws.own_ship = os_msg;
   ws.zone = zc_msg;
@@ -478,8 +470,7 @@ WorldStateAggregator::compose_world_state(
   // Compute SV age for rationale
   double sv_age_s = std::numeric_limits<double>::max();
   if (env_snap.has_value()) {
-    sv_age_s = std::chrono::duration<double>(
-        now - env_snap->stamp).count();
+    sv_age_s = (now - env_snap->stamp).seconds();
   }
 
   ws.rationale = compose_rationale_(
@@ -500,7 +491,7 @@ OwnShipSnapshot WorldStateAggregator::latest_own_ship() const {
   // Return a default zero-initialised snapshot if never received
   OwnShipSnapshot snap{};
   snap.covariance.setZero();
-  snap.stamp = std::chrono::steady_clock::time_point{};
+  snap.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
   return snap;
 }
 
@@ -511,7 +502,7 @@ ZoneSnapshot WorldStateAggregator::latest_zone() const {
   }
   ZoneSnapshot snap{};
   snap.zone_type = "unknown";
-  snap.stamp = std::chrono::steady_clock::time_point{};
+  snap.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
   return snap;
 }
 
@@ -527,7 +518,7 @@ OddSnapshot WorldStateAggregator::latest_odd_state() const {
   OddSnapshot snap{};
   snap.tdl_s = 0.0f;
   snap.tmr_s = 0.0f;
-  snap.stamp = std::chrono::steady_clock::time_point{};
+  snap.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
   return snap;
 }
 
@@ -536,7 +527,7 @@ bool WorldStateAggregator::has_odd_state() const {
   return odd_cache_.has_value();
 }
 
-WorldStateAggregator::Sat3Forecast WorldStateAggregator::compute_sat3_forecast() const {
+WorldStateAggregator::Sat3Forecast WorldStateAggregator::compute_sat3_forecast(TimePoint now) const {
   Sat3Forecast forecast;
   forecast.predicted_state = "nominal";
   forecast.prediction_uncertainty = 0.0f;
@@ -552,8 +543,6 @@ WorldStateAggregator::Sat3Forecast WorldStateAggregator::compute_sat3_forecast()
   if (!own_ship_snap.has_value()) {
     return forecast;
   }
-
-  const auto now = std::chrono::steady_clock::now();
   track_buffer_->evict_stale(now);
   const auto targets = track_buffer_->active_targets();
 

@@ -13,15 +13,14 @@ namespace mass_l3::m2 {
 
 EnvSanityChecker::ValidationResult EnvSanityChecker::validate(
     const ZoneSnapshot& snapshot,
-    std::chrono::steady_clock::time_point now) {
+    TimePoint now) {
   ValidationResult result;
   result.corrected_snapshot = snapshot;
 
   std::lock_guard<std::mutex> lock(state_mutex_);
 
   // 1. Staleness check — reject snapshots older than staleness_max_s
-  const double age_s =
-      std::chrono::duration<double>(now - snapshot.stamp).count();
+  const double age_s = (now - snapshot.stamp).seconds();
   if (age_s > cfg_.staleness_max_s) {
     result.passed = false;
     result.confidence_multiplier *= 0.5;

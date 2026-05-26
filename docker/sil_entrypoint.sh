@@ -73,14 +73,16 @@ sil_node_classes = [
     ScenarioAuthoringNode,
 ]
 
-# 1. Create and spin LifecycleManagerNode in a dedicated SingleThreadedExecutor and thread
-# to prevent executor-level thread starvation and circular time deadlocks.
+# 1. Create and spin LifecycleManagerNode in a dedicated 2-thread executor.
+# SingleThreadedExecutor caused SetParameters starvation: rclpy processes timers
+# before services, so the 1000Hz clock timer perpetually blocked service callbacks.
+# MultiThreadedExecutor(2): thread-1 handles clock timer, thread-2 handles services.
 mgr_node = LifecycleManagerNode()
 nodes.append(mgr_node)
-print(f'  [{ts()}] Stage 1: created scenario_lifecycle_mgr (dedicated thread)')
+print(f'  [{ts()}] Stage 1: created scenario_lifecycle_mgr (dedicated 2-thread executor)')
 
-from rclpy.executors import SingleThreadedExecutor
-mgr_executor = SingleThreadedExecutor()
+from rclpy.executors import MultiThreadedExecutor as _MgrExecutor
+mgr_executor = _MgrExecutor(num_threads=2)
 mgr_executor.add_node(mgr_node)
 
 def run_mgr():

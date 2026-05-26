@@ -40,7 +40,7 @@ class EnvSanityChecker final {
   /// Returns result with passed/failed, corrected snapshot, and multiplier.
   ValidationResult validate(
       const ZoneSnapshot& snapshot,
-      std::chrono::steady_clock::time_point now);
+      TimePoint now);
 
   // TODO(D2.2-followup): 4 spec-mandated checks not yet implemented:
   //   - visibility ∈ [0.01, 50.0] nm → needs EnvironmentState.visibility field

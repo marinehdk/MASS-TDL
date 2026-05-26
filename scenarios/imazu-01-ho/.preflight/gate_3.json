@@ -1,7 +1,7 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-05-26T01:48:11.876852Z",
+  "timestamp_utc": "2026-05-26T09:46:54.499009Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [

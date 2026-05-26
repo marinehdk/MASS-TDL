@@ -458,6 +458,12 @@ def _extract_injection_params(yaml_data: dict) -> dict:
             # Convert knots to m/s
             u0_val = float(sog) * 0.5144
             ship_params["u0"] = (u0_val, ParameterType.PARAMETER_DOUBLE)
+
+        if isinstance(sim_settings, dict):
+            n_rps_init = sim_settings.get("n_rps_initial")
+            if n_rps_init is not None:
+                ship_params["n_rps_initial"] = (float(n_rps_init), ParameterType.PARAMETER_DOUBLE)
+
     if ship_params:
         injection_map["ship_dynamics_node"] = ship_params
 

@@ -1,0 +1,23 @@
+{
+  "gate_id": 4,
+  "gate_name": "ODD-Scenario Alignment",
+  "timestamp_utc": "2026-05-26T07:41:04.283292Z",
+  "scenario_id": "iv_dual_gw_Rule16_open_sea_b45_s1",
+  "passed": true,
+  "checks": [
+    {
+      "item": "domain=open_sea",
+      "status": "ok",
+      "detail": "domain=open_sea valid"
+    },
+    {
+      "item": "M1",
+      "status": "info",
+      "detail": "M1 ODD cross-check: Phase 2 (D2.1 M1 /health endpoint not yet available)"
+    }
+  ],
+  "duration_ms": 2.2,
+  "rationale": "ODD alignment verified",
+  "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 ODD conformance",
+  "hazid_scenario_ref": null
+}

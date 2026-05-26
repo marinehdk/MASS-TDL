@@ -122,6 +122,7 @@ class ScenarioLifecycleMgr:
             return False
         self._scenario_id = scenario_id
         self._scenario_hash = scenario_hash
+        self._sim_time = 0.0
         self._state = LifecycleState.INACTIVE
         return True
 
@@ -145,6 +146,7 @@ class ScenarioLifecycleMgr:
         self._state = LifecycleState.UNCONFIGURED
         self._scenario_id = ""
         self._scenario_hash = ""
+        self._sim_time = 0.0
         return True
 
     def set_sim_rate(self, rate: float) -> bool:
@@ -197,6 +199,10 @@ class LifecycleManagerNode(LifecycleNode):
             sig = inspect.signature(super().__init__)
             if "parameter_overrides" in sig.parameters and overrides is not None:
                 kwargs["parameter_overrides"] = overrides
+            if "allow_undeclared_parameters" in sig.parameters:
+                kwargs["allow_undeclared_parameters"] = True
+            if "automatically_declare_parameters_from_overrides" in sig.parameters:
+                kwargs["automatically_declare_parameters_from_overrides"] = True
         except Exception:
             pass
 

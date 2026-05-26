@@ -294,20 +294,32 @@ void WorldModelNode::setup_timers() {
   const auto asdr_ms = static_cast<int64_t>(1000.0 / params_.rates.asdr_periodic_rate_hz);
   const auto hb_ms = static_cast<int64_t>(1000.0 / params_.rates.heartbeat_rate_hz);
 
-  aggregation_timer_ = create_wall_timer(
-      milliseconds(agg_ms),
+  aggregation_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      rclcpp::Duration(milliseconds(agg_ms)),
       std::bind(&WorldModelNode::on_aggregation_timer, this));
 
-  sat_timer_ = create_wall_timer(
-      milliseconds(sat_ms),
+  sat_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      rclcpp::Duration(milliseconds(sat_ms)),
       std::bind(&WorldModelNode::on_sat_timer, this));
 
-  asdr_periodic_timer_ = create_wall_timer(
-      milliseconds(asdr_ms),
+  asdr_periodic_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      rclcpp::Duration(milliseconds(asdr_ms)),
       std::bind(&WorldModelNode::on_asdr_periodic_timer, this));
 
-  heartbeat_timer_ = create_wall_timer(
-      milliseconds(hb_ms),
+  heartbeat_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      rclcpp::Duration(milliseconds(hb_ms)),
       std::bind(&WorldModelNode::on_heartbeat_timer, this));
 
   RCLCPP_INFO(get_logger(), "Timers set up (agg=%ldms, sat=%ldms, asdr=%ldms, hb=%ldms)",
@@ -347,7 +359,7 @@ void WorldModelNode::setup_logger() {
 
 void WorldModelNode::on_tracked_targets(
     const l3_external_msgs::msg::TrackedTargetArray::SharedPtr msg) {
-  const auto now = std::chrono::steady_clock::now();
+  const auto now = this->now();
   track_buffer_->update(*msg, now);
 
   if (logger_) {
@@ -358,6 +370,7 @@ void WorldModelNode::on_tracked_targets(
 
 void WorldModelNode::on_own_ship_state(
     const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr msg) {
+  const auto now = this->now();
   // Initialize coord transform on first reception
   if (!coord_transform_->initialized()) {
     coord_transform_->init(msg->position.latitude,
@@ -367,12 +380,13 @@ void WorldModelNode::on_own_ship_state(
                  msg->position.latitude, msg->position.longitude);
   }
 
-  aggregator_->update_own_ship(*msg);
+  aggregator_->update_own_ship(*msg, now);
 }
 
 void WorldModelNode::on_environment_state(
     const l3_external_msgs::msg::EnvironmentState::SharedPtr msg) {
-  aggregator_->update_environment(*msg);
+  const auto now = this->now();
+  aggregator_->update_environment(*msg, now);
 
   if (logger_) {
     logger_->info("on_environment_state: wind={:.1f}kn, wave={:.1f}m, vis={:.1f}nm",
@@ -383,7 +397,8 @@ void WorldModelNode::on_environment_state(
 
 void WorldModelNode::on_odd_state(
     const l3_msgs::msg::ODDState::SharedPtr msg) {
-  aggregator_->update_odd_state(*msg);
+  const auto now = this->now();
+  aggregator_->update_odd_state(*msg, now);
 
   if (logger_) {
     logger_->info("on_odd_state: zone={}, auto_level={}, env_state={}, conf={:.2f}",
@@ -461,7 +476,7 @@ void WorldModelNode::on_heartbeat_timer() {
 // ── Publisher helpers ──────────────────────────────────────────────────────
 
 void WorldModelNode::publish_world_state() {
-  const auto now = std::chrono::steady_clock::now();
+  const auto now = this->now();
   auto ws = aggregator_->compose_world_state(now);
 
   if (ws.has_value()) {
@@ -483,7 +498,7 @@ void WorldModelNode::publish_sat_data() {
   const auto zone = aggregator_->latest_zone();
 
   l3_msgs::msg::SATData msg;
-  msg.stamp = to_msg_time();
+  msg.stamp = this->now();
   msg.source_module = "M2_World_Model";
 
   // SAT1 — Status summary
@@ -528,7 +543,7 @@ void WorldModelNode::publish_sat_data() {
 
   // SAT3 — Forecast / predictions
   {
-    const auto forecast = aggregator_->compute_sat3_forecast();
+    const auto forecast = aggregator_->compute_sat3_forecast(this->now());
 
     msg.sat3.forecast_horizon_s = 90.0;
     msg.sat3.predicted_state = forecast.predicted_state;
@@ -557,7 +572,7 @@ void WorldModelNode::publish_asdr_record(
     const std::string& decision_type,
     const std::string& rationale_json) {
   l3_msgs::msg::ASDRRecord msg;
-  msg.stamp = to_msg_time();
+  msg.stamp = this->now();
   msg.source_module = "M2_World_Model";
   msg.decision_type = decision_type;
   msg.decision_json = rationale_json;

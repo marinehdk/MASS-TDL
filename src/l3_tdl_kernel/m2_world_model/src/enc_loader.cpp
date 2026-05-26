@@ -119,7 +119,7 @@ EncLoader::query_zone(double latitude_deg, double longitude_deg) const {
       snap.in_tss = chart.has_tss;
       snap.in_narrow_channel = chart.has_narrow_channel;
       snap.min_water_depth_m = chart.min_depth_m;
-      snap.stamp = std::chrono::steady_clock::now();
+      snap.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
       return snap;
     }
   }

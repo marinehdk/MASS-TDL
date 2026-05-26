@@ -54,7 +54,7 @@ CpaTcpaCalculator::compute(const OwnShipSnapshot& own_ship,
                            const TargetSnapshot& target,
                            OddZone odd_zone) const {
   // ── 1. Time alignment check ──
-  auto dt_sec = std::chrono::duration<double>(own_ship.stamp - target.stamp).count();
+  double dt_sec = (own_ship.stamp - target.stamp).seconds();
   if (std::abs(dt_sec) > cfg_.max_align_dt_s) {
     return std::nullopt;
   }
@@ -163,8 +163,8 @@ CpaTcpaCalculator::compute(const OwnShipSnapshot& own_ship,
 
 TargetSnapshot
 CpaTcpaCalculator::extrapolate_to_(const TargetSnapshot& target,
-                                   std::chrono::steady_clock::time_point tgt_time) const {
-  auto dt = std::chrono::duration<double>(tgt_time - target.stamp).count();
+                                   TimePoint tgt_time) const {
+  double dt = (tgt_time - target.stamp).seconds();
 
   double speed_ms = target.sog_kn * kKnToMs;
   double cog_rad = target.cog_deg * kDegToRad;

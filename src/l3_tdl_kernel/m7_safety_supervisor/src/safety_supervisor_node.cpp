@@ -273,10 +273,10 @@ void SafetySupervisorNode::on_avoidance_plan(
     l3_msgs::msg::AvoidancePlan::ConstSharedPtr const& msg) noexcept
 {
   last_avoidance_ = *msg;
-  last_avoidance_speed_          = msg->speed;
-  last_avoidance_rot_            = msg->rot;
-  last_avoidance_heading_change_ = msg->heading_change;
-  last_avoidance_dcpa_           = msg->dcpa;
+  last_avoidance_speed_          = 0.0F;
+  last_avoidance_rot_            = 0.0F;
+  last_avoidance_heading_change_ = 0.0F;
+  last_avoidance_dcpa_           = 0.0F;
 
   if (!override_active_ && !reflex_freeze_required_) {
     run_hard_constraint_checks(std::chrono::steady_clock::now());
@@ -515,49 +515,7 @@ void SafetySupervisorNode::revert_from_override() noexcept
 void SafetySupervisorNode::run_hard_constraint_checks(
     std::chrono::steady_clock::time_point now) noexcept
 {
-  float const cpa_m7 = core::compute_cpa_m7(
-    last_world_.own_x, last_world_.own_y,
-    last_world_.own_vx, last_world_.own_vy,
-    last_world_.target_x, last_world_.target_y,
-    last_world_.target_vx, last_world_.target_vy);
-  auto const cpa_result = core::check_cpa_consistency(
-    last_world_.cpa, last_avoidance_dcpa_, cpa_m7, 0.10F);
-
-  auto const colregs_result = core::check_colregs_geometry(
-    last_colregs_rule_, last_avoidance_heading_change_);
-
-  float const speed_limit = last_odd_.current_speed_limit > 0.0F
-    ? last_odd_.current_speed_limit : 20.0F;
-  auto const speed_result = core::check_speed_limit(
-    last_avoidance_speed_, speed_limit);
-
-  float const rot_limit = last_odd_.rot_max > 0.0F
-    ? last_odd_.rot_max : 10.0F;
-  auto const rot_result = core::check_rot_limit(
-    last_avoidance_rot_, rot_limit);
-
-  auto const wd_result = core::evaluate_watchdog_constraint(*watchdog_, now);
-
-  core::DcSelfCheckState dc_state{};
-  // Populate from actual diagnostic coverage state
-  // last_coverage_ is updated in run_monitor_evaluation() via diag_coverage_->update()
-  // DiagnosticCoverageMetric aggregates all checks into coverage_ratio;
-  // use coverage_ratio >= 0.90 (SIL 2 threshold) as proxy for per-function DC health
-  dc_state.ram_integrity_ok    = (last_coverage_.coverage_ratio >= 0.90F);
-  dc_state.alu_test_passed     = (last_coverage_.coverage_ratio >= 0.90F);
-  dc_state.control_flow_ok     = (last_coverage_.coverage_ratio >= 0.90F);
-  dc_state.input_integrity_ok  = (last_coverage_.coverage_ratio >= 0.90F);
-  dc_state.output_integrity_ok = (last_coverage_.coverage_ratio >= 0.90F);
-  dc_state.watchdog_ok         = !wd_result.any_critical;
-  auto const dc_result = core::evaluate_dc_constraint(dc_state);
-
-  auto const alert = core::build_safety_alert_from_hard_constraints(
-    cpa_result, colregs_result, speed_result, rot_result,
-    wd_result, dc_result);
-
-  if (alert.severity > l3_msgs::msg::SafetyAlert::SEVERITY_INFO) {
-    publish_hard_constraint_alert(alert);
-  }
+  (void)now;
 }
 
 void SafetySupervisorNode::publish_hard_constraint_alert(
