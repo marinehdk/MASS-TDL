@@ -2326,12 +2326,29 @@ w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerne
 | Trajectory ghosting + M7 verdict badge | D3.4 M8 完整 | Phase 3 |
 | 1000 场景 evidence pack 一键导出 | D3.6 SIL 1000+ | Phase 3 |
 
-### 21.3 IEC 62288 SA subset 范围界定 [D2.8 新增]
+### 21.3 IEC 62288 SA subset 合规矩阵 [D2.8 新增；D3.8 Wave 1 完整化]
 
-- **采用**：SA Presentation Level 2（关键导航数据 + 告警 + 预测轨迹）
-- **不采用**：完整 ECDIS（S-52 complete grammar + TYPE_APPROVED 认证）
-- **理由**：CCS credibility 需求通过 SA subset 满足；完整 ECDIS 认证成本 > 收益
-- **NLM 证据**：maritime_human_factors notebook 🟢 High
+范围界定：**采用** SA Presentation Level 2（关键导航数据 + 告警 + 预测轨迹）；**不采用**完整 ECDIS（TYPE_APPROVED 认证）。理由：CCS credibility 通过 SA subset 满足；完整 ECDIS 认证成本 > 收益（🟢 High，maritime_human_factors NLM）。
+
+**IEC 62288 SA 条款合规矩阵** [R35]：
+
+| IEC 62288 SA 条款 | 要求摘要 | 本 HMI 实现方式 | 状态 |
+|---|---|---|---|
+| §5.1 信息显示（Level 2）| 关键导航数据（COG/SOG/heading）+ 告警 | MapLibre overlay + M8 `/hmi/explain` 话题 | ✅ D1.3.2.3 |
+| §5.2 告警优先级 | 告警按 IMO priority 1/2/3 分级显示 | [AWAIT-D3.4: D3.4 M8 告警 widget] | Wave 2 |
+| §5.3 预测轨迹 | 显示预测路径 ≥ 6 min | M5 BC-MPC 提议路径（虚线）[AWAIT-D3.4] | Wave 2 |
+| §5.4 系统状态指示 | M1-M8 各模块状态可见 | M1-M8 pulse + ASDR 日志 | ✅ D1.3.2.3 |
+| §6.1 颜色编码 | 遵循 IHO S-52 + IMO 告警色规范 | MapLibre S-52 expression styling | ✅ D1.3.2.3 |
+| §7.1 字体可读性 | 最小字体 + 对比度满足白天/夜间模式 | [AWAIT-D3.4: D2.6 HF 可用性测试验证] | Wave 2 |
+
+**IMO S-Mode 合规矩阵** [R36]（非强制指南）：
+
+| S-Mode 指南条款 | 对应本系统 | 状态 |
+|---|---|---|
+| 统一化图标集 | IHO INT 1 符号集（S-52 expression）| ✅ D1.3.2.3 |
+| 简化操作界面 | 4 键快捷操作 | ✅ D1.3.2.3 |
+| 模式指示 | ASDR 4 级自主模式显示 | ✅ D1.3.2.3 |
+| 强制化时间 | MASS Code Tier IV 强制时间未定 | [AWAIT: IMO 最终决定，D3.8 patch] |
 
 ### 21.4 IMO S-Mode 占位 [TBD-DNV]
 
