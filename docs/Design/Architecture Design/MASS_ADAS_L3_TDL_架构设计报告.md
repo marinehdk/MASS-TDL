@@ -2264,6 +2264,23 @@ w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerne
 | 框架 | **React** + MapLibre GL | 用户拍板 2026-05-09（生态广 + 招人友好）|
 | seacharts (NTNU Python) | **不直接移植**，重写 web 等价 | matplotlib 50Hz 必坏 |
 
+#### 21.1.1 S-57 → MVT 完整管线
+
+**步骤**（D1.3.2.3 实装验证，证据见 D3.4 evidence/）：
+
+1. **S-57 ENC 获取**：AVCS（IHO 授权）或 PRIMAR / IC-ENC（商业）；测试用途使用 BSH OpenData（德国海域，免费 S-57）
+2. **格式转换**：`ogr2ogr -f "PostgreSQL" enc.000 PG:"..." -nlt PROMOTE_TO_MULTI`  
+   或直接：`gdal_translate -of MVT enc.000 output/ --config GDAL_DATA_CELL_SIZE 0.001`
+3. **瓦片生成**：`tippecanoe -o enc.mbtiles -z12 --layer=soundings,depths,land enc.geojson`  
+   （推荐 zoom 8–14，zoom 15+ 按需生成；文件大小约 200–500 MB / 区域）
+4. **Tile 服务**：`mbtilesserver -p 3001 enc.mbtiles`（开发）或 Martin / TileServer GL（生产）
+5. **MapLibre 消费**：`addSource('enc', {type: 'vector', url: 'mbtiles://enc.mbtiles'})`  
+   + S-52 expression styling（颜色 / 符号按 IHO S-52 Presentation Library）
+
+**已验证区域**（D1.3.2.3 Phase 1 产出）：Trondheim Fjord（NTNU 复现）+ NOAA San Francisco Bay
+
+**已知限制**：S-101（新一代 ENC 格式）暂不支持，Phase 4 升级路径预留（D4.7 ENC Manager 完整化时评估）。
+
 **XAI overlay 模式**（沿用现 HTML 视觉语言 + 增项）：
 
 现有 ✅：CPA/TCPA、M6 规则文字、M5 决策文字、M1-M8 pulse、ASDR 日志
