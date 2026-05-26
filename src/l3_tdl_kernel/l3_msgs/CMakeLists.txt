@@ -18,6 +18,7 @@ set(MSG_FILES
   msg/ModeCmd.msg
   msg/WorldState.msg
   msg/MissionGoal.msg
+  msg/M7Observability.msg
   msg/RouteReplanRequest.msg
   msg/BehaviorPlan.msg
   msg/ColregsChainLayer.msg
