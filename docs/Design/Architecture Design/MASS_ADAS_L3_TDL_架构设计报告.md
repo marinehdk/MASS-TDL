@@ -1854,6 +1854,10 @@ message SAT_DataMsg {
 | M1, M2–M7 → M8 | SAT_DataMsg | 10 Hz | 各模块 SAT-1/2/3 数据流（按 §12.2 自适应触发）| hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
 | M8 → ROC/Captain | UI_StateMsg | 50 Hz | 渲染就绪的 HMI 数据 | dds-auth | hmac-sha256 | ptp-window | ROC-link |
 | M8 → ROC | ToR_RequestMsg | 事件 | 责任移交请求（含 60 s 时窗）| dds-auth | hmac-sha256 | ptp-window | ROC-link |
+| ENC Manager（§22.1）| `ENCHazardMap` | `/enc/hazard_polygons` | → M2/M5 | 0.1 Hz + 事件 | ±5nm 障碍物多边形 | **见 §22.1**（Phase 4 D4.7）|
+| Parameter Store（§22.2）| `CapabilityManifest` | `/params/capability_manifest` | → M1/M4/M5 | 0.1 Hz + 启动 | 船型 + 推进 + ROT_max | **见 §22.2**（Phase 4 D4.7）|
+| Environment Validator（§22.3）| `ValidatedTrackSet` | `/env/validated_tracks` | → M2 | 2–5 Hz | 目标列表 + 跨源置信度 | **见 §22.3**（Phase 4 D4.7）|
+| BNWAS-equivalent（§22.4）| `BNWASTakeoverRequest` | `/bnwas/takeover_request` | → M1 | 事件 | ToR 触发 + 操作员状态 | **见 §22.4**（Phase 4 D4.7）|
 
 > **[D2.8 security columns 注]**：列值为 v1.1.3-stub 初始设计值。L3-internal 和 ROC-link DDS-Security policy XML 在 D3.9 RFC-007 交付。跨系统通道（X-axis / Y-axis / Hardware Override）安全性由物理隔离实现（§16.1 Zone 划分），不依赖 DDS-Security。完整 IACS UR E27 符合性分析见 D3.9。
 
