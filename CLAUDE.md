@@ -499,13 +499,15 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
 
 ## 15. 本地与容器混合部署与守护规范（PM2 + Docker）
 
-本项目在开发调试时采用 **"Docker 运行仿真与网关节点 + 宿主机本地 Native 运行前后端 HMI"** 的混合架构，以保证极速的前端热重载与便捷的后端调试。为解决宿主机 Native 进程随终端会话关闭而频繁掉线的问题，引入了 **PM2 守护进程管理**。
+本项目在开发调试时采用 **"Docker 运行仿真、网关与后端 Orchestrator 节点 (共 4 个容器) + 宿主机本地 Native 运行前端 HMI"** 的混合架构，以保证极速的前端 HMI 热重载，并赋予后端 Orchestrator 100% 完整的 ROS2 Humble `/rclpy` 环境与生命周期服务控制能力。
+
+为解决宿主机 Native 前端进程随终端会话关闭而频繁掉线的问题，引入了 **PM2 守护进程管理**。
 
 ### 15.1 守护配置文件 (ecosystem.config.cjs)
 
-项目根目录下的 `ecosystem.config.cjs` 托管了本地 Native 服务的守护与自愈规则：
-- **`sil-backend`**：使用宿主机 `python3` 启动 `uvicorn` 服务（绑定 8000 端口），配置 `PYTHONPATH=src`，支持故障自动拉起。
-- **`sil-frontend`**：在 `web/` 目录下启动 Vite 开发服务器（绑定 5173 端口），支持自愈。
+项目根目录下的 `ecosystem.config.cjs` 仅托管宿主机本地 Native 服务的守护与自愈规则：
+- **`sil-frontend`**：在 `web/` 目录下启动 Vite 开发服务器（绑定 5173 端口，反向代理至容器内的 `https://127.0.0.1:8000`），支持故障自愈。
+- *注：后端 `sil-orchestrator` 已完全迁移至 Docker 容器内，不再在本地 PM2 中托管。*
 
 ### 15.2 统一生命周期管理命令（根目录 package.json）
 
@@ -513,17 +515,18 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
 
 | 命令 | 对应底层执行 | 作用说明 |
 |---|---|---|
-| `npm run sys:start` | `docker compose up -d` <br> `pm2 start ecosystem.config.cjs` | **一键联合启动**：同时拉起 Docker 容器节点与 PM2 本地前后端服务。 |
-| `npm run sys:stop` | `pm2 delete ecosystem.config.cjs` <br> `docker compose down` | **一键联合停止**：优雅关闭并销毁 PM2 本地守护服务与所有 Docker 容器。 |
-| `npm run sys:status` | `pm2 list` <br> `docker compose ps` | **联合状态监控**：完美展示当前“容器健康状态”与“本地服务守护运行列表”仪表盘。 |
-| `npm run sys:restart` | `pm2 restart ...` <br> `docker compose restart` | **一键联合重启**：重置所有后台容器与守护进程。 |
+| `npm run sys:start` | `docker compose up -d` <br> `pm2 start ecosystem.config.cjs` | **一键联合启动**：同时拉起 Docker 容器节点集群（4 个容器）与本地 PM2 前端服务。 |
+| `npm run sys:stop` | `pm2 delete ecosystem.config.cjs` <br> `docker compose down` | **一键联合停止**：优雅关闭并销毁本地 PM2 守护服务与所有后台 Docker 容器。 |
+| `npm run sys:status` | `pm2 list` <br> `docker compose ps` | **联合状态监控**：完美展示当前“4个容器的健康状态”与“本地服务守护运行列表”仪表盘。 |
+| `npm run sys:restart` | `pm2 restart ...` <br> `docker compose restart` | **一键联合重启**：重置所有后台容器与本地守护进程。 |
 
 ### 15.3 单独优化与调试更新
 
-PM2 允许在不干扰 Docker 容器与其它服务运行的前提下，对特定本地服务进行独立维护：
-- **单独重启后端**：`pm2 restart sil-backend`（修改 Python 算法代码后常用）
-- **单独重启前端**：`pm2 restart sil-frontend`（修改 HMI 网络配置后常用）
-- **监控实时日志**：`pm2 logs` 或 `pm2 logs sil-backend`
+开发人员可以非常方便地在不干扰其他服务运行的前提下，对特定服务进行独立维护：
+- **单独重启前端**：`pm2 restart sil-frontend`（修改 HMI 配置或面板样式后常用）
+- **单独重启后端**：`docker compose restart sil-orchestrator`（修改 Python 算法或 Scoring 逻辑后常用）
+- **监控前端日志**：`pm2 logs sil-frontend`
+- **监控后端日志**：`docker compose logs -f sil-orchestrator`
 
 ---
 
