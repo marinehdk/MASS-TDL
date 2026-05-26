@@ -2086,7 +2086,7 @@ class FCBPlugin final : public ShipMotionSimulator {
 
 | D-task | 联动内容 | 方向 | 目标时间 |
 |---|---|---|---|
-| D1.3c FMI 桥 | dds-fmu latency 实测值更新 §17.2 预算表 | 填充 | Phase 1 末 |
+| D1.3.3 FMI 桥 | dds-fmu latency 实测值更新 §17.2 预算表；许可证表 Wave 1 已补充 | 进行中 | D3.6 集成测试（8/31）|
 | D2.5 SIL 集成 | 50 场景验证 §17.1 架构图各连接真实通 | 验证 | 7/31 |
 | D3.6 SIL 1000+ | 三层模拟策略 1000-cell 扩展验证 | 扩展 | Phase 3 |
 | D4.6 RL 对抗 | NICE-deferred mlfmu 实装，§17.2 更新 | 激活 | Phase 4 |
