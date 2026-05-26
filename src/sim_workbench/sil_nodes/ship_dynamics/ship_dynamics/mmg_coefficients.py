@@ -60,6 +60,17 @@ class MMGCoefficients:
 
     # ===== 裸船体导数 (Abkowitz 多项式) =====
     # 纵荡 X
+    # X_uu: 纵向阻力系数 (必须为负).
+    # 标定方式: X_uu * scale_force * u0² = -X_prop(n_rps_cruise, u0)
+    # 保证 u=u0 时 u_dot = 0 (巡航平衡).
+    # 结果:
+    #   n_rps_cruise = 3.0 rps (180 RPM, 46m舰艇合理巡航转速)
+    #   J = u0*(1-w_P)/(n*D_P) = 5.144*0.8/(3.0*1.5) = 0.9145
+    #   K_T = -0.25*0.9145² + (-0.3)*0.9145 + 0.6 = 0.1166
+    #   X_prop = (1-0.184)*1025*3.0²*1.5⁴*0.1166 = 4443 N
+    #   scale_force = 0.5*1025*46*2.8 = 66010
+    #   X_uu = -4443 / (66010 * 5.144²) = -0.002544
+    X_uu: float = -0.002544
     X_vv: float = -0.0407
     X_vr: float = 0.0441
     X_rr: float = 0.0127
@@ -108,11 +119,22 @@ class MMGCoefficients:
     # ===== 积分 =====
     dt: float = 0.02
 
+    # ===== 螺旋桨工作点辅助常量 =====
+    # J_KT0: K_T=0 时的进速系数 (= (-k_1 - sqrt(k_1²-4k_2*k_0)) / (2*k_2))
+    # 用于油门→转速物理换算: n_rps = u*(1-w_P)/(J_KT0*D_P)
+    J_KT0: float = 1.061325
+
+    # u_max: 设计最高航速 (m/s), 对应 throttle=1.0
+    # 15 kn = 7.716 m/s  → 对应 n_rps_max = 7.716*0.8/(1.061325*1.5) = 3.877 rps
+    u_max: float = 7.716
+
     # ===== 初始条件 =====
     x0: float = 0.0
     y0: float = 0.0
     psi0: float = 1.5708
-    u0: float = 9.26
+    # u0: 巡航初速度 (m/s)。10 kn = 5.144 m/s。
+    # 注意: 旧值 9.26 m/s ≈ 18 kn，与 IMAZU 场景 10 kn 不符，已修正。
+    u0: float = 5.144
 
     # ===== 地理原点 =====
     origin_lat: float = 30.5
@@ -165,3 +187,13 @@ class MMGCoefficients:
     def scale_moment(self) -> float:
         """MMG 力矩尺度因子: 0.5 * rho * L² * d。"""
         return 0.5 * self.rho * self.L * self.L * self.d
+
+    @property
+    def n_rps_cruise(self) -> float:
+        """巡航转速 (rev/s) —— 与 X_uu 联合标定，勿单独修改。
+
+        固定值 3.0 rps (180 RPM) 是为 46m 舰艇 10 kn 巡航的模型工作点。
+        对应 J=0.9145, K_T=0.1166, X_prop=4443 N，被 X_uu 完全平衡。
+        如需调整巡航速度，请同时重新标定 X_uu。
+        """
+        return 3.0

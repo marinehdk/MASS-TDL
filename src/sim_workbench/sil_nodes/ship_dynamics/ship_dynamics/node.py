@@ -233,21 +233,17 @@ class ShipDynamicsNode(LifecycleNode):
     def _actuator_callback(self, msg):
         """接收舵角/转速指令。
 
-        throttle 是归一化到 [0, 1] 的目标航速比例。
-        转换公式 (Yasukawa K_T零点法):
-          u_target = throttle * u_max
-          n_rps    = u_target * (1 - w_P) / (J_KT0 * D_P)
-        该公式保证 n_rps 在巡航时处于 K_T 的工作区 (J < J_KT0),
-        而平衡则由 X_uu 调节。
+        通过对称的油门-转速映射，消除 L3 桥接层与水动力模型之间的阻力平衡偏差。
         """
         with self._cmd_lock:
             self._delta_cmd = getattr(msg, "rudder_angle", 0.0)
             throttle = getattr(msg, "throttle", 0.0)
             if self._model is not None and throttle > 1e-6:
                 c = self._model.c
-                u_target = throttle * c.u_max
-                # n_rps = u*(1-w_P)/(J_KT0*D_P): 物理公式，替代旧的 throttle*20.0
-                self._n_rps_cmd = u_target * (1.0 - c.w_P) / (c.J_KT0 * c.D_P)
+                # 油门反归一化为目标航速 (最大对应 25.0 节，与 sil_topic_bridge 中的 MAX_SPEED_KN 保持一致)
+                u_target = throttle * (25.0 * 0.514444)
+                # 使用线性比例换算螺旋桨转速以克服水阻力维持目标航速 (根据标定点 u0=5.144 m/s -> n_rps=3.0)
+                self._n_rps_cmd = u_target * (c.n_rps_cruise / c.u0)
             else:
                 self._n_rps_cmd = 0.0
 
@@ -310,7 +306,7 @@ class ShipDynamicsNode(LifecycleNode):
         msg.v = self._state.v
         msg.r = self._state.r
         msg.rudder_angle = dc
-        msg.throttle = nr / 20.0
+        msg.throttle = (nr * (self._model.c.u0 / self._model.c.n_rps_cruise)) / (25.0 * 0.514444)
 
         # Throttled own-ship publishing to maximum of 40 Hz wall-clock rate
         # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)

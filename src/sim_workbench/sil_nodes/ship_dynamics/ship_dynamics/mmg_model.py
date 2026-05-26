@@ -142,8 +142,12 @@ class MMGModel:
         r_prime = state.r * c.L / U
 
         # ── (c) 裸船体力 ──
+        # X_hull_nd 包含纵向阻力项 X_uu 和交叉耦合项。
+        # X_uu*(u/U)²: 模拟船体纵荡阻力 (Holtrop R_T), 在 v=0,r=0 时为 -R_T/(scale_force*U²).
+        # 在巡航工况下对 u_dot 起主导平衡作用, 其他项处理 v/r 小扰动.
         X_hull_nd = (
-            c.X_vv * v_prime ** 2
+            c.X_uu * (state.u / U) ** 2
+            + c.X_vv * v_prime ** 2
             + c.X_vr * v_prime * r_prime
             + c.X_rr * r_prime ** 2
             + c.X_vvvv * v_prime ** 4
