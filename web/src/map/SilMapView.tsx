@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { osmSource, osmLayer, ALL_S57_LAYERS } from './layers';
-import { useTelemetryStore, useMapStore, useUIStore } from '../store';
+import { useTelemetryStore, useMapStore, useUIStore, useControlStore } from '../store';
 import { MAP_MAX_ZOOM } from '../store/mapStore';
 import { useMapPersistence } from '../hooks/useMapPersistence';
 import type { TargetVesselState } from '../types/sil/target_vessel_state';
@@ -260,6 +260,7 @@ export function SilMapView({
   const trail    = useTelemetryStore((s) => s.ownShipTrail);
   const selectedVesselId = useUIStore((s) => s.selectedVesselId);
   const setSelectedVesselId = useUIStore((s) => s.setSelectedVesselId);
+  const simRate = useControlStore((s) => s.simRate);
 
   // Use preview data if provided, otherwise use store
   const ownShip = previewData?.ownShip ? {
@@ -540,7 +541,7 @@ export function SilMapView({
     // cpa rings update removed
 
     // Follow
-    if (followOwnShip && viewMode === 'captain' && !previewData) {
+    if (followOwnShip && !previewData) {
       if (!firstFit.current) {
         // Initial load: fit all ships in view so the operator can see the full
         // encounter before the viewport locks to own ship.
@@ -570,9 +571,13 @@ export function SilMapView({
         });
         firstFit.current = true;
         lastPanAt.current = Date.now();
-      } else if (Date.now() - lastPanAt.current > 800) {
-        map.easeTo({ center: [lon, lat], duration: 500 });
-        lastPanAt.current = Date.now();
+      } else {
+        if (simRate > 1) {
+          // Smooth easing even at high speed, but with shorter duration to prevent lagging behind
+          map.easeTo({ center: [lon, lat], duration: Math.max(16, 100 / simRate), essential: true });
+        } else {
+          map.easeTo({ center: [lon, lat], duration: 100 });
+        }
       }
     } else if (previewData) {
       // Fit all vessels (OS + targets) in view with padding
@@ -596,7 +601,7 @@ export function SilMapView({
         firstFit.current = true;
       }
     }
-  }, [ownShip, followOwnShip, viewMode, previewData, selectedVesselId, setSelectedVesselId]);
+  }, [ownShip, followOwnShip, viewMode, previewData, selectedVesselId, setSelectedVesselId, simRate]);
 
   // ── Trail update ────────────────────────────────────────────────────────────
   useEffect(() => {

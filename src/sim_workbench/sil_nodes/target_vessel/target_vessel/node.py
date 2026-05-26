@@ -109,14 +109,30 @@ class TargetVesselNode(LifecycleNode):
     """
 
     def __init__(self) -> None:
-        super().__init__(
-            "target_vessel_node",
-            allow_undeclared_parameters=True,
-            automatically_declare_parameters_from_overrides=True
-        )
+        try:
+            from rclpy.parameter import Parameter
+            overrides = [Parameter('use_sim_time', Parameter.Type.BOOL, True)]
+        except ImportError:
+            overrides = None
+
+        import inspect
+        kwargs = {}
+        try:
+            sig = inspect.signature(super().__init__)
+            if "parameter_overrides" in sig.parameters and overrides is not None:
+                kwargs["parameter_overrides"] = overrides
+            if "allow_undeclared_parameters" in sig.parameters:
+                kwargs["allow_undeclared_parameters"] = True
+            if "automatically_declare_parameters_from_overrides" in sig.parameters:
+                kwargs["automatically_declare_parameters_from_overrides"] = True
+        except Exception:
+            pass
+
+        super().__init__("target_vessel_node", **kwargs)
         self._targets: list[TargetVessel] = []
         self._tv_pub = None
         self._timer = None
+        self._last_sim_time = None
 
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
@@ -197,6 +213,7 @@ class TargetVesselNode(LifecycleNode):
 
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self._targets.clear()
+        self._last_sim_time = None
         self._logger.info("Cleaned up — targets cleared")
         return TransitionCallbackReturn.SUCCESS
 
@@ -205,20 +222,34 @@ class TargetVesselNode(LifecycleNode):
     def _step_callback(self) -> None:
         if self._tv_pub is None:
             return
-            
-        # Ticking targets physics at simulation step
-        for t in self._targets:
-            t.step(dt=0.1)
+
+        now_sim = self.get_clock().now()
+        if self._last_sim_time is None:
+            self._last_sim_time = now_sim
+            return
+
+        dt = 0.1
+        elapsed = (now_sim - self._last_sim_time).nanoseconds / 1e9
+        if elapsed < dt:
+            return
+
+        steps = int(elapsed / dt)
+
+        from rclpy.duration import Duration
+        for _ in range(steps):
+            for t in self._targets:
+                t.step(dt=dt)
+            self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
 
         # Throttled target-vessel publishing to maximum of 25 Hz wall-clock rate
         # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
         import time
         now_wall = time.monotonic()
         if now_wall - self._last_pub_wall_time >= 0.04:  # ~25 Hz limit
-            now_sim = self.get_clock().now().to_msg()
+            now_sim_msg = now_sim.to_msg()
             for t in self._targets:
                 msg = TargetVesselState()
-                msg.stamp = now_sim
+                msg.stamp = now_sim_msg
                 msg.mmsi = t.mmsi
                 msg.lat = t.lat
                 msg.lon = t.lon

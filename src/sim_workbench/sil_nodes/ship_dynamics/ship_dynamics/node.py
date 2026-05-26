@@ -73,11 +73,26 @@ class ShipDynamicsNode(LifecycleNode):
 
     def __init__(self, node_name: str = "ship_dynamics_node"):
         if LifecycleNode is not object:
-            super().__init__(
-                node_name,
-                allow_undeclared_parameters=True,
-                automatically_declare_parameters_from_overrides=True
-            )
+            try:
+                from rclpy.parameter import Parameter
+                overrides = [Parameter('use_sim_time', Parameter.Type.BOOL, True)]
+            except ImportError:
+                overrides = None
+
+            import inspect
+            kwargs = {}
+            try:
+                sig = inspect.signature(super().__init__)
+                if "parameter_overrides" in sig.parameters and overrides is not None:
+                    kwargs["parameter_overrides"] = overrides
+                if "allow_undeclared_parameters" in sig.parameters:
+                    kwargs["allow_undeclared_parameters"] = True
+                if "automatically_declare_parameters_from_overrides" in sig.parameters:
+                    kwargs["automatically_declare_parameters_from_overrides"] = True
+            except Exception:
+                pass
+
+            super().__init__(node_name, **kwargs)
         else:
             self._node_name = node_name
 
@@ -87,7 +102,9 @@ class ShipDynamicsNode(LifecycleNode):
 
         # 命令缓存 (线程安全)
         self._delta_cmd: float = 0.0
-        self._n_rps_cmd: float = 10.0
+        # _n_rps_cmd 初始为 0.0；在 on_configure 时设置为巡航转速。
+        # 切勿将此处硬编码为非零常数 (如旧值 10.0 rps 会导致船船失控加速).
+        self._n_rps_cmd: float = 0.0
         self._wind_speed: float = 0.0
         self._wind_dir: float = 0.0
         self._current_speed: float = 0.0
@@ -99,6 +116,7 @@ class ShipDynamicsNode(LifecycleNode):
         self._state_pub = None
         self._actuator_sub = None
         self._env_sub = None
+        self._last_sim_time = None
 
         # 地理原点
         self._origin_lat_rad: float = 0.0
@@ -111,7 +129,7 @@ class ShipDynamicsNode(LifecycleNode):
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
-        """加载 MMG 参数，创建物理模型和初始状态。"""
+        """加载 MMG 参数，创建物理模型 and 初始状态。"""
         try:
             coeffs = self._load_coefficients()
             self._model = MMGModel(coeffs)
@@ -121,7 +139,16 @@ class ShipDynamicsNode(LifecycleNode):
             )
             self._origin_lat_rad = math.radians(coeffs.origin_lat)
             self._origin_lon_rad = math.radians(coeffs.origin_lon)
-            self._n_rps_cmd = coeffs.u0 / (coeffs.D_P * 3.0)  # 巡航转速估算
+
+            # 使用 coeffs.n_rps_cruise 属性 (与 X_uu 标定一致的巡航转速)
+            try:
+                self.declare_parameter("n_rps_initial", coeffs.n_rps_cruise)
+                self._n_rps_cmd = self.get_parameter("n_rps_initial").value
+            except Exception:
+                try:
+                    self._n_rps_cmd = self.get_parameter("n_rps_initial").value
+                except Exception:
+                    self._n_rps_cmd = coeffs.n_rps_cruise
         except Exception as exc:
             if hasattr(self, "get_logger"):
                 self.get_logger().error(f"on_configure 失败: {exc}")
@@ -196,6 +223,7 @@ class ShipDynamicsNode(LifecycleNode):
         """重置模型状态。"""
         self._model = None
         self._state = ShipState()
+        self._last_sim_time = None
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已清理")
         return TransitionCallbackReturn.SUCCESS
@@ -203,10 +231,25 @@ class ShipDynamicsNode(LifecycleNode):
     # ─── 回调 ─────────────────────────────────────────────────
 
     def _actuator_callback(self, msg):
-        """接收舵角/转速指令。"""
+        """接收舵角/转速指令。
+
+        throttle 是归一化到 [0, 1] 的目标航速比例。
+        转换公式 (Yasukawa K_T零点法):
+          u_target = throttle * u_max
+          n_rps    = u_target * (1 - w_P) / (J_KT0 * D_P)
+        该公式保证 n_rps 在巡航时处于 K_T 的工作区 (J < J_KT0),
+        而平衡则由 X_uu 调节。
+        """
         with self._cmd_lock:
             self._delta_cmd = getattr(msg, "rudder_angle", 0.0)
-            self._n_rps_cmd = getattr(msg, "throttle", 0.0) * 20.0
+            throttle = getattr(msg, "throttle", 0.0)
+            if self._model is not None and throttle > 1e-6:
+                c = self._model.c
+                u_target = throttle * c.u_max
+                # n_rps = u*(1-w_P)/(J_KT0*D_P): 物理公式，替代旧的 throttle*20.0
+                self._n_rps_cmd = u_target * (1.0 - c.w_P) / (c.J_KT0 * c.D_P)
+            else:
+                self._n_rps_cmd = 0.0
 
     def _environment_callback(self, msg):
         """接收环境状态。"""
@@ -221,6 +264,18 @@ class ShipDynamicsNode(LifecycleNode):
         if self._model is None:
             return
 
+        now_sim = self.get_clock().now()
+        if self._last_sim_time is None:
+            self._last_sim_time = now_sim
+            return
+
+        dt = 0.02
+        elapsed = (now_sim - self._last_sim_time).nanoseconds / 1e9
+        if elapsed < dt:
+            return
+
+        steps = int(elapsed / dt)
+
         with self._cmd_lock:
             dc = self._delta_cmd
             nr = self._n_rps_cmd
@@ -229,9 +284,12 @@ class ShipDynamicsNode(LifecycleNode):
             cs = self._current_speed
             cd = self._current_dir
 
-        self._state = self._model.rk4_step(
-            self._state, dc, nr, ws, wd, cs, cd,
-        )
+        from rclpy.duration import Duration
+        for _ in range(steps):
+            self._state = self._model.rk4_step(
+                self._state, dc, nr, ws, wd, cs, cd,
+            )
+            self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
 
         lat = self._origin_lat_rad + math.radians(
             _lat_offset(self._state.y, self._origin_lat_rad)
@@ -241,13 +299,13 @@ class ShipDynamicsNode(LifecycleNode):
         )
 
         msg = self._make_msg()
-        msg.stamp = self.get_clock().now().to_msg()
+        msg.stamp = now_sim.to_msg()
         msg.lat = math.degrees(lat)
         msg.lon = math.degrees(lon)
         msg.heading = _math_heading_to_nav_heading(self._state.psi)
         msg.sog = math.sqrt(self._state.u ** 2 + self._state.v ** 2)
         msg.cog = _ground_track_to_nav_cog(self._state.psi, self._state.u, self._state.v)
-        msg.rot = self._state.r
+        msg.rot = -self._state.r  # MMG r: CCW positive; maritime ROT: CW (starboard) positive
         msg.u = self._state.u
         msg.v = self._state.v
         msg.r = self._state.r
