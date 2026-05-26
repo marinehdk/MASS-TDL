@@ -1,6 +1,22 @@
 # NOTE: dev services are run natively on the host to avoid port conflicts.
 
 services:
+  sil-orchestrator:
+    build:
+      context: .
+      dockerfile: docker/sil_orchestrator.Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./scenarios:/var/sil/scenarios
+      - ./runs:/var/sil/runs
+      - ./exports:/var/sil/exports
+      - ./certs:/certs:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    network_mode: host
+
   sil-nodes:
     build:
       context: .

@@ -4,7 +4,6 @@ import { SafetyDomainLayer } from '../map/SafetyDomainLayer';
 import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
-import { useDemoTelemetry } from '../hooks/useDemoTelemetry';
 import { useTelemetryStore, useControlStore, useUIStore } from '../store';
 import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation } from '../api/silApi';
 import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
@@ -119,12 +118,10 @@ const MONITOR_TABS = [
 type MonitorTabId = typeof MONITOR_TABS[number]['id'];
 
 export function SimulationMonitor() {
-  const [useDemo, setUseDemo] = useState(false);
   const [effectiveBackend, setEffectiveBackend] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<MonitorTabId | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
-  useFoxgloveLive(wsUrl, !useDemo);
-  useDemoTelemetry(useDemo);
+  useFoxgloveLive(wsUrl, true);
 
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
   const asdrEvents      = useTelemetryStore((s) => s.asdrEvents);
@@ -276,24 +273,6 @@ export function SimulationMonitor() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (effectiveBackend === 'demo') {
-      setUseDemo(true);
-      return;
-    }
-    if (wsConnected) {
-      setUseDemo(false);
-      return;
-    }
-    if (lcState !== 3) {
-      setUseDemo(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setUseDemo(true);
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [lcState, wsConnected, effectiveBackend]);
 
   const borderColor = FSM_BORDER[fsmState] ?? 'transparent';
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';
@@ -701,27 +680,7 @@ export function SimulationMonitor() {
             <LucideAlertTriangle size={18} /> FAULT
           </button>
         </div>
-        {useDemo && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            borderLeft: '1px solid var(--line-2)', paddingLeft: 24,
-            marginLeft: 8,
-          }}>
-            <div style={{
-              background: 'rgba(248,81,73,0.15)',
-              border: '1px solid var(--c-danger)',
-              borderRadius: 'var(--radius-none)',
-              padding: '3px 10px',
-              fontFamily: 'var(--f-mono)',
-              fontSize: 9,
-              color: 'var(--c-danger)',
-              letterSpacing: '0.08em',
-              fontWeight: 600,
-            }}>
-              DEMO MODE — dead-reckon fallback
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   );
