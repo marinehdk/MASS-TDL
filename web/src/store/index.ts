@@ -4,4 +4,4 @@ export { useControlStore } from './controlStore';
 export { useReplayStore } from './replayStore';
 export { useUIStore } from './uiStore';
 export { useMapStore } from './mapStore';
-export { useFsmStore, type FsmState } from './fsmStore';
+export { useFsmStore, type FsmState, FSM_STATE_MAP } from './fsmStore';
