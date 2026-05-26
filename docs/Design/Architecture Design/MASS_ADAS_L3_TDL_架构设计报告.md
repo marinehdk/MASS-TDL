@@ -2588,6 +2588,22 @@ S-Mode 目前仅有非强制指南状态（MSC.1/Circ.1609 [R36]）；MASS Code 
 
 [R38] Imazu, S. (1987) — 22 canonical 2/3/4-ship encounters. 引 Sawada, R., Sato, K., Majima, T. (2021). *Automatic ship collision avoidance using deep reinforcement learning with LSTM in continuous action spaces*. J. Mar. Sci. Technol. 26. （Imazu-22 强制基线源）
 
+**算法选型类（v1.1.3 新增 — §4.5 算法选型矩阵）**
+
+[R39] Karaman, S. & Frazzoli, E. (2011). Sampling-based algorithms for optimal motion planning. *International Journal of Robotics Research*, 30(7), 846–894. DOI: 10.1177/0278364911406761. （RRT* 算法原始论文；§4.5 备选算法参考）
+
+[R40] Johansen, T.A., Perez, T., & Cristofaro, A. (2016). Ship collision avoidance and COLREGS compliance using simulation-based control behavior selection with predictive hazard assessment. *IEEE Transactions on Intelligent Transportation Systems*, 17(12), 3407–3422. DOI: 10.1109/TITS.2016.2551780. （COLREGS-VO 算法；§4.5 备选算法参考）
+
+[R41] Williams, G., Wagener, N., Goldfain, B., Drews, P., Rehg, J.M., Boots, B., & Theodorou, E.A. (2017). Information theoretic MPC for model-based reinforcement learning. *IEEE ICRA 2017*, 1714–1721. DOI: 10.1109/ICRA.2017.7989202. （MPPI 算法原始论文；§4.5 研究级算法参考）
+
+**认证工具鉴定类（v1.1.3 新增 — §17.2 RP-0513 自鉴定）**
+
+[R42] DNV (2022). *DNV-RP-0513 — Qualification of software tools* (2022 ed.). DNV, Høvik. （仿真工具 / 测试工具自鉴定规范；§17.2 许可证验证表 + RP-0513 证据清单权威来源）
+
+[R43] DNV (2024). *DNV-RP-0671 — Assurance of AI-enabled systems* (2024 ed.). DNV, Høvik. （RL FMU 回注后鉴定规范；§18.3 D4.6 激活条件依据）
+
+> **注**：[R43] 与 [R30] 均为 DNV-RP-0671；若现有 [R30] 已覆盖 2024 版本，可将 §18 的 [R43] 引用合并为 [R30]，删除 [R43] 空条目。Wave 1 执行时以实际文件内容为准。
+
 ---
 
 ## 附录 A 术语对照（早期 Stage 框架 → v1.0/v1.1 模块）[F-P2-D1-039 新增]
