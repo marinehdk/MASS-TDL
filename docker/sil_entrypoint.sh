@@ -238,6 +238,13 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] Mock L2 Publisher PID: {mock_l2_proc.pid}')
 
+    # 3a-3. Start FSM aggregator node (publishes /l3/fsm_state at 10Hz)
+    fsm_agg_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/fsm_aggregator_node.py', '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr
+    )
+    print(f'  [{ts()}] FSM Aggregator PID: {fsm_agg_proc.pid}')
+
     # 3b. Launch L3 kernel C++ nodes as subprocesses via ros2 run
     # M1-M8 are ament_cmake packages with C++ executables — they cannot be
     # imported as Python modules. Each runs in its own process.
@@ -342,6 +349,9 @@ finally:
     if 'mock_l2_proc' in dir() and mock_l2_proc and mock_l2_proc.poll() is None:
         mock_l2_proc.terminate()
         mock_l2_proc.wait(timeout=5)
+    if 'fsm_agg_proc' in dir() and fsm_agg_proc and fsm_agg_proc.poll() is None:
+        fsm_agg_proc.terminate()
+        fsm_agg_proc.wait(timeout=5)
     for p in (l3_procs if 'l3_procs' in dir() else []):
         if p and p.poll() is None:
             p.terminate()

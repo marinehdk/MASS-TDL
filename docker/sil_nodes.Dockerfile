@@ -75,6 +75,7 @@ RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
 COPY docker/sil_topic_bridge.py /opt/ws/docker/sil_topic_bridge.py
 COPY docker/mock_l2_publisher.py /opt/ws/docker/mock_l2_publisher.py
+COPY docker/fsm_aggregator_node.py /opt/ws/docker/fsm_aggregator_node.py
 RUN chmod +x /opt/ws/sil_entrypoint.sh
 
 # Add topic probe script for staged startup
