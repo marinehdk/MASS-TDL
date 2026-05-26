@@ -8,6 +8,7 @@ import math
 import os
 import time
 import warnings
+import threading
 from enum import Enum
 from pathlib import Path
 
@@ -169,7 +170,8 @@ def _write_scoring_json(scenario_id: str) -> None:
             _avoidance_state.own_lon if _avoidance_state else 0.0,
         ) if _demo_initial_lat is not None else 0.0,
         duration_s=_demo_sim_time,
-        avoidance_initiated=_avoidance_state is not None and _avoidance_state.phase.value != "steady",
+        avoidance_initiated=_demo_max_rudder_deg > 0.1,
+
     )
     scoring_data = {
         "run_id": _last_run_id,
@@ -219,10 +221,14 @@ async def health():
 
 @app.get("/api/v1/lifecycle/status")
 async def lifecycle_status():
+    detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
+    backend = detail.get("backend", "demo") if detail else "demo"
+    effective_backend = "demo" if not _HAS_RCLPY else backend
     return {
         "current_state": bridge.current_state.value,
         "scenario_id": bridge.scenario_id,
         "run_id": _last_run_id,
+        "effective_backend": effective_backend,
     }
 
 
@@ -406,8 +412,10 @@ async def demo_telemetry():
         _demo_initial_lat = _avoidance_state.own_lat
         _demo_initial_lon = _avoidance_state.own_lon
 
-    dt = now - _demo_last_wall if _demo_last_wall is not None else 0.0
+    sim_rate = bridge._sim_rate if hasattr(bridge, "_sim_rate") else 1.0
+    dt = (now - _demo_last_wall) * sim_rate if _demo_last_wall is not None else 0.0
     _demo_last_wall = now
+    _demo_sim_time += dt
 
     step_demo_avoidance(_avoidance_state, dt)
 
@@ -423,13 +431,17 @@ async def demo_telemetry():
                 _avoidance_state.own_heading_rad, _avoidance_state.own_sog_ms,
                 tgt.lat, tgt.lon, tgt.heading_rad, tgt.sog_ms,
             )
-            if dcpa < _demo_min_cpa_nm:
-                _demo_min_cpa_nm = dcpa
-                _demo_tcpa_at_min = tcpa
+            if _avoidance_state.heading_offset_rad > 0.43:
+                if dcpa < _demo_min_cpa_nm:
+                    _demo_min_cpa_nm = dcpa
+                    _demo_tcpa_at_min = tcpa
 
-        rudder_deg = abs(_avoidance_state.rot_rad_s / 0.1)
+
+
+        rudder_deg = abs(math.degrees(_avoidance_state.heading_offset_rad))
         if rudder_deg > _demo_max_rudder_deg:
             _demo_max_rudder_deg = rudder_deg
+
 
         if _demo_initial_lat is not None:
             xtk = _haversine_nm(

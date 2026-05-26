@@ -9,6 +9,12 @@
   },
   "devDependencies": {},
   "scripts": {
+    "sys:start": "docker compose up -d && pm2 start ecosystem.config.cjs",
+    "sys:stop": "pm2 delete ecosystem.config.cjs && docker compose down",
+    "sys:status": "pm2 list && docker compose ps",
+    "sys:restart": "pm2 restart ecosystem.config.cjs && docker compose restart",
+    "dev:backend": "PYTHONPATH=src python3 -m uvicorn sil_orchestrator.main:app --port 8000 --host 127.0.0.1",
+    "dev:frontend": "npm run dev --prefix web",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
