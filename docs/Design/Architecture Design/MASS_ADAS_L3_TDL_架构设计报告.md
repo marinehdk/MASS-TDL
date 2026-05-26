@@ -2186,7 +2186,7 @@ D1.6 场景 schema 由"内部 Pydantic 强类型"改为"`maritime-schema` `Traff
 | D3.6 SIL 1000+ | 1100-cell 覆盖立方体 full run + LHS/Sobol | 填充 §19.2 | Phase 3 |
 | D4.6 RL 对抗 | adversarial scenario 回路激活（§19.2 60%）| 激活 §19.2 | Phase 4 |
 
-**[TBD-D3.8]**：Monte Carlo 实测分布 / adversarial 60% 生成路径 / 60/25/15 比例最终辩护文件。
+**[AWAIT-D3.6: D3.6 SIL 1000 产出；Monte Carlo 实测分布 + LHS 报告，预计 2026-08-31]**：Monte Carlo 实测分布 / adversarial 60% 生成路径 / 60/25/15 比例辩护文件（Wave 2 D3.6 就绪后填充）。
 
 ---
 
