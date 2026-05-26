@@ -123,7 +123,7 @@ export function SimulationMonitor() {
   const [effectiveBackend, setEffectiveBackend] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<MonitorTabId | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
-  useFoxgloveLive(wsUrl);
+  useFoxgloveLive(wsUrl, !useDemo);
   useDemoTelemetry(useDemo);
 
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
