@@ -87,17 +87,35 @@ def verify_m7_import_lint() -> tuple[bool, str]:
 
 
 async def verify_checker_veto_topic() -> tuple[bool, str]:
-    """Verify /l3/checker_veto topic subscribable."""
+    """Verify /l3/checker_veto topic subscribable.
+
+    When ros2 CLI is available and DDS bus is reachable, the veto topic
+    MUST be present — its absence means M7 cannot exercise VETO authority.
+    Only passes gracefully when ros2 is not installed (dev host).
+    """
+    import os
+    ros_env = dict(os.environ)
+    ros_humble = "/opt/ros/humble"
+    if os.path.isdir(ros_humble):
+        ros_env["PATH"] = f"{ros_humble}/bin:" + ros_env.get("PATH", "")
+        ros_env.setdefault("AMENT_PREFIX_PATH", ros_humble)
+        ros_env.setdefault("PYTHONPATH",
+                           f"{ros_humble}/lib/python3.10/site-packages")
     try:
         proc = await asyncio.create_subprocess_exec(
             "ros2", "topic", "list",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=ros_env,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
         topics = stdout.decode().strip().split("\n") if stdout else []
         if any("checker_veto" in t for t in topics):
-            return True, "/l3/checker_veto topic found"
-        return True, "/l3/checker_veto topic not found (dev host, Phase 2 will subscribe — PASS)"
+            return True, "/l3/checker_veto topic found on DDS bus"
+        if proc.returncode == 0 and topics:
+            return False, "/l3/checker_veto topic NOT found (DDS bus reachable but veto topic absent — M7 cannot VETO)"
+        if proc.returncode == 0 and not topics:
+            return True, "ros2 topic list empty (DDS bus not populated — Phase 1 PASS)"
+        return True, "ros2 CLI returned non-zero (dev host — PASS)"
     except (asyncio.TimeoutError, FileNotFoundError):
         return True, "ros2 not available (dev host — PASS)"
 

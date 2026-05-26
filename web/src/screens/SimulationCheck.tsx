@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore } from '../store';
-import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation } from '../api/silApi';
+import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation } from '../api/silApi';
 import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
 import { ActionLogs } from './shared/ActionLogs';
@@ -16,6 +16,7 @@ export function SimulationCheck() {
   const [configureLifecycle] = useConfigureLifecycleMutation();
   const [activateLifecycle] = useActivateLifecycleMutation();
   const [cleanupLifecycle] = useCleanupLifecycleMutation();
+  const [skipPreflight] = useSkipPreflightMutation();
 
   const { gates, verdict, streaming, error, start, abort } = useGateStream(scenarioId, true);
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
@@ -62,14 +63,10 @@ export function SimulationCheck() {
   const handleDevSkip = useCallback(async () => {
     if (!scenarioId || !devSkipReason.trim()) return;
     try {
-      await fetch('/api/v1/selfcheck/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario_id: scenarioId, reason: devSkipReason }),
-      });
+      await skipPreflight({ scenario_id: scenarioId, reason: devSkipReason }).unwrap();
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) { console.error('dev skip failed:', e); }
-  }, [scenarioId, devSkipReason]);
+  }, [scenarioId, devSkipReason, skipPreflight]);
 
   useEffect(() => {
     const lastFail = [...gates].reverse().find(g => !g.passed);

@@ -46,6 +46,22 @@ export interface ModulePulseStatus {
   messageDrops: number;
 }
 
+export interface AsdrEvent {
+  t: number;
+  k: string;
+  sev: string;
+  m: string;
+  d: string;
+}
+
+export interface AsdrLedgerEntry {
+  time: string;
+  type: string;
+  module: string;
+  payload: string;
+  hash: string;
+}
+
 export interface ScoringLastRun {
   run_id: string | null;
   scenario_id?: string;
@@ -175,6 +191,13 @@ export const silApi = createApi({
       query: () => '/scoring/last_run',
     }),
 
+    getAsdrEvents: builder.query<{
+      events: AsdrEvent[];
+      ledger: AsdrLedgerEntry[];
+    }, void>({
+      query: () => '/asdr/events',
+    }),
+
     // Self-check
     probeSelfCheck: builder.mutation<ProbeResult, { scenario_id?: string } | void>({
       query: (arg) => {
@@ -254,6 +277,7 @@ export const {
   useCleanupLifecycleMutation,
   useChangeLifecycleRateMutation,
   useGetLastRunScoringQuery,
+  useGetAsdrEventsQuery,
   useProbeSelfCheckMutation,
   useGetHealthStatusQuery,
   useExportMarzipMutation,

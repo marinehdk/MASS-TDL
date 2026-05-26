@@ -1,7 +1,7 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-05-25T09:40:26.442639Z",
+  "timestamp_utc": "2026-05-26T01:48:11.876852Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -21,7 +21,7 @@
       "detail": "expected_outcome block present"
     }
   ],
-  "duration_ms": 5.3,
+  "duration_ms": 8.0,
   "rationale": "hash match + YAML ok + expected_outcome present",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
   "hazid_scenario_ref": null

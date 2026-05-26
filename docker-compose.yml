@@ -63,6 +63,13 @@ services:
     depends_on:
       - sil-nodes
 
+  rosbridge:
+    image: husarion/rosbridge-server:humble-ros1-bridge
+    ports:
+      - "9090:9090"
+    command: ros2 launch rosbridge_server rosbridge_websocket_launch.yaml port:=9090
+    network_mode: host
+
   web:
     build:
       context: ./web
@@ -71,6 +78,8 @@ services:
       - "5173:5173"
     depends_on:
       - sil-orchestrator
+    networks:
+      - sil_net
 
   martin-tile-server:
     image: ghcr.io/maplibre/martin:latest
@@ -81,3 +90,7 @@ services:
       - ./data/tiles:/data/tiles
     command: ["/data/tiles"]
     network_mode: host
+
+networks:
+  sil_net:
+    driver: bridge
