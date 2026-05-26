@@ -46,6 +46,7 @@ set(MSG_FILES
   msg/SotifViolation.msg
   msg/SotifMetricEntry.msg
   msg/SotifMetrics.msg
+  msg/FsmState.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

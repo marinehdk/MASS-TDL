@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { FoxgloveClient } from '@foxglove/ws-protocol';
 import { Ros, Topic } from '@tier4/roslibjs-foxglove';
-import { useTelemetryStore } from '../store';
+import { useTelemetryStore, useFsmStore, FSM_STATE_MAP } from '../store';
 
 // foxglove_bridge 3.3.0 (ROS2 Humble, foxglove-sdk-cpp v0.23.0) uses
 // foxglove.sdk.v1 subprotocol. @foxglove/ws-protocol hardcodes
@@ -107,6 +107,19 @@ const TOPIC_MAP: Array<{
     topic: '/sil/sotif_metrics',
     messageType: 'sil_msgs/SotifMetrics',
     handler: (s, msg: any) => s.updateSotifMetrics(msg),
+  },
+  {
+    topic: '/l3/fsm_state',
+    messageType: 'l3_msgs/FsmState',
+    handler: (_s, msg: any) => {
+      const fsmState = FSM_STATE_MAP[msg.current_state] ?? 'TRANSIT';
+      useFsmStore.getState()._updateState(
+        fsmState,
+        msg.active_rule || 'N/A',
+        msg.confidence ?? 0.5,
+        Date.now() / 1000,
+      );
+    },
   },
 ];
 

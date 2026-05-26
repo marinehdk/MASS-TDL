@@ -18,6 +18,7 @@ import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
+import { FsmStatePanel } from '../components/FsmStatePanel';
 import {
   LucidePlay, LucidePause, LucideSquare,
   LucideTerminalSquare, LucideAlertTriangle, LucidePanelLeft, LucidePanelRight,
@@ -77,6 +78,11 @@ const ModulePulseBar = memo(function ModulePulseBar() {
 function LeftDrawer() {
   const sat2 = useTelemetryStore((s) => s.sat2);
   const targets = useTelemetryStore((s) => s.targets);
+  const fsmState = useFsmStore((s) => s.currentState);
+  const fsmRule = useFsmStore((s) => s.activeRule);
+  const fsmConf = useFsmStore((s) => s.confidence);
+  const fsmHistory = useFsmStore((s) => s.transitionHistory);
+  const [fsmExpanded, setFsmExpanded] = useState(true);
 
   return (
     <div style={{
@@ -84,6 +90,15 @@ function LeftDrawer() {
       background: 'rgba(7,12,19,0.92)', backdropFilter: 'blur(8px)',
       borderRight: '1px solid var(--line-2)', zIndex: 20, overflowY: 'auto',
     }}>
+      <FsmStatePanel
+        state={fsmState}
+        activeRule={fsmRule}
+        confidence={fsmConf}
+        history={fsmHistory}
+        expanded={fsmExpanded}
+        onToggleExpand={() => setFsmExpanded(!fsmExpanded)}
+      />
+
       <div style={{ borderBottom: '1px solid var(--line-2)', padding: '6px 12px' }}>
         <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
           ① ARPA 目标表
