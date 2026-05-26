@@ -73,6 +73,8 @@ class MidMpcNode : public rclcpp::Node {
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
 
+  double nominal_speed_kn_{10.0};
+
   void on_solve_cycle_();
   [[nodiscard]] bool has_required_inputs_() const noexcept;
   [[nodiscard]] MidMpcInput assemble_input_();

@@ -54,6 +54,16 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   if (!config_dir.empty()) {
     dictionary_.load(config_dir + "/behavior_definitions.yaml");
   }
+  if (dictionary_.size() == 0) {
+    RCLCPP_WARN(get_logger(), "[M4] Behavior dictionary empty; adding minimal transit rule");
+    BehaviorDescriptor transit_rule;
+    transit_rule.type = BehaviorType::TRANSIT;
+    transit_rule.name = "TRANSIT";
+    transit_rule.priority_weight = 1.0;
+    transit_rule.activation_rule = "always";
+    transit_rule.ivp_function_type = "uniform";
+    dictionary_.add_behavior(transit_rule);
+  }
 }
 
 void BehaviorArbiterNode::on_odd_state(const ODDStateMsg::SharedPtr msg) {
@@ -125,6 +135,27 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     return;
   }
 
+  // R3 fix: mission state precondition check.
+  // If M3 mission_goal is absent (L2 silent) and world has no conflict targets,
+  // output failsafe TRANSIT plan instead of entering IvP with empty active_set.
+  bool mission_available = mission_received_ && latest_mission_;
+  bool has_conflict = (colregs_received_ && latest_colregs_
+                       && latest_colregs_->conflict_detected);
+  if (!mission_available && !has_conflict) {
+    BehaviorPlanMsg plan;
+    plan.schema_version = 113;
+    plan.stamp = now();
+    plan.behavior = BehaviorPlanMsg::BEHAVIOR_TRANSIT;
+    plan.heading_min_deg = -5.0f;
+    plan.heading_max_deg = 5.0f;
+    plan.speed_min_kn = 0.0f;
+    plan.speed_max_kn = static_cast<float>(speed_max_kn_);
+    plan.confidence = 0.85f;
+    plan.rationale = "Failsafe TRANSIT (no L2 input, no conflict)";
+    pub_plan_->publish(plan);
+    return;
+  }
+
   // Step 3: Behavior activation
   auto active_set = BehaviorActivationCondition::compute_active_set(inputs, dictionary_);
 
@@ -179,11 +210,12 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       confidence = sol->relax_level > 0 ? 0.75 : 0.95;
       rationale = sol->rationale;
     } else {
-      // Conservative fallback
+      // R3 fix: Conservative fallback — use configured speed domain max
+      // instead of 0.5 * current SOG to break the cascade slowdown loop.
       double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
       h_min = fmod(own_hdg - 90.0 + 360.0, 360.0);
       h_max = fmod(own_hdg + 90.0, 360.0);
-      s_max = latest_world_ ? 0.5 * latest_world_->own_ship.sog_kn : 10.0;
+      s_max = speed_max_kn_;
       confidence = 0.30;
       rationale = "IvP infeasible fallback";
 
