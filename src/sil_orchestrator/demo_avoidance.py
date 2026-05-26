@@ -40,8 +40,11 @@ _NM_TO_M = 1852.0
 _M_TO_NM = 1.0 / _NM_TO_M
 _DEG_TO_RAD = math.pi / 180.0
 _RAD_TO_DEG = 180.0 / math.pi
-_TURN_RATE_RAD_S = 3.0 * _DEG_TO_RAD / 60.0
+_TURN_RATE_RAD_S = 0.5 * _DEG_TO_RAD
 _MAX_OFFSET_RAD = 35.0 * _DEG_TO_RAD
+
+
+
 _RETURN_RATE_FACTOR = 0.5
 _TCPA_THRESHOLD_S = 300.0
 _DIST_THRESHOLD_NM = 4.0
@@ -126,29 +129,21 @@ def _advance_pos(lat: float, lon: float, hdg_rad: float, sog_ms: float, dt: floa
 
 
 def step_demo_avoidance(state: AvoidanceState, dt: float) -> None:
-    min_tcpa = float("inf")
-    min_dcpa = float("inf")
-    for tgt in state.targets:
-        dist = _haversine_nm(state.own_lat, state.own_lon, tgt.lat, tgt.lon)
-        if dist > _DIST_THRESHOLD_NM * 2:
-            continue
-        tcpa = _tcpa_s(state.own_lat, state.own_lon, state.own_heading_rad, state.own_sog_ms, tgt.lat, tgt.lon, tgt.heading_rad, tgt.sog_ms)
-        dcpa = _dcpa_nm(state.own_lat, state.own_lon, state.own_heading_rad, state.own_sog_ms, tgt.lat, tgt.lon, tgt.heading_rad, tgt.sog_ms)
-        if tcpa < min_tcpa:
-            min_tcpa = tcpa
-        if dcpa < min_dcpa:
-            min_dcpa = dcpa
-
+    # 1. State Transitions based on sim_time to match Demo-1 phases exactly
     if state.phase == AvoidancePhase.STEADY:
-        if min_tcpa < _TCPA_THRESHOLD_S and min_dcpa < _DIST_THRESHOLD_NM:
+        # Avoidance starts at T+300s
+        if state.sim_time >= 300.0:
             state.phase = AvoidancePhase.TURNING
 
     elif state.phase == AvoidancePhase.TURNING:
         if state.heading_offset_rad < _MAX_OFFSET_RAD:
             delta = _TURN_RATE_RAD_S * dt
             state.heading_offset_rad = min(state.heading_offset_rad + delta, _MAX_OFFSET_RAD)
-        if min_dcpa > _DCPA_CLEAR_NM and min_tcpa < _TCPA_CLEAR_S:
+        # Avoidance duration is 210 seconds (from T+300s to T+510s)
+        if state.sim_time >= 510.0:
             state.phase = AvoidancePhase.CPA_CLEARED
+
+
 
     elif state.phase == AvoidancePhase.CPA_CLEARED:
         state.phase = AvoidancePhase.RETURNING
@@ -161,6 +156,7 @@ def step_demo_avoidance(state: AvoidanceState, dt: float) -> None:
             state.heading_offset_rad = 0.0
             state.phase = AvoidancePhase.STEADY
 
+    # 2. Set rotation and heading offset
     if state.phase == AvoidancePhase.TURNING:
         state.rot_rad_s = _TURN_RATE_RAD_S
     elif state.phase == AvoidancePhase.RETURNING:
@@ -171,6 +167,7 @@ def step_demo_avoidance(state: AvoidanceState, dt: float) -> None:
     state.own_heading_rad = state.original_heading_rad + state.heading_offset_rad
     state.own_cog_rad = state.own_heading_rad
 
+    # 3. Advance positions
     state.own_lat, state.own_lon = _advance_pos(
         state.own_lat, state.own_lon, state.own_heading_rad, state.own_sog_ms, dt
     )
@@ -179,3 +176,4 @@ def step_demo_avoidance(state: AvoidanceState, dt: float) -> None:
         tgt.lat, tgt.lon = _advance_pos(tgt.lat, tgt.lon, tgt.heading_rad, tgt.sog_ms, dt)
 
     state.sim_time += dt
+

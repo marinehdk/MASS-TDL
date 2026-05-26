@@ -48,14 +48,17 @@ def test_probe_gate_has_required_fields():
 
 def test_status_returns_8_modules():
     """GET /status returns 8 modulePulses."""
-    client = TestClient(app)
-    resp = client.get("/api/v1/selfcheck/status")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert len(body["modulePulses"]) == 8
-    first = body["modulePulses"][0]
-    assert first["moduleId"] == "M1"
-    assert first["state"] == 1
+    from sil_orchestrator.gate_runner import ModulePulseCheck
+    fake_pulses = [ModulePulseCheck(module=f"M{i}", state=1, latency_ms=5, drops=0) for i in range(1, 9)]
+    with patch("sil_orchestrator.selfcheck_routes._fetch_module_pulses_real", return_value=fake_pulses):
+        client = TestClient(app)
+        resp = client.get("/api/v1/selfcheck/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["modulePulses"]) == 8
+        first = body["modulePulses"][0]
+        assert first["moduleId"] == "M1"
+        assert first["state"] == 1
 
 
 def test_probe_graceful_unknown_scenario():

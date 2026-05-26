@@ -117,7 +117,7 @@ FAKE_PULSES_M3_RED = [
 @pytest.mark.asyncio
 async def test_gate_2_all_green():
     """GATE 2: 8/8 GREEN + M7 independent -> PASS"""
-    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_ALL_GREEN), \
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses_real", return_value=FAKE_PULSES_ALL_GREEN), \
          patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
         mock_m7.return_value = ("ok", "M7 PID 12345 independent from component_container")
         result = await gate_2_module_health()
@@ -129,7 +129,7 @@ async def test_gate_2_all_green():
 @pytest.mark.asyncio
 async def test_gate_2_m3_red_fails():
     """GATE 2: M3 RED -> FAIL"""
-    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_M3_RED), \
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses_real", return_value=FAKE_PULSES_M3_RED), \
          patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
         mock_m7.return_value = ("ok", "M7 PID independent")
         result = await gate_2_module_health()
@@ -140,11 +140,12 @@ async def test_gate_2_m3_red_fails():
 @pytest.mark.asyncio
 async def test_gate_2_m7_not_independent():
     """GATE 2: M7 process not independent -> FAIL"""
-    with patch("sil_orchestrator.gate_runner._fetch_module_pulses", return_value=FAKE_PULSES_ALL_GREEN), \
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses_real", return_value=FAKE_PULSES_ALL_GREEN), \
          patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
         mock_m7.return_value = ("fail", "M7 PID 12345 found inside component_container — Doer-Checker isolation violated")
         result = await gate_2_module_health()
         assert result.passed == False
+
 
 
 from sil_orchestrator.gate_runner import gate_3_scenario_integrity

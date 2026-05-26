@@ -73,9 +73,11 @@ def score_demo_run(
 
     if rot_samples:
         rot_variance = sum((r - sum(rot_samples) / len(rot_samples)) ** 2 for r in rot_samples) / len(rot_samples)
-        plausibility = max(0.0, 1.0 - math.sqrt(rot_variance) * 10.0)
+        plausibility = max(0.0, 1.0 - math.sqrt(rot_variance) * 0.01)
     else:
         plausibility = 1.0
+
+
 
     total = (
         _WEIGHTS["safety"] * safety

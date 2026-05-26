@@ -43,8 +43,14 @@ class TestScenarioStore:
 
     def test_validate_nonempty_yaml(self):
         store = ScenarioStore()
-        result = store.validate("name: test\n")
-        assert result["valid"] is True
+        from sil_orchestrator.config import SCENARIO_DIR
+        yaml_file = SCENARIO_DIR / "IMAZU标准测试" / "imazu-01-ho.yaml"
+        if yaml_file.exists():
+            content = yaml_file.read_text()
+        else:
+            content = "title: test\nstartTime: '2026-01-01T00:00:00Z'\nownShip:\n  static:\n    id: 1\n    shipType: Cargo\n    name: test\n    mmsi: 123456789\n  initial:\n    position:\n      latitude: 0\n      longitude: 0\n    cog: 0\n    sog: 0\n    heading: 0\n    navStatus: Under way\n  model: test\n  controller: test\ntargetShips: []\nenvironment:\n  wind:\n    dir_deg: 0\n    speed_mps: 0\n  current:\n    dir_deg: 0\n    speed_mps: 0\n  visibility_nm: 5\n"
+        result = store.validate(content)
+        assert result["valid"] is True, f"Validation errors: {result['errors']}"
 
 
 class TestScenarioAPI:
