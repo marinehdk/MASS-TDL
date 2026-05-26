@@ -2281,6 +2281,21 @@ w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerne
 
 **已知限制**：S-101（新一代 ENC 格式）暂不支持，Phase 4 升级路径预留（D4.7 ENC Manager 完整化时评估）。
 
+#### 21.1.2 foxglove_bridge 性能基准
+
+实测条件：M2 chip MacBook Pro，ROS2 Humble，3 个 target 船，50 Hz 发布频率
+
+| 指标 | 实测值 | 目标 | 状态 |
+|---|---|---|---|
+| WebSocket 端到端延迟 | [AWAIT-D3.4: D3.4 M8 foxglove_benchmark.md] | < 100 ms | — |
+| 50 Hz 消息吞吐（JSON 等价）| [AWAIT-D3.4] | ≥ 45 Hz 到达 | — |
+| 内存占用（foxglove_bridge 进程）| [AWAIT-D3.4] | < 200 MB | — |
+| CPU 占用（Protobuf 序列化）| [AWAIT-D3.4] | < 5% / core | — |
+
+**基准来源**：D3.4 M8 完整化 evidence/ 目录下 `foxglove_benchmark.md`（Wave 2 填充）
+
+**rosbridge_server 对比依据**（已在 D1.3.2.3 确认，🟢 High）：rosbridge_server JSON 序列化在 50 Hz × 3 target 场景下实测延迟 300–800 ms，超出 M8 KPI 上限（< 100 ms）[B P1-B-06 已关闭]。
+
 **XAI overlay 模式**（沿用现 HTML 视觉语言 + 增项）：
 
 现有 ✅：CPA/TCPA、M6 规则文字、M5 决策文字、M1-M8 pulse、ASDR 日志
