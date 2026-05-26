@@ -647,12 +647,53 @@ async def _check_utc_ptp() -> tuple[str, str]:
 
 
 async def _check_sim_clock() -> tuple[str, str]:
-    """Check /clock topic publishing. Phase 1: stub."""
-    return CHECK_OK, "/clock assumed publishing (dev host)"
+    """Check /clock topic publishing on DDS bus. Real check when ros2 CLI available."""
+    import os
+    ros_env = dict(os.environ)
+    ros_humble = "/opt/ros/humble"
+    if os.path.isdir(ros_humble):
+        ros_env["PATH"] = f"{ros_humble}/bin:" + ros_env.get("PATH", "")
+        ros_env.setdefault("AMENT_PREFIX_PATH", ros_humble)
+        ros_env.setdefault("PYTHONPATH",
+                           f"{ros_humble}/lib/python3.10/site-packages")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ros2", "topic", "list",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=ros_env,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        topics = stdout.decode().strip().split("\n") if stdout else []
+        if any("/clock" in t for t in topics):
+            try:
+                hz_proc = await asyncio.create_subprocess_exec(
+                    "ros2", "topic", "hz", "/clock", "--window", "5",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    env=ros_env,
+                )
+                hz_stdout, _ = await asyncio.wait_for(hz_proc.communicate(), timeout=8)
+                hz_out = hz_stdout.decode().strip() if hz_stdout else ""
+                if "average rate" in hz_out.lower():
+                    return CHECK_OK, f"/clock publishing ({hz_out.splitlines()[0]})"
+                return CHECK_OK, "/clock topic listed, hz measurement inconclusive"
+            except (asyncio.TimeoutError, Exception):
+                return CHECK_OK, "/clock topic found on DDS bus"
+        if proc.returncode == 0:
+            return CHECK_FAIL, "/clock topic not found on DDS bus (sim time not available)"
+        return CHECK_OK, "ros2 CLI returned error (dev host, PASS)"
+    except FileNotFoundError:
+        return CHECK_OK, "ros2 CLI not in PATH (dev host, PASS)"
+    except asyncio.TimeoutError:
+        return CHECK_FAIL, "ros2 topic list timed out checking /clock"
 
 
 async def _check_rosbag2_ready() -> tuple[str, str]:
-    """Check rosbag2 recorder process online. Phase 1: pgrep fallback."""
+    """Check rosbag2 recorder process online.
+
+    In SIL mode (ros2 CLI available), rosbag2 MUST be running for evidence
+    chain integrity (IEC 61508-1 §8.2.9). Only passes gracefully when
+    pgrep is not available (orchestrator container without host access).
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             "pgrep", "-f", "rosbag2",
@@ -660,10 +701,16 @@ async def _check_rosbag2_ready() -> tuple[str, str]:
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         if stdout:
-            return CHECK_OK, f"rosbag2 recorder PID(s): {stdout.decode().strip()}"
-        return CHECK_OK, "rosbag2 not running (dev host, PASS)"
+            pids = stdout.decode().strip()
+            return CHECK_OK, f"rosbag2 recorder PID(s): {pids}"
+        import os
+        ros_humble = "/opt/ros/humble"
+        has_ros2 = os.path.isdir(ros_humble) or os.path.isfile("/usr/bin/ros2")
+        if has_ros2:
+            return CHECK_FAIL, "rosbag2 not running (SIL mode: evidence recording required per IEC 61508-1 §8.2.9)"
+        return CHECK_OK, "rosbag2 not running (dev host without ROS2, PASS)"
     except (asyncio.TimeoutError, FileNotFoundError):
-        return CHECK_OK, "pgrep not available (dev host, PASS)"
+        return CHECK_OK, "pgrep not available (orchestrator container, PASS)"
 
 
 async def _check_asdr_ready(run_dir: str | None = None) -> tuple[str, str]:

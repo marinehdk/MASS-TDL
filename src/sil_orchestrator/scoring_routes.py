@@ -113,6 +113,8 @@ async def scoring_last_run():
             data = json.loads(json_path.read_text())
             data["run_id"] = run_id
             data.setdefault("scoring_dimensions", None)
+            data.setdefault("verdict", None)
+            data.setdefault("rule_chain", [])
             return data
         except Exception:
             pass

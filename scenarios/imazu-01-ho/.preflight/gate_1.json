@@ -1,7 +1,7 @@
 {
   "gate_id": 1,
   "gate_name": "System Readiness",
-  "timestamp_utc": "2026-05-25T09:40:20.280022Z",
+  "timestamp_utc": "2026-05-26T01:48:05.511765Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -31,7 +31,7 @@
       "detail": "telemetry WS: WS state reported by frontend"
     }
   ],
-  "duration_ms": 440.6,
+  "duration_ms": 1430.4,
   "rationale": "all 5/5 sub-checks passed",
   "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
   "hazid_scenario_ref": null

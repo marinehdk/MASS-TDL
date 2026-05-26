@@ -3,6 +3,7 @@ import {
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useGetLastRunScoringQuery,
+  useGetAsdrEventsQuery,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
 import { TimelineSixLane } from './shared/TimelineSixLane';
@@ -29,40 +30,13 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
   );
 }
 
-const REPORT_EVENTS = [
-  { t: 0,   k:'INIT',       sev:'info',  m:'M8', d:'session attached · TRANSIT · D3 SUPERVISED' },
-  { t: 25,  k:'T01_DET',    sev:'info',  m:'M2', d:'T01 detected · range 4.8 nm' },
-  { t: 38,  k:'CPA_PROJ',   sev:'warn',  m:'M2', d:'T01 CPA projected 0.18 nm (below 0.40 nm threshold)' },
-  { t: 47,  k:'SCENE_CHG',  sev:'info',  m:'M8', d:'TRANSIT → COLREG_AVOIDANCE' },
-  { t: 49,  k:'COLREG_R14', sev:'info',  m:'M6', d:'Classification = HEAD-ON · GIVE-WAY · conf 0.91' },
-  { t: 52,  k:'MPC_BRANCH', sev:'info',  m:'M5', d:'BC-MPC 5 branches · selected br#2 · STBD +40°' },
-  { t: 67,  k:'AIS_DROP',   sev:'warn',  m:'M2', d:'T01 AIS dropout 30s · fallback radar tracking' },
-  { t: 93,  k:'AIS_REC',    sev:'info',  m:'M2', d:'T01 AIS recovered · consistency ✓' },
-  { t: 140, k:'CPA_MIN',    sev:'info',  m:'M2', d:'CPA_min @ T01 = 0.52 nm · passes safety threshold' },
-  { t: 152, k:'SCENE_CHG',  sev:'info',  m:'M8', d:'COLREG_AVOIDANCE → TRANSIT' },
-  { t: 218, k:'HB_LOSS',    sev:'crit',  m:'M7', d:'M7 heartbeat loss 2 frames · forcing ToR' },
-  { t: 218, k:'ToR_REQ',    sev:'warn',  m:'M8', d:'ToR requested · D3 → D2 · 60s protocol' },
-  { t: 224, k:'ToR_ACK',    sev:'info',  m:'M8', d:'Operator acknowledged · sat1=5.8s · D2' },
-  { t: 224, k:'OVERRIDE',   sev:'warn',  m:'M8', d:'OVERRIDE_ACTIVE · M5 frozen · M7 degraded' },
-  { t: 288, k:'HANDBACK',   sev:'info',  m:'M8', d:'Handback initiated · M7→M5 · 120ms done' },
-  { t: 289, k:'TRANSIT',    sev:'info',  m:'M8', d:'OVERRIDE → TRANSIT · D2 → D3' },
-  { t: 401, k:'GNSS_BIAS',  sev:'warn',  m:'M3', d:'GNSS bias +12m · EKF suppressed · negligible' },
-  { t: 480, k:'WP_REACH',   sev:'info',  m:'M4', d:'WP-15 reached · error 38m' },
-  { t: 600, k:'END',        sev:'info',  m:'M8', d:'run complete · verdict PASS · ASDR sealed' },
-];
-
-const ASDR_LEDGER_EVENTS = REPORT_EVENTS.map((e, i) => ({
-  time: `T+${String(Math.floor(e.t / 60)).padStart(2, '0')}:${String(e.t % 60).padStart(2, '0')}`,
-  type: e.k,
-  module: e.m,
-  payload: e.d,
-  hash: `0xDEADBEEF${String(i).padStart(4, '0')}`,
-}));
-
 export function SimulationEvaluator() {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
   const storeRunId = useScenarioStore((s) => s.runId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
+  const { data: asdrData } = useGetAsdrEventsQuery();
+  const reportEvents = asdrData?.events ?? [];
+  const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
   const [exportMarzip, { isLoading }] = useExportMarzipMutation();
   const [exportUrl, setExportUrl] = useState<string | null>(null);
@@ -236,12 +210,12 @@ export function SimulationEvaluator() {
         </div>
         
         <div className="glass-panel" style={{ gridColumn: '2', gridRow: '1', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <AsdrLedger events={ASDR_LEDGER_EVENTS} />
+          <AsdrLedger events={asdrLedgerEvents} />
         </div>
         
         <div className="glass-panel" style={{ gridColumn: '1', gridRow: '2', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <TimelineSixLane
-            events={REPORT_EVENTS}
+            events={reportEvents}
             durationSec={600}
             currentTimeSec={currentTimeSec}
             onScrub={setCurrentTimeSec}
