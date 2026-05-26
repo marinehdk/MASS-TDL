@@ -116,6 +116,47 @@ def _reliable_volatile_qos(depth: int = 10) -> QoSProfile:
     )
 
 
+# ── Autopilot controllers ────────────────────────────────────
+
+class HeadingController:
+    def __init__(self, Kp: float = 10.0, max_rate_deg_s: float = 5.0):
+        self.Kp = Kp
+        self.max_rate_deg_s = max_rate_deg_s
+        self.last_cmd_deg = 0.0
+
+    def step(self, error_deg: float, dt: float) -> float:
+        error_deg = (error_deg + 180.0) % 360.0 - 180.0
+        cmd_deg = self.Kp * error_deg
+        max_delta = self.max_rate_deg_s * dt
+        cmd_deg = max(self.last_cmd_deg - max_delta,
+                      min(self.last_cmd_deg + max_delta, cmd_deg))
+        cmd_deg = max(-35.0, min(35.0, cmd_deg))
+        self.last_cmd_deg = cmd_deg
+        return math.radians(cmd_deg)
+
+
+class SpeedController:
+    def __init__(self, Kp: float = 0.15, Ki: float = 0.02, max_rate: float = 0.5):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.max_rate = max_rate
+        self.integral = 0.0
+        self.last_cmd = 0.0
+
+    def step(self, error_kn: float, dt: float) -> float:
+        p_term = self.Kp * error_kn
+        self.integral += error_kn * dt
+        self.integral = max(-5.0, min(5.0, self.integral))
+        i_term = self.Ki * self.integral
+        cmd = p_term + i_term
+        max_delta = self.max_rate * dt
+        cmd = max(self.last_cmd - max_delta,
+                  min(self.last_cmd + max_delta, cmd))
+        cmd = max(0.0, min(1.0, cmd))
+        self.last_cmd = cmd
+        return cmd
+
+
 # ── Bridge node ──────────────────────────────────────────────
 
 class SilTopicBridge(Node):
@@ -128,6 +169,26 @@ class SilTopicBridge(Node):
         sq = _sensor_qos()
         lq = _latched_qos()
         rq = _reliable_volatile_qos()
+
+        # ── Autopilot state ─────────────────────────────────
+        self._autopilot_enabled = False
+        self._last_valid_plan_time = None
+        self._last_odd_state = None
+        self._last_behavior_plan = None
+        self._last_ownship_raw = None
+        self._last_actuator_publish_time = None
+        self._heading_controller = HeadingController()
+        self._speed_controller = SpeedController()
+
+        self.declare_parameter("ownship_initial_heading_deg", 0.0)
+        self.declare_parameter("ownship_initial_sog_kn", CRUISE_SPEED_KN)
+        self._target_heading_deg = self.get_parameter(
+            "ownship_initial_heading_deg").value
+        self._target_sog_kn = self.get_parameter(
+            "ownship_initial_sog_kn").value
+        self.get_logger().info(
+            f"[autopilot] Target heading={self._target_heading_deg}°, "
+            f"sog={self._target_sog_kn} kn")
 
         # ── SIL→L3 bridges ──────────────────────────────────
 
@@ -181,7 +242,7 @@ class SilTopicBridge(Node):
 
         self._sub_m1 = self.create_subscription(
             ODDState, "/l3/m1/odd_state",
-            lambda msg: self._record_pulse(M1), sq)
+            self._on_odd_state, sq)
         self._sub_m2 = self.create_subscription(
             WorldState, "/l3/m2/world_state",
             lambda msg: self._record_pulse(M2), sq)
@@ -190,7 +251,7 @@ class SilTopicBridge(Node):
             lambda msg: self._record_pulse(M3), sq)
         self._sub_m4 = self.create_subscription(
             BehaviorPlan, "/l3/m4/behavior_plan",
-            lambda msg: self._record_pulse(M4), sq)
+            self._on_behavior_plan, sq)
         self._sub_m6 = self.create_subscription(
             COLREGsConstraint, "/l3/m6/colregs_constraint",
             lambda msg: self._record_pulse(M6), sq)
@@ -203,6 +264,8 @@ class SilTopicBridge(Node):
         self._pub_pulse = self.create_publisher(
             ModulePulse, "/sil/module_pulse", sq)
         self._pulse_timer = self.create_timer(1.0, self._publish_module_pulse)
+
+        self._autopilot_timer = self.create_timer(0.5, self._autopilot_step)
 
     # ── Pulse recording helper ───────────────────────────────
 
@@ -230,10 +293,21 @@ class SilTopicBridge(Node):
             msg.message_drops = 0
             self._pub_pulse.publish(msg)
 
+    # ── Autopilot callbacks ────────────────────────────────────
+
+    def _on_odd_state(self, msg: ODDState) -> None:
+        self._record_pulse(M1)
+        self._last_odd_state = msg
+
+    def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
+        self._record_pulse(M4)
+        self._last_behavior_plan = msg
+
     # ── SIL→L3 callbacks ────────────────────────────────────
 
     def _on_own_ship_state(self, msg: SilOwnShipState) -> None:
-        self._record_pulse(M2)  # M2 consumes own_ship
+        self._record_pulse(M2)
+        self._last_ownship_raw = msg
         out = FilteredOwnShipState()
         out.schema_version = 112
         out.stamp = msg.stamp
@@ -308,25 +382,33 @@ class SilTopicBridge(Node):
 
     def _on_avoidance_plan(self, msg: AvoidancePlan) -> None:
         self._record_pulse(M5)
+
+        has_valid_plan = (
+            len(msg.waypoints) > 0 and
+            abs(msg.waypoints[0].turn_radius_m) > 1e-6
+        )
+        if has_valid_plan:
+            self._last_valid_plan_time = time.monotonic()
+
         out = SilOwnShipState()
         out.stamp = msg.stamp
-        if msg.waypoints and len(msg.waypoints) > 0:
-            wp = msg.waypoints[0]
-            # Phase E1 M5 uses turn_radius_m=0 as a placeholder, not a turn command.
-            if abs(wp.turn_radius_m) > 1e-6:
-                radius = max(abs(wp.turn_radius_m), 50.0)
-                rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
-                out.rudder_angle = max(-MAX_RUDDER_RAD, min(MAX_RUDDER_RAD, rudder_rad))
+
+        if self._autopilot_enabled and not has_valid_plan:
+            out = self._compute_transit_autopilot(msg.stamp)
+        else:
+            if msg.waypoints and len(msg.waypoints) > 0:
+                wp = msg.waypoints[0]
+                if abs(wp.turn_radius_m) > 1e-6:
+                    radius = max(abs(wp.turn_radius_m), 50.0)
+                    rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
+                    out.rudder_angle = max(-MAX_RUDDER_RAD, min(MAX_RUDDER_RAD, rudder_rad))
+                else:
+                    out.rudder_angle = 0.0
+                out.throttle = max(0.0, min(1.0, wp.target_speed_kn / MAX_SPEED_KN))
             else:
                 out.rudder_angle = 0.0
-            # Normalize speed: target_speed_kn / MAX_SPEED_KN → throttle [0, 1]
-            out.throttle = max(0.0, min(1.0, wp.target_speed_kn / MAX_SPEED_KN))
-        else:
-            # R3 fix: Fallback when no waypoints available.
-            # Maintain cruise speed to prevent cascade slowdown.
-            out.rudder_angle = 0.0
-            out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
-        # Zero extra fields (unused in actuator cmd context)
+                out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
+
         out.lat = 0.0
         out.lon = 0.0
         out.heading = 0.0
@@ -337,6 +419,7 @@ class SilTopicBridge(Node):
         out.v = 0.0
         out.r = 0.0
         self._pub_act.publish(out)
+        self._last_actuator_publish_time = time.monotonic()
 
     def _on_asdr_record(self, msg: ASDRRecord) -> None:
         out = ASDREvent()
@@ -350,8 +433,71 @@ class SilTopicBridge(Node):
 
     def _on_ui_state(self, msg: UIState) -> None:
         self._record_pulse(M8)
-        # Passthrough — same type
         self._pub_ui.publish(msg)
+
+    # ── Autopilot logic ────────────────────────────────────────
+
+    def _autopilot_step(self) -> None:
+        if self._last_odd_state is None:
+            return
+
+        now = time.monotonic()
+        staleness_s = (
+            (now - self._last_valid_plan_time)
+            if self._last_valid_plan_time else float('inf'))
+
+        is_in_envelope = (
+            self._last_odd_state.envelope_state == ODDState.ENVELOPE_IN)
+        is_m5_stale = staleness_s > 10.0
+        m4_in_fallback = (
+            self._last_behavior_plan is not None and
+            "fallback" in self._last_behavior_plan.rationale.lower())
+
+        was_enabled = self._autopilot_enabled
+        self._autopilot_enabled = is_in_envelope and (is_m5_stale or m4_in_fallback)
+
+        if was_enabled != self._autopilot_enabled:
+            status = "ENABLED" if self._autopilot_enabled else "DISABLED"
+            self.get_logger().info(
+                f"[autopilot] {status} (in_envelope={is_in_envelope}, "
+                f"stale={staleness_s:.1f}s, m4_fallback={m4_in_fallback})")
+
+        if self._autopilot_enabled:
+            if (self._last_actuator_publish_time is None or
+                    (now - self._last_actuator_publish_time) > 1.5):
+                stamp = self.get_clock().now().to_msg()
+                out = self._compute_transit_autopilot(stamp)
+                self._pub_act.publish(out)
+                self._last_actuator_publish_time = now
+
+    def _compute_transit_autopilot(self, stamp) -> SilOwnShipState:
+        out = SilOwnShipState()
+        out.stamp = stamp
+
+        if self._last_ownship_raw is not None:
+            current_heading_deg = math.degrees(self._last_ownship_raw.heading)
+            current_sog_kn = self._last_ownship_raw.sog * 1.94384
+        else:
+            current_heading_deg = self._target_heading_deg
+            current_sog_kn = self._target_sog_kn
+
+        heading_error_deg = self._target_heading_deg - current_heading_deg
+        speed_error_kn = self._target_sog_kn - current_sog_kn
+
+        dt = 0.5
+        out.rudder_angle = self._heading_controller.step(heading_error_deg, dt)
+        out.throttle = self._speed_controller.step(speed_error_kn, dt)
+
+        out.lat = 0.0
+        out.lon = 0.0
+        out.heading = 0.0
+        out.sog = 0.0
+        out.cog = 0.0
+        out.rot = 0.0
+        out.u = 0.0
+        out.v = 0.0
+        out.r = 0.0
+        return out
 
 
 # ── Main ─────────────────────────────────────────────────────
