@@ -1183,30 +1183,66 @@ T0+150 ms: ASDR 标记 "override_released" 事件 + 记录回切顺序时间戳
 
 ---
 
-### 11.10 L3 内部仲裁优先级矩阵 [D2.8 新增 — Finding D P1-D-08 关闭]
+### 11.10 L3 内部仲裁优先级矩阵 [D2.8 新增 — Finding D P1-D-08 关闭；D3.8 完整化]
 
-L3 TDL 三类横向干预通道的仲裁优先级。高优先级通道可覆盖低优先级通道；被覆盖通道冻结输出。
+L3 TDL 五级仲裁优先级瀑布：高优先级通道可覆盖低优先级通道；被覆盖通道冻结输出。**P1/P2 路径不经过任何 L3 软件**（独立性保证，见下）。
 
-**优先级顺序（1 = 最高）**：
+#### 11.10.1 优先级瀑布图（ASCII）
 
-1. **Hardware Override**（零软件硬连线 Z-BOTTOM）— L3 完全冻结
-2. **Y-axis Reflex Arc**（< 500 ms，直达 L5）— L3 输出被覆盖，M7 告警保留
-3. **X-axis Deterministic Checker VETO** — M7 接收 `CheckerVetoNotification` 触发 MRM
-4. **M7 Doer-Checker 内部否决** — 发布 `Safety_AlertMsg` + `recommended_mrm`，M1 执行 MRM
-5. **M1 ODD 状态切换**（软件决策，最低）— 广播 `ODD_StateMsg`，M4/M5 切换行为集
+```
+L3 TDL 仲裁优先级（高 → 低）
 
-**触发状态 × 横向通道矩阵**：
+┌─────────────────────────────────────────────────────────┐
+│ P1  Emergency Reflex Arc  (Y-axis bypass)               │
+│     触发：CPA_min < 50m AND TCPA < 30s（感知直输 L5）   │
+│     响应：< 500 ms end-to-end；完全绕过 L3/L4           │
+│     主控：Perception → L5 直连；L3 无控制权             │
+└───────────────────────┬─────────────────────────────────┘
+                        │ 不触发时
+┌───────────────────────▼─────────────────────────────────┐
+│ P2  M7 Safety Supervisor VETO  (Doer-Checker)           │
+│     触发：M7 仲裁失败 / COLREGs 违规 / ODD 越界         │
+│     响应：< 10 ms（M7 KPI 上限）                        │
+│     结果：VETO 后回退 nearest compliant；M1 切状态       │
+└───────────────────────┬─────────────────────────────────┘
+                        │ M7 PASS
+┌───────────────────────▼─────────────────────────────────┐
+│ P3  M4 Behavior Arbiter  (IvP 多目标仲裁)               │
+│     触发：常规决策周期（1–4 Hz）                         │
+│     输入：M1 ODD 上下文 + M6 规则约束 + M5 代价函数     │
+│     输出：行为优先级权重 → M5                            │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────────────────┐
+│ P4  M5 Tactical Planner  (Mid-MPC + BC-MPC)             │
+│     触发：M4 输出变化 / 1–2 Hz 滚动                     │
+│     输出：(ψ_cmd, u_cmd, ROT) → L4                      │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+┌───────────────────────▼─────────────────────────────────┐
+│ P5  M6 COLREGs Reasoner  (规则推理)                     │
+│     触发：M2 encounter 几何更新（1–4 Hz）                │
+│     输出：适用 Rule + 角色（give-way / stand-on）→ M4   │
+└─────────────────────────────────────────────────────────┘
+```
 
-| 横向通道 | ODD IN（D4 正常）| CRITICAL / ODD_OUT | 人工接管激活 |
-|---|---|---|---|
-| Hardware Override | 不活跃 | 优先级 1，立即接管 | 优先级 1，L3 完全冻结 |
-| Y-axis Reflex Arc | 监控中（CPA < 200m 触发）| 优先级 2，与 MRC 并行 | 继续运行（不受 L3 冻结约束）|
-| X-axis Det. Checker | 低频 VETO 接收 | 优先级 3，强制 MRM | Override 期间暂停（§11.8）|
-| M7 Doer-Checker | 连续监控，SOTIF 双轨 | 优先级 4，MRM 触发 | 暂停主仲裁，保留降级告警（§11.9.1）|
-| M1 ODD 状态 | 1 Hz 周期 + 事件 | 优先级 5，MRC 序列 | OVERRIDDEN 模式（§11.8）|
+> **注**：Hardware Override（Z-BOTTOM 硬连线）凌驾于 P1 之上；触发时 P1–P5 全部冻结。L3 仅接收通知信号，不参与触发。
 
-> **独立性保证**：Hardware Override 和 Y-axis Reflex Arc 的触发路径不经过任何 L3 软件（含 M7）。L3 仅接收通知（`ReflexActivationNotification` / `OverrideActiveSignal`），不参与触发决策。
-> **D-task 联动**：D2.1 M1（实装矩阵中 M1 行）/ D2.5 SIL 集成（验证优先级通道在 SIL 可测试）/ D3.3b SOTIF（M7 行详细场景分析）。
+#### 11.10.2 精简查阅表
+
+| 优先级 | 主控实体 | 触发条件 | 响应时间上限 | VETO 权 | 降级目标 |
+|---|---|---|---|---|---|
+| P1 Emergency Reflex | Y-axis Perception→L5 | CPA < 50m AND TCPA < 30s | 500 ms | 完全绕过 L3/L4 | 最小安全避碰动作 |
+| P2 M7 VETO | M7 Safety Supervisor | 仲裁失败 / 越界 | 10 ms | ✅（一票否决）| nearest compliant 回退 |
+| P3 M4 Arbiter | M4 Behavior Arbiter | 常规决策周期 | 1 s（1–4 Hz）| ❌ | 保守行为权重 |
+| P4 M5 Planner | M5 Tactical Planner | M4 权重变化 | 500 ms（1–2 Hz）| ❌ | 保持当前航向 |
+| P5 M6 Reasoner | M6 COLREGs Reasoner | Encounter 几何更新 | 1 s（1–4 Hz）| ❌ | 保守规则解释 |
+
+**独立性保证**：P1 Reflex Arc 和 P2 M7 VETO 触发路径不经过任何 L3 软件（含 M7）。L3 仅接收通知（`ReflexActivationNotification` / `OverrideActiveSignal` / `CheckerVetoNotification`），不参与触发决策。
+
+**置信度**：🟢 High（P1 Reflex Arc 和 P2 M7 VETO 已在 D3.3a Doer-Checker 三量化矩阵中验证；P3–P5 在 D3.2 M5 实装中确认）。
+
+**D-task 联动**：D3.3a（P2 M7 VETO 三量化矩阵 ✅）/ D3.3b（P2 SOTIF 假设违反检测 ✅）/ D3.2 M5（P4 双 MPC 实装 ✅）/ D3.1 M4（P3 IvP 仲裁实装 ✅）。
 
 ---
 
