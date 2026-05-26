@@ -79,6 +79,12 @@ PULSE_TIMEOUT_S = 10.0
 MAX_RUDDER_DEG = 35.0
 MAX_RUDDER_RAD = math.radians(MAX_RUDDER_DEG)
 MAX_SPEED_KN = 25.0
+# Minimum cruise speed: M5 mid_mpc output target_speed_kn can be near-zero during
+# the transit phase (MPC horizon conservatism).  Clamping at CRUISE_SPEED_KN ensures
+# the propeller stays on the positive-thrust side of the K_T curve.
+# For Rule-14 head-on avoidance (Demo-1) COLREGs requires heading change only — no
+# speed reduction.  This constant must match ownShip.initial.sog in the scenario YAML.
+CRUISE_SPEED_KN = 10.0
 SHIP_LENGTH_M = 46.0   # FCB approximate length for turn-radius→rudder conversion
 
 # ── QoS profiles ─────────────────────────────────────────────
@@ -304,7 +310,7 @@ class SilTopicBridge(Node):
         self._record_pulse(M5)
         out = SilOwnShipState()
         out.stamp = msg.stamp
-        if msg.waypoints:
+        if msg.waypoints and len(msg.waypoints) > 0:
             wp = msg.waypoints[0]
             # Phase E1 M5 uses turn_radius_m=0 as a placeholder, not a turn command.
             if abs(wp.turn_radius_m) > 1e-6:
@@ -316,8 +322,10 @@ class SilTopicBridge(Node):
             # Normalize speed: target_speed_kn / MAX_SPEED_KN → throttle [0, 1]
             out.throttle = max(0.0, min(1.0, wp.target_speed_kn / MAX_SPEED_KN))
         else:
+            # R3 fix: Fallback when no waypoints available.
+            # Maintain cruise speed to prevent cascade slowdown.
             out.rudder_angle = 0.0
-            out.throttle = 0.0
+            out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
         # Zero extra fields (unused in actuator cmd context)
         out.lat = 0.0
         out.lon = 0.0

@@ -32,6 +32,10 @@ public:
 
   const BehaviorDescriptor* find(BehaviorType type) const;
 
+  void add_behavior(const BehaviorDescriptor& desc) {
+    behaviors_.push_back(desc);
+  }
+
   size_t size() const { return behaviors_.size(); }
 
 private:

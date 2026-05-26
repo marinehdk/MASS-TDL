@@ -24,8 +24,8 @@ namespace {
 constexpr double kCpaSafeFallback_m = 1852.0;
 
 // [TBD-HAZID] Default planned speed [m/s] when speed profile is absent.
-// Calibrate per FCB service speed profile.
-constexpr double kDefaultPlannedSpeed_mps = 5.0;
+// Set to nominal cruise speed from scenario YAML (10 kn for FCB imazu tests).
+constexpr double kDefaultPlannedSpeed_mps = 5.14;
 }  // namespace
 
 // ===========================================================================
@@ -43,6 +43,8 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       wp_gen_(cfg.waypoint)
 {
   formulation_.build_symbolic_graph();
+
+  nominal_speed_kn_ = declare_parameter<double>("m5.nominal_speed_kn", 10.0);
 
   sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", 10,
@@ -143,7 +145,19 @@ MidMpcInput MidMpcNode::assemble_input_()
   }
 
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
-  inp.constraints.speed_max_mps   = static_cast<double>(behavior_plan_->speed_max_kn) * units::kMsPerKn;
+  double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);
+
+  // R3 fix: if M4 is in fallback mode, use nominal speed instead of current SOG
+  // to break the cascade slowdown feedback loop.
+  const std::string& m4_rationale = behavior_plan_->rationale;
+  if (m4_rationale.find("infeasible fallback") != std::string::npos ||
+      m4_rationale.find("Failsafe") != std::string::npos) {
+    spdlog::info("[M5][MidMPC] M4 fallback detected (rationale: '{}'); using nominal speed {:.1f} kn",
+                 m4_rationale, nominal_speed_kn_);
+    speed_max_raw = nominal_speed_kn_;
+  }
+
+  inp.constraints.speed_max_mps   = speed_max_raw * units::kMsPerKn;
   inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
 
   // Dynamically adjust CPA safe distance and target weights based on COLREGs constraint
