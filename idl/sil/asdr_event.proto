@@ -10,6 +10,7 @@ message ASDREvent {
   string decision_id = 4;
   Verdict verdict = 5;
   string payload_json = 6;
+  bytes hmac_sha256 = 7;
 
   enum Verdict {
     VERDICT_UNSPECIFIED = 0;
