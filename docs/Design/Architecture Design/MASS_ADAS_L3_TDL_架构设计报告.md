@@ -1980,6 +1980,8 @@ L3 TDL SIL 框架采用**选项 D 混合架构**：production C++/MISRA ROS2 Hum
                │ /cmd/thrust /cmd/rudder
                ▼
 ┌─ FMI 2.0 / OSP libcosim 边界（dds-fmu mediator）──────────┐
+│  dds-fmu mediator (async_slave C++ impl, D1.3.3 实装)      │
+│  jitter budget: 2–10 ms per exchange [AWAIT-D3.6: D1.3.3]  │
 │  ship_dynamics_node (FCBPlugin: 4-DOF≤12kn / 6-DOF>12kn)   │
 │   own-ship + N× target_ship_pool_node                      │
 │  Phase 4: target_policy.fmu (mlfmu-built, RL re-import)    │
