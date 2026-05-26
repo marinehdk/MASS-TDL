@@ -230,6 +230,14 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
 
+    # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
+    mock_l2_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/mock_l2_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr,
+        env={**_os.environ, 'SIL_SCENARIO_DIR': '/var/sil/scenarios'}
+    )
+    print(f'  [{ts()}] Mock L2 Publisher PID: {mock_l2_proc.pid}')
+
     # 3b. Launch L3 kernel C++ nodes as subprocesses via ros2 run
     # M1-M8 are ament_cmake packages with C++ executables — they cannot be
     # imported as Python modules. Each runs in its own process.
@@ -327,10 +335,13 @@ finally:
         except Exception:
             pass
     rclpy.shutdown()
-    # Clean up subprocesses (bridge + all L3 processes)
+    # Clean up subprocesses (bridge + mock L2 + all L3 processes)
     if 'bridge_proc' in dir() and bridge_proc and bridge_proc.poll() is None:
         bridge_proc.terminate()
         bridge_proc.wait(timeout=5)
+    if 'mock_l2_proc' in dir() and mock_l2_proc and mock_l2_proc.poll() is None:
+        mock_l2_proc.terminate()
+        mock_l2_proc.wait(timeout=5)
     for p in (l3_procs if 'l3_procs' in dir() else []):
         if p and p.poll() is None:
             p.terminate()

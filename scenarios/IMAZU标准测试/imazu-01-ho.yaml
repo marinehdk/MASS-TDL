@@ -18,6 +18,13 @@ ownShip:
     navStatus: Under way using engine
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  nominalRoute:
+    - latitude: 63.44
+      longitude: 10.38
+      target_sog_kn: 10.0
+    - latitude: 63.54
+      longitude: 10.38
+      target_sog_kn: 10.0
 targetShips:
 - id: ts1
   static:
@@ -40,7 +47,7 @@ environment:
     speed_mps: 0.0
   visibility_nm: 5.4
 metadata:
-  schema_version: '3.0'
+  schema_version: '3.1'
   scenario_id: imazu-01-ho-v1.0
   vessel_class: FCB
   odd_cell:
