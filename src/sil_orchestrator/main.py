@@ -221,10 +221,14 @@ async def health():
 
 @app.get("/api/v1/lifecycle/status")
 async def lifecycle_status():
+    detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
+    backend = detail.get("backend", "demo") if detail else "demo"
+    effective_backend = "demo" if not _HAS_RCLPY else backend
     return {
         "current_state": bridge.current_state.value,
         "scenario_id": bridge.scenario_id,
         "run_id": _last_run_id,
+        "effective_backend": effective_backend,
     }
 
 

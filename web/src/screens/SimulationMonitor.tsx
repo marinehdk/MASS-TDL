@@ -120,6 +120,7 @@ type MonitorTabId = typeof MONITOR_TABS[number]['id'];
 
 export function SimulationMonitor() {
   const [useDemo, setUseDemo] = useState(false);
+  const [effectiveBackend, setEffectiveBackend] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<MonitorTabId | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
   useFoxgloveLive(wsUrl);
@@ -223,6 +224,10 @@ export function SimulationMonitor() {
         fsm.setState('TRANSIT', 'MANUAL_MRC_CANCEL', simTimeSec);
       }
     },
+    onArrowLeft:  () => {},
+    onArrowRight: () => {},
+    onArrowUp:    () => {},
+    onArrowDown:  () => {},
     onHandback: () => {
       const fsm = useFsmStore.getState();
       fsm.setState('TRANSIT', 'MANUAL_HANDBACK', simTimeSec);
@@ -253,7 +258,29 @@ export function SimulationMonitor() {
     }
   }, []);
 
+  // Poll lifecycle status for effective_backend
   useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const resp = await fetch('/api/v1/lifecycle/status');
+        const data = await resp.json();
+        if (data.effective_backend) {
+          setEffectiveBackend(data.effective_backend);
+        }
+      } catch (e) {
+        // Silently catch errors
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (effectiveBackend === 'demo') {
+      setUseDemo(true);
+      return;
+    }
     if (wsConnected) {
       setUseDemo(false);
       return;
@@ -266,7 +293,7 @@ export function SimulationMonitor() {
       setUseDemo(true);
     }, 3000);
     return () => clearTimeout(timer);
-  }, [lcState, wsConnected]);
+  }, [lcState, wsConnected, effectiveBackend]);
 
   const borderColor = FSM_BORDER[fsmState] ?? 'transparent';
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';
