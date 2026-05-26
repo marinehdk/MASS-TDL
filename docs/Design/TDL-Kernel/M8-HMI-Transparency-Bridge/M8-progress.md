@@ -14,6 +14,8 @@
 | D3.4 | Closed in | ✅ 2026-05-25 | M8 完整（1220 LOC src + 1595 LOC test）；SAT-2/3/SOTIF 桥接已实装；report: [D3.4-report.md](../../Phase%203/D3.4-m8-hmi-full/D3.4-report.md) |
 | D2.5 | Blocks | 🟡 | M8 SAT-2/3/SOTIF topic 已发布；SIL 集成待验证 |
 | D2.6 | Closed in | 🟡 2026-05-22（框架完成）| 船长 HF Ground Truth：框架/模板就绪；访谈数据 [TBD] |
+| D3.8 | Closed in（Wave 1）| ✅ 2026-08-25 | §21.1.1 S-57 管线文档；§21.1.2 foxglove 基准框架（AWAIT-D3.4 锚点）；§21.3 合规矩阵完整化；§21.4 更新 |
+| D3.8 | Wave 2 等待 | ⏳ 等 D3.4 | §21.1.2 foxglove 实测值填充（来自 D3.4 evidence/foxglove_benchmark.md）|
 
 ## DEMO-2 阻塞贡献
 

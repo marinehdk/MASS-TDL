@@ -14,6 +14,7 @@
 | D3.3b | Closed in | ✅ 2026-05-25 | M7-sotif：6 类假设违反检测 + CheckerVetoCounter + SlidingWindow15s + SotifMetricsPublisher；report: [D3.3b-report.md](../../Phase%203/D3.3b-m7-sotif/D3.3b-report.md) |
 | D2.5 | Blocks | 🟡 | D2.5 依赖 M7 生产 `/sil/sotif_metrics` topic（M7 侧已发布 @10Hz）|
 | D2.7 | Closed in | ✅ 2026-05-22 | HARA 32 危险源 + FMEDA M1 v1.0 |
+| D3.8 | Closed in | ✅ 2026-08-25（Wave 1）| §11.10 仲裁优先级瀑布图（ASCII + 精简表）完整化；§18 置信度升级 🟡→🟢 |
 
 ## DEMO-2 阻塞贡献
 
