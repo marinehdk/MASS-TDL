@@ -2350,12 +2350,11 @@ w 系数与 per-rule 准则细节在 D1.7 规约（待 Hagen 2022 [R33] / Woerne
 | 模式指示 | ASDR 4 级自主模式显示 | ✅ D1.3.2.3 |
 | 强制化时间 | MASS Code Tier IV 强制时间未定 | [AWAIT: IMO 最终决定，D3.8 patch] |
 
-### 21.4 IMO S-Mode 占位 [TBD-DNV]
+### 21.4 IMO S-Mode 状态说明 [D3.8 更新]
 
-S-Mode 目前仅有非强制指南状态；MASS Code Tier IV 强制时间未定。
+S-Mode 目前仅有非强制指南状态（MSC.1/Circ.1609 [R36]）；MASS Code Tier IV 强制时间未定。
 
-**D2.8 stub**：§21 引用 S-Mode 概念 + "本 HMI 设计为 S-Mode ready"。
-**D3.4 + D3.8**：根据 IMO S-Mode 最终版本完善。
+**D3.4 + D3.8 更新**：根据合规矩阵（§21.3），S-Mode 强制化日期仍待 IMO 确认；本 HMI 实现已达到 S-Mode ready 状态（统一图标 + 简化操作 + 模式指示全部 ✅，见 §21.3 IMO S-Mode 合规矩阵）。MASS Code Tier IV 强制时间确认后，无需架构改动，仅需更新 §21.3 合规矩阵状态列。
 
 ### 21.5 D-task 联动
 
