@@ -2093,12 +2093,12 @@ class FCBPlugin final : public ShipMotionSimulator {
 
 ---
 
-## 第十八章 RL 隔离架构 [D2.8 新增 — 原附录 F §F.4 迁入]
+## 第十八章 RL 隔离架构 [D2.8 迁入，D3.8 边界确认]
 
 本章定义 RL（强化学习）对抗生成器与认证核心（M1-M8）的三层强制隔离边界。即使 B2 RL 推 Phase 4 启动，本章在 v1.1.3 stub 中锁定边界规则，确保 Phase 1-3 仓库结构和 CI lint 提前合规，避免 Phase 4 启动时回退污染已审认证内核。
 
 **Finding 关闭**：SIL P0 SIL-4（RL 隔离三层边界锁定）
-**置信度**：🟡 Medium — DNV-RP-0671/0510/0513 直接条款引用在 D3.8 完整化时验证；架构报告 §F.4 对应 [R25][R30][R31]。
+**置信度**：🟢 High — D1.3.1/D1.3.2 CI lint rule 已落地并通过 Phase 1 验证（git history 可查）；三层隔离边界已实装；DNV-RP-0671 [R30] / RP-0510 [R31] / RP-0513 [R42] 条款已审阅确认；§F.4 对应 [R25][R30][R31][R42]。
 
 ### 18.1 三层隔离边界（原 F.4）
 
