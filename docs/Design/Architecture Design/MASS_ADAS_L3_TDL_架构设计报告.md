@@ -2018,7 +2018,19 @@ L3 TDL SIL 框架采用**选项 D 混合架构**：production C++/MISRA ROS2 Hum
 | `dnv-opensource/ship-traffic-generator` (`trafficgen`) | NICE-deferred | Phase 2 D2.4（50→200 场景扩展）| [R27] |
 | `dnv-opensource/mlfmu` (ONNX→FMU) | NICE-deferred | Phase 4 D4.6（B2 RL 启动）| [R29] [R30] |
 
-**ROS2 ↔ FMI 桥接边界**（D1.3c NEW，详见 [E3] §Architectural Integration）：
+**许可证验证表**（CCS 审计要求；依据 DNV-RP-0513 §4 [R42] 自鉴定）：
+
+| 工具 | 版本 | 许可证 | 类型 | CCS 接受性评估 | RP-0513 §4 自鉴定状态 |
+|---|---|---|---|---|---|
+| `dnv-opensource/maritime-schema` | v0.2.x | Apache 2.0 | OSS | ✅ DNV 官方发布，CCS 接受 [R27] | ✅ 自鉴定完成（D1.3.2.1）|
+| `open-simulation-platform/libcosim` | ≥ v0.9 | MPL 2.0 | OSS | ✅ OSP 基金会 DNV 背书 [R28] | [AWAIT-D3.6: D1.3.3 集成测试完成后] |
+| `dnv-opensource/farn` | ≥ v0.1.16 | Apache 2.0 | OSS | ✅ DNV 官方发布 [R29] | ✅ 自鉴定完成（D1.6）|
+| `dnv-opensource/ospx` | ≥ v0.2 | Apache 2.0 | OSS | ✅ DNV 官方发布 [R29] | ✅ 自鉴定完成（D1.6）|
+| `dds-fmu`（自研 mediator）| HEAD | MIT | 内部 | 须 D1.3.3 完成后自鉴定 | [AWAIT-D3.6: D1.3.3 集成测试] |
+
+> **注 MPL 2.0**（libcosim）：允许商业使用，文件级 copyleft，不污染 L3 TDL 闭源部分——满足 CCS 审计对开源许可证的要求（🟢 High，基于 OSI 许可证分类）[R42]。
+
+**ROS2 ↔ FMI 桥接边界**（D1.3.3 实装，详见 [E3] §Architectural Integration）：
 - **Bridge mediator**：`dds-fmu` + 自定义 `libcosim::async_slave` C++ 实现
 - **延迟实测预算**：单次 exchange 2-10 ms（dds-fmu）
 - **关键边界规则**：**M7 Safety Supervisor 严格留 ROS2 native，不过 FMI 边界**。理由：M7 端到端 KPI < 10 ms（§11.4），dds-fmu 单次 exchange 即可吃掉 KPI。仅 ship dynamics（own + targets）+ 未来 RL FMU 走 OSP/FMI。
