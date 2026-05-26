@@ -2061,7 +2061,17 @@ class FCBPlugin final : public ShipMotionSimulator {
 
 同 `FCBPlugin` 实例三种调用：(1) own-ship SIL（`ship_dynamics_node`）；(2) target-ship SIL（`target_ship_pool_node`，N× 实例）；(3) Phase 4 RL 训练（Gymnasium Env adapter，与 (1)/(2) **共享**插件，不 fork 模型）。
 
-**[TBD-D2.5]**：dds-fmu latency budget 实测值（D2.5 完成后更新 §17.2 预算表）。
+**DNV-RP-0513 自鉴定证据清单** [R42]（D3.6 完成后全部 ✅）：
+
+| 条款 | 要求 | 证据文件 | 状态 |
+|---|---|---|---|
+| §4.1 工具目的说明 | 明确每个工具在 SIL harness 中的角色 | §17.2 许可证验证表（本节）| ✅ Wave 1 |
+| §4.2 工具错误影响分析 | 工具故障对 SUT 的影响 | [AWAIT-D3.6: D1.3.3 集成报告 §5] | Wave 2 |
+| §4.3 工具使用历史 | OSP / farn 的行业使用记录 | [R28][R29] + D3.6 evidence/ | Wave 2 |
+| §4.4 工具输出验证 | SIL 输出与手算参考对比 | D3.6 evidence/`<scenario_id>`.parquet | Wave 2 |
+| §5 配置管理 | 工具版本锁定于 requirements.txt | `requirements-sil.txt` + git SHA | ✅ Wave 1 |
+
+**[AWAIT-D3.6: D1.3.3 latency budget 实测值，预计 2026-08-31]**：dds-fmu latency budget 实测值（D3.6 D1.3.3 集成测试完成后更新 §17.2 预算表）。
 
 ### 17.3 ROS2 + OS + RT 锁定（原 F.3）
 
