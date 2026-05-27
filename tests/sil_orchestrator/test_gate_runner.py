@@ -148,6 +148,34 @@ async def test_gate_2_m7_not_independent():
 
 
 
+@pytest.mark.asyncio
+async def test_gate_2_unspecified_phase_3():
+    """GATE 2: 1/8 modules UNSPECIFIED (L3 kernel undetected) -> PASS with Phase 3 warning"""
+    from sil_orchestrator.gate_runner import ModulePulseCheck
+    pulses = [
+        ModulePulseCheck(module="M1", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M2", state=0, latency_ms=0, drops=0),
+        ModulePulseCheck(module="M3", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M4", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M5", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M6", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M7", state=1, latency_ms=2, drops=0),
+        ModulePulseCheck(module="M8", state=1, latency_ms=2, drops=0),
+    ]
+    with patch("sil_orchestrator.gate_runner._fetch_module_pulses_real", return_value=pulses), \
+         patch("sil_orchestrator.gate_runner._verify_m7_independent", new_callable=AsyncMock) as mock_m7:
+        mock_m7.return_value = ("ok", "M7 PID independent")
+        result = await gate_2_module_health()
+        assert result.passed == True
+        # Check warning string for Phase 3
+        assert any(
+            "[warn] M2: UNSPECIFIED latency=0ms drops=0 (Phase 3: L3 kernel nodes undetected)" in c
+            for c in result.checks
+        )
+        # Check rationale string for Phase 3
+        assert "Phase 3: 1/8 modules UNSPECIFIED (L3 kernel undetected)" in result.rationale
+
+
 from sil_orchestrator.gate_runner import gate_3_scenario_integrity
 import hashlib
 

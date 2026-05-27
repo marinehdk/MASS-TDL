@@ -303,8 +303,8 @@ async def gate_2_module_health() -> GateResult:
             passed = False
         elif p.state == 2:  # AMBER
             checks.append(f"[warn] {p.module}: AMBER latency={lms}ms drops={p.drops}")
-        else:  # UNSPECIFIED — Phase 1 honest reporting, not a failure
-            checks.append(f"[warn] {p.module}: UNSPECIFIED latency=0ms drops=0 (Phase 1: L3 kernel nodes not deployed)")
+        else:  # UNSPECIFIED — Phase 3 fallback, not a failure
+            checks.append(f"[warn] {p.module}: UNSPECIFIED latency=0ms drops=0 (Phase 3: L3 kernel nodes undetected)")
 
     status, msg = await _verify_m7_independent()
     checks.append(f"[{status}] M7 isolation: {msg}")
@@ -317,7 +317,7 @@ async def gate_2_module_health() -> GateResult:
         rationale = "all 8/8 GREEN + M7 independent"
     elif passed and unspec_count > 0:
         rationale = (
-            f"Phase 1: {unspec_count}/8 modules UNSPECIFIED (L3 kernel not deployed), "
+            f"Phase 3: {unspec_count}/8 modules UNSPECIFIED (L3 kernel undetected), "
             f"{green_count}/8 GREEN — gate PASS (no RED)"
         )
     elif not passed:
