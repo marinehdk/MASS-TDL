@@ -317,6 +317,7 @@ export function SilMapView({
   const [status, setStatus] = useState<'init' | 'ready' | 'no-webgl'>('init');
   const [mousePos, setMousePos] = useState<{ lng: number, lat: number } | null>(null);
   const [mapCenter, setMapCenter] = useState<{ lng: number, lat: number } | null>(null);
+  const [mouseDepth, setMouseDepth] = useState<{ type: 'depth' | 'land' | 'drying'; min?: number; max?: number } | null>(null);
 
   // Measurement ruler states
   const [measurementMode, setMeasurementMode] = useState<'none' | 'vessel' | 'freeform'>('none');
@@ -599,14 +600,61 @@ export function SilMapView({
 
     map.on('mousemove', (e) => {
       setMousePos({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+      
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: ['enc-depth-area', 'enc-land', 'enc-drying-area']
+      });
+      if (features.length > 0) {
+        const feat = features[0];
+        const layerId = feat.layer?.id;
+        if (layerId === 'enc-land') {
+          setMouseDepth({ type: 'land' });
+        } else if (layerId === 'enc-drying-area') {
+          setMouseDepth({ type: 'drying' });
+        } else {
+          setMouseDepth({
+            type: 'depth',
+            min: feat.properties?.minimumsdybde,
+            max: feat.properties?.maksimumsdybde
+          });
+        }
+      } else {
+        setMouseDepth(null);
+      }
     });
 
     map.on('mouseleave', () => {
       setMousePos(null);
+      setMouseDepth(null);
     });
 
     map.on('move', () => {
-      setMapCenter(map.getCenter());
+      const center = map.getCenter();
+      setMapCenter(center);
+      
+      if (!mousePos) {
+        const px = map.project(center);
+        const features = map.queryRenderedFeatures(px, {
+          layers: ['enc-depth-area', 'enc-land', 'enc-drying-area']
+        });
+        if (features.length > 0) {
+          const feat = features[0];
+          const layerId = feat.layer?.id;
+          if (layerId === 'enc-land') {
+            setMouseDepth({ type: 'land' });
+          } else if (layerId === 'enc-drying-area') {
+            setMouseDepth({ type: 'drying' });
+          } else {
+            setMouseDepth({
+              type: 'depth',
+              min: feat.properties?.minimumsdybde,
+              max: feat.properties?.maksimumsdybde
+            });
+          }
+        } else {
+          setMouseDepth(null);
+        }
+      }
     });
 
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'nautical' }), 'bottom-left');
@@ -1268,6 +1316,23 @@ export function SilMapView({
     return `${absVal.toFixed(4)}°${suffix}`;
   };
 
+  const formatDepth = (depth: { type: 'depth' | 'land' | 'drying'; min?: number; max?: number } | null): string => {
+    if (!depth) return '';
+    if (depth.type === 'land') return 'LAND';
+    if (depth.type === 'drying') return 'DRY AREA';
+    const { min, max } = depth;
+    if (min != null && max != null && max < 1000) {
+      return `DEP ${min}-${max}m`;
+    }
+    if (min != null) {
+      return `DEP >= ${min}m`;
+    }
+    if (max != null) {
+      return `DEP <= ${max}m`;
+    }
+    return 'DEP --';
+  };
+
   const displayCoords = mousePos || mapCenter;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1317,6 +1382,14 @@ export function SilMapView({
           <span style={{ color: 'var(--c-phos)', transition: 'color 0.2s', fontWeight: 600 }}>
             {formatCoord(displayCoords.lng, false)}
           </span>
+          {mouseDepth && (
+            <>
+              <div style={{ width: 1, height: 14, background: 'var(--line-3)', opacity: 0.5 }} />
+              <span style={{ color: 'var(--c-phos)', transition: 'color 0.2s', fontWeight: 600 }}>
+                {formatDepth(mouseDepth)}
+              </span>
+            </>
+          )}
         </div>
       )}
 
