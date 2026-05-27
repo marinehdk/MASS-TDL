@@ -91,30 +91,48 @@ export function useGateStream(scenarioId: string | null, autoStart = true): UseG
 
           // Extract gate checks and stream them to the LiveLogStore
           const appendLog = useTelemetryStore.getState().appendPreflightLog;
-          const timestamp = new Date().toLocaleTimeString();
+          const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
           
           appendLog({
             timestamp,
             level: 'info',
-            message: `>>> [GATE ${data.gate_id}] ${data.label.toUpperCase()} 检测中...`
+            message: `>>> [SYS] GATE ${data.gate_id}: ${data.label.toUpperCase()} 检测中...`
           });
           
           if (data.checks && Array.isArray(data.checks)) {
+            let unspecifiedCount = 0;
+            
             data.checks.forEach((c: any) => {
-              const status = c.status || 'info';
-              const level = status === 'ok' ? 'info' : status === 'fail' ? 'error' : 'warn';
+              const status = (c.status || 'info').toUpperCase();
+              const level = status === 'OK' ? 'info' : status === 'FAIL' ? 'error' : 'warn';
+              const detailText = c.detail || c.item || JSON.stringify(c);
+              
+              // Option A compression: consolidate duplicate UNSPECIFIED logs on Gate 2
+              if (data.gate_id === 2 && detailText.includes('UNSPECIFIED')) {
+                unspecifiedCount++;
+              } else {
+                appendLog({
+                  timestamp,
+                  level,
+                  message: `  * [${status}] ${detailText}`
+                });
+              }
+            });
+            
+            // Output one single consolidated warning line if we collapsed unspecified checks
+            if (unspecifiedCount > 0) {
               appendLog({
                 timestamp,
-                level,
-                message: `  * [${status.toUpperCase()}] ${c.detail || c.item || JSON.stringify(c)}`
+                level: 'warn',
+                message: `  * [WARN] M1-M8 pulses: ${unspecifiedCount}/8 modules UNSPECIFIED (Phase 3: L3 kernel nodes undetected)`
               });
-            });
+            }
           }
           
           appendLog({
             timestamp,
             level: data.passed ? 'info' : 'error',
-            message: `<<< [GATE ${data.gate_id}] ${data.passed ? 'SUCCESS' : 'FAILED'} (耗时 ${data.duration_ms} ms) - ${data.rationale}`
+            message: `<<< [SYS] GATE ${data.gate_id}: ${data.passed ? 'SUCCESS' : 'FAILED'} (耗时 ${data.duration_ms} ms) - ${data.rationale}`
           });
         }
       } catch (err) {

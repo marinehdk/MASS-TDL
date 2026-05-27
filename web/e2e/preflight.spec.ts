@@ -6,8 +6,8 @@ test.describe('Simulation-Check 6-Gate Sequencer', () => {
     await page.goto('/#/check/test-scenario?dev=1');
     await page.waitForSelector('[data-testid="preflight"]', { timeout: 15_000 });
 
-    const gateLabels = ['System Readiness', 'Module Health', 'Scenario Integrity',
-                        'ODD-Scenario Alignment', 'Time Base', 'Doer-Checker Independence'];
+    const gateLabels = ['系统物理就绪', '模块脉搏健康', '场景与环境一致',
+                        '数据源与模型就绪', '时基严密性验证', '架构物理隔离'];
     for (const label of gateLabels) {
       await expect(page.getByText(label, { exact: false }).first()).toBeVisible({ timeout: 20_000 });
     }
@@ -36,7 +36,7 @@ test.describe('Simulation-Check 6-Gate Sequencer', () => {
     await page.goto('/#/check/test-scenario?dev=1');
     await page.waitForSelector('[data-testid="preflight"]', { timeout: 15_000 });
 
-    const abortBtn = page.getByRole('button', { name: /ABORT/i });
+    const abortBtn = page.getByRole('button', { name: /返回场景/i });
     await expect(abortBtn).toBeVisible({ timeout: 15_000 });
   });
 
@@ -44,7 +44,7 @@ test.describe('Simulation-Check 6-Gate Sequencer', () => {
     await page.goto('/#/check/test-scenario');
     await page.waitForSelector('[data-testid="preflight"]', { timeout: 15_000 });
 
-    const skipBtn = page.getByRole('button', { name: /SKIP PREFLIGHT/i });
+    const skipBtn = page.getByRole('button', { name: /强制跳过/i });
     await expect(skipBtn).toHaveCount(0, { timeout: 10_000 });
   });
 
@@ -56,7 +56,7 @@ test.describe('Simulation-Check 6-Gate Sequencer', () => {
       return document.querySelector('[data-testid="preflight"]')?.textContent?.includes('NO-GO');
     }, { timeout: 25_000 });
 
-    const devSkip = page.getByText(/DEV MODE/i);
+    const devSkip = page.getByText(/开发跳过/i);
     await expect(devSkip).toBeVisible({ timeout: 10_000 });
   });
 
