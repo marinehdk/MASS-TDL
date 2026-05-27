@@ -135,7 +135,7 @@ export function ActionLogs({
         {/* Card 1: 容器详情 (Only displayed when Gate 1 or Gate 2 is selected) */}
         {(focusedGateId === 1 || focusedGateId === 2) && (
           <CollapsibleSection title="容器详情" defaultExpanded={true}>
-            <ContainerSpecPanel focusedGateId={focusedGateId} />
+            <ContainerSpecPanel focusedGateId={focusedGateId} gates={gates} />
           </CollapsibleSection>
         )}
 

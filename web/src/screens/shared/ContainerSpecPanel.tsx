@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { GateSSEEvent } from '../../types/gateStream';
 
 const CONTAINERS = [
   { name: 'SIL Orchestrator', container: 'sil-orchestrator-1', image: 'mass-l3-tacticallayer-sil-orchestrator:latest', desc: 'FastAPI 后端, 场景与仿真API', port: '8000', gateId: 1 },
@@ -11,9 +12,10 @@ const CONTAINERS = [
 
 interface ContainerSpecPanelProps {
   focusedGateId: number | null;
+  gates?: GateSSEEvent[];
 }
 
-export function ContainerSpecPanel({ focusedGateId }: ContainerSpecPanelProps) {
+export function ContainerSpecPanel({ focusedGateId, gates }: ContainerSpecPanelProps) {
   // Filter based on selected gate (Gate 1 gets the 3 infra containers, Gate 2 gets the 2 module containers)
   const filteredContainers = CONTAINERS.filter(c => c.gateId === focusedGateId);
 
