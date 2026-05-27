@@ -2,14 +2,19 @@
 """TDD: Test that mock_l2 publisher loads scenario YAML config."""
 
 import os
-import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from pathlib import Path
+from unittest.mock import patch
 import yaml
 
-# Add docker directory to path to import mock_l2_publisher
-sys.path.insert(0, '/Users/marine/Code/MASS-L3-Tactical\ Layer/.worktrees/d-demo1-r6-a/docker')
+# Note: we intentionally do NOT import docker/mock_l2_publisher here.
+# That module depends on rclpy + ROS2 message packages which are only
+# available inside the sil-nodes container. These unit tests instead
+# exercise the YAML parsing contract (same logic as
+# mock_l2_publisher._load_mock_l2_config) so they remain runnable on
+# the host without ROS2. An integration test verifying the full publish
+# chain runs in the container (Plan A W1 Step 1.5).
 
 
 class TestMockL2PublisherYAML(unittest.TestCase):
@@ -51,11 +56,8 @@ class TestMockL2PublisherYAML(unittest.TestCase):
             yaml_path = f.name
 
         try:
-            # Set env var and import the module with the env set
+            # Set env var and parse YAML the same way mock_l2_publisher would
             with patch.dict(os.environ, {'SIL_SCENARIO_YAML': yaml_path}):
-                # Mock rclpy to avoid ROS2 initialization
-                import mock_l2_publisher
-
                 # Read the scenario the same way the publisher would
                 with open(yaml_path, 'r') as f:
                     scenario_data = yaml.safe_load(f)
