@@ -9,6 +9,7 @@ import type { TargetVesselState } from '../types/sil/target_vessel_state';
 import { checkGroundingRisk, predictedPath } from '../utils/groundingDetect';
 import type { OwnShipPosition } from '../utils/groundingDetect';
 import { booleanIntersects } from '@turf/turf';
+import { Ruler, Trash2 } from 'lucide-react';
 
 interface SilMapViewProps {
   followOwnShip?: boolean;
@@ -879,8 +880,8 @@ export function SilMapView({
     if (!map || !styleReady.current) return;
 
     // Helper: calculate snapped coordinate
-    const getSnappedCoordinate = (lng: number, lat: number): { coords: [number, number]; id?: string } => {
-      const px = map.project([lng, lat]);
+    const getSnappedCoordinate = (lng: number, lat: number, mousePt?: { x: number; y: number }): { coords: [number, number]; id?: string } => {
+      const px = mousePt || map.project([lng, lat]);
       
       // Collect all vessel positions
       const vessels: { id: string; lat: number; lon: number }[] = [];
@@ -901,7 +902,7 @@ export function SilMapView({
         const vPx = map.project([v.lon, v.lat]);
         const dx = px.x - vPx.x;
         const dy = px.y - vPx.y;
-        if (Math.sqrt(dx * dx + dy * dy) < 20) { // Snapping threshold: 20px
+        if (Math.sqrt(dx * dx + dy * dy) < 40) { // Snapping threshold: 40px for generous snapping zone
           return { coords: [v.lon, v.lat], id: v.id };
         }
       }
@@ -912,7 +913,7 @@ export function SilMapView({
     const handleMapClick = (e: any) => {
       if (measurementMode === 'none') return;
 
-      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat);
+      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat, e.point);
 
       if (measurementMode === 'freeform') {
         if (!activeLine) {
@@ -966,7 +967,7 @@ export function SilMapView({
     const handleMapMouseMove = (e: any) => {
       if (measurementMode === 'none' || !activeLine) return;
 
-      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat);
+      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat, e.point);
       const dist = calculateDistanceNm(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
       const brg = calculateBearingDeg(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
       const formatted = `${dist.toFixed(2)} nm / ${String(Math.round(brg)).padStart(3, '0')}°`;
@@ -1320,12 +1321,11 @@ export function SilMapView({
       {status === 'ready' && <MapZoomControl mapRef={mapRef} />}
 
       {/* Floating HMI Measurement Toolbar */}
-      <div style={{
-        position: 'absolute', bottom: 120, right: 20, zIndex: 110,
-        display: 'flex', flexDirection: 'column', gap: 6,
-        background: 'rgba(10, 15, 24, 0.85)', backdropFilter: 'blur(16px)',
-        border: '1px solid var(--line-2)', borderRadius: 8, padding: 4,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.4)', pointerEvents: 'auto'
+      <div className="glass-panel" style={{
+        position: 'absolute', bottom: 196, right: 20, zIndex: 110,
+        display: 'flex', flexDirection: 'column', gap: 2,
+        padding: '4px', borderRadius: 4, border: '1px solid var(--line-1)',
+        pointerEvents: 'auto'
       }}>
         <button
           title="测距/测角 (Measure)"
@@ -1334,15 +1334,22 @@ export function SilMapView({
             setActiveLine(null);
           }}
           style={{
-            width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer',
+            width: 32, height: 32, borderRadius: 2, border: 'none', cursor: 'pointer',
             background: measurementMode === 'freeform' ? 'rgba(45, 212, 191, 0.2)' : 'transparent',
-            color: measurementMode === 'freeform' ? 'var(--c-phos)' : 'var(--txt-3)',
+            color: measurementMode === 'freeform' ? 'var(--c-phos)' : 'var(--txt-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
-            fontSize: 18, padding: 0, outline: 'none'
+            outline: 'none', padding: 0
+          }}
+          onMouseEnter={(e) => {
+            if (measurementMode !== 'freeform') e.currentTarget.style.color = 'var(--c-phos)';
+          }}
+          onMouseLeave={(e) => {
+            if (measurementMode !== 'freeform') e.currentTarget.style.color = 'var(--txt-2)';
           }}
         >
-          📐
+          <Ruler size={16} />
         </button>
+        <div style={{ height: '1px', background: 'var(--line-1)', margin: '2px 4px' }} />
         <button
           title="清除测量 (Clear)"
           onClick={() => {
@@ -1351,15 +1358,15 @@ export function SilMapView({
             setMeasurementMode('none');
           }}
           style={{
-            width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer',
-            background: 'transparent', color: 'var(--txt-3)',
+            width: 32, height: 32, borderRadius: 2, border: 'none', cursor: 'pointer',
+            background: 'transparent', color: 'var(--txt-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
-            fontSize: 18, padding: 0, outline: 'none'
+            outline: 'none', padding: 0
           }}
           onMouseEnter={(e) => e.currentTarget.style.color = 'var(--c-danger)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--txt-3)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--txt-2)'}
         >
-          🧹
+          <Trash2 size={16} />
         </button>
       </div>
 
