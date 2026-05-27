@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-rosbag2 \
         ros-humble-rosbag2-storage-mcap \
         ros-humble-geographic-msgs \
+        ros-humble-rmw-cyclonedds-cpp \
+        ros-humble-foxglove-bridge \
         libeigen3-dev \
         libyaml-cpp-dev \
         libspdlog-dev \
