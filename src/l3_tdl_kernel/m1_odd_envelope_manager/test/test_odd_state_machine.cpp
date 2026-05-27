@@ -317,15 +317,34 @@ TEST_F(OddStateMachineTest, EdgeToInWhenScoreImproves) {
 }
 
 /// 23. MrcPrepStaysWithoutTrigger
-/// MRC_Prep without m7_safety_mrc_required stays in MRC_Prep.
-TEST_F(OddStateMachineTest, MrcPrepStaysWithoutTrigger) {
+/// MRC_Prep without m7_safety_mrc_required stays in MRC_Prep when TDL <= TMR.
+TEST_F(OddStateMachineTest, MrcPrepStaysWhenTdlBelowTmr) {
   auto fsm = CreateDefault();
   ASSERT_TRUE(fsm.has_value());
   fsm->step(0.79, 100.0, 60.0, no_events_, t1_);  // In -> Edge
   fsm->step(0.65, 50.0, 60.0, no_events_, t2_);    // Edge -> MrcPrep
-  // No MRC trigger: stays MrcPrep
   EnvelopeState result = fsm->step(0.65, 50.0, 60.0, no_events_, t3_);
   EXPECT_EQ(EnvelopeState::MrCPrep, result);
+}
+
+/// MRC_Prep recovers to In when TDL > TMR and score is good.
+TEST_F(OddStateMachineTest, MrcPrepRecoversToInWhenTdlRecovers) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  fsm->step(0.79, 100.0, 60.0, no_events_, t1_);  // In -> Edge
+  fsm->step(0.65, 50.0, 60.0, no_events_, t2_);    // Edge -> MrcPrep
+  EnvelopeState result = fsm->step(0.9, 100.0, 60.0, no_events_, t3_);
+  EXPECT_EQ(EnvelopeState::In, result);
+}
+
+/// MRC_Prep recovers to Edge when TDL > TMR but score is marginal.
+TEST_F(OddStateMachineTest, MrcPrepRecoversToEdgeWhenTdlRecovers) {
+  auto fsm = CreateDefault();
+  ASSERT_TRUE(fsm.has_value());
+  fsm->step(0.79, 100.0, 60.0, no_events_, t1_);  // In -> Edge
+  fsm->step(0.65, 50.0, 60.0, no_events_, t2_);    // Edge -> MrcPrep
+  EnvelopeState result = fsm->step(0.72, 100.0, 60.0, no_events_, t3_);
+  EXPECT_EQ(EnvelopeState::Edge, result);
 }
 
 /// 24. MrcActiveRecoversToIn

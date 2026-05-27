@@ -63,11 +63,25 @@ namespace {
 }
 
 /// Handle transitions from MrcPrep state.
-/// CC = 2
+/// CC = 4
 [[nodiscard]] EnvelopeState handle_mrc_prep_state(
-    bool m7_safety_mrc_required) noexcept {
+    bool m7_safety_mrc_required,
+    bool m7_safety_critical,
+    double eff_score,
+    double in_to_edge,
+    double edge_to_out,
+    double tdl_s,
+    double tmr_s) noexcept {
   if (m7_safety_mrc_required) {
     return EnvelopeState::MrCActive;
+  }
+  if (!m7_safety_critical && tdl_s > tmr_s) {
+    if (eff_score >= in_to_edge) {
+      return EnvelopeState::In;
+    }
+    if (eff_score >= edge_to_out) {
+      return EnvelopeState::Edge;
+    }
   }
   return EnvelopeState::MrCPrep;
 }
@@ -168,7 +182,12 @@ EnvelopeState OddStateMachine::compute_next(
       return handle_edge_state(eff_score, thresholds_.in_to_edge, edge_to_out,
                                tdl_s, tmr_s);
     case EnvelopeState::MrCPrep:
-      return handle_mrc_prep_state(events.m7_safety_mrc_required);
+      return handle_mrc_prep_state(events.m7_safety_mrc_required,
+                                    events.m7_safety_critical,
+                                    eff_score,
+                                    thresholds_.in_to_edge,
+                                    edge_to_out,
+                                    tdl_s, tmr_s);
     case EnvelopeState::MrCActive:
       return handle_mrc_active_state(events.m7_safety_critical, eff_score,
                                      thresholds_.in_to_edge);

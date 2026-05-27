@@ -272,6 +272,8 @@ void SafetySupervisorNode::on_behavior_plan(
 void SafetySupervisorNode::on_avoidance_plan(
     l3_msgs::msg::AvoidancePlan::ConstSharedPtr const& msg) noexcept
 {
+  auto const kNow = std::chrono::steady_clock::now();
+  watchdog_->on_message_received(iec61508::MonitoredModule::kM5, kNow);
   last_avoidance_ = *msg;
   last_avoidance_speed_          = 0.0F;
   last_avoidance_rot_            = 0.0F;
@@ -279,7 +281,7 @@ void SafetySupervisorNode::on_avoidance_plan(
   last_avoidance_dcpa_           = 0.0F;
 
   if (!override_active_ && !reflex_freeze_required_) {
-    run_hard_constraint_checks(std::chrono::steady_clock::now());
+    run_hard_constraint_checks(kNow);
   }
 }
 

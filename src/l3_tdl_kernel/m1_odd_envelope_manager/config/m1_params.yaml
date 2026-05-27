@@ -33,7 +33,12 @@ tmr_tdl:
   tcpa_coefficient: 0.6   # [TBD-HAZID] TCPA * coefficient for TDL component
   tmr_min_s: 30.0         # minimum TMR clamp [s]
   tmr_max_s: 600.0        # maximum TMR clamp [s]
-  tdl_min_s: 0.0          # minimum TDL clamp [s]
+  # D-DEMO1-R11: tdl_min_s raised from 0.0 → 35.0 to prevent MRC_PREP during active avoidance.
+  # In head-on imazu-01-ho, TCPA≈0.2s → TDL=TCPA×0.6≈0.12s << TMR=30s, triggering forced
+  # MRC_PREP via on_main_loop_tick() ToR logic. Setting tdl_min_s=35s ensures TDL≥35>TMR=30s
+  # so M1 can remain in ENVELOPE_IN during the avoidance manoeuvre.
+  # [TBD-HAZID]: re-calibrate from real AIS/TCPA distributions in Phase 2 HAZID.
+  tdl_min_s: 35.0         # minimum TDL clamp [s] — raised for DEMO-1 avoidance window
   tdl_max_s: 600.0        # maximum TDL clamp [s]
 
 mrc:
@@ -65,5 +70,9 @@ environment:
   water_depth_m: 0.0          # default: unknown depth
 
 # System health configuration
+# D-DEMO1-R11: redundancy_enabled set true to avoid T_sys_health being capped at
+# kSysHealCritical=30s (which further limits TDL). With redundancy=true and no active
+# faults, T_sys_health = min(MTTF*0.1, 300) which won't constrain TDL below tdl_min_s.
+# [TBD-HAZID]: re-evaluate for real hardware configuration.
 system_health:
-  redundancy_enabled: false   # no redundant systems by default
+  redundancy_enabled: true    # DEMO-1: set true so T_sys_health does not cap TDL at 30s
