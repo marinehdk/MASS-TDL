@@ -337,6 +337,12 @@ export function SilMapView({
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lng: number; lat: number } | null>(null);
 
+  // Keep measurementMode in a ref to avoid stale closures in marker click listeners
+  const measurementModeRef = useRef(measurementMode);
+  useEffect(() => {
+    measurementModeRef.current = measurementMode;
+  }, [measurementMode]);
+
   // Keep click handler ref in sync without re-initializing map
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
@@ -685,10 +691,13 @@ export function SilMapView({
     if (!ownMarker.current) {
       const el = makeVesselEl('#2dd4bf', 30, true);
       el.addEventListener('click', (e) => {
+        if (measurementModeRef.current !== 'none') {
+          return; // Allow clicks to bubble up to the map in measurement mode
+        }
         e.stopPropagation();
         setSelectedVesselId('ownship');
       });
-      ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+      ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map', anchor: 'center' })
         .setLngLat([lon, lat]).addTo(map);
     } else {
       ownMarker.current.setLngLat([lon, lat]);
@@ -1052,10 +1061,13 @@ export function SilMapView({
         if (!m) {
           const el = makeVesselEl('#fbbf24', 24);
           el.addEventListener('click', (e) => {
+            if (measurementModeRef.current !== 'none') {
+              return; // Allow clicks to bubble up to the map in measurement mode
+            }
             e.stopPropagation();
             setSelectedVesselId(id);
           });
-          m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+          m = new maplibregl.Marker({ element: el, rotationAlignment: 'map', anchor: 'center' })
             .setLngLat([lon, lat]).addTo(map);
           tgtMarkers.current.set(id, m);
         } else {
