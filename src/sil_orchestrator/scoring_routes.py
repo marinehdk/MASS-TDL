@@ -53,6 +53,8 @@ async def scoring_last_run():
     # Primary path: scoring.arrow from scoring_node (ROS2 backend)
     if arrow_path.exists():
         try:
+            import pyarrow as pa
+            import pyarrow.ipc as ipc
             import polars as pl
             from scoring.kpi_deriver import KpiDeriver
 
@@ -60,7 +62,11 @@ async def scoring_last_run():
             kpis = deriver.derive_from_arrow(str(arrow_path))
 
             # Compute 6-dim aggregate scores from Arrow columns
-            df = pl.read_ipc(str(arrow_path))
+            # Use open_file() to handle footer format (ArrowWriter output)
+            with pa.memory_map(str(arrow_path), 'r') as source:
+                reader = ipc.open_file(source)
+                table = reader.read_all()
+            df = pl.from_arrow(table)
             dims = {
                 "safety": round(df["safety"].mean(), 4),
                 "rule_compliance": round(df["rule_compliance"].mean(), 4),
