@@ -16,9 +16,10 @@ interface FieldProps {
   type?: string;
   unit?: string;
   description?: string;
+  disabled?: boolean;
 }
 
-function Field({ label, value, onChange, type = 'text', unit = '', description }: FieldProps) {
+function Field({ label, value, onChange, type = 'text', unit = '', description, disabled = false }: FieldProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -31,14 +32,17 @@ function Field({ label, value, onChange, type = 'text', unit = '', description }
         type={type} 
         value={value ?? ''} 
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         style={{
           background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
           color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 6,
           fontFamily: 'var(--f-mono)', fontSize: 14, outline: 'none', width: '100%',
-          transition: 'border-color 0.2s'
+          transition: 'border-color 0.2s',
+          opacity: disabled ? 0.6 : 1,
+          cursor: disabled ? 'not-allowed' : 'text'
         }}
-        onFocus={(e) => e.target.style.borderColor = 'var(--c-phos)'}
-        onBlur={(e) => e.target.style.borderColor = 'var(--line-1)'}
+        onFocus={(e) => { if (!disabled) e.target.style.borderColor = 'var(--c-phos)' }}
+        onBlur={(e) => { if (!disabled) e.target.style.borderColor = 'var(--line-1)' }}
       />
       {description && <div style={{ fontSize: 12, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', marginTop: 2 }}>{description}</div>}
     </div>
@@ -50,13 +54,15 @@ function Select({
   value, 
   onChange, 
   options,
-  suffix 
+  suffix,
+  disabled = false
 }: { 
   label: string; 
   value: string; 
   onChange: (val: string) => void; 
   options: string[] | Array<{ value: string; label: string }>;
   suffix?: string;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
@@ -65,18 +71,20 @@ function Select({
         <select 
           value={value} 
           onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
           style={{
             flex: 1,
             background: 'rgba(0,0,0,0.3)', border: '1px solid var(--line-1)',
             color: 'var(--txt-1)', padding: '8px 10px', borderRadius: 6,
             fontFamily: 'var(--f-mono)', fontSize: 14, outline: 'none',
-            cursor: 'pointer'
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.6 : 1
           }}
         >
           {options.map((o) => {
             const val = typeof o === 'string' ? o : o.value;
             const lbl = typeof o === 'string' ? o : o.label;
-            return <option key={val} value={val}>{lbl}</option>;
+            return <option key={val} value={val} style={{ background: '#0b1320', color: 'var(--txt-1)' }}>{lbl}</option>;
           })}
         </select>
         {suffix && (
@@ -88,7 +96,8 @@ function Select({
             color: 'var(--c-phos)',
             fontFamily: 'var(--f-mono)',
             fontSize: 13,
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            opacity: disabled ? 0.6 : 1
           }}>
             {suffix}
           </div>
@@ -489,6 +498,405 @@ function TargetsConfigTab({ doc, onUpdate }: { doc: any; onUpdate: (updates: any
   );
 }
 
+function EnvironmentConfigTab({ doc, onUpdate, isBaseline }: { doc: any; onUpdate: (updates: any) => void; isBaseline?: boolean }) {
+  const env = doc?.environment || {};
+  const wind = env?.wind || {};
+  const current = env?.current || {};
+  const dist = doc?.metadata?.disturbance || {};
+  const sensor = dist?.sensor || {};
+  const timeline = dist?.timeline || [];
+
+  const handleAddEvent = () => {
+    if (isBaseline) return;
+    const newEvent = {
+      time: 45,
+      type: 'comms_dropout'
+    };
+    const updated = [...timeline, newEvent];
+    onUpdate({ 'metadata.disturbance.timeline': updated });
+  };
+
+  const handleRemoveEvent = (index: number) => {
+    if (isBaseline) return;
+    const updated = timeline.filter((_: any, i: number) => i !== index);
+    onUpdate({ 'metadata.disturbance.timeline': updated });
+  };
+
+  const handleEventChange = (index: number, key: string, val: any) => {
+    if (isBaseline) return;
+    const updated = timeline.map((evt: any, i: number) => {
+      if (i === index) {
+        return { ...evt, [key]: val };
+      }
+      return evt;
+    });
+    onUpdate({ 'metadata.disturbance.timeline': updated });
+  };
+
+  return (
+    <div>
+      {isBaseline && (
+        <div style={{
+          background: 'rgba(240, 183, 47, 0.1)',
+          border: '1px solid rgba(240, 183, 47, 0.3)',
+          color: 'var(--c-warn)',
+          padding: '10px 12px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontFamily: 'var(--f-mono)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 16
+        }}>
+          <span>🔒</span>
+          <span>当前为 Baseline 场景，参数已锁定只读</span>
+        </div>
+      )}
+
+      <CollapsibleSection title="1. 自然环境 (ENVIRONMENT)" defaultExpanded={true}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field 
+            label="风速" 
+            value={wind?.speed_mps ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.wind.speed_mps': Number(v) })} 
+            unit="m/s"
+            type="number"
+            disabled={isBaseline}
+          />
+          <Field 
+            label="风向 (FROM)" 
+            value={wind?.dir_deg ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.wind.dir_deg': Number(v) })} 
+            unit="°"
+            type="number"
+            disabled={isBaseline}
+          />
+        </div>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field 
+            label="流速" 
+            value={current?.speed_mps ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.current.speed_mps': Number(v) })} 
+            unit="m/s"
+            type="number"
+            disabled={isBaseline}
+          />
+          <Field 
+            label="流向 (TO)" 
+            value={current?.dir_deg ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.current.dir_deg': Number(v) })} 
+            unit="°"
+            type="number"
+            disabled={isBaseline}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field 
+            label="能见度" 
+            value={env?.visibility_nm ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.visibility_nm': Number(v) })} 
+            unit="NM"
+            type="number"
+            disabled={isBaseline}
+          />
+          <Field 
+            label="有义波高" 
+            value={env?.significant_wave_height_m ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.significant_wave_height_m': Number(v) })} 
+            unit="m"
+            type="number"
+            disabled={isBaseline}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field 
+            label="波浪周期" 
+            value={env?.wave_period_s ?? ''} 
+            onChange={(v) => onUpdate({ 'environment.wave_period_s': Number(v) })} 
+            unit="s"
+            type="number"
+            disabled={isBaseline}
+          />
+          <Select 
+            label="波谱类型" 
+            value={env?.wave_spectrum ?? 'JONSWAP'} 
+            onChange={(v) => onUpdate({ 'environment.wave_spectrum': v })}
+            options={['JONSWAP', 'Pierson-Moskowitz', 'Bretschneider']}
+            disabled={isBaseline}
+          />
+        </div>
+
+        <Select 
+          label="气象条件" 
+          value={env?.conditions ?? 'Clear'} 
+          onChange={(v) => onUpdate({ 'environment.conditions': v })}
+          options={['Clear', 'Cloudy', 'Foggy', 'Rainy', 'Snowy']}
+          disabled={isBaseline}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="2. 传感器干扰 (DISTURBANCE)" defaultExpanded={true}>
+        <Field 
+          label="AIS 丢包率" 
+          value={sensor?.ais_dropout_pct ?? ''} 
+          onChange={(v) => onUpdate({ 'metadata.disturbance.sensor.ais_dropout_pct': Number(v) })} 
+          unit="%"
+          type="number"
+          disabled={isBaseline}
+        />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field 
+            label="雷达量程" 
+            value={sensor?.radar_range_nm ?? ''} 
+            onChange={(v) => onUpdate({ 'metadata.disturbance.sensor.radar_range_nm': Number(v) })} 
+            unit="NM"
+            type="number"
+            disabled={isBaseline}
+          />
+          <Field 
+            label="雷达位置方差 &sigma;" 
+            value={sensor?.radar_pos_sigma_m ?? ''} 
+            onChange={(v) => onUpdate({ 'metadata.disturbance.sensor.radar_pos_sigma_m': Number(v) })} 
+            unit="m"
+            type="number"
+            disabled={isBaseline}
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="3. 故障注入时间轴" defaultExpanded={true}>
+        {timeline.length === 0 && (
+          <div style={{ fontFamily: 'var(--f-mono)', color: 'var(--txt-3)', padding: '12px 0', textAlign: 'center', fontSize: 13 }}>
+            当前无配置故障注入事件
+          </div>
+        )}
+
+        {timeline.map((evt: any, idx: number) => (
+          <div key={idx} style={{ 
+            background: 'rgba(16, 27, 44, 0.4)',
+            border: '1px solid var(--line-1)',
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 10
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-phos)', fontFamily: 'var(--f-disp)' }}>
+                事件 #{idx + 1}
+              </span>
+              {!isBaseline && (
+                <button 
+                  onClick={() => handleRemoveEvent(idx)}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--c-port)',
+                    fontSize: 12, cursor: 'pointer', fontFamily: 'var(--f-mono)'
+                  }}
+                >
+                  删除
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field 
+                label="触发时间" 
+                value={evt.time ?? ''} 
+                onChange={(v) => handleEventChange(idx, 'time', Number(v))} 
+                unit="秒"
+                type="number"
+                disabled={isBaseline}
+              />
+              <Select 
+                label="故障类型" 
+                value={evt.type ?? 'comms_dropout'} 
+                onChange={(v) => handleEventChange(idx, 'type', v)}
+                options={[
+                  { value: 'comms_dropout', label: '通信断连' },
+                  { value: 'ais_dropout', label: 'AIS静默' },
+                  { value: 'radar_noise_spike', label: '雷达突发噪点' }
+                ]}
+                disabled={isBaseline}
+              />
+            </div>
+          </div>
+        ))}
+
+        {!isBaseline && (
+          <button 
+            onClick={handleAddEvent}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 6,
+              background: 'rgba(91,192,190,0.06)', border: '1px dashed var(--c-phos)',
+              color: 'var(--c-phos)', fontFamily: 'var(--f-disp)', fontSize: 13,
+              fontWeight: 700, cursor: 'pointer', marginTop: 6, transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(91,192,190,0.12)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(91,192,190,0.06)'}
+          >
+            + 添加时间轴事件
+          </button>
+        )}
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+function AssertionsConfigTab({ doc, onUpdate, isBaseline }: { doc: any; onUpdate: (updates: any) => void; isBaseline?: boolean }) {
+  const outcome = doc?.metadata?.expected_outcome || doc?.expected_outcome || {};
+  const ruleCompliance = outcome?.rule_compliance || [];
+
+  const handleAddRule = () => {
+    if (isBaseline) return;
+    const newRule = {
+      rule: 'Rule14',
+      result: 'required'
+    };
+    const updated = [...ruleCompliance, newRule];
+    onUpdate({ 'metadata.expected_outcome.rule_compliance': updated });
+  };
+
+  const handleRemoveRule = (index: number) => {
+    if (isBaseline) return;
+    const updated = ruleCompliance.filter((_: any, i: number) => i !== index);
+    onUpdate({ 'metadata.expected_outcome.rule_compliance': updated });
+  };
+
+  const handleRuleChange = (index: number, key: string, val: any) => {
+    if (isBaseline) return;
+    const updated = ruleCompliance.map((item: any, i: number) => {
+      if (i === index) {
+        return { ...item, [key]: val };
+      }
+      return item;
+    });
+    onUpdate({ 'metadata.expected_outcome.rule_compliance': updated });
+  };
+
+  return (
+    <div>
+      {isBaseline && (
+        <div style={{
+          background: 'rgba(240, 183, 47, 0.1)',
+          border: '1px solid rgba(240, 183, 47, 0.3)',
+          color: 'var(--c-warn)',
+          padding: '10px 12px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontFamily: 'var(--f-mono)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 16
+        }}>
+          <span>🔒</span>
+          <span>当前为 Baseline 场景，参数已锁定只读</span>
+        </div>
+      )}
+
+      <CollapsibleSection title="1. 安全结果底线 (OUTCOME)" defaultExpanded={true}>
+        <Field 
+          label="最小安全交会距离 (CPA Floor)" 
+          value={outcome?.cpa_min_m_ge ?? ''} 
+          onChange={(v) => onUpdate({ 'metadata.expected_outcome.cpa_min_m_ge': Number(v) })} 
+          unit="m"
+          type="number"
+          disabled={isBaseline}
+          description="仿真结束判定本船与所有目标船之间的最低 CPA 阈值限制"
+        />
+        <Select 
+          label="防搁浅安全要求" 
+          value={outcome?.grounding ?? 'forbidden'} 
+          onChange={(v) => onUpdate({ 'metadata.expected_outcome.grounding': v })}
+          options={[
+            { value: 'forbidden', label: 'forbidden (硬性禁止)' },
+            { value: 'not_expected', label: 'not_expected (不预期)' }
+          ]}
+          disabled={isBaseline}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="2. 算法白盒过程断言 (ASSERTIONS)" defaultExpanded={true}>
+        {ruleCompliance.length === 0 && (
+          <div style={{ fontFamily: 'var(--f-mono)', color: 'var(--txt-3)', padding: '12px 0', textAlign: 'center', fontSize: 13 }}>
+            当前无配置白盒过程断言
+          </div>
+        )}
+
+        {ruleCompliance.map((item: any, idx: number) => (
+          <div key={idx} style={{ 
+            background: 'rgba(16, 27, 44, 0.4)',
+            border: '1px solid var(--line-1)',
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 10
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-phos)', fontFamily: 'var(--f-disp)' }}>
+                断言 #{idx + 1}
+              </span>
+              {!isBaseline && (
+                <button 
+                  onClick={() => handleRemoveRule(idx)}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--c-port)',
+                    fontSize: 12, cursor: 'pointer', fontFamily: 'var(--f-mono)'
+                  }}
+                >
+                  删除
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Select 
+                label="预期规避条款" 
+                value={item.rule ?? 'Rule14'} 
+                onChange={(v) => handleRuleChange(idx, 'rule', v)}
+                options={[
+                  { value: 'Rule14', label: 'Rule 14 (对遇)' },
+                  { value: 'Rule15_Stbd', label: 'Rule 15 (交叉规避)' },
+                  { value: 'Rule13_Ot', label: 'Rule 13 (追越)' },
+                  { value: 'MRC_Drift', label: 'MRC (安全漂航)' }
+                ]}
+                disabled={isBaseline}
+              />
+              <Select 
+                label="执行合规期望" 
+                value={item.result ?? 'required'} 
+                onChange={(v) => handleRuleChange(idx, 'result', v)}
+                options={[
+                  { value: 'required', label: 'required (必须合规)' },
+                  { value: 'not_applicable', label: 'not_applicable (不适用)' }
+                ]}
+                disabled={isBaseline}
+              />
+            </div>
+          </div>
+        ))}
+
+        {!isBaseline && (
+          <button 
+            onClick={handleAddRule}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 6,
+              background: 'rgba(91,192,190,0.06)', border: '1px dashed var(--c-phos)',
+              color: 'var(--c-phos)', fontFamily: 'var(--f-disp)', fontSize: 13,
+              fontWeight: 700, cursor: 'pointer', marginTop: 6, transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(91,192,190,0.12)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(91,192,190,0.06)'}
+          >
+            + 添加白盒断言
+          </button>
+        )}
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'vessels',     label: '船舶与任务',  icon: <LucideShip size={24} /> },
   { id: 'environment', label: '环境与故障',  icon: <LucideCloudRain size={24} /> },
@@ -575,56 +983,10 @@ export function BuilderRightRail({ yamlEditor, onUpdateYaml, onChangeRawYaml, on
                 </div>
               )}
               {activeTab === 'environment' && (
-                <div style={{ padding: '20px 0' }}>
-                  <div style={{
-                    textAlign: 'center', padding: '40px 20px',
-                    background: 'rgba(240,183,47,0.05)', borderRadius: 8,
-                    border: '1px solid rgba(240,183,47,0.15)'
-                  }}>
-                    <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, fontWeight: 600, color: 'var(--txt-1)', marginBottom: 8 }}>
-                      Phase 2 功能 (D2.x)
-                    </div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--txt-3)', lineHeight: 1.6 }}>
-                      当前版本: 仅展示 metadata.environment 字段摘要
-                    </div>
-                  </div>
-                  {doc?.environment && (
-                    <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, color: 'var(--txt-1)', lineHeight: 1.8 }}>
-                        <div>风速: {doc.environment?.wind?.speed_mps ?? '—'} m/s @ {doc.environment?.wind?.dir_deg ?? '—'}°</div>
-                        <div>海流: {doc.environment?.current?.speed_mps ?? '—'} m/s @ {doc.environment?.current?.dir_deg ?? '—'}°</div>
-                        <div>能见度: {doc.environment?.visibility_nm ?? '—'} nm</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <EnvironmentConfigTab doc={doc} onUpdate={onUpdateYaml} isBaseline={isBaseline} />
               )}
               {activeTab === 'assertions' && (
-                <div style={{ padding: '20px 0' }}>
-                  <div style={{
-                    textAlign: 'center', padding: '40px 20px',
-                    background: 'rgba(240,183,47,0.05)', borderRadius: 8,
-                    border: '1px solid rgba(240,183,47,0.15)'
-                  }}>
-                    <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>🔒</div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, fontWeight: 600, color: 'var(--txt-1)', marginBottom: 8 }}>
-                      Phase 2 功能 (D2.x)
-                    </div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--txt-3)', lineHeight: 1.6 }}>
-                      当前版本: 仅展示 expected_outcome 字段摘要
-                    </div>
-                  </div>
-                  {doc?.metadata?.expected_outcome && (
-                    <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, border: '1px solid var(--line-1)' }}>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 14, color: 'var(--txt-1)', lineHeight: 1.8 }}>
-                        {doc.metadata.expected_outcome.cpa_min_m_ge != null && <div>CPA min ≥ {doc.metadata.expected_outcome.cpa_min_m_ge}m</div>}
-                        {doc.metadata.expected_outcome.colregs_rules && <div>COLREGs: [{Array.isArray(doc.metadata.expected_outcome.colregs_rules) ? doc.metadata.expected_outcome.colregs_rules.join(', ') : doc.metadata.expected_outcome.colregs_rules}]</div>}
-                        {doc.metadata.expected_outcome.grounding && <div>Grounding: {doc.metadata.expected_outcome.grounding}</div>}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <AssertionsConfigTab doc={doc} onUpdate={onUpdateYaml} isBaseline={isBaseline} />
               )}
               {activeTab === 'raw' && (
                 <div style={{ flex: 1, height: '400px', margin: '0 -20px' }}>

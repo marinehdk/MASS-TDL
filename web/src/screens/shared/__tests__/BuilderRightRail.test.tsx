@@ -42,4 +42,22 @@ describe('BuilderRightRail', () => {
     fireEvent.click(screen.getByTitle('船舶与任务'));
     expect(onTabChange).toHaveBeenCalledWith(null);
   });
+
+  it('renders Environment tab inputs correctly', () => {
+    render(<BuilderRightRail {...defaultProps} activeTab="environment" />);
+    expect(screen.getByText('1. 自然环境 (ENVIRONMENT)')).toBeTruthy();
+    expect(screen.getByText('2. 传感器干扰 (DISTURBANCE)')).toBeTruthy();
+    expect(screen.getByText('3. 故障注入时间轴')).toBeTruthy();
+  });
+
+  it('locks inputs in Environment tab when isBaseline is true', () => {
+    render(<BuilderRightRail {...defaultProps} activeTab="environment" isBaseline={true} />);
+    expect(screen.getByText('当前为 Baseline 场景，参数已锁定只读')).toBeTruthy();
+  });
+
+  it('renders Assertions tab correctly', () => {
+    render(<BuilderRightRail {...defaultProps} activeTab="assertions" />);
+    expect(screen.getByText('1. 安全结果底线 (OUTCOME)')).toBeTruthy();
+    expect(screen.getByText('2. 算法白盒过程断言 (ASSERTIONS)')).toBeTruthy();
+  });
 });

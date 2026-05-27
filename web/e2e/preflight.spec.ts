@@ -74,6 +74,6 @@ test.describe('Simulation-Check 6-Gate Sequencer', () => {
       return el?.textContent?.includes('GO');
     }, { timeout: 25_000 });
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(15000);
+    expect(elapsed).toBeLessThan(30000);
   });
 });

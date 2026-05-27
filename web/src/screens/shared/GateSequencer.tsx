@@ -116,7 +116,7 @@ export function GateSequencer({ gates, streaming, focusedGateId, onGateSelect, v
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, fontWeight: 700, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>
-                  GATE 0{gateId}
+                  {`GATE 0${gateId}`}
                 </span>
                 <span style={{
                   fontFamily: 'var(--f-mono)', fontSize: 8.5, fontWeight: 700,

@@ -13,7 +13,7 @@ describe('GateSequencer', () => {
     render(<GateSequencer gates={mockGates} streaming={false} focusedGateId={null}
       onGateSelect={() => {}} verdict={null} />);
     for (let i = 1; i <= 6; i++) {
-      expect(screen.getByText(new RegExp(`GATE ${i}`))).toBeDefined();
+      expect(screen.getByText(new RegExp(`GATE 0${i}`))).toBeDefined();
     }
   });
 
@@ -27,7 +27,7 @@ describe('GateSequencer', () => {
     const fn = vi.fn();
     render(<GateSequencer gates={mockGates} streaming={false} focusedGateId={null}
       onGateSelect={fn} verdict={null} />);
-    fireEvent.click(screen.getByText(/GATE 1/));
+    fireEvent.click(screen.getByText(/GATE 01/));
     expect(fn).toHaveBeenCalledWith(1);
   });
 });

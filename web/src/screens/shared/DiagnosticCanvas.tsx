@@ -69,7 +69,13 @@ export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYam
     return <YamlDiffViewer original={storedYaml} modified={scenarioYaml} gate={gate} />;
   }
   if (focusedGateId === 5 || focusedGateId === 6) {
-    return <ContainerBoundarySvg gate6Result={gates.find(g => g.gate_id === 6)} gate5Result={gates.find(g => g.gate_id === 5)} />;
+    return (
+      <ContainerBoundarySvg
+        gates={gates}
+        gate6Result={gates.find(g => g.gate_id === 6)}
+        gate5Result={gates.find(g => g.gate_id === 5)}
+      />
+    );
   }
   return null;
 }
