@@ -118,7 +118,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
 
     if (previewData?.ownShip) {
       const os = previewData.ownShip;
-      if (checkCog(os.lon, os.lat, os.heading, os.sog ?? 0)) {
+      if (checkCog(os.lon, os.lat, os.heading, (os.sog ?? 0) / 1.94384)) {
         const target: DragTarget = { kind: 'cog', id: 'ownship' };
         dragActiveRef.current = target;
         setDragState({ active: target, ghostPos: null });
@@ -129,7 +129,7 @@ export function useMapInteraction(opts: MapInteractionOptions): MapInteractionRe
     }
     if (previewData?.targets) {
       for (const t of previewData.targets) {
-        if (checkCog(t.lon, t.lat, t.heading, t.sog ?? 0)) {
+        if (checkCog(t.lon, t.lat, t.heading, (t.sog ?? 0) / 1.94384)) {
           const target: DragTarget = { kind: 'cog', id: t.id };
           dragActiveRef.current = target;
           setDragState({ active: target, ghostPos: null });

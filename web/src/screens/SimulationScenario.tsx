@@ -290,27 +290,7 @@ export function SimulationScenario() {
     const features: any[] = [];
     const os = previewData.ownShip;
 
-    // Add a simple DCPA circle around OwnShip (e.g. 0.5nm)
-    const circle = (lat: number, lon: number, radiusNm: number, title: string) => {
-      const pts: [number, number][] = [];
-      const d = radiusNm / 60;
-      const cosLat = Math.cos(lat * Math.PI / 180);
-      for (let i = 0; i <= 64; i++) {
-        const a = (i / 64) * 2 * Math.PI;
-        pts.push([lon + (d * Math.sin(a)) / cosLat, lat + d * Math.cos(a)]);
-      }
-      return {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: pts },
-        properties: { type: 'dcpa', title }
-      };
-    };
-
-    features.push(circle(os.lat, os.lon, 0.5, 'OS DCPA 0.5nm'));
-    
     previewData.targets.forEach((t: { id: string; lat: number; lon: number }) => {
-      features.push(circle(t.lat, t.lon, 0.5, `${t.id} DCPA 0.5nm`));
-      
       // Add a line between OS and Target
       features.push({
         type: 'Feature',

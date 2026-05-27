@@ -71,6 +71,9 @@ interface TelemetryState {
   /** [lon, lat] pairs for own-ship trajectory trail */
   ownShipTrail: [number, number][];
   lastTrailTime: number;
+  /** [lon, lat] pairs for target ship trajectory trails, keyed by target ID/MMSI */
+  targetTrails: Record<string, [number, number][]>;
+  targetLastTrailTimes: Record<string, number>;
   /** Real-time 6-dim scoring row from /sil/scoring_row @ 1Hz */
   scoringRow: any;
   /** Sensor health (8 sensors) */
@@ -121,6 +124,8 @@ const initialState = {
   lifecycleStatus: null,
   wsConnected: false,
   ownShipTrail: [] as [number, number][],
+  targetTrails: {} as Record<string, [number, number][]>,
+  targetLastTrailTimes: {} as Record<string, number>,
   scoringRow: null,
   sensors: [],
   commLinks: [],
@@ -171,6 +176,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   }),
   updateTargets: (newTargets) => set((s) => {
     const merged = [...s.targets];
+    const trails = { ...s.targetTrails };
+    const lastTrailTimes = { ...s.targetLastTrailTimes };
+    const now = Date.now();
+
     for (const nt of newTargets) {
       const idx = merged.findIndex((t) => t.mmsi === nt.mmsi);
       if (idx >= 0) {
@@ -178,8 +187,27 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       } else {
         merged.push(nt);
       }
+
+      const id = nt.mmsi != null ? String(nt.mmsi) : null;
+      if (id) {
+        const lon = nt.pose?.lon;
+        const lat = nt.pose?.lat;
+        if (typeof lon === 'number' && typeof lat === 'number') {
+          const lastTime = lastTrailTimes[id] ?? 0;
+          if (!trails[id] || trails[id].length === 0 || now - lastTime >= 1000) {
+            const currentTrail = trails[id] ?? [];
+            const newTrail = [...currentTrail, [lon, lat] as [number, number]];
+            trails[id] = newTrail.length > MAX_TRAIL ? newTrail.slice(-MAX_TRAIL) : newTrail;
+            lastTrailTimes[id] = now;
+          }
+        }
+      }
     }
-    return { targets: merged };
+    return {
+      targets: merged,
+      targetTrails: trails,
+      targetLastTrailTimes: lastTrailTimes,
+    };
   }),
   updateEnvironment: (environment) => set({ environment }),
   updateModulePulses: (modulePulses) => set({ modulePulses }),

@@ -32,6 +32,7 @@ export const ImazuGeometry: React.FC<ImazuGeometryProps> = React.memo(({ mapRef,
         type: 'geojson',
         data: geo ?? { type: 'FeatureCollection', features: [] },
       });
+      const beforeId = map.getLayer('tgt-cog-line') ? 'tgt-cog-line' : undefined;
       map.addLayer({
         id: LAYER_LINE,
         type: 'line',
@@ -42,14 +43,14 @@ export const ImazuGeometry: React.FC<ImazuGeometryProps> = React.memo(({ mapRef,
           'line-dasharray': [4, 3],
           'line-opacity': 0.5,
         },
-      });
+      }, beforeId);
       map.addLayer({
         id: LAYER_LABEL,
         type: 'symbol',
         source: SOURCE_ID,
         layout: {
           'text-field': ['get', 'title'],
-          'text-font': ['Open Sans Regular'],
+          'text-font': ['Noto Sans Regular'],
           'text-size': 10,
           'text-offset': [0, -1.2],
           'text-anchor': 'bottom',
@@ -58,7 +59,7 @@ export const ImazuGeometry: React.FC<ImazuGeometryProps> = React.memo(({ mapRef,
           'text-color': 'var(--c-phos)',
           'text-opacity': 0.6,
         },
-      });
+      }, beforeId);
       addedRef.current = true;
     } else if (geo) {
       (map.getSource(SOURCE_ID) as any)?.setData(geo);

@@ -209,7 +209,7 @@ export const s57Layers: LayerSpecification[] = [
     layout: {
       'symbol-placement': 'line',
       'text-field': ['concat', ['to-string', ['get', 'dybde']], 'm'],
-      'text-font': ['Open Sans Regular'],
+      'text-font': ['Noto Sans Regular'],
       'text-size': 9,
       'text-max-angle': 30,
       'text-allow-overlap': false,
@@ -361,7 +361,7 @@ export const s57Layers: LayerSpecification[] = [
         ['get', 'dybde'],
         { 'max-fraction-digits': 1 },
       ],
-      'text-font': ['Open Sans Regular'],
+      'text-font': ['Noto Sans Regular'],
       'text-size': [
         'interpolate', ['linear'], ['zoom'],
         13, 8,
@@ -410,7 +410,7 @@ export const s57Layers: LayerSpecification[] = [
     minzoom: 14,
     layout: {
       'text-field': '✱',
-      'text-font': ['Open Sans Regular'],
+      'text-font': ['Noto Sans Regular'],
       'text-size': 12,
       'text-allow-overlap': true,
       'text-ignore-placement': true,
@@ -433,7 +433,7 @@ export const s57Layers: LayerSpecification[] = [
         ['get', 'dybde'],
         { 'max-fraction-digits': 1 },
       ],
-      'text-font': ['Open Sans Regular'],
+      'text-font': ['Noto Sans Regular'],
       'text-size': 8,
       'text-allow-overlap': false,
       'text-padding': 5,
@@ -524,7 +524,7 @@ export const ownShipLayer: LayerSpecification = {
 };
 
 // Demotiles serves the Open Sans glyphs at the /font/{fontstack}/ URL pattern
-const TEXT_FONT = ['Open Sans Regular'];
+const TEXT_FONT = ['Noto Sans Regular'];
 
 export const ownShipHeadingLayer: LayerSpecification = {
   id: 'own-ship-heading',

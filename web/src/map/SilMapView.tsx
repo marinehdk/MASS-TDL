@@ -64,6 +64,54 @@ function cogLine(lon: number, lat: number, cogRad: number, sogMs: number): GeoJS
   };
 }
 
+interface CogPathData {
+  line: GeoJSON.Feature;
+  ticks: GeoJSON.Feature[];
+}
+
+function calculateCogPath(
+  lon: number,
+  lat: number,
+  cogRad: number,
+  sogMs: number
+): CogPathData {
+  const cogDeg = cogRad * RAD;
+  
+  // Calculate distances for 1m, 3m, 6m (SOG is in m/s)
+  const distNm1 = (sogMs * 60) / 1852;
+  const distNm3 = (sogMs * 180) / 1852;
+  const distNm6 = (sogMs * 360) / 1852;
+  
+  const finalDist = sogMs < 0.05 ? 0 : distNm6;
+  const [lonEnd, latEnd] = project(lon, lat, cogDeg, finalDist);
+  
+  const line: GeoJSON.Feature = {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [[lon, lat], [lonEnd, latEnd]] },
+    properties: { cogDeg },
+  };
+  
+  const ticks: GeoJSON.Feature[] = [];
+  if (sogMs >= 0.05) {
+    const times = [
+      { time: 1, dist: distNm1, label: '1m' },
+      { time: 3, dist: distNm3, label: '3m' },
+      { time: 6, dist: distNm6, label: '6m' },
+    ];
+    
+    for (const item of times) {
+      const [ptLon, ptLat] = project(lon, lat, cogDeg, item.dist);
+      ticks.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [ptLon, ptLat] },
+        properties: { label: item.label },
+      });
+    }
+  }
+  
+  return { line, ticks };
+}
+
 // ── vessel DOM markers (not GeoJSON layers — avoids MapLibre v4 tile-index bug) ──
 
 function makeVesselEl(color: string, size = 28, ownship = false): HTMLDivElement {
@@ -218,6 +266,28 @@ function makeWindEl(dirDeg: number, speedMps: number): HTMLDivElement {
   return el;
 }
 
+function calculateDistanceNm(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const R = 6371000; // Earth radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return (R * c) / 1852; // convert meters to nautical miles
+}
+
+function calculateBearingDeg(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const lat1Rad = lat1 * Math.PI / 180;
+  const lat2Rad = lat2 * Math.PI / 180;
+  const dLonRad = (lon2 - lon1) * Math.PI / 180;
+  const y = Math.sin(dLonRad) * Math.cos(lat2Rad);
+  const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLonRad);
+  const theta = Math.atan2(y, x);
+  return (theta * 180 / Math.PI + 360) % 360;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export function SilMapView({ 
   followOwnShip = true, 
@@ -247,6 +317,25 @@ export function SilMapView({
   const [mousePos, setMousePos] = useState<{ lng: number, lat: number } | null>(null);
   const [mapCenter, setMapCenter] = useState<{ lng: number, lat: number } | null>(null);
 
+  // Measurement ruler states
+  const [measurementMode, setMeasurementMode] = useState<'none' | 'vessel' | 'freeform'>('none');
+  const [rulerLines, setRulerLines] = useState<{
+    id: string;
+    start: [number, number];
+    end: [number, number];
+    startSnapVesselId?: string;
+    endSnapVesselId?: string;
+    label: string;
+  }[]>([]);
+  const [activeLine, setActiveLine] = useState<{
+    start: [number, number];
+    current: [number, number];
+    startSnapVesselId?: string;
+    currentSnapVesselId?: string;
+    label: string;
+  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lng: number; lat: number } | null>(null);
+
   // Keep click handler ref in sync without re-initializing map
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
@@ -258,6 +347,7 @@ export function SilMapView({
   const targetsFromStore  = useTelemetryStore((s) => s.targets);
   const env      = useTelemetryStore((s) => s.environment);
   const trail    = useTelemetryStore((s) => s.ownShipTrail);
+  const targetTrails = useTelemetryStore((s) => s.targetTrails);
   const selectedVesselId = useUIStore((s) => s.selectedVesselId);
   const setSelectedVesselId = useUIStore((s) => s.setSelectedVesselId);
   const simRate = useControlStore((s) => s.simRate);
@@ -265,13 +355,13 @@ export function SilMapView({
   // Use preview data if provided, otherwise use store
   const ownShip = previewData?.ownShip ? {
     pose: { lat: previewData.ownShip.lat, lon: previewData.ownShip.lon, heading: previewData.ownShip.heading / RAD },
-    kinematics: { sog: previewData.ownShip.sog || 0, cog: (previewData.ownShip.cog || previewData.ownShip.heading) / RAD, rot: 0 }
+    kinematics: { sog: (previewData.ownShip.sog || 0) / 1.94384, cog: (previewData.ownShip.cog || previewData.ownShip.heading) / RAD, rot: 0 }
   } : ownShipFromStore;
 
   const targets = (previewData?.targets ? previewData.targets.map(t => ({
     mmsi: t.id,
     pose: { lat: t.lat, lon: t.lon, heading: t.heading / RAD },
-    kinematics: { sog: t.sog || 0, cog: (t.cog || t.heading) / RAD, rot: 0 }
+    kinematics: { sog: (t.sog || 0) / 1.94384, cog: (t.cog || t.heading) / RAD, rot: 0 }
   })) : targetsFromStore) || [];
 
   // ── Map initialisation ──────────────────────────────────────────────────────
@@ -371,6 +461,19 @@ export function SilMapView({
                  'line-dasharray': [3, 2] },
       });
 
+      // ── Target Trails ────────────────────────────────────────────────────
+      map.addSource('tgt-trail', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'tgt-trail-line',
+        type: 'line',
+        source: 'tgt-trail',
+        paint: { 'line-color': '#fbbf24', 'line-width': 1.5, 'line-opacity': 0.55,
+                 'line-dasharray': [3, 2] },
+      });
+
       // ── Own-ship COG leader ──────────────────────────────────────────────
       map.addSource('own-cog', {
         type: 'geojson',
@@ -392,7 +495,86 @@ export function SilMapView({
         id: 'tgt-cog-line',
         type: 'line',
         source: 'tgt-cog',
-        paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-opacity': 0.8 },
+        paint: {
+          'line-color': '#fbbf24',
+          'line-width': 1.5,
+          'line-opacity': 0.7,
+          'line-dasharray': [4, 3], // Dashed line for predicted path
+        },
+      });
+
+      // ── Target COG ticks ─────────────────────────────────────────────────
+      map.addSource('tgt-cog-ticks', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'tgt-cog-ticks-layer',
+        type: 'circle',
+        source: 'tgt-cog-ticks',
+        paint: {
+          'circle-color': '#fbbf24',
+          'circle-radius': 3.5,
+          'circle-stroke-color': '#0b1320',
+          'circle-stroke-width': 1,
+          'circle-opacity': 0.9,
+        },
+      });
+      map.addLayer({
+        id: 'tgt-cog-ticks-labels',
+        type: 'symbol',
+        source: 'tgt-cog-ticks',
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 9,
+          'text-offset': [0.8, -0.6],
+          'text-anchor': 'left',
+        },
+        paint: {
+          'text-color': '#fbbf24',
+          'text-halo-color': '#070c13',
+          'text-halo-width': 1.5,
+        },
+      });
+
+      // ── Measurement Ruler ───────────────────────────────────────────────
+      map.addSource('measurement-ruler', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'measurement-ruler-line',
+        type: 'line',
+        source: 'measurement-ruler',
+        filter: ['==', ['get', 'type'], 'line'],
+        paint: {
+          'line-color': '#2dd4bf',
+          'line-width': 2.0,
+          'line-dasharray': [4, 3],
+          'line-opacity': 0.85
+        }
+      });
+      map.addLayer({
+        id: 'measurement-ruler-label',
+        type: 'symbol',
+        source: 'measurement-ruler',
+        filter: ['==', ['get', 'type'], 'label'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 10,
+          'text-anchor': 'center',
+          'text-offset': [0, -1.0],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true
+        },
+        paint: {
+          'text-color': '#2dd4bf',
+          'text-halo-color': '#070c13',
+          'text-halo-width': 1.5,
+          'text-halo-blur': 0.5
+        }
       });
 
       // cpa concentric rings removed in favor of asymmetric SafetyDomainLayer
@@ -620,6 +802,229 @@ export function SilMapView({
     });
   }, [trail, previewData]);
 
+  // ── Target Trails update ───────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current || previewData) {
+      // Clear target trails in preview mode
+      if (styleReady.current && map) {
+        (map.getSource('tgt-trail') as any)?.setData({ type: 'FeatureCollection', features: [] });
+      }
+      return;
+    }
+
+    const targetTrailFeatures: GeoJSON.Feature[] = [];
+    if (Array.isArray(targets)) {
+      for (const t of targets) {
+        const id = t.mmsi != null ? String(t.mmsi) : null;
+        if (id && targetTrails[id] && targetTrails[id].length >= 2) {
+          targetTrailFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: targetTrails[id] },
+            properties: { id },
+          });
+        }
+      }
+    }
+
+    (map.getSource('tgt-trail') as any)?.setData({
+      type: 'FeatureCollection',
+      features: targetTrailFeatures,
+    });
+  }, [targetTrails, targets, previewData]);
+
+  // ── Measurement Ruler update ───────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current) return;
+
+    const features: any[] = [];
+    const lines = [...rulerLines];
+    if (activeLine) {
+      lines.push({
+        id: 'active',
+        start: activeLine.start,
+        end: activeLine.current,
+        label: activeLine.label,
+      });
+    }
+
+    for (const line of lines) {
+      // LineString Feature
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [line.start, line.end] },
+        properties: { type: 'line' },
+      });
+
+      // Midpoint Point Feature for label
+      const midLng = (line.start[0] + line.end[0]) / 2;
+      const midLat = (line.start[1] + line.end[1]) / 2;
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [midLng, midLat] },
+        properties: { type: 'label', label: line.label },
+      });
+    }
+
+    (map.getSource('measurement-ruler') as any)?.setData({
+      type: 'FeatureCollection',
+      features,
+    });
+  }, [rulerLines, activeLine]);
+
+  // ── Snapping & Measurement Map Event Listeners ─────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current) return;
+
+    // Helper: calculate snapped coordinate
+    const getSnappedCoordinate = (lng: number, lat: number): { coords: [number, number]; id?: string } => {
+      const px = map.project([lng, lat]);
+      
+      // Collect all vessel positions
+      const vessels: { id: string; lat: number; lon: number }[] = [];
+      if (ownShip && ownShip.pose?.lat != null && ownShip.pose?.lon != null) {
+        vessels.push({ id: 'ownship', lat: ownShip.pose.lat, lon: ownShip.pose.lon });
+      }
+      if (targets && Array.isArray(targets)) {
+        for (const t of targets) {
+          const latVal = t.pose?.lat;
+          const lonVal = t.pose?.lon;
+          if (latVal != null && lonVal != null) {
+            vessels.push({ id: t.mmsi != null ? String(t.mmsi) : 'tgt', lat: latVal, lon: lonVal });
+          }
+        }
+      }
+
+      for (const v of vessels) {
+        const vPx = map.project([v.lon, v.lat]);
+        const dx = px.x - vPx.x;
+        const dy = px.y - vPx.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 20) { // Snapping threshold: 20px
+          return { coords: [v.lon, v.lat], id: v.id };
+        }
+      }
+
+      return { coords: [lng, lat] };
+    };
+
+    const handleMapClick = (e: any) => {
+      if (measurementMode === 'none') return;
+
+      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat);
+
+      if (measurementMode === 'freeform') {
+        if (!activeLine) {
+          // Set starting point
+          setActiveLine({
+            start: snapped.coords,
+            current: snapped.coords,
+            startSnapVesselId: snapped.id,
+            label: '0.00 nm / 000°',
+          });
+        } else {
+          // Finish drawing
+          const dist = calculateDistanceNm(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+          const brg = calculateBearingDeg(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+          const formatted = `${dist.toFixed(2)} nm / ${String(Math.round(brg)).padStart(3, '0')}°`;
+
+          const newLine = {
+            id: String(Date.now()),
+            start: activeLine.start,
+            end: snapped.coords,
+            startSnapVesselId: activeLine.startSnapVesselId,
+            endSnapVesselId: snapped.id,
+            label: formatted,
+          };
+          setRulerLines(prev => [...prev, newLine]);
+          setActiveLine(null);
+          setMeasurementMode('none');
+        }
+      } else if (measurementMode === 'vessel') {
+        if (activeLine) {
+          // Finish drawing starting from ship
+          const dist = calculateDistanceNm(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+          const brg = calculateBearingDeg(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+          const formatted = `${dist.toFixed(2)} nm / ${String(Math.round(brg)).padStart(3, '0')}°`;
+
+          const newLine = {
+            id: String(Date.now()),
+            start: activeLine.start,
+            end: snapped.coords,
+            startSnapVesselId: activeLine.startSnapVesselId,
+            endSnapVesselId: snapped.id,
+            label: formatted,
+          };
+          setRulerLines(prev => [...prev, newLine]);
+          setActiveLine(null);
+          setMeasurementMode('none');
+        }
+      }
+    };
+
+    const handleMapMouseMove = (e: any) => {
+      if (measurementMode === 'none' || !activeLine) return;
+
+      const snapped = getSnappedCoordinate(e.lngLat.lng, e.lngLat.lat);
+      const dist = calculateDistanceNm(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+      const brg = calculateBearingDeg(activeLine.start[0], activeLine.start[1], snapped.coords[0], snapped.coords[1]);
+      const formatted = `${dist.toFixed(2)} nm / ${String(Math.round(brg)).padStart(3, '0')}°`;
+
+      setActiveLine({
+        start: activeLine.start,
+        current: snapped.coords,
+        startSnapVesselId: activeLine.startSnapVesselId,
+        currentSnapVesselId: snapped.id,
+        label: formatted,
+      });
+    };
+
+    const handleMapContextMenu = (e: any) => {
+      if (!selectedVesselId) return;
+
+      // Prevent default browser menu
+      e.originalEvent.preventDefault();
+
+      setContextMenu({
+        x: e.point.x,
+        y: e.point.y,
+        lng: e.lngLat.lng,
+        lat: e.lngLat.lat,
+      });
+    };
+
+    // Close context menu on click elsewhere
+    const handleCloseMenu = () => {
+      setContextMenu(null);
+    };
+
+    map.on('click', handleMapClick);
+    map.on('mousemove', handleMapMouseMove);
+    map.on('contextmenu', handleMapContextMenu);
+    map.on('mousedown', handleCloseMenu);
+
+    return () => {
+      map.off('click', handleMapClick);
+      map.off('mousemove', handleMapMouseMove);
+      map.off('contextmenu', handleMapContextMenu);
+      map.off('mousedown', handleCloseMenu);
+    };
+  }, [measurementMode, rulerLines, activeLine, selectedVesselId, targets, ownShip, styleReady.current]);
+
+  // ── Escape key measurement cancel listener ───────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveLine(null);
+        setMeasurementMode('none');
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // ── Target markers + COG leaders ───────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -627,6 +1032,7 @@ export function SilMapView({
 
     const seen = new Set<string>();
     const cogFeatures: GeoJSON.Feature[] = [];
+    const tickFeatures: GeoJSON.Feature[] = [];
 
     if (Array.isArray(targets)) {
       for (const t of targets) {
@@ -656,8 +1062,10 @@ export function SilMapView({
         }
         m.setRotation(hdgDeg);
 
-        // COG leader
-        cogFeatures.push(cogLine(lon, lat, cogRad, sogMs));
+        // COG leader & ticks (Scheme A)
+        const cogPath = calculateCogPath(lon, lat, cogRad, sogMs);
+        cogFeatures.push(cogPath.line);
+        tickFeatures.push(...cogPath.ticks);
 
         // Plaque update
         const isSelected = selectedVesselId === id;
@@ -686,8 +1094,14 @@ export function SilMapView({
       if (!seen.has(id)) { m.remove(); tgtMarkers.current.delete(id); }
     }
 
-    (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: cogFeatures });
-  }, [targets, selectedVesselId, setSelectedVesselId]);
+    if (previewData) {
+      (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: [] });
+      (map.getSource('tgt-cog-ticks') as any)?.setData({ type: 'FeatureCollection', features: [] });
+    } else {
+      (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: cogFeatures });
+      (map.getSource('tgt-cog-ticks') as any)?.setData({ type: 'FeatureCollection', features: tickFeatures });
+    }
+  }, [targets, selectedVesselId, setSelectedVesselId, previewData]);
 
   // ── Wind/current marker (disabled/removed as requested by user) ──────────────────
   useEffect(() => {
@@ -904,6 +1318,89 @@ export function SilMapView({
       )}
 
       {status === 'ready' && <MapZoomControl mapRef={mapRef} />}
+
+      {/* Floating HMI Measurement Toolbar */}
+      <div style={{
+        position: 'absolute', bottom: 120, right: 20, zIndex: 110,
+        display: 'flex', flexDirection: 'column', gap: 6,
+        background: 'rgba(10, 15, 24, 0.85)', backdropFilter: 'blur(16px)',
+        border: '1px solid var(--line-2)', borderRadius: 8, padding: 4,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.4)', pointerEvents: 'auto'
+      }}>
+        <button
+          title="测距/测角 (Measure)"
+          onClick={() => {
+            setMeasurementMode(prev => prev === 'freeform' ? 'none' : 'freeform');
+            setActiveLine(null);
+          }}
+          style={{
+            width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: measurementMode === 'freeform' ? 'rgba(45, 212, 191, 0.2)' : 'transparent',
+            color: measurementMode === 'freeform' ? 'var(--c-phos)' : 'var(--txt-3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
+            fontSize: 18, padding: 0, outline: 'none'
+          }}
+        >
+          📐
+        </button>
+        <button
+          title="清除测量 (Clear)"
+          onClick={() => {
+            setRulerLines([]);
+            setActiveLine(null);
+            setMeasurementMode('none');
+          }}
+          style={{
+            width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: 'transparent', color: 'var(--txt-3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
+            fontSize: 18, padding: 0, outline: 'none'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--c-danger)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--txt-3)'}
+        >
+          🧹
+        </button>
+      </div>
+
+      {/* Global Right-Click HMI Context Menu */}
+      {contextMenu && (
+        <div style={{
+          position: 'absolute', left: contextMenu.x, top: contextMenu.y, zIndex: 1000,
+          background: 'rgba(7, 16, 27, 0.94)', backdropFilter: 'blur(12px)',
+          border: '1px solid var(--line-2)', borderRadius: 6, padding: '4px 0',
+          minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.6)', pointerEvents: 'auto'
+        }}>
+          <div
+            onClick={() => {
+              const startVessel = selectedVesselId === 'ownship'
+                ? (ownShip && ownShip.pose ? [ownShip.pose.lon, ownShip.pose.lat] as [number, number] : null)
+                : (() => {
+                    const t = targets.find(tgt => String(tgt.mmsi) === selectedVesselId);
+                    return t && t.pose ? [t.pose.lon, t.pose.lat] as [number, number] : null;
+                  })();
+              if (startVessel) {
+                setMeasurementMode('vessel');
+                setActiveLine({
+                  start: startVessel,
+                  current: [contextMenu.lng, contextMenu.lat],
+                  label: '0.00 nm / 000°',
+                  startSnapVesselId: selectedVesselId || undefined
+                });
+              }
+              setContextMenu(null);
+            }}
+            style={{
+              padding: '8px 12px', color: 'var(--txt-1)', fontSize: 11, fontFamily: 'monospace',
+              cursor: 'pointer', transition: 'background 0.15s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(45,212,191,0.15)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            📐 测量相对距离/方位
+          </div>
+        </div>
+      )}
     </div>
   );
 }
