@@ -37,9 +37,18 @@ MissionManagerNode::MissionManagerNode(const rclcpp::NodeOptions& options)
 
   // Transition state machine from Init to Idle now that all subscribers/timers
   // are ready. Per spec §3.5: Init→Idle on "节点初始化完成、subscribers 就绪".
-  MissionEvent ready_event;
-  ready_event.type = MissionEvent::Type::NodeReady;
-  state_machine_->handle_event(ready_event);
+  {
+    MissionEvent ready_event;
+    ready_event.type = MissionEvent::Type::NodeReady;
+    const auto prev = state_machine_->current();
+    const auto prev_name = state_machine_->state_name();
+    state_machine_->handle_event(ready_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (NodeReady)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
+  }
 
   RCLCPP_INFO(get_logger(), "M3 MissionManagerNode initialised");
   if (logger_) {
@@ -332,15 +341,29 @@ void MissionManagerNode::on_voyage_task(
   {
     MissionEvent recv_event;
     recv_event.type = MissionEvent::Type::VoyageTaskReceived;
+    const auto prev_name = state_machine_->state_name();
+    const auto prev = state_machine_->current();
     state_machine_->handle_event(recv_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (VoyageTaskReceived)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
   }
 
   // Step 2: TaskValidation → AwaitingRoute (valid) or → Idle (invalid)
   if (result.is_valid) {
-    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning to AwaitingRoute");
     MissionEvent pass_event;
     pass_event.type = MissionEvent::Type::ValidationPassed;
+    const auto prev_name = state_machine_->state_name();
+    const auto prev = state_machine_->current();
     state_machine_->handle_event(pass_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (ValidationPassed)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
+    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning to AwaitingRoute");
     publish_asdr_record("voyage_task_accepted",
                         nlohmann::json{{"task_id", msg->task_id}});
     if (logger_) {
@@ -356,7 +379,14 @@ void MissionManagerNode::on_voyage_task(
                 result.failed_check.c_str());
     MissionEvent fail_event;
     fail_event.type = MissionEvent::Type::ValidationFailed;
+    const auto prev_name_f = state_machine_->state_name();
+    const auto prev_f = state_machine_->current();
     state_machine_->handle_event(fail_event);
+    if (state_machine_->current() != prev_f) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (ValidationFailed)",
+                  std::string(prev_name_f).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
     publish_asdr_record("voyage_task_rejected",
                         nlohmann::json{{"reason", result.failed_check}});
     if (logger_) {
@@ -377,12 +407,18 @@ void MissionManagerNode::on_planned_route(
 
   // If waiting for initial route, advance state machine
   if (state_machine_->current() == MissionState::AwaitingRoute) {
+    const auto prev_name = state_machine_->state_name();
     MissionEvent event;
     event.type = MissionEvent::Type::RouteReceived;
     state_machine_->handle_event(event);
+    RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (RouteReceived, route_id=%lu)",
+                std::string(prev_name).c_str(),
+                std::string(state_machine_->state_name()).c_str(),
+                msg->route_id);
     RCLCPP_INFO(get_logger(), "Route received — mission now ACTIVE");
     if (logger_) {
-      logger_->info("Route received, state->ACTIVE, route_id={}", msg->route_id);
+      logger_->info("[M3 FSM] {} → {} (RouteReceived, route_id={})",
+                    prev_name, state_machine_->state_name(), msg->route_id);
     }
   }
 }

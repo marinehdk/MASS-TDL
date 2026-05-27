@@ -14,6 +14,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_mission_state_machine test_mission_state_machine.cpp)
   target_link_libraries(test_mission_state_machine ${PROJECT_NAME}_lib)
 
+  ament_add_gtest(test_route_received test_route_received.cpp)
+  target_link_libraries(test_route_received ${PROJECT_NAME}_lib)
+
   ament_add_gtest(test_m3_node_lifecycle integration/test_m3_node_lifecycle.cpp)
   target_link_libraries(test_m3_node_lifecycle ${PROJECT_NAME}_lib)
 
