@@ -446,25 +446,45 @@ class SilTopicBridge(Node):
             (now - self._last_valid_plan_time)
             if self._last_valid_plan_time else float('inf'))
 
-        is_in_envelope = (
-            self._last_odd_state.envelope_state == ODDState.ENVELOPE_IN)
+        # F4-I-1 follow-up: autopilot should engage whenever M5 cannot drive
+        # the ship and M7 has NOT taken full MRC control. ENVELOPE_IN (0),
+        # ENVELOPE_EDGE (1) and ENVELOPE_MRC_PREP (3) are all states where
+        # the Doer remains in command; only ENVELOPE_MRC_ACTIVE (4) means
+        # M7 has fully seized actuation. ENVELOPE_OUT (2) is a hard fail
+        # that requires operator handoff, so autopilot should also stand down.
+        env_state = self._last_odd_state.envelope_state
+        env_allows_autopilot = env_state in (
+            ODDState.ENVELOPE_IN,
+            ODDState.ENVELOPE_EDGE,
+            ODDState.ENVELOPE_MRC_PREP,
+        )
         is_m5_stale = staleness_s > 10.0
         m4_in_fallback = (
             self._last_behavior_plan is not None and
             "fallback" in self._last_behavior_plan.rationale.lower())
 
         was_enabled = self._autopilot_enabled
-        self._autopilot_enabled = is_in_envelope and (is_m5_stale or m4_in_fallback)
+        self._autopilot_enabled = (
+            env_allows_autopilot and (is_m5_stale or m4_in_fallback))
+
+        # F4-I-5: on rising edge, publish immediately rather than waiting up to
+        # 1.5 s for the next periodic tick (otherwise there is a dead-stick
+        # window the moment M5 goes stale).
+        rising_edge = (not was_enabled) and self._autopilot_enabled
 
         if was_enabled != self._autopilot_enabled:
             status = "ENABLED" if self._autopilot_enabled else "DISABLED"
             self.get_logger().info(
-                f"[autopilot] {status} (in_envelope={is_in_envelope}, "
+                f"[autopilot] {status} (env={env_state}, "
+                f"allowed={env_allows_autopilot}, "
                 f"stale={staleness_s:.1f}s, m4_fallback={m4_in_fallback})")
 
         if self._autopilot_enabled:
-            if (self._last_actuator_publish_time is None or
-                    (now - self._last_actuator_publish_time) > 1.5):
+            should_publish = (
+                rising_edge or
+                self._last_actuator_publish_time is None or
+                (now - self._last_actuator_publish_time) > 1.5)
+            if should_publish:
                 stamp = self.get_clock().now().to_msg()
                 out = self._compute_transit_autopilot(stamp)
                 self._pub_act.publish(out)

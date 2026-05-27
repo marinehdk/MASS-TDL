@@ -245,6 +245,14 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] FSM Aggregator PID: {fsm_agg_proc.pid}')
 
+    # 3a-4. Start diagnostic mock publisher (F1b: keeps M1 envelope_state=ENVELOPE_IN
+    # by publishing healthy /diagnostics for radar/comm/tmr sensors that M1 looks for).
+    diag_mock_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/diagnostic_mock_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr
+    )
+    print(f'  [{ts()}] Diagnostic Mock PID: {diag_mock_proc.pid}')
+
     # 3b. Launch L3 kernel C++ nodes as subprocesses via ros2 run
     # M1-M8 are ament_cmake packages with C++ executables — they cannot be
     # imported as Python modules. Each runs in its own process.
@@ -352,6 +360,9 @@ finally:
     if 'fsm_agg_proc' in dir() and fsm_agg_proc and fsm_agg_proc.poll() is None:
         fsm_agg_proc.terminate()
         fsm_agg_proc.wait(timeout=5)
+    if 'diag_mock_proc' in dir() and diag_mock_proc and diag_mock_proc.poll() is None:
+        diag_mock_proc.terminate()
+        diag_mock_proc.wait(timeout=5)
     for p in (l3_procs if 'l3_procs' in dir() else []):
         if p and p.poll() is None:
             p.terminate()

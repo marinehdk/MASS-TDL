@@ -212,18 +212,58 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     } else {
       // R3 fix: Conservative fallback — use configured speed domain max
       // instead of 0.5 * current SOG to break the cascade slowdown loop.
-      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
-      h_min = fmod(own_hdg - 90.0 + 360.0, 360.0);
-      h_max = fmod(own_hdg + 90.0, 360.0);
-      s_max = speed_max_kn_;
-      confidence = 0.30;
-      rationale = "IvP infeasible fallback";
+      // F2 fix: When COLREGs reports a starboard-required deviation, emit a
+      //         heading window biased toward starboard (matching the M6
+      //         constraint's numeric_value) instead of a symmetric ±90° window
+      //         that downstream M5 collapses into a no-op straight-line plan.
+      const double own_hdg =
+          latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
 
-      // Log infeasibility
-      if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+      double starboard_dev_deg = 0.0;
+      if (colregs_received_ && latest_colregs_ &&
+          latest_colregs_->conflict_detected) {
+        for (const auto& c : latest_colregs_->constraints) {
+          if (c.constraint_type == "colregs" && c.unit == "deg" &&
+              c.numeric_value > 0.0) {
+            if (c.numeric_value > starboard_dev_deg) {
+              starboard_dev_deg = c.numeric_value;
+            }
+          }
+        }
+      }
+
+      if (starboard_dev_deg > 0.0) {
+        // Force a narrow starboard-biased window of width ±15° centred on
+        // (own_hdg + starboard_dev_deg). M5 mid_mpc then plans a real
+        // right-turn trajectory honouring M6 Rule 14 intent even when
+        // the IvP solver is unavailable (Phase 2 D3.1 work).
+        const double centre =
+            std::fmod(own_hdg + starboard_dev_deg + 360.0, 360.0);
+        h_min = std::fmod(centre - 15.0 + 360.0, 360.0);
+        h_max = std::fmod(centre + 15.0 + 360.0, 360.0);
+        confidence = 0.55;
+        std::ostringstream r;
+        r << "IvP infeasible — geometric starboard fallback "
+          << "(dev=" << starboard_dev_deg << "deg, "
+          << "window=" << h_min << "→" << h_max << ")";
+        rationale = r.str();
+      } else {
+        h_min = std::fmod(own_hdg - 90.0 + 360.0, 360.0);
+        h_max = std::fmod(own_hdg + 90.0, 360.0);
+        confidence = 0.30;
+        rationale = "IvP infeasible fallback";
+      }
+      s_max = speed_max_kn_;
+
+      // Log infeasibility (always, for ASDR audit trail).
+      if (colregs_received_ && latest_colregs_ &&
+          latest_colregs_->conflict_detected) {
         std::ostringstream json;
-        json << "{\"constraint_count\":" << latest_colregs_->constraints.size()
-             << ",\"fallback_used\":\"cascading\"}";
+        json << "{\"constraint_count\":"
+             << latest_colregs_->constraints.size()
+             << ",\"fallback_used\":\""
+             << (starboard_dev_deg > 0.0 ? "geometric_starboard" : "cascading")
+             << "\",\"starboard_dev_deg\":" << starboard_dev_deg << "}";
         publish_asdr_event("ivp_infeasible", json.str());
       }
     }

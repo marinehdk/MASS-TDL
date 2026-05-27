@@ -49,7 +49,9 @@ from l3_external_msgs.msg import (
     PlannedRoute,
     SpeedProfile,
     TimeWindow,
+    ReplanResponse,
 )
+from l3_msgs.msg import RouteReplanRequest
 
 SCENARIO_DIR = os.environ.get("SIL_SCENARIO_DIR", "/var/sil/scenarios")
 EARTH_RADIUS_NM = 3440.065
@@ -183,6 +185,12 @@ class MockL2Publisher(Node):
             PlannedRoute, "/l2/planned_route", route_qos)
         self._pub_speed_profile = self.create_publisher(
             SpeedProfile, "/l2/speed_profile", route_qos)
+        # F1a: Replan response publisher — unblocks M3 from REPLAN_WAIT.
+        # M3 sends RouteReplanRequest when M7 alerts MRC_REQUIRED; without
+        # a response within RFC-006 §2.3 SLA (30 s for MRC_REQUIRED), M3
+        # never publishes mission_state/mission_goal → M4 stays in fallback.
+        self._pub_replan_response = self.create_publisher(
+            ReplanResponse, "/l2/replan_response", tl_qos)
 
         self._sub_ownship = self.create_subscription(
             OwnShipState, "/sil/own_ship_state",
@@ -193,6 +201,18 @@ class MockL2Publisher(Node):
         self._sub_scenario = self.create_subscription(
             String, "/sil/scenario_loaded",
             self._on_scenario_loaded, 10)
+        # F1a: Subscribe to M3's replan request and respond with SUCCESS.
+        # QoS: RELIABLE keep_last(10) — match M3's publisher contract.
+        replan_sub_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        self._sub_replan_request = self.create_subscription(
+            RouteReplanRequest, "/l3/m3/route_replan_request",
+            self._on_replan_request, replan_sub_qos)
+        self._replan_response_count = 0
 
         self._route_timer = self.create_timer(1.0 / PUBLISH_HZ, self._on_route_timer)
         self._vt_timer = self.create_timer(1.0 / VOYAGE_TASK_HZ, self._on_vt_timer)
@@ -241,6 +261,55 @@ class MockL2Publisher(Node):
         self.get_logger().info(f"Scenario loaded event: {sid}")
         self._current_scenario_id = sid
         self._load_scenario(sid)
+
+    def _on_replan_request(self, msg: RouteReplanRequest):
+        """F1a: Respond to M3 RouteReplanRequest with SUCCESS.
+
+        Per RFC-006 §2.3 SLA targets:
+          REASON_MRC_REQUIRED      = 30 s
+          REASON_ODD_EXIT          = 60 s
+          REASON_MISSION_INFEASIBLE = 120 s
+          REASON_CONGESTION        = 300 s
+
+        Mock policy: always SUCCESS within <100 ms. Real L2 would invoke
+        the planner and may return FAILED_* per RFC-006 enum. For DEMO-1
+        we acknowledge the request and re-emit the existing route which
+        is sufficient to advance M3 from REPLAN_WAIT → ACTIVE.
+        """
+        reason_str = {
+            RouteReplanRequest.REASON_ODD_EXIT: "ODD_EXIT",
+            RouteReplanRequest.REASON_MISSION_INFEASIBLE: "MISSION_INFEASIBLE",
+            RouteReplanRequest.REASON_MRC_REQUIRED: "MRC_REQUIRED",
+            RouteReplanRequest.REASON_CONGESTION: "CONGESTION",
+        }.get(msg.reason, f"UNKNOWN({msg.reason})")
+
+        resp = ReplanResponse()
+        resp.schema_version = 112
+        resp.stamp = _now(self)
+        resp.status = ReplanResponse.STATUS_SUCCESS
+        resp.failure_reason = ""
+        resp.retry_recommended = False
+        resp.confidence = 1.0
+        resp.rationale = (
+            f"SIL_MOCK: ack replan reason={reason_str} "
+            f"deadline={msg.deadline_s:.1f}s — route unchanged, M3 may resume"
+        )
+        self._pub_replan_response.publish(resp)
+        self._replan_response_count += 1
+
+        # Also force-republish the current route so M3 sees fresh L2 data
+        # on the next planned_route callback. This avoids any stale-route
+        # rejection on M3's side.
+        if self._is_active:
+            try:
+                self._on_route_timer()
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f"Route refresh after replan failed: {exc}")
+
+        if self._replan_response_count <= 3 or self._replan_response_count % 20 == 0:
+            self.get_logger().info(
+                f"Replan response #{self._replan_response_count} "
+                f"sent (reason={reason_str}, status=SUCCESS)")
 
     def _auto_detect_scenario(self):
         import glob as _glob
