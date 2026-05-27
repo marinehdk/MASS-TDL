@@ -145,6 +145,10 @@ class MockL2Publisher(Node):
         self._default_speed = (self.get_parameter("default_transit_speed_kn")
                                .get_parameter_value().double_value)
 
+        # Load mock_l2 config from scenario YAML via SIL_SCENARIO_YAML env var
+        self._mock_l2_config = {}
+        self._load_mock_l2_config()
+
         self._yaml_waypoints = []
         self._yaml_speeds_kn = []
         self._route_source = "none"
@@ -220,6 +224,26 @@ class MockL2Publisher(Node):
         self.get_logger().info(
             f"MockL2Publisher ready — watching /sil/lifecycle_status "
             f"+ /sil/own_ship_state (dir={self._scenario_dir})")
+
+    def _load_mock_l2_config(self):
+        """Load mock_l2 config section from scenario YAML via SIL_SCENARIO_YAML env var."""
+        scenario_yaml_path = os.environ.get('SIL_SCENARIO_YAML', '')
+        if not scenario_yaml_path or not os.path.exists(scenario_yaml_path):
+            self.get_logger().info("No SIL_SCENARIO_YAML env var set; using default route config")
+            return
+
+        try:
+            import yaml
+            with open(scenario_yaml_path, 'r') as f:
+                scenario_data = yaml.safe_load(f)
+            self._mock_l2_config = scenario_data.get('mock_l2', {})
+            self.get_logger().info(
+                f"Loaded mock_l2 config from {scenario_yaml_path}: "
+                f"autonomy_level={self._mock_l2_config.get('voyage_task', {}).get('autonomy_level', 'N/A')}, "
+                f"mission_id={self._mock_l2_config.get('voyage_task', {}).get('mission_id', 'N/A')}")
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(
+                f"Failed to load mock_l2 config from {scenario_yaml_path}: {exc}")
 
     def _on_own_ship_state(self, msg: OwnShipState):
         self._ownship_lat = msg.lat
@@ -437,6 +461,11 @@ class MockL2Publisher(Node):
         msg.stamp = _now(self)
         msg.task_id = self._task_id
 
+        # Extract config values if present
+        task_cfg = self._mock_l2_config.get('voyage_task', {})
+        autonomy_level = task_cfg.get('autonomy_level', 'D3_SUPERVISED')
+        mission_id = task_cfg.get('mission_id', f'mock-mission-{self._task_id}')
+
         waypoints, speeds = self._get_effective_waypoints()
 
         if self._ownship_received:
@@ -473,7 +502,10 @@ class MockL2Publisher(Node):
         msg.exclusion_zones = []
         msg.special_restrictions = ""
         msg.confidence = 1.0
-        msg.rationale = f"SIL_MOCK: synthetic voyage task from {self._route_source}"
+        msg.rationale = (
+            f"SIL_MOCK: voyage task {mission_id} (autonomy={autonomy_level}) "
+            f"from {self._route_source}"
+        )
 
         self._pub_voyage_task.publish(msg)
 
@@ -482,6 +514,17 @@ class MockL2Publisher(Node):
         msg.schema_version = 112
         msg.stamp = _now(self)
         msg.route_id = self._route_id
+
+        # Use mock_l2 config route if available, otherwise fall back to loaded YAML
+        route_cfg = self._mock_l2_config.get('planned_route', {})
+        if route_cfg.get('waypoints'):
+            # Override with config waypoints
+            config_waypoints = route_cfg.get('waypoints', [])
+            self._yaml_waypoints = [(wp.get('latitude'), wp.get('longitude'))
+                                     for wp in config_waypoints]
+            config_speeds = [route_cfg.get('cruise_speed_kn', self._default_speed)] * len(self._yaml_waypoints)
+            self._yaml_speeds_kn = config_speeds
+            self._route_source = f"mock_l2 config ({len(self._yaml_waypoints)} waypoints)"
 
         waypoints, speeds = self._get_effective_waypoints()
 
