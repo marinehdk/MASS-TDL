@@ -1,7 +1,7 @@
 {
   "gate_id": 4,
   "gate_name": "ODD-Scenario Alignment",
-  "timestamp_utc": "2026-05-26T09:27:03.599704Z",
+  "timestamp_utc": "2026-05-27T05:37:26.370322Z",
   "scenario_id": "colreg-rule13-ot-2",
   "passed": true,
   "checks": [
@@ -16,7 +16,7 @@
       "detail": "M1 ODD cross-check: Phase 2 (D2.1 M1 /health endpoint not yet available)"
     }
   ],
-  "duration_ms": 2.1,
+  "duration_ms": 3.4,
   "rationale": "ODD alignment verified",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 ODD conformance",
   "hazid_scenario_ref": null

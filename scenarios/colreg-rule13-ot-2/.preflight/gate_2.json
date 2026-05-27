@@ -1,7 +1,7 @@
 {
   "gate_id": 2,
   "gate_name": "Module Health (M1-M8)",
-  "timestamp_utc": "2026-05-26T09:27:03.591970Z",
+  "timestamp_utc": "2026-05-27T05:37:26.359438Z",
   "scenario_id": "colreg-rule13-ot-2",
   "passed": true,
   "checks": [
@@ -51,7 +51,7 @@
       "detail": "M7 isolation: M7 process not running (no containerized deployment)"
     }
   ],
-  "duration_ms": 156.4,
+  "duration_ms": 163.8,
   "rationale": "Phase 1: 8/8 modules UNSPECIFIED (L3 kernel not deployed), 0/8 GREEN \u2014 gate PASS (no RED)",
   "sil2_clause": "IEC 61508-3 \u00a77.4 Software module testing \u2014 component liveness",
   "hazid_scenario_ref": null

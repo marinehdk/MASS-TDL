@@ -1,7 +1,7 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-05-22T07:22:20.392649Z",
+  "timestamp_utc": "2026-05-27T05:50:33.549995Z",
   "scenario_id": "broken-scenario",
   "passed": false,
   "checks": [
@@ -21,7 +21,7 @@
       "detail": "missing expected_outcome block (cpa_min_m_ge / colregs_rules / grounding)"
     }
   ],
-  "duration_ms": 5.8,
+  "duration_ms": 0.4,
   "rationale": "integrity check(s) failed",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
   "hazid_scenario_ref": null
