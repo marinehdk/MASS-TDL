@@ -183,6 +183,8 @@ class FsmAggregatorNode(Node):
         if fsm_state == STATE_TRANSIT and beh and beh_val == BEHAVIOR_COLREG_AVOID:
             fsm_state = STATE_COLREG_AVOIDANCE
             active_rule = f"Rule 14 head-on"
+            if beh.rationale and "fallback" in beh.rationale.lower():
+                active_rule += " (fallback)"
             confidence = beh.confidence if beh.confidence > 0 else 0.5
 
         if fsm_state == STATE_COLREG_AVOIDANCE and avoid:
@@ -208,7 +210,7 @@ class FsmAggregatorNode(Node):
             f"safety_sev={sev_name} "
             f"avoid_wp={avoid_wp_count}"
         )
-        out.confidence = confidence
+        out.confidence = max(0.0, min(1.0, confidence))
 
         self._pub_fsm.publish(out)
 
