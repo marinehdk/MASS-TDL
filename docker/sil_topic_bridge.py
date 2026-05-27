@@ -87,6 +87,8 @@ MAX_SPEED_KN = 25.0
 CRUISE_SPEED_KN = 10.0
 SHIP_LENGTH_M = 46.0   # FCB approximate length for turn-radius→rudder conversion
 
+RUDDER_SIGN = -1  # MMG convention: positive delta → PORT turn; bridge uses positive = starboard
+
 # ── QoS profiles ─────────────────────────────────────────────
 
 def _sensor_qos(depth: int = 5) -> QoSProfile:
@@ -119,18 +121,19 @@ def _reliable_volatile_qos(depth: int = 10) -> QoSProfile:
 # ── Autopilot controllers ────────────────────────────────────
 
 class HeadingController:
-    def __init__(self, Kp: float = 10.0, max_rate_deg_s: float = 5.0):
+    def __init__(self, Kp: float = 1.0, max_rate_deg_s: float = 5.0):
         self.Kp = Kp
         self.max_rate_deg_s = max_rate_deg_s
         self.last_cmd_deg = 0.0
 
-    def step(self, error_deg: float, dt: float) -> float:
+    def step(self, error_deg: float, dt: float,
+             current_rot_deg_s: float = 0.0) -> float:
         error_deg = (error_deg + 180.0) % 360.0 - 180.0
         cmd_deg = self.Kp * error_deg
+        cmd_deg = max(-35.0, min(35.0, cmd_deg))
         max_delta = self.max_rate_deg_s * dt
         cmd_deg = max(self.last_cmd_deg - max_delta,
                       min(self.last_cmd_deg + max_delta, cmd_deg))
-        cmd_deg = max(-35.0, min(35.0, cmd_deg))
         self.last_cmd_deg = cmd_deg
         return math.radians(cmd_deg)
 
@@ -173,11 +176,17 @@ class SilTopicBridge(Node):
         # ── Autopilot state ─────────────────────────────────
         self._autopilot_enabled = False
         self._last_valid_plan_time = None
+        self._last_avoidance_waypoint = None
         self._last_odd_state = None
         self._last_behavior_plan = None
         self._last_ownship_raw = None
         self._last_actuator_publish_time = None
-        self._heading_controller = HeadingController()
+        self._heading_controller = HeadingController(
+            Kp=1.0, max_rate_deg_s=5.0)
+        self._avoidance_heading_controller = HeadingController(
+            Kp=1.0, max_rate_deg_s=10.0)
+        self._avoidance_active = False
+        self._avoidance_target_heading_deg = None
         self._speed_controller = SpeedController()
 
         self.declare_parameter("ownship_initial_heading_deg", 0.0)
@@ -302,6 +311,18 @@ class SilTopicBridge(Node):
     def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
         self._record_pulse(M4)
         self._last_behavior_plan = msg
+        if (self._avoidance_active and
+                self._avoidance_target_heading_deg is None):
+            h_min = float(msg.heading_min_deg)
+            h_max = float(msg.heading_max_deg)
+            if h_max < h_min:
+                h_max += 360.0
+            self._avoidance_target_heading_deg = (
+                h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+            print(f"[BRIDGE] DELAYED-LATCH target_heading="
+                  f"{self._avoidance_target_heading_deg:.1f}deg "
+                  f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
+                  flush=True)
 
     # ── SIL→L3 callbacks ────────────────────────────────────
 
@@ -346,8 +367,8 @@ class SilTopicBridge(Node):
         # 3×3 identity covariance
         for i in range(3):
             tgt.covariance[i * 3 + i] = 1.0
-        tgt.classification = "unknown"
-        tgt.classification_confidence = 0.0
+        tgt.classification = "vessel"
+        tgt.classification_confidence = 0.85
         tgt.cpa_m = 0.0
         tgt.tcpa_s = 0.0
         tgt.confidence = 0.85
@@ -380,35 +401,9 @@ class SilTopicBridge(Node):
 
     # ── L3→SIL callbacks ────────────────────────────────────
 
-    def _on_avoidance_plan(self, msg: AvoidancePlan) -> None:
-        self._record_pulse(M5)
-
-        has_valid_plan = (
-            len(msg.waypoints) > 0 and
-            abs(msg.waypoints[0].turn_radius_m) > 1e-6
-        )
-        if has_valid_plan:
-            self._last_valid_plan_time = time.monotonic()
-
+    def _make_actuator_msg(self, stamp) -> SilOwnShipState:
         out = SilOwnShipState()
-        out.stamp = msg.stamp
-
-        if self._autopilot_enabled and not has_valid_plan:
-            out = self._compute_transit_autopilot(msg.stamp)
-        else:
-            if msg.waypoints and len(msg.waypoints) > 0:
-                wp = msg.waypoints[0]
-                if abs(wp.turn_radius_m) > 1e-6:
-                    radius = max(abs(wp.turn_radius_m), 50.0)
-                    rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
-                    out.rudder_angle = max(-MAX_RUDDER_RAD, min(MAX_RUDDER_RAD, rudder_rad))
-                else:
-                    out.rudder_angle = 0.0
-                out.throttle = max(0.0, min(1.0, wp.target_speed_kn / MAX_SPEED_KN))
-            else:
-                out.rudder_angle = 0.0
-                out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
-
+        out.stamp = stamp
         out.lat = 0.0
         out.lon = 0.0
         out.heading = 0.0
@@ -418,8 +413,49 @@ class SilTopicBridge(Node):
         out.u = 0.0
         out.v = 0.0
         out.r = 0.0
-        self._pub_act.publish(out)
-        self._last_actuator_publish_time = time.monotonic()
+        return out
+
+    def _on_avoidance_plan(self, msg: AvoidancePlan) -> None:
+        self._record_pulse(M5)
+
+        has_valid_plan = (
+            len(msg.waypoints) > 0 and
+            abs(msg.waypoints[0].turn_radius_m) > 1e-6
+        )
+        if has_valid_plan:
+            self._last_valid_plan_time = time.monotonic()
+            self._last_avoidance_waypoint = msg.waypoints[0]
+
+        if self._autopilot_enabled and not has_valid_plan:
+            if self._avoidance_active:
+                print("[BRIDGE] RESET — valid plan lost while autopilot enabled",
+                      flush=True)
+                self._avoidance_active = False
+                self._avoidance_target_heading_deg = None
+                self._avoidance_heading_controller.last_cmd_deg = 0.0
+        elif has_valid_plan:
+            if not self._avoidance_active:
+                if self._last_behavior_plan is not None:
+                    self._avoidance_active = True
+                    beh = self._last_behavior_plan
+                    h_min = float(beh.heading_min_deg)
+                    h_max = float(beh.heading_max_deg)
+                    if h_max < h_min:
+                        h_max += 360.0
+                    self._avoidance_target_heading_deg = (
+                        h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+                    print(f"[BRIDGE] LATCHED target_heading="
+                          f"{self._avoidance_target_heading_deg:.1f}deg "
+                          f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
+                          flush=True)
+                else:
+                    print("[BRIDGE] Deferring avoidance activation — "
+                          "waiting for M4 behavior plan", flush=True)
+        else:
+            if self._avoidance_active:
+                self._avoidance_active = False
+                self._avoidance_target_heading_deg = None
+                self._avoidance_heading_controller.last_cmd_deg = 0.0
 
     def _on_asdr_record(self, msg: ASDRRecord) -> None:
         out = ASDREvent()
@@ -438,6 +474,18 @@ class SilTopicBridge(Node):
     # ── Autopilot logic ────────────────────────────────────────
 
     def _autopilot_step(self) -> None:
+        if self._avoidance_active:
+            now = time.monotonic()
+            should_publish = (
+                self._last_actuator_publish_time is None or
+                (now - self._last_actuator_publish_time) > 0.5)
+            if should_publish:
+                stamp = self.get_clock().now().to_msg()
+                out = self._compute_avoidance_autopilot(stamp)
+                self._pub_act.publish(out)
+                self._last_actuator_publish_time = now
+            return
+
         if self._last_odd_state is None:
             return
 
@@ -483,40 +531,75 @@ class SilTopicBridge(Node):
             should_publish = (
                 rising_edge or
                 self._last_actuator_publish_time is None or
-                (now - self._last_actuator_publish_time) > 1.5)
+                (now - self._last_actuator_publish_time) > 0.5)
             if should_publish:
                 stamp = self.get_clock().now().to_msg()
                 out = self._compute_transit_autopilot(stamp)
                 self._pub_act.publish(out)
                 self._last_actuator_publish_time = now
 
+    def _compute_avoidance_autopilot(self, stamp) -> SilOwnShipState:
+        out = self._make_actuator_msg(stamp)
+
+        if self._last_ownship_raw is None:
+            out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
+            return out
+
+        current_heading_deg = math.degrees(self._last_ownship_raw.heading) % 360.0
+        current_rot_deg_s = math.degrees(self._last_ownship_raw.rot)
+
+        if self._avoidance_target_heading_deg is not None:
+            heading_error_deg = (
+                self._avoidance_target_heading_deg - current_heading_deg + 180.0
+            ) % 360.0 - 180.0
+            dt = 0.5
+            out.rudder_angle = RUDDER_SIGN * self._avoidance_heading_controller.step(
+                heading_error_deg, dt, current_rot_deg_s)
+            if abs(heading_error_deg) > 5.0 or abs(current_rot_deg_s) > 2.0:
+                print(f"[BRIDGE-AVOID] hdg={current_heading_deg:.1f} "
+                      f"tgt={self._avoidance_target_heading_deg:.1f} "
+                      f"err={heading_error_deg:.1f} rot={current_rot_deg_s:.2f} "
+                      f"rud={math.degrees(out.rudder_angle):.1f}", flush=True)
+        elif self._last_avoidance_waypoint is not None:
+            wp = self._last_avoidance_waypoint
+            if abs(wp.turn_radius_m) > 1e-6:
+                radius = max(abs(wp.turn_radius_m), 50.0)
+                rudder_rad = math.atan2(SHIP_LENGTH_M, radius)
+                out.rudder_angle = RUDDER_SIGN * max(-MAX_RUDDER_RAD,
+                                       min(MAX_RUDDER_RAD, rudder_rad))
+            else:
+                out.rudder_angle = 0.0
+        else:
+            out.rudder_angle = 0.0
+
+        if self._last_avoidance_waypoint is not None:
+            out.throttle = max(0.0, min(1.0,
+                self._last_avoidance_waypoint.target_speed_kn / MAX_SPEED_KN))
+        else:
+            out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
+
+        return out
+
     def _compute_transit_autopilot(self, stamp) -> SilOwnShipState:
-        out = SilOwnShipState()
-        out.stamp = stamp
+        out = self._make_actuator_msg(stamp)
 
         if self._last_ownship_raw is not None:
             current_heading_deg = math.degrees(self._last_ownship_raw.heading)
             current_sog_kn = self._last_ownship_raw.sog * 1.94384
+            current_rot_deg_s = math.degrees(self._last_ownship_raw.rot)
         else:
             current_heading_deg = self._target_heading_deg
             current_sog_kn = self._target_sog_kn
+            current_rot_deg_s = 0.0
 
         heading_error_deg = self._target_heading_deg - current_heading_deg
         speed_error_kn = self._target_sog_kn - current_sog_kn
 
         dt = 0.5
-        out.rudder_angle = self._heading_controller.step(heading_error_deg, dt)
+        out.rudder_angle = RUDDER_SIGN * self._heading_controller.step(
+            heading_error_deg, dt, current_rot_deg_s)
         out.throttle = self._speed_controller.step(speed_error_kn, dt)
 
-        out.lat = 0.0
-        out.lon = 0.0
-        out.heading = 0.0
-        out.sog = 0.0
-        out.cog = 0.0
-        out.rot = 0.0
-        out.u = 0.0
-        out.v = 0.0
-        out.r = 0.0
         return out
 
 

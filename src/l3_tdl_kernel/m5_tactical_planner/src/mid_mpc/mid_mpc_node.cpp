@@ -222,8 +222,142 @@ void MidMpcNode::on_solve_cycle_()
 
   const double lat = world_state_->own_ship.position.latitude;
   const double lon = world_state_->own_ship.position.longitude;
-  const auto plan = wp_gen_.generate(sol, lat, lon);
+
+  // Use geometric fallback when NLP solver fails or M4 signals starboard requirement.
+  // Solver is a D3.1 stub (Phase 3); geometric arc is the DEMO-1 bridge.
+  const bool solver_failed = (sol.status != MidMpcSolution::Status::Converged)
+      || sol.trajectory.empty();
+  const bool m4_geometric =
+      behavior_plan_->rationale.find("geometric starboard") != std::string::npos
+      || behavior_plan_->rationale.find("fallback") != std::string::npos;
+
+  l3_msgs::msg::AvoidancePlan plan;
+  if (solver_failed || m4_geometric) {
+    const std::string reason = solver_failed
+        ? "solver_status=" + std::to_string(static_cast<int>(sol.status))
+        : "m4_geometric";
+    plan = build_geometric_fallback_plan_(input, lat, lon, reason);
+  } else {
+    plan = wp_gen_.generate(sol, lat, lon);
+  }
   publish_outputs_(sol, plan);
+}
+
+// ===========================================================================
+// build_geometric_fallback_plan_
+// ===========================================================================
+l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
+    const MidMpcInput& input,
+    double lat0_deg,
+    double lon0_deg,
+    const std::string& reason)
+{
+  // Use nominal speed if current speed is too low to be meaningful
+  const double u_mps = (input.own_ship.u_mps > 0.5)
+      ? input.own_ship.u_mps
+      : (nominal_speed_kn_ * units::kMsPerKn);
+
+  const double own_psi = input.own_ship.psi_rad;
+
+  // Target heading: starboard-biased point in M4 heading window
+  // R12.B: 5/6 aggression fraction ensures ≥25° turn for [0°,30°] window
+  constexpr double kAggressionFraction = 5.0 / 6.0;
+  const double h_min = input.constraints.heading_min_rad;
+  const double h_max = input.constraints.heading_max_rad;
+  double target_psi = h_min + kAggressionFraction * (h_max - h_min);
+
+  // Normalize delta to (-π, π]
+  double delta_psi = target_psi - own_psi;
+  while (delta_psi >  units::kPi) { delta_psi -= units::kTwoPi; }
+  while (delta_psi < -units::kPi) { delta_psi += units::kTwoPi; }
+
+  // ROT from vessel dynamics model; guard against pathological zero
+  const double rot = std::max(input.rot_max_rad_s, 1e-4);
+
+  // Turn radius from kinematics: R = u / ω
+  const double turn_radius_m = std::max(u_mps / rot, 50.0);
+
+  // Sign of rate: positive = starboard (clockwise, psi increasing)
+  const double r_rad_s = (delta_psi >= 0.0) ? rot : -rot;
+
+  // Time to reach target heading on circular arc
+  const double turn_duration_s = std::abs(delta_psi) / rot;
+
+  constexpr int kNWp = 10;
+  constexpr double kDt = 10.0;  // seconds per waypoint step
+
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.schema_version = 112;
+  plan.stamp = this->get_clock()->now();
+  plan.horizon_s = static_cast<float>(kNWp * kDt);
+  plan.status = "DEGRADED";
+  plan.confidence = 0.6f;
+  plan.rationale = "M5 geometric starboard fallback (" + reason + ")"
+      + " turn_r=" + std::to_string(static_cast<int>(turn_radius_m)) + "m"
+      + " tgt=" + std::to_string(static_cast<int>(target_psi * units::kDegPerRad)) + "deg";
+
+  double prev_xN = 0.0;
+  double prev_xE = 0.0;
+
+  for (int i = 0; i < kNWp; ++i) {
+    const double t = static_cast<double>(i + 1) * kDt;
+
+    // Integrate circular arc equations in NED (x=North, y=East)
+    // xN(t) = R * [sin(ψ₀ + ω·t_arc) − sin(ψ₀)]
+    // xE(t) = R * [−cos(ψ₀ + ω·t_arc) + cos(ψ₀)]
+    // After turn completion, propagate straight at target_psi.
+    double xN, xE;
+    if (t <= turn_duration_s) {
+      const double dpsi = r_rad_s * t;
+      xN = turn_radius_m * (std::sin(own_psi + dpsi) - std::sin(own_psi));
+      xE = turn_radius_m * (-std::cos(own_psi + dpsi) + std::cos(own_psi));
+    } else {
+      // Position at end of turn arc
+      const double xN_arc = turn_radius_m * (std::sin(own_psi + delta_psi) - std::sin(own_psi));
+      const double xE_arc = turn_radius_m * (-std::cos(own_psi + delta_psi) + std::cos(own_psi));
+      // Straight-ahead propagation after turn
+      const double t_after = t - turn_duration_s;
+      xN = xN_arc + u_mps * t_after * std::cos(target_psi);
+      xE = xE_arc + u_mps * t_after * std::sin(target_psi);
+    }
+
+    // Segment distance from previous waypoint
+    const double ddN = xN - prev_xN;
+    const double ddE = xE - prev_xE;
+    const double seg_dist = std::sqrt(ddN * ddN + ddE * ddE);
+    prev_xN = xN;
+    prev_xE = xE;
+
+    // Flat-earth NED → WGS84 (same approximation as WaypointGenerator::ned_to_geopoint_)
+    l3_msgs::msg::AvoidanceWaypoint wp;
+    wp.schema_version = 112;
+    wp.position.latitude  = lat0_deg
+        + (xN / units::kEarthRadiusMean_m) * units::kDegPerRad;
+    wp.position.longitude = lon0_deg
+        + (xE / (units::kEarthRadiusMean_m
+                 * std::cos(lat0_deg * units::kRadPerDeg)))
+        * units::kDegPerRad;
+    wp.position.altitude  = 0.0;
+    wp.wp_distance_m      = seg_dist;
+    wp.safety_corridor_m  = 500.0;
+    wp.target_speed_kn    = nominal_speed_kn_;
+    wp.turn_radius_m      = turn_radius_m;
+    wp.confidence         = 0.6f;
+    wp.rationale          = "M5 geometric starboard fallback";
+
+    plan.waypoints.push_back(wp);
+  }
+
+  spdlog::info("[M5][GeoFallback] {} wps: turn_r={:.0f}m tgt_psi={:.1f}deg "
+               "own_psi={:.1f}deg delta={:.1f}deg aggression={:.4f} reason={}",
+               kNWp, turn_radius_m,
+               target_psi * units::kDegPerRad,
+               own_psi * units::kDegPerRad,
+               delta_psi * units::kDegPerRad,
+               kAggressionFraction,
+               reason);
+
+  return plan;
 }
 
 // ===========================================================================

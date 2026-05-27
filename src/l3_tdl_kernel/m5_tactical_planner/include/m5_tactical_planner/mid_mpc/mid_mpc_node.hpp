@@ -81,6 +81,14 @@ class MidMpcNode : public rclcpp::Node {
   void publish_outputs_(const MidMpcSolution& sol,
                         const l3_msgs::msg::AvoidancePlan& plan);
   void publish_trajectory_candidates_(const MidMpcInput& input);
+
+  // Geometric starboard fallback: generates arc waypoints from vessel kinematics
+  // when the NLP solver fails or M4 signals a geometric starboard requirement.
+  [[nodiscard]] l3_msgs::msg::AvoidancePlan build_geometric_fallback_plan_(
+      const MidMpcInput& input,
+      double lat0_deg,
+      double lon0_deg,
+      const std::string& reason);
 };
 
 }  // namespace mass_l3::m5::mid_mpc
