@@ -38,7 +38,7 @@ RuleEvaluation Rule14_HeadOn::evaluate(const TargetGeometricState& geo,
                                          kRelBearing);
   const bool kReciprocalAspect = kAspect < 10.0 || kAspect > 350.0;
 
-  if (!(kReciprocalCourses || (kHeadOnBearing && kReciprocalAspect))) {
+  if (!(kReciprocalCourses && kHeadOnBearing && kReciprocalAspect)) {
     result.is_active = false;
     result.confidence = 0.6F;
     result.rationale = "Rule 14: Not head-on. Course diff from reciprocal=" +

@@ -41,6 +41,22 @@ protected:
   double get_fallback_anchor_hdg(std::shared_ptr<BehaviorArbiterNode> node) {
     return node->fallback_anchor_hdg_;
   }
+  void trigger_rule_assessment(std::shared_ptr<BehaviorArbiterNode> node, const l3_msgs::msg::RuleAssessment::SharedPtr msg) {
+    node->on_rule_assessment(msg);
+  }
+  float get_colreg_avoidance_weight(std::shared_ptr<BehaviorArbiterNode> node) {
+    return node->colreg_avoidance_weight_;
+  }
+  double get_dictionary_priority_weight(std::shared_ptr<BehaviorArbiterNode> node, BehaviorType type) {
+    const auto* desc = node->dictionary_.find(type);
+    return desc ? desc->priority_weight : 0.0;
+  }
+  bool has_behavior(std::shared_ptr<BehaviorArbiterNode> node, BehaviorType type) {
+    return node->dictionary_.find(type) != nullptr;
+  }
+  void add_behavior(std::shared_ptr<BehaviorArbiterNode> node, const BehaviorDescriptor& desc) {
+    node->dictionary_.add_behavior(desc);
+  }
 };
 
 // Node can be constructed
@@ -122,6 +138,45 @@ TEST_F(BehaviorArbiterTest, FallbackLatchingAndSafetyConcernPublishing) {
 
   // Anchor should now be released (fallback_anchor_set_ becomes false)
   EXPECT_FALSE(get_fallback_anchor_set(node));
+}
+
+TEST_F(BehaviorArbiterTest, RuleAssessmentPriorityWeightBoost) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  // Add the COLREG_AVOID behavior to dictionary if not present
+  if (!has_behavior(node, BehaviorType::COLREG_AVOID)) {
+    BehaviorDescriptor colreg_rule;
+    colreg_rule.type = BehaviorType::COLREG_AVOID;
+    colreg_rule.name = "COLREG_AVOID";
+    colreg_rule.priority_weight = 0.70;
+    colreg_rule.activation_rule = "colregs_conflict_detected";
+    colreg_rule.ivp_function_type = "colreg_avoid";
+    add_behavior(node, colreg_rule);
+  }
+
+  // 1. Initial state: weight is default 0.60
+  EXPECT_FLOAT_EQ(get_colreg_avoidance_weight(node), 0.6f);
+
+  // 2. Trigger Rule Assessment with Rule 14 Head-On
+  auto rule_msg = std::make_shared<l3_msgs::msg::RuleAssessment>();
+  rule_msg->stamp = node->now();
+  rule_msg->applicable_rule = "Rule 14";
+  rule_msg->expected_action = "turn_starboard";
+  rule_msg->confidence = 0.91f;
+  
+  trigger_rule_assessment(node, rule_msg);
+
+  // Weight should be boosted to 0.85 and updated in the dictionary
+  EXPECT_FLOAT_EQ(get_colreg_avoidance_weight(node), 0.85f);
+  EXPECT_DOUBLE_EQ(get_dictionary_priority_weight(node, BehaviorType::COLREG_AVOID), 0.85);
+
+  // 3. Trigger Rule Assessment with other rules (or none active)
+  rule_msg->applicable_rule = "Rule 15";
+  trigger_rule_assessment(node, rule_msg);
+
+  // Weight should return to default 0.70 and updated in the dictionary
+  EXPECT_FLOAT_EQ(get_colreg_avoidance_weight(node), 0.70f);
+  EXPECT_DOUBLE_EQ(get_dictionary_priority_weight(node, BehaviorType::COLREG_AVOID), 0.70);
 }
 
 }  // namespace mass_l3::m4

@@ -42,6 +42,9 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   sub_colregs_ = create_subscription<COLREGsConstraintMsg>(
       "/l3/m6/colregs_constraint", qos,
       [this](const COLREGsConstraintMsg::SharedPtr msg) { on_colregs_constraint(msg); });
+  sub_rule_assessment_ = create_subscription<l3_msgs::msg::RuleAssessment>(
+      "/l3/m6/rule_assessment", qos,
+      [this](const l3_msgs::msg::RuleAssessment::SharedPtr msg) { on_rule_assessment(msg); });
 
   pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
   pub_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>("/sil/sat2_data", qos);
@@ -82,6 +85,17 @@ void BehaviorArbiterNode::on_mission_goal(const MissionGoalMsg::SharedPtr msg) {
 }
 void BehaviorArbiterNode::on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg) {
   latest_colregs_ = msg; colregs_received_ = true;
+}
+void BehaviorArbiterNode::on_rule_assessment(const l3_msgs::msg::RuleAssessment::SharedPtr msg) {
+  latest_rule_assessment_ = msg;
+  if (msg->applicable_rule == "Rule 14") {
+    colreg_avoidance_weight_ = 0.85f;  // Boost from default
+    dictionary_.set_priority_weight(BehaviorType::COLREG_AVOID, 0.85);
+    RCLCPP_WARN(get_logger(), "[M4] Rule 14 detected, boosting COLREG_AVOIDANCE weight to 0.85");
+  } else {
+    colreg_avoidance_weight_ = 0.7f;   // Default from YAML
+    dictionary_.set_priority_weight(BehaviorType::COLREG_AVOID, 0.70);
+  }
 }
 
 ArbitrationInputs BehaviorArbiterNode::build_inputs() const {

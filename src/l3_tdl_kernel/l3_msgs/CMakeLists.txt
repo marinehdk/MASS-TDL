@@ -15,6 +15,7 @@ find_package(geographic_msgs REQUIRED)
 set(MSG_FILES
   msg/ODDState.msg
   msg/SafetyConcernEvent.msg
+  msg/RuleAssessment.msg
   msg/OperatorState.msg
   msg/ModeCmd.msg
   msg/WorldState.msg

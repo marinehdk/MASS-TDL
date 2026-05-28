@@ -16,6 +16,7 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat2_data.hpp"
 #include "l3_msgs/msg/safety_concern_event.hpp"
+#include "l3_msgs/msg/rule_assessment.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
 #include "m4_behavior_arbiter/behavior_dictionary.hpp"
@@ -53,6 +54,7 @@ private:
   void on_mode_cmd(const ModeCmdMsg::SharedPtr msg);
   void on_mission_goal(const MissionGoalMsg::SharedPtr msg);
   void on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg);
+  void on_rule_assessment(const l3_msgs::msg::RuleAssessment::SharedPtr msg);
 
   void arbitration_timer_callback();
 
@@ -102,6 +104,10 @@ private:
   bool   m3_active_latch_{false};     // Tracks if M3 has ever been active and valid
   bool   fallback_anchor_set_{false};  // Tracks if the absolute fallback heading is currently set
   double fallback_anchor_hdg_{0.0};    // Stores the latched absolute heading (degrees)
+
+  rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
+  l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;
+  float colreg_avoidance_weight_{0.6f};
 
   // Parameters
   int    interval_ms_{250};
