@@ -166,6 +166,9 @@ export function SimulationMonitor() {
   const toggleAsdr     = useUIStore((s) => s.toggleAsdrLog);
 
   const fsmState    = useFsmStore((s) => s.currentState);
+  const fsmRule     = useFsmStore((s) => s.activeRule);
+  const fsmConf     = useFsmStore((s) => s.confidence);
+  const fsmHistory  = useFsmStore((s) => s.transitionHistory);
   const torRequest  = useFsmStore((s) => s.torRequest);
 
   const [showFaultModal, setShowFaultModal] = useState(false);
@@ -421,6 +424,79 @@ export function SimulationMonitor() {
                 {/* Tab 1: Decision Monitor */}
                 {activeRightTab === 'decision' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {/* 1. FSM 决策状态机 */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>FSM DECISION STATE (决策状态)</span>
+                      </div>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: 8,
+                        background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line-2)', borderRadius: 6,
+                        marginBottom: 8
+                      }}>
+                        <span style={{ fontSize: 16 }}>
+                          {fsmState === 'TRANSIT' ? '🚢' : fsmState === 'COLREG_AVOIDANCE' ? '⚠️' : fsmState === 'TOR' ? '⛔' : fsmState === 'MRC' ? '🛑' : '🔄'}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{
+                            fontWeight: 'bold', fontSize: 12,
+                            color: fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : fsmState === 'TRANSIT' ? 'var(--c-phos)' : 'var(--c-danger)'
+                          }}>
+                            {fsmState === 'COLREG_AVOIDANCE' ? 'COLREG AVOIDANCE' : fsmState}
+                          </div>
+                          <div style={{ fontSize: 9, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>
+                            置信度: {Math.round((fsmConf ?? 0) * 100)}%
+                          </div>
+                        </div>
+                      </div>
+                      {fsmRule && (
+                        <div style={{
+                          padding: '4px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 4,
+                          fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-info)',
+                          wordBreak: 'break-all'
+                        }}>
+                          激活规则: {fsmRule}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 2. M6 COLREGs 避碰决策树 */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>M6 COLREGs DECISION (避碰决策树)</span>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--line-1)', borderRadius: 6, overflow: 'hidden' }}>
+                        <ColregsRationaleTree
+                          chain={sat2?.colregs_chain ?? []}
+                          targetId={sat2?.colregs_chain_target_id ?? null}
+                          latencyMs={sat2?.reasoning_latency_ms ?? 0}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 3. ARPA 目标船探测与防碰区 */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>ARPA TARGETS (目标探测监控)</span>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--line-1)', borderRadius: 6, overflow: 'hidden' }}>
+                        <ArpaTargetTable targets={targets} compact />
+                      </div>
+                    </div>
+
+                    {/* 4. M4 Behavior Arbiter */}
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                       padding: '12px 14px', borderRadius: 8,
@@ -444,6 +520,7 @@ export function SimulationMonitor() {
                       )}
                     </div>
 
+                    {/* 5. M5 Tactical Planner */}
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                       padding: '12px 14px', borderRadius: 8,
@@ -464,6 +541,35 @@ export function SimulationMonitor() {
                       ) : (
                         <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)' }}>暂无数据</div>
                       )}
+                    </div>
+
+                    {/* 6. M1-M8 决策链脉搏 */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>M1-M8 DECISION FLOW (控制链状态)</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                        {MODULE_NAMES.map((name, i) => {
+                          const p = modulePulses.find(x => Number(x.moduleId) === i + 1);
+                          const color = p ? (HEALTH_COLOR[p.state ?? 0] ?? '#444') : '#333';
+                          const lat = p?.latencyMs;
+                          return (
+                            <div key={name} style={{
+                              display: 'flex', flexDirection: 'column', alignItems: 'center',
+                              padding: '4px 2px', background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid var(--line-2)', borderRadius: 4,
+                            }}>
+                              <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)' }}>{name}</span>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, margin: '4px 0' }} />
+                              <span style={{ color: 'var(--txt-1)', fontSize: 8, fontFamily: 'var(--f-mono)' }}>{lat != null ? `${lat}ms` : '—'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
