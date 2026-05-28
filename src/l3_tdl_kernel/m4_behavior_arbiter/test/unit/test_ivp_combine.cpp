@@ -21,8 +21,8 @@ TEST(IvPCombineTest, WeightedSumSingleFunctionReturnsWeightedUtility) {
 
 TEST(IvPCombineTest, WeightedSumMultipleFunctionsAddsCorrectly) {
   IvPFunction<32> fn1, fn2;
-  fn1.set_pieces({{0.0, 360.0, 0.0, 22.0, 0.6}});
-  fn2.set_pieces({{0.0, 360.0, 0.0, 22.0, 0.4}});
+  fn1.set_pieces({{0.0, 359.0, 0.0, 22.0, 0.6}});
+  fn2.set_pieces({{0.0, 359.0, 0.0, 22.0, 0.4}});
 
   WeightedSumCombination combiner;
   std::vector<IvPCombinationStrategy::WeightedFunction> fns = {{0.7, fn1}, {0.3, fn2}};
@@ -33,8 +33,8 @@ TEST(IvPCombineTest, WeightedSumMultipleFunctionsAddsCorrectly) {
 
 TEST(IvPCombineTest, UtilityCanExceedOneWithMultipleBehaviors) {
   IvPFunction<32> fn1, fn2;
-  fn1.set_pieces({{0.0, 360.0, 0.0, 22.0, 1.0}});
-  fn2.set_pieces({{0.0, 360.0, 0.0, 22.0, 0.8}});
+  fn1.set_pieces({{0.0, 359.0, 0.0, 22.0, 1.0}});
+  fn2.set_pieces({{0.0, 359.0, 0.0, 22.0, 0.8}});
 
   WeightedSumCombination combiner;
   std::vector<IvPCombinationStrategy::WeightedFunction> fns = {{1.0, fn1}, {0.5, fn2}};

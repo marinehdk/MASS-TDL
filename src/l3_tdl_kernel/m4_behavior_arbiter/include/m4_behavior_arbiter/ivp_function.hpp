@@ -116,7 +116,15 @@ M4ErrorCode IvPFunction<Pieces>::set_pieces(const std::vector<Piece>& pieces) {
   }
   // Each piece must form a valid (heading_min, heading_max, speed_min, speed_max, utility) quintuple.
   for (const auto& p : pieces) {
-    if (p.heading_min_deg >= p.heading_max_deg) {
+    if (p.heading_min_deg < 0.0 || p.heading_min_deg > 360.0 ||
+        p.heading_max_deg < 0.0 || p.heading_max_deg > 360.0 ||
+        p.heading_min_deg == p.heading_max_deg) {
+      return M4ErrorCode::kYamlInvalidValue;
+    }
+    double span = (p.heading_max_deg > p.heading_min_deg)
+        ? (p.heading_max_deg - p.heading_min_deg)
+        : (p.heading_max_deg + 360.0 - p.heading_min_deg);
+    if (span >= 360.0 - 1e-9) {
       return M4ErrorCode::kYamlInvalidValue;
     }
     if (p.speed_min_kn >= p.speed_max_kn) {

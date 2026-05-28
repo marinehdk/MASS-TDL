@@ -15,6 +15,7 @@
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat2_data.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
 #include "m4_behavior_arbiter/behavior_dictionary.hpp"
@@ -41,6 +42,7 @@ using BehaviorPlanMsg      = l3_msgs::msg::BehaviorPlan;
 using ASDRRecordMsg        = l3_msgs::msg::ASDRRecord;
 
 class BehaviorArbiterNode : public rclcpp::Node {
+  friend class BehaviorArbiterTest;
 public:
   explicit BehaviorArbiterNode(
       const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
@@ -85,6 +87,7 @@ private:
   rclcpp::Publisher<BehaviorPlanMsg>::SharedPtr   pub_plan_;
   rclcpp::Publisher<ASDRRecordMsg>::SharedPtr     pub_asdr_;
   rclcpp::Publisher<l3_msgs::msg::SAT2Data>::SharedPtr   pub_sat2_;
+  rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr concern_pub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -95,6 +98,10 @@ private:
   BehaviorType prev_primary_{BehaviorType::MRC_DRIFT};
   uint8_t      prev_odd_zone_{99};
   HealthState  prev_health_{HealthState::Normal};
+
+  bool   m3_active_latch_{false};     // Tracks if M3 has ever been active and valid
+  bool   fallback_anchor_set_{false};  // Tracks if the absolute fallback heading is currently set
+  double fallback_anchor_hdg_{0.0};    // Stores the latched absolute heading (degrees)
 
   // Parameters
   int    interval_ms_{250};
