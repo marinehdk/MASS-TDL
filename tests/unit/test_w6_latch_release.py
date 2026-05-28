@@ -134,7 +134,7 @@ class TestBridgeLatchRelease:
         mission_msg = Mock()
         mission_msg.task_validity = 1  # VALID
         behavior_msg = Mock()
-        behavior_msg.behavior = "TRANSIT"
+        behavior_msg.behavior = 0  # BEHAVIOR_TRANSIT
         bridge._last_behavior_plan = behavior_msg
         
         bridge._avoidance_target_heading_deg = 45.0

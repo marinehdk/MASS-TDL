@@ -434,7 +434,7 @@ class SilTopicBridge(Node):
         task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
         behavior_transit = (
             self._last_behavior_plan is not None and
-            self._last_behavior_plan.behavior == "TRANSIT"
+            self._last_behavior_plan.behavior == 0  # BEHAVIOR_TRANSIT
         )
         if (task_valid and behavior_transit and not self._latch_release_triggered):
             self.get_logger().info(
