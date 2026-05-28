@@ -75,7 +75,7 @@ export const ColregsRationaleTree: React.FC<ColregsRationaleTreeProps> = ({ chai
             </div>
             {/* Key input values */}
             <div style={{ color: 'var(--txt-3)', fontSize: 9, marginTop: 2 }}>
-              {Object.entries(layer.inputs)
+              {Object.entries(layer.inputs ?? {})
                 .map(([k, v]) => `${k}: ${v}`)
                 .join(' · ')}
             </div>

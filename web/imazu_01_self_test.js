@@ -10,12 +10,13 @@ async function main() {
 
   // Route console messages to terminal
   page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+  page.on('pageerror', exception => console.error('PAGE EXCEPTION:', exception.toString()));
 
   console.log('Navigating to http://localhost:5173/#/scenario?dev=1...');
   await page.goto('http://localhost:5173/#/scenario?dev=1', { waitUntil: 'networkidle' });
 
   console.log('Waiting for Scenario Library container...');
-  await page.waitForSelector('[data-testid="simulation-scenario"]', { timeout: 15000 });
+  await page.waitForSelector('[data-testid="simulation-scenario"]', { timeout: 30000 });
 
   // Let the list render
   await page.waitForTimeout(2000);
@@ -76,10 +77,16 @@ async function main() {
     return !document.body.textContent.includes('AWAITING TELEMETRY');
   }, { timeout: 30000 });
 
-  console.log('Telemetry connected! Let the simulation run for 10 seconds...');
-  await page.waitForTimeout(10000);
+  console.log('Telemetry connected! Let the simulation run for 5 seconds...');
+  await page.waitForTimeout(5000);
 
-  const screenshotPath = '/Users/marine/.gemini/antigravity/brain/e6805cad-1cb6-4c3e-b80f-0fb017c57dc7/imazu_01_ho_simulation_monitor.png';
+  console.log('Clicking the first right-rail tab (决策监控)...');
+  await page.click('button[title="决策监控 (M4/M5)"]', { force: true });
+
+  console.log('Decision tab clicked! Let it run for 5 seconds to capture potential crashes...');
+  await page.waitForTimeout(5000);
+
+  const screenshotPath = '/Users/marine/.gemini/antigravity/brain/c0aae9ac-bcf3-4747-bb1f-fd875f70e907/decision_tab_crash.png';
   console.log(`Taking screenshot and saving to ${screenshotPath}...`);
   await page.screenshot({ path: screenshotPath, fullPage: true });
 
