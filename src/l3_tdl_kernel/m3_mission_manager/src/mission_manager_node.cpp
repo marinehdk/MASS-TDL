@@ -37,9 +37,18 @@ MissionManagerNode::MissionManagerNode(const rclcpp::NodeOptions& options)
 
   // Transition state machine from Init to Idle now that all subscribers/timers
   // are ready. Per spec §3.5: Init→Idle on "节点初始化完成、subscribers 就绪".
-  MissionEvent ready_event;
-  ready_event.type = MissionEvent::Type::NodeReady;
-  state_machine_->handle_event(ready_event);
+  {
+    MissionEvent ready_event;
+    ready_event.type = MissionEvent::Type::NodeReady;
+    const auto prev = state_machine_->current();
+    const auto prev_name = state_machine_->state_name();
+    state_machine_->handle_event(ready_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (NodeReady)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
+  }
 
   RCLCPP_INFO(get_logger(), "M3 MissionManagerNode initialised");
   if (logger_) {
@@ -97,6 +106,10 @@ void MissionManagerNode::declare_parameters()
   declare_parameter("l1_watchdog.timeout_s",           120.0);
   declare_parameter("l1_watchdog.confidence_warning",  0.6);
   declare_parameter("l1_watchdog.confidence_timeout",  0.4);
+
+  // Task Validity Safety Timeouts
+  declare_parameter("task_validity.l1_timeout_s", 30.0);
+  declare_parameter("task_validity.l2_timeout_s", 5.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +184,10 @@ void MissionManagerNode::create_components()
   wd_cfg.confidence_timeout = static_cast<float>(
       get_parameter("l1_watchdog.confidence_timeout").as_double());
   l1_watchdog_ = std::make_unique<L1WatchdogMonitor>(wd_cfg);
+
+  // Retrieve task validity safety timeouts
+  l1_timeout_s_ = get_parameter("task_validity.l1_timeout_s").as_double();
+  l2_timeout_s_ = get_parameter("task_validity.l2_timeout_s").as_double();
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +329,7 @@ void MissionManagerNode::setup_timers()
 void MissionManagerNode::on_voyage_task(
     const l3_external_msgs::msg::VoyageTask::SharedPtr msg)
 {
+  last_voyage_task_time_ = std::chrono::steady_clock::now();
   // Notify watchdog on any VoyageTask arrival (valid or invalid) — spec §4.2
   l1_watchdog_->notify_voyage_task_received(std::chrono::steady_clock::now());
 
@@ -332,15 +350,29 @@ void MissionManagerNode::on_voyage_task(
   {
     MissionEvent recv_event;
     recv_event.type = MissionEvent::Type::VoyageTaskReceived;
+    const auto prev_name = state_machine_->state_name();
+    const auto prev = state_machine_->current();
     state_machine_->handle_event(recv_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (VoyageTaskReceived)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
   }
 
   // Step 2: TaskValidation → AwaitingRoute (valid) or → Idle (invalid)
   if (result.is_valid) {
-    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning to AwaitingRoute");
     MissionEvent pass_event;
     pass_event.type = MissionEvent::Type::ValidationPassed;
+    const auto prev_name = state_machine_->state_name();
+    const auto prev = state_machine_->current();
     state_machine_->handle_event(pass_event);
+    if (state_machine_->current() != prev) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (ValidationPassed)",
+                  std::string(prev_name).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
+    RCLCPP_INFO(get_logger(), "VoyageTask validated OK — transitioning to AwaitingRoute");
     publish_asdr_record("voyage_task_accepted",
                         nlohmann::json{{"task_id", msg->task_id}});
     if (logger_) {
@@ -356,7 +388,14 @@ void MissionManagerNode::on_voyage_task(
                 result.failed_check.c_str());
     MissionEvent fail_event;
     fail_event.type = MissionEvent::Type::ValidationFailed;
+    const auto prev_name_f = state_machine_->state_name();
+    const auto prev_f = state_machine_->current();
     state_machine_->handle_event(fail_event);
+    if (state_machine_->current() != prev_f) {
+      RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (ValidationFailed)",
+                  std::string(prev_name_f).c_str(),
+                  std::string(state_machine_->state_name()).c_str());
+    }
     publish_asdr_record("voyage_task_rejected",
                         nlohmann::json{{"reason", result.failed_check}});
     if (logger_) {
@@ -377,12 +416,18 @@ void MissionManagerNode::on_planned_route(
 
   // If waiting for initial route, advance state machine
   if (state_machine_->current() == MissionState::AwaitingRoute) {
+    const auto prev_name = state_machine_->state_name();
     MissionEvent event;
     event.type = MissionEvent::Type::RouteReceived;
     state_machine_->handle_event(event);
+    RCLCPP_INFO(get_logger(), "[M3 FSM] %s → %s (RouteReceived, route_id=%lu)",
+                std::string(prev_name).c_str(),
+                std::string(state_machine_->state_name()).c_str(),
+                msg->route_id);
     RCLCPP_INFO(get_logger(), "Route received — mission now ACTIVE");
     if (logger_) {
-      logger_->info("Route received, state->ACTIVE, route_id={}", msg->route_id);
+      logger_->info("[M3 FSM] {} → {} (RouteReceived, route_id={})",
+                    prev_name, state_machine_->state_name(), msg->route_id);
     }
   }
 }
@@ -476,6 +521,29 @@ void MissionManagerNode::on_world_state(
   const auto now = std::chrono::steady_clock::now();
   current_error_monitor_->update_world_state(*msg, now);
   check_current_error_severity_change(now);
+
+  if (state_machine_->current() == MissionState::Active) {
+    bool has_l1_task = last_voyage_task_time_.has_value() &&
+                       (now - last_voyage_task_time_.value()) < std::chrono::duration<double>(l1_timeout_s_);
+    bool has_l2_route = last_planned_route_time_.has_value() &&
+                        (now - last_planned_route_time_.value()) < std::chrono::duration<double>(l2_timeout_s_);
+    bool has_enc_check = true;
+    bool autonomy_ok = last_odd_state_ && last_odd_state_->current_zone != l3_msgs::msg::ODDState::ODD_ZONE_D;
+
+    const auto prev_validity = state_machine_->task_validity();
+    if (state_machine_->update_task_validity(has_l1_task, has_l2_route, has_enc_check, autonomy_ok)) {
+      const auto curr_validity = state_machine_->task_validity();
+      const char* prev_str = task_validity_to_str(prev_validity);
+      const char* curr_str = task_validity_to_str(curr_validity);
+      RCLCPP_INFO(get_logger(), "[M3 TaskValidity] Substate changed: %s → %s (L1=%d, L2=%d, ENC=%d, AutonomyOk=%d)",
+                  prev_str, curr_str, has_l1_task, has_l2_route, has_enc_check, autonomy_ok);
+      if (logger_) {
+        logger_->info("[M3 TaskValidity] Substate changed: {} → {} (L1={}, L2={}, ENC={}, AutonomyOk={})",
+                      prev_str, curr_str, has_l1_task, has_l2_route, has_enc_check, autonomy_ok);
+      }
+      publish_mission_goal(); // Immediate publish on validity substate change
+    }
+  }
 }
 
 void MissionManagerNode::on_tracking_error(
@@ -558,17 +626,33 @@ void MissionManagerNode::check_current_error_severity_change(
 void MissionManagerNode::publish_mission_goal()
 {
   const auto current_state = state_machine_->current();
+  const uint8_t task_validity_val = map_task_validity(state_machine_->task_validity());
+
   if (current_state != MissionState::Active) {
     auto msg = l3_msgs::msg::MissionGoal();
     msg.stamp          = now();
-    msg.schema_version = 120U;  // IDL v1.2.0
+    msg.schema_version = 121U;  // IDL v1.2.1 [W3 BUMP]
     msg.eta_to_target_s = -1.0F;
     msg.confidence      = 0.0F;
     msg.current_error_severity = 0U;
     msg.xte_nm                 = 0.0F;
     msg.sea_current_kn         = 0.0F;
     msg.l1_watchdog_status     = 0U;
-    msg.rationale = "[M3] Standby (Idle)";
+
+    // Map FSM state
+    uint8_t fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT;
+    switch (current_state) {
+      case MissionState::Init:           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT; break;
+      case MissionState::Idle:           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_IDLE; break;
+      case MissionState::TaskValidation: fsm_state_val = l3_msgs::msg::MissionGoal::FSM_TASK_VALIDATION; break;
+      case MissionState::AwaitingRoute:  fsm_state_val = l3_msgs::msg::MissionGoal::FSM_AWAITING_ROUTE; break;
+      case MissionState::ReplanWait:     fsm_state_val = l3_msgs::msg::MissionGoal::FSM_REPLAN_WAIT; break;
+      default:                           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT; break;
+    }
+    msg.fsm_state = fsm_state_val;
+    msg.task_validity = task_validity_val;
+
+    msg.rationale = "[M3] Standby (" + std::string(state_machine_->state_name()) + ")";
     mission_goal_pub_->publish(std::move(msg));
     return;
   }
@@ -576,14 +660,17 @@ void MissionManagerNode::publish_mission_goal()
   const auto now_tp = std::chrono::steady_clock::now();
   auto msg = l3_msgs::msg::MissionGoal();
   msg.stamp          = now();
-  msg.schema_version = 120U;  // IDL v1.2.0
+  msg.schema_version = 121U;  // IDL v1.2.1 [W3 BUMP]
+
+  // Map FSM state
+  msg.fsm_state = l3_msgs::msg::MissionGoal::FSM_ACTIVE;
+  msg.task_validity = task_validity_val;
 
   // ETA projection
   float eta_s = -1.0F;
   const bool route_fresh =
       last_planned_route_time_.has_value() &&
-      (std::chrono::duration_cast<std::chrono::duration<double>>(
-           now_tp - last_planned_route_time_.value()).count() <= 3.0);
+      (now_tp - last_planned_route_time_.value()) <= std::chrono::seconds(3);
 
   if (route_fresh && eta_projector_ && last_world_state_) {
     const auto proj = eta_projector_->project(*last_world_state_, now_tp);
@@ -594,9 +681,6 @@ void MissionManagerNode::publish_mission_goal()
   msg.eta_to_target_s = eta_s;
 
   // Confidence: watchdog_factor × current_error_factor — spec §4.1
-  // [TBD-D3.x] EtaProjector.confidence 因子未接入：EtaProjector::project() 当前
-  // 不产置信度；spec §4.1 定义的 EtaProjector.confidence × watchdog × 0.85
-  // 公式待 D3.x ETA 增强后补齐。当前以 watchdog_factor 为基数。
   const L1WatchdogResult wd      = l1_watchdog_->evaluate(now_tp);
   const CurrentErrorReading cerd = current_error_monitor_->evaluate(now_tp);
   float confidence = wd.confidence_factor;
@@ -625,11 +709,17 @@ void MissionManagerNode::publish_mission_goal()
   const char* l1_str =
       (wd.status == L1WatchdogStatus::OK)      ? "OK"      :
       (wd.status == L1WatchdogStatus::WARNING)  ? "WARN"    : "TIMEOUT";
+  
+  const char* val_str =
+      (state_machine_->task_validity() == TaskValidity::Pending)    ? "PEND" :
+      (state_machine_->task_validity() == TaskValidity::Valid)      ? "VAL"  :
+      (state_machine_->task_validity() == TaskValidity::Invalid)    ? "INVAL" : "REPLAN";
+
   msg.rationale = "[M3] eta=" + std::to_string(static_cast<int>(eta_s)) + "s" +
                   " conf=" + std::to_string(confidence).substr(0, 4) +
                   " xte=" + std::to_string(cerd.xte_nm).substr(0, 4) + "nm" +
                   " cur=" + std::to_string(cerd.sea_current_kn).substr(0, 4) + "kn" +
-                  " l1=" + l1_str + " odd=" + odd_zone_str;
+                  " l1=" + l1_str + " odd=" + odd_zone_str + " val=" + val_str;
 
   mission_goal_pub_->publish(std::move(msg));
 }
@@ -782,6 +872,26 @@ void MissionManagerNode::check_and_trigger_replan(
     logger_->warn("Replan triggered: {}, deadline={}s",
                   decision.rationale, decision.deadline_s);
   }
+}
+
+uint8_t MissionManagerNode::map_task_validity(TaskValidity val) const {
+  switch (val) {
+    case TaskValidity::Pending:    return l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+    case TaskValidity::Valid:      return l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID;
+    case TaskValidity::Invalid:    return l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID;
+    case TaskValidity::Replanning: return l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING;
+  }
+  return l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+}
+
+const char* MissionManagerNode::task_validity_to_str(TaskValidity val) noexcept {
+  switch (val) {
+    case TaskValidity::Pending:    return "PENDING";
+    case TaskValidity::Valid:      return "VALID";
+    case TaskValidity::Invalid:    return "INVALID";
+    case TaskValidity::Replanning: return "REPLANNING";
+  }
+  return "UNKNOWN";
 }
 
 }  // namespace mass_l3::m3

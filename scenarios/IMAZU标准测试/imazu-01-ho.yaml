@@ -74,3 +74,15 @@ metadata:
   disturbance:
     wind: *id001
     current: *id002
+mock_l2:
+  enabled: true
+  voyage_task:
+    autonomy_level: "D3_SUPERVISED"
+    mission_id: "imazu-01-ho-demo"
+  planned_route:
+    waypoints:
+      - latitude: 63.44
+        longitude: 10.38
+      - latitude: 63.60
+        longitude: 10.38
+    cruise_speed_kn: 10.0

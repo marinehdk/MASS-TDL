@@ -16,6 +16,7 @@
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
+#include "l3_msgs/msg/rule_assessment.hpp"
 
 #include "m6_colregs_reasoner/colregs_constraint_generator.hpp"
 #include "m6_colregs_reasoner/colregs_phase_classifier.hpp"
@@ -90,6 +91,20 @@ class ColregsReasonerNode : public rclcpp::Node {
   std::optional<l3_msgs::msg::WorldState> last_world_state_;
   rclcpp::Time last_world_stamp_;
   rclcpp::Time last_odd_stamp_;
+  rclcpp::Time prev_world_stamp_{0, 0, RCL_ROS_TIME};
+
+  std::unordered_map<uint32_t, double> prev_target_bearing_;
+  std::unordered_map<uint32_t, double> prev_target_range_;
+  std::unordered_map<uint32_t, double> rule14_state_;
+
+  bool is_head_on_encounter(
+      double own_heading_deg,
+      double target_heading_deg,
+      double bearing_deg,
+      double prev_bearing_deg,
+      double range_m,
+      double prev_range_m,
+      double dt_s) const;
 
   // Mutex protecting shared state accessed from subscriber and timer callbacks
   mutable std::mutex state_mutex_;
@@ -101,6 +116,7 @@ class ColregsReasonerNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::COLREGsConstraint>::SharedPtr constraint_pub_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr asdr_pub_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr sat_pub_;
+  rclcpp::Publisher<l3_msgs::msg::RuleAssessment>::SharedPtr rule_assessment_pub_;
 
   // Subscribers
   rclcpp::Subscription<l3_msgs::msg::ODDState>::SharedPtr odd_sub_;

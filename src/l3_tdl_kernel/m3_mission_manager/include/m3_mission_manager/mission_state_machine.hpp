@@ -40,6 +40,14 @@ struct MissionEvent {
   std::optional<ReplanOutcome> replan_outcome;
 };
 
+/// Task validity status (substate within ACTIVE).
+enum class TaskValidity : uint8_t {
+  Pending = 0,   // Still evaluating conditions
+  Valid = 1,     // All 4 conditions met
+  Invalid = 2,   // At least one condition failed
+  Replanning = 3 // In replan attempt
+};
+
 class MissionStateMachine {
  public:
   explicit MissionStateMachine(MissionStateMachineConfig config);
@@ -62,6 +70,15 @@ class MissionStateMachine {
            state_ == MissionState::ReplanWait;
   }
 
+  /// Current task validity substate (when in ACTIVE).
+  [[nodiscard]] TaskValidity task_validity() const { return task_validity_; }
+
+  /// Check and update task validity based on conditions.
+  /// Returns true if state changed.
+  bool update_task_validity(
+      bool has_l1_task, bool has_l2_route,
+      bool has_enc_check, bool autonomy_ok);
+
   /// Reset to Idle.
   void reset();
 
@@ -69,6 +86,7 @@ class MissionStateMachine {
   MissionState transit_(MissionState next);
 
   MissionState state_;
+  TaskValidity task_validity_;
   MissionStateMachineConfig config_;
 };
 
