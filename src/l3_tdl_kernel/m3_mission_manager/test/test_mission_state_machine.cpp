@@ -298,6 +298,7 @@ TEST(MissionStateMachineTest, TaskValiditySubstateCheck) {
   const ReplanOutcome success_outcome{true, false, "replan succeeded"};
   msm.handle_event(make_replan_event(success_outcome));
   ASSERT_EQ(msm.current(), MissionState::Active);
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Pending);
 
   // 9. Reset -> back to Pending
   msm.reset();

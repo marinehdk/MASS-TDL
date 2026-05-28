@@ -106,6 +106,10 @@ void MissionManagerNode::declare_parameters()
   declare_parameter("l1_watchdog.timeout_s",           120.0);
   declare_parameter("l1_watchdog.confidence_warning",  0.6);
   declare_parameter("l1_watchdog.confidence_timeout",  0.4);
+
+  // Task Validity Safety Timeouts
+  declare_parameter("task_validity.l1_timeout_s", 30.0);
+  declare_parameter("task_validity.l2_timeout_s", 5.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +184,10 @@ void MissionManagerNode::create_components()
   wd_cfg.confidence_timeout = static_cast<float>(
       get_parameter("l1_watchdog.confidence_timeout").as_double());
   l1_watchdog_ = std::make_unique<L1WatchdogMonitor>(wd_cfg);
+
+  // Retrieve task validity safety timeouts
+  l1_timeout_s_ = get_parameter("task_validity.l1_timeout_s").as_double();
+  l2_timeout_s_ = get_parameter("task_validity.l2_timeout_s").as_double();
 }
 
 // ---------------------------------------------------------------------------
@@ -516,21 +524,17 @@ void MissionManagerNode::on_world_state(
 
   if (state_machine_->current() == MissionState::Active) {
     bool has_l1_task = last_voyage_task_time_.has_value() &&
-                       (now - last_voyage_task_time_.value()) < std::chrono::seconds(30);
+                       (now - last_voyage_task_time_.value()) < std::chrono::duration<double>(l1_timeout_s_);
     bool has_l2_route = last_planned_route_time_.has_value() &&
-                        (now - last_planned_route_time_.value()) < std::chrono::seconds(5);
+                        (now - last_planned_route_time_.value()) < std::chrono::duration<double>(l2_timeout_s_);
     bool has_enc_check = true;
     bool autonomy_ok = last_odd_state_ && last_odd_state_->current_zone != l3_msgs::msg::ODDState::ODD_ZONE_D;
 
     const auto prev_validity = state_machine_->task_validity();
     if (state_machine_->update_task_validity(has_l1_task, has_l2_route, has_enc_check, autonomy_ok)) {
       const auto curr_validity = state_machine_->task_validity();
-      const char* prev_str = (prev_validity == TaskValidity::Pending) ? "PENDING" :
-                             (prev_validity == TaskValidity::Valid) ? "VALID" :
-                             (prev_validity == TaskValidity::Invalid) ? "INVALID" : "REPLANNING";
-      const char* curr_str = (curr_validity == TaskValidity::Pending) ? "PENDING" :
-                             (curr_validity == TaskValidity::Valid) ? "VALID" :
-                             (curr_validity == TaskValidity::Invalid) ? "INVALID" : "REPLANNING";
+      const char* prev_str = task_validity_to_str(prev_validity);
+      const char* curr_str = task_validity_to_str(curr_validity);
       RCLCPP_INFO(get_logger(), "[M3 TaskValidity] Substate changed: %s → %s (L1=%d, L2=%d, ENC=%d, AutonomyOk=%d)",
                   prev_str, curr_str, has_l1_task, has_l2_route, has_enc_check, autonomy_ok);
       if (logger_) {
@@ -622,6 +626,8 @@ void MissionManagerNode::check_current_error_severity_change(
 void MissionManagerNode::publish_mission_goal()
 {
   const auto current_state = state_machine_->current();
+  const uint8_t task_validity_val = map_task_validity(state_machine_->task_validity());
+
   if (current_state != MissionState::Active) {
     auto msg = l3_msgs::msg::MissionGoal();
     msg.stamp          = now();
@@ -644,15 +650,6 @@ void MissionManagerNode::publish_mission_goal()
       default:                           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT; break;
     }
     msg.fsm_state = fsm_state_val;
-
-    // Map task validity substate
-    uint8_t task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
-    switch (state_machine_->task_validity()) {
-      case TaskValidity::Pending:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING; break;
-      case TaskValidity::Valid:      task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID; break;
-      case TaskValidity::Invalid:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID; break;
-      case TaskValidity::Replanning: task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING; break;
-    }
     msg.task_validity = task_validity_val;
 
     msg.rationale = "[M3] Standby (" + std::string(state_machine_->state_name()) + ")";
@@ -667,23 +664,13 @@ void MissionManagerNode::publish_mission_goal()
 
   // Map FSM state
   msg.fsm_state = l3_msgs::msg::MissionGoal::FSM_ACTIVE;
-
-  // Map task validity substate
-  uint8_t task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
-  switch (state_machine_->task_validity()) {
-    case TaskValidity::Pending:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING; break;
-    case TaskValidity::Valid:      task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID; break;
-    case TaskValidity::Invalid:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID; break;
-    case TaskValidity::Replanning: task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING; break;
-  }
   msg.task_validity = task_validity_val;
 
   // ETA projection
   float eta_s = -1.0F;
   const bool route_fresh =
       last_planned_route_time_.has_value() &&
-      (std::chrono::duration_cast<std::chrono::duration<double>>(
-           now_tp - last_planned_route_time_.value()).count() <= 3.0);
+      (now_tp - last_planned_route_time_.value()) <= std::chrono::seconds(3);
 
   if (route_fresh && eta_projector_ && last_world_state_) {
     const auto proj = eta_projector_->project(*last_world_state_, now_tp);
@@ -694,9 +681,6 @@ void MissionManagerNode::publish_mission_goal()
   msg.eta_to_target_s = eta_s;
 
   // Confidence: watchdog_factor × current_error_factor — spec §4.1
-  // [TBD-D3.x] EtaProjector.confidence 因子未接入：EtaProjector::project() 当前
-  // 不产置信度；spec §4.1 定义的 EtaProjector.confidence × watchdog × 0.85
-  // 公式待 D3.x ETA 增强后补齐。当前以 watchdog_factor 为基数。
   const L1WatchdogResult wd      = l1_watchdog_->evaluate(now_tp);
   const CurrentErrorReading cerd = current_error_monitor_->evaluate(now_tp);
   float confidence = wd.confidence_factor;
@@ -888,6 +872,26 @@ void MissionManagerNode::check_and_trigger_replan(
     logger_->warn("Replan triggered: {}, deadline={}s",
                   decision.rationale, decision.deadline_s);
   }
+}
+
+uint8_t MissionManagerNode::map_task_validity(TaskValidity val) const {
+  switch (val) {
+    case TaskValidity::Pending:    return l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+    case TaskValidity::Valid:      return l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID;
+    case TaskValidity::Invalid:    return l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID;
+    case TaskValidity::Replanning: return l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING;
+  }
+  return l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+}
+
+const char* MissionManagerNode::task_validity_to_str(TaskValidity val) noexcept {
+  switch (val) {
+    case TaskValidity::Pending:    return "PENDING";
+    case TaskValidity::Valid:      return "VALID";
+    case TaskValidity::Invalid:    return "INVALID";
+    case TaskValidity::Replanning: return "REPLANNING";
+  }
+  return "UNKNOWN";
 }
 
 }  // namespace mass_l3::m3

@@ -156,7 +156,7 @@ MissionState MissionStateMachine::transit_(MissionState next) {
   state_ = next;
   if (state_ == MissionState::ReplanWait) {
     task_validity_ = TaskValidity::Replanning;
-  } else if (state_ != MissionState::Active) {
+  } else {
     task_validity_ = TaskValidity::Pending;
   }
   return state_;

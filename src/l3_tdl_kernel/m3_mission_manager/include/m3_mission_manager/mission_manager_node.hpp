@@ -84,6 +84,8 @@ class MissionManagerNode : public rclcpp::Node {
   void publish_tor_request(uint8_t reason, float deadline_s);
   void check_current_error_severity_change(
       std::chrono::steady_clock::time_point now);
+  uint8_t map_task_validity(TaskValidity val) const;
+  static const char* task_validity_to_str(TaskValidity val) noexcept;
 
   // Component pointers
   std::unique_ptr<VoyageTaskValidator> validator_;
@@ -109,6 +111,8 @@ class MissionManagerNode : public rclcpp::Node {
   uint8_t              last_odd_zone_                = 0xFFU;  // 0xFF = uninitialized
   std::optional<std::chrono::steady_clock::time_point> last_planned_route_time_;
   std::optional<std::chrono::steady_clock::time_point> last_voyage_task_time_;
+  double                                               l1_timeout_s_ = 30.0;
+  double                                               l2_timeout_s_ = 5.0;
 
   // Logger
   std::shared_ptr<spdlog::logger> logger_;
