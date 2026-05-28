@@ -9,6 +9,25 @@ namespace mass_l3::m4 {
 
 using namespace std::chrono_literals;
 
+static double compute_bearing_deg(double own_lat, double own_lon,
+                                  double tgt_lat, double tgt_lon) {
+  const double deg2rad = M_PI / 180.0;
+  const double rad2deg = 180.0 / M_PI;
+  const double lat1 = own_lat * deg2rad;
+  const double lat2 = tgt_lat * deg2rad;
+  const double dlon = (tgt_lon - own_lon) * deg2rad;
+
+  const double y = std::sin(dlon) * std::cos(lat2);
+  const double x = std::cos(lat1) * std::sin(lat2) -
+                   std::sin(lat1) * std::cos(lat2) * std::cos(dlon);
+  double bearing_rad = std::atan2(y, x);
+  double bearing_deg = bearing_rad * rad2deg;
+  if (bearing_deg < 0.0) {
+    bearing_deg += 360.0;
+  }
+  return bearing_deg;
+}
+
 BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
     : Node("behavior_arbiter", options) {
   const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
@@ -210,6 +229,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
     // ── 1. TRANSIT BEHAVIOR IvP FUNCTION ───────────────────────
     double nominal_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+    if (latest_mission_ && latest_world_ &&
+        (std::abs(latest_mission_->current_target_wp.latitude) > 1e-4 ||
+         std::abs(latest_mission_->current_target_wp.longitude) > 1e-4)) {
+      double own_lat = latest_world_->own_ship.position.latitude;
+      double own_lon = latest_world_->own_ship.position.longitude;
+      double tgt_lat = latest_mission_->current_target_wp.latitude;
+      double tgt_lon = latest_mission_->current_target_wp.longitude;
+      nominal_hdg = compute_bearing_deg(own_lat, own_lon, tgt_lat, tgt_lon);
+    }
     double nominal_spd = speed_max_kn_; // Target nominal speed
 
     IvPFunctionDefault transit_fn;
@@ -247,7 +275,6 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
     // ── 2. COLREGs AVOIDANCE BEHAVIOR IvP FUNCTION ──────────────
     if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
-      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
       double colregs_dev = 0.0;
 
       for (const auto& c : latest_colregs_->constraints) {
@@ -260,30 +287,30 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         IvPFunctionDefault avoid_fn;
         std::vector<IvPFunctionDefault::Piece> avoid_pieces;
 
-        // 2a. Penalty Zone (0.05 utility): [own_hdg - 180, own_hdg + colregs_dev)
+        // 2a. Penalty Zone (0.05 utility): [nominal_hdg - 180, nominal_hdg + colregs_dev)
         // Severely penalizes port turns or insufficient starboard turns
         IvPFunctionDefault::Piece penalty_ap;
-        penalty_ap.heading_min_deg = wrap_hdg(own_hdg - 180.0);
-        penalty_ap.heading_max_deg = wrap_hdg(own_hdg + colregs_dev);
+        penalty_ap.heading_min_deg = wrap_hdg(nominal_hdg - 180.0);
+        penalty_ap.heading_max_deg = wrap_hdg(nominal_hdg + colregs_dev);
         penalty_ap.speed_min_kn = 0.0;
         penalty_ap.speed_max_kn = speed_max_kn_;
         penalty_ap.utility = 0.05;
         avoid_pieces.push_back(penalty_ap);
 
-        // 2b. Comfort Avoidance Zone (1.0 utility): [own_hdg + colregs_dev, own_hdg + 60.0]
+        // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + 60.0]
         IvPFunctionDefault::Piece optimal_ap;
-        optimal_ap.heading_min_deg = wrap_hdg(own_hdg + colregs_dev);
-        optimal_ap.heading_max_deg = wrap_hdg(own_hdg + 60.0);
+        optimal_ap.heading_min_deg = wrap_hdg(nominal_hdg + colregs_dev);
+        optimal_ap.heading_max_deg = wrap_hdg(nominal_hdg + 60.0);
         optimal_ap.speed_min_kn = 0.0;
         optimal_ap.speed_max_kn = speed_max_kn_;
         optimal_ap.utility = 1.0;
         avoid_pieces.push_back(optimal_ap);
 
-        // 2c. Sub-Optimal Transition Zone (0.6 utility): [own_hdg + 60.0, own_hdg + 90.0]
+        // 2c. Sub-Optimal Transition Zone (0.6 utility): [nominal_hdg + 60.0, nominal_hdg + 90.0]
         // Transition region for larger evasion maneuvers
         IvPFunctionDefault::Piece transition_ap;
-        transition_ap.heading_min_deg = wrap_hdg(own_hdg + 60.0);
-        transition_ap.heading_max_deg = wrap_hdg(own_hdg + 90.0);
+        transition_ap.heading_min_deg = wrap_hdg(nominal_hdg + 60.0);
+        transition_ap.heading_max_deg = wrap_hdg(nominal_hdg + 90.0);
         transition_ap.speed_min_kn = 0.0;
         transition_ap.speed_max_kn = speed_max_kn_;
         transition_ap.utility = 0.6;

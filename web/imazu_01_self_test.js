@@ -80,13 +80,13 @@ async function main() {
   console.log('Telemetry connected! Let the simulation run for 5 seconds...');
   await page.waitForTimeout(5000);
 
-  console.log('Clicking the first right-rail tab (决策监控)...');
-  await page.click('button[title="决策监控 (M4/M5)"]', { force: true });
+  console.log('Clicking the M4 bottom card...');
+  await page.locator('span:has-text("M4")').first().click({ force: true });
 
-  console.log('Decision tab clicked! Let it run for 5 seconds to capture potential crashes...');
+  console.log('M4 card clicked! Let it run for 5 seconds to capture potential crashes...');
   await page.waitForTimeout(5000);
 
-  const screenshotPath = '/Users/marine/.gemini/antigravity/brain/c0aae9ac-bcf3-4747-bb1f-fd875f70e907/decision_tab_crash.png';
+  const screenshotPath = '/Users/marine/.gemini/antigravity/brain/202e854e-757b-4ed0-9dd6-5e8c2d953e13/decision_tab_crash.png';
   console.log(`Taking screenshot and saving to ${screenshotPath}...`);
   await page.screenshot({ path: screenshotPath, fullPage: true });
 

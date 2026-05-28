@@ -377,7 +377,7 @@ void SafetySupervisorNode::on_safety_concern(
 
   if (msg->suggested_action == "M3_route_stale_watchdog") {
     RCLCPP_WARN(get_logger(),
-      "[M7 SOTIF] M3 route stale watchdog: severity=%.2f", msg->severity);
+      "[M7 SOTIF] M3 route stale watchdog: severity=%.2f", static_cast<double>(msg->severity));
   }
 }
 
