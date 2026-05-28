@@ -14,6 +14,8 @@ find_package(geographic_msgs REQUIRED)
 
 set(MSG_FILES
   msg/ODDState.msg
+  msg/SafetyConcernEvent.msg
+  msg/RuleAssessment.msg
   msg/OperatorState.msg
   msg/ModeCmd.msg
   msg/WorldState.msg
@@ -47,6 +49,7 @@ set(MSG_FILES
   msg/SotifMetricEntry.msg
   msg/SotifMetrics.msg
   msg/FsmState.msg
+  msg/ThreatState.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

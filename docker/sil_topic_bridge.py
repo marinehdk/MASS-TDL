@@ -32,6 +32,7 @@ from sil_msgs.msg import (
     EnvironmentState as SilEnvironmentState,
     ModulePulse,
     ASDREvent,
+    BridgeState,
 )
 
 # ── Cross-layer L3 external message types ────────────────────
@@ -53,6 +54,7 @@ from l3_msgs.msg import (
     BehaviorPlan,
     COLREGsConstraint,
     TrackedTarget,
+    ThreatState,
 )
 
 from std_msgs.msg import Header
@@ -257,7 +259,7 @@ class SilTopicBridge(Node):
             lambda msg: self._record_pulse(M2), sq)
         self._sub_m3 = self.create_subscription(
             MissionGoal, "/l3/m3/mission_goal",
-            lambda msg: self._record_pulse(M3), sq)
+            self._on_mission_goal, sq)
         self._sub_m4 = self.create_subscription(
             BehaviorPlan, "/l3/m4/behavior_plan",
             self._on_behavior_plan, sq)
@@ -267,6 +269,21 @@ class SilTopicBridge(Node):
         self._sub_m7_heartbeat = self.create_subscription(
             Header, "/l3/m7/heartbeat",
             lambda msg: self._record_pulse(M7), sq)
+
+        # ── M2 Threat State subscription ──────────────────────
+        self._sub_threat = self.create_subscription(
+            ThreatState, "/l3/m2/threat_state",
+            self._on_threat_state, sq)
+
+        # ── LATCH release state ───────────────────────────────
+        self._latch_release_triggered = False
+        self._latch_release_time = None
+        self._latch_offset_at_release_deg = None
+        self._latch_release_progress = 0.0
+
+        # ── Bridge state publisher ────────────────────────────
+        self._pub_bridge_state = self.create_publisher(
+            BridgeState, "/sil/bridge_state", sq)
 
         # M5 and M8 pulse recorded inside _on_avoidance_plan / _on_ui_state
 
@@ -399,6 +416,78 @@ class SilTopicBridge(Node):
         out.rationale = "SIL bridge"
         self._pub_env.publish(out)
 
+    def _on_threat_state(self, msg: ThreatState) -> None:
+        """M2 threat state callback — check CPA-cleared release condition."""
+        self._record_pulse(M2)
+        # Condition 1: cpa_status == cleared && target astern
+        if (hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and 
+            hasattr(msg, 'target_relative_position') and msg.target_relative_position == "astern" and
+            not self._latch_release_triggered):
+            self.get_logger().info(
+                "[BRIDGE] LATCH release condition 1 triggered: CPA cleared, target astern")
+            self._trigger_latch_release()
+
+    def _on_mission_goal(self, msg: MissionGoal) -> None:
+        """M3 mission goal callback — check task_validity + behavior release condition."""
+        self._record_pulse(M3)
+        # Condition 2: task_validity == valid && behavior == TRANSIT
+        task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
+        behavior_transit = (
+            self._last_behavior_plan is not None and
+            self._last_behavior_plan.behavior == "TRANSIT"
+        )
+        if (task_valid and behavior_transit and not self._latch_release_triggered):
+            self.get_logger().info(
+                "[BRIDGE] LATCH release condition 2 triggered: task_valid + TRANSIT behavior")
+            self._trigger_latch_release()
+
+    def _trigger_latch_release(self) -> None:
+        """Snapshot current LATCH offset and start 5s linear decay."""
+        if self._avoidance_target_heading_deg is None:
+            return
+        
+        self._latch_release_triggered = True
+        self._latch_release_time = time.monotonic()
+        # Account for 360-degree wrap-around when calculating target offset
+        diff = (self._avoidance_target_heading_deg - self._target_heading_deg + 180.0) % 360.0 - 180.0
+        self._latch_offset_at_release_deg = abs(diff)
+        self._latch_release_progress = 0.0
+        self.get_logger().info(
+            f"[BRIDGE] LATCH release started: offset_deg={self._latch_offset_at_release_deg:.1f}")
+
+    def _reset_latch_release_state(self) -> None:
+        """Reset all latch release variables."""
+        self._latch_release_triggered = False
+        self._latch_release_time = None
+        self._latch_offset_at_release_deg = None
+        self._latch_release_progress = 0.0
+
+    def _compute_latch_offset(self, t_release: float, t_now: float,
+                               current_offset_deg: float) -> float:
+        """Linearly decay LATCH offset from snapshot to 0 over 5 seconds."""
+        if not self._latch_release_triggered or self._latch_offset_at_release_deg is None:
+            return current_offset_deg
+        
+        t_elapsed = t_now - t_release
+        decay_duration_s = 5.0
+        
+        progress = max(0.0, min(1.0, t_elapsed / decay_duration_s))
+        self._latch_release_progress = progress
+        if progress >= 1.0:
+            return 0.0
+        
+        return self._latch_offset_at_release_deg * (1.0 - progress)
+
+    def _publish_bridge_state(self) -> None:
+        """Publish bridge state for Foxglove visualization."""
+        msg = BridgeState()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.latch_state = "releasing" if self._latch_release_triggered else "latched"
+        msg.target_heading_deg = self._avoidance_target_heading_deg or self._target_heading_deg
+        msg.release_progress = self._latch_release_progress
+        msg.current_offset_deg = self._latch_offset_at_release_deg or 0.0
+        self._pub_bridge_state.publish(msg)
+
     # ── L3→SIL callbacks ────────────────────────────────────
 
     def _make_actuator_msg(self, stamp) -> SilOwnShipState:
@@ -433,10 +522,12 @@ class SilTopicBridge(Node):
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
+                self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
                 if self._last_behavior_plan is not None:
                     self._avoidance_active = True
+                    self._reset_latch_release_state()
                     beh = self._last_behavior_plan
                     h_min = float(beh.heading_min_deg)
                     h_max = float(beh.heading_max_deg)
@@ -456,6 +547,7 @@ class SilTopicBridge(Node):
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
+                self._reset_latch_release_state()
 
     def _on_asdr_record(self, msg: ASDRRecord) -> None:
         out = ASDREvent()
@@ -474,6 +566,7 @@ class SilTopicBridge(Node):
     # ── Autopilot logic ────────────────────────────────────────
 
     def _autopilot_step(self) -> None:
+        self._publish_bridge_state()
         if self._avoidance_active:
             now = time.monotonic()
             should_publish = (
@@ -547,6 +640,23 @@ class SilTopicBridge(Node):
 
         current_heading_deg = math.degrees(self._last_ownship_raw.heading) % 360.0
         current_rot_deg_s = math.degrees(self._last_ownship_raw.rot)
+
+        # ── LATCH offset decay logic ─────────────────────────
+        if self._latch_release_triggered and self._latch_release_time is not None and self._avoidance_target_heading_deg is not None:
+            t_now = time.monotonic()
+            latch_offset_decaying = self._compute_latch_offset(
+                self._latch_release_time, t_now, 
+                self._latch_offset_at_release_deg or 0.0)
+            
+            diff = (self._avoidance_target_heading_deg - self._target_heading_deg + 180.0) % 360.0 - 180.0
+            sign = 1.0 if diff >= 0.0 else -1.0
+            
+            if latch_offset_decaying <= 0.01:  # fully decayed
+                self._latch_release_triggered = False
+                self._avoidance_target_heading_deg = self._target_heading_deg
+                self.get_logger().info("[BRIDGE] LATCH decay complete, snapped to nominal route bearing")
+            else:
+                self._avoidance_target_heading_deg = (self._target_heading_deg + sign * latch_offset_decaying) % 360.0
 
         if self._avoidance_target_heading_deg is not None:
             heading_error_deg = (

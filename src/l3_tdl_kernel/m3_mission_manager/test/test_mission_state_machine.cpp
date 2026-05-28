@@ -252,5 +252,59 @@ TEST(MissionStateMachineTest, InvalidTransitionReturnsError) {
   EXPECT_EQ(msm.current(), MissionState::Active);
 }
 
+// ---------------------------------------------------------------------------
+// 12. TaskValiditySubstateCheck — test substate transitions and updates
+// ---------------------------------------------------------------------------
+TEST(MissionStateMachineTest, TaskValiditySubstateCheck) {
+  const auto config = make_default_msm_config();
+  MissionStateMachine msm(config);
+
+  // 1. Initial substate is Pending
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Pending);
+
+  // 2. update_task_validity returns false if not in Active state
+  EXPECT_FALSE(msm.update_task_validity(true, true, true, true));
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Pending);
+
+  // Transition: Init -> Idle -> TaskValidation -> AwaitingRoute -> Active
+  msm.handle_event(make_event(MissionEvent::Type::NodeReady));
+  msm.handle_event(make_event(MissionEvent::Type::VoyageTaskReceived));
+  msm.handle_event(make_event(MissionEvent::Type::ValidationPassed));
+  msm.handle_event(make_event(MissionEvent::Type::RouteReceived));
+  ASSERT_EQ(msm.current(), MissionState::Active);
+
+  // 3. First update in Active: all true -> Valid, returns true
+  EXPECT_TRUE(msm.update_task_validity(true, true, true, true));
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Valid);
+
+  // 4. Update again with no change -> returns false
+  EXPECT_FALSE(msm.update_task_validity(true, true, true, true));
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Valid);
+
+  // 5. Update with one condition false -> Invalid, returns true
+  EXPECT_TRUE(msm.update_task_validity(false, true, true, true));
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Invalid);
+
+  // 6. Transition: Active -> ReplanWait -> substate should be Replanning
+  msm.handle_event(make_event(MissionEvent::Type::ReplanTriggered));
+  ASSERT_EQ(msm.current(), MissionState::ReplanWait);
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Replanning);
+
+  // 7. update_task_validity returns false in ReplanWait
+  EXPECT_FALSE(msm.update_task_validity(true, true, true, true));
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Replanning);
+
+  // 8. Transition: ReplanWait -> Active -> substate is Pending or updated
+  const ReplanOutcome success_outcome{true, false, "replan succeeded"};
+  msm.handle_event(make_replan_event(success_outcome));
+  ASSERT_EQ(msm.current(), MissionState::Active);
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Pending);
+
+  // 9. Reset -> back to Pending
+  msm.reset();
+  ASSERT_EQ(msm.current(), MissionState::Idle);
+  EXPECT_EQ(msm.task_validity(), TaskValidity::Pending);
+}
+
 }  // namespace
 }  // namespace mass_l3::m3

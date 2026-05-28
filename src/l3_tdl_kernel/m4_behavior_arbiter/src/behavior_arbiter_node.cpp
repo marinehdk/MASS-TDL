@@ -42,10 +42,15 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   sub_colregs_ = create_subscription<COLREGsConstraintMsg>(
       "/l3/m6/colregs_constraint", qos,
       [this](const COLREGsConstraintMsg::SharedPtr msg) { on_colregs_constraint(msg); });
+  sub_rule_assessment_ = create_subscription<l3_msgs::msg::RuleAssessment>(
+      "/l3/m6/rule_assessment", qos,
+      [this](const l3_msgs::msg::RuleAssessment::SharedPtr msg) { on_rule_assessment(msg); });
 
   pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
   pub_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>("/sil/sat2_data", qos);
   pub_asdr_ = create_publisher<ASDRRecordMsg>("/l3/asdr/record", asdr_qos);
+  concern_pub_ = create_publisher<l3_msgs::msg::SafetyConcernEvent>(
+      "/l3/safety/concern", rclcpp::QoS(10).reliable());
 
   timer_ = create_wall_timer(std::chrono::milliseconds(interval_ms_),
                              [this]() { arbitration_timer_callback(); });
@@ -80,6 +85,17 @@ void BehaviorArbiterNode::on_mission_goal(const MissionGoalMsg::SharedPtr msg) {
 }
 void BehaviorArbiterNode::on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg) {
   latest_colregs_ = msg; colregs_received_ = true;
+}
+void BehaviorArbiterNode::on_rule_assessment(const l3_msgs::msg::RuleAssessment::SharedPtr msg) {
+  latest_rule_assessment_ = msg;
+  if (msg->applicable_rule == "Rule 14") {
+    colreg_avoidance_weight_ = 0.85f;  // Boost from default
+    dictionary_.set_priority_weight(BehaviorType::COLREG_AVOID, 0.85);
+    RCLCPP_WARN(get_logger(), "[M4] Rule 14 detected, boosting COLREG_AVOIDANCE weight to 0.85");
+  } else {
+    colreg_avoidance_weight_ = 0.7f;   // Default from YAML
+    dictionary_.set_priority_weight(BehaviorType::COLREG_AVOID, 0.70);
+  }
 }
 
 ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
@@ -116,6 +132,15 @@ ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
 }
 
 void BehaviorArbiterNode::arbitration_timer_callback() {
+  bool m3_task_valid = mission_received_ && latest_mission_ &&
+      (latest_mission_->fsm_state == l3_msgs::msg::MissionGoal::FSM_ACTIVE) &&
+      (latest_mission_->task_validity == l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID);
+
+  if (!m3_active_latch_ && m3_task_valid) {
+    m3_active_latch_ = true;
+    RCLCPP_INFO(get_logger(), "[M4] M3 first ACTIVE+VALID: enabling IvP + snapshot guard");
+  }
+
   ArbitrationInputs inputs = build_inputs();
   HealthState health = BehaviorActivationCondition::compute_health_state(inputs);
 
@@ -233,19 +258,41 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       }
 
       if (starboard_dev_deg > 0.0) {
-        // Force a narrow starboard-biased window of width ±15° centred on
-        // (own_hdg + starboard_dev_deg). M5 mid_mpc then plans a real
-        // right-turn trajectory honouring M6 Rule 14 intent even when
-        // the IvP solver is unavailable (Phase 2 D3.1 work).
-        const double centre =
-            std::fmod(own_hdg + starboard_dev_deg + 360.0, 360.0);
-        h_min = std::fmod(centre - 15.0 + 360.0, 360.0);
-        h_max = std::fmod(centre + 15.0 + 360.0, 360.0);
-        confidence = 0.55;
+        if (m3_active_latch_ && !fallback_anchor_set_) {
+          fallback_anchor_hdg_ = own_hdg;
+          fallback_anchor_set_ = true;
+          RCLCPP_WARN(get_logger(),
+            "[M4] IvP infeasible — anchoring to %.1f° (absolute, will not track own_hdg)",
+            fallback_anchor_hdg_);
+          
+          // Publish ASDR event
+          publish_asdr_event("fallback_anchor_latched",
+            "{\"anchor_hdg_deg\":" + std::to_string(fallback_anchor_hdg_) + "}");
+
+          // Emit SafetyConcernEvent
+          l3_msgs::msg::SafetyConcernEvent concern;
+          concern.stamp = now();
+          concern.concern_type = l3_msgs::msg::SafetyConcernEvent::CONCERN_IVP_INFEASIBLE;
+          concern.anchor_hdg = static_cast<float>(fallback_anchor_hdg_);
+          concern.suggested_action = "turn_starboard_30deg_absolute";
+          concern.severity = 0.7f;
+          concern_pub_->publish(concern);
+        }
+
+        const double effective_centre = fallback_anchor_set_
+            ? std::fmod(fallback_anchor_hdg_ + starboard_dev_deg + 360.0, 360.0)
+            : std::fmod(own_hdg + starboard_dev_deg + 360.0, 360.0);
+
+        h_min = std::fmod(effective_centre - 15.0 + 360.0, 360.0);
+        h_max = std::fmod(effective_centre + 15.0 + 360.0, 360.0);
+        confidence = fallback_anchor_set_ ? 0.55 : 0.45;
+        
         std::ostringstream r;
-        r << "IvP infeasible — geometric starboard fallback "
-          << "(dev=" << starboard_dev_deg << "deg, "
-          << "window=" << h_min << "→" << h_max << ")";
+        r << (fallback_anchor_set_ ? "IvP infeasible — geometric fallback ABSOLUTE "
+                                   : "IvP infeasible — geometric fallback relative ")
+          << "(anchor=" << (fallback_anchor_set_ ? fallback_anchor_hdg_ : own_hdg)
+          << "deg, dev=" << starboard_dev_deg
+          << "deg, window=" << h_min << "→" << h_max << ")";
         rationale = r.str();
       } else {
         h_min = std::fmod(own_hdg - 90.0 + 360.0, 360.0);
@@ -336,6 +383,12 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     publish_asdr_event("input_timeout",
         "{\"source_module\":\"M1\",\"age_ms\":" +
         std::to_string((now_ts - latest_odd_->stamp).nanoseconds() / 1'000'000LL) + "}");
+  }
+
+  if (fallback_anchor_set_ && m3_task_valid) {
+    fallback_anchor_set_ = false;
+    RCLCPP_INFO(get_logger(), "[M4] Fallback anchor released — M3 task_validity=VALID");
+    publish_asdr_event("fallback_anchor_released", "{}");
   }
 
   prev_primary_ = primary;

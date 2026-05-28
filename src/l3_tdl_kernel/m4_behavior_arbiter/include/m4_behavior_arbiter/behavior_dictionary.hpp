@@ -32,6 +32,15 @@ public:
 
   const BehaviorDescriptor* find(BehaviorType type) const;
 
+  void set_priority_weight(BehaviorType type, double weight) {
+    for (auto& b : behaviors_) {
+      if (b.type == type) {
+        b.priority_weight = weight;
+        return;
+      }
+    }
+  }
+
   void add_behavior(const BehaviorDescriptor& desc) {
     behaviors_.push_back(desc);
   }

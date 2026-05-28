@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "m4_behavior_arbiter/error.hpp"
 #include "m4_behavior_arbiter/ivp_domain.hpp"
 #include "m4_behavior_arbiter/ivp_function.hpp"
 
@@ -31,8 +32,8 @@ TEST_F(IvPFunctionTest, SetPiecesStoresTotalCount) {
       {0.0, 45.0, 0.0, 15.0, 0.5},
       {45.0, 90.0, 5.0, 20.0, 0.8},
   };
-  ErrorCode ec = func.set_pieces(pieces);
-  EXPECT_EQ(ec, ErrorCode::Ok);
+  M4ErrorCode ec = func.set_pieces(pieces);
+  EXPECT_EQ(ec, M4ErrorCode::kOk);
   EXPECT_EQ(func.piece_count(), 2U);
 }
 
@@ -49,7 +50,7 @@ TEST_F(IvPFunctionTest, EvaluateSinglePieceMatch) {
   std::vector<Piece> pieces{
       {85.0, 95.0, 8.0, 12.0, 0.8},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   double utility = func.evaluate(90.0, 10.0);
   EXPECT_DOUBLE_EQ(utility, 0.8);
@@ -61,7 +62,7 @@ TEST_F(IvPFunctionTest, EvaluateOutsideAllPiecesReturnsZero) {
   std::vector<Piece> pieces{
       {85.0, 95.0, 8.0, 12.0, 0.8},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   double utility = func.evaluate(45.0, 10.0);
   EXPECT_DOUBLE_EQ(utility, 0.0);
@@ -73,7 +74,7 @@ TEST_F(IvPFunctionTest, HeadingWrapAround) {
   std::vector<Piece> pieces{
       {355.0, 360.0, 0.0, 20.0, 0.9},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   double utility = func.evaluate(357.0, 5.0);
   EXPECT_DOUBLE_EQ(utility, 0.9);
@@ -86,7 +87,7 @@ TEST_F(IvPFunctionTest, WrapAroundPiece) {
   std::vector<Piece> pieces{
       {350.0, 10.0, 0.0, 20.0, 0.7},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   // 5° should match (inside wrap-around range)
   double utility_match = func.evaluate(5.0, 10.0);
@@ -110,8 +111,8 @@ TEST_F(IvPFunctionTest, SetPiecesTooMany) {
     pieces.push_back({0.0, 45.0, 0.0 + i, 15.0 + i, 0.5});
   }
 
-  ErrorCode ec = func.set_pieces(pieces);
-  EXPECT_EQ(ec, ErrorCode::YamlInvalidValue);
+  M4ErrorCode ec = func.set_pieces(pieces);
+  EXPECT_EQ(ec, M4ErrorCode::kYamlInvalidValue);
   EXPECT_EQ(func.piece_count(), 0U);
 }
 
@@ -122,7 +123,7 @@ TEST_F(IvPFunctionTest, PieceAccessValid) {
       {0.0, 45.0, 0.0, 15.0, 0.5},
       {45.0, 90.0, 5.0, 20.0, 0.8},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   const auto& piece = func.piece(0);
   EXPECT_DOUBLE_EQ(piece.utility, 0.5);
@@ -134,7 +135,7 @@ TEST_F(IvPFunctionTest, PieceAccessOutOfRange) {
   std::vector<Piece> pieces{
       {0.0, 45.0, 0.0, 15.0, 0.5},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   EXPECT_THROW(func.piece(1), std::out_of_range);
 }
@@ -146,8 +147,8 @@ TEST_F(IvPFunctionTest, UtilityOutOfRangeValidation) {
       {0.0, 45.0, 0.0, 15.0, 1.5},  // utility > 1.0
   };
 
-  ErrorCode ec = func.set_pieces(pieces);
-  EXPECT_EQ(ec, ErrorCode::YamlInvalidValue);
+  M4ErrorCode ec = func.set_pieces(pieces);
+  EXPECT_EQ(ec, M4ErrorCode::kYamlInvalidValue);
 }
 
 // Test 12: UtilityNegativeValidation
@@ -157,8 +158,8 @@ TEST_F(IvPFunctionTest, UtilityNegativeValidation) {
       {0.0, 45.0, 0.0, 15.0, -0.1},  // utility < 0.0
   };
 
-  ErrorCode ec = func.set_pieces(pieces);
-  EXPECT_EQ(ec, ErrorCode::YamlInvalidValue);
+  M4ErrorCode ec = func.set_pieces(pieces);
+  EXPECT_EQ(ec, M4ErrorCode::kYamlInvalidValue);
 }
 
 // Test 13: MultiPieceFirstMatchWins
@@ -168,7 +169,7 @@ TEST_F(IvPFunctionTest, MultiPieceFirstMatchWins) {
       {0.0, 180.0, 0.0, 20.0, 0.6},
       {0.0, 180.0, 0.0, 20.0, 0.9},  // Same region, different utility
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   double utility = func.evaluate(90.0, 10.0);
   EXPECT_DOUBLE_EQ(utility, 0.6);  // First piece matches
@@ -179,11 +180,11 @@ TEST_F(IvPFunctionTest, SetPiecesDegenerate) {
   IvPFunctionDefault func;
   // Full-circle span rejected
   std::vector<Piece> pieces_full{{0.0, 360.0, 0.0, 20.0, 0.5}};
-  EXPECT_EQ(func.set_pieces(pieces_full), ErrorCode::YamlInvalidValue);
+  EXPECT_EQ(func.set_pieces(pieces_full), M4ErrorCode::kYamlInvalidValue);
 
   // Zero-width heading rejected
   std::vector<Piece> pieces_zero{{90.0, 90.0, 0.0, 20.0, 0.5}};
-  EXPECT_EQ(func.set_pieces(pieces_zero), ErrorCode::YamlInvalidValue);
+  EXPECT_EQ(func.set_pieces(pieces_zero), M4ErrorCode::kYamlInvalidValue);
 }
 
 // Test 14: NegativeHeadingWrap
@@ -192,7 +193,7 @@ TEST_F(IvPFunctionTest, NegativeHeadingWrap) {
   std::vector<Piece> pieces{
       {350.0, 360.0, 0.0, 20.0, 0.85},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   // -10° should wrap to 350°
   double utility = func.evaluate(-10.0, 5.0);
@@ -205,7 +206,7 @@ TEST_F(IvPFunctionTest, SpeedBoundaryExactMatch) {
   std::vector<Piece> pieces{
       {0.0, 180.0, 5.0, 15.0, 0.75},
   };
-  ASSERT_EQ(func.set_pieces(pieces), ErrorCode::Ok);
+  ASSERT_EQ(func.set_pieces(pieces), M4ErrorCode::kOk);
 
   // Exact lower bound
   double utility_min = func.evaluate(180.0, 5.0);

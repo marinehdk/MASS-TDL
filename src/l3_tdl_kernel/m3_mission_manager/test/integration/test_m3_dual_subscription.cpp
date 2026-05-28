@@ -98,6 +98,9 @@ class M3DualSubTest : public ::testing::Test {
 
   // Bring node to ACTIVE state
   void bring_to_active() {
+    publish_world(1.0);
+    spin_ms(50);
+
     auto vt = make_valid_voyage_task(1);
     voyage_task_pub_->publish(vt);
     spin_ms(50);
@@ -107,7 +110,6 @@ class M3DualSubTest : public ::testing::Test {
     spin_ms(50);
 
     publish_odd(0.9F, l3_msgs::msg::ODDState::ODD_ZONE_A);
-    publish_world(1.0);
     spin_ms(100);
   }
 
@@ -129,6 +131,9 @@ class M3DualSubTest : public ::testing::Test {
 
   void publish_world(double sea_current_kn) {
     l3_msgs::msg::WorldState msg;
+    msg.own_ship.position.latitude = 38.0;
+    msg.own_ship.position.longitude = -122.0;
+    msg.own_ship.position.altitude = 0.0;
     msg.own_ship.current_speed_kn = sea_current_kn;
     msg.own_ship.sog_kn  = 10.0;
     msg.own_ship.cog_deg = 0.0;
@@ -183,12 +188,12 @@ class M3DualSubTest : public ::testing::Test {
 };
 
 // -----------------------------------------------------------------------
-// IT-01: normal — ACTIVE; ETA valid; confidence ~1.0; schema_version=120
+// IT-01: normal — ACTIVE; ETA valid; confidence ~1.0; schema_version=121
 // -----------------------------------------------------------------------
 TEST_F(M3DualSubTest, IT01_NormalActive) {
   bring_to_active();
   ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
-  EXPECT_EQ(last_goal_->schema_version, 120U);
+  EXPECT_EQ(last_goal_->schema_version, 121U);
   EXPECT_EQ(last_goal_->current_error_severity, 0U);  // NORMAL
   EXPECT_EQ(last_goal_->l1_watchdog_status, 0U);  // OK
 }
@@ -279,6 +284,8 @@ TEST_F(M3DualSubTest, OddB_ReplanChain) {
 
   const auto t_inject = std::chrono::steady_clock::now();
   publish_odd(0.55F, l3_msgs::msg::ODDState::ODD_ZONE_B);
+  spin_ms(150);
+  publish_odd(0.55F, l3_msgs::msg::ODDState::ODD_ZONE_B);
 
   ASSERT_TRUE(wait_for([this]{ return last_replan_ != nullptr; }, 3000));
   const auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
@@ -312,7 +319,7 @@ TEST_F(M3DualSubTest, L4TrackingChain_HighSeverity) {
       std::chrono::steady_clock::now() - t_inject).count();
   EXPECT_LT(elapsed_ms, 500L);
 
-  EXPECT_EQ(last_goal_->schema_version, 120U);
+  EXPECT_EQ(last_goal_->schema_version, 121U);
   EXPECT_FLOAT_EQ(last_goal_->xte_nm, 0.6F);
   EXPECT_LE(last_goal_->confidence, 0.86F);
 

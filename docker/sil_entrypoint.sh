@@ -231,10 +231,26 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
 
     # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
+    # Detect active scenario YAML from scenario directory
+    scenario_dir = _os.environ.get('SIL_SCENARIO_DIR', '/var/sil/scenarios')
+    active_scenario_yaml = ''
+    if _os.path.isdir(scenario_dir):
+        # Try to find imazu-01-ho.yaml in the scenario dir (DEMO-1 default)
+        for scenario_candidate in ['imazu-01-ho.yaml', 'active_scenario.yaml']:
+            candidate_path = _os.path.join(scenario_dir, scenario_candidate)
+            if _os.path.isfile(candidate_path):
+                active_scenario_yaml = candidate_path
+                print(f'  [{ts()}] Detected active scenario: {active_scenario_yaml}')
+                break
+
+    mock_l2_env = {**_os.environ, 'SIL_SCENARIO_DIR': scenario_dir}
+    if active_scenario_yaml:
+        mock_l2_env['SIL_SCENARIO_YAML'] = active_scenario_yaml
+
     mock_l2_proc = subprocess.Popen(
         ['python3', '/opt/ws/docker/mock_l2_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
         stdout=sys.stdout, stderr=sys.stderr,
-        env={**_os.environ, 'SIL_SCENARIO_DIR': '/var/sil/scenarios'}
+        env=mock_l2_env
     )
     print(f'  [{ts()}] Mock L2 Publisher PID: {mock_l2_proc.pid}')
 

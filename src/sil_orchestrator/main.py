@@ -80,6 +80,10 @@ else:
             self._state = _DemoState.UNCONFIGURED
             self._scenario_id: str | None = None
             self._sim_rate: float = 1.0
+            self._simulation_duration_s = None
+            self._timer_start_time = None
+            self._timer_task = None
+            self._backup_timer_task = None
 
         @property
         def current_state(self):
@@ -92,17 +96,95 @@ else:
         async def configure(self, scenario_id: str):
             self._scenario_id = scenario_id
             self._state = _DemoState.INACTIVE
+            
+            try:
+                from sil_orchestrator.lifecycle_bridge import _load_scenario_yaml
+                yaml_data = _load_scenario_yaml(scenario_id)
+                duration = None
+                metadata = yaml_data.get("metadata", {}) if isinstance(yaml_data, dict) else {}
+                if isinstance(metadata, dict):
+                    sim_settings = metadata.get("simulation_settings", {})
+                    if isinstance(sim_settings, dict):
+                        duration = sim_settings.get("total_time")
+                
+                if duration is None:
+                    sim_section = yaml_data.get("simulation", {}) if isinstance(yaml_data, dict) else {}
+                    if isinstance(sim_section, dict):
+                        duration = sim_section.get("total_time") or sim_section.get("duration_s")
+
+                self._simulation_duration_s = duration
+            except Exception:
+                self._simulation_duration_s = None
+
+            self._timer_start_time = None
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
+
             return type("R", (), {"success": True, "error": ""})()
 
         async def activate(self):
             self._state = _DemoState.ACTIVE
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
+
+            if self._simulation_duration_s is not None:
+                import asyncio
+                import time
+                self._timer_start_time = time.time()
+                self._timer_task = asyncio.create_task(self._auto_stop_timer())
+                self._backup_timer_task = asyncio.create_task(self._auto_stop_backup_timer())
             return type("R", (), {"success": True, "error": ""})()
 
         async def deactivate(self):
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
             self._state = _DemoState.INACTIVE
             return type("R", (), {"success": True, "error": ""})()
 
+        async def _auto_stop_timer(self):
+            try:
+                duration = float(self._simulation_duration_s)
+                import asyncio
+                await asyncio.sleep(duration)
+                await lifecycle_deactivate()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        async def _auto_stop_backup_timer(self):
+            try:
+                duration = float(self._simulation_duration_s)
+                import asyncio
+                await asyncio.sleep(duration + 30.0)
+                self._state = _DemoState.INACTIVE
+                if self._timer_task:
+                    self._timer_task.cancel()
+                    self._timer_task = None
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
         async def _reset_to_unconfigured(self):
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
             self._state = _DemoState.UNCONFIGURED
             self._scenario_id = None
             return type("R", (), {"success": True, "error": ""})()
@@ -224,11 +306,23 @@ async def lifecycle_status():
     detail = _store.get(bridge.scenario_id) if bridge.scenario_id else None
     backend = detail.get("backend", "demo") if detail else "demo"
     effective_backend = "demo" if not _HAS_RCLPY else backend
+
+    time_remaining_s = -1.0
+    if (hasattr(bridge, "_timer_start_time") and 
+        bridge._timer_start_time is not None and 
+        hasattr(bridge, "_simulation_duration_s") and 
+        bridge._simulation_duration_s is not None):
+        state_str = bridge.current_state.value if hasattr(bridge.current_state, "value") else str(bridge.current_state)
+        if state_str.upper() == "ACTIVE":
+            elapsed = time.time() - bridge._timer_start_time
+            time_remaining_s = max(0.0, float(bridge._simulation_duration_s) - elapsed)
+
     return {
-        "current_state": bridge.current_state.value,
+        "current_state": bridge.current_state.value if hasattr(bridge.current_state, "value") else bridge.current_state,
         "scenario_id": bridge.scenario_id,
         "run_id": _last_run_id,
         "effective_backend": effective_backend,
+        "time_remaining_s": time_remaining_s,
     }
 
 

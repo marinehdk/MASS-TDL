@@ -116,4 +116,21 @@ TEST(Rule14_HeadOnTest, NonZeroHeading_NotHeadOn) {
   EXPECT_FALSE(result.is_active);
 }
 
+TEST(Rule14_HeadOnTest, NotHeadOnWhenReciprocalCoursesButOnBeam) {
+  // Own heading 000°, target at absolute bearing 090° (starboard beam),
+  // target heading 180° (reciprocal) → not head-on
+  Rule14_HeadOn rule;
+  TargetGeometricState geo{};
+  geo.target_id = 8;
+  geo.bearing_deg = 90.0;           // absolute: target on starboard beam
+  geo.target_heading_deg = 180.0;   // target heading south (reciprocal to ownship heading north)
+  geo.ownship_heading_deg = 0.0;    // own heading north
+
+  RuleParameters params{};
+  params.min_alteration_deg = 15.0;
+
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_FALSE(result.is_active);
+}
+
 }  // namespace mass_l3::m6_colregs::rules::colregs

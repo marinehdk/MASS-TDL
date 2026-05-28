@@ -86,6 +86,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_behavior_dictionary test/unit/test_behavior_dictionary.cpp)
   target_link_libraries(test_behavior_dictionary m4_core)
   target_include_directories(test_behavior_dictionary PRIVATE include)
+  target_compile_definitions(test_behavior_dictionary PRIVATE
+    TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
+  )
 
   ament_add_gtest(test_behavior_activation test/unit/test_behavior_activation.cpp)
   target_link_libraries(test_behavior_activation m4_core)

@@ -342,6 +342,10 @@ void ColregsReasonerNode::setup_publishers() {
   sat_pub_ = create_publisher<l3_msgs::msg::SATData>(
     "/l3/sat/data",
     rclcpp::SensorDataQoS().keep_last(2));
+
+  rule_assessment_pub_ = create_publisher<l3_msgs::msg::RuleAssessment>(
+    "/l3/m6/rule_assessment",
+    rclcpp::QoS(10).reliable());
 }
 
 // ------------------------------------------------------------------
@@ -452,6 +456,15 @@ void ColregsReasonerNode::run_reasoning() {
     ws_confidence = last_world_state_->confidence;
   }
 
+  double dt_s = 0.5;
+  if (prev_world_stamp_.nanoseconds() > 0) {
+    dt_s = (ws_stamp - prev_world_stamp_).seconds();
+  }
+  prev_world_stamp_ = ws_stamp;
+  if (dt_s <= 0.0) {
+    dt_s = 0.5;
+  }
+
   const rclcpp::Time kNowTime = this->now();
   const double kWorldAge = (kNowTime - ws_stamp).seconds();
   const double kTimeout = get_parameter("world_state_timeout_s").as_double();
@@ -509,6 +522,61 @@ void ColregsReasonerNode::run_reasoning() {
   constraint.colregs_chain_target_id = kChain.target_id;
 
   constraint_pub_->publish(constraint);
+
+  // W5 Head-On classifier and RuleAssessment
+  uint32_t primary_target_mmsi = 0;
+  double min_cpa = std::numeric_limits<double>::max();
+  for (const auto& tgt : ws_snapshot->targets) {
+    if (tgt.cpa_m < min_cpa) {
+      min_cpa = tgt.cpa_m;
+      primary_target_mmsi = static_cast<uint32_t>(tgt.target_id);
+    }
+  }
+
+  for (const auto& tgt : ws_snapshot->targets) {
+    uint32_t mmsi = static_cast<uint32_t>(tgt.target_id);
+    if (prev_target_bearing_.count(mmsi) > 0 && prev_target_range_.count(mmsi) > 0) {
+      bool head_on = is_head_on_encounter(
+          ws_snapshot->own_ship.heading_deg,
+          tgt.heading_deg,
+          tgt.brg_deg,
+          prev_target_bearing_[mmsi],
+          tgt.rng_m,
+          prev_target_range_[mmsi],
+          dt_s);
+      
+      if (head_on) {
+        if (rule14_state_[mmsi] == 0.0) {
+          RCLCPP_WARN(get_logger(), "[M6] Rule 14 triggered for target %u", mmsi);
+        }
+        rule14_state_[mmsi] = 30.0;
+      } else {
+        if (rule14_state_[mmsi] > 0.0) {
+          rule14_state_[mmsi] -= dt_s;
+          if (rule14_state_[mmsi] < 0.0) {
+            rule14_state_[mmsi] = 0.0;
+          }
+        }
+      }
+    }
+    prev_target_bearing_[mmsi] = tgt.brg_deg;
+    prev_target_range_[mmsi] = tgt.rng_m;
+  }
+
+  if (primary_target_mmsi > 0 && rule14_state_[primary_target_mmsi] > 0.0) {
+    l3_msgs::msg::RuleAssessment assessment;
+    assessment.stamp = kNowTime;
+    assessment.target_mmsi = primary_target_mmsi;
+    assessment.applicable_rule = "Rule 14";
+    assessment.expected_action = "turn_starboard";
+    assessment.confidence = 0.91f;
+    assessment.trigger_conditions = {
+      "heading_diff < 22.5°",
+      "bearing_rate < 0.5°/min",
+      "range_closing"
+    };
+    rule_assessment_pub_->publish(assessment);
+  }
 
   RCLCPP_DEBUG(get_logger(), "Reasoning cycle: %zu targets, %zu evaluations, %zu active rules",
                kTargetStates.size(), evaluations.size(),
@@ -871,6 +939,33 @@ ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::test_build_colregs_
     const RuleParameters& params,
     const std::vector<TargetGeometricState>& targets) {
   return ColregsReasonerNode::build_colregs_chain(evals, domain, params, targets);
+}
+
+bool ColregsReasonerNode::is_head_on_encounter(
+    double own_heading_deg,
+    double target_heading_deg,
+    double bearing_deg,
+    double prev_bearing_deg,
+    double range_m,
+    double prev_range_m,
+    double dt_s) const {
+
+  // Condition 1: Mutually opposing heading within 22.5° (COLREGs standard)
+  double heading_diff = std::abs(target_heading_deg - own_heading_deg);
+  // Normalize to [0, 180]
+  if (heading_diff > 180.0) {
+    heading_diff = 360.0 - heading_diff;
+  }
+  bool heading_ok = std::abs(heading_diff - 180.0) < 22.5;
+
+  // Condition 2: Bearing rate near zero (sustained 30s window)
+  double bearing_rate_deg_per_min = (angle_diff_deg(bearing_deg, prev_bearing_deg) / dt_s) * 60.0;
+  bool bearing_rate_ok = std::abs(bearing_rate_deg_per_min) < 0.5;
+
+  // Condition 3: Range closing
+  bool range_closing = (range_m - prev_range_m) < 0.0;
+
+  return heading_ok && bearing_rate_ok && range_closing;
 }
 
 }  // namespace mass_l3::m6_colregs

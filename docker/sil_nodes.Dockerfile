@@ -5,6 +5,19 @@ FROM ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Optimize APT and ROS2 sources to use Tsinghua mirrors for speed in China
+# Also strip deb-src from ROS2 sources: Tsinghua mirror has no source/Sources index
+# for ros2/ubuntu jammy, causing apt-get update to exit 100 on 404.
+RUN sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    if [ -f /usr/share/ros-apt-source/ros2.sources ]; then \
+        sed -i 's|packages.ros.org|mirrors.tuna.tsinghua.edu.cn|g' /usr/share/ros-apt-source/ros2.sources; \
+        sed -i '/^Types:/s/ deb-src//' /usr/share/ros-apt-source/ros2.sources; \
+    fi && \
+    if [ -f /etc/apt/sources.list.d/ros2.sources ]; then \
+        sed -i 's|packages.ros.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/ros2.sources; \
+        sed -i '/^Types:/s/ deb-src//' /etc/apt/sources.list.d/ros2.sources; \
+    fi
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-pip \
         python3-colcon-common-extensions \

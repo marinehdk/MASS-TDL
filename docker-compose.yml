@@ -24,6 +24,7 @@ services:
     volumes:
       - ./scenarios:/var/sil/scenarios
       - ./runs:/var/sil/runs
+      - ./src:/opt/ws/src
     command: /opt/ws/sil_entrypoint.sh
     environment:
       - SIL_RUN_DIR=/var/sil/runs
