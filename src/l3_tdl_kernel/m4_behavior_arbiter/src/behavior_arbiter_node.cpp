@@ -243,25 +243,44 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     IvPFunctionDefault transit_fn;
     std::vector<IvPFunctionDefault::Piece> transit_pieces;
 
-    // Optimal Piece (1.0 utility): Heading error <= 10.0 deg, Speed error <= 1.0 kn
-    IvPFunctionDefault::Piece opt_tp;
-    opt_tp.heading_min_deg = wrap_hdg(nominal_hdg - 10.0);
-    opt_tp.heading_max_deg = wrap_hdg(nominal_hdg + 10.0);
-    opt_tp.speed_min_kn = std::max(0.0, nominal_spd - 1.0);
-    opt_tp.speed_max_kn = nominal_spd;
-    opt_tp.utility = 1.0;
-    transit_pieces.push_back(opt_tp);
+    // 1a. Peak Optimal Piece (1.0 utility): Heading error <= 2.5 deg, Speed error <= 0.5 kn
+    // This provides a high-precision restoring force pulling the own ship back to target bearing
+    IvPFunctionDefault::Piece peak_tp;
+    peak_tp.heading_min_deg = wrap_hdg(nominal_hdg - 2.5);
+    peak_tp.heading_max_deg = wrap_hdg(nominal_hdg + 2.5);
+    peak_tp.speed_min_kn = std::max(0.0, nominal_spd - 0.5);
+    peak_tp.speed_max_kn = nominal_spd;
+    peak_tp.utility = 1.0;
+    transit_pieces.push_back(peak_tp);
 
-    // Acceptable Piece (0.6 utility): Heading error <= 30.0 deg
+    // 1b. Near Optimal Piece (0.85 utility): Heading error <= 8.0 deg, Speed error <= 1.0 kn
+    IvPFunctionDefault::Piece near_tp;
+    near_tp.heading_min_deg = wrap_hdg(nominal_hdg - 8.0);
+    near_tp.heading_max_deg = wrap_hdg(nominal_hdg + 8.0);
+    near_tp.speed_min_kn = std::max(0.0, nominal_spd - 1.0);
+    near_tp.speed_max_kn = nominal_spd;
+    near_tp.utility = 0.85;
+    transit_pieces.push_back(near_tp);
+
+    // 1c. Moderate Transit Piece (0.6 utility): Heading error <= 20.0 deg
+    IvPFunctionDefault::Piece mod_tp;
+    mod_tp.heading_min_deg = wrap_hdg(nominal_hdg - 20.0);
+    mod_tp.heading_max_deg = wrap_hdg(nominal_hdg + 20.0);
+    mod_tp.speed_min_kn = 0.0;
+    mod_tp.speed_max_kn = nominal_spd;
+    mod_tp.utility = 0.6;
+    transit_pieces.push_back(mod_tp);
+
+    // 1d. Acceptable Piece (0.3 utility): Heading error <= 45.0 deg
     IvPFunctionDefault::Piece acc_tp;
-    acc_tp.heading_min_deg = wrap_hdg(nominal_hdg - 30.0);
-    acc_tp.heading_max_deg = wrap_hdg(nominal_hdg + 30.0);
+    acc_tp.heading_min_deg = wrap_hdg(nominal_hdg - 45.0);
+    acc_tp.heading_max_deg = wrap_hdg(nominal_hdg + 45.0);
     acc_tp.speed_min_kn = 0.0;
     acc_tp.speed_max_kn = nominal_spd;
-    acc_tp.utility = 0.6;
+    acc_tp.utility = 0.3;
     transit_pieces.push_back(acc_tp);
 
-    // Low-Utility Piece (0.1 utility): 全向低保底基面
+    // 1e. Base Failsafe Piece (0.1 utility): 全向低保底基面
     IvPFunctionDefault::Piece base_tp;
     base_tp.heading_min_deg = 0.0;
     base_tp.heading_max_deg = 359.9;

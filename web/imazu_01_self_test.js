@@ -77,14 +77,14 @@ async function main() {
     return !document.body.textContent.includes('AWAITING TELEMETRY');
   }, { timeout: 30000 });
 
-  console.log('Telemetry connected! Let the simulation run for 5 seconds...');
-  await page.waitForTimeout(5000);
+  console.log('Telemetry connected! Let the simulation run for 25 seconds to observe avoidance...');
+  await page.waitForTimeout(25000);
 
   console.log('Clicking the M4 bottom card...');
   await page.locator('span:has-text("M4")').first().click({ force: true });
 
-  console.log('M4 card clicked! Let it run for 5 seconds to capture potential crashes...');
-  await page.waitForTimeout(5000);
+  console.log('M4 card clicked! Let it run for 20 seconds to observe path convergence...');
+  await page.waitForTimeout(20000);
 
   const screenshotPath = '/Users/marine/.gemini/antigravity/brain/202e854e-757b-4ed0-9dd6-5e8c2d953e13/decision_tab_crash.png';
   console.log(`Taking screenshot and saving to ${screenshotPath}...`);
