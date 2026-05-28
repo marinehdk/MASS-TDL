@@ -101,7 +101,7 @@ class ScenarioStore:
             return None
         content = path.read_text()
         h = hashlib.sha256(content.encode()).hexdigest()
-        backend: str = "demo"
+        backend: str = "ros2"
         try:
             yaml_data = yaml.safe_load(content)
             if isinstance(yaml_data, dict):
@@ -109,7 +109,7 @@ class ScenarioStore:
                 if isinstance(metadata, dict):
                     sim_settings = metadata.get("simulation_settings", {})
                     if isinstance(sim_settings, dict):
-                        backend = sim_settings.get("backend", "demo")
+                        backend = sim_settings.get("backend", "ros2")
         except (yaml.YAMLError, AttributeError):
             pass
         # Determine is_baseline from folder

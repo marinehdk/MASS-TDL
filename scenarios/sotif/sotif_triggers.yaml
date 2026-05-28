@@ -1,52 +1,327 @@
-schema_version: "1.0"
+schema_version: '1.0'
 triggers:
-  - {id: A01, category: A, description: "AIS dropout >30s, CPA < 0.5 NM",          assumption_class: AIS_RADAR_CONSISTENCY,        inject: {ais_dropout_s: 35, target_cpa_nm: 0.4}}
-  - {id: A02, category: A, description: "Radar range noise 3x nominal sigma",           assumption_class: PERCEPTION_COVERAGE,          inject: {radar_range_noise_sigma_scale: 3.0}}
-  - {id: A03, category: A, description: "Target course change >15deg/min",            assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_course_change_rate_deg_min: 18.0}}
-  - {id: A04, category: A, description: "COG ambiguity +/-20deg at Rule14 boundary",    assumption_class: COLREGS_PARSABILITY,          inject: {cog_ambiguity_deg: 20.0, encounter_rule: Rule14}}
-  - {id: A05, category: A, description: "Shore link dropout >45s",                  assumption_class: COMMS_LINK_AVAILABILITY,      inject: {shore_link_dropout_s: 50}}
-  - {id: A06, category: A, description: "Checker veto rate >40% in 15s window",     assumption_class: CHECKER_VETO_RATE,            inject: {checker_veto_count_per_15s: 7}}
-  - {id: A07, category: A, description: "AIS target count >12 (saturation)",        assumption_class: PERCEPTION_COVERAGE,          inject: {ais_target_count: 14}}
-  - {id: A08, category: A, description: "Own-ship GPS loss >10s",                   assumption_class: AIS_RADAR_CONSISTENCY,        inject: {gps_dropout_s: 12}}
-  - {id: A09, category: A, description: "Radar CFAR false alarm rate x5",           assumption_class: PERCEPTION_COVERAGE,          inject: {radar_cfar_fpr_scale: 5.0}}
-  - {id: A10, category: A, description: "Target velocity std_dev 3x nominal",       assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_velocity_sigma_scale: 3.0}}
-  - {id: A11, category: A, description: "Rule15 CBDR bearing change 0.05deg/min",   assumption_class: COLREGS_PARSABILITY,          inject: {bearing_change_rate_deg_min: 0.05}}
-  - {id: A12, category: A, description: "Comms latency >2s (>ToR margin)",          assumption_class: COMMS_LINK_AVAILABILITY,      inject: {comms_latency_s: 2.5}}
-  - {id: A13, category: A, description: "M7 veto storm (>10 vetos in 15s)",         assumption_class: CHECKER_VETO_RATE,            inject: {checker_veto_count_per_15s: 11}}
-  - {id: A14, category: A, description: "AIS spoofing: target position jump 0.5 NM",assumption_class: AIS_RADAR_CONSISTENCY,        inject: {ais_position_jump_nm: 0.5}}
-  - {id: A15, category: A, description: "AIS-radar fusion divergence >100m",        assumption_class: PERCEPTION_COVERAGE,          inject: {fusion_divergence_m: 120.0}}
-  - {id: B01, category: B, description: "Fog: visibility 200m, sensor_degraded",    assumption_class: PERCEPTION_COVERAGE,          inject: {visibility_m: 200, odd: sensor_degraded}}
-  - {id: B02, category: B, description: "Beaufort 7 + Radar attenuation 6dB",       assumption_class: PERCEPTION_COVERAGE,          inject: {wind_mps: 14.0, radar_attenuation_db: 6.0}}
-  - {id: B03, category: B, description: "3 vessels clustered <0.3 NM",              assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {cluster_vessel_count: 3, cluster_radius_nm: 0.3}}
-  - {id: B04, category: B, description: "Night + radar range reduced 30%",          assumption_class: PERCEPTION_COVERAGE,          inject: {radar_range_reduction_pct: 30, time_of_day: night}}
-  - {id: B05, category: B, description: "Target lights off (camera undetectable)",  assumption_class: PERCEPTION_COVERAGE,          inject: {target_lights: off}}
-  - {id: B06, category: B, description: "Heavy swell: COG oscillation +/-8deg",         assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {cog_oscillation_deg: 8.0}}
-  - {id: B07, category: B, description: "AIS update rate 1 msg/3min (Class B)",     assumption_class: AIS_RADAR_CONSISTENCY,        inject: {ais_update_rate_s: 180}}
-  - {id: B08, category: B, description: "Radar beam shadow by own superstructure",  assumption_class: PERCEPTION_COVERAGE,          inject: {radar_shadow_sector_deg: 30}}
-  - {id: B09, category: B, description: "Sea clutter: wave height 4m",              assumption_class: PERCEPTION_COVERAGE,          inject: {sea_state_m: 4.0}}
-  - {id: B10, category: B, description: "Two vessels same bearing AIS ambiguity", assumption_class: AIS_RADAR_CONSISTENCY,        inject: {co_bearing_vessels: 2, bearing_sep_deg: 1.5}}
-  - {id: B11, category: B, description: "Shore link 50% packet loss",               assumption_class: COMMS_LINK_AVAILABILITY,      inject: {packet_loss_pct: 50}}
-  - {id: B12, category: B, description: "Target maneuvers 45deg mid-scenario",        assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_mid_course_change_deg: 45, change_time_s: 120}}
-  - {id: B13, category: B, description: "GPS multi-path: position noise 3x nominal",assumption_class: AIS_RADAR_CONSISTENCY,        inject: {gps_noise_sigma_scale: 3.0}}
-  - {id: B14, category: B, description: "Lidar dropout in rain (range halved)",     assumption_class: PERCEPTION_COVERAGE,          inject: {lidar_range_reduction_pct: 50, rain_intensity: heavy}}
-  - {id: B15, category: B, description: "Target accelerates 5 to 18 kn in 60s",       assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_accel_initial_kn: 5.0, target_accel_final_kn: 18.0, accel_duration_s: 60}}
-  - {id: B16, category: B, description: "ENC chart outdated: shoal 0.5 NM off route",assumption_class: COLREGS_PARSABILITY,         inject: {chart_hazard_offset_nm: 0.5}}
-  - {id: B17, category: B, description: "Night + fog: all optical sensors degraded",assumption_class: PERCEPTION_COVERAGE,          inject: {optical_sensor_availability: 0.0, time_of_day: night, visibility_m: 500}}
-  - {id: B18, category: B, description: "Rule17 stand-on starts maneuvering",       assumption_class: COLREGS_PARSABILITY,          inject: {stand_on_maneuver: true}}
-  - {id: B19, category: B, description: "Shore control request during encounter",   assumption_class: COMMS_LINK_AVAILABILITY,      inject: {shore_takeover_request_at_s: 90}}
-  - {id: B20, category: B, description: "AIS CPA prediction 15% optimistic",        assumption_class: AIS_RADAR_CONSISTENCY,        inject: {ais_cpa_bias_pct: 15}}
-  - {id: C01, category: C, description: "Three simultaneous encounters (R16+13+14)",assumption_class: COLREGS_PARSABILITY,          inject: {multi_encounter_rules: [Rule16, Rule13, Rule14]}}
-  - {id: C02, category: C, description: "BC-MPC infeasible: TCPA 55s, DCPA 0.1NM", assumption_class: CHECKER_VETO_RATE,            inject: {tcpa_s: 55, dcpa_nm: 0.1}}
-  - {id: C03, category: C, description: "Rule8 barely sufficient: CPA 0.28 NM",    assumption_class: COLREGS_PARSABILITY,          inject: {post_avoidance_cpa_nm: 0.28}}
-  - {id: C04, category: C, description: "ODD exit during avoidance maneuver",       assumption_class: CHECKER_VETO_RATE,            inject: {odd_exit_at_s: 200}}
-  - {id: C05, category: C, description: "M7 VETO of M4 decision MRM fallback",   assumption_class: CHECKER_VETO_RATE,            inject: {force_m7_veto: true}}
-  - {id: C06, category: C, description: "Port approach with TSS active",            assumption_class: COLREGS_PARSABILITY,          inject: {odd: port_approach, tss_active: true}}
-  - {id: C07, category: C, description: "Target stopped (SOG=0) Rule7 undefined",assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_sog_kn: 0.0}}
-  - {id: C08, category: C, description: "Offshore wind farm restricted maneuver", assumption_class: COLREGS_PARSABILITY,          inject: {odd: offshore_wind_farm, obstacle_density: high}}
-  - {id: C09, category: C, description: "In extremis: CPA 0.05NM, TCPA 25s",       assumption_class: CHECKER_VETO_RATE,            inject: {dcpa_nm: 0.05, tcpa_s: 25}}
-  - {id: C10, category: C, description: "Rule19 restricted visibility no visual", assumption_class: PERCEPTION_COVERAGE,          inject: {encounter_rule: Rule19, visibility_m: 300}}
-  - {id: C11, category: C, description: "Shore link blackout 120s",                 assumption_class: COMMS_LINK_AVAILABILITY,      inject: {shore_link_dropout_s: 120}}
-  - {id: C12, category: C, description: "Heading actuator bias +5deg (actuator fault)",assumption_class: CHECKER_VETO_RATE,           inject: {heading_actuator_bias_deg: 5.0}}
-  - {id: C13, category: C, description: "Rule13 overtaking in coastal TSS",         assumption_class: COLREGS_PARSABILITY,          inject: {encounter_rule: Rule13, odd: coastal_traffic_separation}}
-  - {id: C14, category: C, description: "AIS MMSI duplicate (two ships same ID)",   assumption_class: AIS_RADAR_CONSISTENCY,        inject: {ais_mmsi_duplicate: true}}
-  - {id: C15, category: C, description: "Sea anchor: target drifting 2kn off COG", assumption_class: TARGET_MOTION_PREDICTABILITY, inject: {target_drift_off_cog_kn: 2.0}}
+- id: A01
+  category: A
+  description: AIS dropout >30s, CPA < 0.5 NM
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    ais_dropout_s: 35
+    target_cpa_nm: 0.4
+- id: A02
+  category: A
+  description: Radar range noise 3x nominal sigma
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    radar_range_noise_sigma_scale: 3.0
+- id: A03
+  category: A
+  description: Target course change >15deg/min
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_course_change_rate_deg_min: 18.0
+- id: A04
+  category: A
+  description: COG ambiguity +/-20deg at Rule14 boundary
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    cog_ambiguity_deg: 20.0
+    encounter_rule: Rule14
+- id: A05
+  category: A
+  description: Shore link dropout >45s
+  assumption_class: COMMS_LINK_AVAILABILITY
+  inject:
+    shore_link_dropout_s: 50
+- id: A06
+  category: A
+  description: Checker veto rate >40% in 15s window
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    checker_veto_count_per_15s: 7
+- id: A07
+  category: A
+  description: AIS target count >12 (saturation)
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    ais_target_count: 14
+- id: A08
+  category: A
+  description: Own-ship GPS loss >10s
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    gps_dropout_s: 12
+- id: A09
+  category: A
+  description: Radar CFAR false alarm rate x5
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    radar_cfar_fpr_scale: 5.0
+- id: A10
+  category: A
+  description: Target velocity std_dev 3x nominal
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_velocity_sigma_scale: 3.0
+- id: A11
+  category: A
+  description: Rule15 CBDR bearing change 0.05deg/min
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    bearing_change_rate_deg_min: 0.05
+- id: A12
+  category: A
+  description: Comms latency >2s (>ToR margin)
+  assumption_class: COMMS_LINK_AVAILABILITY
+  inject:
+    comms_latency_s: 2.5
+- id: A13
+  category: A
+  description: M7 veto storm (>10 vetos in 15s)
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    checker_veto_count_per_15s: 11
+- id: A14
+  category: A
+  description: 'AIS spoofing: target position jump 0.5 NM'
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    ais_position_jump_nm: 0.5
+- id: A15
+  category: A
+  description: AIS-radar fusion divergence >100m
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    fusion_divergence_m: 120.0
+- id: B01
+  category: B
+  description: 'Fog: visibility 200m, sensor_degraded'
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    visibility_m: 200
+    odd: sensor_degraded
+- id: B02
+  category: B
+  description: Beaufort 7 + Radar attenuation 6dB
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    wind_mps: 14.0
+    radar_attenuation_db: 6.0
+- id: B03
+  category: B
+  description: 3 vessels clustered <0.3 NM
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    cluster_vessel_count: 3
+    cluster_radius_nm: 0.3
+- id: B04
+  category: B
+  description: Night + radar range reduced 30%
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    radar_range_reduction_pct: 30
+    time_of_day: night
+- id: B05
+  category: B
+  description: Target lights off (camera undetectable)
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    target_lights: false
+- id: B06
+  category: B
+  description: 'Heavy swell: COG oscillation +/-8deg'
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    cog_oscillation_deg: 8.0
+- id: B07
+  category: B
+  description: AIS update rate 1 msg/3min (Class B)
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    ais_update_rate_s: 180
+- id: B08
+  category: B
+  description: Radar beam shadow by own superstructure
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    radar_shadow_sector_deg: 30
+- id: B09
+  category: B
+  description: 'Sea clutter: wave height 4m'
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    sea_state_m: 4.0
+- id: B10
+  category: B
+  description: Two vessels same bearing AIS ambiguity
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    co_bearing_vessels: 2
+    bearing_sep_deg: 1.5
+- id: B11
+  category: B
+  description: Shore link 50% packet loss
+  assumption_class: COMMS_LINK_AVAILABILITY
+  inject:
+    packet_loss_pct: 50
+- id: B12
+  category: B
+  description: Target maneuvers 45deg mid-scenario
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_mid_course_change_deg: 45
+    change_time_s: 120
+- id: B13
+  category: B
+  description: 'GPS multi-path: position noise 3x nominal'
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    gps_noise_sigma_scale: 3.0
+- id: B14
+  category: B
+  description: Lidar dropout in rain (range halved)
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    lidar_range_reduction_pct: 50
+    rain_intensity: heavy
+- id: B15
+  category: B
+  description: Target accelerates 5 to 18 kn in 60s
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_accel_initial_kn: 5.0
+    target_accel_final_kn: 18.0
+    accel_duration_s: 60
+- id: B16
+  category: B
+  description: 'ENC chart outdated: shoal 0.5 NM off route'
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    chart_hazard_offset_nm: 0.5
+- id: B17
+  category: B
+  description: 'Night + fog: all optical sensors degraded'
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    optical_sensor_availability: 0.0
+    time_of_day: night
+    visibility_m: 500
+- id: B18
+  category: B
+  description: Rule17 stand-on starts maneuvering
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    stand_on_maneuver: true
+- id: B19
+  category: B
+  description: Shore control request during encounter
+  assumption_class: COMMS_LINK_AVAILABILITY
+  inject:
+    shore_takeover_request_at_s: 90
+- id: B20
+  category: B
+  description: AIS CPA prediction 15% optimistic
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    ais_cpa_bias_pct: 15
+- id: C01
+  category: C
+  description: Three simultaneous encounters (R16+13+14)
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    multi_encounter_rules:
+    - Rule16
+    - Rule13
+    - Rule14
+- id: C02
+  category: C
+  description: 'BC-MPC infeasible: TCPA 55s, DCPA 0.1NM'
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    tcpa_s: 55
+    dcpa_nm: 0.1
+- id: C03
+  category: C
+  description: 'Rule8 barely sufficient: CPA 0.28 NM'
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    post_avoidance_cpa_nm: 0.28
+- id: C04
+  category: C
+  description: ODD exit during avoidance maneuver
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    odd_exit_at_s: 200
+- id: C05
+  category: C
+  description: M7 VETO of M4 decision MRM fallback
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    force_m7_veto: true
+- id: C06
+  category: C
+  description: Port approach with TSS active
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    odd: port_approach
+    tss_active: true
+- id: C07
+  category: C
+  description: Target stopped (SOG=0) Rule7 undefined
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_sog_kn: 0.0
+- id: C08
+  category: C
+  description: Offshore wind farm restricted maneuver
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    odd: offshore_wind_farm
+    obstacle_density: high
+- id: C09
+  category: C
+  description: 'In extremis: CPA 0.05NM, TCPA 25s'
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    dcpa_nm: 0.05
+    tcpa_s: 25
+- id: C10
+  category: C
+  description: Rule19 restricted visibility no visual
+  assumption_class: PERCEPTION_COVERAGE
+  inject:
+    encounter_rule: Rule19
+    visibility_m: 300
+- id: C11
+  category: C
+  description: Shore link blackout 120s
+  assumption_class: COMMS_LINK_AVAILABILITY
+  inject:
+    shore_link_dropout_s: 120
+- id: C12
+  category: C
+  description: Heading actuator bias +5deg (actuator fault)
+  assumption_class: CHECKER_VETO_RATE
+  inject:
+    heading_actuator_bias_deg: 5.0
+- id: C13
+  category: C
+  description: Rule13 overtaking in coastal TSS
+  assumption_class: COLREGS_PARSABILITY
+  inject:
+    encounter_rule: Rule13
+    odd: coastal_traffic_separation
+- id: C14
+  category: C
+  description: AIS MMSI duplicate (two ships same ID)
+  assumption_class: AIS_RADAR_CONSISTENCY
+  inject:
+    ais_mmsi_duplicate: true
+- id: C15
+  category: C
+  description: 'Sea anchor: target drifting 2kn off COG'
+  assumption_class: TARGET_MOTION_PREDICTABILITY
+  inject:
+    target_drift_off_cog_kn: 2.0
+metadata:
+  simulation_settings:
+    backend: ros2

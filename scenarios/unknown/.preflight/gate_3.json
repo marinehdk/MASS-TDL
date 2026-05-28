@@ -1,8 +1,8 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-05-28T05:42:29.239826Z",
-  "scenario_id": "test_demo",
+  "timestamp_utc": "2026-05-28T05:42:29.784199Z",
+  "scenario_id": "unknown",
   "passed": false,
   "checks": [
     {
