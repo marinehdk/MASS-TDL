@@ -128,6 +128,13 @@ else:
 
         async def activate(self):
             self._state = _DemoState.ACTIVE
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
+
             if self._simulation_duration_s is not None:
                 import asyncio
                 import time

@@ -204,3 +204,33 @@ class TestBridgeLatchRelease:
         published_msg = bridge._pub_bridge_state.publish.call_args[0][0]
         assert hasattr(published_msg, 'latch_state')
         assert published_msg.latch_state == "releasing"
+
+    def test_latch_release_reset_on_avoidance_active_change(self):
+        """Verify that latch release state variables are reset when _avoidance_active changes state."""
+        SilTopicBridge = get_bridge_class()
+        bridge = SilTopicBridge()
+        
+        # 1. Start with latch release triggered and some state
+        bridge._latch_release_triggered = True
+        bridge._latch_release_time = 123.45
+        bridge._latch_offset_at_release_deg = 15.0
+        bridge._latch_release_progress = 0.5
+        
+        # We simulate _avoidance_active transitions. Let's call _on_avoidance_plan with no valid plan when active:
+        # Set preconditions:
+        bridge._autopilot_enabled = True
+        bridge._avoidance_active = True
+        bridge._avoidance_heading_controller = Mock()
+        
+        msg = Mock()
+        msg.waypoints = [] # Invalid plan (no waypoints)
+        
+        bridge._on_avoidance_plan(msg)
+        
+        # Should have reset _avoidance_active to False and cleared latch state
+        assert bridge._avoidance_active is False
+        assert bridge._latch_release_triggered is False
+        assert bridge._latch_release_time is None
+        assert bridge._latch_offset_at_release_deg is None
+        assert bridge._latch_release_progress == 0.0
+

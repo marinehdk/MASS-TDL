@@ -76,6 +76,7 @@ class LifecycleBridge(Node):
         self._timer_start_time = None
         self._timer_task = None
         self._backup_timer_task = None
+        self._active_tasks = set()
 
         # ROS2 service clients — primary node
         self.change_state_client = self.create_client(
@@ -378,7 +379,9 @@ class LifecycleBridge(Node):
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
-            asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
+            task = asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
+            self._active_tasks.add(task)
+            task.add_done_callback(self._active_tasks.discard)
         return res
 
     async def activate(self) -> LifecycleResult:
@@ -386,6 +389,14 @@ class LifecycleBridge(Node):
         if res.success:
             self._state = LifecycleState.ACTIVE
             await self._broadcast_transition(Transition.TRANSITION_ACTIVATE)
+
+            # Cancel any existing timers before scheduling new ones to prevent orphans
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
 
             # Start timer and backup timer if duration is specified
             if self._simulation_duration_s is not None:
@@ -396,20 +407,25 @@ class LifecycleBridge(Node):
         return res
 
     async def deactivate(self) -> LifecycleResult:
-        if self._timer_task:
-            self._timer_task.cancel()
-            self._timer_task = None
-        if self._backup_timer_task:
-            self._backup_timer_task.cancel()
-            self._backup_timer_task = None
-
         # Idempotency check: if already INACTIVE, return success
         state_str = self._state.value if hasattr(self._state, "value") else str(self._state)
         if state_str.lower() == "inactive":
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
             return LifecycleResult(success=True)
 
         res = await self._change_state(Transition.TRANSITION_DEACTIVATE)
         if res.success:
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
             self._state = LifecycleState.INACTIVE
             await self._broadcast_transition(Transition.TRANSITION_DEACTIVATE)
         return res
@@ -443,15 +459,14 @@ class LifecycleBridge(Node):
             _log.error(f"[LIFECYCLE] Backup timer error: {exc}", exc_info=True)
 
     async def cleanup(self) -> LifecycleResult:
-        if self._timer_task:
-            self._timer_task.cancel()
-            self._timer_task = None
-        if self._backup_timer_task:
-            self._backup_timer_task.cancel()
-            self._backup_timer_task = None
-
         res = await self._change_state(Transition.TRANSITION_CLEANUP)
         if res.success:
+            if self._timer_task:
+                self._timer_task.cancel()
+                self._timer_task = None
+            if self._backup_timer_task:
+                self._backup_timer_task.cancel()
+                self._backup_timer_task = None
             self._state = LifecycleState.UNCONFIGURED
             self._scenario_id = None
             await self._broadcast_transition(Transition.TRANSITION_CLEANUP)

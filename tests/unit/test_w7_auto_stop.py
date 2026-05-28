@@ -334,3 +334,58 @@ async def test_timers_are_cancelled_on_deactivate_and_cleanup():
         assert bridge._timer_task is None
         assert bridge._backup_timer_task is None
 
+
+@pytest.mark.asyncio
+async def test_reactivate_cancels_existing_timers():
+    """Verify that calling activate again cancels existing timer and backup timer tasks."""
+    LifecycleBridge = get_lifecycle_bridge_class()
+    
+    mock_yaml = {"simulation": {"duration_s": 100.0}}
+    
+    with patch("lifecycle_bridge_under_test._load_scenario_yaml", return_value=mock_yaml), \
+         patch("lifecycle_bridge_under_test._extract_injection_params", return_value={}), \
+         patch("lifecycle_bridge_under_test._print_injection_summary"), \
+         patch.object(LifecycleBridge, "_reset_to_unconfigured", new_callable=AsyncMock) as mock_reset, \
+         patch.object(LifecycleBridge, "_change_state", new_callable=AsyncMock) as mock_change_state, \
+         patch.object(LifecycleBridge, "_broadcast_transition", new_callable=AsyncMock):
+        
+        mock_reset.return_value = SimpleNamespace(success=True)
+        mock_change_state.return_value = SimpleNamespace(success=True)
+        
+        bridge = LifecycleBridge()
+        await bridge.configure("test-scenario")
+        await bridge.activate()
+        
+        t1 = bridge._timer_task
+        b1 = bridge._backup_timer_task
+        assert t1 is not None
+        assert b1 is not None
+        
+        # Now activate again
+        await bridge.activate()
+        
+        t2 = bridge._timer_task
+        b2 = bridge._backup_timer_task
+        assert t2 is not None
+        assert b2 is not None
+        assert t1 is not t2
+        assert b1 is not b2
+        
+        # Await the tasks to let them finish cancelling
+        try:
+            await t1
+        except asyncio.CancelledError:
+            pass
+        try:
+            await b1
+        except asyncio.CancelledError:
+            pass
+            
+        assert t1.cancelled()
+        assert b1.cancelled()
+        
+        # Clean up tasks to prevent asyncio warnings
+        t2.cancel()
+        b2.cancel()
+
+

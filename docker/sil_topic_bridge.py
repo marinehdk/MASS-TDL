@@ -455,6 +455,13 @@ class SilTopicBridge(Node):
         self.get_logger().info(
             f"[BRIDGE] LATCH release started: offset_deg={self._latch_offset_at_release_deg:.1f}")
 
+    def _reset_latch_release_state(self) -> None:
+        """Reset all latch release variables."""
+        self._latch_release_triggered = False
+        self._latch_release_time = None
+        self._latch_offset_at_release_deg = None
+        self._latch_release_progress = 0.0
+
     def _compute_latch_offset(self, t_release: float, t_now: float,
                                current_offset_deg: float) -> float:
         """Linearly decay LATCH offset from snapshot to 0 over 5 seconds."""
@@ -464,12 +471,11 @@ class SilTopicBridge(Node):
         t_elapsed = t_now - t_release
         decay_duration_s = 5.0
         
-        if t_elapsed >= decay_duration_s:
-            self._latch_release_progress = 1.0
+        progress = max(0.0, min(1.0, t_elapsed / decay_duration_s))
+        self._latch_release_progress = progress
+        if progress >= 1.0:
             return 0.0
         
-        progress = t_elapsed / decay_duration_s
-        self._latch_release_progress = progress
         return self._latch_offset_at_release_deg * (1.0 - progress)
 
     def _publish_bridge_state(self) -> None:
@@ -516,10 +522,12 @@ class SilTopicBridge(Node):
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
+                self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
                 if self._last_behavior_plan is not None:
                     self._avoidance_active = True
+                    self._reset_latch_release_state()
                     beh = self._last_behavior_plan
                     h_min = float(beh.heading_min_deg)
                     h_max = float(beh.heading_max_deg)
@@ -539,6 +547,7 @@ class SilTopicBridge(Node):
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
+                self._reset_latch_release_state()
 
     def _on_asdr_record(self, msg: ASDRRecord) -> None:
         out = ASDREvent()

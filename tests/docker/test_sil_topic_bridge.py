@@ -143,7 +143,8 @@ def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
         _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
         _latch_release_triggered=False,
         _latch_release_time=None,
-        _last_avoidance_waypoint=None
+        _last_avoidance_waypoint=None,
+        _reset_latch_release_state=lambda: None
     )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
@@ -172,7 +173,8 @@ def test_placeholder_turn_radius_does_not_command_hard_rudder(monkeypatch):
         _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
         _latch_release_triggered=False,
         _latch_release_time=None,
-        _last_avoidance_waypoint=None
+        _last_avoidance_waypoint=None,
+        _reset_latch_release_state=lambda: None
     )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
