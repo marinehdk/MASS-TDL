@@ -32,16 +32,16 @@ class MessageCache:
 
     def append(self, topic: str, msg: dict) -> None:
         """Append a message dict to the named topic deque. Unknown topics are ignored."""
-        deque_map = {
-            "behavior_plan": self.behavior_plan,
-            "rule_assessment": self.rule_assessment,
-            "actuator_cmd": self.actuator_cmd,
-            "threat_state": self.threat_state,
-        }
-        target = deque_map.get(topic)
-        if target is None:
-            return
         with self.lock:
+            deque_map = {
+                "behavior_plan": self.behavior_plan,
+                "rule_assessment": self.rule_assessment,
+                "actuator_cmd": self.actuator_cmd,
+                "threat_state": self.threat_state,
+            }
+            target = deque_map.get(topic)
+            if target is None:
+                return
             target.append(msg)
 
     def get_snapshot(self) -> dict:
@@ -61,6 +61,25 @@ _msg_cache = MessageCache()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _extract_sec(stamp) -> float | None:
+    """Extract seconds from a ROS2 stamp value.
+
+    Accepts:
+      - numeric (int/float): used directly
+      - dict {"sec": int, "nanosec": int}  — standard ROS2 builtin_interfaces/Time
+      - dict {"secs": int, "nsecs": int}   — older rospy serialisation variant
+    Returns None for any other type (silently ignored by caller).
+    """
+    if isinstance(stamp, (int, float)):
+        return float(stamp)
+    if isinstance(stamp, dict):
+        if "sec" in stamp:
+            return float(stamp["sec"]) + stamp.get("nanosec", 0) / 1e9
+        if "secs" in stamp:
+            return float(stamp["secs"]) + stamp.get("nsecs", 0) / 1e9
+    return None
+
 
 def _fmt_time(t: float) -> str:
     total_seconds = int(t)
@@ -193,21 +212,22 @@ def _generate_asdr_events(sim_time: float) -> list[dict]:
             )
 
     # CPA_MIN — minimum cpa across all threat_state entries
+    # Only emitted when real cpa_nm data exists; omitted entirely otherwise.
     if sim_time >= 140 and snap["threat_state"]:
         all_cpas = [
             m.get("cpa_nm", float("inf"))
             for m in snap["threat_state"]
         ]
         min_cpa = min(all_cpas)
-        dcpa_val = round(min_cpa, 3) if min_cpa < float("inf") else 0.420
-        events.append(
-            {
-                "t": 140.0,
-                "type": "CPA_MIN",
-                "module": "M2",
-                "payload": {"dcpa_nm": dcpa_val},
-            }
-        )
+        if min_cpa < float("inf"):
+            events.append(
+                {
+                    "t": 140.0,
+                    "type": "CPA_MIN",
+                    "module": "M2",
+                    "payload": {"dcpa_nm": round(min_cpa, 3)},
+                }
+            )
 
     # SCENE_CHG COLREG_AVOIDANCE→TRANSIT — time-gated, no cache dep
     if sim_time >= 152:
@@ -249,13 +269,14 @@ async def get_asdr_events():
     """
     snap = _msg_cache.get_snapshot()
 
-    # Derive sim_time from latest stamp across all topics
+    # Derive sim_time from latest stamp across all topics.
+    # Stamps may be numeric or ROS2 dict form; _extract_sec handles both.
     latest_stamp = 0.0
     for topic_msgs in snap.values():
         for msg in topic_msgs:
-            stamp = msg.get("stamp", 0.0)
-            if isinstance(stamp, (int, float)) and stamp > latest_stamp:
-                latest_stamp = float(stamp)
+            sec = _extract_sec(msg.get("stamp", 0.0))
+            if sec is not None and sec > latest_stamp:
+                latest_stamp = sec
 
     sim_time = latest_stamp  # 0.0 when cache empty
 

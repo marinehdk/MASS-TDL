@@ -230,3 +230,51 @@ async def test_asdr_events_endpoint_empty_cache():
     # Empty cache → sim_time falls back to 0.0 → only INIT event at t=0
     assert isinstance(body["events"], list)
     assert isinstance(body["ledger"], list)
+
+
+# ---------------------------------------------------------------------------
+# Issue #3 fix: sim_time derivation from ROS2 dict-typed stamps
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sim_time_from_ros2_dict_stamp():
+    """Cache entry with stamp={"sec":42,"nanosec":500_000_000} → sim_time=42.5.
+
+    Verifies that _extract_sec correctly converts the ROS2 dict stamp so
+    sim_time >= 25 and the T01_DET event is present in the response.
+    """
+    from httpx import AsyncClient, ASGITransport
+    from sil_orchestrator.asdr_routes import MessageCache
+    import sil_orchestrator.asdr_routes as mod
+
+    mod._msg_cache = MessageCache()
+    mod._msg_cache.append(
+        "threat_state",
+        {
+            "stamp": {"sec": 42, "nanosec": 500_000_000},
+            "target_mmsi": 111222333,
+            "cpa_nm": 0.30,
+            "tcpa_s": 60.0,
+        },
+    )
+
+    try:
+        from sil_orchestrator.main import app
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/asdr/events")
+    finally:
+        mod._msg_cache = MessageCache()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    event_types = {e["type"] for e in body["events"]}
+
+    # sim_time = 42.5 → >= 25 → T01_DET must be present
+    assert "T01_DET" in event_types, (
+        f"Expected T01_DET (sim_time=42.5 >= 25), got event types: {event_types}"
+    )
+    # sim_time = 42.5 < 47 → SCENE_CHG must NOT be present
+    assert "SCENE_CHG" not in event_types, (
+        f"SCENE_CHG should not appear at sim_time=42.5, got: {event_types}"
+    )
