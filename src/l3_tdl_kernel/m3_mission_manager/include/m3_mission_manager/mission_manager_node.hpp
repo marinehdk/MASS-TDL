@@ -108,6 +108,7 @@ class MissionManagerNode : public rclcpp::Node {
   L1WatchdogStatus     last_l1_watchdog_status_     = L1WatchdogStatus::OK;
   uint8_t              last_odd_zone_                = 0xFFU;  // 0xFF = uninitialized
   std::optional<std::chrono::steady_clock::time_point> last_planned_route_time_;
+  std::optional<std::chrono::steady_clock::time_point> last_voyage_task_time_;
 
   // Logger
   std::shared_ptr<spdlog::logger> logger_;

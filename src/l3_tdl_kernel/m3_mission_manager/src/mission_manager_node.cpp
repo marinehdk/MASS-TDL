@@ -321,6 +321,7 @@ void MissionManagerNode::setup_timers()
 void MissionManagerNode::on_voyage_task(
     const l3_external_msgs::msg::VoyageTask::SharedPtr msg)
 {
+  last_voyage_task_time_ = std::chrono::steady_clock::now();
   // Notify watchdog on any VoyageTask arrival (valid or invalid) — spec §4.2
   l1_watchdog_->notify_voyage_task_received(std::chrono::steady_clock::now());
 
@@ -512,6 +513,33 @@ void MissionManagerNode::on_world_state(
   const auto now = std::chrono::steady_clock::now();
   current_error_monitor_->update_world_state(*msg, now);
   check_current_error_severity_change(now);
+
+  if (state_machine_->current() == MissionState::Active) {
+    bool has_l1_task = last_voyage_task_time_.has_value() &&
+                       (now - last_voyage_task_time_.value()) < std::chrono::seconds(30);
+    bool has_l2_route = last_planned_route_time_.has_value() &&
+                        (now - last_planned_route_time_.value()) < std::chrono::seconds(5);
+    bool has_enc_check = true;
+    bool autonomy_ok = last_odd_state_ && last_odd_state_->current_zone != l3_msgs::msg::ODDState::ODD_ZONE_D;
+
+    const auto prev_validity = state_machine_->task_validity();
+    if (state_machine_->update_task_validity(has_l1_task, has_l2_route, has_enc_check, autonomy_ok)) {
+      const auto curr_validity = state_machine_->task_validity();
+      const char* prev_str = (prev_validity == TaskValidity::Pending) ? "PENDING" :
+                             (prev_validity == TaskValidity::Valid) ? "VALID" :
+                             (prev_validity == TaskValidity::Invalid) ? "INVALID" : "REPLANNING";
+      const char* curr_str = (curr_validity == TaskValidity::Pending) ? "PENDING" :
+                             (curr_validity == TaskValidity::Valid) ? "VALID" :
+                             (curr_validity == TaskValidity::Invalid) ? "INVALID" : "REPLANNING";
+      RCLCPP_INFO(get_logger(), "[M3 TaskValidity] Substate changed: %s → %s (L1=%d, L2=%d, ENC=%d, AutonomyOk=%d)",
+                  prev_str, curr_str, has_l1_task, has_l2_route, has_enc_check, autonomy_ok);
+      if (logger_) {
+        logger_->info("[M3 TaskValidity] Substate changed: {} → {} (L1={}, L2={}, ENC={}, AutonomyOk={})",
+                      prev_str, curr_str, has_l1_task, has_l2_route, has_enc_check, autonomy_ok);
+      }
+      publish_mission_goal(); // Immediate publish on validity substate change
+    }
+  }
 }
 
 void MissionManagerNode::on_tracking_error(
@@ -597,14 +625,37 @@ void MissionManagerNode::publish_mission_goal()
   if (current_state != MissionState::Active) {
     auto msg = l3_msgs::msg::MissionGoal();
     msg.stamp          = now();
-    msg.schema_version = 120U;  // IDL v1.2.0
+    msg.schema_version = 121U;  // IDL v1.2.1 [W3 BUMP]
     msg.eta_to_target_s = -1.0F;
     msg.confidence      = 0.0F;
     msg.current_error_severity = 0U;
     msg.xte_nm                 = 0.0F;
     msg.sea_current_kn         = 0.0F;
     msg.l1_watchdog_status     = 0U;
-    msg.rationale = "[M3] Standby (Idle)";
+
+    // Map FSM state
+    uint8_t fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT;
+    switch (current_state) {
+      case MissionState::Init:           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT; break;
+      case MissionState::Idle:           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_IDLE; break;
+      case MissionState::TaskValidation: fsm_state_val = l3_msgs::msg::MissionGoal::FSM_TASK_VALIDATION; break;
+      case MissionState::AwaitingRoute:  fsm_state_val = l3_msgs::msg::MissionGoal::FSM_AWAITING_ROUTE; break;
+      case MissionState::ReplanWait:     fsm_state_val = l3_msgs::msg::MissionGoal::FSM_REPLAN_WAIT; break;
+      default:                           fsm_state_val = l3_msgs::msg::MissionGoal::FSM_INIT; break;
+    }
+    msg.fsm_state = fsm_state_val;
+
+    // Map task validity substate
+    uint8_t task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+    switch (state_machine_->task_validity()) {
+      case TaskValidity::Pending:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING; break;
+      case TaskValidity::Valid:      task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID; break;
+      case TaskValidity::Invalid:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID; break;
+      case TaskValidity::Replanning: task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING; break;
+    }
+    msg.task_validity = task_validity_val;
+
+    msg.rationale = "[M3] Standby (" + std::string(state_machine_->state_name()) + ")";
     mission_goal_pub_->publish(std::move(msg));
     return;
   }
@@ -612,7 +663,20 @@ void MissionManagerNode::publish_mission_goal()
   const auto now_tp = std::chrono::steady_clock::now();
   auto msg = l3_msgs::msg::MissionGoal();
   msg.stamp          = now();
-  msg.schema_version = 120U;  // IDL v1.2.0
+  msg.schema_version = 121U;  // IDL v1.2.1 [W3 BUMP]
+
+  // Map FSM state
+  msg.fsm_state = l3_msgs::msg::MissionGoal::FSM_ACTIVE;
+
+  // Map task validity substate
+  uint8_t task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING;
+  switch (state_machine_->task_validity()) {
+    case TaskValidity::Pending:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_PENDING; break;
+    case TaskValidity::Valid:      task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID; break;
+    case TaskValidity::Invalid:    task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_INVALID; break;
+    case TaskValidity::Replanning: task_validity_val = l3_msgs::msg::MissionGoal::TASK_VALIDITY_REPLANNING; break;
+  }
+  msg.task_validity = task_validity_val;
 
   // ETA projection
   float eta_s = -1.0F;
@@ -661,11 +725,17 @@ void MissionManagerNode::publish_mission_goal()
   const char* l1_str =
       (wd.status == L1WatchdogStatus::OK)      ? "OK"      :
       (wd.status == L1WatchdogStatus::WARNING)  ? "WARN"    : "TIMEOUT";
+  
+  const char* val_str =
+      (state_machine_->task_validity() == TaskValidity::Pending)    ? "PEND" :
+      (state_machine_->task_validity() == TaskValidity::Valid)      ? "VAL"  :
+      (state_machine_->task_validity() == TaskValidity::Invalid)    ? "INVAL" : "REPLAN";
+
   msg.rationale = "[M3] eta=" + std::to_string(static_cast<int>(eta_s)) + "s" +
                   " conf=" + std::to_string(confidence).substr(0, 4) +
                   " xte=" + std::to_string(cerd.xte_nm).substr(0, 4) + "nm" +
                   " cur=" + std::to_string(cerd.sea_current_kn).substr(0, 4) + "kn" +
-                  " l1=" + l1_str + " odd=" + odd_zone_str;
+                  " l1=" + l1_str + " odd=" + odd_zone_str + " val=" + val_str;
 
   mission_goal_pub_->publish(std::move(msg));
 }

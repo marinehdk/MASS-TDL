@@ -26,7 +26,7 @@ constexpr std::array<std::string_view, 7> kStateNames = {{
 // ---------------------------------------------------------------------------
 
 MissionStateMachine::MissionStateMachine(MissionStateMachineConfig config)
-    : state_(MissionState::Init), config_(config) {}
+    : state_(MissionState::Init), task_validity_(TaskValidity::Pending), config_(config) {}
 
 // ---------------------------------------------------------------------------
 // state_name — human-readable state name
@@ -46,6 +46,7 @@ std::string_view MissionStateMachine::state_name() const {
 
 void MissionStateMachine::reset() {
   state_ = MissionState::Idle;
+  task_validity_ = TaskValidity::Pending;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,11 +130,35 @@ MissionState MissionStateMachine::handle_event(const MissionEvent& event) {
 }
 
 // ---------------------------------------------------------------------------
+// update_task_validity — check and update task validity based on conditions
+// ---------------------------------------------------------------------------
+
+bool MissionStateMachine::update_task_validity(
+    bool has_l1_task, bool has_l2_route,
+    bool has_enc_check, bool autonomy_ok) {
+  if (state_ != MissionState::Active) {
+    return false;
+  }
+  const auto prev = task_validity_;
+  if (has_l1_task && has_l2_route && has_enc_check && autonomy_ok) {
+    task_validity_ = TaskValidity::Valid;
+  } else {
+    task_validity_ = TaskValidity::Invalid;
+  }
+  return prev != task_validity_;
+}
+
+// ---------------------------------------------------------------------------
 // transit_ — set state and return it (trace point for future instrumentation)
 // ---------------------------------------------------------------------------
 
 MissionState MissionStateMachine::transit_(MissionState next) {
   state_ = next;
+  if (state_ == MissionState::ReplanWait) {
+    task_validity_ = TaskValidity::Replanning;
+  } else if (state_ != MissionState::Active) {
+    task_validity_ = TaskValidity::Pending;
+  }
   return state_;
 }
 

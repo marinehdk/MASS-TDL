@@ -1,4 +1,5 @@
 if(BUILD_TESTING)
+  add_compile_options(-Wno-error -Wno-undef -Wno-shadow -Wno-conversion -Wno-sign-conversion)
   ament_add_gtest(test_voyage_task_validator test_voyage_task_validator.cpp)
   target_link_libraries(test_voyage_task_validator ${PROJECT_NAME}_lib)
 
