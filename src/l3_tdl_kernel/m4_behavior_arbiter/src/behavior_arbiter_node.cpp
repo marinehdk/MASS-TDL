@@ -202,6 +202,107 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     // Build weighted functions (stub for D3.1 E1)
     std::vector<IvPCombinationStrategy::WeightedFunction> weighted_fns;
 
+    // Define a local helper lambda to wrap headings to [0, 360) range
+    auto wrap_hdg = [](double hdg) {
+      double w = std::fmod(hdg, 360.0);
+      return w < 0.0 ? w + 360.0 : w;
+    };
+
+    // ── 1. TRANSIT BEHAVIOR IvP FUNCTION ───────────────────────
+    double nominal_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+    double nominal_spd = speed_max_kn_; // Target nominal speed
+
+    IvPFunctionDefault transit_fn;
+    std::vector<IvPFunctionDefault::Piece> transit_pieces;
+
+    // Optimal Piece (1.0 utility): Heading error <= 10.0 deg, Speed error <= 1.0 kn
+    IvPFunctionDefault::Piece opt_tp;
+    opt_tp.heading_min_deg = wrap_hdg(nominal_hdg - 10.0);
+    opt_tp.heading_max_deg = wrap_hdg(nominal_hdg + 10.0);
+    opt_tp.speed_min_kn = std::max(0.0, nominal_spd - 1.0);
+    opt_tp.speed_max_kn = nominal_spd;
+    opt_tp.utility = 1.0;
+    transit_pieces.push_back(opt_tp);
+
+    // Acceptable Piece (0.6 utility): Heading error <= 30.0 deg
+    IvPFunctionDefault::Piece acc_tp;
+    acc_tp.heading_min_deg = wrap_hdg(nominal_hdg - 30.0);
+    acc_tp.heading_max_deg = wrap_hdg(nominal_hdg + 30.0);
+    acc_tp.speed_min_kn = 0.0;
+    acc_tp.speed_max_kn = nominal_spd;
+    acc_tp.utility = 0.6;
+    transit_pieces.push_back(acc_tp);
+
+    // Low-Utility Piece (0.1 utility): 全向低保底基面
+    IvPFunctionDefault::Piece base_tp;
+    base_tp.heading_min_deg = 0.0;
+    base_tp.heading_max_deg = 359.9;
+    base_tp.speed_min_kn = 0.0;
+    base_tp.speed_max_kn = speed_max_kn_;
+    base_tp.utility = 0.1;
+    transit_pieces.push_back(base_tp);
+
+    transit_fn.set_pieces(transit_pieces);
+    weighted_fns.push_back({1.0, transit_fn}); // Weight: 1.0
+
+    // ── 2. COLREGs AVOIDANCE BEHAVIOR IvP FUNCTION ──────────────
+    if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+      double colregs_dev = 0.0;
+
+      for (const auto& c : latest_colregs_->constraints) {
+        if (c.constraint_type == "colregs" && c.unit == "deg") {
+          colregs_dev = std::max(colregs_dev, c.numeric_value);
+        }
+      }
+
+      if (colregs_dev > 0.0) {
+        IvPFunctionDefault avoid_fn;
+        std::vector<IvPFunctionDefault::Piece> avoid_pieces;
+
+        // 2a. Penalty Zone (0.05 utility): [own_hdg - 180, own_hdg + colregs_dev)
+        // Severely penalizes port turns or insufficient starboard turns
+        IvPFunctionDefault::Piece penalty_ap;
+        penalty_ap.heading_min_deg = wrap_hdg(own_hdg - 180.0);
+        penalty_ap.heading_max_deg = wrap_hdg(own_hdg + colregs_dev);
+        penalty_ap.speed_min_kn = 0.0;
+        penalty_ap.speed_max_kn = speed_max_kn_;
+        penalty_ap.utility = 0.05;
+        avoid_pieces.push_back(penalty_ap);
+
+        // 2b. Comfort Avoidance Zone (1.0 utility): [own_hdg + colregs_dev, own_hdg + 60.0]
+        IvPFunctionDefault::Piece optimal_ap;
+        optimal_ap.heading_min_deg = wrap_hdg(own_hdg + colregs_dev);
+        optimal_ap.heading_max_deg = wrap_hdg(own_hdg + 60.0);
+        optimal_ap.speed_min_kn = 0.0;
+        optimal_ap.speed_max_kn = speed_max_kn_;
+        optimal_ap.utility = 1.0;
+        avoid_pieces.push_back(optimal_ap);
+
+        // 2c. Sub-Optimal Transition Zone (0.6 utility): [own_hdg + 60.0, own_hdg + 90.0]
+        // Transition region for larger evasion maneuvers
+        IvPFunctionDefault::Piece transition_ap;
+        transition_ap.heading_min_deg = wrap_hdg(own_hdg + 60.0);
+        transition_ap.heading_max_deg = wrap_hdg(own_hdg + 90.0);
+        transition_ap.speed_min_kn = 0.0;
+        transition_ap.speed_max_kn = speed_max_kn_;
+        transition_ap.utility = 0.6;
+        avoid_pieces.push_back(transition_ap);
+
+        // 2d. Far Zone / Low-Utility Base (0.1 utility)
+        IvPFunctionDefault::Piece base_ap;
+        base_ap.heading_min_deg = 0.0;
+        base_ap.heading_max_deg = 359.9;
+        base_ap.speed_min_kn = 0.0;
+        base_ap.speed_max_kn = speed_max_kn_;
+        base_ap.utility = 0.1;
+        avoid_pieces.push_back(base_ap);
+
+        avoid_fn.set_pieces(avoid_pieces);
+        weighted_fns.push_back({10.0, avoid_fn}); // Weight: 10.0
+      }
+    }
+
     IvPHardConstraints constraints;
     constraints.speed_min_kn = 0.0;
     constraints.speed_max_kn = speed_max_kn_;
