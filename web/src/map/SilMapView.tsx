@@ -754,7 +754,7 @@ export function SilMapView({
 
     // Plaque update
     const isSelected = selectedVesselId === 'ownship';
-    const hdgVal = (((ownShip.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+    const hdgVal = (Math.round(((ownShip.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360) % 360).toString();
     const sogVal = ((ownShip.kinematics?.sog ?? 0) * 1.944).toFixed(1);
 
     // Compute actual Rudder in degrees and format with Port (L) / Starboard (R)
@@ -1151,7 +1151,7 @@ export function SilMapView({
 
         // Plaque update
         const isSelected = selectedVesselId === id;
-        const hdgVal = (((t.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
+        const hdgVal = (Math.round(((t.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360) % 360).toString();
         const sogVal = ((t.kinematics?.sog ?? 0) * 1.944).toFixed(1);
 
         // Target ships do not telemetry rudder angle or engine thrust states
