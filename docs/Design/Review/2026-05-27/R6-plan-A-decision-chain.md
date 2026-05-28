@@ -647,7 +647,18 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 
 ## Task 3: W3 — M3 task_validity 子状态
 
-**Files:** `src/l3_tdl_kernel/m3_mission_manager/include/m3_mission_manager/mission_state_machine.hpp`, `src/l3_tdl_kernel/m3_mission_manager/src/mission_state_machine.cpp`, `src/l3_tdl_kernel/m3_mission_manager/src/mission_manager_node.cpp`, `src/l3_tdl_kernel/l3_msgs/msg/MissionState.msg`
+> **⚠️ Phase 1.7-B 诊断修正（2026-05-28）**
+> 原计划把 `task_validity` 加到 `MissionState.msg`——该消息是水深/锚泊上下文消息
+> （`water_depth_m`, `in_anchorage_zone`, `is_moored`），与 FSM state 语义完全不符。
+> **正确发布通道：扩展 `MissionGoal.msg`**（M4 已订阅，零新增 topic）。
+
+**Files (修正后):**
+- `src/l3_tdl_kernel/m3_mission_manager/include/m3_mission_manager/mission_state_machine.hpp` — 加 TaskValidity enum
+- `src/l3_tdl_kernel/m3_mission_manager/src/mission_state_machine.cpp` — 加 update_task_validity() 实现
+- `src/l3_tdl_kernel/m3_mission_manager/src/mission_manager_node.cpp` — 填写新字段
+- `src/l3_tdl_kernel/l3_msgs/msg/MissionGoal.msg` — 加 fsm_state + task_validity 两字段
+
+**不改动：** `MissionState.msg`（保持水深语义不变）
 
 ### Step 3.1: Add TaskValidity enum to mission_state_machine.hpp
 
@@ -723,28 +734,37 @@ bool MissionStateMachine::update_task_validity(
 
 ---
 
-### Step 3.3: Add task_validity field to MissionState.msg
+### Step 3.3: Add fsm_state + task_validity fields to MissionGoal.msg
 
-ROS2 message definition needs new field to expose validity status and rationale.
+> **Phase 1.7-B 修正**：发布通道改为 MissionGoal.msg（M4 已订阅 `/l3/m3/mission_goal`，无需新 topic）。
+> MissionState.msg **保持不变**（水深/锚泊语义）。
 
-Read/verify `/Users/marine/Code/MASS-L3-Tactical\ Layer/src/l3_tdl_kernel/l3_msgs/msg/MissionState.msg` or create if missing.
+File: `src/l3_tdl_kernel/l3_msgs/msg/MissionGoal.msg`
 
-Expected current content:
+Append after existing fields (current schema_version=120, 12 fields):
+
 ```
-uint8 state
-builtin_interfaces/Time stamp
-string rationale
+# W3: M3 FSM state + task validity sub-state (schema_version 121)
+uint8 FSM_INIT=0
+uint8 FSM_IDLE=1
+uint8 FSM_TASK_VALIDATION=2
+uint8 FSM_AWAITING_ROUTE=3
+uint8 FSM_ACTIVE=4
+uint8 FSM_REPLAN_WAIT=5
+
+uint8 TASK_VALIDITY_PENDING=0
+uint8 TASK_VALIDITY_VALID=1
+uint8 TASK_VALIDITY_INVALID=2
+uint8 TASK_VALIDITY_REPLANNING=3
+
+uint8 fsm_state        # current M3 FSM state (FSM_* constants above)  [W3 NEW]
+uint8 task_validity    # 4-condition gate sub-state (TASK_VALIDITY_*) [W3 NEW]
 ```
 
-Modify to:
-```
-uint8 state
-uint8 task_validity
-builtin_interfaces/Time stamp
-string rationale
-```
+Bump schema_version to 121 in all publish sites.
 
-- [ ] **Step 3.3a:** Verify MissionState.msg exists; add task_validity field (uint8)
+- [ ] **Step 3.3a:** Append fsm_state + task_validity constants + fields to MissionGoal.msg
+- [ ] **Step 3.3b:** Bump schema_version from 120 → 121 in MissionGoal.msg header comment
 
 ---
 
@@ -797,10 +817,18 @@ void MissionManagerNode::on_world_state(
 }
 ```
 
-Also update publish_mission_goal to include task_validity in the output message:
+Also update `publish_mission_goal()` (mission_manager_node.cpp) to fill both new fields:
 
 ```cpp
-// In publish_mission_goal around line 558-635, add after line 578:
+// In publish_mission_goal(), in both the non-ACTIVE branch AND the ACTIVE branch:
+// Non-ACTIVE branch (~L562): add after msg.rationale = "[M3] Standby (Idle)";
+msg.fsm_state     = static_cast<uint8_t>(state_machine_->current());  // e.g. FSM_IDLE=1
+msg.task_validity = static_cast<uint8_t>(TaskValidity::Pending);        // not yet valid
+msg.schema_version = 121U;
+
+// ACTIVE branch (~L578): add after msg.schema_version = 120U;
+msg.schema_version = 121U;
+msg.fsm_state     = static_cast<uint8_t>(MissionState::Active);  // = 4
 msg.task_validity = static_cast<uint8_t>(state_machine_->task_validity());
 ```
 
@@ -816,37 +844,49 @@ colcon build --packages-select m3_mission_manager l3_msgs
 
 **Expected:** Build succeeds.
 
-- [ ] **Step 3.5:** Integration test — verify task_validity in published MissionState
+- [ ] **Step 3.5:** Integration test — verify task_validity in published MissionGoal
 
 **Run:**
 ```bash
 docker compose up -d sil-nodes && sleep 15 && \
-docker exec sil-nodes bash -c '
+docker exec mass-l3-tacticallayer-sil-nodes-1 bash -c '
 source /opt/ros/humble/setup.bash && \
 source /opt/ws/install/setup.bash && \
-ros2 topic echo /l3/m3/mission_state | head -20
+timeout 5 ros2 topic echo /l3/m3/mission_goal --once
 '
 ```
 
-**Expected:** MissionState msg includes `task_validity` field set to `1` (Valid) when all 4 conditions met.
+**Expected:** MissionGoal msg has `fsm_state=4` (FSM_ACTIVE) and `task_validity=1` (VALID) when M3 is active and all 4 conditions met. Non-active states show `fsm_state` reflecting current FSM position.
 
 - [ ] **Commit:**
 ```
-feat(W3): add M3 task_validity substate
+feat(W3): add M3 fsm_state + task_validity to MissionGoal
 
-- Add TaskValidity enum (Pending/Valid/Invalid/Replanning)
-- Implement 4-condition gate: L1 task + L2 route + ENC + autonomy
-- Expose task_validity in MissionState.msg
-- Publish validity status at 1Hz with rationale
+- Add TaskValidity enum (Pending/Valid/Invalid/Replanning) to mission_state_machine
+- Implement 4-condition gate: L1 task freshness + L2 route freshness + ENC stub + autonomy OK
+- Extend MissionGoal.msg (schema 121): fsm_state + task_validity fields
+- Publish both fields at mission_goal timer rate (0.5Hz baseline, event-triggered)
+- MissionState.msg unchanged (water depth context, unrelated)
 
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ---
 
 ## Task 4: W4 — M4 fallback 绝对 snapshot + SafetyConcernEvent
 
-**Files:** `src/l3_tdl_kernel/m4_behavior_arbiter/src/behavior_arbiter_node.cpp`, `src/l3_tdl_kernel/m4_behavior_arbiter/src/fallback_policy.py`, `src/l3_tdl_kernel/l3_msgs/msg/SafetyConcernEvent.msg`
+> **Phase 1.7-B 诊断修正（2026-05-28）**
+> - 原计划中 `fallback_policy.py` **不存在于 M4**（实际在 M5，是不同功能）
+> - 原计划让 M4 新增订阅 `/l3/m3/mission_state`——不需要，M4 已订阅 `/l3/m3/mission_goal`
+>   且 W3 已把 `task_validity` + `fsm_state` 扩展到 MissionGoal 里
+> - snapshot 时机：Q2-A「M3 进入 ACTIVE 后首次 IvP infeasible」（见调研结论）
+
+**Files (修正后):**
+- `src/l3_tdl_kernel/m4_behavior_arbiter/src/behavior_arbiter_node.cpp` — 核心修改目标（IvP fallback 分支 L219-L256）
+- `src/l3_tdl_kernel/l3_msgs/msg/SafetyConcernEvent.msg` — 新消息（M4→M7）
+- `src/l3_tdl_kernel/m4_behavior_arbiter/include/m4_behavior_arbiter/behavior_arbiter_node.hpp` — 加成员变量
+
+**不新增订阅：** M4 已通过 `on_mission_goal` 读 `latest_mission_`，W3 完成后直接读 `latest_mission_->task_validity`
 
 ### Step 4.1: Create SafetyConcernEvent.msg
 
@@ -879,69 +919,58 @@ colcon build --packages-select l3_msgs
 
 ---
 
-### Step 4.2: Add M3 mission_state subscriber to M4
+### Step 4.2: 读取 M3 task_validity（利用已有 mission_goal 订阅）
 
-M4 behavior_arbiter_node.cpp needs to subscribe to `/l3/m3/mission_state` to gate IvP activation on task_validity.
+> **Phase 1.7-B 修正**：不需新增订阅。M4 已订阅 `/l3/m3/mission_goal`，
+> W3 完成后 `latest_mission_` 就含 `fsm_state` + `task_validity` 字段。
 
-In behavior_arbiter_node.cpp, add subscription setup (around line equivalent to setup_subscribers):
-
-```cpp
-// In setup_subscribers() equivalent:
-mission_state_sub_ = create_subscription<l3_msgs::msg::MissionState>(
-    "/l3/m3/mission_state",
-    rclcpp::QoS(10).reliable(),
-    [this](const l3_msgs::msg::MissionState::SharedPtr msg) {
-      on_mission_state(msg);
-    });
-```
-
-And callback:
+Add a helper to behavior_arbiter_node to extract M3 readiness from existing `latest_mission_`:
 
 ```cpp
-void BehaviorArbiterNode::on_mission_state(
-    const l3_msgs::msg::MissionState::SharedPtr msg) {
-  last_mission_state_ = msg;
-  RCLCPP_DEBUG(get_logger(), "[M4] M3 state=%d validity=%d",
-    msg->state, msg->task_validity);
+// In behavior_arbiter_node.hpp, add member:
+bool m3_active_latch_ = false;  // true once M3 has been ACTIVE (guards snapshot entry point)
+
+// Helper (can be inline or a private method):
+bool m3_is_active_and_valid() const {
+    if (!mission_received_ || !latest_mission_) return false;
+    // fsm_state field added by W3: FSM_ACTIVE=4
+    const bool fsm_active = (latest_mission_->fsm_state ==
+        l3_msgs::msg::MissionGoal::FSM_ACTIVE);
+    const bool validity_valid = (latest_mission_->task_validity ==
+        l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID);
+    return fsm_active && validity_valid;
 }
 ```
 
-Add member variables to header:
-```cpp
-std::shared_ptr<l3_msgs::msg::MissionState> last_mission_state_;
-```
-
-- [ ] **Step 4.2a:** Add mission_state_sub_ member to behavior_arbiter_node.hpp
-- [ ] **Step 4.2b:** Add on_mission_state callback
-- [ ] **Step 4.2c:** Create subscription in setup phase
+- [ ] **Step 4.2a:** Add `m3_active_latch_` bool + `m3_is_active_and_valid()` helper to hpp
 
 ---
 
-### Step 4.3: Gate IvP activation on M3 task_validity
+### Step 4.3: Gate IvP activation on M3 task_validity (via mission_goal)
 
-Modify M4 core logic (ivp_solver or behavior_arbiter_node.cpp main control loop) to check:
+Modify `arbitration_timer_callback()` in `behavior_arbiter_node.cpp` at the precondition check block (~L138-L157) to also check M3 readiness via the **already available** `latest_mission_` (which now has `task_validity` and `fsm_state` added by W3):
 
 ```cpp
-// Before calling IvP solver:
-bool m3_ready = (last_mission_state_ && 
-    last_mission_state_->state == MissionState::Active &&
-    last_mission_state_->task_validity == TaskValidity::Valid);
+// After the existing "R3 fix" mission_available check (L141-L157),
+// add M3 fsm_state gate:
+bool m3_task_valid = mission_received_ && latest_mission_ &&
+    (latest_mission_->fsm_state ==
+         l3_msgs::msg::MissionGoal::FSM_ACTIVE) &&
+    (latest_mission_->task_validity ==
+         l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID);
 
-if (!m3_ready) {
-  // Emit neutral behavior: IDLE
-  auto plan = l3_msgs::msg::BehaviorPlan();
-  plan.behavior = BehaviorPlan::BEHAVIOR_IDLE;
-  plan.heading_min_deg = 0.0;
-  plan.heading_max_deg = 360.0;
-  plan.rationale = "[M4] M3 not ready (validity=" + std::to_string(last_mission_state_->task_validity) + ")";
-  behavior_plan_pub_->publish(plan);
-  return;
+// Track whether M3 has ever been ACTIVE (for snapshot entry point Q2-A):
+if (!m3_active_latch_ && m3_task_valid) {
+    m3_active_latch_ = true;
+    RCLCPP_INFO(get_logger(), "[M4] M3 first ACTIVE+VALID: enabling IvP + snapshot guard");
 }
 
-// Otherwise proceed with normal IvP solve...
+// If M3 not ready, use existing failsafe TRANSIT (no change to existing path)
+// The existing !mission_available path already handles this.
+// m3_task_valid is only needed for the SNAPSHOT guard (Step 4.5).
 ```
 
-- [ ] **Step 4.3a:** Modify behavior_arbiter main control flow to gate IvP on M3 readiness
+- [ ] **Step 4.3a:** Add `m3_task_valid` + `m3_active_latch_` tracking to `arbitration_timer_callback()`
 
 ---
 
@@ -965,59 +994,79 @@ rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr concern_pub_;
 
 ---
 
-### Step 4.5: Implement fallback snapshot logic in M4
+### Step 4.5: Implement fallback snapshot logic in M4 (behavior_arbiter_node.cpp L219-L256)
 
-When IvP returns infeasible AND M3 is in ACTIVE state with valid task:
+This replaces the existing **geometric starboard fallback** (L219-L256) with an **absolute snapshot** version.
+Snapshot entry condition: **Q2-A** — M3 has been ACTIVE (`m3_active_latch_==true`) AND this is the first IvP infeasible.
+
+**Replace lines 219-256 in behavior_arbiter_node.cpp:**
 
 ```cpp
-// When IvP solver fails to find feasible solution:
-if (!ivp_result.feasible && m3_ready && state_machine_->current() == MissionState::Active) {
-  // First infeasibility: snapshot current heading
-  if (!fallback_anchor_set_) {
-    fallback_anchor_hdg = last_world_state_->own_ship.heading_rad;
-    fallback_anchor_set_ = true;
-    RCLCPP_WARN(get_logger(), "[M4] IvP infeasible, anchoring to %.1f°",
-      fallback_anchor_hdg * 180.0 / M_PI);
-  }
-  
-  // Emit SafetyConcernEvent to M7
-  auto concern = l3_msgs::msg::SafetyConcernEvent();
-  concern.stamp = now();
-  concern.concern_type = SafetyConcernEvent::CONCERN_IVP_INFEASIBLE;
-  concern.anchor_hdg = fallback_anchor_hdg * 180.0 / M_PI;
-  concern.suggested_action = "turn_starboard_30deg_absolute";
-  concern.severity = 0.7f;
-  concern_pub_->publish(concern);
-  
-  // Output absolute window (NOT relative to own_heading):
-  auto plan = l3_msgs::msg::BehaviorPlan();
-  plan.heading_min_deg = concern.anchor_hdg;
-  plan.heading_max_deg = concern.anchor_hdg + 30.0f;
-  plan.fallback_anchor_hdg = concern.anchor_hdg;
-  plan.rationale = "[M4] Fallback: IvP infeasible, absolute window [" +
-                   std::to_string(static_cast<int>(plan.heading_min_deg)) + "°, " +
-                   std::to_string(static_cast<int>(plan.heading_max_deg)) + "°]";
-  behavior_plan_pub_->publish(plan);
-}
+      if (starboard_dev_deg > 0.0) {
+        // Q2-A snapshot: only latch AFTER M3 has been ACTIVE at least once.
+        // This ensures fallback_anchor_hdg_ captures a meaningful mission heading,
+        // not the vessel's initial startup heading. (Research: MOOS-IvP BHV_AvdColregs
+        // only activates when MODE==ACTIVE; same precondition applies here.)
+        if (m3_active_latch_ && !fallback_anchor_set_) {
+          fallback_anchor_hdg_ = own_hdg;  // snapshot current heading (degrees)
+          fallback_anchor_set_ = true;
+          RCLCPP_WARN(get_logger(),
+            "[M4] IvP infeasible — anchoring to %.1f° (absolute, will not track own_hdg)",
+            fallback_anchor_hdg_);
+          publish_asdr_event("fallback_anchor_latched",
+            "{\"anchor_hdg_deg\":" + std::to_string(fallback_anchor_hdg_) + "}");
 
-// Release snapshot when M3 validity becomes Valid again:
-if (fallback_anchor_set_ && last_mission_state_->task_validity == TaskValidity::Valid) {
-  fallback_anchor_set_ = false;
-  RCLCPP_INFO(get_logger(), "[M4] Fallback released, resuming main path");
+          // Emit SafetyConcernEvent to M7 on first latch
+          l3_msgs::msg::SafetyConcernEvent concern;
+          concern.stamp = now();
+          concern.concern_type = l3_msgs::msg::SafetyConcernEvent::CONCERN_IVP_INFEASIBLE;
+          concern.anchor_hdg   = static_cast<float>(fallback_anchor_hdg_);
+          concern.suggested_action = "turn_starboard_30deg_absolute";
+          concern.severity = 0.7f;
+          concern_pub_->publish(concern);
+        }
+
+        // Use ABSOLUTE anchor (not own_hdg which drifts with the vessel).
+        // If anchor not set yet (M3 hasn't been ACTIVE), fall through to old relative logic.
+        const double effective_centre = fallback_anchor_set_
+            ? std::fmod(fallback_anchor_hdg_ + starboard_dev_deg + 360.0, 360.0)
+            : std::fmod(own_hdg + starboard_dev_deg + 360.0, 360.0);
+
+        h_min = std::fmod(effective_centre - 15.0 + 360.0, 360.0);
+        h_max = std::fmod(effective_centre + 15.0 + 360.0, 360.0);
+        confidence = fallback_anchor_set_ ? 0.55 : 0.45;
+        std::ostringstream r;
+        r << (fallback_anchor_set_ ? "IvP infeasible — geometric fallback ABSOLUTE "
+                                   : "IvP infeasible — geometric fallback relative ")
+          << "(anchor=" << (fallback_anchor_set_ ? fallback_anchor_hdg_ : own_hdg)
+          << "deg, dev=" << starboard_dev_deg
+          << "deg, window=" << h_min << "→" << h_max << ")";
+        rationale = r.str();
+      } else {
+```
+
+Release snapshot when M3 task_validity returns to VALID:
+
+```cpp
+// At the END of arbitration_timer_callback(), after publishing plan:
+// Release fallback anchor when M3 reports task_validity=VALID (main path resumed)
+if (fallback_anchor_set_ && m3_task_valid) {
+    fallback_anchor_set_ = false;
+    RCLCPP_INFO(get_logger(), "[M4] Fallback anchor released — M3 task_validity=VALID");
+    publish_asdr_event("fallback_anchor_released", "{}");
 }
 ```
 
-Member variables:
+Add member variables to behavior_arbiter_node.hpp:
 ```cpp
-bool fallback_anchor_set_ = false;
-float fallback_anchor_hdg = 0.0f;
+bool  fallback_anchor_set_  = false;
+double fallback_anchor_hdg_ = 0.0;   // degrees, absolute geo heading
+rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr concern_pub_;
 ```
 
-- [ ] **Step 4.5a:** Add fallback_anchor_set_ and fallback_anchor_hdg members
-- [ ] **Step 4.5b:** Implement snapshot on first IvP infeasibility
-- [ ] **Step 4.5c:** Emit SafetyConcernEvent to M7
-- [ ] **Step 4.5d:** Output absolute heading window (not relative)
-- [ ] **Step 4.5e:** Reset snapshot on M3 validity return
+- [ ] **Step 4.5a:** Add `fallback_anchor_set_`, `fallback_anchor_hdg_`, `concern_pub_` to hpp
+- [ ] **Step 4.5b:** Replace L219-L254 in behavior_arbiter_node.cpp with absolute-snapshot version
+- [ ] **Step 4.5c:** Add release logic at end of `arbitration_timer_callback()`
 
 **Run:**
 ```bash
@@ -1034,14 +1083,14 @@ colcon build --packages-select m4_behavior_arbiter l3_msgs
 **Run:**
 ```bash
 docker compose up -d sil-nodes && sleep 20 && \
-docker exec sil-nodes bash -c '
+docker exec mass-l3-tacticallayer-sil-nodes-1 bash -c '
 source /opt/ros/humble/setup.bash && \
 source /opt/ws/install/setup.bash && \
 timeout 5 ros2 topic echo /l3/safety/concern
 ' | head -20
 ```
 
-**Expected:** SafetyConcernEvent published with concern_type=1, anchor_hdg set to own_ship heading at infeasibility moment.
+**Expected:** SafetyConcernEvent published with `concern_type=1` (CONCERN_IVP_INFEASIBLE), `anchor_hdg` set to own_ship heading at the moment M3 first entered ACTIVE and IvP was infeasible. `rationale` field in `/l3/m4/behavior_plan` contains "ABSOLUTE" (not "relative").
 
 - [ ] **Commit:**
 ```

@@ -161,15 +161,19 @@ mock_l2:
 
 **问题**：v1.1.3 §7 锁定 M3 ACTIVE 后内部应有 `task_validity_pending` 子状态，对外发布让 M4 决定是否激活仲裁。当前缺。
 
-**修改**：
+**修改（Phase 1.7-B 修正后）**：
 - `mission_state_machine.cpp` 引入子状态枚举 `TaskValidity ∈ {pending, valid, invalid, replanning}`
 - ACTIVE 状态下，子状态在 `L1 task + L2 route + ENC check + autonomy level` 4 条件全过 → `valid`
-- 任意失败 → `invalid` + `rationale` 字段说明原因
-- `MissionState.msg` 加 `task_validity` 字段
+- 任意失败 → `invalid` + rationale 字段说明原因
+- **发布通道：扩展 `MissionGoal.msg`**（而非 `MissionState.msg`——该 msg 是水深/锚泊上下文）
+  - 新增字段：`uint8 fsm_state`（FSM_INIT/IDLE/.../ACTIVE）+ `uint8 task_validity`（PENDING/VALID/INVALID）
+  - schema_version: 120 → 121
+  - `MissionState.msg` 保持不变
 
 **M4 联动**：
-- M4 订阅 `/l3/m3/mission_state`，当 `task_validity != valid` 时 IvP 仲裁不激活（输出 `behavior_plan.behavior=IDLE` + `rationale="m3 not ready"`）
-- M4 不再 emit "IvP infeasible" 自循环 fallback
+- M4 已订阅 `/l3/m3/mission_goal`，直接读 `mission_goal.task_validity` 和 `mission_goal.fsm_state`
+- 当 `fsm_state != FSM_ACTIVE || task_validity != VALID` 时，M4 维持 Failsafe TRANSIT（现有逻辑已覆盖）
+- M4 不再需要新增 `/l3/m3/mission_state` 订阅
 
 **Effort**: M (0.6pw)
 
@@ -179,22 +183,24 @@ mock_l2:
 
 **问题**：当前 M4 IvP infeasible 时输出相对窗口 `[own_hdg, own_hdg+30°]`，正反馈导致 ship 持续右转累加。设计意图是 emit `SafetyConcernEvent` 给 M7 仲裁。
 
-**修改**：
-- 删除 M4 当前的 "geometric starboard fallback" 自循环路径
-- 改为：IvP infeasible 时
-  1. 首次触发瞬间 snapshot 当前 own_heading 为 `fallback_anchor_hdg`
-  2. emit `SafetyConcernEvent{ concern: ivp_infeasible, anchor_hdg: fallback_anchor_hdg, suggested_action: starboard_30deg_absolute }` 给 M7
-  3. behavior_plan 输出 `heading_window = [fallback_anchor_hdg, fallback_anchor_hdg + 30°]` **绝对值，不再更新**
+**修改（Phase 1.7-B 修正后）**：
+- 修改目标：`behavior_arbiter_node.cpp` L219-L254（IvP infeasible 内联分支，非 fallback_policy.py——该文件在 M5）
+- 删除 M4 当前的 "geometric starboard fallback" **相对航向**自循环路径
+- 改为：IvP infeasible 时（且 `m3_active_latch_==true`，即 M3 已至少 ACTIVE 过一次）
+  1. 首次触发瞬间 snapshot 当前 own_heading_deg 为 `fallback_anchor_hdg_`（Q2-A 时机）
+  2. emit `SafetyConcernEvent{ concern: CONCERN_IVP_INFEASIBLE, anchor_hdg, suggested_action: starboard_30deg_absolute }` 给 M7
+  3. behavior_plan 输出 `heading_window = [fallback_anchor_hdg_ + starboard_dev, ...]` **绝对值，不再跟 own_hdg 更新**
   4. M7 收到 SafetyConcernEvent 后：若安全级别 OK 则放行 M4 absolute window 给 M5；若不 OK 则 emit MRM 命令 override
-- 释放条件：M3 task_validity 切回 valid → 清 snapshot → 重新走主路径
+- 释放条件：`mission_goal.task_validity == VALID`（M3 task_validity 切回 valid）→ 清 snapshot → 重新走主路径
+- M4 不新增 mission_state 订阅（通过已有 mission_goal.task_validity 判断）
 
 **输出契约**：
 ```
 M4: /l3/m4/behavior_plan
   fields: heading_min_deg, heading_max_deg (absolute when fallback),
-          fallback_anchor_hdg (optional), rationale
+          rationale (含 "ABSOLUTE" 标记)
   rate: 4Hz
-M4→M7: /l3/safety/concern (sil_proto/SafetyConcernEvent)
+M4→M7: /l3/safety/concern (l3_msgs/SafetyConcernEvent)
   fields: concern_type, anchor_hdg, suggested_action, severity, stamp
 ```
 
