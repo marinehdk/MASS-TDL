@@ -42,6 +42,8 @@ class M3DualSubTest : public ::testing::Test {
         rclcpp::Parameter("l1_watchdog.warning_s",   2.0),
         rclcpp::Parameter("l1_watchdog.timeout_s",   4.0),
         rclcpp::Parameter("odd.degraded_buffer_s",   0.1),
+        rclcpp::Parameter("l1_watchdog.bypass",      false),
+        rclcpp::Parameter("replan.cooldown_s",       0.0),
     });
     node_   = std::make_shared<MissionManagerNode>(opts);
     helper_ = std::make_shared<rclcpp::Node>("m3_test_helper");

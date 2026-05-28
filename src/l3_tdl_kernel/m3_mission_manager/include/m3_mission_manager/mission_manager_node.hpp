@@ -113,6 +113,9 @@ class MissionManagerNode : public rclcpp::Node {
   std::optional<std::chrono::steady_clock::time_point> last_voyage_task_time_;
   double                                               l1_timeout_s_ = 30.0;
   double                                               l2_timeout_s_ = 5.0;
+  bool l1_watchdog_bypass_ = true;
+  double replan_cooldown_s_ = 10.0;
+  std::chrono::steady_clock::time_point last_replan_time_;
 
   // Logger
   std::shared_ptr<spdlog::logger> logger_;

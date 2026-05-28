@@ -28,12 +28,20 @@ namespace mass_l3::m3 {
 MissionManagerNode::MissionManagerNode(const rclcpp::NodeOptions& options)
     : Node("m3_mission_manager", options)
 {
+  declare_parameter("l1_watchdog.bypass", true);
+  declare_parameter("replan.cooldown_s", 10.0);
+
   declare_parameters();
   create_components();
   setup_logger();
   setup_publishers();
   setup_subscribers();
   setup_timers();
+
+  l1_watchdog_bypass_ = get_parameter("l1_watchdog.bypass").as_bool();
+  replan_cooldown_s_ = get_parameter("replan.cooldown_s").as_double();
+  // Initialize last_replan_time_ to a point in the far past (e.g. 1 hour ago) to allow immediate replanning on first call
+  last_replan_time_ = std::chrono::steady_clock::now() - std::chrono::hours(1);
 
   // Transition state machine from Init to Idle now that all subscribers/timers
   // are ready. Per spec §3.5: Init→Idle on "节点初始化完成、subscribers 就绪".
@@ -556,6 +564,14 @@ void MissionManagerNode::on_tracking_error(
 
 void MissionManagerNode::evaluate_l1_watchdog()
 {
+  if (l1_watchdog_bypass_) {
+    if (last_l1_watchdog_status_ != L1WatchdogStatus::OK) {
+      last_l1_watchdog_status_ = L1WatchdogStatus::OK;
+      publish_mission_goal();
+    }
+    return;
+  }
+
   if (state_machine_->current() != MissionState::Active) {
     return;
   }
@@ -844,12 +860,24 @@ void MissionManagerNode::check_and_trigger_replan(
     double planned_eta_s)
 {
   const auto now = std::chrono::steady_clock::now();
+
+  // Apply cooldown suppression to avoid high-frequency replanning loops
+  const auto elapsed_cooldown = std::chrono::duration_cast<std::chrono::duration<double>>(
+      now - last_replan_time_).count();
+  if (elapsed_cooldown < replan_cooldown_s_) {
+    RCLCPP_INFO(get_logger(), "[M3] Replan request suppressed due to cooling-down (%.1fs < %.1fs)",
+                elapsed_cooldown, replan_cooldown_s_);
+    return;
+  }
+
   const auto decision = replan_trigger_->evaluate(
       odd, current_eta_s, planned_eta_s, replan_attempt_count_, now);
 
   if (!decision.should_trigger) {
     return;
   }
+
+  last_replan_time_ = now; // update last replan timestamp
 
   RCLCPP_WARN(get_logger(), "Replan triggered: reason=%s deadline=%.1fs",
               decision.rationale.c_str(), decision.deadline_s);
