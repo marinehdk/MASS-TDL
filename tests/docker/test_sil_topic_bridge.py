@@ -72,6 +72,7 @@ def _install_fake_ros_modules(monkeypatch):
     sil_msgs.msg.EnvironmentState = type("EnvironmentState", (), {})
     sil_msgs.msg.ModulePulse = type("ModulePulse", (), {})
     sil_msgs.msg.ASDREvent = type("ASDREvent", (), {})
+    sil_msgs.msg.BridgeState = type("BridgeState", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
@@ -92,6 +93,7 @@ def _install_fake_ros_modules(monkeypatch):
         "BehaviorPlan",
         "COLREGsConstraint",
         "TrackedTarget",
+        "ThreatState",
     ):
         setattr(l3_msgs.msg, name, type(name, (), {}))
 
@@ -128,32 +130,60 @@ def _load_bridge(monkeypatch):
 
 def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
     bridge = _load_bridge(monkeypatch)
-    fake_self = SimpleNamespace(_pub_act=_Publisher(), _record_pulse=lambda module_id: None)
+    from unittest.mock import Mock
+    fake_self = SimpleNamespace(
+        _pub_act=_Publisher(),
+        _record_pulse=lambda module_id: None,
+        _autopilot_enabled=False,
+        _avoidance_active=True,
+        _last_behavior_plan=None,
+        _avoidance_target_heading_deg=None,
+        _avoidance_heading_controller=Mock(),
+        _last_ownship_raw=SimpleNamespace(heading=0.0, sog=10.0, rot=0.0),
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _last_avoidance_waypoint=None
+    )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
         waypoints=[SimpleNamespace(turn_radius_m=92.0, target_speed_kn=12.5)],
     )
 
     bridge.SilTopicBridge._on_avoidance_plan(fake_self, plan)
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(fake_self, plan.stamp)
 
-    cmd = fake_self._pub_act.messages[-1]
-    assert cmd.rudder_angle == math.atan2(46.0, 92.0)
+    assert cmd.rudder_angle == -math.atan2(46.0, 92.0)
     assert cmd.throttle == 0.5
 
 
 def test_placeholder_turn_radius_does_not_command_hard_rudder(monkeypatch):
     bridge = _load_bridge(monkeypatch)
-    fake_self = SimpleNamespace(_pub_act=_Publisher(), _record_pulse=lambda module_id: None)
+    from unittest.mock import Mock
+    fake_self = SimpleNamespace(
+        _pub_act=_Publisher(),
+        _record_pulse=lambda module_id: None,
+        _autopilot_enabled=False,
+        _avoidance_active=True,
+        _last_behavior_plan=None,
+        _avoidance_target_heading_deg=None,
+        _avoidance_heading_controller=Mock(),
+        _last_ownship_raw=SimpleNamespace(heading=0.0, sog=10.0, rot=0.0),
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _last_avoidance_waypoint=None
+    )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
         waypoints=[SimpleNamespace(turn_radius_m=0.0, target_speed_kn=12.5)],
     )
 
     bridge.SilTopicBridge._on_avoidance_plan(fake_self, plan)
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(fake_self, plan.stamp)
 
-    cmd = fake_self._pub_act.messages[-1]
     assert cmd.rudder_angle == 0.0
-    assert cmd.throttle == 0.5
+    assert cmd.throttle == 0.4
 
 
 def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):

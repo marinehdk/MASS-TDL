@@ -24,6 +24,7 @@ set(msg_files
   "msg/ScoringRow.msg"
   "msg/ASDREvent.msg"
   "msg/LifecycleStatus.msg"
+  "msg/BridgeState.msg"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
