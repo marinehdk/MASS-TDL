@@ -703,6 +703,7 @@ class SilTopicBridge(Node):
             current_rot_deg_s = 0.0
 
         heading_error_deg = self._target_heading_deg - current_heading_deg
+        heading_error_deg = (heading_error_deg + 180.0) % 360.0 - 180.0
         speed_error_kn = self._target_sog_kn - current_sog_kn
 
         dt = 0.5
