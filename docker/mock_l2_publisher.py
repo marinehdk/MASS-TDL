@@ -434,14 +434,10 @@ class MockL2Publisher(Node):
         if len(self._yaml_waypoints) < 2:
             return self._yaml_waypoints, self._yaml_speeds_kn
 
-        ref_lat = self._yaml_waypoints[0][0]
-        ref_lon = self._yaml_waypoints[0][1]
-
-        dlat = self._ownship_lat - ref_lat
-        dlon = self._ownship_lon - ref_lon
-
-        shifted = [(wp[0] + dlat, wp[1] + dlon) for wp in self._yaml_waypoints[:-1]]
-        shifted.append(self._yaml_waypoints[-1])
+        # Bind departure to current ownship lat/lon to pass M3 departure check (<2km)
+        shifted = [(self._ownship_lat, self._ownship_lon)]
+        # Keep all subsequent nominal waypoints absolutely static in GEO WGS84
+        shifted.extend(self._yaml_waypoints[1:])
         return shifted, self._yaml_speeds_kn
 
     def _on_route_timer(self):
