@@ -133,9 +133,9 @@ function updatePlaqueDOM(
   vesselId: string,
   label: string,
   hdg: string,
-  cog: string,
+  rud: string,
   sog: string,
-  rot: string,
+  thr: string,
   headingDeg: number,
   markerSize: number   // DOM element size in px: 30 for own ship, 24 for targets
 ) {
@@ -239,16 +239,16 @@ function updatePlaqueDOM(
           <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${hdg}°</div>
         </div>
         <div>
-          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">COG</div>
-          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${cog}°</div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">RUD</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${rud}</div>
         </div>
         <div>
           <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">SOG</div>
           <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${sog}<span style="font-size:8px;font-weight:normal;color:#8A9AAD;"> kn</span></div>
         </div>
         <div>
-          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">ROT</div>
-          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${rot}<span style="font-size:8px;font-weight:normal;color:#8A9AAD;">°/m</span></div>
+          <div style="font-size:8px;color:#8A9AAD;line-height:1;margin-bottom:1px;">THR</div>
+          <div style="font-size:11px;color:#fff;font-weight:bold;line-height:1.1;">${thr}</div>
         </div>
       </div>
     `;
@@ -755,9 +755,30 @@ export function SilMapView({
     // Plaque update
     const isSelected = selectedVesselId === 'ownship';
     const hdgVal = (((ownShip.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
-    const cogVal = (((ownShip.kinematics?.cog ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
     const sogVal = ((ownShip.kinematics?.sog ?? 0) * 1.944).toFixed(1);
-    const rotVal = ((ownShip.kinematics?.rot ?? 0) * 180 / Math.PI * 60).toFixed(1);
+
+    // Compute actual Rudder in degrees and format with Port (L) / Starboard (R)
+    const rudderRad = (ownShip as any).controlState?.rudderAngle ?? 0;
+    const rudderDeg = rudderRad * 180 / Math.PI;
+    let rudVal = '0.0°';
+    if (rudderDeg > 0.1) {
+      rudVal = `${rudderDeg.toFixed(1)}° R`;
+    } else if (rudderDeg < -0.1) {
+      rudVal = `${Math.abs(rudderDeg).toFixed(1)}° L`;
+    }
+
+    // Compute Thrust/Throttle level in Ahead 1/2/3, Astern 1/2/3, or STOP
+    const throttle = (ownShip as any).controlState?.throttle ?? 0;
+    let thrVal = 'STOP';
+    if (throttle > 0) {
+      if (throttle <= 0.35) thrVal = 'AH 1';
+      else if (throttle <= 0.7) thrVal = 'AH 2';
+      else thrVal = 'AH 3';
+    } else if (throttle < 0) {
+      if (throttle >= -0.35) thrVal = 'AS 1';
+      else if (throttle >= -0.7) thrVal = 'AS 2';
+      else thrVal = 'AS 3';
+    }
 
     updatePlaqueDOM(
       ownMarker.current.getElement() as HTMLDivElement,
@@ -765,9 +786,9 @@ export function SilMapView({
       'ownship',
       'OWN',
       hdgVal,
-      cogVal,
+      rudVal,
       sogVal,
-      rotVal,
+      thrVal,
       hdgDeg,
       30   // own-ship marker is 30 px
     );
@@ -1131,9 +1152,11 @@ export function SilMapView({
         // Plaque update
         const isSelected = selectedVesselId === id;
         const hdgVal = (((t.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
-        const cogVal = (((t.kinematics?.cog ?? 0) * 180 / Math.PI + 360) % 360).toFixed(0);
         const sogVal = ((t.kinematics?.sog ?? 0) * 1.944).toFixed(1);
-        const rotVal = ((t.kinematics?.rot ?? 0) * 180 / Math.PI * 60).toFixed(1);
+
+        // Target ships do not telemetry rudder angle or engine thrust states
+        const rudVal = '—';
+        const thrVal = '—';
 
         updatePlaqueDOM(
           m.getElement() as HTMLDivElement,
@@ -1141,9 +1164,9 @@ export function SilMapView({
           id,
           t.mmsi != null ? String(t.mmsi).slice(-3) : id.slice(-3),
           hdgVal,
-          cogVal,
+          rudVal,
           sogVal,
-          rotVal,
+          thrVal,
           hdgDeg,
           24   // target marker is 24 px
         );
