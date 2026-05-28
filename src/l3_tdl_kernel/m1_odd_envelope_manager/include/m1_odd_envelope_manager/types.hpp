@@ -305,6 +305,9 @@ struct ParameterSet {
   // Environment fallback (scenario YAML)
   double environment_water_depth_m{0.0};
 
+  // W9: M3 ACTIVE stale watchdog
+  double m3_route_stale_threshold_s{15.0};
+
   // System health
   bool redundancy_enabled{false};
 

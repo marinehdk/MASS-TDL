@@ -9,11 +9,13 @@
 #include <spdlog/spdlog.h>
 
 #include "l3_msgs/msg/asdr_record.hpp"
-#include "l3_msgs/msg/mode_cmd.hpp"
+#include "l3_msgs/msg/mission_goal.hpp"
 #include "l3_msgs/msg/mission_state.hpp"
+#include "l3_msgs/msg/mode_cmd.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/world_state.hpp"
@@ -56,6 +58,12 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   FRIEND_TEST(ScoringInputsDegradedTest, DiagnosticsOverridesDefaults);
   FRIEND_TEST(ScoringInputsDegradedTest, EnvStateOverridesDefaults);
   FRIEND_TEST(ScoringInputsDegradedTest, OwnShipOverridesDefaults);
+  FRIEND_TEST(M3ActiveWatchdogTest, WatchdogIncrementsEachTick);
+  FRIEND_TEST(M3ActiveWatchdogTest, WatchdogResetsOnTaskValidityValid);
+  FRIEND_TEST(M3ActiveWatchdogTest, WatchdogEmitsSafetyConcernAtThreshold);
+  FRIEND_TEST(M3ActiveWatchdogTest, WatchdogStopsEmittingAfterReset);
+  FRIEND_TEST(M3ActiveWatchdogTest, NonActiveStateDoesNotTriggerWatchdog);
+  FRIEND_TEST(M3ActiveWatchdogTest, SafetyConcernPublishedWhenThresholdExceeded);
   // ---------------------------------------------------------------------------
   // Initialization (not on control path; noexcept not required)
   // ---------------------------------------------------------------------------
@@ -92,6 +100,8 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
       const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) noexcept;
   void on_mission_state(
       const l3_msgs::msg::MissionState::SharedPtr msg) noexcept;
+  void on_mission_goal(
+      const l3_msgs::msg::MissionGoal::SharedPtr msg) noexcept;
 
   // ---------------------------------------------------------------------------
   // Timer callbacks (all noexcept per PATH-S)
@@ -156,6 +166,7 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   l3_msgs::msg::SafetyAlert::SharedPtr last_safety_alert_;
   diagnostic_msgs::msg::DiagnosticArray::SharedPtr last_diagnostics_;
   l3_msgs::msg::MissionState::SharedPtr last_mission_state_;
+  l3_msgs::msg::MissionGoal::SharedPtr last_mission_goal_;
   rclcpp::Time last_world_state_received_;
   rclcpp::Time last_env_state_received_;
   rclcpp::Time last_own_ship_received_;
@@ -195,6 +206,10 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   bool has_prev_m7_heartbeat_{false};
   double mttf_rolling_avg_s_{0.0};
 
+  // W9: M3 ACTIVE stale watchdog
+  double m3_active_duration_s_{0.0};
+  bool watchdog_concern_emitted_{false};
+
   // ---------------------------------------------------------------------------
   // Publishers
   // ---------------------------------------------------------------------------
@@ -203,6 +218,7 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr asdr_pub_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr sat_pub_;
   rclcpp::Publisher<l3_msgs::msg::ToRRequest>::SharedPtr tor_request_pub_;
+  rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr safety_concern_pub_;
 
   // ---------------------------------------------------------------------------
   // Subscribers
@@ -220,6 +236,7 @@ class OddEnvelopeManagerNode final : public rclcpp::Node {
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr world_state_sub_;
   rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
   rclcpp::Subscription<l3_msgs::msg::MissionState>::SharedPtr mission_state_sub_;
+  rclcpp::Subscription<l3_msgs::msg::MissionGoal>::SharedPtr mission_goal_sub_;
 
   // ---------------------------------------------------------------------------
   // Timers

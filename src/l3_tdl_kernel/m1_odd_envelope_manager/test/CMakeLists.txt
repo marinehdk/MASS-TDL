@@ -22,4 +22,8 @@ if(BUILD_TESTING)
   # ScoringInputs degraded defaults test (DEMO-1 Task 3)
   ament_add_gtest(test_scoring_inputs_degraded test_scoring_inputs_degraded.cpp)
   target_link_libraries(test_scoring_inputs_degraded ${PROJECT_NAME}_lib)
+
+  # W9: M3 ACTIVE stale watchdog tests
+  ament_add_gtest(test_m3_active_watchdog test_m3_active_watchdog.cpp)
+  target_link_libraries(test_m3_active_watchdog ${PROJECT_NAME}_lib)
 endif()

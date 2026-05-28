@@ -51,6 +51,7 @@ ParameterSet defaults() noexcept {
   p.max_anchor_depth_m = 50.0;
   p.max_heave_to_sea_state_hs = 4.0;
   p.max_heave_to_wind_kn = 40.0;
+  p.m3_route_stale_threshold_s = 15.0;
   return p;
 }
 
@@ -201,6 +202,10 @@ ParameterSet load_parameters(const std::string& yaml_path) noexcept {
       p.redundancy_enabled = kRed.as<bool>(false);
     }
   }
+
+  // W9: M3 ACTIVE stale watchdog threshold
+  p.m3_route_stale_threshold_s =
+      read_double(config, "m3_route_stale_threshold_s", p.m3_route_stale_threshold_s);
 
   return p;
 }

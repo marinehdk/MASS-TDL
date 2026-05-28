@@ -28,6 +28,7 @@
 #include "l3_external_msgs/msg/reflex_activation_notification.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "std_msgs/msg/header.hpp"
@@ -51,7 +52,7 @@ private:
   rclcpp::CallbackGroup::SharedPtr cb_group_main_;    // MutuallyExclusive
   rclcpp::CallbackGroup::SharedPtr cb_group_events_;  // Reentrant
 
-  // Subscriptions (9 total)
+  // Subscriptions (10 total)
   rclcpp::Subscription<l3_msgs::msg::ODDState>::SharedPtr sub_odd_;
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr sub_world_;
   rclcpp::Subscription<l3_msgs::msg::BehaviorPlan>::SharedPtr sub_behavior_;
@@ -61,6 +62,7 @@ private:
   rclcpp::Subscription<l3_external_msgs::msg::CheckerVetoNotification>::SharedPtr sub_veto_;
   rclcpp::Subscription<l3_external_msgs::msg::ReflexActivationNotification>::SharedPtr sub_reflex_;
   rclcpp::Subscription<l3_external_msgs::msg::OverrideActiveSignal>::SharedPtr sub_override_signal_;
+  rclcpp::Subscription<l3_msgs::msg::SafetyConcernEvent>::SharedPtr sub_safety_concern_;
 
   // Publishers (4 total)
   rclcpp::Publisher<l3_msgs::msg::SafetyAlert>::SharedPtr pub_alert_;
@@ -119,6 +121,7 @@ private:
   void on_checker_veto(l3_external_msgs::msg::CheckerVetoNotification::ConstSharedPtr const& msg) noexcept;
   void on_reflex_activation(l3_external_msgs::msg::ReflexActivationNotification::ConstSharedPtr const& msg) noexcept;
   void on_override_signal(l3_external_msgs::msg::OverrideActiveSignal::ConstSharedPtr const& msg) noexcept;
+  void on_safety_concern(l3_msgs::msg::SafetyConcernEvent::ConstSharedPtr const& msg) noexcept;
 
   // Timer callbacks
   void on_main_loop_tick() noexcept;

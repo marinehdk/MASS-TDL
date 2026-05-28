@@ -76,3 +76,6 @@ environment:
 # [TBD-HAZID]: re-evaluate for real hardware configuration.
 system_health:
   redundancy_enabled: true    # DEMO-1: set true so T_sys_health does not cap TDL at 30s
+
+# W9: M3 ACTIVE stale monitoring
+m3_route_stale_threshold_s: 15.0

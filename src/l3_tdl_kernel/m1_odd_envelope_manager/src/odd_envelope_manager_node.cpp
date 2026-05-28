@@ -43,11 +43,13 @@
 #include "rclcpp/qos.hpp"
 #include "rclcpp/subscription_options.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
-#include "l3_msgs/msg/mode_cmd.hpp"
+#include "l3_msgs/msg/mission_goal.hpp"
 #include "l3_msgs/msg/mission_state.hpp"
+#include "l3_msgs/msg/mode_cmd.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/operator_state.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/to_r_request.hpp"
 #include "l3_msgs/msg/world_state.hpp"
@@ -97,6 +99,8 @@ constexpr const char* kTopicASDR             = "/l3/asdr/record";
 constexpr const char* kTopicSAT              = "/l3/sat/data";
 constexpr const char* kTopicDiagnostics      = "/l3/diagnostics";
 constexpr const char* kTopicMissionState     = "/l3/m3/mission_state";
+constexpr const char* kTopicMissionGoal      = "/l3/m3/mission_goal";
+constexpr const char* kTopicSafetyConcern    = "/l3/safety/concern";
 
 /// Map SafetyAlert MRM string to MrcType.
 inline MrcType mrm_string_to_type(const std::string& mrm) noexcept {
@@ -359,6 +363,9 @@ void OddEnvelopeManagerNode::initialize_publishers() {
 
   tor_request_pub_ = create_publisher<l3_msgs::msg::ToRRequest>(
       kTopicToRRequest, QoS(KeepLast(10)).reliable().transient_local());
+
+  safety_concern_pub_ = create_publisher<l3_msgs::msg::SafetyConcernEvent>(
+      kTopicSafetyConcern, QoS(KeepLast(10)).reliable());
 }
 
 // NOLINTNEXTLINE(readability-function-size)
@@ -453,6 +460,13 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
       QoS(KeepLast(5)).reliable().transient_local(),
       [this](const l3_msgs::msg::MissionState::SharedPtr kMsg) {
         on_mission_state(kMsg);
+      });
+
+  mission_goal_sub_ = create_subscription<l3_msgs::msg::MissionGoal>(
+      kTopicMissionGoal,
+      QoS(KeepLast(10)).reliable(),
+      [this](const l3_msgs::msg::MissionGoal::SharedPtr kMsg) {
+        on_mission_goal(kMsg);
       });
 }
 
@@ -564,6 +578,21 @@ void OddEnvelopeManagerNode::on_diagnostics(
 void OddEnvelopeManagerNode::on_mission_state(
     const l3_msgs::msg::MissionState::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
   last_mission_state_ = kMsg;
+}
+
+void OddEnvelopeManagerNode::on_mission_goal(
+    const l3_msgs::msg::MissionGoal::SharedPtr kMsg) noexcept {  // NOLINT(performance-unnecessary-value-param)
+  last_mission_goal_ = kMsg;
+
+  if (kMsg->task_validity == l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID) {
+    if (m3_active_duration_s_ > 0.0 || watchdog_concern_emitted_) {
+      RCLCPP_INFO(get_logger(),
+        "[M1 WATCHDOG] Reset — M3 task_validity=VALID (was %.1fs)",
+        m3_active_duration_s_);
+    }
+    m3_active_duration_s_ = 0.0;
+    watchdog_concern_emitted_ = false;
+  }
 }
 
 // ===========================================================================
@@ -774,6 +803,53 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
   // D2.1: Operator-state-aware TMR from ToR matrix
   const TmrTdlPair kTmrtdl   = tmr_tdl_->compute(tmr_in, params_, current_operator_state_);
   last_tmr_tdl_               = kTmrtdl;
+
+  // W9: M3 ACTIVE stale watchdog (4Hz tick = 0.25s increment)
+  {
+    bool m3_active_and_not_valid = last_mission_goal_ &&
+        (last_mission_goal_->fsm_state == l3_msgs::msg::MissionGoal::FSM_ACTIVE) &&
+        (last_mission_goal_->task_validity != l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID);
+
+    if (m3_active_and_not_valid) {
+      m3_active_duration_s_ += kMainLoopPeriodS;
+
+      double threshold = params_.m3_route_stale_threshold_s;
+      if (m3_active_duration_s_ > threshold && !watchdog_concern_emitted_) {
+        watchdog_concern_emitted_ = true;
+
+        auto concern = l3_msgs::msg::SafetyConcernEvent{};
+        concern.stamp = this->now();
+        concern.concern_type = l3_msgs::msg::SafetyConcernEvent::CONCERN_ODD_DEGRADED;
+        concern.anchor_hdg = 0.0F;
+        concern.suggested_action = "M3_route_stale_watchdog";
+        concern.severity = 0.6F;
+        safety_concern_pub_->publish(concern);
+
+        RCLCPP_WARN(get_logger(),
+          "[M1 WATCHDOG] M3 ACTIVE but task_validity NOT valid for %.1fs "
+          "(>%.1fs threshold) — emitting SafetyConcern",
+          m3_active_duration_s_, threshold);
+
+        publish_asdr_record("m3_route_stale_watchdog",
+          "{\"category\":\"m3_route_stale\",\"duration_s\":" +
+          std::to_string(m3_active_duration_s_) + "}");
+      }
+    } else {
+      if (m3_active_duration_s_ > 0.0) {
+        m3_active_duration_s_ = 0.0;
+        watchdog_concern_emitted_ = false;
+      }
+    }
+  }
+
+  // W9: M3 still stale after concern emitted — log degraded-state persistence
+  if (watchdog_concern_emitted_ && last_mission_goal_ &&
+      last_mission_goal_->fsm_state == l3_msgs::msg::MissionGoal::FSM_ACTIVE &&
+      last_mission_goal_->task_validity != l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+      "[M1 WATCHDOG] M3 still stale (%.1fs), ODD should be degraded via safety_alert",
+      m3_active_duration_s_);
+  }
 
   // D2.1: M7 heartbeat watchdog
   const auto kHeartbeatAge = std::chrono::steady_clock::now() - last_m7_heartbeat_;

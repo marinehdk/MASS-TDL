@@ -18,6 +18,7 @@
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/reactive_override_cmd.hpp"
 #include "l3_msgs/msg/safety_alert.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "m7_safety_supervisor/arbitrator/alert_generator.hpp"
@@ -190,6 +191,13 @@ void SafetySupervisorNode::setup_event_subscriptions(
       on_override_signal(msg);
     },
     opts);
+
+  sub_safety_concern_ = create_subscription<l3_msgs::msg::SafetyConcernEvent>(
+    "/l3/safety/concern", qos_events,
+    [this](l3_msgs::msg::SafetyConcernEvent::ConstSharedPtr const& msg) {
+      on_safety_concern(msg);
+    },
+    opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +367,17 @@ void SafetySupervisorNode::on_override_signal(
   } else {
     resume_handler_->on_override_inactive(std::chrono::steady_clock::now());
     revert_from_override();
+  }
+}
+
+void SafetySupervisorNode::on_safety_concern(
+    l3_msgs::msg::SafetyConcernEvent::ConstSharedPtr const& msg) noexcept
+{
+  if (!msg) { return; }
+
+  if (msg->suggested_action == "M3_route_stale_watchdog") {
+    RCLCPP_WARN(get_logger(),
+      "[M7 SOTIF] M3 route stale watchdog: severity=%.2f", msg->severity);
   }
 }
 
