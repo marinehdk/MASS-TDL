@@ -1,0 +1,1 @@
+# Ignore this folder for colcon builds to avoid duplicate package name with sil_nodes/scenario_authoring

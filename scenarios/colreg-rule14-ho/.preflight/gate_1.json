@@ -1,0 +1,38 @@
+{
+  "gate_id": 1,
+  "gate_name": "System Readiness",
+  "timestamp_utc": "2026-05-29T09:55:41.328728Z",
+  "scenario_id": "colreg-rule14-ho",
+  "passed": false,
+  "checks": [
+    {
+      "item": "docker",
+      "status": "ok",
+      "detail": "docker compose: docker CLI not in PATH (running inside container \u2014 self-health assumed OK)"
+    },
+    {
+      "item": "ROS2",
+      "status": "fail",
+      "detail": "ROS2 DDS: ros2 node list returned empty \u2014 sil-nodes container not reachable"
+    },
+    {
+      "item": "foxglove_bridge:",
+      "status": "ok",
+      "detail": "foxglove_bridge: :8765 listening"
+    },
+    {
+      "item": "martin",
+      "status": "ok",
+      "detail": "martin tile server: :3000 listening"
+    },
+    {
+      "item": "telemetry",
+      "status": "ok",
+      "detail": "telemetry WS: WS state reported by frontend"
+    }
+  ],
+  "duration_ms": 341.6,
+  "rationale": "failures detected",
+  "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
+  "hazid_scenario_ref": null
+}

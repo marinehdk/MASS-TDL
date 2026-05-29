@@ -1,11 +1,13 @@
-import { useRef, useEffect, useState, memo } from 'react';
+import { useRef, useEffect, useState, memo, useMemo } from 'react';
 import { SilMapView } from '../map/SilMapView';
 import { SafetyDomainLayer } from '../map/SafetyDomainLayer';
 import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
-import { useTelemetryStore, useControlStore, useUIStore } from '../store';
-import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation } from '../api/silApi';
+import { useTelemetryStore, useControlStore, useUIStore, useScenarioStore } from '../store';
+import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation, useGetScenarioQuery } from '../api/silApi';
+import * as jsyaml from 'js-yaml';
+import { computeRangeNm } from './shared/navMath';
 import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
 import { DistanceScale } from '../map/DistanceScale';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
@@ -158,6 +160,81 @@ export function SimulationMonitor() {
   const isSat2Stale     = useTelemetryStore((s) => s.isSat2Stale);
   const isSat3Stale     = useTelemetryStore((s) => s.isSat3Stale);
   const isSotifMetricsStale = useTelemetryStore((s) => s.isSotifMetricsStale);
+
+  const scenarioId = useScenarioStore((s) => s.scenarioId) || lifecycleStatus?.scenario_id;
+  const { data: activeScenario } = useGetScenarioQuery(scenarioId ?? '', { skip: !scenarioId });
+  
+  // Standardize Scenario YAML route waypoints extraction to the exact same `{ lat, lon }` structure
+  const yamlRoute = useMemo(() => {
+    if (!activeScenario?.yaml_content) return null;
+    try {
+      const doc = jsyaml.load(activeScenario.yaml_content) as any;
+      const rawWpts = doc?.ownShip?.nominalRoute || doc?.voyageTask?.waypoints || doc?.mock_l2?.planned_route?.waypoints || [];
+      const waypoints = rawWpts.map((wp: any) => ({
+        lat: wp.latitude ?? wp.lat ?? 0.0,
+        lon: wp.longitude ?? wp.lon ?? 0.0,
+      }));
+      const cruiseSpeed = doc?.ownShip?.nominalRoute?.[0]?.target_sog_kn || 
+                          doc?.voyageTask?.cruise_speed_kn || 
+                          doc?.mock_l2?.planned_route?.cruise_speed_kn || 
+                          10.0;
+      return {
+        waypoints,
+        cruiseSpeed,
+        source: 'static_yaml' as const,
+      };
+    } catch {
+      return null;
+    }
+  }, [activeScenario]);
+
+  // Hybrid fallback resolution
+  const l2Plan = useTelemetryStore((s) => s.voyagePlan);
+  const voyagePlan = l2Plan || yamlRoute;
+
+  const planDetails = useMemo(() => {
+    if (!voyagePlan?.waypoints?.length) return null;
+    const finalWp = voyagePlan.waypoints[voyagePlan.waypoints.length - 1];
+    const finalLat = finalWp.lat;
+    const finalLon = finalWp.lon;
+    const ownLat = ownShip?.pose?.lat;
+    const ownLon = ownShip?.pose?.lon;
+
+    const distanceNm = (ownLat != null && ownLon != null && finalLat != null && finalLon != null)
+      ? computeRangeNm(ownLat, ownLon, finalLat, finalLon)
+      : null;
+
+    let etaString = '—';
+    if (distanceNm !== null && distanceNm > 0) {
+      const currentSpeedKn = ownShip?.kinematics?.sog != null ? ownShip.kinematics.sog * 1.944 : (voyagePlan.cruiseSpeed || 10.0);
+      const speedKn = currentSpeedKn > 0.5 ? currentSpeedKn : (voyagePlan.cruiseSpeed || 10.0);
+      const timeToGoHours = distanceNm / speedKn;
+      const currentSimTime = lifecycleStatus?.sim_time ?? 0;
+      const totalSimDurationSec = currentSimTime + timeToGoHours * 3600;
+      const date = new Date(1773676800000 + totalSimDurationSec * 1000); // 2026-03-15 base + sim seconds
+      etaString = date.toISOString().substr(11, 8);
+    }
+
+    const wptName = `WP${String(voyagePlan.waypoints.length).padStart(2, '0')}`;
+    const plannedSpeed = `${(voyagePlan.cruiseSpeed || 10.0).toFixed(1)} kn`;
+
+    return {
+      wpt: wptName,
+      dist: distanceNm !== null ? `${distanceNm.toFixed(1)} nm` : '—',
+      eta: etaString,
+      spd: plannedSpeed,
+      source: voyagePlan.source,
+    };
+  }, [ownShip, voyagePlan, lifecycleStatus]);
+
+  // Scenario Switch Protection: Reset active real-time L2 plan inside telemetry store on scenario change
+  const prevScenarioIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevScenarioIdRef.current !== null && prevScenarioIdRef.current !== scenarioId) {
+      useTelemetryStore.getState().updateVoyagePlan(null);
+    }
+    prevScenarioIdRef.current = scenarioId || null;
+  }, [scenarioId]);
 
   const simRate   = useControlStore((s) => s.simRate);
   const isPaused  = useControlStore((s) => s.isPaused);
@@ -484,25 +561,63 @@ export function SimulationMonitor() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                         <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>本船实步数据</span>
+                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>航行状态</span>
                       </div>
                       {ownShip ? (
-                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>船首向 HDG:</span>
-                            <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{ownShip.pose?.heading != null ? `${(ownShip.pose.heading).toFixed(1)}°` : '—'}</span>
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '12px 16px',
+                          padding: '4px 2px'
+                        }}>
+                          {/* Cell 1: HDG */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>船首向 HDG</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {ownShip.pose?.heading != null ? `${((ownShip.pose.heading * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '—'}
+                            </span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>对地航向 COG:</span>
-                            <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{ownShip.kinematics?.cog != null ? `${(ownShip.kinematics.cog).toFixed(1)}°` : '—'}</span>
+
+                          {/* Cell 2: RUD */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>舵角 RUD</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {(() => {
+                                if (ownShip.controlState?.rudderAngle == null) return '—';
+                                const rudderDeg = ownShip.controlState.rudderAngle * 180 / Math.PI;
+                                if (Math.abs(rudderDeg) <= 0.1) return '0.0°';
+                                return rudderDeg > 0.1 ? `${rudderDeg.toFixed(1)}° R` : `${Math.abs(rudderDeg).toFixed(1)}° L`;
+                              })()}
+                            </span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>对地航速 SOG:</span>
-                            <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{ownShip.kinematics?.sog != null ? `${(ownShip.kinematics.sog).toFixed(1)} kn` : '—'}</span>
+
+                          {/* Cell 3: SOG */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>对地航速 SOG</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {ownShip.kinematics?.sog != null ? `${(ownShip.kinematics.sog * 1.944).toFixed(1)} kn` : '—'}
+                            </span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>转向率 ROT:</span>
-                            <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{ownShip.kinematics?.rot != null ? `${(ownShip.kinematics.rot).toFixed(2)}°/m` : '—'}</span>
+
+                          {/* Cell 4: THR */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>车钟 THR</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {(() => {
+                                if (ownShip.controlState?.throttle == null) return '—';
+                                const throttle = ownShip.controlState.throttle;
+                                if (throttle === 0) return 'STOP';
+                                if (throttle > 0) {
+                                  if (throttle <= 0.35) return 'AH 1';
+                                  if (throttle <= 0.7) return 'AH 2';
+                                  return 'AH 3';
+                                } else {
+                                  if (throttle >= -0.35) return 'AS 1';
+                                  if (throttle >= -0.7) return 'AS 2';
+                                  return 'AS 3';
+                                }
+                              })()}
+                            </span>
                           </div>
                         </div>
                       ) : (
@@ -514,24 +629,69 @@ export function SimulationMonitor() {
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                       padding: '12px 14px', borderRadius: 8,
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>当前计划航段</span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>航行计划</span>
+                        </div>
+                        {planDetails && (
+                          <span style={{
+                            fontSize: 9,
+                            fontFamily: 'var(--f-disp)',
+                            fontWeight: 600,
+                            letterSpacing: '0.05em',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            background: planDetails.source === 'l2_realtime' ? 'rgba(45,212,191,0.15)' : 'rgba(255,255,255,0.06)',
+                            border: planDetails.source === 'l2_realtime' ? '1px solid rgba(45,212,191,0.3)' : '1px solid rgba(255,255,255,0.12)',
+                            color: planDetails.source === 'l2_realtime' ? 'var(--c-phos)' : 'var(--txt-3)',
+                          }}>
+                            {planDetails.source === 'l2_realtime' ? 'L2 实时系统' : 'YAML 场景配置'}
+                          </span>
+                        )}
                       </div>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>当前目标路点 (WPT):</span>
-                          <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>WP04 (开阔水域)</span>
+                      {planDetails ? (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '12px 16px',
+                          padding: '4px 2px'
+                        }}>
+                          {/* Cell 1: WPT */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>计划路点 WPT</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {planDetails.wpt}
+                            </span>
+                          </div>
+
+                          {/* Cell 2: Dist */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>终点距离 DIST</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {planDetails.dist}
+                            </span>
+                          </div>
+
+                          {/* Cell 3: ETA */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>预计抵港 ETA</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {planDetails.eta}
+                            </span>
+                          </div>
+
+                          {/* Cell 4: SPD */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>计划速度 SPD</span>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                              {planDetails.spd}
+                            </span>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>终点距离 (Dist):</span>
-                          <span style={{ color: '#fff', fontWeight: 'bold' }}>17.3 nm</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>预计抵港 ETA:</span>
-                          <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>16:45:22</span>
-                        </div>
-                      </div>
+                      ) : (
+                        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)' }}>暂无数据</div>
+                      )}
                     </div>
                   </div>
                 )}

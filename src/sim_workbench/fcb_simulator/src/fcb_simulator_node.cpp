@@ -171,7 +171,7 @@ void FcbSimulatorNode::step_dynamics() {
 
 void FcbSimulatorNode::publish_own_ship_state() {
   l3_external_msgs::msg::FilteredOwnShipState msg;
-  msg.schema_version = "v1.1.2";
+  msg.schema_version = 112;
   msg.stamp = now();
 
   // ENU → WGS84 (flat earth)
@@ -210,7 +210,7 @@ void FcbSimulatorNode::publish_own_ship_state() {
 
 void FcbSimulatorNode::publish_tracked_targets() {
   l3_external_msgs::msg::TrackedTargetArray msg;
-  msg.schema_version = "v1.1.2";
+  msg.schema_version = 112;
   msg.stamp = now();
   msg.targets.clear();  // Static empty scenario; populate via scenario file later.
   msg.confidence = 0.95F;

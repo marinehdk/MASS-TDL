@@ -2,6 +2,17 @@ import { create } from 'zustand';
 import type { OwnShipState, TargetVesselState, EnvironmentState, ModulePulse } from '../types';
 import type { SAT2Data, SAT3Data, SotifMetrics } from '../types/sat';
 
+export interface NormalizedWaypoint {
+  lat: number;
+  lon: number;
+}
+
+export interface VoyagePlanData {
+  waypoints: NormalizedWaypoint[];
+  cruiseSpeed: number;
+  source: 'static_yaml' | 'l2_realtime';
+}
+
 // ------------------------------------------------------------------
 // Lightweight local types for topics not yet in generated Protobuf TS
 // ------------------------------------------------------------------
@@ -95,6 +106,7 @@ interface TelemetryState {
   isSat2Stale: () => boolean;
   isSat3Stale: () => boolean;
   isSotifMetricsStale: () => boolean;
+  voyagePlan: VoyagePlanData | null;
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
@@ -112,6 +124,7 @@ interface TelemetryState {
   updateSat2: (data: SAT2Data) => void;
   updateSat3: (data: SAT3Data) => void;
   updateSotifMetrics: (metrics: SotifMetrics) => void;
+  updateVoyagePlan: (plan: VoyagePlanData | null) => void;
   reset: () => void;
 }
 
@@ -139,6 +152,7 @@ const initialState = {
   sat3LastReceivedAt: null,
   sotifMetricsLastReceivedAt: null,
   lastTrailTime: 0,
+  voyagePlan: null,
 };
 
 export const useTelemetryStore = create<TelemetryState>((set, get) => ({
@@ -241,5 +255,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   updateSat2: (sat2) => set({ sat2, sat2LastReceivedAt: Date.now() }),
   updateSat3: (sat3) => set({ sat3, sat3LastReceivedAt: Date.now() }),
   updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics, sotifMetricsLastReceivedAt: Date.now() }),
+  updateVoyagePlan: (voyagePlan) => set({ voyagePlan }),
   reset: () => set(initialState),
 }));

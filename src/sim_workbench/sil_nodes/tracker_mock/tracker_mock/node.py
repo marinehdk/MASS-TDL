@@ -377,14 +377,14 @@ if _HAS_RCLPY:
             now_msg: BuiltinTime = self.get_clock().now().to_msg()
 
             msg = TrackedTargetArray()
-            msg.schema_version = "v1.1.2"
+            msg.schema_version = 112
             msg.stamp = now_msg
             msg.confidence = 1.0
             msg.rationale = "tracker_cpa_tcpa"
 
             for t in tracked:
                 tt = TrackedTarget()
-                tt.schema_version = "v1.1.2"
+                tt.schema_version = 112
                 tt.stamp = now_msg
                 tt.target_id = t["mmsi"]
                 tt.position = GeoPoint()
