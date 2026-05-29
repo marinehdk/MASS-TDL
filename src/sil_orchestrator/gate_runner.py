@@ -202,7 +202,7 @@ async def _check_ros2_discovery() -> tuple[str, str]:
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ros2", "node", "list",
+            "ros2", "node", "list", "--no-daemon",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=ros_env,
@@ -340,7 +340,7 @@ async def _check_module_pulse_topic() -> bool:
                            f"{ros_humble}/lib/python3.10/site-packages")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ros2", "topic", "list",
+            "ros2", "topic", "list", "--no-daemon",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=ros_env,
         )
@@ -667,7 +667,7 @@ async def _check_sim_clock() -> tuple[str, str]:
                            f"{ros_humble}/lib/python3.10/site-packages")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ros2", "topic", "list",
+            "ros2", "topic", "list", "--no-daemon",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=ros_env,
         )

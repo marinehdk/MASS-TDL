@@ -41,7 +41,7 @@ def _api(path: str, payload: dict | None = None) -> dict:
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=10) as resp:
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
             res = json.loads(resp.read())
             if isinstance(res, dict) and not res.get("success", True):
                 err_msg = res.get("error") or "Unknown error"
@@ -120,6 +120,8 @@ class CaptureNode(Node):
             self._running = False
 
     def done(self) -> bool:
+        if time.time() - self._wall_start > self.duration:
+            self._running = False
         return not self._running
 
     def save(self) -> None:

@@ -301,13 +301,13 @@ class LifecycleBridge(Node):
 
         try:
             future = client.call_async(req)
-            deadline = 30  # 30 * 0.1 s = 3 s
+            deadline = 150  # 150 * 0.1 s = 15 s
             while not future.done() and deadline > 0:
                 await asyncio.sleep(0.1)
                 deadline -= 1
             if not future.done():
                 raise ScenarioInjectionError(
-                    f"SetParameters call to '{node_name}' timed out (3s)")
+                    f"SetParameters call to '{node_name}' timed out (15s)")
             response = future.result()
             for result in response.results:
                 if not result.successful:
