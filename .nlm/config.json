@@ -95,7 +95,7 @@
         "VO",
         "velocity obstacle"
       ],
-      "source_count": 91,
+      "source_count": 100,
       "last_distilled": null
     },
     "silhil_platform": {
@@ -118,7 +118,7 @@
         "DNV OSP",
         "Kongsberg HIL"
       ],
-      "source_count": 201,
+      "source_count": 279,
       "last_distilled": null
     },
     "cybersecurity": {

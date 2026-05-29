@@ -80,17 +80,26 @@ describe('SimulationMonitor', () => {
     expect(useUIStore.getState().viewMode).toBe('engineer');
   });
 
-  it('engineer view shows left drawer toggle', () => {
-    useUIStore.getState().setViewMode('engineer');
+  it('renders Captain and Monitor tab rails', () => {
     render(<SimulationMonitor />);
-    expect(screen.getByTestId('left-drawer-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('left-tab-ship')).toBeInTheDocument();
+    expect(screen.getByTestId('right-tab-asdr')).toBeInTheDocument();
   });
 
-  it('left drawer toggle opens drawer', () => {
-    useUIStore.getState().setViewMode('engineer');
+  it('clicking captain tab toggles state and displays content panel', () => {
     render(<SimulationMonitor />);
-    fireEvent.click(screen.getByTestId('left-drawer-toggle'));
-    expect(useUIStore.getState().leftDrawerOpen).toBe(true);
+    const shipTab = screen.getByTestId('left-tab-ship');
+    
+    // Collapsed by default, ship status details not rendered
+    expect(screen.queryByText('本船实步数据')).not.toBeInTheDocument();
+    
+    // Click tab -> expands panel
+    fireEvent.click(shipTab);
+    expect(screen.getByText('本船实步数据')).toBeInTheDocument();
+    
+    // Click tab again -> collapses panel
+    fireEvent.click(shipTab);
+    expect(screen.queryByText('本船实步数据')).not.toBeInTheDocument();
   });
 
   it('MRC state applies blood-red border class', () => {

@@ -22,9 +22,9 @@
       "last_cited_at": 1777540418
     },
     "c8d54f40-4042-4831-a3fd-84016d465428": {
-      "count": 6,
+      "count": 8,
       "first_cited_at": 1778146329,
-      "last_cited_at": 1779343612
+      "last_cited_at": 1779951623
     },
     "d986ce9f-387e-4dab-81a3-409aba728625": {
       "count": 1,
@@ -52,9 +52,9 @@
       "last_cited_at": 1778463254
     },
     "bf72e928-e293-4415-959d-10be12fcbdd0": {
-      "count": 2,
+      "count": 3,
       "first_cited_at": 1778478083,
-      "last_cited_at": 1779088371
+      "last_cited_at": 1779951722
     },
     "7184664a-28ea-4b15-8add-9ec3eac6493d": {
       "count": 1,
@@ -100,7 +100,57 @@
       "count": 2,
       "first_cited_at": 1779342259,
       "last_cited_at": 1779342325
+    },
+    "f65a47ef-3898-4776-a130-619af3c90e1b": {
+      "count": 1,
+      "first_cited_at": 1779890691,
+      "last_cited_at": 1779890691
+    },
+    "87636dac-d4de-433a-8ebb-9d7b0eb458e2": {
+      "count": 1,
+      "first_cited_at": 1779951886,
+      "last_cited_at": 1779951886
     }
   },
-  "cited_urls": []
+  "cited_urls": [
+    "http://download.ros.org/downloads/roscon/2022/System%20Modes%20-%20model-based%20run-time%20state%20management%20of%20large%20systems.pdf",
+    "https://answers.ros.org/question/414037/",
+    "https://articulatedrobotics.xyz/tutorials/mobile-robot/applications/ros2_control-real/",
+    "https://arxiv.org/html/2601.10722v1",
+    "https://arxiv.org/html/2601.10722v2",
+    "https://design.ros2.org/articles/intraprocess_communications.html",
+    "https://design.ros2.org/articles/node_lifecycle.html",
+    "https://design.ros2.org/articles/realtime_proposal.html",
+    "https://discourse.openrobotics.org/t/all-nodes-as-lifecycle-nodes/43559",
+    "https://docs.clearpathrobotics.com/docs/ros/api/overview/",
+    "https://docs.nav2.org/concepts/index.html",
+    "https://docs.ros.org/en/foxy/Concepts/About-Executors.html",
+    "https://docs.ros.org/en/foxy/Concepts/About-Quality-of-Service-Settings.html",
+    "https://docs.ros.org/en/foxy/How-To-Guides/Using-callback-groups.html",
+    "https://docs.ros.org/en/humble/p/lifecycle/",
+    "https://docs.ros.org/en/rolling/Concepts/Intermediate/About-Executors.html",
+    "https://foxglove.dev/blog/how-to-use-ros2-lifecycle-nodes",
+    "https://github.com/ros-navigation/navigation2/issues/5417",
+    "https://github.com/ros-navigation/navigation2/issues/5437",
+    "https://github.com/ros2/demos/issues/488",
+    "https://github.com/ros2/ros2cli/issues/779",
+    "https://index.ros.org/p/lifecycle/",
+    "https://index.ros.org/p/nav2_lifecycle_manager/",
+    "https://index.ros.org/p/system_modes/",
+    "https://index.ros.org/r/cascade_lifecycle/",
+    "https://learnbydoing.dev/creating-and-managing-a-lifecycle-node-in-ros-2-with-c/",
+    "https://learnbydoing.dev/managing-and-creating-lifecycle-nodes-in-ros-2/",
+    "https://medium.com/@mohamedaswer1706/understanding-qos-in-ros-2-ensuring-reliable-communication-b3500924eaff",
+    "https://myzhar.tech/tutorials/ros2/ros2-lifecycle-nodes/",
+    "https://oxmaint.com/industries/healthcare/ros2-lifecycle-management-software-maintenance-hospital-robots",
+    "https://robotics.stackexchange.com/questions/111347/ros2-control-hardware-interface-where-in-the-lifecycle-should-i-wait-for-hardwa",
+    "https://robotics.stackexchange.com/questions/117934/how-to-cleanly-shut-down-a-ros-c-lifecycle-node-when-node-is-killed-with-ctrl",
+    "https://robotics.stackexchange.com/questions/95324/ros-2-lifecycle-node-self-transitioning",
+    "https://sigbed.org/2025/05/01/thread-carefully-preventing-starvation-in-the-ros-2-multi-threaded-executor/",
+    "https://thomasthelliez.com/blog/ros2-qos-explained-reliability-best-effort-durability-deadline/",
+    "https://www.es.mdu.se/pdf_publications/6797.pdf",
+    "https://www.learnros2.com/ros/tutorials/lifecycle-node-demo",
+    "https://www.mathworks.com/help/ros/ug/manage-quality-of-service-policies-in-ros2.html",
+    "https://www.mdpi.com/2079-9292/14/18/3635"
+  ]
 }
