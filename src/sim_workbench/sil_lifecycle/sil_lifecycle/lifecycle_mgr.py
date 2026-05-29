@@ -89,6 +89,7 @@ class ScenarioLifecycleMgr:
         self._sim_rate: float = 1.0
         self._sim_time: float = 0.0
         self._wall_start: float = 0.0
+        self._dynamics_mode: str = "internal"
 
     @property
     def current_state(self) -> LifecycleState:
@@ -111,18 +112,33 @@ class ScenarioLifecycleMgr:
         return self._sim_rate
 
     @property
+    def run_start_wall(self) -> float:
+        return self._wall_start
+
+    @property
+    def tick_hz(self) -> float:
+        return self._tick_hz
+
+    @property
+    def dynamics_mode(self) -> str:
+        return self._dynamics_mode
+
+    @property
     def wall_time(self) -> float:
         """Elapsed wall-clock time since activation (seconds)."""
         if self._wall_start > 0:
             return time.time() - self._wall_start
         return 0.0
 
-    def configure(self, scenario_id: str, scenario_hash: str = "") -> bool:
+    def configure(self, scenario_id: str, scenario_hash: str = "", dynamics_mode: str = "internal") -> bool:
         if self._state != LifecycleState.UNCONFIGURED:
+            return False
+        if dynamics_mode not in ("internal", "fmi"):
             return False
         self._scenario_id = scenario_id
         self._scenario_hash = scenario_hash
         self._sim_time = 0.0
+        self._dynamics_mode = dynamics_mode
         self._state = LifecycleState.INACTIVE
         return True
 
@@ -155,10 +171,18 @@ class ScenarioLifecycleMgr:
         self._sim_rate = rate
         return True
 
+    def set_dynamics_mode(self, mode: str) -> bool:
+        if self._state != LifecycleState.INACTIVE:
+            return False
+        if mode not in ("internal", "fmi"):
+            return False
+        self._dynamics_mode = mode
+        return True
+
     def tick(self) -> None:
         """Advance simulation time by one tick (called at tick_hz)."""
         if self._state == LifecycleState.ACTIVE:
-            self._sim_time += (1.0 / self._tick_hz) * self._sim_rate
+            self._sim_time += 1.0 / self._tick_hz
 
     def get_status_dict(self) -> dict:
         return {
@@ -168,6 +192,7 @@ class ScenarioLifecycleMgr:
             "sim_time": self._sim_time,
             "wall_time": self.wall_time,
             "sim_rate": self._sim_rate,
+            "dynamics_mode": self._dynamics_mode,
         }
 
 
@@ -183,6 +208,9 @@ class LifecycleManagerNode(LifecycleNode):
       on_deactivate → destroy publishers + timers
       on_cleanup    → reset FSM state
     """
+
+    # Maximum dt_tick steps to emit per single callback invocation.
+    _MAX_CATCHUP_TICKS = 10
 
     def __init__(self, node_name: str = "scenario_lifecycle_mgr") -> None:
         # Force use_sim_time to False during construction to avoid circular dependencies in clock server
@@ -217,6 +245,7 @@ class LifecycleManagerNode(LifecycleNode):
         self._status_pub = None
         self._sim_clock_timer = None
         self._status_timer = None
+        self._run_start_wall: float | None = None
 
         if hasattr(self, "add_on_set_parameters_callback"):
             self.add_on_set_parameters_callback(self._on_set_parameters)
@@ -299,6 +328,7 @@ class LifecycleManagerNode(LifecycleNode):
             )
 
         self._fsm.activate()
+        self._run_start_wall = time.time()
         self.get_logger().info(
             f"[on_activate] sim_clock @ {tick_hz:.0f} Hz  "
             f"status @ {status_hz:.1f} Hz"
@@ -308,6 +338,7 @@ class LifecycleManagerNode(LifecycleNode):
     def on_deactivate(self, state) -> TransitionCallbackReturn:
         """Destroy timers + publishers; transition FSM ACTIVE → INACTIVE."""
         self._fsm.deactivate()
+        self._run_start_wall = None
 
         for timer in (self._sim_clock_timer, self._status_timer):
             if timer is not None:
@@ -334,22 +365,52 @@ class LifecycleManagerNode(LifecycleNode):
     # ── Timer callbacks ──────────────────────────────────────────────────
 
     def _clock_callback(self) -> None:
-        """Publish /sim_clock (builtin_interfaces/Time) and /clock (rosgraph_msgs/Clock) @ tick_hz."""
-        self._fsm.tick()
-        sim_t = self._fsm.sim_time
-        
-        # Build builtin_interfaces/Time message for /sim_clock
-        time_msg = TimeMsg()
-        time_msg.sec = int(sim_t)
-        time_msg.nanosec = int((sim_t - time_msg.sec) * 1e9)
-        if self._sim_clock_pub is not None:
-            self._sim_clock_pub.publish(time_msg)
-            
-        # Build rosgraph_msgs/Clock message for /clock
-        if self._clock_pub is not None:
-            clock_msg = ClockMsg()
-            clock_msg.clock = time_msg
-            self._clock_pub.publish(clock_msg)
+        """Wall-clock-paced /clock emitter.
+
+        Design (spec §4.1):
+          wall_elapsed = now_wall - run_start_wall
+          target_sim   = wall_elapsed * sim_rate
+          Emit dt_tick steps until sim_time reaches target_sim,
+          capped at _MAX_CATCHUP_TICKS per callback.
+          Publish one /clock + /sim_clock per dt_tick so that
+          sim-time timers fire on every tick (no skipped steps).
+        """
+        run_start_wall = self._run_start_wall
+        if run_start_wall is None:
+            return
+
+        sim_rate = self._fsm.sim_rate
+        dt_tick = 1.0 / self._fsm._tick_hz
+        wall_elapsed = time.time() - run_start_wall
+        target_sim = wall_elapsed * sim_rate
+
+        sim_clock_pub = self._sim_clock_pub
+        clock_pub = self._clock_pub
+
+        emitted = 0
+        while self._fsm.sim_time < target_sim and emitted < self._MAX_CATCHUP_TICKS:
+            self._fsm.tick()
+            sim_t = self._fsm.sim_time
+
+            time_msg = TimeMsg()
+            time_msg.sec = int(sim_t)
+            time_msg.nanosec = int((sim_t - time_msg.sec) * 1e9)
+            if sim_clock_pub is not None:
+                sim_clock_pub.publish(time_msg)
+
+            if clock_pub is not None:
+                clock_msg = ClockMsg()
+                clock_msg.clock = time_msg
+                clock_pub.publish(clock_msg)
+
+            emitted += 1
+
+        if emitted == self._MAX_CATCHUP_TICKS and self._fsm.sim_time < target_sim:
+            self.get_logger().warn(
+                f"[lifecycle_mgr] Clock catchup capped at {self._MAX_CATCHUP_TICKS} ticks; "
+                f"sim_time={self._fsm.sim_time:.3f} target={target_sim:.3f}. "
+                f"RTF may be < sim_rate temporarily."
+            )
 
 
     def _status_callback(self) -> None:
