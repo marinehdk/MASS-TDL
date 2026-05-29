@@ -101,6 +101,8 @@ class MissionManagerNode : public rclcpp::Node {
   // Cached state
   l3_msgs::msg::ODDState::SharedPtr last_odd_state_;
   l3_msgs::msg::WorldState::SharedPtr last_world_state_;
+  l3_external_msgs::msg::PlannedRoute::SharedPtr last_planned_route_;
+  std::size_t current_wp_index_ = 0u;
   int32_t replan_attempt_count_ = 0;
   std::optional<std::chrono::steady_clock::time_point> replan_deadline_;
   geographic_msgs::msg::GeoPoint current_position_;

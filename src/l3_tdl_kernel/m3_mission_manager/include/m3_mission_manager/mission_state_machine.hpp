@@ -73,6 +73,8 @@ class MissionStateMachine {
   /// Current task validity substate (when in ACTIVE).
   [[nodiscard]] TaskValidity task_validity() const { return task_validity_; }
 
+  [[nodiscard]] double distance_completion_m() const noexcept { return config_.distance_completion_m; }
+
   /// Check and update task validity based on conditions.
   /// Returns true if state changed.
   bool update_task_validity(

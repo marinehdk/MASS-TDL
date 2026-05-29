@@ -20,6 +20,29 @@
 #include <spdlog/spdlog.h>
 
 namespace mass_l3::m3 {
+namespace {
+
+constexpr double kEarthRadiusNm = 3440.06479;
+constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+
+double haversineNm(double lat1_deg, double lon1_deg,
+                   double lat2_deg, double lon2_deg) noexcept {
+  const double lat1 = lat1_deg * kDegToRad;
+  const double lon1 = lon1_deg * kDegToRad;
+  const double lat2 = lat2_deg * kDegToRad;
+  const double lon2 = lon2_deg * kDegToRad;
+
+  const double dlat = lat2 - lat1;
+  const double dlon = lon2 - lon1;
+  const double sin_dlat = std::sin(dlat * 0.5);
+  const double sin_dlon = std::sin(dlon * 0.5);
+  const double a = sin_dlat * sin_dlat +
+                   std::cos(lat1) * std::cos(lat2) * sin_dlon * sin_dlon;
+  const double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
+  return kEarthRadiusNm * c;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -432,6 +455,8 @@ void MissionManagerNode::on_planned_route(
 {
   RCLCPP_DEBUG(get_logger(), "PlannedRoute received: id=%lu", msg->route_id);
   last_planned_route_time_ = std::chrono::steady_clock::now();
+  last_planned_route_ = msg;
+  current_wp_index_ = 0u;
 
   if (eta_projector_) {
     eta_projector_->update_route(*msg);
@@ -540,6 +565,31 @@ void MissionManagerNode::on_world_state(
   last_world_state_ = msg;
   current_position_.latitude  = msg->own_ship.position.latitude;
   current_position_.longitude = msg->own_ship.position.longitude;
+
+  // Waypoint progression logic: advance to the next waypoint when within distance threshold
+  if (last_planned_route_ && !last_planned_route_->route.poses.empty()) {
+    const double threshold_m = state_machine_ ? state_machine_->distance_completion_m() : 50.0;
+    while (current_wp_index_ < last_planned_route_->route.poses.size()) {
+      const auto& target_pose = last_planned_route_->route.poses[current_wp_index_];
+      const double dist_nm = haversineNm(
+          current_position_.latitude, current_position_.longitude,
+          target_pose.pose.position.latitude, target_pose.pose.position.longitude);
+      const double dist_m = dist_nm * 1852.0;
+
+      if (dist_m < threshold_m) {
+        if (current_wp_index_ + 1 < last_planned_route_->route.poses.size()) {
+          ++current_wp_index_;
+          RCLCPP_INFO(get_logger(), "[M3] Advanced to waypoint index %zu (total %zu)",
+                      current_wp_index_, last_planned_route_->route.poses.size());
+        } else {
+          // Reached the final waypoint, stop advancing
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+  }
 
   const auto now = std::chrono::steady_clock::now();
   current_error_monitor_->update_world_state(*msg, now);
@@ -692,6 +742,16 @@ void MissionManagerNode::publish_mission_goal()
   auto msg = l3_msgs::msg::MissionGoal();
   msg.stamp          = now();
   msg.schema_version = 121U;  // IDL v1.2.1 [W3 BUMP]
+
+  // Populate current_target_wp from cached route and waypoint index
+  if (last_planned_route_ && !last_planned_route_->route.poses.empty()) {
+    if (current_wp_index_ < last_planned_route_->route.poses.size()) {
+      const auto& target_pose = last_planned_route_->route.poses[current_wp_index_];
+      msg.current_target_wp.latitude  = target_pose.pose.position.latitude;
+      msg.current_target_wp.longitude = target_pose.pose.position.longitude;
+      msg.current_target_wp.altitude  = 0.0;
+    }
+  }
 
   // Map FSM state
   msg.fsm_state = l3_msgs::msg::MissionGoal::FSM_ACTIVE;
