@@ -471,19 +471,31 @@ void OddEnvelopeManagerNode::initialize_subscribers() {
 }
 
 void OddEnvelopeManagerNode::initialize_timers() {
-  main_loop_timer_ = create_wall_timer(
+  main_loop_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration<double>(kMainLoopPeriodS),
       [this]() { on_main_loop_tick(); });
 
-  odd_publish_timer_ = create_wall_timer(
+  odd_publish_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration<double>(kOddPublishPeriodS),
       [this]() { on_odd_state_publish_tick(); });
 
-  asdr_periodic_timer_ = create_wall_timer(
+  asdr_periodic_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration<double>(kAsdrPeriodicPeriodS),
       [this]() { on_asdr_record_periodic_tick(); });
 
-  sat_timer_ = create_wall_timer(
+  sat_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration<double>(kSatPeriodS),
       [this]() { on_sat_data_publish_tick(); });
 }
