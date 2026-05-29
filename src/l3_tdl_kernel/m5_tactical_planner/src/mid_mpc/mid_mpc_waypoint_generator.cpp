@@ -88,9 +88,31 @@ std::vector<l3_msgs::msg::AvoidanceWaypoint> MidMpcWaypointGenerator::build_wayp
     l3_msgs::msg::AvoidanceWaypoint wp;
     wp.position          = geopoints[static_cast<std::size_t>(i)];
     wp.safety_corridor_m = cfg_.safety_corridor_m;
-    wp.turn_radius_m     = 0.0;  // Phase E1 placeholder; Phase E2 derives from ROT
 
     const int32_t traj_idx = (num_wp == 1) ? 0 : i * (N - 1) / (num_wp - 1);
+
+    // Compute local ROT from adjacent trajectory steps to derive turn_radius_m.
+    // Bridge gate: abs(turn_radius_m) > 1e-6 must be true for avoidance to activate.
+    // Formula: R = u / |omega|, omega = dpsi / dt_s (rad/s).
+    // Use next available step; for last trajectory point use previous step.
+    // Guard: if N==1 there's no adjacent step — fall back to straight-line radius.
+    constexpr double kMinRot        = 1e-4;    // rad/s — below ~0.006°/s treated as straight
+    constexpr double kMaxTurnRadius = 500.0;   // m — straight-line fallback
+    if (N >= 2) {
+      const int32_t rot_idx_a = (traj_idx < N - 1) ? traj_idx : traj_idx - 1;
+      const int32_t rot_idx_b = rot_idx_a + 1;
+      const double dpsi = solution.trajectory[static_cast<std::size_t>(rot_idx_b)].psi_rad
+                        - solution.trajectory[static_cast<std::size_t>(rot_idx_a)].psi_rad;
+      const double rot_rad_s = std::abs(dpsi) / cfg_.dt_s;
+      const double u_for_rot = solution.trajectory[static_cast<std::size_t>(traj_idx)].u_mps;
+      wp.turn_radius_m = (rot_rad_s > kMinRot)
+          ? std::min(u_for_rot / rot_rad_s, kMaxTurnRadius)
+          : kMaxTurnRadius;
+    } else {
+      // Single trajectory point: no heading delta computable; use straight-line fallback.
+      wp.turn_radius_m = kMaxTurnRadius;
+    }
+
     wp.target_speed_kn =
         solution.trajectory[static_cast<std::size_t>(traj_idx)].u_mps * units::kKnPerMs;
 
