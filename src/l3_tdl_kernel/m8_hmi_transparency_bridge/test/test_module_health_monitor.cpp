@@ -21,17 +21,9 @@ ModuleHealthMonitor make_monitor()
     return ModuleHealthMonitor{t};
 }
 
-ModuleHealthMonitor::TimePoint epoch()
-{
-    return ModuleHealthMonitor::Clock::now();
-}
-
-ModuleHealthMonitor::TimePoint offset(
-    ModuleHealthMonitor::TimePoint base, double seconds)
-{
-    using namespace std::chrono;
-    return base + duration_cast<steady_clock::duration>(duration<double>(seconds));
-}
+static constexpr double kEpoch = 1000.0;
+ModuleHealthMonitor::SimTimeS epoch() { return kEpoch; }
+ModuleHealthMonitor::SimTimeS offset(ModuleHealthMonitor::SimTimeS base, double seconds) { return base + seconds; }
 
 }  // anonymous namespace
 
@@ -155,4 +147,15 @@ TEST(ModuleHealthMonitor, HeartbeatUpdated_ResetsTimeout)
     // Re-issue heartbeat at t1 -- now healthy again at t1
     mon.record_heartbeat(Src::kM2, t1);
     EXPECT_FALSE(mon.is_timed_out(Src::kM2, t1));
+}
+
+TEST(ModuleHealthMonitor, HealthJudgment_RateIndependent)
+{
+    auto mon = make_monitor();
+    const double t_hb = epoch();
+    const double t_ok = offset(t_hb, 1.0);
+    const double t_expired = offset(t_hb, 3.0);
+    mon.record_heartbeat(Src::kM7, t_hb);
+    EXPECT_FALSE(mon.is_m7_timed_out(t_ok));
+    EXPECT_TRUE(mon.is_m7_timed_out(t_expired));
 }

@@ -124,11 +124,36 @@ void HmiTransparencyBridgeNode::init_publishers()
 void HmiTransparencyBridgeNode::init_timers()
 {
   using namespace std::chrono_literals;
-  timer_ui_            = create_wall_timer(20ms,   [this] { on_ui_publish_tick(); });
-  timer_tor_           = create_wall_timer(500ms,  [this] { on_tor_tick(); });
-  timer_health_        = create_wall_timer(1000ms, [this] { on_health_check_tick(); });
-  timer_asdr_snapshot_ = create_wall_timer(500ms,  [this] { on_asdr_snapshot_tick(); });
-  timer_sil_stub_ = create_wall_timer(1000ms, [this] { on_sil_stub_tick(); });
+  timer_ui_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      20ms,
+      [this] { on_ui_publish_tick(); });
+  timer_tor_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      500ms,
+      [this] { on_tor_tick(); });
+  timer_health_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      1000ms,
+      [this] { on_health_check_tick(); });
+  timer_asdr_snapshot_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      500ms,
+      [this] { on_asdr_snapshot_tick(); });
+  timer_sil_stub_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      1000ms,
+      [this] { on_sil_stub_tick(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +167,8 @@ void HmiTransparencyBridgeNode::on_sat_data(const l3_msgs::msg::SATData::SharedP
   sat_aggregator_->ingest(*msg, now);
   auto src = SatAggregator::from_string(msg->source_module);
   if (src.has_value()) {
-    health_monitor_->record_heartbeat(*src, now);
+    double sim_now_s = msg->stamp.sec + msg->stamp.nanosec * 1e-9;
+    health_monitor_->record_heartbeat(*src, sim_now_s);
   }
 }
 
@@ -191,11 +217,12 @@ void HmiTransparencyBridgeNode::on_safety_alert(const l3_msgs::msg::SafetyAlert:
   latest_alert_ = *msg;
 }
 
-void HmiTransparencyBridgeNode::on_m7_heartbeat(const std_msgs::msg::Header::SharedPtr /*msg*/)
+void HmiTransparencyBridgeNode::on_m7_heartbeat(const std_msgs::msg::Header::SharedPtr msg)
 {
+  double sim_now_s = msg->stamp.sec + msg->stamp.nanosec * 1e-9;
   health_monitor_->record_heartbeat(
       SatAggregator::SourceModule::kM7,
-      SatAggregator::Clock::now());
+      sim_now_s);
 }
 
 void HmiTransparencyBridgeNode::on_override_signal(
@@ -286,8 +313,8 @@ void HmiTransparencyBridgeNode::on_tor_tick()
 
 void HmiTransparencyBridgeNode::on_health_check_tick()
 {
-  auto now = SatAggregator::Clock::now();
-  if (health_monitor_->is_m7_timed_out(now)) {
+  double sim_now_s = get_clock()->now().seconds();
+  if (health_monitor_->is_m7_timed_out(sim_now_s)) {
     RCLCPP_ERROR(get_logger(), "M7 heartbeat timeout — forcing D2 safety mode");
   }
 }
@@ -405,7 +432,7 @@ void HmiTransparencyBridgeNode::on_sil_stub_tick()
   }
 
   // SotifMetrics stub
-  bool m7_active = health_monitor_ && !health_monitor_->is_m7_timed_out(SatAggregator::Clock::now());
+  bool m7_active = health_monitor_ && !health_monitor_->is_m7_timed_out(get_clock()->now().seconds());
   if (!m7_active) {
     static uint32_t seq = 0;
     l3_msgs::msg::SotifMetrics sotif{};

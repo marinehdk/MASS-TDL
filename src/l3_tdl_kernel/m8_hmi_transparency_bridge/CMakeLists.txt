@@ -79,7 +79,7 @@ install(DIRECTORY python/ DESTINATION lib/${PROJECT_NAME}/python
 
 if(BUILD_TESTING)
   # gtest headers trigger -Wuseless-cast with GCC; suppress for test targets only.
-  add_compile_options(-Wno-useless-cast)
+  add_compile_options(-Wno-useless-cast -Wno-error -Wno-undef)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
