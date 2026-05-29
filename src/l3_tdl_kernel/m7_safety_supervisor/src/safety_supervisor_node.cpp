@@ -229,22 +229,34 @@ void SafetySupervisorNode::setup_publishers() noexcept
 
 void SafetySupervisorNode::setup_timers() noexcept
 {
-  timer_main_ = create_wall_timer(
+  timer_main_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{250},
     [this]() { on_main_loop_tick(); },
     cb_group_main_);
 
-  timer_sat_ = create_wall_timer(
+  timer_sat_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{100},
     [this]() { on_sat_tick(); },
     cb_group_main_);
 
-  timer_asdr_periodic_ = create_wall_timer(
+  timer_asdr_periodic_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{500},
     [this]() { on_asdr_periodic_tick(); },
     cb_group_main_);
 
-  timer_heartbeat_ = create_wall_timer(
+  timer_heartbeat_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{100},
     [this]() { on_heartbeat_tick(); },
     cb_group_main_);
