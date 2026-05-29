@@ -380,13 +380,25 @@ void ColregsReasonerNode::setup_timers() {
   const auto kSatPeriod = std::chrono::milliseconds(
     get_parameter("sat_publish_period_ms").as_int());
 
-  reasoning_timer_ = create_wall_timer(
+  reasoning_timer_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     kReasoningPeriod, [this]() { run_reasoning(); });
-  health_timer_ = create_wall_timer(
+  health_timer_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     kHealthPeriod, [this]() { check_health(); });
-  asdr_timer_ = create_wall_timer(
+  asdr_timer_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     kAsdrPeriod, [this]() { publish_asdr_snapshot(); });
-  sat_timer_ = create_wall_timer(
+  sat_timer_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     kSatPeriod, [this]() { publish_sat_data(); });
 }
 
