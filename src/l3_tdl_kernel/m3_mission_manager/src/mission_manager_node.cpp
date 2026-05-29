@@ -307,25 +307,40 @@ void MissionManagerNode::setup_timers()
 {
   const double goal_hz = get_parameter("mission_goal.publish_rate_hz").as_double();
   const auto goal_period = std::chrono::duration<double>(1.0 / goal_hz);
-  mission_goal_timer_ = create_wall_timer(
+  mission_goal_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration_cast<std::chrono::nanoseconds>(goal_period),
       [this]() { publish_mission_goal(); });
 
   const double asdr_hz = get_parameter("asdr.heartbeat_rate_hz").as_double();
   const auto asdr_period = std::chrono::duration<double>(1.0 / asdr_hz);
-  asdr_timer_ = create_wall_timer(
+  asdr_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration_cast<std::chrono::nanoseconds>(asdr_period),
       [this]() { publish_asdr_snapshot(); });
 
-  replan_deadline_timer_ = create_wall_timer(
+  replan_deadline_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::seconds(1),
       [this]() { check_replan_deadline(); });
 
-  heartbeat_timer_ = create_wall_timer(
+  heartbeat_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::seconds(1),
       [this]() { log_heartbeat(); });
 
-  l1_watchdog_timer_ = create_wall_timer(
+  l1_watchdog_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::seconds(1),
       [this]() { evaluate_l1_watchdog(); });
 }
