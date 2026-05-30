@@ -109,8 +109,13 @@ MidMpcInput MidMpcNode::assemble_input_()
 {
   MidMpcInput inp;
 
+  inp.own_ship.x_m     = 0.0;
+  inp.own_ship.y_m     = 0.0;
   inp.own_ship.psi_rad = world_state_->own_ship.heading_deg * units::kRadPerDeg;
-  inp.own_ship.u_mps   = world_state_->own_ship.u_water;
+  
+  const double u_water = world_state_->own_ship.u_water;
+  inp.own_ship.u_mps   = (u_water > 0.1) ? u_water
+                         : world_state_->own_ship.sog_kn * units::kMsPerKn;
 
   const double own_lat = world_state_->own_ship.position.latitude;
   const double own_lon = world_state_->own_ship.position.longitude;

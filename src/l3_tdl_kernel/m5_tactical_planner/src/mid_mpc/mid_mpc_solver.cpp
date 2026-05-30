@@ -60,9 +60,12 @@ casadi::DM MidMpcSolver::pack_warm_start_(const MidMpcSolution& warm) const {
 casadi::DM MidMpcSolver::pack_cold_start_(const MidMpcInput& input) const {
   const int32_t N = formulation_.config().n_horizon;
   casadi::DM x0 = casadi::DM::zeros(2 * N, 1);
+  const double psi_seed = 0.5 * (input.constraints.heading_min_rad + input.constraints.heading_max_rad);
+  const double u_seed = (input.own_ship.u_mps > 0.1) ? input.own_ship.u_mps
+                        : (input.planned_speed_mps > 0.1 ? input.planned_speed_mps : 5.14);
   for (int32_t k = 0; k < N; ++k) {
-    x0(k)     = input.own_ship.psi_rad;  // hold current heading (ROT = 0)
-    x0(N + k) = input.own_ship.u_mps;   // hold current speed
+    x0(k)     = psi_seed;
+    x0(N + k) = u_seed;
   }
   return x0;
 }
