@@ -257,7 +257,7 @@ class MockL2Publisher(Node):
                 f"{self._ownship_lon:.4f}) heading={self._ownship_heading:.1f}")
 
     def _on_lifecycle_status(self, msg: LifecycleStatus):
-        if msg.current_state != LC_STATE_ACTIVE:
+        if msg.current_state < 1:
             if self._is_active:
                 self.get_logger().info(
                     f"Lifecycle state={msg.current_state} — deactivating")
@@ -354,10 +354,18 @@ class MockL2Publisher(Node):
         self._load_scenario(scenario_id)
 
     def _load_scenario(self, scenario_id: str):
-        yaml_path = os.path.join(self._scenario_dir, f"{scenario_id}.yaml")
-        if not os.path.exists(yaml_path):
+        self._ownship_received = False
+        self._ownship_lat = 0.0
+        self._ownship_lon = 0.0
+        yaml_path = None
+        for root, _, files in os.walk(self._scenario_dir):
+            if f"{scenario_id}.yaml" in files:
+                yaml_path = os.path.join(root, f"{scenario_id}.yaml")
+                break
+
+        if not yaml_path or not os.path.exists(yaml_path):
             self.get_logger().warn(
-                f"YAML not found: {yaml_path} — using default route")
+                f"YAML not found for {scenario_id} in {self._scenario_dir} — using default route")
             self._ownship_initial = {}
             self._generate_default_route()
             return
