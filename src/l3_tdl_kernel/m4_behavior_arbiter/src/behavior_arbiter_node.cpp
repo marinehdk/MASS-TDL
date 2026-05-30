@@ -320,20 +320,33 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         penalty_ap.utility = 0.05;
         avoid_pieces.push_back(penalty_ap);
 
-        // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + 60.0]
+        double comfort_zone_upper_deg = 60.0;
+        if (latest_colregs_ && !latest_colregs_->constraints.empty()) {
+          for (const auto& c : latest_colregs_->constraints) {
+            if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
+              const double geometry_margin_deg = 15.0;
+              const double candidate = std::max(colregs_dev + geometry_margin_deg,
+                                                c.numeric_value + geometry_margin_deg);
+              comfort_zone_upper_deg = std::max(comfort_zone_upper_deg, candidate);
+            }
+          }
+        }
+        comfort_zone_upper_deg = std::min(120.0, std::max(comfort_zone_upper_deg, colregs_dev));
+
+        // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + comfort_zone_upper]
         IvPFunctionDefault::Piece optimal_ap;
         optimal_ap.heading_min_deg = wrap_hdg(nominal_hdg + colregs_dev);
-        optimal_ap.heading_max_deg = wrap_hdg(nominal_hdg + 60.0);
+        optimal_ap.heading_max_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg);
         optimal_ap.speed_min_kn = 0.0;
         optimal_ap.speed_max_kn = speed_max_kn_;
         optimal_ap.utility = 1.0;
         avoid_pieces.push_back(optimal_ap);
 
-        // 2c. Sub-Optimal Transition Zone (0.6 utility): [nominal_hdg + 60.0, nominal_hdg + 90.0]
+        // 2c. Sub-Optimal Transition Zone (0.6 utility): [comfort_zone_upper, comfort_zone_upper + 30.0]
         // Transition region for larger evasion maneuvers
         IvPFunctionDefault::Piece transition_ap;
-        transition_ap.heading_min_deg = wrap_hdg(nominal_hdg + 60.0);
-        transition_ap.heading_max_deg = wrap_hdg(nominal_hdg + 90.0);
+        transition_ap.heading_min_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg);
+        transition_ap.heading_max_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg + 30.0);
         transition_ap.speed_min_kn = 0.0;
         transition_ap.speed_max_kn = speed_max_kn_;
         transition_ap.utility = 0.6;
