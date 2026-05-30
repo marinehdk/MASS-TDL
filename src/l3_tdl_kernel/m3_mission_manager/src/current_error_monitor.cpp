@@ -4,11 +4,35 @@
 #include "m3_mission_manager/current_error_monitor.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mass_l3::m3 {
 
 CurrentErrorMonitor::CurrentErrorMonitor(CurrentErrorMonitorConfig cfg)
     : cfg_(cfg) {}
+
+void CurrentErrorMonitor::update_route_state(
+    double own_lat_deg, double own_lon_deg,
+    double seg_start_lat_deg, double seg_start_lon_deg,
+    double seg_end_lat_deg,   double seg_end_lon_deg)
+{
+  const double kDeg2Rad = 3.14159265358979323846 / 180.0;
+  const double kEarthNm = 3440.06479;
+
+  const double cos_lat = std::cos(seg_start_lat_deg * kDeg2Rad);
+  const double own_N = (own_lat_deg         - seg_start_lat_deg) * kDeg2Rad * kEarthNm;
+  const double own_E = (own_lon_deg         - seg_start_lon_deg) * kDeg2Rad * kEarthNm * cos_lat;
+  const double end_N = (seg_end_lat_deg     - seg_start_lat_deg) * kDeg2Rad * kEarthNm;
+  const double end_E = (seg_end_lon_deg     - seg_start_lon_deg) * kDeg2Rad * kEarthNm * cos_lat;
+
+  const double seg_len = std::sqrt(end_N * end_N + end_E * end_E);
+  if (seg_len < 1e-3) {
+    last_geometric_xte_nm_ = -1.0F;
+    return;
+  }
+  const double xte_nm = (own_N * end_E - own_E * end_N) / seg_len;
+  last_geometric_xte_nm_ = static_cast<float>(std::abs(xte_nm));
+}
 
 void CurrentErrorMonitor::update_tracking_error(
     const l3_external_msgs::msg::TrackingError& msg,
@@ -38,6 +62,10 @@ CurrentErrorReading CurrentErrorMonitor::evaluate(
       l4_available = true;
       effective_xte = last_xte_nm_;
     }
+  }
+
+  if (!l4_available) {
+    effective_xte = last_geometric_xte_nm_;
   }
 
   const CurrentErrorSeverity sev = compute_severity(effective_xte, last_sea_current_kn_);

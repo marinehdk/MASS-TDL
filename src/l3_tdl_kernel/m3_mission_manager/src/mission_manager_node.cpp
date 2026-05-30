@@ -455,8 +455,14 @@ void MissionManagerNode::on_planned_route(
 {
   RCLCPP_DEBUG(get_logger(), "PlannedRoute received: id=%lu", msg->route_id);
   last_planned_route_time_ = std::chrono::steady_clock::now();
+  
+  const bool is_new_route = !last_planned_route_ || (last_planned_route_->route_id != msg->route_id);
   last_planned_route_ = msg;
-  current_wp_index_ = 0u;
+
+  if (is_new_route) {
+    current_wp_index_ = 0u;
+    RCLCPP_INFO(get_logger(), "[M3] New route received with ID %lu — resetting waypoint index to 0", msg->route_id);
+  }
 
   if (eta_projector_) {
     eta_projector_->update_route(*msg);
@@ -588,6 +594,22 @@ void MissionManagerNode::on_world_state(
       } else {
         break;
       }
+    }
+  }
+
+  // Update geometric XTE: segment = [previous_wp, current_target_wp]
+  if (last_planned_route_ && !last_planned_route_->route.poses.empty()) {
+    if (current_wp_index_ < last_planned_route_->route.poses.size()) {
+      const std::size_t prev_idx = (current_wp_index_ > 0u) ? current_wp_index_ - 1u : 0u;
+      const auto& prev_pose = last_planned_route_->route.poses[prev_idx];
+      const auto& curr_pose = last_planned_route_->route.poses[current_wp_index_];
+      current_error_monitor_->update_route_state(
+          msg->own_ship.position.latitude,
+          msg->own_ship.position.longitude,
+          prev_pose.pose.position.latitude,
+          prev_pose.pose.position.longitude,
+          curr_pose.pose.position.latitude,
+          curr_pose.pose.position.longitude);
     }
   }
 
@@ -750,6 +772,19 @@ void MissionManagerNode::publish_mission_goal()
       msg.current_target_wp.latitude  = target_pose.pose.position.latitude;
       msg.current_target_wp.longitude = target_pose.pose.position.longitude;
       msg.current_target_wp.altitude  = 0.0;
+
+      // Update geometric XTE: segment = [previous_wp, current_target_wp]
+      const std::size_t prev_idx = (current_wp_index_ > 0u) ? current_wp_index_ - 1u : 0u;
+      const auto& prev_pose = last_planned_route_->route.poses[prev_idx];
+      if (last_world_state_) {
+        current_error_monitor_->update_route_state(
+            last_world_state_->own_ship.position.latitude,
+            last_world_state_->own_ship.position.longitude,
+            prev_pose.pose.position.latitude,
+            prev_pose.pose.position.longitude,
+            target_pose.pose.position.latitude,
+            target_pose.pose.position.longitude);
+      }
     }
   }
 

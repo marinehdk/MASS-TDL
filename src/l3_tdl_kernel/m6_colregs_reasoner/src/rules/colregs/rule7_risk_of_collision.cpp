@@ -23,8 +23,8 @@ RuleEvaluation Rule7_RiskOfCollision::evaluate(const TargetGeometricState& geo,
   result.preferred_direction = "HOLD";
   result.confidence = 0.5F;
 
-  // Primary check: CPA below safe threshold
-  const bool kCpaRisk = (geo.cpa_m < params.cpa_safe_m);
+  // Primary check: CPA below safe threshold and threat in the future
+  const bool kCpaRisk = (geo.cpa_m < params.cpa_safe_m) && (geo.tcpa_s > 0.0);
 
   // Secondary check: constant bearing, decreasing range.
   // With single-snapshot data, approximate via bearing near own heading

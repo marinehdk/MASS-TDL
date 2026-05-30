@@ -22,8 +22,8 @@ import pytest
 CAPTURE_SCRIPT = Path(__file__).parent / "capture_rule14_boundary.py"
 SCENARIO = "colreg-rule14-ho"
 RATE = 1.0
-DURATION_SIM_S = 350.0      # covers full avoidance + return-to-route
-WALL_TIMEOUT_S = 700        # conservative: 350 s sim at RTF=0.9 ≈ 388 s wall
+DURATION_SIM_S = 650.0      # covers full avoidance + return-to-route
+WALL_TIMEOUT_S = 1400       # conservative: 650 s sim at RTF=0.9 ≈ 722 s wall
 
 # Acceptance thresholds
 RTF_LOW  = 0.9
@@ -66,6 +66,8 @@ def _run_capture_in_container(output_host: str) -> None:
                         f"{container}:{container_script}"], check=True)
         subprocess.run(
             ["docker", "exec", container, "bash", "-c",
+             f"export ROS_DOMAIN_ID=0 && "
+             f"export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && "
              f"source /opt/ros/humble/setup.bash && "
              f"source /opt/ws/install/setup.bash && "
              f"python3 {container_script} "

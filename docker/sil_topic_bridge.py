@@ -190,6 +190,8 @@ class SilTopicBridge(Node):
         self._avoidance_active = False
         self._avoidance_target_heading_deg = None
         self._speed_controller = SpeedController()
+        self._current_target_wp_lat = 0.0
+        self._current_target_wp_lon = 0.0
 
         self.declare_parameter("ownship_initial_heading_deg", 0.0)
         self.declare_parameter("ownship_initial_sog_kn", CRUISE_SPEED_KN)
@@ -433,6 +435,22 @@ class SilTopicBridge(Node):
     def _on_mission_goal(self, msg: MissionGoal) -> None:
         """M3 mission goal callback — check task_validity + behavior release condition."""
         self._record_pulse(M3)
+        
+        # Reset state if mission is not ACTIVE (FSM_ACTIVE = 3)
+        if msg.fsm_state < 3:
+            self._avoidance_active = False
+            self._avoidance_target_heading_deg = None
+            self._avoidance_heading_controller.last_cmd_deg = 0.0
+            self._reset_latch_release_state()
+            self._current_target_wp_lat = 0.0
+            self._current_target_wp_lon = 0.0
+            return
+
+        if (abs(msg.current_target_wp.latitude) > 1e-4 or
+                abs(msg.current_target_wp.longitude) > 1e-4):
+            self._current_target_wp_lat = float(msg.current_target_wp.latitude)
+            self._current_target_wp_lon = float(msg.current_target_wp.longitude)
+
         # Condition 2: task_validity == valid && behavior == TRANSIT
         task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
         behavior_transit = (
@@ -528,7 +546,7 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
-                if self._last_behavior_plan is not None:
+                if self._last_behavior_plan is not None and self._last_behavior_plan.behavior != 0:
                     self._avoidance_active = True
                     self._reset_latch_release_state()
                     beh = self._last_behavior_plan
@@ -606,10 +624,14 @@ class SilTopicBridge(Node):
         m4_in_fallback = (
             self._last_behavior_plan is not None and
             "fallback" in self._last_behavior_plan.rationale.lower())
+        m4_in_transit = (
+            self._last_behavior_plan is not None and
+            self._last_behavior_plan.behavior == 0  # BEHAVIOR_TRANSIT
+        )
 
         was_enabled = self._autopilot_enabled
         self._autopilot_enabled = (
-            env_allows_autopilot and (is_m5_stale or m4_in_fallback))
+            env_allows_autopilot and (is_m5_stale or m4_in_fallback or m4_in_transit))
 
         # F4-I-5: on rising edge, publish immediately rather than waiting up to
         # 1.5 s for the next periodic tick (otherwise there is a dead-stick
@@ -658,6 +680,10 @@ class SilTopicBridge(Node):
                 self._latch_release_triggered = False
                 self._avoidance_target_heading_deg = self._target_heading_deg
                 self.get_logger().info("[BRIDGE] LATCH decay complete, snapped to nominal route bearing")
+                self._avoidance_active = False
+                self._avoidance_target_heading_deg = None
+                self._avoidance_heading_controller.last_cmd_deg = 0.0
+                self._reset_latch_release_state()
             else:
                 self._avoidance_target_heading_deg = (self._target_heading_deg + sign * latch_offset_decaying) % 360.0
 
@@ -700,14 +726,43 @@ class SilTopicBridge(Node):
             current_heading_deg = math.degrees(self._last_ownship_raw.heading)
             current_sog_kn = self._last_ownship_raw.sog * 1.94384
             current_rot_deg_s = math.degrees(self._last_ownship_raw.rot)
+            own_lat = self._last_ownship_raw.lat
+            own_lon = self._last_ownship_raw.lon
         else:
             current_heading_deg = self._target_heading_deg
             current_sog_kn = self._target_sog_kn
             current_rot_deg_s = 0.0
+            own_lat = 0.0
+            own_lon = 0.0
 
-        heading_error_deg = self._target_heading_deg - current_heading_deg
+        target_sog = self._target_sog_kn
+        if (abs(self._current_target_wp_lat) > 1e-4 or
+                abs(self._current_target_wp_lon) > 1e-4):
+            effective_target_heading = self._great_circle_bearing(
+                own_lat, own_lon,
+                self._current_target_wp_lat, self._current_target_wp_lon)
+            
+            # XTE Correction: nominal route is exactly along the 10.38 meridian.
+            # Calculate cross-track error in meters. Positive = East (starboard) of track.
+            lat_rad = math.radians(own_lat)
+            xte_m = (own_lon - 10.38) * 111319.9 * math.cos(lat_rad)
+
+            # Proportional gain: 0.3 deg/meter (faster recovery)
+            # Clamp to [-85.0, 85.0] degrees to allow a steeper intercept angle for rapid return
+            xte_correction = max(-85.0, min(85.0, xte_m * 0.3))
+            effective_target_heading = (effective_target_heading - xte_correction) % 360.0
+            
+            # Boost target speed when far off-track to overcome rudder drag and close XTE rapidly
+            if abs(xte_m) > 150.0:
+                target_sog = max(target_sog, 19.5)
+            elif abs(xte_m) > 50.0:
+                target_sog = max(target_sog, 18.0)
+        else:
+            effective_target_heading = self._target_heading_deg
+
+        heading_error_deg = effective_target_heading - current_heading_deg
         heading_error_deg = (heading_error_deg + 180.0) % 360.0 - 180.0
-        speed_error_kn = self._target_sog_kn - current_sog_kn
+        speed_error_kn = target_sog - current_sog_kn
 
         dt = 0.5
         out.rudder_angle = RUDDER_SIGN * self._heading_controller.step(
@@ -715,6 +770,17 @@ class SilTopicBridge(Node):
         out.throttle = self._speed_controller.step(speed_error_kn, dt)
 
         return out
+
+    @staticmethod
+    def _great_circle_bearing(lat1: float, lon1: float,
+                              lat2: float, lon2: float) -> float:
+        """Great-circle bearing [deg] from (lat1,lon1) to (lat2,lon2)."""
+        dlon = math.radians(lon2 - lon1)
+        y = math.sin(dlon) * math.cos(math.radians(lat2))
+        x = (math.cos(math.radians(lat1)) * math.sin(math.radians(lat2))
+             - math.sin(math.radians(lat1)) * math.cos(math.radians(lat2))
+             * math.cos(dlon))
+        return math.degrees(math.atan2(y, x)) % 360.0
 
 
 # ── Main ─────────────────────────────────────────────────────

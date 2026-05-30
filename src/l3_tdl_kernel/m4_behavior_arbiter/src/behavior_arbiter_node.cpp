@@ -320,7 +320,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         penalty_ap.utility = 0.05;
         avoid_pieces.push_back(penalty_ap);
 
-        double comfort_zone_upper_deg = 60.0;
+        double comfort_zone_upper_deg = 30.0;
         if (latest_colregs_ && !latest_colregs_->constraints.empty()) {
           for (const auto& c : latest_colregs_->constraints) {
             if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
@@ -331,7 +331,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
             }
           }
         }
-        comfort_zone_upper_deg = std::min(120.0, std::max(comfort_zone_upper_deg, colregs_dev));
+        comfort_zone_upper_deg = std::min(30.0, std::max(comfort_zone_upper_deg, colregs_dev));
 
         // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + comfort_zone_upper]
         IvPFunctionDefault::Piece optimal_ap;

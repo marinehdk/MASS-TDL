@@ -86,10 +86,13 @@ mgr_executor = _MgrExecutor(num_threads=2)
 mgr_executor.add_node(mgr_node)
 
 def run_mgr():
-    try:
-        mgr_executor.spin()
-    except Exception as exc:
-        print(f'[{ts()}] [WARN] mgr_executor thread exit: {exc}', file=sys.stderr)
+    while rclpy.ok():
+        try:
+            mgr_executor.spin()
+        except Exception as exc:
+            print(f'[{ts()}] [WARN] mgr_executor exception (restarting spin): {exc}', file=sys.stderr, flush=True)
+            import time
+            time.sleep(0.5)
 
 mgr_thread = threading.Thread(target=run_mgr, daemon=True)
 mgr_thread.start()

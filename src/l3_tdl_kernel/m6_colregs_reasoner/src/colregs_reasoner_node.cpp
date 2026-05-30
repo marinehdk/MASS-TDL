@@ -518,9 +518,24 @@ void ColregsReasonerNode::run_reasoning() {
   evaluations.reserve(kTargetStates.size() * rules_.size());
 
   for (const auto& target : kTargetStates) {
+    uint32_t mmsi = static_cast<uint32_t>(target.target_id);
     for (const auto& rule : rules_) {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
+      
+      // Hysteresis/latch: if Rule 14 is evaluated, and the head-on latch timer is active,
+      // force Rule 14 to be active so we don't chatter/toggle back and forth when turning.
+      if (rule->rule_id() == 14 && rule14_state_.count(mmsi) > 0 && rule14_state_[mmsi] > 0.0) {
+        eval.is_active = true;
+        eval.role = Role::BOTH_GIVE_WAY;
+        eval.encounter_type = EncounterType::HEAD_ON;
+        eval.preferred_direction = "STARBOARD";
+        eval.min_alteration_deg = kParams.min_alteration_deg;
+        eval.confidence = 0.85F;
+        eval.rationale = "Rule 14 (Latched): Head-on situation active (latch time remaining: " + 
+                         std::to_string(rule14_state_[mmsi]) + "s)";
+      }
+      
       evaluations.push_back(eval);
     }
   }
@@ -564,9 +579,21 @@ void ColregsReasonerNode::run_reasoning() {
         rule14_state_[mmsi] = 30.0;
       } else {
         if (rule14_state_[mmsi] > 0.0) {
-          rule14_state_[mmsi] -= dt_s;
-          if (rule14_state_[mmsi] < 0.0) {
-            rule14_state_[mmsi] = 0.0;
+          // Latch holding logic: do not decay the head-on latch timer while the threat is still
+          // in front of us and not safely cleared.
+          const double rel_bearing = relative_bearing_deg(ws_snapshot->own_ship.heading_deg, tgt.brg_deg);
+          const bool range_closing = (tgt.rng_m - prev_target_range_[mmsi]) < 0.0;
+          const bool target_passed = (!range_closing && rel_bearing > 60.0 && rel_bearing < 300.0) || 
+                                     (!range_closing && tgt.rng_m > 1000.0);
+          
+          if (target_passed) {
+            rule14_state_[mmsi] -= 6.0 * dt_s;
+            if (rule14_state_[mmsi] < 0.0) {
+              rule14_state_[mmsi] = 0.0;
+            }
+          } else {
+            // Keep refreshing the timer until the target is astern or moving away!
+            rule14_state_[mmsi] = 30.0;
           }
         }
       }
@@ -977,7 +1004,14 @@ bool ColregsReasonerNode::is_head_on_encounter(
   // Condition 3: Range closing
   bool range_closing = (range_m - prev_range_m) < 0.0;
 
-  return heading_ok && bearing_rate_ok && range_closing;
+  // Condition 4: Target is in front of us (relative bearing < 90.0 degrees)
+  double rel_bearing = relative_bearing_deg(own_heading_deg, bearing_deg);
+  if (rel_bearing > 180.0) {
+    rel_bearing = 360.0 - rel_bearing;
+  }
+  bool target_in_front = rel_bearing < 90.0;
+
+  return heading_ok && bearing_rate_ok && range_closing && target_in_front;
 }
 
 }  // namespace mass_l3::m6_colregs

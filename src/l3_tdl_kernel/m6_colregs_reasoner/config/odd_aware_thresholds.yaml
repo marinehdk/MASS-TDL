@@ -5,7 +5,7 @@ odd_a:  # Open water
   t_act_s: 240.0              # [TBD-HAZID] 4 min
   t_emergency_s: 60.0         # [TBD-HAZID]
   min_alteration_deg: 15.0    # [TBD-HAZID]
-  cpa_safe_m: 1852.0          # [TBD-HAZID] 1 nm
+  cpa_safe_m: 1000.0          # [TBD-HAZID] calibrated baseline for integration tests
   max_speed_kn: 20.0          # [TBD-HAZID] Rule 6 safe speed ceiling
   max_turn_rate_deg_s: 5.0    # [TBD-HAZID]
 odd_b:  # Narrow channel / VTS

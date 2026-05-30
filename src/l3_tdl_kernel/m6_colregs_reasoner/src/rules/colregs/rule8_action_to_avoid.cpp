@@ -20,8 +20,8 @@ RuleEvaluation Rule8_ActionToAvoid::evaluate(const TargetGeometricState& geo,
   result.min_alteration_deg = 0.0;
   result.preferred_direction = "HOLD";
 
-  // Active when CPA < safe threshold (risk exists)
-  const bool kRiskExists = (geo.cpa_m < params.cpa_safe_m);
+  // Active when CPA < safe threshold and threat in the future (risk exists)
+  const bool kRiskExists = (geo.cpa_m < params.cpa_safe_m) && (geo.tcpa_s > 0.0);
 
   if (!kRiskExists) {
     result.is_active = false;

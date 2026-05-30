@@ -43,6 +43,10 @@ RUN sed -i '/^add_library(yaml-cpp SHARED IMPORTED)$/a add_library(yaml-cpp::yam
 
 WORKDIR /opt/ws
 
+# Python deps
+RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
+RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir casadi
+
 # Copy the sim_workbench colcon packages
 COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
 COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
@@ -52,10 +56,6 @@ COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
 # L3 kernel modules (M1-M8) — DEMO-1 integration
 # (l3_msgs + l3_external_msgs live under l3_tdl_kernel/ since a748ffe)
 COPY src/l3_tdl_kernel     src/l3_tdl_kernel
-
-# Python deps
-RUN pip install --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
-RUN pip install --no-cache-dir casadi
 
 # Build the workspace.
 # --mount=type=cache keeps intermediate build artifacts (ccache compiler cache)

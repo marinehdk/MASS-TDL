@@ -39,6 +39,11 @@ class CurrentErrorMonitor {
   CurrentErrorMonitor(CurrentErrorMonitor&&) = default;
   CurrentErrorMonitor& operator=(CurrentErrorMonitor&&) = default;
 
+  void update_route_state(
+      double own_lat_deg, double own_lon_deg,
+      double seg_start_lat_deg, double seg_start_lon_deg,
+      double seg_end_lat_deg,   double seg_end_lon_deg);
+
   void update_tracking_error(
       const l3_external_msgs::msg::TrackingError& msg,
       std::chrono::steady_clock::time_point now);
@@ -56,6 +61,7 @@ class CurrentErrorMonitor {
 
   CurrentErrorMonitorConfig cfg_;
   float  last_xte_nm_         = -1.0F;
+  float  last_geometric_xte_nm_ = -1.0F;
   float  last_sea_current_kn_ =  0.0F;
   std::optional<std::chrono::steady_clock::time_point> last_tracking_error_time_;
 };

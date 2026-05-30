@@ -68,6 +68,7 @@ class CapBoundary(Node):
         self._xte_nm = -1.0
         self._target_lat = 0.0
         self._target_lon = 0.0
+        self._last_oss_time = time.time()
 
         q = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -111,6 +112,7 @@ class CapBoundary(Node):
     def _oss(self, m):
         if not self.running:
             return
+        self._last_oss_time = time.time()
         if not self.first_received:
             self.first_received = True
             self.sim_start_t = self.sim_t
@@ -151,12 +153,18 @@ class CapBoundary(Node):
 
     def done(self):
         wall_elapsed = time.time() - self.wall_start
-        if not self.first_received and wall_elapsed > 30.0:
+        if not self.first_received and wall_elapsed > 90.0:
             print("[cap] Timeout waiting for OwnShipState", file=sys.stderr, flush=True)
             self.running = False
-        elif self.first_received and wall_elapsed > max(self.dur * 3.0, 180.0):
-            print("[cap] Wall-clock fallback timeout", file=sys.stderr, flush=True)
-            self.running = False
+        elif self.first_received:
+            # If we haven't received OwnShipState for more than 8.0 seconds, simulation has likely stopped
+            idle_time = time.time() - self._last_oss_time
+            if idle_time > 8.0:
+                print(f"[cap] Simulation stopped (no OSS for {idle_time:.1f}s). Exiting capture.", flush=True)
+                self.running = False
+            elif wall_elapsed > max(self.dur * 3.0, 180.0):
+                print("[cap] Wall-clock fallback timeout", file=sys.stderr, flush=True)
+                self.running = False
         return not self.running
 
     def save(self):
