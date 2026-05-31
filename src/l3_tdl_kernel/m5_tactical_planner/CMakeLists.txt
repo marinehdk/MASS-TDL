@@ -16,6 +16,7 @@ add_compile_options(
   -Wnull-dereference -Wdouble-promotion
   -Wformat=2 -Wformat-security -Wmissing-declarations -Wundef -Wunused
   -fstack-protector-strong -D_FORTIFY_SOURCE=2
+  -fno-fast-math -ffp-contract=off
 )
 
 # Release: -O2 (NOT -O3 per PATH-D §2.2)
