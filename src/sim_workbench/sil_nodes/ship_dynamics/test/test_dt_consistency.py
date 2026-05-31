@@ -310,5 +310,56 @@ class TestHeadlessDefault(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# Test 4 — Lifecycle & Parameter Improvements (Code Quality Feedback)
+# ---------------------------------------------------------------------------
+
+class TestLifecycleImprovements(unittest.TestCase):
+    def test_on_deactivate_resets_last_sim_time(self):
+        """on_deactivate must reset _last_sim_time to None to prevent catch-up jumps."""
+        node = _make_node(dt=0.02)
+        node._last_sim_time = "dummy_time_object"
+        node._timer = MagicMock()
+        node._state_pub = MagicMock()
+        node._actuator_sub = MagicMock()
+        node._env_sub = MagicMock()
+
+        # Call on_deactivate
+        res = node.on_deactivate(None)
+        self.assertEqual(res, "SUCCESS")
+        self.assertIsNone(node._last_sim_time, "_last_sim_time must be reset to None on deactivation.")
+
+    def test_headless_parameter_loading(self):
+        """on_configure must declare and retrieve the 'headless' parameter."""
+        node = ShipDynamicsNode.__new__(ShipDynamicsNode)
+        ShipDynamicsNode.__init__(node, "test_node")
+
+        # Mock the declare_parameter and get_parameter to return a specific value
+        param_mock = MagicMock()
+        param_mock.value = True
+        node.declare_parameter = MagicMock()
+        node.get_parameter = MagicMock(return_value=param_mock)
+
+        # Force _load_coefficients to succeed
+        node._load_coefficients = MagicMock(return_value=MMGCoefficients())
+
+        res = node.on_configure(None)
+        self.assertEqual(res, "SUCCESS")
+        node.declare_parameter.assert_any_call("headless", False)
+        node.get_parameter.assert_any_call("headless")
+        self.assertTrue(node._headless, "_headless must load its value from the ROS2 parameter 'headless'.")
+
+    def test_timer_creation_uses_model_dt(self):
+        """on_activate must create the timer using the model's dynamic dt value."""
+        node = _make_node(dt=0.015)  # dynamic dt
+        node.create_publisher = MagicMock()
+        node.create_subscription = MagicMock()
+        node.create_timer = MagicMock()
+
+        res = node.on_activate(None)
+        self.assertEqual(res, "SUCCESS")
+        node.create_timer.assert_called_once_with(0.015, node._step_callback)
+
+
 if __name__ == "__main__":
     unittest.main()
