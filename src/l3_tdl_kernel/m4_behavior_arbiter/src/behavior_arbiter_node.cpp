@@ -1,6 +1,7 @@
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
 
 #include <chrono>
+#include <limits>
 #include <sstream>
 #include <cmath>
 #include <spdlog/spdlog.h>
@@ -310,6 +311,51 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         IvPFunctionDefault avoid_fn;
         std::vector<IvPFunctionDefault::Piece> avoid_pieces;
 
+        // ── R2 fix: geometry-derived required starboard deviation ──────────
+        // For a head-on (Rule 14) or any closing encounter, compute the minimum
+        // starboard deviation needed to achieve CPA >= cpa_safe_m (default 500 m).
+        // Formula: required_dev >= arcsin(cpa_safe_m / rng_m) * boldness_factor.
+        // Rule 8 "large alteration" = boldness_factor >= 2.0 so the turn is
+        // "readily apparent" to the other vessel (IMO Rule 8(b)).
+        // Result is clamped to [colregs_dev, 120°] — sane physical limit.
+        const double kCpaSafe_m = 500.0;          // minimum accepted CPA [m]
+        const double kBoldnessFactor = 2.5;        // Rule 8 boldness multiplier
+        const double kMaxDevDeg = 120.0;           // hard upper cap
+
+        double geo_required_dev_deg = colregs_dev; // fallback: COLREG config minimum
+        if (latest_world_ && !latest_world_->targets.empty()) {
+          double min_cpa_range_m = std::numeric_limits<double>::max();
+          for (const auto& tgt : latest_world_->targets) {
+            if (tgt.rng_m > 0.0 && tgt.rng_m < min_cpa_range_m) {
+              min_cpa_range_m = tgt.rng_m;
+            }
+          }
+          if (min_cpa_range_m < std::numeric_limits<double>::max() &&
+              min_cpa_range_m > kCpaSafe_m) {
+            // arcsin(D_safe / R) in degrees, scaled by boldness factor
+            const double raw_deg =
+                std::asin(kCpaSafe_m / min_cpa_range_m) * (180.0 / M_PI);
+            geo_required_dev_deg = std::min(kMaxDevDeg,
+                std::max(colregs_dev, raw_deg * kBoldnessFactor));
+          } else if (min_cpa_range_m <= kCpaSafe_m) {
+            // Already inside safe zone — command maximum bold deviation
+            geo_required_dev_deg = kMaxDevDeg;
+          }
+        }
+
+        // comfort_zone_upper: from colregs_dev (= M6 min_alteration_deg lower bound)
+        // up to geo_required_dev_deg + 15° margin (gives MPC room to optimize
+        // within the COLREG-mandated bold starboard window).
+        // Bug fix: removed the erroneous std::min(30.0,...) cap that zeroed out
+        // any geometry-derived upper bound larger than 30°.
+        double comfort_zone_upper_deg = std::max(colregs_dev, geo_required_dev_deg);
+        // Add margin so IvP optimal zone has breadth (MPC can pick within it)
+        comfort_zone_upper_deg = std::min(kMaxDevDeg, comfort_zone_upper_deg + 15.0);
+
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+            "[M4 R2] geo_dev=%.1f° comfort_upper=%.1f° colregs_min=%.1f°",
+            geo_required_dev_deg, comfort_zone_upper_deg, colregs_dev);
+
         // 2a. Penalty Zone (0.05 utility): [nominal_hdg - 180, nominal_hdg + colregs_dev)
         // Severely penalizes port turns or insufficient starboard turns
         IvPFunctionDefault::Piece penalty_ap;
@@ -319,19 +365,6 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         penalty_ap.speed_max_kn = speed_max_kn_;
         penalty_ap.utility = 0.05;
         avoid_pieces.push_back(penalty_ap);
-
-        double comfort_zone_upper_deg = 30.0;
-        if (latest_colregs_ && !latest_colregs_->constraints.empty()) {
-          for (const auto& c : latest_colregs_->constraints) {
-            if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
-              const double geometry_margin_deg = 15.0;
-              const double candidate = std::max(colregs_dev + geometry_margin_deg,
-                                                c.numeric_value + geometry_margin_deg);
-              comfort_zone_upper_deg = std::max(comfort_zone_upper_deg, candidate);
-            }
-          }
-        }
-        comfort_zone_upper_deg = std::min(30.0, std::max(comfort_zone_upper_deg, colregs_dev));
 
         // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + comfort_zone_upper]
         IvPFunctionDefault::Piece optimal_ap;
@@ -417,6 +450,24 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
             if (c.numeric_value > starboard_dev_deg) {
               starboard_dev_deg = c.numeric_value;
             }
+          }
+        }
+        // R2 fix: escalate fallback deviation using same geometry as IvP window.
+        // Without this, IvP-infeasible fallback emits only ~15° (M6 config min),
+        // which is insufficient for a bold head-on (Rule 14) alteration.
+        const double kCpaSafe_fb = 500.0;
+        const double kBoldFb = 2.5;
+        const double kMaxFb = 120.0;
+        if (latest_world_ && !latest_world_->targets.empty()) {
+          double min_rng = std::numeric_limits<double>::max();
+          for (const auto& tgt : latest_world_->targets) {
+            if (tgt.rng_m > 0.0 && tgt.rng_m < min_rng) min_rng = tgt.rng_m;
+          }
+          if (min_rng < std::numeric_limits<double>::max() && min_rng > kCpaSafe_fb) {
+            const double geo = std::asin(kCpaSafe_fb / min_rng) * (180.0 / M_PI) * kBoldFb;
+            starboard_dev_deg = std::min(kMaxFb, std::max(starboard_dev_deg, geo));
+          } else if (min_rng <= kCpaSafe_fb) {
+            starboard_dev_deg = kMaxFb;
           }
         }
       }
