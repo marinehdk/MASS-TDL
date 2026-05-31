@@ -128,4 +128,12 @@ install(TARGETS doer_composition
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+ament_get_python_install_dir(PYTHON_INSTALL_DIR)
+install(DIRECTORY shell_b_harness DESTINATION ${PYTHON_INSTALL_DIR})
+
+ament_environment_hooks(
+  "environment/pythonpath.sh"
+  "environment/pythonpath.dsv"
+)
+
 ament_package()

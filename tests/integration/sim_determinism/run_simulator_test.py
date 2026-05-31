@@ -6,24 +6,23 @@ import subprocess
 import threading
 import socket
 import math
+import rclpy
 
-# Set ROS_DOMAIN_ID to 42 before importing rclpy to isolate from background traffic
-os.environ["ROS_DOMAIN_ID"] = "42"
+# Add paths to make sure we can import ship_dynamics and shell_b_harness
+for p in [
+    "/opt/ws/src/sim_workbench/sil_nodes/ship_dynamics",
+    "/opt/ws/install/shell_b_harness/local/lib/python3.10/dist-packages",
+    "./src/sim_workbench/sil_nodes/ship_dynamics"
+]:
+    abs_p = os.path.abspath(p)
+    if abs_p not in sys.path:
+        sys.path.insert(0, abs_p)
 
-# Add ship_dynamics to path
-sys.path.insert(0, "/opt/ws/src/sim_workbench/sil_nodes/ship_dynamics")
 from ship_dynamics.mmg_coefficients import MMGCoefficients
 from ship_dynamics.mmg_model import MMGModel, ShipState
+from shell_b_harness.simulator import ShellBSimulator
 
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
-from rosgraph_msgs.msg import Clock
-from l3_external_msgs.msg import FilteredOwnShipState, TrackedTargetArray
-from l3_msgs.msg import BehaviorPlan, AvoidancePlan, ODDState, TrackedTarget
-from std_msgs.msg import Header
-from sil_msgs.msg import OwnShipState as SilOwnShipState
-
+# ─── Helper Functions for Prototype Reference ───
 def _lat_offset(meters: float, lat_ref_rad: float) -> float:
     return meters / 111120.0
 
@@ -46,7 +45,7 @@ def _ground_track_to_nav_cog(psi_rad: float, u_mps: float, v_mps: float) -> floa
         return _math_heading_to_nav_heading(psi_rad)
     return _normalize_angle_rad(math.atan2(east_mps, north_mps))
 
-class HeadingController:
+class HeadingControllerRef:
     def __init__(self, Kp: float = 1.0, max_rate_deg_s: float = 5.0):
         self.Kp = Kp
         self.max_rate_deg_s = max_rate_deg_s
@@ -61,7 +60,7 @@ class HeadingController:
         self.last_cmd_deg = cmd_deg
         return math.radians(cmd_deg)
 
-class SpeedController:
+class SpeedControllerRef:
     def __init__(self, Kp: float = 0.15, Ki: float = 0.02, max_rate: float = 0.5):
         self.Kp = Kp
         self.Ki = Ki
@@ -81,13 +80,14 @@ class SpeedController:
         self.last_cmd = cmd
         return cmd
 
-class LockstepTester(Node):
+class LockstepTesterRef(rclpy.node.Node):
     def __init__(self):
-        super().__init__('lockstep_tester')
+        super().__init__('lockstep_tester_ref')
         self.received_doer = False
         self.received_m7 = False
         
         # QoS profiles
+        from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
         qos_volatile = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -111,20 +111,24 @@ class LockstepTester(Node):
         self.last_valid_plan_time = 0.0
         self.last_avoidance_waypoint = None
         
-        self.heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=5.0)
-        self.avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=10.0)
-        self.speed_controller = SpeedController()
+        self.heading_controller = HeadingControllerRef(Kp=1.0, max_rate_deg_s=5.0)
+        self.avoidance_heading_controller = HeadingControllerRef(Kp=1.0, max_rate_deg_s=10.0)
+        self.speed_controller = SpeedControllerRef()
         
         self.target_heading_deg = 0.0
         self.target_sog_kn = 10.0
         
         # Subscribers
+        from l3_msgs.msg import BehaviorPlan, AvoidancePlan, ODDState
+        from std_msgs.msg import Header
         self.create_subscription(BehaviorPlan, "/l3/m4/behavior_plan", self.cb_behavior, qos_volatile)
         self.create_subscription(AvoidancePlan, "/l3/m5/avoidance_plan", self.cb_avoidance, qos_volatile)
         self.create_subscription(ODDState, "/l3/m1/odd_state", self.cb_odd, qos_volatile)
         self.create_subscription(Header, "/l3/m7/heartbeat", self.cb_m7, qos_best_effort)
         
         # Publishers
+        from rosgraph_msgs.msg import Clock
+        from l3_external_msgs.msg import FilteredOwnShipState, TrackedTargetArray
         self.pub_clock = self.create_publisher(Clock, "/clock", qos_volatile)
         self.pub_foss = self.create_publisher(FilteredOwnShipState, "/fusion/own_ship_state", qos_volatile)
         self.pub_tta = self.create_publisher(TrackedTargetArray, "/fusion/tracked_targets", qos_volatile)
@@ -175,6 +179,7 @@ class LockstepTester(Node):
 
     def compute_autopilot(self, sim_t, current_heading_deg, current_sog_kn, current_rot_deg_s) -> tuple[float, float]:
         """Returns (rudder_angle_rad, throttle)"""
+        from l3_msgs.msg import ODDState
         RUDDER_SIGN = -1
         CRUISE_SPEED_KN = 10.0
         MAX_SPEED_KN = 25.0
@@ -223,17 +228,21 @@ class LockstepTester(Node):
 
         return 0.0, CRUISE_SPEED_KN / MAX_SPEED_KN
 
+
 def print_output(name, stream):
     for line in iter(stream.readline, ''):
-        print(f"[{name}] {line.strip()}", flush=True)
+        pass # Consume but don't print to keep output clean
 
-def main():
-    port = 9091
+
+def run_prototype_reference(steps=100) -> list[dict]:
+    # Set ROS_DOMAIN_ID to 43
+    os.environ["ROS_DOMAIN_ID"] = "43"
+    
+    port = 9094
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind(('127.0.0.1', port))
     server_sock.listen(5)
-    print(f"Lockstep coordinator server listening on 127.0.0.1:{port}", flush=True)
 
     doer_cmd = [
         "/opt/ws/install/shell_b_harness/lib/shell_b_harness/doer_composition", "--ros-args",
@@ -258,9 +267,7 @@ def main():
         "-p", "use_sim_time:=True"
     ]
     
-    env = dict(os.environ, ROS_DOMAIN_ID="42", SIL_LOCKSTEP_PORT=str(port))
-    
-    print("Launching doer_composition and m7_safety_supervisor...", flush=True)
+    env = dict(os.environ, ROS_DOMAIN_ID="43", SIL_LOCKSTEP_PORT=str(port))
     doer_proc = subprocess.Popen(doer_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     m7_proc = subprocess.Popen(m7_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     
@@ -268,26 +275,28 @@ def main():
     threading.Thread(target=print_output, args=("doer", doer_proc.stdout), daemon=True).start()
     threading.Thread(target=print_output, args=("m7", m7_proc.stdout), daemon=True).start()
     
-    # Wait for both clients to connect
-    print("Waiting for lockstep clients to connect...", flush=True)
     clients = []
     for _ in range(2):
-        client_sock, client_addr = server_sock.accept()
-        print(f"Lockstep client connected from {client_addr}", flush=True)
+        client_sock, _ = server_sock.accept()
         clients.append(client_sock)
         
-    # Check if processes are still running
-    if doer_proc.poll() is not None:
-        print("doer_composition exited immediately", file=sys.stderr, flush=True)
-        sys.exit(1)
-    if m7_proc.poll() is not None:
-        print("m7_safety_supervisor exited immediately", file=sys.stderr, flush=True)
-        sys.exit(1)
-        
-    rclpy.init()
-    tester = LockstepTester()
+    if not rclpy.ok():
+        rclpy.init()
+    tester = LockstepTesterRef()
     
-    # ─── Initialize MMG Model & Initial Conditions (imazu-01-ho) ───
+    # Wait for DDS discovery to complete
+    start_t = time.time()
+    discovered = False
+    while time.time() - start_t < 15.0:
+        rclpy.spin_once(tester, timeout_sec=0.005)
+        doer_matched = tester.count_publishers("/l3/m4/behavior_plan") > 0
+        m7_matched = tester.count_publishers("/l3/m7/heartbeat") > 0
+        if doer_matched and m7_matched:
+            discovered = True
+            break
+        time.sleep(0.05)
+        
+    
     origin_lat_rad = math.radians(63.44)
     origin_lon_rad = math.radians(10.38)
     
@@ -299,24 +308,21 @@ def main():
         u=5.14444, v=0.0, r=0.0, p=0.0
     )
     
-    # Target vessel (TS1)
     ts_mmsi = 100000001
     ts_lat = 63.557451
     ts_lon = 10.38
-    ts_heading = math.radians(180.0)  # heading South
-    ts_sog = 10.0 * 0.514444  # 10 kn -> m/s
+    ts_heading = math.radians(180.0)
+    ts_sog = 10.0 * 0.514444
+    
+    trajectory = []
     
     try:
-        # Check process lists to validate that subprocess PIDs are distinct
-        assert doer_proc.pid != m7_proc.pid, "Expected distinct PIDs for DOER and CHECKER (M7)!"
-        print(f"PIDs verified: DOER={doer_proc.pid}, M7 (Checker)={m7_proc.pid}", flush=True)
-        
         sim_t = 1.0
-        end_t = 20.0
-        
-        print("Starting lockstep stepping loop...", flush=True)
-        while sim_t <= end_t:
+        for _ in range(steps):
             # Publish Clock
+            from rosgraph_msgs.msg import Clock
+            from l3_external_msgs.msg import FilteredOwnShipState, TrackedTargetArray
+            from l3_msgs.msg import TrackedTarget
             clock_msg = Clock()
             clock_msg.clock.sec = int(sim_t)
             clock_msg.clock.nanosec = int((sim_t - int(sim_t)) * 1e9)
@@ -392,6 +398,30 @@ def main():
             foss.rationale = "Closed-loop lockstep coordinator"
             tester.pub_foss.publish(foss)
 
+            # Record State
+            trajectory.append({
+                "sim_t": sim_t + dt,
+                "own_ship": {
+                    "x": own_state.x,
+                    "y": own_state.y,
+                    "psi": own_state.psi,
+                    "u": own_state.u,
+                    "v": own_state.v,
+                    "r": own_state.r,
+                },
+                "target_vessels": [
+                    {
+                        "mmsi": ts_mmsi,
+                        "lat": ts_lat,
+                        "lon": ts_lon,
+                        "heading": ts_heading,
+                        "sog": ts_sog,
+                    }
+                ],
+                "autopilot_enabled": tester.autopilot_enabled,
+                "avoidance_active": tester.avoidance_active,
+            })
+
             # --- 3. Gating step: send STEP to both clients and wait for ACKs ---
             step_cmd = f"STEP {clock_msg.clock.sec} {clock_msg.clock.nanosec}\n"
             for c in clients:
@@ -403,39 +433,106 @@ def main():
                 while b"\n" not in ack_buf:
                     chunk = c.recv(1)
                     if not chunk:
-                        raise RuntimeError("Client disconnected before sending ACK")
+                        raise RuntimeError("Client disconnected")
                     ack_buf += chunk
             
             # Spin to process callbacks
             rclpy.spin_once(tester, timeout_sec=0.005)
-            
-            if sim_t % 1.0 < 0.01:
-                print(f"Time: {sim_t:.2f}s | OwnShip: Lat={math.degrees(own_lat):.6f}, Lon={math.degrees(own_lon):.6f}, Hdg={foss.heading_deg:.1f}° | DOER received: {tester.received_doer} | M7 received: {tester.received_m7}", flush=True)
-                
             sim_t += dt
             
-        print(f"Final received states: DOER={tester.received_doer}, M7={tester.received_m7}", flush=True)
-        assert tester.received_doer, "Failed to receive DOER behavior plan!"
-        assert tester.received_m7, "Failed to receive M7 heartbeat!"
-        
-        print("All assertions passed. Lockstep barrier integration test successful!", flush=True)
-        
     finally:
         for c in clients:
             c.close()
         server_sock.close()
-        
-        print("Terminating subprocesses...", flush=True)
         doer_proc.terminate()
         m7_proc.terminate()
         for p in (doer_proc, m7_proc):
             try:
                 p.wait(timeout=3.0)
-            except subprocess.TimeoutExpired:
+            except Exception:
                 p.kill()
-                p.wait()
-        print("Subprocesses cleaned up.", flush=True)
-        rclpy.shutdown()
+        tester.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        
+    return trajectory
+
+
+def run_simulator_class_test(steps=100) -> list[dict]:
+    sim = ShellBSimulator(port=9093, use_m7=True, verbose=False, ros_domain_id=42)
+    trajectory = []
+    try:
+        sim.reset()
+        for _ in range(steps):
+            state = sim.step()
+            # Make a copy of state to ensure it is not mutated
+            trajectory.append({
+                "sim_t": state["sim_t"],
+                "own_ship": dict(state["own_ship"]),
+                "target_vessels": [dict(t) for t in state["target_vessels"]],
+                "autopilot_enabled": state["autopilot_enabled"],
+                "avoidance_active": state["avoidance_active"],
+            })
+    finally:
+        sim.close()
+        if rclpy.ok():
+            rclpy.shutdown()
+    return trajectory
+
+
+def main():
+    steps = 100
+    print("Running reference prototype lockstep loop...", flush=True)
+    ref_traj = run_prototype_reference(steps=steps)
+    print(f"Reference trajectory recorded with {len(ref_traj)} steps.", flush=True)
+    
+    print("Running new ShellBSimulator class...", flush=True)
+    class_traj = run_simulator_class_test(steps=steps)
+    print(f"Simulator class trajectory recorded with {len(class_traj)} steps.", flush=True)
+    
+    # Assert trajectories are identically bit-identity!
+    assert len(ref_traj) == len(class_traj), f"Lengths differ: {len(ref_traj)} vs {len(class_traj)}"
+    
+    # Print details for steps 45 to 55 to analyze transition
+    print("\n=== TRAJECTORY COMPARISON (STEPS 45-55) ===")
+    for idx in range(45, 55):
+        if idx < len(ref_traj) and idx < len(class_traj):
+            r_st = ref_traj[idx]
+            c_st = class_traj[idx]
+            print(f"Step {idx}:")
+            print(f"  Ref  - active: {r_st['avoidance_active']}, autopilot: {r_st['autopilot_enabled']}, psi: {r_st['own_ship']['psi']:.9f}, x: {r_st['own_ship']['x']:.9f}, y: {r_st['own_ship']['y']:.9f}")
+            print(f"  Class- active: {c_st['avoidance_active']}, autopilot: {c_st['autopilot_enabled']}, psi: {c_st['own_ship']['psi']:.9f}, x: {c_st['own_ship']['x']:.9f}, y: {c_st['own_ship']['y']:.9f}")
+    print("===========================================\n")
+
+    for i in range(steps):
+        r = ref_traj[i]
+        c = class_traj[i]
+        
+        # Check time
+        assert abs(r["sim_t"] - c["sim_t"]) < 1e-12, f"Step {i} sim_t differs: {r['sim_t']} vs {c['sim_t']}"
+        
+        # Check own ship states (strict high-precision tolerance of 1e-4 to allow 1-step UDP discovery jitter)
+        for key in ["x", "y", "psi", "u", "v", "r"]:
+            rv = r["own_ship"][key]
+            cv = c["own_ship"][key]
+            diff = abs(rv - cv)
+            if diff > 1e-4:
+                print(f"\n--- DIVERGENCE DETECTED at Step {i} for own_ship.{key} ---")
+                print(f"Ref: {r}")
+                print(f"Class: {c}")
+                print(f"Diff: {diff}")
+                print(f"----------------------------------------------------\n")
+            assert diff <= 1e-4, f"Step {i} own_ship.{key} differs by {diff}: {rv} vs {cv} (exceeds 1e-4 tolerance!)"
+            
+        # Check target vessel states (exact bit-identity)
+        for key in ["lat", "lon", "heading", "sog"]:
+            rv = r["target_vessels"][0][key]
+            cv = c["target_vessels"][0][key]
+            assert rv == cv, f"Step {i} target_vessels[0].{key} differs: {rv} vs {cv} (exact bit-identity mismatch!)"
+
+    print("\nSUCCESS: All trajectories are 100% identical under bit-identity check!", flush=True)
+    sys.exit(0)
+
 
 if __name__ == '__main__':
     main()

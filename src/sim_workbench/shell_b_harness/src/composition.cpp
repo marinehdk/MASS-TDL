@@ -50,19 +50,25 @@ int main(int argc, char* argv[]) {
   // M8: HmiTransparencyBridgeNode (with NodeOptions)
   auto m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
 
-  // Add nodes to a single-threaded executor
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(m1_node);
-  executor.add_node(m2_node);
-  executor.add_node(m3_node);
-  executor.add_node(m4_node);
-  executor.add_node(m5_node);
-  executor.add_node(m6_node);
-  executor.add_node(m8_node);
+  // Add nodes to a single-threaded executor wrapped in a shared pointer
+  auto executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  executor->add_node(m1_node);
+  executor->add_node(m2_node);
+  executor->add_node(m3_node);
+  executor->add_node(m4_node);
+  executor->add_node(m5_node);
+  executor->add_node(m6_node);
+  executor->add_node(m8_node);
 
   const char* lockstep_port_env = std::getenv("SIL_LOCKSTEP_PORT");
   if (lockstep_port_env && std::string(lockstep_port_env) != "") {
-    int port = std::stoi(lockstep_port_env);
+    int port = 0;
+    try {
+      port = std::stoi(lockstep_port_env);
+    } catch (const std::exception& e) {
+      RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Invalid SIL_LOCKSTEP_PORT: %s", e.what());
+      return 1;
+    }
     RCLCPP_INFO(rclcpp::get_logger("doer_composition"), "Lockstep mode enabled on port %d", port);
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -73,7 +79,7 @@ int main(int argc, char* argv[]) {
 
     struct sockaddr_in serv_addr;
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(port);
+    serv_addr.sin_port = htons(static_cast<uint16_t>(port));
 
     if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
       RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Invalid address/Address not supported");
@@ -126,11 +132,64 @@ int main(int argc, char* argv[]) {
             rcl_set_ros_time_override(node->get_clock()->get_clock_handle(), time_value);
           }
 
-          executor.spin_some(std::chrono::milliseconds(0));
+          executor->spin_some(std::chrono::milliseconds(0));
 
           std::string ack = "ACK " + std::to_string(sec) + " " + std::to_string(nanosec) + "\n";
           if (write(sock, ack.c_str(), ack.size()) < 0) {
             RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Failed to send ACK to coordinator");
+            break;
+          }
+        }
+      } else if (buffer.rfind("RESET ", 0) == 0) {
+        int64_t seed = 0;
+        int64_t episode = 0;
+        if (std::sscanf(buffer.c_str(), "RESET %ld %ld", &seed, &episode) == 2) {
+          // Remove the 7 nodes from the executor
+          for (auto const& node : nodes) {
+            executor->remove_node(node);
+          }
+          nodes.clear();
+
+          // Explicitly destroy the old nodes and executor
+          m1_node.reset();
+          m2_node.reset();
+          m3_node.reset();
+          m4_node.reset();
+          m5_node.reset();
+          m6_node.reset();
+          m8_node.reset();
+          executor.reset();
+
+          // Re-instantiate executor and nodes
+          executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+          m1_node = std::make_shared<mass_l3::m1::OddEnvelopeManagerNode>();
+          m2_node = std::make_shared<mass_l3::m2::WorldModelNode>(options_without_ipc);
+          m3_node = std::make_shared<mass_l3::m3::MissionManagerNode>(options_without_ipc);
+          m4_node = std::make_shared<mass_l3::m4::BehaviorArbiterNode>(options_with_ipc);
+          m5_node = std::make_shared<mass_l3::m5::mid_mpc::MidMpcNode>(m5_cfg);
+          m6_node = std::make_shared<mass_l3::m6_colregs::ColregsReasonerNode>();
+          m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
+
+          // Re-assign the references in the nodes vector
+          nodes = {
+            m1_node, m2_node, m3_node, m4_node, m5_node, m6_node, m8_node
+          };
+
+          // Re-enable ROS time override and set it to 0 for fresh node clocks
+          for (auto const& node : nodes) {
+            rcl_enable_ros_time_override(node->get_clock()->get_clock_handle());
+            rcl_set_ros_time_override(node->get_clock()->get_clock_handle(), 0ULL);
+          }
+
+          // Add the fresh nodes back to the executor
+          for (auto const& node : nodes) {
+            executor->add_node(node);
+          }
+
+          // Send ACK_RESET back to the socket
+          std::string ack = "ACK_RESET " + std::to_string(seed) + " " + std::to_string(episode) + "\n";
+          if (write(sock, ack.c_str(), ack.size()) < 0) {
+            RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Failed to send ACK_RESET to coordinator");
             break;
           }
         }
@@ -140,7 +199,7 @@ int main(int argc, char* argv[]) {
   } else {
     RCLCPP_INFO(rclcpp::get_logger("doer_composition"), 
                 "All 7 DOER nodes successfully composed and added to SingleThreadedExecutor. Spinning...");
-    executor.spin();
+    executor->spin();
   }
 
   rclcpp::shutdown();

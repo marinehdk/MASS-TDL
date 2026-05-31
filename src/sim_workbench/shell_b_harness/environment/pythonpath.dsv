@@ -1,0 +1,2 @@
+prepend-non-duplicate;PYTHONPATH;local/lib/python3.10/dist-packages
+prepend-non-duplicate;PYTHONPATH;lib/python3.10/site-packages
