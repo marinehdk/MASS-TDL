@@ -231,6 +231,7 @@ class ShellBSimulator:
         
         self.target_heading_deg = 0.0
         self.target_sog_kn = 10.0
+        self.apply_avoidance = True
         
         # RNG states
         self.own_ship_rng = None
@@ -521,7 +522,7 @@ class ShellBSimulator:
             ack_buf = self._read_line(c)
         
         # Spin to process callbacks
-        rclpy.spin_once(self.node, timeout_sec=0.005)
+        rclpy.spin_once(self.node, timeout_sec=0.0)
         
         self.sim_t += self.dt
         
@@ -544,6 +545,10 @@ class ShellBSimulator:
         m4_in_fallback = self.last_behavior_plan is not None and "fallback" in self.last_behavior_plan.rationale.lower()
         
         self.autopilot_enabled = env_allows_autopilot and (is_m5_stale or m4_in_fallback)
+
+        if not self.apply_avoidance:
+            self.avoidance_active = False
+            self.autopilot_enabled = env_allows_autopilot
 
         if self.avoidance_active:
             if self.avoidance_target_heading_deg is not None:
@@ -617,6 +622,11 @@ class ShellBSimulator:
             except Exception:
                 pass
             self.node = None
+        if rclpy.ok():
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
     def get_state(self) -> dict:
         return {

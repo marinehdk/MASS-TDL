@@ -3,16 +3,6 @@ import subprocess
 import pytest
 
 def _get_container_name() -> str:
-    try:
-        res = subprocess.run(
-            ["docker", "ps", "--filter", "name=sil-nodes", "--format", "{{.Names}}"],
-            capture_output=True, text=True, check=True
-        )
-        names = res.stdout.strip().splitlines()
-        if names and names[0]:
-            return names[0]
-    except Exception:
-        pass
     return "mass-l3-tacticallayer-sil-nodes-1"
 
 @pytest.mark.integration

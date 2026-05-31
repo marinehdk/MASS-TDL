@@ -117,11 +117,14 @@ class ScenarioSpec(BaseModel):
             enc_meta = meta.get("encounter", {})
 
             # Coordinate origin: simulation_settings.coordinate_origin: [lat, lon]
-            coord_origin = sim_settings.get("coordinate_origin") or [5.0, 63.0]
+            coord_origin = sim_settings.get("coordinate_origin") or [63.44, 10.38]
             lat_origin = float(coord_origin[0])
             lon_origin = float(coord_origin[1])
 
-            from .geo_utils import latlon_to_enu
+            try:
+                from .geo_utils import latlon_to_enu
+            except ImportError:
+                from geo_utils import latlon_to_enu
 
             # Own ship — maritime-schema uses ownShip (camelCase)
             own_section = raw.get("ownShip", raw.get("own_ship", {}))
@@ -269,10 +272,13 @@ class ScenarioSpec(BaseModel):
         # v2.0: convert lat/lon → ENU using geo_origin
         if schema_version == "2.0":
             geo = meta.get("geo_origin", {})
-            lat_origin = float(geo.get("latitude", 5.0))
-            lon_origin = float(geo.get("longitude", 63.0))
+            lat_origin = float(geo.get("latitude", 63.44))
+            lon_origin = float(geo.get("longitude", 10.38))
 
-            from .geo_utils import latlon_to_enu
+            try:
+                from .geo_utils import latlon_to_enu
+            except ImportError:
+                from geo_utils import latlon_to_enu
 
             # Own ship
             own_init = raw["own_ship"]["initial"]
