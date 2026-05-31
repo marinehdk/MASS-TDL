@@ -357,9 +357,25 @@ try:
         try:
             executor.spin_once(timeout_sec=1.0)
         except Exception as exc:
-            # Log and continue — do NOT re-raise.
-            print(f'[{ts()}] [WARN] executor spin_once error (lifecycle transition rejected, continuing): '
-                  f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+            exc_type = type(exc).__name__
+            exc_msg  = str(exc)
+            # I-4 fix: only swallow InvalidStateTransition errors from the ROS2
+            # lifecycle state machine (these are benign: a node received a
+            # transition request it was already in, not a crash).
+            # All other exceptions are node crashes — log to stderr and re-raise
+            # so the container exits non-zero (fail-fast for SIL safety).
+            is_lifecycle_rejection = (
+                'InvalidStateTransition' in exc_type or
+                'invalid transition' in exc_msg.lower() or
+                'lifecycle' in exc_msg.lower()
+            )
+            if is_lifecycle_rejection:
+                print(f'[{ts()}] [WARN] lifecycle transition rejected (benign): '
+                      f'{exc_type}: {exc_msg}', file=sys.stderr, flush=True)
+            else:
+                print(f'[{ts()}] [FATAL] executor spin_once crashed — failing fast: '
+                      f'{exc_type}: {exc_msg}', file=sys.stderr, flush=True)
+                raise
 finally:
     print(f'[{ts()}] SIL nodes shutting down', flush=True)
     executor.shutdown()
