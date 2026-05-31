@@ -367,7 +367,12 @@ try:
             is_lifecycle_rejection = (
                 'InvalidStateTransition' in exc_type or
                 'invalid transition' in exc_msg.lower() or
-                'lifecycle' in exc_msg.lower()
+                'lifecycle' in exc_msg.lower() or
+                # InvalidHandle fires when the liveness-probe node is destroyed
+                # mid-spin; the probe is intentionally removed after Stage 2 and
+                # its handle becomes dangling. This is not a node crash.
+                'InvalidHandle' in exc_type or
+                'cannot use' in exc_msg.lower()
             )
             if is_lifecycle_rejection:
                 print(f'[{ts()}] [WARN] lifecycle transition rejected (benign): '
