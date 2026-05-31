@@ -37,6 +37,7 @@ from sil_msgs.msg import (
 
 # ── Cross-layer L3 external message types ────────────────────
 from l3_external_msgs.msg import (
+    PlannedRoute,
     FilteredOwnShipState,
     TrackedTargetArray,
     EnvironmentState as L3EnvironmentState,
@@ -192,6 +193,7 @@ class SilTopicBridge(Node):
         self._speed_controller = SpeedController()
         self._current_target_wp_lat = 0.0
         self._current_target_wp_lon = 0.0
+        self._route_wps = []  # [(lat,lon)] cached planned route for geometric XTE
 
         self.declare_parameter("ownship_initial_heading_deg", 0.0)
         self.declare_parameter("ownship_initial_sog_kn", CRUISE_SPEED_KN)
@@ -262,6 +264,9 @@ class SilTopicBridge(Node):
         self._sub_m3 = self.create_subscription(
             MissionGoal, "/l3/m3/mission_goal",
             self._on_mission_goal, sq)
+        self._sub_route = self.create_subscription(
+            PlannedRoute, "/l2/planned_route",
+            self._on_planned_route, _latched_qos())
         self._sub_m4 = self.create_subscription(
             BehaviorPlan, "/l3/m4/behavior_plan",
             self._on_behavior_plan, sq)
@@ -719,6 +724,39 @@ class SilTopicBridge(Node):
 
         return out
 
+    def _on_planned_route(self, msg: PlannedRoute) -> None:
+        """Cache planned-route waypoints (lat, lon) for geometric cross-track error."""
+        try:
+            self._route_wps = [
+                (float(p.pose.position.latitude), float(p.pose.position.longitude))
+                for p in msg.route.poses
+            ]
+        except Exception:
+            pass
+
+    def _signed_xte_m(self, own_lat, own_lon):
+        """Signed cross-track distance (m) of own-ship from the planned-route line.
+
+        +ve = own-ship to port (left) of route direction (start->end); -ve = starboard.
+        Returns None if no route cached. General for any route orientation
+        (no scenario constants -- ADR-4).
+        """
+        if len(self._route_wps) < 2:
+            return None
+        m_per_deg_lat = 111132.9
+        m_per_deg_lon = 111319.9 * math.cos(math.radians(self._route_wps[0][0]))
+        ax = self._route_wps[0][1] * m_per_deg_lon
+        ay = self._route_wps[0][0] * m_per_deg_lat
+        bx = self._route_wps[-1][1] * m_per_deg_lon
+        by = self._route_wps[-1][0] * m_per_deg_lat
+        px = own_lon * m_per_deg_lon
+        py = own_lat * m_per_deg_lat
+        dx, dy = bx - ax, by - ay
+        seg = math.hypot(dx, dy)
+        if seg < 1.0:
+            return None
+        return (dx * (py - ay) - dy * (px - ax)) / seg
+
     def _compute_transit_autopilot(self, stamp) -> SilOwnShipState:
         out = self._make_actuator_msg(stamp)
 
@@ -742,15 +780,16 @@ class SilTopicBridge(Node):
                 own_lat, own_lon,
                 self._current_target_wp_lat, self._current_target_wp_lon)
             
-            # XTE Correction: nominal route is exactly along the 10.38 meridian.
-            # Calculate cross-track error in meters. Positive = East (starboard) of track.
-            lat_rad = math.radians(own_lat)
-            xte_m = (own_lon - 10.38) * 111319.9 * math.cos(lat_rad)
+            # Geometric cross-track from the actual planned route (no scenario
+            # constants -- ADR-4). _signed_xte_m: +ve = port of route direction.
+            xte_m = self._signed_xte_m(own_lat, own_lon)
+            if xte_m is None:
+                xte_m = 0.0
 
             # Proportional gain: 0.3 deg/meter (faster recovery)
             # Clamp to [-85.0, 85.0] degrees to allow a steeper intercept angle for rapid return
-            xte_correction = max(-85.0, min(85.0, xte_m * 0.3))
-            effective_target_heading = (effective_target_heading - xte_correction) % 360.0
+            xte_correction = max(-30.0, min(30.0, xte_m * 0.10))
+            effective_target_heading = (effective_target_heading + xte_correction) % 360.0
             
             # Boost target speed when far off-track to overcome rudder drag and close XTE rapidly
             if abs(xte_m) > 150.0:
