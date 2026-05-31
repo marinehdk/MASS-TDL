@@ -16,6 +16,9 @@ def register_node(name: str, node_id: int) -> None:
     """
     Register a node name with a unique integer ID.
     Ensures registration is stable and does not conflict.
+
+    Note: Node registration is process-local since it modifies the in-memory
+    _NODE_ID dictionary within the current process context.
     """
     if not isinstance(name, str):
         raise TypeError("Node name must be a string")
@@ -27,6 +30,9 @@ def register_node(name: str, node_id: int) -> None:
                 f"Node '{name}' is already registered with a different ID ({_NODE_ID[name]})"
             )
     else:
+        if node_id in _NODE_ID.values():
+            existing_name = [k for k, v in _NODE_ID.items() if v == node_id][0]
+            raise ValueError(f"node_id {node_id} is already registered to node '{existing_name}'")
         _NODE_ID[name] = node_id
 
 

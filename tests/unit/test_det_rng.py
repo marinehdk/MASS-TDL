@@ -122,3 +122,11 @@ def test_dynamic_node_registration():
 
     # Re-registering with same ID should be fine
     register_node(node_name, 999)
+
+
+def test_duplicate_id_registration_raises_error():
+    """Verify that registering a different node name with an existing node_id raises a ValueError."""
+    # "ship_dynamics" is registered with ID 1
+    with pytest.raises(ValueError) as excinfo:
+        register_node("some_new_node", 1)
+    assert "node_id 1 is already registered" in str(excinfo.value)
