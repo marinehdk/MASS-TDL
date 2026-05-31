@@ -53,6 +53,8 @@ target_compile_options(m2_compile_options INTERFACE
     -Wduplicated-cond -Wduplicated-branches
     -fstack-protector-strong
     -D_FORTIFY_SOURCE=2
+    -fno-fast-math
+    -ffp-contract=off
     "$<$<CONFIG:Debug>:-fsanitize=address;-fsanitize=undefined;-fno-omit-frame-pointer>"
     "$<$<CONFIG:Release>:-O2>"
 )

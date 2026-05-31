@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # PATH-H: tooling/HIL — pragmatic warnings, no MISRA enforcement.
-add_compile_options(-Wall -Wextra -Wpedantic)
+add_compile_options(-Wall -Wextra -Wpedantic -fno-fast-math -ffp-contract=off)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)

@@ -34,7 +34,9 @@
                 "-DCMAKE_CXX_STANDARD=17",
                 "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
                 "-DCMAKE_CXX_EXTENSIONS=OFF",
-                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-DCMAKE_CXX_FLAGS=-fno-fast-math -ffp-contract=off",
+                "-DCMAKE_C_FLAGS=-fno-fast-math -ffp-contract=off"
             ]
         },
         "m3_mission_manager": {
@@ -50,7 +52,9 @@
                 "-DCMAKE_CXX_STANDARD=17",
                 "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
                 "-DCMAKE_CXX_EXTENSIONS=OFF",
-                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-DCMAKE_CXX_FLAGS=-fno-fast-math -ffp-contract=off",
+                "-DCMAKE_C_FLAGS=-fno-fast-math -ffp-contract=off"
             ]
         },
         "m5_tactical_planner": {
@@ -58,7 +62,9 @@
                 "-DCMAKE_CXX_STANDARD=17",
                 "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
                 "-DCMAKE_CXX_EXTENSIONS=OFF",
-                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-DCMAKE_CXX_FLAGS=-fno-fast-math -ffp-contract=off",
+                "-DCMAKE_C_FLAGS=-fno-fast-math -ffp-contract=off"
             ]
         },
         "m6_colregs_reasoner": {
@@ -83,6 +89,16 @@
                 "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
                 "-DCMAKE_CXX_EXTENSIONS=OFF",
                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ]
+        },
+        "fcb_simulator": {
+            "cmake-args": [
+                "-DCMAKE_CXX_STANDARD=17",
+                "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                "-DCMAKE_CXX_EXTENSIONS=OFF",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-DCMAKE_CXX_FLAGS=-fno-fast-math -ffp-contract=off",
+                "-DCMAKE_C_FLAGS=-fno-fast-math -ffp-contract=off"
             ]
         }
     }
