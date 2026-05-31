@@ -109,6 +109,25 @@ const TOPIC_MAP: Array<{
     handler: (s, msg: any) => s.updateSotifMetrics(msg),
   },
   {
+    topic: '/l2/planned_route',
+    messageType: 'l3_external_msgs/PlannedRoute',
+    handler: (s, msg: any) => {
+      const poses = msg.route?.poses || [];
+      const waypoints = poses.map((p: any) => ({
+        lat: p.pose?.position?.latitude ?? p.pose?.position?.lat ?? 0.0,
+        lon: p.pose?.position?.longitude ?? p.pose?.position?.lon ?? 0.0,
+      }));
+      const cruiseSpeed = Array.isArray(msg.speed_profile_kn) && msg.speed_profile_kn.length > 0
+        ? msg.speed_profile_kn[0]
+        : 10.0;
+      s.updateVoyagePlan({
+        waypoints,
+        cruiseSpeed,
+        source: 'l2_realtime',
+      });
+    },
+  },
+  {
     topic: '/l3/fsm_state',
     messageType: 'l3_msgs/FsmState',
     handler: (_s, msg: any) => {

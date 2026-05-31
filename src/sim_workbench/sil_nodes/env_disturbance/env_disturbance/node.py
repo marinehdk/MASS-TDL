@@ -7,7 +7,9 @@ Replaced by a real oceanographic model at D2.5 integration.
 from __future__ import annotations
 
 import math
-import random
+
+import numpy as np
+from sil_common.det_rng import make_rng
 
 import rclpy
 from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
@@ -35,11 +37,16 @@ class EnvDisturbanceNode(LifecycleNode):
     Current is constant (placeholder — replaced by tidal model in D2.5).
     """
 
-    def __init__(self, node_name: str = "env_disturbance_node") -> None:
+    def __init__(self, node_name: str = "env_disturbance_node", **kwargs) -> None:
+        self.root_seed = kwargs.pop("root_seed", 0)
+        self.episode = kwargs.pop("episode", 0)
+        self.worker = kwargs.pop("worker", 0)
+
         super().__init__(
             node_name,
             allow_undeclared_parameters=True,
-            automatically_declare_parameters_from_overrides=True
+            automatically_declare_parameters_from_overrides=True,
+            **kwargs
         )
 
         # Initial conditions
@@ -54,6 +61,20 @@ class EnvDisturbanceNode(LifecycleNode):
         self._env_pub = None
         self._timer = None
 
+        self.rng = None
+        self.reset()
+
+    def reset(self, episode: int | None = None) -> None:
+        """Reset/re-derive the RNG for a new episode."""
+        if episode is not None:
+            self.episode = episode
+        self.rng = make_rng(
+            root=self.root_seed,
+            episode=self.episode,
+            node="env_disturbance",
+            worker=self.worker
+        )
+
     def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
         """Declare parameters and prepare for operation."""
         try:
@@ -67,8 +88,17 @@ class EnvDisturbanceNode(LifecycleNode):
             self.declare_parameter("current_dir_deg", 0.0)
             self.declare_parameter("wind_speed_mps", 5.0)
             self.declare_parameter("current_speed_mps", 0.5 * 0.514444)
+            self.declare_parameter("root_seed", 0)
+            self.declare_parameter("episode", 0)
+            self.declare_parameter("worker", 0)
         except Exception:
             pass
+
+        self.root_seed = self.get_parameter("root_seed").value
+        self.episode = self.get_parameter("episode").value
+        self.worker = self.get_parameter("worker").value
+        self.reset()
+
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
@@ -116,6 +146,7 @@ class EnvDisturbanceNode(LifecycleNode):
         self._current_speed = 0.5
         self._prev_wind_speed = 5.0
         self._prev_wind_dir = 0.0
+        self.reset(episode=0)
         return TransitionCallbackReturn.SUCCESS
 
     def _step_callback(self) -> None:
@@ -135,8 +166,8 @@ class EnvDisturbanceNode(LifecycleNode):
         else:
             sigma = self.get_parameter("sigma").value
             alpha = math.exp(-dt / tau_wind)
-            noise = random.gauss(0, sigma * math.sqrt(1.0 - alpha**2))
-            wind_walk = random.gauss(0, 0.1)
+            noise = self.rng.normal(0, sigma * math.sqrt(1.0 - alpha**2))
+            wind_walk = self.rng.normal(0, 0.1)
 
         self._wind_speed = alpha * self._prev_wind_speed + noise
         self._wind_dir = (self._wind_dir + wind_walk) % 360.0

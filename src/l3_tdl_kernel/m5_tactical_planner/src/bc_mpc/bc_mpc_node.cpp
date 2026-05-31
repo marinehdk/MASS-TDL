@@ -48,7 +48,10 @@ BcMpcNode::BcMpcNode(const Config& cfg)
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
       "/m5/asdr_record_bc", 10);
 
-  validity_timer_ = create_wall_timer(
+  validity_timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::duration<double>(kTickInterval_s)),
       [this]() { on_validity_tick_(); });

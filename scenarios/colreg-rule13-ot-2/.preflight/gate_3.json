@@ -1,7 +1,7 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-05-28T10:00:00.166990Z",
+  "timestamp_utc": "2026-05-29T05:42:46.552776Z",
   "scenario_id": "colreg-rule13-ot-2",
   "passed": true,
   "checks": [
@@ -21,7 +21,7 @@
       "detail": "expected_outcome block present"
     }
   ],
-  "duration_ms": 5.3,
+  "duration_ms": 4.8,
   "rationale": "hash match + YAML ok + expected_outcome present",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
   "hazid_scenario_ref": null

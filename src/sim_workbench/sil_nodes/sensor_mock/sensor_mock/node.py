@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import math
-import random
 
 import rclpy
 from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
+from sil_common.det_rng import make_rng
 from sil_msgs.msg import AISMessage, OwnShipState, RadarMeasurement, TargetVesselState
 
 
@@ -23,6 +23,19 @@ class SensorMockNode(LifecycleNode):
     """
 
     def __init__(self, **kwargs) -> None:
+        # Extract parameters from kwargs if provided (for unit tests / standalone usage)
+        self.root_seed = kwargs.pop("root_seed", 0)
+        self.episode = kwargs.pop("episode", 0)
+        self.worker = kwargs.pop("worker", 0)
+        
+        self.ais_drop_pct = kwargs.pop("ais_drop_pct", 0.0)
+        self.radar_max_range = kwargs.pop("radar_max_range", 12000.0)
+        self.range_sigma_m = kwargs.pop("range_sigma_m", 3.0)
+        self.bearing_sigma_rad = kwargs.pop("bearing_sigma_rad", 0.005)
+        self.rcs_min = kwargs.pop("rcs_min", 10.0)
+        self.rcs_max = kwargs.pop("rcs_max", 50.0)
+        self.clutter_max = kwargs.pop("clutter_max", 5)
+
         super().__init__("sensor_mock_node", **kwargs)
         self._own_state: OwnShipState | None = None
         self._target_states: dict[int, TargetVesselState] = {}
@@ -36,12 +49,30 @@ class SensorMockNode(LifecycleNode):
         # Wall-clock publishing rate limiter
         self._last_radar_pub_wall_time: float = 0.0
 
+        # Initialize per-node seeded Generator
+        self.rng = make_rng(
+            root=self.root_seed,
+            episode=self.episode,
+            node="sensor_mock",
+            worker=self.worker
+        )
+
+    def reset(self, episode: int | None = None) -> None:
+        """Reset/re-derive the RNG for a new episode."""
+        if episode is not None:
+            self.episode = episode
+        self.rng = make_rng(
+            root=self.root_seed,
+            episode=self.episode,
+            node="sensor_mock",
+            worker=self.worker
+        )
 
     # ── Preserved from original stub ────────────────────────────────────────
 
     def generate_ais(self, own_lat: float, own_lon: float, target: dict) -> dict | None:
         """Generate AIS message. Returns None if dropped."""
-        if random.random() < self.ais_drop_pct / 100.0:
+        if self.rng.random() < self.ais_drop_pct / 100.0:
             return None
         return {
             "mmsi": target["mmsi"],
@@ -63,11 +94,11 @@ class SensorMockNode(LifecycleNode):
             if rng <= self.radar_max_range:
                 bearing = math.atan2(dlon, dlat)
                 polar.append({
-                    "range": rng + random.gauss(0, self.range_sigma_m),
-                    "bearing": bearing + random.gauss(0, self.bearing_sigma_rad),
-                    "rcs": random.uniform(self.rcs_min, self.rcs_max),
+                    "range": rng + self.rng.normal(0.0, self.range_sigma_m),
+                    "bearing": bearing + self.rng.normal(0.0, self.bearing_sigma_rad),
+                    "rcs": self.rng.uniform(self.rcs_min, self.rcs_max),
                 })
-        return {"polar_targets": polar, "clutter_cardinality": random.randint(0, self.clutter_max)}
+        return {"polar_targets": polar, "clutter_cardinality": self.rng.integers(0, self.clutter_max + 1)}
 
     # ── Lifecycle callbacks ─────────────────────────────────────────────────
 
@@ -80,6 +111,9 @@ class SensorMockNode(LifecycleNode):
             self.declare_parameter("rcs_min", 10.0)
             self.declare_parameter("rcs_max", 50.0)
             self.declare_parameter("clutter_max", 5)
+            self.declare_parameter("root_seed", 0)
+            self.declare_parameter("episode", 0)
+            self.declare_parameter("worker", 0)
         except Exception:
             pass
         self.ais_drop_pct = self.get_parameter("ais_drop_pct").value
@@ -89,7 +123,19 @@ class SensorMockNode(LifecycleNode):
         self.rcs_min = self.get_parameter("rcs_min").value
         self.rcs_max = self.get_parameter("rcs_max").value
         self.clutter_max = self.get_parameter("clutter_max").value
-        self._logger.info(f"Configured — ais_drop_pct={self.ais_drop_pct:.2f} radar_max_range={self.radar_max_range:.1f}")
+        
+        self.root_seed = self.get_parameter("root_seed").value
+        self.episode = self.get_parameter("episode").value
+        self.worker = self.get_parameter("worker").value
+        
+        # Derive per-node seeded Generator
+        self.reset()
+        
+        self._logger.info(
+            f"Configured — ais_drop_pct={self.ais_drop_pct:.2f} "
+            f"radar_max_range={self.radar_max_range:.1f} "
+            f"root_seed={self.root_seed} episode={self.episode}"
+        )
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
@@ -163,6 +209,7 @@ class SensorMockNode(LifecycleNode):
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self._own_state = None
         self._target_states.clear()
+        self.reset(episode=0)
         self._logger.info("Cleaned up — state reset")
         return TransitionCallbackReturn.SUCCESS
 
@@ -198,7 +245,6 @@ class SensorMockNode(LifecycleNode):
             if self._radar_pub is not None:
                 self._radar_pub.publish(msg)
             self._last_radar_pub_wall_time = now_wall
-
 
     def _ais_callback(self) -> None:
         """Publish an AISMessage per target vessel (subject to dropout)."""

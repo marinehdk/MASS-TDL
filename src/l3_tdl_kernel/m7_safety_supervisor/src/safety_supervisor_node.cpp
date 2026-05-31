@@ -229,22 +229,34 @@ void SafetySupervisorNode::setup_publishers() noexcept
 
 void SafetySupervisorNode::setup_timers() noexcept
 {
-  timer_main_ = create_wall_timer(
+  timer_main_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{250},
     [this]() { on_main_loop_tick(); },
     cb_group_main_);
 
-  timer_sat_ = create_wall_timer(
+  timer_sat_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{100},
     [this]() { on_sat_tick(); },
     cb_group_main_);
 
-  timer_asdr_periodic_ = create_wall_timer(
+  timer_asdr_periodic_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{500},
     [this]() { on_asdr_periodic_tick(); },
     cb_group_main_);
 
-  timer_heartbeat_ = create_wall_timer(
+  timer_heartbeat_ = rclcpp::create_timer(
+    get_node_base_interface(),
+    get_node_timers_interface(),
+    get_clock(),
     std::chrono::milliseconds{100},
     [this]() { on_heartbeat_tick(); },
     cb_group_main_);
@@ -257,7 +269,7 @@ void SafetySupervisorNode::setup_timers() noexcept
 void SafetySupervisorNode::on_odd_state(
     l3_msgs::msg::ODDState::ConstSharedPtr const& msg) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM1, kNow);
   last_odd_ = *msg;
 }
@@ -265,7 +277,7 @@ void SafetySupervisorNode::on_odd_state(
 void SafetySupervisorNode::on_world_state(
     l3_msgs::msg::WorldState::ConstSharedPtr const& msg) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM2, kNow);
   last_world_ = *msg;
 }
@@ -273,14 +285,14 @@ void SafetySupervisorNode::on_world_state(
 void SafetySupervisorNode::on_behavior_plan(
     l3_msgs::msg::BehaviorPlan::ConstSharedPtr const& /*msg*/) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM4, kNow);
 }
 
 void SafetySupervisorNode::on_avoidance_plan(
     l3_msgs::msg::AvoidancePlan::ConstSharedPtr const& msg) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM5, kNow);
   last_avoidance_ = *msg;
   last_avoidance_speed_          = 0.0F;
@@ -296,7 +308,7 @@ void SafetySupervisorNode::on_avoidance_plan(
 void SafetySupervisorNode::on_colregs_constraint(
     l3_msgs::msg::COLREGsConstraint::ConstSharedPtr const& msg) noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM6, kNow);
   last_colregs_ = *msg;
 
@@ -340,7 +352,7 @@ void SafetySupervisorNode::on_override_cmd(
     l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr const& /*msg*/) noexcept
 {
   // M3 reactive override command: update watchdog for M3 messages
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM3, kNow);
 }
 
@@ -365,7 +377,7 @@ void SafetySupervisorNode::on_override_signal(
   if (override_active_) {
     resume_handler_->set_override_active(true);
   } else {
-    resume_handler_->on_override_inactive(std::chrono::steady_clock::now());
+    resume_handler_->on_override_inactive(now_steady());
     revert_from_override();
   }
 }
@@ -387,7 +399,7 @@ void SafetySupervisorNode::on_safety_concern(
 
 void SafetySupervisorNode::on_main_loop_tick() noexcept
 {
-  auto const kNow = std::chrono::steady_clock::now();
+  auto const kNow = now_steady();
   // Advance CheckerVetoCounter sliding window (pushes true/false per cycle)
   checker_veto_counter_->on_cycle_tick();
   // Advance veto window cursor (no veto in this cycle; vetoes arrive asynchronously)
@@ -549,6 +561,16 @@ void SafetySupervisorNode::publish_hard_constraint_alert(
   } catch (...) {
     RCLCPP_DEBUG(get_logger(), "publish_hard_constraint_alert: skipped (unknown)");
   }
+}
+
+std::chrono::steady_clock::time_point SafetySupervisorNode::now_steady() noexcept
+{
+  if (get_clock()->get_clock_type() == RCL_ROS_TIME) {
+    return std::chrono::steady_clock::time_point(
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::nanoseconds(get_clock()->now().nanoseconds())));
+  }
+  return std::chrono::steady_clock::now();
 }
 
 }  // namespace mass_l3::m7

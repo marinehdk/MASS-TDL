@@ -13,10 +13,12 @@ try:
     from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
     from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
     from rclpy.time import Time
+    from rclpy.duration import Duration
 except ImportError:
     LifecycleNode = object
     State = object
     TransitionCallbackReturn = object
+    Duration = object
 
 from .mmg_coefficients import MMGCoefficients
 from .mmg_model import MMGModel, ShipState
@@ -125,6 +127,10 @@ class ShipDynamicsNode(LifecycleNode):
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
 
+        # headless mode: when True, bypass wall-clock throttle and publish every step.
+        # Default False keeps Shell-A (HMI) behaviour unchanged.
+        self._headless: bool = False
+
 
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
@@ -149,6 +155,13 @@ class ShipDynamicsNode(LifecycleNode):
                     self._n_rps_cmd = self.get_parameter("n_rps_initial").value
                 except Exception:
                     self._n_rps_cmd = coeffs.n_rps_cruise
+
+            # Headless parameters
+            try:
+                self.declare_parameter("headless", False)
+                self._headless = self.get_parameter("headless").value
+            except Exception:
+                self._headless = False
         except Exception as exc:
             if hasattr(self, "get_logger"):
                 self.get_logger().error(f"on_configure 失败: {exc}")
@@ -195,7 +208,7 @@ class ShipDynamicsNode(LifecycleNode):
             qos_profile=qos_sensor,
         )
 
-        self._timer = self.create_timer(0.02, self._step_callback)
+        self._timer = self.create_timer(self._model.c.dt, self._step_callback)
 
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已激活 (50Hz)")
@@ -215,6 +228,7 @@ class ShipDynamicsNode(LifecycleNode):
         if self._env_sub is not None:
             self.destroy_subscription(self._env_sub)
             self._env_sub = None
+        self._last_sim_time = None
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已停用")
         return TransitionCallbackReturn.SUCCESS
@@ -265,12 +279,13 @@ class ShipDynamicsNode(LifecycleNode):
             self._last_sim_time = now_sim
             return
 
-        dt = 0.02
-        elapsed = (now_sim - self._last_sim_time).nanoseconds / 1e9
-        if elapsed < dt:
+        dt = self._model.c.dt  # single source of truth — never hardcode
+        dt_ns = int(dt * 1e9)
+        elapsed_ns = (now_sim - self._last_sim_time).nanoseconds
+        if elapsed_ns < dt_ns:
             return
 
-        steps = int(elapsed / dt)
+        steps = elapsed_ns // dt_ns
 
         with self._cmd_lock:
             dc = self._delta_cmd
@@ -280,12 +295,11 @@ class ShipDynamicsNode(LifecycleNode):
             cs = self._current_speed
             cd = self._current_dir
 
-        from rclpy.duration import Duration
         for _ in range(steps):
             self._state = self._model.rk4_step(
                 self._state, dc, nr, ws, wd, cs, cd,
             )
-            self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
+            self._last_sim_time += Duration(nanoseconds=dt_ns)
 
         lat = self._origin_lat_rad + math.radians(
             _lat_offset(self._state.y, self._origin_lat_rad)
@@ -308,14 +322,20 @@ class ShipDynamicsNode(LifecycleNode):
         msg.rudder_angle = dc
         msg.throttle = (nr * (self._model.c.u0 / self._model.c.n_rps_cruise)) / (25.0 * 0.514444)
 
-        # Throttled own-ship publishing to maximum of 40 Hz wall-clock rate
-        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
-        import time
-        now_wall = time.monotonic()
-        if now_wall - self._last_pub_wall_time >= 0.025:
+        # Shell-A: throttle own-ship publishing to max 40 Hz wall-clock rate to
+        # prevent WebSocket congestion during simulation acceleration (10x, 50x).
+        # Shell-B (headless=True): bypass throttle, publish every step for
+        # maximum throughput in Monte-Carlo / RL batch runs.
+        if self._headless:
             if self._state_pub is not None:
                 self._state_pub.publish(msg)
-            self._last_pub_wall_time = now_wall
+        else:
+            import time
+            now_wall = time.monotonic()
+            if now_wall - self._last_pub_wall_time >= 0.025:
+                if self._state_pub is not None:
+                    self._state_pub.publish(msg)
+                self._last_pub_wall_time = now_wall
 
 
     # ─── 辅助方法 ─────────────────────────────────────────────

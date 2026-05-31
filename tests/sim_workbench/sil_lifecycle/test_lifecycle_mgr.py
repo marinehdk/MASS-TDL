@@ -40,3 +40,29 @@ def test_status_dict_includes_dynamics_mode():
     mgr.configure("scenario_001", dynamics_mode="fmi")
     status = mgr.get_status_dict()
     assert status["dynamics_mode"] == "fmi"
+
+
+def test_clock_mode_defaults_to_realtime():
+    mgr = ScenarioLifecycleMgr()
+    assert mgr.clock_mode == "realtime"
+
+
+def test_configure_sets_clock_mode():
+    mgr = ScenarioLifecycleMgr()
+    assert mgr.configure("scenario_001", clock_mode="free_run")
+    assert mgr.clock_mode == "free_run"
+    assert mgr.current_state == LifecycleState.INACTIVE
+
+
+def test_configure_rejects_invalid_clock_mode():
+    mgr = ScenarioLifecycleMgr()
+    assert not mgr.configure("scenario_001", clock_mode="invalid_mode")
+    assert mgr.current_state == LifecycleState.UNCONFIGURED
+
+
+def test_status_dict_includes_clock_mode():
+    mgr = ScenarioLifecycleMgr()
+    mgr.configure("scenario_001", clock_mode="free_run")
+    status = mgr.get_status_dict()
+    assert status["clock_mode"] == "free_run"
+

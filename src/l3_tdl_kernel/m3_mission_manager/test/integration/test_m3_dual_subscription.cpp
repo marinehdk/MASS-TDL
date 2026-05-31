@@ -351,5 +351,64 @@ TEST_F(M3DualSubTest, L4TrackingChain_SeaCurrentHigh) {
   EXPECT_LE(last_goal_->confidence, 0.86F);
 }
 
+// -----------------------------------------------------------------------
+// BUG-2 regression: current_target_wp population and progression
+// -----------------------------------------------------------------------
+TEST_F(M3DualSubTest, CurrentTargetWaypoint_Progression) {
+  publish_world(0.0);
+  spin_ms(50);
+
+  auto vt = make_valid_voyage_task(1);
+  voyage_task_pub_->publish(vt);
+  spin_ms(50);
+
+  // Make a route with two waypoints:
+  // Waypoint 0: lat=38.001, lon=-122.0
+  // Waypoint 1: lat=38.005, lon=-122.0
+  auto route = make_valid_route(1);
+  geographic_msgs::msg::GeoPoseStamped wp0;
+  wp0.pose.position.latitude = 38.001;
+  wp0.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp0);
+
+  geographic_msgs::msg::GeoPoseStamped wp1;
+  wp1.pose.position.latitude = 38.005;
+  wp1.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp1);
+
+  route_pub_->publish(route);
+  spin_ms(50);
+
+  publish_odd(0.9F, l3_msgs::msg::ODDState::ODD_ZONE_A);
+  spin_ms(100);
+
+  // We should be in ACTIVE state now.
+  // Wait for the mission goal to be published
+  ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
+
+  // The initial target waypoint should be wp0
+  EXPECT_NEAR(last_goal_->current_target_wp.latitude, 38.001, 1e-6);
+  EXPECT_NEAR(last_goal_->current_target_wp.longitude, -122.0, 1e-6);
+
+  // Now, publish own ship position extremely close to wp0 (e.g. 38.00099, -122.0)
+  // Distance from 38.001 to 38.00099 is about 1.1 meters (well within 50.0m threshold)
+  l3_msgs::msg::WorldState ws;
+  ws.own_ship.position.latitude = 38.00099;
+  ws.own_ship.position.longitude = -122.0;
+  ws.own_ship.position.altitude = 0.0;
+  ws.own_ship.current_speed_kn = 0.0;
+  ws.own_ship.sog_kn  = 10.0;
+  ws.own_ship.cog_deg = 0.0;
+  ws.confidence = 1.0F;
+  world_pub_->publish(ws);
+
+  // Wait and check that target waypoint has progressed to wp1 (38.005)
+  ASSERT_TRUE(wait_for(
+      [this]{
+        return last_goal_ && std::abs(last_goal_->current_target_wp.latitude - 38.005) < 1e-6;
+      },
+      3000));
+}
+
 }  // namespace
 }  // namespace mass_l3::m3

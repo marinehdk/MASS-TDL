@@ -1,7 +1,7 @@
 {
   "gate_id": 5,
   "gate_name": "Time Base + Evidence Chain",
-  "timestamp_utc": "2026-05-28T10:03:57.212631Z",
+  "timestamp_utc": "2026-05-29T07:35:00.435071Z",
   "scenario_id": "imazu-01-ho",
   "passed": true,
   "checks": [
@@ -26,7 +26,7 @@
       "detail": "ASDR: ASDR /var/sil/runs writable"
     }
   ],
-  "duration_ms": 8287.6,
+  "duration_ms": 9262.7,
   "rationale": "4/4 time base checks passed",
   "sil2_clause": "IEC 61508-1 \u00a78.2.9 Data recording \u2014 time base traceability",
   "hazid_scenario_ref": null

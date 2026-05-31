@@ -71,8 +71,12 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   concern_pub_ = create_publisher<l3_msgs::msg::SafetyConcernEvent>(
       "/l3/safety/concern", rclcpp::QoS(10).reliable());
 
-  timer_ = create_wall_timer(std::chrono::milliseconds(interval_ms_),
-                             [this]() { arbitration_timer_callback(); });
+  timer_ = rclcpp::create_timer(
+      get_node_base_interface(),
+      get_node_timers_interface(),
+      get_clock(),
+      std::chrono::milliseconds(interval_ms_),
+      [this]() { arbitration_timer_callback(); });
 
   std::string config_dir = declare_parameter<std::string>("m4.config_dir", "");
   if (!config_dir.empty()) {

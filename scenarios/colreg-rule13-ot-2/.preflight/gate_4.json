@@ -1,7 +1,7 @@
 {
   "gate_id": 4,
   "gate_name": "ODD-Scenario Alignment",
-  "timestamp_utc": "2026-05-28T10:00:00.169422Z",
+  "timestamp_utc": "2026-05-29T05:42:46.555176Z",
   "scenario_id": "colreg-rule13-ot-2",
   "passed": true,
   "checks": [

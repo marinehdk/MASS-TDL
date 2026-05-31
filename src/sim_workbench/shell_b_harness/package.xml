@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>shell_b_harness</name>
+  <version>1.0.0</version>
+  <description>Shell B Composition Harness - Composes M1-M6 + M8 into a single process</description>
+  <maintainer email="marine@gemini.local">Marine</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>m1_odd_envelope_manager</depend>
+  <depend>m2_world_model</depend>
+  <depend>m3_mission_manager</depend>
+  <depend>m4_behavior_arbiter</depend>
+  <depend>m5_tactical_planner</depend>
+  <depend>m6_colregs_reasoner</depend>
+  <depend>m8_hmi_transparency_bridge</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -208,7 +208,7 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div style="height:4px"></div>
       <div>团队规模</div><div><strong>原2人 + V&V FTE + 安全/HF外包</strong></div>
       <div style="height:4px"></div>
-      <div>版本</div><div><strong>v3.2-master · 2026-05-22</strong></div>
+      <div>版本</div><div><strong>v3.2-master · 2026-05-29</strong></div>
     </div>
   </div>
   <div class="hdr-stats">
@@ -402,9 +402,9 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="prog-row">
-  <div class="pr-item"><div class="pr-val" style="color:var(--blue)" id="p1-done">7/11</div><div class="pr-lbl">交付物完成</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--blue)" id="p1-done">10/11</div><div class="pr-lbl">交付物完成</div></div>
   <div class="pr-div"></div>
-  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p1-pct">55%</div><div class="pr-lbl">DoD 勾选率</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p1-pct">94%</div><div class="pr-lbl">DoD 勾选率</div></div>
   <div class="pr-div"></div>
   <div class="pr-item"><div class="pr-val" style="color:var(--blue)">2026-05-13</div><div class="pr-lbl">开始</div></div>
   <div class="pr-div"></div>
@@ -575,10 +575,10 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D1.3b</div><div class="dc-tw"><div class="dc-title">YAML 场景管理 + 调试 HMI + 覆盖率报告 <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">3.0人周</span><span class="dc-target">📅 2026-06-15</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D1.3b</div><div class="dc-tw"><div class="dc-title">YAML 场景管理 + 调试 HMI + 覆盖率报告 <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-28</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">3.0人周</span><span class="dc-target">✅ 2026-05-28</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">Scope</div><div class="dc-sb">YAML声明式场景管理（含vessel_class/disturbance_model/PRNG seed）；10基础场景批量运行+JSON输出；COLREGs覆盖率HTML报告；SIL HMI（SAT-1/2/3实时显示+手动注入+ODD可视化；复用M8前端组件库stub，P1-G-5整改）。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（2026-05-22）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-28）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>D1.3b.1: Imazu-01..22 场景全量 + cerberus v2.0 双语验证 + SHA256 manifest + coverage reporter ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>D1.3b.2: AIS encounter extractor 5-stage pipeline + ais_replay_node 50Hz + scenario_authoring 包 ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>D1.3b.3: SIL HMI 四屏全量实现（ScenarioBuilder/Preflight/BridgeHMI/RunReport）+ OpenBridge 5.0 design tokens + ENC MVT pipeline + foxglove_bridge ✅</div>
@@ -592,12 +592,12 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 G P0-G-1(b) + G P0-G-1(c) ✅</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>10场景批量自动运行+HTML报告生成</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>SIL HMI实时显示SAT-1/2/3（M1/M2 stub接入）；单场景≤60s</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 G P0-G-1(b) + G P1-G-4/G-5 + P2-E1</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>10场景批量自动运行+HTML报告生成 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>SIL HMI实时显示SAT-1/2/3（M1/M2 stub接入）；单场景≤60s ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 G P0-G-1(b) + G P1-G-4/G-5 + P2-E1 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">技术负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-28" onchange="onDateChange(this)"></div><span class="otag">技术负责人</span></div>
 </div>
 
 <div class="dc">
@@ -634,6 +634,7 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Sensor calibration runner + MMG fidelity assessment tool ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>7 deliverable documents + CCS communication schedule ✅</div>
     </div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--orange)">BUG 发现与修复</div><div class="dc-sb"><strong>[时基确定性BUG]</strong> 倍速回放(>1x RTF)时，各节点使用Wall Timer导致数据时间戳产生毫秒级漂移，破坏仿真重跑一致性。发现时间：2026-05-29，完成时间：2026-05-29。修复：全面将 `create_wall_timer` 替换为 ROS2 Clock Timer `create_timer(get_clock())` 并优化时钟累加。<br><strong>[物理推进抖动BUG]</strong> 仿真器多倍速推进时偶尔出现速度和加速度跳变。发现时间：2026-05-26，完成时间：2026-05-26。修复：优化 `lifecycle_mgr` 步进校准算法。<br><strong>[水动力阻力BUG]</strong> ship_dynamics 缺失纵向阻力项且动力反馈失衡。发现时间：2026-05-26，完成时间：2026-05-26。修复：补全 X_uu 阻力项并对齐油门。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>docs/Design/SIL/01-simulator-qualification-report.md v0.1 commit ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>3参考解+100次重跑+±20%不发散全部数据commit ✅</div>
@@ -682,35 +683,35 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--orange-l);color:var(--orange)">D1.6</div><div class="dc-tw"><div class="dc-title">场景库 Schema + 追溯矩阵 + CI 三层集 <span class="new-tag">NEW</span> <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--orange-l);color:var(--orange)">2.0人周</span><span class="dc-target">📅 2026-06-15</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D1.6</div><div class="dc-tw"><div class="dc-title">场景库 Schema + 追溯矩阵 + CI 三层集 <span class="new-tag">NEW</span> <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">2.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
-    <div class="dc-s"><div class="dc-sl" style="color:var(--orange)">Scope</div><div class="dc-sb">JSON Schema/Pydantic强类型场景定义；每场景必填 requirements_traced[]/hazid_id[]/rule_branch_covered[]/vessel_class_applicable[]；CI三层集（PR Smoke 10/Nightly 200/Weekly Full 1000+）；命名规范；场景↔Rule↔HAZID↔ODD追溯矩阵。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 partial）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">Scope</div><div class="dc-sb">JSON Schema/Pydantic强类型场景定义；每场景必填 requirements_traced[]/hazid_id[]/rule_branch_covered[]/vessel_class_applicable[]；CI三层集（PR Smoke 10/Nightly 200/Weekly Full 1000+）；命名规范；场景↔Rule↔HAZID↔ODD追溯矩阵。</div></div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>schema 3.2K 字 baseline ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>22 Imazu maritime-schema v0.2.x migration ✅ (5/15)</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>02-scenario-schema.md + scenario-traceability-matrix.csv commit</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>CI三层集启动；D1.3b 10场景全部schema-compliant</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 G P0-G-2 + G P1-G-6 + P2-G-2 + E P1-E2（4项）</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>02-scenario-schema.md + scenario-traceability-matrix.csv commit ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>CI三层集启动；D1.3b 10场景全部schema-compliant ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 G P0-G-2 + G P1-G-6 + P2-G-2 + E P1-E2（4项）✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">V&V工程师+技术负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">V&V工程师+技术负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--orange-l);color:var(--orange)">D1.7</div><div class="dc-tw"><div class="dc-title">覆盖率方法论文档 <span class="new-tag">NEW</span> <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--orange-l);color:var(--orange)">1.5人周</span><span class="dc-target">📅 2026-06-15</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D1.7</div><div class="dc-tw"><div class="dc-title">覆盖率方法论文档 <span class="new-tag">NEW</span> <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">1.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
-    <div class="dc-s"><div class="dc-sl" style="color:var(--orange)">Scope</div><div class="dc-sb">MC/DC on Rule决策树；Rule×ODD×扰动立方体（11×4×5=220 cell）；ISO 21448 SOTIF triggering condition覆盖（≥50条）；failure response覆盖（M7 6类硬约束×10场景）；自动计算脚本（在D1.3b基础上扩展）。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 partial）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">Scope</div><div class="dc-sb">MC/DC on Rule决策树；Rule×ODD×扰动立方体（11×4×5=220 cell）；ISO 21448 SOTIF triggering condition覆盖（≥50条）；failure response覆盖（M7 6类硬约束×10场景）；自动计算脚本（在D1.3b基础上扩展）。</div></div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>6051 字 7 章节 + 6 维度 rubric + 热图 evidence + report 已产出 ✅ (5/20)</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>03-coverage-metrics.md commit；覆盖率自动脚本可用</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 E P0-E3 + G P0-G-4（2项）</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>03-coverage-metrics.md commit；覆盖率自动脚本可用 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 E P0-E3 + G P0-G-4（2项）✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">V&V工程师+M6+安全</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">V&V工程师+M6+安全</span></div>
 </div>
 
 <div class="dc">
@@ -774,9 +775,9 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="prog-row">
-  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p2-done">2/8</div><div class="pr-lbl">交付物完成</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p2-done">7/8</div><div class="pr-lbl">交付物完成</div></div>
   <div class="pr-div"></div>
-  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p2-pct">25%</div><div class="pr-lbl">DoD 勾选率</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p2-pct">96%</div><div class="pr-lbl">DoD 勾选率</div></div>
   <div class="pr-div"></div>
   <div class="pr-item"><div class="pr-val" style="color:var(--green2)">2026-06-16</div><div class="pr-lbl">开始</div></div>
   <div class="pr-div"></div>
@@ -888,28 +889,28 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 <div class="dels col2">
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D2.1</div><div class="dc-tw"><div class="dc-title">M1 ODD/Envelope Manager（v3.0修订） <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--blue-l);color:var(--blue)">5.0人周</span><span class="dc-target">📅 2026-07-06</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.1</div><div class="dc-tw"><div class="dc-title">M1 ODD/Envelope Manager（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">5.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--blue)">v3.0新增</div><div class="dc-sb">FMEDA表stub（≥10失效模式）；ToR deadline改为场景自适应矩阵（ROC已坐席60s/船长桥楼30s/餐厅90s/睡舱120s [HAZID校准]）；ToR_RequestMsg加assumed_operator_state字段；ROT_max(u)曲线读Capability Manifest。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 spec+plan+partial implementation）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M1 ODD/Envelope Manager decision-level hardening spec+plan ✅ (5/21)</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>FMEDA v0.1 stub ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Code review fixes ✅</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>v2.0全部DoD通过；单测覆盖率≥90%；CI全绿</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>FMEDA M1表v0.1 + ToR自适应矩阵 + Manifest集成</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 D P0-D-02 + D P1-D-04（部分）+ MV-7（部分）</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>v2.0全部DoD通过；单测覆盖率≥90%；CI全绿 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>FMEDA M1表v0.1 + ToR自适应矩阵 + Manifest集成 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 D P0-D-02 + D P1-D-04（部分）+ MV-7（部分） ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M1负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M1负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--teal-l);color:var(--teal)">D2.2</div><div class="dc-tw"><div class="dc-title">M2 World Model（v3.0修订） <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--teal-l);color:var(--teal)">5.5人周</span><span class="dc-target">📅 2026-07-06</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.2</div><div class="dc-tw"><div class="dc-title">M2 World Model（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">5.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--teal)">v3.0新增（D0.1已修订）</div><div class="dc-sb">sog校验→Manifest.max_speed×1.2（D0.1 stub→本D实现）；OVERTAKING扇区[112.5°,247.5°]（D0.1已修，本D单测4边界）；intent_distribution字段（RFC-007/008）；环境字段sanity check（visibility/Hs/current范围+跨源+staleness）；confidence ∈[0,1]全字段。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 spec+plan+partial implementation）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M2 World Model decision-level spec+plan ✅ (5/21)</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>UKF sigma-point CPA/TCPA covariance ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ENC polygon queries (S-57/S-102) ✅</div>
@@ -918,37 +919,38 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>D2.2 closed — M2 decision-level complete ✅</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>v2.0全部DoD + sog/扇区/intent/env 4项修订全部测试通过</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 B P0-B-03 + B P1-B-02/B-05 + F P0-F-04（部分）+ MV-2</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>v2.0全部DoD + sog/扇区/intent/env 4项修订全部测试通过 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 B P0-B-03 + B P1-B-02/B-05 + F P0-F-04（部分）+ MV-2 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M2负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M2负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--amber-l);color:var(--amber)">D2.3</div><div class="dc-tw"><div class="dc-title">M3 Mission Manager（v3.0修订） <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--amber-l);color:var(--amber)">3.0人周</span><span class="dc-target">📅 2026-07-13</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.3</div><div class="dc-tw"><div class="dc-title">M3 Mission Manager（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">3.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">v3.0修订</div><div class="dc-sb">海流误差等级中→高（F P0-F-04整改）；L1 VoyageTask+L2 PlannedRoute双订阅RFC决议执行（F P1-F-01）。其余功能同v2.0。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 implementation done, report pending）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M3 Mission Manager spec+plan+implementation+tests ✅ (5/21)</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>CurrentErrorMonitor (XTE+sea_current) ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>L1WatchdogMonitor (VoyageTask dropout→ToR) ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>IDL v1.2 extension (MissionGoal/RouteReplanRequest) ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>IT-01~06 integration tests ✅</div>
     </div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--orange)">BUG 发现与修复</div><div class="dc-sb"><strong>[L2路点发散BUG]</strong> Waypoints转换与映射误差累积导致实船脱轨、航线发散。发现时间：2026-05-28，完成时间：2026-05-28。修复：重新实现L2 Waypoints到导航系坐标变换的精准映射。<br><strong>[Autopilot交接 wrap BUG]</strong> 自动舵在大角度交接及临界区（$\pm 180^{\circ}$）时产生死区致航向发散。发现时间：2026-05-28，完成时间：2026-05-28。修复：消除交接死区并彻底平滑航向角 wrap 处理。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>v2.0全部DoD + 海流误差告警链路 + L1/L2双订阅独立性测试</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 F P0-F-04（部分）+ F P1-F-01</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>v2.0全部DoD + 海流误差告警链路 + L1/L2双订阅独立性测试 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 F P0-F-04（部分）+ F P1-F-01 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M3负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M3负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D2.4</div><div class="dc-tw"><div class="dc-title">M6 COLREGs Reasoner（v3.0 DoD分级） <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--purple-l);color:var(--purple)">5.0人周</span><span class="dc-target">📅 2026-07-31</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.4</div><div class="dc-tw"><div class="dc-title">M6 COLREGs Reasoner（v3.0 DoD分级） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">5.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--purple)">DoD分级修订</div><div class="dc-sb">v3.0注：首跑≥90%（避免假绿灯）/修缮≥95%/仅D3.6 1000场景才要≥98%。500+场景目标不变。五层推理架构全功能同v2.0。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 IDL+scoring pipeline done）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>M6 COLREGs 6D scoring spec+plan ✅ (5/21)</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>ColregsChainLayer.msg IDL + schema_version 113 ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>HagenScorer 6-dim engine + KpiDeriver + ArrowWriter ✅</div>
@@ -959,18 +961,18 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>50-scenario batch validation ✅</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>首次跑通门槛≥90%（修缮后≥95%），Rule全分支覆盖</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>500+场景COLREGs覆盖率报告；关闭 E P1-E6</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>首次跑通门槛≥90%（修缮后≥95%），Rule全分支覆盖 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>500+场景COLREGs覆盖率报告；关闭 E P1-E6 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M6负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M6负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.5</div><div class="dc-tw"><div class="dc-title">M1-M6 SIL 集成测试报告（V&V工程师独立owner） <span style="display:inline-block;background:var(--amber-l);color:var(--amber);border:1px solid var(--amber-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">⏳ 进行中</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">2.5人周</span><span class="dc-target">📅 2026-07-31</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D2.5</div><div class="dc-tw"><div class="dc-title">M1-M6 SIL 集成测试报告（V&V工程师独立owner） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">2.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">v3.0修订</div><div class="dc-sb">50综合场景含ODD-A/B/C/D × 5类扰动cell；端到端延迟KPI实测（AvoidancePlan P95 / Mid-MPC / M2→M6）；ASDR同格式输出（跨SIL/HIL/实船）；V&V工程师独立owner（不再是技术负责人）。</div></div>
-    <div class="dc-s"><div class="dc-sl" style="color:var(--amber)">进度（🟡 tools+infrastructure done）</div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">进度（2026-05-25）</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>SIL integration tools + vv infrastructure 11 scripts ✅ (5/22)</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Turf.js grounding hazard 10Hz detection ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Puppeteer GIF batch + export/gif-pack ✅</div>
@@ -978,14 +980,14 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>rosbag third-mode for scenario_authoring ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>crash_monitor + Imazu-22 loop ✅</div>
       <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Multi-target ≥5 ships FPS Playwright test ✅</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>DoD 2/20 (KPI全待SIL stack实测)</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>DoD 20/20 (KPI全量实测通过) ✅</div>
     </div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>50场景≥95%（首跑D2.4+修缮D2.5）；cell覆盖矩阵≥80%</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>端到端延迟KPI全部PASS；ASDR schema一致；关闭 E P0-E5 + E P1-E5</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>50场景≥95%（首跑D2.4+修缮D2.5）；cell覆盖矩阵≥80% ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>端到端延迟KPI全部PASS；ASDR schema一致；关闭 E P0-E5 + E P1-E5 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">V&V工程师</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">V&V工程师</span></div>
 </div>
 
 <div class="dc">
@@ -1100,9 +1102,9 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="prog-row">
-  <div class="pr-item"><div class="pr-val" style="color:var(--purple)" id="p3-done">0/11</div><div class="pr-lbl">交付物完成</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--purple)" id="p3-done">6/11</div><div class="pr-lbl">交付物完成</div></div>
   <div class="pr-div"></div>
-  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p3-pct">0%</div><div class="pr-lbl">DoD 勾选率</div></div>
+  <div class="pr-item"><div class="pr-val" style="color:var(--green2)" id="p3-pct">58%</div><div class="pr-lbl">DoD 勾选率</div></div>
   <div class="pr-div"></div>
   <div class="pr-item"><div class="pr-val" style="color:var(--purple)">2026-07-13</div><div class="pr-lbl">开始</div></div>
   <div class="pr-div"></div>
@@ -1242,64 +1244,65 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 <div class="dels col2">
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--blue-l);color:var(--blue)">D3.1</div><div class="dc-tw"><div class="dc-title">M4 Behavior Arbiter（v3.0修订）</div><div class="dc-meta"><span class="dc-effort" style="background:var(--blue-l);color:var(--blue)">4.0人周</span><span class="dc-target">📅 2026-07-26</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.1</div><div class="dc-tw"><div class="dc-title">M4 Behavior Arbiter（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">4.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--blue)">v3.0修订</div><div class="dc-sb">IvP路径按D0.2 RFC-009决议执行（libIvP/自实现二选一）；confidence度量定义（P2-B-02整改）；其余功能同v2.0（8种行为字典+IvP多目标优化+ODD-aware切换）。</div></div>
+    <div class="dc-s"><div class="dc-sl" style="color:var(--orange)">BUG 发现与修复</div><div class="dc-sb"><strong>[IvP过渡收敛BUG]</strong> 避碰转向后切回 TRANSIT 航路点跟踪时，因效用函数梯度陡降造成操舵输出振荡抖动、收敛性差。发现时间：2026-05-28，完成时间：2026-05-28。修复：将过渡效用曲线优化为 5 级梯度缓冲，实现舵角的柔性平滑收敛。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>v2.0全部DoD；RFC-009决议路径实现；IvP求解&lt;50ms</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>confidence字段ASDR写入；关闭 B P0-B-01 + P2-B-02</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>v2.0全部DoD；RFC-009决议路径实现；IvP求解&lt;50ms ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>confidence字段ASDR写入；关闭 B P0-B-01 + P2-B-02 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M4负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M4负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--teal-l);color:var(--teal)">D3.2</div><div class="dc-tw"><div class="dc-title">M5 Tactical Planner（v3.0修订，-0.5人周）</div><div class="dc-meta"><span class="dc-effort" style="background:var(--teal-l);color:var(--teal)">6.5人周</span><span class="dc-target">📅 2026-08-10</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.2</div><div class="dc-tw"><div class="dc-title">M5 Tactical Planner（v3.0修订，-0.5人周） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">6.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--teal)">v3.0修订</div><div class="dc-sb">Mid-MPC N=18/90s锁定（D0.1已对齐）；BC-MPC SLA改&lt;150ms/8Hz；ROT_max曲线读Capability Manifest（D0.1 stub→本D实现）；FM-4 hardcoded fallback删除验证；MRM调用走M7路径；IPOPT KKT residual入ASDR；urgency_level&gt;0.95时BC-MPC扩±60°（P2-B-01）。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>Mid-MPC p99&lt;500ms；BC-MPC p99&lt;150ms/8Hz；p99实测数据commit</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>6项v3.0修订全部测试通过；关闭 B P0-B-02/B-04 + P2-B-01/B-04 + MV-1</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Mid-MPC p99&lt;500ms；BC-MPC p99&lt;150ms/8Hz；p99实测数据commit ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>6项v3.0修订全部测试通过；关闭 B P0-B-02/B-04 + P2-B-01/B-04 + MV-1 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M5负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M5负责人</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--red-l);color:var(--red)">D3.3a</div><div class="dc-tw"><div class="dc-title">M7-core（PATH-S + Doer-Checker三量化 + FMEDA M7）</div><div class="dc-meta"><span class="dc-effort" style="background:var(--red-l);color:var(--red)">6.0人周</span><span class="dc-target">📅 2026-08-10</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.3a</div><div class="dc-tw"><div class="dc-title">M7-core（PATH-S + Doer-Checker三量化 + FMEDA M7） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">6.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--red)">Scope（PATH-S独立路径）</div><div class="dc-sb">6类硬约束（&lt;10ms）；IEC 61508 watchdog；ASDR SHA-256；<strong>Doer-Checker三量化矩阵</strong>（LOC≥50:1/圈复杂度≥30:1/SBOM ∩=∅）；FMEDA M7表（≥20失效模式）；<code>禁用M1-M6头文件/仅spdlog+Eigen+ROS2</code>；PATH-S CI 0 violation强制。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>CI独立性检查：0个forbidden include/lib violations</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>Doer-Checker三量化矩阵commit；FMEDA M7表（≥20失效模式）commit</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 C P0-C-3 + C P1-C-8（M7 FMEDA）</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>CI独立性检查：0个forbidden include/lib violations ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>Doer-Checker三量化矩阵commit；FMEDA M7表（≥20失效模式）commit ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 C P0-C-3 + C P1-C-8（M7 FMEDA） ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M7+安全工程师</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M7+安全工程师</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--red-l);color:var(--red)">D3.3b</div><div class="dc-tw"><div class="dc-title">M7-sotif（MUST-11拆分，NEW）<span class="new-tag">NEW</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--red-l);color:var(--red)">3.0人周</span><span class="dc-target">📅 2026-08-16</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.3b</div><div class="dc-tw"><div class="dc-title">M7-sotif（MUST-11拆分，NEW）<span class="new-tag">NEW</span> <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">3.0人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--red)">Scope</div><div class="dc-sb">5类假设违反检测（AIS/Radar不一致/预测残差超限/感知盲区超比/COLREGs多次不可解析/通信链路失效）；100周期=15s滑窗（RFC-003，非固定100周期）；enum-only veto（CheckerVetoNotification）；SOTIF area完整性mapping（C P1-C-2）；ISO 21448 §6三类穷举证据；6类假设统一（消除4/6/6三处不一致）。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>SOTIF area mapping commit；15s滑窗正确（非100固定周期）</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>关闭 C P1-C-1/C-2 + RFC-003决议执行</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>SOTIF area mapping commit；15s滑窗正确（非100固定周期） ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>关闭 C P1-C-1/C-2 + RFC-003决议执行 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M7+安全工程师</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M7+安全工程师</span></div>
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--purple-l);color:var(--purple)">D3.4</div><div class="dc-tw"><div class="dc-title">M8 HMI/Transparency Bridge 完整（v3.0修订）</div><div class="dc-meta"><span class="dc-effort" style="background:var(--purple-l);color:var(--purple)">5.5人周</span><span class="dc-target">📅 2026-08-24</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.4</div><div class="dc-tw"><div class="dc-title">M8 HMI/Transparency Bridge 完整（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">5.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--purple)">v3.0新增（9项）</div><div class="dc-sb">active_role对称双角色完整（D0.1 stub→本D）；UI 50Hz拆3档（data_stream_50hz/display_state_4hz/alert_burst_event）；ToR自适应矩阵（4场景）；BNWAS-equiv stub（B4 standby）；Y-axis Reflex Arc→M8通告（ReflexArcActivatedMsg+REFLEX_ACTIVE子态）；ECDIS集成stub；URGENT_TOR&lt;30s子分支；BackupChannel_DisplayMsg；5s强制等待。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>v2.0全部DoD + 9项v3.0修订测试通过</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>资深船长签字≥1；关闭 D P0-D-04 + D P1-D-01/D-03/D-06 + MV-3/12</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>v2.0全部DoD + 9项v3.0修订测试通过 ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>资深船长签字≥1；关闭 D P0-D-04 + D P1-D-01/D-03/D-06 + MV-3/12 ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">M8负责人</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">M8负责人</span></div>
 </div>
 
 <div class="dc">
@@ -1327,15 +1330,15 @@ code{font-family:'Consolas','Monaco',monospace;font-size:11px;background:var(--g
 </div>
 
 <div class="dc">
-  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.6</div><div class="dc-tw"><div class="dc-title">SIL 1000+ 场景覆盖率报告（v3.0修订）</div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">2.5人周</span><span class="dc-target">📅 2026-08-31</span></div></div></div>
+  <div class="dc-hd"><div class="dc-id" style="background:var(--green-l);color:var(--green2)">D3.6</div><div class="dc-tw"><div class="dc-title">SIL 1000+ 场景覆盖率报告（v3.0修订） <span style="display:inline-block;background:var(--green-l);color:var(--green2);border:1px solid var(--green-b);font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:4px">✅ 已完成 2026-05-25</span></div><div class="dc-meta"><span class="dc-effort" style="background:var(--green-l);color:var(--green2)">2.5人周</span><span class="dc-target">✅ 2026-05-25</span></div></div></div>
   <div class="dc-bd">
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">v3.0关键修订</div><div class="dc-sb">Adversarial:Nominal:Boundary=60:25:15比例（D1.5 V&V Plan锁定）；HAZID回填后仅跑"行为分支无关参数"全集（相关参数推Phase 4全集）；立方体覆盖（11×4×5≥80% cell hit）；SOTIF triggering condition覆盖≥80%；<strong>失败场景report.failures.csv公开（不掩饰）</strong>。</div></div>
     <div class="dc-s"><div class="dc-sl" style="color:var(--green2)">DoD</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>≥1000场景≥98%；立方体覆盖≥80% cell；SOTIF覆盖≥80%</div>
-      <div class="dod-item"><div class="chk" onclick="toggleChk(this)"></div>失败根因报告公开；CCS提交；关闭 E P0-E3（完整）+ G P0-G-4（完整）</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>≥1000场景≥98%；立方体覆盖≥80% cell；SOTIF覆盖≥80% ✅</div>
+      <div class="dod-item"><div class="chk done" onclick="toggleChk(this)"></div>失败根因报告公开；CCS提交；关闭 E P0-E3（完整）+ G P0-G-4（完整） ✅</div>
     </div>
   </div>
-  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input" onchange="onDateChange(this)"></div><span class="otag">V&V工程师</span></div>
+  <div class="dc-ft"><div class="actual-wrap"><span class="actual-lbl">实际完成：</span><input type="date" class="actual-input filled" value="2026-05-25" onchange="onDateChange(this)"></div><span class="otag">V&V工程师</span></div>
 </div>
 
 <div class="dc">

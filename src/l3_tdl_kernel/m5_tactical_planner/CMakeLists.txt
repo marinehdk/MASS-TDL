@@ -16,6 +16,7 @@ add_compile_options(
   -Wnull-dereference -Wdouble-promotion
   -Wformat=2 -Wformat-security -Wmissing-declarations -Wundef -Wunused
   -fstack-protector-strong -D_FORTIFY_SOURCE=2
+  -fno-fast-math -ffp-contract=off
 )
 
 # Release: -O2 (NOT -O3 per PATH-D §2.2)
@@ -224,7 +225,12 @@ if(BUILD_TESTING)
   # (old ABI). System libgtest.a uses new ABI but ament prefix-path ordering
   # causes the linker to find the OLD archive first. Recompiling from source
   # with the same flags as the rest of the workspace guarantees ABI parity.
-  set(_M5_GTEST_SRC_DIR "/opt/ros/jazzy/src/gtest_vendor")
+  # Auto-detect by ROS_DISTRO env so this works under both Jazzy and Humble.
+  if(DEFINED ENV{ROS_DISTRO})
+    set(_M5_GTEST_SRC_DIR "/opt/ros/$ENV{ROS_DISTRO}/src/gtest_vendor")
+  else()
+    set(_M5_GTEST_SRC_DIR "/opt/ros/jazzy/src/gtest_vendor")
+  endif()
   find_package(Threads REQUIRED)
 
   add_library(m5_gtest STATIC
