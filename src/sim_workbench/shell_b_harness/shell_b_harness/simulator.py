@@ -181,11 +181,12 @@ class LockstepNode(Node):
         self.simulator.received_m7 = True
 
 class ShellBSimulator:
-    def __init__(self, port: int = 9091, use_m7: bool = True, verbose: bool = False, ros_domain_id: int = 42):
+    def __init__(self, port: int = 9091, use_m7: bool = True, verbose: bool = False, ros_domain_id: int = 42, headless: bool = True):
         self.port = port
         self.use_m7 = use_m7
         self.verbose = verbose
         self.ros_domain_id = ros_domain_id
+        self.headless = headless
         
         # Subprocesses references
         self.doer_proc = None
@@ -387,6 +388,8 @@ class ShellBSimulator:
         ]
         
         env = dict(os.environ, ROS_DOMAIN_ID=str(self.ros_domain_id), SIL_LOCKSTEP_PORT=str(self.port))
+        if self.headless:
+            env["SIL_HEADLESS"] = "1"
         
         self.doer_proc = subprocess.Popen(doer_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if self.use_m7:

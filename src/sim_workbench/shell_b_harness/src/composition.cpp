@@ -27,6 +27,9 @@ int main(int argc, char* argv[]) {
   rclcpp::NodeOptions options_without_ipc;
   options_without_ipc.use_intra_process_comms(false);
 
+  const char* headless_env = std::getenv("SIL_HEADLESS");
+  bool headless = (headless_env && std::string(headless_env) == "1");
+
   // Instantiate the 7 DOER nodes manually
   // M1: OddEnvelopeManagerNode (no-arg constructor)
   auto m1_node = std::make_shared<mass_l3::m1::OddEnvelopeManagerNode>();
@@ -48,7 +51,10 @@ int main(int argc, char* argv[]) {
   auto m6_node = std::make_shared<mass_l3::m6_colregs::ColregsReasonerNode>();
 
   // M8: HmiTransparencyBridgeNode (with NodeOptions)
-  auto m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
+  std::shared_ptr<mass_l3::m8::HmiTransparencyBridgeNode> m8_node = nullptr;
+  if (!headless) {
+    m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
+  }
 
   // Add nodes to a single-threaded executor wrapped in a shared pointer
   auto executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
@@ -58,7 +64,9 @@ int main(int argc, char* argv[]) {
   executor->add_node(m4_node);
   executor->add_node(m5_node);
   executor->add_node(m6_node);
-  executor->add_node(m8_node);
+  if (m8_node) {
+    executor->add_node(m8_node);
+  }
 
   const char* lockstep_port_env = std::getenv("SIL_LOCKSTEP_PORT");
   if (lockstep_port_env && std::string(lockstep_port_env) != "") {
@@ -95,8 +103,11 @@ int main(int argc, char* argv[]) {
     RCLCPP_INFO(rclcpp::get_logger("doer_composition"), "Connected to lockstep coordinator!");
 
     std::vector<std::shared_ptr<rclcpp::Node>> nodes = {
-      m1_node, m2_node, m3_node, m4_node, m5_node, m6_node, m8_node
+      m1_node, m2_node, m3_node, m4_node, m5_node, m6_node
     };
+    if (m8_node) {
+      nodes.push_back(m8_node);
+    }
 
     for (auto const& node : nodes) {
       rcl_enable_ros_time_override(node->get_clock()->get_clock_handle());
@@ -157,7 +168,9 @@ int main(int argc, char* argv[]) {
           m4_node.reset();
           m5_node.reset();
           m6_node.reset();
-          m8_node.reset();
+          if (m8_node) {
+            m8_node.reset();
+          }
           executor.reset();
 
           // Re-instantiate executor and nodes
@@ -168,12 +181,17 @@ int main(int argc, char* argv[]) {
           m4_node = std::make_shared<mass_l3::m4::BehaviorArbiterNode>(options_with_ipc);
           m5_node = std::make_shared<mass_l3::m5::mid_mpc::MidMpcNode>(m5_cfg);
           m6_node = std::make_shared<mass_l3::m6_colregs::ColregsReasonerNode>();
-          m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
+          if (!headless) {
+            m8_node = std::make_shared<mass_l3::m8::HmiTransparencyBridgeNode>(options_without_ipc);
+          }
 
           // Re-assign the references in the nodes vector
           nodes = {
-            m1_node, m2_node, m3_node, m4_node, m5_node, m6_node, m8_node
+            m1_node, m2_node, m3_node, m4_node, m5_node, m6_node
           };
+          if (m8_node) {
+            nodes.push_back(m8_node);
+          }
 
           // Re-enable ROS time override and set it to 0 for fresh node clocks
           for (auto const& node : nodes) {
