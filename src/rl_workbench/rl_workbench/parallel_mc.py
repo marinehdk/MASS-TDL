@@ -168,6 +168,11 @@ def run_parallel_mc(
     for p in processes:
         p.join()
 
+    if len(results) < total_tasks:
+        missing = total_tasks - len(results)
+        for _ in range(missing):
+            results.append({"status": "error", "error": "worker died without reporting result"})
+
     return results
 
 

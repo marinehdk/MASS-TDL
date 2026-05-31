@@ -72,6 +72,7 @@ class MASSL3Env(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        self.action_space.seed(int(self.np_random.integers(0, 2**31)))
 
         in_place = True
         if self.simulator is None:

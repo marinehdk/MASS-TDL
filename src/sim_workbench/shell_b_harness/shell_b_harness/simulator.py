@@ -267,7 +267,7 @@ class ShellBSimulator:
 
     def _reset_local_state(self, seed: int | None = None):
         # 1. Reset local simulator states
-        self.sim_t = 1.0
+        self.sim_t = 0.0
         self.dt = 0.02
         self.coeffs = MMGCoefficients(dt=self.dt)
         self.model = MMGModel(self.coeffs)
