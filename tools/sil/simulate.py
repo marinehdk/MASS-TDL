@@ -162,9 +162,6 @@ def simulate(spec: ScenarioSpec, apply_avoidance: bool) -> SimResult:
             stable = True
             for i in range(n_steps):
                 state = sim.step()
-                if i == 0:
-                    print(f"DEBUG STEP 0 STATE: {state}", flush=True)
-                
                 # Check stability
                 u_val = state["own_ship"]["u"]
                 psi_val = state["own_ship"]["psi"]
@@ -193,8 +190,7 @@ def simulate(spec: ScenarioSpec, apply_avoidance: bool) -> SimResult:
             
             if not stable:
                 return SimResult(stable=False)
-                
-            print(f"DEBUG TRAJECTORY: own_start={own_traj[0]}, own_end={own_traj[-1]}, tgt_start={tgt_traj[0]}, tgt_end={tgt_traj[-1]}", flush=True)
+
             dcpa_m, tcpa_s = _compute_min_cpa(own_traj, tgt_traj, dt)
             
             return SimResult(

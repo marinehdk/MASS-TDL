@@ -150,7 +150,7 @@ class LockstepNode(Node):
         self.simulator.last_avoidance_plan = msg
         has_valid_plan = len(msg.waypoints) > 0 and abs(msg.waypoints[0].turn_radius_m) > 1e-6
         if has_valid_plan:
-            self.simulator.last_valid_plan_time = self.get_clock().now().nanoseconds * 1e-9
+            self.simulator.last_valid_plan_time = self.simulator.sim_t
             self.simulator.last_avoidance_waypoint = msg.waypoints[0]
             
         if self.simulator.autopilot_enabled and not has_valid_plan:
@@ -408,9 +408,17 @@ class ShellBSimulator:
         # 6. Wait for clients to connect
         self.clients = []
         num_clients = 2 if self.use_m7 else 1
-        for _ in range(num_clients):
-            client_sock, client_addr = self.server_sock.accept()
-            self.clients.append(client_sock)
+        self.server_sock.settimeout(15.0)
+        try:
+            for _ in range(num_clients):
+                client_sock, client_addr = self.server_sock.accept()
+                self.clients.append(client_sock)
+        except socket.timeout:
+            raise RuntimeError(
+                "doer_composition did not connect within 15 s — check for subprocess crash"
+            )
+        finally:
+            self.server_sock.settimeout(None)
             
         # 7. Check if processes are running
         if self.doer_proc.poll() is not None:
