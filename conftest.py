@@ -10,6 +10,7 @@ sys.path.insert(0, str(root_dir / "src"))
 # Add simulation workbench package parent directories to PYTHONPATH
 sim_wb_dir = root_dir / "src" / "sim_workbench"
 sys.path.insert(0, str(sim_wb_dir / "sil_lifecycle"))
+sys.path.insert(0, str(sim_wb_dir / "sil_common"))
 for pkg in (
     "ship_dynamics",
     "env_disturbance",
