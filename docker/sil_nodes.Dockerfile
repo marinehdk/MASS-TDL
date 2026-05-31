@@ -47,6 +47,7 @@ WORKDIR /opt/ws
 COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
 COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
 COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
+COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
 # (l3_msgs + l3_external_msgs live under l3_tdl_kernel/ since a748ffe)
@@ -70,7 +71,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         --packages-select \
             l3_msgs l3_external_msgs \
-            sil_msgs sil_lifecycle \
+            sil_common sil_msgs sil_lifecycle \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
             fault_injection scoring \
