@@ -4,13 +4,21 @@ import sys, math, statistics
 from pathlib import Path
 from unittest.mock import MagicMock
 
+class DummyLifecycleNode:
+    def __init__(self, node_name, **kwargs):
+        from unittest.mock import MagicMock
+        self._logger = MagicMock()
+        self.get_clock = MagicMock()
+
 sys.modules["rclpy"] = MagicMock()
 sys.modules["rclpy.lifecycle"] = MagicMock()
+sys.modules["rclpy.lifecycle"].LifecycleNode = DummyLifecycleNode
 sys.modules["rclpy.qos"] = MagicMock()
 sys.modules["sil_msgs"] = MagicMock()
 sys.modules["sil_msgs.msg"] = MagicMock()
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
+sys.path.insert(0, str(Path(__file__).parents[3] / "sil_common"))
 import pytest
 
 
@@ -60,3 +68,90 @@ def test_ncdm_vessel_out_of_range_returns_none():
                     duration_s=30.0, dt=0.1, seed=1)
     assert nv.get_targets_at(-1.0) is None
     assert nv.get_targets_at(999.0) is None
+
+
+def test_target_vessel_rng_reproducibility():
+    import numpy as np
+    from target_vessel.node import TargetVessel, TargetMode
+
+    # Generate two RNGs with the same seed, one with different seed
+    rng1a = np.random.default_rng(12345)
+    rng1b = np.random.default_rng(12345)
+    rng2 = np.random.default_rng(54321)
+
+    tv1a = TargetVessel(mmsi=100, lat=63.44, lon=10.38, heading_deg=0.0, sog_kn=10.0,
+                        mode=TargetMode.NCDM, ou_theta=0.05, ou_sigma=0.5, rng=rng1a)
+    tv1b = TargetVessel(mmsi=100, lat=63.44, lon=10.38, heading_deg=0.0, sog_kn=10.0,
+                        mode=TargetMode.NCDM, ou_theta=0.05, ou_sigma=0.5, rng=rng1b)
+    tv2 = TargetVessel(mmsi=100, lat=63.44, lon=10.38, heading_deg=0.0, sog_kn=10.0,
+                       mode=TargetMode.NCDM, ou_theta=0.05, ou_sigma=0.5, rng=rng2)
+
+    headings_1a = []
+    headings_1b = []
+    headings_2 = []
+
+    for _ in range(50):
+        tv1a.step(dt=0.1)
+        tv1b.step(dt=0.1)
+        tv2.step(dt=0.1)
+        headings_1a.append(tv1a.heading)
+        headings_1b.append(tv1b.heading)
+        headings_2.append(tv2.heading)
+
+    # Assert same seed twice -> identical noise (headings are exactly the same)
+    assert headings_1a == headings_1b
+    # Assert different seed -> different (headings are different)
+    assert headings_1a != headings_2
+
+
+def test_target_vessel_node_rng_lifecycle():
+    from target_vessel.node import TargetVesselNode
+    from unittest.mock import MagicMock
+    
+    node = TargetVesselNode()
+    
+    # Mock declare_parameter and get_parameter
+    params = {
+        "default_targets_json": '[{"mmsi": 100, "lat": 63.44, "lon": 10.38, "heading_deg": 0.0, "sog_kn": 10.0, "mode": "ncdm"}]',
+        "root_seed": 42,
+        "episode": 1,
+        "worker": 2
+    }
+    
+    def mock_get_parameter(name):
+        class MockParam:
+            value = params[name]
+        return MockParam()
+        
+    node.get_parameter = mock_get_parameter
+    node.declare_parameter = MagicMock()
+    
+    # Configure 
+    node.on_configure(MagicMock())
+    assert len(node._targets) == 1
+    t1 = node._targets[0]
+    
+    # Let's verify that the generator was created and stored in t1
+    assert hasattr(t1, "rng")
+    assert t1.rng is not None
+
+
+def test_no_random_module_survives():
+    import ast
+    from pathlib import Path
+    node_file = Path(__file__).parents[1] / "target_vessel" / "node.py"
+    with open(node_file, "r") as f:
+        tree = ast.parse(f.read(), filename=str(node_file))
+        
+    for node in ast.walk(tree):
+        # Assert no import random
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name != "random", "Found 'import random' in node.py!"
+        if isinstance(node, ast.ImportFrom):
+            assert node.module != "random", "Found 'from random import ...' in node.py!"
+        
+        # Assert no random.* call
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == "random":
+                raise AssertionError("Found 'random.' usage in node.py!")

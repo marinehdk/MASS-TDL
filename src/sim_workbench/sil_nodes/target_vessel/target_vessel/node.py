@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import math
-import random
 from enum import Enum
+
+import numpy as np
+from sil_common.det_rng import make_rng
 
 import rclpy
 from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
@@ -54,6 +56,7 @@ class TargetVessel:
         mode: TargetMode = TargetMode.REPLAY,
         ou_theta: float = 0.05,
         ou_sigma: float = 0.5,
+        rng: np.random.Generator | None = None,
     ):
         self.mmsi = mmsi
         self.lat = lat
@@ -65,6 +68,10 @@ class TargetVessel:
         self._ou_theta = ou_theta
         self._ou_sigma = ou_sigma
         self._heading_ref = self.heading
+        if rng is None:
+            self.rng = np.random.default_rng()
+        else:
+            self.rng = rng
 
     def step(self, dt: float = 0.1) -> dict:
         """Advance simulation by *dt* seconds using simple linear motion.
@@ -75,7 +82,7 @@ class TargetVessel:
         self._time += dt
         if self.mode == TargetMode.NCDM:
             dH = (-self._ou_theta * (self.heading - self._heading_ref) * dt
-                  + self._ou_sigma * math.sqrt(dt) * random.gauss(0, 1))
+                  + self._ou_sigma * math.sqrt(dt) * self.rng.normal())
             self.heading += dH
         # Approximate meridian arc: 1 deg lat ≈ 111 120 m
         lat_rad = math.radians(self.lat)
@@ -133,6 +140,9 @@ class TargetVesselNode(LifecycleNode):
         self._tv_pub = None
         self._timer = None
         self._last_sim_time = None
+        self._root_seed = None
+        self._episode = None
+        self._worker = None
 
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
@@ -149,7 +159,16 @@ class TargetVesselNode(LifecycleNode):
         sog_kn: float,
         mode: str = "replay",
     ) -> TargetVessel:
-        t = TargetVessel(mmsi, lat, lon, heading_deg, sog_kn, TargetMode(mode))
+        if self._root_seed is not None:
+            t_rng = make_rng(
+                root=self._root_seed,
+                episode=self._episode,
+                node="target_vessel",
+                worker=self._worker + mmsi,
+            )
+        else:
+            t_rng = None
+        t = TargetVessel(mmsi, lat, lon, heading_deg, sog_kn, TargetMode(mode), rng=t_rng)
         self._targets.append(t)
         return t
 
@@ -163,6 +182,23 @@ class TargetVesselNode(LifecycleNode):
             self.declare_parameter("default_targets_json", "[]")
         except Exception:
             pass
+        try:
+            self.declare_parameter("root_seed", 0)
+        except Exception:
+            pass
+        try:
+            self.declare_parameter("episode", 0)
+        except Exception:
+            pass
+        try:
+            self.declare_parameter("worker", 0)
+        except Exception:
+            pass
+
+        self._root_seed = self.get_parameter("root_seed").value
+        self._episode = self.get_parameter("episode").value
+        self._worker = self.get_parameter("worker").value
+
         raw = self.get_parameter("default_targets_json").value
         if raw:
             try:
