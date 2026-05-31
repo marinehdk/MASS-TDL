@@ -58,6 +58,41 @@ def _get_container_name() -> str:
     return "mass-l3-tacticallayer-sil-nodes-1"
 
 
+def _run_capture_rule14_in_container(rate: float, duration: float, output: str) -> None:
+    """Run capture_rule14.py inside the sil-nodes container."""
+    container = _get_container_name()
+    run_id = uuid.uuid4().hex[:8]
+    container_script = f"/tmp/capture_rule14_{run_id}.py"
+    container_output = f"/tmp/capture_{run_id}.csv"
+    rule14_script = Path(__file__).parent / "capture_rule14.py"
+
+    try:
+        # Copy script into container
+        subprocess.run(
+            ["docker", "cp", str(rule14_script), f"{container}:{container_script}"],
+            check=True
+        )
+        subprocess.run(
+            ["docker", "exec", container,
+             "bash", "-c",
+             f"source /opt/ros/humble/setup.bash && "
+             f"source /opt/ws/install/setup.bash && "
+             f"python3 {container_script} "
+             f"--rate {rate} --duration {duration} --output {container_output}"],
+            check=True, timeout=int(duration) + 60
+        )
+        # Copy CSV back to host
+        subprocess.run(
+            ["docker", "cp", f"{container}:{container_output}", output],
+            check=True
+        )
+    finally:
+        # Clean up temporary files inside container
+        subprocess.run(
+            ["docker", "exec", container, "rm", "-f", container_script, container_output],
+            capture_output=True
+        )
+
 def _run_capture_in_container(rate: float, duration: float, output: str) -> None:
     """Run capture_imazu.py inside the sil-nodes container."""
     container = _get_container_name()
@@ -159,6 +194,76 @@ class TestSimDeterminism:
         assert RTF_LOW <= rtf <= RTF_HIGH, (
             f"RTF={rtf:.3f} out of [{RTF_LOW}, {RTF_HIGH}]. "
             f"sim={sim_elapsed:.1f}s wall={wall_elapsed:.1f}s"
+        )
+
+    def test_rule14_determinism_1x_vs_10x(self, tmp_path):
+        """1x and 10x runs of colreg-rule14-ho must produce identical trajectories."""
+        out_1x = str(tmp_path / "det_rule14_1x.csv")
+        out_10x = str(tmp_path / "det_rule14_10x.csv")
+
+        _run_capture_rule14_in_container(rate=1.0, duration=120.0, output=out_1x)
+        time.sleep(3.0)  # Let stack settle between runs
+        _run_capture_rule14_in_container(rate=10.0, duration=120.0, output=out_10x)
+
+        rows_1x = _load_csv(out_1x)
+        rows_10x = _load_csv(out_10x)
+        assert rows_1x, "No rows in 1x rule14 capture"
+        assert rows_10x, "No rows in 10x rule14 capture"
+
+        by_t_1x = _rows_by_sim_t(rows_1x)
+        by_t_10x = _rows_by_sim_t(rows_10x)
+
+        pairs = _align_on_grid(by_t_1x, by_t_10x, GRID_STEP_S)
+        assert len(pairs) >= int(MIN_SIM_COVERAGE_S / GRID_STEP_S), (
+            f"Too few aligned pairs: {len(pairs)} (need >={MIN_SIM_COVERAGE_S/GRID_STEP_S:.0f})"
+        )
+
+        max_pos_err = 0.0
+        max_hdg_err = 0.0
+        max_act_rudder_err = 0.0
+        max_latch_offset_err = 0.0
+        behavior_mismatches = 0
+        conflict_mismatches = 0
+
+        for r1, r10 in pairs:
+            pos_err = _haversine_m(
+                float(r1["lat"]), float(r1["lon"]),
+                float(r10["lat"]), float(r10["lon"])
+            )
+            hdg_err = _heading_diff(float(r1["heading_deg"]), float(r10["heading_deg"]))
+            act_rudder_err = abs(float(r1["act_rudder_deg"]) - float(r10["act_rudder_deg"]))
+            latch_offset_err = abs(float(r1["latch_offset"]) - float(r10["latch_offset"]))
+            
+            max_pos_err = max(max_pos_err, pos_err)
+            max_hdg_err = max(max_hdg_err, hdg_err)
+            max_act_rudder_err = max(max_act_rudder_err, act_rudder_err)
+            max_latch_offset_err = max(max_latch_offset_err, latch_offset_err)
+            
+            if r1["behavior"] != r10["behavior"]:
+                behavior_mismatches += 1
+            if r1["conflict"] != r10["conflict"]:
+                conflict_mismatches += 1
+
+        print(f"[rule14] Max pos err: {max_pos_err:.2f} m, Max hdg err: {max_hdg_err:.3f} deg, "
+              f"Max act rudder err: {max_act_rudder_err:.3f} deg, Max latch offset err: {max_latch_offset_err:.3f} deg")
+
+        assert max_pos_err < POS_TOL_M, (
+            f"Max position error {max_pos_err:.2f} m exceeds {POS_TOL_M} m"
+        )
+        assert max_hdg_err < HDG_TOL_DEG, (
+            f"Max heading error {max_hdg_err:.3f}deg exceeds {HDG_TOL_DEG}deg"
+        )
+        assert max_act_rudder_err < 0.1, (
+            f"Max act rudder error {max_act_rudder_err:.3f}deg exceeds 0.1 deg"
+        )
+        assert max_latch_offset_err < 0.1, (
+            f"Max latch offset error {max_latch_offset_err:.3f}deg exceeds 0.1 deg"
+        )
+        assert behavior_mismatches == 0, (
+            f"{behavior_mismatches} behavior mismatches at aligned sim_t"
+        )
+        assert conflict_mismatches == 0, (
+            f"{conflict_mismatches} conflict mismatches at aligned sim_t"
         )
 
     def test_cross_speed_determinism_1x_vs_10x(self, tmp_path):

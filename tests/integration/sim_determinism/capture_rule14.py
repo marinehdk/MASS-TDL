@@ -8,7 +8,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rosgraph_msgs.msg import Clock as ClockMsg
-from sil_msgs.msg import OwnShipState
+from sil_msgs.msg import OwnShipState, BridgeState
 from l3_msgs.msg import BehaviorPlan, COLREGsConstraint
 
 ORCHESTRATOR_URL = "https://localhost:8000"
@@ -43,6 +43,9 @@ class Cap(Node):
         self.sim_start_t = 0.0
         self.running = True
         self.wall_start = time.time()
+        self._last_actuator_rudder = 0.0
+        self._last_actuator_throttle = 0.0
+        self._latch_offset = 0.0
         
         q = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE,
                        history=HistoryPolicy.KEEP_LAST, depth=10)
@@ -50,6 +53,8 @@ class Cap(Node):
         self.create_subscription(BehaviorPlan, "/l3/m4/behavior_plan", self._bp, q)
         self.create_subscription(COLREGsConstraint, "/l3/m6/colregs_constraint", self._cr, q)
         self.create_subscription(ClockMsg, "/clock", self._clk, q)
+        self.create_subscription(OwnShipState, "/sil/actuator_cmd", self._act, q)
+        self.create_subscription(BridgeState, "/sil/bridge_state", self._bs, q)
         
     def _clk(self, m):
         self.sim_t = m.clock.sec + m.clock.nanosec * 1e-9
@@ -59,6 +64,13 @@ class Cap(Node):
         
     def _cr(self, m):
         self.conf = int(m.conflict_detected)
+        
+    def _act(self, m):
+        self._last_actuator_rudder = round(math.degrees(m.rudder_angle), 3)
+        self._last_actuator_throttle = round(m.throttle, 3)
+
+    def _bs(self, m):
+        self._latch_offset = round(m.current_offset_deg, 3)
         
     def _oss(self, m):
         if not self.running:
@@ -78,7 +90,10 @@ class Cap(Node):
             "rot": round(getattr(m, "rot", 0.0), 4),
             "xte_m": round(_easting(m.lon, m.lat), 2),
             "behavior": self.beh,
-            "conflict": self.conf
+            "conflict": self.conf,
+            "act_rudder_deg": self._last_actuator_rudder,
+            "act_throttle": self._last_actuator_throttle,
+            "latch_offset": self._latch_offset
         })
         
         sim_elapsed = self.sim_t - self.sim_start_t

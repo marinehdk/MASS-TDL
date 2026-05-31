@@ -293,6 +293,9 @@ class SilTopicBridge(Node):
 
         self._autopilot_timer = self.create_timer(0.5, self._autopilot_step)
 
+    def _get_sim_time(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
     # ── Pulse recording helper ───────────────────────────────
 
     def _record_pulse(self, module_id: int) -> None:
@@ -447,7 +450,7 @@ class SilTopicBridge(Node):
             return
         
         self._latch_release_triggered = True
-        self._latch_release_time = time.monotonic()
+        self._latch_release_time = self._get_sim_time()
         # Account for 360-degree wrap-around when calculating target offset
         diff = (self._avoidance_target_heading_deg - self._target_heading_deg + 180.0) % 360.0 - 180.0
         self._latch_offset_at_release_deg = abs(diff)
@@ -512,7 +515,7 @@ class SilTopicBridge(Node):
             abs(msg.waypoints[0].turn_radius_m) > 1e-6
         )
         if has_valid_plan:
-            self._last_valid_plan_time = time.monotonic()
+            self._last_valid_plan_time = self._get_sim_time()
             self._last_avoidance_waypoint = msg.waypoints[0]
 
         if self._autopilot_enabled and not has_valid_plan:
@@ -568,7 +571,7 @@ class SilTopicBridge(Node):
     def _autopilot_step(self) -> None:
         self._publish_bridge_state()
         if self._avoidance_active:
-            now = time.monotonic()
+            now = self._get_sim_time()
             should_publish = (
                 self._last_actuator_publish_time is None or
                 (now - self._last_actuator_publish_time) > 0.5)
@@ -582,7 +585,7 @@ class SilTopicBridge(Node):
         if self._last_odd_state is None:
             return
 
-        now = time.monotonic()
+        now = self._get_sim_time()
         staleness_s = (
             (now - self._last_valid_plan_time)
             if self._last_valid_plan_time else float('inf'))
@@ -643,7 +646,7 @@ class SilTopicBridge(Node):
 
         # ── LATCH offset decay logic ─────────────────────────
         if self._latch_release_triggered and self._latch_release_time is not None and self._avoidance_target_heading_deg is not None:
-            t_now = time.monotonic()
+            t_now = self._get_sim_time()
             latch_offset_decaying = self._compute_latch_offset(
                 self._latch_release_time, t_now, 
                 self._latch_offset_at_release_deg or 0.0)
