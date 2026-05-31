@@ -1,5 +1,14 @@
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
+#include <rcl/time.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string>
+#include <vector>
+#include <iostream>
+#include <cstdlib>
+#include <cstdio>
 
 #include "m1_odd_envelope_manager/odd_envelope_manager_node.hpp"
 #include "m2_world_model/world_model_node.hpp"
@@ -51,10 +60,88 @@ int main(int argc, char* argv[]) {
   executor.add_node(m6_node);
   executor.add_node(m8_node);
 
-  RCLCPP_INFO(rclcpp::get_logger("doer_composition"), 
-              "All 7 DOER nodes successfully composed and added to SingleThreadedExecutor. Spinning...");
+  const char* lockstep_port_env = std::getenv("SIL_LOCKSTEP_PORT");
+  if (lockstep_port_env && std::string(lockstep_port_env) != "") {
+    int port = std::stoi(lockstep_port_env);
+    RCLCPP_INFO(rclcpp::get_logger("doer_composition"), "Lockstep mode enabled on port %d", port);
 
-  executor.spin();
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+      RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Socket creation error");
+      return 1;
+    }
+
+    struct sockaddr_in serv_addr;
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(port);
+
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+      RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Invalid address/Address not supported");
+      close(sock);
+      return 1;
+    }
+
+    RCLCPP_INFO(rclcpp::get_logger("doer_composition"), "Connecting to lockstep coordinator...");
+    while (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+      RCLCPP_WARN(rclcpp::get_logger("doer_composition"), "Connection failed, retrying in 500ms...");
+      usleep(500000);
+    }
+    RCLCPP_INFO(rclcpp::get_logger("doer_composition"), "Connected to lockstep coordinator!");
+
+    std::vector<std::shared_ptr<rclcpp::Node>> nodes = {
+      m1_node, m2_node, m3_node, m4_node, m5_node, m6_node, m8_node
+    };
+
+    for (auto const& node : nodes) {
+      rcl_enable_ros_time_override(node->get_clock()->get_clock_handle());
+    }
+
+    std::string buffer;
+    char c;
+    while (true) {
+      buffer.clear();
+      bool ok = true;
+      while (true) {
+        ssize_t n = read(sock, &c, 1);
+        if (n <= 0) {
+          ok = false;
+          break;
+        }
+        if (c == '\n') {
+          break;
+        }
+        buffer += c;
+      }
+      if (!ok) {
+        RCLCPP_WARN(rclcpp::get_logger("doer_composition"), "Coordinator disconnected. Exiting step loop.");
+        break;
+      }
+
+      if (buffer.rfind("STEP ", 0) == 0) {
+        int64_t sec = 0;
+        int64_t nanosec = 0;
+        if (std::sscanf(buffer.c_str(), "STEP %ld %ld", &sec, &nanosec) == 2) {
+          uint64_t time_value = sec * 1000000000ULL + nanosec;
+          for (auto const& node : nodes) {
+            rcl_set_ros_time_override(node->get_clock()->get_clock_handle(), time_value);
+          }
+
+          executor.spin_some(std::chrono::milliseconds(0));
+
+          std::string ack = "ACK " + std::to_string(sec) + " " + std::to_string(nanosec) + "\n";
+          if (write(sock, ack.c_str(), ack.size()) < 0) {
+            RCLCPP_ERROR(rclcpp::get_logger("doer_composition"), "Failed to send ACK to coordinator");
+            break;
+          }
+        }
+      }
+    }
+    close(sock);
+  } else {
+    RCLCPP_INFO(rclcpp::get_logger("doer_composition"), 
+                "All 7 DOER nodes successfully composed and added to SingleThreadedExecutor. Spinning...");
+    executor.spin();
+  }
 
   rclcpp::shutdown();
   return 0;

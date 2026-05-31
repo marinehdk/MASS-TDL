@@ -4,6 +4,7 @@ import sys
 import time
 import subprocess
 import threading
+import socket
 
 # Set ROS_DOMAIN_ID to 42 before importing rclpy to isolate from background traffic
 os.environ["ROS_DOMAIN_ID"] = "42"
@@ -85,6 +86,14 @@ def print_output(stream):
         print(f"[composition] {line.strip()}", flush=True)
 
 def main():
+    # Start lockstep TCP server
+    port = 9090
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind(('127.0.0.1', port))
+    server_sock.listen(5)
+    print(f"Lockstep coordinator server listening on 127.0.0.1:{port}")
+
     cmd = [
         "/opt/ws/install/shell_b_harness/lib/shell_b_harness/doer_composition", "--ros-args",
         "--params-file", "/opt/ws/src/l3_tdl_kernel/launch/l3_params.yaml",
@@ -102,7 +111,8 @@ def main():
         "-p", "use_sim_time:=True"
     ]
     
-    env = dict(os.environ, ROS_DOMAIN_ID="42")
+    # Run with SIL_LOCKSTEP_PORT set to enable lockstep in doer_composition
+    env = dict(os.environ, ROS_DOMAIN_ID="42", SIL_LOCKSTEP_PORT=str(port))
     
     print("Launching doer_composition...")
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -111,8 +121,10 @@ def main():
     t = threading.Thread(target=print_output, args=(proc.stdout,), daemon=True)
     t.start()
     
-    # Wait for the composition binary to start and print initialization messages
-    time.sleep(3.0)
+    # Wait for the client to connect
+    print("Waiting for doer_composition lockstep client to connect...")
+    client_sock, client_addr = server_sock.accept()
+    print(f"doer_composition client connected from {client_addr}")
     
     # Check if process is still running
     ret = proc.poll()
@@ -159,6 +171,18 @@ def main():
             state_msg.confidence = 1.0
             tester.pub_own_ship.publish(state_msg)
             
+            # Gating step: send STEP and wait for ACK
+            step_cmd = f"STEP {clock_msg.clock.sec} {clock_msg.clock.nanosec}\n"
+            client_sock.sendall(step_cmd.encode())
+            
+            # Read ACK
+            ack_buf = b""
+            while b"\n" not in ack_buf:
+                chunk = client_sock.recv(1)
+                if not chunk:
+                    raise RuntimeError("Client disconnected before sending ACK")
+                ack_buf += chunk
+            
             # Spin to process callbacks
             rclpy.spin_once(tester, timeout_sec=0.01)
             
@@ -172,7 +196,6 @@ def main():
                 break
                 
             sim_t += dt
-            time.sleep(0.02)
             
         print(f"Final received states: {tester.received}")
         for topic, rec in tester.received.items():
@@ -181,6 +204,8 @@ def main():
         print("All assertions passed. Stepping test successful!")
         
     finally:
+        client_sock.close()
+        server_sock.close()
         print("Terminating doer_composition subprocess...")
         proc.terminate()
         try:

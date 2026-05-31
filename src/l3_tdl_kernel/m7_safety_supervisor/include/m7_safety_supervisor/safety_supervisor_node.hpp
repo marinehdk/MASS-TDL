@@ -139,6 +139,7 @@ private:
   void run_monitor_evaluation(std::chrono::steady_clock::time_point now) noexcept;
   void run_hard_constraint_checks(std::chrono::steady_clock::time_point now) noexcept;
   void publish_hard_constraint_alert(l3_msgs::msg::SafetyAlert const& alert) noexcept;
+  std::chrono::steady_clock::time_point now_steady() noexcept;
 };
 
 }  // namespace mass_l3::m7
