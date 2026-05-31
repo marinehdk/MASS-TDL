@@ -125,6 +125,10 @@ class ShipDynamicsNode(LifecycleNode):
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
 
+        # headless mode: when True, bypass wall-clock throttle and publish every step.
+        # Default False keeps Shell-A (HMI) behaviour unchanged.
+        self._headless: bool = False
+
 
     # ─── Lifecycle 回调 ───────────────────────────────────────
 
@@ -265,7 +269,7 @@ class ShipDynamicsNode(LifecycleNode):
             self._last_sim_time = now_sim
             return
 
-        dt = 0.02
+        dt = self._model.c.dt  # single source of truth — never hardcode
         elapsed = (now_sim - self._last_sim_time).nanoseconds / 1e9
         if elapsed < dt:
             return
@@ -308,14 +312,20 @@ class ShipDynamicsNode(LifecycleNode):
         msg.rudder_angle = dc
         msg.throttle = (nr * (self._model.c.u0 / self._model.c.n_rps_cruise)) / (25.0 * 0.514444)
 
-        # Throttled own-ship publishing to maximum of 40 Hz wall-clock rate
-        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
-        import time
-        now_wall = time.monotonic()
-        if now_wall - self._last_pub_wall_time >= 0.025:
+        # Shell-A: throttle own-ship publishing to max 40 Hz wall-clock rate to
+        # prevent WebSocket congestion during simulation acceleration (10x, 50x).
+        # Shell-B (headless=True): bypass throttle, publish every step for
+        # maximum throughput in Monte-Carlo / RL batch runs.
+        if self._headless:
             if self._state_pub is not None:
                 self._state_pub.publish(msg)
-            self._last_pub_wall_time = now_wall
+        else:
+            import time
+            now_wall = time.monotonic()
+            if now_wall - self._last_pub_wall_time >= 0.025:
+                if self._state_pub is not None:
+                    self._state_pub.publish(msg)
+                self._last_pub_wall_time = now_wall
 
 
     # ─── 辅助方法 ─────────────────────────────────────────────
