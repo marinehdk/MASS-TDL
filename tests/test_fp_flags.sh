@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-WORKSPACE_DIR="/Users/marine/.gemini/antigravity/brain/24e902bd-a76b-4c9d-93af-1ea0bc89865b/.system_generated/worktrees/subagent-Task-A5--FP-flags-self-5140dc42"
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$WORKSPACE_DIR"
 
 echo "=== Running Floating-Point Determinism Build-Config Assertions ==="
