@@ -10,13 +10,14 @@
 #include <cstdlib>
 #include <cstdio>
 
-#include "m1_odd_envelope_manager/odd_envelope_manager_node.hpp"
-#include "m2_world_model/world_model_node.hpp"
-#include "m3_mission_manager/mission_manager_node.hpp"
-#include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
-#include "m5_tactical_planner/mid_mpc/mid_mpc_node.hpp"
-#include "m6_colregs_reasoner/colregs_reasoner_node.hpp"
-#include "m8_hmi_transparency_bridge/hmi_transparency_bridge_node.hpp"
+#include "m1_odd_envelope_manager/odd_envelope_manager_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m2_world_model/world_model_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m3_mission_manager/mission_manager_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m4_behavior_arbiter/behavior_arbiter_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m5_tactical_planner/mid_mpc/mid_mpc_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m6_colregs_reasoner/colregs_reasoner_node.hpp" // rl-isolation-ok: composition requires kernel headers
+#include "m8_hmi_transparency_bridge/hmi_transparency_bridge_node.hpp" // rl-isolation-ok: composition requires kernel headers
+
 
 int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
