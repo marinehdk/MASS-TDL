@@ -6,6 +6,7 @@ _load_scenario_yaml, _extract_injection_params, and _print_injection_summary.
 """
 import json
 import logging
+import math
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -178,20 +179,24 @@ class TestExtractInjectionParams:
     # -- imazu-08 correctness tests -----------------------------------------
 
     def test_ship_dynamics_params_match_yaml(self, imazu08_parsed):
-        """ship_dynamics_node receives initial_lat, initial_lon, heading,
-        sog, cog with exact YAML values (tolerance 1e-6)."""
+        """ship_dynamics_node receives origin_lat, origin_lon, x0, y0, psi0,
+        u0 with exact YAML values (tolerance 1e-6)."""
         result = _extract_injection_params(imazu08_parsed)
         ship = result.get("ship_dynamics_node", {})
-        assert "initial_lat" in ship
-        assert "initial_lon" in ship
-        assert "initial_heading" in ship
-        assert "initial_sog" in ship
-        assert "initial_cog" in ship
-        assert ship["initial_lat"][0] == pytest.approx(63.44, abs=1e-6)
-        assert ship["initial_lon"][0] == pytest.approx(10.38, abs=1e-6)
-        assert ship["initial_heading"][0] == pytest.approx(0.0, abs=1e-6)
-        assert ship["initial_sog"][0] == pytest.approx(10.0, abs=1e-6)
-        assert ship["initial_cog"][0] == pytest.approx(0.0, abs=1e-6)
+        assert "origin_lat" in ship
+        assert "origin_lon" in ship
+        assert "x0" in ship
+        assert "y0" in ship
+        assert "psi0" in ship
+        assert "u0" in ship
+        assert ship["origin_lat"][0] == pytest.approx(63.44, abs=1e-6)
+        assert ship["origin_lon"][0] == pytest.approx(10.38, abs=1e-6)
+        assert ship["x0"][0] == pytest.approx(0.0, abs=1e-6)
+        assert ship["y0"][0] == pytest.approx(0.0, abs=1e-6)
+        # psi0 = pi/2 - rad(0) = pi/2
+        assert ship["psi0"][0] == pytest.approx(math.pi / 2, abs=1e-6)
+        # u0 = 10 * 0.5144 = 5.144
+        assert ship["u0"][0] == pytest.approx(5.144, abs=1e-6)
 
     def test_target_vessel_params_has_two_targets(self, imazu08_parsed):
         """target_vessel_node receives default_targets_json containing

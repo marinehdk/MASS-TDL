@@ -111,7 +111,8 @@ class LifecycleBridge(Node):
         # Pre-create SetParameters service clients for scenario param injection
         self._sil_set_parameters_clients: dict[str, object] = {}
         for node_name in ("ship_dynamics_node", "target_vessel_node",
-                          "env_disturbance_node", "scenario_lifecycle_mgr"):
+                          "env_disturbance_node", "sensor_mock_node",
+                          "fault_injection_node", "scenario_lifecycle_mgr"):
             svc = f"/{node_name}/set_parameters"
             try:
                 client = self.create_client(SetParameters, svc,
@@ -610,6 +611,18 @@ def _extract_injection_params(yaml_data: dict) -> dict:
             injection_map["scenario_lifecycle_mgr"] = {
                 "scenario_id": (str(sid), ParameterType.PARAMETER_STRING)
             }
+
+    # Seed plumb: root_seed from metadata.simulation_settings.seed
+    sim_settings = metadata.get("simulation_settings", {}) if isinstance(metadata, dict) else {}
+    root_seed = None
+    if isinstance(sim_settings, dict):
+        root_seed = sim_settings.get("seed")
+
+    if root_seed is not None:
+        for node in ("target_vessel_node", "sensor_mock_node", "env_disturbance_node", "fault_injection_node"):
+            if node not in injection_map:
+                injection_map[node] = {}
+            injection_map[node]["root_seed"] = (int(root_seed), ParameterType.PARAMETER_INTEGER)
 
     return injection_map
 
