@@ -287,6 +287,11 @@ class SilTopicBridge(Node):
         self._latch_release_time = None
         self._latch_offset_at_release_deg = None
         self._latch_release_progress = 0.0
+        # Sim-time at which avoidance was last armed; release is suppressed
+        # for LATCH_MIN_HOLD_S after arming to prevent instant-release when
+        # M4 has already reverted to TRANSIT by the time M5's plan arrives.
+        self._avoidance_armed_time: float | None = None
+        self._LATCH_MIN_HOLD_S: float = 8.0  # minimum sim-seconds to hold avoidance
 
         # ── Bridge state publisher ────────────────────────────
         self._pub_bridge_state = self.create_publisher(
@@ -426,13 +431,20 @@ class SilTopicBridge(Node):
         out.rationale = "SIL bridge"
         self._pub_env.publish(out)
 
+    def _latch_hold_elapsed(self) -> bool:
+        """Return True if the minimum avoidance hold time has elapsed since arming."""
+        if self._avoidance_armed_time is None:
+            return True
+        return (self._get_sim_time() - self._avoidance_armed_time) >= self._LATCH_MIN_HOLD_S
+
     def _on_threat_state(self, msg: ThreatState) -> None:
         """M2 threat state callback — check CPA-cleared release condition."""
         self._record_pulse(M2)
         # Condition 1: cpa_status == cleared && target astern
-        if (hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and 
+        if (hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and
             hasattr(msg, 'target_relative_position') and msg.target_relative_position == "astern" and
-            not self._latch_release_triggered):
+            not self._latch_release_triggered and
+            self._latch_hold_elapsed()):
             self.get_logger().info(
                 "[BRIDGE] LATCH release condition 1 triggered: CPA cleared, target astern")
             self._trigger_latch_release()
@@ -457,12 +469,17 @@ class SilTopicBridge(Node):
             self._current_target_wp_lon = float(msg.current_target_wp.longitude)
 
         # Condition 2: task_validity == valid && behavior == TRANSIT
+        # Guard: only release after LATCH_MIN_HOLD_S sim-seconds of avoidance,
+        # preventing instant release when M4 has already cycled back to TRANSIT
+        # by the time this callback fires (M4 races ahead of M5 plan delivery).
         task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
         behavior_transit = (
             self._last_behavior_plan is not None and
             self._last_behavior_plan.behavior == 0  # BEHAVIOR_TRANSIT
         )
-        if (task_valid and behavior_transit and not self._latch_release_triggered):
+        if (task_valid and behavior_transit and
+                not self._latch_release_triggered and
+                self._latch_hold_elapsed()):
             self.get_logger().info(
                 "[BRIDGE] LATCH release condition 2 triggered: task_valid + TRANSIT behavior")
             self._trigger_latch_release()
@@ -487,6 +504,7 @@ class SilTopicBridge(Node):
         self._latch_release_time = None
         self._latch_offset_at_release_deg = None
         self._latch_release_progress = 0.0
+        self._avoidance_armed_time = None
 
     def _compute_latch_offset(self, t_release: float, t_now: float,
                                current_offset_deg: float) -> float:
@@ -551,9 +569,18 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
-                if self._last_behavior_plan is not None and self._last_behavior_plan.behavior != 0:
-                    self._avoidance_active = True
-                    self._reset_latch_release_state()
+                # Arm avoidance whenever M5 delivers a valid plan with non-zero
+                # turn_radius — do NOT gate on current M4 behavior, because M4
+                # cycles at 1-4 Hz and may have already reverted to TRANSIT by
+                # the time M5's plan (computed 1+ s later) arrives here.
+                self._avoidance_active = True
+                self._avoidance_armed_time = self._get_sim_time()
+                self._reset_latch_release_state()
+                # Use M4 heading window if it shows a non-TRANSIT (avoidance)
+                # behavior; otherwise derive target from the waypoint bearing.
+                if (self._last_behavior_plan is not None and
+                        self._last_behavior_plan.behavior != 0 and
+                        self._last_behavior_plan.heading_max_deg > 0.0):
                     beh = self._last_behavior_plan
                     h_min = float(beh.heading_min_deg)
                     h_max = float(beh.heading_max_deg)
@@ -566,8 +593,12 @@ class SilTopicBridge(Node):
                           f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
                           flush=True)
                 else:
-                    print("[BRIDGE] Deferring avoidance activation — "
-                          "waiting for M4 behavior plan", flush=True)
+                    # M4 already reverted to TRANSIT — use the last known
+                    # avoidance heading window stored from any prior M4 AVOID
+                    # message, or leave None so _on_behavior_plan fills it in.
+                    print("[BRIDGE] LATCHED (M4 already TRANSIT) — "
+                          "target_heading deferred to next M4 AVOID window",
+                          flush=True)
         else:
             if self._avoidance_active:
                 self._avoidance_active = False

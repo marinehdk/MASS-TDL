@@ -241,7 +241,7 @@ class SensorMockNode(LifecycleNode):
             msg.range = [p["range"] for p in result["polar_targets"]]
             msg.bearing = [p["bearing"] for p in result["polar_targets"]]
             msg.rcs = [p["rcs"] for p in result["polar_targets"]]
-            msg.clutter_cardinality = result["clutter_cardinality"]
+            msg.clutter_cardinality = int(result["clutter_cardinality"])
             if self._radar_pub is not None:
                 self._radar_pub.publish(msg)
             self._last_radar_pub_wall_time = now_wall
