@@ -722,7 +722,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
                         {isFolderExpanded(suite.id) && (
                           <div style={{ paddingLeft: 16 }}>
                             {suite.children.map((child: any) => (
-                              <div key={child.id} onClick={() => handleSelect(child.id)} style={{
+                              <div key={child.id} data-testid={`scenario-card-${child.id}`} onClick={() => handleSelect(child.id)} style={{
                                 display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer',
                                 background: selectedId === child.id ? 'rgba(91,192,190,0.12)' : 'transparent',
                                 color: selectedId === child.id ? 'var(--c-phos)' : child.oddCompatible ? 'var(--txt-2)' : '#f87171',
@@ -786,12 +786,13 @@ const handleUpdateYaml = useCallback((updates: any) => {
                   <button onClick={() => setActiveLeftTab('vessel')} style={{ ...btnStyle('line'), flex: 'none', width: 120 }}>
                     上一步
                   </button>
-                  <button 
+                  <button
+                    data-testid="scenario-confirm"
                     onClick={() => {
                       setActiveLeftTab(null);
                       setActiveRightTab('vessels');
-                    }} 
-                    style={{ ...btnStyle('phos'), flex: 1, maxWidth: '180px' }} 
+                    }}
+                    style={{ ...btnStyle('phos'), flex: 1, maxWidth: '180px' }}
                     disabled={!selectedId}
                   >
                     {selectedId ? '确认场景' : '请在上方选择场景'}
@@ -820,10 +821,11 @@ const handleUpdateYaml = useCallback((updates: any) => {
         zIndex: 110
       }}>
         {LEFT_TABS.map((tab) => (
-          <button 
-            key={tab.id} 
+          <button
+            key={tab.id}
+            data-testid={`scenario-tab-${tab.id}`}
             title={tab.label}
-            onClick={() => setActiveLeftTab(prev => prev === tab.id ? null : tab.id)} 
+            onClick={() => setActiveLeftTab(prev => prev === tab.id ? null : tab.id)}
             style={{
               width: 48, height: 48, borderRadius: 8, border: 'none', cursor: 'pointer',
               background: activeLeftTab === tab.id ? 'rgba(91,192,190,0.15)' : 'transparent',
