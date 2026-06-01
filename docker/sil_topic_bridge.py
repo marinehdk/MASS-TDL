@@ -292,6 +292,10 @@ class SilTopicBridge(Node):
         # M4 has already reverted to TRANSIT by the time M5's plan arrives.
         self._avoidance_armed_time: float | None = None
         self._LATCH_MIN_HOLD_S: float = 8.0  # minimum sim-seconds to hold avoidance
+        # Guard: do not arm avoidance before M3 has reached FSM_ACTIVE (≥3) at
+        # least once in this scenario.  Prevents M5 cold-start plans from
+        # arming the bridge before the scenario state is fully established.
+        self._m3_activated_once: bool = False
 
         # ── Bridge state publisher ────────────────────────────
         self._pub_bridge_state = self.create_publisher(
@@ -349,6 +353,16 @@ class SilTopicBridge(Node):
             h_max = float(msg.heading_max_deg)
             if h_max < h_min:
                 h_max += 360.0
+            h_span = h_max - h_min
+            if h_span > 300.0:
+                # Degenerate window (≈full circle): M4 has no meaningful
+                # heading constraint yet.  Leave target as None so the bridge
+                # falls back to M5 waypoint-radius rudder rather than picking
+                # a nonsensical port-side heading via the 5/6 formula.
+                print(f"[BRIDGE] DELAYED-LATCH skipped — degenerate M4 window "
+                      f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}° "
+                      f"(fallback: M5 waypoint rudder)", flush=True)
+                return
             self._avoidance_target_heading_deg = (
                 h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
             print(f"[BRIDGE] DELAYED-LATCH target_heading="
@@ -461,7 +475,11 @@ class SilTopicBridge(Node):
             self._reset_latch_release_state()
             self._current_target_wp_lat = 0.0
             self._current_target_wp_lon = 0.0
+            self._m3_activated_once = False  # require re-activation in new scenario
             return
+
+        # M3 has reached ACTIVE: lift the cold-start arm guard.
+        self._m3_activated_once = True
 
         if (abs(msg.current_target_wp.latitude) > 1e-4 or
                 abs(msg.current_target_wp.longitude) > 1e-4):
@@ -569,6 +587,15 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
+                # Guard: refuse to arm before M3 has reached FSM_ACTIVE at
+                # least once.  M5 can deliver cold-start NLP solutions within
+                # the first ~2s before the scenario state is stable; arming
+                # on those leads to incorrect avoidance targets.
+                if not self._m3_activated_once:
+                    print("[BRIDGE] AVOIDANCE ARM suppressed — M3 not yet "
+                          "ACTIVE in this scenario (cold-start guard)",
+                          flush=True)
+                    return
                 # Arm avoidance whenever M5 delivers a valid plan with non-zero
                 # turn_radius — do NOT gate on current M4 behavior, because M4
                 # cycles at 1-4 Hz and may have already reverted to TRANSIT by
@@ -586,12 +613,21 @@ class SilTopicBridge(Node):
                     h_max = float(beh.heading_max_deg)
                     if h_max < h_min:
                         h_max += 360.0
-                    self._avoidance_target_heading_deg = (
-                        h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-                    print(f"[BRIDGE] LATCHED target_heading="
-                          f"{self._avoidance_target_heading_deg:.1f}deg "
-                          f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
-                          flush=True)
+                    h_span = h_max - h_min
+                    if h_span > 300.0:
+                        # Degenerate window (≈full circle): leave None so the
+                        # bridge uses M5 waypoint-radius rudder as fallback.
+                        print(f"[BRIDGE] LATCHED (degenerate M4 window "
+                              f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}°) "
+                              f"— target_heading deferred to M5 waypoint rudder",
+                              flush=True)
+                    else:
+                        self._avoidance_target_heading_deg = (
+                            h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+                        print(f"[BRIDGE] LATCHED target_heading="
+                              f"{self._avoidance_target_heading_deg:.1f}deg "
+                              f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
+                              flush=True)
                 else:
                     # M4 already reverted to TRANSIT — use the last known
                     # avoidance heading window stored from any prior M4 AVOID
