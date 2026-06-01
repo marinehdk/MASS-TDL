@@ -16,9 +16,11 @@ Module pulse:
 """
 
 import collections
+import gzip
 import json
 import math
 import os
+import shutil
 import signal
 import threading
 import time
@@ -38,6 +40,7 @@ from sil_msgs.msg import (
     ASDREvent,
     BridgeState,
     LifecycleStatus,
+    ScoringRow,
 )
 
 # ── Cross-layer L3 external message types ────────────────────
@@ -211,7 +214,11 @@ class DebugTraceWriter:
 
     def record(self, topic: str, data: dict, sim_t: float) -> None:
         """Append one record to in-memory ring buffer."""
-        entry = {"sim_t": round(sim_t, 3), "topic": topic}
+        entry = {
+            "sim_t": round(sim_t, 3),
+            "wall_t": round(time.time(), 3),
+            "topic": topic
+        }
         entry.update(data)
         with self._lock:
             self._buf.append(json.dumps(entry, default=str))
@@ -235,6 +242,35 @@ class DebugTraceWriter:
                 except Exception as exc:
                     self._node.get_logger().warning(
                         f"[DebugTraceWriter] flush error: {exc}")
+            
+            # File Rotation & Compression if size exceeds 50MB
+            if self._file:
+                try:
+                    if self._trace_path.exists() and self._trace_path.stat().st_size > 50 * 1024 * 1024:
+                        self._node.get_logger().info(
+                            f"[DebugTraceWriter] Trace file size exceeded 50MB. Rotating...")
+                        self._file.close()
+                        self._file = None
+                        
+                        # Compress using gzip and shutil
+                        rotated_path = self._trace_path.parent / f"trace_{int(time.time())}.jsonl.gz"
+                        with open(self._trace_path, "rb") as f_in:
+                            with gzip.open(rotated_path, "wb") as f_out:
+                                shutil.copyfileobj(f_in, f_out)
+                        
+                        self._node.get_logger().info(
+                            f"[DebugTraceWriter] Rotated trace to {rotated_path}")
+                        
+                        # Truncate/re-open the main trace file
+                        self._file = open(self._trace_path, "w")
+                except Exception as exc:
+                    self._node.get_logger().error(
+                        f"[DebugTraceWriter] Failed to rotate trace file: {exc}")
+                    if self._file is None:
+                        try:
+                            self._file = open(self._trace_path, "a")
+                        except Exception:
+                            pass
         self._schedule_flush()
 
     def close(self) -> None:
@@ -404,6 +440,16 @@ class SilTopicBridge(Node):
             LifecycleStatus, "/sil/lifecycle_status",
             self._on_lifecycle_status, 10)
 
+        # ── SIL Scoring subscription ──────────────────────────
+        self._sub_scoring = self.create_subscription(
+            ScoringRow, "/sil/scoring",
+            self._on_scoring, sq)
+
+        # ── L3 FSM State subscription ─────────────────────────
+        self._sub_fsm_state = self.create_subscription(
+            LifecycleStatus, "/l3/fsm_state",
+            self._on_fsm_state, sq)
+
         # ── Debug trace writer ────────────────────────────────
         self._trace_writer = DebugTraceWriter(node=self)
 
@@ -450,6 +496,8 @@ class SilTopicBridge(Node):
         self._lifecycle_state = msg.current_state
 
         if msg.current_state != 3:
+            if prev_state == 3:
+                self._trace_writer.close()
             if self._autopilot_enabled or self._avoidance_active:
                 self.get_logger().info(
                     f"[BRIDGE] Simulation state is {msg.current_state} (not ACTIVE). "
@@ -499,6 +547,22 @@ class SilTopicBridge(Node):
             "confidence": float(msg.confidence),
         }, self._get_sim_time())
 
+    def _on_scoring(self, msg: ScoringRow) -> None:
+        self._trace_writer.record("/sil/scoring", {
+            "safety": float(msg.safety),
+            "rule_compliance": float(msg.rule_compliance),
+            "delay": float(msg.delay),
+            "magnitude": float(msg.magnitude),
+            "phase": float(msg.phase),
+            "plausibility": float(msg.plausibility),
+            "total": float(msg.total),
+        }, self._get_sim_time())
+
+    def _on_fsm_state(self, msg: LifecycleStatus) -> None:
+        self._trace_writer.record("/l3/fsm_state", {
+            "state": int(msg.current_state),
+        }, self._get_sim_time())
+
     def _on_odd_state(self, msg: ODDState) -> None:
         self._record_pulse(M1)
         self._last_odd_state = msg
@@ -506,13 +570,6 @@ class SilTopicBridge(Node):
     def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
         self._record_pulse(M4)
         self._last_behavior_plan = msg
-        self._trace_writer.record("/l3/m4/behavior_plan", {
-            "behavior": int(msg.behavior),
-            "heading_min_deg": float(msg.heading_min_deg),
-            "heading_max_deg": float(msg.heading_max_deg),
-            "avoidance_active": self._avoidance_active,
-            "target_heading_deg": self._avoidance_target_heading_deg,
-        }, self._get_sim_time())
         if (self._avoidance_active and
                 self._avoidance_target_heading_deg is None):
             h_min = float(msg.heading_min_deg)
@@ -528,13 +585,20 @@ class SilTopicBridge(Node):
                 print(f"[BRIDGE] DELAYED-LATCH skipped — degenerate M4 window "
                       f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}° "
                       f"(fallback: M5 waypoint rudder)", flush=True)
-                return
-            self._avoidance_target_heading_deg = (
-                h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-            print(f"[BRIDGE] DELAYED-LATCH target_heading="
-                  f"{self._avoidance_target_heading_deg:.1f}deg "
-                  f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
-                  flush=True)
+            else:
+                self._avoidance_target_heading_deg = (
+                    h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+                print(f"[BRIDGE] DELAYED-LATCH target_heading="
+                      f"{self._avoidance_target_heading_deg:.1f}deg "
+                      f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
+                      flush=True)
+        self._trace_writer.record("/l3/m4/behavior_plan", {
+            "behavior": int(msg.behavior),
+            "heading_min_deg": float(msg.heading_min_deg),
+            "heading_max_deg": float(msg.heading_max_deg),
+            "avoidance_active": self._avoidance_active,
+            "target_heading_deg": self._avoidance_target_heading_deg,
+        }, self._get_sim_time())
 
     # ── SIL→L3 callbacks ────────────────────────────────────
 
