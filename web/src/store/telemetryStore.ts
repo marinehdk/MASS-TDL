@@ -258,3 +258,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   updateVoyagePlan: (voyagePlan) => set({ voyagePlan }),
   reset: () => set(initialState),
 }));
+
+if (import.meta.env.DEV) {
+  (window as any).__TELEMETRY_STORE__ = useTelemetryStore;
+}

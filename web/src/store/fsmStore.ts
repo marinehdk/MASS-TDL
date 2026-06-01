@@ -89,6 +89,10 @@ export const useFsmStore = create<FsmStore>((set, get) => ({
   },
 }));
 
+if (import.meta.env.DEV) {
+  (window as any).__FSM_STORE__ = useFsmStore;
+}
+
 export const FSM_STATE_MAP: Record<number, FsmState> = {
   0: 'TRANSIT',
   1: 'COLREG_AVOIDANCE',
