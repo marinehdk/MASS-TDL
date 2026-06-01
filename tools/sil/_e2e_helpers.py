@@ -9,7 +9,7 @@ import time
 import urllib.request
 import ssl
 
-BASE = "https://localhost:8000/api/v1"
+BASE = "https://127.0.0.1:8000/api/v1"
 CONTAINER = "mass-l3-sil-sil-nodes-1"
 _SSL_CTX = ssl._create_unverified_context()
 
@@ -60,6 +60,17 @@ def _parse_kv(text: str) -> dict:
     return out
 
 
+def _get_sim_time_s(st: dict) -> float:
+    """Extract sim_time_s, falling back to /debug/snapshot if not present."""
+    if "sim_time_s" not in st:
+        try:
+            snap = _get("/debug/snapshot")
+            return float(snap.get("sim_t", 0.0))
+        except Exception:
+            return 0.0
+    return float(st.get("sim_time_s", 0.0))
+
+
 def _collect_topic(
     topic: str, from_sim_t: float, to_sim_t: float, n: int = 10,
 ) -> list[dict]:
@@ -68,7 +79,7 @@ def _collect_topic(
     interval = (to_sim_t - from_sim_t) / max(1, n)
     while True:
         st = _get("/lifecycle/status")
-        if st.get("sim_time_s", 0) >= from_sim_t:
+        if _get_sim_time_s(st) >= from_sim_t:
             break
         if st.get("current_state") != "active":
             return []
@@ -77,7 +88,7 @@ def _collect_topic(
         target_t = from_sim_t + interval * i
         for _ in range(120):
             st = _get("/lifecycle/status")
-            if st.get("sim_time_s", 0) >= target_t:
+            if _get_sim_time_s(st) >= target_t:
                 break
             if st.get("current_state") != "active":
                 return samples
@@ -93,7 +104,7 @@ def _wait_until_sim_t(target_s: float, timeout_wall_s: float = 1200.0):
     start = time.time()
     while time.time() - start < timeout_wall_s:
         st = _get("/lifecycle/status")
-        if st.get("sim_time_s", 0) >= target_s:
+        if _get_sim_time_s(st) >= target_s:
             return
         if st.get("current_state") == "inactive":
             return

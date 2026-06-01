@@ -34,10 +34,28 @@ def summary(scenario_id):
     Cleanup runs even if assertions fail (yield fixture).
     """
     _post("/lifecycle/cleanup")
+
+    # Truncate the trace file on the host if it exists to prevent stale data reading
+    trace_path = os.path.join(os.path.dirname(__file__), "..", "..", "runs", "trace_current.jsonl")
+    if os.path.exists(trace_path):
+        try:
+            with open(trace_path, "w") as f:
+                f.truncate(0)
+        except Exception:
+            pass
+
     cfg = _post("/lifecycle/configure", {"scenario_id": scenario_id})
     assert cfg.get("success"), f"configure failed: {cfg}"
+    
+    # Run simulation at normal rate (1.0x) for closed-loop control stability
+    try:
+        _post("/lifecycle/rate", {"rate": 1.0})
+    except Exception:
+        pass
+
     act = _post("/lifecycle/activate")
     assert act.get("success"), f"activate failed: {act}"
+
     _wait_until_sim_t(SIM_END_T, timeout_wall_s=WAIT_TIMEOUT)
     result = _get("/debug/summary")
     yield result
