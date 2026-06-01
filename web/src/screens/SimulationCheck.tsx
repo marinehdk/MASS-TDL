@@ -105,6 +105,9 @@ export function SimulationCheck() {
 
   return (
     <div data-testid="preflight" style={{ display: 'grid', gridTemplateColumns: '300px 1fr 400px', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
+      <div data-testid="preflight-status" style={{ position: 'absolute', top: 8, right: 8, padding: '4px 12px', background: 'var(--bg-1)', borderRadius: 4, zIndex: 10, fontFamily: 'var(--f-mono)', fontSize: 11, color: verdict === 'GO' ? 'var(--c-stbd)' : verdict === 'NO-GO' ? 'var(--c-danger)' : 'var(--txt-3)' }}>
+        {verdict ?? (streaming ? 'RUNNING' : 'IDLE')}
+      </div>
       <GateSequencer gates={gates} streaming={streaming} focusedGateId={focusedGateId}
         onGateSelect={setFocusedGateId} verdict={verdict} />
 

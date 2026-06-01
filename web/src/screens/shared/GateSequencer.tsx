@@ -78,6 +78,7 @@ export function GateSequencer({ gates, streaming, focusedGateId, onGateSelect, v
           return (
             <div
               key={gateId}
+              data-testid={`preflight-gate-${gateId}`}
               onClick={() => onGateSelect(gateId)}
               style={{
                 display: 'flex',
