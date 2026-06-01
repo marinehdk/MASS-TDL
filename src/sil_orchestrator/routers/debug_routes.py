@@ -129,8 +129,23 @@ async def debug_summary():
         for r in sampled_oss
     ]
     headings = [r.get("heading_deg", 0.0) for r in oss]
-    max_hdg = max(headings, default=0.0)
-    max_hdg_t = next((r["sim_t"] for r in oss if r.get("heading_deg") == max_hdg), 0.0)
+    # Compute max STARBOARD (clockwise) deviation from initial heading so that
+    # a ship returning from 37° back toward 0° through 358-359° doesn't make
+    # max(headings) = 359° instead of 37°.
+    initial_hdg = headings[0] if headings else 0.0
+    starboard_devs = [
+        (h - initial_hdg + 360.0) % 360.0
+        for h in headings
+    ]
+    # Only consider clockwise (starboard) deviations ≤ 180°; anything > 180°
+    # is a port-side excursion and should not inflate the max.
+    capped = [d for d in starboard_devs if d <= 180.0]
+    max_dev = max(capped, default=0.0)
+    max_hdg = (initial_hdg + max_dev) % 360.0
+    max_hdg_t = next(
+        (oss[i]["sim_t"] for i, d in enumerate(starboard_devs) if abs(d - max_dev) < 0.1),
+        0.0,
+    )
 
     # ── Veto events ───────────────────────────────────────────
     veto_events = [r for r in records if r.get("topic") == "/l3/checker/veto"]

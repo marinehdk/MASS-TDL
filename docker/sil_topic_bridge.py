@@ -837,13 +837,26 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
-                # Guard: refuse to arm before M3 has reached FSM_ACTIVE at
+                # Guard 1: refuse to arm before M3 has reached FSM_ACTIVE at
                 # least once.  M5 can deliver cold-start NLP solutions within
                 # the first ~2s before the scenario state is stable; arming
                 # on those leads to incorrect avoidance targets.
                 if not self._m3_activated_once:
                     print("[BRIDGE] AVOIDANCE ARM suppressed — M3 not yet "
                           "ACTIVE in this scenario (cold-start guard)",
+                          flush=True)
+                    return
+                # Guard 2: enforce a minimum sim_t before arming.  M3 may
+                # briefly report FSM_ACTIVE with stale state from the previous
+                # scenario run; M4 also needs a few sim-seconds to receive
+                # fresh M2 target data and converge to the correct heading
+                # range.  Latching the avoidance target too early (sim_t < 10s)
+                # produces a wrong initial heading that the ship then chases.
+                _MIN_ARM_SIM_T = 10.0
+                sim_t_now = self._get_sim_time()
+                if sim_t_now < _MIN_ARM_SIM_T:
+                    print(f"[BRIDGE] AVOIDANCE ARM suppressed — sim_t={sim_t_now:.1f}s "
+                          f"< {_MIN_ARM_SIM_T}s (M4 data stabilisation guard)",
                           flush=True)
                     return
                 # Arm avoidance whenever M5 delivers a valid plan with non-zero
