@@ -421,7 +421,7 @@ export function SimulationMonitor() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>最近会遇 CPA</span>
-                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: cpaColor, fontWeight: 700, lineHeight: 1.1 }}>
+                  <span data-testid="threat-cpa" style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: cpaColor, fontWeight: 700, lineHeight: 1.1 }}>
                     {cpa}
                   </span>
                 </div>
@@ -819,7 +819,7 @@ export function SimulationMonitor() {
                           {/* Cell 1: HDG */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>船首向 HDG</span>
-                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                            <span data-testid="own-ship-hdg" style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
                               {ownShip.pose?.heading != null ? `${((ownShip.pose.heading * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '—'}
                             </span>
                           </div>
@@ -1768,7 +1768,7 @@ export function SimulationMonitor() {
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
           <input type="range" min="0" max="600" value={simTimeSec} style={{ flex: 1, accentColor: 'var(--c-phos)' }} readOnly />
-          <span style={{ color: 'var(--txt-1)' }}>{fmtSimTime(simTimeSec)}</span>
+          <span data-testid="sim-clock-text" style={{ color: 'var(--txt-1)' }}>{fmtSimTime(simTimeSec)}</span>
         </div>
 
         {/* Playback speed selector - Premium Segmented Group */}
@@ -1785,6 +1785,7 @@ export function SimulationMonitor() {
             return (
               <button
                 key={r}
+                data-testid={`rate-btn-${r}x`}
                 onClick={() => handleRateChange(r)}
                 onMouseEnter={(e) => {
                   if (!active) {
