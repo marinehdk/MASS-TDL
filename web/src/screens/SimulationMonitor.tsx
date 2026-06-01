@@ -7,7 +7,7 @@ import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useTelemetryStore, useControlStore, useUIStore, useScenarioStore } from '../store';
 import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation, useGetScenarioQuery } from '../api/silApi';
 import * as jsyaml from 'js-yaml';
-import { computeRangeNm } from './shared/navMath';
+import { computeRangeNm, computeBearing } from './shared/navMath';
 import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
 import { DistanceScale } from '../map/DistanceScale';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
@@ -236,6 +236,225 @@ export function SimulationMonitor() {
     prevScenarioIdRef.current = scenarioId || null;
   }, [scenarioId]);
 
+  // Dynamic Threat Evaluation based on dynamic asymmetric safety domain boundaries
+  const categorizedTargets = useMemo(() => {
+    if (!ownShip?.pose) {
+      return { high: [], medium: [], low: [], none: [] };
+    }
+    const ownLat = ownShip.pose.lat;
+    const ownLon = ownShip.pose.lon;
+    if (typeof ownLat !== 'number' || typeof ownLon !== 'number') {
+      return { high: [], medium: [], low: [], none: [] };
+    }
+    const ownHeadingDeg = ownShip.pose.heading != null ? ((ownShip.pose.heading * 180 / Math.PI + 360) % 360) : 0;
+
+    const high: any[] = [];
+    const medium: any[] = [];
+    const low: any[] = [];
+    const none: any[] = [];
+
+    const METRICS = {
+      observation: { fore: 2.2, starboard: 1.5, port: 1.2, aft: 0.8 },
+      action: { fore: 1.2, starboard: 0.8, port: 0.6, aft: 0.4 },
+      critical: { fore: 0.3, starboard: 0.25, port: 0.18, aft: 0.10 },
+    };
+
+    function getDomainRadius(alpha: number, m: typeof METRICS.observation) {
+      const deg = (((alpha * 180) / Math.PI) + 360) % 360;
+      if (deg >= 0 && deg < 90) {
+        const t = deg / 90;
+        return (1 - t) * m.fore + t * m.starboard;
+      }
+      if (deg >= 90 && deg < 180) {
+        const t = (deg - 90) / 90;
+        return (1 - t) * m.starboard + t * m.aft;
+      }
+      if (deg >= 180 && deg < 270) {
+        const t = (deg - 180) / 90;
+        return (1 - t) * m.aft + t * m.port;
+      }
+      const t = (deg - 270) / 90;
+      return (1 - t) * m.port + t * m.fore;
+    }
+
+    targets.forEach((t) => {
+      const targetLat = t.pose?.lat;
+      const targetLon = t.pose?.lon;
+      if (typeof targetLat !== 'number' || typeof targetLon !== 'number') {
+        none.push(t);
+        return;
+      }
+
+      const rng = computeRangeNm(ownLat, ownLon, targetLat, targetLon);
+      const brg = computeBearing(ownLat, ownLon, targetLat, targetLon);
+      const relBrgRad = ((brg - ownHeadingDeg + 360) % 360) * Math.PI / 180;
+
+      const radiusCrit = getDomainRadius(relBrgRad, METRICS.critical);
+      const radiusAct = getDomainRadius(relBrgRad, METRICS.action);
+      const radiusObs = getDomainRadius(relBrgRad, METRICS.observation);
+
+      if (rng <= radiusCrit) {
+        high.push(t);
+      } else if (rng <= radiusAct) {
+        medium.push(t);
+      } else if (rng <= radiusObs) {
+        low.push(t);
+      } else {
+        none.push(t);
+      }
+    });
+
+    return { high, medium, low, none };
+  }, [ownShip, targets]);
+
+  const renderTargetCards = (targetsList: any[]) => {
+    // Derive CPA/TCPA from ASDR events
+    const cpaMap = new Map<string, { cpa: number; tcpa: number }>();
+    for (const e of asdrEvents) {
+      if (e.event_type === 'cpa_update' && e.payload_json) {
+        try {
+          const p = JSON.parse(e.payload_json);
+          if (p.mmsi !== undefined && p.cpa_nm !== undefined) {
+            cpaMap.set(String(p.mmsi), { cpa: p.cpa_nm, tcpa: p.tcpa_min ?? 0 });
+          }
+        } catch { /* noop */ }
+      }
+    }
+
+    const ownLat = ownShip?.pose?.lat;
+    const ownLon = ownShip?.pose?.lon;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {targetsList.map((t, idx) => {
+          const id = t.mmsi ? String(t.mmsi) : `T${idx + 1}`;
+          const targetIdDisplay = t.mmsi ? `T${String(t.mmsi).slice(-2)}` : `T${idx + 1}`;
+          const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
+          const cpaVal = cpaInfo?.cpa;
+          const tcpaVal = cpaInfo?.tcpa;
+
+          const targetLat = t.pose?.lat;
+          const targetLon = t.pose?.lon;
+
+          const brg = (ownLat != null && ownLon != null && targetLat != null && targetLon != null)
+            ? computeBearing(ownLat, ownLon, targetLat, targetLon).toFixed(1) + '°'
+            : '—';
+
+          const rng = (ownLat != null && ownLon != null && targetLat != null && targetLon != null)
+            ? computeRangeNm(ownLat, ownLon, targetLat, targetLon).toFixed(2) + ' nm'
+            : '—';
+
+          const hdg = t.pose?.heading != null 
+            ? `${((t.pose.heading * 180 / Math.PI + 360) % 360).toFixed(1)}°`
+            : (t.kinematics?.cog != null ? `${((t.kinematics.cog * 180 / Math.PI + 360) % 360).toFixed(0)}°` : '—');
+
+          const sog = t.kinematics?.sog != null 
+            ? `${(t.kinematics.sog * 1.944).toFixed(1)} kn`
+            : '—';
+
+          const cpa = cpaVal != null ? `${cpaVal.toFixed(2)} nm` : '—';
+          const tcpa = tcpaVal != null ? `${tcpaVal.toFixed(1)} m` : '—';
+
+          const cpaColor = cpaVal != null
+            ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : '#fff'
+            : '#fff';
+
+          return (
+            <div key={id} style={{
+              background: 'rgba(0,0,0,0.15)',
+              border: '1px solid var(--line-1)',
+              borderRadius: 8,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}>
+              {/* Row 1: ID and MMSI */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>目标 ID</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: 'var(--c-info)', fontWeight: 700, lineHeight: 1.1 }}>
+                    {targetIdDisplay}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>呼号 MMSI</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {t.mmsi || '—'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 2: BRG and RNG */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>方位 BRG</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {brg}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>距离 RNG</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {rng}
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 3: HDG and SOG */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>首向 HDG</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {hdg}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>航速 SOG</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {sog}
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 4: CPA and TCPA */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>最近会遇 CPA</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: cpaColor, fontWeight: 700, lineHeight: 1.1 }}>
+                    {cpa}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>会遇时间 TCPA</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                    {tcpa}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const [userToggledThreats, setUserToggledThreats] = useState<Record<string, boolean>>({});
+
+  const isThreatSectionExpanded = (key: string, listLength: number) => {
+    if (userToggledThreats[key] !== undefined) {
+      return userToggledThreats[key];
+    }
+    return listLength > 0;
+  };
+
+  const toggleThreatSection = (key: string, listLength: number) => {
+    setUserToggledThreats((prev) => ({
+      ...prev,
+      [key]: !isThreatSectionExpanded(key, listLength),
+    }));
+  };
+
   const simRate   = useControlStore((s) => s.simRate);
   const isPaused  = useControlStore((s) => s.isPaused);
   const setSimRate = useControlStore((s) => s.setSimRate);
@@ -361,6 +580,33 @@ export function SimulationMonitor() {
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';
   const isEngineer  = viewMode === 'engineer';
   const isRoc       = viewMode === 'roc';
+
+  const activeColorMap: Record<string, string> = {
+    M1: 'var(--c-phos)',
+    M2: 'var(--c-phos)',
+    M3: 'var(--c-phos)',
+    M4: '#38bdf8',
+    M5: '#38bdf8',
+    M6: 'var(--c-warn)',
+    M7: 'var(--c-danger)',
+    M8: 'var(--c-danger)',
+  };
+  const popoverBorderColor = activeBottomModule ? (activeColorMap[activeBottomModule] || 'var(--c-phos)') : 'var(--c-phos)';
+
+  const getCardStyle = (modules: string[], activeColor: string) => {
+    const isActive = activeBottomModule ? modules.includes(activeBottomModule) : false;
+    return {
+      background: isActive ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.2)',
+      border: isActive ? `1px solid ${activeColor}` : '1px solid var(--line-1)',
+      boxShadow: isActive ? `0 0 12px ${activeColor}` : 'none',
+      padding: '12px 14px',
+      borderRadius: 8,
+      cursor: 'pointer',
+      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      display: 'flex',
+      flexDirection: 'column' as const,
+    };
+  };
 
   return (
     <div
@@ -698,68 +944,400 @@ export function SimulationMonitor() {
 
                 {activeLeftTab === 'threat' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {/* Card 1: High Threat */}
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                       padding: '12px 14px', borderRadius: 8,
+                      display: 'flex', flexDirection: 'column',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, justifyContent: 'space-between' }}>
+                      <div
+                        onClick={() => toggleThreatSection('high', categorizedTargets.high.length)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          cursor: 'pointer', userSelect: 'none'
+                        }}
+                      >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <div style={{ width: 5, height: 12, background: 'var(--c-danger)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-danger)', fontWeight: 700, letterSpacing: '0.08em' }}>高风险目标 (ARPA)</span>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-danger)', fontWeight: 700, letterSpacing: '0.08em' }}>高威胁目标</span>
+                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
+                            ({categorizedTargets.high.length})
+                          </span>
                         </div>
-                        <span style={{
-                          background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)',
-                          color: 'var(--c-danger)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)'
-                        }}>CRITICAL</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)',
+                            color: 'var(--c-danger)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
+                          }}>CRITICAL</span>
+                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('high', categorizedTargets.high.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
+                        </div>
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--line-1)', borderRadius: 6, overflow: 'hidden' }}>
-                        <ArpaTargetTable targets={targets} compact />
+                      {isThreatSectionExpanded('high', categorizedTargets.high.length) && (
+                        <div style={{ marginTop: 12 }}>
+                          {categorizedTargets.high.length > 0 ? (
+                            renderTargetCards(categorizedTargets.high)
+                          ) : (
+                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
+                              暂无高威胁监控目标
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 2: Medium Threat */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                      display: 'flex', flexDirection: 'column',
+                    }}>
+                      <div
+                        onClick={() => toggleThreatSection('medium', categorizedTargets.medium.length)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          cursor: 'pointer', userSelect: 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-warn)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 700, letterSpacing: '0.08em' }}>中威胁目标</span>
+                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
+                            ({categorizedTargets.medium.length})
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)',
+                            color: 'var(--c-warn)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
+                          }}>WARNING</span>
+                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('medium', categorizedTargets.medium.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
+                        </div>
                       </div>
+                      {isThreatSectionExpanded('medium', categorizedTargets.medium.length) && (
+                        <div style={{ marginTop: 12 }}>
+                          {categorizedTargets.medium.length > 0 ? (
+                            renderTargetCards(categorizedTargets.medium)
+                          ) : (
+                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
+                              暂无中威胁监控目标
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 3: Low Threat */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                      display: 'flex', flexDirection: 'column',
+                    }}>
+                      <div
+                        onClick={() => toggleThreatSection('low', categorizedTargets.low.length)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          cursor: 'pointer', userSelect: 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: '#38bdf8', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: '#38bdf8', fontWeight: 700, letterSpacing: '0.08em' }}>低威胁目标</span>
+                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
+                            ({categorizedTargets.low.length})
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)',
+                            color: '#38bdf8', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
+                          }}>MONITOR</span>
+                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('low', categorizedTargets.low.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
+                        </div>
+                      </div>
+                      {isThreatSectionExpanded('low', categorizedTargets.low.length) && (
+                        <div style={{ marginTop: 12 }}>
+                          {categorizedTargets.low.length > 0 ? (
+                            renderTargetCards(categorizedTargets.low)
+                          ) : (
+                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
+                              暂无低威胁监控目标
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 4: No Threat */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
+                      padding: '12px 14px', borderRadius: 8,
+                      display: 'flex', flexDirection: 'column',
+                    }}>
+                      <div
+                        onClick={() => toggleThreatSection('none', categorizedTargets.none.length)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          cursor: 'pointer', userSelect: 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>无威胁目标</span>
+                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
+                            ({categorizedTargets.none.length})
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            background: 'rgba(45, 212, 191, 0.15)', border: '1px solid rgba(45, 212, 191, 0.3)',
+                            color: 'var(--c-phos)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
+                          }}>CLEAR</span>
+                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('none', categorizedTargets.none.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
+                        </div>
+                      </div>
+                      {isThreatSectionExpanded('none', categorizedTargets.none.length) && (
+                        <div style={{ marginTop: 12 }}>
+                          {categorizedTargets.none.length > 0 ? (
+                            renderTargetCards(categorizedTargets.none)
+                          ) : (
+                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
+                              暂无无威胁监控目标
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
                 {activeLeftTab === 'avoid' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <div style={{
-                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                      padding: '12px 14px', borderRadius: 8,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                        <div style={{ width: 5, height: 12, background: 'var(--c-warn)', borderRadius: 1 }} />
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 700, letterSpacing: '0.08em' }}>规则状态机与规避决策</span>
+                    {/* Card 1: ODD/FSM */}
+                    <div 
+                      onClick={() => setActiveBottomModule(activeBottomModule === 'M1' ? null : 'M1')}
+                      style={getCardStyle(['M1', 'M2', 'M3'], 'var(--c-phos)')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>运行包络与状态机</span>
+                        </div>
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBottomModule(activeBottomModule === 'M1' ? null : 'M1');
+                          }}
+                          style={{
+                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', fontWeight: 700,
+                            background: 'rgba(91, 192, 190, 0.15)', border: '1px solid rgba(91, 192, 190, 0.3)',
+                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(91, 192, 190, 0.3)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(91, 192, 190, 0.15)'}
+                        >
+                          M1 ODD
+                        </span>
                       </div>
-                      <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>核心决策状态:</span>
-                          <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>{fsmState === 'COLREG_AVOIDANCE' ? 'COLREG AVOIDANCE' : fsmState}</span>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '12px 16px',
+                        padding: '4px 2px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>包络边界 ODD</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : 'var(--c-phos)', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {fsmState === 'MRC' ? 'OUT (MRC)' : fsmState === 'TOR' ? 'OUT (TOR)' : 'IN ODD'}
+                          </span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>决策置信度 / 权重:</span>
-                          <span style={{ color: '#fff' }}>{Math.round((fsmConf ?? 0) * 100)}% / {(sat2?.active_behavior_weight ?? 0.95).toFixed(2)}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>适用避碰规则:</span>
-                          <span style={{ color: '#fff', fontWeight: 'bold' }}>{fsmRule || 'Rule 14 (对遇)'}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>会遇责任角色:</span>
-                          <span style={{ color: 'var(--c-danger)', fontWeight: 'bold' }}>Give-way (让路船)</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>状态机阶段 FSM</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : '#fff', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {String(fsmState || 'NORMAL').replace('_', ' ')}
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    <div style={{
-                      background: 'rgba(45,212,191,0.03)', border: '1px solid var(--c-phos)',
-                      padding: '12px 14px', borderRadius: 8,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                        <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
-                        <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>👉 船长规避指令动作</span>
+                    {/* Card 2: Encounter Rule & Role */}
+                    <div 
+                      onClick={() => setActiveBottomModule(activeBottomModule === 'M6' ? null : 'M6')}
+                      style={getCardStyle(['M6'], 'var(--c-warn)')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-warn)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 700, letterSpacing: '0.08em' }}>避碰规则与责任角色</span>
+                        </div>
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBottomModule(activeBottomModule === 'M6' ? null : 'M6');
+                          }}
+                          style={{
+                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-warn)', fontWeight: 700,
+                            background: 'rgba(240, 183, 47, 0.15)', border: '1px solid rgba(240, 183, 47, 0.3)',
+                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(240, 183, 47, 0.3)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(240, 183, 47, 0.15)'}
+                        >
+                          M6 COLREGs
+                        </span>
                       </div>
-                      <div style={{ fontSize: 11, fontWeight: 'bold', color: '#fff', lineHeight: 1.4 }}>
-                        系统正处于自动规避模式。<br />
-                        决策动作：<span style={{ color: 'var(--c-phos)' }}>本船向右转向 15°</span> 以宽让目标船。
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '12px 16px',
+                        padding: '4px 2px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>适用避碰规则 RULE</span>
+                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                            {sat2?.colregs_chain?.find(c => c.layer === 2)?.conclusion || fsmRule || 'Rule 14 (对遇)'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>会遇避碰责任 ROLE</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-danger)' : 'var(--c-info)', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {fsmState === 'COLREG_AVOIDANCE' ? 'GIVE-WAY 让路' : 'STAND-ON 保向'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Maneuver Actions */}
+                    <div 
+                      onClick={() => setActiveBottomModule(activeBottomModule === 'M4' ? null : 'M4')}
+                      style={getCardStyle(['M4', 'M5'], '#38bdf8')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: '#38bdf8', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: '#38bdf8', fontWeight: 700, letterSpacing: '0.08em' }}>避碰航迹与动作指令</span>
+                        </div>
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBottomModule(activeBottomModule === 'M4' ? null : 'M4');
+                          }}
+                          style={{
+                            fontFamily: 'var(--f-disp)', fontSize: 9, color: '#38bdf8', fontWeight: 700,
+                            background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)',
+                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)'}
+                        >
+                          M4/M5 战术
+                        </span>
+                      </div>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '12px 16px',
+                        padding: '4px 2px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>避碰转向指令 STR</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : 'var(--c-phos)', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {fsmState === 'COLREG_AVOIDANCE' ? '右舵转向 15°' : '常规保向'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>车钟与航速指令 THR</span>
+                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                            {(() => {
+                              const getThrottleStr = () => {
+                                if (ownShip?.controlState?.throttle == null) return '—';
+                                const throttle = ownShip.controlState.throttle;
+                                if (throttle === 0) return 'STOP';
+                                if (throttle > 0) {
+                                  if (throttle <= 0.35) return 'AH 1';
+                                  if (throttle <= 0.7) return 'AH 2';
+                                  return 'AH 3';
+                                } else {
+                                  if (throttle >= -0.35) return 'AS 1';
+                                  if (throttle >= -0.7) return 'AS 2';
+                                  return 'AS 3';
+                                }
+                              };
+                              const sogVal = ownShip?.kinematics?.sog != null ? `${(ownShip.kinematics.sog * 1.944).toFixed(1)} kn` : '—';
+                              return `${getThrottleStr()} / ${sogVal}`;
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 4: SOTIF / M8 Alert */}
+                    <div 
+                      onClick={() => setActiveBottomModule(activeBottomModule === 'M8' ? null : 'M8')}
+                      style={getCardStyle(['M7', 'M8'], 'var(--c-danger)')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 5, height: 12, background: 'var(--c-danger)', borderRadius: 1 }} />
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-danger)', fontWeight: 700, letterSpacing: '0.08em' }}>SOTIF 风险与系统警报</span>
+                        </div>
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBottomModule(activeBottomModule === 'M8' ? null : 'M8');
+                          }}
+                          style={{
+                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-danger)', fontWeight: 700,
+                            background: 'rgba(248, 81, 73, 0.15)', border: '1px solid rgba(248, 81, 73, 0.3)',
+                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(248, 81, 73, 0.3)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(248, 81, 73, 0.15)'}
+                        >
+                          M7/M8 安全
+                        </span>
+                      </div>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '12px 16px',
+                        padding: '4px 2px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>SOTIF 否决率 VETO</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: sotifMetrics?.checker_veto_rate_pct && sotifMetrics.checker_veto_rate_pct > 10 ? 'var(--c-warn)' : 'var(--c-green)', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {sotifMetrics?.checker_veto_rate_pct != null ? `${sotifMetrics.checker_veto_rate_pct.toFixed(1)}%` : '0.0%'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>报警发布等级 ALARM</span>
+                          <span style={{ 
+                            fontFamily: 'var(--f-mono)', fontSize: 16, 
+                            color: torRequest ? '接管请求 (TOR)' : '正常运行 (LV 0)', 
+                            fontWeight: 700, lineHeight: 1.1 
+                          }}>
+                            {torRequest ? '接管请求 (TOR)' : '正常运行 (LV 0)'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -943,9 +1521,9 @@ export function SimulationMonitor() {
             transform: 'translateX(-50%)',
             width: '280px',
             background: 'rgba(18, 25, 39, 0.96)',
-            border: '1px solid var(--c-phos)',
+            border: `1px solid ${popoverBorderColor}`,
             borderRadius: 8,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.8), 0 0 15px rgba(45,212,191,0.15)',
+            boxShadow: `0 12px 40px rgba(0,0,0,0.8), 0 0 15px ${popoverBorderColor}26`,
             zIndex: 150,
             display: 'flex',
             flexDirection: 'column',
@@ -954,7 +1532,7 @@ export function SimulationMonitor() {
             backdropFilter: 'blur(16px)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 6 }}>
-              <span style={{ fontSize: 11, fontFamily: 'var(--f-disp)', fontWeight: 700, color: 'var(--c-phos)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-disp)', fontWeight: 700, color: popoverBorderColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {activeBottomModule === 'M1' && 'M1 - ODD 运行包络与状态机'}
                 {activeBottomModule === 'M2' && 'M2 - 全局航线及偏差控制'}
                 {activeBottomModule === 'M3' && 'M3 - 航次计划与调度跟踪'}
@@ -976,15 +1554,15 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M1' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>当前运行域 (ODD)</span>
+                    <span className="grid-label">当前运行域 (ODD)</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>OPEN_WATER (开阔)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>运行包络安全系数</span>
+                    <span className="grid-label">运行包络安全系数</span>
                     <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>92% (符合SIL标准)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>水深/风速健康度</span>
+                    <span className="grid-label">水深/风速健康度</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>正常 🟢</span>
                   </div>
                 </>
@@ -992,15 +1570,15 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M2' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>全局计划航线</span>
+                    <span className="grid-label">全局计划航线</span>
                     <span style={{ color: '#fff', fontWeight: 'bold', fontSize: 8 }}>SEG_XIAMEN_SHANGHAI_A</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>横向偏航偏差 (XTE)</span>
+                    <span className="grid-label">横向偏航偏差 (XTE)</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>0.02 nm (限制: 0.1nm)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>下一个路点 WPT</span>
+                    <span className="grid-label">下一个路点 WPT</span>
                     <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>WP04 (24.460°N)</span>
                   </div>
                 </>
@@ -1008,15 +1586,15 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M3' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>航次时空段状态</span>
+                    <span className="grid-label">航次时空段状态</span>
                     <span style={{ color: '#fff', fontWeight: 'bold' }}>WAYPOINT_TRACKING</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>整体计划航程进度</span>
+                    <span className="grid-label">整体计划航程进度</span>
                     <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>42.5% (已驶 12.8 / 30.1 nm)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>航次时空到港延误度</span>
+                    <span className="grid-label">航次时空到港延误度</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>0.00s (时空对齐合格)</span>
                   </div>
                 </>
@@ -1024,15 +1602,15 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M4' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>周期求解算延时</span>
+                    <span className="grid-label">周期求解算延时</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>{sat2?.reasoning_latency_ms != null ? `${sat2.reasoning_latency_ms} ms` : '4.2 ms'}</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>最高活跃评分行为</span>
+                    <span className="grid-label">最高活跃评分行为</span>
                     <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>{sat2?.active_behavior || 'COLREG_AVOID'}</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>活跃行为分配权重</span>
+                    <span className="grid-label">活跃行为分配权重</span>
                     <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{sat2?.active_behavior_weight != null ? `${(sat2.active_behavior_weight * 100).toFixed(0)}%` : '95%'}</span>
                   </div>
                 </>
@@ -1040,15 +1618,15 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M5' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>战术优化候选路径</span>
+                    <span className="grid-label">战术优化候选路径</span>
                     <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{sat3?.trajectory_candidates?.length != null ? `${sat3.trajectory_candidates.length} 条` : '13 条'}</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>不确定误差包络带</span>
+                    <span className="grid-label">不确定误差包络带</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>{sat3?.uncertainty_bands ? '已开启 🟢' : '已开启 🟢'}</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>最优决策总Cost</span>
+                    <span className="grid-label">最优决策总Cost</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>18.9 (已收敛, Path_04)</span>
                   </div>
                 </>
@@ -1065,30 +1643,31 @@ export function SimulationMonitor() {
               {activeBottomModule === 'M7' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>SOTIF 安全限制状态</span>
+                    <span className="grid-label">SOTIF 安全限制状态</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>SAFE (双轨一致)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>碰撞险度指标 CRI</span>
+                    <span className="grid-label">碰撞险度指标 CRI</span>
                     <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>{sotifMetrics?.checker_veto_rate_pct != null ? ((sotifMetrics.checker_veto_rate_pct / 100.0) * 0.8).toFixed(2) : '0.42'} (阈值: 0.80)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>最小风险备份策略</span>
-                    <span style={{ color: 'var(--txt-3)', fontWeight: 'bold' }}>MRM-01 (漂泊待命)</span>
+                    <span className="grid-label">最小风险备份策略</span>
+                    <span style={{ color: '#fff', fontWeight: 'bold' }}>MRM-01 (漂泊待命)</span>
                   </div>
                 </>
               )}
               {activeBottomModule === 'M8' && (
                 <>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>交互发布通信状态</span>
+                    <span className="grid-label">交互发布通信状态</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>NORMAL (与ROC同步)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
+                    <span className="grid-label">交互发布往返时延</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>5 ms (限制: 20ms)</span>
                   </div>
                   <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--txt-2)' }}>警报发布等级</span>
+                    <span className="grid-label">警报发布等级</span>
                     <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>LEVEL-0 (正常)</span>
                   </div>
                 </>
@@ -1105,7 +1684,7 @@ export function SimulationMonitor() {
               height: 0,
               borderLeft: '6px solid transparent',
               borderRight: '6px solid transparent',
-              borderTop: '6px solid var(--c-phos)'
+              borderTop: `6px solid ${popoverBorderColor}`
             }} />
           </div>
         )}
