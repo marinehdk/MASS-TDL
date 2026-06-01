@@ -1,3 +1,5 @@
+name: mass-l3-sil
+
 # NOTE: dev services are run natively on the host to avoid port conflicts.
 
 services:
@@ -12,6 +14,7 @@ services:
       - ./runs:/var/sil/runs
       - ./exports:/var/sil/exports
       - ./certs:/certs:ro
+      - ./src/sil_orchestrator:/opt/sil/sil_orchestrator
     environment:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -25,6 +28,7 @@ services:
       - ./scenarios:/var/sil/scenarios
       - ./runs:/var/sil/runs
       - ./src:/opt/ws/src
+      - ./docker:/opt/ws/docker
     command: /opt/ws/sil_entrypoint.sh
     environment:
       - SIL_RUN_DIR=/var/sil/runs
