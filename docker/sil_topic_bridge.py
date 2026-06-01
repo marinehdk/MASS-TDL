@@ -15,10 +15,14 @@ Module pulse:
   M1-M8 heartbeat topics → /sil/module_pulse @ 1 Hz aggregate
 """
 
+import collections
+import json
 import math
+import os
 import signal
 import threading
 import time
+from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
@@ -42,6 +46,7 @@ from l3_external_msgs.msg import (
     FilteredOwnShipState,
     TrackedTargetArray,
     EnvironmentState as L3EnvironmentState,
+    CheckerVetoNotification,
 )
 
 # ── L3 internal message types ────────────────────────────────
@@ -164,6 +169,89 @@ class SpeedController:
         return cmd
 
 
+# ── Debug trace writer ────────────────────────────────────
+
+class DebugTraceWriter:
+    """Ring-buffer JSONL writer for key L3 interface topics.
+
+    Appends to /var/sil/runs/trace_current.jsonl (shared volume).
+    Thread-safe; flushes every 2s. Call reset() on scenario ACTIVE to truncate.
+    """
+
+    FLUSH_INTERVAL_S = 2.0
+    MAX_BUF = 2000
+
+    def __init__(self, node: "SilTopicBridge") -> None:
+        self._node = node
+        self._lock = threading.Lock()
+        self._buf: collections.deque = collections.deque(maxlen=self.MAX_BUF)
+        self._file = None
+        self._flush_timer: threading.Timer | None = None
+        run_dir = Path(os.environ.get("SIL_RUN_DIR", "/var/sil/runs"))
+        self._trace_path = run_dir / "trace_current.jsonl"
+        self.reset()
+
+    def reset(self) -> None:
+        """Truncate trace file and restart flush timer. Call on scenario ACTIVE."""
+        with self._lock:
+            if self._file is not None:
+                try:
+                    self._file.close()
+                except Exception:
+                    pass
+            self._buf.clear()
+            try:
+                self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+                self._file = open(self._trace_path, "w")
+            except Exception as exc:
+                self._node.get_logger().error(
+                    f"[DebugTraceWriter] cannot open {self._trace_path}: {exc}")
+                self._file = None
+        self._schedule_flush()
+
+    def record(self, topic: str, data: dict, sim_t: float) -> None:
+        """Append one record to in-memory ring buffer."""
+        entry = {"sim_t": round(sim_t, 3), "topic": topic}
+        entry.update(data)
+        with self._lock:
+            self._buf.append(json.dumps(entry, default=str))
+
+    def _schedule_flush(self) -> None:
+        if self._flush_timer is not None:
+            self._flush_timer.cancel()
+        t = threading.Timer(self.FLUSH_INTERVAL_S, self._flush)
+        t.daemon = True
+        t.start()
+        self._flush_timer = t
+
+    def _flush(self) -> None:
+        with self._lock:
+            if self._file and self._buf:
+                try:
+                    lines = list(self._buf)
+                    self._buf.clear()
+                    self._file.write("\n".join(lines) + "\n")
+                    self._file.flush()
+                except Exception as exc:
+                    self._node.get_logger().warning(
+                        f"[DebugTraceWriter] flush error: {exc}")
+        self._schedule_flush()
+
+    def close(self) -> None:
+        if self._flush_timer:
+            self._flush_timer.cancel()
+        with self._lock:
+            if self._file:
+                try:
+                    if self._buf:
+                        self._file.write("\n".join(self._buf) + "\n")
+                    self._file.flush()
+                    self._file.close()
+                except Exception:
+                    pass
+                self._file = None
+
+
 # ── Bridge node ──────────────────────────────────────────────
 
 class SilTopicBridge(Node):
@@ -195,6 +283,7 @@ class SilTopicBridge(Node):
         self._current_target_wp_lat = 0.0
         self._current_target_wp_lon = 0.0
         self._route_wps = []  # [(lat,lon)] cached planned route for geometric XTE
+        self._lifecycle_state = None
 
         self.declare_parameter("ownship_initial_heading_deg", 0.0)
         self.declare_parameter("ownship_initial_sog_kn", CRUISE_SPEED_KN)
@@ -315,6 +404,14 @@ class SilTopicBridge(Node):
             LifecycleStatus, "/sil/lifecycle_status",
             self._on_lifecycle_status, 10)
 
+        # ── Debug trace writer ────────────────────────────────
+        self._trace_writer = DebugTraceWriter(node=self)
+
+        # ── Checker veto subscription (debug trace) ───────────
+        self._sub_veto = self.create_subscription(
+            CheckerVetoNotification, "/l3/checker/veto",
+            self._on_checker_veto, rq)
+
     def _get_sim_time(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
@@ -349,6 +446,9 @@ class SilTopicBridge(Node):
     def _on_lifecycle_status(self, msg: LifecycleStatus) -> None:
         """Reset state if simulation is not ACTIVE."""
         # 3 is ACTIVE
+        prev_state = self._lifecycle_state
+        self._lifecycle_state = msg.current_state
+
         if msg.current_state != 3:
             if self._autopilot_enabled or self._avoidance_active:
                 self.get_logger().info(
@@ -374,6 +474,8 @@ class SilTopicBridge(Node):
             self._m3_activated_once = False
         else:
             # ACTIVE state: dynamically read initial parameters to ensure we use the new scenario values
+            if prev_state != 3:
+                self._trace_writer.reset()
             try:
                 init_heading = self.get_parameter("ownship_initial_heading_deg").value
                 init_sog = self.get_parameter("ownship_initial_sog_kn").value
@@ -387,6 +489,16 @@ class SilTopicBridge(Node):
             except Exception as exc:
                 self.get_logger().warn(f"Failed to read updated parameters from server: {exc}")
 
+    def _on_checker_veto(self, msg: CheckerVetoNotification) -> None:
+        self._trace_writer.record("/l3/checker/veto", {
+            "checker_layer": str(msg.checker_layer),
+            "vetoed_module": str(msg.vetoed_module),
+            "veto_reason_class": int(msg.veto_reason_class),
+            "veto_reason_detail": str(msg.veto_reason_detail),
+            "fallback_provided": bool(msg.fallback_provided),
+            "confidence": float(msg.confidence),
+        }, self._get_sim_time())
+
     def _on_odd_state(self, msg: ODDState) -> None:
         self._record_pulse(M1)
         self._last_odd_state = msg
@@ -394,6 +506,13 @@ class SilTopicBridge(Node):
     def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
         self._record_pulse(M4)
         self._last_behavior_plan = msg
+        self._trace_writer.record("/l3/m4/behavior_plan", {
+            "behavior": int(msg.behavior),
+            "heading_min_deg": float(msg.heading_min_deg),
+            "heading_max_deg": float(msg.heading_max_deg),
+            "avoidance_active": self._avoidance_active,
+            "target_heading_deg": self._avoidance_target_heading_deg,
+        }, self._get_sim_time())
         if (self._avoidance_active and
                 self._avoidance_target_heading_deg is None):
             h_min = float(msg.heading_min_deg)
@@ -422,6 +541,13 @@ class SilTopicBridge(Node):
     def _on_own_ship_state(self, msg: SilOwnShipState) -> None:
         self._record_pulse(M2)
         self._last_ownship_raw = msg
+        self._trace_writer.record("/sil/own_ship_state", {
+            "heading_deg": round(math.degrees(msg.heading), 2),
+            "sog_kn": round(msg.sog * 1.94384, 2),
+            "lat": msg.lat,
+            "lon": msg.lon,
+            "rot_deg_s": round(math.degrees(msg.rot), 3),
+        }, self._get_sim_time())
         out = FilteredOwnShipState()
         out.schema_version = 112
         out.stamp = msg.stamp
@@ -513,6 +639,12 @@ class SilTopicBridge(Node):
     def _on_mission_goal(self, msg: MissionGoal) -> None:
         """M3 mission goal callback — check task_validity + behavior release condition."""
         self._record_pulse(M3)
+        self._trace_writer.record("/l3/m3/mission_goal", {
+            "fsm_state": int(msg.fsm_state),
+            "task_validity": int(msg.task_validity) if hasattr(msg, "task_validity") else -1,
+            "target_wp_lat": float(msg.current_target_wp.latitude),
+            "target_wp_lon": float(msg.current_target_wp.longitude),
+        }, self._get_sim_time())
         
         # Reset state if mission is not ACTIVE (FSM_ACTIVE = 3)
         if msg.fsm_state < 3:
@@ -615,6 +747,13 @@ class SilTopicBridge(Node):
 
     def _on_avoidance_plan(self, msg: AvoidancePlan) -> None:
         self._record_pulse(M5)
+        _wp0 = msg.waypoints[0] if msg.waypoints else None
+        self._trace_writer.record("/l3/m5/avoidance_plan", {
+            "n_waypoints": len(msg.waypoints),
+            "solver_status": "VALID" if (_wp0 and abs(_wp0.turn_radius_m) > 1e-6) else "EMPTY",
+            "wp0_turn_radius_m": float(_wp0.turn_radius_m) if _wp0 else 0.0,
+            "wp0_target_speed_kn": float(_wp0.target_speed_kn) if _wp0 else 0.0,
+        }, self._get_sim_time())
 
         has_valid_plan = (
             len(msg.waypoints) > 0 and
