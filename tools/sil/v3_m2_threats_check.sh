@@ -2,7 +2,7 @@
 # V3 — M2 World Model must publish /l3/m2/threat_state with TS1 entry during imazu-01-ho.
 set -eu
 
-CONTAINER="${CONTAINER:-mass-l3-tacticallayer-sil-nodes-1}"
+CONTAINER="${CONTAINER:-mass-l3-sil-sil-nodes-1}"
 RESULT_FILE="${RESULT_FILE:-/tmp/v3_m2_threats_result.json}"
 TIMEOUT=10
 

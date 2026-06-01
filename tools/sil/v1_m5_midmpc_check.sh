@@ -4,7 +4,7 @@
 set -eu
 RESULT_FILE="${RESULT_FILE:-/tmp/v1_m5_midmpc_result.json}"
 DURATION_S=300  # observe 300s of avoidance plans
-CONTAINER="${CONTAINER:-mass-l3-tacticallayer-sil-nodes-1}"
+CONTAINER="${CONTAINER:-mass-l3-sil-sil-nodes-1}"
 
 echo "[V1] Sampling /l3/m5/avoidance_plan rationale & waypoint count for ${DURATION_S}s..."
 

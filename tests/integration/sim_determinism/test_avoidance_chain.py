@@ -54,7 +54,7 @@ def _get_container_name() -> str:
             return lines[0]
     except Exception:
         pass
-    return "mass-l3-tacticallayer-sil-nodes-1"
+    return "mass-l3-sil-sil-nodes-1"
 
 def _run_capture_in_container(output_host: str) -> None:
     container = _get_container_name()

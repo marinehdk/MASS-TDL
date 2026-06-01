@@ -13,10 +13,17 @@
     "sys:stop": "pm2 delete ecosystem.config.cjs && docker compose down",
     "sys:status": "pm2 list && docker compose ps",
     "sys:restart": "pm2 restart ecosystem.config.cjs && docker compose restart",
+    "sil:restart": "docker compose restart sil-nodes sil-orchestrator",
+    "sil:restart:orch": "docker compose restart sil-orchestrator",
+    "sil:rebuild": "docker compose build sil-nodes && docker compose up -d",
+    "sil:rebuild:orch": "docker compose build sil-orchestrator && docker compose up -d sil-orchestrator",
+    "sil:prune": "docker image prune -f && docker builder prune -f --keep-storage 5GB",
+    "sil:logs": "docker compose logs --tail=100 -f sil-nodes sil-orchestrator",
     "dev:backend": "PYTHONPATH=src python3 -m uvicorn sil_orchestrator.main:app --port 8000 --host 127.0.0.1",
     "dev:frontend": "npm run dev --prefix web",
     "graph:update": "graphify update . && npm run graph:prune",
     "graph:prune": "cd graphify-out && LATEST=$(ls -dt 2026-*/ 2>/dev/null | head -1 | tr -d '/') && [ -n \"$LATEST\" ] && ls -d 2026-* | grep -v \"^${LATEST}$\" | xargs rm -rf; true",
+    "test:trace": "pytest tools/sil/test_scenario_trace.py -v -s",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

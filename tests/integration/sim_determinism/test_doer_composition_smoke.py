@@ -13,7 +13,7 @@ def _get_container_name() -> str:
             return names[0]
     except Exception:
         pass
-    return "mass-l3-tacticallayer-sil-nodes-1"
+    return "mass-l3-sil-sil-nodes-1"
 
 @pytest.mark.integration
 def test_doer_composition_smoke():

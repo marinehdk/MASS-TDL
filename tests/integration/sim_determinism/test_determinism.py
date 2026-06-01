@@ -55,7 +55,7 @@ def _get_container_name() -> str:
             return name
     except Exception:
         pass
-    return "mass-l3-tacticallayer-sil-nodes-1"
+    return "mass-l3-sil-sil-nodes-1"
 
 
 def _run_capture_rule14_in_container(rate: float, duration: float, output: str) -> None:

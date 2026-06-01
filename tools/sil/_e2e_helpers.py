@@ -10,7 +10,7 @@ import urllib.request
 import ssl
 
 BASE = "https://localhost:8000/api/v1"
-CONTAINER = "mass-l3-tacticallayer-sil-nodes-1"
+CONTAINER = "mass-l3-sil-sil-nodes-1"
 _SSL_CTX = ssl._create_unverified_context()
 
 
