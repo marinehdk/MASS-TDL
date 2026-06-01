@@ -238,6 +238,13 @@ class ShipDynamicsNode(LifecycleNode):
         self._model = None
         self._state = ShipState()
         self._last_sim_time = None
+        with self._cmd_lock:
+            self._delta_cmd = 0.0
+            self._n_rps_cmd = 0.0
+            self._wind_speed = 0.0
+            self._wind_dir = 0.0
+            self._current_speed = 0.0
+            self._current_dir = 0.0
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已清理")
         return TransitionCallbackReturn.SUCCESS

@@ -175,6 +175,8 @@ class ScenarioLifecycleMgr:
         self._sim_rate: float = 1.0
         self._sim_time: float = 0.0
         self._wall_start: float = 0.0
+        self._rate_anchor_wall: float = 0.0
+        self._rate_anchor_sim: float = 0.0
         self._dynamics_mode: str = "internal"
         self._clock_mode: str = "realtime"
 
@@ -241,6 +243,8 @@ class ScenarioLifecycleMgr:
             return False
         self._state = LifecycleState.ACTIVE
         self._wall_start = time.time()
+        self._rate_anchor_wall = self._wall_start
+        self._rate_anchor_sim = self._sim_time
         return True
 
     def deactivate(self) -> bool:
@@ -262,6 +266,10 @@ class ScenarioLifecycleMgr:
     def set_sim_rate(self, rate: float) -> bool:
         if rate < 0:
             return False
+        # Anchor the rate change so _clock_callback doesn't try to
+        # catch up to wall_elapsed * new_rate from t=0.
+        self._rate_anchor_wall = time.time()
+        self._rate_anchor_sim = self._sim_time
         self._sim_rate = rate
         return True
 
@@ -304,7 +312,8 @@ class LifecycleManagerNode(LifecycleNode):
     """
 
     # Maximum dt_tick steps to emit per single callback invocation.
-    _MAX_CATCHUP_TICKS = 10
+    # Must be >= max supported sim_rate (50x) to avoid rate cap.
+    _MAX_CATCHUP_TICKS = 50
 
     def __init__(self, node_name: str = "scenario_lifecycle_mgr") -> None:
         # Force use_sim_time to False during construction to avoid circular dependencies in clock server
@@ -934,8 +943,9 @@ class LifecycleManagerNode(LifecycleNode):
 
         sim_rate = self._fsm.sim_rate
         dt_tick = 1.0 / self._fsm._tick_hz
-        wall_elapsed = time.time() - run_start_wall
-        target_sim = wall_elapsed * sim_rate
+        # Use rate-change anchor so switching from 1x→10x at t=331s doesn't
+        # create a 9×331=2979s catch-up deficit.
+        target_sim = self._fsm._rate_anchor_sim + (time.time() - self._fsm._rate_anchor_wall) * sim_rate
 
         sim_clock_pub = self._sim_clock_pub
         clock_pub = self._clock_pub

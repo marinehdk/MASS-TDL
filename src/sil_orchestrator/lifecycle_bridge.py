@@ -112,7 +112,8 @@ class LifecycleBridge(Node):
         self._sil_set_parameters_clients: dict[str, object] = {}
         for node_name in ("ship_dynamics_node", "target_vessel_node",
                           "env_disturbance_node", "sensor_mock_node",
-                          "fault_injection_node", "scenario_lifecycle_mgr"):
+                          "fault_injection_node", "scenario_lifecycle_mgr",
+                          "sil_topic_bridge"):
             svc = f"/{node_name}/set_parameters"
             try:
                 client = self.create_client(SetParameters, svc,
@@ -571,6 +572,20 @@ def _extract_injection_params(yaml_data: dict) -> dict:
 
     if ship_params:
         injection_map["ship_dynamics_node"] = ship_params
+
+    # ownShip.initial.{heading,sog} -> sil_topic_bridge -> {ownship_initial_heading_deg, ownship_initial_sog_kn}
+    bridge_params: dict = {}
+    if isinstance(initial, dict):
+        heading_val = initial.get("heading")
+        if heading_val is None:
+            heading_val = initial.get("cog")
+        if heading_val is not None:
+            bridge_params["ownship_initial_heading_deg"] = (float(heading_val), ParameterType.PARAMETER_DOUBLE)
+        sog_val = initial.get("sog")
+        if sog_val is not None:
+            bridge_params["ownship_initial_sog_kn"] = (float(sog_val), ParameterType.PARAMETER_DOUBLE)
+    if bridge_params:
+        injection_map["sil_topic_bridge"] = bridge_params
 
     # targetShips[] -> target_vessel_node -> default_targets_json
     target_ships = yaml_data.get("targetShips", [])

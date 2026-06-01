@@ -257,10 +257,10 @@ class MockL2Publisher(Node):
                 f"{self._ownship_lon:.4f}) heading={self._ownship_heading:.1f}")
 
     def _on_lifecycle_status(self, msg: LifecycleStatus):
-        if msg.current_state < 1:
+        if msg.current_state != LC_STATE_ACTIVE:
             if self._is_active:
                 self.get_logger().info(
-                    f"Lifecycle state={msg.current_state} — deactivating")
+                    f"Lifecycle state={msg.current_state} (not ACTIVE) — deactivating")
                 self._is_active = False
             return
 

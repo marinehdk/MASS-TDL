@@ -542,12 +542,14 @@ class ShellBSimulator:
         CRUISE_SPEED_KN = 10.0
         MAX_SPEED_KN = 25.0
         
-        # Decide if Autopilot is enabled
+        # Decide if Autopilot is enabled.
+        # Require M1 to have published at least once; default False prevents
+        # autopilot from engaging on RNG heading perturbation before ODD is known.
         if self.last_odd_state is not None:
             env_state = self.last_odd_state.envelope_state
             env_allows_autopilot = env_state in (ODDState.ENVELOPE_IN, ODDState.ENVELOPE_EDGE, ODDState.ENVELOPE_MRC_PREP)
         else:
-            env_allows_autopilot = True
+            env_allows_autopilot = False
             
         is_m5_stale = (sim_t - self.last_valid_plan_time) > 10.0
         m4_in_fallback = self.last_behavior_plan is not None and "fallback" in self.last_behavior_plan.rationale.lower()

@@ -33,6 +33,7 @@ from sil_msgs.msg import (
     ModulePulse,
     ASDREvent,
     BridgeState,
+    LifecycleStatus,
 )
 
 # ── Cross-layer L3 external message types ────────────────────
@@ -309,6 +310,11 @@ class SilTopicBridge(Node):
 
         self._autopilot_timer = self.create_timer(0.5, self._autopilot_step)
 
+        # ── Lifecycle Status subscription for state cleanup ──
+        self._sub_lifecycle = self.create_subscription(
+            LifecycleStatus, "/sil/lifecycle_status",
+            self._on_lifecycle_status, 10)
+
     def _get_sim_time(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
@@ -339,6 +345,47 @@ class SilTopicBridge(Node):
             self._pub_pulse.publish(msg)
 
     # ── Autopilot callbacks ────────────────────────────────────
+
+    def _on_lifecycle_status(self, msg: LifecycleStatus) -> None:
+        """Reset state if simulation is not ACTIVE."""
+        # 3 is ACTIVE
+        if msg.current_state != 3:
+            if self._autopilot_enabled or self._avoidance_active:
+                self.get_logger().info(
+                    f"[BRIDGE] Simulation state is {msg.current_state} (not ACTIVE). "
+                    "Resetting autopilot and avoidance states to prevent leakage."
+                )
+            self._autopilot_enabled = False
+            self._avoidance_active = False
+            self._avoidance_target_heading_deg = None
+            self._last_avoidance_waypoint = None
+            self._avoidance_heading_controller.last_cmd_deg = 0.0
+            self._heading_controller.last_cmd_deg = 0.0
+            self._speed_controller = SpeedController()
+            self._reset_latch_release_state()
+            self._route_wps = []
+            self._current_target_wp_lat = 0.0
+            self._current_target_wp_lon = 0.0
+            self._last_ownship_raw = None
+            self._last_odd_state = None
+            self._last_behavior_plan = None
+            self._last_valid_plan_time = None
+            self._last_actuator_publish_time = None
+            self._m3_activated_once = False
+        else:
+            # ACTIVE state: dynamically read initial parameters to ensure we use the new scenario values
+            try:
+                init_heading = self.get_parameter("ownship_initial_heading_deg").value
+                init_sog = self.get_parameter("ownship_initial_sog_kn").value
+                if self._target_heading_deg != init_heading or self._target_sog_kn != init_sog:
+                    self._target_heading_deg = init_heading
+                    self._target_sog_kn = init_sog
+                    self.get_logger().info(
+                        f"[BRIDGE] Simulation active. Updated initial parameters: "
+                        f"heading={self._target_heading_deg}°, SOG={self._target_sog_kn} kn"
+                    )
+            except Exception as exc:
+                self.get_logger().warn(f"Failed to read updated parameters from server: {exc}")
 
     def _on_odd_state(self, msg: ODDState) -> None:
         self._record_pulse(M1)
