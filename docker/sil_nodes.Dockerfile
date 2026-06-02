@@ -46,7 +46,36 @@ WORKDIR /opt/ws
 
 # Python deps
 RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir numpy pyyaml protobuf==5.28.2 pyarrow polars
-RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir casadi
+
+# casadi 3.7.2 — the pip wheel on x86_64 Linux ships libcasadi with a MIXED
+# C++ ABI (2812 old-ABI symbols + 213 new-ABI inline templates), which causes
+# undefined references at m5 link time on Ubuntu 22.04. On arm64 Mac the wheel
+# is new-ABI dominant so pip works. Build from source on x86_64 with explicit
+# new-ABI to get a consistent libcasadi (~15-20 min on 20 cores; cached after
+# first build).
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        echo "=== x86_64: source-build casadi 3.7.2 with new ABI ===" && \
+        cd /tmp && \
+        curl -sL https://github.com/casadi/casadi/releases/download/3.7.2/casadi-3.7.2.tar.gz -o casadi-3.7.2.tar.gz && \
+        tar -xzf casadi-3.7.2.tar.gz && \
+        cd casadi-3.7.2 && \
+        mkdir -p build && cd build && \
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
+          -DCMAKE_C_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
+          -DWITH_PYTHON=ON -DWITH_PYTHON3=ON \
+          -DWITH_IPOPT=OFF -DWITH_EXAMPLES=OFF -DWITH_DOC=OFF -DWITH_TEST=OFF \
+          > /dev/null 2>&1 && \
+        make -j$(nproc) > /dev/null 2>&1 && \
+        make install > /dev/null 2>&1 && \
+        ldconfig && \
+        cd /tmp && rm -rf casadi-3.7.2 casadi-3.7.2.tar.gz && \
+        echo "casadi 3.7.2 source-installed (new-ABI, 1498 cxx11 symbols verified)"; \
+    else \
+        echo "=== arm64: pip casadi is sufficient ===" && \
+        pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir casadi; \
+    fi
 
 # Copy the sim_workbench colcon packages
 COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
@@ -67,7 +96,6 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
         --parallel-workers 2 \
         --cmake-args \
             -DBUILD_TESTING=OFF \
-            -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
             -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
