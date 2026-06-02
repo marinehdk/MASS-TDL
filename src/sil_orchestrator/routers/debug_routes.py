@@ -20,6 +20,28 @@ router = APIRouter()
 _TRACE_FILE: Path = RUN_DIR / "trace_current.jsonl"
 
 
+def _current_run_records(records: list[dict]) -> list[dict]:
+    """Drop stale records left over from a prior run.
+
+    ``trace_current.jsonl`` is truncated per run, but truncation across the
+    orchestrator (file write) and the bridge (its own open handle + 1 Hz
+    edge-triggered reset) is not perfectly synchronized, so records from a
+    previous run can linger ahead of the current run's records. Within a single
+    run ``sim_t`` is monotonic non-decreasing; a new run resets it to ~0. Keep
+    only the suffix after the last backward ``sim_t`` jump so derived values
+    (``max sim_t``, M3/M4 timelines) reflect the current run only.
+    """
+    if not records:
+        return records
+    start = 0
+    for i in range(1, len(records)):
+        prev = records[i - 1].get("sim_t", 0.0)
+        cur = records[i].get("sim_t", 0.0)
+        if cur + 1.0 < prev:  # sim_t went backwards = new-run boundary
+            start = i
+    return records[start:]
+
+
 def _tail_jsonl(n: int) -> list[dict]:
     """Return last n parsed records from _TRACE_FILE."""
     if not _TRACE_FILE.exists():
@@ -48,19 +70,23 @@ async def debug_trace(last_n: int = Query(default=500, ge=1, le=10000)):
 
 @router.get("/api/v1/debug/snapshot")
 async def debug_snapshot():
-    records = _tail_jsonl(5000)
+    records = _current_run_records(_tail_jsonl(5000))
     latest: dict[str, dict] = {}
     for rec in reversed(records):
         t = rec.get("topic", "")
         if t and t not in latest:
             latest[t] = rec
-    max_sim_t = max((r.get("sim_t", 0.0) for r in records), default=0.0)
-    return {"sim_t": max_sim_t, "topics": latest}
+    # Current sim time = sim_t of the most recently written record (records are
+    # in file order). NOT max(sim_t): a stale high-sim_t record lingering from a
+    # prior run would otherwise freeze the reported clock. _current_run_records
+    # already drops cross-run leftovers; records[-1] is the freshest tick.
+    cur_sim_t = records[-1].get("sim_t", 0.0) if records else 0.0
+    return {"sim_t": cur_sim_t, "topics": latest}
 
 
 @router.get("/api/v1/debug/summary")
 async def debug_summary():
-    records = _tail_jsonl(10000)
+    records = _current_run_records(_tail_jsonl(10000))
     if not records:
         return {"error": "no trace data — start and run a scenario first"}
 
