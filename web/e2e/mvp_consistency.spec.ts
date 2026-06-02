@@ -13,9 +13,11 @@ const __dirname = path.dirname(__filename);
  * correctly reflect physical ground truth — so an agent's test verdict and
  * the user's web-page experience cannot diverge.
  *
- *   A_rtf   — measured Δsim/Δwall ≈ nominal rate   (catches "倍速失效")
- *   A_turn  — own-ship heading actually changes     (catches "船不转 / rudder=0")
- *   A_recon — HMI-store value == backend-trace value (catches test/web split itself)
+ *   A_rtf     — measured Δsim/Δwall ≈ nominal rate   (catches "倍速失效")
+ *   A_turn    — net heading change from initial      (catches "船不转 / 0°↔360° 振荡")
+ *   A_recon   — HMI-store value == backend-trace value (catches test/web split itself)
+ *   A_stateful — re-activate within the same sil-nodes process must also turn
+ *               (catches "cold-start works, warm-start stuck" — the real bug)
  *
  * Hard rule: NO `?? 0` masking. A missing field is a real divergence and must
  * throw, not silently default to a passing value.
@@ -34,8 +36,11 @@ const RUNS_DIR = path.resolve(__dirname, '../../runs/mvp_consistency');
 // cap HMI-path RTF near 1.6× — use the A4000 for deterministic band.
 const RTF_BAND: [number, number] = [7.0, 12.0];
 const RTF_SKIP_SAMPLES = 2;     // drop the rate-switch / activation catch-up transient (samples are ~3s apart)
-const TURN_MIN_DEG = 5;        // rule14 head-on must produce a real avoidance turn
-const RECON_MEDIAN_TOL_DEG = 5; // store-vs-backend heading median |Δ| must stay small
+const TURN_MIN_DEG = 5;        // legacy threshold; A_turn_net uses the strict one
+const TURN_NET_MIN_DEG = 60;   // net angular change from first sample (NOT range).
+                                // 60° catches "ship oscillates 0↔360" (range=360, net=0)
+                                // AND "ship frozen at 0°" (range=0, net=0).
+const RECON_MEDIAN_TOL_DEG = 10; // store-vs-backend heading median |Δ| (1-tick WS skew during turns)
 
 test.describe.configure({ mode: 'serial', timeout: 720_000 });
 
@@ -175,11 +180,22 @@ test(`MVP consistency rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => 
     .toBeLessThanOrEqual(RTF_BAND[1]);
 
   // ===== A_turn : own-ship actually changed heading (real maneuver) =====
+  // Use NET angular change from first sample, NOT max-min range.
+  //  - max-min range: passes on 0°↔360° open-loop oscillation (p50=0, net=0)
+  //    — the false-green we saw on the Mac on 2026-06-02 morning.
+  //  - net change: passes only if the ship commits to a sustained turn.
   const bHdgs = backend.map(s => s.hdg);
   const turnRange = Math.max(...bHdgs) - Math.min(...bHdgs);
-  console.log(`A_turn: heading range=${turnRange.toFixed(1)}° (min=${Math.min(...bHdgs).toFixed(1)} max=${Math.max(...bHdgs).toFixed(1)})`);
-  expect(turnRange, `A_turn: heading must change > ${TURN_MIN_DEG}° (rule14 avoidance)`)
-    .toBeGreaterThan(TURN_MIN_DEG);
+  const hdg0 = bHdgs[0];
+  const lastFromStart = bHdgs.map(h => {
+    let d = Math.abs(h - hdg0) % 360;
+    if (d > 180) d = 360 - d;
+    return d;
+  });
+  const netTurnDeg = Math.max(...lastFromStart);
+  console.log(`A_turn: range=${turnRange.toFixed(1)}° net|max-from-start|=${netTurnDeg.toFixed(1)}° (min=${Math.min(...bHdgs).toFixed(1)} max=${Math.max(...bHdgs).toFixed(1)} first=${hdg0.toFixed(1)})`);
+  expect(netTurnDeg, `A_turn: net heading change from initial must be > ${TURN_NET_MIN_DEG}° (rule14 avoidance; range-based assertion passed on the 0°↔360° oscillation bug)`)
+    .toBeGreaterThan(TURN_NET_MIN_DEG);
 
   // ===== A_recon : HMI store == backend trace, matched by sim_t =====
   // For each HMI sample, find the backend sample with nearest sim_t and compare heading.
@@ -209,7 +225,86 @@ test(`MVP consistency rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => 
 
   fs.writeFileSync(path.join(runDir, 'verdict.json'), JSON.stringify({
     rate: RATE, rtf, rtf_band: RTF_BAND,
-    turn_range_deg: turnRange, turn_min_deg: TURN_MIN_DEG,
+    turn_range_deg: turnRange, turn_net_deg: netTurnDeg, turn_net_min_deg: TURN_NET_MIN_DEG,
     recon_matched: diffs.length, recon_median_diff_deg: medianDiff, recon_tol_deg: RECON_MEDIAN_TOL_DEG,
+  }, null, 2));
+});
+
+// ----------------------------------------------------------------------------
+// A_stateful: same scenario, second lifecycle cycle in the SAME sil-nodes process.
+// Bug probed: cold-start (first activate) works, warm-start (subsequent
+// activates in the same process) leaves the ship at heading 0° for the full
+// 600s sim. First run turned 337.7°, retries all 0.0° (2026-06-02 A4000).
+//
+// This test runs in the SAME sil-nodes container that the cold-start test used.
+// It does: cleanup → configure → activate (again) → wait for sim_t≥250 →
+// sample. If A_stateful fails, the system has a STATEFUL avoidance bug.
+// ----------------------------------------------------------------------------
+test(`A_stateful warm-start rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => {
+  const runDir = path.join(RUNS_DIR, `${RATE}x_stateful_${Date.now()}`);
+  fs.mkdirSync(runDir, { recursive: true });
+
+  // Re-use the same UI path but skip the navigation — go straight to the
+  // scenario + preflight + monitor flow as if the user pressed "再次仿真".
+  await page.goto('/#scenario');
+  await page.waitForSelector('[data-testid="simulation-scenario"]');
+  await page.click('[data-testid="scenario-tab-vessel"]');
+  await page.click('text=下一步');
+  const colregsFolder = page.locator('text=COLREGs测试').first();
+  await colregsFolder.waitFor({ state: 'visible', timeout: 30_000 });
+  await colregsFolder.click();
+  const card = page.locator(`[data-testid="scenario-card-${SCENARIO}"]`);
+  await card.waitFor({ state: 'visible', timeout: 30_000 });
+  await card.click();
+  await page.click('[data-testid="scenario-confirm"]', { timeout: 15_000 });
+  const runBtn = page.getByRole('button', { name: /进行仿真检查/ });
+  await runBtn.waitFor({ state: 'visible' });
+  await runBtn.click();
+
+  await page.waitForURL(`**/#/check/${SCENARIO}`);
+  await page.waitForSelector('[data-testid="preflight"]');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="preflight-status"]');
+    return el && /GO/.test(el.textContent || '');
+  }, { timeout: 180_000 });
+  await page.waitForURL(`**/#/monitor/${SCENARIO}`, { timeout: 120_000 });
+
+  await page.click(`[data-testid="rate-btn-${RATE}x"]`);
+  await page.waitForFunction(
+    (target) => {
+      const t = (window as any).__TELEMETRY_STORE__?.getState?.()?.lifecycleStatus?.sim_time;
+      return typeof t === 'number' && t >= target;
+    },
+    250,
+    { timeout: 180_000, polling: 500 },
+  );
+  await page.waitForTimeout(1000);
+
+  const hmi: HmiSample[] = [];
+  const backend: BackendSample[] = [];
+  const t0 = Date.now();
+  while (Date.now() - t0 < SAMPLE_WALL_MS) {
+    backend.push(await readBackendSample(request));
+    hmi.push(await readHmiSample(page));
+    await page.waitForTimeout(SAMPLE_INTERVAL_MS);
+  }
+  fs.writeFileSync(path.join(runDir, 'series.json'),
+    JSON.stringify({ rate: RATE, hmi, backend }, null, 2));
+
+  const bHdgs = backend.map(s => s.hdg);
+  const hdg0 = bHdgs[0];
+  const lastFromStart = bHdgs.map(h => {
+    let d = Math.abs(h - hdg0) % 360;
+    if (d > 180) d = 360 - d;
+    return d;
+  });
+  const netTurnDeg = Math.max(...lastFromStart);
+  console.log(`A_stateful (warm-start): net|max-from-start|=${netTurnDeg.toFixed(1)}° (first=${hdg0.toFixed(1)} min=${Math.min(...bHdgs).toFixed(1)} max=${Math.max(...bHdgs).toFixed(1)})`);
+  expect(netTurnDeg, `A_stateful: warm-start (second activate in same process) must also produce a real turn > ${TURN_NET_MIN_DEG}°. Got net=${netTurnDeg.toFixed(1)}° (0°↔360° oscillation passes range-based, net-from-start does not).`)
+    .toBeGreaterThan(TURN_NET_MIN_DEG);
+
+  fs.writeFileSync(path.join(runDir, 'verdict.json'), JSON.stringify({
+    rate: RATE, kind: 'stateful_warm_start',
+    net_turn_deg: netTurnDeg, net_min_deg: TURN_NET_MIN_DEG,
   }, null, 2));
 });
