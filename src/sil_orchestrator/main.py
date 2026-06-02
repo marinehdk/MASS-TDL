@@ -164,14 +164,10 @@ async def lifecycle_configure(request: dict):
 
 @app.post("/api/v1/lifecycle/activate")
 async def lifecycle_activate():
-    # Truncate the trace file immediately so stale records from a previous
-    # scenario run don't pollute /debug/snapshot or test _wait_until_sim_t.
-    trace_file = RUN_DIR / "trace_current.jsonl"
-    try:
-        trace_file.parent.mkdir(parents=True, exist_ok=True)
-        trace_file.write_text("")
-    except Exception:
-        pass
+    # The bridge (sil_topic_bridge.py DebugTraceWriter) owns the trace file
+    # handle and truncates on ACTIVE.  Touching the file from the orchestrator
+    # side races the bridge's open handle and creates sparse (NUL-padded)
+    # corruption — see fix/debug-snapshot-stale-trace for forensic detail.
     result = await bridge.activate()
     run_id = None
     if result.success and bridge.scenario_id:
