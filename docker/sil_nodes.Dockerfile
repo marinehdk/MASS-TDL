@@ -38,8 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ubuntu 22.04 libyaml-cpp-dev 0.7.0 exports "yaml-cpp" (no namespace).
 # Upstream CMakeLists.txt (M1-M6, M8) expects "yaml-cpp::yaml-cpp".
 # Patch the targets file to add the namespace alias.
+# Glob the multiarch triplet so this works on both arm64 (Mac) and x86_64 (server).
 RUN sed -i '/^add_library(yaml-cpp SHARED IMPORTED)$/a add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)' \
-    /usr/lib/aarch64-linux-gnu/cmake/yaml-cpp/yaml-cpp-targets.cmake
+    /usr/lib/*-linux-gnu/cmake/yaml-cpp/yaml-cpp-targets.cmake
 
 WORKDIR /opt/ws
 
