@@ -67,6 +67,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
         --parallel-workers 2 \
         --cmake-args \
             -DBUILD_TESTING=OFF \
+            -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
             -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
