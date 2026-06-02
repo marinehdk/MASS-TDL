@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import struct
 import time
 import subprocess
@@ -17,6 +18,9 @@ from pathlib import Path
 from typing import Callable, Awaitable, Any
 
 _log = logging.getLogger(__name__)
+
+# Foxglove_bridge port — default 8765; A4000 shared host overrides via env.
+FOX_PORT = int(os.environ.get("FOX_PORT", "8765"))
 
 import yaml
 
@@ -230,16 +234,16 @@ async def _check_ros2_discovery() -> tuple[str, str]:
 
 
 async def _check_foxglove_bridge() -> tuple[str, str]:
-    """TCP connect to localhost:8765 — foxglove_bridge WS endpoint."""
+    """TCP connect to localhost:{FOX_PORT} — foxglove_bridge WS endpoint."""
     try:
         _, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", 8765), timeout=5
+            asyncio.open_connection("127.0.0.1", FOX_PORT), timeout=5
         )
         writer.close()
         await writer.wait_closed()
-        return CHECK_OK, ":8765 listening"
+        return CHECK_OK, f":{FOX_PORT} listening"
     except Exception as e:
-        return CHECK_FAIL, f":8765 not reachable: {e}"
+        return CHECK_FAIL, f":{FOX_PORT} not reachable: {e}"
 
 
 async def _check_martin_tileserver() -> tuple[str, str]:

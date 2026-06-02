@@ -11,6 +11,7 @@ services:
       - "source /opt/ros/humble/setup.bash && source /opt/sil/install/setup.bash && python3 -m uvicorn sil_orchestrator.main:app --host 0.0.0.0 --port 18000 --ssl-certfile /certs/sil.crt --ssl-keyfile /certs/sil.key"
     environment:
       - ROS_DOMAIN_ID=42
+      - FOX_PORT=18765
       # ROS_LOCALHOST_ONLY=1 disabled: CycloneDDS on Ubuntu 22.04's loopback
       # interface is not multicast-capable, so forcing localhost-only disables
       # DDS discovery entirely (ros2 node list returns 0). ROS_DOMAIN_ID=42
