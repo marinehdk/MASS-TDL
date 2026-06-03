@@ -28,8 +28,13 @@ class MockNode:
             value = 0.0
         return Param()
     def get_clock(self):
-        clock = Mock()
-        clock.now = Mock(return_value=SimpleNamespace(to_msg=Mock(return_value=SimpleNamespace(sec=0, nanosec=0))))
+        from types import SimpleNamespace
+        clock = type('Clock', (), {
+            'now': staticmethod(lambda: SimpleNamespace(
+                nanoseconds=20_000_000_000,  # 20 s
+                to_msg=lambda: SimpleNamespace(sec=20, nanosec=0)
+            ))
+        })()
         return clock
 
 @pytest.fixture(autouse=True)
@@ -53,12 +58,16 @@ def setup_fake_ros(monkeypatch):
     sil_msgs.msg.ModulePulse = type("ModulePulse", (), {})
     sil_msgs.msg.ASDREvent = type("ASDREvent", (), {})
     sil_msgs.msg.BridgeState = type("BridgeState", (), {})
+    sil_msgs.msg.LifecycleStatus = type("LifecycleStatus", (), {})
+    sil_msgs.msg.ScoringRow = type("ScoringRow", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
     l3_external_msgs.msg.FilteredOwnShipState = type("FilteredOwnShipState", (), {})
     l3_external_msgs.msg.TrackedTargetArray = type("TrackedTargetArray", (), {})
     l3_external_msgs.msg.EnvironmentState = type("L3EnvironmentState", (), {})
+    l3_external_msgs.msg.PlannedRoute = type("PlannedRoute", (), {})
+    l3_external_msgs.msg.CheckerVetoNotification = type("CheckerVetoNotification", (), {})
 
     l3_msgs = types.ModuleType("l3_msgs")
     l3_msgs.msg = types.ModuleType("l3_msgs.msg")
@@ -131,18 +140,21 @@ class TestBridgeLatchRelease:
         """条件2: task_validity==valid 且 behavior==TRANSIT → release"""
         SilTopicBridge = get_bridge_class()
         bridge = SilTopicBridge()
-        mission_msg = Mock()
-        mission_msg.task_validity = 1  # VALID
+        mission_msg = SimpleNamespace(
+            fsm_state=3,  # ACTIVE — must be >=3 for release logic to run
+            task_validity=1,  # VALID
+            current_target_wp=SimpleNamespace(latitude=0.0, longitude=0.0),
+        )
         behavior_msg = Mock()
         behavior_msg.behavior = 0  # BEHAVIOR_TRANSIT
         bridge._last_behavior_plan = behavior_msg
-        
+
         bridge._avoidance_target_heading_deg = 45.0
         bridge._target_heading_deg = 10.0
-        
+
         # Act
         bridge._on_mission_goal(mission_msg)
-        
+
         # Assert
         assert bridge._latch_release_triggered is True
 
