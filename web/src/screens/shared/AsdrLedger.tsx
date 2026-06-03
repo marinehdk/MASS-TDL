@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface AsdrEvent {
   time: string;
@@ -11,6 +11,7 @@ interface AsdrEvent {
 interface AsdrLedgerProps {
   events: AsdrEvent[];
   onEventSelect?: (timeSec: number) => void;
+  currentTimeSec?: number;
 }
 
 type FilterLevel = 'ALL' | 'INFO' | 'WARN' | 'CRIT';
@@ -31,7 +32,7 @@ const timeToSeconds = (timeStr: string): number => {
   return 0;
 };
 
-export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect }) => {
+export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect, currentTimeSec }) => {
   const [filter, setFilter] = useState<FilterLevel>('ALL');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -39,6 +40,53 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect })
   const filtered = filter === 'ALL' ? events : events.filter((e) => e.type.includes(filter));
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+
+  // Find index of the event closest to currentTimeSec in the filtered list
+  let closestIndex = -1;
+  if (currentTimeSec !== undefined && filtered.length > 0) {
+    let minDiff = Infinity;
+    for (let i = 0; i < filtered.length; i++) {
+      const diff = Math.abs(timeToSeconds(filtered[i].time) - currentTimeSec);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIndex = i;
+      }
+    }
+  }
+
+  const lastTargetPageRef = useRef<number>(-1);
+  const activeRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  // Sync pagination page with the closest event
+  useEffect(() => {
+    if (closestIndex !== -1) {
+      const targetPage = Math.floor(closestIndex / PAGE_SIZE);
+      if (targetPage !== lastTargetPageRef.current && targetPage >= 0 && targetPage < totalPages) {
+        lastTargetPageRef.current = targetPage;
+        setPage(targetPage);
+      }
+    }
+  }, [closestIndex, totalPages]);
+
+  // Reset lastTargetPageRef when page changes manually (so if time shifts back/forth to this page later, it still triggers sync)
+  useEffect(() => {
+    if (closestIndex !== -1) {
+      const targetPage = Math.floor(closestIndex / PAGE_SIZE);
+      if (page === targetPage) {
+        lastTargetPageRef.current = targetPage;
+      }
+    }
+  }, [page, closestIndex]);
+
+  // Scroll active row into view
+  useEffect(() => {
+    if (activeRowRef.current && typeof activeRowRef.current.scrollIntoView === 'function') {
+      activeRowRef.current.scrollIntoView({
+        behavior: 'auto',
+        block: 'nearest',
+      });
+    }
+  }, [closestIndex, page]);
 
   return (
     <div data-testid="asdr-ledger" style={{
@@ -96,12 +144,22 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect })
             {paged.map((e, i) => {
               const sevColor = SEV_COLORS[e.type.split('_')[0] === 'CRIT' ? 'CRIT' :
                 e.type.includes('WARN') ? 'WARN' : 'INFO'] ?? 'var(--txt-2)';
+              const eventIndex = page * PAGE_SIZE + i;
+              const isActive = closestIndex === eventIndex;
               return (
-                <tr key={i} onClick={() => onEventSelect?.(timeToSeconds(e.time))} style={{
-                  borderTop: '1px solid var(--line-1)',
-                  color: 'var(--txt-2)',
-                  cursor: onEventSelect ? 'pointer' : 'default',
-                }}>
+                <tr
+                  key={i}
+                  ref={isActive ? activeRowRef : undefined}
+                  onClick={() => onEventSelect?.(timeToSeconds(e.time))}
+                  style={{
+                    borderTop: '1px solid var(--line-1)',
+                    color: 'var(--txt-2)',
+                    cursor: onEventSelect ? 'pointer' : 'default',
+                    background: isActive ? 'rgba(91,192,190,0.15)' : undefined,
+                  }}
+                  className={isActive ? 'highlighted' : undefined}
+                  data-testid={isActive ? 'active-row' : undefined}
+                >
                   <td style={{ padding: '2px 4px', color: 'var(--txt-3)' }}>
                     {page * PAGE_SIZE + i + 1}
                   </td>
