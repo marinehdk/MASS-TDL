@@ -4,6 +4,7 @@ import { DualClock } from './DualClock';
 import { useUIStore } from '../../store';
 import { useTelemetryStore } from '../../store';
 import { LucideCompass } from 'lucide-react';
+import { useGetLastRunScoringQuery } from '../../api/silApi';
 
 interface TopChromeProps {
   onNavigate?: (screen: 'scenario' | 'check' | 'monitor' | 'evaluator') => void;
@@ -36,6 +37,14 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
 
   const currentScreen = getCurrentScreen();
+  const { data: scoring } = useGetLastRunScoringQuery(undefined, {
+    skip: currentScreen !== 'evaluator',
+  });
+  const hash = window.location.hash.replace('#/', '');
+  const parts = hash.split('/');
+  const hashRunId = parts[1];
+  const displayRunId = hashRunId && hashRunId !== 'latest' ? hashRunId : (scoring?.run_id || 'LATEST');
+  const finalRunId = displayRunId ? (displayRunId.length > 12 ? displayRunId.slice(0, 8) : displayRunId).toUpperCase() : 'LATEST';
   const runState: 'IDLE' | 'READY' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ABORTED' =
     (lifecycleStatus?.current_state === 3 ? 'ACTIVE' :
      lifecycleStatus?.current_state === 2 ? 'READY' :
@@ -109,9 +118,15 @@ export const TopChrome: React.FC<TopChromeProps> = ({ onNavigate }) => {
             fontFamily: 'var(--f-disp)', fontSize: 18, color: 'var(--c-phos)',
             letterSpacing: '0.04em', fontWeight: 800, textTransform: 'uppercase',
           }}>MASS战术决策系统</span>
-          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em', opacity: 0.8 }}>
-            MASS TDL SYSTEM
-          </span>
+          {currentScreen === 'evaluator' ? (
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-phos)', letterSpacing: '0.05em', fontWeight: 700 }}>
+              仿真报告：{finalRunId}
+            </span>
+          ) : (
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em', opacity: 0.8 }}>
+              MASS TDL SYSTEM
+            </span>
+          )}
         </div>
       </div>
 

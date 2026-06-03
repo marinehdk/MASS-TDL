@@ -153,49 +153,12 @@ export function SimulationEvaluator() {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}>
-      {/* Header + Actions */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-        padding: '16px 18px 0',
-        marginBottom: '12px',
-      }}>
-        <div>
-          <div style={{
-            fontFamily: 'var(--f-disp)', fontSize: 16, color: 'var(--txt-0)',
-            fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase',
-          }}>RUN REPORT · {runId.slice(0, 8)}</div>
-          <div style={{
-            fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-3)', marginTop: 2,
-          }}>
-            scenario · seed · 600s · 2026-05-13 06:42:01 UTC
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => window.location.hash = '#/scenario'} style={{
-            background: 'transparent', border: '1px solid var(--line-3)', color: 'var(--txt-1)',
-            padding: '8px 14px', fontFamily: 'var(--f-disp)', fontSize: 10,
-            letterSpacing: '0.16em', fontWeight: 600, cursor: 'pointer',
-          }}>← BACK TO SCENARIOS</button>
-          <button onClick={handleExport} disabled={isLoading} style={{
-            background: 'transparent', border: '1px solid var(--c-phos)', color: 'var(--c-phos)',
-            padding: '8px 14px', fontFamily: 'var(--f-disp)', fontSize: 10,
-            letterSpacing: '0.16em', fontWeight: 600, cursor: 'pointer',
-            opacity: isLoading ? 0.6 : 1,
-          }}>{isLoading ? 'EXPORTING...' : 'EXPORT MARZIP'}</button>
-          <button onClick={handleNewRun} style={{
-            background: 'var(--c-phos)', border: '1px solid var(--c-phos)', color: 'var(--bg-0)',
-            padding: '8px 14px', fontFamily: 'var(--f-disp)', fontSize: 10,
-            letterSpacing: '0.16em', fontWeight: 700, cursor: 'pointer',
-          }}>NEW RUN →</button>
-        </div>
-      </div>
-
       {/* Responsive Three-Column Layout (Option A) */}
       <div style={{
         flex: 1,
         display: 'flex',
         gap: 16,
-        padding: '0 18px 12px',
+        padding: '16px 18px 12px',
         overflow: 'hidden',
       }}>
         {/* Column 1 (42% width) */}
@@ -368,6 +331,26 @@ export function SimulationEvaluator() {
               currentTimeSec={currentTimeSec}
               onEventSelect={setCurrentTimeSec}
             />
+          </div>
+
+          {/* Action Buttons Row at bottom right */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexShrink: 0 }}>
+            <button onClick={() => window.location.hash = '#/scenario'} style={{
+              flex: 1, background: 'transparent', border: '1px solid var(--line-3)', color: 'var(--txt-1)',
+              padding: '8px 10px', fontFamily: 'var(--f-disp)', fontSize: 10,
+              letterSpacing: '0.16em', fontWeight: 600, cursor: 'pointer',
+            }}>← BACK TO SCENARIOS</button>
+            <button onClick={handleExport} disabled={isLoading} style={{
+              flex: 1, background: 'transparent', border: '1px solid var(--c-phos)', color: 'var(--c-phos)',
+              padding: '8px 10px', fontFamily: 'var(--f-disp)', fontSize: 10,
+              letterSpacing: '0.16em', fontWeight: 600, cursor: 'pointer',
+              opacity: isLoading ? 0.6 : 1,
+            }}>{isLoading ? 'EXPORTING...' : 'EXPORT MARZIP'}</button>
+            <button onClick={handleNewRun} style={{
+              flex: 1, background: 'var(--c-phos)', border: '1px solid var(--c-phos)', color: 'var(--bg-0)',
+              padding: '8px 10px', fontFamily: 'var(--f-disp)', fontSize: 10,
+              letterSpacing: '0.16em', fontWeight: 700, cursor: 'pointer',
+            }}>NEW RUN →</button>
           </div>
         </div>
       </div>

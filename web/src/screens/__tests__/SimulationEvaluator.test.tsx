@@ -64,8 +64,7 @@ beforeEach(() => {
 describe('SimulationEvaluator', () => {
   it('renders report container successfully with run_id and KPIs', () => {
     render(<SimulationEvaluator />);
-    expect(screen.getByText(/RUN REPORT/)).toBeInTheDocument();
-    expect(screen.getByText(/test-run/)).toBeInTheDocument(); // matches first 8 chars of 'test-run-id-12345'
+    expect(screen.getByText('EXPORT MARZIP')).toBeInTheDocument();
     expect(screen.getByText('0.350 nm')).toBeInTheDocument();
     expect(screen.getByText('120 s')).toBeInTheDocument();
     expect(screen.getByTestId('decision-tree')).toBeInTheDocument();
