@@ -161,9 +161,9 @@ export function SimulationEvaluator() {
         padding: '16px 18px 12px',
         overflow: 'hidden',
       }}>
-        {/* Column 1 (42% width) */}
+        {/* Column 1 (55% width) */}
         <div style={{
-          flex: 42,
+          flex: 55,
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
@@ -178,9 +178,9 @@ export function SimulationEvaluator() {
           </div>
         </div>
 
-        {/* Column 2 (28% width) */}
+        {/* Column 2 (22.5% width) */}
         <div style={{
-          flex: 28,
+          flex: 22.5,
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
@@ -268,9 +268,9 @@ export function SimulationEvaluator() {
           </div>
         </div>
 
-        {/* Column 3 (30% width) */}
+        {/* Column 3 (22.5% width) */}
         <div style={{
-          flex: 30,
+          flex: 22.5,
           display: 'flex',
           flexDirection: 'column',
           gap: 12,

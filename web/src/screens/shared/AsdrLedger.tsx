@@ -90,7 +90,7 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect, c
 
   return (
     <div data-testid="asdr-ledger" style={{
-      display: 'flex', flexDirection: 'column', height: '100%',
+      display: 'flex', flexDirection: 'column', height: '100%', flex: 1,
       background: 'var(--bg-1)', border: '1px solid var(--line-1)',
     }}>
       {/* Header + filters */}
@@ -126,6 +126,7 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect, c
         <table style={{
           width: '100%', borderCollapse: 'collapse',
           fontFamily: 'var(--f-mono)',
+          tableLayout: 'fixed',
         }}>
           <thead>
             <tr style={{
@@ -146,6 +147,7 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect, c
                 e.type.includes('WARN') ? 'WARN' : 'INFO'] ?? 'var(--txt-2)';
               const eventIndex = page * PAGE_SIZE + i;
               const isActive = closestIndex === eventIndex;
+              const payloadStr = typeof e.payload === 'object' ? JSON.stringify(e.payload) : String(e.payload ?? '');
               return (
                 <tr
                   key={i}
@@ -166,16 +168,24 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect, c
                   <td style={{ padding: '2px 4px' }}>{e.time}</td>
                   <td style={{ padding: '2px 4px', color: sevColor }}>{e.type}</td>
                   <td style={{ padding: '2px 4px' }}>{e.module}</td>
-                  <td style={{
-                    padding: '2px 4px', maxWidth: 200,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {typeof e.payload === 'object' ? JSON.stringify(e.payload) : e.payload}
+                  <td
+                    title={payloadStr}
+                    style={{
+                      padding: '2px 4px', maxWidth: 200,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {payloadStr}
                   </td>
-                  <td style={{
-                    padding: '2px 4px', color: 'var(--txt-3)', fontSize: 7.5,
-                  }}>
-                    {e.hash ? e.hash.slice(0, 8) : ''}
+                  <td
+                    title={e.hash}
+                    style={{
+                      padding: '2px 4px', color: 'var(--txt-3)', fontSize: 7.5,
+                      maxWidth: 72,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {e.hash || ''}
                   </td>
                 </tr>
               );
