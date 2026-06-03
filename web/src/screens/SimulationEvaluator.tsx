@@ -238,8 +238,6 @@ export function SimulationEvaluator() {
           <div className="glass-panel" style={{ flex: 1, minHeight: 280, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <ColregsDecisionTree
               currentTimeSec={currentTimeSec}
-              ruleChain={ruleChain}
-              events={reportEvents}
             />
           </div>
 
