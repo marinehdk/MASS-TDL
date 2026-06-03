@@ -3,7 +3,7 @@
 | 维度 | 说明 |
 |---|---|
 | 数据更新规则 | PR 合并涉及 M5 时同步更新本表 |
-| 最近更新 | 2026-05-25 |
+| 最近更新 | 2026-06-03 |
 | **Currently Implementing** | — |
 
 | D 任务 | 关系 | 状态 | 详情 |
@@ -12,6 +12,7 @@
 | D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：全模块适用 |
 | D1.3.1 (原 D1.3a) | Blocks reverse | 🟡 | M5 ROT_max 参数曲线读 Manifest 依赖 D1.3.1 仿真器侧 |
 | D3.2 | Closed in | ✅ 2026-05-25 | M5 双 MPC 完整实装（2751 LOC src + 2218 LOC test）；report: [D3.2-report.md](../../Phase%203/D3.2-m5-tactical-planner/D3.2-report.md) |
+| feat/d-demo1-bridge-deadstick | Closed in | ✅ 2026-06-03 | Decoupled avoidance execution of M5 avoidance plans implemented in bridge |
 | D3.8 | Closed in | ✅ 2026-08-25（Wave 1）| §4.5 算法选型矩阵新增（Mid-MPC/BC-MPC/RRT*/VO/MPPI 矩阵）；§11.10 仲裁优先图完整化 |
 
 ## DEMO-2 阻塞贡献
