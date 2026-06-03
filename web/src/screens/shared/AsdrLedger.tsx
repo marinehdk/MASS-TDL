@@ -4,7 +4,7 @@ interface AsdrEvent {
   time: string;
   type: string;
   module: string;
-  payload: string;
+  payload: any;
   hash: string;
 }
 
@@ -112,12 +112,12 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect })
                     padding: '2px 4px', maxWidth: 200,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
-                    {e.payload}
+                    {typeof e.payload === 'object' ? JSON.stringify(e.payload) : e.payload}
                   </td>
                   <td style={{
                     padding: '2px 4px', color: 'var(--txt-3)', fontSize: 7.5,
                   }}>
-                    {e.hash.slice(0, 8)}
+                    {e.hash ? e.hash.slice(0, 8) : ''}
                   </td>
                 </tr>
               );
@@ -152,7 +152,7 @@ export const AsdrLedger: React.FC<AsdrLedgerProps> = ({ events, onEventSelect })
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
-          <span>SHA-256: {events.length > 0 ? events[events.length - 1].hash.slice(0, 12) + '...' : '0xDEADBEEF'}</span>
+          <span>SHA-256: {events.length > 0 && events[events.length - 1].hash ? events[events.length - 1].hash.slice(0, 12) + '...' : '0xDEADBEEF'}</span>
           <button style={{
             background: 'transparent', border: '1px solid var(--c-stbd)',
             color: 'var(--c-stbd)', padding: '1px 8px', cursor: 'pointer',

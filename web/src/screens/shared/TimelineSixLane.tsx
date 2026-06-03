@@ -31,8 +31,8 @@ const LANES = [
 ];
 
 const getLaneIndex = (evt: TimelineEvent): number => {
-  const m = evt.m;
-  const k = evt.k;
+  const m = evt.m || (evt as any).module || '';
+  const k = evt.k || (evt as any).type || '';
   if (k === 'ToR_REQ' || k === 'ToR_ACK' || k === 'OVERRIDE' || k === 'HANDBACK') return 5; // HUMAN
   if (m === 'M7' || k.includes('VETO') || k.includes('HB_LOSS')) return 4; // M7
   if (m === 'M5' || k.includes('MPC') || k.includes('Avoid')) return 3; // M5
@@ -156,14 +156,17 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
               {/* Event nodes on this lane */}
               {laneEvents.map((evt, i) => {
                 const leftPct = (evt.t / durationSec) * 100;
-                const color = SEV_COLORS[evt.sev] ?? 'var(--txt-2)';
-                const size = evt.sev === 'crit' ? 8 : evt.sev === 'warn' ? 7 : 6;
+                const k = evt.k || (evt as any).type || '';
+                const sev = evt.sev || (evt as any).payload?.severity?.toLowerCase() || 'info';
+                const color = SEV_COLORS[sev] ?? 'var(--txt-2)';
+                const size = sev === 'crit' ? 8 : sev === 'warn' ? 7 : 6;
                 const isCurrent = Math.abs(evt.t - currentTimeSec) < 5;
+                const desc = evt.d || (typeof (evt as any).payload === 'object' ? JSON.stringify((evt as any).payload) : String((evt as any).payload || ''));
                 
                 return (
                   <div
                     key={i}
-                    title={`${formatTime(evt.t)} [${evt.k}]: ${evt.d}`}
+                    title={`${formatTime(evt.t)} [${k}]: ${desc}`}
                     style={{
                       position: 'absolute',
                       left: `${leftPct}%`,
@@ -173,7 +176,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
                       borderRadius: '50%',
                       background: color,
                       border: isCurrent ? '1px solid #fff' : `1px solid rgba(0,0,0,0.5)`,
-                      boxShadow: evt.sev === 'crit' ? '0 0 6px var(--c-danger)' : evt.sev === 'warn' ? '0 0 4px var(--c-warn)' : 'none',
+                      boxShadow: sev === 'crit' ? '0 0 6px var(--c-danger)' : sev === 'warn' ? '0 0 4px var(--c-warn)' : 'none',
                       zIndex: isCurrent ? 5 : 2,
                     }}
                   />
