@@ -88,13 +88,6 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
           }}>
             EVENT TIMELINE (6-LANE AUDIT)
           </span>
-          <span style={{
-            fontFamily: 'var(--f-mono)', fontSize: 8, color: 'var(--c-warn)',
-            border: '1px solid var(--c-warn)', borderRadius: 2, padding: '0 4px',
-            letterSpacing: '0.05em', background: 'rgba(230,140,0,0.1)'
-          }}>
-            [DEMO DATA - MOCK ACTIVE]
-          </span>
         </div>
         <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)' }}>
           {formatTime(currentTimeSec)} / {formatTime(durationSec)} &middot; drag to scrub

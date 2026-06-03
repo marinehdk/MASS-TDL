@@ -84,13 +84,6 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
         }}>
           TRAJECTORY REPLAY
         </span>
-        <span style={{
-          fontFamily: 'var(--f-mono)', fontSize: 8, color: 'var(--c-warn)',
-          border: '1px solid var(--c-warn)', borderRadius: 2, padding: '0 4px',
-          letterSpacing: '0.05em',
-        }}>
-          [DEMO DATA - MOCK ACTIVE]
-        </span>
       </div>
 
       {/* Map area */}
