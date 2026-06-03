@@ -68,5 +68,7 @@ describe('SimulationEvaluator', () => {
     expect(screen.getByText(/test-run/)).toBeInTheDocument(); // matches first 8 chars of 'test-run-id-12345'
     expect(screen.getByText('0.350 nm')).toBeInTheDocument();
     expect(screen.getByText('120 s')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-tree')).toBeInTheDocument();
+    expect(screen.getByTestId('boundary-diagnostics')).toBeInTheDocument();
   });
 });

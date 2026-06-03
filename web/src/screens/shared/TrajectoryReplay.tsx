@@ -172,7 +172,22 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
             fontFamily: 'var(--f-mono)', fontSize: 9,
           }}>&times;{r}</button>
         ))}
-        <div style={{ flex: 1 }} />
+        <input
+          type="range"
+          min={0}
+          max={durationSec}
+          value={currentTimeSec}
+          onChange={(e) => onTimeChange?.(Number(e.target.value))}
+          style={{
+            flex: 1,
+            margin: '0 12px',
+            accentColor: 'var(--c-phos)',
+            background: 'var(--line-2)',
+            height: 4,
+            borderRadius: 2,
+            cursor: 'pointer',
+          }}
+        />
         <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-phos)' }}>
           {fmtT(currentTimeSec)}
         </span>
