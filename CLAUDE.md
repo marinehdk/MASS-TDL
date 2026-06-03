@@ -178,17 +178,28 @@ L4 Guidance [100ms~1s] — L5 Control [10ms~100ms]
 
 ---
 
-## 13. 本地+容器混合部署（PM2 + Docker）
+## 13. SIL 部署 = A4000 服务器（2026-06-03 迁移定稿）
 
-宿主机 Native 运行前端 HMI + Docker 运行 4 个后端容器。统一通过根目录 npm 脚本控制：
+**SIL 全栈（后端 docker + Vite HMI + Playwright harness）跑在公司 A4000 Ubuntu 服务器**，不在本地 Mac。原因：本地宿主 CPU 争用（load≈13，Chrome/Claude/OrbStack VM）使仿真倍速非确定（10×→1.59×），「测试绿/网页红」分裂；A4000 干净 box（i7-12700 20 线程，load≈1.5）上 RTF 确定且 =nominal。**sim 是 CPU-bound（ROS2/RK4/foxglove 串行），上限看 CPU 核数不是 A4000 GPU。**
 
-| 命令 | 作用 |
+| 项 | 值 |
 |---|---|
-| `npm run sys:start` | Docker up + PM2 start |
-| `npm run sys:stop` | PM2 delete + Docker down |
-| `npm run sys:status` | PM2 list + Docker ps |
+| SSH | `ssh a4000` → 192.168.121.50，user `marine.huang`（sudo 密码同名） |
+| 仓库 | `~/Code/mass-l3`，跟踪 GitLab **`l3-tdl`** 分支（origin=gitlab）|
+| 端口重映射 | orchestrator **18000** / foxglove **18765** / Vite **5173**（8000/8765 被共享生产栈 jitsi/fat-system 占用，**勿碰那些容器**）|
+| Node | nvm Node 20（共享账号不设全局 default）；PM2 per-user `sil-frontend` |
 
-单独调试：`pm2 restart sil-frontend` / `docker compose restart sil-orchestrator`
+启停（服务器上）：`source scripts/a4000-env.sh` 后 `npm run sys:start` / `sys:stop` / `sys:status`（Docker up/down + PM2）。看 HMI：`http://192.168.121.50:5173`。
+
+**一键验收**：`source scripts/a4000-env.sh && ./scripts/a4000-acceptance.sh`（`--sync` 先 pull l3-tdl）。串联下列两套工具，输出统一绿/红裁决：RTF/迁移 gating（headless{1,5,10}×全100% + HMI 路径 A_rtf@10× in band）；A_turn 功能 non-gating（task-3 修好后整测自然转绿）。
+
+**底层两套工具**（手动调试时别混用）：
+- 多速率（1/5/10×）纯后端倍速 → `rtf_headless_sweep.py`（rate-参数化，无避碰断言）。需 `export ORCH_URL=https://127.0.0.1:18000`。
+- HMI-path 一致性 @10× → `cd web && RATE=10 ORCH_PORT=18000 FOX_PORT=18765 npx playwright test e2e/mvp_consistency.spec.ts`。注意 `RTF_BAND` 硬编码 `[7,12]` **只对 10× 有效**；其 `A_turn` 当前诚实 RED（避碰失效，task-3 范畴，非倍速问题）。
+
+三端同步：本地 main = GitHub origin/main = GitLab `l3-tdl`，push 新提交须同步三端。
+
+单独调试：`pm2 restart sil-frontend` / `docker compose restart sil-nodes`（cleanup/configure 快循环会 wedge `env_disturbance_node` SetParameters → restart sil-nodes 复位）。
 
 ---
 
