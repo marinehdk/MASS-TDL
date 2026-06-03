@@ -58,9 +58,9 @@ def convert_mcap_to_arrow(
 
     try:
         from rosbags.highlevel import AnyReader
-    except ImportError:
-        _empty_file(out)
-        return 0
+    except ImportError as e:
+        print("Error: rosbags dependency is missing.", file=sys.stderr)
+        raise e
 
     timestamps: list[int] = []
     channels: list[str] = []
