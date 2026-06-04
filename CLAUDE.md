@@ -232,8 +232,9 @@ Palace: `~/.mempalace/palace`（通用命令/hooks 见全局 `~/.claude/CLAUDE.m
 - **启动时（上下文链回溯）**：
   在会话开始执行任何实质开发或测试操作前，你必须首先读取并检索 `handoff/workspace_log.md`。请根据当前用户提出的开发目标进行关键词或语义检索，**自动寻找与当前开发模块最相关的前置日志记录**，从而拼接出完整的上下文链路，杜绝信息丢失。
   
-- **结束时（统一格式日志记录）**：
-  在会话结束或回答用户任务完成前，你必须向 `handoff/workspace_log.md` 底部追加一条格式严格对齐的开发记录（或模仿已有的日志样式填写）。标准格式规范如下：
+- **结束时（统一格式日志记录与知识归档）**：
+  在会话结束或回答用户任务完成前，你必须完成以下两步：
+  1. 向 `handoff/workspace_log.md` 底部追加一条格式严格对齐的开发记录（或模仿已有的日志样式填写）。标准格式规范如下：
 
   ## [YYYY-MM-DD HH:MM] Agent: <客户端名称，如 Claude Code CLI>
   - **Git Commit**: `<Commit Hash>` (branch: `<当前分支名>`)
@@ -244,6 +245,11 @@ Palace: `~/.mempalace/palace`（通用命令/hooks 见全局 `~/.claude/CLAUDE.m
     - `[修改文件相对路径](file:///absolute/path/to/file)`: <简要说明在此文件做了什么改动>
   - **当前状态 (Status)**: <运行结果，如：单元测试全部通过 / 重构通过，待进行链路测试>
   - **接力指示 (Hand-off Context)**: <留给下一个接棒 Agent 的具体执行指令 and 上下文>
+
+  2. **对话入库（针对 Antigravity 插件环境）**：你必须定位当前会话的本地日志目录 `/Users/marine/.gemini/antigravity/brain/<current-conversation-id>/.system_generated/logs`，并在终端运行以下命令将当前会话记录同步导入至共享的 MemPalace 会话库中：
+     ```bash
+     mempalace mine "/Users/marine/.gemini/antigravity/brain/<current-conversation-id>/.system_generated/logs" --mode convos --wing sessions
+     ```
 
 ### 2. Token 节约与代码搜索规范
 - **禁止暴力搜索**：严禁在未做定位的情况下，使用大范围 `grep` 或读取大量整个源代码文件。
