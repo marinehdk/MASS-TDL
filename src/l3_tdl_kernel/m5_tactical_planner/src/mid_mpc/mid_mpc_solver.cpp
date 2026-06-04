@@ -120,64 +120,6 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   MidMpcSolution sol = formulation_.unpack_solution(res.at("x"), stats);
   sol.solve_duration_ms = duration_ms;
 
-  // Phase 3.5 in-loop calibration: re-evaluate the cost sub-terms at the
-  // solved trajectory using the SAME arithmetic as
-  // build_colreg_cost_/build_distance_cost_/build_velocity_cost_. We hardcode
-  // the current formulation defaults (w_colreg=1000, w_dist=10, w_vel=1,
-  // kColregZeta=1e-3) and the current build formula (exp_flip) to give us
-  // ground-truth per-term magnitudes from the actual IPOPT solution. After
-  // we pick the right weight / formula combination, this block is removed
-  // and the formulation's own cost split (currently zero-init) is filled
-  // in properly.
-  if (sol.status == SolveStatus::Converged && !sol.trajectory.empty()) {
-    const int32_t N = static_cast<int32_t>(sol.trajectory.size());
-    const double dt = formulation_.config().dt_s;
-    const double w_c = 1000.0, w_d = 10.0, w_v = 1.0;
-    const double Z   = 1.0e-3;
-    const double cpa_safe = input.constraints.cpa_safe_m;
-    // Build own trajectory by integrating psi/u from initial state.
-    double cx = input.own_ship.x_m, cy = input.own_ship.y_m;
-    const double u0 = input.own_ship.u_mps;
-    std::vector<double> x_own(static_cast<std::size_t>(N)), y_own(static_cast<std::size_t>(N));
-    for (int32_t k = 0; k < N; ++k) {
-      cx += u0 * dt * std::cos(sol.trajectory[static_cast<std::size_t>(k)].psi_rad);
-      cy += u0 * dt * std::sin(sol.trajectory[static_cast<std::size_t>(k)].psi_rad);
-      x_own[static_cast<std::size_t>(k)] = cx;
-      y_own[static_cast<std::size_t>(k)] = cy;
-    }
-    double J_colreg = 0.0, J_dist = 0.0, J_vel = 0.0;
-    for (int32_t k = 0; k < N; ++k) {
-      J_dist += std::pow(sol.trajectory[static_cast<std::size_t>(k)].psi_rad
-                          - input.planned_route_bearing_rad, 2);
-      J_vel  += std::pow(sol.trajectory[static_cast<std::size_t>(k)].u_mps
-                          - input.planned_speed_mps, 2);
-      const double kdt = static_cast<double>(k) * dt;
-      for (const auto& tgt : input.targets) {
-        const double w_cpa = std::max(tgt.cpa_m * 0.2, 50.0);
-        const double w_tcpa = std::max(tgt.tcpa_s * 0.2, 10.0);
-        const double tw = 1.0 / (w_cpa * w_tcpa);
-        const double tdx = tgt.sog_mps * std::cos(tgt.cog_rad);
-        const double tdy = tgt.sog_mps * std::sin(tgt.cog_rad);
-        const double dx = x_own[static_cast<std::size_t>(k)] - (tgt.x_m + tdx * kdt);
-        const double dy = y_own[static_cast<std::size_t>(k)] - (tgt.y_m + tdy * kdt);
-        const double d  = std::sqrt(dx*dx + dy*dy + 1.0);
-        // Build currently uses exp(-Z * (cpa - d))  [per D3.3 fix commit].
-        J_colreg += tw * std::exp(-Z * (cpa_safe - d));
-      }
-    }
-    sol.cost_colreg = J_colreg;
-    sol.cost_dist   = J_dist;
-    sol.cost_vel    = J_vel;
-    sol.cost_total  = w_c * J_colreg + w_d * J_dist + w_v * J_vel;
-    spdlog::info("[M5][Diag] J_colreg={:.4e} J_dist={:.4e} J_vel={:.4e} | "
-                 "w_c*Jc={:.4e} w_d*Jd={:.4e} w_v*Jv={:.4e} | "
-                 "psi0={:.1f}deg psiN={:.1f}deg",
-                 J_colreg, J_dist, J_vel,
-                 w_c * J_colreg, w_d * J_dist, w_v * J_vel,
-                 sol.trajectory.front().psi_rad * (180.0 / M_PI),
-                 sol.trajectory.back().psi_rad  * (180.0 / M_PI));
-  }
-
   if (sol.status == SolveStatus::Converged) {
     consecutive_failures_ = 0;
   } else {

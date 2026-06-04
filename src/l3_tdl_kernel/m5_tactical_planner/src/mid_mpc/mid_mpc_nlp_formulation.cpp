@@ -39,13 +39,6 @@ constexpr double kDefaultRotMaxRadS = 0.2094;
 constexpr double kMinCpaForWeight  = 1.0;   // [m]
 constexpr double kMinTcpaForWeight = 1.0;   // [s]
 
-// [D3.3 fix] Exponential barrier decay rate for J_colreg on the safety margin.
-// zeta = 1e-3 / m  ->  e^(-zeta * (cpa - d)) is ~8% of its peak at d = cpa_safe
-// (2500 m) and ~0.6% at d = 2 * cpa_safe, giving IPOPT a non-vanishing gradient
-// far before CPA. Tuned from colav_algorithms NLM research (Johansen 2016 /
-// Eriksen 2019 / Tam 2010 family) for the rule14 long-approach geometry.
-constexpr double kColregZeta  = 1.0e-3;   // [1/m]
-
 // Slice helper: extract scalar p[i] as 1×1 MX.
 casadi::MX slot(const casadi::MX& p, int32_t i) {
   return p(casadi::Slice(i, i + 1));
@@ -147,15 +140,7 @@ casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
       const casadi::MX dx  = x_own[static_cast<std::size_t>(k)] - (tx + tdx * kdt);
       const casadi::MX dy  = y_own[static_cast<std::size_t>(k)] - (ty + tdy * kdt);
       const casadi::MX d2  = dx * dx + dy * dy;
-      // Exponential-on-safety-margin (Johansen-2016 family). C^inf, no
-      // singularity at d=0, gradient everywhere, no perverse incentive.
-      // Replaces fmax(0, cpa^2 - d^2) which vanishes outside cpa_safe and
-      // gave the MPC cost_colreg=0 across the whole horizon in long-approach
-      // encounters (rule14 head-on at 2 nm), so it never had any reason
-      // to turn.
-      const casadi::MX d_safe   = casadi::MX::sqrt(d2 + 1.0);
-      const casadi::MX colreg_t = casadi::MX::exp(-kColregZeta * (cpa - d_safe));
-      cost = cost + tw * colreg_t;
+      cost = cost + tw * casadi::MX::fmax(zero, cpa2 - d2);
     }
   }
   return cost;

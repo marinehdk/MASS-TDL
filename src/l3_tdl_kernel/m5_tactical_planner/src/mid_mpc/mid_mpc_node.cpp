@@ -240,7 +240,19 @@ void MidMpcNode::on_solve_cycle_()
       || behavior_plan_->rationale.find("fallback") != std::string::npos;
 
   l3_msgs::msg::AvoidancePlan plan;
-  if (solver_failed || m4_geometric) {
+  if (behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT) {
+    // D-DEMO1 spin fix: M4 is the COLREG authority on whether avoidance is
+    // active. When M4 is in TRANSIT, emit an EMPTY plan (no waypoints) so the
+    // execution bridge releases avoidance and resumes route-following. Without
+    // this the geometric fallback below keeps a VALID plan alive forever (the
+    // NLP solver is a Phase-3 stub that never converges → solver_failed always
+    // true), trapping the bridge in avoidance → endless circling, no return.
+    plan.schema_version = 112;
+    plan.status     = "NORMAL";
+    plan.rationale  = "M4 TRANSIT — no avoidance required";
+    plan.confidence = 1.0F;
+    // waypoints left empty → bridge has_valid_plan == False → avoidance released
+  } else if (solver_failed || m4_geometric) {
     const std::string reason = solver_failed
         ? "solver_status=" + std::to_string(static_cast<int>(sol.status))
         : "m4_geometric";

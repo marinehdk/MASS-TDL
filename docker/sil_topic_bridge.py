@@ -101,6 +101,16 @@ SHIP_LENGTH_M = 46.0   # FCB approximate length for turn-radius→rudder convers
 
 RUDDER_SIGN = -1  # MMG convention: positive delta → PORT turn; bridge uses positive = starboard
 
+# ── Geometry release threshold ─────────────────────────────────────────────
+# Bridge-local CPA safety margin for geometry release criterion.
+# Traced from: src/l3_tdl_kernel/m6_colregs_reasoner/config/odd_aware_thresholds.yaml
+# `cpa_safe_m: 1000.0  # [TBD-HAZID] calibrated baseline for integration tests`
+# [TBD-HAZID][cross-module] M2 ThreatState should publish numeric cpa_m/tcpa_s
+# so the release threshold is sourced from a single authoritative module, not
+# duplicated here. Until M2 exports these fields, this bridge-local constant is
+# the interim bridge implementation.
+CPA_SAFE_M: float = 1000.0  # metres — same as M6 integration-test baseline
+
 # ── QoS profiles ─────────────────────────────────────────────
 
 def _sensor_qos(depth: int = 5) -> QoSProfile:
@@ -320,6 +330,7 @@ class SilTopicBridge(Node):
         self._current_target_wp_lon = 0.0
         self._route_wps = []  # [(lat,lon)] cached planned route for geometric XTE
         self._lifecycle_state = None
+        self._last_sim_time = None
 
         self.declare_parameter("ownship_initial_heading_deg", 0.0)
         self.declare_parameter("ownship_initial_sog_kn", CRUISE_SPEED_KN)
@@ -418,10 +429,19 @@ class SilTopicBridge(Node):
         # M4 has already reverted to TRANSIT by the time M5's plan arrives.
         self._avoidance_armed_time: float | None = None
         self._LATCH_MIN_HOLD_S: float = 8.0  # minimum sim-seconds to hold avoidance
+        # D-DEMO1 spin fix: sim-time at which M4 last entered (and has continuously
+        # held) BEHAVIOR_TRANSIT while avoidance is armed. Once M4 holds TRANSIT for
+        # _AVOID_TRANSIT_RELEASE_S, the bridge tears down avoidance (M4 is the COLREG
+        # authority), independent of M5 still emitting a stub geometric plan.
+        self._transit_since_time: float | None = None
+        self._AVOID_TRANSIT_RELEASE_S: float = 3.0
         # Guard: do not arm avoidance before M3 has reached FSM_ACTIVE (≥3) at
         # least once in this scenario.  Prevents M5 cold-start plans from
         # arming the bridge before the scenario state is fully established.
         self._m3_activated_once: bool = False
+
+        # ── Last target vessel state (for bridge-local DCPA/TCPA) ─────────────
+        self._last_target_vessel_raw = None
 
         # ── Bridge state publisher ────────────────────────────
         self._pub_bridge_state = self.create_publisher(
@@ -489,6 +509,29 @@ class SilTopicBridge(Node):
 
     # ── Autopilot callbacks ────────────────────────────────────
 
+    def _reset_autopilot_avoidance_state(self) -> None:
+        """Reset autopilot and avoidance states to prevent leakage across cycles."""
+        self._autopilot_enabled = False
+        self._avoidance_active = False
+        self._avoidance_target_heading_deg = None
+        self._last_avoidance_waypoint = None
+        self._avoidance_heading_controller.last_cmd_deg = 0.0
+        self._heading_controller.last_cmd_deg = 0.0
+        self._speed_controller = SpeedController()
+        self._reset_latch_release_state()
+        self._route_wps = []
+        self._current_target_wp_lat = 0.0
+        self._current_target_wp_lon = 0.0
+        self._last_ownship_raw = None
+        self._last_odd_state = None
+        self._last_behavior_plan = None
+        self._last_valid_plan_time = None
+        self._last_actuator_publish_time = None
+        self._m3_activated_once = False
+        self._last_sim_time = None
+        self._avoidance_armed_time = None
+        self._last_target_vessel_raw = None
+
     def _on_lifecycle_status(self, msg: LifecycleStatus) -> None:
         """Reset state if simulation is not ACTIVE."""
         # 3 is ACTIVE
@@ -503,36 +546,18 @@ class SilTopicBridge(Node):
                     f"[BRIDGE] Simulation state is {msg.current_state} (not ACTIVE). "
                     "Resetting autopilot and avoidance states to prevent leakage."
                 )
-            self._autopilot_enabled = False
-            self._avoidance_active = False
-            self._avoidance_target_heading_deg = None
-            self._last_avoidance_waypoint = None
-            self._avoidance_heading_controller.last_cmd_deg = 0.0
-            self._heading_controller.last_cmd_deg = 0.0
-            self._speed_controller = SpeedController()
-            self._reset_latch_release_state()
-            self._route_wps = []
-            self._current_target_wp_lat = 0.0
-            self._current_target_wp_lon = 0.0
-            self._last_ownship_raw = None
-            self._last_odd_state = None
-            self._last_behavior_plan = None
-            self._last_valid_plan_time = None
-            self._last_actuator_publish_time = None
-            self._m3_activated_once = False
+            self._reset_autopilot_avoidance_state()
         else:
             # ACTIVE state: dynamically read initial parameters to ensure we use the new scenario values
-            if prev_state != 3:
-                self._trace_writer.reset()
             try:
                 init_heading = self.get_parameter("ownship_initial_heading_deg").value
                 init_sog = self.get_parameter("ownship_initial_sog_kn").value
-                if self._target_heading_deg != init_heading or self._target_sog_kn != init_sog:
-                    self._target_heading_deg = init_heading
-                    self._target_sog_kn = init_sog
+                self._target_heading_deg = init_heading
+                self._target_sog_kn = init_sog
+                if prev_state != 3:
+                    self._trace_writer.reset()
                     self.get_logger().info(
-                        f"[BRIDGE] Simulation active. Updated initial parameters: "
-                        f"heading={self._target_heading_deg}°, SOG={self._target_sog_kn} kn"
+                        f"[BRIDGE] Simulation active. Parameters: heading={self._target_heading_deg}°, SOG={self._target_sog_kn} kn"
                     )
             except Exception as exc:
                 self.get_logger().warn(f"Failed to read updated parameters from server: {exc}")
@@ -569,7 +594,39 @@ class SilTopicBridge(Node):
 
     def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
         self._record_pulse(M4)
+        logger = getattr(self, 'get_logger', None)
+        if logger is not None:
+            logger().info(
+                f"[BRIDGE-DIAG] Received behavior plan: behavior={msg.behavior}, "
+                f"window=[{msg.heading_min_deg:.1f}, {msg.heading_max_deg:.1f}]"
+            )
         self._last_behavior_plan = msg
+        # Defensive avoidance teardown (D-DEMO1 spin fix): M4 is the COLREG
+        # authority on whether avoidance is active. If M4 holds TRANSIT for
+        # _AVOID_TRANSIT_RELEASE_S (after the minimum hold), end avoidance and hand
+        # back to the transit autopilot for route-return — even if M5's stub keeps
+        # emitting a geometric plan (has_valid_plan stays True forever). Without
+        # this the bridge can stay armed with target_heading=None and drive the
+        # open-loop turn_radius rudder indefinitely → endless circling, no return.
+        if self._avoidance_active:
+            if msg.behavior == 0:  # BEHAVIOR_TRANSIT
+                now = self._get_sim_time()
+                if self._transit_since_time is None:
+                    self._transit_since_time = now
+                if (self._latch_hold_elapsed() and
+                        (now - self._transit_since_time) >= self._AVOID_TRANSIT_RELEASE_S):
+                    if logger is not None:
+                        logger().info(
+                            "[BRIDGE] Avoidance teardown — M4 held TRANSIT for "
+                            f"{now - self._transit_since_time:.1f}s; returning to route"
+                        )
+                    self._avoidance_active = False
+                    self._avoidance_target_heading_deg = None
+                    self._avoidance_heading_controller.last_cmd_deg = 0.0
+                    self._reset_latch_release_state()
+                    self._transit_since_time = None
+            else:
+                self._transit_since_time = None
         # G1 (continuous target tracking — D-DEMO1 under-turn fix): while M4
         # commands COLREG_AVOID, refresh the avoidance target every behavior_plan
         # message instead of latching it once.  The previous one-shot latch
@@ -592,6 +649,15 @@ class SilTopicBridge(Node):
             if h_span <= 300.0:
                 self._avoidance_target_heading_deg = (
                     h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+                
+                # Clamp the avoidance target heading to prevent over-turning feedback loop (U-turn)
+                # Maximum allowed deviation from nominal route is 60 degrees.
+                MAX_AVOID_DEV_DEG = 60.0
+                nominal = getattr(self, '_target_heading_deg', 0.0)
+                diff = (self._avoidance_target_heading_deg - nominal + 180.0) % 360.0 - 180.0
+                if abs(diff) > MAX_AVOID_DEV_DEG:
+                    sign = 1.0 if diff >= 0.0 else -1.0
+                    self._avoidance_target_heading_deg = (nominal + sign * MAX_AVOID_DEV_DEG) % 360.0
             # else: degenerate (≈full circle) window — keep the last good target
             # (or None → _compute_avoidance_autopilot falls back to M5 waypoint
             # rudder); do not overwrite with a nonsensical heading.
@@ -607,6 +673,19 @@ class SilTopicBridge(Node):
 
     def _on_own_ship_state(self, msg: SilOwnShipState) -> None:
         self._record_pulse(M2)
+
+        # Reset timers if simulation clock jumps backward (scenario restart/cleanup)
+        t_now = self._get_sim_time()
+        last_sim_time = getattr(self, '_last_sim_time', None)
+        if last_sim_time is not None and t_now < last_sim_time - 1.0:
+            self.get_logger().info(
+                f"[BRIDGE] Clock jump backward detected: {last_sim_time:.2f}s -> {t_now:.2f}s. Resetting autopilot, pulse timers, and state variables."
+            )
+            self._autopilot_timer.reset()
+            self._pulse_timer.reset()
+            self._reset_autopilot_avoidance_state()
+        self._last_sim_time = t_now
+
         self._last_ownship_raw = msg
         self._trace_writer.record("/sil/own_ship_state", {
             "heading_deg": round(math.degrees(msg.heading), 2),
@@ -640,6 +719,8 @@ class SilTopicBridge(Node):
         self._pub_foss.publish(out)
 
     def _on_target_vessel_state(self, msg: TargetVesselState) -> None:
+        # Cache for bridge-local DCPA/TCPA computation (G3 geometry release)
+        self._last_target_vessel_raw = msg
         tgt = TrackedTarget()
         tgt.schema_version = 112
         tgt.stamp = msg.stamp
@@ -690,6 +771,98 @@ class SilTopicBridge(Node):
         if self._avoidance_armed_time is None:
             return True
         return (self._get_sim_time() - self._avoidance_armed_time) >= self._LATCH_MIN_HOLD_S
+
+    @staticmethod
+    def _compute_dcpa_tcpa(own, target) -> tuple[float, float]:
+        """Bridge-local DCPA/TCPA from OwnShipState + TargetVesselState kinematics.
+
+        Uses flat-earth approximation (valid for ranges ≤ ~20 nm).
+        Returns (dcpa_m, tcpa_s). If vessels are stationary relative to each other,
+        returns (very large, 0.0) to prevent spurious releases.
+
+        Kinematic model:
+          r = position of target relative to own (m, East-North)
+          v = velocity of target relative to own (m/s, East-North)
+          TCPA = -(r·v) / |v|²   [s]
+          DCPA = |r + v·TCPA|    [m]   (only meaningful when TCPA ≥ 0)
+
+        [TBD-HAZID][cross-module] M2 ThreatState should publish numeric cpa_m/tcpa_s;
+        this bridge-local computation is an interim measure until M2 is updated.
+        """
+        import math
+        M_PER_DEG_LAT = 111_132.9
+        cos_lat = math.cos(math.radians(own.lat))
+        m_per_deg_lon = 111_319.9 * cos_lat
+
+        # Relative position: target minus own (East, North) in metres
+        r_east = (target.lon - own.lon) * m_per_deg_lon
+        r_north = (target.lat - own.lat) * M_PER_DEG_LAT
+
+        # Absolute velocities in (East, North) m/s using COG
+        own_cog = float(own.cog)
+        tgt_cog = float(target.cog)
+        own_sog = float(own.sog)
+        tgt_sog = float(target.sog)
+
+        own_ve = own_sog * math.sin(own_cog)
+        own_vn = own_sog * math.cos(own_cog)
+        tgt_ve = tgt_sog * math.sin(tgt_cog)
+        tgt_vn = tgt_sog * math.cos(tgt_cog)
+
+        # Relative velocity: target minus own
+        v_east = tgt_ve - own_ve
+        v_north = tgt_vn - own_vn
+
+        v_sq = v_east ** 2 + v_north ** 2
+        if v_sq < 1e-6:
+            # Nearly identical velocities — no CPA computable
+            return (math.hypot(r_east, r_north), 0.0)
+
+        tcpa_s = -(r_east * v_east + r_north * v_north) / v_sq
+
+        # DCPA: distance at TCPA moment (if TCPA < 0, use current distance as proxy)
+        if tcpa_s >= 0:
+            cpa_east = r_east + v_east * tcpa_s
+            cpa_north = r_north + v_north * tcpa_s
+        else:
+            cpa_east = r_east
+            cpa_north = r_north
+        dcpa_m = math.hypot(cpa_east, cpa_north)
+
+        return (dcpa_m, tcpa_s)
+
+    def _check_geometry_release(self) -> None:
+        """Evaluate geometry-based release: fire _trigger_latch_release() when
+        TCPA < 0 (target has passed CPA) AND DCPA ≥ CPA_SAFE_M (clear margin).
+
+        Called every autopilot step (2 Hz) while _avoidance_active and not yet
+        released. The minimum-hold debounce (_latch_hold_elapsed) prevents
+        instant-release on a cold start where the geometry may be ambiguous.
+
+        G3/G4: this replaces the fixed 5 s timer as the primary release trigger.
+        The 5 s linear decay in _compute_latch_offset is kept ONLY as post-trigger
+        rudder smoothing, not as a release mechanism.
+        """
+        if not self._avoidance_active:
+            return
+        if self._latch_release_triggered:
+            return
+        if not self._latch_hold_elapsed():
+            return
+        if self._last_ownship_raw is None or self._last_target_vessel_raw is None:
+            return
+
+        dcpa_m, tcpa_s = SilTopicBridge._compute_dcpa_tcpa(
+            self._last_ownship_raw, self._last_target_vessel_raw
+        )
+
+        if tcpa_s < 0 and dcpa_m >= CPA_SAFE_M:
+            self.get_logger().info(
+                f"[BRIDGE] Geometry release: TCPA={tcpa_s:.1f}s < 0, "
+                f"DCPA={dcpa_m:.0f}m >= {CPA_SAFE_M:.0f}m (cpa_safe). "
+                "Triggering latch release."
+            )
+            self._trigger_latch_release()
 
     def _on_threat_state(self, msg: ThreatState) -> None:
         """M2 threat state callback — check CPA-cleared release condition."""
@@ -815,6 +988,11 @@ class SilTopicBridge(Node):
 
     def _on_avoidance_plan(self, msg: AvoidancePlan) -> None:
         self._record_pulse(M5)
+        logger = getattr(self, 'get_logger', None)
+        if logger is not None:
+            logger().info(
+                f"[BRIDGE-DIAG] Received avoidance plan: n_waypoints={len(msg.waypoints)}"
+            )
         _wp0 = msg.waypoints[0] if msg.waypoints else None
         self._trace_writer.record("/l3/m5/avoidance_plan", {
             "n_waypoints": len(msg.waypoints),
@@ -833,8 +1011,9 @@ class SilTopicBridge(Node):
 
         if self._autopilot_enabled and not has_valid_plan:
             if self._avoidance_active:
-                print("[BRIDGE] RESET — valid plan lost while autopilot enabled",
-                      flush=True)
+                self.get_logger().info(
+                    "[BRIDGE] RESET — valid plan lost while autopilot enabled; disarming"
+                )
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
@@ -847,20 +1026,20 @@ class SilTopicBridge(Node):
                 # is delivered (K1 keystone); the previous `_m3_activated_once`
                 # guard then suppressed ALL avoidance arming, leaving a dead-stick
                 # despite a correct M4 decision and a valid M5 plan.  Collision
-                # avoidance is a safety reflex — gate it only on a valid M5 plan
-                # plus the sim_t stabilisation window below.
+                # avoidance is a safety reflex — gate it only on a valid M5 plan.
                 #
-                # Stabilisation guard: M4 needs a few sim-seconds to receive fresh
-                # M2 target data and converge to the correct heading range; latching
-                # the avoidance target too early (sim_t < 10s) produces a wrong
-                # initial heading that the ship then chases.
-                _MIN_ARM_SIM_T = 10.0
+                # G1 continuous tracking makes the old sim_t stabilisation guard
+                # unnecessary: even if we arm early (before M4 has fully converged),
+                # _on_behavior_plan will refresh _avoidance_target_heading_deg every
+                # message.  The rudder rate limit (10°/s) provides natural smoothing.
                 sim_t_now = self._get_sim_time()
-                if sim_t_now < _MIN_ARM_SIM_T:
-                    print(f"[BRIDGE] AVOIDANCE ARM suppressed — sim_t={sim_t_now:.1f}s "
-                          f"< {_MIN_ARM_SIM_T}s (M4 data stabilisation guard)",
-                          flush=True)
-                    return
+                if sim_t_now < 5.0:
+                    # Very early arm (< 5 sim-s) — M4 may not yet have received
+                    # any M2 data. Log but do NOT block; continuous tracking handles.
+                    self.get_logger().info(
+                        f"[BRIDGE] AVOIDANCE ARM at early sim_t={sim_t_now:.1f}s "
+                        "(M4 window may not yet be stable; G1 will track continuously)"
+                    )
                 # Arm avoidance whenever M5 delivers a valid plan with non-zero
                 # turn_radius — do NOT gate on current M4 behavior, because M4
                 # cycles at 1-4 Hz and may have already reverted to TRANSIT by
@@ -869,7 +1048,7 @@ class SilTopicBridge(Node):
                 self._avoidance_armed_time = self._get_sim_time()
                 self._reset_latch_release_state()
                 # Use M4 heading window if it shows a non-TRANSIT (avoidance)
-                # behavior; otherwise derive target from the waypoint bearing.
+                # behavior; otherwise defer to _on_behavior_plan (continuous tracking).
                 if (self._last_behavior_plan is not None and
                         self._last_behavior_plan.behavior != 0 and
                         self._last_behavior_plan.heading_max_deg > 0.0):
@@ -880,28 +1059,42 @@ class SilTopicBridge(Node):
                         h_max += 360.0
                     h_span = h_max - h_min
                     if h_span > 300.0:
-                        # Degenerate window (≈full circle): leave None so the
-                        # bridge uses M5 waypoint-radius rudder as fallback.
-                        print(f"[BRIDGE] LATCHED (degenerate M4 window "
-                              f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}°) "
-                              f"— target_heading deferred to M5 waypoint rudder",
-                              flush=True)
+                        # Degenerate window (≈full circle): defer to M5 waypoint rudder.
+                        self.get_logger().info(
+                            f"[BRIDGE] LATCHED (degenerate M4 window "
+                            f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}°) "
+                            "— target_heading deferred to M5 waypoint rudder"
+                        )
                     else:
                         self._avoidance_target_heading_deg = (
                             h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-                        print(f"[BRIDGE] LATCHED target_heading="
-                              f"{self._avoidance_target_heading_deg:.1f}deg "
-                              f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
-                              flush=True)
+                        
+                        # Clamp target heading to prevent over-turning
+                        MAX_AVOID_DEV_DEG = 60.0
+                        nominal = getattr(self, '_target_heading_deg', 0.0)
+                        diff = (self._avoidance_target_heading_deg - nominal + 180.0) % 360.0 - 180.0
+                        if abs(diff) > MAX_AVOID_DEV_DEG:
+                            sign = 1.0 if diff >= 0.0 else -1.0
+                            self._avoidance_target_heading_deg = (nominal + sign * MAX_AVOID_DEV_DEG) % 360.0
+                            
+                        self.get_logger().info(
+                            f"[BRIDGE] ARMED avoidance target_heading="
+                            f"{self._avoidance_target_heading_deg:.1f}° "
+                            f"from M4 window [{h_min:.1f}, {h_max:.1f}]"
+                        )
                 else:
-                    # M4 already reverted to TRANSIT — use the last known
-                    # avoidance heading window stored from any prior M4 AVOID
-                    # message, or leave None so _on_behavior_plan fills it in.
-                    print("[BRIDGE] LATCHED (M4 already TRANSIT) — "
-                          "target_heading deferred to next M4 AVOID window",
-                          flush=True)
+                    # M4 already reverted to TRANSIT or no behavior plan seen yet —
+                    # leave target as None; _on_behavior_plan will fill it in on next
+                    # M4 AVOID message (G1 continuous tracking).
+                    self.get_logger().info(
+                        "[BRIDGE] ARMED (M4 TRANSIT or not yet seen) — "
+                        "target_heading deferred to next M4 AVOID window"
+                    )
         else:
             if self._avoidance_active:
+                self.get_logger().info(
+                    "[BRIDGE] RESET — valid plan lost; disarming avoidance"
+                )
                 self._avoidance_active = False
                 self._avoidance_target_heading_deg = None
                 self._avoidance_heading_controller.last_cmd_deg = 0.0
@@ -927,6 +1120,8 @@ class SilTopicBridge(Node):
         self._publish_bridge_state()
         if self._avoidance_active:
             now = self._get_sim_time()
+            # G3: check geometry-based release every step (replaces 5 s timer)
+            self._check_geometry_release()
             should_publish = (
                 self._last_actuator_publish_time is None or
                 (now - self._last_actuator_publish_time) > 0.5)
@@ -1031,11 +1226,12 @@ class SilTopicBridge(Node):
             dt = 0.5
             out.rudder_angle = RUDDER_SIGN * self._avoidance_heading_controller.step(
                 heading_error_deg, dt, current_rot_deg_s)
-            if abs(heading_error_deg) > 5.0 or abs(current_rot_deg_s) > 2.0:
-                print(f"[BRIDGE-AVOID] hdg={current_heading_deg:.1f} "
-                      f"tgt={self._avoidance_target_heading_deg:.1f} "
-                      f"err={heading_error_deg:.1f} rot={current_rot_deg_s:.2f} "
-                      f"rud={math.degrees(out.rudder_angle):.1f}", flush=True)
+            self.get_logger().info(
+                f"[BRIDGE-AVOID] hdg={current_heading_deg:.1f} "
+                f"tgt={self._avoidance_target_heading_deg:.1f} "
+                f"err={heading_error_deg:.1f} rot={current_rot_deg_s:.2f} "
+                f"rud={math.degrees(out.rudder_angle):.1f}"
+            )
         elif self._last_avoidance_waypoint is not None:
             wp = self._last_avoidance_waypoint
             if abs(wp.turn_radius_m) > 1e-6:
@@ -1120,7 +1316,7 @@ class SilTopicBridge(Node):
 
             # Proportional gain: 0.3 deg/meter (faster recovery)
             # Clamp to [-85.0, 85.0] degrees to allow a steeper intercept angle for rapid return
-            xte_correction = max(-85.0, min(85.0, xte_m * 0.30))
+            xte_correction = max(-30.0, min(30.0, xte_m * 0.10))
             effective_target_heading = (effective_target_heading + xte_correction) % 360.0
             
             # Boost target speed when far off-track to overcome rudder drag and close XTE rapidly
