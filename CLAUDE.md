@@ -243,7 +243,7 @@ Database: `.headroom/memory.db`
 
   2. **共享数据库同步（Headroom 归档）**：为了让当前对话的接力记录能够被其他所有应用客户端（Claude Code, OpenCode, Claude Desktop）共享，在更新 `handoff/workspace_log.md` 之后，你必须在终端运行以下归档命令，将新的日志数据同步提取并导入到 Headroom 的共享 SQLite 数据库中：
      ```bash
-     python3 scripts/archive_to_headroom.py
+     python3 scripts/archive_to_headroom.py --convo-id <current-conversation-id>
      ```
 
 ### 2. Token 节约与代码搜索规范
