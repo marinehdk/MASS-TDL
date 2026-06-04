@@ -19,6 +19,18 @@ ownShip:
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  # Fixed original track (v3.1 nominalRoute): WP0 = initial position, WP1 = 15-min
+  # dead-reckoned endpoint at the initial heading 000°/SOG 12 kn (12 kn * 0.25 h =
+  # 3.0 nm north → dlat 0.05°). Gives the bridge a stable line to rejoin after
+  # avoidance (replaces mock_l2 default_generation rolling route) and bounds the
+  # run to ~15 min.
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 12.0
+  - latitude: 63.49
+    longitude: 10.38
+    target_sog_kn: 12.0
 targetShips:
 - id: ts1
   static:
@@ -59,7 +71,7 @@ metadata:
   expected_outcome:
     cpa_min_m_ge: 500.0
   simulation_settings:
-    total_time: 600.0
+    total_time: 900.0
     dt: 0.02
     n_rps_initial: 3.5
     dynamics_mode: internal

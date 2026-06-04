@@ -110,6 +110,8 @@ class LifecycleBridge(Node):
 
         # Pre-create SetParameters service clients for scenario param injection
         self._sil_set_parameters_clients: dict[str, object] = {}
+
+
         for node_name in ("ship_dynamics_node", "target_vessel_node",
                           "env_disturbance_node", "sensor_mock_node",
                           "fault_injection_node", "scenario_lifecycle_mgr",
@@ -362,7 +364,18 @@ class LifecycleBridge(Node):
         injection_map = _extract_injection_params(yaml_data)
         _print_injection_summary(injection_map)
 
-        # Step 4: Inject params in parallel — fail-loud on first error
+        # Step 5: reset to UNCONFIGURED FIRST so the node's parameter store is a
+        # clean slate, THEN inject (allow_undeclared_parameters=True lets us set
+        # scenario_id before on_configure declares it; on_configure then sees
+        # has_parameter(...)=True and keeps the injected value instead of the
+        # "" default). Injecting before the reset let the cleanup wipe the param,
+        # so the LifecycleStatus broadcast carried scenario_id="" and mock_l2
+        # could never load the scenario route (route-return Break #1).
+        reset = await self._reset_to_unconfigured()
+        if not reset.success:
+            return reset
+
+        # Step 6: Inject params — fail-loud on first error
         if injection_map:
             tasks = [
                 self._inject_params_to_node(node_name, params)
@@ -373,10 +386,9 @@ class LifecycleBridge(Node):
                 if isinstance(result, ScenarioInjectionError):
                     raise result
 
-        # Step 5-7: Original flow — reset, configure transition, broadcast
-        reset = await self._reset_to_unconfigured()
-        if not reset.success:
-            return reset
+
+
+        # Step 7: configure transition + broadcast
         res = await self._change_state(Transition.TRANSITION_CONFIGURE)
         if res.success:
             self._scenario_id = scenario_id

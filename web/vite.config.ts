@@ -6,6 +6,7 @@ import fs from 'fs';
 const isDocker = fs.existsSync('/.dockerenv');
 const ORCH_PORT = process.env.ORCH_PORT ?? '8000';
 const FOX_PORT = process.env.FOX_PORT ?? '8765';
+const MARTIN_PORT = process.env.MARTIN_PORT ?? '3000';
 const apiHost = isDocker ? 'host.docker.internal' : '127.0.0.1';
 const target = `https://${apiHost}:${ORCH_PORT}`;
 const wsTarget = `wss://${apiHost}:${ORCH_PORT}`;
@@ -16,6 +17,20 @@ export default defineConfig({
     port: 5173,
     host: process.env.VITE_HOST ?? 'localhost',
     proxy: {
+      '/mvt': {
+        target: `http://${apiHost}:${MARTIN_PORT}`,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/mvt/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log(`[Vite Proxy Req] /mvt: ${req.url}`);
+          });
+          proxy.on('error', (err, req, res) => {
+            console.error('[Vite Proxy Error] /mvt:', err);
+          });
+        }
+      },
       '/ws': {
         target: wsTarget,
         ws: true,

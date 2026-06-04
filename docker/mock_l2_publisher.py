@@ -337,7 +337,7 @@ class MockL2Publisher(Node):
 
     def _auto_detect_scenario(self):
         import glob as _glob
-        yaml_files = sorted(_glob.glob(os.path.join(self._scenario_dir, "*.yaml")))
+        yaml_files = sorted(_glob.glob(os.path.join(self._scenario_dir, "**/*.yaml"), recursive=True))
         if not yaml_files:
             self.get_logger().warn(
                 f"No YAML files in {self._scenario_dir} — using default route")
@@ -486,7 +486,7 @@ class MockL2Publisher(Node):
         else:
             msg.destination = _make_geo_point(0.0, 0.0)
 
-        total_nm = self._compute_total_distance()
+        total_nm = self._compute_total_distance(waypoints)
         avg_speed = (speeds[0] if speeds else self._default_speed)
         est_duration = (total_nm / avg_speed * 3600) if avg_speed > 0 else 3600
 
@@ -530,7 +530,7 @@ class MockL2Publisher(Node):
             self._yaml_speeds_kn = config_speeds
             self._route_source = f"mock_l2 config ({len(self._yaml_waypoints)} waypoints)"
 
-        waypoints, speeds = self._get_effective_waypoints()
+        waypoints, speeds = self._yaml_waypoints, self._yaml_speeds_kn
 
         path = GeoPath()
         path.header = Header(stamp=msg.stamp, frame_id="WGS84")
@@ -544,7 +544,7 @@ class MockL2Publisher(Node):
             path.poses.append(gps)
         msg.route = path
 
-        total_nm = self._compute_total_distance()
+        total_nm = self._compute_total_distance(waypoints)
         msg.total_distance_nm = total_nm
 
         avg_speed = (speeds[0] if speeds else self._default_speed)
@@ -563,9 +563,9 @@ class MockL2Publisher(Node):
         msg.stamp = _now(self)
         msg.profile_id = self._route_id
 
-        waypoints, speeds = self._get_effective_waypoints()
+        waypoints, speeds = self._yaml_waypoints, self._yaml_speeds_kn
         n_segments = max(len(waypoints) - 1, 1)
-        total_nm = self._compute_total_distance()
+        total_nm = self._compute_total_distance(waypoints)
         segment_nm = total_nm / n_segments if n_segments > 0 else 0
         segment_m = segment_nm * 1852.0
 
@@ -588,8 +588,7 @@ class MockL2Publisher(Node):
 
         self._pub_speed_profile.publish(msg)
 
-    def _compute_total_distance(self) -> float:
-        waypoints, _ = self._get_effective_waypoints()
+    def _compute_total_distance(self, waypoints) -> float:
         if len(waypoints) < 2:
             return 0.0
         total = 0.0

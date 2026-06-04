@@ -4,6 +4,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -73,12 +74,16 @@ def _install_fake_ros_modules(monkeypatch):
     sil_msgs.msg.ModulePulse = type("ModulePulse", (), {})
     sil_msgs.msg.ASDREvent = type("ASDREvent", (), {})
     sil_msgs.msg.BridgeState = type("BridgeState", (), {})
+    sil_msgs.msg.LifecycleStatus = type("LifecycleStatus", (), {})
+    sil_msgs.msg.ScoringRow = type("ScoringRow", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
     l3_external_msgs.msg.FilteredOwnShipState = _FakeFilteredOwnShipState
     l3_external_msgs.msg.TrackedTargetArray = type("TrackedTargetArray", (), {})
     l3_external_msgs.msg.EnvironmentState = type("L3EnvironmentState", (), {})
+    l3_external_msgs.msg.PlannedRoute = type("PlannedRoute", (), {})
+    l3_external_msgs.msg.CheckerVetoNotification = type("CheckerVetoNotification", (), {})
 
     l3_msgs = types.ModuleType("l3_msgs")
     l3_msgs.msg = types.ModuleType("l3_msgs.msg")
@@ -120,7 +125,9 @@ def _install_fake_ros_modules(monkeypatch):
 
 def _load_bridge(monkeypatch):
     _install_fake_ros_modules(monkeypatch)
-    path = Path(__file__).resolve().parents[2] / "docker" / "sil_topic_bridge.py"
+    path = Path("/opt/ws/docker/sil_topic_bridge.py")
+    if not path.exists():
+        path = Path(__file__).resolve().parents[2] / "docker" / "sil_topic_bridge.py"
     spec = importlib.util.spec_from_file_location("sil_topic_bridge_under_test", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -144,7 +151,10 @@ def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
         _latch_release_triggered=False,
         _latch_release_time=None,
         _last_avoidance_waypoint=None,
-        _reset_latch_release_state=lambda: None
+        _reset_latch_release_state=lambda: None,
+        _trace_writer=Mock(),
+        _get_sim_time=lambda: 0.0,
+        get_logger=lambda: Mock(),
     )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
@@ -174,7 +184,10 @@ def test_placeholder_turn_radius_does_not_command_hard_rudder(monkeypatch):
         _latch_release_triggered=False,
         _latch_release_time=None,
         _last_avoidance_waypoint=None,
-        _reset_latch_release_state=lambda: None
+        _reset_latch_release_state=lambda: None,
+        _trace_writer=Mock(),
+        _get_sim_time=lambda: 0.0,
+        get_logger=lambda: Mock(),
     )
     plan = SimpleNamespace(
         stamp=SimpleNamespace(sec=12),
@@ -190,7 +203,12 @@ def test_placeholder_turn_radius_does_not_command_hard_rudder(monkeypatch):
 
 def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):
     bridge = _load_bridge(monkeypatch)
-    fake_self = SimpleNamespace(_pub_foss=_Publisher(), _record_pulse=lambda module_id: None)
+    fake_self = SimpleNamespace(
+        _pub_foss=_Publisher(),
+        _record_pulse=lambda module_id: None,
+        _trace_writer=Mock(),
+        _get_sim_time=lambda: 0.0,
+    )
     msg = _FakeSilOwnShipState()
     msg.lat = 63.44
     msg.lon = 10.38
@@ -219,3 +237,61 @@ def test_bridge_uses_reliable_volatile_qos_for_l3_consumers(monkeypatch):
     assert qos["reliability"] == bridge.QoSReliabilityPolicy.RELIABLE
     assert qos["durability"] == bridge.QoSDurabilityPolicy.VOLATILE
     assert qos["depth"] == 7
+
+
+def test_xte_intercept_gain_and_clamp(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    
+    mock_heading_controller = Mock()
+    mock_heading_controller.step = Mock(return_value=0.0)
+    
+    fake_self = SimpleNamespace(
+        _pub_foss=_Publisher(),
+        _record_pulse=lambda module_id: None,
+        _trace_writer=Mock(),
+        _get_sim_time=lambda: 0.0,
+        _heading_controller=mock_heading_controller,
+        _speed_controller=Mock(),
+        _target_heading_deg=90.0,
+        _target_sog_kn=15.0,
+        _current_target_wp_lat=0.0,
+        _current_target_wp_lon=1.0,
+        _route_wps=[(0.0, 0.0), (0.0, 1.0)],
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0001,  # North of route, XTE ~11.11m (to port)
+            lon=0.5,
+            heading=math.radians(90.0),
+            sog=15.0 / 1.94384,
+            rot=0.0
+        ),
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        _great_circle_bearing=bridge.SilTopicBridge._great_circle_bearing,
+        _signed_xte_m=lambda lat, lon: bridge.SilTopicBridge._signed_xte_m(fake_self, lat, lon),
+        get_logger=lambda: Mock(),
+    )
+    
+    bridge.SilTopicBridge._compute_transit_autopilot(fake_self, None)
+    
+    assert mock_heading_controller.step.called
+    args = mock_heading_controller.step.call_args[0]
+    heading_error_deg = args[0]
+    
+    # Expected bearing ~ 90.01.
+    # Expected XTE is approx 11.11 meters.
+    # Gain is expected to be 0.3. Correction = 11.11 * 0.3 = 3.33 deg.
+    # So heading_error_deg = effective_target_heading (90.01 + 3.33) - current_heading (90.0) = 3.34 deg.
+    # Let's assert it is within 3.2 and 3.5 degrees (positive correction for port drift).
+    assert 3.2 <= heading_error_deg <= 3.5
+    
+    # Test clamp with very large XTE (1000 meters)
+    fake_self._last_ownship_raw.lat = 0.01 # ~1111 meters north
+    bridge.SilTopicBridge._compute_transit_autopilot(fake_self, None)
+    args = mock_heading_controller.step.call_args[0]
+    heading_error_deg = args[0]
+    # Expected bearing ~ 91.13.
+    # Expected XTE is approx 1111 meters.
+    # Correction = 1111 * 0.3 = 333 deg, which clamps to 85.0.
+    # heading_error_deg = 91.13 + 85.0 - 90.0 = 86.13 deg.
+    # Let's assert it is within 85.5 and 87.0 degrees.
+    assert 85.5 <= heading_error_deg <= 87.0
+

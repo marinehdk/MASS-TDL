@@ -387,7 +387,11 @@ export function SilMapView({
             osm: osmSource as any,
             s57: {
               type: 'vector',
-              tiles: [`http://localhost:3000/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`],
+              tiles: [
+                typeof window !== 'undefined'
+                  ? `${window.location.origin}/mvt/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
+                  : `/mvt/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
+              ],
               minzoom: 0,
               maxzoom: 16,
             },
@@ -451,7 +455,7 @@ export function SilMapView({
     map.on('error', (e: any) => {
       const msg = String(e?.error?.message ?? '');
       // Suppress expected tile-fetch failures (martin offline, glyphs CDN, etc.)
-      if (/pbf|s57|enc|Failed to fetch|tile|glyphs|3000|source-layer/i.test(msg)) return;
+      if (/pbf|s57|enc|Failed to fetch|tile|glyphs|3000|mvt|source-layer/i.test(msg)) return;
       console.warn('[SilMapView]', msg);
     });
 

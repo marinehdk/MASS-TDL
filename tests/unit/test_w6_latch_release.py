@@ -29,7 +29,10 @@ class MockNode:
         return Param()
     def get_clock(self):
         clock = Mock()
-        clock.now = Mock(return_value=SimpleNamespace(to_msg=Mock(return_value=SimpleNamespace(sec=0, nanosec=0))))
+        clock.now = Mock(return_value=SimpleNamespace(
+            nanoseconds=0,
+            to_msg=Mock(return_value=SimpleNamespace(sec=0, nanosec=0))
+        ))
         return clock
 
 @pytest.fixture(autouse=True)
@@ -53,12 +56,16 @@ def setup_fake_ros(monkeypatch):
     sil_msgs.msg.ModulePulse = type("ModulePulse", (), {})
     sil_msgs.msg.ASDREvent = type("ASDREvent", (), {})
     sil_msgs.msg.BridgeState = type("BridgeState", (), {})
+    sil_msgs.msg.LifecycleStatus = type("LifecycleStatus", (), {})
+    sil_msgs.msg.ScoringRow = type("ScoringRow", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
     l3_external_msgs.msg.FilteredOwnShipState = type("FilteredOwnShipState", (), {})
     l3_external_msgs.msg.TrackedTargetArray = type("TrackedTargetArray", (), {})
     l3_external_msgs.msg.EnvironmentState = type("L3EnvironmentState", (), {})
+    l3_external_msgs.msg.PlannedRoute = type("PlannedRoute", (), {})
+    l3_external_msgs.msg.CheckerVetoNotification = type("CheckerVetoNotification", (), {})
 
     l3_msgs = types.ModuleType("l3_msgs")
     l3_msgs.msg = types.ModuleType("l3_msgs.msg")
@@ -99,7 +106,9 @@ def setup_fake_ros(monkeypatch):
         monkeypatch.setitem(sys.modules, module.__name__, module)
 
 def get_bridge_class():
-    path = Path(__file__).resolve().parents[2] / "docker" / "sil_topic_bridge.py"
+    path = Path("/opt/ws/docker/sil_topic_bridge.py")
+    if not path.exists():
+        path = Path(__file__).resolve().parents[2] / "docker" / "sil_topic_bridge.py"
     spec = importlib.util.spec_from_file_location("sil_topic_bridge_under_test", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -133,6 +142,8 @@ class TestBridgeLatchRelease:
         bridge = SilTopicBridge()
         mission_msg = Mock()
         mission_msg.task_validity = 1  # VALID
+        mission_msg.fsm_state = 3  # ACTIVE
+        mission_msg.current_target_wp = SimpleNamespace(latitude=1.0, longitude=1.0)
         behavior_msg = Mock()
         behavior_msg.behavior = 0  # BEHAVIOR_TRANSIT
         bridge._last_behavior_plan = behavior_msg

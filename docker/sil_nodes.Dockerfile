@@ -53,8 +53,19 @@ RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir numpy 
 # is new-ABI dominant so pip works. Build from source on x86_64 with explicit
 # new-ABI to get a consistent libcasadi (~15-20 min on 20 cores; cached after
 # first build).
+#
+# WITH_IPOPT=ON is REQUIRED: M5 Mid-MPC instantiates nlpsol(...,'ipopt',...);
+# without the plugin (libcasadi_nlpsol_ipopt.so) the m5 node throws
+# "Plugin 'ipopt' is not found" and exits at startup (code 250), so it never
+# publishes /l3/m5/avoidance_plan and the whole avoidance chain is dead.
+# coinor-libipopt-dev provides Ipopt via its C interface (ABI-neutral vs the
+# C++11-ABI libcasadi). Post-build assertion fails the image if the plugin is
+# silently disabled by cmake (e.g. pkg-config miss), so this can't regress.
 RUN if [ "$(uname -m)" = "x86_64" ]; then \
-        echo "=== x86_64: source-build casadi 3.7.2 with new ABI ===" && \
+        echo "=== x86_64: source-build casadi 3.7.2 with new ABI + IPOPT ===" && \
+        apt-get update && apt-get install -y --no-install-recommends \
+          coinor-libipopt-dev libblas-dev liblapack-dev gfortran && \
+        rm -rf /var/lib/apt/lists/* && \
         cd /tmp && \
         curl -sL https://github.com/casadi/casadi/releases/download/3.7.2/casadi-3.7.2.tar.gz -o casadi-3.7.2.tar.gz && \
         tar -xzf casadi-3.7.2.tar.gz && \
@@ -65,13 +76,15 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
           -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
           -DCMAKE_C_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
           -DWITH_PYTHON=ON -DWITH_PYTHON3=ON \
-          -DWITH_IPOPT=OFF -DWITH_EXAMPLES=OFF -DWITH_DOC=OFF -DWITH_TEST=OFF \
+          -DWITH_IPOPT=ON -DWITH_EXAMPLES=OFF -DWITH_DOC=OFF -DWITH_TEST=OFF \
           > /dev/null 2>&1 && \
         make -j$(nproc) > /dev/null 2>&1 && \
         make install > /dev/null 2>&1 && \
         ldconfig && \
+        ( find /usr -name 'libcasadi_nlpsol_ipopt.so*' 2>/dev/null | grep -q . || \
+          { echo "FATAL: casadi ipopt nlpsol plugin missing after build — M5 will crash"; exit 1; } ) && \
         cd /tmp && rm -rf casadi-3.7.2 casadi-3.7.2.tar.gz && \
-        echo "casadi 3.7.2 source-installed (new-ABI, 1498 cxx11 symbols verified)"; \
+        echo "casadi 3.7.2 source-installed (new-ABI + ipopt plugin verified)"; \
     else \
         echo "=== arm64: pip casadi is sufficient ===" && \
         pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir casadi; \

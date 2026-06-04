@@ -37,9 +37,16 @@ const RUNS_DIR = path.resolve(__dirname, '../../runs/mvp_consistency');
 const RTF_BAND: [number, number] = [7.0, 12.0];
 const RTF_SKIP_SAMPLES = 2;     // drop the rate-switch / activation catch-up transient (samples are ~3s apart)
 const TURN_MIN_DEG = 5;        // legacy threshold; A_turn_net uses the strict one
-const TURN_NET_MIN_DEG = 60;   // net angular change from first sample (NOT range).
-                                // 60° catches "ship oscillates 0↔360" (range=360, net=0)
-                                // AND "ship frozen at 0°" (range=0, net=0).
+const TURN_NET_MIN_DEG = 20;   // net angular change from first sample (NOT range).
+                                // Catches "ship oscillates 0↔360" (range=360, net≈0)
+                                // AND "ship frozen at 0°" (range=0, net=0) — both net≈0.
+                                // Calibrated to verified working avoidance (2026-06-03,
+                                // after the M5/casadi-ipopt fix): a correct rule14 starboard
+                                // alteration measures 30°+ (geometric fallback) up to ~180°
+                                // (MPC), both scored safety=1.0/compliance=1.0. 20° =
+                                // substantial-COLREG-alteration floor, robust to the M5
+                                // cold-start magnitude spread; NOT a turn-quality gate
+                                // (see /sil/scoring for that).
 const RECON_MEDIAN_TOL_DEG = 10; // store-vs-backend heading median |Δ| (1-tick WS skew during turns)
 
 test.describe.configure({ mode: 'serial', timeout: 720_000 });

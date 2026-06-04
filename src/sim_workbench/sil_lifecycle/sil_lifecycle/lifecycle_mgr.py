@@ -479,6 +479,7 @@ class LifecycleManagerNode(LifecycleNode):
 
     def on_configure(self, state) -> TransitionCallbackReturn:
         """Declare ROS params and transition FSM UNCONFIGURED → INACTIVE."""
+
         for name, default in (
             ("scenario_id", ""),
             ("scenario_hash", ""),
@@ -490,7 +491,15 @@ class LifecycleManagerNode(LifecycleNode):
             ("lockstep_clients", 2),
         ):
             if not hasattr(self, "has_parameter") or not self.has_parameter(name):
-                self.declare_parameter(name, default)
+                # With allow_undeclared_parameters=True, a parameter pre-set via
+                # SetParameters injection is accessible via get_parameter() even
+                # before declaration. Lifecycle CLEANUP undeclares parameters but
+                # leaves the injected value in the undeclared store. Preserve it.
+                try:
+                    _pre = self.get_parameter(name).value
+                except Exception:
+                    _pre = None
+                self.declare_parameter(name, _pre if _pre is not None else default)
 
         sid = self.get_parameter("scenario_id").value
         shash = self.get_parameter("scenario_hash").value
@@ -509,7 +518,7 @@ class LifecycleManagerNode(LifecycleNode):
             self.get_logger().error(f"Invalid dynamics_mode: {dynamics_mode}")
             return TransitionCallbackReturn.FAILURE
 
-        self._fsm.configure(str(sid), str(shash), dynamics_mode=str(dynamics_mode), clock_mode=str(clock_mode))
+        cfg_ok = self._fsm.configure(str(sid), str(shash), dynamics_mode=str(dynamics_mode), clock_mode=str(clock_mode))
 
         # Initialize internal dynamics state variables in free-run mode
         if clock_mode == "free_run" and dynamics_mode == "internal":

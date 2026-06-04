@@ -89,6 +89,11 @@ def parse_transcript_turns(transcript_path):
     return turns
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Archive handoff logs and conversation transcripts to Headroom SQLite.")
+    parser.add_argument("--convo-id", help="Explicit conversation ID to import")
+    args = parser.parse_args()
+
     if not os.path.exists(DB_PATH):
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         print(f"Initializing empty headroom database at {DB_PATH}")
@@ -178,7 +183,16 @@ def main():
         handoff_imported += 1
 
     # 2. Sync detailed Antigravity conversation transcript turns
-    convo_dir, convo_id = get_latest_convo_dir()
+    convo_id = args.convo_id
+    convo_dir = None
+    if convo_id:
+        convo_dir = os.path.expanduser(f"~/.gemini/antigravity/brain/{convo_id}")
+        if not os.path.exists(convo_dir):
+            print(f"Error: Specified conversation directory not found at {convo_dir}")
+            convo_dir, convo_id = None, None
+    else:
+        convo_dir, convo_id = get_latest_convo_dir()
+
     turns_imported = 0
     turns_skipped = 0
 

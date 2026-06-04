@@ -11,16 +11,15 @@
 #     ./scripts/a4000-acceptance.sh            # full acceptance
 #     ./scripts/a4000-acceptance.sh --sync     # git pull l3-tdl first
 #
-# Two verdicts (kept separate on purpose):
-#   RTF / MIGRATION  (GATING)     headless sweep {1,5,10}x == nominal (>=85% eff)
-#                                  + HMI-path A_rtf @10x inside RTF_BAND
-#   FUNCTIONAL       (NON-GATING) A_turn (rule14 avoidance) — currently RED,
-#                                 tracked as task-3 (M4 degenerate window / M3
-#                                 cold start). The full Playwright test will go
-#                                 green on its own once that lands; until then
-#                                 A_recon is shadowed by the A_turn throw.
+# Two gating stages:
+#   [2] RTF / determinism   headless sweep {1,5,10}x == nominal (>=85% eff)
+#   [3] full multi-screen    the real 3-screen Playwright test passing end-to-end:
+#                            A_rtf (HMI-path 10x in band) + A_turn (real rule14
+#                            avoidance turn ≥20°) + A_recon (HMI store == backend).
 #
-# Exit code reflects the GATING verdict only.
+# A_turn went green on 2026-06-03 once M5 was unblocked (casadi ipopt plugin
+# build fix): the avoidance chain M2→M4→M5→bridge→actuator now actually turns
+# the ship (scored safety=1.0/compliance=1.0). Exit code = both stages green.
 # ============================================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -31,7 +30,6 @@ SCENARIO="${SCENARIO:-colreg-rule14-ho}"
 : "${FOX_PORT:=18765}"
 export ORCH_URL ORCH_PORT FOX_PORT
 RATES_HEADLESS="${RATES_HEADLESS:-1 5 10}"
-RTF_BAND_LO=7.0; RTF_BAND_HI=12.0     # mirrors mvp_consistency.spec.ts L37
 EFF_MIN=85                            # headless efficiency floor (%)
 GATE_FAIL=0
 
@@ -84,47 +82,30 @@ for R in $RATES_HEADLESS; do
 done
 
 # ---- Stage 3: full multi-screen Playwright @10x ---------------------------
-echo -e "${B}[3] full multi-screen Playwright @10x (real 3-screen UI path)${N}"
+echo -e "${B}[3] full multi-screen Playwright @10x (real 3-screen UI: RTF + avoidance + recon)${N}"
 LOG=$(mktemp)
 ( cd web && RATE=10 ORCH_PORT="$ORCH_PORT" FOX_PORT="$FOX_PORT" \
-    timeout 240 npx playwright test e2e/mvp_consistency.spec.ts \
-      -g "MVP consistency" --retries=0 --reporter=line >"$LOG" 2>&1 ) || true
+    timeout 260 npx playwright test e2e/mvp_consistency.spec.ts \
+      -g "MVP consistency" --retries=0 --reporter=line >"$LOG" 2>&1 )
+pw_rc=$?
 
-rtf_line=$(grep -E "^A_rtf:" "$LOG" | tail -1)
-turn_line=$(grep -E "^A_turn:" "$LOG" | tail -1)
-recon_line=$(grep -E "^A_recon:" "$LOG" | tail -1)
-
-# A_rtf prints before A_turn -> proves 3-screen nav reached monitor + RTF held
-rtf=$(echo "$rtf_line" | grep -oE 'RTF=[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+')
-if [[ -n "$rtf" ]] && awk "BEGIN{exit !($rtf>=$RTF_BAND_LO && $rtf<=$RTF_BAND_HI)}"; then
-  ok "HMI-path A_rtf=${rtf}x in band [${RTF_BAND_LO},${RTF_BAND_HI}] (3-screen nav reached monitor)"
+# Echo whichever per-assertion lines flushed (A_turn's console.log can be
+# swallowed by the line reporter on failure; the exit code is authoritative).
+grep -E "^A_rtf:|^A_turn:|^A_recon:" "$LOG" | sed 's/^/    /'
+if [[ $pw_rc -eq 0 ]]; then
+  ok "multi-screen test PASSED — A_rtf in band + A_turn real avoidance(≥20°) + A_recon HMI==backend"
 else
-  bad "HMI-path A_rtf '${rtf_line:-not printed}' — nav broke or RTF out of band"
-  echo "    --- last 20 lines of Playwright log ---"; tail -20 "$LOG" | sed 's/^/    /'
+  bad "multi-screen test FAILED (rc=$pw_rc)"
+  echo "    --- last 25 lines of Playwright log ---"; tail -25 "$LOG" | sed 's/^/    /'
 fi
-
-# A_turn: functional avoidance, NON-GATING
-if [[ -n "$turn_line" ]]; then
-  net=$(echo "$turn_line" | grep -oE 'net\|max-from-start\|=[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+')
-  if [[ -n "$net" ]] && awk "BEGIN{exit !($net>60)}"; then
-    ok "A_turn net=${net}deg (>60) — avoidance ENGAGED (task-3 resolved!)"
-  else
-    note "A_turn net=${net:-0}deg (<=60) — avoidance NOT engaged: KNOWN task-3 RED, non-gating"
-  fi
-else
-  note "A_turn line not printed — non-gating"
-fi
-[[ -n "$recon_line" ]] && note "A_recon: $recon_line" \
-  || note "A_recon shadowed by A_turn throw (surfaces once task-3 lands)"
 rm -f "$LOG"
 
 # ---- Verdict --------------------------------------------------------------
 echo
 if (( GATE_FAIL == 0 )); then
-  echo -e "${G}${B}ACCEPTANCE PASS${N} — RTF deterministic across {${RATES_HEADLESS}}x + HMI-path 10x in band."
-  echo -e "  (A_turn avoidance is the only RED — tracked separately as task-3, not gating.)"
+  echo -e "${G}${B}ACCEPTANCE PASS${N} — RTF deterministic {${RATES_HEADLESS}}x + full multi-screen E2E green (RTF+avoidance+recon)."
   exit 0
 else
-  echo -e "${R}${B}ACCEPTANCE FAIL${N} — a GATING RTF/migration check failed (see above)."
+  echo -e "${R}${B}ACCEPTANCE FAIL${N} — a gating check failed (see above)."
   exit 1
 fi

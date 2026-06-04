@@ -570,28 +570,31 @@ class SilTopicBridge(Node):
     def _on_behavior_plan(self, msg: BehaviorPlan) -> None:
         self._record_pulse(M4)
         self._last_behavior_plan = msg
+        # G1 (continuous target tracking — D-DEMO1 under-turn fix): while M4
+        # commands COLREG_AVOID, refresh the avoidance target every behavior_plan
+        # message instead of latching it once.  The previous one-shot latch
+        # (condition `_avoidance_target_heading_deg is None`) froze the target on
+        # whatever transient/early M4 window arm happened to catch — e.g. a
+        # near-zero [0,4] window → 3.3°, so the ship never tracked the window as it
+        # grew to the correct starboard sector [16,73].  IvP/MPC COLAV track the
+        # give-way heading continuously; the rudder rate limit
+        # (_avoidance_heading_controller, 10°/s) provides the smoothing.  Do not
+        # refresh while a release is decaying (let the decay run) or once M4 has
+        # returned to TRANSIT (behavior == 0).
         if (self._avoidance_active and
-                self._avoidance_target_heading_deg is None):
+                msg.behavior != 0 and
+                not self._latch_release_triggered):
             h_min = float(msg.heading_min_deg)
             h_max = float(msg.heading_max_deg)
             if h_max < h_min:
                 h_max += 360.0
             h_span = h_max - h_min
-            if h_span > 300.0:
-                # Degenerate window (≈full circle): M4 has no meaningful
-                # heading constraint yet.  Leave target as None so the bridge
-                # falls back to M5 waypoint-radius rudder rather than picking
-                # a nonsensical port-side heading via the 5/6 formula.
-                print(f"[BRIDGE] DELAYED-LATCH skipped — degenerate M4 window "
-                      f"[{h_min:.1f},{h_max:.1f}] span={h_span:.1f}° "
-                      f"(fallback: M5 waypoint rudder)", flush=True)
-            else:
+            if h_span <= 300.0:
                 self._avoidance_target_heading_deg = (
                     h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-                print(f"[BRIDGE] DELAYED-LATCH target_heading="
-                      f"{self._avoidance_target_heading_deg:.1f}deg "
-                      f"from M4 window [{h_min:.1f}, {h_max:.1f}]",
-                      flush=True)
+            # else: degenerate (≈full circle) window — keep the last good target
+            # (or None → _compute_avoidance_autopilot falls back to M5 waypoint
+            # rudder); do not overwrite with a nonsensical heading.
         self._trace_writer.record("/l3/m4/behavior_plan", {
             "behavior": int(msg.behavior),
             "heading_min_deg": float(msg.heading_min_deg),
@@ -710,15 +713,16 @@ class SilTopicBridge(Node):
             "target_wp_lon": float(msg.current_target_wp.longitude),
         }, self._get_sim_time())
         
-        # Reset state if mission is not ACTIVE (FSM_ACTIVE = 3)
+        # DECOUPLE (D-DEMO1 bridge dead-stick fix): do NOT tear down avoidance
+        # when the mission FSM is not ACTIVE.  M3 publishes fsm_state=1
+        # (AwaitingRoute, current_target_wp=(0,0)) at ~6 Hz whenever no route is
+        # delivered (K1 keystone); resetting `_avoidance_active` on every such
+        # message re-creates the dead-stick even after _on_avoidance_plan arms.
+        # Avoidance lifecycle is owned by _on_avoidance_plan (M5 plan validity)
+        # and _on_lifecycle_status (scenario deactivate), never by M3 mission fsm.
         if msg.fsm_state < 3:
-            self._avoidance_active = False
-            self._avoidance_target_heading_deg = None
-            self._avoidance_heading_controller.last_cmd_deg = 0.0
-            self._reset_latch_release_state()
             self._current_target_wp_lat = 0.0
             self._current_target_wp_lon = 0.0
-            self._m3_activated_once = False  # require re-activation in new scenario
             return
 
         # M3 has reached ACTIVE: lift the cold-start arm guard.
@@ -837,21 +841,19 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
-                # Guard 1: refuse to arm before M3 has reached FSM_ACTIVE at
-                # least once.  M5 can deliver cold-start NLP solutions within
-                # the first ~2s before the scenario state is stable; arming
-                # on those leads to incorrect avoidance targets.
-                if not self._m3_activated_once:
-                    print("[BRIDGE] AVOIDANCE ARM suppressed — M3 not yet "
-                          "ACTIVE in this scenario (cold-start guard)",
-                          flush=True)
-                    return
-                # Guard 2: enforce a minimum sim_t before arming.  M3 may
-                # briefly report FSM_ACTIVE with stale state from the previous
-                # scenario run; M4 also needs a few sim-seconds to receive
-                # fresh M2 target data and converge to the correct heading
-                # range.  Latching the avoidance target too early (sim_t < 10s)
-                # produces a wrong initial heading that the ship then chases.
+                # DECOUPLE (D-DEMO1 bridge dead-stick fix): avoidance arming must
+                # NOT depend on M3 reaching FSM_ACTIVE.  M3 can sit in AwaitingRoute
+                # (fsm_state=1, current_target_wp=(0,0)) indefinitely when no route
+                # is delivered (K1 keystone); the previous `_m3_activated_once`
+                # guard then suppressed ALL avoidance arming, leaving a dead-stick
+                # despite a correct M4 decision and a valid M5 plan.  Collision
+                # avoidance is a safety reflex — gate it only on a valid M5 plan
+                # plus the sim_t stabilisation window below.
+                #
+                # Stabilisation guard: M4 needs a few sim-seconds to receive fresh
+                # M2 target data and converge to the correct heading range; latching
+                # the avoidance target too early (sim_t < 10s) produces a wrong
+                # initial heading that the ship then chases.
                 _MIN_ARM_SIM_T = 10.0
                 sim_t_now = self._get_sim_time()
                 if sim_t_now < _MIN_ARM_SIM_T:
@@ -1118,7 +1120,7 @@ class SilTopicBridge(Node):
 
             # Proportional gain: 0.3 deg/meter (faster recovery)
             # Clamp to [-85.0, 85.0] degrees to allow a steeper intercept angle for rapid return
-            xte_correction = max(-30.0, min(30.0, xte_m * 0.10))
+            xte_correction = max(-85.0, min(85.0, xte_m * 0.30))
             effective_target_heading = (effective_target_heading + xte_correction) % 360.0
             
             # Boost target speed when far off-track to overcome rudder drag and close XTE rapidly

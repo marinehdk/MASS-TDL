@@ -29,7 +29,7 @@ async function run() {
 
   page.on('request', request => {
     const url = request.url();
-    if (url.includes('3000')) {
+    if (url.includes('3000') || url.includes('/mvt')) {
       console.log(`[TILE REQUEST] ${url}`);
     }
   });
@@ -47,7 +47,7 @@ async function run() {
   console.log('Page loaded. Waiting 8 seconds for map layers and tiles to render...');
   await page.waitForTimeout(8000);
 
-  const screenshotPath = '/Users/marine/.gemini/antigravity/brain/82f7895c-33f0-4369-a475-16f2d6135ea0/hmi_debug_screenshot.png';
+  const screenshotPath = './hmi_debug_screenshot.png';
   console.log(`Taking screenshot to ${screenshotPath}...`);
   await page.screenshot({ path: screenshotPath });
 
