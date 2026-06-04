@@ -223,3 +223,30 @@ Palace: `~/.mempalace/palace`（通用命令/hooks 见全局 `~/.claude/CLAUDE.m
 
 **搜索触发器：** "之前为什么选 X" / "上次 M5 怎么设计的" → `sessions` wing；找设计文档位置 → `documentation`/`architecture` room  
 **MCP：** `mcp__mempalace__mempalace_search`（支持 `wing`/`room` 过滤）
+
+---
+
+## 跨客户端开发协同与 Token 节约协议
+
+### 1. 智能会话接力规范
+- **启动时（上下文链回溯）**：
+  在会话开始执行任何实质开发或测试操作前，你必须首先读取并检索 `docs/workspace_log.md`。请根据当前用户提出的开发目标进行关键词或语义检索，**自动寻找与当前开发模块最相关的前置日志记录**，从而拼接出完整的上下文链路，杜绝信息丢失。
+  
+- **结束时（统一格式日志记录）**：
+  在会话结束或回答用户任务完成前，你必须向 `docs/workspace_log.md` 底部追加一条格式严格对齐的开发记录（或模仿已有的日志样式填写）。标准格式规范如下：
+
+  ## [YYYY-MM-DD HH:MM] Agent: <客户端名称，如 Claude Code CLI>
+  - **Git Commit**: `<Commit Hash>` (branch: `<当前分支名>`)
+  - **Headroom Session**: `<Session ID>` (若有，记录本次会话的代理会话标识)
+  - **Headroom Refs**: `[ref_<Hash>]` (记录本次会话中重要的大日志或大文本引用哈希)
+  - **任务目标 (Goal)**: <简短的一句话描述本次会话的任务目标>
+  - **核心改动 (Actions)**:
+    - `[修改文件相对路径](file:///absolute/path/to/file)`: <简要说明在此文件做了什么改动>
+  - **当前状态 (Status)**: <运行结果，如：单元测试全部通过 / 重构通过，待进行链路测试>
+  - **接力指示 (Hand-off Context)**: <留给下一个接棒 Agent 的具体执行指令 and 上下文>
+
+### 2. Token 节约与代码搜索规范
+- **禁止暴力搜索**：严禁在未做定位的情况下，使用大范围 `grep` 或读取大量整个源代码文件。
+- **优先使用 Graphify**：当需要定位代码、分析类继承关系或方法调用链路时，优先在终端运行 `graphify query "<问题>"`，仅根据返回的精确代码坐标和关系链去读取特定文件范围。
+- **静态图谱更新**：每次修改代码且测试通过后，你必须在终端运行 `graphify update .` 刷新本地静态图谱（本地计算，0 Token 成本）。
+
