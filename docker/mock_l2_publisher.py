@@ -363,6 +363,27 @@ class MockL2Publisher(Node):
                 yaml_path = os.path.join(root, f"{scenario_id}.yaml")
                 break
 
+        if not yaml_path:
+            # Fallback scan: check all YAML files' internal metadata.scenario_id
+            import yaml
+            for root, _, files in os.walk(self._scenario_dir):
+                for f in files:
+                    if f.endswith(".yaml"):
+                        candidate_path = os.path.join(root, f)
+                        try:
+                            with open(candidate_path, "r") as stream:
+                                data = yaml.safe_load(stream)
+                                if isinstance(data, dict):
+                                    metadata = data.get("metadata", {})
+                                    if isinstance(metadata, dict) and metadata.get("scenario_id") == scenario_id:
+                                        yaml_path = candidate_path
+                                        self.get_logger().info(f"Found scenario file matching metadata ID {scenario_id}: {f}")
+                                        break
+                        except Exception:
+                            pass
+                if yaml_path:
+                    break
+
         if not yaml_path or not os.path.exists(yaml_path):
             self.get_logger().warn(
                 f"YAML not found for {scenario_id} in {self._scenario_dir} — using default route")
