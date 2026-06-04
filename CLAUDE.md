@@ -210,19 +210,14 @@ This project has a knowledge graph at `graphify-out/`.
 - 代码结构/跨文件关系 → `graphify query "<question>"` / `graphify path "<A>" "<B>"` / `graphify explain "<concept>"`
 - 广义架构浏览 → `graphify-out/wiki/index.md`（若存在）；`GRAPH_REPORT.md` 仅用于全局架构审查
 - 修改代码后：`graphify update .`（AST-only，无 API 成本）
-- **分工**：代码结构用 graphify；对话决策历史/设计讨论用 mempalace（↓）
+- **分工**：代码结构用 graphify；对话历史和内存共享用 headroom 数据库（.headroom/memory.db）
 
-## mempalace
+## headroom
 
-Palace: `~/.mempalace/palace`（通用命令/hooks 见全局 `~/.claude/CLAUDE.md`）
+Database: `.headroom/memory.db`
 
-| Wing | Drawers | 内容 |
-|---|---|---|
-| `mass_l3_tactical_layer` | 53k | 项目文件：`technical`(22k) · `documentation`(17k) · `architecture`(5k) · `planning`(1k) |
-| `sessions` | 18k | 历史 Claude Code 对话（架构决策、模块设计讨论、调试记录） |
-
-**搜索触发器：** "之前为什么选 X" / "上次 M5 怎么设计的" → `sessions` wing；找设计文档位置 → `documentation`/`architecture` room  
-**MCP：** `mcp__mempalace__mempalace_search`（支持 `wing`/`room` 过滤）
+- **共享内存共享与查询**：所有 Agent 在会话开始前，可以通过 Headroom MCP 工具（如 `memory_search`）对已归档的会话记录和事实进行语义搜索。
+- **会话接力同步**：使用 `handoff/workspace_log.md` 账本作为高层次接力点，并运行 `python3 scripts/archive_to_headroom.py` 将接力记录导入 Headroom 数据库中，实现所有客户端的数据共享。
 
 ---
 
@@ -246,9 +241,9 @@ Palace: `~/.mempalace/palace`（通用命令/hooks 见全局 `~/.claude/CLAUDE.m
   - **当前状态 (Status)**: <运行结果，如：单元测试全部通过 / 重构通过，待进行链路测试>
   - **接力指示 (Hand-off Context)**: <留给下一个接棒 Agent 的具体执行指令 and 上下文>
 
-  2. **对话入库（针对 Antigravity 插件环境）**：你必须定位当前会话的本地日志目录 `/Users/marine/.gemini/antigravity/brain/<current-conversation-id>/.system_generated/logs`，并在终端运行以下命令将当前会话记录同步导入至共享的 MemPalace 会话库中：
+  2. **共享数据库同步（Headroom 归档）**：为了让当前对话的接力记录能够被其他所有应用客户端（Claude Code, OpenCode, Claude Desktop）共享，在更新 `handoff/workspace_log.md` 之后，你必须在终端运行以下归档命令，将新的日志数据同步提取并导入到 Headroom 的共享 SQLite 数据库中：
      ```bash
-     mempalace mine "/Users/marine/.gemini/antigravity/brain/<current-conversation-id>/.system_generated/logs" --mode convos --wing sessions
+     python3 scripts/archive_to_headroom.py
      ```
 
 ### 2. Token 节约与代码搜索规范
