@@ -544,12 +544,14 @@ void ColregsReasonerNode::run_reasoning() {
         const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
             (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
         const bool latched = it->second.update(eval.is_active, target.cpa_m, range_closing);
-        if (latched && !eval.is_active) {
-          // Re-assert the latched obligation (preserve the rule's own role/direction).
-          eval.is_active = true;
-          eval.rationale += " [latched]";
+        if (latched) {
+          if (!eval.is_active) {
+            eval.is_active = true;
+            eval.rationale += " [latched]";
+          }
+        } else {
+          eval.is_active = false;
         }
-        eval.is_active = latched;  // also releases promptly once hysteresis clears
       }
       
       evaluations.push_back(eval);

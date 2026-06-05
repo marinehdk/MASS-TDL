@@ -139,5 +139,21 @@ TEST(BehaviorActivationTest, CriticalHealthWhenMostInputsStale) {
   EXPECT_EQ(BehaviorActivationCondition::compute_health_state(in), HealthState::Critical);
 }
 
+// P1 Task 1.3: Guard M4's conflict_detected gate — stand-on must not trigger COLREG_AVOID
+// when conflict_detected is false (stand-on Stage 1/2 path).
+TEST(BehaviorActivationTest, NoColregAvoidWhenNoConflict) {
+  ArbitrationInputs in;
+  in.colregs_received = true;
+  in.colregs_conflict_detected = false;
+  EXPECT_FALSE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
+}
+
+TEST(BehaviorActivationTest, ColregAvoidWhenConflict) {
+  ArbitrationInputs in;
+  in.colregs_received = true;
+  in.colregs_conflict_detected = true;
+  EXPECT_TRUE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
+}
+
 }  // namespace
 }  // namespace mass_l3::m4

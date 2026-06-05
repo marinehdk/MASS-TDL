@@ -78,11 +78,6 @@ class ColregsReasonerNode : public rclcpp::Node {
   // Helpers
   void publish_asdr_record(const std::string& type, const std::string& json);
 
-  bool is_range_closing(uint32_t mmsi, double current_rng_m) const {
-    auto it = prev_target_range_.find(mmsi);
-    return it != prev_target_range_.end() && (current_rng_m < it->second);
-  }
-
   // Components
   std::unique_ptr<TargetStateCache> target_cache_;
   std::unique_ptr<PhaseClassifier> phase_classifier_;
