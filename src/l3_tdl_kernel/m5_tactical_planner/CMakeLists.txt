@@ -351,6 +351,11 @@ if(BUILD_TESTING)
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
+  # ── DEMO-2 P2: Geometric fallback turn magnitude from M6 min-alteration ────
+  m5_add_gtest(test_geometric_fallback
+    test/unit/test_geometric_fallback.cpp
+  )
+
   # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
   # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
   # its own (un-instrumented) libc symbols, causing ASAN to crash on

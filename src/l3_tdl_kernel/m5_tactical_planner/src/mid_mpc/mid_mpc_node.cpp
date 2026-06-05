@@ -279,12 +279,13 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
 
   const double own_psi = input.own_ship.psi_rad;
 
-  // Target heading: starboard-biased point in M4 heading window
-  // R12.B: 5/6 aggression fraction ensures ≥25° turn for [0°,30°] window
-  constexpr double kAggressionFraction = 5.0 / 6.0;
+  // R12.B superseded: magnitude from M6 minimum alteration (route-relative), clamped to window.
   const double h_min = input.constraints.heading_min_rad;
   const double h_max = input.constraints.heading_max_rad;
-  double target_psi = h_min + kAggressionFraction * (h_max - h_min);
+  const double route_brg = input.planned_route_bearing_rad;
+  // Minimum required alteration = window floor relative to route bearing.
+  const double min_alt_rad = std::min(std::abs(h_max - route_brg), std::abs(route_brg - h_min));
+  double target_psi = mass_l3::m5::fallback_target_heading(route_brg, h_min, h_max, min_alt_rad);
 
   // Normalize delta to (-π, π]
   double delta_psi = target_psi - own_psi;
@@ -374,7 +375,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
                target_psi * units::kDegPerRad,
                own_psi * units::kDegPerRad,
                delta_psi * units::kDegPerRad,
-               kAggressionFraction,
+               min_alt_rad * units::kDegPerRad,
                reason);
 
   return plan;

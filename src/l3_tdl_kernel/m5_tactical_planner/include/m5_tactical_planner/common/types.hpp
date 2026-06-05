@@ -7,6 +7,7 @@
 // All parameters marked [TBD-HAZID] must be calibrated during HAZID RUN-001
 // (FCB sea trials, target completion 2026-08-19 per docs/Design/HAZID/RUN-001-kickoff.md).
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -195,6 +196,15 @@ struct BcMpcSolution {
   std::int64_t solve_duration_us{0};  // solve wall-clock time [microseconds]
   std::int64_t stamp_ns{0};
 };
+
+// Target heading = route bearing + COLREG minimum alteration (starboard +),
+// clamped into the M4-provided heading window. Replaces the fixed 5/6 fraction:
+// the planner owns magnitude (NLM: staging->M6, magnitude->planner), and the
+// gentlest COLREG-compliant turn is the minimum required alteration, not max aggression.
+inline double fallback_target_heading(double route_brg, double h_min, double h_max, double min_alt_rad) {
+  double t = route_brg + min_alt_rad;        // starboard-positive convention
+  return std::min(std::max(t, h_min), h_max);
+}
 
 }  // namespace mass_l3::m5
 
