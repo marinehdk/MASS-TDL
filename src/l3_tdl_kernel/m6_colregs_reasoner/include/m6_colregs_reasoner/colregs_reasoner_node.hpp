@@ -21,6 +21,7 @@
 #include "m6_colregs_reasoner/colregs_constraint_generator.hpp"
 #include "m6_colregs_reasoner/colregs_phase_classifier.hpp"
 #include "m6_colregs_reasoner/rule_library_loader.hpp"
+#include "m6_colregs_reasoner/rule_latch.hpp"
 #include "m6_colregs_reasoner/target_state_cache.hpp"
 #include "m6_colregs_reasoner/types.hpp"
 
@@ -77,6 +78,11 @@ class ColregsReasonerNode : public rclcpp::Node {
   // Helpers
   void publish_asdr_record(const std::string& type, const std::string& json);
 
+  bool is_range_closing(uint32_t mmsi, double current_rng_m) const {
+    auto it = prev_target_range_.find(mmsi);
+    return it != prev_target_range_.end() && (current_rng_m < it->second);
+  }
+
   // Components
   std::unique_ptr<TargetStateCache> target_cache_;
   std::unique_ptr<PhaseClassifier> phase_classifier_;
@@ -95,16 +101,8 @@ class ColregsReasonerNode : public rclcpp::Node {
 
   std::unordered_map<uint32_t, double> prev_target_bearing_;
   std::unordered_map<uint32_t, double> prev_target_range_;
-  std::unordered_map<uint32_t, double> rule14_state_;
-
-  bool is_head_on_encounter(
-      double own_heading_deg,
-      double target_heading_deg,
-      double bearing_deg,
-      double prev_bearing_deg,
-      double range_m,
-      double prev_range_m,
-      double dt_s) const;
+  // Per-(target,rule) onset-latched hysteresis. Key = mmsi<<8 | rule_id.
+  std::unordered_map<uint64_t, RuleLatch> rule_latches_;
 
   // Mutex protecting shared state accessed from subscriber and timer callbacks
   mutable std::mutex state_mutex_;

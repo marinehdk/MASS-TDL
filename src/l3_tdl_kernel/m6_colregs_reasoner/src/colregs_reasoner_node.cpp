@@ -523,17 +523,33 @@ void ColregsReasonerNode::run_reasoning() {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
       
-      // Hysteresis/latch: if Rule 14 is evaluated, and the head-on latch timer is active,
-      // force Rule 14 to be active so we don't chatter/toggle back and forth when turning.
-      if (rule->rule_id() == 14 && rule14_state_.count(mmsi) > 0 && rule14_state_[mmsi] > 0.0) {
-        eval.is_active = true;
-        eval.role = Role::BOTH_GIVE_WAY;
-        eval.encounter_type = EncounterType::HEAD_ON;
-        eval.preferred_direction = "STARBOARD";
-        eval.min_alteration_deg = kParams.min_alteration_deg;
-        eval.confidence = 0.85F;
-        eval.rationale = "Rule 14 (Latched): Head-on situation active (latch time remaining: " + 
-                         std::to_string(rule14_state_[mmsi]) + "s)";
+      // Onset-latched hysteresis for Rules 14 (head-on) and 15 (crossing):
+      // hold encounter classification through own-ship's avoidance maneuver
+      // (Rule 13(d)) so we don't chatter back to TRANSIT and U-turn.
+      const int rid = rule->rule_id();
+      if (rid == 14 || rid == 15) {
+        const uint64_t key = (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(rid);
+        auto it = rule_latches_.find(key);
+        if (it == rule_latches_.end()) {
+          it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
+        }
+        // Look up current range from ws_snapshot (TargetGeometricState lacks rng_m)
+        double current_rng = -1.0;
+        for (const auto& tgt_snap : ws_snapshot->targets) {
+          if (static_cast<uint32_t>(tgt_snap.target_id) == mmsi) {
+            current_rng = tgt_snap.rng_m;
+            break;
+          }
+        }
+        const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
+            (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
+        const bool latched = it->second.update(eval.is_active, target.cpa_m, range_closing);
+        if (latched && !eval.is_active) {
+          // Re-assert the latched obligation (preserve the rule's own role/direction).
+          eval.is_active = true;
+          eval.rationale += " [latched]";
+        }
+        eval.is_active = latched;  // also releases promptly once hysteresis clears
       }
       
       evaluations.push_back(eval);
@@ -560,61 +576,29 @@ void ColregsReasonerNode::run_reasoning() {
     }
   }
 
+  // Update target history for range-closing detection (used by RuleLatch)
   for (const auto& tgt : ws_snapshot->targets) {
-    uint32_t mmsi = static_cast<uint32_t>(tgt.target_id);
-    if (prev_target_bearing_.count(mmsi) > 0 && prev_target_range_.count(mmsi) > 0) {
-      bool head_on = is_head_on_encounter(
-          ws_snapshot->own_ship.heading_deg,
-          tgt.heading_deg,
-          tgt.brg_deg,
-          prev_target_bearing_[mmsi],
-          tgt.rng_m,
-          prev_target_range_[mmsi],
-          dt_s);
-      
-      if (head_on) {
-        if (rule14_state_[mmsi] == 0.0) {
-          RCLCPP_WARN(get_logger(), "[M6] Rule 14 triggered for target %u", mmsi);
-        }
-        rule14_state_[mmsi] = 30.0;
-      } else {
-        if (rule14_state_[mmsi] > 0.0) {
-          // Latch holding logic: do not decay the head-on latch timer while the threat is still
-          // in front of us and not safely cleared.
-          const double rel_bearing = relative_bearing_deg(ws_snapshot->own_ship.heading_deg, tgt.brg_deg);
-          const bool range_closing = (tgt.rng_m - prev_target_range_[mmsi]) < 0.0;
-          const bool target_passed = (!range_closing && rel_bearing > 60.0 && rel_bearing < 300.0) || 
-                                     (!range_closing && tgt.rng_m > 1000.0);
-          
-          if (target_passed) {
-            rule14_state_[mmsi] -= 6.0 * dt_s;
-            if (rule14_state_[mmsi] < 0.0) {
-              rule14_state_[mmsi] = 0.0;
-            }
-          } else {
-            // Keep refreshing the timer until the target is astern or moving away!
-            rule14_state_[mmsi] = 30.0;
-          }
-        }
-      }
-    }
-    prev_target_bearing_[mmsi] = tgt.brg_deg;
-    prev_target_range_[mmsi] = tgt.rng_m;
+    prev_target_bearing_[static_cast<uint32_t>(tgt.target_id)] = tgt.brg_deg;
+    prev_target_range_[static_cast<uint32_t>(tgt.target_id)] = tgt.rng_m;
   }
 
-  if (primary_target_mmsi > 0 && rule14_state_[primary_target_mmsi] > 0.0) {
-    l3_msgs::msg::RuleAssessment assessment;
-    assessment.stamp = kNowTime;
-    assessment.target_mmsi = primary_target_mmsi;
-    assessment.applicable_rule = "Rule 14";
-    assessment.expected_action = "turn_starboard";
-    assessment.confidence = 0.91f;
-    assessment.trigger_conditions = {
-      "heading_diff < 22.5°",
-      "bearing_rate < 0.5°/min",
-      "range_closing"
-    };
-    rule_assessment_pub_->publish(assessment);
+  if (primary_target_mmsi > 0) {
+    const uint64_t kKey = (static_cast<uint64_t>(primary_target_mmsi) << 8) | 14ULL;
+    auto it = rule_latches_.find(kKey);
+    if (it != rule_latches_.end() && it->second.latched()) {
+      l3_msgs::msg::RuleAssessment assessment;
+      assessment.stamp = kNowTime;
+      assessment.target_mmsi = primary_target_mmsi;
+      assessment.applicable_rule = "Rule 14";
+      assessment.expected_action = "turn_starboard";
+      assessment.confidence = 0.91f;
+      assessment.trigger_conditions = {
+        "heading_diff < 22.5°",
+        "bearing_rate < 0.5°/min",
+        "range_closing"
+      };
+      rule_assessment_pub_->publish(assessment);
+    }
   }
 
   RCLCPP_DEBUG(get_logger(), "Reasoning cycle: %zu targets, %zu evaluations, %zu active rules",
@@ -978,40 +962,6 @@ ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::test_build_colregs_
     const RuleParameters& params,
     const std::vector<TargetGeometricState>& targets) {
   return ColregsReasonerNode::build_colregs_chain(evals, domain, params, targets);
-}
-
-bool ColregsReasonerNode::is_head_on_encounter(
-    double own_heading_deg,
-    double target_heading_deg,
-    double bearing_deg,
-    double prev_bearing_deg,
-    double range_m,
-    double prev_range_m,
-    double dt_s) const {
-
-  // Condition 1: Mutually opposing heading within 22.5° (COLREGs standard)
-  double heading_diff = std::abs(target_heading_deg - own_heading_deg);
-  // Normalize to [0, 180]
-  if (heading_diff > 180.0) {
-    heading_diff = 360.0 - heading_diff;
-  }
-  bool heading_ok = std::abs(heading_diff - 180.0) < 22.5;
-
-  // Condition 2: Bearing rate near zero (sustained 30s window)
-  double bearing_rate_deg_per_min = (angle_diff_deg(bearing_deg, prev_bearing_deg) / dt_s) * 60.0;
-  bool bearing_rate_ok = std::abs(bearing_rate_deg_per_min) < 0.5;
-
-  // Condition 3: Range closing
-  bool range_closing = (range_m - prev_range_m) < 0.0;
-
-  // Condition 4: Target is in front of us (relative bearing < 90.0 degrees)
-  double rel_bearing = relative_bearing_deg(own_heading_deg, bearing_deg);
-  if (rel_bearing > 180.0) {
-    rel_bearing = 360.0 - rel_bearing;
-  }
-  bool target_in_front = rel_bearing < 90.0;
-
-  return heading_ok && bearing_rate_ok && range_closing && target_in_front;
 }
 
 }  // namespace mass_l3::m6_colregs
