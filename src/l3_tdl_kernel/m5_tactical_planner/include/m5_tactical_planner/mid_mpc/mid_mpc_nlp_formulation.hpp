@@ -11,7 +11,8 @@
 // Decision variables: x = [psi[0..N-1]; u[0..N-1]] ∈ R^{2N}
 // Parameters:         p ∈ R^93 (initial state + bounds + 16 targets)
 // Objective:          J = w_colreg * J_colreg + w_dist * J_dist + w_vel * J_vel
-// Constraints:        g(x, p) >= 0, dim = 5N - 1
+// Constraints:        g(x, p) >= 0, dim = N - 1 (ROT differential only;
+//                     heading/speed bounds via native IPOPT variable bounds)
 //
 // Phase E1 scope:
 //   - Soft COLREGs cost (J_colreg) only; hard rule constraints (Rule 14/15/16/17)
@@ -93,7 +94,7 @@ class MidMpcNlpFormulation {
       const casadi::DM& x_opt,
       const casadi::Dict& stats) const;
 
-  // Constraint dimension (used by MidMpcSolver for lbg/ubg sizing). 5N - 1.
+  // Constraint dimension (used by MidMpcSolver for lbg/ubg sizing). N - 1.
   [[nodiscard]] int32_t g_dim() const noexcept;
 
   // Public access to active config (read-only).
