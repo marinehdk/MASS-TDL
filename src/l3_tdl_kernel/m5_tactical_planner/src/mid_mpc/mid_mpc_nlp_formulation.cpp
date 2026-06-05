@@ -76,12 +76,11 @@ MidMpcNlpFormulation::MidMpcNlpFormulation(const Config& cfg) : cfg_(cfg) {
 }
 
 // ===========================================================================
-// g_dim() — total constraint count. N-1 (ROT differential only).
-// Heading and speed bounds are set as native IPOPT variable bounds (lbx/ubx).
+// g_dim() — total constraint count. 2N (heading) + 2N (speed) + (N-1) (ROT) = 5N-1.
 // ===========================================================================
 int32_t MidMpcNlpFormulation::g_dim() const noexcept {
   const int32_t N = cfg_.n_horizon;
-  return N - 1;
+  return 5 * N - 1;
 }
 
 // ===========================================================================
@@ -166,20 +165,34 @@ casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
 }
 
 // ===========================================================================
-// build_constraints_() — ROT differential only.
+// build_constraints_() — heading bounds + speed bounds + ROT differential.
 //
-// Heading/speed bounds moved to native IPOPT variable bounds (lbx/ubx)
-// to avoid Restoration_Failed caused by hard general constraints.
 // Constraint convention: g >= 0 (lower bound = 0, upper bound = +inf).
+// Phase E1: COLREGs rules handled as soft cost in J_colreg; hard constraints
+// deferred to Phase E2.
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const int32_t N = cfg_.n_horizon;
+
+  // Heading bounds: psi[k] - hmin >= 0  and  hmax - psi[k] >= 0
+  const casadi::MX hmin_rep = casadi::MX::repmat(slot(p_, kIdxHeadingMin), N, 1);
+  const casadi::MX hmax_rep = casadi::MX::repmat(slot(p_, kIdxHeadingMax), N, 1);
+  const casadi::MX g_h_lo = psi_ - hmin_rep;
+  const casadi::MX g_h_hi = hmax_rep - psi_;
+
+  // Speed bounds: u[k] - umin >= 0  and  umax - u[k] >= 0
+  const casadi::MX umin_rep = casadi::MX::repmat(slot(p_, kIdxSpeedMin), N, 1);
+  const casadi::MX umax_rep = casadi::MX::repmat(slot(p_, kIdxSpeedMax), N, 1);
+  const casadi::MX g_s_lo = u_ - umin_rep;
+  const casadi::MX g_s_hi = umax_rep - u_;
 
   // ROT differential: rot_max*dt - |psi[k+1] - psi[k]| >= 0 for k ∈ [0, N-2]
   const casadi::MX dpsi = psi_(casadi::Slice(1, N)) - psi_(casadi::Slice(0, N - 1));
   const casadi::MX rot_step = slot(p_, kIdxRotMax) * casadi::DM(cfg_.dt_s);
   const casadi::MX rot_step_rep = casadi::MX::repmat(rot_step, N - 1, 1);
-  return rot_step_rep - casadi::MX::abs(dpsi);
+  const casadi::MX g_rot = rot_step_rep - casadi::MX::abs(dpsi);
+
+  return casadi::MX::vertcat({g_h_lo, g_h_hi, g_s_lo, g_s_hi, g_rot});
 }
 
 // ===========================================================================
@@ -199,17 +212,7 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
 
   g_ = build_constraints_();
 
-  // Native IPOPT variable bounds from p_ (heading/speed).
-  // Placed here to prevent Restoration_Failed caused by hard general constraints.
-  const casadi::MX hmin_rep = casadi::MX::repmat(slot(p_, kIdxHeadingMin), N, 1);
-  const casadi::MX hmax_rep = casadi::MX::repmat(slot(p_, kIdxHeadingMax), N, 1);
-  const casadi::MX umin_rep = casadi::MX::repmat(slot(p_, kIdxSpeedMin), N, 1);
-  const casadi::MX umax_rep = casadi::MX::repmat(slot(p_, kIdxSpeedMax), N, 1);
-  const casadi::MX lbx = casadi::MX::vertcat({hmin_rep, umin_rep});
-  const casadi::MX ubx = casadi::MX::vertcat({hmax_rep, umax_rep});
-
-  const casadi::MXDict nlp = {{"x", x}, {"p", p_}, {"f", J_}, {"g", g_},
-                               {"lbx", lbx}, {"ubx", ubx}};
+  const casadi::MXDict nlp = {{"x", x}, {"p", p_}, {"f", J_}, {"g", g_}};
   casadi::Dict opts;
   opts["ipopt.max_iter"]              = kIpoptMaxIter;
   opts["ipopt.tol"]                   = kIpoptTol;
