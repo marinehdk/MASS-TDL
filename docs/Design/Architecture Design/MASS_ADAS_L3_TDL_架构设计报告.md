@@ -1691,12 +1691,18 @@ message Behavior_PlanMsg {
     string       rationale;        # IvP 求解摘要（SAT-2）
 }
 
-# COLREGs_ConstraintMsg (发布者: M6, 订阅者: M5, 频率: 2 Hz)
+# COLREGs_ConstraintMsg (发布者: M6, 订阅者: M4, M5, 频率: 2 Hz)
+# schema_version: 114 = v1.1.3 role-carry
+# role is restored as a first-class M6→M4 field per §11.10 line-1225 intent;
+# conflict_detected is derived from role+phase, not a rule-id whitelist.
 message COLREGs_ConstraintMsg {
     timestamp    stamp;
     Rule[]       active_rules;     # Rule 8/13/14/15/16/17/...
     string       phase;            # T_standOn / T_act / ...
+    uint8        primary_role;              # dominant target role (STAND_ON/GIVE_WAY/BOTH_GIVE_WAY/FREE)
+    string       primary_preferred_direction; # dominant required action: STARBOARD|PORT|REDUCE_SPEED|HOLD
     Constraint[] constraints;
+    bool         conflict_detected;          # true when at least one active rule requires own-ship action
 }
 
 # AvoidancePlanMsg (发布者: M5 Mid-MPC, 订阅者: L4 引导层, 频率: 1–2 Hz)
@@ -1842,7 +1848,7 @@ message SAT_DataMsg {
 | **M3 → L2 Voyage Planner** | RouteReplanRequest | 事件 | 重规划请求（ODD 越界 / MRC / 冲突）**[F-P1-D4-035 新增]** | none | crc32 | none | open |
 | **L2 Voyage Planner → M3** | ReplanResponseMsg | 事件 | 重规划响应（SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES）**[v1.1.2 RFC-006 新增]** | none | crc32 | none | open |
 | M4 → M5 | Behavior_PlanMsg | 2 Hz | 行为类型、允许航向/速度区间 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
-| M6 → M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
+| M6 → M4, M5 | COLREGs_ConstraintMsg | 2 Hz | 规则约束集、时机阶段、主导角色 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
 | **M5 Mid-MPC → L4 Guidance Layer** | AvoidancePlanMsg | 1–2 Hz | WP[] + speed_adj（L4 覆盖 L2 PlannedRoute，自身 LOS+WOP → L5）**[F-P1-D5-012 + F-P1-D4-032 — v1.1 方案 B 升级]** | none | crc32 | none | open |
 | **M5 BC-MPC → L4 Guidance Layer** | ReactiveOverrideCmd | 事件 / 上限 10 Hz | 紧急 (ψ, u, ROT)（L4 切换到 reactive_override 模式直接转发 → L5）**[v1.1 方案 B 紧急接口]** | none | crc32 | none | open |
 | M7 → M1 | Safety_AlertMsg | 事件 | 告警类型、严重度、MRC 请求 + recommended_mrm 索引 | hmac-sha256 | hmac-sha256 | seq-counter | L3-internal |
