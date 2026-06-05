@@ -210,41 +210,35 @@ This project has a knowledge graph at `graphify-out/`.
 - 代码结构/跨文件关系 → `graphify query "<question>"` / `graphify path "<A>" "<B>"` / `graphify explain "<concept>"`
 - 广义架构浏览 → `graphify-out/wiki/index.md`（若存在）；`GRAPH_REPORT.md` 仅用于全局架构审查
 - 修改代码后：`graphify update .`（AST-only，无 API 成本）
-- **分工**：代码结构用 graphify；对话历史和内存共享用 headroom 数据库（.headroom/memory.db）
+- **分工**：代码结构用 graphify；对话历史/语义召回用 **MemPalace**（见下）。
 
-## headroom
+## 记忆与召回（两层，勿混）
 
-Database: `.headroom/memory.db`
+> **重要纠正（2026-06-05）**：headroom **不是记忆层**——其 MCP 只有 compress/retrieve，`memory` CLI 无 search，无法召回 handoff。`.headroom/memory.db` 与 headroom CLI 默认库（`./headroom_memory.db`）是两个文件，召回断链。headroom **仅作压缩 proxy**（:8787/:8788）。
 
-- **共享内存共享与查询**：所有 Agent 在会话开始前，可以通过 Headroom MCP 工具（如 `memory_search`）对已归档的会话记录和事实进行语义搜索。
-- **会话接力同步**：使用 `handoff/workspace_log.md` 账本作为高层次接力点，并运行 `python3 scripts/archive_to_headroom.py` 将接力记录导入 Headroom 数据库中，实现所有客户端的数据共享。
+- **语义召回 = MemPalace**：8.6 万+ drawer，MCP 后台 saver 自动 ingest 全部会话；查历史用 `mempalace_search` / `mempalace search "<kw>"` / `mempalace wake-up`。新文件入库 `mempalace mine <path>`。
+- **确定性接力 = 全局 hooks**（`~/.claude/hooks/`，见 `README-handoff.md`）：SessionStart 自动注入上一会话 `handoff/.live_state.md` + DEBUG_STATE.md + 日志末条；Stop/PreCompact/SessionEnd 自动落盘 `.live_state.md`。无需手动。
 
 ---
 
 ## 跨客户端开发协同与 Token 节约协议
 
 ### 1. 智能会话接力规范
-- **启动时（上下文链回溯）**：
-  在会话开始执行任何实质开发或测试操作前，你必须首先读取并检索 `handoff/workspace_log.md`。请根据当前用户提出的开发目标进行关键词或语义检索，**自动寻找与当前开发模块最相关的前置日志记录**，从而拼接出完整的上下文链路，杜绝信息丢失。
-  
-- **结束时（统一格式日志记录与知识归档）**：
-  在会话结束或回答用户任务完成前，你必须完成以下两步：
-  1. 向 `handoff/workspace_log.md` 底部追加一条格式严格对齐的开发记录（或模仿已有的日志样式填写）。标准格式规范如下：
+- **启动时（自动）**：SessionStart hook（`handoff-recall.py`）已自动注入上一会话现场（`.live_state.md` + DEBUG_STATE.md + 日志末条）。需更深历史用 `mempalace_search`。**无需手动读 workspace_log.md**。
+- **结束时（自动 + 一条手写）**：
+  - Stop/PreCompact/SessionEnd hook 已自动落盘 `.live_state.md`（崩溃/断额度也保得住）。
+  - 完成一段有意义工作后，**仍手写一条 curated 条目**追加到 `handoff/workspace_log.md`（叙事性接力，hook 的机械快照替代不了），格式：
 
   ## [YYYY-MM-DD HH:MM] Agent: <客户端名称，如 Claude Code CLI>
   - **Git Commit**: `<Commit Hash>` (branch: `<当前分支名>`)
-  - **Headroom Session**: `<Session ID>` (若有，记录本次会话的代理会话标识)
-  - **Headroom Refs**: `[ref_<Hash>]` (记录本次会话中重要的大日志或大文本引用哈希)
-  - **任务目标 (Goal)**: <简短的一句话描述本次会话的任务目标>
+  - **任务目标 (Goal)**: <一句话>
   - **核心改动 (Actions)**:
-    - `[修改文件相对路径](file:///absolute/path/to/file)`: <简要说明在此文件做了什么改动>
-  - **当前状态 (Status)**: <运行结果，如：单元测试全部通过 / 重构通过，待进行链路测试>
-  - **接力指示 (Hand-off Context)**: <留给下一个接棒 Agent 的具体执行指令 and 上下文>
+    - `[文件](file:///abs/path)`: <改了什么>
+  - **当前状态 (Status)**: <运行结果>
+  - **接力指示 (Hand-off Context)**: <给下一个 Agent 的指令>
 
-  2. **共享数据库同步（Headroom 归档）**：为了让当前对话的接力记录能够被其他所有应用客户端（Claude Code, OpenCode, Claude Desktop）共享，在更新 `handoff/workspace_log.md` 之后，你必须在终端运行以下归档命令，将新的日志数据同步提取并导入到 Headroom 的共享 SQLite 数据库中：
-     ```bash
-     python3 scripts/archive_to_headroom.py --convo-id <current-conversation-id>
-     ```
+  写完可选 `mempalace mine handoff/` 让其立即可搜（后台 saver 也会自动收）。**不要**再跑 `archive_to_headroom.py`（headroom 无召回，已退役）。
+- **切 provider 前**：跑 `~/.claude/hooks/provider-guard.py --model "<name>"` 校验 model 名可达，再 `claude -c`（详见 `~/.claude/hooks/README-handoff.md`）。
 
 ### 2. Token 节约与代码搜索规范
 - **禁止暴力搜索**：严禁在未做定位的情况下，使用大范围 `grep` 或读取大量整个源代码文件。

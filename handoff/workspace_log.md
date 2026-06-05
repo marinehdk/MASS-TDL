@@ -98,6 +98,17 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: Complete & Clean. Playwright test script verified that the page loads correctly and console has no errors.
 - **接力指示 (Hand-off Context)**: The dashboard redesign has been rolled back to the original layout per user feedback. No further layout modifications are needed.
 
+## [2026-06-05 18:30] Agent: Claude Code CLI (Opus 4.8) → handoff to OpenCode
+- **Git Commit**: `7b700bb0` (branch: `main`, uncommitted: new plan file + pre-existing untracked scripts)
+- **任务目标 (Goal)**: 验收 Antigravity 在 A4000 跑的 6 个 Tier-1/2 COLREGs 场景结果 + 评审其修改意见 + 设计避碰健壮性修复方案（本会话只到 plan，未写实现代码）。
+- **核心改动 (Actions)**:
+  - 无源码改动。产出唯一新文件：[docs/superpowers/plans/2026-06-05-colregs-avoidance-robustness.md](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/docs/superpowers/plans/2026-06-05-colregs-avoidance-robustness.md)（4 阶段 TDD plan，未提交）。
+  - **验收结论**：A4000 上 6/6 RED 是**诚实 RED**（轨迹图显示真实病态：Port U-turn、1460 次 chattering，非 harness 假阳）。验收通过。
+  - **评审结论（否决 Antigravity 一条核心意见）**：Antigravity 让 M4 `select_primary` 重新实现 stand-on stage 判断 = 复制 COLREG 权威，违反 ADR-1。证据：`rule17_stand_on.cpp:43-57` 中 M6 **已正确**算出 stage1/2→`preferred_direction="HOLD"`，但在 `colregs_constraint_generator.cpp:84-91` 被坍缩成 `{7,8,14}` rule-id 死筛的 `conflict_detected` bool，role/phase 信号在 M6→M4 边界丢弃。正确落点在 M6 输出端，非 M4。
+  - **三处落点裁定**（subagent 代码追踪 + `/nlm-ask colav_algorithms`(high conf) + 架构报告:1225/2210 + MemPalace I-5/C-3 四源收敛）：① stand-on 早转 → M6 把 `conflict_detected` 改 role+phase 派生（M4 零改动）；② M5 固定 5/6 starboard bias → 取 M6 min_alteration（`mid_mpc_node.cpp:284-287`）；③ R14 双 latch 混乱 + R15 无迟滞 → 统一 `RuleLatch`（onset-latch + 双阈值 CPA 迟滞 + Rule13(d) safe-state 再入）。
+- **当前状态 (Status)**: Plan 完成待执行。无代码改动、未提交、未跑 A4000。`conflict_detected` 现行 `{7,8,14}` 筛漏报 crossing give-way（rule15）——plan P1 顺带修复。
+- **接力指示 (Hand-off Context)**: → **OpenCode 执行 plan**。按 plan P1→P2→P3→P4 顺序（P1 是 keystone）。**所有 colcon build/test 必须在 A4000 跑**（`ssh a4000` + `source scripts/a4000-env.sh`，CLAUDE.md §13）。先 `git checkout -b feat/colregs-avoidance-robustness`。注意 plan P3 Task3.2 Step2 有一处 range-closing 接线需读 `colregs_reasoner_node.cpp:520-603` 现场敲定（已标注）。P3 会删之前 handoff 标"DO NOT TOUCH"的 head-on latch，靠 P4 Step3 head-on 回归保护。`.msg` 改了 schema→必须 `colcon build --packages-select l3_msgs` 重生头文件。
+
 ## [2026-06-05 13:15] Agent: Antigravity (IDE)
 - **Git Commit**: 282855f4 (branch: main)
 - **任务目标 (Goal)**: Target fusion bridge design and implementation plan
@@ -106,3 +117,25 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `docs/superpowers/plans/2026-06-05-target-fusion-bridge.md`: Created implementation plan for schema upgrades and bridge node implementation.
 - **当前状态 (Status)**: Designed and Planned. Not yet executed.
 - **接力指示 (Hand-off Context)**: Awaiting execution of the Target Fusion Bridge implementation plan. Next agent should read the plan and execute it task by task.
+
+## [2026-06-05 15:30] Agent: OpenCode (Sisyphus)
+- **Git Commit**: `b8a505ec` (branch: `feat/colregs-avoidance-robustness`, pushed to GitHub origin + GitLab)
+- **任务目标 (Goal)**: 执行 4 阶段 COLREGs 避碰健壮性修复 plan，将 6 个 honest-RED Tier-1/2 场景修复至 GREEN
+- **核心改动 (Actions)**:
+  - **P1 (keystone)**: `l3_msgs/msg/RuleActive.msg` + `COLREGsConstraint.msg` 新增 `role`/`preferred_direction`/`min_alteration_deg`/`primary_role`/`primary_preferred_direction`，schema 113→114。`colregs_constraint_generator.cpp` 将 `{7,8,14}` rule-id 死筛替换为 `requires_action()` role+phase 派生（fix stand-on 早转 + crossing give-way 漏报）。3 个新测试 + 8 个已有测试全部通过。
+  - **P2**: `mid_mpc_node.cpp` 将固定 5/6 激进分数替换为 `fallback_target_heading()` —— 基于 route bearing 的最小改向，clamped 入 M4 heading window。2 个新测试。
+  - **P3**: 新建 `RuleLatch` 类（onset-latch + 双阈值 CPA 迟滞 + Rule 13(d) safe-state 再入），替换 `colregs_reasoner_node.cpp` 中 "DO NOT TOUCH" 的 `rule14_state_` 单例 latch 为统一的 rule14+rule15 latch。删除旧 timer block 和 `is_head_on_encounter`。3 个 RuleLatch 测试。
+  - **架构文档**: `架构设计报告.md` §15 恢复 role 为 first-class M6→M4 字段，M4 加入订阅者列表。
+  - **P4 A4000 集成**: `run_6_scenarios.py` 全部 6 场景完成。chattering 消除（transitions: 253→1, 521→0, 821→0）。无 Port U-turn。R17 stand-on 正确保持航向（0.3-0.4° turn）。RTF sweep {1,5,10}× 全绿。A_turn 仍 RED（M5 NLP 不收敛——旧有问题，非本次引入）。
+- **当前状态 (Status)**: 分支 `feat/colregs-avoidance-robustness` 已推送到 GitHub origin 和 GitLab。M6 单元测试 144/144 通过。A4000 上 SIL 栈已验证 chattering 消除和 stand-on 早转已修复。A_turn metric 仍 RED（M5 NLP EMPTY→geometric fallback 过度保守——独立修复任务）。分支待 merge 至 main。
+
+## [2026-06-05 16:00] Agent: OpenCode (Sisyphus) — code review + completion
+- **Git Commit**: `bd069562` (branch: `feat/colregs-avoidance-robustness`, on GitHub + GitLab)
+- **任务目标 (Goal)**: 完成 pre-merge code review，修复 3 个 minor issues
+- **核心改动 (Actions)**:
+  - `colregs_reasoner_node.hpp`: 删除未使用的 `is_range_closing` 私有方法
+  - `colregs_reasoner_node.cpp`: 重构 latch 分支为 if/else 单分支，消除冗余赋值
+  - `test_behavior_activation.cpp`: 新增 2 个 M4 guard 测试（P1 Task 1.3）
+- **当前状态 (Status)**: 7 commits，code review 通过。6/6 场景 chattering 消除 + stand-on 早转修复。A_turn RED 是 M5 NLP 不收敛的独立问题，非本次引入。分支待 merge。
+- **接力指示 (Hand-off Context)**: M5 NLP convergence fix should be a separate branch off `feat/colregs-avoidance-robustness`. Key files: `m5_tactical_planner/src/mid_mpc/mid_mpc_nlp_formulation.cpp` (IPOPT formulation), `mid_mpc_solver.cpp` (IPOPT interface). See new conversation prompt below.
+- **接力指示 (Hand-off Context)**: 可选后续：① 调优 M5 geometric fallback 的 min_alt_rad 计算（当前公式从 window 推算，未实际消费 M6 的 `min_alteration_deg`——需将 M6 推荐值传入 MidMpcInput）以改善 rule14/15 CPA；② 将 A_turn 转绿需修复 M5 NLP 收敛问题（独立任务）。merge 命令：`git checkout main && git merge feat/colregs-avoidance-robustness && git push origin main && git push gitlab main:l3-tdl`。

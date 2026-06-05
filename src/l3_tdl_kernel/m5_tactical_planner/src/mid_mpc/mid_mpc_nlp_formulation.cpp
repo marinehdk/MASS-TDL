@@ -225,6 +225,8 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   opts["ipopt.bound_push"]            = 1.0e-4;
   opts["ipopt.bound_frac"]            = 1.0e-4;
   opts["ipopt.mu_strategy"]           = std::string{"adaptive"};
+  opts["ipopt.constr_viol_tol"]       = 1.0e-3;
+  opts["ipopt.acceptable_constr_viol_tol"] = 1.0e-2;
   opts["print_time"]                  = false;
   solver_ = casadi::nlpsol("mid_mpc_solver", "ipopt", nlp, opts);
 }

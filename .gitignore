@@ -118,3 +118,8 @@ entities.json
 
 # Headroom local cache
 .headroom/
+
+# cross-app handoff transient breadcrumbs (auto-written by ~/.claude/hooks)
+handoff/.live_state.md
+handoff/.handoff_state.json
+headroom_memory.db
