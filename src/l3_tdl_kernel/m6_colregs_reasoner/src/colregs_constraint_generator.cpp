@@ -16,6 +16,25 @@ namespace mass_l3::m6_colregs {
 
 using builtin_interfaces::msg::Time;
 
+namespace {
+std::string phase_to_str(const TimingPhase p) {
+  switch (p) {
+    case TimingPhase::CRITICAL_ACTION:    return "T_emergency";
+    case TimingPhase::INDEPENDENT_ACTION: return "T_act";
+    case TimingPhase::SOUND_WARNING:      return "T_warn";
+    case TimingPhase::PRESERVE_COURSE:
+    default:                              return "T_standOn";
+  }
+}
+
+bool requires_action(const RuleEvaluation& e) {
+  const bool give_way = (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY);
+  const bool standon_inextremis = (e.role == Role::STAND_ON &&
+      (e.phase == TimingPhase::INDEPENDENT_ACTION || e.phase == TimingPhase::CRITICAL_ACTION));
+  return e.is_active && (give_way || standon_inextremis);
+}
+}  // namespace
+
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static,readability-function-cognitive-complexity,readability-function-size)
 l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     const std::vector<RuleEvaluation>& evaluations,
@@ -26,6 +45,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
   // Collect active rules and determine overall phase
   std::string dominant_phase = "PRESERVE_COURSE";
   std::string rationale_parts;
+  const RuleEvaluation* dominant = nullptr;
 
   for (const auto& eval : evaluations) {
     if (!eval.is_active) {
@@ -37,7 +57,16 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     ra.target_id = eval.target_id;
     ra.rule_confidence = eval.confidence;
     ra.rationale = eval.rationale;
+    ra.role = static_cast<uint8_t>(eval.role);
+    ra.preferred_direction = eval.preferred_direction;
+    ra.min_alteration_deg = static_cast<float>(eval.min_alteration_deg);
+    ra.rule_phase = phase_to_str(eval.phase);
     msg.active_rules.push_back(ra);
+
+    if (requires_action(eval) &&
+        (dominant == nullptr || eval.phase > dominant->phase)) {
+      dominant = &eval;
+    }
 
     // Build combined rationale
     if (!rationale_parts.empty()) {
@@ -82,13 +111,18 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
   msg.rationale = rationale_parts.empty() ? "No active COLREGs rules" : rationale_parts;
   
   bool conflict = false;
-  for (const auto& ra : msg.active_rules) {
-    if (ra.rule_id == 7 || ra.rule_id == 8 || ra.rule_id == 14) {
-      conflict = true;
-      break;
-    }
+  for (const auto& eval : evaluations) {
+    if (requires_action(eval)) { conflict = true; break; }
   }
   msg.conflict_detected = conflict;
+
+  if (dominant != nullptr) {
+    msg.primary_role = static_cast<uint8_t>(dominant->role);
+    msg.primary_preferred_direction = dominant->preferred_direction;
+  } else {
+    msg.primary_role = static_cast<uint8_t>(Role::FREE);
+    msg.primary_preferred_direction = "HOLD";
+  }
 
   return msg;
 }

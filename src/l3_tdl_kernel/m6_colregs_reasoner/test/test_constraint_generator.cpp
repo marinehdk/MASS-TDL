@@ -132,4 +132,56 @@ TEST(ConstraintGeneratorTest, ConfidenceCapped) {
   EXPECT_LE(msg.confidence, 1.0f);
 }
 
+// ---------------------------------------------------------------------------
+// Task 1.2: role/phase/direction serialisation + role-derive conflict_detected
+// ---------------------------------------------------------------------------
+
+namespace {
+
+RuleEvaluation mk(const int id, const Role role, const TimingPhase ph,
+                   const std::string& dir) {
+  RuleEvaluation e;
+  e.is_active = true;
+  e.rule_id = id;
+  e.role = role;
+  e.phase = ph;
+  e.preferred_direction = dir;
+  e.min_alteration_deg = 20.0;
+  e.confidence = 0.8f;
+  return e;
+}
+
+}  // namespace
+
+TEST(ConstraintGen, StandOnEarlyPhaseDoesNotRaiseConflict) {
+  ConstraintGenerator g;
+  RuleParameters p{};
+  const auto msg = g.generate(
+      {mk(17, Role::STAND_ON, TimingPhase::PRESERVE_COURSE, "HOLD")}, p, 0.9);
+  EXPECT_FALSE(msg.conflict_detected);
+  ASSERT_EQ(msg.active_rules.size(), 1u);
+  EXPECT_EQ(msg.active_rules[0].role, static_cast<uint8_t>(Role::STAND_ON));
+  EXPECT_EQ(msg.active_rules[0].preferred_direction, "HOLD");
+  EXPECT_EQ(msg.primary_preferred_direction, "HOLD");
+}
+
+TEST(ConstraintGen, StandOnInExtremisRaisesConflict) {
+  ConstraintGenerator g;
+  RuleParameters p{};
+  const auto msg = g.generate(
+      {mk(17, Role::STAND_ON, TimingPhase::INDEPENDENT_ACTION, "STARBOARD")},
+      p, 0.9);
+  EXPECT_TRUE(msg.conflict_detected);
+}
+
+TEST(ConstraintGen, GiveWayCrossingRaisesConflict) {
+  ConstraintGenerator g;
+  RuleParameters p{};
+  const auto msg = g.generate(
+      {mk(15, Role::GIVE_WAY, TimingPhase::PRESERVE_COURSE, "STARBOARD")}, p,
+      0.9);
+  EXPECT_TRUE(msg.conflict_detected);
+  EXPECT_EQ(msg.primary_role, static_cast<uint8_t>(Role::GIVE_WAY));
+}
+
 }  // namespace mass_l3::m6_colregs
