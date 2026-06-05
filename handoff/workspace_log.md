@@ -72,3 +72,37 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `scenarios/COLREGs测试/README.md`: 套件清单 + 已实现 KPI 层指针 + Tier-3 暂缓项（不合作机动目标 / geofence）记录。
 - **当前状态 (Status)**: `python3 -m tools.sil.verify_colreg_tier12` → ALL PASS（6 文件全部通过三检）。未提交、未跑 A4000 实栈。
 - **接力指示 (Hand-off Context)**: 下一步可在 A4000 跑这 6 个场景的真实避碰，预期部分 honest RED（尤其 `colreg-rule15-ms` 多船统一解、`colreg-rule17-cr-so` 直航 stage-3、`colreg-rule13-15-ms` R15>R13 优先级）——RED 即 M4/M5/M6 待修诊断输出，属独立修复任务，不在本轮。Tier-3（不合作机动目标 / geofence 交叉）需先做 harness 改动：`target_vessel_node` 加脚本化机动模式 + scenario schema 加 geofence 多边形字段。
+
+---
+
+## [2026-06-05 17:00] Agent: Antigravity (IDE Environment)
+- **Git Commit**: `e98041ca` (branch: `main`, synchronized GitLab `l3-tdl` and GitHub `origin/main`)
+- **Headroom Session**: `66af67ed-df03-4324-aaa7-c6813fb4a675`
+- **Headroom Refs**: N/A
+- **任务目标 (Goal)**: 跑新增的 6 个 Tier-1/2 COLREGs 场景的真实避碰集成测试，采集每场景的核心避碰指标，定位 M4/M5/M6 的待修代码缺陷并输出诊断报告。
+- **核心改动 (Actions)**:
+  - **测试运行**: 成功在 A4000 服务器上拉起 SIL 实栈，逐一运行 6 个新场景规避动作。修复了由于 ROS 2 桥接时间差导致的时钟重置 race condition (加入 `time.sleep(3.0)` 延迟)。
+  - **诊断定位**:
+    1. **M4 behavior selection**: `select_primary` 盲目使用 `COLREG_AVOID` 覆盖 `TRANSIT`，导致 R17 直航船在 Stage 1/2 时提前错误转向。
+    2. **M5 tactical planner**: NLP 求解器不收敛触发 Fallback，按固定 5/6 转向比例向右偏航 ~25°。
+    3. **M6 colregs reasoner**: Rule 14 方位角变化率过紧（`< 0.5°/min`）导致锁存失效后频繁震荡直至 Port U-turn；Rule 15 缺乏任何锁存/迟滞机制导致多船避碰大幅震荡。
+  - **生成报告**: 创建了本地 artifact [diagnostics_report.md](file:///Users/marine/.gemini/antigravity/brain/66af67ed-df03-4324-aaa7-c6813fb4a675/diagnostics_report.md)，包含了所有 6 个场景的指标度量表，对齐预期动作，并嵌入了对应的航迹轨迹图。
+- **当前状态 (Status)**: ALL RED (Honest Verdict)。诊断报告已完成且经过自动评审批准。已准备好进入修复阶段。
+- **接力指示 (Hand-off Context)**: 下一步计划是设计并执行修复方案：(1) 在 M4 中识别 Stand-on 并限制其早转行为；(2) 优化 M5 NLP 求解收敛与 Fallback 角度计算；(3) 修复 M6 Rule 14 的锁存判定阈值并实现 Rule 15 的避碰迟滞锁存。
+
+## [2026-06-05 11:04] Agent: Antigravity (IDE)
+- **Git Commit**: `e98041ca` (branch: `main`)
+- **任务目标 (Goal)**: Revert Headroom dashboard redesign to the original layout with translation and theme toggles.
+- **核心改动 (Actions)**:
+  - `/Users/marine/.local/pipx/venvs/headroom-ai/lib/python3.14/site-packages/headroom/dashboard/templates/dashboard.html`: Restored from backup `dashboard-original.html` to revert the sidebar and multi-tab layout back to the original single-page scrolling layout.
+- **当前状态 (Status)**: Complete & Clean. Playwright test script verified that the page loads correctly and console has no errors.
+- **接力指示 (Hand-off Context)**: The dashboard redesign has been rolled back to the original layout per user feedback. No further layout modifications are needed.
+
+## [2026-06-05 13:15] Agent: Antigravity (IDE)
+- **Git Commit**: 282855f4 (branch: main)
+- **任务目标 (Goal)**: Target fusion bridge design and implementation plan
+- **核心改动 (Actions)**:
+  - `docs/superpowers/specs/2026-06-05-target-fusion-bridge-design.md`: Created design specification for the C++ bridge node to adapt external NMEA target arrays.
+  - `docs/superpowers/plans/2026-06-05-target-fusion-bridge.md`: Created implementation plan for schema upgrades and bridge node implementation.
+- **当前状态 (Status)**: Designed and Planned. Not yet executed.
+- **接力指示 (Hand-off Context)**: Awaiting execution of the Target Fusion Bridge implementation plan. Next agent should read the plan and execute it task by task.
