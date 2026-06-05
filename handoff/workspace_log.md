@@ -59,3 +59,16 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **接力指示 (Hand-off Context)**: Deployment now matches CLAUDE.md §13 (A4000 tracks GitLab `l3-tdl`). A4000 working tree still has untracked debug scripts (`scripts/_dbg_*.py`, `_retest_spinfix.py`) — harmless, kept for ad-hoc debugging. The retest harness's wall-timeout is miscalibrated for l3-tdl (the `arrow_routes.py` mount likely adds ~1–2s startup overhead); if `_retest_spinfix.py` is used as a future gating test, consider bumping `RUN_WALL` from 140 → 180s.
 
 
+
+## [2026-06-05 16:00] Agent: Claude Code CLI (Opus 4.8)
+- **Git Commit**: uncommitted (branch: `feat/colregs-scenarios-tier12`, off `main`)
+- **Headroom Session**: N/A
+- **Headroom Refs**: N/A
+- **任务目标 (Goal)**: 按 COLREGs 阶梯指导增强 `scenarios/COLREGs测试`，补齐缺失的会遇角色（直航/左舷交叉）与多船仲裁场景，编码完整合规判据以暴露 M4/M5/M6 缺陷（honest RED）。本轮仅写场景 + 本地 schema 校验，不跑 A4000。
+- **核心改动 (Actions)**:
+  - `tools/sil/gen_colreg_tier12.py`: 新增场景生成器。求解目标航速使直线 DCPA≈0（构造真实碰撞风险），ENU→lat/lon 用 origin(63.44,10.38)。
+  - `tools/sil/verify_colreg_tier12.py`: 本地三检校验（schema Draft-07 合法 + `ScenarioSpec.from_file` 可解析 + M2 `encounter_classifier` 分类符合意图 + 每目标 DCPA<500m）。
+  - 6 个新场景（`scenarios/COLREGs测试/`）：Tier-1 `colreg-rule17-cr-so{,-2}.yaml`（R17 直航，目标左舷交叉应让不让→stage-3）、`colreg-rule14-ho-port.yaml`（对遇目标偏左仍须右转）；Tier-2 `colreg-rule15-ms.yaml`（双右舷交叉夹击）、`colreg-rule13-15-ms.yaml`（追越+交叉 R15>R13）、`colreg-ms-headon-cross.yaml`（R14+R15 仲裁）。
+  - `scenarios/COLREGs测试/README.md`: 套件清单 + 已实现 KPI 层指针 + Tier-3 暂缓项（不合作机动目标 / geofence）记录。
+- **当前状态 (Status)**: `python3 -m tools.sil.verify_colreg_tier12` → ALL PASS（6 文件全部通过三检）。未提交、未跑 A4000 实栈。
+- **接力指示 (Hand-off Context)**: 下一步可在 A4000 跑这 6 个场景的真实避碰，预期部分 honest RED（尤其 `colreg-rule15-ms` 多船统一解、`colreg-rule17-cr-so` 直航 stage-3、`colreg-rule13-15-ms` R15>R13 优先级）——RED 即 M4/M5/M6 待修诊断输出，属独立修复任务，不在本轮。Tier-3（不合作机动目标 / geofence 交叉）需先做 harness 改动：`target_vessel_node` 加脚本化机动模式 + scenario schema 加 geofence 多边形字段。

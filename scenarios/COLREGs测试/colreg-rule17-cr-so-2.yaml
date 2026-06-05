@@ -1,0 +1,79 @@
+title: 'Scenario: colreg-rule17-cr-so-002-v1.0'
+description: Rule 17 stand-on variant. Faster target crossing from the port quarter-bow
+  (relative bearing 290 deg), heading 70 deg at 14.6 kn, shorter t_cpa ~= 369 s forcing
+  an earlier Rule 17(b) transition. Own ship is stand-on (maintain, then last-moment
+  action). DCPA ~= 0 m without action.
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 10.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.448551
+      longitude: 10.32746
+    cog: 70.0
+    sog: 14.62
+    heading: 70.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 180.0
+    speed_mps: 4.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 4.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule17-cr-so-002-v1.0
+  scenario_source: colregs_test_suite_tier12_v1.0
+  colregs_rules:
+  - R17
+  - R15
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule17
+    give_way_vessel: target
+    expected_own_action: maintain
+    avoidance_time_s: 279.4
+    avoidance_delta_rad: 0.6981
+    avoidance_duration_s: 60.0
+  seed: 102
+  expected_outcome:
+    cpa_min_m_ge: 400.0
+    rule_compliance:
+    - rule: Rule17
+      result: required
+    - rule: Rule15
+      result: required
+  simulation_settings:
+    total_time: 669.4
+    dt: 0.02
+    n_rps_initial: 3.0
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002

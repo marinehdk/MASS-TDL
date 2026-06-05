@@ -1,0 +1,96 @@
+title: 'Scenario: colreg-rule13-15-ms-001-v1.0'
+description: 'Multi-rule overlap: Rule 13 overtaking vs Rule 15 crossing. Own ship
+  (14 kn) is overtaking a slow vessel TS1 dead ahead (7 kn, same course) when a faster
+  vessel TS2 enters from starboard (relative bearing 60 deg, 15.8 kn, t_cpa ~= 419
+  s). COLREGs priority is Rule 15 > Rule 13: own ship must suspend/defer the overtaking
+  pass and give way to TS2 (starboard alteration or speed reduction) while still keeping
+  clear of TS1.'
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 14.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.456667
+      longitude: 10.38
+    cog: 0.0
+    sog: 7.0
+    heading: 0.0
+  model: ais_replay_vessel
+- id: ts2
+  static:
+    id: 3
+    mmsi: 100000002
+  initial:
+    position:
+      latitude: 63.456667
+      longitude: 10.444561
+    cog: 290.0
+    sog: 15.83
+    heading: 290.0
+  model: ais_replay_vessel
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule13-15-ms-001-v1.0
+  scenario_source: colregs_test_suite_tier12_v1.0
+  colregs_rules:
+  - R13
+  - R15
+  - R16
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule15_Stbd
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 299.3
+    avoidance_delta_rad: 0.6109
+    avoidance_duration_s: 90.0
+  seed: 105
+  expected_outcome:
+    cpa_min_m_ge: 300.0
+    rule_compliance:
+    - rule: Rule13
+      result: required
+    - rule: Rule15
+      result: required
+    - rule: Rule16
+      result: required
+  simulation_settings:
+    total_time: 800.0
+    dt: 0.02
+    n_rps_initial: 4.2
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002
