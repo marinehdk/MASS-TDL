@@ -46,6 +46,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_rule_library_loader test_rule_library_loader.cpp)
   target_link_libraries(test_rule_library_loader ${PROJECT_NAME}_lib)
 
+  ament_add_gtest(test_rule_latch test_rule_latch.cpp)
+  target_link_libraries(test_rule_latch ${PROJECT_NAME}_lib)
+
   # Integration tests
   ament_add_gtest(test_node_lifecycle integration/test_node_lifecycle.cpp)
   target_link_libraries(test_node_lifecycle ${PROJECT_NAME}_lib)
