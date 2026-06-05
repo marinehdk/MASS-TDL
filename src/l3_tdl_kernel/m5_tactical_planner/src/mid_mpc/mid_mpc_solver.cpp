@@ -54,13 +54,14 @@ casadi::DM MidMpcSolver::pack_warm_start_(const MidMpcSolution& warm) const {
 }
 
 // ===========================================================================
-// pack_cold_start_() — constant-heading + constant-speed (ROT = 0).
-// Neutral initial guess; IPOPT finds the optimum from the feasibility interior.
+// pack_cold_start_() — initial guess from current own-ship state.
+// Uses own-ship heading as psi seed (natural initial point near optimum)
+// and current speed (or planned/nominal if speed < 0.1 m/s).
 // ===========================================================================
 casadi::DM MidMpcSolver::pack_cold_start_(const MidMpcInput& input) const {
   const int32_t N = formulation_.config().n_horizon;
   casadi::DM x0 = casadi::DM::zeros(2 * N, 1);
-  const double psi_seed = 0.5 * (input.constraints.heading_min_rad + input.constraints.heading_max_rad);
+  const double psi_seed = input.own_ship.psi_rad;
   const double u_seed = (input.own_ship.u_mps > 0.1) ? input.own_ship.u_mps
                         : (input.planned_speed_mps > 0.1 ? input.planned_speed_mps : 5.14);
   for (int32_t k = 0; k < N; ++k) {

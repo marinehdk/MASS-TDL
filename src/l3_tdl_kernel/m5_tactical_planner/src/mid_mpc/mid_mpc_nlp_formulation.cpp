@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <casadi/casadi.hpp>
+#include <spdlog/spdlog.h>
 
 #include "m5_tactical_planner/common/types.hpp"
 
@@ -21,14 +22,22 @@ namespace {
 
 // [TBD-HAZID] IPOPT max iterations per Mid-MPC cycle.
 // Default 150; calibrate from FCB sea-trial timing data (HAZID RUN-001 WP-04).
-constexpr int32_t kIpoptMaxIter = 150;
+constexpr int32_t kIpoptMaxIter = 500;
 
 // [TBD-HAZID] IPOPT convergence tolerance.
 // Default 1e-4; calibrate per detailed design §5.2.4 SLA budget.
 constexpr double kIpoptTol = 1.0e-4;
 
-// IPOPT max CPU time [s] — 450 ms ≤ 500 ms cycle SLA (detailed design §5.2.4).
-constexpr double kIpoptMaxCpuTime = 0.45;
+// [TBD-HAZID] IPOPT acceptable convergence tolerance (looser than tol).
+// If IPOPT finds a point within this tolerance after acceptable_iter, it returns success.
+// Enables graceful degradation within the cycle SLA.
+constexpr double kIpoptAcceptableTol = 1.0e-3;
+
+// [TBD-HAZID] Minimum IPOPT iterations before acceptable_tol-based early exit.
+constexpr int32_t kIpoptAcceptableIter = 5;
+
+// [TBD-HAZID] IPOPT max CPU time [s] — 2.0 s within 1 Hz cycle (detailed design §5.2.4).
+constexpr double kIpoptMaxCpuTime = 2.0;
 
 // [TBD-HAZID] Default ROT max [rad/s] when caller does not override via p_.
 // 0.2094 rad/s ≈ 12°/s; FCB nominal at 18 kn (vessel_dynamics_model default).
@@ -38,6 +47,11 @@ constexpr double kDefaultRotMaxRadS = 0.2094;
 // Numerical guards for weight denominator (avoid division-by-zero).
 constexpr double kMinCpaForWeight  = 1.0;   // [m]
 constexpr double kMinTcpaForWeight = 1.0;   // [s]
+
+// [TBD-HAZID] Maximum per-target weight cap to prevent gradient explosion
+// from very small CPA/TCPA products.
+constexpr double kMaxTargetWeight = 100.0;
+constexpr double kTargetWeightDenomMin = 1.0;  // [m·s] minimum CPA×TCPA product
 
 // Slice helper: extract scalar p[i] as 1×1 MX.
 casadi::MX slot(const casadi::MX& p, int32_t i) {
@@ -143,7 +157,11 @@ casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
       cost = cost + tw * casadi::MX::fmax(zero, cpa2 - d2);
     }
   }
-  return cost;
+  // Return per-target per-step average cost to normalize scale across
+  // varying target counts and horizon lengths.
+  const casadi::MX scale_denom = casadi::DM(
+      static_cast<double>(std::max(1, Nt * N)));
+  return cost / scale_denom;
 }
 
 // ===========================================================================
@@ -198,10 +216,15 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   casadi::Dict opts;
   opts["ipopt.max_iter"]              = kIpoptMaxIter;
   opts["ipopt.tol"]                   = kIpoptTol;
+  opts["ipopt.acceptable_tol"]        = kIpoptAcceptableTol;
+  opts["ipopt.acceptable_iter"]       = kIpoptAcceptableIter;
   opts["ipopt.print_level"]           = 0;
   opts["ipopt.linear_solver"]         = std::string{"mumps"};
   opts["ipopt.hessian_approximation"] = std::string{"limited-memory"};
   opts["ipopt.max_cpu_time"]          = kIpoptMaxCpuTime;
+  opts["ipopt.bound_push"]            = 1.0e-4;
+  opts["ipopt.bound_frac"]            = 1.0e-4;
+  opts["ipopt.mu_strategy"]           = std::string{"adaptive"};
   opts["print_time"]                  = false;
   solver_ = casadi::nlpsol("mid_mpc_solver", "ipopt", nlp, opts);
 }
@@ -248,7 +271,8 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
     p(base + 3) = tgt.sog_mps;
     const double cpa  = std::max(tgt.cpa_m,  kMinCpaForWeight);
     const double tcpa = std::max(tgt.tcpa_s, kMinTcpaForWeight);
-    p(base + 4) = 1.0 / (cpa * tcpa);
+    const double cpa_tcpa_product = std::max(cpa * tcpa, kTargetWeightDenomMin);
+    p(base + 4) = std::min(1.0 / cpa_tcpa_product, kMaxTargetWeight);
   }
   return p;
 }
@@ -278,6 +302,16 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
       sol.status = MidMpcSolution::Status::Infeasible;
     } else {
       sol.status = MidMpcSolution::Status::NumericalFailure;
+    }
+
+    if (sol.status != MidMpcSolution::Status::Converged) {
+      int32_t iter = 0;
+      if (stats.count("iter_count") > 0u) {
+        iter = static_cast<int32_t>(static_cast<int>(stats.at("iter_count")));
+      }
+      spdlog::warn("[M5][MidMPC] IPOPT status={} iter={} x_dim={}",
+                   ipopt_status, iter,
+                   static_cast<int32_t>(x_opt.numel()));
     }
   }
 

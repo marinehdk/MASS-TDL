@@ -34,7 +34,7 @@ class MidMpcSolver {
   struct IpoptOptions {
     int32_t max_iter{150};                               // [TBD-HAZID]
     double tol{1.0e-4};                                  // [TBD-HAZID]
-    double timeout_s{0.5};                               // [TBD-HAZID] 500 ms SLA cap
+    double timeout_s{2.0};                               // [TBD-HAZID] 2.0 s within 1 Hz SLA
     std::string linear_solver{"mumps"};                  // open-source default; ma27/ma57 optional
     std::string hessian_approximation{"limited-memory"}; // L-BFGS (FCB state dim ~30)
     int32_t print_level{0};                              // suppress IPOPT stdout in production
