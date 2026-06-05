@@ -295,7 +295,8 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
     const std::string ipopt_status =
         static_cast<std::string>(stats.at("return_status"));
     if (ipopt_status == "Solve_Succeeded" ||
-        ipopt_status == "Feasible_Point_Found") {
+        ipopt_status == "Feasible_Point_Found" ||
+        ipopt_status == "Solved_To_Acceptable_Level") {
       sol.status = MidMpcSolution::Status::Converged;
     } else if (ipopt_status == "Maximum_Iterations_Exceeded" ||
                ipopt_status == "Maximum_CpuTime_Exceeded") {
