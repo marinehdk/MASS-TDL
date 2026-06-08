@@ -152,3 +152,15 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: GREEN (build and all 158 frontend tests passed successfully)
 - **接力指示 (Hand-off Context)**: S-57 Malacca Strait chart has been successfully compiled and integrated. The default domain is now set to "港口水域" (harbour_approach) which renders the Norway chart (trondelag). Selecting "近海群岛" (coastal_archipelago) will load the Malacca Strait chart. The next session can proceed to create test scenarios located in the Malacca Strait coordinates (approx. 102° E to 110.8° E longitude, -5° S to 0° latitude).
 
+
+## [2026-06-08 15:00] Agent: Antigravity (IDE)
+- **Git Commit**: `8ddb93e823e4909711dbb64757c95fd3ae6edf36` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: 解决在左侧栏第一个TAB选择"近海群岛"后地图没有直接跳转到马六甲海峡的问题
+- **核心改动 (Actions)**:
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: 将 `SilMapView` 的 `encRegion` prop 改为由 `oddDomain` 状态派生，实现即使在未加载场景文件的情况下切换航行区域，也会将正确的区域传给地图组件。
+  - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/map/SilMapView.tsx)`: 更新 ENC 区域更新的 `useEffect` 依赖，包含地图就绪的 `status` 状态；并在每次状态/区域更新时校验地图中心点是否与当前海图匹配，如果不匹配（例如初始加载或手动切换时）则立即自动调用 `map.jumpTo` 切换相机中心，从而保证精准、无缝地跳转到相应的地理区域。
+  - `[web/e2e/malacca-jump.spec.ts](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/e2e/malacca-jump.spec.ts)`: 新增 E2E 自动化测试，模拟在场景编辑器左侧栏中选择“近海群岛”的操作，校验地图中心是否成功从挪威跳转至马六甲海峡（`[104, -2.5]`）并顺利复原。
+- **当前状态 (Status)**: GREEN (Vitest 158 个单元测试全部通过，A4000 编译打包通过，Playwright E2E 地图跳转测试 1/1 PASS)。
+- **接力指示 (Hand-off Context)**: 马六甲海峡的跳转和切图逻辑已完美实现、合并并已同步至 A4000。接力 Agent 可在此分支上直接展开马六甲海峡的相关避碰算法测试。
+
+
