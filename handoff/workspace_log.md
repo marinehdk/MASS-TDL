@@ -153,14 +153,16 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **接力指示 (Hand-off Context)**: S-57 Malacca Strait chart has been successfully compiled and integrated. The default domain is now set to "港口水域" (harbour_approach) which renders the Norway chart (trondelag). Selecting "近海群岛" (coastal_archipelago) will load the Malacca Strait chart. The next session can proceed to create test scenarios located in the Malacca Strait coordinates (approx. 102° E to 110.8° E longitude, -5° S to 0° latitude).
 
 
-## [2026-06-08 15:12] Agent: Antigravity (IDE)
-- **Git Commit**: `87315c8251df404ad53158fcadbc14cd073e51f7` (branch: `fix/m5-nlp-convergence`)
-- **任务目标 (Goal)**: 解决在左侧栏第一个TAB选择"近海群岛"后地图没有直接跳转到马六甲海峡的问题，并调整海图默认分辨率与中心，使其呈现完整海图（10nm分辨率且居中）
+## [2026-06-08 15:30] Agent: Antigravity (IDE)
+- **Git Commit**: `941e5fe1aa34e0acfdd01029ae21343385ebb820` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: 解决在左侧栏第一个TAB选择"近海群岛"后地图没有直接跳转到马六甲海峡的问题，调整海图展示效果以铺满屏幕并隐藏空白边界，且默认展示左侧栏的第一个TAB页“运行域”
 - **核心改动 (Actions)**:
-  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: 将 `SilMapView` 的 `encRegion` prop 改为由 `oddDomain` 状态派生，即使在未加载场景文件的情况下切换航行区域也会更新地图区域。同时将转换时默认的本船/目标船/路径坐标从 `104.0` 调整至 `106.4` 以保持与新海图中心对齐。
-  - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/map/SilMapView.tsx)`: 更新 ENC 区域更新的 `useEffect` 依赖以包含地图就绪的 `status`；校验地图中心点，如不匹配则自动 `map.jumpTo` 切换相机中心。调整马六甲海域默认中心为 `[106.4, -2.5]`（马六甲海图数据包的几何中心），默认 zoom 级别调整为 `7`（此时 MapLibre 比例尺显示约 10nm 分辨率，且无需裁剪即可完美呈现整幅海图）。
-  - `[web/e2e/malacca-jump.spec.ts](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/e2e/malacca-jump.spec.ts)`: 新增并修改 Playwright E2E 自动化测试用例，校验地图中心是否成功从挪威跳转至马六甲海峡新中心 `[106.4, -2.5]` 并正常复原。
-- **当前状态 (Status)**: GREEN (Vitest 158 个单元测试全部通过，A4000 编译打包通过，Playwright E2E 地图跳转与中心测试 1/1 PASS)。
-- **接力指示 (Hand-off Context)**: 马六甲海峡的 10nm 完整海图展示与居中逻辑已全部实现且在 A4000 同步整测通过。接力 Agent 可以开始在此分支上展开具体算法与避碰场景的调试。
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: 
+    - 将 `activeLeftTab` 的初始状态从 `'library'` 修改为 `'odd'` (运行域)，实现进入 Scenario Builder 时默认展示左侧 ODD 过滤器菜单。
+    - 将 `SilMapView` 的 `encRegion` prop 改为由 `oddDomain` 状态派生。同时将转换时默认 the 本船/目标船/路径坐标从 `104.0` 调整至 `106.4` 以保持与新海图中心对齐。
+  - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/map/SilMapView.tsx)`: 更新了切换海图与重置相机的 `useEffect` 依赖（引入 `status === 'ready'` 判断），在非对齐时触发相机自动重定位。将马六甲海峡海图默认跳转的 `zoom` 级别从 `7` 调整为 `8.2`，中心点为 `[106.4, -2.5]`，此时海图数据范围能够完美铺满整个视口，两边不再有深蓝色的背景空白区域。
+  - `[web/e2e/malacca-jump.spec.ts](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/e2e/malacca-jump.spec.ts)`: 精准定位到含有马六甲选项的下拉框，修改跳转后经度为 `106.4`，并在模拟点击 ODD 标签前添加对于下拉框可见性的判断逻辑，防止在默认展开时触发按钮关闭折叠菜单导致用例失效。
+- **当前状态 (Status)**: GREEN (Vitest 158 个单元测试全部通过，A4000 编译打包通过，Playwright E2E 地图跳转与折叠菜单判断 1/1 PASS)。
+- **接力指示 (Hand-off Context)**: 马六甲海图铺满显示与“运行域”默认展开已完美实现，并在 A4000 上同步部署完毕与测试通过。后续开发人员可以直接展开场景设计。
 
 
