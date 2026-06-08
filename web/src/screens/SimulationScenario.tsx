@@ -200,11 +200,63 @@ export function SimulationScenario() {
     const sig = `${oddDomain}|${oddSeaState}|${oddVisibility}`;
     if (sig === lastOddRef.current || !yamlEditor) return;
     lastOddRef.current = sig;
-    handleUpdateYaml({
+
+    const updates: Record<string, any> = {
       'metadata.odd_cell.domain': oddDomain,
       'metadata.odd_cell.sea_state_beaufort': Number(oddSeaState),
       'metadata.odd_cell.visibility_nm': Number(oddVisibility),
-    });
+    };
+
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      const currentLat = doc?.ownShip?.initial?.position?.latitude;
+      const isCurrentlyMalacca = currentLat !== undefined && currentLat < 10.0;
+      const wantsMalacca = oddDomain === 'coastal_archipelago';
+
+      if (wantsMalacca && !isCurrentlyMalacca) {
+        // Norway -> Malacca: set own ship to [104.0, -2.5]
+        updates['ownShip.initial.position.latitude'] = -2.5;
+        updates['ownShip.initial.position.longitude'] = 104.0;
+
+        if (doc?.voyageTask?.waypoints) {
+          updates['voyageTask.waypoints'] = [
+            { lat: -2.5, lon: 104.0 },
+            { lat: -2.467, lon: 104.0 }
+          ];
+          updates['voyageTask.destination'] = { latitude: -2.467, longitude: 104.0 };
+        }
+
+        if (doc?.targetShips) {
+          doc.targetShips.forEach((t: any, idx: number) => {
+            updates[`targetShips.${idx}.initial.position.latitude`] = -2.48;
+            updates[`targetShips.${idx}.initial.position.longitude`] = 104.01;
+          });
+        }
+      } else if (!wantsMalacca && isCurrentlyMalacca) {
+        // Malacca -> Norway: set own ship to [10.38, 63.44]
+        updates['ownShip.initial.position.latitude'] = 63.44;
+        updates['ownShip.initial.position.longitude'] = 10.38;
+
+        if (doc?.voyageTask?.waypoints) {
+          updates['voyageTask.waypoints'] = [
+            { lat: 63.44, lon: 10.38 },
+            { lat: 63.473, lon: 10.38 }
+          ];
+          updates['voyageTask.destination'] = { latitude: 63.473, longitude: 10.38 };
+        }
+
+        if (doc?.targetShips) {
+          doc.targetShips.forEach((t: any, idx: number) => {
+            updates[`targetShips.${idx}.initial.position.latitude`] = 63.46;
+            updates[`targetShips.${idx}.initial.position.longitude`] = 10.39;
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to update positions on domain change', e);
+    }
+
+    handleUpdateYaml(updates);
   }, [oddDomain, oddSeaState, oddVisibility]);
 
   // Vessel change → write to yamlDoc.metadata.vessel_class and model

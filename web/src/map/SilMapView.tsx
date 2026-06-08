@@ -750,6 +750,11 @@ export function SilMapView({
           // Clear tile cache to force immediate reload
           ((map.style as any).sourceCaches?.['s57'] as any)?.clearSourceCaches();
           map.triggerRepaint();
+
+          // Jump camera to the new region's default center
+          const newCenter: [number, number] = currentRegion === 'coastal_archipelago' ? [104.0, -2.5] : [10.38, 63.44];
+          const newZoom = currentRegion === 'coastal_archipelago' ? 10 : 12;
+          map.jumpTo({ center: newCenter, zoom: newZoom });
         }
       }
     }
