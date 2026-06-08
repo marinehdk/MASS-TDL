@@ -178,6 +178,30 @@ casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
 }
 
 // ===========================================================================
+// build_asym_cost_() — smooth, gated Rule-14/15 starboard preference.
+//
+// Softplus port-penalty: tau*log(1+exp((bearing-psi_k)/tau)). ≈ (bearing-psi_k)
+// when psi_k is to port (psi_k < bearing), ≈ 0 to starboard. C∞ smooth (no kink,
+// unlike a raw port/stbd multiplier switch). Multiplied by give_way ∈ {0,1} so
+// it vanishes for stand-on / no encounter. Biases a symmetric head-on toward
+// starboard, preventing the port-turn / course-reversal degenerate optimum.
+// Grounded in colav_algorithms NLM (high-conf).
+// ===========================================================================
+casadi::MX MidMpcNlpFormulation::build_asym_cost_() const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::MX bearing  = slot(p_, kIdxRouteBearing);
+  const casadi::MX give_way = slot(p_, kIdxGiveWay);
+  const casadi::MX tau = casadi::DM(cfg_.asym_tau);
+  casadi::MX cost(0.0);
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    const casadi::MX z = (bearing - psi_k) / tau;          // >0 when to port
+    cost = cost + tau * casadi::MX::log(1.0 + casadi::MX::exp(z));
+  }
+  return give_way * casadi::DM(cfg_.k_asym) * cost;
+}
+
+// ===========================================================================
 // build_constraints_() — ROT differential only (g >= 0).
 //
 // Heading/speed box limits are NOT here — they are per-variable bounds passed
@@ -222,7 +246,8 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   // Objective: weighted sum of three sub-costs.
   J_ = casadi::DM(cfg_.w_colreg) * build_colreg_cost_()
      + casadi::DM(cfg_.w_dist)   * build_distance_cost_()
-     + casadi::DM(cfg_.w_vel)    * build_velocity_cost_();
+     + casadi::DM(cfg_.w_vel)    * build_velocity_cost_()
+     + build_asym_cost_();  // gated starboard preference (give-way only)
 
   g_ = build_constraints_();
 

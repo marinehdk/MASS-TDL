@@ -274,6 +274,28 @@ TEST_F(MidMpcNlpTest, ColregBarrierEngages_OffAxisTargetDeflectsVsNoTarget) {
 }
 
 // ---------------------------------------------------------------------------
+// Gated starboard asymmetry: a give-way (Rule-14) head-on must pick starboard
+// (psi>0), not a port turn / -180 course reversal. Without a give-way rule the
+// asymmetry is gated off.
+// ---------------------------------------------------------------------------
+TEST_F(MidMpcNlpTest, GiveWayAsymmetry_PrefersStarboardSide) {
+  // Isolates the asymmetry GATE: wide box (no M4 window), so the side is decided
+  // purely by J_asym. give-way ⇒ starboard side (psi>0), never port. Magnitude is
+  // bounded by the M4 window in the real system (tested in HeadOnGiveWayRightTurn).
+  MidMpcInput gw = make_head_on_input();
+  gw.constraints.applicable_rules = {14};   // head-on give-way
+  const auto sol = solver_->solve(gw, nullptr);
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
+  EXPECT_GT(final_heading_deg(sol), 0.0)
+      << "give-way head-on did not prefer starboard (got "
+      << final_heading_deg(sol) << " deg)";
+
+  MidMpcInput none = make_head_on_input();  // applicable_rules empty → asym off
+  const auto sol2 = solver_->solve(none, nullptr);
+  EXPECT_EQ(sol2.status, MidMpcSolver::SolveStatus::Converged);
+}
+
+// ---------------------------------------------------------------------------
 // consecutive_failures_ counter — verify it resets on success.
 // ---------------------------------------------------------------------------
 TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
