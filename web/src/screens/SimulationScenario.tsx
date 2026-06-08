@@ -494,14 +494,26 @@ const handleUpdateYaml = useCallback((updates: any) => {
 
   // ── ODD-filtered scenario list ──
   const filteredSuites = useMemo(() => {
-    return suites.map(suite => ({
-      ...suite,
-      children: suite.children.map((child: any) => {
-        const oddCompatible = true;
-        return { ...child, oddCompatible };
-      }),
-    }));
-  }, [suites]);
+    const isMalacca = oddDomain === 'coastal_archipelago';
+    return suites.map(suite => {
+      const filteredChildren = suite.children.filter((child: any) => {
+        const lat = child.latitude;
+        const dom = child.odd_domain;
+        if (isMalacca) {
+          return (lat !== undefined && lat < 10.0) || dom === 'coastal_archipelago';
+        } else {
+          return (lat === undefined || lat >= 10.0) && dom !== 'coastal_archipelago';
+        }
+      }).map((child: any) => ({
+        ...child,
+        oddCompatible: true
+      }));
+      return {
+        ...suite,
+        children: filteredChildren
+      };
+    }).filter(suite => suite.children.length > 0);
+  }, [suites, oddDomain]);
 
   return (
     <div data-testid="simulation-scenario" style={{
