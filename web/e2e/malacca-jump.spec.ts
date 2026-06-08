@@ -15,6 +15,11 @@ test.describe('Scenario Builder Map Navigation', () => {
     const selectDropdown = page.locator('select').first();
     await expect(selectDropdown).toBeVisible({ timeout: 5000 });
 
+    const options = await selectDropdown.evaluate((el: HTMLSelectElement) =>
+      Array.from(el.options).map(o => ({ value: o.value, text: o.text }))
+    );
+    console.log('Found options:', options);
+
     // Select "近海群岛" (coastal_archipelago)
     await selectDropdown.selectOption('coastal_archipelago');
 
