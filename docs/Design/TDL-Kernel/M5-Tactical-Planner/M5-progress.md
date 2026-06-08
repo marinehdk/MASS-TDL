@@ -3,11 +3,12 @@
 | 维度 | 说明 |
 |---|---|
 | 数据更新规则 | PR 合并涉及 M5 时同步更新本表 |
-| 最近更新 | 2026-05-25 |
-| **Currently Implementing** | — |
+| 最近更新 | 2026-06-08 |
+| **Currently Implementing** | — (J_colreg 重设计完成，分支 `fix/m5-nlp-convergence` 待 merge) |
 
 | D 任务 | 关系 | 状态 | 详情 |
 |---|---|---|---|
+| J_colreg 重设计 | Mid-MPC fix | ✅ 2026-06-08 | Restoration_Failed **50→0**：box→lbx/ubx + ROT 平滑 + J_colreg 指数障壁/动态权重/右转不对称。spec [M5-jcolreg-redesign-spec.md](M5-jcolreg-redesign-spec.md)；单测 9/9，e2e GREEN（peak_dev +60° starboard，loops 0.11，released）|
 | D0.1 | Closed in | ✅ | MUST-2 / MUST-5 / MUST-9 三 surgical fix |
 | D1.4 | Closed in | ✅ 2026-05-20 | 编码规范 v1.2：全模块适用 |
 | D1.3.1 (原 D1.3a) | Blocks reverse | 🟡 | M5 ROT_max 参数曲线读 Manifest 依赖 D1.3.1 仿真器侧 |
