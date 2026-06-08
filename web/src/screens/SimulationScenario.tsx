@@ -214,22 +214,22 @@ export function SimulationScenario() {
       const wantsMalacca = oddDomain === 'coastal_archipelago';
 
       if (wantsMalacca && !isCurrentlyMalacca) {
-        // Norway -> Malacca: set own ship to [104.0, -2.5]
+        // Norway -> Malacca: set own ship to [106.4, -2.5]
         updates['ownShip.initial.position.latitude'] = -2.5;
-        updates['ownShip.initial.position.longitude'] = 104.0;
+        updates['ownShip.initial.position.longitude'] = 106.4;
 
         if (doc?.voyageTask?.waypoints) {
           updates['voyageTask.waypoints'] = [
-            { lat: -2.5, lon: 104.0 },
-            { lat: -2.467, lon: 104.0 }
+            { lat: -2.5, lon: 106.4 },
+            { lat: -2.467, lon: 106.4 }
           ];
-          updates['voyageTask.destination'] = { latitude: -2.467, longitude: 104.0 };
+          updates['voyageTask.destination'] = { latitude: -2.467, longitude: 106.4 };
         }
 
         if (doc?.targetShips) {
           doc.targetShips.forEach((t: any, idx: number) => {
             updates[`targetShips.${idx}.initial.position.latitude`] = -2.48;
-            updates[`targetShips.${idx}.initial.position.longitude`] = 104.01;
+            updates[`targetShips.${idx}.initial.position.longitude`] = 106.41;
           });
         }
       } else if (!wantsMalacca && isCurrentlyMalacca) {

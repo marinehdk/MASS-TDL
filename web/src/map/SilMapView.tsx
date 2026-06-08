@@ -775,7 +775,7 @@ export function SilMapView({
 
       if (isMalacca && !isCenterMalacca) {
         console.log(`[SilMapView] Region is Malacca but center is not. Jumping to Malacca Strait.`);
-        map.jumpTo({ center: [104.0, -2.5], zoom: 10 });
+        map.jumpTo({ center: [106.4, -2.5], zoom: 7 });
       } else if (!isMalacca && !isCenterNorway) {
         console.log(`[SilMapView] Region is Norway but center is not. Jumping to Trondheim.`);
         map.jumpTo({ center: [10.38, 63.44], zoom: 12 });

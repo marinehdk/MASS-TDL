@@ -42,7 +42,7 @@ test.describe('Scenario Builder Map Navigation', () => {
     });
 
     console.log('Map jumped successfully. New center:', center);
-    expect(center.lng).toBeCloseTo(104.0, 1);
+    expect(center.lng).toBeCloseTo(106.4, 1);
     expect(center.lat).toBeCloseTo(-2.5, 1);
 
     // Select "港口水域" (harbour_approach) back and verify it jumps back to Norway
