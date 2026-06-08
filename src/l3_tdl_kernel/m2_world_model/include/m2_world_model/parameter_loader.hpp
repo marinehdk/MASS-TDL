@@ -11,7 +11,7 @@ namespace mass_l3::m2 {
 /// Call from WorldModelNode::load_parameters() before create_components().
 inline void declare_m2_parameters(rclcpp::Node& node) {
   // ── Rates ──
-  node.declare_parameter("aggregation_rate_hz", 4.0);
+  node.declare_parameter("aggregation_rate_hz", 6.0);
   node.declare_parameter("sat_rate_hz", 10.0);
   node.declare_parameter("asdr_periodic_rate_hz", 2.0);
   node.declare_parameter("heartbeat_rate_hz", 1.0);

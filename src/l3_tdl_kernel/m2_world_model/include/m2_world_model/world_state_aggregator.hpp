@@ -26,6 +26,8 @@ namespace mass_l3::m2 {
 
 class WorldStateAggregator final {
  public:
+  static constexpr uint16_t kSchemaVersion = 112;  // v1.1.2
+
   struct Config {
     int32_t max_targets;
     int32_t target_disappearance_periods;

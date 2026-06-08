@@ -466,6 +466,7 @@ WorldStateAggregator::compose_world_state(
   ws.own_ship = os_msg;
   ws.zone = zc_msg;
   ws.confidence = static_cast<float>(agg_conf);
+  ws.schema_version = kSchemaVersion;
 
   // Compute SV age for rationale
   double sv_age_s = std::numeric_limits<double>::max();

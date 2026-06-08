@@ -245,7 +245,8 @@ CpaTcpaCalculator::propagate_monte_carlo_(const Eigen::Vector2d& rel_pos,
   std::vector<double> cpa_samples;
   cpa_samples.reserve(static_cast<std::size_t>(cfg_.monte_carlo_samples));
 
-  std::mt19937 gen(42);  // fixed seed for deterministic results
+  std::random_device rd;
+  std::mt19937 gen(rd());
   std::normal_distribution<double> dist(0.0, 1.0);
 
   for (std::int32_t i = 0; i < cfg_.monte_carlo_samples; ++i) {

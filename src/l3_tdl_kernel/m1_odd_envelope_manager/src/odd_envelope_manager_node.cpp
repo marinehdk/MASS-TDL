@@ -868,6 +868,7 @@ void OddEnvelopeManagerNode::on_main_loop_tick() noexcept {
   EventFlags kEvents       = build_event_flags(kNowRos, m7_critical, m7_mrc_required);
   if (kHeartbeatAge > M7_HEARTBEAT_TIMEOUT) {
     kEvents.m7_input_stale = true;
+    params_.timer_state.health = SystemHealth::DEGRADED;
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
         "M7 heartbeat timeout (>500ms) — safety supervisor unavailable");
   }
@@ -962,6 +963,7 @@ void OddEnvelopeManagerNode::on_odd_state_publish_tick() noexcept {
   msg.rot_max_current = static_cast<float>(
       interpolate_rot_max(kSpeedKn, params_.rot_max_curve));
 
+  msg.schema_version = 121;  // v1.2.1
   msg.confidence = 1.0F;
   msg.rationale  = std::string(state_machine_->rationale());
 
@@ -1006,6 +1008,7 @@ void OddEnvelopeManagerNode::publish_mode_cmd(
   msg.behavior_constraint = envelope_to_constraint(state_machine_->current());
   msg.assumed_operator_state = static_cast<uint8_t>(current_operator_state_);
   msg.confidence          = 1.0F;
+  msg.schema_version      = 121;  // v1.2.1
   msg.rationale           = std::string(reason);
 
   try {
