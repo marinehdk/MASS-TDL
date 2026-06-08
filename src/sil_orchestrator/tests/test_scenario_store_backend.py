@@ -86,3 +86,28 @@ def test_explicit_ros2_backend(tmp_path):
     assert detail["backend"] == "ros2", (
         f"Expected backend 'ros2', got '{detail['backend']}'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test: YAML scenario list extracts coordinates and domain
+# ---------------------------------------------------------------------------
+
+def test_scenario_list_extracts_coordinates_and_domain(tmp_path):
+    yaml_content = textwrap.dedent("""\
+        title: Test scenario coordinate
+        ownShip:
+          initial:
+            position: {latitude: -2.5, longitude: 106.4}
+        metadata:
+          odd_cell:
+            domain: coastal_archipelago
+    """)
+    _write_yaml(tmp_path, "test-malacca", yaml_content)
+    store = _make_store(tmp_path)
+    scenarios = store.list()
+    assert len(scenarios) == 1
+    s = scenarios[0]
+    assert s["latitude"] == -2.5
+    assert s["longitude"] == 106.4
+    assert s["odd_domain"] == "coastal_archipelago"
+

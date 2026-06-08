@@ -84,6 +84,30 @@ class ScenarioStore:
             except ValueError:
                 folder = f.parent.name
             
+            latitude = 63.44
+            longitude = 10.38
+            odd_domain = "harbour_approach"
+            try:
+                content = f.read_text()
+                yaml_data = yaml.safe_load(content)
+                if isinstance(yaml_data, dict):
+                    own_ship = yaml_data.get("ownShip", {})
+                    if isinstance(own_ship, dict):
+                        initial = own_ship.get("initial", {})
+                        if isinstance(initial, dict):
+                            position = initial.get("position", {})
+                            if isinstance(position, dict):
+                                latitude = float(position.get("latitude", 63.44))
+                                longitude = float(position.get("longitude", 10.38))
+                    
+                    metadata = yaml_data.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        odd_cell = metadata.get("odd_cell", {})
+                        if isinstance(odd_cell, dict):
+                            odd_domain = odd_cell.get("domain", "harbour_approach")
+            except Exception:
+                pass
+
             results.append({
                 "id": f.stem,
                 "name": f.stem.replace("-", " ").replace("_", " ").title(),
@@ -91,7 +115,10 @@ class ScenarioStore:
                 "folder": folder or "root",
                 "is_baseline": folder in BASELINE_FOLDERS if folder != "root" else False,
                 "folder_tags": [],
-                "last_ci_result": None
+                "last_ci_result": None,
+                "latitude": latitude,
+                "longitude": longitude,
+                "odd_domain": odd_domain
             })
         return results
 
