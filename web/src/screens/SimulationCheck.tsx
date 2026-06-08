@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
-import { useScenarioStore } from '../store';
+import { useScenarioStore, useTelemetryStore, useControlStore } from '../store';
 import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation } from '../api/silApi';
 import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
@@ -30,6 +30,11 @@ export function SimulationCheck() {
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
     setTransitioning(true);
+    // Fresh run: clear residual telemetry/trail from any prior run and reset
+    // sim rate to the 1x default (otherwise a previously-selected 10x persists
+    // in the control store and the new run plays at 10x from t≈last position).
+    useTelemetryStore.getState().reset();
+    useControlStore.getState().reset();
     try {
       // ROS2 lifecycle requires CONFIGURE → ACTIVATE in sequence.
       // cleanup first so re-runs don't get "already configured" rejection.

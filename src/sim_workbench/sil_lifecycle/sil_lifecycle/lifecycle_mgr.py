@@ -233,6 +233,10 @@ class ScenarioLifecycleMgr:
         self._scenario_id = scenario_id
         self._scenario_hash = scenario_hash
         self._sim_time = 0.0
+        # Fresh scenario starts at the 1x default — a sim_rate set dynamically
+        # in a prior run must not persist across configure (else the next run
+        # silently plays at the old rate, e.g. 10x).
+        self._sim_rate = 1.0
         self._dynamics_mode = dynamics_mode
         self._clock_mode = clock_mode
         self._state = LifecycleState.INACTIVE
