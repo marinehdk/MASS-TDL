@@ -12,7 +12,7 @@ test.describe('Scenario Builder Map Navigation', () => {
     await page.click('[data-testid="scenario-tab-odd"]');
 
     // Wait for the region selection select dropdown to be visible
-    const selectDropdown = page.locator('select').first();
+    const selectDropdown = page.locator('select').filter({ has: page.locator('option[value="coastal_archipelago"]') }).first();
     await expect(selectDropdown).toBeVisible({ timeout: 5000 });
 
     const options = await selectDropdown.evaluate((el: HTMLSelectElement) =>
