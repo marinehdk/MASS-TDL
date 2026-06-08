@@ -76,3 +76,30 @@ TEST(MidMpcNlpFormulationTest, GDim_MatchesTwoNMinus1_RotOnly) {
         << "g_dim mismatch for N=" << n;
   }
 }
+
+TEST(MidMpcNlpFormulationTest, PackGiveWayFlag_FromApplicableRules) {
+  using mass_l3::m5::mid_mpc::kIdxGiveWay;
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 4;
+  cfg.max_targets = 4;
+  MidMpcNlpFormulation formulation(cfg);
+  formulation.build_symbolic_graph();
+
+  MidMpcInput inp{};
+  inp.constraints.heading_min_rad = -M_PI;
+  inp.constraints.heading_max_rad = M_PI;
+  inp.constraints.speed_min_mps = 0.0;
+  inp.constraints.speed_max_mps = 15.0;
+
+  inp.constraints.applicable_rules = {17};  // stand-on → no give-way
+  EXPECT_DOUBLE_EQ(
+      static_cast<double>(formulation.pack_parameters(inp)(kIdxGiveWay)), 0.0);
+
+  inp.constraints.applicable_rules = {14};  // head-on give-way
+  EXPECT_DOUBLE_EQ(
+      static_cast<double>(formulation.pack_parameters(inp)(kIdxGiveWay)), 1.0);
+
+  inp.constraints.applicable_rules = {15};  // crossing give-way
+  EXPECT_DOUBLE_EQ(
+      static_cast<double>(formulation.pack_parameters(inp)(kIdxGiveWay)), 1.0);
+}

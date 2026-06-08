@@ -50,11 +50,12 @@ constexpr int32_t kIdxSpeedMax       = 9;
 constexpr int32_t kIdxCpaSafe        = 10;
 constexpr int32_t kIdxRotMax         = 11;
 constexpr int32_t kIdxOwnPsi         = 12;
-constexpr int32_t kIdxTargets        = 13;
+constexpr int32_t kIdxGiveWay        = 13;  // 1.0 if M6 rule 14/15 (give-way) active, else 0.0
+constexpr int32_t kIdxTargets        = 14;
 constexpr int32_t kTargetStride      = 5;
 constexpr int32_t kMaxTargets        = 16;
-constexpr int32_t kParamDim          = kIdxTargets + kMaxTargets * kTargetStride;  // 93
-static_assert(kParamDim == 93, "parameter layout mismatch — update kParamDim if constants change");
+constexpr int32_t kParamDim          = kIdxTargets + kMaxTargets * kTargetStride;  // 94
+static_assert(kParamDim == 94, "parameter layout mismatch — update kParamDim if constants change");
 
 class MidMpcNlpFormulation {
  public:
@@ -67,12 +68,22 @@ class MidMpcNlpFormulation {
     int32_t n_horizon{12};
     // Step duration [s] (aligned with L4 LOS period, detailed design §5.2.3).
     double dt_s{5.0};
-    // [TBD-HAZID] COLREGs compliance cost weight (highest priority).
-    double w_colreg{1000.0};
+    // [TBD-HAZID] COLREGs compliance cost weight (~3x route per colav_algorithms NLM).
+    double w_colreg{30.0};
     // [TBD-HAZID] Route-track deviation cost weight.
     double w_dist{10.0};
     // [TBD-HAZID] Speed efficiency cost weight.
     double w_vel{1.0};
+    // [TBD-HAZID] Exponential-barrier steepness zeta [1/m] in exp(-zeta*(d-cpa_safe)).
+    double zeta{1.0e-3};
+    // [TBD-HAZID] Range-ramp outer distance [m] (6 nm); weight 0 beyond, 1 at cpa_safe.
+    double pwt_outer_m{11112.0};
+    // [TBD-HAZID] TCPA discount time constant [s] in exp(-t_k/T_d).
+    double t_discount_s{100.0};
+    // [TBD-HAZID] Starboard asymmetry weight (softplus port penalty, give-way only).
+    double k_asym{50.0};
+    // [TBD-HAZID] Asymmetry smoothing scale [rad] (~5 deg).
+    double asym_tau{0.0873};
     // Max obstacle count per cycle (parametric upper bound, must be ≤ kMaxTargets).
     int32_t max_targets{kMaxTargets};
   };
@@ -113,6 +124,7 @@ class MidMpcNlpFormulation {
 
   // Objective sub-terms (called from build_symbolic_graph).
   [[nodiscard]] casadi::MX build_colreg_cost_() const;
+  [[nodiscard]] casadi::MX build_asym_cost_() const;
   [[nodiscard]] casadi::MX build_distance_cost_() const;
   [[nodiscard]] casadi::MX build_velocity_cost_() const;
 

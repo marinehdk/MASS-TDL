@@ -3,6 +3,7 @@
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -43,15 +44,6 @@ constexpr double kIpoptMaxCpuTime = 2.0;
 // 0.2094 rad/s ≈ 12°/s; FCB nominal at 18 kn (vessel_dynamics_model default).
 // Calibrate per vessel/sea-state during HAZID RUN-001 WP-02.
 constexpr double kDefaultRotMaxRadS = 0.2094;
-
-// Numerical guards for weight denominator (avoid division-by-zero).
-constexpr double kMinCpaForWeight  = 1.0;   // [m]
-constexpr double kMinTcpaForWeight = 1.0;   // [s]
-
-// [TBD-HAZID] Maximum per-target weight cap to prevent gradient explosion
-// from very small CPA/TCPA products.
-constexpr double kMaxTargetWeight = 100.0;
-constexpr double kTargetWeightDenomMin = 1.0;  // [m·s] minimum CPA×TCPA product
 
 // Slice helper: extract scalar p[i] as 1×1 MX.
 casadi::MX slot(const casadi::MX& p, int32_t i) {
@@ -272,6 +264,14 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   // Fallback to kDefaultRotMaxRadS if MidMpcInput default is unchanged.
   p(kIdxRotMax) = input.rot_max_rad_s;
 
+  // give_way flag: M6 rule 14 (head-on) or 15 (crossing give-way) ⇒ apply
+  // starboard asymmetry (build_asym_cost_). Other rules / no encounter ⇒ symmetric.
+  bool give_way = false;
+  for (const std::uint8_t rule : input.constraints.applicable_rules) {
+    if (rule == 14u || rule == 15u) { give_way = true; }
+  }
+  p(kIdxGiveWay) = give_way ? 1.0 : 0.0;
+
   // Targets: zero-padded up to cfg_.max_targets.
   const int32_t n_t = std::min(
       static_cast<int32_t>(input.targets.size()), cfg_.max_targets);
@@ -282,10 +282,15 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
     p(base + 1) = tgt.y_m;
     p(base + 2) = tgt.cog_rad;
     p(base + 3) = tgt.sog_mps;
-    const double cpa  = std::max(tgt.cpa_m,  kMinCpaForWeight);
-    const double tcpa = std::max(tgt.tcpa_s, kMinTcpaForWeight);
-    const double cpa_tcpa_product = std::max(cpa * tcpa, kTargetWeightDenomMin);
-    p(base + 4) = std::min(1.0 / cpa_tcpa_product, kMaxTargetWeight);
+    // Range-ramp weight: 0 beyond pwt_outer, linear to 1 at pwt_inner (= cpa_safe).
+    // Depends only on initial geometry → computed numerically here (keeps the
+    // symbolic NLP smooth; no clamp kink in the graph).
+    const double rng0 = std::hypot(tgt.x_m - input.own_ship.x_m,
+                                   tgt.y_m - input.own_ship.y_m);
+    const double pwt_inner = input.constraints.cpa_safe_m;
+    const double span = std::max(cfg_.pwt_outer_m - pwt_inner, 1.0);
+    const double w_range = std::clamp((cfg_.pwt_outer_m - rng0) / span, 0.0, 1.0);
+    p(base + 4) = w_range;
   }
   return p;
 }
