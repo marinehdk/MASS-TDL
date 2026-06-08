@@ -734,7 +734,7 @@ export function SilMapView({
   // ── Dynamic ENC region update ──────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady.current) return;
+    if (!map || status !== 'ready' || !styleReady.current) return;
 
     const currentRegion = encRegion || previewData?.encRegion || 'trondelag';
     const source = map.getSource('s57') as maplibregl.VectorTileSource | undefined;
@@ -743,22 +743,45 @@ export function SilMapView({
         ? `${window.location.origin}/mvt/${currentRegion}/{z}/{x}/{y}?v=2`
         : `/mvt/${currentRegion}/{z}/{x}/{y}?v=2`;
 
-      if (source.tiles && source.tiles[0] !== newUrl) {
+      let isDifferent = false;
+      if (source.tiles) {
+        isDifferent = source.tiles[0] !== newUrl;
+      } else {
+        isDifferent = true;
+      }
+
+      if (isDifferent) {
         console.log(`[SilMapView] Switching ENC region to: ${currentRegion}`);
         if (typeof (source as any).setTiles === 'function') {
           (source as any).setTiles([newUrl]);
           // Clear tile cache to force immediate reload
-          ((map.style as any).sourceCaches?.['s57'] as any)?.clearSourceCaches();
+          const cache = (map.style as any).sourceCaches?.['s57'] as any;
+          if (cache) {
+            if (typeof cache.clearCache === 'function') {
+              cache.clearCache();
+            } else if (typeof cache.clearSourceCaches === 'function') {
+              cache.clearSourceCaches();
+            }
+          }
           map.triggerRepaint();
-
-          // Jump camera to the new region's default center
-          const newCenter: [number, number] = currentRegion === 'coastal_archipelago' ? [104.0, -2.5] : [10.38, 63.44];
-          const newZoom = currentRegion === 'coastal_archipelago' ? 10 : 12;
-          map.jumpTo({ center: newCenter, zoom: newZoom });
         }
       }
+
+      // Check if map center is aligned with the current region. If not, jump!
+      const center = map.getCenter();
+      const isMalacca = currentRegion === 'coastal_archipelago';
+      const isCenterMalacca = center.lng > 90 && center.lng < 120 && center.lat > -15 && center.lat < 15;
+      const isCenterNorway = center.lng > 0 && center.lng < 30 && center.lat > 50 && center.lat < 70;
+
+      if (isMalacca && !isCenterMalacca) {
+        console.log(`[SilMapView] Region is Malacca but center is not. Jumping to Malacca Strait.`);
+        map.jumpTo({ center: [104.0, -2.5], zoom: 10 });
+      } else if (!isMalacca && !isCenterNorway) {
+        console.log(`[SilMapView] Region is Norway but center is not. Jumping to Trondheim.`);
+        map.jumpTo({ center: [10.38, 63.44], zoom: 12 });
+      }
     }
-  }, [encRegion, previewData?.encRegion]);
+  }, [encRegion, previewData?.encRegion, status]);
 
   // ── Own-ship + trail + CPA rings update ────────────────────────────────────
   useEffect(() => {

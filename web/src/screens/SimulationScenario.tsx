@@ -518,7 +518,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
           substrate={substrate}
           geometry={imazuGeometry}
           mapRef={mapRef}
-          encRegion={previewData?.encRegion}
+          encRegion={oddDomain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag'}
         />
       </div>
 
