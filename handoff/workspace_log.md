@@ -166,3 +166,17 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **接力指示 (Hand-off Context)**: 马六甲海图铺满显示与“运行域”默认展开已完美实现，并在 A4000 上同步部署完毕与测试通过。后续开发人员可以直接展开场景设计。
 
 
+## [2026-06-08 15:55] Agent: Antigravity (IDE)
+- **Git Commit**: `1b5a276e2e53ab72a1553e526a6fbc0734ae5f15` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: 实现 ODD 域场景库列表的地理坐标及 domain 属性动态过滤
+- **核心改动 (Actions)**:
+  - `[src/sil_orchestrator/scenario_store.py](file:///Users/marine/Code/MASS-L3-Tactical Layer/src/sil_orchestrator/scenario_store.py)`: 遍历 YAML 提取本船初始纬度 `latitude`、经度 `longitude` 与 `odd_domain`，并在 list 接口中返回。
+  - `[src/sil_orchestrator/tests/test_scenario_store_backend.py](file:///Users/marine/Code/MASS-L3-Tactical Layer/src/sil_orchestrator/tests/test_scenario_store_backend.py)`: 增加 list 接口元数据提取的单元测试。
+  - `[web/src/api/silApi.ts](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/api/silApi.ts)`: 在 `ScenarioSummary` 类型中加入可选属性 `latitude`/`longitude`/`odd_domain`。
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: 更新 `filteredSuites` 过滤逻辑，选择近海群岛时仅保留马六甲坐标（纬度 < 10° 或 `odd_domain === 'coastal_archipelago'`）的场景；选择挪威 ODD 域时仅保留挪威坐标的场景。
+  - `[web/e2e/scenario-filtering.spec.ts](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/e2e/scenario-filtering.spec.ts)`: 新增 E2E 测试，通过 Mock API 返回的数据验证场景库列表随 ODD 切换的过滤表现。
+- **当前状态 (Status)**: GREEN (后端 unit tests 4/4 PASS，前端 unit tests 158/158 PASS，Playwright E2E tests 2/2 PASS，编译及运行均通过)。
+- **接力指示 (Hand-off Context)**: COLREGs测试和IMAZU标准测试场景（均为挪威坐标，纬度 >= 10.0°）在选择近海群岛时将被自动过滤；当后续添加马六甲坐标场景时将正确展示在近海群岛下。测试已全绿。下一步可以向 A4000 同步修改并部署。
+
+
+
