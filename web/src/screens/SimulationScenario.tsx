@@ -99,7 +99,7 @@ export function SimulationScenario() {
   const [yamlEditor, setYamlEditor] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('library');
+  const [activeLeftTab, setActiveLeftTab] = useState<LeftTabId | null>('odd');
   const [activeRightTab, setActiveRightTab] = useState<'environment' | 'vessels' | 'assertions' | 'raw' | null>(null);
 
   // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.

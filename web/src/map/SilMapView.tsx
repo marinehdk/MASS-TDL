@@ -775,7 +775,7 @@ export function SilMapView({
 
       if (isMalacca && !isCenterMalacca) {
         console.log(`[SilMapView] Region is Malacca but center is not. Jumping to Malacca Strait.`);
-        map.jumpTo({ center: [106.4, -2.5], zoom: 7 });
+        map.jumpTo({ center: [106.4, -2.5], zoom: 8.2 });
       } else if (!isMalacca && !isCenterNorway) {
         console.log(`[SilMapView] Region is Norway but center is not. Jumping to Trondheim.`);
         map.jumpTo({ center: [10.38, 63.44], zoom: 12 });
@@ -816,14 +816,16 @@ export function SilMapView({
     const hdgVal = (Math.round(((ownShip.pose?.heading ?? 0) * 180 / Math.PI + 360) % 360) % 360).toString();
     const sogVal = ((ownShip.kinematics?.sog ?? 0) * 1.944).toFixed(1);
 
-    // Compute actual Rudder in degrees and format with Port (L) / Starboard (R)
+    // Compute actual Rudder in degrees and format with Port (L) / Starboard (R).
+    // rudder_angle is published in MMG convention (bridge RUDDER_SIGN=-1):
+    // negative δ → STARBOARD (R) turn, positive δ → PORT (L) turn.
     const rudderRad = (ownShip as any).controlState?.rudderAngle ?? 0;
     const rudderDeg = rudderRad * 180 / Math.PI;
     let rudVal = '0.0°';
-    if (rudderDeg > 0.1) {
-      rudVal = `${rudderDeg.toFixed(1)}° R`;
-    } else if (rudderDeg < -0.1) {
-      rudVal = `${Math.abs(rudderDeg).toFixed(1)}° L`;
+    if (rudderDeg < -0.1) {
+      rudVal = `${Math.abs(rudderDeg).toFixed(1)}° R`;
+    } else if (rudderDeg > 0.1) {
+      rudVal = `${rudderDeg.toFixed(1)}° L`;
     }
 
     // Compute Thrust/Throttle level in Ahead 1/2/3, Astern 1/2/3, or STOP
