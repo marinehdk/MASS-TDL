@@ -8,11 +8,14 @@ test.describe('Scenario Builder Map Navigation', () => {
     // Wait for the scenario screen to load
     await expect(page.locator('[data-testid="simulation-scenario"]')).toBeVisible({ timeout: 10000 });
 
-    // Open the Operational Domain (ODD) tab
-    await page.click('[data-testid="scenario-tab-odd"]');
+    // Open the Operational Domain (ODD) tab if not already active
+    const selectDropdown = page.locator('select').filter({ has: page.locator('option[value="coastal_archipelago"]') }).first();
+    const isDropdownVisible = await selectDropdown.isVisible();
+    if (!isDropdownVisible) {
+      await page.click('[data-testid="scenario-tab-odd"]');
+    }
 
     // Wait for the region selection select dropdown to be visible
-    const selectDropdown = page.locator('select').filter({ has: page.locator('option[value="coastal_archipelago"]') }).first();
     await expect(selectDropdown).toBeVisible({ timeout: 5000 });
 
     const options = await selectDropdown.evaluate((el: HTMLSelectElement) =>
