@@ -75,7 +75,8 @@ class MidMpcNlpFormulation {
     // [TBD-HAZID] Speed efficiency cost weight.
     double w_vel{1.0};
     // [TBD-HAZID] Exponential-barrier steepness zeta [1/m] in exp(-zeta*(d-cpa_safe)).
-    double zeta{1.0e-3};
+    // ~e-fold per 200 m: strong avoidance gradient inside cpa_safe, ≈0 beyond ~2·cpa.
+    double zeta{5.0e-3};
     // [TBD-HAZID] Range-ramp outer distance [m] (6 nm); weight 0 beyond, 1 at cpa_safe.
     double pwt_outer_m{11112.0};
     // [TBD-HAZID] TCPA discount time constant [s] in exp(-t_k/T_d).

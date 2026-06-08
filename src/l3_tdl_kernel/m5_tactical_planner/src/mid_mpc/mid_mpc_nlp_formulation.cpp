@@ -108,22 +108,31 @@ casadi::MX MidMpcNlpFormulation::build_velocity_cost_() const {
 }
 
 // ===========================================================================
-// build_colreg_cost_() — soft CPA penalty over (N steps × max_targets).
+// build_colreg_cost_() — smooth CPA repulsion over (N steps × max_targets).
 //
 // NED convention (types.hpp:29: psi=0 → north, positive clockwise):
 //   dx[j] = u[j]*dt*cos(psi[j])    (north component)
 //   dy[j] = u[j]*dt*sin(psi[j])    (east  component)
 // Cumulative own-ship position relative to (x0, y0) is integrated step-by-step.
 //
+// Per (target,step): tw · disc_k · exp(-zeta·(d - cpa_safe)). A smooth
+// exponential barrier (no singularity, ≈0 far, 1 at d=cpa_safe, grows when
+// penetrating) replaces the non-smooth fmax(0, cpa²-d²) hinge that caused
+// IPOPT Restoration_Failed/Max_Iter. Weighting is dynamic but smooth:
+//   - tw (param slot, numeric) = range ramp computed at pack-time;
+//   - disc_k = exp(-t_k/T_d) = constant per step (numeric coefficient).
+// Only the barrier (function of d, i.e. the decision variables) is symbolic.
+//
 // Phase E1: COLREGs rules handled as soft cost in J_colreg; hard constraints
-// deferred to Phase E2.
+// deferred to Phase E2. Grounded in colav_algorithms NLM (high-conf).
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
   const int32_t N  = cfg_.n_horizon;
   const int32_t Nt = cfg_.max_targets;
   const casadi::MX dt   = casadi::DM(cfg_.dt_s);
-  const casadi::MX cpa  = slot(p_, kIdxCpaSafe);
-  const casadi::MX cpa2 = cpa * cpa;
+  const casadi::MX cpa  = slot(p_, kIdxCpaSafe);   // d_safe [m]
+  const casadi::MX zeta = casadi::DM(cfg_.zeta);
+  constexpr double kSqrtGuard = 1.0;               // [m²] smooth-sqrt guard
 
   // Pre-integrate own-ship cumulative position at each step k ∈ [0, N-1].
   std::vector<casadi::MX> x_own(static_cast<std::size_t>(N));
@@ -139,28 +148,30 @@ casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
     y_own[static_cast<std::size_t>(k)] = cy;
   }
 
-  // Accumulate per-target, per-step penalty.
+  // Accumulate per-target, per-step smooth barrier.
   casadi::MX cost(0.0);
-  const casadi::MX zero = casadi::DM(0.0);
   for (int32_t t = 0; t < Nt; ++t) {
     const int32_t base = kIdxTargets + t * kTargetStride;
     const casadi::MX tx = slot(p_, base + 0);
     const casadi::MX ty = slot(p_, base + 1);
     const casadi::MX tc = slot(p_, base + 2);
     const casadi::MX ts = slot(p_, base + 3);
-    const casadi::MX tw = slot(p_, base + 4);
+    const casadi::MX tw = slot(p_, base + 4);   // range-ramp weight (numeric, 0..1)
     const casadi::MX tdx = ts * casadi::MX::cos(tc);
     const casadi::MX tdy = ts * casadi::MX::sin(tc);
     for (int32_t k = 0; k < N; ++k) {
       const casadi::MX kdt = casadi::DM(static_cast<double>(k) * cfg_.dt_s);
       const casadi::MX dx  = x_own[static_cast<std::size_t>(k)] - (tx + tdx * kdt);
       const casadi::MX dy  = y_own[static_cast<std::size_t>(k)] - (ty + tdy * kdt);
-      const casadi::MX d2  = dx * dx + dy * dy;
-      cost = cost + tw * casadi::MX::fmax(zero, cpa2 - d2);
+      const casadi::MX d   = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+      const casadi::MX barrier = casadi::MX::exp(-zeta * (d - cpa));
+      // TCPA discount exp(-t_k/T_d): constant per step → numeric coefficient.
+      const double disc = std::exp(-(static_cast<double>(k) * cfg_.dt_s)
+                                   / cfg_.t_discount_s);
+      cost = cost + tw * casadi::DM(disc) * barrier;
     }
   }
-  // Return per-target per-step average cost to normalize scale across
-  // varying target counts and horizon lengths.
+  // Per-target per-step average to normalize scale across target/horizon counts.
   const casadi::MX scale_denom = casadi::DM(
       static_cast<double>(std::max(1, Nt * N)));
   return cost / scale_denom;

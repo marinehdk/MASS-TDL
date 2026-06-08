@@ -255,6 +255,25 @@ TEST_F(MidMpcNlpTest, BearingOutsideWindow_OptimumPinnedToEdge_Converges) {
 }
 
 // ---------------------------------------------------------------------------
+// J_colreg exponential barrier engages: an off-axis (crossing) target deflects
+// the heading vs the no-target straight line (proves the barrier is active).
+// NOTE: a dead-ahead symmetric head-on is intentionally NOT used here — θ=0 is
+// a symmetric stationary point (port/starboard reduce the barrier equally), so
+// barrier-only solves sit there; symmetry is broken by the M4 box (real
+// scenario) or the give_way asymmetry (GiveWayAsymmetry test), not the barrier.
+// ---------------------------------------------------------------------------
+TEST_F(MidMpcNlpTest, ColregBarrierEngages_OffAxisTargetDeflectsVsNoTarget) {
+  const auto base = solver_->solve(make_straight_line_input(), nullptr);
+  ASSERT_EQ(base.status, MidMpcSolver::SolveStatus::Converged);
+  EXPECT_LT(std::abs(final_heading_deg(base)), 5.0);
+
+  const auto cross = solver_->solve(make_crossing_give_way_input(), nullptr);
+  EXPECT_EQ(cross.status, MidMpcSolver::SolveStatus::Converged);
+  EXPECT_GT(std::abs(final_heading_deg(cross)), 10.0)
+      << "J_colreg barrier did not deflect heading for a crossing target";
+}
+
+// ---------------------------------------------------------------------------
 // consecutive_failures_ counter — verify it resets on success.
 // ---------------------------------------------------------------------------
 TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
