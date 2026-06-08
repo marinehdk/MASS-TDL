@@ -163,17 +163,21 @@ TEST_F(MidMpcNlpTest, StraightLineNoTargets) {
 // 场景 2: Head-on give-way — Rule 14, own ship must turn starboard (positive psi).
 // Soft COLREGs cost (Phase E1) forces heading right; final heading > 30°.
 // ---------------------------------------------------------------------------
-// DISABLED until J_colreg redesign (Task 3/4): symmetric J_colreg has no
-// starboard preference, so a wide-box head-on optimizes to a port turn /
-// course-reversal once the box is lbx/ubx. Rescoped + re-enabled in Task 4
-// (set Rule-14 give-way, assert starboard) once the gated asymmetry lands.
-// See docs/Design/TDL-Kernel/M5-Tactical-Planner/M5-jcolreg-redesign-spec.md §5.
-TEST_F(MidMpcNlpTest, DISABLED_HeadOnGiveWayRightTurn) {
-  const MidMpcInput input = make_head_on_input();
+// Rule-14 give-way head-on: handed a give-way rule and a heading window that
+// PERMITS both port and starboard ([-60°,+60°]), M5 must execute a STARBOARD
+// avoidance (psi>0), not port. (The starboard *decision* is M4/M6's; here M5
+// receives the give-way rule + window and must comply within it.) Magnitude is
+// [TBD-HAZID] weight-dependent, so assert direction + within-window only.
+TEST_F(MidMpcNlpTest, HeadOnGiveWayRightTurn) {
+  MidMpcInput input = make_head_on_input();
+  input.constraints.applicable_rules = {14};
+  input.constraints.heading_min_rad = -M_PI / 3.0;  // window permits port too
+  input.constraints.heading_max_rad =  M_PI / 3.0;
   const auto sol = solver_->solve(input, nullptr);
 
   EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
-  EXPECT_GT(final_heading_deg(sol), 30.0);
+  EXPECT_GT(final_heading_deg(sol), 5.0);    // starboard, non-trivial
+  EXPECT_LT(final_heading_deg(sol), 61.0);   // within the [-60,60] window
 }
 
 // ---------------------------------------------------------------------------
