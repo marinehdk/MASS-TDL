@@ -107,7 +107,7 @@ export function SimulationScenario() {
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
 
   // ── ODD Filter state ──
-  const [oddDomain, setOddDomain] = useState<string>('open_sea_offshore_wind_farm');
+  const [oddDomain, setOddDomain] = useState<string>('harbour_approach');
   const [oddSeaState, setOddSeaState] = useState<string>('5');
   const [oddVisibility, setOddVisibility] = useState<string>('2.0');
   const [vesselClass, setVesselClass] = useState<string>('FCB-45m');
@@ -245,7 +245,10 @@ export function SimulationScenario() {
         sog: t.initial?.sog ?? 0,
       })) || [];
 
-      return { ownShip, targets };
+      const domain = doc.metadata?.odd_cell?.domain;
+      const encRegion = domain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag';
+
+      return { ownShip, targets, encRegion };
     } catch (e) {
       return null;
     }
@@ -463,6 +466,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
           substrate={substrate}
           geometry={imazuGeometry}
           mapRef={mapRef}
+          encRegion={previewData?.encRegion}
         />
       </div>
 

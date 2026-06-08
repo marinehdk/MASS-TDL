@@ -60,7 +60,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    network_mode: "service:sil-nodes"
+    network_mode: host
     restart: unless-stopped
     depends_on:
       - sil-nodes

@@ -13,7 +13,7 @@
     "sys:stop": "pm2 delete ecosystem.config.cjs && docker compose down",
     "sys:status": "pm2 list && docker compose ps",
     "sys:restart": "pm2 restart ecosystem.config.cjs && docker compose restart",
-    "sil:restart": "docker compose restart sil-nodes sil-orchestrator",
+    "sil:restart": "docker compose restart sil-nodes sil-orchestrator foxglove-bridge",
     "sil:restart:orch": "docker compose restart sil-orchestrator",
     "sil:rebuild": "docker compose build sil-nodes && docker compose up -d",
     "sil:rebuild:orch": "docker compose build sil-orchestrator && docker compose up -d sil-orchestrator",

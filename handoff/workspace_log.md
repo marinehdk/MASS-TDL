@@ -139,3 +139,16 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: 7 commits，code review 通过。6/6 场景 chattering 消除 + stand-on 早转修复。A_turn RED 是 M5 NLP 不收敛的独立问题，非本次引入。分支待 merge。
 - **接力指示 (Hand-off Context)**: M5 NLP convergence fix should be a separate branch off `feat/colregs-avoidance-robustness`. Key files: `m5_tactical_planner/src/mid_mpc/mid_mpc_nlp_formulation.cpp` (IPOPT formulation), `mid_mpc_solver.cpp` (IPOPT interface). See new conversation prompt below.
 - **接力指示 (Hand-off Context)**: 可选后续：① 调优 M5 geometric fallback 的 min_alt_rad 计算（当前公式从 window 推算，未实际消费 M6 的 `min_alteration_deg`——需将 M6 推荐值传入 MidMpcInput）以改善 rule14/15 CPA；② 将 A_turn 转绿需修复 M5 NLP 收敛问题（独立任务）。merge 命令：`git checkout main && git merge feat/colregs-avoidance-robustness && git push origin main && git push gitlab main:l3-tdl`。
+
+## [2026-06-08 14:15] Agent: Antigravity (IDE)
+- **Git Commit**: `5e17c445` (branch: `fix/m5-nlp-convergence`, uncommitted changes)
+- **任务目标 (Goal)**: Convert Malacca Strait S-57 ENC chart data and integrate into web HMI for "Coastal Archipelago" (近海群岛) domain
+- **核心改动 (Actions)**:
+  - `[scripts/build_s57_tiles.py](file:///Users/marine/Code/MASS-L3-Tactical Layer/scripts/build_s57_tiles.py)`: Created conversion script using fiona and tippecanoe to generate MBTiles from S-57 charts.
+  - `[data/tiles/coastal_archipelago.mbtiles](file:///Users/marine/Code/MASS-L3-Tactical Layer/data/tiles/coastal_archipelago.mbtiles)`: Generated vector tiles for Malacca Strait.
+  - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/map/SilMapView.tsx)`: Supported dynamic tileset switching via encRegion prop.
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: Changed default oddDomain state to `'harbour_approach'` (港口水域). Extracted encRegion from scenario metadata and passed to SilMapView.
+  - `[web/src/screens/SimulationMonitor.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationMonitor.tsx)`: Extracted encRegion from active scenario metadata and passed to SilMapView.
+- **当前状态 (Status)**: GREEN (build and all 158 frontend tests passed successfully)
+- **接力指示 (Hand-off Context)**: S-57 Malacca Strait chart has been successfully compiled and integrated. The default domain is now set to "港口水域" (harbour_approach) which renders the Norway chart (trondelag). Selecting "近海群岛" (coastal_archipelago) will load the Malacca Strait chart. The next session can proceed to create test scenarios located in the Malacca Strait coordinates (approx. 102° E to 110.8° E longitude, -5° S to 0° latitude).
+

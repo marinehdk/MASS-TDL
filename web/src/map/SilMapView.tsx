@@ -22,6 +22,8 @@ interface SilMapViewProps {
     targets?: Array<{ id: string; lat: number; lon: number; heading: number; sog?: number; cog?: number }>;
     encRegion?: string;
   };
+  /** ENC Region tileset name (e.g. 'trondelag', 'coastal_archipelago') */
+  encRegion?: string;
   /** Callback for map clicks (useful for setting positions in Builder) */
   onMapClick?: (lon: number, lat: number) => void;
   /** Substrate layer type: 'enc' (vector), 'sat' (satellite raster), 'osm' (standard raster) */
@@ -295,6 +297,7 @@ export function SilMapView({
   viewMode = 'captain', 
   viewportOffset = [0.5, 0.5],
   previewData,
+  encRegion,
   onMapClick,
   substrate = 'enc',
   geometry,
@@ -389,8 +392,8 @@ export function SilMapView({
               type: 'vector',
               tiles: [
                 typeof window !== 'undefined'
-                  ? `${window.location.origin}/mvt/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
-                  : `/mvt/${previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
+                  ? `${window.location.origin}/mvt/${encRegion || previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
+                  : `/mvt/${encRegion || previewData?.encRegion || 'trondelag'}/{z}/{x}/{y}?v=2`
               ],
               minzoom: 0,
               maxzoom: 16,
@@ -727,6 +730,30 @@ export function SilMapView({
       map.setLayoutProperty(l.id, 'visibility', substrate === 'enc' ? 'visible' : 'none');
     });
   }, [substrate]);
+
+  // ── Dynamic ENC region update ──────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady.current) return;
+
+    const currentRegion = encRegion || previewData?.encRegion || 'trondelag';
+    const source = map.getSource('s57') as maplibregl.VectorTileSource | undefined;
+    if (source) {
+      const newUrl = typeof window !== 'undefined'
+        ? `${window.location.origin}/mvt/${currentRegion}/{z}/{x}/{y}?v=2`
+        : `/mvt/${currentRegion}/{z}/{x}/{y}?v=2`;
+
+      if (source.tiles && source.tiles[0] !== newUrl) {
+        console.log(`[SilMapView] Switching ENC region to: ${currentRegion}`);
+        if (typeof (source as any).setTiles === 'function') {
+          (source as any).setTiles([newUrl]);
+          // Clear tile cache to force immediate reload
+          ((map.style as any).sourceCaches?.['s57'] as any)?.clearSourceCaches();
+          map.triggerRepaint();
+        }
+      }
+    }
+  }, [encRegion, previewData?.encRegion]);
 
   // ── Own-ship + trail + CPA rings update ────────────────────────────────────
   useEffect(() => {

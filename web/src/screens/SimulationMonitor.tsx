@@ -482,6 +482,16 @@ export function SimulationMonitor() {
   const autoNavRef = useRef(false);
   const externalMapRef = useRef<maplibregl.Map | null>(null);
 
+  const encRegion = useMemo(() => {
+    if (!activeScenario?.yaml_content) return 'trondelag';
+    try {
+      const doc = jsyaml.load(activeScenario.yaml_content) as any;
+      return doc?.metadata?.odd_cell?.domain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag';
+    } catch {
+      return 'trondelag';
+    }
+  }, [activeScenario]);
+
   const handlePlay = async () => {
     setPaused(false);
     await changeRate(simRate);
@@ -628,6 +638,7 @@ export function SimulationMonitor() {
           followOwnShip={viewMode === 'captain' || viewMode === 'roc'}
           viewMode={viewMode}
           substrate={substrate}
+          encRegion={encRegion}
         />
 
         <SafetyDomainLayer
