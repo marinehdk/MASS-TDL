@@ -10,6 +10,9 @@ export interface ScenarioSummary {
   is_baseline: boolean;
   folder_tags?: string[];
   last_ci_result?: string | null;
+  latitude?: number;
+  longitude?: number;
+  odd_domain?: string;
 }
 
 export interface ScenarioDetail {
