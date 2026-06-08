@@ -543,7 +543,14 @@ void ColregsReasonerNode::run_reasoning() {
         }
         const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
             (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
-        const bool latched = it->second.update(eval.is_active, target.cpa_m, range_closing);
+        // Rule 16 "finally past and clear": target has drawn abaft the beam.
+        // Relative bearing of the target from own-ship heading, normalized [-180,180].
+        double rel_brg = target.bearing_deg - target.ownship_heading_deg;
+        while (rel_brg > 180.0) rel_brg -= 360.0;
+        while (rel_brg < -180.0) rel_brg += 360.0;
+        const bool past_and_clear = std::fabs(rel_brg) > 112.5;  // 2 points abaft the beam
+        const bool latched =
+            it->second.update(eval.is_active, target.cpa_m, range_closing, past_and_clear);
         if (latched) {
           if (!eval.is_active) {
             eval.is_active = true;
