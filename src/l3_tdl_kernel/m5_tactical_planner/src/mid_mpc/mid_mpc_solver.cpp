@@ -88,9 +88,28 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
       : pack_cold_start_(input);
 
   const int32_t gdim = g_dim_();
+
+  // Heading & speed box limits as per-variable bounds (lbx/ubx). x = [psi; u].
+  // psi[k] in [heading_min, heading_max], u[k] in [speed_min, speed_max].
+  // IPOPT keeps every iterate strictly inside these bounds and auto-projects
+  // x0, so a box-active optimum is the robust case (vs. restoration-fragile
+  // general inequality rows — see MidMpcNlpFormulation::g_dim rationale).
+  const int32_t N = formulation_.config().n_horizon;
+  const auto& cst = input.constraints;
+  casadi::DM lbx = casadi::DM::zeros(2 * N, 1);
+  casadi::DM ubx = casadi::DM::zeros(2 * N, 1);
+  for (int32_t k = 0; k < N; ++k) {
+    lbx(k)     = cst.heading_min_rad;
+    ubx(k)     = cst.heading_max_rad;
+    lbx(N + k) = cst.speed_min_mps;
+    ubx(N + k) = cst.speed_max_mps;
+  }
+
   const casadi::DMDict arg = {
-      {"x0", x0_val},
-      {"p",  p_val},
+      {"x0",  x0_val},
+      {"p",   p_val},
+      {"lbx", lbx},
+      {"ubx", ubx},
       {"lbg", casadi::DM::zeros(gdim, 1)},
       {"ubg", casadi::DM::inf(gdim, 1)},
   };
