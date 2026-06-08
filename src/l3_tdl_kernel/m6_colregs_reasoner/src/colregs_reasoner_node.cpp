@@ -559,8 +559,22 @@ void ColregsReasonerNode::run_reasoning() {
         } else {
           eval.is_active = false;
         }
+      } else {
+        // COLREG Rule 7 (risk of collision): a rule obligation applies ONLY
+        // when risk of collision exists. Non-latched rules (e.g. Rule 18
+        // priority give-way, Rule 13 overtaking, Rule 17 stand-on) must NOT
+        // fire for a target that poses no risk — already passed CPA
+        // (tcpa < 0) or will clear (cpa ≥ cpa_safe). Without this gate a
+        // higher-priority vessel far astern and diverging keeps Rule 18
+        // give-way active forever → conflict_detected stuck → M4 holds
+        // give-way → avoidance never releases → no route return.
+        const bool risk_of_collision =
+            (target.tcpa_s >= 0.0) && (target.cpa_m < kParams.cpa_safe_m);
+        if (!risk_of_collision) {
+          eval.is_active = false;
+        }
       }
-      
+
       evaluations.push_back(eval);
     }
   }
