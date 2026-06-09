@@ -74,7 +74,8 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 | 端口 | orchestrator 18000 / foxglove 18765 / Vite 5173（8000/8765 被生产栈占，**勿碰**） |
 | 启停 | `source scripts/a4000-env.sh` 后 `npm run sys:{start,stop,status}`；HMI http://192.168.121.50:5173 |
 - 一键验收 `source scripts/a4000-env.sh && ./scripts/a4000-acceptance.sh`（`--sync` 先 pull）。倍速纯后端 `rtf_headless_sweep.py`（需 `export ORCH_URL=https://127.0.0.1:18000`）；HMI 一致性 `cd web && RATE=10 ORCH_PORT=18000 FOX_PORT=18765 npx playwright test e2e/mvp_consistency.spec.ts`（RTF_BAND[7,12] 只对 10× 有效）。
-- 编辑循环：本地改 → scp 同路径到 a4000 → 容器内 `colcon build --packages-select <pkg>` → `restart sil-nodes`（bridge 是 Python，scp+restart 免 build）。
+- 编辑循环：本地改 → scp 同路径到 a4000 → 容器内 `colcon build --packages-select <pkg>` → `restart sil-nodes`（bridge 是 Python，scp+restart 免 build）。场景 YAML 同样 scp（orchestrator 每请求重扫，免 build/restart）。
+- ⚠️ **A4000 走 scp 部署不走 git**：A4000 的 `git fetch gitlab` 不通 + 工作树常有并行会话未提交的 docs → **禁 `git pull`/`git reset`**（会毁并行会话的活）。更新一律本地 push 三端 + scp 到 A4000。
 - **env_disturbance wedge**：单驱动快速循环不复现 → 双驱动并发 race（前端 + CLI 同时 configure 撞 SetParameters → 15s 超时）。**规约：同一时刻只一个 configure 驱动**；复位 `docker compose restart sil-nodes`。
 
 ## 14. 代码图谱 = codegraph（MCP，替代已删的 graphify）

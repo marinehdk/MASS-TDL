@@ -213,3 +213,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `CLAUDE.md §13`: env_disturbance 双驱动 race 操作规约（未提交）。
 - **当前状态 (Status)**: A4000 实测 GREEN —— conflict_detected 稳定不翻转/本船 60° give-way 锁死 12 位小数无 fishtail/CPA~1700m/past-clear 干净释放/回归 lon10.38→北；真实模块(M5 plan NORMAL 非 DEGRADED fallback)；bridge RESET churn dozens→1；调研(maritime_regulations+colav_algorithms 双 high)证实 onset-latch+commit-and-monitor 是 COLREG 正解。
 - **接力指示 (Hand-off Context)**: colreg-rule14-ho 行为完全正常。commit `21a640b5` 未 push（三端同步待你定）。CLAUDE.md §13 + DEBUG_STATE.md 未提交。env_disturbance wedge = 双驱动并发 race（单驱动 5×快速循环不复现），操作规约=同一时刻只一个 configure 驱动。下一可选：其他 COLREG 场景(crossing rule15 / overtaking rule13)同法验证 onset-latch；或系统审计 §4 P0 (M7 真硬门 / M4 去硬编码右转)。
+
+## [2026-06-09 11:20] Agent: Claude Code CLI (Opus 4.8 1M)
+- **Git Commit**: `8e586050` (branch: `main`, 已三端同步 origin/main + gitlab l3-tdl)
+- **任务目标 (Goal)**: 按场景评审重构 COLREGs 测试集（精简+加强，质量不在数量），并产出新对话提示词
+- **核心改动 (Actions)**:
+  - `[gen_colreg_tier12.py](tools/sil/gen_colreg_tier12.py)`: 重写为**唯一真源**，产出 **8 个单一目的探针**（近距 2NM/total ~5min、DCPA≈0、cpa_min 926 give-way·500 边界&stand-on）；clean-regen 自动清残留；纯正遇/追越用 straight_target 避求解退化。
+  - `[verify_colreg_tier12.py](tools/sil/verify_colreg_tier12.py)` EXPECTED + `scripts/{run_6_scenarios,analyze_runs,reconstruct_arrow_metrics}.py` 场景表 + `[README.md](scenarios/COLREGs测试/README.md)` 全部对齐 8 探针。
+  - 删 10 旧 YAML（含无效 cs-3 cpa_min=0 + 全部多船→归 Imazu）；加 2 边界探针（cs-edge 正遇/穿越、ot-boundary 穿越/追越）。
+  - `[handoff/colreg-sweep-prompt.md](handoff/colreg-sweep-prompt.md)`: 新对话提示词（A4000 测 8 探针 + Phase B 打分层稳定性断言）。
+- **当前状态 (Status)**: 本地 gates 全绿 —— verify_colreg_tier12 ALL PASS（schema+真实 M2 分类+DCPA<500）、validate_scenarios 35/35（Imazu 未动）、test_simulate 6 passed、kinematic feasibility 8/8 可赢。**A4000 行为验收未做**（需部署后单驱动跑）。
+- **接力指示 (Hand-off Context)**: 用 `handoff/colreg-sweep-prompt.md` 开新对话。**Part 1** = A4000 部署对齐 8e586050 + 单驱动逐个跑 8 探针出绿/红表（rudder 采样逮 fishtail）。**Part 2** = Phase B：在 `src/sim_workbench/sil_nodes/scoring/` 加行为稳定性断言（conflict_toggle≤2 / rudder_reversal / heading_hold / plan_toggle / role_onset_fixed / stand-on premature_giveway），并入 PASS 裁决；反证回归锁（反转 M6 应转红）。env_disturbance 单驱动纪律仍生效。
