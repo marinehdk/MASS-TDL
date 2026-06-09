@@ -13,6 +13,13 @@
 非 mock),验证 M6 修复泛化;然后实现 Phase B —— 把行为稳定性断言加进打分层,自动捕捉
 fishtail/flap 类 TDL 系统漏洞。
 
+## 运行环境(重要:独立 worktree,别串进别的会话)
+- 在专属 worktree 执行:cd "~/Code/MASS-L3-Tactical Layer/.worktrees/colreg-phaseb"
+  分支 = feat/colreg-phaseb(off main)。每次提交前确认 `git branch --show-current` = feat/colreg-phaseb。
+- 完成后:在 feat/colreg-phaseb 提交 → 切主 checkout `git checkout main && git merge --ff-only
+  feat/colreg-phaseb`(或 PR)→ push 三端(origin main + gitlab main:l3-tdl)。
+- A4000 更新走 scp 不走 git(见下 PART 1 部署)。
+
 ## 背景(已完成基线,勿重修)
 - M6 避碰段舵 fishtail 已根因修复:commit 21a640b5(M6 RuleLatch 在 onset 锁定 give-way
   分类、贯穿机动保持 Rule 13(d)、past-and-clear 释放 Rule 8(d) + 跨run latch 清除)。
