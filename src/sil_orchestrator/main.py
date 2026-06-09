@@ -27,6 +27,7 @@ from sil_orchestrator.arrow_routes import router as arrow_router
 from sil_orchestrator.gif_pack_routes import router as gif_pack_router
 from sil_orchestrator.asdr_routes import router as asdr_router
 from sil_orchestrator.routers.debug_routes import router as debug_router
+from sil_orchestrator.encounters_routes import router as encounters_router
 try:
     import rclpy
     from rclpy.callback_groups import ReentrantCallbackGroup
@@ -70,6 +71,7 @@ if _HAS_RCLPY:
     rclpy.init(args=None)
     _cb_group = ReentrantCallbackGroup()
     bridge = LifecycleBridge(callback_group=_cb_group)
+    app.state.bridge = bridge
 
     def _spin_bridge():
         executor = MultiThreadedExecutor(num_threads=4)
@@ -80,6 +82,7 @@ if _HAS_RCLPY:
 else:
     # bridge is None when rclpy is absent; server will refuse requests at startup
     bridge = None  # type: ignore[assignment]
+    app.state.bridge = None
 
 _store = ScenarioStore()
 _last_run_id: str | None = None
@@ -202,7 +205,7 @@ async def lifecycle_rate(request: dict):
     return {"success": result.success, "error": result.error}
 
 
-# Self-check, export, scenario CRUD, and scoring routes
+# Self-check, export, scenario CRUD, scoring, and encounter injection routes
 app.include_router(selfcheck_router)
 app.include_router(export_router)
 app.include_router(scenario_router)
@@ -214,6 +217,7 @@ app.include_router(kpi_router)
 app.include_router(gif_pack_router)
 app.include_router(asdr_router)
 app.include_router(debug_router)
+app.include_router(encounters_router)
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
