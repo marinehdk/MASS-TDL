@@ -1,0 +1,62 @@
+title: '安全航路 — 近海群岛 L2 实测航路'
+description: >-
+  集成测试：来自 L2 的实测安全航线（16 航点，卡里马塔海峡近海群岛 ODD）。
+  本船位于航路起点，沿计划航线航行。Phase 1 经 mock GncRoutePlan(ROS2) 下发，
+  后续接通真实 L2 可触发重规划。
+startTime: '2026-06-08T09:26:35Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: -1.500000
+      longitude: 105.120000
+    cog: 64.3
+    sog: 12.0
+    heading: 64.3
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+  nominalRoute:
+  - { latitude: -1.500000, longitude: 105.120000, target_sog_kn: 12.0 }
+  - { latitude: -1.485545, longitude: 105.150023, target_sog_kn: 12.0 }
+  - { latitude: -1.471368, longitude: 105.180177, target_sog_kn: 12.0 }
+  - { latitude: -1.470400, longitude: 105.213486, target_sog_kn: 12.0 }
+  - { latitude: -1.470011, longitude: 105.246806, target_sog_kn: 12.0 }
+  - { latitude: -1.470035, longitude: 105.280129, target_sog_kn: 12.0 }
+  - { latitude: -1.470070, longitude: 105.313452, target_sog_kn: 12.0 }
+  - { latitude: -1.470534, longitude: 105.346771, target_sog_kn: 12.0 }
+  - { latitude: -1.470119, longitude: 105.380092, target_sog_kn: 12.0 }
+  - { latitude: -1.470101, longitude: 105.413417, target_sog_kn: 12.0 }
+  - { latitude: -1.469468, longitude: 105.446736, target_sog_kn: 12.0 }
+  - { latitude: -1.470453, longitude: 105.480044, target_sog_kn: 12.0 }
+  - { latitude: -1.470303, longitude: 105.513369, target_sog_kn: 12.0 }
+  - { latitude: -1.469663, longitude: 105.546686, target_sog_kn: 12.0 }
+  - { latitude: -1.470303, longitude: 105.580002, target_sog_kn: 12.0 }
+  - { latitude: -1.469818, longitude: 105.603825, target_sog_kn: 12.0 }
+targetShips: []
+environment:
+  wind: &id001 { dir_deg: 0.0, speed_mps: 0.0 }
+  current: &id002 { dir_deg: 0.0, speed_mps: 0.0 }
+  visibility_nm: 6.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: 安全航路
+  scenario_source: d1.8_integration
+  vessel_class: FCB
+  odd_cell:
+    domain: coastal_archipelago
+    sea_state_beaufort: 5
+    visibility_nm: 6.0
+  seed: 108
+  simulation_settings:
+    total_time: 2400.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    coordinate_origin: [-1.500000, 105.120000]
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002

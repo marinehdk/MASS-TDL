@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { SilMapView } from '../map/SilMapView';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
+import { PlannedRouteLayer } from '../map/PlannedRouteLayer';
 import * as jsyaml from 'js-yaml';
 import {
   useListScenariosQuery,
@@ -331,6 +332,25 @@ export function SimulationScenario() {
     } catch { return []; }
   }, [yamlEditor]);
 
+  // ── D1.8: route line for display, from the selected scenario's nominalRoute ──
+  // (single source: nominalRoute also feeds the ROS GncRoutePlan mock path).
+  const routeWaypoints = useMemo(() => {
+    try {
+      const doc = jsyaml.load(yamlEditor) as any;
+      const nr = doc?.ownShip?.nominalRoute;
+      if (Array.isArray(nr) && nr.length) {
+        return nr
+          .map((w: any) => ({ lat: w.latitude ?? w.lat, lon: w.longitude ?? w.lon }))
+          .filter((w: any) => typeof w.lat === 'number' && typeof w.lon === 'number');
+      }
+      const vw = doc?.voyageTask?.waypoints;
+      if (Array.isArray(vw) && vw.length) {
+        return vw.map((w: any) => ({ lat: w.lat, lon: w.lon }));
+      }
+      return [];
+    } catch { return []; }
+  }, [yamlEditor]);
+
   useMapInteraction({
     mapRef,
     previewData,
@@ -531,6 +551,11 @@ const handleUpdateYaml = useCallback((updates: any) => {
           geometry={imazuGeometry}
           mapRef={mapRef}
           encRegion={oddDomain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag'}
+        />
+        <PlannedRouteLayer
+          mapRef={mapRef}
+          waypoints={routeWaypoints}
+          visible={routeWaypoints.length >= 2}
         />
       </div>
 
