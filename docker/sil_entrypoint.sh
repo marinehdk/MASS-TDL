@@ -257,6 +257,24 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] Mock L2 Publisher PID: {mock_l2_proc.pid}')
 
+    # 3a-2b. Start GNC route mock publisher (D1.8: publishes ship_interfaces/GncRoutePlan
+    # on /route_planning/gnc_route_plan from the active scenario's nominalRoute — stands
+    # in for the real L2 in Phase 1).
+    gnc_route_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/gnc_route_mock_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr,
+        env=mock_l2_env
+    )
+    print(f'  [{ts()}] GNC Route Mock Publisher PID: {gnc_route_proc.pid}')
+
+    # 3a-2c. Start route ingest node (D1.8: re-entrant L3 consumer of GncRoutePlan;
+    # republishes to internal /l2/planned_route for the frontend route layer).
+    route_ingest_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/route_ingest_node.py', '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr
+    )
+    print(f'  [{ts()}] Route Ingest Node PID: {route_ingest_proc.pid}')
+
     # 3a-3. Start FSM aggregator node (publishes /l3/fsm_state at 10Hz)
     fsm_agg_proc = subprocess.Popen(
         ['python3', '/opt/ws/docker/fsm_aggregator_node.py', '--ros-args', '-p', 'use_sim_time:=True'],
