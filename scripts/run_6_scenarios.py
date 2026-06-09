@@ -12,6 +12,12 @@ import pyarrow.ipc as ipc
 import yaml
 import matplotlib.pyplot as plt
 
+# Phase B: behavioral-stability scorer — standalone import (no polars/ROS2) so
+# this host-side runner can use the same logic the scoring package ships.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
+                       "src/sim_workbench/sil_nodes/scoring/scoring"))
+import stability_scorer as ss  # noqa: E402
+
 BASE = "https://127.0.0.1:18000/api/v1"
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -275,8 +281,21 @@ def run_scenario(scenario_id):
     else:
         compliance_verdict = "violated"
         
-    # Print summary of findings
+    # ── Phase B: behavioral-stability KPIs (fishtail / flap detector) ─────
+    encounter = scen_data.get("metadata", {}).get("encounter", {})
+    role = "give_way" if encounter.get("give_way_vessel") == "own" else "stand_on"
+    expected = scen_data.get("metadata", {}).get("expected_outcome", {})
+    stability_thresholds = expected.get("stability_thresholds")  # optional override
+    stability = ss.analyze_stability(
+        run_records, role=role, init_heading_deg=init_hdg,
+        thresholds=stability_thresholds)
+
+    # ── Overall verdict: CPA floor AND behavioral stability ───────────────
     min_dcpa_m = cpa_min_nm * 1852.0 if not math.isnan(cpa_min_nm) else float("nan")
+    cpa_floor_m = float(expected.get("cpa_min_m_ge", 0.0))
+    cpa_ok = (not math.isnan(min_dcpa_m)) and (min_dcpa_m >= cpa_floor_m)
+    overall_pass = bool(cpa_ok and stability["stability_pass"])
+
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
     print(f"  Steer Direction: {steer_dir} | Magnitude: {steer_mag:.1f}°")
     print(f"  Rule Compliance Score: {rule_compliance_score:.2f} ({compliance_verdict})")
@@ -286,6 +305,10 @@ def run_scenario(scenario_id):
     print(f"  Veto events count: {len(veto)}")
     print(f"  Behavior transitions: {bp_transitions}")
     print(f"  M5 Solver states: {solver_stats}")
+    print(f"  Role: {role} | CPA floor: {cpa_floor_m:.0f} m | CPA pass: {cpa_ok}")
+    print(ss.format_report(stability))
+    print(f"  ===> OVERALL: {'PASS' if overall_pass else 'RED'} "
+          f"(cpa_ok={cpa_ok} AND stability={stability['stability_pass']})")
     
     # 9. Plot trajectories and save to run directory
     try:
@@ -345,6 +368,13 @@ def run_scenario(scenario_id):
         "bp_transitions": bp_transitions,
         "solver_stats": solver_stats,
         "veto_count": len(veto),
+        "role": role,
+        "cpa_floor_m": cpa_floor_m,
+        "cpa_ok": cpa_ok,
+        "stability_pass": stability["stability_pass"],
+        "stability_kpis": stability["kpis"],
+        "stability_checks": stability["checks"],
+        "overall_pass": overall_pass,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
 
@@ -365,10 +395,17 @@ def main():
     print("\n\n==================================================")
     print("ALL SCENARIOS COMPLETED. SUMMARY OF RESULTS:")
     print("==================================================")
+    n_pass = sum(1 for r in results.values() if r.get("overall_pass"))
+    print(f"OVERALL: {n_pass}/{len(results)} PASS (CPA floor AND behavioral stability)\n")
     for scen, res in results.items():
-        print(f"\nScenario: {scen} ({res['run_id']})")
-        print(f"  CPA min: {res['min_cpa_m']:.1f} m | Steering: {res['steer_dir']} ({res['steer_mag']:.1f}°)")
-        print(f"  Compliance Verdict: {res['compliance_verdict'].upper()} (Score: {res['compliance_score']:.2f})")
+        verdict = "PASS" if res.get("overall_pass") else "RED"
+        print(f"\n[{verdict}] {scen} ({res['run_id']}) — role={res.get('role')}")
+        print(f"  CPA min: {res['min_cpa_m']:.1f} m (floor {res.get('cpa_floor_m', 0):.0f}, ok={res.get('cpa_ok')}) | Steering: {res['steer_dir']} ({res['steer_mag']:.1f}°)")
+        print(f"  Stability: {res.get('stability_pass')} | KPIs: {res.get('stability_kpis')}")
+        red = [k for k, c in res.get("stability_checks", {}).items()
+               if c["applicable"] and not c["pass"]]
+        if red:
+            print(f"  Stability RED checks: {red}")
         print(f"  Returned to Route: {res['returned_to_route']} (Final XTE: {res['final_xte']:.1f} m)")
         print(f"  Transitions: {res['bp_transitions']}")
         

@@ -49,7 +49,29 @@ pytest tools/sil/test_simulate.py          # kinematic 自洽（ho 可赢 ≥cpa
 - `rule_compliance_evaluator.py` — R13/14/15/16/17 → full/partial/violated（查 `rudder_side`/`heading_change_deg`/`role`/`timing_stage`）。R14 左舵=violated；R17 直航船早期大转向=violated。
 - `kpi_deriver.py` — `min_cpa_nm` / `max_rudder_deg` / `avg_rot_dpm`（操纵平滑度）/ `grounding_risk_score`。
 
-> **Phase B 待加**：行为稳定性断言（conflict 不翻转 / 航向单调→锁定无 fishtail / M5 plan 不 VALID↔EMPTY 翻 / 分类 onset 固定）—— 唯一能逮 fishtail·flap 类行为 bug（纯 CPA 判据逮不到，M6 fishtail 就是例证）。
+### Phase B — 行为稳定性断言（已实现 2026-06-09）
+
+`scoring/scoring/stability_scorer.py`（纯 stdlib，独立可导入，零 polars/ROS2 依赖）从单次
+运行的 `runs/trace_current.jsonl`（run-records 时间序列，按 sim_t 回跳切片）派生稳定性 KPI，
+逮纯 CPA 判据逮不到的 fishtail·flap 类行为 bug：
+
+| KPI | 信号源（trace 话题） | PASS 阈值 |
+|---|---|---|
+| `behavior_toggles` | `/l3/m4/behavior_plan` AVOID↔TRANSIT 翻转 | ≤2（一起一落） |
+| `plan_valid_segments` | `/l3/m5/avoidance_plan` solver_status VALID 段数 | ≤2 |
+| `steering_reversals` | `/sil/own_ship_state` `rot_deg_s` 符号反转（死区 0.2°/s）→ rudder 没在 trace，ROT=偏航率即 fishtail 信号 | give-way ≤4 / stand-on ≤2 |
+| `rot_hold_std_dps` | 保持段偏航率方差（掐头去尾 25%） | <1.5 |
+| `conflict_toggles` | `/l3/m6/colregs_constraint` `conflict_detected` 翻转 | ≤2 |
+| `role_onset_stable` | `primary_role` 的**本船义务类**（give_way={1,2} / stand_on={0}）在 conflict 期间不变（Rule 13(d)）；GIVE_WAY→BOTH_GIVE_WAY 细化属同义务不计 🟢 | 0 次义务翻转 |
+| `turn_starboard` | give-way 净偏航必须右舷（max_stbd≥max_port 且实际转了） | give-way |
+| `premature_giveway` | stand-on 保持段（前 75%）最大航向偏移 | stand-on <10° |
+
+总裁决 `overall_pass = cpa_ok AND stability_pass`。批量跑 `python3 scripts/run_6_scenarios.py`
+（A4000 host，rate 10），结果落 `runs/batch_colregs_results.json`，每场景含 `stability_kpis`/
+`stability_checks`/`overall_pass`。M6 话题需 bridge `docker/sil_topic_bridge.py` 已加 trace
+（`_on_colregs_constraint`，scp+restart 生效）；M6 话题缺失时 conflict/role 两项 KPI 自动降级为 n/a。
+阈值默认按角色派生，可经 scenario `metadata.expected_outcome.stability_thresholds` 覆盖（schema 已允许 additionalProperties）。
+单元测试 `tests/sim_workbench/scoring/test_stability_scorer.py`（9 例，含 fishtail 回归锁 + benign 细化）。
 
 ## Tier-3 极限场景（暂缓，需 harness 改动）
 

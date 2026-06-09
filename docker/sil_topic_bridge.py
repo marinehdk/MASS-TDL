@@ -409,7 +409,7 @@ class SilTopicBridge(Node):
             self._on_behavior_plan, sq)
         self._sub_m6 = self.create_subscription(
             COLREGsConstraint, "/l3/m6/colregs_constraint",
-            lambda msg: self._record_pulse(M6), sq)
+            self._on_colregs_constraint, sq)
         self._sub_m7_heartbeat = self.create_subscription(
             Header, "/l3/m7/heartbeat",
             lambda msg: self._record_pulse(M7), sq)
@@ -586,6 +586,20 @@ class SilTopicBridge(Node):
     def _on_fsm_state(self, msg: LifecycleStatus) -> None:
         self._trace_writer.record("/l3/fsm_state", {
             "state": int(msg.current_state),
+        }, self._get_sim_time())
+
+    def _on_colregs_constraint(self, msg: COLREGsConstraint) -> None:
+        # Records the M6 health pulse (as before) AND traces the COLREGs
+        # classification so Phase B can assert behavioral stability — conflict
+        # toggle count and onset-role fixity (Rule 13(d)). primary_role enum:
+        # 0=STAND_ON 1=GIVE_WAY 2=BOTH_GIVE_WAY 3=FREE.
+        self._record_pulse(M6)
+        self._trace_writer.record("/l3/m6/colregs_constraint", {
+            "conflict_detected": bool(msg.conflict_detected),
+            "primary_role": int(msg.primary_role),
+            "phase": str(msg.phase),
+            "primary_preferred_direction": str(msg.primary_preferred_direction),
+            "confidence": float(msg.confidence),
         }, self._get_sim_time())
 
     def _on_odd_state(self, msg: ODDState) -> None:
