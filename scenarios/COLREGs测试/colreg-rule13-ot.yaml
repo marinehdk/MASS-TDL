@@ -1,9 +1,9 @@
-title: 'Scenario: colreg-rule13-ot-001-v1.0'
-description: 'Rule 13 pure overtaking from dead astern (180° from target''s perspective).
-  Target at (50, 926) heading 000° at 8 kn. Own ship heading 000° at 14 kn, overtaking.
-  Own ship is give-way.
-
-  '
+title: 'Probe: Rule 13 overtaking'
+description: 'Rule 13 overtaking. Own ship 000deg/14kn overtakes a slow 7kn vessel
+  nearly dead ahead (relative bearing 3deg, same course), initial range 0.6 NM. Own
+  is the give-way vessel and must keep clear (conventionally a STARBOARD pass) until
+  finally past and clear. Rule 13(d): the bearing drawing aft as own passes must NOT
+  reclassify this into a crossing (assert classification stability in Phase B).'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -19,16 +19,24 @@ ownShip:
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 14.0
+  - latitude: 63.498328
+    longitude: 10.38
+    target_sog_kn: 14.0
 targetShips:
 - id: ts1
   static:
     id: 2
+    mmsi: 100000001
   initial:
     position:
-      latitude: 63.448328
-      longitude: 10.381006
+      latitude: 63.454979
+      longitude: 10.381756
     cog: 0.0
-    sog: 8.01
+    sog: 7.0
     heading: 0.0
   model: ais_replay_vessel
 environment:
@@ -41,10 +49,10 @@ environment:
   visibility_nm: 5.4
 metadata:
   schema_version: '3.0'
-  scenario_id: colreg-rule13-ot-001-v1.0
+  scenario_id: colreg-rule13-ot-v2.0
+  scenario_source: colregs_probe_suite_v2.0
   colregs_rules:
   - R13
-  - R16
   - R8
   vessel_class: FCB
   odd_cell:
@@ -53,16 +61,22 @@ metadata:
     rule: Rule13
     give_way_vessel: own
     expected_own_action: turn_starboard
-    avoidance_time_s: 150.0
-    avoidance_delta_rad: 0.3491
-    avoidance_duration_s: 90.0
-  seed: 20
+    avoidance_time_s: 20.0
+    avoidance_delta_rad: 0.6981
+    avoidance_duration_s: 320.0
+  seed: 103
   expected_outcome:
-    cpa_min_m_ge: 500.0
+    cpa_min_m_ge: 926.0
+    rule_compliance:
+    - rule: Rule13
+      result: required
   simulation_settings:
-    total_time: 600.0
+    total_time: 420.0
     dt: 0.02
     n_rps_initial: 4.2
+    coordinate_origin:
+    - 63.44
+    - 10.38
     dynamics_mode: internal
     backend: ros2
   disturbance:

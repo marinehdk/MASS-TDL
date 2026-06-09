@@ -1,9 +1,10 @@
-title: 'Scenario: colreg-rule17-cr-so-001-v1.0'
+title: 'Probe: Rule 17 stand-on (target from port, never yields)'
 description: Rule 17 stand-on. Target crosses from own ship's PORT bow (relative bearing
-  315 deg), heading 90 deg at 10.0 kn. Own ship is the STAND-ON vessel and must initially
-  keep course and speed (Rule 17(a)(i)). The give-way target holds its course (straight-line
-  replay) and never acts, so own ship must take last-moment independent action (Rule
-  17(b)) near t_cpa ~= 509 s. DCPA ~= 0 m without action.
+  315deg), course 090deg at 10.0kn, t_cpa ~= 509s. Own has the target on its PORT
+  side -> own is the STAND-ON vessel and must initially KEEP course and speed (Rule
+  17(a)(i)). The give-way target holds course (straight-line replay) and never acts,
+  so own must take last-moment independent action (Rule 17(b)) to keep the ship-domain
+  clear. Probes that own does NOT give way prematurely (no early large alteration).
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -19,6 +20,13 @@ ownShip:
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 10.0
+  - latitude: 63.481663
+    longitude: 10.38
+    target_sog_kn: 10.0
 targetShips:
 - id: ts1
   static:
@@ -42,8 +50,8 @@ environment:
   visibility_nm: 5.4
 metadata:
   schema_version: '3.0'
-  scenario_id: colreg-rule17-cr-so-001-v1.0
-  scenario_source: colregs_test_suite_tier12_v1.0
+  scenario_id: colreg-rule17-cr-so-v2.0
+  scenario_source: colregs_probe_suite_v2.0
   colregs_rules:
   - R17
   - R15
@@ -55,10 +63,10 @@ metadata:
     rule: Rule17
     give_way_vessel: target
     expected_own_action: maintain
-    avoidance_time_s: 389.2
-    avoidance_delta_rad: 0.6109
-    avoidance_duration_s: 60.0
-  seed: 101
+    avoidance_time_s: 399.2
+    avoidance_delta_rad: 0.8727
+    avoidance_duration_s: 140.0
+  seed: 108
   expected_outcome:
     cpa_min_m_ge: 500.0
     rule_compliance:
@@ -67,7 +75,7 @@ metadata:
     - rule: Rule15
       result: required
   simulation_settings:
-    total_time: 809.2
+    total_time: 360.0
     dt: 0.02
     n_rps_initial: 3.0
     coordinate_origin:

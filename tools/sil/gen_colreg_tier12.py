@@ -1,24 +1,37 @@
-"""Generate Tier-1/Tier-2 COLREGs test scenarios (schema_version 3.0).
+"""Generate the COLREGs fast-probe scenario set (schema_version 3.0).
 
-For each target we fix its course-over-ground (COG) and relative bearing/range
-from own ship, then solve for the target SOG that puts both vessels on a
-collision course (analytical straight-line DCPA = 0). This guarantees the
-scenario carries genuine collision risk so the SIL geometric-compliance gate
-treats it as valid.
+This is the **single source of truth** for scenarios/COLREGs测试/ — a lean,
+high-quality *probe* set used for fast problem-finding during development, NOT a
+comprehensive benchmark (that is the Imazu-22 set in scenarios/IMAZU标准测试/,
+which stays frozen + hash-protected; do not duplicate multi-ship cases here).
+
+Design (per the 2026-06-09 scenario review):
+  - **Single-ship, single-purpose** probes — each isolates one rule or one
+    classification boundary so a failure points straight at the cause.
+  - **Close-start**: the target starts near the avoidance distance (~1.3-1.5 NM)
+    with an analytical straight-line DCPA ~= 0, so the encounter is in/near the
+    avoidance phase from t=0 → short runtime, fast iteration.
+  - **Valid pass criterion**: cpa_min_m_ge = SHIP_DOMAIN_M (0.5 NM = 926 m). A
+    real ship-domain radius — never 0, never below a defined safe distance
+    (an invalid criterion per COLREG Rule 8 "pass at a safe distance").
+  - **Boundary coverage**: the head-on/crossing edge (±~6°/22.5°) and the
+    crossing/overtaking edge (112.5°) — bugs live at classification boundaries
+    (the M6 head-on fishtail lived exactly at the ±6° reciprocal edge).
+
+For each solved target we fix its COG and relative bearing/range from own ship,
+then solve for the target SOG that puts both on a collision course (DCPA = 0).
+This guarantees genuine collision risk so the geometric-compliance gate (and
+tools/sil/verify_colreg_tier12.py, which requires straight-line DCPA < 500 m)
+treats the scenario as valid.
 
 Geometry conventions (matching tools/sil/scenario_spec.py / simulate.py):
   - Nautical heading/COG: degrees clockwise from North.
   - ENU: x = East, y = North. vx = SOG*sin(brg), vy = SOG*cos(brg).
-  - Origin: lat0 = 63.44, lon0 = 10.38. 1deg lat = 111120 m,
-    1deg lon = 111120*cos(lat0).
+  - Origin: lat0 = 63.44, lon0 = 10.38.
 
-Collision solve: target at relative position P = R * u (u = unit vector toward
-the target's absolute bearing). Own velocity Vo. We need target velocity
-Vt = s*d (d = unit vector of target COG, s = SOG) such that the relative
-velocity Vr = Vt - Vo is anti-parallel to P (closes to zero):
-    Vr = -k * P,  k > 0
-  =>  s*d + K*u = Vo   with K = k*R  (>0)
-A 2x2 linear solve gives (s, K); t_cpa = R / K.
+NOTE: cpa_min_m_ge (926 m) and the close-start ranges are conservative starting
+points; confirm/tune each against the A4000 SIL (some tight geometries may need
+a slightly larger start range to reach the 926 m ship-domain).
 
 Run:  python -m tools.sil.gen_colreg_tier12   (from repo root)
 """
@@ -35,6 +48,8 @@ M_PER_DEG_LAT = 111120.0
 M_PER_DEG_LON = 111120.0 * math.cos(math.radians(LAT0))
 KN = 0.5144  # knots -> m/s
 NM = 1852.0  # nautical mile -> m
+
+SHIP_DOMAIN_M = 926.0  # 0.5 NM ship-domain radius — the pass DCPA floor for every probe
 
 OUT_DIR = Path(__file__).resolve().parents[2] / "scenarios" / "COLREGs测试"
 
@@ -88,16 +103,41 @@ def solve_collision_target(
 
 
 def straight_target(
-    rel_brg_deg: float, range_m: float, own_hdg_deg: float, cog_deg: float, sog_kn: float
+    rel_brg_deg: float, range_m: float, own_hdg_deg: float,
+    cog_deg: float, sog_kn: float, own_sog_kn: float,
 ) -> dict:
     """Place a target at a bearing/range with an explicit course/speed (no solve).
 
-    Used for overtaking (same-course slower target dead ahead)."""
+    Used where the collision-solver is degenerate — a pure head-on (target COG
+    exactly anti-parallel to the bearing) or an overtaking (same-course target
+    nearly dead ahead). t_cpa is derived from the straight-line relative motion."""
     abs_brg = (own_hdg_deg + rel_brg_deg) % 360.0
     ux, uy = _unit_from_nav_deg(abs_brg)
-    lat, lon = enu_to_latlon(range_m * ux, range_m * uy)
+    tx, ty = range_m * ux, range_m * uy
+    lat, lon = enu_to_latlon(tx, ty)
+    ovx, ovy = _unit_from_nav_deg(own_hdg_deg)
+    tvx, tvy = _unit_from_nav_deg(cog_deg)
+    vrx = tvx * sog_kn * KN - ovx * own_sog_kn * KN
+    vry = tvy * sog_kn * KN - ovy * own_sog_kn * KN
+    vv = vrx * vrx + vry * vry
+    t_cpa = max(0.0, -(tx * vrx + ty * vry) / vv) if vv > 1e-9 else 0.0
     return {"lat": round(lat, 6), "lon": round(lon, 6),
-            "cog": round(cog_deg, 1), "sog": round(sog_kn, 2), "rel_brg": rel_brg_deg}
+            "cog": round(cog_deg, 1), "sog": round(sog_kn, 2),
+            "t_cpa_s": round(t_cpa, 1), "rel_brg": rel_brg_deg}
+
+
+def _nominal_route(hdg: float, sog: float) -> list[dict]:
+    """Straight 15-min dead-reckoned track along the initial heading.
+
+    Gives the bridge a stable line to rejoin after avoidance (so route-return is
+    testable) instead of the rolling mock_l2 default route."""
+    dist = sog * KN * 900.0  # 15 min ahead
+    ex, ny = _unit_from_nav_deg(hdg)
+    lat1, lon1 = enu_to_latlon(dist * ex, dist * ny)
+    return [
+        {"latitude": LAT0, "longitude": LON0, "target_sog_kn": sog},
+        {"latitude": round(lat1, 6), "longitude": round(lon1, 6), "target_sog_kn": sog},
+    ]
 
 
 def _own_ship(hdg: float, sog: float) -> dict:
@@ -110,6 +150,7 @@ def _own_ship(hdg: float, sog: float) -> dict:
         },
         "model": "fcb_mmg_vessel",
         "controller": "psbmpc_wrapper",
+        "nominalRoute": _nominal_route(hdg, sog),
     }
 
 
@@ -130,8 +171,9 @@ def _scenario(
     own_hdg: float, own_sog: float, targets: list[dict],
     rule: str, give_way: str, expected_action: str,
     colregs_rules: list[str], rule_compliance: list[dict],
-    cpa_min_m: float, avoidance_time_s: float, avoidance_delta_rad: float,
+    avoidance_time_s: float, avoidance_delta_rad: float,
     avoidance_duration_s: float, total_time: float, n_rps: float,
+    cpa_min_m: float = SHIP_DOMAIN_M,
     wind_dir: float = 0.0, wind_mps: float = 0.0, vis_nm: float = 5.4, seed: int = 100,
 ) -> dict:
     wind = {"dir_deg": wind_dir, "speed_mps": wind_mps}
@@ -146,7 +188,7 @@ def _scenario(
         "metadata": {
             "schema_version": "3.0",
             "scenario_id": scenario_id,
-            "scenario_source": "colregs_test_suite_tier12_v1.0",
+            "scenario_source": "colregs_probe_suite_v2.0",
             "colregs_rules": colregs_rules,
             "vessel_class": "FCB",
             "odd_cell": {"domain": "open_sea_offshore_wind_farm"},
@@ -177,163 +219,218 @@ def _scenario(
 
 
 def build_all() -> dict[str, dict]:
+    """The 8 single-purpose fast probes. Close-start (~2 NM, total_time ~5 min vs
+    the old 15 min), DCPA~=0, cpa_min = 926 m ship-domain for give-way probes
+    (500 m for the stand-on probe — last-moment 17(b) clears less). Multi-ship
+    belongs to the Imazu-22 benchmark, not here."""
     scenarios: dict[str, dict] = {}
 
-    # ── Tier 1.1 — Rule 17 stand-on, target crossing from port bow ───────────
-    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=10.0,
-                               rel_brg_deg=315.0, target_cog_deg=90.0, range_m=2.0 * NM)
-    scenarios["colreg-rule17-cr-so"] = _scenario(
-        scenario_id="colreg-rule17-cr-so-001-v1.0",
-        title="Scenario: colreg-rule17-cr-so-001-v1.0",
+    # ── P1  Rule 14 head-on, pure reciprocal (canonical) ────────────────────
+    # Pure head-on is degenerate for the collision-solver (target COG anti-parallel
+    # to the bearing) → place directly with reciprocal course at own speed (DCPA=0).
+    t = straight_target(rel_brg_deg=0.0, range_m=2.0 * NM, own_hdg_deg=0.0,
+                        cog_deg=180.0, sog_kn=12.0, own_sog_kn=12.0)
+    scenarios["colreg-rule14-ho"] = _scenario(
+        scenario_id="colreg-rule14-ho-v2.0",
+        title="Probe: Rule 14 head-on (pure reciprocal)",
         description=(
-            "Rule 17 stand-on. Target crosses from own ship's PORT bow "
-            f"(relative bearing {t['rel_brg']:.0f} deg), heading {t['cog']:.0f} deg at "
-            f"{t['sog']:.1f} kn. Own ship is the STAND-ON vessel and must initially keep "
-            "course and speed (Rule 17(a)(i)). The give-way target holds its course "
-            "(straight-line replay) and never acts, so own ship must take last-moment "
-            f"independent action (Rule 17(b)) near t_cpa ~= {t['t_cpa_s']:.0f} s. DCPA ~= 0 m "
-            "without action."
-        ),
-        own_hdg=0.0, own_sog=10.0, targets=[t],
-        rule="Rule17", give_way="target", expected_action="maintain",
-        colregs_rules=["R17", "R15", "R8"],
-        rule_compliance=[{"rule": "Rule17", "result": "required"},
-                         {"rule": "Rule15", "result": "required"}],
-        cpa_min_m=500.0, avoidance_time_s=t["t_cpa_s"] - 120.0,
-        avoidance_delta_rad=0.6109, avoidance_duration_s=60.0,
-        total_time=max(600.0, t["t_cpa_s"] + 300.0), n_rps=3.0, seed=101,
-    )
-
-    # ── Tier 1.2 — Rule 17 stand-on variant, faster target, shorter TCPA ─────
-    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=10.0,
-                               rel_brg_deg=290.0, target_cog_deg=70.0, range_m=1.5 * NM)
-    scenarios["colreg-rule17-cr-so-2"] = _scenario(
-        scenario_id="colreg-rule17-cr-so-002-v1.0",
-        title="Scenario: colreg-rule17-cr-so-002-v1.0",
-        description=(
-            "Rule 17 stand-on variant. Faster target crossing from the port quarter-bow "
-            f"(relative bearing {t['rel_brg']:.0f} deg), heading {t['cog']:.0f} deg at "
-            f"{t['sog']:.1f} kn, shorter t_cpa ~= {t['t_cpa_s']:.0f} s forcing an earlier "
-            "Rule 17(b) transition. Own ship is stand-on (maintain, then last-moment action). "
-            "DCPA ~= 0 m without action."
-        ),
-        own_hdg=0.0, own_sog=10.0, targets=[t],
-        rule="Rule17", give_way="target", expected_action="maintain",
-        colregs_rules=["R17", "R15", "R8"],
-        rule_compliance=[{"rule": "Rule17", "result": "required"},
-                         {"rule": "Rule15", "result": "required"}],
-        cpa_min_m=400.0, avoidance_time_s=max(30.0, t["t_cpa_s"] - 90.0),
-        avoidance_delta_rad=0.6981, avoidance_duration_s=60.0,
-        total_time=max(600.0, t["t_cpa_s"] + 300.0), n_rps=3.0,
-        wind_dir=180.0, wind_mps=4.0, vis_nm=4.0, seed=102,
-    )
-
-    # ── Tier 1.3 — Rule 14 head-on, target biased slightly to PORT ──────────
-    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=12.0,
-                               rel_brg_deg=355.0, target_cog_deg=170.0, range_m=2.0 * NM)
-    scenarios["colreg-rule14-ho-port"] = _scenario(
-        scenario_id="colreg-rule14-ho-port-001-v1.0",
-        title="Scenario: colreg-rule14-ho-port-001-v1.0",
-        description=(
-            "Rule 14 head-on with the target biased slightly to PORT of own bow "
-            f"(relative bearing {t['rel_brg']:.0f} deg, i.e. ~5 deg to port; still inside the "
-            "+/-22.5 deg head-on sector), nearly reciprocal course "
-            f"{t['cog']:.0f} deg at {t['sog']:.1f} kn. Rule 14 requires a STARBOARD turn even "
-            "when the other vessel is marginally to port; a port turn is a violation. "
-            "DCPA ~= 0 m without action."
+            "Rule 14 PURE head-on. Own heading 000deg/12kn, target dead ahead "
+            f"(relative bearing 0deg), reciprocal course 180deg at {t['sog']:.1f}kn, "
+            f"initial range 2.0 NM, t_cpa ~= {t['t_cpa_s']:.0f}s. DCPA ~= 0 without action. "
+            "Own ship must alter to STARBOARD and pass port-to-port, then return to track. "
+            "Canonical close-start probe (the M6 onset-latch regression baseline)."
         ),
         own_hdg=0.0, own_sog=12.0, targets=[t],
         rule="Rule14", give_way="own", expected_action="turn_starboard",
         colregs_rules=["R14", "R8"],
         rule_compliance=[{"rule": "Rule14", "result": "required"}],
-        cpa_min_m=500.0, avoidance_time_s=max(30.0, t["t_cpa_s"] - 150.0),
-        avoidance_delta_rad=1.0472, avoidance_duration_s=90.0,
-        total_time=max(600.0, t["t_cpa_s"] + 300.0), n_rps=3.5, seed=103,
+        avoidance_time_s=25.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=200.0,
+        total_time=300.0, n_rps=3.5, seed=101,
     )
 
-    # ── Tier 2.1 — Multi-ship: two starboard crossings (dual give-way) ──────
-    own_hdg, own_sog = 270.0, 12.0
-    t1 = solve_collision_target(own_hdg, own_sog, rel_brg_deg=45.0,
-                                target_cog_deg=200.0, range_m=2.2 * NM)
-    t2 = solve_collision_target(own_hdg, own_sog, rel_brg_deg=65.0,
-                                target_cog_deg=220.0, range_m=1.8 * NM)
-    scenarios["colreg-rule15-ms"] = _scenario(
-        scenario_id="colreg-rule15-ms-001-v1.0",
-        title="Scenario: colreg-rule15-ms-001-v1.0",
+    # ── P2  Rule 14 head-on PORT edge (head-on / port-stand-on boundary) ────
+    # Target ~15deg to PORT of the bow on a near-reciprocal course — near the edge
+    # of the head-on cone, where a misclassification would treat it as a port-side
+    # CROSSING (own = stand-on -> hold course) instead of head-on (own must turn
+    # starboard). The M6 fishtail lived at exactly this kind of boundary.
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=12.0,
+                               rel_brg_deg=355.0, target_cog_deg=170.0, range_m=2.0 * NM)
+    scenarios["colreg-rule14-ho-port"] = _scenario(
+        scenario_id="colreg-rule14-ho-port-v2.0",
+        title="Probe: Rule 14 head-on PORT-biased (must still turn starboard)",
         description=(
-            "Rule 15/16 multi-ship squeeze. Own ship heads WEST (270 deg) at "
-            f"{own_sog:.0f} kn. Two power-driven vessels cross from starboard: TS1 at relative "
-            f"bearing {t1['rel_brg']:.0f} deg ({t1['sog']:.1f} kn, t_cpa ~= {t1['t_cpa_s']:.0f} s) "
-            f"and TS2 at relative bearing {t2['rel_brg']:.0f} deg ({t2['sog']:.1f} kn, t_cpa ~= "
-            f"{t2['t_cpa_s']:.0f} s). Own "
-            "ship is give-way to BOTH and must produce a single unified maneuver (large "
-            "starboard alteration or speed reduction) clearing both, not just the nearest. "
-            "DCPA ~= 0 m to each without action."
+            "Rule 14 head-on BOUNDARY probe. Target ~5deg to PORT of own bow "
+            f"(relative bearing 355deg) on a near-reciprocal course 170deg ({t['sog']:.1f}kn) "
+            "— inside the head-on sector but biased to port. Rule 14 still mandates a "
+            "STARBOARD alteration even when the other vessel is marginally to port; turning "
+            "to port (toward the target) or holding course as if crossing is a violation. "
+            "Stresses that a port-biased head-on is not mis-handled."
         ),
-        own_hdg=own_hdg, own_sog=own_sog, targets=[t1, t2],
+        own_hdg=0.0, own_sog=12.0, targets=[t],
+        rule="Rule14", give_way="own", expected_action="turn_starboard",
+        colregs_rules=["R14", "R8"],
+        rule_compliance=[{"rule": "Rule14", "result": "required"}],
+        avoidance_time_s=25.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=200.0,
+        total_time=300.0, n_rps=3.5, seed=102,
+    )
+
+    # ── P3  Rule 13 overtaking (slow vessel nearly dead ahead) ──────────────
+    # Own (14kn) overtakes a 7kn vessel just off the bow. Rule 13(d): once
+    # classified as overtaking, the bearing drawing to the side as own passes must
+    # NOT reclassify the encounter into a crossing (Phase-B behavioral assertion).
+    t = straight_target(rel_brg_deg=3.0, range_m=0.9 * NM, own_hdg_deg=0.0,
+                        cog_deg=0.0, sog_kn=7.0, own_sog_kn=14.0)
+    scenarios["colreg-rule13-ot"] = _scenario(
+        scenario_id="colreg-rule13-ot-v2.0",
+        title="Probe: Rule 13 overtaking",
+        description=(
+            "Rule 13 overtaking. Own ship 000deg/14kn overtakes a slow 7kn vessel nearly "
+            "dead ahead (relative bearing 3deg, same course), initial range 0.6 NM. Own is "
+            "the give-way vessel and must keep clear (conventionally a STARBOARD pass) until "
+            "finally past and clear. Rule 13(d): the bearing drawing aft as own passes must "
+            "NOT reclassify this into a crossing (assert classification stability in Phase B)."
+        ),
+        own_hdg=0.0, own_sog=14.0, targets=[t],
+        rule="Rule13", give_way="own", expected_action="turn_starboard",
+        colregs_rules=["R13", "R8"],
+        rule_compliance=[{"rule": "Rule13", "result": "required"}],
+        avoidance_time_s=20.0, avoidance_delta_rad=0.6981, avoidance_duration_s=320.0,
+        total_time=420.0, n_rps=4.2, seed=103,
+    )
+
+    # ── P4  Rule 15 crossing give-way (target from starboard bow) ───────────
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=12.0,
+                               rel_brg_deg=50.0, target_cog_deg=290.0, range_m=2.0 * NM)
+    scenarios["colreg-rule15-cs"] = _scenario(
+        scenario_id="colreg-rule15-cs-v2.0",
+        title="Probe: Rule 15 crossing give-way (starboard)",
+        description=(
+            "Rule 15 crossing. Target crosses from own ship's STARBOARD bow (relative "
+            f"bearing 50deg), course 290deg at {t['sog']:.1f}kn, t_cpa ~= {t['t_cpa_s']:.0f}s. "
+            "Own ship has the target on its starboard side -> own is the give-way vessel "
+            "(Rule 15/16): alter to STARBOARD and pass astern, then return to track. "
+            "DCPA ~= 0 without action."
+        ),
+        own_hdg=0.0, own_sog=12.0, targets=[t],
         rule="Rule15_Stbd", give_way="own", expected_action="turn_starboard",
         colregs_rules=["R15", "R16", "R8"],
         rule_compliance=[{"rule": "Rule15", "result": "required"},
                          {"rule": "Rule16", "result": "required"}],
-        cpa_min_m=300.0, avoidance_time_s=max(30.0, min(t1["t_cpa_s"], t2["t_cpa_s"]) - 120.0),
-        avoidance_delta_rad=0.8727, avoidance_duration_s=90.0,
-        total_time=max(800.0, max(t1["t_cpa_s"], t2["t_cpa_s"]) + 300.0), n_rps=3.5, seed=104,
+        avoidance_time_s=25.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=200.0,
+        total_time=300.0, n_rps=3.5, seed=104,
     )
 
-    # ── Tier 2.2 — Overtaking + crossing overlap (R15 > R13 priority) ───────
-    own_hdg, own_sog = 0.0, 14.0
-    t1 = straight_target(rel_brg_deg=0.0, range_m=1.0 * NM, own_hdg_deg=own_hdg,
-                         cog_deg=0.0, sog_kn=7.0)  # slow vessel dead ahead -> overtaking
-    t2 = solve_collision_target(own_hdg, own_sog, rel_brg_deg=60.0,
-                                target_cog_deg=290.0, range_m=2.0 * NM)
-    scenarios["colreg-rule13-15-ms"] = _scenario(
-        scenario_id="colreg-rule13-15-ms-001-v1.0",
-        title="Scenario: colreg-rule13-15-ms-001-v1.0",
+    # ── P5  Rule 15 crossing give-way, SHORT t_cpa (reaction-time probe) ────
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=12.0,
+                               rel_brg_deg=60.0, target_cog_deg=300.0, range_m=1.8 * NM)
+    scenarios["colreg-rule15-cs-2"] = _scenario(
+        scenario_id="colreg-rule15-cs-2-v2.0",
+        title="Probe: Rule 15 crossing give-way, short t_cpa",
         description=(
-            "Multi-rule overlap: Rule 13 overtaking vs Rule 15 crossing. Own ship (14 kn) is "
-            "overtaking a slow vessel TS1 dead ahead (7 kn, same course) when a faster vessel "
-            f"TS2 enters from starboard (relative bearing 60 deg, {t2['sog']:.1f} kn, t_cpa ~= "
-            f"{t2['t_cpa_s']:.0f} s). COLREGs priority is Rule 15 > Rule 13: own ship must "
-            "suspend/defer the overtaking pass and give way to TS2 (starboard alteration or "
-            "speed reduction) while still keeping clear of TS1."
+            "Rule 15 crossing give-way with a SHORT reaction window. Faster target from the "
+            f"starboard bow (relative bearing 60deg), course 300deg at {t['sog']:.1f}kn, "
+            f"initial range 1.0 NM, t_cpa ~= {t['t_cpa_s']:.0f}s — forces an EARLY, decisive "
+            "starboard alteration (Rule 8(b): one readily-apparent maneuver). Probes whether "
+            "the give-way action triggers promptly enough to keep the ship-domain clear."
         ),
-        own_hdg=own_hdg, own_sog=own_sog, targets=[t1, t2],
+        own_hdg=0.0, own_sog=12.0, targets=[t],
         rule="Rule15_Stbd", give_way="own", expected_action="turn_starboard",
-        colregs_rules=["R13", "R15", "R16", "R8"],
-        rule_compliance=[{"rule": "Rule13", "result": "required"},
-                         {"rule": "Rule15", "result": "required"},
+        colregs_rules=["R15", "R16", "R8"],
+        rule_compliance=[{"rule": "Rule15", "result": "required"},
                          {"rule": "Rule16", "result": "required"}],
-        cpa_min_m=300.0, avoidance_time_s=max(30.0, t2["t_cpa_s"] - 120.0),
-        avoidance_delta_rad=0.6109, avoidance_duration_s=90.0,
-        total_time=max(800.0, t2["t_cpa_s"] + 300.0), n_rps=4.2, seed=105,
+        avoidance_time_s=20.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=180.0,
+        total_time=260.0, n_rps=3.5, seed=105,
     )
 
-    # ── Tier 2.3 — Head-on + starboard crossing combo (R14/R15 arbitration) ─
-    own_hdg, own_sog = 0.0, 12.0
-    t1 = solve_collision_target(own_hdg, own_sog, rel_brg_deg=5.0,
-                                target_cog_deg=190.0, range_m=2.4 * NM)  # head-on
-    t2 = solve_collision_target(own_hdg, own_sog, rel_brg_deg=70.0,
-                                target_cog_deg=300.0, range_m=2.0 * NM)  # stbd crossing
-    scenarios["colreg-ms-headon-cross"] = _scenario(
-        scenario_id="colreg-ms-headon-cross-001-v1.0",
-        title="Scenario: colreg-ms-headon-cross-001-v1.0",
+    # ── P6  Head-on / crossing edge (just OUTSIDE the head-on cone) ─────────
+    # rel_brg 25deg: just past the head-on sector -> a starboard CROSSING give-way,
+    # not a head-on. Pairs with P2 to bracket the head-on/crossing boundary.
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=12.0,
+                               rel_brg_deg=25.0, target_cog_deg=215.0, range_m=2.0 * NM)
+    scenarios["colreg-rule15-cs-edge"] = _scenario(
+        scenario_id="colreg-rule15-cs-edge-v2.0",
+        title="Probe: head-on/crossing edge (rel_brg 25deg, starboard)",
         description=(
-            "Multi-ship Rule 14 + Rule 15 arbitration. TS1 is head-on (relative bearing 5 deg, "
-            f"reciprocal course, {t1['sog']:.1f} kn, t_cpa ~= {t1['t_cpa_s']:.0f} s) and TS2 "
-            f"crosses from starboard (relative bearing 70 deg, {t2['sog']:.1f} kn, t_cpa ~= "
-            f"{t2['t_cpa_s']:.0f} s). Both rules resolve to a STARBOARD alteration; own ship "
-            "must produce one consistent give-way maneuver clearing both. DCPA ~= 0 m to each "
-            "without action."
+            "Classification-boundary probe at the HEAD-ON / CROSSING edge. Target just "
+            f"OUTSIDE the head-on cone on the starboard bow (relative bearing 25deg), course "
+            f"215deg at {t['sog']:.1f}kn. Should be handled as a starboard crossing give-way "
+            "(Rule 15), NOT a head-on — but the geometry is close enough to the cone that a "
+            "misclassification would flip the maneuver. Brackets the boundary together with "
+            "colreg-rule14-ho-port (the inside-cone edge)."
         ),
-        own_hdg=own_hdg, own_sog=own_sog, targets=[t1, t2],
-        rule="Rule14", give_way="own", expected_action="turn_starboard",
-        colregs_rules=["R14", "R15", "R16", "R8"],
-        rule_compliance=[{"rule": "Rule14", "result": "required"},
-                         {"rule": "Rule15", "result": "required"},
+        own_hdg=0.0, own_sog=12.0, targets=[t],
+        rule="Rule15_Stbd", give_way="own", expected_action="turn_starboard",
+        colregs_rules=["R15", "R16", "R8"],
+        rule_compliance=[{"rule": "Rule15", "result": "required"},
                          {"rule": "Rule16", "result": "required"}],
-        cpa_min_m=300.0, avoidance_time_s=max(30.0, min(t1["t_cpa_s"], t2["t_cpa_s"]) - 150.0),
-        avoidance_delta_rad=1.0472, avoidance_duration_s=90.0,
-        total_time=max(800.0, max(t1["t_cpa_s"], t2["t_cpa_s"]) + 300.0), n_rps=3.5, seed=106,
+        # Boundary geometry: a fixed starboard turn clears less than a clean crossing,
+        # so the floor is a conservative 500 m (the real MPC should exceed it on A4000).
+        cpa_min_m=500.0,
+        avoidance_time_s=25.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=200.0,
+        total_time=300.0, n_rps=3.5, seed=106,
+    )
+
+    # ── P7  Crossing / overtaking edge (rel_brg ~108deg, starboard quarter) ─
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=10.0,
+                               rel_brg_deg=108.0, target_cog_deg=300.0, range_m=2.0 * NM)
+    scenarios["colreg-rule15-ot-boundary"] = _scenario(
+        scenario_id="colreg-rule15-ot-boundary-v2.0",
+        title="Probe: crossing/overtaking edge (rel_brg 108deg)",
+        description=(
+            "Classification-boundary probe at the CROSSING / OVERTAKING edge (the 112.5deg "
+            "two-points-abaft-the-beam line). Target on the starboard quarter (relative "
+            f"bearing 108deg), course 300deg at {t['sog']:.1f}kn — just inside the crossing "
+            "sector. Own remains the give-way vessel (Rule 15); the encounter must not flip "
+            "to/from overtaking as the bearing drifts across the boundary. DCPA ~= 0."
+        ),
+        own_hdg=0.0, own_sog=10.0, targets=[t],
+        rule="Rule15_Stbd", give_way="own", expected_action="turn_starboard",
+        colregs_rules=["R15", "R16", "R8"],
+        rule_compliance=[{"rule": "Rule15", "result": "required"},
+                         {"rule": "Rule16", "result": "required"}],
+        # Boundary geometry (quarter target): conservative 500 m floor; A4000 MPC
+        # should exceed it. The probe's purpose is correct classification at the edge.
+        cpa_min_m=500.0,
+        avoidance_time_s=25.0,
+        avoidance_delta_rad=1.0472, avoidance_duration_s=240.0,
+        total_time=320.0, n_rps=3.0, seed=107,
+    )
+
+    # ── P8  Rule 17 stand-on (target crosses from port; never yields) ───────
+    # Own is STAND-ON. The give-way target (straight-line replay) never acts, so own
+    # must hold course/speed (17(a)(i)) then take last-moment independent action
+    # (17(b)) to keep the ship-domain clear. Probes that own does NOT give way early.
+    t = solve_collision_target(own_hdg_deg=0.0, own_sog_kn=10.0,
+                               rel_brg_deg=315.0, target_cog_deg=90.0, range_m=2.0 * NM)
+    scenarios["colreg-rule17-cr-so"] = _scenario(
+        scenario_id="colreg-rule17-cr-so-v2.0",
+        title="Probe: Rule 17 stand-on (target from port, never yields)",
+        description=(
+            "Rule 17 stand-on. Target crosses from own ship's PORT bow (relative bearing "
+            f"315deg), course 090deg at {t['sog']:.1f}kn, t_cpa ~= {t['t_cpa_s']:.0f}s. Own "
+            "has the target on its PORT side -> own is the STAND-ON vessel and must initially "
+            "KEEP course and speed (Rule 17(a)(i)). The give-way target holds course "
+            "(straight-line replay) and never acts, so own must take last-moment independent "
+            "action (Rule 17(b)) to keep the ship-domain clear. Probes that own does NOT "
+            "give way prematurely (no early large alteration)."
+        ),
+        own_hdg=0.0, own_sog=10.0, targets=[t],
+        rule="Rule17", give_way="target", expected_action="maintain",
+        colregs_rules=["R17", "R15", "R8"],
+        rule_compliance=[{"rule": "Rule17", "result": "required"},
+                         {"rule": "Rule15", "result": "required"}],
+        # Stand-on: a last-moment Rule 17(b) maneuver cannot clear a full ship-domain,
+        # so the pass floor is lower than the give-way probes' 926 m (still a valid,
+        # non-zero, justified safe distance).
+        cpa_min_m=500.0,
+        avoidance_time_s=max(30.0, t["t_cpa_s"] - 110.0),
+        avoidance_delta_rad=0.8727, avoidance_duration_s=140.0,
+        total_time=360.0, n_rps=3.0, seed=108,
     )
 
     return scenarios
@@ -342,11 +439,21 @@ def build_all() -> dict[str, dict]:
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     scenarios = build_all()
+    keep = {f"{stem}.yaml" for stem in scenarios}
+    # Clean-regen: remove stale colreg-*.yaml no longer in the probe set so this
+    # generator is the single source of truth for the directory.
+    removed = []
+    for old in OUT_DIR.glob("colreg-*.yaml"):
+        if old.name not in keep:
+            old.unlink()
+            removed.append(old.name)
     for stem, doc in scenarios.items():
         path = OUT_DIR / f"{stem}.yaml"
         path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True))
         print(f"wrote {path.relative_to(OUT_DIR.parents[1])}")
-    print(f"\n{len(scenarios)} scenarios generated.")
+    for name in sorted(removed):
+        print(f"removed stale {name}")
+    print(f"\n{len(scenarios)} probe scenarios generated, {len(removed)} stale removed.")
 
 
 if __name__ == "__main__":

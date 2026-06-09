@@ -1,9 +1,10 @@
-title: 'Scenario: colreg-rule14-ho-port-001-v1.0'
-description: Rule 14 head-on with the target biased slightly to PORT of own bow (relative
-  bearing 355 deg, i.e. ~5 deg to port; still inside the +/-22.5 deg head-on sector),
-  nearly reciprocal course 170 deg at 12.0 kn. Rule 14 requires a STARBOARD turn even
-  when the other vessel is marginally to port; a port turn is a violation. DCPA ~=
-  0 m without action.
+title: 'Probe: Rule 14 head-on PORT-biased (must still turn starboard)'
+description: Rule 14 head-on BOUNDARY probe. Target ~5deg to PORT of own bow (relative
+  bearing 355deg) on a near-reciprocal course 170deg (12.0kn) — inside the head-on
+  sector but biased to port. Rule 14 still mandates a STARBOARD alteration even when
+  the other vessel is marginally to port; turning to port (toward the target) or holding
+  course as if crossing is a violation. Stresses that a port-biased head-on is not
+  mis-handled.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -19,6 +20,13 @@ ownShip:
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 12.0
+  - latitude: 63.489996
+    longitude: 10.38
+    target_sog_kn: 12.0
 targetShips:
 - id: ts1
   static:
@@ -42,8 +50,8 @@ environment:
   visibility_nm: 5.4
 metadata:
   schema_version: '3.0'
-  scenario_id: colreg-rule14-ho-port-001-v1.0
-  scenario_source: colregs_test_suite_tier12_v1.0
+  scenario_id: colreg-rule14-ho-port-v2.0
+  scenario_source: colregs_probe_suite_v2.0
   colregs_rules:
   - R14
   - R8
@@ -54,17 +62,17 @@ metadata:
     rule: Rule14
     give_way_vessel: own
     expected_own_action: turn_starboard
-    avoidance_time_s: 151.2
+    avoidance_time_s: 25.0
     avoidance_delta_rad: 1.0472
-    avoidance_duration_s: 90.0
-  seed: 103
+    avoidance_duration_s: 200.0
+  seed: 102
   expected_outcome:
-    cpa_min_m_ge: 500.0
+    cpa_min_m_ge: 926.0
     rule_compliance:
     - rule: Rule14
       result: required
   simulation_settings:
-    total_time: 601.2
+    total_time: 300.0
     dt: 0.02
     n_rps_initial: 3.5
     coordinate_origin:

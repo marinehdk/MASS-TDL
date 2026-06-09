@@ -45,12 +45,14 @@ DCPA_RISK_M = 500.0
 # NOTE: classify_encounter is bearing-only; a slower same-course target dead
 # ahead (own overtaking it) classifies as HEAD_ON — documented limitation.
 EXPECTED = {
+    "colreg-rule14-ho": ["HEAD_ON"],
+    "colreg-rule14-ho-port": ["HEAD_ON"],          # 5deg to port, still head-on
+    "colreg-rule13-ot": ["HEAD_ON"],               # bearing-only: dead-ahead overtaking -> HEAD_ON
+    "colreg-rule15-cs": ["CROSSING_GIVE_WAY"],
+    "colreg-rule15-cs-2": ["CROSSING_GIVE_WAY"],
+    "colreg-rule15-cs-edge": ["CROSSING_GIVE_WAY"],   # rel_brg 25, just past the head-on edge
+    "colreg-rule15-ot-boundary": ["CROSSING_GIVE_WAY"],  # rel_brg 108, just inside the overtaking edge
     "colreg-rule17-cr-so": ["CROSSING_STAND_ON"],
-    "colreg-rule17-cr-so-2": ["CROSSING_STAND_ON"],
-    "colreg-rule14-ho-port": ["HEAD_ON"],
-    "colreg-rule15-ms": ["CROSSING_GIVE_WAY", "CROSSING_GIVE_WAY"],
-    "colreg-rule13-15-ms": ["HEAD_ON", "CROSSING_GIVE_WAY"],  # ts1 = overtaking (bearing-only -> HEAD_ON)
-    "colreg-ms-headon-cross": ["HEAD_ON", "CROSSING_GIVE_WAY"],
 }
 
 

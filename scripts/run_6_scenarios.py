@@ -18,12 +18,14 @@ CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
 
 SCENARIOS = [
-    "colreg-rule17-cr-so",
-    "colreg-rule17-cr-so-2",
+    "colreg-rule14-ho",
     "colreg-rule14-ho-port",
-    "colreg-rule15-ms",
-    "colreg-rule13-15-ms",
-    "colreg-ms-headon-cross"
+    "colreg-rule13-ot",
+    "colreg-rule15-cs",
+    "colreg-rule15-cs-2",
+    "colreg-rule15-cs-edge",
+    "colreg-rule15-ot-boundary",
+    "colreg-rule17-cr-so",
 ]
 
 def req(method, path, body=None, timeout=30):

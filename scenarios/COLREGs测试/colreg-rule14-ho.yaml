@@ -1,9 +1,9 @@
-title: 'Scenario: colreg-rule14-ho-001-v1.0'
-description: 'Rule 14 pure head-on encounter in calm conditions. Own ship heading
-  000°, target heading 180°, initial separation 2.0 nm (3704 m). Both vessels on reciprocal
-  courses, DCPA ≈ 0 m without action.
-
-  '
+title: 'Probe: Rule 14 head-on (pure reciprocal)'
+description: Rule 14 PURE head-on. Own heading 000deg/12kn, target dead ahead (relative
+  bearing 0deg), reciprocal course 180deg at 12.0kn, initial range 2.0 NM, t_cpa ~=
+  300s. DCPA ~= 0 without action. Own ship must alter to STARBOARD and pass port-to-port,
+  then return to track. Canonical close-start probe (the M6 onset-latch regression
+  baseline).
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -19,28 +19,24 @@ ownShip:
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
-  # Fixed original track (v3.1 nominalRoute): WP0 = initial position, WP1 = 15-min
-  # dead-reckoned endpoint at the initial heading 000°/SOG 12 kn (12 kn * 0.25 h =
-  # 3.0 nm north → dlat 0.05°). Gives the bridge a stable line to rejoin after
-  # avoidance (replaces mock_l2 default_generation rolling route) and bounds the
-  # run to ~15 min.
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
     target_sog_kn: 12.0
-  - latitude: 63.49
+  - latitude: 63.489996
     longitude: 10.38
     target_sog_kn: 12.0
 targetShips:
 - id: ts1
   static:
     id: 2
+    mmsi: 100000001
   initial:
     position:
-      latitude: 63.473311
+      latitude: 63.473333
       longitude: 10.38
     cog: 180.0
-    sog: 9.99
+    sog: 12.0
     heading: 180.0
   model: ais_replay_vessel
 environment:
@@ -53,7 +49,8 @@ environment:
   visibility_nm: 5.4
 metadata:
   schema_version: '3.0'
-  scenario_id: colreg-rule14-ho-001-v1.0
+  scenario_id: colreg-rule14-ho-v2.0
+  scenario_source: colregs_probe_suite_v2.0
   colregs_rules:
   - R14
   - R8
@@ -64,16 +61,22 @@ metadata:
     rule: Rule14
     give_way_vessel: own
     expected_own_action: turn_starboard
-    avoidance_time_s: 200.0
-    avoidance_delta_rad: 1.2217
-    avoidance_duration_s: 90.0
-  seed: 42
+    avoidance_time_s: 25.0
+    avoidance_delta_rad: 1.0472
+    avoidance_duration_s: 200.0
+  seed: 101
   expected_outcome:
-    cpa_min_m_ge: 500.0
+    cpa_min_m_ge: 926.0
+    rule_compliance:
+    - rule: Rule14
+      result: required
   simulation_settings:
-    total_time: 900.0
+    total_time: 300.0
     dt: 0.02
     n_rps_initial: 3.5
+    coordinate_origin:
+    - 63.44
+    - 10.38
     dynamics_mode: internal
     backend: ros2
   disturbance:

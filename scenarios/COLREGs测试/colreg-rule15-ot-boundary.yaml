@@ -1,9 +1,9 @@
-title: 'Scenario: colreg-ms-headon-cross-001-v1.0'
-description: Multi-ship Rule 14 + Rule 15 arbitration. TS1 is head-on (relative bearing
-  5 deg, reciprocal course, 12.0 kn, t_cpa ~= 361 s) and TS2 crosses from starboard
-  (relative bearing 70 deg, 14.7 kn, t_cpa ~= 531 s). Both rules resolve to a STARBOARD
-  alteration; own ship must produce one consistent give-way maneuver clearing both.
-  DCPA ~= 0 m to each without action.
+title: 'Probe: crossing/overtaking edge (rel_brg 108deg)'
+description: Classification-boundary probe at the CROSSING / OVERTAKING edge (the
+  112.5deg two-points-abaft-the-beam line). Target on the starboard quarter (relative
+  bearing 108deg), course 300deg at 45.7kn — just inside the crossing sector. Own
+  remains the give-way vessel (Rule 15); the encounter must not flip to/from overtaking
+  as the bearing drifts across the boundary. DCPA ~= 0.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -15,10 +15,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 12.0
+    sog: 10.0
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 10.0
+  - latitude: 63.481663
+    longitude: 10.38
+    target_sog_kn: 10.0
 targetShips:
 - id: ts1
   static:
@@ -26,22 +33,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.479848
-      longitude: 10.387797
-    cog: 190.0
-    sog: 12.0
-    heading: 190.0
-  model: ais_replay_vessel
-- id: ts2
-  static:
-    id: 3
-    mmsi: 100000002
-  initial:
-    position:
-      latitude: 63.451401
-      longitude: 10.450053
+      latitude: 63.429699
+      longitude: 10.4509
     cog: 300.0
-    sog: 14.72
+    sog: 45.74
     heading: 300.0
   model: ais_replay_vessel
 environment:
@@ -54,10 +49,9 @@ environment:
   visibility_nm: 5.4
 metadata:
   schema_version: '3.0'
-  scenario_id: colreg-ms-headon-cross-001-v1.0
-  scenario_source: colregs_test_suite_tier12_v1.0
+  scenario_id: colreg-rule15-ot-boundary-v2.0
+  scenario_source: colregs_probe_suite_v2.0
   colregs_rules:
-  - R14
   - R15
   - R16
   - R8
@@ -65,26 +59,24 @@ metadata:
   odd_cell:
     domain: open_sea_offshore_wind_farm
   encounter:
-    rule: Rule14
+    rule: Rule15_Stbd
     give_way_vessel: own
     expected_own_action: turn_starboard
-    avoidance_time_s: 211.39999999999998
+    avoidance_time_s: 25.0
     avoidance_delta_rad: 1.0472
-    avoidance_duration_s: 90.0
-  seed: 106
+    avoidance_duration_s: 240.0
+  seed: 107
   expected_outcome:
-    cpa_min_m_ge: 300.0
+    cpa_min_m_ge: 500.0
     rule_compliance:
-    - rule: Rule14
-      result: required
     - rule: Rule15
       result: required
     - rule: Rule16
       result: required
   simulation_settings:
-    total_time: 830.8
+    total_time: 320.0
     dt: 0.02
-    n_rps_initial: 3.5
+    n_rps_initial: 3.0
     coordinate_origin:
     - 63.44
     - 10.38
