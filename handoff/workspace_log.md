@@ -224,3 +224,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `[handoff/colreg-sweep-prompt.md](handoff/colreg-sweep-prompt.md)`: 新对话提示词（A4000 测 8 探针 + Phase B 打分层稳定性断言）。
 - **当前状态 (Status)**: 本地 gates 全绿 —— verify_colreg_tier12 ALL PASS（schema+真实 M2 分类+DCPA<500）、validate_scenarios 35/35（Imazu 未动）、test_simulate 6 passed、kinematic feasibility 8/8 可赢。**A4000 行为验收未做**（需部署后单驱动跑）。
 - **接力指示 (Hand-off Context)**: 用 `handoff/colreg-sweep-prompt.md` 开新对话。**Part 1** = A4000 部署对齐 8e586050 + 单驱动逐个跑 8 探针出绿/红表（rudder 采样逮 fishtail）。**Part 2** = Phase B：在 `src/sim_workbench/sil_nodes/scoring/` 加行为稳定性断言（conflict_toggle≤2 / rudder_reversal / heading_hold / plan_toggle / role_onset_fixed / stand-on premature_giveway），并入 PASS 裁决；反证回归锁（反转 M6 应转红）。env_disturbance 单驱动纪律仍生效。
+
+## [2026-06-09] Agent: Claude Code CLI (Opus 4.8 1M)
+- **Git Commit**: `4055a1b3` (branch `feat/colreg-phaseb`, worktree `.worktrees/colreg-phaseb`; NOT yet merged/pushed)
+- **任务目标 (Goal)**: execute `handoff/colreg-sweep-prompt.md` — A4000-test the 8 COLREG probes with real modules + implement Phase B (scoring-layer behavioral-stability assertions to catch fishtail/flap).
+- **核心改动 (Actions)**:
+  - **Phase B scorer** `src/sim_workbench/sil_nodes/scoring/scoring/stability_scorer.py` (pure stdlib, standalone-importable; data source = `runs/trace_current.jsonl`, NOT the scoring node's live subs). 8 KPIs; `role_onset` asserts own-DUTY-class fixity (give_way={1,2}/stand_on={0}) — GIVE_WAY→BOTH_GIVE_WAY is benign refinement (🟢 maritime_regulations), fixing an initial false-positive on rule14-ho. 9 unit tests (incl. fishtail lock + benign-refinement guard).
+  - **Bridge** `docker/sil_topic_bridge.py` `_on_colregs_constraint` now TRACES conflict_detected+primary_role (was pulse-only). scp+restart deployed.
+  - **Runner** `scripts/run_6_scenarios.py`: `overall_pass = cpa_ok AND stability_pass`, per-scenario KPIs→`runs/batch_colregs_results.json`. README Phase B section.
+  - **Counterfactual lock PROVEN** on A4000 (trap-protected revert→build→run→restore): M6 21a640b5^ → rule14-ho GREEN→RED (toggles 2→40). A4000 restored + reverified GREEN.
+- **当前状态 (Status)**: Phase B COMPLETE + locked. A4000 8-probe sweep = **2/8 PASS** (rule14-ho, cs-edge). 5 flap (M6 conflict_detected oscillates 14-68× → M4/M5/rudder follow), ot-boundary CPA 161m<500. Root cause LAYER = M6 (onset-latch doesn't generalize off-axis). Local pytest 9/9. A4000 on fixed baseline.
+- **接力指示 (Hand-off Context)**: OPEN = fix M6 onset-latch generalization (cert-sensitive; instrument RuleLatch engage/release per geometry + /nlm-ask maritime_regulations; Phase B regression-locks it). See memory [[l3-m6-onset-latch-no-generalize]] + DEBUG_STATE.md. `feat/colreg-phaseb @ 4055a1b3` NOT merged to main / NOT pushed (main is 1 docs-commit ahead → rebase before ff-merge).
