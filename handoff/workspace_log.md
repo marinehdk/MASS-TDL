@@ -180,3 +180,36 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 
 
+
+## [2026-06-08 13:30] Agent: Claude Code CLI (Opus 4.8, 1M ctx)
+- **Git Commit**: working tree (audit only, no code changed); audited @`158bba9d`, current local `87315c82` / A4000 `f9011287`
+- **任务目标 (Goal)**: 派多 sonnet subagent 探测 M1-M8 全栈断流/MOCK/设计-实现脱节现状（前后端，A4000 live）
+- **核心改动 (Actions)**:
+  - 跑 Workflow `wf_bfc239a9-ace`（13 mapper + 4 flow-gap + 40 对抗验证 + critic，全 sonnet，只读，codegraph）。中途撞额度挂在 verify；加容错+CAP40 resume 缓存命中完成（58 agent，132K 新 token）。
+  - 拉黑 `.salvage-d3.1/`+`.salvage-d3.3b/`（上篇误报源）→ 40 条验证 **0 STALE 0 REFUTED**（35 CONFIRMED+5 PARTIAL）。
+  - A4000 live 核对：全 M1-M8 topic 在流；M4 健康；M5 waypoint CMM 字段空；bridge 日志确认自挑避碰航向(D4)；HMI WS 显示 127.0.0.1:8765 可疑。
+  - 产出 `docs/Doc From Claude/2026-06-08-m1-m8-systemwide-gap-audit.md`（11 主题 + 15 CRITICAL + 每模块记分卡 + P0-P3 修复路线）；digest `handoff/_gap_audit_digest.md`；脚本 `handoff/m1m8_gap_audit.workflow.js`。
+- **当前状态 (Status)**: 审计完成。核心结论：决策数据流主干在跑，但**安全链空（M7 无 veto + 6 HC 死代码 = 认证阻塞 C1/C2）**、**决策逻辑漏进 bridge（事实 COLAV 控制器 + ADR-4 违反）**、**CMM 契约普遍破裂**、**M4 无视 M6 方向硬编码右转（避碰异常根因）**、**回航靠 bridge XTE + mock_l2（回航异常根因）**。M5 D1 keystone 已在上一会话修复(50→0)，本审计其余 M5 findings 仍成立。
+- **接力指示 (Hand-off Context)**: 未改代码。下一步若修，按报告 §4：P0 = 接 M7 真硬门(C1/C2/C3) + M4 消费 M6 方向(T4)。每步 systematic-debugging + A4000 复现。原始数据 `tasks/wbqc851jq.output`。
+
+## [2026-06-08 16:25] Agent: Claude Code CLI (Opus 4.8, 1M ctx)
+- **Git Commit**: working tree (docs only); branch fix/m5-nlp-convergence
+- **任务目标 (Goal)**: 重写 M1-M8 spec.md + progress.md（原文档过薄导致设计-实现严重偏离），为按优先级修复做准备
+- **核心改动 (Actions)**:
+  - 跑 Workflow `wf_6e5ceb48-cfb`（9 sonnet agent：8 模块 + 1 overview，容错，885K token，~16min）。
+  - 决策(用户定)：spec=设计目标(依架构报告,剔除创可贴) / progress=现状+gap矩阵；聚焦流程/功能/数据交互；**认证/FMEDA/CCS 暂停**；图文并茂 mermaid。
+  - 从审计 JSON 切 8 模块证据片 + 创可贴目录到 `handoff/audit_slices/` 喂 subagent。
+  - 产出：8×(spec 265-325行/3-5 mermaid + progress 128-154行/状态矩阵+分级缺陷+创可贴归位+overclaim修正+保留D任务表)；`00-tdl-kernel-overview.md` 321行(系统数据流总图 + 50-topic registry + 16 断流速查)。
+- **当前状态 (Status)**: 完成并验证（mermaid 围栏全配平、D任务表保留、状态矩阵齐、M5-progress 抽查优秀——J_colreg 已修正确反映为 REAL）。文档现可作为修复的设计-现状对照基线。
+- **接力指示 (Hand-off Context)**: 文档就绪。下一步按系统审计 §4 优先级修复：P0=接 M7 真硬门(C1 veto发布/C2 HC死代码/C3 bridge gate) + M4 消费 M6 方向(去硬编码右转)。每步 systematic-debugging + A4000 复现。审计全文 docs/Doc From Claude/2026-06-08-m1-m8-systemwide-gap-audit.md；各模块 gap 见 M{n}-progress.md。
+
+## [2026-06-09 08:49] Agent: Claude Code CLI (Opus 4.8 1M)
+- **Git Commit**: `21a640b5` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: 选项B根因修复 M6 —— 消除避碰段本船无法保持 give-way 航向、舵 fishtail（colreg-rule14-ho）
+- **核心改动 (Actions)**:
+  - `[rule_latch.hpp](src/l3_tdl_kernel/m6_colregs_reasoner/include/m6_colregs_reasoner/rule_latch.hpp)` + `[colregs_reasoner_node.cpp](src/l3_tdl_kernel/m6_colregs_reasoner/src/colregs_reasoner_node.cpp)`: onset give-way 分类在 latch 周期快照、贯穿机动保持(Rule 13(d))、`apply_onset()` 覆盖 raw 掉出锥时的 FREE；过 past-and-clear 释放(Rule 8(d))。Fix 2: sim-time 倒退检测 → 清 `rule_latches_`/range/bearing 历史(跨run纯净)。
+  - `[test_rule_latch.cpp](src/l3_tdl_kernel/m6_colregs_reasoner/test/test_rule_latch.cpp)`: +3 onset 测试(8/8 pass)。
+  - `docker/sil_topic_bridge.py`: 撤销上一会话 `_m5_empty_sustained` band-aid（根因修复后多余，实测撤掉行为同样干净）→ 回 HEAD。
+  - `CLAUDE.md §13`: env_disturbance 双驱动 race 操作规约（未提交）。
+- **当前状态 (Status)**: A4000 实测 GREEN —— conflict_detected 稳定不翻转/本船 60° give-way 锁死 12 位小数无 fishtail/CPA~1700m/past-clear 干净释放/回归 lon10.38→北；真实模块(M5 plan NORMAL 非 DEGRADED fallback)；bridge RESET churn dozens→1；调研(maritime_regulations+colav_algorithms 双 high)证实 onset-latch+commit-and-monitor 是 COLREG 正解。
+- **接力指示 (Hand-off Context)**: colreg-rule14-ho 行为完全正常。commit `21a640b5` 未 push（三端同步待你定）。CLAUDE.md §13 + DEBUG_STATE.md 未提交。env_disturbance wedge = 双驱动并发 race（单驱动 5×快速循环不复现），操作规约=同一时刻只一个 configure 驱动。下一可选：其他 COLREG 场景(crossing rule15 / overtaking rule13)同法验证 onset-latch；或系统审计 §4 P0 (M7 真硬门 / M4 去硬编码右转)。
