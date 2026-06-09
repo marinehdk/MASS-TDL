@@ -98,6 +98,16 @@ class ColregsReasonerNode : public rclcpp::Node {
   std::unordered_map<uint32_t, double> prev_target_range_;
   // Per-(target,rule) onset-latched hysteresis. Key = mmsi<<8 | rule_id.
   std::unordered_map<uint64_t, RuleLatch> rule_latches_;
+  // Per-target give-way DUTY latch (Rule 8(d)/13(d)/16). Key = mmsi. Generalizes
+  // the per-rule 14/15 onset latch to whatever rule carries the give-way duty,
+  // so own-ship's own avoiding action (which transiently opens CPA) cannot
+  // retract the obligation mid-maneuver until the target is finally past & clear.
+  std::unordered_map<uint32_t, RuleLatch> give_way_latches_;
+  // Per-target stand-on IN-EXTREMIS latch (Rule 17(b)). Key = mmsi. Once own
+  // ship — the stand-on vessel — is forced to take independent action against a
+  // give-way vessel that failed to act, the action is held through the
+  // close-quarters phase so the phase classifier cannot chatter it on/off.
+  std::unordered_map<uint32_t, RuleLatch> standon_latches_;
 
   // Mutex protecting shared state accessed from subscriber and timer callbacks
   mutable std::mutex state_mutex_;
