@@ -27,8 +27,14 @@ set(msg_files
   "msg/BridgeState.msg"
 )
 
+set(srv_files
+  "srv/AddTarget.srv"
+  "srv/RemoveTarget.srv"
+)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
+  ${srv_files}
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 

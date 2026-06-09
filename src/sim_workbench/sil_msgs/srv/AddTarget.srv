@@ -1,0 +1,10 @@
+# Inject a target vessel at runtime (D1.8)
+uint32 mmsi
+float64 lat
+float64 lon
+float64 heading_deg
+float64 sog_kn
+string  mode
+---
+bool   success
+string message
