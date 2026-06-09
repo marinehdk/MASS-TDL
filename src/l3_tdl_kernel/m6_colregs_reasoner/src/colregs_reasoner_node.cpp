@@ -477,6 +477,8 @@ void ColregsReasonerNode::run_reasoning() {
     // give-way (or stale range history) cannot bleed into the next scenario's onset.
     if (dt_s < -1.0) {
       rule_latches_.clear();
+      give_way_latches_.clear();
+      standon_latches_.clear();
       prev_target_range_.clear();
       prev_target_bearing_.clear();
       RCLCPP_INFO(get_logger(),
@@ -531,10 +533,31 @@ void ColregsReasonerNode::run_reasoning() {
 
   for (const auto& target : kTargetStates) {
     uint32_t mmsi = static_cast<uint32_t>(target.target_id);
+
+    // ── Per-target threat geometry (hoisted; shared by the per-rule 14/15 onset
+    //    latch and the per-target give-way duty latch) ──
+    // Look up current range from ws_snapshot (TargetGeometricState lacks rng_m).
+    double current_rng = -1.0;
+    for (const auto& tgt_snap : ws_snapshot->targets) {
+      if (static_cast<uint32_t>(tgt_snap.target_id) == mmsi) {
+        current_rng = tgt_snap.rng_m;
+        break;
+      }
+    }
+    const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
+        (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
+    // Rule 16 "finally past and clear": target has drawn abaft the beam.
+    // Relative bearing of the target from own-ship heading, normalized [-180,180].
+    double rel_brg = target.bearing_deg - target.ownship_heading_deg;
+    while (rel_brg > 180.0) rel_brg -= 360.0;
+    while (rel_brg < -180.0) rel_brg += 360.0;
+    const bool past_and_clear = std::fabs(rel_brg) > 112.5;  // 2 points abaft the beam
+
+    const size_t target_eval_start = evaluations.size();
     for (const auto& rule : rules_) {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
-      
+
       // Onset-latched hysteresis for Rules 14 (head-on) and 15 (crossing):
       // hold encounter classification through own-ship's avoidance maneuver
       // (Rule 13(d)) so we don't chatter back to TRANSIT and U-turn.
@@ -545,22 +568,6 @@ void ColregsReasonerNode::run_reasoning() {
         if (it == rule_latches_.end()) {
           it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
         }
-        // Look up current range from ws_snapshot (TargetGeometricState lacks rng_m)
-        double current_rng = -1.0;
-        for (const auto& tgt_snap : ws_snapshot->targets) {
-          if (static_cast<uint32_t>(tgt_snap.target_id) == mmsi) {
-            current_rng = tgt_snap.rng_m;
-            break;
-          }
-        }
-        const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
-            (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
-        // Rule 16 "finally past and clear": target has drawn abaft the beam.
-        // Relative bearing of the target from own-ship heading, normalized [-180,180].
-        double rel_brg = target.bearing_deg - target.ownship_heading_deg;
-        while (rel_brg > 180.0) rel_brg -= 360.0;
-        while (rel_brg < -180.0) rel_brg += 360.0;
-        const bool past_and_clear = std::fabs(rel_brg) > 112.5;  // 2 points abaft the beam
         // Pass the raw evaluation so the latch can snapshot the give-way
         // classification at the latching cycle (Rule 13(d): fixed at onset).
         const bool latched = it->second.update(
@@ -580,22 +587,118 @@ void ColregsReasonerNode::run_reasoning() {
           eval.is_active = false;
         }
       } else {
-        // COLREG Rule 7 (risk of collision): a rule obligation applies ONLY
-        // when risk of collision exists. Non-latched rules (e.g. Rule 18
-        // priority give-way, Rule 13 overtaking, Rule 17 stand-on) must NOT
-        // fire for a target that poses no risk — already passed CPA
-        // (tcpa < 0) or will clear (cpa ≥ cpa_safe). Without this gate a
-        // higher-priority vessel far astern and diverging keeps Rule 18
-        // give-way active forever → conflict_detected stuck → M4 holds
-        // give-way → avoidance never releases → no route return.
-        const bool risk_of_collision =
-            (target.tcpa_s >= 0.0) && (target.cpa_m < kParams.cpa_safe_m);
-        if (!risk_of_collision) {
-          eval.is_active = false;
+        // COLREG Rule 7 (risk of collision) gate for NON-give-way obligations
+        // (stand-on Rule 17, Rule 18 stand-on, Rule 5/6/19...): a rule must not
+        // fire for a target posing no risk — already passed (tcpa < 0) or
+        // clearing (cpa ≥ cpa_safe). Give-way roles are deliberately LEFT
+        // un-gated here; the post-loop give-way duty-latch gate decides whether
+        // they carry conflict (Rule 8(d) hysteresis). That both holds the
+        // give-way carriers through own-ship's maneuver (CPA transiently opens)
+        // and suppresses an unconfirmed blanket-CPA give_way (Rule 16) before
+        // the encounter is classified / on a stand-on vessel (Rule 17).
+        const bool give_way_role =
+            (eval.role == Role::GIVE_WAY || eval.role == Role::BOTH_GIVE_WAY);
+        if (!give_way_role) {
+          const bool raw_risk =
+              (target.tcpa_s >= 0.0) && (target.cpa_m < kParams.cpa_safe_m);
+          if (!raw_risk) {
+            eval.is_active = false;
+          }
         }
       }
 
       evaluations.push_back(eval);
+    }
+
+    // ── Per-target give-way DUTY latch + carrier gating + stand-on hold ──
+    // Scan this target's raw evaluations: the RAW give-way signal (any secondary
+    // give-way carrier the rules evaluated active, BEFORE gating — used for the
+    // duty-latch onset so the gate below cannot starve its own onset), whether a
+    // PRIMARY classifier (13/14/15) made own ship stand-on, and whether Rule 17
+    // raw-evaluated to an in-extremis stand-on action.
+    bool raw_own_give_way = false;
+    bool own_stand_on = false;
+    bool rule17_inextremis_raw = false;
+    for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+      const auto& e = evaluations[i];
+      if (!e.is_active) {
+        continue;
+      }
+      if (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) {
+        raw_own_give_way = true;
+      }
+      if (e.role == Role::STAND_ON &&
+          (e.rule_id == 13 || e.rule_id == 14 || e.rule_id == 15)) {
+        own_stand_on = true;
+      }
+      if (e.role == Role::STAND_ON &&
+          (e.phase == TimingPhase::INDEPENDENT_ACTION ||
+           e.phase == TimingPhase::CRITICAL_ACTION)) {
+        rule17_inextremis_raw = true;
+      }
+    }
+
+    // A give-way duty onsets only for a target on the bow with a real collision
+    // risk: a give-way role active, NOT classified stand-on (Rule 17 exclusivity)
+    // and NOT already abaft the beam (Rule 13(d): no give-way to a vessel you
+    // have passed; also stops the latch re-onsetting at the tail of an encounter
+    // as Rule 16 flickers give_way while the ships slowly separate).
+    const bool duty_onset_signal = raw_own_give_way && !own_stand_on && !past_and_clear;
+    auto dit = give_way_latches_.find(mmsi);
+    if (dit == give_way_latches_.end()) {
+      dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
+    }
+    const bool duty_latched_now = dit->second.update(
+        duty_onset_signal, target.cpa_m, range_closing, past_and_clear, nullptr);
+
+    // Give-way carrier gating (unifies Rule 8(d) hysteresis + Rule 17 carrier
+    // exclusivity): a SECONDARY give-way carrier (Rule 16 fires give_way on CPA
+    // proximity alone; Rule 18 on a vessel-type priority undetermined/equal for
+    // these power-driven encounters — neither can fix role from single-target
+    // geometry) contributes to conflict ONLY while the give-way duty latch is
+    // engaged. This holds the obligation through own-ship's maneuver until
+    // finally past & clear, and suppresses both an unconfirmed 1-cycle give_way
+    // at onset and any give_way on a stand-on vessel (no premature give-way).
+    if (!duty_latched_now) {
+      for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+        auto& e = evaluations[i];
+        const bool secondary_give_way =
+            (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) &&
+            (e.rule_id != 13 && e.rule_id != 14 && e.rule_id != 15);
+        if (e.is_active && secondary_give_way) {
+          e.is_active = false;
+          e.rationale += " [gated: give-way duty latch not engaged]";
+        }
+      }
+    }
+
+    // Stand-on IN-EXTREMIS hold (Rule 17(b)): once own ship — the stand-on
+    // vessel — is forced to take independent action because the give-way vessel
+    // failed to act, commit to it through the close-quarters phase. Latching the
+    // in-extremis classification stops the phase classifier (crossing the TCPA
+    // threshold near CPA) from chattering conflict_detected on/off. Onset needs a
+    // real, closing threat; release on finally past & clear.
+    auto sit = standon_latches_.find(mmsi);
+    if (sit == standon_latches_.end()) {
+      sit = standon_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
+    }
+    const bool standon_onset = own_stand_on && rule17_inextremis_raw;
+    const bool standon_latched_now = sit->second.update(
+        standon_onset, target.cpa_m, range_closing, past_and_clear, nullptr);
+    if (standon_latched_now && !rule17_inextremis_raw) {
+      for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+        auto& e = evaluations[i];
+        if (e.rule_id == 17) {
+          e.is_active = true;
+          e.role = Role::STAND_ON;
+          e.phase = TimingPhase::INDEPENDENT_ACTION;
+          e.preferred_direction = "STARBOARD";
+          if (e.min_alteration_deg <= 0.0) {
+            e.min_alteration_deg = kParams.min_alteration_deg;
+          }
+          e.rationale += " [latched: stand-on in-extremis held (Rule 17(b))]";
+        }
+      }
     }
   }
 
