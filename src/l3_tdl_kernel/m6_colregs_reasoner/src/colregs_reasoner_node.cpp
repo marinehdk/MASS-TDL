@@ -471,6 +471,18 @@ void ColregsReasonerNode::run_reasoning() {
   double dt_s = 0.5;
   if (prev_world_stamp_.nanoseconds() > 0) {
     dt_s = (ws_stamp - prev_world_stamp_).seconds();
+    // New-run detection: world_state is stamped with sim time, which resets to ~0
+    // on a fresh scenario (cleanup→configure→activate). A large backward jump means
+    // a new run started — drop all cross-run encounter state so a prior run's latched
+    // give-way (or stale range history) cannot bleed into the next scenario's onset.
+    if (dt_s < -1.0) {
+      rule_latches_.clear();
+      prev_target_range_.clear();
+      prev_target_bearing_.clear();
+      RCLCPP_INFO(get_logger(),
+        "New run detected (sim time %.1fs → %.1fs) — cleared cross-run latch/history state",
+        prev_world_stamp_.seconds(), ws_stamp.seconds());
+    }
   }
   prev_world_stamp_ = ws_stamp;
   if (dt_s <= 0.0) {
@@ -549,12 +561,20 @@ void ColregsReasonerNode::run_reasoning() {
         while (rel_brg > 180.0) rel_brg -= 360.0;
         while (rel_brg < -180.0) rel_brg += 360.0;
         const bool past_and_clear = std::fabs(rel_brg) > 112.5;  // 2 points abaft the beam
-        const bool latched =
-            it->second.update(eval.is_active, target.cpa_m, range_closing, past_and_clear);
+        // Pass the raw evaluation so the latch can snapshot the give-way
+        // classification at the latching cycle (Rule 13(d): fixed at onset).
+        const bool latched = it->second.update(
+            eval.is_active, target.cpa_m, range_closing, past_and_clear, &eval);
         if (latched) {
           if (!eval.is_active) {
-            eval.is_active = true;
-            eval.rationale += " [latched]";
+            // Raw geometry fell out of the rule cone mid-maneuver (own ship's own
+            // starboard turn rotated the target off the ±6° head-on axis), so it
+            // re-evaluated to role=FREE. Hold the ONSET give-way classification so
+            // requires_action()/conflict_detected stay stable through the maneuver
+            // until finally past and clear (Rule 8(d)) — otherwise conflict_detected
+            // is carried by flickering secondary rules and M4 flaps AVOID↔TRANSIT.
+            it->second.apply_onset(eval);
+            eval.rationale += " [latched: onset classification held]";
           }
         } else {
           eval.is_active = false;
