@@ -239,6 +239,15 @@ export const silApi = createApi({
     cancelFault: builder.mutation<{ cancelled: boolean }, string>({
       query: (faultId) => ({ url: `/fault/${faultId}`, method: 'DELETE' }),
     }),
+    injectEncounter: builder.mutation<
+      { accepted: boolean; mmsi: number },
+      { rule: string; range_nm?: number; construct_cpa_m?: number; approach_angle_deg?: number }
+    >({
+      query: (body) => ({ url: '/encounters/inject', method: 'POST', body }),
+    }),
+    removeEncounter: builder.mutation<{ removed: boolean }, number>({
+      query: (mmsi) => ({ url: `/encounters/${mmsi}`, method: 'DELETE' }),
+    }),
     skipPreflight: builder.mutation<{ skipped: boolean; verdict: string }, { scenario_id: string; reason: string }>({
       query: (body) => ({
         url: `/selfcheck/skip`,
@@ -294,4 +303,6 @@ export const {
   useSyncTimeMutation,
   useClearHashCacheMutation,
   useEnsureAsdrDirMutation,
+  useInjectEncounterMutation,
+  useRemoveEncounterMutation,
 } = silApi;

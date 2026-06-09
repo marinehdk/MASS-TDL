@@ -15,6 +15,9 @@ import { ArpaTargetTable } from './shared/ArpaTargetTable';
 import { ScoringGauges } from './shared/ScoringGauges';
 import { TorModal } from './shared/TorModal';
 import { FaultInjectPanel } from './shared/FaultInjectPanel';
+import { PlannedRouteLayer } from '../map/PlannedRouteLayer';
+import { ActualTrackLayer } from '../map/ActualTrackLayer';
+import { EncounterInjectPanel } from './shared/EncounterInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
@@ -129,6 +132,7 @@ const MONITOR_TABS = [
   { id: 'asdr',       label: 'ASDR 记录账本',     icon: <LucideTerminalSquare size={20} /> },
   { id: 'score',      label: '五维实时评分',      icon: <LucideAward size={20} /> },
   { id: 'fault',      label: '故障测试注入',      icon: <LucideZap size={20} /> },
+  { id: 'encounter',  label: '遭遇注入',          icon: <LucideAlertTriangle size={20} /> },
 ] as const;
 
 const CAPTAIN_TABS = [
@@ -160,6 +164,7 @@ export function SimulationMonitor() {
   const isSat2Stale     = useTelemetryStore((s) => s.isSat2Stale);
   const isSat3Stale     = useTelemetryStore((s) => s.isSat3Stale);
   const isSotifMetricsStale = useTelemetryStore((s) => s.isSotifMetricsStale);
+  const ownShipTrail        = useTelemetryStore((s) => s.ownShipTrail);
 
   const scenarioId = useScenarioStore((s) => s.scenarioId) || lifecycleStatus?.scenario_id;
   const { data: activeScenario } = useGetScenarioQuery(scenarioId ?? '', { skip: !scenarioId });
@@ -646,6 +651,9 @@ export function SimulationMonitor() {
           ownShip={ownShip}
           visible={true}
         />
+
+        <PlannedRouteLayer mapRef={externalMapRef} waypoints={voyagePlan?.waypoints ?? []} visible={true} />
+        <ActualTrackLayer mapRef={externalMapRef} trail={ownShipTrail} visible={true} />
 
         {(isEngineer || viewMode === 'god') && (
           <>
@@ -1451,6 +1459,13 @@ export function SimulationMonitor() {
                 {activeRightTab === 'fault' && (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <FaultInjectPanel inline={true} />
+                  </div>
+                )}
+
+                {/* Tab 4: Encounter Injection */}
+                {activeRightTab === 'encounter' && (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <EncounterInjectPanel inline={true} />
                   </div>
                 )}
               </div>
