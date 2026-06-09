@@ -13,6 +13,7 @@ from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackRet
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from sil_msgs.msg import TargetVesselState
+from sil_msgs.srv import AddTarget, RemoveTarget
 
 
 class TargetMode(str, Enum):
@@ -144,6 +145,9 @@ class TargetVesselNode(LifecycleNode):
         self._episode = None
         self._worker = None
 
+        self._add_target_srv = None
+        self._remove_target_srv = None
+
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
 
@@ -234,6 +238,11 @@ class TargetVesselNode(LifecycleNode):
             TargetVesselState, "/sil/target_vessel_state", qos
         )
         self._timer = self.create_timer(0.1, self._step_callback)
+        self._add_target_srv = self.create_service(
+            AddTarget, "/target_vessel_node/add_target", self._handle_add_target)
+        self._remove_target_srv = self.create_service(
+            RemoveTarget, "/target_vessel_node/remove_target", self._handle_remove_target)
+        self._logger.info("AddTarget/RemoveTarget services up")
         self._logger.info("Activated — publishing TargetVesselState @ 10 Hz")
         return super().on_activate(state)
 
@@ -244,6 +253,11 @@ class TargetVesselNode(LifecycleNode):
         if self._tv_pub is not None:
             self.destroy_publisher(self._tv_pub)
             self._tv_pub = None
+        for attr in ("_add_target_srv", "_remove_target_srv"):
+            srv = getattr(self, attr)
+            if srv is not None:
+                self.destroy_service(srv)
+                setattr(self, attr, None)
         self._logger.info("Deactivated")
         return super().on_deactivate(state)
 
@@ -252,6 +266,33 @@ class TargetVesselNode(LifecycleNode):
         self._last_sim_time = None
         self._logger.info("Cleaned up — targets cleared")
         return TransitionCallbackReturn.SUCCESS
+
+    # ── Service handlers ────────────────────────────────────────────────
+
+    def _handle_add_target(self, request, response):
+        try:
+            mode = request.mode if request.mode else "replay"
+            self.add_target(
+                mmsi=int(request.mmsi), lat=request.lat, lon=request.lon,
+                heading_deg=request.heading_deg, sog_kn=request.sog_kn, mode=mode)
+            response.success = True
+            response.message = f"added MMSI {request.mmsi}"
+            self._logger.info(f"Service add_target MMSI {request.mmsi}")
+        except Exception as exc:  # noqa: BLE001
+            response.success = False
+            response.message = f"add_target error: {exc}"
+            self._logger.error(response.message)
+        return response
+
+    def _handle_remove_target(self, request, response):
+        before = len(self._targets)
+        self._targets = [t for t in self._targets if t.mmsi != int(request.mmsi)]
+        removed = len(self._targets) < before
+        response.success = removed
+        response.message = (f"removed MMSI {request.mmsi}" if removed
+                            else f"MMSI {request.mmsi} not found")
+        self._logger.info(f"Service remove_target: {response.message}")
+        return response
 
     # ── Internal ────────────────────────────────────────────────────────
 
