@@ -26,6 +26,9 @@ import yaml
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
+from sil_msgs.msg import OwnShipState
+from sil_msgs.srv import AddTarget, RemoveTarget
+
 _log = logging.getLogger(__name__)
 
 # Ordered list of SIL lifecycle nodes besides scenario_lifecycle_mgr.
@@ -123,6 +126,19 @@ class LifecycleBridge(Node):
                 self._sil_set_parameters_clients[node_name] = client
             except Exception as exc:
                 _log.debug("Could not create SetParameters client for %s: %s", svc, exc)
+
+        # Own-ship state cache (updated via subscription, used by encounter injection)
+        self._latest_own_ship = None
+        self.create_subscription(
+            OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, 10)
+
+        # Service clients for runtime encounter injection (D1.8)
+        self._add_target_client = self.create_client(
+            AddTarget, "/target_vessel_node/add_target",
+            callback_group=callback_group)
+        self._remove_target_client = self.create_client(
+            RemoveTarget, "/target_vessel_node/remove_target",
+            callback_group=callback_group)
 
     @property
     def current_state(self) -> LifecycleState:
@@ -497,6 +513,53 @@ class LifecycleBridge(Node):
         except Exception as exc:
             _log.error("Failed to set sim_rate dynamic parameter: %s", exc)
             return LifecycleResult(success=False, error=str(exc))
+
+    # ------------------------------------------------------------------
+    # D1.8 encounter injection helpers
+    # ------------------------------------------------------------------
+
+    def _on_own_ship_state(self, msg) -> None:
+        self._latest_own_ship = msg
+
+    def get_latest_own_ship(self):
+        return self._latest_own_ship
+
+    async def add_target(self, mmsi: int, lat: float, lon: float,
+                         heading_deg: float, sog_kn: float,
+                         mode: str = "replay"):
+        """Call /target_vessel_node/add_target with deadline polling."""
+        if not self._add_target_client.wait_for_service(timeout_sec=3.0):
+            raise RuntimeError("add_target service unavailable")
+        req = AddTarget.Request()
+        req.mmsi = int(mmsi)
+        req.lat = float(lat)
+        req.lon = float(lon)
+        req.heading_deg = float(heading_deg)
+        req.sog_kn = float(sog_kn)
+        req.mode = mode
+        future = self._add_target_client.call_async(req)
+        deadline = 50
+        while not future.done() and deadline > 0:
+            await asyncio.sleep(0.1)
+            deadline -= 1
+        if not future.done():
+            raise RuntimeError("add_target call timed out")
+        return future.result()
+
+    async def remove_target(self, mmsi: int):
+        """Call /target_vessel_node/remove_target with deadline polling."""
+        if not self._remove_target_client.wait_for_service(timeout_sec=3.0):
+            raise RuntimeError("remove_target service unavailable")
+        req = RemoveTarget.Request()
+        req.mmsi = int(mmsi)
+        future = self._remove_target_client.call_async(req)
+        deadline = 50
+        while not future.done() and deadline > 0:
+            await asyncio.sleep(0.1)
+            deadline -= 1
+        if not future.done():
+            raise RuntimeError("remove_target call timed out")
+        return future.result()
 
 
 def _load_scenario_yaml(scenario_id: str, base_dir: Path | None = None) -> dict:
