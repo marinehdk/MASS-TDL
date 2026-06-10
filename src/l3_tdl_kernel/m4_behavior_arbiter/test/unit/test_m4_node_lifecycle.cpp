@@ -463,6 +463,9 @@ TEST_F(BehaviorArbiterTest, HoldDirectiveConflictDoesNotCreateTurnFallback) {
   trigger_mission_goal(node, mission_msg);
 
   trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
   ASSERT_TRUE(get_m3_active_latch(node));
   last_plan.reset();
 
