@@ -37,5 +37,41 @@ TEST(GeometricFallback, ClampsToWindow) {
   EXPECT_NEAR(target, h_max, 1e-3);
 }
 
+TEST(GeometricFallback, PortDirectionSubtractsMinAlteration) {
+  const double route_brg = 0.0;
+  const double h_min = -40.0 * M_PI / 180.0;
+  const double h_max = 0.0;
+  const double min_alt = 25.0 * M_PI / 180.0;
+
+  const double target = fallback_target_heading(
+      route_brg, h_min, h_max, min_alt, ColregsPreferredDirection::Port);
+
+  EXPECT_NEAR(target, -25.0 * M_PI / 180.0, 1e-3);
+}
+
+TEST(GeometricFallback, ReduceSpeedKeepsRouteBearing) {
+  const double route_brg = 10.0 * M_PI / 180.0;
+  const double h_min = -40.0 * M_PI / 180.0;
+  const double h_max = 40.0 * M_PI / 180.0;
+
+  const double target = fallback_target_heading(
+      route_brg, h_min, h_max, 30.0 * M_PI / 180.0,
+      ColregsPreferredDirection::ReduceSpeed);
+
+  EXPECT_NEAR(target, route_brg, 1e-3);
+}
+
+TEST(GeometricFallback, HoldKeepsRouteBearing) {
+  const double route_brg = -5.0 * M_PI / 180.0;
+  const double h_min = -40.0 * M_PI / 180.0;
+  const double h_max = 40.0 * M_PI / 180.0;
+
+  const double target = fallback_target_heading(
+      route_brg, h_min, h_max, 30.0 * M_PI / 180.0,
+      ColregsPreferredDirection::Hold);
+
+  EXPECT_NEAR(target, route_brg, 1e-3);
+}
+
 }  // namespace
 }  // namespace mass_l3::m5

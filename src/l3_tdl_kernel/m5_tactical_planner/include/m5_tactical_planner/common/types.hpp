@@ -109,11 +109,35 @@ struct ConstraintInputs {
 // MidMpcInput — assembled runtime input for one Mid-MPC solve cycle
 // Assembled in M5Node from latest upstream messages.
 // ---------------------------------------------------------------------------
+enum class ColregsPreferredDirection : std::uint8_t {
+  Hold = 0u,
+  Starboard = 1u,
+  Port = 2u,
+  ReduceSpeed = 3u,
+};
+
+inline ColregsPreferredDirection parse_colregs_preferred_direction(const std::string& direction) {
+  if (direction == "STARBOARD") {
+    return ColregsPreferredDirection::Starboard;
+  }
+  if (direction == "PORT") {
+    return ColregsPreferredDirection::Port;
+  }
+  if (direction == "REDUCE_SPEED") {
+    return ColregsPreferredDirection::ReduceSpeed;
+  }
+  return ColregsPreferredDirection::Hold;
+}
+
 struct MidMpcInput {
   TrajectoryPoint own_ship;               // current own-ship state
   std::vector<TargetState> targets;       // max 16 per spec §4.2
   ConstraintInputs constraints;
   double planned_route_bearing_rad{0.0};  // current route leg bearing [rad]
+
+  bool colregs_conflict_active{false};
+  ColregsPreferredDirection colregs_preferred_direction{ColregsPreferredDirection::Hold};
+  double colregs_min_alteration_rad{0.0};
 
   // [TBD-HAZID] planned_speed_mps: from L2 SpeedProfile; default 5.0 m/s ≈ 9.7 kn.
   // Calibrate per vessel service speed profile.
@@ -197,13 +221,30 @@ struct BcMpcSolution {
   std::int64_t stamp_ns{0};
 };
 
-// Target heading = route bearing + COLREG minimum alteration (starboard +),
-// clamped into the M4-provided heading window. Replaces the fixed 5/6 fraction:
-// the planner owns magnitude (NLM: staging->M6, magnitude->planner), and the
-// gentlest COLREG-compliant turn is the minimum required alteration, not max aggression.
-inline double fallback_target_heading(double route_brg, double h_min, double h_max, double min_alt_rad) {
-  double t = route_brg + min_alt_rad;        // starboard-positive convention
-  return std::min(std::max(t, h_min), h_max);
+inline double clamp_heading_window(double target, double h_min, double h_max) {
+  return std::min(std::max(target, h_min), h_max);
+}
+
+inline double fallback_target_heading(
+    double route_brg,
+    double h_min,
+    double h_max,
+    double min_alt_rad,
+    ColregsPreferredDirection direction) {
+  double target = route_brg;
+  if (direction == ColregsPreferredDirection::Starboard) {
+    target = route_brg + min_alt_rad;
+  } else if (direction == ColregsPreferredDirection::Port) {
+    target = route_brg - min_alt_rad;
+  }
+  return clamp_heading_window(target, h_min, h_max);
+}
+
+inline double fallback_target_heading(
+    double route_brg, double h_min, double h_max, double min_alt_rad) {
+  return fallback_target_heading(
+      route_brg, h_min, h_max, min_alt_rad,
+      ColregsPreferredDirection::Starboard);
 }
 
 }  // namespace mass_l3::m5
