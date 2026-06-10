@@ -149,18 +149,13 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.constraints.heading_min_rad = normalize_angle(h_min_raw, inp.own_ship.psi_rad);
   inp.constraints.heading_max_rad = normalize_angle(h_max_raw, inp.own_ship.psi_rad);
 
-  if (inp.constraints.heading_min_rad > inp.constraints.heading_max_rad) {
-    std::swap(inp.constraints.heading_min_rad, inp.constraints.heading_max_rad);
-  }
-
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
   double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);
 
   // R3 fix: if M4 is in fallback mode, use nominal speed instead of current SOG
   // to break the cascade slowdown feedback loop.
   const std::string& m4_rationale = behavior_plan_->rationale;
-  if (m4_rationale.find("infeasible fallback") != std::string::npos ||
-      m4_rationale.find("Failsafe") != std::string::npos) {
+  if (mass_l3::m5::is_m4_fallback_rationale(m4_rationale)) {
     spdlog::info("[M5][MidMPC] M4 fallback detected (rationale: '{}'); using nominal speed {:.1f} kn",
                  m4_rationale, nominal_speed_kn_);
     speed_max_raw = nominal_speed_kn_;

@@ -73,5 +73,45 @@ TEST(GeometricFallback, HoldKeepsRouteBearing) {
   EXPECT_NEAR(target, route_brg, 1e-3);
 }
 
+TEST(GeometricFallback, WrappedWindowKeepsRouteForHoldAndReduceSpeed) {
+  const double route_brg = 0.0;
+  const double h_min = 335.0 * M_PI / 180.0;
+  const double h_max = 5.0 * M_PI / 180.0;
+  const double min_alt = 20.0 * M_PI / 180.0;
+
+  const double hold_target = fallback_target_heading(
+      route_brg, h_min, h_max, min_alt, ColregsPreferredDirection::Hold);
+  const double reduce_target = fallback_target_heading(
+      route_brg, h_min, h_max, min_alt, ColregsPreferredDirection::ReduceSpeed);
+
+  EXPECT_NEAR(hold_target, route_brg, 1e-3);
+  EXPECT_NEAR(reduce_target, route_brg, 1e-3);
+}
+
+TEST(GeometricFallback, WrappedWindowClampsPortAndStarboardToNearestBoundary) {
+  const double route_brg = 0.0;
+  const double h_min = 335.0 * M_PI / 180.0;
+  const double h_max = 5.0 * M_PI / 180.0;
+  const double min_alt = 30.0 * M_PI / 180.0;
+
+  const double port_target = fallback_target_heading(
+      route_brg, h_min, h_max, min_alt, ColregsPreferredDirection::Port);
+  const double starboard_target = fallback_target_heading(
+      route_brg, h_min, h_max, min_alt, ColregsPreferredDirection::Starboard);
+
+  EXPECT_NEAR(port_target, h_min, 1e-3);
+  EXPECT_NEAR(starboard_target, h_max, 1e-3);
+}
+
+TEST(GeometricFallback, DetectsM4GeometricFallbackRationale) {
+  EXPECT_TRUE(is_m4_fallback_rationale(
+      "IvP infeasible - geometric fallback ABSOLUTE"));
+  EXPECT_TRUE(is_m4_fallback_rationale(
+      "IvP infeasible - geometric fallback relative"));
+  EXPECT_TRUE(is_m4_fallback_rationale("infeasible fallback"));
+  EXPECT_TRUE(is_m4_fallback_rationale("Failsafe"));
+  EXPECT_FALSE(is_m4_fallback_rationale("M4 TRANSIT - no avoidance required"));
+}
+
 }  // namespace
 }  // namespace mass_l3::m5
