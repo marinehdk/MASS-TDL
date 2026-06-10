@@ -331,18 +331,24 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         IvPFunctionDefault avoid_fn;
         std::vector<IvPFunctionDefault::Piece> avoid_pieces;
         const bool turn_port = colregs_directive.direction == ColregsDirection::Port;
-        const double comfort_upper_deg = std::min(120.0, required_dev_deg + 15.0);
-        const double comfort_signed_dev = turn_port ? -comfort_upper_deg : comfort_upper_deg;
+        const double optimal_inner_deg =
+            (required_dev_deg >= 120.0) ? required_dev_deg - 1.0 : required_dev_deg;
+        const double optimal_outer_deg =
+            (required_dev_deg >= 120.0)
+                ? required_dev_deg
+                : std::min(120.0, required_dev_deg + 15.0);
+        const double optimal_inner_signed_dev = turn_port ? -optimal_inner_deg : optimal_inner_deg;
+        const double optimal_outer_signed_dev = turn_port ? -optimal_outer_deg : optimal_outer_deg;
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-            "[M4 R2] colregs_dev=%.1f° comfort_upper=%.1f° direction=%s",
-            signed_dev, comfort_upper_deg, turn_port ? "PORT" : "STARBOARD");
+            "[M4 R2] colregs_dev=%.1f° optimal_inner=%.1f° optimal_outer=%.1f° direction=%s",
+            signed_dev, optimal_inner_deg, optimal_outer_deg, turn_port ? "PORT" : "STARBOARD");
 
         IvPFunctionDefault::Piece penalty_ap;
         penalty_ap.heading_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? signed_dev : -180.0));
+            nominal_hdg + (turn_port ? optimal_inner_signed_dev : -180.0));
         penalty_ap.heading_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? 180.0 : signed_dev));
+            nominal_hdg + (turn_port ? 180.0 : optimal_inner_signed_dev));
         penalty_ap.speed_min_kn = 0.0;
         penalty_ap.speed_max_kn = speed_max_kn_;
         penalty_ap.utility = 0.05;
@@ -350,9 +356,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
         IvPFunctionDefault::Piece optimal_ap;
         optimal_ap.heading_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? comfort_signed_dev : signed_dev));
+            nominal_hdg + (turn_port ? optimal_outer_signed_dev : optimal_inner_signed_dev));
         optimal_ap.heading_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? signed_dev : comfort_signed_dev));
+            nominal_hdg + (turn_port ? optimal_inner_signed_dev : optimal_outer_signed_dev));
         optimal_ap.speed_min_kn = 0.0;
         optimal_ap.speed_max_kn = speed_max_kn_;
         optimal_ap.utility = 1.0;
@@ -360,9 +366,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
         // Transition region for larger evasion maneuvers in the requested direction.
         const double transition_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? -120.0 : comfort_signed_dev));
+            nominal_hdg + (turn_port ? -120.0 : optimal_outer_signed_dev));
         const double transition_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? comfort_signed_dev : 120.0));
+            nominal_hdg + (turn_port ? optimal_outer_signed_dev : 120.0));
         if (transition_min_deg != transition_max_deg) {
           IvPFunctionDefault::Piece transition_ap;
           transition_ap.heading_min_deg = transition_min_deg;

@@ -356,7 +356,7 @@ TEST_F(BehaviorArbiterTest, StarboardHighDeviationKeepsColregAvoidanceUtility) {
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
   c.unit = "deg";
-  c.numeric_value = 105.0;
+  c.numeric_value = 120.0;
   colregs_msg->constraints.push_back(c);
   trigger_colregs_constraint(node, colregs_msg);
 
@@ -367,8 +367,8 @@ TEST_F(BehaviorArbiterTest, StarboardHighDeviationKeepsColregAvoidanceUtility) {
   const auto best_util = parse_best_util(last_plan->rationale);
   ASSERT_TRUE(best_util.has_value()) << last_plan->rationale;
   EXPECT_GT(*best_util, 10.0);
-  EXPECT_NEAR(last_plan->heading_min_deg, 90.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 120.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 105.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 135.0f, 1e-3f);
   EXPECT_FALSE(get_fallback_anchor_set(node));
 }
 
