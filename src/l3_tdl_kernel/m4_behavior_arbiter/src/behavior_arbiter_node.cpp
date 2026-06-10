@@ -263,10 +263,13 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     }
     const double required_dev_deg = required_deviation_deg(
         colregs_directive, nearest_target_range_m);
+    const double current_spd_kn = latest_world_ ? latest_world_->own_ship.sog_kn : speed_max_kn_;
+    const double colregs_signed_dev_deg = signed_deviation_deg(
+        colregs_directive, required_dev_deg);
     const double directive_speed_max_kn =
         (colregs_directive.conflict_active &&
          colregs_directive.direction == ColregsDirection::ReduceSpeed)
-            ? std::min(speed_max_kn_, std::max(0.0, nominal_spd * 0.6))
+            ? std::min(speed_max_kn_, std::max(0.0, current_spd_kn * 0.6))
             : speed_max_kn_;
 
     IvPFunctionDefault transit_fn;
@@ -323,7 +326,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
     // ── 2. COLREGs AVOIDANCE BEHAVIOR IvP FUNCTION ──────────────
     if (colregs_directive.conflict_active && required_dev_deg > 0.0) {
-      const double signed_dev = signed_deviation_deg(colregs_directive, required_dev_deg);
+      const double signed_dev = colregs_signed_dev_deg;
       if (std::abs(signed_dev) > 0.0) {
         IvPFunctionDefault avoid_fn;
         std::vector<IvPFunctionDefault::Piece> avoid_pieces;
@@ -410,6 +413,14 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       s_max = sol->speed_max_kn;
       confidence = sol->relax_level > 0 ? 0.75 : 0.95;
       rationale = sol->rationale;
+      if (colregs_directive.conflict_active && std::abs(colregs_signed_dev_deg) > 0.0) {
+        const auto window = directive_heading_window(
+            nominal_hdg, colregs_directive, required_dev_deg);
+        if (window.has_value()) {
+          h_min = window->heading_min_deg;
+          h_max = window->heading_max_deg;
+        }
+      }
     } else {
       // R3 fix: Conservative fallback — use configured speed domain max
       // instead of 0.5 * current SOG to break the cascade slowdown loop.
@@ -417,7 +428,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       // biased in the M6-requested direction instead of a symmetric window.
       const double own_hdg =
           latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
-      const double signed_dev = signed_deviation_deg(colregs_directive, required_dev_deg);
+      const double signed_dev = colregs_signed_dev_deg;
 
       if (std::abs(signed_dev) > 0.0) {
         if (m3_active_latch_ && !fallback_anchor_set_) {
