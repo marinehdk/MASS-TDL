@@ -53,6 +53,37 @@ TEST(ColregsDirective, PortBuildsNegativeWindowAndAllowedRange) {
   EXPECT_DOUBLE_EQ(ranges[0].second, 335.0);
 }
 
+TEST(ColregsDirective, StarboardSplitWrappedAllowedRangeForLinearSolver) {
+  const auto directive = extract_colregs_directive(make_msg("STARBOARD", 30.0));
+
+  const auto ranges = directive_allowed_ranges(200.0, directive, 30.0);
+  ASSERT_EQ(ranges.size(), 2u);
+  EXPECT_DOUBLE_EQ(ranges[0].first, 230.0);
+  EXPECT_DOUBLE_EQ(ranges[0].second, 360.0);
+  EXPECT_DOUBLE_EQ(ranges[1].first, 0.0);
+  EXPECT_DOUBLE_EQ(ranges[1].second, 20.0);
+}
+
+TEST(ColregsDirective, PortSplitWrappedAllowedRangeForLinearSolver) {
+  const auto directive = extract_colregs_directive(make_msg("PORT", 25.0));
+
+  const auto ranges = directive_allowed_ranges(75.0, directive, 25.0);
+  ASSERT_EQ(ranges.size(), 2u);
+  EXPECT_DOUBLE_EQ(ranges[0].first, 255.0);
+  EXPECT_DOUBLE_EQ(ranges[0].second, 360.0);
+  EXPECT_DOUBLE_EQ(ranges[1].first, 0.0);
+  EXPECT_DOUBLE_EQ(ranges[1].second, 50.0);
+}
+
+TEST(ColregsDirective, StarboardKeepsDirectRangeWhenBothEndpointsWrap) {
+  const auto directive = extract_colregs_directive(make_msg("STARBOARD", 150.0));
+
+  const auto ranges = directive_allowed_ranges(230.0, directive, 150.0);
+  ASSERT_EQ(ranges.size(), 1u);
+  EXPECT_DOUBLE_EQ(ranges[0].first, 20.0);
+  EXPECT_DOUBLE_EQ(ranges[0].second, 50.0);
+}
+
 TEST(ColregsDirective, ReduceSpeedAndHoldDoNotCreateHeadingWindow) {
   const auto reduce = extract_colregs_directive(make_msg("REDUCE_SPEED", 15.0));
   EXPECT_EQ(reduce.direction, ColregsDirection::ReduceSpeed);

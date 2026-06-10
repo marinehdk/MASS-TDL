@@ -8,6 +8,16 @@ namespace mass_l3::m4 {
 namespace {
 
 constexpr double kRadToDeg = 180.0 / 3.141592653589793238462643383279502884;
+constexpr double kHeadingUpperBoundDeg = 360.0;
+
+std::vector<std::pair<double, double>> split_linear_range(double start_deg, double end_deg) {
+  const double first = wrap_heading_deg(start_deg);
+  const double second = wrap_heading_deg(end_deg);
+  if (first <= second) {
+    return {{first, second}};
+  }
+  return {{first, kHeadingUpperBoundDeg}, {0.0, second}};
+}
 
 }  // namespace
 
@@ -103,12 +113,14 @@ std::vector<std::pair<double, double>> directive_allowed_ranges(
     const ColregsDirective& directive,
     double required_deviation_deg) {
   if (directive.direction == ColregsDirection::Starboard && required_deviation_deg > 0.0) {
-    return {{wrap_heading_deg(base_heading_deg + required_deviation_deg),
-             wrap_heading_deg(base_heading_deg + 180.0)}};
+    return split_linear_range(
+        base_heading_deg + required_deviation_deg,
+        base_heading_deg + 180.0);
   }
   if (directive.direction == ColregsDirection::Port && required_deviation_deg > 0.0) {
-    return {{wrap_heading_deg(base_heading_deg - 180.0),
-             wrap_heading_deg(base_heading_deg - required_deviation_deg)}};
+    return split_linear_range(
+        base_heading_deg - 180.0,
+        base_heading_deg - required_deviation_deg);
   }
   return {};
 }
