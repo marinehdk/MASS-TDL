@@ -239,6 +239,14 @@ inline double circular_heading_distance(double lhs, double rhs) {
   return diff;
 }
 
+inline bool heading_window_is_wrapped(double h_min, double h_max) {
+  const double window_span = std::fabs(h_max - h_min);
+  if (window_span >= (2.0 * M_PI - 1e-9)) {
+    return false;
+  }
+  return h_min > h_max;
+}
+
 inline bool heading_inside_window(double target, double h_min, double h_max) {
   const double window_span = std::fabs(h_max - h_min);
   if (window_span >= (2.0 * M_PI - 1e-9)) {
@@ -267,6 +275,16 @@ inline bool is_m4_fallback_rationale(const std::string& rationale) {
   return rationale.find("infeasible fallback") != std::string::npos
       || rationale.find("Failsafe") != std::string::npos
       || rationale.find("geometric fallback") != std::string::npos;
+}
+
+inline double fallback_min_alteration_rad(
+    double route_brg, double h_min, double h_max, double min_alt_rad) {
+  if (min_alt_rad > 0.0) {
+    return min_alt_rad;
+  }
+  return std::min(
+      circular_heading_distance(h_max, route_brg),
+      circular_heading_distance(route_brg, h_min));
 }
 
 inline double fallback_target_heading(

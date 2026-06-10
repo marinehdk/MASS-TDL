@@ -233,9 +233,20 @@ void MidMpcNode::on_solve_cycle_()
 
   const MidMpcInput input = assemble_input_();
   publish_trajectory_candidates_(input);
+  const bool is_transit =
+      behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT;
+  const bool wrapped_heading_window = !is_transit
+      && mass_l3::m5::heading_window_is_wrapped(
+          input.constraints.heading_min_rad, input.constraints.heading_max_rad);
   const MidMpcSolution* warm = last_solution_.has_value() ? &last_solution_.value() : nullptr;
-  const MidMpcSolution sol = solver_.solve(input, warm);
-  last_solution_ = sol;
+  MidMpcSolution sol;
+  if (wrapped_heading_window) {
+    sol.status = MidMpcSolution::Status::Infeasible;
+    sol.stamp_ns = input.stamp_ns;
+  } else {
+    sol = solver_.solve(input, warm);
+    last_solution_ = sol;
+  }
 
   const double lat = world_state_->own_ship.position.latitude;
   const double lon = world_state_->own_ship.position.longitude;
@@ -249,7 +260,7 @@ void MidMpcNode::on_solve_cycle_()
       || behavior_plan_->rationale.find("fallback") != std::string::npos;
 
   l3_msgs::msg::AvoidancePlan plan;
-  if (behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT) {
+  if (is_transit) {
     // D-DEMO1 spin fix: M4 is the COLREG authority on whether avoidance is
     // active. When M4 is in TRANSIT, emit an EMPTY plan (no waypoints) so the
     // execution bridge releases avoidance and resumes route-following. Without
@@ -261,10 +272,15 @@ void MidMpcNode::on_solve_cycle_()
     plan.rationale  = "M4 TRANSIT — no avoidance required";
     plan.confidence = 1.0F;
     // waypoints left empty → bridge has_valid_plan == False → avoidance released
-  } else if (solver_failed || m4_geometric) {
-    const std::string reason = solver_failed
-        ? "solver_status=" + std::to_string(static_cast<int>(sol.status))
-        : "m4_geometric";
+  } else if (wrapped_heading_window || solver_failed || m4_geometric) {
+    std::string reason;
+    if (wrapped_heading_window) {
+      reason = "wrapped_heading_window";
+    } else if (solver_failed) {
+      reason = "solver_status=" + std::to_string(static_cast<int>(sol.status));
+    } else {
+      reason = "m4_geometric";
+    }
     plan = build_geometric_fallback_plan_(input, lat, lon, reason);
   } else {
     plan = wp_gen_.generate(sol, lat, lon);
@@ -293,9 +309,8 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   const double h_max = input.constraints.heading_max_rad;
   const double route_brg = input.planned_route_bearing_rad;
   double min_alt_rad = input.colregs_min_alteration_rad;
-  if (min_alt_rad <= 0.0) {
-    min_alt_rad = std::min(std::abs(h_max - route_brg), std::abs(route_brg - h_min));
-  }
+  min_alt_rad = mass_l3::m5::fallback_min_alteration_rad(
+      route_brg, h_min, h_max, min_alt_rad);
   double target_psi = mass_l3::m5::fallback_target_heading(
       route_brg, h_min, h_max, min_alt_rad, input.colregs_preferred_direction);
 

@@ -103,6 +103,32 @@ TEST(GeometricFallback, WrappedWindowClampsPortAndStarboardToNearestBoundary) {
   EXPECT_NEAR(starboard_target, h_max, 1e-3);
 }
 
+TEST(GeometricFallback, DetectsWrappedHeadingWindowButExcludesBoundaryAndFullSpan) {
+  EXPECT_FALSE(heading_window_is_wrapped(0.0, 0.0));
+  EXPECT_FALSE(heading_window_is_wrapped(-M_PI, M_PI));
+  EXPECT_FALSE(heading_window_is_wrapped(M_PI, -M_PI));
+  EXPECT_FALSE(heading_window_is_wrapped(0.0, 2.0 * M_PI));
+  EXPECT_FALSE(heading_window_is_wrapped(2.0 * M_PI, 0.0));
+
+  EXPECT_TRUE(heading_window_is_wrapped(
+      335.0 * M_PI / 180.0, 5.0 * M_PI / 180.0));
+}
+
+TEST(GeometricFallback, DetectsNegativeRouteWrappedHeadingWindow) {
+  EXPECT_TRUE(heading_window_is_wrapped(
+      -10.0 * M_PI / 180.0, -350.0 * M_PI / 180.0));
+}
+
+TEST(GeometricFallback, UsesCircularDistanceForZeroMinAlterationInWrappedWindow) {
+  const double route_brg = -1.0 * M_PI / 180.0;
+  const double h_min = 350.0 * M_PI / 180.0;
+  const double h_max = 10.0 * M_PI / 180.0;
+
+  const double min_alt = fallback_min_alteration_rad(route_brg, h_min, h_max, 0.0);
+
+  EXPECT_NEAR(min_alt, 9.0 * M_PI / 180.0, 1e-3);
+}
+
 TEST(GeometricFallback, DetectsM4GeometricFallbackRationale) {
   EXPECT_TRUE(is_m4_fallback_rationale(
       "IvP infeasible - geometric fallback ABSOLUTE"));
