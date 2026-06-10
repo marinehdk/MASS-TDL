@@ -131,5 +131,21 @@ TEST(RuleLatch, ClearsOnsetClassificationOnRelease) {
   EXPECT_EQ(probe.role, Role::FREE);
 }
 
+TEST(RuleLatch, DoesNotOnsetWhenAlreadyPastAndClear) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::GIVE_WAY;
+  onset.encounter_type = EncounterType::CROSSING;
+  onset.preferred_direction = "STARBOARD";
+  onset.min_alteration_deg = 15.0;
+
+  EXPECT_FALSE(latch.update(/*rule_active=*/true, /*cpa_m=*/900.0,
+                            /*range_closing=*/true,
+                            /*past_and_clear=*/true, &onset));
+  EXPECT_FALSE(latch.latched());
+  EXPECT_FALSE(latch.has_onset());
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

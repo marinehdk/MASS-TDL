@@ -30,8 +30,9 @@ namespace mass_l3::m6_colregs {
 // finally past and clear (Rule 8(d)).
 class RuleLatch {
  public:
-  RuleLatch(double cpa_safe_m, double release_factor)
-      : cpa_safe_m_(cpa_safe_m), release_cpa_m_(cpa_safe_m * release_factor) {}
+  RuleLatch(double cpa_safe_m, double release_factor) : cpa_safe_m_(cpa_safe_m) {
+    (void)release_factor;  // retained for API compatibility after CPA release removal
+  }
 
   // Returns whether the rule should be treated as ACTIVE this cycle.
   // past_and_clear: target is abaft the beam (Rule 16 finally-past-and-clear test).
@@ -42,7 +43,7 @@ class RuleLatch {
               const RuleEvaluation* current_eval = nullptr) {
     if (!latched_) {
       // Latch only on a genuine onset: rule fired AND threat is real.
-      if (rule_active && cpa_m < cpa_safe_m_ && range_closing) {
+      if (rule_active && cpa_m < cpa_safe_m_ && range_closing && !past_and_clear) {
         latched_ = true;
         if (current_eval != nullptr) {  // fix classification at onset (Rule 13(d))
           onset_role_ = current_eval->role;
@@ -89,7 +90,6 @@ class RuleLatch {
 
  private:
   double cpa_safe_m_;
-  double release_cpa_m_;
   bool latched_{false};
 
   // Onset classification snapshot (Rule 13(d): fixed at onset, held through maneuver).
