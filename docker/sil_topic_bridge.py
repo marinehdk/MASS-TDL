@@ -145,11 +145,20 @@ def _m4_colregs_window_target_deg(
 
 def _should_refresh_m4_colregs_target(
         current_target_deg: Optional[float],
-        nominal_heading_deg: float) -> bool:
+        nominal_heading_deg: float,
+        candidate_target_deg: Optional[float] = None) -> bool:
     if current_target_deg is None:
         return True
-    current_delta = abs(_signed_heading_delta_deg(
-        current_target_deg, nominal_heading_deg))
+    current_signed_delta = _signed_heading_delta_deg(
+        current_target_deg, nominal_heading_deg)
+    current_delta = abs(current_signed_delta)
+    if candidate_target_deg is not None:
+        candidate_signed_delta = _signed_heading_delta_deg(
+            candidate_target_deg, nominal_heading_deg)
+        candidate_delta = abs(candidate_signed_delta)
+        same_side = current_signed_delta * candidate_signed_delta >= 0.0
+        if same_side and candidate_delta < current_delta:
+            return True
     return current_delta < M4_AVOID_TARGET_LOCK_DELTA_DEG
 
 # ── QoS profiles ─────────────────────────────────────────────
@@ -730,7 +739,7 @@ class SilTopicBridge(Node):
             candidate = _m4_colregs_window_target_deg(
                 msg.heading_min_deg, msg.heading_max_deg, nominal_heading)
             if candidate is not None and _should_refresh_m4_colregs_target(
-                    self._avoidance_target_heading_deg, nominal_heading):
+                    self._avoidance_target_heading_deg, nominal_heading, candidate):
                 self._avoidance_target_heading_deg = candidate
             # else: degenerate (≈full circle) window — keep the last good target
             # (or None → _compute_avoidance_autopilot falls back to M5 waypoint

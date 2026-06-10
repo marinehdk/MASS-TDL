@@ -169,6 +169,24 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   }
 
   ArbitrationInputs inputs = build_inputs();
+  constexpr int kColregsReleaseDwellCycles = 4;
+  bool colregs_commit_hold = false;
+  COLREGsConstraintMsg::SharedPtr colregs_for_directive = latest_colregs_;
+  if (colregs_received_ && latest_colregs_) {
+    if (latest_colregs_->conflict_detected) {
+      last_active_colregs_ = latest_colregs_;
+      colregs_inactive_cycles_ = 0;
+    } else if (colregs_anchor_set_ && last_active_colregs_ &&
+               colregs_inactive_cycles_ < kColregsReleaseDwellCycles) {
+      ++colregs_inactive_cycles_;
+      inputs.colregs_conflict_detected = true;
+      colregs_for_directive = last_active_colregs_;
+      colregs_commit_hold = true;
+    } else {
+      last_active_colregs_.reset();
+      colregs_inactive_cycles_ = 0;
+    }
+  }
   HealthState health = BehaviorActivationCondition::compute_health_state(inputs);
 
   // Standby: no critical inputs received
@@ -191,8 +209,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   // If M3 mission_goal is absent (L2 silent) and world has no conflict targets,
   // output failsafe TRANSIT plan instead of entering IvP with empty active_set.
   bool mission_available = mission_received_ && latest_mission_;
-  bool has_conflict = (colregs_received_ && latest_colregs_
-                       && latest_colregs_->conflict_detected);
+  bool has_conflict = inputs.colregs_conflict_detected;
   if (!mission_available && !has_conflict) {
     BehaviorPlanMsg plan;
     plan.schema_version = 113;
@@ -249,23 +266,82 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     double nominal_spd = speed_max_kn_; // Target nominal speed
 
     ColregsDirective colregs_directive;
-    if (colregs_received_ && latest_colregs_) {
-      colregs_directive = extract_colregs_directive(*latest_colregs_);
+    if (colregs_for_directive) {
+      colregs_directive = extract_colregs_directive(*colregs_for_directive);
+      if (colregs_commit_hold) {
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+            "[M4] Holding committed COLREG directive through release dwell (%d/%d)",
+            colregs_inactive_cycles_, kColregsReleaseDwellCycles);
+      }
     }
 
     double nearest_target_range_m = std::numeric_limits<double>::max();
+    double nearest_target_cpa_m = std::numeric_limits<double>::max();
+    bool has_quartering_target = false;
     if (latest_world_) {
       for (const auto& tgt : latest_world_->targets) {
         if (tgt.rng_m > 0.0 && tgt.rng_m < nearest_target_range_m) {
           nearest_target_range_m = tgt.rng_m;
         }
+        if (tgt.cpa_m > 0.0 && tgt.cpa_m < nearest_target_cpa_m) {
+          nearest_target_cpa_m = tgt.cpa_m;
+        }
+        if (std::abs(tgt.encounter.relative_bearing_deg) >= 90.0) {
+          has_quartering_target = true;
+        }
       }
     }
-    const double required_dev_deg = required_deviation_deg(
-        colregs_directive, nearest_target_range_m);
+    const bool colregs_turn_active =
+        colregs_directive.conflict_active &&
+        (colregs_directive.direction == ColregsDirection::Starboard ||
+         colregs_directive.direction == ColregsDirection::Port);
+    if (colregs_turn_active && !colregs_anchor_set_) {
+      colregs_anchor_hdg_ = latest_world_ ? latest_world_->own_ship.heading_deg : nominal_hdg;
+      colregs_quartering_gate_ = has_quartering_target;
+      colregs_anchor_set_ = true;
+      RCLCPP_INFO(get_logger(),
+          "[M4] COLREG turn anchor latched at %.1f°", colregs_anchor_hdg_);
+    } else if (!colregs_turn_active && colregs_anchor_set_) {
+      colregs_anchor_set_ = false;
+      colregs_quartering_gate_ = false;
+      RCLCPP_INFO(get_logger(), "[M4] COLREG turn anchor released");
+    }
+    constexpr double kColregsCriticalCpaM = 500.0;
+    constexpr double kColregsTacticalCpaBufferM = 1500.0;
+    constexpr double kColregsMaxDeviationDeg = 150.0;
+    double required_dev_deg = required_deviation_deg(
+        colregs_directive,
+        nearest_target_range_m,
+        kColregsTacticalCpaBufferM,
+        2.5,
+        kColregsMaxDeviationDeg);
+    if (nearest_target_cpa_m < std::numeric_limits<double>::max() &&
+        (colregs_directive.direction == ColregsDirection::Starboard ||
+         colregs_directive.direction == ColregsDirection::Port)) {
+      const double min_alt_deg = colregs_directive.min_alteration_deg;
+      if (colregs_quartering_gate_ && nearest_target_cpa_m <= kColregsCriticalCpaM) {
+        required_dev_deg = kColregsMaxDeviationDeg;
+      } else if (nearest_target_cpa_m >= kColregsTacticalCpaBufferM) {
+        required_dev_deg = min_alt_deg;
+      } else {
+        const double cpa_ramp_m = colregs_quartering_gate_
+            ? (kColregsTacticalCpaBufferM - kColregsCriticalCpaM)
+            : kColregsTacticalCpaBufferM;
+        const double risk = std::clamp(
+            (kColregsTacticalCpaBufferM - nearest_target_cpa_m) /
+                cpa_ramp_m,
+            0.0,
+            1.0);
+        required_dev_deg = std::max(
+            min_alt_deg,
+            min_alt_deg + risk * (kColregsMaxDeviationDeg - min_alt_deg));
+      }
+    }
     const double current_spd_kn = latest_world_ ? latest_world_->own_ship.sog_kn : speed_max_kn_;
     const double colregs_signed_dev_deg = signed_deviation_deg(
         colregs_directive, required_dev_deg);
+    const double colregs_base_hdg =
+        colregs_anchor_set_ ? colregs_anchor_hdg_ : nominal_hdg;
     const double directive_speed_max_kn =
         (colregs_directive.conflict_active &&
          colregs_directive.direction == ColregsDirection::ReduceSpeed)
@@ -346,9 +422,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
         IvPFunctionDefault::Piece penalty_ap;
         penalty_ap.heading_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? optimal_inner_signed_dev : -180.0));
+            colregs_base_hdg + (turn_port ? optimal_inner_signed_dev : -180.0));
         penalty_ap.heading_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? 180.0 : optimal_inner_signed_dev));
+            colregs_base_hdg + (turn_port ? 180.0 : optimal_inner_signed_dev));
         penalty_ap.speed_min_kn = 0.0;
         penalty_ap.speed_max_kn = speed_max_kn_;
         penalty_ap.utility = 0.05;
@@ -356,9 +432,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
         IvPFunctionDefault::Piece optimal_ap;
         optimal_ap.heading_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? optimal_outer_signed_dev : optimal_inner_signed_dev));
+            colregs_base_hdg + (turn_port ? optimal_outer_signed_dev : optimal_inner_signed_dev));
         optimal_ap.heading_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? optimal_inner_signed_dev : optimal_outer_signed_dev));
+            colregs_base_hdg + (turn_port ? optimal_inner_signed_dev : optimal_outer_signed_dev));
         optimal_ap.speed_min_kn = 0.0;
         optimal_ap.speed_max_kn = speed_max_kn_;
         optimal_ap.utility = 1.0;
@@ -366,9 +442,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
         // Transition region for larger evasion maneuvers in the requested direction.
         const double transition_min_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? -120.0 : optimal_outer_signed_dev));
+            colregs_base_hdg + (turn_port ? -120.0 : optimal_outer_signed_dev));
         const double transition_max_deg = wrap_hdg(
-            nominal_hdg + (turn_port ? optimal_outer_signed_dev : 120.0));
+            colregs_base_hdg + (turn_port ? optimal_outer_signed_dev : 120.0));
         if (transition_min_deg != transition_max_deg) {
           IvPFunctionDefault::Piece transition_ap;
           transition_ap.heading_min_deg = transition_min_deg;
@@ -407,9 +483,8 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     // Constraint.msg (v1.1.2): constraint_type=="colregs", unit=="deg",
     // numeric_value = minimum heading deviation from own heading.
     if (colregs_directive.conflict_active) {
-      double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
       const auto ranges = directive_allowed_ranges(
-          own_hdg, colregs_directive, required_dev_deg);
+          colregs_base_hdg, colregs_directive, required_dev_deg);
       constraints.heading_allowed_ranges_deg.insert(
           constraints.heading_allowed_ranges_deg.end(), ranges.begin(), ranges.end());
     }
@@ -430,9 +505,8 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       confidence = sol->relax_level > 0 ? 0.75 : 0.95;
       rationale = sol->rationale;
       if (colregs_directive.conflict_active && std::abs(colregs_signed_dev_deg) > 0.0) {
-        const double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
         const auto window = directive_heading_window(
-            own_hdg, colregs_directive, required_dev_deg);
+            colregs_base_hdg, colregs_directive, required_dev_deg);
         if (window.has_value()) {
           h_min = window->heading_min_deg;
           h_max = window->heading_max_deg;
@@ -444,7 +518,8 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       // F2 fix: When COLREGs reports a turn directive, emit a heading window
       // biased in the M6-requested direction instead of a symmetric window.
       const double own_hdg =
-          latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+          colregs_turn_active ? colregs_base_hdg
+                              : (latest_world_ ? latest_world_->own_ship.heading_deg : 0.0);
       const double signed_dev = colregs_signed_dev_deg;
 
       if (std::abs(signed_dev) > 0.0) {

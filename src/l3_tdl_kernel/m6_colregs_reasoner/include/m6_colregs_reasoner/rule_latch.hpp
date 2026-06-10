@@ -8,21 +8,18 @@ namespace mass_l3::m6_colregs {
 
 // Onset-latched COLREG hysteresis (Rule 13(d): classification fixed at onset;
 // later bearing changes do not reclassify). Release follows Rule 16 "finally past
-// and clear": normally the target has drawn abaft the beam (past_and_clear), the
-// range is opening, and CPA is back above the configured safe floor. A narrower
-// projected-past fallback is also allowed when M2 has clamped TCPA to the present
-// (closest point already reached) and reports CPA/current separation above the
-// configured safe floor while range is opening.
+// and clear": the target has drawn abaft the beam (past_and_clear), the range is
+// opening, and CPA is back above the configured safe floor.
 //
 // NOTE (2026-06-08): a former CPA-magnitude fallback (release when predicted CPA
 // climbed above 1.5×cpa_safe while opening) was REMOVED — it could not tell
 // "CPA large because the target passed" from "CPA large because own-ship's own
 // give-way maneuver opened it". During a successful avoidance the maneuver opens
 // CPA past the threshold, so the fallback released mid-maneuver → conflict
-// chatter → M4 flapped AVOID↔TRANSIT → rudder fishtailed. The allowed fallback
-// here is not a CPA-magnitude heuristic: it additionally requires M2's post-CPA
-// projection signal and opening range, so it cannot fire merely because the
-// avoidance maneuver improved future CPA.
+// chatter → M4 flapped AVOID↔TRANSIT → rudder fishtailed. Release now requires
+// the target to be genuinely abaft the encounter reference beam. The bridge
+// geometry-release (TCPA<0 & DCPA≥cpa_safe) remains the independent backup if
+// abaft is never met.
 //
 // ONSET CLASSIFICATION (2026-06-08): the latch also snapshots the give-way
 // CLASSIFICATION at the latching cycle (role/encounter/direction). Once own ship
@@ -64,16 +61,14 @@ class RuleLatch {
       }
       return latched_;
     }
-    // Latched: release only once the encounter is finally past and safe. The
-    // primary signal is target abaft the encounter-reference beam. The secondary
-    // signal is M2's projected-past-and-safe flag, but it is honored only while
-    // range is opening. Do NOT release on a CPA-magnitude heuristic alone —
-    // own-ship's give-way maneuver itself opens CPA, which would release the
-    // latch mid-maneuver and chatter (see class note).
+    // Latched: release only once the encounter is finally past and clear
+    // (target abaft the encounter reference beam), the range is opening, AND CPA
+    // is safe. Do NOT release on a CPA-magnitude heuristic alone — own-ship's
+    // give-way maneuver itself opens CPA, which would release the latch
+    // mid-maneuver and chatter (see class note).
     const bool opening = !range_closing;
     const bool past_clear_and_safe = opening && past_and_clear && (cpa_m >= cpa_safe_m_);
-    const bool projected_past_and_safe = opening && cpa_projection_past_and_safe;
-    if (past_clear_and_safe || projected_past_and_safe) {
+    if (past_clear_and_safe) {
       latched_ = false;
       has_onset_ = false;  // encounter resolved → forget onset classification
       released_past_clear_ = true;

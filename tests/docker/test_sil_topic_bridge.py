@@ -305,6 +305,27 @@ def test_behavior_plan_tracking_locks_before_reversal_window(monkeypatch):
     )
 
 
+def test_behavior_plan_tracking_allows_rejoin_window_after_large_turn(monkeypatch):
+    """A large locked avoidance target must still accept later M4 windows that
+    reduce absolute deviation back toward the route."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = bridge.M4_AVOID_TARGET_LOCK_DELTA_DEG
+
+    rejoin_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=65.0,
+        heading_max_deg=95.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, rejoin_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(90.0)
+
+
 def test_behavior_plan_tracking_does_not_chase_rolled_m4_window(monkeypatch):
     """Once a large starboard target is set, Bridge must not chase current-heading
     M4 windows into the opposite absolute heading side."""

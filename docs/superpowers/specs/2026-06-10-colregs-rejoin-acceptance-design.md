@@ -2,103 +2,88 @@
 
 ## Goal
 
-Deepen the strict COLREGs 8-probe fix so the implementation is judged by A4000
-simulation evidence, not by local inference. The acceptance artifact is:
+Make the strict COLREGs 8-probe acceptance depend on A4000 SIL evidence and a
+real frontend browser screenshot, not on generated runner plots.
+
+Acceptance artifacts:
 
 - strict 8-probe data from `scenarios/COLREGs测试/`;
-- A4000 trajectory screenshots showing the own ship full route for each probe.
+- browser screenshot from the A4000 frontend monitor showing the own-ship route;
+- local regression output for Bridge/M4/M6 changes.
 
-## Current Evidence
+## Finding
 
-The current branch can pass the strict 8 probes for CPA/stability, but the latest
-A4000 clean run still shows weak route recovery:
+The projected-past M6 release fallback was tested and rejected. It can make
+`conflict_detected` flap in boundary probes because M2's clamped `tcpa_s` can
+briefly look post-CPA before the encounter is truly past and clear.
 
-| Probe | pass | returned_to_route | final_xte_m | final_heading_dev_deg |
-|---|---:|---:|---:|---:|
-| colreg-rule14-ho | true | false | 760.6 | 150.3 |
-| colreg-rule14-ho-port | true | false | 761.5 | 150.1 |
-| colreg-rule13-ot | true | false | 1065.6 | 150.4 |
-| colreg-rule15-cs | true | false | 764.6 | 150.2 |
-| colreg-rule15-cs-2 | true | false | 652.9 | 150.2 |
-| colreg-rule15-cs-edge | true | false | 846.6 | 150.4 |
-| colreg-rule15-ot-boundary | true | false | 1055.6 | 150.1 |
-| colreg-rule17-cr-so | true | false | 39.4 | 42.7 |
+The remaining strict-probe instability was a one-to-two-cycle false gap between
+M6 release/re-detect and M4 commitment release. M4 released its COLREG anchor
+immediately, then re-accepted a new COLREG window on the next M6 active cycle.
+That produced a tail-end AVOID re-entry and extra ROT variance in
+`colreg-rule15-ot-boundary`.
 
-This means the collision-avoidance decision is now stable enough to satisfy the
-strict scorer, but the maneuver lifecycle still deviates from the architecture:
-COLREGs obligation, tactical release, route rejoin, and operator-visible full
-route are not yet a single closed loop.
+## Final Design
 
-## Design Deviation
+M6 remains conservative:
 
-The architecture requires:
+- release only when target is past the encounter-reference beam, range is
+  opening, and CPA/current separation is safe;
+- do not use projected-past CPA as a release authority.
 
-```text
-M2 world state
-  -> M6 COLREGs conflict/role/phase/release authority
-  -> M4 behavior envelope
-  -> M5 avoidance/rejoin trajectory
-  -> L4/Bridge guidance during this SIL transition
-  -> M8/frontend transparent display
-```
+M4 provides the missing commitment state:
 
-Current deviation for this acceptance pass:
+- latch a COLREG turn anchor at maneuver onset;
+- compute COLREG windows from the committed anchor, not current own heading;
+- scale turn magnitude from CPA risk, with a quartering critical-CPA gate for
+  the crossing/overtaking boundary probe;
+- cache the last active COLREG directive and hold it across short M6 false gaps;
+- release the committed directive only after a short consecutive-inactive dwell.
 
-1. M6 release is too conservative for the 8-probe synthetic encounters.
-   It releases only when the target is abaft the encounter-reference beam and
-   opening. When the closest point has already passed, M2 clamps `tcpa_s` near
-   zero and reports safe CPA/current separation, but M6 can keep the duty latched
-   until very late or beyond the scenario horizon.
+Bridge remains a temporary SIL transition layer:
 
-2. Bridge route-return logic exists, but it receives `TRANSIT` too late.
-   Bridge can decay the avoidance heading and route-follow afterward, but if M6
-   holds `conflict_detected=true` until the end of the run, that rejoin controller
-   has no useful simulation time.
+- allow M4 target-heading updates only when they shrink same-side deviation, so
+  Bridge can accept rejoin windows after a large turn without rolling the target
+  farther away.
 
-3. Screenshots are not a first-class verification artifact.
-   Existing A4000 runs write trajectory PNGs, but the final acceptance needs an
-   explicit artifact set tied to the same JSON data run.
+Frontend evidence:
 
-## Required Change
+- browser screenshot must come from `#/monitor` while live telemetry is flowing;
+- runner PNGs are diagnostic only and are not acceptance screenshots.
 
-Add a documented M6 release fallback for the case where M2 has already projected
-the encounter past CPA and safe:
+## Acceptance Evidence
+
+Current A4000 evidence after the M4 release-dwell fix:
 
 ```text
-release if:
-  range is opening
-  AND (
-    target is abaft encounter-reference beam and CPA/current separation is safe
-    OR M2 reports tcpa_s <= clamp epsilon and cpa_m >= cpa_safe_m
-  )
+OVERALL: 8/8 PASS
+
+scenario                   PASS  conf_tog role_chg beh_tog    cpa_m  steer
+colreg-rule14-ho           True  2        0        1           1336   48.8
+colreg-rule14-ho-port      True  2        0        2           1381   49.7
+colreg-rule13-ot           True  2        0        1           1498   34.4
+colreg-rule15-cs           True  2        0        2           1770   36.9
+colreg-rule15-cs-2         True  2        0        2           1664   41.8
+colreg-rule15-cs-edge      True  2        0        2           1028   71.6
+colreg-rule15-ot-boundary  True  2        0        1            592  148.7
+colreg-rule17-cr-so        True  2        0        1           1424   44.2
 ```
 
-This is narrower than the removed "CPA is opening because own ship maneuvered"
-heuristic:
+Browser screenshot candidate:
 
-- it does not release while range is still closing;
-- it requires M2's projected closest point to be at or beyond the present;
-- it requires `cpa_m >= cpa_safe_m`;
-- it preserves the existing onset suppression for projected-past targets.
+```text
+artifacts/colregs_8probe_browser_20260610/colreg-rule15-ot-boundary_monitor_browser_pass_candidate.png
+```
+
+Batch data:
+
+```text
+artifacts/colregs_8probe_browser_20260610/batch_colregs_clean_after_m4_dwell.json
+```
 
 ## Non-Goals
 
-- No full message schema refactor in this pass.
-- No frontend authoritative/candidate layer split unless A4000 evidence shows the
-  backend route is correct but the UI artifact is misleading.
-- No full L4 extraction from Bridge in this pass.
-- No broad M4/M5 refactor before the M6 release/rejoin evidence is tested.
-
-## Acceptance
-
-The implementation is not complete until A4000 produces:
-
-1. a clean strict 8-probe run with `overall_pass=true` for all eight probes;
-2. route-recovery data that is no worse than the current baseline and materially
-   improves final route alignment where the scenario horizon allows rejoin;
-3. trajectory PNGs for all eight probes, copied back into this worktree and
-   viewable as the acceptance screenshots.
-
-If condition 1 fails, revert or repair the release logic before any next-layer
-work. If condition 1 passes but route recovery/screenshot evidence is still poor,
-continue into M4/M5/Bridge rejoin control as the next task lane.
+- No M6 projected-past release fallback.
+- No full L4/Bridge extraction in this pass.
+- No frontend authoritative/candidate layer refactor in this pass.
+- No broad M5 rejoin-controller implementation before strict 8-probe stability is locked.

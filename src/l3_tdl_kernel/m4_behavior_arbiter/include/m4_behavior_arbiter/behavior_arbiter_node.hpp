@@ -71,6 +71,7 @@ private:
   ModeCmdMsg::SharedPtr           latest_mode_;
   MissionGoalMsg::SharedPtr       latest_mission_;
   COLREGsConstraintMsg::SharedPtr latest_colregs_;
+  COLREGsConstraintMsg::SharedPtr last_active_colregs_;
 
   bool odd_received_{false};
   bool world_received_{false};
@@ -104,6 +105,10 @@ private:
   bool   m3_active_latch_{false};     // Tracks if M3 has ever been active and valid
   bool   fallback_anchor_set_{false};  // Tracks if the absolute fallback heading is currently set
   double fallback_anchor_hdg_{0.0};    // Stores the latched absolute heading (degrees)
+  bool   colregs_anchor_set_{false};   // Tracks the committed COLREG turn reference
+  double colregs_anchor_hdg_{0.0};      // Route/own heading at COLREG turn onset (degrees)
+  bool   colregs_quartering_gate_{false}; // Conflict-onset latch for stern-quarter edge probes
+  int    colregs_inactive_cycles_{0};   // Release dwell for short M6 false gaps
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

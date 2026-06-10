@@ -26,20 +26,11 @@ TEST(RuleLatch, DoesNotReleaseOnCpaOpeningWithoutPastAndClear) {
   EXPECT_TRUE(latch.update(false, 5000.0, false, false));
 }
 
-TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWhileStillClosing) {
+TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWithoutPastAndClear) {
   RuleLatch latch{1852.0, 1.5};
   EXPECT_TRUE(latch.update(true, 900.0, true, false));
-  EXPECT_TRUE(latch.update(false, 2000.0, true, false, nullptr,
+  EXPECT_TRUE(latch.update(false, 2000.0, false, false, nullptr,
                            /*cpa_projection_past_and_safe=*/true));
-}
-
-TEST(RuleLatch, ReleasesOnCpaProjectionPastAndSafeWhenOpening) {
-  RuleLatch latch{1852.0, 1.5};
-  EXPECT_TRUE(latch.update(true, 900.0, true, false));
-  EXPECT_FALSE(latch.update(false, 2000.0, false, false, nullptr,
-                            /*cpa_projection_past_and_safe=*/true));
-  EXPECT_FALSE(latch.latched());
-  EXPECT_FALSE(latch.has_onset());
 }
 
 TEST(RuleLatch, NeverLatchesIfNeverOnset) {
