@@ -13,6 +13,7 @@ definition instead of silently falling back to hardcoded defaults.
 import asyncio
 import json
 import shutil
+import time
 import rclpy
 from pathlib import Path
 from rclpy.node import Node
@@ -129,6 +130,7 @@ class LifecycleBridge(Node):
 
         # Own-ship state cache (updated via subscription, used by encounter injection)
         self._latest_own_ship = None
+        self._latest_own_ship_monotonic = None
         self.create_subscription(
             OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, 10)
 
@@ -520,9 +522,15 @@ class LifecycleBridge(Node):
 
     def _on_own_ship_state(self, msg) -> None:
         self._latest_own_ship = msg
+        self._latest_own_ship_monotonic = time.monotonic()
 
     def get_latest_own_ship(self):
         return self._latest_own_ship
+
+    def get_latest_own_ship_age_s(self):
+        if self._latest_own_ship_monotonic is None:
+            return None
+        return time.monotonic() - self._latest_own_ship_monotonic
 
     async def add_target(self, mmsi: int, lat: float, lon: float,
                          heading_deg: float, sog_kn: float,
@@ -742,4 +750,3 @@ def _copy_preflight_evidence(scenario_id: str, run_id: str) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for gate_file in src.glob("gate_*.json"):
         shutil.copy2(gate_file, dst / gate_file.name)
-

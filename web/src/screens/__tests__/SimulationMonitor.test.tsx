@@ -12,6 +12,7 @@ const mockMap = {
   getLayer: vi.fn(() => null),
   getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
   getContainer: vi.fn(() => mockContainer),
+  getStyle: vi.fn(() => ({ layers: [{ id: 'base' }] })),
   jumpTo: vi.fn(), easeTo: vi.fn(), setPadding: vi.fn(),
   isStyleLoaded: vi.fn(() => true),
   once: vi.fn(),
@@ -53,6 +54,8 @@ vi.mock('../../api/silApi', () => ({
   useChangeLifecycleRateMutation: () => [vi.fn().mockResolvedValue({})],
   useInjectFaultMutation: () => [vi.fn().mockResolvedValue({})],
   useCancelFaultMutation: () => [vi.fn().mockResolvedValue({})],
+  useInjectEncounterMutation: () => [vi.fn(() => ({ unwrap: () => Promise.resolve({ accepted: true, mmsi: 990000001 }) }))],
+  useClearEncountersMutation: () => [vi.fn(() => ({ unwrap: () => Promise.resolve({ removed_count: 1 }) }))],
   useGetScenarioQuery: vi.fn(() => ({ data: null, isLoading: false })),
 }));
 
@@ -244,4 +247,3 @@ ownShip:
     expect(screen.getByText('WP02')).toBeInTheDocument();
   });
 });
-

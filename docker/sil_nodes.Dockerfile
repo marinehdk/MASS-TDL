@@ -95,6 +95,7 @@ COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
 COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
 COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
+COPY src/ship_interfaces             src/ship_interfaces
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
 # (l3_msgs + l3_external_msgs live under l3_tdl_kernel/ since a748ffe)
@@ -114,6 +115,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         --packages-select \
             l3_msgs l3_external_msgs \
+            ship_interfaces \
             sil_common sil_msgs sil_lifecycle \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
@@ -134,6 +136,8 @@ RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
 COPY docker/sil_topic_bridge.py /opt/ws/docker/sil_topic_bridge.py
 COPY docker/mock_l2_publisher.py /opt/ws/docker/mock_l2_publisher.py
+COPY docker/gnc_route_mock_publisher.py /opt/ws/docker/gnc_route_mock_publisher.py
+COPY docker/route_ingest_node.py /opt/ws/docker/route_ingest_node.py
 COPY docker/fsm_aggregator_node.py /opt/ws/docker/fsm_aggregator_node.py
 COPY docker/diagnostic_mock_publisher.py /opt/ws/docker/diagnostic_mock_publisher.py
 RUN chmod +x /opt/ws/sil_entrypoint.sh

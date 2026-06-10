@@ -19,9 +19,6 @@ const LINE_SRC = 'planned-route-src';
 const LINE_LYR = 'planned-route-line';
 const WP_SRC = 'planned-route-wp-src';
 const WP_LYR = 'planned-route-wp-circle';
-const LBL_SRC = 'planned-route-lbl-src';
-const LBL_LYR = 'planned-route-lbl-symbol';
-const MAX_SEGMENT_LABELS = 24;
 
 function segmentDistanceNm(wps: Waypoint[], startIdx: number): number | null {
   const a = wps[startIdx];
@@ -103,24 +100,6 @@ function buildPoints(wps: Waypoint[]) {
     })),
   } as const;
 }
-function buildLabels(wps: Waypoint[]) {
-  const feats = [];
-  const segmentCount = Math.max(0, wps.length - 1);
-  const stride = Math.max(1, Math.ceil(segmentCount / MAX_SEGMENT_LABELS));
-  for (let i = 0; i < wps.length - 1; i++) {
-    if (i % stride !== 0 && i !== wps.length - 2) continue;
-    const a = wps[i], b = wps[i + 1];
-    const nm = computeRangeNm(a.lat, a.lon, b.lat, b.lon);
-    const brg = computeBearing(a.lat, a.lon, b.lat, b.lon);
-    feats.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [(a.lon + b.lon) / 2, (a.lat + b.lat) / 2] },
-      properties: { label: `${nm.toFixed(1)} NM · ${brg.toFixed(0)}°` },
-    });
-  }
-  return { type: 'FeatureCollection', features: feats } as const;
-}
-
 export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoints, visible }) => {
   const added = useRef(false);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -166,7 +145,6 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
       function setup() {
         const line = buildLine(waypoints);
         const pts = buildPoints(waypoints);
-        const lbls = buildLabels(waypoints);
         if (!added.current) {
           map.addSource(LINE_SRC, { type: 'geojson', data: line as any });
           map.addLayer({
@@ -182,22 +160,13 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
                     'circle-stroke-width': 1, 'circle-stroke-color': '#e0f2fe',
                     'circle-opacity': opacity, 'circle-stroke-opacity': opacity },
           });
-          map.addSource(LBL_SRC, { type: 'geojson', data: lbls as any });
-          map.addLayer({
-            id: LBL_LYR, type: 'symbol', source: LBL_SRC,
-            layout: { 'text-field': ['get', 'label'], 'text-size': 11,
-                      'text-offset': [0, -0.8], 'text-allow-overlap': false },
-            paint: { 'text-color': '#0369a1', 'text-halo-color': '#f0f9ff',
-                    'text-halo-width': 1, 'text-opacity': opacity },
-          });
           added.current = true;
         } else {
           (map.getSource(LINE_SRC) as any)?.setData(line);
           (map.getSource(WP_SRC) as any)?.setData(pts);
-          (map.getSource(LBL_SRC) as any)?.setData(lbls);
-          for (const id of [LINE_LYR, WP_LYR, LBL_LYR]) {
+          for (const id of [LINE_LYR, WP_LYR]) {
             const prop = id === LINE_LYR ? 'line-opacity'
-              : id === WP_LYR ? 'circle-opacity' : 'text-opacity';
+              : 'circle-opacity';
             if (map.getLayer(id)) map.setPaintProperty(id, prop, opacity);
           }
         }

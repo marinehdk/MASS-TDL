@@ -415,6 +415,12 @@ finally:
     if 'mock_l2_proc' in dir() and mock_l2_proc and mock_l2_proc.poll() is None:
         mock_l2_proc.terminate()
         mock_l2_proc.wait(timeout=5)
+    if 'gnc_route_proc' in dir() and gnc_route_proc and gnc_route_proc.poll() is None:
+        gnc_route_proc.terminate()
+        gnc_route_proc.wait(timeout=5)
+    if 'route_ingest_proc' in dir() and route_ingest_proc and route_ingest_proc.poll() is None:
+        route_ingest_proc.terminate()
+        route_ingest_proc.wait(timeout=5)
     if 'fsm_agg_proc' in dir() and fsm_agg_proc and fsm_agg_proc.poll() is None:
         fsm_agg_proc.terminate()
         fsm_agg_proc.wait(timeout=5)
