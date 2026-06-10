@@ -255,6 +255,19 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: GREEN. Checked local branch status, commit history, and simulated merging main into the branch (no conflicts).
 - **接力指示 (Hand-off Context)**: Branch is clean and ready for development. Highly recommended to merge/rebase main into this branch first to get recent M6 and stability scorer fixes.
 
+## [2026-06-10 15:50] Agent: Codex (GPT-5)
+- **Git Commit**: `241dfe27` (branch: `codex/d1.8-first-screen`; GitLab `l3-tdl` synced to same SHA)
+- **任务目标 (Goal)**: 完成 D1.8 Malacca/safe_route 第一屏展示与第三屏随机避碰演示；删除航线上默认航段距离/航向文字，避免与航点卡片重叠；在 A4000 作为准验收环境完成部署与 Web 自动化验证。
+- **核心改动 (Actions)**:
+  - `[scenarios/集成测试/safe_route.yaml](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/scenarios/集成测试/safe_route.yaml)`: 接入 L2 safe_route 真实航线，近海群岛域下展示，324 个航点。
+  - `[web/src/map/PlannedRouteLayer.tsx](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/web/src/map/PlannedRouteLayer.tsx)`: 保留虚线航路与航点；移除默认航段 label source/layer；航点点击弹出总航程、当前 WP、下一航段、偏航角。
+  - `[web/src/screens/shared/EncounterInjectPanel.tsx](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/web/src/screens/shared/EncounterInjectPanel.tsx)` + `[web/src/screens/SimulationMonitor.tsx](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/web/src/screens/SimulationMonitor.tsx)`: 第三屏右侧栏新增 `遭遇注入` tab，新增 `随机三船避碰演示`，一次连续注入 3 个目标船；清除按钮改为后端 clear-all。
+  - `[src/sil_orchestrator/encounters_routes.py](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/src/sil_orchestrator/encounters_routes.py)` + `[src/sim_workbench/sil_nodes/target_vessel/target_vessel/node.py](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/src/sim_workbench/sil_nodes/target_vessel/target_vessel/node.py)`: runtime encounter REST 注入、删除、清空；目标船节点新增 AddTarget/RemoveTarget 服务。
+  - `[src/sil_orchestrator/lifecycle_bridge.py](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/src/sil_orchestrator/lifecycle_bridge.py)`: 修复 A4000 注入 409 根因，将 `/sil/own_ship_state` 订阅 QoS 改为 `BEST_EFFORT/VOLATILE/KEEP_LAST/depth=1`，与 `ship_dynamics_node` publisher 匹配。
+  - `[docker/sil_nodes.Dockerfile](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/docker/sil_nodes.Dockerfile)` + `[docker/sil_entrypoint.sh](/Users/marine/.codex/worktrees/2f61/MASS-L3-Tactical Layer/docker/sil_entrypoint.sh)`: 构建 ship_interfaces、sil_msgs srv、route mock/ingest，entrypoint 清理新增进程。
+- **当前状态 (Status)**: GREEN. Local verification: `PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q -o addopts='' src/sil_orchestrator/tests/test_encounters_routes.py src/sil_orchestrator/tests/test_encounter_geometry.py` -> 8/8; `cd web && npm test -- PlannedRouteLayer EncounterInjectPanel SimulationMonitor` -> 17/17; `cd web && npm run build` -> pass. A4000 verification: `safe_route` ACTIVE, `POST /api/v1/encounters/inject` -> 200, `/sil/target_vessel_state` received MMSI; Playwright @ `http://192.168.121.50:5173/#/scenario` verified route layer + waypoint layer present, label layer/source absent, waypointCount=324, random three-ship injection statuses `[200,200,200]`, clear status `200`, console errors `0`.
+- **接力指示 (Hand-off Context)**: A4000 repo tracks GitLab `l3-tdl` and target files match `origin/l3-tdl @ 241dfe27`; service containers `sil-orchestrator`/`sil-nodes` rebuilt and running. A4000 worktree still has unrelated dirty files from parallel work; do not reset. Current branch is a Codex harness worktree (`/Users/marine/.codex/worktrees/2f61/...`), so do not remove it via `git worktree remove` unless user explicitly requests merge/discard cleanup. Browser plugin failed in this session; Playwright on A4000 was used for Web verification.
+
 ## [2026-06-09 09:50] Agent: Antigravity (IDE)
 - **Git Commit**: `61daf004` (branch: `main`, 已三端同步 origin/main + gitlab l3-tdl)
 - **任务目标 (Goal)**: Bridge 去影子化 —— 修复 `_check_geometry_release` 独立覆盖 M6 权威 (ADR-1) 导致 ot 探针 behavior_toggles=126 的根因；以增量迁移方式将决策层权威交还 M6。
@@ -273,4 +286,3 @@ This log coordinates task handoffs between different development interfaces (Cla
   - **P3 ARM 权威完整迁移**：`_arm_avoidance_from_m6()` 已就位，M5 plan arm 路径仍保留作安全网；若需完全迁移 ARM 到 M6，删 `_on_avoidance_plan` 中的 arm 块，A4000 验证不复发 circling。
   - **L4-Guidance stub**：`HeadingController`/`SpeedController`/`_compute_avoidance_autopilot` 保留桥内，等 L4 节点就位时另轮移除。
   - **bridge-deshadow-migration-prompt.md §待定** 中的 M1 `MAX_AVOID_DEV_DEG=60.0` 硬编码（等 M1 发布 ROT_max 后替换）仍未处理。
-
