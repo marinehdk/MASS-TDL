@@ -1,3 +1,9 @@
+## branch / remote conventions
+
+- 本地开发与 GitHub 以 `main` 作为主分支。
+- A4000 上的 GitLab 仓库因权限限制，以 `l3-tdl` 作为主分支/同步目标。
+- 涉及 A4000 部署、验收或 `scripts/a4000-acceptance.sh --sync` 时，目标分支使用 `l3-tdl`；不要把 A4000 GitLab 主线误判为 `main`。
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
