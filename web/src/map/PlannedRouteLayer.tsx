@@ -204,8 +204,10 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
         addHandlers();
       }
 
-      if (!map.isStyleLoaded()) map.once('style.load', setup);
-      else setup();
+      const hasRouteSource = Boolean(map.getSource(LINE_SRC));
+      const hasStyleLayers = Boolean(map.getStyle()?.layers?.length);
+      if (hasRouteSource || hasStyleLayers) setup();
+      else map.once('style.load', setup);
 
       return () => {
         map.off('style.load', setup);
