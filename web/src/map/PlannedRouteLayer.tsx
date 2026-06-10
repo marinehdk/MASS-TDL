@@ -14,6 +14,7 @@ const WP_SRC = 'planned-route-wp-src';
 const WP_LYR = 'planned-route-wp-circle';
 const LBL_SRC = 'planned-route-lbl-src';
 const LBL_LYR = 'planned-route-lbl-symbol';
+const MAX_SEGMENT_LABELS = 24;
 
 function buildLine(wps: Waypoint[]) {
   return {
@@ -37,7 +38,10 @@ function buildPoints(wps: Waypoint[]) {
 }
 function buildLabels(wps: Waypoint[]) {
   const feats = [];
+  const segmentCount = Math.max(0, wps.length - 1);
+  const stride = Math.max(1, Math.ceil(segmentCount / MAX_SEGMENT_LABELS));
   for (let i = 0; i < wps.length - 1; i++) {
+    if (i % stride !== 0 && i !== wps.length - 2) continue;
     const a = wps[i], b = wps[i + 1];
     const nm = computeRangeNm(a.lat, a.lon, b.lat, b.lon);
     const brg = computeBearing(a.lat, a.lon, b.lat, b.lon);

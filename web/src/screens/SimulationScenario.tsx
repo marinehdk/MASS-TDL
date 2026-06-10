@@ -19,6 +19,24 @@ import {
 } from 'lucide-react';
 import { BuilderRightRail, CollapsibleSection } from './shared/BuilderRightRail';
 
+type RouteWaypoint = { lat: number; lon: number };
+
+function getRouteWaypoints(doc: any): RouteWaypoint[] {
+  const nominalRoute = doc?.ownShip?.nominalRoute;
+  if (Array.isArray(nominalRoute) && nominalRoute.length) {
+    return nominalRoute
+      .map((w: any) => ({ lat: w.latitude ?? w.lat, lon: w.longitude ?? w.lon }))
+      .filter((w: RouteWaypoint) => typeof w.lat === 'number' && typeof w.lon === 'number');
+  }
+  const voyageWaypoints = doc?.voyageTask?.waypoints;
+  if (Array.isArray(voyageWaypoints) && voyageWaypoints.length) {
+    return voyageWaypoints
+      .map((w: any) => ({ lat: w.latitude ?? w.lat, lon: w.longitude ?? w.lon }))
+      .filter((w: RouteWaypoint) => typeof w.lat === 'number' && typeof w.lon === 'number');
+  }
+  return [];
+}
+
 // ── ODD Select inline sub-component with Dynamic Suffix ────────────────
 function ODDSelect({ label, value, onChange, options, suffix }: {
   label: string;
@@ -337,17 +355,7 @@ export function SimulationScenario() {
   const routeWaypoints = useMemo(() => {
     try {
       const doc = jsyaml.load(yamlEditor) as any;
-      const nr = doc?.ownShip?.nominalRoute;
-      if (Array.isArray(nr) && nr.length) {
-        return nr
-          .map((w: any) => ({ lat: w.latitude ?? w.lat, lon: w.longitude ?? w.lon }))
-          .filter((w: any) => typeof w.lat === 'number' && typeof w.lon === 'number');
-      }
-      const vw = doc?.voyageTask?.waypoints;
-      if (Array.isArray(vw) && vw.length) {
-        return vw.map((w: any) => ({ lat: w.lat, lon: w.lon }));
-      }
-      return [];
+      return getRouteWaypoints(doc);
     } catch { return []; }
   }, [yamlEditor]);
 
@@ -827,7 +835,7 @@ const handleUpdateYaml = useCallback((updates: any) => {
                                   background: child.oddCompatible ? '#4ade80' : '#f87171',
                                 }} />
                                 <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {child.name}
+                                  {child.displayName}
                                 </span>
                                 <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', padding: '1px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 3 }}>
                                   {child.encounter_type?.toUpperCase() || '—'}

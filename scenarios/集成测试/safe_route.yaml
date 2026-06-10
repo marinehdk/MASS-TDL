@@ -1,0 +1,1025 @@
+title: 安全航路 — L2 safe_route 真实航线
+description: 集成测试：来自 route_log.txt 的 L2 safe_route 真实航线（324 航点，总长约 487.7 km，近海群岛 ODD）。Phase 1 经 mock GncRoutePlan(ROS2) 下发；后续接通真实 L2 可触发重规划。
+startTime: '2026-06-10T02:24:27.595279Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: -1.5
+      longitude: 105.12
+    cog: 63.6
+    sog: 29.16
+    heading: 63.6
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: -1.5
+    longitude: 105.12
+    target_sog_kn: 29.16
+  - latitude: -1.491952
+    longitude: 105.136095
+    target_sog_kn: 29.16
+  - latitude: -1.483905
+    longitude: 105.152191
+    target_sog_kn: 29.16
+  - latitude: -1.475857
+    longitude: 105.168286
+    target_sog_kn: 26.24
+  - latitude: -1.47
+    longitude: 105.184892
+    target_sog_kn: 23.33
+  - latitude: -1.47
+    longitude: 105.202864
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.220837
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.238809
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.256781
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.274753
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.292725
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.310697
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.32867
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.346642
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.364614
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.382586
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.400558
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.418531
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.436503
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.454475
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.472447
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.490419
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.508391
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.526364
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.53535
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.544336
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.553322
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.571294
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.58028
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.589266
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.598252
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.607238
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.616225
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.634197
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.652169
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.661155
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.670141
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.679127
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.688113
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.706085
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.724058
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.733044
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.74203
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.751016
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.760002
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.768988
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.777974
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.78696
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.795946
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.804932
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.813919
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.822905
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.831891
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.840877
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.849863
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.858849
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.867835
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.876821
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.885807
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.8903
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.894793
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.899286
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.903779
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.908272
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.912766
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.917259
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.921752
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.930738
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.939724
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.94871
+    target_sog_kn: 29.16
+  - latitude: -1.47
+    longitude: 105.957696
+    target_sog_kn: 17.49
+  - latitude: -1.47474
+    longitude: 105.96474
+    target_sog_kn: 26.24
+  - latitude: -1.481114
+    longitude: 105.971114
+    target_sog_kn: 29.16
+  - latitude: -1.487489
+    longitude: 105.977489
+    target_sog_kn: 29.16
+  - latitude: -1.493863
+    longitude: 105.983863
+    target_sog_kn: 29.16
+  - latitude: -1.500238
+    longitude: 105.990238
+    target_sog_kn: 29.16
+  - latitude: -1.506612
+    longitude: 105.996612
+    target_sog_kn: 29.16
+  - latitude: -1.512986
+    longitude: 106.002986
+    target_sog_kn: 29.16
+  - latitude: -1.519361
+    longitude: 106.009361
+    target_sog_kn: 29.16
+  - latitude: -1.525735
+    longitude: 106.015735
+    target_sog_kn: 29.16
+  - latitude: -1.53211
+    longitude: 106.02211
+    target_sog_kn: 29.16
+  - latitude: -1.538484
+    longitude: 106.028484
+    target_sog_kn: 29.16
+  - latitude: -1.541672
+    longitude: 106.031672
+    target_sog_kn: 29.16
+  - latitude: -1.544859
+    longitude: 106.034859
+    target_sog_kn: 29.16
+  - latitude: -1.548046
+    longitude: 106.038046
+    target_sog_kn: 29.16
+  - latitude: -1.551233
+    longitude: 106.041233
+    target_sog_kn: 29.16
+  - latitude: -1.55442
+    longitude: 106.04442
+    target_sog_kn: 29.16
+  - latitude: -1.557608
+    longitude: 106.047608
+    target_sog_kn: 29.16
+  - latitude: -1.560795
+    longitude: 106.050795
+    target_sog_kn: 29.16
+  - latitude: -1.563982
+    longitude: 106.053982
+    target_sog_kn: 29.16
+  - latitude: -1.567169
+    longitude: 106.057169
+    target_sog_kn: 29.16
+  - latitude: -1.570357
+    longitude: 106.060357
+    target_sog_kn: 29.16
+  - latitude: -1.573544
+    longitude: 106.063544
+    target_sog_kn: 29.16
+  - latitude: -1.576731
+    longitude: 106.066731
+    target_sog_kn: 29.16
+  - latitude: -1.579919
+    longitude: 106.069919
+    target_sog_kn: 29.16
+  - latitude: -1.583106
+    longitude: 106.073106
+    target_sog_kn: 29.16
+  - latitude: -1.586293
+    longitude: 106.076293
+    target_sog_kn: 29.16
+  - latitude: -1.58948
+    longitude: 106.07948
+    target_sog_kn: 29.16
+  - latitude: -1.592668
+    longitude: 106.082668
+    target_sog_kn: 29.16
+  - latitude: -1.595855
+    longitude: 106.085855
+    target_sog_kn: 29.16
+  - latitude: -1.599042
+    longitude: 106.089042
+    target_sog_kn: 29.16
+  - latitude: -1.602229
+    longitude: 106.092229
+    target_sog_kn: 29.16
+  - latitude: -1.608604
+    longitude: 106.098604
+    target_sog_kn: 29.16
+  - latitude: -1.614979
+    longitude: 106.104979
+    target_sog_kn: 29.16
+  - latitude: -1.621353
+    longitude: 106.111353
+    target_sog_kn: 29.16
+  - latitude: -1.627728
+    longitude: 106.117728
+    target_sog_kn: 29.16
+  - latitude: -1.634102
+    longitude: 106.124102
+    target_sog_kn: 29.16
+  - latitude: -1.640477
+    longitude: 106.130477
+    target_sog_kn: 29.16
+  - latitude: -1.653226
+    longitude: 106.143226
+    target_sog_kn: 29.16
+  - latitude: -1.665976
+    longitude: 106.155976
+    target_sog_kn: 29.16
+  - latitude: -1.678725
+    longitude: 106.168725
+    target_sog_kn: 29.16
+  - latitude: -1.691474
+    longitude: 106.181474
+    target_sog_kn: 29.16
+  - latitude: -1.704224
+    longitude: 106.194224
+    target_sog_kn: 29.16
+  - latitude: -1.716973
+    longitude: 106.206973
+    target_sog_kn: 29.16
+  - latitude: -1.729723
+    longitude: 106.219723
+    target_sog_kn: 29.16
+  - latitude: -1.742472
+    longitude: 106.232472
+    target_sog_kn: 29.16
+  - latitude: -1.755222
+    longitude: 106.245222
+    target_sog_kn: 29.16
+  - latitude: -1.767972
+    longitude: 106.257972
+    target_sog_kn: 29.16
+  - latitude: -1.780721
+    longitude: 106.270721
+    target_sog_kn: 29.16
+  - latitude: -1.793471
+    longitude: 106.283471
+    target_sog_kn: 29.16
+  - latitude: -1.806221
+    longitude: 106.296221
+    target_sog_kn: 29.16
+  - latitude: -1.818971
+    longitude: 106.308971
+    target_sog_kn: 29.16
+  - latitude: -1.83172
+    longitude: 106.32172
+    target_sog_kn: 29.16
+  - latitude: -1.84447
+    longitude: 106.33447
+    target_sog_kn: 29.16
+  - latitude: -1.85722
+    longitude: 106.34722
+    target_sog_kn: 29.16
+  - latitude: -1.86997
+    longitude: 106.35997
+    target_sog_kn: 29.16
+  - latitude: -1.88272
+    longitude: 106.37272
+    target_sog_kn: 29.16
+  - latitude: -1.89547
+    longitude: 106.38547
+    target_sog_kn: 29.16
+  - latitude: -1.908221
+    longitude: 106.398221
+    target_sog_kn: 29.16
+  - latitude: -1.920971
+    longitude: 106.410971
+    target_sog_kn: 15.55
+  - latitude: -1.933721
+    longitude: 106.423721
+    target_sog_kn: 15.55
+  - latitude: -1.946471
+    longitude: 106.436471
+    target_sog_kn: 26.24
+  - latitude: -1.961686
+    longitude: 106.445843
+    target_sog_kn: 26.24
+  - latitude: -1.977844
+    longitude: 106.453922
+    target_sog_kn: 29.16
+  - latitude: -1.994002
+    longitude: 106.462001
+    target_sog_kn: 29.16
+  - latitude: -2.010126
+    longitude: 106.470126
+    target_sog_kn: 23.33
+  - latitude: -2.022876
+    longitude: 106.482876
+    target_sog_kn: 15.55
+  - latitude: -2.035627
+    longitude: 106.495627
+    target_sog_kn: 15.55
+  - latitude: -2.048378
+    longitude: 106.508378
+    target_sog_kn: 15.55
+  - latitude: -2.061128
+    longitude: 106.521128
+    target_sog_kn: 15.55
+  - latitude: -2.073879
+    longitude: 106.533879
+    target_sog_kn: 15.55
+  - latitude: -2.08663
+    longitude: 106.54663
+    target_sog_kn: 15.55
+  - latitude: -2.099381
+    longitude: 106.559381
+    target_sog_kn: 23.33
+  - latitude: -2.115373
+    longitude: 106.567687
+    target_sog_kn: 29.16
+  - latitude: -2.131531
+    longitude: 106.575766
+    target_sog_kn: 29.16
+  - latitude: -2.147689
+    longitude: 106.583845
+    target_sog_kn: 29.16
+  - latitude: -2.163848
+    longitude: 106.591924
+    target_sog_kn: 29.16
+  - latitude: -2.180006
+    longitude: 106.600003
+    target_sog_kn: 29.16
+  - latitude: -2.196164
+    longitude: 106.608082
+    target_sog_kn: 29.16
+  - latitude: -2.212322
+    longitude: 106.616161
+    target_sog_kn: 29.16
+  - latitude: -2.22848
+    longitude: 106.62424
+    target_sog_kn: 29.16
+  - latitude: -2.244639
+    longitude: 106.632319
+    target_sog_kn: 29.16
+  - latitude: -2.260797
+    longitude: 106.640399
+    target_sog_kn: 29.16
+  - latitude: -2.276955
+    longitude: 106.648478
+    target_sog_kn: 29.16
+  - latitude: -2.293114
+    longitude: 106.656557
+    target_sog_kn: 29.16
+  - latitude: -2.309272
+    longitude: 106.664636
+    target_sog_kn: 29.16
+  - latitude: -2.325431
+    longitude: 106.672715
+    target_sog_kn: 29.16
+  - latitude: -2.341254
+    longitude: 106.681254
+    target_sog_kn: 23.33
+  - latitude: -2.354006
+    longitude: 106.694006
+    target_sog_kn: 29.16
+  - latitude: -2.366758
+    longitude: 106.706758
+    target_sog_kn: 26.24
+  - latitude: -2.382051
+    longitude: 106.716025
+    target_sog_kn: 29.16
+  - latitude: -2.398209
+    longitude: 106.724105
+    target_sog_kn: 29.16
+  - latitude: -2.414368
+    longitude: 106.732184
+    target_sog_kn: 29.16
+  - latitude: -2.430416
+    longitude: 106.740416
+    target_sog_kn: 23.33
+  - latitude: -2.443168
+    longitude: 106.753168
+    target_sog_kn: 29.16
+  - latitude: -2.45592
+    longitude: 106.76592
+    target_sog_kn: 29.16
+  - latitude: -2.468673
+    longitude: 106.778673
+    target_sog_kn: 29.16
+  - latitude: -2.481425
+    longitude: 106.791425
+    target_sog_kn: 29.16
+  - latitude: -2.487802
+    longitude: 106.797802
+    target_sog_kn: 29.16
+  - latitude: -2.494178
+    longitude: 106.804178
+    target_sog_kn: 29.16
+  - latitude: -2.500554
+    longitude: 106.810554
+    target_sog_kn: 29.16
+  - latitude: -2.50693
+    longitude: 106.81693
+    target_sog_kn: 29.16
+  - latitude: -2.513307
+    longitude: 106.823307
+    target_sog_kn: 29.16
+  - latitude: -2.519683
+    longitude: 106.829683
+    target_sog_kn: 29.16
+  - latitude: -2.52606
+    longitude: 106.83606
+    target_sog_kn: 29.16
+  - latitude: -2.532436
+    longitude: 106.842436
+    target_sog_kn: 29.16
+  - latitude: -2.535624
+    longitude: 106.845624
+    target_sog_kn: 29.16
+  - latitude: -2.538812
+    longitude: 106.848812
+    target_sog_kn: 29.16
+  - latitude: -2.542001
+    longitude: 106.852001
+    target_sog_kn: 29.16
+  - latitude: -2.545189
+    longitude: 106.855189
+    target_sog_kn: 29.16
+  - latitude: -2.548377
+    longitude: 106.858377
+    target_sog_kn: 29.16
+  - latitude: -2.551565
+    longitude: 106.861565
+    target_sog_kn: 29.16
+  - latitude: -2.554753
+    longitude: 106.864753
+    target_sog_kn: 29.16
+  - latitude: -2.557942
+    longitude: 106.867942
+    target_sog_kn: 29.16
+  - latitude: -2.56113
+    longitude: 106.87113
+    target_sog_kn: 29.16
+  - latitude: -2.564318
+    longitude: 106.874318
+    target_sog_kn: 29.16
+  - latitude: -2.567506
+    longitude: 106.877506
+    target_sog_kn: 29.16
+  - latitude: -2.570695
+    longitude: 106.880695
+    target_sog_kn: 29.16
+  - latitude: -2.577071
+    longitude: 106.887071
+    target_sog_kn: 23.33
+  - latitude: -2.58489
+    longitude: 106.89
+    target_sog_kn: 15.55
+  - latitude: -2.589411
+    longitude: 106.89
+    target_sog_kn: 15.55
+  - latitude: -2.593933
+    longitude: 106.89
+    target_sog_kn: 15.55
+  - latitude: -2.598455
+    longitude: 106.89
+    target_sog_kn: 15.55
+  - latitude: -2.602977
+    longitude: 106.89
+    target_sog_kn: 15.55
+  - latitude: -2.619884
+    longitude: 106.894942
+    target_sog_kn: 26.24
+  - latitude: -2.636044
+    longitude: 106.903022
+    target_sog_kn: 29.16
+  - latitude: -2.652203
+    longitude: 106.911101
+    target_sog_kn: 29.16
+  - latitude: -2.660282
+    longitude: 106.915141
+    target_sog_kn: 26.24
+  - latitude: -2.67721
+    longitude: 106.92
+    target_sog_kn: 23.33
+  - latitude: -2.695297
+    longitude: 106.92
+    target_sog_kn: 23.33
+  - latitude: -2.711958
+    longitude: 106.925979
+    target_sog_kn: 26.24
+  - latitude: -2.728117
+    longitude: 106.934058
+    target_sog_kn: 29.16
+  - latitude: -2.744276
+    longitude: 106.942138
+    target_sog_kn: 29.16
+  - latitude: -2.760436
+    longitude: 106.950218
+    target_sog_kn: 29.16
+  - latitude: -2.776595
+    longitude: 106.958298
+    target_sog_kn: 29.16
+  - latitude: -2.792755
+    longitude: 106.966377
+    target_sog_kn: 29.16
+  - latitude: -2.808914
+    longitude: 106.974457
+    target_sog_kn: 29.16
+  - latitude: -2.825074
+    longitude: 106.982537
+    target_sog_kn: 29.16
+  - latitude: -2.833154
+    longitude: 106.986577
+    target_sog_kn: 29.16
+  - latitude: -2.841234
+    longitude: 106.990617
+    target_sog_kn: 29.16
+  - latitude: -2.849314
+    longitude: 106.994657
+    target_sog_kn: 29.16
+  - latitude: -2.857393
+    longitude: 106.998697
+    target_sog_kn: 29.16
+  - latitude: -2.865473
+    longitude: 107.002737
+    target_sog_kn: 29.16
+  - latitude: -2.869513
+    longitude: 107.004757
+    target_sog_kn: 29.16
+  - latitude: -2.873553
+    longitude: 107.006777
+    target_sog_kn: 29.16
+  - latitude: -2.877593
+    longitude: 107.008797
+    target_sog_kn: 29.16
+  - latitude: -2.881633
+    longitude: 107.010817
+    target_sog_kn: 29.16
+  - latitude: -2.889713
+    longitude: 107.014856
+    target_sog_kn: 29.16
+  - latitude: -2.897793
+    longitude: 107.018896
+    target_sog_kn: 29.16
+  - latitude: -2.901833
+    longitude: 107.020916
+    target_sog_kn: 29.16
+  - latitude: -2.905873
+    longitude: 107.022936
+    target_sog_kn: 29.16
+  - latitude: -2.909913
+    longitude: 107.024956
+    target_sog_kn: 29.16
+  - latitude: -2.913953
+    longitude: 107.026976
+    target_sog_kn: 29.16
+  - latitude: -2.917993
+    longitude: 107.028996
+    target_sog_kn: 29.16
+  - latitude: -2.922033
+    longitude: 107.031016
+    target_sog_kn: 29.16
+  - latitude: -2.930113
+    longitude: 107.035056
+    target_sog_kn: 29.16
+  - latitude: -2.938193
+    longitude: 107.039096
+    target_sog_kn: 29.16
+  - latitude: -2.946273
+    longitude: 107.043136
+    target_sog_kn: 29.16
+  - latitude: -2.954353
+    longitude: 107.047176
+    target_sog_kn: 29.16
+  - latitude: -2.962433
+    longitude: 107.051216
+    target_sog_kn: 29.16
+  - latitude: -2.970513
+    longitude: 107.055256
+    target_sog_kn: 29.16
+  - latitude: -2.978593
+    longitude: 107.059296
+    target_sog_kn: 29.16
+  - latitude: -2.994753
+    longitude: 107.067376
+    target_sog_kn: 29.16
+  - latitude: -3.010913
+    longitude: 107.075456
+    target_sog_kn: 29.16
+  - latitude: -3.027073
+    longitude: 107.083536
+    target_sog_kn: 29.16
+  - latitude: -3.035153
+    longitude: 107.087577
+    target_sog_kn: 29.16
+  - latitude: -3.051313
+    longitude: 107.095657
+    target_sog_kn: 26.24
+  - latitude: -3.065899
+    longitude: 107.105899
+    target_sog_kn: 26.24
+  - latitude: -3.078655
+    longitude: 107.118655
+    target_sog_kn: 29.16
+  - latitude: -3.09141
+    longitude: 107.13141
+    target_sog_kn: 29.16
+  - latitude: -3.104166
+    longitude: 107.144166
+    target_sog_kn: 29.16
+  - latitude: -3.116922
+    longitude: 107.156922
+    target_sog_kn: 15.55
+  - latitude: -3.129678
+    longitude: 107.169678
+    target_sog_kn: 15.55
+  - latitude: -3.142434
+    longitude: 107.182434
+    target_sog_kn: 29.16
+  - latitude: -3.15519
+    longitude: 107.19519
+    target_sog_kn: 29.16
+  - latitude: -3.167947
+    longitude: 107.207947
+    target_sog_kn: 29.16
+  - latitude: -3.18089
+    longitude: 107.220445
+    target_sog_kn: 23.33
+  - latitude: -3.197051
+    longitude: 107.228525
+    target_sog_kn: 29.16
+  - latitude: -3.213212
+    longitude: 107.236606
+    target_sog_kn: 29.16
+  - latitude: -3.229372
+    longitude: 107.244686
+    target_sog_kn: 26.24
+  - latitude: -3.244368
+    longitude: 107.254368
+    target_sog_kn: 26.24
+  - latitude: -3.257124
+    longitude: 107.267124
+    target_sog_kn: 29.16
+  - latitude: -3.269881
+    longitude: 107.279881
+    target_sog_kn: 29.16
+  - latitude: -3.282638
+    longitude: 107.292638
+    target_sog_kn: 29.16
+  - latitude: -3.295395
+    longitude: 107.305395
+    target_sog_kn: 29.16
+  - latitude: -3.308152
+    longitude: 107.318152
+    target_sog_kn: 29.16
+  - latitude: -3.320909
+    longitude: 107.330909
+    target_sog_kn: 29.16
+  - latitude: -3.333667
+    longitude: 107.343667
+    target_sog_kn: 29.16
+  - latitude: -3.346424
+    longitude: 107.356424
+    target_sog_kn: 29.16
+  - latitude: -3.359181
+    longitude: 107.369181
+    target_sog_kn: 29.16
+  - latitude: -3.371939
+    longitude: 107.381939
+    target_sog_kn: 29.16
+  - latitude: -3.384696
+    longitude: 107.394696
+    target_sog_kn: 29.16
+  - latitude: -3.397454
+    longitude: 107.407454
+    target_sog_kn: 29.16
+  - latitude: -3.410212
+    longitude: 107.420212
+    target_sog_kn: 29.16
+  - latitude: -3.422969
+    longitude: 107.432969
+    target_sog_kn: 29.16
+  - latitude: -3.435727
+    longitude: 107.445727
+    target_sog_kn: 29.16
+  - latitude: -3.448485
+    longitude: 107.458485
+    target_sog_kn: 29.16
+  - latitude: -3.461243
+    longitude: 107.471243
+    target_sog_kn: 29.16
+  - latitude: -3.474001
+    longitude: 107.484001
+    target_sog_kn: 29.16
+  - latitude: -3.48676
+    longitude: 107.49676
+    target_sog_kn: 29.16
+  - latitude: -3.499518
+    longitude: 107.509518
+    target_sog_kn: 29.16
+  - latitude: -3.512276
+    longitude: 107.522276
+    target_sog_kn: 29.16
+  - latitude: -3.525035
+    longitude: 107.535035
+    target_sog_kn: 29.16
+  - latitude: -3.537793
+    longitude: 107.547793
+    target_sog_kn: 29.16
+  - latitude: -3.550552
+    longitude: 107.560552
+    target_sog_kn: 29.16
+  - latitude: -3.563311
+    longitude: 107.573311
+    target_sog_kn: 29.16
+  - latitude: -3.57607
+    longitude: 107.58607
+    target_sog_kn: 29.16
+  - latitude: -3.588828
+    longitude: 107.598828
+    target_sog_kn: 29.16
+  - latitude: -3.601587
+    longitude: 107.611587
+    target_sog_kn: 29.16
+  - latitude: -3.614347
+    longitude: 107.624347
+    target_sog_kn: 29.16
+  - latitude: -3.627106
+    longitude: 107.637106
+    target_sog_kn: 29.16
+  - latitude: -3.639865
+    longitude: 107.649865
+    target_sog_kn: 29.16
+  - latitude: -3.652624
+    longitude: 107.662624
+    target_sog_kn: 29.16
+  - latitude: -3.665384
+    longitude: 107.675384
+    target_sog_kn: 29.16
+  - latitude: -3.678143
+    longitude: 107.688143
+    target_sog_kn: 29.16
+  - latitude: -3.690903
+    longitude: 107.700903
+    target_sog_kn: 29.16
+  - latitude: -3.703663
+    longitude: 107.713663
+    target_sog_kn: 29.16
+  - latitude: -3.716422
+    longitude: 107.726422
+    target_sog_kn: 29.16
+  - latitude: -3.729182
+    longitude: 107.739182
+    target_sog_kn: 29.16
+  - latitude: -3.741942
+    longitude: 107.751942
+    target_sog_kn: 29.16
+  - latitude: -3.754702
+    longitude: 107.764702
+    target_sog_kn: 29.16
+  - latitude: -3.767462
+    longitude: 107.777462
+    target_sog_kn: 29.16
+  - latitude: -3.780223
+    longitude: 107.790223
+    target_sog_kn: 29.16
+  - latitude: -3.792983
+    longitude: 107.802983
+    target_sog_kn: 29.16
+  - latitude: -3.805743
+    longitude: 107.815743
+    target_sog_kn: 29.16
+  - latitude: -3.818504
+    longitude: 107.828504
+    target_sog_kn: 29.16
+  - latitude: -3.831264
+    longitude: 107.841264
+    target_sog_kn: 29.16
+  - latitude: -3.844025
+    longitude: 107.854025
+    target_sog_kn: 29.16
+  - latitude: -3.856786
+    longitude: 107.866786
+    target_sog_kn: 29.16
+  - latitude: -3.869547
+    longitude: 107.879547
+    target_sog_kn: 29.16
+  - latitude: -3.882308
+    longitude: 107.892308
+    target_sog_kn: 29.16
+  - latitude: -3.895069
+    longitude: 107.905069
+    target_sog_kn: 29.16
+  - latitude: -3.90783
+    longitude: 107.91783
+    target_sog_kn: 29.16
+  - latitude: -3.920591
+    longitude: 107.930591
+    target_sog_kn: 29.16
+  - latitude: -3.933353
+    longitude: 107.943353
+    target_sog_kn: 29.16
+  - latitude: -3.946114
+    longitude: 107.956114
+    target_sog_kn: 29.16
+  - latitude: -3.958876
+    longitude: 107.968876
+    target_sog_kn: 29.16
+  - latitude: -3.971637
+    longitude: 107.981637
+    target_sog_kn: 29.16
+  - latitude: -3.984399
+    longitude: 107.994399
+    target_sog_kn: 29.16
+  - latitude: -3.997161
+    longitude: 108.007161
+    target_sog_kn: 29.16
+  - latitude: -4.009923
+    longitude: 108.019923
+    target_sog_kn: 29.16
+  - latitude: -4.022685
+    longitude: 108.032685
+    target_sog_kn: 29.16
+  - latitude: -4.035447
+    longitude: 108.045447
+    target_sog_kn: 29.16
+  - latitude: -4.048209
+    longitude: 108.058209
+    target_sog_kn: 29.16
+  - latitude: -4.060972
+    longitude: 108.070972
+    target_sog_kn: 29.16
+  - latitude: -4.073734
+    longitude: 108.083734
+    target_sog_kn: 29.16
+  - latitude: -4.086497
+    longitude: 108.096497
+    target_sog_kn: 29.16
+  - latitude: -4.099259
+    longitude: 108.109259
+    target_sog_kn: 29.16
+  - latitude: -4.112022
+    longitude: 108.122022
+    target_sog_kn: 29.16
+  - latitude: -4.124785
+    longitude: 108.134785
+    target_sog_kn: 29.16
+  - latitude: -4.137548
+    longitude: 108.147548
+    target_sog_kn: 29.16
+  - latitude: -4.150311
+    longitude: 108.160311
+    target_sog_kn: 29.16
+  - latitude: -4.163074
+    longitude: 108.173074
+    target_sog_kn: 29.16
+  - latitude: -4.17
+    longitude: 108.18
+    target_sog_kn: 29.16
+targetShips: []
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 6.0
+metadata:
+  schema_version: '3.0'
+  scenario_id: safe_route
+  scenario_source: l2_safe_route_log
+  vessel_class: FCB
+  odd_cell:
+    domain: coastal_archipelago
+    sea_state_beaufort: 5
+    visibility_nm: 6.0
+  seed: 108
+  simulation_settings:
+    total_time: 36000.0
+    dt: 0.02
+    n_rps_initial: 3.5
+    coordinate_origin:
+    - -1.5
+    - 105.12
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002
+  route_log:
+    source_path: /Users/marine/Code/Temp/voyage_route/route_log.txt
+    waypoints: 324
+    total_distance_km: 487.66
