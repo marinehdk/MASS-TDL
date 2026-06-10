@@ -414,8 +414,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       confidence = sol->relax_level > 0 ? 0.75 : 0.95;
       rationale = sol->rationale;
       if (colregs_directive.conflict_active && std::abs(colregs_signed_dev_deg) > 0.0) {
+        const double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
         const auto window = directive_heading_window(
-            nominal_hdg, colregs_directive, required_dev_deg);
+            own_hdg, colregs_directive, required_dev_deg);
         if (window.has_value()) {
           h_min = window->heading_min_deg;
           h_max = window->heading_max_deg;

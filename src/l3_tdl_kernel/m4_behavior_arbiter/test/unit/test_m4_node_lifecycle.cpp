@@ -265,6 +265,8 @@ TEST_F(BehaviorArbiterTest, PortDirectiveSolverPublishesTightWrappedWindow) {
 
   auto world_msg = std::make_shared<WorldStateMsg>();
   world_msg->stamp = node->now();
+  world_msg->own_ship.position.latitude = 0.0;
+  world_msg->own_ship.position.longitude = 0.0;
   world_msg->own_ship.heading_deg = 10.0;
   world_msg->own_ship.sog_kn = 10.0;
   trigger_world_state(node, world_msg);
@@ -273,6 +275,8 @@ TEST_F(BehaviorArbiterTest, PortDirectiveSolverPublishesTightWrappedWindow) {
   mission_msg->stamp = node->now();
   mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
   mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  mission_msg->current_target_wp.latitude = 0.0;
+  mission_msg->current_target_wp.longitude = 1.0;
   trigger_mission_goal(node, mission_msg);
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
