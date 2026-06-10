@@ -1,8 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import type maplibregl from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
 import { computeRangeNm, computeBearing } from '../screens/shared/navMath';
 
 interface Waypoint { lat: number; lon: number; }
+export interface WaypointRouteMetrics {
+  totalDistanceNm: number;
+  waypointNumber: number;
+  waypointCount: number;
+  nextSegmentNm: number | null;
+  turnAngleDeg: number | null;
+}
 interface Props {
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   waypoints: Waypoint[];
@@ -15,6 +22,66 @@ const WP_LYR = 'planned-route-wp-circle';
 const LBL_SRC = 'planned-route-lbl-src';
 const LBL_LYR = 'planned-route-lbl-symbol';
 const MAX_SEGMENT_LABELS = 24;
+
+function segmentDistanceNm(wps: Waypoint[], startIdx: number): number | null {
+  const a = wps[startIdx];
+  const b = wps[startIdx + 1];
+  if (!a || !b) return null;
+  return computeRangeNm(a.lat, a.lon, b.lat, b.lon);
+}
+
+function bearingDeltaDeg(previous: number, next: number): number {
+  const signed = ((next - previous + 540) % 360) - 180;
+  return Math.abs(signed);
+}
+
+export function buildWaypointRouteMetrics(wps: Waypoint[], waypointIndex: number): WaypointRouteMetrics {
+  const totalDistanceNm = wps.reduce((total, _wp, idx) => (
+    total + (segmentDistanceNm(wps, idx) ?? 0)
+  ), 0);
+  const previous = wps[waypointIndex - 1];
+  const current = wps[waypointIndex];
+  const next = wps[waypointIndex + 1];
+  const turnAngleDeg = previous && current && next
+    ? bearingDeltaDeg(
+      computeBearing(previous.lat, previous.lon, current.lat, current.lon),
+      computeBearing(current.lat, current.lon, next.lat, next.lon)
+    )
+    : null;
+
+  return {
+    totalDistanceNm,
+    waypointNumber: waypointIndex + 1,
+    waypointCount: wps.length,
+    nextSegmentNm: segmentDistanceNm(wps, waypointIndex),
+    turnAngleDeg,
+  };
+}
+
+function formatMetric(value: number | null, unit: string, digits = 1): string {
+  return value === null ? '—' : `${value.toFixed(digits)} ${unit}`;
+}
+
+function buildWaypointPopupHtml(metrics: WaypointRouteMetrics): string {
+  const rows = [
+    ['总航线长度', formatMetric(metrics.totalDistanceNm, 'nm')],
+    ['当前航点', `WP ${metrics.waypointNumber} / ${metrics.waypointCount}`],
+    ['下一航段', formatMetric(metrics.nextSegmentNm, 'nm')],
+    ['偏航角', formatMetric(metrics.turnAngleDeg, '°')],
+  ];
+
+  return `
+    <div style="min-width: 190px; padding: 10px 12px; background: rgba(10, 15, 24, 0.95); color: #e5f3ff; border: 1px solid rgba(91,192,190,0.48); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; box-shadow: 0 12px 30px rgba(0,0,0,0.35);">
+      <div style="font-size: 12px; font-weight: 800; color: #5bc0be; margin-bottom: 8px; letter-spacing: 0.06em;">航点信息</div>
+      ${rows.map(([label, value]) => `
+        <div style="display: flex; justify-content: space-between; gap: 14px; font-size: 11px; line-height: 1.8;">
+          <span style="color: #8fa3b8;">${label}</span>
+          <span style="color: #e5f3ff; font-weight: 700;">${value}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 
 function buildLine(wps: Waypoint[]) {
   return {
@@ -32,7 +99,7 @@ function buildPoints(wps: Waypoint[]) {
     features: wps.map((w, i) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [w.lon, w.lat] },
-      properties: { idx: `WP${i}` },
+      properties: { idx: `WP${i + 1}`, waypointIndex: i },
     })),
   } as const;
 }
@@ -56,10 +123,43 @@ function buildLabels(wps: Waypoint[]) {
 
 export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoints, visible }) => {
   const added = useRef(false);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const opacity = visible && waypoints.length >= 2 ? 1 : 0;
+    let handlersAdded = false;
+    const showWaypointPopup = (event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const feature = event.features?.[0];
+      const waypointIndex = Number(feature?.properties?.waypointIndex);
+      if (!Number.isInteger(waypointIndex) || waypointIndex < 0 || waypointIndex >= waypoints.length) return;
+      const waypoint = waypoints[waypointIndex];
+      const metrics = buildWaypointRouteMetrics(waypoints, waypointIndex);
+      popupRef.current?.remove();
+      popupRef.current = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: false,
+        offset: 14,
+        className: 'planned-route-popup',
+      })
+        .setLngLat([waypoint.lon, waypoint.lat])
+        .setHTML(buildWaypointPopupHtml(metrics))
+        .addTo(map);
+    };
+    const onMouseEnter = () => {
+      map.getCanvas().style.cursor = 'pointer';
+    };
+    const onMouseLeave = () => {
+      map.getCanvas().style.cursor = '';
+    };
+    const addHandlers = () => {
+      if (handlersAdded || !map.getLayer(WP_LYR)) return;
+      map.on('click', WP_LYR, showWaypointPopup);
+      map.on('mouseenter', WP_LYR, onMouseEnter);
+      map.on('mouseleave', WP_LYR, onMouseLeave);
+      handlersAdded = true;
+    };
+
     function setup() {
       if (!map) return;
       const line = buildLine(waypoints);
@@ -76,7 +176,7 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
         map.addSource(WP_SRC, { type: 'geojson', data: pts as any });
         map.addLayer({
           id: WP_LYR, type: 'circle', source: WP_SRC,
-          paint: { 'circle-radius': 4, 'circle-color': '#0369a1',
+          paint: { 'circle-radius': 5, 'circle-color': '#0369a1',
                    'circle-stroke-width': 1, 'circle-stroke-color': '#e0f2fe',
                    'circle-opacity': opacity, 'circle-stroke-opacity': opacity },
         });
@@ -99,9 +199,21 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
           if (map.getLayer(id)) map.setPaintProperty(id, prop, opacity);
         }
       }
+      addHandlers();
     }
     if (!map.isStyleLoaded()) map.once('style.load', setup);
     else setup();
+
+    return () => {
+      map.off('style.load', setup);
+      if (handlersAdded) {
+        map.off('click', WP_LYR, showWaypointPopup);
+        map.off('mouseenter', WP_LYR, onMouseEnter);
+        map.off('mouseleave', WP_LYR, onMouseLeave);
+      }
+      popupRef.current?.remove();
+      popupRef.current = null;
+    };
   }, [mapRef, waypoints, visible]);
   return null;
 });
