@@ -440,6 +440,21 @@ class SilTopicBridge(Node):
         # arming the bridge before the scenario state is fully established.
         self._m3_activated_once: bool = False
 
+        # ── M6 conflict authority (ADR-1) ────────────────────────────────────
+        # M6 COLREGsConstraint.conflict_detected is the SOLE authority for
+        # avoidance arm/release. The bridge must NEVER independently decide
+        # "is the conflict over" — that is M6's exclusive jurisdiction.
+        #
+        # Root cause of ot toggles=126 (fbe100c4): _check_geometry_release() was
+        # firing every ~6s while M6 held conflict stable, because own-ship
+        # avoidance maneuver pushed the target past CPA (TCPA<0 && DCPA≥1000m).
+        # Bridge was overriding M6 authority in violation of ADR-1.
+        #
+        # All 3 bridge release paths (geometry / threat / mission) are now gated
+        # on _m6_conflict_active=False. Only arm/release when M6 agrees.
+        self._m6_conflict_active: bool = False
+        self._m6_conflict_last_t: float | None = None
+
         # ── Last target vessel state (for bridge-local DCPA/TCPA) ─────────────
         self._last_target_vessel_raw = None
 
@@ -531,6 +546,8 @@ class SilTopicBridge(Node):
         self._last_sim_time = None
         self._avoidance_armed_time = None
         self._last_target_vessel_raw = None
+        self._m6_conflict_active = False
+        self._m6_conflict_last_t = None
 
     def _on_lifecycle_status(self, msg: LifecycleStatus) -> None:
         """Reset state if simulation is not ACTIVE."""
@@ -589,18 +606,28 @@ class SilTopicBridge(Node):
         }, self._get_sim_time())
 
     def _on_colregs_constraint(self, msg: COLREGsConstraint) -> None:
-        # Records the M6 health pulse (as before) AND traces the COLREGs
-        # classification so Phase B can assert behavioral stability — conflict
-        # toggle count and onset-role fixity (Rule 13(d)). primary_role enum:
-        # 0=STAND_ON 1=GIVE_WAY 2=BOTH_GIVE_WAY 3=FREE.
+        """Record M6 health pulse AND update conflict authority state (ADR-1).
+
+        _m6_conflict_active is the ONLY avoidance arm/release authority.
+        The bridge defers to M6 — it never independently decides 'is conflict over'.
+        All 3 release paths (geometry / threat / mission) are gated on this flag.
+
+        primary_role enum: 0=STAND_ON 1=GIVE_WAY 2=BOTH_GIVE_WAY 3=FREE.
+        """
         self._record_pulse(M6)
+        t_now = self._get_sim_time()
+        self._m6_conflict_active = bool(msg.conflict_detected)
+        self._m6_conflict_last_t = t_now
+        # [ADR-1] ARM avoidance when M6 detects conflict + M4 is in AVOID mode.
+        if self._m6_conflict_active and not self._avoidance_active:
+            self._arm_avoidance_from_m6()
         self._trace_writer.record("/l3/m6/colregs_constraint", {
             "conflict_detected": bool(msg.conflict_detected),
             "primary_role": int(msg.primary_role),
             "phase": str(msg.phase),
             "primary_preferred_direction": str(msg.primary_preferred_direction),
             "confidence": float(msg.confidence),
-        }, self._get_sim_time())
+        }, t_now)
 
     def _on_odd_state(self, msg: ODDState) -> None:
         self._record_pulse(M1)
@@ -863,6 +890,14 @@ class SilTopicBridge(Node):
             return
         if not self._latch_hold_elapsed():
             return
+        # [ADR-1] Defer to M6 conflict authority: if M6 still sees a conflict,
+        # geometry-based release is suppressed. Only release when M6 clears.
+        # This prevents the bridge from overriding M6's "still in conflict" judgment
+        # during the own-ship avoidance maneuver (which transiently makes TCPA<0).
+        # Root cause of ot toggles=126: bridge was firing geometry release every ~6s
+        # while M6 held conflict stable, overriding ADR-1.
+        if self._m6_conflict_active:
+            return
         if self._last_ownship_raw is None or self._last_target_vessel_raw is None:
             return
 
@@ -873,21 +908,29 @@ class SilTopicBridge(Node):
         if tcpa_s < 0 and dcpa_m >= CPA_SAFE_M:
             self.get_logger().info(
                 f"[BRIDGE] Geometry release: TCPA={tcpa_s:.1f}s < 0, "
-                f"DCPA={dcpa_m:.0f}m >= {CPA_SAFE_M:.0f}m (cpa_safe). "
+                f"DCPA={dcpa_m:.0f}m >= {CPA_SAFE_M:.0f}m, M6 conflict cleared. "
                 "Triggering latch release."
             )
             self._trigger_latch_release()
 
     def _on_threat_state(self, msg: ThreatState) -> None:
-        """M2 threat state callback — check CPA-cleared release condition."""
+        """M2 threat state callback — check CPA-cleared release condition.
+
+        [ADR-1] Guard: only release if M6 also confirms conflict is cleared
+        (_m6_conflict_active=False). M2 ThreatState fields cpa_status /
+        target_relative_position are interim measures; [TBD-HAZID] M2 should
+        publish numeric cpa_m/tcpa_s to unify with M6 past-and-clear logic.
+        """
         self._record_pulse(M2)
         # Condition 1: cpa_status == cleared && target astern
-        if (hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and
+        # [ADR-1] Also require M6 conflict cleared (m6_conflict_active=False)
+        if (not self._m6_conflict_active and
+            hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and
             hasattr(msg, 'target_relative_position') and msg.target_relative_position == "astern" and
             not self._latch_release_triggered and
             self._latch_hold_elapsed()):
             self.get_logger().info(
-                "[BRIDGE] LATCH release condition 1 triggered: CPA cleared, target astern")
+                "[BRIDGE] LATCH release condition 1: CPA cleared, target astern, M6 conflict cleared")
             self._trigger_latch_release()
 
     def _on_mission_goal(self, msg: MissionGoal) -> None:
@@ -921,19 +964,20 @@ class SilTopicBridge(Node):
             self._current_target_wp_lon = float(msg.current_target_wp.longitude)
 
         # Condition 2: task_validity == valid && behavior == TRANSIT
-        # Guard: only release after LATCH_MIN_HOLD_S sim-seconds of avoidance,
-        # preventing instant release when M4 has already cycled back to TRANSIT
-        # by the time this callback fires (M4 races ahead of M5 plan delivery).
+        # [ADR-1] Guard: only release after LATCH_MIN_HOLD_S AND M6 conflict cleared.
+        # Prevents releasing while M6 still reports conflict_detected=True (which would
+        # let M4 TRANSIT + mission completion override M6 authority).
         task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
         behavior_transit = (
             self._last_behavior_plan is not None and
             self._last_behavior_plan.behavior == 0  # BEHAVIOR_TRANSIT
         )
-        if (task_valid and behavior_transit and
+        if (not self._m6_conflict_active and
+                task_valid and behavior_transit and
                 not self._latch_release_triggered and
                 self._latch_hold_elapsed()):
             self.get_logger().info(
-                "[BRIDGE] LATCH release condition 2 triggered: task_valid + TRANSIT behavior")
+                "[BRIDGE] LATCH release condition 2: task_valid + TRANSIT + M6 conflict cleared")
             self._trigger_latch_release()
 
     def _trigger_latch_release(self) -> None:
@@ -957,6 +1001,34 @@ class SilTopicBridge(Node):
         self._latch_offset_at_release_deg = None
         self._latch_release_progress = 0.0
         self._avoidance_armed_time = None
+
+    def _arm_avoidance_from_m6(self) -> None:
+        """ARM avoidance when M6 reports conflict_detected=True + M4=COLREG_AVOID.
+
+        [ADR-1] This is the correct arm authority per design: M6 (COLREGs Reasoner)
+        is the sole detector of avoidance obligation; M4 (Behavior Arbiter) confirms
+        the behavior mode. M5 plan provides waypoints only (guidance data).
+
+        Idempotent: safe to call on every M6 message when conflict_detected=True.
+        Does nothing if M4 is still in TRANSIT (wait for M4 to switch to AVOID).
+        """
+        if self._avoidance_active:
+            return  # already armed
+        m4_in_avoid = (
+            self._last_behavior_plan is not None and
+            self._last_behavior_plan.behavior != 0  # not BEHAVIOR_TRANSIT
+        )
+        if not m4_in_avoid:
+            # M4 not yet in avoidance mode — wait; will retry on next M6 message
+            return
+        sim_t = self._get_sim_time()
+        self.get_logger().info(
+            f"[BRIDGE] ARM avoidance via M6 conflict authority at sim_t={sim_t:.1f}s "
+            f"(M4 behavior={self._last_behavior_plan.behavior})"
+        )
+        self._avoidance_active = True
+        self._avoidance_armed_time = sim_t
+        self._reset_latch_release_state()
 
     def _compute_latch_offset(self, t_release: float, t_now: float,
                                current_offset_deg: float) -> float:

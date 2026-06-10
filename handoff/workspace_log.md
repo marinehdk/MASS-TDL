@@ -246,3 +246,31 @@ This log coordinates task handoffs between different development interfaces (Cla
   - **KEY GOTCHA**: the plain `scripts/run_6_scenarios.py` batch reads **0/8** = pure CROSS-RUN BLEED (trace-slicing / warm-state contamination; every clean single-drive passes). Use restart-between-runs (`docker restart sil-nodes` + 24s settle before each scenario) for the authoritative batch number.
 - **当前状态 (Status)**: M6 generalization DONE, **6/8 clean batch**. The 2 remaining are DOWNSTREAM of M6 (user-scoped out this session, "M6-only, don't touch bridge"): **ot** = bridge `_check_geometry_release()` (`docker/sil_topic_bridge.py` ~L1138) independently releasing avoidance every ~6s while M6 holds conflict (M6 conflict stable toggles=2, but `avoidance_active` flaps 126×) — ADR-1, bridge fragile; **ot-boundary** = M4/M5 turn-magnitude (CPA 46m<500m floor, prompt's "另算").
 - **接力指示 (Hand-off Context)**: M6 work complete. For 7/8: (a) **ot** — make the bridge defer to M6 authority (don't `_check_geometry_release` while M6 `conflict_detected`); fragile, see [[l3-route-return-plumbing-4-breaks]]. (b) **ot-boundary** — increase M4/M5 avoidance magnitude at the crossing/overtaking edge. Both NON-M6.
+
+## [2026-06-09 17:31] Agent: Antigravity (IDE)
+- **Git Commit**: `0acfe85c` (branch: `main`)
+- **任务目标 (Goal)**: Check status of feat/d1.8-malacca-fullroute-avoidance-demo branch and answer if user can continue development on it.
+- **核心改动 (Actions)**:
+  - None (Read-only query session)
+- **当前状态 (Status)**: GREEN. Checked local branch status, commit history, and simulated merging main into the branch (no conflicts).
+- **接力指示 (Hand-off Context)**: Branch is clean and ready for development. Highly recommended to merge/rebase main into this branch first to get recent M6 and stability scorer fixes.
+
+## [2026-06-09 09:50] Agent: Antigravity (IDE)
+- **Git Commit**: `61daf004` (branch: `main`, 已三端同步 origin/main + gitlab l3-tdl)
+- **任务目标 (Goal)**: Bridge 去影子化 —— 修复 `_check_geometry_release` 独立覆盖 M6 权威 (ADR-1) 导致 ot 探针 behavior_toggles=126 的根因；以增量迁移方式将决策层权威交还 M6。
+- **核心改动 (Actions)**:
+  - `docker/sil_topic_bridge.py`:
+    - 新增 `_m6_conflict_active` + `_m6_conflict_last_t` 状态字段，在 lifecycle reset 时清空
+    - `_on_colregs_constraint` 更新：从 trace-only 升级为记录 M6 冲突权威状态（`conflict_detected` → `_m6_conflict_active`），新增 `_arm_avoidance_from_m6()` 调用入口
+    - **根因修复** `_check_geometry_release`：加 `if self._m6_conflict_active: return` guard — 桥在 M6 仍持有 `conflict_detected=True` 时禁止独立判断 TCPA/DCPA 释放避碰（ADR-1 violations → ot toggles 126→2）
+    - `_on_threat_state` Condition 1：加 `not self._m6_conflict_active` guard
+    - `_on_mission_goal` Condition 2：加 `not self._m6_conflict_active` guard
+    - 新增 `_arm_avoidance_from_m6()` 方法：M6 conflict=True + M4 COLREG_AVOID → ARM，幂等，M4 仍 TRANSIT 时等待（P3 ARM 权威准备）
+  - `tests/docker/test_sil_topic_bridge.py`: 新增 6 个 ADR-1 测试（geometry release blocked/allowed, arm via M6/transit guard, idempotent, colregs constraint update）
+- **当前状态 (Status)**: **GREEN** — 本地 12/12 bridge + 9/9 scorer；A4000 clean 8-probe batch: **7/8 PASS** (ot: toggles 126→2 ✅, 6 existing probes 零回归, ot-boundary ❌ 仍 46m 另案)。三端同步 61daf004。
+- **接力指示 (Hand-off Context)**:
+  - **ot-boundary** (conf_tog=10, beh_tog=8, cpa=71m): M4/M5 转向幅度问题（超界 crossing/overtaking 边缘），独立任务，非 M6 修。
+  - **P3 ARM 权威完整迁移**：`_arm_avoidance_from_m6()` 已就位，M5 plan arm 路径仍保留作安全网；若需完全迁移 ARM 到 M6，删 `_on_avoidance_plan` 中的 arm 块，A4000 验证不复发 circling。
+  - **L4-Guidance stub**：`HeadingController`/`SpeedController`/`_compute_avoidance_autopilot` 保留桥内，等 L4 节点就位时另轮移除。
+  - **bridge-deshadow-migration-prompt.md §待定** 中的 M1 `MAX_AVOID_DEV_DEG=60.0` 硬编码（等 M1 发布 ROT_max 后替换）仍未处理。
+
