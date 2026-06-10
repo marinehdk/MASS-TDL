@@ -8,8 +8,8 @@ namespace mass_l3::m6_colregs {
 
 // Onset-latched COLREG hysteresis (Rule 13(d): classification fixed at onset;
 // later bearing changes do not reclassify). Release follows Rule 16 "finally past
-// and clear": the target has drawn abaft the beam (past_and_clear) AND the range
-// is opening.
+// and clear": the target has drawn abaft the beam (past_and_clear), the range is
+// opening, and CPA is back above the configured safe floor.
 //
 // NOTE (2026-06-08): a former CPA-magnitude fallback (release when predicted CPA
 // climbed above 1.5×cpa_safe while opening) was REMOVED — it could not tell
@@ -17,8 +17,9 @@ namespace mass_l3::m6_colregs {
 // give-way maneuver opened it". During a successful avoidance the maneuver opens
 // CPA past the threshold, so the fallback released mid-maneuver → conflict
 // chatter → M4 flapped AVOID↔TRANSIT → rudder fishtailed. Release now requires
-// the target to be genuinely abaft the beam. The bridge geometry-release
-// (TCPA<0 & DCPA≥cpa_safe) remains the independent backup if abaft is never met.
+// the target to be genuinely abaft the encounter reference beam. The bridge
+// geometry-release (TCPA<0 & DCPA≥cpa_safe) remains the independent backup if
+// abaft is never met.
 //
 // ONSET CLASSIFICATION (2026-06-08): the latch also snapshots the give-way
 // CLASSIFICATION at the latching cycle (role/encounter/direction). Once own ship
@@ -40,8 +41,12 @@ class RuleLatch {
   // its classification is snapshotted as the onset classification and held
   // (Rule 13(d)); a later raw re-evaluation does NOT overwrite it.
   bool update(bool rule_active, double cpa_m, bool range_closing, bool past_and_clear,
-              const RuleEvaluation* current_eval = nullptr) {
+              const RuleEvaluation* current_eval = nullptr,
+              bool cpa_projection_past_and_safe = false) {
     if (!latched_) {
+      if (released_past_clear_ || cpa_projection_past_and_safe) {
+        return false;
+      }
       // Latch only on a genuine onset: rule fired AND threat is real.
       if (rule_active && cpa_m < cpa_safe_m_ && range_closing && !past_and_clear) {
         latched_ = true;
@@ -57,14 +62,16 @@ class RuleLatch {
       return latched_;
     }
     // Latched: release only once the encounter is finally past and clear
-    // (target abaft the beam) AND the range is opening. Do NOT release on a
-    // CPA-magnitude heuristic — own-ship's give-way maneuver itself opens CPA,
-    // which would release the latch mid-maneuver and chatter (see class note).
-    (void)cpa_m;  // retained in signature for onset gate above; not used for release
+    // (target abaft the encounter reference beam), the range is opening, AND CPA
+    // is safe. Do NOT release on a CPA-magnitude heuristic alone — own-ship's
+    // give-way maneuver itself opens CPA, which would release the latch
+    // mid-maneuver and chatter (see class note).
     const bool opening = !range_closing;
-    if (opening && past_and_clear) {
+    const bool past_clear_and_safe = opening && past_and_clear && (cpa_m >= cpa_safe_m_);
+    if (past_clear_and_safe) {
       latched_ = false;
       has_onset_ = false;  // encounter resolved → forget onset classification
+      released_past_clear_ = true;
     }
     return latched_;
   }
@@ -94,6 +101,7 @@ class RuleLatch {
 
   // Onset classification snapshot (Rule 13(d): fixed at onset, held through maneuver).
   bool has_onset_{false};
+  bool released_past_clear_{false};
   Role onset_role_{Role::FREE};
   EncounterType onset_encounter_{EncounterType::NONE};
   TimingPhase onset_phase_{TimingPhase::PRESERVE_COURSE};

@@ -25,6 +25,7 @@ import signal
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 import rclpy
 from rclpy.node import Node
@@ -100,6 +101,9 @@ CRUISE_SPEED_KN = 10.0
 SHIP_LENGTH_M = 46.0   # FCB approximate length for turn-radius→rudder conversion
 
 RUDDER_SIGN = -1  # MMG convention: positive delta → PORT turn; bridge uses positive = starboard
+# Transitional Bridge cap for rolling M4 windows. Boundary probes need >135 deg
+# separation until L4 owns heading tracking and route-return authority.
+M4_AVOID_TARGET_LOCK_DELTA_DEG = 150.0
 
 # ── Geometry release threshold ─────────────────────────────────────────────
 # Bridge-local CPA safety margin for geometry release criterion.
@@ -110,6 +114,43 @@ RUDDER_SIGN = -1  # MMG convention: positive delta → PORT turn; bridge uses po
 # duplicated here. Until M2 exports these fields, this bridge-local constant is
 # the interim bridge implementation.
 CPA_SAFE_M: float = 1000.0  # metres — same as M6 integration-test baseline
+
+
+def _signed_heading_delta_deg(heading_deg: float, reference_deg: float) -> float:
+    return (float(heading_deg) - float(reference_deg) + 180.0) % 360.0 - 180.0
+
+
+def _m4_colregs_window_target_deg(
+        heading_min_deg: float,
+        heading_max_deg: float,
+        nominal_heading_deg: float) -> Optional[float]:
+    h_min = float(heading_min_deg)
+    h_max = float(heading_max_deg)
+    if h_max < h_min:
+        h_max += 360.0
+    h_span = h_max - h_min
+    if h_span > 300.0:
+        return None
+
+    reversal_boundary = float(nominal_heading_deg) + 180.0
+    while reversal_boundary < h_min:
+        reversal_boundary += 360.0
+    while reversal_boundary > h_max:
+        reversal_boundary -= 360.0
+    if h_min < reversal_boundary < h_max:
+        return h_min % 360.0
+
+    return (h_min + (5.0 / 6.0) * h_span) % 360.0
+
+
+def _should_refresh_m4_colregs_target(
+        current_target_deg: Optional[float],
+        nominal_heading_deg: float) -> bool:
+    if current_target_deg is None:
+        return True
+    current_delta = abs(_signed_heading_delta_deg(
+        current_target_deg, nominal_heading_deg))
+    return current_delta < M4_AVOID_TARGET_LOCK_DELTA_DEG
 
 # ── QoS profiles ─────────────────────────────────────────────
 
@@ -651,21 +692,24 @@ class SilTopicBridge(Node):
         # open-loop turn_radius rudder indefinitely → endless circling, no return.
         if self._avoidance_active:
             if msg.behavior == 0:  # BEHAVIOR_TRANSIT
-                now = self._get_sim_time()
-                if self._transit_since_time is None:
-                    self._transit_since_time = now
-                if (self._latch_hold_elapsed() and
-                        (now - self._transit_since_time) >= self._AVOID_TRANSIT_RELEASE_S):
-                    if logger is not None:
-                        logger().info(
-                            "[BRIDGE] Avoidance teardown — M4 held TRANSIT for "
-                            f"{now - self._transit_since_time:.1f}s; returning to route"
-                        )
-                    self._avoidance_active = False
-                    self._avoidance_target_heading_deg = None
-                    self._avoidance_heading_controller.last_cmd_deg = 0.0
-                    self._reset_latch_release_state()
+                if self._latch_release_triggered:
                     self._transit_since_time = None
+                else:
+                    now = self._get_sim_time()
+                    if self._transit_since_time is None:
+                        self._transit_since_time = now
+                    if (self._latch_hold_elapsed() and
+                            (now - self._transit_since_time) >= self._AVOID_TRANSIT_RELEASE_S):
+                        if logger is not None:
+                            logger().info(
+                                "[BRIDGE] Avoidance teardown — M4 held TRANSIT for "
+                                f"{now - self._transit_since_time:.1f}s; returning to route"
+                            )
+                        self._avoidance_active = False
+                        self._avoidance_target_heading_deg = None
+                        self._avoidance_heading_controller.last_cmd_deg = 0.0
+                        self._reset_latch_release_state()
+                        self._transit_since_time = None
             else:
                 self._transit_since_time = None
         # G1 (continuous target tracking — D-DEMO1 under-turn fix): while M4
@@ -682,14 +726,12 @@ class SilTopicBridge(Node):
         if (self._avoidance_active and
                 msg.behavior != 0 and
                 not self._latch_release_triggered):
-            h_min = float(msg.heading_min_deg)
-            h_max = float(msg.heading_max_deg)
-            if h_max < h_min:
-                h_max += 360.0
-            h_span = h_max - h_min
-            if h_span <= 300.0:
-                self._avoidance_target_heading_deg = (
-                    h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+            nominal_heading = getattr(self, '_target_heading_deg', 0.0)
+            candidate = _m4_colregs_window_target_deg(
+                msg.heading_min_deg, msg.heading_max_deg, nominal_heading)
+            if candidate is not None and _should_refresh_m4_colregs_target(
+                    self._avoidance_target_heading_deg, nominal_heading):
+                self._avoidance_target_heading_deg = candidate
             # else: degenerate (≈full circle) window — keep the last good target
             # (or None → _compute_avoidance_autopilot falls back to M5 waypoint
             # rudder); do not overwrite with a nonsensical heading.
@@ -1093,6 +1135,13 @@ class SilTopicBridge(Node):
                 )
             return
 
+        if (not has_valid_plan and self._avoidance_active and
+                self._latch_release_triggered):
+            self.get_logger().info(
+                "[BRIDGE] IGNORE empty M5 plan while LATCH release is decaying"
+            )
+            return
+
         if self._autopilot_enabled and not has_valid_plan:
             if self._avoidance_active:
                 self.get_logger().info(
@@ -1139,10 +1188,12 @@ class SilTopicBridge(Node):
                     beh = self._last_behavior_plan
                     h_min = float(beh.heading_min_deg)
                     h_max = float(beh.heading_max_deg)
-                    if h_max < h_min:
-                        h_max += 360.0
-                    h_span = h_max - h_min
-                    if h_span > 300.0:
+                    candidate = _m4_colregs_window_target_deg(
+                        h_min, h_max, self._target_heading_deg)
+                    if candidate is None:
+                        if h_max < h_min:
+                            h_max += 360.0
+                        h_span = h_max - h_min
                         # Degenerate window (≈full circle): defer to M5 waypoint rudder.
                         self.get_logger().info(
                             f"[BRIDGE] LATCHED (degenerate M4 window "
@@ -1150,8 +1201,7 @@ class SilTopicBridge(Node):
                             "— target_heading deferred to M5 waypoint rudder"
                         )
                     else:
-                        self._avoidance_target_heading_deg = (
-                            h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
+                        self._avoidance_target_heading_deg = candidate
 
                         self.get_logger().info(
                             f"[BRIDGE] ARMED avoidance target_heading="

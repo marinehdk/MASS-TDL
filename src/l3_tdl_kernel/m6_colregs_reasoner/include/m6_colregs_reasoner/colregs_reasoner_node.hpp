@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -108,6 +109,11 @@ class ColregsReasonerNode : public rclcpp::Node {
   // give-way vessel that failed to act, the action is held through the
   // close-quarters phase so the phase classifier cannot chatter it on/off.
   std::unordered_map<uint32_t, RuleLatch> standon_latches_;
+  // Per-target encounter reference heading captured at duty onset. Release uses
+  // this stable beam reference so own-ship's avoidance turn cannot make a target
+  // appear "past and clear" before the vessels have actually passed.
+  std::unordered_map<uint32_t, double> encounter_reference_heading_;
+  std::unordered_set<uint32_t> resolved_targets_;
 
   // Mutex protecting shared state accessed from subscriber and timer callbacks
   mutable std::mutex state_mutex_;

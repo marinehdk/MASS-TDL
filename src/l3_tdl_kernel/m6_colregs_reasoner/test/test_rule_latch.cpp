@@ -26,19 +26,27 @@ TEST(RuleLatch, DoesNotReleaseOnCpaOpeningWithoutPastAndClear) {
   EXPECT_TRUE(latch.update(false, 5000.0, false, false));
 }
 
+TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWithoutPastAndClear) {
+  RuleLatch latch{1852.0, 1.5};
+  EXPECT_TRUE(latch.update(true, 900.0, true, false));
+  EXPECT_TRUE(latch.update(false, 2000.0, false, false, nullptr,
+                           /*cpa_projection_past_and_safe=*/true));
+}
+
 TEST(RuleLatch, NeverLatchesIfNeverOnset) {
   RuleLatch latch{1852.0, 1.5};
   EXPECT_FALSE(latch.update(false, 5000.0, false, false));
 }
 
-// Rule 16 "finally past and clear": once the target draws abaft the beam and the
-// range is opening, release immediately even though predicted CPA has not yet
-// climbed past the conservative 1.5×cpa_safe fallback threshold. This is what
-// hands control back to the route-return autopilot in time.
-TEST(RuleLatch, ReleasesWhenPastAndClearBelowCpaThreshold) {
+TEST(RuleLatch, DoesNotReleaseWhenPastAndClearButCpaUnsafe) {
   RuleLatch latch{1852.0, 1.5};
   EXPECT_TRUE(latch.update(true, 900.0, true, false));   // onset
-  // cpa 2000 < release 2778, but target abaft beam & opening → release
+  EXPECT_TRUE(latch.update(false, 900.0, false, true));
+}
+
+TEST(RuleLatch, ReleasesWhenPastAndClearAndCpaSafe) {
+  RuleLatch latch{1852.0, 1.5};
+  EXPECT_TRUE(latch.update(true, 900.0, true, false));   // onset
   EXPECT_FALSE(latch.update(false, 2000.0, false, true));
 }
 
@@ -143,6 +151,53 @@ TEST(RuleLatch, DoesNotOnsetWhenAlreadyPastAndClear) {
   EXPECT_FALSE(latch.update(/*rule_active=*/true, /*cpa_m=*/900.0,
                             /*range_closing=*/true,
                             /*past_and_clear=*/true, &onset));
+  EXPECT_FALSE(latch.latched());
+  EXPECT_FALSE(latch.has_onset());
+}
+
+TEST(RuleLatch, DoesNotOnsetWhenCpaProjectionPastAndSafe) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::BOTH_GIVE_WAY;
+  onset.encounter_type = EncounterType::HEAD_ON;
+  onset.preferred_direction = "STARBOARD";
+  onset.min_alteration_deg = 15.0;
+
+  EXPECT_FALSE(latch.update(/*rule_active=*/true, /*cpa_m=*/900.0,
+                            /*range_closing=*/true,
+                            /*past_and_clear=*/false, &onset,
+                            /*cpa_projection_past_and_safe=*/true));
+  EXPECT_FALSE(latch.latched());
+  EXPECT_FALSE(latch.has_onset());
+}
+
+TEST(RuleLatch, DoesNotRelatchSameEncounterAfterPastAndClearRelease) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::BOTH_GIVE_WAY;
+  onset.encounter_type = EncounterType::HEAD_ON;
+  onset.preferred_direction = "STARBOARD";
+  onset.min_alteration_deg = 15.0;
+
+  EXPECT_TRUE(latch.update(/*rule_active=*/true, /*cpa_m=*/900.0,
+                           /*range_closing=*/true,
+                           /*past_and_clear=*/false, &onset));
+  EXPECT_FALSE(latch.update(/*rule_active=*/false, /*cpa_m=*/2000.0,
+                            /*range_closing=*/false,
+                            /*past_and_clear=*/true, nullptr));
+
+  RuleEvaluation late_standon{};
+  late_standon.is_active = true;
+  late_standon.role = Role::STAND_ON;
+  late_standon.encounter_type = EncounterType::CROSSING;
+  late_standon.preferred_direction = "STARBOARD";
+  late_standon.min_alteration_deg = 15.0;
+
+  EXPECT_FALSE(latch.update(/*rule_active=*/true, /*cpa_m=*/800.0,
+                            /*range_closing=*/true,
+                            /*past_and_clear=*/false, &late_standon));
   EXPECT_FALSE(latch.latched());
   EXPECT_FALSE(latch.has_onset());
 }
