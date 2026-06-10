@@ -73,6 +73,306 @@ pytest tools/sil/test_simulate.py          # kinematic 自洽（ho 可赢 ≥cpa
 阈值默认按角色派生，可经 scenario `metadata.expected_outcome.stability_thresholds` 覆盖（schema 已允许 additionalProperties）。
 单元测试 `tests/sim_workbench/scoring/test_stability_scorer.py`（9 例，含 fishtail 回归锁 + benign 细化）。
 
+## 前端测试对照 Runbook（8-probe）
+
+本节用于前端/HMI 测试时人工对照：UI 展示的规则、角色、阶段、避碰轨迹、执行量必须与
+M6/M4/M5/L4 链路一致。注意：前端不得把 Bridge 推断状态当成战术真相；Bridge 只能作为传输/调试层。
+
+### 通用正常链路
+
+```mermaid
+flowchart LR
+  M2["M2 WorldState<br/>目标/CPA/TCPA/相对方位"] --> M6["M6 COLREGsConstraint<br/>rule/role/phase/direction/conflict"]
+  M6 --> M4["M4 BehaviorPlan<br/>TRANSIT 或 COLREG_AVOID<br/>heading/speed window"]
+  M6 --> M5["M5 Tactical Planner<br/>AvoidancePlan / ReactiveOverride"]
+  M4 --> M5
+  M5 --> L4["L4 Guidance<br/>最终 heading/speed/ROT"]
+  L4 --> SIM["SIL/Ship Dynamics"]
+  M6 --> M8["M8 Frontend<br/>规则链/角色/阶段"]
+  M4 --> M8
+  M5 --> M8
+  L4 --> M8
+```
+
+### 通用前端检查点
+
+| 层 | 前端应看到 |
+|---|---|
+| M6 | active rule、own role、phase、preferred direction、conflict_detected、rationale chain |
+| M4 | behavior 从 `TRANSIT` 进入 `COLREG_AVOID`，再回 `TRANSIT`；不应高频抖动 |
+| M5 | 有效 `AvoidancePlan`：航点、速度调整、active constraints、rationale |
+| L4 | 右舵、保向、减速等执行量与 M5/M6 一致 |
+| M8 | 决策树解释与实际动作一致，不用 Bridge 推断状态当真相 |
+
+每次跑场景，前端至少记录：
+
+```text
+scenario_id
+M6 active_rules
+M6 primary_role
+M6 primary_preferred_direction
+M6 conflict_detected
+M4 behavior
+M4 heading_min/max
+M5 plan valid/empty
+M5 first waypoint / target heading if shown
+L4 heading/speed/ROT/rudder
+CPA min
+conflict_toggles
+behavior_toggles
+steering_reversals
+route_return_status
+```
+
+判定口径：
+
+| 结果 | 含义 |
+|---|---|
+| GREEN | UI 规则、角色、动作、实际转向一致；give-way 场景早期右转，CPA 达标，之后归航；stand-on 场景前期保向，末段才 Rule17(b) 动作；toggles 在阈值内 |
+| YELLOW | CPA 达标，但 UI 决策树缺 role/phase/direction；避碰正常但归航展示不清晰；plan 有效但 L4 执行量未显示 |
+| RED | 左转违反 Rule14/15；提前让路违反 Rule17；M6/M4/M5 任一层高频抖动；CPA 不达标；前端显示 Bridge 推断状态而非 M6/M4/M5/L4 真链路 |
+
+### 1. `colreg-rule14-ho`
+
+文件：`colreg-rule14-ho.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule 14 head-on |
+| OS 角色 | give-way / both-give-way |
+| 动作 | 右转，port-to-port pass |
+| CPA | ≥926 m |
+| 总时长 | 300 s |
+
+示意：
+
+```text
+TS ↓  reciprocal, dead ahead
+  |
+  |
+OS ↑  route north
+```
+
+正常流程：
+
+1. M2 检出目标正前方、DCPA≈0、TCPA 接近。
+2. M6 判定 Rule14，对遇；`primary_preferred_direction=STARBOARD`，`conflict_detected=true`。
+3. M4 输出 `COLREG_AVOID`，heading window 偏右。
+4. M5 生成右转避碰航点，不应只给小角度抖动。
+5. L4 执行稳定右舵/右转。
+6. 两船 port-to-port 通过，M6 保持 duty 到 past-and-clear。
+7. M6 conflict false，M4 回 TRANSIT，M5 空 plan 或 route-return plan，L4 回归航线。
+8. 前端应显示 Rule14 → 右转 → 通过 → 归航。
+
+异常信号：左转、保持直行、Rule14/Rule15 来回跳、M4 AVOID/TRANSIT 高频翻转。
+
+### 2. `colreg-rule14-ho-port`
+
+文件：`colreg-rule14-ho-port.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule 14，port-biased boundary |
+| OS 角色 | give-way / both-give-way |
+| 动作 | 仍然右转 |
+| CPA | ≥926 m |
+| 总时长 | 300 s |
+
+示意：
+
+```text
+ TS ↓  slightly port of bow
+  \
+   \
+OS ↑
+```
+
+正常流程：
+
+1. M6 不能把目标偏左 5°误判成“可以左转/穿越”。
+2. Rule14 仍成立，direction 仍是 `STARBOARD`。
+3. M4/M5/L4 动作与纯对遇一样：明确右转。
+4. 前端决策树应显示“Rule14 head-on，port-biased but still starboard”。
+
+异常信号：UI 显示 crossing、动作向左、M6 preferred direction 变 PORT/HOLD。
+
+### 3. `colreg-rule13-ot`
+
+文件：`colreg-rule13-ot.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule 13 overtaking |
+| OS 角色 | own give-way |
+| 动作 | 右转追越，直到 past-and-clear |
+| CPA | ≥926 m |
+| 总时长 | 420 s |
+
+示意：
+
+```text
+TS ↑  slow 7 kn
+OS ↑  fast 14 kn, overtaking
+```
+
+正常流程：
+
+1. M6 判定追越，OS 是 give-way。
+2. `conflict_detected=true` 后，role/direction 必须锁住。
+3. OS 转右，绕开目标船。
+4. 即使相对方位前移，也不能重分类成 crossing 后释放。
+5. 只有 past-and-clear 后才释放 conflict。
+6. 前端应持续显示 Rule13 give-way，不能中途闪回 Tracking/TRANSIT。
+
+异常信号：Rule13→Rule15/Free 翻转、conflict 多次跳、过早回航导致 fishtail。
+
+### 4. `colreg-rule15-cs`
+
+文件：`colreg-rule15-cs.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule 15 + Rule 16 |
+| OS 角色 | own give-way |
+| 动作 | 右转，绕目标尾部 |
+| CPA | ≥926 m |
+| 总时长 | 300 s |
+
+示意：
+
+```text
+       TS ↖ from starboard bow
+          \
+           \
+OS ↑
+```
+
+正常流程：
+
+1. M6 判定右舷交叉，OS give-way。
+2. M6 direction=`STARBOARD`，Rule16 要求早而明显动作。
+3. M4 进入 `COLREG_AVOID`。
+4. M5 轨迹应从目标船尾部绕过，不应 cross ahead。
+5. L4 执行右转，避让后回归航线。
+6. 前端显示 Rule15：右舷目标，本船让路，策略为右转/绕尾。
+
+异常信号：从目标船首前穿过、动作太晚、只小幅摆舵、CPA 不达标。
+
+### 5. `colreg-rule15-cs-2`
+
+文件：`colreg-rule15-cs-2.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule 15 + Rule 16，短反应窗口 |
+| OS 角色 | own give-way |
+| 动作 | 早期、明确右转 |
+| CPA | ≥926 m |
+| 总时长 | 260 s |
+
+正常流程同 Rule15 crossing，但前端重点看：
+
+1. M6/M4 触发不能拖延。
+2. M5 plan 应较早出现。
+3. L4 右转应是明显动作，不是连续小修正。
+4. CPA 必须仍达到 926 m。
+
+异常信号：前半段 UI 仍显示 TRANSIT、M5 plan 延迟、最后才猛打舵。
+
+### 6. `colreg-rule15-cs-edge`
+
+文件：`colreg-rule15-cs-edge.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule15，head-on/crossing 边界 |
+| OS 角色 | own give-way |
+| 动作 | 右转 |
+| CPA | ≥500 m |
+| 总时长 | 300 s |
+
+示意：
+
+```text
+TS ↙  rel_brg ~25°, just outside head-on cone
+   \
+    \
+OS ↑
+```
+
+正常流程：
+
+1. M6 应稳定判为 Rule15 starboard crossing。
+2. 不应在 Rule14/Rule15 间抖动。
+3. 动作仍是右转。
+4. 前端应显示“classification boundary，但当前规则稳定为 Rule15”。
+
+异常信号：规则标签来回跳、direction 来回变、M4 behavior toggle >2。
+
+### 7. `colreg-rule15-ot-boundary`
+
+文件：`colreg-rule15-ot-boundary.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule15，crossing/overtaking 边界 |
+| OS 角色 | own give-way |
+| 动作 | 右转 |
+| CPA | ≥500 m |
+| 总时长 | 320 s |
+
+示意：
+
+```text
+        TS ↖ fast, rel_brg ~108°
+      /
+OS ↑
+```
+
+正常流程：
+
+1. 初始相对方位约 108°，接近 112.5° crossing/overtaking 边界。
+2. M6 应稳定保持 Rule15 give-way，不因方位漂移反复切换。
+3. M4 应保持 `COLREG_AVOID`，不 AVOID/TRANSIT 抖动。
+4. M5 应持续给有效右转 plan。
+5. L4 不应出现左右舵来回反转。
+6. 前端重点显示“Rule15 boundary stable”。
+
+异常信号：这是当前最敏感场景。若看到 `conflict_toggles`、`behavior_toggles` 高，说明 M6/M4/M5 有一层在边界抖。
+
+### 8. `colreg-rule17-cr-so`
+
+文件：`colreg-rule17-cr-so.yaml`
+
+| 项 | 期望 |
+|---|---|
+| 规则 | Rule17 + Rule15 |
+| OS 角色 | stand-on |
+| 动作 | 前期保向保速，末段 Rule17(b) 独立行动 |
+| CPA | ≥500 m |
+| 总时长 | 360 s |
+
+示意：
+
+```text
+TS → from port side, target should give way but does not
+      \
+       \
+OS ↑ stand-on
+```
+
+正常流程：
+
+1. 前期：M6 显示 OS stand-on，preferred direction=`HOLD`。
+2. M4 不应提前进入大幅 `COLREG_AVOID`。
+3. M5 不应早期生成大偏航 plan。
+4. L4 保向保速，前 75% 航向偏移 <10°。
+5. 如果目标仍不让，M6 进入 Rule17(b) independent action。
+6. M4 转 `COLREG_AVOID`，M5 给避碰 plan，L4 执行动作。
+7. 前端应显示阶段变化：`Stand-on hold` → `Rule17(b) allowed action` → `Avoiding` → `Clear/Return`。
+
+异常信号：OS 一开始就右转/左转大幅让路，或末段仍无动作。
+
 ## Tier-3 极限场景（暂缓，需 harness 改动）
 
 1. **不合作机动目标**（对遇中目标违规左转切入）：`target_vessel_node` 仅支持直线 `replay` 与随机游走 `ncdm`，**无脚本化机动**。需新增脚本化机动目标模式或接入 `trajectory_file` 重放。
