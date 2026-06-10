@@ -260,6 +260,63 @@ def test_avoidance_tears_down_when_m4_returns_to_transit(monkeypatch):
     assert fake_self._avoidance_active is False
 
 
+def test_behavior_plan_tracking_does_not_clamp_m4_colregs_window(monkeypatch):
+    """Bridge must not cap a valid M4 COLREG window back to a 60 deg route offset."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = 60.0
+
+    avoid_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=154.0,
+        heading_max_deg=184.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, avoid_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(179.0)
+
+
+def test_avoidance_plan_arm_does_not_clamp_m4_colregs_window(monkeypatch):
+    """Bridge arm path must respect M4 window, not route-relative 60 deg shadow."""
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        _get_sim_time=lambda: 100.0,
+        _autopilot_enabled=False,
+        _avoidance_active=False,
+        _avoidance_armed_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=None,
+        _last_behavior_plan=SimpleNamespace(
+            behavior=1,
+            heading_min_deg=154.0,
+            heading_max_deg=184.0,
+        ),
+        _last_valid_plan_time=0.0,
+        _last_avoidance_waypoint=None,
+        _latch_release_triggered=False,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    valid_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[SimpleNamespace(turn_radius_m=500.0, target_speed_kn=10.0)],
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, valid_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(179.0)
+
+
 def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):
     bridge = _load_bridge(monkeypatch)
     fake_self = SimpleNamespace(

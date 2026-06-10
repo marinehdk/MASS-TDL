@@ -690,15 +690,6 @@ class SilTopicBridge(Node):
             if h_span <= 300.0:
                 self._avoidance_target_heading_deg = (
                     h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-                
-                # Clamp the avoidance target heading to prevent over-turning feedback loop (U-turn)
-                # Maximum allowed deviation from nominal route is 60 degrees.
-                MAX_AVOID_DEV_DEG = 60.0
-                nominal = getattr(self, '_target_heading_deg', 0.0)
-                diff = (self._avoidance_target_heading_deg - nominal + 180.0) % 360.0 - 180.0
-                if abs(diff) > MAX_AVOID_DEV_DEG:
-                    sign = 1.0 if diff >= 0.0 else -1.0
-                    self._avoidance_target_heading_deg = (nominal + sign * MAX_AVOID_DEV_DEG) % 360.0
             # else: degenerate (≈full circle) window — keep the last good target
             # (or None → _compute_avoidance_autopilot falls back to M5 waypoint
             # rudder); do not overwrite with a nonsensical heading.
@@ -1161,15 +1152,7 @@ class SilTopicBridge(Node):
                     else:
                         self._avoidance_target_heading_deg = (
                             h_min + (5.0 / 6.0) * (h_max - h_min)) % 360.0
-                        
-                        # Clamp target heading to prevent over-turning
-                        MAX_AVOID_DEV_DEG = 60.0
-                        nominal = getattr(self, '_target_heading_deg', 0.0)
-                        diff = (self._avoidance_target_heading_deg - nominal + 180.0) % 360.0 - 180.0
-                        if abs(diff) > MAX_AVOID_DEV_DEG:
-                            sign = 1.0 if diff >= 0.0 else -1.0
-                            self._avoidance_target_heading_deg = (nominal + sign * MAX_AVOID_DEV_DEG) % 360.0
-                            
+
                         self.get_logger().info(
                             f"[BRIDGE] ARMED avoidance target_heading="
                             f"{self._avoidance_target_heading_deg:.1f}° "
