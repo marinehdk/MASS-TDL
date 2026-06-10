@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <rclcpp/rclcpp.hpp>
+#include <string>
 #include <thread>
 
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
@@ -59,6 +60,20 @@ protected:
   }
   void add_behavior(std::shared_ptr<BehaviorArbiterNode> node, const BehaviorDescriptor& desc) {
     node->dictionary_.add_behavior(desc);
+  }
+  std::optional<double> parse_best_util(const std::string& rationale) {
+    const std::string key = "best_util=";
+    const auto start = rationale.find(key);
+    if (start == std::string::npos) {
+      return std::nullopt;
+    }
+    const auto value_start = start + key.size();
+    const auto value_end = rationale.find(' ', value_start);
+    try {
+      return std::stod(rationale.substr(value_start, value_end - value_start));
+    } catch (...) {
+      return std::nullopt;
+    }
   }
 
   template <typename Predicate>
@@ -297,6 +312,63 @@ TEST_F(BehaviorArbiterTest, PortDirectiveSolverPublishesTightWrappedWindow) {
   EXPECT_NEAR(last_plan->heading_max_deg, 0.0f, 1e-3f);
   EXPECT_LT(last_plan->heading_min_deg, 360.0f);
   EXPECT_LT(last_plan->heading_max_deg, 360.0f);
+  EXPECT_FALSE(get_fallback_anchor_set(node));
+}
+
+TEST_F(BehaviorArbiterTest, StarboardHighDeviationKeepsColregAvoidanceUtility) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_starboard_high_dev_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 105.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  const auto best_util = parse_best_util(last_plan->rationale);
+  ASSERT_TRUE(best_util.has_value()) << last_plan->rationale;
+  EXPECT_GT(*best_util, 10.0);
+  EXPECT_NEAR(last_plan->heading_min_deg, 90.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 120.0f, 1e-3f);
   EXPECT_FALSE(get_fallback_anchor_set(node));
 }
 

@@ -359,15 +359,19 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         avoid_pieces.push_back(optimal_ap);
 
         // Transition region for larger evasion maneuvers in the requested direction.
-        IvPFunctionDefault::Piece transition_ap;
-        transition_ap.heading_min_deg = wrap_hdg(
+        const double transition_min_deg = wrap_hdg(
             nominal_hdg + (turn_port ? -120.0 : comfort_signed_dev));
-        transition_ap.heading_max_deg = wrap_hdg(
+        const double transition_max_deg = wrap_hdg(
             nominal_hdg + (turn_port ? comfort_signed_dev : 120.0));
-        transition_ap.speed_min_kn = 0.0;
-        transition_ap.speed_max_kn = speed_max_kn_;
-        transition_ap.utility = 0.6;
-        avoid_pieces.push_back(transition_ap);
+        if (transition_min_deg != transition_max_deg) {
+          IvPFunctionDefault::Piece transition_ap;
+          transition_ap.heading_min_deg = transition_min_deg;
+          transition_ap.heading_max_deg = transition_max_deg;
+          transition_ap.speed_min_kn = 0.0;
+          transition_ap.speed_max_kn = speed_max_kn_;
+          transition_ap.utility = 0.6;
+          avoid_pieces.push_back(transition_ap);
+        }
 
         // 2d. Far Zone / Low-Utility Base (0.1 utility)
         IvPFunctionDefault::Piece base_ap;
@@ -378,8 +382,14 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         base_ap.utility = 0.1;
         avoid_pieces.push_back(base_ap);
 
-        avoid_fn.set_pieces(avoid_pieces);
-        weighted_fns.push_back({10.0, avoid_fn}); // Weight: 10.0
+        const M4ErrorCode avoid_set_result = avoid_fn.set_pieces(avoid_pieces);
+        if (avoid_set_result == M4ErrorCode::kOk) {
+          weighted_fns.push_back({10.0, avoid_fn}); // Weight: 10.0
+        } else {
+          RCLCPP_WARN(get_logger(),
+              "[M4] Skipping COLREG avoidance IvP function: invalid pieces (error=%d)",
+              static_cast<int>(avoid_set_result));
+        }
       }
     }
 
