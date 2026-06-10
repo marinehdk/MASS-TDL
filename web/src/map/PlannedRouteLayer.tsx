@@ -125,94 +125,114 @@ export const PlannedRouteLayer: React.FC<Props> = React.memo(({ mapRef, waypoint
   const added = useRef(false);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const opacity = visible && waypoints.length >= 2 ? 1 : 0;
-    let handlersAdded = false;
-    const showWaypointPopup = (event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      const feature = event.features?.[0];
-      const waypointIndex = Number(feature?.properties?.waypointIndex);
-      if (!Number.isInteger(waypointIndex) || waypointIndex < 0 || waypointIndex >= waypoints.length) return;
-      const waypoint = waypoints[waypointIndex];
-      const metrics = buildWaypointRouteMetrics(waypoints, waypointIndex);
-      popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: false,
-        offset: 14,
-        className: 'planned-route-popup',
-      })
-        .setLngLat([waypoint.lon, waypoint.lat])
-        .setHTML(buildWaypointPopupHtml(metrics))
-        .addTo(map);
-    };
-    const onMouseEnter = () => {
-      map.getCanvas().style.cursor = 'pointer';
-    };
-    const onMouseLeave = () => {
-      map.getCanvas().style.cursor = '';
-    };
-    const addHandlers = () => {
-      if (handlersAdded || !map.getLayer(WP_LYR)) return;
-      map.on('click', WP_LYR, showWaypointPopup);
-      map.on('mouseenter', WP_LYR, onMouseEnter);
-      map.on('mouseleave', WP_LYR, onMouseLeave);
-      handlersAdded = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cleanupMap: (() => void) | null = null;
+    let cancelled = false;
+
+    const attachToMap = (map: maplibregl.Map) => {
+      const opacity = visible && waypoints.length >= 2 ? 1 : 0;
+      let handlersAdded = false;
+      const showWaypointPopup = (event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        const feature = event.features?.[0];
+        const waypointIndex = Number(feature?.properties?.waypointIndex);
+        if (!Number.isInteger(waypointIndex) || waypointIndex < 0 || waypointIndex >= waypoints.length) return;
+        const waypoint = waypoints[waypointIndex];
+        const metrics = buildWaypointRouteMetrics(waypoints, waypointIndex);
+        popupRef.current?.remove();
+        popupRef.current = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: false,
+          offset: 14,
+          className: 'planned-route-popup',
+        })
+          .setLngLat([waypoint.lon, waypoint.lat])
+          .setHTML(buildWaypointPopupHtml(metrics))
+          .addTo(map);
+      };
+      const onMouseEnter = () => {
+        map.getCanvas().style.cursor = 'pointer';
+      };
+      const onMouseLeave = () => {
+        map.getCanvas().style.cursor = '';
+      };
+      const addHandlers = () => {
+        if (handlersAdded || !map.getLayer(WP_LYR)) return;
+        map.on('click', WP_LYR, showWaypointPopup);
+        map.on('mouseenter', WP_LYR, onMouseEnter);
+        map.on('mouseleave', WP_LYR, onMouseLeave);
+        handlersAdded = true;
+      };
+
+      function setup() {
+        const line = buildLine(waypoints);
+        const pts = buildPoints(waypoints);
+        const lbls = buildLabels(waypoints);
+        if (!added.current) {
+          map.addSource(LINE_SRC, { type: 'geojson', data: line as any });
+          map.addLayer({
+            id: LINE_LYR, type: 'line', source: LINE_SRC,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': '#38bdf8', 'line-width': 2,
+                    'line-dasharray': [3, 2], 'line-opacity': opacity },
+          });
+          map.addSource(WP_SRC, { type: 'geojson', data: pts as any });
+          map.addLayer({
+            id: WP_LYR, type: 'circle', source: WP_SRC,
+            paint: { 'circle-radius': 5, 'circle-color': '#0369a1',
+                    'circle-stroke-width': 1, 'circle-stroke-color': '#e0f2fe',
+                    'circle-opacity': opacity, 'circle-stroke-opacity': opacity },
+          });
+          map.addSource(LBL_SRC, { type: 'geojson', data: lbls as any });
+          map.addLayer({
+            id: LBL_LYR, type: 'symbol', source: LBL_SRC,
+            layout: { 'text-field': ['get', 'label'], 'text-size': 11,
+                      'text-offset': [0, -0.8], 'text-allow-overlap': false },
+            paint: { 'text-color': '#0369a1', 'text-halo-color': '#f0f9ff',
+                    'text-halo-width': 1, 'text-opacity': opacity },
+          });
+          added.current = true;
+        } else {
+          (map.getSource(LINE_SRC) as any)?.setData(line);
+          (map.getSource(WP_SRC) as any)?.setData(pts);
+          (map.getSource(LBL_SRC) as any)?.setData(lbls);
+          for (const id of [LINE_LYR, WP_LYR, LBL_LYR]) {
+            const prop = id === LINE_LYR ? 'line-opacity'
+              : id === WP_LYR ? 'circle-opacity' : 'text-opacity';
+            if (map.getLayer(id)) map.setPaintProperty(id, prop, opacity);
+          }
+        }
+        addHandlers();
+      }
+
+      if (!map.isStyleLoaded()) map.once('style.load', setup);
+      else setup();
+
+      return () => {
+        map.off('style.load', setup);
+        if (handlersAdded) {
+          map.off('click', WP_LYR, showWaypointPopup);
+          map.off('mouseenter', WP_LYR, onMouseEnter);
+          map.off('mouseleave', WP_LYR, onMouseLeave);
+        }
+        popupRef.current?.remove();
+        popupRef.current = null;
+      };
     };
 
-    function setup() {
-      if (!map) return;
-      const line = buildLine(waypoints);
-      const pts = buildPoints(waypoints);
-      const lbls = buildLabels(waypoints);
-      if (!added.current) {
-        map.addSource(LINE_SRC, { type: 'geojson', data: line as any });
-        map.addLayer({
-          id: LINE_LYR, type: 'line', source: LINE_SRC,
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#38bdf8', 'line-width': 2,
-                   'line-dasharray': [3, 2], 'line-opacity': opacity },
-        });
-        map.addSource(WP_SRC, { type: 'geojson', data: pts as any });
-        map.addLayer({
-          id: WP_LYR, type: 'circle', source: WP_SRC,
-          paint: { 'circle-radius': 5, 'circle-color': '#0369a1',
-                   'circle-stroke-width': 1, 'circle-stroke-color': '#e0f2fe',
-                   'circle-opacity': opacity, 'circle-stroke-opacity': opacity },
-        });
-        map.addSource(LBL_SRC, { type: 'geojson', data: lbls as any });
-        map.addLayer({
-          id: LBL_LYR, type: 'symbol', source: LBL_SRC,
-          layout: { 'text-field': ['get', 'label'], 'text-size': 11,
-                    'text-offset': [0, -0.8], 'text-allow-overlap': false },
-          paint: { 'text-color': '#0369a1', 'text-halo-color': '#f0f9ff',
-                   'text-halo-width': 1, 'text-opacity': opacity },
-        });
-        added.current = true;
-      } else {
-        (map.getSource(LINE_SRC) as any)?.setData(line);
-        (map.getSource(WP_SRC) as any)?.setData(pts);
-        (map.getSource(LBL_SRC) as any)?.setData(lbls);
-        for (const id of [LINE_LYR, WP_LYR, LBL_LYR]) {
-          const prop = id === LINE_LYR ? 'line-opacity'
-            : id === WP_LYR ? 'circle-opacity' : 'text-opacity';
-          if (map.getLayer(id)) map.setPaintProperty(id, prop, opacity);
-        }
+    const waitForMap = () => {
+      const map = mapRef.current;
+      if (map) {
+        cleanupMap = attachToMap(map);
+        return;
       }
-      addHandlers();
-    }
-    if (!map.isStyleLoaded()) map.once('style.load', setup);
-    else setup();
+      if (!cancelled) retryTimer = setTimeout(waitForMap, 50);
+    };
+    waitForMap();
 
     return () => {
-      map.off('style.load', setup);
-      if (handlersAdded) {
-        map.off('click', WP_LYR, showWaypointPopup);
-        map.off('mouseenter', WP_LYR, onMouseEnter);
-        map.off('mouseleave', WP_LYR, onMouseLeave);
-      }
-      popupRef.current?.remove();
-      popupRef.current = null;
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      cleanupMap?.();
     };
   }, [mapRef, waypoints, visible]);
   return null;
