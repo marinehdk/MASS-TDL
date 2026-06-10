@@ -17,6 +17,7 @@ import time
 import rclpy
 from pathlib import Path
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition
 from dataclasses import dataclass
@@ -131,8 +132,14 @@ class LifecycleBridge(Node):
         # Own-ship state cache (updated via subscription, used by encounter injection)
         self._latest_own_ship = None
         self._latest_own_ship_monotonic = None
+        own_ship_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.create_subscription(
-            OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, 10)
+            OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, own_ship_qos)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(
