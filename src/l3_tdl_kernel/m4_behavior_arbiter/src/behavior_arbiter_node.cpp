@@ -1,10 +1,13 @@
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <sstream>
 #include <cmath>
 #include <spdlog/spdlog.h>
+
+#include "m4_behavior_arbiter/colregs_directive.hpp"
 
 namespace mass_l3::m4 {
 
@@ -245,6 +248,27 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     }
     double nominal_spd = speed_max_kn_; // Target nominal speed
 
+    ColregsDirective colregs_directive;
+    if (colregs_received_ && latest_colregs_) {
+      colregs_directive = extract_colregs_directive(*latest_colregs_);
+    }
+
+    double nearest_target_range_m = std::numeric_limits<double>::max();
+    if (latest_world_) {
+      for (const auto& tgt : latest_world_->targets) {
+        if (tgt.rng_m > 0.0 && tgt.rng_m < nearest_target_range_m) {
+          nearest_target_range_m = tgt.rng_m;
+        }
+      }
+    }
+    const double required_dev_deg = required_deviation_deg(
+        colregs_directive, nearest_target_range_m);
+    const double directive_speed_max_kn =
+        (colregs_directive.conflict_active &&
+         colregs_directive.direction == ColregsDirection::ReduceSpeed)
+            ? std::min(speed_max_kn_, std::max(0.0, nominal_spd * 0.6))
+            : speed_max_kn_;
+
     IvPFunctionDefault transit_fn;
     std::vector<IvPFunctionDefault::Piece> transit_pieces;
 
@@ -298,88 +322,45 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     weighted_fns.push_back({1.0, transit_fn}); // Weight: 1.0
 
     // ── 2. COLREGs AVOIDANCE BEHAVIOR IvP FUNCTION ──────────────
-    if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
-      double colregs_dev = 0.0;
-
-      for (const auto& c : latest_colregs_->constraints) {
-        if (c.constraint_type == "colregs" && c.unit == "deg") {
-          colregs_dev = std::max(colregs_dev, c.numeric_value);
-        }
-      }
-
-      if (colregs_dev > 0.0) {
+    if (colregs_directive.conflict_active && required_dev_deg > 0.0) {
+      const double signed_dev = signed_deviation_deg(colregs_directive, required_dev_deg);
+      if (std::abs(signed_dev) > 0.0) {
         IvPFunctionDefault avoid_fn;
         std::vector<IvPFunctionDefault::Piece> avoid_pieces;
-
-        // ── R2 fix: geometry-derived required starboard deviation ──────────
-        // For a head-on (Rule 14) or any closing encounter, compute the minimum
-        // starboard deviation needed to achieve CPA >= cpa_safe_m (default 500 m).
-        // Formula: required_dev >= arcsin(cpa_safe_m / rng_m) * boldness_factor.
-        // Rule 8 "large alteration" = boldness_factor >= 2.0 so the turn is
-        // "readily apparent" to the other vessel (IMO Rule 8(b)).
-        // Result is clamped to [colregs_dev, 120°] — sane physical limit.
-        const double kCpaSafe_m = 500.0;          // minimum accepted CPA [m]
-        const double kBoldnessFactor = 2.5;        // Rule 8 boldness multiplier
-        const double kMaxDevDeg = 120.0;           // hard upper cap
-
-        double geo_required_dev_deg = colregs_dev; // fallback: COLREG config minimum
-        if (latest_world_ && !latest_world_->targets.empty()) {
-          double min_cpa_range_m = std::numeric_limits<double>::max();
-          for (const auto& tgt : latest_world_->targets) {
-            if (tgt.rng_m > 0.0 && tgt.rng_m < min_cpa_range_m) {
-              min_cpa_range_m = tgt.rng_m;
-            }
-          }
-          if (min_cpa_range_m < std::numeric_limits<double>::max() &&
-              min_cpa_range_m > kCpaSafe_m) {
-            // arcsin(D_safe / R) in degrees, scaled by boldness factor
-            const double raw_deg =
-                std::asin(kCpaSafe_m / min_cpa_range_m) * (180.0 / M_PI);
-            geo_required_dev_deg = std::min(kMaxDevDeg,
-                std::max(colregs_dev, raw_deg * kBoldnessFactor));
-          } else if (min_cpa_range_m <= kCpaSafe_m) {
-            // Already inside safe zone — command maximum bold deviation
-            geo_required_dev_deg = kMaxDevDeg;
-          }
-        }
-
-        // comfort_zone_upper: from colregs_dev (= M6 min_alteration_deg lower bound)
-        // up to geo_required_dev_deg + 15° margin (gives MPC room to optimize
-        // within the COLREG-mandated bold starboard window).
-        // Bug fix: removed the erroneous std::min(30.0,...) cap that zeroed out
-        // any geometry-derived upper bound larger than 30°.
-        double comfort_zone_upper_deg = std::max(colregs_dev, geo_required_dev_deg);
-        // Add margin so IvP optimal zone has breadth (MPC can pick within it)
-        comfort_zone_upper_deg = std::min(kMaxDevDeg, comfort_zone_upper_deg + 15.0);
+        const bool turn_port = colregs_directive.direction == ColregsDirection::Port;
+        const double comfort_upper_deg = std::min(120.0, required_dev_deg + 15.0);
+        const double comfort_signed_dev = turn_port ? -comfort_upper_deg : comfort_upper_deg;
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-            "[M4 R2] geo_dev=%.1f° comfort_upper=%.1f° colregs_min=%.1f°",
-            geo_required_dev_deg, comfort_zone_upper_deg, colregs_dev);
+            "[M4 R2] colregs_dev=%.1f° comfort_upper=%.1f° direction=%s",
+            signed_dev, comfort_upper_deg, turn_port ? "PORT" : "STARBOARD");
 
-        // 2a. Penalty Zone (0.05 utility): [nominal_hdg - 180, nominal_hdg + colregs_dev)
-        // Severely penalizes port turns or insufficient starboard turns
         IvPFunctionDefault::Piece penalty_ap;
-        penalty_ap.heading_min_deg = wrap_hdg(nominal_hdg - 180.0);
-        penalty_ap.heading_max_deg = wrap_hdg(nominal_hdg + colregs_dev);
+        penalty_ap.heading_min_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? signed_dev : -180.0));
+        penalty_ap.heading_max_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? 180.0 : signed_dev));
         penalty_ap.speed_min_kn = 0.0;
         penalty_ap.speed_max_kn = speed_max_kn_;
         penalty_ap.utility = 0.05;
         avoid_pieces.push_back(penalty_ap);
 
-        // 2b. Comfort Avoidance Zone (1.0 utility): [nominal_hdg + colregs_dev, nominal_hdg + comfort_zone_upper]
         IvPFunctionDefault::Piece optimal_ap;
-        optimal_ap.heading_min_deg = wrap_hdg(nominal_hdg + colregs_dev);
-        optimal_ap.heading_max_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg);
+        optimal_ap.heading_min_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? comfort_signed_dev : signed_dev));
+        optimal_ap.heading_max_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? signed_dev : comfort_signed_dev));
         optimal_ap.speed_min_kn = 0.0;
         optimal_ap.speed_max_kn = speed_max_kn_;
         optimal_ap.utility = 1.0;
         avoid_pieces.push_back(optimal_ap);
 
-        // 2c. Sub-Optimal Transition Zone (0.6 utility): [comfort_zone_upper, comfort_zone_upper + 30.0]
-        // Transition region for larger evasion maneuvers
+        // Transition region for larger evasion maneuvers in the requested direction.
         IvPFunctionDefault::Piece transition_ap;
-        transition_ap.heading_min_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg);
-        transition_ap.heading_max_deg = wrap_hdg(nominal_hdg + comfort_zone_upper_deg + 30.0);
+        transition_ap.heading_min_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? -120.0 : comfort_signed_dev));
+        transition_ap.heading_max_deg = wrap_hdg(
+            nominal_hdg + (turn_port ? comfort_signed_dev : 120.0));
         transition_ap.speed_min_kn = 0.0;
         transition_ap.speed_max_kn = speed_max_kn_;
         transition_ap.utility = 0.6;
@@ -401,19 +382,17 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
     IvPHardConstraints constraints;
     constraints.speed_min_kn = 0.0;
-    constraints.speed_max_kn = speed_max_kn_;
+    constraints.speed_max_kn = directive_speed_max_kn;
 
     // Inject M6 COLREGs heading constraints.
     // Constraint.msg (v1.1.2): constraint_type=="colregs", unit=="deg",
-    // numeric_value = minimum heading deviation from own heading (positive = starboard).
-    if (colregs_received_ && latest_colregs_ && latest_colregs_->conflict_detected) {
+    // numeric_value = minimum heading deviation from own heading.
+    if (colregs_directive.conflict_active) {
       double own_hdg = latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
-      for (const auto& c : latest_colregs_->constraints) {
-        if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
-          constraints.heading_allowed_ranges_deg.push_back(
-              {own_hdg + c.numeric_value, own_hdg + 180.0});
-        }
-      }
+      const auto ranges = directive_allowed_ranges(
+          own_hdg, colregs_directive, required_dev_deg);
+      constraints.heading_allowed_ranges_deg.insert(
+          constraints.heading_allowed_ranges_deg.end(), ranges.begin(), ranges.end());
     }
 
     auto sol = solver_->solve_with_fallback(weighted_fns, constraints);
@@ -434,45 +413,13 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     } else {
       // R3 fix: Conservative fallback — use configured speed domain max
       // instead of 0.5 * current SOG to break the cascade slowdown loop.
-      // F2 fix: When COLREGs reports a starboard-required deviation, emit a
-      //         heading window biased toward starboard (matching the M6
-      //         constraint's numeric_value) instead of a symmetric ±90° window
-      //         that downstream M5 collapses into a no-op straight-line plan.
+      // F2 fix: When COLREGs reports a turn directive, emit a heading window
+      // biased in the M6-requested direction instead of a symmetric window.
       const double own_hdg =
           latest_world_ ? latest_world_->own_ship.heading_deg : 0.0;
+      const double signed_dev = signed_deviation_deg(colregs_directive, required_dev_deg);
 
-      double starboard_dev_deg = 0.0;
-      if (colregs_received_ && latest_colregs_ &&
-          latest_colregs_->conflict_detected) {
-        for (const auto& c : latest_colregs_->constraints) {
-          if (c.constraint_type == "colregs" && c.unit == "deg" &&
-              c.numeric_value > 0.0) {
-            if (c.numeric_value > starboard_dev_deg) {
-              starboard_dev_deg = c.numeric_value;
-            }
-          }
-        }
-        // R2 fix: escalate fallback deviation using same geometry as IvP window.
-        // Without this, IvP-infeasible fallback emits only ~15° (M6 config min),
-        // which is insufficient for a bold head-on (Rule 14) alteration.
-        const double kCpaSafe_fb = 500.0;
-        const double kBoldFb = 2.5;
-        const double kMaxFb = 120.0;
-        if (latest_world_ && !latest_world_->targets.empty()) {
-          double min_rng = std::numeric_limits<double>::max();
-          for (const auto& tgt : latest_world_->targets) {
-            if (tgt.rng_m > 0.0 && tgt.rng_m < min_rng) min_rng = tgt.rng_m;
-          }
-          if (min_rng < std::numeric_limits<double>::max() && min_rng > kCpaSafe_fb) {
-            const double geo = std::asin(kCpaSafe_fb / min_rng) * (180.0 / M_PI) * kBoldFb;
-            starboard_dev_deg = std::min(kMaxFb, std::max(starboard_dev_deg, geo));
-          } else if (min_rng <= kCpaSafe_fb) {
-            starboard_dev_deg = kMaxFb;
-          }
-        }
-      }
-
-      if (starboard_dev_deg > 0.0) {
+      if (std::abs(signed_dev) > 0.0) {
         if (m3_active_latch_ && !fallback_anchor_set_) {
           fallback_anchor_hdg_ = own_hdg;
           fallback_anchor_set_ = true;
@@ -489,14 +436,17 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
           concern.stamp = now();
           concern.concern_type = l3_msgs::msg::SafetyConcernEvent::CONCERN_IVP_INFEASIBLE;
           concern.anchor_hdg = static_cast<float>(fallback_anchor_hdg_);
-          concern.suggested_action = "turn_starboard_30deg_absolute";
+          concern.suggested_action =
+              colregs_directive.direction == ColregsDirection::Port
+                  ? "turn_port_absolute"
+                  : "turn_starboard_absolute";
           concern.severity = 0.7f;
           concern_pub_->publish(concern);
         }
 
         const double effective_centre = fallback_anchor_set_
-            ? std::fmod(fallback_anchor_hdg_ + starboard_dev_deg + 360.0, 360.0)
-            : std::fmod(own_hdg + starboard_dev_deg + 360.0, 360.0);
+            ? std::fmod(fallback_anchor_hdg_ + signed_dev + 360.0, 360.0)
+            : std::fmod(own_hdg + signed_dev + 360.0, 360.0);
 
         h_min = std::fmod(effective_centre - 15.0 + 360.0, 360.0);
         h_max = std::fmod(effective_centre + 15.0 + 360.0, 360.0);
@@ -506,7 +456,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         r << (fallback_anchor_set_ ? "IvP infeasible — geometric fallback ABSOLUTE "
                                    : "IvP infeasible — geometric fallback relative ")
           << "(anchor=" << (fallback_anchor_set_ ? fallback_anchor_hdg_ : own_hdg)
-          << "deg, dev=" << starboard_dev_deg
+          << "deg, dev=" << signed_dev
           << "deg, window=" << h_min << "→" << h_max << ")";
         rationale = r.str();
       } else {
@@ -515,17 +465,16 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         confidence = 0.30;
         rationale = "IvP infeasible fallback";
       }
-      s_max = speed_max_kn_;
+      s_max = directive_speed_max_kn;
 
       // Log infeasibility (always, for ASDR audit trail).
-      if (colregs_received_ && latest_colregs_ &&
-          latest_colregs_->conflict_detected) {
+      if (colregs_directive.conflict_active && latest_colregs_) {
         std::ostringstream json;
         json << "{\"constraint_count\":"
              << latest_colregs_->constraints.size()
              << ",\"fallback_used\":\""
-             << (starboard_dev_deg > 0.0 ? "geometric_starboard" : "cascading")
-             << "\",\"starboard_dev_deg\":" << starboard_dev_deg << "}";
+             << (std::abs(signed_dev) > 0.0 ? "geometric_colregs" : "cascading")
+             << "\",\"colregs_dev_deg\":" << signed_dev << "}";
         publish_asdr_event("ivp_infeasible", json.str());
       }
     }
