@@ -300,6 +300,48 @@ def test_bridge_uses_reliable_volatile_qos_for_l3_consumers(monkeypatch):
 
 # ── P1: ADR-1 M6 conflict authority tests ─────────────────────────────────
 
+@pytest.mark.parametrize("autopilot_enabled", [False, True])
+def test_m5_empty_plan_does_not_release_while_m6_conflict_active(
+    monkeypatch, autopilot_enabled
+):
+    """Empty M5 plan must not clear avoidance while M6 still owns conflict."""
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    sentinel = object()
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _get_sim_time=lambda: 100.0,
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _autopilot_enabled=autopilot_enabled,
+        _avoidance_active=True,
+        _m6_conflict_active=True,
+        _avoidance_target_heading_deg=20.0,
+        _last_behavior_plan=None,
+        _last_valid_plan_time=90.0,
+        _last_avoidance_waypoint=sentinel,
+        _latch_release_triggered=False,
+        _avoidance_armed_time=80.0,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    empty_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[],
+        speed_adjustments=[],
+        confidence=1.0,
+        status="NORMAL",
+        rationale="M4 TRANSIT - no avoidance required",
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, empty_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == 20.0
+    assert fake_self._last_avoidance_waypoint is sentinel
+
+
 def _make_check_geometry_self(bridge, *, m6_conflict_active, avoidance_armed_t=80.0):
     """Minimal fake_self for _check_geometry_release tests."""
     return SimpleNamespace(

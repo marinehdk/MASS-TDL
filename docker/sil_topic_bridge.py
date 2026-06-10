@@ -1095,6 +1095,13 @@ class SilTopicBridge(Node):
             self._last_valid_plan_time = self._get_sim_time()
             self._last_avoidance_waypoint = msg.waypoints[0]
 
+        if not has_valid_plan and getattr(self, "_m6_conflict_active", False):
+            if self._avoidance_active:
+                self.get_logger().info(
+                    "[BRIDGE] IGNORE empty M5 plan while M6 conflict active"
+                )
+            return
+
         if self._autopilot_enabled and not has_valid_plan:
             if self._avoidance_active:
                 self.get_logger().info(
