@@ -575,8 +575,10 @@ void ColregsReasonerNode::run_reasoning() {
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
         (target.cpa_m >= kParams.cpa_safe_m);
-    const bool finally_resolved =
+    const bool projected_past_and_safe = !range_closing && cpa_projection_past_and_safe;
+    const bool reference_past_and_safe =
         past_and_clear && !range_closing && target.cpa_m >= kParams.cpa_safe_m;
+    const bool finally_resolved = reference_past_and_safe || projected_past_and_safe;
     if (finally_resolved || resolved_targets_.count(mmsi) > 0) {
       resolved_targets_.insert(mmsi);
       rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 14ULL);
