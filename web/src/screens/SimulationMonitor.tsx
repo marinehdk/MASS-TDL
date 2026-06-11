@@ -17,6 +17,8 @@ import { TorModal } from './shared/TorModal';
 import { FaultInjectPanel } from './shared/FaultInjectPanel';
 import { PlannedRouteLayer } from '../map/PlannedRouteLayer';
 import { ActualTrackLayer } from '../map/ActualTrackLayer';
+import { AisTargetLayer } from '../map/AisTargetLayer';
+import { fetchLatestAisTargets, type AisTarget } from '../api/aisTwinApi';
 import { EncounterInjectPanel } from './shared/EncounterInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
@@ -482,10 +484,30 @@ export function SimulationMonitor() {
 
   const [showFaultModal, setShowFaultModal] = useState(false);
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
+  const [aisTargets, setAisTargets] = useState<AisTarget[]>([]);
   const [deactivate] = useDeactivateLifecycleMutation();
   const [changeRate] = useChangeLifecycleRateMutation();
   const autoNavRef = useRef(false);
   const externalMapRef = useRef<maplibregl.Map | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshAisTargets = async () => {
+      try {
+        const response = await fetchLatestAisTargets();
+        if (!cancelled) setAisTargets(response.targets ?? []);
+      } catch {
+        if (!cancelled) setAisTargets([]);
+      }
+    };
+
+    refreshAisTargets();
+    const interval = window.setInterval(refreshAisTargets, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const encRegion = useMemo(() => {
     if (!activeScenario?.yaml_content) return 'trondelag';
@@ -654,6 +676,7 @@ export function SimulationMonitor() {
 
         <PlannedRouteLayer mapRef={externalMapRef} waypoints={voyagePlan?.waypoints ?? []} visible={true} />
         <ActualTrackLayer mapRef={externalMapRef} trail={ownShipTrail} visible={true} />
+        <AisTargetLayer mapRef={externalMapRef} targets={aisTargets} visible={true} />
 
         {(isEngineer || viewMode === 'god') && (
           <>

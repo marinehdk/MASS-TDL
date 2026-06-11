@@ -16,9 +16,10 @@ export interface AisLatestResponse {
 }
 
 export async function fetchLatestAisTargets(
-  baseUrl = '',
+  baseUrl = '/ais-twin',
 ): Promise<AisLatestResponse> {
-  const url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/api/ais/latest` : '/api/ais/latest';
+  const trimmedBaseUrl = baseUrl.replace(/\/$/, '');
+  const url = trimmedBaseUrl ? `${trimmedBaseUrl}/api/ais/latest` : '/api/ais/latest';
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`AIS latest request failed: ${response.status}`);

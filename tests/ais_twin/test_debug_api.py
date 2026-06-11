@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -126,6 +127,45 @@ def test_capture_cli_passes_overwrite_flag(monkeypatch):
         ("src/sim_workbench/ais_twin/config/safe_route_aisstream.yaml", "secret-key", False),
         ("src/sim_workbench/ais_twin/config/safe_route_aisstream.yaml", "secret-key", True),
     ]
+
+
+def test_run_capture_exits_when_provider_is_quiet(tmp_path, monkeypatch):
+    class QuietProvider:
+        def __init__(self, api_key):
+            self.api_key = api_key
+
+        async def records(self, bbox):
+            await asyncio.Event().wait()
+            if False:
+                yield
+
+    output_dir = tmp_path / "dataset"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "provider: aisstream",
+                "route_path: scenarios/集成测试/safe_route.yaml",
+                "bbox:",
+                "  lat_min: -4.5",
+                "  lat_max: -1.1",
+                "  lon_min: 104.7",
+                "  lon_max: 108.6",
+                "capture_duration_hours: 0.0000003",
+                "risk_top_n: 20",
+                f"output_dir: {output_dir}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(capture_cli, "AISstreamProvider", QuietProvider)
+
+    count = asyncio.run(capture_cli.run_capture(config_path, api_key="secret", overwrite=True))
+
+    assert count == 0
+    assert (output_dir / "tracks.csv").read_text(encoding="utf-8").startswith("mmsi,t_s,lat,lon")
+    assert "records_written: 0" in (output_dir / "manifest.yaml").read_text(encoding="utf-8")
 
 
 def test_strip_raw_json_keeps_original_record_raw_json():

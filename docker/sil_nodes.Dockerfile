@@ -95,6 +95,7 @@ COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
 COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
 COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
+COPY src/sim_workbench/ais_twin       src/sim_workbench/ais_twin
 COPY src/ship_interfaces             src/ship_interfaces
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
@@ -117,6 +118,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             l3_msgs l3_external_msgs \
             ship_interfaces \
             sil_common sil_msgs sil_lifecycle \
+            ais_twin \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
             fault_injection scoring \

@@ -23,3 +23,10 @@ def test_foxglove_whitelist_exports_frontend_route_topics():
         exported_topics = set().union(*whitelists)
         missing = REQUIRED_FRONTEND_TOPICS - exported_topics
         assert not missing, f"{compose_path.name} topic_whitelist missing {sorted(missing)}"
+
+
+def test_sil_nodes_image_builds_ais_twin_package():
+    text = (ROOT / "docker" / "sil_nodes.Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY src/sim_workbench/ais_twin" in text
+    assert re.search(r"--packages-select[\s\S]*\bais_twin\b", text)

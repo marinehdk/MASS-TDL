@@ -112,7 +112,7 @@ describe('fetchLatestAisTargets', () => {
     vi.restoreAllMocks();
   });
 
-  it('fetches AIS latest from relative origin by default', async () => {
+  it('fetches AIS latest from the AIS Twin proxy by default', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -125,7 +125,7 @@ describe('fetchLatestAisTargets', () => {
 
     await fetchLatestAisTargets();
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/ais/latest');
+    expect(fetchMock).toHaveBeenCalledWith('/ais-twin/api/ais/latest');
   });
 
   it('trims explicit debug base URL before fetching AIS latest', async () => {

@@ -38,12 +38,18 @@ async def run_capture(config_path: Path, api_key: str, overwrite: bool = False) 
     count = 0
     # Keep only normalized scalar fields in memory; full raw JSON stays in raw.jsonl.
     normalizer_records: list[CanonicalAISRecord] = []
-    async for record in provider.records(cfg.bbox):
+    records = provider.records(cfg.bbox).__aiter__()
+    while True:
+        remaining_s = deadline - time.monotonic()
+        if remaining_s <= 0.0:
+            break
+        try:
+            record = await asyncio.wait_for(records.__anext__(), timeout=remaining_s)
+        except (asyncio.TimeoutError, StopAsyncIteration):
+            break
         store.write_raw(record)
         normalizer_records.append(_record_for_normalization(record))
         count += 1
-        if time.monotonic() >= deadline:
-            break
     segments = normalize_records(normalizer_records)
     store.write_tracks(segments)
     store.write_manifest(

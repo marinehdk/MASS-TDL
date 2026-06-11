@@ -7,6 +7,7 @@ const isDocker = fs.existsSync('/.dockerenv');
 const ORCH_PORT = process.env.ORCH_PORT ?? '8000';
 const FOX_PORT = process.env.FOX_PORT ?? '8765';
 const MARTIN_PORT = process.env.MARTIN_PORT ?? '3000';
+const AIS_TWIN_PORT = process.env.AIS_TWIN_PORT ?? '8095';
 const apiHost = isDocker ? 'host.docker.internal' : '127.0.0.1';
 const target = `https://${apiHost}:${ORCH_PORT}`;
 const wsTarget = `wss://${apiHost}:${ORCH_PORT}`;
@@ -53,6 +54,12 @@ export default defineConfig({
             console.log('[Vite Proxy Close] /foxglove-ws socket closed');
           });
         }
+      },
+      '/ais-twin': {
+        target: `http://${apiHost}:${AIS_TWIN_PORT}`,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/ais-twin/, ''),
       },
       '/api': {
         target: target,
