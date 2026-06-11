@@ -1,5 +1,6 @@
 #include "m5_tactical_planner/mid_mpc/mid_mpc_node.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -148,18 +149,13 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.constraints.heading_min_rad = normalize_angle(h_min_raw, inp.own_ship.psi_rad);
   inp.constraints.heading_max_rad = normalize_angle(h_max_raw, inp.own_ship.psi_rad);
 
-  if (inp.constraints.heading_min_rad > inp.constraints.heading_max_rad) {
-    std::swap(inp.constraints.heading_min_rad, inp.constraints.heading_max_rad);
-  }
-
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
   double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);
 
   // R3 fix: if M4 is in fallback mode, use nominal speed instead of current SOG
   // to break the cascade slowdown feedback loop.
   const std::string& m4_rationale = behavior_plan_->rationale;
-  if (m4_rationale.find("infeasible fallback") != std::string::npos ||
-      m4_rationale.find("Failsafe") != std::string::npos) {
+  if (mass_l3::m5::is_m4_fallback_rationale(m4_rationale)) {
     spdlog::info("[M5][MidMPC] M4 fallback detected (rationale: '{}'); using nominal speed {:.1f} kn",
                  m4_rationale, nominal_speed_kn_);
     speed_max_raw = nominal_speed_kn_;
@@ -167,10 +163,23 @@ MidMpcInput MidMpcNode::assemble_input_()
 
   inp.constraints.speed_max_mps   = speed_max_raw * units::kMsPerKn;
   inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
+  inp.colregs_conflict_active =
+      colregs_constraint_ != nullptr && colregs_constraint_->conflict_detected;
+  if (colregs_constraint_ != nullptr) {
+    inp.colregs_preferred_direction = mass_l3::m5::parse_colregs_preferred_direction(
+        colregs_constraint_->primary_preferred_direction);
+    double min_alt_deg = 0.0;
+    for (const auto& c : colregs_constraint_->constraints) {
+      if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
+        min_alt_deg = std::max(min_alt_deg, c.numeric_value);
+      }
+    }
+    inp.colregs_min_alteration_rad = min_alt_deg * units::kRadPerDeg;
+  }
 
   // Dynamically adjust CPA safe distance and target weights based on COLREGs constraint
   double cpa_safe = kCpaSafeFallback_m;
-  if (colregs_constraint_ != nullptr && !colregs_constraint_->active_rules.empty()) {
+  if (inp.colregs_conflict_active) {
     cpa_safe = 2500.0; // increase CPA boundary during active encounter
     
     // Scale up weights for the primary target causing the collision conflict
@@ -224,9 +233,20 @@ void MidMpcNode::on_solve_cycle_()
 
   const MidMpcInput input = assemble_input_();
   publish_trajectory_candidates_(input);
+  const bool is_transit =
+      behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT;
+  const bool wrapped_heading_window = !is_transit
+      && mass_l3::m5::heading_window_is_wrapped(
+          input.constraints.heading_min_rad, input.constraints.heading_max_rad);
   const MidMpcSolution* warm = last_solution_.has_value() ? &last_solution_.value() : nullptr;
-  const MidMpcSolution sol = solver_.solve(input, warm);
-  last_solution_ = sol;
+  MidMpcSolution sol;
+  if (wrapped_heading_window) {
+    sol.status = MidMpcSolution::Status::Infeasible;
+    sol.stamp_ns = input.stamp_ns;
+  } else {
+    sol = solver_.solve(input, warm);
+    last_solution_ = sol;
+  }
 
   const double lat = world_state_->own_ship.position.latitude;
   const double lon = world_state_->own_ship.position.longitude;
@@ -240,7 +260,7 @@ void MidMpcNode::on_solve_cycle_()
       || behavior_plan_->rationale.find("fallback") != std::string::npos;
 
   l3_msgs::msg::AvoidancePlan plan;
-  if (behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT) {
+  if (is_transit) {
     // D-DEMO1 spin fix: M4 is the COLREG authority on whether avoidance is
     // active. When M4 is in TRANSIT, emit an EMPTY plan (no waypoints) so the
     // execution bridge releases avoidance and resumes route-following. Without
@@ -252,10 +272,15 @@ void MidMpcNode::on_solve_cycle_()
     plan.rationale  = "M4 TRANSIT — no avoidance required";
     plan.confidence = 1.0F;
     // waypoints left empty → bridge has_valid_plan == False → avoidance released
-  } else if (solver_failed || m4_geometric) {
-    const std::string reason = solver_failed
-        ? "solver_status=" + std::to_string(static_cast<int>(sol.status))
-        : "m4_geometric";
+  } else if (wrapped_heading_window || solver_failed || m4_geometric) {
+    std::string reason;
+    if (wrapped_heading_window) {
+      reason = "wrapped_heading_window";
+    } else if (solver_failed) {
+      reason = "solver_status=" + std::to_string(static_cast<int>(sol.status));
+    } else {
+      reason = "m4_geometric";
+    }
     plan = build_geometric_fallback_plan_(input, lat, lon, reason);
   } else {
     plan = wp_gen_.generate(sol, lat, lon);
@@ -283,9 +308,11 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   const double h_min = input.constraints.heading_min_rad;
   const double h_max = input.constraints.heading_max_rad;
   const double route_brg = input.planned_route_bearing_rad;
-  // Minimum required alteration = window floor relative to route bearing.
-  const double min_alt_rad = std::min(std::abs(h_max - route_brg), std::abs(route_brg - h_min));
-  double target_psi = mass_l3::m5::fallback_target_heading(route_brg, h_min, h_max, min_alt_rad);
+  double min_alt_rad = input.colregs_min_alteration_rad;
+  min_alt_rad = mass_l3::m5::fallback_min_alteration_rad(
+      route_brg, h_min, h_max, min_alt_rad);
+  double target_psi = mass_l3::m5::fallback_target_heading(
+      route_brg, h_min, h_max, min_alt_rad, input.colregs_preferred_direction);
 
   // Normalize delta to (-π, π]
   double delta_psi = target_psi - own_psi;
@@ -313,7 +340,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   plan.horizon_s = static_cast<float>(kNWp * kDt);
   plan.status = "DEGRADED";
   plan.confidence = 0.6f;
-  plan.rationale = "M5 geometric starboard fallback (" + reason + ")"
+  plan.rationale = "M5 geometric COLREG fallback (" + reason + ")"
       + " turn_r=" + std::to_string(static_cast<int>(turn_radius_m)) + "m"
       + " tgt=" + std::to_string(static_cast<int>(target_psi * units::kDegPerRad)) + "deg";
 
@@ -364,7 +391,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
     wp.target_speed_kn    = nominal_speed_kn_;
     wp.turn_radius_m      = turn_radius_m;
     wp.confidence         = 0.6f;
-    wp.rationale          = "M5 geometric starboard fallback";
+    wp.rationale          = "M5 geometric COLREG fallback";
 
     plan.waypoints.push_back(wp);
   }

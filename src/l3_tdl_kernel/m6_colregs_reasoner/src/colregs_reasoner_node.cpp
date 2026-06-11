@@ -165,6 +165,17 @@ int32_t classify_ship_priority(const std::string& classification) {
   return -1;  // unknown
 }
 
+double signed_relative_bearing_deg(double bearing_deg, double reference_heading_deg) {
+  double rel = bearing_deg - reference_heading_deg;
+  while (rel > 180.0) rel -= 360.0;
+  while (rel < -180.0) rel += 360.0;
+  return rel;
+}
+
+bool past_and_clear_from_heading(double bearing_deg, double reference_heading_deg) {
+  return std::fabs(signed_relative_bearing_deg(bearing_deg, reference_heading_deg)) > 112.5;
+}
+
 /// Compute initial great-circle bearing (degrees) from point A to point B.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double bearing_between(double lat_a_deg, double lon_a_deg, double lat_b_deg, double lon_b_deg) {
@@ -479,6 +490,8 @@ void ColregsReasonerNode::run_reasoning() {
       rule_latches_.clear();
       give_way_latches_.clear();
       standon_latches_.clear();
+      encounter_reference_heading_.clear();
+      resolved_targets_.clear();
       prev_target_range_.clear();
       prev_target_bearing_.clear();
       RCLCPP_INFO(get_logger(),
@@ -546,12 +559,33 @@ void ColregsReasonerNode::run_reasoning() {
     }
     const bool range_closing = (prev_target_range_.count(mmsi) > 0) &&
         (current_rng >= 0.0 && current_rng < prev_target_range_[mmsi]);
-    // Rule 16 "finally past and clear": target has drawn abaft the beam.
-    // Relative bearing of the target from own-ship heading, normalized [-180,180].
-    double rel_brg = target.bearing_deg - target.ownship_heading_deg;
-    while (rel_brg > 180.0) rel_brg -= 360.0;
-    while (rel_brg < -180.0) rel_brg += 360.0;
-    const bool past_and_clear = std::fabs(rel_brg) > 112.5;  // 2 points abaft the beam
+    // Rule 16 "finally past and clear": target has drawn abaft the beam. During
+    // an active encounter the beam reference is the heading captured at duty
+    // onset, not the current avoidance heading; otherwise a large give-way turn
+    // can rotate the own-ship bow past the target and falsely clear the duty
+    // while the target is still ahead on the original encounter line.
+    const auto ref_it = encounter_reference_heading_.find(mmsi);
+    const double release_reference_heading =
+        (ref_it != encounter_reference_heading_.end())
+            ? ref_it->second
+            : target.ownship_heading_deg;
+    const bool past_and_clear =
+        past_and_clear_from_heading(target.bearing_deg, release_reference_heading);
+    constexpr double kTcpaClampedPastEpsilonS = 0.5;
+    const bool cpa_projection_past_and_safe =
+        (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
+        (target.cpa_m >= kParams.cpa_safe_m);
+    const bool finally_resolved =
+        past_and_clear && !range_closing && target.cpa_m >= kParams.cpa_safe_m;
+    if (finally_resolved || resolved_targets_.count(mmsi) > 0) {
+      resolved_targets_.insert(mmsi);
+      rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 14ULL);
+      rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 15ULL);
+      give_way_latches_.erase(mmsi);
+      standon_latches_.erase(mmsi);
+      encounter_reference_heading_.erase(mmsi);
+      continue;
+    }
 
     const size_t target_eval_start = evaluations.size();
     for (const auto& rule : rules_) {
@@ -571,8 +605,10 @@ void ColregsReasonerNode::run_reasoning() {
         // Pass the raw evaluation so the latch can snapshot the give-way
         // classification at the latching cycle (Rule 13(d): fixed at onset).
         const bool latched = it->second.update(
-            eval.is_active, target.cpa_m, range_closing, past_and_clear, &eval);
+            eval.is_active, target.cpa_m, range_closing, past_and_clear,
+            &eval, cpa_projection_past_and_safe);
         if (latched) {
+          encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
           if (!eval.is_active) {
             // Raw geometry fell out of the rule cone mid-maneuver (own ship's own
             // starboard turn rotated the target off the ±6° head-on axis), so it
@@ -643,13 +679,19 @@ void ColregsReasonerNode::run_reasoning() {
     // and NOT already abaft the beam (Rule 13(d): no give-way to a vessel you
     // have passed; also stops the latch re-onsetting at the tail of an encounter
     // as Rule 16 flickers give_way while the ships slowly separate).
-    const bool duty_onset_signal = raw_own_give_way && !own_stand_on && !past_and_clear;
+    const bool duty_onset_signal =
+        raw_own_give_way && !own_stand_on && !past_and_clear &&
+        !cpa_projection_past_and_safe;
     auto dit = give_way_latches_.find(mmsi);
     if (dit == give_way_latches_.end()) {
       dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
     }
     const bool duty_latched_now = dit->second.update(
-        duty_onset_signal, target.cpa_m, range_closing, past_and_clear, nullptr);
+        duty_onset_signal, target.cpa_m, range_closing, past_and_clear,
+        nullptr, cpa_projection_past_and_safe);
+    if (duty_latched_now) {
+      encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
+    }
 
     // Give-way carrier gating (unifies Rule 8(d) hysteresis + Rule 17 carrier
     // exclusivity): a SECONDARY give-way carrier (Rule 16 fires give_way on CPA
@@ -670,6 +712,15 @@ void ColregsReasonerNode::run_reasoning() {
           e.rationale += " [gated: give-way duty latch not engaged]";
         }
       }
+    } else {
+      standon_latches_.erase(mmsi);
+      for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+        auto& e = evaluations[i];
+        if (e.is_active && e.role == Role::STAND_ON) {
+          e.is_active = false;
+          e.rationale += " [gated: give-way duty latch engaged]";
+        }
+      }
     }
 
     // Stand-on IN-EXTREMIS hold (Rule 17(b)): once own ship — the stand-on
@@ -682,9 +733,28 @@ void ColregsReasonerNode::run_reasoning() {
     if (sit == standon_latches_.end()) {
       sit = standon_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
     }
-    const bool standon_onset = own_stand_on && rule17_inextremis_raw;
+    const bool standon_onset =
+        !duty_latched_now && own_stand_on && rule17_inextremis_raw &&
+        !cpa_projection_past_and_safe;
     const bool standon_latched_now = sit->second.update(
-        standon_onset, target.cpa_m, range_closing, past_and_clear, nullptr);
+        standon_onset, target.cpa_m, range_closing, past_and_clear,
+        nullptr, cpa_projection_past_and_safe);
+    if (standon_latched_now) {
+      encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
+    }
+    if (!standon_latched_now) {
+      for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+        auto& e = evaluations[i];
+        const bool raw_standon_action =
+            e.rule_id == 17 && e.role == Role::STAND_ON &&
+            (e.phase == TimingPhase::INDEPENDENT_ACTION ||
+             e.phase == TimingPhase::CRITICAL_ACTION);
+        if (e.is_active && raw_standon_action) {
+          e.is_active = false;
+          e.rationale += " [gated: stand-on action latch not engaged]";
+        }
+      }
+    }
     if (standon_latched_now && !rule17_inextremis_raw) {
       for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
         auto& e = evaluations[i];

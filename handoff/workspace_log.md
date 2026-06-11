@@ -286,3 +286,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - **P3 ARM 权威完整迁移**：`_arm_avoidance_from_m6()` 已就位，M5 plan arm 路径仍保留作安全网；若需完全迁移 ARM 到 M6，删 `_on_avoidance_plan` 中的 arm 块，A4000 验证不复发 circling。
   - **L4-Guidance stub**：`HeadingController`/`SpeedController`/`_compute_avoidance_autopilot` 保留桥内，等 L4 节点就位时另轮移除。
   - **bridge-deshadow-migration-prompt.md §待定** 中的 M1 `MAX_AVOID_DEV_DEG=60.0` 硬编码（等 M1 发布 ROT_max 后替换）仍未处理。
+
+## [2026-06-11] Agent: Codex (GPT-5)
+- **Git Commit**: `c88b1364` (branch: `codex/bridge-deshadow-strict-8probe`, code after rebase onto `origin/main`; handoff commit follows)
+- **任务目标 (Goal)**: 继续 bridge de-shadow strict 8-probe 修复，使 COLREGs 避碰行为贴合架构设计，并以 A4000 严格 8-probe 数据 + 前端浏览器截图作为验收。
+- **核心改动 (Actions)**:
+  - `src/l3_tdl_kernel/m6_colregs_reasoner/include/m6_colregs_reasoner/rule_latch.hpp` + `src/l3_tdl_kernel/m6_colregs_reasoner/src/colregs_reasoner_node.cpp`: 撤回 projected-past 提前释放；M6 latch 只在 past-and-clear + opening + CPA 安全时释放，保持 COLREGs 权威 conservative。
+  - `src/l3_tdl_kernel/m4_behavior_arbiter/{include,src,test}`: 增加 committed COLREG anchor、CPA-aware envelope、quartering gate、4-cycle release dwell；避免 M6 短暂 false gap 导致 M4/M5 舵令抖动。
+  - `docker/sil_topic_bridge.py` + `tests/docker/test_sil_topic_bridge.py`: 允许同侧且更小偏差的 rejoin target refresh，避免 Bridge 锁死大转向目标；继续保留 M6/M4 权威。
+  - `docs/superpowers/{specs,plans}/2026-06-10-colregs-rejoin-acceptance*.md`: 更新 Spec/Plan，记录最终设计、验证证据和 route-return 后续边界。
+- **当前状态 (Status)**: GREEN. 本地 `pytest tests/docker/test_sil_topic_bridge.py tests/sim_workbench/scoring/test_stability_scorer.py -q` = 30/30 PASS；A4000 clean strict 8-probe fresh run = **8/8 PASS** (`rule14-ho 1336m`, `ho-port 1376m`, `rule13-ot 1498m`, `rule15-cs 1773m`, `cs-2 1664m`, `cs-edge 1030m`, `ot-boundary 593m`, `rule17 1423m`)；前端浏览器截图产物在 `artifacts/colregs_8probe_browser_20260610/colreg-rule15-ot-boundary_monitor_browser_pass_candidate.png`，不是 runner PNG。
+- **接力指示 (Hand-off Context)**: strict 8-probe gate 已通过；runner 的 `returned_to_route` 字段仍为 `False`，当前 README gate 是 `cpa_ok AND stability`。若下一轮把回归航线提升为硬验收，优先做 M5/Bridge 显式 rejoin controller，不再扩 Bridge 影子逻辑。三端同步目标：ff 合入本地 `main`，推 GitHub `origin/main` 与 GitLab `l3-tdl`；A4000 按 CLAUDE.md 继续 scp 部署，禁 git pull/reset。

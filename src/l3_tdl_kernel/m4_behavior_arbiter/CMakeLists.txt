@@ -23,6 +23,7 @@ add_library(m4_core STATIC
   src/behavior_dictionary.cpp
   src/behavior_activation.cpp
   src/behavior_priority.cpp
+  src/colregs_directive.cpp
 )
 target_include_directories(m4_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -98,6 +99,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_behavior_priority test/unit/test_behavior_priority.cpp)
   target_link_libraries(test_behavior_priority m4_core)
   target_include_directories(test_behavior_priority PRIVATE include)
+
+  ament_add_gtest(test_colregs_directive test/unit/test_colregs_directive.cpp)
+  target_link_libraries(test_colregs_directive m4_core)
+  target_include_directories(test_colregs_directive PRIVATE include)
 
   ament_add_gtest(test_m4_node_lifecycle test/unit/test_m4_node_lifecycle.cpp)
   target_link_libraries(test_m4_node_lifecycle m4_node_lib)

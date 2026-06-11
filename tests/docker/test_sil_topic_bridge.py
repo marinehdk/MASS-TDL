@@ -260,6 +260,130 @@ def test_avoidance_tears_down_when_m4_returns_to_transit(monkeypatch):
     assert fake_self._avoidance_active is False
 
 
+def test_behavior_plan_transit_does_not_interrupt_latch_release_decay(monkeypatch):
+    """M4 TRANSIT must not tear down avoidance while release smoothing is active."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = 96.0
+    fake_self._AVOID_TRANSIT_RELEASE_S = 3.0
+    fake_self._latch_release_triggered = True
+    fake_self._latch_release_time = 99.0
+    fake_self._latch_offset_at_release_deg = 150.0
+    fake_self._avoidance_target_heading_deg = 120.0
+    fake_self._get_sim_time = lambda: 100.0
+    transit_plan = SimpleNamespace(
+        behavior=0, heading_min_deg=355.0, heading_max_deg=359.0, rationale="transit",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, transit_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == 120.0
+    assert fake_self._latch_release_triggered is True
+
+
+def test_behavior_plan_tracking_locks_before_reversal_window(monkeypatch):
+    """Once Bridge reaches the design alteration, it must not chase late M4
+    windows toward a reversal."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = bridge.M4_AVOID_TARGET_LOCK_DELTA_DEG
+
+    avoid_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=154.0,
+        heading_max_deg=184.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, avoid_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(
+        bridge.M4_AVOID_TARGET_LOCK_DELTA_DEG
+    )
+
+
+def test_behavior_plan_tracking_allows_rejoin_window_after_large_turn(monkeypatch):
+    """A large locked avoidance target must still accept later M4 windows that
+    reduce absolute deviation back toward the route."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = bridge.M4_AVOID_TARGET_LOCK_DELTA_DEG
+
+    rejoin_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=65.0,
+        heading_max_deg=95.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, rejoin_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(90.0)
+
+
+def test_behavior_plan_tracking_does_not_chase_rolled_m4_window(monkeypatch):
+    """Once a large starboard target is set, Bridge must not chase current-heading
+    M4 windows into the opposite absolute heading side."""
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = 154.0
+
+    rolled_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=269.0,
+        heading_max_deg=299.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, rolled_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(154.0)
+
+
+def test_avoidance_plan_arm_uses_starboard_edge_before_180(monkeypatch):
+    """Bridge arm path must not turn a valid M4 starboard window into a reversal."""
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        _get_sim_time=lambda: 100.0,
+        _autopilot_enabled=False,
+        _avoidance_active=False,
+        _avoidance_armed_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=None,
+        _last_behavior_plan=SimpleNamespace(
+            behavior=1,
+            heading_min_deg=154.0,
+            heading_max_deg=184.0,
+        ),
+        _last_valid_plan_time=0.0,
+        _last_avoidance_waypoint=None,
+        _latch_release_triggered=False,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    valid_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[SimpleNamespace(turn_radius_m=500.0, target_speed_kn=10.0)],
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, valid_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(154.0)
+
+
 def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):
     bridge = _load_bridge(monkeypatch)
     fake_self = SimpleNamespace(
@@ -323,6 +447,93 @@ def test_bridge_uses_reliable_volatile_qos_for_l3_consumers(monkeypatch):
 
 
 # ── P1: ADR-1 M6 conflict authority tests ─────────────────────────────────
+
+@pytest.mark.parametrize("autopilot_enabled", [False, True])
+def test_m5_empty_plan_does_not_release_while_m6_conflict_active(
+    monkeypatch, autopilot_enabled
+):
+    """Empty M5 plan must not clear avoidance while M6 still owns conflict."""
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    sentinel = object()
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _get_sim_time=lambda: 100.0,
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _autopilot_enabled=autopilot_enabled,
+        _avoidance_active=True,
+        _m6_conflict_active=True,
+        _avoidance_target_heading_deg=20.0,
+        _last_behavior_plan=None,
+        _last_valid_plan_time=90.0,
+        _last_avoidance_waypoint=sentinel,
+        _latch_release_triggered=False,
+        _avoidance_armed_time=80.0,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    empty_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[],
+        speed_adjustments=[],
+        confidence=1.0,
+        status="NORMAL",
+        rationale="M4 TRANSIT - no avoidance required",
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, empty_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == 20.0
+    assert fake_self._last_avoidance_waypoint is sentinel
+
+
+@pytest.mark.parametrize("autopilot_enabled", [False, True])
+def test_m5_empty_plan_does_not_interrupt_latch_release_decay(
+    monkeypatch, autopilot_enabled
+):
+    """Once release smoothing is active, empty M5 plans must not force an abrupt
+    transition to transit steering."""
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    sentinel = object()
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _get_sim_time=lambda: 190.0,
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _autopilot_enabled=autopilot_enabled,
+        _avoidance_active=True,
+        _m6_conflict_active=False,
+        _avoidance_target_heading_deg=120.0,
+        _last_behavior_plan=SimpleNamespace(behavior=0),
+        _last_valid_plan_time=188.0,
+        _last_avoidance_waypoint=sentinel,
+        _latch_release_triggered=True,
+        _latch_release_time=189.0,
+        _latch_offset_at_release_deg=150.0,
+        _avoidance_armed_time=30.0,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    empty_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[],
+        speed_adjustments=[],
+        confidence=1.0,
+        status="NORMAL",
+        rationale="M4 TRANSIT - release smoothing",
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, empty_plan)
+
+    assert fake_self._avoidance_active is True
+    assert fake_self._avoidance_target_heading_deg == 120.0
+    assert fake_self._last_avoidance_waypoint is sentinel
+
 
 def _make_check_geometry_self(bridge, *, m6_conflict_active, avoidance_armed_t=80.0):
     """Minimal fake_self for _check_geometry_release tests."""
