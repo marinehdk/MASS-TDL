@@ -12,7 +12,7 @@
 | Currently Implementing | — |
 | 当前分支 | `fix/m6-colregs-convergence`（M7 主节点文件在此分支有修改）|
 | 节点入口 | `src/l3_tdl_kernel/m7_safety_supervisor/src/safety_supervisor_node.cpp` |
-| 参考审计 | `handoff/audit_slices/M7.md`（基线 158bba9d）|
+| 参考审计 | `docs/Doc From Claude/2026-06-08-m1-m8-systemwide-gap-audit.md`（基线 158bba9d；M7 条目已并入本文）|
 
 ---
 

@@ -113,11 +113,11 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 
 ## 15. 记忆与接力
 
-- **唯一记忆持久层 = MemPalace**。本项目不再依赖旧 `handoff/` 多应用接力流程；不要自动调用 `handoff-save.py` / `handoff-recall.py`，也不要恢复已删除的 handoff workflow。
+- **唯一记忆持久层 = MemPalace**。本项目不再依赖旧 `handoff/` 多应用接力流程，目录已删除；不要自动调用 `handoff-save.py` / `handoff-recall.py`，也不要恢复已删除的 handoff workflow。
 - 新 Codex 对话开始时，先运行：`mempalace wake-up --wing mass_l3_tactical_layer`；任务有关键词时再运行：`mempalace search --wing mass_l3_tactical_layer "<kw>"`。
 - 会话压缩前与结束时，由 Codex hooks 调用：`MEMPAL_DIR="/Users/marine/Code/MASS-L3-Tactical Layer" mempalace hook run --hook precompact --harness codex` 与 `... --hook stop --harness codex`，确保当前 transcript 与项目上下文入库。
 - 若需要手动补救当前会话，定位 Codex transcript 后用：`mempalace mine <transcript_or_dir> --mode convos --wing sessions`；项目文件补采集用：`mempalace mine "/Users/marine/Code/MASS-L3-Tactical Layer"`。
-- 完成重要工作时，可在最终回复里写清当前分支、commit、验证命令和剩余风险；不再额外维护 `handoff/workspace_log.md`。
+- 完成重要工作时，可在最终回复里写清当前分支、commit、验证命令和剩余风险；不再额外维护 markdown 接力日志。
 
 ## branch / remote conventions
 

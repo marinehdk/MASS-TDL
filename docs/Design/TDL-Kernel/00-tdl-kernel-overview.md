@@ -309,7 +309,7 @@ graph TB
 
 **审计基准文档**：
 - `docs/Doc From Claude/2026-06-08-m1-m8-systemwide-gap-audit.md` — 系统审计全文（158bba9d 版本，§0.2 含当前修正）
-- `handoff/audit_slices/_bandaids.md` — 创可贴/mock/断流结构化清单
+- 创可贴/mock/断流结构化清单已并入上方 Topic Registry 速查表；旧 `handoff/audit_slices/` 已删除，后续用 MemPalace 或审计正文追溯历史上下文。
 
 ---
 

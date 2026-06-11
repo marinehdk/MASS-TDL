@@ -4,7 +4,7 @@
 
 ## 1. 项目状态（2026-06-09）
 - 阶段 Phase 1 中段；DEMO-1 6/15（不可取消）· DEMO-2 7/31 · DEMO-3 8/31。总账 [00-master-plan.md](docs/Design/00-master-plan.md)（≤300行）；阶段 [Phase 1/00-overview.md](docs/Design/Phase%201/00-overview.md)。
-- 权威文件（勿读归档）：架构主文件 [MASS_ADAS_L3_TDL_架构设计报告.md](docs/Design/Architecture%20Design/MASS_ADAS_L3_TDL_架构设计报告.md) v1.1.3-pre-stub · [SIL/v1.0-unified/](docs/Design/SIL/v1.0-unified/) 01–04 · [RFC-decisions.md](docs/Design/Cross-Team%20Alignment/RFC-decisions.md)（6 RFC 批准）。
+- 权威文件（勿读归档）：架构主文件 [MASS_ADAS_L3_TDL_架构设计报告.md](docs/Design/Architecture%20Design/MASS_ADAS_L3_TDL_架构设计报告.md) v1.1.3-pre-stub · [SIL/v1.0-unified/](docs/Design/SIL/v1.0-unified/) 01–04 · [RFC-decisions.md](docs/Design/Phase%200/Archive/Cross-Team%20Alignment/RFC-decisions.md)（6 RFC 批准）。
 - 活跃约束：132 项 `[TBD-HAZID]` 待 HAZID RUN-001 校准（8/19 回填 v1.1.3）；2026-12 实船试航降级为非认证 AIS 采集。
 
 ## 2. 系统坐标系
@@ -84,5 +84,6 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 - **禁暴力搜索**：未定位前禁大范围 grep / 读整文件；先 codegraph 拿坐标再读特定范围。
 
 ## 15. 记忆与接力
-- **语义召回 = MemPalace**：`mempalace search "<kw>"` / `mempalace wake-up`；新文件 `mempalace mine <path>`。（headroom 非记忆层，仅压缩 proxy。）
-- 完成有意义工作后手写一条 curated 条目追加 `handoff/workspace_log.md`（`## [日期] Agent / Git Commit / 任务目标 / 核心改动 / 当前状态 / 接力指示`）。**勿**跑 `archive_to_headroom.py`（已退役）。
+- **唯一记忆持久层 = MemPalace**。旧 `handoff/` markdown 接力流程已删除；不要恢复 `workspace_log.md`、handoff prompt、handoff workflow 或 `archive_to_headroom.py`。
+- 新会话召回：`mempalace wake-up --wing mass_l3_tactical_layer`；关键词召回：`mempalace search --wing mass_l3_tactical_layer "<kw>"`。
+- 会话压缩/结束保存由 Codex hooks 调用 MemPalace `--harness codex`；手动补救时定位 Codex transcript 后运行：`mempalace mine <transcript_dir> --mode convos --wing sessions`。
