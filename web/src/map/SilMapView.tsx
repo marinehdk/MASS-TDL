@@ -119,7 +119,7 @@ function calculateCogPath(
 
 function makeVesselEl(color: string, size = 28, ownship = false): HTMLDivElement {
   const el = document.createElement('div');
-  el.style.cssText = `width:${size}px;height:${size}px;pointer-events:auto;cursor:pointer;transform-origin:50% 50%;position:relative;`;
+  el.style.cssText = `width:${size}px;height:${size}px;pointer-events:auto;cursor:pointer;transform-origin:50% 50%;position:absolute;`;
   const strokeW = ownship ? 2.5 : 1.8;
   el.innerHTML = `
     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" style="pointer-events:none; display:block;">

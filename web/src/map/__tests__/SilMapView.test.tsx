@@ -1,34 +1,52 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-import { act, render } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { appendCurrentPositionToTrail, SilMapView } from '../SilMapView';
 
-const addLayerMock = vi.fn();
+const mocks = vi.hoisted(() => {
+  const addLayerMock = vi.fn();
+  const markerMock = vi.fn((options?: { element?: HTMLDivElement }) => ({
+    setLngLat: vi.fn().mockReturnThis(),
+    addTo: vi.fn().mockReturnThis(),
+    setRotation: vi.fn().mockReturnThis(),
+    remove: vi.fn(),
+    getElement: vi.fn(() => options?.element ?? document.createElement('div')),
+  }));
+  const mockMap = {
+    addControl: vi.fn(),
+    remove: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    addSource: vi.fn(),
+    addLayer: addLayerMock,
+    getLayer: vi.fn(),
+    getSource: vi.fn(() => ({ setData: vi.fn() })),
+    getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
+    getContainer: vi.fn(() => ({ clientHeight: 800 })),
+    jumpTo: vi.fn(),
+    easeTo: vi.fn(),
+    fitBounds: vi.fn(),
+    setPadding: vi.fn(),
+    isStyleLoaded: vi.fn(() => true),
+    once: vi.fn(),
+    project: vi.fn(() => ({ x: 100, y: 100 })),
+    queryRenderedFeatures: vi.fn(() => []),
+    resize: vi.fn(),
+    setPaintProperty: vi.fn(),
+    setLayoutProperty: vi.fn(),
+  };
 
-const mockMap = {
-  addControl: vi.fn(),
-  remove: vi.fn(),
-  on: vi.fn(),
-  off: vi.fn(),
-  addSource: vi.fn(),
-  addLayer: addLayerMock,
-  getSource: vi.fn(() => ({ setData: vi.fn() })),
-  getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
-  getContainer: vi.fn(() => ({ clientHeight: 800 })),
-  jumpTo: vi.fn(),
-  easeTo: vi.fn(),
-  setPadding: vi.fn(),
-  isStyleLoaded: vi.fn(() => true),
-  once: vi.fn(),
-  setPaintProperty: vi.fn(),
-  setLayoutProperty: vi.fn(),
-};
+  return { addLayerMock, markerMock, mockMap };
+});
+
+const addLayerMock = mocks.addLayerMock;
+const mockMap = mocks.mockMap;
 
 vi.mock('maplibre-gl', () => ({
   default: {
     Map: vi.fn(() => mockMap),
     NavigationControl: vi.fn(() => ({})),
     ScaleControl: vi.fn(() => ({})),
-    Marker: vi.fn(() => ({ setLngLat: vi.fn().mockReturnThis(), addTo: vi.fn().mockReturnThis(), setRotation: vi.fn().mockReturnThis(), remove: vi.fn(), getElement: vi.fn(() => ({ innerHTML: '' })) })),
+    Marker: mocks.markerMock,
   },
 }));
 
@@ -36,6 +54,7 @@ describe('SilMapView', () => {
   beforeEach(() => {
     addLayerMock.mockClear();
     mockMap.on.mockClear();
+    mocks.markerMock.mockClear();
   });
 
   it('renders map container div', () => {
@@ -69,5 +88,27 @@ describe('SilMapView', () => {
     ]);
 
     expect(appendCurrentPositionToTrail(trail, 10.41, 63.41)).toEqual(trail);
+  });
+
+  it('keeps vessel markers absolutely positioned for MapLibre anchoring', async () => {
+    render(
+      <SilMapView
+        previewData={{
+          ownShip: { lat: 63.4, lon: 10.4, heading: 30, sog: 7, cog: 30 },
+          targets: [{ id: 'target-1', lat: 63.41, lon: 10.41, heading: 210, sog: 8, cog: 210 }],
+        }}
+      />
+    );
+
+    const loadHandler = mockMap.on.mock.calls.find((call) => call[0] === 'load')?.[1];
+    expect(loadHandler).toBeTypeOf('function');
+    act(() => {
+      loadHandler();
+    });
+
+    await waitFor(() => expect(mocks.markerMock).toHaveBeenCalledTimes(2));
+    const markerElements = mocks.markerMock.mock.calls.map(([options]) => options?.element as HTMLDivElement);
+
+    expect(markerElements.map((el) => el.style.position)).toEqual(['absolute', 'absolute']);
   });
 });
