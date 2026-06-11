@@ -1,0 +1,10 @@
+provider: aisstream
+route_path: scenarios/集成测试/safe_route.yaml
+capture_duration_hours: 10.0
+risk_top_n: 20
+output_dir: data/ais_twin/safe_route
+bbox:
+  lat_min: -4.503333
+  lat_max: -1.136667
+  lon_min: 104.786263
+  lon_max: 108.513737
