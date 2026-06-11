@@ -61,3 +61,9 @@ class TrackPoint:
     sog_kn: float
     cog_deg: float
     heading_deg: float | None
+
+
+@dataclass(frozen=True)
+class TrackSegment:
+    mmsi: int
+    points: tuple[TrackPoint, ...]
