@@ -359,13 +359,17 @@ phase('Verify')
 let candidates = collectCandidates(phase1, flow)
 const RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
 candidates.sort((a, b) => (RANK[a.severity] === undefined ? 9 : RANK[a.severity]) - (RANK[b.severity] === undefined ? 9 : RANK[b.severity]))
-const CAP = 64
+const CAP = 40
 const toVerify = candidates.slice(0, CAP)
 if (candidates.length > CAP) log(`NOTE: verifying top ${CAP}/${candidates.length} findings by severity; ${candidates.length - CAP} lower-severity findings returned UNVERIFIED (not silently dropped).`)
 log(`Verifying ${toVerify.length} findings adversarially`)
-const verified = (await parallel(toVerify.map(c => () => agent(verifyPrompt(c), { model: 'sonnet', phase: 'Verify', label: `verify:${c.src}` , schema: VERDICT_SCHEMA }).then(v => ({ ...c, verdict: v }))))).filter(Boolean)
+const verified = (await parallel(toVerify.map(c => () => agent(verifyPrompt(c), { model: 'sonnet', phase: 'Verify', label: `verify:${c.src}` , schema: VERDICT_SCHEMA })
+  .then(v => ({ ...c, verdict: v }))
+  .catch(e => ({ ...c, verdict: { verdict: 'UNVERIFIED', confidence: 'LOW', reason: 'verify agent failed: ' + ((e && e.message) ? e.message : String(e)) } }))))).filter(Boolean)
 
-const critic = await agent(`${preamble()}
+let critic = null
+try {
+critic = await agent(`${preamble()}
 
 COMPLETENESS CRITIC for a M1-M8 + front/back-end gap audit. Given all findings below, identify what was NOT covered: any module boundary, mock, topic, design responsibility, or gap category that no agent examined, and any obviously-missed area. Be specific and actionable. Use category OTHER for coverage gaps.
 
@@ -374,6 +378,9 @@ ${trim(phase1)}
 
 FLOW VERDICTS:
 ${JSON.stringify(flow.map(f => f.data), null, 1)}`, { model: 'sonnet', phase: 'Verify', label: 'completeness-critic', schema: GENERIC_SCHEMA })
+} catch (e) {
+  critic = { area: 'completeness', summary: 'critic agent failed: ' + ((e && e.message) ? e.message : String(e)), findings: [] }
+}
 
 return {
   phase1, flow, verified,

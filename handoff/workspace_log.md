@@ -203,6 +203,30 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: 完成并验证（mermaid 围栏全配平、D任务表保留、状态矩阵齐、M5-progress 抽查优秀——J_colreg 已修正确反映为 REAL）。文档现可作为修复的设计-现状对照基线。
 - **接力指示 (Hand-off Context)**: 文档就绪。下一步按系统审计 §4 优先级修复：P0=接 M7 真硬门(C1 veto发布/C2 HC死代码/C3 bridge gate) + M4 消费 M6 方向(去硬编码右转)。每步 systematic-debugging + A4000 复现。审计全文 docs/Doc From Claude/2026-06-08-m1-m8-systemwide-gap-audit.md；各模块 gap 见 M{n}-progress.md。
 
+## [2026-06-08 17:00] Agent: Antigravity (IDE)
+- **Git Commit**: `c5a902ba` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: Integrate real-time L2 GncRoutePlan topic (/route_planning/gnc_route_plan) on ROS_DOMAIN_ID 42 and render it visually on the Malacca Strait map.
+- **核心改动 (Actions)**:
+  - `[src/ship_interfaces/msg/GncRoutePlan.msg](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/src/ship_interfaces/msg/GncRoutePlan.msg)`: [NEW] Created raw GncRoutePlan message definition with header, latitude, longitude, and total_waypoints.
+  - `[src/ship_interfaces/package.xml](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/src/ship_interfaces/package.xml)`: [NEW] Created package manifest for ship_interfaces.
+  - `[src/ship_interfaces/CMakeLists.txt](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/src/ship_interfaces/CMakeLists.txt)`: [NEW] Created CMake lists for ship_interfaces to compile ROS2 message.
+  - `[docker/sil_nodes.Dockerfile](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/docker/sil_nodes.Dockerfile)`: Modified to copy src/ship_interfaces and add it to the colcon build packages-select list to compile it inside docker container.
+  - `[docker/mock_l2_publisher.py](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/docker/mock_l2_publisher.py)`: Subscribed to /route_planning/gnc_route_plan (GncRoutePlan) dynamically, translated it, and forwarded it immediately to /l2/planned_route and /l1/voyage_task.
+  - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/web/src/map/SilMapView.tsx)`: Added plannedRoute prop and implemented MapLibre GeoJSON source/layers to draw the route visually in Cyan dashed lines.
+  - `[web/src/screens/SimulationMonitor.tsx](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/web/src/screens/SimulationMonitor.tsx)`: Fed active route waypoints from telemetry store to SilMapView.
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/web/src/screens/SimulationScenario.tsx)`: Fed preview waypoints from loaded YAML to SilMapView with proper TypeScript type annotations.
+  - `[scripts/verify_gnc_translation.sh](file:///Users/marine/Code/MASS-L3-Tactical%20Layer/scripts/verify_gnc_translation.sh)`: [NEW] Created bash verification script to publish GncRoutePlan on domain 42 and assert output of PlannedRoute inside the container.
+- **当前状态 (Status)**: GREEN (Host ROS2 compilation pass, local HMI build and all 158 tests pass, A4000 docker rebuild and verification script 100% SUCCESS).
+- **接力指示 (Hand-off Context)**: GncRoutePlan has been fully integrated. Selecting "近海群岛" in HMI displays the Malacca Strait chart, and when GncRoutePlan messages are published on /route_planning/gnc_route_plan (ROS_DOMAIN_ID=42), they are automatically translated and displayed visually on the map as a dashed cyan line. No further actions needed for this task.
+
+## [2026-06-08 17:08] Agent: Antigravity (IDE)
+- **Git Commit**: `c5a902ba` (branch: `fix/m5-nlp-convergence`)
+- **任务目标 (Goal)**: Explain the HMI screen navigation and button operations to transition a scenario to the ACTIVE state.
+- **核心改动 (Actions)**:
+  - None (answered user clarification question, no code changes).
+- **当前状态 (Status)**: GREEN (no code changes, system state remains fully verified).
+- **接力指示 (Hand-off Context)**: Awaiting further instructions from the user.
+
 ## [2026-06-09 08:49] Agent: Claude Code CLI (Opus 4.8 1M)
 - **Git Commit**: `21a640b5` (branch: `fix/m5-nlp-convergence`)
 - **任务目标 (Goal)**: 选项B根因修复 M6 —— 消除避碰段本船无法保持 give-way 航向、舵 fishtail（colreg-rule14-ho）
