@@ -21,8 +21,8 @@
     "sil:logs": "docker compose logs --tail=100 -f sil-nodes sil-orchestrator",
     "dev:backend": "PYTHONPATH=src python3 -m uvicorn sil_orchestrator.main:app --port 8000 --host 127.0.0.1",
     "dev:frontend": "npm run dev --prefix web",
-    "graph:update": "graphify update . && npm run graph:prune",
-    "graph:prune": "cd graphify-out && LATEST=$(ls -dt 2026-*/ 2>/dev/null | head -1 | tr -d '/') && [ -n \"$LATEST\" ] && ls -d 2026-* | grep -v \"^${LATEST}$\" | xargs rm -rf; true",
+    "codegraph:sync": "codegraph sync .",
+    "codegraph:status": "codegraph status .",
     "test:trace": "pytest tools/sil/test_scenario_trace.py -v -s",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

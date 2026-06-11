@@ -78,7 +78,7 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 - ⚠️ **A4000 走 scp 部署不走 git**：A4000 的 `git fetch gitlab` 不通 + 工作树常有并行会话未提交的 docs → **禁 `git pull`/`git reset`**（会毁并行会话的活）。更新一律本地 push 三端 + scp 到 A4000。
 - **env_disturbance wedge**：单驱动快速循环不复现 → 双驱动并发 race（前端 + CLI 同时 configure 撞 SetParameters → 15s 超时）。**规约：同一时刻只一个 configure 驱动**；复位 `docker compose restart sil-nodes`。
 
-## 14. 代码图谱 = codegraph（MCP，替代已删的 graphify）
+## 14. 代码图谱 = codegraph（MCP）
 - 定位代码/继承/调用链：优先 `codegraph_explore`（一次调用返回相关 symbol 源码，多数问题一次够）；细分 `codegraph_search`/`codegraph_callers`/`codegraph_callees`/`codegraph_impact`。
 - **自动索引**：文件 watcher 约 1s 跟进写入，**无需手动 update**。
 - **禁暴力搜索**：未定位前禁大范围 grep / 读整文件；先 codegraph 拿坐标再读特定范围。

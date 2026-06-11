@@ -3,6 +3,6 @@
   "plugin": [
     "oh-my-openagent@latest",
     "@warp-dot-dev/opencode-warp",
-    ".opencode/plugins/graphify.js"
+    ".opencode/plugins/codegraph.js"
   ]
 }
