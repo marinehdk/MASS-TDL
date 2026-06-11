@@ -67,3 +67,14 @@ class TrackPoint:
 class TrackSegment:
     mmsi: int
     points: tuple[TrackPoint, ...]
+
+
+@dataclass(frozen=True)
+class RankedTarget:
+    mmsi: int
+    point: TrackPoint
+    score: float
+    cpa_m: float
+    tcpa_s: float
+    distance_m: float
+    rationale: str
