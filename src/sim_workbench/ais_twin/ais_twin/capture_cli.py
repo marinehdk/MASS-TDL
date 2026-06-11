@@ -72,3 +72,7 @@ def main(argv=None):
     api_key = os.environ["AISSTREAM_API_KEY"]
     count = asyncio.run(run_capture(Path(args.config), api_key, overwrite=args.overwrite))
     print(f"ais_twin_capture records_written={count}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,8 @@
 import json
 import asyncio
+import os
+import subprocess
+import sys
 from datetime import datetime, timezone
 
 import pytest
@@ -42,6 +45,41 @@ def test_capture_cli_requires_api_key(monkeypatch):
     monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
     with pytest.raises(KeyError):
         main(["--config", "src/sim_workbench/ais_twin/config/safe_route_aisstream.yaml"])
+
+
+def test_capture_cli_module_entrypoint_requires_api_key():
+    env = os.environ.copy()
+    env.pop("AISSTREAM_API_KEY", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ais_twin.capture_cli",
+            "--config",
+            "src/sim_workbench/ais_twin/config/safe_route_aisstream.yaml",
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "AISSTREAM_API_KEY" in result.stderr
+
+
+def test_debug_api_module_entrypoint_exposes_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "ais_twin.debug_api", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "--tracks" in result.stdout
+    assert "--port" in result.stdout
 
 
 def test_load_latest_targets_from_tracks_keeps_latest_per_mmsi(tmp_path):

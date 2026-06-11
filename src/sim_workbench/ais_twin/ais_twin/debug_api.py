@@ -88,3 +88,7 @@ def main(argv=None):
     DebugHandler.limit = args.limit
     server = HTTPServer((args.host, args.port), DebugHandler)
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
