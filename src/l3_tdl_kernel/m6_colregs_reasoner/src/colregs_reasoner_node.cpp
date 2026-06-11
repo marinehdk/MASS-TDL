@@ -579,6 +579,7 @@ void ColregsReasonerNode::run_reasoning() {
         past_and_clear && !range_closing && target.cpa_m >= kParams.cpa_safe_m;
     if (finally_resolved || resolved_targets_.count(mmsi) > 0) {
       resolved_targets_.insert(mmsi);
+      rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 13ULL);
       rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 14ULL);
       rule_latches_.erase((static_cast<uint64_t>(mmsi) << 8) | 15ULL);
       give_way_latches_.erase(mmsi);
@@ -592,11 +593,12 @@ void ColregsReasonerNode::run_reasoning() {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
 
-      // Onset-latched hysteresis for Rules 14 (head-on) and 15 (crossing):
+      // Onset-latched hysteresis for Rules 13 (overtaking), 14 (head-on),
+      // and 15 (crossing):
       // hold encounter classification through own-ship's avoidance maneuver
       // (Rule 13(d)) so we don't chatter back to TRANSIT and U-turn.
       const int rid = rule->rule_id();
-      if (rid == 14 || rid == 15) {
+      if (rid == 13 || rid == 14 || rid == 15) {
         const uint64_t key = (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(rid);
         auto it = rule_latches_.find(key);
         if (it == rule_latches_.end()) {
