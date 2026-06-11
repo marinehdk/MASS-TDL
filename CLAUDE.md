@@ -85,5 +85,4 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 
 ## 15. 记忆与接力
 - **语义召回 = MemPalace**：`mempalace search "<kw>"` / `mempalace wake-up`；新文件 `mempalace mine <path>`。（headroom 非记忆层，仅压缩 proxy。）
-- **确定性接力 = 全局 hooks**（`~/.claude/hooks/`）：SessionStart 自动注入上一会话 `.live_state.md`+DEBUG_STATE.md+日志末条；Stop/PreCompact/SessionEnd 自动落盘。**无需手动读 workspace_log.md**。
-- 完成有意义工作后手写一条 curated 条目追加 `handoff/workspace_log.md`（`## [日期] Agent / Git Commit / 任务目标 / 核心改动 / 当前状态 / 接力指示`）。**勿**跑 `archive_to_headroom.py`（已退役）。切 provider 前 `~/.claude/hooks/provider-guard.py --model "<name>"` 校验。
+- 完成有意义工作后手写一条 curated 条目追加 `handoff/workspace_log.md`（`## [日期] Agent / Git Commit / 任务目标 / 核心改动 / 当前状态 / 接力指示`）。**勿**跑 `archive_to_headroom.py`（已退役）。
