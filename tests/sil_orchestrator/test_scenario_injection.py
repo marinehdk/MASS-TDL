@@ -208,6 +208,13 @@ class TestExtractInjectionParams:
         assert isinstance(targets, list)
         assert len(targets) == 2
 
+    def test_target_vessel_params_clear_empty_target_list(self):
+        """Empty targetShips still clears target_vessel_node parameters."""
+        result = _extract_injection_params({"targetShips": []})
+        tv = result.get("target_vessel_node", {})
+        assert "default_targets_json" in tv
+        assert json.loads(tv["default_targets_json"][0]) == []
+
     def test_scenario_lifecycle_mgr_has_scenario_id(self, imazu08_parsed):
         """scenario_lifecycle_mgr receives scenario_id matching
         metadata.scenario_id from YAML."""

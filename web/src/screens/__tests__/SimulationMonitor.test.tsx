@@ -95,6 +95,14 @@ describe('SimulationMonitor', () => {
     expect(screen.getByTestId('right-tab-asdr')).toBeInTheDocument();
   });
 
+  it('offers only CPU-supported simulation rates', () => {
+    render(<SimulationMonitor />);
+    expect(screen.getByTestId('rate-btn-1x')).toBeInTheDocument();
+    expect(screen.getByTestId('rate-btn-5x')).toBeInTheDocument();
+    expect(screen.getByTestId('rate-btn-10x')).toBeInTheDocument();
+    expect(screen.queryByTestId('rate-btn-50x')).not.toBeInTheDocument();
+  });
+
   it('clicking captain tab toggles state and displays content panel', () => {
     render(<SimulationMonitor />);
     const shipTab = screen.getByTestId('left-tab-ship');

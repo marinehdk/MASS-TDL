@@ -1806,7 +1806,7 @@ export function SimulationMonitor() {
           padding: 2,
           gap: 2,
         }}>
-          {[1, 10, 50].map((r) => {
+          {[1, 5, 10].map((r) => {
             const active = simRate === r;
             return (
               <button

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useClearEncountersMutation, useInjectEncounterMutation } from '../../api/silApi';
+import { useTelemetryStore } from '../../store/telemetryStore';
 
 const PRESETS = [
   { rule: 'head_on',          name: '对头 R14',        desc: '正前方 reciprocal 碰撞航线' },
@@ -13,6 +14,7 @@ interface Props { inline?: boolean; }
 export const EncounterInjectPanel: React.FC<Props> = ({ inline = false }) => {
   const [injectEncounter] = useInjectEncounterMutation();
   const [clearEncounters] = useClearEncountersMutation();
+  const clearCachedTargets = useTelemetryStore((s) => s.clearTargets);
   const [activeMmsis, setActiveMmsis] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +47,9 @@ export const EncounterInjectPanel: React.FC<Props> = ({ inline = false }) => {
     setBusy(true); setError(null);
     try {
       const res = await clearEncounters().unwrap();
-      setActiveMmsis(res.failed_mmsis ?? []);
+      const failedMmsis = res.failed_mmsis ?? [];
+      setActiveMmsis(failedMmsis);
+      if (failedMmsis.length === 0) clearCachedTargets();
     } catch (e: any) {
       setError(e?.data?.detail ?? '清除失败');
     } finally { setBusy(false); }

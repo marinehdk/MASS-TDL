@@ -1007,6 +1007,9 @@ metadata:
     sea_state_beaufort: 5
     visibility_nm: 6.0
   seed: 108
+  expected_outcome:
+    cpa_min_m_ge: 500.0
+    grounding: forbidden
   simulation_settings:
     total_time: 36000.0
     dt: 0.02

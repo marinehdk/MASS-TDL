@@ -288,6 +288,30 @@ def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):
     assert out.r_dot_deg_s == math.degrees(msg.r)
 
 
+def test_route_xte_uses_current_target_waypoint_segment(monkeypatch):
+    """Transit XTE must use the current route leg, not the full-route chord.
+
+    A dogleg route from WP0 east to WP1, then north to WP2, should have near-zero
+    XTE when own-ship sits on the WP1->WP2 leg. Using the full WP0->WP2 chord
+    incorrectly creates a large diagonal-track error and pulls the vessel off the
+    complete nominal route.
+    """
+    bridge = _load_bridge(monkeypatch)
+    fake_self = SimpleNamespace(
+        _route_wps=[
+            (0.0, 0.0),
+            (0.0, 1.0),
+            (1.0, 1.0),
+        ],
+        _current_target_wp_lat=1.0,
+        _current_target_wp_lon=1.0,
+    )
+
+    xte_m = bridge.SilTopicBridge._signed_xte_m(fake_self, 0.5, 1.0)
+
+    assert xte_m == pytest.approx(0.0, abs=1.0)
+
+
 def test_bridge_uses_reliable_volatile_qos_for_l3_consumers(monkeypatch):
     bridge = _load_bridge(monkeypatch)
 

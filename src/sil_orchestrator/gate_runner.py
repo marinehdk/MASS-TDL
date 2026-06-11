@@ -538,7 +538,18 @@ async def gate_3_scenario_integrity(scenario_id: str, scenario_data: dict | None
     return GateResult(gate_id=3, passed=passed, checks=checks, duration_ms=0.0, rationale=rationale)
 
 
-_VALID_ODD_DOMAINS = {"open_sea", "coastal", "fairway", "port_entry", "ofw", "open_sea_offshore_wind_farm"}
+_VALID_ODD_DOMAINS = {
+    "open_sea_offshore_wind_farm",
+    "coastal_archipelago",
+    "harbour_approach",
+    "restricted_fairway",
+    # Legacy aliases retained for older scenario fixtures.
+    "open_sea",
+    "coastal",
+    "fairway",
+    "port_entry",
+    "ofw",
+}
 _ODD_BOUNDS = {
     "visibility_nm": (0.1, 50.0),
     "sea_state_beaufort": (0, 9),

@@ -56,4 +56,15 @@ describe('telemetryStore', () => {
     // Restore Date.now
     Date.now = originalNow;
   });
+
+  it('clearTargets removes cached targets and target trails', () => {
+    const fakeTarget = { mmsi: 123456, pose: { lat: 63.4, lon: 10.4, heading: 0.5 }, kinematics: { sog: 5, cog: 0.5, rot: 0 } } as any;
+
+    useTelemetryStore.getState().updateTargets([fakeTarget]);
+    useTelemetryStore.getState().clearTargets();
+
+    expect(useTelemetryStore.getState().targets).toEqual([]);
+    expect(useTelemetryStore.getState().targetTrails).toEqual({});
+    expect(useTelemetryStore.getState().targetLastTrailTimes).toEqual({});
+  });
 });

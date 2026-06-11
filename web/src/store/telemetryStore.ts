@@ -110,6 +110,7 @@ interface TelemetryState {
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
+  clearTargets: () => void;
   updateEnvironment: (env: EnvironmentState) => void;
   updateModulePulses: (pulses: ModulePulse[]) => void;
   appendAsdrEvent: (evt: ASDREvent) => void;
@@ -222,6 +223,11 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       targetTrails: trails,
       targetLastTrailTimes: lastTrailTimes,
     };
+  }),
+  clearTargets: () => set({
+    targets: [],
+    targetTrails: {},
+    targetLastTrailTimes: {},
   }),
   updateEnvironment: (environment) => set({ environment }),
   updateModulePulses: (modulePulses) => set({ modulePulses }),

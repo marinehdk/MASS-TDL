@@ -130,6 +130,12 @@ def _bearing_between(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     return math.degrees(math.atan2(y, x))
 
 
+def _stable_route_id(waypoints: list[tuple[float, float]]) -> int:
+    payload = ";".join(
+        f"{float(lat):.9f},{float(lon):.9f}" for lat, lon in waypoints)
+    return int(hashlib.md5(payload.encode()).hexdigest()[:8], 16) or 1
+
+
 class MockL2Publisher(Node):
     def __init__(self):
         super().__init__("mock_l2_publisher")
@@ -154,6 +160,7 @@ class MockL2Publisher(Node):
         self._route_source = "none"
         self._is_active = False
         self._route_id = 0
+        self._last_route_signature = None
         self._task_id = 0
         self._ownship_initial = {}
         self._current_scenario_id = ""
@@ -448,7 +455,10 @@ class MockL2Publisher(Node):
         self._activate()
 
     def _activate(self):
-        self._route_id += 1
+        route_signature = tuple(self._yaml_waypoints)
+        if route_signature != self._last_route_signature:
+            self._route_id = _stable_route_id(self._yaml_waypoints)
+            self._last_route_signature = route_signature
         self._task_id = int(hashlib.md5(
             str(time.time()).encode()).hexdigest()[:8], 16)
         self._is_active = True

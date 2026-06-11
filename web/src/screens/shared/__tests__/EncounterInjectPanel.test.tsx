@@ -12,9 +12,11 @@ vi.mock('../../../api/silApi', () => ({
 }));
 
 import { EncounterInjectPanel } from '../EncounterInjectPanel';
+import { useTelemetryStore } from '../../../store/telemetryStore';
 
 describe('EncounterInjectPanel', () => {
   beforeEach(() => {
+    useTelemetryStore.getState().reset();
     mocks.inject.mockReset();
     mocks.clear.mockReset();
     mocks.inject.mockImplementation(() => ({
@@ -62,5 +64,20 @@ describe('EncounterInjectPanel', () => {
 
     fireEvent.click(screen.getByTestId('encounter-clear'));
     await waitFor(() => expect(screen.getByText('清除注入船（1）')).toBeInTheDocument());
+  });
+
+  it('clears cached target telemetry when clear-all succeeds', async () => {
+    useTelemetryStore.getState().updateTargets([{
+      mmsi: 990000301,
+      pose: { lat: 1, lon: 2, heading: 0 },
+      kinematics: { sog: 1, cog: 0, rot: 0 },
+    } as any]);
+
+    render(<EncounterInjectPanel inline />);
+    fireEvent.click(screen.getByTestId('encounter-clear'));
+
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledTimes(1));
+    expect(useTelemetryStore.getState().targets).toEqual([]);
+    expect(useTelemetryStore.getState().targetTrails).toEqual({});
   });
 });

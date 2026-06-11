@@ -30,6 +30,7 @@ from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from sil_msgs.msg import OwnShipState
 from sil_msgs.srv import AddTarget, RemoveTarget
+from std_msgs.msg import String
 
 _log = logging.getLogger(__name__)
 
@@ -140,6 +141,8 @@ class LifecycleBridge(Node):
         )
         self.create_subscription(
             OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, own_ship_qos)
+        self._scenario_loaded_pub = self.create_publisher(
+            String, "/sil/scenario_loaded", 10)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(
@@ -148,6 +151,11 @@ class LifecycleBridge(Node):
         self._remove_target_client = self.create_client(
             RemoveTarget, "/target_vessel_node/remove_target",
             callback_group=callback_group)
+
+    def _publish_scenario_loaded(self, scenario_id: str) -> None:
+        msg = String()
+        msg.data = scenario_id
+        self._scenario_loaded_pub.publish(msg)
 
     @property
     def current_state(self) -> LifecycleState:
@@ -418,6 +426,7 @@ class LifecycleBridge(Node):
         if res.success:
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
+            self._publish_scenario_loaded(scenario_id)
             task = asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
             self._active_tasks.add(task)
             task.add_done_callback(self._active_tasks.discard)
@@ -427,6 +436,8 @@ class LifecycleBridge(Node):
         res = await self._change_state(Transition.TRANSITION_ACTIVATE)
         if res.success:
             self._state = LifecycleState.ACTIVE
+            if self._scenario_id:
+                self._publish_scenario_loaded(self._scenario_id)
             await self._broadcast_transition(Transition.TRANSITION_ACTIVATE)
 
             # Cancel any existing timers before scheduling new ones to prevent orphans
@@ -679,7 +690,7 @@ def _extract_injection_params(yaml_data: dict) -> dict:
 
     # targetShips[] -> target_vessel_node -> default_targets_json
     target_ships = yaml_data.get("targetShips", [])
-    if isinstance(target_ships, list) and target_ships:
+    if isinstance(target_ships, list):
         targets_json = json.dumps(target_ships)
         injection_map["target_vessel_node"] = {
             "default_targets_json": (targets_json, ParameterType.PARAMETER_STRING)

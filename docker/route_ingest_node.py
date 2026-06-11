@@ -8,17 +8,20 @@ layer renders it. This is the production seam for the real L2 link (later
 merged into M3 Mission Manager).
 """
 import math
+import os
 import signal
 import sys
+import hashlib
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (QoSProfile, QoSReliabilityPolicy,
                        QoSDurabilityPolicy, QoSHistoryPolicy)
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 from geographic_msgs.msg import GeoPath, GeoPoseStamped, GeoPoint
 from ship_interfaces.msg import GncRoutePlan
 from l3_external_msgs.msg import PlannedRoute
+from sil_msgs.msg import LifecycleStatus
 
 _LATCHED = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -27,6 +30,8 @@ _LATCHED = QoSProfile(
 
 EARTH_RADIUS_NM = 3440.065
 DEFAULT_SPEED_KN = 10.0
+LC_STATE_ACTIVE = 3
+SCENARIO_DIR = os.environ.get("SIL_SCENARIO_DIR", "/var/sil/scenarios")
 
 
 def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -58,19 +63,92 @@ def _make_geo_pose_stamped(lat: float, lon: float, stamp,
     return gps
 
 
+def _route_signature(lats: list[float], lons: list[float]) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    return (tuple(lats), tuple(lons))
+
+
+def _stable_route_id(lats: list[float], lons: list[float]) -> int:
+    payload = ";".join(
+        f"{lat:.9f},{lon:.9f}" for lat, lon in zip(lats, lons))
+    return int(hashlib.md5(payload.encode()).hexdigest()[:8], 16) or 1
+
+
 class RouteIngestNode(Node):
     def __init__(self):
         super().__init__("route_ingest_node")
         self._last_stamp_ns = -1
         self._route_id = 0
+        self._last_route_signature = None
+        self._expected_route_signature = None
+        self._current_scenario_id = ""
+        self._scenario_dir = SCENARIO_DIR
         self.create_subscription(
             GncRoutePlan, "/route_planning/gnc_route_plan",
             self._on_route, _LATCHED)
+        self.create_subscription(LifecycleStatus, "/sil/lifecycle_status",
+                                 self._on_lifecycle, 10)
+        self.create_subscription(String, "/sil/scenario_loaded",
+                                 self._on_scenario_loaded, 10)
         self._pub = self.create_publisher(
             PlannedRoute, "/l2/planned_route", _LATCHED)
         self.get_logger().info("RouteIngestNode ready — subscribing GncRoutePlan")
 
+    def _on_lifecycle(self, msg: LifecycleStatus):
+        if msg.current_state != LC_STATE_ACTIVE:
+            return
+        sid = msg.scenario_id
+        if sid and sid != self._current_scenario_id:
+            self._load_expected_route(sid)
+
+    def _on_scenario_loaded(self, msg: String):
+        if msg.data and msg.data != self._current_scenario_id:
+            self._load_expected_route(msg.data)
+
+    def _load_expected_route(self, scenario_id: str):
+        self._current_scenario_id = scenario_id
+        yaml_path = None
+        for root, _, files in os.walk(self._scenario_dir):
+            if f"{scenario_id}.yaml" in files:
+                yaml_path = os.path.join(root, f"{scenario_id}.yaml")
+                break
+        if not yaml_path:
+            self._expected_route_signature = None
+            self.get_logger().warn(
+                f"YAML not found for {scenario_id}; accepting any GncRoutePlan")
+            return
+        try:
+            import yaml
+            with open(yaml_path) as f:
+                scenario = yaml.safe_load(f)
+            nominal = scenario.get("ownShip", {}).get("nominalRoute")
+            if not nominal or len(nominal) < 2:
+                self._expected_route_signature = None
+                self.get_logger().info(
+                    f"No nominalRoute for {scenario_id}; accepting any GncRoutePlan")
+                return
+            lats = [float(wp["latitude"]) for wp in nominal]
+            lons = [float(wp["longitude"]) for wp in nominal]
+            self._expected_route_signature = _route_signature(lats, lons)
+            self.get_logger().info(
+                f"RouteIngest expected route set: scenario={scenario_id} "
+                f"waypoints={len(lats)}")
+        except Exception as exc:
+            self._expected_route_signature = None
+            self.get_logger().warn(
+                f"Could not load expected route for {scenario_id}: {exc}; "
+                "accepting any GncRoutePlan")
+
     def _on_route(self, msg: GncRoutePlan):
+        lats = list(msg.latitude)
+        lons = list(msg.longitude)
+        route_signature = _route_signature(lats, lons)
+        if (self._expected_route_signature is not None
+                and route_signature != self._expected_route_signature):
+            self.get_logger().warn(
+                f"Ignoring GncRoutePlan not matching active scenario "
+                f"{self._current_scenario_id}: got {len(lats)} waypoints")
+            return
+
         stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
         if stamp_ns < self._last_stamp_ns:
             return  # stale (older than current) — ignore
@@ -88,7 +166,10 @@ class RouteIngestNode(Node):
         n = len(lats)
         stamp = msg.header.stamp
 
-        self._route_id += 1
+        route_signature = _route_signature(lats, lons)
+        if route_signature != self._last_route_signature:
+            self._route_id = _stable_route_id(lats, lons)
+            self._last_route_signature = route_signature
 
         # Build GeoPath with GeoPoseStamped poses (mirrors mock_l2_publisher
         # _publish_planned_route: one pose per waypoint, heading toward next wp)

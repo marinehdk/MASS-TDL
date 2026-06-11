@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+from pathlib import Path
+
 import yaml
 from sil_orchestrator.gate_runner import GateResult, GateRunner, GateSpec
 
@@ -177,8 +180,6 @@ async def test_gate_2_unspecified_phase_3():
 
 
 from sil_orchestrator.gate_runner import gate_3_scenario_integrity
-import hashlib
-
 FAKE_SCENARIO_VALID = {
     "yaml_content": "name: test\nversion: 1.0\n",
     "hash": "",  # computed below
@@ -270,6 +271,25 @@ async def test_gate_4_odd_match():
     assert result.gate_id == 4
     assert result.passed == True
 
+@pytest.mark.parametrize("domain", [
+    "open_sea_offshore_wind_farm",
+    "coastal_archipelago",
+    "harbour_approach",
+    "restricted_fairway",
+])
+def test_gate_4_accepts_schema_odd_domains(domain):
+    """GATE 4 accepts the ODD domain enum used by the scenario schema."""
+    data = {"yaml_content": f"""
+name: test
+metadata:
+  odd_cell:
+    domain: {domain}
+    visibility_nm: 6.0
+    sea_state_beaufort: 5
+"""}
+    result = asyncio.run(gate_4_odd_alignment("test-schema-domain", data))
+    assert result.passed == True
+
 @pytest.mark.asyncio
 async def test_gate_4_no_odd_graceful():
     """GATE 4: no metadata.odd_cell -> PASS with warning (Phase 1)"""
@@ -285,6 +305,22 @@ async def test_gate_4_odd_out_of_bounds():
     result = await gate_4_odd_alignment("test-01", data)
     assert result.passed == False
     assert any("visibility" in c.lower() for c in result.checks)
+
+
+def test_safe_route_passes_scenario_integrity_and_odd_alignment():
+    """D1.8 safe_route must pass preflight gates 3 and 4 before launch."""
+    scenario_path = Path("scenarios/集成测试/safe_route.yaml")
+    yaml_content = scenario_path.read_text()
+    data = {
+        "yaml_content": yaml_content,
+        "hash": hashlib.sha256(yaml_content.encode()).hexdigest(),
+    }
+
+    gate3 = asyncio.run(gate_3_scenario_integrity("safe_route", data))
+    gate4 = asyncio.run(gate_4_odd_alignment("safe_route", data))
+
+    assert gate3.passed == True
+    assert gate4.passed == True
 
 
 from sil_orchestrator.gate_runner import gate_5_time_base

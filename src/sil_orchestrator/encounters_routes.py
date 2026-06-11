@@ -112,7 +112,7 @@ async def clear_encounters(request: Request):
         raise HTTPException(503, "ROS bridge unavailable")
 
     removed_count = 0
-    failed: list[int] = []
+    stale: list[int] = []
     for mmsi in sorted(_active_mmsis):
         try:
             res = await bridge.remove_target(mmsi)
@@ -120,10 +120,10 @@ async def clear_encounters(request: Request):
             raise HTTPException(409, str(exc)) from exc
         if getattr(res, "success", False):
             removed_count += 1
-            _active_mmsis.discard(mmsi)
         else:
-            failed.append(mmsi)
+            stale.append(mmsi)
+        _active_mmsis.discard(mmsi)
     body = {"removed_count": removed_count}
-    if failed:
-        body["failed_mmsis"] = failed
+    if stale:
+        body["stale_mmsis"] = stale
     return body

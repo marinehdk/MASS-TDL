@@ -1349,27 +1349,66 @@ class SilTopicBridge(Node):
             pass
 
     def _signed_xte_m(self, own_lat, own_lon):
-        """Signed cross-track distance (m) of own-ship from the planned-route line.
+        """Signed cross-track distance (m) of own-ship from the active route leg.
 
-        +ve = own-ship to port (left) of route direction (start->end); -ve = starboard.
-        Returns None if no route cached. General for any route orientation
-        (no scenario constants -- ADR-4).
+        +ve = own-ship to port (left) of route direction; -ve = starboard.
+        Prefer the leg ending at M3's current target waypoint. If M3 has not
+        published a target yet, fall back to the nearest segment of the route.
         """
         if len(self._route_wps) < 2:
             return None
+
+        target_lat = getattr(self, "_current_target_wp_lat", 0.0)
+        target_lon = getattr(self, "_current_target_wp_lon", 0.0)
+        if abs(target_lat) > 1e-4 or abs(target_lon) > 1e-4:
+            target_idx = min(
+                range(len(self._route_wps)),
+                key=lambda i: (self._route_wps[i][0] - target_lat) ** 2
+                              + (self._route_wps[i][1] - target_lon) ** 2,
+            )
+            if target_idx == 0:
+                return SilTopicBridge._segment_signed_xte_m(
+                    self._route_wps[0], self._route_wps[1], own_lat, own_lon)
+            return SilTopicBridge._segment_signed_xte_m(
+                self._route_wps[target_idx - 1], self._route_wps[target_idx],
+                own_lat, own_lon)
+
+        best = None
+        for idx in range(len(self._route_wps) - 1):
+            xte_m, distance_m = SilTopicBridge._segment_xte_and_distance_m(
+                self._route_wps[idx], self._route_wps[idx + 1], own_lat, own_lon)
+            if xte_m is None:
+                continue
+            if best is None or distance_m < best[1]:
+                best = (xte_m, distance_m)
+        return None if best is None else best[0]
+
+    @staticmethod
+    def _segment_signed_xte_m(start_wp, end_wp, own_lat, own_lon):
+        xte_m, _ = SilTopicBridge._segment_xte_and_distance_m(
+            start_wp, end_wp, own_lat, own_lon)
+        return xte_m
+
+    @staticmethod
+    def _segment_xte_and_distance_m(start_wp, end_wp, own_lat, own_lon):
         m_per_deg_lat = 111132.9
-        m_per_deg_lon = 111319.9 * math.cos(math.radians(self._route_wps[0][0]))
-        ax = self._route_wps[0][1] * m_per_deg_lon
-        ay = self._route_wps[0][0] * m_per_deg_lat
-        bx = self._route_wps[-1][1] * m_per_deg_lon
-        by = self._route_wps[-1][0] * m_per_deg_lat
+        m_per_deg_lon = 111319.9 * math.cos(math.radians(start_wp[0]))
+        ax = start_wp[1] * m_per_deg_lon
+        ay = start_wp[0] * m_per_deg_lat
+        bx = end_wp[1] * m_per_deg_lon
+        by = end_wp[0] * m_per_deg_lat
         px = own_lon * m_per_deg_lon
         py = own_lat * m_per_deg_lat
         dx, dy = bx - ax, by - ay
         seg = math.hypot(dx, dy)
         if seg < 1.0:
-            return None
-        return (dx * (py - ay) - dy * (px - ax)) / seg
+            return None, float("inf")
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (seg * seg)))
+        closest_x = ax + t * dx
+        closest_y = ay + t * dy
+        distance_m = math.hypot(px - closest_x, py - closest_y)
+        xte_m = (dx * (py - ay) - dy * (px - ax)) / seg
+        return xte_m, distance_m
 
     def _compute_transit_autopilot(self, stamp) -> SilOwnShipState:
         out = self._make_actuator_msg(stamp)

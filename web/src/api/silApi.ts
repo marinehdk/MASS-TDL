@@ -248,7 +248,7 @@ export const silApi = createApi({
     removeEncounter: builder.mutation<{ removed: boolean }, number>({
       query: (mmsi) => ({ url: `/encounters/${mmsi}`, method: 'DELETE' }),
     }),
-    clearEncounters: builder.mutation<{ removed_count: number; failed_mmsis?: number[] }, void>({
+    clearEncounters: builder.mutation<{ removed_count: number; failed_mmsis?: number[]; stale_mmsis?: number[] }, void>({
       query: () => ({ url: '/encounters', method: 'DELETE' }),
     }),
     skipPreflight: builder.mutation<{ skipped: boolean; verdict: string }, { scenario_id: string; reason: string }>({

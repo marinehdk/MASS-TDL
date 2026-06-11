@@ -76,11 +76,11 @@ async def _assert_clear_all_encounters_removes_all_injected_mmsis(request_and_br
     assert _active_mmsis == set()
 
 
-def test_clear_all_keeps_failed_removals_registered(request_and_bridge):
-    asyncio.run(_assert_clear_all_keeps_failed_removals_registered(request_and_bridge))
+def test_clear_all_drops_stale_removals_from_registry(request_and_bridge):
+    asyncio.run(_assert_clear_all_drops_stale_removals_from_registry(request_and_bridge))
 
 
-async def _assert_clear_all_keeps_failed_removals_registered(request_and_bridge):
+async def _assert_clear_all_drops_stale_removals_from_registry(request_and_bridge):
     request, bridge = request_and_bridge
     inject = next(route.endpoint for route in router.routes if route.path == "/api/v1/encounters/inject")
     clear_all = next(route.endpoint for route in router.routes if route.path == "/api/v1/encounters")
@@ -93,5 +93,5 @@ async def _assert_clear_all_keeps_failed_removals_registered(request_and_bridge)
 
     resp = await clear_all(request)
 
-    assert resp == {"removed_count": 1, "failed_mmsis": [second["mmsi"]]}
-    assert _active_mmsis == {second["mmsi"]}
+    assert resp == {"removed_count": 1, "stale_mmsis": [second["mmsi"]]}
+    assert _active_mmsis == set()
