@@ -17,6 +17,7 @@ import { TorModal } from './shared/TorModal';
 import { FaultInjectPanel } from './shared/FaultInjectPanel';
 import { PlannedRouteLayer } from '../map/PlannedRouteLayer';
 import { ActualTrackLayer } from '../map/ActualTrackLayer';
+import { AvoidanceRouteLayer } from '../map/AvoidanceRouteLayer';
 import { EncounterInjectPanel } from './shared/EncounterInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
@@ -653,6 +654,7 @@ export function SimulationMonitor() {
         />
 
         <PlannedRouteLayer mapRef={externalMapRef} waypoints={voyagePlan?.waypoints ?? []} visible={true} />
+        <AvoidanceRouteLayer mapRef={externalMapRef} visible={true} />
         <ActualTrackLayer mapRef={externalMapRef} trail={ownShipTrail} visible={true} />
 
         {(isEngineer || viewMode === 'god') && (

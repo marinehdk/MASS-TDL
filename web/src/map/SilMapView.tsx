@@ -291,6 +291,19 @@ function calculateBearingDeg(lon1: number, lat1: number, lon2: number, lat2: num
   return (theta * 180 / Math.PI + 360) % 360;
 }
 
+export function appendCurrentPositionToTrail(
+  trail: [number, number][],
+  currentLon?: number,
+  currentLat?: number
+): [number, number][] {
+  if (typeof currentLon !== 'number' || typeof currentLat !== 'number') return trail;
+  const last = trail[trail.length - 1];
+  if (last && Math.abs(last[0] - currentLon) < 1e-9 && Math.abs(last[1] - currentLat) < 1e-9) {
+    return trail;
+  }
+  return [...trail, [currentLon, currentLat]];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export function SilMapView({ 
   followOwnShip = true, 
@@ -472,8 +485,7 @@ export function SilMapView({
         id: 'trail-line',
         type: 'line',
         source: 'trail',
-        paint: { 'line-color': '#2dd4bf', 'line-width': 1.5, 'line-opacity': 0.55,
-                 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#2dd4bf', 'line-width': 1.5, 'line-opacity': 0.55 },
       });
 
       // ── Target Trails ────────────────────────────────────────────────────
@@ -485,8 +497,7 @@ export function SilMapView({
         id: 'tgt-trail-line',
         type: 'line',
         source: 'tgt-trail',
-        paint: { 'line-color': '#fbbf24', 'line-width': 1.5, 'line-opacity': 0.55,
-                 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#fbbf24', 'line-width': 1.5, 'line-opacity': 0.55 },
       });
 
       // ── Own-ship COG leader ──────────────────────────────────────────────
@@ -804,7 +815,7 @@ export function SilMapView({
         e.stopPropagation();
         setSelectedVesselId('ownship');
       });
-      ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map', anchor: 'center' })
+      ownMarker.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map', anchor: 'center' })
         .setLngLat([lon, lat]).addTo(map);
     } else {
       ownMarker.current.setLngLat([lon, lat]);
@@ -928,7 +939,12 @@ export function SilMapView({
   // ── Trail update ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady.current || trail.length < 2 || previewData) {
+    const currentTrail = appendCurrentPositionToTrail(
+      trail,
+      ownShip?.pose?.lon,
+      ownShip?.pose?.lat
+    );
+    if (!map || !styleReady.current || currentTrail.length < 2 || previewData) {
       // Clear trail in preview mode
       if (styleReady.current && map) {
         (map.getSource('trail') as any)?.setData({ type: 'FeatureCollection', features: [] });
@@ -937,10 +953,10 @@ export function SilMapView({
     }
     (map.getSource('trail') as any)?.setData({
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: trail },
+      features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: currentTrail },
                    properties: {} }],
     });
-  }, [trail, previewData]);
+  }, [trail, ownShip, previewData]);
 
   // ── Target Trails update ───────────────────────────────────────────────────
   useEffect(() => {
@@ -957,10 +973,15 @@ export function SilMapView({
     if (Array.isArray(targets)) {
       for (const t of targets) {
         const id = t.mmsi != null ? String(t.mmsi) : null;
-        if (id && targetTrails[id] && targetTrails[id].length >= 2) {
+        const currentTrail = appendCurrentPositionToTrail(
+          id ? targetTrails[id] ?? [] : [],
+          t.pose?.lon,
+          t.pose?.lat
+        );
+        if (id && currentTrail.length >= 2) {
           targetTrailFeatures.push({
             type: 'Feature',
-            geometry: { type: 'LineString', coordinates: targetTrails[id] },
+            geometry: { type: 'LineString', coordinates: currentTrail },
             properties: { id },
           });
         }
@@ -1197,7 +1218,7 @@ export function SilMapView({
             e.stopPropagation();
             setSelectedVesselId(id);
           });
-          m = new maplibregl.Marker({ element: el, rotationAlignment: 'map', anchor: 'center' })
+          m = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map', anchor: 'center' })
             .setLngLat([lon, lat]).addTo(map);
           tgtMarkers.current.set(id, m);
         } else {

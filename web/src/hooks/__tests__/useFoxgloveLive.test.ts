@@ -19,6 +19,7 @@ vi.mock('@foxglove/ws-protocol', () => ({
 
 import { useFoxgloveLive } from '../useFoxgloveLive';
 import { renderHook } from '@testing-library/react';
+import { Topic } from '@tier4/roslibjs-foxglove';
 
 const MOCK_SAT2: SAT2Data = {
   ivp_contributions: [{ direction_deg: 0, cost: 0.1, label: 'cpa' }],
@@ -63,6 +64,21 @@ describe('useFoxgloveLive — stale detection', () => {
       (c: any[]) => c[0] === 'connection',
     )?.[1] as Function | undefined;
     expect(connectionCb).toBeDefined();
+  });
+
+  it('subscribes to M5 avoidance plan output', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m5/avoidance_plan',
+      messageType: 'l3_msgs/AvoidancePlan',
+    }));
   });
 
   it('updateSat2 sets sat2LastReceivedAt', () => {

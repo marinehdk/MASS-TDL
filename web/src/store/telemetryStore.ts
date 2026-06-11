@@ -13,6 +13,21 @@ export interface VoyagePlanData {
   source: 'static_yaml' | 'l2_realtime';
 }
 
+export interface AvoidanceWaypointData extends NormalizedWaypoint {
+  confidence?: number;
+  targetSpeedKn?: number;
+  turnRadiusM?: number;
+  rationale?: string;
+}
+
+export interface AvoidancePlanData {
+  waypoints: AvoidanceWaypointData[];
+  horizonS?: number;
+  status?: string;
+  confidence?: number;
+  rationale?: string;
+}
+
 // ------------------------------------------------------------------
 // Lightweight local types for topics not yet in generated Protobuf TS
 // ------------------------------------------------------------------
@@ -107,6 +122,7 @@ interface TelemetryState {
   isSat3Stale: () => boolean;
   isSotifMetricsStale: () => boolean;
   voyagePlan: VoyagePlanData | null;
+  avoidancePlan: AvoidancePlanData | null;
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
@@ -126,6 +142,7 @@ interface TelemetryState {
   updateSat3: (data: SAT3Data) => void;
   updateSotifMetrics: (metrics: SotifMetrics) => void;
   updateVoyagePlan: (plan: VoyagePlanData | null) => void;
+  updateAvoidancePlan: (plan: any | null) => void;
   reset: () => void;
 }
 
@@ -154,7 +171,42 @@ const initialState = {
   sotifMetricsLastReceivedAt: null,
   lastTrailTime: 0,
   voyagePlan: null,
+  avoidancePlan: null,
 };
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeAvoidancePlan(plan: any | null): AvoidancePlanData | null {
+  if (!plan) return null;
+
+  const waypoints = Array.isArray(plan.waypoints)
+    ? plan.waypoints.flatMap((wp: any) => {
+      const pos = wp?.position ?? wp;
+      const lat = numberOrUndefined(pos?.latitude ?? pos?.lat);
+      const lon = numberOrUndefined(pos?.longitude ?? pos?.lon);
+      if (lat === undefined || lon === undefined) return [];
+
+      return [{
+        lat,
+        lon,
+        confidence: numberOrUndefined(wp?.confidence),
+        targetSpeedKn: numberOrUndefined(wp?.target_speed_kn ?? wp?.targetSpeedKn),
+        turnRadiusM: numberOrUndefined(wp?.turn_radius_m ?? wp?.turnRadiusM),
+        rationale: typeof wp?.rationale === 'string' ? wp.rationale : undefined,
+      }];
+    })
+    : [];
+
+  return {
+    waypoints,
+    horizonS: numberOrUndefined(plan.horizon_s ?? plan.horizonS),
+    status: typeof plan.status === 'string' ? plan.status : undefined,
+    confidence: numberOrUndefined(plan.confidence),
+    rationale: typeof plan.rationale === 'string' ? plan.rationale : undefined,
+  };
+}
 
 export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   ...initialState,
@@ -262,6 +314,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   updateSat3: (sat3) => set({ sat3, sat3LastReceivedAt: Date.now() }),
   updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics, sotifMetricsLastReceivedAt: Date.now() }),
   updateVoyagePlan: (voyagePlan) => set({ voyagePlan }),
+  updateAvoidancePlan: (plan) => set({ avoidancePlan: normalizeAvoidancePlan(plan) }),
   reset: () => set(initialState),
 }));
 
