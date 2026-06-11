@@ -159,6 +159,13 @@ def _should_refresh_m4_colregs_target(
         same_side = current_signed_delta * candidate_signed_delta >= 0.0
         if same_side and candidate_delta < current_delta:
             return True
+        # Recover from a stale >180 deg lock when M4 has moved back to a
+        # starboard-side rejoin window; otherwise the rudder stays near zero.
+        if (current_delta >= M4_AVOID_TARGET_LOCK_DELTA_DEG and
+                current_signed_delta < 0.0 and
+                candidate_signed_delta > 0.0 and
+                candidate_delta < M4_AVOID_TARGET_LOCK_DELTA_DEG):
+            return True
     return current_delta < M4_AVOID_TARGET_LOCK_DELTA_DEG
 
 # ── QoS profiles ─────────────────────────────────────────────

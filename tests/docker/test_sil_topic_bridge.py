@@ -326,6 +326,30 @@ def test_behavior_plan_tracking_allows_rejoin_window_after_large_turn(monkeypatc
     assert fake_self._avoidance_target_heading_deg == pytest.approx(90.0)
 
 
+def test_behavior_plan_tracking_recovers_from_crossed_rejoin_lock(monkeypatch):
+    """A stale target past 180 deg must not ignore a new starboard-side M4 window.
+
+    Regression from A4000 rule15-cs frontend run:
+    M4 window=[63.4,93.4], bridge target stayed at 206.4, so rudder stayed near 0.
+    """
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = 206.3682098388672
+
+    rejoin_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=63.427249908447266,
+        heading_max_deg=93.42724609375,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, rejoin_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(88.42724672953287)
+
+
 def test_behavior_plan_tracking_does_not_chase_rolled_m4_window(monkeypatch):
     """Once a large starboard target is set, Bridge must not chase current-heading
     M4 windows into the opposite absolute heading side."""
