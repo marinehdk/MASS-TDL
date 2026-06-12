@@ -60,7 +60,7 @@ def test_neutral_targets_to_canonical_dict_maps_l3_fields_and_min_confidence():
         "cog_deg": 83.0,
         "heading_deg": 84.0,
         "covariance": [0.0] * 9,
-        "classification": 0,
+        "classification": "vessel",
         "classification_confidence": 0.0,
         "cpa_m": 0.0,
         "tcpa_s": 0.0,
@@ -83,6 +83,7 @@ def test_neutral_targets_to_canonical_dict_maps_l3_fields_and_min_confidence():
         "brg_deg": 0.0,
         "rng_m": 0.0,
     }
+    assert isinstance(first["classification"], str)
     assert payload["targets"][1]["position"] == {"latitude": 31.3, "longitude": 121.4, "altitude": 0.0}
     assert payload["targets"][1]["encounter"]["rationale"] == "M2 owns classification"
 

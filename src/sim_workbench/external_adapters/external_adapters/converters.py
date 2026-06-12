@@ -46,7 +46,7 @@ def neutral_targets_to_canonical_dict(
             "cog_deg": target.cog_deg,
             "heading_deg": target.heading_deg,
             "covariance": [0.0] * 9,
-            "classification": 0,
+            "classification": "vessel",
             "classification_confidence": 0.0,
             "cpa_m": 0.0,
             "tcpa_s": 0.0,
