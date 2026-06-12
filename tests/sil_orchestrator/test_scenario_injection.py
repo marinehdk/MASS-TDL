@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Mock rclpy and related modules before any sil_orchestrator imports —
@@ -21,6 +22,9 @@ sys.modules["lifecycle_msgs.srv"] = MagicMock()
 sys.modules["lifecycle_msgs.msg"] = MagicMock()
 sys.modules["rcl_interfaces.srv"] = MagicMock()
 sys.modules["rcl_interfaces.msg"] = MagicMock()
+sys.modules["sil_msgs.msg"] = MagicMock()
+sys.modules["sil_msgs.srv"] = MagicMock()
+sys.modules["std_msgs.msg"] = MagicMock()
 
 import pytest
 import yaml
@@ -197,6 +201,21 @@ class TestExtractInjectionParams:
         assert ship["psi0"][0] == pytest.approx(math.pi / 2, abs=1e-6)
         # u0 = 10 * 0.5144 = 5.144
         assert ship["u0"][0] == pytest.approx(5.144, abs=1e-6)
+
+    def test_bridge_and_l4_receive_ownship_initial_heading_and_speed(self, imazu08_parsed):
+        """sil_topic_bridge and l4_guidance_adapter share YAML ownship initial state."""
+        result = _extract_injection_params(imazu08_parsed)
+        for node_name in ("sil_topic_bridge", "l4_guidance_adapter"):
+            node_params = result.get(node_name, {})
+            assert node_params["ownship_initial_heading_deg"][0] == pytest.approx(0.0, abs=1e-6)
+            assert node_params["ownship_initial_sog_kn"][0] == pytest.approx(10.0, abs=1e-6)
+
+    def test_lifecycle_bridge_has_l4_set_parameters_client(self):
+        """LifecycleBridge can inject the L4 initial-state parameters it extracts."""
+        source = Path("src/sil_orchestrator/lifecycle_bridge.py").read_text()
+        client_block = source.split("# Pre-create SetParameters service clients", 1)[1]
+        client_block = client_block.split("# Own-ship state cache", 1)[0]
+        assert '"l4_guidance_adapter"' in client_block
 
     def test_target_vessel_params_has_two_targets(self, imazu08_parsed):
         """target_vessel_node receives default_targets_json containing

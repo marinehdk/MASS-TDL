@@ -315,9 +315,11 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
     const std::string& reason)
 {
   // Use nominal speed if current speed is too low to be meaningful
+  const double target_speed_kn = mass_l3::m5::geometric_fallback_target_speed_kn(
+      input.planned_speed_mps, nominal_speed_kn_);
   const double u_mps = (input.own_ship.u_mps > 0.5)
       ? input.own_ship.u_mps
-      : (nominal_speed_kn_ * units::kMsPerKn);
+      : (target_speed_kn * units::kMsPerKn);
 
   const double own_psi = input.own_ship.psi_rad;
 
@@ -405,7 +407,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
     wp.position.altitude  = 0.0;
     wp.wp_distance_m      = seg_dist;
     wp.safety_corridor_m  = 500.0;
-    wp.target_speed_kn    = nominal_speed_kn_;
+    wp.target_speed_kn    = target_speed_kn;
     wp.turn_radius_m      = turn_radius_m;
     wp.confidence         = 0.6f;
     wp.rationale          = "M5 geometric COLREG fallback";

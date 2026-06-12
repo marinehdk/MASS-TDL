@@ -32,7 +32,11 @@ SCENARIOS = [
     "colreg-rule15-cs-edge",
     "colreg-rule15-ot-boundary",
     "colreg-rule17-cr-so",
+    "safe_route-left-encounter",
 ]
+
+ROUTE_CORRIDOR_HALF_WIDTH_M = 1000.0
+ROUTE_CORRIDOR_PASS_LIMIT_M = 900.0
 
 def req(method, path, body=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
@@ -97,6 +101,8 @@ def compute_route_return_status(
     init_hdg,
     xte_threshold_m=150.0,
     heading_threshold_deg=10.0,
+    route_corridor_half_width_m=ROUTE_CORRIDOR_HALF_WIDTH_M,
+    route_corridor_pass_limit_m=ROUTE_CORRIDOR_PASS_LIMIT_M,
 ):
     osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
     bp = [r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"]
@@ -105,12 +111,20 @@ def compute_route_return_status(
     final_xte = float("nan")
     final_dev = float("nan")
     latest_sim_t = float("nan")
+    max_route_xte = float("nan")
 
+    init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
     if osh:
+        route_xtes = []
+        for r in osh:
+            x_m, y_m = _enu(r["lat"], r["lon"], lat0, lon0)
+            route_xtes.append(get_cross_track_error(x_m, y_m, init_x_m, init_y_m, init_hdg))
+        if route_xtes:
+            max_route_xte = max(route_xtes, key=lambda v: abs(v))
+
         latest = osh[-1]
         latest_sim_t = float(latest.get("sim_t", 0.0))
         final_x_m, final_y_m = _enu(latest["lat"], latest["lon"], lat0, lon0)
-        init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
         final_xte = get_cross_track_error(final_x_m, final_y_m, init_x_m, init_y_m, init_hdg)
         final_dev = (latest["heading_deg"] - init_hdg + 180.0) % 360.0 - 180.0
 
@@ -130,6 +144,14 @@ def compute_route_return_status(
         abs(final_dev) < heading_threshold_deg and
         final_behavior == 0
     )
+    route_corridor_violation = (
+        not math.isnan(max_route_xte) and
+        abs(max_route_xte) >= route_corridor_half_width_m
+    )
+    route_corridor_ok = (
+        not math.isnan(max_route_xte) and
+        abs(max_route_xte) < route_corridor_pass_limit_m
+    )
 
     return {
         "returned_to_route": bool(returned_to_route),
@@ -139,12 +161,72 @@ def compute_route_return_status(
         "final_xte": final_xte,
         "final_heading_dev": final_dev,
         "latest_sim_t": latest_sim_t,
+        "max_route_xte_m": max_route_xte,
+        "route_corridor_half_width_m": route_corridor_half_width_m,
+        "route_corridor_pass_limit_m": route_corridor_pass_limit_m,
+        "route_corridor_violation": bool(route_corridor_violation),
+        "route_corridor_ok": bool(route_corridor_ok),
     }
 
+def compute_overtake_status(
+    run_records,
+    targets_meta,
+    *,
+    lat0,
+    lon0,
+    required=False,
+    along_margin_m=0.0,
+):
+    osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
+    base = {
+        "overtake_required": bool(required),
+        "overtake_completed": not required,
+        "overtake_first_time_s": None,
+        "final_own_minus_target_along_m": float("nan"),
+        "max_own_minus_target_along_m": float("nan"),
+    }
+    if not required:
+        return base
+    if not osh or not targets_meta:
+        base["overtake_completed"] = False
+        return base
+
+    target = targets_meta[0]
+    tgt_e0, tgt_n0 = _enu(target["lat0"], target["lon0"], lat0, lon0)
+    axis_e = math.sin(math.radians(target["cog"]))
+    axis_n = math.cos(math.radians(target["cog"]))
+    tgt_v_e = target["sog_kn"] * 0.514444 * axis_e
+    tgt_v_n = target["sog_kn"] * 0.514444 * axis_n
+
+    first_time = None
+    final_along = float("nan")
+    max_along = float("-inf")
+    for r in osh:
+        sim_t = float(r.get("sim_t", 0.0))
+        own_e, own_n = _enu(r["lat"], r["lon"], lat0, lon0)
+        tgt_e = tgt_e0 + tgt_v_e * sim_t
+        tgt_n = tgt_n0 + tgt_v_n * sim_t
+        along = (own_e - tgt_e) * axis_e + (own_n - tgt_n) * axis_n
+        max_along = max(max_along, along)
+        final_along = along
+        if first_time is None and along >= along_margin_m:
+            first_time = sim_t
+
+    base["overtake_completed"] = first_time is not None
+    base["overtake_first_time_s"] = first_time
+    base["final_own_minus_target_along_m"] = final_along
+    base["max_own_minus_target_along_m"] = max_along
+    return base
+
 def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
-                         route_return_required=True):
+                         route_return_required=True,
+                         route_corridor_ok=True,
+                         overtake_required=False,
+                         overtake_completed=False):
     return bool(cpa_ok and stability_pass and
-                ((not route_return_required) or returned_to_route))
+                ((not route_return_required) or returned_to_route) and
+                route_corridor_ok and
+                ((not overtake_required) or overtake_completed))
 
 def run_scenario(scenario_id):
     print(f"\n==================================================")
@@ -168,6 +250,12 @@ def run_scenario(scenario_id):
     route_return_required = bool(expected.get("returned_to_route_required", False))
     route_return_xte_m = float(expected.get("route_return_xte_m_lt", 150.0))
     route_return_heading_deg = float(expected.get("route_return_heading_deg_lt", 10.0))
+    route_corridor_half_width_m = float(
+        expected.get("route_corridor_half_width_m", ROUTE_CORRIDOR_HALF_WIDTH_M))
+    route_corridor_pass_limit_m = float(
+        expected.get("route_corridor_pass_limit_m", ROUTE_CORRIDOR_PASS_LIMIT_M))
+    overtake_required = bool(expected.get("overtake_required", False))
+    overtake_along_margin_m = float(expected.get("overtake_along_margin_m", 0.0))
     
     own_init = scen_data["ownShip"]["initial"]
     init_lat = own_init["position"]["latitude"]
@@ -226,20 +314,34 @@ def run_scenario(scenario_id):
         print(f"  Wall time: {elapsed_wall:.1f}s | Sim time: {sim_t:.1f}s / {total_time:.1f}s", end="\r")
         
         if route_return_required:
+            trace_records = read_trace_run_records()
             route_status = compute_route_return_status(
-                read_trace_run_records(),
+                trace_records,
                 lat0=lat0, lon0=lon0,
                 init_lat=init_lat, init_lon=init_lon,
                 init_hdg=init_hdg,
                 xte_threshold_m=route_return_xte_m,
                 heading_threshold_deg=route_return_heading_deg,
+                route_corridor_half_width_m=route_corridor_half_width_m,
+                route_corridor_pass_limit_m=route_corridor_pass_limit_m,
+            )
+            overtake_status = compute_overtake_status(
+                trace_records,
+                targets_meta,
+                lat0=lat0,
+                lon0=lon0,
+                required=overtake_required,
+                along_margin_m=overtake_along_margin_m,
             )
             if (route_status["released_after_avoidance"] and
-                    route_status["returned_to_route"]):
+                    route_status["returned_to_route"] and
+                    route_status["route_corridor_ok"] and
+                    overtake_status["overtake_completed"]):
                 print(
                     f"\n  Route return reached at sim_t={sim_t:.1f}s "
                     f"(XTE={route_status['final_xte']:.1f} m, "
-                    f"heading_dev={route_status['final_heading_dev']:.1f}°)"
+                    f"heading_dev={route_status['final_heading_dev']:.1f}°, "
+                    f"max_XTE={route_status['max_route_xte_m']:.1f} m)"
                 )
                 break
 
@@ -354,11 +456,21 @@ def run_scenario(scenario_id):
         init_hdg=init_hdg,
         xte_threshold_m=route_return_xte_m,
         heading_threshold_deg=route_return_heading_deg,
+        route_corridor_half_width_m=route_corridor_half_width_m,
+        route_corridor_pass_limit_m=route_corridor_pass_limit_m,
     )
     final_xte = route_status["final_xte"]
     final_dev = route_status["final_heading_dev"]
     is_back_to_route = route_status["returned_to_route"]
     final_behavior = route_status["final_behavior"]
+    overtake_status = compute_overtake_status(
+        run_records,
+        targets_meta,
+        lat0=lat0,
+        lon0=lon0,
+        required=overtake_required,
+        along_margin_m=overtake_along_margin_m,
+    )
     
     # Determine rule_compliance status (full, partial, violated)
     # Using rule_compliance_evaluator logic
@@ -398,6 +510,9 @@ def run_scenario(scenario_id):
         stability_pass=stability["stability_pass"],
         returned_to_route=is_back_to_route,
         route_return_required=route_return_required,
+        route_corridor_ok=route_status["route_corridor_ok"],
+        overtake_required=overtake_required,
+        overtake_completed=overtake_status["overtake_completed"],
     )
 
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
@@ -408,6 +523,12 @@ def run_scenario(scenario_id):
     print(f"  Returned to Route: {is_back_to_route} "
           f"(required={route_return_required}, XTE<{route_return_xte_m:.0f} m, "
           f"heading<{route_return_heading_deg:.0f}°)")
+    print(f"  Max XTE: {route_status['max_route_xte_m']:.1f} m / "
+          f"limit {route_corridor_pass_limit_m:.0f} m / "
+          f"hard {route_corridor_half_width_m:.0f} m")
+    if overtake_required:
+        print(f"  Overtake Completed: {overtake_status['overtake_completed']} "
+              f"(final along={overtake_status['final_own_minus_target_along_m']:.1f} m)")
     print(f"  Veto events count: {len(veto)}")
     print(f"  Behavior transitions: {bp_transitions}")
     print(f"  M5 Solver states: {solver_stats}")
@@ -415,7 +536,9 @@ def run_scenario(scenario_id):
     print(ss.format_report(stability))
     print(f"  ===> OVERALL: {'PASS' if overall_pass else 'RED'} "
           f"(cpa_ok={cpa_ok} AND stability={stability['stability_pass']} "
-          f"AND route_return={is_back_to_route if route_return_required else 'n/a'})")
+          f"AND route_return={is_back_to_route if route_return_required else 'n/a'} "
+          f"AND corridor={route_status['route_corridor_ok']} "
+          f"AND overtake={overtake_status['overtake_completed'] if overtake_required else 'n/a'})")
     
     # 9. Plot trajectories and save to run directory
     try:
@@ -475,6 +598,15 @@ def run_scenario(scenario_id):
         "route_return_required": route_return_required,
         "route_return_xte_m_lt": route_return_xte_m,
         "route_return_heading_deg_lt": route_return_heading_deg,
+        "max_route_xte_m": route_status["max_route_xte_m"],
+        "route_corridor_half_width_m": route_corridor_half_width_m,
+        "route_corridor_pass_limit_m": route_corridor_pass_limit_m,
+        "route_corridor_violation": route_status["route_corridor_violation"],
+        "route_corridor_ok": route_status["route_corridor_ok"],
+        "overtake_required": overtake_required,
+        "overtake_completed": overtake_status["overtake_completed"],
+        "overtake_first_time_s": overtake_status["overtake_first_time_s"],
+        "final_own_minus_target_along_m": overtake_status["final_own_minus_target_along_m"],
         "bp_transitions": bp_transitions,
         "solver_stats": solver_stats,
         "veto_count": len(veto),
@@ -507,7 +639,7 @@ def main():
     print("==================================================")
     n_pass = sum(1 for r in results.values() if r.get("overall_pass"))
     print(f"OVERALL: {n_pass}/{len(results)} PASS "
-          f"(CPA floor AND behavioral stability AND required route return)\n")
+          f"(CPA floor AND behavioral stability AND required route return AND corridor)\n")
     for scen, res in results.items():
         verdict = "PASS" if res.get("overall_pass") else "RED"
         print(f"\n[{verdict}] {scen} ({res['run_id']}) — role={res.get('role')}")
@@ -520,6 +652,12 @@ def main():
         print(f"  Returned to Route: {res['returned_to_route']} "
               f"(required={res.get('route_return_required')}, "
               f"Final XTE: {res['final_xte']:.1f} m)")
+        print(f"  Max XTE: {res.get('max_route_xte_m', float('nan')):.1f} m / "
+              f"limit {res.get('route_corridor_pass_limit_m', ROUTE_CORRIDOR_PASS_LIMIT_M):.0f} m / "
+              f"hard {res.get('route_corridor_half_width_m', ROUTE_CORRIDOR_HALF_WIDTH_M):.0f} m")
+        if res.get("overtake_required"):
+            print(f"  Overtake Completed: {res.get('overtake_completed')} "
+                  f"(final along={res.get('final_own_minus_target_along_m', float('nan')):.1f} m)")
         print(f"  Transitions: {res['bp_transitions']}")
         
 if __name__ == "__main__":

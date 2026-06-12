@@ -192,5 +192,14 @@ TEST(GeometricFallback, DetectsM4GeometricFallbackRationale) {
   EXPECT_FALSE(is_m4_fallback_rationale("M4 TRANSIT - no avoidance required"));
 }
 
+TEST(GeometricFallback, TargetSpeedUsesPlannedSpeedBeforeNominalDefault) {
+  EXPECT_NEAR(
+      geometric_fallback_target_speed_kn(14.0 * 1852.0 / 3600.0, 10.0),
+      14.0,
+      1e-6);
+  EXPECT_NEAR(geometric_fallback_target_speed_kn(0.0, 10.0), 10.0, 1e-6);
+  EXPECT_NEAR(geometric_fallback_target_speed_kn(0.5, 10.0), 10.0, 1e-6);
+}
+
 }  // namespace
 }  // namespace mass_l3::m5
