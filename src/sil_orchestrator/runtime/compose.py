@@ -36,7 +36,12 @@ class ComposeRuntime:
         self, args: list[str], timeout_s: float = 30.0
     ) -> subprocess.CompletedProcess[str]:
         command = [*self._base(), *args]
-        result = self.runner(command, timeout_s)
+        try:
+            result = self.runner(command, timeout_s)
+        except subprocess.TimeoutExpired as exc:
+            raise ComposeRuntimeError(
+                f"{' '.join(command)} timed out after {timeout_s:.1f}s"
+            ) from exc
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
             raise ComposeRuntimeError(f"{' '.join(command)} failed: {detail}")
