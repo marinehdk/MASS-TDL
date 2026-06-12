@@ -1,0 +1,399 @@
+import importlib
+import sys
+import types
+from types import SimpleNamespace
+
+
+class _Publisher:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, msg):
+        self.messages.append(msg)
+
+
+class _Msg:
+    pass
+
+
+class _Header:
+    def __init__(self, stamp=None, frame_id=""):
+        self.stamp = stamp
+        self.frame_id = frame_id
+
+
+class _Time:
+    def __init__(self, sec=0, nanosec=0):
+        self.sec = sec
+        self.nanosec = nanosec
+
+
+class _GeoPoint:
+    def __init__(self, latitude=0.0, longitude=0.0, altitude=0.0):
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+
+
+class _GeoPoseStamped:
+    def __init__(self):
+        self.header = None
+        self.pose = SimpleNamespace(
+            position=_GeoPoint(),
+            orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        )
+
+
+class _GeoPath:
+    def __init__(self):
+        self.header = None
+        self.poses = []
+
+
+def _message_type(defaults):
+    def __init__(self):
+        for key, value in defaults.items():
+            setattr(self, key, value() if callable(value) else value)
+
+    return type("FakeMsg", (), {"__init__": __init__})
+
+
+def _install_fake_ros_modules(monkeypatch):
+    rclpy = types.ModuleType("rclpy")
+    rclpy.init = lambda *args, **kwargs: None
+    rclpy.spin = lambda *args, **kwargs: None
+    rclpy.shutdown = lambda *args, **kwargs: None
+    rclpy.node = types.ModuleType("rclpy.node")
+    rclpy.node.Node = object
+    rclpy.qos = types.ModuleType("rclpy.qos")
+    rclpy.qos.QoSProfile = lambda **kwargs: kwargs
+    rclpy.qos.QoSReliabilityPolicy = SimpleNamespace(RELIABLE=1)
+    rclpy.qos.QoSDurabilityPolicy = SimpleNamespace(TRANSIENT_LOCAL=1)
+    rclpy.qos.QoSHistoryPolicy = SimpleNamespace(KEEP_LAST=1)
+
+    builtin_interfaces = types.ModuleType("builtin_interfaces")
+    builtin_interfaces.msg = types.ModuleType("builtin_interfaces.msg")
+    builtin_interfaces.msg.Time = _Time
+
+    std_msgs = types.ModuleType("std_msgs")
+    std_msgs.msg = types.ModuleType("std_msgs.msg")
+    std_msgs.msg.Header = _Header
+
+    geographic_msgs = types.ModuleType("geographic_msgs")
+    geographic_msgs.msg = types.ModuleType("geographic_msgs.msg")
+    geographic_msgs.msg.GeoPoint = _GeoPoint
+    geographic_msgs.msg.GeoPath = _GeoPath
+    geographic_msgs.msg.GeoPoseStamped = _GeoPoseStamped
+
+    l3_msgs = types.ModuleType("l3_msgs")
+    l3_msgs.msg = types.ModuleType("l3_msgs.msg")
+    l3_msgs.msg.EncounterClassification = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "confidence": 0.0,
+            "rationale": "",
+            "encounter_type": 0,
+            "relative_bearing_deg": 0.0,
+            "aspect_angle_deg": 0.0,
+            "is_giveway": False,
+        }
+    )
+    l3_msgs.msg.TrackedTarget = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "target_id": 0,
+            "position": lambda: _GeoPoint(),
+            "sog_kn": 0.0,
+            "cog_deg": 0.0,
+            "heading_deg": 0.0,
+            "covariance": lambda: [0.0] * 9,
+            "classification": "",
+            "classification_confidence": 0.0,
+            "cpa_m": 0.0,
+            "tcpa_s": 0.0,
+            "encounter": None,
+            "confidence": 0.0,
+            "rationale": "",
+            "source_sensor": "",
+            "cpa_covariance_m2": 0.0,
+            "tcpa_covariance_s2": 0.0,
+            "intent_confidence": 0.0,
+            "brg_deg": 0.0,
+            "rng_m": 0.0,
+        }
+    )
+
+    l3_external_msgs = types.ModuleType("l3_external_msgs")
+    l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
+    l3_external_msgs.msg.TrackedTargetArray = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "targets": list,
+            "confidence": 0.0,
+            "rationale": "",
+        }
+    )
+    l3_external_msgs.msg.FilteredOwnShipState = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "position": lambda: _GeoPoint(),
+            "sog_kn": 0.0,
+            "cog_deg": 0.0,
+            "heading_deg": 0.0,
+            "u_water": 0.0,
+            "v_water": 0.0,
+            "r_dot_deg_s": 0.0,
+            "current_speed_kn": 0.0,
+            "current_direction_deg": 0.0,
+            "roll_deg": 0.0,
+            "pitch_deg": 0.0,
+            "covariance": lambda: [0.0] * 36,
+            "nav_mode": "",
+            "confidence": 0.0,
+            "rationale": "",
+        }
+    )
+    l3_external_msgs.msg.EnvironmentState = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "wind_speed_kn": 0.0,
+            "wind_direction_deg": 0.0,
+            "wave_height_m": 0.0,
+            "wave_direction_deg": 0.0,
+            "current_speed_kn": 0.0,
+            "current_direction_deg": 0.0,
+            "visibility_range_nm": 0.0,
+            "weather_source": "",
+            "confidence": 0.0,
+            "rationale": "",
+        }
+    )
+    l3_external_msgs.msg.PlannedRoute = _message_type(
+        {
+            "schema_version": 0,
+            "stamp": lambda: _Time(),
+            "route_id": 0,
+            "route": lambda: _GeoPath(),
+            "total_distance_nm": 0.0,
+            "estimated_duration_s": 0.0,
+            "speed_profile_kn": list,
+            "safety_zone": "",
+            "confidence": 0.0,
+            "rationale": "",
+        }
+    )
+
+    for module in (
+        rclpy,
+        rclpy.node,
+        rclpy.qos,
+        builtin_interfaces,
+        builtin_interfaces.msg,
+        std_msgs,
+        std_msgs.msg,
+        geographic_msgs,
+        geographic_msgs.msg,
+        l3_msgs,
+        l3_msgs.msg,
+        l3_external_msgs,
+        l3_external_msgs.msg,
+    ):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+
+
+def _load_module(monkeypatch):
+    _install_fake_ros_modules(monkeypatch)
+    sys.modules.pop("external_adapters.tdl_ingress_node", None)
+    return importlib.import_module("external_adapters.tdl_ingress_node")
+
+
+def _stamp(sec=12, nanosec=345):
+    return {"sec": sec, "nanosec": nanosec}
+
+
+def test_tracked_target_array_maps_nested_target_fields(monkeypatch):
+    module = _load_module(monkeypatch)
+    payload = {
+        "kind": "targets",
+        "schema_version": 112,
+        "stamp": _stamp(),
+        "confidence": 0.7,
+        "rationale": "set",
+        "targets": [
+            {
+                "schema_version": 112,
+                "stamp": _stamp(),
+                "target_id": 7,
+                "position": {"latitude": 31.1, "longitude": 121.2, "altitude": 0.0},
+                "sog_kn": 12.5,
+                "cog_deg": 83.0,
+                "heading_deg": 84.0,
+                "covariance": [1.0] * 9,
+                "classification": "vessel",
+                "classification_confidence": 0.9,
+                "cpa_m": 50.0,
+                "tcpa_s": 80.0,
+                "encounter": {
+                    "schema_version": 112,
+                    "stamp": _stamp(),
+                    "confidence": 0.6,
+                    "rationale": "crossing",
+                    "encounter_type": 3,
+                    "relative_bearing_deg": 15.0,
+                    "aspect_angle_deg": 120.0,
+                    "is_giveway": True,
+                },
+                "confidence": 0.8,
+                "rationale": "target",
+                "source_sensor": "ais",
+                "cpa_covariance_m2": 1.5,
+                "tcpa_covariance_s2": 2.5,
+                "intent_confidence": 0.4,
+                "brg_deg": 20.0,
+                "rng_m": 300.0,
+            }
+        ],
+    }
+
+    msg = module._tracked_target_array(payload)
+
+    target = msg.targets[0]
+    assert target.position.latitude == 31.1
+    assert target.classification == "vessel"
+    assert target.encounter.encounter_type == 3
+    assert target.encounter.is_giveway is True
+
+
+def test_ownship_maps_flat_fields_and_covariance(monkeypatch):
+    module = _load_module(monkeypatch)
+    payload = {
+        "kind": "ownship",
+        "schema_version": 112,
+        "stamp": _stamp(),
+        "position": {"latitude": 30.5, "longitude": 122.5, "altitude": 0.0},
+        "sog_kn": 10.0,
+        "cog_deg": 45.0,
+        "heading_deg": 47.0,
+        "u_water": 1.2,
+        "v_water": -0.4,
+        "r_dot_deg_s": 0.03,
+        "current_speed_kn": 1.5,
+        "current_direction_deg": 210.0,
+        "roll_deg": 0.1,
+        "pitch_deg": -0.2,
+        "covariance": list(range(36)),
+        "nav_mode": "OPTIMAL",
+        "confidence": 0.91,
+        "rationale": "ownship",
+    }
+
+    msg = module._ownship(payload)
+
+    assert msg.position.longitude == 122.5
+    assert msg.u_water == 1.2
+    assert len(msg.covariance) == 36
+    assert msg.nav_mode == "OPTIMAL"
+
+
+def test_environment_maps_weather_and_current_fields(monkeypatch):
+    module = _load_module(monkeypatch)
+    payload = {
+        "kind": "environment",
+        "schema_version": 112,
+        "stamp": _stamp(),
+        "wind_speed_kn": 18.0,
+        "wind_direction_deg": 125.0,
+        "wave_height_m": 1.2,
+        "wave_direction_deg": 100.0,
+        "current_speed_kn": 2.5,
+        "current_direction_deg": 80.0,
+        "visibility_range_nm": 5.5,
+        "weather_source": "sensor",
+        "confidence": 0.72,
+        "rationale": "environment",
+    }
+
+    msg = module._environment(payload)
+
+    assert msg.wind_speed_kn == 18.0
+    assert msg.wave_height_m == 1.2
+    assert msg.current_direction_deg == 80.0
+    assert msg.weather_source == "sensor"
+
+
+def test_planned_route_maps_geopath_pose_position(monkeypatch):
+    module = _load_module(monkeypatch)
+    payload = {
+        "kind": "route_in",
+        "schema_version": 112,
+        "stamp": _stamp(),
+        "route_id": 9,
+        "route": {
+            "header": {"stamp": _stamp(), "frame_id": "WGS84"},
+            "poses": [
+                {
+                    "header": {"stamp": _stamp(), "frame_id": "WGS84"},
+                    "pose": {
+                        "position": {"latitude": 1.0, "longitude": 2.0, "altitude": 0.0},
+                        "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                    },
+                }
+            ],
+        },
+        "total_distance_nm": 10.0,
+        "estimated_duration_s": 20.0,
+        "speed_profile_kn": [8.0],
+        "safety_zone": "default",
+        "confidence": 1.0,
+        "rationale": "route",
+    }
+
+    msg = module._planned_route(payload)
+
+    assert msg.route.poses[0].pose.position.latitude == 1.0
+    assert msg.route.poses[0].pose.position.longitude == 2.0
+    assert msg.speed_profile_kn == [8.0]
+
+
+def test_handle_payload_publishes_targets_and_route(monkeypatch):
+    module = _load_module(monkeypatch)
+    node = SimpleNamespace(
+        _targets_pub=_Publisher(),
+        _ownship_pub=_Publisher(),
+        _environment_pub=_Publisher(),
+        _route_pub=_Publisher(),
+        get_logger=lambda: SimpleNamespace(warn=lambda *args, **kwargs: None),
+    )
+
+    module.ExternalTdlIngressNode._handle_payload(
+        node,
+        {
+            "kind": "targets",
+            "schema_version": 112,
+            "stamp": _stamp(),
+            "targets": [],
+            "confidence": 1.0,
+            "rationale": "empty",
+        },
+    )
+    module.ExternalTdlIngressNode._handle_payload(
+        node,
+        {
+            "kind": "route_in",
+            "schema_version": 112,
+            "stamp": _stamp(),
+            "route_id": 1,
+            "route": {"poses": []},
+            "speed_profile_kn": [],
+        },
+    )
+
+    assert len(node._targets_pub.messages) == 1
+    assert len(node._route_pub.messages) == 1
+    assert node._ownship_pub.messages == []
+    assert node._environment_pub.messages == []
