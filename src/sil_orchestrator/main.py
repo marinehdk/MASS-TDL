@@ -28,6 +28,7 @@ from sil_orchestrator.gif_pack_routes import router as gif_pack_router
 from sil_orchestrator.asdr_routes import router as asdr_router
 from sil_orchestrator.routers.debug_routes import router as debug_router
 from sil_orchestrator.encounters_routes import router as encounters_router
+from sil_orchestrator.integration.routes import router as integration_router
 try:
     import rclpy
     from rclpy.callback_groups import ReentrantCallbackGroup
@@ -218,6 +219,7 @@ app.include_router(gif_pack_router)
 app.include_router(asdr_router)
 app.include_router(debug_router)
 app.include_router(encounters_router)
+app.include_router(integration_router)
 
 # Static serve so /exports/{run_id}_evidence.marzip downloads work
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
