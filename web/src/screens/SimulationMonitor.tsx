@@ -510,14 +510,19 @@ export function SimulationMonitor() {
   }, []);
 
   const encRegion = useMemo(() => {
-    if (!activeScenario?.yaml_content) return 'trondelag';
+    if (!activeScenario?.yaml_content) {
+      const hasMalaccaAis = aisTargets.some(
+        (target) => target.lon > 90 && target.lon < 120 && target.lat > -15 && target.lat < 15,
+      );
+      return hasMalaccaAis ? 'coastal_archipelago' : 'trondelag';
+    }
     try {
       const doc = jsyaml.load(activeScenario.yaml_content) as any;
       return doc?.metadata?.odd_cell?.domain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag';
     } catch {
       return 'trondelag';
     }
-  }, [activeScenario]);
+  }, [activeScenario, aisTargets]);
 
   const handlePlay = async () => {
     setPaused(false);
