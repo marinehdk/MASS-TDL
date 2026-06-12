@@ -146,6 +146,8 @@ def _parse_external_domains(
 ) -> Mapping[str, ExternalDomain]:
     domains: dict[str, ExternalDomain] = {}
     for name, value in raw.items():
+        if not isinstance(name, str) or not name:
+            raise IntegrationProfileError(f"{path}: external domain name must be a string")
         if not isinstance(value, dict):
             raise IntegrationProfileError(f"{path}: external_domains.{name} must be a mapping")
         required_topics = value.get("required_topics")

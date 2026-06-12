@@ -175,6 +175,39 @@ safety:
         load_profiles(tmp_path)
 
 
+def test_rejects_non_string_external_domain_name(tmp_path):
+    profile_path = tmp_path / "bool_domain_name.yaml"
+    profile_path.write_text(
+        """
+name: bool_domain_name
+mode: external
+tdl_domain_id: 42
+adapters:
+  target: enabled
+  ownship: enabled
+  environment: enabled
+  route_in: enabled
+  route_out: enabled
+external_domains:
+  true:
+    domain_id: 10
+    workspace_setup: /tmp/foo
+    required_topics: {}
+freshness:
+  ownship_ms: 500
+  targets_ms: 2000
+  environment_ms: 10000
+safety:
+  route_out_requires_screen02_pass: true
+  forbid_low_level_control: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrationProfileError, match="external domain name must be a string"):
+        load_profile(profile_path)
+
+
 def test_a4000_profile_uses_workspace_setup_and_role_adapters_exactly():
     profile = load_profile(PROFILE_DIR / "a4000_external.yaml")
 
