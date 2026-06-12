@@ -1,0 +1,12 @@
+name: integration-a4000
+mode: integration
+target: a4000
+tdl_domain_id: 42
+plugin_roles:
+  hydrodynamics: hydro-fossen
+  route_l2: l2-planner-main
+  fusion: yougc-fusion
+safety:
+  single_instance_per_role: true
+  forbid_low_level_control: true
+  require_version_metadata: true

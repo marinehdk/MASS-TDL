@@ -1,0 +1,10 @@
+name: internal-local
+mode: internal
+target: local
+tdl_domain_id: 42
+plugin_roles:
+  route_l2: tdl-mock-route
+safety:
+  single_instance_per_role: true
+  forbid_low_level_control: true
+  require_version_metadata: false

@@ -1,0 +1,22 @@
+id: tdl-mock-route
+role: route_l2
+label: TDL Mock Route
+runtime: compose
+compose:
+  service: plugin-route-tdl-mock
+image:
+  expected: mass-l3-plugin-route-mock:local
+  revision_label: org.opencontainers.image.revision
+ros:
+  domain_id: 42
+  required_topics:
+    /l2/planned_route: nav_msgs/msg/Path
+  forbidden_topics:
+    - /sil/actuator_cmd
+    - /l4/control_cmd
+freshness:
+  route_ms: 2000
+health:
+  required: false
+evidence:
+  include_logs_tail_lines: 40
