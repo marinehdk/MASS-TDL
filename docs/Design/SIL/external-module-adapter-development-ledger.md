@@ -34,9 +34,9 @@ Result: `8 passed, 2 warnings`
 
 | Task | Scope | Agent | Implementation | Spec Review | Code Review | Commit |
 |---|---|---|---|---|---|---|
-| 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | DONE | APPROVED 019eb9ce-2205-7c33-a2aa-1abec5e719ff | pending | 2536d09eed6a002f0f16d1de3bf2a7648abbe46f |
+| 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | fixes requested | APPROVED 019eb9ce-2205-7c33-a2aa-1abec5e719ff | CHANGES_REQUESTED 019eb9ce-4dcb-7ce2-b6c4-f651861c0266 | 2536d09eed6a002f0f16d1de3bf2a7648abbe46f |
 | 2 | Backend probe service and integration routes | pending | pending | pending | pending | pending |
-| 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | pending | pending | 812f7a7dfc64c7c3ddca8b35783dde08dad2ee29 |
+| 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | APPROVED 019eb9cf-fad2-7b91-b09d-7d57da4b23de | pending | 812f7a7dfc64c7c3ddca8b35783dde08dad2ee29 |
 | 4 | Neutral IPC and TDL ingress node | pending | pending | pending | pending | pending |
 | 5 | Route-out adapter | pending | pending | pending | pending | pending |
 | 6 | Screen 02 external integration panel | pending | pending | pending | pending | pending |
@@ -45,9 +45,10 @@ Result: `8 passed, 2 warnings`
 
 ## Review Notes
 
-- No reviews completed yet.
 - Task 1 spec review approved by `019eb9ce-2205-7c33-a2aa-1abec5e719ff`.
 - User updated deployment strategy: local OrbStack must run A4000-equivalent container validation before A4000 sync.
+- Task 1 code quality review requested fixes: deep immutable mappings, bool-int rejection, duplicate profile name rejection, schema alignment to `workspace_setup` and role adapters.
+- Task 3 spec review approved by `019eb9cf-fad2-7b91-b09d-7d57da4b23de`.
 
 ## Blocking Issues
 
