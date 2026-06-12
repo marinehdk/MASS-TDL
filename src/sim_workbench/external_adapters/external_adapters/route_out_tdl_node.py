@@ -35,8 +35,11 @@ class RouteOutTdlNode(Node):
             return
 
         payload = avoidance_plan_to_path_payload(msg)
-        with socket.create_connection((self._host, self._port), timeout=1.0) as sock:
-            sock.sendall(encode_payload(payload))
+        try:
+            with socket.create_connection((self._host, self._port), timeout=1.0) as sock:
+                sock.sendall(encode_payload(payload))
+        except OSError as exc:
+            self.get_logger().warn(f"route_out_tdl failed to send route_out_path: {exc}")
 
 
 def main(args=None) -> None:

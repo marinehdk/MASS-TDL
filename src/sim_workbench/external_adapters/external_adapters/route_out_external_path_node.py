@@ -43,7 +43,12 @@ class RouteOutExternalPathNode(Node):
 
     def _handle_payload(self, payload: dict[str, Any]) -> None:
         if payload.get("kind") == "route_out_path":
-            self._path_pub.publish(path_payload_to_plain_path(payload))
+            try:
+                msg = path_payload_to_plain_path(payload)
+            except ValueError as exc:
+                self.get_logger().warn(f"ignored invalid route_out_path payload: {exc}")
+                return
+            self._path_pub.publish(msg)
 
     def destroy_node(self) -> None:
         if hasattr(self, "_server"):
@@ -65,11 +70,32 @@ def _handler_for(node: RouteOutExternalPathNode):
 
 
 def path_payload_to_plain_path(payload: dict[str, Any]):
+    _validate_route_out_path(payload)
     stamp = _time(payload.get("stamp"))
     msg = Path()
     msg.header = _header(stamp)
-    msg.poses = [_pose(point, stamp) for point in payload.get("points", [])]
+    msg.poses = [_pose(point, stamp) for point in payload["points"]]
     return msg
+
+
+def _validate_route_out_path(payload: dict[str, Any]) -> None:
+    points = payload.get("points")
+    if not isinstance(points, list) or not points:
+        raise ValueError("route_out_path points must be a non-empty list")
+    for index, point in enumerate(points):
+        if not isinstance(point, dict):
+            raise ValueError(f"route_out_path point {index} must be an object")
+        for field in ("lat", "lon", "speed_kn"):
+            if field not in point:
+                raise ValueError(f"route_out_path point {index} missing {field}")
+            _float_field(point[field], f"route_out_path point {index} {field}")
+
+
+def _float_field(value: Any, field_name: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _time(payload: dict[str, Any] | None):

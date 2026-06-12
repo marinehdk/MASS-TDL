@@ -261,6 +261,22 @@ def test_route_out_tdl_node_sends_newline_json_for_nonempty_plan_and_ignores_emp
     assert node.logger.warnings == ["route_out_tdl ignored empty avoidance plan"]
 
 
+def test_route_out_tdl_node_logs_socket_failure_without_raising(monkeypatch):
+    module = _load_module(monkeypatch, "external_adapters.route_out_tdl_node")
+
+    def fake_create_connection(address, timeout):
+        raise ConnectionRefusedError("receiver unavailable")
+
+    monkeypatch.setattr(module.socket, "create_connection", fake_create_connection)
+    node = module.RouteOutTdlNode()
+
+    node._on_plan(_plan([_waypoint(31.11, 121.22, 8.5)]))
+
+    assert node.logger.warnings == [
+        "route_out_tdl failed to send route_out_path: receiver unavailable"
+    ]
+
+
 def test_route_out_external_path_node_publishes_path_for_route_out_payload(monkeypatch):
     module = _load_module(monkeypatch, "external_adapters.route_out_external_path_node")
     node = module.RouteOutExternalPathNode()
@@ -289,6 +305,52 @@ def test_route_out_external_path_node_publishes_path_for_route_out_payload(monke
 
     assert node.destroyed is True
     assert node._server.fileno() == -1
+
+
+def test_path_payload_to_plain_path_rejects_invalid_points(monkeypatch):
+    module = _load_module(monkeypatch, "external_adapters.route_out_external_path_node")
+    invalid_payloads = [
+        {"kind": "route_out_path"},
+        {"kind": "route_out_path", "points": []},
+        {"kind": "route_out_path", "points": [{"lon": 121.22, "speed_kn": 8.5}]},
+        {"kind": "route_out_path", "points": [{"lat": 31.11, "speed_kn": 8.5}]},
+        {"kind": "route_out_path", "points": [{"lat": 31.11, "lon": 121.22}]},
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": "bad", "lon": 121.22, "speed_kn": 8.5}],
+        },
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": 31.11, "lon": "bad", "speed_kn": 8.5}],
+        },
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": 31.11, "lon": 121.22, "speed_kn": "bad"}],
+        },
+    ]
+
+    for payload in invalid_payloads:
+        try:
+            module.path_payload_to_plain_path(payload)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected invalid payload to fail: {payload}")
+
+
+def test_route_out_external_path_node_logs_invalid_payload_without_publish(monkeypatch):
+    module = _load_module(monkeypatch, "external_adapters.route_out_external_path_node")
+    node = module.RouteOutExternalPathNode()
+    try:
+        publishers = {publisher.topic: publisher for publisher in node.publishers}
+
+        node._handle_payload({"kind": "route_out_path", "points": []})
+
+        assert publishers["/ship/waypoints"].messages == []
+        assert node.logger.warnings == [
+            "ignored invalid route_out_path payload: route_out_path points must be a non-empty list"
+        ]
+    finally:
+        node.destroy_node()
 
 
 def test_route_out_modules_do_not_reference_actuator_topics():
