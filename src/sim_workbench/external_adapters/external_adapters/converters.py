@@ -142,14 +142,18 @@ def route_points_to_planned_route_dict(
         "stamp": stamp,
         "route_id": route_id,
         "route": {
-            "header": {"stamp": stamp, "frame_id": "wgs84"},
+            "header": {"stamp": stamp, "frame_id": "WGS84"},
             "poses": [
                 {
-                    "position": {
-                        "latitude": point.lat,
-                        "longitude": point.lon,
-                        "altitude": 0.0,
-                    }
+                    "header": {"stamp": stamp, "frame_id": "WGS84"},
+                    "pose": {
+                        "position": {
+                            "latitude": point.lat,
+                            "longitude": point.lon,
+                            "altitude": 0.0,
+                        },
+                        "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                    },
                 }
                 for point in point_rows
             ],

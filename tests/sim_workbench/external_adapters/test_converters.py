@@ -176,13 +176,33 @@ def test_route_points_to_planned_route_dict_builds_stable_geopath_with_segment_s
     assert payload["route_id"] > 0
     assert payload["route_id"] == republished["route_id"]
     assert payload["route"] == {
-        "header": {"stamp": {"sec": 40, "nanosec": 500}, "frame_id": "wgs84"},
+        "header": {"stamp": {"sec": 40, "nanosec": 500}, "frame_id": "WGS84"},
         "poses": [
-            {"position": {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0}},
-            {"position": {"latitude": 0.0, "longitude": 1.0, "altitude": 0.0}},
-            {"position": {"latitude": 1.0, "longitude": 1.0, "altitude": 0.0}},
+            {
+                "header": {"stamp": {"sec": 40, "nanosec": 500}, "frame_id": "WGS84"},
+                "pose": {
+                    "position": {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0},
+                    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                },
+            },
+            {
+                "header": {"stamp": {"sec": 40, "nanosec": 500}, "frame_id": "WGS84"},
+                "pose": {
+                    "position": {"latitude": 0.0, "longitude": 1.0, "altitude": 0.0},
+                    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                },
+            },
+            {
+                "header": {"stamp": {"sec": 40, "nanosec": 500}, "frame_id": "WGS84"},
+                "pose": {
+                    "position": {"latitude": 1.0, "longitude": 1.0, "altitude": 0.0},
+                    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                },
+            },
         ],
     }
+    assert payload["route"]["poses"][0]["pose"]["position"]["latitude"] == 0.0
+    assert "position" not in payload["route"]["poses"][0]
     assert payload["total_distance_nm"] == pytest.approx(120.0809, rel=1e-4)
     assert payload["estimated_duration_s"] == pytest.approx(2183071.1522, rel=1e-4)
     assert payload["estimated_duration_s"] > 0.0
