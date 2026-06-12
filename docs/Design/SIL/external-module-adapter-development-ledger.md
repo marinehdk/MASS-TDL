@@ -40,8 +40,8 @@ Result: `8 passed, 2 warnings`
 | 4 | Neutral IPC and TDL ingress node | 019eb9ef-7a14-7512-bf4e-abeb261091a1 | DONE | APPROVED 019eb9f4-aa57-7e51-a766-08b5dedf01ae | APPROVED 019eb9fd-b71f-73f3-a3d4-de5ee1be247c | 088d2a774a5e2caad756e6fd6aae1dd977d25f5b |
 | 5 | Route-out adapter | 019eb9ff-d29a-7543-a600-7ed0c271335d | DONE | APPROVED 019eba04-0df2-7fc1-8b56-e00ebc65263b | APPROVED 019eba0a-cd11-7f11-8812-67b5694a9e91 | 0d694e2b |
 | 6 | Screen 02 external integration panel | main | DONE | APPROVED 019eba14-b837-77c2-95ac-8d4ae7380ef1 | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13 | 661a4c4c |
-| 7 | Profile-based launch wiring | main | DONE | pending | pending | pending |
-| 8 | Local and A4000 integration verification | pending | pending | pending | pending | pending |
+| 7 | Profile-based launch wiring | main | DONE | APPROVED 019eba14-b837-77c2-95ac-8d4ae7380ef1 | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13; post-review container fixes pending final review | 00e8440a |
+| 8 | Local and A4000 integration verification | main | DONE local gate | pending | pending | pending |
 
 ## Review Notes
 
@@ -68,6 +68,8 @@ Result: `8 passed, 2 warnings`
 - Task 6 reviews found stale status risk: selecting `a4000_external` could leave cached `external_enabled=false`, and GO could skip probe. Fix added integration cache invalidation/refetch after profile selection, fresh `/integration/status` fetch at GO time, and a `proceedingRef` duplicate-launch guard. Target test passed `5`; `npm run build` passed with existing warnings.
 - Task 6 final spec review approved by `019eba14-b837-77c2-95ac-8d4ae7380ef1`; final code review approved by `019eba14-b8b0-7150-b6c4-fe6090051b13`; final commit `661a4c4c`.
 - Task 7 implementation added local OrbStack A4000 env/acceptance dry-run gate, profile-gated external adapter launcher, `sil_entrypoint` hook, and `sil_nodes` image packaging for `external_adapters`. Script tests passed `6`; `source scripts/local-a4000-env.sh && docker compose config -q` passed; dry-runs printed expected gate/launcher commands.
+- Task 7 code review found `TDL_INTEGRATION_PROFILE` was not passed into `sil-nodes`; fixed compose env propagation and tests. Follow-up local gate fixes added orchestrator profile copy, public ROS base image for local build, local CPU cap envs for 4-CPU OrbStack, and dev TLS cert generation.
+- Task 8 local validation passed: combined backend/adapter/script regression `43 passed` before final script-test expansion; frontend `SimulationCheck.external.test.tsx` passed `5`; `npm run build` passed with existing Foxglove eval/chunk warnings; local OrbStack gate passed and wrote `runs/local_a4000_container_probe_20260612_124500.json` with `profile_name=default`, `all_clear=true`.
 - Task 2 code review requested fixes: missing `ros2`, subprocess timeout, and nonzero topic info must return failed gate details rather than escaping to HTTP 500.
 - Task 2 final code review approved by `019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9`; final commit `c33ac112`.
 

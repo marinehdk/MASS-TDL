@@ -42,7 +42,7 @@ def test_local_a4000_env_reuses_a4000_compose_override():
         [
             "bash",
             "-lc",
-            'source scripts/local-a4000-env.sh && printf "%s %s %s" "$COMPOSE_FILE" "$ORCH_PORT" "$FOX_PORT"',
+            'source scripts/local-a4000-env.sh && printf "%s %s %s %s" "$COMPOSE_FILE" "$ORCH_PORT" "$FOX_PORT" "$SIL_NODES_CPUS"',
         ],
         text=True,
         stdout=subprocess.PIPE,
@@ -51,7 +51,7 @@ def test_local_a4000_env_reuses_a4000_compose_override():
     )
 
     assert result.returncode == 0
-    assert result.stdout == "docker-compose.yml:docker-compose.a4000.yml 18000 18765"
+    assert result.stdout == "docker-compose.yml:docker-compose.a4000.yml 18000 18765 4.0"
 
 
 def test_local_a4000_acceptance_dry_run_prints_gate_order():
@@ -68,6 +68,7 @@ def test_local_a4000_acceptance_dry_run_prints_gate_order():
     assert "health=https://127.0.0.1:18000/api/v1/health" in result.stdout
     assert "integration=/api/v1/integration/profiles" in result.stdout
     assert "domain=42" in result.stdout
+    assert "certs=certs/sil.crt certs/sil.key" in result.stdout
 
 
 def test_local_a4000_compose_passes_profile_to_sil_nodes():
@@ -95,6 +96,14 @@ def test_sil_entrypoint_starts_external_adapters_only_for_external_profile():
     assert 'start_external_adapters.sh &' in source
 
 
+def test_local_acceptance_generates_dev_tls_certs():
+    source = Path("scripts/local-a4000-acceptance.sh").read_text(encoding="utf-8")
+
+    assert "openssl req -x509" in source
+    assert "certs/sil.crt" in source
+    assert "certs/sil.key" in source
+
+
 def test_sil_nodes_image_builds_external_adapter_package_and_scripts():
     source = Path("docker/sil_nodes.Dockerfile").read_text(encoding="utf-8")
 
@@ -108,3 +117,5 @@ def test_orchestrator_image_copies_integration_profiles_to_runtime_path():
 
     assert "config/integration_profiles" in source
     assert "/opt/config/integration_profiles" in source
+    assert "FROM ros:humble-ros-base" in source
+    assert "mass-l3/ci" not in source

@@ -4,7 +4,7 @@
 # (or set COMPOSE_FILE — see scripts/a4000-env.sh)
 services:
   sil-orchestrator:
-    cpus: 1.5                       # cap: good neighbour on shared host
+    cpus: ${SIL_ORCHESTRATOR_CPUS:-1.5} # cap: good neighbour on shared host
     command:
       - /bin/bash
       - -c
@@ -18,7 +18,7 @@ services:
       # alone scopes our DDS traffic; the LAN has no other ID-42 stacks.
 
   sil-nodes:
-    cpus: 12.0                      # heaviest (250Hz clock + RK4 + all M-nodes); leaves ~5 threads for jitsi/fat
+    cpus: ${SIL_NODES_CPUS:-12.0}   # heaviest (250Hz clock + RK4 + all M-nodes); leaves ~5 threads for jitsi/fat
     environment:
       - ROS_DOMAIN_ID=42
       - SIL_L4_ADAPTER_ENABLE=1
@@ -26,7 +26,7 @@ services:
       - TDL_INTEGRATION_PROFILE=${TDL_INTEGRATION_PROFILE:-default}
 
   foxglove-bridge:
-    cpus: 1.5
+    cpus: ${FOXGLOVE_CPUS:-1.5}
     command:
       - bash
       - -c

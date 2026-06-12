@@ -14,10 +14,22 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "health=${ORCH_URL}/api/v1/health"
   echo "integration=/api/v1/integration/profiles"
   echo "domain=$ROS_DOMAIN_ID"
+  echo "certs=certs/sil.crt certs/sil.key"
   exit 0
 fi
 
 command -v docker >/dev/null
+if [[ ! -s certs/sil.crt || ! -s certs/sil.key ]]; then
+  command -v openssl >/dev/null
+  mkdir -p certs
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout certs/sil.key \
+    -out certs/sil.crt \
+    -days 365 \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+    >/dev/null 2>&1
+fi
 docker compose config -q
 docker compose up -d --build sil-orchestrator sil-nodes foxglove-bridge
 
