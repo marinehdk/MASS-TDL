@@ -35,9 +35,9 @@ Result: `8 passed, 2 warnings`
 | Task | Scope | Agent | Implementation | Spec Review | Code Review | Commit |
 |---|---|---|---|---|---|---|
 | 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | DONE | APPROVED 019eb9d5-9387-78a2-8023-1b7b0623595d | APPROVED 019eb9da-b03e-7561-ba98-ddc6f5345e4b | d650d3040d3e737e8fc76d9294fd7c917e35d9a4 |
-| 2 | Backend probe service and integration routes | pending | pending | pending | pending | pending |
+| 2 | Backend probe service and integration routes | 019eb9ee-abb9-7c10-8a03-46a4d8ee2a37 | in progress | pending | pending | pending |
 | 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | APPROVED 019eb9e4-7233-7470-b484-c89b2a986dcf | APPROVED 019eb9e9-f698-7f11-93d3-9c1d50fec38b | ea951232482ca67000032448a4a49bdf0be4aaf1 |
-| 4 | Neutral IPC and TDL ingress node | pending | pending | pending | pending | pending |
+| 4 | Neutral IPC and TDL ingress node | 019eb9ef-7a14-7512-bf4e-abeb261091a1 | in progress | pending | pending | pending |
 | 5 | Route-out adapter | pending | pending | pending | pending | pending |
 | 6 | Screen 02 external integration panel | pending | pending | pending | pending | pending |
 | 7 | Profile-based launch wiring | pending | pending | pending | pending | pending |
@@ -53,6 +53,8 @@ Result: `8 passed, 2 warnings`
 - Task 1 final code review approved by `019eb9da-b03e-7561-ba98-ddc6f5345e4b`; final commit `d650d3040d3e737e8fc76d9294fd7c917e35d9a4`.
 - Task 3 fixes now include entrypoint stubs and string target classification; final review pending on commit `575fc1428c309dd63fb927cd5f248be0ba24a228`.
 - Task 3 final code review approved by `019eb9e9-f698-7f11-93d3-9c1d50fec38b`; final commit `ea951232482ca67000032448a4a49bdf0be4aaf1`.
+- Task 2 dispatched to `019eb9ee-abb9-7c10-8a03-46a4d8ee2a37`.
+- Task 4 dispatched to `019eb9ef-7a14-7512-bf4e-abeb261091a1`.
 
 ## Blocking Issues
 
