@@ -35,7 +35,7 @@ Result: `8 passed, 2 warnings`
 | Task | Scope | Agent | Implementation | Spec Review | Code Review | Commit |
 |---|---|---|---|---|---|---|
 | 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | DONE | APPROVED 019eb9d5-9387-78a2-8023-1b7b0623595d | APPROVED 019eb9da-b03e-7561-ba98-ddc6f5345e4b | d650d3040d3e737e8fc76d9294fd7c917e35d9a4 |
-| 2 | Backend probe service and integration routes | 019eb9ee-abb9-7c10-8a03-46a4d8ee2a37 | DONE | pending | pending | 1e012b4b |
+| 2 | Backend probe service and integration routes | 019eb9ee-abb9-7c10-8a03-46a4d8ee2a37 | DONE | APPROVED 019eb9f3-5349-7702-8ed1-4ab1545f53c3 | APPROVED 019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9 | c33ac112 |
 | 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | APPROVED 019eb9e4-7233-7470-b484-c89b2a986dcf | APPROVED 019eb9e9-f698-7f11-93d3-9c1d50fec38b | ea951232482ca67000032448a4a49bdf0be4aaf1 |
 | 4 | Neutral IPC and TDL ingress node | 019eb9ef-7a14-7512-bf4e-abeb261091a1 | DONE | pending | pending | 96e7cfcc73b1ca4643abffa35ab87b7504e04ac4 |
 | 5 | Route-out adapter | pending | pending | pending | pending | pending |
@@ -57,6 +57,8 @@ Result: `8 passed, 2 warnings`
 - Task 4 dispatched to `019eb9ef-7a14-7512-bf4e-abeb261091a1`.
 - Task 2 implementation completed in commit `1e012b4b`; tests `tests/sil_orchestrator/test_integration_routes.py tests/sil_orchestrator/test_selfcheck.py` passed `9`.
 - Task 4 implementation completed in commit `96e7cfcc73b1ca4643abffa35ab87b7504e04ac4`; IPC/ingress/converter tests passed `17`.
+- Task 2 code review requested fixes: missing `ros2`, subprocess timeout, and nonzero topic info must return failed gate details rather than escaping to HTTP 500.
+- Task 2 final code review approved by `019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9`; final commit `c33ac112`.
 
 ## Blocking Issues
 
