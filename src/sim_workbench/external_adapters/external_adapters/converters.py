@@ -13,6 +13,7 @@ from external_adapters.neutral import (
 
 SCHEMA_VERSION = 112
 EARTH_RADIUS_NM = 3440.065
+MIN_SEGMENT_SPEED_KN = 0.1
 
 
 def _stamp(sec: int, nanosec: int) -> dict[str, int]:
@@ -37,15 +38,36 @@ def neutral_targets_to_canonical_dict(
 ) -> dict:
     target_rows = [
         {
+            "schema_version": SCHEMA_VERSION,
+            "stamp": _stamp(stamp_sec, stamp_nanosec),
             "target_id": target.target_id,
-            "lat": target.lat,
-            "lon": target.lon,
+            "position": {"latitude": target.lat, "longitude": target.lon, "altitude": 0.0},
             "sog_kn": target.sog_kn,
             "cog_deg": target.cog_deg,
             "heading_deg": target.heading_deg,
-            "source_sensor": target.source_sensor,
+            "covariance": [0.0] * 9,
+            "classification": 0,
+            "classification_confidence": 0.0,
+            "cpa_m": 0.0,
+            "tcpa_s": 0.0,
+            "encounter": {
+                "schema_version": SCHEMA_VERSION,
+                "stamp": _stamp(stamp_sec, stamp_nanosec),
+                "confidence": 0.0,
+                "rationale": "M2 owns classification",
+                "encounter_type": 0,
+                "relative_bearing_deg": 0.0,
+                "aspect_angle_deg": 0.0,
+                "is_giveway": False,
+            },
             "confidence": target.confidence,
-            "encounter": None,
+            "rationale": "external neutral target converted to canonical l3 target",
+            "source_sensor": target.source_sensor,
+            "cpa_covariance_m2": 0.0,
+            "tcpa_covariance_s2": 0.0,
+            "intent_confidence": 0.0,
+            "brg_deg": 0.0,
+            "rng_m": 0.0,
         }
         for target in targets
     ]
@@ -65,24 +87,17 @@ def neutral_ownship_to_canonical_dict(ownship: NeutralOwnship) -> dict:
         "kind": "ownship",
         "schema_version": SCHEMA_VERSION,
         "stamp": _stamp(ownship.stamp_sec, ownship.stamp_nanosec),
-        "position": {
-            "lat": ownship.lat,
-            "lon": ownship.lon,
-            "roll_deg": 0.0,
-            "pitch_deg": 0.0,
-        },
-        "motion": {
-            "sog_kn": ownship.sog_kn,
-            "cog_deg": ownship.cog_deg,
-            "heading_deg": ownship.heading_deg,
-            "u_water": ownship.u_water,
-            "v_water": ownship.v_water,
-            "r_dot_deg_s": ownship.r_dot_deg_s,
-        },
-        "current": {
-            "speed_kn": ownship.current_speed_kn,
-            "direction_deg": ownship.current_direction_deg,
-        },
+        "position": {"latitude": ownship.lat, "longitude": ownship.lon, "altitude": 0.0},
+        "sog_kn": ownship.sog_kn,
+        "cog_deg": ownship.cog_deg,
+        "heading_deg": ownship.heading_deg,
+        "u_water": ownship.u_water,
+        "v_water": ownship.v_water,
+        "r_dot_deg_s": ownship.r_dot_deg_s,
+        "current_speed_kn": ownship.current_speed_kn,
+        "current_direction_deg": ownship.current_direction_deg,
+        "roll_deg": 0.0,
+        "pitch_deg": 0.0,
         "covariance": [0.0] * 36,
         "nav_mode": ownship.nav_mode,
         "confidence": ownship.confidence,
@@ -95,16 +110,13 @@ def neutral_environment_to_canonical_dict(environment: NeutralEnvironment) -> di
         "kind": "environment",
         "schema_version": SCHEMA_VERSION,
         "stamp": _stamp(environment.stamp_sec, environment.stamp_nanosec),
-        "wind": {
-            "speed_kn": environment.wind_speed_kn,
-            "direction_deg": environment.wind_direction_deg,
-        },
-        "current": {
-            "speed_kn": environment.current_speed_kn,
-            "direction_deg": environment.current_direction_deg,
-        },
+        "wind_speed_kn": environment.wind_speed_kn,
+        "wind_direction_deg": environment.wind_direction_deg,
+        "wave_height_m": 0.0,
+        "wave_direction_deg": 0.0,
+        "current_speed_kn": environment.current_speed_kn,
+        "current_direction_deg": environment.current_direction_deg,
         "visibility_range_nm": environment.visibility_range_nm,
-        "wave": {"height_m": 0.0, "direction_deg": 0.0, "period_s": 0.0},
         "weather_source": "sensor",
         "confidence": environment.confidence,
         "rationale": "external neutral environment converted to canonical environment",
@@ -119,11 +131,10 @@ def route_points_to_planned_route_dict(
     point_rows = list(points)
     total_distance_nm = sum(_haversine_nm(a, b) for a, b in zip(point_rows, point_rows[1:]))
     estimated_duration_s = sum(
-        (_haversine_nm(a, b) / b.speed_kn) * 3600.0
+        (_haversine_nm(a, b) / max(a.speed_kn, MIN_SEGMENT_SPEED_KN)) * 3600.0
         for a, b in zip(point_rows, point_rows[1:])
-        if b.speed_kn > 0.0
     )
-    route_id = _stable_route_id(stamp_sec, stamp_nanosec, point_rows)
+    route_id = _stable_route_id(point_rows)
     stamp = _stamp(stamp_sec, stamp_nanosec)
     return {
         "kind": "route_in",
@@ -145,8 +156,8 @@ def route_points_to_planned_route_dict(
         },
         "total_distance_nm": total_distance_nm,
         "estimated_duration_s": estimated_duration_s,
-        "speed_profile_kn": [point.speed_kn for point in point_rows],
-        "safety_zone": {"cross_track_nm": 0.2, "along_track_nm": 0.2},
+        "speed_profile_kn": _segment_speed_profile(point_rows),
+        "safety_zone": "default",
         "confidence": 1.0,
         "rationale": "external neutral route converted to planned route",
     }
@@ -170,10 +181,16 @@ def avoidance_plan_to_path_payload(plan) -> dict:
     }
 
 
-def _stable_route_id(stamp_sec: int, stamp_nanosec: int, points: list[NeutralRoutePoint]) -> int:
+def _stable_route_id(points: list[NeutralRoutePoint]) -> int:
     payload = "|".join(
-        [str(stamp_sec), str(stamp_nanosec)]
-        + [f"{point.lat:.9f},{point.lon:.9f},{point.speed_kn:.6f}" for point in points]
+        f"{point.lat:.9f},{point.lon:.9f},{point.speed_kn:.6f}" for point in points
     )
     digest = hashlib.sha256(payload.encode("ascii")).digest()
     return int.from_bytes(digest[:4], "big") or 1
+
+
+def _segment_speed_profile(points: list[NeutralRoutePoint]) -> list[float]:
+    if not points:
+        return []
+    segment_count = max(len(points) - 1, 1)
+    return [points[index].speed_kn for index in range(segment_count)]
