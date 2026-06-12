@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import socketserver
 import threading
 from typing import Any
@@ -93,9 +94,12 @@ def _validate_route_out_path(payload: dict[str, Any]) -> None:
 
 def _float_field(value: Any, field_name: str) -> float:
     try:
-        return float(value)
+        numeric = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be numeric") from exc
+    if not math.isfinite(numeric):
+        raise ValueError(f"{field_name} must be finite")
+    return numeric
 
 
 def _time(payload: dict[str, Any] | None):

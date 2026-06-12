@@ -327,6 +327,18 @@ def test_path_payload_to_plain_path_rejects_invalid_points(monkeypatch):
             "kind": "route_out_path",
             "points": [{"lat": 31.11, "lon": 121.22, "speed_kn": "bad"}],
         },
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": float("nan"), "lon": 121.22, "speed_kn": 8.5}],
+        },
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": 31.11, "lon": float("inf"), "speed_kn": 8.5}],
+        },
+        {
+            "kind": "route_out_path",
+            "points": [{"lat": 31.11, "lon": 121.22, "speed_kn": float("-inf")}],
+        },
     ]
 
     for payload in invalid_payloads:
