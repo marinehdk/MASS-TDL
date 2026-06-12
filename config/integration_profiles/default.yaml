@@ -1,0 +1,17 @@
+name: default
+mode: default
+tdl_domain_id: 42
+adapters:
+  target: disabled
+  ownship: disabled
+  environment: disabled
+  route_in: disabled
+  route_out: disabled
+external_domains: {}
+freshness:
+  ownship_ms: 500
+  targets_ms: 2000
+  environment_ms: 10000
+safety:
+  route_out_requires_screen02_pass: true
+  forbid_low_level_control: true

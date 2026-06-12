@@ -96,6 +96,7 @@ COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes
 COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
 COPY src/sim_workbench/ais_twin       src/sim_workbench/ais_twin
+COPY src/sim_workbench/external_adapters src/sim_workbench/external_adapters
 COPY src/ship_interfaces             src/ship_interfaces
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
@@ -119,6 +120,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             ship_interfaces \
             sil_common sil_msgs sil_lifecycle \
             ais_twin \
+            external_adapters \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
             fault_injection scoring l4_guidance_adapter \
@@ -142,7 +144,9 @@ COPY docker/gnc_route_mock_publisher.py /opt/ws/docker/gnc_route_mock_publisher.
 COPY docker/route_ingest_node.py /opt/ws/docker/route_ingest_node.py
 COPY docker/fsm_aggregator_node.py /opt/ws/docker/fsm_aggregator_node.py
 COPY docker/diagnostic_mock_publisher.py /opt/ws/docker/diagnostic_mock_publisher.py
+COPY scripts/integration/start_external_adapters.sh /opt/ws/scripts/integration/start_external_adapters.sh
 RUN chmod +x /opt/ws/sil_entrypoint.sh
+RUN chmod +x /opt/ws/scripts/integration/start_external_adapters.sh
 
 # Add topic probe script for staged startup
 COPY scripts/wait_for_topic.sh /opt/ws/wait_for_topic.sh

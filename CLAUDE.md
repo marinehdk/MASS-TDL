@@ -61,21 +61,28 @@ D 任务前必读 master-plan → Phase N/00-overview → D{x.y}-spec → M{n}-p
 ## 11. Git 分支
 - `main` 集成分支**禁直接 commit**；功能分支 `feat/d{n}.{m}-{描述}`，一 D-task 一 branch，merge 后删。
 - Worktree `.worktrees/{slug}/` 由 `superpowers:using-git-worktrees` 管理勿手动；`claude/*` 临时分支框架管理禁手留。
-- **三端同步**：本地 main = GitHub origin/main = GitLab `l3-tdl`，push 新提交须同步三端。
+- **发布顺序**：本地测试通过 → 本地 OrbStack 容器门通过 → A4000 窄同步与验收通过 → 再 push GitHub/GitLab。禁止先 push 远端再把 A4000 当首个真实测试环境。
+- **三端同步目标**：本地 `main` = GitHub `origin/main` = GitLab `l3-tdl`。A4000 GitLab 主线是 `l3-tdl`，不是 `main`。
 
 ## 12. Docker 构建
 `sil_nodes.Dockerfile` 用 BuildKit `--mount=type=cache`——**勿删** `# syntax=docker/dockerfile:1.5` 与 `--mount=type=cache`（删则退化全量编译）。cache：`/root/.ccache`=shared（ccache 线程安全）/ `/opt/ws/build`=private（colcon 不能并发写）。新增含 `colcon build` 的 Dockerfile 遵此模板。
 
-## 13. SIL 部署 = A4000 服务器（治本：本地宿主 CPU 争用使仿真倍速非确定）
+## 13. SIL 部署规则 = 本地 OrbStack 优先，A4000 复验
 | 项 | 值 |
 |---|---|
-| SSH | `ssh a4000` → 192.168.121.50，user `marine.huang` |
-| 仓库 | `~/Code/mass-l3`，跟踪 GitLab `l3-tdl`（origin=gitlab） |
-| 端口 | orchestrator 18000 / foxglove 18765 / Vite 5173（8000/8765 被生产栈占，**勿碰**） |
-| 启停 | `source scripts/a4000-env.sh` 后 `npm run sys:{start,stop,status}`；HMI http://192.168.121.50:5173 |
-- 一键验收 `source scripts/a4000-env.sh && ./scripts/a4000-acceptance.sh`（`--sync` 先 pull）。倍速纯后端 `rtf_headless_sweep.py`（需 `export ORCH_URL=https://127.0.0.1:18000`）；HMI 一致性 `cd web && RATE=10 ORCH_PORT=18000 FOX_PORT=18765 npx playwright test e2e/mvp_consistency.spec.ts`（RTF_BAND[7,12] 只对 10× 有效）。
-- 编辑循环：本地改 → scp 同路径到 a4000 → 容器内 `colcon build --packages-select <pkg>` → `restart sil-nodes`（bridge 是 Python，scp+restart 免 build）。场景 YAML 同样 scp（orchestrator 每请求重扫，免 build/restart）。
-- ⚠️ **A4000 走 scp 部署不走 git**：A4000 的 `git fetch gitlab` 不通 + 工作树常有并行会话未提交的 docs → **禁 `git pull`/`git reset`**（会毁并行会话的活）。更新一律本地 push 三端 + scp 到 A4000。
+| 本地容器 | OrbStack；`source scripts/local-a4000-env.sh && ./scripts/local-a4000-acceptance.sh` |
+| 本地端口 | orchestrator `https://127.0.0.1:18000` / foxglove `18765` / Vite `http://localhost:5173/` |
+| 本地前端 | `cd web && ORCH_PORT=18000 FOX_PORT=18765 npm run dev -- --host 0.0.0.0`；只用于 `仿真检查` 等 HMI smoke |
+| A4000 SSH | 默认 `mass@A4000`；密码不写入仓库、脚本、日志或提交 |
+| A4000 外部模块 | 水动力/航线规划 `/home/mass/simulation/`；传感器融合 `/home/mass/yougc/ros2_ws` |
+| A4000 TDL | 先确认唯一 checkout；runbook 示例 `A4000_TDL=/home/mass/MASS-L3-Tactical-Layer` |
+| A4000 端口 | orchestrator 18000 / foxglove 18765 / Vite 5173（8000/8765 被生产栈占，**勿碰**） |
+- **硬门禁**：任何 A4000 同步前，必须先跑本地目标测试 + `scripts/local-a4000-acceptance.sh`。本地不过，不上 A4000。
+- **本地验收含义**：使用 `docker-compose.yml:docker-compose.a4000.yml`、`ROS_DOMAIN_ID=42`、本地 TLS cert、`sil-orchestrator`/`sil-nodes`/`foxglove-bridge` 构建启动、health、integration profile、integration probe、ROS topic gate。证据写入 `runs/local_a4000_container_probe_*.json`。
+- **A4000 窄同步**：只同步 touched paths，优先 `rsync -avR <paths> mass@A4000:${A4000_TDL}/` 或 `scp`。**禁** `rsync --delete`、整仓覆盖、`git pull`、`git reset`、新建第二 checkout。先 `ssh mass@A4000 'pwd; ls -la /home/mass'` 确认路径。
+- **A4000 验收**：窄同步后在 A4000 运行 `source scripts/a4000-env.sh && npm run sys:start && ./scripts/a4000-acceptance.sh`。正常脏工作树流程**禁用** `./scripts/a4000-acceptance.sh --sync`，除非用户明确批准 clean-host Git 同步。
+- **外部 adaptor 验收**：切 `a4000_external` profile 后调用 `/api/v1/integration/probe`，保留 `runs/a4000_external_adapter_probe_*.json`。只看必要消息：航线/目标/运动状态/规避结果；不为显示订阅无关数据。
+- **远端发布**：本地证据 + A4000 证据都通过后，才 push GitHub `main` 与 GitLab `l3-tdl`。PR/接力说明必须带两端证据路径。
 - **env_disturbance wedge**：单驱动快速循环不复现 → 双驱动并发 race（前端 + CLI 同时 configure 撞 SetParameters → 15s 超时）。**规约：同一时刻只一个 configure 驱动**；复位 `docker compose restart sil-nodes`。
 
 ## 14. 代码图谱 = codegraph（MCP）

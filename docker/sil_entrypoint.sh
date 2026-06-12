@@ -11,6 +11,10 @@
 source /opt/ros/humble/setup.bash
 source /opt/ws/install/setup.bash
 
+if [[ "${TDL_INTEGRATION_PROFILE:-default}" != "default" ]]; then
+  /opt/ws/scripts/integration/start_external_adapters.sh &
+fi
+
 echo "==================================================================="
 echo "=== SIL Staged Entrypoint — $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
 echo "=== TLS/WSS certs: /certs/sil.{crt,key} (DoD #18)              ==="

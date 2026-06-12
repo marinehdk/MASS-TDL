@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore, useTelemetryStore, useControlStore } from '../store';
-import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation } from '../api/silApi';
+import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation, useLazyGetIntegrationStatusQuery, useProbeIntegrationMutation } from '../api/silApi';
 import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
 import { ActionLogs } from './shared/ActionLogs';
+import { ExternalIntegrationPanel } from './shared/ExternalIntegrationPanel';
 
 const IS_DEV = typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV;
 
@@ -17,6 +18,8 @@ export function SimulationCheck() {
   const [activateLifecycle] = useActivateLifecycleMutation();
   const [cleanupLifecycle] = useCleanupLifecycleMutation();
   const [skipPreflight] = useSkipPreflightMutation();
+  const [fetchIntegrationStatus] = useLazyGetIntegrationStatusQuery();
+  const [probeIntegration] = useProbeIntegrationMutation();
 
   const { gates, verdict, streaming, error, start, abort } = useGateStream(scenarioId, true);
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
@@ -25,11 +28,32 @@ export function SimulationCheck() {
   const [lifecycleError, setLifecycleError] = useState('');
   const [transitioning, setTransitioning] = useState(false);
   const countdownRef = useRef(-1);
+  const proceedingRef = useRef(false);
 
   // useCallback definitions MUST come before effects that reference them
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
+    if (proceedingRef.current) return;
+    proceedingRef.current = true;
     setTransitioning(true);
+    try {
+      const latestIntegrationStatus = await fetchIntegrationStatus(undefined, false).unwrap();
+      if (latestIntegrationStatus.external_enabled) {
+        const integrationProbe = await probeIntegration().unwrap();
+        if (!integrationProbe.all_clear) {
+          const failed = integrationProbe.checks.find((check) => !check.passed);
+          setLifecycleError(`External integration gate failed: ${failed?.label ?? 'unknown'}`);
+          setTransitioning(false);
+          proceedingRef.current = false;
+          return;
+        }
+      }
+    } catch (e) {
+      setLifecycleError(`External integration probe failed: ${e instanceof Error ? e.message : String(e)}`);
+      setTransitioning(false);
+      proceedingRef.current = false;
+      return;
+    }
     // Fresh run: clear residual telemetry/trail from any prior run and reset
     // sim rate to the 1x default (otherwise a previously-selected 10x persists
     // in the control store and the new run plays at 10x from t≈last position).
@@ -43,12 +67,14 @@ export function SimulationCheck() {
       if (!cfgResult.success) {
         setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
         setTransitioning(false);
+        proceedingRef.current = false;
         return;
       }
       const actResult = await activateLifecycle().unwrap();
       if (!actResult.success) {
         setLifecycleError(`Activate failed: ${actResult.error || 'unknown error'}`);
         setTransitioning(false);
+        proceedingRef.current = false;
         return;
       }
       setLifecycleError('');
@@ -56,8 +82,9 @@ export function SimulationCheck() {
     } catch (e) {
       setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
       setTransitioning(false);
+      proceedingRef.current = false;
     }
-  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle]);
+  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle, fetchIntegrationStatus, probeIntegration]);
 
   const handleAbort = useCallback(async () => {
     abort();
@@ -122,13 +149,16 @@ export function SimulationCheck() {
         verdict={verdict} countdown={countdown}
         transitioning={transitioning} />
 
-      <ActionLogs focusedGateId={focusedGateId} gates={gates}
-        scenarioId={scenarioId} runId={runId ?? 'unknown'}
-        onRerun={start} onAbort={handleAbort} onFixApplied={() => {}}
-        isDev={IS_DEV && verdict === 'NO-GO'}
-        devSkipReason={devSkipReason}
-        onDevSkipReasonChange={setDevSkipReason}
-        onDevSkip={handleDevSkip} />
+      <div style={{ minHeight: 0, overflow: 'auto', borderLeft: '1px solid var(--line-1)' }}>
+        <ActionLogs focusedGateId={focusedGateId} gates={gates}
+          scenarioId={scenarioId} runId={runId ?? 'unknown'}
+          onRerun={start} onAbort={handleAbort} onFixApplied={() => {}}
+          isDev={IS_DEV && verdict === 'NO-GO'}
+          devSkipReason={devSkipReason}
+          onDevSkipReasonChange={setDevSkipReason}
+          onDevSkip={handleDevSkip} />
+        <ExternalIntegrationPanel />
+      </div>
 
       {lifecycleError && (
         <div style={{ position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 101, padding: '10px 20px', background: 'rgba(248,81,73,0.2)', border: '1px solid var(--c-danger)', borderRadius: 6, fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--c-danger)', textAlign: 'center', maxWidth: '80vw' }}>

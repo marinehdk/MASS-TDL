@@ -1,11 +1,14 @@
 # SIL Orchestrator — FastAPI REST plane.
 # Spec: docs/Design/SIL/2026-05-12-sil-architecture-design.md §1 orchestration plane
-FROM mass-l3/ci:humble-ubuntu22.04
+FROM ros:humble-ros-base
 
 WORKDIR /opt/sil
 
 # Install CycloneDDS (must match sil-nodes RMW) + python dependencies
-RUN apt-get update && apt-get install -y python3-pip ros-humble-rmw-cyclonedds-cpp && \
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-colcon-common-extensions \
+    ros-humble-rmw-cyclonedds-cpp && \
     pip3 install --no-cache-dir \
     fastapi==0.115.4 \
     uvicorn[standard]==0.32.0 \
@@ -18,6 +21,7 @@ RUN apt-get update && apt-get install -y python3-pip ros-humble-rmw-cyclonedds-c
 
 # Copy orchestrator package
 COPY src/sil_orchestrator /opt/sil/sil_orchestrator
+COPY config/integration_profiles /opt/config/integration_profiles
 
 # Copy scoring module for KpiDeriver (Arrow reading in scoring_routes.py)
 # Must mirror host path so scoring_routes.py sys.path calc resolves correctly:

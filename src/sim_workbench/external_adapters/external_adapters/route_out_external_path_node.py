@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import math
+import socketserver
+import threading
+from typing import Any
+
+from external_adapters.ipc import decode_line
+
+try:
+    import rclpy
+    from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import PoseStamped
+    from nav_msgs.msg import Path
+    from rclpy.node import Node
+    from std_msgs.msg import Header
+except ImportError:
+    rclpy = None
+    Time = None
+    PoseStamped = None
+    Path = None
+    Node = object
+    Header = None
+
+
+class _ThreadingTCPServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class RouteOutExternalPathNode(Node):
+    def __init__(self) -> None:
+        super().__init__("external_route_out_path")
+        self.declare_parameter("host", "127.0.0.1")
+        self.declare_parameter("port", 8766)
+        host = self.get_parameter("host").value
+        port = int(self.get_parameter("port").value)
+
+        self._path_pub = self.create_publisher(Path, "/ship/waypoints", 5)
+        self._server = _ThreadingTCPServer((host, port), _handler_for(self))
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        self.get_logger().info(f"external_route_out_path listening on {host}:{port}")
+
+    def _handle_payload(self, payload: dict[str, Any]) -> None:
+        if payload.get("kind") == "route_out_path":
+            try:
+                msg = path_payload_to_plain_path(payload)
+            except ValueError as exc:
+                self.get_logger().warn(f"ignored invalid route_out_path payload: {exc}")
+                return
+            self._path_pub.publish(msg)
+
+    def destroy_node(self) -> None:
+        if hasattr(self, "_server"):
+            self._server.shutdown()
+            self._server.server_close()
+        super().destroy_node()
+
+
+def _handler_for(node: RouteOutExternalPathNode):
+    class _PayloadHandler(socketserver.StreamRequestHandler):
+        def handle(self) -> None:
+            for line in self.rfile:
+                try:
+                    node._handle_payload(decode_line(line))
+                except Exception as exc:  # pragma: no cover - exercised in ROS integration.
+                    node.get_logger().warn(f"failed to handle route_out payload: {exc}")
+
+    return _PayloadHandler
+
+
+def path_payload_to_plain_path(payload: dict[str, Any]):
+    _validate_route_out_path(payload)
+    stamp = _time(payload.get("stamp"))
+    msg = Path()
+    msg.header = _header(stamp)
+    msg.poses = [_pose(point, stamp) for point in payload["points"]]
+    return msg
+
+
+def _validate_route_out_path(payload: dict[str, Any]) -> None:
+    points = payload.get("points")
+    if not isinstance(points, list) or not points:
+        raise ValueError("route_out_path points must be a non-empty list")
+    for index, point in enumerate(points):
+        if not isinstance(point, dict):
+            raise ValueError(f"route_out_path point {index} must be an object")
+        for field in ("lat", "lon", "speed_kn"):
+            if field not in point:
+                raise ValueError(f"route_out_path point {index} missing {field}")
+            _float_field(point[field], f"route_out_path point {index} {field}")
+
+
+def _float_field(value: Any, field_name: str) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
+    if not math.isfinite(numeric):
+        raise ValueError(f"{field_name} must be finite")
+    return numeric
+
+
+def _time(payload: dict[str, Any] | None):
+    stamp = payload or {}
+    msg = Time()
+    msg.sec = int(stamp.get("sec", 0))
+    msg.nanosec = int(stamp.get("nanosec", 0))
+    return msg
+
+
+def _header(stamp):
+    msg = Header()
+    msg.stamp = stamp
+    msg.frame_id = "WGS84"
+    return msg
+
+
+def _pose(point: dict[str, Any], stamp):
+    msg = PoseStamped()
+    msg.header = _header(stamp)
+    msg.pose.position.x = float(point.get("lon", 0.0))
+    msg.pose.position.y = float(point.get("lat", 0.0))
+    msg.pose.position.z = float(point.get("speed_kn", 0.0))
+    msg.pose.orientation.w = 1.0
+    return msg
+
+
+def main(args=None) -> None:
+    if rclpy is None:
+        raise RuntimeError("rclpy is required to run external_route_out_path")
+    rclpy.init(args=args)
+    node = RouteOutExternalPathNode()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

@@ -108,10 +108,57 @@ export interface ScoringLastRunFull {
   verdict?: 'pass' | 'fail' | 'pending';
 }
 
+export type IntegrationProfileMode = 'default' | 'external' | 'hybrid_debug';
+export type IntegrationAdapterState = 'enabled' | 'disabled';
+
+export interface IntegrationProfileSummary {
+  name: string;
+  mode?: IntegrationProfileMode;
+  tdl_domain_id?: number;
+  external_enabled?: boolean;
+  adapters?: Record<string, IntegrationAdapterState>;
+  external_domains?: Record<string, {
+    domain_id: number;
+    workspace_setup?: string | null;
+    required_topics?: Record<string, string>;
+  }>;
+}
+
+export type IntegrationProfileEntry = string | IntegrationProfileSummary;
+
+export interface IntegrationProfilesResult {
+  active_profile: string;
+  profiles: IntegrationProfileEntry[];
+}
+
+export interface IntegrationStatus {
+  active_profile: string;
+  external_enabled: boolean;
+  route_out_enabled: boolean;
+}
+
+export interface IntegrationProbeCheck {
+  gate_id: number;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface IntegrationProbeResult {
+  profile_name: string;
+  all_clear: boolean;
+  checks: IntegrationProbeCheck[];
+}
+
+export interface IntegrationProfileDetail extends IntegrationProfileSummary {
+  name: string;
+  mode: IntegrationProfileMode;
+}
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
-  tagTypes: ['Scenario', 'Run'],
+  tagTypes: ['Scenario', 'Run', 'Integration'],
   endpoints: (builder) => ({
 
     // Scenario CRUD
@@ -215,6 +262,30 @@ export const silApi = createApi({
       query: () => '/selfcheck/status',
     }),
 
+    // External integration
+    listIntegrationProfiles: builder.query<IntegrationProfilesResult, void>({
+      query: () => '/integration/profiles',
+      providesTags: ['Integration'],
+    }),
+
+    getIntegrationStatus: builder.query<IntegrationStatus, void>({
+      query: () => '/integration/status',
+      providesTags: ['Integration'],
+    }),
+
+    selectIntegrationProfile: builder.mutation<IntegrationProfileDetail, { name: string }>({
+      query: (body) => ({
+        url: '/integration/profile',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Integration'],
+    }),
+
+    probeIntegration: builder.mutation<IntegrationProbeResult, void>({
+      query: () => ({ url: '/integration/probe', method: 'POST' }),
+    }),
+
     // Export
     exportMarzip: builder.mutation<{ download_url: string; status: string }, string>({
       query: (runId) => ({
@@ -295,6 +366,11 @@ export const {
   useGetAsdrEventsQuery,
   useProbeSelfCheckMutation,
   useGetHealthStatusQuery,
+  useListIntegrationProfilesQuery,
+  useGetIntegrationStatusQuery,
+  useLazyGetIntegrationStatusQuery,
+  useSelectIntegrationProfileMutation,
+  useProbeIntegrationMutation,
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useTriggerFaultMutation,
