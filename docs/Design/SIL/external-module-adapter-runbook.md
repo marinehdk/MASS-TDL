@@ -73,7 +73,9 @@ Example destination, adjust only if the existing checkout differs:
 
 ```bash
 A4000_TDL=/home/mass/MASS-L3-Tactical-Layer
-rsync -av \
+rsync -avR \
+  docker-compose.yml \
+  docker-compose.a4000.yml \
   config/integration_profiles \
   src/sil_orchestrator/integration \
   src/sil_orchestrator/main.py \
