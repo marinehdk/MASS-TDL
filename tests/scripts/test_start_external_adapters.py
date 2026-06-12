@@ -70,6 +70,24 @@ def test_local_a4000_acceptance_dry_run_prints_gate_order():
     assert "domain=42" in result.stdout
 
 
+def test_local_a4000_compose_passes_profile_to_sil_nodes():
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source scripts/local-a4000-env.sh && "
+            "TDL_INTEGRATION_PROFILE=a4000_external docker compose config",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "TDL_INTEGRATION_PROFILE: a4000_external" in result.stdout
+
+
 def test_sil_entrypoint_starts_external_adapters_only_for_external_profile():
     source = Path("docker/sil_entrypoint.sh").read_text(encoding="utf-8")
 

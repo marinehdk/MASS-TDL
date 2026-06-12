@@ -23,6 +23,7 @@ services:
       - ROS_DOMAIN_ID=42
       - SIL_L4_ADAPTER_ENABLE=1
       - SIL_BRIDGE_RELEASE_FALLBACK=0
+      - TDL_INTEGRATION_PROFILE=${TDL_INTEGRATION_PROFILE:-default}
 
   foxglove-bridge:
     cpus: 1.5
