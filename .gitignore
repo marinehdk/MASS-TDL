@@ -95,6 +95,11 @@ web/debug.cjs
 web/debug.js
 .pytest_cache/
 
+# Local generated state and decks
+.codegraph/
+.nlm/
+slide-deck/
+
 # Local-only docs (per CODE_WIKI policy)
 CODE_WIKI.md
 
