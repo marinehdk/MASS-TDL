@@ -38,7 +38,7 @@ Result: `8 passed, 2 warnings`
 | 2 | Backend probe service and integration routes | 019eb9ee-abb9-7c10-8a03-46a4d8ee2a37 | DONE | APPROVED 019eb9f3-5349-7702-8ed1-4ab1545f53c3 | APPROVED 019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9 | c33ac112 |
 | 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | APPROVED 019eb9e4-7233-7470-b484-c89b2a986dcf | APPROVED 019eb9e9-f698-7f11-93d3-9c1d50fec38b | ea951232482ca67000032448a4a49bdf0be4aaf1 |
 | 4 | Neutral IPC and TDL ingress node | 019eb9ef-7a14-7512-bf4e-abeb261091a1 | DONE | APPROVED 019eb9f4-aa57-7e51-a766-08b5dedf01ae | APPROVED 019eb9fd-b71f-73f3-a3d4-de5ee1be247c | 088d2a774a5e2caad756e6fd6aae1dd977d25f5b |
-| 5 | Route-out adapter | pending | pending | pending | pending | pending |
+| 5 | Route-out adapter | 019eb9ff-d29a-7543-a600-7ed0c271335d | DONE | pending | pending | f201db74 |
 | 6 | Screen 02 external integration panel | pending | pending | pending | pending | pending |
 | 7 | Profile-based launch wiring | pending | pending | pending | pending | pending |
 | 8 | Local and A4000 integration verification | pending | pending | pending | pending | pending |
@@ -58,6 +58,7 @@ Result: `8 passed, 2 warnings`
 - Task 2 implementation completed in commit `1e012b4b`; tests `tests/sil_orchestrator/test_integration_routes.py tests/sil_orchestrator/test_selfcheck.py` passed `9`.
 - Task 4 implementation completed in commit `96e7cfcc73b1ca4643abffa35ab87b7504e04ac4`; IPC/ingress/converter tests passed `17`.
 - Task 4 final code review approved by `019eb9fd-b71f-73f3-a3d4-de5ee1be247c`; final commit `088d2a774a5e2caad756e6fd6aae1dd977d25f5b`.
+- Task 5 implementation completed in commit `f201db74`; route_out/converter/ipc tests passed `16`.
 - Task 2 code review requested fixes: missing `ros2`, subprocess timeout, and nonzero topic info must return failed gate details rather than escaping to HTTP 500.
 - Task 2 final code review approved by `019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9`; final commit `c33ac112`.
 
