@@ -20,7 +20,8 @@ A4000 上已有三类外部模块：
 4. 外部模块与 TDL DDS domain、workspace、消息包隔离。
 5. TDL 只输出航线或 waypoint 级规避结果给外部 GNC。
 6. 前端只在 Screen 02 显示 profile、adapter、topic、freshness、gate 状态。
-7. A4000 部署采用 patch/scp 级别窄部署，避免破坏现有 dirty worktree。
+7. 本地 OrbStack 先用 A4000 等价容器完成快速验证。
+8. A4000 部署采用 patch/scp 级别窄部署，避免破坏现有 dirty worktree。
 
 ## 3. 非目标
 
@@ -244,13 +245,32 @@ Screen 02 `仿真检查` 增加 `ExternalIntegrationPanel`。
 | Local integration | fake external domain -> adaptor -> TDL canonical topic 通过 |
 | Route loop | TDL `AvoidancePlan` -> route_out -> fake GNC 收到 route |
 | Frontend | Screen 02 external profile gate 显示、阻断、放行正确 |
-| A4000 | patch/scp 部署；external gate 全绿；外部 GNC 收到 TDL 规避航线 |
+| Local OrbStack container | 复用 `docker-compose.yml:docker-compose.a4000.yml`，本地服务健康、integration API 可用、默认 profile 不受影响 |
+| A4000 | 本地 OrbStack gate 通过后再 patch/scp 部署；external gate 全绿；外部 GNC 收到 TDL 规避航线 |
 
-## 15. 完成定义
+## 15. 本地到 A4000 的准入流程
+
+本地开发不再频繁直接复制到 A4000。准入顺序：
+
+1. 本地单元测试和前端测试通过。
+2. 本地 OrbStack 使用 A4000 等价 compose 配置启动 TDL 容器：
+
+   ```bash
+   source scripts/local-a4000-env.sh
+   docker compose up -d --build sil-orchestrator sil-nodes foxglove-bridge
+   ./scripts/local-a4000-acceptance.sh
+   ```
+
+3. 本地容器 gate 通过后，才同步 A4000。
+4. A4000 仍只同步 touched files，不做 broad sync。
+5. A4000 只做最终 external profile 验收和真实外部模块闭环。
+
+## 16. 完成定义
 
 1. `default` profile 下现有 TDL/SIL 测试通过。
 2. `a4000_external` profile 下 Screen 02 能探测外部模块。
 3. TDL 收到 canonical ownship、target、environment、route。
 4. TDL 输出规避航线后，外部 GNC 收到 route/waypoints。
 5. 没有 actuator 级输出路径。
-6. A4000 部署没有 broad sync、`git pull`、`git reset`。
+6. 本地 OrbStack A4000 等价容器 gate 通过。
+7. A4000 部署没有 broad sync、`git pull`、`git reset`。
