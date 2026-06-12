@@ -295,9 +295,9 @@ inline double fallback_target_heading(
     ColregsPreferredDirection direction) {
   double target = route_brg;
   if (direction == ColregsPreferredDirection::Starboard) {
-    target = route_brg + min_alt_rad;
+    target = (min_alt_rad > 0.0) ? (route_brg + min_alt_rad) : h_max;
   } else if (direction == ColregsPreferredDirection::Port) {
-    target = route_brg - min_alt_rad;
+    target = (min_alt_rad > 0.0) ? (route_brg - min_alt_rad) : h_min;
   }
   return clamp_heading_window(target, h_min, h_max);
 }
@@ -307,6 +307,37 @@ inline double fallback_target_heading(
   return fallback_target_heading(
       route_brg, h_min, h_max, min_alt_rad,
       ColregsPreferredDirection::Starboard);
+}
+
+inline bool trajectory_reaches_heading(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double target_heading_rad,
+    double tolerance_rad) {
+  for (const auto& point : trajectory) {
+    if (circular_heading_distance(point.psi_rad, target_heading_rad) <= tolerance_rad) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool trajectory_reaches_colregs_target(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double route_brg,
+    double h_min,
+    double h_max,
+    double min_alt_rad,
+    ColregsPreferredDirection direction,
+    double tolerance_rad) {
+  if (direction == ColregsPreferredDirection::Hold ||
+      direction == ColregsPreferredDirection::ReduceSpeed) {
+    return true;
+  }
+  const double target_min_alt = fallback_min_alteration_rad(
+      route_brg, h_min, h_max, min_alt_rad);
+  const double target_heading = fallback_target_heading(
+      route_brg, h_min, h_max, target_min_alt, direction);
+  return trajectory_reaches_heading(trajectory, target_heading, tolerance_rad);
 }
 
 }  // namespace mass_l3::m5

@@ -41,6 +41,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     const RuleParameters& params, double confidence) const {
   (void)params;
   l3_msgs::msg::COLREGsConstraint msg;
+  msg.schema_version = 114U;
 
   // Collect active rules and determine overall phase
   std::string dominant_phase = "PRESERVE_COURSE";

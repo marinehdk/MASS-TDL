@@ -10,6 +10,7 @@
 #include "m3_mission_manager/mission_manager_node.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <ratio>
 #include <string>
@@ -24,6 +25,8 @@ namespace {
 
 constexpr double kEarthRadiusNm = 3440.06479;
 constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr double kMetersPerDegLat = 111120.0;
+constexpr double kFinalLegLookaheadM = 1000.0;
 
 double haversineNm(double lat1_deg, double lon1_deg,
                    double lat2_deg, double lon2_deg) noexcept {
@@ -454,9 +457,18 @@ void MissionManagerNode::on_planned_route(
     const l3_external_msgs::msg::PlannedRoute::SharedPtr msg)
 {
   RCLCPP_DEBUG(get_logger(), "PlannedRoute received: id=%lu", msg->route_id);
-  last_planned_route_time_ = std::chrono::steady_clock::now();
-  
+
   const bool is_new_route = !last_planned_route_ || (last_planned_route_->route_id != msg->route_id);
+  if (is_new_route && last_planned_route_ &&
+      state_machine_->current() == MissionState::Active) {
+    RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "[M3] Ignoring route switch while ACTIVE: current=%lu incoming=%lu",
+        last_planned_route_->route_id, msg->route_id);
+    return;
+  }
+
+  last_planned_route_time_ = std::chrono::steady_clock::now();
   last_planned_route_ = msg;
 
   if (is_new_route) {
@@ -769,21 +781,60 @@ void MissionManagerNode::publish_mission_goal()
   if (last_planned_route_ && !last_planned_route_->route.poses.empty()) {
     if (current_wp_index_ < last_planned_route_->route.poses.size()) {
       const auto& target_pose = last_planned_route_->route.poses[current_wp_index_];
-      msg.current_target_wp.latitude  = target_pose.pose.position.latitude;
-      msg.current_target_wp.longitude = target_pose.pose.position.longitude;
+      auto target_point = target_pose.pose.position;
+
+      const std::size_t prev_idx = (current_wp_index_ > 0u) ? current_wp_index_ - 1u : 0u;
+      const auto& prev_pose = last_planned_route_->route.poses[prev_idx];
+      if (last_world_state_ && current_wp_index_ > 0u &&
+          current_wp_index_ + 1u == last_planned_route_->route.poses.size()) {
+        const auto& prev_point = prev_pose.pose.position;
+        const auto& final_point = target_pose.pose.position;
+        const double lat_ref_deg = (prev_point.latitude + final_point.latitude) * 0.5;
+        const double meters_per_deg_lon =
+            kMetersPerDegLat * std::cos(lat_ref_deg * kDegToRad);
+
+        if (std::abs(meters_per_deg_lon) > 1.0) {
+          const double seg_e_m =
+              (final_point.longitude - prev_point.longitude) * meters_per_deg_lon;
+          const double seg_n_m =
+              (final_point.latitude - prev_point.latitude) * kMetersPerDegLat;
+          const double seg_len_m = std::hypot(seg_e_m, seg_n_m);
+
+          if (seg_len_m > 1.0) {
+            const auto& own_point = last_world_state_->own_ship.position;
+            const double own_e_m =
+                (own_point.longitude - prev_point.longitude) * meters_per_deg_lon;
+            const double own_n_m =
+                (own_point.latitude - prev_point.latitude) * kMetersPerDegLat;
+            const double along_m =
+                ((own_e_m * seg_e_m) + (own_n_m * seg_n_m)) / seg_len_m;
+
+            if (along_m > seg_len_m) {
+              const double target_along_m = along_m + kFinalLegLookaheadM;
+              target_point.longitude =
+                  prev_point.longitude +
+                  ((seg_e_m / seg_len_m) * target_along_m) / meters_per_deg_lon;
+              target_point.latitude =
+                  prev_point.latitude +
+                  ((seg_n_m / seg_len_m) * target_along_m) / kMetersPerDegLat;
+            }
+          }
+        }
+      }
+
+      msg.current_target_wp.latitude  = target_point.latitude;
+      msg.current_target_wp.longitude = target_point.longitude;
       msg.current_target_wp.altitude  = 0.0;
 
       // Update geometric XTE: segment = [previous_wp, current_target_wp]
-      const std::size_t prev_idx = (current_wp_index_ > 0u) ? current_wp_index_ - 1u : 0u;
-      const auto& prev_pose = last_planned_route_->route.poses[prev_idx];
       if (last_world_state_) {
         current_error_monitor_->update_route_state(
             last_world_state_->own_ship.position.latitude,
             last_world_state_->own_ship.position.longitude,
             prev_pose.pose.position.latitude,
             prev_pose.pose.position.longitude,
-            target_pose.pose.position.latitude,
-            target_pose.pose.position.longitude);
+            target_point.latitude,
+            target_point.longitude);
       }
     }
   }

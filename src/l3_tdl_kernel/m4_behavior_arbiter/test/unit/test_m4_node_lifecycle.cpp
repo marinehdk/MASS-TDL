@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <rclcpp/rclcpp.hpp>
@@ -10,6 +11,10 @@
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
 
 namespace mass_l3::m4 {
+
+namespace {
+constexpr std::uint8_t kRoleGiveWay = 1U;
+}  // namespace
 
 class BehaviorArbiterTest : public ::testing::Test {
 protected:
@@ -138,6 +143,7 @@ TEST_F(BehaviorArbiterTest, FallbackLatchingAndSafetyConcernPublishing) {
   // Setup COLREGs constraint requiring 30 deg starboard dev
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint constraint;
   constraint.constraint_type = "colregs";
@@ -229,6 +235,7 @@ TEST_F(BehaviorArbiterTest, PortDirectiveFallbackPublishesPortWindowAndConcern) 
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "PORT";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -296,6 +303,7 @@ TEST_F(BehaviorArbiterTest, PortDirectiveSolverPublishesTightWrappedWindow) {
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "PORT";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -352,6 +360,7 @@ TEST_F(BehaviorArbiterTest, StarboardHighDeviationKeepsColregAvoidanceUtility) {
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -409,6 +418,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -471,6 +481,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveSurvivesBriefColregsFalseGap) {
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -540,6 +551,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveUsesTacticalBufferForBoundaryRange
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -596,6 +608,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveRelaxesWhenPredictedCpaIsSafe) {
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -653,6 +666,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveHoldsMaxDeviationBelowCriticalCpa)
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -710,6 +724,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveDoesNotCriticalGateBowCrossing) {
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "STARBOARD";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -722,8 +737,221 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveDoesNotCriticalGateBowCrossing) {
   spin_until(executor, [&]() { return last_plan.has_value(); });
 
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 103.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 133.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+}
+
+TEST_F(BehaviorArbiterTest, BowCrossingDoesNotReduceCommittedStarboardWindow) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_bow_crossing_commit_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  world_msg->targets.resize(1);
+  world_msg->targets[0].rng_m = 900.0;
+  world_msg->targets[0].cpa_m = 400.0;
+  world_msg->targets[0].encounter.relative_bearing_deg = 25.0;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 15;
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+
+  last_plan.reset();
+  world_msg->targets[0].cpa_m = 1600.0;
+  trigger_world_state(node, world_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+}
+
+TEST_F(BehaviorArbiterTest, Rule15CommitmentSurvivesActiveRuleDropDuringTurn) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_rule15_commit_drop_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  world_msg->targets.resize(1);
+  world_msg->targets[0].rng_m = 900.0;
+  world_msg->targets[0].cpa_m = 400.0;
+  world_msg->targets[0].encounter.relative_bearing_deg = 25.0;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 15;
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+
+  last_plan.reset();
+  world_msg->targets[0].cpa_m = 1600.0;
+  trigger_world_state(node, world_msg);
+  colregs_msg->active_rules.clear();
+  colregs_msg->constraints[0].numeric_value = 15.0;
+  trigger_colregs_constraint(node, colregs_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+}
+
+TEST_F(BehaviorArbiterTest, HeadOnDoesNotUseBowCrossingCommitment) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_head_on_no_commit_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  world_msg->targets.resize(1);
+  world_msg->targets[0].rng_m = 900.0;
+  world_msg->targets[0].cpa_m = 400.0;
+  world_msg->targets[0].encounter.relative_bearing_deg = 25.0;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 14;
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+
+  last_plan.reset();
+  world_msg->targets[0].cpa_m = 1600.0;
+  trigger_world_state(node, world_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, ReduceSpeedDirectiveCapsBelowCurrentSpeedWithoutHeadingTurn) {
@@ -763,6 +991,7 @@ TEST_F(BehaviorArbiterTest, ReduceSpeedDirectiveCapsBelowCurrentSpeedWithoutHead
 
   auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
   colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
   colregs_msg->primary_preferred_direction = "REDUCE_SPEED";
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";

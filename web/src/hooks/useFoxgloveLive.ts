@@ -128,6 +128,11 @@ const TOPIC_MAP: Array<{
     },
   },
   {
+    topic: '/l3/m5/avoidance_plan',
+    messageType: 'l3_msgs/AvoidancePlan',
+    handler: (s, msg: any) => s.updateAvoidancePlan(msg),
+  },
+  {
     topic: '/l3/fsm_state',
     messageType: 'l3_msgs/FsmState',
     handler: (_s, msg: any) => {

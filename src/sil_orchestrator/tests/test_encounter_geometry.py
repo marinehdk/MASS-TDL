@@ -51,7 +51,7 @@ def test_crossing_standon_port():
 def test_overtaking_slower_ahead_same_course():
     sp = generate_encounter("overtaking", OWN)
     assert (sp.course_deg <= 5.0 or sp.course_deg >= 355.0)  # 同向
-    assert 5.5 <= sp.sog_kn <= 6.5              # 0.5 × own
+    assert 3.8 <= sp.sog_kn <= 4.2              # fixed slow target for overtaking demo
     assert 150.0 <= _dcpa_m(OWN, sp) <= 250.0
 
 

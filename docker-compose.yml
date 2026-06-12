@@ -29,12 +29,15 @@ services:
       - ./runs:/var/sil/runs
       - ./src:/opt/ws/src
       - ./docker:/opt/ws/docker
+      - ./docker/sil_entrypoint.sh:/opt/ws/sil_entrypoint.sh:ro
     command: /opt/ws/sil_entrypoint.sh
     environment:
       - SIL_RUN_DIR=/var/sil/runs
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - SIL_L3_ENABLE=1               # Set 0 to bypass L3 kernel (sim-only mode)
+      - SIL_L4_ADAPTER_ENABLE=1       # L4 adapter owns /sil/actuator_cmd; set 0 for legacy bridge actuator
+      - SIL_BRIDGE_RELEASE_FALLBACK=0 # Legacy bridge latch release; keep off for module-owned handback
     network_mode: host
 
   foxglove-bridge:

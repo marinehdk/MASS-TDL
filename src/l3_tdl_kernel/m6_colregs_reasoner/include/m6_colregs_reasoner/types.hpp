@@ -24,7 +24,9 @@ enum class TimingPhase : uint8_t {
 struct TargetGeometricState {
   uint64_t target_id;
   double bearing_deg;           // absolute bearing from ownship [0, 360)
+  double range_m;               // current ownship-to-target range [m]
   double target_heading_deg;    // target's true heading [0, 360)
+  double target_speed_kn;        // target speed over ground [kn]
   double aspect_deg;            // aspect angle from target's bow [0, 360)
   double relative_speed_kn;
   double cpa_m;                 // >= 0

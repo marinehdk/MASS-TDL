@@ -158,6 +158,7 @@ TEST(ConstraintGen, StandOnEarlyPhaseDoesNotRaiseConflict) {
   RuleParameters p{};
   const auto msg = g.generate(
       {mk(17, Role::STAND_ON, TimingPhase::PRESERVE_COURSE, "HOLD")}, p, 0.9);
+  EXPECT_EQ(msg.schema_version, 114U);
   EXPECT_FALSE(msg.conflict_detected);
   ASSERT_EQ(msg.active_rules.size(), 1u);
   EXPECT_EQ(msg.active_rules[0].role, static_cast<uint8_t>(Role::STAND_ON));

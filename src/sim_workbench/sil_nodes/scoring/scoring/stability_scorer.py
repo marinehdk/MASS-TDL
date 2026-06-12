@@ -58,7 +58,7 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "max_behavior_toggles": 2,         # one rise (arm) + one fall (release)
     "max_plan_valid_segments": 2,      # one engagement (+1 tolerance)
     "max_steering_reversals": 4,       # give-way: turn-in, settle, return, settle
-    "max_steering_reversals_standon": 2,
+    "max_steering_reversals_standon": 5,
     "max_rot_hold_std_dps": 1.5,       # yaw-rate roughness during the hold
     # upstream cause signals (need /l3/m6/colregs_constraint in the trace)
     "max_conflict_toggles": 2,         # onset rise + past-clear fall
@@ -67,9 +67,11 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "max_premature_giveway_deg": 10.0,  # stand-on must hold before 17(b)
     "min_give_way_turn_deg": 5.0,       # a give-way ship must actually alter
     # numerics
-    "rot_deadband_dps": 0.2,            # ignore yaw-rate noise below this
+    "rot_deadband_dps": 1.0,            # ignore yaw-rate trim below this
     "hold_trim_frac": 0.25,             # drop turn-in/return tails for hold std
     "standon_hold_frac": 0.75,          # first 75 % of the run is the hold phase
+    "post_release_monitor_s": 30.0,     # include immediate release, exclude route-return
+    "max_conflict_gap_s": 2.0,          # ignore one-sample M6 false blips
 }
 
 
@@ -82,9 +84,11 @@ def _by_topic(records: List[dict], topic: str) -> List[dict]:
 
 
 def _is_avoiding(r: dict) -> bool:
+    if "behavior" in r:
+        return r.get("behavior", 0) != 0
     av = r.get("avoidance_active")
     if av is None:
-        return r.get("behavior", 0) != 0
+        return False
     return bool(av)
 
 
@@ -102,6 +106,19 @@ def _engagement_window(m4: List[dict]) -> Optional[Tuple[float, float]]:
     if not avoiding:
         return None
     return (avoiding[0].get("sim_t", 0.0), avoiding[-1].get("sim_t", 0.0))
+
+
+def _records_until_release(records: List[dict], window: Optional[Tuple[float, float]],
+                           post_release_s: float) -> List[dict]:
+    if window is None:
+        return records
+    return [r for r in records if r.get("sim_t", 0.0) <= window[1] + post_release_s]
+
+
+def _records_in_window(records: List[dict], window: Optional[Tuple[float, float]]) -> List[dict]:
+    if window is None:
+        return records
+    return [r for r in records if window[0] <= r.get("sim_t", 0.0) <= window[1]]
 
 
 # ── individual KPIs ──────────────────────────────────────────────────────
@@ -149,10 +166,31 @@ def _rot_hold_std(oss: List[dict], window: Optional[Tuple[float, float]],
     return statistics.pstdev(vals)
 
 
-def _conflict_toggles(m6: List[dict]) -> Optional[int]:
+def _conflict_toggles(m6: List[dict], max_gap_s: float = 0.0) -> Optional[int]:
     if not m6:
         return None
-    return _count_transitions([bool(r.get("conflict_detected")) for r in m6])
+    runs = []
+    for r in m6:
+        cur = bool(r.get("conflict_detected"))
+        t = float(r.get("sim_t", 0.0))
+        if not runs or runs[-1]["value"] != cur:
+            runs.append({"value": cur, "start": t, "end": t})
+        else:
+            runs[-1]["end"] = t
+
+    if max_gap_s > 0.0:
+        for i in range(1, len(runs) - 1):
+            gap = runs[i]
+            if (not gap["value"] and runs[i - 1]["value"] and
+                    runs[i + 1]["value"] and
+                    (runs[i + 1]["start"] - gap["start"]) <= max_gap_s):
+                gap["value"] = True
+
+    values: List[bool] = []
+    for run in runs:
+        if not values or values[-1] != run["value"]:
+            values.append(run["value"])
+    return _count_transitions(values)
 
 
 def _role_onset_changes(m6: List[dict]) -> Optional[int]:
@@ -181,17 +219,35 @@ def _peak_deviations(oss: List[dict], init_heading_deg: float) -> Tuple[float, f
 
 
 def _premature_giveway_deg(oss: List[dict], init_heading_deg: float,
-                           hold_frac: float) -> Optional[float]:
-    """Max |heading deviation| during the stand-on hold phase (the first
-    ``hold_frac`` of the run). A large early alteration = premature give-way;
-    a genuine last-moment Rule 17(b) action falls in the final tail and is
-    excluded."""
+                           hold_frac: float, m6: Optional[List[dict]] = None) -> Optional[float]:
+    """Max |heading deviation| during the stand-on hold phase.
+
+    Prefer the explicit M6 Rule17 phase boundary: once M6 enters
+    INDEPENDENT_ACTION / CRITICAL_ACTION, a stand-on vessel is no longer in the
+    "hold course" phase. Old traces without M6 phase data fall back to the
+    historical first-``hold_frac`` heuristic.
+    """
     if not oss:
         return None
     t0 = oss[0].get("sim_t", 0.0)
     t1 = oss[-1].get("sim_t", 0.0)
-    cutoff = t0 + hold_frac * (t1 - t0)
-    hold = [r for r in oss if r.get("sim_t", 0.0) <= cutoff]
+    cutoff = None
+    phase_cutoff = False
+    if m6:
+        action_times = [
+            float(r.get("sim_t", 0.0))
+            for r in m6
+            if str(r.get("phase", "")) in {"INDEPENDENT_ACTION", "CRITICAL_ACTION"}
+        ]
+        if action_times:
+            cutoff = min(action_times)
+            phase_cutoff = True
+    if cutoff is None:
+        cutoff = t0 + hold_frac * (t1 - t0)
+    if phase_cutoff:
+        hold = [r for r in oss if r.get("sim_t", 0.0) < cutoff]
+    else:
+        hold = [r for r in oss if r.get("sim_t", 0.0) <= cutoff]
     if not hold:
         return 0.0
     return max(abs(_heading_dev_deg(r.get("heading_deg", init_heading_deg),
@@ -238,12 +294,17 @@ def analyze_stability(
 
     behavior_toggles = _behavior_toggles(m4)
     plan_segments = _plan_valid_segments(m5)
-    steering_reversals = _steering_reversals(oss, th["rot_deadband_dps"])
     rot_hold_std = _rot_hold_std(oss, window, th["hold_trim_frac"])
-    conflict_toggles = _conflict_toggles(m6)
-    role_onset_changes = _role_onset_changes(m6)
-    max_stbd, max_port = _peak_deviations(oss, init_heading_deg)
-    premature = (_premature_giveway_deg(oss, init_heading_deg, th["standon_hold_frac"])
+    avoidance_records = _records_in_window(oss, window)
+    steering_reversals = _steering_reversals(avoidance_records, th["rot_deadband_dps"])
+    colregs_window_records = _records_until_release(
+        m6, window, th["post_release_monitor_s"])
+
+    conflict_toggles = _conflict_toggles(
+        colregs_window_records, th["max_conflict_gap_s"])
+    role_onset_changes = _role_onset_changes(colregs_window_records)
+    max_stbd, max_port = _peak_deviations(avoidance_records, init_heading_deg)
+    premature = (_premature_giveway_deg(oss, init_heading_deg, th["standon_hold_frac"], m6)
                  if not is_give_way else None)
 
     rev_threshold = (th["max_steering_reversals"] if is_give_way

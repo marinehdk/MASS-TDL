@@ -21,6 +21,8 @@ services:
     cpus: 12.0                      # heaviest (250Hz clock + RK4 + all M-nodes); leaves ~5 threads for jitsi/fat
     environment:
       - ROS_DOMAIN_ID=42
+      - SIL_L4_ADAPTER_ENABLE=1
+      - SIL_BRIDGE_RELEASE_FALLBACK=0
 
   foxglove-bridge:
     cpus: 1.5

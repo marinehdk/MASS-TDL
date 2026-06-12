@@ -258,6 +258,20 @@ void MidMpcNode::on_solve_cycle_()
   const bool m4_geometric =
       behavior_plan_->rationale.find("geometric starboard") != std::string::npos
       || behavior_plan_->rationale.find("fallback") != std::string::npos;
+  bool nlp_misses_colregs_target = false;
+  if (!solver_failed && input.colregs_conflict_active &&
+      input.colregs_preferred_direction != ColregsPreferredDirection::Hold &&
+      input.colregs_preferred_direction != ColregsPreferredDirection::ReduceSpeed) {
+    constexpr double kTargetToleranceRad = 5.0 * units::kRadPerDeg;
+    nlp_misses_colregs_target = !mass_l3::m5::trajectory_reaches_colregs_target(
+        sol.trajectory,
+        input.planned_route_bearing_rad,
+        input.constraints.heading_min_rad,
+        input.constraints.heading_max_rad,
+        input.colregs_min_alteration_rad,
+        input.colregs_preferred_direction,
+        kTargetToleranceRad);
+  }
 
   l3_msgs::msg::AvoidancePlan plan;
   if (is_transit) {
@@ -272,12 +286,15 @@ void MidMpcNode::on_solve_cycle_()
     plan.rationale  = "M4 TRANSIT — no avoidance required";
     plan.confidence = 1.0F;
     // waypoints left empty → bridge has_valid_plan == False → avoidance released
-  } else if (wrapped_heading_window || solver_failed || m4_geometric) {
+  } else if (wrapped_heading_window || solver_failed || m4_geometric ||
+             nlp_misses_colregs_target) {
     std::string reason;
     if (wrapped_heading_window) {
       reason = "wrapped_heading_window";
     } else if (solver_failed) {
       reason = "solver_status=" + std::to_string(static_cast<int>(sol.status));
+    } else if (nlp_misses_colregs_target) {
+      reason = "nlp_misses_colregs_target";
     } else {
       reason = "m4_geometric";
     }

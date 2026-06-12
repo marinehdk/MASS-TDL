@@ -49,6 +49,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_rule_latch test_rule_latch.cpp)
   target_link_libraries(test_rule_latch ${PROJECT_NAME}_lib)
 
+  ament_add_gtest(test_colregs_release_policy test_colregs_release_policy.cpp)
+  target_link_libraries(test_colregs_release_policy ${PROJECT_NAME}_lib)
+
   # Integration tests
   ament_add_gtest(test_node_lifecycle integration/test_node_lifecycle.cpp)
   target_link_libraries(test_node_lifecycle ${PROJECT_NAME}_lib)

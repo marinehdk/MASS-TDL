@@ -108,6 +108,8 @@ private:
   bool   colregs_anchor_set_{false};   // Tracks the committed COLREG turn reference
   double colregs_anchor_hdg_{0.0};      // Route/own heading at COLREG turn onset (degrees)
   bool   colregs_quartering_gate_{false}; // Conflict-onset latch for stern-quarter edge probes
+  bool   colregs_rule15_commit_active_{false}; // Rule15 give-way duty latched for this turn
+  double colregs_committed_required_dev_deg_{0.0}; // Max bow-crossing give-way turn demand
   int    colregs_inactive_cycles_{0};   // Release dwell for short M6 false gaps
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;

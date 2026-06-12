@@ -1,5 +1,6 @@
 #include "m6_colregs_reasoner/rules/colregs/rule15_crossing.hpp"
 
+#include <algorithm>
 #include <string>
 
 #include "m6_colregs_reasoner/geometry_utils.hpp"
@@ -11,7 +12,6 @@ RuleEvaluation Rule15_Crossing::evaluate(const TargetGeometricState& geo,
                                           OddDomain odd,
                                           const RuleParameters& params) const {
   (void)odd;
-  (void)params;
 
   RuleEvaluation result{};
   result.rule_id = 15;
@@ -45,7 +45,7 @@ RuleEvaluation Rule15_Crossing::evaluate(const TargetGeometricState& geo,
     result.role = Role::GIVE_WAY;
     result.encounter_type = EncounterType::CROSSING;
     result.preferred_direction = "STARBOARD";
-    result.min_alteration_deg = params.min_alteration_deg;
+    result.min_alteration_deg = std::max(params.min_alteration_deg, 50.0);
     result.confidence = 0.85F;
     result.rationale = "Rule 15: Crossing situation. Target on starboard side "
                        "(bearing " + std::to_string(kRelBearing) +

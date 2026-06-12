@@ -17,6 +17,7 @@ TEST(Rule15_CrossingTest, StarboardCrossingGiveWay) {
   EXPECT_TRUE(result.is_active);
   EXPECT_EQ(result.role, Role::GIVE_WAY);
   EXPECT_EQ(result.encounter_type, EncounterType::CROSSING);
+  EXPECT_DOUBLE_EQ(result.min_alteration_deg, 50.0);
 }
 
 TEST(Rule15_CrossingTest, PortCrossingStandOn) {
@@ -86,6 +87,7 @@ TEST(Rule15_CrossingTest, PreferredDirectionStarboard) {
 
   auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
   EXPECT_EQ(result.preferred_direction, "STARBOARD");
+  EXPECT_DOUBLE_EQ(result.min_alteration_deg, 50.0);
 }
 
 // --- Non-zero heading tests (verify bearing_deg is absolute) ---

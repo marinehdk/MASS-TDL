@@ -31,16 +31,16 @@ class TargetSpawn:
     sog_kn: float
 
 
-# rule → (b_rel deg [+=starboard], target speed factor, default range NM,
-#         default construct CPA m, mode)
+# rule → (b_rel deg [+=starboard], target speed factor, optional fixed target
+#         speed, default range NM, default construct CPA m, mode)
 _RULE_DEFAULTS: dict[str, dict] = {
-    "head_on":          dict(b_rel=0.0,   speed_factor=1.0, range_nm=1.5,
+    "head_on":          dict(b_rel=0.0,   speed_factor=1.0, target_sog_kn=None, range_nm=1.5,
                              construct_cpa_m=0.0,   mode="intercept"),
-    "crossing_giveway": dict(b_rel=45.0,  speed_factor=1.0, range_nm=2.0,
+    "crossing_giveway": dict(b_rel=45.0,  speed_factor=1.0, target_sog_kn=None, range_nm=2.0,
                              construct_cpa_m=300.0, mode="intercept"),
-    "crossing_standon": dict(b_rel=-45.0, speed_factor=1.0, range_nm=2.0,
+    "crossing_standon": dict(b_rel=-45.0, speed_factor=1.0, target_sog_kn=None, range_nm=2.0,
                              construct_cpa_m=300.0, mode="intercept"),
-    "overtaking":       dict(b_rel=0.0,   speed_factor=0.5, range_nm=1.0,
+    "overtaking":       dict(b_rel=0.0,   speed_factor=0.5, target_sog_kn=4.0, range_nm=1.0,
                              construct_cpa_m=200.0, mode="overtake"),
 }
 
@@ -73,7 +73,9 @@ def generate_encounter(rule, own, range_nm=None, construct_cpa_m=None,
     v0 = own.sog_kn * KN_MS
     voe, von = v0 * math.sin(psi), v0 * math.cos(psi)          # own velocity ENU
     se, sn = _enu_from_brg(R, own.heading_deg + b_rel)          # spawn rel ENU
-    st = d["speed_factor"] * v0
+    st = (d["target_sog_kn"] * KN_MS
+          if d.get("target_sog_kn") is not None
+          else d["speed_factor"] * v0)
 
     if d["mode"] == "overtake":
         vte, vtn = st * math.sin(psi), st * math.cos(psi)      # same course, slower

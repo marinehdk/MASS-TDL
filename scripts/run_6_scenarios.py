@@ -61,6 +61,91 @@ def get_cross_track_error(x, y, x0, y0, hdg_deg):
     # cross track error = (x - x0) * cos(theta) - (y - y0) * sin(theta)
     return (x - x0) * math.cos(theta) - (y - y0) * math.sin(theta)
 
+def read_trace_run_records(trace_path=Path("runs/trace_current.jsonl")):
+    records = []
+    if trace_path.exists():
+        with open(trace_path) as f:
+            for line in f:
+                try:
+                    records.append(json.loads(line))
+                except Exception:
+                    pass
+
+    start_idx = 0
+    for i in range(1, len(records)):
+        prev = records[i - 1].get("sim_t", 0.0)
+        cur = records[i].get("sim_t", 0.0)
+        if cur + 1.0 < prev:
+            start_idx = i
+    return records[start_idx:]
+
+def _is_avoidance_behavior(record):
+    if "behavior" in record:
+        return record.get("behavior", 0) != 0
+    active = record.get("avoidance_active")
+    if active is not None:
+        return bool(active)
+    return False
+
+def compute_route_return_status(
+    run_records,
+    *,
+    lat0,
+    lon0,
+    init_lat,
+    init_lon,
+    init_hdg,
+    xte_threshold_m=150.0,
+    heading_threshold_deg=10.0,
+):
+    osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
+    bp = [r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"]
+
+    final_behavior = bp[-1].get("behavior") if bp else None
+    final_xte = float("nan")
+    final_dev = float("nan")
+    latest_sim_t = float("nan")
+
+    if osh:
+        latest = osh[-1]
+        latest_sim_t = float(latest.get("sim_t", 0.0))
+        final_x_m, final_y_m = _enu(latest["lat"], latest["lon"], lat0, lon0)
+        init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
+        final_xte = get_cross_track_error(final_x_m, final_y_m, init_x_m, init_y_m, init_hdg)
+        final_dev = (latest["heading_deg"] - init_hdg + 180.0) % 360.0 - 180.0
+
+    had_avoidance = any(_is_avoidance_behavior(r) for r in bp)
+    released_after_avoidance = False
+    seen_avoidance = False
+    for r in bp:
+        if _is_avoidance_behavior(r):
+            seen_avoidance = True
+        elif seen_avoidance and r.get("behavior") == 0:
+            released_after_avoidance = True
+
+    returned_to_route = (
+        not math.isnan(final_xte) and
+        not math.isnan(final_dev) and
+        abs(final_xte) < xte_threshold_m and
+        abs(final_dev) < heading_threshold_deg and
+        final_behavior == 0
+    )
+
+    return {
+        "returned_to_route": bool(returned_to_route),
+        "released_after_avoidance": bool(released_after_avoidance),
+        "had_avoidance": bool(had_avoidance),
+        "final_behavior": final_behavior,
+        "final_xte": final_xte,
+        "final_heading_dev": final_dev,
+        "latest_sim_t": latest_sim_t,
+    }
+
+def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
+                         route_return_required=True):
+    return bool(cpa_ok and stability_pass and
+                ((not route_return_required) or returned_to_route))
+
 def run_scenario(scenario_id):
     print(f"\n==================================================")
     print(f"RUNNING SCENARIO: {scenario_id}")
@@ -76,9 +161,13 @@ def run_scenario(scenario_id):
         scen_data = yaml.safe_load(f)
     
     sim_settings = scen_data.get("metadata", {}).get("simulation_settings", {})
+    expected = scen_data.get("metadata", {}).get("expected_outcome", {})
     total_time = float(sim_settings.get("total_time", 600.0))
     coordinate_origin = sim_settings.get("coordinate_origin", [63.44, 10.38])
     lat0, lon0 = coordinate_origin[0], coordinate_origin[1]
+    route_return_required = bool(expected.get("returned_to_route_required", False))
+    route_return_xte_m = float(expected.get("route_return_xte_m_lt", 150.0))
+    route_return_heading_deg = float(expected.get("route_return_heading_deg_lt", 10.0))
     
     own_init = scen_data["ownShip"]["initial"]
     init_lat = own_init["position"]["latitude"]
@@ -136,6 +225,24 @@ def run_scenario(scenario_id):
         elapsed_wall = time.time() - start_wall
         print(f"  Wall time: {elapsed_wall:.1f}s | Sim time: {sim_t:.1f}s / {total_time:.1f}s", end="\r")
         
+        if route_return_required:
+            route_status = compute_route_return_status(
+                read_trace_run_records(),
+                lat0=lat0, lon0=lon0,
+                init_lat=init_lat, init_lon=init_lon,
+                init_hdg=init_hdg,
+                xte_threshold_m=route_return_xte_m,
+                heading_threshold_deg=route_return_heading_deg,
+            )
+            if (route_status["released_after_avoidance"] and
+                    route_status["returned_to_route"]):
+                print(
+                    f"\n  Route return reached at sim_t={sim_t:.1f}s "
+                    f"(XTE={route_status['final_xte']:.1f} m, "
+                    f"heading_dev={route_status['final_heading_dev']:.1f}°)"
+                )
+                break
+
         if sim_t >= total_time - 2.0:
             print(f"\n  Simulation reached target time: {sim_t:.1f}s")
             break
@@ -188,26 +295,7 @@ def run_scenario(scenario_id):
         except Exception as e:
             print(f"  Failed to read scoring.arrow: {e}")
             
-    # Read trace file
-    trace_path = Path("runs/trace_current.jsonl")
-    records = []
-    if trace_path.exists():
-        with open(trace_path) as f:
-            for line in f:
-                try:
-                    records.append(json.loads(line))
-                except Exception:
-                    pass
-                    
-    # Filter records from current run
-    run_records = []
-    start_idx = 0
-    for i in range(1, len(records)):
-        prev = records[i - 1].get("sim_t", 0.0)
-        cur = records[i].get("sim_t", 0.0)
-        if cur + 1.0 < prev:
-            start_idx = i
-    run_records = records[start_idx:]
+    run_records = read_trace_run_records()
     
     # 8. Analyze Own Ship State
     osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
@@ -259,15 +347,18 @@ def run_scenario(scenario_id):
             
     final_behavior = bp[-1].get("behavior") if bp else None
     
-    # Route return check
-    # Let's project last 10 points to see final position and cross track error
-    last_osh = osh[-10:]
-    final_x_m, final_y_m = _enu(last_osh[-1]["lat"], last_osh[-1]["lon"], lat0, lon0)
-    init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
-    final_xte = get_cross_track_error(final_x_m, final_y_m, init_x_m, init_y_m, init_hdg)
-    
-    final_dev = (last_osh[-1]["heading_deg"] - init_hdg + 180.0) % 360.0 - 180.0
-    is_back_to_route = (abs(final_xte) < 150.0) and (abs(final_dev) < 10.0) and (final_behavior == 0)
+    route_status = compute_route_return_status(
+        run_records,
+        lat0=lat0, lon0=lon0,
+        init_lat=init_lat, init_lon=init_lon,
+        init_hdg=init_hdg,
+        xte_threshold_m=route_return_xte_m,
+        heading_threshold_deg=route_return_heading_deg,
+    )
+    final_xte = route_status["final_xte"]
+    final_dev = route_status["final_heading_dev"]
+    is_back_to_route = route_status["returned_to_route"]
+    final_behavior = route_status["final_behavior"]
     
     # Determine rule_compliance status (full, partial, violated)
     # Using rule_compliance_evaluator logic
@@ -284,31 +375,47 @@ def run_scenario(scenario_id):
     # ── Phase B: behavioral-stability KPIs (fishtail / flap detector) ─────
     encounter = scen_data.get("metadata", {}).get("encounter", {})
     role = "give_way" if encounter.get("give_way_vessel") == "own" else "stand_on"
-    expected = scen_data.get("metadata", {}).get("expected_outcome", {})
     stability_thresholds = expected.get("stability_thresholds")  # optional override
     stability = ss.analyze_stability(
         run_records, role=role, init_heading_deg=init_hdg,
         thresholds=stability_thresholds)
 
+    avoidance_starboard = float(stability["kpis"].get("max_starboard_dev_deg") or 0.0)
+    avoidance_port = float(stability["kpis"].get("max_port_dev_deg") or 0.0)
+    if avoidance_starboard >= avoidance_port:
+        steer_dir = "Starboard"
+        steer_mag = avoidance_starboard
+    else:
+        steer_dir = "Port"
+        steer_mag = avoidance_port
+
     # ── Overall verdict: CPA floor AND behavioral stability ───────────────
     min_dcpa_m = cpa_min_nm * 1852.0 if not math.isnan(cpa_min_nm) else float("nan")
     cpa_floor_m = float(expected.get("cpa_min_m_ge", 0.0))
     cpa_ok = (not math.isnan(min_dcpa_m)) and (min_dcpa_m >= cpa_floor_m)
-    overall_pass = bool(cpa_ok and stability["stability_pass"])
+    overall_pass = compute_overall_pass(
+        cpa_ok=cpa_ok,
+        stability_pass=stability["stability_pass"],
+        returned_to_route=is_back_to_route,
+        route_return_required=route_return_required,
+    )
 
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
-    print(f"  Steer Direction: {steer_dir} | Magnitude: {steer_mag:.1f}°")
+    print(f"  Avoidance Steer Direction: {steer_dir} | Magnitude: {steer_mag:.1f}°")
     print(f"  Rule Compliance Score: {rule_compliance_score:.2f} ({compliance_verdict})")
     print(f"  Avg ROT: {avg_rot_dpm:.2f} dpm")
     print(f"  Final Behavior: {final_behavior} | Final XTE: {final_xte:.1f} m | Final Heading Dev: {final_dev:.1f}°")
-    print(f"  Returned to Route: {is_back_to_route}")
+    print(f"  Returned to Route: {is_back_to_route} "
+          f"(required={route_return_required}, XTE<{route_return_xte_m:.0f} m, "
+          f"heading<{route_return_heading_deg:.0f}°)")
     print(f"  Veto events count: {len(veto)}")
     print(f"  Behavior transitions: {bp_transitions}")
     print(f"  M5 Solver states: {solver_stats}")
     print(f"  Role: {role} | CPA floor: {cpa_floor_m:.0f} m | CPA pass: {cpa_ok}")
     print(ss.format_report(stability))
     print(f"  ===> OVERALL: {'PASS' if overall_pass else 'RED'} "
-          f"(cpa_ok={cpa_ok} AND stability={stability['stability_pass']})")
+          f"(cpa_ok={cpa_ok} AND stability={stability['stability_pass']} "
+          f"AND route_return={is_back_to_route if route_return_required else 'n/a'})")
     
     # 9. Plot trajectories and save to run directory
     try:
@@ -365,6 +472,9 @@ def run_scenario(scenario_id):
         "final_xte": final_xte,
         "final_heading_dev": final_dev,
         "returned_to_route": is_back_to_route,
+        "route_return_required": route_return_required,
+        "route_return_xte_m_lt": route_return_xte_m,
+        "route_return_heading_deg_lt": route_return_heading_deg,
         "bp_transitions": bp_transitions,
         "solver_stats": solver_stats,
         "veto_count": len(veto),
@@ -396,7 +506,8 @@ def main():
     print("ALL SCENARIOS COMPLETED. SUMMARY OF RESULTS:")
     print("==================================================")
     n_pass = sum(1 for r in results.values() if r.get("overall_pass"))
-    print(f"OVERALL: {n_pass}/{len(results)} PASS (CPA floor AND behavioral stability)\n")
+    print(f"OVERALL: {n_pass}/{len(results)} PASS "
+          f"(CPA floor AND behavioral stability AND required route return)\n")
     for scen, res in results.items():
         verdict = "PASS" if res.get("overall_pass") else "RED"
         print(f"\n[{verdict}] {scen} ({res['run_id']}) — role={res.get('role')}")
@@ -406,7 +517,9 @@ def main():
                if c["applicable"] and not c["pass"]]
         if red:
             print(f"  Stability RED checks: {red}")
-        print(f"  Returned to Route: {res['returned_to_route']} (Final XTE: {res['final_xte']:.1f} m)")
+        print(f"  Returned to Route: {res['returned_to_route']} "
+              f"(required={res.get('route_return_required')}, "
+              f"Final XTE: {res['final_xte']:.1f} m)")
         print(f"  Transitions: {res['bp_transitions']}")
         
 if __name__ == "__main__":

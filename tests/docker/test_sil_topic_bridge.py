@@ -53,10 +53,88 @@ class _FakeFilteredOwnShipState:
         self.rationale = ""
 
 
+class _FakeClock:
+    def now(self):
+        return SimpleNamespace(
+            nanoseconds=0,
+            to_msg=lambda: SimpleNamespace(sec=0, nanosec=0),
+        )
+
+
+class _FakeLogger:
+    def info(self, *args, **kwargs):
+        pass
+
+    def warn(self, *args, **kwargs):
+        pass
+
+    def warning(self, *args, **kwargs):
+        pass
+
+    def error(self, *args, **kwargs):
+        pass
+
+
+class _FakeNodeBase:
+    def __init__(self, *args, **kwargs):
+        self.created_publishers = []
+        self.created_subscriptions = []
+        self.created_timers = []
+        self._fake_parameters = {
+            "ownship_initial_heading_deg": 0.0,
+            "ownship_initial_sog_kn": 10.0,
+        }
+        self._fake_logger = _FakeLogger()
+        self._fake_clock = _FakeClock()
+
+    def get_logger(self):
+        return self._fake_logger
+
+    def get_clock(self):
+        return self._fake_clock
+
+    def declare_parameter(self, name, value):
+        self._fake_parameters.setdefault(name, value)
+        return SimpleNamespace(value=self._fake_parameters[name])
+
+    def get_parameter(self, name):
+        return SimpleNamespace(value=self._fake_parameters.get(name, 0.0))
+
+    def create_publisher(self, msg_type, topic, qos_profile):
+        pub = _Publisher()
+        pub.msg_type = msg_type
+        pub.topic = topic
+        pub.qos_profile = qos_profile
+        self.created_publishers.append(pub)
+        return pub
+
+    def create_subscription(self, msg_type, topic, callback, qos_profile):
+        sub = SimpleNamespace(
+            msg_type=msg_type,
+            topic=topic,
+            callback=callback,
+            qos_profile=qos_profile,
+        )
+        self.created_subscriptions.append(sub)
+        return sub
+
+    def create_timer(self, period_sec, callback):
+        timer = SimpleNamespace(
+            period_sec=period_sec,
+            callback=callback,
+            reset=lambda: None,
+        )
+        self.created_timers.append(timer)
+        return timer
+
+    def destroy_node(self):
+        pass
+
+
 def _install_fake_ros_modules(monkeypatch):
     rclpy = types.ModuleType("rclpy")
     rclpy.node = types.ModuleType("rclpy.node")
-    rclpy.node.Node = object
+    rclpy.node.Node = _FakeNodeBase
     rclpy.executors = types.ModuleType("rclpy.executors")
     rclpy.executors.MultiThreadedExecutor = object
     rclpy.qos = types.ModuleType("rclpy.qos")
@@ -132,6 +210,24 @@ def _load_bridge(monkeypatch):
     return module
 
 
+def test_l4_adapter_enable_disables_bridge_actuator_publisher(monkeypatch):
+    monkeypatch.setenv("SIL_L4_ADAPTER_ENABLE", "1")
+    bridge = _load_bridge(monkeypatch)
+    bridge.DebugTraceWriter = lambda node: SimpleNamespace(
+        record=lambda *a, **k: None,
+        reset=lambda: None,
+        close=lambda: None,
+    )
+
+    node = bridge.SilTopicBridge()
+
+    assert node._l4_adapter_enabled is True
+    assert node._pub_act is None
+    assert "/sil/actuator_cmd" not in {
+        pub.topic for pub in node.created_publishers
+    }
+
+
 def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
     bridge = _load_bridge(monkeypatch)
     from unittest.mock import Mock
@@ -163,6 +259,300 @@ def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
 
     assert cmd.rudder_angle == -math.atan2(46.0, 92.0)
     assert cmd.throttle == 0.5
+
+
+def test_avoidance_autopilot_closes_speed_loop_under_rudder_drag(monkeypatch):
+    """Avoidance throttle must rise above feed-forward when own-ship is slow.
+
+    Rule13 long-run regression: M5 requested 14 kn, but open-loop 14/25 throttle
+    settled near 10 kn under sustained rudder drag, so M6 did not clear until the
+    1200 s route-return deadline.
+    """
+    bridge = _load_bridge(monkeypatch)
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        _last_ownship_raw=SimpleNamespace(
+            heading=0.0,
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _avoidance_target_heading_deg=None,
+        _last_avoidance_waypoint=SimpleNamespace(
+            turn_radius_m=500.0,
+            target_speed_kn=14.0,
+        ),
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = None
+    for _ in range(4):
+        cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+            fake_self, SimpleNamespace(sec=12)
+        )
+
+    assert cmd is not None
+    assert cmd.throttle > (14.0 / bridge.MAX_SPEED_KN) + 0.05
+
+
+def test_avoidance_autopilot_prefers_m5_waypoint_over_stale_m4_heading(monkeypatch):
+    """Orange M5 route is the executable avoidance path.
+
+    Regression from frontend COLREG runs: M5 drew a correct starboard route, but
+    Bridge kept following a stale M4 heading window and commanded the wrong turn.
+    """
+    bridge = _load_bridge(monkeypatch)
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.0, longitude=0.01),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(80.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=25.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=waypoint,
+        _last_avoidance_waypoints=[waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) < 0.0
+
+
+def test_avoidance_autopilot_skips_stale_passed_m5_waypoint(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    stale_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.0, longitude=0.00004),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    next_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.005, longitude=0.00866),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(80.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=60.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=stale_waypoint,
+        _last_avoidance_waypoints=[stale_waypoint, next_waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) > 0.0
+
+
+def test_avoidance_autopilot_prefers_m5_waypoint_closest_to_m4_target(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    lower_edge_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.00819, longitude=0.00574),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    target_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.005, longitude=0.00866),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(40.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=60.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=lower_edge_waypoint,
+        _last_avoidance_waypoints=[lower_edge_waypoint, target_waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) < 0.0
+
+
+def test_avoidance_autopilot_accepts_m5_route_return_waypoint(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    route_return_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.0, longitude=-0.01),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(0.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=30.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=route_return_waypoint,
+        _last_avoidance_waypoints=[route_return_waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) > 0.0
+
+
+def test_avoidance_autopilot_rejects_m5_waypoint_near_reversal(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=-0.01, longitude=0.0001),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(100.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=60.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=waypoint,
+        _last_avoidance_waypoints=[waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) > 0.0
+
+
+def test_avoidance_autopilot_rejects_under_evasive_m5_rejoin_during_stand_on_conflict(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    rejoin_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.00819, longitude=0.00574),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(40.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _m6_conflict_active=True,
+        _m6_primary_role=0,
+        _m6_phase="INDEPENDENT_ACTION",
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=60.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=rejoin_waypoint,
+        _last_avoidance_waypoints=[rejoin_waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) < 0.0
+
+
+def test_avoidance_autopilot_rejects_m5_rejoin_waypoint_for_give_way_conflict(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    rejoin_waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=0.00819, longitude=0.00574),
+        turn_radius_m=500.0,
+        target_speed_kn=12.0,
+    )
+    fake_self = SimpleNamespace(
+        _make_actuator_msg=lambda stamp: bridge.SilTopicBridge._make_actuator_msg(fake_self, stamp),
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _last_ownship_raw=SimpleNamespace(
+            lat=0.0,
+            lon=0.0,
+            heading=math.radians(40.0),
+            sog=10.0 / 1.94384,
+            rot=0.0,
+        ),
+        _latch_release_triggered=False,
+        _latch_release_time=None,
+        _m6_conflict_active=True,
+        _m6_primary_role=1,
+        _m6_phase="GIVE_WAY",
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=60.0,
+        _avoidance_heading_controller=bridge.HeadingController(max_rate_deg_s=100.0),
+        _last_avoidance_waypoint=rejoin_waypoint,
+        _last_avoidance_waypoints=[rejoin_waypoint],
+        _speed_controller=bridge.SpeedController(),
+    )
+
+    cmd = bridge.SilTopicBridge._compute_avoidance_autopilot(
+        fake_self, SimpleNamespace(sec=12)
+    )
+
+    assert math.degrees(cmd.rudder_angle) < 0.0
 
 
 def test_placeholder_turn_radius_does_not_command_hard_rudder(monkeypatch):
@@ -326,6 +716,26 @@ def test_behavior_plan_tracking_allows_rejoin_window_after_large_turn(monkeypatc
     assert fake_self._avoidance_target_heading_deg == pytest.approx(90.0)
 
 
+def test_behavior_plan_does_not_reduce_avoidance_target_while_m6_conflict_active(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    fake_self = _avoidance_fake_self(bridge)
+    fake_self._transit_since_time = None
+    fake_self._m6_conflict_active = True
+    fake_self._target_heading_deg = 0.0
+    fake_self._avoidance_target_heading_deg = 60.0
+
+    premature_rejoin_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=0.0,
+        heading_max_deg=30.0,
+        rationale="COLREG_AVOID",
+    )
+
+    bridge.SilTopicBridge._on_behavior_plan(fake_self, premature_rejoin_plan)
+
+    assert fake_self._avoidance_target_heading_deg == pytest.approx(60.0)
+
+
 def test_behavior_plan_tracking_recovers_from_crossed_rejoin_lock(monkeypatch):
     """A stale target past 180 deg must not ignore a new starboard-side M4 window.
 
@@ -406,6 +816,43 @@ def test_avoidance_plan_arm_uses_starboard_edge_before_180(monkeypatch):
 
     assert fake_self._avoidance_active is True
     assert fake_self._avoidance_target_heading_deg == pytest.approx(154.0)
+
+
+def test_avoidance_plan_does_not_arm_while_m4_is_transit(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    from unittest.mock import Mock
+
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        get_logger=lambda: SimpleNamespace(info=lambda *a, **k: None),
+        _trace_writer=SimpleNamespace(record=lambda *a, **k: None),
+        _get_sim_time=lambda: 100.0,
+        _autopilot_enabled=False,
+        _avoidance_active=False,
+        _avoidance_armed_time=None,
+        _target_heading_deg=0.0,
+        _avoidance_target_heading_deg=None,
+        _last_behavior_plan=SimpleNamespace(
+            behavior=0,
+            heading_min_deg=0.0,
+            heading_max_deg=360.0,
+        ),
+        _last_valid_plan_time=0.0,
+        _last_avoidance_waypoint=None,
+        _last_avoidance_waypoints=[],
+        _latch_release_triggered=False,
+        _avoidance_heading_controller=Mock(last_cmd_deg=0.0),
+        _reset_latch_release_state=lambda: None,
+    )
+    valid_plan = SimpleNamespace(
+        stamp=SimpleNamespace(sec=1),
+        waypoints=[SimpleNamespace(turn_radius_m=500.0, target_speed_kn=10.0)],
+    )
+
+    bridge.SilTopicBridge._on_avoidance_plan(fake_self, valid_plan)
+
+    assert fake_self._avoidance_active is False
+    assert fake_self._avoidance_target_heading_deg is None
 
 
 def test_sil_own_ship_state_is_converted_to_l3_units(monkeypatch):
@@ -559,7 +1006,9 @@ def test_m5_empty_plan_does_not_interrupt_latch_release_decay(
     assert fake_self._last_avoidance_waypoint is sentinel
 
 
-def _make_check_geometry_self(bridge, *, m6_conflict_active, avoidance_armed_t=80.0):
+def _make_check_geometry_self(
+        bridge, *, m6_conflict_active, avoidance_armed_t=80.0,
+        release_fallback_enabled=False):
     """Minimal fake_self for _check_geometry_release tests."""
     return SimpleNamespace(
         _avoidance_active=True,
@@ -568,6 +1017,7 @@ def _make_check_geometry_self(bridge, *, m6_conflict_active, avoidance_armed_t=8
         _last_ownship_raw=None,   # will be overridden in test
         _last_target_vessel_raw=None,  # will be overridden
         _avoidance_armed_time=avoidance_armed_t,
+        _bridge_release_fallback_enabled=release_fallback_enabled,
         _LATCH_MIN_HOLD_S=8.0,
         _latch_hold_elapsed=lambda: True,  # hold elapsed
         _get_sim_time=lambda: 100.0,
@@ -622,32 +1072,178 @@ def test_geometry_release_blocked_while_m6_conflict_active(monkeypatch):
     )
 
 
-def test_geometry_release_allowed_when_m6_conflict_cleared(monkeypatch):
-    """_check_geometry_release IS allowed when M6 conflict_detected=False.
-
-    M6 cleared the conflict; bridge may now use geometry to decide release.
-    """
+def test_geometry_release_condition_is_trace_only_when_m6_conflict_cleared(monkeypatch):
+    """Old bridge geometry release is trace-only even after M6 clears."""
     bridge = _load_bridge(monkeypatch)
     released = []
+    logs = []
     fake_self = _make_check_geometry_self(bridge, m6_conflict_active=False)
     fake_self._trigger_latch_release = lambda: released.append(True)
-
-    # Two ships approaching head-on then past CPA: own-ship heading N, target heading S,
-    # both moving. After avoidance target has passed abeam (N of own-ship, moving away).
-    # Use direct DCPA/TCPA to verify: set target far astern (N) moving away.
-    fake_self._last_ownship_raw = _make_oss_ns(
-        lat=63.44, lon=10.38, sog_ms=5.14, cog_rad=0.0)  # heading N
-    fake_self._last_target_vessel_raw = _make_tvs_ns(
-        lat=63.60, lon=10.38, sog_ms=5.14, cog_rad=0.0)  # also heading N, far N → moving away
-
-    # Compute expected TCPA to confirm test geometry: relative velocity near zero
-    # (both heading same direction at same speed → TCPA undefined; use different speeds)
-    fake_self._last_target_vessel_raw = _make_tvs_ns(
-        lat=63.60, lon=10.38, sog_ms=7.0, cog_rad=0.0)  # target faster N → diverging
+    fake_self._latch_release_time = None
+    fake_self._latch_offset_at_release_deg = None
+    fake_self._latch_release_progress = 0.0
+    fake_self.get_logger = lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg))
+    fake_self._last_ownship_raw = _make_oss_ns()
+    fake_self._last_target_vessel_raw = _make_tvs_ns()
+    monkeypatch.setattr(
+        bridge.SilTopicBridge,
+        "_compute_dcpa_tcpa",
+        staticmethod(lambda own, target: (bridge.CPA_SAFE_M + 1.0, -1.0)),
+    )
 
     bridge.SilTopicBridge._check_geometry_release(fake_self)
-    # We don't assert release happened (depends on TCPA<0 & DCPA>=1000m geometry)
-    # but it must NOT be blocked solely because M6 cleared. No crash.
+
+    assert released == []
+    assert fake_self._latch_release_triggered is False
+    assert fake_self._latch_release_time is None
+    assert fake_self._latch_offset_at_release_deg is None
+    assert fake_self._latch_release_progress == 0.0
+    assert any("Geometry release candidate (trace-only)" in msg for msg in logs)
+
+
+def test_geometry_release_condition_uses_compat_fallback_when_enabled(monkeypatch):
+    """Legacy geometry release still exists behind an explicit fallback flag."""
+    bridge = _load_bridge(monkeypatch)
+    released = []
+    logs = []
+    fake_self = _make_check_geometry_self(
+        bridge, m6_conflict_active=False, release_fallback_enabled=True)
+    fake_self._trigger_latch_release = lambda: released.append(True)
+    fake_self.get_logger = lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg))
+    fake_self._last_ownship_raw = _make_oss_ns()
+    fake_self._last_target_vessel_raw = _make_tvs_ns()
+    monkeypatch.setattr(
+        bridge.SilTopicBridge,
+        "_compute_dcpa_tcpa",
+        staticmethod(lambda own, target: (bridge.CPA_SAFE_M + 1.0, -1.0)),
+    )
+
+    bridge.SilTopicBridge._check_geometry_release(fake_self)
+
+    assert released == [True]
+    assert any("Geometry release candidate (compat fallback)" in msg for msg in logs)
+
+
+def test_threat_state_release_condition_is_trace_only(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    released = []
+    logs = []
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _m6_conflict_active=False,
+        _bridge_release_fallback_enabled=False,
+        _latch_release_triggered=False,
+        _latch_hold_elapsed=lambda: True,
+        _trigger_latch_release=lambda: released.append(True),
+        _latch_release_time=None,
+        _latch_offset_at_release_deg=None,
+        _latch_release_progress=0.0,
+        get_logger=lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg)),
+    )
+    msg = SimpleNamespace(cpa_status="cleared", target_relative_position="astern")
+
+    bridge.SilTopicBridge._on_threat_state(fake_self, msg)
+
+    assert released == []
+    assert fake_self._latch_release_triggered is False
+    assert fake_self._latch_release_time is None
+    assert fake_self._latch_offset_at_release_deg is None
+    assert fake_self._latch_release_progress == 0.0
+    assert any("condition 1 candidate (trace-only)" in msg for msg in logs)
+
+
+def test_threat_state_release_condition_uses_compat_fallback_when_enabled(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    released = []
+    logs = []
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _m6_conflict_active=False,
+        _bridge_release_fallback_enabled=True,
+        _latch_release_triggered=False,
+        _latch_hold_elapsed=lambda: True,
+        _trigger_latch_release=lambda: released.append(True),
+        get_logger=lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg)),
+    )
+    msg = SimpleNamespace(cpa_status="cleared", target_relative_position="astern")
+
+    bridge.SilTopicBridge._on_threat_state(fake_self, msg)
+
+    assert released == [True]
+    assert any("condition 1 candidate (compat fallback)" in msg for msg in logs)
+
+
+def test_mission_goal_release_condition_is_trace_only(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    released = []
+    logs = []
+    trace_rows = []
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _trace_writer=SimpleNamespace(record=lambda *args: trace_rows.append(args)),
+        _get_sim_time=lambda: 100.0,
+        _m6_conflict_active=False,
+        _bridge_release_fallback_enabled=False,
+        _last_behavior_plan=SimpleNamespace(behavior=0),
+        _latch_release_triggered=False,
+        _latch_hold_elapsed=lambda: True,
+        _trigger_latch_release=lambda: released.append(True),
+        _latch_release_time=None,
+        _latch_offset_at_release_deg=None,
+        _latch_release_progress=0.0,
+        _current_target_wp_lat=0.0,
+        _current_target_wp_lon=0.0,
+        _m3_activated_once=False,
+        get_logger=lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg)),
+    )
+    msg = SimpleNamespace(
+        fsm_state=3,
+        task_validity=1,
+        current_target_wp=SimpleNamespace(latitude=63.5, longitude=10.4),
+    )
+
+    bridge.SilTopicBridge._on_mission_goal(fake_self, msg)
+
+    assert released == []
+    assert fake_self._latch_release_triggered is False
+    assert fake_self._latch_release_time is None
+    assert fake_self._latch_offset_at_release_deg is None
+    assert fake_self._latch_release_progress == 0.0
+    assert trace_rows
+    assert any("condition 2 candidate (trace-only)" in msg for msg in logs)
+
+
+def test_mission_goal_release_condition_uses_compat_fallback_when_enabled(monkeypatch):
+    bridge = _load_bridge(monkeypatch)
+    released = []
+    logs = []
+    trace_rows = []
+    fake_self = SimpleNamespace(
+        _record_pulse=lambda module_id: None,
+        _trace_writer=SimpleNamespace(record=lambda *args: trace_rows.append(args)),
+        _get_sim_time=lambda: 100.0,
+        _m6_conflict_active=False,
+        _bridge_release_fallback_enabled=True,
+        _last_behavior_plan=SimpleNamespace(behavior=0),
+        _latch_release_triggered=False,
+        _latch_hold_elapsed=lambda: True,
+        _trigger_latch_release=lambda: released.append(True),
+        _current_target_wp_lat=0.0,
+        _current_target_wp_lon=0.0,
+        _m3_activated_once=False,
+        get_logger=lambda: SimpleNamespace(info=lambda msg, *a, **k: logs.append(msg)),
+    )
+    msg = SimpleNamespace(
+        fsm_state=3,
+        task_validity=1,
+        current_target_wp=SimpleNamespace(latitude=63.5, longitude=10.4),
+    )
+
+    bridge.SilTopicBridge._on_mission_goal(fake_self, msg)
+
+    assert released == [True]
+    assert trace_rows
+    assert any("condition 2 candidate (compat fallback)" in msg for msg in logs)
 
 
 def test_arm_avoidance_from_m6_arms_when_m4_in_avoid(monkeypatch):
@@ -713,6 +1309,8 @@ def test_on_colregs_constraint_updates_m6_conflict_active(monkeypatch):
     fake_self = SimpleNamespace(
         _m6_conflict_active=False,
         _m6_conflict_last_t=None,
+        _m6_primary_role=None,
+        _m6_phase="",
         _avoidance_active=False,
         _last_behavior_plan=None,
         _record_pulse=lambda module_id: None,
@@ -733,3 +1331,5 @@ def test_on_colregs_constraint_updates_m6_conflict_active(monkeypatch):
 
     assert fake_self._m6_conflict_active is True
     assert fake_self._m6_conflict_last_t == 42.5
+    assert fake_self._m6_primary_role == 1
+    assert fake_self._m6_phase == "GIVE_WAY"

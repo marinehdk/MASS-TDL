@@ -64,6 +64,12 @@ def _m6(sim_t, conflict_detected, primary_role, phase="T_act"):
     }
 
 
+def test_m4_behavior_takes_precedence_over_stale_bridge_avoidance_active():
+    assert ss._is_avoiding({"behavior": 0, "avoidance_active": True}) is False
+    assert ss._is_avoiding({"behavior": 1, "avoidance_active": False}) is True
+    assert ss._is_avoiding({"avoidance_active": True}) is True
+
+
 def _clean_give_way_records():
     """Canonical head-on give-way: arm once, turn starboard 0→60°, hold, return.
 
@@ -134,6 +140,64 @@ def _premature_stand_on_records():
     return recs
 
 
+def _stand_on_independent_action_route_return_records():
+    """Stand-on holds before Rule17 action, then avoids and returns to route."""
+    recs = []
+    for t in range(0, 320, 20):
+        phase = "SOUND_WARNING" if t >= 100 else "PRESERVE_COURSE"
+        recs += [_oss(t, 0.5, 0.0), _m4(t, 0), _m5(t, "EMPTY"),
+                 _m6(t, False, 0, phase=phase)]
+    for t, h, rot, phase in [
+        (340, 12.0, 1.2, "INDEPENDENT_ACTION"),
+        (390, 55.0, 1.8, "INDEPENDENT_ACTION"),
+        (450, 35.0, -1.2, "INDEPENDENT_ACTION"),
+        (610, 65.0, 1.4, "CRITICAL_ACTION"),
+        (690, 55.0, -1.3, "PRESERVE_COURSE"),
+        (850, 300.0, -1.5, "PRESERVE_COURSE"),
+        (1000, 355.0, 1.4, "PRESERVE_COURSE"),
+    ]:
+        behavior = 1 if t < 690 else 0
+        solver = "VALID" if behavior else "EMPTY"
+        conflict = t < 690
+        role = 0 if conflict else 3
+        recs += [_oss(t, h, rot), _m4(t, behavior), _m5(t, solver),
+                 _m6(t, conflict, role, phase=phase)]
+    return recs
+
+
+def _long_give_way_with_route_return_records():
+    """Give-way avoidance followed by a long route-return turn.
+
+    The COLREG maneuver is a clean starboard alteration. After M4 releases
+    avoidance, the ship turns port to reacquire the route line. That recovery
+    turn must not make the COLREG turn-direction check fail.
+    """
+    recs = []
+    for t in range(0, 10, 2):
+        recs += [_oss(t, 0.0, 0.0), _m4(t, 0), _m5(t, "EMPTY"),
+                 _m6(t, False, 3)]
+    for t, h in [(10, 8.0), (20, 28.0), (30, 48.0), (40, 55.0)]:
+        recs += [_oss(t, h, 2.5), _m4(t, 1), _m5(t, "VALID"),
+                 _m6(t, True, 2)]
+    for t in range(50, 100, 10):
+        recs += [_oss(t, 55.0, 0.02), _m4(t, 1), _m5(t, "VALID"),
+                 _m6(t, True, 2)]
+    recs += [_oss(110, 50.0, -1.5), _m4(110, 0), _m5(110, "EMPTY"),
+             _m6(110, False, 3)]
+    for t, h, rot in [(250, 15.0, -1.0), (400, 350.0, 1.0),
+                      (700, 320.0, -1.0), (1000, 300.0, 1.0),
+                      (1200, 0.0, -1.0)]:
+        recs += [_oss(t, h, rot), _m4(t, 0), _m5(t, "EMPTY"),
+                 _m6(t, False, 3)]
+    # Late M6 chatter after the avoidance release should not affect the
+    # avoidance-window conflict stability check.
+    recs += [_oss(500, 340.0, -0.5), _m4(500, 0), _m5(500, "EMPTY"),
+             _m6(500, True, 2)]
+    recs += [_oss(540, 335.0, -0.5), _m4(540, 0), _m5(540, "EMPTY"),
+             _m6(540, False, 3)]
+    return recs
+
+
 # ── Tests ────────────────────────────────────────────────────────────────
 
 class TestCleanGiveWay:
@@ -145,6 +209,32 @@ class TestCleanGiveWay:
         assert rep["kpis"]["plan_valid_segments"] == 1
         assert rep["kpis"]["conflict_toggles"] == 2
         assert rep["kpis"]["role_onset_changes"] == 0
+
+    def test_small_hold_trim_dither_does_not_count_as_steering_reversal(self):
+        recs = _clean_give_way_records()
+        sign = 1.0
+        for r in recs:
+            if (r["topic"] == "/sil/own_ship_state" and
+                    31 <= r["sim_t"] <= 96):
+                r["rot_deg_s"] = sign * 0.3
+                sign *= -1.0
+
+        rep = ss.analyze_stability(
+            recs, role="give_way", init_heading_deg=0.0)
+
+        assert rep["checks"]["steering_reversals"]["pass"] is True
+        assert rep["stability_pass"] is True, rep["checks"]
+
+    def test_short_conflict_gap_does_not_count_as_toggle(self):
+        recs = _clean_give_way_records()
+        recs += [_m6(64.0, False, 3), _m6(64.5, True, 2)]
+
+        rep = ss.analyze_stability(
+            recs, role="give_way", init_heading_deg=0.0)
+
+        assert rep["kpis"]["conflict_toggles"] == 2
+        assert rep["checks"]["conflict_toggles"]["pass"] is True
+        assert rep["stability_pass"] is True, rep["checks"]
 
 
 class TestFishtailGiveWay:
@@ -177,6 +267,15 @@ class TestStandOn:
         assert rep["checks"]["premature_giveway"]["applicable"] is True
         assert rep["checks"]["premature_giveway"]["pass"] is False
 
+    def test_independent_action_and_route_return_are_not_premature_giveway(self):
+        rep = ss.analyze_stability(
+            _stand_on_independent_action_route_return_records(),
+            role="stand_on",
+            init_heading_deg=0.0,
+        )
+        assert rep["kpis"]["premature_giveway_deg"] < 10.0
+        assert rep["checks"]["premature_giveway"]["pass"] is True
+
 
 class TestDirection:
     def test_give_way_turning_port_fails(self):
@@ -190,6 +289,14 @@ class TestDirection:
         rep = ss.analyze_stability(recs, role="give_way", init_heading_deg=0.0)
         assert rep["checks"]["turn_starboard"]["pass"] is False
         assert rep["stability_pass"] is False
+
+    def test_route_return_port_turn_after_release_does_not_fail_starboard_check(self):
+        recs = _long_give_way_with_route_return_records()
+        rep = ss.analyze_stability(recs, role="give_way", init_heading_deg=0.0)
+        assert rep["checks"]["turn_starboard"]["pass"] is True
+        assert rep["checks"]["conflict_toggles"]["pass"] is True
+        assert rep["checks"]["steering_reversals"]["pass"] is True
+        assert rep["stability_pass"] is True, rep["checks"]
 
 
 class TestM6Optional:

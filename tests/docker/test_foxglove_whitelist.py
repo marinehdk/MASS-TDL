@@ -12,8 +12,11 @@ REQUIRED_FRONTEND_TOPICS = {
 
 def _topic_whitelists(path: Path) -> list[set[str]]:
     text = path.read_text(encoding="utf-8")
-    matches = re.findall(r'topic_whitelist:=\"\[([^\]]*)\]\"', text)
-    return [{topic.strip() for topic in match.split(",") if topic.strip()} for match in matches]
+    matches = re.findall(r'topic_whitelist:="\[([^\]]*)\]"', text)
+    return [
+        {topic.strip() for topic in match.split(",") if topic.strip()}
+        for match in matches
+    ]
 
 
 def test_foxglove_whitelist_exports_frontend_route_topics():

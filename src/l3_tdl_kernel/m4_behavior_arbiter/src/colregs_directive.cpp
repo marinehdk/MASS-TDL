@@ -9,6 +9,8 @@ namespace {
 
 constexpr double kRadToDeg = 180.0 / 3.141592653589793238462643383279502884;
 constexpr double kHeadingUpperBoundDeg = 360.0;
+constexpr std::uint8_t kRoleStandOn = 0U;
+constexpr double kStandOnActionMaxDeviationDeg = 60.0;
 
 std::vector<std::pair<double, double>> split_linear_range(double start_deg, double end_deg) {
   const double first = wrap_heading_deg(start_deg);
@@ -17,6 +19,11 @@ std::vector<std::pair<double, double>> split_linear_range(double start_deg, doub
     return {{first, second}};
   }
   return {{first, kHeadingUpperBoundDeg}, {0.0, second}};
+}
+
+bool is_stand_on_action(const ColregsDirective& directive) {
+  return directive.primary_role == kRoleStandOn &&
+      (directive.phase == "INDEPENDENT_ACTION" || directive.phase == "CRITICAL_ACTION");
 }
 
 }  // namespace
@@ -45,6 +52,11 @@ ColregsDirection parse_colregs_direction(const std::string& direction) {
 ColregsDirective extract_colregs_directive(const l3_msgs::msg::COLREGsConstraint& msg) {
   ColregsDirective out;
   out.conflict_active = msg.conflict_detected;
+  out.primary_role = msg.primary_role;
+  out.phase = msg.phase;
+  out.rule15_active = std::any_of(
+      msg.active_rules.begin(), msg.active_rules.end(),
+      [](const auto& rule) { return rule.rule_id == 15U; });
   if (!out.conflict_active) {
     return out;
   }
@@ -78,6 +90,23 @@ double required_deviation_deg(
     required = max_deviation_deg;
   }
   return std::min(max_deviation_deg, required);
+}
+
+double effective_colregs_max_deviation_deg(
+    const ColregsDirective& directive,
+    bool has_quartering_target,
+    double bow_max_deviation_deg,
+    double quartering_max_deviation_deg) {
+  if (directive.direction != ColregsDirection::Starboard &&
+      directive.direction != ColregsDirection::Port) {
+    return 0.0;
+  }
+  if (is_stand_on_action(directive)) {
+    return std::max(kStandOnActionMaxDeviationDeg, directive.min_alteration_deg);
+  }
+  const double base_cap =
+      has_quartering_target ? quartering_max_deviation_deg : bow_max_deviation_deg;
+  return std::max(base_cap, directive.min_alteration_deg);
 }
 
 double signed_deviation_deg(

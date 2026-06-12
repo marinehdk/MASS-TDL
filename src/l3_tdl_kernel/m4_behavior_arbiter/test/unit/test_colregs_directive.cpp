@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <string>
 
 #include "m4_behavior_arbiter/colregs_directive.hpp"
@@ -7,9 +8,19 @@
 namespace mass_l3::m4 {
 namespace {
 
-l3_msgs::msg::COLREGsConstraint make_msg(const std::string& direction, double min_deg) {
+constexpr std::uint8_t kRoleGiveWay = 1U;
+constexpr std::uint8_t kRoleStandOn = 0U;
+
+l3_msgs::msg::COLREGsConstraint make_msg(
+    const std::string& direction,
+    double min_deg,
+    std::uint8_t primary_role = kRoleGiveWay,
+    const std::string& phase = "PRESERVE_COURSE") {
   l3_msgs::msg::COLREGsConstraint msg;
+  msg.schema_version = 114U;
   msg.conflict_detected = true;
+  msg.phase = phase;
+  msg.primary_role = primary_role;
   msg.primary_preferred_direction = direction;
   l3_msgs::msg::Constraint c;
   c.constraint_type = "colregs";
@@ -82,6 +93,31 @@ TEST(ColregsDirective, StarboardKeepsDirectRangeWhenBothEndpointsWrap) {
   ASSERT_EQ(ranges.size(), 1u);
   EXPECT_DOUBLE_EQ(ranges[0].first, 20.0);
   EXPECT_DOUBLE_EQ(ranges[0].second, 50.0);
+}
+
+TEST(ColregsDirective, NonQuarteringBowCapsDeviationAtSeventyFiveDegrees) {
+  const auto directive = extract_colregs_directive(make_msg("STARBOARD", 30.0));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, false), 75.0);
+}
+
+TEST(ColregsDirective, QuarteringPreservesWideDeviationEnvelope) {
+  const auto directive = extract_colregs_directive(make_msg("STARBOARD", 30.0));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 150.0);
+}
+
+TEST(ColregsDirective, ExplicitHighMinimumAlterationOverridesBowCap) {
+  const auto directive = extract_colregs_directive(make_msg("STARBOARD", 95.0));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, false), 95.0);
+}
+
+TEST(ColregsDirective, StandOnIndependentActionDoesNotUseQuarteringWideEnvelope) {
+  const auto directive = extract_colregs_directive(
+      make_msg("STARBOARD", 15.0, kRoleStandOn, "INDEPENDENT_ACTION"));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 60.0);
 }
 
 TEST(ColregsDirective, ReduceSpeedAndHoldDoNotCreateHeadingWindow) {

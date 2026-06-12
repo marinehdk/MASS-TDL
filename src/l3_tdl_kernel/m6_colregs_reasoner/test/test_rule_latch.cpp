@@ -26,11 +26,66 @@ TEST(RuleLatch, DoesNotReleaseOnCpaOpeningWithoutPastAndClear) {
   EXPECT_TRUE(latch.update(false, 5000.0, false, false));
 }
 
-TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWithoutPastAndClear) {
+TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWhileStillClosing) {
   RuleLatch latch{1852.0, 1.5};
   EXPECT_TRUE(latch.update(true, 900.0, true, false));
-  EXPECT_TRUE(latch.update(false, 2000.0, false, false, nullptr,
+  EXPECT_TRUE(latch.update(false, 2000.0, true, false, nullptr,
                            /*cpa_projection_past_and_safe=*/true));
+}
+
+TEST(RuleLatch, ReleasesWhenCpaProjectionPastAndSafeWhileOpening) {
+  RuleLatch latch{1852.0, 1.5};
+  EXPECT_TRUE(latch.update(true, 900.0, true, false));
+  EXPECT_FALSE(latch.update(false, 2000.0, false, false, nullptr,
+                            /*cpa_projection_past_and_safe=*/true));
+  EXPECT_FALSE(latch.latched());
+}
+
+TEST(RuleLatch, CanHoldStandOnLatchThroughProjectionUntilPastAndClear) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::STAND_ON;
+
+  EXPECT_TRUE(latch.update(true, 900.0, true, false, &onset));
+  EXPECT_TRUE(latch.update(false, 2000.0, false, false, nullptr,
+                           /*cpa_projection_past_and_safe=*/true,
+                           /*allow_projection_release=*/false));
+  EXPECT_TRUE(latch.latched());
+  EXPECT_TRUE(latch.has_onset());
+  EXPECT_EQ(latch.onset_role(), Role::STAND_ON);
+  EXPECT_FALSE(latch.update(false, 2000.0, false, true, nullptr,
+                            /*cpa_projection_past_and_safe=*/true,
+                            /*allow_projection_release=*/false));
+  EXPECT_FALSE(latch.latched());
+}
+
+TEST(RuleLatch, ReportsReleaseAfterProjectionPastAndSafe) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::GIVE_WAY;
+  onset.encounter_type = EncounterType::OVERTAKING;
+  onset.preferred_direction = "STARBOARD";
+
+  EXPECT_FALSE(latch.released());
+  EXPECT_TRUE(latch.update(true, 900.0, true, false, &onset));
+  EXPECT_FALSE(latch.released());
+  EXPECT_FALSE(latch.update(false, 2000.0, false, false, nullptr,
+                            /*cpa_projection_past_and_safe=*/true));
+  EXPECT_TRUE(latch.released());
+}
+
+TEST(RuleLatch, ReportsOnsetRoleForProjectionPolicy) {
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation onset{};
+  onset.is_active = true;
+  onset.role = Role::STAND_ON;
+  onset.encounter_type = EncounterType::CROSSING;
+
+  EXPECT_TRUE(latch.update(true, 900.0, true, false, &onset));
+  EXPECT_TRUE(latch.has_onset());
+  EXPECT_EQ(latch.onset_role(), Role::STAND_ON);
 }
 
 TEST(RuleLatch, NeverLatchesIfNeverOnset) {

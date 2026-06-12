@@ -129,6 +129,59 @@ TEST(GeometricFallback, UsesCircularDistanceForZeroMinAlterationInWrappedWindow)
   EXPECT_NEAR(min_alt, 9.0 * M_PI / 180.0, 1e-3);
 }
 
+TEST(GeometricFallback, TrajectoryMustReachColregsTargetHeading) {
+  std::vector<TrajectoryPoint> under_altered;
+  for (int i = 0; i < 4; ++i) {
+    TrajectoryPoint pt;
+    pt.psi_rad = 35.0 * M_PI / 180.0;
+    under_altered.push_back(pt);
+  }
+
+  std::vector<TrajectoryPoint> reaches_target = under_altered;
+  reaches_target.back().psi_rad = 58.0 * M_PI / 180.0;
+
+  const double target = 60.0 * M_PI / 180.0;
+  const double tol = 5.0 * M_PI / 180.0;
+
+  EXPECT_FALSE(trajectory_reaches_heading(under_altered, target, tol));
+  EXPECT_TRUE(trajectory_reaches_heading(reaches_target, target, tol));
+}
+
+TEST(GeometricFallback, ZeroMinAlterationStillRequiresM4WindowTarget) {
+  std::vector<TrajectoryPoint> under_altered;
+  for (int i = 0; i < 4; ++i) {
+    TrajectoryPoint pt;
+    pt.psi_rad = 32.0 * M_PI / 180.0;
+    under_altered.push_back(pt);
+  }
+
+  std::vector<TrajectoryPoint> reaches_target = under_altered;
+  reaches_target.back().psi_rad = 58.0 * M_PI / 180.0;
+
+  const double route_brg = 0.0;
+  const double h_min = 0.0;
+  const double h_max = 60.0 * M_PI / 180.0;
+  const double zero_min_alt = 0.0;
+  const double tol = 5.0 * M_PI / 180.0;
+
+  EXPECT_FALSE(trajectory_reaches_colregs_target(
+      under_altered,
+      route_brg,
+      h_min,
+      h_max,
+      zero_min_alt,
+      ColregsPreferredDirection::Starboard,
+      tol));
+  EXPECT_TRUE(trajectory_reaches_colregs_target(
+      reaches_target,
+      route_brg,
+      h_min,
+      h_max,
+      zero_min_alt,
+      ColregsPreferredDirection::Starboard,
+      tol));
+}
+
 TEST(GeometricFallback, DetectsM4GeometricFallbackRationale) {
   EXPECT_TRUE(is_m4_fallback_rationale(
       "IvP infeasible - geometric fallback ABSOLUTE"));

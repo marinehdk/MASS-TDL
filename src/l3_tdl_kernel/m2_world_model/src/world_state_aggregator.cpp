@@ -357,6 +357,33 @@ WorldStateAggregator::compose_world_state(
     world_targets.push_back(std::move(wt));
   }
 
+  std::stable_sort(world_targets.begin(), world_targets.end(),
+      [](const l3_msgs::msg::TrackedTarget& lhs,
+         const l3_msgs::msg::TrackedTarget& rhs) {
+        const auto cpa_key = [](double cpa_m) {
+          return (std::isfinite(cpa_m) && cpa_m >= 0.0)
+              ? cpa_m : std::numeric_limits<double>::infinity();
+        };
+        const auto tcpa_key = [](double tcpa_s) {
+          return (std::isfinite(tcpa_s) && tcpa_s >= 0.0)
+              ? tcpa_s : std::numeric_limits<double>::infinity();
+        };
+
+        const double lhs_cpa = cpa_key(lhs.cpa_m);
+        const double rhs_cpa = cpa_key(rhs.cpa_m);
+        if (std::abs(lhs_cpa - rhs_cpa) > 1e-6) {
+          return lhs_cpa < rhs_cpa;
+        }
+
+        const double lhs_tcpa = tcpa_key(lhs.tcpa_s);
+        const double rhs_tcpa = tcpa_key(rhs.tcpa_s);
+        if (std::abs(lhs_tcpa - rhs_tcpa) > 1e-6) {
+          return lhs_tcpa < rhs_tcpa;
+        }
+
+        return lhs.target_id < rhs.target_id;
+      });
+
   // 5. Build OwnShipState from snapshot
   l3_msgs::msg::OwnShipState os_msg;
   os_msg.stamp = now;

@@ -104,6 +104,9 @@ RUDDER_SIGN = -1  # MMG convention: positive delta → PORT turn; bridge uses po
 # Transitional Bridge cap for rolling M4 windows. Boundary probes need >135 deg
 # separation until L4 owns heading tracking and route-return authority.
 M4_AVOID_TARGET_LOCK_DELTA_DEG = 150.0
+M5_AVOID_WAYPOINT_MAX_DELTA_DEG = 170.0
+M5_AVOID_WAYPOINT_MIN_LOOKAHEAD_M = 25.0
+M5_AVOID_WAYPOINT_TARGET_TOLERANCE_DEG = 10.0
 
 # ── Geometry release threshold ─────────────────────────────────────────────
 # Bridge-local CPA safety margin for geometry release criterion.
@@ -363,6 +366,24 @@ class SilTopicBridge(Node):
     def __init__(self) -> None:
         super().__init__("sil_topic_bridge")
         self.get_logger().info("[sil_topic_bridge] Bridge active")
+        release_fallback_raw = os.environ.get(
+            "SIL_BRIDGE_RELEASE_FALLBACK", "0").strip().lower()
+        self._bridge_release_fallback_enabled = (
+            release_fallback_raw not in {"0", "false", "off", "no"}
+        )
+        l4_adapter_raw = os.environ.get(
+            "SIL_L4_ADAPTER_ENABLE", "0").strip().lower()
+        self._l4_adapter_enabled = (
+            l4_adapter_raw in {"1", "true", "on", "yes"}
+        )
+        if self._bridge_release_fallback_enabled:
+            self.get_logger().warn(
+                "[BRIDGE] SIL_BRIDGE_RELEASE_FALLBACK=1: legacy latch-release "
+                "compatibility path enabled until M4/L4 handback owns route return")
+        if self._l4_adapter_enabled:
+            self.get_logger().warn(
+                "[BRIDGE] SIL_L4_ADAPTER_ENABLE=1: bridge actuator publisher "
+                "disabled; L4 guidance adapter owns /sil/actuator_cmd")
 
         sq = _sensor_qos()
         lq = _latched_qos()
@@ -372,6 +393,7 @@ class SilTopicBridge(Node):
         self._autopilot_enabled = False
         self._last_valid_plan_time = None
         self._last_avoidance_waypoint = None
+        self._last_avoidance_waypoints = []
         self._last_odd_state = None
         self._last_behavior_plan = None
         self._last_ownship_raw = None
@@ -428,8 +450,10 @@ class SilTopicBridge(Node):
         self._sub_plan = self.create_subscription(
             AvoidancePlan, "/l3/m5/avoidance_plan",
             self._on_avoidance_plan, sq)
-        self._pub_act = self.create_publisher(
-            SilOwnShipState, "/sil/actuator_cmd", sq)
+        self._pub_act = None
+        if not self._l4_adapter_enabled:
+            self._pub_act = self.create_publisher(
+                SilOwnShipState, "/sil/actuator_cmd", sq)
 
         # 5. ASDRRecord → ASDREvent
         self._sub_asdr = self.create_subscription(
@@ -498,19 +522,22 @@ class SilTopicBridge(Node):
         self._m3_activated_once: bool = False
 
         # ── M6 conflict authority (ADR-1) ────────────────────────────────────
-        # M6 COLREGsConstraint.conflict_detected is the SOLE authority for
-        # avoidance arm/release. The bridge must NEVER independently decide
-        # "is the conflict over" — that is M6's exclusive jurisdiction.
+        # M6 COLREGsConstraint.conflict_detected is the hard gate for avoidance
+        # arm/release. The bridge must not release while M6 still reports an
+        # active conflict.
         #
         # Root cause of ot toggles=126 (fbe100c4): _check_geometry_release() was
         # firing every ~6s while M6 held conflict stable, because own-ship
         # avoidance maneuver pushed the target past CPA (TCPA<0 && DCPA≥1000m).
         # Bridge was overriding M6 authority in violation of ADR-1.
         #
-        # All 3 bridge release paths (geometry / threat / mission) are now gated
-        # on _m6_conflict_active=False. Only arm/release when M6 agrees.
+        # All 3 bridge release paths (geometry / threat / mission) are gated on
+        # _m6_conflict_active=False. Their latch mutation is a temporary
+        # compatibility fallback controlled by SIL_BRIDGE_RELEASE_FALLBACK.
         self._m6_conflict_active: bool = False
         self._m6_conflict_last_t: float | None = None
+        self._m6_primary_role: int | None = None
+        self._m6_phase: str = ""
 
         # ── Last target vessel state (for bridge-local DCPA/TCPA) ─────────────
         self._last_target_vessel_raw = None
@@ -587,6 +614,7 @@ class SilTopicBridge(Node):
         self._avoidance_active = False
         self._avoidance_target_heading_deg = None
         self._last_avoidance_waypoint = None
+        self._last_avoidance_waypoints = []
         self._avoidance_heading_controller.last_cmd_deg = 0.0
         self._heading_controller.last_cmd_deg = 0.0
         self._speed_controller = SpeedController()
@@ -605,6 +633,8 @@ class SilTopicBridge(Node):
         self._last_target_vessel_raw = None
         self._m6_conflict_active = False
         self._m6_conflict_last_t = None
+        self._m6_primary_role = None
+        self._m6_phase = ""
 
     def _on_lifecycle_status(self, msg: LifecycleStatus) -> None:
         """Reset state if simulation is not ACTIVE."""
@@ -665,9 +695,10 @@ class SilTopicBridge(Node):
     def _on_colregs_constraint(self, msg: COLREGsConstraint) -> None:
         """Record M6 health pulse AND update conflict authority state (ADR-1).
 
-        _m6_conflict_active is the ONLY avoidance arm/release authority.
-        The bridge defers to M6 — it never independently decides 'is conflict over'.
-        All 3 release paths (geometry / threat / mission) are gated on this flag.
+        _m6_conflict_active mirrors M6 avoidance authority for trace and arm guard.
+        The bridge defers to M6/M4 as the hard conflict gate. Legacy geometry /
+        threat / mission release remains a temporary compatibility fallback while
+        M4/L4 handback is not yet proven in clean 8-probe.
 
         primary_role enum: 0=STAND_ON 1=GIVE_WAY 2=BOTH_GIVE_WAY 3=FREE.
         """
@@ -675,6 +706,8 @@ class SilTopicBridge(Node):
         t_now = self._get_sim_time()
         self._m6_conflict_active = bool(msg.conflict_detected)
         self._m6_conflict_last_t = t_now
+        self._m6_primary_role = int(msg.primary_role)
+        self._m6_phase = str(msg.phase)
         # [ADR-1] ARM avoidance when M6 detects conflict + M4 is in AVOID mode.
         if self._m6_conflict_active and not self._avoidance_active:
             self._arm_avoidance_from_m6()
@@ -745,8 +778,21 @@ class SilTopicBridge(Node):
             nominal_heading = getattr(self, '_target_heading_deg', 0.0)
             candidate = _m4_colregs_window_target_deg(
                 msg.heading_min_deg, msg.heading_max_deg, nominal_heading)
-            if candidate is not None and _should_refresh_m4_colregs_target(
-                    self._avoidance_target_heading_deg, nominal_heading, candidate):
+            should_refresh = (
+                candidate is not None and
+                _should_refresh_m4_colregs_target(
+                    self._avoidance_target_heading_deg, nominal_heading, candidate)
+            )
+            if (should_refresh and
+                    getattr(self, "_m6_conflict_active", False) and
+                    self._avoidance_target_heading_deg is not None):
+                current_delta = _signed_heading_delta_deg(
+                    self._avoidance_target_heading_deg, nominal_heading)
+                candidate_delta = _signed_heading_delta_deg(candidate, nominal_heading)
+                same_side = current_delta * candidate_delta > 0.0
+                if same_side and abs(candidate_delta) < abs(current_delta):
+                    should_refresh = False
+            if should_refresh:
                 self._avoidance_target_heading_deg = candidate
             # else: degenerate (≈full circle) window — keep the last good target
             # (or None → _compute_avoidance_autopilot falls back to M5 waypoint
@@ -922,16 +968,12 @@ class SilTopicBridge(Node):
         return (dcpa_m, tcpa_s)
 
     def _check_geometry_release(self) -> None:
-        """Evaluate geometry-based release: fire _trigger_latch_release() when
-        TCPA < 0 (target has passed CPA) AND DCPA ≥ CPA_SAFE_M (clear margin).
+        """Detect old geometry release candidates.
 
-        Called every autopilot step (2 Hz) while _avoidance_active and not yet
-        released. The minimum-hold debounce (_latch_hold_elapsed) prevents
-        instant-release on a cold start where the geometry may be ambiguous.
-
-        G3/G4: this replaces the fixed 5 s timer as the primary release trigger.
-        The 5 s linear decay in _compute_latch_offset is kept ONLY as post-trigger
-        rudder smoothing, not as a release mechanism.
+        Called every autopilot step (2 Hz) while _avoidance_active and before
+        any legacy release smoothing is active. The minimum-hold debounce keeps
+        cold-start ambiguous geometry out of the trace. M6 remains the hard gate;
+        latch mutation is a removable compatibility fallback.
         """
         if not self._avoidance_active:
             return
@@ -939,12 +981,8 @@ class SilTopicBridge(Node):
             return
         if not self._latch_hold_elapsed():
             return
-        # [ADR-1] Defer to M6 conflict authority: if M6 still sees a conflict,
-        # geometry-based release is suppressed. Only release when M6 clears.
-        # This prevents the bridge from overriding M6's "still in conflict" judgment
-        # during the own-ship avoidance maneuver (which transiently makes TCPA<0).
-        # Root cause of ot toggles=126: bridge was firing geometry release every ~6s
-        # while M6 held conflict stable, overriding ADR-1.
+        # [ADR-1] Defer to M6/M4 authority. While M6 still sees a conflict,
+        # suppress even the trace candidate.
         if self._m6_conflict_active:
             return
         if self._last_ownship_raw is None or self._last_target_vessel_raw is None:
@@ -955,35 +993,45 @@ class SilTopicBridge(Node):
         )
 
         if tcpa_s < 0 and dcpa_m >= CPA_SAFE_M:
-            self.get_logger().info(
-                f"[BRIDGE] Geometry release: TCPA={tcpa_s:.1f}s < 0, "
-                f"DCPA={dcpa_m:.0f}m >= {CPA_SAFE_M:.0f}m, M6 conflict cleared. "
-                "Triggering latch release."
-            )
-            self._trigger_latch_release()
+            if getattr(self, "_bridge_release_fallback_enabled", True):
+                self.get_logger().info(
+                    f"[BRIDGE] Geometry release candidate (compat fallback): "
+                    f"TCPA={tcpa_s:.1f}s < 0, DCPA={dcpa_m:.0f}m >= "
+                    f"{CPA_SAFE_M:.0f}m, M6 conflict cleared")
+                self._trigger_latch_release()
+            else:
+                self.get_logger().info(
+                    f"[BRIDGE] Geometry release candidate (trace-only): "
+                    f"TCPA={tcpa_s:.1f}s < 0, DCPA={dcpa_m:.0f}m >= "
+                    f"{CPA_SAFE_M:.0f}m, M6 conflict cleared. "
+                    "Release authority stays with M6/M4.")
 
     def _on_threat_state(self, msg: ThreatState) -> None:
-        """M2 threat state callback — check CPA-cleared release condition.
+        """M2 threat state callback — handle old CPA-cleared release candidate.
 
-        [ADR-1] Guard: only release if M6 also confirms conflict is cleared
-        (_m6_conflict_active=False). M2 ThreatState fields cpa_status /
-        target_relative_position are interim measures; [TBD-HAZID] M2 should
-        publish numeric cpa_m/tcpa_s to unify with M6 past-and-clear logic.
+        M6 remains the hard gate; latch mutation is a removable compatibility
+        fallback.
         """
         self._record_pulse(M2)
-        # Condition 1: cpa_status == cleared && target astern
-        # [ADR-1] Also require M6 conflict cleared (m6_conflict_active=False)
+        # Old condition 1 candidate: cpa_status == cleared && target astern.
         if (not self._m6_conflict_active and
             hasattr(msg, 'cpa_status') and msg.cpa_status == "cleared" and
             hasattr(msg, 'target_relative_position') and msg.target_relative_position == "astern" and
             not self._latch_release_triggered and
             self._latch_hold_elapsed()):
-            self.get_logger().info(
-                "[BRIDGE] LATCH release condition 1: CPA cleared, target astern, M6 conflict cleared")
-            self._trigger_latch_release()
+            if getattr(self, "_bridge_release_fallback_enabled", True):
+                self.get_logger().info(
+                    "[BRIDGE] LATCH release condition 1 candidate "
+                    "(compat fallback): CPA cleared, target astern, "
+                    "M6 conflict cleared")
+                self._trigger_latch_release()
+            else:
+                self.get_logger().info(
+                    "[BRIDGE] LATCH release condition 1 candidate (trace-only): "
+                    "CPA cleared, target astern, M6 conflict cleared")
 
     def _on_mission_goal(self, msg: MissionGoal) -> None:
-        """M3 mission goal callback — check task_validity + behavior release condition."""
+        """M3 mission goal callback — handle old task/behavior release candidate."""
         self._record_pulse(M3)
         self._trace_writer.record("/l3/m3/mission_goal", {
             "fsm_state": int(msg.fsm_state),
@@ -1012,10 +1060,10 @@ class SilTopicBridge(Node):
             self._current_target_wp_lat = float(msg.current_target_wp.latitude)
             self._current_target_wp_lon = float(msg.current_target_wp.longitude)
 
-        # Condition 2: task_validity == valid && behavior == TRANSIT
-        # [ADR-1] Guard: only release after LATCH_MIN_HOLD_S AND M6 conflict cleared.
-        # Prevents releasing while M6 still reports conflict_detected=True (which would
-        # let M4 TRANSIT + mission completion override M6 authority).
+        # Old condition 2 candidate: task_validity == valid && behavior == TRANSIT.
+        # Handle it only after LATCH_MIN_HOLD_S and M6 conflict cleared. Latch
+        # mutation is a temporary compatibility fallback until M4/L4 handback owns
+        # route return.
         task_valid = hasattr(msg, 'task_validity') and msg.task_validity in (1, "valid")
         behavior_transit = (
             self._last_behavior_plan is not None and
@@ -1025,9 +1073,16 @@ class SilTopicBridge(Node):
                 task_valid and behavior_transit and
                 not self._latch_release_triggered and
                 self._latch_hold_elapsed()):
-            self.get_logger().info(
-                "[BRIDGE] LATCH release condition 2: task_valid + TRANSIT + M6 conflict cleared")
-            self._trigger_latch_release()
+            if getattr(self, "_bridge_release_fallback_enabled", True):
+                self.get_logger().info(
+                    "[BRIDGE] LATCH release condition 2 candidate "
+                    "(compat fallback): task_valid + TRANSIT + "
+                    "M6 conflict cleared")
+                self._trigger_latch_release()
+            else:
+                self.get_logger().info(
+                    "[BRIDGE] LATCH release condition 2 candidate (trace-only): "
+                    "task_valid + TRANSIT + M6 conflict cleared")
 
     def _trigger_latch_release(self) -> None:
         """Snapshot current LATCH offset and start 5s linear decay."""
@@ -1129,11 +1184,18 @@ class SilTopicBridge(Node):
                 f"[BRIDGE-DIAG] Received avoidance plan: n_waypoints={len(msg.waypoints)}"
             )
         _wp0 = msg.waypoints[0] if msg.waypoints else None
+        _wp1 = msg.waypoints[1] if len(msg.waypoints) > 1 else None
+        _wp0_pos = getattr(_wp0, "position", None) if _wp0 else None
+        _wp1_pos = getattr(_wp1, "position", None) if _wp1 else None
         self._trace_writer.record("/l3/m5/avoidance_plan", {
             "n_waypoints": len(msg.waypoints),
             "solver_status": "VALID" if (_wp0 and abs(_wp0.turn_radius_m) > 1e-6) else "EMPTY",
             "wp0_turn_radius_m": float(_wp0.turn_radius_m) if _wp0 else 0.0,
             "wp0_target_speed_kn": float(_wp0.target_speed_kn) if _wp0 else 0.0,
+            "wp0_lat": float(_wp0_pos.latitude) if _wp0_pos else 0.0,
+            "wp0_lon": float(_wp0_pos.longitude) if _wp0_pos else 0.0,
+            "wp1_lat": float(_wp1_pos.latitude) if _wp1_pos else 0.0,
+            "wp1_lon": float(_wp1_pos.longitude) if _wp1_pos else 0.0,
         }, self._get_sim_time())
 
         has_valid_plan = (
@@ -1143,6 +1205,7 @@ class SilTopicBridge(Node):
         if has_valid_plan:
             self._last_valid_plan_time = self._get_sim_time()
             self._last_avoidance_waypoint = msg.waypoints[0]
+            self._last_avoidance_waypoints = list(msg.waypoints)
 
         if not has_valid_plan and getattr(self, "_m6_conflict_active", False):
             if self._avoidance_active:
@@ -1169,18 +1232,16 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
         elif has_valid_plan:
             if not self._avoidance_active:
-                # DECOUPLE (D-DEMO1 bridge dead-stick fix): avoidance arming must
-                # NOT depend on M3 reaching FSM_ACTIVE.  M3 can sit in AwaitingRoute
-                # (fsm_state=1, current_target_wp=(0,0)) indefinitely when no route
-                # is delivered (K1 keystone); the previous `_m3_activated_once`
-                # guard then suppressed ALL avoidance arming, leaving a dead-stick
-                # despite a correct M4 decision and a valid M5 plan.  Collision
-                # avoidance is a safety reflex — gate it only on a valid M5 plan.
-                #
-                # G1 continuous tracking makes the old sim_t stabilisation guard
-                # unnecessary: even if we arm early (before M4 has fully converged),
-                # _on_behavior_plan will refresh _avoidance_target_heading_deg every
-                # message.  The rudder rate limit (10°/s) provides natural smoothing.
+                m4_allows_avoidance = (
+                    self._last_behavior_plan is not None and
+                    self._last_behavior_plan.behavior != 0)
+                if not m4_allows_avoidance:
+                    self.get_logger().info(
+                        "[BRIDGE] Valid M5 plan cached; waiting for M4 AVOID before arming")
+                    return
+                # Collision avoidance is a safety reflex once M4 has selected
+                # an avoidance behavior. Do not let stale M5 plans re-arm while
+                # M4 has already returned to TRANSIT.
                 sim_t_now = self._get_sim_time()
                 if sim_t_now < 5.0:
                     # Very early arm (< 5 sim-s) — M4 may not yet have received
@@ -1260,6 +1321,8 @@ class SilTopicBridge(Node):
 
     def _autopilot_step(self) -> None:
         self._publish_bridge_state()
+        if self._l4_adapter_enabled:
+            return
         if self._avoidance_active:
             now = self._get_sim_time()
             # G3: check geometry-based release every step (replaces 5 s timer)
@@ -1338,7 +1401,10 @@ class SilTopicBridge(Node):
             return out
 
         current_heading_deg = math.degrees(self._last_ownship_raw.heading) % 360.0
+        current_sog_kn = self._last_ownship_raw.sog * 1.94384
         current_rot_deg_s = math.degrees(self._last_ownship_raw.rot)
+        current_lat = getattr(self._last_ownship_raw, "lat", 0.0)
+        current_lon = getattr(self._last_ownship_raw, "lon", 0.0)
 
         # ── LATCH offset decay logic ─────────────────────────
         if self._latch_release_triggered and self._latch_release_time is not None and self._avoidance_target_heading_deg is not None:
@@ -1361,7 +1427,22 @@ class SilTopicBridge(Node):
             else:
                 self._avoidance_target_heading_deg = (self._target_heading_deg + sign * latch_offset_decaying) % 360.0
 
-        if self._avoidance_target_heading_deg is not None:
+        waypoint_target_heading_deg = SilTopicBridge._avoidance_waypoint_heading_deg(
+            self, current_lat, current_lon)
+        if waypoint_target_heading_deg is not None:
+            heading_error_deg = (
+                waypoint_target_heading_deg - current_heading_deg + 180.0
+            ) % 360.0 - 180.0
+            dt = 0.5
+            out.rudder_angle = RUDDER_SIGN * self._avoidance_heading_controller.step(
+                heading_error_deg, dt, current_rot_deg_s)
+            self.get_logger().info(
+                f"[BRIDGE-AVOID] hdg={current_heading_deg:.1f} "
+                f"m5_tgt={waypoint_target_heading_deg:.1f} "
+                f"err={heading_error_deg:.1f} rot={current_rot_deg_s:.2f} "
+                f"rud={math.degrees(out.rudder_angle):.1f}"
+            )
+        elif self._avoidance_target_heading_deg is not None:
             heading_error_deg = (
                 self._avoidance_target_heading_deg - current_heading_deg + 180.0
             ) % 360.0 - 180.0
@@ -1387,12 +1468,73 @@ class SilTopicBridge(Node):
             out.rudder_angle = 0.0
 
         if self._last_avoidance_waypoint is not None:
-            out.throttle = max(0.0, min(1.0,
-                self._last_avoidance_waypoint.target_speed_kn / MAX_SPEED_KN))
+            target_sog_kn = self._last_avoidance_waypoint.target_speed_kn
+            feedforward = max(0.0, min(1.0, target_sog_kn / MAX_SPEED_KN))
+            controller = getattr(self, "_speed_controller", None)
+            if controller is not None:
+                speed_error_kn = target_sog_kn - current_sog_kn
+                closed_loop = controller.step(speed_error_kn, 0.5)
+                out.throttle = max(feedforward, closed_loop)
+            else:
+                out.throttle = feedforward
         else:
             out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
 
         return out
+
+    def _avoidance_waypoint_heading_deg(self, own_lat: float, own_lon: float) -> Optional[float]:
+        waypoints = list(getattr(self, "_last_avoidance_waypoints", []) or [])
+        if not waypoints:
+            wp = getattr(self, "_last_avoidance_waypoint", None)
+            if wp is not None:
+                waypoints = [wp]
+
+        nominal = float(getattr(self, "_target_heading_deg", 0.0))
+        preferred = getattr(self, "_avoidance_target_heading_deg", None)
+        preferred_delta = None
+        if preferred is not None:
+            preferred_delta = _signed_heading_delta_deg(float(preferred), nominal)
+        best_heading = None
+        best_score = float("inf")
+        for wp in waypoints:
+            pos = getattr(wp, "position", None)
+            if pos is None:
+                continue
+            try:
+                lat = float(pos.latitude)
+                lon = float(pos.longitude)
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(lat) and math.isfinite(lon)):
+                continue
+
+            m_per_deg_lat = 111132.9
+            m_per_deg_lon = 111319.9 * math.cos(math.radians(float(own_lat)))
+            dist_m = math.hypot((lon - float(own_lon)) * m_per_deg_lon,
+                                (lat - float(own_lat)) * m_per_deg_lat)
+            if dist_m < M5_AVOID_WAYPOINT_MIN_LOOKAHEAD_M:
+                continue
+
+            bearing = SilTopicBridge._great_circle_bearing(
+                float(own_lat), float(own_lon), lat, lon)
+            candidate_delta = _signed_heading_delta_deg(bearing, nominal)
+            if abs(candidate_delta) > M5_AVOID_WAYPOINT_MAX_DELTA_DEG:
+                continue
+            if preferred_delta is not None:
+                if getattr(self, "_m6_conflict_active", False):
+                    if (abs(preferred_delta) > 1e-3 and
+                            preferred_delta * candidate_delta < 0.0):
+                        continue
+                    if (abs(candidate_delta) + M5_AVOID_WAYPOINT_TARGET_TOLERANCE_DEG <
+                            abs(preferred_delta)):
+                        continue
+                score = abs(_signed_heading_delta_deg(bearing, float(preferred)))
+                if score < best_score:
+                    best_score = score
+                    best_heading = bearing
+            else:
+                return bearing
+        return best_heading
 
     def _on_planned_route(self, msg: PlannedRoute) -> None:
         """Cache planned-route waypoints (lat, lon) for geometric cross-track error."""

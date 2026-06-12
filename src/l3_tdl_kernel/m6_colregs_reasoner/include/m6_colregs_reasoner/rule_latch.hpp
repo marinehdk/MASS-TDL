@@ -8,18 +8,14 @@ namespace mass_l3::m6_colregs {
 
 // Onset-latched COLREG hysteresis (Rule 13(d): classification fixed at onset;
 // later bearing changes do not reclassify). Release follows Rule 16 "finally past
-// and clear": the target has drawn abaft the beam (past_and_clear), the range is
-// opening, and CPA is back above the configured safe floor.
+// and clear": the target has drawn abaft the beam (past_and_clear), range is
+// opening, and CPA is safe. Some give-way classifiers may also use a
+// role-specific CPA-projection backup when their geometry cannot satisfy the
+// abaft-beam test.
 //
-// NOTE (2026-06-08): a former CPA-magnitude fallback (release when predicted CPA
-// climbed above 1.5×cpa_safe while opening) was REMOVED — it could not tell
-// "CPA large because the target passed" from "CPA large because own-ship's own
-// give-way maneuver opened it". During a successful avoidance the maneuver opens
-// CPA past the threshold, so the fallback released mid-maneuver → conflict
-// chatter → M4 flapped AVOID↔TRANSIT → rudder fishtailed. Release now requires
-// the target to be genuinely abaft the encounter reference beam. The bridge
-// geometry-release (TCPA<0 & DCPA≥cpa_safe) remains the independent backup if
-// abaft is never met.
+// CPA-magnitude-only fallback remains forbidden: own-ship's give-way maneuver can
+// open CPA before the encounter is past. The TCPA/CPA projection is the backup
+// release for geometry that never satisfies the abaft-beam test.
 //
 // ONSET CLASSIFICATION (2026-06-08): the latch also snapshots the give-way
 // CLASSIFICATION at the latching cycle (role/encounter/direction). Once own ship
@@ -42,7 +38,8 @@ class RuleLatch {
   // (Rule 13(d)); a later raw re-evaluation does NOT overwrite it.
   bool update(bool rule_active, double cpa_m, bool range_closing, bool past_and_clear,
               const RuleEvaluation* current_eval = nullptr,
-              bool cpa_projection_past_and_safe = false) {
+              bool cpa_projection_past_and_safe = false,
+              bool allow_projection_release = true) {
     if (!latched_) {
       if (released_past_clear_ || cpa_projection_past_and_safe) {
         return false;
@@ -68,6 +65,13 @@ class RuleLatch {
     // mid-maneuver and chatter (see class note).
     const bool opening = !range_closing;
     const bool past_clear_and_safe = opening && past_and_clear && (cpa_m >= cpa_safe_m_);
+    const bool projection_past_and_safe =
+        allow_projection_release && opening && cpa_projection_past_and_safe;
+    if (projection_past_and_safe) {
+      latched_ = false;
+      has_onset_ = false;
+      released_past_clear_ = true;
+    }
     if (past_clear_and_safe) {
       latched_ = false;
       has_onset_ = false;  // encounter resolved → forget onset classification
@@ -77,9 +81,11 @@ class RuleLatch {
   }
 
   bool latched() const { return latched_; }
+  bool released() const { return released_past_clear_; }
 
   // True once an onset classification has been snapshotted (and not yet released).
   bool has_onset() const { return has_onset_; }
+  Role onset_role() const { return onset_role_; }
 
   // Overlay the held onset classification onto an evaluation whose raw geometry has
   // gone inactive mid-maneuver. Marks the rule active and restores the give-way

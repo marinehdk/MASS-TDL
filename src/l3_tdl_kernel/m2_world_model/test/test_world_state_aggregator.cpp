@@ -26,7 +26,9 @@
 namespace mass_l3::m2 {
 namespace {
 
-using time_point = std::chrono::steady_clock::time_point;
+TimePoint time_at(int32_t seconds) {
+  return TimePoint(seconds, 0, RCL_ROS_TIME);
+}
 
 // ── Test helpers ─────────────────────────────────────────────────────────
 
@@ -100,6 +102,22 @@ auto make_target_array(const std::vector<uint64_t>& ids = {1001}) {
   return msg;
 }
 
+l3_msgs::msg::TrackedTarget make_target_msg(
+    uint64_t id, double lat, double lon, double sog_kn, double cog_deg,
+    double heading_deg) {
+  l3_msgs::msg::TrackedTarget tgt;
+  tgt.target_id = id;
+  tgt.position.latitude = lat;
+  tgt.position.longitude = lon;
+  tgt.position.altitude = 0.0;
+  tgt.sog_kn = sog_kn;
+  tgt.cog_deg = cog_deg;
+  tgt.heading_deg = heading_deg;
+  tgt.classification = "cargo";
+  tgt.classification_confidence = 0.9F;
+  return tgt;
+}
+
 // Aggregate components into a WSA shared_ptr for the tests.
 // Exposes the health monitor so tests can inject failures.
 struct TestFixture {
@@ -168,10 +186,10 @@ TEST(WorldStateAggregatorTest, ComposeWithFullHealth) {
   auto tf = create_aggregator();
 
   // Send own-ship and ODD data
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
-  const auto now = time_point{} + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -184,11 +202,11 @@ TEST(WorldStateAggregatorTest, EvCriticalReturnsNullopt) {
   auto tf = create_aggregator();
 
   // Send own-ship and ODD data first
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   // Force EV critical by reporting large age directly to the health monitor
-  const auto now = time_point{} + std::chrono::seconds(10);
+  const auto now = time_at(10);
   tf.health->report_ev_age(1.0, now);  // 1s ≫ 100 ms threshold → Critical
 
   auto result = tf.aggregator->compose_world_state(now);
@@ -200,14 +218,14 @@ TEST(WorldStateAggregatorTest, TracksIncludedInOutput) {
   auto tf = create_aggregator();
 
   // Send own-ship and ODD data
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   // Send target data
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.track_buffer->update(make_target_array({1001, 1002}), t0);
 
-  const auto now = t0 + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -222,10 +240,46 @@ TEST(WorldStateAggregatorTest, TracksIncludedInOutput) {
   EXPECT_TRUE(has_1002);
 }
 
+TEST(WorldStateAggregatorTest, TargetsOrderedByCpaTcpaRisk) {
+  auto tf = create_aggregator();
+
+  constexpr double kLatDegToM = 111320.0;
+  const double own_lat = 35.0;
+  const double own_lon = 139.0;
+  auto own_ship = make_own_ship_msg(own_lat, own_lon);
+  own_ship.sog_kn = 10.0;
+  own_ship.cog_deg = 0.0;
+  own_ship.heading_deg = 0.0;
+  tf.aggregator->update_own_ship(own_ship, time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
+
+  l3_external_msgs::msg::TrackedTargetArray tgt_arr;
+  const double lon_m_per_deg = kLatDegToM * std::cos(own_lat * M_PI / 180.0);
+  // Insert the urgent target first, then a safe target. TrackBuffer's internal
+  // unordered_map must not leak its iteration order into WorldState.
+  tgt_arr.targets.push_back(make_target_msg(
+      42, own_lat + 1000.0 / kLatDegToM, own_lon, 10.0, 180.0, 180.0));
+  tgt_arr.targets.push_back(make_target_msg(
+      7, own_lat, own_lon + 2000.0 / lon_m_per_deg, 10.0, 0.0, 0.0));
+  tgt_arr.confidence = 1.0f;
+
+  const auto t0 = time_at(0);
+  tf.track_buffer->update(tgt_arr, t0);
+
+  const auto now = time_at(1);
+  auto result = tf.aggregator->compose_world_state(now);
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->targets.size(), 2u);
+  EXPECT_EQ(result->targets[0].target_id, 42u);
+  EXPECT_LT(result->targets[0].cpa_m, result->targets[1].cpa_m);
+  EXPECT_GT(result->targets[0].tcpa_s, 0.0);
+}
+
 // Test 4: CPAThresholdsByODDZone — WorldState is produced for each zone
 TEST(WorldStateAggregatorTest, CPAThresholdsByODDZone) {
   auto tf = create_aggregator();
-  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
 
   const std::vector<uint8_t> zones = {
       l3_msgs::msg::ODDState::ODD_ZONE_A,
@@ -235,9 +289,9 @@ TEST(WorldStateAggregatorTest, CPAThresholdsByODDZone) {
   };
 
   for (size_t i = 0; i < zones.size(); ++i) {
-    tf.aggregator->update_odd_state(make_odd_msg(zones[i]));
+    tf.aggregator->update_odd_state(make_odd_msg(zones[i]), time_at(0));
 
-    const auto now = time_point{} + std::chrono::seconds(static_cast<long>(i + 1));
+    const auto now = time_at(static_cast<int32_t>(i + 1));
     auto result = tf.aggregator->compose_world_state(now);
 
     ASSERT_TRUE(result.has_value())
@@ -252,19 +306,19 @@ TEST(WorldStateAggregatorTest, CPAThresholdsByODDZone) {
 TEST(WorldStateAggregatorTest, ConfidenceFloorWhenDegraded) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   // DV misses: cause degradation via health monitor directly
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.health->report_dv_update(false, t0);
-  tf.health->report_dv_update(false, t0 + std::chrono::seconds(1));
+  tf.health->report_dv_update(false, time_at(1));
 
   // Verify DV is degraded
   auto health_before = tf.health->aggregated_health();
   EXPECT_EQ(health_before.dv_health, ViewHealth::Degraded);
 
-  const auto now = t0 + std::chrono::seconds(2);
+  const auto now = time_at(2);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -276,11 +330,11 @@ TEST(WorldStateAggregatorTest, ConfidenceFloorWhenDegraded) {
 TEST(WorldStateAggregatorTest, EmptyEnvironmentCache) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   // Do NOT call update_environment — SV has never received data
-  const auto now = time_point{} + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -297,7 +351,7 @@ TEST(WorldStateAggregatorTest, EmptyEnvironmentCache) {
 // Test 7: MultipleOddZoneTransitions — switching ODD zones
 TEST(WorldStateAggregatorTest, MultipleOddZoneTransitions) {
   auto tf = create_aggregator();
-  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
 
   // Cycle through zones A→B→C→D→A
   const std::vector<uint8_t> zone_seq = {
@@ -309,10 +363,9 @@ TEST(WorldStateAggregatorTest, MultipleOddZoneTransitions) {
   };
 
   for (size_t i = 0; i < zone_seq.size(); ++i) {
-    tf.aggregator->update_odd_state(make_odd_msg(zone_seq[i]));
+    tf.aggregator->update_odd_state(make_odd_msg(zone_seq[i]), time_at(0));
 
-    const auto now = time_point{} +
-                     std::chrono::seconds(static_cast<long>(i * 2 + 1));
+    const auto now = time_at(static_cast<int32_t>(i * 2 + 1));
     auto result = tf.aggregator->compose_world_state(now);
 
     ASSERT_TRUE(result.has_value())
@@ -328,14 +381,14 @@ TEST(WorldStateAggregatorTest, MultipleOddZoneTransitions) {
 TEST(WorldStateAggregatorTest, RationaleNotEmpty) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   // Add a target for richer rationale
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.track_buffer->update(make_target_array({42}), t0);
 
-  const auto now = t0 + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -360,7 +413,7 @@ TEST(WorldStateAggregatorTest, SnapshotAccessors) {
   EXPECT_EQ(empty_zone.zone_type, "unknown");
 
   // After update, they should reflect the cached data
-  tf.aggregator->update_own_ship(make_own_ship_msg(35.5, 139.5));
+  tf.aggregator->update_own_ship(make_own_ship_msg(35.5, 139.5), time_at(0));
 
   auto os = tf.aggregator->latest_own_ship();
   EXPECT_DOUBLE_EQ(os.sog_kn, 10.0);
@@ -371,7 +424,7 @@ TEST(WorldStateAggregatorTest, SnapshotAccessors) {
 TEST(WorldStateAggregatorTest, Sat3TdlTmrFromOddState) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
 
   l3_msgs::msg::ODDState odd_msg;
   odd_msg.current_zone = l3_msgs::msg::ODDState::ODD_ZONE_A;
@@ -382,7 +435,7 @@ TEST(WorldStateAggregatorTest, Sat3TdlTmrFromOddState) {
   odd_msg.tdl_s = 45.0f;
   odd_msg.tmr_s = 60.0f;
   odd_msg.confidence = 1.0f;
-  tf.aggregator->update_odd_state(odd_msg);
+  tf.aggregator->update_odd_state(odd_msg, time_at(0));
 
   EXPECT_TRUE(tf.aggregator->has_odd_state());
 
@@ -394,7 +447,7 @@ TEST(WorldStateAggregatorTest, Sat3TdlTmrFromOddState) {
 TEST(WorldStateAggregatorTest, Sat3TdlTmrDefaultWhenNoOddState) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
 
   EXPECT_FALSE(tf.aggregator->has_odd_state());
 
@@ -406,10 +459,10 @@ TEST(WorldStateAggregatorTest, Sat3TdlTmrDefaultWhenNoOddState) {
 TEST(WorldStateAggregatorTest, Sat3ForecastNominalWhenNoTargets) {
   auto tf = create_aggregator();
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
-  auto forecast = tf.aggregator->compute_sat3_forecast();
+  auto forecast = tf.aggregator->compute_sat3_forecast(time_at(0));
   EXPECT_EQ(forecast.predicted_state, "nominal");
   EXPECT_FLOAT_EQ(forecast.prediction_uncertainty, 0.0f);
 }
@@ -419,8 +472,8 @@ TEST(WorldStateAggregatorTest, TargetClassificationFishingLowSpeed) {
   cfg.target_classification_enabled = true;
   auto tf = create_aggregator(cfg);
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   l3_external_msgs::msg::TrackedTargetArray tgt_arr;
   l3_msgs::msg::TrackedTarget tgt;
@@ -436,10 +489,10 @@ TEST(WorldStateAggregatorTest, TargetClassificationFishingLowSpeed) {
   tgt_arr.targets.push_back(tgt);
   tgt_arr.confidence = 1.0f;
 
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.track_buffer->update(tgt_arr, t0);
 
-  const auto now = t0 + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -453,8 +506,8 @@ TEST(WorldStateAggregatorTest, TargetClassificationPassengerHighSpeed) {
   cfg.target_classification_enabled = true;
   auto tf = create_aggregator(cfg);
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
   l3_external_msgs::msg::TrackedTargetArray tgt_arr;
   l3_msgs::msg::TrackedTarget tgt;
@@ -470,10 +523,10 @@ TEST(WorldStateAggregatorTest, TargetClassificationPassengerHighSpeed) {
   tgt_arr.targets.push_back(tgt);
   tgt_arr.confidence = 1.0f;
 
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.track_buffer->update(tgt_arr, t0);
 
-  const auto now = t0 + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());
@@ -487,13 +540,13 @@ TEST(WorldStateAggregatorTest, TargetClassificationDisabledPreservesOriginal) {
   cfg.target_classification_enabled = false;
   auto tf = create_aggregator(cfg);
 
-  tf.aggregator->update_own_ship(make_own_ship_msg());
-  tf.aggregator->update_odd_state(make_odd_msg());
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
 
-  const auto t0 = time_point{};
+  const auto t0 = time_at(0);
   tf.track_buffer->update(make_target_array({3001}), t0);
 
-  const auto now = t0 + std::chrono::seconds(1);
+  const auto now = time_at(1);
   auto result = tf.aggregator->compose_world_state(now);
 
   ASSERT_TRUE(result.has_value());

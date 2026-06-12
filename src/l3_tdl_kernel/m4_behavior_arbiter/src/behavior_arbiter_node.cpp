@@ -13,6 +13,10 @@ namespace mass_l3::m4 {
 
 using namespace std::chrono_literals;
 
+namespace {
+constexpr std::uint8_t kRoleGiveWay = 1U;
+}  // namespace
+
 static double compute_bearing_deg(double own_lat, double own_lon,
                                   double tgt_lat, double tgt_lon) {
   const double deg2rad = M_PI / 180.0;
@@ -304,23 +308,32 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     } else if (!colregs_turn_active && colregs_anchor_set_) {
       colregs_anchor_set_ = false;
       colregs_quartering_gate_ = false;
+      colregs_rule15_commit_active_ = false;
+      colregs_committed_required_dev_deg_ = 0.0;
       RCLCPP_INFO(get_logger(), "[M4] COLREG turn anchor released");
+    }
+    if (colregs_turn_active &&
+        colregs_directive.rule15_active &&
+        colregs_directive.primary_role == kRoleGiveWay) {
+      colregs_rule15_commit_active_ = true;
     }
     constexpr double kColregsCriticalCpaM = 500.0;
     constexpr double kColregsTacticalCpaBufferM = 1500.0;
     constexpr double kColregsMaxDeviationDeg = 150.0;
+    const double effective_max_deviation_deg = effective_colregs_max_deviation_deg(
+        colregs_directive, colregs_quartering_gate_, 75.0, kColregsMaxDeviationDeg);
     double required_dev_deg = required_deviation_deg(
         colregs_directive,
         nearest_target_range_m,
         kColregsTacticalCpaBufferM,
         2.5,
-        kColregsMaxDeviationDeg);
+        effective_max_deviation_deg);
     if (nearest_target_cpa_m < std::numeric_limits<double>::max() &&
         (colregs_directive.direction == ColregsDirection::Starboard ||
          colregs_directive.direction == ColregsDirection::Port)) {
       const double min_alt_deg = colregs_directive.min_alteration_deg;
       if (colregs_quartering_gate_ && nearest_target_cpa_m <= kColregsCriticalCpaM) {
-        required_dev_deg = kColregsMaxDeviationDeg;
+        required_dev_deg = effective_max_deviation_deg;
       } else if (nearest_target_cpa_m >= kColregsTacticalCpaBufferM) {
         required_dev_deg = min_alt_deg;
       } else {
@@ -334,14 +347,27 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
             1.0);
         required_dev_deg = std::max(
             min_alt_deg,
-            min_alt_deg + risk * (kColregsMaxDeviationDeg - min_alt_deg));
+            min_alt_deg + risk * (effective_max_deviation_deg - min_alt_deg));
       }
     }
-    const double current_spd_kn = latest_world_ ? latest_world_->own_ship.sog_kn : speed_max_kn_;
+    const bool hold_bow_crossing_commitment =
+        colregs_turn_active &&
+        colregs_rule15_commit_active_ &&
+        colregs_directive.primary_role == kRoleGiveWay &&
+        !colregs_quartering_gate_;
+    if (hold_bow_crossing_commitment) {
+      colregs_committed_required_dev_deg_ =
+          std::max(colregs_committed_required_dev_deg_, required_dev_deg);
+      required_dev_deg =
+          std::max(required_dev_deg, colregs_committed_required_dev_deg_);
+    } else {
+      colregs_committed_required_dev_deg_ = 0.0;
+    }
     const double colregs_signed_dev_deg = signed_deviation_deg(
         colregs_directive, required_dev_deg);
     const double colregs_base_hdg =
         colregs_anchor_set_ ? colregs_anchor_hdg_ : nominal_hdg;
+    const double current_spd_kn = latest_world_ ? latest_world_->own_ship.sog_kn : speed_max_kn_;
     const double directive_speed_max_kn =
         (colregs_directive.conflict_active &&
          colregs_directive.direction == ColregsDirection::ReduceSpeed)

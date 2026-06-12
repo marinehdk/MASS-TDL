@@ -21,6 +21,9 @@ struct ColregsDirective {
   bool conflict_active{false};
   ColregsDirection direction{ColregsDirection::Hold};
   double min_alteration_deg{0.0};
+  std::uint8_t primary_role{3U};
+  std::string phase;
+  bool rule15_active{false};
 };
 
 struct HeadingWindow {
@@ -38,6 +41,11 @@ struct HeadingWindow {
     double cpa_safe_m = 500.0,
     double boldness_factor = 2.5,
     double max_deviation_deg = 120.0);
+[[nodiscard]] double effective_colregs_max_deviation_deg(
+    const ColregsDirective& directive,
+    bool has_quartering_target,
+    double bow_max_deviation_deg = 75.0,
+    double quartering_max_deviation_deg = 150.0);
 [[nodiscard]] std::optional<HeadingWindow> directive_heading_window(
     double base_heading_deg,
     const ColregsDirective& directive,

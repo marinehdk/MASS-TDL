@@ -67,11 +67,14 @@ metadata:
   seed: 103
   expected_outcome:
     cpa_min_m_ge: 926.0
+    returned_to_route_required: true
+    route_return_xte_m_lt: 150.0
+    route_return_heading_deg_lt: 10.0
     rule_compliance:
     - rule: Rule13
       result: required
   simulation_settings:
-    total_time: 420.0
+    total_time: 1200.0
     dt: 0.02
     n_rps_initial: 4.2
     coordinate_origin:

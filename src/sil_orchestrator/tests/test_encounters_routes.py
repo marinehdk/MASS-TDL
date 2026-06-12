@@ -76,6 +76,20 @@ async def _assert_clear_all_encounters_removes_all_injected_mmsis(request_and_br
     assert _active_mmsis == set()
 
 
+def test_overtaking_injection_uses_four_knot_target(request_and_bridge):
+    asyncio.run(_assert_overtaking_injection_uses_four_knot_target(request_and_bridge))
+
+
+async def _assert_overtaking_injection_uses_four_knot_target(request_and_bridge):
+    request, bridge = request_and_bridge
+    inject = next(route.endpoint for route in router.routes if route.path == "/api/v1/encounters/inject")
+
+    await inject(type("Body", (), {"rule": "overtaking", "range_nm": None,
+                                   "construct_cpa_m": None, "approach_angle_deg": None})(), request)
+
+    assert bridge.added[-1]["sog_kn"] == pytest.approx(4.0, abs=0.2)
+
+
 def test_clear_all_drops_stale_removals_from_registry(request_and_bridge):
     asyncio.run(_assert_clear_all_drops_stale_removals_from_registry(request_and_bridge))
 

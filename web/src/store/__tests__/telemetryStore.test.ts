@@ -12,6 +12,10 @@ describe('telemetryStore', () => {
     expect(useTelemetryStore.getState().targets).toEqual([]);
   });
 
+  it('starts with null avoidancePlan', () => {
+    expect(useTelemetryStore.getState().avoidancePlan).toBeNull();
+  });
+
   it('updates ownShip state', () => {
     const fake = { pose: { lat: 63.4, lon: 10.4, heading: 0.5 } } as any;
     useTelemetryStore.getState().updateOwnShip(fake);
@@ -24,6 +28,41 @@ describe('telemetryStore', () => {
     expect(useTelemetryStore.getState().ownShip).toBeNull();
     expect(useTelemetryStore.getState().targets).toEqual([]);
     expect(useTelemetryStore.getState().targetTrails).toEqual({});
+  });
+
+  it('normalizes M5 avoidance plan waypoints', () => {
+    useTelemetryStore.getState().updateAvoidancePlan({
+      waypoints: [
+        {
+          position: { latitude: 63.4, longitude: 10.4 },
+          confidence: 0.9,
+          target_speed_kn: 7.5,
+          turn_radius_m: 300,
+          rationale: 'first',
+        },
+        {
+          position: { lat: 63.41, lon: 10.42 },
+          confidence: 0.8,
+          targetSpeedKn: 7.0,
+          turnRadiusM: 250,
+        },
+      ],
+      horizon_s: 90,
+      status: 'NORMAL',
+      confidence: 0.91,
+      rationale: 'M5 route',
+    } as any);
+
+    expect(useTelemetryStore.getState().avoidancePlan).toEqual({
+      waypoints: [
+        { lat: 63.4, lon: 10.4, confidence: 0.9, targetSpeedKn: 7.5, turnRadiusM: 300, rationale: 'first' },
+        { lat: 63.41, lon: 10.42, confidence: 0.8, targetSpeedKn: 7.0, turnRadiusM: 250, rationale: undefined },
+      ],
+      horizonS: 90,
+      status: 'NORMAL',
+      confidence: 0.91,
+      rationale: 'M5 route',
+    });
   });
 
   it('starts with empty targetTrails and targetLastTrailTimes', () => {

@@ -25,15 +25,15 @@ enum class ViewId : uint8_t { DV = 0, EV = 1, SV = 2, Count = 3 };
 // ── Coordinate snapshots ──
 struct OwnShipSnapshot {
   OwnShipSnapshot() : stamp(0, 0, RCL_ROS_TIME) {}
-  double sog_kn;
-  double cog_deg;
-  double heading_deg;
-  double u_water;           // m/s
-  double v_water;           // m/s
-  double current_speed_kn;
-  double current_direction_deg;
-  double latitude_deg;
-  double longitude_deg;
+  double sog_kn{0.0};
+  double cog_deg{0.0};
+  double heading_deg{0.0};
+  double u_water{0.0};           // m/s
+  double v_water{0.0};           // m/s
+  double current_speed_kn{0.0};
+  double current_direction_deg{0.0};
+  double latitude_deg{0.0};
+  double longitude_deg{0.0};
   Eigen::Matrix<double, 6, 6> covariance;  // pos(3) x vel(3)
   TimePoint stamp;
 };

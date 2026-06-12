@@ -83,6 +83,7 @@ TEST(Rule17_StandOnTest, IndependentActionPhase) {
   EXPECT_TRUE(result.is_active);
   EXPECT_EQ(result.phase, TimingPhase::INDEPENDENT_ACTION);
   EXPECT_EQ(result.preferred_direction, "STARBOARD");
+  EXPECT_DOUBLE_EQ(result.min_alteration_deg, params.min_alteration_deg);
 }
 
 TEST(Rule17_StandOnTest, CriticalActionPhase) {

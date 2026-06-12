@@ -410,5 +410,124 @@ TEST_F(M3DualSubTest, CurrentTargetWaypoint_Progression) {
       3000));
 }
 
+TEST_F(M3DualSubTest, ActiveRouteSwitchDoesNotResetWaypointProgress) {
+  publish_world(0.0);
+  spin_ms(50);
+
+  auto vt = make_valid_voyage_task(1);
+  voyage_task_pub_->publish(vt);
+  spin_ms(50);
+
+  auto route = make_valid_route(10);
+  geographic_msgs::msg::GeoPoseStamped wp0;
+  wp0.pose.position.latitude = 38.001;
+  wp0.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp0);
+
+  geographic_msgs::msg::GeoPoseStamped wp1;
+  wp1.pose.position.latitude = 38.005;
+  wp1.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp1);
+
+  route_pub_->publish(route);
+  spin_ms(50);
+  publish_odd(0.9F, l3_msgs::msg::ODDState::ODD_ZONE_A);
+  ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
+
+  l3_msgs::msg::WorldState near_wp0;
+  near_wp0.own_ship.position.latitude = 38.00099;
+  near_wp0.own_ship.position.longitude = -122.0;
+  near_wp0.own_ship.position.altitude = 0.0;
+  near_wp0.own_ship.current_speed_kn = 0.0;
+  near_wp0.own_ship.sog_kn = 10.0;
+  near_wp0.own_ship.cog_deg = 0.0;
+  near_wp0.confidence = 1.0F;
+  world_pub_->publish(near_wp0);
+
+  ASSERT_TRUE(wait_for(
+      [this]{
+        return last_goal_ &&
+               std::abs(last_goal_->current_target_wp.latitude - 38.005) < 1e-6;
+      },
+      3000));
+
+  auto intruder_route = make_valid_route(20);
+  geographic_msgs::msg::GeoPoseStamped behind_wp0;
+  behind_wp0.pose.position.latitude = 38.0;
+  behind_wp0.pose.position.longitude = -122.0;
+  intruder_route.route.poses.push_back(behind_wp0);
+
+  geographic_msgs::msg::GeoPoseStamped behind_wp1;
+  behind_wp1.pose.position.latitude = 37.995;
+  behind_wp1.pose.position.longitude = -122.0;
+  intruder_route.route.poses.push_back(behind_wp1);
+
+  route_pub_->publish(intruder_route);
+  spin_ms(100);
+  last_goal_.reset();
+  world_pub_->publish(near_wp0);
+
+  ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
+  EXPECT_NEAR(last_goal_->current_target_wp.latitude, 38.005, 1e-6);
+  EXPECT_NEAR(last_goal_->current_target_wp.longitude, -122.0, 1e-6);
+}
+
+TEST_F(M3DualSubTest, FinalWaypointOvershootPublishesExtendedTrackTarget) {
+  publish_world(0.0);
+  spin_ms(50);
+
+  auto vt = make_valid_voyage_task(1);
+  voyage_task_pub_->publish(vt);
+  spin_ms(50);
+
+  auto route = make_valid_route(10);
+  geographic_msgs::msg::GeoPoseStamped wp0;
+  wp0.pose.position.latitude = 38.0;
+  wp0.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp0);
+
+  geographic_msgs::msg::GeoPoseStamped wp1;
+  wp1.pose.position.latitude = 38.005;
+  wp1.pose.position.longitude = -122.0;
+  route.route.poses.push_back(wp1);
+
+  route_pub_->publish(route);
+  spin_ms(50);
+  publish_odd(0.9F, l3_msgs::msg::ODDState::ODD_ZONE_A);
+  ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
+
+  l3_msgs::msg::WorldState near_wp0;
+  near_wp0.own_ship.position.latitude = 38.00001;
+  near_wp0.own_ship.position.longitude = -122.0;
+  near_wp0.own_ship.position.altitude = 0.0;
+  near_wp0.own_ship.current_speed_kn = 0.0;
+  near_wp0.own_ship.sog_kn = 10.0;
+  near_wp0.own_ship.cog_deg = 0.0;
+  near_wp0.confidence = 1.0F;
+  world_pub_->publish(near_wp0);
+
+  ASSERT_TRUE(wait_for(
+      [this]{
+        return last_goal_ &&
+               std::abs(last_goal_->current_target_wp.latitude - 38.005) < 1e-6;
+      },
+      3000));
+
+  l3_msgs::msg::WorldState past_final;
+  past_final.own_ship.position.latitude = 38.006;
+  past_final.own_ship.position.longitude = -121.996;
+  past_final.own_ship.position.altitude = 0.0;
+  past_final.own_ship.current_speed_kn = 0.0;
+  past_final.own_ship.sog_kn = 10.0;
+  past_final.own_ship.cog_deg = 0.0;
+  past_final.confidence = 1.0F;
+  last_goal_.reset();
+  world_pub_->publish(past_final);
+
+  ASSERT_TRUE(wait_for([this]{ return last_goal_ != nullptr; }, 3000));
+  EXPECT_GT(last_goal_->current_target_wp.latitude, 38.006);
+  EXPECT_NEAR(last_goal_->current_target_wp.longitude, -122.0, 1e-4);
+}
+
 }  // namespace
 }  // namespace mass_l3::m3
