@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y python3-pip ros-humble-rmw-cyclonedds-c
 
 # Copy orchestrator package
 COPY src/sil_orchestrator /opt/sil/sil_orchestrator
+COPY config/integration_profiles /opt/config/integration_profiles
 
 # Copy scoring module for KpiDeriver (Arrow reading in scoring_routes.py)
 # Must mirror host path so scoring_routes.py sys.path calc resolves correctly:

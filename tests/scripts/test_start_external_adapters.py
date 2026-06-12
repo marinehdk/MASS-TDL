@@ -101,3 +101,10 @@ def test_sil_nodes_image_builds_external_adapter_package_and_scripts():
     assert "src/sim_workbench/external_adapters" in source
     assert "external_adapters" in source
     assert "scripts/integration/start_external_adapters.sh" in source
+
+
+def test_orchestrator_image_copies_integration_profiles_to_runtime_path():
+    source = Path("docker/sil_orchestrator.Dockerfile").read_text(encoding="utf-8")
+
+    assert "config/integration_profiles" in source
+    assert "/opt/config/integration_profiles" in source
