@@ -34,9 +34,9 @@ Result: `8 passed, 2 warnings`
 
 | Task | Scope | Agent | Implementation | Spec Review | Code Review | Commit |
 |---|---|---|---|---|---|---|
-| 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | fixes requested | APPROVED 019eb9ce-2205-7c33-a2aa-1abec5e719ff | CHANGES_REQUESTED 019eb9ce-4dcb-7ce2-b6c4-f651861c0266 | 2536d09eed6a002f0f16d1de3bf2a7648abbe46f |
+| 1 | Backend profile loader | 019eb9ca-b819-7280-8fe4-0e0a057f1c74 | DONE | APPROVED 019eb9d5-9387-78a2-8023-1b7b0623595d | APPROVED 019eb9da-b03e-7561-ba98-ddc6f5345e4b | d650d3040d3e737e8fc76d9294fd7c917e35d9a4 |
 | 2 | Backend probe service and integration routes | pending | pending | pending | pending | pending |
-| 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | fixes requested | APPROVED 019eb9cf-fad2-7b91-b09d-7d57da4b23de | CHANGES_REQUESTED 019eb9d0-2eaf-74b3-8fb0-967c7a606053 | 812f7a7dfc64c7c3ddca8b35783dde08dad2ee29 |
+| 3 | External adapter package and pure converters | 019eb9cb-1377-7791-a4db-cecfd8e7221c | DONE | APPROVED 019eb9e4-7233-7470-b484-c89b2a986dcf | APPROVED 019eb9e9-f698-7f11-93d3-9c1d50fec38b | ea951232482ca67000032448a4a49bdf0be4aaf1 |
 | 4 | Neutral IPC and TDL ingress node | pending | pending | pending | pending | pending |
 | 5 | Route-out adapter | pending | pending | pending | pending | pending |
 | 6 | Screen 02 external integration panel | pending | pending | pending | pending | pending |
@@ -50,6 +50,9 @@ Result: `8 passed, 2 warnings`
 - Task 1 code quality review requested fixes: deep immutable mappings, bool-int rejection, duplicate profile name rejection, schema alignment to `workspace_setup` and role adapters.
 - Task 3 spec review approved by `019eb9cf-fad2-7b91-b09d-7d57da4b23de`.
 - Task 3 code quality review requested fixes: stable route_id independent of stamp, converter dict shape aligned to TDL ingress/ROS message contract, speed profile per segment with coherent duration.
+- Task 1 final code review approved by `019eb9da-b03e-7561-ba98-ddc6f5345e4b`; final commit `d650d3040d3e737e8fc76d9294fd7c917e35d9a4`.
+- Task 3 fixes now include entrypoint stubs and string target classification; final review pending on commit `575fc1428c309dd63fb927cd5f248be0ba24a228`.
+- Task 3 final code review approved by `019eb9e9-f698-7f11-93d3-9c1d50fec38b`; final commit `ea951232482ca67000032448a4a49bdf0be4aaf1`.
 
 ## Blocking Issues
 
