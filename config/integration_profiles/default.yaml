@@ -1,0 +1,15 @@
+name: default
+mode: default
+tdl_domain_id: 42
+adapters:
+  simulation: disabled
+  yougc: disabled
+  route_level_closed_loop: disabled
+external_domains: {}
+freshness:
+  ownship_ms: 500
+  targets_ms: 2000
+  environment_ms: 10000
+safety:
+  route_out_requires_screen02_pass: true
+  forbid_low_level_control: true
