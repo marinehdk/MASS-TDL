@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import yaml
+
+ADAPTER_ROLES = frozenset({"target", "ownship", "environment", "route_in", "route_out"})
 
 
 class IntegrationProfileError(ValueError):
@@ -20,8 +24,8 @@ class AdapterState(Enum):
 @dataclass(frozen=True)
 class ExternalDomain:
     domain_id: int
-    setup: str
-    required_topics: dict[str, str]
+    workspace_setup: str
+    required_topics: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -48,8 +52,8 @@ class IntegrationProfile:
     name: str
     mode: str
     tdl_domain_id: int
-    adapters: dict[str, AdapterConfig]
-    external_domains: dict[str, ExternalDomain]
+    adapters: Mapping[str, AdapterConfig]
+    external_domains: Mapping[str, ExternalDomain]
     freshness: FreshnessConfig
     safety: SafetyConfig
 
@@ -68,7 +72,7 @@ def load_profile(path: Path) -> IntegrationProfile:
         raise IntegrationProfileError(f"{path}: invalid mode {mode!r}")
 
     tdl_domain_id = raw.get("tdl_domain_id")
-    if not isinstance(tdl_domain_id, int):
+    if type(tdl_domain_id) is not int:
         raise IntegrationProfileError(f"{path}: missing tdl_domain_id")
 
     adapters = _parse_adapters(path, _section(path, raw, "adapters"))
@@ -90,10 +94,14 @@ def load_profile(path: Path) -> IntegrationProfile:
 
 
 def load_profiles(directory: Path) -> dict[str, IntegrationProfile]:
-    profiles = {
-        profile.name: profile
-        for profile in (load_profile(path) for path in sorted(directory.glob("*.yaml")))
-    }
+    profiles: dict[str, IntegrationProfile] = {}
+    for path in sorted(directory.glob("*.yaml")):
+        profile = load_profile(path)
+        if profile.name in profiles:
+            raise IntegrationProfileError(
+                f"{directory}: duplicate profile name {profile.name!r}"
+            )
+        profiles[profile.name] = profile
     if "default" not in profiles:
         raise IntegrationProfileError(f"{directory}: missing default profile")
     return profiles
@@ -113,7 +121,12 @@ def _optional_section(path: Path, raw: dict[str, Any], key: str) -> dict[str, An
     return section
 
 
-def _parse_adapters(path: Path, raw: dict[str, Any]) -> dict[str, AdapterConfig]:
+def _parse_adapters(path: Path, raw: dict[str, Any]) -> Mapping[str, AdapterConfig]:
+    roles = set(raw)
+    if roles != ADAPTER_ROLES:
+        raise IntegrationProfileError(
+            f"{path}: adapters must contain exactly {sorted(ADAPTER_ROLES)}"
+        )
     adapters: dict[str, AdapterConfig] = {}
     for name, value in raw.items():
         if not isinstance(name, str):
@@ -125,12 +138,12 @@ def _parse_adapters(path: Path, raw: dict[str, Any]) -> dict[str, AdapterConfig]
                 f"{path}: invalid adapter state for {name}: {value!r}"
             ) from exc
         adapters[name] = AdapterConfig(name=name, state=state)
-    return adapters
+    return MappingProxyType(adapters)
 
 
 def _parse_external_domains(
     path: Path, raw: dict[str, Any]
-) -> dict[str, ExternalDomain]:
+) -> Mapping[str, ExternalDomain]:
     domains: dict[str, ExternalDomain] = {}
     for name, value in raw.items():
         if not isinstance(value, dict):
@@ -142,14 +155,19 @@ def _parse_external_domains(
             )
         domains[name] = ExternalDomain(
             domain_id=_int_field(path, value, f"external_domains.{name}.domain_id", "domain_id"),
-            setup=_str_field(path, value, f"external_domains.{name}.setup", "setup"),
-            required_topics={
+            workspace_setup=_str_field(
+                path,
+                value,
+                f"external_domains.{name}.workspace_setup",
+                "workspace_setup",
+            ),
+            required_topics=MappingProxyType({
                 _require_str(path, topic_key, f"external_domains.{name}.required_topics key"):
                 _require_str(path, topic_type, f"external_domains.{name}.required_topics.{topic_key}")
                 for topic_key, topic_type in required_topics.items()
-            },
+            }),
         )
-    return domains
+    return MappingProxyType(domains)
 
 
 def _parse_freshness(path: Path, raw: dict[str, Any]) -> FreshnessConfig:
@@ -176,7 +194,7 @@ def _parse_safety(path: Path, raw: dict[str, Any]) -> SafetyConfig:
 
 def _int_field(path: Path, raw: dict[str, Any], label: str, key: str) -> int:
     value = raw.get(key)
-    if not isinstance(value, int):
+    if type(value) is not int:
         raise IntegrationProfileError(f"{path}: {label} must be an integer")
     return value
 

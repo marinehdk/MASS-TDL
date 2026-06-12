@@ -2,20 +2,22 @@ name: a4000_external
 mode: external
 tdl_domain_id: 42
 adapters:
-  simulation: enabled
-  yougc: enabled
-  route_level_closed_loop: enabled
+  target: enabled
+  ownship: enabled
+  environment: enabled
+  route_in: enabled
+  route_out: enabled
 external_domains:
   simulation:
     domain_id: 10
-    setup: /home/mass/simulation/船舶动力学/gnc_ws/install/setup.bash
+    workspace_setup: /home/mass/simulation/船舶动力学/gnc_ws/install/setup.bash
     required_topics:
       /route_planning/route_plan: ship_interfaces/msg/RoutePlan
       /ship/waypoints: nav_msgs/msg/Path
       /ship/odometry: nav_msgs/msg/Odometry
   yougc:
     domain_id: 11
-    setup: /home/mass/yougc/ros2_ws/install/setup.bash
+    workspace_setup: /home/mass/yougc/ros2_ws/install/setup.bash
     required_topics:
       /fusion/tracked_targets: nmea_interfaces/msg/TrackedTargetArray
       /gps/fix: nmea_interfaces/msg/Gps

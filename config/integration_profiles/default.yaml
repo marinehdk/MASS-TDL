@@ -2,9 +2,11 @@ name: default
 mode: default
 tdl_domain_id: 42
 adapters:
-  simulation: disabled
-  yougc: disabled
-  route_level_closed_loop: disabled
+  target: disabled
+  ownship: disabled
+  environment: disabled
+  route_in: disabled
+  route_out: disabled
 external_domains: {}
 freshness:
   ownship_ms: 500
