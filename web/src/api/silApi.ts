@@ -158,7 +158,7 @@ export interface IntegrationProfileDetail extends IntegrationProfileSummary {
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
-  tagTypes: ['Scenario', 'Run'],
+  tagTypes: ['Scenario', 'Run', 'Integration'],
   endpoints: (builder) => ({
 
     // Scenario CRUD
@@ -265,10 +265,12 @@ export const silApi = createApi({
     // External integration
     listIntegrationProfiles: builder.query<IntegrationProfilesResult, void>({
       query: () => '/integration/profiles',
+      providesTags: ['Integration'],
     }),
 
     getIntegrationStatus: builder.query<IntegrationStatus, void>({
       query: () => '/integration/status',
+      providesTags: ['Integration'],
     }),
 
     selectIntegrationProfile: builder.mutation<IntegrationProfileDetail, { name: string }>({
@@ -277,6 +279,7 @@ export const silApi = createApi({
         method: 'POST',
         body,
       }),
+      invalidatesTags: ['Integration'],
     }),
 
     probeIntegration: builder.mutation<IntegrationProbeResult, void>({
@@ -365,6 +368,7 @@ export const {
   useGetHealthStatusQuery,
   useListIntegrationProfilesQuery,
   useGetIntegrationStatusQuery,
+  useLazyGetIntegrationStatusQuery,
   useSelectIntegrationProfileMutation,
   useProbeIntegrationMutation,
   useExportMarzipMutation,

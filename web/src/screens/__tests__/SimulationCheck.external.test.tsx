@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
     route_out_enabled: false,
   },
   probe: vi.fn(),
+  fetchIntegrationStatus: vi.fn(),
   selectProfile: vi.fn(),
+  refetchProfiles: vi.fn(),
+  refetchStatus: vi.fn(),
 }));
 
 vi.mock('../../hooks/useGateStream', () => ({
@@ -49,8 +52,9 @@ vi.mock('../../api/silApi', () => ({
   useActivateLifecycleMutation: () => [mocks.activateLifecycle],
   useCleanupLifecycleMutation: () => [mocks.cleanupLifecycle],
   useSkipPreflightMutation: () => [vi.fn()],
-  useListIntegrationProfilesQuery: () => ({ data: mocks.profiles }),
-  useGetIntegrationStatusQuery: () => ({ data: mocks.status }),
+  useListIntegrationProfilesQuery: () => ({ data: mocks.profiles, refetch: mocks.refetchProfiles }),
+  useGetIntegrationStatusQuery: () => ({ data: mocks.status, refetch: mocks.refetchStatus }),
+  useLazyGetIntegrationStatusQuery: () => [mocks.fetchIntegrationStatus],
   useSelectIntegrationProfileMutation: () => [mocks.selectProfile],
   useProbeIntegrationMutation: () => [mocks.probe],
 }));
@@ -75,12 +79,18 @@ describe('SimulationCheck external integration panel', () => {
     mocks.configureLifecycle.mockReset();
     mocks.activateLifecycle.mockReset();
     mocks.cleanupLifecycle.mockReset();
+    mocks.fetchIntegrationStatus.mockReset();
+    mocks.refetchProfiles.mockReset();
+    mocks.refetchStatus.mockReset();
     mocks.verdict = null;
     mocks.status = {
       active_profile: 'default',
       external_enabled: false,
       route_out_enabled: false,
     };
+    mocks.fetchIntegrationStatus.mockReturnValue({
+      unwrap: () => Promise.resolve(mocks.status),
+    });
   });
 
   it('renders external integration panel on Screen 02', () => {
@@ -103,6 +113,8 @@ describe('SimulationCheck external integration panel', () => {
 
     await waitFor(() => {
       expect(mocks.selectProfile).toHaveBeenCalledWith({ name: 'a4000_external' });
+      expect(mocks.refetchProfiles).toHaveBeenCalled();
+      expect(mocks.refetchStatus).toHaveBeenCalled();
     });
   });
 
@@ -153,5 +165,52 @@ describe('SimulationCheck external integration panel', () => {
     await waitFor(() => expect(mocks.probe).toHaveBeenCalled());
     expect(mocks.configureLifecycle).not.toHaveBeenCalled();
     expect(screen.getByText(/External integration gate failed/)).toBeInTheDocument();
+  });
+
+  it('uses fresh integration status before GO even when cached status is default', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.verdict = 'GO';
+      mocks.status = {
+        active_profile: 'default',
+        external_enabled: false,
+        route_out_enabled: false,
+      };
+      mocks.fetchIntegrationStatus.mockReturnValue({
+        unwrap: () =>
+          Promise.resolve({
+            active_profile: 'a4000_external',
+            external_enabled: true,
+            route_out_enabled: true,
+          }),
+      });
+      mocks.probe.mockReturnValue({
+        unwrap: () =>
+          Promise.resolve({
+            profile_name: 'a4000_external',
+            all_clear: false,
+            checks: [
+              {
+                gate_id: 102,
+                label: 'Topic type match',
+                passed: false,
+                detail: 'failed',
+              },
+            ],
+          }),
+      });
+
+      render(<SimulationCheck />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await waitFor(() => expect(mocks.fetchIntegrationStatus).toHaveBeenCalled());
+    expect(mocks.probe).toHaveBeenCalled();
+    expect(mocks.configureLifecycle).not.toHaveBeenCalled();
+    expect(screen.getByText(/External integration gate failed: Topic type match/)).toBeInTheDocument();
   });
 });

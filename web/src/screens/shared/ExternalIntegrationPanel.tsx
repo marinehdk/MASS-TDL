@@ -19,8 +19,8 @@ function profileMode(profile: IntegrationProfileEntry): string {
 }
 
 export function ExternalIntegrationPanel() {
-  const { data: profilesData } = useListIntegrationProfilesQuery();
-  const { data: status } = useGetIntegrationStatusQuery();
+  const { data: profilesData, refetch: refetchProfiles } = useListIntegrationProfilesQuery();
+  const { data: status, refetch: refetchStatus } = useGetIntegrationStatusQuery();
   const [selectProfile] = useSelectIntegrationProfileMutation();
   const [probeIntegration] = useProbeIntegrationMutation();
   const [probe, setProbe] = useState<IntegrationProbeResult | null>(null);
@@ -48,6 +48,8 @@ export function ExternalIntegrationPanel() {
     setProbe(null);
     try {
       await selectProfile({ name }).unwrap();
+      refetchProfiles();
+      refetchStatus();
     } catch (e) {
       setError(`Profile select failed: ${e instanceof Error ? e.message : String(e)}`);
     }

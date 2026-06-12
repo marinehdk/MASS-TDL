@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGateStream } from '../hooks/useGateStream';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useScenarioStore, useTelemetryStore, useControlStore } from '../store';
-import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation, useGetIntegrationStatusQuery, useProbeIntegrationMutation } from '../api/silApi';
+import { useGetScenarioQuery, useConfigureLifecycleMutation, useActivateLifecycleMutation, useCleanupLifecycleMutation, useSkipPreflightMutation, useLazyGetIntegrationStatusQuery, useProbeIntegrationMutation } from '../api/silApi';
 import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
 import { ActionLogs } from './shared/ActionLogs';
@@ -18,7 +18,7 @@ export function SimulationCheck() {
   const [activateLifecycle] = useActivateLifecycleMutation();
   const [cleanupLifecycle] = useCleanupLifecycleMutation();
   const [skipPreflight] = useSkipPreflightMutation();
-  const { data: integrationStatus } = useGetIntegrationStatusQuery();
+  const [fetchIntegrationStatus] = useLazyGetIntegrationStatusQuery();
   const [probeIntegration] = useProbeIntegrationMutation();
 
   const { gates, verdict, streaming, error, start, abort } = useGateStream(scenarioId, true);
@@ -28,25 +28,31 @@ export function SimulationCheck() {
   const [lifecycleError, setLifecycleError] = useState('');
   const [transitioning, setTransitioning] = useState(false);
   const countdownRef = useRef(-1);
+  const proceedingRef = useRef(false);
 
   // useCallback definitions MUST come before effects that reference them
   const handleProceed = useCallback(async () => {
     if (!scenarioId) return;
+    if (proceedingRef.current) return;
+    proceedingRef.current = true;
     setTransitioning(true);
-    if (integrationStatus?.external_enabled) {
-      try {
+    try {
+      const latestIntegrationStatus = await fetchIntegrationStatus(undefined, false).unwrap();
+      if (latestIntegrationStatus.external_enabled) {
         const integrationProbe = await probeIntegration().unwrap();
         if (!integrationProbe.all_clear) {
           const failed = integrationProbe.checks.find((check) => !check.passed);
           setLifecycleError(`External integration gate failed: ${failed?.label ?? 'unknown'}`);
           setTransitioning(false);
+          proceedingRef.current = false;
           return;
         }
-      } catch (e) {
-        setLifecycleError(`External integration probe failed: ${e instanceof Error ? e.message : String(e)}`);
-        setTransitioning(false);
-        return;
       }
+    } catch (e) {
+      setLifecycleError(`External integration probe failed: ${e instanceof Error ? e.message : String(e)}`);
+      setTransitioning(false);
+      proceedingRef.current = false;
+      return;
     }
     // Fresh run: clear residual telemetry/trail from any prior run and reset
     // sim rate to the 1x default (otherwise a previously-selected 10x persists
@@ -61,12 +67,14 @@ export function SimulationCheck() {
       if (!cfgResult.success) {
         setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
         setTransitioning(false);
+        proceedingRef.current = false;
         return;
       }
       const actResult = await activateLifecycle().unwrap();
       if (!actResult.success) {
         setLifecycleError(`Activate failed: ${actResult.error || 'unknown error'}`);
         setTransitioning(false);
+        proceedingRef.current = false;
         return;
       }
       setLifecycleError('');
@@ -74,8 +82,9 @@ export function SimulationCheck() {
     } catch (e) {
       setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
       setTransitioning(false);
+      proceedingRef.current = false;
     }
-  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle, integrationStatus?.external_enabled, probeIntegration]);
+  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle, fetchIntegrationStatus, probeIntegration]);
 
   const handleAbort = useCallback(async () => {
     abort();
