@@ -99,17 +99,27 @@ def probe_active_profile(
         gate_id += 1
 
         for topic, expected_type in domain.required_topics.items():
-            result = _topic_info(topic, domain.domain_id, runner)
-            output = "\n".join([result.stdout or "", result.stderr or ""]).strip()
-            type_matches = result.returncode == 0 and (
-                f"Type: {expected_type}" in (result.stdout or "")
-            )
+            try:
+                result = _topic_info(topic, domain.domain_id, runner)
+            except FileNotFoundError as exc:
+                result = None
+                type_matches = False
+                output = f"FileNotFoundError: missing executable {exc}"
+            except subprocess.TimeoutExpired as exc:
+                result = None
+                type_matches = False
+                output = f"timeout after {exc.timeout}s: {' '.join(exc.cmd)}"
+            else:
+                output = "\n".join([result.stdout or "", result.stderr or ""]).strip()
+                type_matches = result.returncode == 0 and (
+                    f"Type: {expected_type}" in (result.stdout or "")
+                )
             checks.append(
                 ProbeCheck(
                     gate_id,
                     f"{domain_name} topic {topic}",
                     type_matches,
-                    output or f"returncode={result.returncode}",
+                    output or f"returncode={result.returncode if result else 'error'}",
                 )
             )
             gate_id += 1
