@@ -197,4 +197,4 @@ def _segment_speed_profile(points: list[NeutralRoutePoint]) -> list[float]:
     if not points:
         return []
     segment_count = max(len(points) - 1, 1)
-    return [points[index].speed_kn for index in range(segment_count)]
+    return [max(points[index].speed_kn, MIN_SEGMENT_SPEED_KN) for index in range(segment_count)]

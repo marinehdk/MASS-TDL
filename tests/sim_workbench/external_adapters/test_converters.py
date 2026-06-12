@@ -162,8 +162,8 @@ def test_neutral_environment_to_canonical_dict_sets_weather_and_wave_defaults():
 
 def test_route_points_to_planned_route_dict_builds_stable_geopath_with_segment_speeds():
     points = [
-        NeutralRoutePoint(lat=0.0, lon=0.0, speed_kn=10.0),
-        NeutralRoutePoint(lat=0.0, lon=1.0, speed_kn=0.0),
+        NeutralRoutePoint(lat=0.0, lon=0.0, speed_kn=0.0),
+        NeutralRoutePoint(lat=0.0, lon=1.0, speed_kn=10.0),
         NeutralRoutePoint(lat=1.0, lon=1.0, speed_kn=20.0),
     ]
 
@@ -206,7 +206,7 @@ def test_route_points_to_planned_route_dict_builds_stable_geopath_with_segment_s
     assert payload["total_distance_nm"] == pytest.approx(120.0809, rel=1e-4)
     assert payload["estimated_duration_s"] == pytest.approx(2183071.1522, rel=1e-4)
     assert payload["estimated_duration_s"] > 0.0
-    assert payload["speed_profile_kn"] == [10.0, 0.0]
+    assert payload["speed_profile_kn"] == [0.1, 10.0]
     assert payload["safety_zone"] == "default"
     assert payload["confidence"] == pytest.approx(1.0)
 
