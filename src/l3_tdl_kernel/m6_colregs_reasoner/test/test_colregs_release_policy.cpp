@@ -8,7 +8,7 @@ namespace {
 TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseBeforeRangeGate) {
   EXPECT_FALSE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
-      /*range_m=*/1851.0,
+      /*range_m=*/925.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/150.0,
       /*reference_relative_bearing_abs_deg=*/40.0,
@@ -18,7 +18,7 @@ TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseBeforeRangeGate) {
 TEST(ColregsReleasePolicy, AllowsHeadOnProjectionReleaseAtCurrentAbaftGate) {
   EXPECT_TRUE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
-      /*range_m=*/1852.0,
+      /*range_m=*/926.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/150.0,
       /*reference_relative_bearing_abs_deg=*/40.0,

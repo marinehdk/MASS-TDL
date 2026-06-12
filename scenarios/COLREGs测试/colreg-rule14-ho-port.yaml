@@ -71,6 +71,8 @@ metadata:
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
+    route_corridor_half_width_m: 1000.0
+    route_corridor_pass_limit_m: 900.0
     rule_compliance:
     - rule: Rule14
       result: required

@@ -4,7 +4,7 @@
 
 namespace mass_l3::m6_colregs {
 
-constexpr double kGiveWayProjectionReleaseRangeMultiple = 2.0;
+constexpr double kGiveWayProjectionReleaseRangeMultiple = 1.0;
 constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
 constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 40.0;
 

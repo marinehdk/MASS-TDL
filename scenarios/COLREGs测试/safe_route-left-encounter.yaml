@@ -1,0 +1,97 @@
+title: 'Probe: safe_route left-biased head-on corridor'
+description: 'Integration regression based on the L2 safe_route start. Own ship follows
+  the 29.16kn safe_route corridor while a target approaches from slightly port of
+  the bow on a near-reciprocal course. Own ship must comply with COLREG starboard
+  alteration, return to track, and stay within the L2 +/-1000m route corridor.'
+startTime: '2026-06-12T03:43:27Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: -1.5
+      longitude: 105.12
+    cog: 63.6
+    sog: 29.16
+    heading: 63.6
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: -1.5
+    longitude: 105.12
+    target_sog_kn: 29.16
+  - latitude: -1.491952
+    longitude: 105.136095
+    target_sog_kn: 29.16
+  - latitude: -1.483905
+    longitude: 105.152191
+    target_sog_kn: 29.16
+  - latitude: -1.475857
+    longitude: 105.168286
+    target_sog_kn: 26.24
+  - latitude: -1.47
+    longitude: 105.184892
+    target_sog_kn: 23.33
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000901
+  initial:
+    position:
+      latitude: -1.4814466950261715
+      longitude: 105.14801401179689
+    cog: 243.6
+    sog: 12.0
+    heading: 243.6
+  model: ais_replay_vessel
+environment:
+  wind: &wind
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &current
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
+metadata:
+  schema_version: '3.0'
+  scenario_id: safe_route-left-encounter-v1.0
+  scenario_source: l2_safe_route_colregs_regression
+  colregs_rules:
+  - R14
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: l2_safe_route_corridor
+  encounter:
+    rule: Rule14
+    give_way_vessel: own
+    expected_own_action: turn_starboard
+    avoidance_time_s: 25.0
+    avoidance_delta_rad: 1.0472
+    avoidance_duration_s: 200.0
+  seed: 901
+  expected_outcome:
+    cpa_min_m_ge: 926.0
+    returned_to_route_required: true
+    route_return_xte_m_lt: 150.0
+    route_return_heading_deg_lt: 10.0
+    route_corridor_half_width_m: 1000.0
+    route_corridor_pass_limit_m: 900.0
+    rule_compliance:
+    - rule: Rule14
+      result: required
+  simulation_settings:
+    total_time: 1200.0
+    dt: 0.02
+    n_rps_initial: 4.2
+    coordinate_origin:
+    - -1.5
+    - 105.12
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *wind
+    current: *current

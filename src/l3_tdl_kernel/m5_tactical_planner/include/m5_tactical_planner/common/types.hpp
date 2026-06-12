@@ -17,6 +17,8 @@
 // Eigen 3 — column-major Dense matrices; NO_MODULE ensures modern CMake target.
 #include <Eigen/Dense>
 
+#include "m5_tactical_planner/common/units.hpp"
+
 namespace mass_l3::m5 {
 
 // ---------------------------------------------------------------------------
@@ -275,6 +277,14 @@ inline bool is_m4_fallback_rationale(const std::string& rationale) {
   return rationale.find("infeasible fallback") != std::string::npos
       || rationale.find("Failsafe") != std::string::npos
       || rationale.find("geometric fallback") != std::string::npos;
+}
+
+inline double geometric_fallback_target_speed_kn(
+    double planned_speed_mps, double nominal_speed_kn) {
+  if (std::isfinite(planned_speed_mps) && planned_speed_mps > 0.5) {
+    return units::mps_to_kn(planned_speed_mps);
+  }
+  return nominal_speed_kn;
 }
 
 inline double fallback_min_alteration_rad(
