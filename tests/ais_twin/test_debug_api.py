@@ -80,6 +80,7 @@ def test_debug_api_module_entrypoint_exposes_help():
     assert result.returncode == 0
     assert "--tracks" in result.stdout
     assert "--port" in result.stdout
+    assert "--provider" in result.stdout
 
 
 def test_load_latest_targets_from_tracks_keeps_latest_per_mmsi(tmp_path):

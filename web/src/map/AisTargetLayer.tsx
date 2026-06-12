@@ -40,6 +40,7 @@ export const AisTargetLayer: React.FC<AisTargetLayerProps> = React.memo(({
   mapRef, targets, visible,
 }) => {
   const addedRef = useRef(false);
+  const fittedRef = useRef(false);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -85,6 +86,23 @@ export const AisTargetLayer: React.FC<AisTargetLayerProps> = React.memo(({
         (map.getSource(SOURCE_ID) as any)?.setData(data);
         (map as any).setPaintProperty?.(CIRCLE_LAYER_ID, 'circle-opacity', visible ? 0.9 : 0);
         (map as any).setPaintProperty?.(LABEL_LAYER_ID, 'text-opacity', visible ? 0.9 : 0);
+      }
+
+      if (!fittedRef.current && visible && data.features.length > 0) {
+        const coordinates = data.features.map((feature) => {
+          const geometry = feature.geometry as GeoJSON.Point;
+          return geometry.coordinates;
+        });
+        const lons = coordinates.map(([lon]) => lon);
+        const lats = coordinates.map(([, lat]) => lat);
+        map.fitBounds(
+          [
+            [Math.min(...lons), Math.min(...lats)],
+            [Math.max(...lons), Math.max(...lats)],
+          ],
+          { padding: 140, maxZoom: 10, duration: 0 },
+        );
+        fittedRef.current = true;
       }
     }
 

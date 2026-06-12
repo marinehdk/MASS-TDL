@@ -7,12 +7,14 @@ import { AisTargetLayer, buildAisTargetGeoJSON } from '../AisTargetLayer';
 const addSourceMock = vi.fn();
 const addLayerMock = vi.fn();
 const setDataMock = vi.fn();
+const fitBoundsMock = vi.fn();
 
 const mockMap = {
   isStyleLoaded: vi.fn(() => true),
   once: vi.fn(),
   addSource: addSourceMock,
   addLayer: addLayerMock,
+  fitBounds: fitBoundsMock,
   getSource: vi.fn(() => ({ setData: setDataMock })),
 };
 
@@ -49,6 +51,7 @@ describe('AisTargetLayer', () => {
     addSourceMock.mockClear();
     addLayerMock.mockClear();
     setDataMock.mockClear();
+    fitBoundsMock.mockClear();
     mockMap.getSource.mockClear();
     mockMap.once.mockClear();
     mockMap.isStyleLoaded.mockReturnValue(true);
@@ -88,6 +91,15 @@ describe('AisTargetLayer', () => {
     );
     expect(addLayerMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'ais-targets-label', type: 'symbol', source: 'ais-targets' }),
+    );
+  });
+
+  it('fits the map to AIS targets on first non-empty render', () => {
+    render(<Wrapper targets={[targetOne, targetTwo]} />);
+
+    expect(fitBoundsMock).toHaveBeenCalledWith(
+      [[106.0, -2.1], [106.1, -2.0]],
+      { padding: 140, maxZoom: 10, duration: 0 },
     );
   });
 

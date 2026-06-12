@@ -82,10 +82,12 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8095, type=int)
     parser.add_argument("--limit", default=200, type=int)
+    parser.add_argument("--provider", default="aisstream")
     args = parser.parse_args(argv)
 
     DebugHandler.tracks_path = Path(args.tracks)
     DebugHandler.limit = args.limit
+    DebugHandler.provider = args.provider
     server = HTTPServer((args.host, args.port), DebugHandler)
     server.serve_forever()
 

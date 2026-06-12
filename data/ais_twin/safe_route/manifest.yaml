@@ -1,0 +1,6 @@
+provider: aisstream_demo
+dataset_kind: demo_historical_fixture
+route_path: scenarios/集成测试/safe_route.yaml
+note: Demo historical AIS tracks for A4000 HMI visibility verification. Not captured real AIS.
+records_written: 16
+segments_written: 4
