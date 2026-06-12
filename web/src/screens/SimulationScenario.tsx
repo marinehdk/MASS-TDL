@@ -3,6 +3,8 @@ import maplibregl from 'maplibre-gl';
 import { SilMapView } from '../map/SilMapView';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
 import { PlannedRouteLayer } from '../map/PlannedRouteLayer';
+import { AisTargetLayer } from '../map/AisTargetLayer';
+import { fetchLatestAisTargets, type AisTarget } from '../api/aisTwinApi';
 import * as jsyaml from 'js-yaml';
 import {
   useListScenariosQuery,
@@ -15,7 +17,8 @@ import { useSchemaValidation } from '../hooks/useSchemaValidation';
 import { useMapInteraction } from '../hooks/useMapInteraction';
 import {
   LucideCompass, LucideFolder, LucideChevronDown, LucideChevronRight, LucideSearch,
-  LucideNavigation, LucideLock, LucidePencil, LucideMapPin, LucideShip, LucideChevronLeft
+  LucideNavigation, LucideLock, LucidePencil, LucideMapPin, LucideShip, LucideChevronLeft,
+  LucideRadioTower
 } from 'lucide-react';
 import { BuilderRightRail, CollapsibleSection } from './shared/BuilderRightRail';
 
@@ -35,6 +38,27 @@ function getRouteWaypoints(doc: any): RouteWaypoint[] {
       .filter((w: RouteWaypoint) => typeof w.lat === 'number' && typeof w.lon === 'number');
   }
   return [];
+}
+
+function fitMapToAisTargets(map: maplibregl.Map | null, targets: AisTarget[]) {
+  if (!map || !targets.length) return;
+  const validTargets = targets.filter((target) => Number.isFinite(target.lat) && Number.isFinite(target.lon));
+  if (!validTargets.length) return;
+  const lats = validTargets.map((target) => target.lat);
+  const lons = validTargets.map((target) => target.lon);
+  let minLat = Math.min(...lats);
+  let maxLat = Math.max(...lats);
+  let minLon = Math.min(...lons);
+  let maxLon = Math.max(...lons);
+  if (minLat === maxLat) {
+    minLat -= 0.02;
+    maxLat += 0.02;
+  }
+  if (minLon === maxLon) {
+    minLon -= 0.02;
+    maxLon += 0.02;
+  }
+  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 140, maxZoom: 10, duration: 0 });
 }
 
 // ── ODD Select inline sub-component with Dynamic Suffix ────────────────
@@ -124,6 +148,8 @@ export function SimulationScenario() {
   // Placement mode: 'none' | 'ownship' | 'target-0' | 'target-1' etc.
   const [placementMode, setPlacementMode] = useState<string>('none');
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
+  const [aisEnabled, setAisEnabled] = useState(false);
+  const [aisTargets, setAisTargets] = useState<AisTarget[]>([]);
 
   // ── ODD Filter state ──
   const [oddDomain, setOddDomain] = useState<string>('harbour_approach');
@@ -327,6 +353,42 @@ export function SimulationScenario() {
 
   // ── Map interaction hook (Scheme B) ──
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const aisFitRef = useRef(false);
+  const encRegion = oddDomain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag';
+
+  useEffect(() => {
+    if (!aisEnabled) {
+      aisFitRef.current = false;
+      setAisTargets([]);
+      return;
+    }
+
+    aisFitRef.current = false;
+    let cancelled = false;
+    const refreshAisTargets = async () => {
+      try {
+        const response = await fetchLatestAisTargets('/ais-twin', encRegion);
+        const targets = response.targets ?? [];
+        if (!cancelled) {
+          setAisTargets(targets);
+          if (!aisFitRef.current && targets.length > 0) {
+            fitMapToAisTargets(mapRef.current, targets);
+            aisFitRef.current = true;
+          }
+        }
+      } catch {
+        if (!cancelled) setAisTargets([]);
+      }
+    };
+
+    refreshAisTargets();
+    const interval = window.setInterval(refreshAisTargets, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [aisEnabled, encRegion]);
+
   const onYamlPatchRaw = useCallback((path: string, value: unknown) => {
     handleUpdateYaml({ [path]: value });
   }, []);
@@ -558,13 +620,14 @@ const handleUpdateYaml = useCallback((updates: any) => {
           substrate={substrate}
           geometry={imazuGeometry}
           mapRef={mapRef}
-          encRegion={oddDomain === 'coastal_archipelago' ? 'coastal_archipelago' : 'trondelag'}
+          encRegion={encRegion}
         />
         <PlannedRouteLayer
           mapRef={mapRef}
           waypoints={routeWaypoints}
           visible={routeWaypoints.length >= 2}
         />
+        <AisTargetLayer mapRef={mapRef} targets={aisEnabled ? aisTargets : []} visible={aisEnabled} />
       </div>
 
       {/* TIER 1: Left Content Panel (Independent Floating Module) */}
@@ -1010,7 +1073,34 @@ const handleUpdateYaml = useCallback((updates: any) => {
       </div>
 
       {/* OVERLAY: Map Layer Switcher */}
-      <div style={{ position: 'absolute', bottom: 68, right: 20, zIndex: 20 }}>
+      <div style={{ position: 'absolute', bottom: 68, right: 20, zIndex: 120, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button"
+          data-testid="ais-live-toggle"
+          aria-pressed={aisEnabled}
+          title={aisEnabled ? '隐藏真实 AIS 目标' : '显示真实 AIS 目标'}
+          onClick={() => setAisEnabled((enabled) => !enabled)}
+          className="glass-panel"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            height: 38,
+            padding: '0 12px',
+            border: '1px solid var(--line-1)',
+            borderRadius: 4,
+            background: aisEnabled ? 'rgba(45, 212, 191, 0.16)' : 'rgba(11, 19, 32, 0.82)',
+            color: aisEnabled ? 'var(--c-phos)' : 'var(--txt-2)',
+            cursor: 'pointer',
+            fontFamily: 'var(--f-disp)',
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '0.05em',
+          }}
+        >
+          <LucideRadioTower size={14} />
+          <span>{aisEnabled && aisTargets.length > 0 ? `AIS ${aisTargets.length}` : 'AIS'}</span>
+        </button>
         <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
       </div>
 

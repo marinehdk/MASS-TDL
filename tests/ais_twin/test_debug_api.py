@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ais_twin import capture_cli
+from ais_twin import capture_cli, debug_api
 from ais_twin.capture_cli import _record_for_normalization, _strip_raw_json, main
 from ais_twin.debug_api import current_targets, latest_targets_response, load_latest_targets_from_tracks
 from ais_twin.model import CanonicalAISRecord
@@ -81,6 +81,121 @@ def test_debug_api_module_entrypoint_exposes_help():
     assert "--tracks" in result.stdout
     assert "--port" in result.stdout
     assert "--provider" in result.stdout
+    assert "--bbox" in result.stdout
+    assert "--api-key-env" in result.stdout
+
+
+def test_debug_api_parse_args_does_not_default_to_demo_tracks():
+    args = debug_api.parse_args([])
+
+    assert args.tracks is None
+    assert args.provider == "aisstream"
+
+
+def test_parse_bbox_arg_uses_lat_lon_bounds():
+    bbox = debug_api.parse_bbox_arg("-4.6,104.7,-1.1,108.7")
+
+    assert bbox.lat_min == -4.6
+    assert bbox.lon_min == 104.7
+    assert bbox.lat_max == -1.1
+    assert bbox.lon_max == 108.7
+
+
+def test_live_ais_target_store_keeps_latest_records_without_raw_json():
+    store = debug_api.LiveAisTargetStore(limit=2)
+    older = CanonicalAISRecord(
+        provider="aisstream",
+        received_at_utc=datetime(2026, 6, 12, 0, 0, 0, tzinfo=timezone.utc),
+        ais_time_utc=datetime(2026, 6, 12, 0, 0, 0, tzinfo=timezone.utc),
+        mmsi=525200401,
+        lat=-2.37,
+        lon=104.74,
+        sog_kn=None,
+        cog_deg=360.0,
+        heading_deg=None,
+        nav_status=None,
+        ship_name=None,
+        ship_type=None,
+        raw_message_type="PositionReport",
+        raw_json={"secret": "raw-payload"},
+        quality_flags=frozenset({"missing_sog"}),
+    )
+    newer = CanonicalAISRecord(
+        provider="aisstream",
+        received_at_utc=datetime(2026, 6, 12, 0, 0, 5, tzinfo=timezone.utc),
+        ais_time_utc=datetime(2026, 6, 12, 0, 0, 5, tzinfo=timezone.utc),
+        mmsi=525200401,
+        lat=-2.38,
+        lon=104.75,
+        sog_kn=8.0,
+        cog_deg=12.0,
+        heading_deg=10.0,
+        nav_status="under_way",
+        ship_name="REAL AIS",
+        ship_type=None,
+        raw_message_type="PositionReport",
+        raw_json={"secret": "raw-payload"},
+        quality_flags=frozenset(),
+    )
+
+    store.update(older)
+    store.update(newer)
+
+    targets = store.targets()
+    assert targets[0].items() >= {
+        "target_id": 525200401,
+        "lat": -2.38,
+        "lon": 104.75,
+        "sog_kn": 8.0,
+        "cog_deg": 12.0,
+        "heading_deg": 10.0,
+        "source_sensor": "ais",
+        "received_at_utc": "2026-06-12T00:00:05+00:00",
+    }.items()
+    assert "raw-payload" not in json.dumps(targets)
+
+
+def test_live_ais_target_store_merges_ship_static_data():
+    store = debug_api.LiveAisTargetStore(limit=2)
+    static = {
+        "MessageType": "ShipStaticData",
+        "Message": {
+            "ShipStaticData": {
+                "UserID": 525200401,
+                "Name": "CHITOSE",
+                "Type": 70,
+                "Destination": "PELINTUNG",
+                "Dimension": {"A": 120, "B": 60, "C": 15, "D": 15},
+            }
+        },
+        "MetaData": {"MMSI": 525200401},
+    }
+    position = CanonicalAISRecord(
+        provider="aisstream",
+        received_at_utc=datetime(2026, 6, 12, 0, 0, 5, tzinfo=timezone.utc),
+        ais_time_utc=datetime(2026, 6, 12, 0, 0, 5, tzinfo=timezone.utc),
+        mmsi=525200401,
+        lat=-2.38,
+        lon=104.75,
+        sog_kn=6.0,
+        cog_deg=89.0,
+        heading_deg=88.0,
+        nav_status="under_way",
+        ship_name=None,
+        ship_type=None,
+        raw_message_type="PositionReport",
+        raw_json={},
+        quality_flags=frozenset(),
+    )
+
+    store.update_static(static)
+    store.update(position)
+
+    target = store.targets()[0]
+    assert target["ship_name"] == "CHITOSE"
+    assert target["ship_type"] == "cargo"
+    assert target["destination"] == "PELINTUNG"
+    assert target["vessel_length_m"] == 180
 
 
 def test_load_latest_targets_from_tracks_keeps_latest_per_mmsi(tmp_path):

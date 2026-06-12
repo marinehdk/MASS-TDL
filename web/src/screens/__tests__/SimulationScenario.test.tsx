@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   setYamlValidation: vi.fn(),
   silMapView: vi.fn(),
   plannedRouteLayer: vi.fn(),
+  aisTargetLayer: vi.fn(),
 }));
 
 vi.mock('../../map/SilMapView', () => ({
@@ -24,6 +25,19 @@ vi.mock('../../map/PlannedRouteLayer', () => ({
       <div
         data-testid="planned-route-layer"
         data-waypoint-count={props.waypoints.length}
+      />
+    );
+  },
+}));
+
+vi.mock('../../map/AisTargetLayer', () => ({
+  AisTargetLayer: (props: any) => {
+    mocks.aisTargetLayer(props);
+    return (
+      <div
+        data-testid="ais-target-layer"
+        data-visible={String(props.visible)}
+        data-target-count={props.targets.length}
       />
     );
   },
@@ -46,6 +60,26 @@ vi.mock('../../api/silApi', () => ({
   useUpdateScenarioMutation: () => [vi.fn()],
 }));
 
+vi.mock('../../api/aisTwinApi', () => ({
+  fetchLatestAisTargets: vi.fn().mockResolvedValue({
+    provider: 'aisstream',
+    generated_at_utc: '2026-06-12T00:00:00Z',
+    target_count: 1,
+    targets: [
+      {
+        target_id: 257057980,
+        ship_name: 'MUNKEN',
+        lat: 63.45175666666667,
+        lon: 10.201828333333333,
+        sog_kn: 0,
+        cog_deg: 39.5,
+        heading_deg: 212,
+        source_sensor: 'ais',
+      },
+    ],
+  }),
+}));
+
 vi.mock('../../store', () => {
   const useScenarioStore = (selector: any) => selector({
     setScenario: mocks.setScenario,
@@ -57,6 +91,7 @@ vi.mock('../../store', () => {
 });
 
 import { SimulationScenario } from '../SimulationScenario';
+import { fetchLatestAisTargets } from '../../api/aisTwinApi';
 
 const buildSafeRouteYaml = () => {
   const route = Array.from({ length: 324 }, (_, i) => {
@@ -86,6 +121,8 @@ describe('SimulationScenario ODD-filtered scenario library', () => {
     mocks.setYamlValidation.mockClear();
     mocks.silMapView.mockClear();
     mocks.plannedRouteLayer.mockClear();
+    mocks.aisTargetLayer.mockClear();
+    vi.mocked(fetchLatestAisTargets).mockClear();
     mocks.listScenarios = [
       {
         id: 'safe_route',
@@ -138,6 +175,24 @@ describe('SimulationScenario ODD-filtered scenario library', () => {
         lat: -1.5,
         lon: 105.12,
       });
+    });
+  });
+
+  it('shows real AIS only on the scenario map when the AIS toggle is enabled', async () => {
+    render(<SimulationScenario />);
+
+    const toggle = screen.getByTestId('ais-live-toggle');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(fetchLatestAisTargets).not.toHaveBeenCalled();
+    expect(screen.getByTestId('ais-target-layer')).toHaveAttribute('data-visible', 'false');
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(fetchLatestAisTargets).toHaveBeenCalledWith('/ais-twin', 'trondelag'));
+    await waitFor(() => {
+      expect(screen.getByTestId('ais-target-layer')).toHaveAttribute('data-visible', 'true');
+      expect(screen.getByTestId('ais-target-layer')).toHaveAttribute('data-target-count', '1');
     });
   });
 });

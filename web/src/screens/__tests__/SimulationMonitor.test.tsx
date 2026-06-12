@@ -13,7 +13,7 @@ const mockMap = {
   getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
   getContainer: vi.fn(() => mockContainer),
   getStyle: vi.fn(() => ({ layers: [{ id: 'base' }] })),
-  jumpTo: vi.fn(), easeTo: vi.fn(), setPadding: vi.fn(),
+  jumpTo: vi.fn(), easeTo: vi.fn(), fitBounds: vi.fn(), setPadding: vi.fn(),
   isStyleLoaded: vi.fn(() => true),
   once: vi.fn(),
   setPaintProperty: vi.fn(), setLayoutProperty: vi.fn(),
@@ -101,6 +101,12 @@ describe('SimulationMonitor', () => {
     expect(screen.getByTestId('rate-btn-5x')).toBeInTheDocument();
     expect(screen.getByTestId('rate-btn-10x')).toBeInTheDocument();
     expect(screen.queryByTestId('rate-btn-50x')).not.toBeInTheDocument();
+  });
+
+  it('does not mount real AIS controls in the monitor screen', () => {
+    render(<SimulationMonitor />);
+
+    expect(screen.queryByTestId('ais-live-toggle')).not.toBeInTheDocument();
   });
 
   it('clicking captain tab toggles state and displays content panel', () => {

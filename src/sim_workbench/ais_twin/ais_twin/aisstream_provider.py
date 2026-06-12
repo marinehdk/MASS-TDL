@@ -8,11 +8,13 @@ from typing import Any
 from ais_twin.model import BBox, CanonicalAISRecord
 
 
-def build_subscription_message(api_key: str, bbox: BBox) -> dict[str, Any]:
+def build_subscription_message(
+    api_key: str, bbox: BBox, message_types: list[str] | None = None
+) -> dict[str, Any]:
     return {
         "APIKey": api_key,
         "BoundingBoxes": [[[bbox.lat_min, bbox.lon_min], [bbox.lat_max, bbox.lon_max]]],
-        "FilterMessageTypes": ["PositionReport"],
+        "FilterMessageTypes": message_types or ["PositionReport"],
     }
 
 
@@ -111,19 +113,28 @@ class AISstreamProvider:
         self.reconnect_max_s = reconnect_max_s
         self.url = "wss://stream.aisstream.io/v0/stream"
 
-    async def records(self, bbox: BBox):
+    async def messages(self, bbox: BBox, message_types: list[str] | None = None):
         import websockets
 
         delay = self.reconnect_base_s
         while True:
             try:
                 async with websockets.connect(self.url) as websocket:
-                    await websocket.send(json.dumps(build_subscription_message(self.api_key, bbox)))
+                    await websocket.send(json.dumps(build_subscription_message(self.api_key, bbox, message_types)))
                     delay = self.reconnect_base_s
                     async for message_json in websocket:
-                        record = parse_aisstream_json(message_json)
-                        if record is not None:
-                            yield record
+                        try:
+                            raw = json.loads(message_json)
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if isinstance(raw, dict):
+                            yield raw
             except Exception:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2.0, self.reconnect_max_s)
+
+    async def records(self, bbox: BBox):
+        async for raw in self.messages(bbox):
+            record = parse_aisstream_message(raw)
+            if record is not None:
+                yield record
