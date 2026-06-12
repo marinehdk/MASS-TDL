@@ -85,7 +85,7 @@ def load_plugin_manifest(path: Path) -> PluginManifest:
         id=_str_field(path, raw, "id"),
         role=_enum_field(path, raw, "role", PluginRole),
         label=_str_field(path, raw, "label"),
-        runtime=_str_field(path, raw, "runtime"),
+        runtime=_runtime_field(path, raw),
         compose=ComposeServiceRef(
             service=_str_field(path, compose, "compose.service", "service")
         ),
@@ -241,6 +241,13 @@ def _str_field(
     path: Path, raw: Mapping[str, Any], label: str, key: str | None = None
 ) -> str:
     return _require_str(path, raw.get(key or label), label)
+
+
+def _runtime_field(path: Path, raw: Mapping[str, Any]) -> str:
+    runtime = _str_field(path, raw, "runtime")
+    if runtime != "compose":
+        raise RuntimeManifestError(f"{path}: invalid runtime {runtime!r}")
+    return runtime
 
 
 def _require_str(path: Path, value: Any, label: str) -> str:
