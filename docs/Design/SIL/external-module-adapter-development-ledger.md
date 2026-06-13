@@ -42,6 +42,7 @@ Result: `8 passed, 2 warnings`
 | 6 | Screen 02 external integration panel | main | DONE | APPROVED 019eba14-b837-77c2-95ac-8d4ae7380ef1 | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13 | 661a4c4c |
 | 7 | Profile-based launch wiring | main | DONE | APPROVED 019eba14-b837-77c2-95ac-8d4ae7380ef1 | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13 | 9cfa8812 |
 | 8 | Local and A4000 integration verification | main | DONE local gate | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13 | APPROVED 019eba14-b8b0-7150-b6c4-fe6090051b13 | fc5f7b0e |
+| 9 | Screen 02 plugin runtime console full verification | codex/plugin-runtime-console | DONE local gate; evidence `runs/local_runtime_probe_20260614_010614.json`, `runs/local_a4000_container_probe_20260614_010614.json` | APPROVED 019ec1e7-11a5-7591-8100-feaff71f3356 | APPROVED 019ec1e7-4326-74b3-aede-60dd936985fa | this task commit |
 
 ## Review Notes
 
@@ -73,6 +74,8 @@ Result: `8 passed, 2 warnings`
 - Task 8 final review approved after runbook fix `fc5f7b0e`; final regression passed `45`, frontend test/build passed, compose/domain checks passed, and local API health/profiles/probe responded.
 - Task 2 code review requested fixes: missing `ros2`, subprocess timeout, and nonzero topic info must return failed gate details rather than escaping to HTTP 500.
 - Task 2 final code review approved by `019eb9f8-0c2b-7bb2-a6eb-dc5f6ba411f9`; final commit `c33ac112`.
+- Task 9 completed on `codex/plugin-runtime-console`: backend runtime regression passed `70`, frontend runtime tests passed `13`, frontend build passed, and local OrbStack gate printed `LOCAL A4000 CONTAINER ACCEPTANCE PASS`.
+- Task 9 verification fixes package runtime configs into the orchestrator image, fail fast on mismatched local compose projects unless `RECLAIM_STALE_LOCAL_PROJECT=1`, pre-create inactive plugin candidates for hot switching, and allow the containerized Runtime Console to read Docker Engine state through the A4000/local override Docker socket when the Docker CLI is absent.
 
 ## Blocking Issues
 

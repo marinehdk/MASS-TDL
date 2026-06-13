@@ -332,3 +332,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - Removed legacy `web/src/screens/shared/ExternalIntegrationPanel.tsx` and `web/src/screens/__tests__/SimulationCheck.external.test.tsx`; added `SimulationCheck.runtime.test.tsx`.
 - **当前状态 (Status)**: Local only. Targeted runtime test, shared/runtime component tests, TypeScript check, and in-app browser smoke passed. No A4000 sync, no GitHub/GitLab push.
 - **接力指示 (Hand-off Context)**: Runtime mode switch is UI-local by design because backend mode-switch endpoint does not exist yet. Existing `silApi` integration endpoints remain exported for backend/API compatibility but are no longer used by Screen 02.
+
+## [2026-06-14] Agent: Codex (GPT-5)
+- **Git Commit**: final SHA in task report (branch: `codex/plugin-runtime-console`, worktree `.worktrees/main-merge-local`)
+- **任务目标 (Goal)**: Task 9 — full verification, docs, and local OrbStack gate for Screen 02 Runtime Console.
+- **核心改动 (Actions)**:
+  - `docs/Design/SIL/external-module-adapter-runbook.md`, `docs/Design/SIL/external-module-adapter-development-ledger.md`, and `AGENTS.md`: recorded Runtime Console ownership, frontend regression commands, plugin compose chain, local runtime evidence, and A4000 narrow deploy paths.
+  - Task 8 follow-up: hardened stop confirmation and backend-pinned mode display remained part of the verified Runtime Console surface.
+  - `docker/sil_orchestrator.Dockerfile`, `docker-compose.a4000.yml`, `scripts/local-a4000-acceptance.sh`, and `src/sil_orchestrator/runtime/{compose.py,service.py}`: fixed local gate blockers by packaging runtime configs into the orchestrator image, limiting Docker Engine socket mount to the A4000/local override, failing fast on foreign-checkout compose projects unless `RECLAIM_STALE_LOCAL_PROJECT=1`, pre-creating inactive plugin candidates for hot switching, adding Docker Engine fallback, and accepting Docker Compose NDJSON output.
+  - `tests/sil_orchestrator/runtime/test_{compose.py,service.py}` and `tests/scripts/test_runtime_plugin_compose.py`: added regressions for runtime config packaging, Docker socket override scope, current-worktree compose protection, inactive plugin pre-create/recreate, Docker Engine fallback, socket timeout, chunked Docker Engine responses, and NDJSON compose parsing.
+- **当前状态 (Status)**: GREEN local-only. Backend/runtime/script regression `70 passed`; frontend runtime tests `13 passed`; frontend build passed with existing Foxglove eval/chunk warnings; local OrbStack gate passed and printed `LOCAL A4000 CONTAINER ACCEPTANCE PASS`. Runtime API hot-switch check passed: `route_l2` switched `l2-planner-main -> tdl-mock-route -> l2-planner-main`, with `GO` both times.
+- **接力指示 (Hand-off Context)**: Evidence paths: `runs/local_runtime_probe_20260614_010614.json` with `"verdict":"GO"` and `runs/local_a4000_container_probe_20260614_010614.json` with `"all_clear":true`. No A4000 sync and no GitHub/GitLab push.

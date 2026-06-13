@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from sil_orchestrator.runtime.compose import ComposeRuntime
+from sil_orchestrator.runtime.compose import ComposeRuntime, ComposeRuntimeError
 from sil_orchestrator.runtime.evidence import write_runtime_evidence
 from sil_orchestrator.runtime.models import (
     PluginManifest,
@@ -131,16 +131,8 @@ class RuntimeConsoleService:
         return report
 
     def _compose_services_by_name(self) -> dict[str, Mapping[str, object]]:
-        raw = json.loads(self.compose.ps_json())
-        if isinstance(raw, dict):
-            records: list[object] = [raw]
-        elif isinstance(raw, list):
-            records = raw
-        else:
-            records = []
-
         services: dict[str, Mapping[str, object]] = {}
-        for record in records:
+        for record in _compose_records(self.compose.ps_json()):
             if not isinstance(record, dict):
                 continue
             service = record.get("Service")
@@ -317,3 +309,26 @@ def _label_value(row: Mapping[str, object] | None, label: str) -> str | None:
         if separator and key == label and value:
             return value
     return None
+
+
+def _compose_records(raw_json: str) -> list[object]:
+    text = raw_json.strip()
+    if not text:
+        return []
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError:
+        records: list[object] = []
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ComposeRuntimeError("docker compose ps returned invalid JSON") from exc
+        return records
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        return raw
+    return []

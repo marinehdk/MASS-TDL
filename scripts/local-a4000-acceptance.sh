@@ -15,6 +15,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "integration=/api/v1/integration/profiles"
   echo "runtime=/api/v1/runtime/summary"
   echo "runtime_probe=/api/v1/runtime/probe"
+  echo "reclaim_stale_project=${RECLAIM_STALE_LOCAL_PROJECT:-0}"
   echo "domain=$ROS_DOMAIN_ID"
   echo "certs=certs/sil.crt certs/sil.key"
   exit 0
@@ -33,7 +34,39 @@ if [[ ! -s certs/sil.crt || ! -s certs/sil.key ]]; then
     >/dev/null 2>&1
 fi
 docker compose config -q
-docker compose up -d --build sil-orchestrator sil-nodes foxglove-bridge martin-tile-server plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc
+
+compose_project="${COMPOSE_PROJECT_NAME:-mass-l3-sil}"
+current_root="$(pwd)"
+existing_roots="$(
+  docker ps -a \
+    --filter "label=com.docker.compose.project=${compose_project}" \
+    --format '{{.Label "com.docker.compose.project.working_dir"}}' \
+    | sort -u \
+    | sed '/^$/d'
+)"
+
+recreate_project=0
+up_args=(up -d --build)
+if [[ -n "$existing_roots" && "$existing_roots" != "$current_root" ]]; then
+  if [[ "${RECLAIM_STALE_LOCAL_PROJECT:-0}" != "1" ]]; then
+    echo "ERROR: local compose project ${compose_project} belongs to another checkout: ${existing_roots}" >&2
+    echo "Current checkout: ${current_root}" >&2
+    echo "Stop that stack or rerun with RECLAIM_STALE_LOCAL_PROJECT=1 to recreate it for this checkout." >&2
+    exit 2
+  fi
+  echo "Recreating local compose project ${compose_project}; existing working_dir=${existing_roots}; current=${current_root}"
+  recreate_project=1
+  up_args+=(--force-recreate)
+fi
+
+docker compose "${up_args[@]}" sil-orchestrator sil-nodes foxglove-bridge martin-tile-server plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc
+if [[ "$recreate_project" == "1" ]]; then
+  docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
+  docker compose create --force-recreate plugin-route-tdl-mock >/dev/null
+else
+  docker compose create --no-recreate plugin-route-tdl-mock >/dev/null
+fi
+docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
 
 for _ in $(seq 1 60); do
   if curl -sk --max-time 2 "${ORCH_URL}/api/v1/health" | grep -q '"status":"ok"'; then

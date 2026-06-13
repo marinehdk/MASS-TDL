@@ -88,6 +88,11 @@ class FakeCompose(ComposeRuntime):
         )
 
 
+class NdjsonCompose(FakeCompose):
+    def ps_json(self):
+        return "\n".join(json.dumps(row) for row in self.services)
+
+
 def test_core_restart_uses_allowlisted_service(runtime_config_dirs, tmp_path):
     plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
     profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
@@ -156,6 +161,21 @@ def test_probe_uses_switched_plugin_as_effective_active(runtime_config_dirs, tmp
     assert route_role["active_plugin"] == "tdl-mock-route"
     assert route_role["running_plugins"] == ["tdl-mock-route"]
     assert display_role["active_plugin"] == "tdl-mock-route"
+
+
+def test_summary_accepts_compose_ndjson(runtime_config_dirs, tmp_path):
+    plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
+    profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
+    service = RuntimeConsoleService(
+        plugins, profiles, NdjsonCompose(), runs_dir=tmp_path
+    )
+
+    report = service.summary()
+
+    assert report["verdict"] == "GO"
+    assert next(
+        role for role in report["plugin_roles"] if role["role"] == "route_l2"
+    )["active_plugin"] == "l2-planner-main"
 
 
 def test_probe_writes_evidence(runtime_config_dirs, tmp_path):

@@ -29,6 +29,25 @@ def test_local_env_includes_plugin_compose():
     assert "docker-compose.plugins.yml" in result.stdout
 
 
+def test_orchestrator_image_packages_runtime_configs():
+    dockerfile = (ROOT / "docker" / "sil_orchestrator.Dockerfile").read_text()
+
+    assert "COPY config/runtime_plugins /opt/config/runtime_plugins" in dockerfile
+    assert "COPY config/runtime_profiles /opt/config/runtime_profiles" in dockerfile
+
+
+def test_a4000_orchestrator_override_mounts_docker_socket_for_runtime_console():
+    compose = (ROOT / "docker-compose.a4000.yml").read_text()
+
+    assert "/var/run/docker.sock:/var/run/docker.sock" in compose
+
+
+def test_base_compose_does_not_mount_docker_socket():
+    compose = (ROOT / "docker-compose.yml").read_text()
+
+    assert "/var/run/docker.sock:/var/run/docker.sock" not in compose
+
+
 def test_acceptance_dry_run_reports_runtime_probe():
     result = subprocess.run(
         ["bash", "scripts/local-a4000-acceptance.sh", "--dry-run"],
@@ -41,20 +60,41 @@ def test_acceptance_dry_run_reports_runtime_probe():
     assert result.returncode == 0
     assert "runtime=/api/v1/runtime/summary" in result.stdout
     assert "runtime_probe=/api/v1/runtime/probe" in result.stdout
+    assert "reclaim_stale_project=0" in result.stdout
 
 
 def test_acceptance_starts_runtime_profile_services():
     script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
-    up_line = next(
+
+    assert 'up_args=(up -d --build)' in script
+    assert 'docker compose "${up_args[@]}"' in script
+    assert "martin-tile-server" in script
+    assert "plugin-hydro-fossen" in script
+    assert "plugin-route-l2-main" in script
+    assert "plugin-fusion-yougc" in script
+    assert "plugin-route-tdl-mock" not in next(
         line for line in script.splitlines()
-        if line.startswith("docker compose up -d --build")
+        if line.startswith('docker compose "${up_args[@]}"')
     )
 
-    assert "martin-tile-server" in up_line
-    assert "plugin-hydro-fossen" in up_line
-    assert "plugin-route-l2-main" in up_line
-    assert "plugin-fusion-yougc" in up_line
-    assert "plugin-route-tdl-mock" not in up_line
+
+def test_acceptance_recreates_when_project_points_to_other_checkout():
+    script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
+
+    assert 'com.docker.compose.project.working_dir' in script
+    assert '"$existing_roots" != "$current_root"' in script
+    assert "RECLAIM_STALE_LOCAL_PROJECT" in script
+    assert "exit 2" in script
+    assert "recreate_project=1" in script
+    assert 'up_args+=(--force-recreate)' in script
+
+
+def test_acceptance_precreates_inactive_plugin_container_for_switching():
+    script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
+
+    assert "docker compose create --force-recreate plugin-route-tdl-mock" in script
+    assert "docker compose create --no-recreate plugin-route-tdl-mock" in script
+    assert "docker compose stop plugin-route-tdl-mock" in script
 
 
 def test_acceptance_gates_runtime_probe_on_go_verdict():

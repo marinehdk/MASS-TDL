@@ -24,16 +24,21 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 
 ## local OrbStack stack
 
-- Local A4000-equivalent compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml`.
+- Local A4000-equivalent compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml:docker-compose.plugins.yml`.
+- Plugin-local profile env: `COMPOSE_PROFILES=plugins`.
 - Local isolated DDS domain: `ROS_DOMAIN_ID=42`.
 - Local ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Vite `http://localhost:5173/`.
+- Local acceptance evidence is written under `runs/local_a4000_container_probe_*.json` and `runs/local_runtime_probe_*.json`.
+- `scripts/local-a4000-acceptance.sh` must run from the checkout/worktree under test. If the local `mass-l3-sil` compose project was created from another checkout, the script fails fast by default. Stop that stack first, or rerun with `RECLAIM_STALE_LOCAL_PROJECT=1` to recreate it for the current worktree before collecting evidence.
+- Runtime Console container control mounts `/var/run/docker.sock` only through the A4000/local compose override, not base compose.
+- Inactive plugin candidates may be created but stopped for hot switching; the runtime gate still requires exactly one running plugin per role.
 - Frontend dev server for screen 2 `仿真检查`:
   ```bash
   cd web
   ORCH_PORT=18000 FOX_PORT=18765 npm run dev -- --host 0.0.0.0
   ```
 - If a persistent local frontend is needed, run it in a detached shell/tmux session; do not treat Vite as part of the Docker acceptance gate.
-- The frontend integration surface belongs in screen 2 `仿真检查`; do not add extra display-only dependencies or subscribe to nonessential external data.
+- Screen 02 `仿真检查` runtime surface is the Runtime Console for TDL core readiness and one-active-plugin-per-role external plugin checks. Do not add extra display-only dependencies or subscribe to nonessential external data.
 
 ## A4000 sync and verification
 
