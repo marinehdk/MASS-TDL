@@ -182,11 +182,8 @@ class RuntimeConsoleService:
     def _plugin_roles(
         self, services: Mapping[str, Mapping[str, object]]
     ) -> list[dict[str, object]]:
-        roles = sorted(
-            {plugin.role for plugin in self.plugins.values()}, key=lambda role: role.value
-        )
         rows: list[dict[str, object]] = []
-        for role in roles:
+        for role in self._reported_roles():
             active_plugin_id = self.active_profile.plugin_roles.get(role)
             plugins = sorted(
                 (plugin for plugin in self.plugins.values() if plugin.role is role),
@@ -234,21 +231,23 @@ class RuntimeConsoleService:
             service: _state(services.get(service)) for service in CORE_SERVICES
         }
         plugin_roles = []
-        for role, active_plugin_id in self.active_profile.plugin_roles.items():
+        for role in self._reported_roles():
+            active_plugin_id = self.active_profile.plugin_roles.get(role)
             role_plugins = [
                 plugin for plugin in self.plugins.values() if plugin.role is role
             ]
-            running_plugins = [
+            running_plugins = sorted(
                 plugin.id
                 for plugin in role_plugins
                 if _state(services.get(plugin.compose.service)) == "running"
-            ]
+            )
+            expected_running = [active_plugin_id] if active_plugin_id else []
             plugin_roles.append(
                 {
                     "role": role.value,
                     "active_plugin": active_plugin_id,
-                    "running_plugins": sorted(running_plugins),
-                    "passed": running_plugins == [active_plugin_id],
+                    "running_plugins": running_plugins,
+                    "passed": running_plugins == expected_running,
                 }
             )
 
@@ -264,6 +263,11 @@ class RuntimeConsoleService:
                 "roles": plugin_roles,
             },
         ]
+
+    def _reported_roles(self) -> list[PluginRole]:
+        return sorted(
+            {plugin.role for plugin in self.plugins.values()}, key=lambda role: role.value
+        )
 
 
 def _state(row: Mapping[str, object] | None) -> str:

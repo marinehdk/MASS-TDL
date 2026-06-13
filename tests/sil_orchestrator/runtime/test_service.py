@@ -9,10 +9,11 @@ from sil_orchestrator.runtime.service import RuntimeConsoleService
 
 
 class FakeCompose(ComposeRuntime):
-    def __init__(self):
+    def __init__(self, extra_services=None):
         self.started = []
         self.stopped = []
         self.restarted = []
+        self.extra_services = extra_services or []
 
     def ps_json(self):
         return json.dumps(
@@ -25,12 +26,34 @@ class FakeCompose(ComposeRuntime):
                     "Image": "mass-l3-sil-sil-orchestrator",
                 },
                 {
+                    "Service": "sil-nodes",
+                    "Name": "mass-l3-sil-sil-nodes-1",
+                    "State": "running",
+                    "Health": "healthy",
+                    "Image": "mass-l3-sil-nodes",
+                },
+                {
+                    "Service": "foxglove-bridge",
+                    "Name": "mass-l3-sil-foxglove-bridge-1",
+                    "State": "running",
+                    "Health": "healthy",
+                    "Image": "foxglove-bridge",
+                },
+                {
+                    "Service": "martin-tile-server",
+                    "Name": "mass-l3-sil-martin-tile-server-1",
+                    "State": "running",
+                    "Health": "healthy",
+                    "Image": "martin-tile-server",
+                },
+                {
                     "Service": "plugin-route-l2-main",
                     "Name": "mass-l3-plugin-route",
                     "State": "running",
                     "Health": "starting",
                     "Image": "mass-l2-planner:main",
                 },
+                *self.extra_services,
             ]
         )
 
@@ -97,6 +120,64 @@ def test_probe_writes_evidence(runtime_config_dirs, tmp_path):
     assert evidence["mode"] in {"internal", "integration"}
     assert "core_services" in evidence
     assert "plugin_roles" in evidence
+
+
+def test_probe_rejects_running_unmapped_plugin_role(runtime_config_dirs, tmp_path):
+    plugin_dir = runtime_config_dirs["plugins"]
+    write_plugin_manifest(
+        plugin_dir,
+        plugin_id="hydro-fossen",
+        role="hydrodynamics",
+        label="Hydro Fossen",
+        service="plugin-hydro-fossen",
+        image="mass-hydro-fossen:local",
+    )
+    write_plugin_manifest(
+        plugin_dir,
+        plugin_id="yougc-fusion",
+        role="fusion",
+        label="YouGC Fusion",
+        service="plugin-fusion-yougc",
+        image="mass-yougc-fusion:local",
+    )
+    plugins = load_plugin_manifests(plugin_dir)
+    profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
+    compose = FakeCompose(
+        extra_services=[
+            {
+                "Service": "plugin-hydro-fossen",
+                "Name": "mass-l3-plugin-hydro",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "mass-hydro-fossen:local",
+            },
+            {
+                "Service": "plugin-fusion-yougc",
+                "Name": "mass-l3-plugin-fusion",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "mass-yougc-fusion:local",
+            },
+        ]
+    )
+    service = RuntimeConsoleService(plugins, profiles, compose, runs_dir=tmp_path)
+
+    report = service.probe(write_evidence=False)
+
+    plugin_gate = next(
+        gate for gate in report["gates"] if gate["name"] == "single_active_plugin_per_role"
+    )
+    failed_roles = {
+        role["role"]: role
+        for role in plugin_gate["roles"]
+        if role["passed"] is False
+    }
+    assert report["verdict"] == "NO-GO"
+    assert plugin_gate["passed"] is False
+    assert failed_roles["hydrodynamics"]["active_plugin"] is None
+    assert failed_roles["hydrodynamics"]["running_plugins"] == ["hydro-fossen"]
+    assert failed_roles["fusion"]["active_plugin"] is None
+    assert failed_roles["fusion"]["running_plugins"] == ["yougc-fusion"]
 
 
 @pytest.fixture
@@ -169,3 +250,38 @@ safety:
         encoding="utf-8",
     )
     return {"plugins": plugin_dir, "profiles": profile_dir}
+
+
+def write_plugin_manifest(
+    plugin_dir: Path,
+    *,
+    plugin_id: str,
+    role: str,
+    label: str,
+    service: str,
+    image: str,
+) -> None:
+    (plugin_dir / f"{plugin_id}.yaml").write_text(
+        f"""
+id: {plugin_id}
+role: {role}
+label: {label}
+runtime: compose
+compose:
+  service: {service}
+image:
+  expected: {image}
+  revision_label: org.opencontainers.image.revision
+ros:
+  domain_id: 42
+  required_topics: {{}}
+  forbidden_topics:
+    - /sil/actuator_cmd
+freshness: {{}}
+health:
+  required: true
+evidence:
+  include_logs_tail_lines: 40
+""",
+        encoding="utf-8",
+    )
