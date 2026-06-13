@@ -11,12 +11,19 @@ describe('runtime API types', () => {
         id: 'l2-planner-main',
         label: 'L2 Planner Main',
         service: 'plugin-route-l2-main',
-        container_name: 'mass-l3-plugin-route',
+        container: 'mass-l3-plugin-route',
         status: 'running',
         health: 'degraded',
         image: 'mass-l2-planner:main',
+        expected_image: 'mass-l2-planner:main',
         revision: 'unknown',
-        required_topics: [{ name: '/route_planning/route_plan', type: 'ship_interfaces/msg/RoutePlan', status: 'missing' }],
+        revision_label: 'org.opencontainers.image.revision',
+        required_topics: {
+          '/route_planning/route_plan': 'ship_interfaces/msg/RoutePlan',
+        },
+        topic_status: 'unchecked',
+        health_required: true,
+        ros_domain_id: 42,
       }],
     };
     const summary: RuntimeSummary = {
@@ -26,9 +33,29 @@ describe('runtime API types', () => {
       verdict: 'NO-GO',
       core_services: [],
       plugin_roles: [role],
-      gates: [],
+      gates: [
+        {
+          name: 'core_services_running',
+          passed: false,
+          services: {
+            'sil-orchestrator': 'running',
+            'sil-nodes': 'stopped',
+          },
+        },
+        {
+          name: 'single_active_plugin_per_role',
+          passed: true,
+          roles: [{
+            role: 'route_l2',
+            active_plugin: 'l2-planner-main',
+            running_plugins: ['l2-planner-main'],
+            passed: true,
+          }],
+        },
+      ],
     };
 
     expect(summary.plugin_roles[0].single_instance).toBe(true);
+    expect(summary.gates[0].passed).toBe(false);
   });
 });
