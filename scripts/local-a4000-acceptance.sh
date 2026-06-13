@@ -13,6 +13,8 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "compose=$COMPOSE_FILE"
   echo "health=${ORCH_URL}/api/v1/health"
   echo "integration=/api/v1/integration/profiles"
+  echo "runtime=/api/v1/runtime/summary"
+  echo "runtime_probe=/api/v1/runtime/probe"
   echo "domain=$ROS_DOMAIN_ID"
   echo "certs=certs/sil.crt certs/sil.key"
   exit 0
@@ -44,6 +46,10 @@ curl -sk --fail "${ORCH_URL}/api/v1/health" | grep -q '"status":"ok"'
 curl -sk --fail "${ORCH_URL}/api/v1/integration/profiles" | grep -q '"active_profile"'
 
 mkdir -p runs
+curl -sk --fail "${ORCH_URL}/api/v1/runtime/summary" | grep -q '"active_profile"'
+curl -sk --fail -X POST "${ORCH_URL}/api/v1/runtime/probe" \
+  | tee "runs/local_runtime_probe_$(date +%Y%m%d_%H%M%S).json"
+
 curl -sk --fail -X POST "${ORCH_URL}/api/v1/integration/probe" \
   | tee "runs/local_a4000_container_probe_$(date +%Y%m%d_%H%M%S).json"
 
