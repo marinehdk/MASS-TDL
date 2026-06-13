@@ -76,25 +76,24 @@ export function SimulationCheck() {
   const [lifecycleError, setLifecycleError] = useState('');
   const [transitioning, setTransitioning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<RuntimeCategory>('mode');
-  const [selectedMode, setSelectedMode] = useState<RuntimeMode>('internal');
   const [actionEntries, setActionEntries] = useState<RuntimeActionEntry[]>([]);
   const [runtimeEvidencePath, setRuntimeEvidencePath] = useState<string | undefined>();
   const [runtimeProbeVerdict, setRuntimeProbeVerdict] = useState<RuntimeVerdict | undefined>();
+  const [stopCoreArmed, setStopCoreArmed] = useState(false);
   const countdownRef = useRef(-1);
   const proceedingRef = useRef(false);
-  const modeInitializedRef = useRef(false);
-
-  useEffect(() => {
-    if (!modeInitializedRef.current && runtimeSummary?.mode) {
-      setSelectedMode(runtimeSummary.mode);
-      modeInitializedRef.current = true;
-    }
-  }, [runtimeSummary?.mode]);
 
   const appendRuntimeLog = useCallback((message: string, level: RuntimeActionEntry['level'] = 'info') => {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     setActionEntries((entries) => [{ time, message, level }, ...entries].slice(0, 30));
   }, []);
+
+  const handleModeSwitchClick = useCallback((mode: RuntimeMode) => {
+    setSelectedCategory('mode');
+    if (mode !== runtimeSummary?.mode) {
+      appendRuntimeLog(`mode switch unavailable: backend remains ${runtimeSummary?.mode ?? 'unknown'}`, 'warn');
+    }
+  }, [appendRuntimeLog, runtimeSummary?.mode]);
 
   const handleRuntimeProbe = useCallback(async () => {
     setLifecycleError('');
@@ -124,10 +123,22 @@ export function SimulationCheck() {
     }
   }, [appendRuntimeLog, refetchRuntimeSummary, restartRuntimeCoreService]);
 
-  const handleStopCoreStack = useCallback(async () => {
+  const handleArmStopCoreStack = useCallback(() => {
+    setStopCoreArmed(true);
+    setSelectedCategory('core');
+    appendRuntimeLog('stop core stack armed: confirmation required', 'warn');
+  }, [appendRuntimeLog]);
+
+  const handleCancelStopCoreStack = useCallback(() => {
+    setStopCoreArmed(false);
+    appendRuntimeLog('stop core stack cancelled');
+  }, [appendRuntimeLog]);
+
+  const handleConfirmStopCoreStack = useCallback(async () => {
     setLifecycleError('');
     try {
       await stopRuntimeCoreStack({ confirm: 'STOP_CORE_STACK' }).unwrap();
+      setStopCoreArmed(false);
       appendRuntimeLog('stop core stack');
       refetchRuntimeSummary();
     } catch (e) {
@@ -260,8 +271,9 @@ export function SimulationCheck() {
   const pluginRoles = runtimeSummary?.plugin_roles ?? [];
   const activePlugins = pluginRoles.filter((role) => Boolean(role.active_plugin)).length;
   const failedRuntimeGate = runtimeSummary?.gates.find((gate) => !gate.passed);
+  const backendMode = runtimeSummary?.mode;
   const categoryStatus: Record<RuntimeCategory, string> = {
-    mode: selectedMode === 'internal' ? 'INTERNAL' : 'INTEGRATION',
+    mode: backendMode ? (backendMode === 'internal' ? 'INTERNAL' : 'INTEGRATION') : 'UNKNOWN',
     core: `${coreServices.filter((service) => service.status === 'running').length}/${coreServices.length}`,
     plugins: `${activePlugins}/${pluginRoles.length}`,
     ros: failedRuntimeGate ? 'CHECK' : 'OK',
@@ -293,7 +305,7 @@ export function SimulationCheck() {
               {runtimeSummary?.active_profile ?? 'runtime profile pending'}
             </span>
           </div>
-          <RuntimeModeSwitch mode={selectedMode} onChange={setSelectedMode} />
+          <RuntimeModeSwitch mode={backendMode} onChange={handleModeSwitchClick} />
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
@@ -318,10 +330,8 @@ export function SimulationCheck() {
             <button type="button" onClick={handleRuntimeProbe}>Probe Runtime</button>
           </div>
           <dl style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', margin: 0, color: 'var(--txt-1)', fontSize: 12 }}>
-            <dt style={{ color: 'var(--txt-3)' }}>UI Mode</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{selectedMode}</dd>
             <dt style={{ color: 'var(--txt-3)' }}>Backend Mode</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{runtimeSummary?.mode ?? 'unknown'}</dd>
+            <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{backendMode ?? 'unknown'}</dd>
             <dt style={{ color: 'var(--txt-3)' }}>Target</dt>
             <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{runtimeSummary?.target ?? 'unknown'}</dd>
           </dl>
@@ -332,8 +342,33 @@ export function SimulationCheck() {
           <CoreServicePanel
             services={coreServices}
             onRestart={handleRestartCoreService}
-            onStopCoreStack={handleStopCoreStack}
+            onStopCoreStack={handleArmStopCoreStack}
           />
+          {stopCoreArmed && (
+            <div
+              style={{
+                border: '1px solid var(--c-danger)',
+                borderRadius: 6,
+                background: 'rgba(248,81,73,0.12)',
+                padding: 10,
+                display: 'grid',
+                gap: 8,
+              }}
+            >
+              <strong style={{ color: 'var(--c-danger)', fontSize: 12 }}>Stop Core Stack armed</strong>
+              <span style={{ color: 'var(--txt-2)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
+                Confirmation required before backend stop request.
+              </span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={handleConfirmStopCoreStack}>
+                  Confirm Stop Core Stack
+                </button>
+                <button type="button" onClick={handleCancelStopCoreStack}>
+                  Cancel Stop Core Stack
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <section style={sectionStyle(selectedCategory === 'plugins')}>

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -145,6 +145,9 @@ describe('SimulationCheck runtime console', () => {
     mocks.refetchRuntimeSummary.mockReset();
     mocks.restartRuntimeCoreService.mockReset();
     mocks.stopRuntimeCoreStack.mockReset();
+    mocks.stopRuntimeCoreStack.mockReturnValue({
+      unwrap: () => Promise.resolve({ accepted: true }),
+    });
     mocks.switchRuntimePlugin.mockReset();
     mocks.probeRuntime.mockReset();
     mocks.probeRuntime.mockReturnValue({
@@ -161,6 +164,38 @@ describe('SimulationCheck runtime console', () => {
     expect(screen.getByText('TDL 核心容器')).toBeInTheDocument();
     expect(screen.getByText('外部插件容器')).toBeInTheDocument();
     expect(screen.queryByTestId('external-integration-panel')).not.toBeInTheDocument();
+  });
+
+  it('requires explicit confirmation before stopping the core stack', async () => {
+    render(<SimulationCheck />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Core Stack' }));
+
+    expect(mocks.stopRuntimeCoreStack).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Confirm Stop Core Stack' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Stop Core Stack' }));
+
+    await waitFor(() => {
+      expect(mocks.stopRuntimeCoreStack).toHaveBeenCalledWith({ confirm: 'STOP_CORE_STACK' });
+    });
+  });
+
+  it('keeps mode switch display pinned to backend summary mode after user click', () => {
+    render(<SimulationCheck />);
+
+    const internal = screen.getByRole('button', { name: '内测' });
+    const integration = screen.getByRole('button', { name: '集成' });
+
+    expect(internal).toHaveAttribute('aria-pressed', 'true');
+    expect(integration).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(integration);
+
+    expect(internal).toHaveAttribute('aria-pressed', 'true');
+    expect(integration).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByText('INTERNAL').length).toBeGreaterThan(0);
+    expect(screen.queryByText('INTEGRATION')).not.toBeInTheDocument();
   });
 
   it('blocks lifecycle activation when runtime gate probe fails', async () => {
@@ -190,7 +225,7 @@ describe('SimulationCheck runtime console', () => {
       vi.useRealTimers();
     }
 
-    await waitFor(() => expect(mocks.probeRuntime).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.probeRuntime).toHaveBeenCalledTimes(1));
     expect(mocks.configureLifecycle).not.toHaveBeenCalled();
     expect(screen.getByText(/Runtime gate failed/)).toBeInTheDocument();
   });
