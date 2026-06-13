@@ -321,3 +321,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `docs/superpowers/{specs,plans}/2026-06-10-colregs-rejoin-acceptance*.md`: 更新 Spec/Plan，记录最终设计、验证证据和 route-return 后续边界。
 - **当前状态 (Status)**: GREEN. 本地 `pytest tests/docker/test_sil_topic_bridge.py tests/sim_workbench/scoring/test_stability_scorer.py -q` = 30/30 PASS；A4000 clean strict 8-probe fresh run = **8/8 PASS** (`rule14-ho 1336m`, `ho-port 1376m`, `rule13-ot 1498m`, `rule15-cs 1773m`, `cs-2 1664m`, `cs-edge 1030m`, `ot-boundary 593m`, `rule17 1423m`)；前端浏览器截图产物在 `artifacts/colregs_8probe_browser_20260610/colreg-rule15-ot-boundary_monitor_browser_pass_candidate.png`，不是 runner PNG。
 - **接力指示 (Hand-off Context)**: strict 8-probe gate 已通过；runner 的 `returned_to_route` 字段仍为 `False`，当前 README gate 是 `cpa_ok AND stability`。若下一轮把回归航线提升为硬验收，优先做 M5/Bridge 显式 rejoin controller，不再扩 Bridge 影子逻辑。三端同步目标：ff 合入本地 `main`，推 GitHub `origin/main` 与 GitLab `l3-tdl`；A4000 按 CLAUDE.md 继续 scp 部署，禁 git pull/reset。
+
+## [2026-06-13] Agent: Codex (GPT-5)
+- **Git Commit**: final SHA in task report (branch: `codex/plugin-runtime-console`, worktree `.worktrees/main-merge-local`)
+- **任务目标 (Goal)**: Task 8 — integrate Runtime Console into Screen 02 `仿真检查`, replacing legacy external integration profile panel and making GO path block on runtime readiness.
+- **核心改动 (Actions)**:
+  - `web/src/screens/SimulationCheck.tsx`: replaced `ExternalIntegrationPanel` with runtime console layout: local `内测/集成` mode switch, category nav, runtime summary/evidence, core-service panel, plugin-role panels, runtime action log, and retained GateSequencer/DiagnosticCanvas/ActionLogs lifecycle flow.
+  - GO transition now calls `probeRuntime().unwrap()` before lifecycle cleanup/configure; non-`GO` runtime verdict blocks with `Runtime gate failed: <gate>`.
+  - Wired local runtime actions: restart core service, stop core stack with `STOP_CORE_STACK`, switch plugin by role/plugin id, manual runtime probe, summary refetch, local-only action log.
+  - Removed legacy `web/src/screens/shared/ExternalIntegrationPanel.tsx` and `web/src/screens/__tests__/SimulationCheck.external.test.tsx`; added `SimulationCheck.runtime.test.tsx`.
+- **当前状态 (Status)**: Local only. Targeted runtime test, shared/runtime component tests, TypeScript check, and in-app browser smoke passed. No A4000 sync, no GitHub/GitLab push.
+- **接力指示 (Hand-off Context)**: Runtime mode switch is UI-local by design because backend mode-switch endpoint does not exist yet. Existing `silApi` integration endpoints remain exported for backend/API compatibility but are no longer used by Screen 02.
