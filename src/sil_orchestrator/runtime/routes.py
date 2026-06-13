@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
+from yaml import YAMLError
 
-from sil_orchestrator.runtime.compose import ComposeRuntime
+from sil_orchestrator.runtime.compose import ComposeRuntime, ComposeRuntimeError
 from sil_orchestrator.runtime.manifests import (
+    RuntimeManifestError,
     load_plugin_manifests,
     load_runtime_profiles,
 )
@@ -19,6 +23,7 @@ router = APIRouter(prefix="/api/v1/runtime")
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PLUGIN_DIR = _PROJECT_ROOT / "config" / "runtime_plugins"
 _PROFILE_DIR = _PROJECT_ROOT / "config" / "runtime_profiles"
+RuntimeResult = TypeVar("RuntimeResult")
 
 
 def _compose_files() -> tuple[str, ...]:
@@ -36,8 +41,26 @@ def _runs_dir() -> Path:
 
 @lru_cache(maxsize=1)
 def get_runtime_service() -> RuntimeConsoleService:
-    plugins = load_plugin_manifests(_PLUGIN_DIR)
-    profiles = load_runtime_profiles(_PROFILE_DIR, plugins)
+    try:
+        plugins = load_plugin_manifests(_PLUGIN_DIR)
+        profiles = load_runtime_profiles(_PROFILE_DIR, plugins)
+    except (RuntimeManifestError, OSError, YAMLError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"invalid runtime configuration: {exc}",
+        ) from exc
+
+    active_profile_name = os.environ.get("TDL_RUNTIME_PROFILE", "integration-local")
+    if active_profile_name not in profiles:
+        available = ", ".join(sorted(profiles)) or "none"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown TDL_RUNTIME_PROFILE {active_profile_name!r}; "
+                f"available profiles: {available}"
+            ),
+        )
+
     compose = ComposeRuntime(
         compose_files=_compose_files(),
         project_name=os.environ.get("COMPOSE_PROJECT_NAME", "mass-l3-sil"),
@@ -47,7 +70,7 @@ def get_runtime_service() -> RuntimeConsoleService:
         profiles=profiles,
         compose=compose,
         runs_dir=_runs_dir(),
-        active_profile_name=os.environ.get("TDL_RUNTIME_PROFILE", "integration-local"),
+        active_profile_name=active_profile_name,
     )
 
 
@@ -63,25 +86,32 @@ def _require_accepted(
     return result
 
 
+def _run_runtime(action: Callable[[], RuntimeResult]) -> RuntimeResult:
+    try:
+        return action()
+    except ComposeRuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/summary")
 async def runtime_summary(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return service.summary()
+    return _run_runtime(service.summary)
 
 
 @router.get("/core-services")
 async def runtime_core_services(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return {"services": service.core_services()}
+    return {"services": _run_runtime(service.core_services)}
 
 
 @router.get("/plugins")
 async def runtime_plugins(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return {"roles": service.plugin_roles()}
+    return {"roles": _run_runtime(service.plugin_roles)}
 
 
 @router.post("/core/{service_id}/restart")
@@ -90,7 +120,7 @@ async def restart_core_service(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
     return _require_accepted(
-        service.restart_core_service(service_id),
+        _run_runtime(lambda: service.restart_core_service(service_id)),
         status_code=404,
     )
 
@@ -99,14 +129,14 @@ async def restart_core_service(
 async def start_core_stack(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return service.start_core_stack()
+    return _run_runtime(service.start_core_stack)
 
 
 @router.post("/core/restart")
 async def restart_core_stack(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return service.restart_core_stack()
+    return _run_runtime(service.restart_core_stack)
 
 
 @router.post("/core/stop")
@@ -114,7 +144,9 @@ async def stop_core_stack(
     request: dict[str, str],
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return _require_accepted(service.stop_core_stack(request.get("confirm", "")))
+    return _require_accepted(
+        _run_runtime(lambda: service.stop_core_stack(request.get("confirm", "")))
+    )
 
 
 @router.post("/plugins/{role}/switch")
@@ -123,11 +155,13 @@ async def switch_plugin(
     request: dict[str, str],
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return _require_accepted(service.switch_plugin(role, request.get("plugin_id", "")))
+    return _require_accepted(
+        _run_runtime(lambda: service.switch_plugin(role, request.get("plugin_id", "")))
+    )
 
 
 @router.post("/probe")
 async def runtime_probe(
     service: RuntimeConsoleService = Depends(get_runtime_service),
 ) -> dict[str, object]:
-    return service.probe()
+    return _run_runtime(service.probe)
