@@ -33,7 +33,7 @@ if [[ ! -s certs/sil.crt || ! -s certs/sil.key ]]; then
     >/dev/null 2>&1
 fi
 docker compose config -q
-docker compose up -d --build sil-orchestrator sil-nodes foxglove-bridge
+docker compose up -d --build sil-orchestrator sil-nodes foxglove-bridge martin-tile-server plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc
 
 for _ in $(seq 1 60); do
   if curl -sk --max-time 2 "${ORCH_URL}/api/v1/health" | grep -q '"status":"ok"'; then
@@ -47,8 +47,10 @@ curl -sk --fail "${ORCH_URL}/api/v1/integration/profiles" | grep -q '"active_pro
 
 mkdir -p runs
 curl -sk --fail "${ORCH_URL}/api/v1/runtime/summary" | grep -q '"active_profile"'
+runtime_probe_path="runs/local_runtime_probe_$(date +%Y%m%d_%H%M%S).json"
 curl -sk --fail -X POST "${ORCH_URL}/api/v1/runtime/probe" \
-  | tee "runs/local_runtime_probe_$(date +%Y%m%d_%H%M%S).json"
+  | tee "$runtime_probe_path"
+grep -q '"verdict":"GO"' "$runtime_probe_path"
 
 curl -sk --fail -X POST "${ORCH_URL}/api/v1/integration/probe" \
   | tee "runs/local_a4000_container_probe_$(date +%Y%m%d_%H%M%S).json"

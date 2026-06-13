@@ -40,3 +40,26 @@ def test_acceptance_dry_run_reports_runtime_probe():
 
     assert result.returncode == 0
     assert "runtime=/api/v1/runtime/summary" in result.stdout
+    assert "runtime_probe=/api/v1/runtime/probe" in result.stdout
+
+
+def test_acceptance_starts_runtime_profile_services():
+    script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
+    up_line = next(
+        line for line in script.splitlines()
+        if line.startswith("docker compose up -d --build")
+    )
+
+    assert "martin-tile-server" in up_line
+    assert "plugin-hydro-fossen" in up_line
+    assert "plugin-route-l2-main" in up_line
+    assert "plugin-fusion-yougc" in up_line
+    assert "plugin-route-tdl-mock" not in up_line
+
+
+def test_acceptance_gates_runtime_probe_on_go_verdict():
+    script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
+    probe_index = script.index("/api/v1/runtime/probe")
+    verdict_index = script.index('"verdict":"GO"', probe_index)
+
+    assert verdict_index > probe_index
