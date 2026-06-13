@@ -38,6 +38,7 @@ class RuntimeConsoleService:
         self.compose = compose
         self.runs_dir = runs_dir
         self.active_profile_name = active_profile_name
+        self._selected_plugin_overrides: dict[PluginRole, str] = {}
 
     @property
     def active_profile(self) -> RuntimeProfile:
@@ -103,12 +104,13 @@ class RuntimeConsoleService:
                 ),
             }
 
-        old_plugin_id = self.active_profile.plugin_roles.get(role)
+        old_plugin_id = self._effective_plugin_roles().get(role)
         old_service = None
         if old_plugin_id:
             old_service = self.plugins[old_plugin_id].compose.service
         new_service = plugin.compose.service
         self.compose.switch_plugin(old_service, new_service)
+        self._selected_plugin_overrides[role] = plugin.id
         return {
             "accepted": True,
             "action": "switch_plugin",
@@ -183,8 +185,9 @@ class RuntimeConsoleService:
         self, services: Mapping[str, Mapping[str, object]]
     ) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
+        effective_plugin_roles = self._effective_plugin_roles()
         for role in self._reported_roles():
-            active_plugin_id = self.active_profile.plugin_roles.get(role)
+            active_plugin_id = effective_plugin_roles.get(role)
             plugins = sorted(
                 (plugin for plugin in self.plugins.values() if plugin.role is role),
                 key=lambda plugin: plugin.id,
@@ -231,8 +234,9 @@ class RuntimeConsoleService:
             service: _state(services.get(service)) for service in CORE_SERVICES
         }
         plugin_roles = []
+        effective_plugin_roles = self._effective_plugin_roles()
         for role in self._reported_roles():
-            active_plugin_id = self.active_profile.plugin_roles.get(role)
+            active_plugin_id = effective_plugin_roles.get(role)
             role_plugins = [
                 plugin for plugin in self.plugins.values() if plugin.role is role
             ]
@@ -268,6 +272,9 @@ class RuntimeConsoleService:
         return sorted(
             {plugin.role for plugin in self.plugins.values()}, key=lambda role: role.value
         )
+
+    def _effective_plugin_roles(self) -> dict[PluginRole, str]:
+        return {**self.active_profile.plugin_roles, **self._selected_plugin_overrides}
 
 
 def _state(row: Mapping[str, object] | None) -> str:

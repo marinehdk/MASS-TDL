@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from sil_orchestrator.runtime.compose import ComposeRuntime
+from sil_orchestrator.runtime.evidence import write_runtime_evidence
 from sil_orchestrator.runtime.manifests import load_plugin_manifests, load_runtime_profiles
 from sil_orchestrator.runtime.service import RuntimeConsoleService
 
@@ -13,63 +14,78 @@ class FakeCompose(ComposeRuntime):
         self.started = []
         self.stopped = []
         self.restarted = []
-        self.extra_services = extra_services or []
+        self.services = [
+            {
+                "Service": "sil-orchestrator",
+                "Name": "mass-l3-sil-sil-orchestrator-1",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "mass-l3-sil-sil-orchestrator",
+            },
+            {
+                "Service": "sil-nodes",
+                "Name": "mass-l3-sil-sil-nodes-1",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "mass-l3-sil-nodes",
+            },
+            {
+                "Service": "foxglove-bridge",
+                "Name": "mass-l3-sil-foxglove-bridge-1",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "foxglove-bridge",
+            },
+            {
+                "Service": "martin-tile-server",
+                "Name": "mass-l3-sil-martin-tile-server-1",
+                "State": "running",
+                "Health": "healthy",
+                "Image": "martin-tile-server",
+            },
+            {
+                "Service": "plugin-route-l2-main",
+                "Name": "mass-l3-plugin-route",
+                "State": "running",
+                "Health": "starting",
+                "Image": "mass-l2-planner:main",
+            },
+            *(extra_services or []),
+        ]
 
     def ps_json(self):
-        return json.dumps(
-            [
-                {
-                    "Service": "sil-orchestrator",
-                    "Name": "mass-l3-sil-sil-orchestrator-1",
-                    "State": "running",
-                    "Health": "healthy",
-                    "Image": "mass-l3-sil-sil-orchestrator",
-                },
-                {
-                    "Service": "sil-nodes",
-                    "Name": "mass-l3-sil-sil-nodes-1",
-                    "State": "running",
-                    "Health": "healthy",
-                    "Image": "mass-l3-sil-nodes",
-                },
-                {
-                    "Service": "foxglove-bridge",
-                    "Name": "mass-l3-sil-foxglove-bridge-1",
-                    "State": "running",
-                    "Health": "healthy",
-                    "Image": "foxglove-bridge",
-                },
-                {
-                    "Service": "martin-tile-server",
-                    "Name": "mass-l3-sil-martin-tile-server-1",
-                    "State": "running",
-                    "Health": "healthy",
-                    "Image": "martin-tile-server",
-                },
-                {
-                    "Service": "plugin-route-l2-main",
-                    "Name": "mass-l3-plugin-route",
-                    "State": "running",
-                    "Health": "starting",
-                    "Image": "mass-l2-planner:main",
-                },
-                *self.extra_services,
-            ]
-        )
+        return json.dumps(self.services)
 
     def restart_service(self, service):
         self.restarted.append(service)
 
     def start_service(self, service):
         self.started.append(service)
+        self._set_state(service, "running")
 
     def stop_plugin_service(self, service):
         self.stopped.append(service)
+        self._set_state(service, "stopped")
 
     def switch_plugin(self, old_service, new_service):
         if old_service:
-            self.stopped.append(old_service)
-        self.started.append(new_service)
+            self.stop_plugin_service(old_service)
+        self.start_service(new_service)
+
+    def _set_state(self, service, state):
+        for row in self.services:
+            if row["Service"] == service:
+                row["State"] = state
+                return
+        self.services.append(
+            {
+                "Service": service,
+                "Name": service,
+                "State": state,
+                "Health": "unknown",
+                "Image": "unknown",
+            }
+        )
 
 
 def test_core_restart_uses_allowlisted_service(runtime_config_dirs, tmp_path):
@@ -108,6 +124,40 @@ def test_switch_plugin_stops_old_service_starts_new_service(runtime_config_dirs,
     assert compose.started == ["plugin-route-tdl-mock"]
 
 
+def test_probe_uses_switched_plugin_as_effective_active(runtime_config_dirs, tmp_path):
+    plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
+    profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
+    compose = FakeCompose(
+        extra_services=[
+            {
+                "Service": "plugin-route-tdl-mock",
+                "Name": "mass-l3-plugin-route-mock",
+                "State": "stopped",
+                "Health": "unknown",
+                "Image": "mass-l3-plugin-route-mock:local",
+            },
+        ]
+    )
+    service = RuntimeConsoleService(plugins, profiles, compose, runs_dir=tmp_path)
+
+    service.switch_plugin("route_l2", "tdl-mock-route")
+    report = service.probe(write_evidence=False)
+
+    plugin_gate = next(
+        gate for gate in report["gates"] if gate["name"] == "single_active_plugin_per_role"
+    )
+    route_role = next(
+        role for role in plugin_gate["roles"] if role["role"] == "route_l2"
+    )
+    display_role = next(
+        role for role in report["plugin_roles"] if role["role"] == "route_l2"
+    )
+    assert report["verdict"] == "GO"
+    assert route_role["active_plugin"] == "tdl-mock-route"
+    assert route_role["running_plugins"] == ["tdl-mock-route"]
+    assert display_role["active_plugin"] == "tdl-mock-route"
+
+
 def test_probe_writes_evidence(runtime_config_dirs, tmp_path):
     plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
     profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
@@ -120,6 +170,15 @@ def test_probe_writes_evidence(runtime_config_dirs, tmp_path):
     assert evidence["mode"] in {"internal", "integration"}
     assert "core_services" in evidence
     assert "plugin_roles" in evidence
+
+
+def test_runtime_evidence_paths_are_unique_per_call(tmp_path):
+    first = write_runtime_evidence(tmp_path, {"mode": "integration"})
+    second = write_runtime_evidence(tmp_path, {"mode": "integration"})
+
+    assert first != second
+    assert first.exists()
+    assert second.exists()
 
 
 def test_probe_rejects_running_unmapped_plugin_role(runtime_config_dirs, tmp_path):
