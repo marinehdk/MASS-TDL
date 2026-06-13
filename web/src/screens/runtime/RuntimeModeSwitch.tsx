@@ -7,6 +7,7 @@ export function RuntimeModeSwitch({ mode, onChange }: { mode: RuntimeMode; onCha
         <button
           key={item}
           type="button"
+          aria-pressed={mode === item}
           onClick={() => onChange(item)}
           style={{
             height: 36,

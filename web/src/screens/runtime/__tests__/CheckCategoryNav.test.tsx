@@ -21,6 +21,7 @@ describe('CheckCategoryNav', () => {
       />,
     );
 
+    expect(screen.getByRole('button', { name: /运行模式/i })).toHaveAttribute('aria-current', 'true');
     expect(screen.getByText('TDL 核心容器')).toBeInTheDocument();
     expect(screen.getByText('外部插件容器')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /外部插件容器/i }));

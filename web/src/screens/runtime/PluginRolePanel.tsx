@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RuntimePlugin, RuntimePluginRole, RuntimePluginRoleName } from '../../api/silApi';
 
 const ROLE_LABELS: Record<RuntimePluginRoleName, string> = {
@@ -65,25 +65,30 @@ function PluginCard({ plugin, active }: { plugin: RuntimePlugin; active: boolean
 export function PluginRolePanel({
   role,
   onSwitch,
-  onRestart,
-  onStop,
 }: {
   role: RuntimePluginRole;
   onSwitch: (role: RuntimePluginRoleName, pluginId: string) => void;
-  onRestart: (service: string) => void;
-  onStop: (service: string) => void;
 }) {
   const selectId = `${role.role}-runtime-plugin`;
   const initialPluginId = role.active_plugin ?? role.plugins[0]?.id ?? '';
   const [selectedPluginId, setSelectedPluginId] = useState(initialPluginId);
-  const activePlugin = useMemo(
-    () => role.plugins.find((plugin) => plugin.id === role.active_plugin),
-    [role.active_plugin, role.plugins],
-  );
+  const previousActivePluginRef = useRef(role.active_plugin);
+  const pluginIdsKey = role.plugins.map((plugin) => plugin.id).join('\u0000');
 
   useEffect(() => {
-    setSelectedPluginId(role.active_plugin ?? role.plugins[0]?.id ?? '');
-  }, [role.active_plugin, role.plugins]);
+    const activeChanged = previousActivePluginRef.current !== role.active_plugin;
+    previousActivePluginRef.current = role.active_plugin;
+    setSelectedPluginId((current) => {
+      const fallbackPluginId = role.active_plugin ?? role.plugins[0]?.id ?? '';
+      if (activeChanged) {
+        return fallbackPluginId;
+      }
+      if (current && role.plugins.some((plugin) => plugin.id === current)) {
+        return current;
+      }
+      return fallbackPluginId;
+    });
+  }, [role.active_plugin, pluginIdsKey]);
 
   return (
     <section style={{ display: 'grid', gap: 12 }}>
@@ -116,17 +121,6 @@ export function PluginRolePanel({
           </button>
         )}
       </div>
-
-      {activePlugin && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => onRestart(activePlugin.service)}>
-            Restart {activePlugin.id}
-          </button>
-          <button type="button" onClick={() => onStop(activePlugin.service)}>
-            Stop {activePlugin.id}
-          </button>
-        </div>
-      )}
 
       <div style={{ display: 'grid', gap: 10 }}>
         {role.plugins.map((plugin) => (

@@ -1,4 +1,6 @@
-export function EvidenceStrip({ evidencePath, verdict }: { evidencePath?: string; verdict?: string }) {
+import type { RuntimeVerdict } from '../../api/silApi';
+
+export function EvidenceStrip({ evidencePath, verdict }: { evidencePath?: string; verdict?: RuntimeVerdict }) {
   return (
     <div
       style={{

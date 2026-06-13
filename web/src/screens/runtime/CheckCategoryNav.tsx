@@ -24,6 +24,7 @@ export function CheckCategoryNav({
         <button
           key={category}
           type="button"
+          aria-current={selected === category ? 'true' : undefined}
           onClick={() => onSelect(category)}
           style={{
             textAlign: 'left',
