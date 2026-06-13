@@ -321,3 +321,15 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `docs/superpowers/{specs,plans}/2026-06-10-colregs-rejoin-acceptance*.md`: 更新 Spec/Plan，记录最终设计、验证证据和 route-return 后续边界。
 - **当前状态 (Status)**: GREEN. 本地 `pytest tests/docker/test_sil_topic_bridge.py tests/sim_workbench/scoring/test_stability_scorer.py -q` = 30/30 PASS；A4000 clean strict 8-probe fresh run = **8/8 PASS** (`rule14-ho 1336m`, `ho-port 1376m`, `rule13-ot 1498m`, `rule15-cs 1773m`, `cs-2 1664m`, `cs-edge 1030m`, `ot-boundary 593m`, `rule17 1423m`)；前端浏览器截图产物在 `artifacts/colregs_8probe_browser_20260610/colreg-rule15-ot-boundary_monitor_browser_pass_candidate.png`，不是 runner PNG。
 - **接力指示 (Hand-off Context)**: strict 8-probe gate 已通过；runner 的 `returned_to_route` 字段仍为 `False`，当前 README gate 是 `cpa_ok AND stability`。若下一轮把回归航线提升为硬验收，优先做 M5/Bridge 显式 rejoin controller，不再扩 Bridge 影子逻辑。三端同步目标：ff 合入本地 `main`，推 GitHub `origin/main` 与 GitLab `l3-tdl`；A4000 按 CLAUDE.md 继续 scp 部署，禁 git pull/reset。
+
+## [2026-06-14 01:42 CST] Agent: Codex (GPT-5)
+- **Git Commit**: committed on `codex/colregs-release-work` (see `git log` for final hash)
+- **任务目标 (Goal)**: 本地完成 COLREG clean 8-probe，新增 ODD/场景化 CPA 验收与 `max_route_xte_m < 500m` 硬门槛，修复避碰后一味外绕、M5 航线发布但 L4 不及时回归的问题。
+- **核心改动 (Actions)**:
+  - `scripts/run_6_scenarios.py` + `scenarios/COLREGs测试/*.yaml`: clean 8 扩展为按场景读取 `cpa_acceptance.threshold_m`，同时将 `route_corridor_pass_limit_m=500` 纳入 overall gate。
+  - `src/sim_workbench/sil_nodes/l4_guidance_adapter/*`: active 避碰阶段保留 COLREG 外扩压制；release/近边界阶段增加 route-return 保护，`AVOIDANCE_CORRIDOR_RETURN_XTE_M=380m`，防止已接近 500m 航道边界时继续执行外绕航点。
+  - `src/l3_tdl_kernel/m5_tactical_planner/*`: M5 geometric fallback 输出更可执行的首航点、速度、转弯半径与测试覆盖。
+  - `src/l3_tdl_kernel/m6_colregs_reasoner/*`: 增加 stand-on late-action emergency release floor 与 release policy 单测。
+  - `src/sim_workbench/sil_nodes/scoring/scoring/stability_scorer.py`: 对短 false gap 做 debounce，避免单帧抖动误判 plan segment。
+- **当前状态 (Status)**: GREEN locally. `pytest ...test_guidance_adapter.py ...test_run_6_scenarios_gate.py ...test_stability_scorer.py -q` = 57/57 PASS; container M5 `test_geometric_fallback` = 15/15 PASS; container M6 `test_colregs_release_policy` = 13/13 PASS; local restart-between-runs clean 8 = 8/8 PASS, evidence `runs/local_batch_colregs_clean_current.json`; max XTE by scenario: ho 285m, ho-port 287m, rule13 336m, rule15-cs 328m, cs-2 331m, cs-edge 324m, ot-boundary 497m, rule17 320m. `scripts/local-a4000-acceptance.sh` also PASS with evidence `runs/local_a4000_container_probe_20260614_014220.json`.
+- **接力指示 (Hand-off Context)**: Work is on `codex/colregs-release-work`; do not stage generated `scenarios/colreg-rule14-ho/.preflight/*` or unrelated `scenarios/safe_route/`. A4000 not contacted in this run; before A4000, narrow-sync only touched paths and do not use `git pull/reset/rsync --delete`.

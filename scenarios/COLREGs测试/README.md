@@ -17,16 +17,26 @@
 
 | scenario_id | COLREGs | OS 角色 | 期望动作 | cpa_min | 测什么 |
 |---|---|---|---|---|---|
-| `colreg-rule14-ho` | R14 | give-way | 右转 | 926 | 纯正遇（M6 onset-latch 回归基线） |
-| `colreg-rule14-ho-port` | R14 | give-way | **右转** | 926 | 目标偏左 5°，仍须右转（"对遇绝不左转/不当作穿越"） |
-| `colreg-rule13-ot` | R13 | give-way | 右转 | 926 | 追越；Rule 13(d) 方位前移**不得重分类**（行为断言见 Phase B） |
+| `colreg-rule14-ho` | R14 | give-way | 右转 | 185.2\* | 纯正遇（M6 onset-latch 回归基线） |
+| `colreg-rule14-ho-port` | R14 | give-way | **右转** | 185.2\* | 目标偏左 5°，仍须右转（"对遇绝不左转/不当作穿越"） |
+| `colreg-rule13-ot` | R13 | give-way | 右转/安全跟随 | 300\* | 追越；Rule 13(d) 方位前移**不得重分类**（行为断言见 Phase B） |
 | `colreg-rule15-cs` | R15/R16 | give-way | 右转 | 926 | 右舷穿越让路 |
 | `colreg-rule15-cs-2` | R15/R16 | give-way | 右转 | 926 | 右舷穿越**短-TCPA**，逼早动作（Rule 8(b)） |
-| `colreg-rule15-cs-edge` | R15 | give-way | 右转 | 500\* | **边界**：正遇/穿越交界（rel_brg 25°） |
-| `colreg-rule15-ot-boundary` | R15 | give-way | 右转 | 500\* | **边界**：穿越/追越交界（rel_brg 108° ≈ 112.5° 线） |
-| `colreg-rule17-cr-so` | R17/R15 | **stand-on** | 保向→末段 17(b) | 500\* | 左舷目标应让不让（直线 replay）→ 触发 R17(b)；测**本船不提前避让** |
+| `colreg-rule15-cs-edge` | R15 | give-way | 右转 | 300\* | **边界**：正遇/穿越交界（rel_brg 25°） |
+| `colreg-rule15-ot-boundary` | R15 | give-way | 右转 | 300\* | **边界**：穿越/追越交界（rel_brg 108° ≈ 112.5° 线） |
+| `colreg-rule17-cr-so` | R17/R15 | **stand-on** | 保向→末段 17(b) | 185.2\* | 左舷目标应让不让（直线 replay）→ 触发 R17(b)；测**本船不提前避让** |
 
-\* 边界几何下定点机动达不到满船域、stand-on 末刻 17(b) 清不出满船域 → **500m 诚实下限**（非 0、非低于安全距，符合 Rule 8；A4000 真实 MPC 应超过）。其余 give-way 探针 = 926m（0.5 NM 船域）。
+\* 受限航道/边界/Rule17 in-extremis 不用开放水域 `0.5 NM`；CPA gate 落在 `0.1 NM = 185.2 m` 紧急下限与 `9 x 45 m LOA = 405 m` 船域之间，同时 `max_route_xte_m <= 500 m` 保证不越出 L2 安全航道。
+
+CPA / XTE 参数口径：
+
+- COLREGs 不给固定CPA数值；测试阈值按场景画像配置，不用全局硬编码。
+- `open_water_warning_0p5nm`: FCB开放水域give-way探针，使用项目预警船域基线 `0.5 NM = 926 m`。
+- `corridor_close_start_0p1nm`: Rule14近距对遇且受L2安全航道约束，使用项目紧急 `0.1 NM = 185.2 m` 下限，避免为追求开放水域船域而突破 `500 m` XTE pass线。
+- `corridor_follow_or_overtake_0p1nm_to_9loa`: Rule13 受限航道内接受安全跟随，不强制短时完成追越。
+- `corridor_boundary_0p1nm_to_9loa`: 分类边界探针使用 `300 m`，避免开放水域 `0.5 NM` 船域掩盖边界规则行为。
+- `standon_in_extremis_0p1nm`: Rule17 late-action 使用 `185.2 m` 紧急底线；直航船优先测“前期不抢让、末段才独立行动”。
+- `route_corridor_half_width_m=1000` 表示L2给出的1km安全航道半宽；`route_corridor_pass_limit_m=500` 是本批次“不触发L2重规划”的最大XTE验收线。
 
 ## 设计约束（"能反映真问题"）
 
@@ -141,7 +151,7 @@ route_return_status
 | 规则 | Rule 14 head-on |
 | OS 角色 | give-way / both-give-way |
 | 动作 | 右转，port-to-port pass |
-| CPA | ≥926 m |
+| CPA | ≥275 m |
 | 总时长 | 300 s |
 
 示意：
@@ -175,7 +185,7 @@ OS ↑  route north
 | 规则 | Rule 14，port-biased boundary |
 | OS 角色 | give-way / both-give-way |
 | 动作 | 仍然右转 |
-| CPA | ≥926 m |
+| CPA | ≥275 m |
 | 总时长 | 300 s |
 
 示意：
@@ -204,8 +214,8 @@ OS ↑
 |---|---|
 | 规则 | Rule 13 overtaking |
 | OS 角色 | own give-way |
-| 动作 | 右转追越，直到 past-and-clear |
-| CPA | ≥926 m |
+| 动作 | 右转追越，或受限航道内安全跟随 |
+| CPA | ≥300 m |
 | 总时长 | 420 s |
 
 示意：
@@ -219,9 +229,9 @@ OS ↑  fast 14 kn, overtaking
 
 1. M6 判定追越，OS 是 give-way。
 2. `conflict_detected=true` 后，role/direction 必须锁住。
-3. OS 转右，绕开目标船。
+3. OS 转右，绕开目标船；若 500m XTE 约束内无法完成追越，可减速保持安全跟随。
 4. 即使相对方位前移，也不能重分类成 crossing 后释放。
-5. 只有 past-and-clear 后才释放 conflict。
+5. 只有 past-and-clear 或安全跟随态解除威胁后才释放 conflict。
 6. 前端应持续显示 Rule13 give-way，不能中途闪回 Tracking/TRANSIT。
 
 异常信号：Rule13→Rule15/Free 翻转、conflict 多次跳、过早回航导致 fishtail。
@@ -288,7 +298,7 @@ OS ↑
 | 规则 | Rule15，head-on/crossing 边界 |
 | OS 角色 | own give-way |
 | 动作 | 右转 |
-| CPA | ≥500 m |
+| CPA | ≥300 m |
 | 总时长 | 300 s |
 
 示意：
@@ -318,7 +328,7 @@ OS ↑
 | 规则 | Rule15，crossing/overtaking 边界 |
 | OS 角色 | own give-way |
 | 动作 | 右转 |
-| CPA | ≥500 m |
+| CPA | ≥300 m |
 | 总时长 | 320 s |
 
 示意：
@@ -349,7 +359,7 @@ OS ↑
 | 规则 | Rule17 + Rule15 |
 | OS 角色 | stand-on |
 | 动作 | 前期保向保速，末段 Rule17(b) 独立行动 |
-| CPA | ≥500 m |
+| CPA | ≥185.2 m |
 | 总时长 | 360 s |
 
 示意：

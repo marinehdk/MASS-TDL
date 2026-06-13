@@ -23,12 +23,16 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
     QoSReliabilityPolicy = None
 
 from .guidance import (
+    AVOIDANCE_CORRIDOR_HARD_XTE_M,
+    AVOIDANCE_CORRIDOR_RETURN_XTE_M,
     CRUISE_SPEED_KN,
     ActuatorCommand,
     HeadingController,
     SpeedController,
     avoidance_waypoint_heading_deg,
     command_for_heading_speed,
+    corridor_guarded_avoidance_heading_deg,
+    corridor_guarded_avoidance_speed_kn,
     compute_avoidance_command,
     compute_transit_command,
     m4_colregs_window_target_deg,
@@ -36,6 +40,7 @@ from .guidance import (
     select_avoidance_heading,
     should_refresh_m4_colregs_target,
     signed_heading_delta_deg,
+    signed_xte_m,
 )
 
 
@@ -439,6 +444,31 @@ class L4GuidanceAdapterNode(Node):
                 self._avoidance_target_heading_deg = (
                     self._target_heading_deg + sign * latch_offset) % 360.0
 
+        if self._latch_release_triggered:
+            release_xte_m = signed_xte_m(
+                self._route_wps,
+                own["lat"],
+                own["lon"],
+                self._current_target_wp_lat,
+                self._current_target_wp_lon,
+            )
+            if (release_xte_m is not None and
+                    math.isfinite(release_xte_m) and
+                    abs(release_xte_m) >= AVOIDANCE_CORRIDOR_HARD_XTE_M):
+                return self._compute_transit_command(own)
+        else:
+            active_xte_m = signed_xte_m(
+                self._route_wps,
+                own["lat"],
+                own["lon"],
+                self._current_target_wp_lat,
+                self._current_target_wp_lon,
+            )
+            if (active_xte_m is not None and
+                    math.isfinite(active_xte_m) and
+                    abs(active_xte_m) >= AVOIDANCE_CORRIDOR_RETURN_XTE_M):
+                return self._compute_transit_command(own)
+
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
             waypoints = [self._last_avoidance_waypoint]
@@ -454,6 +484,28 @@ class L4GuidanceAdapterNode(Node):
             avoidance_target_heading_deg=self._avoidance_target_heading_deg,
             nominal_heading_deg=self._target_heading_deg,
         )
+        selected_heading = corridor_guarded_avoidance_heading_deg(
+            selected_heading_deg=selected_heading,
+            nominal_heading_deg=self._target_heading_deg,
+            route_wps=self._route_wps,
+            own_lat=own["lat"],
+            own_lon=own["lon"],
+            current_target_wp_lat=self._current_target_wp_lat,
+            current_target_wp_lon=self._current_target_wp_lon,
+        )
+        target_speed_override = None
+        if self._last_avoidance_waypoint is not None:
+            target_speed_override = corridor_guarded_avoidance_speed_kn(
+                target_speed_kn=float(getattr(
+                    self._last_avoidance_waypoint, "target_speed_kn", CRUISE_SPEED_KN)),
+                selected_heading_deg=selected_heading,
+                nominal_heading_deg=self._target_heading_deg,
+                route_wps=self._route_wps,
+                own_lat=own["lat"],
+                own_lon=own["lon"],
+                current_target_wp_lat=self._current_target_wp_lat,
+                current_target_wp_lon=self._current_target_wp_lon,
+            )
         return compute_avoidance_command(
             current_heading_deg=own["heading_deg"],
             current_sog_kn=own["sog_kn"],
@@ -463,6 +515,7 @@ class L4GuidanceAdapterNode(Node):
             last_avoidance_waypoint=self._last_avoidance_waypoint,
             heading_controller=self._avoidance_heading_controller,
             speed_controller=self._speed_controller,
+            target_speed_override_kn=target_speed_override,
         )
 
     def _compute_transit_command(self, own) -> ActuatorCommand:

@@ -201,5 +201,20 @@ TEST(GeometricFallback, TargetSpeedUsesPlannedSpeedBeforeNominalDefault) {
   EXPECT_NEAR(geometric_fallback_target_speed_kn(0.5, 10.0), 10.0, 1e-6);
 }
 
+TEST(GeometricFallback, FirstExecutableWaypointUsesSubstantialLookahead) {
+  const double own_psi = 0.0;
+  const double target_psi = 85.0 * M_PI / 180.0;
+  const double speed_mps = 12.0 * 0.514444;
+  const double rot_rad_s = 5.0 * M_PI / 180.0;
+
+  const auto point = geometric_fallback_arc_point(
+      own_psi, target_psi, speed_mps, rot_rad_s,
+      geometric_fallback_waypoint_time_s(0));
+  const double bearing = std::atan2(point.y_m, point.x_m);
+
+  EXPECT_GE(bearing, 35.0 * M_PI / 180.0);
+  EXPECT_LE(std::fabs(point.y_m), 500.0);
+}
+
 }  // namespace
 }  // namespace mass_l3::m5

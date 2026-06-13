@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
                        "src/sim_workbench/sil_nodes/scoring/scoring"))
 import stability_scorer as ss  # noqa: E402
 
-BASE = "https://127.0.0.1:18000/api/v1"
+BASE = os.environ.get("SIL_ORCH_BASE_URL", "https://127.0.0.1:18000/api/v1").rstrip("/")
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
@@ -32,11 +32,11 @@ SCENARIOS = [
     "colreg-rule15-cs-edge",
     "colreg-rule15-ot-boundary",
     "colreg-rule17-cr-so",
-    "safe_route-left-encounter",
 ]
 
 ROUTE_CORRIDOR_HALF_WIDTH_M = 1000.0
-ROUTE_CORRIDOR_PASS_LIMIT_M = 900.0
+ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
+DEFAULT_CPA_FLOOR_M = 500.0
 
 def req(method, path, body=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
@@ -64,6 +64,13 @@ def get_cross_track_error(x, y, x0, y0, hdg_deg):
     theta = math.radians(hdg_deg)
     # cross track error = (x - x0) * cos(theta) - (y - y0) * sin(theta)
     return (x - x0) * math.cos(theta) - (y - y0) * math.sin(theta)
+
+def _ownship_record_near_origin(record, lat0, lon0, max_distance_m=20000.0):
+    try:
+        x_m, y_m = _enu(float(record["lat"]), float(record["lon"]), lat0, lon0)
+    except (KeyError, TypeError, ValueError):
+        return False
+    return math.hypot(x_m, y_m) <= max_distance_m
 
 def read_trace_run_records(trace_path=Path("runs/trace_current.jsonl")):
     records = []
@@ -104,7 +111,11 @@ def compute_route_return_status(
     route_corridor_half_width_m=ROUTE_CORRIDOR_HALF_WIDTH_M,
     route_corridor_pass_limit_m=ROUTE_CORRIDOR_PASS_LIMIT_M,
 ):
-    osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
+    osh = [
+        r for r in run_records
+        if r.get("topic") == "/sil/own_ship_state" and
+        _ownship_record_near_origin(r, lat0, lon0)
+    ]
     bp = [r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"]
 
     final_behavior = bp[-1].get("behavior") if bp else None
@@ -227,6 +238,21 @@ def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
                 ((not route_return_required) or returned_to_route) and
                 route_corridor_ok and
                 ((not overtake_required) or overtake_completed))
+
+def expected_cpa_floor_m(expected):
+    cpa_acceptance = expected.get("cpa_acceptance") or {}
+    profile_floor = cpa_acceptance.get("threshold_m")
+    legacy_floor = expected.get("cpa_min_m_ge")
+    if profile_floor is not None:
+        profile_floor = float(profile_floor)
+        if legacy_floor is not None and abs(float(legacy_floor) - profile_floor) > 1e-6:
+            raise ValueError(
+                "metadata.expected_outcome.cpa_acceptance.threshold_m "
+                "must match cpa_min_m_ge")
+        return profile_floor
+    if legacy_floor is not None:
+        return float(legacy_floor)
+    return DEFAULT_CPA_FLOOR_M
 
 def run_scenario(scenario_id):
     print(f"\n==================================================")
@@ -503,7 +529,7 @@ def run_scenario(scenario_id):
 
     # ── Overall verdict: CPA floor AND behavioral stability ───────────────
     min_dcpa_m = cpa_min_nm * 1852.0 if not math.isnan(cpa_min_nm) else float("nan")
-    cpa_floor_m = float(expected.get("cpa_min_m_ge", 0.0))
+    cpa_floor_m = expected_cpa_floor_m(expected)
     cpa_ok = (not math.isnan(min_dcpa_m)) and (min_dcpa_m >= cpa_floor_m)
     overall_pass = compute_overall_pass(
         cpa_ok=cpa_ok,

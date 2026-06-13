@@ -333,30 +333,18 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   double target_psi = mass_l3::m5::fallback_target_heading(
       route_brg, h_min, h_max, min_alt_rad, input.colregs_preferred_direction);
 
-  // Normalize delta to (-π, π]
-  double delta_psi = target_psi - own_psi;
-  while (delta_psi >  units::kPi) { delta_psi -= units::kTwoPi; }
-  while (delta_psi < -units::kPi) { delta_psi += units::kTwoPi; }
-
-  // ROT from vessel dynamics model; guard against pathological zero
-  const double rot = std::max(input.rot_max_rad_s, 1e-4);
-
-  // Turn radius from kinematics: R = u / ω
-  const double turn_radius_m = std::max(u_mps / rot, 50.0);
-
-  // Sign of rate: positive = starboard (clockwise, psi increasing)
-  const double r_rad_s = (delta_psi >= 0.0) ? rot : -rot;
-
-  // Time to reach target heading on circular arc
-  const double turn_duration_s = std::abs(delta_psi) / rot;
+  const double delta_psi = mass_l3::m5::geometric_fallback_delta_heading_rad(
+      own_psi, target_psi);
+  const double turn_radius_m = mass_l3::m5::geometric_fallback_turn_radius_m(
+      u_mps, input.rot_max_rad_s);
 
   constexpr int kNWp = 10;
-  constexpr double kDt = 10.0;  // seconds per waypoint step
 
   l3_msgs::msg::AvoidancePlan plan;
   plan.schema_version = 112;
   plan.stamp = this->get_clock()->now();
-  plan.horizon_s = static_cast<float>(kNWp * kDt);
+  plan.horizon_s = static_cast<float>(
+      mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1));
   plan.status = "DEGRADED";
   plan.confidence = 0.6f;
   plan.rationale = "M5 geometric COLREG fallback (" + reason + ")"
@@ -367,26 +355,11 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   double prev_xE = 0.0;
 
   for (int i = 0; i < kNWp; ++i) {
-    const double t = static_cast<double>(i + 1) * kDt;
-
-    // Integrate circular arc equations in NED (x=North, y=East)
-    // xN(t) = R * [sin(ψ₀ + ω·t_arc) − sin(ψ₀)]
-    // xE(t) = R * [−cos(ψ₀ + ω·t_arc) + cos(ψ₀)]
-    // After turn completion, propagate straight at target_psi.
-    double xN, xE;
-    if (t <= turn_duration_s) {
-      const double dpsi = r_rad_s * t;
-      xN = turn_radius_m * (std::sin(own_psi + dpsi) - std::sin(own_psi));
-      xE = turn_radius_m * (-std::cos(own_psi + dpsi) + std::cos(own_psi));
-    } else {
-      // Position at end of turn arc
-      const double xN_arc = turn_radius_m * (std::sin(own_psi + delta_psi) - std::sin(own_psi));
-      const double xE_arc = turn_radius_m * (-std::cos(own_psi + delta_psi) + std::cos(own_psi));
-      // Straight-ahead propagation after turn
-      const double t_after = t - turn_duration_s;
-      xN = xN_arc + u_mps * t_after * std::cos(target_psi);
-      xE = xE_arc + u_mps * t_after * std::sin(target_psi);
-    }
+    const double t = mass_l3::m5::geometric_fallback_waypoint_time_s(i);
+    const auto point = mass_l3::m5::geometric_fallback_arc_point(
+        own_psi, target_psi, u_mps, input.rot_max_rad_s, t);
+    const double xN = point.x_m;
+    const double xE = point.y_m;
 
     // Segment distance from previous waypoint
     const double ddN = xN - prev_xN;

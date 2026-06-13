@@ -287,6 +287,69 @@ inline double geometric_fallback_target_speed_kn(
   return nominal_speed_kn;
 }
 
+inline double geometric_fallback_delta_heading_rad(double own_psi, double target_psi) {
+  double delta = target_psi - own_psi;
+  while (delta > units::kPi) {
+    delta -= units::kTwoPi;
+  }
+  while (delta < -units::kPi) {
+    delta += units::kTwoPi;
+  }
+  return delta;
+}
+
+inline double geometric_fallback_rot_rad_s(double rot_max_rad_s) {
+  return std::max(rot_max_rad_s, 1e-4);
+}
+
+inline double geometric_fallback_turn_radius_m(double speed_mps, double rot_max_rad_s) {
+  return std::max(speed_mps / geometric_fallback_rot_rad_s(rot_max_rad_s), 50.0);
+}
+
+inline double geometric_fallback_waypoint_time_s(int waypoint_index) {
+  constexpr double kFirstExecutableLookaheadS = 60.0;
+  constexpr double kStepS = 10.0;
+  return kFirstExecutableLookaheadS
+      + (static_cast<double>(std::max(waypoint_index, 0)) * kStepS);
+}
+
+inline TrajectoryPoint geometric_fallback_arc_point(
+    double own_psi,
+    double target_psi,
+    double speed_mps,
+    double rot_max_rad_s,
+    double t_s) {
+  const double delta_psi = geometric_fallback_delta_heading_rad(own_psi, target_psi);
+  const double rot = geometric_fallback_rot_rad_s(rot_max_rad_s);
+  const double turn_radius_m = geometric_fallback_turn_radius_m(speed_mps, rot_max_rad_s);
+  const double r_rad_s = (delta_psi >= 0.0) ? rot : -rot;
+  const double turn_duration_s = std::abs(delta_psi) / rot;
+
+  TrajectoryPoint point;
+  point.u_mps = speed_mps;
+  point.t_s = t_s;
+
+  if (t_s <= turn_duration_s) {
+    const double dpsi = r_rad_s * t_s;
+    point.x_m = turn_radius_m * (std::sin(own_psi + dpsi) - std::sin(own_psi));
+    point.y_m = turn_radius_m * (-std::cos(own_psi + dpsi) + std::cos(own_psi));
+    point.psi_rad = own_psi + dpsi;
+    point.r_rad_s = r_rad_s;
+    return point;
+  }
+
+  const double x_n_arc = turn_radius_m
+      * (std::sin(own_psi + delta_psi) - std::sin(own_psi));
+  const double x_e_arc = turn_radius_m
+      * (-std::cos(own_psi + delta_psi) + std::cos(own_psi));
+  const double t_after = t_s - turn_duration_s;
+  point.x_m = x_n_arc + speed_mps * t_after * std::cos(target_psi);
+  point.y_m = x_e_arc + speed_mps * t_after * std::sin(target_psi);
+  point.psi_rad = target_psi;
+  point.r_rad_s = 0.0;
+  return point;
+}
+
 inline double fallback_min_alteration_rad(
     double route_brg, double h_min, double h_max, double min_alt_rad) {
   if (min_alt_rad > 0.0) {
