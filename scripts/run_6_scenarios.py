@@ -209,15 +209,28 @@ def _risk_recovery_ok(risk_trace, avoidance_onset_s, max_risk_score):
     onset_row = _first_risk_row_at_or_after(risk_trace, avoidance_onset_s)
     if onset_row is None:
         return max_risk_score == 0.0
-    if _risk_row_outside_warning(onset_row) and onset_row["closing_speed_mps"] <= 0.0:
+
+    post_onset_rows = [
+        row for row in risk_trace
+        if row["t_s"] >= avoidance_onset_s
+    ]
+    warning_or_worse_rows = [
+        row for row in post_onset_rows
+        if not _risk_row_outside_warning(row)
+    ]
+    if not warning_or_worse_rows:
         return True
 
+    peak_row = max(
+        warning_or_worse_rows,
+        key=lambda row: float(row.get("risk_score", 0.0)),
+    )
     recovery_row = _first_risk_row_at_or_after(
-        risk_trace, avoidance_onset_s + 60.0)
+        risk_trace, peak_row["t_s"] + 60.0)
     if recovery_row is None:
         return False
 
-    return (recovery_row["risk_score"] - onset_row["risk_score"]) < -0.02
+    return (recovery_row["risk_score"] - peak_row["risk_score"]) < -0.02
 
 def compute_risk_metrics(run_records, targets_meta, *, lat0, lon0, encounter=None) -> dict:
     ownship_records = sorted(

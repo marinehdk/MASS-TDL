@@ -117,6 +117,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         --packages-select \
             l3_msgs l3_external_msgs \
+            l3_risk_model \
             ship_interfaces \
             sil_common sil_msgs sil_lifecycle \
             ais_twin \

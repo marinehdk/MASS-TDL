@@ -402,6 +402,62 @@ def test_risk_recovery_fails_when_score_does_not_decrease_after_avoidance():
     assert metrics["risk_recovery_ok"] is False
 
 
+def test_risk_recovery_passes_when_avoidance_stays_outside_warning_domain():
+    runner = _load_runner()
+    risk_trace = [
+        {
+            "t_s": 10.0,
+            "risk_phase": "Monitor",
+            "risk_score": 0.30,
+            "warning_ddv": 0.0,
+            "danger_ddv": 0.0,
+            "closing_speed_mps": 6.0,
+        },
+        {
+            "t_s": 70.0,
+            "risk_phase": "Clear",
+            "risk_score": 0.34,
+            "warning_ddv": 0.0,
+            "danger_ddv": 0.0,
+            "closing_speed_mps": 5.0,
+        },
+    ]
+
+    assert runner._risk_recovery_ok(risk_trace, 10.0, 0.34) is True
+
+
+def test_risk_recovery_passes_when_warning_peak_recovers_within_window():
+    runner = _load_runner()
+    risk_trace = [
+        {
+            "t_s": 10.0,
+            "risk_phase": "Monitor",
+            "risk_score": 0.30,
+            "warning_ddv": 0.0,
+            "danger_ddv": 0.0,
+            "closing_speed_mps": 6.0,
+        },
+        {
+            "t_s": 120.0,
+            "risk_phase": "Warning",
+            "risk_score": 0.52,
+            "warning_ddv": 0.10,
+            "danger_ddv": 0.0,
+            "closing_speed_mps": 4.0,
+        },
+        {
+            "t_s": 180.0,
+            "risk_phase": "Clear",
+            "risk_score": 0.20,
+            "warning_ddv": 0.0,
+            "danger_ddv": 0.0,
+            "closing_speed_mps": -2.0,
+        },
+    ]
+
+    assert runner._risk_recovery_ok(risk_trace, 10.0, 0.52) is True
+
+
 def test_risk_recovery_passes_without_avoidance_when_outside_warning():
     runner = _load_runner()
     records = [

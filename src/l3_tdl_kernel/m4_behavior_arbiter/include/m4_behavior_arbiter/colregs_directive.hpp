@@ -51,6 +51,7 @@ void apply_primary_risk_guidance(
     ColregsDirective& directive,
     const mass_l3::risk::RiskVector& primary_risk,
     const mass_l3::risk::RiskVector& reduced_speed_risk);
+[[nodiscard]] bool dynamic_risk_requires_max_deviation(const ColregsDirective& directive);
 [[nodiscard]] double required_deviation_deg(
     const ColregsDirective& directive,
     double nearest_target_range_m,

@@ -451,7 +451,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         kColregsTacticalCpaBufferM,
         2.5,
         effective_max_deviation_deg);
-    if (nearest_target_cpa_m < std::numeric_limits<double>::max() &&
+    if (dynamic_risk_requires_max_deviation(colregs_directive)) {
+      required_dev_deg = effective_max_deviation_deg;
+    } else if (nearest_target_cpa_m < std::numeric_limits<double>::max() &&
         (colregs_directive.direction == ColregsDirection::Starboard ||
          colregs_directive.direction == ColregsDirection::Port)) {
       const double min_alt_deg = colregs_directive.min_alteration_deg;

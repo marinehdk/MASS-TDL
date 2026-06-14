@@ -122,6 +122,25 @@ TEST(ColregsDirective, StandOnIndependentActionDoesNotUseQuarteringWideEnvelope)
   EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 60.0);
 }
 
+TEST(ColregsDirective, StandOnCriticalActionUsesEmergencyDeviationEnvelope) {
+  const auto directive = extract_colregs_directive(
+      make_msg("STARBOARD", 15.0, kRoleStandOn, "CRITICAL_ACTION"));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, false), 75.0);
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 150.0);
+}
+
+TEST(ColregsDirective, StandOnCriticalDangerRiskRequiresMaximumDeviation) {
+  auto directive = extract_colregs_directive(
+      make_msg("STARBOARD", 15.0, kRoleStandOn, "CRITICAL_ACTION"));
+  directive.primary_risk_phase = "Critical";
+  directive.primary_danger_margin_m = -20.0;
+
+  EXPECT_DOUBLE_EQ(
+      required_deviation_deg(directive, 5000.0, 1500.0, 2.5, 75.0),
+      75.0);
+}
+
 TEST(ColregsDirective, ReduceSpeedAndHoldDoNotCreateHeadingWindow) {
   const auto reduce = extract_colregs_directive(make_msg("REDUCE_SPEED", 15.0));
   EXPECT_EQ(reduce.direction, ColregsDirection::ReduceSpeed);
@@ -170,6 +189,34 @@ TEST(ColregsDirective, FarRule15CrossingCanPreferSpeedReduction) {
   EXPECT_DOUBLE_EQ(
       required_deviation_deg(directive, current_risk.range_m, 1500.0, 2.5, 75.0),
       0.0);
+}
+
+TEST(ColregsDirective, GiveWayOvertakingCanPreferSpeedReductionWhenItArrestsClosing) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "PRESERVE_COURSE";
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1100.0;
+  current_risk.closing_speed_mps = 2.4;
+  current_risk.tcpa_s = 520.0;
+  current_risk.warning_margin_m = 80.0;
+  current_risk.danger_margin_m = 410.0;
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Monitor;
+  current_risk.risk_score = 0.24;
+
+  mass_l3::risk::RiskVector slowed_risk = current_risk;
+  slowed_risk.closing_speed_mps = 0.2;
+  slowed_risk.tcpa_s = 900.0;
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_TRUE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
 }
 
 TEST(ColregsDirective, DangerCrossingKeepsStarboardAlteration) {

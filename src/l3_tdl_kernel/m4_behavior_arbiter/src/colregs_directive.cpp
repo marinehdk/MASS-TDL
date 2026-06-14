@@ -29,6 +29,10 @@ bool is_stand_on_action(const ColregsDirective& directive) {
       (directive.phase == "INDEPENDENT_ACTION" || directive.phase == "CRITICAL_ACTION");
 }
 
+bool is_stand_on_critical_action(const ColregsDirective& directive) {
+  return directive.primary_role == kRoleStandOn && directive.phase == "CRITICAL_ACTION";
+}
+
 bool is_danger_or_critical(const mass_l3::risk::RiskVector& risk) {
   return risk.risk_phase == mass_l3::risk::RiskPhase::Danger ||
       risk.risk_phase == mass_l3::risk::RiskPhase::Critical ||
@@ -41,6 +45,17 @@ bool speed_reduction_improves_margin(
     const mass_l3::risk::RiskVector& reduced_speed) {
   constexpr double kMinimumMarginGainM = 10.0;
   return reduced_speed.warning_margin_m >= current.warning_margin_m + kMinimumMarginGainM &&
+      reduced_speed.danger_margin_m >= current.danger_margin_m - kRiskEpsilon;
+}
+
+bool speed_reduction_arrests_closing(
+    const mass_l3::risk::RiskVector& current,
+    const mass_l3::risk::RiskVector& reduced_speed) {
+  constexpr double kMinimumClosingDropMps = 1.0;
+  constexpr double kSafeFollowingClosingMps = 0.5;
+  return current.closing_speed_mps > kSafeFollowingClosingMps &&
+      (current.closing_speed_mps - reduced_speed.closing_speed_mps) >= kMinimumClosingDropMps &&
+      reduced_speed.closing_speed_mps <= kSafeFollowingClosingMps &&
       reduced_speed.danger_margin_m >= current.danger_margin_m - kRiskEpsilon;
 }
 
@@ -140,10 +155,20 @@ void apply_primary_risk_guidance(
   const bool outside_danger = !is_danger_or_critical(primary_risk);
 
   if (can_reduce_speed && ample_tcpa && outside_danger &&
-      speed_reduction_improves_margin(primary_risk, reduced_speed_risk)) {
+      (speed_reduction_improves_margin(primary_risk, reduced_speed_risk) ||
+       speed_reduction_arrests_closing(primary_risk, reduced_speed_risk))) {
     directive.direction = ColregsDirection::ReduceSpeed;
     directive.speed_reduction_preferred = true;
   }
+}
+
+bool dynamic_risk_requires_max_deviation(const ColregsDirective& directive) {
+  if (!directive.conflict_active || !is_stand_on_critical_action(directive)) {
+    return false;
+  }
+  return directive.primary_risk_phase == "Danger" ||
+      directive.primary_risk_phase == "Critical" ||
+      directive.primary_danger_margin_m < -kRiskEpsilon;
 }
 
 double required_deviation_deg(
@@ -156,6 +181,10 @@ double required_deviation_deg(
       (directive.direction != ColregsDirection::Starboard &&
        directive.direction != ColregsDirection::Port)) {
     return 0.0;
+  }
+
+  if (dynamic_risk_requires_max_deviation(directive)) {
+    return max_deviation_deg;
   }
 
   double required = directive.min_alteration_deg;
@@ -177,11 +206,14 @@ double effective_colregs_max_deviation_deg(
       directive.direction != ColregsDirection::Port) {
     return 0.0;
   }
+  const double base_cap =
+      has_quartering_target ? quartering_max_deviation_deg : bow_max_deviation_deg;
+  if (is_stand_on_critical_action(directive)) {
+    return std::max(base_cap, directive.min_alteration_deg);
+  }
   if (is_stand_on_action(directive)) {
     return std::max(kStandOnActionMaxDeviationDeg, directive.min_alteration_deg);
   }
-  const double base_cap =
-      has_quartering_target ? quartering_max_deviation_deg : bow_max_deviation_deg;
   return std::max(base_cap, directive.min_alteration_deg);
 }
 
