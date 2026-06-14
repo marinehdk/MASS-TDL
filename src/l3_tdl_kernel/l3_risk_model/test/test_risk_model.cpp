@@ -280,6 +280,25 @@ TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapMeetsThreshold) 
   EXPECT_EQ(0U, state.candidate_count);
 }
 
+TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapEqualsThreshold) {
+  RankingState state;
+  state.previous_primary_id = "previous";
+  state.candidate_primary_id = "stale";
+  state.candidate_count = 1U;
+  RankingConfig config;
+  config.switch_score_gap = 0.12;
+  const std::vector<RiskVector> risks{
+    ranked_target("previous", RiskPhase::Warning, 0.80, 60.0, 200.0),
+    ranked_target("candidate", RiskPhase::Warning, 0.92, 30.0, 150.0)};
+
+  const auto selected = select_primary(risks, &state, config);
+
+  EXPECT_EQ("candidate", selected.target_id);
+  EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_EQ(0U, state.candidate_count);
+}
+
 TEST(RiskModelTest, SelectPrimaryBreaksTiesByNonNegativeTcpaThenRange) {
   RankingState state;
   const std::vector<RiskVector> smaller_tcpa{
@@ -298,6 +317,44 @@ TEST(RiskModelTest, SelectPrimaryBreaksTiesByNonNegativeTcpaThenRange) {
     ranked_target("far", RiskPhase::Warning, 0.70, 30.0, 300.0),
     ranked_target("near", RiskPhase::Warning, 0.70, 30.0, 100.0)};
   EXPECT_EQ("near", select_primary(smaller_range, &state).target_id);
+}
+
+TEST(RiskModelTest, SelectPrimaryBreaksExactTiesByTargetIdRegardlessOfInputOrder) {
+  const std::vector<RiskVector> ordered{
+    ranked_target("alpha", RiskPhase::Warning, 0.70, 30.0, 100.0),
+    ranked_target("beta", RiskPhase::Warning, 0.70, 30.0, 100.0)};
+  const std::vector<RiskVector> reversed{
+    ranked_target("beta", RiskPhase::Warning, 0.70, 30.0, 100.0),
+    ranked_target("alpha", RiskPhase::Warning, 0.70, 30.0, 100.0)};
+
+  EXPECT_EQ("alpha", select_primary(ordered, nullptr).target_id);
+  EXPECT_EQ("alpha", select_primary(reversed, nullptr).target_id);
+}
+
+TEST(RiskModelTest, SelectPrimaryAllowsNullStateAndSelectsBest) {
+  const std::vector<RiskVector> risks{
+    ranked_target("warning", RiskPhase::Warning, 0.95, 30.0, 100.0),
+    ranked_target("danger", RiskPhase::Danger, 0.60, 45.0, 200.0)};
+
+  const auto selected = select_primary(risks, nullptr);
+
+  EXPECT_EQ("danger", selected.target_id);
+}
+
+TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenPreviousPrimaryAbsent) {
+  RankingState state;
+  state.previous_primary_id = "missing";
+  state.candidate_primary_id = "stale";
+  state.candidate_count = 1U;
+  const std::vector<RiskVector> risks{
+    ranked_target("candidate", RiskPhase::Warning, 0.70, 30.0, 100.0)};
+
+  const auto selected = select_primary(risks, &state);
+
+  EXPECT_EQ("candidate", selected.target_id);
+  EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_EQ(0U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimaryReturnsDefaultRiskForEmptyInput) {

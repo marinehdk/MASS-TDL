@@ -144,7 +144,7 @@ bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector 
   if (std::abs(candidate.range_m - current.range_m) > kEpsilon) {
     return candidate.range_m < current.range_m;
   }
-  return false;
+  return candidate.target_id < current.target_id;
 }
 
 std::vector<RiskVector>::const_iterator find_by_target_id(
@@ -308,14 +308,18 @@ RiskVector select_primary(
     return best;
   }
 
+  const std::uint32_t required_samples = std::max(1U, config.switch_confirm_samples);
   if (state->candidate_primary_id == best.target_id) {
-    ++state->candidate_count;
+    if (state->candidate_count < required_samples) {
+      ++state->candidate_count;
+    } else {
+      state->candidate_count = required_samples;
+    }
   } else {
     state->candidate_primary_id = best.target_id;
     state->candidate_count = 1U;
   }
 
-  const std::uint32_t required_samples = std::max(1U, config.switch_confirm_samples);
   if (state->candidate_count >= required_samples) {
     promote_primary(*state, best);
     return best;
