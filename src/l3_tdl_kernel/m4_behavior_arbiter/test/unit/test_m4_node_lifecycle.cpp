@@ -541,6 +541,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveUsesTacticalBufferForBoundaryRange
   world_msg->own_ship.sog_kn = 10.0;
   world_msg->targets.resize(1);
   world_msg->targets[0].rng_m = 1400.0;
+  world_msg->targets[0].encounter.relative_bearing_deg = 120.0;
   trigger_world_state(node, world_msg);
 
   auto mission_msg = std::make_shared<MissionGoalMsg>();

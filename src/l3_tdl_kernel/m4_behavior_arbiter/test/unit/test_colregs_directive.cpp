@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cmath>
 #include <string>
 
+#include "l3_risk_model/risk_model.hpp"
 #include "m4_behavior_arbiter/colregs_directive.hpp"
 
 namespace mass_l3::m4 {
@@ -140,6 +142,55 @@ TEST(ColregsDirective, NoConflictProducesInactiveHold) {
   EXPECT_FALSE(directive.conflict_active);
   EXPECT_EQ(directive.direction, ColregsDirection::Hold);
   EXPECT_DOUBLE_EQ(directive.min_alteration_deg, 0.0);
+}
+
+TEST(ColregsDirective, FarRule15CrossingCanPreferSpeedReduction) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.rule15_active = true;
+
+  const mass_l3::risk::OwnShipInput own{0.0, 0.0, 0.0, 5.0, 46.0, 0.95, false};
+  const mass_l3::risk::OwnShipInput slowed{0.0, 0.0, 0.0, 2.5, 46.0, 0.95, false};
+  const mass_l3::risk::TargetInput target{
+      "TS001", 1200.0, 260.0, -3.14159265358979323846 / 2.0, 6.0, 600.0, 220.0, 0.9};
+  const auto current_risk =
+      mass_l3::risk::evaluate_target(own, target, mass_l3::risk::ColregsDuty::GiveWay);
+  const auto slowed_risk =
+      mass_l3::risk::evaluate_target(slowed, target, mass_l3::risk::ColregsDuty::GiveWay);
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_EQ(directive.primary_threat_id, "TS001");
+  EXPECT_EQ(directive.primary_risk_phase, "Monitor");
+  EXPECT_TRUE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
+  EXPECT_DOUBLE_EQ(
+      required_deviation_deg(directive, current_risk.range_m, 1500.0, 2.5, 75.0),
+      0.0);
+}
+
+TEST(ColregsDirective, DangerCrossingKeepsStarboardAlteration) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.rule15_active = true;
+
+  const mass_l3::risk::OwnShipInput own{0.0, 0.0, 0.0, 5.0, 46.0, 0.95, false};
+  const mass_l3::risk::TargetInput target{
+      "TS001", 250.0, 40.0, -3.14159265358979323846 / 2.0, 6.0, 120.0, 45.0, 0.9};
+  const auto risk =
+      mass_l3::risk::evaluate_target(own, target, mass_l3::risk::ColregsDuty::GiveWay);
+
+  apply_primary_risk_guidance(directive, risk, risk);
+
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+  EXPECT_GE(required_deviation_deg(directive, risk.range_m, 1500.0, 2.5, 75.0), 45.0);
 }
 
 }  // namespace

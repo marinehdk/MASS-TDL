@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <cmath>
+#include <vector>
 #include <spdlog/spdlog.h>
 
 #include "m4_behavior_arbiter/colregs_directive.hpp"
@@ -15,6 +17,106 @@ using namespace std::chrono_literals;
 
 namespace {
 constexpr std::uint8_t kRoleGiveWay = 1U;
+constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr double kKnotsToMps = 0.5144444444444445;
+
+struct PrimaryRiskGuidance {
+  mass_l3::risk::RiskVector current;
+  mass_l3::risk::RiskVector reduced_speed;
+};
+
+double nav_heading_deg_to_math_rad(double heading_deg) {
+  return (90.0 - heading_deg) * kDegToRad;
+}
+
+mass_l3::risk::OwnShipInput ownship_risk_input(
+    const WorldStateMsg& world,
+    double speed_scale = 1.0) {
+  return mass_l3::risk::OwnShipInput{
+      0.0,
+      0.0,
+      nav_heading_deg_to_math_rad(world.own_ship.heading_deg),
+      std::max(0.0, world.own_ship.sog_kn * kKnotsToMps * speed_scale),
+      46.0,
+      world.own_ship.confidence,
+      world.own_ship.nav_mode == "DEGRADED"};
+}
+
+mass_l3::risk::TargetInput target_risk_input(const l3_msgs::msg::TrackedTarget& target) {
+  const double bearing_rad = target.brg_deg * kDegToRad;
+  const double range_m = std::max(0.0, target.rng_m);
+  return mass_l3::risk::TargetInput{
+      std::to_string(target.target_id),
+      std::sin(bearing_rad) * range_m,
+      std::cos(bearing_rad) * range_m,
+      nav_heading_deg_to_math_rad(target.cog_deg),
+      std::max(0.0, target.sog_kn * kKnotsToMps),
+      target.cpa_m,
+      target.tcpa_s,
+      target.confidence};
+}
+
+mass_l3::risk::ColregsDuty target_colregs_duty(
+    const ColregsDirective& directive,
+    const l3_msgs::msg::TrackedTarget& target) {
+  if (!directive.conflict_active) {
+    return mass_l3::risk::ColregsDuty::Free;
+  }
+  if (target.encounter.is_giveway) {
+    return mass_l3::risk::ColregsDuty::GiveWay;
+  }
+  if (target.encounter.encounter_type ==
+          l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_CROSSED_BY ||
+      target.encounter.encounter_type ==
+          l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_OVERTAKEN) {
+    return mass_l3::risk::ColregsDuty::StandOnHold;
+  }
+  return map_role_to_duty(
+      directive.primary_role,
+      directive.conflict_active,
+      directive.rule15_active,
+      directive.phase);
+}
+
+std::optional<PrimaryRiskGuidance> compute_primary_risk_guidance(
+    const WorldStateMsg& world,
+    const ColregsDirective& directive,
+    mass_l3::risk::RankingState& ranking_state) {
+  std::vector<mass_l3::risk::RiskVector> risks;
+  risks.reserve(world.targets.size());
+  const auto own = ownship_risk_input(world);
+  for (const auto& target : world.targets) {
+    if (target.rng_m <= 0.0 || !std::isfinite(target.rng_m)) {
+      continue;
+    }
+    risks.push_back(mass_l3::risk::evaluate_target(
+        own,
+        target_risk_input(target),
+        target_colregs_duty(directive, target)));
+  }
+  if (risks.empty()) {
+    return std::nullopt;
+  }
+
+  const auto primary = mass_l3::risk::select_primary(risks, &ranking_state);
+  const auto target_it = std::find_if(
+      world.targets.begin(),
+      world.targets.end(),
+      [&primary](const auto& target) {
+        return primary.target_id == std::to_string(target.target_id);
+      });
+  if (target_it == world.targets.end()) {
+    return PrimaryRiskGuidance{primary, primary};
+  }
+
+  const auto slowed = ownship_risk_input(world, 0.6);
+  const auto reduced_speed_risk = mass_l3::risk::evaluate_target(
+      slowed,
+      target_risk_input(*target_it),
+      target_colregs_duty(directive, *target_it));
+  return PrimaryRiskGuidance{primary, reduced_speed_risk};
+}
+
 }  // namespace
 
 static double compute_bearing_deg(double own_lat, double own_lon,
@@ -239,6 +341,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   double h_min = 0.0, h_max = 360.0, s_min = 0.0, s_max = speed_max_kn_;
   double confidence = 0.95;
   std::string rationale;
+  std::string risk_rationale_suffix;
 
   if (has_mrc) {
     primary = BehaviorType::MRC_DRIFT;
@@ -272,6 +375,26 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     ColregsDirective colregs_directive;
     if (colregs_for_directive) {
       colregs_directive = extract_colregs_directive(*colregs_for_directive);
+      if (latest_world_ && colregs_directive.conflict_active) {
+        const auto risk_guidance = compute_primary_risk_guidance(
+            *latest_world_, colregs_directive, risk_ranking_state_);
+        if (risk_guidance.has_value()) {
+          apply_primary_risk_guidance(
+              colregs_directive,
+              risk_guidance->current,
+              risk_guidance->reduced_speed);
+          std::ostringstream risk_text;
+          risk_text << " | risk primary=" << colregs_directive.primary_threat_id
+                    << " phase=" << colregs_directive.primary_risk_phase
+                    << " score=" << colregs_directive.primary_risk_score
+                    << " warn_margin_m=" << colregs_directive.primary_warning_margin_m
+                    << " danger_margin_m=" << colregs_directive.primary_danger_margin_m;
+          if (colregs_directive.speed_reduction_preferred) {
+            risk_text << " speed_reduction_preferred=true";
+          }
+          risk_rationale_suffix = risk_text.str();
+        }
+      }
       if (colregs_commit_hold) {
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
             "[M4] Holding committed COLREG directive through release dwell (%d/%d)",
@@ -623,6 +746,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   plan.speed_min_kn = static_cast<float>(s_min);
   plan.speed_max_kn = static_cast<float>(s_max);
   plan.confidence = static_cast<float>(confidence);
+  if (!risk_rationale_suffix.empty()) {
+    rationale += risk_rationale_suffix;
+  }
   plan.rationale = rationale;
   pub_plan_->publish(plan);
 

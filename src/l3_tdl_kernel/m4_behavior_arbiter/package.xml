@@ -12,6 +12,7 @@
   <depend>rclcpp</depend>
   <depend>l3_msgs</depend>
   <depend>l3_external_msgs</depend>
+  <depend>l3_risk_model</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>
   <depend>builtin_interfaces</depend>
