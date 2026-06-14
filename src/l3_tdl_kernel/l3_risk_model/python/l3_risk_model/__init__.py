@@ -12,6 +12,7 @@ from .risk_model import (
     danger_axes,
     evaluate_target,
     select_primary,
+    to_string,
     warning_axes,
 )
 
@@ -30,4 +31,5 @@ __all__ = [
     "warning_axes",
     "evaluate_target",
     "select_primary",
+    "to_string",
 ]

@@ -367,6 +367,12 @@ def warning_axes(own: OwnShipInput, config: DomainConfig | None = None) -> Domai
     )
 
 
+def to_string(value: RiskPhase | ColregsDuty) -> str:
+    if isinstance(value, RiskPhase | ColregsDuty):
+        return value.value
+    return "Unknown"
+
+
 def evaluate_target(
     own: OwnShipInput,
     target: TargetInput,

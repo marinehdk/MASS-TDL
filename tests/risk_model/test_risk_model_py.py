@@ -14,6 +14,7 @@ from l3_risk_model import (
     danger_axes,
     evaluate_target,
     select_primary,
+    to_string,
 )
 
 
@@ -85,6 +86,16 @@ def test_run_risk_summary_defaults_and_risks_factory() -> None:
     summary.risks.append(RiskVector(target_id="one"))
 
     assert RunRiskSummary().risks == []
+
+
+def test_to_string_returns_enum_values_and_unknown_fallback() -> None:
+    for phase in RiskPhase:
+        assert to_string(phase) == phase.value
+    for duty in ColregsDuty:
+        assert to_string(duty) == duty.value
+
+    assert to_string("Clear") == "Unknown"
+    assert to_string(object()) == "Unknown"
 
 
 def test_forward_danger_fixture_is_critical_with_danger_ddv() -> None:
