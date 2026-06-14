@@ -56,6 +56,9 @@ MAX_PATH_LENGTH_RATIO = 1.35
 MAX_PRIMARY_THREAT_SWITCHES = 2
 DANGER_EXPOSURE_GRACE_S = 5.0
 DOMAIN_EPS = 1.0e-9
+ROUTE_RETURN_RELEASE_DWELL_S = 10.0
+CONFIGURE_RETRY_ATTEMPTS = 5
+CONFIGURE_RETRY_DELAY_S = 2.0
 
 def req(method, path, body=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
@@ -65,6 +68,17 @@ def req(method, path, body=None, timeout=30):
     )
     with urllib.request.urlopen(r, context=CTX, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
+
+def configure_scenario(scenario_id, *, attempts=CONFIGURE_RETRY_ATTEMPTS,
+                       retry_delay_s=CONFIGURE_RETRY_DELAY_S):
+    last = {"success": False, "error": "configure not attempted"}
+    for attempt in range(max(1, attempts)):
+        last = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id})
+        if last.get("success"):
+            return last
+        if attempt + 1 < attempts:
+            time.sleep(retry_delay_s)
+    return last
 
 def get_sim_time():
     try:
@@ -519,6 +533,7 @@ def compute_route_return_status(
     heading_threshold_deg=10.0,
     route_corridor_half_width_m=ROUTE_CORRIDOR_HALF_WIDTH_M,
     route_corridor_pass_limit_m=ROUTE_CORRIDOR_PASS_LIMIT_M,
+    route_return_release_dwell_s=0.0,
 ):
     osh = [
         r for r in run_records
@@ -549,15 +564,24 @@ def compute_route_return_status(
         final_dev = (latest["heading_deg"] - init_hdg + 180.0) % 360.0 - 180.0
 
     had_avoidance = any(_is_avoidance_behavior(r) for r in bp)
-    released_after_avoidance = False
+    last_release_time_s = None
     seen_avoidance = False
-    for r in bp:
+    for r in sorted(bp, key=lambda item: float(item.get("sim_t", 0.0))):
         if _is_avoidance_behavior(r):
             seen_avoidance = True
-        elif seen_avoidance and r.get("behavior") == 0:
-            released_after_avoidance = True
+            last_release_time_s = None
+        elif seen_avoidance and r.get("behavior") == 0 and last_release_time_s is None:
+            last_release_time_s = float(r.get("sim_t", 0.0))
+
+    transit_after_avoidance_s = 0.0
+    if final_behavior == 0 and last_release_time_s is not None and not math.isnan(latest_sim_t):
+        transit_after_avoidance_s = max(0.0, latest_sim_t - last_release_time_s)
+    released_after_avoidance = (
+        transit_after_avoidance_s >= float(route_return_release_dwell_s)
+    )
 
     returned_to_route = (
+        released_after_avoidance and
         not math.isnan(final_xte) and
         not math.isnan(final_dev) and
         abs(final_xte) < xte_threshold_m and
@@ -576,6 +600,7 @@ def compute_route_return_status(
     return {
         "returned_to_route": bool(returned_to_route),
         "released_after_avoidance": bool(released_after_avoidance),
+        "transit_after_avoidance_s": transit_after_avoidance_s,
         "had_avoidance": bool(had_avoidance),
         "final_behavior": final_behavior,
         "final_xte": final_xte,
@@ -719,7 +744,7 @@ def run_scenario(scenario_id):
     # 2. Cleanup and Configure
     req("POST", "/lifecycle/cleanup")
     time.sleep(2.0)
-    cfg = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id})
+    cfg = configure_scenario(scenario_id)
     if not cfg.get("success"):
         print(f"Configure failed: {cfg.get('error')}")
         return None
@@ -765,6 +790,7 @@ def run_scenario(scenario_id):
                 heading_threshold_deg=route_return_heading_deg,
                 route_corridor_half_width_m=route_corridor_half_width_m,
                 route_corridor_pass_limit_m=route_corridor_pass_limit_m,
+                route_return_release_dwell_s=ROUTE_RETURN_RELEASE_DWELL_S,
             )
             overtake_status = compute_overtake_status(
                 trace_records,
@@ -899,6 +925,7 @@ def run_scenario(scenario_id):
         heading_threshold_deg=route_return_heading_deg,
         route_corridor_half_width_m=route_corridor_half_width_m,
         route_corridor_pass_limit_m=route_corridor_pass_limit_m,
+        route_return_release_dwell_s=ROUTE_RETURN_RELEASE_DWELL_S,
     )
     final_xte = route_status["final_xte"]
     final_dev = route_status["final_heading_dev"]
@@ -1075,6 +1102,8 @@ def run_scenario(scenario_id):
         "route_return_required": route_return_required,
         "route_return_xte_m_lt": route_return_xte_m,
         "route_return_heading_deg_lt": route_return_heading_deg,
+        "route_return_release_dwell_s": ROUTE_RETURN_RELEASE_DWELL_S,
+        "transit_after_avoidance_s": route_status["transit_after_avoidance_s"],
         "max_route_xte_m": route_status["max_route_xte_m"],
         "route_corridor_half_width_m": route_corridor_half_width_m,
         "route_corridor_pass_limit_m": route_corridor_pass_limit_m,

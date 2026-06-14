@@ -24,7 +24,6 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
 
 from .guidance import (
     AVOIDANCE_CORRIDOR_HARD_XTE_M,
-    AVOIDANCE_CORRIDOR_RETURN_XTE_M,
     CRUISE_SPEED_KN,
     ActuatorCommand,
     HeadingController,
@@ -214,7 +213,7 @@ class L4GuidanceAdapterNode(Node):
         if self._last_sim_time is not None and now < self._last_sim_time - 1.0:
             self.get_logger().info(
                 f"[l4_guidance_adapter] clock reset {self._last_sim_time:.2f}s -> {now:.2f}s")
-            self._reset_state(clear_route=True)
+            self._reset_state(clear_route=False)
         self._last_sim_time = now
         self._last_ownship_raw = msg
 
@@ -411,7 +410,7 @@ class L4GuidanceAdapterNode(Node):
             "lon": getattr(self._last_ownship_raw, "lon", 0.0),
         }
 
-    def _compute_override_command(self, override, own) -> ActuatorCommand:
+    def _compute_override_command(self, override, own, dt: float = 0.5) -> ActuatorCommand:
         return command_for_heading_speed(
             target_heading_deg=float(override.heading_cmd_deg),
             target_sog_kn=float(override.speed_cmd_kn),
@@ -420,9 +419,10 @@ class L4GuidanceAdapterNode(Node):
             current_rot_deg_s=own["rot_deg_s"],
             heading_controller=self._override_heading_controller,
             speed_controller=self._speed_controller,
+            dt=dt,
         )
 
-    def _compute_avoidance_command(self, own) -> ActuatorCommand:
+    def _compute_avoidance_command(self, own, dt: float = 0.5) -> ActuatorCommand:
         if (self._latch_release_triggered and
                 self._latch_release_time is not None and
                 self._avoidance_target_heading_deg is not None):
@@ -451,24 +451,12 @@ class L4GuidanceAdapterNode(Node):
                 own["lon"],
                 self._current_target_wp_lat,
                 self._current_target_wp_lon,
+                fallback_heading_deg=self._target_heading_deg,
             )
             if (release_xte_m is not None and
                     math.isfinite(release_xte_m) and
                     abs(release_xte_m) >= AVOIDANCE_CORRIDOR_HARD_XTE_M):
-                return self._compute_transit_command(own)
-        else:
-            active_xte_m = signed_xte_m(
-                self._route_wps,
-                own["lat"],
-                own["lon"],
-                self._current_target_wp_lat,
-                self._current_target_wp_lon,
-            )
-            if (active_xte_m is not None and
-                    math.isfinite(active_xte_m) and
-                    abs(active_xte_m) >= AVOIDANCE_CORRIDOR_RETURN_XTE_M):
-                return self._compute_transit_command(own)
-
+                return self._compute_transit_command(own, dt)
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
             waypoints = [self._last_avoidance_waypoint]
@@ -516,9 +504,10 @@ class L4GuidanceAdapterNode(Node):
             heading_controller=self._avoidance_heading_controller,
             speed_controller=self._speed_controller,
             target_speed_override_kn=target_speed_override,
+            dt=dt,
         )
 
-    def _compute_transit_command(self, own) -> ActuatorCommand:
+    def _compute_transit_command(self, own, dt: float = 0.5) -> ActuatorCommand:
         return compute_transit_command(
             current_heading_deg=own["heading_deg"],
             current_sog_kn=own["sog_kn"],
@@ -532,12 +521,16 @@ class L4GuidanceAdapterNode(Node):
             route_wps=self._route_wps,
             heading_controller=self._heading_controller,
             speed_controller=self._speed_controller,
+            dt=dt,
         )
 
     def _autopilot_step(self) -> None:
         now = self._sim_time()
         if self._last_actuator_publish_time is not None and now - self._last_actuator_publish_time <= 0.5:
             return
+        control_dt = 0.5
+        if self._last_actuator_publish_time is not None:
+            control_dt = max(0.05, min(10.0, now - self._last_actuator_publish_time))
 
         stamp = self.get_clock().now().to_msg()
         safe = safety_gate_command(self._safety_gate_active(now))
@@ -549,25 +542,25 @@ class L4GuidanceAdapterNode(Node):
         own = self._current_ownship()
         override = self._active_override(now)
         if override is not None:
-            cmd = self._compute_override_command(override, own)
+            cmd = self._compute_override_command(override, own, control_dt)
             self._publish_command(cmd, stamp)
             self._last_actuator_publish_time = now
             return
 
         if self._avoidance_active:
-            cmd = self._compute_avoidance_command(own)
+            cmd = self._compute_avoidance_command(own, control_dt)
             self._publish_command(cmd, stamp)
             self._last_actuator_publish_time = now
-            return
-
-        if self._last_odd_state is None:
             return
 
         staleness_s = (
             (now - self._last_valid_plan_time)
             if self._last_valid_plan_time else float("inf")
         )
-        env_state = self._last_odd_state.envelope_state
+        env_state = (
+            self._last_odd_state.envelope_state
+            if self._last_odd_state is not None else 0
+        )
         env_allows_autopilot = env_state in (0, 1, 3)
         is_m5_stale = staleness_s > 10.0
         m4_in_fallback = (
@@ -581,7 +574,7 @@ class L4GuidanceAdapterNode(Node):
             env_allows_autopilot and (is_m5_stale or m4_in_fallback or m4_in_transit)
         )
         if self._autopilot_enabled:
-            cmd = self._compute_transit_command(own)
+            cmd = self._compute_transit_command(own, control_dt)
             self._publish_command(cmd, stamp)
             self._last_actuator_publish_time = now
 

@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # PATH-S compile options (IEC 61508 SIL 2 — Checker side)
 # -fno-exceptions -fno-rtti applied per-TU below (pure safety logic only).
 # rclcpp headers use try/catch and typeid; the node glue TU must be excluded.
-add_compile_options(
+set(M7_PATH_S_COMPILE_OPTIONS
   -Wall -Wextra -Wpedantic -Werror
   -Wshadow -Wconversion -Wsign-conversion
   -Wcast-align -Wcast-qual -Wold-style-cast -Wzero-as-null-pointer-constant
@@ -126,6 +126,7 @@ target_link_libraries(m7_lib
   spdlog::spdlog
   l3_risk_model::l3_risk_model
 )
+target_compile_options(m7_lib PRIVATE ${M7_PATH_S_COMPILE_OPTIONS})
 
 # ---------------------------------------------------------------------------
 # Doer-Checker independence verification (ADR-001)
@@ -156,6 +157,7 @@ install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 add_executable(m7_safety_supervisor src/main.cpp)
 target_link_libraries(m7_safety_supervisor m7_lib)
+target_compile_options(m7_safety_supervisor PRIVATE ${M7_PATH_S_COMPILE_OPTIONS})
 ament_target_dependencies(m7_safety_supervisor
   rclcpp
   l3_msgs

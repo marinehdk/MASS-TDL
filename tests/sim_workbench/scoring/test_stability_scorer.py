@@ -224,6 +224,21 @@ class TestCleanGiveWay:
 
         assert rep["kpis"]["behavior_toggles"] <= 2
 
+    def test_one_sample_plan_empty_blip_is_debounced(self):
+        recs = _clean_give_way_records()
+        recs += [
+            _oss(80.0, 60.0, 0.0), _m4(80.0, 1), _m5(80.0, "EMPTY"),
+            _m6(80.0, True, 2),
+            _oss(80.2, 60.0, 0.0), _m4(80.2, 1), _m5(80.2, "VALID"),
+            _m6(80.2, True, 2),
+        ]
+
+        rep = ss.analyze_stability(
+            recs, role="give_way", init_heading_deg=0.0)
+
+        assert rep["kpis"]["plan_valid_segments"] == 1
+        assert rep["checks"]["plan_valid_segments"]["pass"] is True
+
     def test_small_hold_trim_dither_does_not_count_as_steering_reversal(self):
         recs = _clean_give_way_records()
         sign = 1.0

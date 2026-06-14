@@ -161,6 +161,20 @@ def test_corridor_guard_does_not_apply_without_route():
     assert heading == pytest.approx(60.0)
 
 
+def test_corridor_guard_uses_target_heading_when_route_is_not_latched_yet():
+    heading = corridor_guarded_avoidance_heading_deg(
+        selected_heading_deg=60.0,
+        nominal_heading_deg=0.0,
+        route_wps=[],
+        own_lat=1.004,
+        own_lon=450.0 / 111319.9,
+        current_target_wp_lat=1.02,
+        current_target_wp_lon=0.0,
+    )
+
+    assert heading == pytest.approx(0.0)
+
+
 def test_corridor_guard_reduces_outbound_avoidance_speed_near_route_edge():
     speed_kn = corridor_guarded_avoidance_speed_kn(
         target_speed_kn=12.0,
@@ -244,6 +258,57 @@ def test_transit_command_rejoins_route_instead_of_chasing_behind_waypoint():
     assert math.degrees(cmd.rudder_angle) > 0.0
 
 
+def test_transit_command_uses_control_dt_for_route_return_rudder_ramp():
+    common = dict(
+        current_heading_deg=50.0,
+        current_sog_kn=4.0,
+        current_rot_deg_s=0.0,
+        own_lat=1.004,
+        own_lon=450.0 / 111319.9,
+        target_heading_deg=0.0,
+        target_sog_kn=10.0,
+        current_target_wp_lat=1.02,
+        current_target_wp_lon=0.0,
+        route_wps=[(1.0, 0.0), (1.02, 0.0)],
+        speed_controller=SpeedController(),
+    )
+
+    slow_dt_cmd = compute_transit_command(
+        **common,
+        heading_controller=HeadingController(),
+        dt=0.5,
+    )
+    sim_dt_cmd = compute_transit_command(
+        **common,
+        heading_controller=HeadingController(),
+        dt=5.0,
+    )
+
+    assert abs(math.degrees(sim_dt_cmd.rudder_angle)) > abs(
+        math.degrees(slow_dt_cmd.rudder_angle)
+    ) * 5.0
+
+
+def test_transit_command_uses_target_heading_when_route_is_not_latched_yet():
+    cmd = compute_transit_command(
+        current_heading_deg=0.0,
+        current_sog_kn=4.0,
+        current_rot_deg_s=0.0,
+        own_lat=1.004,
+        own_lon=450.0 / 111319.9,
+        target_heading_deg=0.0,
+        target_sog_kn=10.0,
+        current_target_wp_lat=1.02,
+        current_target_wp_lon=0.0,
+        route_wps=[],
+        heading_controller=HeadingController(),
+        speed_controller=SpeedController(),
+        dt=10.0,
+    )
+
+    assert math.degrees(cmd.rudder_angle) > 20.0
+
+
 def test_safety_gate_forces_zero_command():
     cmd = safety_gate_command(True)
 
@@ -300,6 +365,88 @@ def test_mission_goal_updates_route_target_without_triggering_latch_release():
 
     assert node._current_target_wp_lat == 1.25
     assert node._current_target_wp_lon == 2.5
+
+
+def test_clock_reset_preserves_latched_route_for_post_avoidance_rejoin():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._last_sim_time = 100.0
+    node._route_wps = [(1.0, 2.0), (3.0, 4.0)]
+    node._heading_controller = HeadingController()
+    node._avoidance_heading_controller = HeadingController()
+    node._override_heading_controller = HeadingController()
+    node._speed_controller = SpeedController()
+    node._sim_time = lambda: 10.0
+    node.get_logger = lambda: SimpleNamespace(info=lambda _msg: None)
+
+    L4GuidanceAdapterNode._on_own_ship_state(node, SimpleNamespace())
+
+    assert node._route_wps == [(1.0, 2.0), (3.0, 4.0)]
+
+
+def test_transit_autopilot_continues_when_odd_sample_is_temporarily_missing():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._sim_time = lambda: 100.0
+    node._last_actuator_publish_time = None
+    node.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: object())
+    )
+    node._safety_gate_active = lambda _now: False
+    node._current_ownship = lambda: {
+        "lat": 1.0,
+        "lon": 0.0,
+        "heading_deg": 0.0,
+        "sog_kn": 5.0,
+        "rot_deg_s": 0.0,
+    }
+    node._active_override = lambda _now: None
+    node._avoidance_active = False
+    node._last_odd_state = None
+    node._last_valid_plan_time = 80.0
+    node._last_behavior_plan = SimpleNamespace(behavior=0, rationale="")
+    node._compute_transit_command = lambda _own, _dt: SimpleNamespace(
+        rudder_angle=0.1,
+        throttle=0.5,
+    )
+    published = []
+    node._publish_command = lambda cmd, _stamp: published.append(cmd)
+
+    L4GuidanceAdapterNode._autopilot_step(node)
+
+    assert len(published) == 1
+
+
+def test_transit_autopilot_uses_elapsed_sim_time_for_control_dt():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._sim_time = lambda: 105.5
+    node._last_actuator_publish_time = 100.0
+    node.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(to_msg=lambda: object())
+    )
+    node._safety_gate_active = lambda _now: False
+    node._current_ownship = lambda: {
+        "lat": 1.0,
+        "lon": 0.0,
+        "heading_deg": 0.0,
+        "sog_kn": 5.0,
+        "rot_deg_s": 0.0,
+    }
+    node._active_override = lambda _now: None
+    node._avoidance_active = False
+    node._last_odd_state = None
+    node._last_valid_plan_time = 80.0
+    node._last_behavior_plan = SimpleNamespace(behavior=0, rationale="")
+    seen_dt = []
+
+    def compute_transit(_own, dt):
+        seen_dt.append(dt)
+        return SimpleNamespace(rudder_angle=0.1, throttle=0.5)
+
+    node._compute_transit_command = compute_transit
+    node._publish_command = lambda _cmd, _stamp: None
+
+    L4GuidanceAdapterNode._autopilot_step(node)
+
+    assert seen_dt == [pytest.approx(5.5)]
 
 
 def test_avoidance_plan_does_not_arm_when_m4_is_transit():
@@ -433,7 +580,7 @@ def test_latch_release_at_corridor_edge_uses_transit_return_heading():
     assert math.degrees(cmd.rudder_angle) > 0.0
 
 
-def test_active_avoidance_at_corridor_return_edge_uses_transit_return():
+def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     node._latch_release_triggered = False
     node._latch_release_time = None
@@ -447,8 +594,11 @@ def test_active_avoidance_at_corridor_return_edge_uses_transit_return():
     node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
+    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+        AssertionError("active avoidance must not bypass risk handling with transit")
+    )
     waypoint = SimpleNamespace(
-        position=SimpleNamespace(latitude=1.014, longitude=0.012),
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
         target_speed_kn=22.0,
     )
     node._last_avoidance_waypoints = [waypoint]
@@ -465,4 +615,5 @@ def test_active_avoidance_at_corridor_return_edge_uses_transit_return():
         },
     )
 
-    assert math.degrees(cmd.rudder_angle) == pytest.approx(35.0)
+    assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
+    assert cmd.throttle == pytest.approx(0.0)

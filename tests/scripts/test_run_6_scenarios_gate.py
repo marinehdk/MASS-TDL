@@ -73,6 +73,25 @@ def test_base_url_can_target_local_orchestrator(monkeypatch):
     assert runner.BASE == "https://127.0.0.1:8000/api/v1"
 
 
+def test_configure_scenario_retries_transient_service_unavailable(monkeypatch):
+    runner = _load_runner()
+    calls = []
+    responses = [
+        {"success": False, "error": "SetParameters service not available after 3s"},
+        {"success": True},
+    ]
+
+    def fake_req(method, path, body=None, timeout=30):
+        calls.append((method, path, body, timeout))
+        return responses.pop(0)
+
+    monkeypatch.setattr(runner, "req", fake_req)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    assert runner.configure_scenario("colreg-rule14-ho", attempts=2)["success"] is True
+    assert [call[1] for call in calls] == ["/lifecycle/configure", "/lifecycle/configure"]
+
+
 def test_clean_probe_batch_has_expected_8_scenarios():
     runner = _load_runner()
     assert runner.SCENARIOS == EXPECTED_CLEAN_8
@@ -201,6 +220,55 @@ def test_route_status_tracks_max_xte_and_corridor_violation():
     assert status["max_route_xte_m"] == pytest.approx(1200.0, abs=1.0)
     assert status["route_corridor_violation"] is True
     assert status["route_corridor_ok"] is False
+
+
+def test_route_return_requires_stable_transit_after_last_avoidance():
+    runner = _load_runner()
+    records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": 10.0, "behavior": 1},
+        {"topic": "/l3/m4/behavior_plan", "sim_t": 20.0, "behavior": 0},
+        {
+            "topic": "/sil/own_ship_state",
+            "sim_t": 21.0,
+            "lat": 0.0,
+            "lon": 0.0,
+            "heading_deg": 0.0,
+        },
+    ]
+
+    early = runner.compute_route_return_status(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+        route_return_release_dwell_s=5.0,
+    )
+
+    assert early["released_after_avoidance"] is False
+    assert early["returned_to_route"] is False
+
+    records.append({
+        "topic": "/sil/own_ship_state",
+        "sim_t": 26.0,
+        "lat": 0.0,
+        "lon": 0.0,
+        "heading_deg": 0.0,
+    })
+
+    stable = runner.compute_route_return_status(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+        route_return_release_dwell_s=5.0,
+    )
+
+    assert stable["released_after_avoidance"] is True
+    assert stable["returned_to_route"] is True
 
 
 def test_route_status_ignores_ownship_records_far_from_scenario_origin():

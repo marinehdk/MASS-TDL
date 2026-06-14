@@ -73,6 +73,7 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "post_release_monitor_s": 30.0,     # include immediate release, exclude route-return
     "max_conflict_gap_s": 2.0,          # ignore one-sample M6 false blips
     "max_behavior_gap_s": 2.0,          # ignore one-sample M4 release/rearm blips
+    "max_plan_valid_gap_s": 2.0,        # ignore one-sample M5 EMPTY blips
 }
 
 
@@ -158,10 +159,11 @@ def _behavior_toggles(m4: List[dict], max_gap_s: float = 0.0) -> int:
     return _count_transitions(_collapse_short_false_gaps(m4, values, max_gap_s))
 
 
-def _plan_valid_segments(m5: List[dict]) -> int:
+def _plan_valid_segments(m5: List[dict], max_gap_s: float = 0.0) -> int:
+    values = [r.get("solver_status") == "VALID" for r in m5]
+    values = _collapse_short_false_gaps(m5, values, max_gap_s)
     seg, prev = 0, False
-    for r in m5:
-        cur = r.get("solver_status") == "VALID"
+    for cur in values:
         if cur and not prev:
             seg += 1
         prev = cur
@@ -324,7 +326,7 @@ def analyze_stability(
     window = _engagement_window(m4)
 
     behavior_toggles = _behavior_toggles(m4, th["max_behavior_gap_s"])
-    plan_segments = _plan_valid_segments(m5)
+    plan_segments = _plan_valid_segments(m5, th["max_plan_valid_gap_s"])
     rot_hold_std = _rot_hold_std(oss, window, th["hold_trim_frac"])
     avoidance_records = _records_in_window(oss, window)
     steering_reversals = _steering_reversals(avoidance_records, th["rot_deadband_dps"])

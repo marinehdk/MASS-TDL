@@ -62,13 +62,13 @@ TEST(NomotoFallbackTest, IntegrateStraightLine) {
   NomotoFallbackConfig cfg;
   cfg.n_steps = 12;
   cfg.dt_s    = 5.0;
+  cfg.n_branches = 1;
 
   NomotoFallback fallback(cfg, manifest);
+  const auto sol = fallback.solve(make_input_no_targets());
 
-  const auto traj = fallback.integrate_branch(
-      0.0, 0.0,   // start at origin
-      0.0,         // heading north (psi = 0)
-      5.0);        // 5 m/s
+  ASSERT_EQ(sol.trajectories.size(), 1u);
+  const auto& traj = sol.trajectories[0];
 
   // N + 1 = 13 positions (start + 12 steps)
   ASSERT_EQ(traj.size(), 13u);
