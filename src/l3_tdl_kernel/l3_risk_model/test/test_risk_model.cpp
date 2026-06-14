@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -227,13 +228,16 @@ TEST(RiskModelTest, SelectPrimaryPrefersDangerPhaseOverHigherScoredWarning) {
 
   EXPECT_EQ("danger", selected.target_id);
   EXPECT_EQ("danger", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimaryKeepsPreviousForFirstCloseScoreSample) {
   RankingState state;
   state.previous_primary_id = "previous";
+  state.has_previous_primary = true;
   const std::vector<RiskVector> risks{
     ranked_target("previous", RiskPhase::Warning, 0.80, 60.0, 200.0),
     ranked_target("candidate", RiskPhase::Warning, 0.91, 30.0, 150.0)};
@@ -242,14 +246,18 @@ TEST(RiskModelTest, SelectPrimaryKeepsPreviousForFirstCloseScoreSample) {
 
   EXPECT_EQ("previous", selected.target_id);
   EXPECT_EQ("previous", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_EQ("candidate", state.candidate_primary_id);
+  EXPECT_TRUE(state.has_candidate_primary);
   EXPECT_EQ(1U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimarySwitchesOnSecondConsecutiveCloseScoreSample) {
   RankingState state;
   state.previous_primary_id = "previous";
+  state.has_previous_primary = true;
   state.candidate_primary_id = "candidate";
+  state.has_candidate_primary = true;
   state.candidate_count = 1U;
   const std::vector<RiskVector> risks{
     ranked_target("previous", RiskPhase::Warning, 0.80, 60.0, 200.0),
@@ -259,14 +267,18 @@ TEST(RiskModelTest, SelectPrimarySwitchesOnSecondConsecutiveCloseScoreSample) {
 
   EXPECT_EQ("candidate", selected.target_id);
   EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapMeetsThreshold) {
   RankingState state;
   state.previous_primary_id = "previous";
+  state.has_previous_primary = true;
   state.candidate_primary_id = "stale";
+  state.has_candidate_primary = true;
   state.candidate_count = 1U;
   const std::vector<RiskVector> risks{
     ranked_target("previous", RiskPhase::Warning, 0.80, 60.0, 200.0),
@@ -276,14 +288,18 @@ TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapMeetsThreshold) 
 
   EXPECT_EQ("candidate", selected.target_id);
   EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapEqualsThreshold) {
   RankingState state;
   state.previous_primary_id = "previous";
+  state.has_previous_primary = true;
   state.candidate_primary_id = "stale";
+  state.has_candidate_primary = true;
   state.candidate_count = 1U;
   RankingConfig config;
   config.switch_score_gap = 0.12;
@@ -295,7 +311,9 @@ TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenScoreGapEqualsThreshold)
 
   EXPECT_EQ("candidate", selected.target_id);
   EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 
@@ -344,7 +362,9 @@ TEST(RiskModelTest, SelectPrimaryAllowsNullStateAndSelectsBest) {
 TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenPreviousPrimaryAbsent) {
   RankingState state;
   state.previous_primary_id = "missing";
+  state.has_previous_primary = true;
   state.candidate_primary_id = "stale";
+  state.has_candidate_primary = true;
   state.candidate_count = 1U;
   const std::vector<RiskVector> risks{
     ranked_target("candidate", RiskPhase::Warning, 0.70, 30.0, 100.0)};
@@ -353,14 +373,103 @@ TEST(RiskModelTest, SelectPrimarySwitchesImmediatelyWhenPreviousPrimaryAbsent) {
 
   EXPECT_EQ("candidate", selected.target_id);
   EXPECT_EQ("candidate", state.previous_primary_id);
+  EXPECT_TRUE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
+  EXPECT_EQ(0U, state.candidate_count);
+}
+
+TEST(RiskModelTest, SelectPrimaryInitializesEmptyTargetIdAndKeepsHysteresis) {
+  RankingState state;
+  const auto empty_primary = ranked_target("", RiskPhase::Warning, 0.80, 60.0, 200.0);
+
+  const auto initial = select_primary({empty_primary}, &state);
+
+  EXPECT_TRUE(initial.target_id.empty());
+  EXPECT_TRUE(state.has_previous_primary);
+  EXPECT_TRUE(state.previous_primary_id.empty());
+
+  const std::vector<RiskVector> risks{
+    empty_primary,
+    ranked_target("candidate", RiskPhase::Warning, 0.91, 30.0, 150.0)};
+  const auto selected = select_primary(risks, &state);
+
+  EXPECT_TRUE(selected.target_id.empty());
+  EXPECT_TRUE(state.has_previous_primary);
+  EXPECT_TRUE(state.previous_primary_id.empty());
+  EXPECT_TRUE(state.has_candidate_primary);
+  EXPECT_EQ("candidate", state.candidate_primary_id);
+  EXPECT_EQ(1U, state.candidate_count);
+}
+
+TEST(RiskModelTest, SelectPrimaryBreaksEmptyIdTiesByRiskFieldsRegardlessOfInputOrder) {
+  auto less_exposed = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  less_exposed.warning_margin_m = -5.0;
+  less_exposed.danger_margin_m = 50.0;
+  less_exposed.warning_ddv = 0.05;
+  less_exposed.danger_ddv = 0.0;
+  less_exposed.closing_speed_mps = 1.0;
+
+  auto more_exposed = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  more_exposed.warning_margin_m = -15.0;
+  more_exposed.danger_margin_m = 20.0;
+  more_exposed.warning_ddv = 0.10;
+  more_exposed.danger_ddv = 0.0;
+  more_exposed.closing_speed_mps = 2.0;
+
+  const auto selected_ordered = select_primary({less_exposed, more_exposed}, nullptr);
+  const auto selected_reversed = select_primary({more_exposed, less_exposed}, nullptr);
+
+  EXPECT_NEAR(-15.0, selected_ordered.warning_margin_m, 1.0e-9);
+  EXPECT_NEAR(selected_ordered.warning_margin_m, selected_reversed.warning_margin_m, 1.0e-9);
+  EXPECT_NEAR(selected_ordered.danger_margin_m, selected_reversed.danger_margin_m, 1.0e-9);
+  EXPECT_NEAR(selected_ordered.warning_ddv, selected_reversed.warning_ddv, 1.0e-9);
+  EXPECT_NEAR(selected_ordered.closing_speed_mps, selected_reversed.closing_speed_mps, 1.0e-9);
+}
+
+TEST(RiskModelTest, SelectPrimaryHandlesDuplicateIdsAsBestValueSelection) {
+  RankingState state;
+  state.has_previous_primary = true;
+  state.previous_primary_id = "duplicate";
+  const std::vector<RiskVector> risks{
+    ranked_target("duplicate", RiskPhase::Warning, 0.70, 30.0, 100.0),
+    ranked_target("duplicate", RiskPhase::Warning, 0.90, 45.0, 200.0)};
+
+  const auto selected = select_primary(risks, &state);
+
+  EXPECT_EQ("duplicate", selected.target_id);
+  EXPECT_NEAR(0.90, selected.risk_score, 1.0e-9);
+  EXPECT_TRUE(state.has_previous_primary);
+  EXPECT_FALSE(state.has_candidate_primary);
+}
+
+TEST(RiskModelTest, SelectPrimaryDoesNotOverflowSaturatedCandidateCount) {
+  RankingState state;
+  state.has_previous_primary = true;
+  state.previous_primary_id = "previous";
+  state.has_candidate_primary = true;
+  state.candidate_primary_id = "candidate";
+  state.candidate_count = std::numeric_limits<std::uint32_t>::max();
+  RankingConfig config;
+  config.switch_confirm_samples = std::numeric_limits<std::uint32_t>::max();
+  const std::vector<RiskVector> risks{
+    ranked_target("previous", RiskPhase::Warning, 0.80, 60.0, 200.0),
+    ranked_target("candidate", RiskPhase::Warning, 0.91, 30.0, 150.0)};
+
+  const auto selected = select_primary(risks, &state, config);
+
+  EXPECT_EQ("candidate", selected.target_id);
+  EXPECT_TRUE(state.has_previous_primary);
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 
 TEST(RiskModelTest, SelectPrimaryReturnsDefaultRiskForEmptyInput) {
   RankingState state;
   state.previous_primary_id = "previous";
+  state.has_previous_primary = true;
   state.candidate_primary_id = "candidate";
+  state.has_candidate_primary = true;
   state.candidate_count = 1U;
 
   const auto selected = select_primary({}, &state);
@@ -368,7 +477,10 @@ TEST(RiskModelTest, SelectPrimaryReturnsDefaultRiskForEmptyInput) {
   EXPECT_TRUE(selected.target_id.empty());
   EXPECT_EQ(RiskPhase::Clear, selected.risk_phase);
   EXPECT_EQ(0.0, selected.risk_score);
+  EXPECT_TRUE(state.previous_primary_id.empty());
+  EXPECT_FALSE(state.has_previous_primary);
   EXPECT_TRUE(state.candidate_primary_id.empty());
+  EXPECT_FALSE(state.has_candidate_primary);
   EXPECT_EQ(0U, state.candidate_count);
 }
 

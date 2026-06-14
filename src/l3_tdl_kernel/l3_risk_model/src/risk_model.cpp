@@ -144,7 +144,25 @@ bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector 
   if (std::abs(candidate.range_m - current.range_m) > kEpsilon) {
     return candidate.range_m < current.range_m;
   }
-  return candidate.target_id < current.target_id;
+  if (candidate.target_id != current.target_id) {
+    return candidate.target_id < current.target_id;
+  }
+  if (std::abs(candidate.warning_margin_m - current.warning_margin_m) > kEpsilon) {
+    return candidate.warning_margin_m < current.warning_margin_m;
+  }
+  if (std::abs(candidate.danger_margin_m - current.danger_margin_m) > kEpsilon) {
+    return candidate.danger_margin_m < current.danger_margin_m;
+  }
+  if (std::abs(candidate.warning_ddv - current.warning_ddv) > kEpsilon) {
+    return candidate.warning_ddv > current.warning_ddv;
+  }
+  if (std::abs(candidate.danger_ddv - current.danger_ddv) > kEpsilon) {
+    return candidate.danger_ddv > current.danger_ddv;
+  }
+  if (std::abs(candidate.closing_speed_mps - current.closing_speed_mps) > kEpsilon) {
+    return candidate.closing_speed_mps > current.closing_speed_mps;
+  }
+  return false;
 }
 
 std::vector<RiskVector>::const_iterator find_by_target_id(
@@ -158,11 +176,18 @@ std::vector<RiskVector>::const_iterator find_by_target_id(
 
 void clear_candidate(RankingState & state) {
   state.candidate_primary_id.clear();
+  state.has_candidate_primary = false;
   state.candidate_count = 0U;
+}
+
+void clear_previous(RankingState & state) {
+  state.previous_primary_id.clear();
+  state.has_previous_primary = false;
 }
 
 void promote_primary(RankingState & state, const RiskVector & risk) {
   state.previous_primary_id = risk.target_id;
+  state.has_previous_primary = true;
   clear_candidate(state);
 }
 
@@ -267,6 +292,7 @@ RiskVector select_primary(
   const RankingConfig & config) {
   if (risks.empty()) {
     if (state != nullptr) {
+      clear_previous(*state);
       clear_candidate(*state);
     }
     return RiskVector{};
@@ -284,7 +310,7 @@ RiskVector select_primary(
     return best;
   }
 
-  if (state->previous_primary_id.empty()) {
+  if (!state->has_previous_primary) {
     promote_primary(*state, best);
     return best;
   }
@@ -296,9 +322,9 @@ RiskVector select_primary(
   }
 
   const RiskVector & previous = *previous_it;
-  if (best.target_id == previous.target_id) {
-    promote_primary(*state, previous);
-    return previous;
+  if (best.target_id == state->previous_primary_id) {
+    promote_primary(*state, best);
+    return best;
   }
 
   const double switch_score_gap = std::max(0.0, config.switch_score_gap);
@@ -309,7 +335,7 @@ RiskVector select_primary(
   }
 
   const std::uint32_t required_samples = std::max(1U, config.switch_confirm_samples);
-  if (state->candidate_primary_id == best.target_id) {
+  if (state->has_candidate_primary && state->candidate_primary_id == best.target_id) {
     if (state->candidate_count < required_samples) {
       ++state->candidate_count;
     } else {
@@ -317,6 +343,7 @@ RiskVector select_primary(
     }
   } else {
     state->candidate_primary_id = best.target_id;
+    state->has_candidate_primary = true;
     state->candidate_count = 1U;
   }
 

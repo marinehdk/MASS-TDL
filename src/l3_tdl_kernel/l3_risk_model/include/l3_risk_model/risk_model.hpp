@@ -55,6 +55,8 @@ struct RankingState {
   std::string previous_primary_id;
   std::string candidate_primary_id;
   std::uint32_t candidate_count{0U};
+  bool has_previous_primary{false};
+  bool has_candidate_primary{false};
 };
 
 struct RankingConfig {
