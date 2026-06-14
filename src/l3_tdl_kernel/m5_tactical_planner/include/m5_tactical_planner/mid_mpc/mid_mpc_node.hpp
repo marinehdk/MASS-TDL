@@ -25,6 +25,7 @@
 
 #include "l3_msgs/msg/sat3_data.hpp"
 #include "l3_msgs/msg/trajectory_candidate.hpp"
+#include "l3_risk_model/risk_model.hpp"
 #include "m5_tactical_planner/mid_mpc/nomoto_fallback.hpp"
 
 namespace mass_l3::m5::mid_mpc {
@@ -53,6 +54,7 @@ class MidMpcNode : public rclcpp::Node {
   MidMpcSolver                solver_;
   MidMpcWaypointGenerator     wp_gen_;
   std::optional<MidMpcSolution> last_solution_;
+  mass_l3::risk::RankingState risk_ranking_state_;
 
   l3_msgs::msg::WorldState::SharedPtr                        world_state_;
   l3_msgs::msg::BehaviorPlan::SharedPtr                      behavior_plan_;

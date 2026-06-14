@@ -38,6 +38,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(l3_risk_model REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -115,6 +116,7 @@ set(M5_LINK_LIBS
   yaml-cpp::yaml-cpp
   Eigen3::Eigen
   Boost::headers
+  l3_risk_model::l3_risk_model
 )
 
 if(M5_HAS_CASADI)

@@ -131,11 +131,24 @@ inline ColregsPreferredDirection parse_colregs_preferred_direction(const std::st
   return ColregsPreferredDirection::Hold;
 }
 
+struct TargetRiskSnapshot {
+  std::string target_id;
+  double risk_score{0.0};
+  double warning_margin_m{0.0};
+  double danger_margin_m{0.0};
+  double tcpa_s{0.0};
+  double closing_speed_mps{0.0};
+  bool primary{false};
+};
+
 struct MidMpcInput {
   TrajectoryPoint own_ship;               // current own-ship state
   std::vector<TargetState> targets;       // max 16 per spec §4.2
   ConstraintInputs constraints;
   double planned_route_bearing_rad{0.0};  // current route leg bearing [rad]
+  double route_xte_m{0.0};
+  double route_corridor_limit_m{500.0};
+  std::vector<TargetRiskSnapshot> target_risks;
 
   bool colregs_conflict_active{false};
   ColregsPreferredDirection colregs_preferred_direction{ColregsPreferredDirection::Hold};
@@ -285,6 +298,68 @@ inline double geometric_fallback_target_speed_kn(
     return units::mps_to_kn(planned_speed_mps);
   }
   return nominal_speed_kn;
+}
+
+inline double geometric_fallback_target_speed_kn(
+    double planned_speed_mps,
+    double nominal_speed_kn,
+    double speed_max_mps) {
+  const double preferred_speed_kn =
+      geometric_fallback_target_speed_kn(planned_speed_mps, nominal_speed_kn);
+  if (std::isfinite(speed_max_mps) && speed_max_mps > 0.0) {
+    return std::min(preferred_speed_kn, units::mps_to_kn(speed_max_mps));
+  }
+  return preferred_speed_kn;
+}
+
+inline const TargetRiskSnapshot* primary_target_risk(const MidMpcInput& input) {
+  const TargetRiskSnapshot* best = nullptr;
+  for (const auto& risk : input.target_risks) {
+    if (risk.primary) {
+      return &risk;
+    }
+    if (best == nullptr || risk.risk_score > best->risk_score) {
+      best = &risk;
+    }
+  }
+  return best;
+}
+
+inline ColregsPreferredDirection risk_aware_fallback_direction(const MidMpcInput& input) {
+  if (!input.colregs_conflict_active) {
+    return input.colregs_preferred_direction;
+  }
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  if (risk == nullptr) {
+    return input.colregs_preferred_direction;
+  }
+
+  const bool danger_intrusion = risk->danger_margin_m < 0.0;
+  if (danger_intrusion) {
+    return input.colregs_preferred_direction;
+  }
+
+  constexpr double kReturnXteThresholdM = 350.0;
+  const bool xte_pressure = std::fabs(input.route_xte_m) >= kReturnXteThresholdM;
+  const bool outside_warning = risk->warning_margin_m >= 0.0;
+  const bool opening_or_clear = risk->closing_speed_mps <= 0.0;
+  if (xte_pressure && outside_warning && opening_or_clear) {
+    return ColregsPreferredDirection::Hold;
+  }
+
+  const bool speed_cap_active =
+      std::isfinite(input.constraints.speed_max_mps) &&
+      input.constraints.speed_max_mps > 0.0 &&
+      input.planned_speed_mps > input.constraints.speed_max_mps + 0.1;
+  const bool ample_tcpa = risk->tcpa_s > 180.0;
+  const bool turn_requested =
+      input.colregs_preferred_direction == ColregsPreferredDirection::Starboard ||
+      input.colregs_preferred_direction == ColregsPreferredDirection::Port;
+  if (turn_requested && speed_cap_active && ample_tcpa && outside_warning) {
+    return ColregsPreferredDirection::ReduceSpeed;
+  }
+
+  return input.colregs_preferred_direction;
 }
 
 inline double geometric_fallback_delta_heading_rad(double own_psi, double target_psi) {

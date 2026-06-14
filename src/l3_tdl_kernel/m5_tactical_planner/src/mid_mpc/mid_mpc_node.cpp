@@ -13,6 +13,7 @@
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
+#include "l3_risk_model/risk_model.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
@@ -27,6 +28,73 @@ constexpr double kCpaSafeFallback_m = 1852.0;
 // [TBD-HAZID] Default planned speed [m/s] when speed profile is absent.
 // Set to nominal cruise speed from scenario YAML (10 kn for FCB imazu tests).
 constexpr double kDefaultPlannedSpeed_mps = 5.14;
+
+mass_l3::risk::ColregsDuty colregs_duty_from_role(std::uint8_t primary_role) {
+  if (primary_role == 1U) {
+    return mass_l3::risk::ColregsDuty::GiveWay;
+  }
+  if (primary_role == 2U) {
+    return mass_l3::risk::ColregsDuty::BothGiveWay;
+  }
+  if (primary_role == 0U) {
+    return mass_l3::risk::ColregsDuty::StandOnHold;
+  }
+  return mass_l3::risk::ColregsDuty::Free;
+}
+
+mass_l3::risk::OwnShipInput ownship_risk_input(const TrajectoryPoint& own_ship) {
+  return mass_l3::risk::OwnShipInput{
+      own_ship.x_m,
+      own_ship.y_m,
+      own_ship.psi_rad,
+      own_ship.u_mps,
+      46.0,
+      1.0,
+      false};
+}
+
+mass_l3::risk::TargetInput target_risk_input(const TargetState& target) {
+  return mass_l3::risk::TargetInput{
+      std::to_string(target.id),
+      target.x_m,
+      target.y_m,
+      target.cog_rad,
+      target.sog_mps,
+      target.cpa_m,
+      target.tcpa_s,
+      target.confidence};
+}
+
+std::vector<TargetRiskSnapshot> build_target_risk_snapshots(
+    const MidMpcInput& input,
+    std::uint8_t primary_role,
+    mass_l3::risk::RankingState& ranking_state) {
+  std::vector<mass_l3::risk::RiskVector> risks;
+  risks.reserve(input.targets.size());
+  const auto own = ownship_risk_input(input.own_ship);
+  const auto duty = colregs_duty_from_role(primary_role);
+  for (const auto& target : input.targets) {
+    risks.push_back(mass_l3::risk::evaluate_target(
+        own,
+        target_risk_input(target),
+        duty));
+  }
+  const auto primary = mass_l3::risk::select_primary(risks, &ranking_state);
+
+  std::vector<TargetRiskSnapshot> snapshots;
+  snapshots.reserve(risks.size());
+  for (const auto& risk : risks) {
+    snapshots.push_back(TargetRiskSnapshot{
+        risk.target_id,
+        risk.risk_score,
+        risk.warning_margin_m,
+        risk.danger_margin_m,
+        risk.tcpa_s,
+        risk.closing_speed_mps,
+        risk.target_id == primary.target_id});
+  }
+  return snapshots;
+}
 }  // namespace
 
 // ===========================================================================
@@ -177,6 +245,16 @@ MidMpcInput MidMpcNode::assemble_input_()
     inp.colregs_min_alteration_rad = min_alt_deg * units::kRadPerDeg;
   }
 
+  if (inp.colregs_conflict_active) {
+    inp.target_risks = build_target_risk_snapshots(
+        inp,
+        colregs_constraint_->primary_role,
+        risk_ranking_state_);
+    if (behavior_plan_->rationale.find("speed_reduction_preferred=true") != std::string::npos) {
+      inp.colregs_preferred_direction = ColregsPreferredDirection::ReduceSpeed;
+    }
+  }
+
   // Dynamically adjust CPA safe distance and target weights based on COLREGs constraint
   double cpa_safe = kCpaSafeFallback_m;
   if (inp.colregs_conflict_active) {
@@ -204,6 +282,13 @@ MidMpcInput MidMpcNode::assemble_input_()
     const double ddy = (p1_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
                        * std::cos(p0_lat * units::kRadPerDeg);
     inp.planned_route_bearing_rad = std::atan2(ddy, ddx);
+    const double own_dx = (own_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+    const double own_dy = (own_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
+                          * std::cos(p0_lat * units::kRadPerDeg);
+    const double route_len = std::hypot(ddx, ddy);
+    if (route_len > 1.0) {
+      inp.route_xte_m = ((ddx * own_dy) - (ddy * own_dx)) / route_len;
+    }
   } else {
     inp.planned_route_bearing_rad = 0.0;
   }
@@ -316,7 +401,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
 {
   // Use nominal speed if current speed is too low to be meaningful
   const double target_speed_kn = mass_l3::m5::geometric_fallback_target_speed_kn(
-      input.planned_speed_mps, nominal_speed_kn_);
+      input.planned_speed_mps, nominal_speed_kn_, input.constraints.speed_max_mps);
   const double u_mps = (input.own_ship.u_mps > 0.5)
       ? input.own_ship.u_mps
       : (target_speed_kn * units::kMsPerKn);
@@ -330,8 +415,9 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   double min_alt_rad = input.colregs_min_alteration_rad;
   min_alt_rad = mass_l3::m5::fallback_min_alteration_rad(
       route_brg, h_min, h_max, min_alt_rad);
+  const auto fallback_direction = mass_l3::m5::risk_aware_fallback_direction(input);
   double target_psi = mass_l3::m5::fallback_target_heading(
-      route_brg, h_min, h_max, min_alt_rad, input.colregs_preferred_direction);
+      route_brg, h_min, h_max, min_alt_rad, fallback_direction);
 
   const double delta_psi = mass_l3::m5::geometric_fallback_delta_heading_rad(
       own_psi, target_psi);
@@ -349,7 +435,8 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   plan.confidence = 0.6f;
   plan.rationale = "M5 geometric COLREG fallback (" + reason + ")"
       + " turn_r=" + std::to_string(static_cast<int>(turn_radius_m)) + "m"
-      + " tgt=" + std::to_string(static_cast<int>(target_psi * units::kDegPerRad)) + "deg";
+      + " tgt=" + std::to_string(static_cast<int>(target_psi * units::kDegPerRad)) + "deg"
+      + " risk_dir=" + std::to_string(static_cast<int>(fallback_direction));
 
   double prev_xN = 0.0;
   double prev_xE = 0.0;
