@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from math import atan2, cos, degrees, exp, hypot, sin
 
@@ -24,10 +24,10 @@ class RiskPhase(str, Enum):
 
 @dataclass(frozen=True)
 class OwnShipInput:
-    x_m: float
-    y_m: float
-    heading_rad: float
-    sog_mps: float
+    x_m: float = 0.0
+    y_m: float = 0.0
+    heading_rad: float = 0.0
+    sog_mps: float = 0.0
     loa_m: float = 46.0
     confidence: float = 1.0
     odd_degraded: bool = False
@@ -35,13 +35,13 @@ class OwnShipInput:
 
 @dataclass(frozen=True)
 class TargetInput:
-    id: str
-    x_m: float
-    y_m: float
-    cog_rad: float
-    sog_mps: float
-    cpa_m: float
-    tcpa_s: float
+    id: str = ""
+    x_m: float = 0.0
+    y_m: float = 0.0
+    cog_rad: float = 0.0
+    sog_mps: float = 0.0
+    cpa_m: float = 0.0
+    tcpa_s: float = 0.0
     confidence: float = 1.0
 
 
@@ -81,6 +81,21 @@ class RiskVector:
     colregs_duty: ColregsDuty = ColregsDuty.FREE
     risk_phase: RiskPhase = RiskPhase.CLEAR
     risk_score: float = 0.0
+
+
+@dataclass
+class RunRiskSummary:
+    primary_threat_id: str = ""
+    primary_threat_switches: int = 0
+    max_risk_score: float = 0.0
+    worst_warning_margin_m: float = 0.0
+    worst_danger_margin_m: float = 0.0
+    max_warning_ddv: float = 0.0
+    max_danger_ddv: float = 0.0
+    warning_domain_exposure_s: float = 0.0
+    danger_domain_exposure_s: float = 0.0
+    encounter_complexity_score: float = 0.0
+    risks: list[RiskVector] = field(default_factory=list)
 
 
 @dataclass
