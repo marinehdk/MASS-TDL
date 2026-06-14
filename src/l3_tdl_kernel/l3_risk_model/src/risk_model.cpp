@@ -182,11 +182,8 @@ bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector 
   if (std::abs(candidate.range_m - current.range_m) > kEpsilon) {
     return candidate.range_m < current.range_m;
   }
-  if (candidate.target_id != current.target_id) {
-    return candidate.target_id < current.target_id;
-  }
 
-  // Duplicate or empty IDs continue through every remaining field. Directions prefer higher risk:
+  // Remaining safety fields outrank target_id. Directions prefer higher risk:
   // smaller CPA/margins/TDV, larger DDV/TDE/closing speed/duty, and centerline-relative bearing.
   int order = compare_smaller(candidate.dcpa_m, current.dcpa_m);
   if (order != 0) {
@@ -237,6 +234,9 @@ bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector 
     static_cast<int>(current.colregs_duty));
   if (order != 0) {
     return order > 0;
+  }
+  if (candidate.target_id != current.target_id) {
+    return candidate.target_id < current.target_id;
   }
   return false;
 }

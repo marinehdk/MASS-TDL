@@ -457,6 +457,21 @@ TEST(RiskModelTest, SelectPrimaryBreaksOmittedFieldTiesRegardlessOfInputOrder) {
   EXPECT_EQ(ColregsDuty::Rule17Action, select_primary({lower_duty, higher_duty}, nullptr).colregs_duty);
 }
 
+TEST(RiskModelTest, SelectPrimaryPrioritizesRiskFieldsBeforeTargetId) {
+  auto lower_id_lower_risk = ranked_target("alpha", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  lower_id_lower_risk.dcpa_m = 80.0;
+  lower_id_lower_risk.warning_margin_m = -5.0;
+  lower_id_lower_risk.danger_margin_m = 40.0;
+
+  auto higher_id_higher_risk = ranked_target("zulu", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  higher_id_higher_risk.dcpa_m = 40.0;
+  higher_id_higher_risk.warning_margin_m = -15.0;
+  higher_id_higher_risk.danger_margin_m = 20.0;
+
+  EXPECT_EQ("zulu", select_primary({lower_id_lower_risk, higher_id_higher_risk}, nullptr).target_id);
+  EXPECT_EQ("zulu", select_primary({higher_id_higher_risk, lower_id_lower_risk}, nullptr).target_id);
+}
+
 TEST(RiskModelTest, SelectPrimaryHandlesDuplicateIdsAsBestValueSelection) {
   RankingState state;
   state.has_previous_primary = true;
