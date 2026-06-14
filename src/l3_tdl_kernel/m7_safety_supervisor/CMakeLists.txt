@@ -27,6 +27,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(l3_risk_model REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -110,6 +111,7 @@ target_include_directories(m7_lib
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    ${l3_risk_model_INCLUDE_DIRS}
 )
 
 ament_target_dependencies(m7_lib
@@ -122,6 +124,7 @@ ament_target_dependencies(m7_lib
 
 target_link_libraries(m7_lib
   spdlog::spdlog
+  l3_risk_model::l3_risk_model
 )
 
 # ---------------------------------------------------------------------------
@@ -336,5 +339,5 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(m7_lib)
-ament_export_dependencies(rclcpp l3_msgs l3_external_msgs builtin_interfaces std_msgs)
+ament_export_dependencies(rclcpp l3_msgs l3_external_msgs l3_risk_model builtin_interfaces std_msgs)
 ament_package()

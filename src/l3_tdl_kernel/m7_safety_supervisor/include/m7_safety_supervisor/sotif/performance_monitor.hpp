@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <string>
 #include "l3_msgs/msg/world_state.hpp"
 
 namespace mass_l3::m7::sotif {
@@ -23,6 +24,13 @@ struct PerformanceStatus {
   double max_cpa_in_window_nm;
   bool multiple_targets_nearby;
   std::uint32_t critical_target_count;
+  std::string primary_threat_id;
+  double max_risk_score;
+  double worst_warning_margin_m;
+  double worst_danger_margin_m;
+  double warning_domain_exposure_s;
+  double danger_domain_exposure_s;
+  bool danger_veto_active;
 };
 
 // INVARIANT: Designed for 1 Hz call rate (30 samples ≈ 30 s window).
@@ -47,6 +55,14 @@ private:
   std::array<float, 30> cpa_history_{};   // 30-sample ring buffer, CPA in NM
   std::uint32_t history_idx_{0};
   std::uint32_t history_count_{0};        // samples filled so far (saturates at 30)
+  bool has_last_eval_time_{false};
+  std::chrono::steady_clock::time_point last_eval_time_{};
+  bool has_domain_risk_{false};
+  double max_risk_score_{0.0};
+  double worst_warning_margin_m_{0.0};
+  double worst_danger_margin_m_{0.0};
+  double warning_domain_exposure_s_{0.0};
+  double danger_domain_exposure_s_{0.0};
 };
 
 }  // namespace mass_l3::m7::sotif
