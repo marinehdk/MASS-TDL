@@ -18,6 +18,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
                        "src/sim_workbench/sil_nodes/scoring/scoring"))
 import stability_scorer as ss  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
+                       "src/l3_tdl_kernel/l3_risk_model/python"))
+from l3_risk_model import (  # noqa: E402
+    ColregsDuty,
+    OwnShipInput,
+    RankingState,
+    RiskPhase,
+    TargetInput,
+    evaluate_target,
+    select_primary,
+)
+
 BASE = os.environ.get("SIL_ORCH_BASE_URL", "https://127.0.0.1:18000/api/v1").rstrip("/")
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -37,6 +49,12 @@ SCENARIOS = [
 ROUTE_CORRIDOR_HALF_WIDTH_M = 1000.0
 ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
 DEFAULT_CPA_FLOOR_M = 500.0
+MAX_WARNING_DOMAIN_EXPOSURE_S = 120.0
+MAX_INTEGRATED_ABS_XTE_M_S = 500.0 * 600.0
+MAX_ROUTE_CROSSING_OVERSHOOTS = 1
+MAX_PATH_LENGTH_RATIO = 1.35
+MAX_PRIMARY_THREAT_SWITCHES = 2
+DANGER_EXPOSURE_GRACE_S = 5.0
 
 def req(method, path, body=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
@@ -71,6 +89,376 @@ def _ownship_record_near_origin(record, lat0, lon0, max_distance_m=20000.0):
     except (KeyError, TypeError, ValueError):
         return False
     return math.hypot(x_m, y_m) <= max_distance_m
+
+def _knots_to_mps(knots: float) -> float:
+    return float(knots) * 0.514444
+
+def _nav_deg_to_math_rad(nav_deg: float) -> float:
+    return math.radians(90.0 - float(nav_deg))
+
+def _target_id(meta: dict, index: int) -> str:
+    static = meta.get("static") or {}
+    for source in (static, meta):
+        for key in ("mmsi", "id"):
+            value = source.get(key)
+            if value is not None and value != "":
+                return str(value)
+    return f"TS{index + 1:03d}"
+
+def _velocity_components_mps(sog_kn: float, nav_deg: float) -> tuple[float, float]:
+    speed_mps = _knots_to_mps(sog_kn)
+    heading_rad = _nav_deg_to_math_rad(nav_deg)
+    return speed_mps * math.cos(heading_rad), speed_mps * math.sin(heading_rad)
+
+def _target_state_at(meta: dict, sim_t: float, lat0: float, lon0: float) -> dict:
+    initial = meta.get("initial") or {}
+    position = initial.get("position") or {}
+    tgt_lat0 = float(meta.get("lat0", position.get("latitude", 0.0)))
+    tgt_lon0 = float(meta.get("lon0", position.get("longitude", 0.0)))
+    cog = float(meta.get("cog", initial.get("cog", 0.0)))
+    sog_kn = float(meta.get("sog_kn", initial.get("sog", 0.0)))
+    e0, n0 = _enu(tgt_lat0, tgt_lon0, lat0, lon0)
+    vx_mps, vy_mps = _velocity_components_mps(sog_kn, cog)
+    return {
+        "x_m": e0 + vx_mps * float(sim_t),
+        "y_m": n0 + vy_mps * float(sim_t),
+        "cog": cog,
+        "sog_kn": sog_kn,
+        "sog_mps": _knots_to_mps(sog_kn),
+        "vx_mps": vx_mps,
+        "vy_mps": vy_mps,
+    }
+
+def _cpa_tcpa_m(px, py, rvx, rvy) -> tuple[float, float]:
+    rel_speed_sq = rvx * rvx + rvy * rvy
+    if rel_speed_sq <= 1.0e-9:
+        return math.hypot(px, py), -1.0
+    tcpa = -((px * rvx + py * rvy) / rel_speed_sq)
+    cpa_t = max(tcpa, 0.0)
+    cpa_m = math.hypot(px + rvx * cpa_t, py + rvy * cpa_t)
+    return cpa_m, tcpa
+
+def _infer_colregs_duty(encounter: dict, sim_t: float,
+                        avoidance_onset_s: float | None) -> ColregsDuty:
+    encounter = encounter or {}
+    give_way_vessel = str(encounter.get("give_way_vessel", "")).lower()
+    if give_way_vessel == "own":
+        return ColregsDuty.GIVE_WAY
+
+    rule = str(encounter.get("rule", "")).lower()
+    if give_way_vessel == "target":
+        if "rule17" in rule and avoidance_onset_s is not None and sim_t >= avoidance_onset_s:
+            return ColregsDuty.RULE17_ACTION
+        return ColregsDuty.STAND_ON_HOLD
+
+    return ColregsDuty.FREE
+
+def _avoidance_onset_s(run_records) -> float | None:
+    behavior_records = sorted(
+        (r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    for record in behavior_records:
+        if _is_avoidance_behavior(record):
+            return float(record.get("sim_t", 0.0))
+    return None
+
+def _risk_metrics_defaults() -> dict:
+    return {
+        "primary_threat_id": "",
+        "primary_threat_switches": 0,
+        "max_risk_score": 0.0,
+        "worst_warning_margin_m": 0.0,
+        "worst_danger_margin_m": 0.0,
+        "max_warning_ddv": 0.0,
+        "max_danger_ddv": 0.0,
+        "warning_domain_exposure_s": 0.0,
+        "danger_domain_exposure_s": 0.0,
+        "risk_recovery_ok": True,
+        "risk_trace": [],
+    }
+
+def _is_warning_or_worse(phase: RiskPhase) -> bool:
+    return phase in (RiskPhase.WARNING, RiskPhase.DANGER, RiskPhase.CRITICAL)
+
+def _is_danger_or_worse(phase: RiskPhase) -> bool:
+    return phase in (RiskPhase.DANGER, RiskPhase.CRITICAL)
+
+def _interval_after_grace(start_s: float, end_s: float, first_sample_s: float) -> float:
+    grace_end_s = first_sample_s + DANGER_EXPOSURE_GRACE_S
+    return max(0.0, end_s - max(start_s, grace_end_s))
+
+def _first_risk_row_at_or_after(risk_trace, t_s):
+    for row in risk_trace:
+        if row["t_s"] >= t_s:
+            return row
+    return None
+
+def _risk_recovery_ok(risk_trace, avoidance_onset_s, max_risk_score):
+    if avoidance_onset_s is None:
+        return max_risk_score == 0.0
+
+    onset_row = _first_risk_row_at_or_after(risk_trace, avoidance_onset_s)
+    if onset_row is None:
+        return max_risk_score == 0.0
+    if onset_row["warning_ddv"] == 0.0 and onset_row["closing_speed_mps"] <= 0.0:
+        return True
+
+    recovery_row = _first_risk_row_at_or_after(
+        risk_trace, avoidance_onset_s + 60.0)
+    if recovery_row is None:
+        return False
+
+    return (recovery_row["risk_score"] - onset_row["risk_score"]) < -0.02
+
+def compute_risk_metrics(run_records, targets_meta, *, lat0, lon0, encounter=None) -> dict:
+    ownship_records = sorted(
+        (
+            r for r in run_records
+            if r.get("topic") == "/sil/own_ship_state" and
+            _ownship_record_near_origin(r, lat0, lon0)
+        ),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    if not ownship_records or not targets_meta:
+        return _risk_metrics_defaults()
+
+    onset_s = _avoidance_onset_s(run_records)
+    ranking_state = RankingState()
+    previous_primary_id = None
+    primary_switches = 0
+    max_risk_score = 0.0
+    worst_warning_margin = float("inf")
+    worst_danger_margin = float("inf")
+    max_warning_ddv = 0.0
+    max_danger_ddv = 0.0
+    warning_exposure_s = 0.0
+    danger_exposure_s = 0.0
+    risk_trace = []
+    prev_t = None
+    prev_warning_active = False
+    prev_danger_active = False
+    first_sample_s = float(ownship_records[0].get("sim_t", 0.0))
+
+    for record in ownship_records:
+        sim_t = float(record.get("sim_t", 0.0))
+        if prev_t is not None:
+            dt = max(0.0, sim_t - prev_t)
+            if prev_warning_active:
+                warning_exposure_s += dt
+            if prev_danger_active:
+                danger_exposure_s += _interval_after_grace(prev_t, sim_t, first_sample_s)
+
+        own_x, own_y = _enu(float(record["lat"]), float(record["lon"]), lat0, lon0)
+        own_hdg = float(record.get("heading_deg", record.get("cog_deg", 0.0)))
+        own_sog_kn = float(record.get("sog_kn", record.get("sog", 0.0)))
+        own_vx, own_vy = _velocity_components_mps(own_sog_kn, own_hdg)
+        own = OwnShipInput(
+            x_m=own_x,
+            y_m=own_y,
+            heading_rad=_nav_deg_to_math_rad(own_hdg),
+            sog_mps=_knots_to_mps(own_sog_kn),
+        )
+
+        risks = []
+        for index, target_meta in enumerate(targets_meta):
+            target_state = _target_state_at(target_meta, sim_t, lat0, lon0)
+            px = target_state["x_m"] - own_x
+            py = target_state["y_m"] - own_y
+            rvx = target_state["vx_mps"] - own_vx
+            rvy = target_state["vy_mps"] - own_vy
+            cpa_m, tcpa_s = _cpa_tcpa_m(px, py, rvx, rvy)
+            target = TargetInput(
+                id=_target_id(target_meta, index),
+                x_m=target_state["x_m"],
+                y_m=target_state["y_m"],
+                cog_rad=_nav_deg_to_math_rad(target_state["cog"]),
+                sog_mps=target_state["sog_mps"],
+                cpa_m=cpa_m,
+                tcpa_s=tcpa_s,
+                confidence=0.9,
+            )
+            duty = _infer_colregs_duty(encounter or {}, sim_t, onset_s)
+            risks.append(evaluate_target(own, target, duty))
+
+        primary = select_primary(risks, ranking_state)
+        if primary.target_id:
+            if previous_primary_id is not None and primary.target_id != previous_primary_id:
+                primary_switches += 1
+            previous_primary_id = primary.target_id
+
+        warning_active = any(_is_warning_or_worse(r.risk_phase) for r in risks)
+        danger_active = any(_is_danger_or_worse(r.risk_phase) for r in risks)
+        for risk in risks:
+            max_risk_score = max(max_risk_score, risk.risk_score)
+            worst_warning_margin = min(worst_warning_margin, risk.warning_margin_m)
+            worst_danger_margin = min(worst_danger_margin, risk.danger_margin_m)
+            max_warning_ddv = max(max_warning_ddv, risk.warning_ddv)
+            max_danger_ddv = max(max_danger_ddv, risk.danger_ddv)
+
+        risk_trace.append({
+            "t_s": sim_t,
+            "primary_threat_id": primary.target_id,
+            "risk_phase": primary.risk_phase.value,
+            "risk_score": primary.risk_score,
+            "warning_margin_m": primary.warning_margin_m,
+            "danger_margin_m": primary.danger_margin_m,
+            "warning_ddv": primary.warning_ddv,
+            "danger_ddv": primary.danger_ddv,
+            "closing_speed_mps": primary.closing_speed_mps,
+        })
+
+        prev_t = sim_t
+        prev_warning_active = warning_active
+        prev_danger_active = danger_active
+
+    if worst_warning_margin == float("inf"):
+        worst_warning_margin = 0.0
+    if worst_danger_margin == float("inf"):
+        worst_danger_margin = 0.0
+
+    return {
+        "primary_threat_id": previous_primary_id or "",
+        "primary_threat_switches": primary_switches,
+        "max_risk_score": max_risk_score,
+        "worst_warning_margin_m": worst_warning_margin,
+        "worst_danger_margin_m": worst_danger_margin,
+        "max_warning_ddv": max_warning_ddv,
+        "max_danger_ddv": max_danger_ddv,
+        "warning_domain_exposure_s": warning_exposure_s,
+        "danger_domain_exposure_s": danger_exposure_s,
+        "risk_recovery_ok": _risk_recovery_ok(risk_trace, onset_s, max_risk_score),
+        "risk_trace": risk_trace,
+    }
+
+def compute_seamanship_metrics(run_records, *, lat0, lon0, init_lat, init_lon,
+                               init_hdg, route_distance_m=None) -> dict:
+    ownship_records = sorted(
+        (
+            r for r in run_records
+            if r.get("topic") == "/sil/own_ship_state" and
+            _ownship_record_near_origin(r, lat0, lon0)
+        ),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    if not ownship_records:
+        return {
+            "integrated_abs_xte_m_s": 0.0,
+            "route_crossing_overshoot_count": 0,
+            "path_length_m": 0.0,
+            "path_length_ratio": 1.0,
+        }
+
+    init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
+    samples = []
+    for record in ownship_records:
+        x_m, y_m = _enu(float(record["lat"]), float(record["lon"]), lat0, lon0)
+        xte_m = get_cross_track_error(x_m, y_m, init_x_m, init_y_m, init_hdg)
+        samples.append((float(record.get("sim_t", 0.0)), x_m, y_m, xte_m))
+
+    integrated_abs_xte_m_s = 0.0
+    path_length_m = 0.0
+    for prev, cur in zip(samples, samples[1:]):
+        dt = max(0.0, cur[0] - prev[0])
+        integrated_abs_xte_m_s += ((abs(prev[3]) + abs(cur[3])) * 0.5) * dt
+        path_length_m += math.hypot(cur[1] - prev[1], cur[2] - prev[2])
+
+    deadband_m = 25.0
+    route_crossing_overshoots = 0
+    prev_sign = None
+    for _, _, _, xte_m in samples:
+        if xte_m > deadband_m:
+            sign = 1
+        elif xte_m < -deadband_m:
+            sign = -1
+        else:
+            continue
+        if prev_sign is not None and sign != prev_sign:
+            route_crossing_overshoots += 1
+        prev_sign = sign
+
+    if route_distance_m is not None:
+        denominator_m = max(float(route_distance_m), 1.0)
+    else:
+        first = samples[0]
+        last = samples[-1]
+        denominator_m = max(math.hypot(last[1] - first[1], last[2] - first[2]), 1.0)
+
+    return {
+        "integrated_abs_xte_m_s": integrated_abs_xte_m_s,
+        "route_crossing_overshoot_count": route_crossing_overshoots,
+        "path_length_m": path_length_m,
+        "path_length_ratio": path_length_m / denominator_m,
+    }
+
+def compute_domain_gate_status(risk_metrics, seamanship_metrics, *,
+                               close_start_emergency_allowed=False,
+                               single_target=True) -> dict:
+    danger_domain_ok = risk_metrics.get("danger_domain_exposure_s", 0.0) == 0.0
+    warning_domain_ok = (
+        risk_metrics.get("warning_domain_exposure_s", 0.0) <=
+        MAX_WARNING_DOMAIN_EXPOSURE_S
+    )
+    danger_ddv_ok = (
+        close_start_emergency_allowed or
+        risk_metrics.get("max_danger_ddv", 0.0) == 0.0
+    )
+    risk_recovery_ok = bool(risk_metrics.get("risk_recovery_ok", False))
+    integrated_xte_ok = (
+        seamanship_metrics.get("integrated_abs_xte_m_s", 0.0) <=
+        MAX_INTEGRATED_ABS_XTE_M_S
+    )
+    route_crossing_ok = (
+        seamanship_metrics.get("route_crossing_overshoot_count", 0) <=
+        MAX_ROUTE_CROSSING_OVERSHOOTS
+    )
+    path_length_ok = (
+        seamanship_metrics.get("path_length_ratio", 0.0) <=
+        MAX_PATH_LENGTH_RATIO
+    )
+    threat_switch_ok = (
+        True if not single_target else
+        risk_metrics.get("primary_threat_switches", 0) <= MAX_PRIMARY_THREAT_SWITCHES
+    )
+    risk_gate_ok = (
+        danger_domain_ok and warning_domain_ok and danger_ddv_ok and
+        risk_recovery_ok and threat_switch_ok
+    )
+    seamanship_gate_ok = integrated_xte_ok and route_crossing_ok and path_length_ok
+    return {
+        "danger_domain_ok": bool(danger_domain_ok),
+        "warning_domain_ok": bool(warning_domain_ok),
+        "danger_ddv_ok": bool(danger_ddv_ok),
+        "risk_recovery_ok": bool(risk_recovery_ok),
+        "integrated_xte_ok": bool(integrated_xte_ok),
+        "route_crossing_ok": bool(route_crossing_ok),
+        "path_length_ok": bool(path_length_ok),
+        "threat_switch_ok": bool(threat_switch_ok),
+        "risk_gate_ok": bool(risk_gate_ok),
+        "seamanship_gate_ok": bool(seamanship_gate_ok),
+        "domain_gate_ok": bool(risk_gate_ok and seamanship_gate_ok),
+    }
+
+def _close_start_emergency_allowed(expected: dict) -> bool:
+    cpa_acceptance = expected.get("cpa_acceptance") or {}
+    profile = str(cpa_acceptance.get("profile", "")).lower()
+    return (
+        bool(expected.get("allow_danger_domain_start", False)) or
+        "close_start" in profile or
+        "in_extremis" in profile
+    )
+
+def _route_distance_m(scen_data, lat0, lon0) -> float:
+    nominal_route = (scen_data.get("ownShip") or {}).get("nominalRoute") or []
+    if len(nominal_route) < 2:
+        return 0.0
+    first = nominal_route[0]
+    last = nominal_route[-1]
+    first_e, first_n = _enu(
+        float(first["latitude"]), float(first["longitude"]), lat0, lon0)
+    last_e, last_n = _enu(
+        float(last["latitude"]), float(last["longitude"]), lat0, lon0)
+    return math.hypot(last_e - first_e, last_n - first_n)
 
 def read_trace_run_records(trace_path=Path("runs/trace_current.jsonl")):
     records = []
@@ -233,11 +621,14 @@ def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
                          route_return_required=True,
                          route_corridor_ok=True,
                          overtake_required=False,
-                         overtake_completed=False):
+                         overtake_completed=False,
+                         risk_gate_ok=True,
+                         seamanship_gate_ok=True):
     return bool(cpa_ok and stability_pass and
                 ((not route_return_required) or returned_to_route) and
                 route_corridor_ok and
-                ((not overtake_required) or overtake_completed))
+                ((not overtake_required) or overtake_completed) and
+                risk_gate_ok and seamanship_gate_ok)
 
 def expected_cpa_floor_m(expected):
     cpa_acceptance = expected.get("cpa_acceptance") or {}
@@ -270,6 +661,7 @@ def run_scenario(scenario_id):
     
     sim_settings = scen_data.get("metadata", {}).get("simulation_settings", {})
     expected = scen_data.get("metadata", {}).get("expected_outcome", {})
+    encounter = scen_data.get("metadata", {}).get("encounter", {})
     total_time = float(sim_settings.get("total_time", 600.0))
     coordinate_origin = sim_settings.get("coordinate_origin", [63.44, 10.38])
     lat0, lon0 = coordinate_origin[0], coordinate_origin[1]
@@ -297,6 +689,8 @@ def run_scenario(scenario_id):
         t_cog = float(ti["cog"])
         t_sog = float(ti["sog"])
         targets_meta.append({
+            "id": ts.get("id"),
+            "static": ts.get("static", {}),
             "lat0": t_lat, "lon0": t_lon,
             "cog": t_cog, "sog_kn": t_sog
         })
@@ -511,7 +905,6 @@ def run_scenario(scenario_id):
         compliance_verdict = "violated"
         
     # ── Phase B: behavioral-stability KPIs (fishtail / flap detector) ─────
-    encounter = scen_data.get("metadata", {}).get("encounter", {})
     role = "give_way" if encounter.get("give_way_vessel") == "own" else "stand_on"
     stability_thresholds = expected.get("stability_thresholds")  # optional override
     stability = ss.analyze_stability(
@@ -528,6 +921,29 @@ def run_scenario(scenario_id):
         steer_mag = avoidance_port
 
     # ── Overall verdict: CPA floor AND behavioral stability ───────────────
+    route_distance_m = _route_distance_m(scen_data, lat0, lon0)
+    risk_metrics = compute_risk_metrics(
+        run_records,
+        targets_meta,
+        lat0=lat0,
+        lon0=lon0,
+        encounter=encounter,
+    )
+    seamanship_metrics = compute_seamanship_metrics(
+        run_records,
+        lat0=lat0,
+        lon0=lon0,
+        init_lat=init_lat,
+        init_lon=init_lon,
+        init_hdg=init_hdg,
+        route_distance_m=route_distance_m,
+    )
+    domain_gates = compute_domain_gate_status(
+        risk_metrics,
+        seamanship_metrics,
+        close_start_emergency_allowed=_close_start_emergency_allowed(expected),
+        single_target=(len(targets_meta) <= 1),
+    )
     min_dcpa_m = cpa_min_nm * 1852.0 if not math.isnan(cpa_min_nm) else float("nan")
     cpa_floor_m = expected_cpa_floor_m(expected)
     cpa_ok = (not math.isnan(min_dcpa_m)) and (min_dcpa_m >= cpa_floor_m)
@@ -539,6 +955,8 @@ def run_scenario(scenario_id):
         route_corridor_ok=route_status["route_corridor_ok"],
         overtake_required=overtake_required,
         overtake_completed=overtake_status["overtake_completed"],
+        risk_gate_ok=domain_gates["risk_gate_ok"],
+        seamanship_gate_ok=domain_gates["seamanship_gate_ok"],
     )
 
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
@@ -559,12 +977,24 @@ def run_scenario(scenario_id):
     print(f"  Behavior transitions: {bp_transitions}")
     print(f"  M5 Solver states: {solver_stats}")
     print(f"  Role: {role} | CPA floor: {cpa_floor_m:.0f} m | CPA pass: {cpa_ok}")
+    print(f"  Risk Gate: {domain_gates['risk_gate_ok']} "
+          f"(primary={risk_metrics['primary_threat_id'] or 'none'}, "
+          f"max_score={risk_metrics['max_risk_score']:.3f}, "
+          f"warning_exp={risk_metrics['warning_domain_exposure_s']:.1f}s, "
+          f"danger_exp={risk_metrics['danger_domain_exposure_s']:.1f}s, "
+          f"recovery={risk_metrics['risk_recovery_ok']})")
+    print(f"  Seamanship Gate: {domain_gates['seamanship_gate_ok']} "
+          f"(int_abs_xte={seamanship_metrics['integrated_abs_xte_m_s']:.1f} m*s, "
+          f"crossings={seamanship_metrics['route_crossing_overshoot_count']}, "
+          f"path_ratio={seamanship_metrics['path_length_ratio']:.2f})")
     print(ss.format_report(stability))
     print(f"  ===> OVERALL: {'PASS' if overall_pass else 'RED'} "
           f"(cpa_ok={cpa_ok} AND stability={stability['stability_pass']} "
           f"AND route_return={is_back_to_route if route_return_required else 'n/a'} "
           f"AND corridor={route_status['route_corridor_ok']} "
-          f"AND overtake={overtake_status['overtake_completed'] if overtake_required else 'n/a'})")
+          f"AND overtake={overtake_status['overtake_completed'] if overtake_required else 'n/a'} "
+          f"AND risk_gate={domain_gates['risk_gate_ok']} "
+          f"AND seamanship_gate={domain_gates['seamanship_gate_ok']})")
     
     # 9. Plot trajectories and save to run directory
     try:
@@ -642,6 +1072,21 @@ def run_scenario(scenario_id):
         "stability_pass": stability["stability_pass"],
         "stability_kpis": stability["kpis"],
         "stability_checks": stability["checks"],
+        "primary_threat_id": risk_metrics["primary_threat_id"],
+        "primary_threat_switches": risk_metrics["primary_threat_switches"],
+        "max_risk_score": risk_metrics["max_risk_score"],
+        "worst_warning_margin_m": risk_metrics["worst_warning_margin_m"],
+        "worst_danger_margin_m": risk_metrics["worst_danger_margin_m"],
+        "max_warning_ddv": risk_metrics["max_warning_ddv"],
+        "max_danger_ddv": risk_metrics["max_danger_ddv"],
+        "warning_domain_exposure_s": risk_metrics["warning_domain_exposure_s"],
+        "danger_domain_exposure_s": risk_metrics["danger_domain_exposure_s"],
+        "risk_recovery_ok": risk_metrics["risk_recovery_ok"],
+        "risk_trace": risk_metrics["risk_trace"],
+        "integrated_abs_xte_m_s": seamanship_metrics["integrated_abs_xte_m_s"],
+        "route_crossing_overshoot_count": seamanship_metrics["route_crossing_overshoot_count"],
+        "path_length_ratio": seamanship_metrics["path_length_ratio"],
+        "domain_gates": domain_gates,
         "overall_pass": overall_pass,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }

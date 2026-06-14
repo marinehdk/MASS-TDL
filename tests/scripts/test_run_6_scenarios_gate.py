@@ -1,4 +1,5 @@
 import importlib.util
+import math
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,46 @@ def _load_runner():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _ownship_record(t_s, east_m, north_m, *, heading_deg=0.0, sog_kn=0.0):
+    return {
+        "topic": "/sil/own_ship_state",
+        "sim_t": t_s,
+        "lat": north_m / 111120.0,
+        "lon": east_m / 111120.0,
+        "heading_deg": heading_deg,
+        "sog_kn": sog_kn,
+    }
+
+
+def _risk_defaults(**overrides):
+    values = {
+        "primary_threat_id": "",
+        "primary_threat_switches": 0,
+        "max_risk_score": 0.0,
+        "worst_warning_margin_m": 0.0,
+        "worst_danger_margin_m": 0.0,
+        "max_warning_ddv": 0.0,
+        "max_danger_ddv": 0.0,
+        "warning_domain_exposure_s": 0.0,
+        "danger_domain_exposure_s": 0.0,
+        "risk_recovery_ok": True,
+        "risk_trace": [],
+    }
+    values.update(overrides)
+    return values
+
+
+def _seamanship_defaults(**overrides):
+    values = {
+        "integrated_abs_xte_m_s": 0.0,
+        "route_crossing_overshoot_count": 0,
+        "path_length_m": 0.0,
+        "path_length_ratio": 1.0,
+    }
+    values.update(overrides)
+    return values
 
 
 def test_base_url_can_target_local_orchestrator(monkeypatch):
@@ -53,6 +94,28 @@ def test_overall_gate_passes_when_all_required_signals_pass():
         stability_pass=True,
         returned_to_route=True,
     ) is True
+
+
+def test_overall_gate_requires_domain_and_seamanship_gates():
+    runner = _load_runner()
+
+    assert runner.compute_overall_pass(
+        cpa_ok=True,
+        stability_pass=True,
+        returned_to_route=True,
+    ) is True
+    assert runner.compute_overall_pass(
+        cpa_ok=True,
+        stability_pass=True,
+        returned_to_route=True,
+        risk_gate_ok=False,
+    ) is False
+    assert runner.compute_overall_pass(
+        cpa_ok=True,
+        stability_pass=True,
+        returned_to_route=True,
+        seamanship_gate_ok=False,
+    ) is False
 
 
 def test_overall_gate_requires_route_corridor_pass():
@@ -217,6 +280,170 @@ def test_overtake_status_requires_ownship_longitudinally_ahead():
     assert status["overtake_completed"] is True
     assert status["overtake_first_time_s"] == pytest.approx(100.0)
     assert status["final_own_minus_target_along_m"] == pytest.approx(300.0, abs=1.0)
+
+
+def test_domain_gate_fails_danger_exposure():
+    runner = _load_runner()
+
+    gates = runner.compute_domain_gate_status(
+        _risk_defaults(danger_domain_exposure_s=1.0),
+        _seamanship_defaults(),
+    )
+
+    assert gates["danger_domain_ok"] is False
+    assert gates["risk_gate_ok"] is False
+    assert gates["seamanship_gate_ok"] is True
+    assert gates["domain_gate_ok"] is False
+
+
+def test_domain_gate_allows_close_start_danger_ddv_only_when_flagged():
+    runner = _load_runner()
+    risk_metrics = _risk_defaults(max_danger_ddv=0.2)
+    seamanship_metrics = _seamanship_defaults()
+
+    blocked = runner.compute_domain_gate_status(
+        risk_metrics,
+        seamanship_metrics,
+        close_start_emergency_allowed=False,
+    )
+    allowed = runner.compute_domain_gate_status(
+        risk_metrics,
+        seamanship_metrics,
+        close_start_emergency_allowed=True,
+    )
+
+    assert blocked["danger_ddv_ok"] is False
+    assert blocked["risk_gate_ok"] is False
+    assert allowed["danger_ddv_ok"] is True
+    assert allowed["risk_gate_ok"] is True
+
+
+def test_seamanship_metrics_integrate_abs_xte_and_overshoot():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 100.0, 0.0),
+        _ownship_record(10.0, 100.0, 100.0),
+        _ownship_record(20.0, -100.0, 200.0),
+        _ownship_record(30.0, -100.0, 300.0),
+        _ownship_record(40.0, 100.0, 400.0),
+    ]
+
+    metrics = runner.compute_seamanship_metrics(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+        route_distance_m=400.0,
+    )
+
+    assert metrics["integrated_abs_xte_m_s"] == pytest.approx(4000.0, abs=1.0)
+    assert metrics["route_crossing_overshoot_count"] == 2
+    expected_path = 200.0 + 2.0 * math.hypot(200.0, 100.0)
+    assert metrics["path_length_m"] == pytest.approx(expected_path, abs=1.0)
+    assert metrics["path_length_ratio"] == pytest.approx(expected_path / 400.0, abs=0.01)
+
+
+def test_compute_risk_metrics_detects_primary_target_and_exposure():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+        _ownship_record(10.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+    ]
+    targets = [{
+        "static": {"mmsi": 999000001},
+        "lat0": 200.0 / 111120.0,
+        "lon0": 0.0,
+        "cog": 180.0,
+        "sog_kn": 0.0,
+    }]
+
+    metrics = runner.compute_risk_metrics(
+        records,
+        targets,
+        lat0=0.0,
+        lon0=0.0,
+        encounter={"rule": "Rule14", "give_way_vessel": "own"},
+    )
+
+    assert metrics["primary_threat_id"] == "999000001"
+    assert metrics["max_risk_score"] > 0.0
+    assert metrics["max_danger_ddv"] > 0.0
+    assert metrics["warning_domain_exposure_s"] == pytest.approx(10.0)
+    assert metrics["danger_domain_exposure_s"] == pytest.approx(5.0)
+    assert metrics["risk_trace"][0]["risk_phase"] == "Danger"
+
+
+def test_risk_recovery_fails_when_score_does_not_decrease_after_avoidance():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+        {"topic": "/l3/m4/behavior_plan", "sim_t": 10.0, "behavior": 1},
+        _ownship_record(10.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+        _ownship_record(70.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+    ]
+    targets = [{
+        "id": "ts-danger",
+        "lat0": 200.0 / 111120.0,
+        "lon0": 0.0,
+        "cog": 180.0,
+        "sog_kn": 0.0,
+    }]
+
+    metrics = runner.compute_risk_metrics(
+        records,
+        targets,
+        lat0=0.0,
+        lon0=0.0,
+        encounter={"rule": "Rule14", "give_way_vessel": "own"},
+    )
+
+    assert metrics["risk_recovery_ok"] is False
+
+
+def test_result_schema_has_new_domain_fields():
+    runner = _load_runner()
+    risk_metrics = runner.compute_risk_metrics(
+        [_ownship_record(0.0, 0.0, 0.0)],
+        [],
+        lat0=0.0,
+        lon0=0.0,
+    )
+    seamanship_metrics = runner.compute_seamanship_metrics(
+        [_ownship_record(0.0, 0.0, 0.0)],
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+    )
+    result = {
+        **risk_metrics,
+        **seamanship_metrics,
+        "domain_gates": runner.compute_domain_gate_status(
+            risk_metrics,
+            seamanship_metrics,
+        ),
+    }
+
+    assert {
+        "primary_threat_id",
+        "primary_threat_switches",
+        "max_risk_score",
+        "worst_warning_margin_m",
+        "worst_danger_margin_m",
+        "max_warning_ddv",
+        "max_danger_ddv",
+        "warning_domain_exposure_s",
+        "danger_domain_exposure_s",
+        "risk_recovery_ok",
+        "risk_trace",
+        "integrated_abs_xte_m_s",
+        "route_crossing_overshoot_count",
+        "path_length_ratio",
+        "domain_gates",
+    } <= result.keys()
 
 
 def test_clean_probe_yaml_requires_1200s_route_return():
