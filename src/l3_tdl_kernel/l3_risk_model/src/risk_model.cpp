@@ -121,6 +121,44 @@ bool has_non_negative_tcpa(const RiskVector & risk) noexcept {
   return risk.tcpa_s >= 0.0;
 }
 
+int compare_smaller(double candidate, double current) {
+  if (std::abs(candidate - current) <= kEpsilon) {
+    return 0;
+  }
+  return candidate < current ? 1 : -1;
+}
+
+int compare_larger(double candidate, double current) {
+  if (std::abs(candidate - current) <= kEpsilon) {
+    return 0;
+  }
+  return candidate > current ? 1 : -1;
+}
+
+int compare_shorter_non_negative(double candidate, double current) {
+  const bool candidate_valid = candidate >= 0.0;
+  const bool current_valid = current >= 0.0;
+  if (candidate_valid != current_valid) {
+    return candidate_valid ? 1 : -1;
+  }
+  return compare_smaller(candidate, current);
+}
+
+int compare_centerline_bearing(double candidate, double current) {
+  const int abs_order = compare_smaller(std::abs(candidate), std::abs(current));
+  if (abs_order != 0) {
+    return abs_order;
+  }
+  return compare_smaller(candidate, current);
+}
+
+int compare_larger_int(int candidate, int current) {
+  if (candidate == current) {
+    return 0;
+  }
+  return candidate > current ? 1 : -1;
+}
+
 bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector & current) {
   const int candidate_phase = phase_rank(candidate.risk_phase);
   const int current_phase = phase_rank(current.risk_phase);
@@ -147,31 +185,75 @@ bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector 
   if (candidate.target_id != current.target_id) {
     return candidate.target_id < current.target_id;
   }
-  if (std::abs(candidate.warning_margin_m - current.warning_margin_m) > kEpsilon) {
-    return candidate.warning_margin_m < current.warning_margin_m;
+
+  // Duplicate or empty IDs continue through every remaining field. Directions prefer higher risk:
+  // smaller CPA/margins/TDV, larger DDV/TDE/closing speed/duty, and centerline-relative bearing.
+  int order = compare_smaller(candidate.dcpa_m, current.dcpa_m);
+  if (order != 0) {
+    return order > 0;
   }
-  if (std::abs(candidate.danger_margin_m - current.danger_margin_m) > kEpsilon) {
-    return candidate.danger_margin_m < current.danger_margin_m;
+  order = compare_centerline_bearing(candidate.relative_bearing_deg, current.relative_bearing_deg);
+  if (order != 0) {
+    return order > 0;
   }
-  if (std::abs(candidate.warning_ddv - current.warning_ddv) > kEpsilon) {
-    return candidate.warning_ddv > current.warning_ddv;
+  order = compare_smaller(candidate.warning_margin_m, current.warning_margin_m);
+  if (order != 0) {
+    return order > 0;
   }
-  if (std::abs(candidate.danger_ddv - current.danger_ddv) > kEpsilon) {
-    return candidate.danger_ddv > current.danger_ddv;
+  order = compare_smaller(candidate.danger_margin_m, current.danger_margin_m);
+  if (order != 0) {
+    return order > 0;
   }
-  if (std::abs(candidate.closing_speed_mps - current.closing_speed_mps) > kEpsilon) {
-    return candidate.closing_speed_mps > current.closing_speed_mps;
+  order = compare_larger(candidate.warning_ddv, current.warning_ddv);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_larger(candidate.danger_ddv, current.danger_ddv);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_shorter_non_negative(candidate.tdv_warning_s, current.tdv_warning_s);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_shorter_non_negative(candidate.tdv_danger_s, current.tdv_danger_s);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_larger(candidate.tde_warning_s, current.tde_warning_s);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_larger(candidate.tde_danger_s, current.tde_danger_s);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_larger(candidate.closing_speed_mps, current.closing_speed_mps);
+  if (order != 0) {
+    return order > 0;
+  }
+  order = compare_larger_int(
+    static_cast<int>(candidate.colregs_duty),
+    static_cast<int>(current.colregs_duty));
+  if (order != 0) {
+    return order > 0;
   }
   return false;
 }
 
-std::vector<RiskVector>::const_iterator find_by_target_id(
+std::vector<RiskVector>::const_iterator find_best_by_target_id(
   const std::vector<RiskVector> & risks,
   const std::string & target_id) {
-  return std::find_if(
-    risks.begin(),
-    risks.end(),
-    [&target_id](const RiskVector & risk) { return risk.target_id == target_id; });
+  auto best_it = risks.end();
+  for (auto it = risks.begin(); it != risks.end(); ++it) {
+    if (it->target_id != target_id) {
+      continue;
+    }
+    if (best_it == risks.end() || is_better_primary_candidate(*it, *best_it)) {
+      best_it = it;
+    }
+  }
+  return best_it;
 }
 
 void clear_candidate(RankingState & state) {
@@ -315,7 +397,7 @@ RiskVector select_primary(
     return best;
   }
 
-  const auto previous_it = find_by_target_id(risks, state->previous_primary_id);
+  const auto previous_it = find_best_by_target_id(risks, state->previous_primary_id);
   if (previous_it == risks.end()) {
     promote_primary(*state, best);
     return best;

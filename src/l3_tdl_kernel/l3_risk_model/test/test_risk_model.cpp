@@ -427,6 +427,36 @@ TEST(RiskModelTest, SelectPrimaryBreaksEmptyIdTiesByRiskFieldsRegardlessOfInputO
   EXPECT_NEAR(selected_ordered.closing_speed_mps, selected_reversed.closing_speed_mps, 1.0e-9);
 }
 
+TEST(RiskModelTest, SelectPrimaryBreaksOmittedFieldTiesRegardlessOfInputOrder) {
+  auto lower_dcpa = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  lower_dcpa.dcpa_m = 40.0;
+  auto higher_dcpa = lower_dcpa;
+  higher_dcpa.dcpa_m = 80.0;
+  EXPECT_NEAR(40.0, select_primary({lower_dcpa, higher_dcpa}, nullptr).dcpa_m, 1.0e-9);
+  EXPECT_NEAR(40.0, select_primary({higher_dcpa, lower_dcpa}, nullptr).dcpa_m, 1.0e-9);
+
+  auto sooner_warning = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  sooner_warning.tdv_warning_s = 20.0;
+  auto later_warning = sooner_warning;
+  later_warning.tdv_warning_s = 40.0;
+  EXPECT_NEAR(20.0, select_primary({sooner_warning, later_warning}, nullptr).tdv_warning_s, 1.0e-9);
+  EXPECT_NEAR(20.0, select_primary({later_warning, sooner_warning}, nullptr).tdv_warning_s, 1.0e-9);
+
+  auto longer_exposure = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  longer_exposure.tde_danger_s = 60.0;
+  auto shorter_exposure = longer_exposure;
+  shorter_exposure.tde_danger_s = 30.0;
+  EXPECT_NEAR(60.0, select_primary({longer_exposure, shorter_exposure}, nullptr).tde_danger_s, 1.0e-9);
+  EXPECT_NEAR(60.0, select_primary({shorter_exposure, longer_exposure}, nullptr).tde_danger_s, 1.0e-9);
+
+  auto higher_duty = ranked_target("", RiskPhase::Warning, 0.70, 30.0, 100.0);
+  higher_duty.colregs_duty = ColregsDuty::Rule17Action;
+  auto lower_duty = higher_duty;
+  lower_duty.colregs_duty = ColregsDuty::Free;
+  EXPECT_EQ(ColregsDuty::Rule17Action, select_primary({higher_duty, lower_duty}, nullptr).colregs_duty);
+  EXPECT_EQ(ColregsDuty::Rule17Action, select_primary({lower_duty, higher_duty}, nullptr).colregs_duty);
+}
+
 TEST(RiskModelTest, SelectPrimaryHandlesDuplicateIdsAsBestValueSelection) {
   RankingState state;
   state.has_previous_primary = true;
@@ -441,6 +471,29 @@ TEST(RiskModelTest, SelectPrimaryHandlesDuplicateIdsAsBestValueSelection) {
   EXPECT_NEAR(0.90, selected.risk_score, 1.0e-9);
   EXPECT_TRUE(state.has_previous_primary);
   EXPECT_FALSE(state.has_candidate_primary);
+}
+
+TEST(RiskModelTest, SelectPrimaryUsesBestDuplicatePreviousAsHysteresisBaseline) {
+  RankingState low_first_state;
+  low_first_state.has_previous_primary = true;
+  low_first_state.previous_primary_id = "duplicate";
+  RankingState high_first_state = low_first_state;
+
+  const auto previous_low = ranked_target("duplicate", RiskPhase::Warning, 0.70, 60.0, 200.0);
+  const auto previous_high = ranked_target("duplicate", RiskPhase::Warning, 0.80, 60.0, 200.0);
+  const auto candidate = ranked_target("candidate", RiskPhase::Warning, 0.91, 30.0, 150.0);
+
+  const auto selected_low_first = select_primary({previous_low, previous_high, candidate}, &low_first_state);
+  const auto selected_high_first = select_primary({previous_high, previous_low, candidate}, &high_first_state);
+
+  EXPECT_EQ("duplicate", selected_low_first.target_id);
+  EXPECT_EQ("duplicate", selected_high_first.target_id);
+  EXPECT_NEAR(0.80, selected_low_first.risk_score, 1.0e-9);
+  EXPECT_NEAR(selected_low_first.risk_score, selected_high_first.risk_score, 1.0e-9);
+  EXPECT_TRUE(low_first_state.has_candidate_primary);
+  EXPECT_EQ("candidate", low_first_state.candidate_primary_id);
+  EXPECT_TRUE(high_first_state.has_candidate_primary);
+  EXPECT_EQ("candidate", high_first_state.candidate_primary_id);
 }
 
 TEST(RiskModelTest, SelectPrimaryDoesNotOverflowSaturatedCandidateCount) {
