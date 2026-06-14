@@ -402,6 +402,33 @@ def test_risk_recovery_fails_when_score_does_not_decrease_after_avoidance():
     assert metrics["risk_recovery_ok"] is False
 
 
+def test_risk_recovery_passes_without_avoidance_when_outside_warning():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 0.0, 0.0, heading_deg=0.0, sog_kn=5.0),
+        _ownship_record(60.0, 0.0, 300.0, heading_deg=0.0, sog_kn=5.0),
+    ]
+    targets = [{
+        "id": "ts-opening-clear",
+        "lat0": -1200.0 / 111120.0,
+        "lon0": 0.0,
+        "cog": 180.0,
+        "sog_kn": 5.0,
+    }]
+
+    metrics = runner.compute_risk_metrics(
+        records,
+        targets,
+        lat0=0.0,
+        lon0=0.0,
+        encounter={"rule": "Rule15", "give_way_vessel": "own"},
+    )
+
+    assert metrics["max_risk_score"] > 0.0
+    assert metrics["warning_domain_exposure_s"] == 0.0
+    assert metrics["risk_recovery_ok"] is True
+
+
 def test_result_schema_has_new_domain_fields():
     runner = _load_runner()
     risk_metrics = runner.compute_risk_metrics(

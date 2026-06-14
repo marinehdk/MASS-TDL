@@ -55,6 +55,7 @@ MAX_ROUTE_CROSSING_OVERSHOOTS = 1
 MAX_PATH_LENGTH_RATIO = 1.35
 MAX_PRIMARY_THREAT_SWITCHES = 2
 DANGER_EXPOSURE_GRACE_S = 5.0
+DOMAIN_EPS = 1.0e-9
 
 def req(method, path, body=None, timeout=30):
     data = json.dumps(body).encode() if body is not None else None
@@ -194,14 +195,21 @@ def _first_risk_row_at_or_after(risk_trace, t_s):
             return row
     return None
 
+def _risk_row_outside_warning(row) -> bool:
+    return (
+        row.get("warning_ddv", 0.0) <= DOMAIN_EPS and
+        row.get("danger_ddv", 0.0) <= DOMAIN_EPS and
+        row.get("risk_phase") not in ("Warning", "Danger", "Critical")
+    )
+
 def _risk_recovery_ok(risk_trace, avoidance_onset_s, max_risk_score):
     if avoidance_onset_s is None:
-        return max_risk_score == 0.0
+        return all(_risk_row_outside_warning(row) for row in risk_trace)
 
     onset_row = _first_risk_row_at_or_after(risk_trace, avoidance_onset_s)
     if onset_row is None:
         return max_risk_score == 0.0
-    if onset_row["warning_ddv"] == 0.0 and onset_row["closing_speed_mps"] <= 0.0:
+    if _risk_row_outside_warning(onset_row) and onset_row["closing_speed_mps"] <= 0.0:
         return True
 
     recovery_row = _first_risk_row_at_or_after(
@@ -394,14 +402,14 @@ def compute_seamanship_metrics(run_records, *, lat0, lon0, init_lat, init_lon,
 def compute_domain_gate_status(risk_metrics, seamanship_metrics, *,
                                close_start_emergency_allowed=False,
                                single_target=True) -> dict:
-    danger_domain_ok = risk_metrics.get("danger_domain_exposure_s", 0.0) == 0.0
+    danger_domain_ok = risk_metrics.get("danger_domain_exposure_s", 0.0) <= DOMAIN_EPS
     warning_domain_ok = (
         risk_metrics.get("warning_domain_exposure_s", 0.0) <=
         MAX_WARNING_DOMAIN_EXPOSURE_S
     )
     danger_ddv_ok = (
         close_start_emergency_allowed or
-        risk_metrics.get("max_danger_ddv", 0.0) == 0.0
+        risk_metrics.get("max_danger_ddv", 0.0) <= DOMAIN_EPS
     )
     risk_recovery_ok = bool(risk_metrics.get("risk_recovery_ok", False))
     integrated_xte_ok = (
@@ -1110,7 +1118,8 @@ def main():
     print("==================================================")
     n_pass = sum(1 for r in results.values() if r.get("overall_pass"))
     print(f"OVERALL: {n_pass}/{len(results)} PASS "
-          f"(CPA floor AND behavioral stability AND required route return AND corridor)\n")
+          f"(CPA floor AND behavioral stability AND required route return "
+          f"AND corridor AND risk/seamanship gates)\n")
     for scen, res in results.items():
         verdict = "PASS" if res.get("overall_pass") else "RED"
         print(f"\n[{verdict}] {scen} ({res['run_id']}) — role={res.get('role')}")
