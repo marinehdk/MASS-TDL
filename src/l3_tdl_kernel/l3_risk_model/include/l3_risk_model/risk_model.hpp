@@ -5,6 +5,11 @@
 
 namespace mass_l3::risk {
 
+// Public contract: inputs use finite SI units and radians. Negative SOG values are
+// interpreted as zero speed, confidence values are clamped to [0, 1] when used,
+// warning_scale is bounded to at least 1.0, superellipse_power to at least 1.0,
+// and time horizons to non-negative seconds.
+
 enum class ColregsDuty : std::uint8_t { Free, StandOnHold, GiveWay, BothGiveWay, Rule17Action };
 
 enum class RiskPhase : std::uint8_t { Clear, Monitor, Warning, Danger, Critical };

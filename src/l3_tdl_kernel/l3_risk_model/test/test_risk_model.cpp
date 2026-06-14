@@ -53,6 +53,69 @@ TEST(RiskModelTest, OpeningTargetOutsideWarningReturnsClear) {
   EXPECT_LT(risk.closing_speed_mps, 0.0);
 }
 
+TEST(RiskModelTest, ClosingSpeedSignTracksClosingAndOpeningPairs) {
+  const auto own = nominal_ownship();
+  const TargetInput closing{"TS-CLOSE", 500.0, 0.0, kPi, 5.0, 200.0, 120.0, 0.95};
+  const TargetInput opening{"TS-AWAY", 500.0, 0.0, 0.0, 8.0, 400.0, 120.0, 0.95};
+
+  const auto closing_risk = evaluate_target(own, closing, ColregsDuty::GiveWay);
+  const auto opening_risk = evaluate_target(own, opening, ColregsDuty::Free);
+
+  EXPECT_GT(closing_risk.closing_speed_mps, 0.0);
+  EXPECT_LT(opening_risk.closing_speed_mps, 0.0);
+}
+
+TEST(RiskModelTest, NegativeSpeedsAreTreatedAsZeroForVelocityMath) {
+  auto own = nominal_ownship();
+  own.sog_mps = -5.0;
+  const TargetInput target{"TS-NEG-SOG", 500.0, 0.0, kPi, -2.0, 500.0, 120.0, 0.95};
+
+  const auto risk = evaluate_target(own, target, ColregsDuty::Free);
+
+  EXPECT_NEAR(0.0, risk.closing_speed_mps, 1.0e-9);
+}
+
+TEST(RiskModelTest, ZeroRangeTargetReportsFullDomainViolationWithNegativeMargins) {
+  const auto own = nominal_ownship();
+  const TargetInput target{"TS-ZERO", 0.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.95};
+
+  const auto risk = evaluate_target(own, target, ColregsDuty::GiveWay);
+
+  EXPECT_EQ(1.0, risk.warning_ddv);
+  EXPECT_EQ(1.0, risk.danger_ddv);
+  EXPECT_LT(risk.warning_margin_m, 0.0);
+  EXPECT_LT(risk.danger_margin_m, 0.0);
+}
+
+TEST(RiskModelTest, NegativeWarningScaleFallsBackToDangerAxesAndFiniteEvaluation) {
+  const auto own = nominal_ownship();
+  DomainConfig config;
+  config.warning_scale = -2.0;
+  config.superellipse_power = -3.0;
+  const TargetInput target{"TS-BAD-CONFIG", 280.0, 0.0, kPi, 5.0, 120.0, 45.0, 0.9};
+
+  const auto danger = danger_axes(own);
+  const auto warning = warning_axes(own, config);
+  const auto risk = evaluate_target(own, target, ColregsDuty::GiveWay, config);
+
+  EXPECT_GE(warning.forward_m, danger.forward_m);
+  EXPECT_GE(warning.astern_m, danger.astern_m);
+  EXPECT_GE(warning.starboard_m, danger.starboard_m);
+  EXPECT_GE(warning.port_m, danger.port_m);
+  EXPECT_TRUE(std::isfinite(risk.warning_margin_m));
+  EXPECT_TRUE(std::isfinite(risk.danger_margin_m));
+  EXPECT_TRUE(std::isfinite(risk.risk_score));
+}
+
+TEST(RiskModelTest, NegativeTcpaInsideDomainIsDangerNotCritical) {
+  const auto own = nominal_ownship();
+  const TargetInput target{"TS-NEG-TCPA", 280.0, 0.0, kPi, 5.0, 120.0, -10.0, 0.9};
+
+  const auto risk = evaluate_target(own, target, ColregsDuty::GiveWay);
+
+  EXPECT_EQ(RiskPhase::Danger, risk.risk_phase);
+}
+
 TEST(RiskModelTest, RiskScoreRisesWhenDutyChangesFromStandOnHoldToGiveWay) {
   const auto own = nominal_ownship();
   const TargetInput target{"TS-DUTY", 500.0, 50.0, kPi, 4.0, 220.0, 180.0, 0.85};
