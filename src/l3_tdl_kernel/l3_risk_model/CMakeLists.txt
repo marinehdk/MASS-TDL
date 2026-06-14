@@ -26,8 +26,11 @@ install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(nlohmann_json REQUIRED)
   ament_add_gtest(test_risk_model test/test_risk_model.cpp)
-  target_link_libraries(test_risk_model ${PROJECT_NAME})
+  target_link_libraries(test_risk_model ${PROJECT_NAME} nlohmann_json::nlohmann_json)
+  target_compile_definitions(test_risk_model PRIVATE
+    RISK_GOLDEN_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/risk_golden_cases.json")
   target_include_directories(test_risk_model PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 endif()

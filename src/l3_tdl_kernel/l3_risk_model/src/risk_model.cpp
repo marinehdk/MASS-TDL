@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace mass_l3::risk {
 namespace {
@@ -112,6 +113,59 @@ double colregs_score_component(ColregsDuty duty) {
   return 0.0;
 }
 
+int phase_rank(RiskPhase phase) noexcept {
+  return static_cast<int>(phase);
+}
+
+bool has_non_negative_tcpa(const RiskVector & risk) noexcept {
+  return risk.tcpa_s >= 0.0;
+}
+
+bool is_better_primary_candidate(const RiskVector & candidate, const RiskVector & current) {
+  const int candidate_phase = phase_rank(candidate.risk_phase);
+  const int current_phase = phase_rank(current.risk_phase);
+  if (candidate_phase != current_phase) {
+    return candidate_phase > current_phase;
+  }
+
+  if (std::abs(candidate.risk_score - current.risk_score) > kEpsilon) {
+    return candidate.risk_score > current.risk_score;
+  }
+
+  const bool candidate_tcpa_valid = has_non_negative_tcpa(candidate);
+  const bool current_tcpa_valid = has_non_negative_tcpa(current);
+  if (candidate_tcpa_valid != current_tcpa_valid) {
+    return candidate_tcpa_valid;
+  }
+  if (candidate_tcpa_valid && std::abs(candidate.tcpa_s - current.tcpa_s) > kEpsilon) {
+    return candidate.tcpa_s < current.tcpa_s;
+  }
+
+  if (std::abs(candidate.range_m - current.range_m) > kEpsilon) {
+    return candidate.range_m < current.range_m;
+  }
+  return false;
+}
+
+std::vector<RiskVector>::const_iterator find_by_target_id(
+  const std::vector<RiskVector> & risks,
+  const std::string & target_id) {
+  return std::find_if(
+    risks.begin(),
+    risks.end(),
+    [&target_id](const RiskVector & risk) { return risk.target_id == target_id; });
+}
+
+void clear_candidate(RankingState & state) {
+  state.candidate_primary_id.clear();
+  state.candidate_count = 0U;
+}
+
+void promote_primary(RankingState & state, const RiskVector & risk) {
+  state.previous_primary_id = risk.target_id;
+  clear_candidate(state);
+}
+
 }  // namespace
 
 DomainAxes danger_axes(const OwnShipInput & own) {
@@ -205,6 +259,68 @@ RiskVector evaluate_target(
     0.40 * domain_component + 0.25 * urgency_component + 0.15 * closing_component +
     0.15 * colregs_score_component(duty) + 0.05 * uncertainty_component);
   return risk;
+}
+
+RiskVector select_primary(
+  const std::vector<RiskVector> & risks,
+  RankingState * state,
+  const RankingConfig & config) {
+  if (risks.empty()) {
+    if (state != nullptr) {
+      clear_candidate(*state);
+    }
+    return RiskVector{};
+  }
+
+  auto best_it = risks.begin();
+  for (auto it = std::next(risks.begin()); it != risks.end(); ++it) {
+    if (is_better_primary_candidate(*it, *best_it)) {
+      best_it = it;
+    }
+  }
+  const RiskVector & best = *best_it;
+
+  if (state == nullptr) {
+    return best;
+  }
+
+  if (state->previous_primary_id.empty()) {
+    promote_primary(*state, best);
+    return best;
+  }
+
+  const auto previous_it = find_by_target_id(risks, state->previous_primary_id);
+  if (previous_it == risks.end()) {
+    promote_primary(*state, best);
+    return best;
+  }
+
+  const RiskVector & previous = *previous_it;
+  if (best.target_id == previous.target_id) {
+    promote_primary(*state, previous);
+    return previous;
+  }
+
+  const double switch_score_gap = std::max(0.0, config.switch_score_gap);
+  const double score_gap = best.risk_score - previous.risk_score;
+  if (phase_rank(best.risk_phase) != phase_rank(previous.risk_phase) || score_gap >= switch_score_gap) {
+    promote_primary(*state, best);
+    return best;
+  }
+
+  if (state->candidate_primary_id == best.target_id) {
+    ++state->candidate_count;
+  } else {
+    state->candidate_primary_id = best.target_id;
+    state->candidate_count = 1U;
+  }
+
+  const std::uint32_t required_samples = std::max(1U, config.switch_confirm_samples);
+  if (state->candidate_count >= required_samples) {
+    promote_primary(*state, best);
+    return best;
+  }
+  return previous;
 }
 
 const char * to_string(RiskPhase phase) noexcept {

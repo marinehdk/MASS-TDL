@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace mass_l3::risk {
 
@@ -50,6 +51,17 @@ struct DomainConfig {
   double critical_horizon_s{60.0};
 };
 
+struct RankingState {
+  std::string previous_primary_id;
+  std::string candidate_primary_id;
+  std::uint32_t candidate_count{0U};
+};
+
+struct RankingConfig {
+  double switch_score_gap{0.12};
+  std::uint32_t switch_confirm_samples{2U};
+};
+
 struct RiskVector {
   std::string target_id;
   double range_m{0.0};
@@ -70,6 +82,20 @@ struct RiskVector {
   double risk_score{0.0};
 };
 
+struct RunRiskSummary {
+  std::string primary_threat_id;
+  std::uint32_t primary_threat_switches{0U};
+  double max_risk_score{0.0};
+  double worst_warning_margin_m{0.0};
+  double worst_danger_margin_m{0.0};
+  double max_warning_ddv{0.0};
+  double max_danger_ddv{0.0};
+  double warning_domain_exposure_s{0.0};
+  double danger_domain_exposure_s{0.0};
+  double encounter_complexity_score{0.0};
+  std::vector<RiskVector> risks;
+};
+
 DomainAxes danger_axes(const OwnShipInput & own);
 DomainAxes warning_axes(const OwnShipInput & own, const DomainConfig & config = {});
 RiskVector evaluate_target(
@@ -77,6 +103,10 @@ RiskVector evaluate_target(
   const TargetInput & target,
   ColregsDuty duty,
   const DomainConfig & config = {});
+RiskVector select_primary(
+  const std::vector<RiskVector> & risks,
+  RankingState * state,
+  const RankingConfig & config = {});
 const char * to_string(RiskPhase phase) noexcept;
 const char * to_string(ColregsDuty duty) noexcept;
 
