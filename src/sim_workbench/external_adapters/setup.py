@@ -20,6 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "external_tdl_ingress = external_adapters.tdl_ingress_node:main",
+            "l2_route_plan_adaptor = external_adapters.l2_route_plan_adaptor:main",
             "external_route_out_tdl = external_adapters.route_out_tdl_node:main",
             "external_route_out_path = external_adapters.route_out_external_path_node:main",
         ],
