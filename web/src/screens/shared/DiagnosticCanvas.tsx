@@ -13,7 +13,7 @@ interface DiagnosticCanvasProps {
   transitioning: boolean;
 }
 
-export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYaml, verdict, countdown, transitioning }: DiagnosticCanvasProps) {
+export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYaml, verdict, countdown: _countdown, transitioning }: DiagnosticCanvasProps) {
   if (transitioning) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(0,227,179,0.08)' }}>
@@ -33,13 +33,8 @@ export function DiagnosticCanvas({ focusedGateId, gates, scenarioYaml, storedYam
         <div style={{ fontFamily: 'var(--f-disp)', fontSize: 22, color: 'var(--c-stbd)', marginBottom: 12 }}>
           所有安全门控通过
         </div>
-        {countdown > 0 && (
-          <div style={{ fontFamily: 'var(--f-disp)', fontSize: 72, color: 'var(--c-phos)', fontWeight: 700, lineHeight: 1, textAlign: 'center' }}>
-            {countdown}
-          </div>
-        )}
-        <div style={{ fontFamily: 'var(--f-body)', fontSize: 14, color: 'var(--txt-2)', marginTop: countdown > 0 ? 8 : 0 }}>
-          {countdown > 0 ? '秒后自动激活 L3 核心' : '准备激活 L3 核心...'}
+        <div style={{ fontFamily: 'var(--f-body)', fontSize: 14, color: 'var(--txt-2)' }}>
+          请在右下角人工确认 GO 后进入仿真运行
         </div>
       </div>
     );
