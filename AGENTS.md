@@ -114,16 +114,17 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 
 ## A4000 sync and verification
 
-- Default external-module integration account: `mass@A4000`.
+- Default TDL deployment and verification login: `ssh a4000`, configured for the personal account `marine.huang`. This is the only default target for syncing this repository, running the TDL stack, and collecting acceptance evidence.
+- Do not use the A4000 `mass` account as the TDL deployment or verification environment. Treat `mass` as a shared upload/staging area for teammate code only.
 - Do not write plaintext passwords into repo docs, scripts, commits, logs, or prompts. Use SSH key/agent or interactive login.
-- Known external module paths on A4000:
+- Known shared external module paths on A4000:
   - Hydrodynamics and route planning: `/home/mass/simulation/`
   - Sensor fusion ROS2 workspace: `/home/mass/yougc/ros2_ws`
 - A4000 ports are orchestrator `18000`, Foxglove `18765`, and Vite `5173`. Do not touch production ports `8000` or `8765`.
 - TDL checkout path must be verified before first copy. Current runbook example:
   ```bash
-  A4000_TDL=/home/mass/MASS-L3-Tactical-Layer
-  ssh mass@A4000 'pwd; ls -la /home/mass'
+  ssh a4000 'whoami; pwd; ls -la ~'
+  # Set A4000_TDL to the verified TDL checkout under the marine.huang account.
   ```
   Do not create a second TDL checkout if one already exists.
 - Sync only touched paths with `rsync -avR` or `scp`. Never use `rsync --delete`, repo-wide overwrite, `git pull`, `git reset`, or broad checkout replacement on A4000 unless the user explicitly approves it for a clean host.
