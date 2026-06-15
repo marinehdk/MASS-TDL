@@ -488,3 +488,13 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `web/src/screens/shared/__tests__/DiagnosticCanvas.test.tsx`: updated GO overlay assertions to the new lower-right copy.
 - **当前状态 (Status)**: GREEN locally. `npm test -- DiagnosticCanvas.test.tsx SimulationCheck.runtime.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser refresh confirmed the old `左侧人工确认` copy is no longer present in the current Screen 02 DOM.
 - **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: `f95fe707` (branch: `codex/integration-screen02-ui-20260615`)
+- **任务目标 (Goal)**: Merge `codex/screen02-runtime-console-ui` into local `main` only.
+- **核心改动 (Actions)**:
+  - Merged Screen 02 runtime-console UI refinements into an isolated integration worktree from local `main`.
+  - Preserved the source branch changes only: `handoff/workspace_log.md`, `web/src/screens/SimulationCheck.tsx`, focused runtime panel components, and focused tests.
+  - Left unrelated generated `.preflight` artifacts and untracked scenario/doc files in the primary checkout untouched.
+- **当前状态 (Status)**: GREEN locally. `npm test -- --run src/screens/__tests__/SimulationCheck.runtime.test.tsx src/screens/runtime/__tests__/CheckCategoryNav.test.tsx src/screens/runtime/__tests__/CoreServicePanel.test.tsx src/screens/shared/__tests__/DiagnosticCanvas.test.tsx` = 4 files / 21 tests PASS. `npm run build` PASS with existing Foxglove eval and chunk-size warnings.
+- **接力指示 (Hand-off Context)**: Scope is local `main` merge only; no A4000 sync and no GitHub/GitLab push requested. New worktree required `npm ci` before tests because `node_modules` was absent.
