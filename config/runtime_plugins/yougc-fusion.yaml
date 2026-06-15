@@ -1,0 +1,25 @@
+id: yougc-fusion
+role: fusion
+label: YouGC Fusion
+runtime: compose
+compose:
+  service: plugin-fusion-yougc
+image:
+  expected: yougc-fusion:20260612
+  revision_label: org.opencontainers.image.revision
+ros:
+  domain_id: 11
+  required_topics:
+    /fusion/tracked_targets: nmea_interfaces/msg/TrackedTargetArray
+    /gps/fix: nmea_interfaces/msg/Gps
+    /heading: nmea_interfaces/msg/Heading
+  forbidden_topics:
+    - /sil/actuator_cmd
+    - /l4/control_cmd
+freshness:
+  targets_ms: 2000
+  ownship_ms: 500
+health:
+  required: true
+evidence:
+  include_logs_tail_lines: 80

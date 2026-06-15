@@ -1,0 +1,23 @@
+id: hydro-fossen
+role: hydrodynamics
+label: Hydro Fossen
+runtime: compose
+compose:
+  service: plugin-hydro-fossen
+image:
+  expected: mass-hydro-fossen:0.9.3
+  revision_label: org.opencontainers.image.revision
+ros:
+  domain_id: 10
+  required_topics:
+    /ship/odometry: nav_msgs/msg/Odometry
+    /ship/waypoints: nav_msgs/msg/Path
+  forbidden_topics:
+    - /sil/actuator_cmd
+    - /l4/control_cmd
+freshness:
+  ownship_ms: 500
+health:
+  required: true
+evidence:
+  include_logs_tail_lines: 80

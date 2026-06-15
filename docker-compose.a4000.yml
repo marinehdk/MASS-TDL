@@ -5,6 +5,8 @@
 services:
   sil-orchestrator:
     cpus: ${SIL_ORCHESTRATOR_CPUS:-1.5} # cap: good neighbour on shared host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     command:
       - /bin/bash
       - -c

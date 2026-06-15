@@ -155,10 +155,105 @@ export interface IntegrationProfileDetail extends IntegrationProfileSummary {
   mode: IntegrationProfileMode;
 }
 
+export type RuntimeMode = 'internal' | 'integration';
+export type RuntimeTarget = 'local' | 'a4000';
+export type RuntimeVerdict = 'GO' | 'NO-GO' | 'CHECKING' | 'IDLE';
+export type RuntimeServiceStatus = 'running' | 'stopped' | 'unknown';
+export type RuntimeHealthStatus = 'healthy' | 'starting' | 'degraded' | 'unhealthy' | 'unknown';
+export type RuntimePluginRoleName = 'hydrodynamics' | 'route_l2' | 'fusion';
+export type RuntimeTopicStatus = 'ok' | 'missing' | 'wrong_type' | 'stale' | 'unchecked';
+
+export interface RuntimeCoreService {
+  id: string;
+  service: string;
+  class: 'core_service';
+  container_name: string;
+  status: RuntimeServiceStatus;
+  health: RuntimeHealthStatus;
+  image: string;
+  allowed_actions: string[];
+}
+
+export interface RuntimeCoreServicesGate {
+  name: 'core_services_running';
+  passed: boolean;
+  services: Record<string, RuntimeServiceStatus>;
+}
+
+export interface RuntimePluginRoleGate {
+  role: RuntimePluginRoleName;
+  active_plugin: string | null;
+  running_plugins: string[];
+  passed: boolean;
+}
+
+export interface RuntimeSingleActivePluginGate {
+  name: 'single_active_plugin_per_role';
+  passed: boolean;
+  roles: RuntimePluginRoleGate[];
+}
+
+export type RuntimeGate = RuntimeCoreServicesGate | RuntimeSingleActivePluginGate;
+
+export interface RuntimePlugin {
+  id: string;
+  label: string;
+  service: string;
+  container: string;
+  status: RuntimeServiceStatus;
+  health: RuntimeHealthStatus;
+  image: string;
+  expected_image: string;
+  revision: string;
+  revision_label: string;
+  required_topics: Record<string, string>;
+  topic_status: RuntimeTopicStatus;
+  health_required: boolean;
+  ros_domain_id: number;
+}
+
+export interface RuntimePluginRole {
+  role: RuntimePluginRoleName;
+  active_plugin: string | null;
+  single_instance: boolean;
+  plugins: RuntimePlugin[];
+}
+
+export interface RuntimeSummary {
+  mode: RuntimeMode;
+  target: RuntimeTarget;
+  active_profile: string;
+  verdict: RuntimeVerdict;
+  core_services: RuntimeCoreService[];
+  plugin_roles: RuntimePluginRole[];
+  gates: RuntimeGate[];
+  evidence_path?: string;
+}
+
+export interface RuntimeActionResult {
+  accepted: boolean;
+  action?: string;
+  service?: string;
+  role?: string;
+  old_plugin?: string | null;
+  new_plugin?: string;
+  stopped_service?: string | null;
+  started_service?: string;
+  error?: string;
+}
+
+export interface RuntimeCoreServicesResult {
+  services: RuntimeCoreService[];
+}
+
+export interface RuntimePluginsResult {
+  roles: RuntimePluginRole[];
+}
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
-  tagTypes: ['Scenario', 'Run', 'Integration'],
+  tagTypes: ['Scenario', 'Run', 'Integration', 'Runtime'],
   endpoints: (builder) => ({
 
     // Scenario CRUD
@@ -286,6 +381,58 @@ export const silApi = createApi({
       query: () => ({ url: '/integration/probe', method: 'POST' }),
     }),
 
+    getRuntimeSummary: builder.query<RuntimeSummary, void>({
+      query: () => '/runtime/summary',
+      providesTags: ['Runtime'],
+    }),
+
+    getRuntimeCoreServices: builder.query<RuntimeCoreServicesResult, void>({
+      query: () => '/runtime/core-services',
+      providesTags: ['Runtime'],
+    }),
+
+    getRuntimePlugins: builder.query<RuntimePluginsResult, void>({
+      query: () => '/runtime/plugins',
+      providesTags: ['Runtime'],
+    }),
+
+    restartRuntimeCoreService: builder.mutation<RuntimeActionResult, string>({
+      query: (serviceId) => ({
+        url: `/runtime/core/${encodeURIComponent(serviceId)}/restart`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Runtime'],
+    }),
+
+    startRuntimeCoreStack: builder.mutation<RuntimeActionResult, void>({
+      query: () => ({ url: '/runtime/core/start', method: 'POST' }),
+      invalidatesTags: ['Runtime'],
+    }),
+
+    restartRuntimeCoreStack: builder.mutation<RuntimeActionResult, void>({
+      query: () => ({ url: '/runtime/core/restart', method: 'POST' }),
+      invalidatesTags: ['Runtime'],
+    }),
+
+    stopRuntimeCoreStack: builder.mutation<RuntimeActionResult, { confirm: string }>({
+      query: (body) => ({ url: '/runtime/core/stop', method: 'POST', body }),
+      invalidatesTags: ['Runtime'],
+    }),
+
+    switchRuntimePlugin: builder.mutation<RuntimeActionResult, { role: string; plugin_id: string }>({
+      query: ({ role, plugin_id }) => ({
+        url: `/runtime/plugins/${encodeURIComponent(role)}/switch`,
+        method: 'POST',
+        body: { plugin_id },
+      }),
+      invalidatesTags: ['Runtime'],
+    }),
+
+    probeRuntime: builder.mutation<RuntimeSummary, void>({
+      query: () => ({ url: '/runtime/probe', method: 'POST' }),
+      invalidatesTags: ['Runtime'],
+    }),
+
     // Export
     exportMarzip: builder.mutation<{ download_url: string; status: string }, string>({
       query: (runId) => ({
@@ -371,6 +518,15 @@ export const {
   useLazyGetIntegrationStatusQuery,
   useSelectIntegrationProfileMutation,
   useProbeIntegrationMutation,
+  useGetRuntimeSummaryQuery,
+  useGetRuntimeCoreServicesQuery,
+  useGetRuntimePluginsQuery,
+  useRestartRuntimeCoreServiceMutation,
+  useStartRuntimeCoreStackMutation,
+  useRestartRuntimeCoreStackMutation,
+  useStopRuntimeCoreStackMutation,
+  useSwitchRuntimePluginMutation,
+  useProbeRuntimeMutation,
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useTriggerFaultMutation,

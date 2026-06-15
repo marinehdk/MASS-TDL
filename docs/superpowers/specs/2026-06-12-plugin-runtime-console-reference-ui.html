@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screen 02 Plugin Runtime Console Reference UI</title>
+  <style>
+    :root {
+      --bg0: #061018;
+      --bg1: #09121c;
+      --bg2: #0d1824;
+      --bg3: #142436;
+      --line: #244057;
+      --line2: #1d3345;
+      --text: #d9eef2;
+      --muted: #8bb3bd;
+      --dim: #6f8792;
+      --accent: #8ecbd0;
+      --ok: #69d184;
+      --warn: #f1c232;
+      --danger: #ff8b8b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #02070d;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .screen {
+      width: 100vw;
+      min-height: 100vh;
+      background: var(--bg0);
+      display: grid;
+      grid-template-columns: 284px minmax(700px, 1fr) 390px;
+      grid-template-rows: 64px minmax(720px, 1fr) 58px;
+    }
+    .topbar {
+      grid-column: 1 / 4;
+      background: #0b1420;
+      border-bottom: 1px solid var(--line2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+    }
+    .title { font-size: 15px; font-weight: 900; }
+    .subtitle {
+      color: #7c9ba7;
+      font-size: 10px;
+      letter-spacing: .08em;
+      margin-top: 3px;
+      text-transform: uppercase;
+    }
+    .mode {
+      display: flex;
+      border: 1px solid #3c6470;
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .mode span { padding: 10px 26px; color: var(--accent); background: var(--bg3); }
+    .mode .active { color: var(--bg0); background: var(--accent); }
+    .top-actions { display: flex; align-items: center; gap: 14px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    aside, main { min-height: 0; }
+    .left {
+      background: var(--bg1);
+      border-right: 1px solid var(--line2);
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+    }
+    .label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 900;
+      margin-bottom: 10px;
+    }
+    .nav { display: grid; gap: 8px; }
+    .nav-item {
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 11px;
+    }
+    .nav-item.active { background: #132335; border-color: var(--accent); }
+    .nav-item.core { border-color: var(--ok); }
+    .nav-item.plugin { border-color: var(--warn); }
+    .nav-head { display: flex; justify-content: space-between; font-weight: 800; font-size: 12px; }
+    .nav-detail { font-size: 10px; color: #7c9ba7; margin-top: 5px; }
+    .summary-box {
+      align-self: end;
+      background: var(--bg0);
+      border: 1px solid var(--line2);
+      border-radius: 5px;
+      padding: 12px;
+    }
+    .summary-box pre {
+      margin: 8px 0 0;
+      white-space: pre-wrap;
+      line-height: 1.7;
+      font-size: 11px;
+      color: var(--text);
+    }
+    button {
+      height: 34px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: var(--bg3);
+      color: var(--text);
+      font-weight: 800;
+      cursor: default;
+    }
+    button.primary { border: 0; background: var(--accent); color: var(--bg0); }
+    button.warn { color: var(--warn); border-color: #735e1a; background: #2b2510; }
+    button.danger { color: var(--danger); border-color: #7d3535; background: #2b1212; }
+    button.ok { color: #7fe3a0; border-color: #2d6b45; background: #102d22; }
+    .main {
+      padding: 16px;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 12px;
+      overflow: auto;
+    }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .metric {
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 12px;
+    }
+    .metric.ok { border-color: var(--ok); }
+    .metric.warn { border-color: var(--warn); }
+    .metric-key { font-size: 10px; color: #7c9ba7; font-weight: 900; text-transform: uppercase; }
+    .metric-value { font-size: 20px; font-weight: 900; margin-top: 5px; }
+    .metric-note { font-size: 11px; margin-top: 2px; color: var(--muted); }
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 14px;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .panel-title { font-size: 14px; font-weight: 900; }
+    .panel-note { font-size: 11px; color: #7c9ba7; margin-top: 4px; }
+    .service-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .plugin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .service-card, .plugin-card {
+      background: var(--bg0);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .plugin-card.warn { border-color: var(--warn); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .card-title { font-weight: 900; }
+    .pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      color: var(--ok);
+    }
+    .pill.warn { color: var(--warn); }
+    select {
+      margin-top: 10px;
+      width: 100%;
+      height: 32px;
+      background: #101d2b;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .plugin-card.warn select { border-color: var(--warn); }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 10px; }
+    .btn-row button { height: 28px; font-size: 11px; }
+    .card-meta {
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .mapping-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 12px; min-height: 220px; }
+    .mapping-row {
+      display: grid;
+      grid-template-columns: 135px 1fr 60px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .right {
+      background: var(--bg1);
+      border-left: 1px solid var(--line2);
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+    }
+    .failure {
+      background: var(--bg2);
+      border: 1px solid var(--warn);
+      border-radius: 5px;
+      padding: 12px;
+    }
+    .failure-head { display: flex; justify-content: space-between; font-weight: 900; }
+    .failure-body { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+    .log {
+      background: var(--bg0);
+      border: 1px solid var(--line2);
+      border-radius: 5px;
+      padding: 10px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      color: #9fb9c2;
+      line-height: 1.6;
+    }
+    .right-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    footer {
+      grid-column: 1 / 4;
+      background: #0b1420;
+      border-top: 1px solid var(--line2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen">
+    <header class="topbar">
+      <div>
+        <div class="title">仿真检查 · 容器运行台</div>
+        <div class="subtitle">TDL Core Services + External Plugin Services</div>
+      </div>
+      <div class="top-actions">
+        <div class="mode"><span>内测</span><span class="active">集成</span></div>
+        <div class="mono" style="font-size:11px;color:var(--accent)">compose project: mass-l3-sil</div>
+      </div>
+    </header>
+
+    <aside class="left">
+      <div>
+        <div class="label">检查分类</div>
+        <div class="nav">
+          <div class="nav-item active"><div class="nav-head"><span>01 运行模式</span><span style="color:var(--accent)">ACTIVE</span></div><div class="nav-detail">内测 / 集成 / profile</div></div>
+          <div class="nav-item core"><div class="nav-head"><span>02 TDL 核心容器</span><span style="color:var(--ok)">4/4</span></div><div class="nav-detail">orchestrator / sil-nodes / foxglove / tiles</div></div>
+          <div class="nav-item plugin"><div class="nav-head"><span>03 外部插件容器</span><span style="color:var(--warn)">2/3</span></div><div class="nav-detail">hydro / route / fusion</div></div>
+          <div class="nav-item"><div class="nav-head"><span>04 ROS2 数据链路</span><span style="color:var(--ok)">OK</span></div><div class="nav-detail">domain / topic / freshness</div></div>
+          <div class="nav-item"><div class="nav-head"><span>05 安全边界</span><span style="color:var(--ok)">OK</span></div><div class="nav-detail">no low-level control</div></div>
+          <div class="nav-item"><div class="nav-head"><span>06 放行结论</span><span style="color:var(--dim)">WAIT</span></div><div class="nav-detail">GO / NO-GO / evidence</div></div>
+        </div>
+      </div>
+      <div class="summary-box">
+        <div class="label" style="margin:0">单实例互斥规则</div>
+        <pre>hydro: one active
+route_l2: one active
+fusion: one active
+tdl_core: fixed stack</pre>
+      </div>
+      <button class="primary">运行全部检查</button>
+    </aside>
+
+    <main class="main">
+      <section class="summary-grid">
+        <div class="metric ok"><div class="metric-key">TDL Core</div><div class="metric-value">4/4</div><div class="metric-note" style="color:var(--ok)">all running</div></div>
+        <div class="metric warn"><div class="metric-key">Plugins</div><div class="metric-value">2/3</div><div class="metric-note" style="color:var(--warn)">route degraded</div></div>
+        <div class="metric"><div class="metric-key">ROS Topics</div><div class="metric-value">8/9</div><div class="metric-note" style="color:var(--warn)">1 missing</div></div>
+        <div class="metric"><div class="metric-key">Verdict</div><div class="metric-value">NO-GO</div><div class="metric-note" style="color:var(--warn)">plugin gate</div></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div><div class="panel-title">TDL 核心容器</div><div class="panel-note">核心容器按 stack 管理；允许单容器重启，不允许单容器 Stop。</div></div>
+          <div style="display:flex;gap:8px"><button>Restart Core Stack</button><button class="danger">Stop Core Stack</button></div>
+        </div>
+        <div class="service-grid">
+          <div class="service-card"><div class="card-head"><span class="card-title">sil-orchestrator</span><span class="pill">RUNNING</span></div><div class="card-meta">API 18000<br>health OK</div><button style="margin-top:9px;width:100%">Restart</button></div>
+          <div class="service-card"><div class="card-head"><span class="card-title">sil-nodes</span><span class="pill">RUNNING</span></div><div class="card-meta">M1-M8<br>ROS 42</div><button style="margin-top:9px;width:100%">Restart</button></div>
+          <div class="service-card"><div class="card-head"><span class="card-title">foxglove-bridge</span><span class="pill">RUNNING</span></div><div class="card-meta">WS 18765<br>8/8 topics</div><button style="margin-top:9px;width:100%">Restart</button></div>
+          <div class="service-card"><div class="card-head"><span class="card-title">martin-tile-server</span><span class="pill">HEALTHY</span></div><div class="card-meta">map tiles<br>cached</div><button style="margin-top:9px;width:100%">Restart</button></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div><div class="panel-title">外部插件容器</div><div class="panel-note">每个类型一次仅一个 active 插件。切换会 stop old → start new → probe。</div></div>
+          <button>保存组合 profile</button>
+        </div>
+        <div class="plugin-grid">
+          <div class="plugin-card">
+            <div class="card-head"><span class="card-title">水动力</span><span class="pill">ACTIVE</span></div>
+            <select><option>hydro-fossen:0.9.3</option><option>hydro-mmgs:0.2.1</option><option>internal-dynamics</option></select>
+            <div class="btn-row"><button class="ok">Start</button><button class="warn">Restart</button><button class="danger">Stop</button></div>
+            <div class="card-meta">active service hydro-fossen<br>container mass-l3-plugin-hydro<br>image sha 92ac31e<br>topics 4/4 fresh</div>
+          </div>
+          <div class="plugin-card warn">
+            <div class="card-head"><span class="card-title">L2 航线规划</span><span class="pill warn">ACTIVE DEGRADED</span></div>
+            <select><option>l2-planner-main</option><option>simulation-route-planner</option><option>tdl-mock-route</option></select>
+            <div class="btn-row"><button class="ok">Start</button><button class="warn">Restart</button><button class="danger">Stop</button></div>
+            <div class="card-meta">active service l2-planner-main<br>container mass-l3-plugin-route<br>image tag main<br>missing /route_planning/route_plan</div>
+          </div>
+          <div class="plugin-card">
+            <div class="card-head"><span class="card-title">传感器融合</span><span class="pill">ACTIVE</span></div>
+            <select><option>yougc-fusion-20260612</option><option>tracker-mock</option></select>
+            <div class="btn-row"><button class="ok">Start</button><button class="warn">Restart</button><button class="danger">Stop</button></div>
+            <div class="card-meta">active service fusion-yougc<br>container mass-l3-plugin-fusion<br>image sha a13f9c2<br>targets 12 · gps 10Hz</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mapping-grid">
+        <div class="panel">
+          <div class="panel-title" style="margin-bottom:10px">运行控制边界</div>
+          <div class="mapping-row"><b>TDL Core</b><span>fixed services; stack-level stop only</span><span style="color:var(--ok)">OK</span></div>
+          <div class="mapping-row"><b>Plugin role</b><span>hydro / route_l2 / fusion each has one active service</span><span style="color:var(--ok)">OK</span></div>
+          <div class="mapping-row"><b>Switch</b><span>stop old service → start selected service → run probe</span><span style="color:var(--ok)">OK</span></div>
+          <div class="mapping-row"><b>Safety</b><span>external plugins blocked from low-level control topics</span><span style="color:var(--ok)">OK</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title" style="margin-bottom:10px">可复用旧第 2 屏</div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0">
+            Gate 结果、ActionLogs、DiagnosticCanvas 可以作为分类详情复用。左侧 GateSequencer 改为分类导航。右侧日志保留，但绑定当前分类/容器。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <aside class="right">
+      <div>
+        <div class="label">当前失败原因</div>
+        <div class="failure">
+          <div class="failure-head"><span>L2 航线规划</span><span style="color:var(--warn)">NO-GO</span></div>
+          <div class="failure-body">容器运行中，但未发布 /route_planning/route_plan。切换到 tdl-mock-route 会停止 l2-planner-main 并启动 mock route。</div>
+        </div>
+      </div>
+      <div class="log">
+        [16:44:01] core service sil-orchestrator running<br>
+        [16:44:01] core service sil-nodes running<br>
+        [16:44:01] core service foxglove-bridge running<br>
+        [16:44:01] core service martin-tile-server healthy<br>
+        [16:44:03] plugin hydro-fossen active<br>
+        [16:44:04] plugin route l2-planner-main degraded<br>
+        [16:44:05] plugin fusion-yougc active<br>
+        [16:44:05] verdict NO-GO
+      </div>
+      <div class="right-actions"><button class="primary">重新检查</button><button class="danger">停止插件</button></div>
+    </aside>
+
+    <footer class="mono">
+      <span>core compose: docker-compose.yml · plugin compose: docker-compose.plugins.yml</span>
+      <span>evidence runs/runtime_probe_20260612_164401.json</span>
+      <span>SPACE 检查 · S 启动选中插件 · X 停止插件 · R 重启当前分类</span>
+    </footer>
+  </div>
+</body>
+</html>

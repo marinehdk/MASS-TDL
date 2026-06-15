@@ -1,0 +1,40 @@
+services:
+  plugin-hydro-fossen:
+    image: alpine:3.20
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    labels:
+      org.opencontainers.image.revision: local-hydro-fossen
+      mass_l3.plugin.role: hydrodynamics
+      mass_l3.plugin.id: hydro-fossen
+    profiles: ["plugins"]
+    network_mode: host
+
+  plugin-route-l2-main:
+    image: alpine:3.20
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    labels:
+      org.opencontainers.image.revision: local-l2-main
+      mass_l3.plugin.role: route_l2
+      mass_l3.plugin.id: l2-planner-main
+    profiles: ["plugins"]
+    network_mode: host
+
+  plugin-route-tdl-mock:
+    image: alpine:3.20
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    labels:
+      org.opencontainers.image.revision: local-tdl-mock-route
+      mass_l3.plugin.role: route_l2
+      mass_l3.plugin.id: tdl-mock-route
+    profiles: ["plugins"]
+    network_mode: host
+
+  plugin-fusion-yougc:
+    image: alpine:3.20
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    labels:
+      org.opencontainers.image.revision: local-yougc-fusion
+      mass_l3.plugin.role: fusion
+      mass_l3.plugin.id: yougc-fusion
+    profiles: ["plugins"]
+    network_mode: host

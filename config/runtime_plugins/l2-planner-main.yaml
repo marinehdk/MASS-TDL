@@ -1,0 +1,22 @@
+id: l2-planner-main
+role: route_l2
+label: L2 Planner Main
+runtime: compose
+compose:
+  service: plugin-route-l2-main
+image:
+  expected: mass-l2-planner:main
+  revision_label: org.opencontainers.image.revision
+ros:
+  domain_id: 10
+  required_topics:
+    /route_planning/route_plan: ship_interfaces/msg/RoutePlan
+  forbidden_topics:
+    - /sil/actuator_cmd
+    - /l4/control_cmd
+freshness:
+  route_ms: 2000
+health:
+  required: true
+evidence:
+  include_logs_tail_lines: 80
