@@ -387,3 +387,104 @@ This log coordinates task handoffs between different development interfaces (Cla
   - Fixed MVP Playwright `A_turn` gate in `web/e2e/mvp_consistency.spec.ts` by moving heading-change metrics into `web/e2e/mvp_consistency_metrics.ts`, selecting the latest sim-reset segment from `runs/trace_current.jsonl`, and measuring peak angular change so real avoidance plus route return is not misclassified as no-turn.
 - **当前状态 (Status)**: GREEN. Local targeted Python `147 passed`; local frontend runtime tests `16 passed`; local frontend build PASS with existing Foxglove eval/chunk warnings; local OrbStack gate PASS with evidence `runs/local_runtime_probe_20260615_090437.json` and `runs/local_a4000_container_probe_20260615_090437.json`; local container targeted C++ PASS (`112 tests, 0 errors, 0 failures, 0 skipped`). A4000 targeted Python `147 passed`; A4000 frontend runtime tests `16 passed`; A4000 frontend build PASS; A4000 Docker build PASS; A4000 container targeted C++ PASS (`112 tests, 0 errors, 0 failures, 0 skipped`); A4000 acceptance PASS with deterministic RTF `1.00x/5.00x/10.00x` and multi-screen `A_rtf/A_turn/A_recon` green.
 - **接力指示 (Hand-off Context)**: A4000 main checkout `/home/marine.huang/Code/mass-l3` was dirty, so validation used linked worktree `/home/marine.huang/Code/mass-l3/.worktrees/integration-20260615`; do not use `git pull/reset` there. Generated `scenarios/colreg-rule14-ho/.preflight/gate_*.json` on A4000 are test artifacts and should not be staged. Keep deploy/test under `marine.huang`; do not treat `mass@A4000` as the TDL runtime owner.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Screen 02 UI follow-up: merge left-side runtime categories and Gate Sequencer into one safety-gate overview, and require manual GO confirmation before entering Screen 03.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: redesigned the left rail as a single `安全门控总览` using the previous safety-gate card style; each of the six high-level checks now embeds relevant preflight gate evidence and runtime gate evidence.
+  - `web/src/screens/SimulationCheck.tsx`: removed the separate `GateSequencer` rail and removed automatic GO countdown/proceed behavior; `handleProceed()` now runs only from the explicit `人工确认 GO` button.
+  - `web/src/screens/shared/DiagnosticCanvas.tsx`: replaced auto-activation copy with manual-confirmation copy.
+  - Updated focused tests in `SimulationCheck.runtime.test.tsx` and `DiagnosticCanvas.test.tsx`.
+- **当前状态 (Status)**: GREEN locally. Targeted tests passed: `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx DiagnosticCanvas.test.tsx`; related runtime/shared component tests passed; `npm run build` passed with existing Foxglove eval/chunk-size warnings. Browser smoke on `http://localhost:5173/#/check/colreg-rule14-ho` confirmed the page stays on Screen 02 after GO, shows `人工确认 GO`, and no longer shows auto-activation text.
+- **接力指示 (Hand-off Context)**: Existing dirty/generated files under `scenarios/colreg-rule14-ho/.preflight/*` and unrelated untracked docs/scenarios were present in the worktree and were not intentionally edited for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Refine Screen 02 left rail modules 1-2 copy in Chinese.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: Module 1 now renders `检查点 01`, `运行模式确认`, current mode as `内测模式` or `集成模式`, and the matching Chinese note; Module 2 now renders `检查点 02`, `内部核心容器`, `<n>/<total> 核心容器`, and `4个核心容器检查是否通过`.
+  - Updated focused assertions in `SimulationCheck.runtime.test.tsx` and `CheckCategoryNav.test.tsx`.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed integration-mode Module 1 and 4/4 core Module 2 text.
+- **接力指示 (Hand-off Context)**: Only left-rail modules 1-2 were changed in this pass. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Refine Screen 02 left rail modules 3-6 copy in Chinese.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: Module 3 now shows external role containers, `3/3 角色容器`, and the three-role note; Module 4 shows ROS2 topic count plus prioritized main topic names; Module 5 shows safety boundary checks, topic count, and passed gate names; Module 6 shows simulation-check conclusion as `GO`/`FIX` with repair/pass note.
+  - Updated focused assertions in `SimulationCheck.runtime.test.tsx` and `CheckCategoryNav.test.tsx`.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed modules 3-6 text and topic/gate summaries.
+- **接力指示 (Hand-off Context)**: Only left-rail modules 3-6 were changed in this pass. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Move Screen 02 final decision from left rail to right rail bottom, and make the middle column show only the selected one of the six check modules.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: removed the bottom `决策结论` card from the left rail; the left rail is now only the six check modules.
+  - `web/src/screens/SimulationCheck.tsx`: added a right-rail bottom `决策结论` panel with manual `人工确认 GO`; changed the middle column to `顶部状态条 + 单模块详情`, keyed by selected left-rail module.
+  - Middle top status now defaults to `当前模式：内测模式`, `默认选中`, `内部核心：4`, `外部插件：0`, and `检查结论：通过/失败/检查中`; removed the `No runtime evidence` strip.
+  - Updated `SimulationCheck.runtime.test.tsx` for right-rail decision placement, default internal-mode display, explicit GO behavior, and single-module rendering.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx DiagnosticCanvas.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed default internal top status, no `No runtime evidence`, right-side decision panel, and one-module-only middle-column switching.
+- **接力指示 (Hand-off Context)**: Browser reload updated generated `.preflight` gate artifacts in the worktree; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Fix Screen 02 default internal-mode copy mismatch and merge the right rail into the middle column to reduce empty space.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: added display-mode input so left-rail module 1 uses the selected UI mode (`内测模式` by default) instead of backend `runtimeSummary.mode`.
+  - `web/src/screens/SimulationCheck.tsx`: changed Screen 02 layout from three columns to two columns; moved `ActionLogs`, `RuntimeActionLog`, and the final decision panel into a bottom console section inside the middle column.
+  - Updated `SimulationCheck.runtime.test.tsx` to cover left-rail display-mode copy, two-column layout, bottom-console logs, and center decision panel.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx DiagnosticCanvas.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed two-column layout, left-rail internal-mode note, no right decision panel, and wider bottom realtime-log area.
+- **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Pin Screen 02 bottom log/actions area to the lower half of the middle column and simplify realtime-log nesting.
+- **核心改动 (Actions)**:
+  - `web/src/screens/SimulationCheck.tsx`: changed the middle column to two equal grid rows; the upper half contains the mode summary and selected module detail, while the lower half contains a single realtime-log frame and the bottom action row.
+  - Replaced the embedded `ActionLogs` composite panel and `RuntimeActionLog` list with a direct `LiveLogStream` frame to avoid nested containers.
+  - Bottom actions are now three equal-width buttons in one row: `重新检查`, `返回场景`, and the manual GO button (`人工确认 GO` when enabled, otherwise `等待预检 GO`).
+  - Updated `SimulationCheck.runtime.test.tsx` to cover equal top/bottom layout, single log frame, no `Runtime Actions`, and equal bottom button row.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx DiagnosticCanvas.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed 592.5px/592.5px top/bottom rows, log frame `overflow:auto`, no `ActionLogs` wrapper, no `Runtime Actions`, and three equal 480px bottom buttons.
+- **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Card-compact Screen 02 selected-module details and prevent internal mode from showing external plugin topics.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CoreServicePanel.tsx`: changed internal core container detail from four full-width rows to a 2x2 card grid; each card keeps the real backend restart path via `onRestart(service.service)` and uses a single Chinese `重启` button style.
+  - `web/src/screens/SimulationCheck.tsx`: changed ROS2 data link and safety boundary detail areas to consistent compact cards; internal mode shows only internal `/sil/*` and L3 topics, while integration mode shows external plugin `required_topics`.
+  - `web/src/screens/SimulationCheck.tsx`: safety boundary now always shows Gate 04-06 cards, localizes live English labels to Chinese, and uses `等待` when a gate has not emitted yet.
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: left-rail ROS2 summary/evidence now follows the selected display mode, so internal mode no longer lists external plugin topics.
+  - Updated focused tests in `SimulationCheck.runtime.test.tsx` and `CoreServicePanel.test.tsx`.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx CoreServicePanel.test.tsx DiagnosticCanvas.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed 4 core cards in 2 columns with `重启`, internal ROS2 has 6 internal cards and no `/fusion/tracked_targets` or `/route_planning/route_plan`, integration ROS2 restores external plugin topics, and safety boundary shows 3 Chinese cards.
+- **接力指示 (Hand-off Context)**: Browser reload updated generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Fix Screen 02 ROS2 left-rail status mismatch where internal topic cards were green but Checkpoint 04 still showed checking.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CheckCategoryNav.tsx`: passed `displayMode` into ROS2 status calculation; internal mode now marks ROS2 as passed from internal topic evidence instead of falling through to Gate 03 or external plugin `topic_status`.
+  - Integration mode still uses external plugin `topic_status` for ROS2 pass/check/fail state.
+  - Added regression coverage in `CheckCategoryNav.test.tsx` for internal display mode with backend integration/plugin topics unchecked.
+- **当前状态 (Status)**: GREEN locally. `npm test -- SimulationCheck.runtime.test.tsx CheckCategoryNav.test.tsx CoreServicePanel.test.tsx DiagnosticCanvas.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed Checkpoint 04 now shows `通过`, not `检查中`, while internal ROS2 still shows 6 internal topic cards and no external plugin topic.
+- **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Fix Screen 02 internal core container card status label from raw `running / unknown` to Chinese operational state.
+- **核心改动 (Actions)**:
+  - `web/src/screens/runtime/CoreServicePanel.tsx`: right-top service status now shows a badge only: green `运行` when `service.status === 'running'`, red `停止` otherwise; removed raw `status / health` display from cards.
+  - `web/src/screens/runtime/__tests__/CoreServicePanel.test.tsx`: added regression coverage for running/stopped Chinese status badges and absence of raw `running / unknown` text.
+- **当前状态 (Status)**: GREEN locally. `npm test -- CoreServicePanel.test.tsx SimulationCheck.runtime.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser check at `http://localhost:5173/#/check/colreg-rule14-ho` confirmed all four running core cards show `运行` and no `running / unknown` text.
+- **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: not committed (branch: `codex/screen02-runtime-console-ui`)
+- **任务目标 (Goal)**: Update Screen 02 GO overlay copy after the manual GO button moved to the lower-right action row.
+- **核心改动 (Actions)**:
+  - `web/src/screens/shared/DiagnosticCanvas.tsx`: changed GO-state instruction from `请在左侧人工确认 GO 后进入仿真运行` to `请在右下角人工确认 GO 后进入仿真运行`.
+  - `web/src/screens/shared/__tests__/DiagnosticCanvas.test.tsx`: updated GO overlay assertions to the new lower-right copy.
+- **当前状态 (Status)**: GREEN locally. `npm test -- DiagnosticCanvas.test.tsx SimulationCheck.runtime.test.tsx` PASS; `npm run build` PASS with existing Foxglove eval/chunk warnings. Browser refresh confirmed the old `左侧人工确认` copy is no longer present in the current Screen 02 DOM.
+- **接力指示 (Hand-off Context)**: Browser reload may update generated `.preflight` gate artifacts; do not stage them for this UI task. No A4000 sync, no push.

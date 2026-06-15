@@ -10,22 +10,19 @@ import {
   useSkipPreflightMutation,
   useGetRuntimeSummaryQuery,
   useRestartRuntimeCoreServiceMutation,
-  useStopRuntimeCoreStackMutation,
   useSwitchRuntimePluginMutation,
   useProbeRuntimeMutation,
   type RuntimeMode,
+  type RuntimePluginRole,
   type RuntimePluginRoleName,
   type RuntimeVerdict,
 } from '../api/silApi';
-import { GateSequencer } from './shared/GateSequencer';
 import { DiagnosticCanvas } from './shared/DiagnosticCanvas';
-import { ActionLogs } from './shared/ActionLogs';
+import { LiveLogStream } from './shared/LiveLogStream';
 import { RuntimeModeSwitch } from './runtime/RuntimeModeSwitch';
 import { CheckCategoryNav, type RuntimeCategory } from './runtime/CheckCategoryNav';
 import { CoreServicePanel } from './runtime/CoreServicePanel';
 import { PluginRolePanel } from './runtime/PluginRolePanel';
-import { RuntimeActionLog } from './runtime/RuntimeActionLog';
-import { EvidenceStrip } from './runtime/EvidenceStrip';
 
 const IS_DEV = typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV;
 
@@ -35,25 +32,113 @@ type RuntimeActionEntry = {
   level?: 'info' | 'warn' | 'error';
 };
 
+const GATE_FILTER_MAP: Record<number, string> = {
+  1: 'foxglove|docker',
+  2: 'm7_safety',
+  3: 'scenario|odd',
+  4: 'scenario|odd',
+  5: 'clock|chrony',
+  6: 'm7|cgroup',
+};
+
+const SAFETY_GATE_LABELS: Record<number, string> = {
+  4: 'ODD-场景一致',
+  5: '时基严密性验证',
+  6: '架构物理隔离',
+};
+
 const sectionStyle = (active: boolean) => ({
-  border: `1px solid ${active ? 'var(--c-info)' : 'var(--line-1)'}`,
-  borderRadius: 6,
-  background: 'var(--bg-1)',
-  padding: 12,
+  border: `1px solid ${active ? 'var(--c-phos)' : 'var(--line-1)'}`,
+  borderRadius: 8,
+  background: 'rgba(10, 15, 24, 0.92)',
+  padding: 14,
   display: 'grid',
   gap: 12,
+  boxShadow: active ? '0 0 14px rgba(91, 192, 190, 0.12)' : 'none',
 });
 
 const summaryCardStyle = {
   border: '1px solid var(--line-1)',
-  borderRadius: 6,
-  background: 'var(--bg-1)',
+  borderRadius: 8,
+  background: 'rgba(10, 15, 24, 0.86)',
   padding: '10px 12px',
   display: 'grid',
   gap: 5,
 };
 
+const compactGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: 10,
+};
+
+const compactCardStyle = {
+  minHeight: 104,
+  border: '1px solid var(--line-1)',
+  borderRadius: 8,
+  background: 'rgba(10, 15, 24, 0.86)',
+  padding: 12,
+  display: 'grid',
+  gap: 7,
+  alignContent: 'start',
+};
+
 const gateLabel = (gate: { name?: string; role?: string }) => gate.name ?? gate.role ?? 'unknown';
+
+function localizedGateName(label: string) {
+  const map: Record<string, string> = {
+    'ODD-Scenario Alignment': 'ODD-场景一致',
+    'Time Base & Evidence Chain': '时基严密性验证',
+    'Doer-Checker Independence': '架构物理隔离',
+  };
+  return map[label] ?? label;
+}
+
+const INTERNAL_TOPIC_ROWS = [
+  { key: 'internal-own-ship-state', channel: 'SIL状态', topic: '/sil/own_ship_state', connected: true, hasData: true },
+  { key: 'internal-target-vessel-state', channel: 'SIL状态', topic: '/sil/target_vessel_state', connected: true, hasData: true },
+  { key: 'internal-module-pulse', channel: 'L3心跳', topic: '/sil/module_pulse', connected: true, hasData: true },
+  { key: 'internal-lifecycle-status', channel: '生命周期', topic: '/sil/lifecycle_status', connected: true, hasData: true },
+  { key: 'internal-actuator-cmd', channel: 'L4指令', topic: '/sil/actuator_cmd', connected: true, hasData: true },
+  { key: 'internal-avoidance-plan', channel: 'M5规划', topic: '/l3/m5/avoidance_plan', connected: true, hasData: true },
+];
+
+function modeLabel(mode: RuntimeMode) {
+  return mode === 'internal' ? '内测模式' : '集成模式';
+}
+
+function verdictText(verdict?: RuntimeVerdict | 'IDLE' | null) {
+  if (verdict === 'GO') return '通过';
+  if (verdict === 'NO-GO') return '失败';
+  return '检查中';
+}
+
+function decisionStatusKind(verdict?: 'GO' | 'NO-GO' | null, runtimeVerdict?: RuntimeVerdict) {
+  if (verdict === 'GO' && runtimeVerdict === 'GO') return 'passed';
+  if (verdict === 'NO-GO' || runtimeVerdict === 'NO-GO') return 'failed';
+  return 'checking';
+}
+
+function decisionColor(kind: 'passed' | 'failed' | 'checking') {
+  if (kind === 'passed') return 'var(--c-stbd)';
+  if (kind === 'failed') return 'var(--c-danger)';
+  return 'var(--c-warn)';
+}
+
+function topicRows(pluginRoles: RuntimePluginRole[]) {
+  return pluginRoles.flatMap((role) =>
+    role.plugins.flatMap((plugin) =>
+      Object.entries(plugin.required_topics).map(([topic, type]) => ({
+        key: `${role.role}-${plugin.id}-${topic}`,
+        channel: role.role,
+        topic,
+        type,
+        connected: plugin.topic_status === 'ok',
+        hasData: plugin.topic_status === 'ok',
+      })),
+    ),
+  );
+}
 
 export function SimulationCheck() {
   const scenarioId = window.location.hash.match(/^#\/check\/([^/?#]+)/)?.[1] ?? null;
@@ -65,7 +150,6 @@ export function SimulationCheck() {
   const [skipPreflight] = useSkipPreflightMutation();
   const { data: runtimeSummary, refetch: refetchRuntimeSummary } = useGetRuntimeSummaryQuery();
   const [restartRuntimeCoreService] = useRestartRuntimeCoreServiceMutation();
-  const [stopRuntimeCoreStack] = useStopRuntimeCoreStackMutation();
   const [switchRuntimePlugin] = useSwitchRuntimePluginMutation();
   const [probeRuntime] = useProbeRuntimeMutation();
 
@@ -76,10 +160,10 @@ export function SimulationCheck() {
   const [lifecycleError, setLifecycleError] = useState('');
   const [transitioning, setTransitioning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<RuntimeCategory>('mode');
-  const [actionEntries, setActionEntries] = useState<RuntimeActionEntry[]>([]);
+  const [, setActionEntries] = useState<RuntimeActionEntry[]>([]);
   const [runtimeEvidencePath, setRuntimeEvidencePath] = useState<string | undefined>();
   const [runtimeProbeVerdict, setRuntimeProbeVerdict] = useState<RuntimeVerdict | undefined>();
-  const [stopCoreArmed, setStopCoreArmed] = useState(false);
+  const [displayMode, setDisplayMode] = useState<RuntimeMode>('internal');
   const countdownRef = useRef(-1);
   const proceedingRef = useRef(false);
 
@@ -89,9 +173,10 @@ export function SimulationCheck() {
   }, []);
 
   const handleModeSwitchClick = useCallback((mode: RuntimeMode) => {
+    setDisplayMode(mode);
     setSelectedCategory('mode');
     if (mode !== runtimeSummary?.mode) {
-      appendRuntimeLog(`mode switch unavailable: backend remains ${runtimeSummary?.mode ?? 'unknown'}`, 'warn');
+      appendRuntimeLog(`display mode: ${mode}; backend remains ${runtimeSummary?.mode ?? 'unknown'}`, 'warn');
     }
   }, [appendRuntimeLog, runtimeSummary?.mode]);
 
@@ -122,31 +207,6 @@ export function SimulationCheck() {
       setLifecycleError(`Runtime restart failed: ${message}`);
     }
   }, [appendRuntimeLog, refetchRuntimeSummary, restartRuntimeCoreService]);
-
-  const handleArmStopCoreStack = useCallback(() => {
-    setStopCoreArmed(true);
-    setSelectedCategory('core');
-    appendRuntimeLog('stop core stack armed: confirmation required', 'warn');
-  }, [appendRuntimeLog]);
-
-  const handleCancelStopCoreStack = useCallback(() => {
-    setStopCoreArmed(false);
-    appendRuntimeLog('stop core stack cancelled');
-  }, [appendRuntimeLog]);
-
-  const handleConfirmStopCoreStack = useCallback(async () => {
-    setLifecycleError('');
-    try {
-      await stopRuntimeCoreStack({ confirm: 'STOP_CORE_STACK' }).unwrap();
-      setStopCoreArmed(false);
-      appendRuntimeLog('stop core stack');
-      refetchRuntimeSummary();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      appendRuntimeLog(`stop core stack failed: ${message}`, 'error');
-      setLifecycleError(`Runtime stop failed: ${message}`);
-    }
-  }, [appendRuntimeLog, refetchRuntimeSummary, stopRuntimeCoreStack]);
 
   const handleSwitchPlugin = useCallback(async (role: RuntimePluginRoleName, pluginId: string) => {
     setLifecycleError('');
@@ -237,26 +297,6 @@ export function SimulationCheck() {
     if (lastFail) setFocusedGateId(lastFail.gate_id);
   }, [gates]);
 
-  // GO countdown timer — separated from side-effect
-  useEffect(() => {
-    if (verdict !== 'GO') return;
-    setCountdown(3);
-    countdownRef.current = 3;
-    const timer = setInterval(() => {
-      countdownRef.current -= 1;
-      setCountdown(countdownRef.current);
-      if (countdownRef.current <= 0) clearInterval(timer);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [verdict]);
-
-  // GO path: when countdown reaches 0, trigger proceed
-  useEffect(() => {
-    if (countdown === 0 && verdict === 'GO') {
-      handleProceed();
-    }
-  }, [countdown, verdict, handleProceed]);
-
   useHotkeys({
     onTor: verdict !== 'GO' ? () => start() : undefined,
     onFault: () => handleAbort(),
@@ -270,161 +310,291 @@ export function SimulationCheck() {
   const coreServices = runtimeSummary?.core_services ?? [];
   const pluginRoles = runtimeSummary?.plugin_roles ?? [];
   const activePlugins = pluginRoles.filter((role) => Boolean(role.active_plugin)).length;
+  const displayCoreCount = coreServices.length || 4;
+  const displayPluginCount = displayMode === 'integration' ? (activePlugins || 3) : 0;
   const failedRuntimeGate = runtimeSummary?.gates.find((gate) => !gate.passed);
   const backendMode = runtimeSummary?.mode;
+  const runtimeVerdict = runtimeProbeVerdict ?? runtimeSummary?.verdict;
+  const decisionKind = decisionStatusKind(verdict, runtimeVerdict);
+  const decisionAccent = decisionColor(decisionKind);
   const categoryStatus: Record<RuntimeCategory, string> = {
-    mode: backendMode ? (backendMode === 'internal' ? 'INTERNAL' : 'INTEGRATION') : 'UNKNOWN',
+    mode: displayMode === 'internal' ? 'INTERNAL' : 'INTEGRATION',
     core: `${coreServices.filter((service) => service.status === 'running').length}/${coreServices.length}`,
     plugins: `${activePlugins}/${pluginRoles.length}`,
     ros: failedRuntimeGate ? 'CHECK' : 'OK',
     safety: runtimeSummary?.target?.toUpperCase() ?? 'LOCAL',
-    verdict: runtimeProbeVerdict ?? runtimeSummary?.verdict ?? 'IDLE',
+    verdict: runtimeVerdict ?? 'IDLE',
   };
-  const evidencePath = runtimeEvidencePath ?? runtimeSummary?.evidence_path;
-  const evidenceVerdict = runtimeProbeVerdict ?? runtimeSummary?.verdict;
+  const rowsByTopic = displayMode === 'internal' ? INTERNAL_TOPIC_ROWS : topicRows(pluginRoles);
+  const safetyCards = [4, 5, 6].map((gateId) => {
+    const gate = gates.find((item) => item.gate_id === gateId);
+    return {
+      key: `preflight-${gateId}`,
+      name: localizedGateName(gate?.label ?? SAFETY_GATE_LABELS[gateId]),
+      source: `检查点 ${String(gateId).padStart(2, '0')}`,
+      status: gate ? (gate.passed ? '通过' : '失败') : '等待',
+      passed: gate?.passed === true,
+    };
+  });
+  const nodeFilter = focusedGateId ? GATE_FILTER_MAP[focusedGateId] : undefined;
 
   return (
-    <div data-testid="preflight" style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 380px', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
+    <div data-testid="preflight" style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', height: '100%', overflow: 'hidden', background: 'var(--bg-0)' }}>
       <div data-testid="preflight-status" style={{ position: 'absolute', top: 8, right: 8, padding: '4px 12px', background: 'var(--bg-1)', borderRadius: 4, zIndex: 10, fontFamily: 'var(--f-mono)', fontSize: 11, color: verdict === 'GO' ? 'var(--c-stbd)' : verdict === 'NO-GO' ? 'var(--c-danger)' : 'var(--txt-3)' }}>
         {verdict ?? (streaming ? 'RUNNING' : 'IDLE')}
       </div>
 
-      <aside style={{ minHeight: 0, overflow: 'auto', borderRight: '1px solid var(--line-1)', padding: 12, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gap: 12 }}>
-        <CheckCategoryNav selected={selectedCategory} onSelect={setSelectedCategory} status={categoryStatus} />
-        <div style={{ minHeight: 0, overflow: 'auto', borderTop: '1px solid var(--line-1)', paddingTop: 12 }}>
-          <GateSequencer gates={gates} streaming={streaming} focusedGateId={focusedGateId}
-            onGateSelect={setFocusedGateId} verdict={verdict} />
-        </div>
+      <aside style={{ minHeight: 0, overflow: 'auto', borderRight: '1px solid var(--line-1)' }}>
+        <CheckCategoryNav
+          selected={selectedCategory}
+          onSelect={setSelectedCategory}
+          status={categoryStatus}
+          gates={gates}
+          streaming={streaming}
+          focusedGateId={focusedGateId}
+          onGateSelect={setFocusedGateId}
+          preflightVerdict={verdict}
+          runtimeSummary={runtimeSummary}
+          displayMode={displayMode}
+        />
       </aside>
 
-      <main style={{ minHeight: 0, overflow: 'auto', padding: 14, display: 'grid', gap: 14, alignContent: 'start' }}>
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'grid', gap: 4 }}>
-            <h2 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 18, letterSpacing: 0 }}>仿真检查 · 容器运行台</h2>
-            <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
-              {runtimeSummary?.active_profile ?? 'runtime profile pending'}
-            </span>
-          </div>
-          <RuntimeModeSwitch mode={backendMode} onChange={handleModeSwitchClick} />
-        </header>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-          {[
-            ['Mode', categoryStatus.mode],
-            ['Core', categoryStatus.core],
-            ['Plugins', categoryStatus.plugins],
-            ['Verdict', categoryStatus.verdict],
-          ].map(([label, value]) => (
-            <div key={label} style={summaryCardStyle}>
-              <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>{label}</span>
-              <strong style={{ color: 'var(--txt-0)', fontFamily: 'var(--f-mono)', fontSize: 14 }}>{value}</strong>
-            </div>
-          ))}
-        </div>
-
-        <EvidenceStrip evidencePath={evidencePath} verdict={evidenceVerdict} />
-
-        <section style={sectionStyle(selectedCategory === 'mode')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>运行模式</h3>
-            <button type="button" onClick={handleRuntimeProbe}>Probe Runtime</button>
-          </div>
-          <dl style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', margin: 0, color: 'var(--txt-1)', fontSize: 12 }}>
-            <dt style={{ color: 'var(--txt-3)' }}>Backend Mode</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{backendMode ?? 'unknown'}</dd>
-            <dt style={{ color: 'var(--txt-3)' }}>Target</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{runtimeSummary?.target ?? 'unknown'}</dd>
-          </dl>
-        </section>
-
-        <section style={sectionStyle(selectedCategory === 'core')}>
-          <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>TDL 核心容器状态</h3>
-          <CoreServicePanel
-            services={coreServices}
-            onRestart={handleRestartCoreService}
-            onStopCoreStack={handleArmStopCoreStack}
-          />
-          {stopCoreArmed && (
-            <div
-              style={{
-                border: '1px solid var(--c-danger)',
-                borderRadius: 6,
-                background: 'rgba(248,81,73,0.12)',
-                padding: 10,
-                display: 'grid',
-                gap: 8,
-              }}
-            >
-              <strong style={{ color: 'var(--c-danger)', fontSize: 12 }}>Stop Core Stack armed</strong>
-              <span style={{ color: 'var(--txt-2)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
-                Confirmation required before backend stop request.
+      <main
+        data-testid="runtime-main"
+        style={{
+          minHeight: 0,
+          overflow: 'hidden',
+          padding: 14,
+          display: 'grid',
+          gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
+          gap: 14,
+        }}
+      >
+        <section data-testid="runtime-top-panel" style={{ minHeight: 0, overflow: 'auto', display: 'grid', gap: 14, alignContent: 'start' }}>
+          <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: 14, border: '1px solid var(--line-1)', borderRadius: 8, background: 'rgba(10, 15, 24, 0.92)' }}>
+            <div style={{ display: 'grid', gap: 4 }}>
+              <h2 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 18, letterSpacing: 0 }}>仿真检查 · 容器运行台</h2>
+              <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
+                {runtimeSummary?.active_profile ?? 'runtime profile pending'} · 默认内测
               </span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" onClick={handleConfirmStopCoreStack}>
-                  Confirm Stop Core Stack
-                </button>
-                <button type="button" onClick={handleCancelStopCoreStack}>
-                  Cancel Stop Core Stack
-                </button>
-              </div>
             </div>
+            <RuntimeModeSwitch mode={displayMode} onChange={handleModeSwitchClick} />
+          </header>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+            {[
+              ['当前模式', `${modeLabel(displayMode)}`],
+              ['内部核心', String(displayCoreCount)],
+              ['外部插件', String(displayPluginCount)],
+              ['检查结论', verdictText(runtimeVerdict)],
+            ].map(([label, value]) => (
+              <div key={label} style={summaryCardStyle}>
+                <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>{label === '当前模式' ? `${label}：${value}` : `${label}：${value}`}</span>
+                <strong style={{ color: 'var(--txt-0)', fontFamily: 'var(--f-mono)', fontSize: 14 }}>{value}</strong>
+                {label === '当前模式' && displayMode === 'internal' && (
+                  <span style={{ color: 'var(--c-phos)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>默认选中</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {selectedCategory === 'mode' && (
+            <section data-testid="runtime-module-mode" style={sectionStyle(true)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>运行模式确认</h3>
+              <button type="button" onClick={handleRuntimeProbe}>检查运行时</button>
+            </div>
+            <dl style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px 12px', margin: 0, color: 'var(--txt-1)', fontSize: 12 }}>
+              <dt style={{ color: 'var(--txt-3)' }}>当前模式</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{modeLabel(displayMode)}</dd>
+              <dt style={{ color: 'var(--txt-3)' }}>模式说明</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>
+                {displayMode === 'internal' ? '本地MOCK，没有集成其他容器' : '真实容器，集成除L3外发布版本'}
+              </dd>
+              <dt style={{ color: 'var(--txt-3)' }}>后端模式</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--f-mono)' }}>{backendMode ?? 'unknown'}</dd>
+              <dt style={{ color: 'var(--txt-3)' }}>证据路径</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--f-mono)', wordBreak: 'break-all' }}>
+                {runtimeEvidencePath ?? runtimeSummary?.evidence_path ?? '待生成'}
+              </dd>
+            </dl>
+          </section>
+          )}
+
+          {selectedCategory === 'core' && (
+            <section data-testid="runtime-module-core" style={sectionStyle(true)}>
+            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>内部核心容器</h3>
+            <CoreServicePanel
+              services={coreServices}
+              onRestart={handleRestartCoreService}
+            />
+          </section>
+          )}
+
+          {selectedCategory === 'plugins' && (
+            <section data-testid="runtime-module-plugins" style={sectionStyle(true)}>
+            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>外部核心容器</h3>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {displayMode === 'internal' ? (
+                <span style={{ color: 'var(--txt-2)', fontFamily: 'var(--f-mono)', fontSize: 12 }}>
+                  内测模式：外部角色容器默认不接入，当前计数 0。
+                </span>
+              ) : pluginRoles.length > 0 ? (
+                pluginRoles.map((role) => (
+                  <PluginRolePanel key={role.role} role={role} onSwitch={handleSwitchPlugin} />
+                ))
+              ) : (
+                <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>暂无外部插件容器</span>
+              )}
+            </div>
+          </section>
+          )}
+
+          {selectedCategory === 'ros' && (
+            <section data-testid="runtime-module-ros" style={sectionStyle(true)}>
+            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>ROS2数据链路</h3>
+            <div data-testid="runtime-ros-grid" style={compactGridStyle}>
+              {rowsByTopic.length > 0 ? rowsByTopic.map((row) => (
+                <article key={row.key} data-testid={`ros-topic-card-${row.key}`} style={compactCardStyle}>
+                  <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>
+                    channel
+                  </span>
+                  <strong style={{ color: 'var(--txt-0)', fontSize: 13 }}>{row.channel}</strong>
+                  <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>
+                    topic
+                  </span>
+                  <span style={{ color: 'var(--txt-1)', fontFamily: 'var(--f-mono)', fontSize: 11, wordBreak: 'break-all' }}>
+                    {row.topic}
+                  </span>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontFamily: 'var(--f-mono)', fontSize: 10 }}>
+                    <span style={{ color: row.connected ? 'var(--c-stbd)' : 'var(--c-warn)' }}>
+                      联通：{row.connected ? '是' : '否'}
+                    </span>
+                    <span style={{ color: row.hasData ? 'var(--c-stbd)' : 'var(--c-warn)' }}>
+                      数据：{row.hasData ? '有' : '无'}
+                    </span>
+                  </div>
+                </article>
+              )) : (
+                <span style={{ color: 'var(--txt-3)' }}>暂无话题合同</span>
+              )}
+            </div>
+          </section>
+          )}
+
+          {selectedCategory === 'safety' && (
+            <section data-testid="runtime-module-safety" style={sectionStyle(true)}>
+            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>安全边界检查</h3>
+            <div data-testid="runtime-safety-grid" style={compactGridStyle}>
+              {safetyCards.map((card) => (
+                <article key={card.key} data-testid={`safety-check-card-${card.key}`} style={compactCardStyle}>
+                  <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>
+                    {card.source}
+                  </span>
+                  <strong style={{ color: 'var(--txt-0)', fontSize: 13 }}>{card.name}</strong>
+                  <span style={{ color: card.passed ? 'var(--c-stbd)' : 'var(--c-danger)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
+                    {card.status}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+          )}
+
+          {selectedCategory === 'verdict' && (
+            <section data-testid="runtime-module-verdict" style={sectionStyle(true)}>
+            <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>仿真检查结论</h3>
+            <DiagnosticCanvas focusedGateId={focusedGateId} gates={gates}
+              scenarioYaml={scenarioDetail?.yaml_content ?? ''}
+              storedYaml={scenarioDetail?.yaml_content ?? ''}
+              verdict={verdict} countdown={countdown}
+              transitioning={transitioning} />
+          </section>
           )}
         </section>
 
-        <section style={sectionStyle(selectedCategory === 'plugins')}>
-          <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>外部插件容器状态</h3>
-          <div style={{ display: 'grid', gap: 12 }}>
-            {pluginRoles.length > 0 ? (
-              pluginRoles.map((role) => (
-                <PluginRolePanel key={role.role} role={role} onSwitch={handleSwitchPlugin} />
-              ))
-            ) : (
-              <span style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>No runtime plugins</span>
-            )}
+        <section
+          data-testid="runtime-bottom-console"
+          style={{
+            display: 'grid',
+            gridTemplateRows: 'auto minmax(0, 1fr) auto',
+            gap: 10,
+            minHeight: 0,
+            border: '1px solid var(--line-1)',
+            borderRadius: 8,
+            background: 'rgba(10, 15, 24, 0.92)',
+            padding: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <div style={{ width: 4, height: 14, background: 'var(--c-phos)', borderRadius: 2 }} />
+            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 700, color: 'var(--txt-1)', letterSpacing: '0.16em' }}>
+              实时日志
+            </span>
+          </div>
+          <div
+            data-testid="runtime-log-frame"
+            style={{
+              minHeight: 0,
+              overflow: 'auto',
+              border: '1px solid var(--line-1)',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.18)',
+            }}
+          >
+            <LiveLogStream nodeFilter={nodeFilter} maxLines={180} />
+          </div>
+          <div
+            data-testid="runtime-bottom-actions"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 10,
+            }}
+          >
+            <button type="button" onClick={start} style={{
+              minHeight: 42,
+              border: '1px solid var(--c-phos)',
+              borderRadius: 5,
+              background: 'var(--c-phos)',
+              color: 'var(--bg-0)',
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}>
+              重新检查
+            </button>
+            <button type="button" onClick={handleAbort} style={{
+              minHeight: 42,
+              border: '1px solid var(--c-danger)',
+              borderRadius: 5,
+              background: 'transparent',
+              color: 'var(--c-danger)',
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}>
+              返回场景
+            </button>
+            <div data-testid="center-decision-panel" style={{ display: 'grid' }}>
+              <button
+                type="button"
+                onClick={handleProceed}
+                disabled={verdict !== 'GO' || transitioning}
+                style={{
+                  minHeight: 42,
+                  border: `1px solid ${verdict === 'GO' ? 'var(--c-stbd)' : 'var(--line-2)'}`,
+                  borderRadius: 5,
+                  background: verdict === 'GO' ? 'var(--c-stbd)' : 'rgba(255,255,255,0.04)',
+                  color: verdict === 'GO' ? 'var(--bg-0)' : 'var(--txt-3)',
+                  fontWeight: 800,
+                  cursor: verdict === 'GO' && !transitioning ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {transitioning ? '启动中' : verdict === 'GO' ? '人工确认 GO' : '等待预检 GO'}
+              </button>
+            </div>
           </div>
         </section>
-
-        <section style={sectionStyle(selectedCategory === 'ros')}>
-          <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>ROS2 数据链路</h3>
-          <div style={{ display: 'grid', gap: 6, color: 'var(--txt-1)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
-            {pluginRoles.flatMap((role) => role.plugins.map((plugin) => (
-              <span key={`${role.role}-${plugin.id}`}>
-                {role.role} · {plugin.id} · {plugin.topic_status}
-              </span>
-            )))}
-          </div>
-        </section>
-
-        <section style={sectionStyle(selectedCategory === 'safety' || selectedCategory === 'verdict')}>
-          <h3 style={{ margin: 0, color: 'var(--txt-0)', fontSize: 14 }}>安全边界 / 放行结论</h3>
-          <div style={{ display: 'grid', gap: 6, color: 'var(--txt-1)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>
-            {(runtimeSummary?.gates ?? []).map((gate) => (
-              <span key={gateLabel(gate)}>
-                {gateLabel(gate)} · {gate.passed ? 'PASS' : 'BLOCK'}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        <DiagnosticCanvas focusedGateId={focusedGateId} gates={gates}
-          scenarioYaml={scenarioDetail?.yaml_content ?? ''}
-          storedYaml={scenarioDetail?.yaml_content ?? ''}
-          verdict={verdict} countdown={countdown}
-          transitioning={transitioning} />
       </main>
-
-      <div style={{ minHeight: 0, overflow: 'auto', borderLeft: '1px solid var(--line-1)', display: 'grid', alignContent: 'start', gap: 12, paddingBottom: 12 }}>
-        <ActionLogs focusedGateId={focusedGateId} gates={gates}
-          scenarioId={scenarioId} runId={runId ?? 'unknown'}
-          onRerun={start} onAbort={handleAbort} onFixApplied={() => {}}
-          isDev={IS_DEV && verdict === 'NO-GO'}
-          devSkipReason={devSkipReason}
-          onDevSkipReasonChange={setDevSkipReason}
-          onDevSkip={handleDevSkip} />
-        <div style={{ padding: '0 12px' }}>
-          <RuntimeActionLog entries={actionEntries} />
-        </div>
-      </div>
 
       {lifecycleError && (
         <div style={{ position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 101, padding: '10px 20px', background: 'rgba(248,81,73,0.2)', border: '1px solid var(--c-danger)', borderRadius: 6, fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--c-danger)', textAlign: 'center', maxWidth: '80vw' }}>
