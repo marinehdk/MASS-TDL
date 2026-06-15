@@ -2,6 +2,11 @@ import { test, expect, Page, APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  latestRunSegment,
+  peakAngularChangeFromStartDeg,
+  type HeadingSample,
+} from './mvp_consistency_metrics';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,6 +76,21 @@ function median(xs: number[]): number {
   if (!xs.length) throw new Error('median of empty series — no samples collected');
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.floor(s.length / 2)];
+}
+
+function readLatestTraceHeadingSegment(): HeadingSample[] {
+  const tracePath = path.resolve(__dirname, '../../runs/trace_current.jsonl');
+  if (!fs.existsSync(tracePath)) return [];
+  const samples: HeadingSample[] = [];
+  for (const line of fs.readFileSync(tracePath, 'utf8').split(/\n+/)) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line);
+    if (row.topic !== '/sil/own_ship_state') continue;
+    if (typeof row.sim_t === 'number' && typeof row.heading_deg === 'number') {
+      samples.push({ sim_t: row.sim_t, hdg: row.heading_deg });
+    }
+  }
+  return latestRunSegment(samples);
 }
 
 // Read HMI store — throw loud if the field path is absent (no default masking).
@@ -187,21 +207,20 @@ test(`MVP consistency rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => 
     .toBeLessThanOrEqual(RTF_BAND[1]);
 
   // ===== A_turn : own-ship actually changed heading (real maneuver) =====
-  // Use NET angular change from first sample, NOT max-min range.
-  //  - max-min range: passes on 0°↔360° open-loop oscillation (p50=0, net=0)
-  //    — the false-green we saw on the Mac on 2026-06-02 morning.
-  //  - net change: passes only if the ship commits to a sustained turn.
+  // Use peak angular change from the latest backend trace segment, not max-min
+  // range and not final heading. This still rejects 0°↔360° wrap jitter, but
+  // stays valid after the vessel returns to route heading.
   const bHdgs = backend.map(s => s.hdg);
   const turnRange = Math.max(...bHdgs) - Math.min(...bHdgs);
-  const hdg0 = bHdgs[0];
-  const lastFromStart = bHdgs.map(h => {
-    let d = Math.abs(h - hdg0) % 360;
-    if (d > 180) d = 360 - d;
-    return d;
-  });
-  const netTurnDeg = Math.max(...lastFromStart);
-  console.log(`A_turn: range=${turnRange.toFixed(1)}° net|max-from-start|=${netTurnDeg.toFixed(1)}° (min=${Math.min(...bHdgs).toFixed(1)} max=${Math.max(...bHdgs).toFixed(1)} first=${hdg0.toFixed(1)})`);
-  expect(netTurnDeg, `A_turn: net heading change from initial must be > ${TURN_NET_MIN_DEG}° (rule14 avoidance; range-based assertion passed on the 0°↔360° oscillation bug)`)
+  const traceSegment = readLatestTraceHeadingSegment();
+  const turnHeadings = traceSegment.length >= backend.length
+    ? traceSegment.map(s => s.hdg)
+    : bHdgs;
+  const hdg0 = turnHeadings[0];
+  const netTurnDeg = peakAngularChangeFromStartDeg(turnHeadings);
+  const turnSource = traceSegment.length >= backend.length ? 'trace_current latest segment' : 'sample window';
+  console.log(`A_turn: range=${turnRange.toFixed(1)}° peak|from-start|=${netTurnDeg.toFixed(1)}° source=${turnSource} samples=${turnHeadings.length} (min=${Math.min(...turnHeadings).toFixed(1)} max=${Math.max(...turnHeadings).toFixed(1)} first=${hdg0.toFixed(1)})`);
+  expect(netTurnDeg, `A_turn: peak heading change from initial must be > ${TURN_NET_MIN_DEG}° (rule14 avoidance; wrap-safe and route-return-safe)`)
     .toBeGreaterThan(TURN_NET_MIN_DEG);
 
   // ===== A_recon : HMI store == backend trace, matched by sim_t =====
