@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -155,6 +156,21 @@ def test_scenario_to_bridge_route_rejects_short_route(tmp_path):
         scenario_to_bridge_route(scenario)
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        [_valid_waypoint(latitude=True), _valid_waypoint()],
+        [_valid_waypoint(target_sog_kn=False), _valid_waypoint()],
+    ],
+)
+def test_scenario_to_bridge_route_rejects_boolean_numeric_fields(tmp_path, route):
+    scenario = tmp_path / "bools.yaml"
+    _write_scenario(scenario, route)
+
+    with pytest.raises(RouteSeedError, match="boolean"):
+        scenario_to_bridge_route(scenario)
+
+
 def test_write_bridge_route_file_uses_same_directory_atomic_replace(tmp_path, monkeypatch):
     output = tmp_path / "gnc_bridge_route.json"
     route = {
@@ -188,3 +204,121 @@ def test_write_bridge_route_file_uses_same_directory_atomic_replace(tmp_path, mo
     assert final_path == output
     assert json.loads(output.read_text(encoding="utf-8")) == route
     assert not temp_path.exists()
+
+
+def test_write_bridge_route_file_removes_temp_when_serialization_fails(tmp_path, monkeypatch):
+    output = tmp_path / "gnc_bridge_route.json"
+    original = {"route_id": "already-there"}
+    output.write_text(json.dumps(original), encoding="utf-8")
+    route = {
+        "route_id": "safe_route-initial",
+        "route_type": "transit",
+        "selected_key": "safe_route",
+        "sample_points": [
+            {"lat": -1.5, "lon": 105.12, "speed_kn": 29.16},
+            {"lat": -1.49, "lon": 105.13, "speed_kn": 29.16},
+        ],
+    }
+
+    def failing_dump(*_args, **_kwargs):
+        raise RuntimeError("json write failed")
+
+    monkeypatch.setattr(l2_route_seed.json, "dump", failing_dump)
+
+    with pytest.raises(RuntimeError, match="json write failed"):
+        write_bridge_route_file(route, output)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == original
+    assert not output.with_name(f"{output.name}.tmp").exists()
+
+
+def test_main_normal_path_passes_cli_paths_to_node(tmp_path, monkeypatch):
+    scenario = tmp_path / "scenario.yaml"
+    output = tmp_path / "gnc_bridge_route.json"
+    calls = {}
+
+    class FakeRclpy:
+        def init(self, args=None):
+            calls["init_args"] = args
+
+        def spin(self, node):
+            calls["spun_node"] = node
+
+        def shutdown(self):
+            calls["shutdown"] = True
+
+    class FakeRouteSeedOnActiveNode:
+        def __init__(self, scenario_yaml=None, output_path=None):
+            calls["scenario_yaml"] = scenario_yaml
+            calls["output_path"] = output_path
+
+        def destroy_node(self):
+            calls["destroyed"] = True
+
+    monkeypatch.setattr(l2_route_seed, "rclpy", FakeRclpy())
+    monkeypatch.setattr(l2_route_seed, "LifecycleStatus", object)
+    monkeypatch.setattr(l2_route_seed, "RouteSeedOnActiveNode", FakeRouteSeedOnActiveNode)
+
+    l2_route_seed.main(
+        ["--scenario-yaml", str(scenario), "--output-path", str(output)]
+    )
+
+    assert calls["scenario_yaml"] == str(scenario)
+    assert calls["output_path"] == str(output)
+    assert calls["init_args"] == []
+    assert calls["spun_node"].__class__ is FakeRouteSeedOnActiveNode
+    assert calls["destroyed"] is True
+    assert calls["shutdown"] is True
+
+
+def test_lifecycle_first_active_writes_once_and_retries_after_failure(tmp_path, monkeypatch):
+    node = l2_route_seed.RouteSeedOnActiveNode.__new__(l2_route_seed.RouteSeedOnActiveNode)
+    node._written = False
+    node._scenario_yaml = str(tmp_path / "scenario.yaml")
+    node._output_path = tmp_path / "gnc_bridge_route.json"
+    log_messages = []
+    route = {
+        "route_id": "safe_route-initial",
+        "route_type": "transit",
+        "selected_key": "safe_route",
+        "sample_points": [
+            {"lat": -1.5, "lon": 105.12, "speed_kn": 29.16},
+            {"lat": -1.49, "lon": 105.13, "speed_kn": 29.16},
+        ],
+    }
+    scenario_calls = []
+    write_calls = []
+
+    def fake_converter(scenario_yaml):
+        scenario_calls.append(scenario_yaml)
+        return route
+
+    def fake_writer(route_arg, output_path):
+        write_calls.append((route_arg, output_path))
+        if len(write_calls) == 1:
+            raise OSError("transient write failure")
+
+    node.get_logger = lambda: SimpleNamespace(
+        error=lambda message: log_messages.append(("error", message)),
+        info=lambda message: log_messages.append(("info", message)),
+    )
+    monkeypatch.setattr(l2_route_seed, "scenario_to_bridge_route", fake_converter)
+    monkeypatch.setattr(l2_route_seed, "write_bridge_route_file", fake_writer)
+
+    node._on_lifecycle_status(SimpleNamespace(current_state=2))
+    assert scenario_calls == []
+    assert write_calls == []
+
+    node._on_lifecycle_status(SimpleNamespace(current_state=l2_route_seed.ACTIVE_STATE))
+    assert node._written is False
+    assert len(write_calls) == 1
+    assert log_messages[0][0] == "error"
+
+    node._on_lifecycle_status(SimpleNamespace(current_state=l2_route_seed.ACTIVE_STATE))
+    assert node._written is True
+    assert len(write_calls) == 2
+    assert write_calls[-1] == (route, node._output_path)
+
+    node._on_lifecycle_status(SimpleNamespace(current_state=l2_route_seed.ACTIVE_STATE))
+    assert len(scenario_calls) == 2
+    assert len(write_calls) == 2
