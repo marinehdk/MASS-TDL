@@ -34,6 +34,34 @@ static l3_msgs::msg::WorldState build_world_with_target(double cpa_m)
   return w;
 }
 
+static l3_msgs::msg::WorldState build_world_with_domain_target(
+    double range_m,
+    double bearing_deg,
+    double target_cog_deg,
+    double target_sog_kn,
+    double cpa_m,
+    double tcpa_s)
+{
+  l3_msgs::msg::WorldState w;
+  w.own_ship.heading_deg = 0.0;
+  w.own_ship.sog_kn = 10.0;
+  w.own_ship.confidence = 0.95f;
+  w.confidence = 0.9f;
+  l3_msgs::msg::TrackedTarget t;
+  t.target_id = 1u;
+  t.rng_m = range_m;
+  t.brg_deg = bearing_deg;
+  t.cog_deg = target_cog_deg;
+  t.sog_kn = target_sog_kn;
+  t.cpa_m = cpa_m;
+  t.tcpa_s = tcpa_s;
+  t.confidence = 0.9f;
+  t.classification = "vessel";
+  t.classification_confidence = 0.9f;
+  w.targets.push_back(t);
+  return w;
+}
+
 static l3_msgs::msg::WorldState build_world_multi_targets(
     std::size_t n_targets, double cpa_m)
 {
@@ -161,4 +189,41 @@ TEST_F(PerformanceMonitorTest, SteadilyDecreasingCpa_IsDegrading)
   // = about -0.54 NM/sample, which is << -0.01 threshold
   EXPECT_TRUE(status.cpa_trend_degrading);
   EXPECT_LT(status.cpa_trend_slope_nm_s, -0.01);
+}
+
+TEST_F(PerformanceMonitorTest, DangerDomainIntrusionIncrementsExposureAndVeto)
+{
+  auto world = build_world_with_domain_target(250.0, 0.0, 180.0, 10.0, 60.0, 30.0);
+
+  (void)monitor().evaluate(world, t(0));
+  auto status = monitor().evaluate(world, t(1));
+
+  EXPECT_EQ(status.primary_threat_id, "1");
+  EXPECT_GT(status.max_risk_score, 0.0);
+  EXPECT_LT(status.worst_danger_margin_m, 0.0);
+  EXPECT_GE(status.danger_domain_exposure_s, 1.0);
+  EXPECT_TRUE(status.danger_veto_active);
+}
+
+TEST_F(PerformanceMonitorTest, WarningOnlyIntrusionDoesNotIncrementDangerExposure)
+{
+  auto world = build_world_with_domain_target(550.0, 0.0, 180.0, 10.0, 260.0, 120.0);
+
+  (void)monitor().evaluate(world, t(0));
+  auto status = monitor().evaluate(world, t(1));
+
+  EXPECT_GT(status.warning_domain_exposure_s, 0.0);
+  EXPECT_DOUBLE_EQ(status.danger_domain_exposure_s, 0.0);
+  EXPECT_FALSE(status.danger_veto_active);
+}
+
+TEST_F(PerformanceMonitorTest, OpeningDangerTargetDoesNotActivateVeto)
+{
+  auto world = build_world_with_domain_target(250.0, 0.0, 0.0, 14.0, 60.0, 30.0);
+
+  (void)monitor().evaluate(world, t(0));
+  auto status = monitor().evaluate(world, t(1));
+
+  EXPECT_GE(status.danger_domain_exposure_s, 1.0);
+  EXPECT_FALSE(status.danger_veto_active);
 }

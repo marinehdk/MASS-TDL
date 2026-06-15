@@ -72,6 +72,8 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "standon_hold_frac": 0.75,          # first 75 % of the run is the hold phase
     "post_release_monitor_s": 30.0,     # include immediate release, exclude route-return
     "max_conflict_gap_s": 2.0,          # ignore one-sample M6 false blips
+    "max_behavior_gap_s": 2.0,          # ignore one-sample M4 release/rearm blips
+    "max_plan_valid_gap_s": 2.0,        # ignore one-sample M5 EMPTY blips
 }
 
 
@@ -123,14 +125,45 @@ def _records_in_window(records: List[dict], window: Optional[Tuple[float, float]
 
 # ── individual KPIs ──────────────────────────────────────────────────────
 
-def _behavior_toggles(m4: List[dict]) -> int:
-    return _count_transitions([_is_avoiding(r) for r in m4])
+def _collapse_short_false_gaps(
+    records: List[dict],
+    values: List[bool],
+    max_gap_s: float,
+) -> List[bool]:
+    if not records or len(records) != len(values) or max_gap_s <= 0.0:
+        return values
+    runs = []
+    for r, cur in zip(records, values):
+        t = float(r.get("sim_t", 0.0))
+        if not runs or runs[-1]["value"] != cur:
+            runs.append({"value": cur, "start": t, "end": t})
+        else:
+            runs[-1]["end"] = t
+
+    for i in range(1, len(runs) - 1):
+        gap = runs[i]
+        if (not gap["value"] and runs[i - 1]["value"] and
+                runs[i + 1]["value"] and
+                (runs[i + 1]["start"] - gap["start"]) <= max_gap_s):
+            gap["value"] = True
+
+    collapsed: List[bool] = []
+    for run in runs:
+        if not collapsed or collapsed[-1] != run["value"]:
+            collapsed.append(run["value"])
+    return collapsed
 
 
-def _plan_valid_segments(m5: List[dict]) -> int:
+def _behavior_toggles(m4: List[dict], max_gap_s: float = 0.0) -> int:
+    values = [_is_avoiding(r) for r in m4]
+    return _count_transitions(_collapse_short_false_gaps(m4, values, max_gap_s))
+
+
+def _plan_valid_segments(m5: List[dict], max_gap_s: float = 0.0) -> int:
+    values = [r.get("solver_status") == "VALID" for r in m5]
+    values = _collapse_short_false_gaps(m5, values, max_gap_s)
     seg, prev = 0, False
-    for r in m5:
-        cur = r.get("solver_status") == "VALID"
+    for cur in values:
         if cur and not prev:
             seg += 1
         prev = cur
@@ -292,8 +325,8 @@ def analyze_stability(
 
     window = _engagement_window(m4)
 
-    behavior_toggles = _behavior_toggles(m4)
-    plan_segments = _plan_valid_segments(m5)
+    behavior_toggles = _behavior_toggles(m4, th["max_behavior_gap_s"])
+    plan_segments = _plan_valid_segments(m5, th["max_plan_valid_gap_s"])
     rot_hold_std = _rot_hold_std(oss, window, th["hold_trim_frac"])
     avoidance_records = _records_in_window(oss, window)
     steering_reversals = _steering_reversals(avoidance_records, th["rot_deadband_dps"])

@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(l3_risk_model REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(builtin_interfaces REQUIRED)
@@ -28,10 +29,12 @@ add_library(m4_core STATIC
 target_include_directories(m4_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${l3_risk_model_INCLUDE_DIRS}
 )
 target_link_libraries(m4_core PUBLIC
   yaml-cpp::yaml-cpp
   spdlog::spdlog
+  l3_risk_model::l3_risk_model
   ${l3_msgs_TARGETS}
 )
 target_compile_options(m4_core PRIVATE -Wall -Wextra -Wpedantic)

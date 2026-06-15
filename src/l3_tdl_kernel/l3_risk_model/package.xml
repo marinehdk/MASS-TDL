@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>l3_risk_model</name>
+  <version>1.0.0</version>
+  <description>L3 dynamic ship-domain risk model</description>
+  <maintainer email="team-l3@mass-l3-tdl.local">Team-L3</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>nlohmann_json</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

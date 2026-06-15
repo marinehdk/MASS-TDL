@@ -572,7 +572,6 @@ void ColregsReasonerNode::run_reasoning() {
     const bool past_and_clear =
         has_release_reference &&
         past_and_clear_from_heading(target.bearing_deg, release_reference_heading);
-    constexpr double kTcpaClampedPastEpsilonS = 0.5;
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
         (target.cpa_m >= kParams.cpa_safe_m);
@@ -588,6 +587,18 @@ void ColregsReasonerNode::run_reasoning() {
             current_relative_bearing_abs_deg,
             reference_relative_bearing_abs_deg,
             GiveWayProjectionReleaseGate::REFERENCE_CLEAR);
+    const bool give_way_reference_heading_release_ok =
+        has_release_reference &&
+        give_way_reference_heading_release_safe(
+            target.range_m,
+            target.bearing_deg,
+            target.target_heading_deg,
+            target.target_speed_kn,
+            target.ownship_speed_kn,
+            release_reference_heading,
+            kParams.cpa_safe_m);
+    const bool give_way_reference_release_ok =
+        give_way_projection_release_reference_ok || give_way_reference_heading_release_ok;
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
@@ -631,31 +642,35 @@ void ColregsReasonerNode::run_reasoning() {
         projection_releasable_primary_latch(rule15_key);
     const bool duty_latched =
         give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.latched();
-    constexpr double kStandonCurrentAbaftReleaseDeg = 150.0;
-    constexpr double kStandonReleaseRangeMultiple = 3.0;
+    const bool standon_action_latched =
+        standon_latch_it != standon_latches_.end() && standon_latch_it->second.latched();
     const bool standon_action_release =
-        standon_latch_it != standon_latches_.end() &&
-        standon_latch_it->second.latched() &&
-        !range_closing &&
-        (target.range_m >= kParams.cpa_safe_m * kStandonReleaseRangeMultiple) &&
-        (target.cpa_m >= kParams.cpa_safe_m) &&
-        (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
-        (std::fabs(signed_relative_bearing_deg(
-             target.bearing_deg, target.ownship_heading_deg)) >=
-         kStandonCurrentAbaftReleaseDeg);
+        stand_on_late_action_release_safe(
+            standon_action_latched,
+            range_closing,
+            target.range_m,
+            target.cpa_m,
+            target.tcpa_s,
+            kParams.cpa_safe_m,
+            std::fabs(signed_relative_bearing_deg(
+                target.bearing_deg, target.ownship_heading_deg)));
     const bool any_latch_released =
         (rule13_latch_it != rule_latches_.end() && rule13_latch_it->second.released()) ||
         (rule14_latch_it != rule_latches_.end() && rule14_latch_it->second.released()) ||
         (rule15_latch_it != rule_latches_.end() && rule15_latch_it->second.released()) ||
         (give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.released()) ||
         (standon_latch_it != standon_latches_.end() && standon_latch_it->second.released());
+    const bool reference_projection_resolved =
+        (rule13_projection_latched || rule15_projection_latched) &&
+        (((!range_closing) && give_way_projection_release_reference_ok) ||
+         give_way_reference_heading_release_ok);
+    const bool current_projection_resolved =
+        (!range_closing) &&
+        (rule14_projection_latched || duty_latched) &&
+        give_way_projection_release_current_ok;
     const bool projection_resolved =
         has_release_reference &&
-        !range_closing &&
-        (((rule13_projection_latched || rule15_projection_latched) &&
-          give_way_projection_release_reference_ok) ||
-         ((rule14_projection_latched || duty_latched) &&
-          give_way_projection_release_current_ok));
+        (reference_projection_resolved || current_projection_resolved);
     if (finally_resolved || projection_resolved || standon_action_release ||
         any_latch_released ||
         resolved_targets_.count(mmsi) > 0) {
@@ -693,7 +708,7 @@ void ColregsReasonerNode::run_reasoning() {
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
         const bool rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
-            give_way_projection_release_reference_ok;
+            give_way_reference_release_ok;
         const bool latched = it->second.update(
             eval.is_active, target.cpa_m, range_closing, past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
@@ -802,8 +817,18 @@ void ColregsReasonerNode::run_reasoning() {
           e.rationale += " [gated: give-way duty latch not engaged]";
         }
       }
+    } else if (standon_action_latched) {
+      for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
+        auto& e = evaluations[i];
+        const bool secondary_give_way =
+            (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) &&
+            (e.rule_id != 13 && e.rule_id != 14 && e.rule_id != 15);
+        if (e.is_active && secondary_give_way) {
+          e.is_active = false;
+          e.rationale += " [gated: stand-on in-extremis latch engaged]";
+        }
+      }
     } else {
-      standon_latches_.erase(mmsi);
       for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
         auto& e = evaluations[i];
         if (e.is_active && e.role == Role::STAND_ON) {

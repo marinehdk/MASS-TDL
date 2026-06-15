@@ -17,6 +17,7 @@
 #include "l3_msgs/msg/sat2_data.hpp"
 #include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/rule_assessment.hpp"
+#include "l3_risk_model/risk_model.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
 #include "m4_behavior_arbiter/behavior_dictionary.hpp"
@@ -111,6 +112,7 @@ private:
   bool   colregs_rule15_commit_active_{false}; // Rule15 give-way duty latched for this turn
   double colregs_committed_required_dev_deg_{0.0}; // Max bow-crossing give-way turn demand
   int    colregs_inactive_cycles_{0};   // Release dwell for short M6 false gaps
+  mass_l3::risk::RankingState risk_ranking_state_;
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

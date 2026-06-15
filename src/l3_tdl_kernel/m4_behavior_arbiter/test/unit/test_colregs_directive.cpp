@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cmath>
 #include <string>
 
+#include "l3_risk_model/risk_model.hpp"
 #include "m4_behavior_arbiter/colregs_directive.hpp"
 
 namespace mass_l3::m4 {
@@ -120,6 +122,25 @@ TEST(ColregsDirective, StandOnIndependentActionDoesNotUseQuarteringWideEnvelope)
   EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 60.0);
 }
 
+TEST(ColregsDirective, StandOnCriticalActionUsesEmergencyDeviationEnvelope) {
+  const auto directive = extract_colregs_directive(
+      make_msg("STARBOARD", 15.0, kRoleStandOn, "CRITICAL_ACTION"));
+
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, false), 75.0);
+  EXPECT_DOUBLE_EQ(effective_colregs_max_deviation_deg(directive, true), 150.0);
+}
+
+TEST(ColregsDirective, StandOnCriticalDangerRiskRequiresMaximumDeviation) {
+  auto directive = extract_colregs_directive(
+      make_msg("STARBOARD", 15.0, kRoleStandOn, "CRITICAL_ACTION"));
+  directive.primary_risk_phase = "Critical";
+  directive.primary_danger_margin_m = -20.0;
+
+  EXPECT_DOUBLE_EQ(
+      required_deviation_deg(directive, 5000.0, 1500.0, 2.5, 75.0),
+      75.0);
+}
+
 TEST(ColregsDirective, ReduceSpeedAndHoldDoNotCreateHeadingWindow) {
   const auto reduce = extract_colregs_directive(make_msg("REDUCE_SPEED", 15.0));
   EXPECT_EQ(reduce.direction, ColregsDirection::ReduceSpeed);
@@ -140,6 +161,83 @@ TEST(ColregsDirective, NoConflictProducesInactiveHold) {
   EXPECT_FALSE(directive.conflict_active);
   EXPECT_EQ(directive.direction, ColregsDirection::Hold);
   EXPECT_DOUBLE_EQ(directive.min_alteration_deg, 0.0);
+}
+
+TEST(ColregsDirective, FarRule15CrossingCanPreferSpeedReduction) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.rule15_active = true;
+
+  const mass_l3::risk::OwnShipInput own{0.0, 0.0, 0.0, 5.0, 46.0, 0.95, false};
+  const mass_l3::risk::OwnShipInput slowed{0.0, 0.0, 0.0, 2.5, 46.0, 0.95, false};
+  const mass_l3::risk::TargetInput target{
+      "TS001", 1200.0, 260.0, -3.14159265358979323846 / 2.0, 6.0, 600.0, 220.0, 0.9};
+  const auto current_risk =
+      mass_l3::risk::evaluate_target(own, target, mass_l3::risk::ColregsDuty::GiveWay);
+  const auto slowed_risk =
+      mass_l3::risk::evaluate_target(slowed, target, mass_l3::risk::ColregsDuty::GiveWay);
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_EQ(directive.primary_threat_id, "TS001");
+  EXPECT_EQ(directive.primary_risk_phase, "Monitor");
+  EXPECT_TRUE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
+  EXPECT_DOUBLE_EQ(
+      required_deviation_deg(directive, current_risk.range_m, 1500.0, 2.5, 75.0),
+      0.0);
+}
+
+TEST(ColregsDirective, GiveWayOvertakingCanPreferSpeedReductionWhenItArrestsClosing) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "PRESERVE_COURSE";
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1100.0;
+  current_risk.closing_speed_mps = 2.4;
+  current_risk.tcpa_s = 520.0;
+  current_risk.warning_margin_m = 80.0;
+  current_risk.danger_margin_m = 410.0;
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Monitor;
+  current_risk.risk_score = 0.24;
+
+  mass_l3::risk::RiskVector slowed_risk = current_risk;
+  slowed_risk.closing_speed_mps = 0.2;
+  slowed_risk.tcpa_s = 900.0;
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_TRUE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
+}
+
+TEST(ColregsDirective, DangerCrossingKeepsStarboardAlteration) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.rule15_active = true;
+
+  const mass_l3::risk::OwnShipInput own{0.0, 0.0, 0.0, 5.0, 46.0, 0.95, false};
+  const mass_l3::risk::TargetInput target{
+      "TS001", 250.0, 40.0, -3.14159265358979323846 / 2.0, 6.0, 120.0, 45.0, 0.9};
+  const auto risk =
+      mass_l3::risk::evaluate_target(own, target, mass_l3::risk::ColregsDuty::GiveWay);
+
+  apply_primary_risk_guidance(directive, risk, risk);
+
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+  EXPECT_GE(required_deviation_deg(directive, risk.range_m, 1500.0, 2.5, 75.0), 45.0);
 }
 
 }  // namespace

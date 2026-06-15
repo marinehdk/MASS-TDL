@@ -16,6 +16,19 @@ RUDDER_SIGN = -1
 M4_AVOID_TARGET_LOCK_DELTA_DEG = 150.0
 M5_AVOID_WAYPOINT_MAX_DELTA_DEG = 170.0
 M5_AVOID_WAYPOINT_MIN_LOOKAHEAD_M = 25.0
+AVOIDANCE_CORRIDOR_SOFT_XTE_M = 180.0
+AVOIDANCE_CORRIDOR_HARD_XTE_M = 280.0
+AVOIDANCE_CORRIDOR_MIN_OUTBOUND_DELTA_DEG = 0.0
+AVOIDANCE_CORRIDOR_SPEED_SOFT_XTE_M = 120.0
+AVOIDANCE_CORRIDOR_SPEED_HARD_XTE_M = 260.0
+AVOIDANCE_CORRIDOR_MIN_SPEED_KN = 0.0
+FALLBACK_ROUTE_SEGMENT_M = 50000.0
+TRANSIT_RETURN_SOFT_XTE_M = 50.0
+TRANSIT_RETURN_HARD_XTE_M = 350.0
+TRANSIT_RETURN_MIN_CORRECTION_DEG = 30.0
+TRANSIT_RETURN_MAX_CORRECTION_DEG = 90.0
+TRANSIT_RETURN_SOFT_SPEED_KN = 10.0
+TRANSIT_RETURN_HARD_SPEED_KN = 4.0
 
 
 @dataclass
@@ -153,13 +166,43 @@ def segment_xte_and_distance_m(start_wp, end_wp, own_lat, own_lon):
     return xte_m, distance_m
 
 
+def _route_wps_with_heading_fallback(
+    route_wps: Sequence[tuple[float, float]],
+    target_lat: float,
+    target_lon: float,
+    fallback_heading_deg: Optional[float],
+) -> Sequence[tuple[float, float]]:
+    if len(route_wps) >= 2:
+        return route_wps
+    if fallback_heading_deg is None:
+        return route_wps
+    if abs(target_lat) <= 1e-4 and abs(target_lon) <= 1e-4:
+        return route_wps
+
+    m_per_deg_lat = 111132.9
+    m_per_deg_lon = 111319.9 * math.cos(math.radians(target_lat))
+    if abs(m_per_deg_lon) < 1.0:
+        return route_wps
+
+    heading_rad = math.radians(fallback_heading_deg)
+    dx = math.sin(heading_rad) * FALLBACK_ROUTE_SEGMENT_M
+    dy = math.cos(heading_rad) * FALLBACK_ROUTE_SEGMENT_M
+    return [
+        (target_lat - dy / m_per_deg_lat, target_lon - dx / m_per_deg_lon),
+        (target_lat + dy / m_per_deg_lat, target_lon + dx / m_per_deg_lon),
+    ]
+
+
 def signed_xte_m(
     route_wps: Sequence[tuple[float, float]],
     own_lat: float,
     own_lon: float,
     target_lat: float = 0.0,
     target_lon: float = 0.0,
+    fallback_heading_deg: Optional[float] = None,
 ) -> Optional[float]:
+    route_wps = _route_wps_with_heading_fallback(
+        route_wps, target_lat, target_lon, fallback_heading_deg)
     if len(route_wps) < 2:
         return None
     if abs(target_lat) > 1e-4 or abs(target_lon) > 1e-4:
@@ -196,8 +239,6 @@ def avoidance_waypoint_heading_deg(
     nominal_heading_deg: float,
     preferred_heading_deg: Optional[float],
 ) -> Optional[float]:
-    best_heading = None
-    best_score = float("inf")
     for wp in waypoints:
         pos = getattr(wp, "position", None)
         if pos is None:
@@ -221,14 +262,8 @@ def avoidance_waypoint_heading_deg(
         candidate_delta = signed_heading_delta_deg(bearing, nominal_heading_deg)
         if abs(candidate_delta) > M5_AVOID_WAYPOINT_MAX_DELTA_DEG:
             continue
-        if preferred_heading_deg is not None:
-            score = abs(signed_heading_delta_deg(bearing, float(preferred_heading_deg)))
-            if score < best_score:
-                best_score = score
-                best_heading = bearing
-        else:
-            return bearing
-    return best_heading
+        return bearing
+    return None
 
 
 def select_avoidance_heading(
@@ -245,9 +280,103 @@ def select_avoidance_heading(
     waypoint_delta = signed_heading_delta_deg(waypoint_heading_deg, nominal_heading_deg)
     target_delta = signed_heading_delta_deg(avoidance_target_heading_deg, nominal_heading_deg)
     same_side = waypoint_delta * target_delta >= 0.0
-    if not same_side or abs(waypoint_delta) < abs(target_delta):
+    if not same_side:
         return avoidance_target_heading_deg
     return waypoint_heading_deg
+
+
+def corridor_guarded_avoidance_heading_deg(
+    *,
+    selected_heading_deg: Optional[float],
+    nominal_heading_deg: float,
+    route_wps: Sequence[tuple[float, float]],
+    own_lat: float,
+    own_lon: float,
+    current_target_wp_lat: float = 0.0,
+    current_target_wp_lon: float = 0.0,
+    soft_xte_m: float = AVOIDANCE_CORRIDOR_SOFT_XTE_M,
+    hard_xte_m: float = AVOIDANCE_CORRIDOR_HARD_XTE_M,
+    min_outbound_delta_deg: float = AVOIDANCE_CORRIDOR_MIN_OUTBOUND_DELTA_DEG,
+) -> Optional[float]:
+    if selected_heading_deg is None:
+        return None
+    xte_m = signed_xte_m(
+        route_wps,
+        own_lat,
+        own_lon,
+        current_target_wp_lat,
+        current_target_wp_lon,
+        fallback_heading_deg=nominal_heading_deg,
+    )
+    if xte_m is None or not math.isfinite(xte_m):
+        return selected_heading_deg
+    abs_xte_m = abs(xte_m)
+    if abs_xte_m <= soft_xte_m:
+        return selected_heading_deg
+
+    selected_delta = signed_heading_delta_deg(
+        selected_heading_deg, nominal_heading_deg)
+    if abs(selected_delta) <= min_outbound_delta_deg:
+        return selected_heading_deg
+
+    # signed_xte_m is positive on one side of the route and negative on the other.
+    # A heading delta with the opposite sign keeps moving farther away from track.
+    if xte_m * selected_delta >= 0.0:
+        return selected_heading_deg
+
+    span = max(1.0, hard_xte_m - soft_xte_m)
+    saturation = max(0.0, min(1.0, (abs_xte_m - soft_xte_m) / span))
+    allowed_abs_delta = (
+        min_outbound_delta_deg +
+        (abs(selected_delta) - min_outbound_delta_deg) * (1.0 - saturation)
+    )
+    guarded_delta = math.copysign(
+        min(abs(selected_delta), allowed_abs_delta), selected_delta)
+    return (nominal_heading_deg + guarded_delta) % 360.0
+
+
+def corridor_guarded_avoidance_speed_kn(
+    *,
+    target_speed_kn: float,
+    selected_heading_deg: Optional[float],
+    nominal_heading_deg: float,
+    route_wps: Sequence[tuple[float, float]],
+    own_lat: float,
+    own_lon: float,
+    current_target_wp_lat: float = 0.0,
+    current_target_wp_lon: float = 0.0,
+    soft_xte_m: float = AVOIDANCE_CORRIDOR_SPEED_SOFT_XTE_M,
+    hard_xte_m: float = AVOIDANCE_CORRIDOR_SPEED_HARD_XTE_M,
+    min_speed_kn: float = AVOIDANCE_CORRIDOR_MIN_SPEED_KN,
+) -> float:
+    xte_m = signed_xte_m(
+        route_wps,
+        own_lat,
+        own_lon,
+        current_target_wp_lat,
+        current_target_wp_lon,
+        fallback_heading_deg=nominal_heading_deg,
+    )
+    if xte_m is None or not math.isfinite(xte_m):
+        return target_speed_kn
+    abs_xte_m = abs(xte_m)
+    if abs_xte_m <= soft_xte_m:
+        return target_speed_kn
+    if selected_heading_deg is None:
+        return target_speed_kn
+
+    selected_delta = signed_heading_delta_deg(
+        selected_heading_deg, nominal_heading_deg)
+    if xte_m * selected_delta > 0.0:
+        return target_speed_kn
+
+    span = max(1.0, hard_xte_m - soft_xte_m)
+    saturation = max(0.0, min(1.0, (abs_xte_m - soft_xte_m) / span))
+    guarded_speed = (
+        min_speed_kn +
+        (float(target_speed_kn) - min_speed_kn) * (1.0 - saturation)
+    )
+    return max(min_speed_kn, min(float(target_speed_kn), guarded_speed))
 
 
 def command_for_heading_speed(
@@ -284,22 +413,48 @@ def compute_transit_command(
     route_wps: Sequence[tuple[float, float]],
     heading_controller: HeadingController,
     speed_controller: SpeedController,
+    dt: float = 0.5,
 ) -> ActuatorCommand:
     effective_target_heading = target_heading_deg
     effective_target_sog = target_sog_kn
     if abs(current_target_wp_lat) > 1e-4 or abs(current_target_wp_lon) > 1e-4:
-        effective_target_heading = great_circle_bearing(
+        waypoint_heading = great_circle_bearing(
             own_lat, own_lon, current_target_wp_lat, current_target_wp_lon)
         xte = signed_xte_m(
-            route_wps, own_lat, own_lon, current_target_wp_lat, current_target_wp_lon)
+            route_wps,
+            own_lat,
+            own_lon,
+            current_target_wp_lat,
+            current_target_wp_lon,
+            fallback_heading_deg=target_heading_deg,
+        )
         if xte is None:
             xte = 0.0
-        xte_correction = max(-30.0, min(30.0, xte * 0.10))
+        abs_xte = abs(xte)
+        effective_target_heading = (
+            target_heading_deg
+            if abs_xte > TRANSIT_RETURN_SOFT_XTE_M
+            else waypoint_heading
+        )
+        saturation = max(
+            0.0,
+            min(1.0, (abs_xte - TRANSIT_RETURN_SOFT_XTE_M) /
+                max(1.0, TRANSIT_RETURN_HARD_XTE_M - TRANSIT_RETURN_SOFT_XTE_M)),
+        )
+        correction_limit = (
+            TRANSIT_RETURN_MIN_CORRECTION_DEG +
+            (TRANSIT_RETURN_MAX_CORRECTION_DEG -
+             TRANSIT_RETURN_MIN_CORRECTION_DEG) * saturation
+        )
+        xte_correction = max(-correction_limit, min(correction_limit, xte * 0.20))
         effective_target_heading = (effective_target_heading + xte_correction) % 360.0
-        if abs(xte) > 150.0:
-            effective_target_sog = max(effective_target_sog, 19.5)
-        elif abs(xte) > 50.0:
-            effective_target_sog = max(effective_target_sog, 18.0)
+        if abs_xte > TRANSIT_RETURN_SOFT_XTE_M:
+            speed_cap = (
+                TRANSIT_RETURN_SOFT_SPEED_KN +
+                (TRANSIT_RETURN_HARD_SPEED_KN -
+                 TRANSIT_RETURN_SOFT_SPEED_KN) * saturation
+            )
+            effective_target_sog = min(effective_target_sog, speed_cap)
 
     return command_for_heading_speed(
         target_heading_deg=effective_target_heading,
@@ -309,6 +464,7 @@ def compute_transit_command(
         current_rot_deg_s=current_rot_deg_s,
         heading_controller=heading_controller,
         speed_controller=speed_controller,
+        dt=dt,
     )
 
 
@@ -322,18 +478,20 @@ def compute_avoidance_command(
     last_avoidance_waypoint: Optional[object],
     heading_controller: HeadingController,
     speed_controller: SpeedController,
+    target_speed_override_kn: Optional[float] = None,
+    dt: float = 0.5,
 ) -> ActuatorCommand:
     out = ActuatorCommand()
     if waypoint_heading_deg is not None:
         heading_error_deg = signed_heading_delta_deg(
             waypoint_heading_deg, current_heading_deg)
         out.rudder_angle = RUDDER_SIGN * heading_controller.step(
-            heading_error_deg, 0.5, current_rot_deg_s)
+            heading_error_deg, dt, current_rot_deg_s)
     elif avoidance_target_heading_deg is not None:
         heading_error_deg = signed_heading_delta_deg(
             avoidance_target_heading_deg, current_heading_deg)
         out.rudder_angle = RUDDER_SIGN * heading_controller.step(
-            heading_error_deg, 0.5, current_rot_deg_s)
+            heading_error_deg, dt, current_rot_deg_s)
     elif last_avoidance_waypoint is not None:
         turn_radius_m = float(getattr(last_avoidance_waypoint, "turn_radius_m", 0.0))
         if abs(turn_radius_m) > 1e-6:
@@ -343,10 +501,14 @@ def compute_avoidance_command(
                 -MAX_RUDDER_RAD, min(MAX_RUDDER_RAD, rudder_rad))
 
     if last_avoidance_waypoint is not None:
-        target_sog_kn = float(getattr(last_avoidance_waypoint, "target_speed_kn", 0.0))
+        target_sog_kn = (
+            float(target_speed_override_kn)
+            if target_speed_override_kn is not None
+            else float(getattr(last_avoidance_waypoint, "target_speed_kn", 0.0))
+        )
         feedforward = max(0.0, min(1.0, target_sog_kn / MAX_SPEED_KN))
         speed_error_kn = target_sog_kn - current_sog_kn
-        out.throttle = max(feedforward, speed_controller.step(speed_error_kn, 0.5))
+        out.throttle = max(feedforward, speed_controller.step(speed_error_kn, dt))
     else:
         out.throttle = CRUISE_SPEED_KN / MAX_SPEED_KN
     return out

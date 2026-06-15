@@ -343,3 +343,37 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `tests/sil_orchestrator/runtime/test_{compose.py,service.py}` and `tests/scripts/test_runtime_plugin_compose.py`: added regressions for runtime config packaging, Docker socket override scope, current-worktree compose protection, inactive plugin pre-create/recreate, Docker Engine fallback, socket timeout, chunked Docker Engine responses, and NDJSON compose parsing.
 - **当前状态 (Status)**: GREEN local-only. Backend/runtime/script regression `70 passed`; frontend runtime tests `13 passed`; frontend build passed with existing Foxglove eval/chunk warnings; local OrbStack gate passed and printed `LOCAL A4000 CONTAINER ACCEPTANCE PASS`. Runtime API hot-switch check passed: `route_l2` switched `l2-planner-main -> tdl-mock-route -> l2-planner-main`, with `GO` both times.
 - **接力指示 (Hand-off Context)**: Evidence paths: `runs/local_runtime_probe_20260614_010614.json` with `"verdict":"GO"` and `runs/local_a4000_container_probe_20260614_010614.json` with `"all_clear":true`. No A4000 sync and no GitHub/GitLab push.
+
+## [2026-06-14 01:42 CST] Agent: Codex (GPT-5)
+- **Git Commit**: committed on `codex/colregs-release-work` (see `git log` for final hash)
+- **任务目标 (Goal)**: 本地完成 COLREG clean 8-probe，新增 ODD/场景化 CPA 验收与 `max_route_xte_m < 500m` 硬门槛，修复避碰后一味外绕、M5 航线发布但 L4 不及时回归的问题。
+- **核心改动 (Actions)**:
+  - `scripts/run_6_scenarios.py` + `scenarios/COLREGs测试/*.yaml`: clean 8 扩展为按场景读取 `cpa_acceptance.threshold_m`，同时将 `route_corridor_pass_limit_m=500` 纳入 overall gate。
+  - `src/sim_workbench/sil_nodes/l4_guidance_adapter/*`: active 避碰阶段保留 COLREG 外扩压制；release/近边界阶段增加 route-return 保护，`AVOIDANCE_CORRIDOR_RETURN_XTE_M=380m`，防止已接近 500m 航道边界时继续执行外绕航点。
+  - `src/l3_tdl_kernel/m5_tactical_planner/*`: M5 geometric fallback 输出更可执行的首航点、速度、转弯半径与测试覆盖。
+  - `src/l3_tdl_kernel/m6_colregs_reasoner/*`: 增加 stand-on late-action emergency release floor 与 release policy 单测。
+  - `src/sim_workbench/sil_nodes/scoring/scoring/stability_scorer.py`: 对短 false gap 做 debounce，避免单帧抖动误判 plan segment。
+- **当前状态 (Status)**: GREEN locally. `pytest ...test_guidance_adapter.py ...test_run_6_scenarios_gate.py ...test_stability_scorer.py -q` = 57/57 PASS; container M5 `test_geometric_fallback` = 15/15 PASS; container M6 `test_colregs_release_policy` = 13/13 PASS; local restart-between-runs clean 8 = 8/8 PASS, evidence `runs/local_batch_colregs_clean_current.json`; max XTE by scenario: ho 285m, ho-port 287m, rule13 336m, rule15-cs 328m, cs-2 331m, cs-edge 324m, ot-boundary 497m, rule17 320m. `scripts/local-a4000-acceptance.sh` also PASS with evidence `runs/local_a4000_container_probe_20260614_014220.json`.
+- **接力指示 (Hand-off Context)**: Work is on `codex/colregs-release-work`; do not stage generated `scenarios/colreg-rule14-ho/.preflight/*` or unrelated `scenarios/safe_route/`. A4000 not contacted in this run; before A4000, narrow-sync only touched paths and do not use `git pull/reset/rsync --delete`.
+
+## [2026-06-14 17:32 CST] Agent: Codex (GPT-5)
+- **Git Commit**: committed on `codex/colregs-release-work` (see `git log` for final hash)
+- **任务目标 (Goal)**: 完成 dynamic risk model 后续控制闭环，修复 Rule13 机械追越绕行与 Rule17 近距离 stand-on danger-domain 暴露，保持 clean 8-probe 全部场景 max XTE <500m。
+- **核心改动 (Actions)**:
+  - `src/l3_tdl_kernel/m4_behavior_arbiter/src/colregs_directive.cpp`: M4 risk guidance 新增 safe-following 减速判定；当 60% speed 能显著消除追近且仍在 danger 外，允许 give-way/overtaking 从 Starboard 转为 ReduceSpeed。
+  - `src/l3_tdl_kernel/m4_behavior_arbiter/src/colregs_directive.cpp` + `src/l3_tdl_kernel/m4_behavior_arbiter/src/behavior_arbiter_node.cpp`: Rule17 `CRITICAL_ACTION` 使用 emergency deviation envelope；dynamic risk 已进 Danger/Critical 时不再被 CPA ramp 降回保守转角。
+  - `scripts/run_6_scenarios.py`: risk recovery gate 改为以 warning-or-worse peak 后 60s 恢复为准；未进入 warning 域的避碰不再误判 recovery fail。
+  - `docker/sil_nodes.Dockerfile`: 将 `l3_risk_model` 纳入 `sil-nodes` 镜像 colcon build，保证 M4/M5/M7 在新镜像内能 source risk model package。
+- **当前状态 (Status)**: GREEN locally. Targeted tests: Python `tests/risk_model tests/scripts/test_run_6_scenarios_gate.py` = 44/44 PASS; container M4 `test_colregs_directive|test_m4_node_lifecycle` = 35/35 PASS. Docker `sil-nodes` image rebuild PASS. Local restart-between-runs clean 8-probe = **8/8 PASS**, evidence `runs/local_batch_colregs_clean_20260614_172632.json`; max XTE: ho 322m, ho-port 351m, rule13 451m, rule15-cs 392m, cs-2 400m, cs-edge 325m, ot-boundary 495m, rule17 320m; danger exposure = 0s for all 8. `scripts/local-a4000-acceptance.sh` = PASS (`LOCAL A4000 CONTAINER ACCEPTANCE PASS`).
+- **接力指示 (Hand-off Context)**: A4000 not contacted. Before A4000, narrow-sync only touched paths in this commit; do not sync generated `runs/*`, `scenarios/colreg-rule14-ho/.preflight/*`, or untracked scenario export dirs. `colreg-rule15-ot-boundary` remains closest to XTE limit at 495m and should be watched on A4000.
+
+## [2026-06-14 21:28 CST] Agent: Codex (GPT-5)
+- **Git Commit**: committed on `codex/colregs-release-work` (see `git log` for final hash)
+- **任务目标 (Goal)**: A4000 不可用后，将 COLREG dynamic risk + route-return 闭环收敛到本地容器范围；完成 strict restart-between-runs 8-probe 与 local OrbStack gate。
+- **核心改动 (Actions)**:
+  - `scripts/run_6_scenarios.py`: route-return gate 改为 release 后稳定 transit dwell；新增 configure retry；输出 `transit_after_avoidance_s` 与 dwell 配置，防止“瞬时回线”误判。
+  - `src/sim_workbench/sil_nodes/scoring/scoring/stability_scorer.py`: M5 `VALID/EMPTY/VALID` 单帧空 plan gap 做 debounce；无 route latch 时用目标 heading 构造临时航线，避免 XTE/corridor guard 在 L2 route 延迟时失效。
+  - `src/sim_workbench/sil_nodes/l4_guidance_adapter/*`: clock reset 保留 route；无 ODD 默认 nominal transit；控制 dt 使用仿真 elapsed time；active avoidance 不再绕过 transit/XTE hard guard；route 未 latch 时用目标 heading 保护回线。
+  - `src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_nomoto_fallback.cpp` 与 `src/l3_tdl_kernel/m7_safety_supervisor/CMakeLists.txt`: 修复本地容器 targeted C++ 测试构建问题。
+- **当前状态 (Status)**: GREEN locally. Python targeted tests: L4 `32/32`, scoring `16/16`, runner gate `28/28`. Container targeted C++: M4 `35/35`, M5 `20/20`, M7 `10/10`. Local strict restart-between-runs clean 8-probe = **8/8 PASS**, evidence `runs/local_clean8_restart_summary_20260614_205850.json`; max XTE: ho 320m, ho-port 325m, rule13 437m, rule15-cs 376m, cs-2 395m, cs-edge 324m, ot-boundary 487m, rule17 321m; danger exposure = 0s for all 8. `source scripts/local-a4000-env.sh && ./scripts/local-a4000-acceptance.sh` = PASS (`LOCAL A4000 CONTAINER ACCEPTANCE PASS`).
+- **接力指示 (Hand-off Context)**: A4000 not contacted because user scoped work to local containers only. Do not stage generated `scenarios/colreg-rule14-ho/.preflight/*`, untracked scenario export dirs, `.codex/`, or `runs/*`. `colreg-rule15-ot-boundary` is still closest to the 500m XTE limit at 487m; keep watching if/when A4000 resumes.

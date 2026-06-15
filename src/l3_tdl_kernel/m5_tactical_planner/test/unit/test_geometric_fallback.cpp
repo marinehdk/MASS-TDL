@@ -201,5 +201,64 @@ TEST(GeometricFallback, TargetSpeedUsesPlannedSpeedBeforeNominalDefault) {
   EXPECT_NEAR(geometric_fallback_target_speed_kn(0.5, 10.0), 10.0, 1e-6);
 }
 
+TEST(GeometricFallback, TargetSpeedRespectsBehaviorSpeedCap) {
+  EXPECT_NEAR(
+      geometric_fallback_target_speed_kn(10.0 * units::kMsPerKn, 10.0, 6.0 * units::kMsPerKn),
+      6.0,
+      1e-6);
+}
+
+TEST(GeometricFallback, RiskAwareFallbackPrefersReduceSpeedForFarRule15) {
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.planned_speed_mps = 10.0 * units::kMsPerKn;
+  input.constraints.speed_max_mps = 6.0 * units::kMsPerKn;
+  input.route_xte_m = 420.0;
+  input.target_risks.push_back(TargetRiskSnapshot{
+      "TS001", 0.34, 520.0, 830.0, 220.0, 6.0, true});
+
+  EXPECT_EQ(risk_aware_fallback_direction(input), ColregsPreferredDirection::ReduceSpeed);
+}
+
+TEST(GeometricFallback, RiskAwareFallbackKeepsStarboardForDanger) {
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.planned_speed_mps = 10.0 * units::kMsPerKn;
+  input.constraints.speed_max_mps = 6.0 * units::kMsPerKn;
+  input.route_xte_m = 420.0;
+  input.target_risks.push_back(TargetRiskSnapshot{
+      "TS001", 0.72, -80.0, -30.0, 45.0, 5.0, true});
+
+  EXPECT_EQ(risk_aware_fallback_direction(input), ColregsPreferredDirection::Starboard);
+}
+
+TEST(GeometricFallback, RiskAwareFallbackReturnsRouteWhenOpeningOutsideWarningAndHighXte) {
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.route_xte_m = 430.0;
+  input.target_risks.push_back(TargetRiskSnapshot{
+      "TS001", 0.12, 240.0, 500.0, 120.0, -1.0, true});
+
+  EXPECT_EQ(risk_aware_fallback_direction(input), ColregsPreferredDirection::Hold);
+}
+
+TEST(GeometricFallback, FirstExecutableWaypointUsesSubstantialLookahead) {
+  const double own_psi = 0.0;
+  const double target_psi = 85.0 * M_PI / 180.0;
+  const double speed_mps = 12.0 * 0.514444;
+  const double rot_rad_s = 5.0 * M_PI / 180.0;
+
+  const auto point = geometric_fallback_arc_point(
+      own_psi, target_psi, speed_mps, rot_rad_s,
+      geometric_fallback_waypoint_time_s(0));
+  const double bearing = std::atan2(point.y_m, point.x_m);
+
+  EXPECT_GE(bearing, 35.0 * M_PI / 180.0);
+  EXPECT_LE(std::fabs(point.y_m), 500.0);
+}
+
 }  // namespace
 }  // namespace mass_l3::m5
