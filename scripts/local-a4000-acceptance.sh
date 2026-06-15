@@ -11,6 +11,9 @@ source scripts/local-a4000-env.sh
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "compose=$COMPOSE_FILE"
+  echo "profiles=${COMPOSE_PROFILES:-}"
+  echo "integration_profile=${TDL_INTEGRATION_PROFILE:-}"
+  echo "runtime_profile=${TDL_RUNTIME_PROFILE:-}"
   echo "health=${ORCH_URL}/api/v1/health"
   echo "integration=/api/v1/integration/profiles"
   echo "runtime=/api/v1/runtime/summary"

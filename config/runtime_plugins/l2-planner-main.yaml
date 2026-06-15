@@ -8,7 +8,7 @@ image:
   expected: mass-l2-planner:main
   revision_label: org.opencontainers.image.revision
 ros:
-  domain_id: 10
+  domain_id: 42
   required_topics:
     /route_planning/route_plan: ship_interfaces/msg/RoutePlan
   forbidden_topics:

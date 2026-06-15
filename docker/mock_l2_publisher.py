@@ -65,6 +65,13 @@ VOYAGE_TASK_HZ = 0.5
 LC_STATE_ACTIVE = 3
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "off", "no", "")
+
+
 def _now(node: Node) -> BuiltinTime:
     t = node.get_clock().now()
     return BuiltinTime(sec=t.seconds_nanoseconds()[0], nanosec=t.seconds_nanoseconds()[1])
@@ -150,6 +157,10 @@ class MockL2Publisher(Node):
                               .get_parameter_value().double_value)
         self._default_speed = (self.get_parameter("default_transit_speed_kn")
                                .get_parameter_value().double_value)
+        self._mock_route_enabled = _env_bool("SIL_MOCK_L2_ROUTE_ENABLE", True)
+        if not self._mock_route_enabled:
+            self.get_logger().info(
+                "mock L2 route publishing disabled; keeping voyage task and replan response")
 
         # Load mock_l2 config from scenario YAML via SIL_SCENARIO_YAML env var
         self._mock_l2_config = {}
@@ -481,6 +492,8 @@ class MockL2Publisher(Node):
 
     def _on_route_timer(self):
         if not self._is_active:
+            return
+        if not self._mock_route_enabled:
             return
         self._publish_planned_route()
         self._publish_speed_profile()

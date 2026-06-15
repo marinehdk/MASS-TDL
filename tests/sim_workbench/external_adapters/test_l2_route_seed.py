@@ -1,5 +1,8 @@
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -230,6 +233,35 @@ def test_write_bridge_route_file_removes_temp_when_serialization_fails(tmp_path,
 
     assert json.loads(output.read_text(encoding="utf-8")) == original
     assert not output.with_name(f"{output.name}.tmp").exists()
+
+
+def test_l2_route_seed_module_write_once_invokes_main(tmp_path):
+    scenario = tmp_path / "scenario.yaml"
+    output = tmp_path / "gnc_bridge_route.json"
+    _write_scenario(scenario, _valid_route(), scenario_id="module_run")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"src/sim_workbench/external_adapters{os.pathsep}{env.get('PYTHONPATH', '')}"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "external_adapters.l2_route_seed",
+            "--write-once",
+            "--scenario-yaml",
+            str(scenario),
+            "--output-path",
+            str(output),
+        ],
+        env=env,
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["route_id"] == "module_run-initial"
 
 
 def test_main_normal_path_passes_cli_paths_to_node(tmp_path, monkeypatch):

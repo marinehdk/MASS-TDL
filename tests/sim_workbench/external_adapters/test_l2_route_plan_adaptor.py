@@ -1,3 +1,7 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -182,6 +186,23 @@ def test_startup_timeout_does_not_exit_after_valid_route_cached_before_active(mo
     node._on_startup_timeout()
 
     assert exit_codes == []
+
+
+def test_l2_route_plan_adaptor_module_invokes_main_without_ros2():
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"src/sim_workbench/external_adapters{os.pathsep}{env.get('PYTHONPATH', '')}"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "external_adapters.l2_route_plan_adaptor"],
+        env=env,
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode != 0
+    assert "required to run l2_route_plan_adaptor" in f"{result.stdout}\n{result.stderr}"
 
 
 def test_cached_route_forwards_once_on_active_and_duplicate_does_not_resend():

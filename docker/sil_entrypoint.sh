@@ -226,6 +226,7 @@ except Exception:
 
 # ── Stage 3: L3 kernel nodes (dependency order) ────────────────
 import os as _os
+external_l2_route = _os.environ.get('TDL_INTEGRATION_PROFILE', 'default') in ('a4000_external', 'hybrid_debug')
 if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     print(f'[{ts()}] Stage 3/3: Starting L3 kernel bridge + nodes')
     sys.stdout.flush()
@@ -272,6 +273,8 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     mock_l2_env = {**_os.environ, 'SIL_SCENARIO_DIR': scenario_dir}
     if active_scenario_yaml:
         mock_l2_env['SIL_SCENARIO_YAML'] = active_scenario_yaml
+    if external_l2_route:
+        mock_l2_env['SIL_MOCK_L2_ROUTE_ENABLE'] = '0'
 
     mock_l2_proc = subprocess.Popen(
         ['python3', '/opt/ws/docker/mock_l2_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
@@ -283,20 +286,25 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     # 3a-2b. Start GNC route mock publisher (D1.8: publishes ship_interfaces/GncRoutePlan
     # on /route_planning/gnc_route_plan from the active scenario's nominalRoute — stands
     # in for the real L2 in Phase 1).
-    gnc_route_proc = subprocess.Popen(
-        ['python3', '/opt/ws/docker/gnc_route_mock_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
-        stdout=sys.stdout, stderr=sys.stderr,
-        env=mock_l2_env
-    )
-    print(f'  [{ts()}] GNC Route Mock Publisher PID: {gnc_route_proc.pid}')
+    gnc_route_proc = None
+    route_ingest_proc = None
+    if external_l2_route:
+        print(f'  [{ts()}] external L2 route profile: skipping internal GNC route mock and route ingest')
+    else:
+        gnc_route_proc = subprocess.Popen(
+            ['python3', '/opt/ws/docker/gnc_route_mock_publisher.py', '--ros-args', '-p', 'use_sim_time:=True'],
+            stdout=sys.stdout, stderr=sys.stderr,
+            env=mock_l2_env
+        )
+        print(f'  [{ts()}] GNC Route Mock Publisher PID: {gnc_route_proc.pid}')
 
-    # 3a-2c. Start route ingest node (D1.8: re-entrant L3 consumer of GncRoutePlan;
-    # republishes to internal /l2/planned_route for the frontend route layer).
-    route_ingest_proc = subprocess.Popen(
-        ['python3', '/opt/ws/docker/route_ingest_node.py', '--ros-args', '-p', 'use_sim_time:=True'],
-        stdout=sys.stdout, stderr=sys.stderr
-    )
-    print(f'  [{ts()}] Route Ingest Node PID: {route_ingest_proc.pid}')
+        # 3a-2c. Start route ingest node (D1.8: re-entrant L3 consumer of GncRoutePlan;
+        # republishes to internal /l2/planned_route for the frontend route layer).
+        route_ingest_proc = subprocess.Popen(
+            ['python3', '/opt/ws/docker/route_ingest_node.py', '--ros-args', '-p', 'use_sim_time:=True'],
+            stdout=sys.stdout, stderr=sys.stderr
+        )
+        print(f'  [{ts()}] Route Ingest Node PID: {route_ingest_proc.pid}')
 
     # 3a-3. Start FSM aggregator node (publishes /l3/fsm_state at 10Hz)
     fsm_agg_proc = subprocess.Popen(
