@@ -14,6 +14,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=42
       - FOX_PORT=18765
+      - TDL_RUNTIME_PROFILE=${TDL_RUNTIME_PROFILE:-internal-local}
       # ROS_LOCALHOST_ONLY=1 disabled: CycloneDDS on Ubuntu 22.04's loopback
       # interface is not multicast-capable, so forcing localhost-only disables
       # DDS discovery entirely (ros2 node list returns 0). ROS_DOMAIN_ID=42

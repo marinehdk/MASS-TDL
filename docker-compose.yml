@@ -75,6 +75,6 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./data/tiles:/data/tiles
+      - ${MASS_L3_TILE_DIR:-./data/tiles}:/data/tiles
     command: ["/data/tiles"]
     network_mode: host

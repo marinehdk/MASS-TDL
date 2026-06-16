@@ -9,6 +9,7 @@ from sil_orchestrator.runtime.evidence import write_runtime_evidence
 from sil_orchestrator.runtime.models import (
     PluginManifest,
     PluginRole,
+    RuntimeMode,
     RuntimeProfile,
     ServiceClass,
 )
@@ -155,7 +156,9 @@ class RuntimeConsoleService:
                 self._core_service_row(service, services.get(service))
                 for service in CORE_SERVICES
             ],
-            "plugin_roles": self._plugin_roles(services),
+            "plugin_roles": (
+                [] if profile.mode is RuntimeMode.INTERNAL else self._plugin_roles(services)
+            ),
             "gates": gates,
         }
 
@@ -225,6 +228,25 @@ class RuntimeConsoleService:
         core_statuses = {
             service: _state(services.get(service)) for service in CORE_SERVICES
         }
+        if self.active_profile.mode is RuntimeMode.INTERNAL:
+            running_plugins = sorted(
+                plugin.id
+                for plugin in self.plugins.values()
+                if _state(services.get(plugin.compose.service)) == "running"
+            )
+            return [
+                {
+                    "name": "core_services_running",
+                    "passed": all(status == "running" for status in core_statuses.values()),
+                    "services": core_statuses,
+                },
+                {
+                    "name": "no_external_plugins_running",
+                    "passed": not running_plugins,
+                    "running_plugins": running_plugins,
+                },
+            ]
+
         plugin_roles = []
         effective_plugin_roles = self._effective_plugin_roles()
         for role in self._reported_roles():

@@ -178,6 +178,33 @@ def test_summary_accepts_compose_ndjson(runtime_config_dirs, tmp_path):
     )["active_plugin"] == "l2-planner-main"
 
 
+def test_internal_profile_reports_no_plugin_roles_when_plugins_are_stopped(runtime_config_dirs, tmp_path):
+    plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
+    profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
+    compose = FakeCompose()
+    compose.services = [
+        row for row in compose.services if not row["Service"].startswith("plugin-")
+    ]
+    service = RuntimeConsoleService(
+        plugins,
+        profiles,
+        compose,
+        runs_dir=tmp_path,
+        active_profile_name="internal-local",
+    )
+
+    report = service.summary()
+
+    assert report["mode"] == "internal"
+    assert report["verdict"] == "GO"
+    assert report["plugin_roles"] == []
+    assert report["gates"][1] == {
+        "name": "no_external_plugins_running",
+        "passed": True,
+        "running_plugins": [],
+    }
+
+
 def test_probe_writes_evidence(runtime_config_dirs, tmp_path):
     plugins = load_plugin_manifests(runtime_config_dirs["plugins"])
     profiles = load_runtime_profiles(runtime_config_dirs["profiles"], plugins)
@@ -321,6 +348,20 @@ target: local
 tdl_domain_id: 42
 plugin_roles:
   route_l2: l2-planner-main
+safety:
+  single_instance_per_role: true
+  forbid_low_level_control: true
+  require_version_metadata: false
+""",
+        encoding="utf-8",
+    )
+    (profile_dir / "internal-local.yaml").write_text(
+        """
+name: internal-local
+mode: internal
+target: local
+tdl_domain_id: 42
+plugin_roles: {}
 safety:
   single_instance_per_role: true
   forbid_low_level_control: true

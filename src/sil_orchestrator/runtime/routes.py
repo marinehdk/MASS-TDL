@@ -50,7 +50,7 @@ def get_runtime_service() -> RuntimeConsoleService:
             detail=f"invalid runtime configuration: {exc}",
         ) from exc
 
-    active_profile_name = os.environ.get("TDL_RUNTIME_PROFILE", "integration-local")
+    active_profile_name = os.environ.get("TDL_RUNTIME_PROFILE", "internal-local")
     if active_profile_name not in profiles:
         available = ", ".join(sorted(profiles)) or "none"
         raise HTTPException(
