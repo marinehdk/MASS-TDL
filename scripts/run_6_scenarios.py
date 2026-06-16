@@ -13,7 +13,6 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import yaml
-import matplotlib.pyplot as plt
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -1119,6 +1118,8 @@ def run_scenario(scenario_id):
     
     # 9. Plot trajectories and save to run directory
     try:
+        import matplotlib.pyplot as plt
+
         plt.figure(figsize=(10, 8))
         # Plot own ship
         os_e = []
