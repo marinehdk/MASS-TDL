@@ -50,6 +50,8 @@ existing_roots="$(
 
 recreate_project=0
 up_args=(up -d --build)
+core_services=(sil-orchestrator sil-nodes foxglove-bridge martin-tile-server)
+plugin_services=(plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc)
 if [[ -n "$existing_roots" && "$existing_roots" != "$current_root" ]]; then
   if [[ "${RECLAIM_STALE_LOCAL_PROJECT:-0}" != "1" ]]; then
     echo "ERROR: local compose project ${compose_project} belongs to another checkout: ${existing_roots}" >&2
@@ -62,14 +64,19 @@ if [[ -n "$existing_roots" && "$existing_roots" != "$current_root" ]]; then
   up_args+=(--force-recreate)
 fi
 
-docker compose "${up_args[@]}" sil-orchestrator sil-nodes foxglove-bridge martin-tile-server plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc
-if [[ "$recreate_project" == "1" ]]; then
-  docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
-  docker compose create --force-recreate plugin-route-tdl-mock >/dev/null
+if [[ "${TDL_RUNTIME_PROFILE:-}" == internal-* ]]; then
+  docker compose "${up_args[@]}" "${core_services[@]}"
+  docker compose stop "${plugin_services[@]}" plugin-route-tdl-mock >/dev/null 2>&1 || true
 else
-  docker compose create --no-recreate plugin-route-tdl-mock >/dev/null
+  docker compose "${up_args[@]}" "${core_services[@]}" "${plugin_services[@]}"
+  if [[ "$recreate_project" == "1" ]]; then
+    docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
+    docker compose create --force-recreate plugin-route-tdl-mock >/dev/null
+  else
+    docker compose create --no-recreate plugin-route-tdl-mock >/dev/null
+  fi
+  docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
 fi
-docker compose stop plugin-route-tdl-mock >/dev/null 2>&1 || true
 
 for _ in $(seq 1 60); do
   if curl -sk --max-time 2 "${ORCH_URL}/api/v1/health" | grep -q '"status":"ok"'; then

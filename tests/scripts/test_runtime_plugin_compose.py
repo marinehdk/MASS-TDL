@@ -111,15 +111,27 @@ def test_acceptance_starts_runtime_profile_services():
     script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
 
     assert 'up_args=(up -d --build)' in script
-    assert 'docker compose "${up_args[@]}"' in script
+    assert "core_services=(sil-orchestrator sil-nodes foxglove-bridge martin-tile-server)" in script
+    assert "plugin_services=(plugin-hydro-fossen plugin-route-l2-main plugin-fusion-yougc)" in script
+    assert 'docker compose "${up_args[@]}" "${core_services[@]}"' in script
     assert "martin-tile-server" in script
     assert "plugin-hydro-fossen" in script
     assert "plugin-route-l2-main" in script
     assert "plugin-fusion-yougc" in script
-    assert "plugin-route-tdl-mock" not in next(
+    up_lines = [
         line for line in script.splitlines()
-        if line.startswith('docker compose "${up_args[@]}"')
-    )
+        if line.startswith('  docker compose "${up_args[@]}"')
+    ]
+    assert any('"${core_services[@]}"' in line for line in up_lines)
+    assert any('"${plugin_services[@]}"' in line for line in up_lines)
+    assert all("plugin-route-tdl-mock" not in line for line in up_lines)
+
+
+def test_acceptance_internal_runtime_stops_external_plugins():
+    script = (ROOT / "scripts/local-a4000-acceptance.sh").read_text()
+
+    assert 'if [[ "${TDL_RUNTIME_PROFILE:-}" == internal-* ]]; then' in script
+    assert 'docker compose stop "${plugin_services[@]}" plugin-route-tdl-mock' in script
 
 
 def test_acceptance_recreates_when_project_points_to_other_checkout():
