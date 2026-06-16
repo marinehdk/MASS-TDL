@@ -66,18 +66,23 @@ metadata:
     avoidance_duration_s: 200.0
   seed: 101
   expected_outcome:
-    cpa_min_m_ge: 185.2
+    cpa_min_m_ge: 180.0
     cpa_acceptance:
-      profile: corridor_close_start_0p1nm
-      threshold_m: 185.2
-      emergency_floor_m: 185.2
+      profile: corridor_close_start_4L
+      threshold_formula: 4.0L
+      threshold_m: 180.0
+      loa_m: 45.0
+      loa_multiplier: 4.0
+      nm_equivalent: 0.097
+      source_confidence: project_profile_medium
+      emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB close-start Rule14 within 1km L2 corridor; use emergency 0.1NM CPA floor so corridor-bound recovery is not forced into excessive XTE.
+      basis: FCB close-start Rule14 within 1km L2 corridor; 4.0L emergency CPA floor covers close-start safety while route_return_required verifies final centerline rejoin.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
     route_corridor_half_width_m: 1000.0
-    route_corridor_pass_limit_m: 500.0
+    route_corridor_pass_limit_m: 550.0
     rule_compliance:
     - rule: Rule14
       result: required

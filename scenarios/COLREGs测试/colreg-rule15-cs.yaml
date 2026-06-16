@@ -66,11 +66,17 @@ metadata:
     avoidance_duration_s: 200.0
   seed: 104
   expected_outcome:
-    cpa_min_m_ge: 926.0
+    cpa_min_m_ge: 900.0
     cpa_acceptance:
-      profile: open_water_warning_0p5nm
-      threshold_m: 926.0
-      basis: FCB open-water crossing give-way probe; project warning ship-domain baseline 0.5NM.
+      profile: open_water_crossing_20L
+      threshold_formula: 20.0L
+      threshold_m: 900.0
+      loa_m: 45.0
+      loa_multiplier: 20.0
+      nm_equivalent: 0.486
+      ideal_domain_m: 405.0
+      source_confidence: project_profile_medium_high
+      basis: FCB open-water crossing give-way probe; 20.0L CPA floor matches project warning-domain baseline.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0

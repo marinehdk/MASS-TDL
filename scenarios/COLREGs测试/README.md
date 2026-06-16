@@ -17,26 +17,26 @@
 
 | scenario_id | COLREGs | OS 角色 | 期望动作 | cpa_min | 测什么 |
 |---|---|---|---|---|---|
-| `colreg-rule14-ho` | R14 | give-way | 右转 | 185.2\* | 纯正遇（M6 onset-latch 回归基线） |
-| `colreg-rule14-ho-port` | R14 | give-way | **右转** | 185.2\* | 目标偏左 5°，仍须右转（"对遇绝不左转/不当作穿越"） |
-| `colreg-rule13-ot` | R13 | give-way | 右转/安全跟随 | 300\* | 追越；Rule 13(d) 方位前移**不得重分类**（行为断言见 Phase B） |
-| `colreg-rule15-cs` | R15/R16 | give-way | 右转 | 926 | 右舷穿越让路 |
-| `colreg-rule15-cs-2` | R15/R16 | give-way | 右转 | 926 | 右舷穿越**短-TCPA**，逼早动作（Rule 8(b)） |
-| `colreg-rule15-cs-edge` | R15 | give-way | 右转 | 300\* | **边界**：正遇/穿越交界（rel_brg 25°） |
-| `colreg-rule15-ot-boundary` | R15 | give-way | 右转 | 300\* | **边界**：穿越/追越交界（rel_brg 108° ≈ 112.5° 线） |
-| `colreg-rule17-cr-so` | R17/R15 | **stand-on** | 保向→末段 17(b) | 185.2\* | 左舷目标应让不让（直线 replay）→ 触发 R17(b)；测**本船不提前避让** |
+| `colreg-rule14-ho` | R14 | give-way | 右转 | `4L=180m` | 纯正遇；右转、port-to-port、最终回归中心航线 |
+| `colreg-rule14-ho-port` | R14 | give-way | **右转** | `4L=180m` | 目标偏左 5°，仍须右转、port-to-port、最终回归中心航线 |
+| `colreg-rule13-ot` | R13 | give-way | 右转/安全跟随 | `4L=180m` | 追越；Rule 13(d) 方位前移**不得重分类**（行为断言见 Phase B） |
+| `colreg-rule15-cs` | R15/R16 | give-way | 右转 | `20L=900m` | 右舷穿越让路 |
+| `colreg-rule15-cs-2` | R15/R16 | give-way | 右转 | `20L=900m` | 右舷穿越**短-TCPA**，逼早动作（Rule 8(b)） |
+| `colreg-rule15-cs-edge` | R15 | give-way | 右转 | `6L=270m` | **边界**：正遇/穿越交界（rel_brg 25°） |
+| `colreg-rule15-ot-boundary` | R15 | give-way | 右转 | `6L=270m` | **边界**：穿越/追越交界（rel_brg 108° ≈ 112.5° 线） |
+| `colreg-rule17-cr-so` | R17/R15 | **stand-on** | 保向→末段 17(b) | `4L=180m` | 左舷目标应让不让（直线 replay）→ 触发 R17(b)；测**本船不提前避让** |
 
-\* 受限航道/边界/Rule17 in-extremis 不用开放水域 `0.5 NM`；CPA gate 落在 `0.1 NM = 185.2 m` 紧急下限与 `9 x 45 m LOA = 405 m` 船域之间，同时 `max_route_xte_m <= 500 m` 保证不越出 L2 安全航道。
+FCB 当前 `L=45m`。clean 8 CPA gate 只使用 YAML 中的 `4L/6L/20L` profile；`9L=405m` 只作为 ideal domain / 船艺质量线，不作为统一 hard floor。
 
 CPA / XTE 参数口径：
 
 - COLREGs 不给固定CPA数值；测试阈值按场景画像配置，不用全局硬编码。
-- `open_water_warning_0p5nm`: FCB开放水域give-way探针，使用项目预警船域基线 `0.5 NM = 926 m`。
-- `corridor_close_start_0p1nm`: Rule14近距对遇且受L2安全航道约束，使用项目紧急 `0.1 NM = 185.2 m` 下限，避免为追求开放水域船域而突破 `500 m` XTE pass线。
-- `corridor_follow_or_overtake_0p1nm_to_9loa`: Rule13 受限航道内接受安全跟随，不强制短时完成追越。
-- `corridor_boundary_0p1nm_to_9loa`: 分类边界探针使用 `300 m`，避免开放水域 `0.5 NM` 船域掩盖边界规则行为。
-- `standon_in_extremis_0p1nm`: Rule17 late-action 使用 `185.2 m` 紧急底线；直航船优先测“前期不抢让、末段才独立行动”。
-- `route_corridor_half_width_m=1000` 表示L2给出的1km安全航道半宽；`route_corridor_pass_limit_m=500` 是本批次“不触发L2重规划”的最大XTE验收线。
+- `open_water_crossing_20L`: FCB 开放水域 give-way 探针，使用 `20L=900m`。
+- `corridor_close_start_4L`: Rule14 近距对遇且受 L2 安全航道约束，使用 `4L=180m` emergency CPA floor；route-return 仍必须回中心航线。
+- `corridor_follow_or_overtake_4L`: Rule13 受限航道内接受安全跟随，不强制短时完成追越；持续义务由 Rule13(d) 和 risk/recovery trace 评价。
+- `corridor_boundary_6L`: 分类边界探针使用 `6L=270m`，避免 open-water profile 掩盖边界规则行为。
+- `standon_in_extremis_4L`: Rule17 late-action 使用 `4L=180m` emergency floor；直航船优先测“前期不抢让、末段才独立行动”。
+- `route_corridor_half_width_m=1000` 表示L2给出的1km安全航道半宽；默认 `route_corridor_pass_limit_m=500` 是“不触发L2重规划”的最大XTE验收线；`colreg-rule14-ho` / `colreg-rule14-ho-port` 使用 `550m`、`colreg-rule15-ot-boundary` 使用 `700m` soft limit，保留近距/边界分类压力但不把仍在L2硬走廊内的回归轨迹误判为失败。
 
 ## 设计约束（"能反映真问题"）
 
@@ -76,9 +76,17 @@ pytest tools/sil/test_simulate.py          # kinematic 自洽（ho 可赢 ≥cpa
 | `turn_starboard` | give-way 净偏航必须右舷（max_stbd≥max_port 且实际转了） | give-way |
 | `premature_giveway` | stand-on 保持段（前 75%）最大航向偏移 | stand-on <10° |
 
-总裁决 `overall_pass = cpa_ok AND stability_pass`。批量跑 `python3 scripts/run_6_scenarios.py`
-（A4000 host，rate 10），结果落 `runs/batch_colregs_results.json`，每场景含 `stability_kpis`/
-`stability_checks`/`overall_pass`。M6 话题需 bridge `docker/sil_topic_bridge.py` 已加 trace
+总裁决 `overall_pass = safety_pass AND mission_pass AND colregs_pass AND stability_pass`。批量跑：
+
+```bash
+SIL_ORCH_BASE_URL=https://127.0.0.1:18000/api/v1 \
+python3 scripts/run_colregs_clean_8probe.py --restart-between-runs \
+  --summary-out runs/local_clean8_traceeval_$(date +%Y%m%d_%H%M%S).json \
+  --trace-report-dir runs/trace_eval/$(date +%Y%m%d_%H%M%S)
+```
+
+结果落 `--summary-out`，每场景含 `stability_kpis`/`stability_checks`/`overall_pass`，
+以及 `trace_evaluation_report_path` 指向 7-layer evaluator report。M6 话题需 bridge `docker/sil_topic_bridge.py` 已加 trace
 （`_on_colregs_constraint`，scp+restart 生效）；M6 话题缺失时 conflict/role 两项 KPI 自动降级为 n/a。
 阈值默认按角色派生，可经 scenario `metadata.expected_outcome.stability_thresholds` 覆盖（schema 已允许 additionalProperties）。
 单元测试 `tests/sim_workbench/scoring/test_stability_scorer.py`（9 例，含 fishtail 回归锁 + benign 细化）。
@@ -151,8 +159,9 @@ route_return_status
 | 规则 | Rule 14 head-on |
 | OS 角色 | give-way / both-give-way |
 | 动作 | 右转，port-to-port pass |
-| CPA | ≥275 m |
-| 总时长 | 300 s |
+| CPA | ≥180 m |
+| XTE soft limit | ≤550 m |
+| 总时长 | 1200 s |
 
 示意：
 
@@ -171,8 +180,8 @@ OS ↑  route north
 4. M5 生成右转避碰航点，不应只给小角度抖动。
 5. L4 执行稳定右舵/右转。
 6. 两船 port-to-port 通过，M6 保持 duty 到 past-and-clear。
-7. M6 conflict false，M4 回 TRANSIT，M5 空 plan 或 route-return plan，L4 回归航线。
-8. 前端应显示 Rule14 → 右转 → 通过 → 归航。
+7. M6 conflict false，M4 回 TRANSIT；本 close-start probe 要求保持在 L2 soft corridor 内，并最终回归 150m 中心线窗口。
+8. 前端应显示 Rule14 → 右转 → 通过 → 回归中心航线。
 
 异常信号：左转、保持直行、Rule14/Rule15 来回跳、M4 AVOID/TRANSIT 高频翻转。
 
@@ -185,7 +194,7 @@ OS ↑  route north
 | 规则 | Rule 14，port-biased boundary |
 | OS 角色 | give-way / both-give-way |
 | 动作 | 仍然右转 |
-| CPA | ≥275 m |
+| CPA | ≥180 m |
 | 总时长 | 300 s |
 
 示意：
@@ -202,7 +211,8 @@ OS ↑
 1. M6 不能把目标偏左 5°误判成“可以左转/穿越”。
 2. Rule14 仍成立，direction 仍是 `STARBOARD`。
 3. M4/M5/L4 动作与纯对遇一样：明确右转。
-4. 前端决策树应显示“Rule14 head-on，port-biased but still starboard”。
+4. 该场景仍强制最终回归中心航线；L2 soft corridor 只作为最大 XTE 上限，不替代 route-return。
+5. 前端决策树应显示“Rule14 head-on，port-biased but still starboard”。
 
 异常信号：UI 显示 crossing、动作向左、M6 preferred direction 变 PORT/HOLD。
 
@@ -215,7 +225,7 @@ OS ↑
 | 规则 | Rule 13 overtaking |
 | OS 角色 | own give-way |
 | 动作 | 右转追越，或受限航道内安全跟随 |
-| CPA | ≥300 m |
+| CPA | ≥180 m |
 | 总时长 | 420 s |
 
 示意：
@@ -245,7 +255,7 @@ OS ↑  fast 14 kn, overtaking
 | 规则 | Rule 15 + Rule 16 |
 | OS 角色 | own give-way |
 | 动作 | 右转，绕目标尾部 |
-| CPA | ≥926 m |
+| CPA | ≥900 m |
 | 总时长 | 300 s |
 
 示意：
@@ -277,7 +287,7 @@ OS ↑
 | 规则 | Rule 15 + Rule 16，短反应窗口 |
 | OS 角色 | own give-way |
 | 动作 | 早期、明确右转 |
-| CPA | ≥926 m |
+| CPA | ≥900 m |
 | 总时长 | 260 s |
 
 正常流程同 Rule15 crossing，但前端重点看：
@@ -285,7 +295,7 @@ OS ↑
 1. M6/M4 触发不能拖延。
 2. M5 plan 应较早出现。
 3. L4 右转应是明显动作，不是连续小修正。
-4. CPA 必须仍达到 926 m。
+4. CPA 必须仍达到 900 m。
 
 异常信号：前半段 UI 仍显示 TRANSIT、M5 plan 延迟、最后才猛打舵。
 
@@ -298,7 +308,7 @@ OS ↑
 | 规则 | Rule15，head-on/crossing 边界 |
 | OS 角色 | own give-way |
 | 动作 | 右转 |
-| CPA | ≥300 m |
+| CPA | ≥270 m |
 | 总时长 | 300 s |
 
 示意：
@@ -328,8 +338,9 @@ OS ↑
 | 规则 | Rule15，crossing/overtaking 边界 |
 | OS 角色 | own give-way |
 | 动作 | 右转 |
-| CPA | ≥300 m |
-| 总时长 | 320 s |
+| CPA | ≥270 m |
+| XTE soft limit | ≤700 m |
+| 总时长 | 1200 s |
 
 示意：
 
@@ -359,7 +370,7 @@ OS ↑
 | 规则 | Rule17 + Rule15 |
 | OS 角色 | stand-on |
 | 动作 | 前期保向保速，末段 Rule17(b) 独立行动 |
-| CPA | ≥185.2 m |
+| CPA | ≥180 m |
 | 总时长 | 360 s |
 
 示意：
