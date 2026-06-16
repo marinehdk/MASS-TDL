@@ -10,14 +10,31 @@ services:
     network_mode: host
 
   plugin-route-l2-main:
-    image: alpine:3.20
-    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    build:
+      context: .
+      dockerfile: docker/l2_external_plugin.Dockerfile
+    image: mass-l2-planner:main
+    command: ["/opt/l2_entrypoint.sh"]
     labels:
       org.opencontainers.image.revision: local-l2-main
       mass_l3.plugin.role: route_l2
       mass_l3.plugin.id: l2-planner-main
     profiles: ["plugins"]
     network_mode: host
+    volumes:
+      - ./scenarios:/var/sil/scenarios:ro
+      - ./runs/l2_external:/var/lib/l2_route
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - GNC_ROUTE_PLANNING_DIR=/var/lib/l2_route
+      - SHIP_FEEDBACK_LOG_DIR=/var/lib/l2_route/logs
+      - L2_ROUTE_OUTPUT_PATH=/var/lib/l2_route/gnc_bridge_route.json
+      - L2_SCENARIO_YAML=/var/sil/scenarios/集成测试/safe_route.yaml
+      - TDL_INGRESS_HOST=127.0.0.1
+      - TDL_INGRESS_PORT=8765
+      - L2_ROUTE_STRICT_ACTIVE=1
+      - L2_ROUTE_REMOVE_ON_START=1
 
   plugin-route-tdl-mock:
     image: alpine:3.20
@@ -26,7 +43,7 @@ services:
       org.opencontainers.image.revision: local-tdl-mock-route
       mass_l3.plugin.role: route_l2
       mass_l3.plugin.id: tdl-mock-route
-    profiles: ["plugins"]
+    profiles: ["plugin-candidates"]
     network_mode: host
 
   plugin-fusion-yougc:

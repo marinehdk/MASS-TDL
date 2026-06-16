@@ -498,3 +498,14 @@ This log coordinates task handoffs between different development interfaces (Cla
   - Left unrelated generated `.preflight` artifacts and untracked scenario/doc files in the primary checkout untouched.
 - **当前状态 (Status)**: GREEN locally. `npm test -- --run src/screens/__tests__/SimulationCheck.runtime.test.tsx src/screens/runtime/__tests__/CheckCategoryNav.test.tsx src/screens/runtime/__tests__/CoreServicePanel.test.tsx src/screens/shared/__tests__/DiagnosticCanvas.test.tsx` = 4 files / 21 tests PASS. `npm run build` PASS with existing Foxglove eval and chunk-size warnings.
 - **接力指示 (Hand-off Context)**: Scope is local `main` merge only; no A4000 sync and no GitHub/GitLab push requested. New worktree required `npm ci` before tests because `node_modules` was absent.
+
+## [2026-06-15] Agent: Codex (GPT-5)
+- **Git Commit**: this branch top commit (branch: `codex/l2-external-plugin-integration`)
+- **任务目标 (Goal)**: Integrate the A4000 L2 route planner backend as the local `plugin-route-l2-main` external route plugin and prove that lifecycle ACTIVE forwards the full initial L2 route into `/l2/planned_route`.
+- **核心改动 (Actions)**:
+  - Vendored the backend-only L2 route planner subset into `plugins/l2_external/ros2_ws` and documented the adaptor/interface plan under `docs/superpowers/`.
+  - Added `external_adapters.l2_route_seed` and `external_adapters.l2_route_plan_adaptor` flow: seed a full route after `/sil/lifecycle_status` ACTIVE, consume `/route_planning/route_plan`, convert it to `l3_external_msgs/PlannedRoute`, and forward through `external_tdl_ingress`.
+  - Wired `plugin-route-l2-main` into `docker-compose.plugins.yml`, runtime manifests, local/A4000 env defaults, and `scripts/local-a4000-acceptance.sh`.
+  - Fixed runtime issues found by local gate: POSIX ROS setup in Docker build, ROS setup before `set -u`, module `__main__` entrypoints, ROS2 console-script install path, and external-profile suppression of internal mock L2/GNC route sources.
+- **当前状态 (Status)**: GREEN locally. Focused pytest: external adaptor suite 49 PASS; runtime/start scripts 31 PASS; manifests 9 PASS. Compose config passes for local and A4000 env. `bash -n` and `git diff --check` pass. Local OrbStack gate passed with `runs/local_a4000_container_probe_20260615_191850.json` and `runs/local_runtime_probe_20260615_191850.json`. L2 external probe passed with `runs/l2_external_plugin_probe_20260615_191933.log`.
+- **接力指示 (Hand-off Context)**: A4000 validation/sync not run yet. Next step is narrow sync of touched paths to the verified `ssh a4000` TDL checkout, then `source scripts/a4000-env.sh`, `npm run sys:start`, `./scripts/a4000-acceptance.sh`, and `./scripts/integration/probe_l2_external_plugin.sh`.
