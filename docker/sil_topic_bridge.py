@@ -576,9 +576,18 @@ class SilTopicBridge(Node):
         self._sub_veto = self.create_subscription(
             CheckerVetoNotification, "/l3/checker/veto",
             self._on_checker_veto, rq)
+        self._sub_actuator_cmd_trace = self.create_subscription(
+            SilOwnShipState, "/sil/actuator_cmd",
+            self._on_actuator_cmd_trace, sq)
 
     def _get_sim_time(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_actuator_cmd_trace(self, msg: SilOwnShipState) -> None:
+        self._trace_writer.record("/sil/actuator_cmd", {
+            "rudder_deg": math.degrees(float(getattr(msg, "rudder_angle", 0.0))),
+            "throttle": float(getattr(msg, "throttle", 0.0)),
+        }, self._get_sim_time())
 
     # ── Pulse recording helper ───────────────────────────────
 

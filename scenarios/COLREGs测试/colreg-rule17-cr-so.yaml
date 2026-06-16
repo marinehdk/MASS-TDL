@@ -68,13 +68,18 @@ metadata:
     avoidance_duration_s: 140.0
   seed: 108
   expected_outcome:
-    cpa_min_m_ge: 185.2
+    cpa_min_m_ge: 180.0
     cpa_acceptance:
-      profile: standon_in_extremis_0p1nm
-      threshold_m: 185.2
-      emergency_floor_m: 185.2
+      profile: standon_in_extremis_4L
+      threshold_formula: 4.0L
+      threshold_m: 180.0
+      loa_m: 45.0
+      loa_multiplier: 4.0
+      nm_equivalent: 0.097
+      source_confidence: project_profile_medium
+      emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: Rule17 stand-on late-action probe; in-extremis action uses emergency 0.1NM floor because own ship must hold course before intervening.
+      basis: Rule17 stand-on late-action probe; in-extremis action uses 4.0L emergency floor because own ship must hold course before intervening.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0

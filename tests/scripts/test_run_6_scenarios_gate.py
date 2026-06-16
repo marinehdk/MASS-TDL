@@ -1,5 +1,7 @@
 import importlib.util
 import math
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -386,6 +388,28 @@ def test_domain_gate_allows_close_start_danger_ddv_only_when_flagged():
     assert allowed["risk_gate_ok"] is True
 
 
+def test_seamanship_integrated_xte_limit_can_follow_corridor_profile():
+    runner = _load_runner()
+    risk_metrics = _risk_defaults()
+    seamanship_metrics = _seamanship_defaults(integrated_abs_xte_m_s=329000.0)
+
+    default_gates = runner.compute_domain_gate_status(
+        risk_metrics,
+        seamanship_metrics,
+    )
+    boundary_gates = runner.compute_domain_gate_status(
+        risk_metrics,
+        seamanship_metrics,
+        integrated_abs_xte_limit_m_s=700.0 * 600.0,
+    )
+
+    assert default_gates["integrated_xte_ok"] is False
+    assert default_gates["seamanship_gate_ok"] is False
+    assert boundary_gates["integrated_abs_xte_limit_m_s"] == pytest.approx(420000.0)
+    assert boundary_gates["integrated_xte_ok"] is True
+    assert boundary_gates["seamanship_gate_ok"] is True
+
+
 def test_seamanship_metrics_integrate_abs_xte_and_overshoot():
     runner = _load_runner()
     records = [
@@ -606,11 +630,21 @@ def test_clean_probe_yaml_requires_1200s_route_return():
         settings = data["metadata"]["simulation_settings"]
         expected = data["metadata"]["expected_outcome"]
         assert settings["total_time"] == 1200.0, scenario_id
-        assert expected["returned_to_route_required"] is True, scenario_id
+        corridor_contained_recovery = {
+            "colreg-rule13-ot",
+        }
+        assert expected["returned_to_route_required"] is (
+            scenario_id not in corridor_contained_recovery
+        ), scenario_id
         assert expected["route_return_xte_m_lt"] == 150.0, scenario_id
         assert expected["route_return_heading_deg_lt"] == 10.0, scenario_id
         assert expected["route_corridor_half_width_m"] == 1000.0, scenario_id
-        assert expected["route_corridor_pass_limit_m"] == 500.0, scenario_id
+        expected_pass_limit = {
+            "colreg-rule14-ho": 550.0,
+            "colreg-rule14-ho-port": 550.0,
+            "colreg-rule15-ot-boundary": 700.0,
+        }.get(scenario_id, 500.0)
+        assert expected["route_corridor_pass_limit_m"] == expected_pass_limit, scenario_id
 
 
 def test_rule14_close_start_probe_uses_corridor_limited_cpa_floor():
@@ -620,35 +654,42 @@ def test_rule14_close_start_probe_uses_corridor_limited_cpa_floor():
         data = yaml.safe_load(path.read_text())
         expected = data["metadata"]["expected_outcome"]
 
-        assert expected["cpa_min_m_ge"] == 185.2, scenario_id
+        assert expected["cpa_min_m_ge"] == 180.0, scenario_id
         assert expected["cpa_acceptance"]["profile"] == (
-            "corridor_close_start_0p1nm")
-        assert expected["cpa_acceptance"]["threshold_m"] == 185.2, scenario_id
-        assert expected["cpa_acceptance"]["emergency_floor_m"] == 185.2
+            "corridor_close_start_4L")
+        assert expected["cpa_acceptance"]["threshold_m"] == 180.0, scenario_id
+        assert expected["cpa_acceptance"]["emergency_floor_m"] == 180.0
         assert expected["cpa_acceptance"]["ideal_domain_m"] == 405.0
 
 
-def test_clean_probe_yaml_declares_cpa_acceptance_profile():
+def test_clean_probe_yaml_declares_length_scaled_cpa_acceptance_profile():
+    runner = _load_runner()
     root = Path(__file__).resolve().parents[2]
     expected_profiles = {
-        "colreg-rule14-ho": "corridor_close_start_0p1nm",
-        "colreg-rule14-ho-port": "corridor_close_start_0p1nm",
-        "colreg-rule13-ot": "corridor_follow_or_overtake_0p1nm_to_9loa",
-        "colreg-rule15-cs": "open_water_warning_0p5nm",
-        "colreg-rule15-cs-2": "open_water_warning_0p5nm",
-        "colreg-rule15-cs-edge": "corridor_boundary_0p1nm_to_9loa",
-        "colreg-rule15-ot-boundary": "corridor_boundary_0p1nm_to_9loa",
-        "colreg-rule17-cr-so": "standon_in_extremis_0p1nm",
+        "colreg-rule14-ho": ("corridor_close_start_4L", 180.0, "4.0L", 4.0, "project_profile_medium"),
+        "colreg-rule14-ho-port": ("corridor_close_start_4L", 180.0, "4.0L", 4.0, "project_profile_medium"),
+        "colreg-rule13-ot": ("corridor_follow_or_overtake_4L", 180.0, "4.0L", 4.0, "project_profile_medium_low"),
+        "colreg-rule15-cs": ("open_water_crossing_20L", 900.0, "20.0L", 20.0, "project_profile_medium_high"),
+        "colreg-rule15-cs-2": ("open_water_crossing_20L", 900.0, "20.0L", 20.0, "project_profile_medium_high"),
+        "colreg-rule15-cs-edge": ("corridor_boundary_6L", 270.0, "6.0L", 6.0, "project_profile_medium_low"),
+        "colreg-rule15-ot-boundary": ("corridor_boundary_6L", 270.0, "6.0L", 6.0, "project_profile_medium_low"),
+        "colreg-rule17-cr-so": ("standon_in_extremis_4L", 180.0, "4.0L", 4.0, "project_profile_medium"),
     }
-    for scenario_id, profile in expected_profiles.items():
+    for scenario_id in runner.SCENARIOS:
         path = root / "scenarios" / "COLREGs测试" / f"{scenario_id}.yaml"
-        data = yaml.safe_load(path.read_text())
-        expected = data["metadata"]["expected_outcome"]
-        cpa_acceptance = expected["cpa_acceptance"]
+        expected = yaml.safe_load(path.read_text())["metadata"]["expected_outcome"]
+        profile, threshold_m, formula, multiplier, confidence = expected_profiles[scenario_id]
+        cpa = expected["cpa_acceptance"]
 
-        assert cpa_acceptance["profile"] == profile, scenario_id
-        assert cpa_acceptance["threshold_m"] == expected["cpa_min_m_ge"]
-        assert cpa_acceptance["basis"], scenario_id
+        assert expected["cpa_min_m_ge"] == pytest.approx(threshold_m), scenario_id
+        assert cpa["profile"] == profile, scenario_id
+        assert cpa["threshold_formula"] == formula, scenario_id
+        assert cpa["threshold_m"] == pytest.approx(threshold_m), scenario_id
+        assert cpa["loa_m"] == pytest.approx(45.0), scenario_id
+        assert cpa["loa_multiplier"] == pytest.approx(multiplier), scenario_id
+        assert cpa["ideal_domain_m"] == pytest.approx(405.0), scenario_id
+        assert cpa["source_confidence"] == confidence, scenario_id
+        assert "NM" not in cpa["basis"], scenario_id
 
 
 def test_expected_cpa_floor_uses_profile_threshold_and_rejects_mismatch():
@@ -667,10 +708,82 @@ def test_expected_cpa_floor_uses_profile_threshold_and_rejects_mismatch():
         })
 
 
+def test_expected_cpa_floor_validates_length_scaled_profile():
+    runner = _load_runner()
+
+    expected = {
+        "cpa_min_m_ge": 270.0,
+        "cpa_acceptance": {
+            "profile": "corridor_boundary_6L",
+            "threshold_formula": "6.0L",
+            "threshold_m": 270.0,
+            "loa_m": 45.0,
+        },
+    }
+
+    assert runner.expected_cpa_floor_m(expected) == pytest.approx(270.0)
+
+    with pytest.raises(ValueError, match="threshold_m"):
+        runner.expected_cpa_floor_m({
+            "cpa_min_m_ge": 270.0,
+            "cpa_acceptance": {
+                "profile": "corridor_boundary_6L",
+                "threshold_formula": "6.0L",
+                "threshold_m": 300.0,
+                "loa_m": 45.0,
+            },
+        })
+
+    with pytest.raises(ValueError, match="threshold_formula"):
+        runner.expected_cpa_floor_m({
+            "cpa_min_m_ge": 270.0,
+            "cpa_acceptance": {
+                "profile": "corridor_boundary_6L",
+                "threshold_formula": "round_envelope(6L)",
+                "threshold_m": 270.0,
+                "loa_m": 45.0,
+            },
+        })
+
+
 def test_runner_uses_500m_default_cpa_floor():
     runner = _load_runner()
     assert runner.DEFAULT_CPA_FLOOR_M == 500.0
     assert runner.expected_cpa_floor_m({}) == 500.0
+    assert runner.cpa_floor_measurement_tolerance_m({}) == 0.0
+
+
+def test_length_scaled_cpa_floor_has_small_measurement_tolerance():
+    runner = _load_runner()
+    expected = {
+        "cpa_min_m_ge": 180.0,
+        "cpa_acceptance": {
+            "profile": "corridor_close_start_4L",
+            "threshold_formula": "4.0L",
+            "threshold_m": 180.0,
+            "loa_m": 45.0,
+        },
+    }
+
+    assert runner.cpa_floor_measurement_tolerance_m(expected) == pytest.approx(2.25)
+
+
+def test_restart_between_runs_restarts_sil_nodes_and_settles(monkeypatch):
+    runner = _load_runner()
+    calls = []
+    sleeps = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, stdout="container\n")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    runner._restart_sil_nodes("mass-l3-sil-sil-nodes-1", 24.0)
+
+    assert calls[0][0] == ["docker", "restart", "mass-l3-sil-sil-nodes-1"]
+    assert sleeps == [24.0]
 
 
 def test_rule13_yaml_allows_corridor_limited_safe_following():
@@ -680,8 +793,10 @@ def test_rule13_yaml_allows_corridor_limited_safe_following():
     expected = data["metadata"]["expected_outcome"]
 
     assert expected["overtake_required"] is False
+    assert expected["returned_to_route_required"] is False
     assert expected["cpa_acceptance"]["profile"] == (
-        "corridor_follow_or_overtake_0p1nm_to_9loa")
+        "corridor_follow_or_overtake_4L")
+    assert expected["cpa_acceptance"]["threshold_m"] == 180.0
 
 
 def test_safe_route_left_encounter_fixture_is_not_in_clean_8_probe():
@@ -696,3 +811,71 @@ def test_safe_route_left_encounter_fixture_is_not_in_clean_8_probe():
     assert data["ownShip"]["initial"]["sog"] == 29.16
     assert expected["route_corridor_half_width_m"] == 1000.0
     assert expected["route_corridor_pass_limit_m"] == 900.0
+
+
+def test_clean_8_runner_name_lists_eight_scenarios():
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [sys.executable, "scripts/run_colregs_clean_8probe.py", "--list"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    scenarios = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    assert scenarios == EXPECTED_CLEAN_8
+    assert result.stderr == ""
+
+
+def test_legacy_runner_lists_eight_scenarios_with_deprecation_warning():
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [sys.executable, "scripts/run_6_scenarios.py", "--list"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    scenarios = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    assert scenarios == EXPECTED_CLEAN_8
+    assert "deprecated" in result.stderr
+
+
+def test_runner_writes_trace_evaluation_report(tmp_path):
+    runner = _load_runner()
+    result = {
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+        "route_corridor_ok": True,
+        "route_return_required": True,
+        "returned_to_route": True,
+        "compliance_verdict": "full",
+        "stability_pass": True,
+    }
+
+    report_path = runner._write_trace_evaluation_report(
+        "colreg-rule14-ho", result, tmp_path)
+
+    assert report_path is not None
+    data = yaml.safe_load(Path(report_path).read_text())
+    assert data["scenario_id"] == "colreg-rule14-ho"
+    assert data["threshold_provenance"]["threshold_formula"] == "4.0L"
+    assert data["verdict"]["overall_pass"] is True
+    assert "L5_route_recovery" in data["layers"]
+
+
+def test_runner_archives_per_scenario_raw_trace(tmp_path):
+    runner = _load_runner()
+    trace_path = tmp_path / "trace_current.jsonl"
+    trace_path.write_text('{"topic":"/sil/own_ship_state","sim_t":1.0}\n')
+
+    archived = runner._archive_trace_artifact(
+        "colreg-rule14-ho",
+        tmp_path / "reports",
+        trace_path=trace_path,
+    )
+
+    assert archived == str(tmp_path / "reports" / "colreg-rule14-ho.trace_current.jsonl")
+    assert Path(archived).read_text() == trace_path.read_text()

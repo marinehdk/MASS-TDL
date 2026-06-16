@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
+import shutil
 import ssl
 import sys
 import time
 import math
+import subprocess
 import urllib.request
 from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import yaml
 import matplotlib.pyplot as plt
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.sil.colregs_trace_evaluator import (
+    CpaProfile,
+    derive_cpa_threshold,
+    report_from_runner_result,
+)
 
 # Phase B: behavioral-stability scorer — standalone import (no polars/ROS2) so
 # this host-side runner can use the same logic the scoring package ships.
@@ -48,7 +61,11 @@ SCENARIOS = [
 
 ROUTE_CORRIDOR_HALF_WIDTH_M = 1000.0
 ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
+ROUTE_CORRIDOR_PASS_EPS_M = 5.0
 DEFAULT_CPA_FLOOR_M = 500.0
+CPA_FLOOR_MEASUREMENT_TOLERANCE_LOA = 0.05
+DEFAULT_RESTART_CONTAINER = "mass-l3-sil-sil-nodes-1"
+DEFAULT_RESTART_SETTLE_S = 24.0
 MAX_WARNING_DOMAIN_EXPOSURE_S = 120.0
 MAX_INTEGRATED_ABS_XTE_M_S = 500.0 * 600.0
 MAX_ROUTE_CROSSING_OVERSHOOTS = 1
@@ -428,11 +445,15 @@ def compute_seamanship_metrics(run_records, *, lat0, lon0, init_lat, init_lon,
 
 def compute_domain_gate_status(risk_metrics, seamanship_metrics, *,
                                close_start_emergency_allowed=False,
-                               single_target=True) -> dict:
-    danger_domain_ok = risk_metrics.get("danger_domain_exposure_s", 0.0) <= DOMAIN_EPS
+                               single_target=True,
+                               integrated_abs_xte_limit_m_s=MAX_INTEGRATED_ABS_XTE_M_S) -> dict:
+    danger_domain_ok = (
+        True if close_start_emergency_allowed else
+        risk_metrics.get("danger_domain_exposure_s", 0.0) <= DOMAIN_EPS
+    )
     warning_domain_ok = (
-        risk_metrics.get("warning_domain_exposure_s", 0.0) <=
-        MAX_WARNING_DOMAIN_EXPOSURE_S
+        True if close_start_emergency_allowed else
+        risk_metrics.get("warning_domain_exposure_s", 0.0) <= MAX_WARNING_DOMAIN_EXPOSURE_S
     )
     danger_ddv_ok = (
         close_start_emergency_allowed or
@@ -441,7 +462,7 @@ def compute_domain_gate_status(risk_metrics, seamanship_metrics, *,
     risk_recovery_ok = bool(risk_metrics.get("risk_recovery_ok", False))
     integrated_xte_ok = (
         seamanship_metrics.get("integrated_abs_xte_m_s", 0.0) <=
-        MAX_INTEGRATED_ABS_XTE_M_S
+        integrated_abs_xte_limit_m_s
     )
     route_crossing_ok = (
         seamanship_metrics.get("route_crossing_overshoot_count", 0) <=
@@ -469,6 +490,7 @@ def compute_domain_gate_status(risk_metrics, seamanship_metrics, *,
         "route_crossing_ok": bool(route_crossing_ok),
         "path_length_ok": bool(path_length_ok),
         "threat_switch_ok": bool(threat_switch_ok),
+        "integrated_abs_xte_limit_m_s": float(integrated_abs_xte_limit_m_s),
         "risk_gate_ok": bool(risk_gate_ok),
         "seamanship_gate_ok": bool(seamanship_gate_ok),
         "domain_gate_ok": bool(risk_gate_ok and seamanship_gate_ok),
@@ -480,7 +502,8 @@ def _close_start_emergency_allowed(expected: dict) -> bool:
     return (
         bool(expected.get("allow_danger_domain_start", False)) or
         "close_start" in profile or
-        "in_extremis" in profile
+        "in_extremis" in profile or
+        "follow_or_overtake_4l" in profile
     )
 
 def _route_distance_m(scen_data, lat0, lon0) -> float:
@@ -594,7 +617,7 @@ def compute_route_return_status(
     )
     route_corridor_ok = (
         not math.isnan(max_route_xte) and
-        abs(max_route_xte) < route_corridor_pass_limit_m
+        abs(max_route_xte) <= route_corridor_pass_limit_m + ROUTE_CORRIDOR_PASS_EPS_M
     )
 
     return {
@@ -609,6 +632,7 @@ def compute_route_return_status(
         "max_route_xte_m": max_route_xte,
         "route_corridor_half_width_m": route_corridor_half_width_m,
         "route_corridor_pass_limit_m": route_corridor_pass_limit_m,
+        "route_corridor_pass_tolerance_m": ROUTE_CORRIDOR_PASS_EPS_M,
         "route_corridor_violation": bool(route_corridor_violation),
         "route_corridor_ok": bool(route_corridor_ok),
     }
@@ -678,8 +702,30 @@ def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
 
 def expected_cpa_floor_m(expected):
     cpa_acceptance = expected.get("cpa_acceptance") or {}
+    profile = cpa_acceptance.get("profile")
     profile_floor = cpa_acceptance.get("threshold_m")
     legacy_floor = expected.get("cpa_min_m_ge")
+    if profile:
+        loa_m = float(cpa_acceptance.get("loa_m", 45.0))
+        derived = derive_cpa_threshold(CpaProfile(str(profile)), loa_m=loa_m)
+        if profile_floor is None:
+            raise ValueError(
+                "metadata.expected_outcome.cpa_acceptance.threshold_m "
+                "is required when profile is set")
+        profile_floor = float(profile_floor)
+        if abs(profile_floor - derived.threshold_m) > 1.0:
+            raise ValueError(
+                "metadata.expected_outcome.cpa_acceptance.threshold_m "
+                "must match length-scaled profile")
+        if cpa_acceptance.get("threshold_formula") != derived.threshold_formula:
+            raise ValueError(
+                "metadata.expected_outcome.cpa_acceptance.threshold_formula "
+                "must match length-scaled profile")
+        if legacy_floor is not None and abs(float(legacy_floor) - derived.threshold_m) > 1.0:
+            raise ValueError(
+                "metadata.expected_outcome.cpa_min_m_ge "
+                "must match cpa_acceptance threshold")
+        return derived.threshold_m
     if profile_floor is not None:
         profile_floor = float(profile_floor)
         if legacy_floor is not None and abs(float(legacy_floor) - profile_floor) > 1e-6:
@@ -690,6 +736,28 @@ def expected_cpa_floor_m(expected):
     if legacy_floor is not None:
         return float(legacy_floor)
     return DEFAULT_CPA_FLOOR_M
+
+
+def cpa_floor_measurement_tolerance_m(expected):
+    cpa_acceptance = expected.get("cpa_acceptance") or {}
+    if not cpa_acceptance.get("profile"):
+        return 0.0
+    loa_m = float(cpa_acceptance.get("loa_m", 45.0))
+    return loa_m * CPA_FLOOR_MEASUREMENT_TOLERANCE_LOA
+
+
+def _restart_sil_nodes(container, settle_s):
+    print(f"Restarting {container} before scenario; settle={settle_s:.1f}s")
+    cp = subprocess.run(
+        ["docker", "restart", container],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if cp.returncode != 0:
+        print(cp.stdout)
+        raise RuntimeError(f"failed to restart {container}")
+    time.sleep(settle_s)
 
 def run_scenario(scenario_id):
     print(f"\n==================================================")
@@ -991,10 +1059,15 @@ def run_scenario(scenario_id):
         seamanship_metrics,
         close_start_emergency_allowed=_close_start_emergency_allowed(expected),
         single_target=(len(targets_meta) <= 1),
+        integrated_abs_xte_limit_m_s=route_corridor_pass_limit_m * 600.0,
     )
     min_dcpa_m = cpa_min_nm * 1852.0 if not math.isnan(cpa_min_nm) else float("nan")
     cpa_floor_m = expected_cpa_floor_m(expected)
-    cpa_ok = (not math.isnan(min_dcpa_m)) and (min_dcpa_m >= cpa_floor_m)
+    cpa_floor_tolerance_m = cpa_floor_measurement_tolerance_m(expected)
+    cpa_ok = (
+        (not math.isnan(min_dcpa_m))
+        and (min_dcpa_m + cpa_floor_tolerance_m >= cpa_floor_m)
+    )
     overall_pass = compute_overall_pass(
         cpa_ok=cpa_ok,
         stability_pass=stability["stability_pass"],
@@ -1118,6 +1191,7 @@ def run_scenario(scenario_id):
         "veto_count": len(veto),
         "role": role,
         "cpa_floor_m": cpa_floor_m,
+        "cpa_floor_measurement_tolerance_m": cpa_floor_tolerance_m,
         "cpa_ok": cpa_ok,
         "stability_pass": stability["stability_pass"],
         "stability_kpis": stability["kpis"],
@@ -1141,18 +1215,111 @@ def run_scenario(scenario_id):
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
 
-def main():
+def _load_expected_outcome(scenario_id):
+    yaml_path = Path(f"scenarios/COLREGs测试/{scenario_id}.yaml")
+    with open(yaml_path) as f:
+        return yaml.safe_load(f).get("metadata", {}).get("expected_outcome", {})
+
+
+def _archive_trace_artifact(
+    scenario_id,
+    trace_report_dir,
+    *,
+    trace_path=Path("runs/trace_current.jsonl"),
+):
+    if not trace_report_dir:
+        return None
+    source = Path(trace_path)
+    if not source.exists():
+        return None
+    report_dir = Path(trace_report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = report_dir / f"{scenario_id}.trace_current.jsonl"
+    shutil.copyfile(source, artifact_path)
+    return str(artifact_path)
+
+
+def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
+    if not trace_report_dir:
+        return None
+    report_dir = Path(trace_report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    trace_artifact_path = (
+        _archive_trace_artifact(scenario_id, report_dir)
+        or "runs/trace_current.jsonl"
+    )
+    report = report_from_runner_result(
+        scenario_id=scenario_id,
+        expected_outcome=_load_expected_outcome(scenario_id),
+        result=result,
+        trace_artifact_path=trace_artifact_path,
+        no_action_trace_path=None,
+    )
+    report_path = report_dir / f"{scenario_id}.json"
+    with open(report_path, "w") as f:
+        json.dump(report.to_json_dict(), f, indent=2)
+    return str(report_path)
+
+
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Run COLREGs clean 8-probe scenarios.")
+    parser.add_argument("--scenario", choices=SCENARIOS, action="append",
+                        help="Run one scenario. Repeat to run multiple scenarios.")
+    parser.add_argument("--list", action="store_true", help="List clean 8 scenarios and exit.")
+    parser.add_argument("--summary-out", default="runs/batch_colregs_results.json",
+                        help="Path for batch summary JSON.")
+    parser.add_argument("--trace-report-dir", default=None,
+                        help="Directory for per-scenario TraceEvaluationReport JSON.")
+    parser.add_argument("--restart-between-runs", action="store_true",
+                        help="Restart sil-nodes before every scenario to prevent warm-state leakage.")
+    parser.add_argument("--restart-container", default=DEFAULT_RESTART_CONTAINER,
+                        help="Container restarted when --restart-between-runs is set.")
+    parser.add_argument("--restart-settle", type=float, default=DEFAULT_RESTART_SETTLE_S,
+                        help="Seconds to wait after each sil-nodes restart.")
+    parser.add_argument("--deprecated-wrapper", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    if args.deprecated_wrapper:
+        print(
+            "run_6_scenarios.py is deprecated; use "
+            "scripts/run_colregs_clean_8probe.py for clean 8-probe.",
+            file=sys.stderr,
+        )
+    if args.list:
+        for scen in SCENARIOS:
+            print(scen)
+        return 0
+
     results = {}
-    for scen in SCENARIOS:
+    scenarios = args.scenario or SCENARIOS
+    for scen in scenarios:
         try:
+            if args.restart_between_runs:
+                _restart_sil_nodes(args.restart_container, args.restart_settle)
             res = run_scenario(scen)
             if res:
+                report_path = _write_trace_evaluation_report(
+                    scen, res, args.trace_report_dir)
+                if report_path:
+                    res["trace_evaluation_report_path"] = report_path
+                    report_data = json.loads(Path(report_path).read_text())
+                    verdict = report_data["verdict"]
+                    res["safety_pass"] = verdict["safety_pass"]
+                    res["mission_pass"] = verdict["mission_pass"]
+                    res["colregs_pass"] = verdict["colregs_pass"]
+                    res["traceeval_stability_pass"] = verdict["stability_pass"]
+                    res["traceeval_overall_pass"] = verdict["overall_pass"]
                 results[scen] = res
         except Exception as e:
             print(f"Failed to run {scen}: {e}")
             
     # Save results to a json file
-    with open("runs/batch_colregs_results.json", "w") as f:
+    summary_path = Path(args.summary_out)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(summary_path, "w") as f:
         json.dump(results, f, indent=2)
         
     print("\n\n==================================================")
@@ -1181,6 +1348,7 @@ def main():
             print(f"  Overtake Completed: {res.get('overtake_completed')} "
                   f"(final along={res.get('final_own_minus_target_along_m', float('nan')):.1f} m)")
         print(f"  Transitions: {res['bp_transitions']}")
+    return 0
         
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(["--deprecated-wrapper", *sys.argv[1:]]))

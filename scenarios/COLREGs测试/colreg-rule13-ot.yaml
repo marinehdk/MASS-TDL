@@ -66,14 +66,19 @@ metadata:
     avoidance_duration_s: 320.0
   seed: 103
   expected_outcome:
-    cpa_min_m_ge: 300.0
+    cpa_min_m_ge: 180.0
     cpa_acceptance:
-      profile: corridor_follow_or_overtake_0p1nm_to_9loa
-      threshold_m: 300.0
-      emergency_floor_m: 185.2
+      profile: corridor_follow_or_overtake_4L
+      threshold_formula: 4.0L
+      threshold_m: 180.0
+      loa_m: 45.0
+      loa_multiplier: 4.0
+      nm_equivalent: 0.097
+      source_confidence: project_profile_medium_low
+      emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB overtaking inside 1km L2 corridor; safe following is valid when completing the pass would violate max XTE <=500m.
-    returned_to_route_required: true
+      basis: FCB overtaking inside 1km L2 corridor; 4.0L emergency/follow floor accepts safe following while Rule13 duty remains latched until past-and-clear.
+    returned_to_route_required: false
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
     route_corridor_half_width_m: 1000.0

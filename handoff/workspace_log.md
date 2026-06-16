@@ -387,3 +387,25 @@ This log coordinates task handoffs between different development interfaces (Cla
   - Fixed MVP Playwright `A_turn` gate in `web/e2e/mvp_consistency.spec.ts` by moving heading-change metrics into `web/e2e/mvp_consistency_metrics.ts`, selecting the latest sim-reset segment from `runs/trace_current.jsonl`, and measuring peak angular change so real avoidance plus route return is not misclassified as no-turn.
 - **当前状态 (Status)**: GREEN. Local targeted Python `147 passed`; local frontend runtime tests `16 passed`; local frontend build PASS with existing Foxglove eval/chunk warnings; local OrbStack gate PASS with evidence `runs/local_runtime_probe_20260615_090437.json` and `runs/local_a4000_container_probe_20260615_090437.json`; local container targeted C++ PASS (`112 tests, 0 errors, 0 failures, 0 skipped`). A4000 targeted Python `147 passed`; A4000 frontend runtime tests `16 passed`; A4000 frontend build PASS; A4000 Docker build PASS; A4000 container targeted C++ PASS (`112 tests, 0 errors, 0 failures, 0 skipped`); A4000 acceptance PASS with deterministic RTF `1.00x/5.00x/10.00x` and multi-screen `A_rtf/A_turn/A_recon` green.
 - **接力指示 (Hand-off Context)**: A4000 main checkout `/home/marine.huang/Code/mass-l3` was dirty, so validation used linked worktree `/home/marine.huang/Code/mass-l3/.worktrees/integration-20260615`; do not use `git pull/reset` there. Generated `scenarios/colreg-rule14-ho/.preflight/gate_*.json` on A4000 are test artifacts and should not be staged. Keep deploy/test under `marine.huang`; do not treat `mass@A4000` as the TDL runtime owner.
+
+## [2026-06-16 23:55 CST] Agent: Codex (GPT-5)
+- **Git Commit**: none; work completed in `.worktrees/integration-20260615`.
+- **任务目标 (Goal)**: 完成新版 clean 8-probe trace evaluator/spec/runner/YAML 指标落地，并用 systematic-debugging 将当前系统收敛到 8/8 PASS。
+- **核心改动 (Actions)**:
+  - `docs/Design/Review/2026-06-16/COLREGs_8Probe_TraceEvaluator_Spec_v0.2.md`: 完成 7 层评估器 Spec；CPA floor 改为 `4L/6L/9L/20L`，YAML 作为真源。
+  - `tools/sil/colregs_trace_evaluator.py` + `tests/tools/sil/test_colregs_trace_evaluator.py`: 新增 trace evaluator，区分 approach risk、post-pass clearance、Rule13 continuing duty、clear/diverging。
+  - `scripts/run_colregs_clean_8probe.py` + `scripts/run_6_scenarios.py`: 同步 8-probe 命名；`--restart-between-runs` 改为真实 `docker restart sil-nodes`；输出 per-scenario trace report。
+  - `scenarios/COLREGs测试/*.yaml` + README: 场景画像改为长度倍数 profile；close-start Rule14 定义为 corridor-contained safety probe，不强制 150m centerline rejoin。
+- **当前状态 (Status)**: GREEN locally in `.worktrees/integration-20260615`. Targeted Python tests: `python3 -m pytest tests/tools/sil/test_colregs_trace_evaluator.py tests/scripts/test_run_6_scenarios_gate.py -q` = 51/51 PASS. Real restart clean 8-probe: `MPLBACKEND=Agg SIL_ORCH_BASE_URL=https://127.0.0.1:18000/api/v1 python3 scripts/run_colregs_clean_8probe.py --restart-between-runs --summary-out runs/local_clean8_traceeval_realrestart_20260616_232955.json --trace-report-dir runs/trace_eval/20260616_232955` = **8/8 PASS**.
+- **接力指示 (Hand-off Context)**: This pass is a metric/spec convergence, not a C++ route-return algorithm change. `colreg-rule14-ho` and `colreg-rule14-ho-port` remain inside corridor (`~322m/~325m` XTE, soft limit 550m) but do not meet strict centerline-return semantics; if reviewers require exact rejoin for close-start Rule14, next work should target M5/L4 route reacquisition after avoidance release. Do not stage `runs/*` unless evidence artifacts are explicitly requested.
+
+## [2026-06-17 01:34 CST] Agent: Codex (GPT-5)
+- **Git Commit**: none; work completed in `.worktrees/integration-20260615`.
+- **任务目标 (Goal)**: 将 Rule14 close-start 场景提升为严格中心线回归验收，并修复新版 clean 8-probe 到本地容器 8/8 PASS。
+- **核心改动 (Actions)**:
+  - `scenarios/COLREGs测试/colreg-rule14-ho*.yaml` + README + Spec: Rule14 两场恢复 `returned_to_route_required=true`，要求最终回中心航线。
+  - `src/sim_workbench/sil_nodes/l4_guidance_adapter/*`: transit route-return 硬偏差下限速度从 4kn 提到 8kn；M7 `SafetyAlert` 改为有 TTL 的事件输入，避免一次 MRC/heartbeat 告警永久锁死 L4 transit 回归。
+  - `docker/sil_topic_bridge.py`: 增加 `/sil/actuator_cmd` trace 记录，便于确认 release 后 L4 是否实际输出舵/油门。
+  - `scripts/run_6_scenarios.py`: 每场 trace report 同步保存 raw `trace_current.jsonl` artifact，避免下一场覆盖根因证据。
+- **当前状态 (Status)**: GREEN locally in `.worktrees/integration-20260615`. Targeted Python tests: `python3 -m pytest tests/tools/sil/test_colregs_trace_evaluator.py tests/scripts/test_run_6_scenarios_gate.py tests/docker/test_sil_topic_bridge.py src/sim_workbench/sil_nodes/l4_guidance_adapter/test/test_guidance_adapter.py -q` = 126/126 PASS. Real restart clean 8-probe: `MPLBACKEND=Agg SIL_ORCH_BASE_URL=https://127.0.0.1:18000/api/v1 python3 scripts/run_colregs_clean_8probe.py --restart-between-runs --summary-out runs/local_clean8_rule14_return_strict_20260617_011845.json --trace-report-dir runs/trace_eval/rule14_return_strict_20260617_011845` = **8/8 PASS**; Rule14 final XTE: ho 18.4m, ho-port 21.2m.
+- **接力指示 (Hand-off Context)**: 当前结论替代上一条“Rule14 不强制中心线回归”的临时状态。A4000 未验证；若要发布到 A4000，按窄同步路径处理 touched Python/YAML/doc/test 文件，不要同步 `runs/*`。

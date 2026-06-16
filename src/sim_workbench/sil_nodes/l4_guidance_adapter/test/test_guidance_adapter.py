@@ -239,6 +239,26 @@ def test_transit_command_does_not_boost_speed_when_route_return_xte_is_large():
     assert math.degrees(cmd.rudder_angle) < 0.0
 
 
+def test_transit_route_return_keeps_minimum_steerage_speed_at_hard_xte():
+    cmd = compute_transit_command(
+        current_heading_deg=0.0,
+        current_sog_kn=4.0,
+        current_rot_deg_s=0.0,
+        own_lat=1.004,
+        own_lon=450.0 / 111319.9,
+        target_heading_deg=0.0,
+        target_sog_kn=10.0,
+        current_target_wp_lat=1.02,
+        current_target_wp_lon=0.0,
+        route_wps=[(1.0, 0.0), (1.02, 0.0)],
+        heading_controller=HeadingController(max_rate_deg_s=100.0),
+        speed_controller=SpeedController(),
+        dt=5.0,
+    )
+
+    assert cmd.throttle > 0.0
+
+
 def test_transit_command_rejoins_route_instead_of_chasing_behind_waypoint():
     cmd = compute_transit_command(
         current_heading_deg=0.0,
@@ -413,6 +433,30 @@ def test_transit_autopilot_continues_when_odd_sample_is_temporarily_missing():
     L4GuidanceAdapterNode._autopilot_step(node)
 
     assert len(published) == 1
+
+
+def test_safety_alert_gate_expires_without_fresh_m7_alerts():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    now = [100.0]
+    node._sim_time = lambda: now[0]
+    node._SAFETY_ALERT_HOLD_S = 2.0
+    node._safety_alert_active = False
+    node._safety_alert_until = None
+    node._safety_gate_reason = ""
+    node._checker_veto_until = None
+
+    L4GuidanceAdapterNode._on_safety_alert(
+        node,
+        SimpleNamespace(
+            severity=3,
+            description="MRC required: transient watchdog condition",
+        ),
+    )
+
+    assert L4GuidanceAdapterNode._safety_gate_active(node, 101.0) is True
+    now[0] = 103.1
+    assert L4GuidanceAdapterNode._safety_gate_active(node, 103.1) is False
+    assert node._safety_alert_active is False
 
 
 def test_transit_autopilot_uses_elapsed_sim_time_for_control_dt():

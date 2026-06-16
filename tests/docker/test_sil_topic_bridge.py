@@ -228,6 +228,31 @@ def test_l4_adapter_enable_disables_bridge_actuator_publisher(monkeypatch):
     }
 
 
+def test_l4_adapter_actuator_command_is_traced_when_bridge_publisher_disabled(monkeypatch):
+    monkeypatch.setenv("SIL_L4_ADAPTER_ENABLE", "1")
+    bridge = _load_bridge(monkeypatch)
+    records = []
+    bridge.DebugTraceWriter = lambda node: SimpleNamespace(
+        record=lambda *args, **kwargs: records.append(args),
+        reset=lambda: None,
+        close=lambda: None,
+    )
+
+    node = bridge.SilTopicBridge()
+    topics = {sub.topic: sub for sub in node.created_subscriptions}
+
+    assert "/sil/actuator_cmd" in topics
+    topics["/sil/actuator_cmd"].callback(
+        SimpleNamespace(rudder_angle=math.radians(12.0), throttle=0.42)
+    )
+
+    assert records[-1][0] == "/sil/actuator_cmd"
+    assert records[-1][1] == {
+        "rudder_deg": pytest.approx(12.0),
+        "throttle": 0.42,
+    }
+
+
 def test_avoidance_plan_rudder_command_is_published_in_radians(monkeypatch):
     bridge = _load_bridge(monkeypatch)
     from unittest.mock import Mock

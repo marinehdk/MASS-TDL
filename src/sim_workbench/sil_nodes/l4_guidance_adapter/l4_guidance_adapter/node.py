@@ -164,11 +164,13 @@ class L4GuidanceAdapterNode(Node):
         self._last_override = None
         self._last_override_time: Optional[float] = None
         self._safety_alert_active = False
+        self._safety_alert_until: Optional[float] = None
         self._safety_gate_reason = ""
         self._checker_veto_until: Optional[float] = None
         self._LATCH_MIN_HOLD_S = 8.0
         self._AVOID_TRANSIT_RELEASE_S = 3.0
         self._LATCH_RELEASE_DECAY_RATE_DEG_S = 16.0
+        self._SAFETY_ALERT_HOLD_S = 2.0
         if clear_route:
             self._route_wps = []
         self._heading_controller.last_cmd_deg = 0.0
@@ -332,7 +334,14 @@ class L4GuidanceAdapterNode(Node):
     def _on_safety_alert(self, msg) -> None:
         severity = int(getattr(msg, "severity", 0))
         self._safety_alert_active = severity >= 2
-        self._safety_gate_reason = str(getattr(msg, "description", "")) if self._safety_alert_active else ""
+        if self._safety_alert_active:
+            self._safety_alert_until = (
+                self._sim_time() + float(getattr(self, "_SAFETY_ALERT_HOLD_S", 2.0))
+            )
+            self._safety_gate_reason = str(getattr(msg, "description", ""))
+        else:
+            self._safety_alert_until = None
+            self._safety_gate_reason = ""
 
     def _on_checker_veto(self, msg) -> None:
         del msg
@@ -390,7 +399,11 @@ class L4GuidanceAdapterNode(Node):
 
     def _safety_gate_active(self, now: float) -> bool:
         if self._safety_alert_active:
-            return True
+            if self._safety_alert_until is None or now <= self._safety_alert_until:
+                return True
+            self._safety_alert_active = False
+            self._safety_alert_until = None
+            self._safety_gate_reason = ""
         return self._checker_veto_until is not None and now <= self._checker_veto_until
 
     def _current_ownship(self):
