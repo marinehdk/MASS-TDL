@@ -174,6 +174,10 @@ Rules:
 ## project research, memory, and handoff
 
 - Project NLM domain notebooks: `safety_verification`, `maritime_regulations`, `colav_algorithms`, `maritime_human_factors`, `ship_maneuvering`, `silhil_platform`, and `cybersecurity`. Use `.nlm/config.json` routing before introducing new research paths.
-- For project-local prior context, prefer `mempalace search "<keywords>"` or `mempalace wake-up --wing MASS-L3` when available. Headroom is compression only, not the memory authority.
+- MemPalace is the project-local memory authority. Headroom is compression only, not the memory authority. Use the `mass_l3_tactical_layer` wing for all project drawers. The three-phase memory discipline is **mandatory** (no auto-save hooks; ZCode does not parse Claude hooks, so this relies on agent self-discipline per session):
+  - **Session start**: run `mempalace wake-up --wing MASS-L3` (CLI) or call `mempalace_diary_read` (MCP) to load recent context (~600-900 tokens) before doing meaningful work. Skip only if the task is trivial or mempalace is down.
+  - **Before session end / context compaction**: write one AAAK-format summary via `mempalace_diary_write` (task goal / key decisions / artifacts produced / open items). This is the substitute for the non-existent PreCompact hook.
+  - **At each key decision point** (design choice, interface contract, non-obvious fix, gotcha): persist via `mempalace_add_drawer` so future sessions can retrieve it with `mempalace search "<keywords>"`.
+  - HNSW corruption symptom (`status` reports `quarantined` / repeated `.drift-*` segments): run `mempalace repair --yes`. After a full re-embed of ~110k drawers on v3.4.1, `legacy` rebuild mode recovered all drawers while `from-sqlite` mode truncated to ~10%; prefer `legacy` unless the chromadb client itself cannot open the collection.
 - After meaningful work, append a curated handoff entry to `handoff/workspace_log.md` using: `## [date] Agent / Git Commit / Task Goal / Core Changes / Current Status / Handoff Notes`.
 - Do not run retired `archive_to_headroom.py`.
