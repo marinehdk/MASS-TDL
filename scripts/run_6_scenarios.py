@@ -636,6 +636,280 @@ def compute_route_return_status(
         "route_corridor_ok": bool(route_corridor_ok),
     }
 
+
+# ── Phase-semantics gate (COLREGs 2018 Rules 8/13/14/15/16/17) ───────────
+# Spec: docs/superpowers/specs/2026-06-17-colregs-phase-semantics-gate.md
+# Each check maps to an A-level COLREG clause. Returns a dict of booleans +
+# diagnostic metrics so failures are explainable (CCS auditability). The
+# previous gate used only geometric KPIs (min CPA, heading_change) and could
+# not detect "mechanical right turn then route return" which violates the
+# phase semantics of Rule 8(d)/14(a)/15.
+
+# Ample-time gate (Rule 8(a)/16). C-12 case law = action by 12 min before
+# collision; FCB 18 kn service speed -> T_plan = 720 s (A-level).
+PHASE_GATE_T_PLAN_S = 720.0
+PHASE_GATE_T_EMERGENCY_S = 60.0
+# Past-and-clear bearing threshold (Rule 13(b)/16: abaft the beam = >22.5°
+# abaft beam = relative bearing > 112.5° from the bow).
+PHASE_GATE_PAST_CLEAR_BEARING_DEG = 112.5
+# Readily-apparent alteration (Rule 8(b); case law >= 30°).
+PHASE_GATE_APPARENT_HEADING_DEG = 30.0
+PHASE_GATE_SMALL_ALTER_DEG = 10.0
+
+
+def _nav_heading_to_math_rad(nav_deg: float) -> float:
+    return _nav_deg_to_math_rad(nav_deg)
+
+
+def _relative_bearing_deg(own_hdg_deg: float, target_x: float, target_y: float,
+                          own_x: float, own_y: float) -> float:
+    """Relative bearing of target from own-ship bow, [-180, 180], starboard +."""
+    dx = target_x - own_x
+    dy = target_y - own_y
+    # math-frame angle of LOS (math deg): atan2(dx, dy) because _enu is E,N and
+    # nav heading maps to math via (90 - hdg). LOS math bearing:
+    los_math = math.atan2(dx, dy)
+    own_math = _nav_heading_to_math_rad(own_hdg_deg)
+    rel = math.degrees(los_math - own_math)
+    while rel > 180.0:
+        rel -= 360.0
+    while rel < -180.0:
+        rel += 360.0
+    return rel
+
+
+def compute_phase_semantics(
+    run_records,
+    targets_meta,
+    *,
+    lat0,
+    lon0,
+    role,                 # "give_way" | "stand_on"
+    rule,                 # e.g. "Rule14", "Rule15", "Rule17"...
+    cpa_safe_m=1852.0,
+    t_plan_s=PHASE_GATE_T_PLAN_S,
+    t_act_s=240.0,
+    t_emergency_s=PHASE_GATE_T_EMERGENCY_S,
+) -> dict:
+    """C1-C7 phase-semantics checks grounded in COLREGs 2018 clauses.
+
+    Reconstructs own-ship + primary-target trajectories from run_records /
+    targets_meta and evaluates whether the avoidance maneuver respected the
+    per-phase rule requirements. Returns a dict with per-check booleans and
+    diagnostic metrics. 'phase_semantics_ok' is the aggregate gate.
+    """
+    defaults = {
+        "c1_past_clear_ok": True,
+        "c2_apparent_action_ok": True,
+        "c3_ample_time_ok": True,
+        "c4_port_side_pass_ok": True,
+        "c5_no_cross_ahead_ok": True,
+        "c6_stand_on_hold_ok": True,
+        "c7_overtake_past_clear_ok": True,
+        "phase_semantics_ok": True,
+        "release_sim_t": float("nan"),
+        "release_target_rel_bearing_deg": float("nan"),
+        "onset_sim_t": float("nan"),
+        "onset_tcpa_s": float("nan"),
+        "max_single_heading_change_deg": 0.0,
+        "small_alteration_run_count": 0,
+        "cpa_moment_rel_bearing_deg": float("nan"),
+        "cpa_moment_along_m": float("nan"),
+        "evaluated": False,
+        "note": "",
+    }
+
+    ownship = sorted(
+        (r for r in run_records
+         if r.get("topic") == "/sil/own_ship_state" and
+         _ownship_record_near_origin(r, lat0, lon0)),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    behavior = sorted(
+        (r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    if not ownship or not behavior or not targets_meta:
+        defaults["note"] = "insufficient data (ownship/behavior/targets)"
+        return defaults
+    defaults["evaluated"] = True
+
+    target_meta = targets_meta[0]
+
+    # Build synchronized trajectory: ownship (x,y,hdg) + target (x,y) + CPA/TCPA.
+    traj = []
+    own_by_t = {round(float(r.get("sim_t", 0.0)), 2): r for r in ownship}
+    for r in ownship:
+        sim_t = float(r.get("sim_t", 0.0))
+        ox, oy = _enu(float(r["lat"]), float(r["lon"]), lat0, lon0)
+        ohdg = float(r.get("heading_deg", 0.0))
+        osog = float(r.get("sog_kn", 0.0))
+        ovx, ovy = _velocity_components_mps(osog, ohdg)
+        ts = _target_state_at(target_meta, sim_t, lat0, lon0)
+        px = ts["x_m"] - ox
+        py = ts["y_m"] - oy
+        rvx = ts["vx_mps"] - ovx
+        rvy = ts["vy_mps"] - ovy
+        cpa_m, tcpa_s = _cpa_tcpa_m(px, py, rvx, rvy)
+        rel_brg = _relative_bearing_deg(ohdg, ts["x_m"], ts["y_m"], ox, oy)
+        traj.append({
+            "sim_t": sim_t, "ox": ox, "oy": oy, "ohdg": ohdg,
+            "tx": ts["x_m"], "ty": ts["y_m"], "tcog": ts["cog"],
+            "cpa_m": cpa_m, "tcpa_s": tcpa_s, "rel_brg_deg": rel_brg,
+            "range_m": math.hypot(px, py),
+        })
+
+    # Avoidance onset: first behavior != 0 after a TRANSIT run-in.
+    onset_s = _avoidance_onset_s(run_records)
+    defaults["onset_sim_t"] = onset_s if onset_s is not None else float("nan")
+
+    # Avoidance release: first return to behavior==0 after onset, sustained.
+    release_s = None
+    seen_avoid = False
+    for r in behavior:
+        if _is_avoidance_behavior(r):
+            seen_avoid = True
+        elif seen_avoid and r.get("behavior") == 0 and release_s is None:
+            release_s = float(r.get("sim_t", 0.0))
+    defaults["release_sim_t"] = release_s if release_s is not None else float("nan")
+
+    rule_l = str(rule).lower().replace(" ", "")
+
+    # ── C1: Rule 8(d) finally past and clear before route return ─────────
+    # At release time, target must be abaft own-ship's beam (relative bearing
+    # magnitude > 112.5°) AND range opening AND CPA >= cpa_safe.
+    c1_ok = True
+    if release_s is not None and role == "give_way":
+        # Find trajectory sample closest to release time.
+        rel_sample = min(traj, key=lambda p: abs(p["sim_t"] - release_s))
+        rel_brg_abs = abs(rel_sample["rel_brg_deg"])
+        defaults["release_target_rel_bearing_deg"] = rel_brg_abs
+        # Range opening: compare to a sample ~5s before release.
+        before = [p for p in traj if p["sim_t"] <= release_s - 3.0]
+        range_opening = True
+        if before and rel_sample["range_m"] > 0:
+            range_opening = rel_sample["range_m"] >= before[-1]["range_m"] - 1.0
+        c1_ok = (rel_brg_abs > PHASE_GATE_PAST_CLEAR_BEARING_DEG and
+                 range_opening and rel_sample["cpa_m"] >= cpa_safe_m)
+    defaults["c1_past_clear_ok"] = c1_ok
+
+    # ── C2: Rule 8(b) readily apparent, no succession of small alterations
+    # Max single-monotonic heading change >= 30°, and no run of >=3 small
+    # (<10°) sign-flipping alterations.
+    c2_ok = True
+    if onset_s is not None:
+        avoid_hdg = [p["ohdg"] for p in traj if p["sim_t"] >= onset_s and
+                     (release_s is None or p["sim_t"] <= release_s + 5.0)]
+        if len(avoid_hdg) >= 3:
+            # Max monotonic excursion from onset heading.
+            base = avoid_hdg[0]
+            devs = [((h - base + 180.0) % 360.0) - 180.0 for h in avoid_hdg]
+            max_dev = max(abs(d) for d in devs)
+            defaults["max_single_heading_change_deg"] = max_dev
+            # Count small sign-flipping runs.
+            small_runs = 0
+            run_len = 0
+            prev_sign = 0
+            for d in devs:
+                if abs(d) < PHASE_GATE_SMALL_ALTER_DEG:
+                    sign = 1 if d >= 0 else -1
+                    if sign != prev_sign and prev_sign != 0:
+                        run_len += 1
+                    else:
+                        run_len = max(run_len, 1)
+                    prev_sign = sign
+                else:
+                    if run_len >= 3:
+                        small_runs += 1
+                    run_len = 0
+                    prev_sign = 0
+            if run_len >= 3:
+                small_runs += 1
+            defaults["small_alteration_run_count"] = small_runs
+            c2_ok = max_dev >= PHASE_GATE_APPARENT_HEADING_DEG and small_runs == 0
+    defaults["c2_apparent_action_ok"] = c2_ok
+
+    # ── C3: Rule 8(a)/16 ample time — onset TCPA within (emergency, T_plan]
+    c3_ok = True
+    if onset_s is not None and role == "give_way":
+        onset_sample = min(traj, key=lambda p: abs(p["sim_t"] - onset_s))
+        onset_tcpa = onset_sample["tcpa_s"]
+        defaults["onset_tcpa_s"] = onset_tcpa
+        # Ample: TCPA at onset should be <= T_plan (acted early enough) but
+        # > emergency (not last-second).
+        c3_ok = (onset_tcpa <= t_plan_s and onset_tcpa > t_emergency_s)
+    defaults["c3_ample_time_ok"] = c3_ok
+
+    # ── C4: Rule 14(a) pass on the port side (head-on give-way) ──────────
+    # At CPA moment, own-ship passes on target's port side: target is to
+    # own-ship's starboard (rel_brg > 0) at CPA.
+    c4_ok = True
+    if "rule14" in rule_l and role == "give_way":
+        cpa_sample = min(traj, key=lambda p: p["cpa_m"])
+        defaults["cpa_moment_rel_bearing_deg"] = cpa_sample["rel_brg_deg"]
+        # Pass on port side of other = other passes on our starboard side.
+        c4_ok = cpa_sample["rel_brg_deg"] > 0.0
+    defaults["c4_port_side_pass_ok"] = c4_ok
+
+    # ── C5: Rule 15 avoid crossing ahead (crossing give-way) ─────────────
+    # At CPA moment, own-ship is abaft target (along target's course axis < 0)
+    # i.e. own passed astern of target.
+    c5_ok = True
+    if "rule15" in rule_l and role == "give_way":
+        cpa_sample = min(traj, key=lambda p: p["cpa_m"])
+        # Project own-target vector onto target course axis.
+        axis_e = math.sin(math.radians(cpa_sample["tcog"]))
+        axis_n = math.cos(math.radians(cpa_sample["tcog"]))
+        along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
+                (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
+        defaults["cpa_moment_along_m"] = along
+        # along < 0 -> own-ship abaft target (passed astern, did not cross ahead).
+        c5_ok = along < 0.0
+    defaults["c5_no_cross_ahead_ok"] = c5_ok
+
+    # ── C6: Rule 17 stand-on hold course/speed in stage 1/2 ──────────────
+    # Stand-on must keep heading change < 5° before avoidance onset (stage 3).
+    c6_ok = True
+    if role == "stand_on" and onset_s is not None:
+        pre = [p for p in traj if p["sim_t"] < onset_s]
+        if pre:
+            base = pre[0]["ohdg"]
+            max_pre_dev = max(
+                abs(((p["ohdg"] - base + 180.0) % 360.0) - 180.0) for p in pre)
+            c6_ok = max_pre_dev < 5.0
+    defaults["c6_stand_on_hold_ok"] = c6_ok
+
+    # ── C7: Rule 13(d) overtaking finally past and clear ─────────────────
+    # Overtaking give-way: at release, own-ship ahead of target along target
+    # course axis (along > 0 + margin) AND range opening.
+    c7_ok = True
+    if "rule13" in rule_l and role == "give_way" and release_s is not None:
+        rel_sample = min(traj, key=lambda p: abs(p["sim_t"] - release_s))
+        axis_e = math.sin(math.radians(rel_sample["tcog"]))
+        axis_n = math.cos(math.radians(rel_sample["tcog"]))
+        along = (rel_sample["ox"] - rel_sample["tx"]) * axis_e + \
+                (rel_sample["oy"] - rel_sample["ty"]) * axis_n
+        before = [p for p in traj if p["sim_t"] <= release_s - 3.0]
+        range_opening = True
+        if before:
+            range_opening = rel_sample["range_m"] >= before[-1]["range_m"] - 1.0
+        # Past-and-clear for overtaking: own ahead of target (along > margin)
+        # and opening.
+        c7_ok = along > 0.0 and range_opening
+    defaults["c7_overtake_past_clear_ok"] = c7_ok
+
+    defaults["phase_semantics_ok"] = all([
+        defaults["c1_past_clear_ok"],
+        defaults["c2_apparent_action_ok"],
+        defaults["c3_ample_time_ok"],
+        defaults["c4_port_side_pass_ok"],
+        defaults["c5_no_cross_ahead_ok"],
+        defaults["c6_stand_on_hold_ok"],
+        defaults["c7_overtake_past_clear_ok"],
+    ])
+    return defaults
+
+
 def compute_overtake_status(
     run_records,
     targets_meta,
@@ -692,12 +966,14 @@ def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
                          overtake_required=False,
                          overtake_completed=False,
                          risk_gate_ok=True,
-                         seamanship_gate_ok=True):
+                         seamanship_gate_ok=True,
+                         phase_semantics_ok=True):
     return bool(cpa_ok and stability_pass and
                 ((not route_return_required) or returned_to_route) and
                 route_corridor_ok and
                 ((not overtake_required) or overtake_completed) and
-                risk_gate_ok and seamanship_gate_ok)
+                risk_gate_ok and seamanship_gate_ok and
+                phase_semantics_ok)
 
 def expected_cpa_floor_m(expected):
     cpa_acceptance = expected.get("cpa_acceptance") or {}
@@ -1067,6 +1343,20 @@ def run_scenario(scenario_id):
         (not math.isnan(min_dcpa_m))
         and (min_dcpa_m + cpa_floor_tolerance_m >= cpa_floor_m)
     )
+    # ── Phase-semantics gate (COLREGs 2018 Rules 8/13/14/15/16/17) ──────
+    # Detects phase violations the geometric KPIs miss: premature route
+    # return before past-and-clear (Rule 8(d)), mechanical small-alteration
+    # turns (Rule 8(b)), late action (Rule 16), wrong passing side (Rule 14),
+    # crossing ahead (Rule 15), stand-on fidgeting (Rule 17).
+    rule_str = str(encounter.get("rule", ""))
+    phase_sem = compute_phase_semantics(
+        run_records,
+        targets_meta,
+        lat0=lat0, lon0=lon0,
+        role=role,
+        rule=rule_str,
+        cpa_safe_m=cpa_floor_m,
+    )
     overall_pass = compute_overall_pass(
         cpa_ok=cpa_ok,
         stability_pass=stability["stability_pass"],
@@ -1077,6 +1367,7 @@ def run_scenario(scenario_id):
         overtake_completed=overtake_status["overtake_completed"],
         risk_gate_ok=domain_gates["risk_gate_ok"],
         seamanship_gate_ok=domain_gates["seamanship_gate_ok"],
+        phase_semantics_ok=phase_sem["phase_semantics_ok"],
     )
 
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
@@ -1096,6 +1387,21 @@ def run_scenario(scenario_id):
     print(f"  Veto events count: {len(veto)}")
     print(f"  Behavior transitions: {bp_transitions}")
     print(f"  M5 Solver states: {solver_stats}")
+    # Phase-semantics diagnostics (COLREGs clause-mapped)
+    print(f"  Phase Gate: {phase_sem['phase_semantics_ok']} "
+          f"(C1 past-clear={phase_sem['c1_past_clear_ok']} "
+          f"rel_brg={phase_sem['release_target_rel_bearing_deg']:.0f}°, "
+          f"C2 apparent={phase_sem['c2_apparent_action_ok']} "
+          f"max_dev={phase_sem['max_single_heading_change_deg']:.0f}° "
+          f"small_runs={phase_sem['small_alteration_run_count']}, "
+          f"C3 ample={phase_sem['c3_ample_time_ok']} "
+          f"onset_tcpa={phase_sem['onset_tcpa_s']:.0f}s, "
+          f"C4 port-side={phase_sem['c4_port_side_pass_ok']} "
+          f"cpa_rel_brg={phase_sem['cpa_moment_rel_bearing_deg']:.0f}°, "
+          f"C5 no-cross={phase_sem['c5_no_cross_ahead_ok']} "
+          f"along={phase_sem['cpa_moment_along_m']:.0f}m, "
+          f"C6 standon-hold={phase_sem['c6_stand_on_hold_ok']}, "
+          f"C7 overtake-past={phase_sem['c7_overtake_past_clear_ok']})")
     print(f"  Role: {role} | CPA floor: {cpa_floor_m:.0f} m | CPA pass: {cpa_ok}")
     print(f"  Risk Gate: {domain_gates['risk_gate_ok']} "
           f"(primary={risk_metrics['primary_threat_id'] or 'none'}, "
@@ -1213,6 +1519,7 @@ def run_scenario(scenario_id):
         "path_length_ratio": seamanship_metrics["path_length_ratio"],
         "domain_gates": domain_gates,
         "overall_pass": overall_pass,
+        "phase_semantics": phase_sem,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
 
