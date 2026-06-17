@@ -562,3 +562,11 @@ This log coordinates task handoffs between different development interfaces (Cla
   - 完整 8 场景阶段语义基线（gate 修好后稳定输出）。C5 rule15-cs 重跑 2 次均 PASS（首跑 fail 是 warm state 非确定），降级不修。
 - **当前状态 (Status)**: 4 个真偏离已定位：C2 回转抖动（6/8 最系统性，Rule8(b)）、C1 rule15 过早回航线（cs/cs-2/ot-boundary 稳定 fail，Rule8(d)）、C7 rule13-ot 追越未过清、C3 rule14-ho-port onset 44s 太晚。warm state 调查：sil-nodes 单容器含全部 M1-M8 子进程，docker restart 全新启动无内存残留，warm state 在 DDS discovery/sim time 同步时序竞争。稳定性复测进行中（4 场景各重跑区分稳定 fail vs 非确定）。
 - **接力指示 (Hand-off Context)**: gate 在 `codex/colregs-phase-gate-diag` 分支（Python-only，主 stack 镜像未动）。C2/C1/C7/C3 修复涉及 C++（M4/M5/M6），用户要求 worktree 隔离重编验证后合回。修行为前必须先完成稳定性复测（区分真偏离 vs warm state 噪声）。证据：`runs/full8_phase_gate_v3_20260617.log`（前4）、`runs/full8_phase_gate_rest4_20260617.log`（后4）、`runs/stability_retest_20260617.log`（复测中）。mempalace wing=mass_l3_tactical_layer room=colregs-deviation-findings 有完整诊断记录。
+
+## [2026-06-18 07:40 CST] Agent: ZCode (GLM-5.2) — 续：C2 处理 + C1/C7 根因定位
+- **Git Commit**: `fbd16b92`(gate C2阈值) `d37dde0d`(worktree L4 Kd机制) `c849f06c`(worktree gate同步)
+- **进展**:
+  - C2 深挖：实测 small_runs=1 是 rule14-ho t=331s 单次 0.5° 回转过冲（+8.7→0→-0.5），非 Rule 8(b) 连续小转向。L4 Kd D 项机制 commit d37dde0d 保留备用（默认 Kd=0 不启用）。C2 降级：gate 阈值 small_runs < 3（真 succession ≥3 才 fail），rule14-ho 完全 PASS。
+  - C1+C7 根因+影响分析完成：M6 `colregs_reasoner_node.cpp:663-673` rule13/rule15 共用 `reference_projection_resolved` 走 REFERENCE_CLEAR 的 40° bow-clear gate（`release_policy.hpp:7`）。40° 是 9fe16274 快速实现非精细调参。rule14 独立走 CURRENT_ABAFT(150°) 不受影响。stand-on 独立路径。`test_colregs_release_policy.cpp:58,90` 断言 40° 需同步更新。
+- **待办（下次会话续）**: C7 rule13 改 along>0 release（新增 along 计算，从 reference_projection 分离）→ C1 rule15 阈值 40°→112.5° → worktree `colregs-behavior-fix` 重编 sil-nodes → 验证 C1/C7 场景 → 全 8 回归 → F1 local-a4000-acceptance → F3 闭合核验。
+- **接力**: worktree `.worktrees/colregs-behavior-fix`(分支 codex/colregs-behavior-fix, HEAD c849f06c) 已含 gate 修复 + Kd 机制，待加 C1/C7。主 checkout codex/colregs-phase-gate-diag(HEAD fbd16b92)是 gate 集成面。diary 已写 mempalace(topic=colregs-phase-gate-and-c1c7-fix)。证据 runs/stability_retest_20260617.log + full8_phase_gate_v3/rest4。
