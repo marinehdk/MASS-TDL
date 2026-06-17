@@ -663,14 +663,17 @@ def _nav_heading_to_math_rad(nav_deg: float) -> float:
 
 def _relative_bearing_deg(own_hdg_deg: float, target_x: float, target_y: float,
                           own_x: float, own_y: float) -> float:
-    """Relative bearing of target from own-ship bow, [-180, 180], starboard +."""
+    """Relative bearing of target from own-ship bow, [-180, 180], starboard +.
+
+    Both own heading and target line-of-sight bearing are nautical bearings
+    (clockwise from north = atan2(E, N)), so the relative bearing is a plain
+    difference. A mixed math/nav convention previously flipped the sign (a
+    target on the port bow reported starboard).
+    """
     dx = target_x - own_x
     dy = target_y - own_y
-    # math-frame angle of LOS (math deg): atan2(dx, dy) because _enu is E,N and
-    # nav heading maps to math via (90 - hdg). LOS math bearing:
-    los_math = math.atan2(dx, dy)
-    own_math = _nav_heading_to_math_rad(own_hdg_deg)
-    rel = math.degrees(los_math - own_math)
+    target_bearing_deg = math.degrees(math.atan2(dx, dy))  # clockwise from N
+    rel = target_bearing_deg - own_hdg_deg
     while rel > 180.0:
         rel -= 360.0
     while rel < -180.0:
@@ -841,14 +844,18 @@ def compute_phase_semantics(
     defaults["c3_ample_time_ok"] = c3_ok
 
     # ── C4: Rule 14(a) pass on the port side (head-on give-way) ──────────
-    # At CPA moment, own-ship passes on target's port side: target is to
-    # own-ship's starboard (rel_brg > 0) at CPA.
+    # COLREG 14: "each shall alter to starboard so that each shall pass on the
+    # port side of the other." For a reciprocal head-on where both alter
+    # starboard, at closest approach the target is on own-ship's PORT side
+    # (rel_brg < 0, starboard-positive convention) -- own-ship has moved to the
+    # target's port side and the target to own-ship's port side. The prior
+    # check (>0) inverted this and flagged a correct port-to-port pass as RED.
     c4_ok = True
     if "rule14" in rule_l and role == "give_way":
         cpa_sample = min(traj, key=lambda p: p["cpa_m"])
         defaults["cpa_moment_rel_bearing_deg"] = cpa_sample["rel_brg_deg"]
-        # Pass on port side of other = other passes on our starboard side.
-        c4_ok = cpa_sample["rel_brg_deg"] > 0.0
+        # Port-to-port: target ends up on own-ship's port side (rel_brg < 0).
+        c4_ok = cpa_sample["rel_brg_deg"] < 0.0
     defaults["c4_port_side_pass_ok"] = c4_ok
 
     # ── C5: Rule 15 avoid crossing ahead (crossing give-way) ─────────────
