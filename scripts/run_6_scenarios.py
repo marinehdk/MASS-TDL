@@ -709,6 +709,7 @@ def compute_phase_semantics(
         "c5_no_cross_ahead_ok": True,
         "c6_stand_on_hold_ok": True,
         "c7_overtake_past_clear_ok": True,
+        "c8_give_way_avoided_ok": True,
         "phase_semantics_ok": True,
         "release_sim_t": float("nan"),
         "release_target_rel_bearing_deg": float("nan"),
@@ -852,7 +853,11 @@ def compute_phase_semantics(
     # check (>0) inverted this and flagged a correct port-to-port pass as RED.
     c4_ok = True
     if "rule14" in rule_l and role == "give_way":
-        cpa_sample = min(traj, key=lambda p: p["cpa_m"])
+        # Use the closest point of approach actually reached (min range), not
+        # the predicted CPA: a reciprocal head-on predicts CPA~0 at every
+        # pre-maneuver sample, so min(cpa_m) collapses to the onset run-in and
+        # never sees the post-avoidance geometry.
+        cpa_sample = min(traj, key=lambda p: p["range_m"])
         defaults["cpa_moment_rel_bearing_deg"] = cpa_sample["rel_brg_deg"]
         # Port-to-port: target ends up on own-ship's port side (rel_brg < 0).
         c4_ok = cpa_sample["rel_brg_deg"] < 0.0
@@ -863,7 +868,9 @@ def compute_phase_semantics(
     # i.e. own passed astern of target.
     c5_ok = True
     if "rule15" in rule_l and role == "give_way":
-        cpa_sample = min(traj, key=lambda p: p["cpa_m"])
+        # Closest approach actually reached (min range); see C4 note on why
+        # predicted min(cpa_m) is wrong for an actively avoided encounter.
+        cpa_sample = min(traj, key=lambda p: p["range_m"])
         # Project own-target vector onto target course axis.
         axis_e = math.sin(math.radians(cpa_sample["tcog"]))
         axis_n = math.cos(math.radians(cpa_sample["tcog"]))
@@ -905,6 +912,17 @@ def compute_phase_semantics(
         c7_ok = along > 0.0 and range_opening
     defaults["c7_overtake_past_clear_ok"] = c7_ok
 
+    # ── C8: give-way must actually avoid (no silent no-avoidance pass) ──────
+    # A give-way scenario that never onset an avoidance maneuver is a hard
+    # RED regardless of the per-rule checks above: C2/C3/C4/C7 all gate on
+    # onset_s/release_s and would otherwise stay at their default True and
+    # mask a total decision failure. Stand-on legitimately may not act, so
+    # the guard only applies to give_way.
+    c8_ok = True
+    if role == "give_way" and onset_s is None:
+        c8_ok = False
+    defaults["c8_give_way_avoided_ok"] = c8_ok
+
     defaults["phase_semantics_ok"] = all([
         defaults["c1_past_clear_ok"],
         defaults["c2_apparent_action_ok"],
@@ -913,6 +931,7 @@ def compute_phase_semantics(
         defaults["c5_no_cross_ahead_ok"],
         defaults["c6_stand_on_hold_ok"],
         defaults["c7_overtake_past_clear_ok"],
+        defaults["c8_give_way_avoided_ok"],
     ])
     return defaults
 
@@ -1408,7 +1427,8 @@ def run_scenario(scenario_id):
           f"C5 no-cross={phase_sem['c5_no_cross_ahead_ok']} "
           f"along={phase_sem['cpa_moment_along_m']:.0f}m, "
           f"C6 standon-hold={phase_sem['c6_stand_on_hold_ok']}, "
-          f"C7 overtake-past={phase_sem['c7_overtake_past_clear_ok']})")
+          f"C7 overtake-past={phase_sem['c7_overtake_past_clear_ok']}, "
+          f"C8 give-way-avoided={phase_sem['c8_give_way_avoided_ok']})")
     print(f"  Role: {role} | CPA floor: {cpa_floor_m:.0f} m | CPA pass: {cpa_ok}")
     print(f"  Risk Gate: {domain_gates['risk_gate_ok']} "
           f"(primary={risk_metrics['primary_threat_id'] or 'none'}, "
