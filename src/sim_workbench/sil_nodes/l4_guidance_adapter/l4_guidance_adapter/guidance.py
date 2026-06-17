@@ -38,8 +38,9 @@ class ActuatorCommand:
 
 
 class HeadingController:
-    def __init__(self, Kp: float = 1.0, max_rate_deg_s: float = 5.0):
+    def __init__(self, Kp: float = 1.0, Kd: float = 0.0, max_rate_deg_s: float = 5.0):
         self.Kp = Kp
+        self.Kd = Kd
         self.max_rate_deg_s = max_rate_deg_s
         self.last_cmd_deg = 0.0
 
@@ -49,9 +50,16 @@ class HeadingController:
         dt: float,
         current_rot_deg_s: float = 0.0,
     ) -> float:
-        del current_rot_deg_s
+        # PD on heading: the proportional term drives toward the target, the
+        # derivative term on rate-of-turn damps the approach. Without the D
+        # term the controller only reacts once the heading error crosses zero,
+        # by which time the hull is still rotating, so it overshoots and reverses
+        # -- the succession of small sign-flipping rudder kicks that COLREGs
+        # Rule 8(b) forbids and the phase gate flags as small_runs. Kd defaults
+        # to 0 so all existing callers (which never brake) are unchanged.
         error_deg = signed_heading_delta_deg(error_deg, 0.0)
-        cmd_deg = max(-MAX_RUDDER_DEG, min(MAX_RUDDER_DEG, self.Kp * error_deg))
+        cmd_deg = self.Kp * error_deg - self.Kd * current_rot_deg_s
+        cmd_deg = max(-MAX_RUDDER_DEG, min(MAX_RUDDER_DEG, cmd_deg))
         max_delta = self.max_rate_deg_s * dt
         cmd_deg = max(self.last_cmd_deg - max_delta,
                       min(self.last_cmd_deg + max_delta, cmd_deg))

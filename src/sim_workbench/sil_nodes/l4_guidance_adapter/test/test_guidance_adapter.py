@@ -661,3 +661,53 @@ def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
 
     assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
     assert cmd.throttle == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# COLREGs phase-gate C2: heading-controller damping on turn recovery.
+# Rule 8(b) forbids a "succession of small alterations" -- the pure-P
+# controller overshoots the target heading on turn recovery (it only reacts
+# once the heading error crosses zero, by which time the hull is still
+# rotating), producing the small sign-flipping rudder sequence the phase
+# gate flags as small_runs. A derivative term on rate-of-turn damps it.
+# ---------------------------------------------------------------------------
+
+def test_heading_controller_pure_p_overshoots_on_turn_recovery():
+    """With no derivative damping, a ship that has reached the target heading
+    but is still turning gets a zero command and coasts through, then must
+    reverse -- the overshoot the C2 small_runs check detects."""
+    hc = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    # Ship has just arrived at target (error~0) but is still rotating hard.
+    cmd = hc.step(error_deg=0.0, dt=0.5, current_rot_deg_s=5.0)
+    # Pure-P: error is zero so command is zero -- no braking of the 5 deg/s
+    # rotation. The ship will overshoot the target heading next cycle.
+    assert math.degrees(cmd) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_heading_controller_derivative_damps_turn_recovery():
+    """A derivative term on rate-of-turn must brake the ship as it approaches
+    the target heading, commanding counter-rudder while still rotating toward
+    (small positive error) and while overshooting (zero error, still turning)."""
+    hc = HeadingController(Kp=1.0, Kd=0.3, max_rate_deg_s=100.0)
+    # Approaching target, still turning toward it: P wants more turn, D opposes.
+    cmd_approach = hc.step(error_deg=3.0, dt=0.5, current_rot_deg_s=5.0)
+    # At target but still rotating: P=0, D alone brakes.
+    hc2 = HeadingController(Kp=1.0, Kd=0.3, max_rate_deg_s=100.0)
+    cmd_brake = hc2.step(error_deg=0.0, dt=0.5, current_rot_deg_s=5.0)
+    # Derivative opposes the rotation (counter-rudder) in both cases.
+    assert cmd_brake < 0.0, "derivative must brake an ongoing rotation"
+    # Net command near the target must be smaller than pure-P would give for
+    # a comparable error, i.e. damping reduces the commanded turn rate.
+    pure_p = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    cmd_pure = pure_p.step(error_deg=3.0, dt=0.5, current_rot_deg_s=5.0)
+    assert abs(cmd_approach) < abs(cmd_pure), "derivative must reduce net command near target"
+
+
+def test_heading_controller_derivative_inactive_at_zero_rot():
+    """When the ship is not rotating, the derivative term contributes nothing,
+    so existing behavior (all current tests pass rot=0) is unchanged."""
+    hc = HeadingController(Kp=1.0, Kd=0.3, max_rate_deg_s=100.0)
+    cmd = hc.step(error_deg=10.0, dt=0.5, current_rot_deg_s=0.0)
+    pure_p = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    cmd_pure = pure_p.step(error_deg=10.0, dt=0.5, current_rot_deg_s=0.0)
+    assert math.degrees(cmd) == pytest.approx(math.degrees(cmd_pure), abs=1e-6)
