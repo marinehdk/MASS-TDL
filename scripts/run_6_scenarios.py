@@ -791,7 +791,12 @@ def compute_phase_semantics(
     # At release time, target must be abaft own-ship's beam (relative bearing
     # magnitude > 112.5°) AND range opening AND CPA >= cpa_safe.
     c1_ok = True
-    if release_s is not None and role == "give_way":
+    # C1 (abaft-beam past-and-clear) applies to head-on/crossing give-way; an
+    # overtaking give-way is governed by C7 (own-ship ahead along target axis),
+    # not by the 112.5-degree abaft-beam criterion which is meaningless when
+    # both vessels are on near-parallel courses.
+    if (release_s is not None and role == "give_way"
+            and "rule13" not in rule_l):
         # Find trajectory sample closest to release time.
         rel_sample = min(traj, key=lambda p: abs(p["sim_t"] - release_s))
         rel_brg_abs = abs(rel_sample["rel_brg_deg"])
