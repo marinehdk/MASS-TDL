@@ -843,7 +843,12 @@ def compute_phase_semantics(
             if run_len >= 3:
                 small_runs += 1
             defaults["small_alteration_run_count"] = small_runs
-            c2_ok = max_dev >= PHASE_GATE_APPARENT_HEADING_DEG and small_runs == 0
+            # Rule 8(b) succession of small alterations: require a genuine
+            # repeated turn/counter-turn pattern (>=3 small-alteration runs).
+            # A single turn-recovery overshoot produces ~1 run from heading
+            # noise around the target; requiring >=3 excludes that while still
+            # catching real rudder chattering.
+            c2_ok = max_dev >= PHASE_GATE_APPARENT_HEADING_DEG and small_runs < 3
     defaults["c2_apparent_action_ok"] = c2_ok
 
     # ── C3: Rule 8(a)/16 ample time — onset TCPA within (emergency, T_plan]
