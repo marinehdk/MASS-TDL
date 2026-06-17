@@ -767,14 +767,22 @@ def compute_phase_semantics(
     onset_s = _avoidance_onset_s(run_records)
     defaults["onset_sim_t"] = onset_s if onset_s is not None else float("nan")
 
-    # Avoidance release: first return to behavior==0 after onset, sustained.
+    # Avoidance release: the first sustained return to behavior==0 that is NOT
+    # followed by any further avoidance. A momentary 0->avoid->0 blip (behavior
+    # flapping near onset, seen as M4/M5 warm-state chatter in batch runs) must
+    # not be mistaken for the encounter release -- it collapses C1/C2 to the
+    # onset run-in geometry. So locate the LAST avoidance sample and take the
+    # first behavior==0 strictly after it.
     release_s = None
-    seen_avoid = False
-    for r in behavior:
+    last_avoid_idx = -1
+    for i, r in enumerate(behavior):
         if _is_avoidance_behavior(r):
-            seen_avoid = True
-        elif seen_avoid and r.get("behavior") == 0 and release_s is None:
-            release_s = float(r.get("sim_t", 0.0))
+            last_avoid_idx = i
+    if last_avoid_idx >= 0:
+        for r in behavior[last_avoid_idx + 1:]:
+            if r.get("behavior") == 0:
+                release_s = float(r.get("sim_t", 0.0))
+                break
     defaults["release_sim_t"] = release_s if release_s is not None else float("nan")
 
     rule_l = str(rule).lower().replace(" ", "")
