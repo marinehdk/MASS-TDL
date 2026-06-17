@@ -660,17 +660,33 @@ void ColregsReasonerNode::run_reasoning() {
         (rule15_latch_it != rule_latches_.end() && rule15_latch_it->second.released()) ||
         (give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.released()) ||
         (standon_latch_it != standon_latches_.end() && standon_latch_it->second.released());
+    // Rule 15 (crossing) give-way release: target cleared off the bow along
+    // the reference avoidance heading -- crossing-specific bow-clear geometry.
     const bool reference_projection_resolved =
-        (rule13_projection_latched || rule15_projection_latched) &&
+        rule15_projection_latched &&
         (((!range_closing) && give_way_projection_release_reference_ok) ||
          give_way_reference_heading_release_ok);
+    // Rule 13 (overtaking) give-way release: own-ship finally past and clear =
+    // crossed into the target's forward hemisphere (aspect ahead of the beam)
+    // at safe range with a past/safe CPA projection. The crossing bow-clear
+    // gate does not apply to near-parallel overtaking courses (target stays on
+    // the bow), so overtake must use aspect, not relative bearing.
+    const bool overtake_projection_resolved =
+        rule13_projection_latched &&
+        (!range_closing) &&
+        give_way_overtake_release_safe(
+            cpa_projection_past_and_safe,
+            target.range_m,
+            target.aspect_deg,
+            kParams.cpa_safe_m);
     const bool current_projection_resolved =
         (!range_closing) &&
         (rule14_projection_latched || duty_latched) &&
         give_way_projection_release_current_ok;
     const bool projection_resolved =
         has_release_reference &&
-        (reference_projection_resolved || current_projection_resolved);
+        (reference_projection_resolved || overtake_projection_resolved ||
+         current_projection_resolved);
     if (finally_resolved || projection_resolved || standon_action_release ||
         any_latch_released ||
         resolved_targets_.count(mmsi) > 0) {

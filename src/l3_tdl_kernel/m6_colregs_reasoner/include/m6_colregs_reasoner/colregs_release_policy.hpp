@@ -8,7 +8,18 @@ namespace mass_l3::m6_colregs {
 
 constexpr double kGiveWayProjectionReleaseRangeMultiple = 1.0;
 constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
-constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 40.0;
+// COLREG Rule 8(d) / 15 past-and-clear for crossing give-way: the target must
+// be abaft the beam (relative bearing >= 112.5 deg, the COLREG "abaft the
+// beam" definition from Rule 3(g)) along the reference avoidance heading
+// before the encounter is resolved. A 40 deg bow-clear threshold releases
+// while the target is still on the bow and the own-ship is still altering --
+// the "early return to route" the phase gate flags as a Rule 8(d) violation.
+constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 112.5;
+// COLREG Rule 13(d) overtake past-and-clear: own-ship is "finally past" once it
+// is in the target's forward hemisphere. Aspect angle convention: 0 deg =
+// own-ship dead ahead of the target's bow, 90 deg = on the beam, 180 deg =
+// dead astern. Forward hemisphere = aspect within 90 deg of the bow.
+constexpr double kGiveWayOvertakeReleaseAspectAheadDeg = 90.0;
 constexpr double kGiveWayReleaseKnToMps = 0.514444;
 constexpr double kGiveWayReleasePi = 3.14159265358979323846;
 constexpr double kStandOnEmergencyReleaseCpaM = 185.2;
@@ -100,7 +111,14 @@ inline bool give_way_projection_release_safe(
       cpa_safe_m <= 0.0) {
     return false;
   }
-  if (range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple ||
+  if (range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple) {
+    return false;
+  }
+  // The reference bow-clear (target abaft the beam along the reference heading)
+  // is a crossing/REFERENCE_CLEAR gate criterion only; the head-on CURRENT_ABAFT
+  // gate is governed by current_relative_bearing_abs_deg below and must not be
+  // blocked by a reference-heading bearing.
+  if (gate == GiveWayProjectionReleaseGate::REFERENCE_CLEAR &&
       reference_relative_bearing_abs_deg < kGiveWayProjectionReleaseReferenceBowClearDeg) {
     return false;
   }
@@ -133,6 +151,39 @@ inline bool stand_on_late_action_release_safe(
       range_m >= cpa_floor_m * kStandOnEmergencyReleaseRangeMultiple &&
       cpa_m >= cpa_floor_m &&
       tcpa_s <= kTcpaClampedPastEpsilonS;
+}
+
+// COLREG Rule 13(d): an overtaking give-way vessel is finally past and clear
+// only once it has crossed into the target's forward hemisphere (aspect ahead
+// of the beam) at a safe range with a past/safe CPA projection. The crossing
+// bow-clear gate (kGiveWayProjectionReleaseReferenceBowClearDeg) is wrong here:
+// on near-parallel overtaking courses the target stays on the own-ship's bow
+// throughout, so a relative-bearing gate never opens and -- when it does open
+// early -- releases before the own-ship is genuinely ahead. Aspect is the
+// Rule-13-correct coordinate.
+inline bool give_way_overtake_release_safe(
+    bool cpa_projection_past_and_safe,
+    double range_m,
+    double aspect_deg,
+    double cpa_safe_m) {
+  if (!cpa_projection_past_and_safe ||
+      !std::isfinite(range_m) ||
+      !std::isfinite(aspect_deg) ||
+      !std::isfinite(cpa_safe_m) ||
+      cpa_safe_m <= 0.0) {
+    return false;
+  }
+  if (range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple) {
+    return false;
+  }
+  // Forward hemisphere: aspect within kGiveWayOvertakeReleaseAspectAheadDeg of
+  // the bow (0 deg) or equivalently of 360 deg. Use the smaller angular
+  // distance to 0 so 350 deg (just port of the bow) also counts as ahead.
+  double aspect = aspect_deg;
+  while (aspect < 0.0) aspect += 360.0;
+  while (aspect >= 360.0) aspect -= 360.0;
+  const double off_bow_deg = std::min(aspect, 360.0 - aspect);
+  return off_bow_deg < kGiveWayOvertakeReleaseAspectAheadDeg;
 }
 
 }  // namespace mass_l3::m6_colregs
