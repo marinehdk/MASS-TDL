@@ -1,9 +1,15 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from starlette.requests import Request
 
-from sil_orchestrator.encounters_routes import _active_mmsis, _counter, router
+from sil_orchestrator.encounters_routes import (
+    InjectBody,
+    _active_mmsis,
+    _counter,
+    router,
+)
 
 
 class _Result:
@@ -35,6 +41,26 @@ class _Bridge:
     async def remove_target(self, mmsi):
         self.removed.append(mmsi)
         return _Result(success=mmsi not in self.failed_removals)
+
+
+@pytest.mark.asyncio
+async def test_inject_accepts_intelligent_mode():
+    inject = next(route.endpoint for route in router.routes if route.path == "/api/v1/encounters/inject")
+    bridge = _Bridge()
+
+    async def fake_add_target(**kwargs):
+        bridge.added.append(kwargs)
+        return SimpleNamespace(success=True, message="ok")
+
+    bridge.add_target = fake_add_target
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(bridge=bridge)))
+
+    body = InjectBody(rule="head_on", mode="intelligent")
+
+    result = await inject(body, request)
+
+    assert result["accepted"] is True
+    assert bridge.added[0]["mode"] == "intelligent"
 
 
 @pytest.fixture
