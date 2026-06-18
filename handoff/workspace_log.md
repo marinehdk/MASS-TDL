@@ -552,3 +552,27 @@ This log coordinates task handoffs between different development interfaces (Cla
   - Deferred `matplotlib.pyplot` import in `scripts/run_6_scenarios.py` so `--list` remains stderr-clean on A4000 hosts with mixed matplotlib installs.
 - **当前状态 (Status)**: GREEN local + A4000. Local targeted pytest `146 passed`; local OrbStack internal/default runtime gate PASS with `runs/local_runtime_probe_20260617_042100.json` and `runs/local_a4000_container_probe_20260617_042100.json`; local main-merge clean8 restart run PASS **8/8** with `runs/local_clean8_mainmerge_20260617_042108.json` and `runs/trace_eval/mainmerge_20260617_042108/`. A4000 validation used `ssh a4000` as `marine.huang` in linked worktree `/home/marine.huang/Code/mass-l3/.worktrees/integration-colregs-clean8-20260617`; targeted pytest `146 passed`; A4000 runtime/internal gate PASS with `runs/a4000_runtime_probe_20260617_044509.json` and `runs/a4000_container_probe_20260617_044509.json`; A4000 clean8 restart run PASS **8/8** with `runs/a4000_clean8_mainmerge_20260617_044518.json` and `runs/trace_eval/a4000_mainmerge_20260617_044518/`.
 - **接力指示 (Hand-off Context)**: A4000 main checkout remains dirty and was not modified; validation used bundle-fed linked worktree only. GitHub/GitLab push not performed in this step without explicit confirmation.
+
+## [2026-06-18] Agent: Codex (GPT-5)
+- **Git Commit**: task commit
+- **任务目标 (Goal)**: Add opt-in COLREGs rule-FSM behavior for route-driven simulated target vessels while preserving passive replay, AIS truth, and clean8 defaults.
+- **核心改动 (Actions)**:
+  - Appended task handoff evidence and status in `handoff/workspace_log.md` for the target-vessel FSM rollout.
+  - No source code changes were introduced in Task 8; documentation-only handoff work in this isolated task context.
+- **当前状态 (Status)**: AMBER
+- **Verification**:
+  - `PYTHONPATH=src/sim_workbench/sil_nodes/target_vessel:src/sim_workbench/sil_nodes/sil_common pytest -q tests/sil/test_target_vessel.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_ou.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_config.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_geometry.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_rule_fsm.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_node_colregs.py`
+    - result: `44 passed in 0.20s`
+  - `PYTHONPATH=src pytest -q src/sil_orchestrator/tests/test_encounters_routes.py tests/sil_orchestrator/test_scenario_injection.py`
+    - result: `20 passed in 0.30s`
+  - Forbidden TDL decision-topic guard check script output:
+    - `target_vessel_node does not subscribe to forbidden TDL decision topics`
+  - Intelligent scenario parser command checks passed for:
+    - `colreg-rule14-ho-intelligent-v1.0`
+    - `colreg-rule15-cs-intelligent-v1.0`
+    - `colreg-rule17-cr-so-target-giveway-v1.0`
+- **接力指示 (Hand-off Context)**:
+  - New intelligent scenarios are targeted-only and are not part of clean8.
+  - `clean8` and local OrbStack container gates were not run due worktree isolation constraints; they remain required before promotion.
+  - Container gates were blocked because active `mass-l3-sil` belongs to `.worktrees/main-runtime` and `colregs-behavior-fix` belongs to another worktree.
+  - A4000 validation remains required before any push/promotion.
