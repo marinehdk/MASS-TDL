@@ -11,6 +11,10 @@ export interface VoyagePlanData {
   waypoints: NormalizedWaypoint[];
   cruiseSpeed: number;
   source: 'static_yaml' | 'l2_realtime';
+  speedProfileKn?: number[];
+  totalDistanceNm?: number;
+  estimatedDurationS?: number;
+  routeId?: number;
 }
 
 export interface AvoidanceWaypointData extends NormalizedWaypoint {
@@ -24,6 +28,48 @@ export interface AvoidancePlanData {
   waypoints: AvoidanceWaypointData[];
   horizonS?: number;
   status?: string;
+  confidence?: number;
+  rationale?: string;
+}
+
+export interface OddStateData {
+  zone?: number;
+  autoLevel?: number;
+  health?: number;
+  envelopeState?: number;
+  conformanceScore?: number;
+  tmrS?: number;
+  tdlS?: number;
+  confidence?: number;
+  rationale?: string;
+}
+
+export interface BehaviorPlanData {
+  behavior?: number;
+  headingMinDeg?: number;
+  headingMaxDeg?: number;
+  speedMinKn?: number;
+  speedMaxKn?: number;
+  confidence?: number;
+  rationale?: string;
+}
+
+export interface ColregsConstraintData {
+  ruleId?: number;
+  phase?: string;
+  role?: number;
+  preferredDirection?: string;
+  minAlterationDeg?: number;
+  conflictDetected?: boolean;
+  confidence?: number;
+  rationale?: string;
+}
+
+export interface SafetyAlertData {
+  alertType?: number;
+  severity?: number;
+  description?: string;
+  recommendedMrm?: string;
   confidence?: number;
   rationale?: string;
 }
@@ -123,6 +169,10 @@ interface TelemetryState {
   isSotifMetricsStale: () => boolean;
   voyagePlan: VoyagePlanData | null;
   avoidancePlan: AvoidancePlanData | null;
+  oddState: OddStateData | null;
+  behaviorPlan: BehaviorPlanData | null;
+  colregsConstraint: ColregsConstraintData | null;
+  safetyAlert: SafetyAlertData | null;
 
   updateOwnShip: (state: OwnShipState) => void;
   updateTargets: (targets: TargetVesselState[]) => void;
@@ -143,6 +193,10 @@ interface TelemetryState {
   updateSotifMetrics: (metrics: SotifMetrics) => void;
   updateVoyagePlan: (plan: VoyagePlanData | null) => void;
   updateAvoidancePlan: (plan: any | null) => void;
+  updateOddState: (state: any | null) => void;
+  updateBehaviorPlan: (plan: any | null) => void;
+  updateColregsConstraint: (constraint: any | null) => void;
+  updateSafetyAlert: (alert: any | null) => void;
   reset: () => void;
 }
 
@@ -172,6 +226,10 @@ const initialState = {
   lastTrailTime: 0,
   voyagePlan: null,
   avoidancePlan: null,
+  oddState: null,
+  behaviorPlan: null,
+  colregsConstraint: null,
+  safetyAlert: null,
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -205,6 +263,85 @@ function normalizeAvoidancePlan(plan: any | null): AvoidancePlanData | null {
     status: typeof plan.status === 'string' ? plan.status : undefined,
     confidence: numberOrUndefined(plan.confidence),
     rationale: typeof plan.rationale === 'string' ? plan.rationale : undefined,
+  };
+}
+
+function normalizeOddState(state: any | null): OddStateData | null {
+  if (!state) return null;
+  return {
+    zone: numberOrUndefined(state.current_zone ?? state.currentZone ?? state.zone),
+    autoLevel: numberOrUndefined(state.auto_level ?? state.autoLevel),
+    health: numberOrUndefined(state.health),
+    envelopeState: numberOrUndefined(state.envelope_state ?? state.envelopeState),
+    conformanceScore: numberOrUndefined(state.conformance_score ?? state.conformanceScore),
+    tmrS: numberOrUndefined(state.tmr_s ?? state.tmrS),
+    tdlS: numberOrUndefined(state.tdl_s ?? state.tdlS),
+    confidence: numberOrUndefined(state.confidence),
+    rationale: typeof state.rationale === 'string' ? state.rationale : undefined,
+  };
+}
+
+function normalizeBehaviorPlan(plan: any | null): BehaviorPlanData | null {
+  if (!plan) return null;
+  return {
+    behavior: numberOrUndefined(plan.behavior),
+    headingMinDeg: numberOrUndefined(plan.heading_min_deg ?? plan.headingMinDeg),
+    headingMaxDeg: numberOrUndefined(plan.heading_max_deg ?? plan.headingMaxDeg),
+    speedMinKn: numberOrUndefined(plan.speed_min_kn ?? plan.speedMinKn),
+    speedMaxKn: numberOrUndefined(plan.speed_max_kn ?? plan.speedMaxKn),
+    confidence: numberOrUndefined(plan.confidence),
+    rationale: typeof plan.rationale === 'string' ? plan.rationale : undefined,
+  };
+}
+
+function normalizeColregsConstraint(constraint: any | null): ColregsConstraintData | null {
+  if (!constraint) return null;
+  const activeRules = Array.isArray(constraint.active_rules)
+    ? constraint.active_rules
+    : Array.isArray(constraint.activeRules)
+      ? constraint.activeRules
+      : [];
+  const encounterRulePriority = [14, 15, 13, 17, 16, 18, 8];
+  const primaryRule = encounterRulePriority
+    .map((ruleId) => activeRules.find((rule: any) => (rule.rule_id ?? rule.ruleId) === ruleId))
+    .find((rule) => rule !== undefined)
+    ?? activeRules.find((rule: any) => (
+      (rule.preferred_direction ?? rule.preferredDirection) !== 'HOLD'
+      || (rule.min_alteration_deg ?? rule.minAlterationDeg ?? 0) > 0
+    ))
+    ?? activeRules[0]
+    ?? {};
+  return {
+    ruleId: numberOrUndefined(primaryRule.rule_id ?? primaryRule.ruleId),
+    phase: typeof constraint.phase === 'string' ? constraint.phase : undefined,
+    role: numberOrUndefined(constraint.primary_role ?? constraint.primaryRole ?? primaryRule.role),
+    preferredDirection: typeof (constraint.primary_preferred_direction ?? constraint.primaryPreferredDirection ?? primaryRule.preferred_direction ?? primaryRule.preferredDirection) === 'string'
+      ? (constraint.primary_preferred_direction ?? constraint.primaryPreferredDirection ?? primaryRule.preferred_direction ?? primaryRule.preferredDirection)
+      : undefined,
+    minAlterationDeg: numberOrUndefined(primaryRule.min_alteration_deg ?? primaryRule.minAlterationDeg),
+    conflictDetected: typeof (constraint.conflict_detected ?? constraint.conflictDetected) === 'boolean'
+      ? (constraint.conflict_detected ?? constraint.conflictDetected)
+      : undefined,
+    confidence: numberOrUndefined(constraint.confidence ?? primaryRule.confidence ?? primaryRule.rule_confidence ?? primaryRule.ruleConfidence),
+    rationale: typeof constraint.rationale === 'string'
+      ? constraint.rationale
+      : typeof primaryRule.rationale === 'string'
+        ? primaryRule.rationale
+        : undefined,
+  };
+}
+
+function normalizeSafetyAlert(alert: any | null): SafetyAlertData | null {
+  if (!alert) return null;
+  return {
+    alertType: numberOrUndefined(alert.alert_type ?? alert.alertType),
+    severity: numberOrUndefined(alert.severity),
+    description: typeof alert.description === 'string' ? alert.description : undefined,
+    recommendedMrm: typeof (alert.recommended_mrm ?? alert.recommendedMrm) === 'string'
+      ? (alert.recommended_mrm ?? alert.recommendedMrm)
+      : undefined,
+    confidence: numberOrUndefined(alert.confidence),
+    rationale: typeof alert.rationale === 'string' ? alert.rationale : undefined,
   };
 }
 
@@ -250,7 +387,20 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     for (const nt of newTargets) {
       const idx = merged.findIndex((t) => t.mmsi === nt.mmsi);
       if (idx >= 0) {
-        merged[idx] = nt;
+        const existing = merged[idx] as any;
+        const incoming = nt as any;
+        merged[idx] = {
+          ...existing,
+          ...incoming,
+          pose: {
+            ...(existing.pose ?? {}),
+            ...(incoming.pose ?? {}),
+          },
+          kinematics: {
+            ...(existing.kinematics ?? {}),
+            ...(incoming.kinematics ?? {}),
+          },
+        } as any;
       } else {
         merged.push(nt);
       }
@@ -315,6 +465,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   updateSotifMetrics: (sotifMetrics) => set({ sotifMetrics, sotifMetricsLastReceivedAt: Date.now() }),
   updateVoyagePlan: (voyagePlan) => set({ voyagePlan }),
   updateAvoidancePlan: (plan) => set({ avoidancePlan: normalizeAvoidancePlan(plan) }),
+  updateOddState: (state) => set({ oddState: normalizeOddState(state) }),
+  updateBehaviorPlan: (plan) => set({ behaviorPlan: normalizeBehaviorPlan(plan) }),
+  updateColregsConstraint: (constraint) => set({ colregsConstraint: normalizeColregsConstraint(constraint) }),
+  updateSafetyAlert: (alert) => set({ safetyAlert: normalizeSafetyAlert(alert) }),
   reset: () => set(initialState),
 }));
 

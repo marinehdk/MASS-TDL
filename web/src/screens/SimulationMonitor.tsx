@@ -5,7 +5,13 @@ import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useTelemetryStore, useControlStore, useUIStore, useScenarioStore } from '../store';
-import { useDeactivateLifecycleMutation, useChangeLifecycleRateMutation, useGetScenarioQuery } from '../api/silApi';
+import type { VoyagePlanData } from '../store/telemetryStore';
+import {
+  useDeactivateLifecycleMutation,
+  useChangeLifecycleRateMutation,
+  useGetLifecycleStatusQuery,
+  useGetScenarioQuery,
+} from '../api/silApi';
 import * as jsyaml from 'js-yaml';
 import { computeRangeNm, computeBearing } from './shared/navMath';
 import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
@@ -33,7 +39,9 @@ import {
 } from 'lucide-react';
 import type maplibregl from 'maplibre-gl';
 
-const MODULE_NAMES = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'];
+const MODULE_NAMES = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'] as const;
+type ModuleName = typeof MODULE_NAMES[number];
+type ModuleDetailRow = { label: string; value: string };
 const HEALTH_COLOR: Record<number, string> = { 1: '#34d399', 2: '#fbbf24', 3: '#f87171' };
 
 function fmtSimTime(secs: number) {
@@ -145,7 +153,205 @@ const CAPTAIN_TABS = [
 type MonitorTabId = typeof MONITOR_TABS[number]['id'];
 type CaptainTabId = typeof CAPTAIN_TABS[number]['id'];
 
-export function SimulationMonitor() {
+interface SimulationMonitorProps {
+  routeScenarioId?: string;
+}
+
+interface RouteProgress {
+  nextWaypointIndex: number;
+  remainingDistanceNm: number;
+  remainingTimeS: number;
+  plannedSpeedKn: number;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function segmentSpeedKn(speedProfile: number[] | undefined, index: number, fallback: number): number {
+  const profiled = finiteNumber(speedProfile?.[index]);
+  if (profiled !== null && profiled > 0) return profiled;
+  return fallback > 0 ? fallback : 10.0;
+}
+
+function formatRemainingSimTime(seconds: number | null): string {
+  if (seconds === null || seconds < 0 || !Number.isFinite(seconds)) return '—';
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds - hours * 3600) / 60);
+  if (minutes >= 60) return `${hours + 1}h 0m`;
+  return `${hours}h ${minutes}m`;
+}
+
+const ODD_ENVELOPE_LABELS: Record<number, string> = {
+  0: 'IN ODD',
+  1: 'EDGE',
+  2: 'OUT',
+  3: 'MRC PREP',
+  4: 'MRC ACTIVE',
+};
+
+const COLREGS_ROLE_LABELS: Record<number, string> = {
+  0: 'STAND-ON 保向',
+  1: 'GIVE-WAY 让路',
+  2: 'BOTH GIVE-WAY',
+  3: 'FREE',
+};
+
+const SAFETY_SEVERITY_LABELS: Record<number, string> = {
+  0: 'INFO',
+  1: 'WARNING',
+  2: 'CRITICAL',
+  3: 'MRC REQUIRED',
+};
+
+const ODD_HEALTH_LABELS: Record<number, string> = {
+  0: 'UNKNOWN',
+  1: 'NORMAL',
+  2: 'DEGRADED',
+  3: 'FAIL',
+};
+
+const BEHAVIOR_LABELS: Record<number, string> = {
+  0: 'TRANSIT',
+  1: 'COLREG_AVOID',
+  2: 'STATION_KEEP',
+  3: 'MRC',
+};
+
+const BOTTOM_MODULE_TITLES: Record<ModuleName, string> = {
+  M1: 'M1 - ODD 运行包络与状态机',
+  M2: 'M2 - 世界模型与会遇度量',
+  M3: 'M3 - 航次计划与调度跟踪',
+  M4: 'M4 - IvP 行为仲裁决策细节',
+  M5: 'M5 - MPC 战术轨迹收敛性',
+  M6: 'M6 - COLREGs 规则与责任',
+  M7: 'M7 - SOTIF 安全检查度量',
+  M8: 'M8 - HMI 报警发布器状态',
+};
+
+function formatNumber(value: number | undefined, digits = 0): string | null {
+  return value !== undefined && Number.isFinite(value) ? value.toFixed(digits) : null;
+}
+
+function formatPercent(value: number | undefined, digits = 0): string {
+  return value !== undefined && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : '—';
+}
+
+function formatRawPercent(value: number | undefined, digits = 1): string {
+  return value !== undefined && Number.isFinite(value) ? `${value.toFixed(digits)}%` : '—';
+}
+
+function formatBehavior(behavior: number | undefined, fallback?: string | null): string {
+  if (behavior !== undefined) return BEHAVIOR_LABELS[behavior] ?? `BEHAVIOR ${behavior}`;
+  return fallback || '—';
+}
+
+function formatDecisionRule(colregsRuleId: number | undefined, satRule: string | undefined, fsmRule: string): string {
+  if (colregsRuleId !== undefined) return `Rule ${colregsRuleId}`;
+  if (satRule) return satRule;
+  if (fsmRule && fsmRule !== 'N/A' && fsmRule !== 'Nominal autopilot') return fsmRule;
+  return '—';
+}
+
+function formatManeuverCommand(preferredDirection: string | undefined, minAlterationDeg: number | undefined, headingMinDeg: number | undefined, headingMaxDeg: number | undefined): string {
+  if (preferredDirection) {
+    const alteration = formatNumber(minAlterationDeg, 0);
+    return alteration ? `${preferredDirection} ${alteration}°` : preferredDirection;
+  }
+  const headingMin = formatNumber(headingMinDeg, 0);
+  const headingMax = formatNumber(headingMaxDeg, 0);
+  if (headingMin && headingMax) return `${headingMin}°-${headingMax}°`;
+  return '—';
+}
+
+function formatM5Command(status: string | undefined, targetSpeedKn: number | undefined, speedMinKn: number | undefined, speedMaxKn: number | undefined): string {
+  const targetSpeed = formatNumber(targetSpeedKn, 1);
+  if (status && targetSpeed) return `${status} / ${targetSpeed} kn`;
+  if (status) return status;
+  const speedMin = formatNumber(speedMinKn, 1);
+  const speedMax = formatNumber(speedMaxKn, 1);
+  if (speedMin && speedMax) return `${speedMin}-${speedMax} kn`;
+  return '—';
+}
+
+function formatSafetyAlarm(severity: number | undefined, recommendedMrm: string | undefined, torActive: boolean): string {
+  if (severity !== undefined) {
+    const severityLabel = SAFETY_SEVERITY_LABELS[severity] ?? `SEV ${severity}`;
+    return recommendedMrm ? `${severityLabel} / ${recommendedMrm}` : severityLabel;
+  }
+  return torActive ? '接管请求 (TOR)' : '—';
+}
+
+function computeRouteProgress(
+  waypoints: Array<{ lat: number; lon: number }>,
+  ownLat: number,
+  ownLon: number,
+  speedProfileKn: number[] | undefined,
+  cruiseSpeed: number,
+): RouteProgress | null {
+  if (waypoints.length < 2) return null;
+
+  const segmentDistances = waypoints.slice(0, -1).map((wp, idx) => (
+    computeRangeNm(wp.lat, wp.lon, waypoints[idx + 1].lat, waypoints[idx + 1].lon)
+  ));
+  const totalDistanceNm = segmentDistances.reduce((sum, dist) => sum + dist, 0);
+  if (totalDistanceNm <= 0) return null;
+
+  const latScale = 60.0;
+  const lonScale = 60.0 * Math.cos((ownLat * Math.PI) / 180);
+  const toLocal = (wp: { lat: number; lon: number }) => ({
+    x: (wp.lon - ownLon) * lonScale,
+    y: (wp.lat - ownLat) * latScale,
+  });
+
+  let bestSegment = 0;
+  let bestT = 0;
+  let bestDist2 = Number.POSITIVE_INFINITY;
+
+  for (let idx = 0; idx < waypoints.length - 1; idx += 1) {
+    const a = toLocal(waypoints[idx]);
+    const b = toLocal(waypoints[idx + 1]);
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const len2 = vx * vx + vy * vy;
+    const rawT = len2 > 0 ? -(a.x * vx + a.y * vy) / len2 : 0;
+    const t = Math.max(0, Math.min(1, rawT));
+    const px = a.x + vx * t;
+    const py = a.y + vy * t;
+    const dist2 = px * px + py * py;
+    if (dist2 < bestDist2) {
+      bestDist2 = dist2;
+      bestSegment = idx;
+      bestT = t;
+    }
+  }
+
+  const activeSegment = bestT >= 0.98 && bestSegment + 1 < segmentDistances.length
+    ? bestSegment + 1
+    : bestSegment;
+  const nextWaypointIndex = Math.min(activeSegment + 1, waypoints.length - 1);
+  const remainingFirstSegmentNm = segmentDistances[activeSegment] * (activeSegment === bestSegment ? (1 - bestT) : 1);
+
+  let remainingDistanceNm = remainingFirstSegmentNm;
+  let remainingTimeS = remainingFirstSegmentNm / segmentSpeedKn(speedProfileKn, activeSegment, cruiseSpeed) * 3600;
+
+  for (let idx = activeSegment + 1; idx < segmentDistances.length; idx += 1) {
+    const distNm = segmentDistances[idx];
+    remainingDistanceNm += distNm;
+    remainingTimeS += distNm / segmentSpeedKn(speedProfileKn, idx, cruiseSpeed) * 3600;
+  }
+
+  return {
+    nextWaypointIndex,
+    remainingDistanceNm,
+    remainingTimeS,
+    plannedSpeedKn: segmentSpeedKn(speedProfileKn, activeSegment, cruiseSpeed),
+  };
+}
+
+export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = {}) {
   const [activeRightTab, setActiveRightTab] = useState<MonitorTabId | null>(null);
   const [activeLeftTab, setActiveLeftTab] = useState<CaptainTabId | null>(null);
   const [activeBottomModule, setActiveBottomModule] = useState<string | null>(null);
@@ -153,6 +359,9 @@ export function SimulationMonitor() {
   useFoxgloveLive(wsUrl, true);
 
   const lifecycleStatus = useTelemetryStore((s) => s.lifecycleStatus);
+  const { data: lifecycleStatusHttp } = useGetLifecycleStatusQuery(undefined, {
+    pollingInterval: 1000,
+  });
   const asdrEvents      = useTelemetryStore((s) => s.asdrEvents);
   const wsConnected     = useTelemetryStore((s) => s.wsConnected);
   const ownShip         = useTelemetryStore((s) => s.ownShip);
@@ -162,16 +371,44 @@ export function SimulationMonitor() {
   const sat3            = useTelemetryStore((s) => s.sat3);
   const sotifMetrics    = useTelemetryStore((s) => s.sotifMetrics);
   const scoringRow      = useTelemetryStore((s) => s.scoringRow);
+  const oddState        = useTelemetryStore((s) => s.oddState);
+  const behaviorPlan    = useTelemetryStore((s) => s.behaviorPlan);
+  const colregsConstraint = useTelemetryStore((s) => s.colregsConstraint);
+  const safetyAlert     = useTelemetryStore((s) => s.safetyAlert);
+  const avoidancePlan   = useTelemetryStore((s) => s.avoidancePlan);
+  const fsmState        = useFsmStore((s) => s.currentState);
+  const fsmRule         = useFsmStore((s) => s.activeRule);
+  const fsmConf         = useFsmStore((s) => s.confidence);
+  const fsmHistory      = useFsmStore((s) => s.transitionHistory);
+  const torRequest      = useFsmStore((s) => s.torRequest);
   const isSat2Stale     = useTelemetryStore((s) => s.isSat2Stale);
   const isSat3Stale     = useTelemetryStore((s) => s.isSat3Stale);
   const isSotifMetricsStale = useTelemetryStore((s) => s.isSotifMetricsStale);
   const ownShipTrail        = useTelemetryStore((s) => s.ownShipTrail);
+  const simRate             = useControlStore((s) => s.simRate);
 
-  const scenarioId = useScenarioStore((s) => s.scenarioId) || lifecycleStatus?.scenario_id;
+  const storedScenarioId = useScenarioStore((s) => s.scenarioId);
+  const scenarioId = routeScenarioId || storedScenarioId || lifecycleStatus?.scenario_id;
+  const localLifecycleScenarioId = lifecycleStatus?.scenario_id;
+  const authoritativeLifecycleScenarioId = (lifecycleStatusHttp as any)?.scenario_id ?? lifecycleStatusHttp?.scenarioId;
+  const localLifecycleMatchesRoute = Boolean(routeScenarioId && localLifecycleScenarioId === routeScenarioId);
+  const routeLifecycleMismatch = Boolean(
+    routeScenarioId
+    && !localLifecycleMatchesRoute
+    && authoritativeLifecycleScenarioId
+    && authoritativeLifecycleScenarioId !== routeScenarioId,
+  );
   const { data: activeScenario } = useGetScenarioQuery(scenarioId ?? '', { skip: !scenarioId });
+
+  useEffect(() => {
+    if (!routeLifecycleMismatch || !routeScenarioId) return;
+    useTelemetryStore.getState().reset();
+    useControlStore.getState().reset();
+    window.location.hash = `#/check/${routeScenarioId}`;
+  }, [routeLifecycleMismatch, routeScenarioId]);
   
   // Standardize Scenario YAML route waypoints extraction to the exact same `{ lat, lon }` structure
-  const yamlRoute = useMemo(() => {
+  const yamlRoute = useMemo<VoyagePlanData | null>(() => {
     if (!activeScenario?.yaml_content) return null;
     try {
       const doc = jsyaml.load(activeScenario.yaml_content) as any;
@@ -187,6 +424,9 @@ export function SimulationMonitor() {
       return {
         waypoints,
         cruiseSpeed,
+        speedProfileKn: rawWpts.slice(0, Math.max(0, rawWpts.length - 1)).map((wp: any) => (
+          finiteNumber(wp.target_sog_kn ?? wp.speed_kn) ?? cruiseSpeed
+        )),
         source: 'static_yaml' as const,
       };
     } catch {
@@ -200,29 +440,27 @@ export function SimulationMonitor() {
 
   const planDetails = useMemo(() => {
     if (!voyagePlan?.waypoints?.length) return null;
-    const finalWp = voyagePlan.waypoints[voyagePlan.waypoints.length - 1];
-    const finalLat = finalWp.lat;
-    const finalLon = finalWp.lon;
     const ownLat = ownShip?.pose?.lat;
     const ownLon = ownShip?.pose?.lon;
 
-    const distanceNm = (ownLat != null && ownLon != null && finalLat != null && finalLon != null)
-      ? computeRangeNm(ownLat, ownLon, finalLat, finalLon)
+    const validWaypoints = voyagePlan.waypoints.filter((wp: { lat: number; lon: number }) => (
+      finiteNumber(wp.lat) !== null && finiteNumber(wp.lon) !== null
+    ));
+    const cruiseSpeed = voyagePlan.cruiseSpeed || 10.0;
+    const progress = ownLat != null && ownLon != null
+      ? computeRouteProgress(validWaypoints, ownLat, ownLon, voyagePlan.speedProfileKn, cruiseSpeed)
       : null;
+    const fallbackDistanceNm = finiteNumber(voyagePlan.totalDistanceNm);
+    const fallbackDurationS = finiteNumber(voyagePlan.estimatedDurationS);
 
-    let etaString = '—';
-    if (distanceNm !== null && distanceNm > 0) {
-      const currentSpeedKn = ownShip?.kinematics?.sog != null ? ownShip.kinematics.sog * 1.944 : (voyagePlan.cruiseSpeed || 10.0);
-      const speedKn = currentSpeedKn > 0.5 ? currentSpeedKn : (voyagePlan.cruiseSpeed || 10.0);
-      const timeToGoHours = distanceNm / speedKn;
-      const currentSimTime = lifecycleStatus?.sim_time ?? 0;
-      const totalSimDurationSec = currentSimTime + timeToGoHours * 3600;
-      const date = new Date(1773676800000 + totalSimDurationSec * 1000); // 2026-03-15 base + sim seconds
-      etaString = date.toISOString().substr(11, 8);
-    }
+    const remainingTimeS = progress?.remainingTimeS ?? fallbackDurationS;
+    const etaString = formatRemainingSimTime(remainingTimeS);
 
-    const wptName = `WP${String(voyagePlan.waypoints.length).padStart(2, '0')}`;
-    const plannedSpeed = `${(voyagePlan.cruiseSpeed || 10.0).toFixed(1)} kn`;
+    const nextWaypointIndex = progress?.nextWaypointIndex ?? Math.min(1, validWaypoints.length - 1);
+    const distanceNm = progress?.remainingDistanceNm ?? fallbackDistanceNm;
+    const plannedSpeedKn = progress?.plannedSpeedKn ?? segmentSpeedKn(voyagePlan.speedProfileKn, 0, cruiseSpeed);
+    const wptName = `WP${String(nextWaypointIndex + 1).padStart(2, '0')}`;
+    const plannedSpeed = `${plannedSpeedKn.toFixed(1)} kn`;
 
     return {
       wpt: wptName,
@@ -231,7 +469,138 @@ export function SimulationMonitor() {
       spd: plannedSpeed,
       source: voyagePlan.source,
     };
-  }, [ownShip, voyagePlan, lifecycleStatus]);
+  }, [ownShip, voyagePlan]);
+
+  const avoidanceDecisionDetails = useMemo(() => {
+    const satRule = sat2?.colregs_chain?.find(c => c.layer === 2)?.conclusion;
+    const firstAvoidanceWaypoint = avoidancePlan?.waypoints?.[0];
+    const envelope = oddState?.envelopeState !== undefined
+      ? ODD_ENVELOPE_LABELS[oddState.envelopeState] ?? `ODD ${oddState.envelopeState}`
+      : '—';
+    const role = colregsConstraint?.role !== undefined
+      ? COLREGS_ROLE_LABELS[colregsConstraint.role] ?? `ROLE ${colregsConstraint.role}`
+      : '—';
+
+    return {
+      envelope,
+      rule: formatDecisionRule(colregsConstraint?.ruleId, satRule, fsmRule),
+      role,
+      maneuver: formatManeuverCommand(
+        colregsConstraint?.preferredDirection,
+        colregsConstraint?.minAlterationDeg,
+        behaviorPlan?.headingMinDeg,
+        behaviorPlan?.headingMaxDeg,
+      ),
+      m5Command: formatM5Command(
+        avoidancePlan?.status,
+        firstAvoidanceWaypoint?.targetSpeedKn,
+        behaviorPlan?.speedMinKn,
+        behaviorPlan?.speedMaxKn,
+      ),
+      alarm: formatSafetyAlarm(safetyAlert?.severity, safetyAlert?.recommendedMrm, Boolean(torRequest)),
+    };
+  }, [avoidancePlan, behaviorPlan, colregsConstraint, fsmRule, oddState, safetyAlert, sat2, torRequest]);
+
+  const nearestTargetMetrics = useMemo(() => {
+    let best: { cpaNm: number | null; tcpaMin: number | null } | null = null;
+    for (const target of targets) {
+      const targetMetrics = target as typeof target & { cpaM?: number; tcpaS?: number };
+      const cpaNm = typeof targetMetrics.cpaM === 'number' ? targetMetrics.cpaM / 1852.0 : null;
+      const tcpaMin = typeof targetMetrics.tcpaS === 'number' ? targetMetrics.tcpaS / 60.0 : null;
+      if (cpaNm === null && tcpaMin === null) continue;
+      if (!best || (cpaNm !== null && (best.cpaNm === null || cpaNm < best.cpaNm))) {
+        best = { cpaNm, tcpaMin };
+      }
+    }
+    return best;
+  }, [targets]);
+
+  const moduleRealtimeRows = useMemo(() => {
+    const firstAvoidanceWaypoint = avoidancePlan?.waypoints?.[0];
+    const speedMin = formatNumber(behaviorPlan?.speedMinKn, 1);
+    const speedMax = formatNumber(behaviorPlan?.speedMaxKn, 1);
+    const speedWindow = speedMin && speedMax ? `${speedMin}-${speedMax} kn` : '—';
+    const m4Behavior = formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior);
+    const safetySeverity = safetyAlert?.severity !== undefined
+      ? SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? `SEV ${safetyAlert.severity}`
+      : '—';
+
+    return {
+      M1: [
+        { label: 'ODD 包络边界', value: avoidanceDecisionDetails.envelope },
+        { label: '一致性评分', value: formatPercent(oddState?.conformanceScore) },
+        { label: '健康状态', value: oddState?.health !== undefined ? (ODD_HEALTH_LABELS[oddState.health] ?? `HEALTH ${oddState.health}`) : '—' },
+        { label: 'FSM 阶段', value: fsmState.replace(/_/g, ' ') },
+      ],
+      M2: [
+        { label: '目标数量', value: `${targets.length}` },
+        { label: '最近会遇 CPA', value: nearestTargetMetrics?.cpaNm !== null && nearestTargetMetrics?.cpaNm !== undefined ? `${nearestTargetMetrics.cpaNm.toFixed(2)} nm` : '—' },
+        { label: '最近会遇 TCPA', value: nearestTargetMetrics?.tcpaMin !== null && nearestTargetMetrics?.tcpaMin !== undefined ? `${nearestTargetMetrics.tcpaMin.toFixed(1)} min` : '—' },
+        { label: '世界模型状态', value: wsConnected ? 'LIVE' : 'DOWN' },
+      ],
+      M3: [
+        { label: '计划路点 WPT', value: planDetails?.wpt ?? '—' },
+        { label: '终点距离 DIST', value: planDetails?.dist ?? '—' },
+        { label: '剩余航时 ETA', value: planDetails?.eta ?? '—' },
+        { label: '计划速度 SPD', value: planDetails?.spd ?? '—' },
+      ],
+      M4: [
+        { label: '仲裁行为', value: m4Behavior },
+        { label: '转向窗口', value: formatManeuverCommand(undefined, undefined, behaviorPlan?.headingMinDeg, behaviorPlan?.headingMaxDeg) },
+        { label: '速度窗口', value: speedWindow },
+        { label: '置信度', value: formatPercent(behaviorPlan?.confidence) },
+      ],
+      M5: [
+        { label: '指令输出', value: avoidanceDecisionDetails.m5Command },
+        { label: '路径点数量', value: avoidancePlan ? `${avoidancePlan.waypoints.length} 条` : '—' },
+        { label: '规划时域', value: avoidancePlan?.horizonS !== undefined ? `${avoidancePlan.horizonS.toFixed(0)} s` : '—' },
+        { label: '置信度', value: formatPercent(avoidancePlan?.confidence) },
+      ],
+      M6: [
+        { label: '避碰规则', value: avoidanceDecisionDetails.rule },
+        { label: '责任角色', value: avoidanceDecisionDetails.role },
+        { label: '机动方向', value: avoidanceDecisionDetails.maneuver },
+        { label: '推理阶段', value: colregsConstraint?.phase ?? '—' },
+      ],
+      M7: [
+        { label: '安全告警', value: avoidanceDecisionDetails.alarm },
+        { label: '检查器否决率', value: formatRawPercent(sotifMetrics?.checker_veto_rate_pct) },
+        { label: 'SOTIF 描述', value: safetyAlert?.description ?? '—' },
+        { label: '告警置信度', value: formatPercent(safetyAlert?.confidence) },
+      ],
+      M8: [
+        { label: '实时链路', value: wsConnected ? 'LIVE' : 'DOWN' },
+        { label: '交互 RTT', value: sotifMetrics?.comm_link_rtt_ms !== undefined ? `${sotifMetrics.comm_link_rtt_ms.toFixed(0)} ms` : '—' },
+        { label: '感知覆盖率', value: formatRawPercent(sotifMetrics?.perception_coverage_pct) },
+        { label: '报警等级', value: safetySeverity },
+      ],
+    } satisfies Record<ModuleName, ModuleDetailRow[]>;
+  }, [
+    avoidanceDecisionDetails,
+    avoidancePlan,
+    behaviorPlan,
+    colregsConstraint,
+    fsmState,
+    nearestTargetMetrics,
+    oddState,
+    planDetails,
+    safetyAlert,
+    sat2,
+    sotifMetrics,
+    targets.length,
+    wsConnected,
+  ]);
+
+  const moduleSummaries = useMemo<Record<ModuleName, string>>(() => ({
+    M1: avoidanceDecisionDetails.envelope !== '—' ? `ODD ${avoidanceDecisionDetails.envelope}` : '—',
+    M2: targets.length > 0 ? `${targets.length} tgt` : '—',
+    M3: planDetails?.wpt ? `WPT ${planDetails.wpt}` : '—',
+    M4: formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior).replace('COLREG_AVOID', 'COLREG'),
+    M5: avoidancePlan?.status ?? (avoidancePlan ? `${avoidancePlan.waypoints.length} wpt` : '—'),
+    M6: colregsConstraint?.ruleId !== undefined ? `R${colregsConstraint.ruleId}` : avoidanceDecisionDetails.rule,
+    M7: safetyAlert?.severity !== undefined ? `ALM ${SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? safetyAlert.severity}` : '—',
+    M8: wsConnected ? 'WS LIVE' : 'WS DOWN',
+  }), [avoidanceDecisionDetails, avoidancePlan, behaviorPlan, colregsConstraint, planDetails, safetyAlert, sat2, targets.length, wsConnected]);
 
   // Scenario Switch Protection: Reset active real-time L2 plan inside telemetry store on scenario change
   const prevScenarioIdRef = useRef<string | null>(null);
@@ -336,8 +705,8 @@ export function SimulationMonitor() {
           const id = t.mmsi ? String(t.mmsi) : `T${idx + 1}`;
           const targetIdDisplay = t.mmsi ? `T${String(t.mmsi).slice(-2)}` : `T${idx + 1}`;
           const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
-          const cpaVal = cpaInfo?.cpa;
-          const tcpaVal = cpaInfo?.tcpa;
+          const cpaVal = typeof t.cpaM === 'number' ? t.cpaM / 1852.0 : cpaInfo?.cpa;
+          const tcpaVal = typeof t.tcpaS === 'number' ? t.tcpaS / 60.0 : cpaInfo?.tcpa;
 
           const targetLat = t.pose?.lat;
           const targetLon = t.pose?.lon;
@@ -359,7 +728,7 @@ export function SimulationMonitor() {
             : '—';
 
           const cpa = cpaVal != null ? `${cpaVal.toFixed(2)} nm` : '—';
-          const tcpa = tcpaVal != null ? `${tcpaVal.toFixed(1)} m` : '—';
+          const tcpa = tcpaVal != null ? `${tcpaVal.toFixed(1)} min` : '—';
 
           const cpaColor = cpaVal != null
             ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : '#fff'
@@ -461,7 +830,6 @@ export function SimulationMonitor() {
     }));
   };
 
-  const simRate   = useControlStore((s) => s.simRate);
   const isPaused  = useControlStore((s) => s.isPaused);
   const setSimRate = useControlStore((s) => s.setSimRate);
   const setPaused  = useControlStore((s) => s.setPaused);
@@ -474,12 +842,6 @@ export function SimulationMonitor() {
   const toggleRight    = useUIStore((s) => s.toggleRightDrawer);
   const asdrExpanded   = useUIStore((s) => s.asdrLogExpanded);
   const toggleAsdr     = useUIStore((s) => s.toggleAsdrLog);
-
-  const fsmState    = useFsmStore((s) => s.currentState);
-  const fsmRule     = useFsmStore((s) => s.activeRule);
-  const fsmConf     = useFsmStore((s) => s.confidence);
-  const fsmHistory  = useFsmStore((s) => s.transitionHistory);
-  const torRequest  = useFsmStore((s) => s.torRequest);
 
   const [showFaultModal, setShowFaultModal] = useState(false);
   const [substrate, setSubstrate] = useState<'enc' | 'sat' | 'osm'>('enc');
@@ -944,7 +1306,7 @@ export function SimulationMonitor() {
 
                           {/* Cell 3: ETA */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>预计抵港 ETA</span>
+                            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>剩余航时 ETA</span>
                             <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
                               {planDetails.eta}
                             </span>
@@ -1169,20 +1531,20 @@ export function SimulationMonitor() {
                       }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>包络边界 ODD</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : 'var(--c-phos)', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: oddState?.envelopeState != null && oddState.envelopeState >= 2 ? 'var(--c-danger)' : oddState?.envelopeState === 1 ? 'var(--c-warn)' : 'var(--c-phos)',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
-                            {fsmState === 'MRC' ? 'OUT (MRC)' : fsmState === 'TOR' ? 'OUT (TOR)' : 'IN ODD'}
+                            {avoidanceDecisionDetails.envelope}
                           </span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>状态机阶段 FSM</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : '#fff', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : '#fff',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
                             {String(fsmState || 'NORMAL').replace('_', ' ')}
                           </span>
@@ -1225,17 +1587,17 @@ export function SimulationMonitor() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>适用避碰规则 RULE</span>
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
-                            {sat2?.colregs_chain?.find(c => c.layer === 2)?.conclusion || fsmRule || 'Rule 14 (对遇)'}
+                            {avoidanceDecisionDetails.rule}
                           </span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>会遇避碰责任 ROLE</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-danger)' : 'var(--c-info)', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: colregsConstraint?.role === 1 ? 'var(--c-danger)' : 'var(--c-info)',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
-                            {fsmState === 'COLREG_AVOIDANCE' ? 'GIVE-WAY 让路' : 'STAND-ON 保向'}
+                            {avoidanceDecisionDetails.role}
                           </span>
                         </div>
                       </div>
@@ -1275,35 +1637,18 @@ export function SimulationMonitor() {
                       }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>避碰转向指令 STR</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : 'var(--c-phos)', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: colregsConstraint?.preferredDirection === 'STARBOARD' || colregsConstraint?.preferredDirection === 'PORT' ? 'var(--c-warn)' : 'var(--c-phos)',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
-                            {fsmState === 'COLREG_AVOIDANCE' ? '右舵转向 15°' : '常规保向'}
+                            {avoidanceDecisionDetails.maneuver}
                           </span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>车钟与航速指令 THR</span>
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
-                            {(() => {
-                              const getThrottleStr = () => {
-                                if (ownShip?.controlState?.throttle == null) return '—';
-                                const throttle = ownShip.controlState.throttle;
-                                if (throttle === 0) return 'STOP';
-                                if (throttle > 0) {
-                                  if (throttle <= 0.35) return 'AH 1';
-                                  if (throttle <= 0.7) return 'AH 2';
-                                  return 'AH 3';
-                                } else {
-                                  if (throttle >= -0.35) return 'AS 1';
-                                  if (throttle >= -0.7) return 'AS 2';
-                                  return 'AS 3';
-                                }
-                              };
-                              const sogVal = ownShip?.kinematics?.sog != null ? `${(ownShip.kinematics.sog * 1.944).toFixed(1)} kn` : '—';
-                              return `${getThrottleStr()} / ${sogVal}`;
-                            })()}
+                            {avoidanceDecisionDetails.m5Command}
                           </span>
                         </div>
                       </div>
@@ -1343,22 +1688,22 @@ export function SimulationMonitor() {
                       }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>SOTIF 否决率 VETO</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: sotifMetrics?.checker_veto_rate_pct && sotifMetrics.checker_veto_rate_pct > 10 ? 'var(--c-warn)' : 'var(--c-green)', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: sotifMetrics?.checker_veto_rate_pct && sotifMetrics.checker_veto_rate_pct > 10 ? 'var(--c-warn)' : 'var(--c-green)',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
                             {sotifMetrics?.checker_veto_rate_pct != null ? `${sotifMetrics.checker_veto_rate_pct.toFixed(1)}%` : '0.0%'}
                           </span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>报警发布等级 ALARM</span>
-                          <span style={{ 
-                            fontFamily: 'var(--f-mono)', fontSize: 16, 
-                            color: torRequest ? '接管请求 (TOR)' : '正常运行 (LV 0)', 
-                            fontWeight: 700, lineHeight: 1.1 
+	                          <span style={{
+	                            fontFamily: 'var(--f-mono)', fontSize: 16,
+	                            color: safetyAlert?.severity != null && safetyAlert.severity >= 2 ? 'var(--c-danger)' : torRequest ? 'var(--c-warn)' : '#fff',
+	                            fontWeight: 700, lineHeight: 1.1
                           }}>
-                            {torRequest ? '接管请求 (TOR)' : '正常运行 (LV 0)'}
+                            {avoidanceDecisionDetails.alarm}
                           </span>
                         </div>
                       </div>
@@ -1408,7 +1753,7 @@ export function SimulationMonitor() {
                 }}>
                   {MONITOR_TABS.find(t => t.id === activeRightTab)?.label.toUpperCase()}
                 </span>
-                <button
+		              <button
                   onClick={() => setActiveRightTab(null)}
                   style={{
                     background: 'transparent', border: 'none', color: 'var(--txt-3)',
@@ -1561,148 +1906,26 @@ export function SimulationMonitor() {
             gap: 8,
             backdropFilter: 'blur(16px)',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 6 }}>
-              <span style={{ fontSize: 11, fontFamily: 'var(--f-disp)', fontWeight: 700, color: popoverBorderColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {activeBottomModule === 'M1' && 'M1 - ODD 运行包络与状态机'}
-                {activeBottomModule === 'M2' && 'M2 - 全局航线及偏差控制'}
-                {activeBottomModule === 'M3' && 'M3 - 航次计划与调度跟踪'}
-                {activeBottomModule === 'M4' && 'M4 - IvP 行为仲裁决策细节'}
-                {activeBottomModule === 'M5' && 'M5 - MPC 战术轨迹收敛性'}
-                {activeBottomModule === 'M6' && 'M6 - COLREGs 推理树追溯'}
-                {activeBottomModule === 'M7' && 'M7 - SOTIF 安全检查度量'}
-                {activeBottomModule === 'M8' && 'M8 - HMI 报警发布器状态'}
-              </span>
-              <button 
-                onClick={() => setActiveBottomModule(null)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--txt-3)', cursor: 'pointer', fontSize: 12 }}
+	            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 6 }}>
+	              <span style={{ fontSize: 11, fontFamily: 'var(--f-disp)', fontWeight: 700, color: popoverBorderColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+	                {BOTTOM_MODULE_TITLES[activeBottomModule as ModuleName] ?? activeBottomModule}
+	              </span>
+	              <button
+	                onClick={() => setActiveBottomModule(null)}
+	                style={{ background: 'transparent', border: 'none', color: 'var(--txt-3)', cursor: 'pointer', fontSize: 12 }}
                 onMouseEnter={(e) => e.currentTarget.style.color = 'var(--c-danger)'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--txt-3)'}
               >×</button>
-            </div>
-            
-            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {activeBottomModule === 'M1' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">当前运行域 (ODD)</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>OPEN_WATER (开阔)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">运行包络安全系数</span>
-                    <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>92% (符合SIL标准)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">水深/风速健康度</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>正常 🟢</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M2' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">全局计划航线</span>
-                    <span style={{ color: '#fff', fontWeight: 'bold', fontSize: 8 }}>SEG_XIAMEN_SHANGHAI_A</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">横向偏航偏差 (XTE)</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>0.02 nm (限制: 0.1nm)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">下一个路点 WPT</span>
-                    <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>WP04 (24.460°N)</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M3' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">航次时空段状态</span>
-                    <span style={{ color: '#fff', fontWeight: 'bold' }}>WAYPOINT_TRACKING</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">整体计划航程进度</span>
-                    <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>42.5% (已驶 12.8 / 30.1 nm)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">航次时空到港延误度</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>0.00s (时空对齐合格)</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M4' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">周期求解算延时</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>{sat2?.reasoning_latency_ms != null ? `${sat2.reasoning_latency_ms} ms` : '4.2 ms'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">最高活跃评分行为</span>
-                    <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>{sat2?.active_behavior || 'COLREG_AVOID'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">活跃行为分配权重</span>
-                    <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{sat2?.active_behavior_weight != null ? `${(sat2.active_behavior_weight * 100).toFixed(0)}%` : '95%'}</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M5' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">战术优化候选路径</span>
-                    <span style={{ color: 'var(--c-phos)', fontWeight: 'bold' }}>{sat3?.trajectory_candidates?.length != null ? `${sat3.trajectory_candidates.length} 条` : '13 条'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">不确定误差包络带</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>{sat3?.uncertainty_bands ? '已开启 🟢' : '已开启 🟢'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">最优决策总Cost</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>18.9 (已收敛, Path_04)</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M6' && (
-                <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--line-1)', borderRadius: 6, overflow: 'hidden', width: '100%' }}>
-                  <ColregsRationaleTree
-                    chain={sat2?.colregs_chain ?? []}
-                    targetId={sat2?.colregs_chain_target_id ?? null}
-                    latencyMs={sat2?.reasoning_latency_ms ?? 0}
-                  />
-                </div>
-              )}
-              {activeBottomModule === 'M7' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">SOTIF 安全限制状态</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>SAFE (双轨一致)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">碰撞险度指标 CRI</span>
-                    <span style={{ color: 'var(--c-warn)', fontWeight: 'bold' }}>{sotifMetrics?.checker_veto_rate_pct != null ? ((sotifMetrics.checker_veto_rate_pct / 100.0) * 0.8).toFixed(2) : '0.42'} (阈值: 0.80)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">最小风险备份策略</span>
-                    <span style={{ color: '#fff', fontWeight: 'bold' }}>MRM-01 (漂泊待命)</span>
-                  </div>
-                </>
-              )}
-              {activeBottomModule === 'M8' && (
-                <>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">交互发布通信状态</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>NORMAL (与ROC同步)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">交互发布往返时延</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>5 ms (限制: 20ms)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between' }}>
-                    <span className="grid-label">警报发布等级</span>
-                    <span style={{ color: 'var(--c-green)', fontWeight: 'bold' }}>LEVEL-0 (正常)</span>
-                  </div>
-                </>
-              )}
-            </div>
+	            </div>
+
+	            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--txt-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+	              {moduleRealtimeRows[activeBottomModule as ModuleName]?.map((row: ModuleDetailRow) => (
+	                <div key={`${activeBottomModule}-${row.label}`} style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between', gap: 12 }}>
+	                  <span className="grid-label">{row.label}</span>
+	                  <span style={{ color: row.value === '—' ? 'var(--txt-3)' : popoverBorderColor, fontWeight: 'bold', textAlign: 'right' }}>{row.value}</span>
+	                </div>
+	              ))}
+		            </div>
 
             {/* Triangular Arrow pointing down to module card */}
             <div style={{
@@ -1735,13 +1958,15 @@ export function SimulationMonitor() {
           backdropFilter: 'blur(12px)',
           width: 580
         }}>
-          {MODULE_NAMES.map((name, i) => {
-            const active = activeBottomModule === name;
-            const p = modulePulses.find(x => Number(x.moduleId) === i + 1);
-            const color = p ? (HEALTH_COLOR[p.state ?? 0] ?? '#444') : '#333';
-            const lat = p?.latencyMs;
-            return (
-              <div
+	          {MODULE_NAMES.map((name, i) => {
+	            const active = activeBottomModule === name;
+	            const p = modulePulses.find(x => Number(x.moduleId) === i + 1);
+	            const summary = moduleSummaries[name] ?? '—';
+	            const hasRealtimeSummary = summary !== '—';
+	            const color = p ? (HEALTH_COLOR[p.state ?? 0] ?? '#444') : hasRealtimeSummary ? (activeColorMap[name] || 'var(--c-phos)') : '#333';
+	            const lat = p?.latencyMs;
+	            return (
+	              <div
                 key={name}
                 onClick={() => setActiveBottomModule(active ? null : name)}
                 style={{
@@ -1759,12 +1984,12 @@ export function SimulationMonitor() {
                   position: 'relative'
                 }}
               >
-                <span style={{ fontSize: 9, fontWeight: 800, color: active ? 'var(--c-phos)' : 'var(--txt-3)', letterSpacing: '0.05em', marginBottom: 2, fontFamily: 'var(--f-mono)' }}>{name}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />
-                  <span style={{ fontSize: 8, color: lat != null ? 'var(--txt-2)' : 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>{lat != null ? `${lat}ms` : '—'}</span>
-                </div>
-              </div>
+	                <span style={{ fontSize: 9, fontWeight: 800, color: active ? 'var(--c-phos)' : 'var(--txt-3)', letterSpacing: '0.05em', marginBottom: 2, fontFamily: 'var(--f-mono)' }}>{name}</span>
+	                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+	                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />
+	                  <span style={{ fontSize: 8, color: hasRealtimeSummary || lat != null ? 'var(--txt-2)' : 'var(--txt-3)', fontFamily: 'var(--f-mono)' }}>{hasRealtimeSummary ? summary : lat != null ? `${lat}ms` : '—'}</span>
+	                </div>
+	              </div>
             );
           })}
         </div>

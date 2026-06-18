@@ -62,7 +62,7 @@ export default function App() {
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {route.screen === 'scenario'   && <SimulationScenario />}
         {route.screen === 'check'      && <SimulationCheck />}
-        {route.screen === 'monitor'    && <SimulationMonitor />}
+        {route.screen === 'monitor'    && <SimulationMonitor routeScenarioId={route.runId} />}
         {route.screen === 'evaluator'  && <SimulationEvaluator />}
       </div>
       <FooterHotkeyHints screen={route.screen} />

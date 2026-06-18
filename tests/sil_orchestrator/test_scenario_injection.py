@@ -234,6 +234,32 @@ class TestExtractInjectionParams:
         assert "default_targets_json" in tv
         assert json.loads(tv["default_targets_json"][0]) == []
 
+    def test_target_vessel_params_preserve_source_behavior(self):
+        scenario = {
+            "targetShips": [
+                {
+                    "id": "ts1",
+                    "static": {"mmsi": 100000001},
+                    "initial": {
+                        "position": {"latitude": 63.0, "longitude": 10.0},
+                        "heading": 180.0,
+                        "sog": 10.0,
+                    },
+                    "source": {"type": "route"},
+                    "behavior": {
+                        "policy": "colregs_rule_fsm",
+                        "reaction_delay_s": 6.0,
+                    },
+                }
+            ]
+        }
+
+        result = _extract_injection_params(scenario)
+        targets = json.loads(result["target_vessel_node"]["default_targets_json"][0])
+
+        assert targets[0]["source"]["type"] == "route"
+        assert targets[0]["behavior"]["policy"] == "colregs_rule_fsm"
+
     def test_scenario_lifecycle_mgr_has_scenario_id(self, imazu08_parsed):
         """scenario_lifecycle_mgr receives scenario_id matching
         metadata.scenario_id from YAML."""

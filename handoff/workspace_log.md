@@ -603,3 +603,30 @@ This log coordinates task handoffs between different development interfaces (Cla
   - 隔离 stack 命令：`source scripts/local-behavior-fix-env.sh && export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1` + 任何 `--restart-between-runs` 必须加 `--restart-container colregs-behavior-fix-sil-nodes-1`。
   - 文档：spec `docs/superpowers/specs/2026-06-18-colregs-c1-crossing-beam-fix.md`、plan `docs/superpowers/plans/2026-06-18-colregs-c1-crossing-beam-fix.md`（主 checkout `codex/colregs-phase-gate-diag`）。phase-semantics-gate spec §C1 errata 已加。
   - mempalace: wing=MASS-L3 room=colregs-deviation-findings（runtime finding）+ room=colregs-environment-pitfalls（container-name gotcha）。
+
+## [2026-06-18] Agent: Codex (GPT-5)
+- **Git Commit**: `7a83b68f` plus handoff refresh on branch `codex/target-vessel-colregs-fsm`
+- **任务目标 (Goal)**: Add opt-in COLREGs rule-FSM behavior for route-driven simulated target vessels while preserving passive replay, AIS truth, and clean8 defaults.
+- **核心改动 (Actions)**:
+  - Added two-axis target-vessel configuration: `source.type` (`route` / `ais_replay` / `ais_live`) and `behavior.policy` (`passive` / `colregs_rule_fsm`; future `intelligent_planner` / `tdl_agent` reserved fail-fast).
+  - Enforced AIS passive-only, `colregs_rule_fsm` route-only, and v1 max one FSM-controlled target to preserve truth replay and avoid multi-agent coupling.
+  - Added target-vessel COLREG geometry helpers and opt-in FSM behavior for Rule 14, Rule 15, and Rule 17 target-as-give-way scenarios using ownship observation only.
+  - Wired FSM targets into `target_vessel_node` with isolated `/sil/own_ship_state` observation; no subscription to TDL decision topics. Final review fixes converted ownship heading radians to degrees, made dynamic `mode="intelligent"` default to FSM behavior, rejected duplicate dynamic FSM targets, and made stale ownship observation degrade to nominal route following.
+  - Added opt-in targeted scenarios only: `colreg-rule14-ho-intelligent.yaml`, `colreg-rule15-cs-intelligent.yaml`, and `colreg-rule17-cr-so-target-giveway.yaml`; clean8 scenario list unchanged.
+- **当前状态 (Status)**: AMBER
+- **Verification**:
+  - `PYTHONPATH=src/sim_workbench/sil_nodes/target_vessel:src/sim_workbench/sil_nodes/sil_common pytest -q tests/sil/test_target_vessel.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_ou.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_config.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_geometry.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_rule_fsm.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_node_colregs.py`
+    - result after final-review fix: `47 passed in 0.23s`
+  - `PYTHONPATH=src pytest -q src/sil_orchestrator/tests/test_encounters_routes.py tests/sil_orchestrator/test_scenario_injection.py`
+    - result: `20 passed in 0.29s`
+  - Forbidden TDL decision-topic guard check script output:
+    - `target_vessel_node does not subscribe to forbidden TDL decision topics`
+  - Intelligent scenario parser command checks passed for:
+    - `colreg-rule14-ho-intelligent-v1.0`
+    - `colreg-rule15-cs-intelligent-v1.0`
+    - `colreg-rule17-cr-so-target-giveway-v1.0`
+- **接力指示 (Hand-off Context)**:
+  - New intelligent scenarios are targeted-only and are not part of clean8.
+  - `clean8` and local OrbStack container gates were not run due worktree isolation constraints; they remain required before promotion.
+  - Container gates were blocked because active `mass-l3-sil` belongs to `.worktrees/main-runtime` and `colregs-behavior-fix` belongs to another worktree.
+  - A4000 validation remains required before any push/promotion.

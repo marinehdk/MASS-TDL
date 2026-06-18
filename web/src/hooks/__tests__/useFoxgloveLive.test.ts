@@ -4,10 +4,14 @@ import type { SAT2Data, SAT3Data, SotifMetrics } from '../../types/sat';
 
 const rosOn = vi.fn();
 const rosClose = vi.fn();
+const topicSubscriptions = vi.hoisted(() => new Map<string, (msg: any) => void>());
 
 vi.mock('@tier4/roslibjs-foxglove', () => ({
   Ros: vi.fn(() => ({ on: rosOn, close: rosClose })),
-  Topic: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+  Topic: vi.fn((config: any) => ({
+    subscribe: vi.fn((cb: (msg: any) => void) => topicSubscriptions.set(config.name, cb)),
+    unsubscribe: vi.fn(),
+  })),
   default: undefined,
 }));
 
@@ -50,6 +54,7 @@ describe('useFoxgloveLive — stale detection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     useTelemetryStore.getState().reset();
+    topicSubscriptions.clear();
     rosOn.mockReset();
     rosClose.mockReset();
   });
@@ -78,6 +83,109 @@ describe('useFoxgloveLive — stale detection', () => {
     expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
       name: '/l3/m5/avoidance_plan',
       messageType: 'l3_msgs/AvoidancePlan',
+    }));
+  });
+
+  it('subscribes to M2 world state for CPA/TCPA target metrics', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m2/world_state',
+      messageType: 'l3_msgs/WorldState',
+    }));
+  });
+
+  it('subscribes to real M1/M4/M6/M7 decision topics', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m1/odd_state',
+      messageType: 'l3_msgs/ODDState',
+    }));
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m4/behavior_plan',
+      messageType: 'l3_msgs/BehaviorPlan',
+    }));
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m6/colregs_constraint',
+      messageType: 'l3_msgs/COLREGsConstraint',
+    }));
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m7/safety_alert',
+      messageType: 'l3_msgs/SafetyAlert',
+    }));
+  });
+
+  it('stores real M6 COLREGs constraint messages', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+    topicSubscriptions.get('/l3/m6/colregs_constraint')?.({
+      active_rules: [{
+        rule_id: 14,
+        role: 1,
+        preferred_direction: 'STARBOARD',
+        min_alteration_deg: 22,
+      }],
+      phase: 'T_act',
+      primary_role: 1,
+      primary_preferred_direction: 'STARBOARD',
+      confidence: 0.91,
+    });
+
+    expect(useTelemetryStore.getState().colregsConstraint).toEqual(expect.objectContaining({
+      ruleId: 14,
+      role: 1,
+      preferredDirection: 'STARBOARD',
+      minAlterationDeg: 22,
+      phase: 'T_act',
+    }));
+  });
+
+  it('stores L2 planned route speed profile and route metrics from Foxglove camelCase fields', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+    topicSubscriptions.get('/l2/planned_route')?.({
+      routeId: 42,
+      route: {
+        poses: [
+          { pose: { position: { latitude: 63.4, longitude: 10.4 } } },
+          { pose: { position: { latitude: 63.5, longitude: 10.4 } } },
+        ],
+      },
+      speedProfileKn: [12.0],
+      totalDistanceNm: 6.0,
+      estimatedDurationS: 1800.0,
+    });
+
+    expect(useTelemetryStore.getState().voyagePlan).toEqual(expect.objectContaining({
+      cruiseSpeed: 12.0,
+      speedProfileKn: [12.0],
+      totalDistanceNm: 6.0,
+      estimatedDurationS: 1800.0,
+      routeId: 42,
+      source: 'l2_realtime',
     }));
   });
 

@@ -8,6 +8,14 @@ import { useTelemetryStore, useFsmStore, FSM_STATE_MAP } from '../store';
 // foxglove.websocket.v1. Patch before any connection is made.
 (FoxgloveClient as unknown as { SUPPORTED_SUBPROTOCOL: string }).SUPPORTED_SUBPROTOCOL = 'foxglove.sdk.v1';
 
+function degToRad(deg: unknown): number | undefined {
+  return typeof deg === 'number' && Number.isFinite(deg) ? deg * Math.PI / 180 : undefined;
+}
+
+function knotsToMps(kn: unknown): number | undefined {
+  return typeof kn === 'number' && Number.isFinite(kn) ? kn / 1.944 : undefined;
+}
+
 // Topic subscription map: topic → handler
 //
 // IMPORTANT: foxglove_bridge sends ROS2 CDR-decoded messages with the same
@@ -49,9 +57,59 @@ const TOPIC_MAP: Array<{
     },
   },
   {
+    topic: '/l3/m2/world_state',
+    messageType: 'l3_msgs/WorldState',
+    handler: (s, msg: any) => {
+      const targets = Array.isArray(msg?.targets) ? msg.targets : [];
+      s.updateTargets(targets.map((target: any) => ({
+        mmsi: Number(target.target_id ?? target.targetId),
+        pose: {
+          lat: target.position?.latitude,
+          lon: target.position?.longitude,
+          heading: degToRad(target.heading_deg ?? target.headingDeg),
+        },
+        kinematics: {
+          sog: knotsToMps(target.sog_kn ?? target.sogKn),
+          cog: degToRad(target.cog_deg ?? target.cogDeg),
+          rot: 0,
+        },
+        cpaM: target.cpa_m ?? target.cpaM,
+        tcpaS: target.tcpa_s ?? target.tcpaS,
+        cpaCovarianceM2: target.cpa_covariance_m2 ?? target.cpaCovarianceM2,
+        tcpaCovarianceS2: target.tcpa_covariance_s2 ?? target.tcpaCovarianceS2,
+        brgDeg: target.brg_deg ?? target.brgDeg,
+        rngM: target.rng_m ?? target.rngM,
+        encounter: target.encounter,
+        confidence: target.confidence,
+        rationale: target.rationale,
+        sourceSensor: target.source_sensor ?? target.sourceSensor,
+      })));
+    },
+  },
+  {
     topic: '/sil/environment',
     messageType: 'sil_msgs/EnvironmentState',
     handler: (s, msg) => s.updateEnvironment(msg),
+  },
+  {
+    topic: '/l3/m1/odd_state',
+    messageType: 'l3_msgs/ODDState',
+    handler: (s, msg: any) => s.updateOddState(msg),
+  },
+  {
+    topic: '/l3/m4/behavior_plan',
+    messageType: 'l3_msgs/BehaviorPlan',
+    handler: (s, msg: any) => s.updateBehaviorPlan(msg),
+  },
+  {
+    topic: '/l3/m6/colregs_constraint',
+    messageType: 'l3_msgs/COLREGsConstraint',
+    handler: (s, msg: any) => s.updateColregsConstraint(msg),
+  },
+  {
+    topic: '/l3/m7/safety_alert',
+    messageType: 'l3_msgs/SafetyAlert',
+    handler: (s, msg: any) => s.updateSafetyAlert(msg),
   },
   {
     topic: '/sil/module_pulse',
@@ -113,16 +171,39 @@ const TOPIC_MAP: Array<{
     messageType: 'l3_external_msgs/PlannedRoute',
     handler: (s, msg: any) => {
       const poses = msg.route?.poses || [];
+      const speedProfileKn = Array.isArray(msg.speed_profile_kn)
+        ? msg.speed_profile_kn
+        : Array.isArray(msg.speedProfileKn)
+          ? msg.speedProfileKn
+          : [];
+      const totalDistanceNm = msg.total_distance_nm ?? msg.totalDistanceNm;
+      const estimatedDurationS = msg.estimated_duration_s ?? msg.estimatedDurationS;
+      const speedFromDuration = typeof totalDistanceNm === 'number'
+        && Number.isFinite(totalDistanceNm)
+        && typeof estimatedDurationS === 'number'
+        && Number.isFinite(estimatedDurationS)
+        && estimatedDurationS > 0
+        ? totalDistanceNm / (estimatedDurationS / 3600.0)
+        : null;
+      const effectiveSpeedProfileKn = speedProfileKn.length > 0
+        ? speedProfileKn
+        : speedFromDuration !== null
+          ? [speedFromDuration]
+          : [];
       const waypoints = poses.map((p: any) => ({
         lat: p.pose?.position?.latitude ?? p.pose?.position?.lat ?? 0.0,
         lon: p.pose?.position?.longitude ?? p.pose?.position?.lon ?? 0.0,
       }));
-      const cruiseSpeed = Array.isArray(msg.speed_profile_kn) && msg.speed_profile_kn.length > 0
-        ? msg.speed_profile_kn[0]
+      const cruiseSpeed = effectiveSpeedProfileKn.length > 0
+        ? effectiveSpeedProfileKn[0]
         : 10.0;
       s.updateVoyagePlan({
         waypoints,
         cruiseSpeed,
+        speedProfileKn: effectiveSpeedProfileKn,
+        totalDistanceNm,
+        estimatedDurationS,
+        routeId: msg.route_id ?? msg.routeId,
         source: 'l2_realtime',
       });
     },

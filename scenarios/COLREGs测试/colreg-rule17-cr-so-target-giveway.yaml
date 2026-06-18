@@ -1,0 +1,112 @@
+title: 'Probe: Rule 17 stand-on (target from port, never yields)'
+description: Rule 17 stand-on. Target crosses from own ship's PORT bow (relative bearing
+  315deg), course 090deg at 10.0kn, t_cpa ~= 509s. Own has the target on its PORT
+  side -> own is the STAND-ON vessel and must initially KEEP course and speed (Rule
+  17(a)(i)). The give-way target holds course (straight-line replay) and never acts,
+  so own must take last-moment independent action (Rule 17(b)) to keep the ship-domain
+  clear. Probes that own does NOT give way prematurely (no early large alteration).
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 10.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 10.0
+  - latitude: 63.481663
+    longitude: 10.38
+    target_sog_kn: 10.0
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.46357
+      longitude: 10.327286
+    cog: 90.0
+    sog: 10.0
+    heading: 90.0
+  model: ais_replay_vessel
+  source:
+    type: route
+  behavior:
+    policy: colregs_rule_fsm
+    reaction_delay_s: 6.0
+    min_turn_deg: 30.0
+    rot_limit_deg_s: 3.0
+    target_cpa_m: 900.0
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule17-cr-so-target-giveway-v1.0
+  scenario_source: colregs_probe_suite_v2.0
+  colregs_rules:
+  - R17
+  - R15
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule17
+    give_way_vessel: target
+    expected_own_action: maintain
+    avoidance_time_s: 399.2
+    avoidance_delta_rad: 0.8727
+    avoidance_duration_s: 140.0
+  seed: 108
+  expected_outcome:
+    cpa_min_m_ge: 180.0
+    cpa_acceptance:
+      profile: standon_in_extremis_4L
+      threshold_formula: 4.0L
+      threshold_m: 180.0
+      loa_m: 45.0
+      loa_multiplier: 4.0
+      nm_equivalent: 0.097
+      source_confidence: project_profile_medium
+      emergency_floor_m: 180.0
+      ideal_domain_m: 405.0
+      basis: Rule17 stand-on late-action probe; in-extremis action uses 4.0L emergency floor because own ship must hold course before intervening.
+    returned_to_route_required: true
+    route_return_xte_m_lt: 150.0
+    route_return_heading_deg_lt: 10.0
+    route_corridor_half_width_m: 1000.0
+    route_corridor_pass_limit_m: 500.0
+    rule_compliance:
+    - rule: Rule17
+      result: required
+    - rule: Rule15
+      result: required
+  simulation_settings:
+    total_time: 1200.0
+    dt: 0.02
+    n_rps_initial: 3.0
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002
