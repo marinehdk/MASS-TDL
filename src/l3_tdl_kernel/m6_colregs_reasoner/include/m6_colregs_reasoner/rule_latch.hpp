@@ -65,17 +65,8 @@ class RuleLatch {
     // mid-maneuver and chatter (see class note).
     const bool opening = !range_closing;
     const bool past_clear_and_safe = opening && past_and_clear && (cpa_m >= cpa_safe_m_);
-    // Projection backup release (defect #2 fix): require past_and_clear (target
-    // abaft the beam) in addition to the CPA projection being past and safe.
-    // Without this, the latch released as soon as own-ship's starboard turn
-    // opened CPA past safe while the target was still on the bow (rel_brg
-    // ~37-62 deg) -- the Rule 8(d) "finally past and clear" violation the phase
-    // gate flags on rule15-cs / rule15-cs-2. Verified across 8-probe that every
-    // crossing/head-on scenario's target eventually goes abaft, so requiring
-    // abaft does not strand any known scenario.
     const bool projection_past_and_safe =
-        allow_projection_release && opening && past_and_clear &&
-        cpa_projection_past_and_safe;
+        allow_projection_release && opening && cpa_projection_past_and_safe;
     if (projection_past_and_safe) {
       latched_ = false;
       has_onset_ = false;

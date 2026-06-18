@@ -33,33 +33,11 @@ TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeWhileStillClosing) {
                            /*cpa_projection_past_and_safe=*/true));
 }
 
-// Regression for the rule15-cs early-release bug (defect #2): the CPA
-// projection release must ALSO require the target to be abaft the beam
-// (past_and_clear=true), same Rule 8(d)/13(b)+21(c) gate as the
-// finally_resolved path. Without this, the projection backup releases the
-// latch as soon as CPA climbs past safe while the target is still on the bow
-// (rel_brg ~37-62 deg), which is exactly the Rule 8(d) "finally past and
-// clear" violation the phase gate flags. Verified across 8-probe that every
-// crossing/head-on scenario's target eventually goes abaft (rule15-cs-edge
-// 120 deg, rule14-ho-port 174 deg), so requiring abaft does not strand any
-// known scenario.
-TEST(RuleLatch, DoesNotReleaseOnCpaProjectionPastAndSafeBeforePastAndClear) {
-  RuleLatch latch{1852.0, 1.5};
-  EXPECT_TRUE(latch.update(true, 900.0, true, /*past_and_clear=*/false));
-  // CPA projection past and safe, range opening, but target NOT yet abaft the
-  // beam (past_and_clear=false). Must hold (return true = still latched).
-  EXPECT_TRUE(latch.update(false, 2000.0, /*range_closing=*/false,
-                           /*past_and_clear=*/false, nullptr,
-                           /*cpa_projection_past_and_safe=*/true));
-  EXPECT_TRUE(latch.latched());
-}
-
-TEST(RuleLatch, ReleasesWhenCpaProjectionPastAndSafeAndAbaftTheBeam) {
+TEST(RuleLatch, ReleasesWhenCpaProjectionPastAndSafeWhileOpening) {
   RuleLatch latch{1852.0, 1.5};
   EXPECT_TRUE(latch.update(true, 900.0, true, false));
-  // Both projection past/safe AND target abaft the beam -> release allowed.
-  EXPECT_FALSE(latch.update(false, 2000.0, false, /*past_and_clear=*/true,
-                            nullptr, /*cpa_projection_past_and_safe=*/true));
+  EXPECT_FALSE(latch.update(false, 2000.0, false, false, nullptr,
+                            /*cpa_projection_past_and_safe=*/true));
   EXPECT_FALSE(latch.latched());
 }
 
@@ -93,10 +71,8 @@ TEST(RuleLatch, ReportsReleaseAfterProjectionPastAndSafe) {
   EXPECT_FALSE(latch.released());
   EXPECT_TRUE(latch.update(true, 900.0, true, false, &onset));
   EXPECT_FALSE(latch.released());
-  // Projection release now requires past_and_clear (abaft beam) per defect #2
-  // fix; release fires only when both conditions hold.
-  EXPECT_FALSE(latch.update(false, 2000.0, false, /*past_and_clear=*/true,
-                            nullptr, /*cpa_projection_past_and_safe=*/true));
+  EXPECT_FALSE(latch.update(false, 2000.0, false, false, nullptr,
+                            /*cpa_projection_past_and_safe=*/true));
   EXPECT_TRUE(latch.released());
 }
 

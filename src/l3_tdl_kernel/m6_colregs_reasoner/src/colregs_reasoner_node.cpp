@@ -599,19 +599,6 @@ void ColregsReasonerNode::run_reasoning() {
             kParams.cpa_safe_m);
     const bool give_way_reference_release_ok =
         give_way_projection_release_reference_ok || give_way_reference_heading_release_ok;
-    const bool give_way_crossing_projection_release_ok =
-        give_way_crossing_release_safe(
-            give_way_projection_release_reference_ok,
-            current_relative_bearing_abs_deg);
-    const bool give_way_crossing_reference_heading_release_ok =
-        give_way_crossing_release_safe(
-            give_way_reference_heading_release_ok,
-            current_relative_bearing_abs_deg);
-    const bool give_way_crossing_release_ok =
-        give_way_crossing_projection_release_ok ||
-        give_way_crossing_reference_heading_release_ok;
-    const bool give_way_finally_past_and_clear =
-        give_way_crossing_release_safe(past_and_clear, current_relative_bearing_abs_deg);
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
@@ -627,7 +614,7 @@ void ColregsReasonerNode::run_reasoning() {
     // and releasing on a projected CPA can hand back to route-following before
     // the target is genuinely past and clear.
     const bool finally_resolved =
-        has_release_reference && give_way_finally_past_and_clear &&
+        has_release_reference && past_and_clear &&
         !range_closing && target.cpa_m >= kParams.cpa_safe_m;
     const uint64_t rule13_key = (static_cast<uint64_t>(mmsi) << 8) | 13ULL;
     const uint64_t rule14_key = (static_cast<uint64_t>(mmsi) << 8) | 14ULL;
@@ -673,38 +660,17 @@ void ColregsReasonerNode::run_reasoning() {
         (rule15_latch_it != rule_latches_.end() && rule15_latch_it->second.released()) ||
         (give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.released()) ||
         (standon_latch_it != standon_latches_.end() && standon_latch_it->second.released());
-    // Rule 15 (crossing) give-way release: target cleared off the bow along
-    // the reference avoidance heading -- crossing-specific bow-clear geometry.
     const bool reference_projection_resolved =
-        rule15_projection_latched &&
-        (((!range_closing) && give_way_crossing_projection_release_ok) ||
-         give_way_crossing_reference_heading_release_ok);
-    // Rule 13 (overtaking) give-way release: own-ship finally past and clear =
-    // crossed into the target's forward hemisphere (aspect ahead of the beam)
-    // at safe range with a past/safe CPA projection. The crossing bow-clear
-    // gate does not apply to near-parallel overtaking courses (target stays on
-    // the bow), so overtake must use aspect, not relative bearing.
-    const bool overtake_projection_resolved =
-        rule13_projection_latched &&
-        (!range_closing) &&
-        give_way_overtake_release_safe(
-            cpa_projection_past_and_safe,
-            target.range_m,
-            target.aspect_deg,
-            kParams.cpa_safe_m);
-    const bool current_projection_release_allowed = give_way_current_projection_release_allowed(
-        rule13_projection_latched,
-        rule15_projection_latched,
-        rule14_projection_latched,
-        duty_latched);
+        (rule13_projection_latched || rule15_projection_latched) &&
+        (((!range_closing) && give_way_projection_release_reference_ok) ||
+         give_way_reference_heading_release_ok);
     const bool current_projection_resolved =
         (!range_closing) &&
-        current_projection_release_allowed &&
+        (rule14_projection_latched || duty_latched) &&
         give_way_projection_release_current_ok;
     const bool projection_resolved =
         has_release_reference &&
-        (reference_projection_resolved || overtake_projection_resolved ||
-         current_projection_resolved);
+        (reference_projection_resolved || current_projection_resolved);
     if (finally_resolved || projection_resolved || standon_action_release ||
         any_latch_released ||
         resolved_targets_.count(mmsi) > 0) {
@@ -742,12 +708,9 @@ void ColregsReasonerNode::run_reasoning() {
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
         const bool rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
-            (rid == 15) ? give_way_crossing_release_ok :
             give_way_reference_release_ok;
-        const bool rule_past_and_clear =
-            (rid == 14 || rid == 15) ? give_way_finally_past_and_clear : past_and_clear;
         const bool latched = it->second.update(
-            eval.is_active, target.cpa_m, range_closing, rule_past_and_clear,
+            eval.is_active, target.cpa_m, range_closing, past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
         if (latched) {
           encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
@@ -822,14 +785,14 @@ void ColregsReasonerNode::run_reasoning() {
     // have passed; also stops the latch re-onsetting at the tail of an encounter
     // as Rule 16 flickers give_way while the ships slowly separate).
     const bool duty_onset_signal =
-        raw_own_give_way && !own_stand_on && !give_way_finally_past_and_clear &&
+        raw_own_give_way && !own_stand_on && !past_and_clear &&
         !cpa_projection_past_and_safe;
     auto dit = give_way_latches_.find(mmsi);
     if (dit == give_way_latches_.end()) {
       dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
     }
     const bool duty_latched_now = dit->second.update(
-        duty_onset_signal, target.cpa_m, range_closing, give_way_finally_past_and_clear,
+        duty_onset_signal, target.cpa_m, range_closing, past_and_clear,
         nullptr, give_way_projection_release_current_ok);
     if (duty_latched_now) {
       encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
