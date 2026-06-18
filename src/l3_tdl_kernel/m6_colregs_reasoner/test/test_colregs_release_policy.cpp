@@ -25,6 +25,38 @@ TEST(ColregsReleasePolicy, AllowsHeadOnProjectionReleaseAtCurrentAbaftGate) {
       GiveWayProjectionReleaseGate::CURRENT_ABAFT));
 }
 
+TEST(ColregsReleasePolicy, AllowsCurrentAbaftReleaseForRule14PrimaryLatch) {
+  EXPECT_TRUE(give_way_current_projection_release_allowed(
+      /*rule13_projection_latched=*/false,
+      /*rule15_projection_latched=*/false,
+      /*rule14_projection_latched=*/true,
+      /*duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, AllowsCurrentAbaftReleaseForStandaloneDutyLatch) {
+  EXPECT_TRUE(give_way_current_projection_release_allowed(
+      /*rule13_projection_latched=*/false,
+      /*rule15_projection_latched=*/false,
+      /*rule14_projection_latched=*/false,
+      /*duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, BlocksCurrentAbaftReleaseForRule15PrimaryLatch) {
+  EXPECT_FALSE(give_way_current_projection_release_allowed(
+      /*rule13_projection_latched=*/false,
+      /*rule15_projection_latched=*/true,
+      /*rule14_projection_latched=*/false,
+      /*duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, BlocksCurrentAbaftReleaseForRule13PrimaryLatch) {
+  EXPECT_FALSE(give_way_current_projection_release_allowed(
+      /*rule13_projection_latched=*/true,
+      /*rule15_projection_latched=*/false,
+      /*rule14_projection_latched=*/false,
+      /*duty_latched=*/true));
+}
+
 TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseWithoutSafeProjection) {
   EXPECT_FALSE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/false,
@@ -78,6 +110,30 @@ TEST(ColregsReleasePolicy, AllowsCrossingProjectionReleaseAfterReferenceClear) {
       /*current_relative_bearing_abs_deg=*/125.0,
       /*reference_relative_bearing_abs_deg=*/112.5,
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingReleaseWhenCurrentBearingStillAhead) {
+  EXPECT_FALSE(give_way_crossing_release_safe(
+      /*reference_release_ok=*/true,
+      /*current_relative_bearing_abs_deg=*/108.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingReleaseWhenReferenceGateIsNotClear) {
+  EXPECT_FALSE(give_way_crossing_release_safe(
+      /*reference_release_ok=*/false,
+      /*current_relative_bearing_abs_deg=*/150.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingReleaseAtLegalAbaftWithoutExecutionMargin) {
+  EXPECT_FALSE(give_way_crossing_release_safe(
+      /*reference_release_ok=*/true,
+      /*current_relative_bearing_abs_deg=*/113.0));
+}
+
+TEST(ColregsReleasePolicy, AllowsCrossingReleaseAfterExecutionAbaftMargin) {
+  EXPECT_TRUE(give_way_crossing_release_safe(
+      /*reference_release_ok=*/true,
+      /*current_relative_bearing_abs_deg=*/118.0));
 }
 
 TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseWhenReturnCpaUnsafe) {

@@ -38,17 +38,17 @@ class TrackBuffer final {
   /// Get latest snapshot for one target.
   [[nodiscard]] std::optional<TargetSnapshot> get(uint64_t target_id) const;
 
-  /// Get all active targets within disappearance_periods.
+  /// Get all active targets retained by the sim-time age gate.
   [[nodiscard]] std::vector<TargetSnapshot> active_targets() const;
 
   /// Get active targets linearly extrapolated to align_t using sog/cog.
   [[nodiscard]] std::vector<TargetSnapshot>
   snapshot_aligned_to(TimePoint align_t) const;
 
-  /// Current active target count (miss_count < disappearance_periods).
+  /// Current active target count after sim-time age eviction.
   [[nodiscard]] int32_t active_count() const;
 
-  /// Evict targets that have exceeded disappearance_periods.
+  /// Evict targets that have exceeded max_target_age_s in simulation time.
   void evict_stale(TimePoint now);
 
   /// Current buffer occupancy.
@@ -62,7 +62,7 @@ class TrackBuffer final {
     TargetSnapshot snapshot;
     std::string classification_storage;  // backs the string_view in snapshot
     TimePoint last_seen;
-    int32_t miss_count;  // consecutive periods without update
+    int32_t miss_count;  // retained for telemetry compatibility; liveness uses age
   };
 
   void evict_oldest_locked();

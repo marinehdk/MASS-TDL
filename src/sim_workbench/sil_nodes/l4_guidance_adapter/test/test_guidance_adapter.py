@@ -83,14 +83,14 @@ def test_avoidance_waypoint_is_not_colregs_role_filter():
     assert heading is not None
 
 
-def test_same_side_m5_waypoint_can_reduce_m4_heading():
+def test_same_side_m5_waypoint_cannot_reduce_m4_heading():
     heading = select_avoidance_heading(
         waypoint_heading_deg=35.0,
         avoidance_target_heading_deg=60.0,
         nominal_heading_deg=0.0,
     )
 
-    assert heading == pytest.approx(35.0)
+    assert heading == pytest.approx(60.0)
 
 
 def test_wrong_side_m5_waypoint_keeps_colregs_target():
@@ -185,7 +185,7 @@ def test_corridor_guard_reduces_outbound_avoidance_speed_near_route_edge():
         own_lon=190.0 / 111319.9,
     )
 
-    assert speed_kn == pytest.approx(6.0)
+    assert speed_kn == pytest.approx(10.0)
 
 
 def test_corridor_guard_preserves_speed_when_heading_is_inbound():
@@ -211,7 +211,7 @@ def test_corridor_guard_reduces_speed_when_heading_is_neutral_at_edge():
         own_lon=280.0 / 111319.9,
     )
 
-    assert speed_kn == pytest.approx(0.0)
+    assert speed_kn == pytest.approx(22.0)
 
 
 def test_transit_command_does_not_boost_speed_when_route_return_xte_is_large():
@@ -660,7 +660,124 @@ def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
     )
 
     assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
-    assert cmd.throttle == pytest.approx(0.0)
+    assert cmd.throttle == pytest.approx(10.0 / 25.0)
+
+
+def test_active_avoidance_speed_cap_preserves_current_scenario_speed():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 60.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(1.0, 0.0), (1.02, 0.0)]
+    node._current_target_wp_lat = 1.02
+    node._current_target_wp_lon = 0.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+        AssertionError("active avoidance must not bypass risk handling with transit")
+    )
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
+        target_speed_kn=22.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": 1.004,
+            "lon": 450.0 / 111319.9,
+            "heading_deg": 0.0,
+            "sog_kn": 12.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
+    assert cmd.throttle == pytest.approx(12.0 / 25.0)
+
+
+def test_active_avoidance_speed_cap_blocks_solver_slowdown_without_reduce_speed():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 60.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(1.0, 0.0), (1.02, 0.0)]
+    node._current_target_wp_lat = 1.02
+    node._current_target_wp_lon = 0.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(rationale="")
+    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+        AssertionError("active avoidance must not bypass risk handling with transit")
+    )
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
+        target_speed_kn=8.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": 1.004,
+            "lon": 450.0 / 111319.9,
+            "heading_deg": 0.0,
+            "sog_kn": 12.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert cmd.throttle == pytest.approx(12.0 / 25.0)
+
+
+def test_active_avoidance_speed_cap_preserves_requested_reduce_speed():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 60.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(1.0, 0.0), (1.02, 0.0)]
+    node._current_target_wp_lat = 1.02
+    node._current_target_wp_lon = 0.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(rationale="speed_reduction_preferred=true")
+    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+        AssertionError("active avoidance must not bypass risk handling with transit")
+    )
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
+        target_speed_kn=8.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": 1.004,
+            "lon": 450.0 / 111319.9,
+            "heading_deg": 0.0,
+            "sog_kn": 12.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert cmd.throttle == pytest.approx(8.0 / 25.0)
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ AVOIDANCE_CORRIDOR_HARD_XTE_M = 280.0
 AVOIDANCE_CORRIDOR_MIN_OUTBOUND_DELTA_DEG = 0.0
 AVOIDANCE_CORRIDOR_SPEED_SOFT_XTE_M = 120.0
 AVOIDANCE_CORRIDOR_SPEED_HARD_XTE_M = 260.0
-AVOIDANCE_CORRIDOR_MIN_SPEED_KN = 0.0
+AVOIDANCE_CORRIDOR_MIN_SPEED_KN = 8.0
 FALLBACK_ROUTE_SEGMENT_M = 50000.0
 TRANSIT_RETURN_SOFT_XTE_M = 50.0
 TRANSIT_RETURN_HARD_XTE_M = 350.0
@@ -290,6 +290,8 @@ def select_avoidance_heading(
     same_side = waypoint_delta * target_delta >= 0.0
     if not same_side:
         return avoidance_target_heading_deg
+    if abs(waypoint_delta) < abs(target_delta):
+        return avoidance_target_heading_deg
     return waypoint_heading_deg
 
 
@@ -375,6 +377,8 @@ def corridor_guarded_avoidance_speed_kn(
 
     selected_delta = signed_heading_delta_deg(
         selected_heading_deg, nominal_heading_deg)
+    if abs(selected_delta) <= 1e-6:
+        return target_speed_kn
     if xte_m * selected_delta > 0.0:
         return target_speed_kn
 

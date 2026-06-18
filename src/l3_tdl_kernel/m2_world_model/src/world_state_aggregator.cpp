@@ -570,7 +570,12 @@ WorldStateAggregator::Sat3Forecast WorldStateAggregator::compute_sat3_forecast(T
   if (!own_ship_snap.has_value()) {
     return forecast;
   }
-  track_buffer_->evict_stale(now);
+  // NOTE: do NOT call track_buffer_->evict_stale() here. This is a const
+  // forecast read; eviction belongs in the aggregation path, which is the
+  // single authority that clears stale tracks by simulation-time age. Calling
+  // evict from read-only forecast paths makes track lifetime depend on call
+  // count and scheduler rate, which is unstable under 10x acceleration.
+  (void)now;  // retained for API symmetry; forecast reads active_targets only
   const auto targets = track_buffer_->active_targets();
 
   if (targets.empty()) {

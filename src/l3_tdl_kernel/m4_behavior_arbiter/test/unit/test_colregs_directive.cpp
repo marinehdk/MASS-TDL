@@ -163,7 +163,7 @@ TEST(ColregsDirective, NoConflictProducesInactiveHold) {
   EXPECT_DOUBLE_EQ(directive.min_alteration_deg, 0.0);
 }
 
-TEST(ColregsDirective, FarRule15CrossingCanPreferSpeedReduction) {
+TEST(ColregsDirective, Rule15CrossingKeepsStarboardAlterationWhenSpeedReductionHelps) {
   ColregsDirective directive;
   directive.conflict_active = true;
   directive.direction = ColregsDirection::Starboard;
@@ -184,9 +184,9 @@ TEST(ColregsDirective, FarRule15CrossingCanPreferSpeedReduction) {
 
   EXPECT_EQ(directive.primary_threat_id, "TS001");
   EXPECT_EQ(directive.primary_risk_phase, "Monitor");
-  EXPECT_TRUE(directive.speed_reduction_preferred);
-  EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
-  EXPECT_DOUBLE_EQ(
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+  EXPECT_GT(
       required_deviation_deg(directive, current_risk.range_m, 1500.0, 2.5, 75.0),
       0.0);
 }

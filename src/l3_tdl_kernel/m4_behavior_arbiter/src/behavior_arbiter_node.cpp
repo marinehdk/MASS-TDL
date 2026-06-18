@@ -276,13 +276,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
   ArbitrationInputs inputs = build_inputs();
   constexpr int kColregsReleaseDwellCycles = 4;
+  constexpr float kLowConfidenceClearThreshold = 0.5F;
   bool colregs_commit_hold = false;
   COLREGsConstraintMsg::SharedPtr colregs_for_directive = latest_colregs_;
   if (colregs_received_ && latest_colregs_) {
     if (latest_colregs_->conflict_detected) {
       last_active_colregs_ = latest_colregs_;
       colregs_inactive_cycles_ = 0;
-    } else if (colregs_anchor_set_ && last_active_colregs_ &&
+    } else if (latest_colregs_->confidence < kLowConfidenceClearThreshold &&
+               colregs_anchor_set_ && last_active_colregs_ &&
                colregs_inactive_cycles_ < kColregsReleaseDwellCycles) {
       ++colregs_inactive_cycles_;
       inputs.colregs_conflict_detected = true;

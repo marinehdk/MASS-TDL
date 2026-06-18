@@ -19,6 +19,15 @@ constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
 // is still on the bow and the own-ship is still altering -- the "early return
 // to route" the phase gate flags as a Rule 8(d) violation.
 constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 112.5;
+// Execution margin above the COLREGs abaft-beam threshold for Rule 15 release.
+// M6 publishes a clean release, then M4/M5/L4 and the phase gate observe it on
+// later samples; a release exactly at 112.5 deg can be seen downstream as still
+// ahead of the beam. Keep the legal threshold explicit and add margin only at
+// the crossing release wrapper.
+constexpr double kGiveWayCrossingReleaseExecutionMarginDeg = 5.0;
+constexpr double kGiveWayCrossingReleaseExecutionAbaftDeg =
+    kGiveWayProjectionReleaseReferenceBowClearDeg +
+    kGiveWayCrossingReleaseExecutionMarginDeg;
 // COLREG Rule 13(d) overtake past-and-clear: own-ship is "finally past" once it
 // is in the target's forward hemisphere. Aspect angle convention: 0 deg =
 // own-ship dead ahead of the target's bow, 90 deg = on the beam, 180 deg =
@@ -34,6 +43,23 @@ enum class GiveWayProjectionReleaseGate {
   REFERENCE_CLEAR,
   CURRENT_ABAFT,
 };
+
+inline bool give_way_current_projection_release_allowed(
+    bool rule13_projection_latched,
+    bool rule15_projection_latched,
+    bool rule14_projection_latched,
+    bool duty_latched) {
+  return rule14_projection_latched ||
+      (duty_latched && !rule13_projection_latched && !rule15_projection_latched);
+}
+
+inline bool give_way_crossing_release_safe(
+    bool reference_release_ok,
+    double current_relative_bearing_abs_deg) {
+  return reference_release_ok &&
+      std::isfinite(current_relative_bearing_abs_deg) &&
+      current_relative_bearing_abs_deg > kGiveWayCrossingReleaseExecutionAbaftDeg;
+}
 
 inline double give_way_reference_heading_cpa_m(
     double range_m,

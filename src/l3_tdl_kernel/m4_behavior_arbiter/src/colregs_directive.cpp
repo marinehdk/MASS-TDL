@@ -149,7 +149,7 @@ void apply_primary_risk_guidance(
       directive.rule15_active,
       directive.phase);
   const bool can_reduce_speed =
-      duty == mass_l3::risk::ColregsDuty::GiveWay ||
+      (!directive.rule15_active && duty == mass_l3::risk::ColregsDuty::GiveWay) ||
       duty == mass_l3::risk::ColregsDuty::BothGiveWay;
   const bool ample_tcpa = primary_risk.tcpa_s > 180.0;
   const bool outside_danger = !is_danger_or_critical(primary_risk);

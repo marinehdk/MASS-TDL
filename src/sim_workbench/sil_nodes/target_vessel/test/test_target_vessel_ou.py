@@ -14,12 +14,37 @@ sys.modules["rclpy"] = MagicMock()
 sys.modules["rclpy.lifecycle"] = MagicMock()
 sys.modules["rclpy.lifecycle"].LifecycleNode = DummyLifecycleNode
 sys.modules["rclpy.qos"] = MagicMock()
+sys.modules["rclpy.duration"] = MagicMock()
 sys.modules["sil_msgs"] = MagicMock()
 sys.modules["sil_msgs.msg"] = MagicMock()
+sys.modules["sil_msgs.srv"] = MagicMock()
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 sys.path.insert(0, str(Path(__file__).parents[3] / "sil_common"))
 import pytest
+
+
+class FakeDuration:
+    def __init__(self, nanoseconds=0):
+        self.nanoseconds = nanoseconds
+
+
+class FakeTime:
+    def __init__(self, nanoseconds=0):
+        self.nanoseconds = nanoseconds
+
+    def __sub__(self, other):
+        return FakeDuration(self.nanoseconds - other.nanoseconds)
+
+    def __iadd__(self, duration):
+        self.nanoseconds += duration.nanoseconds
+        return self
+
+    def to_msg(self):
+        return object()
+
+
+sys.modules["rclpy.duration"].Duration = FakeDuration
 
 
 def test_target_vessel_accepts_ou_params():
@@ -134,6 +159,24 @@ def test_target_vessel_node_rng_lifecycle():
     # Let's verify that the generator was created and stored in t1
     assert hasattr(t1, "rng")
     assert t1.rng is not None
+
+
+def test_target_vessel_catchup_publishes_each_sim_step():
+    from target_vessel.node import TargetVesselNode
+
+    node = TargetVesselNode()
+    node._targets = []
+    node.add_target(100, 63.44, 10.38, 90.0, 10.0)
+    node._tv_pub = MagicMock()
+    node._last_sim_time = FakeTime(nanoseconds=0)
+    node._last_pub_sim_time = 0.0
+    clock = MagicMock()
+    clock.now.return_value = FakeTime(nanoseconds=1_000_000_000)
+    node.get_clock = MagicMock(return_value=clock)
+
+    node._step_callback()
+
+    assert node._tv_pub.publish.call_count == 10
 
 
 def test_no_random_module_survives():

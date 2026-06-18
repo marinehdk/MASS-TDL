@@ -31,7 +31,6 @@ from .guidance import (
     avoidance_waypoint_heading_deg,
     command_for_heading_speed,
     corridor_guarded_avoidance_heading_deg,
-    corridor_guarded_avoidance_speed_kn,
     compute_avoidance_command,
     compute_transit_command,
     m4_colregs_window_target_deg,
@@ -496,16 +495,23 @@ class L4GuidanceAdapterNode(Node):
         )
         target_speed_override = None
         if self._last_avoidance_waypoint is not None:
-            target_speed_override = corridor_guarded_avoidance_speed_kn(
-                target_speed_kn=float(getattr(
-                    self._last_avoidance_waypoint, "target_speed_kn", CRUISE_SPEED_KN)),
-                selected_heading_deg=selected_heading,
-                nominal_heading_deg=self._target_heading_deg,
-                route_wps=self._route_wps,
-                own_lat=own["lat"],
-                own_lon=own["lon"],
-                current_target_wp_lat=self._current_target_wp_lat,
-                current_target_wp_lon=self._current_target_wp_lon,
+            waypoint_target_speed_kn = float(getattr(
+                self._last_avoidance_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
+            route_speed_cap_kn = float(self._target_sog_kn)
+            if not math.isfinite(route_speed_cap_kn) or route_speed_cap_kn <= 0.0:
+                route_speed_cap_kn = CRUISE_SPEED_KN
+            route_speed_cap_kn = max(
+                route_speed_cap_kn,
+                float(own.get("sog_kn", 0.0)),
+                CRUISE_SPEED_KN,
+            )
+            behavior_rationale = str(
+                getattr(getattr(self, "_last_behavior_plan", None), "rationale", ""))
+            reduce_speed_requested = "speed_reduction_preferred=true" in behavior_rationale
+            target_speed_override = (
+                waypoint_target_speed_kn
+                if reduce_speed_requested and waypoint_target_speed_kn < route_speed_cap_kn
+                else route_speed_cap_kn
             )
         return compute_avoidance_command(
             current_heading_deg=own["heading_deg"],

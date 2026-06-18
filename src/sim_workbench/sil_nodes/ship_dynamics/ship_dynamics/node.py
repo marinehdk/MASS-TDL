@@ -1,4 +1,4 @@
-"""ShipDynamicsNode — FCB 4-DOF MMG 模型 LifecycleNode @ 50Hz。
+"""ShipDynamicsNode — FCB 4-DOF MMG 模型 LifecycleNode @ 50Hz integration.
 
 发布: /sil/own_ship_state (sil_msgs/OwnShipState)
 订阅: /sil/actuator_cmd (sil_msgs/OwnShipState — rudder_angle + throttle)
@@ -22,6 +22,9 @@ except ImportError:
 
 from .mmg_coefficients import MMGCoefficients
 from .mmg_model import MMGModel, ShipState
+
+
+OWN_SHIP_STATE_PUBLISH_PERIOD_S = 0.1
 
 
 def _lat_offset(meters: float, lat_ref_rad: float) -> float:
@@ -119,16 +122,16 @@ class ShipDynamicsNode(LifecycleNode):
         self._actuator_sub = None
         self._env_sub = None
         self._last_sim_time = None
+        self._last_publish_sim_ns = None
 
         # 地理原点
         self._origin_lat_rad: float = 0.0
         self._origin_lon_rad: float = 0.0
 
-        # Wall-clock publishing rate limiter
+        # Legacy field retained for older tests/config; ROS2 truth publishing is sim-time driven.
         self._last_pub_wall_time: float = 0.0
 
-        # headless mode: when True, bypass wall-clock throttle and publish every step.
-        # Default False keeps Shell-A (HMI) behaviour unchanged.
+        # Legacy parameter retained for config compatibility.
         self._headless: bool = False
 
 
@@ -185,7 +188,7 @@ class ShipDynamicsNode(LifecycleNode):
             depth=1,
         )
 
-        # 发布 /sil/own_ship_state @ 50Hz
+        # 发布 /sil/own_ship_state @ fixed sim-time cadence
         self._state_pub = self.create_publisher(
             msg_type=self._get_own_ship_state_msg(),
             topic="/sil/own_ship_state",
@@ -211,7 +214,7 @@ class ShipDynamicsNode(LifecycleNode):
         self._timer = self.create_timer(self._model.c.dt, self._step_callback)
 
         if hasattr(self, "get_logger"):
-            self.get_logger().info("ShipDynamicsNode 已激活 (50Hz)")
+            self.get_logger().info("ShipDynamicsNode 已激活 (50Hz integration, 10Hz sim publish)")
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -229,6 +232,7 @@ class ShipDynamicsNode(LifecycleNode):
             self.destroy_subscription(self._env_sub)
             self._env_sub = None
         self._last_sim_time = None
+        self._last_publish_sim_ns = None
         if hasattr(self, "get_logger"):
             self.get_logger().info("ShipDynamicsNode 已停用")
         return TransitionCallbackReturn.SUCCESS
@@ -238,6 +242,7 @@ class ShipDynamicsNode(LifecycleNode):
         self._model = None
         self._state = ShipState()
         self._last_sim_time = None
+        self._last_publish_sim_ns = None
         with self._cmd_lock:
             self._delta_cmd = 0.0
             self._n_rps_cmd = 0.0
@@ -307,7 +312,30 @@ class ShipDynamicsNode(LifecycleNode):
                 self._state, dc, nr, ws, wd, cs, cd,
             )
             self._last_sim_time += Duration(nanoseconds=dt_ns)
+            if self._should_publish_state(self._last_sim_time):
+                self._publish_state(self._last_sim_time, dc, nr)
 
+    def _should_publish_state(self, stamp) -> bool:
+        period_ns = int(OWN_SHIP_STATE_PUBLISH_PERIOD_S * 1e9)
+        stamp_ns = self._stamp_nanoseconds(stamp)
+        if self._last_publish_sim_ns is None:
+            self._last_publish_sim_ns = stamp_ns
+            return True
+        elapsed_ns = stamp_ns - self._last_publish_sim_ns
+        if elapsed_ns >= period_ns:
+            self._last_publish_sim_ns = stamp_ns
+            return True
+        return False
+
+    @staticmethod
+    def _stamp_nanoseconds(stamp) -> int:
+        if hasattr(stamp, "nanoseconds"):
+            return int(stamp.nanoseconds)
+        return int(getattr(stamp, "_ns", 0))
+
+    def _publish_state(self, stamp, dc: float, nr: float) -> None:
+        if self._model is None or self._state_pub is None:
+            return
         lat = self._origin_lat_rad + math.radians(
             _lat_offset(self._state.y, self._origin_lat_rad)
         )
@@ -316,7 +344,7 @@ class ShipDynamicsNode(LifecycleNode):
         )
 
         msg = self._make_msg()
-        msg.stamp = now_sim.to_msg()
+        msg.stamp = stamp.to_msg()
         msg.lat = math.degrees(lat)
         msg.lon = math.degrees(lon)
         msg.heading = _math_heading_to_nav_heading(self._state.psi)
@@ -328,21 +356,7 @@ class ShipDynamicsNode(LifecycleNode):
         msg.r = self._state.r
         msg.rudder_angle = dc
         msg.throttle = (nr * (self._model.c.u0 / self._model.c.n_rps_cruise)) / (25.0 * 0.514444)
-
-        # Shell-A: throttle own-ship publishing to max 40 Hz wall-clock rate to
-        # prevent WebSocket congestion during simulation acceleration (10x, 50x).
-        # Shell-B (headless=True): bypass throttle, publish every step for
-        # maximum throughput in Monte-Carlo / RL batch runs.
-        if self._headless:
-            if self._state_pub is not None:
-                self._state_pub.publish(msg)
-        else:
-            import time
-            now_wall = time.monotonic()
-            if now_wall - self._last_pub_wall_time >= 0.025:
-                if self._state_pub is not None:
-                    self._state_pub.publish(msg)
-                self._last_pub_wall_time = now_wall
+        self._state_pub.publish(msg)
 
 
     # ─── 辅助方法 ─────────────────────────────────────────────
