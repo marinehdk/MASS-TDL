@@ -68,6 +68,15 @@ def test_colregs_rule_fsm_rejects_ais_replay_source():
         )
 
 
+@pytest.mark.parametrize("source_type", ("ais_replay", "ais_live"))
+@pytest.mark.parametrize("policy", ("ncdm", "colregs_rule_fsm"))
+def test_ais_sources_reject_non_passive_policies(source_type: str, policy: str):
+    with pytest.raises(UnsupportedSourcePolicyError):
+        normalize_target_config(
+            _base_entry(source={"type": source_type}, behavior={"policy": policy})
+        )
+
+
 def test_reserved_policies_fail_fast():
     for policy in ("intelligent_planner", "tdl_agent"):
         with pytest.raises(ReservedPolicyError):

@@ -86,6 +86,10 @@ def normalize_target_config(entry: dict[str, Any]) -> NormalizedTargetConfig:
         raise ValueError(f"unsupported behavior.policy: {policy}")
     if policy in {"intelligent_planner", "tdl_agent"}:
         raise ReservedPolicyError(f"behavior.policy={policy} is reserved for a later phase")
+    if source_type in {"ais_replay", "ais_live"} and policy != "passive":
+        raise UnsupportedSourcePolicyError(
+            f"ais_replay/ais_live sources require passive behavior, got {policy}"
+        )
     if policy == "colregs_rule_fsm" and source_type != "route":
         raise UnsupportedSourcePolicyError(
             f"colregs_rule_fsm requires source.type=route, got {source_type}"
