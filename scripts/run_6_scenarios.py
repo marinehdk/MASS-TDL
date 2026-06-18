@@ -649,9 +649,18 @@ def compute_route_return_status(
 # collision; FCB 18 kn service speed -> T_plan = 720 s (A-level).
 PHASE_GATE_T_PLAN_S = 720.0
 PHASE_GATE_T_EMERGENCY_S = 60.0
-# Past-and-clear bearing threshold (Rule 13(b)/16: abaft the beam = >22.5°
-# abaft beam = relative bearing > 112.5° from the bow).
+# Past-and-clear bearing threshold by encounter type.
+# Overtaking (Rule 13(b)/21(c)): >22.5° abaft beam = rel bearing > 112.5° from
+# the bow (sternlight 135° arc). C7 (overtaking) uses the along-axis check, not
+# this bearing.
+# Crossing / head-on give-way (Rule 8(d) finally past and clear): the target has
+# drawn past the beam = rel bearing > 90°. The 112.5° overtaking-sector
+# boundary is geometrically unreachable for shallow slow crossings after a
+# starboard avoidance turn (target asymptotes to port beam, only crossing the
+# 90° beam once own-ship recovers to route). Internal design report §4.2
+# specifies abaft_threshold = 112.5 if is_overtaking else 90.0.
 PHASE_GATE_PAST_CLEAR_BEARING_DEG = 112.5
+PHASE_GATE_CROSSING_BEAM_BEARING_DEG = 90.0
 # Readily-apparent alteration (Rule 8(b); case law >= 30°).
 PHASE_GATE_APPARENT_HEADING_DEG = 30.0
 PHASE_GATE_SMALL_ALTER_DEG = 10.0
@@ -788,13 +797,16 @@ def compute_phase_semantics(
     rule_l = str(rule).lower().replace(" ", "")
 
     # ── C1: Rule 8(d) finally past and clear before route return ─────────
-    # At release time, target must be abaft own-ship's beam (relative bearing
-    # magnitude > 112.5°) AND range opening AND CPA >= cpa_safe.
+    # Rule 8(d): "The effectiveness of the action shall be carefully checked
+    # until the other vessel is finally past and clear." Past-and-clear = no
+    # remaining collision risk. For crossing/head-on give-way the target must
+    # have drawn past the beam (rel bearing > 90°) AND already be past CPA
+    # (tcpa<0) AND at a safe opening range. The 112.5° overtaking-sector
+    # boundary (Rule 13(b)/21(c)) is unreachable for shallow slow crossings
+    # (rule15-cs only crosses the 90° beam after own-ship avoidance+recovery);
+    # crossing uses the 90° beam. Overtaking give-way is governed by C7
+    # (along-axis), not this check (rule13 excluded below).
     c1_ok = True
-    # C1 (abaft-beam past-and-clear) applies to head-on/crossing give-way; an
-    # overtaking give-way is governed by C7 (own-ship ahead along target axis),
-    # not by the 112.5-degree abaft-beam criterion which is meaningless when
-    # both vessels are on near-parallel courses.
     if (release_s is not None and role == "give_way"
             and "rule13" not in rule_l):
         # Find trajectory sample closest to release time.
@@ -806,8 +818,15 @@ def compute_phase_semantics(
         range_opening = True
         if before and rel_sample["range_m"] > 0:
             range_opening = rel_sample["range_m"] >= before[-1]["range_m"] - 1.0
-        c1_ok = (rel_brg_abs > PHASE_GATE_PAST_CLEAR_BEARING_DEG and
-                 range_opening and rel_sample["cpa_m"] >= cpa_safe_m)
+        # Main geometry gate: target past the beam (90° for crossing/head-on).
+        past_beam = rel_brg_abs > PHASE_GATE_CROSSING_BEAM_BEARING_DEG
+        # tcpa<0 backstop: target must have already passed CPA. Prevents a
+        # target that has swung past 90° beam but whose CPA is still ahead
+        # (high-speed lateral crosser) from being judged "past and clear".
+        tcpa_past = rel_sample["tcpa_s"] < 0.0
+        # Safe range: at/above cpa_safe AND opening.
+        range_safe = rel_sample["range_m"] >= cpa_safe_m and range_opening
+        c1_ok = past_beam and tcpa_past and range_safe
     defaults["c1_past_clear_ok"] = c1_ok
 
     # ── C2: Rule 8(b) readily apparent, no succession of small alterations
