@@ -176,6 +176,9 @@ const mocks = vi.hoisted(() => ({
   stopRuntimeCoreStack: vi.fn(),
   switchRuntimePlugin: vi.fn(),
   probeRuntime: vi.fn(),
+  telemetryReset: vi.fn(),
+  updateLifecycleStatus: vi.fn(),
+  controlReset: vi.fn(),
 }));
 
 vi.mock('../../hooks/useGateStream', () => ({
@@ -193,8 +196,8 @@ vi.mock('../../hooks/useHotkeys', () => ({ useHotkeys: vi.fn() }));
 
 vi.mock('../../store', () => ({
   useScenarioStore: () => ({ runId: 'run-test' }),
-  useTelemetryStore: { getState: () => ({ reset: vi.fn() }) },
-  useControlStore: { getState: () => ({ reset: vi.fn() }) },
+  useTelemetryStore: { getState: () => ({ reset: mocks.telemetryReset, updateLifecycleStatus: mocks.updateLifecycleStatus }) },
+  useControlStore: { getState: () => ({ reset: mocks.controlReset }) },
 }));
 
 vi.mock('../../api/silApi', () => ({
@@ -284,6 +287,9 @@ describe('SimulationCheck runtime console', () => {
     ];
     mocks.streaming = false;
     mocks.error = '';
+    mocks.telemetryReset.mockReset();
+    mocks.updateLifecycleStatus.mockReset();
+    mocks.controlReset.mockReset();
     mocks.configureLifecycle.mockReset();
     mocks.configureLifecycle.mockReturnValue({
       unwrap: () => Promise.resolve({ success: true }),
@@ -559,6 +565,11 @@ describe('SimulationCheck runtime console', () => {
     await waitFor(() => expect(mocks.probeRuntime).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.configureLifecycle).toHaveBeenCalledWith('safe_route'));
     expect(mocks.activateLifecycle).toHaveBeenCalled();
+    expect(mocks.updateLifecycleStatus).toHaveBeenCalledWith({
+      scenario_id: 'safe_route',
+      current_state: 3,
+      sim_time: 0,
+    });
     expect(window.location.hash).toBe('#/monitor/safe_route');
   });
 });

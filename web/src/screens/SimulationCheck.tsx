@@ -269,6 +269,11 @@ export function SimulationCheck() {
         proceedingRef.current = false;
         return;
       }
+      useTelemetryStore.getState().updateLifecycleStatus({
+        scenario_id: scenarioId,
+        current_state: 3,
+        sim_time: 0,
+      });
       setLifecycleError('');
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) {
