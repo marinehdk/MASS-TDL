@@ -149,6 +149,26 @@ def test_overall_gate_requires_route_corridor_pass():
     ) is False
 
 
+def test_overall_gate_fails_on_violated_compliance():
+    # G2: rule_compliance verdict must gate overall_pass. A scenario that is
+    # geometrically clean but COLREGs-violated must force overall RED.
+    runner = _load_runner()
+    assert runner.compute_overall_pass(
+        cpa_ok=True,
+        stability_pass=True,
+        returned_to_route=True,
+        compliance_verdict="violated",
+    ) is False
+    # partial / full / unknown are not violations and must not fail the gate.
+    for verdict in ("full", "partial", "unknown"):
+        assert runner.compute_overall_pass(
+            cpa_ok=True,
+            stability_pass=True,
+            returned_to_route=True,
+            compliance_verdict=verdict,
+        ) is True
+
+
 def test_route_return_uses_m4_behavior_when_bridge_active_is_stale():
     runner = _load_runner()
     records = [
@@ -786,13 +806,16 @@ def test_restart_between_runs_restarts_sil_nodes_and_settles(monkeypatch):
     assert sleeps == [24.0]
 
 
-def test_rule13_yaml_allows_corridor_limited_safe_following():
+def test_rule13_yaml_requires_overtake_completion():
     root = Path(__file__).resolve().parents[2]
     path = root / "scenarios" / "COLREGs测试" / "colreg-rule13-ot.yaml"
     data = yaml.safe_load(path.read_text())
     expected = data["metadata"]["expected_outcome"]
 
-    assert expected["overtake_required"] is False
+    # G3: rule13-ot is a true overtaking probe — own must complete the overtake
+    # (bow draws ~1 ship length ahead) before the Rule 13(b) give-way duty clears.
+    assert expected["overtake_required"] is True
+    assert expected["overtake_along_margin_m"] == 50.0
     assert expected["returned_to_route_required"] is False
     assert expected["cpa_acceptance"]["profile"] == (
         "corridor_follow_or_overtake_4L")

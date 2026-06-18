@@ -1,8 +1,10 @@
 title: 'Probe: Rule 13 overtaking'
 description: 'Rule 13 overtaking. Own ship 000deg/14kn overtakes a slow 7kn vessel
   nearly dead ahead (relative bearing 3deg, same course), initial range 0.6 NM. Own
-  is the give-way vessel and must keep clear (conventionally a STARBOARD pass) until
-  finally past and clear. Rule 13(d): the bearing drawing aft as own passes must NOT
+  is the give-way vessel and must keep clear (conventionally a STARBOARD pass) and
+  COMPLETE the overtake — own ship is finally past and clear (Rule 13(b)) when her
+  bow draws ahead of the overtaken vessel by at least one ship length along the
+  course axis. Rule 13(d): the bearing drawing aft as own passes must NOT
   reclassify this into a crossing (assert classification stability in Phase B).'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
@@ -77,14 +79,14 @@ metadata:
       source_confidence: project_profile_medium_low
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB overtaking inside 1km L2 corridor; 4.0L emergency/follow floor accepts safe following while Rule13 duty remains latched until past-and-clear.
+      basis: FCB overtaking inside 1km L2 corridor; 4.0L emergency/follow floor accepts safe following. Rule 13(b) past-and-clear is asserted separately by the overtake gate — own bow must draw one ship length (45m) ahead of the target along the course axis before the give-way duty is discharged.
     returned_to_route_required: false
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
     route_corridor_half_width_m: 1000.0
     route_corridor_pass_limit_m: 500.0
-    overtake_required: false
-    overtake_along_margin_m: 0.0
+    overtake_required: true
+    overtake_along_margin_m: 50.0
     rule_compliance:
     - rule: Rule13
       result: required

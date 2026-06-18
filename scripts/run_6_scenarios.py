@@ -63,7 +63,11 @@ ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
 ROUTE_CORRIDOR_PASS_EPS_M = 5.0
 DEFAULT_CPA_FLOOR_M = 500.0
 CPA_FLOOR_MEASUREMENT_TOLERANCE_LOA = 0.05
-DEFAULT_RESTART_CONTAINER = "mass-l3-sil-sil-nodes-1"
+# Empty by default: --restart-between-runs REQUIRES an explicit --restart-container
+# so a worktree run cannot accidentally bounce the main mass-l3-sil-sil-nodes-1
+# container (the previous hardcoded default). Set it explicitly per stack, e.g.
+# --restart-container colregs-behavior-fix-sil-nodes-1 for the behavior-fix stack.
+DEFAULT_RESTART_CONTAINER = ""
 DEFAULT_RESTART_SETTLE_S = 24.0
 MAX_WARNING_DOMAIN_EXPOSURE_S = 120.0
 MAX_INTEGRATED_ABS_XTE_M_S = 500.0 * 600.0
@@ -1030,13 +1034,19 @@ def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
                          overtake_completed=False,
                          risk_gate_ok=True,
                          seamanship_gate_ok=True,
-                         phase_semantics_ok=True):
+                         phase_semantics_ok=True,
+                         compliance_verdict="full"):
+    # COLREGs rule-compliance gate: a scenario whose rule_compliance_score falls
+    # below the violated threshold must force overall RED, even if pure geometry
+    # and seamanship KPIs pass. "unknown" (no compliance data) is NOT a fail,
+    # only an explicit "violated" verdict fails the gate.
+    compliance_ok = compliance_verdict != "violated"
     return bool(cpa_ok and stability_pass and
                 ((not route_return_required) or returned_to_route) and
                 route_corridor_ok and
                 ((not overtake_required) or overtake_completed) and
                 risk_gate_ok and seamanship_gate_ok and
-                phase_semantics_ok)
+                phase_semantics_ok and compliance_ok)
 
 def expected_cpa_floor_m(expected):
     cpa_acceptance = expected.get("cpa_acceptance") or {}
@@ -1434,6 +1444,7 @@ def run_scenario(scenario_id, total_time_override=None):
         risk_gate_ok=domain_gates["risk_gate_ok"],
         seamanship_gate_ok=domain_gates["seamanship_gate_ok"],
         phase_semantics_ok=phase_sem["phase_semantics_ok"],
+        compliance_verdict=compliance_verdict,
     )
 
     print(f"  Min DCPA: {min_dcpa_m:.1f} m ({cpa_min_nm:.3f} NM)")
@@ -1674,6 +1685,16 @@ def main(argv=None):
 
     results = {}
     scenarios = args.scenario or SCENARIOS
+    if args.restart_between_runs and not args.restart_container:
+        print(
+            "ERROR: --restart-between-runs requires an explicit --restart-container. "
+            "The default is intentionally empty to prevent accidentally bouncing the "
+            "main mass-l3-sil-sil-nodes-1 container. For the behavior-fix stack pass "
+            "--restart-container colregs-behavior-fix-sil-nodes-1; for the main stack "
+            "pass --restart-container mass-l3-sil-sil-nodes-1.",
+            file=sys.stderr,
+        )
+        return 2
     for scen in scenarios:
         try:
             if args.restart_between_runs:

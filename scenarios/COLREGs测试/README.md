@@ -76,11 +76,14 @@ pytest tools/sil/test_simulate.py          # kinematic 自洽（ho 可赢 ≥cpa
 | `turn_starboard` | give-way 净偏航必须右舷（max_stbd≥max_port 且实际转了） | give-way |
 | `premature_giveway` | stand-on 保持段（前 75%）最大航向偏移 | stand-on <10° |
 
-总裁决 `overall_pass = safety_pass AND mission_pass AND colregs_pass AND stability_pass`。批量跑：
+总裁决 `overall_pass` 是 8 信号全 AND：`cpa_ok ∧ stability_pass ∧ (¬route_return_required ∨ returned_to_route) ∧ route_corridor_ok ∧ (¬overtake_required ∨ overtake_completed) ∧ risk_gate_ok ∧ seamanship_gate_ok ∧ phase_semantics_ok ∧ (compliance_verdict ≠ "violated")`（见 `scripts/run_6_scenarios.py::compute_overall_pass`）。批量跑：
 
 ```bash
+# --restart-between-runs 要求显式 --restart-container（默认空，防误重启主 stack）。
+# 主 stack：mass-l3-sil-sil-nodes-1；behavior-fix stack：colregs-behavior-fix-sil-nodes-1
 SIL_ORCH_BASE_URL=https://127.0.0.1:18000/api/v1 \
 python3 scripts/run_colregs_clean_8probe.py --restart-between-runs \
+  --restart-container mass-l3-sil-sil-nodes-1 \
   --summary-out runs/local_clean8_traceeval_$(date +%Y%m%d_%H%M%S).json \
   --trace-report-dir runs/trace_eval/$(date +%Y%m%d_%H%M%S)
 ```

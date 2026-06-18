@@ -21,6 +21,9 @@ export ROS_DOMAIN_ID=43
 export ORCH_PORT=18001
 export FOX_PORT=18766
 export ORCH_URL="https://127.0.0.1:18001"
+# run_6_scenarios.py reads SIL_ORCH_BASE_URL (defaults to the main-stack port
+# 18000). Mirror ORCH_URL so the probe script targets this stack, not main.
+export SIL_ORCH_BASE_URL="${ORCH_URL}/api/v1"
 
 # CPU caps: this machine has 4 physical CPUs; main stack already running.
 # Leave headroom for main stack.
