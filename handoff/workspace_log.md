@@ -570,3 +570,13 @@ This log coordinates task handoffs between different development interfaces (Cla
   - C1+C7 根因+影响分析完成：M6 `colregs_reasoner_node.cpp:663-673` rule13/rule15 共用 `reference_projection_resolved` 走 REFERENCE_CLEAR 的 40° bow-clear gate（`release_policy.hpp:7`）。40° 是 9fe16274 快速实现非精细调参。rule14 独立走 CURRENT_ABAFT(150°) 不受影响。stand-on 独立路径。`test_colregs_release_policy.cpp:58,90` 断言 40° 需同步更新。
 - **待办（下次会话续）**: C7 rule13 改 along>0 release（新增 along 计算，从 reference_projection 分离）→ C1 rule15 阈值 40°→112.5° → worktree `colregs-behavior-fix` 重编 sil-nodes → 验证 C1/C7 场景 → 全 8 回归 → F1 local-a4000-acceptance → F3 闭合核验。
 - **接力**: worktree `.worktrees/colregs-behavior-fix`(分支 codex/colregs-behavior-fix, HEAD c849f06c) 已含 gate 修复 + Kd 机制，待加 C1/C7。主 checkout codex/colregs-phase-gate-diag(HEAD fbd16b92)是 gate 集成面。diary 已写 mempalace(topic=colregs-phase-gate-and-c1c7-fix)。证据 runs/stability_retest_20260617.log + full8_phase_gate_v3/rest4。
+
+## [2026-06-18 09:06 CST] Agent: ZCode (GLM-5.2) — C1/C7 严格修复代码完成，运行时验证阻塞
+- **Git Commit**: `ea6b06e6`(worktree codex/colregs-behavior-fix, C7+C1) + `fbd16b92`/`d37dde0d`/`c849f06c`(gate/C2)
+- **用户指令**: 严格按 COLREGS 修行为，不放宽 gate；验证只用 behavior-fix 独立 stack，绝不碰主 stack（用户另一对话已重建演示用）
+- **核心改动**:
+  - C7 (Rule 13 追越): M6 `colregs_reasoner_node.cpp:663-673` 把 rule13 从 crossing 的 reference_projection_resolved(40°bow-clear)分离,走新 `give_way_overtake_release_safe`——aspect<90°(本船到目标前方半球,Rule13(d)正确几何,COLREG aspect坐标)。`release_policy.hpp` 加 `kGiveWayOvertakeReleaseAspectAheadDeg=90` + 函数。
+  - C1 (Rule 15 横越): `kGiveWayProjectionReleaseReferenceBowClearDeg` 40°→112.5°(Rule3(g) abaft the beam)。修副作用:reference bow-clear 仅限 REFERENCE_CLEAR gate,不 block rule14 head-on 的 CURRENT_ABAFT 路径。
+  - test: `test_colregs_release_policy.cpp` 更新(58 拆 block/allow,90 废弃 rule13 REFERENCE_CLEAR,新增5个 overtake 测试)。18 单测全绿。
+- **当前状态**: 代码完成+单测验证,运行时验证阻塞。behavior-fix 独立 stack(project=colregs-behavior-fix, SIL_NODES_CPUS=3.5, 端口18000/18765, DDS domain0, host network, certs已复制)起后 sil-nodes Stage2 26s 收到1帧 own_ship 但后续 echo 不到/runtime 0节点/场景configure未验证。stack 现全 Exited。主 stack mass-l3-sil 7容器全Up(用户重建,勿碰)。
+- **接力指示**: mempalace diary topic=colregs-phase-gate-and-c1c7-fix-strict 有完整状态。下一步:解决 behavior-fix stack 环境(可能 host network+domain0 与主 stack 冲突,考虑 domain 偏移或端口偏移)→ 验证 rule15-cs/rule13-ot Phase Gate 转绿 → 全8严格restart回归 → F1 local-a4000-acceptance → C2 后议 → F3 偏离闭合核验。
