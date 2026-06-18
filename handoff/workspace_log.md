@@ -554,7 +554,7 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **接力指示 (Hand-off Context)**: A4000 main checkout remains dirty and was not modified; validation used bundle-fed linked worktree only. GitHub/GitLab push not performed in this step without explicit confirmation.
 
 ## [2026-06-18] Agent: Codex (GPT-5)
-- **Git Commit**: task commit
+- **Git Commit**: `2b8e8767` (handoff commit on branch `codex/target-vessel-colregs-fsm`)
 - **任务目标 (Goal)**: Add opt-in COLREGs rule-FSM behavior for route-driven simulated target vessels while preserving passive replay, AIS truth, and clean8 defaults.
 - **核心改动 (Actions)**:
   - Appended task handoff evidence and status in `handoff/workspace_log.md` for the target-vessel FSM rollout.
