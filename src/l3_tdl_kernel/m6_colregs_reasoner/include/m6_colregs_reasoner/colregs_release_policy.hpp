@@ -8,7 +8,23 @@ namespace mass_l3::m6_colregs {
 
 constexpr double kGiveWayProjectionReleaseRangeMultiple = 1.0;
 constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
-constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 40.0;
+// Crossing/head-on give-way projection release (REFERENCE_CLEAR gate): the
+// target must have drawn past the beam (relative bearing > 90°, strictly past
+// — at the beam is not yet clear, along the reference avoidance heading)
+// before the encounter is resolved. The 40° quick-impl baseline released
+// while the target was still on the bow — the early-return-to-route the phase
+// gate flags as a Rule 8(d) violation.
+//
+// The 112.5° abaft-beam (Rule 13(b) overtaking sector) is unreachable for
+// shallow slow crossings after starboard avoidance (rule15-cs cog=290/10.6kn
+// only crosses the 90° beam once own-ship recovers to route). Crossing uses
+// the 90° beam; overtaking's stricter 112.5° is enforced in
+// past_and_clear_from_heading (reasoner_node.cpp), not here. Internal design
+// report §4.2: abaft_threshold = 112.5 if is_overtaking else 90.0.
+// NOT Rule 3(g) (defines "vessel restricted in ability to manoeuvre",
+// unrelated to abaft beam); the 112.5° derives from the beam (90°) plus, for
+// overtaking only, Rule 13(b) "more than 22.5° abaft her beam".
+constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 90.0;
 constexpr double kGiveWayReleaseKnToMps = 0.514444;
 constexpr double kGiveWayReleasePi = 3.14159265358979323846;
 constexpr double kStandOnEmergencyReleaseCpaM = 185.2;
@@ -100,12 +116,20 @@ inline bool give_way_projection_release_safe(
       cpa_safe_m <= 0.0) {
     return false;
   }
-  if (range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple ||
-      reference_relative_bearing_abs_deg < kGiveWayProjectionReleaseReferenceBowClearDeg) {
+  if (range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple) {
     return false;
   }
-  return gate == GiveWayProjectionReleaseGate::REFERENCE_CLEAR ||
-      current_relative_bearing_abs_deg >= kGiveWayProjectionReleaseCurrentAbaftDeg;
+  // REFERENCE_CLEAR gate (crossing/head-on give-way): the target must have
+  // drawn past the beam along the reference avoidance heading (> 90°, strictly
+  // past — at the beam is not yet clear) before the encounter is resolved. The
+  // CURRENT_ABAFT gate (Rule 14 head-on) releases on the target being abaft
+  // the CURRENT heading (>= 150°) and is NOT gated by the reference bearing —
+  // during a head-on the target can be abaft the current beam while still
+  // forward of the reference heading as own-ship rotates.
+  if (gate == GiveWayProjectionReleaseGate::REFERENCE_CLEAR) {
+    return reference_relative_bearing_abs_deg > kGiveWayProjectionReleaseReferenceBowClearDeg;
+  }
+  return current_relative_bearing_abs_deg >= kGiveWayProjectionReleaseCurrentAbaftDeg;
 }
 
 inline double stand_on_release_cpa_floor_m(double configured_cpa_safe_m) {

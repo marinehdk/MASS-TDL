@@ -55,13 +55,39 @@ TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseBeforeReferenceBowClear
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
-TEST(ColregsReleasePolicy, AllowsCrossingProjectionReleaseAfterReferenceClear) {
-  EXPECT_TRUE(give_way_projection_release_safe(
+TEST(ColregsReleasePolicy, BlocksCrossingProjectionReleaseBeforeBeam) {
+  // 40° (old quick-impl threshold) must now be blocked: target still on the
+  // bow, not past the 90° beam. The 112.5° abaft-beam (Rule 13(b) overtaking
+  // sector) is unreachable for shallow slow crossings; 90° beam is the
+  // corrected crossing/head-on threshold.
+  EXPECT_FALSE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
       /*range_m=*/3883.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/125.0,
       /*reference_relative_bearing_abs_deg=*/40.0,
+      GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+}
+
+TEST(ColregsReleasePolicy, AllowsCrossingProjectionReleasePastBeam) {
+  // Past the 90° beam: target reference rel bearing 95°.
+  EXPECT_TRUE(give_way_projection_release_safe(
+      /*cpa_projection_past_and_safe=*/true,
+      /*range_m=*/3883.0,
+      /*cpa_safe_m=*/926.0,
+      /*current_relative_bearing_abs_deg=*/125.0,
+      /*reference_relative_bearing_abs_deg=*/95.0,
+      GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingProjectionReleaseAtExactlyBeam) {
+  // Exactly 90° is not past the beam; require strictly greater.
+  EXPECT_FALSE(give_way_projection_release_safe(
+      /*cpa_projection_past_and_safe=*/true,
+      /*range_m=*/3883.0,
+      /*cpa_safe_m=*/926.0,
+      /*current_relative_bearing_abs_deg=*/125.0,
+      /*reference_relative_bearing_abs_deg=*/90.0,
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
@@ -87,13 +113,16 @@ TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleaseAfterReferenceClear) {
+TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleasePastBeam) {
+  // The projection REFERENCE_CLEAR gate is 90° for all give-way; overtaking's
+  // stricter 112.5° past-clear is enforced in past_and_clear_from_heading
+  // (reasoner_node.cpp), not in this projection gate.
   EXPECT_TRUE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
       /*range_m=*/1852.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/75.0,
-      /*reference_relative_bearing_abs_deg=*/48.0,
+      /*reference_relative_bearing_abs_deg=*/95.0,
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
