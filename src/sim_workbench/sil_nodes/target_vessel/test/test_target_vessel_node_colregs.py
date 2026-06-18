@@ -5,6 +5,7 @@ import math
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 
 class DummyLifecycleNode:
@@ -94,9 +95,49 @@ def test_handle_ownship_state_uses_heading_degrees_from_message():
     msg = type(
         "OwnShipStateMsg",
         (),
-        {"lat": 63.0, "lon": 10.0, "heading": 725.0, "sog": 4.0},
+        {"lat": 63.0, "lon": 10.0, "heading": math.pi / 2.0, "sog": 4.0},
     )()
-    node._handle_ownship_state(msg)
+    with patch("target_vessel.node.time.monotonic", return_value=123.0):
+        node._handle_ownship_state(msg)
     assert node._latest_ownship is not None
-    assert node._latest_ownship.heading_deg == 5.0
+    assert node._latest_ownship.heading_deg == 90.0
     assert node._latest_ownship.sog_mps == 4.0
+    assert node._latest_ownship_wall_time == 123.0
+
+
+def test_add_target_intelligent_mode_gets_default_colregs_fsm_behavior():
+    node = TargetVesselNode()
+    target = node.add_target(222, 63.0, 10.0, 0.0, 6.0, mode="intelligent")
+    assert target.mode == TargetMode.INTELLIGENT
+    assert target._behavior_config is not None
+    assert target._behavior_config.policy == "colregs_rule_fsm"
+    assert target._fsm is not None
+
+
+def test_add_target_rejects_duplicate_colregs_fsm_target():
+    node = TargetVesselNode()
+    node.add_target(222, 63.0, 10.0, 0.0, 6.0, mode="intelligent")
+    try:
+        node.add_target(223, 63.01, 10.0, 180.0, 6.0, mode="intelligent")
+    except ValueError as exc:
+        assert "Only one colregs_rule_fsm target is supported in v1" in str(exc)
+    else:
+        raise AssertionError("expected duplicate FSM target add to fail")
+
+
+def test_step_all_ignores_stale_ownship_for_colregs_target():
+    node = TargetVesselNode()
+    target = node.add_target(300, 63.01, 10.0, 180.0, 10.0, mode="intelligent")
+    with patch("target_vessel.node.time.monotonic", return_value=10.0):
+        node._handle_ownship_state(
+            type(
+                "OwnShipStateMsg",
+                (),
+                {"lat": 63.0, "lon": 10.0, "heading": 0.0, "sog": 10.0},
+            )()
+        )
+    with patch("target_vessel.node.time.monotonic", return_value=12.1):
+        state = node.step_all(1.0)[0]
+    assert target._fsm is not None
+    assert math.degrees(target.heading) == 180.0
+    assert state["rot"] == 0.0

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from enum import Enum
 
 import numpy as np
@@ -35,6 +36,9 @@ _TARGET_MODE_TO_UINT8 = {
     "ncdm": 2,
     "intelligent": 3,
 }
+
+_DEFAULT_FSM_BEHAVIOR = TargetBehaviorConfig(policy="colregs_rule_fsm")
+_OWNSHIP_STALE_TIMEOUT_S = 2.0
 
 
 class TargetVessel:
@@ -193,6 +197,8 @@ class TargetVesselNode(LifecycleNode):
         self._add_target_srv = None
         self._remove_target_srv = None
         self._latest_ownship = None
+        self._latest_ownship_wall_time: float | None = None
+        self._ownship_stale_warned = False
         self._ownship_sub = None
 
         # Wall-clock publishing rate limiter
@@ -211,6 +217,9 @@ class TargetVesselNode(LifecycleNode):
         mode: str = "replay",
         behavior_config: TargetBehaviorConfig | None = None,
     ) -> TargetVessel:
+        mode_enum = TargetMode(mode)
+        behavior_config = self._resolve_behavior_config(mode_enum, behavior_config)
+        self._validate_fsm_target_limit(behavior_config)
         if self._root_seed is not None:
             t_rng = make_rng(
                 root=self._root_seed,
@@ -226,7 +235,7 @@ class TargetVesselNode(LifecycleNode):
             lon,
             heading_deg,
             sog_kn,
-            TargetMode(mode),
+            mode_enum,
             rng=t_rng,
             behavior_config=behavior_config,
         )
@@ -234,7 +243,8 @@ class TargetVesselNode(LifecycleNode):
         return t
 
     def step_all(self, dt: float = 0.1) -> list[dict]:
-        return [t.step(dt, ownship=self._latest_ownship) for t in self._targets]
+        ownship = self._get_fresh_ownship()
+        return [t.step(dt, ownship=ownship) for t in self._targets]
 
     # ── Lifecycle callbacks ─────────────────────────────────────────────
 
@@ -347,6 +357,9 @@ class TargetVesselNode(LifecycleNode):
     def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
         self._targets.clear()
         self._last_sim_time = None
+        self._latest_ownship = None
+        self._latest_ownship_wall_time = None
+        self._ownship_stale_warned = False
         self._logger.info("Cleaned up — targets cleared")
         return TransitionCallbackReturn.SUCCESS
 
@@ -381,11 +394,53 @@ class TargetVesselNode(LifecycleNode):
         self._latest_ownship = VesselKinematics(
             lat=float(msg.lat),
             lon=float(msg.lon),
-            heading_deg=float(msg.heading) % 360.0,
+            heading_deg=math.degrees(float(msg.heading)) % 360.0,
             sog_mps=float(msg.sog),
         )
+        self._latest_ownship_wall_time = time.monotonic()
+        self._ownship_stale_warned = False
 
     # ── Internal ────────────────────────────────────────────────────────
+
+    def _resolve_behavior_config(
+        self,
+        mode: TargetMode,
+        behavior_config: TargetBehaviorConfig | None,
+    ) -> TargetBehaviorConfig | None:
+        if behavior_config is not None:
+            return behavior_config
+        if mode == TargetMode.INTELLIGENT:
+            return _DEFAULT_FSM_BEHAVIOR
+        return None
+
+    def _validate_fsm_target_limit(self, behavior_config: TargetBehaviorConfig | None) -> None:
+        if behavior_config is None or behavior_config.policy != "colregs_rule_fsm":
+            return
+        if any(
+            target._behavior_config is not None and target._behavior_config.policy == "colregs_rule_fsm"
+            for target in self._targets
+        ):
+            raise ValueError("Only one colregs_rule_fsm target is supported in v1")
+
+    def _get_fresh_ownship(self) -> VesselKinematics | None:
+        if self._latest_ownship is None or self._latest_ownship_wall_time is None:
+            if not self._ownship_stale_warned:
+                self._logger.warning("Ownship unavailable; target_vessel COLREGS targets staying nominal")
+                self._ownship_stale_warned = True
+            return None
+
+        age_s = time.monotonic() - self._latest_ownship_wall_time
+        if age_s > _OWNSHIP_STALE_TIMEOUT_S:
+            if not self._ownship_stale_warned:
+                self._logger.warning(
+                    f"Ownship stale ({age_s:.1f}s > {_OWNSHIP_STALE_TIMEOUT_S:.1f}s); "
+                    "target_vessel COLREGS targets staying nominal"
+                )
+                self._ownship_stale_warned = True
+            return None
+
+        self._ownship_stale_warned = False
+        return self._latest_ownship
 
     def _step_callback(self) -> None:
         if self._tv_pub is None:
@@ -404,14 +459,14 @@ class TargetVesselNode(LifecycleNode):
         steps = int(elapsed / dt)
 
         from rclpy.duration import Duration
+        ownship = self._get_fresh_ownship()
         for _ in range(steps):
             for t in self._targets:
-                t.step(dt=dt, ownship=self._latest_ownship)
+                t.step(dt=dt, ownship=ownship)
             self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
 
         # Throttled target-vessel publishing to maximum of 25 Hz wall-clock rate
         # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
-        import time
         now_wall = time.monotonic()
         if now_wall - self._last_pub_wall_time >= 0.04:  # ~25 Hz limit
             now_sim_msg = now_sim.to_msg()

@@ -66,6 +66,8 @@ def test_node_add_target_string_mode():
     node = TargetVesselNode()
     t = node.add_target(222, 63.0, 10.0, 0.0, 6.0, mode="intelligent")
     assert t.mode == TargetMode.INTELLIGENT
+    assert t._behavior_config is not None
+    assert t._behavior_config.policy == "colregs_rule_fsm"
 
 
 def test_zero_sog_stays_still():
