@@ -173,8 +173,18 @@ double signed_relative_bearing_deg(double bearing_deg, double reference_heading_
   return rel;
 }
 
-bool past_and_clear_from_heading(double bearing_deg, double reference_heading_deg) {
-  return std::fabs(signed_relative_bearing_deg(bearing_deg, reference_heading_deg)) > 112.5;
+// Past-and-clear threshold by encounter type. Overtaking (Rule 13(b)/21(c)):
+// target >22.5° abaft the beam = rel bearing > 112.5° (sternlight 135° arc).
+// Crossing/head-on (Rule 8(d) finally past and clear): target past the beam =
+// rel bearing > 90°. The 112.5° overtaking-sector boundary is geometrically
+// unreachable for shallow slow crossings after starboard avoidance
+// (rule15-cs cog=290/10.6kn only crosses the 90° beam once own-ship recovers
+// to route). Internal design report §4.2: abaft_threshold = 112.5 if
+// is_overtaking else 90.0.
+bool past_and_clear_from_heading(double bearing_deg, double reference_heading_deg,
+                                 double abaft_threshold_deg = 112.5) {
+  return std::fabs(signed_relative_bearing_deg(bearing_deg, reference_heading_deg))
+         > abaft_threshold_deg;
 }
 
 /// Compute initial great-circle bearing (degrees) from point A to point B.
@@ -569,9 +579,23 @@ void ColregsReasonerNode::run_reasoning() {
     const bool has_release_reference = ref_it != encounter_reference_heading_.end();
     const double release_reference_heading =
         has_release_reference ? ref_it->second : target.ownship_heading_deg;
+    // Per-rule past-clear threshold (Rule 13(d): classification fixed at onset).
+    // Overtaking uses the 112.5° abaft-beam (Rule 13(b)/21(c) sternlight arc);
+    // crossing/head-on uses the 90° beam — the 112.5° sector is unreachable for
+    // shallow slow crossings (rule15-cs only crosses the 90° beam after
+    // own-ship avoidance+recovery). Read the onset encounter from the rule13
+    // latch snapshot; fallback 90° when no onset captured (duty not latched →
+    // no release anyway).
+    const auto rl13_it = rule_latches_.find(
+        (static_cast<uint64_t>(mmsi) << 8) | 13ULL);
+    const bool is_overtaking_onset =
+        rl13_it != rule_latches_.end() && rl13_it->second.has_onset() &&
+        rl13_it->second.onset_encounter() == EncounterType::OVERTAKING;
+    const double abaft_threshold_deg = is_overtaking_onset ? 112.5 : 90.0;
     const bool past_and_clear =
         has_release_reference &&
-        past_and_clear_from_heading(target.bearing_deg, release_reference_heading);
+        past_and_clear_from_heading(target.bearing_deg, release_reference_heading,
+                                    abaft_threshold_deg);
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
         (target.cpa_m >= kParams.cpa_safe_m);
