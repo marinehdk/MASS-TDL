@@ -53,6 +53,65 @@ python tools/validate_scenarios.py --all   # 全仓 schema
 pytest tools/sil/test_simulate.py          # kinematic 自洽（ho 可赢 ≥cpa_min）
 ```
 
+## 8-probe 评价平台总览
+
+### clean 8（passive target，测 own-ship 避碰）
+
+| scenario_id | COLREGs | OS 角色 | give-way 主体 | target 模式 | 测什么 |
+|---|---|---|---|---|---|
+| `colreg-rule14-ho` | R14 | give-way | own | replay | 纯正遇右转、port-to-port、回中心航线 |
+| `colreg-rule14-ho-port` | R14 | give-way | own | replay | 偏左 5° 仍右转 |
+| `colreg-rule13-ot` | R13 | give-way | own | replay | 追越完成（C7 past-and-clear） |
+| `colreg-rule15-cs` | R15 | give-way | own | replay | 右舷穿越让路 |
+| `colreg-rule15-cs-2` | R15 | give-way | own | replay | 短-TCPA 逼早动作 |
+| `colreg-rule15-cs-edge` | R15 | give-way | own | replay | 正遇/穿越边界 |
+| `colreg-rule15-ot-boundary` | R15 | give-way | own | replay | 穿越/追越边界 |
+| `colreg-rule17-cr-so` | R17 | stand-on | target | replay | 应让不让→末段 17(b) |
+
+### intelligent 探针（target FSM 避碰，opt-in，不入 clean-8 批量）
+
+| scenario_id | COLREGs | OS 角色 | target 角色 | 测什么 |
+|---|---|---|---|---|
+| `colreg-rule14-ho-intelligent` | R14 | stand-on | give-way (FSM) | target 对遇右转让路 |
+| `colreg-rule15-cs-intelligent` | R15 | stand-on | give-way (FSM) | target 穿越让路 |
+| `colreg-rule17-cr-so-target-giveway` | R17 | stand-on | give-way (FSM) | own 保向、target 让路 |
+| `colreg-rule13-ot-target-giveway` | R13 | stand-on | give-way (FSM) | **target 追越让路**（H1 补洞） |
+
+intelligent 探针需 `behavior.policy: colregs_rule_fsm`；target FSM 独立观测 `/sil/own_ship_state`，不订阅 TDL 决策。clean-8 仍只含 passive-replay 场景（评价 own-ship 避碰），intelligent 探针单独跑验证 target FSM。
+
+### overall_pass gate 组成（8 信号 AND）
+
+`scripts/run_6_scenarios.py::compute_overall_pass`：
+
+```
+overall_pass = cpa_ok
+  ∧ stability_pass                          # 8 项稳定性 KPI（fishtail/flap 检测）
+  ∧ (¬route_return_required ∨ returned_to_route)
+  ∧ route_corridor_ok
+  ∧ (¬overtake_required ∨ overtake_completed)
+  ∧ risk_gate_ok
+  ∧ seamanship_gate_ok
+  ∧ phase_semantics_ok                      # C1-C8 阶段语义 gate
+  ∧ (compliance_verdict ≠ "violated")       # COLREGs 合规评分 gate
+```
+
+每个 RED 都有可归因信号——无"机械右转即 PASS"漏洞。
+
+### 已知偏离与 open items（2026-06-18 stage0/1/2 后）
+
+| 场景 | 状态 | 归因 | 性质 |
+|---|---|---|---|
+| `colreg-rule15-cs` | RED | C1 rel_brg 89°（差 1° 未过 90° beam）+ route_return False（XTE 177m） | **M5 回航能力**（stage2 修复已把 release 从 19°→89°，但避让后回航时间/幅度不足） |
+| `colreg-rule15-cs-2` | RED | C1 release 几何（同 cs） | 同上 |
+| `colreg-rule15-ot-boundary` | RED | C1 release 几何 | 同上 |
+| `colreg-rule17-cr-so` | RED | CPA ok=False（DCPA 168m<180m floor） | stand-on 紧急避让 DCPA，独立 open item |
+| `colreg-rule13-ot` (cold) | RED | C7 overtake_completed=False | 追越 release 几何（own 未追上 target） |
+
+**stage2 修复效果**：`give_way_reference_heading_release_safe` 加 past-beam guard 后，rule15-cs 的 C1 release bearing 从 19° 推迟到 89°（接近正确的 90° beam），C5 no-cross 从 False→True。剩余 RED 归因转向 M5 回航能力（避让后 XTE 不降），属独立行为层问题，非 M6 release。
+
+**未覆盖（架构限制，暂缓）**：非合作机动目标（Tier-3）、Rule 19 受限能见度、多边形 geofence。
+
+
 ## 打分层（A4000 验收用，复用现有）
 
 `src/sim_workbench/sil_nodes/scoring/`：
