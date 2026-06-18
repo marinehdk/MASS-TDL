@@ -91,10 +91,36 @@ TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseWhenReturnCpaUnsafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
-  EXPECT_TRUE(give_way_reference_heading_release_safe(
+// Regression for the rule15-cs early-release bug: the reference-heading CPA
+// projection release must ALSO require the target to be abaft the beam (rel_brg
+// >= 112.5 deg along the reference heading), same Rule 8(d)/13(b)+21(c) gate as
+// the REFERENCE_CLEAR projection path. Without this, the OR branch in
+// colregs_reasoner_node.cpp (give_way_reference_heading_release_ok) releases the
+// encounter while the target is still on the bow (rel_brg ~37 deg) even though
+// the sibling give_way_projection_release_safe(REFERENCE_CLEAR) path correctly
+// blocks. Phase gate flags this as a Rule 8(d) violation.
+TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseBeforeTargetAbaftTheBeam) {
+  // bearing=37.7 deg, reference_heading=0 deg -> rel_brg=37.7 deg, well short of
+  // the 112.5 deg abaft-beam gate. CPA projection is safe (this was the
+  // AllowsReferenceHeadingReleaseWhenReturnCpaSafe case before the fix). Must
+  // hold (return false) because the target is still on the bow.
+  EXPECT_FALSE(give_way_reference_heading_release_safe(
       /*range_m=*/2878.0,
       /*bearing_deg=*/37.7,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
+  // Target now abaft the beam along the reference heading (bearing=150 deg vs
+  // reference=0 deg -> rel_brg=150 deg > 112.5 deg) with a safe CPA projection.
+  // Genuine past-and-clear, release allowed.
+  EXPECT_TRUE(give_way_reference_heading_release_safe(
+      /*range_m=*/2878.0,
+      /*bearing_deg=*/150.0,
       /*target_heading_deg=*/290.0,
       /*target_speed_kn=*/10.61,
       /*own_speed_kn=*/9.88,

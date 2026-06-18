@@ -76,6 +76,16 @@ inline double give_way_reference_heading_cpa_m(
   return std::hypot(cpa_x, cpa_y);
 }
 
+// Reference-heading CPA projection release for crossing give-way: resolves the
+// encounter when, along the reference (onset) avoidance heading, the target is
+// abaft the beam AND the CPA projection at safe distance. The abaft-beam gate
+// (Rule 8(d)/13(b)+21(c), same 112.5 deg threshold as the REFERENCE_CLEAR
+// projection path) prevents release while the target is still on the bow --
+// the rule15-cs early-release bug fixed alongside the ea6b06e6 commit's sibling
+// give_way_projection_release_safe(REFERENCE_CLEAR) path. Without this gate the
+// OR branch in colregs_reasoner_node.cpp (give_way_reference_heading_release_ok)
+// would release at rel_brg ~37 deg just because the CPA projection happens to
+// be safe, defeating the Rule 8(d) "finally past and clear" requirement.
 inline bool give_way_reference_heading_release_safe(
     double range_m,
     double bearing_deg,
@@ -85,9 +95,20 @@ inline bool give_way_reference_heading_release_safe(
     double reference_heading_deg,
     double cpa_safe_m) {
   if (!std::isfinite(range_m) ||
+      !std::isfinite(bearing_deg) ||
+      !std::isfinite(reference_heading_deg) ||
       !std::isfinite(cpa_safe_m) ||
       cpa_safe_m <= 0.0 ||
       range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple) {
+    return false;
+  }
+  // Abaft-beam gate: target relative bearing along the reference avoidance
+  // heading must exceed 112.5 deg (Rule 13(b)+21(c)) before the encounter is
+  // resolved. Normalize signed (bearing - reference_heading) to [-180,180].
+  double rel_brg_deg = bearing_deg - reference_heading_deg;
+  while (rel_brg_deg > 180.0) rel_brg_deg -= 360.0;
+  while (rel_brg_deg < -180.0) rel_brg_deg += 360.0;
+  if (std::fabs(rel_brg_deg) < kGiveWayProjectionReleaseReferenceBowClearDeg) {
     return false;
   }
   const double cpa_m = give_way_reference_heading_cpa_m(
