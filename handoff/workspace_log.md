@@ -554,17 +554,20 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **接力指示 (Hand-off Context)**: A4000 main checkout remains dirty and was not modified; validation used bundle-fed linked worktree only. GitHub/GitLab push not performed in this step without explicit confirmation.
 
 ## [2026-06-18] Agent: Codex (GPT-5)
-- **Git Commit**: `2b8e8767` (handoff commit on branch `codex/target-vessel-colregs-fsm`)
+- **Git Commit**: `7a83b68f` plus handoff refresh on branch `codex/target-vessel-colregs-fsm`
 - **任务目标 (Goal)**: Add opt-in COLREGs rule-FSM behavior for route-driven simulated target vessels while preserving passive replay, AIS truth, and clean8 defaults.
 - **核心改动 (Actions)**:
-  - Appended task handoff evidence and status in `handoff/workspace_log.md` for the target-vessel FSM rollout.
-  - No source code changes were introduced in Task 8; documentation-only handoff work in this isolated task context.
+  - Added two-axis target-vessel configuration: `source.type` (`route` / `ais_replay` / `ais_live`) and `behavior.policy` (`passive` / `colregs_rule_fsm`; future `intelligent_planner` / `tdl_agent` reserved fail-fast).
+  - Enforced AIS passive-only, `colregs_rule_fsm` route-only, and v1 max one FSM-controlled target to preserve truth replay and avoid multi-agent coupling.
+  - Added target-vessel COLREG geometry helpers and opt-in FSM behavior for Rule 14, Rule 15, and Rule 17 target-as-give-way scenarios using ownship observation only.
+  - Wired FSM targets into `target_vessel_node` with isolated `/sil/own_ship_state` observation; no subscription to TDL decision topics. Final review fixes converted ownship heading radians to degrees, made dynamic `mode="intelligent"` default to FSM behavior, rejected duplicate dynamic FSM targets, and made stale ownship observation degrade to nominal route following.
+  - Added opt-in targeted scenarios only: `colreg-rule14-ho-intelligent.yaml`, `colreg-rule15-cs-intelligent.yaml`, and `colreg-rule17-cr-so-target-giveway.yaml`; clean8 scenario list unchanged.
 - **当前状态 (Status)**: AMBER
 - **Verification**:
   - `PYTHONPATH=src/sim_workbench/sil_nodes/target_vessel:src/sim_workbench/sil_nodes/sil_common pytest -q tests/sil/test_target_vessel.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_ou.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_config.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_geometry.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_rule_fsm.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_node_colregs.py`
-    - result: `44 passed in 0.20s`
+    - result after final-review fix: `47 passed in 0.17s`
   - `PYTHONPATH=src pytest -q src/sil_orchestrator/tests/test_encounters_routes.py tests/sil_orchestrator/test_scenario_injection.py`
-    - result: `20 passed in 0.30s`
+    - result: `20 passed in 0.35s`
   - Forbidden TDL decision-topic guard check script output:
     - `target_vessel_node does not subscribe to forbidden TDL decision topics`
   - Intelligent scenario parser command checks passed for:
