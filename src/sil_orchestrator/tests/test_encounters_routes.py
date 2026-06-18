@@ -63,6 +63,24 @@ async def test_inject_accepts_intelligent_mode():
     assert bridge.added[0]["mode"] == "intelligent"
 
 
+@pytest.mark.asyncio
+async def test_inject_defaults_to_replay_mode_when_mode_omitted():
+    inject = next(route.endpoint for route in router.routes if route.path == "/api/v1/encounters/inject")
+    bridge = _Bridge()
+
+    async def fake_add_target(**kwargs):
+        bridge.added.append(kwargs)
+        return SimpleNamespace(success=True, message="ok")
+
+    bridge.add_target = fake_add_target
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(bridge=bridge)))
+
+    result = await inject(InjectBody(rule="head_on"), request)
+
+    assert result["accepted"] is True
+    assert bridge.added[0]["mode"] == "replay"
+
+
 @pytest.fixture
 def request_and_bridge():
     _counter["n"] = 0
