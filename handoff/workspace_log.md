@@ -581,3 +581,25 @@ This log coordinates task handoffs between different development interfaces (Cla
   - **未解决（独立）**：rule17-cr-so CPA 168.9m<180m floor miss，非 release 回归，单独处理。
   - **隔离 stack 命令**：`source scripts/local-behavior-fix-env.sh && export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1`；run_6_scenarios.py 默认 `--restart-container=mass-l3-sil-sil-nodes-1`（硬编码主 stack！），isolation 必须 `--restart-container colregs-behavior-fix-sil-nodes-1`。script 读 `SIL_ORCH_BASE_URL` 非 `ORCH_URL`。
   - mempalace wing=MASS-L3 room=colregs-c1c7-sil-timing 有完整根因 + 回退方案 + 验证证据 3 drawer。
+
+## [2026-06-19 00:30 CST] Agent: ZCode (GLM-5.2)
+- **Git Commit**: worktree `codex/colregs-behavior-fix` HEAD now `4e150fb5` (+`b65024b6`,`92584b89`,`dc5cf83d` on top of `8e9faaf8`). Main checkout `codex/colregs-phase-gate-diag` HEAD `e50795d1` (spec/plan/errata docs). SIL tracker fixes (`5ec267e8` fix①②) verified retained, skipped.
+- **任务目标 (Goal)**: 修 C1 phase-gate abaft-beam 阈值在慢速浅角度横越的几何不可达。rule15-cs (cog=290/10.6kn) 右转避让后目标 rel_brg 渐近 port beam 前，112.5° abaft sector 永不可达——spec 内部矛盾（内部报告 §4.2 自己写 `abaft=112.5 if is_overtaking else 90.0`，C1 gate 却用 112.5°）。
+- **核心改动 (Actions)** — 4 commit，全部 TDD（RED→GREEN），独立 spec+code review ✅：
+  - `b65024b6` (Python gate): `scripts/run_6_scenarios.py` C1 crossing/headon 从 112.5°→**90° beam + tcpa<0 + range≥cpa_safe opening** 三项 AND。+2 gate 测试（slow-crosser rel_brg~101 PASS / early-return-at-bow rel_brg~36 RED）。38/38 gate 测试绿。
+  - `92584b89` (M6 release_policy): `kGiveWayProjectionReleaseReferenceBowClearDeg` 40°→90°。**关键重构**：reference-bearing 检查仅作用于 `REFERENCE_CLEAR` gate（crossing），不再 block `CURRENT_ABAFT` gate（Rule14 headon）——原 shared early-return 误 gate 了 headon 路径（首次实现破坏了 `AllowsHeadOnProjectionReleaseAtCurrentAbaftGate`，重构修复）。citation 修正 Rule 3(g)→Rule 13(b)/21(c)。m6 19/19 绿。
+  - `dc5cf83d` (M6 rule_latch): 加 `onset_encounter()` public getter（mirror `onset_role()`），给 per-rule 阈值选择用。+2 测试。rule_latch 19/19 绿。
+  - `4e150fb5` (M6 reasoner_node): `past_and_clear_from_heading` 加 `abaft_threshold_deg` 参数；per-target 从 rule13 latch `onset_encounter` 选阈值（OVERTAKING→112.5°，其余→90°）。单一 `past_and_clear` local 喂 `finally_resolved` + 3 个 latch update 调用点。
+- **当前状态 (Status)**: 代码层验证完毕，runtime strict 8-probe = **3/8 PASS**。
+  - **C1 阈值修复有效场景（3 PASS）**：rule14-ho (C1 164°)、rule14-ho-port (174°)、rule15-cs-edge (125°)——目标能过 beam，C1 全 ✅。
+  - **C1 仍 RED，结构性问题（3）**：rule15-cs (36°)、rule15-cs-2 (23°)、rule15-ot-boundary (56°)——目标 rel_brg 永远 <90°，**90° beam 也不可达**。根因：避让仅 55s（onset 229.8→release 284.8）+ M6 过早 release（t=284.8 时 target 还在 -43° vs own 79° 避让航向）+ min range 仅 424m @ 回航线。非 C1 阈值，是避让架构 + release 时机问题。**超出本 fix 范围，留 open item**。
+  - **与 C1 无关 RED（2）**：rule13-ot (C7 overtake-past=F baseline + seamanship int_xte)、rule17-cr-so (cpa_ok=F DCPA 167m<floor，stand-on 紧急避让)。
+  - strict 8-probe 证据：`runs/clean8_strict_20260618_*.log` + `runs/batch_colregs_clean_strict_*.json`（ROS_DOMAIN_ID=43，`--restart-container colregs-behavior-fix-sil-nodes-1`，每 scenario restart，主 stack 全程未碰）。
+- **⚠️ AGENTS.md 违规报告**: 诊断 strict stall 时发现 `run_6_scenarios.py:DEFAULT_RESTART_CONTAINER="mass-l3-sil-sil-nodes-1"`（硬编码主 stack）。首次 strict 跑误用默认值，重启了主 stack sil-nodes 几次（违反"主 stack 绝不碰"）。主 stack 自恢复无永久损坏，但这是违规。已用 `--restart-container colregs-behavior-fix-sil-nodes-1` 修正重跑，mempalace 已存 drawer 防复犯。
+- **接力指示 (Hand-off Context)**:
+  - **C1 阈值 fix 不回退**：对 3 个场景（rule14-ho/h-port/edge）是正确修复，回退会退化它们。
+  - **Open item（下一轮，新 spec/plan）**：rule15-cs/cs-2/ot-boundary 结构问题——避让 55s 太短（M5/M4 行为层，avoidance_duration 配 200s 实际执行 55s？）+ M6 过早 release（`cpa_projection_past_and_safe` 纯 CPA 路径在避让中 CPA 短暂打开就释放，不查 bearing）。需调查 M5 avoidance plan 时长 + M6 release 多路径。
+  - **strict 验证上 A4000 做**（release authority）；local OrbStack strict 3/8 是真值但 A4000 才是验收。
+  - 隔离 stack 命令：`source scripts/local-behavior-fix-env.sh && export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1` + 任何 `--restart-between-runs` 必须加 `--restart-container colregs-behavior-fix-sil-nodes-1`。
+  - 文档：spec `docs/superpowers/specs/2026-06-18-colregs-c1-crossing-beam-fix.md`、plan `docs/superpowers/plans/2026-06-18-colregs-c1-crossing-beam-fix.md`（主 checkout `codex/colregs-phase-gate-diag`）。phase-semantics-gate spec §C1 errata 已加。
+  - mempalace: wing=MASS-L3 room=colregs-deviation-findings（runtime finding）+ room=colregs-environment-pitfalls（container-name gotcha）。
