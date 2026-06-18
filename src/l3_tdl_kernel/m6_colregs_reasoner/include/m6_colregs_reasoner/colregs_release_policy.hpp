@@ -91,6 +91,21 @@ inline bool give_way_reference_heading_release_safe(
       range_m < cpa_safe_m * kGiveWayProjectionReleaseRangeMultiple) {
     return false;
   }
+  // Past-beam guard (stage2): a safe projected CPA alone is not enough to clear
+  // the give-way duty. The target must have drawn past the reference beam
+  // (captured at duty onset) — i.e. its relative bearing from the reference
+  // heading is at least the bow-clear angle. Without this, own-ship's own
+  // avoidance turn transiently opens the projected CPA while the target is still
+  // on the bow (rule15-cs released at 37.7° rel mid-avoidance), producing a
+  // premature release and an impossible route return (Rule 8(d) past-and-clear).
+  const double delta_rad =
+      (bearing_deg - reference_heading_deg) * kGiveWayReleasePi / 180.0;
+  double rel = std::fmod(delta_rad + 3.0 * kGiveWayReleasePi, 2.0 * kGiveWayReleasePi) -
+      kGiveWayReleasePi;
+  const double reference_rel_abs_deg = std::fabs(rel) * 180.0 / kGiveWayReleasePi;
+  if (reference_rel_abs_deg < kGiveWayProjectionReleaseReferenceBowClearDeg) {
+    return false;
+  }
   const double cpa_m = give_way_reference_heading_cpa_m(
       range_m,
       bearing_deg,

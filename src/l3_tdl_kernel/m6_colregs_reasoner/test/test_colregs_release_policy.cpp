@@ -102,10 +102,29 @@ TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseWhenReturnCpaUnsafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
-  EXPECT_TRUE(give_way_reference_heading_release_safe(
+TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseBeforeTargetPastBeam) {
+  // stage2 fix: a safe projected CPA alone must NOT clear the give-way duty
+  // while the target is still on the bow (here 37.7°, well short of the 90°
+  // beam). rule15-cs used to release here — own was still mid-avoidance with
+  // the target at -43° relative — producing a premature release and an
+  // impossible route return. The target must be past the reference beam.
+  EXPECT_FALSE(give_way_reference_heading_release_safe(
       /*range_m=*/2878.0,
       /*bearing_deg=*/37.7,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
+  // Target past the reference beam (95° rel) with a safe projected CPA clears
+  // the give-way duty. The CPA-safety semantics are exercised here; the
+  // past-beam guard is exercised by BlocksReferenceHeadingReleaseBeforeTargetPastBeam.
+  EXPECT_TRUE(give_way_reference_heading_release_safe(
+      /*range_m=*/2878.0,
+      /*bearing_deg=*/95.0,
       /*target_heading_deg=*/290.0,
       /*target_speed_kn=*/10.61,
       /*own_speed_kn=*/9.88,
