@@ -340,6 +340,77 @@
             "type": "string",
             "description": "Target vessel behavior model (e.g., ais_replay_vessel)"
           },
+          "source": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["route", "injected_geometry", "ais_replay", "ais_live"]
+              },
+              "trajectory_file": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "behavior": {
+            "type": "object",
+            "properties": {
+              "policy": {
+                "type": "string",
+                "enum": ["passive", "ncdm", "colregs_rule_fsm", "intelligent_planner", "tdl_agent"]
+              },
+              "reaction_delay_s": {
+                "type": "number",
+                "minimum": 0
+              },
+              "min_turn_deg": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "rot_limit_deg_s": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "role_lock_s": {
+                "type": "number",
+                "minimum": 0
+              },
+              "target_cpa_m": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "standon_hold_tcpa_s": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "standon_action_tcpa_s": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "emergency_tcpa_s": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "observed_action_heading_delta_deg": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "observed_action_dcpa_gain_m": {
+                "type": "number",
+                "minimum": 0
+              },
+              "clear_dwell_s": {
+                "type": "number",
+                "minimum": 0
+              },
+              "return_cooldown_s": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": true
+          },
           "trajectory_file": {
             "type": "string",
             "description": "Path to pre-recorded trajectory CSV"

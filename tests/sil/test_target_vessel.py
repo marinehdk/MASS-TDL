@@ -1,6 +1,22 @@
 """Tests for target_vessel node — linear kinematics, node container."""
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+
+class DummyLifecycleNode:
+    def __init__(self, node_name, **kwargs):
+        self._logger = MagicMock()
+        self.get_clock = MagicMock()
+
+
+sys.modules["rclpy"] = MagicMock()
+sys.modules["rclpy.lifecycle"] = MagicMock()
+sys.modules["rclpy.lifecycle"].LifecycleNode = DummyLifecycleNode
+sys.modules["rclpy.qos"] = MagicMock()
+sys.modules["sil_msgs"] = MagicMock()
+sys.modules["sil_msgs.msg"] = MagicMock()
+sys.modules["sil_msgs.srv"] = MagicMock()
 
 # Ensure the package is importable when running tests from the repo root
 _pkg = Path(__file__).resolve().parents[3] / "src" / "sim_workbench" / "sil_nodes" / "target_vessel"
@@ -50,6 +66,8 @@ def test_node_add_target_string_mode():
     node = TargetVesselNode()
     t = node.add_target(222, 63.0, 10.0, 0.0, 6.0, mode="intelligent")
     assert t.mode == TargetMode.INTELLIGENT
+    assert t._behavior_config is not None
+    assert t._behavior_config.policy == "colregs_rule_fsm"
 
 
 def test_zero_sog_stays_still():

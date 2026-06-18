@@ -30,6 +30,7 @@ class InjectBody(BaseModel):
     range_nm: Optional[float] = None
     construct_cpa_m: Optional[float] = None
     approach_angle_deg: Optional[float] = None
+    mode: Optional[str] = None
 
 
 def _own_state_from_msg(msg) -> OwnState:
@@ -78,10 +79,13 @@ async def inject_encounter(body: InjectBody, request: Request):
         raise HTTPException(400, str(exc))
     _counter["n"] += 1
     mmsi = _MMSI_BASE + _counter["n"]
+    mode = getattr(body, "mode", None) or "replay"
     try:
         res = await bridge.add_target(
             mmsi=mmsi, lat=spawn.lat, lon=spawn.lon,
-            heading_deg=spawn.course_deg, sog_kn=spawn.sog_kn, mode="replay")
+            heading_deg=spawn.course_deg,
+            sog_kn=spawn.sog_kn,
+            mode=mode)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
     if not getattr(res, "success", False):
