@@ -60,6 +60,7 @@ class ColregsRuleFsm:
             return self._clear_or_nominal(now_s, target, nominal_heading_deg, cpa)
 
         rule, role = encounter
+        self._prepare_encounter_context(rule, role)
         self._ensure_encounter_started(now_s, own, target, cpa)
         if not self._reaction_delay_elapsed(now_s):
             self._set_state("MONITORING", rule, role, "reaction_delay", now_s)
@@ -95,6 +96,16 @@ class ColregsRuleFsm:
         self._set_state("MONITORING", rule, role, "monitoring", now_s)
         return self._action(target.heading_deg, None, False, cpa)
 
+    def _prepare_encounter_context(self, rule: str, role: str) -> None:
+        had_clear = self.state.clear_since_s is not None
+        if had_clear:
+            self.state.clear_since_s = None
+
+        active_state = self.state.state in {"MONITORING", "GIVE_WAY", "STAND_ON"}
+        changed_rule = self.state.rule != rule or self.state.role != role
+        if self.state.encounter_start_s is None or not active_state or (had_clear and changed_rule):
+            self._reset_encounter_baselines()
+
     def _classify(
         self,
         own: VesselKinematics,
@@ -128,6 +139,12 @@ class ColregsRuleFsm:
         self.state.encounter_start_own_heading_deg = own.heading_deg
         self.state.encounter_start_heading_deg = target.heading_deg
         self.state.encounter_start_dcpa_m = cpa.dcpa_m
+
+    def _reset_encounter_baselines(self) -> None:
+        self.state.encounter_start_s = None
+        self.state.encounter_start_own_heading_deg = None
+        self.state.encounter_start_heading_deg = None
+        self.state.encounter_start_dcpa_m = None
 
     def _reaction_delay_elapsed(self, now_s: float) -> bool:
         if self.state.encounter_start_s is None:
