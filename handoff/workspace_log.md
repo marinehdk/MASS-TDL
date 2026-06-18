@@ -565,9 +565,9 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **当前状态 (Status)**: AMBER
 - **Verification**:
   - `PYTHONPATH=src/sim_workbench/sil_nodes/target_vessel:src/sim_workbench/sil_nodes/sil_common pytest -q tests/sil/test_target_vessel.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_ou.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_config.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_geometry.py src/sim_workbench/sil_nodes/target_vessel/test/test_colregs_rule_fsm.py src/sim_workbench/sil_nodes/target_vessel/test/test_target_vessel_node_colregs.py`
-    - result after final-review fix: `47 passed in 0.17s`
+    - result after final-review fix: `47 passed in 0.23s`
   - `PYTHONPATH=src pytest -q src/sil_orchestrator/tests/test_encounters_routes.py tests/sil_orchestrator/test_scenario_injection.py`
-    - result: `20 passed in 0.35s`
+    - result: `20 passed in 0.29s`
   - Forbidden TDL decision-topic guard check script output:
     - `target_vessel_node does not subscribe to forbidden TDL decision topics`
   - Intelligent scenario parser command checks passed for:

@@ -1616,4 +1616,3 @@ If the docs were already committed before implementation and only `handoff/works
 - Placeholder scan: no bare `TBD` or `TODO` appears in implementation tasks.
 - Type consistency: `TargetBehaviorConfig`, `NormalizedTargetConfig`, `VesselKinematics`, `TargetAction`, and `ColregsRuleFsm.update(...)` are consistently named across tasks.
 - Known implementation caution: Task 3 synthetic geometry may need coordinate adjustment if bearing classification differs from the intended scenario. Only adjust test coordinates, not thresholds, unless current repo evidence shows a stricter rule threshold is required.
-

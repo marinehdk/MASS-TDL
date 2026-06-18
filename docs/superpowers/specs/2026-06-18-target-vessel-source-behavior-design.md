@@ -240,4 +240,3 @@ Acceptance criteria:
 - `colregs_rule_fsm` stand-on target holds when observed own-ship action is appropriate and performs independent action only when thresholds require it.
 - No target-vessel logic reads TDL internal decision topics.
 - No default clean8 gate is changed by this feature.
-
