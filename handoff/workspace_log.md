@@ -562,3 +562,22 @@ This log coordinates task handoffs between different development interfaces (Cla
   - 完整 8 场景阶段语义基线（gate 修好后稳定输出）。C5 rule15-cs 重跑 2 次均 PASS（首跑 fail 是 warm state 非确定），降级不修。
 - **当前状态 (Status)**: 4 个真偏离已定位：C2 回转抖动（6/8 最系统性，Rule8(b)）、C1 rule15 过早回航线（cs/cs-2/ot-boundary 稳定 fail，Rule8(d)）、C7 rule13-ot 追越未过清、C3 rule14-ho-port onset 44s 太晚。warm state 调查：sil-nodes 单容器含全部 M1-M8 子进程，docker restart 全新启动无内存残留，warm state 在 DDS discovery/sim time 同步时序竞争。稳定性复测进行中（4 场景各重跑区分稳定 fail vs 非确定）。
 - **接力指示 (Hand-off Context)**: gate 在 `codex/colregs-phase-gate-diag` 分支（Python-only，主 stack 镜像未动）。C2/C1/C7/C3 修复涉及 C++（M4/M5/M6），用户要求 worktree 隔离重编验证后合回。修行为前必须先完成稳定性复测（区分真偏离 vs warm state 噪声）。证据：`runs/full8_phase_gate_v3_20260617.log`（前4）、`runs/full8_phase_gate_rest4_20260617.log`（后4）、`runs/stability_retest_20260617.log`（复测中）。mempalace wing=mass_l3_tactical_layer room=colregs-deviation-findings 有完整诊断记录。
+
+## [2026-06-18 17:40 CST] Agent: ZCode (GLM-5.2)
+- **Git Commit**: `e4e2cc37` (selective revert) + `cf799ce0` (run_6_scenarios --total-time-override diagnostic flag); branch: `codex/colregs-behavior-fix`, worktree: `.worktrees/colregs-behavior-fix`, base HEAD `5ec267e8`. Main stack `mass-l3-sil` untouched (accidental one-time restart only, fully recovered).
+- **任务目标 (Goal)**: 回退 M6 release 收紧回归，保留 SIL timing 修复。rule15-cs slow-crosser 在 4 个 release-tightening commit (ea6b06e6/c45a637e/9d6dcd1f/5ec267e8) 后 release 拖到 1830s 无时间回航，XTE 388m 不降。
+- **核心改动 (Actions)**:
+  - Selective revert `git checkout c849f06c --` 5 文件（3 release 源 + 2 测试），保留 5ec267e8 的 SIL timing 修复（M2 track_buffer/world_state_aggregator, M4 behavior_arbiter_node/colregs_directive, L4 guidance/node, SIL nodes target_vessel/ship_dynamics/sensor_mock）+ isolation compose/env。
+  - 回退后 baseline 状态：`kGiveWayProjectionReleaseReferenceBowClearDeg=40.0`（quick-impl，已知偏松）；`rule_latch.hpp:69` projection_past_and_safe 无 past_and_clear AND；crossing/overtake/current_projection_allowed helpers 全移除；rule15 回单 reference_projection_resolved 路径。
+  - 容器内 colcon build m6/m4/m2 Release 重编，restart sil-nodes 加载回退后代码。
+- **当前状态 (Status)**: 回退验证全通过。
+  - C++ 测试（容器内 source install/setup.bash 先，否则 l3_msgs introspection lib 缺失假 fail）：m6 19/19 PASS，m4 9/9 PASS，m2 test_track_buffer 10/10 PASS。（m2 另有 4 个 stale test_view_health_monitor/test_env_sanity_checker/test_cpa_tcpa_calculator/integration env_degraded，steady_clock vs rclcpp::Time TimePoint，非本次/非 5ec267e8 引入，BUILD_TESTING=OFF 掩盖已久，绕过单 target build。）
+  - **rule15-cs @1200s（决定性）**：route_return **True**（372.5s 回航线，final XTE 16.7m），回退前 388.8m/False。CPA 2304.7m>900m。release@100.1s。C1 Phase Gate RED rel_brg=36° = 40° gate 已知偏松（phase-gate C1 独立 112.5° 硬阈值），**预期非 bug**，任务描述标注回退非终态。
+  - **rule15-cs-edge**：OVERALL PASS，C1 past-clear True rel_brg=127°>112.5°，route_return True（20.9m），release@283s。证明 route-return 逻辑本身正常，回归仅限 slow-target 几何。
+  - **rule13-ot**：C7 overtake-past=False，**= c849f06c baseline 固有状态**（baseline 无 aspect-based release，ea6b06e6 才引入；rule13 走 40° crossing gate，near-parallel overtake target 持续在 bow → release 极晚）。非本次回退退化，未更差。CPA 1128.7m，stability/risk/seamanship/corridor 全过。
+  - 证据 JSON：`runs/revert_verify_rule15cs_20260618_172824.json`、`runs/revert_verify_rule13ot_20260618_*.json`、`runs/revert_verify_rule15csedge_20260618_*.json` + 对应 `runs/trace_eval/revert_verify_*` 目录 + `runs/single_r15cs_20260618_163814.json`（回退前对比）。
+- **接力指示 (Hand-off Context)**:
+  - **下一步决策点（待用户定夺）**：c849f06c 40° gate 太松（rel_brg=36° 误放，Rule 8(d) past-and-clear），117.5° 太严（slow crosser 回不来）。需设计正确阈值或 never-abaft backup（条件：cpa_projection_past_and_safe + range≥2×safe + !range_closing，不依赖 abaft 几何）。**等回退验证通过后做，不在本次回退**。
+  - **未解决（独立）**：rule17-cr-so CPA 168.9m<180m floor miss，非 release 回归，单独处理。
+  - **隔离 stack 命令**：`source scripts/local-behavior-fix-env.sh && export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1`；run_6_scenarios.py 默认 `--restart-container=mass-l3-sil-sil-nodes-1`（硬编码主 stack！），isolation 必须 `--restart-container colregs-behavior-fix-sil-nodes-1`。script 读 `SIL_ORCH_BASE_URL` 非 `ORCH_URL`。
+  - mempalace wing=MASS-L3 room=colregs-c1c7-sil-timing 有完整根因 + 回退方案 + 验证证据 3 drawer。
