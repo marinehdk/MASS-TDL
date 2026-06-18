@@ -69,11 +69,10 @@ NLM maritime_regulations（🟢 high, 124 sources）：
 ### 3.1 三处改动点（按规则类型分层 + 多条件兜底）
 
 **改动 A — C1 evaluator（`scripts/run_6_scenarios.py`）**：
-当前 C1（line 798-811）对所有 give-way 非 rule13 用 112.5°。改为：
-- **主几何门**：`rel_brg_abs > 90.0`（crossing/headon 过正横）
-- **兜底多条件**（满足任一即 C1 过）：
-  - `tcpa < 0`（已过 CPA，Rule 8(d) "past" 的直接信号）AND `range ≥ cpa_safe` AND `range opening`
-  - 或 `rel_brg_abs > 90°` AND range opening AND forward-CPA ≥ cpa_safe
+当前 C1（line 798-811）对所有 give-way 非 rule13 用 112.5°。改为三项 AND（同时满足才 C1 过）：
+- **过正横**：`rel_brg_abs > 90.0`（crossing/headon 过正横）
+- **已过 CPA**：`tcpa < 0.0`（Rule 8(d) "past" 的直接信号；防止高速横向横越者已过 beam 但 CPA 还在前）
+- **安全距离且 opening**：`range ≥ cpa_safe` AND `range opening`
 - **rule13（overtaking）**：保持 112.5°（由 C7 管，C1 在 rule13 不触发，line 798-799 已排除）
 
 **改动 B — M6 release_policy.hpp bow-clear 阈值**：
