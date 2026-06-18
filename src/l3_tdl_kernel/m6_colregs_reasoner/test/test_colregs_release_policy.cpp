@@ -57,7 +57,8 @@ TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseBeforeReferenceBowClear
 
 TEST(ColregsReleasePolicy, BlocksCrossingReleaseBeforeTargetAbaftTheBeam) {
   // Rule 8(d)/15: target only 40 deg off the bow is still on the bow, not
-  // past-and-clear (abaft the beam = 112.5 deg per Rule 3(g)). Must hold.
+  // past-and-clear (abaft the beam = 112.5 deg per Rule 13(b) + Rule 21(c)).
+  // Must hold.
   EXPECT_FALSE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
       /*range_m=*/3883.0,

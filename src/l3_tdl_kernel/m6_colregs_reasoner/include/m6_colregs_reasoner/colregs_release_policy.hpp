@@ -9,11 +9,15 @@ namespace mass_l3::m6_colregs {
 constexpr double kGiveWayProjectionReleaseRangeMultiple = 1.0;
 constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
 // COLREG Rule 8(d) / 15 past-and-clear for crossing give-way: the target must
-// be abaft the beam (relative bearing >= 112.5 deg, the COLREG "abaft the
-// beam" definition from Rule 3(g)) along the reference avoidance heading
-// before the encounter is resolved. A 40 deg bow-clear threshold releases
-// while the target is still on the bow and the own-ship is still altering --
-// the "early return to route" the phase gate flags as a Rule 8(d) violation.
+// be abaft the beam (relative bearing >= 112.5 deg along the reference
+// avoidance heading) before the encounter is resolved. 112.5 deg derives from
+// COLREG Rule 13(b) ("more than 22.5 degrees abaft her beam", 90 deg beam +
+// 22.5 deg = 112.5 deg from bow) and Rule 21(c) (sternlight 135 deg arc =
+// 67.5 deg from right aft each side). NOT Rule 3(g) -- Rule 3(g) defines
+// "vessel restricted in her ability to manoeuvre" and is unrelated to the
+// abaft-beam sector. A 40 deg bow-clear threshold releases while the target
+// is still on the bow and the own-ship is still altering -- the "early return
+// to route" the phase gate flags as a Rule 8(d) violation.
 constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 112.5;
 // COLREG Rule 13(d) overtake past-and-clear: own-ship is "finally past" once it
 // is in the target's forward hemisphere. Aspect angle convention: 0 deg =
@@ -161,6 +165,20 @@ inline bool stand_on_late_action_release_safe(
 // throughout, so a relative-bearing gate never opens and -- when it does open
 // early -- releases before the own-ship is genuinely ahead. Aspect is the
 // Rule-13-correct coordinate.
+//
+// COLREGs compliance note [ref-engineering-approximation]:
+// Rule 13(d) "finally past and clear" is a qualitative "ordinary practice of
+// seamen" standard (NLM maritime_regulations notebook, high confidence, 124
+// sources). Forward hemisphere alone is insufficient (Steamship Mutual LP:
+// "always safer to cross astern"; Rule 13(a) advises avoid crossing ahead).
+// This function implements a multi-factor engineering approximation:
+//   aspect < 90 deg (forward hemisphere) AND
+//   cpa_projection_past_and_safe (CPA past, at safe distance) AND
+//   range >= cpa_safe (range hard floor) AND
+//   !range_closing (no remaining closing risk)
+// Together these approximate "safely ahead with no remaining risk of
+// collision" per Rule 13(d) + Rule 8(d). COLREGs intentionally has no single
+// numerical threshold for "past and clear".
 inline bool give_way_overtake_release_safe(
     bool cpa_projection_past_and_safe,
     double range_m,
