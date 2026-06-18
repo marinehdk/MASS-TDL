@@ -68,6 +68,18 @@ class ColregsRuleFsm:
 
         if rule == "Rule 14":
             return self._give_way(now_s, target, nominal_heading_deg, cpa, rule, "head_on_starboard")
+        if rule == "Rule 13" and role == "GIVE_WAY":
+            return self._give_way(
+                now_s,
+                target,
+                nominal_heading_deg,
+                cpa,
+                rule,
+                "overtaking_give_way_starboard",
+            )
+        if rule == "Rule 13" and role == "STAND_ON":
+            self._set_state("STAND_ON", rule, role, "overtaken_stand_on_hold", now_s)
+            return self._action(nominal_heading_deg, None, False, cpa)
         if rule == "Rule 15" and role == "GIVE_WAY":
             return self._give_way(
                 now_s,
@@ -119,8 +131,15 @@ class ColregsRuleFsm:
         heading_diff = abs(signed_delta_deg(target.heading_deg, own.heading_deg))
         if abs(own_rel) <= 10.0 and heading_diff >= 160.0:
             return "Rule 14", "BOTH_GIVE_WAY"
+        # Rule 13 overtaking. The overtaken vessel sees the overtaker abaft the
+        # beam (>112.5 deg aspect). Two sub-cases from the FSM target's POV:
+        #   * target is overtaken (own approaches from target's abaft) → STAND_ON
+        #   * target is the overtaker (own lies in target's forward hemisphere
+        #     while target closes from own's abaft) → GIVE_WAY.
         if abs(tgt_aspect) > 112.5:
             return "Rule 13", "STAND_ON"
+        if abs(own_rel) > 112.5 and abs(heading_diff) < 67.5:
+            return "Rule 13", "GIVE_WAY"
         target_sees_own = relative_bearing_deg(target, own)
         if target_sees_own > 0.0:
             return "Rule 15", "GIVE_WAY"

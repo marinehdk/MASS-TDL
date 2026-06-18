@@ -1,0 +1,116 @@
+title: 'Probe: Rule 13 overtaking — target as give-way (intelligent)'
+description: 'Rule 13 overtaking with the FSM-controlled target vessel as the
+  OVERTAKING give-way vessel. Own ship sails north at 8 kn; a faster target
+  (16 kn, same course) closes from dead astern of own (relative bearing ~180°,
+  initial range 0.5 NM). Per Rule 13 the overtaking vessel — the target — must
+  keep clear of the overtaken stand-on vessel (own). The target FSM is expected
+  to turn starboard and open CPA, then return to its nominal northbound route.
+  Own ship, as stand-on, holds course and speed. Validates the Rule 13 give-way
+  path of the target COLREGs FSM and complements rule13-ot (where own is the
+  overtaker).'
+startTime: '2026-05-15T05:08:47Z'
+ownShip:
+  static:
+    id: 1
+    shipType: Cargo
+    name: FCB Own Ship
+  initial:
+    position:
+      latitude: 63.44
+      longitude: 10.38
+    cog: 0.0
+    sog: 8.0
+    heading: 0.0
+  model: fcb_mmg_vessel
+  controller: psbmpc_wrapper
+  nominalRoute:
+  - latitude: 63.44
+    longitude: 10.38
+    target_sog_kn: 8.0
+  - latitude: 63.50
+    longitude: 10.38
+    target_sog_kn: 8.0
+targetShips:
+- id: ts1
+  static:
+    id: 2
+    mmsi: 100000001
+  initial:
+    position:
+      latitude: 63.430597
+      longitude: 10.38
+    cog: 0.0
+    sog: 16.0
+    heading: 0.0
+  model: ais_replay_vessel
+  source:
+    type: route
+  behavior:
+    policy: colregs_rule_fsm
+    reaction_delay_s: 6.0
+    min_turn_deg: 30.0
+    rot_limit_deg_s: 3.0
+    target_cpa_m: 540.0
+environment:
+  wind: &id001
+    dir_deg: 0.0
+    speed_mps: 0.0
+  current: &id002
+    dir_deg: 0.0
+    speed_mps: 0.0
+  visibility_nm: 5.4
+metadata:
+  schema_version: '3.0'
+  scenario_id: colreg-rule13-ot-target-giveway-v1.0
+  scenario_source: colregs_probe_suite_v2.0
+  colregs_rules:
+  - R13
+  - R8
+  vessel_class: FCB
+  odd_cell:
+    domain: open_sea_offshore_wind_farm
+  encounter:
+    rule: Rule13
+    give_way_vessel: target
+    expected_own_action: maintain
+    avoidance_time_s: 20.0
+    avoidance_delta_rad: 0.6981
+    avoidance_duration_s: 240.0
+  seed: 113
+  expected_outcome:
+    cpa_min_m_ge: 270.0
+    cpa_acceptance:
+      profile: corridor_follow_or_overtake_6L
+      threshold_formula: 6.0L
+      threshold_m: 270.0
+      loa_m: 45.0
+      loa_multiplier: 6.0
+      nm_equivalent: 0.146
+      source_confidence: project_profile_medium_low
+      emergency_floor_m: 180.0
+      ideal_domain_m: 540.0
+      basis: FCB overtaken inside 1km L2 corridor; 6.0L follow floor accepts the
+        target keeping clear while the Rule 13 overtake completes. Target is the
+        give-way (overtaking) vessel; own is stand-on.
+    returned_to_route_required: true
+    route_return_xte_m_lt: 150.0
+    route_return_heading_deg_lt: 10.0
+    route_corridor_half_width_m: 1000.0
+    route_corridor_pass_limit_m: 500.0
+    overtake_required: false
+    overtake_along_margin_m: 0.0
+    rule_compliance:
+    - rule: Rule13
+      result: required
+  simulation_settings:
+    total_time: 1200.0
+    dt: 0.02
+    n_rps_initial: 4.2
+    coordinate_origin:
+    - 63.44
+    - 10.38
+    dynamics_mode: internal
+    backend: ros2
+  disturbance:
+    wind: *id001
+    current: *id002

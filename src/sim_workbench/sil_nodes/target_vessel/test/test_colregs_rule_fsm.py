@@ -48,6 +48,35 @@ def test_rule15_target_give_way_when_ownship_on_target_starboard():
     assert action.desired_heading_deg == 30.0
 
 
+def test_rule13_target_overtaking_give_way_when_faster_and_from_aft():
+    # H1: target vessel is the OVERTAKING give-way vessel. Own is slower, same
+    # course, target approaches from abaft own's beam (>112.5 deg relative). Per
+    # Rule 13 the overtaking vessel (target, FSM-controlled) must keep clear.
+    fsm = ColregsRuleFsm(_cfg(reaction_delay_s=0.0, min_turn_deg=30.0))
+    own = VesselKinematics(lat=63.0, lon=10.0, heading_deg=0.0, sog_mps=3.0)
+    target = VesselKinematics(lat=62.98, lon=10.0, heading_deg=0.0, sog_mps=6.0)
+    action = fsm.update(now_s=1.0, own=own, target=target, nominal_heading_deg=0.0)
+    assert fsm.state.state == "GIVE_WAY"
+    assert action.rule == "Rule 13"
+    assert action.role == "GIVE_WAY"
+    assert action.reason == "overtaking_give_way_starboard"
+    assert action.desired_heading_deg == 30.0
+
+
+def test_rule13_target_stands_on_when_overtaken_from_aft():
+    # H1 complement: when OWN is the overtaking vessel (own faster, approaching
+    # target from target's abaft), the FSM target is the STAND-ON overtaken
+    # vessel and must hold course.
+    fsm = ColregsRuleFsm(_cfg(reaction_delay_s=0.0, min_turn_deg=30.0))
+    own = VesselKinematics(lat=62.98, lon=10.0, heading_deg=0.0, sog_mps=6.0)
+    target = VesselKinematics(lat=63.0, lon=10.0, heading_deg=0.0, sog_mps=3.0)
+    action = fsm.update(now_s=1.0, own=own, target=target, nominal_heading_deg=0.0)
+    assert fsm.state.state == "STAND_ON"
+    assert action.rule == "Rule 13"
+    assert action.role == "STAND_ON"
+    assert action.desired_heading_deg == 0.0
+
+
 def test_rule17_stand_on_holds_when_ownship_action_observed():
     fsm = ColregsRuleFsm(_cfg(reaction_delay_s=0.0, standon_action_tcpa_s=90.0))
     own0 = VesselKinematics(lat=63.005, lon=9.998, heading_deg=270.0, sog_mps=5.0)
