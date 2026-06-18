@@ -12,8 +12,15 @@ import rclpy
 from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from sil_msgs.msg import TargetVesselState
+from sil_msgs.msg import OwnShipState, TargetVesselState
 from sil_msgs.srv import AddTarget, RemoveTarget
+from target_vessel.colregs_behavior import ColregsRuleFsm
+from target_vessel.config import (
+    TargetBehaviorConfig,
+    count_colregs_rule_targets,
+    normalize_target_config,
+)
+from target_vessel.geometry import VesselKinematics, apply_rot_limit
 
 
 class TargetMode(str, Enum):
@@ -58,6 +65,7 @@ class TargetVessel:
         ou_theta: float = 0.05,
         ou_sigma: float = 0.5,
         rng: np.random.Generator | None = None,
+        behavior_config: TargetBehaviorConfig | None = None,
     ):
         self.mmsi = mmsi
         self.lat = lat
@@ -69,22 +77,59 @@ class TargetVessel:
         self._ou_theta = ou_theta
         self._ou_sigma = ou_sigma
         self._heading_ref = self.heading
+        self._nominal_heading = self.heading
+        self._last_rot_deg_s = 0.0
+        self._behavior_config = behavior_config
+        self._fsm = (
+            ColregsRuleFsm(behavior_config)
+            if behavior_config is not None and behavior_config.policy == "colregs_rule_fsm"
+            else None
+        )
         if rng is None:
             self.rng = np.random.default_rng()
         else:
             self.rng = rng
 
-    def step(self, dt: float = 0.1) -> dict:
+    def step(
+        self,
+        dt: float = 0.1,
+        ownship: VesselKinematics | None = None,
+        now_s: float | None = None,
+    ) -> dict:
         """Advance simulation by *dt* seconds using simple linear motion.
 
         Returns a dict with current state suitable for ROS2 message
         construction or test assertions.
         """
         self._time += dt
+        self._last_rot_deg_s = 0.0
         if self.mode == TargetMode.NCDM:
             dH = (-self._ou_theta * (self.heading - self._heading_ref) * dt
                   + self._ou_sigma * math.sqrt(dt) * self.rng.normal())
             self.heading += dH
+        elif self._fsm is not None and ownship is not None:
+            target = VesselKinematics(
+                lat=self.lat,
+                lon=self.lon,
+                heading_deg=math.degrees(self.heading) % 360.0,
+                sog_mps=self.sog,
+            )
+            action = self._fsm.update(
+                now_s=self._time if now_s is None else now_s,
+                own=ownship,
+                target=target,
+                nominal_heading_deg=math.degrees(self._nominal_heading) % 360.0,
+            )
+            next_heading_deg, rot_deg_s = apply_rot_limit(
+                math.degrees(self.heading) % 360.0,
+                action.desired_heading_deg,
+                self._behavior_config.rot_limit_deg_s,
+                dt,
+            )
+            self.heading = math.radians(next_heading_deg)
+            self._last_rot_deg_s = rot_deg_s
+            if action.desired_sog_mps is not None:
+                self.sog = min(self.sog, action.desired_sog_mps)
         # Approximate meridian arc: 1 deg lat ≈ 111 120 m
         lat_rad = math.radians(self.lat)
         self.lat += self.sog * math.cos(self.heading) * dt / 111120.0
@@ -101,7 +146,7 @@ class TargetVessel:
             "heading": self.heading,
             "sog": self.sog,
             "cog": self.heading,
-            "rot": 0.0,
+            "rot": math.radians(self._last_rot_deg_s),
             "mode": self.mode.value,
         }
 
@@ -147,6 +192,8 @@ class TargetVesselNode(LifecycleNode):
 
         self._add_target_srv = None
         self._remove_target_srv = None
+        self._latest_ownship = None
+        self._ownship_sub = None
 
         # Wall-clock publishing rate limiter
         self._last_pub_wall_time: float = 0.0
@@ -162,6 +209,7 @@ class TargetVesselNode(LifecycleNode):
         heading_deg: float,
         sog_kn: float,
         mode: str = "replay",
+        behavior_config: TargetBehaviorConfig | None = None,
     ) -> TargetVessel:
         if self._root_seed is not None:
             t_rng = make_rng(
@@ -172,12 +220,21 @@ class TargetVesselNode(LifecycleNode):
             )
         else:
             t_rng = None
-        t = TargetVessel(mmsi, lat, lon, heading_deg, sog_kn, TargetMode(mode), rng=t_rng)
+        t = TargetVessel(
+            mmsi,
+            lat,
+            lon,
+            heading_deg,
+            sog_kn,
+            TargetMode(mode),
+            rng=t_rng,
+            behavior_config=behavior_config,
+        )
         self._targets.append(t)
         return t
 
     def step_all(self, dt: float = 0.1) -> list[dict]:
-        return [t.step(dt) for t in self._targets]
+        return [t.step(dt, ownship=self._latest_ownship) for t in self._targets]
 
     # ── Lifecycle callbacks ─────────────────────────────────────────────
 
@@ -206,8 +263,20 @@ class TargetVesselNode(LifecycleNode):
         raw = self.get_parameter("default_targets_json").value
         if raw:
             try:
-                for entry in json.loads(raw):
+                entries = json.loads(raw)
+                structured_entries = [
+                    entry for entry in entries if isinstance(entry, dict) and "static" in entry and "initial" in entry
+                ]
+                configs = [normalize_target_config(entry) for entry in structured_entries]
+                if count_colregs_rule_targets(configs) > 1:
+                    self._logger.error("Only one colregs_rule_fsm target is supported in v1")
+                    return TransitionCallbackReturn.ERROR
+
+                structured_idx = 0
+                for entry in entries:
                     if isinstance(entry, dict) and "static" in entry and "initial" in entry:
+                        cfg = configs[structured_idx]
+                        structured_idx += 1
                         mmsi = int(entry["static"].get("mmsi", 0))
                         initial = entry["initial"]
                         pos = initial.get("position", {})
@@ -215,10 +284,18 @@ class TargetVesselNode(LifecycleNode):
                         lon = float(pos.get("longitude", 0.0))
                         heading_deg = float(initial.get("heading", initial.get("cog", 0.0)))
                         sog_kn = float(initial.get("sog", 0.0))
-                        mode = entry.get("model", "replay")
-                        if mode == "ais_replay_vessel" or mode not in [m.value for m in TargetMode]:
+                        mode = "intelligent" if cfg.behavior.policy == "colregs_rule_fsm" else cfg.behavior.policy
+                        if mode == "passive":
                             mode = "replay"
-                        self.add_target(mmsi, lat, lon, heading_deg, sog_kn, mode)
+                        self.add_target(
+                            mmsi,
+                            lat,
+                            lon,
+                            heading_deg,
+                            sog_kn,
+                            mode,
+                            behavior_config=cfg.behavior,
+                        )
                     else:
                         self.add_target(**entry)
             except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
@@ -237,6 +314,9 @@ class TargetVesselNode(LifecycleNode):
         self._tv_pub = self.create_publisher(
             TargetVesselState, "/sil/target_vessel_state", qos
         )
+        self._ownship_sub = self.create_subscription(
+            OwnShipState, "/sil/own_ship_state", self._handle_ownship_state, qos
+        )
         self._timer = self.create_timer(0.1, self._step_callback)
         self._add_target_srv = self.create_service(
             AddTarget, "/target_vessel_node/add_target", self._handle_add_target)
@@ -253,6 +333,9 @@ class TargetVesselNode(LifecycleNode):
         if self._tv_pub is not None:
             self.destroy_publisher(self._tv_pub)
             self._tv_pub = None
+        if self._ownship_sub is not None:
+            self.destroy_subscription(self._ownship_sub)
+            self._ownship_sub = None
         for attr in ("_add_target_srv", "_remove_target_srv"):
             srv = getattr(self, attr)
             if srv is not None:
@@ -294,6 +377,14 @@ class TargetVesselNode(LifecycleNode):
         self._logger.info(f"Service remove_target: {response.message}")
         return response
 
+    def _handle_ownship_state(self, msg: OwnShipState) -> None:
+        self._latest_ownship = VesselKinematics(
+            lat=float(msg.lat),
+            lon=float(msg.lon),
+            heading_deg=float(msg.heading) % 360.0,
+            sog_mps=float(msg.sog),
+        )
+
     # ── Internal ────────────────────────────────────────────────────────
 
     def _step_callback(self) -> None:
@@ -315,7 +406,7 @@ class TargetVesselNode(LifecycleNode):
         from rclpy.duration import Duration
         for _ in range(steps):
             for t in self._targets:
-                t.step(dt=dt)
+                t.step(dt=dt, ownship=self._latest_ownship)
             self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
 
         # Throttled target-vessel publishing to maximum of 25 Hz wall-clock rate
@@ -333,7 +424,7 @@ class TargetVesselNode(LifecycleNode):
                 msg.heading = t.heading
                 msg.sog = t.sog
                 msg.cog = t.heading
-                msg.rot = 0.0
+                msg.rot = math.radians(t._last_rot_deg_s)
                 msg.ship_type = 1  # CARGO
                 msg.mode = _TARGET_MODE_TO_UINT8.get(t.mode.value, 0)
                 self._tv_pub.publish(msg)

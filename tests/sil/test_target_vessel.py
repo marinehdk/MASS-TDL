@@ -1,6 +1,22 @@
 """Tests for target_vessel node — linear kinematics, node container."""
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+
+class DummyLifecycleNode:
+    def __init__(self, node_name, **kwargs):
+        self._logger = MagicMock()
+        self.get_clock = MagicMock()
+
+
+sys.modules["rclpy"] = MagicMock()
+sys.modules["rclpy.lifecycle"] = MagicMock()
+sys.modules["rclpy.lifecycle"].LifecycleNode = DummyLifecycleNode
+sys.modules["rclpy.qos"] = MagicMock()
+sys.modules["sil_msgs"] = MagicMock()
+sys.modules["sil_msgs.msg"] = MagicMock()
+sys.modules["sil_msgs.srv"] = MagicMock()
 
 # Ensure the package is importable when running tests from the repo root
 _pkg = Path(__file__).resolve().parents[3] / "src" / "sim_workbench" / "sil_nodes" / "target_vessel"
