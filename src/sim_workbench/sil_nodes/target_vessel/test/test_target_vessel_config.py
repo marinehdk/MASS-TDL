@@ -44,6 +44,11 @@ def test_legacy_intelligent_maps_to_colregs_rule_fsm():
     assert cfg.behavior.policy == "colregs_rule_fsm"
 
 
+def test_unknown_legacy_model_rejects():
+    with pytest.raises(ValueError, match="unsupported legacy model"):
+        normalize_target_config(_base_entry(model="unknown_vessel_model"))
+
+
 def test_new_fields_override_legacy_model():
     cfg = normalize_target_config(
         _base_entry(

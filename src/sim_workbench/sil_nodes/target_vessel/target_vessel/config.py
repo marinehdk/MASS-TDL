@@ -66,8 +66,14 @@ def _as_float(raw: dict[str, Any], key: str, default: float, *, positive: bool =
 
 def normalize_target_config(entry: dict[str, Any]) -> NormalizedTargetConfig:
     legacy_model = entry.get("model")
-    legacy_key = str(legacy_model or "ais_replay_vessel")
-    source_type, policy = _LEGACY_MODEL_MAP.get(legacy_key, ("route", "passive"))
+    if legacy_model is None:
+        legacy_key = "ais_replay_vessel"
+        source_type, policy = ("route", "passive")
+    else:
+        legacy_key = str(legacy_model)
+        if legacy_key not in _LEGACY_MODEL_MAP:
+            raise ValueError(f"unsupported legacy model: {legacy_key}")
+        source_type, policy = _LEGACY_MODEL_MAP[legacy_key]
 
     source_raw = entry.get("source")
     behavior_raw = entry.get("behavior")
