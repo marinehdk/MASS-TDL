@@ -1078,7 +1078,7 @@ def _restart_sil_nodes(container, settle_s):
         raise RuntimeError(f"failed to restart {container}")
     time.sleep(settle_s)
 
-def run_scenario(scenario_id):
+def run_scenario(scenario_id, total_time_override=None):
     print(f"\n==================================================")
     print(f"RUNNING SCENARIO: {scenario_id}")
     print(f"==================================================")
@@ -1096,6 +1096,8 @@ def run_scenario(scenario_id):
     expected = scen_data.get("metadata", {}).get("expected_outcome", {})
     encounter = scen_data.get("metadata", {}).get("encounter", {})
     total_time = float(sim_settings.get("total_time", 600.0))
+    if total_time_override is not None:
+        total_time = float(total_time_override)
     coordinate_origin = sim_settings.get("coordinate_origin", [63.44, 10.38])
     lat0, lon0 = coordinate_origin[0], coordinate_origin[1]
     route_return_required = bool(expected.get("returned_to_route_required", False))
@@ -1153,7 +1155,8 @@ def run_scenario(scenario_id):
         
     # 4. Set simulation rate
     req("POST", "/lifecycle/rate", {"rate": 10.0})
-    print(f"Set rate to 10.0x. Simulation total time: {total_time}s")
+    override_tag = f" [override {total_time_override}]" if total_time_override is not None else ""
+    print(f"Set rate to 10.0x. Simulation total time: {total_time}s{override_tag}")
     time.sleep(3.0) # Allow bridge to receive transition and truncate trace
     
     # 5. Poll until sim_t reaches total_time
@@ -1629,6 +1632,10 @@ def _parse_args(argv=None):
                         help="Container restarted when --restart-between-runs is set.")
     parser.add_argument("--restart-settle", type=float, default=DEFAULT_RESTART_SETTLE_S,
                         help="Seconds to wait after each sil-nodes restart.")
+    parser.add_argument("--total-time-override", type=float, default=None,
+                        help="Override the YAML simulation_settings.total_time horizon for "
+                             "all selected scenarios (seconds). Diagnostic only; does not "
+                             "modify scenario YAML.")
     parser.add_argument("--deprecated-wrapper", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -1652,7 +1659,7 @@ def main(argv=None):
         try:
             if args.restart_between_runs:
                 _restart_sil_nodes(args.restart_container, args.restart_settle)
-            res = run_scenario(scen)
+            res = run_scenario(scen, total_time_override=args.total_time_override)
             if res:
                 report_path = _write_trace_evaluation_report(
                     scen, res, args.trace_report_dir)
