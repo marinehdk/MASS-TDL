@@ -22,6 +22,11 @@
 - target 相对 release-reference-heading 的 bearing > 112.5°（已过正横）AND
 - range opening（当前 range < release 时刻 range） AND
 - CPA ≥ cpa_safe
+
+> **ERRATA 2026-06-18：** 上述 112.5° abaft-beam 阈值**仅适用于追越（Rule 13）**。Rule 13(b)/21(c) sternlight 135° arc 定义追越扇区为 [112.5°, 247.5°]。对**横越/对头让路（Rule 14/15）**，112.5° 几何不可达——浅角度慢速横越（rule15-cs cog=290/10.6kn）右转避让后目标方位渐近 port beam 前方，永不进 abaft sector。修正：横越/对头用 **90° beam**（过正横）+ **tcpa<0**（已过 CPA）+ range≥cpa_safe opening 三项 AND。内部设计报告 §4.2 自己就写 `abaft_threshold = 112.5 if is_overtaking else 90.0`——原 spec 与内部报告自相矛盾，本 errata 对齐。
+> 详见 `docs/superpowers/specs/2026-06-18-colregs-c1-crossing-beam-fix.md`。
+> **已知局限**：即使 90° beam，rule15-cs 在实际 runtime（避让仅 55s）目标 rel_brg 仍永不超过 59°——根因不只是 C1 阈值，还有避让时长不足 + M6 过早 release。90° beam 修复对 rule15-cs-edge（29kn，rel_brg=121°）有效，对 rule15-cs（10.6kn）需配合避让架构修复。
+
 **失败表现**：目标船尾未过正横即回航线（你观察到的 bug）
 **实现**：gate 后处理，用 trace 的 target+ownship 轨迹
 
