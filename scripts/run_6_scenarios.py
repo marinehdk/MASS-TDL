@@ -58,6 +58,17 @@ SCENARIOS = [
     "colreg-rule17-cr-so",
 ]
 
+# Intelligent scenarios: target vessel runs a COLREGs rule FSM (give-way/stand-on)
+# so own-ship's stand-on duty and two-vessel interaction can be exercised. These
+# extend the clean 8 to a 12-probe suite via --include-intelligent.
+INTELLIGENT_SCENARIOS = [
+    "colreg-rule14-ho-intelligent",
+    "colreg-rule15-cs-intelligent",
+    "colreg-rule13-ot-target-giveway",
+    "colreg-rule17-cr-so-target-giveway",
+]
+ALL_SCENARIOS = SCENARIOS + INTELLIGENT_SCENARIOS
+
 ROUTE_CORRIDOR_HALF_WIDTH_M = 1000.0
 ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
 ROUTE_CORRIDOR_PASS_EPS_M = 5.0
@@ -1649,8 +1660,11 @@ def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
 
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run COLREGs clean 8-probe scenarios.")
-    parser.add_argument("--scenario", choices=SCENARIOS, action="append",
-                        help="Run one scenario. Repeat to run multiple scenarios.")
+    parser.add_argument("--scenario", choices=ALL_SCENARIOS, action="append",
+                        help="Run one scenario (clean-8 or intelligent). Repeat for multiple.")
+    parser.add_argument("--include-intelligent", action="store_true",
+                        help="Append the 4 intelligent scenarios (target runs COLREGs FSM) "
+                             "to the selected/default clean-8 set, forming a 12-probe suite.")
     parser.add_argument("--list", action="store_true", help="List clean 8 scenarios and exit.")
     parser.add_argument("--summary-out", default="runs/batch_colregs_results.json",
                         help="Path for batch summary JSON.")
@@ -1681,10 +1695,18 @@ def main(argv=None):
     if args.list:
         for scen in SCENARIOS:
             print(scen)
+        if args.include_intelligent:
+            for scen in INTELLIGENT_SCENARIOS:
+                print(scen)
         return 0
 
     results = {}
-    scenarios = args.scenario or SCENARIOS
+    scenarios = list(args.scenario or SCENARIOS)
+    if args.include_intelligent:
+        # Append any intelligent scenarios not already explicitly selected.
+        for scen in INTELLIGENT_SCENARIOS:
+            if scen not in scenarios:
+                scenarios.append(scen)
     if args.restart_between_runs and not args.restart_container:
         print(
             "ERROR: --restart-between-runs requires an explicit --restart-container. "
