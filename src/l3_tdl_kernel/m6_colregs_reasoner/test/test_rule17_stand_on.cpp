@@ -64,6 +64,32 @@ TEST(Rule17_StandOnTest, SoundWarningPhase) {
   EXPECT_EQ(result.phase, TimingPhase::SOUND_WARNING);
 }
 
+TEST(Rule17_StandOnTest, SoundWarningLowComplianceEscalatesToStarboardAction) {
+  Rule17_StandOn rule;
+  TargetGeometricState geo{};
+  geo.target_id = 30;
+  geo.cpa_m = 100.0;
+  geo.tcpa_s = 200.0;
+  geo.bearing_deg = 315.0;
+  geo.ownship_heading_deg = 0.0;
+  geo.target_compliance = 0.2;
+
+  RuleParameters params{};
+  params.cpa_safe_m = 200.0;
+  params.t_standOn_s = 300.0;
+  params.t_act_s = 120.0;
+  params.t_emergency_s = 60.0;
+  params.min_alteration_deg = 30.0;
+
+  const auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+
+  EXPECT_TRUE(result.is_active);
+  EXPECT_EQ(result.role, Role::STAND_ON);
+  EXPECT_EQ(result.phase, TimingPhase::INDEPENDENT_ACTION);
+  EXPECT_EQ(result.preferred_direction, "STARBOARD");
+  EXPECT_DOUBLE_EQ(result.min_alteration_deg, 30.0);
+}
+
 TEST(Rule17_StandOnTest, IndependentActionPhase) {
   Rule17_StandOn rule;
   TargetGeometricState geo{};

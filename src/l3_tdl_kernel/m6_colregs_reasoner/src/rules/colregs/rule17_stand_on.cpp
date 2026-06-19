@@ -7,6 +7,10 @@
 
 namespace mass_l3::m6_colregs::rules::colregs {
 
+namespace {
+constexpr double kNonCompliantTargetThreshold = 0.4;  // [TBD-HAZID]
+}  // namespace
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 RuleEvaluation Rule17_StandOn::evaluate(const TargetGeometricState& geo,
                                          OddDomain odd,
@@ -39,6 +43,12 @@ RuleEvaluation Rule17_StandOn::evaluate(const TargetGeometricState& geo,
   // Use PhaseClassifier to determine timing phase based on TCPA
   const PhaseClassifier kClassifier;
   result.phase = kClassifier.classify(geo.tcpa_s, params);
+  const bool noncompliant_warning =
+    result.phase == TimingPhase::SOUND_WARNING &&
+    geo.target_compliance < kNonCompliantTargetThreshold;
+  if (noncompliant_warning) {
+    result.phase = TimingPhase::INDEPENDENT_ACTION;
+  }
 
   switch (result.phase) {
     case TimingPhase::PRESERVE_COURSE:
@@ -60,9 +70,16 @@ RuleEvaluation Rule17_StandOn::evaluate(const TargetGeometricState& geo,
       result.preferred_direction = "STARBOARD";
       result.min_alteration_deg = params.min_alteration_deg;
       result.confidence = 0.8F;
-      result.rationale = "Rule 17 Phase 3: Stand-on may take independent action. "
-                         "Give-way vessel has failed to act. TCPA=" +
-                         std::to_string(geo.tcpa_s) + " s.";
+      if (noncompliant_warning) {
+        result.rationale = "Rule 17 Phase 3: Stand-on may take independent action. "
+                           "Give-way vessel shows low compliance during warning phase. TCPA=" +
+                           std::to_string(geo.tcpa_s) + " s, compliance=" +
+                           std::to_string(geo.target_compliance) + ".";
+      } else {
+        result.rationale = "Rule 17 Phase 3: Stand-on may take independent action. "
+                           "Give-way vessel has failed to act. TCPA=" +
+                           std::to_string(geo.tcpa_s) + " s.";
+      }
       break;
 
     case TimingPhase::CRITICAL_ACTION:
