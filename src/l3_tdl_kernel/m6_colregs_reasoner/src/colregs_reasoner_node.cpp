@@ -297,10 +297,10 @@ void ColregsReasonerNode::load_odd_thresholds() {
     params.t_standOn_s         = kNode["t_standOn_s"].as<double>(480.0);
     params.t_act_s             = kNode["t_act_s"].as<double>(240.0);
     params.t_emergency_s       = kNode["t_emergency_s"].as<double>(60.0);
-    params.min_alteration_deg  = kNode["min_alteration_deg"].as<double>(15.0);
+    params.min_alteration_deg  = kNode["min_alteration_deg"].as<double>(30.0);
     params.cpa_safe_m          = kNode["cpa_safe_m"].as<double>(1852.0);
     params.max_speed_kn        = kNode["max_speed_kn"].as<double>(20.0);
-    params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(5.0);
+    params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(12.0);
     params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
@@ -1177,9 +1177,9 @@ RuleParameters ColregsReasonerNode::get_current_rule_params() const {
   defaults.t_standOn_s = 480.0;
   defaults.t_act_s = 240.0;
   defaults.t_emergency_s = 60.0;
-  defaults.min_alteration_deg = 15.0;
+  defaults.min_alteration_deg = 30.0;
   defaults.cpa_safe_m = 1852.0;
-  defaults.max_turn_rate_deg_s = 5.0;
+  defaults.max_turn_rate_deg_s = 12.0;
   defaults.rule_9_weight = 0.0;
   return defaults;
 }
