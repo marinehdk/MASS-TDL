@@ -529,6 +529,38 @@ TEST(ConstraintCompilerTest, ZoneAvoid_OutsideConstraintPositive) {
       << "Avoid zone: point outside polygon → constraint value > 0";
 }
 
+// ===========================================================================
+// Test 17: CompileCpaDistanceProducesBarrierConstraint
+// CPA hard constraint g = d^2 - cpa_safe^2 uses one-sided [0, +inf] bounds.
+// ===========================================================================
+TEST(ConstraintCompilerTest, CompileCpaDistanceProducesBarrierConstraint) {
+  mass_l3::m5::shared::ConstraintCompiler compiler;
+  constexpr int32_t N = 4;
+  casadi::MX psi = casadi::MX::sym("psi", N);
+  casadi::MX u   = casadi::MX::sym("u", N);
+
+  mass_l3::m5::ConstraintInputs inputs;
+  inputs.cpa_safe_m = 1852.0;
+  mass_l3::m5::TargetState tgt;
+  tgt.x_m = 5000.0;
+  tgt.y_m = 0.0;
+  tgt.cog_rad = 0.0;
+  tgt.sog_mps = 0.0;
+  inputs.targets.push_back(tgt);
+  inputs.own_ship_psi_rad = 0.0;
+
+  const auto cc = compiler.compile_cpa_distance(psi, u, inputs, 5.0);
+
+  EXPECT_GT(cc.g.size1(), 0) << "CPA distance constraint must be non-empty";
+  EXPECT_EQ(cc.g.size1(), cc.g_lb.size1());
+  EXPECT_EQ(cc.g.size1(), cc.g_ub.size1());
+  for (int i = 0; i < cc.g_lb.size1(); ++i) {
+    EXPECT_DOUBLE_EQ(static_cast<double>(cc.g_lb(i)), 0.0);
+  }
+  EXPECT_FALSE(cc.names.empty());
+  EXPECT_EQ(cc.names.front().find("cpa_distance"), 0u);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

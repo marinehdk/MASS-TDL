@@ -81,6 +81,16 @@ class ConstraintCompiler {
       const casadi::MX& py,
       const Polygon2D& polygon) const;
 
+  // CPA distance hard constraint: d_k^2 - cpa_safe^2 >= 0 for each
+  // (target, step). Own-ship position is integrated from psi_seq/u_seq;
+  // target motion uses TargetState cog_rad/sog_mps. Squared form avoids sqrt
+  // non-smoothness while implementing architecture §10.4 CPA hard constraint.
+  [[nodiscard]] CompiledConstraints compile_cpa_distance(
+      const casadi::MX& psi_seq,
+      const casadi::MX& u_seq,
+      const ConstraintInputs& inputs,
+      double dt_s) const;
+
  private:
   // ── Behavior bounds ──────────────────────────────────────────────────────
   [[nodiscard]] CompiledConstraints compile_heading_bounds(
