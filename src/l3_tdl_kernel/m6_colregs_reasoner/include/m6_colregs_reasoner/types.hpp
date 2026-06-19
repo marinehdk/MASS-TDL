@@ -46,6 +46,13 @@ struct RuleParameters {
   double max_speed_kn;           // [TBD-HAZID] Rule 6 safe speed ceiling
   double max_turn_rate_deg_s;    // [TBD-HAZID]
   double rule_9_weight;
+  // EncounterStateMachine gates (Spec 2026-06-17-fsm-design §4.5). Populated
+  // from odd_aware_thresholds.yaml; the FSM is per-(target, primary rule).
+  double t_plan_s{720.0};        // [A-level C-12] PREPLAN->ACTIVE TCPA gate
+  double t_monitor_s{1500.0};    // [ref] CANDIDATE->PREPLAN TCPA gate
+  double cpa_hard_m{1852.0};     // [ref] PREPLAN->ACTIVE CPA gate
+  double cpa_soft_m{2778.0};     // [ref] CANDIDATE->PREPLAN CPA gate
+  double t_dwell_s{60.0};        // [ref] RELEASE->CLEAR dwell
 };
 
 struct RuleEvaluation {

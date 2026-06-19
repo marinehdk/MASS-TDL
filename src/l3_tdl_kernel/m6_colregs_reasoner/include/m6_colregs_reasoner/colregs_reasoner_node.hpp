@@ -21,6 +21,7 @@
 
 #include "m6_colregs_reasoner/colregs_constraint_generator.hpp"
 #include "m6_colregs_reasoner/colregs_phase_classifier.hpp"
+#include "m6_colregs_reasoner/encounter_state_machine.hpp"
 #include "m6_colregs_reasoner/rule_library_loader.hpp"
 #include "m6_colregs_reasoner/rule_latch.hpp"
 #include "m6_colregs_reasoner/target_state_cache.hpp"
@@ -99,6 +100,13 @@ class ColregsReasonerNode : public rclcpp::Node {
   std::unordered_map<uint32_t, double> prev_target_range_;
   // Per-(target,rule) onset-latched hysteresis. Key = mmsi<<8 | rule_id.
   std::unordered_map<uint64_t, RuleLatch> rule_latches_;
+  // Per-(target,rule) encounter state machine (Spec 2026-06-17-fsm-design). The
+  // FSM adds a TCPA/CPA/range gate so that a far target whose CPA projection is
+  // ~0 but whose TCPA is still large cannot trigger an early onset->release
+  // chatter when cpa_safe is at the design 1852 m. Key = mmsi<<8 | rule_id,
+  // matching rule_latches_. The FSM's ACTIVE/MONITOR stickiness also holds the
+  // encounter through a single-cycle release blip in the legacy RuleLatch.
+  std::unordered_map<uint64_t, EncounterStateMachine> encounter_fsms_;
   // Per-target give-way DUTY latch (Rule 8(d)/13(d)/16). Key = mmsi. Generalizes
   // the per-rule 14/15 onset latch to whatever rule carries the give-way duty,
   // so own-ship's own avoiding action (which transiently opens CPA) cannot

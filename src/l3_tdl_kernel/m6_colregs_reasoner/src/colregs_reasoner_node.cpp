@@ -301,6 +301,11 @@ void ColregsReasonerNode::load_odd_thresholds() {
     params.cpa_safe_m          = kNode["cpa_safe_m"].as<double>(1852.0);
     params.max_speed_kn        = kNode["max_speed_kn"].as<double>(20.0);
     params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(12.0);
+    params.t_plan_s            = kNode["t_plan_s"].as<double>(720.0);
+    params.t_monitor_s         = kNode["t_monitor_s"].as<double>(1500.0);
+    params.cpa_hard_m          = kNode["cpa_hard_m"].as<double>(1852.0);
+    params.cpa_soft_m          = kNode["cpa_soft_m"].as<double>(2778.0);
+    params.t_dwell_s           = kNode["t_dwell_s"].as<double>(60.0);
     params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
@@ -724,6 +729,43 @@ void ColregsReasonerNode::run_reasoning() {
         if (it == rule_latches_.end()) {
           it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
         }
+        // Encounter state machine gate (Spec 2026-06-17-fsm-design). The FSM
+        // adds a TCPA<=t_plan AND CPA<cpa_hard AND range-closing gate on
+        // ACTIVE entry, so a far target whose CPA projection is ~0 but whose
+        // TCPA is still large cannot trigger the early onset->release chatter
+        // that the legacy RuleLatch exhibits at cpa_safe=1852 m. It also holds
+        // the encounter through a single-cycle release blip (ACTIVE is sticky:
+        // only CPA improving graduates to MONITOR, and geometry dropout does
+        // not regress). past_and_clear and range_closing are computed once per
+        // target above; the FSM consumes them as opaque booleans.
+        auto fit = encounter_fsms_.find(key);
+        if (fit == encounter_fsms_.end()) {
+          EncounterParams ep{};
+          ep.t_plan_s = kParams.t_plan_s;
+          ep.t_monitor_s = kParams.t_monitor_s;
+          ep.cpa_hard_m = kParams.cpa_hard_m;
+          ep.cpa_soft_m = kParams.cpa_soft_m;
+          ep.cpa_safe_m = kParams.cpa_safe_m;
+          ep.t_dwell_s = kParams.t_dwell_s;
+          ep.t_standOn_s = kParams.t_standOn_s;
+          ep.t_act_s = kParams.t_act_s;
+          ep.t_emergency_s = kParams.t_emergency_s;
+          ep.min_alteration_deg = kParams.min_alteration_deg;
+          fit = encounter_fsms_.emplace(key, EncounterStateMachine{ep}).first;
+        }
+        const TargetSnapshot fsm_snap{target.tcpa_s, target.cpa_m};
+        const EncounterState fsm_state = fit->second.transition(
+            fsm_snap, /*rule_geometric_hit=*/eval.is_active, range_closing,
+            past_and_clear, /*now_s=*/last_world_stamp_.seconds(), &eval);
+        const bool fsm_engaged =
+            fsm_state == EncounterState::ACTIVE ||
+            fsm_state == EncounterState::MONITOR;
+        // Gate the raw onset: if the FSM is not yet engaged (still in
+        // PREPLAN/CANDIDATE because TCPA is too large), do not let the legacy
+        // latch onset this cycle. This is the D-3 ample-time fix.
+        if (!fsm_engaged) {
+          eval.is_active = false;
+        }
         // Pass the raw evaluation so the latch can snapshot the give-way
         // classification at the latching cycle (Rule 13(d): fixed at onset).
         const bool allow_primary_projection_release =
@@ -733,9 +775,20 @@ void ColregsReasonerNode::run_reasoning() {
         const bool rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
             give_way_reference_release_ok;
-        const bool latched = it->second.update(
+        bool latched = it->second.update(
             eval.is_active, target.cpa_m, range_closing, past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
+        // FSM stickiness (D-3): if the FSM is engaged (ACTIVE/MONITOR) but the
+        // legacy latch computed a release this cycle (a transient projection
+        // blip while still within the ample-time window), hold the encounter.
+        // Without this, conflict_detected flaps and M4 behavior toggles.
+        if (fsm_engaged && !latched) {
+          latched = true;
+          if (!eval.is_active) {
+            it->second.apply_onset(eval);
+            eval.rationale += " [held: encounter FSM engaged (Rule 13(d))]";
+          }
+        }
         if (latched) {
           encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
           if (!eval.is_active) {
