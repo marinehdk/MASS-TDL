@@ -103,3 +103,26 @@ TEST(MidMpcNlpFormulationTest, PackGiveWayFlag_FromApplicableRules) {
   EXPECT_DOUBLE_EQ(
       static_cast<double>(formulation.pack_parameters(inp)(kIdxGiveWay)), 1.0);
 }
+
+TEST(MidMpcNlpFormulationTest, GDimIncludesCpaHardConstraintRows) {
+  constexpr int32_t kHorizon = 4;
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = kHorizon;
+  cfg.max_targets = 1;
+
+  mass_l3::m5::ConstraintInputs constraints;
+  constraints.cpa_safe_m = 1852.0;
+  mass_l3::m5::TargetState target;
+  target.x_m = 1000.0;
+  target.y_m = 0.0;
+  target.cog_rad = 0.0;
+  target.sog_mps = 0.0;
+  constraints.targets.push_back(target);
+
+  MidMpcNlpFormulation formulation(cfg);
+  formulation.set_constraint_inputs(constraints);
+  formulation.build_symbolic_graph();
+
+  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + kHorizon)
+      << "one target must add one CPA hard-constraint row per horizon step";
+}

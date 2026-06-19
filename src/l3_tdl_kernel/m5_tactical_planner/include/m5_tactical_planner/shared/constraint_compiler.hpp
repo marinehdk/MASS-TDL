@@ -91,6 +91,17 @@ class ConstraintCompiler {
       const ConstraintInputs& inputs,
       double dt_s) const;
 
+  [[nodiscard]] CompiledConstraints compile_colregs_rules(
+      const casadi::MX& psi_seq,
+      const casadi::MX& u_seq,
+      const ConstraintInputs& inputs) const;
+
+  [[nodiscard]] CompiledConstraints compile_zone_constraints(
+      const casadi::MX& psi_seq,
+      const casadi::MX& u_seq,
+      const ConstraintInputs& inputs,
+      double dt_s) const;
+
  private:
   // ── Behavior bounds ──────────────────────────────────────────────────────
   [[nodiscard]] CompiledConstraints compile_heading_bounds(
@@ -108,12 +119,6 @@ class ConstraintCompiler {
       const casadi::MX& psi_seq,
       double dt_s,
       double rot_max_rad_s) const;
-
-  // ── COLREGs rule constraints ──────────────────────────────────────────────
-  [[nodiscard]] CompiledConstraints compile_colregs_rules(
-      const casadi::MX& psi_seq,
-      const casadi::MX& u_seq,
-      const ConstraintInputs& inputs) const;
 
   // Rule 14 (Head-on): give-way shall alter course to starboard.
   // [TBD-HAZID] min turn angle 5°: calibrate from encounter simulation data.
@@ -138,13 +143,6 @@ class ConstraintCompiler {
   [[nodiscard]] CompiledConstraints compile_rule17(
       const casadi::MX& psi_seq,
       double psi_initial_rad) const;
-
-  // ── Zone constraints ──────────────────────────────────────────────────────
-  [[nodiscard]] CompiledConstraints compile_zone_constraints(
-      const casadi::MX& psi_seq,
-      const casadi::MX& u_seq,
-      const ConstraintInputs& inputs,
-      double dt_s) const;
 
   // Per-zone, per-step accumulation helper (extracted to honour 60-line limit).
   [[nodiscard]] CompiledConstraints build_zone_steps(
