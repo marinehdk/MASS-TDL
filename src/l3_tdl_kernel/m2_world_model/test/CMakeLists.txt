@@ -29,6 +29,11 @@ if(BUILD_TESTING)
   target_include_directories(test_world_state_aggregator PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
+  ament_add_gtest(test_woerner_compliance_scorer test_woerner_compliance_scorer.cpp)
+  target_link_libraries(test_woerner_compliance_scorer ${PROJECT_NAME}_lib)
+  target_include_directories(test_woerner_compliance_scorer PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
+
   # ── D2.2 Track D: MUST-1 OVERTAKING sector boundary tests ─────────────────
   ament_add_gtest(test_must1_overtaking_sector test_must1_overtaking_sector.cpp)
   target_link_libraries(test_must1_overtaking_sector ${PROJECT_NAME}_lib)
