@@ -53,6 +53,7 @@ struct RuleParameters {
   double cpa_hard_m{1852.0};     // [ref] PREPLAN->ACTIVE CPA gate
   double cpa_soft_m{2778.0};     // [ref] CANDIDATE->PREPLAN CPA gate
   double t_dwell_s{60.0};        // [ref] RELEASE->CLEAR dwell
+  double cpa_release_m{1000.0};  // [ref] give-way RELEASE CPA gate (<cpa_hard)
 };
 
 struct RuleEvaluation {

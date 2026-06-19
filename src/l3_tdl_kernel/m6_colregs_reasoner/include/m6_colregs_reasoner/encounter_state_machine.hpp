@@ -49,9 +49,19 @@ struct OnsetSnapshot {
 struct EncounterParams {
   double t_plan_s{720.0};          // [A-level C-12] PREPLAN->ACTIVE TCPA gate
   double t_monitor_s{1500.0};      // [ref] CANDIDATE->PREPLAN TCPA gate
-  double cpa_hard_m{1852.0};       // [ref] PREPLAN->ACTIVE CPA gate
+  double cpa_hard_m{1852.0};       // [ref] PREPLAN->ACTIVE CPA gate (onset)
   double cpa_soft_m{2778.0};       // [ref] CANDIDATE->PREPLAN CPA gate
-  double cpa_safe_m{1852.0};       // [ref] RELEASE CPA gate
+  double cpa_safe_m{1852.0};       // [ref] RELEASE CPA gate (legacy, kept for
+                                   // stand-on/projection parity; give-way
+                                   // RELEASE uses cpa_release_m below)
+  double cpa_release_m{1000.0};    // [ref] RELEASE CPA gate for give-way
+                                   // encounters. Smaller than cpa_hard: a
+                                   // crossing give-way maneuver typically
+                                   // opens CPA to ~0.7 nm which is well clear
+                                   // of the ship domain but below the 1.0 nm
+                                   // onset threshold. Using cpa_hard here
+                                   // starves RELEASE on the slower crossing
+                                   // probes (route_return fails).
   double t_dwell_s{60.0};          // [ref] RELEASE->CLEAR dwell
   double min_alteration_deg{30.0}; // [A-level Rule8] used by caller for constraint
   // Rule17 stand-on (PhaseClassifier, unchanged from legacy)

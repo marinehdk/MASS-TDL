@@ -13,6 +13,9 @@ odd_a:  # Open water
   cpa_hard_m: 1852.0           # [ref] PREPLAN->ACTIVE CPA gate
   cpa_soft_m: 2778.0           # [ref] CANDIDATE->PREPLAN CPA gate
   t_dwell_s: 60.0              # [ref] RELEASE->CLEAR dwell
+  cpa_release_m: 1000.0        # [ref] give-way RELEASE CPA gate (<cpa_hard);
+                               # crossing CPA~0.7nm is clear of ship domain
+                               # but below the 1.0nm onset threshold
   # Active thresholds (used by RuleLatch onset/release today)
   t_standOn_s: 480.0           # [ref] 8 min (Rule17 stand-on preserve)
   t_act_s: 240.0               # [ref] 4 min (Rule17 independent action)

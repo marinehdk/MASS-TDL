@@ -137,9 +137,13 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
       }
       // Release: caller signals past_and_clear (Rule 16 finally past and
       // clear, computed vs the onset reference heading), range opening, and
-      // CPA at/above safe. Spec §3.2 row MONITOR->RELEASE.
+      // CPA at/above the release threshold. cpa_release_m is smaller than
+      // cpa_hard_m: a give-way maneuver typically opens CPA to a value that
+      // is well clear of the ship domain but below the 1.0 nm onset
+      // threshold; requiring cpa_hard here starves RELEASE on slower
+      // crossings. Spec §3.2 row MONITOR->RELEASE.
       const bool opening = !range_closing;
-      const bool cpa_safe = target.cpa_m >= params_.cpa_safe_m;
+      const bool cpa_safe = target.cpa_m >= params_.cpa_release_m;
       if (past_and_clear && opening && cpa_safe) {
         state_ = EncounterState::RELEASE;
         release_condition_met_since_s_ = now_s;
@@ -152,7 +156,7 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
       // declare the encounter fully resolved (guards against a transient
       // geometry blip dropping the latch prematurely).
       const bool opening = !range_closing;
-      const bool cpa_safe = target.cpa_m >= params_.cpa_safe_m;
+      const bool cpa_safe = target.cpa_m >= params_.cpa_release_m;
       const bool still_past_clear_safe = past_and_clear && opening && cpa_safe;
       if (!still_past_clear_safe) {
         // Condition broke mid-dwell -> back to MONITOR, restart dwell clock.

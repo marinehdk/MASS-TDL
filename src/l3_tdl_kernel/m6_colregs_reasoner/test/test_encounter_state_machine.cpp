@@ -22,6 +22,7 @@ EncounterParams make_test_params() {
   p.cpa_hard_m = 1852.0;
   p.cpa_soft_m = 2778.0;
   p.cpa_safe_m = 1852.0;
+  p.cpa_release_m = 1000.0;  // give-way RELEASE gate (< cpa_hard)
   p.t_dwell_s = 60.0;
   p.t_standOn_s = 480.0;
   p.t_act_s = 240.0;
@@ -240,6 +241,41 @@ TEST(EncounterStateMachine, MonitorToActiveRegressionOnCpaDeterioration) {
 }
 
 // --- T5: reset --------------------------------------------------------------
+
+// Release CPA threshold is separated from the onset (cpa_hard) threshold. A
+// give-way crossing maneuver typically opens CPA to a value below cpa_hard
+// (1.0 nm) but well clear of the ship domain -- RELEASE must be reachable at
+// cpa_release_m, otherwise route_return starves on slower crossings.
+TEST(EncounterStateMachine, ReleaseReachesAtCpaReleaseBelowCpaHard) {
+  auto p = make_test_params();
+  ASSERT_LT(p.cpa_release_m, p.cpa_hard_m);  // sanity: separation exists
+  auto fsm = drive_to_active(p);
+  // Graduate to MONITOR.
+  fsm.transition(snap(300.0, 1000.0), false, true, false, 4.0);
+  fsm.transition(snap(200.0, 1200.0), false, true, false, 5.0);
+  ASSERT_EQ(fsm.state(), EncounterState::MONITOR);
+  // CPA=1300 is >= cpa_release(1000) but < cpa_hard(1852): with past_and_clear
+  // and range opening, RELEASE must be reachable (this is the rule15-cs case).
+  fsm.transition(snap(-10.0, 1300.0), false, /*closing=*/false,
+                 /*past_and_clear=*/true, 6.0);
+  EXPECT_EQ(fsm.state(), EncounterState::RELEASE)
+      << "RELEASE must be reachable at cpa>=cpa_release even if <cpa_hard";
+}
+
+// Below cpa_release, MONITOR must NOT release even if past_and_clear.
+// Use a large TCPA (> t_plan) so the CPA drop does not trigger the
+// MONITOR->ACTIVE regression path (which is a separate concern).
+TEST(EncounterStateMachine, MonitorHoldsBelowCpaReleaseEvenIfPastAndClear) {
+  auto fsm = drive_to_active(make_test_params());
+  fsm.transition(snap(300.0, 1000.0), false, true, false, 4.0);
+  fsm.transition(snap(200.0, 1200.0), false, true, false, 5.0);
+  ASSERT_EQ(fsm.state(), EncounterState::MONITOR);
+  // CPA=800 < cpa_release(1000), TCPA=999 > t_plan(720) so no ACTIVE regression:
+  // too close, must stay MONITOR (no release).
+  fsm.transition(snap(999.0, 800.0), false, /*closing=*/false,
+                 /*past_and_clear=*/true, 6.0);
+  EXPECT_EQ(fsm.state(), EncounterState::MONITOR);
+}
 
 TEST(EncounterStateMachine, T5_ResetClearsAllState) {
   auto fsm = drive_to_active(make_test_params());

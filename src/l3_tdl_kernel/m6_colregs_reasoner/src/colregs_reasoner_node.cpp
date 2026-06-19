@@ -306,6 +306,7 @@ void ColregsReasonerNode::load_odd_thresholds() {
     params.cpa_hard_m          = kNode["cpa_hard_m"].as<double>(1852.0);
     params.cpa_soft_m          = kNode["cpa_soft_m"].as<double>(2778.0);
     params.t_dwell_s           = kNode["t_dwell_s"].as<double>(60.0);
+    params.cpa_release_m       = kNode["cpa_release_m"].as<double>(1000.0);
     params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
@@ -747,6 +748,7 @@ void ColregsReasonerNode::run_reasoning() {
           ep.cpa_soft_m = kParams.cpa_soft_m;
           ep.cpa_safe_m = kParams.cpa_safe_m;
           ep.t_dwell_s = kParams.t_dwell_s;
+          ep.cpa_release_m = kParams.cpa_release_m;
           ep.t_standOn_s = kParams.t_standOn_s;
           ep.t_act_s = kParams.t_act_s;
           ep.t_emergency_s = kParams.t_emergency_s;
