@@ -763,7 +763,15 @@ void ColregsReasonerNode::run_reasoning() {
         // Gate the raw onset: if the FSM is not yet engaged (still in
         // PREPLAN/CANDIDATE because TCPA is too large), do not let the legacy
         // latch onset this cycle. This is the D-3 ample-time fix.
-        if (!fsm_engaged) {
+        // STAND_ON is exempt: the stand-on vessel does not take avoiding
+        // action (Rule 17), so gating its onset only delays conflict
+        // detection and starves the Rule 17 in-extremis latch of the
+        // duty-latched context it needs -- which delayed the stand-on's
+        // forced action and drove CPA below the floor on rule17-cr-so.
+        const bool give_way_duty =
+            eval.role == Role::GIVE_WAY ||
+            eval.role == Role::BOTH_GIVE_WAY;
+        if (!fsm_engaged && give_way_duty) {
           eval.is_active = false;
         }
         // Pass the raw evaluation so the latch can snapshot the give-way
@@ -782,7 +790,9 @@ void ColregsReasonerNode::run_reasoning() {
         // legacy latch computed a release this cycle (a transient projection
         // blip while still within the ample-time window), hold the encounter.
         // Without this, conflict_detected flaps and M4 behavior toggles.
-        if (fsm_engaged && !latched) {
+        // STAND_ON is exempt (same reason as the onset gate above): a held
+        // stand-on carrier would starve the Rule 17 in-extremis path.
+        if (fsm_engaged && !latched && give_way_duty) {
           latched = true;
           if (!eval.is_active) {
             it->second.apply_onset(eval);
