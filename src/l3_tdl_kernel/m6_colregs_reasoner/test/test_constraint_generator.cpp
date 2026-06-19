@@ -166,6 +166,20 @@ TEST(ConstraintGen, StandOnEarlyPhaseDoesNotRaiseConflict) {
   EXPECT_EQ(msg.primary_preferred_direction, "HOLD");
 }
 
+TEST(ConstraintGen, StandOnSoundWarningDoesNotRaiseConflict) {
+  ConstraintGenerator g;
+  RuleParameters p{};
+  const auto msg = g.generate(
+      {mk(17, Role::STAND_ON, TimingPhase::SOUND_WARNING, "HOLD")}, p, 0.9);
+  EXPECT_FALSE(msg.conflict_detected);
+  ASSERT_EQ(msg.active_rules.size(), 1u);
+  EXPECT_EQ(msg.active_rules[0].role, static_cast<uint8_t>(Role::STAND_ON));
+  EXPECT_EQ(msg.active_rules[0].rule_phase, "T_warn");
+  EXPECT_EQ(msg.active_rules[0].preferred_direction, "HOLD");
+  EXPECT_EQ(msg.primary_preferred_direction, "HOLD");
+  EXPECT_TRUE(msg.constraints.empty());
+}
+
 TEST(ConstraintGen, StandOnInExtremisRaisesConflict) {
   ConstraintGenerator g;
   RuleParameters p{};
