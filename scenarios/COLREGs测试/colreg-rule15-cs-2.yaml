@@ -35,9 +35,9 @@ targetShips:
     position:
       latitude: 63.455
       longitude: 10.438105
-    cog: 300.0
+    cog: 288.0
     sog: 12.0
-    heading: 300.0
+    heading: 288.0
   model: ais_replay_vessel
 environment:
   wind: &id001
