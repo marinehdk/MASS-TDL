@@ -34,6 +34,7 @@ struct TargetGeometricState {
   double ownship_heading_deg;
   double ownship_speed_kn;
   int32_t target_ship_type_priority;
+  double target_compliance{0.5};
   std::chrono::system_clock::time_point stamp;
 };
 
@@ -64,6 +65,7 @@ struct RuleEvaluation {
   Role role{Role::FREE};
   TimingPhase phase{TimingPhase::PRESERVE_COURSE};
   double min_alteration_deg{0.0};
+  double target_compliance{0.5};
   std::string preferred_direction{"HOLD"};  // STARBOARD | PORT | REDUCE_SPEED | HOLD
   float confidence{0.0f};
   std::string rationale;

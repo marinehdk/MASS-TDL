@@ -25,3 +25,6 @@ float32 intent_confidence  # [0, 1]
 # D2.2 NEW: bearing and range for ARPA table display
 float64 brg_deg            # true bearing (0°=True North)
 float64 rng_m              # range in meters
+
+# P3 COLREGs compliance score from observable CPA/range trend
+float32 target_compliance   # [0, 1], 0.5 = neutral / insufficient history

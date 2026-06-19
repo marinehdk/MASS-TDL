@@ -180,6 +180,26 @@ TEST(ConstraintGen, StandOnSoundWarningDoesNotRaiseConflict) {
   EXPECT_TRUE(msg.constraints.empty());
 }
 
+TEST(ConstraintGen, StandOnSoundWarningLowComplianceEscalatesStarboardAction) {
+  ConstraintGenerator g;
+  RuleParameters p{};
+  p.min_alteration_deg = 30.0;
+  auto eval = mk(17, Role::STAND_ON, TimingPhase::SOUND_WARNING, "HOLD");
+  eval.min_alteration_deg = 0.0;
+  eval.target_compliance = 0.2;
+
+  const auto msg = g.generate({eval}, p, 0.9);
+
+  EXPECT_TRUE(msg.conflict_detected);
+  EXPECT_EQ(msg.phase, "INDEPENDENT_ACTION");
+  ASSERT_EQ(msg.active_rules.size(), 1u);
+  EXPECT_EQ(msg.active_rules[0].rule_phase, "T_act");
+  EXPECT_EQ(msg.active_rules[0].preferred_direction, "STARBOARD");
+  EXPECT_EQ(msg.primary_preferred_direction, "STARBOARD");
+  ASSERT_EQ(msg.constraints.size(), 1u);
+  EXPECT_DOUBLE_EQ(msg.constraints[0].numeric_value, 30.0);
+}
+
 TEST(ConstraintGen, StandOnInExtremisRaisesConflict) {
   ConstraintGenerator g;
   RuleParameters p{};

@@ -1,9 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <Eigen/Core>
@@ -21,6 +23,7 @@
 #include "m2_world_model/view_health_monitor.hpp"
 #include "m2_world_model/env_sanity_checker.hpp"
 #include "m2_world_model/types.hpp"
+#include "m2_world_model/woerner_compliance_scorer.hpp"
 
 namespace mass_l3::m2 {
 
@@ -90,6 +93,7 @@ class WorldStateAggregator final {
   std::shared_ptr<EncLoader> enc_loader_;
   std::shared_ptr<ViewHealthMonitor> health_;
   std::shared_ptr<EnvSanityChecker> env_sanity_checker_;
+  std::unordered_map<uint64_t, WoernerComplianceScorer> compliance_scorers_;
 
   mutable std::mutex mutex_;
   std::optional<OwnShipSnapshot> own_ship_cache_;

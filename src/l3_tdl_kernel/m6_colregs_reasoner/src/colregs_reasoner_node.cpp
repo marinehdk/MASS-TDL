@@ -1,5 +1,6 @@
 #include "m6_colregs_reasoner/colregs_reasoner_node.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -718,6 +719,7 @@ void ColregsReasonerNode::run_reasoning() {
     for (const auto& rule : rules_) {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
+      eval.target_compliance = target.target_compliance;
 
       // Onset-latched hysteresis for Rules 13 (overtaking), 14 (head-on),
       // and 15 (crossing):
@@ -1211,6 +1213,8 @@ ColregsReasonerNode::convert_world_state(
 
     // Ship type priority from classification string
     gs.target_ship_type_priority = classify_ship_priority(tgt.classification);
+    gs.target_compliance = std::clamp(
+        static_cast<double>(tgt.target_compliance), 0.0, 1.0);
 
     // Timestamp
     gs.stamp = to_chrono(tgt.stamp);

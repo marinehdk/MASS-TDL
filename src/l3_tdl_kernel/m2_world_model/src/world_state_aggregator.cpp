@@ -354,6 +354,14 @@ WorldStateAggregator::compose_world_state(
       wt.intent_confidence = static_cast<float>(intent_conf);
     }
 
+    {
+      auto scorer_it =
+          compliance_scorers_.try_emplace(target.target_id, 30.0).first;
+      scorer_it->second.add_sample(TargetComplianceSample{
+          now.seconds(), wt.cpa_m, wt.tcpa_s, wt.rng_m, wt.heading_deg});
+      wt.target_compliance = static_cast<float>(scorer_it->second.score());
+    }
+
     world_targets.push_back(std::move(wt));
   }
 
