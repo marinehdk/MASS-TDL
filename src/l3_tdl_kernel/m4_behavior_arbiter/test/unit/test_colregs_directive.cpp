@@ -12,6 +12,7 @@ namespace {
 
 constexpr std::uint8_t kRoleGiveWay = 1U;
 constexpr std::uint8_t kRoleStandOn = 0U;
+constexpr std::uint8_t kRoleBothGiveWay = 2U;
 
 l3_msgs::msg::COLREGsConstraint make_msg(
     const std::string& direction,
@@ -217,6 +218,43 @@ TEST(ColregsDirective, GiveWayOvertakingCanPreferSpeedReductionWhenItArrestsClos
 
   EXPECT_TRUE(directive.speed_reduction_preferred);
   EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
+}
+
+// T9 / D-5: Rule 14 head-on (BOTH_GIVE_WAY) must NOT have its turn direction
+// overridden to REDUCE_SPEED. COLREG Rule 14(a) requires both vessels to alter
+// to starboard; speed reduction may serve as an auxiliary speed_max constraint
+// but must not replace the turn direction. Give-way on Rule 13/15/16 may still
+// prefer speed reduction (see GiveWayOvertakingCanPreferSpeedReduction above),
+// but Rule 14's port-to-port pass geometry demands a real starboard turn.
+TEST(ColregsDirective, T9_Rule14BothGiveWayForbidsSpeedReductionDirectionOverride) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleBothGiveWay;
+  directive.rule14_active = true;
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1100.0;
+  current_risk.closing_speed_mps = 2.4;
+  current_risk.tcpa_s = 520.0;  // > 180 ample
+  current_risk.warning_margin_m = 80.0;
+  current_risk.danger_margin_m = 410.0;  // not danger
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Monitor;
+  current_risk.risk_score = 0.24;
+
+  mass_l3::risk::RiskVector slowed_risk = current_risk;
+  slowed_risk.closing_speed_mps = 0.2;   // arrests closing
+  slowed_risk.tcpa_s = 900.0;
+  slowed_risk.warning_margin_m = 150.0;  // improves margin
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  // Speed reduction still allowed as auxiliary (speed_reduction_preferred may
+  // be true), but the turn DIRECTION must stay STARBOARD for Rule 14.
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard)
+      << "Rule 14 BOTH_GIVE_WAY direction must stay STARBOARD (COLREG 14(a))";
 }
 
 TEST(ColregsDirective, DangerCrossingKeepsStarboardAlteration) {
