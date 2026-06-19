@@ -164,6 +164,11 @@ struct MidMpcInput {
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 
+inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
+  input.constraints.targets = input.targets;
+  input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
+}
+
 // ---------------------------------------------------------------------------
 // MidMpcSolution — result from one Mid-MPC solve cycle
 // ---------------------------------------------------------------------------

@@ -236,6 +236,17 @@ MidMpcInput MidMpcNode::assemble_input_()
   if (colregs_constraint_ != nullptr) {
     inp.colregs_preferred_direction = mass_l3::m5::parse_colregs_preferred_direction(
         colregs_constraint_->primary_preferred_direction);
+    for (const auto& rule : colregs_constraint_->active_rules) {
+      const auto rule_id = static_cast<std::uint8_t>(rule.rule_id);
+      const bool compiler_supported = rule_id == 14u || rule_id == 15u
+          || rule_id == 16u || rule_id == 17u;
+      if (compiler_supported
+          && std::find(inp.constraints.applicable_rules.begin(),
+                       inp.constraints.applicable_rules.end(),
+                       rule_id) == inp.constraints.applicable_rules.end()) {
+        inp.constraints.applicable_rules.push_back(rule_id);
+      }
+    }
     double min_alt_deg = 0.0;
     for (const auto& c : colregs_constraint_->constraints) {
       if (c.constraint_type == "colregs" && c.unit == "deg" && c.numeric_value > 0.0) {
@@ -303,6 +314,7 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.rot_max_rad_s = vessel_model_.rot_max_rad_s(inp.own_ship.u_mps, hs_m);
 
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
+  mass_l3::m5::synchronize_mid_mpc_constraint_context(inp);
   return inp;
 }
 
@@ -323,6 +335,8 @@ void MidMpcNode::on_solve_cycle_()
   const bool wrapped_heading_window = !is_transit
       && mass_l3::m5::heading_window_is_wrapped(
           input.constraints.heading_min_rad, input.constraints.heading_max_rad);
+  formulation_.set_constraint_inputs(input.constraints);
+  formulation_.build_symbolic_graph();
   const MidMpcSolution* warm = last_solution_.has_value() ? &last_solution_.value() : nullptr;
   MidMpcSolution sol;
   if (wrapped_heading_window) {
