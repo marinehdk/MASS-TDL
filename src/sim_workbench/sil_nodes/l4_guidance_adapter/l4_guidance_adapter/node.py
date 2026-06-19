@@ -281,8 +281,9 @@ class L4GuidanceAdapterNode(Node):
     def _on_avoidance_plan(self, msg) -> None:
         wp0 = msg.waypoints[0] if msg.waypoints else None
         plan_status = str(getattr(msg, "status", "NORMAL")).upper()
+        executable_status = plan_status in ("NORMAL", "DEGRADED")
         has_valid_plan = bool(
-            plan_status == "NORMAL" and
+            executable_status and
             wp0 is not None and
             abs(wp0.turn_radius_m) > 1e-6
         )

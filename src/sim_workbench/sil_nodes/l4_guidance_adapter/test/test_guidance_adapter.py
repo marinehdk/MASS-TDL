@@ -520,6 +520,35 @@ def test_avoidance_plan_does_not_arm_when_m4_is_transit():
     assert node._avoidance_active is False
 
 
+def test_degraded_fallback_plan_with_waypoints_arms_when_m4_is_avoidance():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = False
+    node._last_behavior_plan = SimpleNamespace(behavior=1, heading_min_deg=60.0, heading_max_deg=90.0)
+    node._last_valid_plan_time = None
+    node._last_avoidance_waypoint = None
+    node._last_avoidance_waypoints = []
+    node._avoidance_armed_time = None
+    node._avoidance_target_heading_deg = None
+    node._target_heading_deg = 0.0
+    node._reset_latch_release_state = lambda: None
+    node._sim_time = lambda: 20.0
+
+    msg = SimpleNamespace(
+        status="DEGRADED",
+        waypoints=[
+            SimpleNamespace(
+                turn_radius_m=100.0,
+            )
+        ],
+    )
+
+    L4GuidanceAdapterNode._on_avoidance_plan(node, msg)
+
+    assert node._last_valid_plan_time == 20.0
+    assert node._last_avoidance_waypoint is msg.waypoints[0]
+    assert node._avoidance_active is True
+
+
 def test_empty_plan_holds_existing_avoidance_while_m4_is_non_transit():
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     node._avoidance_active = True
