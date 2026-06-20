@@ -630,3 +630,36 @@ This log coordinates task handoffs between different development interfaces (Cla
   - `clean8` and local OrbStack container gates were not run due worktree isolation constraints; they remain required before promotion.
   - Container gates were blocked because active `mass-l3-sil` belongs to `.worktrees/main-runtime` and `colregs-behavior-fix` belongs to another worktree.
   - A4000 validation remains required before any push/promotion.
+
+## [2026-06-20] ZCode / c352e508 / COLREGs 4-Phase plan conformance + RECOVERY threshold calibration
+
+### Task Goal
+Audit 4c85cbaa WIP checkpoint vs Spec/Plan, strip batch-driven out-of-scope changes, re-implement P4 (M4/M5 RECOVERY) per plan conformance via TDD, run Task4.4 integration validation, systematic-debug remaining REDs.
+
+### Core Changes
+- **Audit + strip**: 4c85cbaa was P4 WIP + batch-driven out-of-scope changes (cpa_aware_fallback 403 lines, rule13 latch/release, L4 adapter, 30+ overfitting RECOVERY tests) mixed in one commit. `git reset --soft c1ca94e9` stripped all; out-of-scope preserved on `codex/colregs-rule13-batch` branch (4c85cbaa).
+- **Task4.1** (be0da6ca): BEHAVIOR_RECOVERY=7 enum (BehaviorPlan.msg + m4 types.hpp + fsm_aggregator).
+- **Task4.2** (a1124594): m4 AVOID→RECOVERY→TRANSIT state machine. Subscribes /l2/planned_route, computes XTE (flat-earth NED). RECOVERY engages on colregs_turn_active falling edge with XTE>gate; clears to TRANSIT at XTE<gate + release_dwell. 19/19 lifecycle tests pass.
+- **Task4.3** (f337fe93): m5 build_recovery_plan_ — recovery_route_point free helper (XTE linear decay toward route), N-waypoint trajectory bypassing NLP solver. 11/11 m5 tests pass.
+- **Task2.2**: verified M6 rule17_stand_on.cpp already forces STARBOARD for stand-on (L70/L86); regression covered by commit 4736f6d3 (13 tests pass). No new code per plan Step3.
+- **RECOVERY threshold calibration** (c352e508): corridor_half 100→250 (gate 125m), release_dwell 8→4. [TBD-HAZID] aligned to route_return acceptance (XTE<150m) + 4c85cbaa reference (release@120m).
+
+### Current Status
+- **P1-P4 plan conformance code COMPLETE**, all unit tests green (m4 19/19, m5 11/11, m6 13/13).
+- **12-probe integration** (batch_phase4_threshold_v2.json): 1/12 PASS.
+  - ✅ CPA 11/12 pass (P1 ConstraintCompiler hard constraint effective)
+  - ✅ stability 12/12 pass
+  - ✅ RECOVERY state machine works: rule14-ho now full AVOID→RECOVERY→TRANSIT闭环; rule17-cr-so-target-giveway PASS with route_return=True
+  - ❌ route_return 10/12 RED — RECOVERY trajectory-tracking + heading-alignment deeper issue (Final Heading Dev up to 19.6° >10° required)
+  - ❌ rule17-cr-so CPA min2m anomaly (stand-off special, others >260m)
+- Worktree clean, HEAD c352e508. behavior-fix stack running (DOMAIN_ID=43, port 18001).
+
+### Handoff Notes
+- **NOT promotion-ready**: 12-probe 1/12, route_return REDs unresolved.
+- Out-of-scope batch work preserved on `codex/colregs-rule13-batch` (4c85cbaa) for reference; do not merge.
+- Remaining REDs need RECOVERY trajectory-tracking + heading-alignment work (deeper than threshold tuning, beyond plan 4-Phase scope):
+  - RECOVERY→TRANSIT release should also check heading alignment (4c85cbaa has kRecoveryCompleteHeadingErrorDeg=10°).
+  - RECOVERY plan waypoints may need stronger lateral pull or L4 tracking tuning.
+  - rule17-cr-so CPA min2m needs separate stand-off root-cause investigation.
+- Environment: DOMAIN_ID=43 isolation confirmed working (compose v2 list-env merges by key, preserves RMW/SIL_L3).
+- Evidence: runs/batch_phase4_p1p4_final.json (v1, gate 50m), runs/batch_phase4_threshold_v2.json (v2, gate 125m).
