@@ -122,9 +122,13 @@ std::optional<PrimaryRiskGuidance> compute_primary_risk_guidance(
 // exceeds corridor_half*0.5 after COLREGs release and clears when XTE returns
 // within that gate for release_dwell cycles.
 constexpr double kEarthRadiusM = 6371008.8;
-constexpr double kRecoveryCorridorHalfM = 100.0;        // [TBD-HAZID]
-constexpr double kRecoveryXteGateFraction = 0.5;        // corridor_half*0.5
-constexpr int    kRecoveryReleaseDwellCycles = 8;       // ~release_dwell (60s @ 250ms)
+// [TBD-HAZID] RECOVERY thresholds calibrated against route_return acceptance
+// (XTE<150m). corridor_half=250 → gate=125m: RECOVERY engages when XTE>125m
+// after COLREGs release and clears to TRANSIT once XTE<125m for release_dwell,
+// letting TRANSIT/L2 route-following finish convergence below 150m.
+constexpr double kRecoveryCorridorHalfM = 250.0;
+constexpr double kRecoveryXteGateFraction = 0.5;        // corridor_half*0.5 = 125m
+constexpr int    kRecoveryReleaseDwellCycles = 4;       // ~1s @ 250ms cycle
 
 double signed_heading_error_deg(double heading_deg, double reference_deg) {
   return std::fmod(heading_deg - reference_deg + 540.0, 360.0) - 180.0;
