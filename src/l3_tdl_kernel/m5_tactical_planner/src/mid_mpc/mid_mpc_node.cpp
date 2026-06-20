@@ -332,7 +332,9 @@ void MidMpcNode::on_solve_cycle_()
   publish_trajectory_candidates_(input);
   const bool is_transit =
       behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_TRANSIT;
-  const bool wrapped_heading_window = !is_transit
+  const bool is_recovery =
+      behavior_plan_->behavior == l3_msgs::msg::BehaviorPlan::BEHAVIOR_RECOVERY;
+  const bool wrapped_heading_window = !is_transit && !is_recovery
       && mass_l3::m5::heading_window_is_wrapped(
           input.constraints.heading_min_rad, input.constraints.heading_max_rad);
   formulation_.set_constraint_inputs(input.constraints);
@@ -373,7 +375,11 @@ void MidMpcNode::on_solve_cycle_()
   }
 
   l3_msgs::msg::AvoidancePlan plan;
-  if (is_transit) {
+  if (is_recovery) {
+    // Phase 4: M4 RECOVERY — gradual return-to-route. Bypass NLP solver and
+    // emit a direct XTE-decay trajectory toward the route projection.
+    plan = build_recovery_plan_(input, lat, lon);
+  } else if (is_transit) {
     // D-DEMO1 spin fix: M4 is the COLREG authority on whether avoidance is
     // active. When M4 is in TRANSIT, emit an EMPTY plan (no waypoints) so the
     // execution bridge releases avoidance and resumes route-following. Without
@@ -497,6 +503,76 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
                delta_psi * units::kDegPerRad,
                min_alt_rad * units::kDegPerRad,
                reason);
+
+  return plan;
+}
+
+// ===========================================================================
+// build_recovery_plan_ — Phase 4 gradual return-to-route (architecture §7.2)
+// ===========================================================================
+l3_msgs::msg::AvoidancePlan MidMpcNode::build_recovery_plan_(
+    const MidMpcInput& input,
+    double lat0_deg,
+    double lon0_deg)
+{
+  const double target_speed_kn = mass_l3::m5::geometric_fallback_target_speed_kn(
+      input.planned_speed_mps, nominal_speed_kn_, input.constraints.speed_max_mps);
+  const double speed_mps = target_speed_kn * units::kMsPerKn;
+
+  constexpr int kNWp = 6;
+  const double horizon_s =
+      mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1);
+
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.schema_version = 112;
+  plan.stamp = this->get_clock()->now();
+  plan.horizon_s = static_cast<float>(horizon_s);
+  plan.status = "RECOVERY";
+  plan.confidence = 0.8f;
+  plan.rationale = "M5 RECOVERY gradual return to planned route"
+      " xte=" + std::to_string(static_cast<int>(input.route_xte_m)) + "m";
+
+  double prev_xN = 0.0;
+  double prev_xE = 0.0;
+  for (int i = 0; i < kNWp; ++i) {
+    const double t = mass_l3::m5::geometric_fallback_waypoint_time_s(i);
+    const auto point = mass_l3::m5::recovery_route_point(
+        input.planned_route_bearing_rad,
+        input.route_xte_m,
+        speed_mps,
+        t,
+        horizon_s);
+
+    const double ddN = point.x_m - prev_xN;
+    const double ddE = point.y_m - prev_xE;
+    const double seg_dist = std::sqrt(ddN * ddN + ddE * ddE);
+    prev_xN = point.x_m;
+    prev_xE = point.y_m;
+
+    // Flat-earth NED → WGS84 (same approximation as geometric fallback).
+    l3_msgs::msg::AvoidanceWaypoint wp;
+    wp.schema_version = 112;
+    wp.position.latitude  = lat0_deg
+        + (point.x_m / units::kEarthRadiusMean_m) * units::kDegPerRad;
+    wp.position.longitude = lon0_deg
+        + (point.y_m / (units::kEarthRadiusMean_m
+                         * std::cos(lat0_deg * units::kRadPerDeg)))
+        * units::kDegPerRad;
+    wp.position.altitude  = 0.0;
+    wp.wp_distance_m      = seg_dist;
+    wp.safety_corridor_m  = 500.0;
+    wp.target_speed_kn    = target_speed_kn;
+    wp.turn_radius_m      = mass_l3::m5::geometric_fallback_turn_radius_m(
+        speed_mps, input.rot_max_rad_s);
+    wp.confidence         = 0.8f;
+    wp.rationale          = "M5 RECOVERY return-to-route";
+    plan.waypoints.push_back(wp);
+  }
+
+  spdlog::info("[M5][Recovery] {} wps: xte={:.0f}m route_brg={:.1f}deg speed={:.1f}kn",
+               kNWp, input.route_xte_m,
+               input.planned_route_bearing_rad * units::kDegPerRad,
+               target_speed_kn);
 
   return plan;
 }
