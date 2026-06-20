@@ -10,6 +10,7 @@ uint8 BEHAVIOR_BERTH = 3
 uint8 BEHAVIOR_MRC_DRIFT = 4
 uint8 BEHAVIOR_MRC_ANCHOR = 5
 uint8 BEHAVIOR_MRC_HEAVE_TO = 6
+uint8 BEHAVIOR_RECOVERY = 7
 
 float32 heading_min_deg
 float32 heading_max_deg
