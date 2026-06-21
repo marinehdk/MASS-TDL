@@ -621,7 +621,7 @@ class L4GuidanceAdapterNode(Node):
         )
 
     def _compute_avoidance_transit_command(self, own, dt: float = 0.5) -> ActuatorCommand:
-        """CPA-aware regression transit: XTE correction applied to avoidance
+        """CPA-aware regression transit: XTE correction applied to a CAPPED avoidance
         heading as base instead of nominal heading.
 
         When XTE >= HARD corridor the corridor guard would saturate the avoidance
@@ -631,14 +631,31 @@ class L4GuidanceAdapterNode(Node):
         -56°) that racks up steering_reversals AND closes CPA when the target is
         near the return path.
 
-        This variant anchors the XTE correction to the avoidance heading so the
-        ship returns toward route while maintaining its COLREGs-compliant lateral
-        separation from the target.
+        This variant anchors the XTE correction to the avoidance heading (capped at
+        _REGRESSION_BASE_CAP_DEG from nominal) so the ship returns toward route
+        while maintaining sufficient COLREGs-compliant lateral separation.
+
+        The cap (_REGRESSION_BASE_CAP_DEG = 40°) ensures minimum XTE closure rate
+        ≥ sin(40° - correction°) ≈ 2 m/s even at maximum XTE, avoiding the
+        near-zero closure (0.9 m/s) that occurs with raw avoidance headings of 78-85°
+        which caused rule13-ot seamanship gate failure (int_abs_xte 370k > 300k limit).
         """
+        # _REGRESSION_BASE_CAP_DEG: maximum deviation from nominal used as base.
+        # Smaller values → faster XTE return (less CPA protection).
+        # Larger values → more CPA protection (slower XTE return).
+        # 40° gives sin(40°-70°)≈2.2 m/s XTE closure at correction=70°.
+        _REGRESSION_BASE_CAP_DEG = 40.0
         avoidance_base = self._avoidance_target_heading_deg
         if avoidance_base is None:
             # Avoidance heading not yet set; fall back to plain transit.
             return self._compute_transit_command(own, dt)
+        # Cap the avoidance base heading magnitude at _REGRESSION_BASE_CAP_DEG
+        # from nominal while preserving sign (starboard/port side).
+        nominal = self._target_heading_deg
+        delta = signed_heading_delta_deg(avoidance_base, nominal)
+        if abs(delta) > _REGRESSION_BASE_CAP_DEG:
+            capped_delta = math.copysign(_REGRESSION_BASE_CAP_DEG, delta)
+            avoidance_base = (nominal + capped_delta) % 360.0
         return compute_transit_command(
             current_heading_deg=own["heading_deg"],
             current_sog_kn=own["sog_kn"],
@@ -654,6 +671,7 @@ class L4GuidanceAdapterNode(Node):
             speed_controller=self._speed_controller,
             dt=dt,
         )
+
 
     def _autopilot_step(self) -> None:
         now = self._sim_time()

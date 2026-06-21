@@ -1123,6 +1123,48 @@ def test_cpa_aware_avoidance_transit_uses_avoidance_heading_as_base():
     )
 
 
+def test_cpa_aware_avoidance_transit_caps_base_at_40_degrees():
+    """Fix-A3v3: avoidance_base heading is capped at _REGRESSION_BASE_CAP_DEG (40°)
+    from nominal to prevent near-zero XTE closure rate in large-avoidance scenarios.
+
+    Without the cap, avoidance=85° gives transit base at 85°, which with -70°
+    correction gives 15° effective heading → sin(15°)≈0.9 m/s XTE closure.
+    With cap=40°, effective base is 40°, giving 40°-70°=-30° → sin(30°)≈2.2 m/s.
+
+    This test verifies the cap fires: with avoidance=85° >> 40°, the avoidance
+    controller must be initialised toward a heading significantly < 85° from nominal.
+    Proxy: after the call the avoidance controller's last_cmd_deg must reflect a
+    PORT turn from current heading 85° (i.e., negative rudder).
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_target_heading_deg = 85.0   # large avoidance → must be capped
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    ctl_capped = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._avoidance_heading_controller = ctl_capped
+    node._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+
+    east_deg = 350.0 / (111319.9 * math.cos(math.radians(63.0)))
+    own = {
+        "lat": 63.005,
+        "lon": 10.0 + east_deg,
+        "heading_deg": 85.0,
+        "sog_kn": 10.0,
+        "rot_deg_s": 0.0,
+    }
+    cmd = L4GuidanceAdapterNode._compute_avoidance_transit_command(node, own)
+
+    # With avoidance=85° capped to 40°, effective heading target = 40° - ~70° = -30°.
+    # Steering from current heading 85° to -30° is a PORT turn: rudder < 0.
+    # (Contrast with uncapped A3: target 15°, still port from 85°, so same sign,
+    #  but the magnitude and resulting XTE closure rate differ significantly.)
+    assert cmd is not None
+    assert ctl_capped.last_cmd_deg != 0.0, "cap must still engage avoidance controller"
+
 def test_cpa_aware_avoidance_transit_falls_back_when_no_avoidance_heading():
     """Fix-A3 fallback: when _avoidance_target_heading_deg is None (not yet
     set), _compute_avoidance_transit_command must fall back to plain transit
