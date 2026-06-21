@@ -663,3 +663,68 @@ Audit 4c85cbaa WIP checkpoint vs Spec/Plan, strip batch-driven out-of-scope chan
   - rule17-cr-so CPA min2m needs separate stand-off root-cause investigation.
 - Environment: DOMAIN_ID=43 isolation confirmed working (compose v2 list-env merges by key, preserves RMW/SIL_L3).
 - Evidence: runs/batch_phase4_p1p4_final.json (v1, gate 50m), runs/batch_phase4_threshold_v2.json (v2, gate 125m).
+
+---
+
+## [2026-06-20 23:50] Agent: ZCode (GLM-5.2) — route_return A1+A2 deep root-cause + fix
+- **Git Commit**: `e53fc270` (A1 m4 heading gate) + `9d4d1eb2` (A2 l4 transit regression w/ hysteresis) on branch `codex/colregs-behavior-fix`
+- **Worktree**: `.worktrees/colregs-behavior-fix`, HEAD `9d4d1eb2`, clean. behavior-fix stack running (DOMAIN_ID=43, orchestrator 18001).
+- **任务目标 (Goal)**: 接上个 session 的 route_return 主 bug（10/12 RED），用 systematic-debugging Phase 1-4 精确定位根因并修复 A1/A2/B 三类 RED，目标 12-probe 全 pass。
+
+### Core Changes ( surgical, 4 files )
+
+**A1 — M4 RECOVERY→TRANSIT release heading gate** (`e53fc270`)
+- 根因（铁证，rule14-ho trace）：release 只查 `xte_beyond_gate`（XTE<125m），不查 heading。Final XTE=81m✓ 但 Heading=-19.6°✗。
+- 修：`behavior_arbiter_node.cpp` 加 `kRecoveryCompleteHeadingErrorDeg=10.0`（镜像 4c85cbaa）。release 条件改 `!xte_beyond_gate && abs(heading_error_deg)<=10`。`heading_error_deg` 来自 `current_route_tracking()`。
+- TDD：`RecoveryHeldWhenXteConvergedButHeadingMisaligned`（XTE 8m + heading 20° → hold RECOVERY；heading 5° → release）。m4 20/20 green。
+
+**A2 — L4 active-avoidance XTE transit regression w/ hysteresis** (`9d4d1eb2`)
+- 根因（铁证，rule15-cs-2 trace + guidance.py 现有 test L140）：`corridor_guarded_avoidance_heading_deg`（guidance.py:298）XTE>HARD(280m) 时把 avoidance heading 饱和回 nominal(0°)，但沿航线走不减小 XTE → 死锁。ship 被让路推到 XTE 388m，rudder 锁 0（t=200-1200 恒 0），rule15 conflict（M6 `rule15_crossing.cpp` is_active 只看 bearing 不看 CPA/range）永不释放。
+- 历史正当性：commit `0a6187c0` "stabilize route return" **删除了** active-avoidance 期 `RETURN_XTE_M(380m)→transit` 回归（只留 latch_release 期）。本次恢复。
+- v1（无滞回）：`node.py` `_compute_avoidance_command` 顶部 XTE>=HARD→transit。route_return 转绿（5/5 True）**BUT** steering_reversals 全 RED（6,6,9,11,10>4 阈值）——XTE 跨 280 时 avoidance(85°starboard)↔transit(±30°XTE-correction) 每周期翻转，55° heading 跳变→ROT 反复反转。
+- v2（此 commit）：滞回 latch `_avoidance_transit_regression_active`——enter XTE>=HARD(280m)，exit XTE<SOFT(180m)，100m dead-band。batch_a1a2v2 rule14-ho **PASS**（reversal 4=阈值），steering_reversals 从 6-11 降到 4-5。
+- TDD：`test_active_avoidance_at_corridor_edge_regresses_to_transit_return` + `test_transit_regression_hysteresis_holds_between_hard_and_soft`。3 个 speed_cap test 的 XTE 450m→200m(<HARD) 隔离测 speed cap。l4 43/43 green。
+
+### Current Status — **A1+A2 fixed, B + CPA trade-off OPEN，NOT promotion-ready**
+
+**batch_a1a2v2 部分结果（5/12 跑完，被打断）**：
+- ✅ rule14-ho: **PASS**（route_return=True, stability=True, cpa_ok=True, reversal=4）——A1+A2v2 联合生效铁证
+- ❌ 第2场景: stability=True, route_return=True, **cpa_ok=False**（新回归，见下）
+- ❌ 第3场景(rule13-ot?): stability=False(reversal=5微超), overtake=False
+- ❌ 第4/5场景: 未及细看（被打断）
+
+**两个 OPEN 问题（下一轮必须解决才能 12-probe 全 pass）**：
+
+1. **A2 的 CPA trade-off**（新引入）：A2 在 XTE>=280 走 transit 回航线，transit 不看 target → 回航线时可能靠近目标，CPA 回归。原版（batch_phase4_threshold_v2）CPA 11/12。v2 后部分场景 cpa_ok=False。
+   - 方向：transit 回航线时需**保留避让约束**（transit command 混入 CPA-aware heading bias），或 transit regression 触发条件加 CPA check（CPA 安全才允许纯 transit 回航线，CPA 紧张时维持 avoidance heading 但加 XTE-correction）。
+   - 不能简单回退 A2（route_return 又塌）。需在 guidance.py `compute_transit_command` 或 corridor_guard 内融合 CPA。
+
+2. **B — rule17-cr-so stand-on CPA=2m**（未动）：
+   - trace：stand-on 船 t=200 转到 hdg=52.9° starboard 让路，t=300 **转回 9°**，t=350 回 2.3°——转出又转回。t=620-660 M4 window[60,90] target 85° 但船 hdg=0，rudder t=350-700 恒 0。t=660 CPA=2m（近碰撞）。
+   - 根因疑似：avoidance_target_heading 在 stand-on 期被 `_on_behavior_plan` L248-260 持续 refresh from M4 window，window 随 target 相对方位抖动 → target heading 抖动 → 船转向抖动。stand-on 避让稳定性问题，非 corridor_guard。
+   - 注意：A2 v2 可能间接改善（RECOVERY 期 655-889 若 XTE 大走 transit），但 CPA=2m 是 AVOID 期问题，A2 不解。
+
+### Handoff Notes — **严格验收（用户强调）**
+- **验收红线（AGENTS.md）**：不降门槛、不硬编码 probe。steering_reversals 阈值 4（give-way）/5（stand-on）不可改；cpa_floor 不可降。所有 fix 必须基于架构/route_return 验收要求。
+- **当前 worktree 干净，2 commit 已提交**：`e53fc270`（A1）+ `9d4d1eb2`（A2v2）。下一轮在此基础上继续，不要 reset。
+- **必读上下文**：
+  - mempalace wing=mass_l3_tactical_layer room=colregs_route_return_debug（Phase 1 三类 RED 根因）+ room=colregs_route_return_fix_a1a2v2（A1/A2 实现 + B 分析）——**注：本 session mempalace MCP 多次断连，drawer 未必写入成功，下轮先 `mempalace search "route_return A1 A2"` 验证，缺失则从本 handoff 重建**。
+  - spec: `docs/superpowers/specs/2026-06-19-colregs-avoidance-robust-generalization-design.md`
+  - plan: `docs/superpowers/plans/2026-06-19-colregs-avoidance-robust-generalization.md`（P1-P4，本任务是其后续迭代优化）
+  - 架构权威: `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md` §8(M4)/§10(M5)
+- **batch 运行方式**（必带 --restart-container，nohup -u 后台）：
+  ```bash
+  cd "/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-behavior-fix"
+  export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1
+  export COMPOSE_PROJECT_NAME=colregs-behavior-fix
+  nohup python3 -u scripts/run_colregs_clean_8probe.py \
+    --include-intelligent --restart-between-runs \
+    --restart-container colregs-behavior-fix-sil-nodes-1 \
+    --summary-out runs/batch_<tag>_$(date +%Y%m%d_%H%M%S).json \
+    > runs/batch_<tag>.log 2>&1 & disown
+  ```
+  12 场景 ~25-35min。看进度 `grep "OVERALL:" runs/batch_<tag>.log`。
+- **C++ 改动 rebuild**：`COMPOSE_PROJECT_NAME=colregs-behavior-fix docker compose exec -T sil-nodes bash -c "source /opt/ros/humble/setup.bash && cd /opt/ws && colcon build --packages-select <pkg>"`，改 m4/m5 后 batch 前 `docker compose restart sil-nodes && sleep 30`。l4 是 Python（mount 源码），restart 即加载。
+- **trace 抓取**：`--trace-report-dir runs/trace_<tag>` 生成 `*.trace_current.jsonl`，含 own_ship/m4/m6/scoring/actuator/avoidance_plan topic，用 python jsonl 解析看时序。
+- **不动主 checkout；不碰 main stack mass-l3-sil；不降门槛；每关键决策写 mempalace_add_drawer；会话结束写 diary**。
+- **Evidence**：runs/batch_phase4_threshold_v2.json（v1 基线 1/12）、runs/batch_a1a2.log（v1 振荡 5/12）、runs/batch_a1a2v2.log（v2 滞回，5/12 跑完被打断）、runs/trace_r15cs2/（A2 根因铁证）、runs/trace_reports_rule17/（B 根因）。
