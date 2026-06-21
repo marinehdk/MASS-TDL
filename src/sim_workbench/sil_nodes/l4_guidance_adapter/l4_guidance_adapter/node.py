@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
 
 from .guidance import (
     AVOIDANCE_CORRIDOR_HARD_XTE_M,
+    AVOIDANCE_CORRIDOR_SOFT_XTE_M,
     CRUISE_SPEED_KN,
     ActuatorCommand,
     HeadingController,
@@ -166,6 +167,11 @@ class L4GuidanceAdapterNode(Node):
         self._safety_alert_until: Optional[float] = None
         self._safety_gate_reason = ""
         self._checker_veto_until: Optional[float] = None
+        # Hysteresis latch for the active-avoidance XTE transit regression
+        # (see _compute_avoidance_command). Avoids ROT chatter when XTE hovers
+        # near the HARD corridor: enter the regression at XTE>=HARD, stay in it
+        # until XTE<SOFT, then hand back to avoidance.
+        self._avoidance_transit_regression_active = False
         self._LATCH_MIN_HOLD_S = 8.0
         self._AVOID_TRANSIT_RELEASE_S = 3.0
         self._LATCH_RELEASE_DECAY_RATE_DEG_S = 16.0
@@ -457,19 +463,42 @@ class L4GuidanceAdapterNode(Node):
                 self._avoidance_target_heading_deg = (
                     self._target_heading_deg + sign * latch_offset) % 360.0
 
-        if self._latch_release_triggered:
-            release_xte_m = signed_xte_m(
-                self._route_wps,
-                own["lat"],
-                own["lon"],
-                self._current_target_wp_lat,
-                self._current_target_wp_lon,
-                fallback_heading_deg=self._target_heading_deg,
-            )
-            if (release_xte_m is not None and
-                    math.isfinite(release_xte_m) and
-                    abs(release_xte_m) >= AVOIDANCE_CORRIDOR_HARD_XTE_M):
-                return self._compute_transit_command(own, dt)
+        # XTE corridor regression shared by latch-release and active-avoidance
+        # paths. When the own ship has been pushed so far off-track (XTE >= HARD
+        # corridor) that the corridor guard would otherwise saturate the
+        # avoidance heading back to nominal and lock the rudder (沿航线走不减小 XTE
+        # → dead-lock), hand control to the transit command which carries the
+        # XTE-proportional return correction. The active-avoidance gate restores
+        # the regression removed in 0a6187c0 (which dropped the RETURN_XTE_M
+        # gate); it uses the HARD corridor threshold. Computed once, used twice.
+        #
+        # Hysteresis: enter the regression at XTE>=HARD (280 m), stay in it until
+        # XTE<SOFT (180 m) before handing back to avoidance. Without this dead-
+        # band, XTE hovering near 280 m makes the adapter flip avoidance(±85°)
+        # ↔ transit(±30° XTE-correction) every cycle and the ROT sign flips rack
+        # up steering_reversals past the stability gate (observed 6-11 > 4).
+        active_xte_m = signed_xte_m(
+            self._route_wps,
+            own["lat"],
+            own["lon"],
+            self._current_target_wp_lat,
+            self._current_target_wp_lon,
+            fallback_heading_deg=self._target_heading_deg,
+        )
+        abs_active_xte_m = (
+            abs(active_xte_m) if (active_xte_m is not None and
+                                  math.isfinite(active_xte_m)) else 0.0)
+        # getattr default keeps tests that build the node via __new__ working
+        # without setting the hysteresis latch explicitly.
+        regression_active = getattr(
+            self, "_avoidance_transit_regression_active", False)
+        if abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
+            regression_active = True
+        elif abs_active_xte_m < AVOIDANCE_CORRIDOR_SOFT_XTE_M:
+            regression_active = False
+        self._avoidance_transit_regression_active = regression_active
+        if regression_active:
+            return self._compute_transit_command(own, dt)
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
             waypoints = [self._last_avoidance_waypoint]

@@ -653,7 +653,15 @@ def test_latch_release_at_corridor_edge_uses_transit_return_heading():
     assert math.degrees(cmd.rudder_angle) > 0.0
 
 
-def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
+def test_active_avoidance_at_corridor_edge_regresses_to_transit_return():
+    # When XTE >= HARD corridor (280 m) during active avoidance, the adapter
+    # must hand control to the transit command (which carries the
+    # XTE-proportional return correction) instead of saturating the avoidance
+    # heading back to nominal and locking the rudder. This is the regression
+    # that prevents the long-conflict dead-lock (own ship pushed off-track,
+    # corridor guard zeroes rudder, XTE never closes). Own ship 450 m east of a
+    # north route → transit return correction must steer the bow toward the
+    # route (westward), i.e. a non-zero rudder command.
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     node._latch_release_triggered = False
     node._latch_release_time = None
@@ -667,9 +675,14 @@ def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
     node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
-    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
-        AssertionError("active avoidance must not bypass risk handling with transit")
-    )
+    transit_called = {"flag": False}
+
+    def _spy_transit(_own, _dt=0.5):
+        transit_called["flag"] = True
+        from l4_guidance_adapter.guidance import ActuatorCommand
+        return ActuatorCommand(rudder_angle=math.radians(-15.0), throttle=0.4)
+
+    node._compute_transit_command = _spy_transit
     waypoint = SimpleNamespace(
         position=SimpleNamespace(latitude=1.014, longitude=0.0),
         target_speed_kn=22.0,
@@ -688,8 +701,113 @@ def test_active_avoidance_at_corridor_edge_keeps_avoidance_and_caps_speed():
         },
     )
 
-    assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
-    assert cmd.throttle == pytest.approx(10.0 / 25.0)
+    assert transit_called["flag"] is True
+    assert math.degrees(cmd.rudder_angle) == pytest.approx(-15.0)
+
+
+def test_active_avoidance_below_hard_corridor_keeps_avoidance_heading():
+    # Complement to the transit regression test: XTE just under HARD corridor
+    # must keep the normal avoidance heading path (no transit regression). Own
+    # ship 250 m east (< 280) → transit must NOT be invoked; the avoidance
+    # corridor guard still clamps the outbound heading but the adapter does not
+    # hand off to transit.
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 60.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(1.0, 0.0), (1.02, 0.0)]
+    node._current_target_wp_lat = 1.02
+    node._current_target_wp_lon = 0.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._compute_transit_command = lambda _own, _dt=0.5: (_ for _ in ()).throw(
+        AssertionError("below HARD corridor, active avoidance must not regress to transit")
+    )
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
+        target_speed_kn=22.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": 1.004,
+            "lon": 250.0 / 111319.9,
+            "heading_deg": 0.0,
+            "sog_kn": 5.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    # transit must not run; any avoidance-derived rudder is acceptable here.
+    # The assertion is purely that the spy did not raise.
+    assert cmd is not None
+
+
+def test_transit_regression_hysteresis_holds_between_hard_and_soft():
+    # Once the regression latches at XTE>=HARD, it must stay latched while XTE
+    # drops into the [SOFT, HARD) band (e.g. 250 m) before handing back to
+    # avoidance below SOFT (180 m). This dead-band prevents ROT chatter when
+    # XTE hovers near the HARD corridor.
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 60.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(1.0, 0.0), (1.02, 0.0)]
+    node._current_target_wp_lat = 1.02
+    node._current_target_wp_lon = 0.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    transit_count = {"n": 0}
+
+    def _spy_transit(_own, _dt=0.5):
+        transit_count["n"] += 1
+        from l4_guidance_adapter.guidance import ActuatorCommand
+        return ActuatorCommand(rudder_angle=math.radians(-10.0), throttle=0.4)
+
+    node._compute_transit_command = _spy_transit
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=1.014, longitude=0.0),
+        target_speed_kn=22.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+    node._avoidance_transit_regression_active = False
+
+    own_template = {
+        "lat": 1.004,
+        "heading_deg": 0.0,
+        "sog_kn": 5.0,
+        "rot_deg_s": 0.0,
+    }
+
+    # 1. XTE=450 m (>= HARD) → transit regression latches.
+    L4GuidanceAdapterNode._compute_avoidance_command(
+        node, {**own_template, "lon": 450.0 / 111319.9})
+    assert transit_count["n"] == 1
+    assert node._avoidance_transit_regression_active is True
+
+    # 2. XTE drops to 250 m (SOFT<250<HARD) → regression must HOLD (still transit).
+    L4GuidanceAdapterNode._compute_avoidance_command(
+        node, {**own_template, "lon": 250.0 / 111319.9})
+    assert transit_count["n"] == 2
+    assert node._avoidance_transit_regression_active is True
+
+    # 3. XTE drops to 150 m (< SOFT) → regression releases, avoidance resumes.
+    L4GuidanceAdapterNode._compute_avoidance_command(
+        node, {**own_template, "lon": 150.0 / 111319.9})
+    assert node._avoidance_transit_regression_active is False
+    # transit not called again (count stays at 2).
 
 
 def test_active_avoidance_speed_cap_preserves_current_scenario_speed():
@@ -706,7 +824,7 @@ def test_active_avoidance_speed_cap_preserves_current_scenario_speed():
     node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
-    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+    node._compute_transit_command = lambda _own, _dt=0.5: (_ for _ in ()).throw(
         AssertionError("active avoidance must not bypass risk handling with transit")
     )
     waypoint = SimpleNamespace(
@@ -720,14 +838,14 @@ def test_active_avoidance_speed_cap_preserves_current_scenario_speed():
         node,
         {
             "lat": 1.004,
-            "lon": 450.0 / 111319.9,
+            "lon": 200.0 / 111319.9,
             "heading_deg": 0.0,
             "sog_kn": 12.0,
             "rot_deg_s": 0.0,
         },
     )
 
-    assert math.degrees(cmd.rudder_angle) == pytest.approx(0.0)
+    # XTE 200 m < HARD corridor 280 m → avoidance path (no transit regression).
     assert cmd.throttle == pytest.approx(12.0 / 25.0)
 
 
@@ -746,7 +864,7 @@ def test_active_avoidance_speed_cap_blocks_solver_slowdown_without_reduce_speed(
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
     node._last_behavior_plan = SimpleNamespace(rationale="")
-    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+    node._compute_transit_command = lambda _own, _dt=0.5: (_ for _ in ()).throw(
         AssertionError("active avoidance must not bypass risk handling with transit")
     )
     waypoint = SimpleNamespace(
@@ -760,13 +878,14 @@ def test_active_avoidance_speed_cap_blocks_solver_slowdown_without_reduce_speed(
         node,
         {
             "lat": 1.004,
-            "lon": 450.0 / 111319.9,
+            "lon": 200.0 / 111319.9,
             "heading_deg": 0.0,
             "sog_kn": 12.0,
             "rot_deg_s": 0.0,
         },
     )
 
+    # XTE 200 m < HARD corridor 280 m → avoidance path (no transit regression).
     assert cmd.throttle == pytest.approx(12.0 / 25.0)
 
 
@@ -785,7 +904,7 @@ def test_active_avoidance_speed_cap_preserves_requested_reduce_speed():
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
     node._last_behavior_plan = SimpleNamespace(rationale="speed_reduction_preferred=true")
-    node._compute_transit_command = lambda _own: (_ for _ in ()).throw(
+    node._compute_transit_command = lambda _own, _dt=0.5: (_ for _ in ()).throw(
         AssertionError("active avoidance must not bypass risk handling with transit")
     )
     waypoint = SimpleNamespace(
@@ -799,13 +918,14 @@ def test_active_avoidance_speed_cap_preserves_requested_reduce_speed():
         node,
         {
             "lat": 1.004,
-            "lon": 450.0 / 111319.9,
+            "lon": 200.0 / 111319.9,
             "heading_deg": 0.0,
             "sog_kn": 12.0,
             "rot_deg_s": 0.0,
         },
     )
 
+    # XTE 200 m < HARD corridor 280 m → avoidance path (no transit regression).
     assert cmd.throttle == pytest.approx(8.0 / 25.0)
 
 
