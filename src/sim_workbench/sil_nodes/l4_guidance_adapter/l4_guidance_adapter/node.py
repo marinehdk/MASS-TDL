@@ -260,23 +260,25 @@ class L4GuidanceAdapterNode(Node):
             if candidate is not None and should_refresh_m4_colregs_target(
                     self._avoidance_target_heading_deg, nominal_heading, candidate):
                 # Fix-B: once the avoidance heading is committed (delta ≥ 10° from
-                # nominal), block any refresh that would move it BACK toward nominal.
-                # The M4 heading window tracks the relative bearing to the target,
-                # which changes as own-ship manoeuvres — without this guard the
-                # latched avoidance heading gradually drifts back to 0° (observed
-                # in rule17-cr-so stand-on: hdg 63° → 0° → CPA 2 m).
-                # Only allow refresh when the candidate is at least as evasive
-                # (|delta| ≥ |current delta|) OR when the heading is not yet
-                # meaningfully committed (|current delta| < 10°).
+                # nominal), block any refresh that would move it SIGNIFICANTLY back
+                # toward nominal.  The M4 heading window tracks the relative bearing
+                # to the target, which changes as own-ship manoeuvres — without this
+                # guard the latched heading drifts back to 0° (rule17-cr-so stand-on:
+                # hdg 63° → 0° → CPA 2 m).
+                # Hysteresis (_LOCK_HYSTERESIS_DEG = 5°): allow minor window
+                # fluctuations (≤ 5°) through so give-way scenarios can track the
+                # growing M4 window naturally; block only when the candidate would
+                # reduce evasion by more than 5°.
                 _COMMITTED_DELTA_DEG = 10.0
+                _LOCK_HYSTERESIS_DEG = 5.0
                 if self._avoidance_target_heading_deg is not None:
                     cur_delta = abs(signed_heading_delta_deg(
                         self._avoidance_target_heading_deg, nominal_heading))
                     cand_delta = abs(signed_heading_delta_deg(
                         candidate, nominal_heading))
                     if (cur_delta >= _COMMITTED_DELTA_DEG and
-                            cand_delta < cur_delta):
-                        candidate = None  # block: would reduce evasion angle
+                            cand_delta < cur_delta - _LOCK_HYSTERESIS_DEG):
+                        candidate = None  # block: significant evasion reduction
                 if candidate is not None:
                     self._avoidance_target_heading_deg = candidate
 

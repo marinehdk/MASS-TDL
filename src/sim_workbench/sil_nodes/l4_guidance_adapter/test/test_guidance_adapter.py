@@ -1163,3 +1163,34 @@ def test_uncommitted_avoidance_heading_always_refreshes():
     # candidate 6.2° > 5° (more evasive), should refresh — but even if candidate
     # were smaller, uncommitted range allows free refresh.
     assert node._avoidance_target_heading_deg is not None
+
+
+def test_committed_avoidance_heading_allows_minor_reduction_within_hysteresis():
+    """Fix-B hysteresis: a small window dip (≤ 5° less evasive) must pass
+    through so give-way scenarios can track a naturally fluctuating M4 window.
+    Only reductions > 5° (clearly drifting back toward nominal) are blocked.
+
+    Scenario: heading committed at 64°. M4 sends window [55°, 65°] →
+    candidate = 55 + (5/6)*10 ≈ 63.3°, which is 0.7° less evasive.
+    Reduction = 0.7° < 5° hysteresis → refresh must be allowed.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._avoidance_target_heading_deg = 64.0
+    node._target_heading_deg = 0.0
+    node._latch_release_triggered = False
+
+    class _FakeBP:
+        behavior = 1  # COLREG_AVOID
+        heading_min_deg = 55.0
+        heading_max_deg = 65.0  # candidate = 55 + (5/6)*10 ≈ 63.3°, 0.7° less evasive
+
+    L4GuidanceAdapterNode._on_behavior_plan(node, _FakeBP())
+
+    # A minor dip of 0.7° is within the 5° hysteresis band and must pass through
+    assert node._avoidance_target_heading_deg is not None
+    assert node._avoidance_target_heading_deg != pytest.approx(64.0, abs=0.1), (
+        "a minor M4 window dip within 5° hysteresis must NOT be frozen; "
+        f"got {node._avoidance_target_heading_deg:.1f}°"
+    )
+
