@@ -597,6 +597,81 @@ def test_behavior_plan_transit_triggers_latch_release_smoothing():
     assert node._transit_since_time is None
 
 
+def test_behavior_recovery_triggers_latch_release_like_transit():
+    """Fix-C: M4 BEHAVIOR_RECOVERY (7) must trigger latch release in L4.
+
+    Before Fix-C, behavior=7 hit the else-branch and reset _transit_since_time
+    without starting latch release, leaving L4 running avoidance-base transit
+    indefinitely while M4 waited for XTE < 125 m to move to TRANSIT.
+
+    Scenario: avoidance is active, heading committed at 72°, M4 sends RECOVERY.
+    Latch release must fire immediately (same as TRANSIT).
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._latch_release_triggered = False
+    node._transit_since_time = None
+    node._avoidance_target_heading_deg = 72.0
+    node._latch_hold_elapsed = lambda: True
+    node._sim_time = lambda: 200.0
+    node._AVOID_TRANSIT_RELEASE_S = 3.0
+    released = []
+
+    def trigger_release():
+        released.append(True)
+        node._latch_release_triggered = True
+
+    node._trigger_latch_release = trigger_release
+
+    L4GuidanceAdapterNode._on_behavior_plan(
+        node,
+        SimpleNamespace(
+            behavior=7,  # BEHAVIOR_RECOVERY
+            heading_min_deg=-10.0,
+            heading_max_deg=10.0,
+        ),
+    )
+
+    assert released == [True], (
+        "BEHAVIOR_RECOVERY (7) must trigger latch release like BEHAVIOR_TRANSIT (0); "
+        "without Fix-C, XTE deadlocks at ~200 m for the rest of the simulation"
+    )
+    assert node._avoidance_active is True
+
+
+def test_behavior_recovery_does_not_update_avoidance_heading():
+    """Fix-C: BEHAVIOR_RECOVERY (7) window must NOT update _avoidance_target_heading_deg.
+
+    During RECOVERY, M4 publishes a heading window for gradual route return, NOT a
+    COLREGs evasion window. Allowing it to update the avoidance heading would drift
+    the committed evasion angle back toward nominal at the worst possible time.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._latch_release_triggered = False
+    node._transit_since_time = None
+    node._avoidance_target_heading_deg = 64.0   # committed heading, must not change
+    node._target_heading_deg = 0.0
+    node._latch_hold_elapsed = lambda: True
+    node._sim_time = lambda: 200.0
+    node._AVOID_TRANSIT_RELEASE_S = 3.0
+    node._trigger_latch_release = lambda: None  # no-op for this test focus
+
+    L4GuidanceAdapterNode._on_behavior_plan(
+        node,
+        SimpleNamespace(
+            behavior=7,  # BEHAVIOR_RECOVERY — window represents return-to-route, not evasion
+            heading_min_deg=10.0,
+            heading_max_deg=20.0,   # would produce candidate ~18° (less evasive than 64°)
+        ),
+    )
+
+    assert node._avoidance_target_heading_deg == pytest.approx(64.0, abs=0.1), (
+        "RECOVERY behavior must NOT update the avoidance heading; "
+        f"got {node._avoidance_target_heading_deg:.1f}°"
+    )
+
+
 def test_latch_release_decay_scales_with_heading_offset():
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     node._latch_release_triggered = True

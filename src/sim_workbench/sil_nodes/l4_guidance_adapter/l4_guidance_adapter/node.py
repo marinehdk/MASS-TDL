@@ -227,10 +227,24 @@ class L4GuidanceAdapterNode(Node):
     def _on_odd_state(self, msg) -> None:
         self._last_odd_state = msg
 
+    # BehaviorPlan behavior codes used for latch-release gating.
+    # BEHAVIOR_TRANSIT = 0 (normal route following)
+    # BEHAVIOR_RECOVERY = 7 (M4 post-avoidance return-to-route, same effect as TRANSIT
+    #   for L4 latch purposes: the COLREGs turn is over and the ship must rejoin route).
+    _BEHAVIOR_RECOVERY = 7
+
     def _on_behavior_plan(self, msg) -> None:
         self._last_behavior_plan = msg
+        # Fix-C: treat BEHAVIOR_RECOVERY (7) the same as BEHAVIOR_TRANSIT (0) for
+        # latch release.  M4 enters RECOVERY when the COLREGs turn is released but
+        # XTE is still > 125 m; it stays there until XTE < 125 m AND heading < 10°.
+        # Before this fix, behavior=7 hit the else-branch and reset _transit_since_time
+        # while L4 kept running avoidance-base transit (A3), which closes XTE very
+        # slowly (15° heading) — creating a deadlock that left XTE ~200 m at sim end.
+        _transit_or_recovery = (msg.behavior == 0 or
+                                msg.behavior == self._BEHAVIOR_RECOVERY)
         if self._avoidance_active:
-            if msg.behavior == 0:
+            if _transit_or_recovery:
                 if self._latch_release_triggered:
                     self._transit_since_time = None
                 elif (self._latch_hold_elapsed() and
@@ -253,6 +267,7 @@ class L4GuidanceAdapterNode(Node):
 
         if (self._avoidance_active and
                 msg.behavior != 0 and
+                msg.behavior != self._BEHAVIOR_RECOVERY and  # RECOVERY ≠ avoidance target
                 not self._latch_release_triggered):
             nominal_heading = self._target_heading_deg
             candidate = m4_colregs_window_target_deg(
@@ -523,6 +538,13 @@ class L4GuidanceAdapterNode(Node):
             regression_active = False
         self._avoidance_transit_regression_active = regression_active
         if regression_active:
+            # Fix-A3v2: use CPA-aware avoidance transit (avoidance heading as base)
+            # only during active avoidance (target still a threat). During RECOVERY
+            # (latch_release_triggered), the target has cleared CPA and we need fast
+            # route return — use plain transit (nominal as base) to avoid blocking
+            # the A1 heading gate (|hdg_error| <= 10°) needed for RECOVERY→TRANSIT.
+            if self._latch_release_triggered:
+                return self._compute_transit_command(own, dt)
             return self._compute_avoidance_transit_command(own, dt)
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
