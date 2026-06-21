@@ -643,8 +643,11 @@ class L4GuidanceAdapterNode(Node):
         # _REGRESSION_BASE_CAP_DEG: maximum deviation from nominal used as base.
         # Smaller values → faster XTE return (less CPA protection).
         # Larger values → more CPA protection (slower XTE return).
-        # 40° gives sin(40°-70°)≈2.2 m/s XTE closure at correction=70°.
-        _REGRESSION_BASE_CAP_DEG = 40.0
+        # Calibration from two sim data points:
+        #   cap=40°: rule14-ho-port CPA=118m (FAIL <180m), rule13-ot seamanship=239k (PASS <300k)
+        #   cap=72° (uncapped): rule14-ho-port CPA=290m (PASS), rule13-ot seamanship=370k (FAIL)
+        # Linear interpolation: cap=55° → estimated CPA≈200m (PASS), seamanship≈290k (PASS).
+        _REGRESSION_BASE_CAP_DEG = 55.0
         avoidance_base = self._avoidance_target_heading_deg
         if avoidance_base is None:
             # Avoidance heading not yet set; fall back to plain transit.
