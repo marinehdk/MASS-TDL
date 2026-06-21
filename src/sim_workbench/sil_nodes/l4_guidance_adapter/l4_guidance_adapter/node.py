@@ -257,13 +257,28 @@ class L4GuidanceAdapterNode(Node):
             nominal_heading = self._target_heading_deg
             candidate = m4_colregs_window_target_deg(
                 msg.heading_min_deg, msg.heading_max_deg, nominal_heading)
-            should_refresh = (
-                candidate is not None and
-                should_refresh_m4_colregs_target(
-                    self._avoidance_target_heading_deg, nominal_heading, candidate)
-            )
-            if should_refresh:
-                self._avoidance_target_heading_deg = candidate
+            if candidate is not None and should_refresh_m4_colregs_target(
+                    self._avoidance_target_heading_deg, nominal_heading, candidate):
+                # Fix-B: once the avoidance heading is committed (delta ≥ 10° from
+                # nominal), block any refresh that would move it BACK toward nominal.
+                # The M4 heading window tracks the relative bearing to the target,
+                # which changes as own-ship manoeuvres — without this guard the
+                # latched avoidance heading gradually drifts back to 0° (observed
+                # in rule17-cr-so stand-on: hdg 63° → 0° → CPA 2 m).
+                # Only allow refresh when the candidate is at least as evasive
+                # (|delta| ≥ |current delta|) OR when the heading is not yet
+                # meaningfully committed (|current delta| < 10°).
+                _COMMITTED_DELTA_DEG = 10.0
+                if self._avoidance_target_heading_deg is not None:
+                    cur_delta = abs(signed_heading_delta_deg(
+                        self._avoidance_target_heading_deg, nominal_heading))
+                    cand_delta = abs(signed_heading_delta_deg(
+                        candidate, nominal_heading))
+                    if (cur_delta >= _COMMITTED_DELTA_DEG and
+                            cand_delta < cur_delta):
+                        candidate = None  # block: would reduce evasion angle
+                if candidate is not None:
+                    self._avoidance_target_heading_deg = candidate
 
     def _on_mission_goal(self, msg) -> None:
         if msg.fsm_state < 3:
@@ -467,16 +482,24 @@ class L4GuidanceAdapterNode(Node):
         # paths. When the own ship has been pushed so far off-track (XTE >= HARD
         # corridor) that the corridor guard would otherwise saturate the
         # avoidance heading back to nominal and lock the rudder (沿航线走不减小 XTE
-        # → dead-lock), hand control to the transit command which carries the
-        # XTE-proportional return correction. The active-avoidance gate restores
-        # the regression removed in 0a6187c0 (which dropped the RETURN_XTE_M
-        # gate); it uses the HARD corridor threshold. Computed once, used twice.
+        # → dead-lock), enter CPA-aware regression mode. The active-avoidance
+        # gate restores the regression removed in 0a6187c0 (which dropped the
+        # RETURN_XTE_M gate); it uses the HARD corridor threshold.
         #
         # Hysteresis: enter the regression at XTE>=HARD (280 m), stay in it until
         # XTE<SOFT (180 m) before handing back to avoidance. Without this dead-
         # band, XTE hovering near 280 m makes the adapter flip avoidance(±85°)
         # ↔ transit(±30° XTE-correction) every cycle and the ROT sign flips rack
         # up steering_reversals past the stability gate (observed 6-11 > 4).
+        #
+        # Fix-A3 (CPA-aware avoidance transit): Previously this called pure
+        # _compute_transit_command which uses nominal heading (0°) + XTE
+        # correction. When the avoidance heading is 85° starboard and transit
+        # corrects to -56° (port of nominal), the 141° heading jump causes 8
+        # steering reversals AND reduces CPA (e.g. rule14-ho-port cpa_ok=False).
+        # Fix: use _compute_avoidance_transit_command which applies the XTE
+        # correction to the avoidance heading as base instead of nominal, so
+        # CPA is preserved and heading jump is eliminated.
         active_xte_m = signed_xte_m(
             self._route_wps,
             own["lat"],
@@ -498,7 +521,7 @@ class L4GuidanceAdapterNode(Node):
             regression_active = False
         self._avoidance_transit_regression_active = regression_active
         if regression_active:
-            return self._compute_transit_command(own, dt)
+            return self._compute_avoidance_transit_command(own, dt)
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
             waypoints = [self._last_avoidance_waypoint]
@@ -569,6 +592,41 @@ class L4GuidanceAdapterNode(Node):
             current_target_wp_lon=self._current_target_wp_lon,
             route_wps=self._route_wps,
             heading_controller=self._heading_controller,
+            speed_controller=self._speed_controller,
+            dt=dt,
+        )
+
+    def _compute_avoidance_transit_command(self, own, dt: float = 0.5) -> ActuatorCommand:
+        """CPA-aware regression transit: XTE correction applied to avoidance
+        heading as base instead of nominal heading.
+
+        When XTE >= HARD corridor the corridor guard would saturate the avoidance
+        heading to nominal, causing a deadlock (ship drifts along route, XTE
+        never reduces).  The plain transit command fixes the deadlock but uses
+        nominal (0°) as the base heading, causing a large heading jump (85° →
+        -56°) that racks up steering_reversals AND closes CPA when the target is
+        near the return path.
+
+        This variant anchors the XTE correction to the avoidance heading so the
+        ship returns toward route while maintaining its COLREGs-compliant lateral
+        separation from the target.
+        """
+        avoidance_base = self._avoidance_target_heading_deg
+        if avoidance_base is None:
+            # Avoidance heading not yet set; fall back to plain transit.
+            return self._compute_transit_command(own, dt)
+        return compute_transit_command(
+            current_heading_deg=own["heading_deg"],
+            current_sog_kn=own["sog_kn"],
+            current_rot_deg_s=own["rot_deg_s"],
+            own_lat=own["lat"],
+            own_lon=own["lon"],
+            target_heading_deg=avoidance_base,
+            target_sog_kn=self._target_sog_kn,
+            current_target_wp_lat=self._current_target_wp_lat,
+            current_target_wp_lon=self._current_target_wp_lon,
+            route_wps=self._route_wps,
+            heading_controller=self._avoidance_heading_controller,
             speed_controller=self._speed_controller,
             dt=dt,
         )

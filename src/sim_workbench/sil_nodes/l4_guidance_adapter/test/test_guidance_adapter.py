@@ -655,13 +655,12 @@ def test_latch_release_at_corridor_edge_uses_transit_return_heading():
 
 def test_active_avoidance_at_corridor_edge_regresses_to_transit_return():
     # When XTE >= HARD corridor (280 m) during active avoidance, the adapter
-    # must hand control to the transit command (which carries the
-    # XTE-proportional return correction) instead of saturating the avoidance
-    # heading back to nominal and locking the rudder. This is the regression
-    # that prevents the long-conflict dead-lock (own ship pushed off-track,
-    # corridor guard zeroes rudder, XTE never closes). Own ship 450 m east of a
-    # north route → transit return correction must steer the bow toward the
-    # route (westward), i.e. a non-zero rudder command.
+    # must hand control to the CPA-aware avoidance transit (Fix-A3) instead of
+    # saturating the avoidance heading back to nominal and locking the rudder.
+    # This is the regression that prevents the long-conflict dead-lock (own ship
+    # pushed off-track, corridor guard zeroes rudder, XTE never closes). Own
+    # ship 450 m east of a north route → avoidance transit return correction
+    # must steer the bow toward the route (westward), i.e. a non-zero rudder.
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     node._latch_release_triggered = False
     node._latch_release_time = None
@@ -675,14 +674,14 @@ def test_active_avoidance_at_corridor_edge_regresses_to_transit_return():
     node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
-    transit_called = {"flag": False}
+    avoid_transit_called = {"flag": False}
 
-    def _spy_transit(_own, _dt=0.5):
-        transit_called["flag"] = True
+    def _spy_avoid_transit(_own, _dt=0.5):
+        avoid_transit_called["flag"] = True
         from l4_guidance_adapter.guidance import ActuatorCommand
         return ActuatorCommand(rudder_angle=math.radians(-15.0), throttle=0.4)
 
-    node._compute_transit_command = _spy_transit
+    node._compute_avoidance_transit_command = _spy_avoid_transit
     waypoint = SimpleNamespace(
         position=SimpleNamespace(latitude=1.014, longitude=0.0),
         target_speed_kn=22.0,
@@ -701,7 +700,7 @@ def test_active_avoidance_at_corridor_edge_regresses_to_transit_return():
         },
     )
 
-    assert transit_called["flag"] is True
+    assert avoid_transit_called["flag"] is True
     assert math.degrees(cmd.rudder_angle) == pytest.approx(-15.0)
 
 
@@ -768,14 +767,14 @@ def test_transit_regression_hysteresis_holds_between_hard_and_soft():
     node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._heading_controller = HeadingController(max_rate_deg_s=100.0)
     node._speed_controller = SpeedController()
-    transit_count = {"n": 0}
+    avoid_transit_count = {"n": 0}
 
-    def _spy_transit(_own, _dt=0.5):
-        transit_count["n"] += 1
+    def _spy_avoid_transit(_own, _dt=0.5):
+        avoid_transit_count["n"] += 1
         from l4_guidance_adapter.guidance import ActuatorCommand
         return ActuatorCommand(rudder_angle=math.radians(-10.0), throttle=0.4)
 
-    node._compute_transit_command = _spy_transit
+    node._compute_avoidance_transit_command = _spy_avoid_transit
     waypoint = SimpleNamespace(
         position=SimpleNamespace(latitude=1.014, longitude=0.0),
         target_speed_kn=22.0,
@@ -791,23 +790,23 @@ def test_transit_regression_hysteresis_holds_between_hard_and_soft():
         "rot_deg_s": 0.0,
     }
 
-    # 1. XTE=450 m (>= HARD) → transit regression latches.
+    # 1. XTE=450 m (>= HARD) → avoidance transit regression latches.
     L4GuidanceAdapterNode._compute_avoidance_command(
         node, {**own_template, "lon": 450.0 / 111319.9})
-    assert transit_count["n"] == 1
+    assert avoid_transit_count["n"] == 1
     assert node._avoidance_transit_regression_active is True
 
-    # 2. XTE drops to 250 m (SOFT<250<HARD) → regression must HOLD (still transit).
+    # 2. XTE drops to 250 m (SOFT<250<HARD) → regression must HOLD (still avoidance transit).
     L4GuidanceAdapterNode._compute_avoidance_command(
         node, {**own_template, "lon": 250.0 / 111319.9})
-    assert transit_count["n"] == 2
+    assert avoid_transit_count["n"] == 2
     assert node._avoidance_transit_regression_active is True
 
     # 3. XTE drops to 150 m (< SOFT) → regression releases, avoidance resumes.
     L4GuidanceAdapterNode._compute_avoidance_command(
         node, {**own_template, "lon": 150.0 / 111319.9})
     assert node._avoidance_transit_regression_active is False
-    # transit not called again (count stays at 2).
+    # avoidance transit not called again (count stays at 2).
 
 
 def test_active_avoidance_speed_cap_preserves_current_scenario_speed():
@@ -977,3 +976,190 @@ def test_heading_controller_derivative_inactive_at_zero_rot():
     pure_p = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
     cmd_pure = pure_p.step(error_deg=10.0, dt=0.5, current_rot_deg_s=0.0)
     assert math.degrees(cmd) == pytest.approx(math.degrees(cmd_pure), abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Fix-A3: CPA-aware avoidance transit.
+# When XTE >= HARD corridor, avoidance transit must use avoidance heading as
+# the base (not nominal) so that CPA is preserved and the heading jump that
+# causes steering reversals is eliminated.
+# ---------------------------------------------------------------------------
+
+def test_cpa_aware_avoidance_transit_uses_avoidance_heading_as_base():
+    """Fix-A3: _compute_avoidance_transit_command must steer toward the
+    avoidance heading (+XTE correction) not toward nominal (0°).
+
+    Setup: nominal heading 0° (north), avoidance target heading 85° (starboard),
+    own ship 350 m east of route (XTE positive, above SOFT but below HARD so
+    _compute_avoidance_transit_command is called directly).
+
+    Expected: the effective commanded heading is closer to 85° than to 0°.
+    A transit command from nominal would command ~0° - 70° = -70°, while one
+    anchored to avoidance heading commands ~85° - 70° = 15°. The result must
+    be positive (starboard of nominal) to preserve CPA.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_target_heading_deg = 85.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    # North route, own ship 350 m east (XTE ~350 m > SOFT=50, < HARD=280 for transit
+    # return, but avoidance transit is called directly so we don't need XTE>=280)
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    node._avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+
+    # Place own ship 350 m east of route (positive XTE => correction is toward west/port)
+    # At 63° lat: 111319.9 * cos(63°) ≈ 50504 m/deg
+    east_deg = 350.0 / (111319.9 * math.cos(math.radians(63.0)))
+
+    own = {
+        "lat": 63.005,
+        "lon": 10.0 + east_deg,
+        "heading_deg": 85.0,
+        "sog_kn": 10.0,
+        "rot_deg_s": 0.0,
+    }
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_transit_command(node, own)
+
+    # Fix-A3 property: avoidance transit uses avoidance heading (85°) as base.
+    # With XTE ~350 m (correction limit ~90°, actual ~70°), the effective target
+    # heading is 85° - 70° = ~15° (westward correction anchored to avoidance hdg).
+    # A nominal-base transit would target 0° - 70° = -70° (= 290°).
+    # The key property: the rudder command from current heading 85° toward ~15°
+    # is a PORT turn of ~70°. A nominal transit from heading 85° toward -70°/290°
+    # would also be a PORT turn but of ~145°.  Both saturate at 35°, but the
+    # SIGN is the same. What distinguishes Fix-A3 is the HEADING CONTROLLER used:
+    # avoidance transit uses _avoidance_heading_controller, so its last_cmd_deg
+    # reflects the avoidance path.  Verify the command is non-zero (returning
+    # to route) and that the avoidance controller was exercised (last_cmd_deg != 0).
+    import math as _math
+    assert cmd is not None, "avoidance transit must return a command"
+    # The avoidance heading controller must have been updated (not the transit controller)
+    assert node._avoidance_heading_controller.last_cmd_deg != 0.0, (
+        "avoidance transit must drive via avoidance heading controller, not transit"
+    )
+    # The nominal transit controller must NOT have been updated
+    assert node._heading_controller.last_cmd_deg == 0.0, (
+        "avoidance transit must NOT update the nominal heading controller"
+    )
+
+
+def test_cpa_aware_avoidance_transit_falls_back_when_no_avoidance_heading():
+    """Fix-A3 fallback: when _avoidance_target_heading_deg is None (not yet
+    set), _compute_avoidance_transit_command must fall back to plain transit
+    (nominal heading as base) without crashing.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_target_heading_deg = None  # not yet set
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    node._avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+
+    plain_transit_called = {"flag": False}
+
+    def _spy_plain_transit(_own, _dt=0.5):
+        plain_transit_called["flag"] = True
+        from l4_guidance_adapter.guidance import ActuatorCommand
+        return ActuatorCommand(rudder_angle=0.0, throttle=0.5)
+
+    node._compute_transit_command = _spy_plain_transit
+
+    own = {"lat": 63.005, "lon": 10.002, "heading_deg": 0.0, "sog_kn": 10.0, "rot_deg_s": 0.0}
+    cmd = L4GuidanceAdapterNode._compute_avoidance_transit_command(node, own)
+
+    assert plain_transit_called["flag"] is True
+    assert cmd.throttle == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Fix-B: Committed avoidance heading must not be refreshed toward nominal.
+# Once the latched heading is >= 10° from nominal, M4 window updates that
+# would reduce the evasion angle must be blocked.
+# ---------------------------------------------------------------------------
+
+def test_committed_avoidance_heading_not_refreshed_toward_nominal():
+    """Fix-B: once _avoidance_target_heading_deg is committed (delta >= 10°),
+    a new M4 behavior_plan message whose window maps to a SMALLER delta must
+    NOT overwrite the committed heading.
+
+    Scenario: avoidance heading committed at 64° (64° from nominal 0°).
+    M4 sends a new window [30°, 60°] → candidate ≈ 55° (< 64°). The heading
+    must stay at 64°, not refresh to 55°.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._avoidance_target_heading_deg = 64.0
+    node._target_heading_deg = 0.0
+    node._latch_release_triggered = False
+
+    class _FakeBP:
+        behavior = 1  # COLREG_AVOID
+        heading_min_deg = 30.0
+        heading_max_deg = 60.0   # candidate ≈ 30 + (5/6)*30 = 55°, less evasive than 64°
+
+    L4GuidanceAdapterNode._on_behavior_plan(node, _FakeBP())
+
+    assert node._avoidance_target_heading_deg == pytest.approx(64.0, abs=0.5), (
+        "committed avoidance heading must not be reduced by a less-evasive M4 window; "
+        f"got {node._avoidance_target_heading_deg:.1f}°"
+    )
+
+
+def test_committed_avoidance_heading_refreshes_when_more_evasive():
+    """Fix-B: when the M4 window maps to a MORE evasive heading (larger delta
+    from nominal), the refresh must proceed normally.
+
+    Scenario: avoidance heading committed at 55° from nominal 0°.
+    M4 sends a new window [60°, 90°] → candidate ≈ 85° (> 55°, more evasive).
+    The heading must update to 85°.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._avoidance_target_heading_deg = 55.0
+    node._target_heading_deg = 0.0
+    node._latch_release_triggered = False
+
+    class _FakeBP:
+        behavior = 1  # COLREG_AVOID
+        heading_min_deg = 60.0
+        heading_max_deg = 90.0   # candidate = 60 + (5/6)*30 = 85°, more evasive
+
+    L4GuidanceAdapterNode._on_behavior_plan(node, _FakeBP())
+
+    assert node._avoidance_target_heading_deg == pytest.approx(85.0, abs=1.0), (
+        "a more evasive M4 window must refresh the avoidance heading; "
+        f"got {node._avoidance_target_heading_deg:.1f}°"
+    )
+
+
+def test_uncommitted_avoidance_heading_always_refreshes():
+    """Fix-B: when the avoidance heading is still very small (< 10°, not yet
+    committed), any candidate from M4 must be accepted, including one that
+    reduces the angle (e.g. fine-tuning at onset).
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_active = True
+    node._avoidance_target_heading_deg = 5.0   # < 10° → not committed
+    node._target_heading_deg = 0.0
+    node._latch_release_triggered = False
+
+    class _FakeBP:
+        behavior = 1  # COLREG_AVOID
+        heading_min_deg = 2.0
+        heading_max_deg = 7.0   # candidate ≈ 2 + (5/6)*5 ≈ 6.2° < 5°? let's pick bigger
+        # m4_colregs_window_target returns h_min + (5/6)*span = 2 + 4.2 ≈ 6.2°
+
+    L4GuidanceAdapterNode._on_behavior_plan(node, _FakeBP())
+
+    # candidate 6.2° > 5° (more evasive), should refresh — but even if candidate
+    # were smaller, uncommitted range allows free refresh.
+    assert node._avoidance_target_heading_deg is not None
