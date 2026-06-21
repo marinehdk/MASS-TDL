@@ -129,6 +129,13 @@ constexpr double kEarthRadiusM = 6371008.8;
 constexpr double kRecoveryCorridorHalfM = 250.0;
 constexpr double kRecoveryXteGateFraction = 0.5;        // corridor_half*0.5 = 125m
 constexpr int    kRecoveryReleaseDwellCycles = 4;       // ~1s @ 250ms cycle
+// RECOVERY→TRANSIT release also requires own-heading alignment with the route
+// leg. Releasing on XTE alone lets the ship hand back to TRANSIT still pointed
+// off the route line (e.g. -19.6°), and TRANSIT's heading controller then has
+// no obligation to converge the residual heading error — route_return's
+// heading<10° acceptance fails. Mirror the 4c85cbaa reference implementation
+// (kRecoveryCompleteHeadingErrorDeg = 10.0).
+constexpr double kRecoveryCompleteHeadingErrorDeg = 10.0;
 
 double signed_heading_error_deg(double heading_deg, double reference_deg) {
   return std::fmod(heading_deg - reference_deg + 540.0, 360.0) - 180.0;
@@ -813,11 +820,17 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     const double xte_gate_m = kRecoveryCorridorHalfM * kRecoveryXteGateFraction;
     const bool xte_beyond_gate = tracking.has_value() &&
         std::abs(tracking->xte_m) > xte_gate_m;
+    // Release also requires own-heading alignment with the route leg, not just
+    // XTE convergence. Without this, a ship can clear RECOVERY with XTE<gate
+    // while still pointed off the route line and fail route_return's
+    // heading<10° acceptance in TRANSIT.
+    const bool heading_aligned = tracking.has_value() &&
+        std::abs(tracking->heading_error_deg) <= kRecoveryCompleteHeadingErrorDeg;
     if (recovery_active_) {
-      if (xte_beyond_gate) {
+      if (xte_beyond_gate || !heading_aligned) {
         recovery_dwell_cycles_ = 0;  // not yet restored, reset dwell
       } else if (++recovery_dwell_cycles_ >= kRecoveryReleaseDwellCycles) {
-        recovery_active_ = false;    // restored + dwell satisfied → TRANSIT
+        recovery_active_ = false;    // XTE + heading restored + dwell → TRANSIT
       }
     } else if (colregs_turn_released && xte_beyond_gate) {
       recovery_active_ = true;       // release with XTE偏离 → enter RECOVERY
