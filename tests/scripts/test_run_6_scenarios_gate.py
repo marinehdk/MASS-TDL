@@ -641,15 +641,24 @@ def test_result_schema_has_new_domain_fields():
     } <= result.keys()
 
 
-def test_clean_probe_yaml_requires_1200s_route_return():
+def test_clean_probe_yaml_declares_expected_probe_horizons():
     runner = _load_runner()
     root = Path(__file__).resolve().parents[2]
+    expected_total_time_s = {
+        "colreg-rule13-ot": 3600.0,
+        "colreg-rule15-cs": 2000.0,
+        "colreg-rule15-cs-2": 1800.0,
+        "colreg-rule15-ot-boundary": 3600.0,
+    }
     for scenario_id in runner.SCENARIOS:
         path = root / "scenarios" / "COLREGs测试" / f"{scenario_id}.yaml"
         data = yaml.safe_load(path.read_text())
         settings = data["metadata"]["simulation_settings"]
         expected = data["metadata"]["expected_outcome"]
-        assert settings["total_time"] == 1200.0, scenario_id
+        assert settings["total_time"] == expected_total_time_s.get(
+            scenario_id,
+            1200.0,
+        ), scenario_id
         corridor_contained_recovery = {
             "colreg-rule13-ot",
         }
