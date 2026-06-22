@@ -23,7 +23,7 @@ from tools.sil.colregs_trace_evaluator import (
     derive_cpa_threshold,
     report_from_runner_result,
 )
-from tools.sil.colregs_chain_trace import build_chain_summary
+from tools.sil.colregs_chain_trace import attach_gate_diagnosis, build_chain_summary
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
@@ -1587,7 +1587,7 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         
     chain_summary = build_chain_summary(run_records)
 
-    return {
+    result = {
         "scenario_id": scenario_id,
         "run_id": run_id,
         "min_cpa_m": min_dcpa_m,
@@ -1645,6 +1645,8 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         "chain_summary": chain_summary,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
+    result["chain_summary"] = attach_gate_diagnosis(chain_summary, result)
+    return result
 
 def _load_expected_outcome(scenario_id):
     yaml_path = Path(f"scenarios/COLREGs测试/{scenario_id}.yaml")

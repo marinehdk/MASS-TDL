@@ -6,6 +6,7 @@ The summarizer is diagnostic only. It must not alter gate verdicts.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Iterable
 from typing import Any
 
@@ -68,6 +69,20 @@ def _has_valid_waypoint(record: dict[str, Any]) -> bool:
     return abs(float(radius or 0.0)) > 1.0e-6
 
 
+def _asdr_decision(record: dict[str, Any], source_module: str, decision_type: str) -> dict[str, Any]:
+    if record.get("topic") != "/l3/asdr/record":
+        return {}
+    if _value(record, "source_module", default="") != source_module:
+        return {}
+    if _value(record, "decision_type", default="") != decision_type:
+        return {}
+    return _json_dict(_value(record, "decision_json"))
+
+
+def _counter_dict(values: Iterable[Any]) -> dict[str, int]:
+    return dict(Counter(str(v) for v in values if v not in (None, "")))
+
+
 def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     rows = sorted((dict(r) for r in records), key=lambda r: float(r.get("sim_t", 0.0) or 0.0))
     route_hashes = [
@@ -80,9 +95,18 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     m6_targets = [_value(r, "colregs_chain_target_id", "target_id") for r in m6_rows]
     m4_behaviors = [_value(r, "behavior") for r in rows if r.get("topic") == "/l3/m4/behavior_plan"]
     m5_rows = [r for r in rows if r.get("topic") == "/l3/m5/avoidance_plan"]
-    m5_statuses = [
-        str(_value(r, "status", "planner_health", default="")) for r in m5_rows
+    m5_asdr_decisions = [
+        decision for decision in (
+            _asdr_decision(r, "M5_Tactical_Planner", "avoid_wp") for r in rows
+        )
+        if decision
     ]
+    m5_statuses = [
+        str(_value(r, "status", default="")) for r in m5_rows
+    ]
+    m5_healths = [
+        str(_value(r, "planner_health", default="")) for r in m5_rows
+    ] + [str(decision.get("planner_health", "")) for decision in m5_asdr_decisions]
     m5_solver_statuses = [str(_value(r, "solver_status", default="")) for r in m5_rows]
     lifecycle_rows = [r for r in rows if r.get("topic") == "/sil/lifecycle_status"]
     l4_asdr_rows = [
@@ -138,9 +162,10 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "m4": {"behavior_toggles": m4_toggles, "behaviors": m4_behaviors},
         "m5": {
             "status_transitions": m5_transitions,
+            "planner_health_counts": _counter_dict(m5_healths),
             "solver_status_transitions": _transitions([s for s in m5_solver_statuses if s]),
             "valid_plan_samples": sum(1 for r in m5_rows if _has_valid_waypoint(r)),
-            "samples": len(m5_rows),
+            "samples": len(m5_rows) + len(m5_asdr_decisions),
         },
         "lifecycle": {
             "samples": len(lifecycle_rows),
@@ -154,3 +179,84 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "m7": {"samples": len(m7_rows)},
         "diagnosis": {"first_broken_stage": first_stage, "reason": reason},
     }
+
+
+def _phase_semantics_ok(result: dict[str, Any]) -> bool:
+    phase = result.get("phase_semantics") or {}
+    return bool(phase.get("phase_semantics_ok", True))
+
+
+def _has_recovery_or_transit_release(result: dict[str, Any]) -> bool:
+    transitions = result.get("bp_transitions") or []
+    saw_avoidance = False
+    for item in transitions:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        if item[1] in (1, 2):
+            saw_avoidance = True
+            continue
+        if not saw_avoidance:
+            continue
+        if item[1] in (0, 7):
+            return True
+    return False
+
+
+def attach_gate_diagnosis(
+    summary: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach gate-level RED attribution without changing verdict math."""
+    diagnosed = dict(summary)
+    diagnosis = dict(diagnosed.get("diagnosis") or {})
+    diagnosed["diagnosis"] = diagnosis
+
+    if result.get("overall_pass", False):
+        diagnosis.setdefault("failing_gate", "NONE")
+        return diagnosed
+
+    domain_gates = result.get("domain_gates") or {}
+    stage = diagnosis.get("first_broken_stage", "OK")
+    reason = diagnosis.get("reason", "no chain fault detected")
+    failing_gate = "UNKNOWN"
+
+    if not bool(result.get("cpa_ok", True)):
+        failing_gate = "CPA"
+        stage = "M5" if stage == "OK" else stage
+        reason = (
+            f"trajectory CPA floor not met: min_cpa_m={result.get('min_cpa_m')} "
+            f"< cpa_floor_m={result.get('cpa_floor_m')}; inspect generalized M6/M5 CPA contract"
+        )
+    elif not bool(domain_gates.get("risk_gate_ok", True)):
+        failing_gate = "RISK"
+        stage = "M7" if stage == "OK" else stage
+        reason = "risk gate rejected otherwise coherent route; inspect M7 risk-domain scoring"
+    elif not _phase_semantics_ok(result):
+        failing_gate = "PHASE"
+        stage = "M6" if stage == "OK" else stage
+        reason = "COLREGs phase semantics gate failed; inspect M6 rule/geometry lifecycle"
+    elif bool(result.get("route_return_required", False)) and not bool(result.get("returned_to_route", True)):
+        failing_gate = "ROUTE_RETURN"
+        if not _has_recovery_or_transit_release(result):
+            stage = "M4" if stage == "OK" else stage
+            reason = "route return failed with no recovery/transit release from behavior arbiter"
+        else:
+            stage = "M5" if stage == "OK" else stage
+            reason = "route return failed after release; inspect M5 trajectory recovery"
+    elif bool(result.get("overtake_required", False)) and not bool(result.get("overtake_completed", True)):
+        failing_gate = "OVERTAKE"
+        stage = "M6" if stage == "OK" else stage
+        reason = "overtake completion gate failed; inspect M6 rule13 relative-progress contract"
+    elif not bool(domain_gates.get("seamanship_gate_ok", True)):
+        failing_gate = "SEAMANSHIP"
+        stage = "M5" if stage == "OK" else stage
+        reason = "seamanship gate failed; inspect trajectory smoothness and route recovery"
+    elif not bool(result.get("stability_pass", True)):
+        failing_gate = "STABILITY"
+        stage = "M4" if stage == "OK" else stage
+        reason = "behavior/planner stability gate failed; inspect M4/M5 state transitions"
+
+    diagnosis["first_broken_stage"] = stage
+    diagnosis["failing_gate"] = failing_gate
+    diagnosis["reason"] = reason
+    return diagnosed

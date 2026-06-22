@@ -1,4 +1,4 @@
-from tools.sil.colregs_chain_trace import build_chain_summary
+from tools.sil.colregs_chain_trace import build_chain_summary, attach_gate_diagnosis
 
 
 def rec(t, topic, **fields):
@@ -152,3 +152,92 @@ def test_l4_execution_sources_are_parsed_from_asdr_records():
 
     assert summary["l4"]["execution_sources"] == ["avoidance", "transit"]
     assert summary["l4"]["execution_source_transitions"] == ["avoidance->transit"]
+
+
+def test_gate_diagnosis_maps_cpa_shortfall_to_m5_contract():
+    summary = build_chain_summary([
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True),
+        rec(1.0, "/l3/m4/behavior_plan", behavior=1),
+        rec(
+            1.0,
+            "/l3/m5/avoidance_plan",
+            planner_health="GEOMETRIC_FALLBACK",
+            n_waypoints=3,
+        ),
+        rec(
+            1.0,
+            "/l3/asdr/record",
+            source_module="L4_Guidance_Adapter",
+            decision_type="guidance_cmd",
+            decision_json='{"execution_source":"avoidance"}',
+        ),
+    ])
+
+    diagnosed = attach_gate_diagnosis(summary, {
+        "overall_pass": False,
+        "cpa_ok": False,
+        "min_cpa_m": 875.7,
+        "cpa_floor_m": 900.0,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+        "route_return_required": True,
+        "returned_to_route": True,
+        "overtake_required": False,
+        "phase_semantics": {"phase_semantics_ok": True},
+        "stability_pass": True,
+    })
+
+    assert diagnosed["diagnosis"]["first_broken_stage"] == "M5"
+    assert diagnosed["diagnosis"]["failing_gate"] == "CPA"
+    assert "CPA floor" in diagnosed["diagnosis"]["reason"]
+
+
+def test_gate_diagnosis_maps_avoidance_latch_to_m4_release():
+    summary = build_chain_summary([
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True),
+        rec(1.0, "/l3/m4/behavior_plan", behavior=1),
+        rec(2.0, "/l3/m4/behavior_plan", behavior=1),
+        rec(
+            1.0,
+            "/l3/m5/avoidance_plan",
+            planner_health="GEOMETRIC_FALLBACK",
+            n_waypoints=3,
+        ),
+    ])
+
+    diagnosed = attach_gate_diagnosis(summary, {
+        "overall_pass": False,
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": False},
+        "route_return_required": True,
+        "returned_to_route": False,
+        "overtake_required": False,
+        "phase_semantics": {"phase_semantics_ok": True},
+        "bp_transitions": [[25.3, 0], [123.3, 1]],
+        "stability_pass": True,
+    })
+
+    assert diagnosed["diagnosis"]["first_broken_stage"] == "M4"
+    assert diagnosed["diagnosis"]["failing_gate"] == "ROUTE_RETURN"
+    assert "no recovery/transit release" in diagnosed["diagnosis"]["reason"]
+
+
+def test_gate_diagnosis_maps_risk_gate_to_m7():
+    summary = build_chain_summary([
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True),
+        rec(1.0, "/l3/m4/behavior_plan", behavior=1),
+        rec(1.0, "/l3/m5/avoidance_plan", planner_health="GEOMETRIC_FALLBACK", n_waypoints=3),
+    ])
+
+    diagnosed = attach_gate_diagnosis(summary, {
+        "overall_pass": False,
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": False, "seamanship_gate_ok": True},
+        "route_return_required": True,
+        "returned_to_route": True,
+        "overtake_required": False,
+        "phase_semantics": {"phase_semantics_ok": True},
+        "stability_pass": True,
+    })
+
+    assert diagnosed["diagnosis"]["first_broken_stage"] == "M7"
+    assert diagnosed["diagnosis"]["failing_gate"] == "RISK"

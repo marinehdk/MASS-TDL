@@ -852,3 +852,35 @@ Execute the approved trace-first generalized COLREGs repair plan without scenari
 - Start behavior repair with `rule15-ot-boundary`: M4 never releases, L4 stays mostly avoidance, and M5 reports `GEOMETRIC_FALLBACK=2121`.
 - Then handle the crossing-starboard CPA family with one generalized M6/M5 safety-margin contract.
 - If no-cross-ahead or boundary timing proves coupled to scenario geometry or acceptance thresholds, pause and ask the user before editing.
+
+## [2026-06-22] Agent: Codex - gate-aware chain diagnosis
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Fix the diagnostic gap where strict 12-probe RED scenarios could still show `chain_summary.diagnosis.first_broken_stage=OK`, preventing L2->M8 first-broken-stage workflow.
+
+### Core Changes
+- Added `attach_gate_diagnosis(summary, result)` in `tools/sil/colregs_chain_trace.py`.
+- `scripts/run_6_scenarios.py` now attaches gate-aware diagnosis after verdict fields are known.
+- M5 planner-health aggregation now reads `M5_Tactical_Planner` ASDR `decision_json`, not only `/l3/m5/avoidance_plan`.
+- Added TDD coverage for CPA shortfall -> M5, no-release route-return -> M4, and risk gate -> M7.
+
+### Current Status
+- No behavior logic changed.
+- Existing strict12 evidence reclassified offline:
+  - `rule13-ot`: CPA -> M5.
+  - `rule15-cs`, `rule15-cs-2`, `rule15-cs-intelligent`: CPA -> M5.
+  - `rule15-cs-edge`: phase semantics -> M6.
+  - `rule15-ot-boundary`: phase semantics -> M6 first, with downstream M4 no-release symptom.
+  - `rule13-ot-target-giveway`: risk -> M7.
+
+### Verification
+- `python3 -m pytest tools/sil/test_colregs_chain_trace.py -q` -> 10 passed.
+- `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py tools/sil/test_colregs_chain_trace.py -q` -> 56 passed.
+- `git diff --check` -> passed.
+
+### Handoff Notes
+- Next behavior investigation should start at M6 for `rule15-ot-boundary`, not M5 tuning: phase semantics fail before route-return symptoms.
+- Do not change scenario geometry or thresholds unless M6 phase evidence proves the acceptance contract is physically contradictory and the user approves.
