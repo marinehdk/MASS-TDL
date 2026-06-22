@@ -107,10 +107,15 @@ function chainInputsText(sat2: SAT2Data | null): string | null {
 
 function topDirectionCosts(sat2: SAT2Data | null): string {
   const top = [...(sat2?.ivp_contributions ?? [])]
+    .map((item) => ({
+      directionDeg: typeof item.direction_deg === 'number' && Number.isFinite(item.direction_deg) ? item.direction_deg : null,
+      cost: typeof item.cost === 'number' && Number.isFinite(item.cost) ? item.cost : null,
+    }))
+    .filter((item): item is { directionDeg: number; cost: number } => item.directionDeg !== null && item.cost !== null)
     .sort((a, b) => b.cost - a.cost)
     .slice(0, 3);
   if (top.length === 0) return '—';
-  return top.map((item) => `${String(item.direction_deg).padStart(3, '0')}° ${item.cost.toFixed(2)}`).join(' · ');
+  return top.map((item) => `${String(item.directionDeg).padStart(3, '0')}° ${item.cost.toFixed(2)}`).join(' · ');
 }
 
 function completeSotifMetrics(metrics: SotifMetrics | null): SotifMetrics | null {
@@ -124,6 +129,12 @@ function completeSotifMetrics(metrics: SotifMetrics | null): SotifMetrics | null
     metrics.checker_veto_rate_pct,
   ];
   return values.every((value) => typeof value === 'number' && Number.isFinite(value)) ? metrics : null;
+}
+
+function safeLatencyMs(sat2: SAT2Data | null): number {
+  return typeof sat2?.reasoning_latency_ms === 'number' && Number.isFinite(sat2.reasoning_latency_ms)
+    ? sat2.reasoning_latency_ms
+    : 0;
 }
 
 export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
@@ -208,7 +219,7 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
             <ColregsRationaleTree
               chain={sat2.colregs_chain}
               targetId={sat2.colregs_chain_target_id}
-              latencyMs={sat2.reasoning_latency_ms}
+              latencyMs={safeLatencyMs(sat2)}
             />
           </div>
         ) : null}

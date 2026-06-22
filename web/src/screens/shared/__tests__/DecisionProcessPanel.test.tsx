@@ -149,6 +149,23 @@ describe('DecisionProcessPanel', () => {
     expect(screen.getByText('090° 0.90 · 270° 0.70 · 180° 0.40')).toBeInTheDocument();
   });
 
+  it('ignores malformed live arbitration values instead of crashing', () => {
+    const malformedLiveSat2 = {
+      ...sat2WithChain,
+      reasoning_latency_ms: undefined,
+      ivp_contributions: [
+        { direction_deg: 90, cost: undefined },
+        { direction_deg: '180', cost: 0.8 },
+        { direction_deg: 270, cost: 0.7 },
+      ],
+    } as unknown as SAT2Data;
+
+    render(<DecisionProcessPanel phaseState={basePhase} sat2={malformedLiveSat2} sotifMetrics={null} safetyAlert={null} />);
+
+    expect(screen.getByText('M6 COLREGs REASONING')).toBeInTheDocument();
+    expect(screen.getByText('270° 0.70')).toBeInTheDocument();
+  });
+
   it('renders trajectory candidate summary for M5', () => {
     const withCandidates: AvoidancePhaseState = {
       ...basePhase,
