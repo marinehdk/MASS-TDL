@@ -167,7 +167,7 @@ describe('SimulationMonitor', () => {
     expect(screen.queryByText('航行状态')).not.toBeInTheDocument();
   });
 
-  it('maps monitor telemetry to the decision process panel', () => {
+  it('opens the cleared decision process panel without stale module details', () => {
     useTelemetryStore.setState({
       wsConnected: true,
       targets: [{
@@ -192,12 +192,11 @@ describe('SimulationMonitor', () => {
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
     expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
-    expect(screen.getByText('15')).toBeInTheDocument();
-    expect(screen.getByText('STARBOARD')).toBeInTheDocument();
-    expect(screen.getByText('相对方位 BRG')).toBeInTheDocument();
-    expect(screen.getByText('当前距离 RNG')).toBeInTheDocument();
-    expect(screen.getByText('最近会遇 CPA')).toBeInTheDocument();
-    expect(screen.getByText('会遇时间 TCPA')).toBeInTheDocument();
+    expect(screen.getByText('仿真过程链路待重新映射')).toBeInTheDocument();
+    expect(screen.queryByText('相对方位 BRG')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前距离 RNG')).not.toBeInTheDocument();
+    expect(screen.queryByText('最近会遇 CPA')).not.toBeInTheDocument();
+    expect(screen.queryByText('会遇时间 TCPA')).not.toBeInTheDocument();
     expect(screen.getByTestId('decision-event-M6_RULE_ASSERTED')).toBeInTheDocument();
   });
 
