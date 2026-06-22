@@ -712,8 +712,17 @@ void ColregsReasonerNode::run_reasoning() {
       give_way_latches_.erase(mmsi);
       standon_latches_.erase(mmsi);
       encounter_reference_heading_.erase(mmsi);
+      // Also clear the encounter FSMs so FSM stickiness cannot immediately
+      // re-arm the just-erased latches on the next reasoning cycle.
+      // Without this, projection_resolved triggers an erase at line 709-714
+      // but the FSM (still ACTIVE/MONITOR) calls apply_onset() next cycle,
+      // reconstructing the latch and preventing the release from taking hold.
+      encounter_fsms_.erase(rule13_key);
+      encounter_fsms_.erase(rule14_key);
+      encounter_fsms_.erase(rule15_key);
       continue;
     }
+
 
     const size_t target_eval_start = evaluations.size();
     for (const auto& rule : rules_) {

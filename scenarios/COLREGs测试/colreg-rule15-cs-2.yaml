@@ -89,7 +89,7 @@ metadata:
     - rule: Rule16
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 1800.0
     dt: 0.02
     n_rps_initial: 3.5
     coordinate_origin:
