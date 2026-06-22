@@ -1148,7 +1148,7 @@ def _restart_sil_nodes(container, settle_s):
         raise RuntimeError(f"failed to restart {container}")
     time.sleep(settle_s)
 
-def run_scenario(scenario_id, total_time_override=None):
+def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
     print(f"\n==================================================")
     print(f"RUNNING SCENARIO: {scenario_id}")
     print(f"==================================================")
@@ -1224,9 +1224,9 @@ def run_scenario(scenario_id, total_time_override=None):
         time.sleep(0.5)
         
     # 4. Set simulation rate
-    req("POST", "/lifecycle/rate", {"rate": 10.0})
+    req("POST", "/lifecycle/rate", {"rate": float(sim_rate)})
     override_tag = f" [override {total_time_override}]" if total_time_override is not None else ""
-    print(f"Set rate to 10.0x. Simulation total time: {total_time}s{override_tag}")
+    print(f"Set rate to {float(sim_rate):.1f}x. Simulation total time: {total_time}s{override_tag}")
     time.sleep(3.0) # Allow bridge to receive transition and truncate trace
     
     # 5. Poll until sim_t reaches total_time
@@ -1710,6 +1710,8 @@ def _parse_args(argv=None):
                         help="Override the YAML simulation_settings.total_time horizon for "
                              "all selected scenarios (seconds). Diagnostic only; does not "
                              "modify scenario YAML.")
+    parser.add_argument("--sim-rate", type=float, default=10.0,
+                        help="Simulation rate multiplier passed to lifecycle/rate.")
     parser.add_argument("--deprecated-wrapper", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -1804,7 +1806,11 @@ def main(argv=None):
         try:
             if args.restart_between_runs:
                 _restart_sil_nodes(args.restart_container, args.restart_settle)
-            res = run_scenario(scen, total_time_override=args.total_time_override)
+            res = run_scenario(
+                scen,
+                total_time_override=args.total_time_override,
+                sim_rate=args.sim_rate,
+            )
             if res:
                 report_path = _write_trace_evaluation_report(
                     scen, res, args.trace_report_dir)

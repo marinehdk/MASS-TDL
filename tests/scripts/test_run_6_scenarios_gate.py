@@ -109,6 +109,18 @@ def test_clean_probe_batch_has_expected_8_scenarios():
     assert runner.SCENARIOS == EXPECTED_CLEAN_8
 
 
+def test_parse_args_default_sim_rate_is_10x():
+    runner = _load_runner()
+    args = runner._parse_args([])
+    assert args.sim_rate == pytest.approx(10.0)
+
+
+def test_parse_args_accepts_explicit_sim_rate():
+    runner = _load_runner()
+    args = runner._parse_args(["--sim-rate", "5.0"])
+    assert args.sim_rate == pytest.approx(5.0)
+
+
 def test_overall_gate_requires_returned_to_route():
     runner = _load_runner()
     assert runner.compute_overall_pass(
@@ -1172,7 +1184,7 @@ def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):
@@ -1215,7 +1227,7 @@ def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):

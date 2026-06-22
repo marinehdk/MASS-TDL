@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     pydantic==2.9.2 \
     protobuf==5.28.2 \
     pyyaml==6.0.2 \
+    matplotlib \
     pyarrow \
     polars
 
