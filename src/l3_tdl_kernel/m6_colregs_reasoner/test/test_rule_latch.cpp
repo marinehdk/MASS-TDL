@@ -257,5 +257,32 @@ TEST(RuleLatch, DoesNotRelatchSameEncounterAfterPastAndClearRelease) {
   EXPECT_FALSE(latch.has_onset());
 }
 
+TEST(RuleLatch, ReportsOnsetEncounterForThresholdSelection) {
+  // The onset-snapshotted encounter type drives the per-rule past-clear
+  // threshold (overtaking 112.5°, crossing/head-on 90°). It must report the
+  // encounter classification captured at the latching cycle (Rule 13(d):
+  // classification fixed at onset), not a later re-evaluation.
+  RuleLatch latch{1852.0, 1.5};
+  RuleEvaluation eval{};
+  eval.is_active = true;
+  eval.role = Role::GIVE_WAY;
+  eval.encounter_type = EncounterType::OVERTAKING;
+  eval.phase = TimingPhase::INDEPENDENT_ACTION;
+  eval.preferred_direction = "STARBOARD";
+  eval.min_alteration_deg = 30.0;
+  // onset: rule active, cpa<safe, closing, not yet past-clear.
+  EXPECT_TRUE(latch.update(/*rule_active=*/true, /*cpa_m=*/900.0,
+                           /*range_closing=*/true,
+                           /*past_and_clear=*/false, &eval));
+  EXPECT_TRUE(latch.has_onset());
+  EXPECT_EQ(latch.onset_encounter(), EncounterType::OVERTAKING);
+}
+
+TEST(RuleLatch, OnsetEncounterDefaultsToNoneBeforeOnset) {
+  RuleLatch latch{1852.0, 1.5};
+  EXPECT_FALSE(latch.has_onset());
+  EXPECT_EQ(latch.onset_encounter(), EncounterType::NONE);
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

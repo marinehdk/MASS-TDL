@@ -1,13 +1,29 @@
-# ODD-aware COLREGs timing parameters per detailed design section 5.3
-# All values [TBD-HAZID] — FCB initial baselines; will be calibrated in HAZID RUN-001
+# ODD-aware COLREGs timing parameters.
+# Source policy (Spec 2026-06-17-colregs-avoidance-fsm-design §2, §4.5):
+#   - [A-level] values are written-fixed from A-grade sources (COLREG Rule 8(b)
+#     case law + C-12 ample time case law); NOT adjusted by HAZID.
+#   - [ref] values are reference baselines pending HAZID RUN-001 calibration
+#     (2026-08-19); HAZID may move them, logic stays unchanged.
 odd_a:  # Open water
-  t_standOn_s: 480.0          # [TBD-HAZID] 8 min
-  t_act_s: 240.0              # [TBD-HAZID] 4 min
-  t_emergency_s: 60.0         # [TBD-HAZID]
-  min_alteration_deg: 15.0    # [TBD-HAZID]
-  cpa_safe_m: 1000.0          # [TBD-HAZID] calibrated baseline for integration tests
-  max_speed_kn: 20.0          # [TBD-HAZID] Rule 6 safe speed ceiling
-  max_turn_rate_deg_s: 5.0    # [TBD-HAZID]
+  # FSM gates (Spec §3.2; EncounterStateMachine, currently unused by node —
+  # RuleLatch still drives onset/release, but these params are loaded for the
+  # future FSM wiring and document the intended thresholds).
+  t_plan_s: 720.0              # [A-level C-12 case law] PREPLAN->ACTIVE TCPA gate
+  t_monitor_s: 1500.0          # [ref] CANDIDATE->PREPLAN TCPA gate
+  cpa_hard_m: 1852.0           # [ref] PREPLAN->ACTIVE CPA gate
+  cpa_soft_m: 2778.0           # [ref] CANDIDATE->PREPLAN CPA gate
+  t_dwell_s: 60.0              # [ref] RELEASE->CLEAR dwell
+  cpa_release_m: 1000.0        # [ref] give-way RELEASE CPA gate (<cpa_hard);
+                               # crossing CPA~0.7nm is clear of ship domain
+                               # but below the 1.0nm onset threshold
+  # Active thresholds (used by RuleLatch onset/release today)
+  t_standOn_s: 480.0           # [ref] 8 min (Rule17 stand-on preserve)
+  t_act_s: 240.0               # [ref] 4 min (Rule17 independent action)
+  t_emergency_s: 60.0          # [ref] Rule17 critical action
+  min_alteration_deg: 30.0     # [A-level Rule8 case law] was 15.0 (D-4 fix)
+  cpa_safe_m: 1852.0           # [ref] was 1000.0 (D-1 fix; design §3.3 = 1.0 nm)
+  max_speed_kn: 20.0           # [ref] Rule 6 safe speed ceiling
+  max_turn_rate_deg_s: 12.0    # [ref] was 5.0 (D-6 fix; architecture §10.4 ROT_max)
 odd_b:  # Narrow channel / VTS
   t_standOn_s: 360.0          # [TBD-HAZID]
   t_act_s: 180.0              # [TBD-HAZID]

@@ -164,6 +164,11 @@ struct MidMpcInput {
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 
+inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
+  input.constraints.targets = input.targets;
+  input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
+}
+
 // ---------------------------------------------------------------------------
 // MidMpcSolution — result from one Mid-MPC solve cycle
 // ---------------------------------------------------------------------------
@@ -422,6 +427,36 @@ inline TrajectoryPoint geometric_fallback_arc_point(
   point.y_m = x_e_arc + speed_mps * t_after * std::sin(target_psi);
   point.psi_rad = target_psi;
   point.r_rad_s = 0.0;
+  return point;
+}
+
+// Phase 4 RECOVERY gradual return-to-route (architecture §8.3 + §7.2).
+// Produces a NED trajectory point whose lateral offset (XTE) decays linearly
+// toward zero over horizon_s while advancing along the route bearing. The own
+// ship starts route_xte_m off the route and converges back by horizon end.
+// [TBD-HAZID] linear decay rate; initial value per architecture §7.2.
+inline TrajectoryPoint recovery_route_point(
+    double route_bearing_rad,
+    double route_xte_m,
+    double speed_mps,
+    double t_s,
+    double horizon_s) {
+  const double fraction = (horizon_s > 1.0e-6)
+      ? std::clamp(std::max(0.0, t_s) / horizon_s, 0.0, 1.0)
+      : 1.0;
+  const double along_m = std::max(0.0, speed_mps) * std::max(0.0, t_s);
+  const double lateral_m = route_xte_m * (1.0 - fraction);  // decays toward route
+  // Route frame → NED: along = forward, lateral = starboard (east for brg=0).
+  const double along_n = std::cos(route_bearing_rad);
+  const double along_e = std::sin(route_bearing_rad);
+  const double right_n = -std::sin(route_bearing_rad);
+  const double right_e = std::cos(route_bearing_rad);
+  TrajectoryPoint point;
+  point.x_m = along_m * along_n + lateral_m * right_n;
+  point.y_m = along_m * along_e + lateral_m * right_e;
+  point.psi_rad = std::atan2(point.y_m, point.x_m);
+  point.u_mps = speed_mps;
+  point.t_s = t_s;
   return point;
 }
 

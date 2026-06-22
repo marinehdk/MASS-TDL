@@ -35,6 +35,7 @@ STATE_HANDBACK = FsmState.STATE_HANDBACK
 
 BEHAVIOR_COLREG_AVOID = BehaviorPlan.BEHAVIOR_COLREG_AVOID
 BEHAVIOR_TRANSIT = BehaviorPlan.BEHAVIOR_TRANSIT
+BEHAVIOR_RECOVERY = BehaviorPlan.BEHAVIOR_RECOVERY
 
 SEVERITY_MRC_REQUIRED = SafetyAlert.SEVERITY_MRC_REQUIRED
 SEVERITY_CRITICAL = SafetyAlert.SEVERITY_CRITICAL
@@ -69,6 +70,7 @@ BEHAVIOR_NAMES = {
     BehaviorPlan.BEHAVIOR_MRC_DRIFT: "MRC_DRIFT",
     BehaviorPlan.BEHAVIOR_MRC_ANCHOR: "MRC_ANCHOR",
     BehaviorPlan.BEHAVIOR_MRC_HEAVE_TO: "MRC_HEAVE_TO",
+    BehaviorPlan.BEHAVIOR_RECOVERY: "RECOVERY",
 }
 
 SEVERITY_NAMES = {
@@ -186,6 +188,10 @@ class FsmAggregatorNode(Node):
             if beh.rationale and "fallback" in beh.rationale.lower():
                 active_rule += " (fallback)"
             confidence = beh.confidence if beh.confidence > 0 else 0.5
+        elif fsm_state == STATE_TRANSIT and beh and beh_val == BEHAVIOR_RECOVERY:
+            fsm_state = STATE_COLREG_AVOIDANCE
+            active_rule = "COLREG recovery to route"
+            confidence = beh.confidence if beh.confidence > 0 else 0.6
 
         if fsm_state == STATE_COLREG_AVOIDANCE and avoid:
             if avoid_wp_count < 1:

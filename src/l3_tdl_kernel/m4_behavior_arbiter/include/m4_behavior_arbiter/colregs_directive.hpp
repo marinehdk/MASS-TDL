@@ -25,6 +25,7 @@ struct ColregsDirective {
   std::uint8_t primary_role{3U};
   std::string phase;
   bool rule15_active{false};
+  bool rule14_active{false};
   std::string primary_threat_id;
   double primary_risk_score{0.0};
   double primary_warning_margin_m{0.0};

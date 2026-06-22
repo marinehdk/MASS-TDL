@@ -70,6 +70,7 @@ add_library(${PROJECT_NAME}_lib
   src/encounter_classifier.cpp
   src/track_buffer.cpp
   src/view_health_monitor.cpp
+  src/woerner_compliance_scorer.cpp
   src/world_state_aggregator.cpp
   src/enc_loader.cpp
   src/env_sanity_checker.cpp

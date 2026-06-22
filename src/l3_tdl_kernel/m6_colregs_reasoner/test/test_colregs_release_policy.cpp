@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "m6_colregs_reasoner/colregs_release_policy.hpp"
+#include "m6_colregs_reasoner/types.hpp"
 
 namespace mass_l3::m6_colregs {
 namespace {
@@ -55,13 +56,39 @@ TEST(ColregsReleasePolicy, BlocksGiveWayProjectionReleaseBeforeReferenceBowClear
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
-TEST(ColregsReleasePolicy, AllowsCrossingProjectionReleaseAfterReferenceClear) {
-  EXPECT_TRUE(give_way_projection_release_safe(
+TEST(ColregsReleasePolicy, BlocksCrossingProjectionReleaseBeforeBeam) {
+  // 40° (old quick-impl threshold) must now be blocked: target still on the
+  // bow, not past the 90° beam. The 112.5° abaft-beam (Rule 13(b) overtaking
+  // sector) is unreachable for shallow slow crossings; 90° beam is the
+  // corrected crossing/head-on threshold.
+  EXPECT_FALSE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
       /*range_m=*/3883.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/125.0,
       /*reference_relative_bearing_abs_deg=*/40.0,
+      GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+}
+
+TEST(ColregsReleasePolicy, AllowsCrossingProjectionReleasePastBeam) {
+  // Past the 90° beam: target reference rel bearing 95°.
+  EXPECT_TRUE(give_way_projection_release_safe(
+      /*cpa_projection_past_and_safe=*/true,
+      /*range_m=*/3883.0,
+      /*cpa_safe_m=*/926.0,
+      /*current_relative_bearing_abs_deg=*/125.0,
+      /*reference_relative_bearing_abs_deg=*/95.0,
+      GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingProjectionReleaseAtExactlyBeam) {
+  // Exactly 90° is not past the beam; require strictly greater.
+  EXPECT_FALSE(give_way_projection_release_safe(
+      /*cpa_projection_past_and_safe=*/true,
+      /*range_m=*/3883.0,
+      /*cpa_safe_m=*/926.0,
+      /*current_relative_bearing_abs_deg=*/125.0,
+      /*reference_relative_bearing_abs_deg=*/90.0,
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
@@ -76,8 +103,13 @@ TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseWhenReturnCpaUnsafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
-  EXPECT_TRUE(give_way_reference_heading_release_safe(
+TEST(ColregsReleasePolicy, BlocksReferenceHeadingReleaseBeforeTargetPastBeam) {
+  // stage2 fix: a safe projected CPA alone must NOT clear the give-way duty
+  // while the target is still on the bow (here 37.7°, well short of the 90°
+  // beam). rule15-cs used to release here — own was still mid-avoidance with
+  // the target at -43° relative — producing a premature release and an
+  // impossible route return. The target must be past the reference beam.
+  EXPECT_FALSE(give_way_reference_heading_release_safe(
       /*range_m=*/2878.0,
       /*bearing_deg=*/37.7,
       /*target_heading_deg=*/290.0,
@@ -87,13 +119,83 @@ TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleaseAfterReferenceClear) {
+TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
+  // Target past the reference beam (95° rel) with a safe projected CPA clears
+  // the give-way duty. The CPA-safety semantics are exercised here; the
+  // past-beam guard is exercised by BlocksReferenceHeadingReleaseBeforeTargetPastBeam.
+  EXPECT_TRUE(give_way_reference_heading_release_safe(
+      /*range_m=*/2878.0,
+      /*bearing_deg=*/95.0,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, AllowsOpeningReferenceReleaseBeforeBeamWhenReturnCpaSafe) {
+  EXPECT_TRUE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/1200.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseWhileRangeClosing) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/true,
+      /*range_m=*/3719.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseInsideRangeMargin) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/800.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseWhenReturnCpaUnsafe) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/3719.0,
+      /*bearing_deg=*/45.0,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, OpeningReferenceReleaseAppliesOnlyToRule15Crossing) {
+  EXPECT_TRUE(give_way_opening_reference_release_applies_to_rule(15));
+  EXPECT_FALSE(give_way_opening_reference_release_applies_to_rule(13));
+}
+
+TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleasePastBeam) {
+  // The projection REFERENCE_CLEAR gate is 90° for all give-way; overtaking's
+  // stricter 112.5° past-clear is enforced in past_and_clear_from_heading
+  // (reasoner_node.cpp), not in this projection gate.
   EXPECT_TRUE(give_way_projection_release_safe(
       /*cpa_projection_past_and_safe=*/true,
       /*range_m=*/1852.0,
       /*cpa_safe_m=*/926.0,
       /*current_relative_bearing_abs_deg=*/75.0,
-      /*reference_relative_bearing_abs_deg=*/48.0,
+      /*reference_relative_bearing_abs_deg=*/95.0,
       GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
@@ -139,6 +241,17 @@ TEST(ColregsReleasePolicy, BlocksStandOnLateActionReleaseInsideEmergencyRange) {
       /*tcpa_s=*/-0.5,
       /*configured_cpa_safe_m=*/500.0,
       /*current_relative_bearing_abs_deg=*/29.0));
+}
+
+TEST(ColregsReleasePolicy, UsesFsmHeldGiveWayDutyWhenRawGeometryDropsOut) {
+  RuleEvaluation held_eval{};
+  held_eval.is_active = true;
+  held_eval.role = Role::GIVE_WAY;
+
+  EXPECT_TRUE(give_way_duty_from_raw_or_fsm(
+      /*raw_give_way_duty=*/false,
+      /*fsm_engaged=*/true,
+      held_eval));
 }
 
 }  // namespace

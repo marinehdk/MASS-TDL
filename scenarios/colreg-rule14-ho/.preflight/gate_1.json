@@ -1,9 +1,9 @@
 {
   "gate_id": 1,
   "gate_name": "System Readiness",
-  "timestamp_utc": "2026-06-01T05:08:09.553278Z",
+  "timestamp_utc": "2026-06-22T02:00:38.235845Z",
   "scenario_id": "colreg-rule14-ho",
-  "passed": true,
+  "passed": false,
   "checks": [
     {
       "item": "docker",
@@ -13,12 +13,12 @@
     {
       "item": "ROS2",
       "status": "ok",
-      "detail": "ROS2 DDS: 23 ROS2 nodes visible, 9 SIL node(s) confirmed"
+      "detail": "ROS2 DDS: 25 ROS2 nodes visible, 9 SIL node(s) confirmed"
     },
     {
       "item": "foxglove_bridge:",
-      "status": "ok",
-      "detail": "foxglove_bridge: :8765 listening"
+      "status": "fail",
+      "detail": "foxglove_bridge: :18765 not reachable: [Errno 111] Connection refused"
     },
     {
       "item": "martin",
@@ -31,8 +31,8 @@
       "detail": "telemetry WS: WS state reported by frontend"
     }
   ],
-  "duration_ms": 1916.4,
-  "rationale": "all 5/5 sub-checks passed",
+  "duration_ms": 1040.9,
+  "rationale": "failures detected",
   "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
   "hazid_scenario_ref": null
 }

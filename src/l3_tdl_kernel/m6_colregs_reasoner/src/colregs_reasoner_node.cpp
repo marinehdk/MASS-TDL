@@ -1,5 +1,6 @@
 #include "m6_colregs_reasoner/colregs_reasoner_node.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -173,8 +174,18 @@ double signed_relative_bearing_deg(double bearing_deg, double reference_heading_
   return rel;
 }
 
-bool past_and_clear_from_heading(double bearing_deg, double reference_heading_deg) {
-  return std::fabs(signed_relative_bearing_deg(bearing_deg, reference_heading_deg)) > 112.5;
+// Past-and-clear threshold by encounter type. Overtaking (Rule 13(b)/21(c)):
+// target >22.5° abaft the beam = rel bearing > 112.5° (sternlight 135° arc).
+// Crossing/head-on (Rule 8(d) finally past and clear): target past the beam =
+// rel bearing > 90°. The 112.5° overtaking-sector boundary is geometrically
+// unreachable for shallow slow crossings after starboard avoidance
+// (rule15-cs cog=290/10.6kn only crosses the 90° beam once own-ship recovers
+// to route). Internal design report §4.2: abaft_threshold = 112.5 if
+// is_overtaking else 90.0.
+bool past_and_clear_from_heading(double bearing_deg, double reference_heading_deg,
+                                 double abaft_threshold_deg = 112.5) {
+  return std::fabs(signed_relative_bearing_deg(bearing_deg, reference_heading_deg))
+         > abaft_threshold_deg;
 }
 
 /// Compute initial great-circle bearing (degrees) from point A to point B.
@@ -287,10 +298,16 @@ void ColregsReasonerNode::load_odd_thresholds() {
     params.t_standOn_s         = kNode["t_standOn_s"].as<double>(480.0);
     params.t_act_s             = kNode["t_act_s"].as<double>(240.0);
     params.t_emergency_s       = kNode["t_emergency_s"].as<double>(60.0);
-    params.min_alteration_deg  = kNode["min_alteration_deg"].as<double>(15.0);
+    params.min_alteration_deg  = kNode["min_alteration_deg"].as<double>(30.0);
     params.cpa_safe_m          = kNode["cpa_safe_m"].as<double>(1852.0);
     params.max_speed_kn        = kNode["max_speed_kn"].as<double>(20.0);
-    params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(5.0);
+    params.max_turn_rate_deg_s = kNode["max_turn_rate_deg_s"].as<double>(12.0);
+    params.t_plan_s            = kNode["t_plan_s"].as<double>(720.0);
+    params.t_monitor_s         = kNode["t_monitor_s"].as<double>(1500.0);
+    params.cpa_hard_m          = kNode["cpa_hard_m"].as<double>(1852.0);
+    params.cpa_soft_m          = kNode["cpa_soft_m"].as<double>(2778.0);
+    params.t_dwell_s           = kNode["t_dwell_s"].as<double>(60.0);
+    params.cpa_release_m       = kNode["cpa_release_m"].as<double>(1000.0);
     params.rule_9_weight       = 0.0;
 
     odd_thresholds_[zone] = params;
@@ -569,9 +586,23 @@ void ColregsReasonerNode::run_reasoning() {
     const bool has_release_reference = ref_it != encounter_reference_heading_.end();
     const double release_reference_heading =
         has_release_reference ? ref_it->second : target.ownship_heading_deg;
+    // Per-rule past-clear threshold (Rule 13(d): classification fixed at onset).
+    // Overtaking uses the 112.5° abaft-beam (Rule 13(b)/21(c) sternlight arc);
+    // crossing/head-on uses the 90° beam — the 112.5° sector is unreachable for
+    // shallow slow crossings (rule15-cs only crosses the 90° beam after
+    // own-ship avoidance+recovery). Read the onset encounter from the rule13
+    // latch snapshot; fallback 90° when no onset captured (duty not latched →
+    // no release anyway).
+    const auto rl13_it = rule_latches_.find(
+        (static_cast<uint64_t>(mmsi) << 8) | 13ULL);
+    const bool is_overtaking_onset =
+        rl13_it != rule_latches_.end() && rl13_it->second.has_onset() &&
+        rl13_it->second.onset_encounter() == EncounterType::OVERTAKING;
+    const double abaft_threshold_deg = is_overtaking_onset ? 112.5 : 90.0;
     const bool past_and_clear =
         has_release_reference &&
-        past_and_clear_from_heading(target.bearing_deg, release_reference_heading);
+        past_and_clear_from_heading(target.bearing_deg, release_reference_heading,
+                                    abaft_threshold_deg);
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
         (target.cpa_m >= kParams.cpa_safe_m);
@@ -597,8 +628,21 @@ void ColregsReasonerNode::run_reasoning() {
             target.ownship_speed_kn,
             release_reference_heading,
             kParams.cpa_safe_m);
+    const bool give_way_opening_reference_heading_release_ok =
+        has_release_reference &&
+        give_way_opening_reference_heading_release_safe(
+            range_closing,
+            target.range_m,
+            target.bearing_deg,
+            target.target_heading_deg,
+            target.target_speed_kn,
+            target.ownship_speed_kn,
+            release_reference_heading,
+            kParams.cpa_safe_m);
     const bool give_way_reference_release_ok =
-        give_way_projection_release_reference_ok || give_way_reference_heading_release_ok;
+        give_way_projection_release_reference_ok ||
+        give_way_reference_heading_release_ok ||
+        give_way_opening_reference_heading_release_ok;
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
@@ -661,9 +705,10 @@ void ColregsReasonerNode::run_reasoning() {
         (give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.released()) ||
         (standon_latch_it != standon_latches_.end() && standon_latch_it->second.released());
     const bool reference_projection_resolved =
-        (rule13_projection_latched || rule15_projection_latched) &&
-        (((!range_closing) && give_way_projection_release_reference_ok) ||
-         give_way_reference_heading_release_ok);
+        ((rule13_projection_latched || rule15_projection_latched) &&
+         (((!range_closing) && give_way_projection_release_reference_ok) ||
+          give_way_reference_heading_release_ok)) ||
+        (rule15_projection_latched && give_way_opening_reference_heading_release_ok);
     const bool current_projection_resolved =
         (!range_closing) &&
         (rule14_projection_latched || duty_latched) &&
@@ -681,13 +726,23 @@ void ColregsReasonerNode::run_reasoning() {
       give_way_latches_.erase(mmsi);
       standon_latches_.erase(mmsi);
       encounter_reference_heading_.erase(mmsi);
+      // Also clear the encounter FSMs so FSM stickiness cannot immediately
+      // re-arm the just-erased latches on the next reasoning cycle.
+      // Without this, projection_resolved triggers an erase at line 709-714
+      // but the FSM (still ACTIVE/MONITOR) calls apply_onset() next cycle,
+      // reconstructing the latch and preventing the release from taking hold.
+      encounter_fsms_.erase(rule13_key);
+      encounter_fsms_.erase(rule14_key);
+      encounter_fsms_.erase(rule15_key);
       continue;
     }
+
 
     const size_t target_eval_start = evaluations.size();
     for (const auto& rule : rules_) {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
+      eval.target_compliance = target.target_compliance;
 
       // Onset-latched hysteresis for Rules 13 (overtaking), 14 (head-on),
       // and 15 (crossing):
@@ -700,6 +755,58 @@ void ColregsReasonerNode::run_reasoning() {
         if (it == rule_latches_.end()) {
           it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
         }
+        // Encounter state machine gate (Spec 2026-06-17-fsm-design). The FSM
+        // adds a TCPA<=t_plan AND CPA<cpa_hard AND range-closing gate on
+        // ACTIVE entry, so a far target whose CPA projection is ~0 but whose
+        // TCPA is still large cannot trigger the early onset->release chatter
+        // that the legacy RuleLatch exhibits at cpa_safe=1852 m. It also holds
+        // the encounter through a single-cycle release blip (ACTIVE is sticky:
+        // only CPA improving graduates to MONITOR, and geometry dropout does
+        // not regress). past_and_clear and range_closing are computed once per
+        // target above; the FSM consumes them as opaque booleans.
+        auto fit = encounter_fsms_.find(key);
+        if (fit == encounter_fsms_.end()) {
+          EncounterParams ep{};
+          ep.t_plan_s = kParams.t_plan_s;
+          ep.t_monitor_s = kParams.t_monitor_s;
+          ep.cpa_hard_m = kParams.cpa_hard_m;
+          ep.cpa_soft_m = kParams.cpa_soft_m;
+          ep.cpa_safe_m = kParams.cpa_safe_m;
+          ep.t_dwell_s = kParams.t_dwell_s;
+          ep.cpa_release_m = kParams.cpa_release_m;
+          ep.t_standOn_s = kParams.t_standOn_s;
+          ep.t_act_s = kParams.t_act_s;
+          ep.t_emergency_s = kParams.t_emergency_s;
+          ep.min_alteration_deg = kParams.min_alteration_deg;
+          fit = encounter_fsms_.emplace(key, EncounterStateMachine{ep}).first;
+        }
+        const TargetSnapshot fsm_snap{target.tcpa_s, target.cpa_m};
+        const EncounterState fsm_state = fit->second.transition(
+            fsm_snap, /*rule_geometric_hit=*/eval.is_active, range_closing,
+            past_and_clear, /*now_s=*/last_world_stamp_.seconds(), &eval);
+        const bool fsm_engaged =
+            fsm_state == EncounterState::ACTIVE ||
+            fsm_state == EncounterState::MONITOR;
+        RuleEvaluation fsm_held_eval = eval;
+        if (fsm_engaged) {
+          fit->second.apply_onset(fsm_held_eval);
+        }
+        // Gate the raw onset: if the FSM is not yet engaged (still in
+        // PREPLAN/CANDIDATE because TCPA is too large), do not let the legacy
+        // latch onset this cycle. This is the D-3 ample-time fix.
+        // STAND_ON is exempt: the stand-on vessel does not take avoiding
+        // action (Rule 17), so gating its onset only delays conflict
+        // detection and starves the Rule 17 in-extremis latch of the
+        // duty-latched context it needs -- which delayed the stand-on's
+        // forced action and drove CPA below the floor on rule17-cr-so.
+        const bool raw_give_way_duty =
+            eval.role == Role::GIVE_WAY ||
+            eval.role == Role::BOTH_GIVE_WAY;
+        const bool give_way_duty = give_way_duty_from_raw_or_fsm(
+            raw_give_way_duty, fsm_engaged, fsm_held_eval);
+        if (!fsm_engaged && give_way_duty) {
+          eval.is_active = false;
+        }
         // Pass the raw evaluation so the latch can snapshot the give-way
         // classification at the latching cycle (Rule 13(d): fixed at onset).
         const bool allow_primary_projection_release =
@@ -708,10 +815,25 @@ void ColregsReasonerNode::run_reasoning() {
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
         const bool rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
+            (!give_way_opening_reference_release_applies_to_rule(rid)) ?
+            (give_way_projection_release_reference_ok || give_way_reference_heading_release_ok) :
             give_way_reference_release_ok;
-        const bool latched = it->second.update(
+        bool latched = it->second.update(
             eval.is_active, target.cpa_m, range_closing, past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
+        // FSM stickiness (D-3): if the FSM is engaged (ACTIVE/MONITOR) but the
+        // legacy latch computed a release this cycle (a transient projection
+        // blip while still within the ample-time window), hold the encounter.
+        // Without this, conflict_detected flaps and M4 behavior toggles.
+        // STAND_ON is exempt (same reason as the onset gate above): a held
+        // stand-on carrier would starve the Rule 17 in-extremis path.
+        if (fsm_engaged && !latched && give_way_duty) {
+          latched = true;
+          if (!evaluation_has_give_way_duty(eval)) {
+            eval = fsm_held_eval;
+            eval.rationale += " [held: encounter FSM engaged (Rule 13(d))]";
+          }
+        }
         if (latched) {
           encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
           if (!eval.is_active) {
@@ -1122,6 +1244,8 @@ ColregsReasonerNode::convert_world_state(
 
     // Ship type priority from classification string
     gs.target_ship_type_priority = classify_ship_priority(tgt.classification);
+    gs.target_compliance = std::clamp(
+        static_cast<double>(tgt.target_compliance), 0.0, 1.0);
 
     // Timestamp
     gs.stamp = to_chrono(tgt.stamp);
@@ -1153,9 +1277,9 @@ RuleParameters ColregsReasonerNode::get_current_rule_params() const {
   defaults.t_standOn_s = 480.0;
   defaults.t_act_s = 240.0;
   defaults.t_emergency_s = 60.0;
-  defaults.min_alteration_deg = 15.0;
+  defaults.min_alteration_deg = 30.0;
   defaults.cpa_safe_m = 1852.0;
-  defaults.max_turn_rate_deg_s = 5.0;
+  defaults.max_turn_rate_deg_s = 12.0;
   defaults.rule_9_weight = 0.0;
   return defaults;
 }

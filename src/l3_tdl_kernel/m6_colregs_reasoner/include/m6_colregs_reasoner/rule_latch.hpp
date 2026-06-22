@@ -86,6 +86,12 @@ class RuleLatch {
   // True once an onset classification has been snapshotted (and not yet released).
   bool has_onset() const { return has_onset_; }
   Role onset_role() const { return onset_role_; }
+  // Onset-snapshotted encounter type (Rule 13(d): classification fixed at
+  // onset). Used to select the per-rule past-clear threshold (overtaking
+  // 112.5°, crossing/head-on 90°) without coordinate-system circularity —
+  // the encounter classification is captured at onset, independent of the
+  // rel_brg later used for the past-clear test.
+  EncounterType onset_encounter() const { return onset_encounter_; }
 
   // Overlay the held onset classification onto an evaluation whose raw geometry has
   // gone inactive mid-maneuver. Marks the rule active and restores the give-way

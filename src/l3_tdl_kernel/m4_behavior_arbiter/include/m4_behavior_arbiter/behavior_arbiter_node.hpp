@@ -17,6 +17,7 @@
 #include "l3_msgs/msg/sat2_data.hpp"
 #include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/rule_assessment.hpp"
+#include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_risk_model/risk_model.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
@@ -42,6 +43,7 @@ using MissionGoalMsg       = l3_msgs::msg::MissionGoal;
 using COLREGsConstraintMsg = l3_msgs::msg::COLREGsConstraint;
 using BehaviorPlanMsg      = l3_msgs::msg::BehaviorPlan;
 using ASDRRecordMsg        = l3_msgs::msg::ASDRRecord;
+using PlannedRouteMsg      = l3_external_msgs::msg::PlannedRoute;
 
 class BehaviorArbiterNode : public rclcpp::Node {
   friend class BehaviorArbiterTest;
@@ -56,8 +58,17 @@ private:
   void on_mission_goal(const MissionGoalMsg::SharedPtr msg);
   void on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg);
   void on_rule_assessment(const l3_msgs::msg::RuleAssessment::SharedPtr msg);
+  void on_planned_route(const PlannedRouteMsg::SharedPtr msg);
 
   void arbitration_timer_callback();
+
+  // Phase 4: route cross-track error for AVOID→RECOVERY→TRANSIT gating.
+  struct RouteTracking {
+    double xte_m{0.0};             // signed lateral offset from route line [m]
+    double route_heading_deg{0.0}; // bearing of route leg [deg]
+    double heading_error_deg{0.0}; // signed own-heading vs route heading [deg]
+  };
+  std::optional<RouteTracking> current_route_tracking() const;
 
   ArbitrationInputs build_inputs() const;
   std::vector<IvpContributionInternal> compute_ivp_contributions(
@@ -73,12 +84,14 @@ private:
   MissionGoalMsg::SharedPtr       latest_mission_;
   COLREGsConstraintMsg::SharedPtr latest_colregs_;
   COLREGsConstraintMsg::SharedPtr last_active_colregs_;
+  PlannedRouteMsg::SharedPtr      latest_route_;
 
   bool odd_received_{false};
   bool world_received_{false};
   bool mode_received_{false};
   bool mission_received_{false};
   bool colregs_received_{false};
+  bool route_received_{false};
 
   // Subscriptions
   rclcpp::Subscription<ODDStateMsg>::SharedPtr          sub_odd_;
@@ -86,6 +99,7 @@ private:
   rclcpp::Subscription<ModeCmdMsg>::SharedPtr           sub_mode_;
   rclcpp::Subscription<MissionGoalMsg>::SharedPtr       sub_mission_;
   rclcpp::Subscription<COLREGsConstraintMsg>::SharedPtr sub_colregs_;
+  rclcpp::Subscription<PlannedRouteMsg>::SharedPtr      sub_route_;
 
   // Publishers
   rclcpp::Publisher<BehaviorPlanMsg>::SharedPtr   pub_plan_;
@@ -113,6 +127,13 @@ private:
   double colregs_committed_required_dev_deg_{0.0}; // Max bow-crossing give-way turn demand
   int    colregs_inactive_cycles_{0};   // Release dwell for short M6 false gaps
   mass_l3::risk::RankingState risk_ranking_state_;
+
+  // Phase 4 RECOVERY state (architecture §8.3 behavior dictionary addition).
+  // AVOID → RECOVERY when COLREGs releases with XTE > corridor_half*0.5.
+  // RECOVERY → TRANSIT when XTE restored AND release_dwell satisfied.
+  bool   recovery_active_{false};       // currently in RECOVERY behavior
+  int    recovery_dwell_cycles_{0};     // cycles XTE has been within gate
+  bool   prev_colregs_turn_active_{false};  // for COLREGs release edge detection
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

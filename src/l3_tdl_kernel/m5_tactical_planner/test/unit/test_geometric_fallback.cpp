@@ -260,5 +260,48 @@ TEST(GeometricFallback, FirstExecutableWaypointUsesSubstantialLookahead) {
   EXPECT_LE(std::fabs(point.y_m), 500.0);
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4 Task 4.3: RECOVERY gradual return-to-route trajectory.
+// recovery_route_point produces a NED point whose lateral offset (XTE) decays
+// linearly toward zero over the horizon while advancing along the route.
+// Architecture §8.3 RECOVERY + §7.2 gradual return-to-route.
+// ---------------------------------------------------------------------------
+
+TEST(RecoveryRoute, XteDecaysLinearlyToZeroAtHorizon) {
+  // Route bearing 0° (north), own ship 200 m east (positive XTE), 5 m/s,
+  // horizon 60 s. At t=0 XTE≈200 m; at t=60 s XTE≈0 and along≈300 m.
+  const double route_brg = 0.0;
+  const double xte_m = 200.0;
+  const double speed_mps = 5.0;
+  const double horizon_s = 60.0;
+
+  const auto p_start = recovery_route_point(route_brg, xte_m, speed_mps, 0.0, horizon_s);
+  const auto p_end = recovery_route_point(route_brg, xte_m, speed_mps, horizon_s, horizon_s);
+
+  // Lateral (east, y_m) decays from ~200 to ~0.
+  EXPECT_NEAR(p_start.y_m, 200.0, 1.0);
+  EXPECT_NEAR(p_end.y_m, 0.0, 1.0);
+  // Along-track (north, x_m) advances at speed.
+  EXPECT_NEAR(p_start.x_m, 0.0, 1.0);
+  EXPECT_NEAR(p_end.x_m, 300.0, 1.0);
+}
+
+TEST(RecoveryRoute, MidHorizonXteIsHalfway) {
+  // Linear decay → at half horizon XTE is half of initial.
+  const double xte_m = 200.0;
+  const auto p_mid = recovery_route_point(0.0, xte_m, 5.0, 30.0, 60.0);
+  EXPECT_NEAR(p_mid.y_m, 100.0, 1.0);
+}
+
+TEST(RecoveryRoute, HeadingPointsTowardRoute) {
+  // With positive XTE (east of route), the point bearing should have a
+  // westward (negative y → bearing in NW quadrant relative to start) component
+  // pulling back toward the route line.
+  const auto p = recovery_route_point(0.0, 200.0, 5.0, 10.0, 60.0);
+  const double bearing = std::atan2(p.y_m, p.x_m);
+  // bearing should be < 90° (more northward than eastward) since XTE shrinking.
+  EXPECT_LT(bearing, M_PI / 2.0);
+}
+
 }  // namespace
 }  // namespace mass_l3::m5

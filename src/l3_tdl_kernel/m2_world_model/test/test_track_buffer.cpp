@@ -10,13 +10,16 @@
 
 #include <l3_external_msgs/msg/tracked_target_array.hpp>
 #include <l3_msgs/msg/tracked_target.hpp>
+#include <rclcpp/time.hpp>
 
 #include "m2_world_model/track_buffer.hpp"
 
 namespace mass_l3::m2 {
 namespace {
 
-using time_point = std::chrono::steady_clock::time_point;
+TimePoint at_s(int32_t sec, uint32_t nanosec = 0) {
+  return rclcpp::Time(sec, nanosec, RCL_ROS_TIME);
+}
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -57,7 +60,7 @@ auto default_cfg() {
 TEST(TrackBufferTest, InsertSingleTarget) {
   TrackBuffer buf(default_cfg());
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   auto msg = make_msg({1001});
   buf.update(msg, t0);
 
@@ -76,11 +79,11 @@ TEST(TrackBufferTest, InsertSingleTarget) {
 TEST(TrackBufferTest, UpsertUpdatesExisting) {
   TrackBuffer buf(default_cfg());
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
 
   buf.update(make_msg_with_sog({1001}, 10.0), t0);
   // Same target_id with updated sog
-  buf.update(make_msg_with_sog({1001}, 15.0), t0 + std::chrono::seconds(1));
+  buf.update(make_msg_with_sog({1001}, 15.0), at_s(1));
 
   auto snap = buf.get(1001);
   ASSERT_TRUE(snap.has_value());
@@ -94,12 +97,12 @@ TEST(TrackBufferTest, UpsertUpdatesExisting) {
 TEST(TrackBufferTest, MaxCapacityEviction) {
   TrackBuffer buf({3, 10, 100.0});  // capacity=3
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   buf.update(make_msg({1, 2, 3}), t0);
   EXPECT_EQ(buf.size(), 3);
 
   // Insert a 4th → should evict oldest (1)
-  buf.update(make_msg({4}), t0 + std::chrono::seconds(1));
+  buf.update(make_msg({4}), at_s(1));
   EXPECT_EQ(buf.size(), 3);
 
   EXPECT_FALSE(buf.get(1).has_value());  // evicted
@@ -109,24 +112,43 @@ TEST(TrackBufferTest, MaxCapacityEviction) {
 }
 
 // ──────────────────────────────────────────────
-// Test 4: Stale targets evicted by miss_count
+// Test 4: Stale targets evicted by simulation-time age
 // ──────────────────────────────────────────────
 TEST(TrackBufferTest, StaleTargetsEvicted) {
-  TrackBuffer buf({256, 3, 100.0});  // disappearance_periods=3
+  TrackBuffer buf({256, 3, 3.0});  // max_target_age_s=3
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   buf.update(make_msg({1001}), t0);
   EXPECT_EQ(buf.size(), 1);
 
-  // Each evict_stale call increments miss_count for ALL entries.
-  // After 3 calls, miss_count=3 >= 3 → evicted.
-  buf.evict_stale(t0 + std::chrono::seconds(1));
+  buf.evict_stale(at_s(1));
   EXPECT_EQ(buf.size(), 1);  // still alive
-  buf.evict_stale(t0 + std::chrono::seconds(2));
+  buf.evict_stale(at_s(2));
   EXPECT_EQ(buf.size(), 1);  // still alive
-  buf.evict_stale(t0 + std::chrono::seconds(3));
+  buf.evict_stale(at_s(3));
   EXPECT_EQ(buf.size(), 0);  // evicted!
 
+  EXPECT_FALSE(buf.get(1001).has_value());
+}
+
+// ──────────────────────────────────────────────
+// Test 4b: 10x sim acceleration must not make evict call count define liveness
+// ──────────────────────────────────────────────
+TEST(TrackBufferTest, EvictionUsesSimAgeNotEvictCallCount) {
+  TrackBuffer buf({256, 3, 2.5});  // max age = 2.5s sim time
+
+  rclcpp::Time t0(0, 0, RCL_ROS_TIME);
+  buf.update(make_msg({1001}), t0);
+
+  for (int i = 0; i < 20; ++i) {
+    buf.evict_stale(rclcpp::Time(2, 400000000, RCL_ROS_TIME));
+    EXPECT_EQ(buf.size(), 1)
+        << "target evicted before max_target_age_s; evict call count leaked into liveness";
+    EXPECT_EQ(buf.active_targets().size(), 1U);
+  }
+
+  buf.evict_stale(rclcpp::Time(2, 500000000, RCL_ROS_TIME));
+  EXPECT_EQ(buf.size(), 0);
   EXPECT_FALSE(buf.get(1001).has_value());
 }
 
@@ -134,19 +156,17 @@ TEST(TrackBufferTest, StaleTargetsEvicted) {
 // Test 5: Active targets filtering
 // ──────────────────────────────────────────────
 TEST(TrackBufferTest, ActiveTargetsFiltered) {
-  TrackBuffer buf({256, 3, 100.0});  // miss threshold = 3
+  TrackBuffer buf({256, 3, 3.0});  // max_target_age_s=3
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   buf.update(make_msg({1, 2}), t0);
-  buf.evict_stale(t0 + std::chrono::seconds(1));  // both miss=1
+  buf.evict_stale(at_s(1));
   EXPECT_EQ(buf.active_targets().size(), 2);
 
-  buf.evict_stale(t0 + std::chrono::seconds(2));  // both miss=2 (2<3)
+  buf.evict_stale(at_s(2));
   EXPECT_EQ(buf.active_targets().size(), 2);
 
-  buf.evict_stale(t0 + std::chrono::seconds(3));  // both miss=3 >= 3
-  // Both are still in the buffer (not yet evicted) but filtered from active.
-  // Actually evict_stale removes them when miss_count >= 3.
+  buf.evict_stale(at_s(3));
   EXPECT_EQ(buf.active_targets().size(), 0);
   EXPECT_EQ(buf.size(), 0);
 }
@@ -157,7 +177,7 @@ TEST(TrackBufferTest, ActiveTargetsFiltered) {
 TEST(TrackBufferTest, GetReturnsNulloptForMissing) {
   TrackBuffer buf(default_cfg());
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   buf.update(make_msg({42}), t0);
 
   EXPECT_TRUE(buf.get(42).has_value());
@@ -178,9 +198,9 @@ TEST(TrackBufferTest, ThreadSafety) {
   std::thread writer([&]() {
     for (int i = 1; i <= kIterations; ++i) {
       auto msg = make_msg({static_cast<uint64_t>(i)});
-      buf.update(msg, std::chrono::steady_clock::now());
+      buf.update(msg, at_s(i));
       if (i % 50 == 0) {
-        buf.evict_stale(std::chrono::steady_clock::now());
+        buf.evict_stale(at_s(i));
       }
       writes_done++;
     }
@@ -214,7 +234,7 @@ TEST(TrackBufferTest, ThreadSafety) {
 TEST(TrackBufferTest, MultipleTargets) {
   TrackBuffer buf(default_cfg());
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
   buf.update(make_msg({10, 20, 30, 40, 50}), t0);
   EXPECT_EQ(buf.size(), 5);
 
@@ -237,7 +257,7 @@ TEST(TrackBufferTest, UpdateWithEmptyArray) {
   l3_external_msgs::msg::TrackedTargetArray empty_msg;
   empty_msg.confidence = 1.0f;
 
-  auto t0 = time_point{};
+  auto t0 = at_s(0);
 
   EXPECT_NO_THROW(buf.update(empty_msg, t0));
   EXPECT_EQ(buf.size(), 0);
@@ -246,7 +266,7 @@ TEST(TrackBufferTest, UpdateWithEmptyArray) {
   buf.update(make_msg({1, 2, 3}), t0);
   EXPECT_EQ(buf.size(), 3);
 
-  EXPECT_NO_THROW(buf.update(empty_msg, t0 + std::chrono::seconds(1)));
+  EXPECT_NO_THROW(buf.update(empty_msg, at_s(1)));
   EXPECT_EQ(buf.size(), 3);  // empty update does not remove anything
 }
 

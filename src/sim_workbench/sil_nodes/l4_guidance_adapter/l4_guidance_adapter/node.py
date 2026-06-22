@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
 
 from .guidance import (
     AVOIDANCE_CORRIDOR_HARD_XTE_M,
+    AVOIDANCE_CORRIDOR_SOFT_XTE_M,
     CRUISE_SPEED_KN,
     ActuatorCommand,
     HeadingController,
@@ -31,7 +32,6 @@ from .guidance import (
     avoidance_waypoint_heading_deg,
     command_for_heading_speed,
     corridor_guarded_avoidance_heading_deg,
-    corridor_guarded_avoidance_speed_kn,
     compute_avoidance_command,
     compute_transit_command,
     m4_colregs_window_target_deg,
@@ -167,6 +167,11 @@ class L4GuidanceAdapterNode(Node):
         self._safety_alert_until: Optional[float] = None
         self._safety_gate_reason = ""
         self._checker_veto_until: Optional[float] = None
+        # Hysteresis latch for the active-avoidance XTE transit regression
+        # (see _compute_avoidance_command). Avoids ROT chatter when XTE hovers
+        # near the HARD corridor: enter the regression at XTE>=HARD, stay in it
+        # until XTE<SOFT, then hand back to avoidance.
+        self._avoidance_transit_regression_active = False
         self._LATCH_MIN_HOLD_S = 8.0
         self._AVOID_TRANSIT_RELEASE_S = 3.0
         self._LATCH_RELEASE_DECAY_RATE_DEG_S = 16.0
@@ -222,10 +227,24 @@ class L4GuidanceAdapterNode(Node):
     def _on_odd_state(self, msg) -> None:
         self._last_odd_state = msg
 
+    # BehaviorPlan behavior codes used for latch-release gating.
+    # BEHAVIOR_TRANSIT = 0 (normal route following)
+    # BEHAVIOR_RECOVERY = 7 (M4 post-avoidance return-to-route, same effect as TRANSIT
+    #   for L4 latch purposes: the COLREGs turn is over and the ship must rejoin route).
+    _BEHAVIOR_RECOVERY = 7
+
     def _on_behavior_plan(self, msg) -> None:
         self._last_behavior_plan = msg
+        # Fix-C: treat BEHAVIOR_RECOVERY (7) the same as BEHAVIOR_TRANSIT (0) for
+        # latch release.  M4 enters RECOVERY when the COLREGs turn is released but
+        # XTE is still > 125 m; it stays there until XTE < 125 m AND heading < 10°.
+        # Before this fix, behavior=7 hit the else-branch and reset _transit_since_time
+        # while L4 kept running avoidance-base transit (A3), which closes XTE very
+        # slowly (15° heading) — creating a deadlock that left XTE ~200 m at sim end.
+        _transit_or_recovery = (msg.behavior == 0 or
+                                msg.behavior == self._BEHAVIOR_RECOVERY)
         if self._avoidance_active:
-            if msg.behavior == 0:
+            if _transit_or_recovery:
                 if self._latch_release_triggered:
                     self._transit_since_time = None
                 elif (self._latch_hold_elapsed() and
@@ -248,17 +267,35 @@ class L4GuidanceAdapterNode(Node):
 
         if (self._avoidance_active and
                 msg.behavior != 0 and
+                msg.behavior != self._BEHAVIOR_RECOVERY and  # RECOVERY ≠ avoidance target
                 not self._latch_release_triggered):
             nominal_heading = self._target_heading_deg
             candidate = m4_colregs_window_target_deg(
                 msg.heading_min_deg, msg.heading_max_deg, nominal_heading)
-            should_refresh = (
-                candidate is not None and
-                should_refresh_m4_colregs_target(
-                    self._avoidance_target_heading_deg, nominal_heading, candidate)
-            )
-            if should_refresh:
-                self._avoidance_target_heading_deg = candidate
+            if candidate is not None and should_refresh_m4_colregs_target(
+                    self._avoidance_target_heading_deg, nominal_heading, candidate):
+                # Fix-B: once the avoidance heading is committed (delta ≥ 10° from
+                # nominal), block any refresh that would move it SIGNIFICANTLY back
+                # toward nominal.  The M4 heading window tracks the relative bearing
+                # to the target, which changes as own-ship manoeuvres — without this
+                # guard the latched heading drifts back to 0° (rule17-cr-so stand-on:
+                # hdg 63° → 0° → CPA 2 m).
+                # Hysteresis (_LOCK_HYSTERESIS_DEG = 5°): allow minor window
+                # fluctuations (≤ 5°) through so give-way scenarios can track the
+                # growing M4 window naturally; block only when the candidate would
+                # reduce evasion by more than 5°.
+                _COMMITTED_DELTA_DEG = 10.0
+                _LOCK_HYSTERESIS_DEG = 5.0
+                if self._avoidance_target_heading_deg is not None:
+                    cur_delta = abs(signed_heading_delta_deg(
+                        self._avoidance_target_heading_deg, nominal_heading))
+                    cand_delta = abs(signed_heading_delta_deg(
+                        candidate, nominal_heading))
+                    if (cur_delta >= _COMMITTED_DELTA_DEG and
+                            cand_delta < cur_delta - _LOCK_HYSTERESIS_DEG):
+                        candidate = None  # block: significant evasion reduction
+                if candidate is not None:
+                    self._avoidance_target_heading_deg = candidate
 
     def _on_mission_goal(self, msg) -> None:
         if msg.fsm_state < 3:
@@ -282,8 +319,9 @@ class L4GuidanceAdapterNode(Node):
     def _on_avoidance_plan(self, msg) -> None:
         wp0 = msg.waypoints[0] if msg.waypoints else None
         plan_status = str(getattr(msg, "status", "NORMAL")).upper()
+        executable_status = plan_status in ("NORMAL", "DEGRADED")
         has_valid_plan = bool(
-            plan_status == "NORMAL" and
+            executable_status and
             wp0 is not None and
             abs(wp0.turn_radius_m) > 1e-6
         )
@@ -457,19 +495,57 @@ class L4GuidanceAdapterNode(Node):
                 self._avoidance_target_heading_deg = (
                     self._target_heading_deg + sign * latch_offset) % 360.0
 
-        if self._latch_release_triggered:
-            release_xte_m = signed_xte_m(
-                self._route_wps,
-                own["lat"],
-                own["lon"],
-                self._current_target_wp_lat,
-                self._current_target_wp_lon,
-                fallback_heading_deg=self._target_heading_deg,
-            )
-            if (release_xte_m is not None and
-                    math.isfinite(release_xte_m) and
-                    abs(release_xte_m) >= AVOIDANCE_CORRIDOR_HARD_XTE_M):
+        # XTE corridor regression shared by latch-release and active-avoidance
+        # paths. When the own ship has been pushed so far off-track (XTE >= HARD
+        # corridor) that the corridor guard would otherwise saturate the
+        # avoidance heading back to nominal and lock the rudder (沿航线走不减小 XTE
+        # → dead-lock), enter CPA-aware regression mode. The active-avoidance
+        # gate restores the regression removed in 0a6187c0 (which dropped the
+        # RETURN_XTE_M gate); it uses the HARD corridor threshold.
+        #
+        # Hysteresis: enter the regression at XTE>=HARD (280 m), stay in it until
+        # XTE<SOFT (180 m) before handing back to avoidance. Without this dead-
+        # band, XTE hovering near 280 m makes the adapter flip avoidance(±85°)
+        # ↔ transit(±30° XTE-correction) every cycle and the ROT sign flips rack
+        # up steering_reversals past the stability gate (observed 6-11 > 4).
+        #
+        # Fix-A3 (CPA-aware avoidance transit): Previously this called pure
+        # _compute_transit_command which uses nominal heading (0°) + XTE
+        # correction. When the avoidance heading is 85° starboard and transit
+        # corrects to -56° (port of nominal), the 141° heading jump causes 8
+        # steering reversals AND reduces CPA (e.g. rule14-ho-port cpa_ok=False).
+        # Fix: use _compute_avoidance_transit_command which applies the XTE
+        # correction to the avoidance heading as base instead of nominal, so
+        # CPA is preserved and heading jump is eliminated.
+        active_xte_m = signed_xte_m(
+            self._route_wps,
+            own["lat"],
+            own["lon"],
+            self._current_target_wp_lat,
+            self._current_target_wp_lon,
+            fallback_heading_deg=self._target_heading_deg,
+        )
+        abs_active_xte_m = (
+            abs(active_xte_m) if (active_xte_m is not None and
+                                  math.isfinite(active_xte_m)) else 0.0)
+        # getattr default keeps tests that build the node via __new__ working
+        # without setting the hysteresis latch explicitly.
+        regression_active = getattr(
+            self, "_avoidance_transit_regression_active", False)
+        if abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
+            regression_active = True
+        elif abs_active_xte_m < AVOIDANCE_CORRIDOR_SOFT_XTE_M:
+            regression_active = False
+        self._avoidance_transit_regression_active = regression_active
+        if regression_active:
+            # Fix-A3v2: use CPA-aware avoidance transit (avoidance heading as base)
+            # only during active avoidance (target still a threat). During RECOVERY
+            # (latch_release_triggered), the target has cleared CPA and we need fast
+            # route return — use plain transit (nominal as base) to avoid blocking
+            # the A1 heading gate (|hdg_error| <= 10°) needed for RECOVERY→TRANSIT.
+            if self._latch_release_triggered:
                 return self._compute_transit_command(own, dt)
+            return self._compute_avoidance_transit_command(own, dt)
         waypoints = list(self._last_avoidance_waypoints or [])
         if not waypoints and self._last_avoidance_waypoint is not None:
             waypoints = [self._last_avoidance_waypoint]
@@ -495,17 +571,25 @@ class L4GuidanceAdapterNode(Node):
             current_target_wp_lon=self._current_target_wp_lon,
         )
         target_speed_override = None
-        if self._last_avoidance_waypoint is not None:
-            target_speed_override = corridor_guarded_avoidance_speed_kn(
-                target_speed_kn=float(getattr(
-                    self._last_avoidance_waypoint, "target_speed_kn", CRUISE_SPEED_KN)),
-                selected_heading_deg=selected_heading,
-                nominal_heading_deg=self._target_heading_deg,
-                route_wps=self._route_wps,
-                own_lat=own["lat"],
-                own_lon=own["lon"],
-                current_target_wp_lat=self._current_target_wp_lat,
-                current_target_wp_lon=self._current_target_wp_lon,
+        last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
+        if last_waypoint is not None:
+            waypoint_target_speed_kn = float(getattr(
+                last_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
+            route_speed_cap_kn = float(self._target_sog_kn)
+            if not math.isfinite(route_speed_cap_kn) or route_speed_cap_kn <= 0.0:
+                route_speed_cap_kn = CRUISE_SPEED_KN
+            route_speed_cap_kn = max(
+                route_speed_cap_kn,
+                float(own.get("sog_kn", 0.0)),
+                CRUISE_SPEED_KN,
+            )
+            behavior_rationale = str(
+                getattr(getattr(self, "_last_behavior_plan", None), "rationale", ""))
+            reduce_speed_requested = "speed_reduction_preferred=true" in behavior_rationale
+            target_speed_override = (
+                waypoint_target_speed_kn
+                if reduce_speed_requested and waypoint_target_speed_kn < route_speed_cap_kn
+                else route_speed_cap_kn
             )
         return compute_avoidance_command(
             current_heading_deg=own["heading_deg"],
@@ -536,6 +620,83 @@ class L4GuidanceAdapterNode(Node):
             speed_controller=self._speed_controller,
             dt=dt,
         )
+
+    def _compute_avoidance_transit_command(self, own, dt: float = 0.5) -> ActuatorCommand:
+        """CPA-aware regression transit: XTE correction applied to a CAPPED avoidance
+        heading as base instead of nominal heading.
+
+        When XTE >= HARD corridor the corridor guard would saturate the avoidance
+        heading to nominal, causing a deadlock (ship drifts along route, XTE
+        never reduces).  The plain transit command fixes the deadlock but uses
+        nominal (0°) as the base heading, causing a large heading jump (85° →
+        -56°) that racks up steering_reversals AND closes CPA when the target is
+        near the return path.
+
+        This variant anchors the XTE correction to the avoidance heading (capped at
+        _REGRESSION_BASE_CAP_DEG from nominal) so the ship returns toward route
+        while maintaining sufficient COLREGs-compliant lateral separation.
+
+        The cap (_REGRESSION_BASE_CAP_DEG = 40°) ensures minimum XTE closure rate
+        ≥ sin(40° - correction°) ≈ 2 m/s even at maximum XTE, avoiding the
+        near-zero closure (0.9 m/s) that occurs with raw avoidance headings of 78-85°
+        which caused rule13-ot seamanship gate failure (int_abs_xte 370k > 300k limit).
+        """
+        # _REGRESSION_BASE_CAP_DEG: maximum deviation from nominal used as base.
+        # Smaller values → faster XTE return (less CPA protection).
+        # Larger values → more CPA protection (slower XTE return).
+        # Calibration from two sim data points:
+        #   cap=40°: rule14-ho-port CPA=118m (FAIL <180m), rule13-ot seamanship=239k (PASS <300k)
+        #   cap=72° (uncapped): rule14-ho-port CPA=290m (PASS), rule13-ot seamanship=370k (FAIL)
+        # Linear interpolation: cap=55° → estimated CPA≈200m (PASS), seamanship≈290k (PASS).
+        _REGRESSION_BASE_CAP_DEG = 55.0
+        avoidance_base = self._avoidance_target_heading_deg
+        if avoidance_base is None:
+            # Avoidance heading not yet set; fall back to plain transit.
+            return self._compute_transit_command(own, dt)
+        # Cap the avoidance base heading magnitude at _REGRESSION_BASE_CAP_DEG
+        # from nominal while preserving sign (starboard/port side).
+        nominal = self._target_heading_deg
+        delta = signed_heading_delta_deg(avoidance_base, nominal)
+        if abs(delta) > _REGRESSION_BASE_CAP_DEG:
+            capped_delta = math.copysign(_REGRESSION_BASE_CAP_DEG, delta)
+            avoidance_base = (nominal + capped_delta) % 360.0
+        target_sog_kn = self._target_sog_kn
+        last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
+        if last_waypoint is not None:
+            waypoint_target_speed_kn = float(getattr(
+                last_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
+            if not math.isfinite(target_sog_kn) or target_sog_kn <= 0.0:
+                target_sog_kn = CRUISE_SPEED_KN
+            target_sog_kn = max(
+                target_sog_kn,
+                float(own.get("sog_kn", 0.0)),
+                CRUISE_SPEED_KN,
+            )
+            behavior_rationale = str(
+                getattr(getattr(self, "_last_behavior_plan", None), "rationale", ""))
+            reduce_speed_requested = "speed_reduction_preferred=true" in behavior_rationale
+            target_sog_kn = (
+                waypoint_target_speed_kn
+                if reduce_speed_requested and waypoint_target_speed_kn < target_sog_kn
+                else max(target_sog_kn, waypoint_target_speed_kn)
+            )
+        return compute_transit_command(
+            current_heading_deg=own["heading_deg"],
+            current_sog_kn=own["sog_kn"],
+            current_rot_deg_s=own["rot_deg_s"],
+            own_lat=own["lat"],
+            own_lon=own["lon"],
+            target_heading_deg=avoidance_base,
+            target_sog_kn=target_sog_kn,
+            current_target_wp_lat=self._current_target_wp_lat,
+            current_target_wp_lon=self._current_target_wp_lon,
+            route_wps=self._route_wps,
+            heading_controller=self._avoidance_heading_controller,
+            speed_controller=self._speed_controller,
+            limit_speed_for_route_return=False,
+            dt=dt,
+        )
+
 
     def _autopilot_step(self) -> None:
         now = self._sim_time()

@@ -20,6 +20,7 @@ add_library(${PROJECT_NAME}_lib
   src/colregs_phase_classifier.cpp
   src/colregs_constraint_generator.cpp
   src/rule_library_loader.cpp
+  src/encounter_state_machine.cpp
   src/colregs_reasoner_node.cpp
   src/rules/colregs/rule5_lookout.cpp
   src/rules/colregs/rule6_safe_speed.cpp

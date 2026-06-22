@@ -91,6 +91,13 @@ class MidMpcNode : public rclcpp::Node {
       double lat0_deg,
       double lon0_deg,
       const std::string& reason);
+
+  // Phase 4 RECOVERY: gradual return-to-route trajectory (architecture §7.2).
+  // N waypoints whose XTE decays linearly toward the route over the horizon.
+  [[nodiscard]] l3_msgs::msg::AvoidancePlan build_recovery_plan_(
+      const MidMpcInput& input,
+      double lat0_deg,
+      double lon0_deg);
 };
 
 }  // namespace mass_l3::m5::mid_mpc

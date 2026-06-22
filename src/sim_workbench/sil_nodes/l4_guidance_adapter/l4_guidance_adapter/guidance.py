@@ -21,7 +21,7 @@ AVOIDANCE_CORRIDOR_HARD_XTE_M = 280.0
 AVOIDANCE_CORRIDOR_MIN_OUTBOUND_DELTA_DEG = 0.0
 AVOIDANCE_CORRIDOR_SPEED_SOFT_XTE_M = 120.0
 AVOIDANCE_CORRIDOR_SPEED_HARD_XTE_M = 260.0
-AVOIDANCE_CORRIDOR_MIN_SPEED_KN = 0.0
+AVOIDANCE_CORRIDOR_MIN_SPEED_KN = 8.0
 FALLBACK_ROUTE_SEGMENT_M = 50000.0
 TRANSIT_RETURN_SOFT_XTE_M = 50.0
 TRANSIT_RETURN_HARD_XTE_M = 350.0
@@ -38,8 +38,9 @@ class ActuatorCommand:
 
 
 class HeadingController:
-    def __init__(self, Kp: float = 1.0, max_rate_deg_s: float = 5.0):
+    def __init__(self, Kp: float = 1.0, Kd: float = 0.0, max_rate_deg_s: float = 5.0):
         self.Kp = Kp
+        self.Kd = Kd
         self.max_rate_deg_s = max_rate_deg_s
         self.last_cmd_deg = 0.0
 
@@ -49,9 +50,16 @@ class HeadingController:
         dt: float,
         current_rot_deg_s: float = 0.0,
     ) -> float:
-        del current_rot_deg_s
+        # PD on heading: the proportional term drives toward the target, the
+        # derivative term on rate-of-turn damps the approach. Without the D
+        # term the controller only reacts once the heading error crosses zero,
+        # by which time the hull is still rotating, so it overshoots and reverses
+        # -- the succession of small sign-flipping rudder kicks that COLREGs
+        # Rule 8(b) forbids and the phase gate flags as small_runs. Kd defaults
+        # to 0 so all existing callers (which never brake) are unchanged.
         error_deg = signed_heading_delta_deg(error_deg, 0.0)
-        cmd_deg = max(-MAX_RUDDER_DEG, min(MAX_RUDDER_DEG, self.Kp * error_deg))
+        cmd_deg = self.Kp * error_deg - self.Kd * current_rot_deg_s
+        cmd_deg = max(-MAX_RUDDER_DEG, min(MAX_RUDDER_DEG, cmd_deg))
         max_delta = self.max_rate_deg_s * dt
         cmd_deg = max(self.last_cmd_deg - max_delta,
                       min(self.last_cmd_deg + max_delta, cmd_deg))
@@ -282,6 +290,8 @@ def select_avoidance_heading(
     same_side = waypoint_delta * target_delta >= 0.0
     if not same_side:
         return avoidance_target_heading_deg
+    if abs(waypoint_delta) < abs(target_delta):
+        return avoidance_target_heading_deg
     return waypoint_heading_deg
 
 
@@ -367,6 +377,8 @@ def corridor_guarded_avoidance_speed_kn(
 
     selected_delta = signed_heading_delta_deg(
         selected_heading_deg, nominal_heading_deg)
+    if abs(selected_delta) <= 1e-6:
+        return target_speed_kn
     if xte_m * selected_delta > 0.0:
         return target_speed_kn
 
@@ -413,6 +425,7 @@ def compute_transit_command(
     route_wps: Sequence[tuple[float, float]],
     heading_controller: HeadingController,
     speed_controller: SpeedController,
+    limit_speed_for_route_return: bool = True,
     dt: float = 0.5,
 ) -> ActuatorCommand:
     effective_target_heading = target_heading_deg
@@ -448,7 +461,7 @@ def compute_transit_command(
         )
         xte_correction = max(-correction_limit, min(correction_limit, xte * 0.20))
         effective_target_heading = (effective_target_heading + xte_correction) % 360.0
-        if abs_xte > TRANSIT_RETURN_SOFT_XTE_M:
+        if limit_speed_for_route_return and abs_xte > TRANSIT_RETURN_SOFT_XTE_M:
             speed_cap = (
                 TRANSIT_RETURN_SOFT_SPEED_KN +
                 (TRANSIT_RETURN_HARD_SPEED_KN -

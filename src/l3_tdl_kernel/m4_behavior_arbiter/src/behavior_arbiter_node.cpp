@@ -117,6 +117,30 @@ std::optional<PrimaryRiskGuidance> compute_primary_risk_guidance(
   return PrimaryRiskGuidance{primary, reduced_speed_risk};
 }
 
+// Phase 4 RECOVERY geometry helpers (architecture §8.3 behavior dictionary).
+// corridor_half is the route corridor half-width; RECOVERY engages when XTE
+// exceeds corridor_half*0.5 after COLREGs release and clears when XTE returns
+// within that gate for release_dwell cycles.
+constexpr double kEarthRadiusM = 6371008.8;
+// [TBD-HAZID] RECOVERY thresholds calibrated against route_return acceptance
+// (XTE<150m). corridor_half=250 → gate=125m: RECOVERY engages when XTE>125m
+// after COLREGs release and clears to TRANSIT once XTE<125m for release_dwell,
+// letting TRANSIT/L2 route-following finish convergence below 150m.
+constexpr double kRecoveryCorridorHalfM = 250.0;
+constexpr double kRecoveryXteGateFraction = 0.5;        // corridor_half*0.5 = 125m
+constexpr int    kRecoveryReleaseDwellCycles = 4;       // ~1s @ 250ms cycle
+// RECOVERY→TRANSIT release also requires own-heading alignment with the route
+// leg. Releasing on XTE alone lets the ship hand back to TRANSIT still pointed
+// off the route line (e.g. -19.6°), and TRANSIT's heading controller then has
+// no obligation to converge the residual heading error — route_return's
+// heading<10° acceptance fails. Mirror the 4c85cbaa reference implementation
+// (kRecoveryCompleteHeadingErrorDeg = 10.0).
+constexpr double kRecoveryCompleteHeadingErrorDeg = 10.0;
+
+double signed_heading_error_deg(double heading_deg, double reference_deg) {
+  return std::fmod(heading_deg - reference_deg + 540.0, 360.0) - 180.0;
+}
+
 }  // namespace
 
 static double compute_bearing_deg(double own_lat, double own_lon,
@@ -174,6 +198,9 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   sub_rule_assessment_ = create_subscription<l3_msgs::msg::RuleAssessment>(
       "/l3/m6/rule_assessment", qos,
       [this](const l3_msgs::msg::RuleAssessment::SharedPtr msg) { on_rule_assessment(msg); });
+  sub_route_ = create_subscription<PlannedRouteMsg>(
+      "/l2/planned_route", qos,
+      [this](const PlannedRouteMsg::SharedPtr msg) { on_planned_route(msg); });
 
   pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
   pub_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>("/sil/sat2_data", qos);
@@ -218,6 +245,40 @@ void BehaviorArbiterNode::on_mission_goal(const MissionGoalMsg::SharedPtr msg) {
 }
 void BehaviorArbiterNode::on_colregs_constraint(const COLREGsConstraintMsg::SharedPtr msg) {
   latest_colregs_ = msg; colregs_received_ = true;
+}
+void BehaviorArbiterNode::on_planned_route(const PlannedRouteMsg::SharedPtr msg) {
+  latest_route_ = msg; route_received_ = true;
+}
+
+std::optional<BehaviorArbiterNode::RouteTracking>
+BehaviorArbiterNode::current_route_tracking() const {
+  if (!route_received_ || !latest_route_ || !latest_world_ ||
+      latest_route_->route.poses.size() < 2u) {
+    return std::nullopt;
+  }
+  const double p0_lat = latest_route_->route.poses[0].pose.position.latitude;
+  const double p0_lon = latest_route_->route.poses[0].pose.position.longitude;
+  const double p1_lat = latest_route_->route.poses[1].pose.position.latitude;
+  const double p1_lon = latest_route_->route.poses[1].pose.position.longitude;
+  const double own_lat = latest_world_->own_ship.position.latitude;
+  const double own_lon = latest_world_->own_ship.position.longitude;
+  // Flat-earth NED projection of route leg and own-ship offset from p0.
+  const double ddx = (p1_lat - p0_lat) * kDegToRad * kEarthRadiusM;
+  const double ddy = (p1_lon - p0_lon) * kDegToRad * kEarthRadiusM
+                     * std::cos(p0_lat * kDegToRad);
+  const double route_len = std::hypot(ddx, ddy);
+  if (route_len <= 1.0) {
+    return std::nullopt;
+  }
+  const double own_dx = (own_lat - p0_lat) * kDegToRad * kEarthRadiusM;
+  const double own_dy = (own_lon - p0_lon) * kDegToRad * kEarthRadiusM
+                        * std::cos(p0_lat * kDegToRad);
+  const double route_heading_deg = compute_bearing_deg(p0_lat, p0_lon, p1_lat, p1_lon);
+  // Signed cross-track: positive = own ship is to port (left) of route bearing.
+  return RouteTracking{
+      ((ddx * own_dy) - (ddy * own_dx)) / route_len,
+      route_heading_deg,
+      signed_heading_error_deg(latest_world_->own_ship.heading_deg, route_heading_deg)};
 }
 void BehaviorArbiterNode::on_rule_assessment(const l3_msgs::msg::RuleAssessment::SharedPtr msg) {
   latest_rule_assessment_ = msg;
@@ -265,6 +326,9 @@ ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
 }
 
 void BehaviorArbiterNode::arbitration_timer_callback() {
+  // Phase 4: COLREGs turn active flag, hoisted to callback scope so the
+  // RECOVERY edge-detection block at the end can observe release transitions.
+  bool colregs_turn_active = false;
   bool m3_task_valid = mission_received_ && latest_mission_ &&
       (latest_mission_->fsm_state == l3_msgs::msg::MissionGoal::FSM_ACTIVE) &&
       (latest_mission_->task_validity == l3_msgs::msg::MissionGoal::TASK_VALIDITY_VALID);
@@ -276,13 +340,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
 
   ArbitrationInputs inputs = build_inputs();
   constexpr int kColregsReleaseDwellCycles = 4;
+  constexpr float kLowConfidenceClearThreshold = 0.5F;
   bool colregs_commit_hold = false;
   COLREGsConstraintMsg::SharedPtr colregs_for_directive = latest_colregs_;
   if (colregs_received_ && latest_colregs_) {
     if (latest_colregs_->conflict_detected) {
       last_active_colregs_ = latest_colregs_;
       colregs_inactive_cycles_ = 0;
-    } else if (colregs_anchor_set_ && last_active_colregs_ &&
+    } else if (latest_colregs_->confidence < kLowConfidenceClearThreshold &&
+               colregs_anchor_set_ && last_active_colregs_ &&
                colregs_inactive_cycles_ < kColregsReleaseDwellCycles) {
       ++colregs_inactive_cycles_;
       inputs.colregs_conflict_detected = true;
@@ -418,7 +484,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         }
       }
     }
-    const bool colregs_turn_active =
+    colregs_turn_active =
         colregs_directive.conflict_active &&
         (colregs_directive.direction == ColregsDirection::Starboard ||
          colregs_directive.direction == ColregsDirection::Port);
@@ -481,10 +547,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         colregs_directive.primary_role == kRoleGiveWay &&
         !colregs_quartering_gate_;
     if (hold_bow_crossing_commitment) {
-      colregs_committed_required_dev_deg_ =
-          std::max(colregs_committed_required_dev_deg_, required_dev_deg);
-      required_dev_deg =
-          std::max(required_dev_deg, colregs_committed_required_dev_deg_);
+      colregs_committed_required_dev_deg_ = required_dev_deg;
     } else {
       colregs_committed_required_dev_deg_ = 0.0;
     }
@@ -736,6 +799,47 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     primary = BehaviorType::TRANSIT;
     confidence = 0.60;
     rationale = "No active behaviors; default Transit";
+  }
+
+  // Phase 4: AVOID → RECOVERY → TRANSIT (architecture §8.3).
+  // COLREGs turn release is detected via the colregs_turn_active falling edge.
+  // When release occurs with XTE beyond corridor_half*0.5, M4 holds RECOVERY
+  // (gradual return-to-route) instead of hard-switching to TRANSIT. Clears to
+  // TRANSIT once XTE is restored within the gate for release_dwell cycles.
+  const bool colregs_turn_released = prev_colregs_turn_active_ && !colregs_turn_active;
+  prev_colregs_turn_active_ = colregs_turn_active;
+  if (colregs_turn_active) {
+    // Active COLREGs turn cancels any in-progress recovery.
+    recovery_active_ = false;
+    recovery_dwell_cycles_ = 0;
+  } else {
+    const auto tracking = current_route_tracking();
+    const double xte_gate_m = kRecoveryCorridorHalfM * kRecoveryXteGateFraction;
+    const bool xte_beyond_gate = tracking.has_value() &&
+        std::abs(tracking->xte_m) > xte_gate_m;
+    // Release also requires own-heading alignment with the route leg, not just
+    // XTE convergence. Without this, a ship can clear RECOVERY with XTE<gate
+    // while still pointed off the route line and fail route_return's
+    // heading<10° acceptance in TRANSIT.
+    const bool heading_aligned = tracking.has_value() &&
+        std::abs(tracking->heading_error_deg) <= kRecoveryCompleteHeadingErrorDeg;
+    if (recovery_active_) {
+      if (xte_beyond_gate || !heading_aligned) {
+        recovery_dwell_cycles_ = 0;  // not yet restored, reset dwell
+      } else if (++recovery_dwell_cycles_ >= kRecoveryReleaseDwellCycles) {
+        recovery_active_ = false;    // XTE + heading restored + dwell → TRANSIT
+      }
+    } else if (colregs_turn_released && xte_beyond_gate) {
+      recovery_active_ = true;       // release with XTE偏离 → enter RECOVERY
+      recovery_dwell_cycles_ = 0;
+    }
+    if (recovery_active_) {
+      primary = BehaviorType::RECOVERY;
+      confidence = 0.80;
+      const double xte_m = tracking.has_value() ? tracking->xte_m : 0.0;
+      rationale = "RECOVERY gradual return-to-route xte=" +
+          std::to_string(static_cast<int>(xte_m)) + "m";
+    }
   }
 
   // --- Publish Behavior_PlanMsg ---

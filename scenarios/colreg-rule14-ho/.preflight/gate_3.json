@@ -1,14 +1,14 @@
 {
   "gate_id": 3,
   "gate_name": "Scenario Integrity",
-  "timestamp_utc": "2026-06-01T05:08:12.800134Z",
+  "timestamp_utc": "2026-06-22T02:00:39.151738Z",
   "scenario_id": "colreg-rule14-ho",
   "passed": true,
   "checks": [
     {
       "item": "SHA256",
       "status": "ok",
-      "detail": "SHA256 hash match: 3436ff16f8bd23f7..."
+      "detail": "SHA256 hash match: bc495d8a827b28d4..."
     },
     {
       "item": "YAML",
@@ -21,7 +21,7 @@
       "detail": "expected_outcome block present"
     }
   ],
-  "duration_ms": 6.2,
+  "duration_ms": 8.9,
   "rationale": "hash match + YAML ok + expected_outcome present",
   "sil2_clause": "IEC 61508-3 \u00a77.2 Software V&V \u2014 artifact integrity",
   "hazid_scenario_ref": null

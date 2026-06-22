@@ -23,6 +23,7 @@ enum class BehaviorType : uint8_t {
   MRC_DRIFT = 4,
   MRC_ANCHOR = 5,
   MRC_HEAVE_TO = 6,
+  RECOVERY = 7,
 };
 
 namespace mass_l3::m4 {

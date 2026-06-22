@@ -113,6 +113,9 @@ ColregsDirective extract_colregs_directive(const l3_msgs::msg::COLREGsConstraint
   out.rule15_active = std::any_of(
       msg.active_rules.begin(), msg.active_rules.end(),
       [](const auto& rule) { return rule.rule_id == 15U; });
+  out.rule14_active = std::any_of(
+      msg.active_rules.begin(), msg.active_rules.end(),
+      [](const auto& rule) { return rule.rule_id == 14U; });
   if (!out.conflict_active) {
     return out;
   }
@@ -143,13 +146,25 @@ void apply_primary_risk_guidance(
     return;
   }
 
+  // D-5: Rule 14 head-on (BOTH_GIVE_WAY) forbids replacing the turn direction
+  // with REDUCE_SPEED. COLREG Rule 14(a) requires both vessels to alter to
+  // starboard so each passes on the port side of the other; speed reduction
+  // alone cannot achieve port-to-port passing geometry. Speed reduction may
+  // still apply downstream as an auxiliary speed_max constraint (the
+  // speed_reduction_preferred flag is not set here, but the risk phase stays
+  // visible to the planner). Give-way on Rule 13/16 is unaffected and may
+  // still prefer speed reduction per GiveWayOvertakingCanPreferSpeedReduction.
+  if (directive.rule14_active && directive.primary_role == kRoleBothGiveWay) {
+    return;
+  }
+
   const auto duty = map_role_to_duty(
       directive.primary_role,
       directive.conflict_active,
       directive.rule15_active,
       directive.phase);
   const bool can_reduce_speed =
-      duty == mass_l3::risk::ColregsDuty::GiveWay ||
+      (!directive.rule15_active && duty == mass_l3::risk::ColregsDuty::GiveWay) ||
       duty == mass_l3::risk::ColregsDuty::BothGiveWay;
   const bool ample_tcpa = primary_risk.tcpa_s > 180.0;
   const bool outside_danger = !is_danger_or_critical(primary_risk);

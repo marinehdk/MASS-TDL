@@ -149,6 +149,26 @@ def test_overall_gate_requires_route_corridor_pass():
     ) is False
 
 
+def test_overall_gate_fails_on_violated_compliance():
+    # G2: rule_compliance verdict must gate overall_pass. A scenario that is
+    # geometrically clean but COLREGs-violated must force overall RED.
+    runner = _load_runner()
+    assert runner.compute_overall_pass(
+        cpa_ok=True,
+        stability_pass=True,
+        returned_to_route=True,
+        compliance_verdict="violated",
+    ) is False
+    # partial / full / unknown are not violations and must not fail the gate.
+    for verdict in ("full", "partial", "unknown"):
+        assert runner.compute_overall_pass(
+            cpa_ok=True,
+            stability_pass=True,
+            returned_to_route=True,
+            compliance_verdict=verdict,
+        ) is True
+
+
 def test_route_return_uses_m4_behavior_when_bridge_active_is_stale():
     runner = _load_runner()
     records = [
@@ -786,13 +806,16 @@ def test_restart_between_runs_restarts_sil_nodes_and_settles(monkeypatch):
     assert sleeps == [24.0]
 
 
-def test_rule13_yaml_allows_corridor_limited_safe_following():
+def test_rule13_yaml_requires_overtake_completion():
     root = Path(__file__).resolve().parents[2]
     path = root / "scenarios" / "COLREGs测试" / "colreg-rule13-ot.yaml"
     data = yaml.safe_load(path.read_text())
     expected = data["metadata"]["expected_outcome"]
 
-    assert expected["overtake_required"] is False
+    # G3: rule13-ot is a true overtaking probe — own must complete the overtake
+    # (bow draws ~1 ship length ahead) before the Rule 13(b) give-way duty clears.
+    assert expected["overtake_required"] is True
+    assert expected["overtake_along_margin_m"] == 50.0
     assert expected["returned_to_route_required"] is False
     assert expected["cpa_acceptance"]["profile"] == (
         "corridor_follow_or_overtake_4L")
@@ -879,3 +902,146 @@ def test_runner_archives_per_scenario_raw_trace(tmp_path):
 
     assert archived == str(tmp_path / "reports" / "colreg-rule14-ho.trace_current.jsonl")
     assert Path(archived).read_text() == trace_path.read_text()
+
+
+# ── C1 crossing past-and-clear threshold (90° beam + tcpa<0 backstop) ──────
+# The 112.5° abaft-beam (Rule 13(b) overtaking sector) was unreachable for
+# shallow slow crossings: rule15-cs (cog=290/10.6kn) asymptotes past the beam
+# only after own-ship avoidance+recovery. Crossing/head-on give-way now releases
+# at 90° beam + tcpa<0 (past CPA) + range>=cpa_safe opening. See
+# docs/superpowers/specs/2026-06-18-colregs-c1-crossing-beam-fix.md.
+
+
+def _c1_phase_semantics(*, own_records, behavior_records, targets_meta,
+                        role="give_way", rule="Rule15", cpa_safe_m=1852.0):
+    runner = _load_runner()
+    return runner.compute_phase_semantics(
+        own_records + behavior_records, targets_meta,
+        lat0=0.0, lon0=0.0, role=role, rule=rule, cpa_safe_m=cpa_safe_m,
+    )
+
+
+def test_c1_crossing_passes_past_beam_under_90deg_but_not_abaft_sector():
+    """Crossing give-way releases with target just past the beam (rel_brg ~101°,
+    between the 90° beam and the 112.5° abaft sector), tcpa<0, range>=cpa_safe
+    and opening. The old 112.5° gate would RED this; the 90° beam + tcpa<0
+    gate must PASS it. Own ship stationary at origin (hdg=0); target approaches,
+    crosses CPA, opens past the stbd beam."""
+    # Target meta: starts near origin (past-CPA region) and moves outward along a
+    # bearing that places it at rel_brg ~101° (past stbd beam, not abaft) at the
+    # release sample. ENU start (100,-50), velocity (sin100,cos100)*3.0 m/s.
+    start_e, start_n = 100.0, -50.0
+    speed_mps = 3.0
+    vel_e = speed_mps * math.sin(math.radians(100.0))
+    vel_n = speed_mps * math.cos(math.radians(100.0))
+    targets_meta = [{
+        "lat0": start_n / 111120.0,
+        "lon0": start_e / (111120.0 * math.cos(math.radians(0.0))),
+        "cog": 100.0,
+        "sog_kn": speed_mps / 0.514444,
+    }]
+    # Own ship stationary at origin throughout (sog=0, hdg=0).
+    own_records = [
+        {"topic": "/sil/own_ship_state", "sim_t": float(t),
+         "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 0.0}
+        for t in range(0, 1001, 50)
+    ]
+    # Avoidance 100..550, release (behavior=0) at t=600. At t=600 the target is
+    # at rel_brg ~101°, range ~1907m (>cpa_safe), tcpa<0, opening.
+    behavior_records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": float(t),
+         "behavior": 1 if 100 <= t <= 550 else 0}
+        for t in range(0, 1001, 50)
+    ]
+    result = _c1_phase_semantics(
+        own_records=own_records, behavior_records=behavior_records,
+        targets_meta=targets_meta,
+    )
+    assert result["evaluated"] is True, "phase_semantics must have data"
+    assert result["c1_past_clear_ok"] is True, (
+        f"crossing C1 should pass at 90° beam + tcpa<0 (rel_brg~101, between "
+        f"beam and abaft sector); got rel_brg={result['release_target_rel_bearing_deg']}"
+    )
+
+
+def test_c1_crossing_passes_astern_opening_safe_before_beam():
+    """Shallow Rule15 give-way may be safely past-clear before the target reaches
+    the 90° beam in relative bearing. If own is already abaft the target along
+    target course, TCPA is past, range is opening, and range is above CPA floor,
+    C1 should accept the astern/opening-safe condition."""
+    release_t = 225.0
+    release_range = 1200.0
+    release_bearing = 58.0
+    target_cog = 45.0
+    target_speed_mps = 3.0
+    rel_e = release_range * math.sin(math.radians(release_bearing))
+    rel_n = release_range * math.cos(math.radians(release_bearing))
+    vel_e = target_speed_mps * math.sin(math.radians(target_cog))
+    vel_n = target_speed_mps * math.cos(math.radians(target_cog))
+    start_e = rel_e - vel_e * release_t
+    start_n = rel_n - vel_n * release_t
+    targets_meta = [{
+        "lat0": start_n / 111120.0,
+        "lon0": start_e / (111120.0 * math.cos(math.radians(0.0))),
+        "cog": target_cog,
+        "sog_kn": target_speed_mps / 0.514444,
+    }]
+    own_records = [
+        {"topic": "/sil/own_ship_state", "sim_t": float(t),
+         "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 0.0}
+        for t in range(0, 401, 25)
+    ]
+    behavior_records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": float(t),
+         "behavior": 1 if 100 <= t <= 200 else 0}
+        for t in range(0, 401, 25)
+    ]
+
+    result = _c1_phase_semantics(
+        own_records=own_records, behavior_records=behavior_records,
+        targets_meta=targets_meta, cpa_safe_m=900.0,
+    )
+
+    assert result["evaluated"] is True
+    assert result["release_target_rel_bearing_deg"] < 90.0
+    assert result["c5_no_cross_ahead_ok"] is True
+    assert result["c1_past_clear_ok"] is True
+
+
+def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
+    """Mechanical right-turn + early route return while the target is still on
+    the bow (rel_brg ~36°) and tcpa>0 (CPA still ahead): C1 must stay RED. This
+    is the bug the gate catches — no threshold relaxation should let it through."""
+    # Target on stbd bow at rel_brg 36°, range 3000m, closing (CPA ahead).
+    start_range = 3000.0
+    start_e = start_range * math.sin(math.radians(36.0))
+    start_n = start_range * math.cos(math.radians(36.0))
+    # Velocity toward origin (closing): along bearing 36+180 = 216, 2.0 m/s.
+    closing_speed = 2.0
+    vel_e = closing_speed * math.sin(math.radians(216.0))
+    vel_n = closing_speed * math.cos(math.radians(216.0))
+    targets_meta = [{
+        "lat0": start_n / 111120.0,
+        "lon0": start_e / (111120.0 * math.cos(math.radians(0.0))),
+        "cog": 216.0,
+        "sog_kn": closing_speed / 0.514444,
+    }]
+    own_records = [
+        {"topic": "/sil/own_ship_state", "sim_t": float(t),
+         "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 0.0}
+        for t in range(0, 401, 25)
+    ]
+    # Brief avoidance 100..200, release at t=225 (target still on bow, tcpa>0).
+    behavior_records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": float(t),
+         "behavior": 1 if 100 <= t <= 200 else 0}
+        for t in range(0, 401, 25)
+    ]
+    result = _c1_phase_semantics(
+        own_records=own_records, behavior_records=behavior_records,
+        targets_meta=targets_meta,
+    )
+    assert result["evaluated"] is True
+    assert result["c1_past_clear_ok"] is False, (
+        "early return at rel_brg~36° with tcpa>0 must stay RED"
+    )

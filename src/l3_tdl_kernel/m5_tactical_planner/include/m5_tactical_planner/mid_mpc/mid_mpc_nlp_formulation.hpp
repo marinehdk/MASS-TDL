@@ -4,19 +4,19 @@
 // M5 Tactical Planner — Mid-MPC NLP Formulation (Task 2.1)
 // Builds the parametric CasADi MX symbolic graph for the Mid-MPC NLP.
 //
-// Construction-time work: build_symbolic_graph() instantiates an nlpsol
-// IPOPT Function once. MidMpcSolver (Task 2.2) re-uses this Function each
-// 1 Hz cycle, only re-packing the parameter vector p ∈ R^93.
+// Graph-build work: build_symbolic_graph() instantiates an nlpsol IPOPT
+// Function. It may be called again after set_constraint_inputs() when
+// numeric-baked ConstraintCompiler rows change.
 //
 // Decision variables: x = [psi[0..N-1]; u[0..N-1]] ∈ R^{2N}
 // Parameters:         p ∈ R^93 (initial state + bounds + 16 targets)
 // Objective:          J = w_colreg * J_colreg + w_dist * J_dist + w_vel * J_vel
-// Constraints:        g(x, p) >= 0, dim = 5N - 1
+// Constraints:        g(x, p) >= 0, dim = ROT rows + active compiler rows
 //
-// Phase E1 scope:
-//   - Soft COLREGs cost (J_colreg) only; hard rule constraints (Rule 14/15/16/17)
-//     deferred to Phase E2 once parametric encounter geometry is available.
-//   - Heading/speed/ROT bounds compiled as parametric constraints from p.
+// Phase P1 scope:
+//   - Soft COLREGs cost (J_colreg) retained as guidance.
+//   - ConstraintCompiler rows add hard rule / CPA / zone constraints.
+//   - Heading/speed box limits remain IPOPT variable bounds.
 //
 // PATH-D (MISRA C++:2023): ≤60 lines per function, CC ≤10, no float, no
 // bare new/delete. CasADi LGPL-3.0: internal MISRA violations exempted per
@@ -30,6 +30,7 @@
 #include <cstdint>
 
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/shared/constraint_compiler.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -91,8 +92,13 @@ class MidMpcNlpFormulation {
 
   explicit MidMpcNlpFormulation(const Config& cfg);
 
-  // Build symbolic NLP graph (call once after construction). Caches nlpsol Function.
+  // Build or rebuild symbolic NLP graph. Caches nlpsol Function.
   void build_symbolic_graph();
+
+  // Set current runtime constraints before rebuilding the symbolic graph.
+  void set_constraint_inputs(const ConstraintInputs& inputs) {
+    constraint_inputs_ = inputs;
+  }
 
   // Cached nlpsol Function (called by MidMpcSolver per cycle).
   [[nodiscard]] const casadi::Function& solver() const noexcept { return solver_; }
@@ -105,7 +111,7 @@ class MidMpcNlpFormulation {
       const casadi::DM& x_opt,
       const casadi::Dict& stats) const;
 
-  // Constraint dimension (used by MidMpcSolver for lbg/ubg sizing). 5N - 1.
+  // Constraint dimension (used by MidMpcSolver for lbg/ubg sizing).
   [[nodiscard]] int32_t g_dim() const noexcept;
 
   // Public access to active config (read-only).
@@ -119,6 +125,9 @@ class MidMpcNlpFormulation {
   casadi::MX J_;       // objective expression
   casadi::MX g_;       // constraint vector (g >= 0 convention)
   casadi::Function solver_;  // nlpsol-cached IPOPT Function
+  int32_t g_dim_{0};
+  mass_l3::m5::shared::ConstraintCompiler compiler_{};
+  ConstraintInputs constraint_inputs_{};
 
   // Dimension helper (kept for symmetry with CasADi MX::sym signature).
   [[nodiscard]] static int32_t parameter_dim_() noexcept { return kParamDim; }

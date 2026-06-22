@@ -276,6 +276,20 @@ TEST(WorldStateAggregatorTest, TargetsOrderedByCpaTcpaRisk) {
   EXPECT_GT(result->targets[0].tcpa_s, 0.0);
 }
 
+TEST(WorldStateAggregatorTest, TargetComplianceStartsNeutralUntilHistoryExists) {
+  auto tf = create_aggregator();
+  tf.aggregator->update_own_ship(make_own_ship_msg(), time_at(0));
+  tf.aggregator->update_odd_state(make_odd_msg(), time_at(0));
+
+  tf.track_buffer->update(make_target_array({101}), time_at(0));
+
+  const auto result = tf.aggregator->compose_world_state(time_at(1));
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->targets.size(), 1u);
+  EXPECT_NEAR(result->targets[0].target_compliance, 0.5f, 1e-6f);
+}
+
 // Test 4: CPAThresholdsByODDZone — WorldState is produced for each zone
 TEST(WorldStateAggregatorTest, CPAThresholdsByODDZone) {
   auto tf = create_aggregator();

@@ -17,6 +17,9 @@ namespace mass_l3::m6_colregs {
 using builtin_interfaces::msg::Time;
 
 namespace {
+
+constexpr double kNonCompliantTargetThreshold = 0.4;  // [TBD-HAZID]
+
 std::string phase_to_str(const TimingPhase p) {
   switch (p) {
     case TimingPhase::CRITICAL_ACTION:    return "T_emergency";
@@ -33,22 +36,53 @@ bool requires_action(const RuleEvaluation& e) {
       (e.phase == TimingPhase::INDEPENDENT_ACTION || e.phase == TimingPhase::CRITICAL_ACTION));
   return e.is_active && (give_way || standon_inextremis);
 }
+
+bool should_escalate_noncompliant_standon(const RuleEvaluation& e) {
+  return e.is_active && e.role == Role::STAND_ON &&
+      e.phase == TimingPhase::SOUND_WARNING &&
+      e.target_compliance < kNonCompliantTargetThreshold;
+}
+
+RuleEvaluation effective_evaluation(
+    const RuleEvaluation& raw, const RuleParameters& params) {
+  RuleEvaluation effective = raw;
+  if (!should_escalate_noncompliant_standon(raw)) {
+    return effective;
+  }
+
+  effective.phase = TimingPhase::INDEPENDENT_ACTION;
+  effective.preferred_direction = "STARBOARD";
+  if (effective.min_alteration_deg <= 0.0) {
+    effective.min_alteration_deg = params.min_alteration_deg;
+  }
+  if (!effective.rationale.empty()) {
+    effective.rationale += " ";
+  }
+  effective.rationale +=
+      "[escalated: give-way target non-compliant before Rule 17(b) floor]";
+  return effective;
+}
 }  // namespace
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static,readability-function-cognitive-complexity,readability-function-size)
 l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     const std::vector<RuleEvaluation>& evaluations,
     const RuleParameters& params, double confidence) const {
-  (void)params;
   l3_msgs::msg::COLREGsConstraint msg;
   msg.schema_version = 114U;
+
+  std::vector<RuleEvaluation> effective_evaluations;
+  effective_evaluations.reserve(evaluations.size());
+  for (const auto& eval : evaluations) {
+    effective_evaluations.push_back(effective_evaluation(eval, params));
+  }
 
   // Collect active rules and determine overall phase
   std::string dominant_phase = "PRESERVE_COURSE";
   std::string rationale_parts;
   const RuleEvaluation* dominant = nullptr;
 
-  for (const auto& eval : evaluations) {
+  for (const auto& eval : effective_evaluations) {
     if (!eval.is_active) {
       continue;
     }
@@ -112,7 +146,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
   msg.rationale = rationale_parts.empty() ? "No active COLREGs rules" : rationale_parts;
   
   bool conflict = false;
-  for (const auto& eval : evaluations) {
+  for (const auto& eval : effective_evaluations) {
     if (requires_action(eval)) { conflict = true; break; }
   }
   msg.conflict_detected = conflict;

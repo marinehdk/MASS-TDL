@@ -46,7 +46,7 @@ class SensorMockNode(LifecycleNode):
         self._own_state_sub = None
         self._target_state_sub = None
 
-        # Wall-clock publishing rate limiter
+        # Legacy field retained for config/test compatibility; timer cadence owns publishing.
         self._last_radar_pub_wall_time: float = 0.0
 
         # Initialize per-node seeded Generator
@@ -224,27 +224,20 @@ class SensorMockNode(LifecycleNode):
     # ── Timer callbacks ─────────────────────────────────────────────────────
 
     def _radar_callback(self) -> None:
-        """Publish a RadarMeasurement from the latest own-ship + target states (throttled to 10 Hz wall time)."""
+        """Publish a RadarMeasurement from the latest own-ship + target states."""
         if self._own_state is None:
             return
-            
-        # Throttled radar publishing to maximum of 10 Hz wall-clock rate
-        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
-        import time
-        now_wall = time.monotonic()
-        if now_wall - self._last_radar_pub_wall_time >= 0.1:  # 10 Hz limit
-            targets = [{"lat": ts.lat, "lon": ts.lon} for ts in self._target_states.values()]
-            result = self.generate_radar(self._own_state.lat, self._own_state.lon, targets)
-            now = self.get_clock().now().to_msg()
-            msg = RadarMeasurement()
-            msg.stamp = now
-            msg.range = [p["range"] for p in result["polar_targets"]]
-            msg.bearing = [p["bearing"] for p in result["polar_targets"]]
-            msg.rcs = [p["rcs"] for p in result["polar_targets"]]
-            msg.clutter_cardinality = int(result["clutter_cardinality"])
-            if self._radar_pub is not None:
-                self._radar_pub.publish(msg)
-            self._last_radar_pub_wall_time = now_wall
+        targets = [{"lat": ts.lat, "lon": ts.lon} for ts in self._target_states.values()]
+        result = self.generate_radar(self._own_state.lat, self._own_state.lon, targets)
+        now = self.get_clock().now().to_msg()
+        msg = RadarMeasurement()
+        msg.stamp = now
+        msg.range = [p["range"] for p in result["polar_targets"]]
+        msg.bearing = [p["bearing"] for p in result["polar_targets"]]
+        msg.rcs = [p["rcs"] for p in result["polar_targets"]]
+        msg.clutter_cardinality = int(result["clutter_cardinality"])
+        if self._radar_pub is not None:
+            self._radar_pub.publish(msg)
 
     def _ais_callback(self) -> None:
         """Publish an AISMessage per target vessel (subject to dropout)."""

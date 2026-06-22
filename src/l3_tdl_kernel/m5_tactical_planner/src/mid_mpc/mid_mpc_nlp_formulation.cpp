@@ -68,8 +68,7 @@ MidMpcNlpFormulation::MidMpcNlpFormulation(const Config& cfg) : cfg_(cfg) {
 }
 
 // ===========================================================================
-// g_dim() — general-constraint count = 2*(N-1) ROT differential rows only
-// (upper + lower smooth linear bound per step; see build_constraints_).
+// g_dim() — general-constraint count from the currently built graph.
 //
 // Heading and speed box limits are simple per-variable bounds; they are passed
 // to IPOPT as lbx/ubx (set per-cycle in MidMpcSolver::solve), NOT as general
@@ -82,7 +81,7 @@ MidMpcNlpFormulation::MidMpcNlpFormulation(const Config& cfg) : cfg_(cfg) {
 // ===========================================================================
 int32_t MidMpcNlpFormulation::g_dim() const noexcept {
   const int32_t N = cfg_.n_horizon;
-  return 2 * (N - 1);  // two smooth ROT rows (upper + lower) per step
+  return (g_dim_ > 0) ? g_dim_ : 2 * (N - 1);
 }
 
 // ===========================================================================
@@ -123,8 +122,8 @@ casadi::MX MidMpcNlpFormulation::build_velocity_cost_() const {
 //   - disc_k = exp(-t_k/T_d) = constant per step (numeric coefficient).
 // Only the barrier (function of d, i.e. the decision variables) is symbolic.
 //
-// Phase E1: COLREGs rules handled as soft cost in J_colreg; hard constraints
-// deferred to Phase E2. Grounded in colav_algorithms NLM (high-conf).
+// P1: soft COLREGs cost remains as gradient guidance; hard CPA/rule rows are
+// added in build_constraints_() through ConstraintCompiler.
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_colreg_cost_() const {
   const int32_t N  = cfg_.n_horizon;
@@ -202,15 +201,14 @@ casadi::MX MidMpcNlpFormulation::build_asym_cost_() const {
 }
 
 // ===========================================================================
-// build_constraints_() — ROT differential only (g >= 0).
+// build_constraints_() — ROT differential + ConstraintCompiler hard rows.
 //
 // Heading/speed box limits are NOT here — they are per-variable bounds passed
-// to IPOPT as lbx/ubx by MidMpcSolver::solve (see g_dim() rationale). Only the
-// inter-step rate-of-turn coupling remains a general constraint.
+// to IPOPT as lbx/ubx by MidMpcSolver::solve (see g_dim() rationale).
 //
 // Constraint convention: g >= 0 (lower bound = 0, upper bound = +inf).
-// Phase E1: COLREGs rules handled as soft cost in J_colreg; hard constraints
-// deferred to Phase E2.
+// P1: numeric ConstraintInputs are baked into the graph, so callers rebuild
+// after set_constraint_inputs() when targets/rules/zones change.
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const int32_t N = cfg_.n_horizon;
@@ -229,8 +227,24 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const casadi::MX rot_step_rep = casadi::MX::repmat(rot_step, N - 1, 1);
   const casadi::MX g_rot_hi = rot_step_rep - dpsi;
   const casadi::MX g_rot_lo = rot_step_rep + dpsi;
+  casadi::MX g_all = casadi::MX::vertcat({g_rot_hi, g_rot_lo});
 
-  return casadi::MX::vertcat({g_rot_hi, g_rot_lo});
+  const auto rule_cc = compiler_.compile_colregs_rules(
+      psi_, u_, constraint_inputs_);
+  if (!rule_cc.names.empty()) {
+    g_all = casadi::MX::vertcat({g_all, rule_cc.g});
+  }
+  const auto cpa_cc = compiler_.compile_cpa_distance(
+      psi_, u_, constraint_inputs_, cfg_.dt_s);
+  if (!cpa_cc.names.empty()) {
+    g_all = casadi::MX::vertcat({g_all, cpa_cc.g});
+  }
+  const auto zone_cc = compiler_.compile_zone_constraints(
+      psi_, u_, constraint_inputs_, cfg_.dt_s);
+  if (!zone_cc.names.empty()) {
+    g_all = casadi::MX::vertcat({g_all, zone_cc.g});
+  }
+  return g_all;
 }
 
 // ===========================================================================
@@ -250,6 +264,7 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
      + build_asym_cost_();  // gated starboard preference (give-way only)
 
   g_ = build_constraints_();
+  g_dim_ = static_cast<int32_t>(g_.size1());
 
   const casadi::MXDict nlp = {{"x", x}, {"p", p_}, {"f", J_}, {"g", g_}};
   casadi::Dict opts;

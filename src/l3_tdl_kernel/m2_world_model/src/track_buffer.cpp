@@ -65,9 +65,7 @@ std::vector<TargetSnapshot> TrackBuffer::active_targets() const {
   result.reserve(buffer_.size());
   for (const auto& [id, entry] : buffer_) {
     static_cast<void>(id);
-    if (entry.miss_count < cfg_.disappearance_periods) {
-      result.push_back(entry.snapshot);
-    }
+    result.push_back(entry.snapshot);
   }
   return result;
 }
@@ -84,9 +82,6 @@ std::vector<TargetSnapshot> TrackBuffer::snapshot_aligned_to(
 
   for (const auto& [id, entry] : buffer_) {
     static_cast<void>(id);
-    if (entry.miss_count >= cfg_.disappearance_periods) {
-      continue;
-    }
     TargetSnapshot snap = entry.snapshot;
     const double dt_s = (align_t - entry.last_seen).seconds();
     if (dt_s > 0.0) {
@@ -111,9 +106,8 @@ int32_t TrackBuffer::active_count() const {
   int32_t count = 0;
   for (const auto& [id, entry] : buffer_) {
     static_cast<void>(id);
-    if (entry.miss_count < cfg_.disappearance_periods) {
-      ++count;
-    }
+    static_cast<void>(entry);
+    ++count;
   }
   return count;
 }
@@ -122,12 +116,9 @@ void TrackBuffer::evict_stale(TimePoint now) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = buffer_.begin();
   while (it != buffer_.end()) {
-    it->second.miss_count++;
-
     const double age_s = (now - it->second.last_seen).seconds();
 
-    if (it->second.miss_count >= cfg_.disappearance_periods ||
-        age_s >= cfg_.max_target_age_s) {
+    if (age_s >= cfg_.max_target_age_s) {
       it = buffer_.erase(it);
     } else {
       ++it;

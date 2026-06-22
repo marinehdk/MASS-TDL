@@ -34,6 +34,7 @@ struct TargetGeometricState {
   double ownship_heading_deg;
   double ownship_speed_kn;
   int32_t target_ship_type_priority;
+  double target_compliance{0.5};
   std::chrono::system_clock::time_point stamp;
 };
 
@@ -46,6 +47,14 @@ struct RuleParameters {
   double max_speed_kn;           // [TBD-HAZID] Rule 6 safe speed ceiling
   double max_turn_rate_deg_s;    // [TBD-HAZID]
   double rule_9_weight;
+  // EncounterStateMachine gates (Spec 2026-06-17-fsm-design §4.5). Populated
+  // from odd_aware_thresholds.yaml; the FSM is per-(target, primary rule).
+  double t_plan_s{720.0};        // [A-level C-12] PREPLAN->ACTIVE TCPA gate
+  double t_monitor_s{1500.0};    // [ref] CANDIDATE->PREPLAN TCPA gate
+  double cpa_hard_m{1852.0};     // [ref] PREPLAN->ACTIVE CPA gate
+  double cpa_soft_m{2778.0};     // [ref] CANDIDATE->PREPLAN CPA gate
+  double t_dwell_s{60.0};        // [ref] RELEASE->CLEAR dwell
+  double cpa_release_m{1000.0};  // [ref] give-way RELEASE CPA gate (<cpa_hard)
 };
 
 struct RuleEvaluation {
@@ -56,6 +65,7 @@ struct RuleEvaluation {
   Role role{Role::FREE};
   TimingPhase phase{TimingPhase::PRESERVE_COURSE};
   double min_alteration_deg{0.0};
+  double target_compliance{0.5};
   std::string preferred_direction{"HOLD"};  // STARBOARD | PORT | REDUCE_SPEED | HOLD
   float confidence{0.0f};
   std::string rationale;

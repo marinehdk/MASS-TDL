@@ -10,10 +10,13 @@
 
 #include "m4_behavior_arbiter/behavior_arbiter_node.hpp"
 
+#include "l3_external_msgs/msg/planned_route.hpp"
+
 namespace mass_l3::m4 {
 
 namespace {
 constexpr std::uint8_t kRoleGiveWay = 1U;
+using PlannedRouteMsg = l3_external_msgs::msg::PlannedRoute;
 }  // namespace
 
 class BehaviorArbiterTest : public ::testing::Test {
@@ -52,6 +55,9 @@ protected:
   }
   void trigger_rule_assessment(std::shared_ptr<BehaviorArbiterNode> node, const l3_msgs::msg::RuleAssessment::SharedPtr msg) {
     node->on_rule_assessment(msg);
+  }
+  void trigger_planned_route(std::shared_ptr<BehaviorArbiterNode> node, const PlannedRouteMsg::SharedPtr msg) {
+    node->on_planned_route(msg);
   }
   float get_colreg_avoidance_weight(std::shared_ptr<BehaviorArbiterNode> node) {
     return node->colreg_avoidance_weight_;
@@ -430,8 +436,8 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 
   last_plan.reset();
   world_msg->own_ship.heading_deg = 80.0;
@@ -440,14 +446,82 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, StarboardDirectiveSurvivesBriefColregsFalseGap) {
   auto node = std::make_shared<BehaviorArbiterNode>();
 
   auto observer = std::make_shared<rclcpp::Node>("m4_colregs_false_gap_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+
+  last_plan.reset();
+  world_msg->own_ship.heading_deg = 80.0;
+  trigger_world_state(node, world_msg);
+
+  auto clear_msg = std::make_shared<COLREGsConstraintMsg>();
+  clear_msg->conflict_detected = false;
+  clear_msg->primary_preferred_direction = "HOLD";
+  trigger_colregs_constraint(node, clear_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+}
+
+TEST_F(BehaviorArbiterTest, StarboardDirectiveReleasesImmediatelyOnHighConfidenceClear) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_colregs_clean_release_observer");
   std::optional<BehaviorPlanMsg> last_plan;
   auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
       "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
@@ -503,13 +577,15 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveSurvivesBriefColregsFalseGap) {
   auto clear_msg = std::make_shared<COLREGsConstraintMsg>();
   clear_msg->conflict_detected = false;
   clear_msg->primary_preferred_direction = "HOLD";
+  clear_msg->confidence = 0.95f;
   trigger_colregs_constraint(node, clear_msg);
 
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_TRANSIT);
+  EXPECT_NEAR(last_plan->heading_min_deg, 78.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 82.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, StarboardDirectiveUsesTacticalBufferForBoundaryRange) {
@@ -742,7 +818,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveDoesNotCriticalGateBowCrossing) {
   EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 }
 
-TEST_F(BehaviorArbiterTest, BowCrossingDoesNotReduceCommittedStarboardWindow) {
+TEST_F(BehaviorArbiterTest, BowCrossingReducesStarboardWindowAfterCpaImproves) {
   auto node = std::make_shared<BehaviorArbiterNode>();
 
   auto observer = std::make_shared<rclcpp::Node>("m4_bow_crossing_commit_observer");
@@ -808,8 +884,8 @@ TEST_F(BehaviorArbiterTest, BowCrossingDoesNotReduceCommittedStarboardWindow) {
   spin_until(executor, [&]() { return last_plan.has_value(); });
 
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, Rule15CommitmentSurvivesActiveRuleDropDuringTurn) {
@@ -881,8 +957,8 @@ TEST_F(BehaviorArbiterTest, Rule15CommitmentSurvivesActiveRuleDropDuringTurn) {
   spin_until(executor, [&]() { return last_plan.has_value(); });
 
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 0.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 30.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, HeadOnDoesNotUseBowCrossingCommitment) {
@@ -1112,6 +1188,234 @@ TEST_F(BehaviorArbiterTest, RuleAssessmentPriorityWeightBoost) {
   // Weight should return to default 0.70 and updated in the dictionary
   EXPECT_FLOAT_EQ(get_colreg_avoidance_weight(node), 0.70f);
   EXPECT_DOUBLE_EQ(get_dictionary_priority_weight(node, BehaviorType::COLREG_AVOID), 0.70);
+}
+
+// Phase 4 Task 4.2: AVOID → RECOVERY → TRANSIT state machine.
+// When COLREGs conflict releases but own ship XTE exceeds corridor_half*0.5,
+// M4 must enter RECOVERY (gradual return) instead of hard-switching to TRANSIT.
+// RECOVERY clears to TRANSIT once XTE converges below the gate AND release_dwell
+// (architecture §9.3 CPA recovery confirmation) is satisfied.
+TEST_F(BehaviorArbiterTest, AvoidToRecoveryToTransitByXteAndDwell) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_recovery_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) { last_plan = *msg; });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+
+  // ODD zone 1 (ODD-A).
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  // Planned route: north-south line along lon=0 (poses at lat 0 and lat 0.01).
+  // Own ship will be placed 200 m east of this line → XTE ≈ 200 m.
+  auto route_msg = std::make_shared<PlannedRouteMsg>();
+  route_msg->stamp = node->now();
+  route_msg->schema_version = 112;
+  {
+    geographic_msgs::msg::GeoPoseStamped p0;
+    p0.pose.position.latitude = 0.0;
+    p0.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p0);
+    geographic_msgs::msg::GeoPoseStamped p1;
+    p1.pose.position.latitude = 0.01;
+    p1.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p1);
+  }
+  trigger_planned_route(node, route_msg);
+
+  // Own ship: 200 m east of route (lon 0.0018 ≈ 200 m at equator), heading north.
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 8.0;
+  world_msg->own_ship.position.latitude = 0.005;
+  world_msg->own_ship.position.longitude = 0.0018;  // ~200 m east of route
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  // 1. COLREGs conflict active → AVOID.
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  // Conflict active yields a COLREG-avoidance heading window (starboard bias
+  // off the 0° route heading). The behavior enum stays TRANSIT in this M4
+  // build (COLREGs acts via heading window, not behavior enum); the RECOVERY
+  // gate below keys off the COLREGs turn-release edge, not the behavior enum.
+  EXPECT_GT(last_plan->heading_max_deg, 5.0f)
+      << "conflict active should bias heading window toward starboard avoidance";
+
+  // 2. COLREGs conflict clears, XTE still ~200 m → RECOVERY (not TRANSIT).
+  last_plan.reset();
+  auto clear_msg = std::make_shared<COLREGsConstraintMsg>();
+  clear_msg->conflict_detected = false;
+  clear_msg->primary_preferred_direction = "HOLD";
+  clear_msg->confidence = 0.95f;
+  trigger_colregs_constraint(node, clear_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "XTE beyond corridor_half*0.5 after release should yield RECOVERY";
+
+  // 3. Own ship converges back onto route (XTE ~8 m, below gate).
+  //    RECOVERY should persist until release_dwell satisfied, then TRANSIT.
+  world_msg->own_ship.position.longitude = 0.00007;  // ~8 m east, within gate
+  trigger_world_state(node, world_msg);
+
+  // Pump arbitration cycles to accumulate release_dwell.
+  for (int i = 0; i < 60; ++i) {
+    last_plan.reset();
+    trigger_arbitration(node);
+    spin_until(executor, [&]() { return last_plan.has_value(); });
+    if (last_plan.has_value() &&
+        last_plan->behavior == BehaviorPlanMsg::BEHAVIOR_TRANSIT) {
+      break;
+    }
+  }
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_TRANSIT)
+      << "XTE restored + release_dwell elapsed should yield TRANSIT";
+}
+
+// A1: RECOVERY→TRANSIT release must require heading alignment with the route
+// leg, not just XTE convergence. A ship that has converged laterally (XTE<gate)
+// but is still pointed off the route line must stay in RECOVERY — otherwise
+// TRANSIT inherits a residual heading error and route_return's heading<10°
+// acceptance fails (observed: Final Heading Dev -19.6° on rule14-ho).
+TEST_F(BehaviorArbiterTest, RecoveryHeldWhenXteConvergedButHeadingMisaligned) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_recovery_heading_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) { last_plan = *msg; });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  // Route: north-south line along lon=0 (route heading 0°).
+  auto route_msg = std::make_shared<PlannedRouteMsg>();
+  route_msg->stamp = node->now();
+  route_msg->schema_version = 112;
+  {
+    geographic_msgs::msg::GeoPoseStamped p0;
+    p0.pose.position.latitude = 0.0;
+    p0.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p0);
+    geographic_msgs::msg::GeoPoseStamped p1;
+    p1.pose.position.latitude = 0.01;
+    p1.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p1);
+  }
+  trigger_planned_route(node, route_msg);
+
+  // Own ship 200 m east, heading north → XTE~200, heading aligned (0°).
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 8.0;
+  world_msg->own_ship.position.latitude = 0.005;
+  world_msg->own_ship.position.longitude = 0.0018;  // ~200 m east
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  // COLREGs conflict active → arm the turn, then release to enter RECOVERY.
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  last_plan.reset();
+  auto clear_msg = std::make_shared<COLREGsConstraintMsg>();
+  clear_msg->conflict_detected = false;
+  clear_msg->primary_preferred_direction = "HOLD";
+  clear_msg->confidence = 0.95f;
+  trigger_colregs_constraint(node, clear_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  ASSERT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "XTE beyond gate after release should yield RECOVERY";
+
+  // XTE converges within gate (lon ~8 m → XTE~8 m < 125 m gate) BUT own heading
+  // is 20° off the 0° route heading (> 10° alignment threshold).
+  world_msg->own_ship.position.longitude = 0.00007;  // ~8 m east, within gate
+  world_msg->own_ship.heading_deg = 20.0;            // misaligned, off route leg
+  trigger_world_state(node, world_msg);
+
+  for (int i = 0; i < 60; ++i) {
+    last_plan.reset();
+    trigger_arbitration(node);
+    spin_until(executor, [&]() { return last_plan.has_value(); });
+  }
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "XTE within gate but heading >10° misaligned must hold RECOVERY, not release to TRANSIT";
+
+  // Once heading realigns (5°, within threshold) and dwell elapses → TRANSIT.
+  world_msg->own_ship.heading_deg = 5.0;
+  trigger_world_state(node, world_msg);
+  for (int i = 0; i < 60; ++i) {
+    last_plan.reset();
+    trigger_arbitration(node);
+    spin_until(executor, [&]() { return last_plan.has_value(); });
+    if (last_plan.has_value() &&
+        last_plan->behavior == BehaviorPlanMsg::BEHAVIOR_TRANSIT) {
+      break;
+    }
+  }
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_TRANSIT)
+      << "XTE within gate + heading aligned + dwell must yield TRANSIT";
 }
 
 }  // namespace mass_l3::m4

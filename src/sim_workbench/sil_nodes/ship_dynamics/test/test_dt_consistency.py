@@ -1,4 +1,4 @@
-"""Unit tests for Task A3: dt consistency + headless publish throttle.
+"""Unit tests for Task A3: dt consistency + sim-cadence publishing.
 
 TDD RED phase: these tests assert the DESIRED behavior.
 They will FAIL against the current code (hardcoded 0.02 on lines 268/288).
@@ -237,11 +237,11 @@ class TestDtConsistency(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — headless flag bypasses wall-clock throttle
+# Test 2 — publishing follows fixed sim cadence, not wall-clock throttles
 # ---------------------------------------------------------------------------
 
 class TestHeadlessPublish(unittest.TestCase):
-    """When headless=True, every _step_callback must publish (no wall-clock gate)."""
+    """Own-ship truth publishing must follow sim-time cadence, not wall-clock gaps."""
 
     def _make_headless_node(self) -> ShipDynamicsNode:
         # Use default dt=0.02 for simplicity here
@@ -263,9 +263,9 @@ class TestHeadlessPublish(unittest.TestCase):
         node._step_callback()
 
     def test_headless_publishes_every_step(self):
-        """headless=True: publish() must be called even when wall-clock gap < 0.025 s."""
+        """headless=True: publish() must be called even when a legacy wall-clock field is recent."""
         node = self._make_headless_node()
-        # Simulate wall-clock just updated (gap < 0.025 s would suppress in Shell-A)
+        # Simulate legacy wall-clock field just updated.
         import time
         node._last_pub_wall_time = time.monotonic()  # very recent → throttle would block
 
@@ -275,7 +275,7 @@ class TestHeadlessPublish(unittest.TestCase):
         node._state_pub.publish.assert_called_once()
 
     def test_shell_a_throttle_still_active_when_not_headless(self):
-        """headless=False (default): publish() must be suppressed if wall gap < 0.025 s."""
+        """headless=False: sim-truth publishing is still not gated by wall clock."""
         node = _make_node(dt=0.02)
         node._headless = False
         node._state_pub = MagicMock()
@@ -292,8 +292,26 @@ class TestHeadlessPublish(unittest.TestCase):
         node.get_clock = MagicMock(return_value=clock)
         node._step_callback()
 
-        # Shell-A throttle should suppress the publish
-        node._state_pub.publish.assert_not_called()
+        node._state_pub.publish.assert_called_once()
+
+    def test_catchup_publishes_fixed_sim_cadence(self):
+        """A 10x timer catch-up must publish at 10 Hz sim, not every physics step."""
+        node = _make_node(dt=0.02)
+        node._headless = False
+        node._state_pub = MagicMock()
+        import time
+        node._last_pub_wall_time = time.monotonic()
+
+        dt_ns = int(node._model.c.dt * 1e9)
+        t0_ns = 1_000_000_000
+        node._last_sim_time = FakeTime(nanoseconds=t0_ns)
+        now_sim = FakeTime(nanoseconds=t0_ns + 25 * dt_ns)
+        clock = MagicMock()
+        clock.now.return_value = now_sim
+        node.get_clock = MagicMock(return_value=clock)
+        node._step_callback()
+
+        self.assertEqual(node._state_pub.publish.call_count, 5)
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +324,7 @@ class TestHeadlessDefault(unittest.TestCase):
         node = _make_node(dt=0.02)
         self.assertFalse(
             getattr(node, "_headless", None),
-            msg="_headless must default to False; Shell A publish throttle must remain active.",
+            msg="_headless must default to False for config compatibility.",
         )
 
 

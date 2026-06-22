@@ -274,6 +274,56 @@ ConstraintCompiler::compile_colregs_rules(
 }
 
 // ===========================================================================
+// compile_cpa_distance() — CPA hard constraint: d_k^2 - cpa_safe^2 >= 0
+// Per (target, step). Target is constant-velocity from cog/sog.
+// ===========================================================================
+ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance(
+    const casadi::MX& psi_seq,
+    const casadi::MX& u_seq,
+    const ConstraintInputs& inputs,
+    double dt_s) const {
+  const int32_t N  = static_cast<int32_t>(psi_seq.size1());
+  const int32_t Nt = static_cast<int32_t>(inputs.targets.size());
+  if (N < 1 || Nt < 1) { return {}; }
+
+  const casadi::DM dt(dt_s);
+  const casadi::DM cpa_safe_sq(inputs.cpa_safe_m * inputs.cpa_safe_m);
+  casadi::MX cx(0.0);
+  casadi::MX cy(0.0);
+  std::vector<casadi::MX> g_rows;
+  std::vector<std::string> names;
+  g_rows.reserve(static_cast<std::size_t>(N * Nt));
+  names.reserve(static_cast<std::size_t>(N * Nt));
+
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX psi_k = psi_seq(casadi::Slice(k, k + 1));
+    const casadi::MX u_k   = u_seq(casadi::Slice(k, k + 1));
+    cx = cx + u_k * dt * casadi::MX::cos(psi_k);
+    cy = cy + u_k * dt * casadi::MX::sin(psi_k);
+    const double kdt = static_cast<double>(k) * dt_s;
+
+    for (int32_t t = 0; t < Nt; ++t) {
+      const auto& target = inputs.targets[static_cast<std::size_t>(t)];
+      const double tx = target.x_m
+          + target.sog_mps * std::cos(target.cog_rad) * kdt;
+      const double ty = target.y_m
+          + target.sog_mps * std::sin(target.cog_rad) * kdt;
+      const casadi::MX dx = cx - casadi::DM(tx);
+      const casadi::MX dy = cy - casadi::DM(ty);
+      g_rows.push_back(dx * dx + dy * dy - cpa_safe_sq);
+      names.push_back("cpa_distance_t" + std::to_string(t)
+                      + "_k" + std::to_string(k));
+    }
+  }
+
+  const int32_t total = static_cast<int32_t>(g_rows.size());
+  return {casadi::MX::vertcat(g_rows),
+          casadi::DM::zeros(total, 1),
+          casadi::DM::ones(total, 1) * kInf,
+          names};
+}
+
+// ===========================================================================
 // point_inside_convex() — minimum cross product over all edges (half-plane)
 // ===========================================================================
 casadi::MX ConstraintCompiler::point_inside_convex(

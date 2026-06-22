@@ -201,8 +201,8 @@ class TargetVesselNode(LifecycleNode):
         self._ownship_stale_warned = False
         self._ownship_sub = None
 
-        # Wall-clock publishing rate limiter
-        self._last_pub_wall_time: float = 0.0
+        # Last published simulation timestamp.
+        self._last_pub_sim_time: float = 0.0
 
 
     # ── Public helpers (preserved from original stub) ────────────────────
@@ -464,12 +464,7 @@ class TargetVesselNode(LifecycleNode):
             for t in self._targets:
                 t.step(dt=dt, ownship=ownship)
             self._last_sim_time += Duration(nanoseconds=int(dt * 1e9))
-
-        # Throttled target-vessel publishing to maximum of 25 Hz wall-clock rate
-        # to prevent WebSocket network congestion during simulation acceleration (10x, 50x)
-        now_wall = time.monotonic()
-        if now_wall - self._last_pub_wall_time >= 0.04:  # ~25 Hz limit
-            now_sim_msg = now_sim.to_msg()
+            now_sim_msg = self._last_sim_time.to_msg()
             for t in self._targets:
                 msg = TargetVesselState()
                 msg.stamp = now_sim_msg
@@ -483,7 +478,7 @@ class TargetVesselNode(LifecycleNode):
                 msg.ship_type = 1  # CARGO
                 msg.mode = _TARGET_MODE_TO_UINT8.get(t.mode.value, 0)
                 self._tv_pub.publish(msg)
-            self._last_pub_wall_time = now_wall
+            self._last_pub_sim_time = self._last_sim_time.nanoseconds / 1e9
 
 
 
