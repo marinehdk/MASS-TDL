@@ -791,3 +791,21 @@ Documentation-only setup for the next implementation phase. No behavior code cha
 
 ### Handoff Notes
 Next session should write an implementation plan from the spec before code changes. Start with trace/evidence gaps: M5 solve-cycle transitions, route/speed hashes, M6 encounter lifecycle/release, lifecycle valid-plan/autopilot state, and L4 execution source.
+
+## [2026-06-22] Agent
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Write the full implementation plan for generalized COLREGs repair using the approved full-chain debugging approach.
+
+### Core Changes
+- Added `docs/superpowers/plans/2026-06-22-colregs-generalized-repair.md`.
+- Plan enforces trace-first debugging, M5 `NORMAL`/`DEGRADED` oscillation diagnosis, strict 12-probe verification, and user approval before any scenario geometry or gate-threshold changes.
+
+### Current Status
+Plan-only update. No runtime code changed.
+
+### Handoff Notes
+Execute with `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Start with Task 0 baseline and Task 1 chain trace summarizer. Do not implement behavior fixes until chain evidence identifies the first broken stage.
