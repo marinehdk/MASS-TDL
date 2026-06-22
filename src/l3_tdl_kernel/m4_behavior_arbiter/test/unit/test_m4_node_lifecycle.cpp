@@ -436,8 +436,8 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 
   last_plan.reset();
   world_msg->own_ship.heading_deg = 80.0;
@@ -446,8 +446,8 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, StarboardDirectiveSurvivesBriefColregsFalseGap) {
@@ -499,8 +499,8 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveSurvivesBriefColregsFalseGap) {
   trigger_arbitration(node);
   spin_until(executor, [&]() { return last_plan.has_value(); });
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 
   last_plan.reset();
   world_msg->own_ship.heading_deg = 80.0;
@@ -818,7 +818,7 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveDoesNotCriticalGateBowCrossing) {
   EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
 }
 
-TEST_F(BehaviorArbiterTest, BowCrossingDoesNotReduceCommittedStarboardWindow) {
+TEST_F(BehaviorArbiterTest, BowCrossingReducesStarboardWindowAfterCpaImproves) {
   auto node = std::make_shared<BehaviorArbiterNode>();
 
   auto observer = std::make_shared<rclcpp::Node>("m4_bow_crossing_commit_observer");
@@ -884,8 +884,8 @@ TEST_F(BehaviorArbiterTest, BowCrossingDoesNotReduceCommittedStarboardWindow) {
   spin_until(executor, [&]() { return last_plan.has_value(); });
 
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, Rule15CommitmentSurvivesActiveRuleDropDuringTurn) {
@@ -957,8 +957,8 @@ TEST_F(BehaviorArbiterTest, Rule15CommitmentSurvivesActiveRuleDropDuringTurn) {
   spin_until(executor, [&]() { return last_plan.has_value(); });
 
   ASSERT_TRUE(last_plan.has_value());
-  EXPECT_NEAR(last_plan->heading_min_deg, 48.0f, 1e-3f);
-  EXPECT_NEAR(last_plan->heading_max_deg, 78.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_min_deg, 0.0f, 1e-3f);
+  EXPECT_NEAR(last_plan->heading_max_deg, 30.0f, 1e-3f);
 }
 
 TEST_F(BehaviorArbiterTest, HeadOnDoesNotUseBowCrossingCommitment) {

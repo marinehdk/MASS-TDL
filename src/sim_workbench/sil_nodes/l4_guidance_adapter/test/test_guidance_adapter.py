@@ -1197,6 +1197,46 @@ def test_cpa_aware_avoidance_transit_falls_back_when_no_avoidance_heading():
     assert cmd.throttle == pytest.approx(0.5)
 
 
+def test_cpa_aware_avoidance_transit_preserves_m5_speed_command():
+    """Active COLREGs avoidance regression must keep M5 tactical speed authority.
+
+    Rule13 overtake regression: M5 can request 14 kn while XTE is in the active
+    avoidance regression band. Treating that path as ordinary transit return
+    caps speed near 8-10 kn; in the SIL plant that settled at 6.67 kn, slower
+    than the 7 kn target, so the overtake could never complete.
+    """
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._avoidance_target_heading_deg = 55.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    node._avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(rationale="")
+    waypoint = SimpleNamespace(target_speed_kn=14.0)
+    node._last_avoidance_waypoint = waypoint
+    node._last_avoidance_waypoints = [waypoint]
+
+    east_deg = 350.0 / (111319.9 * math.cos(math.radians(63.0)))
+    own = {
+        "lat": 63.005,
+        "lon": 10.0 + east_deg,
+        "heading_deg": 0.0,
+        "sog_kn": 6.67,
+        "rot_deg_s": 0.0,
+    }
+
+    cmd = None
+    for _ in range(4):
+        cmd = L4GuidanceAdapterNode._compute_avoidance_transit_command(node, own)
+
+    assert cmd is not None
+    assert cmd.throttle > (14.0 / 25.0) + 0.05
+
+
 # ---------------------------------------------------------------------------
 # Fix-B: Committed avoidance heading must not be refreshed toward nominal.
 # Once the latched heading is >= 10° from nominal, M4 window updates that
@@ -1310,4 +1350,3 @@ def test_committed_avoidance_heading_allows_minor_reduction_within_hysteresis():
         "a minor M4 window dip within 5° hysteresis must NOT be frozen; "
         f"got {node._avoidance_target_heading_deg:.1f}°"
     )
-

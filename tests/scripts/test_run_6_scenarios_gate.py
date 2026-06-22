@@ -964,6 +964,50 @@ def test_c1_crossing_passes_past_beam_under_90deg_but_not_abaft_sector():
     )
 
 
+def test_c1_crossing_passes_astern_opening_safe_before_beam():
+    """Shallow Rule15 give-way may be safely past-clear before the target reaches
+    the 90° beam in relative bearing. If own is already abaft the target along
+    target course, TCPA is past, range is opening, and range is above CPA floor,
+    C1 should accept the astern/opening-safe condition."""
+    release_t = 225.0
+    release_range = 1200.0
+    release_bearing = 58.0
+    target_cog = 45.0
+    target_speed_mps = 3.0
+    rel_e = release_range * math.sin(math.radians(release_bearing))
+    rel_n = release_range * math.cos(math.radians(release_bearing))
+    vel_e = target_speed_mps * math.sin(math.radians(target_cog))
+    vel_n = target_speed_mps * math.cos(math.radians(target_cog))
+    start_e = rel_e - vel_e * release_t
+    start_n = rel_n - vel_n * release_t
+    targets_meta = [{
+        "lat0": start_n / 111120.0,
+        "lon0": start_e / (111120.0 * math.cos(math.radians(0.0))),
+        "cog": target_cog,
+        "sog_kn": target_speed_mps / 0.514444,
+    }]
+    own_records = [
+        {"topic": "/sil/own_ship_state", "sim_t": float(t),
+         "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 0.0}
+        for t in range(0, 401, 25)
+    ]
+    behavior_records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": float(t),
+         "behavior": 1 if 100 <= t <= 200 else 0}
+        for t in range(0, 401, 25)
+    ]
+
+    result = _c1_phase_semantics(
+        own_records=own_records, behavior_records=behavior_records,
+        targets_meta=targets_meta, cpa_safe_m=900.0,
+    )
+
+    assert result["evaluated"] is True
+    assert result["release_target_rel_bearing_deg"] < 90.0
+    assert result["c5_no_cross_ahead_ok"] is True
+    assert result["c1_past_clear_ok"] is True
+
+
 def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
     """Mechanical right-turn + early route return while the target is still on
     the bow (rel_brg ~36°) and tcpa>0 (CPA still ahead): C1 must stay RED. This

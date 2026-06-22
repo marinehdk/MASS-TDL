@@ -4,9 +4,12 @@
 #include <cmath>
 #include <limits>
 
+#include "m6_colregs_reasoner/types.hpp"
+
 namespace mass_l3::m6_colregs {
 
 constexpr double kGiveWayProjectionReleaseRangeMultiple = 1.0;
+constexpr double kGiveWayOpeningReleaseRangeMultiple = 1.0;
 constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
 // Crossing/head-on give-way projection release (REFERENCE_CLEAR gate): the
 // target must have drawn past the beam (relative bearing > 90°, strictly past
@@ -35,6 +38,19 @@ enum class GiveWayProjectionReleaseGate {
   REFERENCE_CLEAR,
   CURRENT_ABAFT,
 };
+
+inline bool evaluation_has_give_way_duty(const RuleEvaluation& eval) {
+  return eval.is_active &&
+      (eval.role == Role::GIVE_WAY || eval.role == Role::BOTH_GIVE_WAY);
+}
+
+inline bool give_way_duty_from_raw_or_fsm(
+    bool raw_give_way_duty,
+    bool fsm_engaged,
+    const RuleEvaluation& fsm_held_eval) {
+  return raw_give_way_duty ||
+      (fsm_engaged && evaluation_has_give_way_duty(fsm_held_eval));
+}
 
 inline double give_way_reference_heading_cpa_m(
     double range_m,
@@ -114,6 +130,37 @@ inline bool give_way_reference_heading_release_safe(
       own_speed_kn,
       reference_heading_deg);
   return std::isfinite(cpa_m) && cpa_m >= cpa_safe_m;
+}
+
+inline bool give_way_opening_reference_heading_release_safe(
+    bool range_closing,
+    double range_m,
+    double bearing_deg,
+    double target_heading_deg,
+    double target_speed_kn,
+    double own_speed_kn,
+    double reference_heading_deg,
+    double cpa_safe_m) {
+  if (range_closing ||
+      !std::isfinite(range_m) ||
+      !std::isfinite(cpa_safe_m) ||
+      cpa_safe_m <= 0.0 ||
+      range_m < cpa_safe_m * kGiveWayOpeningReleaseRangeMultiple) {
+    return false;
+  }
+
+  const double cpa_m = give_way_reference_heading_cpa_m(
+      range_m,
+      bearing_deg,
+      target_heading_deg,
+      target_speed_kn,
+      own_speed_kn,
+      reference_heading_deg);
+  return std::isfinite(cpa_m) && cpa_m >= cpa_safe_m;
+}
+
+inline bool give_way_opening_reference_release_applies_to_rule(int rule_id) {
+  return rule_id == 15;
 }
 
 inline bool give_way_projection_release_safe(

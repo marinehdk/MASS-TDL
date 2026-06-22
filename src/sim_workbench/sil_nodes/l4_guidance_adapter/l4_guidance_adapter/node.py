@@ -571,9 +571,10 @@ class L4GuidanceAdapterNode(Node):
             current_target_wp_lon=self._current_target_wp_lon,
         )
         target_speed_override = None
-        if self._last_avoidance_waypoint is not None:
+        last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
+        if last_waypoint is not None:
             waypoint_target_speed_kn = float(getattr(
-                self._last_avoidance_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
+                last_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
             route_speed_cap_kn = float(self._target_sog_kn)
             if not math.isfinite(route_speed_cap_kn) or route_speed_cap_kn <= 0.0:
                 route_speed_cap_kn = CRUISE_SPEED_KN
@@ -659,6 +660,26 @@ class L4GuidanceAdapterNode(Node):
         if abs(delta) > _REGRESSION_BASE_CAP_DEG:
             capped_delta = math.copysign(_REGRESSION_BASE_CAP_DEG, delta)
             avoidance_base = (nominal + capped_delta) % 360.0
+        target_sog_kn = self._target_sog_kn
+        last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
+        if last_waypoint is not None:
+            waypoint_target_speed_kn = float(getattr(
+                last_waypoint, "target_speed_kn", CRUISE_SPEED_KN))
+            if not math.isfinite(target_sog_kn) or target_sog_kn <= 0.0:
+                target_sog_kn = CRUISE_SPEED_KN
+            target_sog_kn = max(
+                target_sog_kn,
+                float(own.get("sog_kn", 0.0)),
+                CRUISE_SPEED_KN,
+            )
+            behavior_rationale = str(
+                getattr(getattr(self, "_last_behavior_plan", None), "rationale", ""))
+            reduce_speed_requested = "speed_reduction_preferred=true" in behavior_rationale
+            target_sog_kn = (
+                waypoint_target_speed_kn
+                if reduce_speed_requested and waypoint_target_speed_kn < target_sog_kn
+                else max(target_sog_kn, waypoint_target_speed_kn)
+            )
         return compute_transit_command(
             current_heading_deg=own["heading_deg"],
             current_sog_kn=own["sog_kn"],
@@ -666,12 +687,13 @@ class L4GuidanceAdapterNode(Node):
             own_lat=own["lat"],
             own_lon=own["lon"],
             target_heading_deg=avoidance_base,
-            target_sog_kn=self._target_sog_kn,
+            target_sog_kn=target_sog_kn,
             current_target_wp_lat=self._current_target_wp_lat,
             current_target_wp_lon=self._current_target_wp_lon,
             route_wps=self._route_wps,
             heading_controller=self._avoidance_heading_controller,
             speed_controller=self._speed_controller,
+            limit_speed_for_route_return=False,
             dt=dt,
         )
 

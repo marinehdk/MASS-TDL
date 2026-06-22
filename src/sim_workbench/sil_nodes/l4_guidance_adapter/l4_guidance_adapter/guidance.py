@@ -425,6 +425,7 @@ def compute_transit_command(
     route_wps: Sequence[tuple[float, float]],
     heading_controller: HeadingController,
     speed_controller: SpeedController,
+    limit_speed_for_route_return: bool = True,
     dt: float = 0.5,
 ) -> ActuatorCommand:
     effective_target_heading = target_heading_deg
@@ -460,7 +461,7 @@ def compute_transit_command(
         )
         xte_correction = max(-correction_limit, min(correction_limit, xte * 0.20))
         effective_target_heading = (effective_target_heading + xte_correction) % 360.0
-        if abs_xte > TRANSIT_RETURN_SOFT_XTE_M:
+        if limit_speed_for_route_return and abs_xte > TRANSIT_RETURN_SOFT_XTE_M:
             speed_cap = (
                 TRANSIT_RETURN_SOFT_SPEED_KN +
                 (TRANSIT_RETURN_HARD_SPEED_KN -

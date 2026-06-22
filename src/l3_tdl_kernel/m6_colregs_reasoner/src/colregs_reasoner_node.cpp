@@ -628,8 +628,21 @@ void ColregsReasonerNode::run_reasoning() {
             target.ownship_speed_kn,
             release_reference_heading,
             kParams.cpa_safe_m);
+    const bool give_way_opening_reference_heading_release_ok =
+        has_release_reference &&
+        give_way_opening_reference_heading_release_safe(
+            range_closing,
+            target.range_m,
+            target.bearing_deg,
+            target.target_heading_deg,
+            target.target_speed_kn,
+            target.ownship_speed_kn,
+            release_reference_heading,
+            kParams.cpa_safe_m);
     const bool give_way_reference_release_ok =
-        give_way_projection_release_reference_ok || give_way_reference_heading_release_ok;
+        give_way_projection_release_reference_ok ||
+        give_way_reference_heading_release_ok ||
+        give_way_opening_reference_heading_release_ok;
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
@@ -692,9 +705,10 @@ void ColregsReasonerNode::run_reasoning() {
         (give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.released()) ||
         (standon_latch_it != standon_latches_.end() && standon_latch_it->second.released());
     const bool reference_projection_resolved =
-        (rule13_projection_latched || rule15_projection_latched) &&
-        (((!range_closing) && give_way_projection_release_reference_ok) ||
-         give_way_reference_heading_release_ok);
+        ((rule13_projection_latched || rule15_projection_latched) &&
+         (((!range_closing) && give_way_projection_release_reference_ok) ||
+          give_way_reference_heading_release_ok)) ||
+        (rule15_projection_latched && give_way_opening_reference_heading_release_ok);
     const bool current_projection_resolved =
         (!range_closing) &&
         (rule14_projection_latched || duty_latched) &&
@@ -773,6 +787,10 @@ void ColregsReasonerNode::run_reasoning() {
         const bool fsm_engaged =
             fsm_state == EncounterState::ACTIVE ||
             fsm_state == EncounterState::MONITOR;
+        RuleEvaluation fsm_held_eval = eval;
+        if (fsm_engaged) {
+          fit->second.apply_onset(fsm_held_eval);
+        }
         // Gate the raw onset: if the FSM is not yet engaged (still in
         // PREPLAN/CANDIDATE because TCPA is too large), do not let the legacy
         // latch onset this cycle. This is the D-3 ample-time fix.
@@ -781,9 +799,11 @@ void ColregsReasonerNode::run_reasoning() {
         // detection and starves the Rule 17 in-extremis latch of the
         // duty-latched context it needs -- which delayed the stand-on's
         // forced action and drove CPA below the floor on rule17-cr-so.
-        const bool give_way_duty =
+        const bool raw_give_way_duty =
             eval.role == Role::GIVE_WAY ||
             eval.role == Role::BOTH_GIVE_WAY;
+        const bool give_way_duty = give_way_duty_from_raw_or_fsm(
+            raw_give_way_duty, fsm_engaged, fsm_held_eval);
         if (!fsm_engaged && give_way_duty) {
           eval.is_active = false;
         }
@@ -795,6 +815,8 @@ void ColregsReasonerNode::run_reasoning() {
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
         const bool rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
+            (!give_way_opening_reference_release_applies_to_rule(rid)) ?
+            (give_way_projection_release_reference_ok || give_way_reference_heading_release_ok) :
             give_way_reference_release_ok;
         bool latched = it->second.update(
             eval.is_active, target.cpa_m, range_closing, past_and_clear,
@@ -807,8 +829,8 @@ void ColregsReasonerNode::run_reasoning() {
         // stand-on carrier would starve the Rule 17 in-extremis path.
         if (fsm_engaged && !latched && give_way_duty) {
           latched = true;
-          if (!eval.is_active) {
-            it->second.apply_onset(eval);
+          if (!evaluation_has_give_way_duty(eval)) {
+            eval = fsm_held_eval;
             eval.rationale += " [held: encounter FSM engaged (Rule 13(d))]";
           }
         }

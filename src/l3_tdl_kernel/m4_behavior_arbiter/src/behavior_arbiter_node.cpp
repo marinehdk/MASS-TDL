@@ -547,10 +547,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         colregs_directive.primary_role == kRoleGiveWay &&
         !colregs_quartering_gate_;
     if (hold_bow_crossing_commitment) {
-      colregs_committed_required_dev_deg_ =
-          std::max(colregs_committed_required_dev_deg_, required_dev_deg);
-      required_dev_deg =
-          std::max(required_dev_deg, colregs_committed_required_dev_deg_);
+      colregs_committed_required_dev_deg_ = required_dev_deg;
     } else {
       colregs_committed_required_dev_deg_ = 0.0;
     }

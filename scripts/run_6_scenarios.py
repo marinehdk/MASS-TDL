@@ -841,7 +841,15 @@ def compute_phase_semantics(
         tcpa_past = rel_sample["tcpa_s"] < 0.0
         # Safe range: at/above cpa_safe AND opening.
         range_safe = rel_sample["range_m"] >= cpa_safe_m and range_opening
-        c1_ok = past_beam and tcpa_past and range_safe
+        astern_opening_safe = False
+        if "rule15" in rule_l:
+            cpa_sample = min(traj, key=lambda p: p["range_m"])
+            axis_e = math.sin(math.radians(cpa_sample["tcog"]))
+            axis_n = math.cos(math.radians(cpa_sample["tcog"]))
+            along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
+                    (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
+            astern_opening_safe = along < 0.0
+        c1_ok = (past_beam or astern_opening_safe) and tcpa_past and range_safe
     defaults["c1_past_clear_ok"] = c1_ok
 
     # ── C2: Rule 8(b) readily apparent, no succession of small alterations

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "m6_colregs_reasoner/colregs_release_policy.hpp"
+#include "m6_colregs_reasoner/types.hpp"
 
 namespace mass_l3::m6_colregs {
 namespace {
@@ -132,6 +133,59 @@ TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
       /*cpa_safe_m=*/926.0));
 }
 
+TEST(ColregsReleasePolicy, AllowsOpeningReferenceReleaseBeforeBeamWhenReturnCpaSafe) {
+  EXPECT_TRUE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/1200.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseWhileRangeClosing) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/true,
+      /*range_m=*/3719.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseInsideRangeMargin) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/800.0,
+      /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseWhenReturnCpaUnsafe) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/3719.0,
+      /*bearing_deg=*/45.0,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, OpeningReferenceReleaseAppliesOnlyToRule15Crossing) {
+  EXPECT_TRUE(give_way_opening_reference_release_applies_to_rule(15));
+  EXPECT_FALSE(give_way_opening_reference_release_applies_to_rule(13));
+}
+
 TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleasePastBeam) {
   // The projection REFERENCE_CLEAR gate is 90° for all give-way; overtaking's
   // stricter 112.5° past-clear is enforced in past_and_clear_from_heading
@@ -187,6 +241,17 @@ TEST(ColregsReleasePolicy, BlocksStandOnLateActionReleaseInsideEmergencyRange) {
       /*tcpa_s=*/-0.5,
       /*configured_cpa_safe_m=*/500.0,
       /*current_relative_bearing_abs_deg=*/29.0));
+}
+
+TEST(ColregsReleasePolicy, UsesFsmHeldGiveWayDutyWhenRawGeometryDropsOut) {
+  RuleEvaluation held_eval{};
+  held_eval.is_active = true;
+  held_eval.role = Role::GIVE_WAY;
+
+  EXPECT_TRUE(give_way_duty_from_raw_or_fsm(
+      /*raw_give_way_duty=*/false,
+      /*fsm_engaged=*/true,
+      held_eval));
 }
 
 }  // namespace
