@@ -169,8 +169,8 @@ def _target_state_at(meta: dict, sim_t: float, lat0: float, lon0: float) -> dict
     e0, n0 = _enu(tgt_lat0, tgt_lon0, lat0, lon0)
     vx_mps, vy_mps = _velocity_components_mps(sog_kn, cog)
     return {
-        "x_m": e0 + vx_mps * float(sim_t),
-        "y_m": n0 + vy_mps * float(sim_t),
+        "x_m": e0 + vx_mps * max(0.0, float(sim_t)),
+        "y_m": n0 + vy_mps * max(0.0, float(sim_t)),
         "cog": cog,
         "sog_kn": sog_kn,
         "sog_mps": _knots_to_mps(sog_kn),
@@ -202,12 +202,14 @@ def _infer_colregs_duty(encounter: dict, sim_t: float,
 
     return ColregsDuty.FREE
 
-def _avoidance_onset_s(run_records) -> float | None:
+def _avoidance_onset_s(run_records, *, min_sim_t: float | None = None) -> float | None:
     behavior_records = sorted(
         (r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"),
         key=lambda r: float(r.get("sim_t", 0.0)),
     )
     for record in behavior_records:
+        if min_sim_t is not None and float(record.get("sim_t", 0.0)) < min_sim_t:
+            continue
         if _is_avoidance_behavior(record):
             return float(record.get("sim_t", 0.0))
     return None
@@ -292,7 +294,8 @@ def compute_risk_metrics(run_records, targets_meta, *, lat0, lon0, encounter=Non
     if not ownship_records or not targets_meta:
         return _risk_metrics_defaults()
 
-    onset_s = _avoidance_onset_s(run_records)
+    scenario_origin_s = float(ownship_records[0].get("sim_t", 0.0))
+    onset_s = _avoidance_onset_s(run_records, min_sim_t=scenario_origin_s)
     ranking_state = RankingState()
     previous_primary_id = None
     primary_switches = 0
@@ -331,7 +334,8 @@ def compute_risk_metrics(run_records, targets_meta, *, lat0, lon0, encounter=Non
 
         risks = []
         for index, target_meta in enumerate(targets_meta):
-            target_state = _target_state_at(target_meta, sim_t, lat0, lon0)
+            target_state = _target_state_at(
+                target_meta, sim_t - scenario_origin_s, lat0, lon0)
             px = target_state["x_m"] - own_x
             py = target_state["y_m"] - own_y
             rvx = target_state["vx_mps"] - own_vx
@@ -785,6 +789,7 @@ def compute_phase_semantics(
         return defaults
     defaults["evaluated"] = True
 
+    scenario_origin_s = float(ownship[0].get("sim_t", 0.0))
     target_meta = targets_meta[0]
 
     # Build synchronized trajectory: ownship (x,y,hdg) + target (x,y) + CPA/TCPA.
@@ -796,7 +801,7 @@ def compute_phase_semantics(
         ohdg = float(r.get("heading_deg", 0.0))
         osog = float(r.get("sog_kn", 0.0))
         ovx, ovy = _velocity_components_mps(osog, ohdg)
-        ts = _target_state_at(target_meta, sim_t, lat0, lon0)
+        ts = _target_state_at(target_meta, sim_t - scenario_origin_s, lat0, lon0)
         px = ts["x_m"] - ox
         py = ts["y_m"] - oy
         rvx = ts["vx_mps"] - ovx
@@ -811,7 +816,7 @@ def compute_phase_semantics(
         })
 
     # Avoidance onset: first behavior != 0 after a TRANSIT run-in.
-    onset_s = _avoidance_onset_s(run_records)
+    onset_s = _avoidance_onset_s(run_records, min_sim_t=scenario_origin_s)
     defaults["onset_sim_t"] = onset_s if onset_s is not None else float("nan")
 
     # Avoidance release: the first sustained return to behavior==0 that is NOT
@@ -1028,7 +1033,14 @@ def compute_overtake_status(
     required=False,
     along_margin_m=0.0,
 ):
-    osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
+    osh = sorted(
+        (
+            r for r in run_records
+            if r.get("topic") == "/sil/own_ship_state" and
+            _ownship_record_near_origin(r, lat0, lon0)
+        ),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
     base = {
         "overtake_required": bool(required),
         "overtake_completed": not required,
@@ -1042,6 +1054,7 @@ def compute_overtake_status(
         base["overtake_completed"] = False
         return base
 
+    scenario_origin_s = float(osh[0].get("sim_t", 0.0))
     target = targets_meta[0]
     tgt_e0, tgt_n0 = _enu(target["lat0"], target["lon0"], lat0, lon0)
     axis_e = math.sin(math.radians(target["cog"]))
@@ -1054,9 +1067,10 @@ def compute_overtake_status(
     max_along = float("-inf")
     for r in osh:
         sim_t = float(r.get("sim_t", 0.0))
+        target_t = sim_t - scenario_origin_s
         own_e, own_n = _enu(r["lat"], r["lon"], lat0, lon0)
-        tgt_e = tgt_e0 + tgt_v_e * sim_t
-        tgt_n = tgt_n0 + tgt_v_n * sim_t
+        tgt_e = tgt_e0 + tgt_v_e * target_t
+        tgt_n = tgt_n0 + tgt_v_n * target_t
         along = (own_e - tgt_e) * axis_e + (own_n - tgt_n) * axis_n
         max_along = max(max_along, along)
         final_along = along

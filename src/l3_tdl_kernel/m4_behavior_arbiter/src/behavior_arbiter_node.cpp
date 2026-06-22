@@ -16,7 +16,9 @@ namespace mass_l3::m4 {
 using namespace std::chrono_literals;
 
 namespace {
+constexpr std::uint8_t kRoleStandOn = 0U;
 constexpr std::uint8_t kRoleGiveWay = 1U;
+constexpr std::uint8_t kRoleBothGiveWay = 2U;
 constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
 constexpr double kKnotsToMps = 0.5144444444444445;
 
@@ -24,6 +26,27 @@ struct PrimaryRiskGuidance {
   mass_l3::risk::RiskVector current;
   mass_l3::risk::RiskVector reduced_speed;
 };
+
+bool colregs_action_required(const COLREGsConstraintMsg& msg) {
+  if (!msg.conflict_detected) {
+    return false;
+  }
+  if (msg.phase.empty()) {
+    return true;  // legacy tests/messages before phase-aware activation.
+  }
+  if (msg.phase == "PRESERVE_COURSE") {
+    return false;
+  }
+  if (msg.primary_role == kRoleGiveWay || msg.primary_role == kRoleBothGiveWay) {
+    return msg.phase == "SOUND_WARNING" ||
+        msg.phase == "INDEPENDENT_ACTION" ||
+        msg.phase == "CRITICAL_ACTION";
+  }
+  if (msg.primary_role == kRoleStandOn) {
+    return msg.phase == "INDEPENDENT_ACTION" || msg.phase == "CRITICAL_ACTION";
+  }
+  return false;
+}
 
 double nav_heading_deg_to_math_rad(double heading_deg) {
   return (90.0 - heading_deg) * kDegToRad;
@@ -319,6 +342,7 @@ ArbitrationInputs BehaviorArbiterNode::build_inputs() const {
   if (colregs_received_ && latest_colregs_) {
     in.colregs_received = true;
     in.colregs_conflict_detected = latest_colregs_->conflict_detected;
+    in.colregs_action_required = colregs_action_required(*latest_colregs_);
     in.age_colregs_ms = (now - latest_colregs_->stamp).nanoseconds() / 1'000'000LL;
   }
 
@@ -352,6 +376,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
                colregs_inactive_cycles_ < kColregsReleaseDwellCycles) {
       ++colregs_inactive_cycles_;
       inputs.colregs_conflict_detected = true;
+      inputs.colregs_action_required = colregs_action_required(*last_active_colregs_);
       colregs_for_directive = last_active_colregs_;
       colregs_commit_hold = true;
     } else {

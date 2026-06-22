@@ -884,3 +884,43 @@ Fix the diagnostic gap where strict 12-probe RED scenarios could still show `cha
 ### Handoff Notes
 - Next behavior investigation should start at M6 for `rule15-ot-boundary`, not M5 tuning: phase semantics fail before route-return symptoms.
 - Do not change scenario geometry or thresholds unless M6 phase evidence proves the acceptance contract is physically contradictory and the user approves.
+
+## [2026-06-23] Agent: Codex - M4 action gate and runner time-origin fix
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Continue the generalized COLREGs chain repair on the isolated debug worktree, starting from `rule15-ot-boundary` first-broken-stage evidence without scenario tuning or threshold changes.
+
+### Core Changes
+- M4 Behavior Arbiter now distinguishes M6 transparency conflict from action-required phases. `COLREG_AVOID` activates only when M6 phase/role requires action, so `PRESERVE_COURSE` can release to TRANSIT while conflict monitoring remains true.
+- Added M4 regression coverage for conflict-only `PRESERVE_COURSE` and updated active COLREG tests to set `colregs_action_required`.
+- Fixed host-side strict-probe evaluator target kinematics to use run-relative elapsed time from the first valid ownship sample, not global `sim_t`. This prevents stale trace prefixes from making target vessels appear to have sailed for 100+ seconds before the current run starts.
+- `_avoidance_onset_s` now accepts `min_sim_t` so stale behavior samples before the current run origin do not contaminate phase/risk evaluation.
+
+### Current Status
+- Worktree: `.worktrees/colregs-generalization-debug`.
+- Branch: `codex/colregs-generalization-debug`.
+- M4 targeted verification passed in container.
+- Single live probe after both fixes: `runs/batch_20260622_235937_rule15_ot_boundary_relative_time.json`.
+- Trace/report: `runs/trace_eval/20260622_235937_rule15_ot_boundary_relative_time/`.
+- `rule15-ot-boundary` improved from phase/route-return failure to a single risk-domain failure:
+  - CPA: PASS, min DCPA 331.3m >= 270m.
+  - Phase: PASS, C3 onset TCPA 172s.
+  - Route return: PASS, final XTE 26.4m, heading dev -8.9deg.
+  - Seamanship: PASS.
+  - Stability: PASS.
+  - Risk: FAIL, danger exposure 9.5s, max danger DDV 0.0577.
+
+### Verification
+- Host: `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py tools/sil/test_colregs_chain_trace.py -q` -> 57 passed.
+- Container: `colcon build --packages-select m4_behavior_arbiter --cmake-args -DBUILD_TESTING=ON` -> passed.
+- Container: `colcon test --packages-select m4_behavior_arbiter --event-handlers console_direct+ --ctest-args -R test_behavior_activation` and `colcon test-result --verbose` -> 194 tests, 0 errors, 0 failures, 52 skipped.
+- Container: `colcon test --packages-select m4_behavior_arbiter --event-handlers console_direct+` and `colcon test-result --verbose` -> 302 tests, 0 errors, 0 failures, 52 skipped.
+- Live single-probe at 5x: `colreg-rule15-ot-boundary` -> RED only on risk gate, with phase/route/M4 release fixed.
+
+### Handoff Notes
+- Do not revert the runner relative-time fix to recover a PASS; the previous C3 PASS/FAIL state was using wrong target kinematics under stale global sim time.
+- Next generalized repair target is the M5/M7 risk-domain contract: M5 currently clears the scenario CPA floor but can still enter M7 danger domain for about 9.5s. Treat this as a system contract gap, not a scenario-specific threshold tweak.
+- If resolving risk-domain exposure requires changing scenario geometry or risk/CPA acceptance thresholds, pause and ask the user first.
