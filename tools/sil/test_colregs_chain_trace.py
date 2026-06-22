@@ -108,3 +108,25 @@ def test_solver_status_is_evidence_not_m5_health_flip():
     assert summary["m5"]["status_transitions"] == []
     assert summary["m5"]["valid_plan_samples"] == 1
     assert summary["diagnosis"]["first_broken_stage"] == "OK"
+
+
+def test_m5_enriched_rationale_does_not_change_status_transition_logic():
+    records = [
+        rec(
+            1.0,
+            "/l3/m5/avoidance_plan",
+            status="DEGRADED",
+            rationale="planner_health=GEOMETRIC_FALLBACK; semantic_mode=AVOIDANCE; fallback_reason=solver_failed",
+            waypoints=[{"turn_radius_m": 200.0}],
+        ),
+        rec(
+            2.0,
+            "/l3/m5/avoidance_plan",
+            status="RECOVERY",
+            rationale="planner_health=RECOVERY; semantic_mode=RECOVERY; fallback_reason=none",
+            waypoints=[{"turn_radius_m": 300.0}],
+        ),
+    ]
+    summary = build_chain_summary(records)
+    assert summary["m5"]["status_transitions"] == ["DEGRADED->RECOVERY"]
+    assert summary["m5"]["valid_plan_samples"] == 2
