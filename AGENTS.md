@@ -25,6 +25,19 @@ ROS2 DDS messages must preserve `stamp`, `schema_version`, `confidence` in `[0,1
 - Decision-core code must stay vessel-agnostic. Do not add `if vessel == ...` style FCB/product-specific constants to the architecture layer.
 - Certification-facing constraints are first-class: CCS i-Ship auditability, IMO MASS Code ODD visibility, IEC 61508 SIL2 for M1/M7/MRC dependencies, ISO 21448 SOTIF for degraded perception, and TMR >= 60 s.
 
+## COLREGs full-chain debugging rule
+
+COLREGs avoidance defects must be debugged as an end-to-end encounter lifecycle, not as one scenario/one patch tuning. Before changing behavior logic, collect or add evidence for every active stage in the chain:
+`L2 route/speed -> M2 world/CPA/geometry -> M6 rule/role/direction/release -> M4 behavior FSM -> M5 trajectory/status -> L4 guidance/execution -> M7 veto/MRM -> M8 evidence`.
+
+Mandatory discipline:
+- Do not tune thresholds, scenario geometry, scorer gates, or one module output just to turn a single probe green.
+- Do not add mocks, skips, forced PASS paths, vessel-specific branches, or scenario-id conditionals.
+- For each failed scenario, first classify which stage contract broke, using trace evidence. A fix is acceptable only when it explains why upstream inputs, internal state, output message, and downstream consumer behavior are all coherent.
+- M5 `NORMAL`/`DEGRADED` oscillation is a first-class chain fault. Treat it as unresolved until the trace separates solver health, fallback/recovery mode, behavior mode, route hash stability, valid-waypoint state, and L4/lifecycle takeover state.
+- L2 route or speed-profile republishing, M2 target identity churn, M6 encounter FSM re-arm, M4 behavior latch churn, M5 solver/fallback flips, L4 route-following override, and M7 veto must be checked together before any code change.
+- Recovery and route return must preserve COLREGs semantics: past-and-clear, no crossing ahead, ample time, CPA/risk floor, and stable return-to-route all have to hold together.
+
 ## design and documentation rules
 
 - Before a D-task, read in order: `docs/Design/00-master-plan.md`, the relevant `docs/Design/Phase N/00-overview.md`, the relevant D spec, then the relevant `TDL-Kernel/M{n}-*/M{n}-progress.md`.

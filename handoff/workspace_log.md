@@ -773,3 +773,21 @@ Audit 4c85cbaa WIP checkpoint vs Spec/Plan, strip batch-driven out-of-scope chan
 - Do not tune individual scenarios. Next fix should start from failure taxonomy: M6/M4 phase stability for rule14 intelligent, CPA margins for rule13/rule15, route-return semantics for rule15-ot-boundary, and risk-domain behavior for rule13 target-giveway.
 - Report aggregation inconsistency found and fixed after this snapshot: batch summary marks `colreg-rule15-cs-edge` RED via phase C5, so TraceEvaluationReport/dashboard must also show RED. The evidence folder was regenerated to 5/12 PASS.
 - Evidence: `runs/batch_12probe_current_20260622_162034.json`, `runs/batch_12probe_current_20260622_162034.log`, `runs/trace_eval/20260622_162034_clean12/`.
+## [2026-06-22] Agent
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Start next generalized COLREGs repair branch from a new isolated worktree and capture the approved full-chain debugging approach as durable project guidance.
+
+### Core Changes
+- Added `docs/superpowers/specs/2026-06-22-colregs-generalized-repair-design.md`.
+- Added AGENTS rule requiring COLREGs failures to be debugged through `L2 -> M2 -> M6 -> M4 -> M5 -> L4 -> M7 -> M8` evidence instead of one-scenario patches.
+- Captured M5 `NORMAL`/`DEGRADED` oscillation as a first-class chain fault requiring solver/fallback/route/lifecycle/L4 evidence before behavior edits.
+
+### Current Status
+Documentation-only setup for the next implementation phase. No behavior code changed in this entry.
+
+### Handoff Notes
+Next session should write an implementation plan from the spec before code changes. Start with trace/evidence gaps: M5 solve-cycle transitions, route/speed hashes, M6 encounter lifecycle/release, lifecycle valid-plan/autopilot state, and L4 execution source.
