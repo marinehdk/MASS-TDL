@@ -110,6 +110,9 @@ ColregsDirective extract_colregs_directive(const l3_msgs::msg::COLREGsConstraint
   out.conflict_active = msg.conflict_detected;
   out.primary_role = msg.primary_role;
   out.phase = msg.phase;
+  out.rule13_active = std::any_of(
+      msg.active_rules.begin(), msg.active_rules.end(),
+      [](const auto& rule) { return rule.rule_id == 13U; });
   out.rule15_active = std::any_of(
       msg.active_rules.begin(), msg.active_rules.end(),
       [](const auto& rule) { return rule.rule_id == 15U; });
@@ -152,8 +155,9 @@ void apply_primary_risk_guidance(
   // alone cannot achieve port-to-port passing geometry. Speed reduction may
   // still apply downstream as an auxiliary speed_max constraint (the
   // speed_reduction_preferred flag is not set here, but the risk phase stays
-  // visible to the planner). Give-way on Rule 13/16 is unaffected and may
-  // still prefer speed reduction per GiveWayOvertakingCanPreferSpeedReduction.
+  // visible to the planner). Rule 13 overtaking keeps the M6 starboard
+  // alteration geometry; non-overtaking give-way may still prefer speed
+  // reduction per GiveWayOvertakingCanPreferSpeedReduction.
   if (directive.rule14_active && directive.primary_role == kRoleBothGiveWay) {
     return;
   }
@@ -164,12 +168,14 @@ void apply_primary_risk_guidance(
       directive.rule15_active,
       directive.phase);
   const bool can_reduce_speed =
-      (!directive.rule15_active && duty == mass_l3::risk::ColregsDuty::GiveWay) ||
+      (!directive.rule13_active && !directive.rule15_active &&
+       duty == mass_l3::risk::ColregsDuty::GiveWay) ||
       duty == mass_l3::risk::ColregsDuty::BothGiveWay;
   const bool ample_tcpa = primary_risk.tcpa_s > 180.0;
   const bool outside_danger = !is_danger_or_critical(primary_risk);
+  const bool active_risk = primary_risk.risk_phase != mass_l3::risk::RiskPhase::Clear;
 
-  if (can_reduce_speed && ample_tcpa && outside_danger &&
+  if (can_reduce_speed && active_risk && ample_tcpa && outside_danger &&
       (speed_reduction_improves_margin(primary_risk, reduced_speed_risk) ||
        speed_reduction_arrests_closing(primary_risk, reduced_speed_risk))) {
     directive.direction = ColregsDirection::ReduceSpeed;

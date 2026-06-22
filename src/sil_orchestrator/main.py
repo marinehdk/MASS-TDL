@@ -18,6 +18,7 @@ from sil_orchestrator.config import RUN_DIR, EXPORT_DIR
 from sil_orchestrator.scenario_store import ScenarioStore
 from sil_orchestrator.selfcheck_routes import router as selfcheck_router
 from sil_orchestrator.export_routes import router as export_router
+from sil_orchestrator.evidence_routes import router as evidence_router
 from sil_orchestrator.scenario_routes import router as scenario_router
 from sil_orchestrator.schema_routes import router as schema_router
 from sil_orchestrator.scoring_routes import router as scoring_router, \
@@ -210,6 +211,7 @@ async def lifecycle_rate(request: dict):
 # Self-check, export, scenario CRUD, scoring, and encounter injection routes
 app.include_router(selfcheck_router)
 app.include_router(export_router)
+app.include_router(evidence_router)
 app.include_router(scenario_router)
 app.include_router(schema_router)
 app.include_router(scoring_router)

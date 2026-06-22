@@ -397,9 +397,15 @@ def report_from_runner_result(
     mission_pass = bool(
         result.get("route_corridor_ok")
         and ((not result.get("route_return_required")) or result.get("returned_to_route"))
+        and ((not result.get("overtake_required")) or result.get("overtake_completed"))
         and result.get("domain_gates", {}).get("seamanship_gate_ok", True)
     )
-    colregs_pass = str(result.get("compliance_verdict")) in {"full", "unknown"}
+    phase_semantics = result.get("phase_semantics") or {}
+    phase_semantics_ok = bool(phase_semantics.get("phase_semantics_ok", True))
+    colregs_pass = (
+        str(result.get("compliance_verdict")) in {"full", "unknown"}
+        and phase_semantics_ok
+    )
     stability_pass = bool(result.get("stability_pass"))
     return evaluate_trace(
         scenario_id=scenario_id,

@@ -186,17 +186,67 @@ TEST(ColregsReleasePolicy, OpeningReferenceReleaseAppliesOnlyToRule15Crossing) {
   EXPECT_FALSE(give_way_opening_reference_release_applies_to_rule(13));
 }
 
-TEST(ColregsReleasePolicy, AllowsOvertakingProjectionReleasePastBeam) {
-  // The projection REFERENCE_CLEAR gate is 90° for all give-way; overtaking's
-  // stricter 112.5° past-clear is enforced in past_and_clear_from_heading
-  // (reasoner_node.cpp), not in this projection gate.
-  EXPECT_TRUE(give_way_projection_release_safe(
-      /*cpa_projection_past_and_safe=*/true,
-      /*range_m=*/1852.0,
-      /*cpa_safe_m=*/926.0,
-      /*current_relative_bearing_abs_deg=*/75.0,
-      /*reference_relative_bearing_abs_deg=*/95.0,
-      GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
+TEST(ColregsReleasePolicy, ProjectionReferenceReleaseAppliesOnlyToRule15Crossing) {
+  EXPECT_TRUE(give_way_projection_reference_release_applies_to_rule(15));
+  EXPECT_FALSE(give_way_projection_reference_release_applies_to_rule(13));
+}
+
+TEST(ColregsReleasePolicy, GiveWayFinalReleaseUsesConfiguredReleaseFloor) {
+  EXPECT_DOUBLE_EQ(
+      give_way_final_release_cpa_floor_m(
+          /*configured_cpa_safe_m=*/1852.0,
+          /*configured_cpa_release_m=*/1000.0,
+          /*give_way_latched=*/true,
+          /*rule13_latched=*/false),
+      1000.0);
+}
+
+TEST(ColregsReleasePolicy, NonGiveWayFinalReleaseKeepsSafeFloor) {
+  EXPECT_DOUBLE_EQ(
+      give_way_final_release_cpa_floor_m(
+          /*configured_cpa_safe_m=*/1852.0,
+          /*configured_cpa_release_m=*/1000.0,
+          /*give_way_latched=*/false,
+          /*rule13_latched=*/false),
+      1852.0);
+}
+
+TEST(ColregsReleasePolicy, Rule13FinalReleaseUsesPastClearEmergencyFloor) {
+  EXPECT_DOUBLE_EQ(
+      give_way_final_release_cpa_floor_m(
+          /*configured_cpa_safe_m=*/1852.0,
+          /*configured_cpa_release_m=*/1000.0,
+          /*give_way_latched=*/true,
+          /*rule13_latched=*/true),
+      kFinallyPastClearEmergencyCpaM);
+}
+
+TEST(ColregsReleasePolicy, Rule13AlongAxisBlocksReleaseWhileOwnStillAbaftTarget) {
+  EXPECT_FALSE(rule13_overtaking_along_axis_past_clear(
+      /*range_m=*/700.0,
+      /*bearing_deg=*/344.0,
+      /*target_heading_deg=*/0.0));
+}
+
+TEST(ColregsReleasePolicy, Rule13AlongAxisAllowsReleaseAfterOwnPassesTarget) {
+  EXPECT_TRUE(rule13_overtaking_along_axis_past_clear(
+      /*range_m=*/700.0,
+      /*bearing_deg=*/164.0,
+      /*target_heading_deg=*/0.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksOvertakingProjectionReleaseBeforeRule13PastClear) {
+  // Rule 13 must not clear on the generic 90° REFERENCE_CLEAR projection gate.
+  // Overtaking release uses finally past-and-clear with the 112.5° Rule 13(b)
+  // sector, otherwise M6 releases and reacquires mid-overtake.
+  EXPECT_FALSE(give_way_projection_reference_release_applies_to_rule(13) &&
+      give_way_projection_release_safe(
+          /*cpa_projection_past_and_safe=*/true,
+          /*range_m=*/1852.0,
+          /*cpa_safe_m=*/926.0,
+          /*current_relative_bearing_abs_deg=*/75.0,
+          /*reference_relative_bearing_abs_deg=*/95.0,
+          GiveWayProjectionReleaseGate::REFERENCE_CLEAR));
 }
 
 TEST(ColregsReleasePolicy, AllowsStandOnLateActionReleaseAtEmergencyCpaFloor) {

@@ -327,6 +327,35 @@ class TestDirection:
         assert rep["checks"]["steering_reversals"]["pass"] is True
         assert rep["stability_pass"] is True, rep["checks"]
 
+    def test_recovery_behavior_after_conflict_release_does_not_fail_starboard_check(self):
+        recs = []
+        recs += [_oss(0.0, 0.0, 0.0), _m4(0.0, 0), _m5(0.0, "EMPTY"),
+                 _m6(0.0, False, 3)]
+        for t, h, rot in [
+            (120.0, 8.0, 1.0),
+            (400.0, 28.0, 0.2),
+            (900.0, 36.0, 0.0),
+            (1500.0, 36.0, 0.0),
+        ]:
+            recs += [_oss(t, h, rot), _m4(t, 1), _m5(t, "VALID"),
+                     _m6(t, True, 1)]
+        for t, h, rot in [
+            (1608.0, 32.0, -0.8),
+            (1680.0, 10.0, -1.0),
+            (1740.0, 355.0, -1.0),
+            (1760.0, 315.3, -0.8),
+        ]:
+            recs += [_oss(t, h, rot), _m4(t, 7), _m5(t, "VALID"),
+                     _m6(t, False, 3)]
+        recs += [_oss(1800.0, 0.0, 0.0), _m4(1800.0, 0), _m5(1800.0, "EMPTY"),
+                 _m6(1800.0, False, 3)]
+
+        rep = ss.analyze_stability(recs, role="give_way", init_heading_deg=0.0)
+
+        assert rep["checks"]["turn_starboard"]["pass"] is True
+        assert rep["kpis"]["max_starboard_dev_deg"] == 36.0
+        assert rep["stability_pass"] is True, rep["checks"]
+
 
 class TestM6Optional:
     def test_missing_m6_topic_degrades_gracefully(self):

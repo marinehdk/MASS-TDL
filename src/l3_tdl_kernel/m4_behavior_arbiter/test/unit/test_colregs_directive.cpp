@@ -220,6 +220,65 @@ TEST(ColregsDirective, GiveWayOvertakingCanPreferSpeedReductionWhenItArrestsClos
   EXPECT_EQ(directive.direction, ColregsDirection::ReduceSpeed);
 }
 
+TEST(ColregsDirective, Rule13GiveWayKeepsStarboardInsteadOfPureSpeedReduction) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 65.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "SOUND_WARNING";
+  directive.rule13_active = true;
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1100.0;
+  current_risk.closing_speed_mps = 2.4;
+  current_risk.tcpa_s = 520.0;
+  current_risk.warning_margin_m = -124.0;
+  current_risk.danger_margin_m = 410.0;
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Warning;
+  current_risk.risk_score = 0.27;
+
+  mass_l3::risk::RiskVector slowed_risk = current_risk;
+  slowed_risk.closing_speed_mps = 0.2;
+  slowed_risk.tcpa_s = 900.0;
+  slowed_risk.warning_margin_m = -80.0;
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+}
+
+TEST(ColregsDirective, ClearRiskDoesNotOverrideTurnWithSpeedReduction) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "SOUND_WARNING";
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1200.0;
+  current_risk.closing_speed_mps = 2.4;
+  current_risk.tcpa_s = 520.0;
+  current_risk.warning_margin_m = 500.0;
+  current_risk.danger_margin_m = 900.0;
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Clear;
+  current_risk.risk_score = 0.20;
+
+  mass_l3::risk::RiskVector slowed_risk = current_risk;
+  slowed_risk.closing_speed_mps = 0.2;
+  slowed_risk.tcpa_s = 900.0;
+  slowed_risk.warning_margin_m = 540.0;
+
+  apply_primary_risk_guidance(directive, current_risk, slowed_risk);
+
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+}
+
 // T9 / D-5: Rule 14 head-on (BOTH_GIVE_WAY) must NOT have its turn direction
 // overridden to REDUCE_SPEED. COLREG Rule 14(a) requires both vessels to alter
 // to starboard; speed reduction may serve as an auxiliary speed_max constraint

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import math
 import subprocess
 import sys
@@ -37,6 +38,15 @@ def _ownship_record(t_s, east_m, north_m, *, heading_deg=0.0, sog_kn=0.0):
         "lon": east_m / 111120.0,
         "heading_deg": heading_deg,
         "sog_kn": sog_kn,
+    }
+
+
+def _behavior_record(t_s, behavior, *, avoidance_active=False):
+    return {
+        "topic": "/l3/m4/behavior_plan",
+        "sim_t": t_s,
+        "behavior": behavior,
+        "avoidance_active": avoidance_active,
     }
 
 
@@ -455,6 +465,33 @@ def test_seamanship_metrics_integrate_abs_xte_and_overshoot():
     expected_path = 200.0 + 2.0 * math.hypot(200.0, 100.0)
     assert metrics["path_length_m"] == pytest.approx(expected_path, abs=1.0)
     assert metrics["path_length_ratio"] == pytest.approx(expected_path / 400.0, abs=0.01)
+
+
+def test_seamanship_metrics_stop_at_post_avoidance_transit_return():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 0.0, 0.0),
+        _ownship_record(50.0, 100.0, 0.0),
+        _ownship_record(100.0, 0.0, 100.0),
+        _ownship_record(200.0, 0.0, 300.0),
+        _behavior_record(0.0, 0),
+        _behavior_record(10.0, 1, avoidance_active=True),
+        _behavior_record(100.0, 0),
+    ]
+
+    metrics = runner.compute_seamanship_metrics(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+        route_distance_m=100.0,
+    )
+
+    expected_path = 100.0 + math.hypot(100.0, 100.0)
+    assert metrics["path_length_m"] == pytest.approx(expected_path, abs=1.0)
+    assert metrics["path_length_ratio"] == pytest.approx(expected_path / 100.0, abs=0.01)
 
 
 def test_compute_risk_metrics_detects_primary_target_and_exposure():
@@ -898,6 +935,35 @@ def test_runner_writes_trace_evaluation_report(tmp_path):
     assert "L5_route_recovery" in data["layers"]
 
 
+def test_trace_evaluation_report_uses_runner_phase_gate(tmp_path):
+    runner = _load_runner()
+    result = {
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+        "route_corridor_ok": True,
+        "route_return_required": True,
+        "returned_to_route": True,
+        "overtake_required": False,
+        "overtake_completed": True,
+        "compliance_verdict": "full",
+        "phase_semantics": {
+            "phase_semantics_ok": False,
+            "c5_no_cross_ahead_ok": False,
+        },
+        "stability_pass": True,
+        "overall_pass": False,
+    }
+
+    report_path = runner._write_trace_evaluation_report(
+        "colreg-rule15-cs-edge", result, tmp_path)
+
+    data = yaml.safe_load(Path(report_path).read_text())
+    assert data["verdict"]["overall_pass"] is False
+    assert data["verdict"]["colregs_pass"] is False
+    assert data["layers"]["L4_colregs_compliance"]["status"] == "FAIL"
+    assert data["first_failure"] == "L4_colregs_compliance"
+
+
 def test_runner_archives_per_scenario_raw_trace(tmp_path):
     runner = _load_runner()
     trace_path = tmp_path / "trace_current.jsonl"
@@ -1054,3 +1120,128 @@ def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
     assert result["c1_past_clear_ok"] is False, (
         "early return at rel_brg~36° with tcpa>0 must stay RED"
     )
+
+
+def _write_valid_trace(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for i in range(25):
+            f.write(json.dumps({
+                "sim_t": float(i),
+                "wall_t": 1000.0 + i,
+                "topic": "/sil/own_ship_state",
+                "lat": 63.44 + i * 0.00001,
+                "lon": 10.38,
+                "heading_deg": 360.0,
+                "sog_kn": 8.0,
+            }) + "\n")
+
+
+def _fake_runner_result():
+    return {
+        "run_id": "run-test",
+        "overall_pass": True,
+        "safety_pass": True,
+        "mission_pass": True,
+        "colregs_pass": True,
+        "stability_pass": True,
+        "min_cpa_m": 200.0,
+        "cpa_ok": True,
+        "cpa_floor_m": 180.0,
+        "steer_dir": "starboard",
+        "steer_mag": 30.0,
+        "stability_kpis": {},
+        "stability_checks": {},
+        "role": "give_way",
+        "returned_to_route": True,
+        "route_return_required": True,
+        "final_xte": 0.0,
+        "max_route_xte_m": 10.0,
+        "route_corridor_pass_limit_m": 500.0,
+        "route_corridor_ok": True,
+        "bp_transitions": [],
+    }
+
+
+def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.chdir(tmp_path)
+    _write_valid_trace(tmp_path / "runs" / "trace_current.jsonl")
+    monkeypatch.setattr(runner, "SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(runner, "ALL_SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(
+        runner,
+        "run_scenario",
+        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+    )
+
+    def fake_report(scenario_id, result, trace_report_dir):
+        path = Path(trace_report_dir) / f"{scenario_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "verdict": {
+                "overall_pass": True,
+                "safety_pass": True,
+                "mission_pass": True,
+                "colregs_pass": True,
+                "stability_pass": True,
+            }
+        }))
+        return str(path)
+
+    monkeypatch.setattr(runner, "_write_trace_evaluation_report", fake_report)
+    monkeypatch.setattr(
+        runner,
+        "generate_trajectory_dashboard",
+        lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
+    )
+
+    rc = runner.main([])
+
+    assert rc == 0
+    sessions = list((tmp_path / "runs" / "trace_eval").glob("*_clean8"))
+    assert len(sessions) == 1
+    assert (sessions[0] / "batch_summary.json").exists()
+    assert (sessions[0] / "colreg-rule14-ho.trace_current.jsonl").exists()
+    assert (sessions[0] / "colreg-rule14-ho_trajectory_dashboard.png").exists()
+
+
+def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.chdir(tmp_path)
+    _write_valid_trace(tmp_path / "runs" / "trace_current.jsonl")
+    monkeypatch.setattr(runner, "SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(runner, "ALL_SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(
+        runner,
+        "run_scenario",
+        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+    )
+
+    def fake_report(scenario_id, result, trace_report_dir):
+        path = Path(trace_report_dir) / f"{scenario_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "verdict": {
+                "overall_pass": True,
+                "safety_pass": True,
+                "mission_pass": True,
+                "colregs_pass": True,
+                "stability_pass": True,
+            }
+        }))
+        return str(path)
+
+    monkeypatch.setattr(runner, "_write_trace_evaluation_report", fake_report)
+    monkeypatch.setattr(
+        runner,
+        "generate_trajectory_dashboard",
+        lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
+    )
+
+    rc = runner.main(["--trace-report-dir", "runs/trace_eval/manual_dir"])
+
+    assert rc == 0
+    manual_dir = tmp_path / "runs" / "trace_eval" / "manual_dir"
+    assert (manual_dir / "manifest.json").exists()
+    assert (manual_dir / "batch_summary.json").exists()

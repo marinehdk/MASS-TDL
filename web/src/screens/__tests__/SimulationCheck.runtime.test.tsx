@@ -176,6 +176,8 @@ const mocks = vi.hoisted(() => ({
   stopRuntimeCoreStack: vi.fn(),
   switchRuntimePlugin: vi.fn(),
   probeRuntime: vi.fn(),
+  startEvidenceSession: vi.fn(),
+  finalizeEvidenceSession: vi.fn(),
   telemetryReset: vi.fn(),
   updateLifecycleStatus: vi.fn(),
   controlReset: vi.fn(),
@@ -211,6 +213,8 @@ vi.mock('../../api/silApi', () => ({
   useStopRuntimeCoreStackMutation: () => [mocks.stopRuntimeCoreStack],
   useSwitchRuntimePluginMutation: () => [mocks.switchRuntimePlugin],
   useProbeRuntimeMutation: () => [mocks.probeRuntime],
+  useStartEvidenceSessionMutation: () => [mocks.startEvidenceSession],
+  useFinalizeEvidenceSessionMutation: () => [mocks.finalizeEvidenceSession],
 }));
 
 vi.mock('../shared/GateSequencer', () => ({
@@ -310,6 +314,14 @@ describe('SimulationCheck runtime console', () => {
     mocks.probeRuntime.mockReset();
     mocks.probeRuntime.mockReturnValue({
       unwrap: () => Promise.resolve({ ...mocks.runtimeSummary, verdict: 'GO' }),
+    });
+    mocks.startEvidenceSession.mockReset();
+    mocks.startEvidenceSession.mockReturnValue({
+      unwrap: () => Promise.resolve({ session_id: '20260622_153012_frontend_safe_route' }),
+    });
+    mocks.finalizeEvidenceSession.mockReset();
+    mocks.finalizeEvidenceSession.mockReturnValue({
+      unwrap: () => Promise.resolve({ discarded: false }),
     });
   });
 
@@ -601,11 +613,38 @@ describe('SimulationCheck runtime console', () => {
     await waitFor(() => expect(mocks.configureLifecycle).toHaveBeenCalledWith('safe_route'));
     expect(mocks.cleanupLifecycle).not.toHaveBeenCalled();
     expect(mocks.activateLifecycle).toHaveBeenCalled();
+    expect(mocks.startEvidenceSession).toHaveBeenCalledWith({
+      source: 'frontend',
+      suite: 'frontend',
+      scenario_id: 'safe_route',
+    });
     expect(mocks.updateLifecycleStatus).toHaveBeenCalledWith({
       scenario_id: 'safe_route',
       current_state: 3,
       sim_time: 0,
     });
     expect(window.location.hash).toBe('#/monitor/safe_route');
+  });
+
+  it('finalizes frontend evidence session when configure fails after explicit GO', async () => {
+    mocks.verdict = 'GO';
+    mocks.configureLifecycle.mockReturnValue({
+      unwrap: () => Promise.resolve({ success: false, error: 'bad config' }),
+    });
+
+    render(<SimulationCheck />);
+    fireEvent.click(screen.getByRole('button', { name: '人工确认 GO' }));
+
+    await waitFor(() => expect(mocks.startEvidenceSession).toHaveBeenCalledWith({
+      source: 'frontend',
+      suite: 'frontend',
+      scenario_id: 'safe_route',
+    }));
+    await waitFor(() => expect(mocks.finalizeEvidenceSession).toHaveBeenCalledWith({
+      sessionId: '20260622_153012_frontend_safe_route',
+      scenario_id: 'safe_route',
+      status: 'error',
+    }));
+    expect(mocks.activateLifecycle).not.toHaveBeenCalled();
   });
 });
