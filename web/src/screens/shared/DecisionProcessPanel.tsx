@@ -105,6 +105,19 @@ function chainInputsText(sat2: SAT2Data | null): string | null {
   return entries.map(([key, value]) => `${key}: ${value}`).join(' · ');
 }
 
+function completeSotifMetrics(metrics: SotifMetrics | null): SotifMetrics | null {
+  if (!metrics) return null;
+  const values = [
+    metrics.ais_radar_consistency_sigma,
+    metrics.target_predictability_rms_m,
+    metrics.perception_coverage_pct,
+    metrics.colregs_parse_failures,
+    metrics.comm_link_rtt_ms,
+    metrics.checker_veto_rate_pct,
+  ];
+  return values.every((value) => typeof value === 'number' && Number.isFinite(value)) ? metrics : null;
+}
+
 export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
   phaseState,
   sat2,
@@ -114,6 +127,7 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
   const active = new Set(phaseState.activeModules);
   const { chain } = phaseState;
   const m6Inputs = chainInputsText(sat2);
+  const completeSotif = completeSotifMetrics(sotifMetrics);
 
   return (
     <div data-testid="decision-process-panel" style={{
@@ -210,7 +224,7 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
         <Field label="Description" value={chain.m7.description} />
         <div style={{ marginTop: 6, border: '1px solid var(--line-2)' }}>
           <SotifMonitorStrip
-            metrics={sotifMetrics}
+            metrics={completeSotif}
             recommendedMrm={safetyAlert?.recommendedMrm ?? undefined}
           />
         </div>

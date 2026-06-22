@@ -28,6 +28,8 @@ import { EncounterInjectPanel } from './shared/EncounterInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
+import { DecisionProcessPanel } from './shared/DecisionProcessPanel';
+import { deriveAvoidancePhaseState, type AvoidancePhase } from './shared/avoidancePhase';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { FsmStatePanel } from '../components/FsmStatePanel';
@@ -360,6 +362,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   const [activeRightTab, setActiveRightTab] = useState<RightTabId | null>(null);
   const [activeBottomModule, setActiveBottomModule] = useState<string | null>(null);
   const [radarRangeNM, setRadarRangeNM] = useState<RadarRangeNm>(12);
+  const previousAvoidancePhaseRef = useRef<AvoidancePhase | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
   useFoxgloveLive(wsUrl, true);
 
@@ -961,6 +964,50 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
   const simTimeSec = lifecycleStatus?.sim_time ?? 0;
   const lcState    = lifecycleStatus?.current_state;
+  const avoidancePhaseState = useMemo(() => deriveAvoidancePhaseState({
+    simTimeSec,
+    targets: targets.map((target) => {
+      const t = target as typeof target & {
+        cpaM?: number;
+        tcpaS?: number;
+        rngM?: number;
+        brgDeg?: number;
+        encounter?: string;
+      };
+      return {
+        mmsi: t.mmsi,
+        cpaM: t.cpaM,
+        tcpaS: t.tcpaS,
+        rngM: t.rngM,
+        brgDeg: t.brgDeg,
+        encounter: t.encounter,
+      };
+    }),
+    oddState,
+    colregsConstraint,
+    behaviorPlan,
+    avoidancePlan,
+    safetyAlert,
+    sat2,
+    sat3,
+    sotifMetrics,
+    previousPhase: previousAvoidancePhaseRef.current,
+  }), [
+    avoidancePlan,
+    behaviorPlan,
+    colregsConstraint,
+    oddState,
+    safetyAlert,
+    sat2,
+    sat3,
+    simTimeSec,
+    sotifMetrics,
+    targets,
+  ]);
+
+  useEffect(() => {
+    previousAvoidancePhaseRef.current = avoidancePhaseState.phase;
+  }, [avoidancePhaseState.phase]);
 
   useEffect(() => {
     if (lcState === 5 && !autoNavRef.current) {
@@ -1530,6 +1577,13 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
                 {activeRightTab === 'avoid' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <DecisionProcessPanel
+                      phaseState={avoidancePhaseState}
+                      sat2={sat2}
+                      sotifMetrics={sotifMetrics}
+                      safetyAlert={safetyAlert}
+                    />
+
                     {/* Card 1: ODD/FSM */}
                     <div 
                       onClick={() => setActiveBottomModule(activeBottomModule === 'M1' ? null : 'M1')}

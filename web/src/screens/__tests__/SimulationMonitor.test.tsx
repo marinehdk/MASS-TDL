@@ -167,6 +167,36 @@ describe('SimulationMonitor', () => {
     expect(screen.queryByText('航行状态')).not.toBeInTheDocument();
   });
 
+  it('maps monitor telemetry to the decision process panel', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      targets: [{
+        mmsi: 100000001,
+        cpaM: 926,
+        tcpaS: 180,
+        rngM: 2200,
+        brgDeg: 50,
+        encounter: 'CROSSING',
+      }],
+      colregsConstraint: {
+        ruleId: 15,
+        role: 1,
+        preferredDirection: 'STARBOARD',
+        minAlterationDeg: 30,
+        phase: 'T_avoid',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-avoid'));
+
+    expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
+    expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
+    expect(screen.getByText('15')).toBeInTheDocument();
+    expect(screen.getByText('STARBOARD')).toBeInTheDocument();
+    expect(screen.getByText('50.0° / 1.19 nm / 0.50 nm / 3.0 min')).toBeInTheDocument();
+  });
+
   it('MRC state applies blood-red border class', () => {
     useFsmStore.setState({ currentState: 'MRC', transitionHistory: [], torRequest: null });
     useUIStore.getState().setViewMode('captain');
