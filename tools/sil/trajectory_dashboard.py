@@ -18,6 +18,15 @@ from matplotlib.patches import FancyBboxPatch, Rectangle
 
 R_EARTH_M = 6371008.8
 
+DASHBOARD_STATIC_LABELS = (
+    "Own-Ship Track",
+    "Phase Legend",
+    "Navigation",
+    "Avoidance",
+    "Recovery",
+    "Trace Summary",
+)
+
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
@@ -200,7 +209,7 @@ def generate_trajectory_dashboard(
     })
     fig = plt.figure(figsize=(15.4, 11.2), dpi=100, facecolor="#f8fafc")
     fig.suptitle(
-        f"本船航线：{scenario_id}_{session_name}",
+        f"{DASHBOARD_STATIC_LABELS[0]}: {scenario_id}_{session_name}",
         fontsize=18,
         y=0.965,
         weight="bold",
@@ -213,15 +222,15 @@ def generate_trajectory_dashboard(
     panel.axis("off")
 
     legend_ax.text(
-        0.0, 0.98, "阶段注记",
+        0.0, 0.98, DASHBOARD_STATIC_LABELS[1],
         fontsize=12.5, weight="bold", color="#0f172a", va="top",
         transform=legend_ax.transAxes,
     )
     legend_y = 0.90
     for key, label in (
-        ("TRANSIT", "航行阶段"),
-        ("AVOIDANCE", "避碰阶段"),
-        ("RECOVERY", "恢复阶段"),
+        ("TRANSIT", DASHBOARD_STATIC_LABELS[2]),
+        ("AVOIDANCE", DASHBOARD_STATIC_LABELS[3]),
+        ("RECOVERY", DASHBOARD_STATIC_LABELS[4]),
     ):
         legend_ax.add_line(Line2D(
             [0.02, 0.32], [legend_y, legend_y],
@@ -259,7 +268,7 @@ def generate_trajectory_dashboard(
 
     metric_y = 0.35
     legend_ax.text(
-        0.0, metric_y, "轨迹摘要",
+        0.0, metric_y, DASHBOARD_STATIC_LABELS[5],
         fontsize=12.0, weight="bold", color="#0f172a", va="top",
         transform=legend_ax.transAxes,
     )
@@ -471,4 +480,3 @@ def generate_trajectory_dashboard(
     fig.savefig(output_png, facecolor=fig.get_facecolor())
     plt.close(fig)
     return output_png
-

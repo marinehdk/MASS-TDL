@@ -30,7 +30,8 @@ constexpr double kGiveWayProjectionReleaseCurrentAbaftDeg = 150.0;
 constexpr double kGiveWayProjectionReleaseReferenceBowClearDeg = 90.0;
 constexpr double kGiveWayReleaseKnToMps = 0.514444;
 constexpr double kGiveWayReleasePi = 3.14159265358979323846;
-constexpr double kStandOnEmergencyReleaseCpaM = 185.2;
+constexpr double kFinallyPastClearEmergencyCpaM = 185.2;
+constexpr double kStandOnEmergencyReleaseCpaM = kFinallyPastClearEmergencyCpaM;
 constexpr double kStandOnEmergencyReleaseRangeMultiple = 2.0;
 constexpr double kTcpaClampedPastEpsilonS = 0.5;
 
@@ -161,6 +162,47 @@ inline bool give_way_opening_reference_heading_release_safe(
 
 inline bool give_way_opening_reference_release_applies_to_rule(int rule_id) {
   return rule_id == 15;
+}
+
+inline bool give_way_projection_reference_release_applies_to_rule(int rule_id) {
+  return rule_id == 15;
+}
+
+inline double give_way_final_release_cpa_floor_m(
+    double configured_cpa_safe_m,
+    double configured_cpa_release_m,
+    bool give_way_latched,
+    bool rule13_latched) {
+  if (rule13_latched) {
+    return kFinallyPastClearEmergencyCpaM;
+  }
+  if (give_way_latched &&
+      std::isfinite(configured_cpa_release_m) &&
+      configured_cpa_release_m > 0.0) {
+    return configured_cpa_release_m;
+  }
+  return configured_cpa_safe_m;
+}
+
+inline bool rule13_overtaking_along_axis_past_clear(
+    double range_m,
+    double bearing_deg,
+    double target_heading_deg) {
+  if (!std::isfinite(range_m) ||
+      !std::isfinite(bearing_deg) ||
+      !std::isfinite(target_heading_deg) ||
+      range_m <= 0.0) {
+    return false;
+  }
+  const double bearing_rad = bearing_deg * kGiveWayReleasePi / 180.0;
+  const double target_heading_rad = target_heading_deg * kGiveWayReleasePi / 180.0;
+  const double rel_east_m = range_m * std::sin(bearing_rad);
+  const double rel_north_m = range_m * std::cos(bearing_rad);
+  const double target_axis_east = std::sin(target_heading_rad);
+  const double target_axis_north = std::cos(target_heading_rad);
+  const double own_minus_target_along_m =
+      -(rel_east_m * target_axis_east + rel_north_m * target_axis_north);
+  return own_minus_target_along_m > 0.0;
 }
 
 inline bool give_way_projection_release_safe(

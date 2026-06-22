@@ -401,11 +401,31 @@ def compute_risk_metrics(run_records, targets_meta, *, lat0, lon0, encounter=Non
 
 def compute_seamanship_metrics(run_records, *, lat0, lon0, init_lat, init_lon,
                                init_hdg, route_distance_m=None) -> dict:
+    behavior_records = sorted(
+        (
+            r for r in run_records
+            if r.get("topic") == "/l3/m4/behavior_plan"
+        ),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    maneuver_end_s = None
+    maneuver_started = False
+    for record in behavior_records:
+        behavior = int(record.get("behavior", 0))
+        avoidance_active = bool(record.get("avoidance_active", False))
+        if not maneuver_started and (behavior != 0 or avoidance_active):
+            maneuver_started = True
+            continue
+        if maneuver_started and behavior == 0 and not avoidance_active:
+            maneuver_end_s = float(record.get("sim_t", 0.0))
+            break
+
     ownship_records = sorted(
         (
             r for r in run_records
             if r.get("topic") == "/sil/own_ship_state" and
-            _ownship_record_near_origin(r, lat0, lon0)
+            _ownship_record_near_origin(r, lat0, lon0) and
+            (maneuver_end_s is None or float(r.get("sim_t", 0.0)) <= maneuver_end_s)
         ),
         key=lambda r: float(r.get("sim_t", 0.0)),
     )

@@ -133,7 +133,7 @@ private:
   // RECOVERY → TRANSIT when XTE restored AND release_dwell satisfied.
   bool   recovery_active_{false};       // currently in RECOVERY behavior
   int    recovery_dwell_cycles_{0};     // cycles XTE has been within gate
-  bool   prev_colregs_turn_active_{false};  // for COLREGs release edge detection
+  bool   colregs_recovery_armed_{false}; // true after a COLREG turn in current conflict
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

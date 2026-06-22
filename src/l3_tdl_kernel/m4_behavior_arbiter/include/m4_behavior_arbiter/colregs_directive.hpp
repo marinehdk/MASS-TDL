@@ -24,6 +24,7 @@ struct ColregsDirective {
   double min_alteration_deg{0.0};
   std::uint8_t primary_role{3U};
   std::string phase;
+  bool rule13_active{false};
   bool rule15_active{false};
   bool rule14_active{false};
   std::string primary_threat_id;

@@ -110,6 +110,13 @@ def _engagement_window(m4: List[dict]) -> Optional[Tuple[float, float]]:
     return (avoiding[0].get("sim_t", 0.0), avoiding[-1].get("sim_t", 0.0))
 
 
+def _conflict_window(m6: List[dict]) -> Optional[Tuple[float, float]]:
+    conflict = [r for r in m6 if bool(r.get("conflict_detected"))]
+    if not conflict:
+        return None
+    return (conflict[0].get("sim_t", 0.0), conflict[-1].get("sim_t", 0.0))
+
+
 def _records_until_release(records: List[dict], window: Optional[Tuple[float, float]],
                            post_release_s: float) -> List[dict]:
     if window is None:
@@ -324,11 +331,13 @@ def analyze_stability(
     m6 = _by_topic(records, COLREGS)
 
     window = _engagement_window(m4)
+    turn_window = _conflict_window(m6) or window
 
     behavior_toggles = _behavior_toggles(m4, th["max_behavior_gap_s"])
     plan_segments = _plan_valid_segments(m5, th["max_plan_valid_gap_s"])
     rot_hold_std = _rot_hold_std(oss, window, th["hold_trim_frac"])
     avoidance_records = _records_in_window(oss, window)
+    direction_records = _records_in_window(oss, turn_window)
     steering_reversals = _steering_reversals(avoidance_records, th["rot_deadband_dps"])
     colregs_window_records = _records_until_release(
         m6, window, th["post_release_monitor_s"])
@@ -336,7 +345,7 @@ def analyze_stability(
     conflict_toggles = _conflict_toggles(
         colregs_window_records, th["max_conflict_gap_s"])
     role_onset_changes = _role_onset_changes(colregs_window_records)
-    max_stbd, max_port = _peak_deviations(avoidance_records, init_heading_deg)
+    max_stbd, max_port = _peak_deviations(direction_records, init_heading_deg)
     premature = (_premature_giveway_deg(oss, init_heading_deg, th["standon_hold_frac"], m6)
                  if not is_give_way else None)
 
@@ -399,6 +408,7 @@ def analyze_stability(
             "max_starboard_dev_deg": round(max_stbd, 1),
             "max_port_dev_deg": round(max_port, 1),
             "engagement_window_s": None if window is None else [round(window[0], 1), round(window[1], 1)],
+            "turn_window_s": None if turn_window is None else [round(turn_window[0], 1), round(turn_window[1], 1)],
         },
         "checks": checks,
     }

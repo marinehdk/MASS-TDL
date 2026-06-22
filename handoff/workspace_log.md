@@ -728,3 +728,48 @@ Audit 4c85cbaa WIP checkpoint vs Spec/Plan, strip batch-driven out-of-scope chan
 - **trace 抓取**：`--trace-report-dir runs/trace_<tag>` 生成 `*.trace_current.jsonl`，含 own_ship/m4/m6/scoring/actuator/avoidance_plan topic，用 python jsonl 解析看时序。
 - **不动主 checkout；不碰 main stack mass-l3-sil；不降门槛；每关键决策写 mempalace_add_drawer；会话结束写 diary**。
 - **Evidence**：runs/batch_phase4_threshold_v2.json（v1 基线 1/12）、runs/batch_a1a2.log（v1 振荡 5/12）、runs/batch_a1a2v2.log（v2 滞回，5/12 跑完被打断）、runs/trace_r15cs2/（A2 根因铁证）、runs/trace_reports_rule17/（B 根因）。
+
+---
+
+## [2026-06-22 17:16] Agent: Codex — strict 12-probe snapshot + dashboard ASCII fix
+- **Git Commit**: none this turn. Worktree remains dirty from existing M4/M6/L4/scoring changes plus this dashboard-tool edit.
+- **Worktree**: `.worktrees/colregs-behavior-fix`, branch `codex/colregs-behavior-fix`.
+- **Task Goal**: run current strict clean 12-probe without further scenario tuning; fix trajectory dashboard Chinese glyph rendering by switching static labels to English.
+
+### Core Changes
+- `tools/sil/trajectory_dashboard.py`: replaced static CJK labels with ASCII English labels via `DASHBOARD_STATIC_LABELS`.
+- `tests/tools/test_trajectory_dashboard.py`: added ASCII-label regression guard.
+- Regenerated all 12 dashboard PNGs in `runs/trace_eval/20260622_162034_clean12/` using the patched renderer. The runner process had cached the old module, so stdout/log still contain glyph warnings, but final PNG artifacts are English.
+
+### Current Status
+- Strict command used:
+  ```bash
+  export SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1
+  python3 scripts/run_colregs_clean_8probe.py \
+    --include-intelligent \
+    --restart-between-runs \
+    --restart-container colregs-behavior-fix-sil-nodes-1 \
+    --restart-settle 120 \
+    --summary-out runs/batch_12probe_current_20260622_162034.json
+  ```
+- Result: **5/12 PASS**.
+- PASS: `colreg-rule14-ho`, `colreg-rule14-ho-port`, `colreg-rule17-cr-so`, `colreg-rule15-cs-intelligent`, `colreg-rule17-cr-so-target-giveway`.
+- RED:
+  - `colreg-rule13-ot`: CPA + stability.
+  - `colreg-rule15-cs`: CPA 894.0 < 900.
+  - `colreg-rule15-cs-2`: CPA 895.2 < 900.
+  - `colreg-rule15-cs-edge`: batch summary `phase_semantics.c5_no_cross_ahead_ok=False` even though per-scenario TraceEvaluationReport says PASS.
+  - `colreg-rule15-ot-boundary`: route_return + phase C3 + seamanship.
+  - `colreg-rule14-ho-intelligent`: stability toggles.
+  - `colreg-rule13-ot-target-giveway`: risk gate.
+
+### Verification
+- `python3 -m pytest tests/tools/test_trajectory_dashboard.py -q` -> 3 passed.
+- `rg -n "[\\x{4e00}-\\x{9fff}]" tools/sil/trajectory_dashboard.py tests/tools/test_trajectory_dashboard.py` -> no hits.
+- `find runs/trace_eval/20260622_162034_clean12 -maxdepth 1 -name '*_trajectory_dashboard.png' | wc -l` -> 12.
+
+### Handoff Notes
+- Do not treat this as promotion-ready. Current gate is 5/12.
+- Do not tune individual scenarios. Next fix should start from failure taxonomy: M6/M4 phase stability for rule14 intelligent, CPA margins for rule13/rule15, route-return semantics for rule15-ot-boundary, and risk-domain behavior for rule13 target-giveway.
+- Report aggregation inconsistency found and fixed after this snapshot: batch summary marks `colreg-rule15-cs-edge` RED via phase C5, so TraceEvaluationReport/dashboard must also show RED. The evidence folder was regenerated to 5/12 PASS.
+- Evidence: `runs/batch_12probe_current_20260622_162034.json`, `runs/batch_12probe_current_20260622_162034.log`, `runs/trace_eval/20260622_162034_clean12/`.

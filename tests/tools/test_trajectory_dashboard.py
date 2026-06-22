@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tools.sil import trajectory_dashboard
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
 
@@ -108,3 +109,9 @@ def test_generate_dashboard_png_without_report(tmp_path: Path):
     assert result.exists()
     assert output.stat().st_size > 20_000
 
+
+def test_dashboard_static_labels_are_ascii():
+    labels = trajectory_dashboard.DASHBOARD_STATIC_LABELS
+
+    assert labels
+    assert all(label.isascii() for label in labels)

@@ -802,14 +802,17 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   }
 
   // Phase 4: AVOID → RECOVERY → TRANSIT (architecture §8.3).
-  // COLREGs turn release is detected via the colregs_turn_active falling edge.
-  // When release occurs with XTE beyond corridor_half*0.5, M4 holds RECOVERY
-  // (gradual return-to-route) instead of hard-switching to TRANSIT. Clears to
-  // TRANSIT once XTE is restored within the gate for release_dwell cycles.
-  const bool colregs_turn_released = prev_colregs_turn_active_ && !colregs_turn_active;
-  prev_colregs_turn_active_ = colregs_turn_active;
+  // RECOVERY is allowed only after M6 releases the conflict. A temporary loss of
+  // turn direction while conflict_detected remains true is still active COLREGs,
+  // not route recovery.
   if (colregs_turn_active) {
-    // Active COLREGs turn cancels any in-progress recovery.
+    colregs_recovery_armed_ = true;
+  }
+  const bool colregs_conflict_active = inputs.colregs_conflict_detected;
+  const bool colregs_conflict_released =
+      colregs_recovery_armed_ && !colregs_conflict_active;
+  if (colregs_conflict_active) {
+    // Active COLREGs conflict cancels any in-progress recovery.
     recovery_active_ = false;
     recovery_dwell_cycles_ = 0;
   } else {
@@ -829,9 +832,12 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       } else if (++recovery_dwell_cycles_ >= kRecoveryReleaseDwellCycles) {
         recovery_active_ = false;    // XTE + heading restored + dwell → TRANSIT
       }
-    } else if (colregs_turn_released && xte_beyond_gate) {
+    } else if (colregs_conflict_released && xte_beyond_gate) {
       recovery_active_ = true;       // release with XTE偏离 → enter RECOVERY
       recovery_dwell_cycles_ = 0;
+    }
+    if (colregs_conflict_released) {
+      colregs_recovery_armed_ = false;
     }
     if (recovery_active_) {
       primary = BehaviorType::RECOVERY;

@@ -41,6 +41,15 @@ def _ownship_record(t_s, east_m, north_m, *, heading_deg=0.0, sog_kn=0.0):
     }
 
 
+def _behavior_record(t_s, behavior, *, avoidance_active=False):
+    return {
+        "topic": "/l3/m4/behavior_plan",
+        "sim_t": t_s,
+        "behavior": behavior,
+        "avoidance_active": avoidance_active,
+    }
+
+
 def _risk_defaults(**overrides):
     values = {
         "primary_threat_id": "",
@@ -456,6 +465,33 @@ def test_seamanship_metrics_integrate_abs_xte_and_overshoot():
     expected_path = 200.0 + 2.0 * math.hypot(200.0, 100.0)
     assert metrics["path_length_m"] == pytest.approx(expected_path, abs=1.0)
     assert metrics["path_length_ratio"] == pytest.approx(expected_path / 400.0, abs=0.01)
+
+
+def test_seamanship_metrics_stop_at_post_avoidance_transit_return():
+    runner = _load_runner()
+    records = [
+        _ownship_record(0.0, 0.0, 0.0),
+        _ownship_record(50.0, 100.0, 0.0),
+        _ownship_record(100.0, 0.0, 100.0),
+        _ownship_record(200.0, 0.0, 300.0),
+        _behavior_record(0.0, 0),
+        _behavior_record(10.0, 1, avoidance_active=True),
+        _behavior_record(100.0, 0),
+    ]
+
+    metrics = runner.compute_seamanship_metrics(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+        route_distance_m=100.0,
+    )
+
+    expected_path = 100.0 + math.hypot(100.0, 100.0)
+    assert metrics["path_length_m"] == pytest.approx(expected_path, abs=1.0)
+    assert metrics["path_length_ratio"] == pytest.approx(expected_path / 100.0, abs=0.01)
 
 
 def test_compute_risk_metrics_detects_primary_target_and_exposure():
@@ -888,6 +924,35 @@ def test_runner_writes_trace_evaluation_report(tmp_path):
     assert data["threshold_provenance"]["threshold_formula"] == "4.0L"
     assert data["verdict"]["overall_pass"] is True
     assert "L5_route_recovery" in data["layers"]
+
+
+def test_trace_evaluation_report_uses_runner_phase_gate(tmp_path):
+    runner = _load_runner()
+    result = {
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+        "route_corridor_ok": True,
+        "route_return_required": True,
+        "returned_to_route": True,
+        "overtake_required": False,
+        "overtake_completed": True,
+        "compliance_verdict": "full",
+        "phase_semantics": {
+            "phase_semantics_ok": False,
+            "c5_no_cross_ahead_ok": False,
+        },
+        "stability_pass": True,
+        "overall_pass": False,
+    }
+
+    report_path = runner._write_trace_evaluation_report(
+        "colreg-rule15-cs-edge", result, tmp_path)
+
+    data = yaml.safe_load(Path(report_path).read_text())
+    assert data["verdict"]["overall_pass"] is False
+    assert data["verdict"]["colregs_pass"] is False
+    assert data["layers"]["L4_colregs_compliance"]["status"] == "FAIL"
+    assert data["first_failure"] == "L4_colregs_compliance"
 
 
 def test_runner_archives_per_scenario_raw_trace(tmp_path):
