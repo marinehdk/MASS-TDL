@@ -194,7 +194,10 @@ describe('SimulationMonitor', () => {
     expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
     expect(screen.getByText('15')).toBeInTheDocument();
     expect(screen.getByText('STARBOARD')).toBeInTheDocument();
-    expect(screen.getByText('50.0° / 1.19 nm / 0.50 nm / 3.0 min')).toBeInTheDocument();
+    expect(screen.getByText('相对方位 BRG')).toBeInTheDocument();
+    expect(screen.getByText('当前距离 RNG')).toBeInTheDocument();
+    expect(screen.getByText('最近会遇 CPA')).toBeInTheDocument();
+    expect(screen.getByText('会遇时间 TCPA')).toBeInTheDocument();
     expect(screen.getByTestId('decision-event-M6_RULE_ASSERTED')).toBeInTheDocument();
   });
 

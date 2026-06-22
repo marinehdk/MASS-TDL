@@ -105,6 +105,14 @@ function chainInputsText(sat2: SAT2Data | null): string | null {
   return entries.map(([key, value]) => `${key}: ${value}`).join(' · ');
 }
 
+function topDirectionCosts(sat2: SAT2Data | null): string {
+  const top = [...(sat2?.ivp_contributions ?? [])]
+    .sort((a, b) => b.cost - a.cost)
+    .slice(0, 3);
+  if (top.length === 0) return '—';
+  return top.map((item) => `${String(item.direction_deg).padStart(3, '0')}° ${item.cost.toFixed(2)}`).join(' · ');
+}
+
 function completeSotifMetrics(metrics: SotifMetrics | null): SotifMetrics | null {
   if (!metrics) return null;
   const values = [
@@ -189,7 +197,12 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
         <Field label="Direction" value={chain.m6.preferredDirection} />
         <Field label="Alter" value={chain.m6.minAlterationDeg !== null ? `${chain.m6.minAlterationDeg.toFixed(0)}°` : '—'} />
         <Field label="Phase" value={chain.m6.phase} />
-        <Field label="M2 几何" value={m6Inputs ?? `${fmtDeg(chain.m2.bearingDeg)} / ${fmtNm(chain.m2.rangeNm)} / ${fmtNm(chain.m2.cpaNm)} / ${fmtMin(chain.m2.tcpaMin)}`} />
+        <Field label="相对方位 BRG" value={fmtDeg(chain.m2.bearingDeg)} />
+        <Field label="当前距离 RNG" value={fmtNm(chain.m2.rangeNm)} />
+        <Field label="最近会遇 CPA" value={fmtNm(chain.m2.cpaNm)} />
+        <Field label="会遇时间 TCPA" value={fmtMin(chain.m2.tcpaMin)} />
+        <Field label="会遇类型 Encounter" value={chain.m2.encounter ?? '—'} />
+        <Field label="M6 输入链" value={m6Inputs ?? '—'} />
         {sat2?.colregs_chain?.length ? (
           <div style={{ marginTop: 6, border: '1px solid var(--line-2)' }}>
             <ColregsRationaleTree
@@ -206,7 +219,7 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({
         <Field label="HDG Window" value={chain.m4.headingWindow} />
         <Field label="SPD Window" value={chain.m4.speedWindow} />
         <Field label="Confidence" value={fmtPercent(chain.m4.confidence)} />
-        <Field label="方向代价" value={(sat2?.ivp_contributions?.length ?? 0) > 0 ? `${sat2!.ivp_contributions.length} dirs` : '—'} />
+        <Field label="方向代价 Top3" value={topDirectionCosts(sat2)} />
       </ModuleBlock>
 
       <ModuleBlock id="M5" title="规划" active={active.has('M5')}>
