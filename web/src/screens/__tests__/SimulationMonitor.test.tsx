@@ -93,10 +93,48 @@ describe('SimulationMonitor', () => {
     expect(useUIStore.getState().viewMode).toBe('engineer');
   });
 
-  it('renders Captain and Monitor tab rails', () => {
+  it('renders merged monitor tab rail', () => {
     render(<SimulationMonitor />);
-    expect(screen.getByTestId('left-tab-ship')).toBeInTheDocument();
+    expect(screen.getByTestId('right-tab-ship')).toBeInTheDocument();
+    expect(screen.getByTestId('right-tab-threat')).toBeInTheDocument();
+    expect(screen.getByTestId('right-tab-avoid')).toBeInTheDocument();
     expect(screen.getByTestId('right-tab-asdr')).toBeInTheDocument();
+    expect(screen.queryByTestId('left-tab-ship')).not.toBeInTheDocument();
+  });
+
+  it('places an expanded radar panel with sparse range rings and zoom controls on Screen 03', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      ownShip: {
+        pose: { lat: 63.4, lon: 10.4, heading: 0.0 },
+        kinematics: { sog: 5, cog: 0, rot: 0, u: 5, v: 0, r: 0 },
+        controlState: { rudderAngle: 0, throttle: 0 },
+      },
+      targets: [{
+        mmsi: 100000001,
+        pose: { lat: 63.43, lon: 10.46, heading: Math.PI / 2 },
+        kinematics: { sog: 6, cog: Math.PI / 2, rot: 0 },
+        cpaM: 926,
+        tcpaS: 180,
+      }],
+    } as any);
+
+    render(<SimulationMonitor />);
+
+    expect(screen.getByTestId('monitor-radar-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('radar-ppi-display')).toHaveStyle({ width: '460px', height: '460px' });
+    expect(screen.getByText('2nm')).toBeInTheDocument();
+    expect(screen.getByText('6nm')).toBeInTheDocument();
+    expect(screen.getByText('10nm')).toBeInTheDocument();
+    expect(screen.queryByText('4nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('8nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('12nm')).not.toBeInTheDocument();
+    expect(screen.getByTestId('radar-range-12')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('radar-range-6'));
+
+    expect(screen.getByTestId('radar-range-6')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('6 NM');
   });
 
   it('offers only CPU-supported simulation rates', () => {
@@ -115,7 +153,7 @@ describe('SimulationMonitor', () => {
 
   it('clicking captain tab toggles state and displays content panel', () => {
     render(<SimulationMonitor />);
-    const shipTab = screen.getByTestId('left-tab-ship');
+    const shipTab = screen.getByTestId('right-tab-ship');
     
     // Collapsed by default, ship status details not rendered
     expect(screen.queryByText('航行状态')).not.toBeInTheDocument();
@@ -162,7 +200,7 @@ describe('SimulationMonitor', () => {
     } as any);
 
     render(<SimulationMonitor />);
-    const shipTab = screen.getByTestId('left-tab-ship');
+    const shipTab = screen.getByTestId('right-tab-ship');
     fireEvent.click(shipTab);
 
     // Expect heading converted to degrees: 0.5 rad -> 28.6°
@@ -186,7 +224,7 @@ describe('SimulationMonitor', () => {
     } as any);
 
     render(<SimulationMonitor />);
-    const shipTab = screen.getByTestId('left-tab-ship');
+    const shipTab = screen.getByTestId('right-tab-ship');
     fireEvent.click(shipTab);
 
     // Expect rudder angle: -5° L
@@ -223,7 +261,7 @@ ownShip:
     } as any);
 
     render(<SimulationMonitor />);
-    const shipTab = screen.getByTestId('left-tab-ship');
+    const shipTab = screen.getByTestId('right-tab-ship');
     fireEvent.click(shipTab);
 
     // Expect source badge to render YAML source label
@@ -254,7 +292,7 @@ ownShip:
     } as any);
 
     render(<SimulationMonitor />);
-    const shipTab = screen.getByTestId('left-tab-ship');
+    const shipTab = screen.getByTestId('right-tab-ship');
     fireEvent.click(shipTab);
 
     // Expect source badge to render L2 real-time label
@@ -290,7 +328,7 @@ ownShip:
     } as any);
 
     render(<SimulationMonitor />);
-    fireEvent.click(screen.getByTestId('left-tab-ship'));
+    fireEvent.click(screen.getByTestId('right-tab-ship'));
 
     expect(screen.getByText('L2 实时系统')).toBeInTheDocument();
     expect(screen.getByText('WP02')).toBeInTheDocument();
@@ -318,12 +356,34 @@ ownShip:
     } as any);
 
     render(<SimulationMonitor />);
-    fireEvent.click(screen.getByTestId('left-tab-threat'));
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
 
     expect(screen.getByText('最近会遇 CPA')).toBeInTheDocument();
     expect(screen.getByTestId('threat-cpa')).toHaveTextContent('0.50 nm');
     expect(screen.getByText('会遇时间 TCPA')).toBeInTheDocument();
     expect(screen.getByText('3.0 min')).toBeInTheDocument();
+  });
+
+  it('computes CPA and TCPA for the threat list when target metrics are absent', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      ownShip: {
+        pose: { lat: 63.4, lon: 10.4, heading: 0.0 },
+        kinematics: { sog: 5.0, cog: 0.0, rot: 0.0, u: 5.0, v: 0.0, r: 0.0 },
+        controlState: { rudderAngle: 0.0, throttle: 0.0 },
+      },
+      targets: [{
+        mmsi: 100000001,
+        pose: { lat: 63.43, lon: 10.4, heading: Math.PI },
+        kinematics: { sog: 6.0, cog: Math.PI, rot: 0.0 },
+      }],
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
+
+    expect(screen.getByTestId('threat-cpa')).not.toHaveTextContent('—');
+    expect(screen.getByTestId('threat-tcpa')).not.toHaveTextContent('—');
   });
 
   it('renders avoidance decision cards from real module telemetry instead of mock defaults', () => {
@@ -380,7 +440,7 @@ ownShip:
     } as any);
 
     render(<SimulationMonitor />);
-    fireEvent.click(screen.getByTestId('left-tab-avoid'));
+    fireEvent.click(screen.getByTestId('right-tab-avoid'));
 
     expect(screen.getByText('EDGE')).toBeInTheDocument();
     expect(screen.getByText('COLREG AVOIDANCE')).toBeInTheDocument();

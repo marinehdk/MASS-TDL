@@ -178,6 +178,13 @@ describe('SimulationScenario ODD-filtered scenario library', () => {
     });
   });
 
+  it('does not render the bottom vessel placement action bar', () => {
+    render(<SimulationScenario />);
+
+    expect(screen.queryByRole('button', { name: /放置本船/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /添加目标船/ })).not.toBeInTheDocument();
+  });
+
   it('shows real AIS only on the scenario map when the AIS toggle is enabled', async () => {
     render(<SimulationScenario />);
 

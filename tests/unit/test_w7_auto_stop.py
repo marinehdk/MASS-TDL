@@ -37,17 +37,29 @@ class MockNode:
 
 @pytest.fixture(autouse=True)
 def setup_fake_ros(monkeypatch):
+    sys.modules.pop("sil_orchestrator.lifecycle_bridge", None)
+    sys.modules.pop("sil_orchestrator.main", None)
+
     # Fake ROS modules
     rclpy = types.ModuleType("rclpy")
+    rclpy.init = Mock()
     rclpy.node = types.ModuleType("rclpy.node")
     rclpy.node.Node = MockNode
+    rclpy.callback_groups = types.ModuleType("rclpy.callback_groups")
+    rclpy.callback_groups.ReentrantCallbackGroup = Mock
     rclpy.executors = types.ModuleType("rclpy.executors")
-    rclpy.executors.MultiThreadedExecutor = object
+    executor = Mock()
+    executor.add_node = Mock()
+    executor.spin = Mock()
+    rclpy.executors.MultiThreadedExecutor = Mock(return_value=executor)
     rclpy.qos = types.ModuleType("rclpy.qos")
     rclpy.qos.QoSProfile = lambda **kwargs: kwargs
     rclpy.qos.QoSReliabilityPolicy = SimpleNamespace(BEST_EFFORT=1, RELIABLE=2)
     rclpy.qos.QoSDurabilityPolicy = SimpleNamespace(VOLATILE=1, TRANSIENT_LOCAL=2)
     rclpy.qos.QoSHistoryPolicy = SimpleNamespace(KEEP_LAST=1)
+    rclpy.qos.ReliabilityPolicy = rclpy.qos.QoSReliabilityPolicy
+    rclpy.qos.DurabilityPolicy = rclpy.qos.QoSDurabilityPolicy
+    rclpy.qos.HistoryPolicy = rclpy.qos.QoSHistoryPolicy
 
     sil_msgs = types.ModuleType("sil_msgs")
     sil_msgs.msg = types.ModuleType("sil_msgs.msg")
@@ -57,6 +69,9 @@ def setup_fake_ros(monkeypatch):
     sil_msgs.msg.ModulePulse = type("ModulePulse", (), {})
     sil_msgs.msg.ASDREvent = type("ASDREvent", (), {})
     sil_msgs.msg.BridgeState = type("BridgeState", (), {})
+    sil_msgs.srv = types.ModuleType("sil_msgs.srv")
+    sil_msgs.srv.AddTarget = type("AddTarget", (), {})
+    sil_msgs.srv.RemoveTarget = type("RemoveTarget", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
@@ -85,6 +100,7 @@ def setup_fake_ros(monkeypatch):
     std_msgs = types.ModuleType("std_msgs")
     std_msgs.msg = types.ModuleType("std_msgs.msg")
     std_msgs.msg.Header = type("Header", (), {})
+    std_msgs.msg.String = type("String", (), {})
 
     lifecycle_msgs = types.ModuleType("lifecycle_msgs")
     lifecycle_msgs.srv = types.ModuleType("lifecycle_msgs.srv")
@@ -106,10 +122,19 @@ def setup_fake_ros(monkeypatch):
 
     rcl_interfaces = types.ModuleType("rcl_interfaces")
     rcl_interfaces.srv = types.ModuleType("rcl_interfaces.srv")
-    rcl_interfaces.srv.SetParameters = type("SetParameters", (), {})
+    class SetParametersRequest:
+        def __init__(self):
+            self.parameters = []
+    rcl_interfaces.srv.SetParameters = type("SetParameters", (), {"Request": SetParametersRequest})
     rcl_interfaces.msg = types.ModuleType("rcl_interfaces.msg")
-    rcl_interfaces.msg.Parameter = type("Parameter", (), {})
-    rcl_interfaces.msg.ParameterValue = type("ParameterValue", (), {})
+    class Parameter:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+    class ParameterValue:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+    rcl_interfaces.msg.Parameter = Parameter
+    rcl_interfaces.msg.ParameterValue = ParameterValue
     rcl_interfaces.msg.ParameterType = SimpleNamespace(
         PARAMETER_DOUBLE=1,
         PARAMETER_STRING=2,
@@ -119,10 +144,12 @@ def setup_fake_ros(monkeypatch):
     for module in (
         rclpy,
         rclpy.node,
+        rclpy.callback_groups,
         rclpy.executors,
         rclpy.qos,
         sil_msgs,
         sil_msgs.msg,
+        sil_msgs.srv,
         l3_external_msgs,
         l3_external_msgs.msg,
         l3_msgs,
@@ -146,6 +173,39 @@ def get_lifecycle_bridge_class():
     spec.loader.exec_module(module)
     sys.modules["lifecycle_bridge_under_test"] = module
     return module.LifecycleBridge
+
+@pytest.mark.asyncio
+async def test_set_parameters_timeout_retries_once(monkeypatch):
+    """A transient SetParameters timeout after cleanup should retry once."""
+    LifecycleBridge = get_lifecycle_bridge_class()
+
+    timeout_future = Mock()
+    timeout_future.done.return_value = False
+
+    success_future = Mock()
+    success_future.done.return_value = True
+    success_future.result.return_value = SimpleNamespace(
+        results=[SimpleNamespace(successful=True, reason="")]
+    )
+
+    client = Mock()
+    client.wait_for_service.return_value = True
+    client.call_async.side_effect = [timeout_future, success_future]
+
+    bridge = object.__new__(LifecycleBridge)
+    bridge._sil_set_parameters_clients = {"ship_dynamics_node": client}
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr("lifecycle_bridge_under_test.asyncio.sleep", no_sleep)
+
+    await bridge._inject_params_to_node(
+        "ship_dynamics_node",
+        {"origin_lat": (63.44, 1)},
+    )
+
+    assert client.call_async.call_count == 2
 
 @pytest.mark.asyncio
 async def test_auto_stop_timer_reads_duration_and_activates():
@@ -387,5 +447,3 @@ async def test_reactivate_cancels_existing_timers():
         # Clean up tasks to prevent asyncio warnings
         t2.cancel()
         b2.cancel()
-
-

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeBearing, computeRangeNm } from '../navMath';
+import { computeBearing, computeCpaTcpa, computeRangeNm } from '../navMath';
 
 describe('computeBearing', () => {
   it('north — target directly north of own-ship', () => {
@@ -46,5 +46,29 @@ describe('computeRangeNm', () => {
     const r = computeRangeNm(63.435, 10.395, 63.435 + 2.5 / 60, 10.395);
     expect(r).toBeGreaterThan(2.2);
     expect(r).toBeLessThan(2.8);
+  });
+});
+
+describe('computeCpaTcpa', () => {
+  it('computes closing CPA/TCPA from relative motion when backend metrics are absent', () => {
+    const metrics = computeCpaTcpa({
+      own: {
+        lat: 63.4,
+        lon: 10.4,
+        sogMps: 5.0,
+        cogRad: 0,
+      },
+      target: {
+        lat: 63.43,
+        lon: 10.4,
+        sogMps: 6.0,
+        cogRad: Math.PI,
+      },
+    });
+
+    expect(metrics).not.toBeNull();
+    expect(metrics!.tcpaS).toBeGreaterThan(0);
+    expect(metrics!.cpaM).toBeLessThan(50);
+    expect(metrics!.cpaPointNM.y).toBeLessThan(1.8);
   });
 });

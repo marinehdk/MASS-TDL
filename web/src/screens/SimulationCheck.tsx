@@ -125,6 +125,11 @@ function decisionColor(kind: 'passed' | 'failed' | 'checking') {
   return 'var(--c-warn)';
 }
 
+function runtimeGateRelevantToMode(gate: { name?: string; role?: string }, displayMode: RuntimeMode) {
+  if (displayMode === 'internal') return gateLabel(gate) === 'core_services_running';
+  return true;
+}
+
 function topicRows(pluginRoles: RuntimePluginRole[]) {
   return pluginRoles.flatMap((role) =>
     role.plugins.flatMap((plugin) =>
@@ -231,8 +236,8 @@ export function SimulationCheck() {
       const runtimeProbe = await probeRuntime().unwrap();
       setRuntimeEvidencePath(runtimeProbe.evidence_path);
       setRuntimeProbeVerdict(runtimeProbe.verdict);
-      if (runtimeProbe.verdict !== 'GO') {
-        const failed = runtimeProbe.gates.find((gate) => !gate.passed);
+      const failed = runtimeProbe.gates.find((gate) => !gate.passed && runtimeGateRelevantToMode(gate, displayMode));
+      if (failed) {
         setLifecycleError(`Runtime gate failed: ${failed ? gateLabel(failed) : 'unknown'}`);
         appendRuntimeLog(`runtime gate blocked GO: ${failed ? gateLabel(failed) : 'unknown'}`, 'warn');
         setTransitioning(false);
@@ -252,9 +257,9 @@ export function SimulationCheck() {
     useTelemetryStore.getState().reset();
     useControlStore.getState().reset();
     try {
-      // ROS2 lifecycle requires CONFIGURE → ACTIVATE in sequence.
-      // cleanup first so re-runs don't get "already configured" rejection.
-      await cleanupLifecycle();
+      // configure() owns reset-to-unconfigured before parameter injection.
+      // Calling cleanup here can race secondary node teardown and make the
+      // next SetParameters request time out.
       const cfgResult = await configureLifecycle(scenarioId).unwrap();
       if (!cfgResult.success) {
         setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
@@ -281,7 +286,7 @@ export function SimulationCheck() {
       setTransitioning(false);
       proceedingRef.current = false;
     }
-  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle, probeRuntime, appendRuntimeLog]);
+  }, [scenarioId, configureLifecycle, activateLifecycle, probeRuntime, appendRuntimeLog, displayMode]);
 
   const handleAbort = useCallback(async () => {
     abort();
@@ -317,9 +322,11 @@ export function SimulationCheck() {
   const activePlugins = pluginRoles.filter((role) => Boolean(role.active_plugin)).length;
   const displayCoreCount = coreServices.length || 4;
   const displayPluginCount = displayMode === 'integration' ? (activePlugins || 3) : 0;
-  const failedRuntimeGate = runtimeSummary?.gates.find((gate) => !gate.passed);
+  const failedRuntimeGate = runtimeSummary?.gates.find((gate) => !gate.passed && runtimeGateRelevantToMode(gate, displayMode));
   const backendMode = runtimeSummary?.mode;
-  const runtimeVerdict = runtimeProbeVerdict ?? runtimeSummary?.verdict;
+  const runtimeVerdict = displayMode === 'internal' && verdict === 'GO'
+    ? (failedRuntimeGate ? 'NO-GO' : 'GO')
+    : (runtimeProbeVerdict ?? runtimeSummary?.verdict);
   const decisionKind = decisionStatusKind(verdict, runtimeVerdict);
   const decisionAccent = decisionColor(decisionKind);
   const categoryStatus: Record<RuntimeCategory, string> = {

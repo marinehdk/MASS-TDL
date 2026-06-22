@@ -111,6 +111,7 @@ function categoryStatus({
     if (runtimeSummary.core_services.some((service) => service.status !== 'running')) return 'failed';
   }
   if (category === 'plugins') {
+    if (displayMode === 'internal') return 'passed';
     const pluginGate = runtimeSummary?.gates.find((gate) => runtimeGateLabel(gate) === 'single_active_plugin_per_role');
     if (!pluginGate) return 'idle';
     if (!pluginGate.passed) return 'failed';
@@ -125,6 +126,10 @@ function categoryStatus({
     return plugins.length > 0 ? 'passed' : 'waiting';
   }
   if (category === 'verdict') {
+    if (displayMode === 'internal' && preflightVerdict === 'GO') {
+      const coreGate = runtimeSummary?.gates.find((gate) => runtimeGateLabel(gate) === 'core_services_running');
+      return coreGate?.passed === false ? 'failed' : 'passed';
+    }
     if (preflightVerdict === 'NO-GO' || runtimeSummary?.verdict === 'NO-GO') return 'failed';
     if (preflightVerdict === 'GO' && runtimeSummary?.verdict === 'GO') return 'passed';
     if (streaming) return 'checking';
@@ -150,6 +155,7 @@ function categorySummary(category: RuntimeCategory, status: Record<RuntimeCatego
     return total > 0 ? `${running}/${total} 核心容器` : `${status.core} 核心容器`;
   }
   if (category === 'plugins') {
+    if (displayMode === 'internal') return '0/0 角色容器';
     const active = runtimeSummary?.plugin_roles.filter((role) => Boolean(role.active_plugin)).length ?? 0;
     const total = runtimeSummary?.plugin_roles.length ?? 0;
     return total > 0 ? `${active}/${total} 角色容器` : `${status.plugins} 角色容器`;
@@ -208,6 +214,9 @@ function categoryEvidence(category: RuntimeCategory, gates: GateSSEEvent[], runt
     return ['4个核心容器检查是否通过'];
   }
   if (category === 'plugins') {
+    if (displayMode === 'internal') {
+      return ['内测模式不启用外部角色容器'];
+    }
     return ['3个角色容器（航线规划容器，运动控制容器，态势管理容器）检查是否通过'];
   }
   if (category === 'ros') {

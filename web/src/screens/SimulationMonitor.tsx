@@ -13,7 +13,7 @@ import {
   useGetScenarioQuery,
 } from '../api/silApi';
 import * as jsyaml from 'js-yaml';
-import { computeRangeNm, computeBearing } from './shared/navMath';
+import { computeRangeNm, computeBearing, computeCpaTcpa } from './shared/navMath';
 import { RadarPpiDisplay } from '../map/RadarPpiDisplay';
 import { DistanceScale } from '../map/DistanceScale';
 import { MapLayerSwitcher } from '../map/MapLayerSwitcher';
@@ -150,8 +150,13 @@ const CAPTAIN_TABS = [
   { id: 'avoid',  label: '避碰决策', icon: <LucideNavigation size={20} /> },
 ] as const;
 
+const RIGHT_TABS = [...CAPTAIN_TABS, ...MONITOR_TABS] as const;
+const RADAR_RANGES_NM = [12, 6, 3] as const;
+
 type MonitorTabId = typeof MONITOR_TABS[number]['id'];
 type CaptainTabId = typeof CAPTAIN_TABS[number]['id'];
+type RightTabId = MonitorTabId | CaptainTabId;
+type RadarRangeNm = typeof RADAR_RANGES_NM[number];
 
 interface SimulationMonitorProps {
   routeScenarioId?: string;
@@ -352,9 +357,9 @@ function computeRouteProgress(
 }
 
 export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = {}) {
-  const [activeRightTab, setActiveRightTab] = useState<MonitorTabId | null>(null);
-  const [activeLeftTab, setActiveLeftTab] = useState<CaptainTabId | null>(null);
+  const [activeRightTab, setActiveRightTab] = useState<RightTabId | null>(null);
   const [activeBottomModule, setActiveBottomModule] = useState<string | null>(null);
+  const [radarRangeNM, setRadarRangeNM] = useState<RadarRangeNm>(12);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
   useFoxgloveLive(wsUrl, true);
 
@@ -705,11 +710,27 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           const id = t.mmsi ? String(t.mmsi) : `T${idx + 1}`;
           const targetIdDisplay = t.mmsi ? `T${String(t.mmsi).slice(-2)}` : `T${idx + 1}`;
           const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
-          const cpaVal = typeof t.cpaM === 'number' ? t.cpaM / 1852.0 : cpaInfo?.cpa;
-          const tcpaVal = typeof t.tcpaS === 'number' ? t.tcpaS / 60.0 : cpaInfo?.tcpa;
 
           const targetLat = t.pose?.lat;
           const targetLon = t.pose?.lon;
+          const cpaFallback = (
+            ownLat != null && ownLon != null && targetLat != null && targetLon != null
+          ) ? computeCpaTcpa({
+              own: {
+                lat: ownLat,
+                lon: ownLon,
+                sogMps: ownShip?.kinematics?.sog ?? 0,
+                cogRad: ownShip?.kinematics?.cog ?? ownShip?.pose?.heading ?? 0,
+              },
+              target: {
+                lat: targetLat,
+                lon: targetLon,
+                sogMps: t.kinematics?.sog ?? 0,
+                cogRad: t.kinematics?.cog ?? t.pose?.heading ?? 0,
+              },
+            }) : null;
+          const cpaVal = typeof t.cpaM === 'number' ? t.cpaM / 1852.0 : (cpaInfo?.cpa ?? (cpaFallback ? cpaFallback.cpaM / 1852.0 : undefined));
+          const tcpaVal = typeof t.tcpaS === 'number' ? t.tcpaS / 60.0 : (cpaInfo?.tcpa ?? (cpaFallback ? cpaFallback.tcpaS / 60.0 : undefined));
 
           const brg = (ownLat != null && ownLon != null && targetLat != null && targetLon != null)
             ? computeBearing(ownLat, ownLon, targetLat, targetLon).toFixed(1) + '°'
@@ -802,7 +823,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>会遇时间 TCPA</span>
-                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                  <span data-testid="threat-tcpa" style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
                     {tcpa}
                   </span>
                 </div>
@@ -960,6 +981,8 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   const boxShadow   = FSM_GLOW[fsmState] ?? 'none';
   const isEngineer  = viewMode === 'engineer';
   const isRoc       = viewMode === 'roc';
+  const isCaptainPanelActive = activeRightTab === 'ship' || activeRightTab === 'threat' || activeRightTab === 'avoid';
+  const isMonitorPanelActive = activeRightTab === 'asdr' || activeRightTab === 'score' || activeRightTab === 'fault' || activeRightTab === 'encounter';
 
   const activeColorMap: Record<string, string> = {
     M1: 'var(--c-phos)',
@@ -1058,8 +1081,81 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           </div>
         )}
 
-        <div style={{ position: 'absolute', top: 24, right: 16, zIndex: 15 }}>
-          <RadarPpiDisplay ownShip={ownShip} targets={targets} relativeMode={viewMode === 'captain'} />
+        <div
+          data-testid="monitor-radar-panel"
+          style={{
+            position: 'absolute',
+            top: 24,
+            left: 24,
+            zIndex: 15,
+            paddingBottom: 32,
+          }}
+        >
+          <RadarPpiDisplay
+            ownShip={ownShip}
+            targets={targets}
+            relativeMode={viewMode === 'captain'}
+            size={460}
+            maxRangeNM={radarRangeNM}
+            rangeRingsNM={[2, 6, 10]}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              bottom: 0,
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px',
+              borderRadius: 6,
+              background: 'rgba(5, 15, 10, 0.78)',
+              border: '1px solid rgba(16, 185, 129, 0.28)',
+              backdropFilter: 'blur(6px)',
+            }}
+          >
+            <span
+              data-testid="monitor-radar-range"
+              style={{
+                minWidth: 42,
+                textAlign: 'center',
+                fontFamily: 'var(--f-mono)',
+                fontSize: 9,
+                color: 'rgba(226, 232, 240, 0.82)',
+              }}
+            >
+              {radarRangeNM} NM
+            </span>
+            {RADAR_RANGES_NM.map((range) => {
+              const active = radarRangeNM === range;
+              return (
+                <button
+                  key={range}
+                  type="button"
+                  title={`${range} NM 量程`}
+                  aria-pressed={active}
+                  data-testid={`radar-range-${range}`}
+                  onClick={() => setRadarRangeNM(range)}
+                  style={{
+                    width: 28,
+                    height: 22,
+                    borderRadius: 4,
+                    border: active ? '1px solid var(--c-phos)' : '1px solid rgba(148, 163, 184, 0.25)',
+                    background: active ? 'rgba(45, 212, 191, 0.18)' : 'rgba(15, 23, 42, 0.65)',
+                    color: active ? 'var(--c-phos)' : 'rgba(226, 232, 240, 0.72)',
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 9,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  {range}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Removed redundant distance scale horizontal line */}
@@ -1068,77 +1164,14 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
         {/* Unified M4/M5/M7 status info is aggregated inside the right rail drawer */}
 
         {/* ========================================== */}
-        {/* LEFT SIDEBAR (CAPTAIN COCKPIT)             */}
+        {/* MERGED RIGHT SIDEBAR (CAPTAIN COCKPIT)     */}
         {/* ========================================== */}
-        {/* Vertical Tab Rail on Left side */}
+        {/* Captain content panel, opened from the unified right rail */}
         <div style={{
           position: 'absolute',
           top: '50%',
-          left: 20,
-          transform: 'translateY(-50%)',
-          width: 64,
-          height: 'fit-content',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          paddingTop: 16,
-          paddingBottom: 16,
-          gap: 8,
-          background: 'rgba(10, 15, 24, 0.9)',
-          border: '1px solid var(--line-2)',
-          borderRadius: 12,
-          transition: 'all 0.2s',
-          zIndex: 110
-        }}>
-          {CAPTAIN_TABS.map((tab) => {
-            const active = activeLeftTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                title={tab.label}
-                data-testid={`left-tab-${tab.id}`}
-                onClick={() => setActiveLeftTab(active ? null : tab.id)}
-                style={{
-                  width: 44, height: 44, borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: active ? 'rgba(91,192,190,0.15)' : 'transparent',
-                  color: active ? 'var(--c-phos)' : 'var(--txt-3)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.2s',
-                  borderLeft: active ? '3px solid var(--c-phos)' : '3px solid transparent',
-                  position: 'relative'
-                }}
-                className="rail-item-left"
-              >
-                {tab.icon}
-                <style>{`
-                  .rail-item-left:hover::after {
-                    content: attr(title);
-                    position: absolute;
-                    left: 100%;
-                    margin-left: 12px;
-                    background: #0d131f;
-                    color: var(--txt-1);
-                    padding: 6px 12px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    white-space: nowrap;
-                    z-index: 1000;
-                    border: 1px solid var(--line-2);
-                    pointer-events: none;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-                  }
-                `}</style>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Collapsible Content Panel on Left side */}
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: 100,
-          width: '320px',
+          right: 100,
+          width: '380px',
           maxHeight: 'calc(100% - 240px)',
           background: 'rgba(13, 19, 31, 0.95)',
           backdropFilter: 'blur(16px)',
@@ -1147,14 +1180,14 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           display: 'flex',
           flexDirection: 'column',
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          opacity: activeLeftTab ? 1 : 0,
-          transform: `translateY(-50%) translateX(${activeLeftTab ? '0' : '-20px'})`,
-          pointerEvents: activeLeftTab ? 'auto' : 'none',
+          opacity: isCaptainPanelActive ? 1 : 0,
+          transform: `translateY(-50%) translateX(${isCaptainPanelActive ? '0' : '20px'})`,
+          pointerEvents: isCaptainPanelActive ? 'auto' : 'none',
           zIndex: 105,
-          boxShadow: activeLeftTab ? '20px 0 50px rgba(0,0,0,0.5)' : 'none',
+          boxShadow: isCaptainPanelActive ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none',
           overflow: 'hidden'
         }}>
-          {activeLeftTab && (
+          {isCaptainPanelActive && (
             <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', overflow: 'hidden', minHeight: 0 }}>
               {/* Header */}
               <div style={{
@@ -1166,10 +1199,10 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   fontFamily: 'var(--f-disp)', fontSize: 13, fontWeight: 700,
                   color: 'var(--txt-1)', letterSpacing: '0.15em'
                 }}>
-                  {CAPTAIN_TABS.find(t => t.id === activeLeftTab)?.label.toUpperCase()}
+                  {RIGHT_TABS.find(t => t.id === activeRightTab)?.label.toUpperCase()}
                 </span>
                 <button
-                  onClick={() => setActiveLeftTab(null)}
+                  onClick={() => setActiveRightTab(null)}
                   style={{
                     background: 'transparent', border: 'none', color: 'var(--txt-3)',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1178,13 +1211,13 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   onMouseEnter={(e) => e.currentTarget.style.color = 'var(--c-phos)'}
                   onMouseLeave={(e) => e.currentTarget.style.color = 'var(--txt-3)'}
                 >
-                  <LucideChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+                  <LucideChevronRight size={16} />
                 </button>
               </div>
 
               {/* Contents */}
               <div style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
-                {activeLeftTab === 'ship' && (
+                {activeRightTab === 'ship' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
@@ -1327,7 +1360,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   </div>
                 )}
 
-                {activeLeftTab === 'threat' && (
+                {activeRightTab === 'threat' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     {/* Card 1: High Threat */}
                     <div style={{
@@ -1495,7 +1528,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   </div>
                 )}
 
-                {activeLeftTab === 'avoid' && (
+                {activeRightTab === 'avoid' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     {/* Card 1: ODD/FSM */}
                     <div 
@@ -1732,14 +1765,14 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           display: 'flex',
           flexDirection: 'column',
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          opacity: activeRightTab ? 1 : 0,
-          transform: `translateY(-50%) translateX(${activeRightTab ? '0' : '20px'})`,
-          pointerEvents: activeRightTab ? 'auto' : 'none',
+          opacity: isMonitorPanelActive ? 1 : 0,
+          transform: `translateY(-50%) translateX(${isMonitorPanelActive ? '0' : '20px'})`,
+          pointerEvents: isMonitorPanelActive ? 'auto' : 'none',
           zIndex: 105,
-          boxShadow: activeRightTab ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none',
+          boxShadow: isMonitorPanelActive ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none',
           overflow: 'hidden'
         }}>
-          {activeRightTab && (
+          {isMonitorPanelActive && (
             <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', overflow: 'hidden', minHeight: 0 }}>
               {/* Header */}
               <div style={{
@@ -1751,7 +1784,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   fontFamily: 'var(--f-disp)', fontSize: 13, fontWeight: 700,
                   color: 'var(--txt-1)', letterSpacing: '0.15em'
                 }}>
-                  {MONITOR_TABS.find(t => t.id === activeRightTab)?.label.toUpperCase()}
+                  {RIGHT_TABS.find(t => t.id === activeRightTab)?.label.toUpperCase()}
                 </span>
 		              <button
                   onClick={() => setActiveRightTab(null)}
@@ -1842,7 +1875,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           transition: 'all 0.2s',
           zIndex: 110
         }}>
-          {MONITOR_TABS.map((tab) => {
+          {RIGHT_TABS.map((tab) => {
             const active = activeRightTab === tab.id;
             return (
               <button

@@ -101,6 +101,35 @@ describe('useFoxgloveLive — stale detection', () => {
     }));
   });
 
+  it('preserves CPA/TCPA metrics from SIL target vessel messages when present', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+    topicSubscriptions.get('/sil/target_vessel_state')?.({
+      mmsi: 100000001,
+      lat: 63.43,
+      lon: 10.4,
+      heading: Math.PI,
+      sog: 6.0,
+      cog: Math.PI,
+      rot: 0,
+      ship_type: 1,
+      mode: 3,
+      cpa_m: 500,
+      tcpa_s: 120,
+    });
+    vi.advanceTimersByTime(40);
+
+    expect(useTelemetryStore.getState().targets[0]).toEqual(expect.objectContaining({
+      cpaM: 500,
+      tcpaS: 120,
+    }));
+  });
+
   it('subscribes to real M1/M4/M6/M7 decision topics', () => {
     renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
     const connectionCb = rosOn.mock.calls.find(

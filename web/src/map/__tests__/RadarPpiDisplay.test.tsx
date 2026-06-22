@@ -95,6 +95,7 @@ describe('RadarPpiDisplay', () => {
     // Nearby targets should be displayed
     expect(screen.getByText('TS 001')).toBeInTheDocument(); // last 3 digits of 100000001
     expect(screen.getByText('TS 002')).toBeInTheDocument(); // last 3 digits of 100000002
+    expect(screen.getByText('TS 001')).toHaveAttribute('text-anchor', 'middle');
 
     // Far target should be filtered out
     expect(screen.queryByText('TS 003')).not.toBeInTheDocument();
@@ -108,5 +109,45 @@ describe('RadarPpiDisplay', () => {
 
     rerender(<RadarPpiDisplay ownShip={mockOwnShip} targets={[]} relativeMode={false} />);
     expect(screen.getByText('N-UP (TRUE)')).toBeInTheDocument();
+  });
+
+  it('can render an expanded 12 NM tactical range with sparse 2/6/10 NM ring labels', () => {
+    render(
+      <RadarPpiDisplay
+        ownShip={mockOwnShip}
+        targets={mockTargets}
+        relativeMode={false}
+        size={460}
+        maxRangeNM={12}
+        rangeRingsNM={[2, 6, 10]}
+      />
+    );
+
+    const radar = screen.getByTestId('radar-ppi-display');
+    expect(radar).toHaveStyle({ width: '460px', height: '460px' });
+    expect(screen.getByText('2nm')).toBeInTheDocument();
+    expect(screen.getByText('6nm')).toBeInTheDocument();
+    expect(screen.getByText('10nm')).toBeInTheDocument();
+    expect(screen.queryByText('4nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('8nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('12nm')).not.toBeInTheDocument();
+  });
+
+  it('computes a distinct CPA point when backend CPA metrics are absent', () => {
+    render(
+      <RadarPpiDisplay
+        ownShip={mockOwnShip}
+        targets={[mockTargets[0]]}
+        relativeMode={false}
+        size={460}
+        maxRangeNM={12}
+        rangeRingsNM={[2, 6, 10]}
+      />
+    );
+
+    const target = screen.getByTestId('radar-target-100000001');
+    const cpaPoint = screen.getByTestId('radar-cpa-point');
+    expect(cpaPoint).toBeInTheDocument();
+    expect(cpaPoint.getAttribute('cy')).not.toBe(target.getAttribute('cy'));
   });
 });

@@ -91,4 +91,62 @@ describe('CheckCategoryNav', () => {
     expect(rosButton).toHaveTextContent('/sil/own_ship_state');
     expect(rosButton).not.toHaveTextContent('/fusion/tracked_targets');
   });
+
+  it('marks external plugin checks as not applicable in internal mode', () => {
+    render(
+      <CheckCategoryNav
+        selected="plugins"
+        onSelect={vi.fn()}
+        status={{
+          mode: 'ACTIVE',
+          core: '4/4',
+          plugins: '0/0',
+          ros: 'OK',
+          safety: 'OK',
+          verdict: 'GO',
+        }}
+        displayMode="internal"
+        runtimeSummary={{
+          mode: 'internal',
+          target: 'local',
+          active_profile: 'integration-local',
+          verdict: 'GO',
+          core_services: [],
+          plugin_roles: [
+            {
+              role: 'route_l2',
+              active_plugin: 'tdl-mock-route',
+              single_instance: true,
+              plugins: [],
+            },
+            {
+              role: 'hydrodynamics',
+              active_plugin: 'hydro-fossen',
+              single_instance: true,
+              plugins: [],
+            },
+            {
+              role: 'fusion',
+              active_plugin: 'yougc-fusion',
+              single_instance: true,
+              plugins: [],
+            },
+          ],
+          gates: [
+            {
+              name: 'single_active_plugin_per_role',
+              passed: false,
+              roles: [],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const pluginsButton = screen.getByRole('button', { name: /外部核心容器/i });
+    expect(pluginsButton).toHaveTextContent('通过');
+    expect(pluginsButton).toHaveTextContent('0/0 角色容器');
+    expect(pluginsButton).toHaveTextContent('内测模式不启用外部角色容器');
+    expect(pluginsButton).not.toHaveTextContent('3/3 角色容器');
+  });
 });

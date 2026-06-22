@@ -337,21 +337,30 @@ class LifecycleBridge(Node):
             req.parameters.append(Parameter(name=param_name, value=pv))
 
         try:
-            future = client.call_async(req)
-            deadline = 150  # 150 * 0.1 s = 15 s
-            while not future.done() and deadline > 0:
-                await asyncio.sleep(0.1)
-                deadline -= 1
-            if not future.done():
-                raise ScenarioInjectionError(
-                    f"SetParameters call to '{node_name}' timed out (15s)")
-            response = future.result()
-            for result in response.results:
-                if not result.successful:
-                    reason = result.reason or "unknown reason"
+            for attempt in range(2):
+                future = client.call_async(req)
+                deadline = 150  # 150 * 0.1 s = 15 s
+                while not future.done() and deadline > 0:
+                    await asyncio.sleep(0.1)
+                    deadline -= 1
+                if not future.done():
+                    if attempt == 0:
+                        _log.warning(
+                            "SetParameters call to '%s' timed out (15s); retrying once",
+                            node_name,
+                        )
+                        await asyncio.sleep(0.5)
+                        continue
                     raise ScenarioInjectionError(
-                        f"Parameter injection to '{node_name}' failed: "
-                        f"{reason}")
+                        f"SetParameters call to '{node_name}' timed out (15s)")
+                response = future.result()
+                for result in response.results:
+                    if not result.successful:
+                        reason = result.reason or "unknown reason"
+                        raise ScenarioInjectionError(
+                            f"Parameter injection to '{node_name}' failed: "
+                            f"{reason}")
+                return
         except ScenarioInjectionError:
             raise
         except Exception as exc:

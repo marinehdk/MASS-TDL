@@ -52,6 +52,10 @@ const TOPIC_MAP: Array<{
         kinematics: { sog: m.sog, cog: m.cog, rot: m.rot },
         shipType: m.ship_type,
         mode: m.mode,
+        cpaM: m.cpa_m ?? m.cpaM,
+        tcpaS: m.tcpa_s ?? m.tcpaS,
+        cpaCovarianceM2: m.cpa_covariance_m2 ?? m.cpaCovarianceM2,
+        tcpaCovarianceS2: m.tcpa_covariance_s2 ?? m.tcpaCovarianceS2,
       });
       s.updateTargets(Array.isArray(msg) ? msg.map(adapt) : [adapt(msg)]);
     },
@@ -293,6 +297,10 @@ export function useFoxgloveLive(wsUrl = 'wss://127.0.0.1:8765', enabled = true) 
               kinematics: { sog: m.sog, cog: m.cog, rot: m.rot },
               shipType: m.ship_type,
               mode: m.mode,
+              cpaM: m.cpa_m ?? m.cpaM,
+              tcpaS: m.tcpa_s ?? m.tcpaS,
+              cpaCovarianceM2: m.cpa_covariance_m2 ?? m.cpaCovarianceM2,
+              tcpaCovarianceS2: m.tcpa_covariance_s2 ?? m.tcpaCovarianceS2,
             });
             const adapted = Array.isArray(targetMsg) ? targetMsg.map(adapt) : [adapt(targetMsg)];
             

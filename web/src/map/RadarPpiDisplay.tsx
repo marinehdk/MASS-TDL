@@ -1,17 +1,29 @@
 import React, { useMemo, useState } from 'react';
 import type { OwnShipState } from '../types';
 import type { TargetVesselState } from '../types';
+import { computeCpaTcpa } from '../screens/shared/navMath';
 
 interface RadarPpiDisplayProps {
   ownShip: OwnShipState | null;
   targets: TargetVesselState[];
   relativeMode: boolean; // true = Heading-up, false = North-up
+  size?: number;
+  maxRangeNM?: number;
+  rangeRingsNM?: number[];
 }
+
+type TargetWithCpa = TargetVesselState & {
+  cpaM?: number;
+  tcpaS?: number;
+};
 
 export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
   ownShip,
   targets,
   relativeMode,
+  size = 240,
+  maxRangeNM = 3.0,
+  rangeRingsNM = [1, 2, 3],
 }) => {
   const [hoveredTarget, setHoveredTarget] = useState<{
     mmsi: number;
@@ -22,10 +34,15 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
     px: number;
     py: number;
   } | null>(null);
-  const cx = 120;
-  const cy = 120;
-  const maxRangeNM = 3.0;
-  const radarRadius = 100; // Radius of the 3.0 NM active grid
+  const cx = size / 2;
+  const cy = size / 2;
+  const radarRadius = size / 2 - 20;
+  const markerScale = size / 240;
+  const vesselDotRadius = Math.max(3, 3.2 * markerScale);
+  const arrowTipOffset = vesselDotRadius + 7 * markerScale;
+  const arrowBaseOffset = vesselDotRadius + 1.5 * markerScale;
+  const arrowHalfWidth = Math.max(3, 3.4 * markerScale);
+  const clampedRangeRingsNM = rangeRingsNM.filter((ring) => ring > 0 && ring <= maxRangeNM);
 
   const ownHeadingDeg = ownShip?.pose
     ? ((ownShip.pose.heading ?? 0) * 180) / Math.PI
@@ -39,19 +56,19 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
       const sin = Math.sin(rad);
       const cos = Math.cos(rad);
 
-      let rStart = 105;
-      let rEnd = 108;
+      let rStart = radarRadius + 5;
+      let rEnd = radarRadius + 8;
       let strokeColor = 'rgba(16, 185, 129, 0.3)';
       let strokeWidth = 0.5;
 
       if (angle % 30 === 0) {
-        rStart = 100;
-        rEnd = 108;
+        rStart = radarRadius;
+        rEnd = radarRadius + 8;
         strokeColor = 'rgba(16, 185, 129, 0.85)';
         strokeWidth = 1.2;
       } else if (angle % 10 === 0) {
-        rStart = 103;
-        rEnd = 108;
+        rStart = radarRadius + 3;
+        rEnd = radarRadius + 8;
         strokeColor = 'rgba(16, 185, 129, 0.5)';
         strokeWidth = 0.75;
       }
@@ -70,7 +87,7 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
 
       // Major numbers every 30 degrees
       if (angle % 30 === 0) {
-        const textRadius = 114;
+        const textRadius = radarRadius + 14;
         const tx = cx + sin * textRadius;
         const ty = cy - cos * textRadius + 3.0; // Vertically center text
         const angleStr = angle.toString().padStart(3, '0');
@@ -94,17 +111,19 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
       }
     }
     return elements;
-  }, []);
+  }, [cx, cy, radarRadius]);
 
   // Map and calculate relative target positions inside active radar grid
   const plottedTargets = useMemo(() => {
     if (!ownShip?.pose) return [];
-    const ownLat = ownShip.pose.lat;
-    const ownLon = ownShip.pose.lon;
+    const ownPose = ownShip.pose;
+    const ownLat = ownPose.lat;
+    const ownLon = ownPose.lon;
 
     return targets
       .map((t) => {
         if (!t.pose) return null;
+        const targetWithCpa = t as TargetWithCpa;
         const tgtLat = t.pose.lat;
         const tgtLon = t.pose.lon;
 
@@ -137,6 +156,28 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
         const cogDeg = (cogRad * 180) / Math.PI;
         const screenCogDeg = relativeMode ? (cogDeg - ownHeadingDeg) : cogDeg;
 
+        const cpaMetrics = computeCpaTcpa({
+          own: {
+            lat: ownLat,
+            lon: ownLon,
+            sogMps: ownShip.kinematics?.sog ?? 0,
+            cogRad: ownShip.kinematics?.cog ?? ownPose.heading ?? 0,
+          },
+          target: {
+            lat: tgtLat,
+            lon: tgtLon,
+            sogMps: t.kinematics?.sog ?? 0,
+            cogRad: t.kinematics?.cog ?? t.pose.heading ?? 0,
+          },
+        });
+        const cpaXNM = cpaMetrics?.cpaPointNM.x ?? xNM;
+        const cpaYNM = cpaMetrics?.cpaPointNM.y ?? yNM;
+        const cpaRangeNM = Math.sqrt(cpaXNM * cpaXNM + cpaYNM * cpaYNM);
+        const cpaBearingDeg = (Math.atan2(cpaXNM, cpaYNM) * 180 / Math.PI + 360) % 360;
+        const cpaAngleDeg = relativeMode ? (cpaBearingDeg - ownHeadingDeg) : cpaBearingDeg;
+        const cpaAlpha = (cpaAngleDeg * Math.PI) / 180;
+        const cpaDistPx = (cpaRangeNM / maxRangeNM) * radarRadius;
+
         return {
           mmsi: t.mmsi,
           rangeNM,
@@ -146,10 +187,21 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
           screenCogDeg,
           px,
           py,
+          cpaM: targetWithCpa.cpaM ?? cpaMetrics?.cpaM,
+          tcpaS: targetWithCpa.tcpaS ?? cpaMetrics?.tcpaS,
+          cpaPx: cx + Math.sin(cpaAlpha) * cpaDistPx,
+          cpaPy: cy - Math.cos(cpaAlpha) * cpaDistPx,
+          cpaRangeNM,
         };
       })
       .filter((t): t is NonNullable<typeof t> => t !== null && t.rangeNM <= maxRangeNM);
-  }, [ownShip, targets, relativeMode, ownHeadingDeg]);
+  }, [ownShip, targets, relativeMode, ownHeadingDeg, cx, cy, maxRangeNM, radarRadius]);
+
+  const nearestCpaTarget = useMemo(() => {
+    return plottedTargets
+      .filter((target) => target.cpaRangeNM <= maxRangeNM)
+      .sort((a, b) => (a.cpaM ?? a.rangeNM * 1852) - (b.cpaM ?? b.rangeNM * 1852))[0];
+  }, [plottedTargets, maxRangeNM]);
 
   // Handle own ship rotation in center
   const ownShipRotation = relativeMode ? 0 : ownHeadingDeg;
@@ -159,8 +211,8 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
       data-testid="radar-ppi-display"
       style={{
         position: 'relative',
-        width: 240,
-        height: 240,
+        width: size,
+        height: size,
         background: 'rgba(5, 15, 10, 0.88)',
         backdropFilter: 'blur(8px)',
         border: '1.5px solid rgba(16, 185, 129, 0.4)',
@@ -191,10 +243,10 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
         <div
           style={{
             position: 'absolute',
-            width: 200,
-            height: 200,
-            top: 20,
-            left: 20,
+            width: radarRadius * 2,
+            height: radarRadius * 2,
+            top: cy - radarRadius,
+            left: cx - radarRadius,
             borderRadius: '50%',
             background: 'conic-gradient(from 0deg, transparent 180deg, rgba(16, 185, 129, 0.04) 240deg, rgba(16, 185, 129, 0.3) 360deg)',
             animation: 'radar-sweep 4s linear infinite',
@@ -219,9 +271,9 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
 
       {/* Main Radar Vector Screen */}
       <svg
-        width={240}
-        height={240}
-        viewBox="0 0 240 240"
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
         style={{
           position: 'absolute',
           inset: 0,
@@ -237,41 +289,58 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
         </g>
 
         {/* Concentric Range Rings (always static circular grids) */}
-        <circle cx={cx} cy={cy} r={33.3} fill="none" stroke="rgba(16, 185, 129, 0.16)" strokeWidth="0.75" strokeDasharray="3 4" />
-        <circle cx={cx} cy={cy} r={66.7} fill="none" stroke="rgba(16, 185, 129, 0.16)" strokeWidth="0.75" strokeDasharray="3 4" />
-        <circle cx={cx} cy={cy} r={100} fill="none" stroke="rgba(16, 185, 129, 0.25)" strokeWidth="1" />
-
-        {/* Range rings are now clean without text labels */}
+        {clampedRangeRingsNM.map((ringNM) => {
+          const r = (ringNM / maxRangeNM) * radarRadius;
+          const isEmergencyRing = ringNM <= 2;
+          return (
+            <g key={`ring-${ringNM}`}>
+              <circle
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill="none"
+                stroke={isEmergencyRing ? 'rgba(248, 81, 73, 0.65)' : ringNM === maxRangeNM ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.16)'}
+                strokeWidth={ringNM === maxRangeNM ? 1 : 0.75}
+                strokeDasharray={ringNM === maxRangeNM ? undefined : '3 4'}
+              />
+              <text
+                x={cx + r - 6}
+                y={cy - 6}
+                textAnchor="end"
+                fill={isEmergencyRing ? '#f87171' : 'rgba(226, 232, 240, 0.68)'}
+                fontSize={Math.max(7, 7.5 * markerScale)}
+                fontFamily="var(--f-mono)"
+                fontWeight={isEmergencyRing ? 'bold' : 'normal'}
+                style={{ textShadow: '0 0 4px rgba(5, 15, 10, 0.95)' }}
+              >
+                {ringNM}nm
+              </text>
+            </g>
+          );
+        })}
 
         {/* Radar Center Own Ship representation */}
         {ownShip ? (
           <g>
-            {/* Heading Line (HL): extends from own ship to the outer radar border */}
-            <line
-              x1={cx}
-              y1={cy}
-              x2={cx}
-              y2={cy - 100}
-              stroke="rgba(16, 185, 129, 0.35)"
-              strokeWidth="0.8"
-              strokeDasharray="4 3"
-              transform={!relativeMode ? `rotate(${ownHeadingDeg} ${cx} ${cy})` : undefined}
-              style={{ transition: 'transform 0.5s cubic-bezier(0.25, 1, 0.5, 1)' }}
-            />
-
-            {/* Own Ship shape */}
+            {/* Own Ship marker: same point + heading vector grammar as target ships */}
             <g
               transform={!relativeMode ? `rotate(${ownHeadingDeg} ${cx} ${cy})` : undefined}
               style={{ transition: 'transform 0.5s cubic-bezier(0.25, 1, 0.5, 1)' }}
             >
-              {/* Detailed military ship shape */}
               <polygon
-                points={`${cx},${cy - 8} ${cx - 4.5},${cy - 1} ${cx - 4.5},${cy + 7} ${cx + 4.5},${cy + 7} ${cx + 4.5},${cy - 1}`}
-                fill="rgba(5, 15, 10, 0.95)"
-                stroke="#10b981"
-                strokeWidth="1.2"
+                points={`${cx},${cy - arrowTipOffset} ${cx - arrowHalfWidth},${cy - arrowBaseOffset} ${cx + arrowHalfWidth},${cy - arrowBaseOffset}`}
+                fill="#38bdf8"
+                stroke="rgba(5, 15, 10, 0.72)"
+                strokeWidth={0.45 * markerScale}
               />
-              <circle cx={cx} cy={cy} r={2} fill="#10b981" />
+              <circle
+                cx={cx}
+                cy={cy}
+                r={vesselDotRadius}
+                fill="#38bdf8"
+                stroke="rgba(5, 15, 10, 0.95)"
+                strokeWidth={0.8 * markerScale}
+              />
             </g>
           </g>
         ) : (
@@ -303,6 +372,41 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
           </g>
         )}
 
+        {nearestCpaTarget && (
+          <g>
+            <line
+              x1={nearestCpaTarget.px}
+              y1={nearestCpaTarget.py}
+              x2={nearestCpaTarget.cpaPx}
+              y2={nearestCpaTarget.cpaPy}
+              stroke="#f59e0b"
+              strokeWidth={1.1 * markerScale}
+              strokeDasharray="5 4"
+              opacity="0.85"
+            />
+            <circle
+              data-testid="radar-cpa-point"
+              cx={nearestCpaTarget.cpaPx}
+              cy={nearestCpaTarget.cpaPy}
+              r={3.2 * markerScale}
+              fill="#f87171"
+              stroke="rgba(255,255,255,0.75)"
+              strokeWidth={0.8 * markerScale}
+            />
+            <text
+              x={nearestCpaTarget.cpaPx + 7 * markerScale}
+              y={nearestCpaTarget.cpaPy + 3 * markerScale}
+              fill="#fca5a5"
+              fontSize={Math.max(7, 7.5 * markerScale)}
+              fontFamily="var(--f-mono)"
+              fontWeight="bold"
+              style={{ textShadow: '0 0 4px rgba(5, 15, 10, 0.95)' }}
+            >
+              CPA
+            </text>
+          </g>
+        )}
+
         {/* Target Blips */}
         {plottedTargets.map((t) => (
           <g
@@ -314,34 +418,34 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
               cursor: 'pointer',
             }}
           >
-            {/* Target course vector (COG) line */}
-            <line
-              x1={t.px}
-              y1={t.py}
-              x2={t.px + Math.sin((t.screenCogDeg * Math.PI) / 180) * Math.max(6, (t.sog / 10) * 12)}
-              y2={t.py - Math.cos((t.screenCogDeg * Math.PI) / 180) * Math.max(6, (t.sog / 10) * 12)}
-              stroke="#10b981"
-              strokeWidth="1.0"
-            />
-
-            {/* Target vessel shape: Triangle pointing in COG direction */}
             <polygon
-              points={`${t.px},${t.py - 3.5} ${t.px - 3},${t.py + 2.5} ${t.px + 3},${t.py + 2.5}`}
+              points={`${t.px},${t.py - arrowTipOffset} ${t.px - arrowHalfWidth},${t.py - arrowBaseOffset} ${t.px + arrowHalfWidth},${t.py - arrowBaseOffset}`}
               transform={`rotate(${t.screenCogDeg} ${t.px} ${t.py})`}
               fill="#10b981"
+              stroke="rgba(5, 15, 10, 0.72)"
+              strokeWidth={0.45 * markerScale}
+            />
+
+            <circle
+              data-testid={`radar-target-${t.mmsi}`}
+              cx={t.px}
+              cy={t.py}
+              r={vesselDotRadius}
+              fill="#10b981"
               stroke="rgba(5, 15, 10, 0.95)"
-              strokeWidth="0.5"
+              strokeWidth={0.8 * markerScale}
             />
 
             {/* Pulse glow circle around blip */}
-            <circle cx={t.px} cy={t.py} r={5} fill="none" stroke="rgba(16, 185, 129, 0.25)" strokeWidth="0.5" />
+            <circle cx={t.px} cy={t.py} r={5 * markerScale} fill="none" stroke="rgba(16, 185, 129, 0.25)" strokeWidth={0.5 * markerScale} />
 
             {/* Alphanumeric target label */}
             <text
-              x={t.px + 6}
-              y={t.py + 3}
+              x={t.px}
+              y={t.py - 9 * markerScale}
+              textAnchor="middle"
               fill="#10b981"
-              fontSize="7.5"
+              fontSize={Math.max(7.5, 7.5 * markerScale)}
               fontFamily="var(--f-mono)"
               fontWeight="bold"
               style={{
@@ -359,8 +463,8 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
         <div
           style={{
             position: 'absolute',
-            left: hoveredTarget.px > 120 ? hoveredTarget.px - 105 : hoveredTarget.px + 10,
-            top: hoveredTarget.py > 120 ? hoveredTarget.py - 80 : hoveredTarget.py + 10,
+            left: hoveredTarget.px > cx ? hoveredTarget.px - 105 : hoveredTarget.px + 10,
+            top: hoveredTarget.py > cy ? hoveredTarget.py - 80 : hoveredTarget.py + 10,
             background: 'rgba(7, 20, 15, 0.95)',
             border: '1px solid rgba(16, 185, 129, 0.8)',
             borderRadius: '4px',

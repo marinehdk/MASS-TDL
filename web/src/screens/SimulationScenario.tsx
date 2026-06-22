@@ -1034,44 +1034,6 @@ const handleUpdateYaml = useCallback((updates: any) => {
         )}
       </div>
 
-      {/* CENTER: Bottom placement mode indicator + controls */}
-      <div style={{
-        position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-        zIndex: 100, display: 'flex', alignItems: 'center', gap: 12,
-        background: 'rgba(10, 15, 24, 0.85)', backdropFilter: 'blur(12px)',
-        border: '1px solid var(--line-2)', borderRadius: 8, padding: '6px 16px',
-      }}>
-        {placementMode !== 'none' ? (
-          <>
-            <LucideNavigation size={14} color="var(--c-phos)" />
-            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--c-phos)' }}>
-              正在设置 {placementMode === 'ownship' ? '本船' : '目标船'} 位置...
-            </span>
-            <button onClick={() => setPlacementMode('none')} style={{
-              background: 'rgba(255,255,255,0.1)', color: 'var(--txt-1)', border: 'none',
-              padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10
-            }}>取消</button>
-          </>
-        ) : (
-          <>
-            <button onClick={() => setPlacementMode('ownship')} style={{
-              background: 'rgba(91,192,190,0.1)', color: 'var(--c-phos)', border: '1px solid var(--line-1)',
-              padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 10,
-              fontFamily: 'var(--f-disp)', display: 'flex', alignItems: 'center', gap: 6
-            }}>
-              <LucideMapPin size={12} /> 放置本船
-            </button>
-            <button onClick={() => setPlacementMode(`target-${(previewData?.targets?.length || 0)}`)} style={{
-              background: 'rgba(91,192,190,0.1)', color: 'var(--txt-1)', border: '1px solid var(--line-1)',
-              padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 10,
-              fontFamily: 'var(--f-disp)', display: 'flex', alignItems: 'center', gap: 6
-            }}>
-              <LucideMapPin size={12} /> 添加目标船
-            </button>
-          </>
-        )}
-      </div>
-
       {/* OVERLAY: Map Layer Switcher */}
       <div style={{ position: 'absolute', bottom: 68, right: 20, zIndex: 120, display: 'flex', alignItems: 'center', gap: 8 }}>
         <button

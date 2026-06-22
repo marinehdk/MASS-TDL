@@ -36,3 +36,60 @@ export function computeRangeNm(
   const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+
+export interface CpaTcpaInput {
+  own: {
+    lat: number;
+    lon: number;
+    sogMps?: number;
+    cogRad?: number;
+  };
+  target: {
+    lat: number;
+    lon: number;
+    sogMps?: number;
+    cogRad?: number;
+  };
+}
+
+export interface CpaTcpaMetrics {
+  cpaM: number;
+  tcpaS: number;
+  cpaPointNM: {
+    x: number;
+    y: number;
+  };
+}
+
+export function computeCpaTcpa(input: CpaTcpaInput): CpaTcpaMetrics | null {
+  const { own, target } = input;
+  if (![own.lat, own.lon, target.lat, target.lon].every(Number.isFinite)) return null;
+
+  const metersPerDegLat = 111_320.0;
+  const metersPerDegLon = metersPerDegLat * Math.cos((own.lat * Math.PI) / 180);
+  const dxM = (target.lon - own.lon) * metersPerDegLon;
+  const dyM = (target.lat - own.lat) * metersPerDegLat;
+
+  const ownSog = Number.isFinite(own.sogMps) ? own.sogMps ?? 0 : 0;
+  const targetSog = Number.isFinite(target.sogMps) ? target.sogMps ?? 0 : 0;
+  const ownCog = Number.isFinite(own.cogRad) ? own.cogRad ?? 0 : 0;
+  const targetCog = Number.isFinite(target.cogRad) ? target.cogRad ?? 0 : 0;
+  const relVxMps = targetSog * Math.sin(targetCog) - ownSog * Math.sin(ownCog);
+  const relVyMps = targetSog * Math.cos(targetCog) - ownSog * Math.cos(ownCog);
+  const relSpeed2 = relVxMps * relVxMps + relVyMps * relVyMps;
+
+  const tcpaS = relSpeed2 > 1e-9
+    ? Math.max(0, -((dxM * relVxMps) + (dyM * relVyMps)) / relSpeed2)
+    : 0;
+  const cpaXM = dxM + relVxMps * tcpaS;
+  const cpaYM = dyM + relVyMps * tcpaS;
+
+  return {
+    cpaM: Math.hypot(cpaXM, cpaYM),
+    tcpaS,
+    cpaPointNM: {
+      x: cpaXM / 1852.0,
+      y: cpaYM / 1852.0,
+    },
+  };
+}

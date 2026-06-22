@@ -328,8 +328,8 @@ describe('SimulationCheck runtime console', () => {
     expect(screen.getByText('4个核心容器检查是否通过')).toBeInTheDocument();
     expect(screen.getByText('检查点 03')).toBeInTheDocument();
     expect(screen.getByText('外部核心容器')).toBeInTheDocument();
-    expect(screen.getByText('3/3 角色容器')).toBeInTheDocument();
-    expect(screen.getByText('3个角色容器（航线规划容器，运动控制容器，态势管理容器）检查是否通过')).toBeInTheDocument();
+    expect(screen.getByText('0/0 角色容器')).toBeInTheDocument();
+    expect(screen.getByText('内测模式不启用外部角色容器')).toBeInTheDocument();
     expect(screen.getByText('检查点 04')).toBeInTheDocument();
     expect(screen.getByText('ROS2数据链路')).toBeInTheDocument();
     expect(screen.getAllByText('6/6 所有话题数量')).toHaveLength(1);
@@ -358,6 +358,41 @@ describe('SimulationCheck runtime console', () => {
     expect(screen.queryByText('外部插件容器状态')).not.toBeInTheDocument();
     expect(screen.queryByTestId('gate-sequencer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('external-integration-panel')).not.toBeInTheDocument();
+  });
+
+  it('keeps all left-rail checkpoints passed in internal display mode when backend plugin gates are not applicable', () => {
+    mocks.verdict = 'GO';
+    mocks.runtimeSummary = {
+      ...mocks.runtimeSummary,
+      mode: 'integration',
+      active_profile: 'integration-local',
+      verdict: 'NO-GO',
+      gates: [
+        {
+          name: 'core_services_running',
+          passed: true,
+          services: {
+            'sil-orchestrator': 'running',
+            'sil-nodes': 'running',
+            'foxglove-bridge': 'running',
+            'martin-tile-server': 'running',
+          },
+        },
+        {
+          name: 'single_active_plugin_per_role',
+          passed: false,
+          roles: [],
+        },
+      ],
+    };
+
+    render(<SimulationCheck />);
+
+    const leftRail = screen.getByTestId('check-category-nav');
+    expect(within(leftRail).getByRole('button', { name: /外部核心容器/i })).toHaveTextContent('通过');
+    expect(within(leftRail).getByRole('button', { name: /外部核心容器/i })).toHaveTextContent('0/0 角色容器');
+    expect(within(leftRail).getByRole('button', { name: /仿真检查结论/i })).toHaveTextContent('通过');
+    expect(screen.getByText('检查结论：通过')).toBeInTheDocument();
   });
 
   it('places the final GO action in the bottom button row', () => {
@@ -564,6 +599,7 @@ describe('SimulationCheck runtime console', () => {
 
     await waitFor(() => expect(mocks.probeRuntime).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.configureLifecycle).toHaveBeenCalledWith('safe_route'));
+    expect(mocks.cleanupLifecycle).not.toHaveBeenCalled();
     expect(mocks.activateLifecycle).toHaveBeenCalled();
     expect(mocks.updateLifecycleStatus).toHaveBeenCalledWith({
       scenario_id: 'safe_route',
