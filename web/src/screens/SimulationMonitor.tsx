@@ -30,6 +30,7 @@ import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
 import { DecisionProcessPanel } from './shared/DecisionProcessPanel';
 import { deriveAvoidancePhaseState, type AvoidancePhase } from './shared/avoidancePhase';
+import { DecisionEventMarkers } from './shared/DecisionEventMarkers';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { FsmStatePanel } from '../components/FsmStatePanel';
@@ -2109,7 +2110,10 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
         </div>
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <input type="range" min="0" max="600" value={simTimeSec} style={{ flex: 1, accentColor: 'var(--c-phos)' }} readOnly />
+          <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input type="range" min="0" max="600" value={simTimeSec} style={{ flex: 1, accentColor: 'var(--c-phos)' }} readOnly />
+            <DecisionEventMarkers events={avoidancePhaseState.events} durationSec={600} />
+          </div>
           <span data-testid="sim-clock-text" style={{ color: 'var(--txt-1)' }}>{fmtSimTime(simTimeSec)}</span>
         </div>
 

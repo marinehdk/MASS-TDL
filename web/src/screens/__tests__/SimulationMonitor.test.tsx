@@ -195,6 +195,7 @@ describe('SimulationMonitor', () => {
     expect(screen.getByText('15')).toBeInTheDocument();
     expect(screen.getByText('STARBOARD')).toBeInTheDocument();
     expect(screen.getByText('50.0° / 1.19 nm / 0.50 nm / 3.0 min')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-event-M6_RULE_ASSERTED')).toBeInTheDocument();
   });
 
   it('MRC state applies blood-red border class', () => {
