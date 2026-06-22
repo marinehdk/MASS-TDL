@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy orchestrator package
 COPY src/sil_orchestrator /opt/sil/sil_orchestrator
+COPY tools/sil /opt/sil/tools/sil
 COPY config/integration_profiles /opt/config/integration_profiles
 COPY config/runtime_plugins /opt/config/runtime_plugins
 COPY config/runtime_profiles /opt/config/runtime_profiles
