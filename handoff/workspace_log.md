@@ -809,3 +809,46 @@ Plan-only update. No runtime code changed.
 
 ### Handoff Notes
 Execute with `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Start with Task 0 baseline and Task 1 chain trace summarizer. Do not implement behavior fixes until chain evidence identifies the first broken stage.
+
+## [2026-06-22] Agent: Codex - strict 12-probe trace checkpoint
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Execute the approved trace-first generalized COLREGs repair plan without scenario tuning: run strict 12-probe at stable speed, add non-invasive M5/L4 health tracing, and classify remaining RED scenarios by chain evidence.
+
+### Core Changes
+- Added stable probe-rate support to `scripts/run_6_scenarios.py`; strict run used `--sim-rate 5.0`.
+- Added `tools/sil/colregs_chain_trace.py` and runner/report/dashboard integration for chain summaries.
+- Added M5 ASDR fields for `planner_health`, `semantic_mode`, and `fallback_reason`.
+- Added L4 ASDR records for `execution_source` and bridged `/l3/asdr/record` into trace JSONL.
+- Added strict-12 diagnosis report: `docs/Design/Review/2026-06-22/COLREGs_Generalized_Repair_Strict12_Diagnosis.md`.
+
+### Current Status
+- Branch: `codex/colregs-generalization-debug`.
+- Worktree: `.worktrees/colregs-generalization-debug`.
+- Strict 12-probe evidence: `runs/batch_20260622_222636_clean12_l4_trace_5x.json`.
+- Trace evidence: `runs/trace_eval/20260622_222636_clean12/`.
+- Result remains **5/12 PASS**. PASS: `rule14-ho`, `rule14-ho-port`, `rule17-cr-so`, `rule14-ho-intelligent`, `rule17-cr-so-target-giveway`.
+- RED taxonomy:
+  - CPA under-margin: `rule15-cs`, `rule15-cs-2`, `rule15-cs-intelligent`.
+  - Overtaking physical clearance: `rule13-ot`.
+  - Phase semantics/no-cross-ahead: `rule15-cs-edge`.
+  - Release/route-return: `rule15-ot-boundary`.
+  - Risk gate: `rule13-ot-target-giveway`.
+
+### Verification
+- `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py -q` -> 46 passed.
+- `python3 -m pytest tools/sil/test_colregs_chain_trace.py -q` -> 7 passed.
+- `python3 -m pytest src/sim_workbench/sil_nodes/l4_guidance_adapter/test/test_guidance_adapter.py -q` -> 54 passed.
+- Container: `colcon build --packages-select m5_tactical_planner --cmake-args -DBUILD_TESTING=ON` -> passed.
+- Container: `colcon test --packages-select m5_tactical_planner` and `colcon test-result --verbose` -> 173 tests, 0 errors, 0 failures, 52 skipped.
+- Container: `colcon build --packages-select l4_guidance_adapter` -> passed.
+
+### Handoff Notes
+- Do not tune individual scenarios or lower gates. Remaining failures are grouped system issues.
+- Next task should improve `chain_summary` first-broken-stage classification because current diagnostics can report `OK` even when gate-level RED occurs.
+- Start behavior repair with `rule15-ot-boundary`: M4 never releases, L4 stays mostly avoidance, and M5 reports `GEOMETRIC_FALLBACK=2121`.
+- Then handle the crossing-starboard CPA family with one generalized M6/M5 safety-margin contract.
+- If no-cross-ahead or boundary timing proves coupled to scenario geometry or acceptance thresholds, pause and ask the user before editing.
