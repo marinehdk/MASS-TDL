@@ -5,6 +5,7 @@ The summarizer is diagnostic only. It must not alter gate verdicts.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -36,6 +37,18 @@ def _transitions(values: list[Any]) -> list[str]:
 
 def _count_changes(values: list[Any]) -> int:
     return len(_transitions(values))
+
+
+def _json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _has_valid_waypoint(record: dict[str, Any]) -> bool:
@@ -72,7 +85,20 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     ]
     m5_solver_statuses = [str(_value(r, "solver_status", default="")) for r in m5_rows]
     lifecycle_rows = [r for r in rows if r.get("topic") == "/sil/lifecycle_status"]
-    l4_rows = [r for r in rows if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")]
+    l4_asdr_rows = [
+        r for r in rows
+        if r.get("topic") == "/l3/asdr/record"
+        and _value(r, "source_module", default="") == "L4_Guidance_Adapter"
+        and _value(r, "decision_type", default="") == "guidance_cmd"
+    ]
+    l4_execution_sources = [
+        str(_json_dict(_value(r, "decision_json")).get("execution_source", ""))
+        for r in l4_asdr_rows
+    ]
+    l4_rows = [
+        r for r in rows
+        if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")
+    ] + l4_asdr_rows
     m7_rows = [r for r in rows if r.get("topic") in ("/l3/checker/veto", "/l3/m7/safety_alert")]
 
     m6_active = any(m6_conflicts)
@@ -120,7 +146,11 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "samples": len(lifecycle_rows),
             "released_while_m6_active": bool(lifecycle_release and m6_active),
         },
-        "l4": {"samples": len(l4_rows)},
+        "l4": {
+            "samples": len(l4_rows),
+            "execution_sources": [s for s in l4_execution_sources if s],
+            "execution_source_transitions": _transitions([s for s in l4_execution_sources if s]),
+        },
         "m7": {"samples": len(m7_rows)},
         "diagnosis": {"first_broken_stage": first_stage, "reason": reason},
     }

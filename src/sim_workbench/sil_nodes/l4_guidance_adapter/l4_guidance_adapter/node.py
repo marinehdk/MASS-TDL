@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Optional
 
@@ -92,6 +93,7 @@ class L4GuidanceAdapterNode(Node):
         from sil_msgs.msg import LifecycleStatus, OwnShipState
         from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
         from l3_msgs.msg import (
+            ASDRRecord,
             AvoidancePlan,
             BehaviorPlan,
             MissionGoal,
@@ -101,7 +103,9 @@ class L4GuidanceAdapterNode(Node):
         )
 
         self._own_msg_cls = OwnShipState
+        self._asdr_cls = ASDRRecord
         self._pub_act = self.create_publisher(OwnShipState, "/sil/actuator_cmd", sq)
+        self._pub_asdr = self.create_publisher(ASDRRecord, "/l3/asdr/record", rq)
 
         self.create_subscription(OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, sq)
         self.create_subscription(LifecycleStatus, "/sil/lifecycle_status", self._on_lifecycle_status, sq)
@@ -204,6 +208,46 @@ class L4GuidanceAdapterNode(Node):
         out.rudder_angle = float(cmd.rudder_angle)
         out.throttle = max(0.0, min(1.0, float(cmd.throttle)))
         self._pub_act.publish(out)
+
+    def _publish_guidance_asdr(
+        self,
+        *,
+        execution_source: str,
+        cmd: ActuatorCommand,
+        stamp,
+        now: float,
+    ) -> None:
+        publisher = getattr(self, "_pub_asdr", None)
+        asdr_cls = getattr(self, "_asdr_cls", None)
+        if publisher is None or asdr_cls is None:
+            return
+
+        last_plan_time = getattr(self, "_last_valid_plan_time", None)
+        m5_plan_age_s = None
+        if last_plan_time is not None:
+            m5_plan_age_s = max(0.0, float(now) - float(last_plan_time))
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        target_heading = getattr(self, "_avoidance_target_heading_deg", None)
+        payload = {
+            "execution_source": str(execution_source),
+            "rudder_deg": math.degrees(float(cmd.rudder_angle)),
+            "throttle": max(0.0, min(1.0, float(cmd.throttle))),
+            "avoidance_active": bool(getattr(self, "_avoidance_active", False)),
+            "autopilot_enabled": bool(getattr(self, "_autopilot_enabled", False)),
+            "m4_behavior": int(getattr(behavior_plan, "behavior", -1)) if behavior_plan is not None else -1,
+            "m5_plan_age_s": m5_plan_age_s,
+            "target_heading_deg": float(target_heading) if target_heading is not None else None,
+        }
+
+        record = asdr_cls()
+        record.schema_version = 113
+        record.stamp = stamp
+        record.confidence = 1.0
+        record.rationale = "L4 guidance execution source"
+        record.source_module = "L4_Guidance_Adapter"
+        record.decision_type = "guidance_cmd"
+        record.decision_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        publisher.publish(record)
 
     def _on_lifecycle_status(self, msg) -> None:
         prev_state = self._lifecycle_state
@@ -710,6 +754,8 @@ class L4GuidanceAdapterNode(Node):
         safe = safety_gate_command(self._safety_gate_active(now))
         if safe is not None:
             self._publish_command(safe, stamp)
+            self._publish_guidance_asdr(
+                execution_source="safety_gate", cmd=safe, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
@@ -718,12 +764,16 @@ class L4GuidanceAdapterNode(Node):
         if override is not None:
             cmd = self._compute_override_command(override, own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="reactive_override", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
         if self._avoidance_active:
             cmd = self._compute_avoidance_command(own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="avoidance", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
@@ -750,6 +800,8 @@ class L4GuidanceAdapterNode(Node):
         if self._autopilot_enabled:
             cmd = self._compute_transit_command(own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="transit", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
 
 

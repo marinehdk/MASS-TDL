@@ -1,4 +1,5 @@
 import math
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -433,6 +434,39 @@ def test_transit_autopilot_continues_when_odd_sample_is_temporarily_missing():
     L4GuidanceAdapterNode._autopilot_step(node)
 
     assert len(published) == 1
+
+
+def test_guidance_asdr_records_execution_source_without_changing_command():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    published = []
+    node._asdr_cls = SimpleNamespace
+    node._pub_asdr = SimpleNamespace(publish=lambda msg: published.append(msg))
+    node._last_behavior_plan = SimpleNamespace(behavior=7)
+    node._avoidance_active = True
+    node._autopilot_enabled = False
+    node._last_valid_plan_time = 95.0
+    node._avoidance_target_heading_deg = 72.0
+
+    cmd = SimpleNamespace(rudder_angle=math.radians(12.0), throttle=0.42)
+
+    L4GuidanceAdapterNode._publish_guidance_asdr(
+        node,
+        execution_source="avoidance",
+        cmd=cmd,
+        stamp=object(),
+        now=100.0,
+    )
+
+    assert len(published) == 1
+    record = published[0]
+    assert record.source_module == "L4_Guidance_Adapter"
+    payload = json.loads(record.decision_json)
+    assert payload["execution_source"] == "avoidance"
+    assert payload["m4_behavior"] == 7
+    assert payload["avoidance_active"] is True
+    assert payload["m5_plan_age_s"] == pytest.approx(5.0)
+    assert payload["rudder_deg"] == pytest.approx(12.0)
+    assert payload["throttle"] == pytest.approx(0.42)
 
 
 def test_safety_alert_gate_expires_without_fresh_m7_alerts():

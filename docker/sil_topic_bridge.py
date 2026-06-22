@@ -1313,6 +1313,14 @@ class SilTopicBridge(Node):
                 self._reset_latch_release_state()
 
     def _on_asdr_record(self, msg: ASDRRecord) -> None:
+        self._trace_writer.record("/l3/asdr/record", {
+            "source_module": str(msg.source_module),
+            "decision_type": str(msg.decision_type),
+            "decision_json": str(msg.decision_json),
+            "confidence": float(msg.confidence),
+            "rationale": str(msg.rationale),
+        }, self._get_sim_time())
+
         out = ASDREvent()
         out.stamp = msg.stamp
         out.event_type = msg.decision_type

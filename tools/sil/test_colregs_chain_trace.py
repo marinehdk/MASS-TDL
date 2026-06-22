@@ -130,3 +130,25 @@ def test_m5_enriched_rationale_does_not_change_status_transition_logic():
     summary = build_chain_summary(records)
     assert summary["m5"]["status_transitions"] == ["DEGRADED->RECOVERY"]
     assert summary["m5"]["valid_plan_samples"] == 2
+
+
+def test_l4_execution_sources_are_parsed_from_asdr_records():
+    summary = build_chain_summary([
+        rec(
+            1.0,
+            "/l3/asdr/record",
+            source_module="L4_Guidance_Adapter",
+            decision_type="guidance_cmd",
+            decision_json='{"execution_source":"avoidance","rudder_deg":10.0}',
+        ),
+        rec(
+            2.0,
+            "/l3/asdr/record",
+            source_module="L4_Guidance_Adapter",
+            decision_type="guidance_cmd",
+            decision_json='{"execution_source":"transit","rudder_deg":0.0}',
+        ),
+    ])
+
+    assert summary["l4"]["execution_sources"] == ["avoidance", "transit"]
+    assert summary["l4"]["execution_source_transitions"] == ["avoidance->transit"]
