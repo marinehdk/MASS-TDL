@@ -23,6 +23,8 @@ from tools.sil.colregs_trace_evaluator import (
     derive_cpa_threshold,
     report_from_runner_result,
 )
+from tools.sil.evidence_session import EvidenceSessionManager
+from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
 # Phase B: behavioral-stability scorer — standalone import (no polars/ROS2) so
 # this host-side runner can use the same logic the scoring package ships.
@@ -1692,6 +1694,57 @@ def _parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _evidence_suite(args, scenarios):
+    if args.include_intelligent:
+        return "clean12", None
+    if args.scenario and len(scenarios) == 1:
+        return "single", scenarios[0]
+    return "clean8", None
+
+
+def _create_evidence_session(args, scenarios):
+    manager = EvidenceSessionManager()
+    suite, scenario_id = _evidence_suite(args, scenarios)
+    if args.trace_report_dir:
+        session = manager.initialize_existing(
+            Path(args.trace_report_dir),
+            source="cli",
+            suite=suite,
+        )
+    else:
+        session = manager.start(
+            source="cli",
+            suite=suite,
+            scenario_id=scenario_id,
+        )
+    return manager, session
+
+
+def _generate_evidence_dashboard(manager, session, scenario_id, scenario_entry):
+    if not scenario_entry.get("valid_data"):
+        return
+    trace_name = scenario_entry.get("trace_path")
+    png_name = scenario_entry.get("png_path")
+    if not trace_name or not png_name:
+        return
+    report_name = scenario_entry.get("report_path")
+    try:
+        generate_trajectory_dashboard(
+            trace_jsonl=session.session_dir / trace_name,
+            report_json=(session.session_dir / report_name) if report_name else None,
+            output_png=session.session_dir / png_name,
+            scenario_id=scenario_id,
+            session_name=session.session_name,
+        )
+    except Exception as exc:
+        manager.record_postprocess(session, {
+            "level": "error",
+            "scenario_id": scenario_id,
+            "event": "dashboard_failed",
+            "error": str(exc),
+        })
+
+
 def main(argv=None):
     args = _parse_args(argv)
     if args.deprecated_wrapper:
@@ -1725,6 +1778,8 @@ def main(argv=None):
             file=sys.stderr,
         )
         return 2
+    evidence_manager, evidence_session = _create_evidence_session(args, scenarios)
+    args.trace_report_dir = str(evidence_session.session_dir)
     for scen in scenarios:
         try:
             if args.restart_between_runs:
@@ -1742,6 +1797,20 @@ def main(argv=None):
                     res["colregs_pass"] = verdict["colregs_pass"]
                     res["traceeval_stability_pass"] = verdict["stability_pass"]
                     res["traceeval_overall_pass"] = verdict["overall_pass"]
+                scenario_entry = evidence_manager.archive_scenario(
+                    evidence_session,
+                    scen,
+                    trace_path=Path("runs/trace_current.jsonl"),
+                    report_path=Path(report_path) if report_path else None,
+                    status="pass" if res.get("overall_pass") else "fail",
+                    run_id=res.get("run_id"),
+                )
+                _generate_evidence_dashboard(
+                    evidence_manager,
+                    evidence_session,
+                    scen,
+                    scenario_entry,
+                )
                 results[scen] = res
         except Exception as e:
             print(f"Failed to run {scen}: {e}")
@@ -1751,6 +1820,13 @@ def main(argv=None):
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     with open(summary_path, "w") as f:
         json.dump(results, f, indent=2)
+    session_summary_path = evidence_session.session_dir / "batch_summary.json"
+    with open(session_summary_path, "w") as f:
+        json.dump(results, f, indent=2)
+    evidence_manager.finalize(
+        evidence_session,
+        status="completed" if results else "error",
+    )
         
     print("\n\n==================================================")
     print("ALL SCENARIOS COMPLETED. SUMMARY OF RESULTS:")

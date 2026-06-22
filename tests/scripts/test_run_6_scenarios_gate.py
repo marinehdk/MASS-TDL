@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import math
 import subprocess
 import sys
@@ -1045,3 +1046,128 @@ def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
     assert result["c1_past_clear_ok"] is False, (
         "early return at rel_brg~36° with tcpa>0 must stay RED"
     )
+
+
+def _write_valid_trace(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for i in range(25):
+            f.write(json.dumps({
+                "sim_t": float(i),
+                "wall_t": 1000.0 + i,
+                "topic": "/sil/own_ship_state",
+                "lat": 63.44 + i * 0.00001,
+                "lon": 10.38,
+                "heading_deg": 360.0,
+                "sog_kn": 8.0,
+            }) + "\n")
+
+
+def _fake_runner_result():
+    return {
+        "run_id": "run-test",
+        "overall_pass": True,
+        "safety_pass": True,
+        "mission_pass": True,
+        "colregs_pass": True,
+        "stability_pass": True,
+        "min_cpa_m": 200.0,
+        "cpa_ok": True,
+        "cpa_floor_m": 180.0,
+        "steer_dir": "starboard",
+        "steer_mag": 30.0,
+        "stability_kpis": {},
+        "stability_checks": {},
+        "role": "give_way",
+        "returned_to_route": True,
+        "route_return_required": True,
+        "final_xte": 0.0,
+        "max_route_xte_m": 10.0,
+        "route_corridor_pass_limit_m": 500.0,
+        "route_corridor_ok": True,
+        "bp_transitions": [],
+    }
+
+
+def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.chdir(tmp_path)
+    _write_valid_trace(tmp_path / "runs" / "trace_current.jsonl")
+    monkeypatch.setattr(runner, "SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(runner, "ALL_SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(
+        runner,
+        "run_scenario",
+        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+    )
+
+    def fake_report(scenario_id, result, trace_report_dir):
+        path = Path(trace_report_dir) / f"{scenario_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "verdict": {
+                "overall_pass": True,
+                "safety_pass": True,
+                "mission_pass": True,
+                "colregs_pass": True,
+                "stability_pass": True,
+            }
+        }))
+        return str(path)
+
+    monkeypatch.setattr(runner, "_write_trace_evaluation_report", fake_report)
+    monkeypatch.setattr(
+        runner,
+        "generate_trajectory_dashboard",
+        lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
+    )
+
+    rc = runner.main([])
+
+    assert rc == 0
+    sessions = list((tmp_path / "runs" / "trace_eval").glob("*_clean8"))
+    assert len(sessions) == 1
+    assert (sessions[0] / "batch_summary.json").exists()
+    assert (sessions[0] / "colreg-rule14-ho.trace_current.jsonl").exists()
+    assert (sessions[0] / "colreg-rule14-ho_trajectory_dashboard.png").exists()
+
+
+def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.chdir(tmp_path)
+    _write_valid_trace(tmp_path / "runs" / "trace_current.jsonl")
+    monkeypatch.setattr(runner, "SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(runner, "ALL_SCENARIOS", ["colreg-rule14-ho"])
+    monkeypatch.setattr(
+        runner,
+        "run_scenario",
+        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+    )
+
+    def fake_report(scenario_id, result, trace_report_dir):
+        path = Path(trace_report_dir) / f"{scenario_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "verdict": {
+                "overall_pass": True,
+                "safety_pass": True,
+                "mission_pass": True,
+                "colregs_pass": True,
+                "stability_pass": True,
+            }
+        }))
+        return str(path)
+
+    monkeypatch.setattr(runner, "_write_trace_evaluation_report", fake_report)
+    monkeypatch.setattr(
+        runner,
+        "generate_trajectory_dashboard",
+        lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
+    )
+
+    rc = runner.main(["--trace-report-dir", "runs/trace_eval/manual_dir"])
+
+    assert rc == 0
+    manual_dir = tmp_path / "runs" / "trace_eval" / "manual_dir"
+    assert (manual_dir / "manifest.json").exists()
+    assert (manual_dir / "batch_summary.json").exists()
