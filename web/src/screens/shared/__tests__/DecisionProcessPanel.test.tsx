@@ -59,7 +59,7 @@ describe('DecisionProcessPanel', () => {
     expect(screen.getByText('当前阶段')).toBeInTheDocument();
     expect(screen.getByText('解除警报与回归航线')).toBeInTheDocument();
     expect(screen.getAllByText('危险解除，规则清空，系统回到 Transit 并准备回归航线。').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('底部 M4/M5 查看回归行为与规划状态。')).toBeInTheDocument();
+    expect(screen.queryByText('底部 M4/M5 查看回归行为与规划状态。')).not.toBeInTheDocument();
     expect(screen.getByTestId('decision-phase-TRANSIT_DISCOVERY')).toBeInTheDocument();
     expect(screen.getByTestId('decision-phase-RISK_RULE_ASSESSED')).toBeInTheDocument();
     expect(screen.getByTestId('decision-phase-ARBITRATION_MANEUVERING')).toBeInTheDocument();
