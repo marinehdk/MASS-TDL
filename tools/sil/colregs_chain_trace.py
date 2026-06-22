@@ -1,0 +1,116 @@
+"""Full-chain COLREGs trace summarizer.
+
+The summarizer is diagnostic only. It must not alter gate verdicts.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+
+def _value(record: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    payload = record.get("msg")
+    for key in keys:
+        if key in record:
+            return record[key]
+        if isinstance(payload, dict) and key in payload:
+            return payload[key]
+    return default
+
+
+def _transitions(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    last = None
+    have_last = False
+    for value in values:
+        if not have_last:
+            last = value
+            have_last = True
+            continue
+        if value != last:
+            out.append(f"{last}->{value}")
+            last = value
+    return out
+
+
+def _count_changes(values: list[Any]) -> int:
+    return len(_transitions(values))
+
+
+def _has_valid_waypoint(record: dict[str, Any]) -> bool:
+    waypoints = _value(record, "waypoints", default=[])
+    if not isinstance(waypoints, list) or not waypoints:
+        return False
+    first = waypoints[0]
+    if not isinstance(first, dict):
+        return True
+    radius = first.get("turn_radius_m", first.get("turnRadiusM", 0.0))
+    return abs(float(radius or 0.0)) > 1.0e-6
+
+
+def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    rows = sorted((dict(r) for r in records), key=lambda r: float(r.get("sim_t", 0.0) or 0.0))
+    route_hashes = [
+        _value(r, "route_hash")
+        for r in rows
+        if r.get("topic") == "/l2/planned_route" and _value(r, "route_hash") is not None
+    ]
+    m6_rows = [r for r in rows if r.get("topic") == "/l3/m6/colregs_constraint"]
+    m6_conflicts = [bool(_value(r, "conflict_detected", default=False)) for r in m6_rows]
+    m6_targets = [_value(r, "colregs_chain_target_id", "target_id") for r in m6_rows]
+    m4_behaviors = [_value(r, "behavior") for r in rows if r.get("topic") == "/l3/m4/behavior_plan"]
+    m5_rows = [r for r in rows if r.get("topic") == "/l3/m5/avoidance_plan"]
+    m5_statuses = [str(_value(r, "status", default="")) for r in m5_rows]
+    lifecycle_rows = [r for r in rows if r.get("topic") == "/sil/lifecycle_status"]
+    l4_rows = [r for r in rows if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")]
+    m7_rows = [r for r in rows if r.get("topic") in ("/l3/checker/veto", "/l3/m7/safety_alert")]
+
+    m6_active = any(m6_conflicts)
+    lifecycle_release = any(
+        bool(_value(r, "autopilot_enabled", default=False))
+        and not bool(_value(r, "avoidance_active", default=True))
+        for r in lifecycle_rows
+    )
+
+    route_changes = _count_changes(route_hashes)
+    m6_toggles = _count_changes(m6_conflicts)
+    m4_toggles = _count_changes(m4_behaviors)
+    m5_transitions = _transitions([status for status in m5_statuses if status])
+
+    first_stage = "OK"
+    reason = "no chain fault detected"
+    if route_changes:
+        first_stage = "L2"
+        reason = "route hash changed before downstream transition"
+    elif m6_toggles:
+        first_stage = "M6"
+        reason = "COLREGs conflict toggled before downstream transition"
+    elif m4_toggles:
+        first_stage = "M4"
+        reason = "behavior changed before planner transition"
+    elif lifecycle_release and m6_active:
+        first_stage = "L4"
+        reason = "lifecycle released while M6 conflict remained active"
+    elif m5_transitions:
+        first_stage = "M5"
+        reason = "M5 status changed with stable upstream inputs"
+
+    return {
+        "route": {"hashes": route_hashes, "hash_changes": route_changes},
+        "m2": {"present": any(r.get("topic") == "/l3/m2/world_state" for r in rows)},
+        "m6": {"conflict_toggles": m6_toggles, "targets": [t for t in m6_targets if t is not None]},
+        "m4": {"behavior_toggles": m4_toggles, "behaviors": m4_behaviors},
+        "m5": {
+            "status_transitions": m5_transitions,
+            "valid_plan_samples": sum(1 for r in m5_rows if _has_valid_waypoint(r)),
+            "samples": len(m5_rows),
+        },
+        "lifecycle": {
+            "samples": len(lifecycle_rows),
+            "released_while_m6_active": bool(lifecycle_release and m6_active),
+        },
+        "l4": {"samples": len(l4_rows)},
+        "m7": {"samples": len(m7_rows)},
+        "diagnosis": {"first_broken_stage": first_stage, "reason": reason},
+    }
