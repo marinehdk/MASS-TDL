@@ -192,7 +192,13 @@ describe('SimulationMonitor', () => {
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
     expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
-    expect(screen.getByText('仿真过程链路待重新映射')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
+    expect(screen.getAllByText('风险进入阈值，M6 输出 COLREGs 规则、责任角色与首选方向。').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('底部 M6 查看 Rule / Role / Direction。')).toBeInTheDocument();
+    expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
+    expect(screen.queryByText('SOTIF 风险与系统警报')).not.toBeInTheDocument();
     expect(screen.queryByText('相对方位 BRG')).not.toBeInTheDocument();
     expect(screen.queryByText('当前距离 RNG')).not.toBeInTheDocument();
     expect(screen.queryByText('最近会遇 CPA')).not.toBeInTheDocument();
@@ -419,7 +425,7 @@ ownShip:
     expect(screen.getByTestId('threat-tcpa')).not.toHaveTextContent('—');
   });
 
-  it('renders avoidance decision cards from real module telemetry instead of mock defaults', () => {
+  it('keeps avoidance decision side panel at phase-summary level', () => {
     useFsmStore.setState({
       currentState: 'COLREG_AVOIDANCE',
       activeRule: 'Rule 14 head-on',
@@ -475,15 +481,16 @@ ownShip:
     render(<SimulationMonitor />);
     fireEvent.click(screen.getByTestId('right-tab-avoid'));
 
-    expect(screen.getByText('EDGE')).toBeInTheDocument();
-    expect(screen.getByText('COLREG AVOIDANCE')).toBeInTheDocument();
-    expect(screen.getByText('Rule 14')).toBeInTheDocument();
-    expect(screen.getByText('GIVE-WAY 让路')).toBeInTheDocument();
-    expect(screen.getByText('STARBOARD 22°')).toBeInTheDocument();
-    expect(screen.getByText('NORMAL / 8.2 kn')).toBeInTheDocument();
-    expect(screen.getByText('3.5%')).toBeInTheDocument();
-    expect(screen.getByText('CRITICAL / MRM-02')).toBeInTheDocument();
-
+    expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
+    expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
+    expect(screen.queryByText('SOTIF 风险与系统警报')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rule 14')).not.toBeInTheDocument();
+    expect(screen.queryByText('GIVE-WAY 让路')).not.toBeInTheDocument();
+    expect(screen.queryByText('STARBOARD 22°')).not.toBeInTheDocument();
+    expect(screen.queryByText('NORMAL / 8.2 kn')).not.toBeInTheDocument();
     expect(screen.queryByText('NONE')).not.toBeInTheDocument();
     expect(screen.queryByText('右舵转向 15°')).not.toBeInTheDocument();
     expect(screen.queryByText('正常运行 (LV 0)')).not.toBeInTheDocument();

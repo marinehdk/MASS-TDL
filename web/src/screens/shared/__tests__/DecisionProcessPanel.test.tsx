@@ -51,13 +51,20 @@ const basePhase: AvoidancePhaseState = {
 };
 
 describe('DecisionProcessPanel', () => {
-  it('keeps only the cleared shell for the next process mapping', () => {
+  it('renders current phase overview and five-stage flow', () => {
     render(<DecisionProcessPanel phaseState={basePhase} sat2={null} sotifMetrics={null} safetyAlert={null} />);
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
     expect(screen.getByText('避碰过程')).toBeInTheDocument();
     expect(screen.getByText('解除警报与回归航线')).toBeInTheDocument();
-    expect(screen.getByText('仿真过程链路待重新映射')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
+    expect(screen.getAllByText('危险解除，规则清空，系统回到 Transit 并准备回归航线。').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('底部 M4/M5 查看回归行为与规划状态。')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-phase-TRANSIT_DISCOVERY')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-phase-RISK_RULE_ASSESSED')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-phase-ARBITRATION_MANEUVERING')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-phase-SAFETY_MONITORING')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-phase-CLEAR_RETURN')).toBeInTheDocument();
   });
 
   it('does not render stale module chain details', () => {
@@ -69,5 +76,21 @@ describe('DecisionProcessPanel', () => {
     expect(screen.queryByText('M6 COLREGs REASONING')).not.toBeInTheDocument();
     expect(screen.queryByText('方向代价 Top3')).not.toBeInTheDocument();
     expect(screen.queryByText('SOTIF 风险与系统警报')).not.toBeInTheDocument();
+  });
+
+  it('renders latest event summary when available', () => {
+    render(
+      <DecisionProcessPanel
+        phaseState={{
+          ...basePhase,
+          events: [{ t: 12, k: 'CLEAR_RETURN', sev: 'info', m: 'M8', d: '解除警报，回归航线' }],
+        }}
+        sat2={null}
+        sotifMetrics={null}
+        safetyAlert={null}
+      />,
+    );
+
+    expect(screen.getByText('最近事件：M8 解除警报，回归航线')).toBeInTheDocument();
   });
 });
