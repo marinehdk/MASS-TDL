@@ -9,7 +9,7 @@
   },
   "devDependencies": {},
   "scripts": {
-    "sys:start": "docker compose up -d && pm2 start ecosystem.config.cjs",
+    "sys:start": "bash scripts/sys-start.sh",
     "sys:stop": "pm2 delete ecosystem.config.cjs && docker compose down",
     "sys:status": "pm2 list && docker compose ps",
     "sys:restart": "pm2 restart ecosystem.config.cjs && docker compose restart",
