@@ -86,3 +86,25 @@ def test_lifecycle_release_while_m6_active_is_l4_lifecycle_fault():
     summary = build_chain_summary(records)
     assert summary["lifecycle"]["released_while_m6_active"] is True
     assert summary["diagnosis"]["first_broken_stage"] == "L4"
+
+
+def test_chain_summary_shape_is_json_report_safe():
+    summary = build_chain_summary([
+        rec(1.0, "/l3/m5/avoidance_plan", status="NORMAL", waypoints=[]),
+    ])
+    assert set(summary) == {"route", "m2", "m6", "m4", "m5", "lifecycle", "l4", "m7", "diagnosis"}
+    assert isinstance(summary["diagnosis"]["first_broken_stage"], str)
+    assert isinstance(summary["diagnosis"]["reason"], str)
+
+
+def test_solver_status_is_evidence_not_m5_health_flip():
+    records = [
+        rec(1.0, "/l3/m5/avoidance_plan", solver_status="EMPTY", n_waypoints=0),
+        rec(2.0, "/l3/m5/avoidance_plan", solver_status="VALID", n_waypoints=2),
+        rec(3.0, "/l3/m5/avoidance_plan", solver_status="EMPTY", n_waypoints=0),
+    ]
+    summary = build_chain_summary(records)
+    assert summary["m5"]["solver_status_transitions"] == ["EMPTY->VALID", "VALID->EMPTY"]
+    assert summary["m5"]["status_transitions"] == []
+    assert summary["m5"]["valid_plan_samples"] == 1
+    assert summary["diagnosis"]["first_broken_stage"] == "OK"

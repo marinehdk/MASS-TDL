@@ -23,6 +23,7 @@ from tools.sil.colregs_trace_evaluator import (
     derive_cpa_threshold,
     report_from_runner_result,
 )
+from tools.sil.colregs_chain_trace import build_chain_summary
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
@@ -1584,6 +1585,8 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
     except Exception as e:
         print(f"  Failed to generate trajectory plot: {e}")
         
+    chain_summary = build_chain_summary(run_records)
+
     return {
         "scenario_id": scenario_id,
         "run_id": run_id,
@@ -1639,6 +1642,7 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         "domain_gates": domain_gates,
         "overall_pass": overall_pass,
         "phase_semantics": phase_sem,
+        "chain_summary": chain_summary,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
 

@@ -290,6 +290,7 @@ class TraceEvaluationReport:
     first_failure: str | None
     trace_artifact_path: str | None = None
     no_action_trace_path: str | None = None
+    chain_summary: dict[str, Any] | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -301,6 +302,7 @@ class TraceEvaluationReport:
             "first_failure": self.first_failure,
             "trace_artifact_path": self.trace_artifact_path,
             "no_action_trace_path": self.no_action_trace_path,
+            "chain_summary": self.chain_summary,
         }
 
 
@@ -362,6 +364,7 @@ def evaluate_trace(
     layer_statuses: dict[str, str] | None = None,
     trace_artifact_path: str | None = None,
     no_action_trace_path: str | None = None,
+    chain_summary: dict[str, Any] | None = None,
 ) -> TraceEvaluationReport:
     layer_statuses = layer_statuses or {}
     layers = {
@@ -382,6 +385,7 @@ def evaluate_trace(
         first_failure=first_failed_layer(layers),
         trace_artifact_path=trace_artifact_path,
         no_action_trace_path=no_action_trace_path,
+        chain_summary=chain_summary,
     )
 
 
@@ -417,4 +421,5 @@ def report_from_runner_result(
         layer_statuses={"L1_scenario_validity": "UNKNOWN"},
         trace_artifact_path=trace_artifact_path,
         no_action_trace_path=no_action_trace_path,
+        chain_summary=result.get("chain_summary"),
     )

@@ -39,6 +39,12 @@ def _count_changes(values: list[Any]) -> int:
 
 
 def _has_valid_waypoint(record: dict[str, Any]) -> bool:
+    n_waypoints = _value(record, "n_waypoints")
+    if n_waypoints is not None and int(n_waypoints or 0) > 0:
+        return True
+    wp0_turn_radius = _value(record, "wp0_turn_radius_m")
+    if wp0_turn_radius is not None and abs(float(wp0_turn_radius or 0.0)) > 1.0e-6:
+        return True
     waypoints = _value(record, "waypoints", default=[])
     if not isinstance(waypoints, list) or not waypoints:
         return False
@@ -61,7 +67,10 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     m6_targets = [_value(r, "colregs_chain_target_id", "target_id") for r in m6_rows]
     m4_behaviors = [_value(r, "behavior") for r in rows if r.get("topic") == "/l3/m4/behavior_plan"]
     m5_rows = [r for r in rows if r.get("topic") == "/l3/m5/avoidance_plan"]
-    m5_statuses = [str(_value(r, "status", default="")) for r in m5_rows]
+    m5_statuses = [
+        str(_value(r, "status", "planner_health", default="")) for r in m5_rows
+    ]
+    m5_solver_statuses = [str(_value(r, "solver_status", default="")) for r in m5_rows]
     lifecycle_rows = [r for r in rows if r.get("topic") == "/sil/lifecycle_status"]
     l4_rows = [r for r in rows if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")]
     m7_rows = [r for r in rows if r.get("topic") in ("/l3/checker/veto", "/l3/m7/safety_alert")]
@@ -83,12 +92,12 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     if route_changes:
         first_stage = "L2"
         reason = "route hash changed before downstream transition"
-    elif m6_toggles:
+    elif m6_toggles > 3:
         first_stage = "M6"
-        reason = "COLREGs conflict toggled before downstream transition"
-    elif m4_toggles:
+        reason = "COLREGs conflict oscillated before downstream transition"
+    elif m4_toggles > 3:
         first_stage = "M4"
-        reason = "behavior changed before planner transition"
+        reason = "behavior oscillated before planner transition"
     elif lifecycle_release and m6_active:
         first_stage = "L4"
         reason = "lifecycle released while M6 conflict remained active"
@@ -103,6 +112,7 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "m4": {"behavior_toggles": m4_toggles, "behaviors": m4_behaviors},
         "m5": {
             "status_transitions": m5_transitions,
+            "solver_status_transitions": _transitions([s for s in m5_solver_statuses if s]),
             "valid_plan_samples": sum(1 for r in m5_rows if _has_valid_waypoint(r)),
             "samples": len(m5_rows),
         },

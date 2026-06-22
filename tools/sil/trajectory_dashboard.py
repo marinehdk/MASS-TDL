@@ -198,6 +198,14 @@ def generate_trajectory_dashboard(
     empty_m5 = sum(1 for r in m5 if str(r.get("solver_status")) == "EMPTY")
     score_totals = [_fval(r, "total") for r in scoring]
     rudders = [abs(_fval(r, "rudder_deg")) for r in actuator]
+    chain = report.get("chain_summary") or {}
+    chain_diag = chain.get("diagnosis") if isinstance(chain, dict) else {}
+    if not isinstance(chain_diag, dict):
+        chain_diag = {}
+    chain_diag_text = (
+        f"{chain_diag.get('first_broken_stage', 'UNKNOWN')}: "
+        f"{chain_diag.get('reason', 'missing')}"
+    )
 
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
@@ -453,6 +461,7 @@ def generate_trajectory_dashboard(
         ("M5 solver", f"VALID {valid_m5} | EMPTY {empty_m5}"),
         ("Scoring total", f"avg {statistics.mean(score_totals):.3f} | min {min(score_totals):.3f}" if score_totals else "UNKNOWN"),
         ("Max rudder", f"{max(rudders):.1f} deg" if rudders else "UNKNOWN"),
+        ("Chain diagnosis", _shorten(chain_diag_text)),
     ]
     for idx, (key, value) in enumerate(signals):
         yy = trace_y - idx * .024
@@ -470,7 +479,7 @@ def generate_trajectory_dashboard(
     panel_text(.05, .065, "Displayed checks", 8.5, "#64748b")
     panel_text(
         .30, .065,
-        "Safety / Mission / COLREGs / Stability / L1-L7 / M4-M6 / M5 solver / Scoring / Rudder",
+        "Safety / Mission / COLREGs / Stability / L1-L7 / M4-M6 / M5 solver / Chain / Rudder",
         8.1,
         "#111827",
         "bold",
