@@ -312,13 +312,13 @@ function normalizeColregsConstraint(constraint: any | null): ColregsConstraintDa
     ?? activeRules[0]
     ?? {};
   return {
-    ruleId: numberOrUndefined(primaryRule.rule_id ?? primaryRule.ruleId),
+    ruleId: numberOrUndefined(constraint.rule_id ?? constraint.ruleId ?? primaryRule.rule_id ?? primaryRule.ruleId),
     phase: typeof constraint.phase === 'string' ? constraint.phase : undefined,
-    role: numberOrUndefined(constraint.primary_role ?? constraint.primaryRole ?? primaryRule.role),
+    role: numberOrUndefined(constraint.primary_role ?? constraint.primaryRole ?? constraint.role ?? primaryRule.role),
     preferredDirection: typeof (constraint.primary_preferred_direction ?? constraint.primaryPreferredDirection ?? primaryRule.preferred_direction ?? primaryRule.preferredDirection) === 'string'
       ? (constraint.primary_preferred_direction ?? constraint.primaryPreferredDirection ?? primaryRule.preferred_direction ?? primaryRule.preferredDirection)
       : undefined,
-    minAlterationDeg: numberOrUndefined(primaryRule.min_alteration_deg ?? primaryRule.minAlterationDeg),
+    minAlterationDeg: numberOrUndefined(constraint.min_alteration_deg ?? constraint.minAlterationDeg ?? primaryRule.min_alteration_deg ?? primaryRule.minAlterationDeg),
     conflictDetected: typeof (constraint.conflict_detected ?? constraint.conflictDetected) === 'boolean'
       ? (constraint.conflict_detected ?? constraint.conflictDetected)
       : undefined,

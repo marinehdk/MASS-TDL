@@ -292,6 +292,59 @@ function formatSafetyAlarm(severity: number | undefined, recommendedMrm: string 
   return torActive ? '接管请求 (TOR)' : '—';
 }
 
+function findColregsChainConclusion(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined, matcher: (entry: { layer?: number; label?: string; conclusion?: string }) => boolean): string | undefined {
+  return chain?.find((entry) => matcher(entry) && typeof entry.conclusion === 'string')?.conclusion;
+}
+
+function extractSatRule(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined): string | undefined {
+  return findColregsChainConclusion(chain, (entry) => /rule\s*\d+/i.test(entry.conclusion ?? ''))
+    ?? findColregsChainConclusion(chain, (entry) => /rule|规则|encounter|会遇/i.test(entry.label ?? ''));
+}
+
+function extractSatRole(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined): string | undefined {
+  const role = findColregsChainConclusion(chain, (entry) => /give|stand|role|duty|责任/i.test(`${entry.label ?? ''} ${entry.conclusion ?? ''}`));
+  if (!role) return undefined;
+  if (/give[_ -]?way/i.test(role)) return 'GIVE-WAY 让路';
+  if (/stand[_ -]?on/i.test(role)) return 'STAND-ON 保向';
+  return role;
+}
+
+function formatBestIvpContribution(contributions: Array<{ direction_deg?: number; cost?: number; label?: string }> | undefined): string {
+  if (!contributions?.length) return '—';
+  const best = contributions
+    .filter((entry) => Number.isFinite(entry.direction_deg) && Number.isFinite(entry.cost))
+    .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity))[0];
+  if (!best) return '—';
+  const label = best.label ? ` ${best.label}` : '';
+  return `${best.direction_deg?.toFixed(0)}° / ${best.cost?.toFixed(2)}${label}`;
+}
+
+function formatTrajectoryCount(avoidancePlan: { waypoints: unknown[] } | null | undefined, sat3: { trajectory_candidates?: unknown[] } | null | undefined): string {
+  if (avoidancePlan) return `${avoidancePlan.waypoints.length} 条`;
+  const candidates = sat3?.trajectory_candidates;
+  return candidates?.length ? `${candidates.length} 候选` : '—';
+}
+
+function formatBestTrajectoryCost(sat3: { trajectory_candidates?: Array<{ cost?: number; is_optimal?: boolean; type?: string }> } | null | undefined): string {
+  const candidates = sat3?.trajectory_candidates;
+  if (!candidates?.length) return '—';
+  const best = candidates.find((entry) => entry.is_optimal) ?? candidates[0];
+  const cost = typeof best.cost === 'number' && Number.isFinite(best.cost) ? best.cost.toFixed(2) : '—';
+  return best.type ? `${best.type} / ${cost}` : cost;
+}
+
+function formatLifecycleState(state: number | undefined): string {
+  if (state === undefined) return '—';
+  return {
+    0: 'UNKNOWN',
+    1: 'UNCONFIGURED',
+    2: 'INACTIVE',
+    3: 'ACTIVE',
+    4: 'DEACTIVATING',
+    5: 'FINALIZED',
+  }[state] ?? `STATE ${state}`;
+}
+
 function computeRouteProgress(
   waypoints: Array<{ lat: number; lon: number }>,
   ownLat: number,
@@ -481,14 +534,15 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   }, [ownShip, voyagePlan]);
 
   const avoidanceDecisionDetails = useMemo(() => {
-    const satRule = sat2?.colregs_chain?.find(c => c.layer === 2)?.conclusion;
+    const satRule = extractSatRule(sat2?.colregs_chain);
+    const satRole = extractSatRole(sat2?.colregs_chain);
     const firstAvoidanceWaypoint = avoidancePlan?.waypoints?.[0];
     const envelope = oddState?.envelopeState !== undefined
       ? ODD_ENVELOPE_LABELS[oddState.envelopeState] ?? `ODD ${oddState.envelopeState}`
       : '—';
     const role = colregsConstraint?.role !== undefined
       ? COLREGS_ROLE_LABELS[colregsConstraint.role] ?? `ROLE ${colregsConstraint.role}`
-      : '—';
+      : satRole ?? '—';
 
     return {
       envelope,
@@ -530,9 +584,12 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     const speedMax = formatNumber(behaviorPlan?.speedMaxKn, 1);
     const speedWindow = speedMin && speedMax ? `${speedMin}-${speedMax} kn` : '—';
     const m4Behavior = formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior);
+    const m4Confidence = behaviorPlan?.confidence ?? sat2?.active_behavior_weight;
+    const m5Status = avoidancePlan?.status ?? (sat3?.trajectory_candidates?.length ? 'SAT3 CANDIDATE' : undefined);
     const safetySeverity = safetyAlert?.severity !== undefined
       ? SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? `SEV ${safetyAlert.severity}`
       : '—';
+    const sotifStatus = sotifMetrics ? `SOTIF ${formatRawPercent(sotifMetrics.checker_veto_rate_pct)}` : '—';
 
     return {
       M1: [
@@ -540,6 +597,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
         { label: '一致性评分', value: formatPercent(oddState?.conformanceScore) },
         { label: '健康状态', value: oddState?.health !== undefined ? (ODD_HEALTH_LABELS[oddState.health] ?? `HEALTH ${oddState.health}`) : '—' },
         { label: 'FSM 阶段', value: fsmState.replace(/_/g, ' ') },
+        { label: '生命周期', value: formatLifecycleState(lifecycleStatus?.current_state) },
       ],
       M2: [
         { label: '目标数量', value: `${targets.length}` },
@@ -556,24 +614,28 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
       M4: [
         { label: '仲裁行为', value: m4Behavior },
         { label: '转向窗口', value: formatManeuverCommand(undefined, undefined, behaviorPlan?.headingMinDeg, behaviorPlan?.headingMaxDeg) },
+        { label: '方向代价', value: formatBestIvpContribution(sat2?.ivp_contributions) },
         { label: '速度窗口', value: speedWindow },
-        { label: '置信度', value: formatPercent(behaviorPlan?.confidence) },
+        { label: '置信度/权重', value: formatPercent(m4Confidence) },
       ],
       M5: [
-        { label: '指令输出', value: avoidanceDecisionDetails.m5Command },
-        { label: '路径点数量', value: avoidancePlan ? `${avoidancePlan.waypoints.length} 条` : '—' },
+        { label: '指令输出', value: formatM5Command(m5Status, firstAvoidanceWaypoint?.targetSpeedKn, behaviorPlan?.speedMinKn, behaviorPlan?.speedMaxKn) },
+        { label: '路径点/候选', value: formatTrajectoryCount(avoidancePlan, sat3) },
         { label: '规划时域', value: avoidancePlan?.horizonS !== undefined ? `${avoidancePlan.horizonS.toFixed(0)} s` : '—' },
+        { label: '最优代价', value: formatBestTrajectoryCost(sat3) },
         { label: '置信度', value: formatPercent(avoidancePlan?.confidence) },
       ],
       M6: [
         { label: '避碰规则', value: avoidanceDecisionDetails.rule },
         { label: '责任角色', value: avoidanceDecisionDetails.role },
+        { label: '目标 MMSI', value: sat2?.colregs_chain_target_id ?? '—' },
         { label: '机动方向', value: avoidanceDecisionDetails.maneuver },
-        { label: '推理阶段', value: colregsConstraint?.phase ?? '—' },
+        { label: '推理阶段/延迟', value: colregsConstraint?.phase ?? (sat2?.reasoning_latency_ms !== undefined ? `${sat2.reasoning_latency_ms.toFixed(1)} ms` : '—') },
       ],
       M7: [
-        { label: '安全告警', value: avoidanceDecisionDetails.alarm },
+        { label: '安全告警', value: avoidanceDecisionDetails.alarm !== '—' ? avoidanceDecisionDetails.alarm : sotifStatus },
         { label: '检查器否决率', value: formatRawPercent(sotifMetrics?.checker_veto_rate_pct) },
+        { label: '感知覆盖率', value: formatRawPercent(sotifMetrics?.perception_coverage_pct) },
         { label: 'SOTIF 描述', value: safetyAlert?.description ?? '—' },
         { label: '告警置信度', value: formatPercent(safetyAlert?.confidence) },
       ],
@@ -590,26 +652,28 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     behaviorPlan,
     colregsConstraint,
     fsmState,
+    lifecycleStatus,
     nearestTargetMetrics,
     oddState,
     planDetails,
     safetyAlert,
     sat2,
+    sat3,
     sotifMetrics,
     targets.length,
     wsConnected,
   ]);
 
   const moduleSummaries = useMemo<Record<ModuleName, string>>(() => ({
-    M1: avoidanceDecisionDetails.envelope !== '—' ? `ODD ${avoidanceDecisionDetails.envelope}` : '—',
+    M1: avoidanceDecisionDetails.envelope !== '—' ? `ODD ${avoidanceDecisionDetails.envelope}` : fsmState.replace(/_/g, ' '),
     M2: targets.length > 0 ? `${targets.length} tgt` : '—',
     M3: planDetails?.wpt ? `WPT ${planDetails.wpt}` : '—',
     M4: formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior).replace('COLREG_AVOID', 'COLREG'),
-    M5: avoidancePlan?.status ?? (avoidancePlan ? `${avoidancePlan.waypoints.length} wpt` : '—'),
+    M5: avoidancePlan?.status ?? (avoidancePlan ? `${avoidancePlan.waypoints.length} wpt` : (sat3?.trajectory_candidates?.length ? `${sat3.trajectory_candidates.length} cand` : '—')),
     M6: colregsConstraint?.ruleId !== undefined ? `R${colregsConstraint.ruleId}` : avoidanceDecisionDetails.rule,
-    M7: safetyAlert?.severity !== undefined ? `ALM ${SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? safetyAlert.severity}` : '—',
+    M7: safetyAlert?.severity !== undefined ? `ALM ${SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? safetyAlert.severity}` : (sotifMetrics ? 'SOTIF' : '—'),
     M8: wsConnected ? 'WS LIVE' : 'WS DOWN',
-  }), [avoidanceDecisionDetails, avoidancePlan, behaviorPlan, colregsConstraint, planDetails, safetyAlert, sat2, targets.length, wsConnected]);
+  }), [avoidanceDecisionDetails, avoidancePlan, behaviorPlan, colregsConstraint, fsmState, planDetails, safetyAlert, sat2, sat3, sotifMetrics, targets.length, wsConnected]);
 
   // Scenario Switch Protection: Reset active real-time L2 plan inside telemetry store on scenario change
   const prevScenarioIdRef = useRef<string | null>(null);
