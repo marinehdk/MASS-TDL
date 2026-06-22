@@ -157,6 +157,7 @@ test(`MVP consistency rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => 
     const el = document.querySelector('[data-testid="preflight-status"]');
     return el && /GO/.test(el.textContent || '');
   }, { timeout: 180_000 });
+  await page.getByRole('button', { name: '人工确认 GO' }).click();
   await page.waitForURL(`**/#/monitor/${SCENARIO}`, { timeout: 120_000 });
 
   // ===== Switch rate via the real button (same as a user click) =====
@@ -293,6 +294,7 @@ test(`A_stateful warm-start rate=${RATE} [${SCENARIO}]`, async ({ page, request 
     const el = document.querySelector('[data-testid="preflight-status"]');
     return el && /GO/.test(el.textContent || '');
   }, { timeout: 180_000 });
+  await page.getByRole('button', { name: '人工确认 GO' }).click();
   await page.waitForURL(`**/#/monitor/${SCENARIO}`, { timeout: 120_000 });
 
   await page.click(`[data-testid="rate-btn-${RATE}x"]`);
