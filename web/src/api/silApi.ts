@@ -250,6 +250,26 @@ export interface RuntimePluginsResult {
   roles: RuntimePluginRole[];
 }
 
+export interface EvidenceSessionStartRequest {
+  source: 'frontend' | 'cli';
+  suite: 'frontend' | 'single' | 'clean8' | 'clean12';
+  scenario_id?: string;
+}
+
+export interface EvidenceSessionStartResponse {
+  session_id: string;
+  session_name: string;
+  path: string;
+  manifest: Record<string, unknown>;
+}
+
+export interface EvidenceSessionFinalizeRequest {
+  sessionId: string;
+  scenario_id: string;
+  status: 'completed' | 'stopped' | 'error';
+  run_id?: string;
+}
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
@@ -328,6 +348,23 @@ export const silApi = createApi({
         url: '/lifecycle/rate',
         method: 'POST',
         body: { rate },
+      }),
+    }),
+
+    // Evidence sessions
+    startEvidenceSession: builder.mutation<EvidenceSessionStartResponse, EvidenceSessionStartRequest>({
+      query: (body) => ({
+        url: '/evidence/session/start',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    finalizeEvidenceSession: builder.mutation<Record<string, unknown>, EvidenceSessionFinalizeRequest>({
+      query: ({ sessionId, ...body }) => ({
+        url: `/evidence/session/${encodeURIComponent(sessionId)}/finalize`,
+        method: 'POST',
+        body,
       }),
     }),
 
@@ -509,6 +546,8 @@ export const {
   useDeactivateLifecycleMutation,
   useCleanupLifecycleMutation,
   useChangeLifecycleRateMutation,
+  useStartEvidenceSessionMutation,
+  useFinalizeEvidenceSessionMutation,
   useGetLastRunScoringQuery,
   useGetAsdrEventsQuery,
   useProbeSelfCheckMutation,

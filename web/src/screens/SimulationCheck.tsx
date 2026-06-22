@@ -12,6 +12,8 @@ import {
   useRestartRuntimeCoreServiceMutation,
   useSwitchRuntimePluginMutation,
   useProbeRuntimeMutation,
+  useStartEvidenceSessionMutation,
+  useFinalizeEvidenceSessionMutation,
   type RuntimeMode,
   type RuntimePluginRole,
   type RuntimePluginRoleName,
@@ -152,6 +154,8 @@ export function SimulationCheck() {
   const [restartRuntimeCoreService] = useRestartRuntimeCoreServiceMutation();
   const [switchRuntimePlugin] = useSwitchRuntimePluginMutation();
   const [probeRuntime] = useProbeRuntimeMutation();
+  const [startEvidenceSession] = useStartEvidenceSessionMutation();
+  const [finalizeEvidenceSession] = useFinalizeEvidenceSessionMutation();
 
   const { gates, verdict, streaming, error, start, abort } = useGateStream(scenarioId, true);
   const [focusedGateId, setFocusedGateId] = useState<number | null>(null);
@@ -166,6 +170,7 @@ export function SimulationCheck() {
   const [displayMode, setDisplayMode] = useState<RuntimeMode>('internal');
   const countdownRef = useRef(-1);
   const proceedingRef = useRef(false);
+  const activeEvidenceSessionRef = useRef<string | undefined>();
 
   const appendRuntimeLog = useCallback((message: string, level: RuntimeActionEntry['level'] = 'info') => {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -251,12 +256,30 @@ export function SimulationCheck() {
     // in the control store and the new run plays at 10x from t≈last position).
     useTelemetryStore.getState().reset();
     useControlStore.getState().reset();
+    let evidenceSessionId: string | undefined;
+    const finalizeEvidenceOnError = async () => {
+      if (!evidenceSessionId || !scenarioId) return;
+      try {
+        await finalizeEvidenceSession({
+          sessionId: evidenceSessionId,
+          scenario_id: scenarioId,
+          status: 'error',
+        }).unwrap();
+      } catch {}
+    };
     try {
+      const evidence = await startEvidenceSession({
+        source: 'frontend',
+        suite: 'frontend',
+        scenario_id: scenarioId,
+      }).unwrap();
+      evidenceSessionId = evidence.session_id;
       // ROS2 lifecycle requires CONFIGURE → ACTIVATE in sequence.
       // cleanup first so re-runs don't get "already configured" rejection.
       await cleanupLifecycle();
       const cfgResult = await configureLifecycle(scenarioId).unwrap();
       if (!cfgResult.success) {
+        await finalizeEvidenceOnError();
         setLifecycleError(`Configure failed: ${cfgResult.error || 'unknown error'}`);
         setTransitioning(false);
         proceedingRef.current = false;
@@ -264,11 +287,13 @@ export function SimulationCheck() {
       }
       const actResult = await activateLifecycle().unwrap();
       if (!actResult.success) {
+        await finalizeEvidenceOnError();
         setLifecycleError(`Activate failed: ${actResult.error || 'unknown error'}`);
         setTransitioning(false);
         proceedingRef.current = false;
         return;
       }
+      activeEvidenceSessionRef.current = evidenceSessionId;
       useTelemetryStore.getState().updateLifecycleStatus({
         scenario_id: scenarioId,
         current_state: 3,
@@ -277,17 +302,37 @@ export function SimulationCheck() {
       setLifecycleError('');
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) {
+      await finalizeEvidenceOnError();
       setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
       setTransitioning(false);
       proceedingRef.current = false;
     }
-  }, [scenarioId, cleanupLifecycle, configureLifecycle, activateLifecycle, probeRuntime, appendRuntimeLog]);
+  }, [
+    scenarioId,
+    cleanupLifecycle,
+    configureLifecycle,
+    activateLifecycle,
+    probeRuntime,
+    appendRuntimeLog,
+    startEvidenceSession,
+    finalizeEvidenceSession,
+  ]);
 
   const handleAbort = useCallback(async () => {
     abort();
+    if (activeEvidenceSessionRef.current && scenarioId) {
+      try {
+        await finalizeEvidenceSession({
+          sessionId: activeEvidenceSessionRef.current,
+          scenario_id: scenarioId,
+          status: 'stopped',
+        }).unwrap();
+      } catch {}
+      activeEvidenceSessionRef.current = undefined;
+    }
     try { await cleanupLifecycle(); } catch {}
     window.location.hash = '#/scenario';
-  }, [abort, cleanupLifecycle]);
+  }, [abort, cleanupLifecycle, finalizeEvidenceSession, scenarioId]);
 
   const handleDevSkip = useCallback(async () => {
     if (!scenarioId || !devSkipReason.trim()) return;
