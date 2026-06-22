@@ -69,6 +69,21 @@ describe('useFoxgloveLive — stale detection', () => {
       (c: any[]) => c[0] === 'connection',
     )?.[1] as Function | undefined;
     expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/sil/sat2_data',
+      messageType: 'l3_msgs/SAT2Data',
+    }));
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/sil/sat3_data',
+      messageType: 'l3_msgs/SAT3Data',
+    }));
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/sil/sotif_metrics',
+      messageType: 'l3_msgs/SotifMetrics',
+    }));
   });
 
   it('subscribes to M5 avoidance plan output', () => {

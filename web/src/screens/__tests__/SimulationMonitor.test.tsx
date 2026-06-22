@@ -167,6 +167,46 @@ describe('SimulationMonitor', () => {
     expect(screen.queryByText('航行状态')).not.toBeInTheDocument();
   });
 
+  it('opens the cleared decision process panel without stale module details', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      targets: [{
+        mmsi: 100000001,
+        cpaM: 926,
+        tcpaS: 180,
+        rngM: 2200,
+        brgDeg: 50,
+        encounter: 'CROSSING',
+      }],
+      colregsConstraint: {
+        ruleId: 15,
+        role: 1,
+        preferredDirection: 'STARBOARD',
+        minAlterationDeg: 30,
+        phase: 'T_avoid',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-avoid'));
+
+    expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
+    expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段')).toBeInTheDocument();
+    expect(screen.getAllByText('风险进入阈值，M6 输出 COLREGs 规则、责任角色与首选方向。').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('底部 M6 查看 Rule / Role / Direction。')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰过程')).not.toBeInTheDocument();
+    expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
+    expect(screen.queryByText('SOTIF 风险与系统警报')).not.toBeInTheDocument();
+    expect(screen.queryByText('相对方位 BRG')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前距离 RNG')).not.toBeInTheDocument();
+    expect(screen.queryByText('最近会遇 CPA')).not.toBeInTheDocument();
+    expect(screen.queryByText('会遇时间 TCPA')).not.toBeInTheDocument();
+    expect(screen.getByTestId('decision-event-M6_RULE_ASSERTED')).toBeInTheDocument();
+  });
+
   it('MRC state applies blood-red border class', () => {
     useFsmStore.setState({ currentState: 'MRC', transitionHistory: [], torRequest: null });
     useUIStore.getState().setViewMode('captain');
@@ -386,7 +426,7 @@ ownShip:
     expect(screen.getByTestId('threat-tcpa')).not.toHaveTextContent('—');
   });
 
-  it('renders avoidance decision cards from real module telemetry instead of mock defaults', () => {
+  it('keeps avoidance decision side panel at phase-summary level', () => {
     useFsmStore.setState({
       currentState: 'COLREG_AVOIDANCE',
       activeRule: 'Rule 14 head-on',
@@ -442,18 +482,47 @@ ownShip:
     render(<SimulationMonitor />);
     fireEvent.click(screen.getByTestId('right-tab-avoid'));
 
-    expect(screen.getByText('EDGE')).toBeInTheDocument();
-    expect(screen.getByText('COLREG AVOIDANCE')).toBeInTheDocument();
-    expect(screen.getByText('Rule 14')).toBeInTheDocument();
-    expect(screen.getByText('GIVE-WAY 让路')).toBeInTheDocument();
-    expect(screen.getByText('STARBOARD 22°')).toBeInTheDocument();
-    expect(screen.getByText('NORMAL / 8.2 kn')).toBeInTheDocument();
-    expect(screen.getByText('3.5%')).toBeInTheDocument();
-    expect(screen.getByText('CRITICAL / MRM-02')).toBeInTheDocument();
-
+    expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段')).toBeInTheDocument();
+    expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
+    expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
+    expect(screen.queryByText('SOTIF 风险与系统警报')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rule 14')).not.toBeInTheDocument();
+    expect(screen.queryByText('GIVE-WAY 让路')).not.toBeInTheDocument();
+    expect(screen.queryByText('STARBOARD 22°')).not.toBeInTheDocument();
+    expect(screen.queryByText('NORMAL / 8.2 kn')).not.toBeInTheDocument();
     expect(screen.queryByText('NONE')).not.toBeInTheDocument();
     expect(screen.queryByText('右舵转向 15°')).not.toBeInTheDocument();
     expect(screen.queryByText('正常运行 (LV 0)')).not.toBeInTheDocument();
+  });
+
+  it('opens bottom module popover from avoidance decision module chips', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      targets: [{
+        mmsi: 100000001,
+        cpaM: 926,
+        tcpaS: 180,
+        rngM: 2200,
+        brgDeg: 50,
+        encounter: 'CROSSING',
+      }],
+      colregsConstraint: {
+        ruleId: 15,
+        role: 1,
+        preferredDirection: 'STARBOARD',
+        minAlterationDeg: 30,
+        phase: 'T_avoid',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-avoid'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'M6' })[0]);
+
+    expect(screen.getByText('M6 - COLREGs 规则与责任')).toBeInTheDocument();
+    expect(screen.getByText('推理阶段/延迟')).toBeInTheDocument();
   });
 
   it('renders bottom M1-M8 module popovers from the same real telemetry as the side panels', () => {
@@ -567,7 +636,7 @@ ownShip:
     expect(screen.getByText('1 条')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('M6'));
-    expect(screen.getByText('Rule 14')).toBeInTheDocument();
+    expect(screen.getAllByText('Rule 14').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('GIVE-WAY 让路')).toBeInTheDocument();
     expect(screen.queryByText('M6 COLREGs REASONING')).not.toBeInTheDocument();
     expect(screen.queryByText('Rule15')).not.toBeInTheDocument();
@@ -585,6 +654,82 @@ ownShip:
     expect(screen.queryByText('OPEN_WATER (开阔)')).not.toBeInTheDocument();
     expect(screen.queryByText('SEG_XIAMEN_SHANGHAI_A')).not.toBeInTheDocument();
     expect(screen.queryByText('No active COLREGs encounter')).not.toBeInTheDocument();
+  });
+
+  it('fills bottom module details from SAT2/SAT3/SOTIF fallback when direct module topics are absent', () => {
+    useFsmStore.setState({
+      currentState: 'COLREG_AVOIDANCE',
+      activeRule: 'Rule 14 head-on',
+      confidence: 0.92,
+      transitionHistory: [],
+      torRequest: null,
+    } as any);
+    useTelemetryStore.setState({
+      wsConnected: true,
+      lifecycleStatus: { current_state: 3, sim_time: 300 },
+      oddState: null,
+      behaviorPlan: null,
+      colregsConstraint: null,
+      avoidancePlan: null,
+      safetyAlert: null,
+      targets: [{
+        mmsi: 100000001,
+        cpaM: 926.0,
+        tcpaS: 180.0,
+      }],
+      sat2: {
+        active_behavior: 'COLREG_AVOID',
+        active_behavior_weight: 0.85,
+        ivp_contributions: [
+          { direction_deg: 150, cost: 0.12, label: 'cpa' },
+          { direction_deg: 180, cost: 0.4, label: 'route' },
+        ],
+        colregs_chain_target_id: '100000001',
+        reasoning_latency_ms: 12.3,
+        colregs_chain: [
+          { layer: 2, label: 'COLREG rule', conclusion: 'Rule 14', confidence: 0.9, inputs: {} },
+          { layer: 3, label: 'duty role', conclusion: 'give_way', confidence: 0.8, inputs: {} },
+        ],
+      },
+      sat3: {
+        trajectory_candidates: [
+          { id: 1, points: [{ lon: 10.4, lat: 63.4 }], cost: 0.24, is_optimal: true, type: 'mid_mpc' },
+        ],
+        uncertainty_bands: false,
+      },
+      sotifMetrics: {
+        checker_veto_rate_pct: 3.5,
+        comm_link_rtt_ms: 18,
+        perception_coverage_pct: 97,
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+
+    fireEvent.click(screen.getByText('M1'));
+    expect(screen.getAllByText('COLREG AVOIDANCE').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('M4'));
+    expect(screen.getByText('COLREG_AVOID')).toBeInTheDocument();
+    expect(screen.getByText('150° / 0.12 cpa')).toBeInTheDocument();
+    expect(screen.getByText('85%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('M5'));
+    expect(screen.getByText('SAT3 CANDIDATE')).toBeInTheDocument();
+    expect(screen.getByText('1 候选')).toBeInTheDocument();
+    expect(screen.getByText('mid_mpc / 0.24')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('M6'));
+    expect(screen.getAllByText('Rule 14').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('GIVE-WAY 让路')).toBeInTheDocument();
+    expect(screen.getByText('100000001')).toBeInTheDocument();
+    expect(screen.getByText('12.3 ms')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('M7'));
+    expect(screen.getByText('SOTIF 3.5%')).toBeInTheDocument();
+    expect(screen.getAllByText('3.5%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('97.0%')).toBeInTheDocument();
   });
 
   it('redirects to preflight and clears stale telemetry when monitor URL conflicts with active lifecycle scenario', () => {

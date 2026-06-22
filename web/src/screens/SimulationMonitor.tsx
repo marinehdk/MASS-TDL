@@ -28,6 +28,9 @@ import { EncounterInjectPanel } from './shared/EncounterInjectPanel';
 import { ColregsRationaleTree } from './shared/ColregsRationaleTree';
 import { DecisionChainTimingBar } from './shared/DecisionChainTimingBar';
 import { SotifMonitorStrip } from './shared/SotifMonitorStrip';
+import { DecisionProcessPanel } from './shared/DecisionProcessPanel';
+import { deriveAvoidancePhaseState, type AvoidancePhase } from './shared/avoidancePhase';
+import { DecisionEventMarkers } from './shared/DecisionEventMarkers';
 import { useFsmStore } from '../store';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { FsmStatePanel } from '../components/FsmStatePanel';
@@ -289,6 +292,59 @@ function formatSafetyAlarm(severity: number | undefined, recommendedMrm: string 
   return torActive ? '接管请求 (TOR)' : '—';
 }
 
+function findColregsChainConclusion(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined, matcher: (entry: { layer?: number; label?: string; conclusion?: string }) => boolean): string | undefined {
+  return chain?.find((entry) => matcher(entry) && typeof entry.conclusion === 'string')?.conclusion;
+}
+
+function extractSatRule(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined): string | undefined {
+  return findColregsChainConclusion(chain, (entry) => /rule\s*\d+/i.test(entry.conclusion ?? ''))
+    ?? findColregsChainConclusion(chain, (entry) => /rule|规则|encounter|会遇/i.test(entry.label ?? ''));
+}
+
+function extractSatRole(chain: Array<{ layer?: number; label?: string; conclusion?: string }> | undefined): string | undefined {
+  const role = findColregsChainConclusion(chain, (entry) => /give|stand|role|duty|责任/i.test(`${entry.label ?? ''} ${entry.conclusion ?? ''}`));
+  if (!role) return undefined;
+  if (/give[_ -]?way/i.test(role)) return 'GIVE-WAY 让路';
+  if (/stand[_ -]?on/i.test(role)) return 'STAND-ON 保向';
+  return role;
+}
+
+function formatBestIvpContribution(contributions: Array<{ direction_deg?: number; cost?: number; label?: string }> | undefined): string {
+  if (!contributions?.length) return '—';
+  const best = contributions
+    .filter((entry) => Number.isFinite(entry.direction_deg) && Number.isFinite(entry.cost))
+    .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity))[0];
+  if (!best) return '—';
+  const label = best.label ? ` ${best.label}` : '';
+  return `${best.direction_deg?.toFixed(0)}° / ${best.cost?.toFixed(2)}${label}`;
+}
+
+function formatTrajectoryCount(avoidancePlan: { waypoints: unknown[] } | null | undefined, sat3: { trajectory_candidates?: unknown[] } | null | undefined): string {
+  if (avoidancePlan) return `${avoidancePlan.waypoints.length} 条`;
+  const candidates = sat3?.trajectory_candidates;
+  return candidates?.length ? `${candidates.length} 候选` : '—';
+}
+
+function formatBestTrajectoryCost(sat3: { trajectory_candidates?: Array<{ cost?: number; is_optimal?: boolean; type?: string }> } | null | undefined): string {
+  const candidates = sat3?.trajectory_candidates;
+  if (!candidates?.length) return '—';
+  const best = candidates.find((entry) => entry.is_optimal) ?? candidates[0];
+  const cost = typeof best.cost === 'number' && Number.isFinite(best.cost) ? best.cost.toFixed(2) : '—';
+  return best.type ? `${best.type} / ${cost}` : cost;
+}
+
+function formatLifecycleState(state: number | undefined): string {
+  if (state === undefined) return '—';
+  return {
+    0: 'UNKNOWN',
+    1: 'UNCONFIGURED',
+    2: 'INACTIVE',
+    3: 'ACTIVE',
+    4: 'DEACTIVATING',
+    5: 'FINALIZED',
+  }[state] ?? `STATE ${state}`;
+}
+
 function computeRouteProgress(
   waypoints: Array<{ lat: number; lon: number }>,
   ownLat: number,
@@ -360,6 +416,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   const [activeRightTab, setActiveRightTab] = useState<RightTabId | null>(null);
   const [activeBottomModule, setActiveBottomModule] = useState<string | null>(null);
   const [radarRangeNM, setRadarRangeNM] = useState<RadarRangeNm>(12);
+  const previousAvoidancePhaseRef = useRef<AvoidancePhase | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
   useFoxgloveLive(wsUrl, true);
 
@@ -477,14 +534,15 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   }, [ownShip, voyagePlan]);
 
   const avoidanceDecisionDetails = useMemo(() => {
-    const satRule = sat2?.colregs_chain?.find(c => c.layer === 2)?.conclusion;
+    const satRule = extractSatRule(sat2?.colregs_chain);
+    const satRole = extractSatRole(sat2?.colregs_chain);
     const firstAvoidanceWaypoint = avoidancePlan?.waypoints?.[0];
     const envelope = oddState?.envelopeState !== undefined
       ? ODD_ENVELOPE_LABELS[oddState.envelopeState] ?? `ODD ${oddState.envelopeState}`
       : '—';
     const role = colregsConstraint?.role !== undefined
       ? COLREGS_ROLE_LABELS[colregsConstraint.role] ?? `ROLE ${colregsConstraint.role}`
-      : '—';
+      : satRole ?? '—';
 
     return {
       envelope,
@@ -526,9 +584,12 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     const speedMax = formatNumber(behaviorPlan?.speedMaxKn, 1);
     const speedWindow = speedMin && speedMax ? `${speedMin}-${speedMax} kn` : '—';
     const m4Behavior = formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior);
+    const m4Confidence = behaviorPlan?.confidence ?? sat2?.active_behavior_weight;
+    const m5Status = avoidancePlan?.status ?? (sat3?.trajectory_candidates?.length ? 'SAT3 CANDIDATE' : undefined);
     const safetySeverity = safetyAlert?.severity !== undefined
       ? SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? `SEV ${safetyAlert.severity}`
       : '—';
+    const sotifStatus = sotifMetrics ? `SOTIF ${formatRawPercent(sotifMetrics.checker_veto_rate_pct)}` : '—';
 
     return {
       M1: [
@@ -536,6 +597,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
         { label: '一致性评分', value: formatPercent(oddState?.conformanceScore) },
         { label: '健康状态', value: oddState?.health !== undefined ? (ODD_HEALTH_LABELS[oddState.health] ?? `HEALTH ${oddState.health}`) : '—' },
         { label: 'FSM 阶段', value: fsmState.replace(/_/g, ' ') },
+        { label: '生命周期', value: formatLifecycleState(lifecycleStatus?.current_state) },
       ],
       M2: [
         { label: '目标数量', value: `${targets.length}` },
@@ -552,24 +614,28 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
       M4: [
         { label: '仲裁行为', value: m4Behavior },
         { label: '转向窗口', value: formatManeuverCommand(undefined, undefined, behaviorPlan?.headingMinDeg, behaviorPlan?.headingMaxDeg) },
+        { label: '方向代价', value: formatBestIvpContribution(sat2?.ivp_contributions) },
         { label: '速度窗口', value: speedWindow },
-        { label: '置信度', value: formatPercent(behaviorPlan?.confidence) },
+        { label: '置信度/权重', value: formatPercent(m4Confidence) },
       ],
       M5: [
-        { label: '指令输出', value: avoidanceDecisionDetails.m5Command },
-        { label: '路径点数量', value: avoidancePlan ? `${avoidancePlan.waypoints.length} 条` : '—' },
+        { label: '指令输出', value: formatM5Command(m5Status, firstAvoidanceWaypoint?.targetSpeedKn, behaviorPlan?.speedMinKn, behaviorPlan?.speedMaxKn) },
+        { label: '路径点/候选', value: formatTrajectoryCount(avoidancePlan, sat3) },
         { label: '规划时域', value: avoidancePlan?.horizonS !== undefined ? `${avoidancePlan.horizonS.toFixed(0)} s` : '—' },
+        { label: '最优代价', value: formatBestTrajectoryCost(sat3) },
         { label: '置信度', value: formatPercent(avoidancePlan?.confidence) },
       ],
       M6: [
         { label: '避碰规则', value: avoidanceDecisionDetails.rule },
         { label: '责任角色', value: avoidanceDecisionDetails.role },
+        { label: '目标 MMSI', value: sat2?.colregs_chain_target_id ?? '—' },
         { label: '机动方向', value: avoidanceDecisionDetails.maneuver },
-        { label: '推理阶段', value: colregsConstraint?.phase ?? '—' },
+        { label: '推理阶段/延迟', value: colregsConstraint?.phase ?? (sat2?.reasoning_latency_ms !== undefined ? `${sat2.reasoning_latency_ms.toFixed(1)} ms` : '—') },
       ],
       M7: [
-        { label: '安全告警', value: avoidanceDecisionDetails.alarm },
+        { label: '安全告警', value: avoidanceDecisionDetails.alarm !== '—' ? avoidanceDecisionDetails.alarm : sotifStatus },
         { label: '检查器否决率', value: formatRawPercent(sotifMetrics?.checker_veto_rate_pct) },
+        { label: '感知覆盖率', value: formatRawPercent(sotifMetrics?.perception_coverage_pct) },
         { label: 'SOTIF 描述', value: safetyAlert?.description ?? '—' },
         { label: '告警置信度', value: formatPercent(safetyAlert?.confidence) },
       ],
@@ -586,26 +652,28 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     behaviorPlan,
     colregsConstraint,
     fsmState,
+    lifecycleStatus,
     nearestTargetMetrics,
     oddState,
     planDetails,
     safetyAlert,
     sat2,
+    sat3,
     sotifMetrics,
     targets.length,
     wsConnected,
   ]);
 
   const moduleSummaries = useMemo<Record<ModuleName, string>>(() => ({
-    M1: avoidanceDecisionDetails.envelope !== '—' ? `ODD ${avoidanceDecisionDetails.envelope}` : '—',
+    M1: avoidanceDecisionDetails.envelope !== '—' ? `ODD ${avoidanceDecisionDetails.envelope}` : fsmState.replace(/_/g, ' '),
     M2: targets.length > 0 ? `${targets.length} tgt` : '—',
     M3: planDetails?.wpt ? `WPT ${planDetails.wpt}` : '—',
     M4: formatBehavior(behaviorPlan?.behavior, sat2?.active_behavior).replace('COLREG_AVOID', 'COLREG'),
-    M5: avoidancePlan?.status ?? (avoidancePlan ? `${avoidancePlan.waypoints.length} wpt` : '—'),
+    M5: avoidancePlan?.status ?? (avoidancePlan ? `${avoidancePlan.waypoints.length} wpt` : (sat3?.trajectory_candidates?.length ? `${sat3.trajectory_candidates.length} cand` : '—')),
     M6: colregsConstraint?.ruleId !== undefined ? `R${colregsConstraint.ruleId}` : avoidanceDecisionDetails.rule,
-    M7: safetyAlert?.severity !== undefined ? `ALM ${SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? safetyAlert.severity}` : '—',
+    M7: safetyAlert?.severity !== undefined ? `ALM ${SAFETY_SEVERITY_LABELS[safetyAlert.severity] ?? safetyAlert.severity}` : (sotifMetrics ? 'SOTIF' : '—'),
     M8: wsConnected ? 'WS LIVE' : 'WS DOWN',
-  }), [avoidanceDecisionDetails, avoidancePlan, behaviorPlan, colregsConstraint, planDetails, safetyAlert, sat2, targets.length, wsConnected]);
+  }), [avoidanceDecisionDetails, avoidancePlan, behaviorPlan, colregsConstraint, fsmState, planDetails, safetyAlert, sat2, sat3, sotifMetrics, targets.length, wsConnected]);
 
   // Scenario Switch Protection: Reset active real-time L2 plan inside telemetry store on scenario change
   const prevScenarioIdRef = useRef<string | null>(null);
@@ -961,6 +1029,50 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
   const simTimeSec = lifecycleStatus?.sim_time ?? 0;
   const lcState    = lifecycleStatus?.current_state;
+  const avoidancePhaseState = useMemo(() => deriveAvoidancePhaseState({
+    simTimeSec,
+    targets: targets.map((target) => {
+      const t = target as typeof target & {
+        cpaM?: number;
+        tcpaS?: number;
+        rngM?: number;
+        brgDeg?: number;
+        encounter?: string;
+      };
+      return {
+        mmsi: t.mmsi,
+        cpaM: t.cpaM,
+        tcpaS: t.tcpaS,
+        rngM: t.rngM,
+        brgDeg: t.brgDeg,
+        encounter: t.encounter,
+      };
+    }),
+    oddState,
+    colregsConstraint,
+    behaviorPlan,
+    avoidancePlan,
+    safetyAlert,
+    sat2,
+    sat3,
+    sotifMetrics,
+    previousPhase: previousAvoidancePhaseRef.current,
+  }), [
+    avoidancePlan,
+    behaviorPlan,
+    colregsConstraint,
+    oddState,
+    safetyAlert,
+    sat2,
+    sat3,
+    simTimeSec,
+    sotifMetrics,
+    targets,
+  ]);
+
+  useEffect(() => {
+    previousAvoidancePhaseRef.current = avoidancePhaseState.phase;
+  }, [avoidancePhaseState.phase]);
 
   useEffect(() => {
     if (lcState === 5 && !autoNavRef.current) {
@@ -995,21 +1107,6 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     M8: 'var(--c-danger)',
   };
   const popoverBorderColor = activeBottomModule ? (activeColorMap[activeBottomModule] || 'var(--c-phos)') : 'var(--c-phos)';
-
-  const getCardStyle = (modules: string[], activeColor: string) => {
-    const isActive = activeBottomModule ? modules.includes(activeBottomModule) : false;
-    return {
-      background: isActive ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.2)',
-      border: isActive ? `1px solid ${activeColor}` : '1px solid var(--line-1)',
-      boxShadow: isActive ? `0 0 12px ${activeColor}` : 'none',
-      padding: '12px 14px',
-      borderRadius: 8,
-      cursor: 'pointer',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      display: 'flex',
-      flexDirection: 'column' as const,
-    };
-  };
 
   return (
     <div
@@ -1529,218 +1626,14 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                 )}
 
                 {activeRightTab === 'avoid' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {/* Card 1: ODD/FSM */}
-                    <div 
-                      onClick={() => setActiveBottomModule(activeBottomModule === 'M1' ? null : 'M1')}
-                      style={getCardStyle(['M1', 'M2', 'M3'], 'var(--c-phos)')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>运行包络与状态机</span>
-                        </div>
-                        <span 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveBottomModule(activeBottomModule === 'M1' ? null : 'M1');
-                          }}
-                          style={{
-                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-phos)', fontWeight: 700,
-                            background: 'rgba(91, 192, 190, 0.15)', border: '1px solid rgba(91, 192, 190, 0.3)',
-                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(91, 192, 190, 0.3)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(91, 192, 190, 0.15)'}
-                        >
-                          M1 ODD
-                        </span>
-                      </div>
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '12px 16px',
-                        padding: '4px 2px'
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>包络边界 ODD</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: oddState?.envelopeState != null && oddState.envelopeState >= 2 ? 'var(--c-danger)' : oddState?.envelopeState === 1 ? 'var(--c-warn)' : 'var(--c-phos)',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {avoidanceDecisionDetails.envelope}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>状态机阶段 FSM</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: fsmState === 'MRC' || fsmState === 'TOR' ? 'var(--c-danger)' : fsmState === 'COLREG_AVOIDANCE' ? 'var(--c-warn)' : '#fff',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {String(fsmState || 'NORMAL').replace('_', ' ')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card 2: Encounter Rule & Role */}
-                    <div 
-                      onClick={() => setActiveBottomModule(activeBottomModule === 'M6' ? null : 'M6')}
-                      style={getCardStyle(['M6'], 'var(--c-warn)')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: 'var(--c-warn)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 700, letterSpacing: '0.08em' }}>避碰规则与责任角色</span>
-                        </div>
-                        <span 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveBottomModule(activeBottomModule === 'M6' ? null : 'M6');
-                          }}
-                          style={{
-                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-warn)', fontWeight: 700,
-                            background: 'rgba(240, 183, 47, 0.15)', border: '1px solid rgba(240, 183, 47, 0.3)',
-                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(240, 183, 47, 0.3)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(240, 183, 47, 0.15)'}
-                        >
-                          M6 COLREGs
-                        </span>
-                      </div>
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '12px 16px',
-                        padding: '4px 2px'
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>适用避碰规则 RULE</span>
-                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
-                            {avoidanceDecisionDetails.rule}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>会遇避碰责任 ROLE</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: colregsConstraint?.role === 1 ? 'var(--c-danger)' : 'var(--c-info)',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {avoidanceDecisionDetails.role}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card 3: Maneuver Actions */}
-                    <div 
-                      onClick={() => setActiveBottomModule(activeBottomModule === 'M4' ? null : 'M4')}
-                      style={getCardStyle(['M4', 'M5'], '#38bdf8')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: '#38bdf8', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: '#38bdf8', fontWeight: 700, letterSpacing: '0.08em' }}>避碰航迹与动作指令</span>
-                        </div>
-                        <span 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveBottomModule(activeBottomModule === 'M4' ? null : 'M4');
-                          }}
-                          style={{
-                            fontFamily: 'var(--f-disp)', fontSize: 9, color: '#38bdf8', fontWeight: 700,
-                            background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)',
-                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)'}
-                        >
-                          M4/M5 战术
-                        </span>
-                      </div>
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '12px 16px',
-                        padding: '4px 2px'
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>避碰转向指令 STR</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: colregsConstraint?.preferredDirection === 'STARBOARD' || colregsConstraint?.preferredDirection === 'PORT' ? 'var(--c-warn)' : 'var(--c-phos)',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {avoidanceDecisionDetails.maneuver}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>车钟与航速指令 THR</span>
-                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
-                            {avoidanceDecisionDetails.m5Command}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card 4: SOTIF / M8 Alert */}
-                    <div 
-                      onClick={() => setActiveBottomModule(activeBottomModule === 'M8' ? null : 'M8')}
-                      style={getCardStyle(['M7', 'M8'], 'var(--c-danger)')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: 'var(--c-danger)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-danger)', fontWeight: 700, letterSpacing: '0.08em' }}>SOTIF 风险与系统警报</span>
-                        </div>
-                        <span 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveBottomModule(activeBottomModule === 'M8' ? null : 'M8');
-                          }}
-                          style={{
-                            fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--c-danger)', fontWeight: 700,
-                            background: 'rgba(248, 81, 73, 0.15)', border: '1px solid rgba(248, 81, 73, 0.3)',
-                            padding: '1px 5px', borderRadius: 4, cursor: 'pointer'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(248, 81, 73, 0.3)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(248, 81, 73, 0.15)'}
-                        >
-                          M7/M8 安全
-                        </span>
-                      </div>
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '12px 16px',
-                        padding: '4px 2px'
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>SOTIF 否决率 VETO</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: sotifMetrics?.checker_veto_rate_pct && sotifMetrics.checker_veto_rate_pct > 10 ? 'var(--c-warn)' : 'var(--c-green)',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {sotifMetrics?.checker_veto_rate_pct != null ? `${sotifMetrics.checker_veto_rate_pct.toFixed(1)}%` : '0.0%'}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>报警发布等级 ALARM</span>
-	                          <span style={{
-	                            fontFamily: 'var(--f-mono)', fontSize: 16,
-	                            color: safetyAlert?.severity != null && safetyAlert.severity >= 2 ? 'var(--c-danger)' : torRequest ? 'var(--c-warn)' : '#fff',
-	                            fontWeight: 700, lineHeight: 1.1
-                          }}>
-                            {avoidanceDecisionDetails.alarm}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <DecisionProcessPanel
+                      phaseState={avoidancePhaseState}
+                      sat2={sat2}
+                      sotifMetrics={sotifMetrics}
+                      safetyAlert={safetyAlert}
+                      onModuleSelect={setActiveBottomModule}
+                    />
                   </div>
                 )}
               </div>
@@ -2055,7 +1948,10 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
         </div>
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <input type="range" min="0" max="600" value={simTimeSec} style={{ flex: 1, accentColor: 'var(--c-phos)' }} readOnly />
+          <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input type="range" min="0" max="600" value={simTimeSec} style={{ flex: 1, accentColor: 'var(--c-phos)' }} readOnly />
+            <DecisionEventMarkers events={avoidancePhaseState.events} durationSec={600} />
+          </div>
           <span data-testid="sim-clock-text" style={{ color: 'var(--txt-1)' }}>{fmtSimTime(simTimeSec)}</span>
         </div>
 

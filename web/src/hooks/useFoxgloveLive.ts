@@ -157,17 +157,17 @@ const TOPIC_MAP: Array<{
   },
   {
     topic: '/sil/sat2_data',
-    messageType: 'sil_msgs/SAT2Data',
+    messageType: 'l3_msgs/SAT2Data',
     handler: (s, msg: any) => s.updateSat2(msg),
   },
   {
     topic: '/sil/sat3_data',
-    messageType: 'sil_msgs/SAT3Data',
+    messageType: 'l3_msgs/SAT3Data',
     handler: (s, msg: any) => s.updateSat3(msg),
   },
   {
     topic: '/sil/sotif_metrics',
-    messageType: 'sil_msgs/SotifMetrics',
+    messageType: 'l3_msgs/SotifMetrics',
     handler: (s, msg: any) => s.updateSotifMetrics(msg),
   },
   {
