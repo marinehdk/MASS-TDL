@@ -1568,6 +1568,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                       sat2={sat2}
                       sotifMetrics={sotifMetrics}
                       safetyAlert={safetyAlert}
+                      onModuleSelect={setActiveBottomModule}
                     />
                   </div>
                 )}

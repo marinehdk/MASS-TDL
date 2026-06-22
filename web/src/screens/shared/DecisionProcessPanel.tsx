@@ -7,6 +7,7 @@ interface DecisionProcessPanelProps {
   sat2: SAT2Data | null;
   sotifMetrics: SotifMetrics | null;
   safetyAlert: { recommendedMrm?: string | null } | null;
+  onModuleSelect?: (module: DecisionModule) => void;
 }
 
 const MODULE_COLORS: Record<DecisionModule, string> = {
@@ -29,62 +30,68 @@ const PHASE_FLOW: Array<{
 }> = [
   {
     id: 'TRANSIT_DISCOVERY',
-    label: '目标发现',
+    label: '自由航行与目标发现',
     modules: ['M2'],
     summary: 'M2 持续监控目标，CPA/TCPA 尚未触发规则约束。',
     detailHint: '底部 M2 查看目标与最近会遇指标。',
   },
   {
     id: 'RISK_RULE_ASSESSED',
-    label: '规则判定',
+    label: '风险触发与规则判定',
     modules: ['M2', 'M6'],
     summary: '风险进入阈值，M6 输出 COLREGs 规则、责任角色与首选方向。',
     detailHint: '底部 M6 查看 Rule / Role / Direction。',
   },
   {
     id: 'ARBITRATION_MANEUVERING',
-    label: '仲裁避让',
+    label: '行为仲裁与轨迹生成',
     modules: ['M4', 'M5'],
     summary: 'M4 选择避让行为，M5 生成轨迹或速度/转向指令。',
     detailHint: '底部 M4/M5 查看行为、窗口、路径点与指令。',
   },
   {
     id: 'SAFETY_MONITORING',
-    label: '安全监督',
+    label: '安全监督与持续避让',
     modules: ['M7'],
     summary: 'M7 独立检查风险；必要时 veto 当前动作或触发 MRM。',
     detailHint: '底部 M7/M8 查看安全告警、否决率与报警状态。',
   },
   {
     id: 'CLEAR_RETURN',
-    label: '解除回归',
+    label: '解除警报与回归航线',
     modules: ['M4', 'M5', 'M8'],
     summary: '危险解除，规则清空，系统回到 Transit 并准备回归航线。',
     detailHint: '底部 M4/M5 查看回归行为与规划状态。',
   },
 ];
 
-function ModuleChip({ module }: { module: DecisionModule }) {
+function ModuleChip({ module, onSelect }: { module: DecisionModule; onSelect?: (module: DecisionModule) => void }) {
   const color = MODULE_COLORS[module];
+  const clickable = Boolean(onSelect);
   return (
-    <span
+    <button
+      type="button"
+      onClick={() => onSelect?.(module)}
+      title={`查看底部 ${module} 详情`}
       style={{
         color,
         border: `1px solid ${color}55`,
         background: `${color}18`,
         borderRadius: 4,
-        padding: '2px 5px',
+        padding: '1px 5px',
         fontFamily: 'var(--f-mono)',
         fontSize: 9,
         fontWeight: 800,
+        lineHeight: 1.35,
+        cursor: clickable ? 'pointer' : 'default',
       }}
     >
       {module}
-    </span>
+    </button>
   );
 }
 
-export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({ phaseState }) => {
+export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({ phaseState, onModuleSelect }) => {
   const activePhaseIndex = PHASE_FLOW.findIndex((phase) => phase.id === phaseState.phase);
   const activePhase = PHASE_FLOW[activePhaseIndex] ?? PHASE_FLOW[0];
   const latestEvent = phaseState.events[phaseState.events.length - 1];
@@ -103,32 +110,23 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({ phas
         width: '100%',
       }}
     >
-      <header style={{ padding: '12px 14px', borderBottom: '1px solid var(--line-2)', background: 'rgba(91,192,190,0.08)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: 'var(--c-phos)', fontFamily: 'var(--f-disp)', fontSize: 13, fontWeight: 900, letterSpacing: '0.08em' }}>
-            避碰过程
-          </span>
-          <span data-testid="decision-process-phase" style={{ color: 'var(--txt-1)', fontFamily: 'var(--f-mono)', fontSize: 10, fontWeight: 800 }}>
-            {phaseState.phaseLabel}
-          </span>
-        </div>
-        <div style={{ color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10, marginTop: 5 }}>
-          {phaseState.phaseReason}
-        </div>
-      </header>
-
       <section style={{ padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ width: 6, height: 16, borderRadius: 2, background: 'var(--c-phos)' }} />
-          <span style={{ color: 'var(--c-phos)', fontFamily: 'var(--f-disp)', fontSize: 12, fontWeight: 900, letterSpacing: '0.08em' }}>
-            当前阶段概述
-          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: 'var(--c-phos)', fontFamily: 'var(--f-disp)', fontSize: 12, fontWeight: 900, letterSpacing: '0.08em' }}>
+              当前阶段
+            </div>
+            <div data-testid="decision-process-phase" style={{ color: 'var(--txt-1)', fontFamily: 'var(--f-disp)', fontSize: 15, fontWeight: 900, lineHeight: 1.25, marginTop: 2 }}>
+              {phaseState.phaseLabel}
+            </div>
+          </div>
         </div>
         <div style={{ color: 'var(--txt-1)', fontFamily: 'var(--f-mono)', fontSize: 12, lineHeight: 1.55 }}>
           {activePhase.summary}
         </div>
         <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {activePhase.modules.map((module) => <ModuleChip key={module} module={module} />)}
+          {activePhase.modules.map((module) => <ModuleChip key={module} module={module} onSelect={onModuleSelect} />)}
         </div>
         <div style={{ marginTop: 9, color: 'var(--txt-3)', fontFamily: 'var(--f-mono)', fontSize: 10 }}>
           {activePhase.detailHint}
@@ -162,12 +160,14 @@ export const DecisionProcessPanel: React.FC<DecisionProcessPanelProps> = ({ phas
                   boxShadow: isActive ? '0 0 12px rgba(91,192,190,0.8)' : 'none',
                 }} />
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ color, fontFamily: 'var(--f-disp)', fontSize: 11, fontWeight: 800, letterSpacing: '0.06em' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ color, fontFamily: 'var(--f-disp)', fontSize: 13, fontWeight: 900, letterSpacing: '0.02em', lineHeight: 1.25 }}>
                       {String(index + 1).padStart(2, '0')} {phase.label}
                     </span>
-                    <span style={{ color, fontFamily: 'var(--f-mono)', fontSize: 9 }}>
-                      {phase.modules.join('/')}
+                    <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {phase.modules.map((module) => (
+                        <ModuleChip key={`${phase.id}-${module}`} module={module} onSelect={onModuleSelect} />
+                      ))}
                     </span>
                   </div>
                   {isActive ? (

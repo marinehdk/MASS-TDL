@@ -192,9 +192,10 @@ describe('SimulationMonitor', () => {
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
     expect(screen.getByText('风险触发与规则判定')).toBeInTheDocument();
-    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段')).toBeInTheDocument();
     expect(screen.getAllByText('风险进入阈值，M6 输出 COLREGs 规则、责任角色与首选方向。').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('底部 M6 查看 Rule / Role / Direction。')).toBeInTheDocument();
+    expect(screen.queryByText('避碰过程')).not.toBeInTheDocument();
     expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
     expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
     expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
@@ -482,7 +483,7 @@ ownShip:
     fireEvent.click(screen.getByTestId('right-tab-avoid'));
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
-    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
+    expect(screen.getByText('当前阶段')).toBeInTheDocument();
     expect(screen.queryByText('运行包络与状态机')).not.toBeInTheDocument();
     expect(screen.queryByText('避碰规则与责任角色')).not.toBeInTheDocument();
     expect(screen.queryByText('避碰航迹与动作指令')).not.toBeInTheDocument();
@@ -494,6 +495,34 @@ ownShip:
     expect(screen.queryByText('NONE')).not.toBeInTheDocument();
     expect(screen.queryByText('右舵转向 15°')).not.toBeInTheDocument();
     expect(screen.queryByText('正常运行 (LV 0)')).not.toBeInTheDocument();
+  });
+
+  it('opens bottom module popover from avoidance decision module chips', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      targets: [{
+        mmsi: 100000001,
+        cpaM: 926,
+        tcpaS: 180,
+        rngM: 2200,
+        brgDeg: 50,
+        encounter: 'CROSSING',
+      }],
+      colregsConstraint: {
+        ruleId: 15,
+        role: 1,
+        preferredDirection: 'STARBOARD',
+        minAlterationDeg: 30,
+        phase: 'T_avoid',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-avoid'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'M6' })[0]);
+
+    expect(screen.getByText('M6 - COLREGs 规则与责任')).toBeInTheDocument();
+    expect(screen.getByText('推理阶段')).toBeInTheDocument();
   });
 
   it('renders bottom M1-M8 module popovers from the same real telemetry as the side panels', () => {

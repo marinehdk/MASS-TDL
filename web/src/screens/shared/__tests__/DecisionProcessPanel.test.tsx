@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { DecisionProcessPanel } from '../DecisionProcessPanel';
 import type { AvoidancePhaseState } from '../avoidancePhase';
 
@@ -55,9 +55,9 @@ describe('DecisionProcessPanel', () => {
     render(<DecisionProcessPanel phaseState={basePhase} sat2={null} sotifMetrics={null} safetyAlert={null} />);
 
     expect(screen.getByTestId('decision-process-panel')).toBeInTheDocument();
-    expect(screen.getByText('避碰过程')).toBeInTheDocument();
+    expect(screen.queryByText('避碰过程')).not.toBeInTheDocument();
+    expect(screen.getByText('当前阶段')).toBeInTheDocument();
     expect(screen.getByText('解除警报与回归航线')).toBeInTheDocument();
-    expect(screen.getByText('当前阶段概述')).toBeInTheDocument();
     expect(screen.getAllByText('危险解除，规则清空，系统回到 Transit 并准备回归航线。').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('底部 M4/M5 查看回归行为与规划状态。')).toBeInTheDocument();
     expect(screen.getByTestId('decision-phase-TRANSIT_DISCOVERY')).toBeInTheDocument();
@@ -92,5 +92,15 @@ describe('DecisionProcessPanel', () => {
     );
 
     expect(screen.getByText('最近事件：M8 解除警报，回归航线')).toBeInTheDocument();
+  });
+
+  it('selects bottom module from compact module chips', () => {
+    const onModuleSelect = vi.fn();
+
+    render(<DecisionProcessPanel phaseState={basePhase} sat2={null} sotifMetrics={null} safetyAlert={null} onModuleSelect={onModuleSelect} />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'M4' })[0]);
+
+    expect(onModuleSelect).toHaveBeenCalledWith('M4');
   });
 });
