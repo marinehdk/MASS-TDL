@@ -116,6 +116,37 @@ describe('useFoxgloveLive — stale detection', () => {
     }));
   });
 
+  it('subscribes to backend M8 threat risk state and stores it', () => {
+    renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
+    const connectionCb = rosOn.mock.calls.find(
+      (c: any[]) => c[0] === 'connection',
+    )?.[1] as Function | undefined;
+    expect(connectionCb).toBeDefined();
+
+    connectionCb?.();
+
+    expect(Topic).toHaveBeenCalledWith(expect.objectContaining({
+      name: '/l3/m8/threat_state',
+      messageType: 'l3_msgs/ThreatState',
+    }));
+
+    topicSubscriptions.get('/l3/m8/threat_state')?.({
+      target_ids: ['100000001'],
+      risk_phases: ['Danger'],
+      risk_scores: [0.72],
+      primary_flags: [true],
+      danger_forward_m: 520,
+      warning_forward_m: 936,
+    });
+
+    expect(useTelemetryStore.getState().threatState?.targets[0]).toEqual(expect.objectContaining({
+      targetId: '100000001',
+      riskPhase: 'Danger',
+      riskScore: 0.72,
+      primary: true,
+    }));
+  });
+
   it('preserves CPA/TCPA metrics from SIL target vessel messages when present', () => {
     renderHook(() => useFoxgloveLive('ws://127.0.0.1:8765'));
     const connectionCb = rosOn.mock.calls.find(

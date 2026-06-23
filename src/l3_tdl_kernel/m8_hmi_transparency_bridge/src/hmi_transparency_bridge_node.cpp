@@ -1,9 +1,107 @@
 // src/hmi_transparency_bridge_node.cpp
 #include "m8_hmi_transparency_bridge/hmi_transparency_bridge_node.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <sstream>
 #include <string>
+#include <vector>
+
+#include "l3_msgs/msg/encounter_classification.hpp"
+#include "l3_risk_model/risk_model.hpp"
 
 namespace mass_l3::m8 {
+
+namespace {
+
+constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr double kKnotsToMps = 0.5144444444444445;
+constexpr std::uint8_t kRoleStandOn = 0U;
+constexpr std::uint8_t kRoleGiveWay = 1U;
+constexpr std::uint8_t kRoleBothGiveWay = 2U;
+
+mass_l3::risk::OwnShipInput ownship_risk_input(const l3_msgs::msg::WorldState& world)
+{
+  return mass_l3::risk::OwnShipInput{
+      0.0,
+      0.0,
+      world.own_ship.heading_deg * kDegToRad,
+      std::max(0.0, world.own_ship.sog_kn * kKnotsToMps),
+      46.0,
+      static_cast<double>(world.own_ship.confidence),
+      world.own_ship.nav_mode == "DEGRADED"};
+}
+
+mass_l3::risk::TargetInput target_risk_input(const l3_msgs::msg::TrackedTarget& target)
+{
+  const double bearing_rad = target.brg_deg * kDegToRad;
+  const double range_m = std::max(0.0, target.rng_m);
+  return mass_l3::risk::TargetInput{
+      std::to_string(target.target_id),
+      std::cos(bearing_rad) * range_m,
+      std::sin(bearing_rad) * range_m,
+      target.cog_deg * kDegToRad,
+      std::max(0.0, target.sog_kn * kKnotsToMps),
+      target.cpa_m,
+      target.tcpa_s,
+      static_cast<double>(target.confidence)};
+}
+
+mass_l3::risk::ColregsDuty colregs_duty_from(
+    const std::optional<l3_msgs::msg::COLREGsConstraint>& colreg,
+    const l3_msgs::msg::TrackedTarget& target)
+{
+  if (!colreg.has_value() || !colreg->conflict_detected) {
+    return mass_l3::risk::ColregsDuty::Free;
+  }
+  if (target.encounter.is_giveway) {
+    return mass_l3::risk::ColregsDuty::GiveWay;
+  }
+  if (target.encounter.encounter_type ==
+          l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_CROSSED_BY ||
+      target.encounter.encounter_type ==
+          l3_msgs::msg::EncounterClassification::ENCOUNTER_TYPE_OVERTAKEN) {
+    return mass_l3::risk::ColregsDuty::StandOnHold;
+  }
+  if (colreg->primary_role == kRoleGiveWay) {
+    return mass_l3::risk::ColregsDuty::GiveWay;
+  }
+  if (colreg->primary_role == kRoleBothGiveWay) {
+    return mass_l3::risk::ColregsDuty::BothGiveWay;
+  }
+  if (colreg->primary_role == kRoleStandOn) {
+    if (colreg->phase == "INDEPENDENT_ACTION" || colreg->phase == "CRITICAL_ACTION") {
+      return mass_l3::risk::ColregsDuty::Rule17Action;
+    }
+    return mass_l3::risk::ColregsDuty::StandOnHold;
+  }
+  return mass_l3::risk::ColregsDuty::Free;
+}
+
+std::string relative_position_from_bearing(double bearing_deg)
+{
+  const double normalized = std::fmod(bearing_deg + 360.0, 360.0);
+  if (normalized <= 45.0 || normalized >= 315.0) {
+    return "ahead";
+  }
+  if (normalized >= 135.0 && normalized <= 225.0) {
+    return "astern";
+  }
+  if (normalized > 45.0 && normalized < 135.0) {
+    return "starboard";
+  }
+  return "port";
+}
+
+bool risk_is_primary(
+    const mass_l3::risk::RiskVector& risk,
+    const mass_l3::risk::RiskVector& primary)
+{
+  return !primary.target_id.empty() && risk.target_id == primary.target_id;
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -115,6 +213,8 @@ void HmiTransparencyBridgeNode::init_publishers()
       "/sil/sat3_data", rclcpp::SensorDataQoS().keep_last(10));
   pub_sil_sotif_ = create_publisher<l3_msgs::msg::SotifMetrics>(
       "/sil/sotif_metrics", rclcpp::QoS(20).reliable().transient_local());
+  pub_threat_state_ = create_publisher<l3_msgs::msg::ThreatState>(
+      "/l3/m8/threat_state", rclcpp::SensorDataQoS().keep_last(5));
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +387,12 @@ void HmiTransparencyBridgeNode::on_ui_publish_tick()
   auto msg = ui_builder_->build(ctx, *sat_aggregator_);
   msg.stamp = get_clock()->now();
   pub_ui_state_->publish(msg);
+
+  if (world_snap.has_value()) {
+    auto threat = build_threat_state(*world_snap, colreg_snap);
+    threat.stamp = msg.stamp;
+    pub_threat_state_->publish(threat);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +491,114 @@ void HmiTransparencyBridgeNode::emit_asdr_event(
 {
   auto record = asdr_logger_->build_record(get_clock()->now(), event_type, decision_json);
   pub_asdr_->publish(record);
+}
+
+l3_msgs::msg::ThreatState HmiTransparencyBridgeNode::build_threat_state(
+    const l3_msgs::msg::WorldState& world,
+    const std::optional<l3_msgs::msg::COLREGsConstraint>& colreg) const
+{
+  l3_msgs::msg::ThreatState msg{};
+  msg.schema_version = 114;
+  msg.stamp = world.stamp;
+  msg.confidence = world.confidence;
+
+  const mass_l3::risk::DomainConfig config{};
+  const auto own = ownship_risk_input(world);
+  const auto danger = mass_l3::risk::danger_axes(own);
+  const auto warning = mass_l3::risk::warning_axes(own, config);
+  msg.danger_forward_m = danger.forward_m;
+  msg.danger_astern_m = danger.astern_m;
+  msg.danger_starboard_m = danger.starboard_m;
+  msg.danger_port_m = danger.port_m;
+  msg.warning_forward_m = warning.forward_m;
+  msg.warning_astern_m = warning.astern_m;
+  msg.warning_starboard_m = warning.starboard_m;
+  msg.warning_port_m = warning.port_m;
+  msg.superellipse_power = config.superellipse_power;
+  msg.action_horizon_s = config.action_horizon_s;
+  msg.critical_horizon_s = config.critical_horizon_s;
+
+  std::vector<mass_l3::risk::RiskVector> risks;
+  risks.reserve(world.targets.size());
+  for (const auto& target : world.targets) {
+    if (target.rng_m > 0.0 && std::isfinite(target.rng_m)) {
+      risks.push_back(mass_l3::risk::evaluate_target(
+          own,
+          target_risk_input(target),
+          colregs_duty_from(colreg, target),
+          config));
+    }
+  }
+
+  if (risks.empty()) {
+    msg.cpa_status = "cleared";
+    msg.target_relative_position = "none";
+    msg.rationale = "backend risk model: no valid target";
+    return msg;
+  }
+
+  const auto primary = mass_l3::risk::select_primary(risks, nullptr);
+  std::sort(risks.begin(), risks.end(), [&primary](
+      const mass_l3::risk::RiskVector& lhs,
+      const mass_l3::risk::RiskVector& rhs) {
+        if (risk_is_primary(lhs, primary) != risk_is_primary(rhs, primary)) {
+          return risk_is_primary(lhs, primary);
+        }
+        if (lhs.risk_phase != rhs.risk_phase) {
+          return static_cast<std::uint8_t>(lhs.risk_phase) >
+                 static_cast<std::uint8_t>(rhs.risk_phase);
+        }
+        if (lhs.risk_score > rhs.risk_score) {
+          return true;
+        }
+        if (rhs.risk_score > lhs.risk_score) {
+          return false;
+        }
+        return lhs.range_m < rhs.range_m;
+      });
+
+  msg.cpa_status = primary.closing_speed_mps > 0.0 ? "closing" : "sustained";
+  msg.target_relative_position = relative_position_from_bearing(primary.relative_bearing_deg);
+
+  msg.target_ids.reserve(risks.size());
+  msg.risk_phases.reserve(risks.size());
+  msg.risk_scores.reserve(risks.size());
+  msg.primary_flags.reserve(risks.size());
+  msg.range_m.reserve(risks.size());
+  msg.dcpa_m.reserve(risks.size());
+  msg.tcpa_s.reserve(risks.size());
+  msg.warning_margin_m.reserve(risks.size());
+  msg.danger_margin_m.reserve(risks.size());
+  msg.closing_speed_mps.reserve(risks.size());
+  msg.relative_bearing_deg.reserve(risks.size());
+  msg.colregs_duties.reserve(risks.size());
+  msg.tdv_warning_s.reserve(risks.size());
+  msg.tdv_danger_s.reserve(risks.size());
+
+  for (const auto& risk : risks) {
+    msg.target_ids.push_back(risk.target_id);
+    msg.risk_phases.push_back(mass_l3::risk::to_string(risk.risk_phase));
+    msg.risk_scores.push_back(static_cast<float>(risk.risk_score));
+    msg.primary_flags.push_back(risk_is_primary(risk, primary));
+    msg.range_m.push_back(risk.range_m);
+    msg.dcpa_m.push_back(risk.dcpa_m);
+    msg.tcpa_s.push_back(risk.tcpa_s);
+    msg.warning_margin_m.push_back(risk.warning_margin_m);
+    msg.danger_margin_m.push_back(risk.danger_margin_m);
+    msg.closing_speed_mps.push_back(risk.closing_speed_mps);
+    msg.relative_bearing_deg.push_back(risk.relative_bearing_deg);
+    msg.colregs_duties.push_back(mass_l3::risk::to_string(risk.colregs_duty));
+    msg.tdv_warning_s.push_back(risk.tdv_warning_s);
+    msg.tdv_danger_s.push_back(risk.tdv_danger_s);
+  }
+
+  std::ostringstream rationale;
+  rationale << "backend risk model primary=" << primary.target_id
+            << " phase=" << mass_l3::risk::to_string(primary.risk_phase)
+            << " score=" << primary.risk_score
+            << " duty=" << mass_l3::risk::to_string(primary.colregs_duty);
+  msg.rationale = rationale.str();
+  return msg;
 }
 
 // ---------------------------------------------------------------------------

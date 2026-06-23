@@ -42,6 +42,6 @@ services:
           -p use_sim_time:=true \
           -p certfile:=/certs/sil.crt \
           -p keyfile:=/certs/sil.key \
-          -p topic_whitelist:="[/sim_clock,/sil/own_ship_state,/sil/target_vessel_state,/sil/radar_meas,/sil/ais_msg,/sil/environment,/sil/tracked_targets,/sil/lifecycle_status,/sil/module_pulse,/sil/scoring,/sil/asdr_event,/sil/sat2_data,/sil/sat3_data,/sil/sotif_metrics,/l3/fsm_state,/l3/m1/odd_state,/l3/m2/world_state,/l3/m4/behavior_plan,/l3/m5/avoidance_plan,/l3/m6/colregs_constraint,/l3/m7/safety_alert,/l2/planned_route,/fusion/tracked_targets]"
+          -p topic_whitelist:="[/sim_clock,/sil/own_ship_state,/sil/target_vessel_state,/sil/radar_meas,/sil/ais_msg,/sil/environment,/sil/tracked_targets,/sil/lifecycle_status,/sil/module_pulse,/sil/scoring,/sil/asdr_event,/sil/sat2_data,/sil/sat3_data,/sil/sotif_metrics,/l3/fsm_state,/l3/m1/odd_state,/l3/m2/world_state,/l3/m4/behavior_plan,/l3/m5/avoidance_plan,/l3/m6/colregs_constraint,/l3/m7/safety_alert,/l3/m8/threat_state,/l2/planned_route,/fusion/tracked_targets]"
     environment:
       - ROS_DOMAIN_ID=43

@@ -404,6 +404,81 @@ ownShip:
     expect(screen.getByText('3.0 min')).toBeInTheDocument();
   });
 
+  it('groups threat list by backend risk phase and displays backend risk metrics', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      ownShip: {
+        pose: { lat: 63.4, lon: 10.4, heading: 0.0 },
+        kinematics: { sog: 5.0, cog: 0.0, rot: 0.0, u: 5.0, v: 0.0, r: 0.0 },
+        controlState: { rudderAngle: 0.0, throttle: 0.0 },
+      },
+      targets: [{
+        mmsi: 100000001,
+        pose: { lat: 63.55, lon: 10.4, heading: Math.PI },
+        kinematics: { sog: 6.17, cog: Math.PI, rot: 0.0 },
+        cpaM: 120.0,
+        tcpaS: 45.0,
+      }],
+      threatState: {
+        targets: [{
+          targetId: '100000001',
+          riskPhase: 'Critical',
+          riskScore: 0.91,
+          primary: true,
+          dcpaM: 259.28,
+          tcpaS: 108,
+          warningMarginM: -210,
+          dangerMarginM: -35,
+          closingSpeedMps: 3.2,
+          tdvWarningS: 0,
+        }],
+        primaryTargetId: '100000001',
+        dangerAxes: { forwardM: 520, asternM: 150, starboardM: 260, portM: 220 },
+        warningAxes: { forwardM: 936, asternM: 270, starboardM: 468, portM: 396 },
+      },
+      threatRiskHistory: [],
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
+
+    expect(screen.getByText('高威胁目标')).toBeInTheDocument();
+    expect(screen.getByText('(1)')).toBeInTheDocument();
+    expect(screen.getByText('风险分数')).toBeInTheDocument();
+    expect(screen.getByText('0.91')).toBeInTheDocument();
+    expect(screen.getByText('Danger Margin')).toBeInTheDocument();
+    expect(screen.getByText('-35 m')).toBeInTheDocument();
+    expect(screen.getByTestId('threat-cpa')).toHaveTextContent('0.14 nm');
+    expect(screen.getByTestId('threat-tcpa')).toHaveTextContent('1.8 min');
+  });
+
+  it('renders backend primary threat risk score trend from threat state history', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      threatRiskHistory: [
+        { t: 10, primaryTargetId: '100000001', riskScore: 0.22, riskPhase: 'Monitor' },
+        { t: 20, primaryTargetId: '100000001', riskScore: 0.61, riskPhase: 'Warning' },
+        { t: 30, primaryTargetId: '100000001', riskScore: 0.91, riskPhase: 'Critical' },
+      ],
+      threatState: {
+        targets: [{
+          targetId: '100000001',
+          riskPhase: 'Critical',
+          riskScore: 0.91,
+          primary: true,
+        }],
+        primaryTargetId: '100000001',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
+
+    expect(screen.getByText('后端风险趋势')).toBeInTheDocument();
+    expect(screen.getByTestId('threat-risk-trend')).toBeInTheDocument();
+    expect(screen.getAllByText('0.91').length).toBeGreaterThanOrEqual(1);
+  });
+
   it('computes CPA and TCPA for the threat list when target metrics are absent', () => {
     useTelemetryStore.setState({
       wsConnected: true,

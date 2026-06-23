@@ -5,7 +5,7 @@ import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useTelemetryStore, useControlStore, useUIStore, useScenarioStore } from '../store';
-import type { VoyagePlanData } from '../store/telemetryStore';
+import type { ThreatRiskHistorySample, ThreatRiskTargetData, VoyagePlanData } from '../store/telemetryStore';
 import {
   useDeactivateLifecycleMutation,
   useChangeLifecycleRateMutation,
@@ -438,6 +438,8 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   const colregsConstraint = useTelemetryStore((s) => s.colregsConstraint);
   const safetyAlert     = useTelemetryStore((s) => s.safetyAlert);
   const avoidancePlan   = useTelemetryStore((s) => s.avoidancePlan);
+  const threatState     = useTelemetryStore((s) => s.threatState);
+  const threatRiskHistory = useTelemetryStore((s) => s.threatRiskHistory);
   const fsmState        = useFsmStore((s) => s.currentState);
   const fsmRule         = useFsmStore((s) => s.activeRule);
   const fsmConf         = useFsmStore((s) => s.confidence);
@@ -684,76 +686,118 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     prevScenarioIdRef.current = scenarioId || null;
   }, [scenarioId]);
 
-  // Dynamic Threat Evaluation based on dynamic asymmetric safety domain boundaries
-  const categorizedTargets = useMemo(() => {
-    if (!ownShip?.pose) {
-      return { high: [], medium: [], low: [], none: [] };
+  const targetRiskById = useMemo(() => {
+    const map = new Map<string, ThreatRiskTargetData>();
+    for (const risk of threatState?.targets ?? []) {
+      map.set(risk.targetId, risk);
     }
-    const ownLat = ownShip.pose.lat;
-    const ownLon = ownShip.pose.lon;
-    if (typeof ownLat !== 'number' || typeof ownLon !== 'number') {
-      return { high: [], medium: [], low: [], none: [] };
-    }
-    const ownHeadingDeg = ownShip.pose.heading != null ? ((ownShip.pose.heading * 180 / Math.PI + 360) % 360) : 0;
+    return map;
+  }, [threatState]);
 
+  // Backend threat grouping: UI does not compute threat level independently.
+  const categorizedTargets = useMemo(() => {
     const high: any[] = [];
     const medium: any[] = [];
     const low: any[] = [];
     const none: any[] = [];
 
-    const METRICS = {
-      observation: { fore: 2.2, starboard: 1.5, port: 1.2, aft: 0.8 },
-      action: { fore: 1.2, starboard: 0.8, port: 0.6, aft: 0.4 },
-      critical: { fore: 0.3, starboard: 0.25, port: 0.18, aft: 0.10 },
-    };
-
-    function getDomainRadius(alpha: number, m: typeof METRICS.observation) {
-      const deg = (((alpha * 180) / Math.PI) + 360) % 360;
-      if (deg >= 0 && deg < 90) {
-        const t = deg / 90;
-        return (1 - t) * m.fore + t * m.starboard;
-      }
-      if (deg >= 90 && deg < 180) {
-        const t = (deg - 90) / 90;
-        return (1 - t) * m.starboard + t * m.aft;
-      }
-      if (deg >= 180 && deg < 270) {
-        const t = (deg - 180) / 90;
-        return (1 - t) * m.aft + t * m.port;
-      }
-      const t = (deg - 270) / 90;
-      return (1 - t) * m.port + t * m.fore;
-    }
-
     targets.forEach((t) => {
-      const targetLat = t.pose?.lat;
-      const targetLon = t.pose?.lon;
-      if (typeof targetLat !== 'number' || typeof targetLon !== 'number') {
-        none.push(t);
-        return;
-      }
-
-      const rng = computeRangeNm(ownLat, ownLon, targetLat, targetLon);
-      const brg = computeBearing(ownLat, ownLon, targetLat, targetLon);
-      const relBrgRad = ((brg - ownHeadingDeg + 360) % 360) * Math.PI / 180;
-
-      const radiusCrit = getDomainRadius(relBrgRad, METRICS.critical);
-      const radiusAct = getDomainRadius(relBrgRad, METRICS.action);
-      const radiusObs = getDomainRadius(relBrgRad, METRICS.observation);
-
-      if (rng <= radiusCrit) {
-        high.push(t);
-      } else if (rng <= radiusAct) {
-        medium.push(t);
-      } else if (rng <= radiusObs) {
-        low.push(t);
+      const risk = targetRiskById.get(String(t.mmsi));
+      const targetWithRisk = { ...t, risk };
+      if (risk?.riskPhase === 'Critical' || risk?.riskPhase === 'Danger') {
+        high.push(targetWithRisk);
+      } else if (risk?.riskPhase === 'Warning') {
+        medium.push(targetWithRisk);
+      } else if (risk?.riskPhase === 'Monitor') {
+        low.push(targetWithRisk);
       } else {
-        none.push(t);
+        none.push(targetWithRisk);
       }
     });
 
     return { high, medium, low, none };
-  }, [ownShip, targets]);
+  }, [targetRiskById, targets]);
+
+  const renderThreatRiskTrend = (history: ThreatRiskHistorySample[]) => {
+    const points = history.slice(-32).filter((sample) => Number.isFinite(sample.riskScore));
+    if (points.length === 0) {
+      return null;
+    }
+    const latest = points[points.length - 1];
+    const width = 300;
+    const height = 78;
+    const pad = 10;
+    const usableWidth = width - pad * 2;
+    const usableHeight = height - pad * 2;
+    const pathPoints = points.map((sample, idx) => {
+      const x = pad + (points.length === 1 ? usableWidth : (idx / (points.length - 1)) * usableWidth);
+      const clamped = Math.max(0, Math.min(1, sample.riskScore));
+      const y = pad + (1 - clamped) * usableHeight;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const latestColor = latest.riskPhase === 'Critical' || latest.riskPhase === 'Danger'
+      ? 'var(--c-danger)'
+      : latest.riskPhase === 'Warning'
+        ? 'var(--c-warn)'
+        : latest.riskPhase === 'Monitor'
+          ? '#38bdf8'
+          : 'var(--c-phos)';
+
+    return (
+      <div style={{
+        background: 'rgba(0,0,0,0.2)',
+        border: '1px solid var(--line-1)',
+        borderRadius: 8,
+        padding: '12px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>后端风险趋势</span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)' }}>
+              Primary {latest.primaryTargetId || threatState?.primaryTargetId || '—'}
+            </span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: latestColor, fontWeight: 800, lineHeight: 1 }}>
+              {latest.riskScore.toFixed(2)}
+            </div>
+            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginTop: 3 }}>
+              {latest.riskPhase}
+            </div>
+          </div>
+        </div>
+        <svg
+          data-testid="threat-risk-trend"
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label="后端 primary threat risk score trend"
+          style={{ width: '100%', height: 78, display: 'block' }}
+        >
+          <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="rgba(148,163,184,0.22)" strokeWidth="1" />
+          <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="rgba(148,163,184,0.22)" strokeWidth="1" />
+          <line x1={pad} y1={pad + usableHeight * 0.4} x2={width - pad} y2={pad + usableHeight * 0.4} stroke="rgba(251,191,36,0.22)" strokeWidth="1" strokeDasharray="3 4" />
+          <line x1={pad} y1={pad + usableHeight * 0.15} x2={width - pad} y2={pad + usableHeight * 0.15} stroke="rgba(244,63,94,0.22)" strokeWidth="1" strokeDasharray="3 4" />
+          <polyline
+            points={pathPoints}
+            fill="none"
+            stroke={latestColor}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {points.map((sample, idx) => {
+            const x = pad + (points.length === 1 ? usableWidth : (idx / (points.length - 1)) * usableWidth);
+            const clamped = Math.max(0, Math.min(1, sample.riskScore));
+            const y = pad + (1 - clamped) * usableHeight;
+            return <circle key={`${sample.t}-${idx}`} cx={x} cy={y} r={idx === points.length - 1 ? 3.5 : 2} fill={idx === points.length - 1 ? latestColor : 'rgba(94,234,212,0.65)'} />;
+          })}
+        </svg>
+      </div>
+    );
+  };
 
   const renderTargetCards = (targetsList: any[]) => {
     // Derive CPA/TCPA from ASDR events
@@ -778,6 +822,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           const id = t.mmsi ? String(t.mmsi) : `T${idx + 1}`;
           const targetIdDisplay = t.mmsi ? `T${String(t.mmsi).slice(-2)}` : `T${idx + 1}`;
           const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
+          const risk = t.risk as ThreatRiskTargetData | undefined;
 
           const targetLat = t.pose?.lat;
           const targetLon = t.pose?.lon;
@@ -797,8 +842,16 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                 cogRad: t.kinematics?.cog ?? t.pose?.heading ?? 0,
               },
             }) : null;
-          const cpaVal = typeof t.cpaM === 'number' ? t.cpaM / 1852.0 : (cpaInfo?.cpa ?? (cpaFallback ? cpaFallback.cpaM / 1852.0 : undefined));
-          const tcpaVal = typeof t.tcpaS === 'number' ? t.tcpaS / 60.0 : (cpaInfo?.tcpa ?? (cpaFallback ? cpaFallback.tcpaS / 60.0 : undefined));
+          const cpaVal = risk?.dcpaM != null
+            ? risk.dcpaM / 1852.0
+            : typeof t.cpaM === 'number'
+              ? t.cpaM / 1852.0
+              : (cpaInfo?.cpa ?? (cpaFallback ? cpaFallback.cpaM / 1852.0 : undefined));
+          const tcpaVal = risk?.tcpaS != null
+            ? risk.tcpaS / 60.0
+            : typeof t.tcpaS === 'number'
+              ? t.tcpaS / 60.0
+              : (cpaInfo?.tcpa ?? (cpaFallback ? cpaFallback.tcpaS / 60.0 : undefined));
 
           const brg = (ownLat != null && ownLon != null && targetLat != null && targetLon != null)
             ? computeBearing(ownLat, ownLon, targetLat, targetLon).toFixed(1) + '°'
@@ -822,6 +875,9 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           const cpaColor = cpaVal != null
             ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : '#fff'
             : '#fff';
+          const riskScore = risk?.riskScore != null ? risk.riskScore.toFixed(2) : '—';
+          const warningMargin = risk?.warningMarginM != null ? `${risk.warningMarginM.toFixed(0)} m` : '—';
+          const dangerMargin = risk?.dangerMarginM != null ? `${risk.dangerMarginM.toFixed(0)} m` : '—';
 
           return (
             <div key={id} style={{
@@ -834,7 +890,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
               gap: 12
             }}>
               {/* Row 1: ID and MMSI */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+	              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>目标 ID</span>
                   <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: 'var(--c-info)', fontWeight: 700, lineHeight: 1.1 }}>
@@ -846,8 +902,36 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
                     {t.mmsi || '—'}
                   </span>
-                </div>
-              </div>
+	              </div>
+	              {risk && (
+	                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>风险阶段</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.riskPhase === 'Critical' || risk.riskPhase === 'Danger' ? 'var(--c-danger)' : risk.riskPhase === 'Warning' ? 'var(--c-warn)' : '#38bdf8', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {risk.riskPhase}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>风险分数</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {riskScore}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>Warning Margin</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.warningMarginM != null && risk.warningMarginM < 0 ? 'var(--c-warn)' : '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {warningMargin}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>Danger Margin</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.dangerMarginM != null && risk.dangerMarginM < 0 ? 'var(--c-danger)' : '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {dangerMargin}
+	                    </span>
+	                  </div>
+	                </div>
+	              )}
+            </div>
 
               {/* Row 2: BRG and RNG */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
@@ -1135,6 +1219,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           mapRef={externalMapRef}
           ownShip={ownShip}
           visible={true}
+          threatState={threatState}
         />
 
         <PlannedRouteLayer mapRef={externalMapRef} waypoints={voyagePlan?.waypoints ?? []} visible={true} />
@@ -1459,6 +1544,8 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
                 {activeRightTab === 'threat' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {renderThreatRiskTrend(threatRiskHistory)}
+
                     {/* Card 1: High Threat */}
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',

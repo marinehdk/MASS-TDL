@@ -28,6 +28,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(l3_risk_model REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
@@ -63,7 +64,10 @@ add_executable(m8_hmi_transparency_bridge_node
 )
 target_link_libraries(m8_hmi_transparency_bridge_node m8_core)
 ament_target_dependencies(m8_hmi_transparency_bridge_node
-  rclcpp l3_msgs l3_external_msgs
+  rclcpp l3_msgs l3_external_msgs l3_risk_model
+)
+target_link_libraries(m8_hmi_transparency_bridge_node
+  l3_risk_model::l3_risk_model
 )
 
 install(TARGETS m8_core m8_hmi_transparency_bridge_node
@@ -111,7 +115,9 @@ if(BUILD_TESTING)
       src/hmi_transparency_bridge_node.cpp)
   target_link_libraries(test_hmi_transparency_bridge_node m8_core)
   ament_target_dependencies(test_hmi_transparency_bridge_node
-      rclcpp l3_msgs l3_external_msgs)
+      rclcpp l3_msgs l3_external_msgs l3_risk_model)
+  target_link_libraries(test_hmi_transparency_bridge_node
+      l3_risk_model::l3_risk_model)
 
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(m8_python_tests python/tests/

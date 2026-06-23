@@ -3,6 +3,7 @@ import { render, cleanup } from '@testing-library/react';
 import { useRef } from 'react';
 import { SafetyDomainLayer } from '../SafetyDomainLayer';
 import type { OwnShipState } from '../../types';
+import type { ThreatRiskStateData } from '../../store/telemetryStore';
 
 let mapContainer: HTMLDivElement;
 let layerExists = false;
@@ -38,9 +39,24 @@ function makeOwnShip(lon: number, lat: number): OwnShipState {
   } as any;
 }
 
-function Wrapper({ ownShip, visible = true }: { ownShip: OwnShipState | null; visible?: boolean }) {
+const backendThreatState: ThreatRiskStateData = {
+  targets: [],
+  dangerAxes: { forwardM: 520, asternM: 150, starboardM: 260, portM: 220 },
+  warningAxes: { forwardM: 936, asternM: 270, starboardM: 468, portM: 396 },
+  superellipsePower: 2.5,
+};
+
+function Wrapper({
+  ownShip,
+  visible = true,
+  threatState,
+}: {
+  ownShip: OwnShipState | null;
+  visible?: boolean;
+  threatState?: ThreatRiskStateData | null;
+}) {
   const ref = useRef(mockMap as any);
-  return <SafetyDomainLayer mapRef={ref} ownShip={ownShip} visible={visible} />;
+  return <SafetyDomainLayer mapRef={ref} ownShip={ownShip} visible={visible} threatState={threatState} />;
 }
 
 beforeEach(() => {
@@ -73,6 +89,17 @@ describe('SafetyDomainLayer', () => {
     expect(svg?.querySelectorAll('polygon').length).toBe(7);
     expect(svg?.querySelectorAll('polyline').length).toBe(3);
     expect(svg?.querySelectorAll('text').length).toBe(4);
+  });
+
+  it('uses backend warning and danger axes when threat state is available', () => {
+    render(<Wrapper ownShip={makeOwnShip(10.4, 63.4)} threatState={backendThreatState} />);
+
+    const svg = mapContainer.querySelector('[data-testid="safety-domain-svg"]');
+    expect(svg?.querySelectorAll('polygon').length).toBe(6);
+    expect(svg?.querySelectorAll('polyline').length).toBe(2);
+    expect(svg?.querySelector('[data-tier="warning"]')).not.toBeNull();
+    expect(svg?.querySelector('[data-tier="danger"]')).not.toBeNull();
+    expect(svg?.querySelector('[data-tier="critical"]')).toBeNull();
   });
 
   it('removes stale MapLibre safety layers that could be covered by raster tiles', () => {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type maplibregl from 'maplibre-gl';
 import type { OwnShipState } from '../types';
+import type { ThreatRiskStateData } from '../store/telemetryStore';
 
 interface SafetyDomainLayerProps {
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
@@ -10,6 +11,7 @@ interface SafetyDomainLayerProps {
   observationNm?: number;
   actionNm?: number;
   criticalNm?: number;
+  threatState?: ThreatRiskStateData | null;
 }
 
 const SOURCE_ID = 'safety-domain';
@@ -32,7 +34,7 @@ const METRICS = {
   critical: { fore: 0.3, starboard: 0.25, port: 0.18, aft: 0.10 },
 };
 
-type Tier = 'observation' | 'action' | 'critical';
+type Tier = 'observation' | 'action' | 'critical' | 'warning' | 'danger';
 type Sector = 'HEAD-ON' | 'GIVE-WAY' | 'STAND-ON' | 'OVERTAKING';
 type PolygonFeature = GeoJSON.Feature<GeoJSON.Polygon, { tier: Tier | 'colregs-sector'; sector?: Sector }>;
 type LabelFeature = GeoJSON.Feature<GeoJSON.Point, { tier: 'colregs-label'; label: Sector }>;
@@ -41,6 +43,8 @@ const DOMAIN_STYLE: Record<Tier, { fill: string; fillOpacity: number; stroke: st
   observation: { fill: '#94a3b8', fillOpacity: 0.06, stroke: '#94a3b8', strokeOpacity: 0.5, width: 1, dash: '4 4' },
   action: { fill: '#fbbf24', fillOpacity: 0.08, stroke: '#fbbf24', strokeOpacity: 0.72, width: 1.5, dash: '2 2' },
   critical: { fill: '#f87171', fillOpacity: 0.14, stroke: '#f87171', strokeOpacity: 0.9, width: 2 },
+  warning: { fill: '#fbbf24', fillOpacity: 0.08, stroke: '#fbbf24', strokeOpacity: 0.72, width: 1.5, dash: '2 2' },
+  danger: { fill: '#f87171', fillOpacity: 0.14, stroke: '#f87171', strokeOpacity: 0.9, width: 2 },
 };
 
 const SECTOR_STYLE: Record<Sector, { fill: string; fillOpacity: number; stroke: string }> = {
@@ -172,6 +176,7 @@ export const SafetyDomainLayer: React.FC<SafetyDomainLayerProps> = React.memo(({
   observationNm,
   actionNm,
   criticalNm,
+  threatState,
 }) => {
   const [projected, setProjected] = useState<{
     container: HTMLElement;
@@ -181,33 +186,52 @@ export const SafetyDomainLayer: React.FC<SafetyDomainLayerProps> = React.memo(({
     sectors: Array<{ sector: Sector; points: string }>;
     labels: Array<{ label: Sector; x: number; y: number }>;
   } | null>(null);
+  const hasBackendAxes = Boolean(threatState?.warningAxes && threatState?.dangerAxes);
 
   const metrics = useMemo(() => {
+    if (hasBackendAxes && threatState?.warningAxes && threatState?.dangerAxes) {
+      const mToNm = (valueM: number) => valueM / 1852.0;
+      return {
+        warning: {
+          fore: mToNm(threatState.warningAxes.forwardM),
+          starboard: mToNm(threatState.warningAxes.starboardM),
+          port: mToNm(threatState.warningAxes.portM),
+          aft: mToNm(threatState.warningAxes.asternM),
+        },
+        danger: {
+          fore: mToNm(threatState.dangerAxes.forwardM),
+          starboard: mToNm(threatState.dangerAxes.starboardM),
+          port: mToNm(threatState.dangerAxes.portM),
+          aft: mToNm(threatState.dangerAxes.asternM),
+        },
+      };
+    }
+
     const scaleObs = observationNm != null ? observationNm / 2.0 : 1.0;
     const scaleAct = actionNm != null ? actionNm / 1.0 : 1.0;
     const scaleCrit = criticalNm != null ? criticalNm / 0.3 : 1.0;
 
     return {
-      obs: {
+      observation: {
         fore: METRICS.observation.fore * scaleObs,
         starboard: METRICS.observation.starboard * scaleObs,
         port: METRICS.observation.port * scaleObs,
         aft: METRICS.observation.aft * scaleObs,
       },
-      act: {
+      action: {
         fore: METRICS.action.fore * scaleAct,
         starboard: METRICS.action.starboard * scaleAct,
         port: METRICS.action.port * scaleAct,
         aft: METRICS.action.aft * scaleAct,
       },
-      crit: {
+      critical: {
         fore: METRICS.critical.fore * scaleCrit,
         starboard: METRICS.critical.starboard * scaleCrit,
         port: METRICS.critical.port * scaleCrit,
         aft: METRICS.critical.aft * scaleCrit,
       },
     };
-  }, [observationNm, actionNm, criticalNm]);
+  }, [observationNm, actionNm, criticalNm, hasBackendAxes, threatState]);
 
   const buildFeatures = useCallback(() => {
     if (!ownShip?.pose) return null;
@@ -216,23 +240,36 @@ export const SafetyDomainLayer: React.FC<SafetyDomainLayerProps> = React.memo(({
     if (typeof lon !== 'number' || typeof lat !== 'number') return null;
 
     const headingRad = ownShip.pose.heading ?? 0;
-    const { obs, act, crit } = metrics;
-    const domainFeatures: PolygonFeature[] = [
-      asymmetricDomainFeature(lon, lat, headingRad, obs.fore, obs.starboard, obs.port, obs.aft, 'observation'),
-      asymmetricDomainFeature(lon, lat, headingRad, act.fore, act.starboard, act.port, act.aft, 'action'),
-      asymmetricDomainFeature(lon, lat, headingRad, crit.fore, crit.starboard, crit.port, crit.aft, 'critical'),
-    ];
+    const backendMetrics = 'warning' in metrics && metrics.warning && metrics.danger
+      ? { warning: metrics.warning, danger: metrics.danger }
+      : null;
+    const legacyMetrics = !backendMetrics && 'observation' in metrics && metrics.observation && metrics.action && metrics.critical
+      ? { observation: metrics.observation, action: metrics.action, critical: metrics.critical }
+      : null;
+    if (!backendMetrics && !legacyMetrics) return null;
+
+    const domainFeatures: PolygonFeature[] = backendMetrics
+      ? [
+        asymmetricDomainFeature(lon, lat, headingRad, backendMetrics.warning.fore, backendMetrics.warning.starboard, backendMetrics.warning.port, backendMetrics.warning.aft, 'warning'),
+        asymmetricDomainFeature(lon, lat, headingRad, backendMetrics.danger.fore, backendMetrics.danger.starboard, backendMetrics.danger.port, backendMetrics.danger.aft, 'danger'),
+      ]
+      : [
+        asymmetricDomainFeature(lon, lat, headingRad, legacyMetrics!.observation.fore, legacyMetrics!.observation.starboard, legacyMetrics!.observation.port, legacyMetrics!.observation.aft, 'observation'),
+        asymmetricDomainFeature(lon, lat, headingRad, legacyMetrics!.action.fore, legacyMetrics!.action.starboard, legacyMetrics!.action.port, legacyMetrics!.action.aft, 'action'),
+        asymmetricDomainFeature(lon, lat, headingRad, legacyMetrics!.critical.fore, legacyMetrics!.critical.starboard, legacyMetrics!.critical.port, legacyMetrics!.critical.aft, 'critical'),
+      ];
+    const sectorDomain = backendMetrics ? backendMetrics.warning : legacyMetrics!.action;
     const sectorFeatures: PolygonFeature[] = [
-      asymmetricSectorFeature(lon, lat, headingRad, -6, 6, act.fore, act.starboard, act.port, act.aft, 'HEAD-ON'),
-      asymmetricSectorFeature(lon, lat, headingRad, 6, 112.5, act.fore, act.starboard, act.port, act.aft, 'GIVE-WAY'),
-      asymmetricSectorFeature(lon, lat, headingRad, 247.5, 354, act.fore, act.starboard, act.port, act.aft, 'STAND-ON'),
-      asymmetricSectorFeature(lon, lat, headingRad, 112.5, 247.5, act.fore, act.starboard, act.port, act.aft, 'OVERTAKING'),
+      asymmetricSectorFeature(lon, lat, headingRad, -6, 6, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'HEAD-ON'),
+      asymmetricSectorFeature(lon, lat, headingRad, 6, 112.5, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'GIVE-WAY'),
+      asymmetricSectorFeature(lon, lat, headingRad, 247.5, 354, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'STAND-ON'),
+      asymmetricSectorFeature(lon, lat, headingRad, 112.5, 247.5, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'OVERTAKING'),
     ];
     const labels: LabelFeature[] = [
-      sectorLabelFeature(lon, lat, headingRad, -6, 6, act.fore, act.starboard, act.port, act.aft, 'HEAD-ON'),
-      sectorLabelFeature(lon, lat, headingRad, 6, 112.5, act.fore, act.starboard, act.port, act.aft, 'GIVE-WAY'),
-      sectorLabelFeature(lon, lat, headingRad, 247.5, 354, act.fore, act.starboard, act.port, act.aft, 'STAND-ON'),
-      sectorLabelFeature(lon, lat, headingRad, 112.5, 247.5, act.fore, act.starboard, act.port, act.aft, 'OVERTAKING'),
+      sectorLabelFeature(lon, lat, headingRad, -6, 6, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'HEAD-ON'),
+      sectorLabelFeature(lon, lat, headingRad, 6, 112.5, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'GIVE-WAY'),
+      sectorLabelFeature(lon, lat, headingRad, 247.5, 354, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'STAND-ON'),
+      sectorLabelFeature(lon, lat, headingRad, 112.5, 247.5, sectorDomain.fore, sectorDomain.starboard, sectorDomain.port, sectorDomain.aft, 'OVERTAKING'),
     ];
 
     return { domainFeatures, sectorFeatures, labels };
@@ -333,6 +370,7 @@ export const SafetyDomainLayer: React.FC<SafetyDomainLayerProps> = React.memo(({
           return (
             <polygon
               key={`${tier}-fill`}
+              data-tier={tier}
               points={points}
               fill={style.fill}
               fillOpacity={style.fillOpacity}
@@ -361,6 +399,7 @@ export const SafetyDomainLayer: React.FC<SafetyDomainLayerProps> = React.memo(({
           return (
             <polyline
               key={`${tier}-line`}
+              data-tier={tier}
               points={points}
               fill="none"
               stroke={style.stroke}

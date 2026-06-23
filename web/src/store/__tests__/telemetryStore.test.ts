@@ -113,10 +113,61 @@ describe('telemetryStore', () => {
 
   it('reset clears all fields', () => {
     useTelemetryStore.getState().updateOwnShip({} as any);
+    useTelemetryStore.getState().updateThreatState({
+      target_ids: ['100000001'],
+      risk_phases: ['Warning'],
+      risk_scores: [0.42],
+      primary_flags: [true],
+      danger_forward_m: 500,
+      warning_forward_m: 900,
+    } as any);
     useTelemetryStore.getState().reset();
     expect(useTelemetryStore.getState().ownShip).toBeNull();
     expect(useTelemetryStore.getState().targets).toEqual([]);
     expect(useTelemetryStore.getState().targetTrails).toEqual({});
+    expect(useTelemetryStore.getState().threatState).toBeNull();
+    expect(useTelemetryStore.getState().threatRiskHistory).toEqual([]);
+  });
+
+  it('normalizes backend threat risk state and appends risk history', () => {
+    useTelemetryStore.getState().updateThreatState({
+      stamp: { sec: 12, nanosec: 500_000_000 },
+      target_ids: ['100000001', '100000002'],
+      risk_phases: ['Critical', 'Monitor'],
+      risk_scores: [0.91, 0.24],
+      primary_flags: [true, false],
+      range_m: [640, 1800],
+      dcpa_m: [180, 900],
+      tcpa_s: [52, 410],
+      warning_margin_m: [-120, 80],
+      danger_margin_m: [-20, 520],
+      closing_speed_mps: [3.1, 0.8],
+      relative_bearing_deg: [12, -48],
+      colregs_duties: ['BothGiveWay', 'Free'],
+      tdv_warning_s: [0, 100],
+      tdv_danger_s: [0, 0],
+      danger_forward_m: 520,
+      danger_astern_m: 150,
+      danger_starboard_m: 260,
+      danger_port_m: 220,
+      warning_forward_m: 936,
+      warning_astern_m: 270,
+      warning_starboard_m: 468,
+      warning_port_m: 396,
+      superellipse_power: 2.5,
+      rationale: 'backend risk model',
+    } as any);
+
+    const state = useTelemetryStore.getState();
+    expect(state.threatState?.targets).toEqual([
+      expect.objectContaining({ targetId: '100000001', riskPhase: 'Critical', riskScore: 0.91, primary: true }),
+      expect.objectContaining({ targetId: '100000002', riskPhase: 'Monitor', riskScore: 0.24, primary: false }),
+    ]);
+    expect(state.threatState?.dangerAxes.forwardM).toBe(520);
+    expect(state.threatState?.warningAxes.portM).toBe(396);
+    expect(state.threatRiskHistory).toEqual([
+      expect.objectContaining({ t: 12.5, primaryTargetId: '100000001', riskScore: 0.91, riskPhase: 'Critical' }),
+    ]);
   });
 
   it('normalizes M5 avoidance plan waypoints', () => {
