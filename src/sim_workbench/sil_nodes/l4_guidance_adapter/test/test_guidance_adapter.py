@@ -1,4 +1,5 @@
 import math
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -435,6 +436,39 @@ def test_transit_autopilot_continues_when_odd_sample_is_temporarily_missing():
     assert len(published) == 1
 
 
+def test_guidance_asdr_records_execution_source_without_changing_command():
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    published = []
+    node._asdr_cls = SimpleNamespace
+    node._pub_asdr = SimpleNamespace(publish=lambda msg: published.append(msg))
+    node._last_behavior_plan = SimpleNamespace(behavior=7)
+    node._avoidance_active = True
+    node._autopilot_enabled = False
+    node._last_valid_plan_time = 95.0
+    node._avoidance_target_heading_deg = 72.0
+
+    cmd = SimpleNamespace(rudder_angle=math.radians(12.0), throttle=0.42)
+
+    L4GuidanceAdapterNode._publish_guidance_asdr(
+        node,
+        execution_source="avoidance",
+        cmd=cmd,
+        stamp=object(),
+        now=100.0,
+    )
+
+    assert len(published) == 1
+    record = published[0]
+    assert record.source_module == "L4_Guidance_Adapter"
+    payload = json.loads(record.decision_json)
+    assert payload["execution_source"] == "avoidance"
+    assert payload["m4_behavior"] == 7
+    assert payload["avoidance_active"] is True
+    assert payload["m5_plan_age_s"] == pytest.approx(5.0)
+    assert payload["rudder_deg"] == pytest.approx(12.0)
+    assert payload["throttle"] == pytest.approx(0.42)
+
+
 def test_safety_alert_gate_expires_without_fresh_m7_alerts():
     node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
     now = [100.0]
@@ -777,6 +811,184 @@ def test_active_avoidance_at_corridor_edge_regresses_to_transit_return():
 
     assert avoid_transit_called["flag"] is True
     assert math.degrees(cmd.rudder_angle) == pytest.approx(-15.0)
+
+
+def test_risk_active_colregs_waypoint_overrides_xte_regression():
+    # Rule15 boundary regression: M5 can publish a valid risk-aware waypoint while
+    # own ship is already outside the HARD XTE corridor. L4 must not replace that
+    # tactical waypoint with route-return regression until M4 leaves COLREGs
+    # avoidance; otherwise route recovery takes priority over dynamic risk.
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 155.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(
+        behavior=1,
+        rationale="risk primary=colreg-rule15-ot-boundary phase=Warning speed_reduction_preferred=true",
+    )
+    node._avoidance_transit_regression_active = False
+    node._compute_avoidance_transit_command = lambda _own, _dt=0.5: (
+        _ for _ in ()
+    ).throw(AssertionError("risk-active COLREG waypoint must not be replaced by XTE regression"))
+
+    own_lat = 63.005
+    own_lon = 10.0 + 350.0 / (111319.9 * math.cos(math.radians(63.0)))
+    waypoint_range_m = 1000.0
+    waypoint_bearing_deg = 155.0
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(
+            latitude=own_lat + (
+                math.cos(math.radians(waypoint_bearing_deg)) * waypoint_range_m
+            ) / 111132.9,
+            longitude=own_lon + (
+                math.sin(math.radians(waypoint_bearing_deg)) * waypoint_range_m
+            ) / (111319.9 * math.cos(math.radians(own_lat))),
+        ),
+        target_speed_kn=8.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": own_lat,
+            "lon": own_lon,
+            "heading_deg": 112.0,
+            "sog_kn": 9.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert node._avoidance_transit_regression_active is False
+    assert math.degrees(cmd.rudder_angle) < 0.0
+    assert cmd.throttle == pytest.approx(8.0 / 25.0)
+
+
+def test_risk_active_colregs_uses_m5_waypoint_inside_m4_window():
+    # In dynamic-risk phases, M4 defines the allowed COLREGs heading window and
+    # M5 owns the tactical path within it. L4 must not keep the older committed
+    # target if M5 has moved to a less-outbound waypoint that is still inside the
+    # M4 window; otherwise corridor pressure cannot reach execution.
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 160.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    ctl = HeadingController(max_rate_deg_s=100.0)
+    node._avoidance_heading_controller = ctl
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(
+        behavior=1,
+        heading_min_deg=135.0,
+        heading_max_deg=165.0,
+        rationale="COLREG_AVOID | risk primary=100000001 phase=Warning score=0.55",
+    )
+    node._avoidance_transit_regression_active = False
+
+    own_lat = 63.005
+    own_lon = 10.0 + 320.0 / (111319.9 * math.cos(math.radians(63.0)))
+    waypoint_range_m = 1000.0
+    waypoint_bearing_deg = 140.0
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(
+            latitude=own_lat + (
+                math.cos(math.radians(waypoint_bearing_deg)) * waypoint_range_m
+            ) / 111132.9,
+            longitude=own_lon + (
+                math.sin(math.radians(waypoint_bearing_deg)) * waypoint_range_m
+            ) / (111319.9 * math.cos(math.radians(own_lat))),
+        ),
+        target_speed_kn=10.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": own_lat,
+            "lon": own_lon,
+            "heading_deg": 130.0,
+            "sog_kn": 8.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert ctl.last_cmd_deg == pytest.approx(10.0, abs=0.5)
+    assert math.degrees(cmd.rudder_angle) == pytest.approx(-10.0, abs=0.5)
+
+
+def test_risk_clear_colregs_regression_returns_with_plain_transit():
+    # After the dynamic risk model reports Clear, route-return must regain
+    # priority even if M6 still publishes a residual COLREGs conflict. Keeping
+    # avoidance-base transit here delays XTE recovery and can fail the corridor
+    # gate after danger exposure has already been eliminated.
+    node = L4GuidanceAdapterNode.__new__(L4GuidanceAdapterNode)
+    node._latch_release_triggered = False
+    node._latch_release_time = None
+    node._latch_offset_at_release_deg = None
+    node._avoidance_target_heading_deg = 160.0
+    node._target_heading_deg = 0.0
+    node._target_sog_kn = 10.0
+    node._route_wps = [(63.0, 10.0), (63.02, 10.0)]
+    node._current_target_wp_lat = 63.02
+    node._current_target_wp_lon = 10.0
+    node._avoidance_heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._heading_controller = HeadingController(max_rate_deg_s=100.0)
+    node._speed_controller = SpeedController()
+    node._last_behavior_plan = SimpleNamespace(
+        behavior=1,
+        rationale="COLREG_AVOID | risk primary=100000001 phase=Clear score=0.15",
+    )
+    node._avoidance_transit_regression_active = False
+    transit_called = {"flag": False}
+
+    def _plain_transit(_own, _dt=0.5):
+        transit_called["flag"] = True
+        from l4_guidance_adapter.guidance import ActuatorCommand
+        return ActuatorCommand(rudder_angle=math.radians(20.0), throttle=0.3)
+
+    node._compute_transit_command = _plain_transit
+    node._compute_avoidance_transit_command = lambda _own, _dt=0.5: (
+        _ for _ in ()
+    ).throw(AssertionError("risk-clear COLREG regression must use plain transit return"))
+    waypoint = SimpleNamespace(
+        position=SimpleNamespace(latitude=63.014, longitude=10.002),
+        target_speed_kn=10.0,
+    )
+    node._last_avoidance_waypoints = [waypoint]
+    node._last_avoidance_waypoint = waypoint
+
+    cmd = L4GuidanceAdapterNode._compute_avoidance_command(
+        node,
+        {
+            "lat": 63.005,
+            "lon": 10.0 + 350.0 / (111319.9 * math.cos(math.radians(63.0))),
+            "heading_deg": 356.0,
+            "sog_kn": 8.0,
+            "rot_deg_s": 0.0,
+        },
+    )
+
+    assert transit_called["flag"] is True
+    assert math.degrees(cmd.rudder_angle) == pytest.approx(20.0)
+    assert cmd.throttle == pytest.approx(0.3)
 
 
 def test_active_avoidance_below_hard_corridor_keeps_avoidance_heading():

@@ -109,6 +109,18 @@ def test_clean_probe_batch_has_expected_8_scenarios():
     assert runner.SCENARIOS == EXPECTED_CLEAN_8
 
 
+def test_parse_args_default_sim_rate_is_10x():
+    runner = _load_runner()
+    args = runner._parse_args([])
+    assert args.sim_rate == pytest.approx(10.0)
+
+
+def test_parse_args_accepts_explicit_sim_rate():
+    runner = _load_runner()
+    args = runner._parse_args(["--sim-rate", "5.0"])
+    assert args.sim_rate == pytest.approx(5.0)
+
+
 def test_overall_gate_requires_returned_to_route():
     runner = _load_runner()
     assert runner.compute_overall_pass(
@@ -996,6 +1008,50 @@ def _c1_phase_semantics(*, own_records, behavior_records, targets_meta,
     )
 
 
+def test_phase_semantics_uses_run_relative_target_time_after_stale_prefix():
+    """Target kinematics are scenario-relative, not global sim_t-relative.
+
+    The trace bridge can retain a stale prefix when the simulator does not reset
+    /clock to zero. Phase C3 must evaluate target motion from the first current
+    run ownship sample, otherwise an ample-time crossing is misread as
+    last-second action.
+    """
+    origin_s = 380.0
+    target_speed_mps = 10.0 * 0.514444
+    target_start_n = 2000.0
+    targets_meta = [{
+        "lat0": target_start_n / 111120.0,
+        "lon0": 0.0,
+        "cog": 180.0,
+        "sog_kn": target_speed_mps / 0.514444,
+    }]
+    own_records = [
+        _ownship_record(origin_s, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+        _ownship_record(origin_s + 5.0, 0.0, 0.0, heading_deg=0.0, sog_kn=0.0),
+        _ownship_record(origin_s + 10.0, 0.0, 0.0, heading_deg=40.0, sog_kn=0.0),
+    ]
+    behavior_records = [
+        _behavior_record(origin_s, 0),
+        _behavior_record(origin_s + 5.0, 1),
+        _behavior_record(origin_s + 10.0, 1),
+    ]
+
+    result = _c1_phase_semantics(
+        own_records=own_records,
+        behavior_records=behavior_records,
+        targets_meta=targets_meta,
+        rule="Rule16",
+        cpa_safe_m=100.0,
+    )
+
+    assert result["evaluated"] is True
+    assert result["c3_ample_time_ok"] is True
+    assert result["onset_tcpa_s"] == pytest.approx(
+        (target_start_n - target_speed_mps * 5.0) / target_speed_mps,
+        abs=0.5,
+    )
+
+
 def test_c1_crossing_passes_past_beam_under_90deg_but_not_abaft_sector():
     """Crossing give-way releases with target just past the beam (rel_brg ~101°,
     between the 90° beam and the 112.5° abaft sector), tcpa<0, range>=cpa_safe
@@ -1172,7 +1228,7 @@ def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):
@@ -1215,7 +1271,7 @@ def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):

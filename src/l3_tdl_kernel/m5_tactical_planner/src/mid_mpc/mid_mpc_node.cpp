@@ -436,8 +436,8 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   min_alt_rad = mass_l3::m5::fallback_min_alteration_rad(
       route_brg, h_min, h_max, min_alt_rad);
   const auto fallback_direction = mass_l3::m5::risk_aware_fallback_direction(input);
-  double target_psi = mass_l3::m5::fallback_target_heading(
-      route_brg, h_min, h_max, min_alt_rad, fallback_direction);
+  double target_psi = mass_l3::m5::risk_aware_fallback_target_heading(
+      input, route_brg, h_min, h_max, min_alt_rad, fallback_direction);
 
   const double delta_psi = mass_l3::m5::geometric_fallback_delta_heading_rad(
       own_psi, target_psi);
@@ -589,11 +589,38 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   out_plan.stamp = now;
   pub_avoidance_plan_->publish(out_plan);
 
+  const std::string planner_health =
+      plan.status == "RECOVERY" ? "RECOVERY" :
+      (plan.status == "DEGRADED" ? "GEOMETRIC_FALLBACK" :
+       (plan.waypoints.empty() ? "EMPTY_TRANSIT" : "SOLVER_CONVERGED"));
+  const std::string semantic_mode =
+      plan.status == "RECOVERY" ? "RECOVERY" :
+      (plan.waypoints.empty() ? "TRANSIT" : "AVOIDANCE");
+  std::string fallback_reason = "none";
+  if (plan.status == "DEGRADED") {
+    const std::string marker = "fallback (";
+    const auto begin = plan.rationale.find(marker);
+    if (begin != std::string::npos) {
+      const auto reason_begin = begin + marker.size();
+      const auto reason_end = plan.rationale.find(')', reason_begin);
+      fallback_reason = plan.rationale.substr(
+          reason_begin,
+          reason_end == std::string::npos ? std::string::npos : reason_end - reason_begin);
+    } else {
+      fallback_reason = "unknown";
+    }
+  }
+
   const std::string json =
       std::string("{\"status\":\"") + plan.status
+      + "\",\"planner_health\":\"" + planner_health
+      + "\",\"semantic_mode\":\"" + semantic_mode
+      + "\",\"fallback_reason\":\"" + fallback_reason
       + "\",\"waypoints\":"  + std::to_string(plan.waypoints.size())
       + ",\"solve_ms\":"     + std::to_string(sol.solve_duration_ms)
-      + ",\"ipopt_iter\":"   + std::to_string(sol.ipopt_iterations) + "}";
+      + ",\"ipopt_iter\":"   + std::to_string(sol.ipopt_iterations)
+      + ",\"solver_status\":" + std::to_string(static_cast<int>(sol.status))
+      + "}";
 
   l3_msgs::msg::ASDRRecord record;
   record.stamp         = now;
@@ -608,7 +635,10 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   sat.stamp                   = now;
   sat.source_module           = "M5_Tactical_Planner";
   sat.sat2.trigger_reason     = "mpc_cycle";
-  sat.sat2.reasoning_chain    = plan.rationale;
+  sat.sat2.reasoning_chain    =
+      plan.rationale + "; planner_health=" + planner_health
+      + "; semantic_mode=" + semantic_mode
+      + "; fallback_reason=" + fallback_reason;
   sat.sat2.system_confidence  = plan.confidence;
   pub_sat_data_->publish(sat);
 }

@@ -45,6 +45,7 @@ TEST(BehaviorActivationTest, TransitInactiveInOddD) {
 TEST(BehaviorActivationTest, ColregAvoidActiveWhenConflictDetected) {
   auto in = make_normal_inputs();
   in.colregs_conflict_detected = true;
+  in.colregs_action_required = true;
   EXPECT_TRUE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
 }
 
@@ -56,6 +57,7 @@ TEST(BehaviorActivationTest, ColregAvoidInactiveWhenNoConflict) {
 TEST(BehaviorActivationTest, ColregAvoidInactiveWhenColregsStale) {
   auto in = make_normal_inputs();
   in.colregs_conflict_detected = true;
+  in.colregs_action_required = true;
   in.age_colregs_ms = 5000;
   EXPECT_FALSE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
 }
@@ -152,7 +154,16 @@ TEST(BehaviorActivationTest, ColregAvoidWhenConflict) {
   ArbitrationInputs in;
   in.colregs_received = true;
   in.colregs_conflict_detected = true;
+  in.colregs_action_required = true;
   EXPECT_TRUE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
+}
+
+TEST(BehaviorActivationTest, NoColregAvoidWhenConflictOnlyPreserveCourse) {
+  ArbitrationInputs in;
+  in.colregs_received = true;
+  in.colregs_conflict_detected = true;
+  in.colregs_action_required = false;
+  EXPECT_FALSE(BehaviorActivationCondition::is_colreg_avoid_applicable(in));
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Optional
 
@@ -92,6 +93,7 @@ class L4GuidanceAdapterNode(Node):
         from sil_msgs.msg import LifecycleStatus, OwnShipState
         from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
         from l3_msgs.msg import (
+            ASDRRecord,
             AvoidancePlan,
             BehaviorPlan,
             MissionGoal,
@@ -101,7 +103,9 @@ class L4GuidanceAdapterNode(Node):
         )
 
         self._own_msg_cls = OwnShipState
+        self._asdr_cls = ASDRRecord
         self._pub_act = self.create_publisher(OwnShipState, "/sil/actuator_cmd", sq)
+        self._pub_asdr = self.create_publisher(ASDRRecord, "/l3/asdr/record", rq)
 
         self.create_subscription(OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, sq)
         self.create_subscription(LifecycleStatus, "/sil/lifecycle_status", self._on_lifecycle_status, sq)
@@ -204,6 +208,46 @@ class L4GuidanceAdapterNode(Node):
         out.rudder_angle = float(cmd.rudder_angle)
         out.throttle = max(0.0, min(1.0, float(cmd.throttle)))
         self._pub_act.publish(out)
+
+    def _publish_guidance_asdr(
+        self,
+        *,
+        execution_source: str,
+        cmd: ActuatorCommand,
+        stamp,
+        now: float,
+    ) -> None:
+        publisher = getattr(self, "_pub_asdr", None)
+        asdr_cls = getattr(self, "_asdr_cls", None)
+        if publisher is None or asdr_cls is None:
+            return
+
+        last_plan_time = getattr(self, "_last_valid_plan_time", None)
+        m5_plan_age_s = None
+        if last_plan_time is not None:
+            m5_plan_age_s = max(0.0, float(now) - float(last_plan_time))
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        target_heading = getattr(self, "_avoidance_target_heading_deg", None)
+        payload = {
+            "execution_source": str(execution_source),
+            "rudder_deg": math.degrees(float(cmd.rudder_angle)),
+            "throttle": max(0.0, min(1.0, float(cmd.throttle))),
+            "avoidance_active": bool(getattr(self, "_avoidance_active", False)),
+            "autopilot_enabled": bool(getattr(self, "_autopilot_enabled", False)),
+            "m4_behavior": int(getattr(behavior_plan, "behavior", -1)) if behavior_plan is not None else -1,
+            "m5_plan_age_s": m5_plan_age_s,
+            "target_heading_deg": float(target_heading) if target_heading is not None else None,
+        }
+
+        record = asdr_cls()
+        record.schema_version = 113
+        record.stamp = stamp
+        record.confidence = 1.0
+        record.rationale = "L4 guidance execution source"
+        record.source_module = "L4_Guidance_Adapter"
+        record.decision_type = "guidance_cmd"
+        record.decision_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        publisher.publish(record)
 
     def _on_lifecycle_status(self, msg) -> None:
         prev_state = self._lifecycle_state
@@ -444,6 +488,61 @@ class L4GuidanceAdapterNode(Node):
             self._safety_gate_reason = ""
         return self._checker_veto_until is not None and now <= self._checker_veto_until
 
+    def _risk_active_colregs_plan(self) -> bool:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return False
+        behavior = int(getattr(behavior_plan, "behavior", 0))
+        if behavior == 0 or behavior == self._BEHAVIOR_RECOVERY:
+            return False
+        rationale = str(getattr(behavior_plan, "rationale", "")).lower()
+        if "risk primary=" not in rationale:
+            return False
+        return (
+            "phase=warning" in rationale or
+            "phase=danger" in rationale or
+            "phase=critical" in rationale
+        )
+
+    def _risk_clear_colregs_plan(self) -> bool:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return False
+        behavior = int(getattr(behavior_plan, "behavior", 0))
+        if behavior == 0 or behavior == self._BEHAVIOR_RECOVERY:
+            return False
+        rationale = str(getattr(behavior_plan, "rationale", "")).lower()
+        return "risk primary=" in rationale and "phase=clear" in rationale
+
+    def _clamp_to_behavior_heading_window(self, heading_deg: float) -> float:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return float(heading_deg) % 360.0
+        try:
+            h_min = float(getattr(behavior_plan, "heading_min_deg"))
+            h_max = float(getattr(behavior_plan, "heading_max_deg"))
+        except (AttributeError, TypeError, ValueError):
+            return float(heading_deg) % 360.0
+        if not (math.isfinite(h_min) and math.isfinite(h_max)):
+            return float(heading_deg) % 360.0
+        if h_max < h_min:
+            h_max += 360.0
+        if h_max - h_min > 300.0:
+            return float(heading_deg) % 360.0
+
+        candidates = [float(heading_deg) + offset for offset in (-360.0, 0.0, 360.0)]
+        inside = [candidate for candidate in candidates if h_min <= candidate <= h_max]
+        if inside:
+            return min(
+                inside,
+                key=lambda candidate: abs(signed_heading_delta_deg(candidate, heading_deg)),
+            ) % 360.0
+        boundary = min(
+            (h_min, h_max),
+            key=lambda candidate: abs(signed_heading_delta_deg(candidate, heading_deg)),
+        )
+        return boundary % 360.0
+
     def _current_ownship(self):
         if self._last_ownship_raw is None:
             return {
@@ -517,6 +616,30 @@ class L4GuidanceAdapterNode(Node):
         # Fix: use _compute_avoidance_transit_command which applies the XTE
         # correction to the avoidance heading as base instead of nominal, so
         # CPA is preserved and heading jump is eliminated.
+        waypoints = list(self._last_avoidance_waypoints or [])
+        if not waypoints and self._last_avoidance_waypoint is not None:
+            waypoints = [self._last_avoidance_waypoint]
+        waypoint_heading = avoidance_waypoint_heading_deg(
+            waypoints=waypoints,
+            own_lat=own["lat"],
+            own_lon=own["lon"],
+            nominal_heading_deg=self._target_heading_deg,
+            preferred_heading_deg=self._avoidance_target_heading_deg,
+        )
+        risk_active_plan = self._risk_active_colregs_plan()
+        if risk_active_plan and waypoint_heading is not None:
+            selected_heading = self._clamp_to_behavior_heading_window(waypoint_heading)
+        else:
+            selected_heading = select_avoidance_heading(
+                waypoint_heading_deg=waypoint_heading,
+                avoidance_target_heading_deg=self._avoidance_target_heading_deg,
+                nominal_heading_deg=self._target_heading_deg,
+            )
+        risk_active_colregs_waypoint = (
+            not self._latch_release_triggered and
+            selected_heading is not None and
+            risk_active_plan
+        )
         active_xte_m = signed_xte_m(
             self._route_wps,
             own["lat"],
@@ -532,7 +655,9 @@ class L4GuidanceAdapterNode(Node):
         # without setting the hysteresis latch explicitly.
         regression_active = getattr(
             self, "_avoidance_transit_regression_active", False)
-        if abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
+        if risk_active_colregs_waypoint:
+            regression_active = False
+        elif abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
             regression_active = True
         elif abs_active_xte_m < AVOIDANCE_CORRIDOR_SOFT_XTE_M:
             regression_active = False
@@ -545,31 +670,19 @@ class L4GuidanceAdapterNode(Node):
             # the A1 heading gate (|hdg_error| <= 10°) needed for RECOVERY→TRANSIT.
             if self._latch_release_triggered:
                 return self._compute_transit_command(own, dt)
+            if self._risk_clear_colregs_plan():
+                return self._compute_transit_command(own, dt)
             return self._compute_avoidance_transit_command(own, dt)
-        waypoints = list(self._last_avoidance_waypoints or [])
-        if not waypoints and self._last_avoidance_waypoint is not None:
-            waypoints = [self._last_avoidance_waypoint]
-        waypoint_heading = avoidance_waypoint_heading_deg(
-            waypoints=waypoints,
-            own_lat=own["lat"],
-            own_lon=own["lon"],
-            nominal_heading_deg=self._target_heading_deg,
-            preferred_heading_deg=self._avoidance_target_heading_deg,
-        )
-        selected_heading = select_avoidance_heading(
-            waypoint_heading_deg=waypoint_heading,
-            avoidance_target_heading_deg=self._avoidance_target_heading_deg,
-            nominal_heading_deg=self._target_heading_deg,
-        )
-        selected_heading = corridor_guarded_avoidance_heading_deg(
-            selected_heading_deg=selected_heading,
-            nominal_heading_deg=self._target_heading_deg,
-            route_wps=self._route_wps,
-            own_lat=own["lat"],
-            own_lon=own["lon"],
-            current_target_wp_lat=self._current_target_wp_lat,
-            current_target_wp_lon=self._current_target_wp_lon,
-        )
+        if not risk_active_colregs_waypoint:
+            selected_heading = corridor_guarded_avoidance_heading_deg(
+                selected_heading_deg=selected_heading,
+                nominal_heading_deg=self._target_heading_deg,
+                route_wps=self._route_wps,
+                own_lat=own["lat"],
+                own_lon=own["lon"],
+                current_target_wp_lat=self._current_target_wp_lat,
+                current_target_wp_lon=self._current_target_wp_lon,
+            )
         target_speed_override = None
         last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
         if last_waypoint is not None:
@@ -710,6 +823,8 @@ class L4GuidanceAdapterNode(Node):
         safe = safety_gate_command(self._safety_gate_active(now))
         if safe is not None:
             self._publish_command(safe, stamp)
+            self._publish_guidance_asdr(
+                execution_source="safety_gate", cmd=safe, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
@@ -718,12 +833,16 @@ class L4GuidanceAdapterNode(Node):
         if override is not None:
             cmd = self._compute_override_command(override, own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="reactive_override", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
         if self._avoidance_active:
             cmd = self._compute_avoidance_command(own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="avoidance", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
             return
 
@@ -750,6 +869,8 @@ class L4GuidanceAdapterNode(Node):
         if self._autopilot_enabled:
             cmd = self._compute_transit_command(own, control_dt)
             self._publish_command(cmd, stamp)
+            self._publish_guidance_asdr(
+                execution_source="transit", cmd=cmd, stamp=stamp, now=now)
             self._last_actuator_publish_time = now
 
 

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -433,8 +434,13 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   colregs_msg->constraints.push_back(c);
   trigger_colregs_constraint(node, colregs_msg);
 
+  last_plan.reset();
   trigger_arbitration(node);
-  spin_until(executor, [&]() { return last_plan.has_value(); });
+  spin_until(executor, [&]() {
+    return last_plan.has_value() &&
+        std::abs(last_plan->heading_min_deg - 15.0f) <= 1e-3f &&
+        std::abs(last_plan->heading_max_deg - 45.0f) <= 1e-3f;
+  });
   ASSERT_TRUE(last_plan.has_value());
   EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
   EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
@@ -444,7 +450,11 @@ TEST_F(BehaviorArbiterTest, StarboardDirectiveWindowStaysAnchoredDuringOwnTurn) 
   trigger_world_state(node, world_msg);
 
   trigger_arbitration(node);
-  spin_until(executor, [&]() { return last_plan.has_value(); });
+  spin_until(executor, [&]() {
+    return last_plan.has_value() &&
+        std::abs(last_plan->heading_min_deg - 15.0f) <= 1e-3f &&
+        std::abs(last_plan->heading_max_deg - 45.0f) <= 1e-3f;
+  });
   ASSERT_TRUE(last_plan.has_value());
   EXPECT_NEAR(last_plan->heading_min_deg, 15.0f, 1e-3f);
   EXPECT_NEAR(last_plan->heading_max_deg, 45.0f, 1e-3f);
@@ -1087,6 +1097,78 @@ TEST_F(BehaviorArbiterTest, ReduceSpeedDirectiveCapsBelowCurrentSpeedWithoutHead
   EXPECT_FALSE(get_fallback_anchor_set(node));
 }
 
+TEST_F(BehaviorArbiterTest, Rule15DangerAddsAuxiliarySpeedCapWhileTurningStarboard) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_rule15_danger_speed_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        last_plan = *msg;
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+  ASSERT_GT(node->count_subscribers("/l3/m4/behavior_plan"), 0u);
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 10.0;
+  world_msg->own_ship.confidence = 1.0;
+  world_msg->targets.resize(1);
+  world_msg->targets[0].target_id = 100000001;
+  world_msg->targets[0].rng_m = 200.0;
+  world_msg->targets[0].brg_deg = 0.0;
+  world_msg->targets[0].cog_deg = 180.0;
+  world_msg->targets[0].sog_kn = 10.0;
+  world_msg->targets[0].cpa_m = 100.0;
+  world_msg->targets[0].tcpa_s = 40.0;
+  world_msg->targets[0].confidence = 1.0f;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->phase = "SOUND_WARNING";
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 15;
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_LT(last_plan->speed_max_kn, world_msg->own_ship.sog_kn);
+  EXPECT_GT(last_plan->heading_min_deg, 0.0f);
+  EXPECT_GT(last_plan->heading_max_deg, last_plan->heading_min_deg);
+  EXPECT_TRUE(last_plan->rationale.find("phase=Danger") != std::string::npos ||
+              last_plan->rationale.find("phase=Critical") != std::string::npos)
+      << last_plan->rationale;
+}
+
 TEST_F(BehaviorArbiterTest, HoldDirectiveConflictDoesNotCreateTurnFallback) {
   auto node = make_node_with_immediate_ivp_timeout();
 
@@ -1381,7 +1463,10 @@ TEST_F(BehaviorArbiterTest, RecoveryHeldWhenXteConvergedButHeadingMisaligned) {
   clear_msg->confidence = 0.95f;
   trigger_colregs_constraint(node, clear_msg);
   trigger_arbitration(node);
-  spin_until(executor, [&]() { return last_plan.has_value(); });
+  spin_until(executor, [&]() {
+    return last_plan.has_value() &&
+        last_plan->behavior == BehaviorPlanMsg::BEHAVIOR_RECOVERY;
+  });
   ASSERT_TRUE(last_plan.has_value());
   ASSERT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
       << "XTE beyond gate after release should yield RECOVERY";
@@ -1395,7 +1480,10 @@ TEST_F(BehaviorArbiterTest, RecoveryHeldWhenXteConvergedButHeadingMisaligned) {
   for (int i = 0; i < 60; ++i) {
     last_plan.reset();
     trigger_arbitration(node);
-    spin_until(executor, [&]() { return last_plan.has_value(); });
+    spin_until(executor, [&]() {
+      return last_plan.has_value() &&
+          last_plan->behavior == BehaviorPlanMsg::BEHAVIOR_RECOVERY;
+    });
   }
   ASSERT_TRUE(last_plan.has_value());
   EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
@@ -1493,6 +1581,134 @@ TEST_F(BehaviorArbiterTest, ActiveColregsHoldDoesNotEnterRecovery) {
   ASSERT_TRUE(last_plan.has_value());
   EXPECT_NE(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
       << "RECOVERY may start only after M6 conflict release, not while COLREGs conflict remains active";
+}
+
+TEST_F(BehaviorArbiterTest, RiskControlledResidualColregsConflictCanEnterRecovery) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_risk_clear_recovery_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) { last_plan = *msg; });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto route_msg = std::make_shared<PlannedRouteMsg>();
+  route_msg->stamp = node->now();
+  route_msg->schema_version = 112;
+  {
+    geographic_msgs::msg::GeoPoseStamped p0;
+    p0.pose.position.latitude = 0.0;
+    p0.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p0);
+    geographic_msgs::msg::GeoPoseStamped p1;
+    p1.pose.position.latitude = 0.01;
+    p1.pose.position.longitude = 0.0;
+    route_msg->route.poses.push_back(p1);
+  }
+  trigger_planned_route(node, route_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 8.0;
+  world_msg->own_ship.confidence = 1.0;
+  world_msg->own_ship.position.latitude = 0.005;
+  world_msg->own_ship.position.longitude = 0.0018;  // ~200 m east of route
+  world_msg->targets.resize(1);
+  world_msg->targets[0].target_id = 100000001;
+  world_msg->targets[0].rng_m = 200.0;
+  world_msg->targets[0].brg_deg = 0.0;
+  world_msg->targets[0].cog_deg = 180.0;
+  world_msg->targets[0].sog_kn = 10.0;
+  world_msg->targets[0].cpa_m = 100.0;
+  world_msg->targets[0].tcpa_s = 40.0;
+  world_msg->targets[0].confidence = 1.0f;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->phase = "SOUND_WARNING";
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 15;
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_TRUE(last_plan->rationale.find("phase=Danger") != std::string::npos ||
+              last_plan->rationale.find("phase=Critical") != std::string::npos)
+      << last_plan->rationale;
+
+  last_plan.reset();
+  world_msg->targets[0].rng_m = 1200.0;
+  world_msg->targets[0].brg_deg = 30.0;
+  world_msg->targets[0].cog_deg = 90.0;
+  world_msg->targets[0].sog_kn = 0.0;
+  world_msg->targets[0].cpa_m = 400.0;
+  world_msg->targets[0].tcpa_s = 300.0;
+  trigger_world_state(node, world_msg);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_NE(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "risk Monitor that is still closing must not release COLREGs into RECOVERY: "
+      << last_plan->rationale;
+  EXPECT_NE(last_plan->rationale.find("phase=Monitor"), std::string::npos)
+      << last_plan->rationale;
+
+  last_plan.reset();
+  world_msg->targets[0].brg_deg = 90.0;
+  trigger_world_state(node, world_msg);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "risk Monitor that is no longer closing should allow RECOVERY despite residual M6 warning: "
+      << last_plan->rationale;
+  EXPECT_NE(last_plan->rationale.find("phase=Monitor"), std::string::npos)
+      << last_plan->rationale;
+
+  last_plan.reset();
+  trigger_world_state(node, world_msg);
+  trigger_colregs_constraint(node, colregs_msg);
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_RECOVERY)
+      << "risk-released RECOVERY should hold across residual M6 warning cycles: "
+      << last_plan->rationale;
 }
 
 }  // namespace mass_l3::m4

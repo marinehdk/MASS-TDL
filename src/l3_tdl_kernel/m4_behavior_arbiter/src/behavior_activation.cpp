@@ -36,6 +36,7 @@ bool BehaviorActivationCondition::is_colreg_avoid_applicable(
   if (!inputs.colregs_received) return false;
   if (inputs.age_colregs_ms > inputs.timeout_degraded_ms) return false;
   if (!inputs.colregs_conflict_detected) return false;
+  if (!inputs.colregs_action_required) return false;
   return true;
 }
 

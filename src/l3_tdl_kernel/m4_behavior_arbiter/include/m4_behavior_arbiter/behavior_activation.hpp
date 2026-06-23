@@ -29,6 +29,7 @@ struct ArbitrationInputs {
   double   mission_heading_desired_deg{0.0};
   bool     colregs_received{false};
   bool     colregs_conflict_detected{false};
+  bool     colregs_action_required{false};
 
   int64_t  age_odd_ms{0};
   int64_t  age_world_ms{0};

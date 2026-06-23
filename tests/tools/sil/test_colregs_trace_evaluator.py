@@ -155,3 +155,4 @@ def test_trace_evaluation_report_json_schema_contains_required_layers():
     assert data["layers"]["L1_scenario_validity"]["status"] == "PASS"
     assert data["verdict"]["overall_pass"] is True
     assert data["first_failure"] is None
+    assert "chain_summary" in data

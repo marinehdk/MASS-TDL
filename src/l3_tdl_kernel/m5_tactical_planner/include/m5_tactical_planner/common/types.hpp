@@ -431,9 +431,9 @@ inline TrajectoryPoint geometric_fallback_arc_point(
 }
 
 // Phase 4 RECOVERY gradual return-to-route (architecture §8.3 + §7.2).
-// Produces a NED trajectory point whose lateral offset (XTE) decays linearly
-// toward zero over horizon_s while advancing along the route bearing. The own
-// ship starts route_xte_m off the route and converges back by horizon end.
+// Produces a relative NED trajectory point from the current own-ship position.
+// The target global XTE decays linearly toward zero over horizon_s, so the
+// relative lateral displacement is inward from the current route_xte_m.
 // [TBD-HAZID] linear decay rate; initial value per architecture §7.2.
 inline TrajectoryPoint recovery_route_point(
     double route_bearing_rad,
@@ -445,7 +445,7 @@ inline TrajectoryPoint recovery_route_point(
       ? std::clamp(std::max(0.0, t_s) / horizon_s, 0.0, 1.0)
       : 1.0;
   const double along_m = std::max(0.0, speed_mps) * std::max(0.0, t_s);
-  const double lateral_m = route_xte_m * (1.0 - fraction);  // decays toward route
+  const double lateral_m = -route_xte_m * fraction;  // relative inward correction
   // Route frame → NED: along = forward, lateral = starboard (east for brg=0).
   const double along_n = std::cos(route_bearing_rad);
   const double along_e = std::sin(route_bearing_rad);
@@ -490,6 +490,32 @@ inline double fallback_target_heading(
   return fallback_target_heading(
       route_brg, h_min, h_max, min_alt_rad,
       ColregsPreferredDirection::Starboard);
+}
+
+inline double risk_aware_fallback_target_heading(
+    const MidMpcInput& input,
+    double route_brg,
+    double h_min,
+    double h_max,
+    double min_alt_rad,
+    ColregsPreferredDirection direction) {
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  const bool inside_warning_domain = risk != nullptr && risk->warning_margin_m < 0.0;
+  const bool warning_entry_imminent = risk != nullptr &&
+      std::isfinite(risk->warning_margin_m) &&
+      std::isfinite(risk->closing_speed_mps) &&
+      risk->closing_speed_mps > 0.0 &&
+      risk->warning_margin_m <=
+          risk->closing_speed_mps * geometric_fallback_waypoint_time_s(0);
+  if (input.colregs_conflict_active && (inside_warning_domain || warning_entry_imminent)) {
+    if (direction == ColregsPreferredDirection::Starboard) {
+      return h_max;
+    }
+    if (direction == ColregsPreferredDirection::Port) {
+      return h_min;
+    }
+  }
+  return fallback_target_heading(route_brg, h_min, h_max, min_alt_rad, direction);
 }
 
 inline bool trajectory_reaches_heading(

@@ -773,3 +773,154 @@ Audit 4c85cbaa WIP checkpoint vs Spec/Plan, strip batch-driven out-of-scope chan
 - Do not tune individual scenarios. Next fix should start from failure taxonomy: M6/M4 phase stability for rule14 intelligent, CPA margins for rule13/rule15, route-return semantics for rule15-ot-boundary, and risk-domain behavior for rule13 target-giveway.
 - Report aggregation inconsistency found and fixed after this snapshot: batch summary marks `colreg-rule15-cs-edge` RED via phase C5, so TraceEvaluationReport/dashboard must also show RED. The evidence folder was regenerated to 5/12 PASS.
 - Evidence: `runs/batch_12probe_current_20260622_162034.json`, `runs/batch_12probe_current_20260622_162034.log`, `runs/trace_eval/20260622_162034_clean12/`.
+## [2026-06-22] Agent
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Start next generalized COLREGs repair branch from a new isolated worktree and capture the approved full-chain debugging approach as durable project guidance.
+
+### Core Changes
+- Added `docs/superpowers/specs/2026-06-22-colregs-generalized-repair-design.md`.
+- Added AGENTS rule requiring COLREGs failures to be debugged through `L2 -> M2 -> M6 -> M4 -> M5 -> L4 -> M7 -> M8` evidence instead of one-scenario patches.
+- Captured M5 `NORMAL`/`DEGRADED` oscillation as a first-class chain fault requiring solver/fallback/route/lifecycle/L4 evidence before behavior edits.
+
+### Current Status
+Documentation-only setup for the next implementation phase. No behavior code changed in this entry.
+
+### Handoff Notes
+Next session should write an implementation plan from the spec before code changes. Start with trace/evidence gaps: M5 solve-cycle transitions, route/speed hashes, M6 encounter lifecycle/release, lifecycle valid-plan/autopilot state, and L4 execution source.
+
+## [2026-06-22] Agent
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Write the full implementation plan for generalized COLREGs repair using the approved full-chain debugging approach.
+
+### Core Changes
+- Added `docs/superpowers/plans/2026-06-22-colregs-generalized-repair.md`.
+- Plan enforces trace-first debugging, M5 `NORMAL`/`DEGRADED` oscillation diagnosis, strict 12-probe verification, and user approval before any scenario geometry or gate-threshold changes.
+
+### Current Status
+Plan-only update. No runtime code changed.
+
+### Handoff Notes
+Execute with `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Start with Task 0 baseline and Task 1 chain trace summarizer. Do not implement behavior fixes until chain evidence identifies the first broken stage.
+
+## [2026-06-22] Agent: Codex - strict 12-probe trace checkpoint
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Execute the approved trace-first generalized COLREGs repair plan without scenario tuning: run strict 12-probe at stable speed, add non-invasive M5/L4 health tracing, and classify remaining RED scenarios by chain evidence.
+
+### Core Changes
+- Added stable probe-rate support to `scripts/run_6_scenarios.py`; strict run used `--sim-rate 5.0`.
+- Added `tools/sil/colregs_chain_trace.py` and runner/report/dashboard integration for chain summaries.
+- Added M5 ASDR fields for `planner_health`, `semantic_mode`, and `fallback_reason`.
+- Added L4 ASDR records for `execution_source` and bridged `/l3/asdr/record` into trace JSONL.
+- Added strict-12 diagnosis report: `docs/Design/Review/2026-06-22/COLREGs_Generalized_Repair_Strict12_Diagnosis.md`.
+
+### Current Status
+- Branch: `codex/colregs-generalization-debug`.
+- Worktree: `.worktrees/colregs-generalization-debug`.
+- Strict 12-probe evidence: `runs/batch_20260622_222636_clean12_l4_trace_5x.json`.
+- Trace evidence: `runs/trace_eval/20260622_222636_clean12/`.
+- Result remains **5/12 PASS**. PASS: `rule14-ho`, `rule14-ho-port`, `rule17-cr-so`, `rule14-ho-intelligent`, `rule17-cr-so-target-giveway`.
+- RED taxonomy:
+  - CPA under-margin: `rule15-cs`, `rule15-cs-2`, `rule15-cs-intelligent`.
+  - Overtaking physical clearance: `rule13-ot`.
+  - Phase semantics/no-cross-ahead: `rule15-cs-edge`.
+  - Release/route-return: `rule15-ot-boundary`.
+  - Risk gate: `rule13-ot-target-giveway`.
+
+### Verification
+- `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py -q` -> 46 passed.
+- `python3 -m pytest tools/sil/test_colregs_chain_trace.py -q` -> 7 passed.
+- `python3 -m pytest src/sim_workbench/sil_nodes/l4_guidance_adapter/test/test_guidance_adapter.py -q` -> 54 passed.
+- Container: `colcon build --packages-select m5_tactical_planner --cmake-args -DBUILD_TESTING=ON` -> passed.
+- Container: `colcon test --packages-select m5_tactical_planner` and `colcon test-result --verbose` -> 173 tests, 0 errors, 0 failures, 52 skipped.
+- Container: `colcon build --packages-select l4_guidance_adapter` -> passed.
+
+### Handoff Notes
+- Do not tune individual scenarios or lower gates. Remaining failures are grouped system issues.
+- Next task should improve `chain_summary` first-broken-stage classification because current diagnostics can report `OK` even when gate-level RED occurs.
+- Start behavior repair with `rule15-ot-boundary`: M4 never releases, L4 stays mostly avoidance, and M5 reports `GEOMETRIC_FALLBACK=2121`.
+- Then handle the crossing-starboard CPA family with one generalized M6/M5 safety-margin contract.
+- If no-cross-ahead or boundary timing proves coupled to scenario geometry or acceptance thresholds, pause and ask the user before editing.
+
+## [2026-06-22] Agent: Codex - gate-aware chain diagnosis
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Fix the diagnostic gap where strict 12-probe RED scenarios could still show `chain_summary.diagnosis.first_broken_stage=OK`, preventing L2->M8 first-broken-stage workflow.
+
+### Core Changes
+- Added `attach_gate_diagnosis(summary, result)` in `tools/sil/colregs_chain_trace.py`.
+- `scripts/run_6_scenarios.py` now attaches gate-aware diagnosis after verdict fields are known.
+- M5 planner-health aggregation now reads `M5_Tactical_Planner` ASDR `decision_json`, not only `/l3/m5/avoidance_plan`.
+- Added TDD coverage for CPA shortfall -> M5, no-release route-return -> M4, and risk gate -> M7.
+
+### Current Status
+- No behavior logic changed.
+- Existing strict12 evidence reclassified offline:
+  - `rule13-ot`: CPA -> M5.
+  - `rule15-cs`, `rule15-cs-2`, `rule15-cs-intelligent`: CPA -> M5.
+  - `rule15-cs-edge`: phase semantics -> M6.
+  - `rule15-ot-boundary`: phase semantics -> M6 first, with downstream M4 no-release symptom.
+  - `rule13-ot-target-giveway`: risk -> M7.
+
+### Verification
+- `python3 -m pytest tools/sil/test_colregs_chain_trace.py -q` -> 10 passed.
+- `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py tools/sil/test_colregs_chain_trace.py -q` -> 56 passed.
+- `git diff --check` -> passed.
+
+### Handoff Notes
+- Next behavior investigation should start at M6 for `rule15-ot-boundary`, not M5 tuning: phase semantics fail before route-return symptoms.
+- Do not change scenario geometry or thresholds unless M6 phase evidence proves the acceptance contract is physically contradictory and the user approves.
+
+## [2026-06-23] Agent: Codex - M4 action gate and runner time-origin fix
+
+### Git Commit
+Recorded in the commit containing this handoff entry; run `git log --oneline -1` for the current hash.
+
+### Task Goal
+Continue the generalized COLREGs chain repair on the isolated debug worktree, starting from `rule15-ot-boundary` first-broken-stage evidence without scenario tuning or threshold changes.
+
+### Core Changes
+- M4 Behavior Arbiter now distinguishes M6 transparency conflict from action-required phases. `COLREG_AVOID` activates only when M6 phase/role requires action, so `PRESERVE_COURSE` can release to TRANSIT while conflict monitoring remains true.
+- Added M4 regression coverage for conflict-only `PRESERVE_COURSE` and updated active COLREG tests to set `colregs_action_required`.
+- Fixed host-side strict-probe evaluator target kinematics to use run-relative elapsed time from the first valid ownship sample, not global `sim_t`. This prevents stale trace prefixes from making target vessels appear to have sailed for 100+ seconds before the current run starts.
+- `_avoidance_onset_s` now accepts `min_sim_t` so stale behavior samples before the current run origin do not contaminate phase/risk evaluation.
+
+### Current Status
+- Worktree: `.worktrees/colregs-generalization-debug`.
+- Branch: `codex/colregs-generalization-debug`.
+- M4 targeted verification passed in container.
+- Single live probe after both fixes: `runs/batch_20260622_235937_rule15_ot_boundary_relative_time.json`.
+- Trace/report: `runs/trace_eval/20260622_235937_rule15_ot_boundary_relative_time/`.
+- `rule15-ot-boundary` improved from phase/route-return failure to a single risk-domain failure:
+  - CPA: PASS, min DCPA 331.3m >= 270m.
+  - Phase: PASS, C3 onset TCPA 172s.
+  - Route return: PASS, final XTE 26.4m, heading dev -8.9deg.
+  - Seamanship: PASS.
+  - Stability: PASS.
+  - Risk: FAIL, danger exposure 9.5s, max danger DDV 0.0577.
+
+### Verification
+- Host: `python3 -m pytest tests/scripts/test_run_6_scenarios_gate.py tools/sil/test_colregs_chain_trace.py -q` -> 57 passed.
+- Container: `colcon build --packages-select m4_behavior_arbiter --cmake-args -DBUILD_TESTING=ON` -> passed.
+- Container: `colcon test --packages-select m4_behavior_arbiter --event-handlers console_direct+ --ctest-args -R test_behavior_activation` and `colcon test-result --verbose` -> 194 tests, 0 errors, 0 failures, 52 skipped.
+- Container: `colcon test --packages-select m4_behavior_arbiter --event-handlers console_direct+` and `colcon test-result --verbose` -> 302 tests, 0 errors, 0 failures, 52 skipped.
+- Live single-probe at 5x: `colreg-rule15-ot-boundary` -> RED only on risk gate, with phase/route/M4 release fixed.
+
+### Handoff Notes
+- Do not revert the runner relative-time fix to recover a PASS; the previous C3 PASS/FAIL state was using wrong target kinematics under stale global sim time.
+- Next generalized repair target is the M5/M7 risk-domain contract: M5 currently clears the scenario CPA floor but can still enter M7 danger domain for about 9.5s. Treat this as a system contract gap, not a scenario-specific threshold tweak.
+- If resolving risk-domain exposure requires changing scenario geometry or risk/CPA acceptance thresholds, pause and ask the user first.
