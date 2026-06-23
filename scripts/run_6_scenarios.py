@@ -1291,7 +1291,8 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
             print(f"\n  Simulation reached target time: {sim_t:.1f}s")
             break
             
-        if elapsed_wall > (total_time / 10.0) + 60.0:
+        expected_wall_s = total_time / max(float(sim_rate), 0.1)
+        if elapsed_wall > expected_wall_s + 60.0:
             print(f"\n  Timeout: simulation exceeded wall time limit.")
             break
             

@@ -31,6 +31,8 @@ struct ColregsDirective {
   double primary_risk_score{0.0};
   double primary_warning_margin_m{0.0};
   double primary_danger_margin_m{0.0};
+  double primary_closing_speed_mps{0.0};
+  double primary_tdv_warning_s{0.0};
   std::string primary_risk_phase;
   bool speed_reduction_preferred{false};
 };
@@ -53,6 +55,7 @@ void apply_primary_risk_guidance(
     ColregsDirective& directive,
     const mass_l3::risk::RiskVector& primary_risk,
     const mass_l3::risk::RiskVector& reduced_speed_risk);
+[[nodiscard]] bool dynamic_risk_requires_speed_cap(const ColregsDirective& directive);
 [[nodiscard]] bool dynamic_risk_requires_max_deviation(const ColregsDirective& directive);
 [[nodiscard]] double required_deviation_deg(
     const ColregsDirective& directive,

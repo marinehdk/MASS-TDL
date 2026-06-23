@@ -134,6 +134,7 @@ private:
   bool   recovery_active_{false};       // currently in RECOVERY behavior
   int    recovery_dwell_cycles_{0};     // cycles XTE has been within gate
   bool   colregs_recovery_armed_{false}; // true after a COLREG turn in current conflict
+  bool   colregs_risk_recovery_hold_{false}; // hold RECOVERY after risk-clear release while M6 lags
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

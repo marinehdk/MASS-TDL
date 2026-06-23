@@ -250,6 +250,40 @@ TEST(ColregsDirective, Rule13GiveWayKeepsStarboardInsteadOfPureSpeedReduction) {
   EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
 }
 
+TEST(ColregsDirective, WarningRiskAddsAuxiliarySpeedCapWithoutChangingTurnDirection) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "SOUND_WARNING";
+  directive.rule15_active = true;
+  directive.primary_risk_phase = "Warning";
+  directive.primary_warning_margin_m = -40.0;
+  directive.primary_danger_margin_m = 140.0;
+
+  EXPECT_TRUE(dynamic_risk_requires_speed_cap(directive));
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+}
+
+TEST(ColregsDirective, ClearAndMonitorRiskDoNotAddAuxiliarySpeedCap) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "SOUND_WARNING";
+  directive.rule15_active = true;
+  directive.primary_warning_margin_m = 40.0;
+  directive.primary_danger_margin_m = 140.0;
+
+  directive.primary_risk_phase = "Monitor";
+  EXPECT_FALSE(dynamic_risk_requires_speed_cap(directive));
+
+  directive.primary_risk_phase = "Clear";
+  EXPECT_FALSE(dynamic_risk_requires_speed_cap(directive));
+}
+
 TEST(ColregsDirective, ClearRiskDoesNotOverrideTurnWithSpeedReduction) {
   ColregsDirective directive;
   directive.conflict_active = true;
@@ -335,6 +369,31 @@ TEST(ColregsDirective, DangerCrossingKeepsStarboardAlteration) {
   EXPECT_FALSE(directive.speed_reduction_preferred);
   EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
   EXPECT_GE(required_deviation_deg(directive, risk.range_m, 1500.0, 2.5, 75.0), 45.0);
+}
+
+TEST(ColregsDirective, MonitorWarningEntryInsideTmrAddsAuxiliarySpeedCap) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 30.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.rule15_active = true;
+
+  mass_l3::risk::RiskVector current_risk;
+  current_risk.target_id = "TS001";
+  current_risk.range_m = 1500.0;
+  current_risk.closing_speed_mps = 20.0;
+  current_risk.tcpa_s = 120.0;
+  current_risk.warning_margin_m = 900.0;
+  current_risk.danger_margin_m = 1200.0;
+  current_risk.tdv_warning_s = 45.0;
+  current_risk.risk_phase = mass_l3::risk::RiskPhase::Monitor;
+
+  apply_primary_risk_guidance(directive, current_risk, current_risk);
+
+  EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
+  EXPECT_FALSE(directive.speed_reduction_preferred);
+  EXPECT_TRUE(dynamic_risk_requires_speed_cap(directive));
 }
 
 }  // namespace

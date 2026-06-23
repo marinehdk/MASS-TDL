@@ -234,6 +234,44 @@ TEST(GeometricFallback, RiskAwareFallbackKeepsStarboardForDanger) {
   EXPECT_EQ(risk_aware_fallback_direction(input), ColregsPreferredDirection::Starboard);
 }
 
+TEST(GeometricFallback, RiskAwareFallbackUsesProtectiveWindowEdgeInsideWarningDomain) {
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.target_risks.push_back(TargetRiskSnapshot{
+      "TS001", 0.62, -80.0, 120.0, 70.0, 3.0, true});
+
+  const double route_brg = 0.0;
+  const double h_min = 135.0 * M_PI / 180.0;
+  const double h_max = 165.0 * M_PI / 180.0;
+  const double min_alt = 135.0 * M_PI / 180.0;
+
+  const double target = risk_aware_fallback_target_heading(
+      input, route_brg, h_min, h_max, min_alt,
+      ColregsPreferredDirection::Starboard);
+
+  EXPECT_NEAR(target, h_max, 1e-3);
+}
+
+TEST(GeometricFallback, RiskAwareFallbackUsesProtectiveWindowEdgeBeforeWarningEntry) {
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.target_risks.push_back(TargetRiskSnapshot{
+      "TS001", 0.48, 900.0, 1200.0, 120.0, 20.0, true});
+
+  const double route_brg = 0.0;
+  const double h_min = 135.0 * M_PI / 180.0;
+  const double h_max = 165.0 * M_PI / 180.0;
+  const double min_alt = 135.0 * M_PI / 180.0;
+
+  const double target = risk_aware_fallback_target_heading(
+      input, route_brg, h_min, h_max, min_alt,
+      ColregsPreferredDirection::Starboard);
+
+  EXPECT_NEAR(target, h_max, 1e-3);
+}
+
 TEST(GeometricFallback, RiskAwareFallbackReturnsRouteWhenOpeningOutsideWarningAndHighXte) {
   MidMpcInput input;
   input.colregs_conflict_active = true;
@@ -262,14 +300,16 @@ TEST(GeometricFallback, FirstExecutableWaypointUsesSubstantialLookahead) {
 
 // ---------------------------------------------------------------------------
 // Phase 4 Task 4.3: RECOVERY gradual return-to-route trajectory.
-// recovery_route_point produces a NED point whose lateral offset (XTE) decays
-// linearly toward zero over the horizon while advancing along the route.
+// recovery_route_point produces a relative NED point from own ship. Its
+// lateral component must point inward so the global route XTE decays linearly
+// toward zero over the horizon while advancing along the route.
 // Architecture §8.3 RECOVERY + §7.2 gradual return-to-route.
 // ---------------------------------------------------------------------------
 
-TEST(RecoveryRoute, XteDecaysLinearlyToZeroAtHorizon) {
+TEST(RecoveryRoute, RelativePointPullsOwnShipXteToZeroAtHorizon) {
   // Route bearing 0° (north), own ship 200 m east (positive XTE), 5 m/s,
-  // horizon 60 s. At t=0 XTE≈200 m; at t=60 s XTE≈0 and along≈300 m.
+  // horizon 60 s. The emitted point is relative to own ship: at t=0 lateral
+  // displacement is 0; at t=60 s it has moved 200 m west to the route line.
   const double route_brg = 0.0;
   const double xte_m = 200.0;
   const double speed_mps = 5.0;
@@ -278,19 +318,20 @@ TEST(RecoveryRoute, XteDecaysLinearlyToZeroAtHorizon) {
   const auto p_start = recovery_route_point(route_brg, xte_m, speed_mps, 0.0, horizon_s);
   const auto p_end = recovery_route_point(route_brg, xte_m, speed_mps, horizon_s, horizon_s);
 
-  // Lateral (east, y_m) decays from ~200 to ~0.
-  EXPECT_NEAR(p_start.y_m, 200.0, 1.0);
-  EXPECT_NEAR(p_end.y_m, 0.0, 1.0);
+  // Lateral (east, y_m) is relative to own ship: positive XTE needs negative y.
+  EXPECT_NEAR(p_start.y_m, 0.0, 1.0);
+  EXPECT_NEAR(p_end.y_m, -200.0, 1.0);
   // Along-track (north, x_m) advances at speed.
   EXPECT_NEAR(p_start.x_m, 0.0, 1.0);
   EXPECT_NEAR(p_end.x_m, 300.0, 1.0);
 }
 
 TEST(RecoveryRoute, MidHorizonXteIsHalfway) {
-  // Linear decay → at half horizon XTE is half of initial.
+  // Linear recovery → at half horizon the relative inward correction is half
+  // the initial XTE.
   const double xte_m = 200.0;
   const auto p_mid = recovery_route_point(0.0, xte_m, 5.0, 30.0, 60.0);
-  EXPECT_NEAR(p_mid.y_m, 100.0, 1.0);
+  EXPECT_NEAR(p_mid.y_m, -100.0, 1.0);
 }
 
 TEST(RecoveryRoute, HeadingPointsTowardRoute) {
@@ -299,8 +340,14 @@ TEST(RecoveryRoute, HeadingPointsTowardRoute) {
   // pulling back toward the route line.
   const auto p = recovery_route_point(0.0, 200.0, 5.0, 10.0, 60.0);
   const double bearing = std::atan2(p.y_m, p.x_m);
-  // bearing should be < 90° (more northward than eastward) since XTE shrinking.
-  EXPECT_LT(bearing, M_PI / 2.0);
+  EXPECT_LT(bearing, 0.0);
+}
+
+TEST(RecoveryRoute, NegativeXtePullsBackToStarboard) {
+  // If own ship is west/port of the route (negative XTE), RECOVERY must command
+  // an east/starboard relative component.
+  const auto p = recovery_route_point(0.0, -200.0, 5.0, 10.0, 60.0);
+  EXPECT_GT(p.y_m, 0.0);
 }
 
 }  // namespace

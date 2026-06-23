@@ -436,8 +436,8 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   min_alt_rad = mass_l3::m5::fallback_min_alteration_rad(
       route_brg, h_min, h_max, min_alt_rad);
   const auto fallback_direction = mass_l3::m5::risk_aware_fallback_direction(input);
-  double target_psi = mass_l3::m5::fallback_target_heading(
-      route_brg, h_min, h_max, min_alt_rad, fallback_direction);
+  double target_psi = mass_l3::m5::risk_aware_fallback_target_heading(
+      input, route_brg, h_min, h_max, min_alt_rad, fallback_direction);
 
   const double delta_psi = mass_l3::m5::geometric_fallback_delta_heading_rad(
       own_psi, target_psi);

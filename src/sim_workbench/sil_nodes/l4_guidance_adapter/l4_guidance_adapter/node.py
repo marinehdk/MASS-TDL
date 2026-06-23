@@ -488,6 +488,61 @@ class L4GuidanceAdapterNode(Node):
             self._safety_gate_reason = ""
         return self._checker_veto_until is not None and now <= self._checker_veto_until
 
+    def _risk_active_colregs_plan(self) -> bool:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return False
+        behavior = int(getattr(behavior_plan, "behavior", 0))
+        if behavior == 0 or behavior == self._BEHAVIOR_RECOVERY:
+            return False
+        rationale = str(getattr(behavior_plan, "rationale", "")).lower()
+        if "risk primary=" not in rationale:
+            return False
+        return (
+            "phase=warning" in rationale or
+            "phase=danger" in rationale or
+            "phase=critical" in rationale
+        )
+
+    def _risk_clear_colregs_plan(self) -> bool:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return False
+        behavior = int(getattr(behavior_plan, "behavior", 0))
+        if behavior == 0 or behavior == self._BEHAVIOR_RECOVERY:
+            return False
+        rationale = str(getattr(behavior_plan, "rationale", "")).lower()
+        return "risk primary=" in rationale and "phase=clear" in rationale
+
+    def _clamp_to_behavior_heading_window(self, heading_deg: float) -> float:
+        behavior_plan = getattr(self, "_last_behavior_plan", None)
+        if behavior_plan is None:
+            return float(heading_deg) % 360.0
+        try:
+            h_min = float(getattr(behavior_plan, "heading_min_deg"))
+            h_max = float(getattr(behavior_plan, "heading_max_deg"))
+        except (AttributeError, TypeError, ValueError):
+            return float(heading_deg) % 360.0
+        if not (math.isfinite(h_min) and math.isfinite(h_max)):
+            return float(heading_deg) % 360.0
+        if h_max < h_min:
+            h_max += 360.0
+        if h_max - h_min > 300.0:
+            return float(heading_deg) % 360.0
+
+        candidates = [float(heading_deg) + offset for offset in (-360.0, 0.0, 360.0)]
+        inside = [candidate for candidate in candidates if h_min <= candidate <= h_max]
+        if inside:
+            return min(
+                inside,
+                key=lambda candidate: abs(signed_heading_delta_deg(candidate, heading_deg)),
+            ) % 360.0
+        boundary = min(
+            (h_min, h_max),
+            key=lambda candidate: abs(signed_heading_delta_deg(candidate, heading_deg)),
+        )
+        return boundary % 360.0
+
     def _current_ownship(self):
         if self._last_ownship_raw is None:
             return {
@@ -561,6 +616,30 @@ class L4GuidanceAdapterNode(Node):
         # Fix: use _compute_avoidance_transit_command which applies the XTE
         # correction to the avoidance heading as base instead of nominal, so
         # CPA is preserved and heading jump is eliminated.
+        waypoints = list(self._last_avoidance_waypoints or [])
+        if not waypoints and self._last_avoidance_waypoint is not None:
+            waypoints = [self._last_avoidance_waypoint]
+        waypoint_heading = avoidance_waypoint_heading_deg(
+            waypoints=waypoints,
+            own_lat=own["lat"],
+            own_lon=own["lon"],
+            nominal_heading_deg=self._target_heading_deg,
+            preferred_heading_deg=self._avoidance_target_heading_deg,
+        )
+        risk_active_plan = self._risk_active_colregs_plan()
+        if risk_active_plan and waypoint_heading is not None:
+            selected_heading = self._clamp_to_behavior_heading_window(waypoint_heading)
+        else:
+            selected_heading = select_avoidance_heading(
+                waypoint_heading_deg=waypoint_heading,
+                avoidance_target_heading_deg=self._avoidance_target_heading_deg,
+                nominal_heading_deg=self._target_heading_deg,
+            )
+        risk_active_colregs_waypoint = (
+            not self._latch_release_triggered and
+            selected_heading is not None and
+            risk_active_plan
+        )
         active_xte_m = signed_xte_m(
             self._route_wps,
             own["lat"],
@@ -576,7 +655,9 @@ class L4GuidanceAdapterNode(Node):
         # without setting the hysteresis latch explicitly.
         regression_active = getattr(
             self, "_avoidance_transit_regression_active", False)
-        if abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
+        if risk_active_colregs_waypoint:
+            regression_active = False
+        elif abs_active_xte_m >= AVOIDANCE_CORRIDOR_HARD_XTE_M:
             regression_active = True
         elif abs_active_xte_m < AVOIDANCE_CORRIDOR_SOFT_XTE_M:
             regression_active = False
@@ -589,31 +670,19 @@ class L4GuidanceAdapterNode(Node):
             # the A1 heading gate (|hdg_error| <= 10°) needed for RECOVERY→TRANSIT.
             if self._latch_release_triggered:
                 return self._compute_transit_command(own, dt)
+            if self._risk_clear_colregs_plan():
+                return self._compute_transit_command(own, dt)
             return self._compute_avoidance_transit_command(own, dt)
-        waypoints = list(self._last_avoidance_waypoints or [])
-        if not waypoints and self._last_avoidance_waypoint is not None:
-            waypoints = [self._last_avoidance_waypoint]
-        waypoint_heading = avoidance_waypoint_heading_deg(
-            waypoints=waypoints,
-            own_lat=own["lat"],
-            own_lon=own["lon"],
-            nominal_heading_deg=self._target_heading_deg,
-            preferred_heading_deg=self._avoidance_target_heading_deg,
-        )
-        selected_heading = select_avoidance_heading(
-            waypoint_heading_deg=waypoint_heading,
-            avoidance_target_heading_deg=self._avoidance_target_heading_deg,
-            nominal_heading_deg=self._target_heading_deg,
-        )
-        selected_heading = corridor_guarded_avoidance_heading_deg(
-            selected_heading_deg=selected_heading,
-            nominal_heading_deg=self._target_heading_deg,
-            route_wps=self._route_wps,
-            own_lat=own["lat"],
-            own_lon=own["lon"],
-            current_target_wp_lat=self._current_target_wp_lat,
-            current_target_wp_lon=self._current_target_wp_lon,
-        )
+        if not risk_active_colregs_waypoint:
+            selected_heading = corridor_guarded_avoidance_heading_deg(
+                selected_heading_deg=selected_heading,
+                nominal_heading_deg=self._target_heading_deg,
+                route_wps=self._route_wps,
+                own_lat=own["lat"],
+                own_lon=own["lon"],
+                current_target_wp_lat=self._current_target_wp_lat,
+                current_target_wp_lon=self._current_target_wp_lon,
+            )
         target_speed_override = None
         last_waypoint = getattr(self, "_last_avoidance_waypoint", None)
         if last_waypoint is not None:

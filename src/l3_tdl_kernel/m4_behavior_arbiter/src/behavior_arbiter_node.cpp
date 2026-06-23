@@ -433,6 +433,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   double confidence = 0.95;
   std::string rationale;
   std::string risk_rationale_suffix;
+  bool risk_controlled_colregs_released = false;
 
   if (has_mrc) {
     primary = BehaviorType::MRC_DRIFT;
@@ -479,11 +480,46 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
                     << " phase=" << colregs_directive.primary_risk_phase
                     << " score=" << colregs_directive.primary_risk_score
                     << " warn_margin_m=" << colregs_directive.primary_warning_margin_m
-                    << " danger_margin_m=" << colregs_directive.primary_danger_margin_m;
+                    << " danger_margin_m=" << colregs_directive.primary_danger_margin_m
+                    << " closing_mps=" << colregs_directive.primary_closing_speed_mps
+                    << " tdv_warning_s=" << colregs_directive.primary_tdv_warning_s;
           if (colregs_directive.speed_reduction_preferred) {
             risk_text << " speed_reduction_preferred=true";
           }
           risk_rationale_suffix = risk_text.str();
+
+          const auto recovery_tracking = current_route_tracking();
+          const double xte_gate_m = kRecoveryCorridorHalfM * kRecoveryXteGateFraction;
+          const bool risk_requires_colregs_reengage =
+              colregs_directive.primary_risk_phase == "Warning" ||
+              colregs_directive.primary_risk_phase == "Danger" ||
+              colregs_directive.primary_risk_phase == "Critical" ||
+              colregs_directive.primary_warning_margin_m < 0.0 ||
+              colregs_directive.primary_danger_margin_m < 0.0;
+          const bool risk_allows_recovery_hold =
+              (colregs_directive.primary_risk_phase == "Clear" ||
+               (colregs_directive.primary_risk_phase == "Monitor" &&
+                colregs_directive.primary_closing_speed_mps <= 1.0e-6)) &&
+              colregs_directive.primary_warning_margin_m > 0.0 &&
+              colregs_directive.primary_danger_margin_m > 0.0;
+          if (risk_requires_colregs_reengage) {
+            colregs_risk_recovery_hold_ = false;
+          }
+          const bool fresh_risk_controlled_release =
+              colregs_recovery_armed_ &&
+              risk_allows_recovery_hold &&
+              recovery_tracking.has_value() &&
+              std::abs(recovery_tracking->xte_m) > xte_gate_m;
+          const bool held_risk_clear_release =
+              colregs_risk_recovery_hold_ && recovery_active_ && risk_allows_recovery_hold;
+          risk_controlled_colregs_released =
+              fresh_risk_controlled_release || held_risk_clear_release;
+          if (fresh_risk_controlled_release) {
+            colregs_risk_recovery_hold_ = true;
+          }
+          if (risk_controlled_colregs_released) {
+            colregs_directive.conflict_active = false;
+          }
         }
       }
       if (colregs_commit_hold) {
@@ -581,9 +617,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     const double colregs_base_hdg =
         colregs_anchor_set_ ? colregs_anchor_hdg_ : nominal_hdg;
     const double current_spd_kn = latest_world_ ? latest_world_->own_ship.sog_kn : speed_max_kn_;
+    const bool directive_speed_capped = dynamic_risk_requires_speed_cap(colregs_directive);
     const double directive_speed_max_kn =
-        (colregs_directive.conflict_active &&
-         colregs_directive.direction == ColregsDirection::ReduceSpeed)
+        directive_speed_capped
             ? std::min(speed_max_kn_, std::max(0.0, current_spd_kn * 0.6))
             : speed_max_kn_;
 
@@ -833,9 +869,11 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   if (colregs_turn_active) {
     colregs_recovery_armed_ = true;
   }
-  const bool colregs_conflict_active = inputs.colregs_conflict_detected;
+  const bool colregs_conflict_active =
+      inputs.colregs_conflict_detected && !risk_controlled_colregs_released;
   const bool colregs_conflict_released =
-      colregs_recovery_armed_ && !colregs_conflict_active;
+      colregs_recovery_armed_ &&
+      (!inputs.colregs_conflict_detected || risk_controlled_colregs_released);
   if (colregs_conflict_active) {
     // Active COLREGs conflict cancels any in-progress recovery.
     recovery_active_ = false;
@@ -870,6 +908,8 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       const double xte_m = tracking.has_value() ? tracking->xte_m : 0.0;
       rationale = "RECOVERY gradual return-to-route xte=" +
           std::to_string(static_cast<int>(xte_m)) + "m";
+    } else {
+      colregs_risk_recovery_hold_ = false;
     }
   }
 

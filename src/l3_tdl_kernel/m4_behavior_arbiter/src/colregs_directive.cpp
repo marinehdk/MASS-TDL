@@ -14,6 +14,7 @@ constexpr std::uint8_t kRoleGiveWay = 1U;
 constexpr std::uint8_t kRoleBothGiveWay = 2U;
 constexpr double kStandOnActionMaxDeviationDeg = 60.0;
 constexpr double kRiskEpsilon = 1.0e-6;
+constexpr double kTmrResponseHorizonS = 60.0;
 
 std::vector<std::pair<double, double>> split_linear_range(double start_deg, double end_deg) {
   const double first = wrap_heading_deg(start_deg);
@@ -140,6 +141,8 @@ void apply_primary_risk_guidance(
   directive.primary_risk_score = primary_risk.risk_score;
   directive.primary_warning_margin_m = primary_risk.warning_margin_m;
   directive.primary_danger_margin_m = primary_risk.danger_margin_m;
+  directive.primary_closing_speed_mps = primary_risk.closing_speed_mps;
+  directive.primary_tdv_warning_s = primary_risk.tdv_warning_s;
   directive.primary_risk_phase = mass_l3::risk::to_string(primary_risk.risk_phase);
   directive.speed_reduction_preferred = false;
 
@@ -189,6 +192,25 @@ bool dynamic_risk_requires_max_deviation(const ColregsDirective& directive) {
   }
   return directive.primary_risk_phase == "Danger" ||
       directive.primary_risk_phase == "Critical" ||
+      directive.primary_danger_margin_m < -kRiskEpsilon;
+}
+
+bool dynamic_risk_requires_speed_cap(const ColregsDirective& directive) {
+  if (!directive.conflict_active) {
+    return false;
+  }
+  const bool warning_entry_within_tmr =
+      directive.primary_risk_phase == "Monitor" &&
+      directive.primary_closing_speed_mps > kRiskEpsilon &&
+      std::isfinite(directive.primary_tdv_warning_s) &&
+      directive.primary_tdv_warning_s <= kTmrResponseHorizonS;
+  return directive.direction == ColregsDirection::ReduceSpeed ||
+      directive.speed_reduction_preferred ||
+      warning_entry_within_tmr ||
+      directive.primary_risk_phase == "Warning" ||
+      directive.primary_risk_phase == "Danger" ||
+      directive.primary_risk_phase == "Critical" ||
+      directive.primary_warning_margin_m < -kRiskEpsilon ||
       directive.primary_danger_margin_m < -kRiskEpsilon;
 }
 
