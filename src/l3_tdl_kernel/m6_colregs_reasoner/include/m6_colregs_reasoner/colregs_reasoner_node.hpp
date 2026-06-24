@@ -6,6 +6,8 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "std_msgs/msg/string.hpp"
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -36,6 +38,11 @@ class ColregsReasonerNode : public rclcpp::Node {
   ColregsReasonerNode(const ColregsReasonerNode&) = delete;
   ColregsReasonerNode& operator=(const ColregsReasonerNode&) = delete;
 
+  /// Clear all cross-scenario encounter latches/history. Idempotent; safe at
+  /// any time. Primary trigger is /sil/scenario_loaded; the retained sim-time
+  /// rewind (in run_reasoning) calls the lock-held variant as a fallback.
+  void reset_cross_run_state();
+
   static std::string odd_domain_str(OddDomain d);
 
   struct ColregsChainResult {
@@ -59,6 +66,12 @@ class ColregsReasonerNode : public rclcpp::Node {
   void create_components();
   void setup_publishers();
   void setup_subscribers();
+
+  /// Lock-held cross-run reset. Assumes state_mutex_ is already held by the
+  /// caller (run_reasoning's sim-time rewind path). The public
+  /// reset_cross_run_state() takes the lock and delegates here.
+  void reset_cross_run_state_locked_();
+  void on_scenario_loaded(const std_msgs::msg::String::SharedPtr msg);
   void setup_timers();
   void setup_logger();
 
@@ -138,6 +151,7 @@ class ColregsReasonerNode : public rclcpp::Node {
   // Subscribers
   rclcpp::Subscription<l3_msgs::msg::ODDState>::SharedPtr odd_sub_;
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr world_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr scenario_loaded_sub_;
 
   // Timers
   rclcpp::TimerBase::SharedPtr reasoning_timer_;
