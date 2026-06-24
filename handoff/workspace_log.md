@@ -2,6 +2,59 @@
 
 ---
 
+## [2026-06-24] Agent: ZCode — COLREGs 测试体系 v1 阶段②（单模块功能测试）
+
+- **Git Commit**: `5768a9a4`（branch: `codex/colregs-generalization-debug`, worktree: `.worktrees/colregs-generalization-debug`）
+- **任务目标**: 建单模块 oracle 层的 trace→input 桥接，对 clean-8 探针逐模块验证功能是否正常，精确定位模块级 bug（避免留到集成阶段）。
+
+### 核心改动
+
+| 组件 | 文件 | 内容 |
+|------|------|------|
+| adapter | `tools/sil/colregs_oracle_adapter.py`（新建） | trace JSONL + scenario YAML → oracle-input 桥接。enum 映射（Role/Behavior/Rule int→str）、主导规则选取、flip 语义、L4 actuation 提取。纯 stdlib |
+| host script | `scripts/run_colregs_module_oracle.py`（新建） | 离线读历史 trace+YAML 跑全 6 模块 oracle，产 `module_oracle.json`。不重跑容器 |
+| oracle 修正 | `tools/sil/colregs_module_oracle.py` | M7 MISSED_VETO 只在 `unsafe_trajectory_present=True` 触发；L4 `act_delay_max_s` 5s→20s（船舶动力学） |
+
+### adapter 关键设计决策
+- **主导规则选取**：head-on(14) > crossing(15) > overtaking(13)，按 COLREGs 严格性优先级（非最高号）。rule14-ho 的 M6 active_rules 含 14(418)+15(86)，应选 14。
+- **flip_count 语义**：数 conflict 窗口内主导 rule 分类变化次数（rule latch 稳定性），非 conflict on/off。单次连续 conflict 稳定主导 rule → 0 flip。
+- **L4 realized**：取避让窗口内最大 heading 偏转（真实机动幅度），非第一个 5° 抖动点。`first_realized_t` = heading 首达 50%×max_dev 的时间。
+
+### 当前状态: **5/6 GREEN — 唯一 RED 是真实 integration defect**
+
+rule14-ho（run-19ef7f8c362）模块 oracle 结果：
+
+| 模块 | 结果 | 说明 |
+|------|------|------|
+| M2 WorldModel | ✅ GREEN | 几何估计一致 |
+| M4 BehaviorArbiter | 🔴 RED | **PREMATURE_RECOVERY**（recovery@738.5s vs M6 clear@893.5s, gap 155s） |
+| M5 TacticalPlanner | ✅ GREEN | 有可行解 |
+| M6 COLREGsReasoner | ✅ GREEN | rule=Rule14_HeadOn, role=GIVE_WAY, direction=STARBOARD_TURN, 0 flip |
+| M7 SafetySupervisor | ✅ GREEN | 无误 veto |
+| L4 GuidanceAdapter | ✅ GREEN | 38.7° 转向，delay 18s（船舶正常） |
+
+### Handoff Notes
+
+**M4 PREMATURE_RECOVERY 是真实 bug**：M4 在 sim_t=738.5s 进入 RECOVERY（behavior=7），但 M6 conflict_detected 直到 893.5s 才清，gap 155s。M4 比 M6 早 155s 放弃避让。
+- 阶段①G-ART 用 release(TRANSIT)=857.5s → gap=36s
+- 阶段②M4 oracle 用 RECOVERY 进入=738.5s → gap=155s
+- 两者都早于 M6 clear，是同一缺陷的不同切面（M4 RECOVERY 先于 M4 TRANSIT 先于 M6 clear）
+
+**环境关键事实**（同阶段①）：
+- worktree stack orchestrator 在 **18001**（非 18000），DDS_DOMAIN=43
+- `source scripts/local-behavior-fix-env.sh` 或 `SIL_ORCH_BASE_URL=https://127.0.0.1:18001/api/v1`
+- `--restart-container colregs-generalization-debug-sil-nodes-1`
+- module oracle 离线跑：`python3 scripts/run_colregs_module_oracle.py --trace <trace.jsonl> --scenario <id>`
+
+**trace 字段速查**：
+- M6: `/l3/m6/colregs_constraint` — conflict_detected(bool)、primary_role(int)、phase(str)、primary_preferred_direction(str)、active_rules[](rule_id/role)
+- M4: `/l3/m4/behavior_plan` — behavior(int: 0/1/7)、avoidance_active(bool)
+- M2: `/l3/m2/world_state` — 通常无 bearing/cpa 估计，adapter 回退到 compiled 真值
+
+**下一步：阶段③同类场景集成测试 + 阶段④bug 修复**。rule14 家族（ho/port/intelligent）预期都暴露同一 M4 PREMATURE_RECOVERY bug。
+
+---
+
 ## [2026-06-24] Agent: ZCode — COLREGs 测试体系 v1 阶段①（渲染/接线 gap 补齐）
 
 - **Git Commits**: `7ddddc41` / `ccea5ccc` / `56472c29`（branch: `codex/colregs-generalization-debug`, worktree: `.worktrees/colregs-generalization-debug`）
