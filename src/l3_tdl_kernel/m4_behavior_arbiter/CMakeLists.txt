@@ -110,6 +110,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_m4_node_lifecycle test/unit/test_m4_node_lifecycle.cpp)
   target_link_libraries(test_m4_node_lifecycle m4_node_lib)
   target_include_directories(test_m4_node_lifecycle PRIVATE include)
+
+  ament_add_gtest(test_m4_cross_run_reset test/unit/test_m4_cross_run_reset.cpp)
+  target_link_libraries(test_m4_cross_run_reset m4_node_lib)
+  target_include_directories(test_m4_cross_run_reset PRIVATE include)
 endif()
 
 ament_package()
