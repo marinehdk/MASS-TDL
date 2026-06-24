@@ -34,6 +34,16 @@ from std_msgs.msg import String
 
 _log = logging.getLogger(__name__)
 
+# Latched QoS for the cross-run reset signal. TRANSIENT_LOCAL so that C++ L3
+# nodes launched in entrypoint Stage 3 (after orchestrator configure publishes
+# scenario_loaded) still receive the most recent scenario_id on subscription.
+_SCENARIO_LOADED_QOS = QoSProfile(
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
 # Ordered list of SIL lifecycle nodes besides scenario_lifecycle_mgr.
 # Names must match what each Node.__init__ passes as node_name.
 _SIL_LIFECYCLE_NODES = [
@@ -142,7 +152,7 @@ class LifecycleBridge(Node):
         self.create_subscription(
             OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, own_ship_qos)
         self._scenario_loaded_pub = self.create_publisher(
-            String, "/sil/scenario_loaded", 10)
+            String, "/sil/scenario_loaded", qos_profile=_SCENARIO_LOADED_QOS)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(
