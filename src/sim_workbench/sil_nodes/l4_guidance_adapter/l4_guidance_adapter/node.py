@@ -23,6 +23,8 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
     QoSHistoryPolicy = None
     QoSReliabilityPolicy = None
 
+from std_msgs.msg import String
+
 from .guidance import (
     AVOIDANCE_CORRIDOR_HARD_XTE_M,
     AVOIDANCE_CORRIDOR_SOFT_XTE_M,
@@ -86,6 +88,14 @@ class L4GuidanceAdapterNode(Node):
         except Exception:
             super().__init__("l4_guidance_adapter")
 
+        # Cross-run reset flag. Initialized BEFORE the scenario_loaded
+        # subscription below: the TRANSIENT_LOCAL latched message fires the
+        # callback during create_subscription, so the flag must already exist.
+        # The callback only sets this flag; the actual _reset_state runs in the
+        # autopilot timer (single-threaded step) to avoid racing latch fields
+        # during __init__ and other callbacks (deferred-reset pattern).
+        self._scenario_reset_pending = False
+
         sq = _sensor_qos()
         lq = _latched_qos()
         rq = _reliable_volatile_qos()
@@ -118,6 +128,12 @@ class L4GuidanceAdapterNode(Node):
         self.create_subscription(ReactiveOverrideCmd, "/m5/reactive_override_cmd", self._on_reactive_override, sq)
         self.create_subscription(SafetyAlert, "/l3/m7/safety_alert", self._on_safety_alert, sq)
         self.create_subscription(CheckerVetoNotification, "/l3/checker/veto", self._on_checker_veto, rq)
+
+        # Cross-run reset: subscribe /sil/scenario_loaded (TRANSIENT_LOCAL) so a
+        # new scenario clears actuator gate/latch residual. The callback only
+        # arms a deferred reset executed by _autopilot_step.
+        self.create_subscription(
+            String, "/sil/scenario_loaded", self._on_scenario_loaded, lq)
 
         self._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=5.0)
         self._avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=10.0)
@@ -429,6 +445,19 @@ class L4GuidanceAdapterNode(Node):
         del msg
         self._checker_veto_until = self._sim_time() + 2.0
         self._safety_gate_reason = "checker veto"
+
+    def _on_scenario_loaded(self, msg) -> None:
+        """Arm a deferred cross-run reset (executed by _autopilot_step).
+
+        Only sets a flag here; never calls _reset_state directly. Both this node
+        and the autopilot timer are driven by a MultiThreadedExecutor, and the
+        TRANSIENT_LOCAL subscription fires during __init__ before latch fields
+        are initialized — calling _reset_state here would crash. The deferred
+        pattern keeps the reset on the timer thread, serialized with all other
+        latch access.
+        """
+        del msg
+        self._scenario_reset_pending = True
 
     def _latch_hold_elapsed(self) -> bool:
         if self._avoidance_armed_time is None:
@@ -812,6 +841,13 @@ class L4GuidanceAdapterNode(Node):
 
 
     def _autopilot_step(self) -> None:
+        # Deferred cross-run reset: if /sil/scenario_loaded fired since the last
+        # step, clear actuator gate/latch state now (on this timer thread).
+        if self._scenario_reset_pending:
+            self._scenario_reset_pending = False
+            self.get_logger().info(
+                "[l4_guidance_adapter] scenario_loaded — resetting cross-run actuator state")
+            self._reset_state(clear_route=False)
         now = self._sim_time()
         if self._last_actuator_publish_time is not None and now - self._last_actuator_publish_time <= 0.5:
             return
