@@ -15,6 +15,7 @@
 #include "l3_msgs/msg/own_ship_state.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
@@ -45,6 +46,11 @@ class MidMpcNode : public rclcpp::Node {
 
   explicit MidMpcNode(const Config& cfg);
 
+  /// Clear cross-scenario MPC warm state on new scenario. Idempotent.
+  /// Drops last_solution_ (warm-start) and ranking history so the next
+  /// scenario cold-starts the solver.
+  void reset_cross_run_state();
+
  private:
   mass_l3::m5::shared::CapabilityManifest manifest_;
   mass_l3::m5::shared::VesselDynamicsModel vessel_model_;
@@ -72,8 +78,11 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Subscription<l3_msgs::msg::COLREGsConstraint>::SharedPtr      sub_colregs_;
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr  sub_route_;
   rclcpp::Subscription<l3_external_msgs::msg::SpeedProfile>::SharedPtr  sub_speed_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr                sub_scenario_loaded_;
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
+
+  void on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg);
 
   double nominal_speed_kn_{10.0};
 
