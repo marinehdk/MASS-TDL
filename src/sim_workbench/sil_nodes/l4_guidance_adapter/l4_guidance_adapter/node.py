@@ -23,6 +23,8 @@ except ImportError:  # pragma: no cover - pure helper tests do not import ROS.
     QoSHistoryPolicy = None
     QoSReliabilityPolicy = None
 
+from std_msgs.msg import String
+
 from .guidance import (
     AVOIDANCE_CORRIDOR_HARD_XTE_M,
     AVOIDANCE_CORRIDOR_SOFT_XTE_M,
@@ -118,6 +120,20 @@ class L4GuidanceAdapterNode(Node):
         self.create_subscription(ReactiveOverrideCmd, "/m5/reactive_override_cmd", self._on_reactive_override, sq)
         self.create_subscription(SafetyAlert, "/l3/m7/safety_alert", self._on_safety_alert, sq)
         self.create_subscription(CheckerVetoNotification, "/l3/checker/veto", self._on_checker_veto, rq)
+
+        # Cross-run reset: clear actuator gate/latch state on new scenario.
+        # Uses clear_route=False because the route is injected separately by
+        # the route_ingest/mock_l2 path; clearing it here would drop the route
+        # the new scenario needs.
+        self.create_subscription(
+            String, "/sil/scenario_loaded", self._on_scenario_loaded, lq)
+
+    def _on_scenario_loaded(self, msg: String) -> None:
+        """Clear cross-run actuator gate/latch state on new scenario."""
+        self.get_logger().info(
+            f"[l4_guidance_adapter] scenario_loaded '{msg.data}' "
+            f"— resetting cross-run actuator state")
+        self._reset_state(clear_route=False)
 
         self._heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=5.0)
         self._avoidance_heading_controller = HeadingController(Kp=1.0, max_rate_deg_s=10.0)
