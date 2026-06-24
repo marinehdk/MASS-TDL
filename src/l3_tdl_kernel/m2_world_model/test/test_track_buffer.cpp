@@ -270,5 +270,33 @@ TEST(TrackBufferTest, UpdateWithEmptyArray) {
   EXPECT_EQ(buf.size(), 3);  // empty update does not remove anything
 }
 
+// ── Cross-run reset: clear() ─────────────────────────────────────────────────
+
+TEST(TrackBufferTest, ClearOnEmptyBufferIsIdempotent) {
+  TrackBuffer::Config cfg{};
+  cfg.max_targets = 5;
+  cfg.stale_timeout = std::chrono::seconds(30);
+  TrackBuffer buf(cfg);
+  ASSERT_EQ(buf.size(), 0u);
+  EXPECT_NO_THROW(buf.clear());
+  EXPECT_EQ(buf.size(), 0u);
+}
+
+TEST(TrackBufferTest, ClearEmptiesPopulatedBuffer) {
+  TrackBuffer::Config cfg{};
+  cfg.max_targets = 5;
+  cfg.stale_timeout = std::chrono::seconds(30);
+  TrackBuffer buf(cfg);
+  auto msg = make_msg({10, 20, 30});
+  buf.update(msg, at_s(1));
+  ASSERT_EQ(buf.size(), 3u);
+
+  buf.clear();
+  EXPECT_EQ(buf.size(), 0u);
+  // Buffer remains usable after clear.
+  buf.update(make_msg({40}), at_s(2));
+  EXPECT_EQ(buf.size(), 1u);
+}
+
 }  // namespace
 }  // namespace mass_l3::m2

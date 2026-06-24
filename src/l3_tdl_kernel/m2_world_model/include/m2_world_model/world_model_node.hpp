@@ -15,6 +15,7 @@
 #include "l3_external_msgs/msg/environment_state.hpp"
 #include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/tracked_target_array.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "m2_world_model/world_state_aggregator.hpp"
 #include "m2_world_model/cpa_tcpa_calculator.hpp"
@@ -35,6 +36,9 @@ class WorldModelNode final : public rclcpp::Node {
   WorldModelNode(const WorldModelNode&) = delete;
   WorldModelNode& operator=(const WorldModelNode&) = delete;
 
+  /// Clear all cross-scenario track history on new scenario. Idempotent.
+  void reset_cross_run_state();
+
  private:
   // Initialization
   void load_parameters();
@@ -49,6 +53,7 @@ class WorldModelNode final : public rclcpp::Node {
   void on_own_ship_state(const l3_external_msgs::msg::FilteredOwnShipState::SharedPtr msg);
   void on_environment_state(const l3_external_msgs::msg::EnvironmentState::SharedPtr msg);
   void on_odd_state(const l3_msgs::msg::ODDState::SharedPtr msg);
+  void on_scenario_loaded(const std_msgs::msg::String::SharedPtr msg);
 
   // Timer callbacks
   void on_aggregation_timer();     // 4 Hz
@@ -125,6 +130,7 @@ class WorldModelNode final : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::FilteredOwnShipState>::SharedPtr own_ship_sub_;
   rclcpp::Subscription<l3_external_msgs::msg::EnvironmentState>::SharedPtr env_sub_;
   rclcpp::Subscription<l3_msgs::msg::ODDState>::SharedPtr odd_state_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr scenario_loaded_sub_;
 
   // Publishers
   rclcpp::Publisher<l3_msgs::msg::WorldState>::SharedPtr world_state_pub_;
