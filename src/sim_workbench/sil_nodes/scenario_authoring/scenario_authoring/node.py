@@ -7,6 +7,7 @@ from pathlib import Path
 
 import rclpy
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
 
@@ -50,8 +51,16 @@ class ScenarioAuthoringNode(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state) -> TransitionCallbackReturn:
+        # TRANSIENT_LOCAL: cross-run reset subscribers (M2/M4/M5/M6/bridge/L4)
+        # join after configure publishes and must receive the latched scenario_id.
+        _loaded_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+        )
         self._loaded_pub = self.create_lifecycle_publisher(
-            String, "/sil/scenario_loaded", 10
+            String, "/sil/scenario_loaded", _loaded_qos
         )
         if self._loaded_scenario:
             sim = self._loaded_scenario.get("simulation_settings", {})

@@ -68,7 +68,7 @@ from l3_msgs.msg import (
     ThreatState,
 )
 
-from std_msgs.msg import Header, String
+from std_msgs.msg import Header
 
 
 # Module ID constants (matching sil_msgs/ModulePulse)
@@ -579,31 +579,6 @@ class SilTopicBridge(Node):
         self._sub_actuator_cmd_trace = self.create_subscription(
             SilOwnShipState, "/sil/actuator_cmd",
             self._on_actuator_cmd_trace, sq)
-
-        # Cross-run reset: clear actuator/plan/avoidance residual state on new
-        # scenario so a prior run's control residual does not bleed across.
-        self._sub_scenario_loaded = self.create_subscription(
-            String, "/sil/scenario_loaded", self._on_scenario_loaded, lq)
-
-    def _on_scenario_loaded(self, msg: String) -> None:
-        """Clear cross-run actuator/plan/avoidance residual on new scenario."""
-        self.get_logger().info(
-            f"[BRIDGE] scenario_loaded '{msg.data}' — resetting cross-run state")
-        self._reset_cross_run_state()
-
-    def _reset_cross_run_state(self) -> None:
-        """Clear every cross-scenario accumulated field to construction defaults.
-
-        Covers autopilot/avoidance residual (via the existing helper) plus the
-        plan/ODD/behavior/ownship/actuator-timestamp caches that the helper does
-        not touch.
-        """
-        self._reset_autopilot_avoidance_state()
-        self._last_valid_plan_time = None
-        self._last_odd_state = None
-        self._last_behavior_plan = None
-        self._last_ownship_raw = None
-        self._last_actuator_publish_time = None
 
     def _get_sim_time(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
