@@ -295,6 +295,7 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
           return (
             <g key={`ring-${ringNM}`}>
               <circle
+                data-testid={`radar-range-ring-${ringNM}`}
                 cx={cx}
                 cy={cy}
                 r={r}
@@ -303,18 +304,6 @@ export const RadarPpiDisplay: React.FC<RadarPpiDisplayProps> = ({
                 strokeWidth={ringNM === maxRangeNM ? 1 : 0.75}
                 strokeDasharray={ringNM === maxRangeNM ? undefined : '3 4'}
               />
-              <text
-                x={cx + r - 6}
-                y={cy - 6}
-                textAnchor="end"
-                fill={isEmergencyRing ? '#f87171' : 'rgba(226, 232, 240, 0.68)'}
-                fontSize={Math.max(7, 7.5 * markerScale)}
-                fontFamily="var(--f-mono)"
-                fontWeight={isEmergencyRing ? 'bold' : 'normal'}
-                style={{ textShadow: '0 0 4px rgba(5, 15, 10, 0.95)' }}
-              >
-                {ringNM}nm
-              </text>
             </g>
           );
         })}

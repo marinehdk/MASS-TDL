@@ -192,6 +192,8 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 This project uses CodeGraph as the code index. The index lives in `.codegraph/`; do not probe legacy graph-index paths.
 
 Rules:
+- After creating or entering a task worktree, run `codegraph init` from that worktree before relying on CodeGraph. Verify with `codegraph status .`; if it reports an index from another git working tree, treat results as stale routing only and initialize/sync the current worktree first.
+- When calling CodeGraph MCP from Codex/Desktop, always set `projectPath` to the active worktree path. For CLI fallback, run `codegraph ... .` from that same worktree. Do not query a feature branch through the primary checkout index.
 - For codebase questions, call `codegraph_explore` first. Use it for "how does X work", architecture, bug tracing, "where is X", and area surveys; one capped call usually returns the relevant source grouped by file.
 - For focused follow-up, use `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_files`, and `codegraph_status`.
 - If the current Codex/Desktop thread does not expose the MCP tools, use the CodeGraph CLI fallback: `codegraph query`, `codegraph callers`, `codegraph callees`, `codegraph impact`, `codegraph files`, and `codegraph status`.

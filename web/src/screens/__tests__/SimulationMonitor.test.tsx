@@ -102,7 +102,7 @@ describe('SimulationMonitor', () => {
     expect(screen.queryByTestId('left-tab-ship')).not.toBeInTheDocument();
   });
 
-  it('places an expanded radar panel with sparse range rings and zoom controls on Screen 03', () => {
+  it('uses mouse wheel to switch radar max range without in-chart range labels or buttons', () => {
     useTelemetryStore.setState({
       wsConnected: true,
       ownShip: {
@@ -123,17 +123,26 @@ describe('SimulationMonitor', () => {
 
     expect(screen.getByTestId('monitor-radar-panel')).toBeInTheDocument();
     expect(screen.getByTestId('radar-ppi-display')).toHaveStyle({ width: '460px', height: '460px' });
-    expect(screen.getByText('2nm')).toBeInTheDocument();
-    expect(screen.getByText('6nm')).toBeInTheDocument();
-    expect(screen.getByText('10nm')).toBeInTheDocument();
+    expect(screen.queryByText('10nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('6nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('2nm')).not.toBeInTheDocument();
     expect(screen.queryByText('4nm')).not.toBeInTheDocument();
     expect(screen.queryByText('8nm')).not.toBeInTheDocument();
     expect(screen.queryByText('12nm')).not.toBeInTheDocument();
-    expect(screen.getByTestId('radar-range-12')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('monitor-radar-range-control')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-12')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-3')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-10')).not.toBeInTheDocument();
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('10 NM');
 
-    fireEvent.click(screen.getByTestId('radar-range-6'));
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: 120 });
 
-    expect(screen.getByTestId('radar-range-6')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('6 NM');
+
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: 120 });
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('2 NM');
+
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: -120 });
     expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('6 NM');
   });
 
@@ -404,7 +413,7 @@ ownShip:
     expect(screen.getByText('3.0 min')).toBeInTheDocument();
   });
 
-  it('groups threat list by backend risk phase and displays backend risk metrics', () => {
+  it('renders one stable threat target list with backend risk badge per target', () => {
     useTelemetryStore.setState({
       wsConnected: true,
       ownShip: {
@@ -442,8 +451,14 @@ ownShip:
     render(<SimulationMonitor />);
     fireEvent.click(screen.getByTestId('right-tab-threat'));
 
-    expect(screen.getByText('高威胁目标')).toBeInTheDocument();
-    expect(screen.getByText('(1)')).toBeInTheDocument();
+    expect(screen.getByText('目标列表')).toBeInTheDocument();
+    expect(screen.getByText('1 TARGET')).toBeInTheDocument();
+    expect(screen.queryByText('高威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('中威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('低威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('无威胁目标')).not.toBeInTheDocument();
+    expect(screen.getByText('CRITICAL')).toBeInTheDocument();
+    expect(screen.getByText('PRIMARY')).toBeInTheDocument();
     expect(screen.getByText('风险分数')).toBeInTheDocument();
     expect(screen.getByText('0.91')).toBeInTheDocument();
     expect(screen.getByText('Danger Margin')).toBeInTheDocument();

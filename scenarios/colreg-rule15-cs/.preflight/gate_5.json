@@ -1,8 +1,8 @@
 {
   "gate_id": 5,
   "gate_name": "Time Base + Evidence Chain",
-  "timestamp_utc": "2026-06-23T05:14:33.096458Z",
-  "scenario_id": "colreg-rule14-ho",
+  "timestamp_utc": "2026-06-23T05:29:52.926538Z",
+  "scenario_id": "colreg-rule15-cs",
   "passed": true,
   "checks": [
     {
@@ -26,7 +26,7 @@
       "detail": "ASDR: ASDR /var/sil/runs writable"
     }
   ],
-  "duration_ms": 9012.3,
+  "duration_ms": 9134.5,
   "rationale": "4/4 time base checks passed",
   "sil2_clause": "IEC 61508-1 \u00a78.2.9 Data recording \u2014 time base traceability",
   "hazid_scenario_ref": null

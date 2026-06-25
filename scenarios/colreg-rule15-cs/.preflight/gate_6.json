@@ -1,8 +1,8 @@
 {
   "gate_id": 6,
   "gate_name": "Doer-Checker Independence",
-  "timestamp_utc": "2026-06-23T05:14:33.388096Z",
-  "scenario_id": "colreg-rule14-ho",
+  "timestamp_utc": "2026-06-23T05:29:53.214265Z",
+  "scenario_id": "colreg-rule15-cs",
   "passed": true,
   "checks": [
     {
@@ -31,7 +31,7 @@
       "detail": "VETO latency: VETO latency test: Phase 2 (real M5/M7 ROS2 nodes not yet deployed)"
     }
   ],
-  "duration_ms": 289.8,
+  "duration_ms": 285.8,
   "rationale": "Doer-Checker isolation 5/5 verified",
   "sil2_clause": "IEC 61508-2 Clause 7.3 Independence \u2014 Doer-Checker physical separation",
   "hazid_scenario_ref": null

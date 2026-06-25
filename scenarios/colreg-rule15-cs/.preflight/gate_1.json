@@ -1,8 +1,8 @@
 {
   "gate_id": 1,
   "gate_name": "System Readiness",
-  "timestamp_utc": "2026-06-23T05:14:23.076722Z",
-  "scenario_id": "colreg-rule14-ho",
+  "timestamp_utc": "2026-06-23T05:29:42.733106Z",
+  "scenario_id": "colreg-rule15-cs",
   "passed": true,
   "checks": [
     {
@@ -31,7 +31,7 @@
       "detail": "telemetry WS: WS state reported by frontend"
     }
   ],
-  "duration_ms": 1397.1,
+  "duration_ms": 1490.2,
   "rationale": "all 5/5 sub-checks passed",
   "sil2_clause": "IEC 61508-3 \u00a75.2 Systematicity \u2014 test environment readiness",
   "hazid_scenario_ref": null
