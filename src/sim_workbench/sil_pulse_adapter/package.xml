@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sil_pulse_adapter</name>
+  <version>0.1.0</version>
+  <description>
+    M1-M8 heartbeat aggregation (C++). Replaces the pulse portion of
+    sil_topic_bridge.py (Track A A5). Subscribes the 8 L3 module output topics,
+    publishes a sil_msgs/ModulePulse per module @ 1 Hz with GREEN/RED health
+    (10 s timeout). No behavior logic.
+  </description>
+  <maintainer email="devnull@example.com">MASS-L3</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>sil_msgs</depend>
+  <depend>l3_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

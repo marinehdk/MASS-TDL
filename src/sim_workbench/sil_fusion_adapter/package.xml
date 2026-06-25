@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sil_fusion_adapter</name>
+  <version>0.1.0</version>
+  <description>
+    SIL→L3 fusion relay (C++). Replaces the SIL→L3 portion of sil_topic_bridge.py
+    (Track A A5). Pure field-mapping: sil_msgs/TargetVesselState (single) →
+    l3_external_msgs/TrackedTargetArray (1-elem array), and sil_msgs/EnvironmentState
+    → l3_external_msgs/EnvironmentState (m/s→kn unit conversion). No behavior logic.
+  </description>
+  <maintainer email="devnull@example.com">MASS-L3</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>sil_msgs</depend>
+  <depend>l3_msgs</depend>
+  <depend>l3_external_msgs</depend>
+  <depend>geographic_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
