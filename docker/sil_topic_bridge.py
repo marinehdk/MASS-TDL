@@ -58,6 +58,7 @@ from l3_msgs.msg import (
     AvoidancePlan,
     AvoidanceWaypoint,
     ASDRRecord,
+    FsmState,
     UIState,
     ODDState,
     WorldState,
@@ -573,8 +574,11 @@ class SilTopicBridge(Node):
             self._on_scoring, sq)
 
         # ── L3 FSM State subscription ─────────────────────────
+        # Track B B6: type was LifecycleStatus, colliding with fsm_aggregator's
+        # l3_msgs/FsmState on the same /l3/fsm_state topic. Now single type FsmState.
+        # FsmState.current_state (uint8) maps 1:1 to the trace record below.
         self._sub_fsm_state = self.create_subscription(
-            LifecycleStatus, "/l3/fsm_state",
+            FsmState, "/l3/fsm_state",
             self._on_fsm_state, sq)
 
         # ── Debug trace writer ────────────────────────────────
@@ -723,7 +727,7 @@ class SilTopicBridge(Node):
             "total": float(msg.total),
         }, self._get_sim_time())
 
-    def _on_fsm_state(self, msg: LifecycleStatus) -> None:
+    def _on_fsm_state(self, msg: FsmState) -> None:
         self._trace_writer.record("/l3/fsm_state", {
             "state": int(msg.current_state),
         }, self._get_sim_time())

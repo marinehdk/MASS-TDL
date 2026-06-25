@@ -168,6 +168,7 @@ def _install_fake_ros_modules(monkeypatch):
         "AvoidancePlan",
         "AvoidanceWaypoint",
         "ASDRRecord",
+        "FsmState",
         "UIState",
         "ODDState",
         "WorldState",
