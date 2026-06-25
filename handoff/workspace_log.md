@@ -1146,3 +1146,31 @@ Execute Track A: replace the SIL L4 guidance stub + SIL plant with the colleague
 - **Next session decision:** (a) move A7 validation to A4000 host (plan's designated validation target) where DDS may behave differently; OR (b) fix Cyclone DDS config (CYCLONEDDS_URI network-interface + unicast peers) for OrbStack and retry the live smoke here; OR (c) run L3+GNC+bridge in one container. The gnc_bridge code itself needs no changes — only the runtime DDS environment.
 - Do NOT re-architect gnc_bridge (two-process fallback etc.) — the official domain_bridge fails identically, proving the code is right.
 - A4 feasibility gate confirmed by reading active_route_manager_node.cpp:270-398: required_radius=max(45m,v²/0.25,v/yaw_rate[2.0°/s]); with allow_degraded_execution=true violations DEGRADE not REJECT, so GNC executes and rate-limits. Straight projection = infinite turn radius = auto-feasible.
+
+## [2026-06-25] ZCode / commits 6da09ba0..11e0886b / Track A A4-closure + A5 + A6 + A7 (partial)
+
+### Task Goal
+Resolve the A4 cross-domain DDS block, then execute A5 (remove SIL L4 stub + sil_topic_bridge, add 3 C++ SIL adapters), A6 (GNC profile wiring), A7 (rule14-ho over-turn verdict on the real GNC stack).
+
+### Core Changes (8 commits on codex/gnc-integration)
+1. **6da09ba0** A4 DDS block resolved (runtime-only): gnc-nodes -> host network + gnc-bridge compose service. Prior "OrbStack can't bridge domains / official domain_bridge fails" was MISDIAGNOSED — real causes: official domain_bridge v0.5.0 CLI changed (YAML-only), base ros image lacks rmw_cyclonedds_cpp, and gnc-nodes was on a bridge network segmented from L3 host-net participants. Verified with a minimal 2-context Python bridge (delivered cross-domain data) + the real gnc_bridge (bidirectional: own_ship @10Hz dom42, /colav/avoidance_plan publisher visible dom50).
+2. **d2da9a09** A5a: deleted l4_guidance_adapter package + entrypoint launch + Dockerfile + orchestrator injection refs + obsolete tests.
+3. **2d7f5468** A5b: 3 new C++ adapter packages (sil_fusion_adapter 18/18, sil_trace_adapter 8/8, sil_pulse_adapter 7/7 gtests GREEN). TDD: translator/health libraries + thin nodes. Mirrors bridge field-maps exactly.
+4. **f138b0d9** A5c: deleted sil_topic_bridge.py (1761 lines) + Dockerfile COPY + entrypoint launch (now runs the 3 C++ adapters) + orchestrator injection + 3 obsolete tests.
+5. **85553ca7** restore sil_entrypoint.sh executable bit lost in A5c edit.
+6. **42a9b0ac** A6: interface contract (+/l3/m5/avoidance_waypoints, +/l3/gnc/execution_status, /sil/actuator_cmd owner -> gnc_bridge), scripts/gnc-profile-start.sh launcher, run_colregs_clean_8probe.py --profile {sil,gnc} with stack-container validation. Contract checker exit 0, 21/21 tests GREEN.
+7. **83ec2669** **THE KEY FIX — gnc_bridge executor-starvation bug.** CrossDomainHandoff drain timers (run on the single MultiThreadedExecutor) called BLOCKING pop_l3_to_gnc/pop_gnc_to_l3 (cv.wait). Once the queue emptied, the next drain callback blocked the executor thread forever → /ship/geo_position subscription callback starved (fired exactly once, then never). This is why A4 smoke "passed" (transient first-window) but A7 stuck at sim_t=0 under the full stack. Fix: non-blocking try_pop_* variants for the drain timers. After fix: /sil/own_ship_state @~60Hz steady-state.
+8. **11e0886b** probe PROBE_STUCK_LIMIT env (GNC plant needs longer cold-start warmup than SIL).
+
+### Current Status — A7 PARTIAL (verdict NOT yet captured)
+- **Infrastructure: GREEN.** Full GNC profile stack runs: mass-l3-sil (dom42) + codex-gnc (gnc-nodes dom50 + gnc-bridge host net). Cross-domain data flows bidirectionally. The actuator/plant path works: /ship/geo_position @50Hz → gnc_bridge → /sil/own_ship_state @~60Hz → M2; M5 → /l3/m5/avoidance_waypoints → gnc_bridge → /colav/avoidance_plan → GNC.
+- **rule14-ho probe: sim DID advance** in one run (scoring.arrow with 484 rows, cpa_nm evolving 1.99→0.27 target, pass_fail=true, safety=1.0) — proving the plant path is healthy. BUT the probe's stuck-at-0 detector (40-tick, ~20s) tripped during GNC cold-start warmup in subsequent runs, aborting before the full 1200s + trace evaluation. The verdict (turn_starboard GREEN/RED = over-turn hypothesis) was NOT captured.
+- **Open item:** rerun rule14-ho with PROBE_STUCK_LIMIT=150 AND no --restart-between-runs (the restart breaks the gnc-bridge discovery mid-run). Then read the trace evaluator output for the turn_starboard verdict.
+
+### Handoff Notes
+- worktree `.worktrees/gnc-integration`, branch `codex/gnc-integration`, head `11e0886b`.
+- Stack currently up: mass-l3-sil-sil-nodes-1 (dom42) + codex-gnc-gnc-nodes-1 + codex-gnc-gnc-bridge-1 (host net). certs/sil.{crt,key} copied into worktree (env pitfall #3).
+- mempalace drawers in wing mass_l3_tactical_layer / room track-a-gnc-integration: CRITICAL_ENV_FINDING (A4 misdiagnosis resolved), A7-BLOCKED (gnc_bridge executor starvation, resolved by 83ec2669).
+- **CRITICAL CORRECTION to prior handoff:** A4 was NOT "code correct, env-broken". The gnc_bridge had a real executor-starvation bug (blocking pops in executor-spun drain timers) that the A4 smoke window hid. Fixed in 83ec2669. The "OrbStack can't bridge two DDS domains" conclusion was wrong.
+- Next-session first step: `PROBE_STUCK_LIMIT=150 python3 scripts/run_colregs_clean_8probe.py --profile gnc --scenario colreg-rule14-ho --sim-rate 10.0 --trace-report-dir runs/a7_gnc/trace_final` (NO --restart-between-runs). Then judge turn_starboard from the trace.
+- Do NOT sync A4000 or promote until the rule14-ho verdict is captured (local-first gate incomplete).

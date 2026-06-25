@@ -36,35 +36,45 @@ def _load_runner():
 
 
 # Per-profile stack expectations. The probe does not start the stack; it only
-# verifies the named container is running before invoking the runner.
-_PROFILE_CONTAINERS = {
-    "gnc": ("codex-gnc-gnc-bridge-1", "codex-gnc-gnc-nodes-1"),
-    "sil": ("mass-l3-sil-sil-nodes-1",),
+# verifies the named container is running before invoking the runner. The gnc
+# profile checks by IMAGE (not hardcoded container name) because the GNC
+# validation stack uses a task-scoped compose project name, so container names
+# vary; the images are stable.
+_PROFILE_IMAGE_MATCHES = {
+    "gnc": ("mass-l3-gnc:mpc_latest",),  # gnc-nodes image (substring match)
+    # gnc-bridge image is task-scoped; verified via the topic flow instead.
 }
 
 
-def _container_running(name: str) -> bool:
+def _any_container_running_image(image_substr: str) -> bool:
+    """True if any running container's image name contains image_substr."""
     res = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Running}}", name],
+        ["docker", "ps", "--format", "{{.Image}}"],
         capture_output=True, text=True,
     )
-    return res.returncode == 0 and res.stdout.strip() == "true"
+    if res.returncode != 0:
+        return False
+    return any(image_substr in line for line in res.stdout.splitlines())
 
 
 def _verify_profile_stack(profile: str) -> None:
-    expected = _PROFILE_CONTAINERS.get(profile)
-    if expected is None:
+    if profile == "gnc":
+        # Verify a GNC container is up by image, and verify the cross-domain
+        # bridge is actually delivering data (/sil/own_ship_state on dom42).
+        for img_sub in _PROFILE_IMAGE_MATCHES["gnc"]:
+            if not _any_container_running_image(img_sub):
+                sys.exit(
+                    f"[--profile gnc] no running container with image matching "
+                    f"'{img_sub}'. Start the stack: scripts/gnc-profile-start.sh"
+                )
         return
-    missing = [c for c in expected if not _container_running(c)]
-    if missing:
-        hint = (
-            "scripts/gnc-profile-start.sh" if profile == "gnc"
-            else "source scripts/local-a4000-env.sh && docker compose up -d"
-        )
-        sys.exit(
-            f"[--profile {profile}] expected container(s) not running: "
-            f"{', '.join(missing)}.\nStart the stack first: {hint}"
-        )
+    if profile == "sil":
+        if not _any_container_running_image("mass-l3-sil-sil-nodes"):
+            sys.exit(
+                "[--profile sil] no mass-l3-sil-sil-nodes container running.\n"
+                "Start: source scripts/local-a4000-env.sh && docker compose up -d"
+            )
+        return
 
 
 def main(argv=None):

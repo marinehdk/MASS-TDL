@@ -45,7 +45,13 @@ services:
   # the host network so it can reach both the L3 stack (host net, domain 42)
   # and gnc-nodes (host net, domain 50).
   gnc-bridge:
-    image: mass-l3-sil-sil-nodes:latest
+    # Build from the same sil-nodes Dockerfile (gnc_bridge is compiled into it).
+    # Task-scoped tag so a feature worktree does NOT overwrite the main stack's
+    # mass-l3-sil-sil-nodes:latest image. Override via GNC_BRIDGE_IMAGE if needed.
+    image: ${GNC_BRIDGE_IMAGE:-mass-l3-sil-sil-nodes:codex-gnc-validation}
+    build:
+      context: .
+      dockerfile: docker/sil_nodes.Dockerfile
     profiles: ["gnc"]
     environment:
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
