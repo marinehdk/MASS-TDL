@@ -1174,3 +1174,27 @@ Resolve the A4 cross-domain DDS block, then execute A5 (remove SIL L4 stub + sil
 - **CRITICAL CORRECTION to prior handoff:** A4 was NOT "code correct, env-broken". The gnc_bridge had a real executor-starvation bug (blocking pops in executor-spun drain timers) that the A4 smoke window hid. Fixed in 83ec2669. The "OrbStack can't bridge two DDS domains" conclusion was wrong.
 - Next-session first step: `PROBE_STUCK_LIMIT=150 python3 scripts/run_colregs_clean_8probe.py --profile gnc --scenario colreg-rule14-ho --sim-rate 10.0 --trace-report-dir runs/a7_gnc/trace_final` (NO --restart-between-runs). Then judge turn_starboard from the trace.
 - Do NOT sync A4000 or promote until the rule14-ho verdict is captured (local-first gate incomplete).
+
+## [2026-06-26] ZCode / commit afd7e5e4 / Isolation fix — task-scoped compose project
+
+### Task Goal
+Fix the feature-stack pollution: A4/A5/A6/A7 runs had wrongly used main's `mass-l3-sil` compose project name + ports + images for feature work. User flagged this (colregs-debug worktree isolation is the correct convention).
+
+### Core Changes (commit afd7e5e4)
+- `scripts/gnc-profile-start.sh`: both stacks use task-scoped project `codex-gnc-validation` (L3) + `codex-gnc-validation-gnc` (GNC); image tag `mass-l3-sil-sil-nodes:codex-gnc-validation` for gnc-bridge (never overwrites main `:latest`).
+- `docker-compose.gnc.yml`: gnc-bridge builds its own image with task-scoped tag (was hardcoded `image: mass-l3-sil-sil-nodes:latest`).
+- `scripts/run_colregs_clean_8probe.py`: `--profile gnc` verifies stack by IMAGE match (mass-l3-gnc:mpc_latest), not hardcoded container name (project suffix varies now).
+
+### Current Status — isolated stack GREEN, A7 verdict still to capture
+Verified on isolated stack: `codex-gnc-validation-sil-nodes-1` (dom42) + `codex-gnc-validation-gnc-{nodes,bridge}-1` (host net, dom50). Cross-domain `/sil/own_ship_state` @**293Hz** (healthy; was ~60Hz under polluted mass-l3-sil stack — pollution was degrading throughput). No mass-l3-sil containers/images touched.
+
+**A7 verdict (rule14-ho turn_starboard GREEN/RED) still NOT captured** — probe warmup-detection issue, not architecture. Next session reruns on the isolated stack.
+
+### Handoff Notes
+- branch `codex/gnc-integration`, head `afd7e5e4` (9 commits total).
+- Isolated stack currently UP: `docker ps | grep codex-gnc-validation`.
+- Start isolated stack: `bash scripts/gnc-profile-start.sh up`. Stop: `bash scripts/gnc-profile-start.sh --down`.
+- certs/sil.{crt,key} copied into worktree (env pitfall — orchestrator HTTPS).
+- **A7 next step:** on the isolated stack, run:
+  `PROBE_STUCK_LIMIT=150 python3 scripts/run_colregs_clean_8probe.py --profile gnc --scenario colreg-rule14-ho --sim-rate 10.0 --summary-out runs/a7_gnc/rule14_ho_gnc_final_summary.json --trace-report-dir runs/a7_gnc/trace_final`
+  (NO `--restart-between-runs` — it breaks gnc_bridge discovery). If stuck at sim_t=0, raise PROBE_STUCK_LIMIT to 200.
