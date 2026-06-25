@@ -1,0 +1,322 @@
+scenario_id: 002b_long_captain_intent
+scenario_class: captain_operational
+description: Long-voyage captain-intent route for a 45m crewboat, with a 2.8km calm-water cruise leg, a 4.5km planned S-turn, final approach, standby gate, and final hold point.
+validation_objective: Verify that the system can execute a captain-style long route with sparse visible gates, internal planner samples, sustained 8.0 m/s cruise, long-distance S-turn speed reduction, normal XTE target compliance, hard-XTL safety compliance, and final waypoint hold in calm water.
+seed: 1202
+duration_s: 2200
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace mock route gates and internal planner samples with route-planner/ECDIS/operator inputs; recalibrate values without changing mission, safety, guidance, control, or allocation interfaces.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 8.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 8.0
+  # C-level mock planner-internal samples. These are consumed by the current
+  # guidance node, while route_plan.captain_visible_gates is the operator-facing
+  # passage-plan view.
+  waypoints:
+    - [0.0, 0.0]
+    - [2800.0, 0.0]
+    - [3400.0, 0.0]
+    - [3900.0, 25.0]
+    - [4400.0, 75.0]
+    - [4900.0, 130.0]
+    - [5400.0, 160.0]
+    - [5900.0, 110.0]
+    - [6400.0, -30.0]
+    - [6900.0, -130.0]
+    - [7300.0, -160.0]
+    - [7550.0, -150.0]
+    - [7750.0, -100.0]
+    - [7900.0, -45.0]
+    - [8050.0, 0.0]
+
+route_plan:
+  schema_version: route_plan.v1
+  vessel_profile_ref: crewboat_45m_c_mock
+  coordinate_frame: local_enu
+  parameter_source: mock_data
+  parameter_confidence: C
+  route_intent:
+    type: long_captain_intent_with_internal_samples
+    priority: safety_over_schedule
+    completion_policy: reach_final_after_captain_gates_and_corridor_compliance
+    description: C-level mock RoutePlan input separating sparse captain-visible gates from dense planner-internal samples.
+  captain_intent:
+    nominal_cruise_speed_mps: 8.0
+    maneuvering_speed_range_mps: [4.5, 5.8]
+    final_approach_speed_mps: 1.8
+    hold_speed_mps: 0.35
+    speed_is_hard_limit: false
+    schedule_priority: secondary_to_safety
+  speed_recovery_policy:
+    enabled: true
+    parameter_source: mock_data
+    parameter_confidence: C
+    description: After a planned low-speed turn, restore cruise speed only when the vessel is back inside the corridor, heading and yaw rate are stable, and the next leg is a cruise leg.
+    applies_when_next_navigation_mode: [cruise, open_water_cruise, post_turn_cruise]
+    max_xte_m: 35.0
+    max_heading_error_deg: 8.0
+    max_yaw_rate_deg_s: 0.5
+    max_cross_track_rate_mps: 0.30
+    speed_ramp_mps2: 0.30
+  vessel_profile:
+    length_overall_m: 45.0
+    propulsion_layout: 3_fixed_main_propellers_2_tunnel_thrusters_2_rudders
+    parameter_source: mock_data
+    parameter_confidence: C
+  visualization:
+    hide_internal_waypoint_labels: true
+    show_captain_visible_gates: true
+  route_execution:
+    enabled: true
+    mode: turn_aware_smooth_path
+    source: waypoint_plan
+    sample_spacing_m: 55.0
+    tangent_scale: 0.65
+    default_wheel_over_distance_m: 300.0
+    min_corner_cut_distance_m: 60.0
+    max_corner_cut_ratio: 0.82
+    min_turn_angle_deg: 1.0
+    switch_radius_m: 55.0
+    final_switch_radius_m: 35.0
+    missed_after_distance_m: 90.0
+    lookahead_m: 120.0
+    lookahead_m_by_navigation_mode:
+      cruise: 145.0
+      decel_preparation: 160.0
+      long_planned_turn: 120.0
+      upper_turn_exit: 125.0
+      upper_recovery: 135.0
+      counter_turn: 145.0
+      lower_turn_entry: 135.0
+      lower_recovery: 120.0
+      final_line_up: 105.0
+      final_approach: 90.0
+      standby_approach: 70.0
+      final_hold_approach: 55.0
+    max_switch_xte_ratio: 1.00
+    rejoin_ratio: 0.45
+    gate_blocked_speed_ratio: 0.70
+    min_gate_blocked_speed_mps: 3.0
+    parameter_source: mock_data
+    parameter_confidence: C
+    note: C-level RouteExecutionPlan generator converts captain-visible route intent and planner shape points into wheel-over rounded controller-facing samples.
+  captain_visible_gates:
+    - {id: start, role: start, local_xy_m: [0.0, 0.0], required: true, coordinate_confidence: C}
+    - {id: cruise_decel_gate, role: planned_speed_reduction_before_turn, local_xy_m: [2800.0, 0.0], required: true, coordinate_confidence: C}
+    - {id: s_turn_entry_gate, role: begin_planned_s_turn, local_xy_m: [3400.0, 0.0], required: true, coordinate_confidence: C}
+    - {id: upper_turn_region, role: pass_upper_side_of_route, local_xy_m: [5400.0, 160.0], required: true, coordinate_confidence: C}
+    - {id: crossover_gate, role: change_to_lower_side, local_xy_m: [6200.0, -30.0], required: true, coordinate_confidence: C}
+    - {id: lower_recovery_gate, role: recover_from_lower_side, local_xy_m: [7300.0, -160.0], required: true, coordinate_confidence: C}
+    - {id: final_approach_gate, role: line_up_for_final_approach, local_xy_m: [7550.0, -150.0], required: true, coordinate_confidence: C}
+    - {id: standby_gate, role: low_speed_standby_before_work_point, local_xy_m: [7900.0, -45.0], required: true, coordinate_confidence: C}
+    - {id: final_work_point, role: final_hold_or_work_point, local_xy_m: [8050.0, 0.0], required: true, coordinate_confidence: C}
+  waypoint_plan:
+    points:
+      - {id: wp0, index: 0, local_xy_m: [0.0, 0.0], role: start, coordinate_confidence: C}
+      - {id: wp1, index: 1, local_xy_m: [2800.0, 0.0], role: cruise_decel_gate, coordinate_confidence: C}
+      - {id: wp2, index: 2, local_xy_m: [3400.0, 0.0], role: s_turn_entry_gate, coordinate_confidence: C}
+      - {id: wp3, index: 3, local_xy_m: [3900.0, 25.0], role: planner_internal_shape, coordinate_confidence: C}
+      - {id: wp4, index: 4, local_xy_m: [4400.0, 75.0], role: planner_internal_shape, coordinate_confidence: C}
+      - {id: wp5, index: 5, local_xy_m: [4900.0, 130.0], role: planner_internal_shape, coordinate_confidence: C}
+      - {id: wp6, index: 6, local_xy_m: [5400.0, 160.0], role: upper_turn_region, coordinate_confidence: C}
+      - {id: wp7, index: 7, local_xy_m: [5900.0, 110.0], role: upper_recovery, coordinate_confidence: C}
+      - {id: wp8, index: 8, local_xy_m: [6400.0, -30.0], role: crossover, coordinate_confidence: C}
+      - {id: wp9, index: 9, local_xy_m: [6900.0, -130.0], role: lower_turn_entry, coordinate_confidence: C}
+      - {id: wp10, index: 10, local_xy_m: [7300.0, -160.0], role: lower_recovery_gate, coordinate_confidence: C}
+      - {id: wp11, index: 11, local_xy_m: [7550.0, -150.0], role: final_approach_gate, coordinate_confidence: C}
+      - {id: wp12, index: 12, local_xy_m: [7750.0, -100.0], role: final_line_up, coordinate_confidence: C}
+      - {id: wp13, index: 13, local_xy_m: [7900.0, -45.0], role: standby_gate, coordinate_confidence: C}
+      - {id: wp14, index: 14, local_xy_m: [8050.0, 0.0], role: final_hold, coordinate_confidence: C}
+  leg_plan:
+    - {id: leg0, from: wp0, to: wp1, planned_cog_deg: 0.0, distance_m: 2800.0, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 8.0, navigation_mode: cruise}
+    - {id: leg1, from: wp1, to: wp2, planned_cog_deg: 0.0, distance_m: 600.0, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 4.2, navigation_mode: decel_preparation}
+    - {id: leg2, from: wp2, to: wp3, planned_cog_deg: 2.86, distance_m: 500.62, xtl_port_m: 90.0, xtl_starboard_m: 90.0, speed_limit_mps: 3.6, navigation_mode: long_planned_turn}
+    - {id: leg3, from: wp3, to: wp4, planned_cog_deg: 5.71, distance_m: 502.49, xtl_port_m: 90.0, xtl_starboard_m: 90.0, speed_limit_mps: 3.5, navigation_mode: long_planned_turn}
+    - {id: leg4, from: wp4, to: wp5, planned_cog_deg: 6.28, distance_m: 503.02, xtl_port_m: 90.0, xtl_starboard_m: 90.0, speed_limit_mps: 3.5, navigation_mode: long_planned_turn}
+    - {id: leg5, from: wp5, to: wp6, planned_cog_deg: 3.43, distance_m: 500.90, xtl_port_m: 100.0, xtl_starboard_m: 100.0, speed_limit_mps: 3.4, navigation_mode: upper_turn_exit}
+    - {id: leg6, from: wp6, to: wp7, planned_cog_deg: 354.29, distance_m: 502.49, xtl_port_m: 100.0, xtl_starboard_m: 100.0, speed_limit_mps: 3.4, navigation_mode: upper_recovery}
+    - {id: leg7, from: wp7, to: wp8, planned_cog_deg: 344.36, distance_m: 519.23, xtl_port_m: 100.0, xtl_starboard_m: 100.0, speed_limit_mps: 3.4, navigation_mode: counter_turn}
+    - {id: leg8, from: wp8, to: wp9, planned_cog_deg: 348.69, distance_m: 509.90, xtl_port_m: 100.0, xtl_starboard_m: 100.0, speed_limit_mps: 3.4, navigation_mode: lower_turn_entry}
+    - {id: leg9, from: wp9, to: wp10, planned_cog_deg: 355.71, distance_m: 401.12, xtl_port_m: 90.0, xtl_starboard_m: 90.0, speed_limit_mps: 3.4, navigation_mode: lower_recovery}
+    - {id: leg10, from: wp10, to: wp11, planned_cog_deg: 2.29, distance_m: 250.20, xtl_port_m: 75.0, xtl_starboard_m: 75.0, speed_limit_mps: 3.4, navigation_mode: final_line_up}
+    - {id: leg11, from: wp11, to: wp12, planned_cog_deg: 14.04, distance_m: 206.16, xtl_port_m: 70.0, xtl_starboard_m: 70.0, speed_limit_mps: 2.8, navigation_mode: final_approach}
+    - {id: leg12, from: wp12, to: wp13, planned_cog_deg: 20.14, distance_m: 159.77, xtl_port_m: 45.0, xtl_starboard_m: 45.0, speed_limit_mps: 1.8, navigation_mode: standby_approach}
+    - {id: leg13, from: wp13, to: wp14, planned_cog_deg: 16.70, distance_m: 156.61, xtl_port_m: 35.0, xtl_starboard_m: 35.0, speed_limit_mps: 0.8, navigation_mode: final_hold_approach}
+  turn_plan:
+    - {at: wp2, inbound_leg: leg1, outbound_leg: leg2, turn_direction: port, turn_radius_m: 1200.0, max_rot_deg_s: 0.5, wheel_over_distance_m: 450.0, target_speed_mps: 4.2, parameter_confidence: C}
+    - {at: wp5, inbound_leg: leg4, outbound_leg: leg5, turn_direction: starboard, turn_radius_m: 1200.0, max_rot_deg_s: 0.5, wheel_over_distance_m: 360.0, target_speed_mps: 3.8, parameter_confidence: C}
+    - {at: wp7, inbound_leg: leg6, outbound_leg: leg7, turn_direction: starboard, turn_radius_m: 1000.0, max_rot_deg_s: 0.6, wheel_over_distance_m: 360.0, target_speed_mps: 3.6, parameter_confidence: C}
+    - {at: wp8, inbound_leg: leg7, outbound_leg: leg8, turn_direction: port, turn_radius_m: 1000.0, max_rot_deg_s: 0.6, wheel_over_distance_m: 340.0, target_speed_mps: 3.6, parameter_confidence: C}
+    - {at: wp10, inbound_leg: leg9, outbound_leg: leg10, turn_direction: port, turn_radius_m: 700.0, max_rot_deg_s: 0.7, wheel_over_distance_m: 220.0, target_speed_mps: 3.4, parameter_confidence: C}
+    - {at: wp12, inbound_leg: leg11, outbound_leg: leg12, turn_direction: port, turn_radius_m: 220.0, max_rot_deg_s: 0.9, wheel_over_distance_m: 90.0, target_speed_mps: 1.8, parameter_confidence: C}
+    - {at: wp13, inbound_leg: leg12, outbound_leg: leg13, turn_direction: starboard, turn_radius_m: 180.0, max_rot_deg_s: 0.6, wheel_over_distance_m: 50.0, target_speed_mps: 0.8, parameter_confidence: C}
+  propulsion_policy:
+    cruise: {main_propellers: equalized_forward_thrust, tunnel_thrusters: locked_out, rudders: primary_heading_control}
+    planned_turning: {main_propellers: allow_limited_differential, tunnel_thrusters: locked_or_derated, rudders: primary_heading_control}
+    final_approach_or_hold: {main_propellers: limited_forward_reverse, tunnel_thrusters: available_with_limits, rudders: secondary}
+  safety_corridor:
+    xte_semantics: XTL exceedance requests safety-supervisor action; it must not directly bypass controller or allocator limits.
+    nominal_xte_target_m: 35.0
+    max_normal_xte_m: 45.0
+    caution_ratio: 0.7
+    hold_ratio: 1.0
+    abort_ratio: 1.3
+    hard_xtl_source: leg_plan.xtl_port_m_and_xtl_starboard_m
+    response_sequence: [reduce_speed, rejoin_corridor, hold_or_manual_handover, abort_escape]
+  validation_policy:
+    require_final_waypoint_reached: true
+    require_route_shape_coverage: true
+    xte_limit_source: leg_plan
+    max_normal_cross_track_error_m: 45.0
+    max_caution_xte_ratio: 0.70
+    min_route_side_coverage_ratio: 0.55
+    max_route_intent_lateral_gap_m: 25.0
+  compatibility_layer:
+    status: active
+    note: Guidance now consumes RouteExecutionPlan turn-aware smooth samples when route_execution.enabled=true; legacy waypoint_gates remain for comparison and fallback.
+  waypoint_gates:
+    - {index: 1, mode: fly_by, switch_radius_m: 140.0, wheel_over_distance_m: 140.0, max_cross_track_m: 25.0, missed_after_distance_m: 100.0, speed_limit_mps: 8.0, lookahead_m: 240.0, rejoin_cross_track_m: 22.0, gate_blocked_speed_mps: 5.0}
+    - {index: 2, mode: fly_by, switch_radius_m: 120.0, wheel_over_distance_m: 280.0, max_cross_track_m: 120.0, missed_after_distance_m: 100.0, speed_limit_mps: 4.8, lookahead_m: 110.0, rejoin_cross_track_m: 35.0, gate_blocked_speed_mps: 3.2}
+    - {index: 3, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 220.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, speed_limit_mps: 4.6, lookahead_m: 110.0, rejoin_cross_track_m: 35.0, gate_blocked_speed_mps: 3.2}
+    - {index: 4, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 220.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, speed_limit_mps: 4.6, lookahead_m: 115.0, rejoin_cross_track_m: 35.0, gate_blocked_speed_mps: 3.2}
+    - {index: 5, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 240.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, speed_limit_mps: 4.5, lookahead_m: 115.0, rejoin_cross_track_m: 38.0, gate_blocked_speed_mps: 3.1}
+    - {index: 6, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 220.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, speed_limit_mps: 4.4, lookahead_m: 120.0, rejoin_cross_track_m: 40.0, gate_blocked_speed_mps: 3.1}
+    - {index: 7, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 250.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, speed_limit_mps: 4.2, lookahead_m: 120.0, rejoin_cross_track_m: 40.0, gate_blocked_speed_mps: 3.0}
+    - {index: 8, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 230.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, max_switch_speed_mps: 4.8, speed_limit_mps: 4.2, lookahead_m: 120.0, rejoin_cross_track_m: 40.0, gate_blocked_speed_mps: 3.0}
+    - {index: 9, mode: fly_by, switch_radius_m: 90.0, wheel_over_distance_m: 220.0, max_cross_track_m: 120.0, missed_after_distance_m: 90.0, max_switch_speed_mps: 4.8, speed_limit_mps: 4.2, lookahead_m: 120.0, rejoin_cross_track_m: 38.0, gate_blocked_speed_mps: 3.0}
+    - {index: 10, mode: fly_by, switch_radius_m: 80.0, wheel_over_distance_m: 160.0, max_cross_track_m: 160.0, missed_after_distance_m: 80.0, max_switch_speed_mps: 4.6, speed_limit_mps: 4.2, lookahead_m: 130.0, rejoin_cross_track_m: 45.0, gate_blocked_speed_mps: 3.0}
+    - {index: 11, mode: fly_by, switch_radius_m: 70.0, wheel_over_distance_m: 120.0, max_cross_track_m: 50.0, missed_after_distance_m: 70.0, max_switch_speed_mps: 4.2, speed_limit_mps: 3.6, lookahead_m: 120.0, rejoin_cross_track_m: 35.0, gate_blocked_speed_mps: 2.4}
+    - {index: 12, mode: fly_by, switch_radius_m: 60.0, wheel_over_distance_m: 100.0, max_cross_track_m: 35.0, missed_after_distance_m: 60.0, max_switch_speed_mps: 3.2, speed_limit_mps: 2.8, lookahead_m: 90.0, rejoin_cross_track_m: 25.0, gate_blocked_speed_mps: 1.8}
+    - {index: 13, mode: fly_by, switch_radius_m: 45.0, wheel_over_distance_m: 70.0, max_cross_track_m: 25.0, missed_after_distance_m: 45.0, max_heading_error_deg: 25.0, max_switch_speed_mps: 2.4, speed_limit_mps: 1.8, lookahead_m: 60.0, rejoin_cross_track_m: 18.0, gate_blocked_speed_mps: 1.2}
+    - {index: 14, mode: final_hold, switch_radius_m: 25.0}
+
+speed_validation_plan:
+  inherited_baseline:
+    scenario_id: 001_straight_calm
+    speed_mps: 8.0
+    purpose: Preserve the 45m crewboat straight-line cruise baseline before every long-route regression run.
+  current_level:
+    id: V4_long_captain_route
+    cruise_speed_mps: 8.0
+    planned_turn_speed_mps: 3.6
+    planned_counter_turn_recovery_speed_mps: 3.4
+    terminal_capture_speed_mps: 1.2
+    purpose: Prove sustained cruise before long-distance planned maneuvering and final hold.
+
+environment:
+  wind: {speed_mps: 0.0, direction_deg: 0.0}
+  current: {speed_mps: 0.0, direction_deg: 0.0}
+  wave: {hs_m: 0.0, direction_deg: 0.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.6}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.4}
+
+thrusters:
+  count: 7
+  failures: []
+
+validation:
+  corner_heading_transition_radius_m: 80.0
+  heading_min_forward_speed_mps: 1.5
+  course_over_ground_min_forward_speed_mps: 1.5
+
+tuning:
+  guidance:
+    intermediate_capture_radius: 50.0
+    intermediate_overrun_radius: 65.0
+    max_transit_speed: 8.0
+    minimum_steerage_speed: 2.0
+    slow_down_dist: 650.0
+    final_capture_radius: 60.0
+    final_capture_speed: 0.35
+    final_handoff_speed: 2.3
+    final_capture_max_cross_track_m: 45.0
+    final_reacquire_cross_track_m: 35.0
+    final_reacquire_min_speed_mps: 1.2
+    terminal_decel_use_position_error: true
+    final_approach_lookahead_m: 80.0
+    final_approach_use_adaptive_los: false
+    turn_no_slowdown_angle_deg: 5.0
+    turn_speed_15deg: 5.2
+    turn_speed_45deg: 4.5
+    turn_speed_90deg: 3.8
+    turn_speed_180deg: 2.8
+    turn_slow_down_dist_15deg: 520.0
+    turn_slow_down_dist_45deg: 420.0
+    turn_slow_down_dist_90deg: 520.0
+    turn_slow_down_dist_180deg: 620.0
+    heading_cmd_rate_limit_deg_s: 5.0
+    homing_threshold_m: 70.0
+    homing_max_approach_angle_deg: 16.0
+    homing_lookahead_m: 420.0
+    turn_recovery_gate_enabled: true
+    turn_recovery_require_cruise_mode: true
+    turn_recovery_max_xte_m: 35.0
+    turn_recovery_max_heading_error_deg: 8.0
+    turn_recovery_max_yaw_rate_deg_s: 0.5
+    turn_recovery_max_cross_track_rate_mps: 0.30
+    turn_recovery_speed_margin_mps: 0.5
+    turn_recovery_speed_ramp_mps2: 0.30
+    reset_sideslip_on_waypoint_switch: true
+    use_adaptive_los: false
+    kappa_ilos: 0.0
+    delta_min_coeff: 2.2
+    gamma_lookahead: 0.25
+  thrust_allocation:
+    main_equalization_yaw_deadband_kNm: 30.0
+    main_equalization_lateral_deadband_kN: 0.5
+    side_thruster_derate_start_speed_mps: 2.5
+    side_thruster_derate_decay_per_mps: 0.7
+    side_thruster_lockout_speed_mps: 4.6
+    side_thruster_emergency_unlock_max_speed_mps: 4.6
+    side_thruster_lateral_deadband_kN: 0.5
+    side_thruster_yaw_emergency_kNm: 220.0
+  control:
+    coordinate_conventions:
+      yaw_torque_sign_cruise: 1.0
+      yaw_torque_sign_dp: 1.0
+    min_yaw_moment_cruise: 300000.0
+    min_yaw_moment_error_deg: 12.0
+    max_torque_z: 520000.0
+    gains:
+      yaw:
+        kp: 65000.0
+        ki: 0.0
+        kd: 650000.0
+        k_robust: 300.0
+        phi: 0.5
+    speed_drag_feedforward:
+      linear_N_per_mps: 3500.0
+      quadratic_N_per_mps2: 280.0
+
+expected:
+  pass_fail_basis: 45m crewboat executes a long captain-intent route with sparse visible gates, sustained 8.0 m/s cruise, long S-turn speed reduction, normal XTE target compliance, hard-XTL safety compliance, final approach, and nominal final hold.
+  target_speed_mps: 8.0
+  min_peak_speed_mps: 7.7
+  min_mean_transit_speed_mps: 4.2
+  max_speed_overshoot_mps: 1.0
+  max_arrival_time_s: 2100
+  arrival_radius_m: 45
+  final_waypoint_reached: true
+  max_final_position_error_m: 25
+  max_final_speed_mps: 0.35
+  max_cross_track_error_m: 45
+  max_route_plan_caution_excess_m: 0
+  max_route_plan_xte_excess_m: 0
+  max_route_plan_xte_ratio: 0.70
+  max_route_intent_lateral_gap_m: 25
+  min_route_side_coverage_ratio: 0.55
+  should_cover_route_lateral_sides: true
+  max_heading_error_deg: 40
+  max_yaw_rate_deg_s: 4
+  navigation_fault_detected: false
+  should_enter_degraded_mode: false
+  should_not_command_hard_turn: true

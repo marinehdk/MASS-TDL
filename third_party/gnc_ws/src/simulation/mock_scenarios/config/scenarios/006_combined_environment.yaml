@@ -1,0 +1,49 @@
+scenario_id: 006_combined_environment
+scenario_class: environmental_disturbance
+description: Combined wind, current, and wave disturbance on a multi-leg route.
+validation_objective: Verify tracking robustness when wind, current, and mild wave drift act together.
+seed: 106
+duration_s: 620
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 2.8, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 2.8
+  waypoints:
+    - [0.0, 0.0]
+    - [300.0, 0.0]
+    - [650.0, 120.0]
+    - [1000.0, 120.0]
+
+environment:
+  wind: {speed_mps: 9.0, direction_deg: 60.0}
+  current:
+    speed_mps: 0.6
+    direction_deg: 110.0
+    tide_speed_mps: 0.5
+    tide_direction_deg: 110.0
+    circulation_speed_mps: 0.2
+    circulation_direction_deg: 40.0
+  wave: {hs_m: 0.9, direction_deg: 45.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 1.0}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.04, accel_noise_mps2: 0.04}
+  compass: {rate_hz: 10, noise_std_deg: 0.6}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Tracking remains bounded and turn recovery does not oscillate.
+  max_cross_track_error_m: 35
+  max_heading_error_deg: 15
+  should_publish_environment_load: true
+  should_not_oscillate_after_turn: true

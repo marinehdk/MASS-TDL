@@ -1,0 +1,243 @@
+schema_version: 0.1
+purpose: "Contract for mock-data-driven MASS ADAS scenario development."
+
+data_policy:
+  required_parameter_source: mock_data
+  required_parameter_confidence: C
+  real_data_transition_rule: "Replace adapters and recalibrate YAML parameters; do not rewrite mission, safety, guidance, control, or allocation logic."
+
+stable_interfaces:
+  navigation_state:
+    mock_topics:
+      - /ship/odometry
+      - /mock/gnss/odometry
+      - /mock/imu
+      - /mock/heading
+    real_data_adapter_expected: true
+  environment_state:
+    mock_topics:
+      - /env/wind_params
+      - /env/ocean_currents
+      - /env/total_load
+    real_data_adapter_expected: true
+  actuator_health:
+    mock_topics:
+      - /thruster/health_status
+      - /inject_fault
+    real_data_adapter_expected: true
+  route_plan:
+    mock_sources:
+      - scenario_yaml:route_plan
+      - scenario_yaml:own_ship.waypoints
+    current_compatibility_layer:
+      - route_plan.waypoint_gates
+    planned_topics:
+      - /mission/route_plan
+      - /mission/active_leg
+      - /mission/active_turn
+      - /navigation/route_corridor_status
+      - /navigation/speed_plan_status
+    real_data_adapter_expected: true
+  observability:
+    current_topics:
+      - /mock/scenario_status
+      - /safety/status
+      - /safety/abort_request
+      - /captain/alert
+      - /navigation/status
+      - /actuator/capability
+      - /safety/command_limits
+      - /mission/phase
+      - /mission/active_gate
+      - /mission/status
+    planned_topics: []
+
+metric_sources:
+  pass_fail_basis:
+    source: scenario_yaml
+    observable_now: true
+    interface: expected.pass_fail_basis
+  arrival_radius_m:
+    source: scenario_yaml_or_default
+    observable_now: true
+    interface: expected.arrival_radius_m or own_ship.arrival_radius_m
+  final_waypoint_reached:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  arrival_time_s:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_arrival_time_s:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  target_speed_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_peak_speed_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_mean_transit_speed_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_speed_overshoot_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_cross_track_error_m:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_route_intent_lateral_gap_m:
+    source: ship_dynamics_csv_plus_scenario_route
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_route_plan_xte_excess_m:
+    source: route_plan_segment_limits
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_route_plan_caution_excess_m:
+    source: route_plan_segment_limits_times_safety_corridor_caution_ratio
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_route_plan_caution_ratio:
+    source: route_plan_segment_limits_times_safety_corridor_caution_ratio
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_route_plan_xte_ratio:
+    source: route_plan_segment_limits
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  post_turn_recovery_observed:
+    source: ship_dynamics_csv_plus_route_plan_speed_recovery_policy
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_post_turn_recovery_peak_speed_mps:
+    source: ship_dynamics_csv_plus_route_plan_speed_recovery_policy
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_route_side_coverage_ratio:
+    source: ship_dynamics_csv_plus_scenario_route
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  should_cover_route_lateral_sides:
+    source: ship_dynamics_csv_plus_scenario_route
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_heading_error_deg:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_yaw_rate_deg_s:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_final_position_error_m:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_final_position_error_m:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_final_speed_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_forward_speed_mps:
+    source: ship_dynamics_csv
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  min_channel_margin_m:
+    source: ship_dynamics_csv_plus_scenario_channel_width
+    observable_now: true
+    interface: scenario_metrics_from_csv
+  max_dead_reckoning_drift_m:
+    source: navigation_status_or_fusion_diagnostics
+    observable_now: false
+    interface: /navigation/status
+  max_stopping_distance_m:
+    source: mission_or_metrics_extension
+    observable_now: false
+    interface: scenario_metrics_from_csv extension
+  max_yaw_saturation_duration_s:
+    source: controller_or_allocator_diagnostics
+    observable_now: false
+    interface: /actuator/capability
+  max_second_overshoot_deg:
+    source: manoeuvre_metrics_extension
+    observable_now: false
+    interface: scenario_metrics_from_csv extension
+  should_publish_arrival_status:
+    source: mission_status
+    observable_now: true
+    interface: /mission/phase
+  should_enter_hold_or_manual_handover:
+    source: mission_status
+    observable_now: true
+    interface: /mission/phase
+  should_not_keep_reissuing_large_forward_thrust:
+    source: command_limiter_or_controller_diagnostics
+    observable_now: false
+    interface: /safety/command_limits
+  should_report_environment_load:
+    source: environment_state
+    observable_now: true
+    interface: /env/total_load
+  should_publish_environment_load:
+    source: environment_state
+    observable_now: true
+    interface: /env/total_load
+  max_environment_force_n:
+    source: environment_state
+    observable_now: true
+    interface: /env/total_load
+  should_detect_persistent_sideslip:
+    source: navigation_or_safety_status
+    observable_now: false
+    interface: /safety/status
+  should_not_zero_sway_force_in_hold_mode:
+    source: controller_diagnostics
+    observable_now: false
+    interface: /safety/command_limits
+  should_not_oscillate_after_turn:
+    source: manoeuvre_metrics_extension
+    observable_now: true
+    interface: scenario_metrics_from_csv extension
+  should_not_command_hard_turn:
+    source: command_limiter_or_controller_diagnostics
+    observable_now: false
+    interface: /safety/command_limits
+  should_hold_last_safe_command_or_slow_down:
+    source: safety_supervisor
+    observable_now: false
+    interface: /safety/status
+  should_allow_reverse_only_when_explicit:
+    source: command_limiter_or_allocator_diagnostics
+    observable_now: false
+    interface: /actuator/capability
+  should_request_captain_attention_if_margin_low:
+    source: safety_supervisor
+    observable_now: false
+    interface: /captain/alert
+  navigation_fault_detected:
+    source: navigation_status
+    observable_now: true
+    interface: /navigation/status
+  actuator_fault_detected:
+    source: actuator_health
+    observable_now: true
+    interface: /actuator/capability
+  should_enter_degraded_mode:
+    source: safety_supervisor
+    observable_now: true
+    interface: /safety/status
+  should_alert_captain:
+    source: safety_supervisor
+    observable_now: true
+    interface: /captain/alert

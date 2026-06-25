@@ -1,0 +1,118 @@
+schema_version: route_plan_contract.v1
+purpose: >
+  Core route-plan input contract for upgrading mock MASS ADAS validation from
+  final-waypoint arrival to captain-intent safe navigation for a 45m crewboat.
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: >
+    Replace mock adapters with measured voyage, sea-trial, sensor, actuator,
+    and environment data; recalibrate parameters and rerun validation. Mission,
+    safety, guidance, control, and allocation interfaces should not be rewritten.
+
+vessel_profile:
+  id: crewboat_45m_c_mock
+  parameter_source: mock_data
+  parameter_confidence: C
+  length_overall_m: 45.0
+  propulsion_layout:
+    fixed_main_propellers: 3
+    tunnel_thrusters: 2
+    rudders: 2
+  operating_envelopes:
+    cruise_open_water:
+      nominal_speed_mps: 8.0
+      speed_is_hard_limit: false
+      side_thruster_policy: locked_out
+      intent: Keep schedule when the route is straight, the corridor is clear, and margins are healthy.
+    planned_turning:
+      target_speed_range_mps: [3.0, 5.0]
+      max_rot_deg_s_c_level: 1.2
+      turn_radius_m_c_level: [120.0, 300.0]
+      side_thruster_policy: normally_locked_or_derated
+      intent: Reduce speed before curvature; use rudders and main propeller differential first.
+    final_approach_or_hold:
+      target_speed_range_mps: [0.0, 3.0]
+      max_rot_deg_s_c_level: 1.5
+      side_thruster_policy: available_with_limits
+      intent: Prefer position, heading, and safety margin over schedule.
+
+route_plan_required_fields:
+  waypoint_plan:
+    description: Route points are named navigation marks, not only numeric XY points.
+    fields:
+      - id
+      - index
+      - local_xy_m
+      - role
+      - coordinate_confidence
+  leg_plan:
+    description: Each leg carries the planned track, distance, speed, corridor, and mode.
+    fields:
+      - from
+      - to
+      - planned_cog_deg
+      - distance_m
+      - speed_limit_mps
+      - xtl_port_m
+      - xtl_starboard_m
+      - navigation_mode
+  turn_plan:
+    description: Each planned corner has wheel-over and curvature intent.
+    fields:
+      - at
+      - inbound_leg
+      - outbound_leg
+      - turn_direction
+      - turn_radius_m
+      - max_rot_deg_s
+      - wheel_over_distance_m
+      - target_speed_mps
+      - parameter_confidence
+  safety_corridor:
+    description: XTE/XTL response is handled by the Safety Supervisor, not by direct actuator commands.
+    fields:
+      - caution_ratio
+      - hold_ratio
+      - abort_ratio
+      - response_sequence
+  validation_policy:
+    description: Scenario acceptance must verify route-shape intent, not only final-point arrival.
+    fields:
+      - require_final_waypoint_reached
+      - require_route_shape_coverage
+      - max_cross_track_error_m
+      - min_route_side_coverage_ratio
+
+ros2_interface_plan:
+  current_status: yaml_contract_and_scenario_input
+  current_compatibility_layer:
+    - own_ship.waypoints
+    - route_plan.waypoint_gates
+  planned_topics:
+    route_plan: /mission/route_plan
+    active_leg: /mission/active_leg
+    active_turn: /mission/active_turn
+    route_corridor_status: /navigation/route_corridor_status
+    speed_plan_status: /navigation/speed_plan_status
+    captain_intent_status: /mission/captain_intent_status
+  planned_metric_sources:
+    - scenario_metrics_from_csv
+    - validation_observer
+    - mission_supervisor
+    - safety_supervisor
+
+decision_rules:
+  schedule_vs_safety:
+    rule: Safety completion is a constraint; schedule completion is an optimization objective.
+    implication: 8m/s is a calm straight-leg target, not a hard red line in turns or external loads.
+  gate_semantics:
+    rule: A gate is a planned decision zone with position, speed, heading, and margin checks.
+    implication: Passing a waypoint by distance alone is insufficient for captain-intent navigation.
+  xte_xtl_semantics:
+    rule: XTL exceedance triggers graded safety supervision.
+    implication: ROS2/DDS should publish state and requested mode changes; actuators receive limited commands through control/allocation.
+  propulsion_semantics:
+    rule: QP allocation must obey propulsion policy by operating mode.
+    implication: Do not let optimization freely use tunnel thrusters, asymmetric main thrust, or rudders outside the configured envelope.

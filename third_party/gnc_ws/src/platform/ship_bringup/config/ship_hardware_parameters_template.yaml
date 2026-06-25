@@ -1,0 +1,349 @@
+schema_version: 0.1
+document_purpose: "Hardware parameter collection template for MASS ADAS validation"
+project: "02-dynamics"
+created_date: "2026-05-17"
+
+metadata:
+  vessel_name:
+    value: null
+    unit: "-"
+    source: null
+    confidence: D
+    note: "Do not use simulation defaults as real vessel data without confirmation."
+  vessel_type:
+    value: "crewboat_or_workboat"
+    unit: "-"
+    source: "project_assumption"
+    confidence: C
+  parameter_owner:
+    value: null
+    unit: "-"
+    source: null
+    confidence: D
+
+confidence_scale:
+  A: "Drawing, maker data, sea trial report, class document"
+  B: "Design estimate, sister vessel data, nameplate data"
+  C: "Simulation assumption or tuning value"
+  D: "Unknown; must remain null, never default to zero"
+
+hull:
+  loa_m:
+    value: null
+    unit: m
+    source: null
+    confidence: D
+  lpp_m:
+    value: null
+    unit: m
+    source: null
+    confidence: D
+  beam_m:
+    value: null
+    unit: m
+    source: null
+    confidence: D
+  draft_m:
+    value: null
+    unit: m
+    source: null
+    confidence: D
+  displacement_t:
+    value: null
+    unit: t
+    source: null
+    confidence: D
+  mass_kg:
+    value: null
+    unit: kg
+    source: null
+    confidence: D
+  cg_x_m:
+    value: null
+    unit: m
+    frame: base_link
+    source: null
+    confidence: D
+  cg_y_m:
+    value: null
+    unit: m
+    frame: base_link
+    source: null
+    confidence: D
+  izz_kg_m2:
+    value: null
+    unit: kg_m2
+    source: null
+    confidence: D
+
+hydrodynamics:
+  added_mass:
+    X_dot_u:
+      value: null
+      unit: kg
+      source: null
+      confidence: D
+    Y_dot_v:
+      value: null
+      unit: kg
+      source: null
+      confidence: D
+    N_dot_r:
+      value: null
+      unit: kg_m2
+      source: null
+      confidence: D
+  damping:
+    X_u:
+      value: null
+      unit: N_per_mps
+      source: null
+      confidence: D
+    X_uu:
+      value: null
+      unit: N_per_mps2
+      source: null
+      confidence: D
+    Y_v:
+      value: null
+      unit: N_per_mps
+      source: null
+      confidence: D
+    Y_vv:
+      value: null
+      unit: N_per_mps2
+      source: null
+      confidence: D
+    N_r:
+      value: null
+      unit: Nm_per_radps
+      source: null
+      confidence: D
+    N_rr:
+      value: null
+      unit: Nm_per_radps2
+      source: null
+      confidence: D
+  coupling:
+    N_v:
+      value: null
+      unit: Nm_per_mps
+      source: null
+      confidence: D
+    Y_r:
+      value: null
+      unit: N_per_radps
+      source: null
+      confidence: D
+
+actuators:
+  coordinate_frame:
+    value: "base_link: +x forward, +y port, +yaw ccw"
+    unit: "-"
+    source: "software_convention_to_confirm"
+    confidence: C
+  thrusters:
+    - id: t1
+      type: main_propeller
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      angle_default_rad: {value: null, unit: rad, source: null, confidence: D}
+      max_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      min_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      max_power_kW: {value: null, unit: kW, source: null, confidence: D}
+      thrust_rate_limit_N_s: {value: null, unit: N_per_s, source: null, confidence: D}
+      response_delay_s: {value: null, unit: s, source: null, confidence: D}
+      health_feedback_available: {value: null, unit: bool, source: null, confidence: D}
+    - id: t2
+      type: main_propeller
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      angle_default_rad: {value: null, unit: rad, source: null, confidence: D}
+      max_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      min_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      max_power_kW: {value: null, unit: kW, source: null, confidence: D}
+      thrust_rate_limit_N_s: {value: null, unit: N_per_s, source: null, confidence: D}
+      response_delay_s: {value: null, unit: s, source: null, confidence: D}
+      health_feedback_available: {value: null, unit: bool, source: null, confidence: D}
+    - id: t3
+      type: main_propeller
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      angle_default_rad: {value: null, unit: rad, source: null, confidence: D}
+      max_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      min_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      max_power_kW: {value: null, unit: kW, source: null, confidence: D}
+      thrust_rate_limit_N_s: {value: null, unit: N_per_s, source: null, confidence: D}
+      response_delay_s: {value: null, unit: s, source: null, confidence: D}
+      health_feedback_available: {value: null, unit: bool, source: null, confidence: D}
+    - id: tb1
+      type: bow_thruster
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      angle_default_rad: {value: null, unit: rad, source: null, confidence: D}
+      max_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      min_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      max_power_kW: {value: null, unit: kW, source: null, confidence: D}
+      thrust_rate_limit_N_s: {value: null, unit: N_per_s, source: null, confidence: D}
+      response_delay_s: {value: null, unit: s, source: null, confidence: D}
+      health_feedback_available: {value: null, unit: bool, source: null, confidence: D}
+    - id: tb2
+      type: bow_thruster
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      angle_default_rad: {value: null, unit: rad, source: null, confidence: D}
+      max_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      min_thrust_kN: {value: null, unit: kN, source: null, confidence: D}
+      max_power_kW: {value: null, unit: kW, source: null, confidence: D}
+      thrust_rate_limit_N_s: {value: null, unit: N_per_s, source: null, confidence: D}
+      response_delay_s: {value: null, unit: s, source: null, confidence: D}
+      health_feedback_available: {value: null, unit: bool, source: null, confidence: D}
+  rudders:
+    - id: r1
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      rudder_area_m2: {value: null, unit: m2, source: null, confidence: D}
+      max_angle_rad: {value: null, unit: rad, source: null, confidence: D}
+      angle_rate_limit_rad_s: {value: null, unit: rad_per_s, source: null, confidence: D}
+      stall_angle_rad: {value: null, unit: rad, source: null, confidence: D}
+      propeller_wash_model: {value: null, unit: "-", source: null, confidence: D}
+    - id: r2
+      x_m: {value: null, unit: m, source: null, confidence: D}
+      y_m: {value: null, unit: m, source: null, confidence: D}
+      rudder_area_m2: {value: null, unit: m2, source: null, confidence: D}
+      max_angle_rad: {value: null, unit: rad, source: null, confidence: D}
+      angle_rate_limit_rad_s: {value: null, unit: rad_per_s, source: null, confidence: D}
+      stall_angle_rad: {value: null, unit: rad, source: null, confidence: D}
+      propeller_wash_model: {value: null, unit: "-", source: null, confidence: D}
+
+electrical_power:
+  generator_capacity_kW:
+    value: null
+    unit: kW
+    source: null
+    confidence: D
+  propulsion_bus_limit_kW:
+    value: null
+    unit: kW
+    source: null
+    confidence: D
+  hotel_load_kW:
+    value: null
+    unit: kW
+    source: null
+    confidence: D
+  crane_load_kW:
+    value: null
+    unit: kW
+    source: null
+    confidence: D
+  power_priority:
+    value: ["steering", "propulsion", "thrusters", "crane", "hotel_load"]
+    unit: "-"
+    source: "project_assumption"
+    confidence: C
+
+sensors:
+  gnss:
+    update_rate_hz: {value: null, unit: Hz, source: null, confidence: D}
+    position_accuracy_m: {value: null, unit: m, source: null, confidence: D}
+    latency_s: {value: null, unit: s, source: null, confidence: D}
+    supported_fault_modes:
+      value: ["jump", "outage", "drift", "latency"]
+      unit: "-"
+      source: "validation_requirement"
+      confidence: C
+  imu:
+    update_rate_hz: {value: null, unit: Hz, source: null, confidence: D}
+    gyro_bias_rad_s: {value: null, unit: rad_per_s, source: null, confidence: D}
+    accel_bias_m_s2: {value: null, unit: m_per_s2, source: null, confidence: D}
+    latency_s: {value: null, unit: s, source: null, confidence: D}
+  compass:
+    heading_accuracy_deg: {value: null, unit: deg, source: null, confidence: D}
+    update_rate_hz: {value: null, unit: Hz, source: null, confidence: D}
+    latency_s: {value: null, unit: s, source: null, confidence: D}
+  speed_log:
+    speed_accuracy_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+    water_referenced_available: {value: null, unit: bool, source: null, confidence: D}
+
+environment_loads:
+  wind:
+    area_front_m2: {value: null, unit: m2, source: null, confidence: D}
+    area_side_m2: {value: null, unit: m2, source: null, confidence: D}
+    cx: {value: null, unit: "-", source: null, confidence: D}
+    cy: {value: null, unit: "-", source: null, confidence: D}
+    cn: {value: null, unit: "-", source: null, confidence: D}
+  current:
+    coefficient_source: {value: null, unit: "-", source: null, confidence: D}
+  wave:
+    drift_coefficient_source: {value: null, unit: "-", source: null, confidence: D}
+
+safety_limits:
+  cruise:
+    max_speed_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+    max_cross_track_error_m: {value: null, unit: m, source: null, confidence: D}
+    max_heading_error_deg: {value: null, unit: deg, source: null, confidence: D}
+    max_yaw_rate_deg_s: {value: null, unit: deg_per_s, source: null, confidence: D}
+  approach:
+    max_speed_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+    max_cross_track_error_m: {value: null, unit: m, source: null, confidence: D}
+    max_heading_error_deg: {value: null, unit: deg, source: null, confidence: D}
+  berthing:
+    max_speed_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+    max_position_error_m: {value: null, unit: m, source: null, confidence: D}
+    max_heading_error_deg: {value: null, unit: deg, source: null, confidence: D}
+    max_wind_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+    max_current_mps: {value: null, unit: m_per_s, source: null, confidence: D}
+  narrow_channel:
+    min_channel_margin_m: {value: null, unit: m, source: null, confidence: D}
+    max_cross_track_error_m: {value: null, unit: m, source: null, confidence: D}
+
+deck_and_operation_interlocks:
+  passengers_seated_required:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+  transfer_area_clear_required:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+  crane_stowed_required_for_transit:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+  crane_hook_secured_required:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+  person_in_crane_zone_abort:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+  manual_confirmation_required_for_final_approach:
+    value: true
+    unit: bool
+    source: "safety_requirement_to_confirm"
+    confidence: C
+
+validation_mapping:
+  "001_straight_calm":
+    required_parameter_groups: ["hull", "actuators", "hydrodynamics"]
+  "002_s_turn_calm":
+    required_parameter_groups: ["hull.izz_kg_m2", "hydrodynamics.damping", "actuators.rudders"]
+  "003_final_waypoint_hold":
+    required_parameter_groups: ["actuators.thrusters", "hydrodynamics.damping", "safety_limits.berthing"]
+  "004_005_006_environment":
+    required_parameter_groups: ["environment_loads", "actuators.thrusters", "hydrodynamics"]
+  "007_008_sensor_fault":
+    required_parameter_groups: ["sensors", "safety_limits"]
+  "009_010_011_standard_manoeuvre":
+    required_parameter_groups: ["hull", "actuators.rudders", "actuators.thrusters", "electrical_power"]
+  "012_013_captain_operational":
+    required_parameter_groups: ["safety_limits", "deck_and_operation_interlocks", "environment_loads", "actuators"]
+  "014_actuator_fault":
+    required_parameter_groups: ["actuators", "electrical_power", "safety_limits"]

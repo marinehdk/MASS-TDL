@@ -1,0 +1,102 @@
+schema_version: 0.1
+mode: shadow
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace safety limit values with vessel-specific and operation-specific data, then recalibrate thresholds and validation gates without changing the supervisor interfaces.
+
+stale_timeout_s:
+  odometry: 4.0
+  environment_load: 5.0
+  actuator_health: 5.0
+  mission_status: 5.0
+# C-level mock runtime allowance: multi-node ROS2 launches can need several
+# seconds before odometry and actuator-health first samples are all available.
+startup_grace_s: 6.0
+
+phases:
+  default:
+    # C-level mock cruise-capable limit for 45m crewboat straight-line validation.
+    max_speed_mps: 8.8
+    caution_speed_mps: 8.2
+    max_yaw_rate_deg_s: 8.0
+    caution_yaw_rate_deg_s: 5.0
+    max_force_x_n: 200000.0
+    max_force_y_n: 60000.0
+    max_torque_z_nm: 950000.0
+    max_environment_force_n: 250000.0
+    caution_environment_force_n: 120000.0
+    route_corridor:
+      enabled: true
+      use_mission_limit: true
+      caution_ratio: 0.7
+      degraded_ratio: 1.0
+      abort_ratio: 1.3
+      caution_xte_m: 105.0
+      degraded_xte_m: 150.0
+      abort_xte_m: 195.0
+  cruise:
+    # C-level mock cruise-capable limit for 8.0 m/s V3 validation.
+    max_speed_mps: 8.8
+    caution_speed_mps: 8.2
+    max_yaw_rate_deg_s: 6.0
+    caution_yaw_rate_deg_s: 4.0
+    max_force_x_n: 200000.0
+    max_force_y_n: 60000.0
+    max_torque_z_nm: 960000.0
+    max_environment_force_n: 250000.0
+    caution_environment_force_n: 120000.0
+    route_corridor:
+      enabled: true
+      use_mission_limit: true
+      caution_ratio: 0.7
+      degraded_ratio: 1.0
+      abort_ratio: 1.3
+      caution_xte_m: 105.0
+      degraded_xte_m: 150.0
+      abort_xte_m: 195.0
+  approach:
+    max_speed_mps: 1.2
+    caution_speed_mps: 1.0
+    max_yaw_rate_deg_s: 4.0
+    caution_yaw_rate_deg_s: 3.0
+    max_force_x_n: 100000.0
+    max_force_y_n: 60000.0
+    max_torque_z_nm: 450000.0
+    max_environment_force_n: 120000.0
+    caution_environment_force_n: 70000.0
+    route_corridor:
+      enabled: true
+      use_mission_limit: true
+      caution_ratio: 0.7
+      degraded_ratio: 1.0
+      abort_ratio: 1.3
+      caution_xte_m: 35.0
+      degraded_xte_m: 50.0
+      abort_xte_m: 80.0
+  berthing:
+    max_speed_mps: 0.5
+    caution_speed_mps: 0.35
+    max_yaw_rate_deg_s: 2.0
+    caution_yaw_rate_deg_s: 1.0
+    max_force_x_n: 80000.0
+    max_force_y_n: 60000.0
+    max_torque_z_nm: 350000.0
+    max_environment_force_n: 80000.0
+    caution_environment_force_n: 50000.0
+    route_corridor:
+      enabled: true
+      use_mission_limit: true
+      caution_ratio: 0.7
+      degraded_ratio: 1.0
+      abort_ratio: 1.3
+      caution_xte_m: 15.0
+      degraded_xte_m: 25.0
+      abort_xte_m: 40.0
+
+degraded_rules:
+  actuator_fault_status: DEGRADED
+  odometry_stale_status: ABORT_REQUIRED
+  environment_over_limit_status: ABORT_REQUIRED
+  speed_over_limit_status: ABORT_REQUIRED
+  yaw_rate_over_limit_status: ABORT_REQUIRED

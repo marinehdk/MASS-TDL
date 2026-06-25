@@ -1,0 +1,50 @@
+scenario_id: 007_gnss_jump
+scenario_class: sensor_fault
+description: GNSS position jump during waypoint tracking; estimator should reject or degrade.
+validation_objective: Verify navigation fault detection and safe behavior during a short GNSS position jump.
+seed: 107
+duration_s: 520
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [500.0, 0.0]
+    - [1000.0, 100.0]
+
+environment:
+  wind: {speed_mps: 6.0, direction_deg: 60.0}
+  current: {speed_mps: 0.4, direction_deg: 90.0, tide_speed_mps: 0.4, tide_direction_deg: 90.0}
+  wave: {hs_m: 0.5, direction_deg: 45.0}
+
+sensors:
+  gnss:
+    rate_hz: 5
+    noise_std_m: 0.8
+    jump:
+      start_s: 220
+      dx_m: 35.0
+      dy_m: -20.0
+      duration_s: 8
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: GNSS jump is detected and hard turn commands are suppressed.
+  max_cross_track_error_m: 25
+  max_heading_error_deg: 8
+  navigation_fault_detected: true
+  should_enter_degraded_mode: true
+  should_not_command_hard_turn: true

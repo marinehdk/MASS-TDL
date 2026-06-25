@@ -1,0 +1,211 @@
+<?xml version="1.0"?>
+<!--
+  船舶3D模型URDF文件
+  基于45米垂线间长(Ipp)的船舶几何参数
+
+  使用基本几何体构建，无需外部网格文件
+-->
+<robot name="ship">
+
+  <!-- base_link - 由 ship_dynamics_node 通过 TF 发布 -->
+  <!-- 这个link是空的，仅作为TF树的根节点 -->
+  <link name="base_link">
+    <inertial>
+      <mass value="1"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/>
+    </inertial>
+  </link>
+
+  <!-- 船体主体 - 使用几何体构建 -->
+  <link name="hull">
+    <inertial>
+      <mass value="1000000"/>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <inertia ixx="1e8" ixy="0" ixz="0" iyy="1e9" iyz="0" izz="1e8"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="45 11.5 6"/>
+      </geometry>
+      <material name="hull_color">
+        <color rgba="0.25 0.25 0.35 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="45 11.5 6"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 船首 - 三角形前端 -->
+  <link name="bow">
+    <visual>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 9 5.5"/>
+      </geometry>
+      <material name="hull_color">
+        <color rgba="0.25 0.25 0.35 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 9 5.5"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 船尾 - 方型船尾 -->
+  <link name="stern">
+    <visual>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="5 10 5.5"/>
+      </geometry>
+      <material name="hull_color">
+        <color rgba="0.25 0.25 0.35 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -3" rpy="0 0 0"/>
+      <geometry>
+        <box size="5 10 5.5"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 主甲板 -->
+  <link name="deck">
+    <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="42 10.5 0.3"/>
+      </geometry>
+      <material name="deck_color">
+        <color rgba="0.45 0.35 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 驾驶台建筑 -->
+  <link name="bridge">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 8 4"/>
+      </geometry>
+      <material name="bridge_color">
+        <color rgba="0.7 0.7 0.8 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 8 4"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 烟囱 -->
+  <link name="stack">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="1.2" length="3.5"/>
+      </geometry>
+      <material name="stack_color">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 左舷推进器 -->
+  <link name="thruster_port">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="1.2" length="2.5"/>
+      </geometry>
+      <material name="thruster_color">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 右舷推进器 -->
+  <link name="thruster_starboard">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="1.2" length="2.5"/>
+      </geometry>
+      <material name="thruster_color">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- ==================== 关节定义 ==================== -->
+
+  <!-- hull 连接到 base_link -->
+  <joint name="base_to_hull" type="fixed">
+    <parent link="base_link"/>
+    <child link="hull"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- bow 连接到 hull 前端 -->
+  <joint name="hull_to_bow" type="fixed">
+    <parent link="hull"/>
+    <child link="bow"/>
+    <origin xyz="22 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- stern 连接到 hull 后端 -->
+  <joint name="hull_to_stern" type="fixed">
+    <parent link="hull"/>
+    <child link="stern"/>
+    <origin xyz="-22 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- deck 连接到 hull 甲板上 -->
+  <joint name="hull_to_deck" type="fixed">
+    <parent link="hull"/>
+    <child link="deck"/>
+    <origin xyz="-2 0 3.15" rpy="0 0 0"/>
+  </joint>
+
+  <!-- bridge 连接到 deck 上 -->
+  <joint name="deck_to_bridge" type="fixed">
+    <parent link="deck"/>
+    <child link="bridge"/>
+    <origin xyz="10 0 2.15" rpy="0 0 0"/>
+  </joint>
+
+  <!-- stack 连接到 deck 上 -->
+  <joint name="deck_to_stack" type="fixed">
+    <parent link="deck"/>
+    <child link="stack"/>
+    <origin xyz="2 0 2.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 左舷推进器 -->
+  <joint name="hull_to_thruster_port" type="fixed">
+    <parent link="hull"/>
+    <child link="thruster_port"/>
+    <origin xyz="-15 5.8 -2.5" rpy="1.5708 0 0"/>
+  </joint>
+
+  <!-- 右舷推进器 -->
+  <joint name="hull_to_thruster_starboard" type="fixed">
+    <parent link="hull"/>
+    <child link="thruster_starboard"/>
+    <origin xyz="-15 -5.8 -2.5" rpy="1.5708 0 0"/>
+  </joint>
+
+</robot>

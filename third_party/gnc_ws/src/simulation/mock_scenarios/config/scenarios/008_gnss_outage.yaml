@@ -1,0 +1,46 @@
+scenario_id: 008_gnss_outage
+scenario_class: sensor_fault
+description: GNSS outage for 60 seconds; estimator should dead-reckon and announce degraded navigation.
+validation_objective: Verify graceful degradation and bounded dead-reckoning behavior during GNSS outage.
+seed: 108
+duration_s: 520
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [900.0, 0.0]
+
+environment:
+  wind: {speed_mps: 5.0, direction_deg: 80.0}
+  current: {speed_mps: 0.3, direction_deg: 100.0, tide_speed_mps: 0.3, tide_direction_deg: 100.0}
+  wave: {hs_m: 0.4, direction_deg: 90.0}
+
+sensors:
+  gnss:
+    rate_hz: 5
+    noise_std_m: 0.8
+    outage:
+      start_s: 180
+      duration_s: 60
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Outage triggers degraded mode without aggressive steering or unsafe speed-up.
+  navigation_fault_detected: true
+  should_enter_degraded_mode: true
+  should_hold_last_safe_command_or_slow_down: true
+  max_dead_reckoning_drift_m: 80

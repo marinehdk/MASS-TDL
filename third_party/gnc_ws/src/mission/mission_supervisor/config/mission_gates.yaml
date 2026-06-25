@@ -1,0 +1,37 @@
+schema_version: 0.1
+mode: shadow
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace mock mission gates with voyage-plan, port, berth, VTS, and vessel-specific data; recalibrate thresholds and validation gates without changing mission interfaces.
+
+publish_rate_hz: 2.0
+shadow_mode: true
+auto_advance: true
+
+stale_timeout_s:
+  odometry: 2.0
+startup_grace_s: 3.0
+
+gates:
+  precheck_min_observation_s: 0.5
+  decel_distance_m: 250.0
+  report_distance_m: 120.0
+  approach_distance_m: 80.0
+  standby_radius_m: 35.0
+  arrival_radius_m_default: 20.0
+  final_heading_tolerance_deg: 10.0
+  standby_speed_mps: 1.2
+  complete_speed_mps: 0.7
+  max_cross_track_error_m_default: 15.0
+  report_min_dwell_s: 1.0
+  standby_min_dwell_s: 2.0
+
+permissions:
+  mock_vts_clearance: true
+  mock_berth_available: true
+  mock_final_approach_clearance: false
+
+safety:
+  abort_on_safety_request: true
+  allow_recover_from_abort_in_shadow_mode: false

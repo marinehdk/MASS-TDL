@@ -1,0 +1,55 @@
+scenario_id: 005a_current_only_tracking
+scenario_class: environmental_disturbance
+description: Straight track under beam current only; isolates current-load path from wind and wave effects.
+validation_objective: Verify current coefficient loading, current-force magnitude, and guidance behavior under steady cross-current.
+seed: 1051
+duration_s: 560
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [900.0, 0.0]
+
+environment:
+  wind: {speed_mps: 0.0, direction_deg: 90.0}
+  current:
+    speed_mps: 0.8
+    direction_deg: 90.0
+    tide_speed_mps: 0.8
+    tide_direction_deg: 90.0
+  wave: {hs_m: 0.0, direction_deg: 90.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.8}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.03}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+tuning:
+  guidance:
+    # C-level mock tuning for a 45m crewboat in steady 0.8 m/s beam current.
+    # Lower ALOS adaptation to avoid sideslip-estimator phase lag driving S-turn oscillation.
+    gamma_alos: 0.005
+    slow_down_dist: 120.0
+    final_capture_speed: 1.2
+
+expected:
+  pass_fail_basis: Current-only isolation should use loaded current coefficients and remain bounded.
+  max_environment_force_n: 50000
+  max_cross_track_error_m: 30
+  # C-level mock gate: steady beam current permits transient crab/course error up to 15 deg.
+  max_heading_error_deg: 15
+  should_detect_persistent_sideslip: true
+  should_not_zero_sway_force_in_hold_mode: true

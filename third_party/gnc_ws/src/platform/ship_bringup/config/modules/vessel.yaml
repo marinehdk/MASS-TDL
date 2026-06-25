@@ -1,0 +1,3 @@
+# Vessel physical parameters reference.
+# Current vessel parameters still live inside ship_config.yaml under ship_dynamics_node, ship_control_node, and thrust_allocation_node.
+# Keep this file as the target location for the future industrial split.

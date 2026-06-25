@@ -1,0 +1,18 @@
+# Generated reference split from ship_config.yaml. Not launch-active yet.
+sensor_fusion_node:
+  ros__parameters:
+    chi2_threshold: 12.59
+    nom_damp_psi: -1000000.0
+    nom_damp_x: -7000.0
+    nom_damp_y: -40000.0
+    nom_mass_psi: 60000000
+    nom_mass_x: 250000
+    nom_mass_y: 400000
+    q_pos: 0.01
+    q_psi: 0.001
+    q_r: 0.01
+    q_vel: 0.1
+    r_pos: 5.0
+    r_psi: 0.1
+    r_r: 0.5
+    r_vel: 2.0

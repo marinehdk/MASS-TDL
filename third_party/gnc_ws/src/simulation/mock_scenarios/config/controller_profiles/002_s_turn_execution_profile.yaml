@@ -1,0 +1,95 @@
+execution_profile_id: 002_s_turn_execution_profile
+schema_version: controller_execution_profile.v1
+scenario_ref: 002_s_turn_calm
+route_profile_ref: 002_s_turn_route_profile_45m_crewboat
+compatible_with_current_launch: true
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Recalibrate gains, actuator limits, and speed envelopes using vessel trials; keep interfaces stable.
+
+adapter_contract:
+  current_status: compatibility_layer
+  current_launch_source: src/simulation/mock_scenarios/config/scenarios/002_s_turn_calm.yaml
+  current_guidance_inputs:
+    - own_ship.waypoints
+    - route_plan.waypoint_gates
+    - tuning.guidance
+  future_runtime_inputs:
+    - mission_plan
+    - route_profile
+    - safety_limits
+    - environment_overlay
+
+guidance_execution_policy:
+  los_mode: route_gate_los
+  max_transit_speed_mps: 8.0
+  minimum_steerage_speed_mps: 2.0
+  terminal_decel:
+    slow_down_dist_m: 520.0
+    final_capture_radius_m: 60.0
+    final_capture_speed_mps: 0.35
+    final_handoff_speed_mps: 2.3
+    final_capture_max_cross_track_m: 45.0
+    final_reacquire_cross_track_m: 35.0
+    final_reacquire_min_speed_mps: 1.2
+  route_memory:
+    use_adaptive_los: false
+    reset_sideslip_on_waypoint_switch: true
+    final_approach_use_adaptive_los: false
+
+control_execution_policy:
+  coordinate_conventions:
+    yaw_torque_sign_cruise: 1.0
+    yaw_torque_sign_dp: 1.0
+  yaw_authority:
+    min_yaw_moment_cruise_nm: 300000.0
+    min_yaw_moment_error_deg: 12.0
+    max_torque_z_nm: 520000.0
+  yaw_gains:
+    kp: 65000.0
+    ki: 0.0
+    kd: 650000.0
+    k_robust: 300.0
+    phi: 0.5
+  speed_drag_feedforward:
+    linear_N_per_mps: 3500.0
+    quadratic_N_per_mps2: 280.0
+
+propulsion_execution_policy:
+  cruise:
+    main_propellers: equalized_forward_thrust
+    tunnel_thrusters: locked_out
+    rudders: primary_heading_control
+  planned_turning:
+    main_propellers: allow_limited_differential
+    tunnel_thrusters: locked_or_derated
+    rudders: primary_heading_control
+  final_approach_or_hold:
+    main_propellers: limited_forward_reverse
+    tunnel_thrusters: available_with_limits
+    rudders: secondary
+  allocation_limits:
+    main_equalization_yaw_deadband_kNm: 30.0
+    main_equalization_lateral_deadband_kN: 0.5
+    side_thruster_derate_start_speed_mps: 2.0
+    side_thruster_derate_decay_per_mps: 0.7
+    side_thruster_lockout_speed_mps: 4.0
+    side_thruster_emergency_unlock_max_speed_mps: 4.0
+    side_thruster_lateral_deadband_kN: 0.5
+    side_thruster_yaw_emergency_kNm: 220.0
+
+observability_requirements:
+  required_topics:
+    - /mission/phase
+    - /mission/active_gate
+    - /navigation/route_corridor_status
+    - /control/cmd_tau
+    - /allocation/actuator_commands
+  required_metrics:
+    - max_cross_track_error_m
+    - max_route_intent_lateral_gap_m
+    - min_route_side_coverage_ratio
+    - max_final_position_error_m
+    - max_final_speed_mps

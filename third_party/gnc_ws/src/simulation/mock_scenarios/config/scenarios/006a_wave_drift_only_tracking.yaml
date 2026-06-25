@@ -1,0 +1,75 @@
+scenario_id: 006a_wave_drift_only_tracking
+scenario_class: environmental_disturbance
+description: Multi-leg route under wave drift only; isolates low-frequency wave drift from first-order wave excitation.
+validation_objective: Verify QTF loading, drift-load magnitude, and multi-leg tracking without wind/current coupling.
+seed: 1061
+duration_s: 960
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 2.8, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 2.8
+  waypoints:
+    - [0.0, 0.0]
+    - [300.0, 0.0]
+    - [650.0, 120.0]
+    - [1000.0, 120.0]
+
+environment:
+  wind: {speed_mps: 0.0, direction_deg: 60.0}
+  current:
+    speed_mps: 0.0
+    direction_deg: 110.0
+    tide_speed_mps: 0.0
+    tide_direction_deg: 110.0
+  wave: {hs_m: 0.9, direction_deg: 45.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 1.0}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.04, accel_noise_mps2: 0.04}
+  compass: {rate_hz: 10, noise_std_deg: 0.6}
+
+thrusters:
+  count: 7
+  failures: []
+
+validation:
+  # C-level mock validation for a multi-leg route: heading error is not assessed
+  # as straight-track error while the vessel is inside a planned waypoint turn.
+  corner_heading_transition_radius_m: 60.0
+  # Below this speed the vessel is in terminal capture/holding, where final pose
+  # metrics are more meaningful than route-heading metrics.
+  heading_min_forward_speed_mps: 0.5
+  course_over_ground_min_forward_speed_mps: 0.5
+
+tuning:
+  guidance:
+    # C-level mock tuning for a 45m crewboat on a multi-leg route in small waves.
+    # Lower ALOS adaptation prevents beta_hat saturation after waypoint turns.
+    gamma_alos: 0.005
+    intermediate_capture_radius: 20.0
+    max_transit_speed: 1.5
+    minimum_steerage_speed: 0.8
+    kappa_ilos: 0.0
+    delta_min_coeff: 2.0
+    gamma_lookahead: 0.25
+    slow_down_dist: 120.0
+    final_capture_speed: 1.2
+  control:
+    # C-level mock control authority aligned with the validated multi-leg
+    # calm-water case; needed to arrest yaw inertia after planned turns.
+    min_yaw_moment_cruise: 960000.0
+
+expected:
+  pass_fail_basis: Wave-drift-only isolation should use QTF drift load instead of raw first-order wave load.
+  max_environment_force_n: 5000
+  max_cross_track_error_m: 35
+  max_heading_error_deg: 15
+  should_publish_environment_load: true
+  should_not_oscillate_after_turn: true

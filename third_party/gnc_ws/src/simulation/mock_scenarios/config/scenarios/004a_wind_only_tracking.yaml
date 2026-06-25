@@ -1,0 +1,51 @@
+scenario_id: 004a_wind_only_tracking
+scenario_class: environmental_disturbance
+description: Straight track under beam wind only; isolates wind-load path from current and wave effects.
+validation_objective: Verify wind model magnitude, safety response, and course-keeping behavior without wave/current coupling.
+seed: 1041
+duration_s: 520
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [900.0, 0.0]
+
+environment:
+  wind: {speed_mps: 10.0, direction_deg: 90.0, anemometer_height_m: 10.0}
+  current: {speed_mps: 0.0, direction_deg: 0.0}
+  wave: {hs_m: 0.0, direction_deg: 90.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.8}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.03}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+tuning:
+  guidance:
+    # C-level mock tuning for a 45m crewboat in beam wind.
+    # Keep these parameterized so real sea-trial data can calibrate them later.
+    gamma_alos: 0.005
+    slow_down_dist: 120.0
+    final_capture_speed: 1.2
+
+expected:
+  pass_fail_basis: Wind-only isolation should remain bounded and report a realistic wind load.
+  max_environment_force_n: 30000
+  max_cross_track_error_m: 25
+  # C-level mock gate: 10 m/s beam wind allows transient crab/course error up to 15 deg.
+  max_heading_error_deg: 15
+  max_yaw_rate_deg_s: 6
+  should_report_environment_load: true

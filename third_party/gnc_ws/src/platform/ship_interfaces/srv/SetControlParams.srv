@@ -1,0 +1,6 @@
+# Set control parameters service
+float64[] params  # Control parameters
+string param_name # Parameter name
+---
+bool success      # Success flag
+string message    # Response message
