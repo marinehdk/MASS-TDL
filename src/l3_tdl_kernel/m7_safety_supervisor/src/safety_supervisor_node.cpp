@@ -165,7 +165,7 @@ void SafetySupervisorNode::setup_event_subscriptions(
   opts.callback_group = cb_group_events_;
 
   sub_override_cmd_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
-    "/l3/m4/reactive_override_cmd", qos_events,
+    "/l3/m5/reactive_override_cmd", qos_events,
     [this](l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr const& msg) {
       on_override_cmd(msg);
     },
