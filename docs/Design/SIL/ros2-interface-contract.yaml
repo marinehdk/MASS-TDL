@@ -1,0 +1,71 @@
+topic_contract_version: 1
+legacy_allowed_until: "2026-07-15"
+
+namespaces:
+  l3_internal_prefix: "/l3"
+  sil_prefix: "/sil"
+
+qos_profiles:
+  state_latched:   { reliability: reliable, durability: transient_local, depth: 10 }
+  state_stream:    { reliability: reliable, durability: volatile, depth: 5 }
+  sensor_fast:     { reliability: best_effort, durability: volatile, depth: 2 }
+  safety_event:    { reliability: reliable, durability: transient_local, depth: 50 }
+  short_command:   { reliability: reliable, durability: volatile, depth: 3 }
+  audit_fanin:     { reliability: reliable, durability: volatile, depth: 50 }
+  hmi_mirror:      { reliability: best_effort, durability: volatile, depth: 1 }
+
+topics:
+  # M1
+  - { name: /l3/m1/odd_state,              type: l3_msgs/msg/ODDState,              owner: M1, qos: state_latched }
+  - { name: /l3/m1/mode_cmd,               type: l3_msgs/msg/ModeCmd,               owner: M1, qos: state_latched }
+  - { name: /l3/m1/tor_request,            type: l3_msgs/msg/ToRRequest,            owner: M1, qos: state_latched }
+  # M2
+  - { name: /l3/m2/world_state,            type: l3_msgs/msg/WorldState,            owner: M2, qos: state_stream }
+  # M3
+  - { name: /l3/m3/mission_goal,           type: l3_msgs/msg/MissionGoal,           owner: M3, qos: state_stream }
+  - { name: /l3/m3/mission_state,          type: l3_msgs/msg/MissionState,          owner: M3, qos: state_latched }
+  - { name: /l3/m3/route_replan_request,   type: l3_msgs/msg/RouteReplanRequest,    owner: M3, qos: state_latched }
+  # M4
+  - { name: /l3/m4/behavior_plan,          type: l3_msgs/msg/BehaviorPlan,          owner: M4, qos: state_stream }
+  # M5
+  - { name: /l3/m5/avoidance_plan,         type: l3_msgs/msg/AvoidancePlan,         owner: M5, qos: state_stream }
+  - { name: /l3/m5/reactive_override_cmd,  type: l3_msgs/msg/ReactiveOverrideCmd,   owner: M5, qos: short_command }
+  # M6
+  - { name: /l3/m6/colregs_constraint,     type: l3_msgs/msg/COLREGsConstraint,     owner: M6, qos: state_stream }
+  # M7
+  - { name: /l3/m7/safety_alert,           type: l3_msgs/msg/SafetyAlert,           owner: M7, qos: safety_event }
+  - { name: /l3/m7/heartbeat,              type: std_msgs/msg/Header,               owner: M7, qos: sensor_fast }
+  - { name: /l3/m7/sotif_metrics,          type: l3_msgs/msg/SotifMetrics,          owner: M7, qos: state_stream }
+  # M8
+  - { name: /l3/m8/operator_state,         type: l3_msgs/msg/OperatorState,         owner: M8, qos: state_latched }
+  - { name: /l3/m8/ui_state,               type: l3_msgs/msg/UIState,               owner: M8, qos: hmi_mirror }
+  - { name: /l3/m8/tor_request,            type: l3_msgs/msg/ToRRequest,            owner: M8, qos: state_latched }
+  # shared buses
+  - { name: /l3/asdr/record,               type: l3_msgs/msg/ASDRRecord,            owner: fanin, qos: audit_fanin }
+  - { name: /l3/sat/data,                  type: l3_msgs/msg/SATData,                owner: fanin, qos: state_stream }
+  - { name: /l3/safety/concern,            type: l3_msgs/msg/SafetyConcernEvent,    owner: fanin, qos: safety_event }
+  - { name: /l3/fsm_state,                 type: l3_msgs/msg/FsmState,              owner: fsm_aggregator, qos: hmi_mirror }
+  # external event ingress (canonical)
+  - { name: /l3/checker/veto,              type: l3_external_msgs/msg/CheckerVetoNotification,      owner: checker_adapter, qos: safety_event }
+  - { name: /l3/reflex/activation,         type: l3_external_msgs/msg/ReflexActivationNotification, owner: reflex_adapter,  qos: safety_event }
+  - { name: /l3/override/active,           type: l3_external_msgs/msg/OverrideActiveSignal,         owner: override_adapter, qos: safety_event }
+  # L1/L2/fusion/L4 external boundary
+  - { name: /l1/voyage_task,               type: l3_external_msgs/msg/VoyageTask,        owner: l1_adapter, qos: state_latched }
+  - { name: /l2/planned_route,             type: l3_external_msgs/msg/PlannedRoute,      owner: l2_adapter, qos: state_stream }
+  - { name: /l2/speed_profile,             type: l3_external_msgs/msg/SpeedProfile,      owner: l2_adapter, qos: state_stream }
+  - { name: /l2/replan_response,           type: l3_external_msgs/msg/ReplanResponse,    owner: l2_adapter, qos: state_latched }
+  - { name: /fusion/own_ship_state,        type: l3_external_msgs/msg/FilteredOwnShipState, owner: fusion, qos: sensor_fast }
+  - { name: /fusion/tracked_targets,       type: l3_external_msgs/msg/TrackedTargetArray,    owner: fusion, qos: state_stream }
+  - { name: /fusion/environment_state,     type: l3_external_msgs/msg/EnvironmentState,      owner: fusion, qos: state_latched }
+  - { name: /l4/tracking_error,            type: l3_external_msgs/msg/TrackingError,         owner: l4_adapter, qos: sensor_fast }
+  # SIL mirrors (not safety authority)
+  - { name: /sil/own_ship_state,           type: sil_msgs/msg/OwnShipState,      owner: sil, qos: sensor_fast }
+  - { name: /sil/lifecycle_status,         type: sil_msgs/msg/LifecycleStatus,   owner: sil, qos: sensor_fast }
+  - { name: /sil/sotif_metrics,            type: l3_msgs/msg/SotifMetrics,       owner: m8_mirror, qos: hmi_mirror }
+  - { name: /sil/sat2_data,                type: l3_msgs/msg/SAT2Data,           owner: sil, qos: hmi_mirror }
+  - { name: /sil/sat3_data,                type: l3_msgs/msg/SAT3Data,           owner: sil, qos: hmi_mirror }
+  - { name: /sil/actuator_cmd,             type: sil_msgs/msg/OwnShipState,      owner: l4_adapter, qos: sensor_fast }
+
+legacy_topics:
+  - { old: /override/active_signal,           new: /l3/override/active }
+  - { old: /reflex/activation_notification,   new: /l3/reflex/activation }
