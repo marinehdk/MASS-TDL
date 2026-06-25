@@ -1122,3 +1122,27 @@ AVOID IvP 过转向。1225-1631s 窗 behavior 全程 AVOID（无 RECOVERY），o
 - `l4_guidance_adapter` and `fcb_simulator` still present (Track A removes L4 adapter; fcb_sim is SIL plant).
 - Pre-existing: 42 `test_sil_topic_bridge.py` failures need a full ROS env (missing `std_msgs.msg.String` stub) — unchanged by B6, verify in Track A Docker test run.
 - `tests/integration/test_int_005_006_override_dual_interface.cpp` is a colcon C++ ROS test — could not run locally (no ROS host); updated topic strings to match canonical M5/M4/M6, verify in Track A colcon test pass.
+
+## [2026-06-25] ZCode / commits 2379cd05..eaf4225c / Track A — GNC L4/L5 integration (A0-A4)
+
+### Task Goal
+Execute Track A: replace the SIL L4 guidance stub + SIL plant with the colleague's real GNC stack (ship_guidance + active_route_manager + ship_control + thrust_allocation + ship_dynamics), isolated DDS domain, C++ bridge, so the GNC feasibility gate resolves rule14-ho over-turn.
+
+### Core Changes (A0-A4, branch codex/gnc-integration off main)
+1. **A0** worktree + vendor-copy GNC (16 pkgs, 2.6M, src/ only). Track B cherry-picked cleanly (B1-B9+handoff) — deliberately NOT the wholesale colregs-generalization-debug merge, to exclude the known regression-causing COLREGs debug work.
+2. **A1** `mass-l3-gnc:mpc_latest-20260624` Docker image (16 pkgs compile), docker-compose.gnc.yml (domain 50). Verified: 8 GNC nodes up, /ship/geo_position @50Hz, /colav/avoidance_plan 0-pub/1-sub. Build gotchas: nlohmann-json3-dev, libwebsocketpp-dev, libssl-dev, libboost-system-dev; removed /opt/gnc_ws/build BuildKit cache mount (broke --symlink-install).
+3. **A2** l3_external_msgs: AvoidanceWaypoints + GncExecutionStatus (L3-owned).
+4. **A3** M5 avoidance_waypoint_gen.hpp (pure C++, straight projection) + 6 gtests GREEN + publisher on /l3/m5/avoidance_waypoints + return_to_route on M6 conflict-clear.
+5. **A4** gnc_bridge_node (C++, sole ship_interfaces consumer). ship_interfaces unification: removed L3-local (1 msg GncRoutePlan), replaced with GNC's 13-msg version; migrated 3 consumers. Translators 6/6 gtests GREEN. main.cpp uses canonical pattern (global init + per-domain Context set_domain_id + single MultiThreadedExecutor).
+
+### Current Status — BLOCKED on A4 live smoke test (environmental)
+- A0-A4 **compile + unit tests all GREEN** in mass-l3-sil-sil-nodes container.
+- **Live cross-domain bridge smoke (A4 Step 8) RED — root cause is OrbStack, not the bridge.** Decisive test: installed the OFFICIAL ros-humble-domain-bridge package and ran it (`--from-domain 42 --to-domain 50 --topics /dbtest`); IT ALSO failed to deliver cross-domain data in this OrbStack multi-container setup, while single-domain DDS works fine. So gnc_bridge code follows the correct canonical pattern; the live two-domain data path is blocked by OrbStack Cyclone DDS.
+- A5-A7 NOT started (plan forbids proceeding past A4 smoke).
+
+### Handoff Notes
+- worktree `.worktrees/gnc-integration`, branch `codex/gnc-integration`, head `eaf4225c`.
+- mempalace drawers in wing mass_l3_tactical_layer / room track-a-gnc-integration (A0 decision, A4 diagnosis chain, CRITICAL_ENV_FINDING).
+- **Next session decision:** (a) move A7 validation to A4000 host (plan's designated validation target) where DDS may behave differently; OR (b) fix Cyclone DDS config (CYCLONEDDS_URI network-interface + unicast peers) for OrbStack and retry the live smoke here; OR (c) run L3+GNC+bridge in one container. The gnc_bridge code itself needs no changes — only the runtime DDS environment.
+- Do NOT re-architect gnc_bridge (two-process fallback etc.) — the official domain_bridge fails identically, proving the code is right.
+- A4 feasibility gate confirmed by reading active_route_manager_node.cpp:270-398: required_radius=max(45m,v²/0.25,v/yaw_rate[2.0°/s]); with allow_degraded_execution=true violations DEGRADE not REJECT, so GNC executes and rate-limits. Straight projection = infinite turn radius = auto-feasible.
