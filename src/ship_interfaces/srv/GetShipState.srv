@@ -1,0 +1,3 @@
+# Get ship state service
+---
+ship_interfaces/ShipState ship_state  # Current ship state

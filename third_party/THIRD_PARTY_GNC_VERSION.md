@@ -29,3 +29,17 @@ Package layout under `third_party/gnc_ws/src/`:
 
 The GNC stack runs as-is. Parameter tuning is via `docker/gnc-ship-config-overlay.yaml` mount overlay,
 not source edits. See Track A spec §2.2 (Out of Scope) and design decision D2.
+
+## ship_interfaces unification (Track A A4)
+
+The GNC `ship_interfaces` package (13 msgs + 2 srvs) is the SINGLE source of the
+`ship_interfaces` ROS2 package across the L3 workspace. The former L3-local
+`src/ship_interfaces/` (single `GncRoutePlan.msg`) was removed; its consumers
+(`docker/gnc_route_mock_publisher.py`, `docker/route_ingest_node.py`,
+`external_adapters/l2_route_plan_adaptor.py`) were migrated to the GNC
+`RoutePlan`/`AvoidancePlan`/etc. The `src/ship_interfaces/` directory is a copy
+of `third_party/gnc_ws/src/platform/ship_interfaces/`. When re-syncing GNC,
+re-copy that package over `src/ship_interfaces/` as well.
+
+This resolves the package-name collision (spec D3: single ship_interfaces,
+bridge-only consumer of the GNC field set).

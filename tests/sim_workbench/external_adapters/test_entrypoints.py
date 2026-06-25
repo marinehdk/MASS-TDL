@@ -19,10 +19,12 @@ def test_external_adapter_entrypoint_modules_are_importable_with_callable_main()
         assert callable(module.main)
 
 
-def test_l2_route_plan_adaptor_does_not_fallback_to_gnc_route_plan(monkeypatch):
+def test_l2_route_plan_adaptor_resolves_gnc_route_plan(monkeypatch):
+    # Track A: GNC ship_interfaces/RoutePlan is now the single route contract,
+    # so l2_route_plan_adaptor resolves RoutePlan directly (no GncRoutePlan fallback).
     package = ModuleType("ship_interfaces")
     msg_module = ModuleType("ship_interfaces.msg")
-    msg_module.GncRoutePlan = SimpleNamespace
+    msg_module.RoutePlan = SimpleNamespace
     monkeypatch.setitem(sys.modules, "ship_interfaces", package)
     monkeypatch.setitem(sys.modules, "ship_interfaces.msg", msg_module)
 
@@ -44,4 +46,4 @@ def test_l2_route_plan_adaptor_does_not_fallback_to_gnc_route_plan(monkeypatch):
 
     spec.loader.exec_module(module)
 
-    assert module.RoutePlan is None
+    assert module.RoutePlan is SimpleNamespace

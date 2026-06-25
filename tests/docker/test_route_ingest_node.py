@@ -81,7 +81,7 @@ def _install_fake_ros_modules(monkeypatch):
 
     ship_interfaces = types.ModuleType("ship_interfaces")
     ship_interfaces.msg = types.ModuleType("ship_interfaces.msg")
-    ship_interfaces.msg.GncRoutePlan = type("GncRoutePlan", (), {})
+    ship_interfaces.msg.RoutePlan = type("RoutePlan", (), {})
 
     l3_external_msgs = types.ModuleType("l3_external_msgs")
     l3_external_msgs.msg = types.ModuleType("l3_external_msgs.msg")
