@@ -97,6 +97,7 @@ COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
 COPY src/sim_workbench/ais_twin       src/sim_workbench/ais_twin
 COPY src/sim_workbench/external_adapters src/sim_workbench/external_adapters
+COPY src/sim_workbench/gnc_bridge    src/sim_workbench/gnc_bridge
 COPY src/ship_interfaces             src/ship_interfaces
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
@@ -132,7 +133,8 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             m5_tactical_planner \
             m6_colregs_reasoner \
             m7_safety_supervisor \
-            m8_hmi_transparency_bridge
+            m8_hmi_transparency_bridge \
+            gnc_bridge
 
 RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 

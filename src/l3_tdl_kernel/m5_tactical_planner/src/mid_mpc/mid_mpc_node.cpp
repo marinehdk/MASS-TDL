@@ -424,7 +424,7 @@ void MidMpcNode::on_solve_cycle_()
   // bridge can translate it. Release authority lives here (spec D4): while M6
   // reports conflict we keep a rolling avoidance plan; on the transition to
   // conflict-clear we emit a single return_to_route plan.
-  publish_avoidance_waypoints_(this->get_clock()->now(), input, plan, lat, lon);
+  publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon);
 }
 
 // ===========================================================================
@@ -711,7 +711,6 @@ void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
 void MidMpcNode::publish_avoidance_waypoints_(
     rclcpp::Time now,
     const MidMpcInput& input,
-    const l3_msgs::msg::AvoidancePlan& plan,
     double lat0_deg,
     double lon0_deg) {
   const bool conflict_active = input.colregs_conflict_active;

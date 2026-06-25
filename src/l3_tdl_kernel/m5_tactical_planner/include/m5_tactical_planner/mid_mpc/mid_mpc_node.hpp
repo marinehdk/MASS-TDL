@@ -104,7 +104,6 @@ class MidMpcNode : public rclcpp::Node {
   // lifecycle naturally (spec D4: release authority = M5 plan emission).
   void publish_avoidance_waypoints_(rclcpp::Time now,
                                     const MidMpcInput& input,
-                                    const l3_msgs::msg::AvoidancePlan& plan,
                                     double lat0_deg,
                                     double lon0_deg);
   bool last_emitted_conflict_active_{false};

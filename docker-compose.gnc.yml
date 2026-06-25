@@ -4,6 +4,14 @@
 # sil-nodes image, added in Track A A4) is the sole cross-domain process.
 #
 # Spec D2: isolated versioned container. No source edits; tuning is mount-only.
+#
+# Network topology note (CRITICAL_ENV_FINDING, 2026-06-25):
+# OrbStack DDS multicast discovery is only reachable under `network_mode: host`
+# (matches the L3 base stack [W44]/[W45]). The earlier `networks: [default]`
+# (bridge) segmented gnc-nodes off the host namespace, so the bridge process
+# could not discover/exchange data with either side's participants. With both
+# gnc-nodes and gnc-bridge on the host network, the 2-context bridge pattern
+# (the gnc_bridge architecture) was verified to deliver cross-domain data.
 name: codex-gnc
 
 services:
@@ -22,10 +30,28 @@ services:
       # mount overlays the actual file sim_launch.py loads. See
       # docker/gnc-ship-config-overlay.yaml for the tuning procedure.
       - ./docker/gnc-ship-config-overlay.yaml:/opt/gnc_ws/src/platform/ship_bringup/config/ship_config.yaml:ro
-    networks:
-      - default
+    # host network: required for DDS discovery to reach the L3 host-network
+    # participants and the gnc-bridge service (CRITICAL_ENV_FINDING).
+    network_mode: host
     command: >
       ros2 launch ship_bringup sim_launch.py
         use_sim_time:=false
         enable_wind:=false
         enable_current:=false
+
+  # Cross-domain bridge — sole L3-side find_package(ship_interfaces) consumer.
+  # One process, two rclcpp::Context instances (domain 42 + 50), single
+  # MultiThreadedExecutor. Built into the sil-nodes image (Track A A4). Runs on
+  # the host network so it can reach both the L3 stack (host net, domain 42)
+  # and gnc-nodes (host net, domain 50).
+  gnc-bridge:
+    image: mass-l3-sil-sil-nodes:latest
+    profiles: ["gnc"]
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # No ROS_DOMAIN_ID here — gnc_bridge_node sets the domain per Context via
+      # InitOptions::set_domain_id (see src/sim_workbench/gnc_bridge/src/main.cpp).
+    network_mode: host
+    command: >
+      bash -c "source /opt/ws/install/setup.bash &&
+        ros2 run gnc_bridge gnc_bridge_node"
