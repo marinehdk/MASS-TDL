@@ -152,9 +152,9 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
       [this](std_msgs::msg::String::SharedPtr msg) { on_scenario_loaded_(std::move(msg)); });
 
-  pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/m5/avoidance_plan", 10);
-  pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/m5/asdr_record", 10);
-  pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/m5/sat_data", 10);
+  pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/l3/m5/avoidance_plan", 10);
+  pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/l3/asdr/record", 10);
+  pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/l3/sat/data", 10);
   pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
 
   nomoto_cfg_.n_steps = 12;

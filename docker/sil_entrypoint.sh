@@ -330,7 +330,7 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
         ('m2_world_model',          'm2_world_model',           'm2_world_model', []),
         ('m4_behavior_arbiter',     'm4_behavior_arbiter',      'm4_behavior_arbiter', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m4_behavior_arbiter/share/m4_behavior_arbiter/config']),
         ('m6_colregs_reasoner',     'm6_colregs_reasoner',      'm6_colregs_reasoner', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m6_colregs_reasoner/share/m6_colregs_reasoner/config']),
-        ('m5_tactical_planner',     'm5_mid_mpc_node',          'm5_tactical_planner', ['--ros-args', '-r', '/m5/avoidance_plan:=/l3/m5/avoidance_plan', '-r', '/m5/sat_data:=/l3/sat/data', '-r', '/m5/asdr_record:=/l3/asdr/record']),
+        ('m5_tactical_planner',     'm5_mid_mpc_node',          'm5_tactical_planner', []),
         ('m3_mission_manager',      'm3_mission_manager',       'm3_mission_manager', []),
         ('m8_hmi_transparency_bridge', 'm8_hmi_transparency_bridge_node', 'm8_hmi_bridge', []),
     ]
