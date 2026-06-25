@@ -29,6 +29,7 @@ topics:
   - { name: /l3/m4/behavior_plan,          type: l3_msgs/msg/BehaviorPlan,          owner: M4, qos: state_stream }
   # M5
   - { name: /l3/m5/avoidance_plan,         type: l3_msgs/msg/AvoidancePlan,         owner: M5, qos: state_stream }
+  - { name: /l3/m5/avoidance_waypoints,    type: l3_external_msgs/msg/AvoidanceWaypoints, owner: M5, qos: state_stream }
   - { name: /l3/m5/reactive_override_cmd,  type: l3_msgs/msg/ReactiveOverrideCmd,   owner: M5, qos: short_command }
   # M6
   - { name: /l3/m6/colregs_constraint,     type: l3_msgs/msg/COLREGsConstraint,     owner: M6, qos: state_stream }
@@ -58,13 +59,18 @@ topics:
   - { name: /fusion/tracked_targets,       type: l3_external_msgs/msg/TrackedTargetArray,    owner: fusion, qos: state_stream }
   - { name: /fusion/environment_state,     type: l3_external_msgs/msg/EnvironmentState,      owner: fusion, qos: state_latched }
   - { name: /l4/tracking_error,            type: l3_external_msgs/msg/TrackingError,         owner: l4_adapter, qos: sensor_fast }
+  # GNC bridge boundary (Track A): /l3/m5/avoidance_waypoints -> gnc_bridge ->
+  # ship_interfaces/AvoidancePlan on domain 50; GNC RouteExecutionStatus +
+  # GeoPosition -> gnc_bridge -> /l3/gnc/execution_status on domain 42. The
+  # bridge is the sole L3-side ship_interfaces consumer (find_package invariant).
+  - { name: /l3/gnc/execution_status,      type: l3_external_msgs/msg/GncExecutionStatus,    owner: gnc_bridge, qos: state_stream }
   # SIL mirrors (not safety authority)
   - { name: /sil/own_ship_state,           type: sil_msgs/msg/OwnShipState,      owner: sil, qos: sensor_fast }
   - { name: /sil/lifecycle_status,         type: sil_msgs/msg/LifecycleStatus,   owner: sil, qos: sensor_fast }
   - { name: /sil/sotif_metrics,            type: l3_msgs/msg/SotifMetrics,       owner: m8_mirror, qos: hmi_mirror }
   - { name: /sil/sat2_data,                type: l3_msgs/msg/SAT2Data,           owner: sil, qos: hmi_mirror }
   - { name: /sil/sat3_data,                type: l3_msgs/msg/SAT3Data,           owner: sil, qos: hmi_mirror }
-  - { name: /sil/actuator_cmd,             type: sil_msgs/msg/OwnShipState,      owner: l4_adapter, qos: sensor_fast }
+  - { name: /sil/actuator_cmd,             type: sil_msgs/msg/OwnShipState,      owner: gnc_bridge, qos: sensor_fast }
 
 legacy_topics:
   - { old: /override/active_signal,           new: /l3/override/active }
