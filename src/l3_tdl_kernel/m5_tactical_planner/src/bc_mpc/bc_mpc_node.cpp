@@ -32,21 +32,21 @@ BcMpcNode::BcMpcNode(const Config& cfg)
       cfg_(cfg)
 {
   sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
-      "/m2/world_state", 10,
+      "/l3/m2/world_state", 10,
       [this](l3_msgs::msg::WorldState::SharedPtr msg) {
         on_world_state_(std::move(msg));
       });
 
   sub_mid_plan_ = create_subscription<l3_msgs::msg::AvoidancePlan>(
-      "/m5/avoidance_plan", 10,
+      "/l3/m5/avoidance_plan", 10,
       [this](l3_msgs::msg::AvoidancePlan::SharedPtr msg) {
         on_mid_mpc_plan_(std::move(msg));
       });
 
   pub_override_ = create_publisher<l3_msgs::msg::ReactiveOverrideCmd>(
-      "/m5/reactive_override_cmd", 10);
+      "/l3/m5/reactive_override_cmd", 10);
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
-      "/m5/asdr_record_bc", 10);
+      "/l3/asdr/record", 10);
 
   validity_timer_ = rclcpp::create_timer(
       get_node_base_interface(),
