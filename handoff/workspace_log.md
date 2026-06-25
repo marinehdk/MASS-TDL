@@ -997,3 +997,128 @@ Resolve the 2 remaining loose ends from the cross-run state self-heal engineerin
 - **Item C (startup transient): NOT MODIFIED — by design.** The 8 vs 7 first-frame transition diff in the same-scenario probe is M4 cold-start behavior (RUN-1 is the first scenario after a cold container start; M4 emits behavior=1 for <1s before M2 data arrives). It is NOT cross-scenario residual (both runs are cold starts; RUN-1 is inherently the first). Fixing it would require a startup grace period in M4 decision logic — a behavior change to a safety-critical decision module, violating Simplicity First for a <1s transient with zero impact on avoidance onset (111s identical) or max_dev (0.06° diff). Recorded as a known M4 cold-start characteristic.
 - **Full no-restart operation is now unblocked at all 6 modules.** `--restart-between-runs` can be dropped for the decision + actuator layers. If a future probe still shows residual, the suspect is a missed latch field in one of the 6 reset methods, not a missing module.
 - Stack `mass-l3-sil` is up in main-runtime worktree, idle (scenario cleaned). Updated bridge/L4 files are also in the container at `/opt/ws/docker/sil_topic_bridge.py` and `/opt/ws/src/.../l4_guidance_adapter/node.py`.
+
+## [2026-06-25] ZCode / commits D1.1-D1.4a+D3.1 / COLREGs 测试体系 v1 阶段④：M4 PREMATURE_RECOVERY 修复 + bridge 归位
+
+### Task Goal
+阶段④修复 TDL 系统避碰集成缺陷，让 clean 8/12 探针全 GREEN。承接阶段③ cohort triage + TDL 模块职责调研报告（bridge 越权 + 参数多源 + 死锁链）。
+
+### Core Changes (8 commits on codex/colregs-generalization-debug)
+1. **D1.1** 统一双评价器口径：phase_evidence timing_consistency.recovery_t 改用 RECOVERY entry（behavior==7）而非 TRANSIT return，与 module_oracle 对齐。修正调研报告错误归因（非 CPA 穿越 vs toggle，是 recovery_t 定义分歧）。+2 测试。
+2. **D1.2** TDD RED 测试 `PrematureRecoveryGatedOnM6Conflict`：复现 rule14-ho 缺陷（M4 在 conflict=true+closing=8.13 时进 RECOVERY）。
+3. **D1.3 v3** M4 `risk_controlled_colregs_released`（behavior_arbiter_node.cpp:658-669）gate `closing_speed<=0`。target 仍 closing 时不允许 risk-based release。27 lifecycle 测试 GREEN。
+4. **D1.4a** 两评价器 PREMATURE_RECOVERY 加 closing 语义：M4 release 时 target 远离（closing<0）不判过早（gap 是 M6 latch 滞后）。+2 测试，37 oracle 测试 GREEN。
+5. **D3.1** bridge `SIL_L4_ADAPTER_ENABLE` 默认 0→1。
+6. Cherry-pick cross-run-state-reset（m2/m4/m5/m6/bridge/l4，from codex/cross-run-state-reset）。
+
+### Current Status
+- **rule14-ho** (clean8): M4/M6 oracle GREEN，PREMATURE_RECOVERY 已修。剩 stability RED（steering_reversals）+ L4 RED。
+- **rule14-ho-port** (clean8): G-ART OK gap=0.5s。剩 stability RED。
+- **rule14-ho-intelligent** (intelligent4): behavior AVOID↔RECOVERY chatter（closing 过零无滞回），deferred。
+- D2.1 归因：rule15-ot-boundary/rule13-ot DCPA 矛盾 = 场景设计 DCPA 小(3m/100m) 但 TCPA>1000s 超 M6 FSM 720s 门限，独立问题 LOW。
+- D3.1 关键发现：compose 已显式 SIL_L4_ADAPTER_ENABLE=1，L4 adapter 实际已接管 actuator。bridge autopilot 是死代码。stability/L4 延迟根因在 **L4 adapter 内部**（_LATCH_MIN_HOLD_S=8.0/max_rate=5.0，镜像 bridge 补丁），非 bridge。
+
+### Handoff Notes
+- worktree: .worktrees/colregs-generalization-debug，容器 colregs-generalization-debug-sil-nodes-1（COMPOSE_PROJECT_NAME=colregs-generalization-debug + behavior-fix-isolation.yml，端口 18001）
+- **容器环境坑**：local-behavior-fix-env.sh 硬编码 project=colregs-behavior-fix（旧镜像无 tools/）。正确用法：source 后 export COMPOSE_PROJECT_NAME=colregs-generalization-debug。orch 镜像需含 tools/sil（colregs-generalization-debug-sil-orchestrator 镜像 31h 前 OK，colregs-behavior-fix 镜像 3 天前缺 tools 会 crash）。
+- m4 源码改后需在容器内 `colcon build --packages-select m4_behavior_arbiter` + restart sil-nodes 才生效。
+- cross-run reset 已同步，单场景串行跑无需 --restart-between-runs（但仍可用）。
+- 待办优先级（核心系统衔接 > 独立场景问题）：D4 参数治理 > D3.2-3.4 bridge 死代码清理 > L4 adapter stability 调参 > D1.4b M6 latch > D1.4d intelligent 滞回。
+
+## [2026-06-25] ZCode / commit 05bc2c7c / COLREGs 测试体系 v1 阶段④：D4 参数治理完成
+
+### Task Goal
+续 D1（M4 PREMATURE_RECOVERY）后，完成 D4 参数治理（VPR 统一），准备 L4 adapter stability 调参。
+
+### Core Changes (D4, commit 05bc2c7c)
+8 文件统一到权威 VPR（config/vessels/fcb_45m.yaml v0.3，源 MSQ Rev T + Octagen datasheet）：
+- M5: length 28→45m, beam 6.5→8m, draft 1.4→1.55m, mass 95t→350t, stopping 250→720m, speed_max 28→22kn
+- SIL: L 46→45m, draft 2.8→1.55m, displacement 450→350t
+- L4 adapter + bridge: SHIP_LENGTH_M 46→45
+- C++ headers (types.hpp, capability_manifest.hpp) 默认值同步
+
+### Current Status
+- **D1 M4 核心修复有效**：rule14-ho/ho-port M4/M6 oracle GREEN，PREMATURE_RECOVERY 已修
+- **D4 参数一致**：5 套冲突参数（M5/SIL/L4/bridge/arch）统一到权威值
+- **D4.5 回归通过**：参数改动后 rule14-ho M4 避碰逻辑完好（G-ART OK, route_return True）
+- **stability RED 仍在**：L4 adapter heading 振荡（steering_reversals=10），新参数操纵性变化放大振荡
+
+### L4 adapter stability 问题诊断（下一任务）
+rule14-ho trace 显示两个振荡阶段：
+1. AVOID 初期（590-710s）：heading 0→50→12→359°（starboard 转向后回弹）
+2. RECOVERY 进入附近（1209s）：heading 9→77→286→333°（AVOID→RECOVERY 切换时 heading controller 目标突变，209° 跳变）
+根因：L4 adapter（l4_guidance_adapter/node.py）的 _LATCH_MIN_HOLD_S=8.0 + max_rate_deg_s=5.0 + AVOID/RECOVERY heading controller 切换时 last_cmd_deg 不连续。
+修复方向需系统实验：调 latch/rate → 跑 cohort → 验证不破其他场景。
+
+### Handoff Notes（环境 + 关键坑）
+- worktree: .worktrees/colregs-generalization-debug, branch codex/colregs-generalization-debug
+- 容器: colregs-generalization-debug-sil-nodes-1（COMPOSE_PROJECT_NAME=colregs-generalization-debug）
+- **容器启动坑**：local-behavior-fix-env.sh 硬编码 project=colregs-behavior-fix（旧镜像缺 tools/sil 会 crash）。正确：source 后 export COMPOSE_PROJECT_NAME=colregs-generalization-debug
+- m4/m5/fcb_simulator 源码改后需容器内 colcon build（fcb_simulator 依赖 ship_sim_interfaces 先 build）+ restart sil-nodes
+- cross-run reset 已同步，单场景串行无需 --restart-between-runs（MacBook CPU 限单跑，10x rate 稳定）
+- 权威 VPR 完整版在 ~/Desktop/COLREGs/vessel_parameter_register_fcb45m.yaml（含推力曲线/海试计划）
+
+## [2026-06-25] ZCode / commits 8758f40a+c2ec7e45+0331bab3 / COLREGs 测试体系 v1 阶段④：M4 risk-release M6 authority gate (D1.3 v6)
+
+### Task Goal
+诊断+修复 M4 AVOID↔RECOVERY 尾部振荡（rule14-ho 1221-1295s，双侧过转向 + steering_reversals=10）。M6 phase chatter 上一会话已解决，本任务是 rebuild 后暴露的独立 M4 缺陷。
+
+### Core Changes
+- **spec** `docs/superpowers/specs/2026-06-25-m4-risk-release-m6-authority-design.md`（8758f40a）
+- **plan** `docs/superpowers/plans/2026-06-25-m4-risk-release-m6-authority.md`（68cd83a4）
+- **test** `src/l3_tdl_kernel/m4_behavior_arbiter/test/unit/test_m4_node_lifecycle.cpp`（c2ec7e45）：flip `RiskControlledResidualColregsConflictCanEnterRecovery` line 2095/2106 断言 `BEHAVIOR_RECOVERY`→`BEHAVIOR_COLREG_AVOID`（原断言编码了 bug）
+- **fix** `src/l3_tdl_kernel/m4_behavior_arbiter/src/behavior_arbiter_node.cpp:766-781`（0331bab3）：`risk_controlled_colregs_released` 加 `&& !inputs.colregs_conflict_detected`。M4 risk math 不再能 override M6 conflict authority
+
+### Current Status — 目标缺陷已消灭
+- **M4 behavior 干净单次** AVOID(589.8)→RECOVERY(1631.3)→TRANSIT(1779.8)，RECOVERY onset 1631s 在 M6 clear(1631.03s) 之后 ✓
+- **G-ART PREMATURE_RECOVERY gap** -0.3s（was 258.5s）✓
+- **route_return** True（was False，XTE -5.1m heading 0.2°）✓
+- **behavior_toggles** 2（was 10）✓
+- **unit tests** 10/10 GREEN
+
+### 新独立缺陷暴露（被 RECOVERY 循环掩盖，下一任务）
+AVOID IvP 过转向。1225-1631s 窗 behavior 全程 AVOID（无 RECOVERY），own heading 摆 80→10→300→342→2→300°，AVOID window 漂移 [48,78]→[15,45] 中心 63→30°，target_heading_deg=85 恒定。
+- steering_reversals 14（更差）、rot_hold_std 2.37（更差）、turn_starboard port134+stbd120（更差）
+- 非 lifecycle 问题，是 AVOID 转向幅度控制（M4 IvP / M5 waypoint / L4 turn-cap 三选一 TBD）
+- 本地 stability RED，**未 promote**
+
+### Handoff Notes
+- worktree `.worktrees/colregs-generalization-debug`, branch `codex/colregs-generalization-debug`, head `0331bab3`
+- 容器 `colregs-generalization-debug-sil-nodes-1`（COMPOSE_PROJECT_NAME=colregs-generalization-debug, orch 18001, DDS=43）
+- 容器 .o build 06-25 06:07 UTC（fix commit 之后，可信）
+- 证据 trace `runs/trace_eval/m4_fix_20260625_140851/colreg-rule14-ho.trace_current.jsonl`
+- mempalace drawers: `ae52699d2`(root cause) + `77c4e9351`(result+oversteer exposed)
+- **v6 不应 revert**：目标缺陷已修，回退会把振荡+route_return=False 一起带回来
+- DEAD-ENDs 重申：RUDDER_SIGN=-1 正确 / onset-lock 恶化耦合 / M6 phase classifier 非根因 / L4 M6-owner 修复有效勿 revert
+
+## [2026-06-25] Agent / Track B / ROS2 message governance
+**Task Goal:** Fix all P0 ROS2 topic mismatches, type collision, SOTIF split, freeze machine-readable topic contract + static checker — clean canonical `/l3/...` bus before Track A.
+**Branch:** `codex/colregs-generalization-debug` (commits b30860b3..b2ee3dc0)
+**Core Changes (B0-B10):**
+- B1: M5 MID-MPC pub topics `/m5/*` → `/l3/m5/avoidance_plan`, `/l3/asdr/record`, `/l3/sat/data`; removed now-dead launch remaps in `sil_entrypoint.sh` + `shell_b_harness/simulator.py`.
+- B2: M5 BC-MPC sub/pub `/m2`,`/m5/*` → `/l3/m2/world_state`, `/l3/m5/avoidance_plan`, `/l3/m5/reactive_override_cmd`, `/l3/asdr/record`.
+- B3: **Latent bug fix** — M7 subscribed `/l3/m4/reactive_override_cmd` (no producer); now `/l3/m5/reactive_override_cmd` (BC-MPC). M7 likely never received override before. Updated INT-005/006 + timing_e3 tests to canonical topics.
+- B4: M1+M8 override/reflex `/override/active_signal`,`/reflex/activation_notification` → `/l3/override/active`,`/l3/reflex/activation`; `l3_external_mock_publisher` updated (no remap was hiding old names → would have orphaned M1/M8).
+- B5: `l4_guidance_adapter/node.py` removed redundant `/m5/reactive_override_cmd` dual-sub; `fcb_simulator_node.cpp` same defect class (subs were silently orphaned, no remap) → `/l3/m5/*`.
+- B6: `/l3/fsm_state` type collision — `sil_topic_bridge.py` sub `LifecycleStatus` → `FsmState` (+ import + test stub). Single type now `l3_msgs/msg/FsmState`, publisher count 1.
+- B7: SOTIF authority split — M7 `/sil/sotif_metrics` → `/l3/m7/sotif_metrics` (was colliding with M8 mirror on same name; spec said `/sil/n` but source already used `/sil/sotif_metrics`). M8 keeps `/sil/sotif_metrics` as documented HMI mirror.
+- B8: `docs/Design/SIL/ros2-interface-contract.yaml` (38 topics, 2 legacy with expiry 2026-07-15).
+- B9: `tools/sil/check_ros2_interface_contract.py` + 5 unit tests (TDD RED→GREEN). Resolves C++ type aliases (`BehaviorPlanMsg`→`l3_msgs/msg/BehaviorPlan`); excludes `gnc_bridge`, `sil_topic_bridge`, `.salvage-d3.1`.
+- mode-fix: restored `sil_entrypoint.sh` executable bit (100755) lost when B1 edit changed file mode → had broken container startup.
+
+**Verification (Track B gates — all GREEN):**
+- `check_ros2_interface_contract.py --root src/l3_tdl_kernel` → exit 0, 7 findings 0 violations.
+- `test_ros2_interface_contract.py` → 5/5 pass.
+- `ros2 topic info -v /l3/fsm_state` → single type `l3_msgs/msg/FsmState`, 1 publisher.
+- `ros2 topic list` live run → canonical `/l3/m5/*`, `/l3/asdr/record`, `/l3/sat/data`, `/l3/m7/sotif_metrics`, `/l3/override/active`, `/l3/reflex/activation` present; NO `/m5/*`, `/m2/world_state`, `/override/active_signal`, `/reflex/activation_notification`.
+- sil-nodes image rebuilt, stack recreated with matching `ROS_DOMAIN_ID=42` (orchestrator was stale on 43); rule14-ho scenario configured+activated+ran successfully (deactivated before full completion — message-flow was the gate, not behavioral verdict).
+- **`turn_starboard` behavioral verdict is NOT a Track B gate** — remains RED, Track A target.
+
+**Caveat (honest):** `./scripts/local-a4000-acceptance.sh` reports NO-GO on this feature stack, but that is a **structural mismatch, not a Track B defect**: the script + orchestrator runtime/summary probe hardcode `mass-l3-sil-*` container names, while this feature stack uses `colregs-generalization-debug-*`. All 4 core services actually run healthy (verified via `docker ps` + direct health endpoint). To get the acceptance script to report GREEN, it must run against the `mass-l3-sil` main stack from a clean `main` worktree (per AGENTS.md). The Track B-specific gates above are all green on the feature stack.
+
+**Handoff Notes:**
+- Track A may begin. Amend `docs/Design/SIL/ros2-interface-contract.yaml` with `/l3/gnc/*` and `/l3/m5/avoidance_waypoints` topics.
+- `sil_topic_bridge.py` still present (B6 only fixed fsm_state type; full removal is Track A A5).
+- `l4_guidance_adapter` and `fcb_simulator` still present (Track A removes L4 adapter; fcb_sim is SIL plant).
+- Pre-existing: 42 `test_sil_topic_bridge.py` failures need a full ROS env (missing `std_msgs.msg.String` stub) — unchanged by B6, verify in Track A Docker test run.
+- `tests/integration/test_int_005_006_override_dual_interface.cpp` is a colcon C++ ROS test — could not run locally (no ROS host); updated topic strings to match canonical M5/M4/M6, verify in Track A colcon test pass.
