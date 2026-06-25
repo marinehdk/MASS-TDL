@@ -78,6 +78,35 @@
 - 工作区干净：HEAD `5bb2ea91`（abaft gate 已验证部分改善）。M4 振荡实验已回退。
 - 3 个决策点都需要你的方向判断（不是 agent 能自行决定的 surgical 修复）。
 
+### 2026-06-25 续2：3 决策项全部执行（#1-A 振荡根除，#2-A M6 触发，#3 infra）
+
+用户决策：#1 选 A（M4/M6 对齐），#2 选 A（调场景），#3 直接修。
+
+**#1-A 振荡根除（commit `11bc5391`，核心成果）**：
+- M4 abaft gate 改用 **COLREG turn onset anchor heading**（`colregs_anchor_hdg_`，捕获于 duty onset）替代 current own heading。语义与 M6 `encounter_reference_heading_` 完全一致——都是 onset 时的 own heading，RECOVERY 转向不改变它。
+- TDD: helper 加 `reference_heading_deg` 参数，cache 计算传 `colregs_anchor_hdg_`（anchor 未设时 fallback current）。回归 m4 28/28。
+- **SIL 验证 rule14-ho：steering_reversals 10→2（PASS！），behavior_toggles 2（干净 0→1→0 单次 AVOID，振荡彻底消除）**。AVOID 619→811 干净 release，无 AVOID↔RECOVERY 抖动。
+
+**#2-A rule13-ot/ot-boundary M6 触发（commit `5f388d9e`）**：
+- 减小初始 range 让 TCPA<720s（t_plan onset gate）：rule13-ot range 3.1→1.3 NM（TCPA 1594→666s），rule15-ot-boundary 5.0→3.6 NM（TCPA 1003→720s）。
+- **验证 rule13-ot：M6 conflict_detected 现在在 sim_t=63s 触发（之前永不），1315s clear**。M4 进入 AVOID+RECOVERY。
+- 残留 RED：执行层问题（turn_starboard 142° overtaking U-turn，overtake 未完成），独立于 onset-trigger 修复。
+
+**#3 rule17-cr-so（infra，非系统缺陷）**：
+- heading 末段发散根因：**Mac CPU 限速使 stand-on 重场景 sim rate 掉到 ~5x**（应 10x），runner wall timeout（:1444 `total/rate+60`）在 sim 1366/2200s 提前终止。sim 没跑完回航线，final_heading_dev=11.86°/19.56° 是 horizon 截断症状，非 L4 controller 缺陷。
+- 待 A4000（更强 CPU）验证。非系统 bug。
+
+### 当前状态: 振荡根除，新暴露 AVOID 转向幅度过大
+
+**cohort 回归（v5 fixes 后）**：
+- rule14-ho: reversals 2（PASS）, route_return True, 但 max_starboard 148.7°（U-turn 趋势）
+- rule14-ho-port: reversals 3（PASS）, 但 max_port 157.5° + route_return False
+- rule13-ot: M6 触发, 但 turn_starboard 142° + overtake 未完成
+
+**共同新问题**：M4/M6 对齐修复后 abaft gate 更严格，AVOID 持续更久 → 船转向幅度过大（ho 148°, ho-port 157°, ot 142°）→ 回航线 heading 收敛不足（route_return False）。
+
+**下一步切点（新一层）**：AVOID 转向幅度控制——M5 waypoint 规划或 L4 heading controller 的转向 cap。这是 give-way 场景全 GREEN 的下一道坎。当前 commits（ae53b762/5bb2ea91/11bc5391/5f388d9e）已显著推进：振荡根除 + M6 触发 + cross-run 稳定。
+
 ---
 
 ## [2026-06-24] Agent: ZCode — COLREGs 测试体系 v1 阶段②（单模块功能测试）
@@ -322,3 +351,14 @@ python3 scripts/run_colregs_clean_8probe.py \
   - `handoff/workspace_log.md`: 追加本次分析日志
 - **当前状态 (Status)**: ✅ GREEN
 - **接力指示 (Hand-off Context)**: 分析已完成，生成了详细的代码行数和 Git 提交状态报告，核心算法 SLOC 为 24,722 行（若包含前端 HMI 为 48,395 行）。测试及仿真编排代码几乎与核心算法 1:1，整体状态正常。
+
+---
+
+## [2026-06-25 09:20] Agent: Antigravity (IDE)
+- **Git Commit**: `9cb0e566` (branch: `codex/colregs-phase-gate-diag`)
+- **任务目标 (Goal)**: 总结本周开发和调试 COLREGs 避碰场景的技术难点与进度
+- **核心改动 (Actions)**:
+  - `handoff/workspace_log.md`: 追加本周调试总结手记
+- **当前状态 (Status)**: ✅ GREEN (报告已生成为 Artifact 归档)
+- **接力指示 (Hand-off Context)**: 总结报告已生成，深入剖析了跨运行残留、参数不一致及 M4 释放逻辑等核心技术瓶颈，当前 progress 整体向好。
+
