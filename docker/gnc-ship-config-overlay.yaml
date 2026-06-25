@@ -1,0 +1,11 @@
+# GNC ship_config overlay for parameter tuning WITHOUT editing GNC source.
+# Track A spec §2.2: tuning is mount-only. This file is bind-mounted over the
+# resolved install path of ship_bringup/share/ship_bringup/config/ship_config.yaml
+# by docker-compose.gnc.yml.
+#
+# Start as a passthrough copy of the vendored ship_config.yaml, then edit
+# parameter values (e.g. active_route_manager_node emergency_max_yaw_rate_deg_s,
+# max_lateral_accel_mps2, emergency_min_turn_radius_m) to tune.
+#
+# To regenerate the base, diff against:
+#   third_party/gnc_ws/src/platform/ship_bringup/config/ship_config.yaml

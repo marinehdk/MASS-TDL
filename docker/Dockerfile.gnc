@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1.5
+# GNC stack (colleague's real L4/L5 guidance + control + plant) as an isolated,
+# version-tagged container. Built from third_party/gnc_ws/src AS-IS — no source
+# edits. Track A spec D2: isolated versioned container, ROS_DOMAIN_ID=50.
+FROM ros:humble-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Tsinghua mirrors (match sil_nodes.Dockerfile convention — required for CN host network).
+# Strip deb-src from ROS2 sources: Tsinghua mirror has no Sources index for ros2/ubuntu.
+RUN sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    if [ -f /usr/share/ros-apt-source/ros2.sources ]; then \
+        sed -i 's|packages.ros.org|mirrors.tuna.tsinghua.edu.cn|g' /usr/share/ros-apt-source/ros2.sources; \
+        sed -i '/^Types:/s/ deb-src//' /usr/share/ros-apt-source/ros2.sources; \
+    fi && \
+    if [ -f /etc/apt/sources.list.d/ros2.sources ]; then \
+        sed -i 's|packages.ros.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/ros2.sources; \
+        sed -i '/^Types:/s/ deb-src//' /etc/apt/sources.list.d/ros2.sources; \
+    fi
+
+# GNC build dependencies. CMake deps verified from ship_guidance/ship_control CMakeLists
+# (rclcpp, nav_msgs, geometry_msgs, std_msgs, tf2, tf2_geometry_msgs, Eigen3, ship_interfaces);
+# geographic_msgs + sensor_msgs cover the remaining GNC packages. robot_state_publisher
+# is launched by sim_launch.py and needs robot_state_publisher (in ros-base already, but
+# install explicitly to be safe). ccache for the BuildKit cache mount.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-colcon-common-extensions \
+        python3-rosdep \
+        ccache \
+        libeigen3-dev \
+        libyaml-cpp-dev \
+        libgeographic-dev \
+        libboost-system-dev \
+        libssl-dev \
+        libwebsocketpp-dev \
+        nlohmann-json3-dev \
+        ros-humble-nav-msgs \
+        ros-humble-geometry-msgs \
+        ros-humble-geographic-msgs \
+        ros-humble-sensor-msgs \
+        ros-humble-tf2 \
+        ros-humble-tf2-geometry-msgs \
+        ros-humble-tf2-ros \
+        ros-humble-rclcpp-lifecycle \
+        ros-humble-rosgraph-msgs \
+        ros-humble-std-srvs \
+        ros-humble-robot-state-publisher \
+        ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ubuntu 22.04 libyaml-cpp-dev 0.7.0 exports "yaml-cpp" (no namespace); some GNC
+# CMakeLists may expect "yaml-cpp::yaml-cpp". Patch the alias (same fix as sil_nodes).
+RUN sed -i '/^add_library(yaml-cpp SHARED IMPORTED)$/a add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)' \
+    /usr/lib/*-linux-gnu/cmake/yaml-cpp/yaml-cpp-targets.cmake || true
+
+WORKDIR /opt/gnc_ws
+
+# Vendor-copied GNC source (no edits).
+COPY third_party/gnc_ws/src ./src
+
+# Build GNC stack. BuildKit ccache mount per AGENTS.md Docker convention — keep it.
+# NOTE: do NOT cache-mount /opt/gnc_ws/build. colcon --symlink-install creates
+# symlinks from install/ into build/ and src/; if build/ is a cache mount it is
+# not persisted to the image layer, leaving dangling symlinks at runtime
+# (install/local_setup.bash not found -> ship_bringup package not found).
+# Only ccache (compiler cache, independent of the build tree) is safe to mount.
+RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
+    . /opt/ros/humble/setup.sh && \
+    colcon build --symlink-install \
+        --parallel-workers 2 \
+        --cmake-args \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+COPY docker/gnc-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ros2", "launch", "ship_bringup", "sim_launch.py"]

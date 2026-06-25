@@ -1,0 +1,31 @@
+# Track A — GNC stack compose profile. The real L4/L5 guidance+control+plant
+# (colleague's GNC) runs AS-IS in an isolated DDS domain (ROS_DOMAIN_ID=50),
+# separate from the L3 domain (42). A C++ gnc_bridge_node (built in the L3
+# sil-nodes image, added in Track A A4) is the sole cross-domain process.
+#
+# Spec D2: isolated versioned container. No source edits; tuning is mount-only.
+name: codex-gnc
+
+services:
+  gnc-nodes:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gnc
+    image: mass-l3-gnc:mpc_latest-20260624
+    profiles: ["gnc"]
+    environment:
+      - ROS_DOMAIN_ID=50
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    volumes:
+      # ship_config overlay mount — tuning without source edits.
+      # Under --symlink-install the share resolves to the source path, so this
+      # mount overlays the actual file sim_launch.py loads. See
+      # docker/gnc-ship-config-overlay.yaml for the tuning procedure.
+      - ./docker/gnc-ship-config-overlay.yaml:/opt/gnc_ws/src/platform/ship_bringup/config/ship_config.yaml:ro
+    networks:
+      - default
+    command: >
+      ros2 launch ship_bringup sim_launch.py
+        use_sim_time:=false
+        enable_wind:=false
+        enable_current:=false
