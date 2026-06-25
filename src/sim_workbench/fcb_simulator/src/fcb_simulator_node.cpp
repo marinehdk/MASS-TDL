@@ -41,10 +41,10 @@ FcbSimulatorNode::FcbSimulatorNode()
   u_target_mps_   = cfg_.u0;
 
   sub_plan_ = create_subscription<l3_msgs::msg::AvoidancePlan>(
-      "/m5/avoidance_plan", 10,
+      "/l3/m5/avoidance_plan", 10,
       std::bind(&FcbSimulatorNode::on_avoidance_plan, this, std::placeholders::_1));
   sub_override_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
-      "/m5/reactive_override_cmd", 10,
+      "/l3/m5/reactive_override_cmd", 10,
       std::bind(&FcbSimulatorNode::on_reactive_override, this, std::placeholders::_1));
 
   pub_state_ = create_publisher<l3_external_msgs::msg::FilteredOwnShipState>(

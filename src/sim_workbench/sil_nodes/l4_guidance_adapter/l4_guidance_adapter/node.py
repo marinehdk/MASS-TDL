@@ -125,7 +125,6 @@ class L4GuidanceAdapterNode(Node):
         self.create_subscription(BehaviorPlan, "/l3/m4/behavior_plan", self._on_behavior_plan, sq)
         self.create_subscription(AvoidancePlan, "/l3/m5/avoidance_plan", self._on_avoidance_plan, sq)
         self.create_subscription(ReactiveOverrideCmd, "/l3/m5/reactive_override_cmd", self._on_reactive_override, sq)
-        self.create_subscription(ReactiveOverrideCmd, "/m5/reactive_override_cmd", self._on_reactive_override, sq)
         self.create_subscription(SafetyAlert, "/l3/m7/safety_alert", self._on_safety_alert, sq)
         self.create_subscription(CheckerVetoNotification, "/l3/checker/veto", self._on_checker_veto, rq)
 

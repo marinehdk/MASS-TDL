@@ -376,9 +376,6 @@ class ShellBSimulator:
             "-r", "behavior_arbiter:__node:=m4_behavior_arbiter",
             "-r", "m5_mid_mpc_node:__node:=m5_tactical_planner",
             "-r", "m8_hmi_transparency_bridge:__node:=m8_hmi_bridge",
-            "-r", "/m5/avoidance_plan:=/l3/m5/avoidance_plan",
-            "-r", "/m5/sat_data:=/l3/sat/data",
-            "-r", "/m5/asdr_record:=/l3/asdr/record",
             "-p", "use_sim_time:=True"
         ]
         
