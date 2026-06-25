@@ -5,7 +5,7 @@ import { IvpRiskGradientLayer } from '../map/IvpRiskGradientLayer';
 import { MpcTrajectoryLayer } from '../map/MpcTrajectoryLayer';
 import { useFoxgloveLive } from '../hooks/useFoxgloveLive';
 import { useTelemetryStore, useControlStore, useUIStore, useScenarioStore } from '../store';
-import type { VoyagePlanData } from '../store/telemetryStore';
+import type { ThreatRiskHistorySample, ThreatRiskTargetData, VoyagePlanData } from '../store/telemetryStore';
 import {
   useDeactivateLifecycleMutation,
   useChangeLifecycleRateMutation,
@@ -154,7 +154,7 @@ const CAPTAIN_TABS = [
 ] as const;
 
 const RIGHT_TABS = [...CAPTAIN_TABS, ...MONITOR_TABS] as const;
-const RADAR_RANGES_NM = [12, 6, 3] as const;
+const RADAR_RANGES_NM = [10, 6, 2] as const;
 
 type MonitorTabId = typeof MONITOR_TABS[number]['id'];
 type CaptainTabId = typeof CAPTAIN_TABS[number]['id'];
@@ -415,7 +415,7 @@ function computeRouteProgress(
 export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = {}) {
   const [activeRightTab, setActiveRightTab] = useState<RightTabId | null>(null);
   const [activeBottomModule, setActiveBottomModule] = useState<string | null>(null);
-  const [radarRangeNM, setRadarRangeNM] = useState<RadarRangeNm>(12);
+  const [radarRangeNM, setRadarRangeNM] = useState<RadarRangeNm>(10);
   const previousAvoidancePhaseRef = useRef<AvoidancePhase | null>(null);
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/foxglove-ws`;
   useFoxgloveLive(wsUrl, true);
@@ -438,6 +438,8 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
   const colregsConstraint = useTelemetryStore((s) => s.colregsConstraint);
   const safetyAlert     = useTelemetryStore((s) => s.safetyAlert);
   const avoidancePlan   = useTelemetryStore((s) => s.avoidancePlan);
+  const threatState     = useTelemetryStore((s) => s.threatState);
+  const threatRiskHistory = useTelemetryStore((s) => s.threatRiskHistory);
   const fsmState        = useFsmStore((s) => s.currentState);
   const fsmRule         = useFsmStore((s) => s.activeRule);
   const fsmConf         = useFsmStore((s) => s.confidence);
@@ -684,76 +686,109 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     prevScenarioIdRef.current = scenarioId || null;
   }, [scenarioId]);
 
-  // Dynamic Threat Evaluation based on dynamic asymmetric safety domain boundaries
-  const categorizedTargets = useMemo(() => {
-    if (!ownShip?.pose) {
-      return { high: [], medium: [], low: [], none: [] };
+  const targetRiskById = useMemo(() => {
+    const map = new Map<string, ThreatRiskTargetData>();
+    for (const risk of threatState?.targets ?? []) {
+      map.set(risk.targetId, risk);
     }
-    const ownLat = ownShip.pose.lat;
-    const ownLon = ownShip.pose.lon;
-    if (typeof ownLat !== 'number' || typeof ownLon !== 'number') {
-      return { high: [], medium: [], low: [], none: [] };
+    return map;
+  }, [threatState]);
+
+  // Stable target list: each target stays in one card; backend risk is a badge.
+  const targetsWithRisk = useMemo(() => (
+    targets.map((target) => ({
+      ...target,
+      risk: targetRiskById.get(String(target.mmsi)),
+    }))
+  ), [targetRiskById, targets]);
+
+  const riskPhaseColor = (phase?: string) => {
+    if (phase === 'Critical' || phase === 'Danger') return 'var(--c-danger)';
+    if (phase === 'Warning') return 'var(--c-warn)';
+    if (phase === 'Monitor') return '#38bdf8';
+    return 'var(--c-phos)';
+  };
+
+  const renderThreatRiskTrend = (history: ThreatRiskHistorySample[]) => {
+    const points = history.slice(-32).filter((sample) => Number.isFinite(sample.riskScore));
+    if (points.length === 0) {
+      return null;
     }
-    const ownHeadingDeg = ownShip.pose.heading != null ? ((ownShip.pose.heading * 180 / Math.PI + 360) % 360) : 0;
+    const latest = points[points.length - 1];
+    const width = 300;
+    const height = 78;
+    const pad = 10;
+    const usableWidth = width - pad * 2;
+    const usableHeight = height - pad * 2;
+    const pathPoints = points.map((sample, idx) => {
+      const x = pad + (points.length === 1 ? usableWidth : (idx / (points.length - 1)) * usableWidth);
+      const clamped = Math.max(0, Math.min(1, sample.riskScore));
+      const y = pad + (1 - clamped) * usableHeight;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const latestColor = latest.riskPhase === 'Critical' || latest.riskPhase === 'Danger'
+      ? 'var(--c-danger)'
+      : latest.riskPhase === 'Warning'
+        ? 'var(--c-warn)'
+        : latest.riskPhase === 'Monitor'
+          ? '#38bdf8'
+          : 'var(--c-phos)';
 
-    const high: any[] = [];
-    const medium: any[] = [];
-    const low: any[] = [];
-    const none: any[] = [];
-
-    const METRICS = {
-      observation: { fore: 2.2, starboard: 1.5, port: 1.2, aft: 0.8 },
-      action: { fore: 1.2, starboard: 0.8, port: 0.6, aft: 0.4 },
-      critical: { fore: 0.3, starboard: 0.25, port: 0.18, aft: 0.10 },
-    };
-
-    function getDomainRadius(alpha: number, m: typeof METRICS.observation) {
-      const deg = (((alpha * 180) / Math.PI) + 360) % 360;
-      if (deg >= 0 && deg < 90) {
-        const t = deg / 90;
-        return (1 - t) * m.fore + t * m.starboard;
-      }
-      if (deg >= 90 && deg < 180) {
-        const t = (deg - 90) / 90;
-        return (1 - t) * m.starboard + t * m.aft;
-      }
-      if (deg >= 180 && deg < 270) {
-        const t = (deg - 180) / 90;
-        return (1 - t) * m.aft + t * m.port;
-      }
-      const t = (deg - 270) / 90;
-      return (1 - t) * m.port + t * m.fore;
-    }
-
-    targets.forEach((t) => {
-      const targetLat = t.pose?.lat;
-      const targetLon = t.pose?.lon;
-      if (typeof targetLat !== 'number' || typeof targetLon !== 'number') {
-        none.push(t);
-        return;
-      }
-
-      const rng = computeRangeNm(ownLat, ownLon, targetLat, targetLon);
-      const brg = computeBearing(ownLat, ownLon, targetLat, targetLon);
-      const relBrgRad = ((brg - ownHeadingDeg + 360) % 360) * Math.PI / 180;
-
-      const radiusCrit = getDomainRadius(relBrgRad, METRICS.critical);
-      const radiusAct = getDomainRadius(relBrgRad, METRICS.action);
-      const radiusObs = getDomainRadius(relBrgRad, METRICS.observation);
-
-      if (rng <= radiusCrit) {
-        high.push(t);
-      } else if (rng <= radiusAct) {
-        medium.push(t);
-      } else if (rng <= radiusObs) {
-        low.push(t);
-      } else {
-        none.push(t);
-      }
-    });
-
-    return { high, medium, low, none };
-  }, [ownShip, targets]);
+    return (
+      <div style={{
+        background: 'rgba(0,0,0,0.2)',
+        border: '1px solid var(--line-1)',
+        borderRadius: 8,
+        padding: '12px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>后端风险趋势</span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)' }}>
+              Primary {latest.primaryTargetId || threatState?.primaryTargetId || '—'}
+            </span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: latestColor, fontWeight: 800, lineHeight: 1 }}>
+              {latest.riskScore.toFixed(2)}
+            </div>
+            <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--txt-3)', marginTop: 3 }}>
+              {latest.riskPhase}
+            </div>
+          </div>
+        </div>
+        <svg
+          data-testid="threat-risk-trend"
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label="后端 primary threat risk score trend"
+          style={{ width: '100%', height: 78, display: 'block' }}
+        >
+          <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="rgba(148,163,184,0.22)" strokeWidth="1" />
+          <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="rgba(148,163,184,0.22)" strokeWidth="1" />
+          <line x1={pad} y1={pad + usableHeight * 0.4} x2={width - pad} y2={pad + usableHeight * 0.4} stroke="rgba(251,191,36,0.22)" strokeWidth="1" strokeDasharray="3 4" />
+          <line x1={pad} y1={pad + usableHeight * 0.15} x2={width - pad} y2={pad + usableHeight * 0.15} stroke="rgba(244,63,94,0.22)" strokeWidth="1" strokeDasharray="3 4" />
+          <polyline
+            points={pathPoints}
+            fill="none"
+            stroke={latestColor}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {points.map((sample, idx) => {
+            const x = pad + (points.length === 1 ? usableWidth : (idx / (points.length - 1)) * usableWidth);
+            const clamped = Math.max(0, Math.min(1, sample.riskScore));
+            const y = pad + (1 - clamped) * usableHeight;
+            return <circle key={`${sample.t}-${idx}`} cx={x} cy={y} r={idx === points.length - 1 ? 3.5 : 2} fill={idx === points.length - 1 ? latestColor : 'rgba(94,234,212,0.65)'} />;
+          })}
+        </svg>
+      </div>
+    );
+  };
 
   const renderTargetCards = (targetsList: any[]) => {
     // Derive CPA/TCPA from ASDR events
@@ -778,6 +813,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           const id = t.mmsi ? String(t.mmsi) : `T${idx + 1}`;
           const targetIdDisplay = t.mmsi ? `T${String(t.mmsi).slice(-2)}` : `T${idx + 1}`;
           const cpaInfo = cpaMap.get(id) ?? cpaMap.get('*');
+          const risk = t.risk as ThreatRiskTargetData | undefined;
 
           const targetLat = t.pose?.lat;
           const targetLon = t.pose?.lon;
@@ -797,8 +833,16 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                 cogRad: t.kinematics?.cog ?? t.pose?.heading ?? 0,
               },
             }) : null;
-          const cpaVal = typeof t.cpaM === 'number' ? t.cpaM / 1852.0 : (cpaInfo?.cpa ?? (cpaFallback ? cpaFallback.cpaM / 1852.0 : undefined));
-          const tcpaVal = typeof t.tcpaS === 'number' ? t.tcpaS / 60.0 : (cpaInfo?.tcpa ?? (cpaFallback ? cpaFallback.tcpaS / 60.0 : undefined));
+          const cpaVal = risk?.dcpaM != null
+            ? risk.dcpaM / 1852.0
+            : typeof t.cpaM === 'number'
+              ? t.cpaM / 1852.0
+              : (cpaInfo?.cpa ?? (cpaFallback ? cpaFallback.cpaM / 1852.0 : undefined));
+          const tcpaVal = risk?.tcpaS != null
+            ? risk.tcpaS / 60.0
+            : typeof t.tcpaS === 'number'
+              ? t.tcpaS / 60.0
+              : (cpaInfo?.tcpa ?? (cpaFallback ? cpaFallback.tcpaS / 60.0 : undefined));
 
           const brg = (ownLat != null && ownLon != null && targetLat != null && targetLon != null)
             ? computeBearing(ownLat, ownLon, targetLat, targetLon).toFixed(1) + '°'
@@ -822,6 +866,12 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           const cpaColor = cpaVal != null
             ? cpaVal < 1.0 ? 'var(--c-danger)' : cpaVal < 2.0 ? 'var(--c-warn)' : '#fff'
             : '#fff';
+          const riskScore = risk?.riskScore != null ? risk.riskScore.toFixed(2) : '—';
+          const warningMargin = risk?.warningMarginM != null ? `${risk.warningMarginM.toFixed(0)} m` : '—';
+          const dangerMargin = risk?.dangerMarginM != null ? `${risk.dangerMarginM.toFixed(0)} m` : '—';
+          const riskPhase = risk?.riskPhase ?? 'Clear';
+          const riskStatus = risk?.primary ? 'PRIMARY' : risk ? 'TRACK' : 'CLEAR';
+          const riskColor = riskPhaseColor(riskPhase);
 
           return (
             <div key={id} style={{
@@ -833,8 +883,45 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
               flexDirection: 'column',
               gap: 12
             }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>目标状态</span>
+                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--txt-2)', fontWeight: 700 }}>
+                    {risk?.targetId ? `Primary ${risk.targetId}` : id}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <span style={{
+                    background: `${riskColor}22`,
+                    border: `1px solid ${riskColor}66`,
+                    color: riskColor,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                  }}>
+                    {riskPhase.toUpperCase()}
+                  </span>
+                  <span style={{
+                    background: risk?.primary ? 'rgba(45,212,191,0.16)' : 'rgba(148,163,184,0.12)',
+                    border: risk?.primary ? '1px solid rgba(45,212,191,0.45)' : '1px solid rgba(148,163,184,0.25)',
+                    color: risk?.primary ? 'var(--c-phos)' : 'var(--txt-2)',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                  }}>
+                    {riskStatus}
+                  </span>
+                </div>
+              </div>
+
               {/* Row 1: ID and MMSI */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+	              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>目标 ID</span>
                   <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: 'var(--c-info)', fontWeight: 700, lineHeight: 1.1 }}>
@@ -846,8 +933,36 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
                   <span style={{ fontFamily: 'var(--f-mono)', fontSize: 20, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
                     {t.mmsi || '—'}
                   </span>
-                </div>
-              </div>
+	              </div>
+	              {risk && (
+	                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>风险阶段</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.riskPhase === 'Critical' || risk.riskPhase === 'Danger' ? 'var(--c-danger)' : risk.riskPhase === 'Warning' ? 'var(--c-warn)' : '#38bdf8', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {risk.riskPhase}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>风险分数</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {riskScore}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>Warning Margin</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.warningMarginM != null && risk.warningMarginM < 0 ? 'var(--c-warn)' : '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {warningMargin}
+	                    </span>
+	                  </div>
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+	                    <span style={{ fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)', letterSpacing: '0.05em' }}>Danger Margin</span>
+	                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 16, color: risk.dangerMarginM != null && risk.dangerMarginM < 0 ? 'var(--c-danger)' : '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+	                      {dangerMargin}
+	                    </span>
+	                  </div>
+	                </div>
+	              )}
+            </div>
 
               {/* Row 2: BRG and RNG */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
@@ -903,22 +1018,6 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     );
   };
 
-  const [userToggledThreats, setUserToggledThreats] = useState<Record<string, boolean>>({});
-
-  const isThreatSectionExpanded = (key: string, listLength: number) => {
-    if (userToggledThreats[key] !== undefined) {
-      return userToggledThreats[key];
-    }
-    return listLength > 0;
-  };
-
-  const toggleThreatSection = (key: string, listLength: number) => {
-    setUserToggledThreats((prev) => ({
-      ...prev,
-      [key]: !isThreatSectionExpanded(key, listLength),
-    }));
-  };
-
   const isPaused  = useControlStore((s) => s.isPaused);
   const setSimRate = useControlStore((s) => s.setSimRate);
   const setPaused  = useControlStore((s) => s.setPaused);
@@ -966,6 +1065,14 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
     if (!isPaused) {
       await changeRate(rate);
     }
+  };
+
+  const handleRadarWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const currentIndex = RADAR_RANGES_NM.indexOf(radarRangeNM);
+    const direction = event.deltaY > 0 ? 1 : -1;
+    const nextIndex = Math.max(0, Math.min(RADAR_RANGES_NM.length - 1, currentIndex + direction));
+    setRadarRangeNM(RADAR_RANGES_NM[nextIndex]);
   };
 
   useHotkeys({
@@ -1135,6 +1242,7 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
           mapRef={externalMapRef}
           ownShip={ownShip}
           visible={true}
+          threatState={threatState}
         />
 
         <PlannedRouteLayer mapRef={externalMapRef} waypoints={voyagePlan?.waypoints ?? []} visible={true} />
@@ -1180,12 +1288,12 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
         <div
           data-testid="monitor-radar-panel"
+          onWheel={handleRadarWheel}
           style={{
             position: 'absolute',
             top: 24,
             left: 24,
             zIndex: 15,
-            paddingBottom: 32,
           }}
         >
           <RadarPpiDisplay
@@ -1196,63 +1304,26 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
             maxRangeNM={radarRangeNM}
             rangeRingsNM={[2, 6, 10]}
           />
-          <div
+          <span
+            data-testid="monitor-radar-range"
             style={{
               position: 'absolute',
-              left: '50%',
-              bottom: 0,
-              transform: 'translateX(-50%)',
+              left: 78,
+              bottom: 74,
               zIndex: 20,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '3px',
-              borderRadius: 6,
-              background: 'rgba(5, 15, 10, 0.78)',
-              border: '1px solid rgba(16, 185, 129, 0.28)',
-              backdropFilter: 'blur(6px)',
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: 'rgba(5, 15, 10, 0.72)',
+              border: '1px solid rgba(16, 185, 129, 0.24)',
+              color: 'rgba(226, 232, 240, 0.76)',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 8,
+              letterSpacing: '0',
+              pointerEvents: 'none',
             }}
           >
-            <span
-              data-testid="monitor-radar-range"
-              style={{
-                minWidth: 42,
-                textAlign: 'center',
-                fontFamily: 'var(--f-mono)',
-                fontSize: 9,
-                color: 'rgba(226, 232, 240, 0.82)',
-              }}
-            >
-              {radarRangeNM} NM
-            </span>
-            {RADAR_RANGES_NM.map((range) => {
-              const active = radarRangeNM === range;
-              return (
-                <button
-                  key={range}
-                  type="button"
-                  title={`${range} NM 量程`}
-                  aria-pressed={active}
-                  data-testid={`radar-range-${range}`}
-                  onClick={() => setRadarRangeNM(range)}
-                  style={{
-                    width: 28,
-                    height: 22,
-                    borderRadius: 4,
-                    border: active ? '1px solid var(--c-phos)' : '1px solid rgba(148, 163, 184, 0.25)',
-                    background: active ? 'rgba(45, 212, 191, 0.18)' : 'rgba(15, 23, 42, 0.65)',
-                    color: active ? 'var(--c-phos)' : 'rgba(226, 232, 240, 0.72)',
-                    fontFamily: 'var(--f-mono)',
-                    fontSize: 9,
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  {range}
-                </button>
-              );
-            })}
-          </div>
+            {radarRangeNM} NM
+          </span>
         </div>
 
         {/* Removed redundant distance scale horizontal line */}
@@ -1459,166 +1530,37 @@ export function SimulationMonitor({ routeScenarioId }: SimulationMonitorProps = 
 
                 {activeRightTab === 'threat' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {/* Card 1: High Threat */}
-                    <div style={{
-                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                      padding: '12px 14px', borderRadius: 8,
-                      display: 'flex', flexDirection: 'column',
-                    }}>
-                      <div
-                        onClick={() => toggleThreatSection('high', categorizedTargets.high.length)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer', userSelect: 'none'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: 'var(--c-danger)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-danger)', fontWeight: 700, letterSpacing: '0.08em' }}>高威胁目标</span>
-                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
-                            ({categorizedTargets.high.length})
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)',
-                            color: 'var(--c-danger)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
-                          }}>CRITICAL</span>
-                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('high', categorizedTargets.high.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
-                        </div>
-                      </div>
-                      {isThreatSectionExpanded('high', categorizedTargets.high.length) && (
-                        <div style={{ marginTop: 12 }}>
-                          {categorizedTargets.high.length > 0 ? (
-                            renderTargetCards(categorizedTargets.high)
-                          ) : (
-                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
-                              暂无高威胁监控目标
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {renderThreatRiskTrend(threatRiskHistory)}
 
-                    {/* Card 2: Medium Threat */}
                     <div style={{
                       background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
                       padding: '12px 14px', borderRadius: 8,
-                      display: 'flex', flexDirection: 'column',
+                      display: 'flex', flexDirection: 'column', gap: 12,
                     }}>
-                      <div
-                        onClick={() => toggleThreatSection('medium', categorizedTargets.medium.length)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer', userSelect: 'none'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: 'var(--c-warn)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-warn)', fontWeight: 700, letterSpacing: '0.08em' }}>中威胁目标</span>
-                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
-                            ({categorizedTargets.medium.length})
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)',
-                            color: 'var(--c-warn)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
-                          }}>WARNING</span>
-                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('medium', categorizedTargets.medium.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
-                        </div>
-                      </div>
-                      {isThreatSectionExpanded('medium', categorizedTargets.medium.length) && (
-                        <div style={{ marginTop: 12 }}>
-                          {categorizedTargets.medium.length > 0 ? (
-                            renderTargetCards(categorizedTargets.medium)
-                          ) : (
-                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
-                              暂无中威胁监控目标
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Card 3: Low Threat */}
-                    <div style={{
-                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                      padding: '12px 14px', borderRadius: 8,
-                      display: 'flex', flexDirection: 'column',
-                    }}>
-                      <div
-                        onClick={() => toggleThreatSection('low', categorizedTargets.low.length)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer', userSelect: 'none'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 5, height: 12, background: '#38bdf8', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: '#38bdf8', fontWeight: 700, letterSpacing: '0.08em' }}>低威胁目标</span>
-                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
-                            ({categorizedTargets.low.length})
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)',
-                            color: '#38bdf8', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
-                          }}>MONITOR</span>
-                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('low', categorizedTargets.low.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
-                        </div>
-                      </div>
-                      {isThreatSectionExpanded('low', categorizedTargets.low.length) && (
-                        <div style={{ marginTop: 12 }}>
-                          {categorizedTargets.low.length > 0 ? (
-                            renderTargetCards(categorizedTargets.low)
-                          ) : (
-                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
-                              暂无低威胁监控目标
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Card 4: No Threat */}
-                    <div style={{
-                      background: 'rgba(0,0,0,0.2)', border: '1px solid var(--line-1)',
-                      padding: '12px 14px', borderRadius: 8,
-                      display: 'flex', flexDirection: 'column',
-                    }}>
-                      <div
-                        onClick={() => toggleThreatSection('none', categorizedTargets.none.length)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer', userSelect: 'none'
-                        }}
-                      >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <div style={{ width: 5, height: 12, background: 'var(--c-phos)', borderRadius: 1 }} />
-                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>无威胁目标</span>
-                          <span style={{ color: 'var(--txt-3)', fontSize: 9, fontFamily: 'var(--f-mono)', marginLeft: 2 }}>
-                            ({categorizedTargets.none.length})
-                          </span>
+                          <span style={{ fontFamily: 'var(--f-disp)', fontSize: 11, color: 'var(--c-phos)', fontWeight: 700, letterSpacing: '0.08em' }}>目标列表</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            background: 'rgba(45, 212, 191, 0.15)', border: '1px solid rgba(45, 212, 191, 0.3)',
-                            color: 'var(--c-phos)', padding: '1px 5px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 700
-                          }}>CLEAR</span>
-                          <LucideChevronRight size={14} style={{ transform: isThreatSectionExpanded('none', categorizedTargets.none.length) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--txt-3)' }} />
-                        </div>
+                        <span style={{
+                          background: 'rgba(45,212,191,0.12)',
+                          border: '1px solid rgba(45,212,191,0.28)',
+                          color: 'var(--c-phos)',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          fontFamily: 'var(--f-mono)',
+                          fontSize: 9,
+                          fontWeight: 800,
+                          letterSpacing: '0.04em',
+                        }}>
+                          {targetsWithRisk.length} TARGET{targetsWithRisk.length === 1 ? '' : 'S'}
+                        </span>
                       </div>
-                      {isThreatSectionExpanded('none', categorizedTargets.none.length) && (
-                        <div style={{ marginTop: 12 }}>
-                          {categorizedTargets.none.length > 0 ? (
-                            renderTargetCards(categorizedTargets.none)
-                          ) : (
-                            <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
-                              暂无无威胁监控目标
-                            </div>
-                          )}
+                      {targetsWithRisk.length > 0 ? (
+                        renderTargetCards(targetsWithRisk)
+                      ) : (
+                        <div style={{ color: 'var(--txt-3)', fontSize: 10, fontFamily: 'var(--f-mono)', padding: '4px 2px' }}>
+                          暂无监控目标
                         </div>
                       )}
                     </div>

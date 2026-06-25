@@ -23,6 +23,7 @@
 #include "l3_msgs/msg/sat3_data.hpp"
 #include "l3_msgs/msg/sotif_metrics.hpp"
 #include "l3_msgs/msg/sotif_violation.hpp"
+#include "l3_msgs/msg/threat_state.hpp"
 #include "l3_external_msgs/msg/override_active_signal.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -75,6 +76,9 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   /// Triggers a ToR cycle. Caller must NOT hold state_mutex_.
   void publish_tor_request(TorProtocol::Reason reason);
   void emit_asdr_event(const std::string& event_type, const std::string& decision_json);
+  l3_msgs::msg::ThreatState build_threat_state(
+      const l3_msgs::msg::WorldState& world,
+      const std::optional<l3_msgs::msg::COLREGsConstraint>& colreg) const;
 
   // ---- Core modules ----
   std::unique_ptr<SatAggregator> sat_aggregator_;
@@ -116,6 +120,7 @@ class HmiTransparencyBridgeNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::SAT2Data>::SharedPtr pub_sil_sat2_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr pub_sil_sat3_;
   rclcpp::Publisher<l3_msgs::msg::SotifMetrics>::SharedPtr pub_sil_sotif_;
+  rclcpp::Publisher<l3_msgs::msg::ThreatState>::SharedPtr pub_threat_state_;
   rclcpp::TimerBase::SharedPtr timer_ui_;
   rclcpp::TimerBase::SharedPtr timer_tor_;
   rclcpp::TimerBase::SharedPtr timer_health_;

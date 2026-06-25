@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "l3_msgs/msg/threat_state.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "m8_hmi_transparency_bridge/hmi_transparency_bridge_node.hpp"
 
@@ -42,6 +43,29 @@ TEST_F(HmiNodeTest, PublishersCreated) {
   EXPECT_GE(node->count_publishers("/l3/m8/ui_state"), 1U);
   EXPECT_GE(node->count_publishers("/l3/asdr/record"), 1U);
   EXPECT_GE(node->count_publishers("/l3/m8/tor_request"), 1U);
+  EXPECT_GE(node->count_publishers("/l3/m8/threat_state"), 1U);
+}
+
+TEST_F(HmiNodeTest, ThreatStateMessageExposesBackendRiskFields) {
+  l3_msgs::msg::ThreatState msg;
+  msg.target_ids.push_back("100000001");
+  msg.risk_phases.push_back("Critical");
+  msg.risk_scores.push_back(0.91F);
+  msg.primary_flags.push_back(true);
+  msg.range_m.push_back(1200.0);
+  msg.dcpa_m.push_back(80.0);
+  msg.tcpa_s.push_back(110.0);
+  msg.warning_margin_m.push_back(-25.0);
+  msg.danger_margin_m.push_back(35.0);
+  msg.colregs_duties.push_back("GiveWay");
+  msg.danger_forward_m = 520.0;
+  msg.warning_forward_m = 936.0;
+
+  EXPECT_EQ(msg.target_ids.at(0), "100000001");
+  EXPECT_EQ(msg.risk_phases.at(0), "Critical");
+  EXPECT_TRUE(msg.primary_flags.at(0));
+  EXPECT_DOUBLE_EQ(msg.danger_forward_m, 520.0);
+  EXPECT_DOUBLE_EQ(msg.warning_forward_m, 936.0);
 }
 
 TEST_F(HmiNodeTest, SubscribesToM7Heartbeat) {
@@ -58,4 +82,3 @@ TEST_F(HmiNodeTest, SubscribesToM7Heartbeat) {
   }
   EXPECT_GE(node->count_subscribers("/l3/m7/heartbeat"), 1U);
 }
-

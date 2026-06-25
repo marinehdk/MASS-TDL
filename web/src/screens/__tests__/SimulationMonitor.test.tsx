@@ -102,7 +102,7 @@ describe('SimulationMonitor', () => {
     expect(screen.queryByTestId('left-tab-ship')).not.toBeInTheDocument();
   });
 
-  it('places an expanded radar panel with sparse range rings and zoom controls on Screen 03', () => {
+  it('uses mouse wheel to switch radar max range without in-chart range labels or buttons', () => {
     useTelemetryStore.setState({
       wsConnected: true,
       ownShip: {
@@ -123,17 +123,26 @@ describe('SimulationMonitor', () => {
 
     expect(screen.getByTestId('monitor-radar-panel')).toBeInTheDocument();
     expect(screen.getByTestId('radar-ppi-display')).toHaveStyle({ width: '460px', height: '460px' });
-    expect(screen.getByText('2nm')).toBeInTheDocument();
-    expect(screen.getByText('6nm')).toBeInTheDocument();
-    expect(screen.getByText('10nm')).toBeInTheDocument();
+    expect(screen.queryByText('10nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('6nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('2nm')).not.toBeInTheDocument();
     expect(screen.queryByText('4nm')).not.toBeInTheDocument();
     expect(screen.queryByText('8nm')).not.toBeInTheDocument();
     expect(screen.queryByText('12nm')).not.toBeInTheDocument();
-    expect(screen.getByTestId('radar-range-12')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('monitor-radar-range-control')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-12')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-3')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('radar-range-10')).not.toBeInTheDocument();
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('10 NM');
 
-    fireEvent.click(screen.getByTestId('radar-range-6'));
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: 120 });
 
-    expect(screen.getByTestId('radar-range-6')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('6 NM');
+
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: 120 });
+    expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('2 NM');
+
+    fireEvent.wheel(screen.getByTestId('monitor-radar-panel'), { deltaY: -120 });
     expect(screen.getByTestId('monitor-radar-range')).toHaveTextContent('6 NM');
   });
 
@@ -402,6 +411,87 @@ ownShip:
     expect(screen.getByTestId('threat-cpa')).toHaveTextContent('0.50 nm');
     expect(screen.getByText('会遇时间 TCPA')).toBeInTheDocument();
     expect(screen.getByText('3.0 min')).toBeInTheDocument();
+  });
+
+  it('renders one stable threat target list with backend risk badge per target', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      ownShip: {
+        pose: { lat: 63.4, lon: 10.4, heading: 0.0 },
+        kinematics: { sog: 5.0, cog: 0.0, rot: 0.0, u: 5.0, v: 0.0, r: 0.0 },
+        controlState: { rudderAngle: 0.0, throttle: 0.0 },
+      },
+      targets: [{
+        mmsi: 100000001,
+        pose: { lat: 63.55, lon: 10.4, heading: Math.PI },
+        kinematics: { sog: 6.17, cog: Math.PI, rot: 0.0 },
+        cpaM: 120.0,
+        tcpaS: 45.0,
+      }],
+      threatState: {
+        targets: [{
+          targetId: '100000001',
+          riskPhase: 'Critical',
+          riskScore: 0.91,
+          primary: true,
+          dcpaM: 259.28,
+          tcpaS: 108,
+          warningMarginM: -210,
+          dangerMarginM: -35,
+          closingSpeedMps: 3.2,
+          tdvWarningS: 0,
+        }],
+        primaryTargetId: '100000001',
+        dangerAxes: { forwardM: 520, asternM: 150, starboardM: 260, portM: 220 },
+        warningAxes: { forwardM: 936, asternM: 270, starboardM: 468, portM: 396 },
+      },
+      threatRiskHistory: [],
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
+
+    expect(screen.getByText('目标列表')).toBeInTheDocument();
+    expect(screen.getByText('1 TARGET')).toBeInTheDocument();
+    expect(screen.queryByText('高威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('中威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('低威胁目标')).not.toBeInTheDocument();
+    expect(screen.queryByText('无威胁目标')).not.toBeInTheDocument();
+    expect(screen.getByText('CRITICAL')).toBeInTheDocument();
+    expect(screen.getByText('PRIMARY')).toBeInTheDocument();
+    expect(screen.getByText('风险分数')).toBeInTheDocument();
+    expect(screen.getByText('0.91')).toBeInTheDocument();
+    expect(screen.getByText('Danger Margin')).toBeInTheDocument();
+    expect(screen.getByText('-35 m')).toBeInTheDocument();
+    expect(screen.getByTestId('threat-cpa')).toHaveTextContent('0.14 nm');
+    expect(screen.getByTestId('threat-tcpa')).toHaveTextContent('1.8 min');
+  });
+
+  it('renders backend primary threat risk score trend from threat state history', () => {
+    useTelemetryStore.setState({
+      wsConnected: true,
+      threatRiskHistory: [
+        { t: 10, primaryTargetId: '100000001', riskScore: 0.22, riskPhase: 'Monitor' },
+        { t: 20, primaryTargetId: '100000001', riskScore: 0.61, riskPhase: 'Warning' },
+        { t: 30, primaryTargetId: '100000001', riskScore: 0.91, riskPhase: 'Critical' },
+      ],
+      threatState: {
+        targets: [{
+          targetId: '100000001',
+          riskPhase: 'Critical',
+          riskScore: 0.91,
+          primary: true,
+        }],
+        primaryTargetId: '100000001',
+      },
+    } as any);
+
+    render(<SimulationMonitor />);
+    fireEvent.click(screen.getByTestId('right-tab-threat'));
+
+    expect(screen.getByText('后端风险趋势')).toBeInTheDocument();
+    expect(screen.getByTestId('threat-risk-trend')).toBeInTheDocument();
+    expect(screen.getAllByText('0.91').length).toBeGreaterThanOrEqual(1);
   });
 
   it('computes CPA and TCPA for the threat list when target metrics are absent', () => {

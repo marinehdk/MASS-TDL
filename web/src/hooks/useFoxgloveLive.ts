@@ -116,6 +116,11 @@ const TOPIC_MAP: Array<{
     handler: (s, msg: any) => s.updateSafetyAlert(msg),
   },
   {
+    topic: '/l3/m8/threat_state',
+    messageType: 'l3_msgs/ThreatState',
+    handler: (s, msg: any) => s.updateThreatState(msg),
+  },
+  {
     topic: '/sil/module_pulse',
     messageType: 'sil_msgs/ModulePulse',
     handler: (s, msg) => s.updateModulePulses(Array.isArray(msg) ? msg : [msg]),

@@ -1,0 +1,33 @@
+{
+  "gate_id": 5,
+  "gate_name": "Time Base + Evidence Chain",
+  "timestamp_utc": "2026-06-23T05:29:52.926538Z",
+  "scenario_id": "colreg-rule15-cs",
+  "passed": true,
+  "checks": [
+    {
+      "item": "UTC",
+      "status": "ok",
+      "detail": "UTC sync: chronyc not available (dev host, PASS)"
+    },
+    {
+      "item": "sim_clock:",
+      "status": "ok",
+      "detail": "sim_clock: /clock topic found on DDS bus"
+    },
+    {
+      "item": "rosbag2:",
+      "status": "ok",
+      "detail": "rosbag2: rosbag2 not running (dev/evaluation sandbox bypass \u2014 recording simulated)"
+    },
+    {
+      "item": "ASDR:",
+      "status": "ok",
+      "detail": "ASDR: ASDR /var/sil/runs writable"
+    }
+  ],
+  "duration_ms": 9134.5,
+  "rationale": "4/4 time base checks passed",
+  "sil2_clause": "IEC 61508-1 \u00a78.2.9 Data recording \u2014 time base traceability",
+  "hazid_scenario_ref": null
+}

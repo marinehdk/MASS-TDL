@@ -111,26 +111,47 @@ describe('RadarPpiDisplay', () => {
     expect(screen.getByText('N-UP (TRUE)')).toBeInTheDocument();
   });
 
-  it('can render an expanded 12 NM tactical range with sparse 2/6/10 NM ring labels', () => {
+  it('renders range rings without text labels inside the radar circle', () => {
     render(
       <RadarPpiDisplay
         ownShip={mockOwnShip}
         targets={mockTargets}
         relativeMode={false}
         size={460}
-        maxRangeNM={12}
+        maxRangeNM={10}
         rangeRingsNM={[2, 6, 10]}
       />
     );
 
     const radar = screen.getByTestId('radar-ppi-display');
     expect(radar).toHaveStyle({ width: '460px', height: '460px' });
-    expect(screen.getByText('2nm')).toBeInTheDocument();
-    expect(screen.getByText('6nm')).toBeInTheDocument();
-    expect(screen.getByText('10nm')).toBeInTheDocument();
+    expect(screen.getByTestId('radar-range-ring-2')).toBeInTheDocument();
+    expect(screen.getByTestId('radar-range-ring-6')).toBeInTheDocument();
+    expect(screen.getByTestId('radar-range-ring-10')).toBeInTheDocument();
+    expect(screen.queryByText('2nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('6nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('10nm')).not.toBeInTheDocument();
     expect(screen.queryByText('4nm')).not.toBeInTheDocument();
     expect(screen.queryByText('8nm')).not.toBeInTheDocument();
     expect(screen.queryByText('12nm')).not.toBeInTheDocument();
+  });
+
+  it('uses the selected range as the outer radar ring', () => {
+    render(
+      <RadarPpiDisplay
+        ownShip={mockOwnShip}
+        targets={mockTargets}
+        relativeMode={false}
+        size={460}
+        maxRangeNM={2}
+        rangeRingsNM={[2, 6, 10]}
+      />
+    );
+
+    expect(screen.queryByText('2nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('6nm')).not.toBeInTheDocument();
+    expect(screen.queryByText('10nm')).not.toBeInTheDocument();
+    expect(screen.getByTestId('radar-range-ring-2')).toHaveAttribute('r', '210');
   });
 
   it('computes a distinct CPA point when backend CPA metrics are absent', () => {
