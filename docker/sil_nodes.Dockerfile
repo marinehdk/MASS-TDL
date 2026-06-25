@@ -147,7 +147,6 @@ RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 # Launch all 10 Python LifecycleNodes directly (ament_python packages
 # have no libexec dir; ros2 launch fails. Use ros2 run + lifecycle cli instead.)
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
-COPY docker/sil_topic_bridge.py /opt/ws/docker/sil_topic_bridge.py
 COPY docker/mock_l2_publisher.py /opt/ws/docker/mock_l2_publisher.py
 COPY docker/gnc_route_mock_publisher.py /opt/ws/docker/gnc_route_mock_publisher.py
 COPY docker/route_ingest_node.py /opt/ws/docker/route_ingest_node.py

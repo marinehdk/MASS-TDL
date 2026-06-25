@@ -146,8 +146,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     contract = TopicContract.load(args.contract)
     # Exclude GNC bridge (Track A), third_party, and the m4 salvage dir
-    # (deprecated d3.1 stub, not active source). sil_topic_bridge.py is
-    # adapter-boundary (Track A removes it), excluded here.
+    # (deprecated d3.1 stub, not active source). The Track A A5 C++ SIL
+    # adapters (sil_fusion/trace/pulse_adapter) live under src/sim_workbench,
+    # outside the default --root src/l3_tdl_kernel, so they are not scanned
+    # here; their topics are relay-boundary topics, not L3 kernel contracts.
     excludes = ["third_party", "gnc_bridge", "build", "install", ".salvage-d3.1"]
     findings = scan_directory(args.root, excludes)
     violations = check_source_against_contract(contract, findings)

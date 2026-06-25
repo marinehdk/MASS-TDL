@@ -228,15 +228,26 @@ except Exception:
 import os as _os
 external_l2_route = _os.environ.get('TDL_INTEGRATION_PROFILE', 'default') in ('a4000_external', 'hybrid_debug')
 if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
-    print(f'[{ts()}] Stage 3/3: Starting L3 kernel bridge + nodes')
+    print(f'[{ts()}] Stage 3/3: Starting L3 kernel adapters + nodes')
     sys.stdout.flush()
 
-    # 3a. Start topic bridge as background process (same as before)
-    bridge_proc = subprocess.Popen(
-        ['python3', '/opt/ws/docker/sil_topic_bridge.py', '--ros-args', '-p', 'use_sim_time:=True'],
-        stdout=sys.stdout, stderr=sys.stderr
-    )
-    print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
+    # 3a. Start the 3 C++ SIL adapter nodes (Track A A5) as background
+    # processes. These replace the monolithic sil_topic_bridge.py:
+    #   sil_fusion_adapter  — SIL→L3 fusion relay (targets/environment)
+    #   sil_trace_adapter   — L3→SIL decision-trace relay (ASDR/UIState)
+    #   sil_pulse_adapter   — M1-M8 heartbeat aggregation → /sil/module_pulse
+    # The actuator path (/sil/actuator_cmd) is NOT relaunched here: the GNC
+    # profile owns the actuator path via gnc_bridge + GNC ship_control, and the
+    # SIL-only profile no longer carries a SIL-side actuator (spec D5).
+    ros_env = {**_os.environ}
+    adapter_procs = []
+    for adapter in ('sil_fusion_adapter', 'sil_trace_adapter', 'sil_pulse_adapter'):
+        proc = subprocess.Popen(
+            ['ros2', 'run', adapter, f'{adapter}_node',
+             '--ros-args', '-p', 'use_sim_time:=True'],
+            stdout=sys.stdout, stderr=sys.stderr, env=ros_env)
+        adapter_procs.append(proc)
+        print(f'  [{ts()}] {adapter}_node PID: {proc.pid}')
 
     # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
     # Detect active scenario YAML from scenario directory

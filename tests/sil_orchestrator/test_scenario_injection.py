@@ -202,12 +202,11 @@ class TestExtractInjectionParams:
         # u0 = 10 * 0.5144 = 5.144
         assert ship["u0"][0] == pytest.approx(5.144, abs=1e-6)
 
-    def test_bridge_receives_ownship_initial_heading_and_speed(self, imazu08_parsed):
-        """sil_topic_bridge receives YAML ownship initial state."""
+    def test_sil_topic_bridge_no_longer_injected(self, imazu08_parsed):
+        """sil_topic_bridge was removed in Track A A5c; its ownship_initial_*
+        injection must not be produced anymore."""
         result = _extract_injection_params(imazu08_parsed)
-        node_params = result.get("sil_topic_bridge", {})
-        assert node_params["ownship_initial_heading_deg"][0] == pytest.approx(0.0, abs=1e-6)
-        assert node_params["ownship_initial_sog_kn"][0] == pytest.approx(10.0, abs=1e-6)
+        assert "sil_topic_bridge" not in result
 
     def test_lifecycle_bridge_no_l4_set_parameters_client(self):
         """l4_guidance_adapter was removed (Track A A5); its SetParameters client
