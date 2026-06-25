@@ -83,6 +83,26 @@ class CrossDomainHandoff {
     return true;
   }
 
+  // Non-blocking variants for drain timers. The blocking pop_* variants above
+  // MUST NOT be called from an executor-spun callback: they wait on a condition
+  // variable, which would stall the executor thread and starve subscription
+  // callbacks. The drain timers (run on the executor) use these try_* variants
+  // instead — they return immediately (false) when the queue is empty.
+  bool try_pop_l3_to_gnc(L3ToGnc& out) {
+    std::lock_guard<std::mutex> lk(l3_mtx_);
+    if (l3_queue_.empty()) return false;
+    out = std::move(l3_queue_.front());
+    l3_queue_.pop_front();
+    return true;
+  }
+  bool try_pop_gnc_to_l3(GncToL3& out) {
+    std::lock_guard<std::mutex> lk(gnc_mtx_);
+    if (gnc_queue_.empty()) return false;
+    out = std::move(gnc_queue_.front());
+    gnc_queue_.pop_front();
+    return true;
+  }
+
   void shutdown() {
     shutdown_.store(true);
     l3_cv_.notify_all();

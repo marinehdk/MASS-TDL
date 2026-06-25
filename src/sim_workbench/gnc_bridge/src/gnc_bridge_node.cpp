@@ -54,12 +54,14 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
   pub_route_ = create_publisher<ship_interfaces::msg::RoutePlan>(
       "/route_planning/route_plan",
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local());
-  // Drain L3->GNC items at 20 Hz and publish on the GNC domain.
+  // Drain L3->GNC items at 20 Hz and publish on the GNC domain. Uses the
+  // non-blocking try_pop so the executor thread is never stalled (a blocking
+  // pop here would starve subscription callbacks on the same executor).
   drain_timer_ = create_wall_timer(
       std::chrono::milliseconds(50),
       [this]() {
         CrossDomainHandoff::L3ToGnc item;
-        while (handoff_->pop_l3_to_gnc(item)) {
+        while (handoff_->try_pop_l3_to_gnc(item)) {
           if (item.has_avoidance) pub_avoidance_->publish(item.avoidance_plan);
           if (item.has_route)     pub_route_->publish(item.route_plan);
         }
@@ -80,7 +82,7 @@ L3PublisherNode::L3PublisherNode(std::shared_ptr<CrossDomainHandoff> handoff,
       std::chrono::milliseconds(50),
       [this]() {
         CrossDomainHandoff::GncToL3 item;
-        while (handoff_->pop_gnc_to_l3(item)) {
+        while (handoff_->try_pop_gnc_to_l3(item)) {
           if (item.has_own_ship)    pub_own_ship_->publish(item.own_ship);
           if (item.has_exec_status) pub_exec_status_->publish(item.exec_status);
         }
