@@ -2,6 +2,84 @@
 
 ---
 
+## [2026-06-25] Agent: ZCode — COLREGs 测试体系 v1 阶段④（集成缺陷定位 + 双根因修复）
+
+- **Git Commits**: `ae53b762`（M6 cross-run reset）, `5bb2ea91`（M4 abaft gate）on `codex/colregs-generalization-debug` @ `.worktrees/colregs-generalization-debug`
+- **任务目标**: 定位并修复 TDL 在固定 ODD（开阔水域）下避碰集成缺陷，让 clean 8/12 探针全 GREEN。承接前序会话（设计 #96700af4 / 阶段①② #1e9018db / 阶段③④ #80008fd3，D1+D3.1+D4 已完成）。
+
+### 关键转折：任务清单"L4 stability 调参"前提已过时
+
+任务清单假设 `rule14-ho steering_reversals=10` 是 L4 adapter 调参问题。**实测推翻**：D4 参数治理后 `steering_reversals=1`，stability 已 GREEN。真问题是 M4 PREMATURE_RECOVERY + M6 release 滞后，不是 L4。跑完 clean 8 首轮干净全景（0/8 GREEN）后定位三类独立根因。
+
+### Clean 8 首轮全景（独立重启跑，避免 cross-run 污染）
+
+| 场景 | RED 主因 | gap |
+|---|---|---|
+| rule14-ho | M4 PREMATURE_RECOVERY（abaft gate 缺失）+ run-to-run 不稳定 | 146s |
+| rule14-ho-port | L5 route_recovery fail（间接被 ho 振荡连累） | — |
+| rule13-ot | **M6 完全不触发 conflict**（FSM onset 门限，独立） | — |
+| rule15-cs | M4 PREMATURE + steering_reversals=15 | 1700s |
+| rule15-cs-2 | M4 PREMATURE + steering_reversals=12 | 1380s |
+| rule15-cs-edge | M4 PREMATURE + AVOID↔RECOVERY 振荡 + 179° U-turn | 228s |
+| rule15-ot-boundary | **M6 完全不触发 conflict**（同 rule13-ot） | — |
+| rule17-cr-so | route_return=False（stand-on 回航线判定，独立） | — |
+
+### 核心改动（2 commits）
+
+| Commit | 组件 | 内容 |
+|---|---|---|
+| `ae53b762` | M6 `colregs_reasoner_node.cpp` | `reset_cross_run_state_locked_()` 加 `encounter_fsms_.clear()`。原 reset 清了 latches 但漏 encounter_fsms_（per-(target,rule) FSM），导致 batch 第 2 轮 M6 onset 提前 7s、conflict 持续 4.6x（199→923s）。TDD: test hooks + `ClearsEncounterStateMachines`。回归 m6 全 GREEN（release_policy 31, rule_latch 19, encounter_sm 17, node_lifecycle 1, colregs_chain 11） |
+| `5bb2ea91` | M4 `behavior_arbiter_node.cpp` | D1.3 v4 abaft-beam gate。D1.3 v3 release gate 用 `closing_speed<=0`（TCPA 过零），但 target 过 CPA 后仍可在 bow 侧（rel_bearing<90°）。新 helper `colregs_give_way_target_abaft`（通用，不限 rule15），接入 release 三分支 + RECOVERY-entry。cache `last_colregs_target_abaft_beam_`（extract 后算一次，fallback `active_colregs_target_key_`）防 dwell-override 指令的空 threat。TDD: `PrematureRecoveryBlockedWhenTargetNotAbaftBeam`。回归 m4 全 GREEN（node_lifecycle 28/28, colregs_directive 23/23, cross_run 2/2） |
+
+### SIL 验证（rule14-ho D1.3v4）
+
+- **route_return=True**（之前 False）✅
+- **max_starboard_dev 86.9°**（之前 179.9°，U-turn 消除）✅
+- **rot_hold_std 1.058**（之前 2.23）✅
+- 但 **steering_reversals=8**（仍 RED）— 振荡未完全消除
+
+### 当前状态: 2 根因修复完成，3 类独立问题待办
+
+**已修复**：cross-run reset（run-to-run 不稳定根因）+ M4 abaft gate（PREMATURE_RECOVERY 根因，5 个 give-way 场景共同）。
+
+**待办（按优先级）**：
+1. 🔴 RECOVERY 期间振荡（steering_reversals=8）：M4 risk_controlled release 每 tick 把 conflict_active 翻 false，但 M6 conflict 持续 TRUE 重新激活 → AVOID↔RECOVERY 抖动。根因是 risk release 与 M6 conflict 的竞争。修复方向：risk release 后 hold（`colregs_risk_recovery_hold_` 加强）直到 M6 也 clear，不在中间 oscillate
+2. 🔴 M6 rule13-ot / rule15-ot-boundary 完全不触发 conflict（FSM onset 门限 TCPA<=t_plan(720s) 未满足，独立问题）
+3. 🟡 rule17-cr-so stand-on route_return=False（回航线判定，独立）
+
+### Handoff Notes
+
+- 容器：`colregs-generalization-debug-sil-nodes-1`，orchestrator 18001，DDS_DOMAIN=43，启动 `source scripts/local-behavior-fix-env.sh && export COMPOSE_PROJECT_NAME=colregs-generalization-debug`
+- 8 场景独立单跑（每场景重启容器 60s settle）才干净；batch 模式即便修了 cross-run reset 仍有 onset 调度抖动（独立问题）
+- 测试 binary 运行需 `cd /opt/ws/src/l3_tdl_kernel/<pkg> && /opt/ws/build/<pkg>/test_*`（WORKING_DIRECTORY 配置，且 build 需 `-DBUILD_TESTING=ON`）
+- mempalace drawer: `colregs-test-system-v1-phase4` room，关键决策已存（run-to-run 根因 / D1.3v4 abaft gate / M6 encounter_fsms 漏 clear）
+
+### 2026-06-25 续：振荡 + rule13-ot + rule17 深度诊断（M6 层）
+
+承接上面的振荡修复，深入 M6 层诊断，3 个待办均定位根因，**其中 2 个需用户决策**（非简单系统缺陷）：
+
+**#1 RECOVERY 振荡（steering_reversals=8，M4 层 4 次补丁未果）**：
+- M4 层尝试：RECOVERY-entry 设 hold、held 分支去 abaft、held 去 risk phase、risk reengage 加 closing 豁免。**全部未消除振荡**（SIL 4 次验证，steering_reversals 始终 8-10）。已回退实验到 5bb2ea91。
+- 转入 M6 层诊断结论：**M6 release 行为正确**（`give_way_reference_heading_release_safe` 用 onset reference_heading 算 past-beam，bow_clear=90°，阈值与 M4 abaft 一致）。
+- **真根因**：M4 abaft gate 用 **current own heading** 算 rel_bearing，M6 用 **onset reference_heading**（固定）。RECOVERY 期间 own 转向使 current heading 变化 → M4 abaft 判断基准变（target 瞬间 <90°）→ M4 risk_released 翻 false → conflict 重激活 → AVOID。M6 reference heading 稳定，故 M6 仍 conflict。
+- **需用户决策**：(a) M4 abaft 改用 onset reference heading（需 M6 透出 encounter_reference_heading，较大改动）；(b) 接受振荡，调 stability gate 的 steering_reversals 阈值（违反"不调测试"原则）；(c) 架构层让 M4 release 完全跟随 M6（放弃 risk compensator 角色）。
+
+**#2 M6 rule13-ot / rule15-ot-boundary 完全不触发 conflict**：
+- 根因：M6 ESM PREPLAN→ACTIVE 门限 `tcpa_s <= t_plan_s(720s)`。rule13-ot TCPA=1594s，rule15-ot-boundary TCPA=1003s，均 > 720 → 永不 ACTIVE → conflict=False。
+- 前序 D2.1 audit 已判定：**scenario-vs-FSM-design mismatch，非纯系统缺陷**。720s TCPA gate 防止 26-min 远距误触发是合理设计。但这两个场景设计了真实 close-quarters（DCPA 3m/100m）只是接近慢。
+- **需用户决策**：(a) 减小场景初始 range 让 TCPA<720s（违反"不调场景几何"原则）；(b) M6 对 overtaking 用 range-based onset 而非 TCPA（设计改动）；(c) 排除这两个场景的 give-way-avoidance 预期（标记为"M6 正确不对远距慢接近动作"）。
+
+**#3 rule17-cr-so stand-on route_return=False（独立小问题）**：
+- 根因：stand-on emergency turn 后 L4 heading controller 收敛不足，`final_heading_dev=11.86° > 10°` 阈值（XTE=17m 已 OK）。heading_span=180°（大转向）。
+- 这是 L4 adapter heading controller 收敛问题（原"L4 stability 调参"的变体）。独立，不阻塞核心。
+
+### 下一步切点（待用户对 #1/#2 决策）
+
+- 工作区干净：HEAD `5bb2ea91`（abaft gate 已验证部分改善）。M4 振荡实验已回退。
+- 3 个决策点都需要你的方向判断（不是 agent 能自行决定的 surgical 修复）。
+
+---
+
 ## [2026-06-24] Agent: ZCode — COLREGs 测试体系 v1 阶段②（单模块功能测试）
 
 - **Git Commit**: `5768a9a4`（branch: `codex/colregs-generalization-debug`, worktree: `.worktrees/colregs-generalization-debug`）
@@ -234,3 +312,13 @@ python3 scripts/run_colregs_clean_8probe.py \
 
 ### 前序 M6 振荡根因发现
 - `encounter_fsms_` 未随 latches 一起清除 → 本次已修复并提交
+
+---
+
+## [2026-06-24 17:15] Agent: Antigravity (IDE)
+- **Git Commit**: `02eee27a` (branch: `codex/colregs-phase-gate-diag`)
+- **任务目标 (Goal)**: 统计核心代码规模（不含测试/环境配置）与Git提交情况
+- **核心改动 (Actions)**:
+  - `handoff/workspace_log.md`: 追加本次分析日志
+- **当前状态 (Status)**: ✅ GREEN
+- **接力指示 (Hand-off Context)**: 分析已完成，生成了详细的代码行数和 Git 提交状态报告，核心算法 SLOC 为 24,722 行（若包含前端 HMI 为 48,395 行）。测试及仿真编排代码几乎与核心算法 1:1，整体状态正常。
