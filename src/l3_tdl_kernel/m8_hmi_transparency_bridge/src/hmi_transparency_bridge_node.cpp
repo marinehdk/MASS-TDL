@@ -211,6 +211,8 @@ void HmiTransparencyBridgeNode::init_publishers()
       "/sil/sat2_data", rclcpp::SensorDataQoS().keep_last(5));
   pub_sil_sat3_ = create_publisher<l3_msgs::msg::SAT3Data>(
       "/sil/sat3_data", rclcpp::SensorDataQoS().keep_last(10));
+  // HMI mirror only. SOTIF authority is /l3/m7/sotif_metrics (M7).
+  // Future task: subscribe authority and republish instead of stub data.
   pub_sil_sotif_ = create_publisher<l3_msgs::msg::SotifMetrics>(
       "/sil/sotif_metrics", rclcpp::QoS(20).reliable().transient_local());
   pub_threat_state_ = create_publisher<l3_msgs::msg::ThreatState>(

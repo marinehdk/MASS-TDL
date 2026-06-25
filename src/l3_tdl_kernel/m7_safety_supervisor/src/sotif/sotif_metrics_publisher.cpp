@@ -15,7 +15,7 @@ namespace {
 
 SotifMetricsPublisher::SotifMetricsPublisher(rclcpp::Node* node)
   : publisher_{node->create_publisher<l3_msgs::msg::SotifMetrics>(
-      "/sil/sotif_metrics", rclcpp::QoS(10).best_effort())} {}
+      "/l3/m7/sotif_metrics", rclcpp::QoS(10).best_effort())} {}
 
 void SotifMetricsPublisher::publish(AssumptionStatus const& status,
                                      std::uint16_t veto_window_count) noexcept {

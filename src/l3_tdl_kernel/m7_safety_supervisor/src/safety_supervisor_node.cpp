@@ -436,7 +436,7 @@ void SafetySupervisorNode::run_monitor_evaluation(
     kCommLink,
     now);
 
-  // Publish SotifMetrics to /sil/sotif_metrics (DEMO-2: stub mode by default)
+  // Publish SotifMetrics to /l3/m7/sotif_metrics (authority; DEMO-2: stub mode by default)
   auto const kVetoWindowCount = checker_veto_counter_->window_violation_count();
   sotif_metrics_publisher_->publish(kAssumptionStatus, kVetoWindowCount);
 
