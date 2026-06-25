@@ -10,7 +10,34 @@ RUN-1: configure→activate→run (NO restart)
 ============================================================
 RUN-2: configure→activate→run (NO restart)
 ============================================================
-  [RUN-2] wall 0s sim_t 32/300  [RUN-2] wall 1s sim_t 32/300  [RUN-2] wall 2s sim_t 52/300  [RUN-2] wall 3s sim_t 52/300  [RUN-2] wall 4s sim_t 72/300  [RUN-2] wall 5s sim_t 72/300  [RUN-2] wall 6s sim_t 92/300  [RUN-2] wall 7s sim_t 92/300  [RUN-2] wall 8s sim_t 112/300  [RUN-2] wall 9s sim_t 112/300  [RUN-2] wall 10s sim_t 132/300  [RUN-2] wall 12s sim_t 132/300  [RUN-2] wall 13s sim_t 152/300  [RUN-2] wall 14s sim_t 152/300  [RUN-2] wall 15s sim_t 172/300  [RUN-2] wall 16s sim_t 172/300  [RUN-2] wall 17s sim_t 192/300  [RUN-2] wall 18s sim_t 212/300  [RUN-2] wall 19s sim_t 212/300  [RUN-2] wall 20s sim_t 232/300  [RUN-2] wall 21s sim_t 232/300  [RUN-2] wall 22s sim_t 252/300  [RUN-2] wall 23s sim_t 252/300  [RUN-2] wall 24s sim_t 272/300  [RUN-2] wall 25s sim_t 272/300  [RUN-2] wall 26s sim_t 292/300  [RUN-2] wall 27s sim_t 292/300  [RUN-2] wall 28s sim_t 312/300
+  [RUN-2] wall 0s sim_t 32/300
+  [RUN-2] wall 1s sim_t 32/300
+  [RUN-2] wall 2s sim_t 52/300
+  [RUN-2] wall 3s sim_t 52/300
+  [RUN-2] wall 4s sim_t 72/300
+  [RUN-2] wall 5s sim_t 72/300
+  [RUN-2] wall 6s sim_t 92/300
+  [RUN-2] wall 7s sim_t 92/300
+  [RUN-2] wall 8s sim_t 112/300
+  [RUN-2] wall 9s sim_t 112/300
+  [RUN-2] wall 10s sim_t 132/300
+  [RUN-2] wall 12s sim_t 132/300
+  [RUN-2] wall 13s sim_t 152/300
+  [RUN-2] wall 14s sim_t 152/300
+  [RUN-2] wall 15s sim_t 172/300
+  [RUN-2] wall 16s sim_t 172/300
+  [RUN-2] wall 17s sim_t 192/300
+  [RUN-2] wall 18s sim_t 212/300
+  [RUN-2] wall 19s sim_t 212/300
+  [RUN-2] wall 20s sim_t 232/300
+  [RUN-2] wall 21s sim_t 232/300
+  [RUN-2] wall 22s sim_t 252/300
+  [RUN-2] wall 23s sim_t 252/300
+  [RUN-2] wall 24s sim_t 272/300
+  [RUN-2] wall 25s sim_t 272/300
+  [RUN-2] wall 26s sim_t 292/300
+  [RUN-2] wall 27s sim_t 292/300
+  [RUN-2] wall 28s sim_t 312/300
   [RUN-2] reached sim_t=312
   [RUN-2] 3186 ownship recs, 1315 behavior, 7 transitions, max_dev=53.2°
   [RUN-2] transitions: [(0.3, 0), (1.8, 1), (110.5, 7), (135.0, 1), (146.1, 7), (159.3, 1), (323.1, 7)]
