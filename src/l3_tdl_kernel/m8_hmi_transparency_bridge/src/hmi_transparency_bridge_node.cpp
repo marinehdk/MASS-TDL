@@ -189,7 +189,7 @@ void HmiTransparencyBridgeNode::init_subscriptions()
       [this](const std_msgs::msg::Header::SharedPtr m) { on_m7_heartbeat(m); });
 
   sub_override_ = create_subscription<l3_external_msgs::msg::OverrideActiveSignal>(
-      "/override/active_signal", rclcpp::QoS(50).reliable().transient_local(),
+      "/l3/override/active", rclcpp::QoS(50).reliable().transient_local(),
       [this](const l3_external_msgs::msg::OverrideActiveSignal::SharedPtr m) {
         on_override_signal(m); });
 }
