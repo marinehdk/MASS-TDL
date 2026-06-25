@@ -393,6 +393,14 @@ void ColregsReasonerNode::setup_subscribers() {
     rclcpp::SensorDataQoS().keep_last(2),
     // NOLINTNEXTLINE(performance-unnecessary-value-param)
     [this](const l3_msgs::msg::WorldState::SharedPtr kMsg) { on_world_state(kMsg); });
+
+  // Cross-run reset: clear all encounter latches/history on new scenario.
+  // TRANSIENT_LOCAL so we receive the latched scenario_id even though M6 starts
+  // after the orchestrator's configure publishes it.
+  scenario_loaded_sub_ = create_subscription<std_msgs::msg::String>(
+      "/sil/scenario_loaded",
+      rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
+      [this](const std_msgs::msg::String::SharedPtr kMsg) { on_scenario_loaded(kMsg); });
 }
 
 // ------------------------------------------------------------------
@@ -505,16 +513,12 @@ void ColregsReasonerNode::run_reasoning() {
     // a new run started — drop all cross-run encounter state so a prior run's latched
     // give-way (or stale range history) cannot bleed into the next scenario's onset.
     if (dt_s < -1.0) {
-      rule_latches_.clear();
-      give_way_latches_.clear();
-      standon_latches_.clear();
-      encounter_reference_heading_.clear();
-      resolved_targets_.clear();
-      prev_target_range_.clear();
-      prev_target_bearing_.clear();
       RCLCPP_INFO(get_logger(),
         "New run detected (sim time %.1fs → %.1fs) — cleared cross-run latch/history state",
         prev_world_stamp_.seconds(), ws_stamp.seconds());
+      // Caller (run_reasoning) already holds state_mutex_; use the lock-held
+      // variant to avoid a self-deadlock. Shared with the scenario_loaded trigger.
+      reset_cross_run_state_locked_();
     }
   }
   prev_world_stamp_ = ws_stamp;
@@ -1456,6 +1460,34 @@ ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::test_build_colregs_
     const RuleParameters& params,
     const std::vector<TargetGeometricState>& targets) {
   return ColregsReasonerNode::build_colregs_chain(evals, domain, params, targets);
+}
+
+void ColregsReasonerNode::on_scenario_loaded(
+    const std_msgs::msg::String::SharedPtr msg) {
+  RCLCPP_INFO(get_logger(),
+      "scenario_loaded '%s' — resetting cross-run encounter state",
+      msg->data.c_str());
+  reset_cross_run_state();
+}
+
+void ColregsReasonerNode::reset_cross_run_state() {
+  // Public entry: takes the lock, delegates to the lock-held implementation.
+  const std::lock_guard<std::mutex> kLock(state_mutex_);
+  reset_cross_run_state_locked_();
+}
+
+void ColregsReasonerNode::reset_cross_run_state_locked_() {
+  // Assumes state_mutex_ is already held by the caller. Clears all cross-scenario
+  // encounter latches/history so a new scenario's onset is not biased by the
+  // prior run's classification. Shared between scenario_loaded (primary trigger)
+  // and the retained sim-time rewind fallback (run_reasoning).
+  rule_latches_.clear();
+  give_way_latches_.clear();
+  standon_latches_.clear();
+  encounter_reference_heading_.clear();
+  resolved_targets_.clear();
+  prev_target_range_.clear();
+  prev_target_bearing_.clear();
 }
 
 }  // namespace mass_l3::m6_colregs

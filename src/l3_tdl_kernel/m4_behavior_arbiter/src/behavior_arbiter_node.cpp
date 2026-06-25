@@ -225,6 +225,14 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
       "/l2/planned_route", qos,
       [this](const PlannedRouteMsg::SharedPtr msg) { on_planned_route(msg); });
 
+  // Cross-run reset: clear accumulated decision state when a new scenario
+  // loads. TRANSIENT_LOCAL so we receive the latched scenario_id even though
+  // we start after the orchestrator's configure publishes it.
+  scenario_loaded_sub_ = create_subscription<std_msgs::msg::String>(
+      "/sil/scenario_loaded",
+      rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
+      [this](const std_msgs::msg::String::SharedPtr msg) { on_scenario_loaded(msg); });
+
   pub_plan_ = create_publisher<BehaviorPlanMsg>("/l3/m4/behavior_plan", qos);
   pub_sat2_ = create_publisher<l3_msgs::msg::SAT2Data>("/sil/sat2_data", qos);
   pub_asdr_ = create_publisher<ASDRRecordMsg>("/l3/asdr/record", asdr_qos);
@@ -1035,6 +1043,43 @@ void BehaviorArbiterNode::publish_asdr_event(
   record.decision_type = decision_type;
   record.decision_json = decision_json;
   pub_asdr_->publish(record);
+}
+
+void BehaviorArbiterNode::on_scenario_loaded(
+    const std_msgs::msg::String::SharedPtr msg) {
+  RCLCPP_INFO(get_logger(),
+      "scenario_loaded '%s' — resetting cross-run decision state",
+      msg->data.c_str());
+  reset_cross_run_state();
+}
+
+void BehaviorArbiterNode::reset_cross_run_state() {
+  // Reset every cross-scenario accumulated field to its construction default
+  // (the in-class initializers in the header, hpp:116-137). These are the
+  // latches/anchors/FSM state that would otherwise let a prior run's decision
+  // bleed into the next scenario's onset (the root cause of the mandatory
+  // docker restart between probe runs).
+  prev_primary_ = BehaviorType::MRC_DRIFT;
+  prev_odd_zone_ = 99;
+  prev_health_ = HealthState::Normal;
+
+  m3_active_latch_ = false;
+  fallback_anchor_set_ = false;
+  fallback_anchor_hdg_ = 0.0;
+  colregs_anchor_set_ = false;
+  colregs_anchor_hdg_ = 0.0;
+  colregs_quartering_gate_ = false;
+  colregs_rule15_commit_active_ = false;
+  colregs_committed_required_dev_deg_ = 0.0;
+  colregs_inactive_cycles_ = 0;
+  risk_ranking_state_ = mass_l3::risk::RankingState{};
+
+  recovery_active_ = false;
+  recovery_dwell_cycles_ = 0;
+  colregs_recovery_armed_ = false;
+  colregs_risk_recovery_hold_ = false;
+
+  last_active_colregs_.reset();
 }
 
 }  // namespace mass_l3::m4

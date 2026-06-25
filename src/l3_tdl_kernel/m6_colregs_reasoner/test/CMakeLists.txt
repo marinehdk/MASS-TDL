@@ -65,4 +65,10 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_colregs_chain test_colregs_chain.cpp)
   target_link_libraries(test_colregs_chain ${PROJECT_NAME}_lib)
+
+  ament_add_gtest(test_cross_run_reset test_cross_run_reset.cpp)
+  target_link_libraries(test_cross_run_reset ${PROJECT_NAME}_lib)
+  set_tests_properties(test_cross_run_reset PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+  )
 endif()

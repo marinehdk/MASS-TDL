@@ -54,6 +54,10 @@ class TrackBuffer final {
   /// Current buffer occupancy.
   [[nodiscard]] size_t size() const;
 
+  /// Remove all tracks. Idempotent. Used on scenario change so a prior run's
+  /// target history does not bleed into the next scenario's classification.
+  void clear();
+
   /// Maximum capacity.
   [[nodiscard]] int32_t capacity() const { return cfg_.max_targets; }
 

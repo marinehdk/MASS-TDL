@@ -17,6 +17,7 @@
 #include "l3_msgs/msg/sat2_data.hpp"
 #include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/rule_assessment.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_risk_model/risk_model.hpp"
 
@@ -51,7 +52,14 @@ public:
   explicit BehaviorArbiterNode(
       const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
+  /// Clear all cross-scenario accumulated state. Called on /sil/scenario_loaded.
+  /// Idempotent; safe to call at any time. Clears latches, FSM recovery state,
+  /// COLREGs commit anchors, and ranking history so a new scenario starts from
+  /// a clean decision slate instead of inheriting the prior run's state.
+  void reset_cross_run_state();
+
 private:
+  void on_scenario_loaded(const std_msgs::msg::String::SharedPtr msg);
   void on_odd_state(const ODDStateMsg::SharedPtr msg);
   void on_world_state(const WorldStateMsg::SharedPtr msg);
   void on_mode_cmd(const ModeCmdMsg::SharedPtr msg);
@@ -100,6 +108,7 @@ private:
   rclcpp::Subscription<MissionGoalMsg>::SharedPtr       sub_mission_;
   rclcpp::Subscription<COLREGsConstraintMsg>::SharedPtr sub_colregs_;
   rclcpp::Subscription<PlannedRouteMsg>::SharedPtr      sub_route_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr scenario_loaded_sub_;
 
   // Publishers
   rclcpp::Publisher<BehaviorPlanMsg>::SharedPtr   pub_plan_;

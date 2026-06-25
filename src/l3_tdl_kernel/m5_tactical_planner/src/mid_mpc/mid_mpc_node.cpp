@@ -145,6 +145,13 @@ MidMpcNode::MidMpcNode(const Config& cfg)
         speed_profile_ = std::move(msg);
       });
 
+  // Cross-run reset: clear MPC warm state on new scenario. TRANSIENT_LOCAL so
+  // we receive the latched scenario_id even though M5 starts after configure.
+  sub_scenario_loaded_ = create_subscription<std_msgs::msg::String>(
+      "/sil/scenario_loaded",
+      rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
+      [this](std_msgs::msg::String::SharedPtr msg) { on_scenario_loaded_(std::move(msg)); });
+
   pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/m5/avoidance_plan", 10);
   pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/m5/asdr_record", 10);
   pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/m5/sat_data", 10);
@@ -680,6 +687,20 @@ void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
   sat3.primary_trajectory_idx = static_cast<uint8_t>(sol.primary_branch_idx);
 
   pub_sat3_data_->publish(sat3);
+}
+
+void MidMpcNode::on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg) {
+  RCLCPP_INFO(get_logger(),
+      "scenario_loaded '%s' — resetting MPC warm state", msg->data.c_str());
+  reset_cross_run_state();
+}
+
+void MidMpcNode::reset_cross_run_state() {
+  // Drop the warm-start solution so the next scenario cold-starts the solver
+  // instead of inheriting the prior run's MPC trajectory. Also reset the
+  // ranking history (accumulated risk-ranking state).
+  last_solution_.reset();
+  risk_ranking_state_ = mass_l3::risk::RankingState{};
 }
 
 }  // namespace mass_l3::m5::mid_mpc

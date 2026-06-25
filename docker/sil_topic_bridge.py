@@ -68,7 +68,7 @@ from l3_msgs.msg import (
     ThreatState,
 )
 
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 
 
 # Module ID constants (matching sil_msgs/ModulePulse)
@@ -385,6 +385,14 @@ class SilTopicBridge(Node):
                 "[BRIDGE] SIL_L4_ADAPTER_ENABLE=1: bridge actuator publisher "
                 "disabled; L4 guidance adapter owns /sil/actuator_cmd")
 
+        # Cross-run reset flag. Initialized BEFORE the scenario_loaded
+        # subscription below: TRANSIENT_LOCAL latched messages fire the callback
+        # during create_subscription. The callback only arms this flag; the
+        # actual _reset_autopilot_avoidance_state runs in _autopilot_step
+        # (deferred-reset pattern) to avoid racing latch fields during __init__
+        # and other callbacks under the MultiThreadedExecutor.
+        self._scenario_reset_pending = False
+
         sq = _sensor_qos()
         lq = _latched_qos()
         rq = _reliable_volatile_qos()
@@ -580,6 +588,12 @@ class SilTopicBridge(Node):
             SilOwnShipState, "/sil/actuator_cmd",
             self._on_actuator_cmd_trace, sq)
 
+        # Cross-run reset: subscribe /sil/scenario_loaded (TRANSIENT_LOCAL) so a
+        # new scenario clears autopilot/avoidance/latch residual. The callback
+        # only arms a deferred reset executed by _autopilot_step.
+        self._sub_scenario_loaded = self.create_subscription(
+            String, "/sil/scenario_loaded", self._on_scenario_loaded, lq)
+
     def _get_sim_time(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
@@ -588,6 +602,19 @@ class SilTopicBridge(Node):
             "rudder_deg": math.degrees(float(getattr(msg, "rudder_angle", 0.0))),
             "throttle": float(getattr(msg, "throttle", 0.0)),
         }, self._get_sim_time())
+
+    def _on_scenario_loaded(self, msg: String) -> None:
+        """Arm a deferred cross-run reset (executed by _autopilot_step).
+
+        Only sets a flag here; never calls _reset_autopilot_avoidance_state
+        directly. This node runs under a MultiThreadedExecutor and the
+        TRANSIENT_LOCAL subscription fires during __init__ before latch fields
+        are initialized — calling the reset here would crash. The deferred
+        pattern keeps the reset on the autopilot timer thread, serialized with
+        all other latch access.
+        """
+        del msg
+        self._scenario_reset_pending = True
 
     # ── Pulse recording helper ───────────────────────────────
 
@@ -1337,6 +1364,13 @@ class SilTopicBridge(Node):
     # ── Autopilot logic ────────────────────────────────────────
 
     def _autopilot_step(self) -> None:
+        # Deferred cross-run reset: if /sil/scenario_loaded fired since the last
+        # step, clear autopilot/avoidance/latch state now (on this timer thread).
+        if self._scenario_reset_pending:
+            self._scenario_reset_pending = False
+            self.get_logger().info(
+                "[BRIDGE] scenario_loaded — resetting cross-run autopilot/avoidance state")
+            self._reset_autopilot_avoidance_state()
         self._publish_bridge_state()
         if self._l4_adapter_enabled:
             return

@@ -131,6 +131,11 @@ size_t TrackBuffer::size() const {
   return buffer_.size();
 }
 
+void TrackBuffer::clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  buffer_.clear();
+}
+
 // ── Private helpers ──────────────────────────────────────────────────────────
 
 void TrackBuffer::evict_oldest_locked() {

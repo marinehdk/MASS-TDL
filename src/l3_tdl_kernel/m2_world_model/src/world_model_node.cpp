@@ -263,6 +263,13 @@ void WorldModelNode::setup_subscribers() {
       std::bind(&WorldModelNode::on_odd_state, this, _1),
       opt_dv);
 
+  // Cross-run reset: clear track history on new scenario. TRANSIENT_LOCAL so
+  // we receive the latched scenario_id even though M2 starts after configure.
+  scenario_loaded_sub_ = create_subscription<std_msgs::msg::String>(
+      "/sil/scenario_loaded",
+      rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
+      [this](const std_msgs::msg::String::SharedPtr kMsg) { on_scenario_loaded(kMsg); });
+
   RCLCPP_INFO(get_logger(), "Subscribers set up (ego reentrant, DV/SV/ODD mutex)");
 }
 
@@ -580,6 +587,20 @@ void WorldModelNode::publish_asdr_record(
   msg.signature.clear();
 
   asdr_pub_->publish(msg);
+}
+
+void WorldModelNode::on_scenario_loaded(
+    const std_msgs::msg::String::SharedPtr msg) {
+  RCLCPP_INFO(get_logger(),
+      "scenario_loaded '%s' — resetting cross-run track history",
+      msg->data.c_str());
+  reset_cross_run_state();
+}
+
+void WorldModelNode::reset_cross_run_state() {
+  // Drop all target tracks so a new scenario's classification starts fresh
+  // instead of inheriting the prior run's filtered track history.
+  track_buffer_->clear();
 }
 
 }  // namespace mass_l3::m2

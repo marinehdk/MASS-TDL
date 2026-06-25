@@ -1,0 +1,34 @@
+
+============================================================
+RUN-1: configure→activate→run (NO restart)
+============================================================
+  [RUN-1] wall 0s sim_t 1388/300
+  [RUN-1] reached sim_t=1388
+  [RUN-1] 13784 ownship recs, 5603 behavior, 3 transitions, max_dev=11.2°
+  [RUN-1] transitions: [(25.3, 0), (1368.8, 1), (1405.3, 0)]
+
+============================================================
+RUN-2: configure→activate→run (NO restart)
+============================================================
+  [RUN-2] wall 0s sim_t 32/300  [RUN-2] wall 1s sim_t 32/300  [RUN-2] wall 2s sim_t 52/300  [RUN-2] wall 3s sim_t 52/300  [RUN-2] wall 4s sim_t 72/300  [RUN-2] wall 5s sim_t 72/300  [RUN-2] wall 6s sim_t 92/300  [RUN-2] wall 7s sim_t 92/300  [RUN-2] wall 8s sim_t 112/300  [RUN-2] wall 9s sim_t 112/300  [RUN-2] wall 10s sim_t 132/300  [RUN-2] wall 12s sim_t 132/300  [RUN-2] wall 13s sim_t 152/300  [RUN-2] wall 14s sim_t 152/300  [RUN-2] wall 15s sim_t 172/300  [RUN-2] wall 16s sim_t 172/300  [RUN-2] wall 17s sim_t 192/300  [RUN-2] wall 18s sim_t 212/300  [RUN-2] wall 19s sim_t 212/300  [RUN-2] wall 20s sim_t 232/300  [RUN-2] wall 21s sim_t 232/300  [RUN-2] wall 22s sim_t 252/300  [RUN-2] wall 23s sim_t 252/300  [RUN-2] wall 24s sim_t 272/300  [RUN-2] wall 25s sim_t 272/300  [RUN-2] wall 26s sim_t 292/300  [RUN-2] wall 27s sim_t 292/300  [RUN-2] wall 28s sim_t 312/300
+  [RUN-2] reached sim_t=312
+  [RUN-2] 3186 ownship recs, 1315 behavior, 7 transitions, max_dev=53.2°
+  [RUN-2] transitions: [(0.3, 0), (1.8, 1), (110.5, 7), (135.0, 1), (146.1, 7), (159.3, 1), (323.1, 7)]
+
+============================================================
+COMPARISON (no restart between)
+============================================================
+metric                                RUN-1          RUN-2     match?
+----------------------------------------------------------------------
+n_ownship                             13784           3186       DIFF
+n_behavior                             5603           1315       DIFF
+behavior_transitions               [3trans]       [7trans]       DIFF
+  RUN-1: [(25.3, 0), (1368.8, 1), (1405.3, 0)]
+  RUN-2: [(0.3, 0), (1.8, 1), (110.5, 7), (135.0, 1), (146.1, 7), (159.3, 1)]
+max_heading_dev_deg          11.180000000000064 53.170000000000016       DIFF
+final_heading_dev_deg        0.049999999999954525 25.629999999999995       DIFF
+
+VERDICT: RESIDUAL CONFIRMED
+  transitions identical: False
+  max_heading_dev within 2°: False
+  → 残留确实存在，治本需要给 M4/M5/M2 加 sim-time 回跳清状态
