@@ -125,7 +125,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             external_adapters \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
-            fault_injection scoring l4_guidance_adapter \
+            fault_injection scoring \
             m1_odd_envelope_manager \
             m2_world_model \
             m3_mission_manager \

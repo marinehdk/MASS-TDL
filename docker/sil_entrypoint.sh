@@ -238,25 +238,6 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
     )
     print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
 
-    l4_adapter_node = None
-    if _os.environ.get('SIL_L4_ADAPTER_ENABLE', '0').strip().lower() in ('1', 'true', 'on', 'yes'):
-        try:
-            l4_source_path = '/opt/ws/src/sim_workbench/sil_nodes/l4_guidance_adapter'
-            if _os.path.isdir(l4_source_path) and l4_source_path not in sys.path:
-                sys.path.insert(0, l4_source_path)
-            from l4_guidance_adapter.node import L4GuidanceAdapterNode
-            l4_adapter_node = L4GuidanceAdapterNode()
-            try:
-                l4_adapter_node.set_parameters([_Param('use_sim_time', _Param.Type.BOOL, True)])
-            except Exception as exc:
-                print(f'  [{ts()}] [WARN] Failed to set use_sim_time on l4_guidance_adapter: {exc}')
-            executor.add_node(l4_adapter_node)
-            nodes.append(l4_adapter_node)
-            print(f'  [{ts()}] Stage 3: created l4_guidance_adapter (owns /sil/actuator_cmd)')
-        except Exception as exc:
-            print(f'  [{ts()}] FATAL: failed to start l4_guidance_adapter: {type(exc).__name__}: {exc}', file=sys.stderr)
-            sys.exit(1)
-
     # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
     # Detect active scenario YAML from scenario directory
     scenario_dir = _os.environ.get('SIL_SCENARIO_DIR', '/var/sil/scenarios')

@@ -131,7 +131,7 @@ class LifecycleBridge(Node):
         for node_name in ("ship_dynamics_node", "target_vessel_node",
                           "env_disturbance_node", "sensor_mock_node",
                           "fault_injection_node", "scenario_lifecycle_mgr",
-                          "sil_topic_bridge", "l4_guidance_adapter"):
+                          "sil_topic_bridge"):
             svc = f"/{node_name}/set_parameters"
             try:
                 client = self.create_client(SetParameters, svc,
@@ -706,7 +706,6 @@ def _extract_injection_params(yaml_data: dict) -> dict:
             bridge_params["ownship_initial_sog_kn"] = (float(sog_val), ParameterType.PARAMETER_DOUBLE)
     if bridge_params:
         injection_map["sil_topic_bridge"] = bridge_params
-        injection_map["l4_guidance_adapter"] = dict(bridge_params)
 
     # targetShips[] -> target_vessel_node -> default_targets_json
     target_ships = yaml_data.get("targetShips")
