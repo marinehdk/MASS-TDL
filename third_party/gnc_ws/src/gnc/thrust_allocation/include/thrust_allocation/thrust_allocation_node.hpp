@@ -100,6 +100,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr     health_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr              odom_sub_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr      propulsion_constraints_sub_;
+    rclcpp::Subscription<ship_interfaces::msg::ShipReset>::SharedPtr       reset_sub_;  ///< 运行时 reset
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr         cmd_pub_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr      param_callback_handle_;
     
@@ -158,6 +159,10 @@ private:
 
     /** 主推力分配回调：接收 /cmd_tau，发布 /thruster/commands */
     void on_tau_callback(const geometry_msgs::msg::WrenchStamped::SharedPtr msg);
+
+    /** 运行时 reset：清执行器热启动状态 + maneuvering mode（等价于冷启） */
+    void reset_allocator();
+    void reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg);
 
     /** 环境力回调：接收 /env/total_load，缓存环境力 */
     void on_env_callback(const geometry_msgs::msg::WrenchStamped::SharedPtr msg);
