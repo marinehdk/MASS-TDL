@@ -157,7 +157,7 @@ This log coordinates task handoffs between different development interfaces (Cla
 - **Git Commit**: `941e5fe1aa34e0acfdd01029ae21343385ebb820` (branch: `fix/m5-nlp-convergence`)
 - **任务目标 (Goal)**: 解决在左侧栏第一个TAB选择"近海群岛"后地图没有直接跳转到马六甲海峡的问题，调整海图展示效果以铺满屏幕并隐藏空白边界，且默认展示左侧栏的第一个TAB页“运行域”
 - **核心改动 (Actions)**:
-  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`: 
+  - `[web/src/screens/SimulationScenario.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/screens/SimulationScenario.tsx)`:
     - 将 `activeLeftTab` 的初始状态从 `'library'` 修改为 `'odd'` (运行域)，实现进入 Scenario Builder 时默认展示左侧 ODD 过滤器菜单。
     - 将 `SilMapView` 的 `encRegion` prop 改为由 `oddDomain` 状态派生。同时将转换时默认 the 本船/目标船/路径坐标从 `104.0` 调整至 `106.4` 以保持与新海图中心对齐。
   - `[web/src/map/SilMapView.tsx](file:///Users/marine/Code/MASS-L3-Tactical Layer/web/src/map/SilMapView.tsx)`: 更新了切换海图与重置相机的 `useEffect` 依赖（引入 `status === 'ready'` 判断），在非对齐时触发相机自动重定位。将马六甲海峡海图默认跳转的 `zoom` 级别从 `7` 调整为 `8.2`，中心点为 `[106.4, -2.5]`，此时海图数据范围能够完美铺满整个视口，两边不再有深蓝色的背景空白区域。
@@ -1256,3 +1256,20 @@ Integrate `codex/gnc-integration` into local `main` only, preserving full branch
 - Fast-forward local `main` only after this integration commit and all gates remain green.
 - Do not push or sync A4000 for this task.
 - The pre-existing uncommitted ROS2 runtime review files in `.worktrees/main-runtime` must be preserved separately before fast-forwarding `main`.
+
+## [2026-06-26] Codex / Git Commit / Local main integration: COLREGs phase-gate diagnostic docs
+
+### Task Goal
+Evaluate `codex/colregs-phase-gate-diag` commit `570d6b5b`, preserve useful COLREGs phase-gate diagnostic material in local `main`, then delete the branch.
+
+### Core Changes
+- Merged `codex/colregs-phase-gate-diag` through short integration branch `codex/integration-colregs-phase-gate-docs-20260626`.
+- Kept review/design/plan artifacts under `docs/Design/Review/`, `docs/superpowers/`, `docs/visualizations/`, and `scenarios/COLREGs测试/COLREGs修复记录06-22.md`.
+- Excluded unsafe/unwanted merge payload: personal `.codex/hooks.json`, older `AGENTS.md` changes, and deletion of `scenarios/Malacca演示/malacca-archipelago-transit.yaml`.
+
+### Current Status
+- Local-only integration. No A4000 sync and no remote push.
+- Runtime code/config unchanged by this merge; retained content is documentation/evidence only.
+
+### Handoff Notes
+- Branch `codex/colregs-phase-gate-diag` can be deleted after `main` fast-forwards to this merge.
