@@ -1314,3 +1314,27 @@ Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/co
   - Inspect M2/M6 geometry around release: `/l3/m2/world_state` fields `primary_cpa_m`, `primary_tcpa_s`, `primary_brg_deg`, `primary_rng_m`, and M6 `active_rules`.
   - Then inspect `src/l3_tdl_kernel/m6_colregs_reasoner/` release policy and encounter FSM. If M6 release is correct, inspect M4 recovery timing and M5 return route handoff.
 - Local A4000 acceptance remains structurally mismatched for this task-scoped stack because that gate assumes `mass-l3-sil-*` containers. Use targeted tests + container health + probe evidence until the branch is merged into an integration stack.
+
+## [2026-06-26] Agent: ZCode / branch codex/colregs-gnc-debug @ 043bf97c / 12-probe rule14-ho root-cause
+- **任务目标 (Goal)**: 继续 GNC profile COLREGs debug，按用户三步走流程（module oracle → M2/M6 release 几何 → M6 release policy 定位）查 12-probe rule14-ho 为何未 GREEN。
+- **核心改动 (Actions)**: 仅诊断，无代码改动。遵守 forbidden-list（无 GNC bridge 编辑、无 trace writer、无 third_party/gnc_ws、无 SIL ROT/Kd/cascade）。
+- **关键证据 (Evidence)**:
+  - `runs/rule14_with_release_geometry_trace/`: sim_t 1..2841, manifest sim_t_duration=2840.028, g_art_ok=true, failure_root_cause=null.
+  - M2 `primary_cpa_m` 0.8→686m（floor 180m OK），CPA reached t=2802（rel_brg −121°, past-and-clear），`primary_is_giveway=True`。
+  - M6 conflict cleared t=2803.0，pref_dir=STARBOARD 稳定 5417 样本，flip 仅 onset(93.0)/release(2803.0) 两边界。
+  - M4 RECOVERY(7) entry t=2803.3，gap_s=−0.28（M6 先 clear 再 recovery，**无 premature recovery**）。M4 oracle PASSED。
+  - M5 avoidance_plan solver VALID 持续到 sim 末尾（VALID=2518）。
+  - run A `rule14_after_return_republish`：sim_t 1..3011，tcpa<=1 count=0（CPA 从未达到），M6 cleared t=3009.6，同样无 route-return 时间。
+- **当前状态 (Status)**: **VERDICT — 非模块缺陷，是 sim-horizon artifact。** 全链路（M2/M4/M5/M6 + GNC actuator path）健康同步；avoidance 完整成功（cpa 0.8→686m，port-side past-and-clear，无 turn-around）。RED 仅因 `returned_to_route=false`：两次 run 的 sim 窗口（--total-time-override ~2840/3011）都在 M6-clear 后 ~2s 内结束，未留任何 route-return 收敛时间（gate 需 150m XTE + 10° heading rejoin，需 CPA 后再数百秒 sim）。
+- **接力指示 (Hand-off Context)**: 下一步**不改 M5/M6/M4 行为逻辑**。要 rule14-ho 转 GREEN：重跑单探针 `--total-time-override 3600`（或给 scenario YAML 加 `simulation_settings.total_time: 3600`），让 sim 越过 CPA + M6-clear 后有足够时间 route-return 收敛。验证后若仍 RED 再深查 M5 return-path。mem drawer 已存 `drawer_mass_l3_tactical_layer_colregs-debug-rule14-ho_0b1b922cd99c5d136295a0a0`。
+
+## [2026-06-26] Agent: ZCode / branch codex/colregs-gnc-debug / 方案C 自适应 sim horizon
+- **任务目标 (Goal)**: 修复探针因 sim horizon 硬编码/不足导致 RED。实现方案C：几何推导 horizon + 行为感知早停（成功/失败双向），避免空跑。
+- **核心改动 (Actions)**:
+  - `scripts/run_6_scenarios.py`: 新增纯函数 `estimate_sim_horizon`（复用 `_straight_line_cpa` 算 tcpa_nominal + `MIN_RETURN_WINDOW_S` 作 budget; total_time=max(yaml,base); hard_stop=2×）+ `assess_encounter_failure`（合并判据2+3）。接线 run_scenario 循环：硬截止 total_time→hard_stop；新增失败判据早停（节流5s）；`early_stop_reason` 入 result。
+  - 调试中修复 M2 数据契约问题：哨兵值 -1.0（非 None）+ GNC profile 下 tcpa 恒 0 → 改 past-CPA 判据为 range-opening 趋势（最近6样本 range 递增）+ tcpa<=0 双条件，排除 cpa<=0 哨兵。
+  - `tests/scripts/test_run_6_horizon_adaptive.py`: 新增 20 测试（含 -1.0 哨兵防护、tcpa-stuck-at-0 防护）。
+  - `tests/scripts/test_run_6_scenarios_gate.py`: 修预存合并遗留（`test_clean_probe_yaml_declares_expected_probe_horizons` 期望表 5 场景过时，acb7153c 改 yaml total_time 未同步测试）。
+- **验证 (Status)**: 67 测试全绿（20新+47现有）。容器验证 horizon 修复生效：sim 跑到 3585s 超 total_time 3000 未卡死，无误判早停。倍率2×依据：实测 CPA lag 1.73×。
+- **发现的独立问题 (Hand-off)**: GNC stack 不稳定。同代码同配置，run-19f02ae68b7 链路全空转（M6 conflict=0, M5 全 EMPTY, 目标 range 单调增 9km→19km 在远离），而 run-19f024e2d58 健康（M5 VALID=2518, 正常避碰）。疑似 GNC bridge target 驱动异常 或 多次 cleanup/restart 搞坏 stack。属运行时问题，非本次范围（forbidden-list 不碰 GNC bridge）。无法展示 route-return 成功早停路径。下一步：GNC stack 冷启后重跑确认。
+- **mem drawers**: colregs-adaptive-horizon（方案C决策）、colregs-gnc-stack-instability（stack异常）。
