@@ -23,6 +23,7 @@ set(msg_files
   "msg/AvoidancePlan.msg"
   "msg/RouteExecutionStatus.msg"
   msg/GeoPosition.msg
+  "msg/ShipReset.msg"
 )
 
 set(srv_files
