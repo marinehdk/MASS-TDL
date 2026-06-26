@@ -58,11 +58,20 @@ Recommended layout:
 - Use one short-lived branch per task or subsystem. Example split: backend COLREGs/adapter logic, frontend SIL/HMI display, scenario/gate tooling.
 - Do not let two Codex threads edit the same worktree or branch unless the user explicitly asks for a handoff.
 
+Main runtime container rule:
+- Treat the local `main` runtime stack as the stable demo/verification surface. When persistent `main` containers are needed, run them from a dedicated clean worktree such as `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/main-runtime`, not from a dirty feature checkout.
+- The default `main` stack uses `COMPOSE_PROJECT_NAME=mass-l3-sil` and owns the normal local demo ports: orchestrator `18000`, Foxglove `18765`, Martin tiles `3000`, and Vite `5173`. Feature work must not take these ports from a running `main` demo stack.
+- Feature or bugfix container work must use a new isolated worktree plus a task-specific compose project name, for example `COMPOSE_PROJECT_NAME=codex-colregs-fix`. Do not reuse `mass-l3-sil` for experiments unless the task explicitly targets the `main` runtime stack.
+- If a temporary feature stack must use the normal demo ports, stop or move only the conflicting feature stack first. Do not stop the `main` stack unless the user explicitly prioritizes the feature stack or the task is to repair `main`.
+- When repairing the `main` stack, first confirm its source mounts point at the intended `main` worktree, then rebuild/recreate only the `mass-l3-sil` project.
+
 Per-thread completion contract before integration:
 - Keep diffs surgical and limited to the task.
 - Run targeted tests for the touched code in that worktree.
 - Report changed paths, test commands, test results, and whether A4000 validation is required.
 - Do not push feature branches to GitHub/GitLab before the integration gate below passes.
+- Clean up after the worktree is finished: stop its compose project with the same `COMPOSE_PROJECT_NAME`, remove task-owned orphan containers, stop detached Vite/tmux sessions, and remove the worktree after its branch is merged or abandoned.
+- Space cleanup must be scoped. Remove task-owned build/install/log artifacts, `web/node_modules`, generated runs, and images only when they belong to that worktree/project. Do not prune shared Docker volumes, shared images, or the `main` runtime stack without explicit approval.
 
 Integration flow:
 1. Start from current local `main` in the primary checkout.
@@ -99,11 +108,16 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 - Local A4000-equivalent compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml:docker-compose.plugins.yml`.
 - Plugin-local profile env: `COMPOSE_PROFILES=plugins`.
 - Local isolated DDS domain: `ROS_DOMAIN_ID=42`.
-- Local ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Vite `http://localhost:5173/`.
+- Local ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Martin tiles `http://localhost:3000/`, Vite `http://localhost:5173/`.
 - Local acceptance evidence is written under `runs/local_a4000_container_probe_*.json` and `runs/local_runtime_probe_*.json`.
 - `scripts/local-a4000-acceptance.sh` must run from the checkout/worktree under test. If the local `mass-l3-sil` compose project was created from another checkout, the script fails fast by default. Stop that stack first, or rerun with `RECLAIM_STALE_LOCAL_PROJECT=1` to recreate it for the current worktree before collecting evidence.
 - Runtime Console container control mounts `/var/run/docker.sock` only through the A4000/local compose override, not base compose.
 - Inactive plugin candidates may be created but stopped for hot switching; the runtime gate still requires exactly one running plugin per role.
+- Main demo stack startup from a clean `main` worktree:
+  ```bash
+  source scripts/local-a4000-env.sh
+  COMPOSE_PROJECT_NAME=mass-l3-sil docker compose up -d --build
+  ```
 - Frontend dev server for screen 2 `仿真检查`:
   ```bash
   cd web
@@ -165,6 +179,8 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 This project uses CodeGraph as the code index. The index lives in `.codegraph/`; do not probe legacy graph-index paths.
 
 Rules:
+- After creating or entering a task worktree, run `codegraph init` from that worktree before relying on CodeGraph. Verify with `codegraph status .`; if it reports an index from another git working tree, treat results as stale routing only and initialize/sync the current worktree first.
+- When calling CodeGraph MCP from Codex/Desktop, always set `projectPath` to the active worktree path. For CLI fallback, run `codegraph ... .` from that same worktree. Do not query a feature branch through the primary checkout index.
 - For codebase questions, call `codegraph_explore` first. Use it for "how does X work", architecture, bug tracing, "where is X", and area surveys; one capped call usually returns the relevant source grouped by file.
 - For focused follow-up, use `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_files`, and `codegraph_status`.
 - If the current Codex/Desktop thread does not expose the MCP tools, use the CodeGraph CLI fallback: `codegraph query`, `codegraph callers`, `codegraph callees`, `codegraph impact`, `codegraph files`, and `codegraph status`.

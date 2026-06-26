@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MASS L3 TDL — Collision Avoidance Pipeline</title>
+<style>
+/* ── Reset & Base ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#0a1628;color:#c8d6e5;font-family:'SF Pro Display',system-ui,-apple-system,'Segoe UI',sans-serif;overflow:hidden}
+
+/* ── App Shell ── */
+#app{display:flex;flex-direction:column;height:100vh;position:relative}
+
+/* ── Header ── */
+header{flex-shrink:0;padding:12px 24px;background:linear-gradient(180deg,#0f2040 0%,#0a1628 100%);border-bottom:1px solid rgba(0,180,216,.15);display:flex;flex-wrap:wrap;align-items:center;gap:12px;z-index:10}
+header h1{font-size:18px;font-weight:600;letter-spacing:.03em;color:#e0e8f0;margin-right:auto}
+header h1 .accent{color:#00b4d8}
+header .subtitle{font-size:11px;color:#5a7a9a;font-weight:400;letter-spacing:.06em;margin-left:8px}
+.header-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.toggle-group{display:flex;border-radius:6px;overflow:hidden;border:1px solid rgba(0,180,216,.2)}
+.toggle-btn{padding:6px 14px;font-size:12px;font-weight:500;background:transparent;color:#5a7a9a;border:none;cursor:pointer;transition:.2s;font-family:inherit}
+.toggle-btn:hover{color:#c8d6e5;background:rgba(0,180,216,.08)}
+.toggle-btn.active{color:#00b4d8;background:rgba(0,180,216,.15);box-shadow:inset 0 1px 0 rgba(0,180,216,.2)}
+.toggle-btn[data-mode="doer"].active{color:#2a9d8f;background:rgba(42,157,143,.15)}
+.toggle-btn[data-mode="checker"].active{color:#e76f51;background:rgba(231,111,81,.15)}
+.zoom-group{display:flex;gap:2px;border-left:1px solid rgba(255,255,255,.08);padding-left:10px}
+.zoom-btn{width:28px;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:#7a9aba;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;font-family:inherit}
+.zoom-btn:hover{background:rgba(0,180,216,.12);color:#00b4d8;border-color:rgba(0,180,216,.25)}
+.zoom-btn.reset{width:auto;padding:0 10px;font-size:11px}
+
+/* ── Legend ── */
+.legend{display:flex;gap:16px;flex-wrap:wrap;padding-top:6px;width:100%;border-top:1px solid rgba(255,255,255,.04)}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#7a9aba}
+.legend-swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.legend-swatch.green{background:#2a9d8f}
+.legend-swatch.blue{background:#2479d9}
+.legend-swatch.amber{background:#e76f51}
+.legend-swatch.purple{background:#8b5cf6}
+.legend-line{display:flex;align-items:center;gap:4px}
+.legend-line svg{width:20px;height:4px}
+.usages{margin-left:auto;font-size:10px;color:#3a5a7a;letter-spacing:.04em}
+
+/* ── Main Layout ── */
+main{flex:1;position:relative;overflow:hidden;display:flex}
+#diagram-container{flex:1;overflow:hidden;position:relative;cursor:grab}
+#diagram-container:active{cursor:grabbing}
+#diagram{width:100%;height:100%;display:block}
+
+/* ── Detail Panel ── */
+#detail-panel{position:absolute;top:0;right:-420px;width:400px;height:100%;background:linear-gradient(180deg,#0f1f38 0%,#0a1628 100%);border-left:1px solid rgba(0,180,216,.15);overflow-y:auto;transition:right .35s cubic-bezier(.4,0,.2,1);z-index:20;box-shadow:-8px 0 30px rgba(0,0,0,.5)}
+#detail-panel.open{right:0}
+#detail-panel .panel-header{position:sticky;top:0;background:rgba(10,22,40,.92);backdrop-filter:blur(8px);padding:16px 20px;border-bottom:1px solid rgba(0,180,216,.12);display:flex;align-items:center;gap:12px;z-index:1}
+#detail-panel .panel-header h2{font-size:16px;font-weight:600;flex:1;color:#e0e8f0}
+#detail-panel .panel-header .module-tag{font-size:11px;background:rgba(0,180,216,.12);color:#00b4d8;padding:2px 10px;border-radius:10px;font-weight:500}
+#detail-panel .panel-close{width:28px;height:28px;border-radius:4px;border:none;background:rgba(255,255,255,.05);color:#5a7a9a;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
+#detail-panel .panel-close:hover{background:rgba(231,111,81,.15);color:#e76f51}
+#detail-panel .panel-body{padding:16px 20px 40px}
+#detail-panel .panel-section{margin-bottom:20px}
+#detail-panel .panel-section h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#5a7a9a;margin-bottom:8px;font-weight:600}
+#detail-panel .panel-section p{font-size:13px;line-height:1.6;color:#a0b8d0}
+#detail-panel .panel-section .freq-badge{display:inline-block;background:rgba(0,180,216,.1);color:#00b4d8;padding:2px 10px;border-radius:8px;font-size:12px;font-weight:500}
+.topic-table{width:100%;border-collapse:collapse;font-size:12px}
+.topic-table th{text-align:left;padding:6px 8px;color:#5a7a9a;font-weight:500;border-bottom:1px solid rgba(255,255,255,.06);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.topic-table td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:#b0c8e0;vertical-align:top;font-size:12px}
+.topic-table td:first-child{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;font-size:11px;color:#00b4d8;white-space:nowrap}
+.topic-table tr:last-child td{border-bottom:none}
+.source-list{list-style:none;padding:0}
+.source-list li{padding:5px 0;font-family:'SF Mono','Fira Code','Cascadia Code',monospace;font-size:11px;color:#7a9aba;border-bottom:1px solid rgba(255,255,255,.04)}
+.source-list li:last-child{border-bottom:none}
+.source-list li::before{content:"› ";color:#00b4d8;font-weight:700}
+.panel-empty{display:flex;align-items:center;justify-content:center;height:200px;color:#3a5a7a;font-size:14px;font-style:italic}
+
+/* ── Timeline ── */
+#timeline-bar{flex-shrink:0;height:48px;background:linear-gradient(0deg,#060e1a 0%,#0a1628 100%);border-top:1px solid rgba(0,180,216,.08);display:flex;align-items:center;padding:0 24px;overflow:hidden}
+#timeline-bar .tl-label{font-size:10px;color:#3a5a7a;margin-right:12px;white-space:nowrap;letter-spacing:.04em;font-weight:500}
+#timeline-bar .tl-track{flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:1px;position:relative;margin:0 8px}
+#timeline-bar .tl-marker{position:absolute;top:-5px;width:1px;height:12px;background:#3a5a7a}
+#timeline-bar .tl-marker.active{background:#00b4d8;height:16px;top:-7px}
+#timeline-bar .tl-marker.active::after{content:attr(data-label);position:absolute;top:14px;left:50%;transform:translateX(-50%);font-size:9px;color:#00b4d8;white-space:nowrap}
+#timeline-bar .tl-marker::after{content:attr(data-label);position:absolute;top:14px;left:50%;transform:translateX(-50%);font-size:8px;color:#3a5a7a;white-space:nowrap}
+
+/* ── SVG Node Styles ── */
+.node{cursor:pointer;transition:opacity .3s}
+.node:hover .node-rect{filter:brightness(1.3);stroke-width:2}
+.node:hover .node-rect-shadow{opacity:.4}
+.node-rect{transition:.2s}
+.node-rect-shadow{opacity:.08;transition:.2s}
+.node-label{font-size:14px;font-weight:600;fill:#e0e8f0;text-anchor:middle;dominant-baseline:central}
+.node-sub{font-size:10px;fill:#5a7a9a;text-anchor:middle;dominant-baseline:central}
+.node-freq{font-size:9px;fill:#3a5a7a;text-anchor:middle}
+.node-number{font-size:22px;font-weight:700;text-anchor:middle;fill:rgba(255,255,255,.08);dominant-baseline:central}
+.node-badge{font-size:8px;font-weight:600;text-anchor:middle;fill:#0a1628;dominant-baseline:central}
+.node-code{font-size:8px;fill:rgba(255,255,255,.15);text-anchor:middle;dominant-baseline:central;font-family:'SF Mono',monospace}
+
+/* ── Edge Styles ── */
+.edge-path{fill:none;stroke-width:2;stroke-linecap:round;stroke:#2a5a8a;transition:opacity .4s,stroke .3s}
+.edge-path.highlight{stroke:#00b4d8;stroke-width:2}
+.edge-path.doer-path{stroke:#2a9d8f;stroke-width:2.5;stroke-dasharray:none}
+.edge-path.checker-path{stroke:#e76f51;stroke-width:2.5;stroke-dasharray:6,3}
+.edge-label{font-size:9px;fill:#6a9aba;text-anchor:middle;transition:opacity .3s;font-family:'SF Mono','Fira Code',monospace}
+.edge-label.doer-path{fill:#3acFA0}
+.edge-label.checker-path{fill:#f08060}
+.edge-label.highlight{fill:#00b4d8;font-size:10px}
+.edge-label .msg-type{fill:#3a5a7a;font-size:7px}
+.edge-arrow{fill:#2a5a8a;transition:opacity .3s}
+.edge-arrow.highlight{fill:#00b4d8}
+.edge-arrow.doer-path{fill:#2a9d8f}
+.edge-arrow.checker-path{fill:#e76f51}
+
+/* ── Layer Background ── */
+.layer-bg{pointer-events:none;transition:opacity .3s}
+.layer-label{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;text-anchor:middle}
+.layer-label-sub{font-size:9px;font-weight:400;letter-spacing:.04em;text-anchor:middle;opacity:.5}
+
+/* ── Dead Code Stamp ── */
+.dead-stamp{opacity:.5}
+.dead-stamp rect{stroke-dasharray:4,3}
+
+/* ── Module Tag in node ── */
+.module-tag-bg{opacity:.1}
+
+/* ── Pulse Animation ── */
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:.8}}
+.edge-path.pulsing{animation:pulse 2s ease-in-out infinite}
+
+/* ── Scrollbar ── */
+#detail-panel::-webkit-scrollbar{width:4px}
+#detail-panel::-webkit-scrollbar-track{background:transparent}
+#detail-panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
+#detail-panel::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.15)}
+
+/* ── Responsive ── */
+@media(max-width:900px){header h1{font-size:15px}.legend{order:10}.usages{display:none}#detail-panel{width:320px;right:-340px}}
+@media(max-width:600px){header{padding:8px 12px;gap:6px}header h1{font-size:13px}.toggle-btn{padding:4px 8px;font-size:10px}.legend-item{font-size:9px}#detail-panel{width:100%;right:-100%}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>⛵ MASS L3 <span class="accent">TDL</span> — Collision Avoidance Pipeline</h1>
+    <div class="header-controls">
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-mode="all">All Paths</button>
+        <button class="toggle-btn" data-mode="doer">Doer Path</button>
+        <button class="toggle-btn" data-mode="checker">Checker Path</button>
+      </div>
+      <div class="zoom-group">
+        <button class="zoom-btn" id="zoom-in" title="Zoom In">⊕</button>
+        <button class="zoom-btn" id="zoom-out" title="Zoom Out">⊖</button>
+        <button class="zoom-btn reset" id="zoom-reset" title="Reset View">⟲ Fit</button>
+      </div>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch green"></span>Envelope Control (M1)</span>
+      <span class="legend-item"><span class="legend-swatch blue"></span>Decision &amp; Planning (M2–M6)</span>
+      <span class="legend-item"><span class="legend-swatch amber"></span>Safety &amp; HMI (M7–M8)</span>
+      <span class="legend-item"><span class="legend-swatch purple"></span>External / Cross-Layer</span>
+      <span class="legend-item">
+        <span class="legend-line">
+          <svg viewBox="0 0 20 4"><line x1="0" y1="2" x2="20" y2="2" stroke="#2a9d8f" stroke-width="2"/></svg>
+        </span>Doer Path
+      </span>
+      <span class="legend-item">
+        <span class="legend-line">
+          <svg viewBox="0 0 20 4"><line x1="0" y1="2" x2="20" y2="2" stroke="#e76f51" stroke-width="2" stroke-dasharray="4,2"/></svg>
+        </span>Checker Path
+      </span>
+      <span class="usages">click any node → detail panel · scroll to zoom · drag to pan</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="diagram-container">
+      <svg id="diagram" viewBox="0 0 1400 950" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow-blue" viewBox="0 0 10 6" refX="9" refY="3" markerWidth="9" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 3 L 0 6 Z" fill="#00b4d8"/>
+          </marker>
+          <marker id="arrow-green" viewBox="0 0 10 6" refX="9" refY="3" markerWidth="9" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 3 L 0 6 Z" fill="#2a9d8f"/>
+          </marker>
+          <marker id="arrow-amber" viewBox="0 0 10 6" refX="9" refY="3" markerWidth="9" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 3 L 0 6 Z" fill="#e76f51"/>
+          </marker>
+          <marker id="arrow-dim" viewBox="0 0 10 6" refX="9" refY="3" markerWidth="9" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 3 L 0 6 Z" fill="#00b4d8"/>
+          </marker>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="shadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity=".5"/>
+          </filter>
+        </defs>
+        <rect width="1400" height="950" fill="#0a1628"/>
+        <g id="layers"></g>
+        <g id="edges"></g>
+        <g id="nodes"></g>
+      </svg>
+    </div>
+    <aside id="detail-panel">
+      <div class="panel-header">
+        <h2>Module Details</h2>
+        <span class="module-tag" id="panel-tag"></span>
+        <button class="panel-close" id="panel-close">✕</button>
+      </div>
+      <div class="panel-body" id="panel-body">
+        <div class="panel-empty">Click a node to see module details</div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="timeline-bar">
+    <span class="tl-label">◈ FREQ</span>
+    <div class="tl-track" id="tl-track"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// MODULE DATA
+// ═══════════════════════════════════════════════════
+const MODULES = {
+  l2: {
+    id:'l2', label:'L2 Voyage Planner', abbr:'L2',
+    x:700, y:62, w:200, h:54,
+    layer:'ext',
+    color:'#8b5cf6',
+    description:'Receives mission-level plans from the L2 Voyage layer. Provides PlannedRoute and SpeedProfile to the L3 tactical level. Acts as the upstream interface between strategic voyage planning and tactical decision-making.',
+    freq:'N/A (upstream)',
+    subs:[
+      {topic:'L1 Mission Goals', type:'VoyageTask', freq:'on demand'}
+    ],
+    pubs:[
+      {topic:'PlannedRoute + SpeedProfile', type:'MissionGoal', freq:'on demand'}
+    ],
+    sources:['docs/Interface Specs/L2-L3 Interface.md']
+  },
+  m1: {
+    id:'m1', label:'ODD/Envelope Manager', abbr:'M1',
+    x:700, y:185, w:230, h:76,
+    layer:'envelope',
+    color:'#2a9d8f',
+    description:'The sole safety-context authority. Operates a deterministic ODD state machine (D2/D3/D4 modes), computes TMR (Time-to-Manoeuvre-Risk) and TDL (Time-to-Depth-Loss). Triggers MRC (Minimum Risk Condition) when ODD limits are breached. Receives safety alerts from M7 for mode downgrades.',
+    freq:'0.1–1 Hz',
+    subs:[
+      {topic:'/l3/m7/safety_alert', type:'SafetyAlertMsg', freq:'4 Hz'},
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/nav/filtered_state', type:'FilteredOwnShipState', freq:'50 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'},
+      {topic:'/l3/m1/mode_cmd', type:'ModeCmdMsg', freq:'event'}
+    ],
+    sources:['m1_odd_envelope_manager/src/odd_envelope_manager_node.cpp']
+  },
+  m2: {
+    id:'m2', label:'World Model', abbr:'M2',
+    x:250, y:345, w:180, h:76,
+    layer:'decision',
+    color:'#2479d9',
+    description:'Authoritative world view. Ingests perception tracks (2 Hz), own-ship nav filter state (50 Hz), and environment state (0.2 Hz). Computes CPA/TCPA for every tracked target. Performs COLREG geometric pre-classification into HEAD_ON / OVERTAKING / CROSSING. Publishes the unified WorldStateMsg for all downstream modules.',
+    freq:'4 Hz output (10–50 Hz input)',
+    subs:[
+      {topic:'/perception/targets', type:'TrackedTargetArray', freq:'2 Hz'},
+      {topic:'/nav/filtered_state', type:'FilteredOwnShipState', freq:'50 Hz'},
+      {topic:'/perception/environment', type:'EnvironmentState', freq:'0.2 Hz'},
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'}
+    ],
+    sources:['m2_world_model/src/world_model_node.cpp:272-274']
+  },
+  m3: {
+    id:'m3', label:'Mission Manager', abbr:'M3',
+    x:700, y:345, w:180, h:76,
+    layer:'decision',
+    color:'#2479d9',
+    description:'Validates the voyage plan from L2 against current ODD state and world model. Tracks ETA vs schedule, monitors waypoint progress, and triggers re-plan requests when conditions deviate beyond thresholds.',
+    freq:'0.1–1 Hz',
+    subs:[
+      {topic:'VoyageTask (L1)', type:'VoyageTask', freq:'on demand'},
+      {topic:'PlannedRoute + SpeedProfile (L2)', type:'MissionGoal', freq:'on demand'},
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'},
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m3/mission_goal', type:'MissionGoalMsg', freq:'0.1–1 Hz'}
+    ],
+    sources:['m3_mission_manager/src/mission_manager_node.cpp']
+  },
+  m6: {
+    id:'m6', label:'COLREGs Reasoner', abbr:'M6',
+    x:1150, y:345, w:180, h:76,
+    layer:'decision',
+    color:'#2479d9',
+    description:'Encodes 11 COLREG Rules (5–19) into a 5-layer reasoning pipeline: applicable rule selection → encounter classification → responsibility assignment → action direction → timing urgency. Produces structured COLREGs constraints and rule assessments for the behavior arbiter and tactical planner.',
+    freq:'1–4 Hz',
+    subs:[
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m6/colregs_constraint', type:'COLREGsConstraintMsg', freq:'1–2 Hz'},
+      {topic:'/l3/m6/rule_assessment', type:'RuleAssessmentMsg', freq:'1–2 Hz'}
+    ],
+    sources:['m6_colregs_reasoner/src/colregs_reasoner_node.cpp:346-378']
+  },
+  m4: {
+    id:'m4', label:'Behavior Arbiter', abbr:'M4',
+    x:700, y:490, w:200, h:78,
+    layer:'decision',
+    color:'#2479d9',
+    description:'Multi-objective decision hub. Uses IvP (Interval Programming) to resolve competing objectives from mission goals, COLREGs constraints, and ODD mode. Maintains a behavior dictionary indexed by encounter type. Produces a unified BehaviorPlanMsg with heading/speed bounds and confidence.',
+    freq:'1–4 Hz (IvP solver)',
+    subs:[
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'},
+      {topic:'/l3/m1/mode_cmd', type:'ModeCmdMsg', freq:'event'},
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/l3/m3/mission_goal', type:'MissionGoalMsg', freq:'0.1–1 Hz'},
+      {topic:'/l3/m6/colregs_constraint', type:'COLREGsConstraintMsg', freq:'1–2 Hz'},
+      {topic:'/l3/m6/rule_assessment', type:'RuleAssessmentMsg', freq:'1–2 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m4/behavior_plan', type:'BehaviorPlanMsg', freq:'2–4 Hz'}
+    ],
+    sources:['m4_behavior_arbiter/src/behavior_arbiter_node.cpp:159-189']
+  },
+  m5: {
+    id:'m5', label:'Tactical Planner', abbr:'M5',
+    x:350, y:610, w:200, h:76,
+    layer:'decision',
+    color:'#2479d9',
+    description:'Route generator using Mid-MPC (CasADi/IPOPT, N=12, 60s horizon). Produces smooth avoidance plans at 1 Hz. Also supports event-driven ReactiveOverrideCmd (&le;10 Hz) for urgent maneuvers. Dual output feeds the L4 Guidance Adapter.',
+    freq:'1–2 Hz (Mid-MPC) + event',
+    subs:[
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/l3/m4/behavior_plan', type:'BehaviorPlanMsg', freq:'2–4 Hz'},
+      {topic:'/l3/m6/colregs_constraint', type:'COLREGsConstraintMsg', freq:'1–2 Hz'},
+      {topic:'/l2/planned_route', type:'MissionGoal', freq:'on demand'}
+    ],
+    pubs:[
+      {topic:'/m5/avoidance_plan', type:'AvoidancePlanMsg', freq:'1 Hz'},
+      {topic:'/m5/reactive_override_cmd', type:'ReactiveOverrideCmdMsg', freq:'≤10 Hz event'}
+    ],
+    sources:[
+      'm5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:148',
+      'm5_tactical_planner/src/mid_mpc/solver_ipopt.cpp'
+    ]
+  },
+  m5bc: {
+    id:'m5bc', label:'BC-MPC\n代码已实现但未激活', abbr:'BC-MPC',
+    x:590, y:616, w:150, h:58,
+    layer:'dead',
+    color:'#4a4a5a',
+    description:'⚠️ DEAD CODE — Eriksen (2020) branching-course MPC (k=5/7/13, 20s horizon). Never activates because bc_mpc_node.cpp:35 subscribes to "/m2/world_state" instead of "/l3/m2/world_state". The topic mismatch means no valid world state ever arrives, so the solver remains in initialization limbo.',
+    freq:'N/A (dead code)',
+    subs:[
+      {topic:'/m2/world_state', type:'MISWIRED — should be /l3/m2/world_state', freq:'—'}
+    ],
+    pubs:[
+      {topic:'—', type:'—', freq:'—'}
+    ],
+    sources:['m5_tactical_planner/src/bc_mpc/bc_mpc_node.cpp:35'],
+    dead:true
+  },
+  m7: {
+    id:'m7', label:'Safety Supervisor', abbr:'M7',
+    x:900, y:745, w:210, h:78,
+    layer:'safety',
+    color:'#e76f51',
+    description:'Independent PATH-S parallel checker (doer–checker architecture). Monitors SOTIF (ISO 21448) degraded perception, IEC 61508 SIL2 fault conditions. Maintains 4 predefined MRM (Minimum Risk Manoeuvre) selectors. Receives X-axis checker vetoes and Y-axis reflex arc activations. Emergency VETO authority overrides all doer commands.',
+    freq:'4 Hz (parallel process)',
+    subs:[
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'},
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/l3/m4/behavior_plan', type:'BehaviorPlanMsg', freq:'2–4 Hz'},
+      {topic:'/l3/m5/avoidance_plan', type:'AvoidancePlanMsg', freq:'1 Hz'},
+      {topic:'/l3/m6/colregs_constraint', type:'COLREGsConstraintMsg', freq:'1–2 Hz'},
+      {topic:'/l3_external/checker_veto_notification', type:'VetoNotification', freq:'event'},
+      {topic:'/l3_external/reflex_activation_notification', type:'ReflexNotification', freq:'event'}
+    ],
+    pubs:[
+      {topic:'/l3/m7/safety_alert', type:'SafetyAlertMsg', freq:'4 Hz'}
+    ],
+    sources:['m7_safety_supervisor/src/safety_supervisor_node.cpp:129-154']
+  },
+  m8: {
+    id:'m8', label:'HMI Transparency\nBridge', abbr:'M8',
+    x:1150, y:745, w:200, h:78,
+    layer:'safety',
+    color:'#e76f51',
+    description:'Parallel HMI bridge aggregating all L3 module outputs for the ROC/Captain transparency surface. SAT-1/2/3 aggregation levels. Adaptive triggering and Take-Of-Responsibility (ToR) protocol. Publishes UI state at up to 100 Hz for real-time display on the bridge HMI.',
+    freq:'50–100 Hz',
+    subs:[
+      {topic:'/l3/m1/odd_state', type:'ODDStateMsg', freq:'1 Hz'},
+      {topic:'/l3/m2/world_state', type:'WorldStateMsg', freq:'4 Hz'},
+      {topic:'/l3/m4/behavior_plan', type:'BehaviorPlanMsg', freq:'2–4 Hz'},
+      {topic:'/l3/m5/avoidance_plan', type:'AvoidancePlanMsg', freq:'1 Hz'},
+      {topic:'/l3/m6/colregs_constraint', type:'COLREGsConstraintMsg', freq:'1–2 Hz'},
+      {topic:'/l3/m7/safety_alert', type:'SafetyAlertMsg', freq:'4 Hz'}
+    ],
+    pubs:[
+      {topic:'/l3/m8/ui_state', type:'UIStateMsg', freq:'50–100 Hz'}
+    ],
+    sources:['m8_hmi_transparency_bridge/src/hmi_transparency_bridge_node.cpp:56-97']
+  },
+  l4: {
+    id:'l4', label:'L4 Guidance\nAdapter', abbr:'L4',
+    x:700, y:878, w:210, h:56,
+    layer:'ext',
+    color:'#8b5cf6',
+    description:'Cross-layer actuator bridge. Implements a 5-level priority selector: (P1) Emergency Reflex Arc Y-axis bypass → (P2) M7 Safety Veto → (P3) M4 Behavior Arbiter → (P4) M5 Tactical Planner Mid-MPC/BC-MPC → (P5) M6 COLREGs. Outputs rudder_angle + throttle to the SIL ship dynamics model.',
+    freq:'up to 50 Hz',
+    subs:[
+      {topic:'/l3/m4/behavior_plan', type:'BehaviorPlanMsg', freq:'2–4 Hz'},
+      {topic:'/l3/m5/avoidance_plan', type:'AvoidancePlanMsg', freq:'1 Hz'},
+      {topic:'/l3/m5/reactive_override_cmd', type:'ReactiveOverrideCmdMsg', freq:'≤10 Hz'},
+      {topic:'/l3/m7/safety_alert', type:'SafetyAlertMsg', freq:'4 Hz'},
+      {topic:'/l3/checker/veto', type:'VetoMsg', freq:'event'}
+    ],
+    pubs:[
+      {topic:'/sil/actuator_cmd', type:'rudder_angle + throttle', freq:'up to 50 Hz'}
+    ],
+    sources:['sil_nodes/l4_guidance_adapter/node.py:104-114']
+  }
+};
+
+// ── External system annotations ──
+const EXT_NODES = [
+  {id:'ext-x', label:'X-axis\nChecker', x:1370, y:620, w:80, h:44, color:'#e76f51',
+   description:'Deterministic checker (PATH-S independent process). Veto authority over L4. Runs on separate hardware for SIL2/IEC 61508 compliance.',
+   subs:[], pubs:[{topic:'/l3/checker/veto', type:'VetoMsg', freq:'event'}],
+   sources:['docs/Design/SIL/v1.0-unified/']},
+  {id:'ext-y', label:'Y-axis\nReflex Arc', x:1370, y:700, w:80, h:44, color:'#e76f51',
+   description:'Emergency reflex bypass (Y-axis). <500ms response, triggers when CPA<50m AND TCPA<30s. Overrides all doer commands.',
+   subs:[], pubs:[{topic:'/l3_external/reflex_activation', type:'ReflexNotification', freq:'event'}],
+   sources:['docs/Design/SIL/v1.0-unified/']}
+];
+
+// ═══════════════════════════════════════════════════
+// CONNECTION DATA
+// ═══════════════════════════════════════════════════
+const EDGES = [
+  // L2 → M3
+  {from:'l2', fs:'bottom', to:'m3', ts:'top',
+   topic:'PlannedRoute + SpeedProfile', msgType:'MissionGoal', path:'doer', freq:'—'},
+
+  // M1 broadcasts odd_state to everyone
+  {from:'m1', fs:'left', to:'m2', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'bottom', to:'m3', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'bottom', to:'m4', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'bottom', to:'m5', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'right', to:'m6', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'right', to:'m7', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+  {from:'m1', fs:'right', to:'m8', ts:'top',
+   topic:'/l3/m1/odd_state', msgType:'ODDStateMsg', path:'both', freq:'1 Hz'},
+
+  // M1 → M4 mode_cmd
+  {from:'m1', fs:'bottom', to:'m4', ts:'top',
+   topic:'/l3/m1/mode_cmd', msgType:'ModeCmdMsg', path:'doer', freq:'event',
+   offsetX:-40},
+
+  // M2 → everyone (world_state)
+  {from:'m2', fs:'right', to:'m3', ts:'left',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'doer', freq:'4 Hz'},
+  {from:'m2', fs:'bottom', to:'m4', ts:'left',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'doer', freq:'4 Hz'},
+  {from:'m2', fs:'bottom', to:'m5', ts:'left',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'doer', freq:'4 Hz'},
+  {from:'m2', fs:'right', to:'m6', ts:'left',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'both', freq:'4 Hz'},
+  {from:'m2', fs:'bottom', to:'m7', ts:'top',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'both', freq:'4 Hz'},
+  {from:'m2', fs:'bottom', to:'m8', ts:'top',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'both', freq:'4 Hz'},
+  {from:'m2', fs:'bottom', to:'l4', ts:'top',
+   topic:'/l3/m2/world_state', msgType:'WorldStateMsg', path:'both', freq:'4 Hz'},
+
+  // M3 → M4
+  {from:'m3', fs:'bottom', to:'m4', ts:'top',
+   topic:'/l3/m3/mission_goal', msgType:'MissionGoalMsg', path:'doer', freq:'0.1–1 Hz'},
+
+  // M6 → M4, M5, M7, M8
+  {from:'m6', fs:'left', to:'m4', ts:'right',
+   topic:'/l3/m6/colregs_constraint', msgType:'COLREGsConstraintMsg', path:'doer', freq:'1–2 Hz'},
+  {from:'m6', fs:'left', to:'m4', ts:'right',
+   topic:'/l3/m6/rule_assessment', msgType:'RuleAssessmentMsg', path:'doer', freq:'1–2 Hz',
+   offsetY:20},
+  {from:'m6', fs:'bottom', to:'m5', ts:'right',
+   topic:'/l3/m6/colregs_constraint', msgType:'COLREGsConstraintMsg', path:'both', freq:'1–2 Hz'},
+  {from:'m6', fs:'bottom', to:'m7', ts:'top',
+   topic:'/l3/m6/colregs_constraint', msgType:'COLREGsConstraintMsg', path:'both', freq:'1–2 Hz'},
+  {from:'m6', fs:'bottom', to:'m8', ts:'top',
+   topic:'/l3/m6/colregs_constraint', msgType:'COLREGsConstraintMsg', path:'both', freq:'1–2 Hz'},
+
+  // M4 → M5, M7, M8, L4
+  {from:'m4', fs:'bottom', to:'m5', ts:'top',
+   topic:'/l3/m4/behavior_plan', msgType:'BehaviorPlanMsg', path:'doer', freq:'2–4 Hz'},
+  {from:'m4', fs:'bottom', to:'m7', ts:'top',
+   topic:'/l3/m4/behavior_plan', msgType:'BehaviorPlanMsg', path:'both', freq:'2–4 Hz'},
+  {from:'m4', fs:'bottom', to:'m8', ts:'top',
+   topic:'/l3/m4/behavior_plan', msgType:'BehaviorPlanMsg', path:'both', freq:'2–4 Hz'},
+  {from:'m4', fs:'bottom', to:'l4', ts:'top',
+   topic:'/l3/m4/behavior_plan', msgType:'BehaviorPlanMsg', path:'doer', freq:'2–4 Hz'},
+
+  // M5 → L4 (dual)
+  {from:'m5', fs:'bottom', to:'l4', ts:'left',
+   topic:'/m5/avoidance_plan', msgType:'AvoidancePlanMsg', path:'doer', freq:'1 Hz'},
+  {from:'m5', fs:'right', to:'l4', ts:'top',
+   topic:'/m5/reactive_override_cmd', msgType:'ReactiveOverrideCmdMsg', path:'doer', freq:'≤10 Hz'},
+
+  // M5 → M7 (avoidance plan to safety supervisor)
+  {from:'m5', fs:'right', to:'m7', ts:'left',
+   topic:'/m5/avoidance_plan', msgType:'AvoidancePlanMsg', path:'both', freq:'1 Hz'},
+
+  // M7 → M1, M8, L4
+  {from:'m7', fs:'top', to:'m1', ts:'bottom',
+   topic:'/l3/m7/safety_alert', msgType:'SafetyAlertMsg', path:'checker', freq:'4 Hz'},
+  {from:'m7', fs:'right', to:'m8', ts:'left',
+   topic:'/l3/m7/safety_alert', msgType:'SafetyAlertMsg', path:'both', freq:'4 Hz'},
+  {from:'m7', fs:'bottom', to:'l4', ts:'right',
+   topic:'/l3/m7/safety_alert', msgType:'SafetyAlertMsg', path:'checker', freq:'4 Hz'},
+
+  // External X-axis → L4 veto
+  {from:'ext-x', fs:'left', to:'l4', ts:'right',
+   topic:'/l3/checker/veto', msgType:'VetoMsg', path:'checker', freq:'event'},
+  // External Y-axis → M7 reflex notification
+  {from:'ext-y', fs:'left', to:'m7', ts:'right',
+   topic:'/l3_external/reflex_activation', msgType:'ReflexNotification', path:'checker', freq:'event'},
+];
+
+// ═══════════════════════════════════════════════════
+// LAYER DEFINITIONS
+// ═══════════════════════════════════════════════════
+const LAYERS = [
+  {id:'envelope',label:'ENVELOPE CONTROL',sub:'M1 — ODD & Safety Authority',
+   color:'#2a9d8f',bg:'rgba(42,157,143,.04)',border:'rgba(42,157,143,.12)',
+   y:120,h:110},
+  {id:'decision',label:'DECISION & PLANNING',sub:'M2–M6 — World Model → Arbiter → Planner',
+   color:'#2479d9',bg:'rgba(36,121,217,.04)',border:'rgba(36,121,217,.12)',
+   y:250,h:480},
+  {id:'safety',label:'SAFETY & HMI',sub:'M7–M8 — Parallel Checker & Transparency Bridge',
+   color:'#e76f51',bg:'rgba(231,111,81,.04)',border:'rgba(231,111,81,.12)',
+   y:710,h:120}
+];
+
+// ═══════════════════════════════════════════════════
+// SVG RENDERING
+// ═══════════════════════════════════════════════════
+const svg = document.getElementById('diagram');
+const NS = 'http://www.w3.org/2000/svg';
+let currentMode = 'all';
+
+// ── Helper: create SVG element ──
+function el(tag, attrs={}, children=[]) {
+  const e = document.createElementNS(NS, tag);
+  for(const [k,v] of Object.entries(attrs)) e.setAttribute(k, v);
+  children.forEach(c => {
+    if(typeof c === 'string') e.appendChild(document.createTextNode(c));
+    else if(c instanceof Node) e.appendChild(c);
+  });
+  return e;
+}
+
+// ── Helper: get node edge point ──
+function getEdgePt(mod, side, offset=0) {
+  const {x,y,w,h} = mod;
+  switch(side) {
+    case 'top':    return {x:x+offset, y:y-h/2};
+    case 'bottom': return {x:x+offset, y:y+h/2};
+    case 'left':   return {x:x-w/2, y:y+offset};
+    case 'right':  return {x:x+w/2, y:y+offset};
+    default:       return {x, y};
+  }
+}
+
+// ── Helper: bezier curve path ──
+function bezierPath(sx, sy, tx, ty) {
+  const dx = tx - sx, dy = ty - sy;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  let cpx1, cpy1, cpx2, cpy2;
+  if(adx > ady) {
+    // horizontal dominant
+    const midX = (sx + tx) / 2;
+    cpx1 = midX; cpy1 = sy;
+    cpx2 = midX; cpy2 = ty;
+  } else {
+    // vertical dominant
+    const midY = (sy + ty) / 2;
+    cpx1 = sx; cpy1 = midY;
+    cpx2 = tx; cpy2 = midY;
+  }
+  return `M ${sx} ${sy} C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${tx} ${ty}`;
+}
+
+// ── Render Layers ──
+function renderLayers() {
+  const g = document.getElementById('layers');
+  LAYERS.forEach(l => {
+    g.appendChild(el('rect', {
+      x:25, y:l.y, width:1350, height:l.h,
+      fill:l.bg.replace('.04','.15'), stroke:l.border.replace('.12','.35'), 'stroke-width':2, rx:6,
+      class:'layer-bg'
+    }));
+    // layer label on left
+    g.appendChild(el('text', {
+      x:40, y:l.y+22, fill:l.color, class:'layer-label', opacity:.9, 'font-weight':'700'
+    }, [l.label]));
+    g.appendChild(el('text', {
+      x:40, y:l.y+40, fill:l.color, class:'layer-label-sub', opacity:.6
+    }, [l.sub]));
+  });
+}
+
+// ── Render Nodes ──
+function renderNodes() {
+  const g = document.getElementById('nodes');
+  Object.values(MODULES).forEach(mod => {
+    const {id, x, y, w, h, label, abbr, layer, color, dead} = mod;
+    const grp = el('g', {class:'node', 'data-id':id, transform:`translate(${x-w/2},${y-h/2})`});
+
+    // Shadow rect
+    grp.appendChild(el('rect', {
+      x:2, y:2, width:w, height:h, rx:8, fill:'#000', class:'node-rect-shadow', opacity:.15
+    }));
+
+    // Main rect
+    const rectAttrs = {
+      width, height, rx:8, fill: dead ? '#1a1a2a' : `${color}33`,
+      stroke: dead ? '#4a4a5a' : color, 'stroke-width':2
+    };
+    if(!dead) rectAttrs.filter = 'url(#shadow)';
+    const rect = el('rect', {...rectAttrs, class:'node-rect' + (dead ? ' dead-stamp' : '')});
+    grp.appendChild(rect);
+
+    if(dead) {
+      // Dead code stamp overlay
+      grp.appendChild(el('rect', {x:4, y:4, width:w-8, height:h-8, rx:6,
+        fill:'none', stroke:'#6a6a7a', 'stroke-width':1, 'stroke-dasharray':'4,3', opacity:.5}));
+    }
+
+    // Layer accent bar at top
+    grp.appendChild(el('rect', {
+      x:0, y:0, width, height:3, rx:4, fill:color, opacity:.7
+    }));
+
+    // Module number (large watermark)
+    grp.appendChild(el('text', {
+      x:dead ? w/2 : 14, y:dead ? h/2 : h/2-4, fill:color, opacity: dead ? .15 : .25,
+      class:'node-number', 'font-size':dead ? 16 : 22
+    }, [dead ? '✕' : abbr]));
+
+    // Module name
+    const lines = label.split('\n');
+    lines.forEach((line, i) => {
+      grp.appendChild(el('text', {
+        x:dead ? w/2 : w/2, y: dead ? h/2 : h/2-2 + (i-lines.length/2+0.5)*18,
+        class:'node-label', 'font-size': dead ? 10 : (line.length > 20 ? 11 : 14), fill: dead ? '#6a6a7a' : '#e8f0f8'
+      }, [line]));
+    });
+
+    // Frequency badge
+    if(!dead) {
+      grp.appendChild(el('text', {
+        x:w/2, y:h-6, class:'node-freq', fill:color, opacity:.9
+      }, [`◈ ${mod.freq}`]));
+    }
+
+    // Dead code label
+    if(dead) {
+      grp.appendChild(el('text', {
+        x:w/2, y:h-6, class:'node-badge', fill:'#e76f51', opacity:.8
+      }, ['DEAD CODE']));
+    }
+
+    // PATH-S tag for M7
+    if(id === 'm7') {
+      grp.appendChild(el('rect', {x:w-70, y:4, width:66, height:14, rx:3, fill:color, opacity:.15}));
+      grp.appendChild(el('text', {x:w-37, y:12, class:'node-badge', fill:color}, ['PARALLEL CHECKER']));
+    }
+    // HMI tag for M8
+    if(id === 'm8') {
+      grp.appendChild(el('rect', {x:w-74, y:4, width:70, height:14, rx:3, fill:color, opacity:.15}));
+      grp.appendChild(el('text', {x:w-39, y:12, class:'node-badge', fill:color}, ['PARALLEL HMI BRIDGE']));
+    }
+
+    g.appendChild(grp);
+
+    // L2/L4 special labels
+    if(id === 'l2') {
+      g.appendChild(el('text', {
+        x, y:y-h/2-10, 'text-anchor':'middle', fill:'#8b5cf6', 'font-size':10, opacity:.6
+      }, ['FROM L2 VOYAGE PLANNER']));
+    }
+    if(id === 'l4') {
+      g.appendChild(el('text', {
+        x, y:y+h/2+16, 'text-anchor':'middle', fill:'#8b5cf6', 'font-size':10, opacity:.6
+      }, ['→ TO L4 GUIDANCE & L5 CONTROL']));
+    }
+  });
+
+  // Layer divider labels (vertical axis)
+  g.appendChild(el('text', {x:16, y:288, fill:'#2a9d8f', 'font-size':10, opacity:.7, transform:'rotate(-90,16,288)', 'text-anchor':'middle'}, ['ENVELOPE']));
+  g.appendChild(el('text', {x:16, y:490, fill:'#2479d9', 'font-size':10, opacity:.7, transform:'rotate(-90,16,490)', 'text-anchor':'middle'}, ['DECISION']));
+  g.appendChild(el('text', {x:16, y:800, fill:'#e76f51', 'font-size':10, opacity:.7, transform:'rotate(-90,16,800)', 'text-anchor':'middle'}, ['SAFETY']));
+}
+
+// ── Render External Nodes ──
+function renderExtNodes() {
+  const g = document.getElementById('nodes');
+  EXT_NODES.forEach(mod => {
+    const {id, x, y, w, h, label, color} = mod;
+    const grp = el('g', {class:'node', 'data-id':id, transform:`translate(${x-w/2},${y-h/2})`});
+    grp.appendChild(el('rect', {width:w, height:h, rx:6, fill:'#0a1628',
+      stroke:color, 'stroke-width':1.5, 'stroke-dasharray':'4,3', opacity:.7}));
+    grp.appendChild(el('rect', {x:0, y:0, width:w, height:2, rx:2, fill:color, opacity:.6}));
+    const lines = label.split('\n');
+    lines.forEach((line, i) => {
+      grp.appendChild(el('text', {
+        x:w/2, y:h/2-4 + (i-lines.length/2+0.5)*14,
+        class:'node-label', 'font-size':10, fill:color
+      }, [line]));
+    });
+    g.appendChild(grp);
+  });
+}
+
+// ── Render Edges ──
+function renderEdges() {
+  const g = document.getElementById('edges');
+  const nodeLookup = (id) => MODULES[id] || EXT_NODES.find(e => e.id === id);
+  EDGES.forEach((edge, i) => {
+    const src = nodeLookup(edge.from), tgt = nodeLookup(edge.to);
+    if(!src || !tgt) return;
+
+    const sp = getEdgePt(src, edge.fs, edge.offsetX||0);
+    const tp = getEdgePt(tgt, edge.ts, edge.offsetY||0);
+    const d = bezierPath(sp.x, sp.y, tp.x, tp.y);
+    const pathClass = ['edge-path', edge.path+'-path', edge.path === 'both' ? 'highlight' : ''].filter(Boolean).join(' ');
+
+    const marker = 'url(#arrow-' + (edge.path === 'doer' ? 'green' : edge.path === 'checker' ? 'amber' : 'dim') + ')';
+    const path = el('path', {
+      d, class:pathClass,
+      'data-from':edge.from, 'data-to':edge.to,
+      'marker-end': marker
+    });
+    g.appendChild(path);
+
+    // Label
+    const midX = (sp.x + tp.x) / 2;
+    const midY = (sp.y + tp.y) / 2;
+    const labelLines = [edge.topic, `${edge.msgType}  ${edge.freq}`];
+    const labelG = el('g', {class:'edge-label-wrapper'});
+    const bg = el('rect', {fill:'#0a1628', rx:3, opacity:.85});
+    labelG.appendChild(bg);
+
+    labelLines.forEach((line, li) => {
+      const t = el('text', {
+        x:midX, y:midY-6 + li*14, class:'edge-label ' + (edge.path !== 'both' ? edge.path+'-path' : 'highlight'),
+        'font-size': li === 0 ? 9 : 8, fill: li === 0 ? '#90b8d0' : '#5a8aaa', 'font-weight': li === 0 ? '500' : '400'
+      }, [line]);
+      labelG.appendChild(t);
+    });
+
+    // background rect sizing (approximate)
+    const longestLine = Math.max(...labelLines.map(l => l.length)) * 5.5;
+    bg.setAttribute('x', midX - longestLine/2 - 3);
+    bg.setAttribute('y', midY - 16);
+    bg.setAttribute('width', longestLine + 6);
+    bg.setAttribute('height', 32);
+
+    g.appendChild(labelG);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// TIMELINE
+// ═══════════════════════════════════════════════════
+function renderTimeline() {
+  const track = document.getElementById('tl-track');
+  const markers = [
+    {label:'0.1Hz', pos:'5%', active:true},
+    {label:'1Hz', pos:'20%', active:true},
+    {label:'2Hz', pos:'35%', active:true},
+    {label:'4Hz', pos:'50%', active:true},
+    {label:'10Hz', pos:'65%', active:true},
+    {label:'50Hz', pos:'82%', active:true},
+    {label:'100Hz', pos:'95%', active:true},
+  ];
+  markers.forEach(m => {
+    const el_ = document.createElement('div');
+    el_.className = 'tl-marker' + (m.active ? ' active' : '');
+    el_.style.left = m.pos;
+    el_.dataset.label = m.label;
+    track.appendChild(el_);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// DETAIL PANEL
+// ═══════════════════════════════════════════════════
+const panel = document.getElementById('detail-panel');
+const panelTag = document.getElementById('panel-tag');
+const panelBody = document.getElementById('panel-body');
+
+function showDetail(modId) {
+  const mod = MODULES[modId] || EXT_NODES.find(e => e.id === modId);
+  if(!mod) return;
+  panelTag.textContent = mod.abbr;
+  const dead = mod.dead;
+
+  let html = '';
+  // Description
+  html += `<div class="panel-section"><h3>Description</h3><p>${mod.description}</p></div>`;
+  html += `<div class="panel-section"><h3>Frequency</h3><span class="freq-badge">${mod.freq}</span></div>`;
+
+  // Subscriptions
+  if(mod.subs && mod.subs.length) {
+    html += `<div class="panel-section"><h3>Subscriptions</h3><table class="topic-table">
+      <tr><th>Topic</th><th>Type</th><th>Freq</th></tr>`;
+    mod.subs.forEach(s => {
+      html += `<tr><td>${s.topic}</td><td>${s.type}</td><td>${s.freq}</td></tr>`;
+    });
+    html += `</table></div>`;
+  }
+
+  // Publications
+  if(mod.pubs && mod.pubs.length) {
+    html += `<div class="panel-section"><h3>Publications</h3><table class="topic-table">
+      <tr><th>Topic</th><th>Type</th><th>Freq</th></tr>`;
+    mod.pubs.forEach(p => {
+      html += `<tr><td>${p.topic}</td><td>${p.type}</td><td>${p.freq}</td></tr>`;
+    });
+    html += `</table></div>`;
+  }
+
+  // Sources
+  if(mod.sources && mod.sources.length) {
+    html += `<div class="panel-section"><h3>Key Source Files</h3><ul class="source-list">`;
+    mod.sources.forEach(s => {
+      html += `<li>${s}</li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  if(dead) {
+    html += `<div class="panel-section" style="background:rgba(231,111,81,.06);border:1px solid rgba(231,111,81,.15);border-radius:6px;padding:12px;margin-top:12px;">
+      <h3 style="color:#e76f51;">⚠️ Dead Code Notice</h3>
+      <p style="font-size:12px;color:#c8a090;">BC-MPC subscribes to <code style="color:#e76f51;">/m2/world_state</code> instead of <code style="color:#00b4d8;">/l3/m2/world_state</code>. The topic mismatch causes an indefinite wait for valid state. Fix: correct the subscription topic in bc_mpc_node.cpp:35 and update the CMakeLists node name collision.</p>
+    </div>`;
+  }
+
+  panelBody.innerHTML = html;
+  panel.classList.add('open');
+}
+
+function hideDetail() {
+  panel.classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════
+// PATH HIGHLIGHTING
+// ═══════════════════════════════════════════════════
+function setMode(mode) {
+  currentMode = mode;
+  // Update buttons
+  document.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+
+  // Update edges
+  document.querySelectorAll('.edge-path').forEach(path => {
+    const from = path.dataset.from, to = path.dataset.to;
+    // Find edge data
+    const edge = EDGES.find(e => e.from === from && e.to === to);
+    if(!edge) return;
+
+    if(mode === 'all') {
+      path.style.opacity = '1';
+      path.style.stroke = edge.path === 'doer' ? '#2a9d8f' : edge.path === 'checker' ? '#e76f51' : '#00b4d8';
+      path.style.strokeWidth = edge.path === 'both' ? '2' : '2.5';
+      if(edge.path === 'checker') path.style.strokeDasharray = '6,3';
+      else path.style.strokeDasharray = 'none';
+    } else if(mode === 'doer') {
+      const show = edge.path === 'doer' || edge.path === 'both';
+      path.style.opacity = show ? '1' : '.08';
+      if(show) {
+        path.style.stroke = edge.path === 'both' ? '#00b4d8' : '#2a9d8f';
+        path.style.strokeWidth = '2.5';
+        path.style.strokeDasharray = 'none';
+      }
+    } else if(mode === 'checker') {
+      const show = edge.path === 'checker' || edge.path === 'both';
+      path.style.opacity = show ? '1' : '.08';
+      if(show) {
+        path.style.stroke = edge.path === 'both' ? '#00b4d8' : '#e76f51';
+        path.style.strokeWidth = '2.5';
+        path.style.strokeDasharray = edge.path === 'checker' ? '6,3' : 'none';
+      }
+    }
+  });
+
+  // Update labels
+  document.querySelectorAll('.edge-label').forEach(label => {
+    const wrapper = label.closest('.edge-label-wrapper');
+    if(!wrapper) return;
+    // Find which edge this belongs to by looking for nearby path
+    const parentG = wrapper.parentElement;
+    if(!parentG) return;
+    // Simple approach: just toggle classes based on currentMode
+    if(currentMode === 'all') {
+      label.style.opacity = '1';
+    } else if(currentMode === 'doer') {
+      const isDoer = label.classList.contains('doer-path');
+      label.style.opacity = (isDoer || label.classList.contains('highlight')) ? '1' : '.1';
+    } else if(currentMode === 'checker') {
+      const isChecker = label.classList.contains('checker-path');
+      label.style.opacity = (isChecker || label.classList.contains('highlight')) ? '1' : '.1';
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// ZOOM / PAN
+// ═══════════════════════════════════════════════════
+let zoomLevel = 1;
+let panX = 0, panY = 0;
+let isDragging = false, dragStartX, dragStartY, dragPanX, dragPanY;
+const container = document.getElementById('diagram-container');
+const diagram = document.getElementById('diagram');
+
+function applyTransform() {
+  diagram.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+  diagram.style.transformOrigin = '0 0';
+}
+
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? .9 : 1.1;
+  const newZoom = Math.max(.3, Math.min(3, zoomLevel * delta));
+  // Zoom toward mouse
+  const rect = container.getBoundingClientRect();
+  const mx = e.clientX - rect.left - panX;
+  const my = e.clientY - rect.top - panY;
+  panX -= mx * (newZoom / zoomLevel - 1);
+  panY -= my * (newZoom / zoomLevel - 1);
+  zoomLevel = newZoom;
+  applyTransform();
+}, {passive:false});
+
+container.addEventListener('mousedown', e => {
+  if(e.target.closest('.node') || e.button !== 0) return;
+  isDragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragPanX = panX;
+  dragPanY = panY;
+  container.style.cursor = 'grabbing';
+});
+
+window.addEventListener('mousemove', e => {
+  if(!isDragging) return;
+  panX = dragPanX + (e.clientX - dragStartX);
+  panY = dragPanY + (e.clientY - dragStartY);
+  applyTransform();
+});
+
+window.addEventListener('mouseup', () => {
+  if(isDragging) {
+    isDragging = false;
+    container.style.cursor = 'grab';
+  }
+});
+
+document.getElementById('zoom-in').addEventListener('click', () => {
+  zoomLevel = Math.min(3, zoomLevel * 1.3);
+  applyTransform();
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  zoomLevel = Math.max(.3, zoomLevel / 1.3);
+  applyTransform();
+});
+document.getElementById('zoom-reset').addEventListener('click', () => {
+  zoomLevel = 1;
+  panX = 0;
+  panY = 0;
+  applyTransform();
+});
+
+// ═══════════════════════════════════════════════════
+// EVENT DELEGATION
+// ═══════════════════════════════════════════════════
+document.getElementById('nodes').addEventListener('click', e => {
+  const g = e.target.closest('.node');
+  if(!g) return;
+  showDetail(g.dataset.id);
+});
+
+document.getElementById('panel-close').addEventListener('click', hideDetail);
+
+// Click outside panel to close
+document.getElementById('diagram-container').addEventListener('click', e => {
+  if(!e.target.closest('.node')) hideDetail();
+});
+
+// Escape key to close
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') hideDetail();
+});
+
+document.querySelectorAll('.toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => setMode(btn.dataset.mode));
+});
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+renderLayers();
+renderNodes();
+renderExtNodes();
+renderEdges();
+renderTimeline();
+
+// Click L2 to show example
+setTimeout(() => showDetail('m4'), 500);
+</script>
+</body>
+</html>

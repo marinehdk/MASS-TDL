@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOKEN_OPTIMIZER_RUNTIME=codex bash /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/python-launcher.sh /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/run.py skills/token-optimizer/scripts/codex_hook_bridge.py session-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOKEN_OPTIMIZER_RUNTIME=codex bash /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/python-launcher.sh /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/run.py skills/token-optimizer/scripts/codex_hook_bridge.py user-prompt-submit",
+            "timeout": 12
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOKEN_OPTIMIZER_RUNTIME=codex bash /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/python-launcher.sh /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/run.py skills/token-optimizer/scripts/measure.py session-end-flush --trigger stop --quiet --defer >/dev/null 2>&1",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOKEN_OPTIMIZER_RUNTIME=codex bash /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/python-launcher.sh /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/run.py skills/token-optimizer/scripts/codex_hook_bridge.py subagent-start",
+            "timeout": 6
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOKEN_OPTIMIZER_RUNTIME=codex bash /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/python-launcher.sh /Users/marine/.codex/plugins/cache/alexgreensh-token-optimizer/token-optimizer/5.11.8/hooks/run.py skills/token-optimizer/scripts/codex_hook_bridge.py subagent-stop >/dev/null 2>&1",
+            "timeout": 6
+          }
+        ]
+      }
+    ]
+  }
+}
