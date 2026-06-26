@@ -77,6 +77,11 @@ ShipControllerNode::ShipControllerNode()
 
     tau_pub_ = this->create_publisher<geometry_msgs::msg::WrenchStamped>("/cmd_tau", 10);
 
+    // 运行时 reset：orchestrator 经 gnc_bridge 发 /ship/dynamics_reset。
+    reset_sub_ = this->create_subscription<ship_interfaces::msg::ShipReset>(
+        "/ship/dynamics_reset", 10,
+        std::bind(&ShipControllerNode::reset_callback, this, std::placeholders::_1));
+
     RCLCPP_INFO(this->get_logger(),
         "DP 控制器已启动，控制周期: %.1f ms", control_period_ * 1000.0);
 }
@@ -364,6 +369,38 @@ void ShipControllerNode::calc_integral_limits()
     integral_surge_ = std::clamp(integral_surge_, -i_lim_surge_, i_lim_surge_);
     integral_sway_  = std::clamp(integral_sway_,  -i_lim_sway_,  i_lim_sway_);
     integral_yaw_   = std::clamp(integral_yaw_,   -i_lim_yaw_,   i_lim_yaw_);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 运行时 reset：清零 PID 积分 + NDO 积分 + 误差历史（等价于冷启初始化）
+// ─────────────────────────────────────────────────────────────────────────────
+void ShipControllerNode::reset_controller()
+{
+    // 由 reset_callback 调用，调用方持 state_mutex_。
+    // 清零所有跨 run 累积的积分器/历史状态，消除 run-to-run 行为差异。
+    integral_surge_ = 0.0;
+    integral_sway_ = 0.0;
+    integral_yaw_ = 0.0;
+    integral_speed_ = 0.0;
+    z_.setZero();
+    d_hat_.setZero();
+    tau_last_.setZero();
+    prev_error_surge_ = 0.0;
+    prev_error_sway_ = 0.0;
+    prev_error_yaw_ = 0.0;
+    prev_error_speed_ = 0.0;
+    prev_deriv_surge_ = 0.0;
+    prev_deriv_sway_ = 0.0;
+    prev_deriv_yaw_ = 0.0;
+    previous_u_ = 0.0;
+    last_time_ = this->now();
+    RCLCPP_INFO(this->get_logger(), "reset_controller: integrals + NDO + error history cleared");
+}
+
+void ShipControllerNode::reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr /*msg*/)
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    reset_controller();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

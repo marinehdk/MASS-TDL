@@ -12,17 +12,19 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(ship_interfaces REQUIRED)
 
 include_directories(include)
 
 add_executable(ship_control_node src/ship_control_node.cpp)
-ament_target_dependencies(ship_control_node 
-  rclcpp 
-  nav_msgs 
-  geometry_msgs 
-  tf2 
+ament_target_dependencies(ship_control_node
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
   tf2_geometry_msgs
   Eigen3
+  ship_interfaces
 )
 
 install(TARGETS
