@@ -12,6 +12,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(ship_interfaces REQUIRED)
 
 include_directories(include)
 
@@ -32,6 +33,7 @@ ament_target_dependencies(ship_dynamics_node
   geometry_msgs
   nav_msgs
   tf2_ros
+  ship_interfaces
 )
 
 install(TARGETS ship_dynamics_node
