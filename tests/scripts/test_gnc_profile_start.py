@@ -34,6 +34,25 @@ def test_a4000_override_passes_runtime_profile_to_sil_nodes():
     assert "TDL_RUNTIME_PROFILE: gnc" in result.stdout
 
 
+def test_a4000_override_passes_compose_project_to_orchestrator_runtime_console():
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source scripts/local-a4000-env.sh && "
+            "TDL_RUNTIME_PROFILE=gnc COMPOSE_PROJECT_NAME=codex-gnc-validation "
+            "docker compose config sil-orchestrator",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "COMPOSE_PROJECT_NAME: codex-gnc-validation" in result.stdout
+
+
 def test_sil_entrypoint_uses_gnc_ownship_source_without_ship_dynamics():
     source = Path("docker/sil_entrypoint.sh").read_text(encoding="utf-8")
 
