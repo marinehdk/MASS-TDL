@@ -997,3 +997,37 @@ Resolve the 2 remaining loose ends from the cross-run state self-heal engineerin
 - **Item C (startup transient): NOT MODIFIED — by design.** The 8 vs 7 first-frame transition diff in the same-scenario probe is M4 cold-start behavior (RUN-1 is the first scenario after a cold container start; M4 emits behavior=1 for <1s before M2 data arrives). It is NOT cross-scenario residual (both runs are cold starts; RUN-1 is inherently the first). Fixing it would require a startup grace period in M4 decision logic — a behavior change to a safety-critical decision module, violating Simplicity First for a <1s transient with zero impact on avoidance onset (111s identical) or max_dev (0.06° diff). Recorded as a known M4 cold-start characteristic.
 - **Full no-restart operation is now unblocked at all 6 modules.** `--restart-between-runs` can be dropped for the decision + actuator layers. If a future probe still shows residual, the suspect is a missed latch field in one of the 6 reset methods, not a missing module.
 - Stack `mass-l3-sil` is up in main-runtime worktree, idle (scenario cleaned). Updated bridge/L4 files are also in the container at `/opt/ws/docker/sil_topic_bridge.py` and `/opt/ws/src/.../l4_guidance_adapter/node.py`.
+
+## [2026-06-25] Agent: Codex - ROS2 message runtime review report
+
+### Git Commit
+No commit. Worktree `.worktrees/main-runtime`, branch `main`.
+
+### Task Goal
+Review the user's ROS2 message analysis report against current repository and live `mass-l3-sil` runtime, run one scenario for evidence, and write the improved Markdown report under `docs/Design/SIL/`.
+
+### Core Changes
+- Added `docs/Design/SIL/TDL_ROS2_Message_Runtime_Review_2026-06-25.md`.
+- Report includes source inventory, runtime DDS topic/node/QoS evidence, single-scenario trace evidence, and updated defect priority.
+- Main findings: `/l3/fsm_state` type collision, override topic split, residual legacy M5 topic names in source, dual `/sil/sotif_metrics` publishers/QoS mismatch, and `/l3/asdr/record` as multi-publisher event fan-in.
+
+### Current Status
+- Runtime source mount verified: `mass-l3-sil-{sil-nodes,sil-orchestrator,foxglove-bridge}-1` all point to `.worktrees/main-runtime`.
+- CodeGraph initialized locally for `.worktrees/main-runtime`.
+- Scenario run: `colreg-rule14-ho` with strict restart against `mass-l3-sil-sil-nodes-1`.
+- Scenario verdict: RED on behavioral `turn_starboard`; usable as message-flow evidence only, not COLREG acceptance.
+
+### Verification
+- `ros2 topic list -t`, `ros2 node list`, `ros2 topic info -v` for key topics, and `ros2 node info` for M5/M7/M8/bridge/L4/FSM captured from `mass-l3-sil-sil-nodes-1`.
+- Scenario evidence:
+  - `runs/ros2_msg_review_rule14_20260625_135259.json`
+  - `runs/trace_eval/ros2_msg_review_rule14_20260625_135259/batch_summary.json`
+  - `runs/trace_eval/ros2_msg_review_rule14_20260625_135259/manifest.json`
+  - `runs/trace_eval/ros2_msg_review_rule14_20260625_135259/colreg-rule14-ho.trace_current.jsonl`
+  - `runs/trace_eval/ros2_msg_review_rule14_20260625_135259/colreg-rule14-ho_trajectory_dashboard.png`
+- Trace rows: 21,842 total; `/l3/asdr/record` 8,434; `/sil/own_ship_state` 6,346; `/l3/m4/behavior_plan` 2,544; `/l3/m6/colregs_constraint` 1,268; `/l3/m5/avoidance_plan` 621.
+
+### Handoff Notes
+- Do not cite this scenario run as behavior acceptance; it is RED.
+- Next concrete ROS2 contract repair should start with `/l3/fsm_state` type collision, then override namespace split.
+- The report intentionally recommends contract fixes, not scenario geometry changes.
