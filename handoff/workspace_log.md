@@ -1198,3 +1198,28 @@ Verified on isolated stack: `codex-gnc-validation-sil-nodes-1` (dom42) + `codex-
 - **A7 next step:** on the isolated stack, run:
   `PROBE_STUCK_LIMIT=150 python3 scripts/run_colregs_clean_8probe.py --profile gnc --scenario colreg-rule14-ho --sim-rate 10.0 --summary-out runs/a7_gnc/rule14_ho_gnc_final_summary.json --trace-report-dir runs/a7_gnc/trace_final`
   (NO `--restart-between-runs` — it breaks gnc_bridge discovery). If stuck at sim_t=0, raise PROBE_STUCK_LIMIT to 200.
+
+## [2026-06-26] ZCode / commit 696bf496 / A7 verdict capture — trace writer regression fix + real A7 finding (M3 FSM stuck)
+
+**Task Goal:** Capture the rule14-ho `turn_starboard` GREEN/RED verdict on the isolated GNC stack to answer "does the real GNC L4/L5 stack naturally resolve rule14-ho over-turning?"
+
+**Core Changes:**
+- **Root cause of the A7 "probe stuck at sim_t=0" block (2 sessions misdiagnosed as GNC warmup):** A5c (`f138b0d9`) deleted `sil_topic_bridge.py` and replaced it with 3 C++ adapter packages, but the adapters are pure DDS→DDS relays and **none reimplemented the `trace_current.jsonl` writer** that `sil_topic_bridge.py::DebugTraceWriter` had been. The orchestrator `/debug/snapshot` reads that file to report `sim_t`, and the probe `get_sim_time()` polls it; with the writer gone the snapshot was empty → probe always saw `sim_t=0` → stuck-detector aborted every run. The earlier "484-row scoring.arrow / sim advanced to 200s" run was reading a **stale** `trace_current.jsonl` left by the polluted stack, not a live run.
+- **Fix (commit `696bf496`):** New `docker/sil_trace_writer.py` — an independent process launched from `sil_entrypoint.sh` Stage 3a alongside the C++ adapters. It does **not** reimplement any bridge DDS→DDS translation (adapters own that); it only records. Record schemas ported 1:1 from the deleted bridge so every trace evaluator (`run_6_scenarios`, `colregs_chain_trace`, `trajectory_dashboard`) keeps working. **Full 12-topic coverage** (not just rule14-ho minimum) so clean-8/clean-12 probes work too.
+- **Two writer bugs found + fixed during bring-up:** (1) default `MutuallyExclusiveCallbackGroup` starved the internal use_sim_time `/clock` callback, freezing `node.get_clock().now()` at ~6s → fixed with `ReentrantCallbackGroup` + 4-thread executor; (2) timer-only 2s flush lagged the live `/clock` by minutes under high-rate publishers → fixed with inline flush every 25 records + 0.5s timer.
+- `DebugTraceWriter` is ROS2-agnostic (pure file I/O + threading), unit-tested off-container (18 tests, TDD green): record/reset/flush/50MB-rotation + field-name contracts.
+- `sil_entrypoint.sh` exec bit preserved (A5c `85553ca7` trap, re-tripped once during this work).
+
+**Current Status:**
+- **Regression FIXED + verified:** isolated stack snapshot `sim_t` tracks `/clock` live (29→107s over 10s wall); rule14-ho probe now runs to **completion (1198.5s sim)** instead of aborting at sim_t=0. Evidence: `runs/a7_gnc/rule14_ho_gnc_final_summary.json` + `runs/a7_gnc/trace_final/`.
+- **rule14-ho verdict = RED, but NOT an over-turn failure — the COLREGs pipeline never armed.** Trace evidence: `m4 behavior_plan` all `behavior=0` (TRANSIT, never AVOID); `m5 avoidance_plan` 0 records; `m6 colregs_constraint` 0 records; `steer_mag=0.0°`, `max_starboard_dev=0.0`, `min_cpa=0.03m` (collision). Root cause: **M3 mission FSM stuck at `fsm_state=1` / `task_validity=0`** (`/l3/m3/mission_goal` last record) — M3 never activated the task, so no M6 conflict detection, no M4 avoidance arming, no M5 plan. The over-turn hypothesis (`turn_starboard` GREEN/RED) is therefore **not yet evaluable** — the ship never reached an avoidance maneuver.
+- **The `turn_starboard` GREEN/RED question remains open**, blocked on a new issue: M3 task FSM does not reach ACTIVE in the GNC profile. Ship physics itself moved (own_ship sog reached 12 kn, lat range 0→63.5) so GNC plant path is alive; the gap is M3 mission activation (likely missing/late L2 route task hand-off to M3, or M3 waiting on a condition the GNC profile doesn't satisfy).
+- **Local gate:** structural NO-GO — `local-a4000-acceptance.sh` hardcodes `mass-l3-sil-*` container names; our task-scoped stack uses `codex-gnc-validation-*`. Documented Track B caveat (same as before). All 6 containers healthy, orchestrator `/health` ok, writer + 3 adapters running.
+
+**Handoff Notes:**
+- **Next session's job is the M3 FSM activation investigation**, not re-running the probe. The trace writer is fixed; the block is now upstream (M3 never arms → no COLREGs). Start by reading `/l3/m3/mission_goal` + M3 source for the `fsm_state=1→ACTIVE` transition conditions, and whether the GNC profile supplies the L2 task M3 awaits (`task_validity=0`, `target_wp_lat=0.0` suggests M3 has no valid task).
+- Stack still running (6 containers, codex-gnc-validation project). To resume: `docker ps | grep codex-gnc-validation` then probe directly — no rebuild needed.
+- **Do NOT** re-investigate the trace writer / `trace_current.jsonl` (fixed + verified) or gnc_bridge (executor starvation fixed `83ec2669`, verified).
+- **Do NOT** touch `third_party/gnc_ws/` source; tuning only via mount overlay `docker/gnc-ship-config-overlay.yaml`.
+- Files: `docker/sil_trace_writer.py` (writer + ROS node), `tests/docker/test_sil_trace_writer.py` (18 unit tests), `docker/sil_entrypoint.sh` (Stage 3a launch + cleanup), `docker/sil_nodes.Dockerfile` (COPY).
+- Commit `696bf496` on `codex/gnc-integration`. Not pushed (local-first gate: A7 verdict + M3 investigation pending before any remote sync; **A4000 not in scope for this task**).
