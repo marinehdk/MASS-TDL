@@ -1223,3 +1223,36 @@ Verified on isolated stack: `codex-gnc-validation-sil-nodes-1` (dom42) + `codex-
 - **Do NOT** touch `third_party/gnc_ws/` source; tuning only via mount overlay `docker/gnc-ship-config-overlay.yaml`.
 - Files: `docker/sil_trace_writer.py` (writer + ROS node), `tests/docker/test_sil_trace_writer.py` (18 unit tests), `docker/sil_entrypoint.sh` (Stage 3a launch + cleanup), `docker/sil_nodes.Dockerfile` (COPY).
 - Commit `696bf496` on `codex/gnc-integration`. Not pushed (local-first gate: A7 verdict + M3 investigation pending before any remote sync; **A4000 not in scope for this task**).
+
+## [2026-06-26] Codex / commit 7b62ecbc / Local main integration: Track A GNC + Track B ROS2 message governance
+
+### Task Goal
+Integrate `codex/gnc-integration` into local `main` only, preserving full branch history for Track A real GNC L4/L5 integration and Track B ROS2 message governance. No GitHub/GitLab push and no A4000 sync.
+
+### Core Changes
+- Created integration branch `codex/integration-20260626` from local `main` tip `8bb5e399`.
+- Merged `codex/gnc-integration` tip `ae3a3b47` with merge commit `7b62ecbc`.
+- Preserved the known A7 result: GNC profile rule14-ho is RED because M3 mission FSM never arms; `turn_starboard` over-turn verdict remains not evaluable and is out of this integration scope.
+
+### Current Status
+- Integration branch targeted tests passed.
+- Local `mass-l3-sil` SIL profile stack starts from the integration worktree and passes local A4000-equivalent acceptance.
+- SIL rule14-ho smoke completed to sim time 1201.5s. Result is RED as expected for current behavior, but the run did not stick at sim_t=0 and trace writer produced live trace data.
+
+### Verification
+- `python3 tools/sil/check_ros2_interface_contract.py --contract docs/Design/SIL/ros2-interface-contract.yaml --root src` -> `OK: 7 findings checked, 0 violations`.
+- `python3 -m pytest tests/docker/test_sil_trace_writer.py -v` -> 18 passed.
+- `git ls-files -s docker/sil_entrypoint.sh` -> mode `100755`.
+- Container gtest: `sil_fusion_adapter` 17 tests, `sil_trace_adapter` 8 tests, `sil_pulse_adapter` 7 tests; 0 failures.
+- `./scripts/local-a4000-acceptance.sh` -> `LOCAL A4000 CONTAINER ACCEPTANCE PASS`.
+- Acceptance evidence:
+  - `runs/local_a4000_container_probe_20260626_091644.json`
+  - `runs/local_runtime_probe_20260626_091644.json`
+- SIL smoke evidence:
+  - `runs/integration_sil_rule14_20260626_091751.json`
+  - `runs/trace_eval/20260626_091752_single_colreg-rule14-ho/colreg-rule14-ho.trace_current.jsonl`
+
+### Handoff Notes
+- Fast-forward local `main` only after this integration commit and all gates remain green.
+- Do not push or sync A4000 for this task.
+- The pre-existing uncommitted ROS2 runtime review files in `.worktrees/main-runtime` must be preserved separately before fast-forwarding `main`.
