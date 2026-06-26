@@ -132,6 +132,21 @@ function runtimeGateRelevantToMode(gate: { name?: string; role?: string }, displ
   return true;
 }
 
+function errorMessage(errorValue: unknown) {
+  if (errorValue instanceof Error) return errorValue.message;
+  if (errorValue && typeof errorValue === 'object') {
+    const record = errorValue as Record<string, unknown>;
+    const data = record.data;
+    if (data && typeof data === 'object') {
+      const detail = (data as Record<string, unknown>).detail;
+      if (typeof detail === 'string') return detail;
+    }
+    if (typeof record.error === 'string') return record.error;
+    if (typeof record.message === 'string') return record.message;
+  }
+  return String(errorValue);
+}
+
 function topicRows(pluginRoles: RuntimePluginRole[]) {
   return pluginRoles.flatMap((role) =>
     role.plugins.flatMap((plugin) =>
@@ -199,7 +214,7 @@ export function SimulationCheck() {
       appendRuntimeLog(`probe runtime: ${result.verdict}`, result.verdict === 'GO' ? 'info' : 'warn');
       refetchRuntimeSummary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       appendRuntimeLog(`probe runtime failed: ${message}`, 'error');
       setLifecycleError(`Runtime probe failed: ${message}`);
     }
@@ -212,7 +227,7 @@ export function SimulationCheck() {
       appendRuntimeLog(`restart core service: ${service}`);
       refetchRuntimeSummary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       appendRuntimeLog(`restart core service failed: ${service}: ${message}`, 'error');
       setLifecycleError(`Runtime restart failed: ${message}`);
     }
@@ -225,7 +240,7 @@ export function SimulationCheck() {
       appendRuntimeLog(`switch plugin: ${role} -> ${pluginId}`);
       refetchRuntimeSummary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       appendRuntimeLog(`switch plugin failed: ${role}: ${message}`, 'error');
       setLifecycleError(`Runtime plugin switch failed: ${message}`);
     }
@@ -251,7 +266,7 @@ export function SimulationCheck() {
       }
       appendRuntimeLog('runtime gate allowed GO');
     } catch (e) {
-      setLifecycleError(`Runtime probe failed: ${e instanceof Error ? e.message : String(e)}`);
+      setLifecycleError(`Runtime probe failed: ${errorMessage(e)}`);
       setTransitioning(false);
       proceedingRef.current = false;
       return;
@@ -308,7 +323,7 @@ export function SimulationCheck() {
       window.location.hash = `#/monitor/${scenarioId}`;
     } catch (e) {
       await finalizeEvidenceOnError();
-      setLifecycleError(`Lifecycle launch failed: ${e instanceof Error ? e.message : String(e)}`);
+      setLifecycleError(`Lifecycle launch failed: ${errorMessage(e)}`);
       setTransitioning(false);
       proceedingRef.current = false;
     }

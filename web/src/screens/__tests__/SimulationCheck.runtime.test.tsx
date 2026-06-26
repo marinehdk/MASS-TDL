@@ -603,6 +603,28 @@ describe('SimulationCheck runtime console', () => {
     expect(screen.getByText(/Runtime gate failed/)).toBeInTheDocument();
   });
 
+  it('shows runtime probe API detail instead of object string after explicit GO fails', async () => {
+    mocks.verdict = 'GO';
+    mocks.probeRuntime.mockReturnValue({
+      unwrap: () =>
+        Promise.reject({
+          status: 400,
+          data: {
+            detail:
+              "unknown TDL_RUNTIME_PROFILE 'gnc'; available profiles: integration-local, internal-local",
+          },
+        }),
+    });
+
+    render(<SimulationCheck />);
+    fireEvent.click(screen.getByRole('button', { name: '人工确认 GO' }));
+
+    await waitFor(() => expect(mocks.probeRuntime).toHaveBeenCalledTimes(1));
+    expect(mocks.configureLifecycle).not.toHaveBeenCalled();
+    expect(screen.getByText(/unknown TDL_RUNTIME_PROFILE 'gnc'/)).toBeInTheDocument();
+    expect(screen.queryByText(/\\[object Object\\]/)).not.toBeInTheDocument();
+  });
+
   it('launches Screen 03 only after explicit GO confirmation passes runtime probe', async () => {
     mocks.verdict = 'GO';
 

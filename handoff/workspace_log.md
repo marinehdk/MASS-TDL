@@ -1288,6 +1288,7 @@ Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/co
 6. **GNC overlay restored/tuned via mount only:** `docker/gnc-ship-config-overlay.yaml` is now a full overlay copy with emergency-avoidance update guards relaxed; no `third_party/gnc_ws` source edits.
 7. **Trace evidence expanded:** `docker/sil_trace_writer.py` records M6 `active_rules` and `/l3/m2/world_state` primary target geometry so next diagnosis can inspect M2/M6 release conditions directly.
 8. **Probe wrapper hardened:** `scripts/run_colregs_clean_8probe.py --profile {sil,gnc}` verifies the active stack by image substring before delegating to the runner.
+9. **Runtime Console GNC profile handling fixed:** orchestrator runtime routes map `TDL_RUNTIME_PROFILE=gnc` to the existing `integration-local` runtime profile, and Screen 02 now renders API `detail` messages instead of `[object Object]`.
 
 ### Current Status
 - **Chain status: L2 -> L3 -> GNC/L4 is connected and executing.** rule14-ho now arms M6/M4/M5, GNC accepts avoidance plans, vessel turns starboard, and CPA is safe in the recorded runs.
@@ -1299,6 +1300,8 @@ Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/co
 ### Verification
 - `python3 -m pytest tests/docker/test_sil_trace_writer.py tests/scripts/test_gnc_ship_config_overlay.py tests/scripts/test_gnc_profile_start.py tests/scripts/test_run_colregs_clean_8probe.py tests/scripts/test_sil_fusion_adapter_contract.py tests/sil_orchestrator/test_scenario_injection.py -q` -> 48 passed.
 - Container gtest/build: `m5_tactical_planner` 140 tests, 0 failures; `gnc_bridge` 10 tests, 0 failures; `sil_fusion_adapter` 22 tests, 0 failures.
+- `python3 -m pytest tests/sil_orchestrator/runtime/test_routes.py -q` -> 10 passed.
+- `cd web && npm test -- SimulationCheck.runtime.test.tsx --run` -> 17 passed.
 - `git diff --check` -> clean.
 - Runtime health: `https://127.0.0.1:18000/api/v1/health` -> `{"status":"ok"}`; task stack `codex-gnc-validation-*` is up.
 
