@@ -1105,6 +1105,13 @@ void CoordinateTransformNode::reset_callback(
     // ship_dynamics 同时 reset eta_=(0,0)，故 geo_position = 新 origin = scenario 起点。
     std::lock_guard<std::mutex> lock(origin_reset_mutex_);
     set_origin(msg->latitude, msg->longitude);
+    // 补清 route 更新守卫状态，防止 reset 后新 scenario 的第一个 route
+    // 被 min_route_update_interval_s_ 时间守卫或 last_feedback_path_ 几何
+    // 比对误 REJECT，导致 ship_guidance 收不到新 path。
+    has_last_route_ = false;
+    last_accepted_route_time_ = rclcpp::Time(0, 0);
+    last_feedback_path_.clear();
+    feedback_dp_latched_ = false;
 }
 
 void CoordinateTransformNode::init_feedback_log()
