@@ -27,11 +27,17 @@ L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         item.has_route = true;
         handoff_->push_l3_to_gnc(std::move(item));
       });
-  sub_reset_ = create_subscription<ship_interfaces::msg::ShipReset>(
+  sub_reset_ = create_subscription<sil_msgs::msg::ShipReset>(
       "/l3/sim/reset_own_ship", 10,
-      [this](const ship_interfaces::msg::ShipReset::SharedPtr msg) {
+      [this](const sil_msgs::msg::ShipReset::SharedPtr msg) {
         CrossDomainHandoff::L3ToGnc item;
-        item.ship_reset = *msg;
+        ship_interfaces::msg::ShipReset out;
+        out.header = msg->header;
+        out.latitude = msg->latitude;
+        out.longitude = msg->longitude;
+        out.heading_deg = msg->heading_deg;
+        out.sog_kn = msg->sog_kn;
+        item.ship_reset = std::move(out);
         item.has_reset = true;
         handoff_->push_l3_to_gnc(std::move(item));
       });
