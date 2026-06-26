@@ -693,11 +693,19 @@ def test_result_schema_has_new_domain_fields():
 def test_clean_probe_yaml_declares_expected_probe_horizons():
     runner = _load_runner()
     root = Path(__file__).resolve().parents[2]
+    # Declared per-scenario horizons. The runner now derives an adaptive
+    # horizon via estimate_sim_horizon (max(yaml_declared, base)); these
+    # declared values are the floor. Update this map whenever a scenario's
+    # metadata.simulation_settings.total_time changes.
     expected_total_time_s = {
+        "colreg-rule14-ho": 3000.0,
+        "colreg-rule14-ho-port": 3000.0,
         "colreg-rule13-ot": 3600.0,
-        "colreg-rule15-cs": 2000.0,
+        "colreg-rule15-cs": 3000.0,
         "colreg-rule15-cs-2": 1800.0,
-        "colreg-rule15-ot-boundary": 3600.0,
+        "colreg-rule15-cs-edge": 2000.0,
+        "colreg-rule15-ot-boundary": 2400.0,
+        "colreg-rule17-cr-so": 2200.0,
     }
     for scenario_id in runner.SCENARIOS:
         path = root / "scenarios" / "COLREGs测试" / f"{scenario_id}.yaml"

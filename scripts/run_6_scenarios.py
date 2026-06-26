@@ -25,6 +25,10 @@ from tools.sil.colregs_trace_evaluator import (
 )
 from tools.sil.colregs_chain_trace import attach_gate_diagnosis, build_chain_summary
 from tools.sil.colregs_artifact_consistency import check_consistency
+from tools.sil.colregs_scenario_audit import (
+    MIN_RETURN_WINDOW_S as SCENARIO_AUDIT_MIN_RETURN_WINDOW_S,
+    _straight_line_cpa,
+)
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
@@ -1232,6 +1236,146 @@ def compute_overtake_status(
     base["max_own_minus_target_along_m"] = max_along
     return base
 
+
+# ── Adaptive sim horizon + behavior-aware early-stop ─────────────────────
+# Fixes the sim-horizon artifact (RED caused by `total_time` ending the run at
+# the CPA moment, leaving zero route-return headroom). The horizon is derived
+# from scenario geometry instead of hard-coded; the run also stops early on
+# success OR on a confirmed failure, so it never empty-runs a doomed scenario.
+# Root-cause evidence: runs/rule14_with_release_geometry_trace/ (CPA reached
+# t=2802 vs nominal tcpa 1620; lag factor 1.73x; base 1920s covered 2x by
+# hard_stop=3840). Design: docs/Design/SIL/COLREGs_测试体系设计_v1.md.
+
+# Hard-stop multiplier on the derived total_time. 2x covers the observed CPA
+# lag (<=2.0x) with positive margin; extreme lag is caught by
+# assess_encounter_failure before hard_stop matters.
+HARD_STOP_MULTIPLIER = 2.0
+
+
+def estimate_sim_horizon(scen_data, *, route_return_budget_s=SCENARIO_AUDIT_MIN_RETURN_WINDOW_S,
+                         total_time_override=None):
+    """Derive an adaptive sim horizon from scenario geometry.
+
+    Reuses ``colregs_scenario_audit._straight_line_cpa`` for the nominal
+    straight-line TCPA (validated to match scenario declared t_cpa) and the
+    audit ``MIN_RETURN_WINDOW_S`` for the route-return budget (same semantics:
+    minimum post-CPA window for route-return review).
+
+    total_time = max(yaml_declared_total_time, base_horizon) so a scenario may
+    always declare a larger horizon; hard_stop = total_time * HARD_STOP_MULTIPLIER
+    is the B-failure backstop.
+
+    ``total_time_override`` (diagnostic --total-time-override) supersedes both
+    the yaml value and the geometric base; hard_stop scales from the override.
+    """
+    sim_settings = scen_data.get("metadata", {}).get("simulation_settings", {})
+    yaml_total_time = float(sim_settings.get("total_time", 600.0))
+    geometry = _straight_line_cpa(scen_data)
+    tcpa_nominal = float(geometry["tcpa_s"])
+    route_return_budget = float(route_return_budget_s)
+    base_horizon = tcpa_nominal + route_return_budget
+
+    if total_time_override is not None:
+        total_time = float(total_time_override)
+    else:
+        total_time = max(yaml_total_time, base_horizon)
+    hard_stop = total_time * HARD_STOP_MULTIPLIER
+
+    return {
+        "tcpa_nominal_s": tcpa_nominal,
+        "route_return_budget_s": route_return_budget,
+        "base_horizon_s": base_horizon,
+        "yaml_total_time_s": yaml_total_time,
+        "total_time_s": total_time,
+        "hard_stop_s": hard_stop,
+    }
+
+
+def assess_encounter_failure(*, route_status, m2_records, cpa_floor_m,
+                             tcpa_nominal_s, route_return_budget_s,
+                             current_sim_t):
+    """Behavior-aware early-stop check. Returns (failed, reason).
+
+    A run that is clearly succeeding (route returned) is never flagged.
+    Confirmed-failure conditions (any one):
+
+    - ``cpa_floor_violated``: real-time M2 primary_cpa < cpa_floor AND the CPA
+      is already past (tcpa<=0). A sub-floor CPA while still approaching is not
+      a failure — avoidance may still open it up.
+
+    - ``recovery_stalled``: past (tcpa_nominal + route_return_budget) AND CPA
+      is past (tcpa<=0) AND the own ship is still in an avoidance behavior
+      (never released: behavior not in {0=TRANSIT, 7=RECOVERY}). RECOVERY(7)
+      with a large XTE is the healthy route-return terminal state and is never
+      flagged here; a non-converging RECOVERY is caught by the hard_stop
+      backstop.
+
+    ``route_status`` may be None when the scenario does not require route return;
+    only the CPA-floor check (A) applies in that case.
+    """
+    # Success short-circuit: if route already returned, never flag failure.
+    if route_status is not None and route_status.get("returned_to_route"):
+        return False, None
+
+    # Need recent M2 samples to judge CPA/timing AND range trend (past-CPA).
+    if not m2_records:
+        return False, None
+    sorted_m2 = sorted(m2_records, key=lambda r: float(r.get("sim_t", 0.0)))
+    latest_m2 = sorted_m2[-1]
+    cpa_m = latest_m2.get("primary_cpa_m")
+    tcpa_s = latest_m2.get("primary_tcpa_s")
+
+    # M2 emits sentinel values (cpa/tcpa = -1.0 or None) when the target track
+    # is not yet stable or the CPA is not computable. These are NOT a floor
+    # violation -- treat any non-positive cpa/tcpa as "no valid measurement".
+    def _valid(v):
+        return isinstance(v, (int, float)) and v > 0.0
+    if not _valid(cpa_m):
+        return False, None
+
+    # past-CPA: the target is opening (past its closest point). Use a range
+    # trend over the last few samples rather than tcpa<=0 alone, because M2's
+    # tcpa can be stuck at 0.0 in degraded stacks (GNC profile observation).
+    # past_cpa requires BOTH tcpa<=0 (when valid) AND range increasing.
+    range_now = latest_m2.get("primary_rng_m")
+    range_opening = False
+    if _valid(range_now) and len(sorted_m2) >= 2:
+        # Compare last sample's range to one a few samples back.
+        lookback = sorted_m2[max(0, len(sorted_m2) - 6)]
+        range_prev = lookback.get("primary_rng_m")
+        if _valid(range_prev) and float(range_now) > float(range_prev):
+            range_opening = True
+    tcpa_past = (not _valid(tcpa_s)) or float(tcpa_s) <= 0.0
+    past_cpa = tcpa_past and range_opening
+
+    # A. CPA floor violated (only meaningful once the CPA is genuinely past and
+    # the measured cpa is a real positive value below the floor).
+    if past_cpa and float(cpa_m) < float(cpa_floor_m):
+        return True, "cpa_floor_violated"
+
+    # B. Stuck avoidance — only past the expected end of the encounter
+    # (tcpa_nominal + budget), with the CPA already past. Requires a
+    # route_status (skipped for scenarios that don't require route return).
+    #
+    # Only a genuinely stuck AVOID behavior (never released: behavior in
+    # {1-6,8}, i.e. neither TRANSIT=0 nor RECOVERY=7) is a confirmed stall.
+    # RECOVERY(7) with a large-but-converging XTE is the correct terminal
+    # behavior of a healthy route-return and must NOT be flagged: the ship has
+    # released avoidance and is actively rejoining the route. A pathological
+    # RECOVERY that never converges is caught by the hard_stop (2x total_time)
+    # backstop, not by this early-stop heuristic.
+    if route_status is None:
+        return False, None
+    recovery_deadline = float(tcpa_nominal_s) + float(route_return_budget_s)
+    if float(current_sim_t) > recovery_deadline and past_cpa:
+        final_behavior = route_status.get("final_behavior")
+        still_avoiding = final_behavior not in (0, 7, None)
+        if still_avoiding:
+            return True, "recovery_stalled"
+
+    return False, None
+
+
 def compute_overall_pass(*, cpa_ok, stability_pass, returned_to_route,
                          route_return_required=True,
                          route_corridor_ok=True,
@@ -1329,9 +1473,17 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
     sim_settings = scen_data.get("metadata", {}).get("simulation_settings", {})
     expected = scen_data.get("metadata", {}).get("expected_outcome", {})
     encounter = scen_data.get("metadata", {}).get("encounter", {})
-    total_time = float(sim_settings.get("total_time", 600.0))
-    if total_time_override is not None:
-        total_time = float(total_time_override)
+    # Adaptive sim horizon: derive total_time from scenario geometry (tcpa_nominal
+    # + route-return budget) instead of trusting a hard-coded yaml value that may
+    # leave no route-return headroom (root cause of rule14-ho RED: yaml 3000s vs
+    # CPA-at-2802s). total_time = max(yaml_declared, base); hard_stop = 2x is the
+    # B-failure backstop; assess_encounter_failure stops early on success/failure.
+    horizon = estimate_sim_horizon(
+        scen_data, total_time_override=total_time_override)
+    total_time = horizon["total_time_s"]
+    hard_stop = horizon["hard_stop_s"]
+    tcpa_nominal_s = horizon["tcpa_nominal_s"]
+    route_return_budget_s = horizon["route_return_budget_s"]
     coordinate_origin = sim_settings.get("coordinate_origin", [63.44, 10.38])
     lat0, lon0 = coordinate_origin[0], coordinate_origin[1]
     route_return_required = bool(expected.get("returned_to_route_required", False))
@@ -1397,12 +1549,20 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
     start_wall = time.time()
     last_sim_t = -1.0
     stuck_counter = 0
-    
+    # CPA floor for the behavior-aware failure check (same value computed again
+    # post-loop at line ~1748; pre-computed here so assess_encounter_failure can
+    # run inside the loop).
+    cpa_floor_m = expected_cpa_floor_m(expected)
+    early_stop_reason = None
+    last_failure_check_sim_t = -1e9
+    failure_check_interval_s = 5.0
+
     while True:
         sim_t = get_sim_time()
         elapsed_wall = time.time() - start_wall
         print(f"  Wall time: {elapsed_wall:.1f}s | Sim time: {sim_t:.1f}s / {total_time:.1f}s", end="\r")
-        
+
+        route_status = None
         if route_return_required:
             trace_records = read_trace_run_records()
             route_status = compute_route_return_status(
@@ -1436,11 +1596,36 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
                 )
                 break
 
-        if sim_t >= total_time - 2.0:
-            print(f"\n  Simulation reached target time: {sim_t:.1f}s")
+        # Behavior-aware early-stop on confirmed failure (throttled). Avoids
+        # empty-running a doomed scenario to hard_stop. Reuses trace_records
+        # already read for route_return; for non-route-return scenarios reads a
+        # fresh trace slice.
+        if sim_t - last_failure_check_sim_t >= failure_check_interval_s:
+            last_failure_check_sim_t = sim_t
+            if route_status is None:
+                trace_records = read_trace_run_records()
+            m2_records = [r for r in trace_records
+                          if r.get("topic") == "/l3/m2/world_state"]
+            failed, reason = assess_encounter_failure(
+                route_status=route_status,
+                m2_records=m2_records,
+                cpa_floor_m=cpa_floor_m,
+                tcpa_nominal_s=tcpa_nominal_s,
+                route_return_budget_s=route_return_budget_s,
+                current_sim_t=sim_t,
+            )
+            if failed:
+                print(f"\n  Early stop (failed: {reason}) at sim_t={sim_t:.1f}s")
+                early_stop_reason = reason
+                break
+
+        # Hard-stop backstop: 2x total_time (covers CPA lag; extreme cases are
+        # caught by assess_encounter_failure first).
+        if sim_t >= hard_stop - 2.0:
+            print(f"\n  Simulation reached hard stop: {sim_t:.1f}s / {hard_stop:.1f}s")
             break
-            
-        expected_wall_s = total_time / max(float(sim_rate), 0.1)
+
+        expected_wall_s = hard_stop / max(float(sim_rate), 0.1)
         if elapsed_wall > expected_wall_s + 60.0:
             print(f"\n  Timeout: simulation exceeded wall time limit.")
             break
@@ -1780,6 +1965,7 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         "overtake_first_time_s": overtake_status["overtake_first_time_s"],
         "final_own_minus_target_along_m": overtake_status["final_own_minus_target_along_m"],
         "bp_transitions": bp_transitions,
+        "early_stop_reason": early_stop_reason,
         "solver_stats": solver_stats,
         "veto_count": len(veto),
         "role": role,
