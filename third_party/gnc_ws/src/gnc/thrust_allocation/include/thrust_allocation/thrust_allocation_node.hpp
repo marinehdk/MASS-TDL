@@ -5,6 +5,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include "ship_interfaces/msg/ship_reset.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <Eigen/Dense>
