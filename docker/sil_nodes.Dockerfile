@@ -152,6 +152,7 @@ COPY docker/gnc_route_mock_publisher.py /opt/ws/docker/gnc_route_mock_publisher.
 COPY docker/route_ingest_node.py /opt/ws/docker/route_ingest_node.py
 COPY docker/fsm_aggregator_node.py /opt/ws/docker/fsm_aggregator_node.py
 COPY docker/diagnostic_mock_publisher.py /opt/ws/docker/diagnostic_mock_publisher.py
+COPY docker/sil_trace_writer.py /opt/ws/docker/sil_trace_writer.py
 COPY scripts/integration/start_external_adapters.sh /opt/ws/scripts/integration/start_external_adapters.sh
 RUN chmod +x /opt/ws/sil_entrypoint.sh
 RUN chmod +x /opt/ws/scripts/integration/start_external_adapters.sh

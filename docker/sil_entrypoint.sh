@@ -249,6 +249,20 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
         adapter_procs.append(proc)
         print(f'  [{ts()}] {adapter}_node PID: {proc.pid}')
 
+    # 3a-1b. Start sil_trace_writer (Track A A5c regression fix): an independent
+    # process that subscribes to the L3/SIL interface topics and writes
+    # /var/sil/runs/trace_current.jsonl — the file the orchestrator
+    # /debug/snapshot endpoint and the COLREGs probe get_sim_time() read from.
+    # A5c deleted sil_topic_bridge.py (the previous writer); the C++ adapters
+    # above are pure DDS→DDS relays and never reimplemented the JSONL writer,
+    # which left the snapshot empty and the probe stuck at sim_t=0.
+    trace_writer_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/sil_trace_writer.py',
+         '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr, env=ros_env)
+    adapter_procs.append(trace_writer_proc)
+    print(f'  [{ts()}] sil_trace_writer PID: {trace_writer_proc.pid}')
+
     # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
     # Detect active scenario YAML from scenario directory
     scenario_dir = _os.environ.get('SIL_SCENARIO_DIR', '/var/sil/scenarios')
@@ -435,6 +449,14 @@ finally:
     if 'bridge_proc' in dir() and bridge_proc and bridge_proc.poll() is None:
         bridge_proc.terminate()
         bridge_proc.wait(timeout=5)
+    # C++ adapters + sil_trace_writer
+    for p in (adapter_procs if 'adapter_procs' in dir() else []):
+        if p and p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                p.kill()
     if 'mock_l2_proc' in dir() and mock_l2_proc and mock_l2_proc.poll() is None:
         mock_l2_proc.terminate()
         mock_l2_proc.wait(timeout=5)
