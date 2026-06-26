@@ -2,10 +2,10 @@
 # GNC profile stack launcher (Track A A6).
 #
 # Brings up the full GNC integration stack for a COLREGs probe run:
-#   1. The L3 sil-nodes stack (domain 42, host network) — orchestrator on 18000,
-#      sil-nodes with the L3 kernel + the 3 A5 C++ adapters.
-#   2. The GNC stack (docker-compose.gnc.yml) — gnc-nodes (domain 50, host net)
+#   1. The GNC stack (docker-compose.gnc.yml) — gnc-nodes (domain 50, host net)
 #      + gnc-bridge (host net, sole cross-domain process).
+#   2. The L3 sil-nodes stack (domain 42, host network) — orchestrator on 18000,
+#      sil-nodes with the L3 kernel + the 3 A5 C++ adapters.
 #
 # Both stacks share the host network so the 2-context gnc_bridge can discover
 # and exchange data across the two DDS domains (CRITICAL_ENV_FINDING, 2026-06-25).
@@ -35,18 +35,19 @@ source scripts/local-a4000-env.sh
 # TASK ISOLATION: override the project name (local-a4000-env.sh leaves it unset;
 # compose would otherwise default to the dir-based mass-l3-sil).
 export COMPOSE_PROJECT_NAME="${GNC_VALIDATION_PROJECT}"
+export TDL_RUNTIME_PROFILE="gnc"
 
 case "$action" in
   up)
-    echo "=== [gnc-profile] starting L3 sil-nodes stack (project=${GNC_VALIDATION_PROJECT}, domain 42, host net) ==="
-    docker compose up -d --build
-    echo ""
     echo "=== [gnc-profile] starting GNC stack (project=${GNC_VALIDATION_PROJECT}-gnc, domain 50, host net) ==="
     # GNC stack: separate project (suffixed -gnc) to keep gnc-nodes/gnc-bridge
     # containers distinct from the L3 services. gnc-bridge image tag is set by
     # GNC_BRIDGE_IMAGE above (task-scoped).
     COMPOSE_PROJECT_NAME="${GNC_VALIDATION_PROJECT}-gnc" \
       docker compose -f docker-compose.gnc.yml --profile gnc up -d --build
+    echo ""
+    echo "=== [gnc-profile] starting L3 sil-nodes stack (project=${GNC_VALIDATION_PROJECT}, domain 42, host net) ==="
+    docker compose up -d --build
     echo ""
     echo "=== [gnc-profile] stack up. Orchestrator: ${ORCH_URL} ==="
     echo "Images: ${GNC_VALIDATION_PROJECT}-sil-nodes (L3), ${GNC_BRIDGE_IMAGE} (bridge), mass-l3-gnc:mpc_latest-20260624 (GNC)"

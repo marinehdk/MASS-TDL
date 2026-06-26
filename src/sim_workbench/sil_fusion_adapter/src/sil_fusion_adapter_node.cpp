@@ -4,8 +4,10 @@
 // behavior state. Replaces the fusion portion of sil_topic_bridge.py.
 //
 // Topics (mirrors the prior bridge wiring):
+//   sub  /sil/own_ship_state       sil_msgs/OwnShipState             (sensor QoS)
 //   sub  /sil/target_vessel_state  sil_msgs/TargetVesselState       (sensor QoS)
 //   sub  /sil/environment          sil_msgs/EnvironmentState        (sensor QoS)
+//   pub  /fusion/own_ship_state    l3_external_msgs/FilteredOwnShipState
 //   pub  /fusion/tracked_targets   l3_external_msgs/TrackedTargetArray
 //   pub  /fusion/environment_state l3_external_msgs/EnvironmentState
 #include <memory>
@@ -13,9 +15,11 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "l3_external_msgs/msg/environment_state.hpp"
+#include "l3_external_msgs/msg/filtered_own_ship_state.hpp"
 #include "l3_external_msgs/msg/tracked_target_array.hpp"
 #include "sil_fusion_adapter/translators.hpp"
 #include "sil_msgs/msg/environment_state.hpp"
+#include "sil_msgs/msg/own_ship_state.hpp"
 #include "sil_msgs/msg/target_vessel_state.hpp"
 
 namespace sil_fusion_adapter {
@@ -25,6 +29,11 @@ class SilFusionAdapterNode : public rclcpp::Node {
   SilFusionAdapterNode() : Node("sil_fusion_adapter") {
     // Sensor-side subscriptions: BEST_EFFORT / VOLATILE (matches SIL publishers).
     rclcpp::QoS sensor_qos = rclcpp::SensorDataQoS();
+    sub_own_ship_ = create_subscription<sil_msgs::msg::OwnShipState>(
+        "/sil/own_ship_state", sensor_qos,
+        [this](const sil_msgs::msg::OwnShipState::SharedPtr msg) {
+          pub_own_ship_->publish(own_ship_sil_to_l3(*msg));
+        });
     sub_target_ = create_subscription<sil_msgs::msg::TargetVesselState>(
         "/sil/target_vessel_state", sensor_qos,
         [this](const sil_msgs::msg::TargetVesselState::SharedPtr msg) {
@@ -37,6 +46,8 @@ class SilFusionAdapterNode : public rclcpp::Node {
         });
 
     // L3-side publishers: RELIABLE / VOLATILE (l3_external fusion inputs).
+    pub_own_ship_ = create_publisher<l3_external_msgs::msg::FilteredOwnShipState>(
+        "/fusion/own_ship_state", rclcpp::SensorDataQoS().keep_last(2));
     rclcpp::QoS reliable_qos = rclcpp::QoS(10).reliable();
     pub_targets_ = create_publisher<l3_external_msgs::msg::TrackedTargetArray>(
         "/fusion/tracked_targets", reliable_qos);
@@ -44,13 +55,16 @@ class SilFusionAdapterNode : public rclcpp::Node {
         "/fusion/environment_state", reliable_qos);
 
     RCLCPP_INFO(get_logger(),
-        "sil_fusion_adapter ready: sub /sil/target_vessel_state, /sil/environment; "
-        "pub /fusion/tracked_targets, /fusion/environment_state");
+        "sil_fusion_adapter ready: sub /sil/own_ship_state, "
+        "/sil/target_vessel_state, /sil/environment; pub /fusion/own_ship_state, "
+        "/fusion/tracked_targets, /fusion/environment_state");
   }
 
  private:
+  rclcpp::Subscription<sil_msgs::msg::OwnShipState>::SharedPtr sub_own_ship_;
   rclcpp::Subscription<sil_msgs::msg::TargetVesselState>::SharedPtr sub_target_;
   rclcpp::Subscription<sil_msgs::msg::EnvironmentState>::SharedPtr sub_env_;
+  rclcpp::Publisher<l3_external_msgs::msg::FilteredOwnShipState>::SharedPtr pub_own_ship_;
   rclcpp::Publisher<l3_external_msgs::msg::TrackedTargetArray>::SharedPtr pub_targets_;
   rclcpp::Publisher<l3_external_msgs::msg::EnvironmentState>::SharedPtr pub_env_;
 };

@@ -62,7 +62,10 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
       [this]() {
         CrossDomainHandoff::L3ToGnc item;
         while (handoff_->try_pop_l3_to_gnc(item)) {
-          if (item.has_avoidance) pub_avoidance_->publish(item.avoidance_plan);
+          if (item.has_avoidance) {
+            rebase_avoidance_plan_timebase(item.avoidance_plan, now());
+            pub_avoidance_->publish(item.avoidance_plan);
+          }
           if (item.has_route)     pub_route_->publish(item.route_plan);
         }
       });

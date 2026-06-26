@@ -11,6 +11,7 @@
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 
 using mass_l3::m5::generate_avoidance_waypoints;
+using mass_l3::m5::generate_return_to_route_waypoints;
 using mass_l3::m5::kMetersPerDegLat;
 
 namespace {
@@ -95,4 +96,26 @@ TEST(AvoidanceWaypointGen, PointsCollinearForStraightProjection) {
     const double avail = available_turn_radius(wps[i - 1], wps[i], wps[i + 1], 0.0);
     EXPECT_GT(avail, 1.0e9) << "vertex " << i << " is not collinear";
   }
+}
+
+TEST(AvoidanceWaypointGen, ReturnRouteStartsAtOwnShipAndTargetsRouteCenterline) {
+  const auto wps = generate_return_to_route_waypoints(
+      0.0, 0.0, 0.0, 500.0);
+  ASSERT_EQ(wps.size(), 3u);
+  EXPECT_DOUBLE_EQ(wps[0].lat, 0.0);
+  EXPECT_DOUBLE_EQ(wps[0].lon, 0.0);
+  EXPECT_NEAR(wps[1].lat * kMetersPerDegLat, 600.0, 1e-6);
+  EXPECT_NEAR(wps[1].lon * kMetersPerDegLat, -500.0, 1e-6);
+  EXPECT_NEAR(wps[2].lat * kMetersPerDegLat, 1200.0, 1e-6);
+  EXPECT_NEAR(wps[2].lon * kMetersPerDegLat, -500.0, 1e-6);
+}
+
+TEST(AvoidanceWaypointGen, ReturnRouteSegmentsAndTurnAreFeasible) {
+  const auto wps = generate_return_to_route_waypoints(
+      63.44, 10.38, 0.0, 500.0);
+  for (size_t i = 0; i + 1 < wps.size(); ++i) {
+    EXPECT_GE(distance_m(wps[i], wps[i + 1], 63.44), 30.0);
+  }
+  const double avail = available_turn_radius(wps[0], wps[1], wps[2], 63.44);
+  EXPECT_GE(avail, 80.0);
 }

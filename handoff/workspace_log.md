@@ -1273,3 +1273,41 @@ Evaluate `codex/colregs-phase-gate-diag` commit `570d6b5b`, preserve useful COLR
 
 ### Handoff Notes
 - Branch `codex/colregs-phase-gate-diag` can be deleted after `main` fast-forwards to this merge.
+
+## [2026-06-26] Codex / this commit / GNC profile COLREGs chain unblock + Rule14 L3 release handoff
+
+### Task Goal
+Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/colregs-gnc-debug` and turn the first GNC-profile 12-probe blocker into trace-backed module work. First milestone was to unblock rule14-ho so the real GNC chain can arm and execute; full 12-probe GREEN is not claimed.
+
+### Core Changes
+1. **GNC runtime ownership fixed:** `scripts/gnc-profile-start.sh` starts GNC before L3 and exports `TDL_RUNTIME_PROFILE=gnc`; `docker-compose.a4000.yml` passes it through; `docker/sil_entrypoint.sh` skips `ShipDynamicsNode` in GNC profile so `/sil/own_ship_state` has one owner, `gnc_bridge`.
+2. **Scenario injection made profile-aware:** `src/sil_orchestrator/lifecycle_bridge.py` filters `ship_dynamics_node` parameter injection when `TDL_RUNTIME_PROFILE=gnc`.
+3. **GNC bridge unit/timebase fixed:** `gnc_bridge` converts GNC heading/course/yaw-rate degrees to SIL radians/rad/s, and rebases L3 sim-time `AvoidanceWaypoints.valid_until` onto the GNC node clock before publishing `/colav/avoidance_plan`.
+4. **Fusion adapter ownship relay restored:** `sil_fusion_adapter` subscribes `/sil/own_ship_state`, publishes `/fusion/own_ship_state`, and converts SIL rad/rad_s/mps into L3 deg/deg_s/kn fields for M2.
+5. **M5 return-to-route delivery improved:** M5 emits explicit `return_to_route` waypoint geometry and repeats it for a short post-clear window so GNC route-update guards do not drop the only lifecycle-release message.
+6. **GNC overlay restored/tuned via mount only:** `docker/gnc-ship-config-overlay.yaml` is now a full overlay copy with emergency-avoidance update guards relaxed; no `third_party/gnc_ws` source edits.
+7. **Trace evidence expanded:** `docker/sil_trace_writer.py` records M6 `active_rules` and `/l3/m2/world_state` primary target geometry so next diagnosis can inspect M2/M6 release conditions directly.
+8. **Probe wrapper hardened:** `scripts/run_colregs_clean_8probe.py --profile {sil,gnc}` verifies the active stack by image substring before delegating to the runner.
+
+### Current Status
+- **Chain status: L2 -> L3 -> GNC/L4 is connected and executing.** rule14-ho now arms M6/M4/M5, GNC accepts avoidance plans, vessel turns starboard, and CPA is safe in the recorded runs.
+- **Not GREEN:** remaining failure is L3 COLREG release/recovery semantics. The cleanest current evidence is `runs/rule14_after_return_republish/rule14_summary.json`: `min_cpa_m=419.0`, `steer_dir=Starboard`, `steer_mag=60.0`, `cpa_ok=true`, `stability_pass=true`, `route_corridor_ok=true`, but `returned_to_route=false`, `transit_after_avoidance_s=0.0`, `bp_transitions=[[2.3,0],[584.8,1],[3009.8,7]]`.
+- Latest instrumented evidence is `runs/rule14_with_release_geometry_trace/rule14_summary.json`: `min_cpa_m=683.9`, `steer_dir=Starboard`, `steer_mag=51.3`, `cpa_ok=true`, `stability_pass=true`, but `route_corridor_ok=false`, `returned_to_route=false`, `bp_transitions=[[2.2,0],[93.7,1],[2803.3,7]]`. Use this mainly for M2/M6 geometry fields.
+- Old A7 blocker is resolved: this is no longer "M3 stuck, no COLREGs pipeline". Current blocker is after arm: release happens near the run horizon, leaving no meaningful transit/recovery dwell.
+- Over-turn hypothesis: current GNC evidence does **not** show the old SIL L4 saturation/limit-cycle failure. `turn_starboard` is green in the recorded summaries; `steering_reversals=0`; ROT is stable. Do not reintroduce SIL ROT inner loop or tune `Kd`.
+
+### Verification
+- `python3 -m pytest tests/docker/test_sil_trace_writer.py tests/scripts/test_gnc_ship_config_overlay.py tests/scripts/test_gnc_profile_start.py tests/scripts/test_run_colregs_clean_8probe.py tests/scripts/test_sil_fusion_adapter_contract.py tests/sil_orchestrator/test_scenario_injection.py -q` -> 48 passed.
+- Container gtest/build: `m5_tactical_planner` 140 tests, 0 failures; `gnc_bridge` 10 tests, 0 failures; `sil_fusion_adapter` 22 tests, 0 failures.
+- `git diff --check` -> clean.
+- Runtime health: `https://127.0.0.1:18000/api/v1/health` -> `{"status":"ok"}`; task stack `codex-gnc-validation-*` is up.
+
+### Handoff Notes
+- Branch: `codex/colregs-gnc-debug`; worktree: `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-gnc-debug`.
+- Use task stack only: `bash scripts/gnc-profile-start.sh up`; never use `mass-l3-sil` for this debug line.
+- Next module focus: **L3 M6/M4/M5 release/recovery**, not GNC bridge, trace writer, third-party GNC source, or SIL L4 controller tuning.
+- First next commands:
+  - Re-run module oracle on `runs/rule14_with_release_geometry_trace/trace/colreg-rule14-ho.trace_current.jsonl`.
+  - Inspect M2/M6 geometry around release: `/l3/m2/world_state` fields `primary_cpa_m`, `primary_tcpa_s`, `primary_brg_deg`, `primary_rng_m`, and M6 `active_rules`.
+  - Then inspect `src/l3_tdl_kernel/m6_colregs_reasoner/` release policy and encounter FSM. If M6 release is correct, inspect M4 recovery timing and M5 return route handoff.
+- Local A4000 acceptance remains structurally mismatched for this task-scoped stack because that gate assumes `mass-l3-sil-*` containers. Use targeted tests + container health + probe evidence until the branch is merged into an integration stack.

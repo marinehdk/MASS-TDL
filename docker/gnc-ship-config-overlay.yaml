@@ -1,11 +1,684 @@
-# GNC ship_config overlay for parameter tuning WITHOUT editing GNC source.
-# Track A spec §2.2: tuning is mount-only. This file is bind-mounted over the
-# resolved install path of ship_bringup/share/ship_bringup/config/ship_config.yaml
-# by docker-compose.gnc.yml.
-#
-# Start as a passthrough copy of the vendored ship_config.yaml, then edit
-# parameter values (e.g. active_route_manager_node emergency_max_yaw_rate_deg_s,
-# max_lateral_accel_mps2, emergency_min_turn_radius_m) to tune.
-#
-# To regenerate the base, diff against:
-#   third_party/gnc_ws/src/platform/ship_bringup/config/ship_config.yaml
+current_engine_node:
+  ros__parameters:
+    B: 8.0
+    Lpp: 44.1
+    T: 1.55
+    # C级 Mock 参数：默认不指定系数表；launch 或场景文件可覆盖为 env_engines/data 下的 CSV。
+    coeffs_csv_path: ""
+    subtract_calm_water_damping: true
+    d: 20.0
+    dir_circ: 120.0
+    dir_tide: 0.0
+    dir_wind: 180.0
+    v_circ_surf: 0.0
+    v_tide_surf: 0.0
+    v_wind_surf: 0.0
+    water_density: 1025.0
+wave_engine_node:
+  ros__parameters:
+    # C级 Mock 船体参数：45m crewboat 假定值，用于场景验证；实船阶段需要校准。
+    Lpp: 44.1
+    Los: 45.0
+    B: 8.0
+    T: 1.55
+    bow_angle_rad: 0.6
+    C_WL_aft: 0.95
+    xLos: 22.05
+    Hs: 0.0
+    Tz: 6.0
+    direction_rad: 0.0
+    fk_scale_factor: 0.1
+    qtf_csv_path: ""
+    vessel:
+      KG: 3.9
+      GM_T: 1.5
+      displacement_ton: 220.0
+force_aggregator_node:
+  ros__parameters:
+    update_rate: 50.0
+    # A->B 航迹验证使用低频二阶漂移力；raw_load 保留给耐波/摇荡专项验证。
+    wave_load_topic: /env/wave/drift_load
+sensor_fusion_node:
+  ros__parameters:
+    chi2_threshold: 12.59
+    nom_damp_psi: -1000000.0
+    nom_damp_x: -7000.0
+    nom_damp_y: -40000.0
+    nom_mass_psi: 60000000
+    nom_mass_x: 250000
+    nom_mass_y: 400000
+    q_pos: 0.01
+    q_psi: 0.001
+    q_r: 0.01
+    q_vel: 0.1
+    r_pos: 5.0
+    r_psi: 0.1
+    r_r: 0.5
+    r_vel: 2.0
+ship_control_node:
+  ros__parameters:
+    arrival_radius: 15.0
+    control_authority: manual
+    control_period: 0.1
+    coordinate_conventions:
+      yaw_torque_sign: 1.0
+      yaw_torque_sign_cruise: 1.0  # C-level mock convention verified by 002: cruise yaw loop sign matches allocator/dynamics.
+      yaw_torque_sign_dp: 1.0       # Preserve the 001-validated DP/final-hold yaw convention.
+    cruise_speed: 8.0         # Codex P2: target speed; guidance gate ramps 6->8 when stable
+    deadzone_radius: 2.0
+    derivative_cutoff_freq: 5.0
+    gains:
+      speed:
+        k_robust: 1000.0  # [Plan A]
+        kd: 0.0
+        ki: 0.0
+        kp: 40000.0
+        phi: 1.0
+      surge:
+        k_robust: 1000.0  # [Plan A]
+        kd: 100000.0
+        ki: 0.0
+        kp: 50000.0     # [v16] Kp/4
+        phi: 1.0
+      sway:
+        k_robust: 10000.0
+        kd: 15000.0
+        ki: 500.0
+        kp: 30000.0
+        phi: 1.0
+      yaw:
+        k_robust: 1000.0  # [Plan A]
+        kd: 4500000.0  # [FIX] near-critical yaw-rate damping for calm A->B tracking
+        ki: 0.0      # [Nomoto]
+        kp: 200000.0   # [FIX] reduce low-speed heading overshoot
+        phi: 0.5
+      # ── DP 保持专用增益（低速机动，u < 1.5 m/s）────────────────
+      # DP 模式不能直接复用巡航艏摇增益，否则低速下容易产生不可达力矩指令。
+      # 因此 DP 使用独立小增益，避免 D 项主导并降低推力分配饱和概率。
+      yaw_dp:
+        k_robust: 1000.0  # [Plan A]
+        kd: 5500000.0  # [P1] DP 低速艏摇阻尼，匹配 Izz + N_dot_r
+        ki: 0.0        # [P1] 静水验证先关闭 DP 偏航积分，避免终点 windup
+        kp: 200000.0   # [P1] DP 艏向刚度，低速保持时使用
+        phi: 0.5
+      surge_dp:
+        k_robust: 1000.0
+        kd: 70000.0    # [P1] DP 纵向速度阻尼，抑制终点过冲
+        ki: 0.0        # [P1] 静水终点验证先关闭纵荡积分，避免 windup
+        kp: 3000.0     # [P1] DP 纵向位置刚度，低速保持时使用
+        phi: 1.0
+      sway_dp:          # [P1] DP 横向保持增益
+        k_robust: 1000.0  # [Plan A]
+        kd: 15000.0
+        ki: 0.0
+        kp: 800.0
+        phi: 1.0
+    integral_limit: 50.0
+    lpf_alpha: 0.4
+    max_force_x: 200000.0
+    max_force_y: 60000.0   # restore v22 achievable by 2x20kN side thrusters
+    max_thrust_surge: 200000.0
+    max_reverse_surge: 60000.0   # [FIX] allow controlled terminal braking in straight DP handoff
+    max_torque_z: 960000.0
+    min_yaw_moment_dp: 0.0     # DP station-keeping should not force a yaw moment floor
+    # ── DP 专用限幅（防止高速进入 DP 时增益失控）────────────────
+    # 当控制器检测到速度 > 2m/s 且 DP 模式激活时，应切换到 yaw_dp/surge_dp 增益。
+    # 推力分配层已有优先级降级机制（Level-2/3）作为最后防线。
+    max_torque_z_dp: 400000.0   # DP 模式力矩上限，约 42% 物理极限，给 Fy 保留余量
+    min_yaw_moment_full_error_deg: 90.0        # 仅极端转向误差时达到 soft floor 上限
+    min_yaw_moment_yaw_rate_suppress_deg_s: 1.5 # do not keep flooring once yaw rate is already helping
+    ndo:
+      damping_x: 3500.0    # [NDO] |X_u|
+      damping_y: 18000.0   # [NDO] |Y_v|
+      damping_yaw: 420000.0  # [NDO] |N_r|
+      enable: false
+      gain_x: 0.5
+      gain_y: 0.5
+      gain_yaw: 0.2
+      mass_x: 242000.0   # [NDO] mass+X_dot_u
+      mass_y: 380000.0   # [NDO] mass+Y_dot_v
+      mass_yaw: 36500000.0 # [NDO] Izz+N_dot_r
+    speed_at_arrival: 0.3
+    speed_deadzone: 0.2
+    speed_drag_feedforward:
+      # C-level Mock: calm-water surge drag feedforward for cruise speed tracking.
+      # Real vessel phase should recalibrate this from speed-power/RPM trials.
+      enable: true
+      linear_N_per_mps: 3500.0
+      quadratic_N_per_mps2: 280.0
+    target:
+      x: 100.0
+      y: 0.0
+      yaw: 0.785398
+ship_dynamics_node:
+  ros__parameters:
+    initial_position:
+      x: 0.0
+      y: 0.0
+      yaw: 0.0
+    auto_initial_yaw_from_route: true
+    auto_initial_yaw_min_segment_m: 20.0
+    auto_initial_yaw_max_speed_mps: 0.05
+    auto_initial_yaw_max_position_offset_m: 5.0
+    log_dir: logs/ship_dynamics/
+    time_scale: 1.0              # 快测专用；1.0=真实墙钟速度，>1 仅用于离线长航线筛查
+    thrusters:
+      num: 7
+      r1:
+        angle_default: 0.0
+        angle_rate_limit: 0.1
+        is_azimuth: false
+        max_thrust_kN: 10.0
+        thrust_rate_limit: 0.0
+        x: -19.594
+        y: -3.0
+      r2:
+        angle_default: 0.0
+        angle_rate_limit: 0.1
+        is_azimuth: false
+        max_thrust_kN: 10.0
+        thrust_rate_limit: 0.0
+        x: -19.594
+        y: 3.0
+      t1:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0  # [FIX] fast response
+        x: -18.094
+        y: -3.0
+      t2:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0  # [FIX] fast response
+        x: -18.094
+        y: 0.0
+      t3:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0  # [FIX] fast response
+        x: -18.094
+        y: 3.0
+      tb1:
+        angle_default: 1.5708
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 20.0
+        thrust_rate_limit: 50000.0   # [FIX] fast response
+        x: 21.906
+        y: 0.0
+      tb2:
+        angle_default: 1.5708
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 20.0
+        thrust_rate_limit: 50000.0   # [FIX] fast response
+        x: 23.406
+        y: 0.0
+      thruster_names:
+      - t1
+      - t2
+      - t3
+      - tb1
+      - tb2
+      - r1
+      - r2
+    update_rate: 50.0
+    vessel:
+      B: 8.0
+      Lpp: 44.1
+      added_mass:
+        N_dot_r: 9500000.0
+        X_dot_u: 22000.0
+        Y_dot_v: 160000.0   # restore original
+      d: 2.0
+      gravity: 9.80665
+      hydrodynamic:
+        N_r: -1600000.0    # [FIX] yaw damping matched to Izz and available Mz
+        N_rr: -3000000.0   # [FIX] nonlinear yaw damping for rate overshoot
+        N_v: -600000.0     # C级 Mock 稳定性修正：横漂偏差应产生回正艏摇，而非放大偏航
+        X_u: -3500.0
+        X_uu: -280.0
+        Y_r: 60000.0
+        Y_v: -50000.0     # [FIX] FCB: increase sway damping
+        Y_vv: -9000.0  # [阻尼] 横荡二次阻尼，增强高速横漂耗散
+      limits:
+        max_r: 0.5     # [Task2] soft constraint in dynamics, hard clip removed
+        max_u: 20.0    # [v16] prevent lateral-speed starvation of u
+      mass: 220000.0
+      moment_of_inertia:
+        Izz: 27000000.0   # [Nomoto] was 180M, corrected to m*(0.25*Lpp)^2=26.7M
+    water_depth: 20.0
+ship_guidance_node:
+  ros__parameters:
+    guidance_period_s: 0.5      # 制导循环周期；快测 launch 会按 time_scale 缩短
+    capture_radius: 60.0   # [FIX] larger for DP approach
+    intermediate_capture_radius: 15.0  # 中间航点切换半径，与最终 DP 捕获半径分离
+    use_adaptive_los: true   # 启用 ALOS 漂移角补偿，降低稳态横偏
+    wait_for_route_plan: true   # 忽略默认/陈旧 /ship/waypoints，等待 RoutePlan 被接收
+    gamma_alos: 0.02   # C级 Mock 参数：温和启用漂角观测，后续按实船海试校准
+    kappa_ilos: 0.5    # [P2-B] 温和横偏修正，降低蛇形过冲
+    corridor_guidance_enabled: true       # Codex: high-speed route corridor; do not chase centerline inside lane
+    corridor_half_width_m: 30.0           # allowed lane half-width; hold course inside this band
+    corridor_soft_width_m: 60.0           # soft correction band for leaving the lane
+    corridor_reacquire_width_m: 90.0      # leave hold mode and reacquire before this outer boundary
+    corridor_integral_decay: 0.80         # bleed ILOS integral while staying inside corridor
+    corridor_beta_decay: 0.90             # bleed ALOS sideslip estimate while staying inside corridor
+    turn_entry_centerline_enabled: true   # short entry gate only; do not chase centerline over long straights
+    turn_entry_centerline_distance_m: 180.0
+    turn_entry_centerline_min_angle_deg: 10.0
+    turn_entry_centerline_release_xte_m: 15.0
+    turn_segment_max_los_correction_deg: 4.0  # shallow bends keep modest recapture without large S-turn commands
+    turn_segment_los_correction_45deg: 7.0    # interpolate: 15deg鈮?deg, 30deg鈮?deg, 45deg鈮?deg
+    turn_segment_speed_gate_enabled: true      # hold speed through turn/exit until heading and XTE settle
+    turn_segment_speed_cap_mps: 4.2
+    turn_segment_release_xte_m: 35.0
+    turn_segment_release_heading_error_deg: 6.0
+    turn_segment_release_cross_track_rate_mps: 0.40
+    turn_segment_release_yaw_rate_deg_s: 1.0
+    external_route_turn_preview_enabled: true     # for planner routes >=40 points: preview sparse external bends
+    external_route_turn_preview_distance_m: 2600.0 # covers one 2km leg plus response margin before a bend
+    external_route_turn_hold_distance_m: 4500.0    # keep post-turn settle gate for about two external legs
+    external_route_turn_min_cumulative_angle_deg: 12.0 # accumulated future/recent heading change to count as bend
+    external_route_turn_heading_preview_distance_m: 900.0 # blend heading before sparse external bend, without changing route geometry
+    external_route_turn_centerline_distance_m: 600.0 # only force centerline close to the bend; earlier stage only slows down
+    external_route_turn_centerline_release_xte_m: 18.0 # disable corridor hold until the turn exits near centerline
+    external_route_turn_speed_cap_mps: 4.2         # same order as turn segment cap; do not crawl in open water
+    turn_feasibility_preview_enabled: true      # scan future route geometry before current waypoint switch
+    turn_feasibility_preview_distance_m: 1200.0 # future route distance checked for upcoming bends
+    turn_feasibility_min_cumulative_angle_deg: 10.0 # ignore tiny course changes/noise
+    turn_feasibility_response_margin_m: 180.0   # extra preparation distance beyond angle-speed table
+    dynamic_path_attach_current_position_enabled: true  # late Path uses current ship pos as join segment start
+    dynamic_path_attach_min_distance_m: 20.0            # avoid replacing origin when route is received at start
+    rejoin_speed_gate_enabled: true       # cap speed during large heading/XTE reacquisition
+    rejoin_speed_cap_mps: 3.0             # C-level mock steerage speed for normal corridor rejoin
+    rejoin_severe_speed_cap_mps: 1.5      # large initial heading error: slow before building lateral drift
+    rejoin_heading_error_deg: 15.0        # heading error above this requires low-speed rejoin
+    rejoin_severe_heading_error_deg: 30.0 # above this, use severe low-speed rejoin cap
+    rejoin_cross_track_m: 60.0            # only outside soft corridor triggers lateral rejoin speed cap
+    emergency_avoidance_speed_cap_mps: 3.2       # emergency inserted route points use tactical low-speed steering
+    emergency_avoidance_wheel_over_distance_m: 120.0 # switch before emergency points instead of waiting to pass them
+    emergency_avoidance_switch_max_xte_m: 90.0   # do not block emergency point switching on normal corridor XTE limits
+    heading_align_rejoin_enabled: true     # large initial yaw: align bow to route before forward tracking
+    heading_align_enter_deg: 30.0          # enter low-speed heading alignment above this route-heading error
+    heading_align_exit_deg: 8.0            # release alignment after bow is nearly on route tangent
+    heading_align_speed_mps: 0.6           # ultra-low forward speed; avoids high-speed Munk/Fy fight
+    heading_align_max_speed_mps: 2.0       # diagnostic threshold for low-speed alignment envelope
+    heading_align_reset_xte_m: 45.0        # reset ILOS memory during close-in alignment
+    far_xte_rejoin_override_enabled: true  # large XTE must recapture line, not only align heading
+    far_xte_rejoin_threshold_m: 65.0       # static-water default; wind has its own earlier threshold below
+    far_xte_rejoin_release_m: 25.0         # release inside lane under wind/current to avoid mode-switch heading jump
+    xte_hard_limit_m: 100.0                # hard boundary: use stronger speed cap and recapture immediately
+    far_xte_rejoin_speed_cap_mps: 3.0
+    far_xte_rejoin_hard_speed_cap_mps: 3.0   # keep steerage authority even at hard XTE boundary
+    far_xte_rejoin_lookahead_m: 120.0
+    far_xte_rejoin_max_approach_angle_deg: 25.0
+    xte_rejoin_release_guard_s: 5.0      # after XTE recovery release, keep heading correction bounded briefly
+    xte_rejoin_release_guard_max_correction_deg: 6.0  # prevents 2deg->25deg command jumps after release
+    raw_route_rejoin_enabled: true       # compare XTE against original planner route, not only smoothed arcs
+    raw_route_rejoin_threshold_m: 60.0   # static-water default; wind has its own earlier threshold below
+    raw_route_rejoin_release_m: 25.0     # release inside lane under wind/current to avoid mode-switch heading jump
+    wind_rejoin_enabled: true            # wind-aware XTE recapture; no effect when /env/total_load is absent/stale
+    wind_rejoin_force_ref_n: 3000.0      # outward crosswind force that counts as one boost unit
+    wind_rejoin_min_outward_force_n: 500.0
+    wind_rejoin_lookahead_gain: 1.0      # shorten recovery lookahead as outward wind grows
+    wind_rejoin_max_factor: 2.5
+    wind_rejoin_far_threshold_m: 30.0    # strong wind recovery starts at lane edge; 25-30m uses crab only
+    wind_rejoin_raw_threshold_m: 30.0    # raw-route strong recovery also starts at lane edge
+    wind_rejoin_release_m: 25.0          # release with hysteresis; do not force wind XTE back to 12m
+    wind_rejoin_min_lookahead_m: 45.0    # keep recovery command bounded by ship length scale
+    wind_rejoin_speed_cap_mps: 4.5       # strong wind recovery cap; cruise floor still protects >=3.8m/s
+    wind_rejoin_stale_timeout_s: 2.0
+    current_rejoin_enabled: true          # current-only XTE recapture; uses /env/current_load, no side-thruster use
+    current_rejoin_force_ref_n: 12000.0   # cross-current force that maps to one recovery boost unit
+    current_rejoin_min_outward_force_n: 1200.0
+    current_rejoin_lookahead_gain: 1.6    # shorten rejoin lookahead under outward current, bounded by ship length scale
+    current_rejoin_max_factor: 2.5
+    current_rejoin_far_threshold_m: 28.0  # start current recovery before reaching outer lane
+    current_rejoin_raw_threshold_m: 25.0
+    current_rejoin_release_m: 16.0
+    current_rejoin_min_lookahead_m: 40.0
+    current_rejoin_speed_cap_mps: 6.2     # keep rudder authority; side thrusters remain locked by allocation policy
+    current_rejoin_max_approach_angle_deg: 28.0
+    current_rejoin_stale_timeout_s: 2.0
+    dp_weathervane_heading_enabled: true # DP only: face the bow into the resultant environmental load
+    dp_weathervane_min_env_force_n: 500.0 # below this force, treat as static water and keep the existing DP heading
+    dp_weathervane_stale_timeout_s: 2.0  # stale/missing /env/total_load must not affect static-water DP
+    dp_weathervane_strict_handoff_enabled: true # only when weather-vane is active: do not enter DP with large XTE/speed
+    dp_weathervane_handoff_max_cross_track_m: 35.0 # static-water DP keeps existing final_capture behavior
+    dp_weathervane_handoff_speed_mps: 0.9 # weather-vane DP must remove inertia before latching position hold
+    wind_crab_enabled: true              # small upwind crab inside lane; prevents slow wind drift after rejoin
+    wind_crab_force_ref_n: 6000.0        # crosswind force that maps to max crab angle
+    wind_crab_min_force_n: 500.0
+    wind_crab_max_angle_deg: 6.0         # bounded course bias, kept within practical crab-angle envelope
+    wind_crab_min_speed_mps: 3.0
+    wind_crab_base_scale: 0.35           # keep a small bias near centerline, full bias near lane edge
+    wind_crab_target_offset_enabled: false # centerline hold: do not intentionally bias to upwind side
+    wind_crab_target_offset_max_m: 12.0
+    wind_crab_target_offset_min_m: 3.0
+    wind_crab_target_offset_force_ref_n: 6000.0
+    wind_crab_xte_kp_deg_per_m: 0.12
+    wind_crab_xte_rate_kd_deg_per_mps: 1.5
+    wind_crab_feedback_max_angle_deg: 5.0
+    current_crab_enabled: true            # current-only crab/course bias; rudder-based while underway
+    current_crab_force_ref_n: 15000.0
+    current_crab_min_force_n: 1000.0
+    current_crab_max_angle_deg: 10.0
+    current_crab_min_speed_mps: 3.0
+    current_crab_base_scale: 0.5
+    current_crab_xte_kp_deg_per_m: 0.18
+    current_crab_xte_rate_kd_deg_per_mps: 2.2
+    current_crab_feedback_max_angle_deg: 7.0
+    current_cog_rejoin_enabled: true       # current-only: close loop on actual COG during XTE recovery; no side-thruster use
+    current_cog_rejoin_kp: 0.55
+    current_cog_rejoin_max_angle_deg: 7.0
+    current_cog_rejoin_min_speed_mps: 2.0
+    current_force_ff_enabled: true         # current-only force feedforward crab angle before COG feedback
+    current_force_ff_force_ref_n: 25000.0
+    current_force_ff_max_angle_deg: 2.5
+    current_force_ff_min_speed_mps: 2.0
+    roll_guard_enabled: true
+    roll_guard_limit_deg: 10.0             # simulation safety envelope for turn roll
+    roll_guard_release_deg: 7.0
+    roll_guard_speed_cap_mps: 3.0
+    lookahead_distance: 60.0
+    delta_min_coeff: 1.5       # ILOS min lookahead coeff (low speed: Lpp*1.5=67.5m)
+    gamma_lookahead: 1.0       # ILOS speed lookahead coeff (8m/s: 45*(1.5+1.0*8)=427.5m)
+    max_transit_speed: 8.0   # Codex P2: upper target; cruise_speed_recovery gate starts at 6m/s
+    homing_threshold_m: 80.0           # Step1: was 90, ILOS never activated at 100-250m XTE
+    homing_max_approach_angle_deg: 20.0 # Step1: was 45, reduce overshoot
+    homing_lookahead_m: 150.0            # Step1: was 0, proportional vs fixed angle
+    slow_down_dist: 180.0   # non-DP terminal alignment only; turn slowdown uses turn_slow_down_dist_* below
+    final_dp_slow_down_dist: 420.0   # DP-only terminal braking distance; kept separate from turn logic
+    final_dp_stop_decel_mps2: 0.04   # dynamic stop distance: U^2/(2a), clamped by ship length multiples
+    final_dp_stop_min_lpp: 8.0       # minimum DP braking distance = 8 * Lpp
+    final_dp_stop_max_lpp: 20.0      # maximum DP braking distance = 20 * Lpp
+    final_capture_radius: 100.0  # DP outer capture/decel circle; do not hand off to position DP here
+    final_stop_radius: 30.0      # DP inner stop circle; latch current position and stop inside this radius
+    final_capture_speed: 0.8     # C级 Mock 参数：进入 DP/终点保持前的捕获速度
+    final_dp_brake_radius: 270.0 # DP-only inner channel brake band (~6Lpp); bleed inertia before stop circle
+    final_dp_brake_speed: 0.25   # DP-only target speed inside the stop circle handoff band
+    final_dp_min_closing_speed_mps: 0.55 # keep moving outside final_stop_radius; avoids stopping 50m short
+    final_handoff_speed: 0.60    # Codex: only hand off to DP after inertia is mostly removed
+    final_capture_max_cross_track_m: 35.0  # allow DP handoff inside route corridor instead of hunting centerline
+    final_reacquire_cross_track_m: 10.0    # Codex P1: require line-up before slowing into DP
+    final_reacquire_min_speed_mps: 3.0
+    cruise_speed_recovery_enabled: true
+    cruise_base_speed_mps: 6.0
+    cruise_recovery_target_speed_mps: 8.0
+    cruise_recovery_required_stable_s: 8.0
+    cruise_recovery_ramp_mps2: 0.08
+    cruise_recovery_max_xte_m: 25.0   # corridor mode: excess outside lane, not raw centerline XTE
+    cruise_recovery_max_xte_dot_mps: 0.20
+    cruise_recovery_max_yaw_rate_deg_s: 0.5
+    cruise_fallback_xte_m: 45.0
+    cruise_fallback_xte_dot_mps: 0.40
+    cruise_fallback_yaw_rate_deg_s: 1.2
+    wind_cruise_speed_relax_enabled: true
+    wind_cruise_relax_min_cross_force_n: 800.0
+    wind_cruise_mid_speed_mps: 7.2       # wind cruise relax is staged; full speed waits for tighter XTE
+    wind_cruise_mid_xte_m: 28.0          # do not relax while already near/outside the 30m lane
+    wind_cruise_mid_xte_dot_mps: 0.35
+    wind_cruise_mid_outward_xte_dot_mps: 0.35
+    wind_cruise_mid_yaw_rate_deg_s: 0.8
+    wind_cruise_full_xte_m: 18.0         # full 8m/s requires clear wind-stable lane behavior
+    wind_cruise_full_xte_dot_mps: 0.25
+    wind_cruise_full_outward_xte_dot_mps: 0.10
+    wind_cruise_full_stable_s: 6.0
+    minimum_steerage_speed: 3.0     # C级 Mock 参数：终端重捕获最低舵效速度
+    cruise_min_speed_mps: 3.8       # minimum commanded speed while in cruise/transit; DP/final brake/emergency/roll guard can go lower
+
+    terminal_decel_use_position_error: true
+    final_approach_lookahead_m: 80.0       # C级 Mock 参数：终端对线看近一点，避免带偏冲过终点
+    final_approach_use_adaptive_los: false # C级 Mock 参数：终端对线不继承转弯段漂角记忆
+    turn_speed_15deg: 7.5      # angle-speed rule: shallow bends keep cruise-like speed
+    turn_no_slowdown_angle_deg: 10.0  # small bends do not require planned slowdown
+    turn_speed_45deg: 4.2      # C-level mock: moderate bends trade speed for bounded XTE
+    turn_speed_90deg: 3.5
+    turn_speed_180deg: 2.5
+    turn_slow_down_dist_15deg: 180.0
+    turn_slow_down_dist_45deg: 450.0
+    turn_slow_down_dist_90deg: 700.0
+    turn_slow_down_dist_180deg: 1000.0
+    turn_arc_smoothing_enabled: true
+    turn_arc_radius_m: 450.0
+    turn_arc_max_tangent_m: 120.0 # cap fillet tangent length so sparse bends stay close to raw waypoint
+    turn_arc_shallow_radius_m: 450.0
+    turn_arc_shallow_angle_deg: 35.0
+    turn_arc_sample_spacing_m: 80.0
+    turn_arc_min_angle_deg: 15.0
+    turn_arc_speed_mps: 5.0
+    turn_arc_pre_decel_dist_m: 180.0
+    turn_arc_external_route_min_points: 40 # planner-provided long routes are treated as external; only sparse ordinary bends may be smoothed
+    turn_arc_external_route_smoothing_enabled: true # allow local arc smoothing for ordinary long routes, not avoidance/DP
+    turn_arc_external_route_min_angle_deg: 20.0 # external long route bend must exceed this angle before local smoothing
+    turn_arc_external_route_min_segment_m: 600.0 # external long route must be sparse enough; dense planned curves stay untouched
+    turn_arc_external_route_radius_m: 380.0 # tighter local arc for ordinary external sparse bends; avoidance/DP stay protected
+    turn_arc_external_route_max_tangent_m: 120.0 # cap sparse external-route arc length near original waypoint
+    dense_turn_cluster_smoothing_enabled: true  # consecutive close bends are smoothed as one cluster, not independent arcs
+    dense_turn_cluster_min_angle_deg: 12.0      # per-corner angle to count as a real dense bend
+    dense_turn_cluster_max_segment_m: 500.0     # adjacent bends closer than this form a dense cluster
+    dense_turn_cluster_min_turns: 2             # at least two neighboring bends before cluster smoothing
+    dense_turn_cluster_chaikin_iterations: 2    # conservative corner-cutting passes; avoids excessive route drift
+    dense_turn_cluster_sample_spacing_m: 60.0   # resample cluster polyline for smoother guidance segments
+    dense_turn_cluster_speed_mps: 3.8           # keep steerage floor but do not crawl below cruise minimum
+    turn_arc_auto_flyby_enabled: true       # internally generated arc points use wheel-over switching before the tangent point
+    turn_arc_wheel_over_distance_m: 260.0   # begin turning earlier before arc/tangent waypoints for visible wheel-over
+    turn_arc_wheel_over_max_segment_ratio: 0.70 # allow earlier wheel-over on short arc chords while still avoiding skip
+    wp_x: [0.0, 500.0]
+    wp_y: [0.0, 0.0]
+thrust_allocation_node:
+  ros__parameters:
+    control_mode: auto
+    env_feedforward_weight: 0.0
+    # C级 Mock 策略参数：45m crewboat 推力分配策略；实船阶段按操纵性试验校准。
+    enable_straight_cruise_main_equalization: true
+    main_equalization_yaw_deadband_kNm: 30.0
+    main_equalization_lateral_deadband_kN: 0.5
+    side_thruster_derate_start_speed_mps: 1.5
+    side_thruster_derate_decay_per_mps: 0.7
+    side_thruster_lockout_speed_mps: 3.0
+    side_thruster_emergency_unlock_max_speed_mps: 3.0
+    side_thruster_lateral_deadband_kN: 0.5
+    side_thruster_yaw_emergency_kNm: 200.0
+    r1:
+      angle_default: 0.0
+      angle_max: 0.6109
+      angle_min: -0.6109
+      angle_rate_limit: 0.1
+      is_azimuth: false
+      is_rudder: true
+      max_power_kW: 100.0
+      max_thrust_kN: 10.0
+      thrust_rate_limit: 0.0
+      weight: 1.0
+      weight_delta: 1.0     # [QP-FIX] 1/10
+      x: -19.594
+      y: -3.0
+    r2:
+      angle_default: 0.0
+      angle_max: 0.6109
+      angle_min: -0.6109
+      angle_rate_limit: 0.1
+      is_azimuth: false
+      is_rudder: true
+      max_power_kW: 100.0
+      max_thrust_kN: 10.0
+      thrust_rate_limit: 0.0
+      weight: 1.0
+      weight_delta: 1.0     # [QP-FIX] 1/10
+      x: -19.594
+      y: 3.0
+    t1:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0  # [FIX] fast response
+      weight: 1.0
+      weight_delta: 5.0    # [FIX] balance condition number
+      x: -18.094
+      y: -3.0
+    t2:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0  # [FIX] fast response
+      weight: 1.0
+      weight_delta: 5.0    # [FIX] balance condition number
+      x: -18.094
+      y: 0.0
+    t3:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0  # [FIX] fast response
+      weight: 1.0
+      weight_delta: 5.0    # [FIX] balance condition number
+      x: -18.094
+      y: 3.0
+    tb1:
+      angle_default: 1.5708
+      angle_max: 1.5708
+      angle_min: 1.5708
+      angle_rate_limit: 0.0
+      diameter: 0.8
+      eta1: 0.4296
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 500.0
+      max_thrust_kN: 20.0
+      thrust_rate_limit: 50000.0   # [FIX] fast response
+      weight: 1.0
+      weight_delta: 1.0     # [QP-FIX] 1/10
+      x: 21.906
+      y: 0.0
+    tb2:
+      angle_default: 1.5708
+      angle_max: 1.5708
+      angle_min: 1.5708
+      angle_rate_limit: 0.0
+      diameter: 0.8
+      eta1: 0.4296
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 500.0
+      max_thrust_kN: 20.0
+      thrust_rate_limit: 50000.0   # [FIX] fast response
+      weight: 1.0
+      weight_delta: 1.0     # [QP-FIX] 1/10
+      x: 23.406
+      y: 0.0
+    thruster_names:
+    - t1
+    - t2
+    - t3
+    - tb1
+    - tb2
+    - r1
+    - r2
+    update_rate: 50.0
+
+wind_engine_node:
+  ros__parameters:
+    u10: 0.0
+    wind_direction: 0.0       # 风速仪/气象风向：风从该方向来，0=北来风，90=东来风
+    wind_direction_is_from: true
+    wind_input_filter_enabled: true
+    wind_speed_filter_tau_s: 6.0
+    wind_speed_rate_limit_mps_s: 2.0
+    wind_direction_rate_limit_deg_s: 20.0
+    Af: 45.0
+    Al: 180.0
+    Lpp: 44.1
+
+active_route_manager_node:
+  ros__parameters:
+    nominal_route_topic: "/route_planning/route_plan"
+    avoidance_plan_topic: "/colav/avoidance_plan"
+    active_route_topic: "/gnc/active_route"
+    execution_status_topic: "/gnc/route_execution_status"
+    ship_state_topic: "/ship/geo_position"
+    max_command_speed_mps: 8.0
+    min_segment_length_m: 30.0
+    emergency_min_segment_length_m: 15.0
+    min_turn_radius_m: 80.0
+    emergency_min_turn_radius_m: 45.0
+    max_lateral_accel_mps2: 0.25
+    max_yaw_rate_deg_s: 1.2
+    emergency_max_yaw_rate_deg_s: 2.0
+    max_decel_mps2: 0.08
+    default_avoidance_hold_s: 60.0
+    publish_nominal_status: false
+
+coordinate_transform_node:
+  ros__parameters:
+    earth_semi_major_axis: 6378137.0
+    earth_first_eccentricity_sq: 0.00669437999014
+    # 与航线规划日志保持一致：规划端使用 pyproj.Geod.inv(origin, point) 得到距离和方位角，
+    # 再换算 x_north=cos(az)*dist、y_east=sin(az)*dist。长航线不要使用局部线性近似。
+    projection_mode: "geod_inverse"
+    planner_meters_per_degree: 111320.0
+    input_topic: "/gnc/active_route"
+    output_topic: "/ship/waypoints"
+    origin_topic: "/route_planning/origin_latlon"
+    # 路径平滑参数
+    enable_arc_smoothing: false
+    arc_radius_m: 700.0
+    shallow_arc_radius_m: 700.0
+    shallow_arc_angle_deg: 35.0
+    arc_sample_spacing_m: 80.0
+    min_turn_angle_deg: 15.0
+    arc_speed_mps: 5.0
+    arc_smoothing_external_route_min_points: 40
+    arc_smoothing_max_lateral_delta_m: 120.0
+    # 弧前预减速距离
+    pre_arc_decel_dist_m: 180.0
+    enable_route_update_guard: true
+    min_route_update_interval_s: 2.0
+    min_future_update_distance_m: 500.0
+    max_dynamic_lateral_delta_m: 100.0
+    emergency_avoidance_relax_update_guard: true
+    emergency_avoidance_min_future_update_distance_m: 0.0
+    emergency_avoidance_max_dynamic_lateral_delta_m: 1500.0
+
+    # 终点进场参数
+    enable_fap: false
+    fap_distance_m: 120.0
+    fap_speed_mps: 1.0
+    reject_reverse_segments: true
+    roll_limit_deg: 10.0
+    feedback_log_enabled: true          # write /ship/geo_position diagnostics to CSV
+    feedback_log_dir: "/home/lee.li/workspace/ship_sim_ws_tiger_change_528/ship_feedback_logs"
+    feedback_log_period_s: 0.5          # 2Hz, enough for speed/heading/XTE analysis
+    xte_reference_mismatch_warn_m: 80.0

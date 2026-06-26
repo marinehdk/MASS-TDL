@@ -33,6 +33,7 @@ from sil_orchestrator.lifecycle_bridge import (
     ScenarioInjectionError,
     _load_scenario_yaml,
     _extract_injection_params,
+    _filter_injection_params_for_runtime_profile,
     _print_injection_summary,
 )
 
@@ -292,6 +293,23 @@ class TestExtractInjectionParams:
         """Empty dict produces empty injection map."""
         result = _extract_injection_params({})
         assert result == {}
+
+    def test_gnc_runtime_filters_ship_dynamics_injection_only(self, imazu08_parsed):
+        result = _extract_injection_params(imazu08_parsed)
+
+        filtered = _filter_injection_params_for_runtime_profile(result, "gnc")
+
+        assert "ship_dynamics_node" not in filtered
+        assert "target_vessel_node" in filtered
+        assert "env_disturbance_node" in filtered
+        assert "scenario_lifecycle_mgr" in filtered
+
+    def test_internal_runtime_keeps_ship_dynamics_injection(self, imazu08_parsed):
+        result = _extract_injection_params(imazu08_parsed)
+
+        filtered = _filter_injection_params_for_runtime_profile(result, "internal-local")
+
+        assert "ship_dynamics_node" in filtered
 
 
 # ---------------------------------------------------------------------------

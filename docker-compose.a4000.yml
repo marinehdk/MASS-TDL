@@ -27,6 +27,7 @@ services:
       - SIL_L4_ADAPTER_ENABLE=1
       - SIL_BRIDGE_RELEASE_FALLBACK=0
       - TDL_INTEGRATION_PROFILE=${TDL_INTEGRATION_PROFILE:-default}
+      - TDL_RUNTIME_PROFILE=${TDL_RUNTIME_PROFILE:-internal-local}
 
   foxglove-bridge:
     cpus: ${FOXGLOVE_CPUS:-1.5}

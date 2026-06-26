@@ -240,6 +240,77 @@ def _volatile_qos(depth: int = 10):  # pragma: no cover — requires rclpy
     )
 
 
+def _normalize_colregs_constraint_msg(msg: Any) -> dict[str, Any]:
+    active_rules = []
+    for rule in getattr(msg, "active_rules", []) or []:
+        active_rules.append(
+            {
+                "rule_id": int(getattr(rule, "rule_id", 0)),
+                "target_id": int(getattr(rule, "target_id", 0)),
+                "role": int(getattr(rule, "role", 0)),
+                "rule_phase": str(getattr(rule, "rule_phase", "")),
+                "preferred_direction": str(getattr(rule, "preferred_direction", "")),
+                "min_alteration_deg": float(getattr(rule, "min_alteration_deg", 0.0)),
+                "confidence": float(getattr(rule, "confidence", 0.0)),
+            }
+        )
+    return {
+        "conflict_detected": bool(msg.conflict_detected),
+        "primary_role": int(msg.primary_role),
+        "phase": str(msg.phase),
+        "primary_preferred_direction": str(msg.primary_preferred_direction),
+        "confidence": float(msg.confidence),
+        "active_rules": active_rules,
+    }
+
+
+def _normalize_world_state_msg(msg: Any) -> dict[str, Any]:
+    targets = list(getattr(msg, "targets", []) or [])
+    primary = min(targets, key=lambda t: float(getattr(t, "cpa_m", float("inf"))), default=None)
+    own = getattr(msg, "own_ship", None)
+    own_pos = getattr(own, "position", None) if own is not None else None
+    payload: dict[str, Any] = {
+        "target_count": len(targets),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+        "own_heading_deg": float(getattr(own, "heading_deg", 0.0)) if own is not None else 0.0,
+        "own_sog_kn": float(getattr(own, "sog_kn", 0.0)) if own is not None else 0.0,
+        "own_lat": float(getattr(own_pos, "latitude", 0.0)) if own_pos is not None else 0.0,
+        "own_lon": float(getattr(own_pos, "longitude", 0.0)) if own_pos is not None else 0.0,
+    }
+    if primary is None:
+        return payload
+
+    encounter = getattr(primary, "encounter", None)
+    payload.update(
+        {
+            "primary_target_id": int(getattr(primary, "target_id", 0)),
+            "primary_target_heading_deg": float(getattr(primary, "heading_deg", 0.0)),
+            "primary_target_cog_deg": float(getattr(primary, "cog_deg", 0.0)),
+            "primary_target_sog_kn": float(getattr(primary, "sog_kn", 0.0)),
+            "primary_brg_deg": float(getattr(primary, "brg_deg", 0.0)),
+            "primary_rng_m": float(getattr(primary, "rng_m", 0.0)),
+            "primary_cpa_m": float(getattr(primary, "cpa_m", 0.0)),
+            "primary_tcpa_s": float(getattr(primary, "tcpa_s", 0.0)),
+            "primary_target_compliance": float(getattr(primary, "target_compliance", 0.0)),
+            "primary_encounter_type": int(getattr(encounter, "encounter_type", 0))
+            if encounter is not None
+            else 0,
+            "primary_relative_bearing_deg": float(
+                getattr(encounter, "relative_bearing_deg", 0.0)
+            )
+            if encounter is not None
+            else 0.0,
+            "primary_aspect_deg": float(getattr(encounter, "aspect_angle_deg", 0.0))
+            if encounter is not None
+            else 0.0,
+            "primary_is_giveway": bool(getattr(encounter, "is_giveway", False))
+            if encounter is not None
+            else False,
+        }
+    )
+    return payload
+
+
 # Topic → (message type import path, normalizer). Normalizers turn a ROS msg
 # into the dict the trace evaluators expect. Kept 1:1 with the deleted bridge's
 # record() payloads so downstream consumers are unaffected.
@@ -255,6 +326,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         FsmState,
         MissionGoal,
         SafetyAlert,
+        WorldState,
     )
     from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
 
@@ -319,15 +391,12 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
     def on_colregs(msg):
         writer.record(
             "/l3/m6/colregs_constraint",
-            {
-                "conflict_detected": bool(msg.conflict_detected),
-                "primary_role": int(msg.primary_role),
-                "phase": str(msg.phase),
-                "primary_preferred_direction": str(msg.primary_preferred_direction),
-                "confidence": float(msg.confidence),
-            },
+            _normalize_colregs_constraint_msg(msg),
             t_now(),
         )
+
+    def on_world_state(msg):
+        writer.record("/l3/m2/world_state", _normalize_world_state_msg(msg), t_now())
 
     def on_veto(msg):
         writer.record(
@@ -443,6 +512,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/l3/m4/behavior_plan", BehaviorPlan, on_behavior),
         ("/l3/m5/avoidance_plan", AvoidancePlan, on_avoidance),
         ("/l3/m6/colregs_constraint", COLREGsConstraint, on_colregs),
+        ("/l3/m2/world_state", WorldState, on_world_state),
         ("/l3/checker/veto", CheckerVetoNotification, on_veto),
         ("/sil/actuator_cmd", SilOwnShipState, on_actuator),
         ("/sil/scoring", ScoringRow, on_scoring),

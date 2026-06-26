@@ -12,6 +12,7 @@ definition instead of silently falling back to hardcoded defaults.
 
 import asyncio
 import json
+import os
 import shutil
 import time
 import rclpy
@@ -412,7 +413,10 @@ class LifecycleBridge(Node):
             self._backup_timer_task.cancel()
             self._backup_timer_task = None
 
-        injection_map = _extract_injection_params(yaml_data)
+        injection_map = _filter_injection_params_for_runtime_profile(
+            _extract_injection_params(yaml_data),
+            os.environ.get("TDL_RUNTIME_PROFILE", "internal-local"),
+        )
         _print_injection_summary(injection_map)
 
         # Step 5: reset to UNCONFIGURED FIRST so the node's parameter store is a
@@ -751,6 +755,18 @@ def _extract_injection_params(yaml_data: dict) -> dict:
             injection_map[node]["root_seed"] = (int(root_seed), ParameterType.PARAMETER_INTEGER)
 
     return injection_map
+
+
+def _filter_injection_params_for_runtime_profile(injection_map: dict,
+                                                 runtime_profile: str) -> dict:
+    """Remove injections for nodes that are absent in a runtime profile."""
+    filtered = {
+        node_name: dict(params)
+        for node_name, params in injection_map.items()
+    }
+    if runtime_profile == "gnc":
+        filtered.pop("ship_dynamics_node", None)
+    return filtered
 
 
 def _print_injection_summary(injection_map: dict) -> None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import importlib.util
 import sys
@@ -29,6 +30,8 @@ sys.modules["sil_trace_writer_under_test"] = _module
 _spec.loader.exec_module(_module)
 
 DebugTraceWriter = _module.DebugTraceWriter
+_normalize_colregs_constraint_msg = _module._normalize_colregs_constraint_msg
+_normalize_world_state_msg = _module._normalize_world_state_msg
 
 
 class _FakeLogger:
@@ -199,6 +202,10 @@ def test_close_flushes_pending_buffer(writer: DebugTraceWriter, trace_path: Path
             "/l3/m6/colregs_constraint",
             {"conflict_detected": True, "primary_role": 1, "phase": "approach"},
         ),
+        (
+            "/l3/m2/world_state",
+            {"target_count": 1, "primary_cpa_m": 120.0, "primary_tcpa_s": 60.0},
+        ),
         ("/l3/checker/veto", {"checker_layer": "M7", "vetoed_module": "M5", "confidence": 0.9}),
         ("/sil/actuator_cmd", {"rudder_deg": 10.0, "throttle": 0.5}),
         ("/sil/scoring", {"safety": 1.0, "total": 0.8}),
@@ -217,3 +224,80 @@ def test_record_preserves_evaluator_field_names(
     row = _read_records(trace_path)[0]
     for k, v in payload.items():
         assert row[k] == v, f"field {k} lost for topic {topic}"
+
+
+def test_colregs_normalizer_preserves_active_rules() -> None:
+    msg = SimpleNamespace(
+        conflict_detected=True,
+        primary_role=2,
+        phase="SOUND_WARNING",
+        primary_preferred_direction="STARBOARD",
+        confidence=0.5,
+        active_rules=[
+            SimpleNamespace(
+                rule_id=14,
+                target_id=100000001,
+                role=2,
+                rule_phase="T_warn",
+                preferred_direction="STARBOARD",
+                min_alteration_deg=30.0,
+                confidence=0.9,
+            )
+        ],
+    )
+
+    payload = _normalize_colregs_constraint_msg(msg)
+
+    assert payload["conflict_detected"] is True
+    assert payload["active_rules"] == [
+        {
+            "rule_id": 14,
+            "target_id": 100000001,
+            "role": 2,
+            "rule_phase": "T_warn",
+            "preferred_direction": "STARBOARD",
+            "min_alteration_deg": 30.0,
+            "confidence": 0.9,
+        }
+    ]
+
+
+def test_world_state_normalizer_records_primary_target_geometry() -> None:
+    def target(target_id: int, cpa_m: float) -> SimpleNamespace:
+        return SimpleNamespace(
+            target_id=target_id,
+            heading_deg=180.0,
+            cog_deg=180.0,
+            sog_kn=8.0,
+            brg_deg=22.0,
+            rng_m=900.0,
+            cpa_m=cpa_m,
+            tcpa_s=120.0,
+            target_compliance=0.75,
+            encounter=SimpleNamespace(
+                encounter_type=1,
+                relative_bearing_deg=4.0,
+                aspect_angle_deg=178.0,
+                is_giveway=True,
+            ),
+        )
+
+    msg = SimpleNamespace(
+        confidence=0.8,
+        own_ship=SimpleNamespace(
+            heading_deg=12.0,
+            sog_kn=6.0,
+            position=SimpleNamespace(latitude=30.0, longitude=122.0),
+        ),
+        targets=[target(10, 300.0), target(11, 120.0)],
+    )
+
+    payload = _normalize_world_state_msg(msg)
+
+    assert payload["target_count"] == 2
+    assert payload["own_heading_deg"] == 12.0
+    assert payload["primary_target_id"] == 11
+    assert payload["primary_cpa_m"] == 120.0
+    assert payload["primary_tcpa_s"] == 120.0
+    assert payload["primary_encounter_type"] == 1
+    assert payload["primary_relative_bearing_deg"] == 4.0

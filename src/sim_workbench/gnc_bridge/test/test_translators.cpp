@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 
 #include "gnc_bridge/translators.hpp"
 #include "l3_external_msgs/msg/avoidance_waypoints.hpp"
@@ -17,14 +18,17 @@ using gnc_bridge::to_gnc_avoidance_plan;
 using gnc_bridge::to_gnc_route_plan;
 using gnc_bridge::to_sil_own_ship_state;
 using gnc_bridge::to_l3_gnc_execution_status;
+using gnc_bridge::rebase_avoidance_plan_timebase;
 
 namespace {
-builtin_interfaces::msg::Time make_stamp(int32_t sec) {
+builtin_interfaces::msg::Time make_stamp(int32_t sec, uint32_t nanosec = 0) {
   builtin_interfaces::msg::Time t;
   t.sec = sec;
-  t.nanosec = 0;
+  t.nanosec = nanosec;
   return t;
 }
+
+constexpr double kPi = 3.14159265358979323846;
 }  // namespace
 
 TEST(Translators, AvoidanceWaypointsToGncPlanPreservesWaypoints) {
@@ -70,6 +74,45 @@ TEST(Translators, AvoidancePlanCarriesReturnToRouteHint) {
   EXPECT_DOUBLE_EQ(gnc.return_longitude, 10.5);
 }
 
+TEST(Translators, RebaseAvoidancePlanPreservesValidUntilTtlOnTargetClock) {
+  l3_external_msgs::msg::AvoidanceWaypoints src;
+  src.stamp = make_stamp(100, 200000000);
+  src.valid_until = make_stamp(130, 500000000);
+  auto gnc = to_gnc_avoidance_plan(src, src.stamp);
+
+  rebase_avoidance_plan_timebase(gnc, make_stamp(2000, 100000000));
+
+  EXPECT_EQ(gnc.header.stamp.sec, 2000);
+  EXPECT_EQ(gnc.header.stamp.nanosec, 100000000u);
+  EXPECT_EQ(gnc.valid_until.sec, 2030);
+  EXPECT_EQ(gnc.valid_until.nanosec, 400000000u);
+}
+
+TEST(Translators, RebaseAvoidancePlanLeavesZeroDeadlineForDefaultHold) {
+  l3_external_msgs::msg::AvoidanceWaypoints src;
+  src.stamp = make_stamp(100);
+  auto gnc = to_gnc_avoidance_plan(src, src.stamp);
+
+  rebase_avoidance_plan_timebase(gnc, make_stamp(2000));
+
+  EXPECT_EQ(gnc.header.stamp.sec, 2000);
+  EXPECT_EQ(gnc.valid_until.sec, 0);
+  EXPECT_EQ(gnc.valid_until.nanosec, 0u);
+}
+
+TEST(Translators, RebaseAvoidancePlanKeepsExpiredSourcePlanExpired) {
+  l3_external_msgs::msg::AvoidanceWaypoints src;
+  src.stamp = make_stamp(100);
+  src.valid_until = make_stamp(99);
+  auto gnc = to_gnc_avoidance_plan(src, src.stamp);
+
+  rebase_avoidance_plan_timebase(gnc, make_stamp(2000));
+
+  EXPECT_EQ(gnc.header.stamp.sec, 2000);
+  EXPECT_EQ(gnc.valid_until.sec, 2000);
+  EXPECT_EQ(gnc.valid_until.nanosec, 0u);
+}
+
 TEST(Translators, GeoPositionToOwnShipStateMapsCoreFields) {
   ship_interfaces::msg::GeoPosition geo;
   geo.latitude   = 63.44;
@@ -86,12 +129,12 @@ TEST(Translators, GeoPositionToOwnShipStateMapsCoreFields) {
   EXPECT_EQ(oss.stamp.sec, 200);
   EXPECT_DOUBLE_EQ(oss.lat, 63.44);
   EXPECT_DOUBLE_EQ(oss.lon, 10.38);
-  EXPECT_DOUBLE_EQ(oss.heading, 45.0);
+  EXPECT_NEAR(oss.heading, kPi / 4.0, 1e-12);
   EXPECT_DOUBLE_EQ(oss.sog, 4.0);
-  EXPECT_DOUBLE_EQ(oss.cog, 47.0);
+  EXPECT_NEAR(oss.cog, 47.0 * kPi / 180.0, 1e-12);
   EXPECT_DOUBLE_EQ(oss.u, 3.9);
   EXPECT_DOUBLE_EQ(oss.v, 0.3);
-  EXPECT_DOUBLE_EQ(oss.rot, 1.2);
+  EXPECT_NEAR(oss.rot, 1.2 * kPi / 180.0, 1e-12);
   EXPECT_DOUBLE_EQ(oss.r, 0.021);
 }
 
