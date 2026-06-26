@@ -10,9 +10,11 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <ship_interfaces/msg/geo_position.hpp>
 #include <ship_interfaces/msg/route_plan_status.hpp>
+#include <ship_interfaces/msg/ship_reset.hpp>
 #include <fstream>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -35,6 +37,8 @@ private:
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void target_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
     void speed_setpoint_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg);
+    void set_origin(double lat, double lon);
     void publish_route_status(
         const ship_interfaces::msg::RoutePlan& route,
         bool accepted,
@@ -74,6 +78,8 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_sub_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr speed_setpoint_sub_;
+    rclcpp::Subscription<ship_interfaces::msg::ShipReset>::SharedPtr reset_sub_;
+    std::mutex origin_reset_mutex_;
     rclcpp::Publisher<ship_interfaces::msg::GeoPosition>::SharedPtr geo_pos_pub_;
     rclcpp::Publisher<ship_interfaces::msg::RoutePlanStatus>::SharedPtr route_status_pub_;
 
