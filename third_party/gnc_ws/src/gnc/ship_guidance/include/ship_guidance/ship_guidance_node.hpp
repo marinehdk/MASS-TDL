@@ -7,6 +7,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include "ship_interfaces/msg/ship_reset.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -37,6 +38,8 @@ private:
     void env_load_callback(const geometry_msgs::msg::WrenchStamped::SharedPtr msg);
     void current_load_callback(const geometry_msgs::msg::WrenchStamped::SharedPtr msg);
     void path_callback(const nav_msgs::msg::Path::SharedPtr msg);
+    void reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg);
+    void reset_guidance();
     void control_loop();
     void calculate_los(double x, double y, double& psi_d, double& u_d);
     void publish_final_dp_hold(double x, double y, double& psi_d, double& u_d);
@@ -51,6 +54,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr env_load_sub_;
     rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr current_load_sub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
+    rclcpp::Subscription<ship_interfaces::msg::ShipReset>::SharedPtr reset_sub_;  // 运行时 reset
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr heading_setpoint_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr target_speed_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_pub_;
