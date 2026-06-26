@@ -1,0 +1,65 @@
+schema_version: captain_decision_policy.v1
+mode: shadow
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace policy thresholds with route-planner, operator, vessel trial, and class-approved limits without changing the CaptainDecision interfaces.
+
+publish_rate_hz: 2.0
+initial_observation_grace_s: 3.0
+stale_timeout_s:
+  mission_status: 5.0
+  safety_status: 5.0
+  navigation_status: 5.0
+  actuator_capability: 5.0
+
+actions:
+  wait_for_initial_observation:
+    recommended_speed_mps: 0.0
+  continue:
+    recommended_speed_mps: 8.0
+  reduce_speed:
+    recommended_speed_mps: 4.0
+  rejoin_corridor:
+    recommended_speed_mps: 3.0
+  hold_or_manual_handover:
+    recommended_speed_mps: 0.8
+  abort_escape_recommended:
+    recommended_speed_mps: 4.0
+  request_human_confirmation:
+    recommended_speed_mps: 0.8
+
+phase_speed_caps_mps:
+  PRECHECK: 0.0
+  CRUISE: 8.0
+  DECEL: 4.0
+  REPORT: 3.0
+  APPROACH: 2.2
+  STANDBY: 0.8
+  BERTH_OR_WORK: 0.5
+  ABORT_ESCAPE: 4.0
+  COMPLETE: 0.0
+
+route_corridor:
+  enabled: true
+  caution_ratio: 0.70
+  rejoin_ratio: 1.00
+  hold_ratio: 1.15
+  abort_ratio: 1.30
+
+environment:
+  caution_force_n: 120000.0
+  hold_force_n: 220000.0
+  abort_force_n: 300000.0
+
+actuator:
+  degraded_available_ratio: 0.85
+
+decision_priority:
+  - abort_escape_recommended
+  - hold_or_manual_handover
+  - rejoin_corridor
+  - reduce_speed
+  - wait_for_initial_observation
+  - request_human_confirmation
+  - continue

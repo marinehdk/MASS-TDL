@@ -8,8 +8,8 @@
 //               Mode-switch timing is advisory (non-RT test env).
 //
 // EnvelopeState::Overridden = 5 (types.hpp; not a constant in ODDState.msg).
-// M5 mid-MPC publish topic: /m5/avoidance_plan
-// M5 BC-MPC publish topic:  /m5/reactive_override_cmd
+// M5 mid-MPC publish topic: /l3/m5/avoidance_plan
+// M5 BC-MPC publish topic:  /l3/m5/reactive_override_cmd
 //
 // Per v1.1.2 §10 + RFC-001 scheme B + §5; MISRA C++:2023 PATH-D (full 179 rules).
 
@@ -192,7 +192,7 @@ class Int005006Test : public ::testing::Test {
     return bp;
   }
 
-  // COLREGsConstraint prerequisite for M5 mid-MPC /m6/colregs_constraint.
+  // COLREGsConstraint prerequisite for M5 mid-MPC /l3/m6/colregs_constraint.
   l3_msgs::msg::COLREGsConstraint make_colregs_constraint() const {
     l3_msgs::msg::COLREGsConstraint c{};
     c.stamp             = node_->now();
@@ -275,30 +275,30 @@ TEST_F(Int005006Test, INT005_HardwareOverride_M1_EntersOverridden) {
 // ── INT-006 Test 1: M5 mid-MPC publishes AvoidancePlan in normal mode ──────────
 // Publish all M5 mid-MPC prerequisites: OwnShipState, TrackedTargetArray,
 // BehaviorPlan, COLREGsConstraint, PlannedRoute. Also publish WorldState
-// on /m2/world_state (M5 BC-MPC uses /m2/world_state).
-// Subscribe /m5/avoidance_plan; assert AvoidancePlan received within 3s.
+// on /l3/m2/world_state (M5 BC-MPC uses /l3/m2/world_state).
+// Subscribe /l3/m5/avoidance_plan; assert AvoidancePlan received within 3s.
 // M5 mid-MPC runs a 1 Hz solve_timer_.
 TEST_F(Int005006Test, INT006_M5_AvoidancePlan_NormalMode) {
   bool received = false;
   l3_msgs::msg::AvoidancePlan last_plan{};
 
   auto plan_sub = node_->create_subscription<l3_msgs::msg::AvoidancePlan>(
-      "/m5/avoidance_plan", 10,
+      "/l3/m5/avoidance_plan", 10,
       [&received, &last_plan](const l3_msgs::msg::AvoidancePlan::SharedPtr msg) {
         last_plan = *msg;
         received  = true;
       });
 
   // M5 mid-MPC subscribes: /m2/own_ship_state, /m2/tracked_targets,
-  // /m4/behavior_plan, /m6/colregs_constraint, /l2/planned_route, /l2/speed_profile.
+  // /l3/m4/behavior_plan, /l3/m6/colregs_constraint, /l2/planned_route, /l2/speed_profile.
   auto os_pub = node_->create_publisher<l3_msgs::msg::OwnShipState>(
       "/m2/own_ship_state", 10);
   auto tt_pub = node_->create_publisher<l3_external_msgs::msg::TrackedTargetArray>(
       "/m2/tracked_targets", 10);
   auto bp_pub = node_->create_publisher<l3_msgs::msg::BehaviorPlan>(
-      "/m4/behavior_plan", 10);
+      "/l3/m4/behavior_plan", 10);
   auto cc_pub = node_->create_publisher<l3_msgs::msg::COLREGsConstraint>(
-      "/m6/colregs_constraint", 10);
+      "/l3/m6/colregs_constraint", 10);
   auto pr_pub = node_->create_publisher<l3_external_msgs::msg::PlannedRoute>(
       "/l2/planned_route", 10);
 
@@ -324,8 +324,8 @@ TEST_F(Int005006Test, INT006_M5_AvoidancePlan_NormalMode) {
 }
 
 // ── INT-006 Test 2: M5 BC-MPC publishes ReactiveOverrideCmd ───────────────────
-// M5 BC-MPC subscribes /m2/world_state and /m5/avoidance_plan.
-// It publishes /m5/reactive_override_cmd when the solver detects Override.
+// M5 BC-MPC subscribes /l3/m2/world_state and /l3/m5/avoidance_plan.
+// It publishes /l3/m5/reactive_override_cmd when the solver detects Override.
 // Trigger: WorldState with near-CPA target (cpa_m < kCpaSafeFallback_m = 1852 m)
 //         + AvoidancePlan from mid-MPC (or direct mock).
 // Assert: ReactiveOverrideCmd received within 3s.
@@ -334,21 +334,21 @@ TEST_F(Int005006Test, INT006_M5_ReactiveOverride_Mode) {
   l3_msgs::msg::ReactiveOverrideCmd last_cmd{};
 
   auto cmd_sub = node_->create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
-      "/m5/reactive_override_cmd", 10,
+      "/l3/m5/reactive_override_cmd", 10,
       [&received, &last_cmd](
           const l3_msgs::msg::ReactiveOverrideCmd::SharedPtr msg) {
         last_cmd = *msg;
         received = true;
       });
 
-  // M5 BC-MPC subscribes /m2/world_state (not /l3/m2/world_state).
+  // M5 BC-MPC subscribes /l3/m2/world_state.
   auto ws_pub = node_->create_publisher<l3_msgs::msg::WorldState>(
-      "/m2/world_state", 10);
+      "/l3/m2/world_state", 10);
 
-  // M5 BC-MPC also subscribes /m5/avoidance_plan (from mid-MPC).
+  // M5 BC-MPC also subscribes /l3/m5/avoidance_plan (from mid-MPC).
   // Publish a mock AvoidancePlan to allow BC-MPC to proceed.
   auto ap_pub = node_->create_publisher<l3_msgs::msg::AvoidancePlan>(
-      "/m5/avoidance_plan", 10);
+      "/l3/m5/avoidance_plan", 10);
   l3_msgs::msg::AvoidancePlan mock_plan{};
   mock_plan.stamp      = node_->now();
   mock_plan.confidence = kMockConfidence005;
@@ -384,7 +384,7 @@ TEST_F(Int005006Test, INT006_TriMode_Timing) {
   std::chrono::steady_clock::time_point t_received{};
 
   auto plan_sub = node_->create_subscription<l3_msgs::msg::AvoidancePlan>(
-      "/m5/avoidance_plan", 10,
+      "/l3/m5/avoidance_plan", 10,
       [&plan_received, &t_received](
           const l3_msgs::msg::AvoidancePlan::SharedPtr /*msg*/) {
         if (!plan_received) {
@@ -414,7 +414,7 @@ TEST_F(Int005006Test, INT006_TriMode_Timing) {
 
   // Record t0 immediately before publishing the COLREGsConstraint trigger.
   auto cc_pub = node_->create_publisher<l3_msgs::msg::COLREGsConstraint>(
-      "/m6/colregs_constraint", 10);
+      "/l3/m6/colregs_constraint", 10);
   auto t0 = std::chrono::steady_clock::now();
   cc_pub->publish(make_colregs_constraint());
 

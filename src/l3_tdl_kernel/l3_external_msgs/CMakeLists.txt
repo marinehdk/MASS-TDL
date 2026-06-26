@@ -30,6 +30,10 @@ set(MSG_FILES
   # Wave 0 fix F-CRIT-B-003: TimeWindow moved here from l3_msgs (only consumer is VoyageTask)
   msg/TimeWindow.msg
   msg/TrackingError.msg
+  # Track A: L3-owned contracts for GNC bridge translation (spec D3/D6).
+  # ship_interfaces types live only in gnc_bridge; L3 core uses these.
+  msg/AvoidanceWaypoints.msg
+  msg/GncExecutionStatus.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

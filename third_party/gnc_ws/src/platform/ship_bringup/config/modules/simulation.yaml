@@ -1,0 +1,105 @@
+# Generated reference split from ship_config.yaml. Not launch-active yet.
+ship_dynamics_node:
+  ros__parameters:
+    initial_position:
+      x: 0.0
+      y: 0.0
+      yaw: 0.0
+    auto_initial_yaw_from_route: true
+    auto_initial_yaw_min_segment_m: 20.0
+    auto_initial_yaw_max_speed_mps: 0.05
+    auto_initial_yaw_max_position_offset_m: 5.0
+    log_dir: logs/ship_dynamics/
+    time_scale: 1.0
+    thrusters:
+      num: 7
+      r1:
+        angle_default: 0.0
+        angle_rate_limit: 0.1
+        is_azimuth: false
+        max_thrust_kN: 10.0
+        thrust_rate_limit: 0.0
+        x: -19.594
+        y: -3.0
+      r2:
+        angle_default: 0.0
+        angle_rate_limit: 0.1
+        is_azimuth: false
+        max_thrust_kN: 10.0
+        thrust_rate_limit: 0.0
+        x: -19.594
+        y: 3.0
+      t1:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0
+        x: -18.094
+        y: -3.0
+      t2:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0
+        x: -18.094
+        y: 0.0
+      t3:
+        angle_default: 0.0
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 135.0
+        thrust_rate_limit: 200000.0
+        x: -18.094
+        y: 3.0
+      tb1:
+        angle_default: 1.5708
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 20.0
+        thrust_rate_limit: 50000.0
+        x: 21.906
+        y: 0.0
+      tb2:
+        angle_default: 1.5708
+        angle_rate_limit: 0.0
+        is_azimuth: false
+        max_thrust_kN: 20.0
+        thrust_rate_limit: 50000.0
+        x: 23.406
+        y: 0.0
+      thruster_names:
+      - t1
+      - t2
+      - t3
+      - tb1
+      - tb2
+      - r1
+      - r2
+    update_rate: 50.0
+    vessel:
+      B: 8.0
+      Lpp: 44.1
+      added_mass:
+        N_dot_r: 9500000.0
+        X_dot_u: 22000.0
+        Y_dot_v: 160000.0
+      d: 2.0
+      gravity: 9.80665
+      hydrodynamic:
+        N_r: -1600000.0
+        N_rr: -3000000.0
+        N_v: -600000.0
+        X_u: -3500.0
+        X_uu: -280.0
+        Y_r: 60000.0
+        Y_v: -50000.0
+        Y_vv: -9000.0
+      limits:
+        max_r: 0.5
+        max_u: 20.0
+      mass: 220000.0
+      moment_of_inertia:
+        Izz: 27000000.0
+    water_depth: 20.0

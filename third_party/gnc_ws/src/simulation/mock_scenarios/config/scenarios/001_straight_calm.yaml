@@ -1,0 +1,110 @@
+scenario_id: 001_straight_calm
+scenario_class: baseline
+description: Calm-water straight track baseline at 8.0 m/s for a 45m crewboat.
+validation_objective: Verify straight-line A->B completion, sign conventions, speed holding, sensor publishing, and allocator limits in calm water.
+seed: 101
+duration_s: 360
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 8.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 8.0
+  waypoints:
+    - [0.0, 0.0]
+    - [1000.0, 0.0]
+
+speed_validation_plan:
+  current_level:
+    id: V3
+    speed_mps: 8.0
+    purpose: Required straight-line calm-water A->B completion speed for a 45m crewboat.
+  reference_levels:
+    - {id: V1, speed_mps: 3.0, purpose: Conservative sign-convention baseline}
+    - {id: V2, speed_mps: 5.0, purpose: Medium-speed track keeping}
+    - {id: V2_plus, speed_mps: 7.0, purpose: Pre-high-speed transition}
+
+environment:
+  wind: {speed_mps: 0.0, direction_deg: 0.0}
+  current: {speed_mps: 0.0, direction_deg: 0.0}
+  wave: {hs_m: 0.0, direction_deg: 0.0}
+
+sensors:
+  gnss:
+    rate_hz: 5
+    noise_std_m: 0.5
+  imu:
+    rate_hz: 50
+    gyro_noise_deg_s: 0.02
+    accel_noise_mps2: 0.02
+  compass:
+    rate_hz: 10
+    noise_std_deg: 0.3
+
+thrusters:
+  count: 7
+  failures: []
+
+tuning:
+  guidance:
+    # C-level mock speed target for a 45m crewboat straight-line calm-water run.
+    max_transit_speed: 8.0
+    minimum_steerage_speed: 2.0
+    slow_down_dist: 220.0
+    final_capture_speed: 1.2
+    final_capture_max_cross_track_m: 8.0
+    final_reacquire_cross_track_m: 12.0
+    final_reacquire_min_speed_mps: 2.0
+    terminal_decel_use_position_error: true
+    final_approach_lookahead_m: 80.0
+    final_approach_use_adaptive_los: false
+  thrust_allocation:
+    # C-level mock policy for 45m FCB: straight cruise uses balanced main propellers,
+    # rudders for heading, and tunnel thrusters locked out above maneuvering speed.
+    main_equalization_yaw_deadband_kNm: 30.0
+    main_equalization_lateral_deadband_kN: 0.5
+    side_thruster_derate_start_speed_mps: 2.0
+    side_thruster_derate_decay_per_mps: 0.7
+    side_thruster_lockout_speed_mps: 4.0
+    side_thruster_emergency_unlock_max_speed_mps: 4.0
+    side_thruster_lateral_deadband_kN: 0.5
+    side_thruster_yaw_emergency_kNm: 200.0
+  control:
+    # C-level mock calm-water drag feed-forward for 8 m/s cruise validation.
+    # C-level mock high-speed straight-course yaw tuning: keep rudder/yaw demand
+    # small enough to expose sign errors without exciting sway-yaw oscillation.
+    coordinate_conventions:
+      yaw_torque_sign_cruise: -1.0
+      yaw_torque_sign_dp: 1.0
+    gains:
+      yaw:
+        kp: 80000.0
+        ki: 0.0
+        kd: 900000.0
+        k_robust: 500.0
+        phi: 0.5
+    speed_drag_feedforward:
+      linear_N_per_mps: 3500.0
+      quadratic_N_per_mps2: 280.0
+
+expected:
+  pass_fail_basis: 45m crewboat reaches final waypoint in calm water at the V3 8.0 m/s straight-line validation speed, keeps bounded track and heading error, and remains nominal.
+  target_speed_mps: 8.0
+  min_peak_speed_mps: 7.7
+  min_mean_transit_speed_mps: 5.5
+  max_speed_overshoot_mps: 1.0
+  max_arrival_time_s: 220
+  final_waypoint_reached: true
+  max_final_position_error_m: 20
+  max_final_speed_mps: 0.25
+  max_cross_track_error_m: 8
+  max_heading_error_deg: 3
+  max_yaw_rate_deg_s: 1
+  navigation_fault_detected: false
+  should_enter_degraded_mode: false
+  should_not_command_hard_turn: true

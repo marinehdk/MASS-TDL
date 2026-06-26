@@ -1,0 +1,76 @@
+route_profile_id: 002_s_turn_route_profile_45m_crewboat
+schema_version: route_profile.v1
+mission_plan_ref: 002_s_turn_captain_mission
+scenario_ref: 002_s_turn_calm
+vessel_profile_ref: crewboat_45m_c_mock
+coordinate_frame: local_enu
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Recompute route geometry from planner/ECDIS inputs and recalibrate against sea-trial maneuvering data.
+
+planner_input_summary:
+  captain_visible_gate_count: 8
+  generated_execution_waypoint_count: 15
+  route_length_m: 1929.81
+  start_to_final_distance_m: 1800.0
+  route_intent: visible_s_turn_with_terminal_standby
+
+planning_policy:
+  dense_points_are_internal: true
+  expose_only_captain_visible_gates_to_operator: true
+  route_shape_must_cover_both_sides: true
+  prefer_safety_over_schedule: true
+  speed_policy:
+    cruise_target_mps: 8.0
+    planned_turn_range_mps: [3.1, 3.8]
+    final_approach_range_mps: [0.8, 2.6]
+    hold_speed_mps: 0.35
+
+planner_internal_points:
+  - {id: p0, role: start, local_xy_m: [0.0, 0.0]}
+  - {id: p1, role: wheel_over_gate, local_xy_m: [200.0, 0.0]}
+  - {id: p2, role: s_turn_upper_shape, local_xy_m: [350.0, 8.0]}
+  - {id: p3, role: s_turn_upper_shape, local_xy_m: [500.0, 32.0]}
+  - {id: p4, role: s_turn_upper_shape, local_xy_m: [650.0, 60.0]}
+  - {id: p5, role: upper_turn_exit, local_xy_m: [800.0, 72.0]}
+  - {id: p6, role: upper_turn_exit, local_xy_m: [950.0, 80.0]}
+  - {id: p7, role: crossover, local_xy_m: [1100.0, 20.0]}
+  - {id: p8, role: lower_turn_entry, local_xy_m: [1250.0, -80.0]}
+  - {id: p9, role: lower_turn_exit, local_xy_m: [1400.0, -120.0]}
+  - {id: p10, role: lower_recovery, local_xy_m: [1550.0, -125.0]}
+  - {id: p11, role: final_line_up, local_xy_m: [1650.0, -130.0]}
+  - {id: p12, role: final_approach_gate, local_xy_m: [1750.0, -110.0]}
+  - {id: p13, role: standby_gate, local_xy_m: [1800.0, -35.0]}
+  - {id: p14, role: final_hold, local_xy_m: [1800.0, 0.0]}
+
+leg_constraints:
+  - {from: p0, to: p1, planned_cog_deg: 0.0, distance_m: 200.0, xtl_port_m: 20.0, xtl_starboard_m: 20.0, speed_limit_mps: 8.0, navigation_mode: cruise}
+  - {from: p1, to: p2, planned_cog_deg: 3.05, distance_m: 150.21, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.8, navigation_mode: planned_turn}
+  - {from: p2, to: p3, planned_cog_deg: 9.09, distance_m: 151.91, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.8, navigation_mode: planned_turn}
+  - {from: p3, to: p4, planned_cog_deg: 10.57, distance_m: 152.59, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.8, navigation_mode: planned_turn_exit}
+  - {from: p4, to: p5, planned_cog_deg: 4.57, distance_m: 150.48, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.8, navigation_mode: upper_turn_exit}
+  - {from: p5, to: p6, planned_cog_deg: 3.05, distance_m: 150.21, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.4, navigation_mode: upper_recovery}
+  - {from: p6, to: p7, planned_cog_deg: 338.20, distance_m: 161.55, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.2, navigation_mode: counter_turn}
+  - {from: p7, to: p8, planned_cog_deg: 326.31, distance_m: 180.28, xtl_port_m: 25.0, xtl_starboard_m: 25.0, speed_limit_mps: 3.1, navigation_mode: counter_turn}
+  - {from: p8, to: p9, planned_cog_deg: 345.07, distance_m: 155.24, xtl_port_m: 22.0, xtl_starboard_m: 22.0, speed_limit_mps: 3.2, navigation_mode: lower_recovery}
+  - {from: p9, to: p10, planned_cog_deg: 358.09, distance_m: 150.08, xtl_port_m: 20.0, xtl_starboard_m: 20.0, speed_limit_mps: 3.2, navigation_mode: lower_recovery}
+  - {from: p10, to: p11, planned_cog_deg: 357.14, distance_m: 100.12, xtl_port_m: 18.0, xtl_starboard_m: 18.0, speed_limit_mps: 2.6, navigation_mode: line_up}
+  - {from: p11, to: p12, planned_cog_deg: 11.31, distance_m: 101.98, xtl_port_m: 15.0, xtl_starboard_m: 15.0, speed_limit_mps: 2.4, navigation_mode: final_approach}
+  - {from: p12, to: p13, planned_cog_deg: 56.31, distance_m: 90.14, xtl_port_m: 12.0, xtl_starboard_m: 12.0, speed_limit_mps: 1.8, navigation_mode: standby_approach}
+  - {from: p13, to: p14, planned_cog_deg: 90.0, distance_m: 35.0, xtl_port_m: 8.0, xtl_starboard_m: 8.0, speed_limit_mps: 0.8, navigation_mode: final_hold_approach}
+
+turn_constraints:
+  - {at: p1, turn_direction: port, turn_radius_m: 260.0, max_rot_deg_s: 1.0, wheel_over_distance_m: 160.0, target_speed_mps: 3.8}
+  - {at: p6, turn_direction: starboard, turn_radius_m: 260.0, max_rot_deg_s: 1.2, wheel_over_distance_m: 100.0, target_speed_mps: 3.2}
+  - {at: p8, turn_direction: port, turn_radius_m: 240.0, max_rot_deg_s: 1.2, wheel_over_distance_m: 80.0, target_speed_mps: 3.2}
+  - {at: p12, turn_direction: port, turn_radius_m: 120.0, max_rot_deg_s: 1.0, wheel_over_distance_m: 70.0, target_speed_mps: 1.8}
+  - {at: p13, turn_direction: port, turn_radius_m: 80.0, max_rot_deg_s: 0.8, wheel_over_distance_m: 35.0, target_speed_mps: 0.8}
+
+safety_corridor:
+  xte_semantics: XTL exceedance requests safety-supervisor action; it must not directly bypass controller or allocator limits.
+  caution_ratio: 0.7
+  hold_ratio: 1.0
+  abort_ratio: 1.3
+  response_sequence: [reduce_speed, rejoin_corridor, hold_or_manual_handover, abort_escape]

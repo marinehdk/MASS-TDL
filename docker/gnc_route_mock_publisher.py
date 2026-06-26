@@ -2,9 +2,13 @@
 """GNC Route Mock Publisher (D1.8) — stands in for real L2 in Phase 1.
 
 Subscribes /sil/lifecycle_status; on ACTIVE reads the scenario YAML's
-ownShip.nominalRoute and publishes it as ship_interfaces/GncRoutePlan on
+ownShip.nominalRoute and publishes it as ship_interfaces/RoutePlan on
 /route_planning/gnc_route_plan (latched). Re-publishes the latest plan at
 1 Hz so late subscribers receive it.
+
+Track A: migrated from the legacy GncRoutePlan (L3-local ship_interfaces)
+to the GNC ship_interfaces/RoutePlan, which is now the single source for the
+route contract. RoutePlan has no total_waypoints field (len(latitude) suffices).
 """
 import os
 import signal
@@ -17,7 +21,7 @@ from rclpy.qos import (QoSProfile, QoSReliabilityPolicy,
 from std_msgs.msg import String, Header
 from builtin_interfaces.msg import Time as BuiltinTime
 from sil_msgs.msg import LifecycleStatus
-from ship_interfaces.msg import GncRoutePlan
+from ship_interfaces.msg import RoutePlan
 
 SCENARIO_DIR = os.environ.get("SIL_SCENARIO_DIR", "/var/sil/scenarios")
 PUBLISH_HZ = 1.0
@@ -43,7 +47,7 @@ class GncRouteMockPublisher(Node):
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             history=QoSHistoryPolicy.KEEP_LAST, depth=5)
         self._pub = self.create_publisher(
-            GncRoutePlan, "/route_planning/gnc_route_plan", route_qos)
+            RoutePlan, "/route_planning/gnc_route_plan", route_qos)
 
         self.create_subscription(LifecycleStatus, "/sil/lifecycle_status",
                                  self._on_lifecycle, 10)
@@ -96,11 +100,10 @@ class GncRouteMockPublisher(Node):
     def _on_timer(self):
         if not self._is_active or not self._waypoints:
             return
-        msg = GncRoutePlan()
+        msg = RoutePlan()
         msg.header = Header(stamp=_now(self), frame_id="map")
         msg.latitude = [lat for lat, _ in self._waypoints]
         msg.longitude = [lon for _, lon in self._waypoints]
-        msg.total_waypoints = len(self._waypoints)
         self._pub.publish(msg)
 
 

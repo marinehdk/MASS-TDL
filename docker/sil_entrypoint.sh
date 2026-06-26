@@ -228,34 +228,40 @@ except Exception:
 import os as _os
 external_l2_route = _os.environ.get('TDL_INTEGRATION_PROFILE', 'default') in ('a4000_external', 'hybrid_debug')
 if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
-    print(f'[{ts()}] Stage 3/3: Starting L3 kernel bridge + nodes')
+    print(f'[{ts()}] Stage 3/3: Starting L3 kernel adapters + nodes')
     sys.stdout.flush()
 
-    # 3a. Start topic bridge as background process (same as before)
-    bridge_proc = subprocess.Popen(
-        ['python3', '/opt/ws/docker/sil_topic_bridge.py', '--ros-args', '-p', 'use_sim_time:=True'],
-        stdout=sys.stdout, stderr=sys.stderr
-    )
-    print(f'  [{ts()}] Bridge PID: {bridge_proc.pid}')
+    # 3a. Start the 3 C++ SIL adapter nodes (Track A A5) as background
+    # processes. These replace the monolithic sil_topic_bridge.py:
+    #   sil_fusion_adapter  — SIL→L3 fusion relay (targets/environment)
+    #   sil_trace_adapter   — L3→SIL decision-trace relay (ASDR/UIState)
+    #   sil_pulse_adapter   — M1-M8 heartbeat aggregation → /sil/module_pulse
+    # The actuator path (/sil/actuator_cmd) is NOT relaunched here: the GNC
+    # profile owns the actuator path via gnc_bridge + GNC ship_control, and the
+    # SIL-only profile no longer carries a SIL-side actuator (spec D5).
+    ros_env = {**_os.environ}
+    adapter_procs = []
+    for adapter in ('sil_fusion_adapter', 'sil_trace_adapter', 'sil_pulse_adapter'):
+        proc = subprocess.Popen(
+            ['ros2', 'run', adapter, f'{adapter}_node',
+             '--ros-args', '-p', 'use_sim_time:=True'],
+            stdout=sys.stdout, stderr=sys.stderr, env=ros_env)
+        adapter_procs.append(proc)
+        print(f'  [{ts()}] {adapter}_node PID: {proc.pid}')
 
-    l4_adapter_node = None
-    if _os.environ.get('SIL_L4_ADAPTER_ENABLE', '0').strip().lower() in ('1', 'true', 'on', 'yes'):
-        try:
-            l4_source_path = '/opt/ws/src/sim_workbench/sil_nodes/l4_guidance_adapter'
-            if _os.path.isdir(l4_source_path) and l4_source_path not in sys.path:
-                sys.path.insert(0, l4_source_path)
-            from l4_guidance_adapter.node import L4GuidanceAdapterNode
-            l4_adapter_node = L4GuidanceAdapterNode()
-            try:
-                l4_adapter_node.set_parameters([_Param('use_sim_time', _Param.Type.BOOL, True)])
-            except Exception as exc:
-                print(f'  [{ts()}] [WARN] Failed to set use_sim_time on l4_guidance_adapter: {exc}')
-            executor.add_node(l4_adapter_node)
-            nodes.append(l4_adapter_node)
-            print(f'  [{ts()}] Stage 3: created l4_guidance_adapter (owns /sil/actuator_cmd)')
-        except Exception as exc:
-            print(f'  [{ts()}] FATAL: failed to start l4_guidance_adapter: {type(exc).__name__}: {exc}', file=sys.stderr)
-            sys.exit(1)
+    # 3a-1b. Start sil_trace_writer (Track A A5c regression fix): an independent
+    # process that subscribes to the L3/SIL interface topics and writes
+    # /var/sil/runs/trace_current.jsonl — the file the orchestrator
+    # /debug/snapshot endpoint and the COLREGs probe get_sim_time() read from.
+    # A5c deleted sil_topic_bridge.py (the previous writer); the C++ adapters
+    # above are pure DDS→DDS relays and never reimplemented the JSONL writer,
+    # which left the snapshot empty and the probe stuck at sim_t=0.
+    trace_writer_proc = subprocess.Popen(
+        ['python3', '/opt/ws/docker/sil_trace_writer.py',
+         '--ros-args', '-p', 'use_sim_time:=True'],
+        stdout=sys.stdout, stderr=sys.stderr, env=ros_env)
+    adapter_procs.append(trace_writer_proc)
+    print(f'  [{ts()}] sil_trace_writer PID: {trace_writer_proc.pid}')
 
     # 3a-2. Start mock L2 publisher (unblocks M3 AWAITING_ROUTE)
     # Detect active scenario YAML from scenario directory
@@ -330,7 +336,7 @@ if _os.environ.get('SIL_L3_ENABLE', '1') == '1':
         ('m2_world_model',          'm2_world_model',           'm2_world_model', []),
         ('m4_behavior_arbiter',     'm4_behavior_arbiter',      'm4_behavior_arbiter', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m4_behavior_arbiter/share/m4_behavior_arbiter/config']),
         ('m6_colregs_reasoner',     'm6_colregs_reasoner',      'm6_colregs_reasoner', ['--ros-args', '-p', 'config_dir:=/opt/ws/install/m6_colregs_reasoner/share/m6_colregs_reasoner/config']),
-        ('m5_tactical_planner',     'm5_mid_mpc_node',          'm5_tactical_planner', ['--ros-args', '-r', '/m5/avoidance_plan:=/l3/m5/avoidance_plan', '-r', '/m5/sat_data:=/l3/sat/data', '-r', '/m5/asdr_record:=/l3/asdr/record']),
+        ('m5_tactical_planner',     'm5_mid_mpc_node',          'm5_tactical_planner', []),
         ('m3_mission_manager',      'm3_mission_manager',       'm3_mission_manager', []),
         ('m8_hmi_transparency_bridge', 'm8_hmi_transparency_bridge_node', 'm8_hmi_bridge', []),
     ]
@@ -443,6 +449,14 @@ finally:
     if 'bridge_proc' in dir() and bridge_proc and bridge_proc.poll() is None:
         bridge_proc.terminate()
         bridge_proc.wait(timeout=5)
+    # C++ adapters + sil_trace_writer
+    for p in (adapter_procs if 'adapter_procs' in dir() else []):
+        if p and p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                p.kill()
     if 'mock_l2_proc' in dir() and mock_l2_proc and mock_l2_proc.poll() is None:
         mock_l2_proc.terminate()
         mock_l2_proc.wait(timeout=5)

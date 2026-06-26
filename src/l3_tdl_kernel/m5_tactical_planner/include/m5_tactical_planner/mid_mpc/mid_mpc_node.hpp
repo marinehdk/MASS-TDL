@@ -8,6 +8,7 @@
 
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_external_msgs/msg/speed_profile.hpp"
+#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
@@ -69,6 +70,8 @@ class MidMpcNode : public rclcpp::Node {
   l3_external_msgs::msg::SpeedProfile::SharedPtr             speed_profile_;
 
   rclcpp::Publisher<l3_msgs::msg::AvoidancePlan>::SharedPtr  pub_avoidance_plan_;
+  // Track A A3: L3-owned waypoint plan consumed by the GNC bridge (A4).
+  rclcpp::Publisher<l3_external_msgs::msg::AvoidanceWaypoints>::SharedPtr pub_avoidance_waypoints_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
@@ -92,6 +95,18 @@ class MidMpcNode : public rclcpp::Node {
   void publish_outputs_(const MidMpcSolution& sol,
                         const l3_msgs::msg::AvoidancePlan& plan);
   void publish_trajectory_candidates_(const MidMpcInput& input);
+
+  // Track A A3: emit the L3-owned waypoint plan on /l3/m5/avoidance_waypoints
+  // for the GNC bridge to translate. Called from publish_outputs_ with the same
+  // avoidance/intent context. When behavior is not avoidance (transit/recovery,
+  // i.e. M6 conflict clear), a single return_to_route plan is emitted once per
+  // conflict-clear transition so active_route_manager completes the avoidance
+  // lifecycle naturally (spec D4: release authority = M5 plan emission).
+  void publish_avoidance_waypoints_(rclcpp::Time now,
+                                    const MidMpcInput& input,
+                                    double lat0_deg,
+                                    double lon0_deg);
+  bool last_emitted_conflict_active_{false};
 
   // Geometric starboard fallback: generates arc waypoints from vessel kinematics
   // when the NLP solver fails or M4 signals a geometric starboard requirement.

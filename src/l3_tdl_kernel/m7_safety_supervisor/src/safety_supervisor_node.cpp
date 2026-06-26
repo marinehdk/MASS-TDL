@@ -165,7 +165,7 @@ void SafetySupervisorNode::setup_event_subscriptions(
   opts.callback_group = cb_group_events_;
 
   sub_override_cmd_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
-    "/l3/m4/reactive_override_cmd", qos_events,
+    "/l3/m5/reactive_override_cmd", qos_events,
     [this](l3_msgs::msg::ReactiveOverrideCmd::ConstSharedPtr const& msg) {
       on_override_cmd(msg);
     },
@@ -436,7 +436,7 @@ void SafetySupervisorNode::run_monitor_evaluation(
     kCommLink,
     now);
 
-  // Publish SotifMetrics to /sil/sotif_metrics (DEMO-2: stub mode by default)
+  // Publish SotifMetrics to /l3/m7/sotif_metrics (authority; DEMO-2: stub mode by default)
   auto const kVetoWindowCount = checker_veto_counter_->window_violation_count();
   sotif_metrics_publisher_->publish(kAssumptionStatus, kVetoWindowCount);
 

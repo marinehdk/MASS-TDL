@@ -1,0 +1,46 @@
+scenario_id: 010_zigzag_10_10
+scenario_class: standard_manoeuvre
+description: Zig-zag style alternating course changes for overshoot and damping screening.
+validation_objective: Verify heading overshoot, yaw damping, and allocator recovery through repeated reversals.
+seed: 110
+duration_s: 760
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [220.0, 40.0]
+    - [440.0, -40.0]
+    - [660.0, 40.0]
+    - [880.0, -40.0]
+    - [1100.0, 0.0]
+
+environment:
+  wind: {speed_mps: 1.0, direction_deg: 0.0}
+  current: {speed_mps: 0.0, direction_deg: 0.0}
+  wave: {hs_m: 0.1, direction_deg: 0.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.6}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.4}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Alternating course changes remain damped without growing overshoot.
+  max_cross_track_error_m: 35
+  max_heading_error_deg: 15
+  max_yaw_rate_deg_s: 7
+  max_second_overshoot_deg: 18
+  should_not_oscillate_after_turn: true

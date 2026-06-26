@@ -1,0 +1,223 @@
+# Generated reference split from ship_config.yaml. Not launch-active yet.
+ship_control_node:
+  ros__parameters:
+    arrival_radius: 15.0
+    control_authority: manual
+    control_period: 0.1
+    coordinate_conventions:
+      yaw_torque_sign: 1.0
+      yaw_torque_sign_cruise: 1.0
+      yaw_torque_sign_dp: 1.0
+    cruise_speed: 8.0
+    deadzone_radius: 2.0
+    derivative_cutoff_freq: 5.0
+    gains:
+      speed:
+        k_robust: 1000.0
+        kd: 0.0
+        ki: 0.0
+        kp: 40000.0
+        phi: 1.0
+      surge:
+        k_robust: 1000.0
+        kd: 100000.0
+        ki: 0.0
+        kp: 50000.0
+        phi: 1.0
+      sway:
+        k_robust: 10000.0
+        kd: 15000.0
+        ki: 500.0
+        kp: 30000.0
+        phi: 1.0
+      yaw:
+        k_robust: 1000.0
+        kd: 4500000.0
+        ki: 0.0
+        kp: 200000.0
+        phi: 0.5
+      yaw_dp:
+        k_robust: 1000.0
+        kd: 5500000.0
+        ki: 0.0
+        kp: 200000.0
+        phi: 0.5
+      surge_dp:
+        k_robust: 1000.0
+        kd: 70000.0
+        ki: 0.0
+        kp: 3000.0
+        phi: 1.0
+      sway_dp:
+        k_robust: 1000.0
+        kd: 15000.0
+        ki: 0.0
+        kp: 800.0
+        phi: 1.0
+    integral_limit: 50.0
+    lpf_alpha: 0.4
+    max_force_x: 200000.0
+    max_force_y: 60000.0
+    max_thrust_surge: 200000.0
+    max_reverse_surge: 60000.0
+    max_torque_z: 960000.0
+    min_yaw_moment_dp: 0.0
+    max_torque_z_dp: 400000.0
+    min_yaw_moment_full_error_deg: 90.0
+    min_yaw_moment_yaw_rate_suppress_deg_s: 1.5
+    ndo:
+      damping_x: 3500.0
+      damping_y: 18000.0
+      damping_yaw: 420000.0
+      enable: false
+      gain_x: 0.5
+      gain_y: 0.5
+      gain_yaw: 0.2
+      mass_x: 242000.0
+      mass_y: 380000.0
+      mass_yaw: 36500000.0
+    speed_at_arrival: 0.3
+    speed_deadzone: 0.2
+    speed_drag_feedforward:
+      enable: true
+      linear_N_per_mps: 3500.0
+      quadratic_N_per_mps2: 280.0
+    target:
+      x: 100.0
+      y: 0.0
+      yaw: 0.785398
+thrust_allocation_node:
+  ros__parameters:
+    control_mode: auto
+    env_feedforward_weight: 0.0
+    enable_straight_cruise_main_equalization: true
+    main_equalization_yaw_deadband_kNm: 30.0
+    main_equalization_lateral_deadband_kN: 0.5
+    side_thruster_derate_start_speed_mps: 1.5
+    side_thruster_derate_decay_per_mps: 0.7
+    side_thruster_lockout_speed_mps: 3.0
+    side_thruster_emergency_unlock_max_speed_mps: 3.0
+    side_thruster_lateral_deadband_kN: 0.5
+    side_thruster_yaw_emergency_kNm: 200.0
+    r1:
+      angle_default: 0.0
+      angle_max: 0.6109
+      angle_min: -0.6109
+      angle_rate_limit: 0.1
+      is_azimuth: false
+      is_rudder: true
+      max_power_kW: 100.0
+      max_thrust_kN: 10.0
+      thrust_rate_limit: 0.0
+      weight: 1.0
+      weight_delta: 1.0
+      x: -19.594
+      y: -3.0
+    r2:
+      angle_default: 0.0
+      angle_max: 0.6109
+      angle_min: -0.6109
+      angle_rate_limit: 0.1
+      is_azimuth: false
+      is_rudder: true
+      max_power_kW: 100.0
+      max_thrust_kN: 10.0
+      thrust_rate_limit: 0.0
+      weight: 1.0
+      weight_delta: 1.0
+      x: -19.594
+      y: 3.0
+    t1:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0
+      weight: 1.0
+      weight_delta: 5.0
+      x: -18.094
+      y: -3.0
+    t2:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0
+      weight: 1.0
+      weight_delta: 5.0
+      x: -18.094
+      y: 0.0
+    t3:
+      angle_default: 0.0
+      angle_max: 0.0
+      angle_min: 0.0
+      angle_rate_limit: 0.0
+      diameter: 1.8
+      eta1: 1.2346
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 800.0
+      max_thrust_kN: 135.0
+      thrust_rate_limit: 200000.0
+      weight: 1.0
+      weight_delta: 5.0
+      x: -18.094
+      y: 3.0
+    tb1:
+      angle_default: 1.5708
+      angle_max: 1.5708
+      angle_min: 1.5708
+      angle_rate_limit: 0.0
+      diameter: 0.8
+      eta1: 0.4296
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 500.0
+      max_thrust_kN: 20.0
+      thrust_rate_limit: 50000.0
+      weight: 1.0
+      weight_delta: 1.0
+      x: 21.906
+      y: 0.0
+    tb2:
+      angle_default: 1.5708
+      angle_max: 1.5708
+      angle_min: 1.5708
+      angle_rate_limit: 0.0
+      diameter: 0.8
+      eta1: 0.4296
+      eta2: 1.0
+      eta_m: 0.93
+      is_azimuth: false
+      max_power_kW: 500.0
+      max_thrust_kN: 20.0
+      thrust_rate_limit: 50000.0
+      weight: 1.0
+      weight_delta: 1.0
+      x: 23.406
+      y: 0.0
+    thruster_names:
+    - t1
+    - t2
+    - t3
+    - tb1
+    - tb2
+    - r1
+    - r2
+    update_rate: 50.0

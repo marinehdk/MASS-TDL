@@ -1,0 +1,45 @@
+scenario_id: 005_crosscurrent_tracking
+scenario_class: environmental_disturbance
+description: Straight track under beam current; guidance should account for drift.
+validation_objective: Verify crab-angle and sway compensation behavior under steady cross-current.
+seed: 105
+duration_s: 420
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 3.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 3.0
+  waypoints:
+    - [0.0, 0.0]
+    - [900.0, 0.0]
+
+environment:
+  wind: {speed_mps: 2.0, direction_deg: 90.0}
+  current:
+    speed_mps: 0.8
+    direction_deg: 90.0
+    tide_speed_mps: 0.8
+    tide_direction_deg: 90.0
+  wave: {hs_m: 0.2, direction_deg: 90.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.8}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.03}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Controller compensates current set without ignoring persistent sideslip.
+  max_cross_track_error_m: 30
+  max_heading_error_deg: 12
+  should_detect_persistent_sideslip: true
+  should_not_zero_sway_force_in_hold_mode: true

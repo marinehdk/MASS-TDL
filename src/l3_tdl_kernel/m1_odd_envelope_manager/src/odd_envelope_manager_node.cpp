@@ -86,8 +86,8 @@ constexpr double kHealthDegradedThreshold = 0.3;
 /// Default topic names.
 constexpr const char* kTopicSafetyAlert      = "/l3/m7/safety_alert";
 constexpr const char* kTopicM7Heartbeat      = "/l3/m7/heartbeat";
-constexpr const char* kTopicReflexActivation = "/reflex/activation_notification";
-constexpr const char* kTopicOverrideSignal   = "/override/active_signal";
+constexpr const char* kTopicReflexActivation = "/l3/reflex/activation";
+constexpr const char* kTopicOverrideSignal   = "/l3/override/active";
 constexpr const char* kTopicEnvironmentState = "/fusion/environment_state";
 constexpr const char* kTopicOwnShipState     = "/fusion/own_ship_state";
 constexpr const char* kTopicWorldState       = "/l3/m2/world_state";

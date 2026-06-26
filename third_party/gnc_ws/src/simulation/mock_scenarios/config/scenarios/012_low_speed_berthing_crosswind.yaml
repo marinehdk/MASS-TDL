@@ -1,0 +1,45 @@
+scenario_id: 012_low_speed_berthing_crosswind
+scenario_class: captain_operational
+description: Low-speed final approach and lateral correction under crosswind.
+validation_objective: Verify captain-facing berthing support at low speed with explicit sway/yaw authority.
+seed: 112
+duration_s: 620
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 35.0, yaw_deg: 0.0}
+  initial_velocity: {u: 1.2, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 1.2
+  waypoints:
+    - [0.0, 35.0]
+    - [120.0, 25.0]
+    - [220.0, 12.0]
+    - [300.0, 4.0]
+    - [340.0, 0.0]
+
+environment:
+  wind: {speed_mps: 11.0, direction_deg: 90.0, anemometer_height_m: 10.0}
+  current: {speed_mps: 0.3, direction_deg: 90.0, tide_speed_mps: 0.3, tide_direction_deg: 90.0}
+  wave: {hs_m: 0.2, direction_deg: 90.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.4}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.02, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.3}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Final approach remains slow, lateral error bounded, and bow-thruster/yaw commands stay smooth.
+  max_cross_track_error_m: 12
+  max_final_position_error_m: 8
+  max_final_speed_mps: 0.25
+  max_heading_error_deg: 6
+  should_not_zero_sway_force_in_hold_mode: true

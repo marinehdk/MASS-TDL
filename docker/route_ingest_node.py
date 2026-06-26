@@ -19,7 +19,7 @@ from rclpy.qos import (QoSProfile, QoSReliabilityPolicy,
                        QoSDurabilityPolicy, QoSHistoryPolicy)
 from std_msgs.msg import Header, String
 from geographic_msgs.msg import GeoPath, GeoPoseStamped, GeoPoint
-from ship_interfaces.msg import GncRoutePlan
+from ship_interfaces.msg import RoutePlan
 from l3_external_msgs.msg import PlannedRoute
 from sil_msgs.msg import LifecycleStatus
 
@@ -83,7 +83,7 @@ class RouteIngestNode(Node):
         self._current_scenario_id = ""
         self._scenario_dir = SCENARIO_DIR
         self.create_subscription(
-            GncRoutePlan, "/route_planning/gnc_route_plan",
+            RoutePlan, "/route_planning/gnc_route_plan",
             self._on_route, _LATCHED)
         self.create_subscription(LifecycleStatus, "/sil/lifecycle_status",
                                  self._on_lifecycle, 10)
@@ -138,14 +138,14 @@ class RouteIngestNode(Node):
                 f"Could not load expected route for {scenario_id}: {exc}; "
                 "accepting any GncRoutePlan")
 
-    def _on_route(self, msg: GncRoutePlan):
+    def _on_route(self, msg: RoutePlan):
         lats = list(msg.latitude)
         lons = list(msg.longitude)
         route_signature = _route_signature(lats, lons)
         if (self._expected_route_signature is not None
                 and route_signature != self._expected_route_signature):
             self.get_logger().warn(
-                f"Ignoring GncRoutePlan not matching active scenario "
+                f"Ignoring RoutePlan not matching active scenario "
                 f"{self._current_scenario_id}: got {len(lats)} waypoints")
             return
 
@@ -154,13 +154,13 @@ class RouteIngestNode(Node):
             return  # stale (older than current) — ignore
         replaced = self._last_stamp_ns >= 0 and stamp_ns > self._last_stamp_ns
         self._last_stamp_ns = stamp_ns
-        n = msg.total_waypoints
+        n = len(msg.latitude)
         self.get_logger().info(
-            f"{'REPLACED' if replaced else 'RECEIVED'} GncRoutePlan: "
+            f"{'REPLACED' if replaced else 'RECEIVED'} RoutePlan: "
             f"{n} waypoints (stamp={stamp_ns})")
         self._publish_internal(msg)
 
-    def _publish_internal(self, msg: GncRoutePlan):
+    def _publish_internal(self, msg: RoutePlan):
         lats = list(msg.latitude)
         lons = list(msg.longitude)
         n = len(lats)

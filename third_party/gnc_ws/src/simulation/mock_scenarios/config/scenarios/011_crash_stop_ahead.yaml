@@ -1,0 +1,43 @@
+scenario_id: 011_crash_stop_ahead
+scenario_class: standard_manoeuvre
+description: Ahead-to-stop manoeuvre for braking, reverse thrust gating, and stopping-distance screening.
+validation_objective: Verify safe deceleration and stopping distance without unintended hard yaw.
+seed: 111
+duration_s: 520
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 4.0, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 4.0
+  waypoints:
+    - [0.0, 0.0]
+    - [450.0, 0.0]
+    - [470.0, 0.0]
+
+environment:
+  wind: {speed_mps: 3.0, direction_deg: 20.0}
+  current: {speed_mps: 0.2, direction_deg: 180.0}
+  wave: {hs_m: 0.3, direction_deg: 20.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.7}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.03}
+  compass: {rate_hz: 10, noise_std_deg: 0.5}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Stop is achieved within distance while reverse thrust remains gated and yaw stays bounded.
+  max_stopping_distance_m: 520
+  max_final_speed_mps: 0.35
+  max_heading_error_deg: 8
+  should_allow_reverse_only_when_explicit: true
+  should_not_command_hard_turn: true

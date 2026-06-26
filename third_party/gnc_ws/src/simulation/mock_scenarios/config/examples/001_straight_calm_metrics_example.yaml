@@ -1,0 +1,8 @@
+scenarios:
+  001_straight_calm:
+    max_cross_track_error_m: 0.5
+    max_final_position_error_m: 0.2
+    max_final_speed_mps: 3.0
+    max_heading_error_deg: 0.2
+    max_yaw_rate_deg_s: 0.057295779513082325
+    min_forward_speed_mps: 3.0

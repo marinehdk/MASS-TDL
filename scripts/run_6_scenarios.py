@@ -1298,7 +1298,12 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
             
         if abs(sim_t - last_sim_t) < 0.1:
             stuck_counter += 1
-            if stuck_counter > 40: # ~20 seconds wall time with no sim progress
+            # GNC plant profile needs a longer warmup window (geo_position @50Hz
+            # + GNC control loop + ship_dynamics actuation) before the first
+            # own_ship movement advances sim_t. 120 ticks ≈ 60s wall — generous
+            # enough for the GNC stack cold-start without masking a real stall.
+            stuck_limit = int(__import__('os').environ.get('PROBE_STUCK_LIMIT', '40'))
+            if stuck_counter > stuck_limit:
                 print(f"\n  Warning: simulation appears to be stuck at sim_t = {sim_t:.1f}s")
                 break
         else:

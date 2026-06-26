@@ -1,0 +1,176 @@
+policy_id: captain_policy_45m_crewboat_c_mock
+schema_version: captain_policy.v1
+vessel_profile_ref: crewboat_45m_c_mock
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace C-level policy values with operator-approved vessel data, sea-trial maneuvering data, port/VTS limits, and route-planner constraints without changing the policy interface.
+
+principles:
+  priority_order:
+    - safety_of_life
+    - collision_and_grounding_avoidance
+    - regulatory_and_permission_compliance
+    - vessel_and_passenger_comfort
+    - schedule
+  speed_is_contextual: true
+  route_gates_are_not_single_absolute_red_lines: true
+  route_changes_require_authorization: true
+  safety_supervisor_can_interrupt_any_phase: true
+
+context_classifier:
+  dimensions:
+    - water_area
+    - mission_phase
+    - traffic_density
+    - environmental_load
+    - navigation_confidence
+    - actuator_margin
+    - crew_or_deck_operation
+  water_area_values:
+    - open_water
+    - coastal
+    - narrow_channel
+    - port_approach
+    - berth_or_worksite
+  mission_phase_values:
+    - precheck
+    - cruise
+    - decel
+    - planned_turn
+    - report
+    - approach
+    - standby
+    - berth_or_work
+    - abort_escape
+
+profiles:
+  open_water_cruise:
+    applies_when: {water_area: open_water, mission_phase: cruise}
+    speed:
+      target_mps: 8.0
+      min_expected_peak_mps: 7.7
+      hard_limit_mps: 8.8
+      reduce_if_environment_or_traffic_margin_low: true
+    route:
+      captain_gate_spacing_min_m: 1000.0
+      internal_sample_spacing_m: [400.0, 800.0]
+      xtd_port_m: 80.0
+      xtd_starboard_m: 80.0
+      lookahead_m: [180.0, 300.0]
+    propulsion:
+      main_propellers: equalized_forward_thrust
+      tunnel_thrusters: locked_out
+      rudders: primary_heading_control
+
+  long_planned_turn:
+    applies_when: {water_area: coastal, mission_phase: planned_turn}
+    speed:
+      target_range_mps: [4.5, 5.5]
+      hard_limit_mps: 6.0
+      speed_is_hard_limit: false
+    route:
+      captain_gate_spacing_min_m: 800.0
+      internal_sample_spacing_m: [350.0, 600.0]
+      turn_radius_m: [800.0, 1400.0]
+      wheel_over_distance_m: [180.0, 300.0]
+      max_rot_deg_s: 0.8
+      xtd_port_m: 150.0
+      xtd_starboard_m: 150.0
+      waypoint_switch_xte_gate_m: [120.0, 150.0]
+      xte_validation_source: leg_plan_xtd
+      rejoin_strategy:
+        homing_threshold_m: 80.0
+        homing_max_approach_angle_deg: 32.0
+        homing_lookahead_m: 180.0
+        rejoin_cross_track_m: [35.0, 40.0]
+    propulsion:
+      main_propellers: allow_limited_differential
+      tunnel_thrusters: locked_or_derated
+      rudders: primary_heading_control
+
+  engineering_s_turn_regression:
+    applies_when: {water_area: test_area, mission_phase: planned_turn}
+    purpose: Keep scenario 002 as a compact engineering regression; do not use it as captain-visible passage-plan semantics.
+    speed:
+      target_range_mps: [3.0, 3.8]
+    route:
+      internal_sample_spacing_m: [90.0, 180.0]
+      route_shape_coverage_required: true
+      xte_validation_source: waypoint_gate_or_leg_plan
+
+  final_approach:
+    applies_when: {water_area: port_approach, mission_phase: approach}
+    speed:
+      target_range_mps: [1.2, 2.8]
+      hard_limit_mps: 3.2
+    route:
+      captain_gate_spacing_min_m: 100.0
+      internal_sample_spacing_m: [60.0, 200.0]
+      xtd_port_m: 25.0
+      xtd_starboard_m: 25.0
+      lookahead_m: [60.0, 120.0]
+    propulsion:
+      main_propellers: limited_forward_reverse
+      tunnel_thrusters: available_with_limits
+      rudders: secondary_at_low_speed
+
+  standby_and_work:
+    applies_when: {water_area: berth_or_worksite, mission_phase: standby}
+    speed:
+      target_mps: 0.0
+      hard_limit_mps: 0.8
+    route:
+      final_position_error_m: 25.0
+      final_speed_mps: 0.35
+      heading_error_deg: 10.0
+    deck_interlocks:
+      passenger_transfer_area_clear: required_for_work
+      crane_stowed_or_authorized: required_for_work
+      manual_confirmation_required: true
+    propulsion:
+      main_propellers: low_speed_positioning
+      tunnel_thrusters: available_with_limits
+      rudders: secondary
+
+deviation_response:
+  xte_or_xtd_exceedance:
+    caution_ratio: 0.7
+    hold_ratio: 1.0
+    abort_ratio: 1.3
+    sequence:
+      - alert_captain
+      - reduce_speed
+      - rejoin_corridor
+      - hold_or_manual_handover
+      - abort_escape_if_hard_boundary_or_collision_grounding_risk
+  odometry_or_navigation_fault:
+    stale_timeout_s: 4.0
+    sequence:
+      - alert_captain
+      - degrade_navigation
+      - hold_last_safe_command_or_slow_down
+      - manual_or_remote_supervision
+  actuator_fault:
+    sequence:
+      - recompute_actuator_capability
+      - reduce_operational_envelope
+      - replan_or_abort_if_margin_insufficient
+
+interfaces:
+  input:
+    route_plan: /mission/route_plan
+    vessel_state: /ship/odometry
+    environment: /env/total_load
+    traffic: /traffic/tracks
+    chart_constraints: /navigation/chart_constraints
+    permissions: /mission/permissions
+    actuator_health: /thruster/health_status
+  output:
+    selected_profile: /policy/selected_profile
+    route_execution_constraints: /policy/route_constraints
+    speed_envelope: /policy/speed_envelope
+    propulsion_policy: /policy/propulsion_policy
+    safety_limits: /safety/command_limits
+    captain_alert: /captain/alert

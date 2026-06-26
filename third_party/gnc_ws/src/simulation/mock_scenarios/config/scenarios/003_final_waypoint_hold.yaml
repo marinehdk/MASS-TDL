@@ -1,0 +1,45 @@
+scenario_id: 003_final_waypoint_hold
+scenario_class: baseline
+description: Calm-water arrival at final waypoint, then hold/stop behavior should be explicit and stable.
+validation_objective: Verify low-speed arrival behavior and avoid repeated forward thrust near the final waypoint before adding environmental disturbance.
+seed: 103
+duration_s: 420
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 2.5, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 2.5
+  waypoints:
+    - [0.0, 0.0]
+    - [500.0, 0.0]
+
+environment:
+  wind: {speed_mps: 0.0, direction_deg: 90.0}
+  current: {speed_mps: 0.0, direction_deg: 90.0}
+  wave: {hs_m: 0.0, direction_deg: 70.0}
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.5}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.02}
+  compass: {rate_hz: 10, noise_std_deg: 0.3}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Vessel slows and reaches a stable hold or manual handover state.
+  max_final_position_error_m: 12
+  max_final_speed_mps: 0.4
+  should_publish_arrival_status: true
+  should_enter_hold_or_manual_handover: true
+  should_not_keep_reissuing_large_forward_thrust: true
+  navigation_fault_detected: false
+  should_enter_degraded_mode: false
+  should_not_command_hard_turn: true

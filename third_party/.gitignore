@@ -1,0 +1,4 @@
+# GNC build artifacts — never commit
+gnc_ws/build/
+gnc_ws/install/
+gnc_ws/log/

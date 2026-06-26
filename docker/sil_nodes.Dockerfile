@@ -97,6 +97,10 @@ COPY src/sim_workbench/sil_msgs       src/sim_workbench/sil_msgs
 COPY src/sim_workbench/sil_common     src/sim_workbench/sil_common
 COPY src/sim_workbench/ais_twin       src/sim_workbench/ais_twin
 COPY src/sim_workbench/external_adapters src/sim_workbench/external_adapters
+COPY src/sim_workbench/gnc_bridge    src/sim_workbench/gnc_bridge
+COPY src/sim_workbench/sil_fusion_adapter src/sim_workbench/sil_fusion_adapter
+COPY src/sim_workbench/sil_trace_adapter src/sim_workbench/sil_trace_adapter
+COPY src/sim_workbench/sil_pulse_adapter src/sim_workbench/sil_pulse_adapter
 COPY src/ship_interfaces             src/ship_interfaces
 
 # L3 kernel modules (M1-M8) — DEMO-1 integration
@@ -124,7 +128,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             external_adapters \
             ship_dynamics env_disturbance target_vessel \
             sensor_mock tracker_mock scenario_authoring \
-            fault_injection scoring l4_guidance_adapter \
+            fault_injection scoring \
             m1_odd_envelope_manager \
             m2_world_model \
             m3_mission_manager \
@@ -132,19 +136,23 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=shared \
             m5_tactical_planner \
             m6_colregs_reasoner \
             m7_safety_supervisor \
-            m8_hmi_transparency_bridge
+            m8_hmi_transparency_bridge \
+            gnc_bridge \
+            sil_fusion_adapter \
+            sil_trace_adapter \
+            sil_pulse_adapter
 
 RUN echo 'source /opt/ws/install/setup.bash' >> /root/.bashrc
 
 # Launch all 10 Python LifecycleNodes directly (ament_python packages
 # have no libexec dir; ros2 launch fails. Use ros2 run + lifecycle cli instead.)
 COPY docker/sil_entrypoint.sh /opt/ws/sil_entrypoint.sh
-COPY docker/sil_topic_bridge.py /opt/ws/docker/sil_topic_bridge.py
 COPY docker/mock_l2_publisher.py /opt/ws/docker/mock_l2_publisher.py
 COPY docker/gnc_route_mock_publisher.py /opt/ws/docker/gnc_route_mock_publisher.py
 COPY docker/route_ingest_node.py /opt/ws/docker/route_ingest_node.py
 COPY docker/fsm_aggregator_node.py /opt/ws/docker/fsm_aggregator_node.py
 COPY docker/diagnostic_mock_publisher.py /opt/ws/docker/diagnostic_mock_publisher.py
+COPY docker/sil_trace_writer.py /opt/ws/docker/sil_trace_writer.py
 COPY scripts/integration/start_external_adapters.sh /opt/ws/scripts/integration/start_external_adapters.sh
 RUN chmod +x /opt/ws/sil_entrypoint.sh
 RUN chmod +x /opt/ws/scripts/integration/start_external_adapters.sh

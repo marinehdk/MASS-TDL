@@ -202,20 +202,19 @@ class TestExtractInjectionParams:
         # u0 = 10 * 0.5144 = 5.144
         assert ship["u0"][0] == pytest.approx(5.144, abs=1e-6)
 
-    def test_bridge_and_l4_receive_ownship_initial_heading_and_speed(self, imazu08_parsed):
-        """sil_topic_bridge and l4_guidance_adapter share YAML ownship initial state."""
+    def test_sil_topic_bridge_no_longer_injected(self, imazu08_parsed):
+        """sil_topic_bridge was removed in Track A A5c; its ownship_initial_*
+        injection must not be produced anymore."""
         result = _extract_injection_params(imazu08_parsed)
-        for node_name in ("sil_topic_bridge", "l4_guidance_adapter"):
-            node_params = result.get(node_name, {})
-            assert node_params["ownship_initial_heading_deg"][0] == pytest.approx(0.0, abs=1e-6)
-            assert node_params["ownship_initial_sog_kn"][0] == pytest.approx(10.0, abs=1e-6)
+        assert "sil_topic_bridge" not in result
 
-    def test_lifecycle_bridge_has_l4_set_parameters_client(self):
-        """LifecycleBridge can inject the L4 initial-state parameters it extracts."""
+    def test_lifecycle_bridge_no_l4_set_parameters_client(self):
+        """l4_guidance_adapter was removed (Track A A5); its SetParameters client
+        must not be pre-created anymore."""
         source = Path("src/sil_orchestrator/lifecycle_bridge.py").read_text()
         client_block = source.split("# Pre-create SetParameters service clients", 1)[1]
         client_block = client_block.split("# Own-ship state cache", 1)[0]
-        assert '"l4_guidance_adapter"' in client_block
+        assert '"l4_guidance_adapter"' not in client_block
 
     def test_target_vessel_params_has_two_targets(self, imazu08_parsed):
         """target_vessel_node receives default_targets_json containing

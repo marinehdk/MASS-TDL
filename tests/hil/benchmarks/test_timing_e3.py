@@ -91,8 +91,8 @@ def _teardown_node(node) -> None:
 def test_m5_mid_mpc_latency() -> None:
     """
     Publishes a COLREGsConstraint with conflict_detected=True to
-    /m6/colregs_constraint and waits for AvoidancePlan on
-    /m5/avoidance_plan.  P99 must be < 100 ms.
+    /l3/m6/colregs_constraint and waits for AvoidancePlan on
+    /l3/m5/avoidance_plan.  P99 must be < 100 ms.
     """
     _require_msgs()
 
@@ -117,12 +117,11 @@ def test_m5_mid_mpc_latency() -> None:
 
         samples: list[float] = []
         for _ in range(_ITERATIONS):
-            # Topic without /l3/ prefix — matches actual M5/M6 publish topics
-            # (INT-001 documents F-INT-001: M6 publishes /l3/m6/colregs_constraint
-            #  but M5 subscribes /m6/colregs_constraint — benchmark uses M5's actual topic)
+            # Canonical /l3/ topics (Track B B1/B2 normalized M5 source;
+            #  M6 colregs_constraint was already canonical).
             latency = verifier.measure_round_trip(
-                trigger_topic="/m6/colregs_constraint",
-                response_topic="/m5/avoidance_plan",
+                trigger_topic="/l3/m6/colregs_constraint",
+                response_topic="/l3/m5/avoidance_plan",
                 trigger_msg=trigger,
                 timeout_s=5.0,
                 trigger_msg_type=COLREGsConstraint,
@@ -148,8 +147,8 @@ def test_m5_mid_mpc_latency() -> None:
 
 def test_m5_bc_mpc_latency() -> None:
     """
-    Publishes a ReactiveOverrideCmd to /m5/reactive_override_cmd and waits
-    for AvoidancePlan on /m5/avoidance_plan (BC-MPC reactive path).
+    Publishes a ReactiveOverrideCmd to /l3/m5/reactive_override_cmd and waits
+    for AvoidancePlan on /l3/m5/avoidance_plan (BC-MPC reactive path).
     P99 must be < 50 ms.
     """
     _require_msgs()
@@ -171,8 +170,8 @@ def test_m5_bc_mpc_latency() -> None:
         samples: list[float] = []
         for _ in range(_ITERATIONS):
             latency = verifier.measure_round_trip(
-                trigger_topic="/m5/reactive_override_cmd",
-                response_topic="/m5/avoidance_plan",
+                trigger_topic="/l3/m5/reactive_override_cmd",
+                response_topic="/l3/m5/avoidance_plan",
                 trigger_msg=trigger,
                 timeout_s=2.0,
                 trigger_msg_type=ReactiveOverrideCmd,

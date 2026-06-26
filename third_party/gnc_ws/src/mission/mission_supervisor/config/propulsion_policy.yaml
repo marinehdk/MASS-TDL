@@ -1,0 +1,113 @@
+schema_version: propulsion_policy.v1
+mode: shadow
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace policy thresholds with vessel trial, propulsion OEM, maneuvering booklet, and operator-approved limits without changing the PropulsionPolicy interfaces.
+
+publish_rate_hz: 2.0
+initial_observation_grace_s: 3.0
+stale_timeout_s:
+  mission_status: 5.0
+  captain_decision: 5.0
+  odometry: 5.0
+  cmd_tau: 5.0
+  actuator_capability: 5.0
+
+speed_regions_mps:
+  low_speed_max: 1.5
+  maneuvering_max: 3.0
+  cruise_min: 5.0
+
+turn_detection:
+  yaw_moment_nm: 120000.0
+  sway_force_n: 20000.0
+
+side_thruster:
+  allow_below_speed_mps: 3.0
+  derate_start_speed_mps: 1.5
+  lockout_speed_mps: 3.0
+  emergency_unlock_max_speed_mps: 3.0
+  max_fraction_low_speed: 1.0
+  max_fraction_transit: 0.0
+  fraction_enforcement_regions:
+    - cruise_efficiency
+  fraction_enforcement_min_speed_mps: 1.5
+  rudder_preferred_cap_min_speed_mps: 3.0
+  rudder_preferred_max_fraction: 0.07
+  rudder_preferred_cap_regions:
+    - cruise_efficiency
+  emergency_actions:
+    - hold_or_manual_handover
+    - abort_escape_recommended
+  allowed_phases:
+    - APPROACH
+    - STANDBY
+    - BERTH_OR_WORK
+    - ABORT_ESCAPE
+
+main_propulsion:
+  require_symmetry_in_cruise: true
+  symmetry_yaw_deadband_nm: 120000.0
+  symmetry_lateral_deadband_n: 20000.0
+  symmetry_min_speed_mps: 3.0
+  symmetry_max_asymmetry_abs_n: 2500.0
+  symmetry_max_asymmetry_ratio: 0.15
+  symmetry_policy:
+    enabled: true
+    mode: shadow
+    enforcement: advisory_only
+    required_regions:
+      - cruise_efficiency
+    release_regions:
+      - turn_or_rejoin
+      - low_speed_maneuvering
+      - degraded_hold
+      - emergency_abort
+      - initial_observation
+    min_speed_mps: 3.0
+    yaw_deadband_nm: 120000.0
+    lateral_deadband_n: 20000.0
+    max_asymmetry_abs_n: 2500.0
+    max_asymmetry_ratio: 0.15
+  allow_differential_actions:
+    - rejoin_corridor
+    - hold_or_manual_handover
+    - abort_escape_recommended
+
+rudder:
+  effective_min_speed_mps: 1.0
+  preferred_above_speed_mps: 3.0
+  preferred_phases:
+    - CRUISE
+    - DECEL
+    - REPORT
+    - APPROACH
+
+reverse:
+  allowed_below_speed_mps: 0.8
+  controlled_braking_max_speed_mps: 8.5
+  controlled_braking_surge_request_n: -1000.0
+  controlled_braking_phases:
+    - DECEL
+    - REPORT
+    - APPROACH
+    - STANDBY
+  allowed_phases:
+    - STANDBY
+    - BERTH_OR_WORK
+    - COMPLETE
+  allowed_actions:
+    - hold_or_manual_handover
+    - request_human_confirmation
+
+environment:
+  caution_force_n: 120000.0
+  hold_force_n: 220000.0
+
+policy_priority:
+  - emergency_abort
+  - degraded_hold
+  - low_speed_maneuvering
+  - turn_or_rejoin
+  - cruise_efficiency

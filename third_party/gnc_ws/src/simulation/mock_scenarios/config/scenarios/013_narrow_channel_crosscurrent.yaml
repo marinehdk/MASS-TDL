@@ -1,0 +1,48 @@
+scenario_id: 013_narrow_channel_crosscurrent
+scenario_class: captain_operational
+description: Narrow-channel track under cross-current, representing restricted-water watchkeeping.
+validation_objective: Verify track-keeping margins and conservative command behavior in a narrow channel.
+seed: 113
+duration_s: 640
+publish_rate_hz: 10
+
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace scenario inputs/adapters and recalibrate parameters; do not rewrite mission, safety, guidance, control, or allocation logic.
+
+own_ship:
+  initial_pose: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  initial_velocity: {u: 2.4, v: 0.0, r_deg_s: 0.0}
+  nominal_speed_mps: 2.4
+  waypoints:
+    - [0.0, 0.0]
+    - [250.0, 0.0]
+    - [500.0, 20.0]
+    - [800.0, 20.0]
+    - [1050.0, 0.0]
+
+environment:
+  wind: {speed_mps: 5.0, direction_deg: 70.0}
+  current: {speed_mps: 0.9, direction_deg: 100.0, tide_speed_mps: 0.9, tide_direction_deg: 100.0}
+  wave: {hs_m: 0.3, direction_deg: 100.0}
+  restricted_water:
+    channel_half_width_m: 35.0
+    shallow_water_depth_m: 8.0
+
+sensors:
+  gnss: {rate_hz: 5, noise_std_m: 0.7}
+  imu: {rate_hz: 50, gyro_noise_deg_s: 0.03, accel_noise_mps2: 0.03}
+  compass: {rate_hz: 10, noise_std_deg: 0.4}
+
+thrusters:
+  count: 7
+  failures: []
+
+expected:
+  pass_fail_basis: Vessel remains inside channel margin and does not chase current with aggressive yaw.
+  max_cross_track_error_m: 18
+  min_channel_margin_m: 12
+  max_heading_error_deg: 10
+  max_yaw_rate_deg_s: 5
+  should_request_captain_attention_if_margin_low: true

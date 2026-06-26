@@ -1,0 +1,46 @@
+# Generated reference split from ship_config.yaml. Not launch-active yet.
+wind_engine_node:
+  ros__parameters:
+    u10: 0.0
+    wind_direction: 0.0       # 风速仪/气象风向：风从该方向来，0=北来风，90=东来风
+    wind_direction_is_from: true
+    Af: 45.0
+    Al: 180.0
+    Lpp: 44.1
+wave_engine_node:
+  ros__parameters:
+    Lpp: 44.1
+    Los: 45.0
+    B: 8.0
+    T: 1.55
+    bow_angle_rad: 0.6
+    C_WL_aft: 0.95
+    xLos: 22.05
+    Hs: 0.0
+    Tz: 6.0
+    direction_rad: 0.0
+    fk_scale_factor: 0.1
+    qtf_csv_path: ''
+    vessel:
+      KG: 3.9
+      GM_T: 1.5
+      displacement_ton: 220.0
+current_engine_node:
+  ros__parameters:
+    B: 8.0
+    Lpp: 44.1
+    T: 1.55
+    coeffs_csv_path: ''
+    subtract_calm_water_damping: true
+    d: 20.0
+    dir_circ: 120.0
+    dir_tide: 0.0
+    dir_wind: 180.0
+    v_circ_surf: 0.0
+    v_tide_surf: 0.0
+    v_wind_surf: 0.0
+    water_density: 1025.0
+force_aggregator_node:
+  ros__parameters:
+    update_rate: 50.0
+    wave_load_topic: /env/wave/drift_load

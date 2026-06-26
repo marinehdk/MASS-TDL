@@ -1,0 +1,56 @@
+schema_version: propulsion_policy_compliance.v1
+mode: shadow
+data_policy:
+  parameter_source: mock_data
+  parameter_confidence: C
+  real_data_transition: Replace compliance thresholds with sea-trial propulsion response, OEM limits, and operator-approved propulsion policy tolerances.
+
+publish_rate_hz: 2.0
+initial_observation_grace_s: 3.0
+stale_timeout_s:
+  propulsion_policy: 5.0
+  thruster_commands: 5.0
+  odometry: 5.0
+
+thruster_order:
+  - t1
+  - t2
+  - t3
+  - tb1
+  - tb2
+  - r1
+  - r2
+
+thruster_groups:
+  main_propellers:
+    - t1
+    - t2
+    - t3
+  side_thrusters:
+    - tb1
+    - tb2
+  rudders:
+    - r1
+    - r2
+
+tolerances:
+  side_thruster_leak_n: 500.0
+  side_thruster_fraction_margin: 0.05
+  main_symmetry_abs_n: 2500.0
+  main_symmetry_ratio: 0.15
+  main_symmetry_min_activity_n: 5000.0
+  main_symmetry_policy_source: /propulsion/policy.main_propulsion_policy
+  reverse_leak_n: 500.0
+  rudder_preferred_side_check_min_speed_mps: 4.0
+  rudder_preferred_side_check_regions:
+    - cruise_efficiency
+  rudder_preferred_side_force_n: 3000.0
+
+max_thrust_n:
+  t1: 135000.0
+  t2: 135000.0
+  t3: 135000.0
+  tb1: 20000.0
+  tb2: 20000.0
+  r1: 10000.0
+  r2: 10000.0

@@ -358,6 +358,13 @@ if(BUILD_TESTING)
     test/unit/test_geometric_fallback.cpp
   )
 
+  # ── Track A A3: M5 avoidance waypoint generation (GNC feasibility) ─────────
+  # Pure C++ geometry (header-only), no CasADi/rclpy deps. Verifies the
+  # generated waypoint string satisfies the GNC active_route_manager gate.
+  m5_add_gtest(test_avoidance_waypoint_gen
+    test/unit/test_avoidance_waypoint_gen.cpp
+  )
+
   # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
   # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
   # its own (un-instrumented) libc symbols, causing ASAN to crash on

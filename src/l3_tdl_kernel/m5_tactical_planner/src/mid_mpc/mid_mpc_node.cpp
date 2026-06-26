@@ -14,6 +14,7 @@
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_risk_model/risk_model.hpp"
+#include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
@@ -152,9 +153,13 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
       [this](std_msgs::msg::String::SharedPtr msg) { on_scenario_loaded_(std::move(msg)); });
 
-  pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/m5/avoidance_plan", 10);
-  pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/m5/asdr_record", 10);
-  pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/m5/sat_data", 10);
+  pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/l3/m5/avoidance_plan", 10);
+  // Track A A3: L3-owned waypoint plan for the GNC bridge.
+  pub_avoidance_waypoints_ =
+      create_publisher<l3_external_msgs::msg::AvoidanceWaypoints>(
+          "/l3/m5/avoidance_waypoints", 10);
+  pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/l3/asdr/record", 10);
+  pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/l3/sat/data", 10);
   pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
 
   nomoto_cfg_.n_steps = 12;
@@ -415,6 +420,11 @@ void MidMpcNode::on_solve_cycle_()
     plan = wp_gen_.generate(sol, lat, lon);
   }
   publish_outputs_(sol, plan);
+  // Track A A3: mirror the intent on the L3-owned waypoint plan so the GNC
+  // bridge can translate it. Release authority lives here (spec D4): while M6
+  // reports conflict we keep a rolling avoidance plan; on the transition to
+  // conflict-clear we emit a single return_to_route plan.
+  publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon);
 }
 
 // ===========================================================================
@@ -687,6 +697,73 @@ void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
   sat3.primary_trajectory_idx = static_cast<uint8_t>(sol.primary_branch_idx);
 
   pub_sat3_data_->publish(sat3);
+}
+
+// ===========================================================================
+// publish_avoidance_waypoints_ (Track A A3)
+// Mirrors the avoidance intent on the L3-owned waypoint plan
+// (/l3/m5/avoidance_waypoints) for the GNC bridge to translate to
+// ship_interfaces/AvoidancePlan. The bridge is a pure field-mapper, so all
+// waypoint geometry is generated here. Release authority (spec D4): while M6
+// reports conflict we emit a rolling avoidance plan; on the conflict->clear
+// transition we emit a single return_to_route plan, then stop emitting.
+// ===========================================================================
+void MidMpcNode::publish_avoidance_waypoints_(
+    rclcpp::Time now,
+    const MidMpcInput& input,
+    double lat0_deg,
+    double lon0_deg) {
+  const bool conflict_active = input.colregs_conflict_active;
+
+  l3_external_msgs::msg::AvoidanceWaypoints wp;
+  wp.stamp          = now;
+  wp.schema_version = 1;
+  wp.plan_id        = "m5-" + std::to_string(now.nanoseconds());
+  wp.command_source = "collision_avoidance";
+  wp.confidence     = 0.8F;
+
+  if (conflict_active) {
+    // Keep a rolling avoidance plan (valid_until = now + 30s) so the GNC
+    // active_route_manager holds the avoidance route until M6 clears.
+    wp.behavior_mode = "emergency_avoidance";
+    wp.parent_route_id = "nominal";
+    const double own_heading_deg =
+        input.own_ship.psi_rad / units::kRadPerDeg;
+    const double target_speed_mps = input.own_ship.u_mps;
+    const auto wps = mass_l3::m5::generate_avoidance_waypoints(
+        input.constraints.heading_min_rad / units::kRadPerDeg,
+        input.constraints.heading_max_rad / units::kRadPerDeg,
+        lat0_deg, lon0_deg, own_heading_deg, target_speed_mps);
+    wp.latitude.resize(wps.size());
+    wp.longitude.resize(wps.size());
+    wp.command_speed_mps.resize(wps.size(), target_speed_mps);
+    wp.navigation_mode.resize(wps.size(), "emergency_avoidance");
+    for (std::size_t i = 0; i < wps.size(); ++i) {
+      wp.latitude[i]  = wps[i].lat;
+      wp.longitude[i] = wps[i].lon;
+    }
+    wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
+    wp.allow_degraded_execution  = true;
+    wp.rationale                 = "m5 avoidance waypoint plan for GNC bridge";
+  } else if (last_emitted_conflict_active_) {
+    // conflict -> clear transition: emit one return_to_route plan pointing at
+    // the nominal route so active_route_manager completes the lifecycle.
+    wp.behavior_mode             = "return_to_route";
+    wp.parent_route_id           = "nominal";
+    wp.has_return_to_route_point = true;
+    wp.return_latitude           = lat0_deg;
+    wp.return_longitude          = lon0_deg;
+    wp.rationale                 = "m5 return_to_route on M6 conflict-clear";
+    wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
+    wp.allow_degraded_execution  = true;
+  } else {
+    // No conflict and already returned: emit nothing this cycle.
+    last_emitted_conflict_active_ = conflict_active;
+    return;
+  }
+
+  last_emitted_conflict_active_ = conflict_active;
+  pub_avoidance_waypoints_->publish(wp);
 }
 
 void MidMpcNode::on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg) {

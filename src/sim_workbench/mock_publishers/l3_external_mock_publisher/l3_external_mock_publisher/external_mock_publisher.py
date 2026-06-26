@@ -57,8 +57,8 @@ class ExternalMockPublisher(Node):
         self._pub_env = self.create_publisher(EnvironmentState, "/fusion/environment_state", 10)
         self._pub_veto = self.create_publisher(CheckerVetoNotification, "/checker/veto_notification", 10)
         self._pub_emergency = self.create_publisher(EmergencyCommand, "/reflex/emergency_command", 10)
-        self._pub_reflex = self.create_publisher(ReflexActivationNotification, "/reflex/activation_notification", 10)
-        self._pub_override = self.create_publisher(OverrideActiveSignal, "/override/active_signal", 10)
+        self._pub_reflex = self.create_publisher(ReflexActivationNotification, "/l3/reflex/activation", 10)
+        self._pub_override = self.create_publisher(OverrideActiveSignal, "/l3/override/active", 10)
 
         # Timers (frequency aligned with v1.1.2 §15.2):
         # - 50 Hz: FilteredOwnShipState

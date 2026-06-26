@@ -1,0 +1,72 @@
+schema_version: 0.1
+purpose: "Phase-gated validation suites for avoiding scenario-fix regression loops."
+
+golden_baselines:
+  001_straight_calm:
+    description: "Do not regress the calm-water straight A-to-B baseline."
+    gates:
+      final_waypoint_reached: true
+      max_cross_track_error_m: 8.0
+      max_heading_error_deg: 3.0
+      max_final_position_error_m: 20.0
+      max_final_speed_mps: 0.25
+      max_yaw_rate_deg_s: 1.0
+
+suites:
+  smoke:
+    description: "Run after every change."
+    scenarios:
+      - 001_straight_calm
+    required_before:
+      - any_code_change
+  core:
+    description: "Run after guidance, control, allocation, dynamics, or scenario schema changes."
+    scenarios:
+      - 001_straight_calm
+      - 002_s_turn_calm
+      - 003_final_waypoint_hold
+      - 005_crosscurrent_tracking
+      - 010_zigzag_10_10
+    required_before:
+      - low_level_control_change
+      - mission_safety_handover_change
+  environment:
+    description: "Run after environment, sway, drift, or allocation changes."
+    scenarios:
+      - 004_crosswind_tracking
+      - 005_crosscurrent_tracking
+      - 006_combined_environment
+      - 013_narrow_channel_crosscurrent
+  fault:
+    description: "Run after sensor, actuator health, or SafetySupervisor changes."
+    scenarios:
+      - 007_gnss_jump
+      - 008_gnss_outage
+      - 014_thruster_failure_crosswind
+  operational:
+    description: "Run after MissionSupervisor, approach, berth, or captain alert changes."
+    scenarios:
+      - 012_low_speed_berthing_crosswind
+      - 013_narrow_channel_crosscurrent
+  full:
+    description: "Run before merging staged capability changes."
+    scenarios:
+      - 001_straight_calm
+      - 002_s_turn_calm
+      - 003_final_waypoint_hold
+      - 004_crosswind_tracking
+      - 005_crosscurrent_tracking
+      - 006_combined_environment
+      - 007_gnss_jump
+      - 008_gnss_outage
+      - 009_turning_circle_starboard
+      - 010_zigzag_10_10
+      - 011_crash_stop_ahead
+      - 012_low_speed_berthing_crosswind
+      - 013_narrow_channel_crosscurrent
+      - 014_thruster_failure_crosswind
+
+stop_rules:
+  same_scenario_failed_after_two_fixes: "Stop tuning and write a root-cause note."
+  smoke_regressed: "Stop all non-baseline work until 001_straight_calm returns to the golden gates."
+  pending_safety_metric_claimed_as_pass: "Not allowed; implement observability first."
