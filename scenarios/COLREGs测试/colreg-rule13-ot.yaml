@@ -1,11 +1,11 @@
 title: 'Probe: Rule 13 overtaking'
 description: 'Rule 13 overtaking. Own ship 000deg/14kn overtakes a slow 7kn vessel
-  nearly dead ahead (relative bearing 3deg, same course), initial range 0.6 NM. Own
-  is the give-way vessel and must keep clear (conventionally a STARBOARD pass) and
-  COMPLETE the overtake — own ship is finally past and clear (Rule 13(b)) when her
-  bow draws ahead of the overtaken vessel by at least one ship length along the
-  course axis. Rule 13(d): the bearing drawing aft as own passes must NOT
-  reclassify this into a crossing (assert classification stability in Phase B).'
+  nearly dead ahead (relative bearing 1deg, same course), initial range 1.3 NM,
+  t_cpa ~= 666s (< t_plan 720s so M6 ESM onset fires). Own is the give-way vessel
+  and must keep clear (conventionally a STARBOARD pass) and COMPLETE the overtake —
+  own ship is finally past and clear (Rule 13(b)) when her bow draws ahead of the
+  overtaken vessel by at least one ship length along the course axis. Rule 13(d):
+  the bearing drawing aft as own passes must NOT reclassify this into a crossing.'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -25,7 +25,7 @@ ownShip:
   - latitude: 63.44
     longitude: 10.38
     target_sog_kn: 14.0
-  - latitude: 63.498328
+  - latitude: 63.69
     longitude: 10.38
     target_sog_kn: 14.0
 targetShips:
@@ -35,8 +35,8 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.454979
-      longitude: 10.381756
+      latitude: 63.4616
+      longitude: 10.382017
     cog: 0.0
     sog: 7.0
     heading: 0.0
@@ -73,13 +73,18 @@ metadata:
       profile: corridor_follow_or_overtake_4L
       threshold_formula: 4.0L
       threshold_m: 180.0
+      contract:
+        acceptance_m: 180.0
+        m6_onset_m: 180.0
+        m6_release_m: 180.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 4.0
       nm_equivalent: 0.097
       source_confidence: project_profile_medium_low
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB overtaking inside 1km L2 corridor; 4.0L emergency/follow floor accepts safe following. Rule 13(b) past-and-clear is asserted separately by the overtake gate — own bow must draw one ship length (45m) ahead of the target along the course axis before the give-way duty is discharged.
+      basis: FCB reviewable overtaking long-approach probe; 4.0L emergency/follow floor accepts safe following. Rule 13(b) past-and-clear is asserted separately by the overtake gate — own bow must draw one ship length (45m) ahead of the target along the course axis before the give-way duty is discharged.
     returned_to_route_required: false
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0

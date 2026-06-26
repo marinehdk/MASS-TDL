@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <chrono>
 #include <vector>
@@ -133,6 +134,7 @@ private:
   double colregs_anchor_hdg_{0.0};      // Route/own heading at COLREG turn onset (degrees)
   bool   colregs_quartering_gate_{false}; // Conflict-onset latch for stern-quarter edge probes
   bool   colregs_rule15_commit_active_{false}; // Rule15 give-way duty latched for this turn
+  std::string colregs_rule15_commit_target_key_; // Target bound to the Rule15 give-way latch
   double colregs_committed_required_dev_deg_{0.0}; // Max bow-crossing give-way turn demand
   int    colregs_inactive_cycles_{0};   // Release dwell for short M6 false gaps
   mass_l3::risk::RankingState risk_ranking_state_;
@@ -144,6 +146,17 @@ private:
   int    recovery_dwell_cycles_{0};     // cycles XTE has been within gate
   bool   colregs_recovery_armed_{false}; // true after a COLREG turn in current conflict
   bool   colregs_risk_recovery_hold_{false}; // hold RECOVERY after risk-clear release while M6 lags
+  // D1.3 v4: cached abaft-beam gate result computed once per arbitration cycle
+  // from the fully-extracted colregs_directive (with primary_threat_id). The
+  // RECOVERY-entry branch may see a dwell-overridden directive whose
+  // primary_threat_id is empty; reading the cached value keeps both release
+  // paths (risk_controlled release + RECOVERY entry) on the same geometry.
+  bool   last_colregs_target_abaft_beam_{true};
+  std::optional<std::uint8_t> active_colregs_rule_id_;
+  std::string active_colregs_target_key_;
+  std::optional<std::uint8_t> released_colregs_rule_id_;
+  std::string released_colregs_target_key_;
+  bool released_colregs_rearm_hold_{false};
 
   rclcpp::Subscription<l3_msgs::msg::RuleAssessment>::SharedPtr sub_rule_assessment_;
   l3_msgs::msg::RuleAssessment::SharedPtr latest_rule_assessment_;

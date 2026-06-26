@@ -24,6 +24,7 @@ from tools.sil.colregs_trace_evaluator import (
     report_from_runner_result,
 )
 from tools.sil.colregs_chain_trace import attach_gate_diagnosis, build_chain_summary
+from tools.sil.colregs_artifact_consistency import check_consistency
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
@@ -213,6 +214,61 @@ def _avoidance_onset_s(run_records, *, min_sim_t: float | None = None) -> float 
         if _is_avoidance_behavior(record):
             return float(record.get("sim_t", 0.0))
     return None
+
+
+def _m6_conflict_cleared_time(run_records) -> float | None:
+    """Extract the sim_t when M6 conflict_detected goes true→false.
+
+    Returns the timestamp of the first record with conflict_detected=false that
+    follows at least one record with conflict_detected=true. None if the trace
+    has no such transition (no M6 trace, conflict never set, or never cleared).
+    Used by timing_consistency (design §6.3) to detect PREMATURE_RECOVERY.
+    """
+    m6_rows = sorted(
+        (r for r in run_records if r.get("topic") == "/l3/m6/colregs_constraint"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    saw_conflict = False
+    for r in m6_rows:
+        conflict = bool(r.get("conflict_detected", False))
+        if conflict:
+            saw_conflict = True
+        elif saw_conflict:
+            return float(r.get("sim_t", 0.0))
+    return None
+
+
+def _m4_closing_speed_at(run_records, sim_t: float, tol: float = 5.0) -> float | None:
+    """Extract M4's reported primary closing speed (m/s) near sim_t.
+
+    Parses the M4 behavior_plan rationale for 'closing_mps=<value>'. Returns the
+    value from the record closest to sim_t (within tol seconds). None if no M4
+    behavior_plan record with closing_mps is found near sim_t. Used by
+    timing_consistency (D1.4a) to distinguish physically-correct M4 release
+    (target opening, closing_mps<=0) from premature release (target still
+    closing, closing_mps>0) when M6 conflict_detected lags.
+    """
+    import re
+
+    bp_rows = sorted(
+        (r for r in run_records if r.get("topic") == "/l3/m4/behavior_plan"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    best = None
+    best_dt = None
+    pattern = re.compile(r"closing_mps=([-\d.]+)")
+    for r in bp_rows:
+        t = float(r.get("sim_t", 0.0))
+        dt = abs(t - sim_t)
+        if dt > tol:
+            continue
+        m = pattern.search(r.get("rationale", "") or "")
+        if m:
+            if best_dt is None or dt < best_dt:
+                best_dt = dt
+                best = float(m.group(1))
+    return best
+
 
 def _risk_metrics_defaults() -> dict:
     return {
@@ -706,6 +762,14 @@ PHASE_GATE_CROSSING_BEAM_BEARING_DEG = 90.0
 # Readily-apparent alteration (Rule 8(b); case law >= 30°).
 PHASE_GATE_APPARENT_HEADING_DEG = 30.0
 PHASE_GATE_SMALL_ALTER_DEG = 10.0
+# Past-clear release dwell (design §6.2.1): after release, range must keep
+# opening for this minimum duration to confirm true separation (not a
+# momentary blip before re-closing).
+PHASE_GATE_PAST_CLEAR_DWELL_S = 15.0
+# Timing tolerance for M4 recovery vs M6 conflict-clear ordering (design §6.3).
+# If M4 enters RECOVERY more than this before M6 clears conflict, the run is
+# flagged PREMATURE_RECOVERY_BEFORE_RULE_RELEASE for G-ART.
+PHASE_GATE_TIMING_TOLERANCE_S = 5.0
 
 
 def _nav_heading_to_math_rad(nav_deg: float) -> float:
@@ -772,6 +836,10 @@ def compute_phase_semantics(
         "cpa_moment_along_m": float("nan"),
         "evaluated": False,
         "note": "",
+        # Timing consistency (design §6.3): PREMATURE_RECOVERY_BEFORE_RULE_RELEASE.
+        # Populated from M6 conflict_detected trace + M4 release time; surfaced as
+        # a separate flag for G-ART rather than buried in phase_semantics_ok.
+        "timing_consistency": {"premature_recovery_before_rule_release": False},
     }
 
     ownship = sorted(
@@ -837,6 +905,50 @@ def compute_phase_semantics(
                 break
     defaults["release_sim_t"] = release_s if release_s is not None else float("nan")
 
+    # ── Timing consistency (design §6.3): PREMATURE_RECOVERY_BEFORE_RULE_RELEASE ──
+    # rule14-ho observed M4 entering RECOVERY at 649s while M6 kept
+    # conflict_detected=true until 785s (136s gap). This integration defect is
+    # surfaced as a separate flag for G-ART, not buried in phase_semantics_ok.
+    #
+    # recovery_t semantics (D1.1 unification with module_oracle): COLREGs
+    # give-way duty release = M4 leaving the avoidance maneuver (entering
+    # RECOVERY behavior==7), NOT finishing route return (TRANSIT behavior==0).
+    # The TRANSIT return (release_s) is the route-recovery completion, which
+    # lags RECOVERY entry by the recovery dwell — using it under-reports the
+    # premature-recovery gap by the dwell duration (rule14-ho: 136s true gap
+    # vs 18s reported when using TRANSIT return). So prefer RECOVERY entry;
+    # fall back to release_s only when no explicit RECOVERY state exists.
+    recovery_entry_s = None
+    for r in behavior:
+        if r.get("behavior") == 7:  # BEHAVIOR_RECOVERY
+            recovery_entry_s = float(r.get("sim_t", 0.0))
+            break
+    recovery_for_timing = recovery_entry_s if recovery_entry_s is not None else release_s
+    if recovery_for_timing is not None:
+        m6_clear_t = _m6_conflict_cleared_time(run_records)
+        if m6_clear_t is not None:
+            gap = m6_clear_t - recovery_for_timing
+            # D1.4a: PREMATURE_RECOVERY semantics — only flag when M4 released
+            # while the target was still physically closing. If M4 released when
+            # closing_speed<=0 (target opening), the release is physically correct
+            # even if M6 conflict_detected lags (M6 release-latch hysteresis).
+            # Extract closing_mps from the M4 behavior_plan rationale at the
+            # recovery moment.
+            closing_at_release = _m4_closing_speed_at(run_records, recovery_for_timing)
+            target_still_closing = closing_at_release is None or closing_at_release > 0.0
+            premature = (
+                target_still_closing
+                and recovery_for_timing < m6_clear_t - PHASE_GATE_TIMING_TOLERANCE_S
+            )
+            defaults["timing_consistency"] = {
+                "premature_recovery_before_rule_release": premature,
+                "recovery_t": recovery_for_timing,
+                "recovery_entry_sim_t": recovery_entry_s,
+                "conflict_cleared_t": m6_clear_t,
+                "gap_s": round(gap, 3),
+                "closing_mps_at_release": closing_at_release,
+            }
+
     rule_l = str(rule).lower().replace(" ", "")
 
     # ── C1: Rule 8(d) finally past and clear before route return ─────────
@@ -856,19 +968,20 @@ def compute_phase_semantics(
         rel_sample = min(traj, key=lambda p: abs(p["sim_t"] - release_s))
         rel_brg_abs = abs(rel_sample["rel_brg_deg"])
         defaults["release_target_rel_bearing_deg"] = rel_brg_abs
-        # Range opening: compare to a sample ~5s before release.
-        before = [p for p in traj if p["sim_t"] <= release_s - 3.0]
-        range_opening = True
-        if before and rel_sample["range_m"] > 0:
-            range_opening = rel_sample["range_m"] >= before[-1]["range_m"] - 1.0
+        # ── Tri-condition (design §6.2.1): past_beam OR tcpa_clear OR far_clear ──
+        # The single past_beam (>90°) proxy failed for early-avoidance large-CPA
+        # cases (rule14-ho: rel_brg=9.3° but min_cpa=4067m=22×floor). Any one of
+        # these sufficient conditions proves geometric past-and-clear.
         # Main geometry gate: target past the beam (90° for crossing/head-on).
         past_beam = rel_brg_abs > PHASE_GATE_CROSSING_BEAM_BEARING_DEG
-        # tcpa<0 backstop: target must have already passed CPA. Prevents a
-        # target that has swung past 90° beam but whose CPA is still ahead
-        # (high-speed lateral crosser) from being judged "past and clear".
+        # tcpa<0: target must have already passed CPA.
         tcpa_past = rel_sample["tcpa_s"] < 0.0
-        # Safe range: at/above cpa_safe AND opening.
-        range_safe = rel_sample["range_m"] >= cpa_safe_m and range_opening
+        # Safe range: at/above cpa_safe.
+        range_safe = rel_sample["range_m"] >= cpa_safe_m
+        tcpa_clear = tcpa_past and range_safe
+        # Far clear: range >> floor (e.g. 22× floor) is sufficient by itself.
+        far_clear = rel_sample["range_m"] >= 3.0 * cpa_safe_m
+        # Rule15 astern check (additional sufficient condition, kept).
         astern_opening_safe = False
         if "rule15" in rule_l:
             cpa_sample = min(traj, key=lambda p: p["range_m"])
@@ -877,7 +990,14 @@ def compute_phase_semantics(
             along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
                     (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
             astern_opening_safe = along < 0.0
-        c1_ok = (past_beam or astern_opening_safe) and tcpa_past and range_safe
+        # ── Dwell: range must keep opening for PHASE_GATE_PAST_CLEAR_DWELL_S ──
+        post = [p for p in traj
+                if release_s <= p["sim_t"] <= release_s + PHASE_GATE_PAST_CLEAR_DWELL_S]
+        range_opening_dwell = True
+        if len(post) >= 2 and post[0]["range_m"] > 0:
+            range_opening_dwell = post[-1]["range_m"] >= post[0]["range_m"] - 1.0
+        c1_ok = ((past_beam or tcpa_clear or far_clear or astern_opening_safe)
+                 and range_opening_dwell)
     defaults["c1_past_clear_ok"] = c1_ok
 
     # ── C2: Rule 8(b) readily apparent, no succession of small alterations
@@ -941,14 +1061,25 @@ def compute_phase_semantics(
     # check (>0) inverted this and flagged a correct port-to-port pass as RED.
     c4_ok = True
     if "rule14" in rule_l and role == "give_way":
-        # Use the closest point of approach actually reached (min range), not
-        # the predicted CPA: a reciprocal head-on predicts CPA~0 at every
-        # pre-maneuver sample, so min(cpa_m) collapses to the onset run-in and
-        # never sees the post-avoidance geometry.
-        cpa_sample = min(traj, key=lambda p: p["range_m"])
-        defaults["cpa_moment_rel_bearing_deg"] = cpa_sample["rel_brg_deg"]
-        # Port-to-port: target ends up on own-ship's port side (rel_brg < 0).
-        c4_ok = cpa_sample["rel_brg_deg"] < 0.0
+        # Avoid-window pass-side (design §6.2.2): use samples from onset to
+        # release+5s, NOT the whole trace. The whole-trace min-range picks a
+        # return-to-route sample where target is starboard, falsely flagging
+        # starboard-to-starboard for early-avoidance + return scenarios
+        # (rule14-ho: min-range point +5.2° on return leg).
+        avoid_window = [p for p in traj
+                        if onset_s is not None
+                        and onset_s <= p["sim_t"]
+                        and (release_s is None or p["sim_t"] <= release_s + 5.0)]
+        if avoid_window:
+            cpa_sample = min(avoid_window, key=lambda p: p["range_m"])
+            defaults["cpa_moment_rel_bearing_deg"] = cpa_sample["rel_brg_deg"]
+            # Port-to-port: target on own port side (rel_brg<0) at closest pass,
+            # AND majority of avoidance window is port-side.
+            port_frac = sum(1 for p in avoid_window if p["rel_brg_deg"] < 0) / len(avoid_window)
+            defaults["c4_avoid_window_port_frac"] = round(port_frac, 3)
+            c4_ok = cpa_sample["rel_brg_deg"] < 0.0 and port_frac >= 0.6
+        else:
+            c4_ok = False
     defaults["c4_port_side_pass_ok"] = c4_ok
 
     # ── C5: Rule 15 avoid crossing ahead (crossing give-way) ─────────────
@@ -956,17 +1087,30 @@ def compute_phase_semantics(
     # i.e. own passed astern of target.
     c5_ok = True
     if "rule15" in rule_l and role == "give_way":
-        # Closest approach actually reached (min range); see C4 note on why
-        # predicted min(cpa_m) is wrong for an actively avoided encounter.
-        cpa_sample = min(traj, key=lambda p: p["range_m"])
-        # Project own-target vector onto target course axis.
-        axis_e = math.sin(math.radians(cpa_sample["tcog"]))
-        axis_n = math.cos(math.radians(cpa_sample["tcog"]))
-        along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
-                (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
-        defaults["cpa_moment_along_m"] = along
-        # along < 0 -> own-ship abaft target (passed astern, did not cross ahead).
-        c5_ok = along < 0.0
+        # Avoid-window projection (design §6.2.3): same window as C4, NOT the
+        # whole trace, so the min-range sample isn't hijacked by the return leg.
+        avoid_window = [p for p in traj
+                        if onset_s is not None
+                        and onset_s <= p["sim_t"]
+                        and (release_s is None or p["sim_t"] <= release_s + 5.0)]
+        if avoid_window:
+            cpa_sample = min(avoid_window, key=lambda p: p["range_m"])
+            # Project own-target vector onto target course axis.
+            axis_e = math.sin(math.radians(cpa_sample["tcog"]))
+            axis_n = math.cos(math.radians(cpa_sample["tcog"]))
+            along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
+                    (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
+            defaults["cpa_moment_along_m"] = along
+            def _along_axis(p):
+                ae = math.sin(math.radians(p["tcog"]))
+                an = math.cos(math.radians(p["tcog"]))
+                return (p["ox"] - p["tx"]) * ae + (p["oy"] - p["ty"]) * an
+            abaft_frac = sum(1 for p in avoid_window if _along_axis(p) < 0) / len(avoid_window)
+            defaults["c5_avoid_window_abaft_frac"] = round(abaft_frac, 3)
+            # along < 0 -> own abaft target at closest pass AND majority abaft.
+            c5_ok = along < 0.0 and abaft_frac >= 0.6
+        else:
+            c5_ok = False
     defaults["c5_no_cross_ahead_ok"] = c5_ok
 
     # ── C6: Rule 17 stand-on hold course/speed in stage 1/2 ──────────────
@@ -996,8 +1140,13 @@ def compute_phase_semantics(
         if before:
             range_opening = rel_sample["range_m"] >= before[-1]["range_m"] - 1.0
         # Past-and-clear for overtaking: own ahead of target (along > margin)
-        # and opening.
-        c7_ok = along > 0.0 and range_opening
+        # and opening, with release dwell mirroring C1 (design §6.2.4).
+        post = [p for p in traj
+                if release_s <= p["sim_t"] <= release_s + PHASE_GATE_PAST_CLEAR_DWELL_S]
+        range_opening_dwell = True
+        if len(post) >= 2 and post[0]["range_m"] > 0:
+            range_opening_dwell = post[-1]["range_m"] >= post[0]["range_m"] - 1.0
+        c7_ok = along > 0.0 and range_opening and range_opening_dwell
     defaults["c7_overtake_past_clear_ok"] = c7_ok
 
     # ── C8: give-way must actually avoid (no silent no-avoidance pass) ──────
@@ -1298,12 +1447,7 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
             
         if abs(sim_t - last_sim_t) < 0.1:
             stuck_counter += 1
-            # GNC plant profile needs a longer warmup window (geo_position @50Hz
-            # + GNC control loop + ship_dynamics actuation) before the first
-            # own_ship movement advances sim_t. 120 ticks ≈ 60s wall — generous
-            # enough for the GNC stack cold-start without masking a real stall.
-            stuck_limit = int(__import__('os').environ.get('PROBE_STUCK_LIMIT', '40'))
-            if stuck_counter > stuck_limit:
+            if stuck_counter > 40: # ~20 seconds wall time with no sim progress
                 print(f"\n  Warning: simulation appears to be stuck at sim_t = {sim_t:.1f}s")
                 break
         else:
@@ -1666,6 +1810,10 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
     result["chain_summary"] = attach_gate_diagnosis(chain_summary, result)
+    # G-ART artifact consistency (design §7): computed from this result so a
+    # PREMATURE_RECOVERY_BEFORE_RULE_RELEASE flag is surfaced as a separate
+    # gate rather than buried in phase_semantics_ok / overall_pass.
+    result["artifact_consistency"] = _compute_artifact_consistency(result)
     return result
 
 def _load_expected_outcome(scenario_id):
@@ -1712,6 +1860,57 @@ def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
     with open(report_path, "w") as f:
         json.dump(report.to_json_dict(), f, indent=2)
     return str(report_path)
+
+
+def _compute_artifact_consistency(result: dict) -> dict:
+    """Build G-ART verdict from a single run result (design §7).
+
+    The runner result is the source of truth for both the verdict and the
+    timeline; this constructs the two views check_consistency expects and
+    annotates a failure_root_cause when G-ART is RED, so evaluator-side
+    inconsistencies (e.g. PREMATURE_RECOVERY_BEFORE_RULE_RELEASE) are never
+    mistaken for SUT defects.
+    """
+    phase = result.get("phase_semantics") or {}
+    timing = phase.get("timing_consistency") or {}
+    verdict = {
+        "run_id": result.get("run_id"),
+        "scenario_id": result.get("scenario_id"),
+        "min_cpa_m": result.get("min_cpa_m"),
+        "release_sim_t": phase.get("release_sim_t"),
+        "timing_consistency": timing,
+    }
+    timeline = {
+        "run_id": result.get("run_id"),
+        "scenario_id": result.get("scenario_id"),
+        "overall": {"min_cpa_m": result.get("min_cpa_m")},
+        "phase_semantics": {"release_sim_t": phase.get("release_sim_t")},
+    }
+    out = check_consistency(verdict, timeline)
+    # Map ordering findings to a root cause (evaluator-side, not SUT).
+    codes = [f[0] for f in out.get("findings", [])]
+    if "premature_recovery_before_rule_release" in codes:
+        out["failure_root_cause"] = "PREMATURE_RECOVERY_BEFORE_RULE_RELEASE"
+    elif not out.get("g_art_ok", True):
+        out["failure_root_cause"] = "ARTIFACT_INCONSISTENCY"
+    else:
+        out["failure_root_cause"] = None
+    return out
+
+
+def _write_artifact_consistency(scenario_id, result, trace_report_dir):
+    """Persist artifact_consistency.json next to the trace evaluation report."""
+    if not trace_report_dir:
+        return None
+    report_dir = Path(trace_report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    ac = result.get("artifact_consistency")
+    if ac is None:
+        ac = _compute_artifact_consistency(result)
+    path = report_dir / f"{scenario_id}.artifact_consistency.json"
+    with open(path, "w") as f:
+        json.dump(ac, f, indent=2)
+    return str(path)
 
 
 def _parse_args(argv=None):
@@ -1849,6 +2048,10 @@ def main(argv=None):
                     res["colregs_pass"] = verdict["colregs_pass"]
                     res["traceeval_stability_pass"] = verdict["stability_pass"]
                     res["traceeval_overall_pass"] = verdict["overall_pass"]
+                ac_path = _write_artifact_consistency(
+                    scen, res, args.trace_report_dir)
+                if ac_path:
+                    res["artifact_consistency_path"] = ac_path
                 scenario_entry = evidence_manager.archive_scenario(
                     evidence_session,
                     scen,
@@ -1906,6 +2109,13 @@ def main(argv=None):
             print(f"  Overtake Completed: {res.get('overtake_completed')} "
                   f"(final along={res.get('final_own_minus_target_along_m', float('nan')):.1f} m)")
         print(f"  Transitions: {res['bp_transitions']}")
+        ac = res.get("artifact_consistency") or {}
+        tc = (res.get("phase_semantics") or {}).get("timing_consistency") or {}
+        g_art = "OK" if ac.get("g_art_ok", True) else "RED"
+        rcause = ac.get("failure_root_cause") or "-"
+        gap = tc.get("gap_s")
+        gap_str = f" gap={gap:.1f}s" if isinstance(gap, (int, float)) else ""
+        print(f"  G-ART: {g_art} ({rcause}{gap_str})")
     return 0
         
 if __name__ == "__main__":

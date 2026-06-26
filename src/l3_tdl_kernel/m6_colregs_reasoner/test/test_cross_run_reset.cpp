@@ -29,4 +29,23 @@ TEST_F(M6CrossRunResetTest, ResetIsCallableAndIdempotent) {
   EXPECT_NO_THROW(node->reset_cross_run_state());
 }
 
+TEST_F(M6CrossRunResetTest, ClearsEncounterStateMachines) {
+  // Regression guard: encounter_fsms_ (per-(target,rule) EncounterStateMachine)
+  // is populated during run_reasoning and used for onset classification. If it
+  // is not cleared on cross-run reset, a prior scenario's FSM state biases the
+  // next scenario's onset (observed: M6 onset 7s earlier and conflict 4.6x
+  // longer in batch run 2 vs the clean single run of rule14-ho). Seed the map
+  // as run_reasoning would, then verify reset clears it.
+  auto node = std::make_shared<ColregsReasonerNode>();
+  EXPECT_EQ(node->test_encounter_fsm_count(), 0u);
+
+  // Seed two FSMs as a prior run of rule14 (head-on) + rule15 (crossing) would.
+  node->test_seed_encounter_fsm(/*mmsi=*/123456, /*rule_id=*/14);
+  node->test_seed_encounter_fsm(/*mmsi=*/123456, /*rule_id=*/15);
+  EXPECT_EQ(node->test_encounter_fsm_count(), 2u);
+
+  node->reset_cross_run_state();
+  EXPECT_EQ(node->test_encounter_fsm_count(), 0u);
+}
+
 }  // namespace mass_l3::m6_colregs

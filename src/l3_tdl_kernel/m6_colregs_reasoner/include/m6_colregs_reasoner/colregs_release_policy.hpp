@@ -53,6 +53,29 @@ inline bool give_way_duty_from_raw_or_fsm(
       (fsm_engaged && evaluation_has_give_way_duty(fsm_held_eval));
 }
 
+inline bool give_way_duty_onset_signal(
+    bool raw_own_give_way,
+    bool own_stand_on,
+    bool past_and_clear,
+    bool cpa_projection_past_and_safe,
+    double tcpa_s,
+    double cpa_m,
+    double t_plan_s,
+    double cpa_hard_m,
+    bool range_closing) {
+  return raw_own_give_way &&
+      !own_stand_on &&
+      !past_and_clear &&
+      !cpa_projection_past_and_safe &&
+      range_closing &&
+      std::isfinite(tcpa_s) &&
+      std::isfinite(cpa_m) &&
+      std::isfinite(t_plan_s) &&
+      std::isfinite(cpa_hard_m) &&
+      tcpa_s <= t_plan_s &&
+      cpa_m < cpa_hard_m;
+}
+
 inline double give_way_reference_heading_cpa_m(
     double range_m,
     double bearing_deg,

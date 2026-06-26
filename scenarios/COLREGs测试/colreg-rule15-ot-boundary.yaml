@@ -1,9 +1,10 @@
 title: 'Probe: crossing/overtaking edge (rel_brg 108deg)'
 description: Classification-boundary probe at the CROSSING / OVERTAKING edge (the
   112.5deg two-points-abaft-the-beam line). Target on the starboard quarter (relative
-  bearing 108deg), course 300deg at 45.7kn — just inside the crossing sector. Own
-  remains the give-way vessel (Rule 15); the encounter must not flip to/from overtaking
-  as the bearing drifts across the boundary. DCPA ~= 0.
+  bearing 108deg), course 300deg at 19.7kn, initial range 3.6 NM, t_cpa ~= 720s
+  (at the t_plan onset gate so M6 ESM fires) — just inside the crossing sector.
+  Own remains the give-way vessel (Rule 15); the encounter must not flip to/from
+  overtaking as the bearing drifts across the boundary. DCPA ~= 0.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -15,17 +16,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 10.0
+    sog: 4.3
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 10.0
-  - latitude: 63.481663
+    target_sog_kn: 4.3
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 10.0
+    target_sog_kn: 4.3
 targetShips:
 - id: ts1
   static:
@@ -33,10 +34,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.429699
-      longitude: 10.4509
+      latitude: 63.4216
+      longitude: 10.5069
     cog: 300.0
-    sog: 45.74
+    sog: 19.7
     heading: 300.0
   model: ais_replay_vessel
 environment:
@@ -72,13 +73,18 @@ metadata:
       profile: corridor_boundary_6L
       threshold_formula: 6.0L
       threshold_m: 270.0
+      contract:
+        acceptance_m: 270.0
+        m6_onset_m: 270.0
+        m6_release_m: 270.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 6.0
       nm_equivalent: 0.146
       source_confidence: project_profile_medium_low
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: Rule15/Rule13 boundary probe inside 1km L2 corridor; 6.0L CPA floor preserves classification focus while keeping corridor return gate active.
+      basis: Rule15/Rule13 boundary probe at the visible-range boundary; 6.0L CPA floor preserves classification focus while keeping corridor return gate active.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
@@ -90,9 +96,9 @@ metadata:
     - rule: Rule16
       result: required
   simulation_settings:
-    total_time: 3600.0
+    total_time: 2400.0
     dt: 0.02
-    n_rps_initial: 3.0
+    n_rps_initial: 1.3
     coordinate_origin:
     - 63.44
     - 10.38

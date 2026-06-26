@@ -55,6 +55,13 @@ class ColregsReasonerNode : public rclcpp::Node {
       const RuleParameters& params,
       const std::vector<TargetGeometricState>& targets);
 
+  // Test hooks for cross-run reset coverage. encounter_fsms_ is populated per
+  // (target,rule) during run_reasoning (a timer callback not reachable from
+  // unit tests); these expose size and a seeder so test_cross_run_reset can
+  // verify the FSM map is cleared alongside the latch maps.
+  std::size_t test_encounter_fsm_count();
+  void test_seed_encounter_fsm(uint32_t mmsi, uint8_t rule_id);
+
   static ColregsChainResult build_colregs_chain(
       const std::vector<RuleEvaluation>& evals, OddDomain domain,
       const RuleParameters& params,

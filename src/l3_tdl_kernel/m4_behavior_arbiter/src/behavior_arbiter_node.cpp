@@ -52,6 +52,10 @@ double nav_heading_deg_to_math_rad(double heading_deg) {
   return (90.0 - heading_deg) * kDegToRad;
 }
 
+constexpr double kOwnShipLoaM = 46.0;
+constexpr double kRiskReleaseWarningMarginLoa = 2.0;
+constexpr double kRiskReleaseDangerMarginLoa = 1.0;
+
 mass_l3::risk::OwnShipInput ownship_risk_input(
     const WorldStateMsg& world,
     double speed_scale = 1.0) {
@@ -60,7 +64,7 @@ mass_l3::risk::OwnShipInput ownship_risk_input(
       0.0,
       nav_heading_deg_to_math_rad(world.own_ship.heading_deg),
       std::max(0.0, world.own_ship.sog_kn * kKnotsToMps * speed_scale),
-      46.0,
+      kOwnShipLoaM,
       world.own_ship.confidence,
       world.own_ship.nav_mode == "DEGRADED"};
 }
@@ -77,6 +81,159 @@ mass_l3::risk::TargetInput target_risk_input(const l3_msgs::msg::TrackedTarget& 
       target.cpa_m,
       target.tcpa_s,
       target.confidence};
+}
+
+std::optional<std::uint8_t> primary_colregs_rule_id(const COLREGsConstraintMsg& msg) {
+  for (const auto& rule : msg.active_rules) {
+    if (rule.rule_id > 0U) {
+      return rule.rule_id;
+    }
+  }
+  return std::nullopt;
+}
+
+std::string primary_colregs_target_key(const COLREGsConstraintMsg& msg) {
+  for (const auto& rule : msg.active_rules) {
+    if (rule.target_id > 0U) {
+      return std::to_string(rule.target_id);
+    }
+  }
+  return msg.colregs_chain_target_id;
+}
+
+bool same_colregs_encounter(
+    const COLREGsConstraintMsg& msg,
+    const std::optional<std::uint8_t>& released_rule_id,
+    const std::string& released_target_key) {
+  if (!released_rule_id.has_value() || released_target_key.empty()) {
+    return false;
+  }
+  const auto current_rule_id = primary_colregs_rule_id(msg);
+  const auto current_target_key = primary_colregs_target_key(msg);
+  return current_rule_id.has_value() &&
+      current_rule_id.value() == released_rule_id.value() &&
+      current_target_key == released_target_key;
+}
+
+bool rule15_give_way_passed_astern(
+    const WorldStateMsg& world,
+    const ColregsDirective& directive,
+    bool residual_rule15_commit_active = false,
+    bool require_tcpa_past = false,
+    const std::string& residual_target_key = "") {
+  const bool rule15_release_gate_required =
+      directive.rule15_active || residual_rule15_commit_active;
+  if (!rule15_release_gate_required) {
+    return true;
+  }
+  if (!residual_rule15_commit_active &&
+      directive.primary_role != kRoleGiveWay &&
+      directive.primary_role != kRoleBothGiveWay) {
+    return true;
+  }
+  const std::string target_key = !directive.primary_threat_id.empty()
+      ? directive.primary_threat_id
+      : residual_target_key;
+  if (target_key.empty()) {
+    return false;
+  }
+  const auto target_it = std::find_if(
+      world.targets.begin(),
+      world.targets.end(),
+      [&target_key](const auto& target) {
+        return target_key == std::to_string(target.target_id);
+      });
+  if (target_it == world.targets.end() ||
+      target_it->rng_m <= 0.0 ||
+      !std::isfinite(target_it->rng_m) ||
+      !std::isfinite(target_it->brg_deg) ||
+      !std::isfinite(target_it->cog_deg) ||
+      !std::isfinite(world.own_ship.heading_deg) ||
+      (require_tcpa_past && !std::isfinite(target_it->tcpa_s))) {
+    return false;
+  }
+  const double true_bearing_relative_to_heading_deg =
+      target_it->brg_deg - world.own_ship.heading_deg;
+  const double rel_bearing_deg =
+      std::fabs(std::fmod(
+          true_bearing_relative_to_heading_deg + 540.0, 360.0) - 180.0);
+  const double bearing_rad = target_it->brg_deg * kDegToRad;
+  const double target_x_m = std::sin(bearing_rad) * target_it->rng_m;
+  const double target_y_m = std::cos(bearing_rad) * target_it->rng_m;
+  const double target_axis_x = std::sin(target_it->cog_deg * kDegToRad);
+  const double target_axis_y = std::cos(target_it->cog_deg * kDegToRad);
+  const double own_minus_target_along_m =
+      -((target_x_m * target_axis_x) + (target_y_m * target_axis_y));
+  // M2's CPA/TCPA calculator clamps past-CPA TCPA to 0.0 because its public
+  // field represents "time to future CPA". Treat zero as past-clear once the
+  // geometric astern/beam gates are also satisfied.
+  const bool target_past_cpa = !require_tcpa_past || target_it->tcpa_s <= 0.0;
+  return own_minus_target_along_m < 0.0 && rel_bearing_deg >= 90.0 &&
+      target_past_cpa;
+}
+
+// D1.3 v4: general abaft-beam gate for any COLREGS give-way encounter (Rule
+// 13/14/15/18). The D1.3 v3 closing_speed gate (TCPA<=0) is insufficient because
+// a target can be past CPA + opening (closing_speed<=0) while still forward of
+// the beam (rel_bearing<90°). Releasing to RECOVERY then pushes own-ship's
+// recovery route back toward the target, re-triggering AVOID — observed as
+// rule14-ho AVOID<->RECOVERY oscillation and rule15-cs-edge 32 steering_reversals
+// with a 179° U-turn. Spec (COLREGs_8Probe_TraceEvaluator_Spec_v0.2.md
+// post_pass_clearance): release requires target_abaft==true AND range_increasing.
+// This helper mirrors rule15_give_way_passed_astern's geometry but drops the
+// rule15-only gate so it applies to the risk-controlled release of any give-way
+// duty. Returns true when there is no actionable give-way target or the target
+// is abaft the beam and past CPA.
+bool colregs_give_way_target_abaft(
+    const WorldStateMsg& world,
+    const ColregsDirective& directive,
+    const std::string& fallback_target_key = "",
+    double reference_heading_deg = std::numeric_limits<double>::quiet_NaN()) {
+  // No active give-way duty -> nothing to gate on.
+  if (directive.primary_role != kRoleGiveWay &&
+      directive.primary_role != kRoleBothGiveWay) {
+    return true;
+  }
+  const std::string target_key = !directive.primary_threat_id.empty()
+      ? directive.primary_threat_id
+      : fallback_target_key;
+  if (target_key.empty()) {
+    return true;
+  }
+  const auto target_it = std::find_if(
+      world.targets.begin(),
+      world.targets.end(),
+      [&target_key](const auto& target) {
+        return target_key == std::to_string(target.target_id);
+      });
+  if (target_it == world.targets.end() ||
+      target_it->rng_m <= 0.0 ||
+      !std::isfinite(target_it->rng_m) ||
+      !std::isfinite(target_it->brg_deg)) {
+    // Cannot establish geometry — do not block release on missing data.
+    return true;
+  }
+  // D1.3 v5: use the ONSET reference heading (captured at COLREG turn onset,
+  // matching M6's encounter_reference_heading_) instead of the current own
+  // heading. RECOVERY turns change the current heading, which made the abaft
+  // test transiently fail mid-recovery (target appeared back on the bow in the
+  // rotating frame), flipping risk_released false and re-activating conflict —
+  // the rule14-ho AVOID<->RECOVERY oscillation. The onset reference heading is
+  // stable (own heading when the give-way duty started), so the abaft test only
+  // fires once the target has physically drawn past the onset bow. Falling back
+  // to the current heading keeps the gate sound when no anchor is latched.
+  const double heading_deg = std::isfinite(reference_heading_deg)
+      ? reference_heading_deg
+      : world.own_ship.heading_deg;
+  if (!std::isfinite(heading_deg)) {
+    return true;
+  }
+  const double true_bearing_relative_to_heading_deg =
+      target_it->brg_deg - heading_deg;
+  const double rel_bearing_deg =
+      std::fabs(std::fmod(
+          true_bearing_relative_to_heading_deg + 540.0, 360.0) - 180.0);
+  return rel_bearing_deg >= 90.0;
 }
 
 mass_l3::risk::ColregsDuty target_colregs_duty(
@@ -378,6 +535,8 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   if (colregs_received_ && latest_colregs_) {
     if (latest_colregs_->conflict_detected) {
       last_active_colregs_ = latest_colregs_;
+      active_colregs_rule_id_ = primary_colregs_rule_id(*latest_colregs_);
+      active_colregs_target_key_ = primary_colregs_target_key(*latest_colregs_);
       colregs_inactive_cycles_ = 0;
     } else if (latest_colregs_->confidence < kLowConfidenceClearThreshold &&
                colregs_anchor_set_ && last_active_colregs_ &&
@@ -442,6 +601,9 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   std::string rationale;
   std::string risk_rationale_suffix;
   bool risk_controlled_colregs_released = false;
+  bool residual_rule15_commit_active = false;
+  bool rule15_allows_recovery_complete = true;
+  ColregsDirective colregs_directive;
 
   if (has_mrc) {
     primary = BehaviorType::MRC_DRIFT;
@@ -472,9 +634,30 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     }
     double nominal_spd = speed_max_kn_; // Target nominal speed
 
-    ColregsDirective colregs_directive;
     if (colregs_for_directive) {
       colregs_directive = extract_colregs_directive(*colregs_for_directive);
+      // D1.3 v4: cache the abaft-beam gate from the fully-extracted directive
+      // (primary_threat_id populated) so the RECOVERY-entry branch below reads
+      // one consistent geometry even when its own directive view is dwell-
+      // overridden with an empty threat id.
+      if (latest_world_) {
+        // D1.3 v5: anchor the abaft test to the COLREG turn onset heading
+        // (colregs_anchor_hdg_, captured at duty onset — same semantics as
+        // M6's encounter_reference_heading_) so own-ship's RECOVERY turn does
+        // not rotate the target back across the bow in the test frame.
+        const double abaft_reference_heading_deg =
+            colregs_anchor_set_ ? colregs_anchor_hdg_
+                                : std::numeric_limits<double>::quiet_NaN();
+        last_colregs_target_abaft_beam_ = colregs_give_way_target_abaft(
+            *latest_world_, colregs_directive, active_colregs_target_key_,
+            abaft_reference_heading_deg);
+      }
+      const bool same_released_encounter =
+          released_colregs_rearm_hold_ &&
+          same_colregs_encounter(
+              *colregs_for_directive,
+              released_colregs_rule_id_,
+              released_colregs_target_key_);
       if (latest_world_ && colregs_directive.conflict_active) {
         const auto risk_guidance = compute_primary_risk_guidance(
             *latest_world_, colregs_directive, risk_ranking_state_);
@@ -504,30 +687,110 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
               colregs_directive.primary_risk_phase == "Critical" ||
               colregs_directive.primary_warning_margin_m < 0.0 ||
               colregs_directive.primary_danger_margin_m < 0.0;
-          const bool risk_allows_recovery_hold =
+          const bool risk_has_positive_margins =
+              colregs_directive.primary_warning_margin_m > 0.0 &&
+              colregs_directive.primary_danger_margin_m > 0.0;
+          const bool risk_has_ship_scale_release_margins =
+              colregs_directive.primary_warning_margin_m >=
+                  kOwnShipLoaM * kRiskReleaseWarningMarginLoa &&
+              colregs_directive.primary_danger_margin_m >=
+                  kOwnShipLoaM * kRiskReleaseDangerMarginLoa;
+          const bool risk_is_clear_or_monitor =
+              colregs_directive.primary_risk_phase == "Clear" ||
+              colregs_directive.primary_risk_phase == "Monitor";
+          // Active M6 conflicts need ship-scale hysteresis before M4 hands
+          // back to RECOVERY. Positive margins of only a few meters sit on the
+          // warning-domain boundary and can flip negative on the next sample,
+          // re-entering COLREG_AVOID and causing rudder reversals.
+          const bool risk_allows_recovery_entry =
               (colregs_directive.primary_risk_phase == "Clear" ||
                (colregs_directive.primary_risk_phase == "Monitor" &&
                 colregs_directive.primary_closing_speed_mps <= 1.0e-6)) &&
-              colregs_directive.primary_warning_margin_m > 0.0 &&
-              colregs_directive.primary_danger_margin_m > 0.0;
+              risk_has_ship_scale_release_margins;
+          const bool same_rule15_commit_target =
+              colregs_rule15_commit_target_key_.empty() ||
+              colregs_rule15_commit_target_key_ == colregs_directive.primary_threat_id;
+          residual_rule15_commit_active =
+              colregs_rule15_commit_active_ && same_rule15_commit_target;
+          const bool rule15_allows_recovery =
+              rule15_give_way_passed_astern(
+                  *latest_world_, colregs_directive, residual_rule15_commit_active);
+          rule15_allows_recovery_complete =
+              rule15_give_way_passed_astern(
+                  *latest_world_,
+                  colregs_directive,
+                  residual_rule15_commit_active,
+                  true,
+                  colregs_rule15_commit_target_key_);
+          const bool risk_allows_recovery_hold =
+              risk_is_clear_or_monitor && risk_has_positive_margins &&
+              (colregs_risk_recovery_hold_ || rule15_allows_recovery);
+          const bool safe_same_released_rearm =
+              same_released_encounter && risk_allows_recovery_hold;
           if (risk_requires_colregs_reengage) {
             colregs_risk_recovery_hold_ = false;
+            if (same_released_encounter) {
+              released_colregs_rearm_hold_ = false;
+              released_colregs_rule_id_.reset();
+              released_colregs_target_key_.clear();
+            }
           }
+          // D1.3: risk-controlled release must wait until the target is no longer
+          // closing. Without this gate, risk_controlled_colregs_released=true makes
+          // colregs_conflict_active=false (1057), dropping M4 out of AVOID directly
+          // to TRANSIT while the target is still approaching (TCPA>0). This is the
+          // rule14-ho PREMATURE_RECOVERY root path: M4 released at 649s with
+          // closing_mps=+8.13 while M6 conflict stayed true until 785s.
+          const bool target_no_longer_closing =
+              colregs_directive.primary_closing_speed_mps <= 1.0e-6;
+          // D1.3 v4: also require the primary give-way target to be abaft the
+          // beam. The closing gate (TCPA<=0) is satisfied as soon as the target
+          // passes CPA, but a head-on/crossing target can still be forward of
+          // the beam for a long time after CPA. Releasing RECOVERY before the
+          // target is abaft pushes own-ship back toward the target and
+          // re-triggers AVOID (rule14-ho oscillation, rule15-cs-edge 32
+          // steering_reversals + 179° U-turn). See colregs_give_way_target_abaft.
+          const bool target_abaft_beam = last_colregs_target_abaft_beam_;
           const bool fresh_risk_controlled_release =
               colregs_recovery_armed_ &&
-              risk_allows_recovery_hold &&
+              risk_allows_recovery_entry &&
+              rule15_allows_recovery &&
               recovery_tracking.has_value() &&
-              std::abs(recovery_tracking->xte_m) > xte_gate_m;
+              std::abs(recovery_tracking->xte_m) > xte_gate_m &&
+              target_no_longer_closing &&
+              target_abaft_beam;
           const bool held_risk_clear_release =
-              colregs_risk_recovery_hold_ && recovery_active_ && risk_allows_recovery_hold;
+              colregs_risk_recovery_hold_ && risk_allows_recovery_hold &&
+              target_no_longer_closing &&
+              target_abaft_beam;
+          // D1.3 v6: M4's risk-based release must NOT override M6 while it
+          // still reports conflict_detected=true. Without this term, M4
+          // releases to RECOVERY ~250s before M6 clears (rule14-ho 1221-1295s
+          // oscillation), the RECOVERY turn rotates own-ship back toward the
+          // route/target, M6 keeps reporting conflict, and the next cycle
+          // re-activates AVOID — double-sided over-steer + steering_reversals
+          // =10. M6 is the COLREGs rule authority (AGENTS.md "ODD is the only
+          // authority for safety context"); risk gates stay as secondary
+          // hysteresis but cannot fire against M6. See spec
+          // 2026-06-25-m4-risk-release-m6-authority-design.md §1.3.
           risk_controlled_colregs_released =
-              fresh_risk_controlled_release || held_risk_clear_release;
+              (fresh_risk_controlled_release ||
+              held_risk_clear_release ||
+              safe_same_released_rearm) &&
+              target_no_longer_closing &&
+              target_abaft_beam &&
+              !inputs.colregs_conflict_detected;
           if (fresh_risk_controlled_release) {
             colregs_risk_recovery_hold_ = true;
           }
           if (risk_controlled_colregs_released) {
             colregs_directive.conflict_active = false;
           }
+        } else if (released_colregs_rearm_hold_) {
+          risk_controlled_colregs_released = true;
+          colregs_directive.conflict_active = false;
+          risk_rationale_suffix =
+              " | risk unavailable during released COLREG hold; suppressing stale rearm";
         }
       }
       if (colregs_commit_hold) {
@@ -566,7 +829,6 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     } else if (!colregs_turn_active && colregs_anchor_set_) {
       colregs_anchor_set_ = false;
       colregs_quartering_gate_ = false;
-      colregs_rule15_commit_active_ = false;
       colregs_committed_required_dev_deg_ = 0.0;
       RCLCPP_INFO(get_logger(), "[M4] COLREG turn anchor released");
     }
@@ -574,6 +836,11 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
         colregs_directive.rule15_active &&
         colregs_directive.primary_role == kRoleGiveWay) {
       colregs_rule15_commit_active_ = true;
+      colregs_rule15_commit_target_key_ = colregs_directive.primary_threat_id;
+      if (colregs_rule15_commit_target_key_.empty() && colregs_for_directive) {
+        colregs_rule15_commit_target_key_ =
+            primary_colregs_target_key(*colregs_for_directive);
+      }
     }
     constexpr double kColregsCriticalCpaM = 500.0;
     constexpr double kColregsTacticalCpaBufferM = 1500.0;
@@ -613,9 +880,11 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     const bool hold_bow_crossing_commitment =
         colregs_turn_active &&
         colregs_rule15_commit_active_ &&
-        colregs_directive.primary_role == kRoleGiveWay &&
+        (colregs_directive.primary_role == kRoleGiveWay ||
+         colregs_directive.primary_role == kRoleBothGiveWay) &&
         !colregs_quartering_gate_;
     if (hold_bow_crossing_commitment) {
+      required_dev_deg = std::max(required_dev_deg, colregs_committed_required_dev_deg_);
       colregs_committed_required_dev_deg_ = required_dev_deg;
     } else {
       colregs_committed_required_dev_deg_ = 0.0;
@@ -870,6 +1139,35 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     rationale = "No active behaviors; default Transit";
   }
 
+  if (latest_world_ && colregs_rule15_commit_active_) {
+    const bool same_rule15_commit_target =
+        colregs_directive.primary_threat_id.empty() ||
+        colregs_rule15_commit_target_key_.empty() ||
+        colregs_rule15_commit_target_key_ == colregs_directive.primary_threat_id;
+    residual_rule15_commit_active = same_rule15_commit_target;
+    if (residual_rule15_commit_active) {
+      const auto committed_target_it = std::find_if(
+          latest_world_->targets.begin(),
+          latest_world_->targets.end(),
+          [this](const auto& target) {
+            return colregs_rule15_commit_target_key_ == std::to_string(target.target_id);
+          });
+      if (!colregs_directive.conflict_active &&
+          !colregs_rule15_commit_target_key_.empty() &&
+          committed_target_it == latest_world_->targets.end()) {
+        rule15_allows_recovery_complete = true;
+      } else {
+        rule15_allows_recovery_complete =
+            rule15_give_way_passed_astern(
+                *latest_world_,
+                colregs_directive,
+                true,
+                true,
+                colregs_rule15_commit_target_key_);
+      }
+    }
+  }
+
   // Phase 4: AVOID → RECOVERY → TRANSIT (architecture §8.3).
   // RECOVERY is allowed only after M6 releases the conflict. A temporary loss of
   // turn direction while conflict_detected remains true is still active COLREGs,
@@ -897,14 +1195,38 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     // heading<10° acceptance in TRANSIT.
     const bool heading_aligned = tracking.has_value() &&
         std::abs(tracking->heading_error_deg) <= kRecoveryCompleteHeadingErrorDeg;
+    const bool rule15_commit_requires_hold =
+        residual_rule15_commit_active && !rule15_allows_recovery_complete;
+    // D1.3 v4: use the cached abaft-beam gate (computed once at the top of this
+    // arbitration from the fully-extracted directive). The local directive view
+    // here may be dwell-overridden with an empty threat id, which would make a
+    // fresh call return true (no gate) and let RECOVERY slip in before the
+    // target is actually abaft — the rule14-ho/rule15-cs-edge oscillation path.
+    const bool recovery_entry_abaft = last_colregs_target_abaft_beam_;
     if (recovery_active_) {
-      if (xte_beyond_gate || !heading_aligned) {
+      if (xte_beyond_gate || !heading_aligned || !rule15_allows_recovery_complete) {
         recovery_dwell_cycles_ = 0;  // not yet restored, reset dwell
       } else if (++recovery_dwell_cycles_ >= kRecoveryReleaseDwellCycles) {
         recovery_active_ = false;    // XTE + heading restored + dwell → TRANSIT
+        colregs_rule15_commit_active_ = false;
+        colregs_rule15_commit_target_key_.clear();
       }
-    } else if (colregs_conflict_released && xte_beyond_gate) {
-      recovery_active_ = true;       // release with XTE偏离 → enter RECOVERY
+    } else if (colregs_conflict_released &&
+        colregs_directive.primary_closing_speed_mps <= 1.0e-6 &&
+        recovery_entry_abaft &&
+        (xte_beyond_gate || rule15_commit_requires_hold)) {      // D1.3: RECOVERY entry is gated on the target no longer closing AND abaft
+      // the beam. M4's risk-based early release (risk phase Clear with large CPA
+      // margin) must not override M6's conflict authority while the target is
+      // still closing (closing_speed>0, TCPA>0). This fixes rule14-ho
+      // PREMATURE_RECOVERY (M4 entered RECOVERY at closing_mps=+8.13 while M6
+      // conflict stayed true for another ~135s). D1.3 v4 adds the abaft-beam
+      // gate: even when the target is opening (closing_mps<=0) it may still be
+      // forward of the beam (rel_bearing<90°), and entering RECOVERY then pushes
+      // own-ship back toward the target, re-triggering AVOID (rule14-ho
+      // oscillation, rule15-cs-edge 32 steering_reversals + 179° U-turn).
+      // Architecture §8.4: COLREGs constraints are hard constraints; M4 defers
+      // to M6 conflict authority while the encounter is still developing.
+      recovery_active_ = true;       // release with route/COLREG restoration pending
       recovery_dwell_cycles_ = 0;
     }
     if (colregs_conflict_released) {
@@ -916,8 +1238,18 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       const double xte_m = tracking.has_value() ? tracking->xte_m : 0.0;
       rationale = "RECOVERY gradual return-to-route xte=" +
           std::to_string(static_cast<int>(xte_m)) + "m";
-    } else {
+    } else if (risk_controlled_colregs_released) {
+      primary = BehaviorType::TRANSIT;
+      confidence = 0.75;
+      rationale = "Risk-controlled residual COLREGs release; continuing route tracking";
+    } else if (!inputs.colregs_conflict_detected) {
       colregs_risk_recovery_hold_ = false;
+    }
+    if (colregs_conflict_released && active_colregs_rule_id_.has_value() &&
+        !active_colregs_target_key_.empty()) {
+      released_colregs_rule_id_ = active_colregs_rule_id_;
+      released_colregs_target_key_ = active_colregs_target_key_;
+      released_colregs_rearm_hold_ = true;
     }
   }
 
