@@ -12,6 +12,7 @@ definition instead of silently falling back to hardcoded defaults.
 
 import asyncio
 import json
+import os
 import shutil
 import time
 import rclpy
@@ -29,6 +30,7 @@ from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from sil_msgs.msg import OwnShipState
+from sil_msgs.msg import ShipReset
 from sil_msgs.srv import AddTarget, RemoveTarget
 from std_msgs.msg import String
 
@@ -152,6 +154,8 @@ class LifecycleBridge(Node):
             OwnShipState, "/sil/own_ship_state", self._on_own_ship_state, own_ship_qos)
         self._scenario_loaded_pub = self.create_publisher(
             String, "/sil/scenario_loaded", qos_profile=_SCENARIO_LOADED_QOS)
+        self._reset_own_ship_pub = self.create_publisher(
+            ShipReset, "/l3/sim/reset_own_ship", 10)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(
@@ -412,7 +416,10 @@ class LifecycleBridge(Node):
             self._backup_timer_task.cancel()
             self._backup_timer_task = None
 
-        injection_map = _extract_injection_params(yaml_data)
+        injection_map = _filter_injection_params_for_runtime_profile(
+            _extract_injection_params(yaml_data),
+            os.environ.get("TDL_RUNTIME_PROFILE", "internal-local"),
+        )
         _print_injection_summary(injection_map)
 
         # Step 5: reset to UNCONFIGURED FIRST so the node's parameter store is a
@@ -445,6 +452,20 @@ class LifecycleBridge(Node):
             self._scenario_id = scenario_id
             self._state = LifecycleState.INACTIVE
             self._publish_scenario_loaded(scenario_id)
+            # GNC profile: reset the GNC plant own-ship to scenario start point.
+            # The plant (domain 50) is not reachable by lifecycle/cross-run-reset,
+            # so emit a ShipReset that gnc_bridge forwards to ship_dynamics +
+            # coordinate_transform. SIL profile skips this (handled by injection).
+            runtime_profile = os.environ.get("TDL_RUNTIME_PROFILE", "internal-local")
+            if runtime_profile == "gnc":
+                reset_msg = _build_ship_reset(yaml_data)
+                if reset_msg is not None:
+                    reset_msg.header.stamp = self.get_clock().now().to_msg()
+                    self._reset_own_ship_pub.publish(reset_msg)
+                    _log.info(
+                        "GNC reset emitted: lat=%.6f lon=%.6f heading=%.1f sog=%.1f",
+                        reset_msg.latitude, reset_msg.longitude,
+                        reset_msg.heading_deg, reset_msg.sog_kn)
             task = asyncio.create_task(self._broadcast_transition(Transition.TRANSITION_CONFIGURE))
             self._active_tasks.add(task)
             task.add_done_callback(self._active_tasks.discard)
@@ -751,6 +772,40 @@ def _extract_injection_params(yaml_data: dict) -> dict:
             injection_map[node]["root_seed"] = (int(root_seed), ParameterType.PARAMETER_INTEGER)
 
     return injection_map
+
+
+def _filter_injection_params_for_runtime_profile(injection_map: dict,
+                                                 runtime_profile: str) -> dict:
+    """Remove injections for nodes that are absent in a runtime profile."""
+    filtered = {
+        node_name: dict(params)
+        for node_name, params in injection_map.items()
+    }
+    if runtime_profile == "gnc":
+        filtered.pop("ship_dynamics_node", None)
+    return filtered
+
+
+def _build_ship_reset(yaml_data: dict):
+    """Build a sil_msgs/ShipReset from scenario ownShip.initial, or None if absent.
+
+    The GNC plant (domain 50) is not reset by lifecycle/cross-run-reset; the
+    orchestrator emits this on every GNC-profile configure so the plant's
+    own-ship returns to the scenario start point (coordinate_transform origin
+    + ship_dynamics eta_).
+    """
+    own = (yaml_data.get("ownShip", {}) if isinstance(yaml_data, dict) else {}).get("initial", {})
+    pos = own.get("position", {})
+    lat = pos.get("latitude")
+    lon = pos.get("longitude")
+    if lat is None or lon is None:
+        return None
+    msg = ShipReset()
+    msg.latitude = float(lat)
+    msg.longitude = float(lon)
+    msg.heading_deg = float(own.get("heading", 0.0))
+    msg.sog_kn = float(own.get("sog", 0.0))
+    return msg
 
 
 def _print_injection_summary(injection_map: dict) -> None:

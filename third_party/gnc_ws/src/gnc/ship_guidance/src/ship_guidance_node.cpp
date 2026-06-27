@@ -499,6 +499,11 @@ ShipGuidanceNode::ShipGuidanceNode()
         "/ship/waypoints", path_qos,
         std::bind(&ShipGuidanceNode::path_callback, this, std::placeholders::_1));
 
+    // 运行时 reset：orchestrator 经 gnc_bridge 发 /ship/dynamics_reset。
+    reset_sub_ = this->create_subscription<ship_interfaces::msg::ShipReset>(
+        "/ship/dynamics_reset", 10,
+        std::bind(&ShipGuidanceNode::reset_callback, this, std::placeholders::_1));
+
     heading_setpoint_pub_ = this->create_publisher<std_msgs::msg::Float64>("/control/heading_setpoint", 10);
     target_speed_pub_ = this->create_publisher<std_msgs::msg::Float64>("/control/speed_setpoint", 10);
     target_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/target_pose", 10);
@@ -1602,6 +1607,37 @@ bool ShipGuidanceNode::select_dp_weathervane_heading(double fallback_heading,
 
     selected_heading = normalize_angle_pi(std::atan2(-env_fy_world, -env_fx_world));
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 运行时 reset：清零 ILOS 积分 + 侧滑估计 + path latch + rejoin/gate 锁存
+// ─────────────────────────────────────────────────────────────────────────────
+void ShipGuidanceNode::reset_guidance()
+{
+    // 清零跨 run 累积的积分器/估计/latch，等价于冷启初始化。
+    // 由 reset_callback 调用，调用方持 state_mutex_。
+    integral_e_ = 0.0;
+    prev_e_ = 0.0;
+    beta_hat_ = 0.0;
+    psi_cmd_prev_ = 0.0;
+    init_psi_ = true;
+    last_time_ = this->now();
+    // path signature latch：防止相同 scenario 重跑时丢弃新 path
+    has_last_path_signature_ = false;
+    last_path_signature_ = 0;
+    last_path_size_ = 0;
+    // rejoin/gate latch（path_callback 未清零的残留）
+    cruise_recovery_gate_cleared_ = false;
+    cruise_recovery_stable_timer_active_ = false;
+    corridor_hold_active_ = false;
+    turn_segment_speed_gate_active_ = false;
+    RCLCPP_INFO(this->get_logger(), "reset_guidance: ILOS integral + path latch + rejoin gates cleared");
+}
+
+void ShipGuidanceNode::reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr /*msg*/)
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    reset_guidance();
 }
 
 void ShipGuidanceNode::path_callback(const nav_msgs::msg::Path::SharedPtr msg)

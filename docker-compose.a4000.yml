@@ -14,6 +14,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=42
       - FOX_PORT=18765
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-mass-l3-sil}
       - TDL_RUNTIME_PROFILE=${TDL_RUNTIME_PROFILE:-internal-local}
       # ROS_LOCALHOST_ONLY=1 disabled: CycloneDDS on Ubuntu 22.04's loopback
       # interface is not multicast-capable, so forcing localhost-only disables
@@ -27,6 +28,7 @@ services:
       - SIL_L4_ADAPTER_ENABLE=1
       - SIL_BRIDGE_RELEASE_FALLBACK=0
       - TDL_INTEGRATION_PROFILE=${TDL_INTEGRATION_PROFILE:-default}
+      - TDL_RUNTIME_PROFILE=${TDL_RUNTIME_PROFILE:-internal-local}
 
   foxglove-bridge:
     cpus: ${FOXGLOVE_CPUS:-1.5}

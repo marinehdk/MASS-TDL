@@ -240,6 +240,77 @@ def _volatile_qos(depth: int = 10):  # pragma: no cover — requires rclpy
     )
 
 
+def _normalize_colregs_constraint_msg(msg: Any) -> dict[str, Any]:
+    active_rules = []
+    for rule in getattr(msg, "active_rules", []) or []:
+        active_rules.append(
+            {
+                "rule_id": int(getattr(rule, "rule_id", 0)),
+                "target_id": int(getattr(rule, "target_id", 0)),
+                "role": int(getattr(rule, "role", 0)),
+                "rule_phase": str(getattr(rule, "rule_phase", "")),
+                "preferred_direction": str(getattr(rule, "preferred_direction", "")),
+                "min_alteration_deg": float(getattr(rule, "min_alteration_deg", 0.0)),
+                "confidence": float(getattr(rule, "confidence", 0.0)),
+            }
+        )
+    return {
+        "conflict_detected": bool(msg.conflict_detected),
+        "primary_role": int(msg.primary_role),
+        "phase": str(msg.phase),
+        "primary_preferred_direction": str(msg.primary_preferred_direction),
+        "confidence": float(msg.confidence),
+        "active_rules": active_rules,
+    }
+
+
+def _normalize_world_state_msg(msg: Any) -> dict[str, Any]:
+    targets = list(getattr(msg, "targets", []) or [])
+    primary = min(targets, key=lambda t: float(getattr(t, "cpa_m", float("inf"))), default=None)
+    own = getattr(msg, "own_ship", None)
+    own_pos = getattr(own, "position", None) if own is not None else None
+    payload: dict[str, Any] = {
+        "target_count": len(targets),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+        "own_heading_deg": float(getattr(own, "heading_deg", 0.0)) if own is not None else 0.0,
+        "own_sog_kn": float(getattr(own, "sog_kn", 0.0)) if own is not None else 0.0,
+        "own_lat": float(getattr(own_pos, "latitude", 0.0)) if own_pos is not None else 0.0,
+        "own_lon": float(getattr(own_pos, "longitude", 0.0)) if own_pos is not None else 0.0,
+    }
+    if primary is None:
+        return payload
+
+    encounter = getattr(primary, "encounter", None)
+    payload.update(
+        {
+            "primary_target_id": int(getattr(primary, "target_id", 0)),
+            "primary_target_heading_deg": float(getattr(primary, "heading_deg", 0.0)),
+            "primary_target_cog_deg": float(getattr(primary, "cog_deg", 0.0)),
+            "primary_target_sog_kn": float(getattr(primary, "sog_kn", 0.0)),
+            "primary_brg_deg": float(getattr(primary, "brg_deg", 0.0)),
+            "primary_rng_m": float(getattr(primary, "rng_m", 0.0)),
+            "primary_cpa_m": float(getattr(primary, "cpa_m", 0.0)),
+            "primary_tcpa_s": float(getattr(primary, "tcpa_s", 0.0)),
+            "primary_target_compliance": float(getattr(primary, "target_compliance", 0.0)),
+            "primary_encounter_type": int(getattr(encounter, "encounter_type", 0))
+            if encounter is not None
+            else 0,
+            "primary_relative_bearing_deg": float(
+                getattr(encounter, "relative_bearing_deg", 0.0)
+            )
+            if encounter is not None
+            else 0.0,
+            "primary_aspect_deg": float(getattr(encounter, "aspect_angle_deg", 0.0))
+            if encounter is not None
+            else 0.0,
+            "primary_is_giveway": bool(getattr(encounter, "is_giveway", False))
+            if encounter is not None
+            else False,
+        }
+    )
+    return payload
+
+
 # Topic → (message type import path, normalizer). Normalizers turn a ROS msg
 # into the dict the trace evaluators expect. Kept 1:1 with the deleted bridge's
 # record() payloads so downstream consumers are unaffected.
@@ -255,6 +326,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         FsmState,
         MissionGoal,
         SafetyAlert,
+        WorldState,
     )
     from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
 
@@ -263,13 +335,28 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
 
     node = writer  # the node holds the clock; set in TraceWriterNode.__init__
 
-    # NOTE: `sim_t` is captured per-callback from the ROS node's sim clock. The
-    # node object is attached below in TraceWriterNode; we close over it via a
-    # mutable holder so the lambdas defined here see the final node.
-    holder: dict[str, Any] = {"node": None}
+    # NOTE: `sim_t` was captured per-callback from the ROS node's sim clock. But
+    # ROS2 use_sim_time + /clock (TRANSIENT_LOCAL + BEST_EFFORT) goes stale when
+    # the lifecycle_mgr destroys/recreates the /clock publisher across runs
+    # without restarting this process: the subscriber's TimeSource stops at the
+    # last received value until DDS re-discovers the new publisher instance,
+    # which can take seconds-to-minutes and varies per run (DIAG evidence
+    # 2026-06-27: trace first-frame sim_t was 586s frozen from the prior run).
+    # Fix: anchor sim_t to the /sil/lifecycle_status.sim_time field (published
+    # @ 1Hz by lifecycle_mgr) and interpolate at sim_rate between updates. This
+    # bypasses the ROS sim clock entirely for record() timestamps.
+    holder: dict[str, Any] = {"node": None, "prev_lc": None,
+                              "sim_base_t": 0.0, "sim_base_wall": 0.0, "sim_rate": 1.0}
 
     def t_now() -> float:
-        return holder["node"].get_clock().now().nanoseconds * 1e-9
+        # Interpolate: base sim_t + (wall elapsed since last lifecycle update) * rate.
+        # If no lifecycle message yet, fall back to the ROS clock (covers the
+        # pre-activate startup window).
+        base_wall = holder["sim_base_wall"]
+        if base_wall <= 0.0:
+            return holder["node"].get_clock().now().nanoseconds * 1e-9
+        elapsed = time.time() - base_wall
+        return holder["sim_base_t"] + max(0.0, elapsed) * holder["sim_rate"]
 
     def on_own(msg):
         writer.record(
@@ -319,15 +406,12 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
     def on_colregs(msg):
         writer.record(
             "/l3/m6/colregs_constraint",
-            {
-                "conflict_detected": bool(msg.conflict_detected),
-                "primary_role": int(msg.primary_role),
-                "phase": str(msg.phase),
-                "primary_preferred_direction": str(msg.primary_preferred_direction),
-                "confidence": float(msg.confidence),
-            },
+            _normalize_colregs_constraint_msg(msg),
             t_now(),
         )
+
+    def on_world_state(msg):
+        writer.record("/l3/m2/world_state", _normalize_world_state_msg(msg), t_now())
 
     def on_veto(msg):
         writer.record(
@@ -424,9 +508,19 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         writer.record("/l2/planned_route", {"route_hash": route_hash}, t_now())
 
     def on_lifecycle(msg):
-        # 3 = ACTIVE. On entry to ACTIVE, truncate the trace for a clean run.
+        # Update the sim_t anchor from the authoritative lifecycle_status field.
+        # This is the primary sim_t source now (see t_now); the ROS sim clock is
+        # only a pre-activate fallback.
+        holder["sim_base_t"] = float(msg.sim_time)
+        holder["sim_base_wall"] = time.time()
+        holder["sim_rate"] = float(getattr(msg, "sim_rate", 1.0) or 1.0)
+        # 3 = ACTIVE. On entry to ACTIVE, truncate the trace for a clean run and
+        # reset the interpolation anchor so the new run starts from sim_t=0
+        # (lifecycle_mgr publishes sim_time=0 right after configure).
         if int(msg.current_state) == 3 and holder.get("prev_lc") != 3:
             writer.reset()
+            holder["sim_base_t"] = float(msg.sim_time)
+            holder["sim_base_wall"] = time.time()
         holder["prev_lc"] = int(msg.current_state)
         writer.record(
             "/sil/lifecycle_status",
@@ -443,6 +537,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/l3/m4/behavior_plan", BehaviorPlan, on_behavior),
         ("/l3/m5/avoidance_plan", AvoidancePlan, on_avoidance),
         ("/l3/m6/colregs_constraint", COLREGsConstraint, on_colregs),
+        ("/l3/m2/world_state", WorldState, on_world_state),
         ("/l3/checker/veto", CheckerVetoNotification, on_veto),
         ("/sil/actuator_cmd", SilOwnShipState, on_actuator),
         ("/sil/scoring", ScoringRow, on_scoring),

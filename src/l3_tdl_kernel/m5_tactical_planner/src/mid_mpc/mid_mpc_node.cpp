@@ -30,6 +30,11 @@ constexpr double kCpaSafeFallback_m = 1852.0;
 // Set to nominal cruise speed from scenario YAML (10 kn for FCB imazu tests).
 constexpr double kDefaultPlannedSpeed_mps = 5.14;
 
+// GNC coordinate_transform keeps a wall-time route-update guard. Probe runs use
+// accelerated sim time, so repeat the M6-owned release intent long enough for
+// the GNC guard to admit one return_to_route update.
+constexpr double kReturnToRouteRepublishWindow_s = 30.0;
+
 mass_l3::risk::ColregsDuty colregs_duty_from_role(std::uint8_t primary_role) {
   if (primary_role == 1U) {
     return mass_l3::risk::ColregsDuty::GiveWay;
@@ -422,8 +427,9 @@ void MidMpcNode::on_solve_cycle_()
   publish_outputs_(sol, plan);
   // Track A A3: mirror the intent on the L3-owned waypoint plan so the GNC
   // bridge can translate it. Release authority lives here (spec D4): while M6
-  // reports conflict we keep a rolling avoidance plan; on the transition to
-  // conflict-clear we emit a single return_to_route plan.
+  // reports conflict we keep a rolling avoidance plan; on conflict-clear we
+  // keep publishing the same return intent briefly so GNC update guards cannot
+  // drop the only release message.
   publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon);
 }
 
@@ -722,7 +728,11 @@ void MidMpcNode::publish_avoidance_waypoints_(
   wp.command_source = "collision_avoidance";
   wp.confidence     = 0.8F;
 
+  const bool return_republish_active = return_to_route_emit_until_.has_value() &&
+      ((*return_to_route_emit_until_ - now).seconds() > 0.0);
+
   if (conflict_active) {
+    return_to_route_emit_until_.reset();
     // Keep a rolling avoidance plan (valid_until = now + 30s) so the GNC
     // active_route_manager holds the avoidance route until M6 clears.
     wp.behavior_mode = "emergency_avoidance";
@@ -745,14 +755,31 @@ void MidMpcNode::publish_avoidance_waypoints_(
     wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
     wp.allow_degraded_execution  = true;
     wp.rationale                 = "m5 avoidance waypoint plan for GNC bridge";
-  } else if (last_emitted_conflict_active_) {
-    // conflict -> clear transition: emit one return_to_route plan pointing at
-    // the nominal route so active_route_manager completes the lifecycle.
+  } else if (last_emitted_conflict_active_ || return_republish_active) {
+    if (last_emitted_conflict_active_) {
+      return_to_route_emit_until_ =
+          now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s);
+    }
+    // conflict -> clear transition: repeat return_to_route briefly so the GNC
+    // route-update guard cannot drop the only lifecycle-release message.
     wp.behavior_mode             = "return_to_route";
     wp.parent_route_id           = "nominal";
     wp.has_return_to_route_point = true;
-    wp.return_latitude           = lat0_deg;
-    wp.return_longitude          = lon0_deg;
+    const double target_speed_mps = input.own_ship.u_mps > 0.5
+        ? input.own_ship.u_mps
+        : input.planned_speed_mps;
+    const auto wps = mass_l3::m5::generate_return_to_route_waypoints(
+        lat0_deg, lon0_deg, input.planned_route_bearing_rad, input.route_xte_m);
+    wp.latitude.resize(wps.size());
+    wp.longitude.resize(wps.size());
+    wp.command_speed_mps.resize(wps.size(), target_speed_mps);
+    wp.navigation_mode.resize(wps.size(), "emergency_avoidance");
+    for (std::size_t i = 0; i < wps.size(); ++i) {
+      wp.latitude[i]  = wps[i].lat;
+      wp.longitude[i] = wps[i].lon;
+    }
+    wp.return_latitude           = wps[1].lat;
+    wp.return_longitude          = wps[1].lon;
     wp.rationale                 = "m5 return_to_route on M6 conflict-clear";
     wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
     wp.allow_degraded_execution  = true;
@@ -778,6 +805,8 @@ void MidMpcNode::reset_cross_run_state() {
   // ranking history (accumulated risk-ranking state).
   last_solution_.reset();
   risk_ranking_state_ = mass_l3::risk::RankingState{};
+  last_emitted_conflict_active_ = false;
+  return_to_route_emit_until_.reset();
 }
 
 }  // namespace mass_l3::m5::mid_mpc

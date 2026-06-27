@@ -136,6 +136,36 @@ def test_runtime_service_rejects_invalid_profile_env(monkeypatch):
     assert "missing-profile" in response.json()["detail"]
 
 
+def test_runtime_service_maps_gnc_runtime_profile_to_integration_local(monkeypatch):
+    captured = {}
+
+    monkeypatch.setenv("TDL_RUNTIME_PROFILE", "gnc")
+    monkeypatch.setattr(runtime_routes, "load_plugin_manifests", lambda _directory: {})
+    monkeypatch.setattr(
+        runtime_routes,
+        "load_runtime_profiles",
+        lambda _directory, _plugins: {
+            "internal-local": object(),
+            "integration-local": object(),
+        },
+    )
+
+    class FakeComposeRuntime:
+        def __init__(self, **kwargs):
+            captured["compose_kwargs"] = kwargs
+
+    class FakeRuntimeConsoleService:
+        def __init__(self, **kwargs):
+            captured["service_kwargs"] = kwargs
+
+    monkeypatch.setattr(runtime_routes, "ComposeRuntime", FakeComposeRuntime)
+    monkeypatch.setattr(runtime_routes, "RuntimeConsoleService", FakeRuntimeConsoleService)
+
+    get_runtime_service()
+
+    assert captured["service_kwargs"]["active_profile_name"] == "integration-local"
+
+
 def test_runtime_service_reports_manifest_load_error(monkeypatch):
     def bad_manifest_loader(_directory):
         raise RuntimeManifestError("bad runtime manifest")

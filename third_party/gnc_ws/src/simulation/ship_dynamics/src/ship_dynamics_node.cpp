@@ -196,6 +196,11 @@ void ShipDynamicsNode::initialize() {
         "/inject_fault", 10,
         std::bind(&ShipDynamicsNode::inject_fault_callback, this, std::placeholders::_1));
 
+    // 运行时 reset：orchestrator 经 gnc_bridge 发 /ship/dynamics_reset。
+    reset_sub_ = this->create_subscription<ship_interfaces::msg::ShipReset>(
+        "/ship/dynamics_reset", 10,
+        std::bind(&ShipDynamicsNode::reset_callback, this, std::placeholders::_1));
+
     initialize_csv_file();
 
     RCLCPP_INFO(this->get_logger(), "配置完成。质量: %.2e, I_zz: %.2e", v_config_.phys.mass, v_config_.phys.Izz);
@@ -484,6 +489,33 @@ Eigen::Vector4d ShipDynamicsNode::runge_kutta4(const Eigen::Vector4d& nu, const 
 void ShipDynamicsNode::reset_state() {
     RCLCPP_WARN(this->get_logger(), "重置船舶状态到安全值");
     nu_ = Eigen::Vector4d::Zero();
+}
+
+void ShipDynamicsNode::reset_to_origin(double yaw_rad, double u_mps) {
+    // 运行时 reset：等价于 initialize() 的位置/速度设置，但位置恒回 origin (0,0)，
+    // 航向/速度来自 reset 消息。由 reset_callback 调用，调用方持 data_mutex_。
+    eta_ = {0.0, 0.0, 0.0, yaw_rad};
+    nu_ = {u_mps, 0.0, 0.0, 0.0};
+    psi_continuous_ = yaw_rad;
+    initial_x_ = 0.0;
+    initial_y_ = 0.0;
+    auto_initial_yaw_applied_ = false;
+    tau_env_ = {0.0, 0.0, 0.0, 0.0};
+    tau_thruster_ = {0.0, 0.0, 0.0, 0.0};
+    last_thruster_cmd_time_ = this->now();
+    last_time_ = this->now();
+    start_time_ = this->now();
+    RCLCPP_INFO(this->get_logger(),
+                "reset_to_origin: eta=(0,0,%.3frad), u=%.3f m/s", yaw_rad, u_mps);
+}
+
+void ShipDynamicsNode::reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg) {
+    // 收到 reset：位置恒回 origin (0,0)；航向/速度来自消息。
+    // 绝对经纬度由 coordinate_transform 的 origin 重设决定（另一个订阅者）。
+    const double yaw_rad = msg->heading_deg * M_PI / 180.0;
+    const double u_mps = msg->sog_kn * 0.514444;  // kn -> m/s
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    reset_to_origin(yaw_rad, u_mps);
 }
 
 double ShipDynamicsNode::normalize_angle(double angle) const {

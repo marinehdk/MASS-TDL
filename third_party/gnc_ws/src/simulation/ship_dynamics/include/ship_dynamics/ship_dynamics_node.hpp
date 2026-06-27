@@ -11,6 +11,7 @@
 #include "std_msgs/msg/int32.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "ship_interfaces/msg/ship_reset.hpp"
 #include <array>
 #include <cmath>
 #include <chrono>
@@ -142,6 +143,7 @@ public:
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr initial_route_yaw_sub_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr depth_sub_;  // 水深订阅器
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr fault_inject_sub_;  // [FDI] 故障注入订阅
+    rclcpp::Subscription<ship_interfaces::msg::ShipReset>::SharedPtr reset_sub_;  // 运行时 reset
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr heading_pub_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr heading_cmd_sub_;
@@ -161,6 +163,8 @@ public:
     Eigen::Vector4d runge_kutta4(const Eigen::Vector4d& nu, const Eigen::Vector4d& tau_total, double current_roll, double dt);
     void update_dynamics();
     void reset_state();
+    void reset_to_origin(double yaw_rad, double u_mps);  // 运行时 reset 到 origin
+    void reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg);
     double normalize_angle(double angle) const;
     template<typename T>
     T get_param_safe(const std::string &name, T default_val);

@@ -1,9 +1,9 @@
 title: 'Probe: Rule 14 head-on (pure reciprocal)'
-description: Rule 14 PURE head-on. Own heading 000deg/12kn, target dead ahead (relative
-  bearing 0deg), reciprocal course 180deg at 12.0kn, initial range 2.0 NM, t_cpa ~=
-  300s. DCPA ~= 0 without action. Own ship must alter to STARBOARD and pass port-to-port,
-  then return to track. Canonical close-start probe (the M6 onset-latch regression
-  baseline).
+description: Rule 14 PURE head-on. Own heading 000deg/6kn, target dead ahead (relative
+  bearing 0deg), reciprocal course 180deg at 6.0kn, initial range 5.4 NM, t_cpa ~=
+  1620s. DCPA ~= 0 without action. Intelligent target uses colregs_rule_fsm. The
+  run must show monitoring, warning, committed STARBOARD avoidance, port-to-port
+  pass, release, and return to track.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -15,17 +15,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 12.0
+    sog: 6.0
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 12.0
-  - latitude: 63.489996
+    target_sog_kn: 6.0
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 12.0
+    target_sog_kn: 6.0
 targetShips:
 - id: ts1
   static:
@@ -33,10 +33,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.473333
+      latitude: 63.53
       longitude: 10.38
     cog: 180.0
-    sog: 12.0
+    sog: 6.0
     heading: 180.0
   model: ais_replay_vessel
   source:
@@ -79,13 +79,18 @@ metadata:
       profile: corridor_close_start_4L
       threshold_formula: 4.0L
       threshold_m: 180.0
+      contract:
+        acceptance_m: 180.0
+        m6_onset_m: 180.0
+        m6_release_m: 180.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 4.0
       nm_equivalent: 0.097
       source_confidence: project_profile_medium
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB close-start Rule14 within 1km L2 corridor; 4.0L emergency CPA floor covers close-start safety while route_return_required verifies final centerline rejoin.
+      basis: FCB reviewable Rule14 long-approach probe; 4.0L emergency CPA floor covers safety while route_return_required verifies final centerline rejoin.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
@@ -95,9 +100,9 @@ metadata:
     - rule: Rule14
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 3000.0
     dt: 0.02
-    n_rps_initial: 3.5
+    n_rps_initial: 1.75
     coordinate_origin:
     - 63.44
     - 10.38

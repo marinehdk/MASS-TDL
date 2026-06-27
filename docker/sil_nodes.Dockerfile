@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1.5
+# NOTE: # syntax=docker/dockerfile:1.5 removed under CN network (registry-1.docker.io
+# RST). BuildKit v0.29+ builtin frontend supports --mount=type=cache. Restore when
+# registry reachable. See AGENTS.md build notes.
 # SIL 10-node LifecycleNode container — Python rclpy nodes via launch file.
 # Replaces component_container_mt (C++) with ros2 launch for Python LifecycleNodes.
 FROM ros:humble-ros-base

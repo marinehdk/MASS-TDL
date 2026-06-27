@@ -121,6 +121,80 @@ def test_parse_args_accepts_explicit_sim_rate():
     assert args.sim_rate == pytest.approx(5.0)
 
 
+def test_parse_args_restart_container_append_supports_multiple():
+    runner = _load_runner()
+    args = runner._parse_args(
+        ["--restart-container", "a-1", "--restart-container", "b-2"]
+    )
+    assert args.restart_container == ["a-1", "b-2"]
+
+
+def test_parse_args_restart_container_defaults_none():
+    runner = _load_runner()
+    args = runner._parse_args([])
+    assert args.restart_container is None
+
+
+def test_parse_args_profile_choices():
+    runner = _load_runner()
+    assert runner._parse_args(["--profile", "gnc"]).profile == "gnc"
+    assert runner._parse_args([]).profile == "sil"
+
+
+def test_restart_sil_nodes_passes_all_containers_to_docker(monkeypatch):
+    runner = _load_runner()
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        cp = subprocess.CompletedProcess(cmd, 0, stdout="")
+        return cp
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner._restart_sil_nodes(["c-1", "c-2", "c-3"], settle_s=0.0)
+    assert captured["cmd"] == ["docker", "restart", "c-1", "c-2", "c-3"]
+
+
+def test_restart_sil_nodes_accepts_single_string(monkeypatch):
+    runner = _load_runner()
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner._restart_sil_nodes("single-1", settle_s=0.0)
+    assert captured["cmd"] == ["docker", "restart", "single-1"]
+
+
+def test_gnc_profile_auto_fills_three_containers_when_restart_omitted(capsys):
+    """Under --profile gnc, --restart-between-runs with no explicit
+    --restart-container must auto-fill the GNC three-container set so the
+    reproducible full-restart baseline is the default workflow."""
+    runner = _load_runner()
+    # Simulate the argv the probe forwards: --profile gnc --restart-between-runs
+    argv = ["--profile", "gnc", "--restart-between-runs", "--scenario", "colreg-rule14-ho"]
+    args = runner._parse_args(argv)
+    # Replicate the inference block from main() without running scenarios.
+    assert args.profile == "gnc"
+    assert args.restart_container is None
+    if args.restart_between_runs and not args.restart_container and args.profile == "gnc":
+        args.restart_container = list(runner.GNC_RESTART_CONTAINERS)
+    assert args.restart_container == list(runner.GNC_RESTART_CONTAINERS)
+    assert len(args.restart_container) == 3
+
+
+def test_sil_profile_still_requires_explicit_restart_container():
+    """SIL profile must not auto-fill; the empty-default safety guard stays."""
+    runner = _load_runner()
+    args = runner._parse_args(["--profile", "sil", "--restart-between-runs"])
+    assert args.profile == "sil"
+    assert args.restart_container is None
+    # main() returns 2 in this case; here we only assert the preconditions
+    # that trigger that branch (no auto-fill for SIL).
+
+
 def test_overall_gate_requires_returned_to_route():
     runner = _load_runner()
     assert runner.compute_overall_pass(
@@ -693,11 +767,19 @@ def test_result_schema_has_new_domain_fields():
 def test_clean_probe_yaml_declares_expected_probe_horizons():
     runner = _load_runner()
     root = Path(__file__).resolve().parents[2]
+    # Declared per-scenario horizons. The runner now derives an adaptive
+    # horizon via estimate_sim_horizon (max(yaml_declared, base)); these
+    # declared values are the floor. Update this map whenever a scenario's
+    # metadata.simulation_settings.total_time changes.
     expected_total_time_s = {
+        "colreg-rule14-ho": 3000.0,
+        "colreg-rule14-ho-port": 3000.0,
         "colreg-rule13-ot": 3600.0,
-        "colreg-rule15-cs": 2000.0,
+        "colreg-rule15-cs": 3000.0,
         "colreg-rule15-cs-2": 1800.0,
-        "colreg-rule15-ot-boundary": 3600.0,
+        "colreg-rule15-cs-edge": 2000.0,
+        "colreg-rule15-ot-boundary": 2400.0,
+        "colreg-rule17-cr-so": 2200.0,
     }
     for scenario_id in runner.SCENARIOS:
         path = root / "scenarios" / "COLREGs测试" / f"{scenario_id}.yaml"

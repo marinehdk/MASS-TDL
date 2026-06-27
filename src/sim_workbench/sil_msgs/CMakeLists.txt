@@ -25,6 +25,7 @@ set(msg_files
   "msg/ASDREvent.msg"
   "msg/LifecycleStatus.msg"
   "msg/BridgeState.msg"
+  "msg/ShipReset.msg"
 )
 
 set(srv_files

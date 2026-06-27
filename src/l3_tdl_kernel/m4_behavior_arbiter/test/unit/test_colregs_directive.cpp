@@ -313,6 +313,23 @@ TEST(ColregsDirective, ClearRiskDoesNotOverrideTurnWithSpeedReduction) {
   EXPECT_EQ(directive.direction, ColregsDirection::Starboard);
 }
 
+TEST(ColregsDirective, Rule13GiveWayWarningRiskDoesNotCapOvertakingSpeed) {
+  ColregsDirective directive;
+  directive.conflict_active = true;
+  directive.direction = ColregsDirection::Starboard;
+  directive.min_alteration_deg = 65.0;
+  directive.primary_role = kRoleGiveWay;
+  directive.phase = "SOUND_WARNING";
+  directive.rule13_active = true;
+  directive.primary_risk_phase = "Warning";
+  directive.primary_warning_margin_m = -20.0;
+  directive.primary_danger_margin_m = 250.0;
+  directive.primary_closing_speed_mps = 1.7;
+  directive.primary_tdv_warning_s = 120.0;
+
+  EXPECT_FALSE(dynamic_risk_requires_speed_cap(directive));
+}
+
 // T9 / D-5: Rule 14 head-on (BOTH_GIVE_WAY) must NOT have its turn direction
 // overridden to REDUCE_SPEED. COLREG Rule 14(a) requires both vessels to alter
 // to starboard; speed reduction may serve as an auxiliary speed_max constraint

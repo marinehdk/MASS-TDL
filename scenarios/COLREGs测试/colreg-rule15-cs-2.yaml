@@ -1,9 +1,9 @@
 title: 'Probe: Rule 15 crossing give-way, short t_cpa'
-description: 'Rule 15 crossing give-way with a SHORT reaction window. Faster target
-  from the starboard bow (relative bearing 60deg), course 300deg at 12.0kn, initial
-  range 1.0 NM, t_cpa ~= 540s — forces an EARLY, decisive starboard alteration (Rule
-  8(b): one readily-apparent maneuver). Probes whether the give-way action triggers
-  promptly enough to keep the ship-domain clear.'
+description: 'Rule 15 crossing give-way with a SHORT reaction window. Target from
+  the starboard bow (relative bearing 60deg), course 300deg at 12.0kn, initial range
+  2.8 NM, t_cpa ~= 840s. The scenario starts in PREPLAN, then reaches ACTIVE after
+  about 120s, forcing an early decisive starboard alteration (Rule 8(b): one readily
+  apparent maneuver), pass astern, release, and return.'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -23,7 +23,7 @@ ownShip:
   - latitude: 63.44
     longitude: 10.38
     target_sog_kn: 12.0
-  - latitude: 63.489996
+  - latitude: 63.606667
     longitude: 10.38
     target_sog_kn: 12.0
 targetShips:
@@ -33,8 +33,8 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.455
-      longitude: 10.438105
+      latitude: 63.463333
+      longitude: 10.470386
     cog: 300.0
     sog: 12.0
     heading: 300.0
@@ -72,6 +72,11 @@ metadata:
       profile: open_water_crossing_20L
       threshold_formula: 20.0L
       threshold_m: 900.0
+      contract:
+        acceptance_m: 900.0
+        m6_onset_m: 900.0
+        m6_release_m: 900.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 20.0
       nm_equivalent: 0.486

@@ -945,9 +945,16 @@ void ColregsReasonerNode::run_reasoning() {
     // and NOT already abaft the beam (Rule 13(d): no give-way to a vessel you
     // have passed; also stops the latch re-onsetting at the tail of an encounter
     // as Rule 16 flickers give_way while the ships slowly separate).
-    const bool duty_onset_signal =
-        raw_own_give_way && !own_stand_on && !past_and_clear &&
-        !cpa_projection_past_and_safe;
+    const bool duty_onset_signal = give_way_duty_onset_signal(
+        raw_own_give_way,
+        own_stand_on,
+        past_and_clear,
+        cpa_projection_past_and_safe,
+        target.tcpa_s,
+        target.cpa_m,
+        kParams.t_plan_s,
+        kParams.cpa_hard_m,
+        range_closing);
     auto dit = give_way_latches_.find(mmsi);
     if (dit == give_way_latches_.end()) {
       dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
@@ -1488,6 +1495,25 @@ void ColregsReasonerNode::reset_cross_run_state_locked_() {
   resolved_targets_.clear();
   prev_target_range_.clear();
   prev_target_bearing_.clear();
+  // encounter_fsms_ holds per-(target,rule) EncounterStateMachine state that
+  // biases a new scenario's onset classification if carried over (observed
+  // batch run: M6 onset 7s earlier and conflict 4.6x longer than the clean
+  // single run of the same scenario). Reset it with the latch maps.
+  encounter_fsms_.clear();
+}
+
+std::size_t ColregsReasonerNode::test_encounter_fsm_count() {
+  const std::lock_guard<std::mutex> kLock(state_mutex_);
+  return encounter_fsms_.size();
+}
+
+void ColregsReasonerNode::test_seed_encounter_fsm(
+    uint32_t mmsi, uint8_t rule_id) {
+  const std::lock_guard<std::mutex> kLock(state_mutex_);
+  const uint64_t key =
+      (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(rule_id);
+  EncounterParams ep{};
+  encounter_fsms_.emplace(key, EncounterStateMachine{ep});
 }
 
 }  // namespace mass_l3::m6_colregs

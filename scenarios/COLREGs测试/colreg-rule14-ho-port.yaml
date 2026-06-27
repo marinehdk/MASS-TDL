@@ -1,10 +1,11 @@
 title: 'Probe: Rule 14 head-on PORT-biased (must still turn starboard)'
 description: Rule 14 head-on BOUNDARY probe. Target ~5deg to PORT of own bow (relative
-  bearing 355deg) on a near-reciprocal course 170deg (12.0kn) — inside the head-on
+  bearing 355deg) on a near-reciprocal course 170deg (6.0kn), initial range 5.4 NM,
+  t_cpa ~= 1626s — inside the head-on
   sector but biased to port. Rule 14 still mandates a STARBOARD alteration even when
   the other vessel is marginally to port; turning to port (toward the target) or holding
-  course as if crossing is a violation. Stresses that a port-biased head-on is not
-  mis-handled.
+  course as if crossing is a violation. The lead-in must show monitoring, warning,
+  committed avoidance, pass, release, and return.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -16,17 +17,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 12.0
+    sog: 6.0
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 12.0
-  - latitude: 63.489996
+    target_sog_kn: 6.0
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 12.0
+    target_sog_kn: 6.0
 targetShips:
 - id: ts1
   static:
@@ -34,10 +35,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.473206
-      longitude: 10.373503
+      latitude: 63.529658
+      longitude: 10.362457
     cog: 170.0
-    sog: 12.0
+    sog: 6.0
     heading: 170.0
   model: ais_replay_vessel
 environment:
@@ -72,13 +73,18 @@ metadata:
       profile: corridor_close_start_4L
       threshold_formula: 4.0L
       threshold_m: 180.0
+      contract:
+        acceptance_m: 180.0
+        m6_onset_m: 180.0
+        m6_release_m: 180.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 4.0
       nm_equivalent: 0.097
       source_confidence: project_profile_medium
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: FCB port-biased close-start Rule14 within 1km L2 corridor; 4.0L emergency CPA floor covers close-start safety while route_return_required verifies final centerline rejoin.
+      basis: FCB port-biased reviewable Rule14 long-approach probe; 4.0L emergency CPA floor covers safety while route_return_required verifies final centerline rejoin.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
@@ -88,9 +94,9 @@ metadata:
     - rule: Rule14
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 3000.0
     dt: 0.02
-    n_rps_initial: 3.5
+    n_rps_initial: 1.75
     coordinate_origin:
     - 63.44
     - 10.38

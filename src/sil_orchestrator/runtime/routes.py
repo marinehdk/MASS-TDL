@@ -39,6 +39,13 @@ def _runs_dir() -> Path:
     return path if path.is_absolute() else _PROJECT_ROOT / path
 
 
+def _active_runtime_profile_name(profiles: dict[str, object]) -> str:
+    active_profile_name = os.environ.get("TDL_RUNTIME_PROFILE", "internal-local")
+    if active_profile_name == "gnc":
+        return "integration-local"
+    return active_profile_name
+
+
 @lru_cache(maxsize=1)
 def get_runtime_service() -> RuntimeConsoleService:
     try:
@@ -50,7 +57,7 @@ def get_runtime_service() -> RuntimeConsoleService:
             detail=f"invalid runtime configuration: {exc}",
         ) from exc
 
-    active_profile_name = os.environ.get("TDL_RUNTIME_PROFILE", "internal-local")
+    active_profile_name = _active_runtime_profile_name(profiles)
     if active_profile_name not in profiles:
         available = ", ".join(sorted(profiles)) or "none"
         raise HTTPException(

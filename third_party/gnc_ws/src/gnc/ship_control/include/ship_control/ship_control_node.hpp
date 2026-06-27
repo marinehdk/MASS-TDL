@@ -6,6 +6,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include "ship_interfaces/msg/ship_reset.hpp"
 #include <rcl_interfaces/msg/set_parameters_result.hpp>  // [B2/P1] 参数热更新回调返回类型
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -114,6 +115,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr          target_speed_sub_;    // ALOS 速度制导
     rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr  tau_pub_;
     rclcpp::Subscription<rcl_interfaces::msg::ParameterEvent>::SharedPtr param_sub_;  // [架构补全] 参数事件订阅
+    rclcpp::Subscription<ship_interfaces::msg::ShipReset>::SharedPtr reset_sub_;  // 运行时 reset
     rclcpp::TimerBase::SharedPtr control_timer_;
 
     // [B2/P1] 参数热更新句柄
@@ -125,6 +127,10 @@ private:
 
     // [A1/P0] 根据当前增益和输出限幅推算积分状态上界
     void calc_integral_limits();
+
+    // 运行时 reset：清零 PID 积分 + NDO 积分 + 误差历史（等价于冷启初始化）
+    void reset_controller();
+    void reset_callback(const ship_interfaces::msg::ShipReset::SharedPtr msg);
 
     // [B2/P1] 参数变化回调（ros2 param set 热更新 PID 增益/限幅）
     rcl_interfaces::msg::SetParametersResult

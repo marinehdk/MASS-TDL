@@ -1,9 +1,8 @@
 title: 'Probe: Rule 15 crossing give-way (starboard)'
 description: 'Rule 15 crossing. Target crosses from own ship''s STARBOARD bow (relative
-  bearing 50deg), course 290deg at 10.6kn, t_cpa ~= 900s (target moved 2477m NE
-  along approach bearing, D-3 gate fires at t~180s). Target uses colregs_rule_fsm
-  (adaptive). Own ship give-way: alter STARBOARD, return to track. DCPA ~= 0
-  without action.'
+  bearing 50deg), course 290deg at 9.55kn, initial range 5.4 NM, t_cpa ~= 1659s.
+  Target uses colregs_rule_fsm (adaptive). Own ship give-way: monitor, warn, alter
+  STARBOARD, pass astern, release, and return to track. DCPA ~= 0 without action.'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -15,17 +14,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 12.0
+    sog: 10.8
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 12.0
-  - latitude: 63.489996
+    target_sog_kn: 10.8
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 12.0
+    target_sog_kn: 10.8
 targetShips:
 - id: ts1
   static:
@@ -33,10 +32,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.461426
-      longitude: 10.437108
+      latitude: 63.497851
+      longitude: 10.534191
     cog: 290.0
-    sog: 10.61
+    sog: 9.55
     heading: 290.0
   model: ais_replay_vessel
   source:
@@ -80,6 +79,11 @@ metadata:
       profile: open_water_crossing_20L
       threshold_formula: 20.0L
       threshold_m: 900.0
+      contract:
+        acceptance_m: 900.0
+        m6_onset_m: 900.0
+        m6_release_m: 900.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 20.0
       nm_equivalent: 0.486
@@ -97,9 +101,9 @@ metadata:
     - rule: Rule16
       result: required
   simulation_settings:
-    total_time: 2000.0
+    total_time: 3000.0
     dt: 0.02
-    n_rps_initial: 3.5
+    n_rps_initial: 3.15
     coordinate_origin:
     - 63.44
     - 10.38

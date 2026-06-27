@@ -199,6 +199,18 @@ bool dynamic_risk_requires_speed_cap(const ColregsDirective& directive) {
   if (!directive.conflict_active) {
     return false;
   }
+  const bool rule13_directional_overtake =
+      directive.rule13_active &&
+      directive.primary_role == kRoleGiveWay &&
+      (directive.direction == ColregsDirection::Starboard ||
+       directive.direction == ColregsDirection::Port);
+  if (rule13_directional_overtake) {
+    return directive.direction == ColregsDirection::ReduceSpeed ||
+        directive.speed_reduction_preferred ||
+        directive.primary_risk_phase == "Danger" ||
+        directive.primary_risk_phase == "Critical" ||
+        directive.primary_danger_margin_m < -kRiskEpsilon;
+  }
   const bool warning_entry_within_tmr =
       directive.primary_risk_phase == "Monitor" &&
       directive.primary_closing_speed_mps > kRiskEpsilon &&

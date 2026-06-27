@@ -22,6 +22,13 @@ ship_interfaces::msg::AvoidancePlan to_gnc_avoidance_plan(
     const l3_external_msgs::msg::AvoidanceWaypoints& src,
     const builtin_interfaces::msg::Time& stamp);
 
+// Rebase an L3 sim-time avoidance deadline onto the GNC node clock before
+// publishing into domain 50. The bridge preserves the source TTL, not the
+// absolute source clock value.
+void rebase_avoidance_plan_timebase(
+    ship_interfaces::msg::AvoidancePlan& plan,
+    const builtin_interfaces::msg::Time& target_stamp);
+
 // L3 PlannedRoute -> GNC ship_interfaces/RoutePlan. Only the lat/lon + per-wp
 // speed/note carry over; RoutePlan is the simpler GNC nominal-route contract.
 ship_interfaces::msg::RoutePlan to_gnc_route_plan(

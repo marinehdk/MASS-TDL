@@ -25,7 +25,7 @@ target_include_directories(ship_guidance_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(ship_guidance_node PUBLIC cxx_std_17)
-ament_target_dependencies(ship_guidance_node rclcpp nav_msgs geometry_msgs std_msgs tf2 tf2_geometry_msgs)
+ament_target_dependencies(ship_guidance_node rclcpp nav_msgs geometry_msgs std_msgs tf2 tf2_geometry_msgs ship_interfaces)
 target_link_libraries(ship_guidance_node Eigen3::Eigen)
 
 add_executable(coordinate_transform_node src/coordinate_transform_node.cpp)

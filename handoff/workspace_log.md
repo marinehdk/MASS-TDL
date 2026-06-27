@@ -1273,3 +1273,68 @@ Evaluate `codex/colregs-phase-gate-diag` commit `570d6b5b`, preserve useful COLR
 
 ### Handoff Notes
 - Branch `codex/colregs-phase-gate-diag` can be deleted after `main` fast-forwards to this merge.
+
+## [2026-06-26] Codex / this commit / GNC profile COLREGs chain unblock + Rule14 L3 release handoff
+
+### Task Goal
+Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/colregs-gnc-debug` and turn the first GNC-profile 12-probe blocker into trace-backed module work. First milestone was to unblock rule14-ho so the real GNC chain can arm and execute; full 12-probe GREEN is not claimed.
+
+### Core Changes
+1. **GNC runtime ownership fixed:** `scripts/gnc-profile-start.sh` starts GNC before L3 and exports `TDL_RUNTIME_PROFILE=gnc`; `docker-compose.a4000.yml` passes it through; `docker/sil_entrypoint.sh` skips `ShipDynamicsNode` in GNC profile so `/sil/own_ship_state` has one owner, `gnc_bridge`.
+2. **Scenario injection made profile-aware:** `src/sil_orchestrator/lifecycle_bridge.py` filters `ship_dynamics_node` parameter injection when `TDL_RUNTIME_PROFILE=gnc`.
+3. **GNC bridge unit/timebase fixed:** `gnc_bridge` converts GNC heading/course/yaw-rate degrees to SIL radians/rad/s, and rebases L3 sim-time `AvoidanceWaypoints.valid_until` onto the GNC node clock before publishing `/colav/avoidance_plan`.
+4. **Fusion adapter ownship relay restored:** `sil_fusion_adapter` subscribes `/sil/own_ship_state`, publishes `/fusion/own_ship_state`, and converts SIL rad/rad_s/mps into L3 deg/deg_s/kn fields for M2.
+5. **M5 return-to-route delivery improved:** M5 emits explicit `return_to_route` waypoint geometry and repeats it for a short post-clear window so GNC route-update guards do not drop the only lifecycle-release message.
+6. **GNC overlay restored/tuned via mount only:** `docker/gnc-ship-config-overlay.yaml` is now a full overlay copy with emergency-avoidance update guards relaxed; no `third_party/gnc_ws` source edits.
+7. **Trace evidence expanded:** `docker/sil_trace_writer.py` records M6 `active_rules` and `/l3/m2/world_state` primary target geometry so next diagnosis can inspect M2/M6 release conditions directly.
+8. **Probe wrapper hardened:** `scripts/run_colregs_clean_8probe.py --profile {sil,gnc}` verifies the active stack by image substring before delegating to the runner.
+9. **Runtime Console GNC profile handling fixed:** orchestrator runtime routes map `TDL_RUNTIME_PROFILE=gnc` to the existing `integration-local` runtime profile, and Screen 02 now renders API `detail` messages instead of `[object Object]`.
+
+### Current Status
+- **Chain status: L2 -> L3 -> GNC/L4 is connected and executing.** rule14-ho now arms M6/M4/M5, GNC accepts avoidance plans, vessel turns starboard, and CPA is safe in the recorded runs.
+- **Not GREEN:** remaining failure is L3 COLREG release/recovery semantics. The cleanest current evidence is `runs/rule14_after_return_republish/rule14_summary.json`: `min_cpa_m=419.0`, `steer_dir=Starboard`, `steer_mag=60.0`, `cpa_ok=true`, `stability_pass=true`, `route_corridor_ok=true`, but `returned_to_route=false`, `transit_after_avoidance_s=0.0`, `bp_transitions=[[2.3,0],[584.8,1],[3009.8,7]]`.
+- Latest instrumented evidence is `runs/rule14_with_release_geometry_trace/rule14_summary.json`: `min_cpa_m=683.9`, `steer_dir=Starboard`, `steer_mag=51.3`, `cpa_ok=true`, `stability_pass=true`, but `route_corridor_ok=false`, `returned_to_route=false`, `bp_transitions=[[2.2,0],[93.7,1],[2803.3,7]]`. Use this mainly for M2/M6 geometry fields.
+- Old A7 blocker is resolved: this is no longer "M3 stuck, no COLREGs pipeline". Current blocker is after arm: release happens near the run horizon, leaving no meaningful transit/recovery dwell.
+- Over-turn hypothesis: current GNC evidence does **not** show the old SIL L4 saturation/limit-cycle failure. `turn_starboard` is green in the recorded summaries; `steering_reversals=0`; ROT is stable. Do not reintroduce SIL ROT inner loop or tune `Kd`.
+
+### Verification
+- `python3 -m pytest tests/docker/test_sil_trace_writer.py tests/scripts/test_gnc_ship_config_overlay.py tests/scripts/test_gnc_profile_start.py tests/scripts/test_run_colregs_clean_8probe.py tests/scripts/test_sil_fusion_adapter_contract.py tests/sil_orchestrator/test_scenario_injection.py -q` -> 48 passed.
+- Container gtest/build: `m5_tactical_planner` 140 tests, 0 failures; `gnc_bridge` 10 tests, 0 failures; `sil_fusion_adapter` 22 tests, 0 failures.
+- `python3 -m pytest tests/sil_orchestrator/runtime/test_routes.py -q` -> 10 passed.
+- `cd web && npm test -- SimulationCheck.runtime.test.tsx --run` -> 17 passed.
+- `git diff --check` -> clean.
+- Runtime health: `https://127.0.0.1:18000/api/v1/health` -> `{"status":"ok"}`; task stack `codex-gnc-validation-*` is up.
+
+### Handoff Notes
+- Branch: `codex/colregs-gnc-debug`; worktree: `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-gnc-debug`.
+- Use task stack only: `bash scripts/gnc-profile-start.sh up`; never use `mass-l3-sil` for this debug line.
+- Next module focus: **L3 M6/M4/M5 release/recovery**, not GNC bridge, trace writer, third-party GNC source, or SIL L4 controller tuning.
+- First next commands:
+  - Re-run module oracle on `runs/rule14_with_release_geometry_trace/trace/colreg-rule14-ho.trace_current.jsonl`.
+  - Inspect M2/M6 geometry around release: `/l3/m2/world_state` fields `primary_cpa_m`, `primary_tcpa_s`, `primary_brg_deg`, `primary_rng_m`, and M6 `active_rules`.
+  - Then inspect `src/l3_tdl_kernel/m6_colregs_reasoner/` release policy and encounter FSM. If M6 release is correct, inspect M4 recovery timing and M5 return route handoff.
+- Local A4000 acceptance remains structurally mismatched for this task-scoped stack because that gate assumes `mass-l3-sil-*` containers. Use targeted tests + container health + probe evidence until the branch is merged into an integration stack.
+
+## [2026-06-26] Agent: ZCode / branch codex/colregs-gnc-debug @ 043bf97c / 12-probe rule14-ho root-cause
+- **任务目标 (Goal)**: 继续 GNC profile COLREGs debug，按用户三步走流程（module oracle → M2/M6 release 几何 → M6 release policy 定位）查 12-probe rule14-ho 为何未 GREEN。
+- **核心改动 (Actions)**: 仅诊断，无代码改动。遵守 forbidden-list（无 GNC bridge 编辑、无 trace writer、无 third_party/gnc_ws、无 SIL ROT/Kd/cascade）。
+- **关键证据 (Evidence)**:
+  - `runs/rule14_with_release_geometry_trace/`: sim_t 1..2841, manifest sim_t_duration=2840.028, g_art_ok=true, failure_root_cause=null.
+  - M2 `primary_cpa_m` 0.8→686m（floor 180m OK），CPA reached t=2802（rel_brg −121°, past-and-clear），`primary_is_giveway=True`。
+  - M6 conflict cleared t=2803.0，pref_dir=STARBOARD 稳定 5417 样本，flip 仅 onset(93.0)/release(2803.0) 两边界。
+  - M4 RECOVERY(7) entry t=2803.3，gap_s=−0.28（M6 先 clear 再 recovery，**无 premature recovery**）。M4 oracle PASSED。
+  - M5 avoidance_plan solver VALID 持续到 sim 末尾（VALID=2518）。
+  - run A `rule14_after_return_republish`：sim_t 1..3011，tcpa<=1 count=0（CPA 从未达到），M6 cleared t=3009.6，同样无 route-return 时间。
+- **当前状态 (Status)**: **VERDICT — 非模块缺陷，是 sim-horizon artifact。** 全链路（M2/M4/M5/M6 + GNC actuator path）健康同步；avoidance 完整成功（cpa 0.8→686m，port-side past-and-clear，无 turn-around）。RED 仅因 `returned_to_route=false`：两次 run 的 sim 窗口（--total-time-override ~2840/3011）都在 M6-clear 后 ~2s 内结束，未留任何 route-return 收敛时间（gate 需 150m XTE + 10° heading rejoin，需 CPA 后再数百秒 sim）。
+- **接力指示 (Hand-off Context)**: 下一步**不改 M5/M6/M4 行为逻辑**。要 rule14-ho 转 GREEN：重跑单探针 `--total-time-override 3600`（或给 scenario YAML 加 `simulation_settings.total_time: 3600`），让 sim 越过 CPA + M6-clear 后有足够时间 route-return 收敛。验证后若仍 RED 再深查 M5 return-path。mem drawer 已存 `drawer_mass_l3_tactical_layer_colregs-debug-rule14-ho_0b1b922cd99c5d136295a0a0`。
+
+## [2026-06-26] Agent: ZCode / branch codex/colregs-gnc-debug / 方案C 自适应 sim horizon
+- **任务目标 (Goal)**: 修复探针因 sim horizon 硬编码/不足导致 RED。实现方案C：几何推导 horizon + 行为感知早停（成功/失败双向），避免空跑。
+- **核心改动 (Actions)**:
+  - `scripts/run_6_scenarios.py`: 新增纯函数 `estimate_sim_horizon`（复用 `_straight_line_cpa` 算 tcpa_nominal + `MIN_RETURN_WINDOW_S` 作 budget; total_time=max(yaml,base); hard_stop=2×）+ `assess_encounter_failure`（合并判据2+3）。接线 run_scenario 循环：硬截止 total_time→hard_stop；新增失败判据早停（节流5s）；`early_stop_reason` 入 result。
+  - 调试中修复 M2 数据契约问题：哨兵值 -1.0（非 None）+ GNC profile 下 tcpa 恒 0 → 改 past-CPA 判据为 range-opening 趋势（最近6样本 range 递增）+ tcpa<=0 双条件，排除 cpa<=0 哨兵。
+  - `tests/scripts/test_run_6_horizon_adaptive.py`: 新增 20 测试（含 -1.0 哨兵防护、tcpa-stuck-at-0 防护）。
+  - `tests/scripts/test_run_6_scenarios_gate.py`: 修预存合并遗留（`test_clean_probe_yaml_declares_expected_probe_horizons` 期望表 5 场景过时，acb7153c 改 yaml total_time 未同步测试）。
+- **验证 (Status)**: 67 测试全绿（20新+47现有）。容器验证 horizon 修复生效：sim 跑到 3585s 超 total_time 3000 未卡死，无误判早停。倍率2×依据：实测 CPA lag 1.73×。
+- **发现的独立问题 (Hand-off)**: GNC stack 不稳定。同代码同配置，run-19f02ae68b7 链路全空转（M6 conflict=0, M5 全 EMPTY, 目标 range 单调增 9km→19km 在远离），而 run-19f024e2d58 健康（M5 VALID=2518, 正常避碰）。疑似 GNC bridge target 驱动异常 或 多次 cleanup/restart 搞坏 stack。属运行时问题，非本次范围（forbidden-list 不碰 GNC bridge）。无法展示 route-return 成功早停路径。下一步：GNC stack 冷启后重跑确认。
+- **mem drawers**: colregs-adaptive-horizon（方案C决策）、colregs-gnc-stack-instability（stack异常）。

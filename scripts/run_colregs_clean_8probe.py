@@ -42,7 +42,6 @@ def _load_runner():
 # vary; the images are stable.
 _PROFILE_IMAGE_MATCHES = {
     "gnc": ("mass-l3-gnc:mpc_latest",),  # gnc-nodes image (substring match)
-    # gnc-bridge image is task-scoped; verified via the topic flow instead.
 }
 
 
@@ -50,7 +49,8 @@ def _any_container_running_image(image_substr: str) -> bool:
     """True if any running container's image name contains image_substr."""
     res = subprocess.run(
         ["docker", "ps", "--format", "{{.Image}}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if res.returncode != 0:
         return False
@@ -59,8 +59,6 @@ def _any_container_running_image(image_substr: str) -> bool:
 
 def _verify_profile_stack(profile: str) -> None:
     if profile == "gnc":
-        # Verify a GNC container is up by image, and verify the cross-domain
-        # bridge is actually delivering data (/sil/own_ship_state on dom42).
         for img_sub in _PROFILE_IMAGE_MATCHES["gnc"]:
             if not _any_container_running_image(img_sub):
                 sys.exit(
@@ -79,11 +77,20 @@ def _verify_profile_stack(profile: str) -> None:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Run COLREGs clean 8-probe scenarios.", add_help=False)
-    parser.add_argument("--profile", choices=("sil", "gnc"), default="sil",
-                        help="Execution stack target (sil=default, gnc=GNC integration).")
+        description="Run COLREGs clean 8-probe scenarios.",
+        add_help=False,
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("sil", "gnc"),
+        default="sil",
+        help="Execution stack target (sil=default, gnc=GNC integration).",
+    )
     known, remaining = parser.parse_known_args(argv)
     _verify_profile_stack(known.profile)
+    # Forward the resolved profile into the runner so it can apply profile-aware
+    # behaviour (e.g. the gnc three-container restart set) without re-parsing.
+    remaining = ["--profile", known.profile, *remaining]
     return _load_runner().main(remaining)
 
 

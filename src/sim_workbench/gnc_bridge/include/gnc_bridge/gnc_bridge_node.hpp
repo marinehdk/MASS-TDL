@@ -25,7 +25,9 @@
 #include "ship_interfaces/msg/geo_position.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
+#include "ship_interfaces/msg/ship_reset.hpp"
 #include "sil_msgs/msg/own_ship_state.hpp"
+#include "sil_msgs/msg/ship_reset.hpp"
 
 namespace gnc_bridge {
 
@@ -40,6 +42,8 @@ class CrossDomainHandoff {
     bool has_avoidance{false};
     ship_interfaces::msg::RoutePlan route_plan;
     bool has_route{false};
+    ship_interfaces::msg::ShipReset ship_reset;
+    bool has_reset{false};
   };
   // GNC -> L3 payloads.
   struct GncToL3 {
@@ -127,6 +131,7 @@ class L3SideNode : public rclcpp::Node {
   std::shared_ptr<CrossDomainHandoff> handoff_;
   rclcpp::Subscription<l3_external_msgs::msg::AvoidanceWaypoints>::SharedPtr sub_avoidance_;
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr sub_route_;
+  rclcpp::Subscription<sil_msgs::msg::ShipReset>::SharedPtr sub_reset_;
 };
 
 // GNC-domain node (domain 50). Subscribes the GNC ship_interfaces topics and
@@ -142,6 +147,8 @@ class GncSideNode : public rclcpp::Node {
   rclcpp::Subscription<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr sub_status_;
   rclcpp::Publisher<ship_interfaces::msg::AvoidancePlan>::SharedPtr pub_avoidance_;
   rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr pub_route_;
+  rclcpp::Publisher<ship_interfaces::msg::ShipReset>::SharedPtr pub_geo_reset_;
+  rclcpp::Publisher<ship_interfaces::msg::ShipReset>::SharedPtr pub_dynamics_reset_;
   rclcpp::TimerBase::SharedPtr drain_timer_;
 };
 

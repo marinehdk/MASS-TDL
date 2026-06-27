@@ -99,14 +99,14 @@ class MidMpcNode : public rclcpp::Node {
   // Track A A3: emit the L3-owned waypoint plan on /l3/m5/avoidance_waypoints
   // for the GNC bridge to translate. Called from publish_outputs_ with the same
   // avoidance/intent context. When behavior is not avoidance (transit/recovery,
-  // i.e. M6 conflict clear), a single return_to_route plan is emitted once per
-  // conflict-clear transition so active_route_manager completes the avoidance
-  // lifecycle naturally (spec D4: release authority = M5 plan emission).
+  // i.e. M6 conflict clear), return_to_route is emitted for a short delivery
+  // window so the GNC route-update guard cannot drop the only release message.
   void publish_avoidance_waypoints_(rclcpp::Time now,
                                     const MidMpcInput& input,
                                     double lat0_deg,
                                     double lon0_deg);
   bool last_emitted_conflict_active_{false};
+  std::optional<rclcpp::Time> return_to_route_emit_until_;
 
   // Geometric starboard fallback: generates arc waypoints from vessel kinematics
   // when the NLP solver fails or M4 signals a geometric starboard requirement.

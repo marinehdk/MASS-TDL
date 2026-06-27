@@ -310,6 +310,9 @@ CoordinateTransformNode::CoordinateTransformNode()
     speed_setpoint_sub_ = this->create_subscription<std_msgs::msg::Float64>(
         "/control/speed_setpoint", 10,
         std::bind(&CoordinateTransformNode::speed_setpoint_callback, this, std::placeholders::_1));
+    reset_sub_ = this->create_subscription<ship_interfaces::msg::ShipReset>(
+        "/ship/geo_origin_reset", 10,
+        std::bind(&CoordinateTransformNode::reset_callback, this, std::placeholders::_1));
 
     geo_pos_pub_ = this->create_publisher<ship_interfaces::msg::GeoPosition>(
         "/ship/geo_position", 10);
@@ -806,27 +809,7 @@ void CoordinateTransformNode::route_callback(
     }
 
     if (first_route) {
-        origin_lat_ = lat0;
-        origin_lon_ = lon0;
-        origin_published_ = true;
-        lat0_rad_ = origin_lat_ * M_PI / 180.0;
-        double sin_lat0 = std::sin(lat0_rad_);
-        N0_ = earth_a_ / std::sqrt(1.0 - earth_e2_ * sin_lat0 * sin_lat0);
-        M0_ = earth_a_ * (1.0 - earth_e2_) /
-              std::pow(1.0 - earth_e2_ * sin_lat0 * sin_lat0, 1.5);
-        if (projection_mode_ == "planner_equirectangular" ||
-            projection_mode_ == "equirectangular") {
-            const double meters_per_radian = planner_meters_per_degree_ * 180.0 / M_PI;
-            M0_ = meters_per_radian;
-            N0_ = meters_per_radian;
-        }
-        origin_locked_ = true;
-
-        geometry_msgs::msg::Point origin_msg;
-        origin_msg.x = origin_lat_;
-        origin_msg.y = origin_lon_;
-        origin_msg.z = 0.0;
-        origin_pub_->publish(origin_msg);
+        set_origin(lat0, lon0);
     }
 
     last_lats_ = lats;
@@ -1086,6 +1069,49 @@ std::vector<NedPoint> CoordinateTransformNode::insert_fap(
     fap.navigation_mode_code = last.navigation_mode_code;
     result.insert(result.end()-1, fap);
     return result;
+}
+
+void CoordinateTransformNode::set_origin(double lat, double lon) {
+    // 提取自 route_callback 的 origin 锁定逻辑，供运行时 reset 复用。
+    origin_lat_ = lat;
+    origin_lon_ = lon;
+    origin_published_ = true;
+    lat0_rad_ = origin_lat_ * M_PI / 180.0;
+    double sin_lat0 = std::sin(lat0_rad_);
+    N0_ = earth_a_ / std::sqrt(1.0 - earth_e2_ * sin_lat0 * sin_lat0);
+    M0_ = earth_a_ * (1.0 - earth_e2_) /
+          std::pow(1.0 - earth_e2_ * sin_lat0 * sin_lat0, 1.5);
+    if (projection_mode_ == "planner_equirectangular" ||
+        projection_mode_ == "equirectangular") {
+        const double meters_per_radian = planner_meters_per_degree_ * 180.0 / M_PI;
+        M0_ = meters_per_radian;
+        N0_ = meters_per_radian;
+    }
+    origin_locked_ = true;
+
+    geometry_msgs::msg::Point origin_msg;
+    origin_msg.x = origin_lat_;
+    origin_msg.y = origin_lon_;
+    origin_msg.z = 0.0;
+    origin_pub_->publish(origin_msg);
+
+    RCLCPP_INFO(this->get_logger(),
+                "set_origin: lat=%.6f lon=%.6f", lat, lon);
+}
+
+void CoordinateTransformNode::reset_callback(
+    const ship_interfaces::msg::ShipReset::SharedPtr msg) {
+    // 运行时重设 origin 到 scenario ownShip.initial.position。
+    // ship_dynamics 同时 reset eta_=(0,0)，故 geo_position = 新 origin = scenario 起点。
+    std::lock_guard<std::mutex> lock(origin_reset_mutex_);
+    set_origin(msg->latitude, msg->longitude);
+    // 补清 route 更新守卫状态，防止 reset 后新 scenario 的第一个 route
+    // 被 min_route_update_interval_s_ 时间守卫或 last_feedback_path_ 几何
+    // 比对误 REJECT，导致 ship_guidance 收不到新 path。
+    has_last_route_ = false;
+    last_accepted_route_time_ = rclcpp::Time(0, 0);
+    last_feedback_path_.clear();
+    feedback_dp_latched_ = false;
 }
 
 void CoordinateTransformNode::init_feedback_log()

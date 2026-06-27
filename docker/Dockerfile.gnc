@@ -1,4 +1,7 @@
-# syntax=docker/dockerfile:1.5
+# NOTE: # syntax=docker/dockerfile:1.5 removed under CN network (registry-1.docker.io
+# RST). BuildKit v0.29+ has a builtin frontend that supports --mount=type=cache, so the
+# explicit frontend pin is not required for the cache mounts below. Restore when the
+# registry is reachable. Tracked in AGENTS.md build notes.
 # GNC stack (colleague's real L4/L5 guidance + control + plant) as an isolated,
 # version-tagged container. Built from third_party/gnc_ws/src AS-IS — no source
 # edits. Track A spec D2: isolated versioned container, ROS_DOMAIN_ID=50.

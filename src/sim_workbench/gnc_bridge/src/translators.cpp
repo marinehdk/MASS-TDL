@@ -4,8 +4,33 @@
 #include "gnc_bridge/translators.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 namespace gnc_bridge {
+namespace {
+constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr int64_t kNsecPerSec = 1000000000LL;
+
+double deg_to_rad(double deg) {
+  return deg * kDegToRad;
+}
+
+int64_t time_to_ns(const builtin_interfaces::msg::Time& t) {
+  return static_cast<int64_t>(t.sec) * kNsecPerSec + static_cast<int64_t>(t.nanosec);
+}
+
+builtin_interfaces::msg::Time ns_to_time(int64_t ns) {
+  builtin_interfaces::msg::Time t;
+  t.sec = static_cast<int32_t>(ns / kNsecPerSec);
+  t.nanosec = static_cast<uint32_t>(ns % kNsecPerSec);
+  return t;
+}
+
+bool time_is_zero(const builtin_interfaces::msg::Time& t) {
+  return t.sec == 0 && t.nanosec == 0;
+}
+}  // namespace
 
 ship_interfaces::msg::AvoidancePlan to_gnc_avoidance_plan(
     const l3_external_msgs::msg::AvoidanceWaypoints& src,
@@ -31,6 +56,23 @@ ship_interfaces::msg::AvoidancePlan to_gnc_avoidance_plan(
   dst.return_latitude  = src.return_latitude;
   dst.return_longitude = src.return_longitude;
   return dst;
+}
+
+void rebase_avoidance_plan_timebase(
+    ship_interfaces::msg::AvoidancePlan& plan,
+    const builtin_interfaces::msg::Time& target_stamp) {
+  const auto source_stamp = plan.header.stamp;
+  plan.header.stamp = target_stamp;
+  if (time_is_zero(plan.valid_until)) {
+    return;
+  }
+
+  const int64_t ttl_ns = time_to_ns(plan.valid_until) - time_to_ns(source_stamp);
+  if (ttl_ns <= 0) {
+    plan.valid_until = target_stamp;
+    return;
+  }
+  plan.valid_until = ns_to_time(time_to_ns(target_stamp) + ttl_ns);
 }
 
 ship_interfaces::msg::RoutePlan to_gnc_route_plan(
@@ -69,10 +111,10 @@ sil_msgs::msg::OwnShipState to_sil_own_ship_state(
   dst.stamp   = stamp;
   dst.lat     = src.latitude;
   dst.lon     = src.longitude;
-  dst.heading = src.heading_deg;
+  dst.heading = deg_to_rad(src.heading_deg);
   dst.sog     = src.speed_mps;             // GNC speed_mps is SOG magnitude
-  dst.cog     = src.course_deg;
-  dst.rot     = src.yaw_rate_deg_s;        // deg/s; OwnShipState.rot is deg/s
+  dst.cog     = deg_to_rad(src.course_deg);
+  dst.rot     = deg_to_rad(src.yaw_rate_deg_s);
   dst.u       = src.surge_mps;
   dst.v       = src.sway_mps;
   dst.r       = src.yaw_rate_rads;

@@ -27,7 +27,22 @@ L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         item.has_route = true;
         handoff_->push_l3_to_gnc(std::move(item));
       });
-  RCLCPP_INFO(get_logger(), "L3 side ready: sub /l3/m5/avoidance_waypoints, /l2/planned_route");
+  sub_reset_ = create_subscription<sil_msgs::msg::ShipReset>(
+      "/l3/sim/reset_own_ship", 10,
+      [this](const sil_msgs::msg::ShipReset::SharedPtr msg) {
+        CrossDomainHandoff::L3ToGnc item;
+        ship_interfaces::msg::ShipReset out;
+        out.header = msg->header;
+        out.latitude = msg->latitude;
+        out.longitude = msg->longitude;
+        out.heading_deg = msg->heading_deg;
+        out.sog_kn = msg->sog_kn;
+        item.ship_reset = std::move(out);
+        item.has_reset = true;
+        handoff_->push_l3_to_gnc(std::move(item));
+      });
+  RCLCPP_INFO(get_logger(),
+      "L3 side ready: sub /l3/m5/avoidance_waypoints, /l2/planned_route, /l3/sim/reset_own_ship");
 }
 
 GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
@@ -54,6 +69,10 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
   pub_route_ = create_publisher<ship_interfaces::msg::RoutePlan>(
       "/route_planning/route_plan",
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local());
+  pub_geo_reset_ = create_publisher<ship_interfaces::msg::ShipReset>(
+      "/ship/geo_origin_reset", 10);
+  pub_dynamics_reset_ = create_publisher<ship_interfaces::msg::ShipReset>(
+      "/ship/dynamics_reset", 10);
   // Drain L3->GNC items at 20 Hz and publish on the GNC domain. Uses the
   // non-blocking try_pop so the executor thread is never stalled (a blocking
   // pop here would starve subscription callbacks on the same executor).
@@ -62,13 +81,21 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
       [this]() {
         CrossDomainHandoff::L3ToGnc item;
         while (handoff_->try_pop_l3_to_gnc(item)) {
-          if (item.has_avoidance) pub_avoidance_->publish(item.avoidance_plan);
+          if (item.has_avoidance) {
+            rebase_avoidance_plan_timebase(item.avoidance_plan, now());
+            pub_avoidance_->publish(item.avoidance_plan);
+          }
           if (item.has_route)     pub_route_->publish(item.route_plan);
+          if (item.has_reset) {
+            pub_geo_reset_->publish(item.ship_reset);
+            pub_dynamics_reset_->publish(item.ship_reset);
+          }
         }
       });
   RCLCPP_INFO(get_logger(),
       "GNC side ready: sub /ship/geo_position, /gnc/route_execution_status; "
-      "pub /colav/avoidance_plan, /route_planning/route_plan");
+      "pub /colav/avoidance_plan, /route_planning/route_plan, "
+      "/ship/geo_origin_reset, /ship/dynamics_reset");
 }
 
 L3PublisherNode::L3PublisherNode(std::shared_ptr<CrossDomainHandoff> handoff,

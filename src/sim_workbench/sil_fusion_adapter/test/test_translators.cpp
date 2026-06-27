@@ -8,6 +8,7 @@
 
 using sil_fusion_adapter::environment_sil_to_l3;
 using sil_fusion_adapter::kRadPerDeg;
+using sil_fusion_adapter::own_ship_sil_to_l3;
 using sil_fusion_adapter::target_vessel_to_tracked_array;
 
 namespace {
@@ -159,4 +160,65 @@ TEST(EnvironmentSilToL3, WaveFieldsZeroedSILHasNoWaveData) {
   EXPECT_DOUBLE_EQ(out.wave_direction_deg, 0.0);
   EXPECT_EQ(out.weather_source, "sensor");
   EXPECT_FLOAT_EQ(out.confidence, 0.9f);
+}
+
+// ── OwnShipState (SIL) -> FilteredOwnShipState (L3) ─────────────────────────
+
+TEST(OwnShipSilToL3, SchemaStampAndPositionPropagated) {
+  sil_msgs::msg::OwnShipState sil;
+  fill_stamp(sil.stamp, 12u);
+  sil.lat = 63.44;
+  sil.lon = 10.38;
+
+  auto out = own_ship_sil_to_l3(sil);
+
+  EXPECT_EQ(out.schema_version, sil_fusion_adapter::kSchemaV112);
+  EXPECT_EQ(out.stamp.sec, 12u);
+  EXPECT_DOUBLE_EQ(out.position.latitude, 63.44);
+  EXPECT_DOUBLE_EQ(out.position.longitude, 10.38);
+  EXPECT_DOUBLE_EQ(out.position.altitude, 0.0);
+}
+
+TEST(OwnShipSilToL3, MotionFieldsMappedWithSogMpsConvertedToKn) {
+  sil_msgs::msg::OwnShipState sil;
+  sil.heading = 91.0 * kRadPerDeg;
+  sil.sog = 5.14444;
+  sil.cog = 90.0 * kRadPerDeg;
+  sil.rot = 1.5 * kRadPerDeg;
+  sil.u = 5.0;
+  sil.v = 0.25;
+
+  auto out = own_ship_sil_to_l3(sil);
+
+  EXPECT_DOUBLE_EQ(out.heading_deg, 91.0);
+  EXPECT_NEAR(out.sog_kn, 10.0, 1e-3);
+  EXPECT_DOUBLE_EQ(out.cog_deg, 90.0);
+  EXPECT_DOUBLE_EQ(out.r_dot_deg_s, 1.5);
+  EXPECT_DOUBLE_EQ(out.u_water, 5.0);
+  EXPECT_DOUBLE_EQ(out.v_water, 0.25);
+}
+
+TEST(OwnShipSilToL3, HeadingAndCogAreNormalizedToDegrees) {
+  sil_msgs::msg::OwnShipState sil;
+  sil.heading = 361.0 * kRadPerDeg;
+  sil.cog = -1.0 * kRadPerDeg;
+
+  auto out = own_ship_sil_to_l3(sil);
+
+  EXPECT_NEAR(out.heading_deg, 1.0, 1e-9);
+  EXPECT_NEAR(out.cog_deg, 359.0, 1e-9);
+}
+
+TEST(OwnShipSilToL3, ConfidenceAndNavMetadataPopulated) {
+  sil_msgs::msg::OwnShipState sil;
+
+  auto out = own_ship_sil_to_l3(sil);
+
+  ASSERT_EQ(out.covariance.size(), 36u);
+  for (std::size_t i = 0; i < 6; ++i) {
+    EXPECT_DOUBLE_EQ(out.covariance[i * 6 + i], 1.0);
+  }
+  EXPECT_EQ(out.nav_mode, "OPTIMAL");
+  EXPECT_FLOAT_EQ(out.confidence, 0.95f);
+  EXPECT_EQ(out.rationale, "SIL bridge");
 }

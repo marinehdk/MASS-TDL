@@ -216,6 +216,11 @@ TEST(ConstraintGen, GiveWayCrossingRaisesConflict) {
       {mk(15, Role::GIVE_WAY, TimingPhase::PRESERVE_COURSE, "STARBOARD")}, p,
       0.9);
   EXPECT_TRUE(msg.conflict_detected);
+  EXPECT_EQ(msg.phase, "SOUND_WARNING")
+      << "A give-way directional conflict is already an M4 action contract; "
+         "PRESERVE_COURSE would release M4/M5 while M6 still reports conflict.";
+  ASSERT_EQ(msg.active_rules.size(), 1u);
+  EXPECT_EQ(msg.active_rules[0].rule_phase, "T_warn");
   EXPECT_EQ(msg.primary_role, static_cast<uint8_t>(Role::GIVE_WAY));
 }
 

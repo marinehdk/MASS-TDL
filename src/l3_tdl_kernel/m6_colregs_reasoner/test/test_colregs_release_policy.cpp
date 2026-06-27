@@ -211,6 +211,45 @@ TEST(ColregsReleasePolicy, NonGiveWayFinalReleaseKeepsSafeFloor) {
       1852.0);
 }
 
+TEST(ColregsReleasePolicy, BlocksSecondaryGiveWayDutyBeforeTPlanWindow) {
+  EXPECT_FALSE(give_way_duty_onset_signal(
+      /*raw_own_give_way=*/true,
+      /*own_stand_on=*/false,
+      /*past_and_clear=*/false,
+      /*cpa_projection_past_and_safe=*/false,
+      /*tcpa_s=*/1520.0,
+      /*cpa_m=*/0.8,
+      /*t_plan_s=*/720.0,
+      /*cpa_hard_m=*/1852.0,
+      /*range_closing=*/true));
+}
+
+TEST(ColregsReleasePolicy, AllowsGiveWayDutyInsideTPlanWindow) {
+  EXPECT_TRUE(give_way_duty_onset_signal(
+      /*raw_own_give_way=*/true,
+      /*own_stand_on=*/false,
+      /*past_and_clear=*/false,
+      /*cpa_projection_past_and_safe=*/false,
+      /*tcpa_s=*/719.9,
+      /*cpa_m=*/0.8,
+      /*t_plan_s=*/720.0,
+      /*cpa_hard_m=*/1852.0,
+      /*range_closing=*/true));
+}
+
+TEST(ColregsReleasePolicy, BlocksGiveWayDutyWhenNotClosing) {
+  EXPECT_FALSE(give_way_duty_onset_signal(
+      /*raw_own_give_way=*/true,
+      /*own_stand_on=*/false,
+      /*past_and_clear=*/false,
+      /*cpa_projection_past_and_safe=*/false,
+      /*tcpa_s=*/240.0,
+      /*cpa_m=*/0.8,
+      /*t_plan_s=*/720.0,
+      /*cpa_hard_m=*/1852.0,
+      /*range_closing=*/false));
+}
+
 TEST(ColregsReleasePolicy, Rule13FinalReleaseUsesPastClearEmergencyFloor) {
   EXPECT_DOUBLE_EQ(
       give_way_final_release_cpa_floor_m(

@@ -1,7 +1,7 @@
 #!/bin/bash
 # sil_entrypoint.sh — staged SIL + L3 node startup to eliminate startup race.
 #
-# Stage 1: 9 SIL simulation nodes (ship_dynamics first → wait for own_ship_state)
+# Stage 1: SIL simulation nodes (ship_dynamics first unless GNC owns own_ship_state)
 # Stage 2: internal topic-liveness check (/sil/own_ship_state ≥ 1 frame)
 # Stage 3: 7 L3 kernel nodes in dependency order (M1→M2→M4→M6→M5→M8, M7 subprocess)
 #
@@ -35,7 +35,10 @@ def ts() -> str:
 
 # ── Stage 1: SIL simulation nodes ─────────────────────────────
 sys.stdout.flush()
-print(f'[{ts()}] Stage 1/3: Starting SIL simulation nodes (9 total)')
+runtime_profile = os.environ.get('TDL_RUNTIME_PROFILE', 'internal-local')
+external_own_ship_source = runtime_profile == 'gnc'
+print(f'[{ts()}] Stage 1/3: Starting SIL simulation nodes '
+      f'(runtime_profile={runtime_profile})')
 
 rclpy.init()
 
@@ -65,9 +68,9 @@ from rclpy.executors import SingleThreadedExecutor
 executor = MultiThreadedExecutor(num_threads=8)
 nodes = []
 
-# Order: ship_dynamics (produces /sil/own_ship_state) first, then others
+# Order: ship_dynamics (produces /sil/own_ship_state) first, then others.
+# GNC profile uses gnc_bridge_l3_pub as the sole /sil/own_ship_state owner.
 sil_node_classes = [
-    ShipDynamicsNode,
     EnvDisturbanceNode,
     TargetVesselNode,
     SensorMockNode,
@@ -76,6 +79,10 @@ sil_node_classes = [
     ScoringNode,
     ScenarioAuthoringNode,
 ]
+if not external_own_ship_source:
+    sil_node_classes.insert(0, ShipDynamicsNode)
+else:
+    print(f'  [{ts()}] GNC profile: skipping ShipDynamicsNode; /sil/own_ship_state owned by GNC bridge')
 
 # 1. Create and spin LifecycleManagerNode in a dedicated 2-thread executor.
 # SingleThreadedExecutor caused SetParameters starvation: rclpy processes timers

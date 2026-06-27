@@ -270,6 +270,12 @@ class ScenarioLifecycleMgr:
     def set_sim_rate(self, rate: float) -> bool:
         if rate < 0:
             return False
+        # If the rate is unchanged, this is a redundant call (e.g. runner sets
+        # 10x after configure already applied 10x). Do NOT re-anchor, because
+        # re-anchoring locks in the sim_time advanced during the
+        # configure->set_rate gap and breaks cross-run reproducibility.
+        if abs(rate - self._sim_rate) < 1e-9:
+            return True
         # Anchor the rate change so _clock_callback doesn't try to
         # catch up to wall_elapsed * new_rate from t=0.
         self._rate_anchor_wall = time.time()
@@ -509,8 +515,6 @@ class LifecycleManagerNode(LifecycleNode):
         shash = self.get_parameter("scenario_hash").value
         self._fsm._tick_hz = self.get_parameter("tick_hz").value
         initial_rate = self.get_parameter("sim_rate").value
-        if initial_rate is not None:
-            self._fsm.set_sim_rate(float(initial_rate))
 
         clock_mode = self.get_parameter("clock_mode").value
         dynamics_mode = self.get_parameter("dynamics_mode").value
@@ -523,6 +527,15 @@ class LifecycleManagerNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
         cfg_ok = self._fsm.configure(str(sid), str(shash), dynamics_mode=str(dynamics_mode), clock_mode=str(clock_mode))
+        # Apply the configured sim_rate AFTER fsm.configure (which resets the
+        # rate to 1.0 to prevent cross-run carry-over). Doing it before configure
+        # was a no-op — configure overwrote it. With this order, the activate
+        # timer advances sim_time at the target rate from t=0, so there is no
+        # 1x window between configure and the later set_sim_rate(10) call whose
+        # length varies per run and breaks cross-run reproducibility
+        # (DIAG evidence 2026-06-27: run1 anchor_sim=31.34, run2=0.00).
+        if initial_rate is not None and float(initial_rate) != 1.0:
+            self._fsm.set_sim_rate(float(initial_rate))
 
         # Initialize internal dynamics state variables in free-run mode
         if clock_mode == "free_run" and dynamics_mode == "internal":
@@ -587,16 +600,24 @@ class LifecycleManagerNode(LifecycleNode):
 
     def on_activate(self, state) -> TransitionCallbackReturn:
         """Create publishers + timers (or start free-run thread); transition FSM INACTIVE → ACTIVE."""
-        # Publishers
-        self._sim_clock_pub = self.create_publisher(
-            TimeMsg, "/sim_clock", qos_profile=_SIM_CLOCK_QOS
-        )
-        self._clock_pub = self.create_publisher(
-            ClockMsg, "/clock", qos_profile=qos_profile_clock
-        )
-        self._status_pub = self.create_publisher(
-            LifecycleStatus, "/sil/lifecycle_status", qos_profile=_STATUS_QOS
-        )
+        # Publishers — reuse if they already exist (cross-run: keep the same DDS
+        # writer instance so subscribers like trace_writer do not need to re-discover
+        # a new publisher after on_deactivate. Destroying/recreating publishers
+        # across runs forces CycloneDDS to rematch subscribers, which can take
+        # 100+ seconds wall and backlog-deliver hundreds of sim-seconds of stale
+        # messages, breaking cross-run reproducibility without container restart.
+        if self._sim_clock_pub is None:
+            self._sim_clock_pub = self.create_publisher(
+                TimeMsg, "/sim_clock", qos_profile=_SIM_CLOCK_QOS
+            )
+        if self._clock_pub is None:
+            self._clock_pub = self.create_publisher(
+                ClockMsg, "/clock", qos_profile=qos_profile_clock
+            )
+        if self._status_pub is None:
+            self._status_pub = self.create_publisher(
+                LifecycleStatus, "/sil/lifecycle_status", qos_profile=_STATUS_QOS
+            )
 
         tick_hz = self.get_parameter("tick_hz").value
         status_hz = self.get_parameter("status_hz").value
@@ -663,6 +684,19 @@ class LifecycleManagerNode(LifecycleNode):
 
         self._fsm.activate()
         self._run_start_wall = time.time()
+        # Publish one status immediately so the TRANSIENT_LOCAL durability cache
+        # for /sil/lifecycle_status is overwritten with the fresh activate state
+        # (sim_time=0 after configure). Without this, subscribers (trace_writer,
+        # orchestrator) receive the stale last message from the previous run's
+        # publisher instance, which carries the old sim_time/state and breaks
+        # cross-run reproducibility when the container is not restarted.
+        self._status_callback()
+        # Likewise overwrite the TRANSIENT_LOCAL cache for /clock and /sim_clock
+        # (both use TRANSIENT_LOCAL QoS). Without this, nodes with use_sim_time
+        # (trace_writer, L3 modules, gnc_bridge) read the stale sim clock from the
+        # prior run until the first timer tick lands, freezing their now() at the
+        # old sim_time and delaying all downstream publishing by that offset.
+        self._publish_clock_now()
         self.get_logger().info(
             f"[on_activate] sim_clock @ {tick_hz:.0f} Hz  "
             f"status @ {status_hz:.1f} Hz, clock_mode={clock_mode}"
@@ -723,14 +757,19 @@ class LifecycleManagerNode(LifecycleNode):
         self._sim_clock_timer = None
         self._status_timer = None
 
-        for pub in (self._sim_clock_pub, self._clock_pub, self._status_pub):
-            if pub is not None:
-                self.destroy_publisher(pub)
-        self._sim_clock_pub = None
-        self._clock_pub = None
-        self._status_pub = None
+        # Keep clock/status publishers alive across runs (see on_activate):
+        # destroying them forces CycloneDDS to re-discover a new writer instance
+        # for trace_writer and other subscribers, which backlogs stale messages
+        # for up to minutes and breaks cross-run reproducibility. Only the
+        # free-run internal-dynamics publishers are torn down.
+        # for pub in (self._sim_clock_pub, self._clock_pub, self._status_pub):
+        #     if pub is not None:
+        #         self.destroy_publisher(pub)
+        # self._sim_clock_pub = None
+        # self._clock_pub = None
+        # self._status_pub = None
 
-        self.get_logger().info("[on_deactivate] timers + publishers destroyed")
+        self.get_logger().info("[on_deactivate] timers destroyed (publishers kept for cross-run reuse)")
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state) -> TransitionCallbackReturn:
@@ -1000,6 +1039,30 @@ class LifecycleManagerNode(LifecycleNode):
         msg.sim_rate = self._fsm.sim_rate
         if self._status_pub is not None:
             self._status_pub.publish(msg)
+
+    def _publish_clock_now(self) -> None:
+        """Publish one /clock + /sim_clock reflecting the current _sim_time.
+
+        Called on activate to overwrite the TRANSIENT_LOCAL cache so use_sim_time
+        nodes do not read the stale clock from the previous run. Mirrors the
+        publish shape used by the free-run loop and _clock_callback.
+        """
+        sim_t = self._fsm.sim_time
+        time_msg = TimeMsg()
+        time_msg.sec = int(sim_t)
+        time_msg.nanosec = int(round((sim_t - time_msg.sec) * 1e9))
+        if self._sim_clock_pub is not None:
+            try:
+                self._sim_clock_pub.publish(time_msg)
+            except Exception as e:
+                self.get_logger().error(f"Failed to publish /sim_clock on activate: {e}")
+        if self._clock_pub is not None:
+            try:
+                clock_msg = ClockMsg()
+                clock_msg.clock = time_msg
+                self._clock_pub.publish(clock_msg)
+            except Exception as e:
+                self.get_logger().error(f"Failed to publish /clock on activate: {e}")
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────

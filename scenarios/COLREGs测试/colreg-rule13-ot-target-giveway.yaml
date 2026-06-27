@@ -2,12 +2,10 @@ title: 'Probe: Rule 13 overtaking — target as give-way (intelligent)'
 description: 'Rule 13 overtaking with the FSM-controlled target vessel as the
   OVERTAKING give-way vessel. Own ship sails north at 8 kn; a faster target
   (16 kn, same course) closes from dead astern of own (relative bearing ~180°,
-  initial range 0.5 NM). Per Rule 13 the overtaking vessel — the target — must
-  keep clear of the overtaken stand-on vessel (own). The target FSM is expected
-  to turn starboard and open CPA, then return to its nominal northbound route.
-  Own ship, as stand-on, holds course and speed. Validates the Rule 13 give-way
-  path of the target COLREGs FSM and complements rule13-ot (where own is the
-  overtaker).'
+  initial range 3.5 NM, t_cpa ~= 1575s). Per Rule 13 the overtaking vessel —
+  the target — must keep clear of the overtaken stand-on vessel (own). Own holds
+  course and speed while the target FSM turns starboard, opens CPA, completes
+  the overtake, and returns to its nominal route.'
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -27,7 +25,7 @@ ownShip:
   - latitude: 63.44
     longitude: 10.38
     target_sog_kn: 8.0
-  - latitude: 63.50
+  - latitude: 63.606667
     longitude: 10.38
     target_sog_kn: 8.0
 targetShips:
@@ -37,7 +35,7 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.430597
+      latitude: 63.381667
       longitude: 10.38
     cog: 0.0
     sog: 16.0
@@ -83,15 +81,20 @@ metadata:
       profile: corridor_follow_or_overtake_6L
       threshold_formula: 6.0L
       threshold_m: 270.0
+      contract:
+        acceptance_m: 270.0
+        m6_onset_m: 270.0
+        m6_release_m: 270.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 6.0
       nm_equivalent: 0.146
       source_confidence: project_profile_medium_low
       emergency_floor_m: 180.0
       ideal_domain_m: 540.0
-      basis: FCB overtaken inside 1km L2 corridor; 6.0L follow floor accepts the
-        target keeping clear while the Rule 13 overtake completes. Target is the
-        give-way (overtaking) vessel; own is stand-on.
+      basis: FCB reviewable target-overtaking long-approach probe; 6.0L follow
+        floor accepts the target keeping clear while the Rule 13 overtake completes.
+        Target is the give-way (overtaking) vessel; own is stand-on.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
@@ -103,7 +106,7 @@ metadata:
     - rule: Rule13
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 3000.0
     dt: 0.02
     n_rps_initial: 4.2
     coordinate_origin:

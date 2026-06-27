@@ -1,10 +1,10 @@
 title: 'Probe: head-on/crossing edge (rel_brg 25deg, starboard)'
 description: Classification-boundary probe at the HEAD-ON / CROSSING edge. Target
   just OUTSIDE the head-on cone on the starboard bow (relative bearing 25deg), course
-  215deg at 29.2kn. Should be handled as a starboard crossing give-way (Rule 15),
-  NOT a head-on — but the geometry is close enough to the cone that a misclassification
-  would flip the maneuver. Brackets the boundary together with colreg-rule14-ho-port
-  (the inside-cone edge).
+  215deg at 13.4kn, initial range 5.0 NM, t_cpa ~= 990s. Should be handled as a
+  starboard crossing give-way (Rule 15), NOT a head-on — but the geometry is close
+  enough to the cone that a misclassification would flip the maneuver. The scenario
+  starts in PREPLAN, then reaches ACTIVE after about 270s.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -16,17 +16,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 12.0
+    sog: 5.5
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 12.0
-  - latitude: 63.489996
+    target_sog_kn: 5.5
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 12.0
+    target_sog_kn: 5.5
 targetShips:
 - id: ts1
   static:
@@ -34,10 +34,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.47021
-      longitude: 10.411506
+      latitude: 63.515526
+      longitude: 10.458764
     cog: 215.0
-    sog: 29.21
+    sog: 13.4
     heading: 215.0
   model: ais_replay_vessel
 environment:
@@ -73,13 +73,18 @@ metadata:
       profile: corridor_boundary_6L
       threshold_formula: 6.0L
       threshold_m: 270.0
+      contract:
+        acceptance_m: 270.0
+        m6_onset_m: 270.0
+        m6_release_m: 270.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 6.0
       nm_equivalent: 0.146
       source_confidence: project_profile_medium_low
       emergency_floor_m: 180.0
       ideal_domain_m: 405.0
-      basis: Crossing geometry edge case inside 1km L2 corridor; 6.0L CPA floor keeps classification focus while preserving corridor return gate.
+      basis: Crossing geometry edge case at the visible-range boundary; 6.0L CPA floor keeps classification focus while preserving corridor return gate.
     returned_to_route_required: true
     route_return_xte_m_lt: 150.0
     route_return_heading_deg_lt: 10.0
@@ -91,9 +96,9 @@ metadata:
     - rule: Rule16
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 2000.0
     dt: 0.02
-    n_rps_initial: 3.5
+    n_rps_initial: 1.6
     coordinate_origin:
     - 63.44
     - 10.38

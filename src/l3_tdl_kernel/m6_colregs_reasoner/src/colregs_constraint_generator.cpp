@@ -43,9 +43,25 @@ bool should_escalate_noncompliant_standon(const RuleEvaluation& e) {
       e.target_compliance < kNonCompliantTargetThreshold;
 }
 
+bool should_promote_directional_giveway_action(const RuleEvaluation& e) {
+  const bool give_way = (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY);
+  return e.is_active &&
+      give_way &&
+      e.phase == TimingPhase::PRESERVE_COURSE &&
+      e.preferred_direction != "HOLD";
+}
+
 RuleEvaluation effective_evaluation(
     const RuleEvaluation& raw, const RuleParameters& params) {
   RuleEvaluation effective = raw;
+  if (should_promote_directional_giveway_action(raw)) {
+    effective.phase = TimingPhase::SOUND_WARNING;
+    if (!effective.rationale.empty()) {
+      effective.rationale += " ";
+    }
+    effective.rationale +=
+        "[promoted: directional give-way conflict requires active M4 contract]";
+  }
   if (!should_escalate_noncompliant_standon(raw)) {
     return effective;
   }

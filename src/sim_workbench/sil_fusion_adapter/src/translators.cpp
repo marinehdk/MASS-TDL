@@ -3,7 +3,16 @@
 // in docker/sil_topic_bridge.py (_on_target_vessel_state, _on_environment_state).
 #include "sil_fusion_adapter/translators.hpp"
 
+#include <cstddef>
+#include <cmath>
+
 namespace sil_fusion_adapter {
+namespace {
+double normalize_deg(double deg) {
+  const double wrapped = std::fmod(deg, 360.0);
+  return wrapped < 0.0 ? wrapped + 360.0 : wrapped;
+}
+}  // namespace
 
 l3_external_msgs::msg::TrackedTargetArray target_vessel_to_tracked_array(
     const sil_msgs::msg::TargetVesselState& sil) {
@@ -55,6 +64,34 @@ l3_external_msgs::msg::EnvironmentState environment_sil_to_l3(
   out.visibility_range_nm = sil.visibility_nm;
   out.weather_source = "sensor";
   out.confidence = 0.9f;
+  out.rationale = "SIL bridge";
+  return out;
+}
+
+l3_external_msgs::msg::FilteredOwnShipState own_ship_sil_to_l3(
+    const sil_msgs::msg::OwnShipState& sil) {
+  l3_external_msgs::msg::FilteredOwnShipState out;
+  out.schema_version = kSchemaV112;
+  out.stamp = sil.stamp;
+  out.position.latitude = sil.lat;
+  out.position.longitude = sil.lon;
+  out.position.altitude = 0.0;
+  out.sog_kn = sil.sog / kMpsPerKn;
+  out.cog_deg = normalize_deg(sil.cog * kDegPerRad);
+  out.heading_deg = normalize_deg(sil.heading * kDegPerRad);
+  out.u_water = sil.u;
+  out.v_water = sil.v;
+  out.r_dot_deg_s = sil.rot * kDegPerRad;
+  out.current_speed_kn = 0.0;
+  out.current_direction_deg = 0.0;
+  out.roll_deg = 0.0;
+  out.pitch_deg = 0.0;
+  out.covariance.fill(0.0);
+  for (std::size_t i = 0; i < 6; ++i) {
+    out.covariance[i * 6 + i] = 1.0;
+  }
+  out.nav_mode = "OPTIMAL";
+  out.confidence = 0.95f;
   out.rationale = "SIL bridge";
   return out;
 }

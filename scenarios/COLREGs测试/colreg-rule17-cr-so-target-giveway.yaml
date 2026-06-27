@@ -1,10 +1,9 @@
 title: 'Probe: Rule 17 stand-on (target from port, never yields)'
-description: Rule 17 stand-on. Target crosses from own ship's PORT bow (relative bearing
-  315deg), course 090deg at 10.0kn, t_cpa ~= 509s. Own has the target on its PORT
-  side -> own is the STAND-ON vessel and must initially KEEP course and speed (Rule
-  17(a)(i)). The give-way target holds course (straight-line replay) and never acts,
-  so own must take last-moment independent action (Rule 17(b)) to keep the ship-domain
-  clear. Probes that own does NOT give way prematurely (no early large alteration).
+description: Rule 17 stand-on with an FSM-controlled give-way target. Target crosses
+  from own ship's PORT bow (relative bearing 315deg), course 090deg at 12.7kn,
+  initial range 5.0 NM, t_cpa ~= 1002s. Own is the STAND-ON vessel and must initially
+  KEEP course and speed (Rule 17(a)(i)) while the target gives way. Probes the
+  stand-on hold phase plus target-driven collision avoidance and route return.
 startTime: '2026-05-15T05:08:47Z'
 ownShip:
   static:
@@ -16,17 +15,17 @@ ownShip:
       latitude: 63.44
       longitude: 10.38
     cog: 0.0
-    sog: 10.0
+    sog: 12.7
     heading: 0.0
   model: fcb_mmg_vessel
   controller: psbmpc_wrapper
   nominalRoute:
   - latitude: 63.44
     longitude: 10.38
-    target_sog_kn: 10.0
-  - latitude: 63.481663
+    target_sog_kn: 12.7
+  - latitude: 63.606667
     longitude: 10.38
-    target_sog_kn: 10.0
+    target_sog_kn: 12.7
 targetShips:
 - id: ts1
   static:
@@ -34,10 +33,10 @@ targetShips:
     mmsi: 100000001
   initial:
     position:
-      latitude: 63.46357
-      longitude: 10.327286
+      latitude: 63.498926
+      longitude: 10.248215
     cog: 90.0
-    sog: 10.0
+    sog: 12.7
     heading: 90.0
   model: ais_replay_vessel
   source:
@@ -71,7 +70,7 @@ metadata:
     rule: Rule17
     give_way_vessel: target
     expected_own_action: maintain
-    avoidance_time_s: 399.2
+    avoidance_time_s: 760.0
     avoidance_delta_rad: 0.8727
     avoidance_duration_s: 140.0
   seed: 108
@@ -81,6 +80,11 @@ metadata:
       profile: standon_in_extremis_4L
       threshold_formula: 4.0L
       threshold_m: 180.0
+      contract:
+        acceptance_m: 180.0
+        m6_onset_m: 180.0
+        m6_release_m: 180.0
+        m7_emergency_m: 180.0
       loa_m: 45.0
       loa_multiplier: 4.0
       nm_equivalent: 0.097
@@ -99,9 +103,9 @@ metadata:
     - rule: Rule15
       result: required
   simulation_settings:
-    total_time: 1200.0
+    total_time: 2200.0
     dt: 0.02
-    n_rps_initial: 3.0
+    n_rps_initial: 3.8
     coordinate_origin:
     - 63.44
     - 10.38

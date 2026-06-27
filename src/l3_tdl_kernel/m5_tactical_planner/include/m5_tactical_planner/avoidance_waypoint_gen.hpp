@@ -62,4 +62,28 @@ inline std::vector<WaypointLatLon> generate_avoidance_waypoints(
   return wps;
 }
 
+inline std::vector<WaypointLatLon> generate_return_to_route_waypoints(
+    double own_lat, double own_lon,
+    double planned_route_bearing_rad,
+    double route_xte_m) {
+  const double m_per_deg_lon = kMetersPerDegLat * std::cos(own_lat * M_PI / 180.0);
+  const double sin_b = std::sin(planned_route_bearing_rad);
+  const double cos_b = std::cos(planned_route_bearing_rad);
+
+  auto project = [&](double along_m, double xte_correction_m) {
+    const double d_north = along_m * cos_b + xte_correction_m * sin_b;
+    const double d_east = along_m * sin_b - xte_correction_m * cos_b;
+    return WaypointLatLon{
+      own_lat + d_north / kMetersPerDegLat,
+      own_lon + d_east / m_per_deg_lon,
+    };
+  };
+
+  return {
+    {own_lat, own_lon},
+    project(600.0, route_xte_m),
+    project(1200.0, route_xte_m),
+  };
+}
+
 }  // namespace mass_l3::m5

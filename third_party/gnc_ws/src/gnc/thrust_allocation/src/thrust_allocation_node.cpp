@@ -171,6 +171,11 @@ AutonomousThrustAllocator::AutonomousThrustAllocator()
         std::bind(&AutonomousThrustAllocator::on_propulsion_constraints, this,
                   std::placeholders::_1));
 
+    // 运行时 reset：orchestrator 经 gnc_bridge 发 /ship/dynamics_reset。
+    reset_sub_ = this->create_subscription<ship_interfaces::msg::ShipReset>(
+        "/ship/dynamics_reset", 10,
+        std::bind(&AutonomousThrustAllocator::reset_callback, this, std::placeholders::_1));
+
     cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
         "/thruster/commands", 10);
 
@@ -787,6 +792,33 @@ double AutonomousThrustAllocator::map_to_safe_angle(
     }
 
     return target_deg * M_PI / 180.0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 运行时 reset：清执行器热启动状态 + maneuvering mode（等价于冷启初始化）
+// ─────────────────────────────────────────────────────────────────────────────
+void AutonomousThrustAllocator::reset_allocator()
+{
+    // 由 reset_callback 调用，调用方持 unique_lock(mtx_)。
+    // 清跨 run 残留的执行器热启动量 + 模式 latch。
+    for (auto& s : states_) {
+        s.last_thrust_N = 0.0;
+        // last_angle_rad 保留构造初始值（固定推进器安装角）；
+        // 全回转推进器清零即回正。保守清零避免旧角度污染角速率限制基准。
+        s.last_angle_rad = 0.0;
+    }
+    tau_des_prev_ = Eigen::Vector3d::Zero();
+    tau_env_ = Eigen::Vector3d::Zero();
+    last_rudder_cmd_ = 0.0;
+    is_maneuvering_mode_ = false;
+    RCLCPP_INFO(this->get_logger(), "reset_allocator: thruster hot-start state cleared");
+}
+
+void AutonomousThrustAllocator::reset_callback(
+    const ship_interfaces::msg::ShipReset::SharedPtr /*msg*/)
+{
+    std::unique_lock<std::shared_mutex> lk(mtx_);
+    reset_allocator();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
