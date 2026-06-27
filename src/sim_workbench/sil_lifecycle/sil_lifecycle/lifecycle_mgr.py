@@ -270,6 +270,12 @@ class ScenarioLifecycleMgr:
     def set_sim_rate(self, rate: float) -> bool:
         if rate < 0:
             return False
+        # If the rate is unchanged, this is a redundant call (e.g. runner sets
+        # 10x after configure already applied 10x). Do NOT re-anchor, because
+        # re-anchoring locks in the sim_time advanced during the
+        # configure->set_rate gap and breaks cross-run reproducibility.
+        if abs(rate - self._sim_rate) < 1e-9:
+            return True
         # Anchor the rate change so _clock_callback doesn't try to
         # catch up to wall_elapsed * new_rate from t=0.
         self._rate_anchor_wall = time.time()
@@ -509,8 +515,6 @@ class LifecycleManagerNode(LifecycleNode):
         shash = self.get_parameter("scenario_hash").value
         self._fsm._tick_hz = self.get_parameter("tick_hz").value
         initial_rate = self.get_parameter("sim_rate").value
-        if initial_rate is not None:
-            self._fsm.set_sim_rate(float(initial_rate))
 
         clock_mode = self.get_parameter("clock_mode").value
         dynamics_mode = self.get_parameter("dynamics_mode").value
@@ -523,6 +527,15 @@ class LifecycleManagerNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
         cfg_ok = self._fsm.configure(str(sid), str(shash), dynamics_mode=str(dynamics_mode), clock_mode=str(clock_mode))
+        # Apply the configured sim_rate AFTER fsm.configure (which resets the
+        # rate to 1.0 to prevent cross-run carry-over). Doing it before configure
+        # was a no-op — configure overwrote it. With this order, the activate
+        # timer advances sim_time at the target rate from t=0, so there is no
+        # 1x window between configure and the later set_sim_rate(10) call whose
+        # length varies per run and breaks cross-run reproducibility
+        # (DIAG evidence 2026-06-27: run1 anchor_sim=31.34, run2=0.00).
+        if initial_rate is not None and float(initial_rate) != 1.0:
+            self._fsm.set_sim_rate(float(initial_rate))
 
         # Initialize internal dynamics state variables in free-run mode
         if clock_mode == "free_run" and dynamics_mode == "internal":
