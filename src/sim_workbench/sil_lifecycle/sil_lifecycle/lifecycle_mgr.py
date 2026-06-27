@@ -670,6 +670,12 @@ class LifecycleManagerNode(LifecycleNode):
         # publisher instance, which carries the old sim_time/state and breaks
         # cross-run reproducibility when the container is not restarted.
         self._status_callback()
+        # Likewise overwrite the TRANSIENT_LOCAL cache for /clock and /sim_clock
+        # (both use TRANSIENT_LOCAL QoS). Without this, nodes with use_sim_time
+        # (trace_writer, L3 modules, gnc_bridge) read the stale sim clock from the
+        # prior run until the first timer tick lands, freezing their now() at the
+        # old sim_time and delaying all downstream publishing by that offset.
+        self._publish_clock_now()
         self.get_logger().info(
             f"[on_activate] sim_clock @ {tick_hz:.0f} Hz  "
             f"status @ {status_hz:.1f} Hz, clock_mode={clock_mode}"
@@ -1007,6 +1013,30 @@ class LifecycleManagerNode(LifecycleNode):
         msg.sim_rate = self._fsm.sim_rate
         if self._status_pub is not None:
             self._status_pub.publish(msg)
+
+    def _publish_clock_now(self) -> None:
+        """Publish one /clock + /sim_clock reflecting the current _sim_time.
+
+        Called on activate to overwrite the TRANSIENT_LOCAL cache so use_sim_time
+        nodes do not read the stale clock from the previous run. Mirrors the
+        publish shape used by the free-run loop and _clock_callback.
+        """
+        sim_t = self._fsm.sim_time
+        time_msg = TimeMsg()
+        time_msg.sec = int(sim_t)
+        time_msg.nanosec = int(round((sim_t - time_msg.sec) * 1e9))
+        if self._sim_clock_pub is not None:
+            try:
+                self._sim_clock_pub.publish(time_msg)
+            except Exception as e:
+                self.get_logger().error(f"Failed to publish /sim_clock on activate: {e}")
+        if self._clock_pub is not None:
+            try:
+                clock_msg = ClockMsg()
+                clock_msg.clock = time_msg
+                self._clock_pub.publish(clock_msg)
+            except Exception as e:
+                self.get_logger().error(f"Failed to publish /clock on activate: {e}")
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
