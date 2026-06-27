@@ -1390,3 +1390,39 @@ Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/co
 - **mem**: drawers dce5dcc6b7109bca7bd1671c1（根因 C 调查中间发现）+ b6c986c09fa8c84b124682ff（最终结论 + R2 flake 诊断）；diary 2026-06-27 root-cause-c-gnc-cross-run-resolved。
 - **证据**: runs/repro_c/r1-r4（trace + json + log，gitignore 不入库）。
 - **A4000 同步**：本会话未推进。reset 接口已在本地验证生效，promotion gate 可考虑推进（但需先确认 R2 rotation flake 是否在 A4000 也出现）。
+
+## [2026-06-27] Codex / this commit / Local main integration: codex/colregs-gnc-debug
+
+### Task Goal
+Merge all committed content from `codex/colregs-gnc-debug` into local `main`, preserve the branch/worktree, and keep the integration local-only.
+
+### Core Changes
+- Created integration branch `codex/integration-20260627-colregs-gnc-debug` from local `main`.
+- Merged `codex/colregs-gnc-debug` tip `db23ce2a`.
+- Added integration-only handoff evidence from `.worktrees/colregs-gnc-debug/handoff/workspace_log.md` because the feature worktree had the final no-restart reproducibility result as an uncommitted handoff note.
+- Updated two test expectations to match the merged branch semantics:
+  - `run_colregs_clean_8probe` now forwards `--profile` into `run_6_scenarios` for profile-aware restart behavior.
+  - COLREGs scenario audit tests now treat `colreg-rule13-ot` and `colreg-rule15-ot-boundary` as known ACTIVE-at-start review items instead of requiring all Clean12 scenarios to be pre-active.
+
+### Current Status
+- Local `mass-l3-sil` stack built and running from the integration branch.
+- `codex/colregs-gnc-debug` branch and `.worktrees/colregs-gnc-debug` worktree were preserved.
+- The task-owned `codex-gnc-validation` containers were stopped to free the local main runtime gate; no worktree or branch was removed.
+- No A4000 sync and no remote push.
+
+### Verification
+- `git diff --check` -> clean.
+- `python3 -m pytest tests/docker/test_sil_trace_writer.py tests/scripts/test_gnc_ship_config_overlay.py tests/scripts/test_gnc_profile_start.py tests/scripts/test_run_colregs_clean_8probe.py tests/scripts/test_sil_fusion_adapter_contract.py tests/scripts/test_gnc_reset_interface.py tests/scripts/test_run_6_horizon_adaptive.py tests/scripts/test_run_6_scenarios_gate.py tests/sil_orchestrator/test_scenario_injection.py tests/sil_orchestrator/runtime/test_routes.py tools/sil/test_colregs_probe_matrix.py tools/sil/test_colregs_scenario_audit.py -q` -> 152 passed, 2 warnings.
+- `python3 tools/sil/check_ros2_interface_contract.py --contract docs/Design/SIL/ros2-interface-contract.yaml --root src` -> OK, 7 findings checked, 0 violations.
+- `cd web && npm test -- SimulationCheck.runtime.test.tsx --run` -> 17 passed.
+- `source scripts/local-a4000-env.sh && COMPOSE_PROJECT_NAME=mass-l3-sil docker compose up -d --build` -> sil-nodes image built; colcon build summary 29 packages finished.
+- First `./scripts/local-a4000-acceptance.sh` was NO-GO because the still-running task stack answered on the local runtime endpoint; after stopping `codex-gnc-validation`, rerun -> `LOCAL A4000 CONTAINER ACCEPTANCE PASS`.
+- Evidence:
+  - `runs/local_runtime_probe_20260627_160957.json` (NO-GO from task-stack cross-talk)
+  - `runs/local_runtime_probe_20260627_161152.json` (GO)
+  - `runs/local_a4000_container_probe_20260627_161152.json` (all_clear true)
+
+### Handoff Notes
+- The GNC no-restart reproducibility evidence remains under `.worktrees/colregs-gnc-debug/runs/repro_c/r1-r4` and is gitignored.
+- The merged handoff records R1/R3/R4 as consistent, with R2 diagnosed as a trace-writer rotation artifact.
+- If GNC task-stack work continues, restart it with `bash .worktrees/colregs-gnc-debug/scripts/gnc-profile-start.sh up`.
