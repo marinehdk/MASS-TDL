@@ -663,6 +663,13 @@ class LifecycleManagerNode(LifecycleNode):
 
         self._fsm.activate()
         self._run_start_wall = time.time()
+        # Publish one status immediately so the TRANSIENT_LOCAL durability cache
+        # for /sil/lifecycle_status is overwritten with the fresh activate state
+        # (sim_time=0 after configure). Without this, subscribers (trace_writer,
+        # orchestrator) receive the stale last message from the previous run's
+        # publisher instance, which carries the old sim_time/state and breaks
+        # cross-run reproducibility when the container is not restarted.
+        self._status_callback()
         self.get_logger().info(
             f"[on_activate] sim_clock @ {tick_hz:.0f} Hz  "
             f"status @ {status_hz:.1f} Hz, clock_mode={clock_mode}"
