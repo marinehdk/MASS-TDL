@@ -600,16 +600,24 @@ class LifecycleManagerNode(LifecycleNode):
 
     def on_activate(self, state) -> TransitionCallbackReturn:
         """Create publishers + timers (or start free-run thread); transition FSM INACTIVE → ACTIVE."""
-        # Publishers
-        self._sim_clock_pub = self.create_publisher(
-            TimeMsg, "/sim_clock", qos_profile=_SIM_CLOCK_QOS
-        )
-        self._clock_pub = self.create_publisher(
-            ClockMsg, "/clock", qos_profile=qos_profile_clock
-        )
-        self._status_pub = self.create_publisher(
-            LifecycleStatus, "/sil/lifecycle_status", qos_profile=_STATUS_QOS
-        )
+        # Publishers — reuse if they already exist (cross-run: keep the same DDS
+        # writer instance so subscribers like trace_writer do not need to re-discover
+        # a new publisher after on_deactivate. Destroying/recreating publishers
+        # across runs forces CycloneDDS to rematch subscribers, which can take
+        # 100+ seconds wall and backlog-deliver hundreds of sim-seconds of stale
+        # messages, breaking cross-run reproducibility without container restart.
+        if self._sim_clock_pub is None:
+            self._sim_clock_pub = self.create_publisher(
+                TimeMsg, "/sim_clock", qos_profile=_SIM_CLOCK_QOS
+            )
+        if self._clock_pub is None:
+            self._clock_pub = self.create_publisher(
+                ClockMsg, "/clock", qos_profile=qos_profile_clock
+            )
+        if self._status_pub is None:
+            self._status_pub = self.create_publisher(
+                LifecycleStatus, "/sil/lifecycle_status", qos_profile=_STATUS_QOS
+            )
 
         tick_hz = self.get_parameter("tick_hz").value
         status_hz = self.get_parameter("status_hz").value
@@ -749,14 +757,19 @@ class LifecycleManagerNode(LifecycleNode):
         self._sim_clock_timer = None
         self._status_timer = None
 
-        for pub in (self._sim_clock_pub, self._clock_pub, self._status_pub):
-            if pub is not None:
-                self.destroy_publisher(pub)
-        self._sim_clock_pub = None
-        self._clock_pub = None
-        self._status_pub = None
+        # Keep clock/status publishers alive across runs (see on_activate):
+        # destroying them forces CycloneDDS to re-discover a new writer instance
+        # for trace_writer and other subscribers, which backlogs stale messages
+        # for up to minutes and breaks cross-run reproducibility. Only the
+        # free-run internal-dynamics publishers are torn down.
+        # for pub in (self._sim_clock_pub, self._clock_pub, self._status_pub):
+        #     if pub is not None:
+        #         self.destroy_publisher(pub)
+        # self._sim_clock_pub = None
+        # self._clock_pub = None
+        # self._status_pub = None
 
-        self.get_logger().info("[on_deactivate] timers + publishers destroyed")
+        self.get_logger().info("[on_deactivate] timers destroyed (publishers kept for cross-run reuse)")
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state) -> TransitionCallbackReturn:

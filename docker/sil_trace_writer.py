@@ -335,13 +335,28 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
 
     node = writer  # the node holds the clock; set in TraceWriterNode.__init__
 
-    # NOTE: `sim_t` is captured per-callback from the ROS node's sim clock. The
-    # node object is attached below in TraceWriterNode; we close over it via a
-    # mutable holder so the lambdas defined here see the final node.
-    holder: dict[str, Any] = {"node": None}
+    # NOTE: `sim_t` was captured per-callback from the ROS node's sim clock. But
+    # ROS2 use_sim_time + /clock (TRANSIENT_LOCAL + BEST_EFFORT) goes stale when
+    # the lifecycle_mgr destroys/recreates the /clock publisher across runs
+    # without restarting this process: the subscriber's TimeSource stops at the
+    # last received value until DDS re-discovers the new publisher instance,
+    # which can take seconds-to-minutes and varies per run (DIAG evidence
+    # 2026-06-27: trace first-frame sim_t was 586s frozen from the prior run).
+    # Fix: anchor sim_t to the /sil/lifecycle_status.sim_time field (published
+    # @ 1Hz by lifecycle_mgr) and interpolate at sim_rate between updates. This
+    # bypasses the ROS sim clock entirely for record() timestamps.
+    holder: dict[str, Any] = {"node": None, "prev_lc": None,
+                              "sim_base_t": 0.0, "sim_base_wall": 0.0, "sim_rate": 1.0}
 
     def t_now() -> float:
-        return holder["node"].get_clock().now().nanoseconds * 1e-9
+        # Interpolate: base sim_t + (wall elapsed since last lifecycle update) * rate.
+        # If no lifecycle message yet, fall back to the ROS clock (covers the
+        # pre-activate startup window).
+        base_wall = holder["sim_base_wall"]
+        if base_wall <= 0.0:
+            return holder["node"].get_clock().now().nanoseconds * 1e-9
+        elapsed = time.time() - base_wall
+        return holder["sim_base_t"] + max(0.0, elapsed) * holder["sim_rate"]
 
     def on_own(msg):
         writer.record(
@@ -493,9 +508,19 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         writer.record("/l2/planned_route", {"route_hash": route_hash}, t_now())
 
     def on_lifecycle(msg):
-        # 3 = ACTIVE. On entry to ACTIVE, truncate the trace for a clean run.
+        # Update the sim_t anchor from the authoritative lifecycle_status field.
+        # This is the primary sim_t source now (see t_now); the ROS sim clock is
+        # only a pre-activate fallback.
+        holder["sim_base_t"] = float(msg.sim_time)
+        holder["sim_base_wall"] = time.time()
+        holder["sim_rate"] = float(getattr(msg, "sim_rate", 1.0) or 1.0)
+        # 3 = ACTIVE. On entry to ACTIVE, truncate the trace for a clean run and
+        # reset the interpolation anchor so the new run starts from sim_t=0
+        # (lifecycle_mgr publishes sim_time=0 right after configure).
         if int(msg.current_state) == 3 and holder.get("prev_lc") != 3:
             writer.reset()
+            holder["sim_base_t"] = float(msg.sim_time)
+            holder["sim_base_wall"] = time.time()
         holder["prev_lc"] = int(msg.current_state)
         writer.record(
             "/sil/lifecycle_status",
