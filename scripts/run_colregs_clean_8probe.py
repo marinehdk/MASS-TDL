@@ -88,6 +88,9 @@ def main(argv=None):
     )
     known, remaining = parser.parse_known_args(argv)
     _verify_profile_stack(known.profile)
+    # Forward the resolved profile into the runner so it can apply profile-aware
+    # behaviour (e.g. the gnc three-container restart set) without re-parsing.
+    remaining = ["--profile", known.profile, *remaining]
     return _load_runner().main(remaining)
 
 

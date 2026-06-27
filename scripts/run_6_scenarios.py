@@ -88,6 +88,20 @@ CPA_FLOOR_MEASUREMENT_TOLERANCE_LOA = 0.05
 # --restart-container colregs-behavior-fix-sil-nodes-1 for the behavior-fix stack.
 DEFAULT_RESTART_CONTAINER = ""
 DEFAULT_RESTART_SETTLE_S = 24.0
+# GNC profile requires full restart of three containers to achieve reproducibility:
+# sil-nodes (L3 kernel + trace_writer + target_vessel, domain 42) + gnc-nodes +
+# gnc-bridge (domain 50). Restarting only the GNC containers leaves sil-nodes
+# warm state, which causes (a) trace_writer missing the first N seconds of sim
+# (lifecycle ACTIVE msg processed late) and (b) L3 module state leakage across
+# runs. Verified baseline 2026-06-27: runs/baseline_full run1/run2 agree to
+# onset Δ6.5s, min_cpa Δ5.3m. The project prefix matches gnc-profile-start.sh's
+# GNC_VALIDATION_PROJECT default; override per worktree via explicit
+# --restart-container flags.
+GNC_RESTART_CONTAINERS = (
+    "codex-gnc-validation-sil-nodes-1",
+    "codex-gnc-validation-gnc-gnc-nodes-1",
+    "codex-gnc-validation-gnc-gnc-bridge-1",
+)
 MAX_WARNING_DOMAIN_EXPOSURE_S = 120.0
 MAX_INTEGRATED_ABS_XTE_M_S = 500.0 * 600.0
 MAX_ROUTE_CROSSING_OVERSHOOTS = 1
@@ -1444,16 +1458,23 @@ def cpa_floor_measurement_tolerance_m(expected):
 
 
 def _restart_sil_nodes(container, settle_s):
-    print(f"Restarting {container} before scenario; settle={settle_s:.1f}s")
+    # Accept a single container name or a list/tuple. docker restart accepts
+    # multiple container names in one invocation, which keeps the restart
+    # atomic (all containers bounce together) and avoids partial-stack windows.
+    if isinstance(container, str):
+        containers = [container]
+    else:
+        containers = list(container)
+    print(f"Restarting {len(containers)} container(s) {containers}; settle={settle_s:.1f}s")
     cp = subprocess.run(
-        ["docker", "restart", container],
+        ["docker", "restart", *containers],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
     if cp.returncode != 0:
         print(cp.stdout)
-        raise RuntimeError(f"failed to restart {container}")
+        raise RuntimeError(f"failed to restart {containers}")
     time.sleep(settle_s)
 
 def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
@@ -2113,8 +2134,18 @@ def _parse_args(argv=None):
                         help="Directory for per-scenario TraceEvaluationReport JSON.")
     parser.add_argument("--restart-between-runs", action="store_true",
                         help="Restart sil-nodes before every scenario to prevent warm-state leakage.")
-    parser.add_argument("--restart-container", default=DEFAULT_RESTART_CONTAINER,
-                        help="Container restarted when --restart-between-runs is set.")
+    # action='append' so a caller can name multiple containers. When omitted,
+    # the default stays None (sentinel) so the GNC profile can auto-fill its
+    # three-container set; an explicit empty string is preserved as "unset".
+    parser.add_argument("--restart-container", action="append", default=None,
+                        help="Container restarted when --restart-between-runs is set. "
+                             "Repeat for multiple containers. When --profile gnc is set "
+                             "and this flag is omitted, the three GNC containers "
+                             "(sil-nodes + gnc-nodes + gnc-bridge) are restarted automatically.")
+    parser.add_argument("--profile", choices=("sil", "gnc"), default="sil",
+                        help="Execution stack target. Under gnc, --restart-between-runs "
+                             "without explicit --restart-container defaults to the full "
+                             "three-container GNC restart set.")
     parser.add_argument("--restart-settle", type=float, default=DEFAULT_RESTART_SETTLE_S,
                         help="Seconds to wait after each sil-nodes restart.")
     parser.add_argument("--total-time-override", type=float, default=None,
@@ -2202,15 +2233,27 @@ def main(argv=None):
             if scen not in scenarios:
                 scenarios.append(scen)
     if args.restart_between_runs and not args.restart_container:
-        print(
-            "ERROR: --restart-between-runs requires an explicit --restart-container. "
-            "The default is intentionally empty to prevent accidentally bouncing the "
-            "main mass-l3-sil-sil-nodes-1 container. For the behavior-fix stack pass "
-            "--restart-container colregs-behavior-fix-sil-nodes-1; for the main stack "
-            "pass --restart-container mass-l3-sil-sil-nodes-1.",
-            file=sys.stderr,
-        )
-        return 2
+        if args.profile == "gnc":
+            # GNC profile reproducibility requires a full three-container restart
+            # (see GNC_RESTART_CONTAINERS docstring). Only auto-fill when the
+            # caller did not name any container explicitly.
+            args.restart_container = list(GNC_RESTART_CONTAINERS)
+            print(
+                f"[--profile gnc] --restart-between-runs without explicit "
+                f"--restart-container: auto-using {len(args.restart_container)} "
+                f"containers {args.restart_container}.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "ERROR: --restart-between-runs requires an explicit --restart-container. "
+                "The default is intentionally empty to prevent accidentally bouncing the "
+                "main mass-l3-sil-sil-nodes-1 container. For the behavior-fix stack pass "
+                "--restart-container colregs-behavior-fix-sil-nodes-1; for the main stack "
+                "pass --restart-container mass-l3-sil-sil-nodes-1.",
+                file=sys.stderr,
+            )
+            return 2
     evidence_manager, evidence_session = _create_evidence_session(args, scenarios)
     args.trace_report_dir = str(evidence_session.session_dir)
     for scen in scenarios:
