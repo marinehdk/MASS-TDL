@@ -1338,3 +1338,55 @@ Continue from `codex/colregs-merge-20260626` in isolated worktree `.worktrees/co
 - **验证 (Status)**: 67 测试全绿（20新+47现有）。容器验证 horizon 修复生效：sim 跑到 3585s 超 total_time 3000 未卡死，无误判早停。倍率2×依据：实测 CPA lag 1.73×。
 - **发现的独立问题 (Hand-off)**: GNC stack 不稳定。同代码同配置，run-19f02ae68b7 链路全空转（M6 conflict=0, M5 全 EMPTY, 目标 range 单调增 9km→19km 在远离），而 run-19f024e2d58 健康（M5 VALID=2518, 正常避碰）。疑似 GNC bridge target 驱动异常 或 多次 cleanup/restart 搞坏 stack。属运行时问题，非本次范围（forbidden-list 不碰 GNC bridge）。无法展示 route-return 成功早停路径。下一步：GNC stack 冷启后重跑确认。
 - **mem drawers**: colregs-adaptive-horizon（方案C决策）、colregs-gnc-stack-instability（stack异常）。
+
+## [2026-06-27] ZCode / fb8c3128 / GNC profile 可复现基线建立 + probe 自动 full-restart 封装
+
+- **Agent**: ZCode (builtin GLM-5.2)
+- **Git Commit**: fb8c3128 (codex/colregs-gnc-debug, 18 commits main..HEAD, clean)
+- **Task Goal**: 用户要求先确认 GNC profile restart 工况可复现基线，再开始 TDL 联调。
+- **Core Changes**:
+  - **推翻前序会话根因3判断**：前序 stabA "只 restart gnc-nodes+bridge = 10/10 一致" 本会话独立验证不成立（run1 onset=1463, run2 onset=1776, Δ313s）。
+  - **systematic-debug Phase1 锁定两层根因**（决定性证据 = trace_current.jsonl 首 /sil/lifecycle_status sim_t）：
+    1. trace_writer 漏记：sil-nodes 不重启 → docker/sil_trace_writer.py on_lifecycle reset(line 495-498, state->3) 跨 run 残留处理 ACTIVE msg 延迟 → 漏记前 N 秒 sim → onset 计算(run_6_scenarios.py:210)基于残缺 trace → 伪 onset 差异。run1 首帧 sim_t=343, run2=1776。
+    2. L3 真实残留：sil-nodes 含 L3 kernel(M2-M8)+target_vessel。不重启 → 真实 onset/cpa 不同。
+  - **唯一可靠基线 = FULL RESTART 三容器**(sil-nodes + gnc-nodes + gnc-bridge, settle 35s)。证据 runs/baseline_full run1/run2：onset 646.8/640.3(Δ6.5s), steer Starboard 58.1/58.3, min_cpa 422.7/417.4(Δ5.3m)。
+  - **封装进 probe**(surgical 3 文件 +134/-14)：_restart_sil_nodes 接受 str|list；GNC_RESTART_CONTAINERS 常量；--restart-container 改 action='append'；加 --profile；--profile gnc + --restart-between-runs 无显式 container → 自动 3 容器；probe 层透传 --profile。SIL 保留空默认安全守卫。
+- **Current Status**:
+  - pytest 54 passed（含 7 新测）。
+  - E2E 验证 runs/probe_e2e r1/r2：onset 640.8/640.3(Δ0.5s), min_cpa 422.8/418.8(Δ4.0m)。封装成功。
+  - commit fb8c3128 已落，证据 runs/* gitignore 不入库。
+- **Handoff Notes**:
+  - **baseline onset=646 = "冷启首 run" 行为**（前序 run1 t=650），真实 SUT 行为，非确定性。但 recovery_stalled 仍触发，Final XTE 432m 超 150m，route_return=False。进入 TDL 联调前需确认此基线是否符合设计预期。
+  - **控制层 reset 接口（前序会话 ship_control/ship_guidance/coordinate_transform/thrust_allocation reset）代码已 commit 但镜像未重建未验证**（Docker registry 前序阻塞）。若要让 reset 接口达 restart 等效（候选根因 C：L3 cross-run-reset），需先 build gnc-nodes 镜像。本会话未碰。
+  - **未推进 A4000 同步**：promotion gate 未跑（本地基线优先）。gnc-nodes 镜像含 reset 接口前不应 promote。
+  - **mem**: drawer drawer_mass_l3_tactical_layer_gnc-stability-baseline_18f915c2ac50e3edef9891f5；diary 2026-06-27 gnc-restart-baseline-and-probe-encapsulation。
+
+## [2026-06-27] ZCode / commit db23ce2a / 根因 C 验证：reset 接口已生效，跨 run 可复现性达成
+
+**Task Goal**: 解决根因 C（L3/GNC 模块跨 run 残留），实现不-restart 连跑多次 run 指标一致。前序会话已修复根因 A（sim_time rate-anchor 偏移, affff0f7）+ B（trace_writer DDS 订阅延迟, db23ce2a）。
+
+**Core Changes**:
+- **本会话无代码 commit**（纯验证会话）。前序会话的 reset 接口代码（2026-06-26 plant reset efe56e1a/1969da30 + 2026-06-27 control reset 4099e6e4/bc736e32/392ea4c5/ea0b748c）已全部 commit 且**已编译进 mass-l3-gnc:mpc_latest-20260624 镜像**（纠正前序 handoff "镜像未重建" 判断 —— binary grep 确认 ship_dynamics/ship_control/ship_guidance/thrust_allocation/coordinate_transform 各含 5+ reset 符号，ShipReset.msg 在 install/）。
+- **systematic-debugging 全链路验证 reset 生效**：
+  1. 代码在镜像 binary（strings grep 确认 /ship/dynamics_reset topic string + reset_controller/reset_to_origin 符号）。
+  2. reset 链路投递：orchestrator 发 /l3/sim/reset_own_ship (dom42, ros2 echo 实证) → gnc_bridge 转发 /ship/dynamics_reset + /ship/geo_origin_reset (dom50, ros2 echo 实证) → 4 节点 reset_callback 执行（docker logs: reset_to_origin/reset_controller/reset_guidance/reset_allocator INFO）。
+  3. reset 物理生效：触发 cleanup+configure，own_ship lat 从 63.4587（偏离）→ 63.44005（= scenario origin），eta=(0,0,0rad) u=3.087m/s。
+- **可复现性实证**（runs/repro_c/r1,r2,r3,r4 连续跑，不 restart）：
+  - R1: onset=1474.99s, Steering Starboard 62.5°, CPA min 296.9m
+  - R3: onset=1474.52s, Steering Starboard 62.6°, CPA min 293.9m
+  - R4: onset=1474.53s, Steering Starboard 62.6°, CPA min 295.4m
+  - R1/R3/R4 onset Δ<0.5s, steering 一致, CPA Δ<3m → **可复现性达成**
+- **R2 RED 诊断为 flake**（非真实行为，非 reset 失效）：trace_writer 50MB rotation 竞态。docker logs 显示 wall 1782542599.308（落在 R2 run 窗口内）触发 "Trace file size exceeded cap. Rotating..."。rotation 期间（close→gzip→reopen ~1s）丢失 own_ship 消息 —— R2 own_ship trace 仅 3624 行（正常 ~15000），wall_t 集中在 post-rotation 的 1782542671，sim_t 乱序（0.2-5284 混合）。own_ship 数据缺失导致 M2 world_state trace target 追踪断裂 → target "4567s 才出现"（trace artifact）→ verdict RED。R1/R3/R4 未中段 rotate。
+- **推翻前序 onset 对比**：用户报告 "onset run1=609 vs run2=1475 Δ866s" —— run1(pub_keep/r1) 是**根因 A 修复前的脏数据**（trace 从 sim=5 起，own 起点 63.4514 偏离 scenario 1.3km），不可用于对比。只有 pub_keep/r2（onset=1475）是干净的。A+B+reset 全修复后，连续干净 run 可复现。
+
+**Current Status**:
+- 根因 C **已解决**。GNC profile 不-restart 连跑 3 次（R1/R3/R4）onset/steering/CPA 一致。
+- 无新代码 commit。无新镜像构建（镜像已含 reset）。
+- 工作区：handoff/workspace_log.md modified，其余 clean。
+
+**Handoff Notes**:
+- **可选 follow-up（非阻塞）**：trace_writer 50MB rotation cap 可在 run 中段触发并腐蚀该 run 的 trace 证据。缓解选项：(a) 提高 cap，(b) 仅在 lifecycle ACTIVE 边界 rotate，(c) rotation 非阻塞（写新文件 + 后台 gzip）。影响偶尔的 trace 完整性，不影响实际仿真可复现性。
+- **reset 接口设计 spec**：docs/superpowers/specs/2026-06-26-gnc-plant-reset-interface-design.md + 2026-06-27-gnc-control-reset-interface-design.md（均已实现，本会话验证生效）。
+- **mem**: drawers dce5dcc6b7109bca7bd1671c1（根因 C 调查中间发现）+ b6c986c09fa8c84b124682ff（最终结论 + R2 flake 诊断）；diary 2026-06-27 root-cause-c-gnc-cross-run-resolved。
+- **证据**: runs/repro_c/r1-r4（trace + json + log，gitignore 不入库）。
+- **A4000 同步**：本会话未推进。reset 接口已在本地验证生效，promotion gate 可考虑推进（但需先确认 R2 rotation flake 是否在 A4000 也出现）。
