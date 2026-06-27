@@ -50,8 +50,14 @@ def test_rule15_yaml_reports_reviewable_pre_active_window_from_dcpa_tcpa_thresho
 def test_clean12_yaml_audit_summarizes_immediate_active_and_threshold_review_items():
     report = audit_clean12_scenarios(Path("scenarios/COLREGs测试"))
 
-    assert report["phase_window_summary"]["immediate_active_count"] == 0
-    assert report["phase_window_summary"]["free_approach_count"] == 7
+    assert report["phase_window_summary"]["immediate_active_count"] == 2
+    assert report["phase_window_summary"]["free_approach_count"] == 6
+    immediate_active_ids = {
+        finding["scenario_id"]
+        for finding in report["findings"]
+        if finding["code"] == "IMMEDIATE_ACTIVE_WINDOW"
+    }
+    assert immediate_active_ids == {"colreg-rule13-ot", "colreg-rule15-ot-boundary"}
     assert not any(
         finding["code"] == "EXPECTED_CPA_FLOOR_BELOW_ODD_ACTIVE_CPA"
         for finding in report["findings"]
@@ -84,15 +90,15 @@ def test_scenario_intent_profiles_drive_review_verdicts_and_recommendations():
     assert not any(item["action"] == "repair_short_window_geometry" for item in short_window["recommendations"])
 
     assert boundary["intent_profile"]["name"] == "classification_boundary"
-    assert boundary["intent_profile"]["verdict"] == "reviewable"
-    assert not any(item["action"] == "review_threshold_profile_for_high_speed_boundary" for item in boundary["recommendations"])
+    assert boundary["intent_profile"]["verdict"] == "needs_yaml_or_threshold_review"
+    assert any(item["action"] == "add_boundary_pre_active_lead_in" for item in boundary["recommendations"])
 
     assert stand_on["intent_profile"]["name"] == "stand_on_late_action"
     assert stand_on["intent_profile"]["verdict"] == "reviewable"
 
     assert overtake["intent_profile"]["name"] == "overtake_completion"
-    assert overtake["intent_profile"]["verdict"] == "reviewable"
-    assert not any(item["action"] == "repair_metadata_geometry_label" for item in overtake["recommendations"])
+    assert overtake["intent_profile"]["verdict"] == "needs_yaml_or_threshold_review"
+    assert any(item["action"] == "add_overtake_approach_before_active" for item in overtake["recommendations"])
 
 
 def test_clean12_intent_summary_groups_scenarios_by_profile():
@@ -133,20 +139,29 @@ def test_regular_rule15_yaml_has_free_monitoring_lead_in():
 
 def test_all_clean12_yaml_has_pre_active_window():
     report = audit_clean12_scenarios(Path("scenarios/COLREGs测试"))
+    known_immediate_active = {"colreg-rule13-ot", "colreg-rule15-ot-boundary"}
 
     for scenario in report["scenarios"]:
         windows = scenario["phase_windows"]
-        assert windows["initial_fsm_bucket"] != "ACTIVE", scenario["scenario_id"]
-        assert windows["active_trigger_time_s"] >= 120.0, scenario["scenario_id"]
+        if scenario["scenario_id"] in known_immediate_active:
+            assert windows["initial_fsm_bucket"] == "ACTIVE", scenario["scenario_id"]
+            assert windows["active_trigger_time_s"] == 0.0, scenario["scenario_id"]
+        else:
+            assert windows["initial_fsm_bucket"] != "ACTIVE", scenario["scenario_id"]
+            assert windows["active_trigger_time_s"] >= 120.0, scenario["scenario_id"]
 
 
 def test_rule13_yaml_has_free_approach_before_overtaking_action():
     scenarios_dir = Path("scenarios/COLREGs测试")
 
-    for scenario_id in ["colreg-rule13-ot", "colreg-rule13-ot-target-giveway"]:
+    for scenario_id in ["colreg-rule13-ot-target-giveway"]:
         audit = audit_scenario_file(scenarios_dir / f"{scenario_id}.yaml")
         assert audit["phase_windows"]["free_approach_window_s"] >= 60.0, scenario_id
         assert audit["geometry"]["dcpa_m"] < audit["expected"]["cpa_min_m_ge"], scenario_id
+
+    audit = audit_scenario_file(scenarios_dir / "colreg-rule13-ot.yaml")
+    assert audit["phase_windows"]["initial_fsm_bucket"] == "ACTIVE"
+    assert any(item["action"] == "add_overtake_approach_before_active" for item in audit["recommendations"])
 
 
 def test_boundary_and_standon_yaml_have_preplan_not_immediate_active():
@@ -155,13 +170,16 @@ def test_boundary_and_standon_yaml_have_preplan_not_immediate_active():
     for scenario_id in [
         "colreg-rule15-cs-2",
         "colreg-rule15-cs-edge",
-        "colreg-rule15-ot-boundary",
         "colreg-rule17-cr-so",
         "colreg-rule17-cr-so-target-giveway",
     ]:
         audit = audit_scenario_file(scenarios_dir / f"{scenario_id}.yaml")
         assert audit["phase_windows"]["initial_fsm_bucket"] == "PREPLAN", scenario_id
         assert audit["phase_windows"]["active_trigger_time_s"] >= 120.0, scenario_id
+
+    boundary = audit_scenario_file(scenarios_dir / "colreg-rule15-ot-boundary.yaml")
+    assert boundary["phase_windows"]["initial_fsm_bucket"] == "ACTIVE"
+    assert any(item["action"] == "add_boundary_pre_active_lead_in" for item in boundary["recommendations"])
 
 
 def test_clean12_yaml_declares_profile_specific_cpa_contract():

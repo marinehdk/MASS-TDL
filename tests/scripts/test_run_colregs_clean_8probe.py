@@ -30,5 +30,5 @@ def test_profile_gnc_is_consumed_before_delegating_to_runner(monkeypatch):
     monkeypatch.setattr(wrapper, "_any_container_running_image", fake_image_running, raising=False)
 
     assert wrapper.main(["--profile", "gnc", "--list"]) == 0
-    assert delegated_args == ["--list"]
+    assert delegated_args == ["--profile", "gnc", "--list"]
     assert checked_images == ["mass-l3-gnc:mpc_latest"]
