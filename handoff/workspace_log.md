@@ -36,6 +36,41 @@ Stop Rule 5 (look-out) churning in/out of M6 `active_rules` during an active hea
   - Class C cs-edge GNC speed envelope (safety_floor near-miss from high closing speed + decel distance).
 - No A4000 sync, no GitHub/GitLab push. Local worktree only.
 
+## [2026-06-28] ZCode / commits b3cfb0bb,40d80fd5(reverted→22a53dd4) / Class B diagnosis + failed fix + pause
+
+### Task Goal
+Fix Class B (ho-port/cs/cs-2/cs-intelligent Layer-2 GREEN but Layer-3 seamanship/phase RED). Initially diagnosed as M5 plan_id churn, then re-diagnosed as M5 return-to-route over-publish, then fix failed and true root cause found: maneuver efficiency.
+
+### What happened (full arc, to avoid re-stepping the same wrong path)
+1. **Initial wrong diagnosis**: "plan_id churn" — DISPROVEN. M5 plan_id is already stable (2 per run: 1 colregs + 1 return). chain_summary `gnc_plan_id_changes` is GNC internal ActiveRouteManager active_route_id switching, NOT M5 output.
+2. **Second wrong diagnosis**: "M5 return-to-route over-publish via avoidance channel re-arms GNC mark_avoidance_active" — wrote spec+plan, implemented fix (`40d80fd5`: M5 emits EMPTY avoidance plan in RECOVERY branch).
+3. **Fix failed + introduced regression**: ho-port returned_to_route True→False, DEFERRED barely dropped (2984→2952). Trace showed return-to-route branch never triggered; avoidance_waypoints all 1169 are emergency_avoidance, stop at sim 1481 (conflict ends 1478).
+4. **Reverted** (`22a53dd4`). Class A fix intact.
+5. **True root cause** (maneuver efficiency): own ship at GNC emergency cap ~3.3m/s entire encounter. XTE peak 242m held ~1800s. integrated |XTE| = 352,783 m·s > 300,000 limit (+17%). Split: AVOID 229k (65%), RECOVERY 123k (35%). RECOVERY lateral closure only 0.19m/s. DEFERRED avoidance_active 71% is NORMAL during conflict (GNC correctly defers nominal route while avoidance executes).
+
+### Core Conclusion
+Class B is NOT an M5/GNC interface defect. It is a maneuver-efficiency / speed-envelope problem overlapping Class C. Fix touches contract-level constraints (GNC emergency cap 3.2m/s, CPA separation floor, seamanship threshold). Four options identified, none clean:
+- Reduce avoidance lateral offset (CPA risk)
+- Raise emergency speed >3.2m/s (contract violation without source-backed envelope)
+- Accelerate RECOVERY convergence (M5 recovery geometry/speed — smallest blast radius)
+- Raise seamanship xte limit (violates "no threshold tuning")
+
+**PAUSED per user** — contract-level decision required, not a code fix.
+
+### Current Status
+- Class A (Rule5 churn): FIXED, verified, committed `f0ebfc2e`. M6 oracle GREEN on ho/ho-intelligent, ho-port regression guard pass.
+- Class B: original spec/plan (`2026-06-28-m5-return-route-avoidance-channel-leak-*`) are INCORRECT (wrong root cause), kept for audit trail but must not be re-executed. Fix reverted.
+- Git: clean. Commits this session: 4fe9de30(spec+plan A), f0ebfc2e(fix A), b4474971(handoff A), b3cfb0bb(spec+plan B wrong), 40d80fd5(fix B reverted→)22a53dd4(revert).
+
+### Handoff Notes
+- **Do NOT re-run the reverted Class B fix** — it breaks returned_to_route and doesn't address the real cause.
+- **Class B real fix needs contract decision** on speed envelope or recovery geometry. Recommend: diagnose RECOVERY convergence (why 0.19m/s) as smallest-blast-radius entry point, OR escalate to design review on emergency speed cap.
+- Evidence (Class A fix verified): `runs/trace_eval/20260628_112420_rule14_ho_after_rule5_fix/`, `runs/trace_eval/20260628_113127_rule14_cohort_after_rule5_fix/`.
+- Evidence (Class B diagnosis): `runs/trace_eval/20260628_121600_rule14_ho_port_after_classb_fix/` (failed fix run, kept for diagnosis).
+- Still open (separate specs): ot-boundary Rule13/15 classification (Class A sub-problem, root cause CONFIRMED — M6 WRONG_RULE+ROLE, conflict_toggles=0), Class C cs-edge (safety_floor near-miss).
+- mempalace drawers: d8737b1c (Class B root cause correction), 45ad5fff (Class B true root cause maneuver efficiency), e0514163/d82c456e (Class A), 8e1603bb (full triage).
+- No A4000 sync, no push. Local worktree only.
+
 ## [2026-06-04 11:55] Agent: Antigravity (IDE Environment)
 - **Git Commit**: `03555118` (branch: `main`)
 - **Headroom Session**: `3447c8d7-43b5-4230-ac3a-3909e0e2a40b` (current Antigravity conversation ID)
