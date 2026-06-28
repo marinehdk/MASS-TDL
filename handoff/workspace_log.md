@@ -4,6 +4,155 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-06-29] ZCode / 668c8799 / Phase 2 W2 GNC execution ODD contract（live echo 铁证）+ W4 数据发现
+
+### Task Goal
+执行 plan Phase 2：W2 GNC ODD 参数作 latched contract msg 暴露给 M5（Task 2.1-2.3）+ W4 reachable_lateral_offset（Task 2.4-2.5）。
+
+### Core Changes
+- **W2 commit `668c8799`**（Task 2.1+2.2+2.3 一组）：`ship_interfaces/GncExecutionOdd.msg`（7 字段：emergency_cap/cruise_min/max_transit + lateral_accel/decel/turn_radius/yaw_rate）。active_route_manager_node 单点发布 `/gnc/execution_odd`（transient_local），重复 declare 速度参数（决策 #3 方案 a，两节点独立进程不共享参数）。gnc_bridge 跨 domain 50→42 转发。M5 订阅 + 缓存 + `effective_gnc_odd_()` fallback（gnc_avoidance_preflight 默认值）。
+- **live echo 铁证**（domain 42 收到完整 ODD）：`emergency_avoidance_speed_cap_mps: 3.2`、`cruise_min_speed_mps: 3.8`、`max_lateral_accel_mps2: 0.25` 等全字段。msg 注册两份 ship_interfaces（third_party/gnc_ws for GNC build, src/ for sil-nodes build）。
+- **Iron Law trace**：发现 plan 评审点 #3 假设模糊——实测两节点是独立进程（sim_launch.py:144 ship_guidance, :173 active_route_manager），参数不共享。W2 需三份 ship_interfaces 同步（third_party/gnc_ws + src/ + plugins/l2_external，后者当前 gnc profile 用不到留 TODO）。
+
+### W4 数据发现（推翻诊断"own 225m"假设，待完整分析）
+W4 reachable 函数 TDD RED 验证通过，但 trace plan Task 2.4 时发现 **plan 内在矛盾**（accel 模型 cs-edge 不收缩；turn-radius 过保守与 test1 语义冲突）。深入 cs-edge fresh trace（`runs/trace_eval/20260629_000517_cs_edge_single`）：
+- own 起点 lat=63.882（非 63.44）。
+- own 横向位移：t=17s→173m（fast onset）、t=631s→380m、t=985s→402m（peak）。
+- M5 wp0 横向要求：t=725s→566m、t=984s→619m。
+- **own 实际能横移 ~400m（非诊断 225m）**。near-collision 根因不是"own 物理跟不上"，是 **M5 offset 几何增长快于 own 跟随**（M5 619m vs own 402m @ t=985s）+ CPA 最低点对应最大 gap。需 CPA-vs-time 关联确认。
+
+### Current Status
+- Phase 1（W6+W1）+ Phase 2 W2 完成，3 commit（4aefbce6/5c67300c/668c8799），全 TDD + live 验证。
+- W4 RED 测试已回滚（保持分支可编译），W4 留下次会话基于完整 6 场景数据分析。
+- 无 A4000 sync，无 push，本地 worktree only。
+- **下次**：完整分析 6 场景（own 横向 + M5 wp0 横向 + CPA vs 时间），数据驱动定 W4 模型，再实现 reachable + 接入。
+
+### Handoff Notes
+- mempalace drawers: 56253fcf（W2 决策#3）/ 22bf87b3（W4 cs-edge 数据推翻 225m 假设）。
+- 评审决策 #3 已定（方案 a）。W4 模型方向待 6 场景分析后定。
+
+---
+
+## [2026-06-29] ZCode / 4aefbce6 + 5c67300c / COLREGs speed-envelope Phase 1 执行（W6 Rule13 + W1 mock speed）
+
+### Task Goal
+执行 `docs/superpowers/plans/2026-06-29-colregs-speed-envelope-complete-fix.md` Phase 1：W6 Rule13 same-course 门修正（Task 1.1）+ W1 mock per-scenario speed 注入（Task 1.2），TDD，cohort 回归。
+
+### Core Changes
+- **W6 Task 1.1**（commit `4aefbce6`）：`rule13_overtaking.cpp` 移除 `kSameCourseMaxDeg=45` 硬门。COLREGs Rule 13(a) "any vessel overtaking any other" 不要求 same-course（NLM maritime_regulations 🟢 high 确证），overtaking 仅由 abaft-beam sector (13(b)) + closing speed diff 决定。Course diff 改 rationale-only。TDD：`ClassifiesOvertakingWithLargeCourseDifference`（60° diff + own abaft + closing → GIVE_WAY OVERTAKING）+ counterfactual `LargeCourseDiffButNotClosing_IsNotOvertaking`（equal speed 不 closing → not active）。m6 全 21 binaries 100% green。
+- **W1 Task 1.2**（commit `5c67300c`）：`gnc_route_mock_publisher.py` `_load` 保留 `target_sog_kn`，`_on_timer` 填 `RoutePlan.speed_limit_mps`（m/s，kn×0.514444，全 wp 非零才填）。TDD：3 测试（load 保留 speed / _on_timer 填 m/s / missing-0 omits）。tests/docker 35 passed。
+
+### Phase 1 Cohort 回归（ot-boundary 探针，W1 端到端验证）
+干净 codex-gnc-validation stack，gnc profile + restart-between-runs + sim-rate 10。
+
+- ot-boundary 修复前：sim 卡死 RED（M6 silent）。**修复后：sim 完成跑到 4809s，verdict RED**（M6 silent，conflict_toggles=0，M5 EMPTY，role=give_way，turn_starboard RED Port 0.6°）。
+- **W1 发布层铁证**（live `ros2 topic echo /route_planning/gnc_route_plan`）：`speed_limit_mps: [2.2121092, 2.2121092]`（= 4.3kn×0.514444）。mock 正确发布 ot-boundary 设计速度。
+- own SOG 时序（`/sil/own_ship_state.sog_kn` 在 record 顶层）：sim_t=8s **sog=7.69kn**（起点 = cruise_min floor 7.4kn，W1 生效）→ 中段 sim_t=890-2194s **飙到 15.15kn**（~max_transit）→ 后段回落 11.26kn。
+
+### 新发现（待 ot-boundary 完整诊断，属 W3 scope）
+W1 发布层生效（own 起点 7.7kn=floor），但 **own 中段飙到 15kn**。诊断 §1.5 预测"15kn→7.4kn floor"，实测起点对但中段被另一机制拉高。GNC 消费层 `ship_guidance_node`：speed_limit=2.21 被 cruise_min floor=3.8 覆盖（max(2.21,3.8)=3.8→7.4kn），但中段 15kn 远超 floor，说明 cruise_min floor 适用条件变化或 own 动力学惯性。**这是 GNC 消费层独立行为，非 W1 修复范围**（W1=mock 发布层，已验证正确）。ot-boundary 彻底修复需 W3（design 4.3kn < floor 7.4kn 本就冲突）。
+
+### Iron Law 验证（本会话）
+1. **plan test 代码错误纠正**：plan 写 `Rule13Overtaking rule`（实际 `Rule13_Overtaking` 带下划线）+ 假设 test 文件不存在（实际已有 9 测试）。亲自 trace hpp + types.hpp + 现有 test + geometry_utils.cpp 后才写测试。NLM 查 Rule 13 法规依据（high confidence）。
+2. **W1 消费链 trace**：确认 GNC 真消费 speed_limit_mps（coordinate_transform:620-624 speed_override / ship_guidance:1984 min(configured,routeplan) / active_route_manager:488-494 requested_speed_at）+ RoutePlan.msg 字段 + scenario yaml target_sog_kn + live echo 铁证，非凭 plan 假设。
+3. **trace 字段路径纠正**：own SOG 在 record 顶层（`sog_kn`），非 `state` 内；`/l2/planned_route` 只存 route_hash（slim）；GNC domain 50 topics 不在 trace。
+
+### Current Status
+- Phase 1 完成（W6 + W1），TDD 全绿，cohort 回归确认不破坏。
+- ot-boundary 新发现（own 中段飙 15kn）记入诊断，属 W3 scope。
+- 无 A4000 sync，无 push。本地 worktree only。
+- 下一步：Phase 2（W2 GNC ODD 暴露 → W4 M5 reachability 核心）。评审决策点 #3（W2 msg 发布点）：Iron Law trace 发现参数分散在 active_route_manager（max_command_speed/max_lateral_accel/max_decel）+ ship_guidance_node（max_transit/minimum_steerage/cruise_min/emergency_cap）两个节点，单点发布需跨节点读参数。
+
+### Handoff Notes
+- mempalace drawers: 53b74b5a（W6 Rule13 + Iron Law）/ d8f102ee（W1 mock + 消费链）/ 06436be5（W1 ot-boundary probe 部分生效 + own 中段飙 15kn）。
+- 证据：trace `runs/trace_eval/20260629_010951_w1_otboundary/`，summary `runs/w1_otboundary_phase1_20260629_010951.json`。
+- plan §0 完成判据：W6/W1 是 Phase 1 独立修复，6 场景全 GREEN 需 Phase 2-4 完成。
+
+---
+
+## [2026-06-29] ZCode / no commit (docs only) / rule14+15 cohort 全新 trace 验证 + 完整修复 spec
+
+### Task Goal
+用户要求本会话完整重跑 rule14+15 cohort 仿真（严格条件），基于新真实 trace 下结论，并输出彻底/架构级修复 spec。
+
+### Core Changes（docs only，无代码）
+- 诊断报告修订：`docs/Doc From Claude/2026-06-28-colregs-speed-envelope-contract-diagnosis.md`（§0.1 全新 trace 验证表）
+- 完整修复 spec：`docs/superpowers/specs/2026-06-29-colregs-speed-envelope-complete-fix.md`（6 Workstream）
+
+### 全新真实 trace 验证（6 场景，干净 GNC stack）
+环境：codex-gnc-validation stack 干净重启（修复 GNC 容器 Exited137 OOM），gnc profile + restart-between-runs + sim-rate 10。
+
+| 场景 | overall | first_failure | own 设计 | AVOID 实际 | 分类 |
+|---|---|---|---|---|---|
+| rule14-ho | RED | L6_seamanship | 6.0 | 6.36 | **Class B** |
+| rule14-ho-port | RED | L6_seamanship | 6.0 | 6.35 | **Class B** |
+| rule15-cs | RED | L6_seamanship | 10.8 | 6.58(被压) | **Class B** |
+| rule15-cs-2 | RED | L4_colregs_compliance | 12.0 | 6.58(被压) | **phase 特例** |
+| rule15-cs-edge | RED | L2_safety_floor 近撞 | 5.5 | 6.18 | **Class C** |
+| rule15-ot-boundary | RED(sim 卡死) | M6 silent | 4.3 | 11-15(拉高) | **Class A** |
+
+**关键修正**：rule14-ho 也是 RED（L6_seamanship），非 GREEN（之前单跑 ho 的部分指标误判）。emergency_avoidance_speed_cap 3.2 m/s 贯穿 5 场景铁证。
+
+### 修复 spec（6 Workstream，架构级彻底修复）
+- W1 mock speed 注入（Class A 前置）
+- W2 GNC ODD 参数作 contract 暴露（Class B/C 前置）
+- W3 cruise_min/emergency cap per-scenario 适配（评审决策，推荐路线 A 改 scenario）
+- W4 M5 避让几何消费 GNC ODD（Class B/C 核心）
+- W5 M5↔M6↔M7 reachability 协同 + MRM（Class C 防护）
+- W6 Rule13 same-course 门修正（附带独立）
+
+### Handoff Notes
+- spec 待设计评审（4 决策点：W3 路线、W5 MRM 阈值、W2 msg 设计、cs-2 phase 独立性）
+- intelligent 场景（ho-intelligent）sim 卡死 = 独立缺陷，out of scope
+- Rule13 same-course 门（W6）+ mock speed（W1）可独立先做
+- mempalace drawer a0c94c9a（6 场景验证）
+- 证据路径见诊断报告 §0.1
+- No A4000 sync, no push. Local worktree only.
+
+## [2026-06-28] ZCode / no commit (docs only) / Class B+C 跨场景根因确证 + GNC ODD 调研
+
+### Task Goal
+用户要求完整确定 Class B + C 根因，跨同类场景验证（非单场景），重点判断"GNC 限 3.2 保舵效 vs M5 waypoint 不可执行"，并调研 GNC 执行 ODD 以便注入 TDL。
+
+### Core Changes
+- 无代码改动。诊断报告更新：`docs/Doc From Claude/2026-06-28-colregs-speed-envelope-contract-diagnosis.md`（§0/§2/§5.6/§6 新增 GNC ODD + TDL 注入建议/§7 坐标）
+
+### Class B 根因（跨 4 场景确证，推翻原"同源 ot-boundary"推测）
+M5 标 `navigation_mode="emergency_avoidance"`（gnc_avoidance_preflight.hpp:166 非 overtake 默认）→ GNC `emergency_avoidance_speed_cap_mps=3.2`（ship_guidance_node.cpp:4414）压低 own。
+- 铁证：cs/cs-2/cs-intelligent M5 命令设计速度 10.8/12kn，GNC 无视强制 cap 到 6.6kn。
+- RECOVERY 期 navigation_mode 继承 emergency_avoidance（mid_mpc_node.cpp:876）→ own 持续被压 → XTE 收敛慢 → seamanship FAIL。
+- 与 ot-boundary 方向相反、不同源（cap 压低 vs floor 拉高）。
+
+### Class C 根因（cs-edge，确证同 Class B 机制 + target 高速放大）
+**排除"M5 waypoint 被拒"假设**：cs-edge M5 plan 862 条全 ACCEPTED+feasible+0 degraded+0 rejected（cs/cs-2/cs-intelligent 同）。
+**铁证（M5 要求 vs own 实际）**：t=700-900 own_x=217-228m，M5 wp0_x=397-447m，**own 落后 180-219m**。M5 要求 400m 横向避让，own 在 emergency cap 6.2kn 下只完成 225m → 近撞 CPA 0.8m。target 13.4kn 高速，TCPA 窗口内物理不可达。
+
+### GNC 执行 ODD 调研（评审重点，§6）
+GNC ODD 参数：max_lateral_accel=0.25, max_decel=0.08, emergency_avoidance_speed_cap=3.2（overlay:304 注释"tactical low-speed steering"故意的安全设计）。拒绝条件：turn_radius_too_small / yaw_rate_too_high / decel_distance_not_enough，但 M5 allow_degraded=true 故 GNC 不 reject。
+
+**核心设计缺陷**（§6.3）：M5 生成避让几何时未考虑 own 在 emergency cap 下的实际机动能力。GNC 接受了"速度可行"的 plan（feasible），但 own 在 emergency cap 下"几何不可达"。这是 M5/GNC 接口的 contract 盲区。
+
+**建议修复（§6.4，评审建议正解）**：M5 注入 GNC 执行 ODD 限制，估算 reachable 横向 offset，物理不可达时调整策略（提前 onset / 纵向减速 / 触发 MRM）。要求 GNC ODD 参数作为 contract 注入 TDL。
+
+### Core Conclusion
+三类 speed-envelope contract 冲突：
+- ot-boundary：mock 丢字段 + cruise_min floor → own 拉高（独立）
+- Class B/C：emergency_avoidance cap 3.2 压 own → 机动不足（B=XTE 超限，C=近撞，同源 target 高速放大）
+
+**都不是 M6 bug，不是 M5 waypoint 被拒**。是 M5 几何与 own 物理能力脱节 + GNC cap 设计。
+
+### Current Status
+- 诊断报告完整（ot-boundary + Class B + Class C + GNC ODD），待设计评审。
+- Rule13 same-course 门独立 contract bug 可单独修。
+- 未写代码，未跑容器。Git 干净。
+
+### Handoff Notes
+- **评审关键**：emergency_avoidance_speed_cap=3.2 是 GNC 安全设计（保舵效），是否可调需 source-backed 舵效数据。若不可调，修复走 M5 注入 ODD（§6.4）。
+- ot-boundary（mock+floor）与 Class B/C（emergency cap）是独立评审项，不混。
+- mempalace drawers: 3a2a90e8/c4732e95/a5923544(ot-boundary), 982cf62a(Class B), 659a0320(Class C+GNC ODD).
+- 证据：cs-edge `runs/trace_eval/20260628_103248_rule15_cohort_wip/colreg-rule15-cs-edge.*`。
+- No A4000 sync, no push. Local worktree only.
+
 ## [2026-06-28] ZCode / commit f0ebfc2e / Class A fix: M6 Rule5 primary-latch follow
 
 ### Task Goal
