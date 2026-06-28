@@ -25,18 +25,30 @@ RuleEvaluation Rule14_HeadOn::evaluate(const TargetGeometricState& geo,
   // COLREGs Rule 14: reciprocal or nearly reciprocal courses.
   // Both vessels' headings differ by ~180° AND target is on the bow.
 
-  // Check 1: headings are nearly reciprocal (courses differ ~180°)
+  constexpr double kHeadOnBearingConeDeg = 6.0;
+  constexpr double kReciprocalCourseToleranceDeg = 15.0;
+  constexpr double kReciprocalAspectToleranceDeg = 10.0;
+
+  // Check 1: headings are nearly reciprocal (courses differ ~180°). The
+  // course gate is wider than the bow-bearing cone because Rule 14 is driven
+  // by near-ahead aspect under collision risk, including declared boundary
+  // head-on cases with a small port/starboard approach angle.
   const double kCourseDiff = angle_diff_deg(geo.ownship_heading_deg, geo.target_heading_deg);
-  const bool kReciprocalCourses = std::abs(kCourseDiff - 180.0) < 6.0;
+  const bool kReciprocalCourses =
+      std::abs(kCourseDiff - 180.0) <= kReciprocalCourseToleranceDeg;
 
   // Check 2: target is near dead ahead (relative bearing ~0°)
   const double kRelBearing = relative_bearing_deg(geo.ownship_heading_deg, geo.bearing_deg);
-  const bool kHeadOnBearing = (kRelBearing < 6.0 || kRelBearing > 354.0);
+  const bool kHeadOnBearing =
+      (kRelBearing <= kHeadOnBearingConeDeg ||
+       kRelBearing >= (360.0 - kHeadOnBearingConeDeg));
 
   // Check 3: target's bow is pointed toward us (aspect ~0°)
   const double kAspect = aspect_angle_deg(geo.ownship_heading_deg, geo.target_heading_deg,
                                          kRelBearing);
-  const bool kReciprocalAspect = kAspect < 10.0 || kAspect > 350.0;
+  const bool kReciprocalAspect =
+      kAspect <= kReciprocalAspectToleranceDeg ||
+      kAspect >= (360.0 - kReciprocalAspectToleranceDeg);
 
   if (!(kReciprocalCourses && kHeadOnBearing && kReciprocalAspect)) {
     result.is_active = false;

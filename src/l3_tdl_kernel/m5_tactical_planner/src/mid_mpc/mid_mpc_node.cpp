@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -15,9 +16,11 @@
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_risk_model/risk_model.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
+#include "m5_tactical_planner/avoidance_waypoint_policy.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -255,9 +258,9 @@ MidMpcInput MidMpcNode::assemble_input_()
         colregs_constraint_->primary_preferred_direction);
     for (const auto& rule : colregs_constraint_->active_rules) {
       const auto rule_id = static_cast<std::uint8_t>(rule.rule_id);
-      const bool compiler_supported = rule_id == 14u || rule_id == 15u
+      const bool planner_visible = rule_id == 13u || rule_id == 14u || rule_id == 15u
           || rule_id == 16u || rule_id == 17u;
-      if (compiler_supported
+      if (planner_visible
           && std::find(inp.constraints.applicable_rules.begin(),
                        inp.constraints.applicable_rules.end(),
                        rule_id) == inp.constraints.applicable_rules.end()) {
@@ -711,76 +714,200 @@ void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
 // (/l3/m5/avoidance_waypoints) for the GNC bridge to translate to
 // ship_interfaces/AvoidancePlan. The bridge is a pure field-mapper, so all
 // waypoint geometry is generated here. Release authority (spec D4): while M6
-// reports conflict we emit a rolling avoidance plan; on the conflict->clear
-// transition we emit a single return_to_route plan, then stop emitting.
+// reports conflict we emit one encounter-anchored avoidance corridor; on the
+// conflict->clear transition we emit a stable current-anchored rejoin corridor,
+// then stop emitting.
 // ===========================================================================
 void MidMpcNode::publish_avoidance_waypoints_(
     rclcpp::Time now,
     const MidMpcInput& input,
     double lat0_deg,
     double lon0_deg) {
-  const bool conflict_active = input.colregs_conflict_active;
+  const bool collision_avoidance_authorized =
+      behavior_plan_ != nullptr &&
+      mass_l3::m5::should_emit_collision_avoidance_waypoints(
+          input.colregs_conflict_active, behavior_plan_->behavior);
+  const bool conflict_active = collision_avoidance_authorized;
 
   l3_external_msgs::msg::AvoidanceWaypoints wp;
   wp.stamp          = now;
   wp.schema_version = 1;
-  wp.plan_id        = "m5-" + std::to_string(now.nanoseconds());
   wp.command_source = "collision_avoidance";
   wp.confidence     = 0.8F;
 
   const bool return_republish_active = return_to_route_emit_until_.has_value() &&
       ((*return_to_route_emit_until_ - now).seconds() > 0.0);
 
+  if (input.colregs_conflict_active && !collision_avoidance_authorized) {
+    avoidance_corridor_anchor_.reset();
+    return_route_anchor_.reset();
+    return_to_route_emit_until_.reset();
+    last_emitted_conflict_active_ = false;
+    return;
+  }
+
   if (conflict_active) {
     return_to_route_emit_until_.reset();
-    // Keep a rolling avoidance plan (valid_until = now + 30s) so the GNC
-    // active_route_manager holds the avoidance route until M6 clears.
-    wp.behavior_mode = "emergency_avoidance";
+    return_route_anchor_.reset();
+    const bool colregs_overtake_corridor =
+        mass_l3::m5::requires_colregs_overtake_corridor(
+            input.colregs_conflict_active, input.constraints.applicable_rules);
+    const double heading_min_deg =
+        input.constraints.heading_min_rad / units::kRadPerDeg;
+    const double heading_max_deg =
+        input.constraints.heading_max_rad / units::kRadPerDeg;
+    const double command_speed_mps =
+        mass_l3::m5::gnc_avoidance_command_speed_mps(
+            input.planned_speed_mps, colregs_overtake_corridor);
+    const std::string navigation_mode =
+        mass_l3::m5::gnc_avoidance_navigation_mode(colregs_overtake_corridor);
+    const auto route_frame = mass_l3::m5::align_route_frame_with_heading(
+        input.planned_route_bearing_rad, input.route_xte_m, input.own_ship.psi_rad);
+    const bool need_new_anchor =
+        !avoidance_corridor_anchor_.has_value()
+        || avoidance_corridor_anchor_->direction != input.colregs_preferred_direction;
+    if (need_new_anchor) {
+      avoidance_corridor_anchor_ = AvoidanceCorridorAnchor{
+          lat0_deg,
+          lon0_deg,
+          heading_min_deg,
+          heading_max_deg,
+          command_speed_mps,
+          route_frame.bearing_rad,
+          route_frame.reversed ? -1.0 : 1.0,
+          input.colregs_preferred_direction,
+          colregs_overtake_corridor,
+          "m5-colregs-" + std::to_string(now.nanoseconds())};
+    }
+
+    const auto& anchor = avoidance_corridor_anchor_.value();
+    // Keep one encounter-anchored avoidance corridor active until M6 clears.
+    // GNC follows waypoint geometry; regenerating from current position each cycle
+    // makes XTE look healthy while diluting the global COLREG maneuver.
+    wp.behavior_mode = navigation_mode;
     wp.parent_route_id = "nominal";
-    const double own_heading_deg =
-        input.own_ship.psi_rad / units::kRadPerDeg;
-    const double target_speed_mps = input.own_ship.u_mps;
-    const auto wps = mass_l3::m5::generate_avoidance_waypoints(
-        input.constraints.heading_min_rad / units::kRadPerDeg,
-        input.constraints.heading_max_rad / units::kRadPerDeg,
-        lat0_deg, lon0_deg, own_heading_deg, target_speed_mps);
+    wp.plan_id = anchor.plan_id;
+    constexpr double kRule13OvertakeTaperStartM = 7500.0;
+    constexpr double kRule13OvertakeTaperEndM = 12000.0;
+    const auto wps = colregs_overtake_corridor
+        ? mass_l3::m5::generate_rule13_overtake_corridor_waypoints(
+            anchor.heading_min_deg,
+            anchor.heading_max_deg,
+            anchor.lat_deg,
+            anchor.lon_deg,
+            anchor.route_bearing_rad,
+            anchor.direction,
+            kRule13OvertakeTaperStartM,
+            kRule13OvertakeTaperEndM)
+        : mass_l3::m5::generate_stable_avoidance_corridor_waypoints(
+            anchor.heading_min_deg,
+            anchor.heading_max_deg,
+            anchor.lat_deg,
+            anchor.lon_deg,
+            anchor.route_bearing_rad,
+            anchor.direction);
+    const std::vector<double> speeds(wps.size(), anchor.command_speed_mps);
+    const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
+        {anchor.lat_deg, anchor.lon_deg}, wps, speeds);
+    if (!preflight.feasible) {
+      RCLCPP_WARN(
+          get_logger(),
+          "[M5][GNCPreflight] drop infeasible avoidance plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
+          anchor.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
+          preflight.required_m, preflight.available_m);
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
     wp.latitude.resize(wps.size());
     wp.longitude.resize(wps.size());
-    wp.command_speed_mps.resize(wps.size(), target_speed_mps);
-    wp.navigation_mode.resize(wps.size(), "emergency_avoidance");
+    wp.command_speed_mps = speeds;
+    wp.navigation_mode.resize(wps.size(), navigation_mode);
     for (std::size_t i = 0; i < wps.size(); ++i) {
       wp.latitude[i]  = wps[i].lat;
       wp.longitude[i] = wps[i].lon;
     }
     wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
     wp.allow_degraded_execution  = true;
-    wp.rationale                 = "m5 avoidance waypoint plan for GNC bridge";
+    wp.rationale                 = colregs_overtake_corridor
+        ? "m5 stable Rule13 overtake corridor for GNC bridge"
+        : "m5 stable encounter-anchored avoidance corridor for GNC bridge";
   } else if (last_emitted_conflict_active_ || return_republish_active) {
     if (last_emitted_conflict_active_) {
       return_to_route_emit_until_ =
           now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s);
+      const bool colregs_overtake_rejoin =
+          avoidance_corridor_anchor_.has_value() &&
+          avoidance_corridor_anchor_->colregs_overtake_corridor;
+      const double command_speed_mps =
+          mass_l3::m5::gnc_return_command_speed_mps(
+              input.planned_speed_mps, colregs_overtake_rejoin);
+      const std::string navigation_mode =
+          mass_l3::m5::gnc_return_navigation_mode(colregs_overtake_rejoin);
+      double return_route_bearing_rad = input.planned_route_bearing_rad;
+      double return_route_xte_m = input.route_xte_m;
+      if (avoidance_corridor_anchor_.has_value()) {
+        return_route_bearing_rad = avoidance_corridor_anchor_->route_bearing_rad;
+        return_route_xte_m = avoidance_corridor_anchor_->route_xte_sign * input.route_xte_m;
+      } else {
+        const auto route_frame = mass_l3::m5::align_route_frame_with_heading(
+            input.planned_route_bearing_rad, input.route_xte_m, input.own_ship.psi_rad);
+        return_route_bearing_rad = route_frame.bearing_rad;
+        return_route_xte_m = route_frame.route_xte_m;
+      }
+      const auto return_waypoints = mass_l3::m5::generate_return_to_route_waypoints(
+          lat0_deg, lon0_deg, return_route_bearing_rad, return_route_xte_m);
+      return_route_anchor_ = ReturnRouteAnchor{
+          return_waypoints,
+          command_speed_mps,
+          navigation_mode,
+          "m5-return-" + std::to_string(now.nanoseconds())};
+    }
+    avoidance_corridor_anchor_.reset();
+    if (!return_route_anchor_.has_value()) {
+      const double command_speed_mps =
+          mass_l3::m5::gnc_return_command_speed_mps(
+              input.planned_speed_mps, /*colregs_overtake_rejoin=*/false);
+      const auto route_frame = mass_l3::m5::align_route_frame_with_heading(
+          input.planned_route_bearing_rad, input.route_xte_m, input.own_ship.psi_rad);
+      return_route_anchor_ = ReturnRouteAnchor{
+          mass_l3::m5::generate_return_to_route_waypoints(
+              lat0_deg, lon0_deg, route_frame.bearing_rad, route_frame.route_xte_m),
+          command_speed_mps,
+          mass_l3::m5::gnc_return_navigation_mode(/*colregs_overtake_rejoin=*/false),
+          "m5-return-" + std::to_string(now.nanoseconds())};
     }
     // conflict -> clear transition: repeat return_to_route briefly so the GNC
     // route-update guard cannot drop the only lifecycle-release message.
     wp.behavior_mode             = "return_to_route";
     wp.parent_route_id           = "nominal";
+    wp.plan_id                   = return_route_anchor_->plan_id;
     wp.has_return_to_route_point = true;
-    const double target_speed_mps = input.own_ship.u_mps > 0.5
-        ? input.own_ship.u_mps
-        : input.planned_speed_mps;
-    const auto wps = mass_l3::m5::generate_return_to_route_waypoints(
-        lat0_deg, lon0_deg, input.planned_route_bearing_rad, input.route_xte_m);
+    const auto& wps = return_route_anchor_->waypoints;
     wp.latitude.resize(wps.size());
     wp.longitude.resize(wps.size());
-    wp.command_speed_mps.resize(wps.size(), target_speed_mps);
-    wp.navigation_mode.resize(wps.size(), "emergency_avoidance");
+    wp.command_speed_mps.resize(wps.size(), return_route_anchor_->command_speed_mps);
+    wp.navigation_mode.resize(wps.size(), return_route_anchor_->navigation_mode);
+    const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
+        {lat0_deg, lon0_deg}, wps, wp.command_speed_mps);
+    if (!preflight.feasible) {
+      RCLCPP_WARN(
+          get_logger(),
+          "[M5][GNCPreflight] drop infeasible return plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
+          return_route_anchor_->plan_id.c_str(), preflight.reason.c_str(), preflight.index,
+          preflight.required_m, preflight.available_m);
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
     for (std::size_t i = 0; i < wps.size(); ++i) {
       wp.latitude[i]  = wps[i].lat;
       wp.longitude[i] = wps[i].lon;
     }
-    wp.return_latitude           = wps[1].lat;
-    wp.return_longitude          = wps[1].lon;
-    wp.rationale                 = "m5 return_to_route on M6 conflict-clear";
+    wp.return_latitude           = wps.back().lat;
+    wp.return_longitude          = wps.back().lon;
+    wp.rationale                 =
+        return_route_anchor_->navigation_mode == "colregs_overtake"
+            ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
+            : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
     wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
     wp.allow_degraded_execution  = true;
   } else {
@@ -807,6 +934,8 @@ void MidMpcNode::reset_cross_run_state() {
   risk_ranking_state_ = mass_l3::risk::RankingState{};
   last_emitted_conflict_active_ = false;
   return_to_route_emit_until_.reset();
+  avoidance_corridor_anchor_.reset();
+  return_route_anchor_.reset();
 }
 
 }  // namespace mass_l3::m5::mid_mpc

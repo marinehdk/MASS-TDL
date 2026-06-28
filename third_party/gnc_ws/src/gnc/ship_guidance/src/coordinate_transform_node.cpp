@@ -1,4 +1,6 @@
 #include "ship_guidance/coordinate_transform_node.hpp"
+#include "ship_guidance/navigation_mode_policy.hpp"
+#include "ship_guidance/route_update_guard_policy.hpp"
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -57,33 +59,6 @@ std::string csv_escape(const std::string& value)
     }
     escaped.push_back('"');
     return escaped;
-}
-
-std::string normalize_navigation_mode(std::string mode)
-{
-    for (char& ch : mode) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        if (ch == '-' || ch == ' ') {
-            ch = '_';
-        }
-    }
-    return mode;
-}
-
-int navigation_mode_code(const std::string& raw_mode)
-{
-    const std::string mode = normalize_navigation_mode(raw_mode);
-    if (mode.empty()) return 0;
-    if (mode == "cruise" || mode == "open_water_cruise" || mode == "post_turn_cruise") return 1;
-    if (mode == "narrow_channel") return 2;
-    if (mode == "harbor") return 3;
-    if (mode == "approach") return 4;
-    if (mode == "dp_hold" || mode == "dp" || mode == "station_keeping") return 5;
-    if (mode == "emergency_avoidance" ||
-        mode == "emergency_avoid" ||
-        mode == "collision_avoidance" ||
-        mode == "avoidance") return 6;
-    return 0;
 }
 
 bool vincenty_inverse(
@@ -650,13 +625,15 @@ void CoordinateTransformNode::route_callback(
         }
         np.is_arc_point = false;
         if (navigation_mode_valid && !msg->navigation_mode.empty()) {
-            np.navigation_mode_code = navigation_mode_code(msg->navigation_mode[i]);
+            np.navigation_mode_code = ship_guidance::navigation_mode_code(msg->navigation_mode[i]);
         }
         raw_pts.push_back(np);
     }
     const bool has_emergency_avoidance = std::any_of(
         raw_pts.begin(), raw_pts.end(),
-        [](const NedPoint& pt) { return pt.navigation_mode_code == 6; });
+        [](const NedPoint& pt) {
+            return ship_guidance::navigation_mode_code_is_colregs_protected(pt.navigation_mode_code);
+        });
     const double active_min_future_update_distance =
         (has_emergency_avoidance && emergency_avoidance_relax_update_guard_)
             ? emergency_avoidance_min_future_update_distance_m_
@@ -665,11 +642,30 @@ void CoordinateTransformNode::route_callback(
         (has_emergency_avoidance && emergency_avoidance_relax_update_guard_)
             ? emergency_avoidance_max_dynamic_lateral_delta_m_
             : max_dynamic_lateral_delta_m_;
+    const bool enforce_update_interval = ship_guidance::should_enforce_route_update_interval(
+        has_emergency_avoidance, emergency_avoidance_relax_update_guard_);
     if (has_emergency_avoidance) {
         RCLCPP_WARN(this->get_logger(),
-            "[CoordTransform] emergency_avoidance route detected: raw geometry preserved, guard future>=%.1fm lateral<=%.1fm",
+            "[CoordTransform] emergency_avoidance route detected: raw geometry preserved, guard interval=%s future>=%.1fm lateral<=%.1fm",
+            enforce_update_interval ? "enforced" : "bypassed",
             active_min_future_update_distance, active_max_dynamic_lateral_delta);
     }
+
+    const bool last_route_had_colregs_protected_mode = std::any_of(
+        last_navigation_modes_.begin(), last_navigation_modes_.end(),
+        ship_guidance::is_colregs_protected_mode);
+    int post_colregs_rejoin_segment_idx = -1;
+    const double post_colregs_rejoin_xte_m =
+        (has_odom_ && raw_pts.size() >= 2)
+            ? compute_cross_track_error(
+                  current_x_, current_y_, raw_pts, post_colregs_rejoin_segment_idx)
+            : std::numeric_limits<double>::quiet_NaN();
+    const bool bypass_dynamic_guard_for_post_colregs_rejoin =
+        ship_guidance::should_bypass_dynamic_update_guard_for_post_colregs_rejoin(
+            has_emergency_avoidance,
+            last_route_had_colregs_protected_mode,
+            post_colregs_rejoin_xte_m,
+            active_max_dynamic_lateral_delta);
 
     double current_along_track = std::numeric_limits<double>::quiet_NaN();
     double first_changed_distance_ahead = std::numeric_limits<double>::quiet_NaN();
@@ -690,7 +686,7 @@ void CoordinateTransformNode::route_callback(
         const int first_changed_idx = first_geometry_change_index(raw_pts, last_feedback_path_);
         if (first_changed_idx >= 0) {
             const auto now = this->now();
-            if (last_accepted_route_time_.nanoseconds() > 0) {
+            if (enforce_update_interval && last_accepted_route_time_.nanoseconds() > 0) {
                 const double elapsed_s = (now - last_accepted_route_time_).seconds();
                 if (elapsed_s < min_route_update_interval_s_) {
                     RCLCPP_WARN(this->get_logger(),
@@ -704,7 +700,13 @@ void CoordinateTransformNode::route_callback(
             }
 
             max_lateral_delta = compute_max_lateral_delta(raw_pts, last_feedback_path_);
-            if (std::isfinite(max_lateral_delta) &&
+            if (bypass_dynamic_guard_for_post_colregs_rejoin) {
+                RCLCPP_INFO(this->get_logger(),
+                    "[CoordTransform] accepting post-COLREG rejoin RoutePlan route_id='%s': current XTE %.1fm <= %.1fm; bypass dynamic geometry guard from protected route",
+                    msg->route_id.c_str(),
+                    post_colregs_rejoin_xte_m,
+                    active_max_dynamic_lateral_delta);
+            } else if (std::isfinite(max_lateral_delta) &&
                 max_lateral_delta > active_max_dynamic_lateral_delta) {
                 RCLCPP_WARN(this->get_logger(),
                     "[CoordTransform] rejected RoutePlan route_id='%s': max lateral delta %.1fm > %.1fm",
@@ -716,7 +718,8 @@ void CoordinateTransformNode::route_callback(
                 return;
             }
 
-            if (has_odom_ && first_changed_idx < static_cast<int>(raw_pts.size())) {
+            if (!bypass_dynamic_guard_for_post_colregs_rejoin &&
+                has_odom_ && first_changed_idx < static_cast<int>(raw_pts.size())) {
                 current_along_track = compute_along_track_progress(
                     current_x_, current_y_, last_feedback_path_);
                 const double changed_along_track = compute_along_track_progress(

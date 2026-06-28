@@ -123,6 +123,11 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
         r for r in rows
         if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")
     ] + l4_asdr_rows
+    l4_gnc_rows = [r for r in rows if r.get("topic") == "/l3/gnc/execution_status"]
+    l4_rows += l4_gnc_rows
+    l4_gnc_plan_ids = [
+        str(_value(r, "plan_id", default="")) for r in l4_gnc_rows
+    ]
     m7_rows = [r for r in rows if r.get("topic") in ("/l3/checker/veto", "/l3/m7/safety_alert")]
 
     m6_active = any(m6_conflicts)
@@ -175,6 +180,16 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "samples": len(l4_rows),
             "execution_sources": [s for s in l4_execution_sources if s],
             "execution_source_transitions": _transitions([s for s in l4_execution_sources if s]),
+            "gnc_execution_state_counts": _counter_dict(
+                _value(r, "execution_state") for r in l4_gnc_rows
+            ),
+            "gnc_reason_counts": _counter_dict(
+                _value(r, "reason") for r in l4_gnc_rows
+            ),
+            "gnc_suggested_action_counts": _counter_dict(
+                _value(r, "suggested_action") for r in l4_gnc_rows
+            ),
+            "gnc_plan_id_changes": _count_changes([p for p in l4_gnc_plan_ids if p]),
         },
         "m7": {"samples": len(m7_rows)},
         "diagnosis": {"first_broken_stage": first_stage, "reason": reason},

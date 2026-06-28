@@ -5,8 +5,14 @@
 #include <limits>
 #include <cstdint>
 
+#include "ship_guidance/navigation_mode_policy.hpp"
+
 // ========== 辅助函数 ========== //
 
+using ship_guidance::is_colregs_protected_mode;
+using ship_guidance::is_dp_navigation_mode;
+using ship_guidance::is_emergency_avoidance_mode;
+using ship_guidance::navigation_mode_from_code;
 
 static std::uint64_t compute_path_signature(const nav_msgs::msg::Path& path)
 {
@@ -32,48 +38,6 @@ static std::uint64_t compute_path_signature(const nav_msgs::msg::Path& path)
         mix(static_cast<std::int64_t>(std::llround(pose.orientation.w * 1000.0)));
     }
     return hash;
-}
-
-static std::string normalize_navigation_mode(std::string mode)
-{
-    for (char& ch : mode) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        if (ch == '-' || ch == ' ') {
-            ch = '_';
-        }
-    }
-    return mode;
-}
-
-static std::string navigation_mode_from_code(double code_value)
-{
-    const int code = static_cast<int>(std::llround(code_value));
-    switch (code) {
-        case 1: return "cruise";
-        case 2: return "narrow_channel";
-        case 3: return "harbor";
-        case 4: return "approach";
-        case 5: return "dp_hold";
-        case 6: return "emergency_avoidance";
-        default: return "";
-    }
-}
-
-static bool is_dp_navigation_mode(const std::string& mode)
-{
-    const std::string normalized = normalize_navigation_mode(mode);
-    return normalized == "dp_hold" ||
-           normalized == "dp" ||
-           normalized == "station_keeping";
-}
-
-static bool is_emergency_avoidance_mode(const std::string& mode)
-{
-    const std::string normalized = normalize_navigation_mode(mode);
-    return normalized == "emergency_avoidance" ||
-           normalized == "emergency_avoid" ||
-           normalized == "collision_avoidance" ||
-           normalized == "avoidance";
 }
 
 static double compute_cross_track_error(double x, double y,
@@ -1026,12 +990,12 @@ std::vector<Waypoint> ShipGuidanceNode::smooth_waypoints_for_turns(const std::ve
         return raw_waypoints;
     }
 
-    const bool has_emergency_avoidance = std::any_of(
+    const bool has_colregs_protected_route = std::any_of(
         raw_waypoints.begin(), raw_waypoints.end(),
-        [](const Waypoint& wp) { return is_emergency_avoidance_mode(wp.navigation_mode); });
-    if (has_emergency_avoidance) {
+        [](const Waypoint& wp) { return is_colregs_protected_mode(wp.navigation_mode); });
+    if (has_colregs_protected_route) {
         RCLCPP_WARN(this->get_logger(),
-            "[TURN ARC] bypassed internal smoothing: emergency_avoidance route uses raw planner geometry");
+            "[TURN ARC] bypassed internal smoothing: COLREG protected route uses raw planner geometry");
         return raw_waypoints;
     }
 
@@ -1118,9 +1082,9 @@ std::vector<Waypoint> ShipGuidanceNode::smooth_waypoints_for_turns(const std::ve
                 is_dp_navigation_mode(raw_waypoints[k - 1].navigation_mode) ||
                 is_dp_navigation_mode(raw_waypoints[k].navigation_mode) ||
                 is_dp_navigation_mode(raw_waypoints[k + 1].navigation_mode) ||
-                is_emergency_avoidance_mode(raw_waypoints[k - 1].navigation_mode) ||
-                is_emergency_avoidance_mode(raw_waypoints[k].navigation_mode) ||
-                is_emergency_avoidance_mode(raw_waypoints[k + 1].navigation_mode);
+                is_colregs_protected_mode(raw_waypoints[k - 1].navigation_mode) ||
+                is_colregs_protected_mode(raw_waypoints[k].navigation_mode) ||
+                is_colregs_protected_mode(raw_waypoints[k + 1].navigation_mode);
             turn_deg[k] = turn_angle_deg_at(k);
             significant[k] = !protected_navigation_mode &&
                 ordinary_navigation_mode(raw_waypoints[k]) &&
@@ -1310,9 +1274,9 @@ std::vector<Waypoint> ShipGuidanceNode::smooth_waypoints_for_turns(const std::ve
                 is_dp_navigation_mode(A.navigation_mode) ||
                 is_dp_navigation_mode(B.navigation_mode) ||
                 is_dp_navigation_mode(C.navigation_mode) ||
-                is_emergency_avoidance_mode(A.navigation_mode) ||
-                is_emergency_avoidance_mode(B.navigation_mode) ||
-                is_emergency_avoidance_mode(C.navigation_mode);
+                is_colregs_protected_mode(A.navigation_mode) ||
+                is_colregs_protected_mode(B.navigation_mode) ||
+                is_colregs_protected_mode(C.navigation_mode);
             if (!ordinary_navigation_mode || protected_navigation_mode) {
                 RCLCPP_INFO(this->get_logger(),
                     "[TURN ARC] external wp[%zu] %.1fdeg skipped: protected/non-ordinary navigation mode prev=%s current=%s next=%s",
@@ -2037,8 +2001,14 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
         is_emergency_avoidance_mode(target_navigation_mode);
     const bool previous_is_emergency_avoidance =
         is_emergency_avoidance_mode(previous_navigation_mode);
+    const bool target_is_colregs_protected =
+        is_colregs_protected_mode(target_navigation_mode);
+    const bool previous_is_colregs_protected =
+        is_colregs_protected_mode(previous_navigation_mode);
     const bool emergency_avoidance_active =
         target_is_emergency_avoidance || previous_is_emergency_avoidance;
+    const bool colregs_protected_active =
+        target_is_colregs_protected || previous_is_colregs_protected;
     const bool final_waypoint_requires_dp =
         !waypoints_.empty() &&
         is_dp_navigation_mode(waypoint_navigation_mode(static_cast<int>(waypoints_.size()) - 1));
@@ -2067,7 +2037,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
             final_dp_stop_min_lpp_, final_dp_stop_max_lpp_, terminal_slow_down_dist);
     }
     std::string switch_mode = lookup_mode(wp_switch_modes_, target_wp_idx, is_last_wp);
-    if (!is_last_wp && target_is_emergency_avoidance) {
+    if (!is_last_wp && target_is_colregs_protected) {
         switch_mode = "fly_by";
     }
     double active_capture_radius = lookup_double(
@@ -2129,7 +2099,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
                 std::max(active_capture_radius, seg_len * turn_arc_wheel_over_max_segment_ratio_))
             : 0.0;
     const double emergency_wheel_over_distance =
-        (!is_last_wp && target_is_emergency_avoidance)
+        (!is_last_wp && target_is_colregs_protected)
             ? emergency_avoidance_wheel_over_distance_m_
             : 0.0;
     const double wheel_over_distance =
@@ -2137,7 +2107,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
             std::max(configured_wheel_over_distance, arc_auto_wheel_over_distance),
             emergency_wheel_over_distance);
     const double default_switch_max_xte =
-        emergency_avoidance_active
+        colregs_protected_active
             ? emergency_avoidance_switch_max_xte_m_
             : std::max(active_capture_radius, Lpp_);
     const double switch_max_xte = lookup_double(
@@ -3435,7 +3405,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
             this->now().seconds() <= xte_rejoin_release_guard_until_sec_ &&
             !dp_mode_active_ &&
             !final_approach_active &&
-            !emergency_avoidance_active;
+            !colregs_protected_active;
         if (xte_release_guard_active &&
             xte_rejoin_release_guard_max_correction_deg_ > 1e-6) {
             const double max_guard_correction =
@@ -4021,7 +3991,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
     const double path_heading_error_abs = std::abs(normalize_angle_pi(alpha_k - current_yaw_));
     bool heading_align_rejoin_now = false;
     if (heading_align_rejoin_enabled_ && !xte_guidance_rejoin_override &&
-        !dp_mode_active_ && !final_speed_coupling_blocked && !emergency_avoidance_active) {
+        !dp_mode_active_ && !final_speed_coupling_blocked && !colregs_protected_active) {
         const bool enter_alignment = path_heading_error_abs >= heading_align_enter_rad_;
         const bool stay_alignment = heading_align_active_ && path_heading_error_abs > heading_align_exit_rad_;
         heading_align_active_ = enter_alignment || stay_alignment;
@@ -4411,7 +4381,7 @@ void ShipGuidanceNode::calculate_los(double x, double y, double& psi_cmd, double
     const bool cruise_speed_floor_allowed =
         active_cruise_navigation_mode &&
         !roll_guard_active_ &&
-        !emergency_avoidance_active &&
+        !colregs_protected_active &&
         !final_dp_low_speed_wait &&
         dist_to_wp > 10.0 &&
         (!is_last_wp || dist_to_wp > terminal_slow_down_dist);

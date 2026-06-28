@@ -38,3 +38,15 @@ def test_gnc_ship_config_overlay_allows_m5_emergency_avoidance_ladder() -> None:
     assert coord_params["emergency_avoidance_relax_update_guard"] is True
     assert coord_params["emergency_avoidance_min_future_update_distance_m"] == 0.0
     assert coord_params["emergency_avoidance_max_dynamic_lateral_delta_m"] >= 1200.0
+
+
+def test_gnc_ship_config_overlay_matches_strict_probe_timebase() -> None:
+    data = yaml.safe_load(OVERLAY.read_text())
+    dynamics_params = _params(data, "ship_dynamics_node")
+    guidance_params = _params(data, "ship_guidance_node")
+    control_params = _params(data, "ship_control_node")
+
+    assert dynamics_params["time_scale"] == 10.0
+    assert dynamics_params["update_rate"] == 500.0
+    assert guidance_params["guidance_period_s"] == 0.05
+    assert control_params["control_period"] == 0.01

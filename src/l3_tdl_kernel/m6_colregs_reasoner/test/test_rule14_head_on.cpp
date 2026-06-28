@@ -78,6 +78,56 @@ TEST(Rule14_HeadOnTest, NearlyHeadOn_HighConfidence) {
   EXPECT_GE(result.confidence, 0.8f);
 }
 
+TEST(Rule14_HeadOnTest, BoundaryBearingSixDegreesStillHeadOn) {
+  Rule14_HeadOn rule;
+  TargetGeometricState geo{};
+  geo.target_id = 50;
+  geo.bearing_deg = 354.0;
+  geo.target_heading_deg = 180.0;
+  geo.ownship_heading_deg = 0.0;
+
+  RuleParameters params{};
+  params.min_alteration_deg = 15.0;
+
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_TRUE(result.is_active);
+  EXPECT_EQ(result.role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(result.preferred_direction, "STARBOARD");
+}
+
+TEST(Rule14_HeadOnTest, BoundaryCourseDiffSixDegreesStillHeadOn) {
+  Rule14_HeadOn rule;
+  TargetGeometricState geo{};
+  geo.target_id = 51;
+  geo.bearing_deg = 0.0;
+  geo.target_heading_deg = 174.0;
+  geo.ownship_heading_deg = 0.0;
+
+  RuleParameters params{};
+  params.min_alteration_deg = 15.0;
+
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_TRUE(result.is_active);
+  EXPECT_EQ(result.role, Role::BOTH_GIVE_WAY);
+}
+
+TEST(Rule14_HeadOnTest, NearReciprocalPortBowTenDegreesStillHeadOn) {
+  Rule14_HeadOn rule;
+  TargetGeometricState geo{};
+  geo.target_id = 52;
+  geo.bearing_deg = 355.0;
+  geo.target_heading_deg = 170.0;
+  geo.ownship_heading_deg = 0.0;
+
+  RuleParameters params{};
+  params.min_alteration_deg = 15.0;
+
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_TRUE(result.is_active);
+  EXPECT_EQ(result.role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(result.preferred_direction, "STARBOARD");
+}
+
 // --- Non-zero heading tests (verify C1+C2 fix: bearing_deg is absolute) ---
 
 TEST(Rule14_HeadOnTest, NonZeroHeading_HeadOn) {

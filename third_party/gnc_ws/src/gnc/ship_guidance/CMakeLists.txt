@@ -48,4 +48,20 @@ install(TARGETS ship_guidance_node coordinate_transform_node active_route_manage
 install(DIRECTORY include/
   DESTINATION include)
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_route_update_guard_policy
+    test/test_route_update_guard_policy.cpp)
+  target_include_directories(test_route_update_guard_policy PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+  target_compile_features(test_route_update_guard_policy PUBLIC cxx_std_17)
+
+  ament_add_gtest(test_navigation_mode_policy
+    test/test_navigation_mode_policy.cpp)
+  target_include_directories(test_navigation_mode_policy PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+  target_compile_features(test_navigation_mode_policy PUBLIC cxx_std_17)
+endif()
+
 ament_package()

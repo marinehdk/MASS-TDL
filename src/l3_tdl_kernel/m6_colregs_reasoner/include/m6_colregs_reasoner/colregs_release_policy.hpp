@@ -62,8 +62,10 @@ inline bool give_way_duty_onset_signal(
     double cpa_m,
     double t_plan_s,
     double cpa_hard_m,
-    bool range_closing) {
+    bool range_closing,
+    bool primary_own_give_way = true) {
   return raw_own_give_way &&
+      primary_own_give_way &&
       !own_stand_on &&
       !past_and_clear &&
       !cpa_projection_past_and_safe &&
@@ -74,6 +76,17 @@ inline bool give_way_duty_onset_signal(
       std::isfinite(cpa_hard_m) &&
       tcpa_s <= t_plan_s &&
       cpa_m < cpa_hard_m;
+}
+
+inline bool primary_rule_onset_allowed(
+    int candidate_rule_id,
+    int latched_primary_rule_id) {
+  if (candidate_rule_id != 13 && candidate_rule_id != 14 &&
+      candidate_rule_id != 15) {
+    return true;
+  }
+  return latched_primary_rule_id == 0 ||
+      latched_primary_rule_id == candidate_rule_id;
 }
 
 inline double give_way_reference_heading_cpa_m(
@@ -172,6 +185,14 @@ inline bool give_way_opening_reference_heading_release_safe(
       range_m < cpa_safe_m * kGiveWayOpeningReleaseRangeMultiple) {
     return false;
   }
+  const double delta_rad =
+      (bearing_deg - reference_heading_deg) * kGiveWayReleasePi / 180.0;
+  double rel = std::fmod(delta_rad + 3.0 * kGiveWayReleasePi, 2.0 * kGiveWayReleasePi) -
+      kGiveWayReleasePi;
+  const double reference_rel_abs_deg = std::fabs(rel) * 180.0 / kGiveWayReleasePi;
+  if (reference_rel_abs_deg <= kGiveWayProjectionReleaseReferenceBowClearDeg) {
+    return false;
+  }
 
   const double cpa_m = give_way_reference_heading_cpa_m(
       range_m,
@@ -181,6 +202,43 @@ inline bool give_way_opening_reference_heading_release_safe(
       own_speed_kn,
       reference_heading_deg);
   return std::isfinite(cpa_m) && cpa_m >= cpa_safe_m;
+}
+
+inline bool rule15_target_track_release_safe(
+    bool range_closing,
+    double range_m,
+    double bearing_deg,
+    double target_heading_deg,
+    double cpa_m,
+    double tcpa_s,
+    double cpa_safe_m) {
+  if (range_closing ||
+      !std::isfinite(range_m) ||
+      !std::isfinite(bearing_deg) ||
+      !std::isfinite(target_heading_deg) ||
+      !std::isfinite(cpa_m) ||
+      !std::isfinite(tcpa_s) ||
+      !std::isfinite(cpa_safe_m) ||
+      cpa_safe_m <= 0.0 ||
+      range_m < cpa_safe_m * kGiveWayOpeningReleaseRangeMultiple ||
+      cpa_m < cpa_safe_m ||
+      tcpa_s > kTcpaClampedPastEpsilonS) {
+    return false;
+  }
+
+  // Crossing give-way release should clear after own ship has safely passed
+  // astern of the target's track, not only after the target crosses own's
+  // original beam. GNC follows waypoints; holding the duty until reference beam
+  // clear can force a long return-leg excursion after CPA is already safe.
+  const double bearing_rad = bearing_deg * kGiveWayReleasePi / 180.0;
+  const double target_heading_rad = target_heading_deg * kGiveWayReleasePi / 180.0;
+  const double rel_east_m = range_m * std::sin(bearing_rad);
+  const double rel_north_m = range_m * std::cos(bearing_rad);
+  const double target_axis_east = std::sin(target_heading_rad);
+  const double target_axis_north = std::cos(target_heading_rad);
+  const double own_minus_target_along_m =
+      -(rel_east_m * target_axis_east + rel_north_m * target_axis_north);
+  return own_minus_target_along_m < 0.0;
 }
 
 inline bool give_way_opening_reference_release_applies_to_rule(int rule_id) {
@@ -226,6 +284,14 @@ inline bool rule13_overtaking_along_axis_past_clear(
   const double own_minus_target_along_m =
       -(rel_east_m * target_axis_east + rel_north_m * target_axis_north);
   return own_minus_target_along_m > 0.0;
+}
+
+inline bool rule13_release_past_and_clear(
+    bool rule13_release_context,
+    bool bearing_past_and_clear,
+    bool along_axis_past_and_clear) {
+  return bearing_past_and_clear &&
+      (!rule13_release_context || along_axis_past_and_clear);
 }
 
 inline bool give_way_projection_release_safe(

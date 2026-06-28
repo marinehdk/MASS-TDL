@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -15,6 +16,7 @@
 #include "ship_interfaces/msg/geo_position.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
+#include "ship_guidance/navigation_mode_policy.hpp"
 
 namespace {
 
@@ -131,6 +133,9 @@ public:
         ship_state_sub_ = create_subscription<ship_interfaces::msg::GeoPosition>(
             ship_state_topic_, 10,
             std::bind(&ActiveRouteManagerNode::ship_state_callback, this, std::placeholders::_1));
+        deferred_nominal_timer_ = create_wall_timer(
+            std::chrono::milliseconds(500),
+            std::bind(&ActiveRouteManagerNode::retry_deferred_nominal_route, this));
 
         RCLCPP_INFO(
             get_logger(),
@@ -155,6 +160,7 @@ private:
 
         latest_nominal_route_ = *msg;
         if (avoidance_is_active()) {
+            deferred_nominal_pending_ = true;
             auto result = accepted_result();
             result.executing = false;
             result.state = "DEFERRED";
@@ -169,6 +175,7 @@ private:
         }
 
         active_route_pub_->publish(*msg);
+        deferred_nominal_pending_ = false;
 
         if (publish_nominal_status_) {
             auto result = accepted_result();
@@ -241,11 +248,37 @@ private:
     {
         has_active_avoidance_ = true;
         active_avoidance_plan_id_ = plan.plan_id;
+        deferred_nominal_pending_ =
+            deferred_nominal_pending_ || basic_route_valid(latest_nominal_route_);
         if (!time_is_zero(plan.valid_until)) {
             active_avoidance_until_ = rclcpp::Time(plan.valid_until);
         } else {
             active_avoidance_until_ = now() + rclcpp::Duration::from_seconds(default_avoidance_hold_s_);
         }
+    }
+
+    void retry_deferred_nominal_route()
+    {
+        if (!deferred_nominal_pending_) {
+            return;
+        }
+        if (avoidance_is_active()) {
+            return;
+        }
+        if (!basic_route_valid(latest_nominal_route_)) {
+            deferred_nominal_pending_ = false;
+            return;
+        }
+
+        active_route_pub_->publish(latest_nominal_route_);
+        auto result = accepted_result();
+        result.reason = "nominal_route_forwarded_after_avoidance";
+        publish_status_for_route(latest_nominal_route_, result);
+        deferred_nominal_pending_ = false;
+        RCLCPP_INFO(
+            get_logger(),
+            "[ActiveRouteManager] forwarded deferred nominal route_id='%s' after avoidance expiry",
+            latest_nominal_route_.route_id.c_str());
     }
 
     ship_interfaces::msg::RoutePlan to_route_plan(
@@ -283,8 +316,10 @@ private:
             return rejected_result("speed_length_mismatch", "fix_speed_array");
         }
 
-        const bool emergency = is_emergency_mode(plan.behavior_mode) ||
-            std::any_of(route.navigation_mode.begin(), route.navigation_mode.end(), is_emergency_mode);
+        const bool emergency = is_colregs_protected_mode(plan.behavior_mode) ||
+            std::any_of(
+                route.navigation_mode.begin(), route.navigation_mode.end(),
+                is_colregs_protected_mode);
         const double min_segment = emergency ? emergency_min_segment_length_m_ : min_segment_length_m_;
         const double static_min_turn_radius =
             emergency ? emergency_min_turn_radius_m_ : min_turn_radius_m_;
@@ -445,13 +480,9 @@ private:
         return std::min(len1, len2) / std::tan(angle * 0.5);
     }
 
-    static bool is_emergency_mode(const std::string& raw_mode)
+    static bool is_colregs_protected_mode(const std::string& raw_mode)
     {
-        const std::string mode = normalize_mode(raw_mode);
-        return mode == "emergency_avoidance" ||
-            mode == "emergency_avoid" ||
-            mode == "collision_avoidance" ||
-            mode == "avoidance";
+        return ship_guidance::is_colregs_protected_mode(raw_mode);
     }
 
     double requested_speed_at(const ship_interfaces::msg::RoutePlan& route, size_t index) const
@@ -600,6 +631,7 @@ private:
     double default_avoidance_hold_s_{60.0};
     bool publish_nominal_status_{false};
     bool has_active_avoidance_{false};
+    bool deferred_nominal_pending_{false};
     std::string active_avoidance_plan_id_;
     rclcpp::Time active_avoidance_until_{0, 0, RCL_ROS_TIME};
 
@@ -608,6 +640,7 @@ private:
     rclcpp::Subscription<ship_interfaces::msg::GeoPosition>::SharedPtr ship_state_sub_;
     rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr active_route_pub_;
     rclcpp::Publisher<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr status_pub_;
+    rclcpp::TimerBase::SharedPtr deferred_nominal_timer_;
 
     ship_interfaces::msg::RoutePlan latest_nominal_route_;
     ship_interfaces::msg::GeoPosition latest_ship_state_;

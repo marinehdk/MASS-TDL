@@ -274,7 +274,8 @@ class EvidenceSessionManager:
         trace_path = Path(trace_path)
         if trace_path.exists():
             trace_dest = session.session_dir / f"{safe_scenario}.trace_current.jsonl"
-            shutil.copyfile(trace_path, trace_dest)
+            if trace_path.resolve() != trace_dest.resolve():
+                shutil.copyfile(trace_path, trace_dest)
             validity = validate_trace_jsonl(trace_dest)
             scenario_entry["valid_data"] = validity["valid_data"]
             scenario_entry["trace_path"] = trace_dest.name
@@ -332,4 +333,3 @@ class EvidenceSessionManager:
         manifest["valid_data"] = True
         _write_json(manifest_path, manifest)
         return manifest
-

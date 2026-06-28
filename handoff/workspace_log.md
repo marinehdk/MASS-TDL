@@ -1426,3 +1426,52 @@ Merge all committed content from `codex/colregs-gnc-debug` into local `main`, pr
 - The GNC no-restart reproducibility evidence remains under `.worktrees/colregs-gnc-debug/runs/repro_c/r1-r4` and is gitignored.
 - The merged handoff records R1/R3/R4 as consistent, with R2 diagnosed as a trace-writer rotation artifact.
 - If GNC task-stack work continues, restart it with `bash .worktrees/colregs-gnc-debug/scripts/gnc-profile-start.sh up`.
+
+## [2026-06-28] Codex / this commit / COLREGs 12-probe TDL-GNC contract debug WIP
+
+### Task Goal
+Continue strict COLREGs 12-probe debugging on `codex/colregs-12probe-debug`, using per-module oracle first, then integration/phase triage, with focus on real TDL-GNC handoff defects instead of scenario tuning.
+
+### Core Changes
+- Added/reset-hardened GNC reset delivery:
+  - `/l3/sim/reset_own_ship` now uses reliable transient-local QoS from `sil_orchestrator`.
+  - `gnc_bridge` reset subscription and downstream reset publishers use matching latched QoS.
+  - Added reset QoS/logging tests so reset cannot silently miss late bridge discovery.
+- Expanded COLREG probe/oracle/evidence tooling from the current branch work:
+  - clean/probe runner GNC profile handling and stricter gate evidence.
+  - module oracle adapter coverage for M2/M4/M5/M6/M7/L4.
+  - trace/evidence session resilience and trace-writer rotation tests.
+- Investigated Rule13 with formal GNC profile rebuild and strict single-probe:
+  - `runs/trace_eval/20260628_084010_rule13_ot_after_reset_qos/` showed oracle 6/6 GREEN but integration RED from GNC execution quality: route return true, CPA ok, but heading reversal/seamanship failed.
+  - `runs/trace_eval/20260628_090856_rule13_ot_after_highspeed_flyby/` after first M5 corridor change exposed the true contract break: M5 route accepted by ActiveRouteManager, but first COLREG corridor jumped ~270m lateral immediately. GNC `ship_guidance` treated this as raw-route/far-XTE rejoin, capped speed to 3m/s, failed to complete overtake before CPA, and never reached M4 RECOVERY. Oracle stayed 6/6 GREEN, so this is Layer-2 GREEN + Layer-3 handoff/execution defect.
+- M5 WIP fix now targets GNC waypoint feasibility, not evaluator thresholds:
+  - Rule13 corridor changed from an immediate 270m dogleg to gradual lateral ramp: 600/1200/2000/3000/...m ladder, lateral slope 0.10, peak 270m reached around 3000m, held through overtake, tapered later.
+  - M5 GNC preflight now rejects high-speed routes whose initial raw-route cross-track error exceeds GNC raw-route rejoin threshold (60m), catching the exact bad 270m route shape seen in trace.
+  - Return-to-route ramp was also smoothed to avoid the same raw-route rejoin trap.
+
+### Current Status
+- Branch/worktree: `.worktrees/colregs-12probe-debug`, branch `codex/colregs-12probe-debug`.
+- GNC stack was formally rebuilt from this worktree before Rule13 probes.
+- M5 unit verification passed in container after latest WIP fix:
+  - `docker exec codex-gnc-validation-sil-nodes-1 ... colcon build --packages-select m5_tactical_planner ... && ./build/m5_tactical_planner/test_avoidance_waypoint_gen --gtest_color=no`
+  - Result: 43/43 tests passed.
+- Latest runtime probe before the latest M5 WIP fix remains RED:
+  - `runs/trace_eval/20260628_090856_rule13_ot_after_highspeed_flyby/colreg-rule13-ot.trace_current.jsonl`
+  - `runs/module_oracle_rule13_ot_after_highspeed_flyby.json`
+  - Key verdict: CPA min 160.6m < 180m, overtake incomplete, M4 stayed AVOID, M5 plan stable and accepted, GNC internal guidance capped speed due raw-route XTE.
+- Latest M5 WIP has **not yet been formally rebuilt into a fresh image and rerun through Rule13 probe**. Container unit build used `docker cp` for quick validation only.
+
+### Handoff Notes
+- Next step: formal rebuild from host source:
+  - `bash scripts/gnc-profile-start.sh --down`
+  - `bash scripts/gnc-profile-start.sh up`
+  - health: `curl -sk https://127.0.0.1:18000/api/v1/health` and lifecycle status.
+- Then rerun Rule13 strict single-probe:
+  - `PROBE_STUCK_LIMIT=150 .venv-probe/bin/python scripts/run_6_scenarios.py --profile gnc --restart-between-runs --scenario colreg-rule13-ot --summary-out runs/rule13_ot_after_gnc_xte_preflight_$(date +%Y%m%d_%H%M%S).json --trace-report-dir runs/trace_eval/$(date +%Y%m%d_%H%M%S)_rule13_ot_after_gnc_xte_preflight --sim-rate 10`
+- If Rule13 RED persists, first inspect:
+  - M5 `plan_id` count and first two waypoint raw-route XTE.
+  - `docker logs codex-gnc-validation-gnc-gnc-nodes-1` for `[RAW ROUTE RECOVERY]`, `[XTE RECOVERY]`, `[REJOIN SPEED GATE]`, `[TURN SEGMENT SPEED GATE]`, and `切换航点`.
+  - `/l3/gnc/execution_status` is insufficient alone: it reports accepted/applied route speed but not internal guidance speed caps. Use GNC logs plus own-ship current speed.
+- Do not tune scenario geometry or scorer thresholds. Current defect class is M5/GNC waypoint-corridor feasibility and feedback integration.
+- User-provided contract doc remains untracked and should be read in the next session:
+  - `docs/superpowers/specs/2026-06-27-tdl-gnc-avoidance-interface-contract.md`

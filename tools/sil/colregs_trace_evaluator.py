@@ -398,12 +398,13 @@ def report_from_runner_result(
     no_action_trace_path: str | None = None,
 ) -> TraceEvaluationReport:
     safety_pass = bool(result.get("cpa_ok") and result.get("domain_gates", {}).get("risk_gate_ok", True))
-    mission_pass = bool(
+    route_recovery_pass = bool(
         result.get("route_corridor_ok")
         and ((not result.get("route_return_required")) or result.get("returned_to_route"))
         and ((not result.get("overtake_required")) or result.get("overtake_completed"))
-        and result.get("domain_gates", {}).get("seamanship_gate_ok", True)
     )
+    seamanship_pass = bool(result.get("domain_gates", {}).get("seamanship_gate_ok", True))
+    mission_pass = bool(route_recovery_pass and seamanship_pass)
     phase_semantics = result.get("phase_semantics") or {}
     phase_semantics_ok = bool(phase_semantics.get("phase_semantics_ok", True))
     colregs_pass = (
@@ -418,7 +419,11 @@ def report_from_runner_result(
         mission_pass=mission_pass,
         colregs_pass=colregs_pass,
         stability_pass=stability_pass,
-        layer_statuses={"L1_scenario_validity": "UNKNOWN"},
+        layer_statuses={
+            "L1_scenario_validity": "UNKNOWN",
+            "L5_route_recovery": "PASS" if route_recovery_pass else "FAIL",
+            "L6_seamanship": "PASS" if seamanship_pass else "FAIL",
+        },
         trace_artifact_path=trace_artifact_path,
         no_action_trace_path=no_action_trace_path,
         chain_summary=result.get("chain_summary"),

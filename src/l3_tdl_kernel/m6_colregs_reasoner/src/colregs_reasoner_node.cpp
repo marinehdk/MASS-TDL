@@ -607,9 +607,13 @@ void ColregsReasonerNode::run_reasoning() {
         has_release_reference &&
         past_and_clear_from_heading(target.bearing_deg, release_reference_heading,
                                     abaft_threshold_deg);
+    const double give_way_release_floor_m =
+        (std::isfinite(kParams.cpa_release_m) && kParams.cpa_release_m > 0.0)
+            ? kParams.cpa_release_m
+            : kParams.cpa_safe_m;
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
-        (target.cpa_m >= kParams.cpa_safe_m);
+        (target.cpa_m >= give_way_release_floor_m);
     const double current_relative_bearing_abs_deg = std::fabs(
         signed_relative_bearing_deg(target.bearing_deg, target.ownship_heading_deg));
     const double reference_relative_bearing_abs_deg = std::fabs(
@@ -618,7 +622,7 @@ void ColregsReasonerNode::run_reasoning() {
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
             target.range_m,
-            kParams.cpa_safe_m,
+            give_way_release_floor_m,
             current_relative_bearing_abs_deg,
             reference_relative_bearing_abs_deg,
             GiveWayProjectionReleaseGate::REFERENCE_CLEAR);
@@ -631,7 +635,7 @@ void ColregsReasonerNode::run_reasoning() {
             target.target_speed_kn,
             target.ownship_speed_kn,
             release_reference_heading,
-            kParams.cpa_safe_m);
+            give_way_release_floor_m);
     const bool give_way_opening_reference_heading_release_ok =
         has_release_reference &&
         give_way_opening_reference_heading_release_safe(
@@ -642,16 +646,26 @@ void ColregsReasonerNode::run_reasoning() {
             target.target_speed_kn,
             target.ownship_speed_kn,
             release_reference_heading,
-            kParams.cpa_safe_m);
+            give_way_release_floor_m);
+    const bool rule15_target_track_release_ok =
+        rule15_target_track_release_safe(
+            range_closing,
+            target.range_m,
+            target.bearing_deg,
+            target.target_heading_deg,
+            target.cpa_m,
+            target.tcpa_s,
+            give_way_release_floor_m);
     const bool give_way_reference_release_ok =
         give_way_projection_release_reference_ok ||
         give_way_reference_heading_release_ok ||
-        give_way_opening_reference_heading_release_ok;
+        give_way_opening_reference_heading_release_ok ||
+        rule15_target_track_release_ok;
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
             target.range_m,
-            kParams.cpa_safe_m,
+            give_way_release_floor_m,
             current_relative_bearing_abs_deg,
             reference_relative_bearing_abs_deg,
             GiveWayProjectionReleaseGate::CURRENT_ABAFT);
@@ -710,9 +724,12 @@ void ColregsReasonerNode::run_reasoning() {
             target.range_m,
             target.bearing_deg,
             target.target_heading_deg);
+    const bool release_past_and_clear = rule13_release_past_and_clear(
+        rule13_release_context,
+        past_and_clear,
+        rule13_along_axis_past_clear);
     const bool finally_resolved =
-        has_release_reference && past_and_clear &&
-        rule13_along_axis_past_clear &&
+        has_release_reference && release_past_and_clear &&
         !range_closing && target.cpa_m >= final_release_cpa_floor_m;
     const bool standon_action_latched =
         standon_latch_it != standon_latches_.end() && standon_latch_it->second.latched();
@@ -736,7 +753,9 @@ void ColregsReasonerNode::run_reasoning() {
         (rule15_projection_latched &&
          (((!range_closing) && give_way_projection_release_reference_ok) ||
           give_way_reference_heading_release_ok)) ||
-        (rule15_projection_latched && give_way_opening_reference_heading_release_ok);
+        (rule15_projection_latched &&
+         (give_way_opening_reference_heading_release_ok ||
+          rule15_target_track_release_ok));
     const bool current_projection_resolved =
         (!range_closing) &&
         (rule14_projection_latched || (duty_latched && !rule13_release_context)) &&
@@ -779,6 +798,19 @@ void ColregsReasonerNode::run_reasoning() {
       const int rid = rule->rule_id();
       if (rid == 13 || rid == 14 || rid == 15) {
         const uint64_t key = (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(rid);
+        int latched_primary_rule_id = 0;
+        for (const int primary_rid : {13, 14, 15}) {
+          const uint64_t primary_key =
+              (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(primary_rid);
+          const auto primary_it = rule_latches_.find(primary_key);
+          if (primary_it != rule_latches_.end() &&
+              (primary_it->second.latched() || primary_it->second.has_onset())) {
+            latched_primary_rule_id = primary_rid;
+            break;
+          }
+        }
+        const bool primary_onset_allowed =
+            primary_rule_onset_allowed(rid, latched_primary_rule_id);
         auto it = rule_latches_.find(key);
         if (it == rule_latches_.end()) {
           it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
@@ -809,15 +841,9 @@ void ColregsReasonerNode::run_reasoning() {
           fit = encounter_fsms_.emplace(key, EncounterStateMachine{ep}).first;
         }
         const TargetSnapshot fsm_snap{target.tcpa_s, target.cpa_m};
-        const bool fsm_past_and_clear =
-            past_and_clear &&
-            (rid != 13 ||
-             rule13_overtaking_along_axis_past_clear(
-                 target.range_m,
-                 target.bearing_deg,
-                 target.target_heading_deg));
+        const bool fsm_past_and_clear = release_past_and_clear;
         const EncounterState fsm_state = fit->second.transition(
-            fsm_snap, /*rule_geometric_hit=*/eval.is_active, range_closing,
+            fsm_snap, /*rule_geometric_hit=*/primary_onset_allowed && eval.is_active, range_closing,
             fsm_past_and_clear, /*now_s=*/last_world_stamp_.seconds(), &eval);
         const bool fsm_engaged =
             fsm_state == EncounterState::ACTIVE ||
@@ -839,7 +865,7 @@ void ColregsReasonerNode::run_reasoning() {
             eval.role == Role::BOTH_GIVE_WAY;
         const bool give_way_duty = give_way_duty_from_raw_or_fsm(
             raw_give_way_duty, fsm_engaged, fsm_held_eval);
-        if (!fsm_engaged && give_way_duty) {
+        if ((!fsm_engaged && give_way_duty) || !primary_onset_allowed) {
           eval.is_active = false;
         }
         // Pass the raw evaluation so the latch can snapshot the give-way
@@ -848,7 +874,7 @@ void ColregsReasonerNode::run_reasoning() {
             !it->second.has_onset() ||
             it->second.onset_role() == Role::GIVE_WAY ||
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
-        const bool rule_projection_release_ok =
+        const bool raw_rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
             (give_way_projection_reference_release_applies_to_rule(rid) &&
              !give_way_opening_reference_release_applies_to_rule(rid)) ?
@@ -857,8 +883,10 @@ void ColregsReasonerNode::run_reasoning() {
              give_way_opening_reference_release_applies_to_rule(rid)) ?
             give_way_reference_release_ok :
             false;
+        const bool rule_projection_release_ok =
+            !rule13_release_context && raw_rule_projection_release_ok;
         bool latched = it->second.update(
-            eval.is_active, target.cpa_m, range_closing, past_and_clear,
+            eval.is_active, target.cpa_m, range_closing, fsm_past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
         // FSM stickiness (D-3): if the FSM is engaged (ACTIVE/MONITOR) but the
         // legacy latch computed a release this cycle (a transient projection
@@ -887,6 +915,10 @@ void ColregsReasonerNode::run_reasoning() {
           }
         } else {
           eval.is_active = false;
+        }
+        if (!primary_onset_allowed) {
+          eval.is_active = false;
+          eval.rationale += " [gated: primary Rule latch already engaged]";
         }
       } else {
         // COLREG Rule 7 (risk of collision) gate for NON-give-way obligations
@@ -919,6 +951,7 @@ void ColregsReasonerNode::run_reasoning() {
     // PRIMARY classifier (13/14/15) made own ship stand-on, and whether Rule 17
     // raw-evaluated to an in-extremis stand-on action.
     bool raw_own_give_way = false;
+    bool primary_own_give_way = false;
     bool own_stand_on = false;
     bool rule17_inextremis_raw = false;
     for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
@@ -928,6 +961,9 @@ void ColregsReasonerNode::run_reasoning() {
       }
       if (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) {
         raw_own_give_way = true;
+        if (e.rule_id == 13 || e.rule_id == 14 || e.rule_id == 15) {
+          primary_own_give_way = true;
+        }
       }
       if (e.role == Role::STAND_ON &&
           (e.rule_id == 13 || e.rule_id == 14 || e.rule_id == 15)) {
@@ -948,20 +984,23 @@ void ColregsReasonerNode::run_reasoning() {
     const bool duty_onset_signal = give_way_duty_onset_signal(
         raw_own_give_way,
         own_stand_on,
-        past_and_clear,
+        release_past_and_clear,
         cpa_projection_past_and_safe,
         target.tcpa_s,
         target.cpa_m,
         kParams.t_plan_s,
         kParams.cpa_hard_m,
-        range_closing);
+        range_closing,
+        primary_own_give_way);
     auto dit = give_way_latches_.find(mmsi);
     if (dit == give_way_latches_.end()) {
       dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
     }
+    const bool duty_projection_release_ok =
+        !rule13_release_context && give_way_projection_release_current_ok;
     const bool duty_latched_now = dit->second.update(
-        duty_onset_signal, target.cpa_m, range_closing, past_and_clear,
-        nullptr, give_way_projection_release_current_ok);
+        duty_onset_signal, target.cpa_m, range_closing, release_past_and_clear,
+        nullptr, duty_projection_release_ok);
     if (duty_latched_now) {
       encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
     }

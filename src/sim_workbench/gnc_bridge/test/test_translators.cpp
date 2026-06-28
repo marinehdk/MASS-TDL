@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "gnc_bridge/gnc_bridge_node.hpp"
 #include "gnc_bridge/translators.hpp"
 #include "l3_external_msgs/msg/avoidance_waypoints.hpp"
 #include "l3_external_msgs/msg/gnc_execution_status.hpp"
@@ -19,6 +20,7 @@ using gnc_bridge::to_gnc_route_plan;
 using gnc_bridge::to_sil_own_ship_state;
 using gnc_bridge::to_l3_gnc_execution_status;
 using gnc_bridge::rebase_avoidance_plan_timebase;
+using gnc_bridge::latched_reset_qos;
 
 namespace {
 builtin_interfaces::msg::Time make_stamp(int32_t sec, uint32_t nanosec = 0) {
@@ -30,6 +32,14 @@ builtin_interfaces::msg::Time make_stamp(int32_t sec, uint32_t nanosec = 0) {
 
 constexpr double kPi = 3.14159265358979323846;
 }  // namespace
+
+TEST(BridgeNode, ResetQosIsLatchedForLateDiscovery) {
+  const auto qos = latched_reset_qos().get_rmw_qos_profile();
+  EXPECT_EQ(qos.history, RMW_QOS_POLICY_HISTORY_KEEP_LAST);
+  EXPECT_EQ(qos.depth, 1u);
+  EXPECT_EQ(qos.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+  EXPECT_EQ(qos.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+}
 
 TEST(Translators, AvoidanceWaypointsToGncPlanPreservesWaypoints) {
   l3_external_msgs::msg::AvoidanceWaypoints src;

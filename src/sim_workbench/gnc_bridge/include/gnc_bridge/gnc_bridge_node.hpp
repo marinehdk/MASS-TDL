@@ -31,6 +31,10 @@
 
 namespace gnc_bridge {
 
+inline rclcpp::QoS latched_reset_qos() {
+  return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+}
+
 // Thread-safe multi-producer/multi-consumer queue of variant-typed ROS messages
 // crossing the L3<->GNC domain boundary inside one process. Each side pushes
 // translated messages it has produced; the other side pops and publishes.

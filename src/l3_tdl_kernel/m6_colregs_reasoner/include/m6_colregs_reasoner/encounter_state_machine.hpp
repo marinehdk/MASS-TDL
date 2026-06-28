@@ -30,9 +30,9 @@ enum class EncounterState : uint8_t {
   RELEASE = 6
 };
 
-// Onset snapshot (Rule 13(d): classification fixed at ACTIVE entry and held
-// through own-ship's maneuver so the raw geometric rule falling out of its
-// cone does not reclassify the encounter mid-action).
+// Onset snapshot (Rule 13(d): classification fixed at first stable classifier
+// geometry and held through own-ship/target maneuvering so the raw geometric
+// rule falling out of its cone does not reclassify the encounter mid-action).
 struct OnsetSnapshot {
   bool valid{false};
   Role role{Role::FREE};
@@ -121,12 +121,15 @@ class EncounterStateMachine {
   void reset();
 
  private:
+  void capture_onset_if_classified_(const RuleEvaluation* raw_eval);
+
   EncounterParams params_;
   EncounterState state_{EncounterState::CLEAR};
   OnsetSnapshot onset_;
   double release_condition_met_since_s_{-1.0};  // RELEASE dwell start clock
   double last_cpa_m_{-1.0};                      // for dCPA/dt ACTIVE<->MONITOR
   int cpa_improve_counter_{0};                   // consecutive improving cycles
+  bool cpa_hard_seen_{false};                    // hard-zone breach in this encounter
   bool had_been_released_{false};
 };
 

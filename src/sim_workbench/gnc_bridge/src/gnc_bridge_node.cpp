@@ -28,7 +28,7 @@ L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         handoff_->push_l3_to_gnc(std::move(item));
       });
   sub_reset_ = create_subscription<sil_msgs::msg::ShipReset>(
-      "/l3/sim/reset_own_ship", 10,
+      "/l3/sim/reset_own_ship", latched_reset_qos(),
       [this](const sil_msgs::msg::ShipReset::SharedPtr msg) {
         CrossDomainHandoff::L3ToGnc item;
         ship_interfaces::msg::ShipReset out;
@@ -39,6 +39,9 @@ L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         out.sog_kn = msg->sog_kn;
         item.ship_reset = std::move(out);
         item.has_reset = true;
+        RCLCPP_INFO(get_logger(),
+            "received reset_own_ship: lat=%.6f lon=%.6f heading=%.1f sog=%.1f",
+            msg->latitude, msg->longitude, msg->heading_deg, msg->sog_kn);
         handoff_->push_l3_to_gnc(std::move(item));
       });
   RCLCPP_INFO(get_logger(),
@@ -70,9 +73,9 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
       "/route_planning/route_plan",
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local());
   pub_geo_reset_ = create_publisher<ship_interfaces::msg::ShipReset>(
-      "/ship/geo_origin_reset", 10);
+      "/ship/geo_origin_reset", latched_reset_qos());
   pub_dynamics_reset_ = create_publisher<ship_interfaces::msg::ShipReset>(
-      "/ship/dynamics_reset", 10);
+      "/ship/dynamics_reset", latched_reset_qos());
   // Drain L3->GNC items at 20 Hz and publish on the GNC domain. Uses the
   // non-blocking try_pop so the executor thread is never stalled (a blocking
   // pop here would starve subscription callbacks on the same executor).
@@ -89,6 +92,10 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
           if (item.has_reset) {
             pub_geo_reset_->publish(item.ship_reset);
             pub_dynamics_reset_->publish(item.ship_reset);
+            RCLCPP_INFO(get_logger(),
+                "forwarded reset to GNC: lat=%.6f lon=%.6f heading=%.1f sog=%.1f",
+                item.ship_reset.latitude, item.ship_reset.longitude,
+                item.ship_reset.heading_deg, item.ship_reset.sog_kn);
           }
         }
       });

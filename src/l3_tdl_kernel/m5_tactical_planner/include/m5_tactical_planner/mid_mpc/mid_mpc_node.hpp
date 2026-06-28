@@ -3,6 +3,8 @@
 
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -19,6 +21,7 @@
 #include "std_msgs/msg/string.hpp"
 
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
@@ -107,6 +110,26 @@ class MidMpcNode : public rclcpp::Node {
                                     double lon0_deg);
   bool last_emitted_conflict_active_{false};
   std::optional<rclcpp::Time> return_to_route_emit_until_;
+  struct AvoidanceCorridorAnchor {
+    double lat_deg{0.0};
+    double lon_deg{0.0};
+    double heading_min_deg{0.0};
+    double heading_max_deg{0.0};
+    double command_speed_mps{0.0};
+    double route_bearing_rad{0.0};
+    double route_xte_sign{1.0};
+    mass_l3::m5::ColregsPreferredDirection direction{mass_l3::m5::ColregsPreferredDirection::Hold};
+    bool colregs_overtake_corridor{false};
+    std::string plan_id;
+  };
+  struct ReturnRouteAnchor {
+    std::vector<mass_l3::m5::WaypointLatLon> waypoints;
+    double command_speed_mps{0.0};
+    std::string navigation_mode{"emergency_avoidance"};
+    std::string plan_id;
+  };
+  std::optional<AvoidanceCorridorAnchor> avoidance_corridor_anchor_;
+  std::optional<ReturnRouteAnchor> return_route_anchor_;
 
   // Geometric starboard fallback: generates arc waypoints from vessel kinematics
   // when the NLP solver fails or M4 signals a geometric starboard requirement.

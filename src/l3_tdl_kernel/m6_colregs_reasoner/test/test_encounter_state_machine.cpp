@@ -120,6 +120,60 @@ TEST(EncounterStateMachine, T8_TcpaGate_EntersActiveWhenTcpaAtOrBelowTplan) {
   EXPECT_EQ(fsm.onset().role, Role::BOTH_GIVE_WAY);
 }
 
+TEST(EncounterStateMachine, T8_TcpaGate_UsesEarlierHardCpaBreachForSameEncounter) {
+  EncounterStateMachine fsm(make_test_params());
+  fsm.transition(snap(2000.0, 0.0), false, false, false, 0.0);
+  fsm.transition(snap(1120.0, 1730.0), true, true, false, 1.0);
+  EXPECT_EQ(fsm.state(), EncounterState::CANDIDATE);
+  fsm.transition(snap(1120.0, 1730.0), true, true, false, 2.0);
+  EXPECT_EQ(fsm.state(), EncounterState::PREPLAN);
+
+  RuleEvaluation raw{};
+  raw.role = Role::GIVE_WAY;
+  raw.encounter_type = EncounterType::CROSSING;
+  raw.preferred_direction = "STARBOARD";
+  raw.min_alteration_deg = 50.0;
+  fsm.transition(snap(650.0, 2035.0), true, true, false, 3.0, &raw);
+
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE);
+  EXPECT_TRUE(fsm.requires_action());
+}
+
+TEST(EncounterStateMachine, PreservesPreplanOnsetWhenGeometryDropsBeforeActive) {
+  EncounterStateMachine fsm(make_test_params());
+  RuleEvaluation head_on{};
+  head_on.is_active = true;
+  head_on.role = Role::BOTH_GIVE_WAY;
+  head_on.encounter_type = EncounterType::HEAD_ON;
+  head_on.phase = TimingPhase::SOUND_WARNING;
+  head_on.preferred_direction = "STARBOARD";
+  head_on.min_alteration_deg = 30.0;
+
+  fsm.transition(snap(2000.0, 0.0), false, false, false, 0.0);  // -> DETECTED
+  fsm.transition(snap(1450.0, 900.0), true, true, false, 1.0, &head_on);
+  EXPECT_EQ(fsm.state(), EncounterState::CANDIDATE);
+  fsm.transition(snap(1400.0, 900.0), true, true, false, 2.0, &head_on);
+  EXPECT_EQ(fsm.state(), EncounterState::PREPLAN);
+
+  RuleEvaluation raw_free{};
+  raw_free.is_active = false;
+  raw_free.role = Role::FREE;
+  raw_free.encounter_type = EncounterType::NONE;
+  raw_free.preferred_direction = "HOLD";
+  fsm.transition(snap(700.0, 900.0), false, true, false, 3.0, &raw_free);
+
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE);
+  ASSERT_TRUE(fsm.onset().valid);
+  EXPECT_EQ(fsm.onset().role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(fsm.onset().encounter_type, EncounterType::HEAD_ON);
+  RuleEvaluation held = raw_free;
+  fsm.apply_onset(held);
+  EXPECT_TRUE(held.is_active);
+  EXPECT_EQ(held.role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(held.encounter_type, EncounterType::HEAD_ON);
+  EXPECT_EQ(held.preferred_direction, "STARBOARD");
+}
+
 // --- T1: onset snapshot held through own-ship maneuver ----------------------
 
 // Own-ship turns starboard; raw rule geometry falls out (rule_hit=false), but

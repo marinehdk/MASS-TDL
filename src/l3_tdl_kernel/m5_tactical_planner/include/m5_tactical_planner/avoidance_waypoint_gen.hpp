@@ -3,16 +3,20 @@
 // independently of the ROS node. Generates a waypoint string from M4's heading
 // window + own-ship state that satisfies the GNC active_route_manager feasibility
 // gate (see third_party/gnc_ws active_route_manager_node.cpp::evaluate_avoidance_plan):
-//   - segment length >= emergency_min_segment_length_m (15 m)
+//   - segment length >= emergency_min_segment_length_m (15 m), with a larger
+//     high-speed fly-by margin for routes that run above emergency guidance cap
 //   - turn radius >= max(static_min[45m], v^2/max_lateral_accel, v/yaw_rate_limit)
 //
 // The straight-line projection used here has no interior turn vertices, so the
 // turn-radius check is trivially satisfied (available_turn_radius = infinity).
 // Segment lengths are >= 150 m (first point) and grow monotonically, both well
 // above the 15 m floor. If a future iteration curves the corridor, the turn-
-// radius assertion in the gtest will catch a violation.
+// radius and fly-by segment assertions in the gtest will catch a violation.
+#include <algorithm>
 #include <cmath>
 #include <vector>
+
+#include "m5_tactical_planner/common/types.hpp"
 
 namespace mass_l3::m5 {
 
@@ -21,8 +25,64 @@ struct WaypointLatLon {
   double lon;
 };
 
+struct AlignedRouteFrame {
+  double bearing_rad;
+  double route_xte_m;
+  bool reversed;
+};
+
 // meters-per-degree latitude on the WGS84 ellipsoid (equirectangular approx).
 inline constexpr double kMetersPerDegLat = 111320.0;
+inline constexpr double kGncEmergencyWaypointSwitchGateM = 90.0;
+inline constexpr double kDefaultStableCorridorPeakOffsetM =
+    3.0 * kGncEmergencyWaypointSwitchGateM;
+inline constexpr double kRule13OvertakeCorridorPeakOffsetM =
+    kDefaultStableCorridorPeakOffsetM;
+inline constexpr double kRule13OvertakeInitialDoglegAngleRad =
+    0.09966865249116202737;  // atan(0.10), stays under GNC turn speed gate.
+inline constexpr double kDefaultNoRejoinTaperDistanceM = 1.0e12;
+
+inline AlignedRouteFrame align_route_frame_with_heading(
+    double route_bearing_rad,
+    double route_xte_m,
+    double own_heading_rad) {
+  const double dot = std::cos(route_bearing_rad) * std::cos(own_heading_rad)
+      + std::sin(route_bearing_rad) * std::sin(own_heading_rad);
+  const bool reversed = std::isfinite(dot) && dot < 0.0;
+  return {
+      route_bearing_rad + (reversed ? M_PI : 0.0),
+      reversed ? -route_xte_m : route_xte_m,
+      reversed};
+}
+
+inline double wrap_angle_pi(double angle_rad) {
+  double wrapped = std::fmod(angle_rad + M_PI, 2.0 * M_PI);
+  if (wrapped < 0.0) {
+    wrapped += 2.0 * M_PI;
+  }
+  return wrapped - M_PI;
+}
+
+inline double path_dogleg_slope_from_m4_window(
+    double heading_min_deg,
+    double heading_max_deg,
+    double route_bearing_rad,
+    ColregsPreferredDirection preferred_direction) {
+  const double avoid_heading_deg = (heading_min_deg + heading_max_deg) * 0.5;
+  const double avoid_rel_rad = wrap_angle_pi(
+      avoid_heading_deg * M_PI / 180.0 - route_bearing_rad);
+  constexpr double kMaxStableGncDoglegAngleRad = 20.0 * M_PI / 180.0;
+  constexpr double kMinApparentDoglegAngleRad = 30.0 * M_PI / 180.0;
+  const bool directed =
+      preferred_direction == ColregsPreferredDirection::Starboard ||
+      preferred_direction == ColregsPreferredDirection::Port;
+  double dogleg_angle = std::abs(avoid_rel_rad);
+  if (directed && dogleg_angle >= kMinApparentDoglegAngleRad) {
+    dogleg_angle = std::max(dogleg_angle, kMinApparentDoglegAngleRad);
+  }
+  dogleg_angle = std::min(dogleg_angle, kMaxStableGncDoglegAngleRad);
+  return std::tan(dogleg_angle);
+}
 
 // Generate a waypoint string along the avoidance heading (window midpoint,
 // biased toward max for starboard preference) from own-ship position.
@@ -40,10 +100,12 @@ inline std::vector<WaypointLatLon> generate_avoidance_waypoints(
 
   const double m_per_deg_lon = kMetersPerDegLat * std::cos(own_lat * M_PI / 180.0);
 
-  // Distance ladder: first point 150 m ahead (>= emergency_min_segment_length),
-  // then monotonically growing segments (>= 15 m) giving a smooth corridor.
+  // Distance ladder: first point 150 m ahead (>= emergency wheel-over distance),
+  // then monotonically growing segments (>= 15 m) giving a stable long corridor.
   // Collinear points -> no turn-radius constraint at interior vertices.
-  static const std::vector<double> kDistancesM = {150.0, 300.0, 500.0, 800.0, 1200.0};
+  static const std::vector<double> kDistancesM = {
+      150.0, 300.0, 600.0, 1000.0, 1500.0, 2200.0, 3200.0, 4500.0,
+      6000.0, 7500.0, 9000.0};
 
   const double sin_h = std::sin(avoid_heading_rad);
   const double cos_h = std::cos(avoid_heading_rad);
@@ -57,6 +119,125 @@ inline std::vector<WaypointLatLon> generate_avoidance_waypoints(
     wps.push_back({
       own_lat + d_north / kMetersPerDegLat,
       own_lon + d_east  / m_per_deg_lon,
+    });
+  }
+  return wps;
+}
+
+inline std::vector<WaypointLatLon> generate_stable_avoidance_corridor_waypoints(
+    double heading_min_deg, double heading_max_deg,
+    double anchor_lat, double anchor_lon,
+    double planned_route_bearing_rad,
+    ColregsPreferredDirection preferred_direction = ColregsPreferredDirection::Hold,
+    double max_lateral_offset_m = kDefaultStableCorridorPeakOffsetM,
+    double rejoin_taper_start_m = kDefaultNoRejoinTaperDistanceM,
+    double rejoin_taper_end_m = kDefaultNoRejoinTaperDistanceM + 1.0) {
+  const double avoid_heading_deg = (heading_min_deg + heading_max_deg) * 0.5;
+  const double avoid_heading_rad = avoid_heading_deg * M_PI / 180.0;
+  const double m_per_deg_lon = kMetersPerDegLat * std::cos(anchor_lat * M_PI / 180.0);
+
+  const double route_n = std::cos(planned_route_bearing_rad);
+  const double route_e = std::sin(planned_route_bearing_rad);
+  const double right_n = -std::sin(planned_route_bearing_rad);
+  const double right_e = std::cos(planned_route_bearing_rad);
+  const double avoid_n = std::cos(avoid_heading_rad);
+  const double avoid_e = std::sin(avoid_heading_rad);
+  const double avoid_lateral = avoid_n * right_n + avoid_e * right_e;
+  const double default_lateral_cap = std::max(
+      2.0 * kGncEmergencyWaypointSwitchGateM, std::abs(max_lateral_offset_m));
+  constexpr double kDirectionVisibleDistanceM = 1500.0;
+  const double min_direction_slope =
+      (2.0 * kGncEmergencyWaypointSwitchGateM) / kDirectionVisibleDistanceM;
+  double lateral_cap = default_lateral_cap;
+  double lateral_sign = (avoid_lateral < 0.0) ? -1.0 : 1.0;
+  double lateral_slope = path_dogleg_slope_from_m4_window(
+      heading_min_deg, heading_max_deg, planned_route_bearing_rad, preferred_direction);
+  if (preferred_direction == ColregsPreferredDirection::Starboard) {
+    lateral_sign = 1.0;
+    if (lateral_slope < min_direction_slope) {
+      lateral_cap = 2.0 * kGncEmergencyWaypointSwitchGateM;
+    }
+    lateral_slope = std::max(lateral_slope, min_direction_slope);
+  } else if (preferred_direction == ColregsPreferredDirection::Port) {
+    lateral_sign = -1.0;
+    if (lateral_slope < min_direction_slope) {
+      lateral_cap = 2.0 * kGncEmergencyWaypointSwitchGateM;
+    }
+    lateral_slope = std::max(lateral_slope, min_direction_slope);
+  }
+  const double taper_start_m = std::max(0.0, rejoin_taper_start_m);
+  const double taper_end_m = std::max(taper_start_m + 1.0, rejoin_taper_end_m);
+
+  static const std::vector<double> kDistancesM = {
+      150.0, 300.0, 600.0, 1000.0, 1500.0, 2200.0, 3200.0, 4500.0,
+      6000.0, 7500.0, 9000.0};
+
+  std::vector<WaypointLatLon> wps;
+  wps.reserve(kDistancesM.size());
+  for (double d : kDistancesM) {
+    const double along = d;
+    const double cap_abs = std::abs(lateral_cap);
+    const double approach_distance_m = cap_abs / std::max(lateral_slope, 1.0e-6);
+    double lateral_abs = cap_abs *
+        (1.0 - std::exp(-d / std::max(1.0, approach_distance_m)));
+    double lateral = lateral_sign * lateral_abs;
+    if (d > taper_start_m) {
+      const double taper = std::clamp(
+          (taper_end_m - d) / (taper_end_m - taper_start_m),
+          0.0, 1.0);
+      lateral *= taper;
+    }
+    const double d_north = along * route_n + lateral * right_n;
+    const double d_east = along * route_e + lateral * right_e;
+    wps.push_back({
+      anchor_lat + d_north / kMetersPerDegLat,
+      anchor_lon + d_east / m_per_deg_lon,
+    });
+  }
+  return wps;
+}
+
+inline std::vector<WaypointLatLon> generate_rule13_overtake_corridor_waypoints(
+    double /*heading_min_deg*/, double /*heading_max_deg*/,
+    double anchor_lat, double anchor_lon,
+    double planned_route_bearing_rad,
+    ColregsPreferredDirection preferred_direction = ColregsPreferredDirection::Starboard,
+    double rejoin_taper_start_m = kDefaultNoRejoinTaperDistanceM,
+    double rejoin_taper_end_m = kDefaultNoRejoinTaperDistanceM + 1.0) {
+  const double m_per_deg_lon = kMetersPerDegLat * std::cos(anchor_lat * M_PI / 180.0);
+  const double route_n = std::cos(planned_route_bearing_rad);
+  const double route_e = std::sin(planned_route_bearing_rad);
+  const double right_n = -std::sin(planned_route_bearing_rad);
+  const double right_e = std::cos(planned_route_bearing_rad);
+  double lateral_sign = 1.0;
+  if (preferred_direction == ColregsPreferredDirection::Starboard) {
+    lateral_sign = 1.0;
+  } else if (preferred_direction == ColregsPreferredDirection::Port) {
+    lateral_sign = -1.0;
+  }
+
+  const double taper_start_m = std::max(0.0, rejoin_taper_start_m);
+  const double taper_end_m = std::max(taper_start_m + 1.0, rejoin_taper_end_m);
+  static const std::vector<double> kDistancesM = {
+      600.0, 1200.0, 2000.0, 3000.0, 4200.0, 5600.0, 7000.0,
+      8400.0, 10000.0, 12000.0};
+
+  std::vector<WaypointLatLon> wps;
+  wps.reserve(kDistancesM.size());
+  for (double d : kDistancesM) {
+    double lateral_abs = std::min(kRule13OvertakeCorridorPeakOffsetM, d * 0.10);
+    if (d > taper_start_m) {
+      const double taper = std::clamp(
+          (taper_end_m - d) / (taper_end_m - taper_start_m),
+          0.0, 1.0);
+      lateral_abs *= taper;
+    }
+    const double lateral = lateral_sign * lateral_abs;
+    const double d_north = d * route_n + lateral * right_n;
+    const double d_east = d * route_e + lateral * right_e;
+    wps.push_back({
+      anchor_lat + d_north / kMetersPerDegLat,
+      anchor_lon + d_east / m_per_deg_lon,
     });
   }
   return wps;
@@ -80,9 +261,10 @@ inline std::vector<WaypointLatLon> generate_return_to_route_waypoints(
   };
 
   return {
-    {own_lat, own_lon},
-    project(600.0, route_xte_m),
-    project(1200.0, route_xte_m),
+    project(500.0, 0.0),
+    project(1200.0, route_xte_m * 0.15),
+    project(2200.0, route_xte_m * 0.55),
+    project(3500.0, route_xte_m),
   };
 }
 

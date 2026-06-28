@@ -1174,6 +1174,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   // not route recovery.
   if (colregs_turn_active) {
     colregs_recovery_armed_ = true;
+    if (!has_mrc && primary != BehaviorType::COLREG_AVOID) {
+      // M6's live turn directive is the hard COLREG handoff. The activation
+      // phase/action gate may flicker for one sample while the directive and
+      // heading constraints remain valid; never publish TRANSIT for that state.
+      primary = BehaviorType::COLREG_AVOID;
+      if (rationale.find("M6 live turn directive") == std::string::npos) {
+        rationale += " | M6 live turn directive held COLREG_AVOID";
+      }
+    }
   }
   const bool colregs_conflict_active =
       inputs.colregs_conflict_detected && !risk_controlled_colregs_released;

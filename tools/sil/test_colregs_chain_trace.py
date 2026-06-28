@@ -154,6 +154,40 @@ def test_l4_execution_sources_are_parsed_from_asdr_records():
     assert summary["l4"]["execution_source_transitions"] == ["avoidance->transit"]
 
 
+def test_gnc_execution_status_is_counted_as_l4_handoff_evidence():
+    summary = build_chain_summary([
+        rec(
+            1.0,
+            "/l3/gnc/execution_status",
+            execution_state="ACCEPTED",
+            reason="feasible",
+            suggested_action="none",
+            plan_id="m5-colregs-1",
+            cross_track_error_m=0.5,
+        ),
+        rec(
+            2.0,
+            "/l3/gnc/execution_status",
+            execution_state="DEFERRED",
+            reason="avoidance_active",
+            suggested_action="continue_avoidance",
+            plan_id="m5-colregs-1",
+            cross_track_error_m=0.8,
+        ),
+    ])
+
+    assert summary["l4"]["samples"] == 2
+    assert summary["l4"]["gnc_execution_state_counts"] == {
+        "ACCEPTED": 1,
+        "DEFERRED": 1,
+    }
+    assert summary["l4"]["gnc_reason_counts"] == {
+        "avoidance_active": 1,
+        "feasible": 1,
+    }
+    assert summary["l4"]["gnc_plan_id_changes"] == 0
+
+
 def test_gate_diagnosis_maps_cpa_shortfall_to_m5_contract():
     summary = build_chain_summary([
         rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True),

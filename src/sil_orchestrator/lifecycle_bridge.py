@@ -46,6 +46,16 @@ _SCENARIO_LOADED_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
 )
 
+# GNC reset is a configure-time command, and the bridge may still be joining DDS
+# during strict restart runs. Latch the last reset so late subscribers receive
+# the scenario start state instead of continuing from stale GNC plant state.
+_GNC_RESET_QOS = QoSProfile(
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
 # Ordered list of SIL lifecycle nodes besides scenario_lifecycle_mgr.
 # Names must match what each Node.__init__ passes as node_name.
 _SIL_LIFECYCLE_NODES = [
@@ -155,7 +165,7 @@ class LifecycleBridge(Node):
         self._scenario_loaded_pub = self.create_publisher(
             String, "/sil/scenario_loaded", qos_profile=_SCENARIO_LOADED_QOS)
         self._reset_own_ship_pub = self.create_publisher(
-            ShipReset, "/l3/sim/reset_own_ship", 10)
+            ShipReset, "/l3/sim/reset_own_ship", qos_profile=_GNC_RESET_QOS)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(

@@ -83,7 +83,7 @@ class DebugTraceWriter:
     # File size above which flush() gzips the current file aside and reopens
     # fresh. Exposed as an instance attribute (not the constant) so tests can
     # shrink it via monkeypatch without writing 50 MB.
-    _rotate_size_bytes = 50 * 1024 * 1024
+    _rotate_size_bytes = 256 * 1024 * 1024
 
     def __init__(self, logger: _LoggerLike | None = None) -> None:
         """``logger`` is anything with ``error``/``warning``/``info`` (a ROS2
@@ -311,6 +311,104 @@ def _normalize_world_state_msg(msg: Any) -> dict[str, Any]:
     return payload
 
 
+def _normalize_gnc_execution_status_msg(msg: Any) -> dict[str, Any]:
+    stamp = getattr(msg, "stamp", None)
+    return {
+        "stamp_sec": int(getattr(stamp, "sec", 0)) if stamp is not None else 0,
+        "stamp_nanosec": int(getattr(stamp, "nanosec", 0)) if stamp is not None else 0,
+        "schema_version": int(getattr(msg, "schema_version", 0)),
+        "plan_id": str(getattr(msg, "plan_id", "")),
+        "active_route_id": str(getattr(msg, "active_route_id", "")),
+        "command_source": str(getattr(msg, "command_source", "")),
+        "accepted": bool(getattr(msg, "accepted", False)),
+        "executing": bool(getattr(msg, "executing", False)),
+        "degraded": bool(getattr(msg, "degraded", False)),
+        "rejected": bool(getattr(msg, "rejected", False)),
+        "execution_state": str(getattr(msg, "execution_state", "")),
+        "reason": str(getattr(msg, "reason", "")),
+        "suggested_action": str(getattr(msg, "suggested_action", "")),
+        "requested_speed_mps": float(getattr(msg, "requested_speed_mps", 0.0)),
+        "applied_speed_mps": float(getattr(msg, "applied_speed_mps", 0.0)),
+        "suggested_max_speed_mps": float(getattr(msg, "suggested_max_speed_mps", 0.0)),
+        "current_latitude": float(getattr(msg, "current_latitude", 0.0)),
+        "current_longitude": float(getattr(msg, "current_longitude", 0.0)),
+        "current_heading_deg": float(getattr(msg, "current_heading_deg", 0.0)),
+        "current_speed_mps": float(getattr(msg, "current_speed_mps", 0.0)),
+        "cross_track_error_m": float(getattr(msg, "cross_track_error_m", 0.0)),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+        "rationale": str(getattr(msg, "rationale", "")),
+    }
+
+
+def _as_float_list(values: Any) -> list[float]:
+    if values is None:
+        return []
+    return [float(value) for value in list(values)]
+
+
+def _as_string_list(values: Any) -> list[str]:
+    if values is None:
+        return []
+    return [str(value) for value in list(values)]
+
+
+def _normalize_avoidance_waypoints_msg(msg: Any) -> dict[str, Any]:
+    stamp = getattr(msg, "stamp", None)
+    valid_until = getattr(msg, "valid_until", None)
+    latitudes = _as_float_list(getattr(msg, "latitude", []))
+    longitudes = _as_float_list(getattr(msg, "longitude", []))
+    payload: dict[str, Any] = {
+        "stamp_sec": int(getattr(stamp, "sec", 0)) if stamp is not None else 0,
+        "stamp_nanosec": int(getattr(stamp, "nanosec", 0)) if stamp is not None else 0,
+        "schema_version": int(getattr(msg, "schema_version", 0)),
+        "plan_id": str(getattr(msg, "plan_id", "")),
+        "parent_route_id": str(getattr(msg, "parent_route_id", "")),
+        "behavior_mode": str(getattr(msg, "behavior_mode", "")),
+        "command_source": str(getattr(msg, "command_source", "")),
+        "n_waypoints": min(len(latitudes), len(longitudes)),
+        "latitude": latitudes,
+        "longitude": longitudes,
+        "command_speed_mps": _as_float_list(getattr(msg, "command_speed_mps", [])),
+        "navigation_mode": _as_string_list(getattr(msg, "navigation_mode", [])),
+        "valid_until_sec": int(getattr(valid_until, "sec", 0)) if valid_until is not None else 0,
+        "valid_until_nanosec": int(getattr(valid_until, "nanosec", 0))
+        if valid_until is not None
+        else 0,
+        "allow_degraded_execution": bool(getattr(msg, "allow_degraded_execution", False)),
+        "has_return_to_route_point": bool(getattr(msg, "has_return_to_route_point", False)),
+        "return_latitude": float(getattr(msg, "return_latitude", 0.0)),
+        "return_longitude": float(getattr(msg, "return_longitude", 0.0)),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+        "rationale": str(getattr(msg, "rationale", "")),
+    }
+    if latitudes:
+        payload["wp0_lat"] = latitudes[0]
+        payload["wp_last_lat"] = latitudes[-1]
+    if longitudes:
+        payload["wp0_lon"] = longitudes[0]
+        payload["wp_last_lon"] = longitudes[-1]
+    return payload
+
+
+def _normalize_avoidance_plan_msg(msg: Any) -> dict[str, Any]:
+    waypoints = list(getattr(msg, "waypoints", []))
+    wp0 = waypoints[0] if waypoints else None
+    wp1 = waypoints[1] if len(waypoints) > 1 else None
+    wp0_pos = getattr(wp0, "position", None) if wp0 else None
+    wp1_pos = getattr(wp1, "position", None) if wp1 else None
+    return {
+        "n_waypoints": len(waypoints),
+        "solver_status": "VALID" if waypoints else "EMPTY",
+        "plan_status": str(getattr(msg, "status", "")),
+        "wp0_turn_radius_m": float(wp0.turn_radius_m) if wp0 else 0.0,
+        "wp0_target_speed_kn": float(wp0.target_speed_kn) if wp0 else 0.0,
+        "wp0_lat": float(wp0_pos.latitude) if wp0_pos else 0.0,
+        "wp0_lon": float(wp0_pos.longitude) if wp0_pos else 0.0,
+        "wp1_lat": float(wp1_pos.latitude) if wp1_pos else 0.0,
+        "wp1_lon": float(wp1_pos.longitude) if wp1_pos else 0.0,
+    }
+
+
 # Topic → (message type import path, normalizer). Normalizers turn a ROS msg
 # into the dict the trace evaluators expect. Kept 1:1 with the deleted bridge's
 # record() payloads so downstream consumers are unaffected.
@@ -328,7 +426,12 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         SafetyAlert,
         WorldState,
     )
-    from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
+    from l3_external_msgs.msg import (
+        AvoidanceWaypoints,
+        CheckerVetoNotification,
+        GncExecutionStatus,
+        PlannedRoute,
+    )
 
     def sim_t(node) -> float:
         return node.get_clock().now().nanoseconds * 1e-9
@@ -384,22 +487,16 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         )
 
     def on_avoidance(msg):
-        wp0 = msg.waypoints[0] if msg.waypoints else None
-        wp1 = msg.waypoints[1] if len(msg.waypoints) > 1 else None
-        wp0_pos = getattr(wp0, "position", None) if wp0 else None
-        wp1_pos = getattr(wp1, "position", None) if wp1 else None
         writer.record(
             "/l3/m5/avoidance_plan",
-            {
-                "n_waypoints": len(msg.waypoints),
-                "solver_status": "VALID" if (wp0 and abs(wp0.turn_radius_m) > 1e-6) else "EMPTY",
-                "wp0_turn_radius_m": float(wp0.turn_radius_m) if wp0 else 0.0,
-                "wp0_target_speed_kn": float(wp0.target_speed_kn) if wp0 else 0.0,
-                "wp0_lat": float(wp0_pos.latitude) if wp0_pos else 0.0,
-                "wp0_lon": float(wp0_pos.longitude) if wp0_pos else 0.0,
-                "wp1_lat": float(wp1_pos.latitude) if wp1_pos else 0.0,
-                "wp1_lon": float(wp1_pos.longitude) if wp1_pos else 0.0,
-            },
+            _normalize_avoidance_plan_msg(msg),
+            t_now(),
+        )
+
+    def on_avoidance_waypoints(msg):
+        writer.record(
+            "/l3/m5/avoidance_waypoints",
+            _normalize_avoidance_waypoints_msg(msg),
             t_now(),
         )
 
@@ -504,8 +601,15 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
             )
             route_hash = hashlib.md5(coords.encode()).hexdigest()[:12]
         except Exception:
-            route_hash = ""
+                route_hash = ""
         writer.record("/l2/planned_route", {"route_hash": route_hash}, t_now())
+
+    def on_gnc_execution(msg):
+        writer.record(
+            "/l3/gnc/execution_status",
+            _normalize_gnc_execution_status_msg(msg),
+            t_now(),
+        )
 
     def on_lifecycle(msg):
         # Update the sim_t anchor from the authoritative lifecycle_status field.
@@ -536,6 +640,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/sil/own_ship_state", SilOwnShipState, on_own),
         ("/l3/m4/behavior_plan", BehaviorPlan, on_behavior),
         ("/l3/m5/avoidance_plan", AvoidancePlan, on_avoidance),
+        ("/l3/m5/avoidance_waypoints", AvoidanceWaypoints, on_avoidance_waypoints),
         ("/l3/m6/colregs_constraint", COLREGsConstraint, on_colregs),
         ("/l3/m2/world_state", WorldState, on_world_state),
         ("/l3/checker/veto", CheckerVetoNotification, on_veto),
@@ -546,6 +651,7 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/l3/fsm_state", FsmState, on_fsm),
         ("/l3/m7/safety_alert", SafetyAlert, on_safety_alert),
         ("/l2/planned_route", PlannedRoute, on_route),
+        ("/l3/gnc/execution_status", GncExecutionStatus, on_gnc_execution),
         ("/sil/lifecycle_status", LifecycleStatus, on_lifecycle),
     ]
     # Return the holder alongside the subscriptions so main() can populate it

@@ -2320,6 +2320,87 @@ TEST_F(BehaviorArbiterTest, PrematureRecoveryGatedOnM6Conflict) {
       << last_plan->rationale;
 }
 
+TEST_F(BehaviorArbiterTest, LiveM6TurnDirectiveCannotDropToTransitOnActionGateGlitch) {
+  auto node = std::make_shared<BehaviorArbiterNode>();
+
+  auto observer = std::make_shared<rclcpp::Node>("m4_live_turn_directive_observer");
+  std::optional<BehaviorPlanMsg> last_plan;
+  std::optional<rclcpp::Time> accept_plan_after;
+  auto plan_sub = observer->create_subscription<BehaviorPlanMsg>(
+      "/l3/m4/behavior_plan", rclcpp::QoS(10).reliable(),
+      [&](const BehaviorPlanMsg::SharedPtr msg) {
+        if (!accept_plan_after.has_value() ||
+            rclcpp::Time(msg->stamp) >= accept_plan_after.value()) {
+          last_plan = *msg;
+        }
+      });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(observer);
+  spin_until(executor, [&]() {
+    return node->count_subscribers("/l3/m4/behavior_plan") > 0;
+  });
+
+  auto odd_msg = std::make_shared<ODDStateMsg>();
+  odd_msg->stamp = node->now();
+  odd_msg->current_zone = 1;
+  trigger_odd_state(node, odd_msg);
+
+  auto world_msg = std::make_shared<WorldStateMsg>();
+  world_msg->stamp = node->now();
+  world_msg->own_ship.heading_deg = 0.0;
+  world_msg->own_ship.sog_kn = 8.0;
+  world_msg->own_ship.confidence = 1.0;
+  world_msg->targets.resize(1);
+  world_msg->targets[0].target_id = 100000001;
+  world_msg->targets[0].rng_m = 1500.0;
+  world_msg->targets[0].brg_deg = 45.0;
+  world_msg->targets[0].cog_deg = 270.0;
+  world_msg->targets[0].sog_kn = 8.0;
+  world_msg->targets[0].cpa_m = 200.0;
+  world_msg->targets[0].tcpa_s = 300.0;
+  world_msg->targets[0].confidence = 1.0f;
+  trigger_world_state(node, world_msg);
+
+  auto mission_msg = std::make_shared<MissionGoalMsg>();
+  mission_msg->stamp = node->now();
+  mission_msg->fsm_state = MissionGoalMsg::FSM_ACTIVE;
+  mission_msg->task_validity = MissionGoalMsg::TASK_VALIDITY_VALID;
+  trigger_mission_goal(node, mission_msg);
+
+  auto colregs_msg = std::make_shared<COLREGsConstraintMsg>();
+  colregs_msg->stamp = node->now();
+  colregs_msg->conflict_detected = true;
+  colregs_msg->phase = "PRESERVE_COURSE";
+  colregs_msg->primary_role = kRoleGiveWay;
+  colregs_msg->primary_preferred_direction = "STARBOARD";
+  colregs_msg->colregs_chain_target_id = "100000001";
+  l3_msgs::msg::RuleActive active_rule;
+  active_rule.rule_id = 15;
+  active_rule.rule_phase = "T_warn";
+  active_rule.target_id = 100000001;
+  active_rule.role = kRoleGiveWay;
+  active_rule.preferred_direction = "STARBOARD";
+  colregs_msg->active_rules.push_back(active_rule);
+  l3_msgs::msg::Constraint c;
+  c.constraint_type = "colregs";
+  c.unit = "deg";
+  c.numeric_value = 30.0;
+  colregs_msg->constraints.push_back(c);
+  trigger_colregs_constraint(node, colregs_msg);
+
+  accept_plan_after = node->now();
+  trigger_arbitration(node);
+  spin_until(executor, [&]() { return last_plan.has_value(); });
+
+  ASSERT_TRUE(last_plan.has_value());
+  EXPECT_EQ(last_plan->behavior, BehaviorPlanMsg::BEHAVIOR_COLREG_AVOID)
+      << "A live M6 turn directive is a hard COLREG handoff. M4 must not drop "
+         "to TRANSIT just because the phase/action gate flickers while "
+         "conflict_detected and STARBOARD/PORT direction remain present: "
+      << last_plan->rationale;
+}
+
 TEST_F(BehaviorArbiterTest, PrematureRecoveryBlockedWhenTargetNotAbaftBeam) {
   // D1.3 v4: the closing_speed gate (D1.3 v3) only blocks release while the
   // target is still closing (TCPA>0). It does NOT cover the observed case where
