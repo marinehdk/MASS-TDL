@@ -454,5 +454,51 @@ TEST(ColregsReleasePolicy, UsesFsmHeldGiveWayDutyWhenRawGeometryDropsOut) {
       held_eval));
 }
 
+TEST(ColregsReleasePolicy, Rule5FollowsPrimaryLatchWhenRule14Latched) {
+  // Rule 5 must stay active while a primary rule (here Rule 14) is latched for
+  // this target, so the instantaneous-CPA risk gate cannot churn Rule 5 out.
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/true,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5FollowsPrimaryLatchWhenAnyPrimaryLatched) {
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/true));
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5DoesNotFollowWhenNoPrimaryLatched) {
+  // No primary rule latched: Rule 5 falls back to the normal risk gate.
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5BypassAppliesOnlyToRule5) {
+  // Non-Rule-5 rules never take the follow path, regardless of latch state.
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/6,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/true,
+      /*rule15_latched=*/true));
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/17,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

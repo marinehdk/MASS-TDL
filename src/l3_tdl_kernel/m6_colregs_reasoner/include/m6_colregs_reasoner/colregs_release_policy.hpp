@@ -89,6 +89,21 @@ inline bool primary_rule_onset_allowed(
       latched_primary_rule_id == candidate_rule_id;
 }
 
+// Rule 5 (proper look-out) is a continuous obligation that must persist through
+// an active encounter. The primary-rule latch (13/14/15) holds the encounter
+// classification through own ship's avoidance maneuver (Rule 13(d)); Rule 5 must
+// not be gated off by an instantaneous CPA transient while a primary rule is
+// latched for this target, otherwise Rule 5 flaps in/out of the active set and
+// triggers M6 RULE_INSTABILITY. Returns true only for Rule 5 itself when at
+// least one primary rule latch is engaged.
+inline bool rule5_follows_primary_latch(
+    int rule_id,
+    bool rule13_latched,
+    bool rule14_latched,
+    bool rule15_latched) {
+  return rule_id == 5 && (rule13_latched || rule14_latched || rule15_latched);
+}
+
 inline double give_way_reference_heading_cpa_m(
     double range_m,
     double bearing_deg,

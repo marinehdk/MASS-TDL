@@ -935,7 +935,18 @@ void ColregsReasonerNode::run_reasoning() {
         if (!give_way_role) {
           const bool raw_risk =
               (target.tcpa_s >= 0.0) && (target.cpa_m < kParams.cpa_safe_m);
-          if (!raw_risk) {
+          // Rule 5 (proper look-out) is a continuous obligation that must
+          // persist through an active encounter. While a primary rule
+          // (13/14/15) is latched for this target, an instantaneous CPA
+          // transient must not gate Rule 5 off — otherwise Rule 5 flaps in/out
+          // of the active set and drives M6 RULE_INSTABILITY. The latch
+          // iterators are computed earlier in this per-target block.
+          const bool follows_primary_latch = rule5_follows_primary_latch(
+              eval.rule_id,
+              rule13_latch_it != rule_latches_.end() && rule13_latch_it->second.latched(),
+              rule14_latch_it != rule_latches_.end() && rule14_latch_it->second.latched(),
+              rule15_latch_it != rule_latches_.end() && rule15_latch_it->second.latched());
+          if (!raw_risk && !follows_primary_latch) {
             eval.is_active = false;
           }
         }
