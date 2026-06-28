@@ -4,6 +4,38 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-06-28] ZCode / commit f0ebfc2e / Class A fix: M6 Rule5 primary-latch follow
+
+### Task Goal
+Stop Rule 5 (look-out) churning in/out of M6 `active_rules` during an active head-on encounter, which drove M6 RULE_INSTABILITY on `colreg-rule14-ho` and `colreg-rule14-ho-intelligent`.
+
+### Core Changes
+- Added `rule5_follows_primary_latch()` inline helper in `include/m6_colregs_reasoner/colregs_release_policy.hpp` (pure function, mirrors existing `give_way_duty_from_raw_or_fsm` pattern).
+- Wired it into `run_reasoning` non-primary risk-gate (`src/colregs_reasoner_node.cpp` else-branch ~line 935): while any primary rule (13/14/15) is latched for the target, Rule 5 skips the instantaneous-CPA risk gate and stays active through the encounter (Rule 13(d) hold). Falls back to the risk gate after release.
+- Added 4 unit tests in `test/test_colregs_release_policy.cpp`.
+- No change to `rule5_lookout.cpp`, Rule 14 gate constants, oracle thresholds, or other non-primary rules (6/7/8/16/17/18/19).
+
+### Verification (fresh GNC image rebuild, restart-between-runs)
+- M6 unit suite: 21/21 PASS. M5 `test_avoidance_waypoint_gen`: 43/43 (regression guard).
+- `colreg-rule14-ho` Layer-2 oracle: M6 GREEN (was RED RULE_INSTABILITY). conflict_toggles 6→2. 0 sub-2s Rule5 flip intervals (was 3).
+- `colreg-rule14-ho-intelligent` Layer-2 oracle: M6 GREEN (was RED). conflict_toggles 3→1.
+- `colreg-rule14-ho-port` Layer-2 oracle: 6/6 GREEN (regression guard, unchanged).
+- Post-clear regression: Rule 5 gates off correctly once primary rule releases and target is past-and-clear (returns to risk gate).
+
+### Current Status
+- Class A (Rule5 churn) RESOLVED at Layer-2 module level for all 3 Rule14 scenarios.
+- Layer-3 integration still RED on ho / ho-port / ho-intelligent — now from Class B plan-id churn (separate defect, separate spec), NOT M6. `colregs_pass=True` on ho and ho-port; ho-intelligent colregs=False from phase gate under plan_id_changes=11115 (intelligent-target-amplified churn).
+- Evidence: `runs/trace_eval/20260628_112420_rule14_ho_after_rule5_fix/`, `runs/trace_eval/20260628_113127_rule14_cohort_after_rule5_fix/`, `runs/module_oracle_rule14_*_after_rule5_fix.json`.
+- Spec: `docs/superpowers/specs/2026-06-28-m6-rule5-primary-latch-follow-design.md`.
+- Plan: `docs/superpowers/plans/2026-06-28-m6-rule5-primary-latch-follow.md`.
+
+### Handoff Notes
+- Still open (separate specs, NOT bundled with Class A):
+  - ot-boundary Rule13/15 overtake-boundary classification (Class A sub-problem, M6 WRONG_RULE+ROLE).
+  - Class B plan-id churn (ho-port, cs, cs-2, cs-intelligent integration; contract spec §route-anchoring).
+  - Class C cs-edge GNC speed envelope (safety_floor near-miss from high closing speed + decel distance).
+- No A4000 sync, no GitHub/GitLab push. Local worktree only.
+
 ## [2026-06-04 11:55] Agent: Antigravity (IDE Environment)
 - **Git Commit**: `03555118` (branch: `main`)
 - **Headroom Session**: `3447c8d7-43b5-4230-ac3a-3909e0e2a40b` (current Antigravity conversation ID)
