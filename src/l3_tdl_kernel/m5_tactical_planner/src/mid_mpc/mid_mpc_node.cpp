@@ -878,26 +878,36 @@ void MidMpcNode::publish_avoidance_waypoints_(
     }
     // conflict -> clear transition: repeat return_to_route briefly so the GNC
     // route-update guard cannot drop the only lifecycle-release message.
-    //
-    // Class B fix: emit an EMPTY avoidance plan (no waypoints) during RECOVERY.
-    // GNC ActiveRouteManager::basic_route_valid requires latitude.size() >= 2;
-    // an empty plan is rejected before mark_avoidance_active, so the 60 s
-    // avoidance hold expires naturally and GNC resumes the L2 nominal route.
-    // Return-to-route geometry is owned by L2/L3 nominal route, not the
-    // avoidance channel. Previously VALID waypoints here kept re-arming GNC's
-    // avoidance hold through the entire RECOVERY window, stretching the
-    // avoidance duration ~3x and breaching the seamanship integrated_xte gate.
     wp.behavior_mode             = "return_to_route";
     wp.parent_route_id           = "nominal";
     wp.plan_id                   = return_route_anchor_->plan_id;
     wp.has_return_to_route_point = true;
     const auto& wps = return_route_anchor_->waypoints;
+    wp.latitude.resize(wps.size());
+    wp.longitude.resize(wps.size());
+    wp.command_speed_mps.resize(wps.size(), return_route_anchor_->command_speed_mps);
+    wp.navigation_mode.resize(wps.size(), return_route_anchor_->navigation_mode);
+    const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
+        {lat0_deg, lon0_deg}, wps, wp.command_speed_mps);
+    if (!preflight.feasible) {
+      RCLCPP_WARN(
+          get_logger(),
+          "[M5][GNCPreflight] drop infeasible return plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
+          return_route_anchor_->plan_id.c_str(), preflight.reason.c_str(), preflight.index,
+          preflight.required_m, preflight.available_m);
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
+    for (std::size_t i = 0; i < wps.size(); ++i) {
+      wp.latitude[i]  = wps[i].lat;
+      wp.longitude[i] = wps[i].lon;
+    }
     wp.return_latitude           = wps.back().lat;
     wp.return_longitude          = wps.back().lon;
-    // latitude / longitude / command_speed_mps / navigation_mode left EMPTY so
-    // GNC basic_route_valid rejects this plan without re-arming avoidance.
     wp.rationale                 =
-        "M4 RECOVERY — release GNC avoidance hold (empty plan); route owned by L2 nominal";
+        return_route_anchor_->navigation_mode == "colregs_overtake"
+            ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
+            : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
     wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
     wp.allow_degraded_execution  = true;
   } else {

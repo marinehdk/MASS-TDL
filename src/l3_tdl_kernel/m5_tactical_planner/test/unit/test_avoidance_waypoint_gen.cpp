@@ -583,18 +583,3 @@ TEST(AvoidanceWaypointGen, ReturnRouteSegmentsAndTurnAreFeasible) {
     EXPECT_GE(avail, required_turn_radius_m(3.2)) << "vertex " << i;
   }
 }
-
-// Class B regression guard: generate_return_to_route_waypoints must still
-// produce valid non-empty geometry. The Class B fix changes the M5 PUBLISH
-// path to emit an EMPTY avoidance plan during RECOVERY (so GNC releases its
-// avoidance hold), but the return-to-route geometry itself is owned by L2
-// nominal route and this generator stays the source of that geometry.
-TEST(AvoidanceWaypointGen, ReturnToRouteGeometryRemainsValidForL2Nominal) {
-  const auto wps = generate_return_to_route_waypoints(
-      63.44, 10.38, 0.0, 200.0);
-  ASSERT_GE(wps.size(), 2u);
-  for (const auto& p : wps) {
-    EXPECT_TRUE(std::isfinite(p.lat)) << "return waypoint lat must be finite";
-    EXPECT_TRUE(std::isfinite(p.lon)) << "return waypoint lon must be finite";
-  }
-}
