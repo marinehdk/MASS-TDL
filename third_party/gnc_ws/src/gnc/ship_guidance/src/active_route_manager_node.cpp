@@ -14,6 +14,7 @@
 
 #include "ship_interfaces/msg/avoidance_plan.hpp"
 #include "ship_interfaces/msg/geo_position.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
 #include "ship_guidance/navigation_mode_policy.hpp"
@@ -97,6 +98,12 @@ public:
         declare_parameter("max_yaw_rate_deg_s", 1.2);
         declare_parameter("emergency_max_yaw_rate_deg_s", 2.0);
         declare_parameter("max_decel_mps2", 0.08);
+        // W2: speed-envelope parameters duplicated from ship_guidance_node so the
+        // whole GNC execution ODD is published from this single node (decision #3,
+        // option a). Both nodes read the same overlay param block, staying in sync.
+        declare_parameter("emergency_avoidance_speed_cap_mps", 3.2);
+        declare_parameter("cruise_min_speed_mps", 3.8);
+        declare_parameter("max_transit_speed_mps", 3.0);
         declare_parameter("default_avoidance_hold_s", 60.0);
         declare_parameter("publish_nominal_status", false);
 
@@ -115,6 +122,11 @@ public:
         emergency_max_yaw_rate_deg_s_ = std::max(
             max_yaw_rate_deg_s_, get_parameter("emergency_max_yaw_rate_deg_s").as_double());
         max_decel_mps2_ = std::max(0.01, get_parameter("max_decel_mps2").as_double());
+        emergency_avoidance_speed_cap_mps_ = std::clamp(
+            get_parameter("emergency_avoidance_speed_cap_mps").as_double(),
+            0.5, std::max(max_command_speed_mps_, 0.5));
+        cruise_min_speed_mps_ = std::max(0.0, get_parameter("cruise_min_speed_mps").as_double());
+        max_transit_speed_mps_ = std::max(0.0, get_parameter("max_transit_speed_mps").as_double());
         default_avoidance_hold_s_ = std::max(1.0, get_parameter("default_avoidance_hold_s").as_double());
         publish_nominal_status_ = get_parameter("publish_nominal_status").as_bool();
 
@@ -123,6 +135,11 @@ public:
             active_route_topic_, route_qos);
         status_pub_ = create_publisher<ship_interfaces::msg::RouteExecutionStatus>(
             execution_status_topic_, 10);
+        // W2: latched execution-ODD contract for TDL (single publisher, all ODD
+        // params, transient_local so late-joining subscribers get the last value).
+        execution_odd_pub_ = create_publisher<ship_interfaces::msg::GncExecutionOdd>(
+            "/gnc/execution_odd", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+        publish_execution_odd();  // initial latched publish after params loaded
 
         nominal_route_sub_ = create_subscription<ship_interfaces::msg::RoutePlan>(
             nominal_route_topic_, 10,
@@ -145,6 +162,23 @@ public:
     }
 
 private:
+    // W2: publish the latched execution-ODD contract so TDL (M5) can consume the
+    // actual GNC execution limits instead of hardcoding them. Called once after
+    // params load; the transient_local QoS keeps it available to late joiners.
+    void publish_execution_odd()
+    {
+        ship_interfaces::msg::GncExecutionOdd odd;
+        odd.header.stamp = this->now();
+        odd.emergency_avoidance_speed_cap_mps = emergency_avoidance_speed_cap_mps_;
+        odd.cruise_min_speed_mps = cruise_min_speed_mps_;
+        odd.max_transit_speed_mps = max_transit_speed_mps_;
+        odd.max_lateral_accel_mps2 = max_lateral_accel_mps2_;
+        odd.max_decel_mps2 = max_decel_mps2_;
+        odd.emergency_min_turn_radius_m = emergency_min_turn_radius_m_;
+        odd.emergency_max_yaw_rate_deg_s = emergency_max_yaw_rate_deg_s_;
+        odd.schema_version = "1.0";
+        execution_odd_pub_->publish(odd);
+    }
     void ship_state_callback(const ship_interfaces::msg::GeoPosition::SharedPtr msg)
     {
         latest_ship_state_ = *msg;
@@ -628,6 +662,9 @@ private:
     double max_yaw_rate_deg_s_{1.2};
     double emergency_max_yaw_rate_deg_s_{2.0};
     double max_decel_mps2_{0.08};
+    double emergency_avoidance_speed_cap_mps_{3.2};
+    double cruise_min_speed_mps_{3.8};
+    double max_transit_speed_mps_{3.0};
     double default_avoidance_hold_s_{60.0};
     bool publish_nominal_status_{false};
     bool has_active_avoidance_{false};
@@ -640,6 +677,7 @@ private:
     rclcpp::Subscription<ship_interfaces::msg::GeoPosition>::SharedPtr ship_state_sub_;
     rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr active_route_pub_;
     rclcpp::Publisher<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr status_pub_;
+    rclcpp::Publisher<ship_interfaces::msg::GncExecutionOdd>::SharedPtr execution_odd_pub_;
     rclcpp::TimerBase::SharedPtr deferred_nominal_timer_;
 
     ship_interfaces::msg::RoutePlan latest_nominal_route_;

@@ -67,6 +67,18 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         item.has_exec_status = true;
         handoff_->push_gnc_to_l3(std::move(item));
       });
+  // W2: forward the latched GNC execution-ODD contract so TDL (M5) on domain 42
+  // can consume the actual execution limits. transient_local matches the arm
+  // publisher QoS so late-joining subscribers get the last latched value.
+  sub_odd_ = create_subscription<ship_interfaces::msg::GncExecutionOdd>(
+      "/gnc/execution_odd",
+      rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+      [this](const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+        CrossDomainHandoff::GncToL3 item;
+        item.execution_odd = *msg;
+        item.has_execution_odd = true;
+        handoff_->push_gnc_to_l3(std::move(item));
+      });
   pub_avoidance_ = create_publisher<ship_interfaces::msg::AvoidancePlan>(
       "/colav/avoidance_plan", 10);
   pub_route_ = create_publisher<ship_interfaces::msg::RoutePlan>(
@@ -100,7 +112,8 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         }
       });
   RCLCPP_INFO(get_logger(),
-      "GNC side ready: sub /ship/geo_position, /gnc/route_execution_status; "
+      "GNC side ready: sub /ship/geo_position, /gnc/route_execution_status, "
+      "/gnc/execution_odd; "
       "pub /colav/avoidance_plan, /route_planning/route_plan, "
       "/ship/geo_origin_reset, /ship/dynamics_reset");
 }
@@ -112,6 +125,10 @@ L3PublisherNode::L3PublisherNode(std::shared_ptr<CrossDomainHandoff> handoff,
       "/sil/own_ship_state", 10);
   pub_exec_status_ = create_publisher<l3_external_msgs::msg::GncExecutionStatus>(
       "/l3/gnc/execution_status", 10);
+  // W2: republish the execution-ODD contract on domain 42 (same topic name).
+  pub_odd_ = create_publisher<ship_interfaces::msg::GncExecutionOdd>(
+      "/gnc/execution_odd",
+      rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
   drain_timer_ = create_wall_timer(
       std::chrono::milliseconds(50),
       [this]() {
@@ -119,10 +136,12 @@ L3PublisherNode::L3PublisherNode(std::shared_ptr<CrossDomainHandoff> handoff,
         while (handoff_->try_pop_gnc_to_l3(item)) {
           if (item.has_own_ship)    pub_own_ship_->publish(item.own_ship);
           if (item.has_exec_status) pub_exec_status_->publish(item.exec_status);
+          if (item.has_execution_odd) pub_odd_->publish(item.execution_odd);
         }
       });
   RCLCPP_INFO(get_logger(),
-      "L3 pub side ready: pub /sil/own_ship_state, /l3/gnc/execution_status");
+      "L3 pub side ready: pub /sil/own_ship_state, /l3/gnc/execution_status, "
+      "/gnc/execution_odd");
 }
 
 }  // namespace gnc_bridge

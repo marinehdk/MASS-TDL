@@ -38,6 +38,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(ship_interfaces REQUIRED)
 find_package(l3_risk_model REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
@@ -143,6 +144,7 @@ ament_target_dependencies(m5_shared_lib
   rclcpp
   l3_msgs
   l3_external_msgs
+  ship_interfaces
   builtin_interfaces
 )
 
@@ -164,6 +166,7 @@ if(M5_HAS_CASADI)
     rclcpp
     l3_msgs
     l3_external_msgs
+    ship_interfaces
     builtin_interfaces
     ament_index_cpp
   )

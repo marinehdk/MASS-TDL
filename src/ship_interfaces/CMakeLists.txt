@@ -24,6 +24,7 @@ set(msg_files
   "msg/RouteExecutionStatus.msg"
   msg/GeoPosition.msg
   "msg/ShipReset.msg"
+  "msg/GncExecutionOdd.msg"
 )
 
 set(srv_files

@@ -23,6 +23,7 @@
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "ship_interfaces/msg/avoidance_plan.hpp"
 #include "ship_interfaces/msg/geo_position.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
 #include "ship_interfaces/msg/ship_reset.hpp"
@@ -55,6 +56,8 @@ class CrossDomainHandoff {
     bool has_own_ship{false};
     l3_external_msgs::msg::GncExecutionStatus exec_status;
     bool has_exec_status{false};
+    ship_interfaces::msg::GncExecutionOdd execution_odd;  // W2: GNC execution ODD contract
+    bool has_execution_odd{false};
   };
 
   void push_l3_to_gnc(L3ToGnc msg) {
@@ -149,6 +152,7 @@ class GncSideNode : public rclcpp::Node {
   std::shared_ptr<CrossDomainHandoff> handoff_;
   rclcpp::Subscription<ship_interfaces::msg::GeoPosition>::SharedPtr sub_geo_;
   rclcpp::Subscription<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr sub_status_;
+  rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_odd_;  // W2
   rclcpp::Publisher<ship_interfaces::msg::AvoidancePlan>::SharedPtr pub_avoidance_;
   rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr pub_route_;
   rclcpp::Publisher<ship_interfaces::msg::ShipReset>::SharedPtr pub_geo_reset_;
@@ -166,6 +170,7 @@ class L3PublisherNode : public rclcpp::Node {
   std::shared_ptr<CrossDomainHandoff> handoff_;
   rclcpp::Publisher<sil_msgs::msg::OwnShipState>::SharedPtr pub_own_ship_;
   rclcpp::Publisher<l3_external_msgs::msg::GncExecutionStatus>::SharedPtr pub_exec_status_;
+  rclcpp::Publisher<ship_interfaces::msg::GncExecutionOdd>::SharedPtr pub_odd_;  // W2
   rclcpp::TimerBase::SharedPtr drain_timer_;
 };
 

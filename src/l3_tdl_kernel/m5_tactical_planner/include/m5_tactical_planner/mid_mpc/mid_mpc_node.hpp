@@ -2,6 +2,7 @@
 #define MASS_L3_M5_MID_MPC_NODE_HPP_
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -11,6 +12,7 @@
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_external_msgs/msg/speed_profile.hpp"
 #include "l3_external_msgs/msg/avoidance_waypoints.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
@@ -85,10 +87,18 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr  sub_route_;
   rclcpp::Subscription<l3_external_msgs::msg::SpeedProfile>::SharedPtr  sub_speed_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr                sub_scenario_loaded_;
+  // W2: GNC execution-ODD contract (latched). M5 consumes the actual execution
+  // limits to generate reachable avoidance geometry (W4) instead of hardcoding.
+  rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_gnc_odd_;
+  ship_interfaces::msg::GncExecutionOdd latest_gnc_odd_;
+  mutable std::mutex gnc_odd_mutex_;
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
 
   void on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg);
+  // W2: return the live GNC execution ODD, or the hardcoded fallback (matches
+  // gnc_avoidance_preflight.hpp defaults) when no ODD msg has arrived yet.
+  [[nodiscard]] ship_interfaces::msg::GncExecutionOdd effective_gnc_odd_() const;
 
   double nominal_speed_kn_{10.0};
 

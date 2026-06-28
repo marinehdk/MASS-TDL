@@ -161,6 +161,16 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       rclcpp::QoS(rclcpp::KeepLast(10)).transient_local(),
       [this](std_msgs::msg::String::SharedPtr msg) { on_scenario_loaded_(std::move(msg)); });
 
+  // W2: subscribe the latched GNC execution-ODD contract (forwarded by gnc_bridge
+  // from domain 50). transient_local so a late-starting M5 gets the last value.
+  sub_gnc_odd_ = create_subscription<ship_interfaces::msg::GncExecutionOdd>(
+      "/gnc/execution_odd",
+      rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+      [this](ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+        std::lock_guard<std::mutex> lk(gnc_odd_mutex_);
+        latest_gnc_odd_ = std::move(*msg);
+      });
+
   pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/l3/m5/avoidance_plan", 10);
   // Track A A3: L3-owned waypoint plan for the GNC bridge.
   pub_avoidance_waypoints_ =
@@ -924,6 +934,24 @@ void MidMpcNode::on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg)
   RCLCPP_INFO(get_logger(),
       "scenario_loaded '%s' — resetting MPC warm state", msg->data.c_str());
   reset_cross_run_state();
+}
+
+ship_interfaces::msg::GncExecutionOdd MidMpcNode::effective_gnc_odd_() const {
+  std::lock_guard<std::mutex> lk(gnc_odd_mutex_);
+  if (!latest_gnc_odd_.schema_version.empty()) {
+    return latest_gnc_odd_;
+  }
+  // Fallback to hardcoded defaults matching gnc_avoidance_preflight.hpp when no
+  // live ODD msg has arrived yet (e.g. unit-test build, or gnc_bridge not up).
+  ship_interfaces::msg::GncExecutionOdd fallback;
+  fallback.emergency_avoidance_speed_cap_mps = 3.2;
+  fallback.cruise_min_speed_mps = 3.8;
+  fallback.max_transit_speed_mps = 3.0;
+  fallback.max_lateral_accel_mps2 = 0.25;
+  fallback.max_decel_mps2 = 0.08;
+  fallback.emergency_min_turn_radius_m = 45.0;
+  fallback.emergency_max_yaw_rate_deg_s = 2.0;
+  return fallback;
 }
 
 void MidMpcNode::reset_cross_run_state() {
