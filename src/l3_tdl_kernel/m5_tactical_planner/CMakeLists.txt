@@ -368,6 +368,11 @@ if(BUILD_TESTING)
     test/unit/test_avoidance_waypoint_gen.cpp
   )
 
+  # W4-A: target-track vs corridor clearance gate (pure geometry, no ROS).
+  m5_add_gtest(test_target_corridor_clearance
+    test/unit/test_target_corridor_clearance.cpp
+  )
+
   # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
   # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
   # its own (un-instrumented) libc symbols, causing ASAN to crash on
