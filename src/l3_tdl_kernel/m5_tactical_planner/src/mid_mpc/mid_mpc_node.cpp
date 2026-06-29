@@ -797,6 +797,23 @@ void MidMpcNode::publish_avoidance_waypoints_(
     wp.behavior_mode = navigation_mode;
     wp.parent_route_id = "nominal";
     wp.plan_id = anchor.plan_id;
+    // W4-B: convert live targets to local NED relative to the corridor anchor.
+    // TargetState.x_m/y_m are NED relative to own; the corridor anchor is fixed
+    // at conflict onset, so shift each target by own-relative-to-anchor.
+    std::vector<mass_l3::m5::TargetTrackPoint> target_tracks;
+    target_tracks.reserve(input.targets.size());
+    const double m_per_deg_lon_anchor =
+        mass_l3::m5::kMetersPerDegLat * std::cos(anchor.lat_deg * M_PI / 180.0);
+    const double own_n_rel_anchor =
+        (lat0_deg - anchor.lat_deg) * mass_l3::m5::kMetersPerDegLat;
+    const double own_e_rel_anchor =
+        (lon0_deg - anchor.lon_deg) * m_per_deg_lon_anchor;
+    for (const auto& tgt : input.targets) {
+      const double tgt_n = own_n_rel_anchor + tgt.x_m;
+      const double tgt_e = own_e_rel_anchor + tgt.y_m;
+      target_tracks.push_back({tgt_n, tgt_e, tgt.cog_rad, tgt.sog_mps});
+    }
+
     constexpr double kRule13OvertakeTaperStartM = 7500.0;
     constexpr double kRule13OvertakeTaperEndM = 12000.0;
     const auto wps = colregs_overtake_corridor
@@ -809,13 +826,28 @@ void MidMpcNode::publish_avoidance_waypoints_(
             anchor.direction,
             kRule13OvertakeTaperStartM,
             kRule13OvertakeTaperEndM)
-        : mass_l3::m5::generate_stable_avoidance_corridor_waypoints(
+        : mass_l3::m5::generate_target_safe_corridor_waypoints(
             anchor.heading_min_deg,
             anchor.heading_max_deg,
             anchor.lat_deg,
             anchor.lon_deg,
             anchor.route_bearing_rad,
-            anchor.direction);
+            anchor.direction,
+            target_tracks,
+            /*own_n=*/0.0,
+            /*own_e=*/0.0);
+    if (!colregs_overtake_corridor && !target_tracks.empty()) {
+      double corridor_max_east = 0.0;
+      const double m_per_deg_lon_wps =
+          mass_l3::m5::kMetersPerDegLat * std::cos(anchor.lat_deg * M_PI / 180.0);
+      for (const auto& w : wps) {
+        corridor_max_east = std::max(
+            corridor_max_east, (w.lon - anchor.lon_deg) * m_per_deg_lon_wps);
+      }
+      RCLCPP_INFO(get_logger(),
+          "[M5][W4] target-safe corridor: %zu targets, corridor peak east=%.0fm (default cap 270m)",
+          target_tracks.size(), corridor_max_east);
+    }
     const std::vector<double> speeds(wps.size(), anchor.command_speed_mps);
     const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
         {anchor.lat_deg, anchor.lon_deg}, wps, speeds);
