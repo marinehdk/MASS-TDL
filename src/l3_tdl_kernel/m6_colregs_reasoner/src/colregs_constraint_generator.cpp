@@ -19,6 +19,11 @@ using builtin_interfaces::msg::Time;
 namespace {
 
 constexpr double kNonCompliantTargetThreshold = 0.4;  // [TBD-HAZID]
+// W4-C: give-way crossing action window. COLREGs Rule 8/16 require action "in
+// ample time". Give-way must escalate to INDEPENDENT_ACTION before the stand-on
+// Rule 17(b) floor. [Data 2026-06-29]: cs-edge give-way stayed SOUND_WARNING
+// down to 65m / TCPA 6.8s.
+constexpr double kGivewayActionTcpaThresholdS = 180.0;
 
 std::string phase_to_str(const TimingPhase p) {
   switch (p) {
@@ -51,6 +56,15 @@ bool should_promote_directional_giveway_action(const RuleEvaluation& e) {
       e.preferred_direction != "HOLD";
 }
 
+bool should_escalate_giveway_action(const RuleEvaluation& e) {
+  const bool give_way = (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY);
+  return e.is_active &&
+      give_way &&
+      e.phase == TimingPhase::SOUND_WARNING &&
+      e.tcpa_s > 0.0 &&
+      e.tcpa_s <= kGivewayActionTcpaThresholdS;
+}
+
 RuleEvaluation effective_evaluation(
     const RuleEvaluation& raw, const RuleParameters& params) {
   RuleEvaluation effective = raw;
@@ -61,6 +75,16 @@ RuleEvaluation effective_evaluation(
     }
     effective.rationale +=
         "[promoted: directional give-way conflict requires active M4 contract]";
+  }
+  if (should_escalate_giveway_action(effective)) {
+    effective.phase = TimingPhase::INDEPENDENT_ACTION;
+    if (!effective.rationale.empty()) {
+      effective.rationale += " ";
+    }
+    effective.rationale +=
+        "[escalated: give-way TCPA within action window (<" +
+        std::to_string(static_cast<int>(kGivewayActionTcpaThresholdS)) +
+        "s), Rule 8/16 ample-time]";
   }
   if (!should_escalate_noncompliant_standon(raw)) {
     return effective;

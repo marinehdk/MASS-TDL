@@ -790,6 +790,7 @@ void ColregsReasonerNode::run_reasoning() {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
       eval.target_compliance = target.target_compliance;
+      eval.tcpa_s = target.tcpa_s;
 
       // Onset-latched hysteresis for Rules 13 (overtaking), 14 (head-on),
       // and 15 (crossing):
