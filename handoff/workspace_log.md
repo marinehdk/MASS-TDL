@@ -4,6 +4,73 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-06-29] ZCode / 无新 commit / W4 debate（Codex 独立调研对照）+ 实施plan + 提示词
+
+### Task Goal
+用 codex-rescue 独立调研 W4 根因，与 ZCode 分析对照输出 debate，沉淀结论，写完整实施 plan + 提示词供新对话 Codex 实施、GLM5.2 验收。
+
+### Core Changes（分析+文档，非代码）
+- Codex 独立调研（session 019f1184，8m56s，只读）：自己写脚本 trace 源码分析 cs-edge，未喂 ZCode 结论。
+- 新增 plan：`docs/superpowers/plans/2026-06-29-w4-target-aware-corridor.md`（5 Task，TDD，每 Task 独立 commit，含完整代码）。
+- 新增提示词：`handoff/w4-target-aware-corridor-execution-prompt.md`（Codex 实施入口 + Iron Law 警告 + 验收交接 GLM5.2）。
+- 无 commit（分析+文档）。
+
+### debate 结果（ZCode vs Codex，已逐条复现验证）
+**一致点（🟢 高，交叉验证）**：真实执行路径=/l3/m5/avoidance_waypoints（非 avoidance_plan）；横向 reachability 非瓶颈（own 跟到 corridor 89-93%，gap 27-42m）；根因是 M5 corridor 几何问题。
+
+**关键分歧（Codex 修正我的因果判断，已验证 Codex 对）**：我之前说"own 横穿 target 前方"，Codex 几何重建推翻——t=976.756 最近距时 own east=231.4 target east=230.4（几乎重合），corridor east=266.4，**own 和 target 都在 corridor 西侧 ~35m**。真因果是 corridor 偏东过大（cap 270m），target 航迹穿过 corridor，own 跟随被穿过的 corridor。因果反了。
+
+**Codex 决定性新证据**：对照 cs（own-corridor gap -29.5m 几乎相同，但 target-corridor gap -452m 远离）vs cs-edge（target-corridor gap -32.5m 贴 corridor）→ GREEN/RED 区分变量 = target 是否穿 corridor。M6 give-way phase 卡 SOUND_WARNING 到 65m/TCPA 6.8s 不升级。
+
+### 修正后 W4 根因 + 三方向
+根因：M5 固定 corridor（cap 270m starboard）不感知 target 预测轨迹，对 cs-edge 近 head-on 几何被 target 航迹穿过。
+- W4-A：target_corridor_clearance.hpp 纯函数 + generate_target_safe_corridor_waypoints（cap 270→800m 增长直到 target 与 corridor 间距≥200m）
+- W4-B：mid_mpc_node.cpp:812 把 input.targets 转 NED 相对 anchor 调 W4-A
+- W4-C：M6 give-way phase 升级（SOUND_WARNING→INDEPENDENT_ACTION on TCPA≤180s，需先给 RuleEvaluation 加 tcpa_s 字段）
+
+### Current Status
+- W4 debate + plan + 提示词完成。待新对话 Codex 实施 + GLM5.2 验收。
+- 无 commit，无 A4000 sync，无 push。分支可编译。
+- plan Task 3 已修正（RuleEvaluation 无 tcpa_s → Task 3 Step 0 加；M6 测试在 test/ 非 test/unit/）。
+
+### Handoff Notes
+- mempalace drawer `e7f5ddbe`（debate + 修正根因 + plan 坐标）、`9b804a5e`（W4 6 场景数据结论）。
+- plan `docs/superpowers/plans/2026-06-29-w4-target-aware-corridor.md`（5 Task）。
+- 提示词 `handoff/w4-target-aware-corridor-execution-prompt.md`（Codex 实施 + GLM5.2 验收交接）。
+- 接入点已 trace 验证：avoidance_waypoint_gen.hpp:127（已有 max_lateral_offset_m 参数）、mid_mpc_node.cpp:812（input.targets 可见）、colregs_constraint_generator.cpp:54-80（只升级 stand-on）、types.hpp:60-72（RuleEvaluation 无 tcpa_s）。
+- **下次（Codex 实施）**：读 plan 从 Task 1 TDD。**GLM5.2 验收**：代码评审 + counterfactual 回归 + cs-edge 探针。
+
+---
+
+## [2026-06-29] ZCode / 无新 commit / W4 横向 offset 6 场景数据分析（推翻 reachability 假设）
+
+### Task Goal
+完整分析 rule14+15 场景簇 6 场景数据（own 横向 + M5 wp0 横向 + CPA + SOG vs 时间），数据驱动定 W4 模型方向。不写 W4 代码。
+
+### Core Changes（分析产物，非代码）
+- 新增 `scripts/analysis/w4_lateral_offset_analysis.py`（path 1 avoidance_plan 分析）+ `scripts/analysis/w4_gnc_corridor_analysis.py`（path 2 avoidance_waypoints GNC 真执行 corridor 分析）。
+- 新增诊断报告 `docs/Doc From Claude/2026-06-29-w4-lateral-offset-data-analysis.md`。
+- 无 commit（分析+文档，未改源码）。
+
+### 关键发现（推翻 W4 原 framing）
+1. **两条 M5 路径必须区分**：`/l3/m5/avoidance_plan`（path 1, DEGRADED fallback, 不被 GNC 执行）vs `/l3/m5/avoidance_waypoints`（path 2, stable corridor, GNC 实际执行）。之前 drawer 22bf87b3 看的 path 1 gap 是 DEGRADED 切换 wp0 阶跃，≠ 真实执行 gap。
+2. **own 跟到 GNC corridor 峰值 89-93%**（gap 仅 27-42m）：ho 90%、ho-port 87%、cs 89%、cs-2 89%、cs-edge 92%。横向 reachability **不是瓶颈**。
+3. **W4 原 `reachable_lateral_offset_m` 纯运动学模型 framing 错误**。accel 模型 cs-edge 不 cap（28800m），turn-radius 过保守，且 own 能到 90% 峰值。
+4. **cs-edge 近撞真根因**（t=977 range=1-12m）：target 近 head-on 几何（brg=25 aspect=-10 t_sog=13.4），M6 混合角色（rule 8 stand-on + rule 15 give-way，primary 选 give-way STARBOARD min_alt=50°），corridor 沿 starboard 58.6° 把 own 推向横穿 target 前方（rel_brg +23→-64 穿越 0）。own 物理跟得上，**corridor 方向不对**。
+5. **两类 RED 根因分明**：Class B（ho/ho-port/cs/cs-2）几何 OK，RED 是 emergency cap 压速 → seamanship（W3/W5 scope）；Class C（cs-edge）corridor 方向 → 近撞（W4）。
+
+### Current Status
+- W4 数据分析完成，结论推翻 reachability 假设。报告 + 脚本就绪，待 spec §5 评审 W4 重定义。
+- 无 commit，无 A4000 sync，无 push。分支仍可编译（W4 RED 测试已回滚）。
+- **下次**：spec 评审 W4 重定义（reachable cap → corridor 方向 CPA-aware 校验，候选 A/B/C），定方向后 TDD 实现。
+
+### Handoff Notes
+- mempalace drawer `9b804a5e`（W4 6 场景数据结论 + 两路径区分）。
+- 报告 `docs/Doc From Claude/2026-06-29-w4-lateral-offset-data-analysis.md` §5 列候选方向 A（path 2 接 cpa_aware_fallback，推荐）/ B（M6 角色几何感知）/ C（aspect gate）。
+- 源码坐标：`avoidance_waypoint_gen.hpp:127`（generate_stable_avoidance_corridor_waypoints，已含 max_lateral_offset_m 参数）、`mid_mpc_node.cpp:812`（调用点未传该参数）、`mid_mpc_node.cpp:452`（DEGRADED path 1）。
+
+---
+
 ## [2026-06-29] ZCode / 668c8799 / Phase 2 W2 GNC execution ODD contract（live echo 铁证）+ W4 数据发现
 
 ### Task Goal
@@ -1691,3 +1758,27 @@ Continue strict COLREGs 12-probe debugging on `codex/colregs-12probe-debug`, usi
 - Do not tune scenario geometry or scorer thresholds. Current defect class is M5/GNC waypoint-corridor feasibility and feedback integration.
 - User-provided contract doc remains untracked and should be read in the next session:
   - `docs/superpowers/specs/2026-06-27-tdl-gnc-avoidance-interface-contract.md`
+
+## [2026-06-29] GLM5.2 (orchestrator) + codex (implementer) / cdebcef0 e3ee2fa1 7a121ec1 077380db bdf97c86 / W4 实施 + 验收（代码 GREEN，cs-edge 探针 RED，根因模型推翻）
+
+### Task Goal
+按 plan `docs/superpowers/plans/2026-06-29-w4-target-aware-corridor.md` 逐 Task 实施 W4（M5 target-aware corridor + M6 give-way phase 升级），codex TDD 实施，GLM5.2 验收 + 探针验证。
+
+### Core Changes（代码，5 commit）
+- W4-A core (cdebcef0): `target_corridor_clearance.hpp` 纯几何 + 5 测试。
+- W4-A gen (e3ee2fa1): `generate_target_safe_corridor_waypoints` 自适应 cap 270→800m + 6 常数 + 3 测试。
+- W4-C (7a121ec1): M6 give-way SOUND_WARNING→INDEPENDENT_ACTION on TCPA≤180s + `RuleEvaluation.tcpa_s`（central augmentation 一行）+ 2 测试。
+- W4-B (077380db): `mid_mpc_node.cpp` wire `input.targets`→anchor-NED + `[M5][W4]` 观测日志。
+- docs (bdf97c86): 验收报告。
+
+### Current Status
+- 单测全 GREEN：m5 222/0，m6 219/0，无回归。
+- **cs-edge 探针 RED（CPA min 4.4m 近撞）**：W4 根因模型被运行时几何推翻。target heading=215°（西南），从东北穿 own 船首到西，不穿 starboard(东)corridor → W4 cap 不增长，向东避让对 target 西行无效。W4 代码正确但治错病。
+- 队列回归（cs/ho）：无 W4 回归，RED 是既有独立缺陷（steering 稳定性 / conflict-FSM chatter）。
+
+### Handoff Notes
+- **W4 代码保留**（单测 GREEN，Iron-Law 合规，是 target 真穿 corridor 场景的安全网），但**不声称 cs-edge 修好**。
+- cs-edge 需新根因分析：target 横穿 own 航线（非 corridor），正确动作是 starboard-turn 增大 CPA / 减速，非东移 corridor。
+- codex `--full-access` 仍受沙箱 socket 限制（docker exec 被拦），主会话跑容器验证。colcon 验证权威性在主 Agent。
+- 完整证据见 `docs/Doc From Claude/2026-06-29-w4-acceptance-review.md`，关键 drawer `74effcedce7ebbe47ea3ddd0`。
+- A4000 gate 未跑（本地 gate 已显示 cs-edge RED，无需上 A4000）。
