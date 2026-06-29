@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/target_corridor_clearance.hpp"
 
 namespace mass_l3::m5 {
 
@@ -41,6 +42,15 @@ inline constexpr double kRule13OvertakeCorridorPeakOffsetM =
 inline constexpr double kRule13OvertakeInitialDoglegAngleRad =
     0.09966865249116202737;  // atan(0.10), stays under GNC turn speed gate.
 inline constexpr double kDefaultNoRejoinTaperDistanceM = 1.0e12;
+
+// W4-A target-aware corridor sizing constants.
+// [Data-derived 2026-06-29, trace 20260629_000517_cs_edge_single]
+inline constexpr double kCorridorLateralCapMinM = 270.0;
+inline constexpr double kCorridorLateralCapMaxM = 800.0;
+inline constexpr double kCorridorLateralCapIncrementM = 130.0;
+inline constexpr double kTargetClearanceFloorM = 200.0;
+inline constexpr double kTargetTrackHorizonS = 600.0;
+inline constexpr double kTargetTrackStepS = 30.0;
 
 inline AlignedRouteFrame align_route_frame_with_heading(
     double route_bearing_rad,
@@ -195,6 +205,62 @@ inline std::vector<WaypointLatLon> generate_stable_avoidance_corridor_waypoints(
     });
   }
   return wps;
+}
+
+// W4-A: target-safe corridor. Grows the lateral cap until the target predicted
+// track stays >= clearance floor from the corridor, then delegates geometry to
+// generate_stable_avoidance_corridor_waypoints. If no cap in [cap_min, cap_max]
+// clears all targets, returns the cap_max corridor (best effort); the M5
+// preflight is authoritative for drop vs hold.
+inline std::vector<WaypointLatLon> generate_target_safe_corridor_waypoints(
+    double heading_min_deg, double heading_max_deg,
+    double anchor_lat, double anchor_lon,
+    double planned_route_bearing_rad,
+    ColregsPreferredDirection preferred_direction,
+    const std::vector<TargetTrackPoint>& targets,
+    double own_n, double own_e,
+    double cap_min_m = kCorridorLateralCapMinM,
+    double cap_max_m = kCorridorLateralCapMaxM,
+    double cap_increment_m = kCorridorLateralCapIncrementM,
+    double clearance_floor_m = kTargetClearanceFloorM,
+    double track_horizon_s = kTargetTrackHorizonS,
+    double track_step_s = kTargetTrackStepS) {
+  (void)own_n; (void)own_e;
+
+  if (targets.empty()) {
+    return generate_stable_avoidance_corridor_waypoints(
+        heading_min_deg, heading_max_deg, anchor_lat, anchor_lon,
+        planned_route_bearing_rad, preferred_direction, cap_min_m);
+  }
+
+  constexpr double kCorridorFarAlongM = 9000.0;
+  const double route_n = std::cos(planned_route_bearing_rad);
+  const double route_e = std::sin(planned_route_bearing_rad);
+  const double right_n = -std::sin(planned_route_bearing_rad);
+  const double right_e = std::cos(planned_route_bearing_rad);
+
+  for (double cap = cap_min_m; cap <= cap_max_m + 1.0e-6; cap += cap_increment_m) {
+    const double far_n = kCorridorFarAlongM * route_n + cap * right_n;
+    const double far_e = kCorridorFarAlongM * route_e + cap * right_e;
+    bool all_clear = true;
+    for (const auto& tgt : targets) {
+      const TargetClearanceVerdict v = evaluate_target_corridor_clearance(
+          tgt, 0.0, 0.0, far_n, far_e,
+          clearance_floor_m, track_horizon_s, track_step_s);
+      if (!v.clear) {
+        all_clear = false;
+        break;
+      }
+    }
+    if (all_clear) {
+      return generate_stable_avoidance_corridor_waypoints(
+          heading_min_deg, heading_max_deg, anchor_lat, anchor_lon,
+          planned_route_bearing_rad, preferred_direction, cap);
+    }
+  }
+  return generate_stable_avoidance_corridor_waypoints(
+      heading_min_deg, heading_max_deg, anchor_lat, anchor_lon,
+      planned_route_bearing_rad, preferred_direction, cap_max_m);
 }
 
 inline std::vector<WaypointLatLon> generate_rule13_overtake_corridor_waypoints(

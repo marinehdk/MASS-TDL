@@ -14,11 +14,13 @@
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_policy.hpp"
 #include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
+#include "m5_tactical_planner/target_corridor_clearance.hpp"
 
 using mass_l3::m5::generate_avoidance_waypoints;
 using mass_l3::m5::generate_return_to_route_waypoints;
 using mass_l3::m5::generate_rule13_overtake_corridor_waypoints;
 using mass_l3::m5::generate_stable_avoidance_corridor_waypoints;
+using mass_l3::m5::generate_target_safe_corridor_waypoints;
 using mass_l3::m5::gnc_avoidance_command_speed_mps;
 using mass_l3::m5::gnc_avoidance_navigation_mode;
 using mass_l3::m5::gnc_emergency_command_speed_mps;
@@ -582,4 +584,49 @@ TEST(AvoidanceWaypointGen, ReturnRouteSegmentsAndTurnAreFeasible) {
     const double avail = available_turn_radius(wps[i - 1], wps[i], wps[i + 1], 63.44);
     EXPECT_GE(avail, required_turn_radius_m(3.2)) << "vertex " << i;
   }
+}
+
+TEST(GenerateTargetSafeCorridor, KeepsDefaultCapWhenNoTargets) {
+  std::vector<mass_l3::m5::TargetTrackPoint> no_targets;
+  const auto wps = mass_l3::m5::generate_target_safe_corridor_waypoints(
+      40.0, 80.0, 63.44, 10.38, 0.0,
+      mass_l3::m5::ColregsPreferredDirection::Starboard,
+      no_targets, 0.0, 0.0);
+  ASSERT_FALSE(wps.empty());
+  double max_east = 0.0;
+  const double m_per_deg_lon = mass_l3::m5::kMetersPerDegLat * std::cos(63.44 * M_PI / 180.0);
+  for (const auto& w : wps) {
+    max_east = std::max(max_east, (w.lon - 10.38) * m_per_deg_lon);
+  }
+  EXPECT_LT(max_east, 320.0);
+}
+
+TEST(GenerateTargetSafeCorridor, GrowsCapWhenTargetCrossesCorridor) {
+  std::vector<mass_l3::m5::TargetTrackPoint> targets;
+  targets.push_back({0.0, 100.0, 45.0 * M_PI / 180.0, 8.0});
+  const auto wps = mass_l3::m5::generate_target_safe_corridor_waypoints(
+      40.0, 80.0, 63.44, 10.38, 0.0,
+      mass_l3::m5::ColregsPreferredDirection::Starboard,
+      targets, 0.0, 0.0);
+  double max_east = 0.0;
+  const double m_per_deg_lon = mass_l3::m5::kMetersPerDegLat * std::cos(63.44 * M_PI / 180.0);
+  for (const auto& w : wps) {
+    max_east = std::max(max_east, (w.lon - 10.38) * m_per_deg_lon);
+  }
+  EXPECT_GT(max_east, 320.0);
+}
+
+TEST(GenerateTargetSafeCorridor, HonorsCapMax) {
+  std::vector<mass_l3::m5::TargetTrackPoint> targets;
+  targets.push_back({0.0, 0.0, 90.0 * M_PI / 180.0, 20.0});
+  const auto wps = mass_l3::m5::generate_target_safe_corridor_waypoints(
+      40.0, 80.0, 63.44, 10.38, 0.0,
+      mass_l3::m5::ColregsPreferredDirection::Starboard,
+      targets, 0.0, 0.0);
+  double max_east = 0.0;
+  const double m_per_deg_lon = mass_l3::m5::kMetersPerDegLat * std::cos(63.44 * M_PI / 180.0);
+  for (const auto& w : wps) {
+    max_east = std::max(max_east, (w.lon - 10.38) * m_per_deg_lon);
+  }
+  EXPECT_LT(max_east, 850.0);
 }
