@@ -18,7 +18,7 @@ GREEN:
 - `COMPOSE_PROJECT_NAME=codex-colregs-12probe-b docker compose --project-directory /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && rm -rf /opt/ws/build/m5_tactical_planner /opt/ws/install/m5_tactical_planner && colcon build --packages-select m5_tactical_planner --cmake-args -DBUILD_TESTING=ON -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake && colcon test --packages-select m5_tactical_planner --ctest-args -R "test_midmpc_tail_gate|test_stand_on_reject|test_mid_mpc_waypoint_generator|test_avoidance_plan_contract|test_mid_mpc_nlp_formulation" --event-handlers console_direct+'`
   - outcome: PASS, 5/5 CTest targets green (`test_mid_mpc_nlp_formulation`, `test_mid_mpc_waypoint_generator`, `test_midmpc_tail_gate`, `test_stand_on_reject`, `test_avoidance_plan_contract`).
 
-commit: TBD
+commit: 6c5bd0e4
 
 concerns:
 - Tail-gate helper implements the task-required tested semantics plus CPA uncertainty/opening/turn feasibility, but deeper deterministic tail checks (full future hold/rejoin geometry and explicit crossing-ahead against propagated target motion) remain approximate/not fully modeled in this slice.
