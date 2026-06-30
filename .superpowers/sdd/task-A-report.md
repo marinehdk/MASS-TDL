@@ -60,3 +60,23 @@ Commit: 3907fa19 (fix(m5): preserve avoidance plan audit handoff).
 Concerns:
 - Slice D still owns real keep-last/stale transition semantics; Slice A only publishes explicit non-stale zero timestamps.
 - `l3_msgs` and `ship_interfaces` have no package-local tests; verification coverage is through build plus `m5_tactical_planner`/`gnc_bridge` consumers.
+## Review Fix 2
+
+Status: DONE_WITH_CONCERNS
+
+Fixes:
+- Routed the selected `wp_gen_.generate(sol, lat, lon)` result into canonical `/l3/m5/avoidance_plan` generation when the NLP route is the selected plan, preserving selected waypoint geometry with `MID_MPC_OPTIMIZED` segment labels and `NLP_CONVERGED` audit status.
+- Moved L2 suffix handling into shared route-snapshot helpers that validate the full route snapshot after suffix append; infeasible suffixes are rejected and the preflighted base route is kept rather than publishing invalid geometry.
+- Increased `valid_until` TTL to 70 s while keeping the 60 s heartbeat cadence as a named constant.
+- Added regression coverage for optimized-route canonicalization, suffix rejection on full-route preflight failure, and heartbeat/TTL margin.
+
+RED/GREEN tests:
+- RED: `docker compose run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && cd /opt/ws && colcon build --symlink-install --packages-select l3_msgs l3_external_msgs m5_tactical_planner --cmake-args -DBUILD_TESTING=ON -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake && source install/setup.bash && colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R test_mid_mpc_waypoint_generator'` failed at compile because `populate_canonical_route_from_selected_plan`, `append_l2_nominal_suffix_if_preflight_feasible`, `WaypointLatLon` include, and TTL constants were absent.
+- GREEN: same targeted M5 command passed: `test_mid_mpc_waypoint_generator` 11 tests, 0 failures.
+- GREEN: required Docker build/test passed for `l3_msgs ship_interfaces m5_tactical_planner gnc_bridge` with `test_avoidance_plan_contract|test_mid_mpc_waypoint_generator|test_translators`: 4 packages built, 27 tests, 0 failures. `l3_msgs` reports no package-local tests.
+
+Commit: 97c3eefb (`fix(m5): validate committed avoidance route snapshots`).
+
+Concerns:
+- Optimized selected routes are now canonicalized and preflight-checked before publish; if the selected optimized geometry itself fails GNC preflight, M5 drops it rather than publishing invalid geometry. Existing geometric fallback behavior remains for solver-failure/fallback branches.
+- `nlp_kkt_residual` remains `0.0` because current `MidMpcSolution` exposes no KKT residual field; status/tail-gate audit is populated from available solver status.
