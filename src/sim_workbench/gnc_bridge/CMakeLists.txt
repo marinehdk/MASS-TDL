@@ -74,6 +74,7 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_translators
     rclcpp
     builtin_interfaces
+    l3_msgs
     l3_external_msgs
     sil_msgs
     ship_interfaces

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -107,6 +108,8 @@ class MidMpcNode : public rclcpp::Node {
   [[nodiscard]] MidMpcInput assemble_input_();
   void publish_outputs_(const MidMpcSolution& sol,
                         const l3_msgs::msg::AvoidancePlan& plan);
+  void publish_avoidance_plan_(const l3_msgs::msg::AvoidancePlan& plan,
+                               const std::string& reason);
   void publish_trajectory_candidates_(const MidMpcInput& input);
 
   // Track A A3: emit the L3-owned waypoint plan on /l3/m5/avoidance_waypoints
@@ -140,6 +143,9 @@ class MidMpcNode : public rclcpp::Node {
   };
   std::optional<AvoidanceCorridorAnchor> avoidance_corridor_anchor_;
   std::optional<ReturnRouteAnchor> return_route_anchor_;
+  std::optional<std::uint32_t> last_published_route_hash_;
+  std::optional<rclcpp::Time> last_avoidance_plan_publish_time_;
+
 
   // Geometric starboard fallback: generates arc waypoints from vessel kinematics
   // when the NLP solver fails or M4 signals a geometric starboard requirement.

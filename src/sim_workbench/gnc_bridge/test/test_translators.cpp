@@ -8,7 +8,7 @@
 
 #include "gnc_bridge/gnc_bridge_node.hpp"
 #include "gnc_bridge/translators.hpp"
-#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_external_msgs/msg/gnc_execution_status.hpp"
 #include "ship_interfaces/msg/avoidance_plan.hpp"
 #include "ship_interfaces/msg/geo_position.hpp"
@@ -41,8 +41,8 @@ TEST(BridgeNode, ResetQosIsLatchedForLateDiscovery) {
   EXPECT_EQ(qos.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
 }
 
-TEST(Translators, AvoidanceWaypointsToGncPlanPreservesWaypoints) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+TEST(Translators, AvoidancePlanToGncPlanPreservesWaypoints) {
+  l3_msgs::msg::AvoidancePlan src;
   src.plan_id = "test-1";
   src.behavior_mode = "emergency_avoidance";
   src.command_source = "collision_avoidance";
@@ -65,7 +65,7 @@ TEST(Translators, AvoidanceWaypointsToGncPlanPreservesWaypoints) {
 }
 
 TEST(Translators, AvoidancePlanLeavesCommandHeadingEmptyForGeometryFollowing) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+  l3_msgs::msg::AvoidancePlan src;
   src.latitude = {1.0};
   src.longitude = {2.0};
   auto gnc = to_gnc_avoidance_plan(src, make_stamp(0));
@@ -74,7 +74,7 @@ TEST(Translators, AvoidancePlanLeavesCommandHeadingEmptyForGeometryFollowing) {
 }
 
 TEST(Translators, AvoidancePlanCarriesReturnToRouteHint) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+  l3_msgs::msg::AvoidancePlan src;
   src.has_return_to_route_point = true;
   src.return_latitude  = 63.5;
   src.return_longitude = 10.5;
@@ -85,7 +85,7 @@ TEST(Translators, AvoidancePlanCarriesReturnToRouteHint) {
 }
 
 TEST(Translators, RebaseAvoidancePlanPreservesValidUntilTtlOnTargetClock) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+  l3_msgs::msg::AvoidancePlan src;
   src.stamp = make_stamp(100, 200000000);
   src.valid_until = make_stamp(130, 500000000);
   auto gnc = to_gnc_avoidance_plan(src, src.stamp);
@@ -99,7 +99,7 @@ TEST(Translators, RebaseAvoidancePlanPreservesValidUntilTtlOnTargetClock) {
 }
 
 TEST(Translators, RebaseAvoidancePlanLeavesZeroDeadlineForDefaultHold) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+  l3_msgs::msg::AvoidancePlan src;
   src.stamp = make_stamp(100);
   auto gnc = to_gnc_avoidance_plan(src, src.stamp);
 
@@ -111,7 +111,7 @@ TEST(Translators, RebaseAvoidancePlanLeavesZeroDeadlineForDefaultHold) {
 }
 
 TEST(Translators, RebaseAvoidancePlanKeepsExpiredSourcePlanExpired) {
-  l3_external_msgs::msg::AvoidanceWaypoints src;
+  l3_msgs::msg::AvoidancePlan src;
   src.stamp = make_stamp(100);
   src.valid_until = make_stamp(99);
   auto gnc = to_gnc_avoidance_plan(src, src.stamp);

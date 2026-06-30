@@ -33,14 +33,14 @@ bool time_is_zero(const builtin_interfaces::msg::Time& t) {
 }  // namespace
 
 ship_interfaces::msg::AvoidancePlan to_gnc_avoidance_plan(
-    const l3_external_msgs::msg::AvoidanceWaypoints& src,
+    const l3_msgs::msg::AvoidancePlan& src,
     const builtin_interfaces::msg::Time& stamp) {
   ship_interfaces::msg::AvoidancePlan dst;
   dst.header.stamp = stamp;
   dst.plan_id          = src.plan_id;
   dst.parent_route_id  = src.parent_route_id;
   dst.behavior_mode    = src.behavior_mode;
-  dst.command_source   = src.command_source;
+  dst.command_source   = src.command_source.empty() ? "m5_committed_route" : src.command_source;
   dst.latitude         = src.latitude;
   dst.longitude        = src.longitude;
   dst.command_speed_mps = src.command_speed_mps;

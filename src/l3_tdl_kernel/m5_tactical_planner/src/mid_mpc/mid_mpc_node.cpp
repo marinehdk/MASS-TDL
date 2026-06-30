@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,87 @@ constexpr double kDefaultPlannedSpeed_mps = 5.14;
 // accelerated sim time, so repeat the M6-owned release intent long enough for
 // the GNC guard to admit one return_to_route update.
 constexpr double kReturnToRouteRepublishWindow_s = 30.0;
+
+constexpr double kAvoidancePlanHeartbeat_s = 60.0;
+
+void fnv1a_update(std::uint32_t& hash, const void* data, std::size_t size) {
+  const auto* bytes = static_cast<const std::uint8_t*>(data);
+  for (std::size_t i = 0; i < size; ++i) {
+    hash ^= bytes[i];
+    hash *= 16777619u;
+  }
+}
+
+void fnv1a_update_double(std::uint32_t& hash, double value) {
+  static_assert(sizeof(double) == sizeof(std::uint64_t));
+  std::uint64_t bits = 0u;
+  std::memcpy(&bits, &value, sizeof(double));
+  fnv1a_update(hash, &bits, sizeof(bits));
+}
+
+void fnv1a_update_string(std::uint32_t& hash, const std::string& value) {
+  fnv1a_update(hash, value.data(), value.size());
+  const char nul = '\0';
+  fnv1a_update(hash, &nul, sizeof(nul));
+}
+
+std::uint32_t route_hash(const l3_msgs::msg::AvoidancePlan& plan) {
+  std::uint32_t hash = 2166136261u;
+  fnv1a_update_string(hash, plan.plan_id);
+  fnv1a_update_string(hash, plan.parent_route_id);
+  fnv1a_update_string(hash, plan.behavior_mode);
+  fnv1a_update_string(hash, plan.command_source);
+  for (const double value : plan.latitude) {
+    fnv1a_update_double(hash, value);
+  }
+  for (const double value : plan.longitude) {
+    fnv1a_update_double(hash, value);
+  }
+  for (const double value : plan.command_speed_mps) {
+    fnv1a_update_double(hash, value);
+  }
+  for (const auto& value : plan.navigation_mode) {
+    fnv1a_update_string(hash, value);
+  }
+  for (const auto value : plan.segment_source) {
+    fnv1a_update(hash, &value, sizeof(value));
+  }
+  fnv1a_update(hash, &plan.allow_degraded_execution, sizeof(plan.allow_degraded_execution));
+  fnv1a_update(hash, &plan.has_return_to_route_point, sizeof(plan.has_return_to_route_point));
+  fnv1a_update_double(hash, plan.return_latitude);
+  fnv1a_update_double(hash, plan.return_longitude);
+  fnv1a_update(hash, &plan.nlp_solver_status, sizeof(plan.nlp_solver_status));
+  fnv1a_update(hash, &plan.nlp_tail_gate_failed, sizeof(plan.nlp_tail_gate_failed));
+  return hash;
+}
+
+std::uint8_t segment_source_for_behavior(const std::string& behavior_mode) {
+  if (behavior_mode == "return_to_route") {
+    return l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2;
+  }
+  if (behavior_mode == "transit") {
+    return l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX;
+  }
+  return l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR;
+}
+
+l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
+    double latitude,
+    double longitude,
+    double speed_mps,
+    float confidence,
+    const std::string& rationale) {
+  l3_msgs::msg::AvoidanceWaypoint wp;
+  wp.schema_version = 112;
+  wp.position.latitude = latitude;
+  wp.position.longitude = longitude;
+  wp.position.altitude = 0.0;
+  wp.target_speed_kn = speed_mps / units::kMsPerKn;
+  wp.confidence = confidence;
+  wp.rationale = rationale;
+  return wp;
+}
+
 
 mass_l3::risk::ColregsDuty colregs_duty_from_role(std::uint8_t primary_role) {
   if (primary_role == 1U) {
@@ -621,9 +703,9 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
 {
   const auto now = this->get_clock()->now();
 
-  l3_msgs::msg::AvoidancePlan out_plan = plan;
-  out_plan.stamp = now;
-  pub_avoidance_plan_->publish(out_plan);
+  // Slice A: /l3/m5/avoidance_plan is now the event-driven committed-route
+  // execution truth. publish_outputs_ keeps ASDR/SAT audit only; route snapshots
+  // are emitted by publish_avoidance_plan_ when geometry changes or heartbeat expires.
 
   const std::string planner_health =
       plan.status == "RECOVERY" ? "RECOVERY" :
@@ -677,6 +759,40 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
       + "; fallback_reason=" + fallback_reason;
   sat.sat2.system_confidence  = plan.confidence;
   pub_sat_data_->publish(sat);
+}
+
+
+// ===========================================================================
+// publish_avoidance_plan_ — Slice A committed-route execution truth
+// ===========================================================================
+void MidMpcNode::publish_avoidance_plan_(
+    const l3_msgs::msg::AvoidancePlan& plan,
+    const std::string& reason)
+{
+  const auto now = this->get_clock()->now();
+  l3_msgs::msg::AvoidancePlan out = plan;
+  out.schema_version = 114;
+  out.stamp = now;
+  out.route_hash = route_hash(out);
+
+  const bool route_changed = !last_published_route_hash_.has_value()
+      || last_published_route_hash_.value() != out.route_hash;
+  const bool heartbeat_due = !last_avoidance_plan_publish_time_.has_value()
+      || ((now - last_avoidance_plan_publish_time_.value()).seconds() >= kAvoidancePlanHeartbeat_s);
+
+  if (!route_changed && !heartbeat_due) {
+    return;
+  }
+
+  // Heartbeat refreshes valid_until without forcing a new revision/hash.
+  out.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s);
+  pub_avoidance_plan_->publish(out);
+  last_published_route_hash_ = out.route_hash;
+  last_avoidance_plan_publish_time_ = now;
+  RCLCPP_INFO(get_logger(),
+      "[M5][AvoidancePlan] publish reason=%s changed=%d heartbeat=%d points=%zu hash=%u",
+      reason.c_str(), route_changed ? 1 : 0, heartbeat_due ? 1 : 0,
+      out.latitude.size(), out.route_hash);
 }
 
 // ===========================================================================
@@ -868,7 +984,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
       wp.latitude[i]  = wps[i].lat;
       wp.longitude[i] = wps[i].lon;
     }
-    wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
+    wp.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
     wp.allow_degraded_execution  = true;
     wp.rationale                 = colregs_overtake_corridor
         ? "m5 stable Rule13 overtake corridor for GNC bridge"
@@ -950,7 +1066,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
         return_route_anchor_->navigation_mode == "colregs_overtake"
             ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
             : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
-    wp.valid_until               = (now + rclcpp::Duration::from_seconds(30.0));
+    wp.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
     wp.allow_degraded_execution  = true;
   } else {
     // No conflict and already returned: emit nothing this cycle.
@@ -958,6 +1074,39 @@ void MidMpcNode::publish_avoidance_waypoints_(
     return;
   }
 
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.schema_version = 114;
+  plan.stamp = now;
+  plan.plan_id = wp.plan_id;
+  plan.parent_route_id = wp.parent_route_id;
+  plan.behavior_mode = wp.behavior_mode;
+  plan.command_source = "m5_committed_route";
+  plan.latitude = wp.latitude;
+  plan.longitude = wp.longitude;
+  plan.command_speed_mps = wp.command_speed_mps;
+  plan.navigation_mode = wp.navigation_mode;
+  plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s);
+  plan.allow_degraded_execution = wp.allow_degraded_execution;
+  plan.has_return_to_route_point = wp.has_return_to_route_point;
+  plan.return_latitude = wp.return_latitude;
+  plan.return_longitude = wp.return_longitude;
+  plan.confidence = wp.confidence;
+  plan.rationale = wp.rationale;
+  plan.status = (wp.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
+  plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+  plan.nlp_kkt_residual = 0.0F;
+  plan.nlp_tail_gate_failed = (wp.behavior_mode != "return_to_route");
+  plan.segment_source.resize(plan.latitude.size(), segment_source_for_behavior(wp.behavior_mode));
+  plan.waypoints.reserve(plan.latitude.size());
+  for (std::size_t i = 0; i < plan.latitude.size(); ++i) {
+    const double speed = i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : 0.0;
+    plan.waypoints.push_back(waypoint_from_route_point(
+        plan.latitude[i], plan.longitude[i], speed, plan.confidence, plan.rationale));
+  }
+
+  // Slice A: /l3/m5/avoidance_plan is the execution truth. The legacy waypoint
+  // topic remains a compatibility shadow for downstream consumers not yet migrated.
+  publish_avoidance_plan_(plan, plan.behavior_mode);
   last_emitted_conflict_active_ = conflict_active;
   pub_avoidance_waypoints_->publish(wp);
 }
@@ -996,6 +1145,8 @@ void MidMpcNode::reset_cross_run_state() {
   return_to_route_emit_until_.reset();
   avoidance_corridor_anchor_.reset();
   return_route_anchor_.reset();
+  last_published_route_hash_.reset();
+  last_avoidance_plan_publish_time_.reset();
 }
 
 }  // namespace mass_l3::m5::mid_mpc

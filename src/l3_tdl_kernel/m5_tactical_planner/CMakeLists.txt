@@ -368,6 +368,11 @@ if(BUILD_TESTING)
     test/unit/test_avoidance_waypoint_gen.cpp
   )
 
+  # Slice A: M5 AvoidancePlan committed-route message contract.
+  m5_add_gtest(test_avoidance_plan_contract
+    test/unit/test_avoidance_plan_contract.cpp
+  )
+
   # W4-A: target-track vs corridor clearance gate (pure geometry, no ROS).
   m5_add_gtest(test_target_corridor_clearance
     test/unit/test_target_corridor_clearance.cpp

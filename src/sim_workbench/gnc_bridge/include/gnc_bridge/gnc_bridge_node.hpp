@@ -14,11 +14,12 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include "rclcpp/rclcpp.hpp"
 
 #include "gnc_bridge/translators.hpp"
-#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_external_msgs/msg/gnc_execution_status.hpp"
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "ship_interfaces/msg/avoidance_plan.hpp"
@@ -136,7 +137,9 @@ class L3SideNode : public rclcpp::Node {
                       const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
  private:
   std::shared_ptr<CrossDomainHandoff> handoff_;
-  rclcpp::Subscription<l3_external_msgs::msg::AvoidanceWaypoints>::SharedPtr sub_avoidance_;
+  rclcpp::Subscription<l3_msgs::msg::AvoidancePlan>::SharedPtr sub_avoidance_;
+  rclcpp::TimerBase::SharedPtr avoidance_watchdog_timer_;
+  std::optional<rclcpp::Time> last_avoidance_plan_wall_time_;
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr sub_route_;
   rclcpp::Subscription<sil_msgs::msg::ShipReset>::SharedPtr sub_reset_;
 };

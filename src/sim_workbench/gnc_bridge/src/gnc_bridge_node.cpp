@@ -10,13 +10,26 @@ namespace gnc_bridge {
 L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
                        const rclcpp::NodeOptions& options)
     : rclcpp::Node("gnc_bridge_l3_side", options), handoff_(std::move(handoff)) {
-  sub_avoidance_ = create_subscription<l3_external_msgs::msg::AvoidanceWaypoints>(
-      "/l3/m5/avoidance_waypoints", 10,
-      [this](const l3_external_msgs::msg::AvoidanceWaypoints::SharedPtr msg) {
+  sub_avoidance_ = create_subscription<l3_msgs::msg::AvoidancePlan>(
+      "/l3/m5/avoidance_plan", 10,
+      [this](const l3_msgs::msg::AvoidancePlan::SharedPtr msg) {
+        last_avoidance_plan_wall_time_ = now();
         CrossDomainHandoff::L3ToGnc item;
         item.avoidance_plan = to_gnc_avoidance_plan(*msg, msg->stamp);
         item.has_avoidance = true;
         handoff_->push_l3_to_gnc(std::move(item));
+      });
+  avoidance_watchdog_timer_ = create_wall_timer(
+      std::chrono::seconds(5),
+      [this]() {
+        if (!last_avoidance_plan_wall_time_.has_value()) {
+          return;
+        }
+        const double quiet_s = (now() - last_avoidance_plan_wall_time_.value()).seconds();
+        if (quiet_s > 60.0) {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+              "no /l3/m5/avoidance_plan heartbeat for %.1fs (> TMR 60s)", quiet_s);
+        }
       });
   sub_route_ = create_subscription<l3_external_msgs::msg::PlannedRoute>(
       "/l2/planned_route",
@@ -45,7 +58,7 @@ L3SideNode::L3SideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         handoff_->push_l3_to_gnc(std::move(item));
       });
   RCLCPP_INFO(get_logger(),
-      "L3 side ready: sub /l3/m5/avoidance_waypoints, /l2/planned_route, /l3/sim/reset_own_ship");
+      "L3 side ready: sub /l3/m5/avoidance_plan, /l2/planned_route, /l3/sim/reset_own_ship");
 }
 
 GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
