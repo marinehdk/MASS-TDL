@@ -64,6 +64,47 @@ TEST(Translators, AvoidancePlanToGncPlanPreservesWaypoints) {
   EXPECT_TRUE(gnc.allow_degraded_execution);
 }
 
+
+TEST(Translators, AvoidancePlanToGncPlanPreservesAuditMetadata) {
+  l3_msgs::msg::AvoidancePlan src;
+  src.schema_version = 114;
+  src.stamp = make_stamp(101, 200);
+  src.plan_id = "audit-1";
+  src.latitude = {63.44, 63.45, 63.46};
+  src.longitude = {10.38, 10.39, 10.40};
+  src.command_speed_mps = {3.0, 2.8, 4.0};
+  src.segment_source = {
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+      l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2,
+      l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX,
+  };
+  src.route_hash = 0x1234abcdu;
+  src.stale_committed_at = make_stamp(99, 7);
+  src.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_MAX_ITER;
+  src.nlp_kkt_residual = 0.125F;
+  src.nlp_tail_gate_failed = true;
+  src.confidence = 0.72F;
+  src.rationale = "audit metadata survives bridge handoff";
+
+  auto gnc = to_gnc_avoidance_plan(src, make_stamp(200));
+
+  EXPECT_EQ(gnc.schema_version, 114u);
+  EXPECT_EQ(gnc.source_stamp.sec, 101);
+  EXPECT_EQ(gnc.source_stamp.nanosec, 200u);
+  EXPECT_EQ(gnc.confidence, 0.72F);
+  EXPECT_EQ(gnc.rationale, "audit metadata survives bridge handoff");
+  ASSERT_EQ(gnc.segment_source.size(), 3u);
+  EXPECT_EQ(gnc.segment_source[0], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
+  EXPECT_EQ(gnc.segment_source[1], l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2);
+  EXPECT_EQ(gnc.segment_source[2], l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  EXPECT_EQ(gnc.route_hash, 0x1234abcdu);
+  EXPECT_EQ(gnc.stale_committed_at.sec, 99);
+  EXPECT_EQ(gnc.stale_committed_at.nanosec, 7u);
+  EXPECT_EQ(gnc.nlp_solver_status, l3_msgs::msg::AvoidancePlan::NLP_MAX_ITER);
+  EXPECT_FLOAT_EQ(gnc.nlp_kkt_residual, 0.125F);
+  EXPECT_TRUE(gnc.nlp_tail_gate_failed);
+}
+
 TEST(Translators, AvoidancePlanLeavesCommandHeadingEmptyForGeometryFollowing) {
   l3_msgs::msg::AvoidancePlan src;
   src.latitude = {1.0};

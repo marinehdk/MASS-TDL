@@ -41,4 +41,11 @@ TEST(AvoidancePlanContract, exposes_committed_route_schema_v114_fields) {
   EXPECT_FALSE(msg.nlp_tail_gate_failed);
 }
 
+TEST(AvoidancePlanContract, defaults_to_non_stale_zero_timestamp) {
+  l3_msgs::msg::AvoidancePlan msg;
+
+  EXPECT_EQ(msg.stale_committed_at.sec, 0);
+  EXPECT_EQ(msg.stale_committed_at.nanosec, 0u);
+}
+
 }  // namespace

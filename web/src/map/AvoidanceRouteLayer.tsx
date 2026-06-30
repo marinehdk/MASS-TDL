@@ -13,7 +13,7 @@ const SOURCE_ID = 'avoidance-route';
 const LAYER_ID = 'avoidance-route-line';
 const POINT_LAYER_ID = 'avoidance-route-points';
 
-function buildGeoJSON(avoidancePlan: AvoidancePlanData | null): GeoJSON.FeatureCollection {
+export function buildGeoJSON(avoidancePlan: AvoidancePlanData | null): GeoJSON.FeatureCollection {
   const waypoints = avoidancePlan?.waypoints ?? [];
   const pointFeatures: GeoJSON.Feature[] = waypoints.map((wp, index) => ({
     type: 'Feature',
@@ -27,6 +27,11 @@ function buildGeoJSON(avoidancePlan: AvoidancePlanData | null): GeoJSON.FeatureC
       targetSpeedKn: wp.targetSpeedKn ?? 0,
       turnRadiusM: wp.turnRadiusM ?? 0,
       rationale: wp.rationale ?? avoidancePlan?.rationale ?? '',
+      segmentSource: wp.segmentSource ?? 'UNKNOWN',
+      routeHash: avoidancePlan?.routeHash ?? 0,
+      nlpSolverStatus: avoidancePlan?.nlpSolverStatus ?? -1,
+      nlpKktResidual: avoidancePlan?.nlpKktResidual ?? 0,
+      nlpTailGateFailed: avoidancePlan?.nlpTailGateFailed ?? false,
     },
   }));
   const lineFeatures: GeoJSON.Feature[] = waypoints.length >= 2
@@ -41,6 +46,11 @@ function buildGeoJSON(avoidancePlan: AvoidancePlanData | null): GeoJSON.FeatureC
         confidence: avoidancePlan?.confidence ?? 0,
         horizon_s: avoidancePlan?.horizonS ?? 0,
         rationale: avoidancePlan?.rationale ?? '',
+        segmentSources: waypoints.map((wp) => wp.segmentSource ?? 'UNKNOWN').join(','),
+        routeHash: avoidancePlan?.routeHash ?? 0,
+        nlpSolverStatus: avoidancePlan?.nlpSolverStatus ?? -1,
+        nlpKktResidual: avoidancePlan?.nlpKktResidual ?? 0,
+        nlpTailGateFailed: avoidancePlan?.nlpTailGateFailed ?? false,
       },
     }]
     : [];

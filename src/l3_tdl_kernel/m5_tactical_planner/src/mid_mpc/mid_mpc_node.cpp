@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -92,16 +93,6 @@ std::uint32_t route_hash(const l3_msgs::msg::AvoidancePlan& plan) {
   return hash;
 }
 
-std::uint8_t segment_source_for_behavior(const std::string& behavior_mode) {
-  if (behavior_mode == "return_to_route") {
-    return l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2;
-  }
-  if (behavior_mode == "transit") {
-    return l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX;
-  }
-  return l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR;
-}
-
 l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
     double latitude,
     double longitude,
@@ -116,6 +107,87 @@ l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
   wp.target_speed_kn = speed_mps / units::kMsPerKn;
   wp.confidence = confidence;
   wp.rationale = rationale;
+  return wp;
+}
+
+void append_route_point(l3_msgs::msg::AvoidancePlan& plan,
+                        double latitude,
+                        double longitude,
+                        double speed_mps,
+                        const std::string& navigation_mode,
+                        std::uint8_t segment_source) {
+  plan.latitude.push_back(latitude);
+  plan.longitude.push_back(longitude);
+  plan.command_speed_mps.push_back(speed_mps);
+  plan.navigation_mode.push_back(navigation_mode);
+  plan.segment_source.push_back(segment_source);
+}
+
+double route_point_distance_m(double lat_a, double lon_a, double lat_b, double lon_b) {
+  const double dn = (lat_b - lat_a) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+  const double de = (lon_b - lon_a) * units::kRadPerDeg * units::kEarthRadiusMean_m
+      * std::cos(lat_a * units::kRadPerDeg);
+  return std::hypot(dn, de);
+}
+
+void append_l2_nominal_suffix(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    double speed_mps) {
+  if (planned_route == nullptr || planned_route->route.poses.empty()
+      || plan.latitude.empty() || plan.longitude.empty()) {
+    return;
+  }
+
+  const double last_lat = plan.latitude.back();
+  const double last_lon = plan.longitude.back();
+  std::size_t closest_idx = 0u;
+  double closest_m = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < planned_route->route.poses.size(); ++i) {
+    const auto& pos = planned_route->route.poses[i].pose.position;
+    const double distance_m = route_point_distance_m(last_lat, last_lon, pos.latitude, pos.longitude);
+    if (distance_m < closest_m) {
+      closest_m = distance_m;
+      closest_idx = i;
+    }
+  }
+
+  constexpr double kDuplicateWaypointToleranceM = 1.0;
+  const std::size_t first_suffix_idx = closest_m <= kDuplicateWaypointToleranceM
+      ? closest_idx + 1u
+      : closest_idx;
+  for (std::size_t i = first_suffix_idx; i < planned_route->route.poses.size(); ++i) {
+    const auto& pos = planned_route->route.poses[i].pose.position;
+    append_route_point(
+        plan,
+        pos.latitude,
+        pos.longitude,
+        speed_mps,
+        "transit",
+        l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  }
+}
+
+l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
+    const l3_msgs::msg::AvoidancePlan& plan) {
+  l3_external_msgs::msg::AvoidanceWaypoints wp;
+  wp.stamp = plan.stamp;
+  wp.schema_version = 1;
+  wp.command_source = "collision_avoidance";
+  wp.plan_id = plan.plan_id;
+  wp.parent_route_id = plan.parent_route_id;
+  wp.behavior_mode = plan.behavior_mode;
+  wp.latitude = plan.latitude;
+  wp.longitude = plan.longitude;
+  wp.command_speed_mps = plan.command_speed_mps;
+  wp.navigation_mode = plan.navigation_mode;
+  wp.valid_until = plan.valid_until;
+  wp.allow_degraded_execution = plan.allow_degraded_execution;
+  wp.has_return_to_route_point = plan.has_return_to_route_point;
+  wp.return_latitude = plan.return_latitude;
+  wp.return_longitude = plan.return_longitude;
+  wp.confidence = plan.confidence;
+  wp.rationale = plan.rationale;
   return wp;
 }
 
@@ -855,11 +927,15 @@ void MidMpcNode::publish_avoidance_waypoints_(
           input.colregs_conflict_active, behavior_plan_->behavior);
   const bool conflict_active = collision_avoidance_authorized;
 
-  l3_external_msgs::msg::AvoidanceWaypoints wp;
-  wp.stamp          = now;
-  wp.schema_version = 1;
-  wp.command_source = "collision_avoidance";
-  wp.confidence     = 0.8F;
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.schema_version = 114;
+  plan.stamp = now;
+  plan.command_source = "m5_committed_route";
+  plan.confidence = 0.8F;
+  // Slice D owns keep-last stale transitions. Slice A emits fresh route snapshots,
+  // so zero is the explicit non-stale/unset value.
+  plan.stale_committed_at.sec = 0;
+  plan.stale_committed_at.nanosec = 0;
 
   const bool return_republish_active = return_to_route_emit_until_.has_value() &&
       ((*return_to_route_emit_until_ - now).seconds() > 0.0);
@@ -910,9 +986,9 @@ void MidMpcNode::publish_avoidance_waypoints_(
     // Keep one encounter-anchored avoidance corridor active until M6 clears.
     // GNC follows waypoint geometry; regenerating from current position each cycle
     // makes XTE look healthy while diluting the global COLREG maneuver.
-    wp.behavior_mode = navigation_mode;
-    wp.parent_route_id = "nominal";
-    wp.plan_id = anchor.plan_id;
+    plan.behavior_mode = navigation_mode;
+    plan.parent_route_id = "nominal";
+    plan.plan_id = anchor.plan_id;
     // W4-B: convert live targets to local NED relative to the corridor anchor.
     // TargetState.x_m/y_m are NED relative to own; the corridor anchor is fixed
     // at conflict onset, so shift each target by own-relative-to-anchor.
@@ -976,17 +1052,15 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
-    wp.latitude.resize(wps.size());
-    wp.longitude.resize(wps.size());
-    wp.command_speed_mps = speeds;
-    wp.navigation_mode.resize(wps.size(), navigation_mode);
     for (std::size_t i = 0; i < wps.size(); ++i) {
-      wp.latitude[i]  = wps[i].lat;
-      wp.longitude[i] = wps[i].lon;
+      const std::uint8_t segment_source = (i + 1 == wps.size())
+          ? l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD
+          : l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR;
+      append_route_point(plan, wps[i].lat, wps[i].lon, speeds[i], navigation_mode, segment_source);
     }
-    wp.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
-    wp.allow_degraded_execution  = true;
-    wp.rationale                 = colregs_overtake_corridor
+    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
+    plan.allow_degraded_execution  = true;
+    plan.rationale                 = colregs_overtake_corridor
         ? "m5 stable Rule13 overtake corridor for GNC bridge"
         : "m5 stable encounter-anchored avoidance corridor for GNC bridge";
   } else if (last_emitted_conflict_active_ || return_republish_active) {
@@ -1036,17 +1110,14 @@ void MidMpcNode::publish_avoidance_waypoints_(
     }
     // conflict -> clear transition: repeat return_to_route briefly so the GNC
     // route-update guard cannot drop the only lifecycle-release message.
-    wp.behavior_mode             = "return_to_route";
-    wp.parent_route_id           = "nominal";
-    wp.plan_id                   = return_route_anchor_->plan_id;
-    wp.has_return_to_route_point = true;
+    plan.behavior_mode             = "return_to_route";
+    plan.parent_route_id           = "nominal";
+    plan.plan_id                   = return_route_anchor_->plan_id;
+    plan.has_return_to_route_point = true;
     const auto& wps = return_route_anchor_->waypoints;
-    wp.latitude.resize(wps.size());
-    wp.longitude.resize(wps.size());
-    wp.command_speed_mps.resize(wps.size(), return_route_anchor_->command_speed_mps);
-    wp.navigation_mode.resize(wps.size(), return_route_anchor_->navigation_mode);
+    const std::vector<double> speeds(wps.size(), return_route_anchor_->command_speed_mps);
     const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
-        {lat0_deg, lon0_deg}, wps, wp.command_speed_mps);
+        {lat0_deg, lon0_deg}, wps, speeds);
     if (!preflight.feasible) {
       RCLCPP_WARN(
           get_logger(),
@@ -1057,46 +1128,34 @@ void MidMpcNode::publish_avoidance_waypoints_(
       return;
     }
     for (std::size_t i = 0; i < wps.size(); ++i) {
-      wp.latitude[i]  = wps[i].lat;
-      wp.longitude[i] = wps[i].lon;
+      append_route_point(
+          plan,
+          wps[i].lat,
+          wps[i].lon,
+          speeds[i],
+          return_route_anchor_->navigation_mode,
+          l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2);
     }
-    wp.return_latitude           = wps.back().lat;
-    wp.return_longitude          = wps.back().lon;
-    wp.rationale                 =
+    plan.return_latitude           = wps.back().lat;
+    plan.return_longitude          = wps.back().lon;
+    plan.rationale                 =
         return_route_anchor_->navigation_mode == "colregs_overtake"
             ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
             : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
-    wp.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
-    wp.allow_degraded_execution  = true;
+    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
+    plan.allow_degraded_execution  = true;
   } else {
     // No conflict and already returned: emit nothing this cycle.
     last_emitted_conflict_active_ = conflict_active;
     return;
   }
 
-  l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 114;
-  plan.stamp = now;
-  plan.plan_id = wp.plan_id;
-  plan.parent_route_id = wp.parent_route_id;
-  plan.behavior_mode = wp.behavior_mode;
-  plan.command_source = "m5_committed_route";
-  plan.latitude = wp.latitude;
-  plan.longitude = wp.longitude;
-  plan.command_speed_mps = wp.command_speed_mps;
-  plan.navigation_mode = wp.navigation_mode;
-  plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s);
-  plan.allow_degraded_execution = wp.allow_degraded_execution;
-  plan.has_return_to_route_point = wp.has_return_to_route_point;
-  plan.return_latitude = wp.return_latitude;
-  plan.return_longitude = wp.return_longitude;
-  plan.confidence = wp.confidence;
-  plan.rationale = wp.rationale;
-  plan.status = (wp.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
+  append_l2_nominal_suffix(plan, planned_route_, input.planned_speed_mps);
+
+  plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
   plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
   plan.nlp_kkt_residual = 0.0F;
-  plan.nlp_tail_gate_failed = (wp.behavior_mode != "return_to_route");
-  plan.segment_source.resize(plan.latitude.size(), segment_source_for_behavior(wp.behavior_mode));
+  plan.nlp_tail_gate_failed = (plan.behavior_mode != "return_to_route");
   plan.waypoints.reserve(plan.latitude.size());
   for (std::size_t i = 0; i < plan.latitude.size(); ++i) {
     const double speed = i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : 0.0;
@@ -1104,11 +1163,11 @@ void MidMpcNode::publish_avoidance_waypoints_(
         plan.latitude[i], plan.longitude[i], speed, plan.confidence, plan.rationale));
   }
 
-  // Slice A: /l3/m5/avoidance_plan is the execution truth. The legacy waypoint
-  // topic remains a compatibility shadow for downstream consumers not yet migrated.
+  // Slice A: /l3/m5/avoidance_plan is the canonical execution truth. The legacy
+  // waypoint topic is derived from that complete route snapshot as a compatibility shadow.
   publish_avoidance_plan_(plan, plan.behavior_mode);
   last_emitted_conflict_active_ = conflict_active;
-  pub_avoidance_waypoints_->publish(wp);
+  pub_avoidance_waypoints_->publish(compatibility_shadow_from_plan(plan));
 }
 
 void MidMpcNode::on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg) {
