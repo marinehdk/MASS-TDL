@@ -46,7 +46,7 @@ GREEN:
 - `COMPOSE_PROJECT_NAME=codex-colregs-12probe-b docker compose --project-directory /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash && colcon build --packages-select m5_tactical_planner --cmake-args -DBUILD_TESTING=ON -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake && colcon test --packages-select m5_tactical_planner --ctest-args -R "test_midmpc_tail_gate|test_stand_on_reject|test_mid_mpc_waypoint_generator|test_avoidance_plan_contract|test_mid_mpc_nlp_formulation" --event-handlers console_direct+'`
   - outcome: PASS, 5/5 CTest targets green (`test_mid_mpc_nlp_formulation`, `test_mid_mpc_waypoint_generator`, `test_midmpc_tail_gate`, `test_stand_on_reject`, `test_avoidance_plan_contract`).
 
-commit: pending
+commit: cf631de5
 
 concerns:
 - No full ROS publish/subscriber runtime test was added; stand-on terminal-hold suppression is covered through the extracted publish-contract helper used directly by `publish_avoidance_waypoints_`.
