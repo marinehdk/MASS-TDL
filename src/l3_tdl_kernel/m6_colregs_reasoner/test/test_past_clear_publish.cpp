@@ -48,5 +48,27 @@ TEST(PastClearPublish, PredictionOrResolvedBookkeepingDoesNotForceReleaseWhileAc
   EXPECT_TRUE(msg.release_predicted);
 }
 
+TEST(PastClearPublish, ReleaseOrderingTransitionsBeforeErase) {
+  l3_msgs::msg::COLREGsConstraint msg;
+
+  ColregsReasonerNode::test_populate_release_ordering_semantics(msg);
+
+  EXPECT_TRUE(msg.past_clear);
+  EXPECT_EQ(msg.encounter_state,
+            l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE);
+  EXPECT_TRUE(msg.release_predicted);
+}
+
+TEST(PastClearPublish, ProjectionReleaseOrderingTransitionsBeforeErase) {
+  l3_msgs::msg::COLREGsConstraint msg;
+
+  ColregsReasonerNode::test_populate_projection_release_ordering_semantics(msg);
+
+  EXPECT_TRUE(msg.past_clear);
+  EXPECT_EQ(msg.encounter_state,
+            l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE);
+  EXPECT_TRUE(msg.release_predicted);
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs
