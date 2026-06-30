@@ -155,3 +155,18 @@ TEST(MidMpcNlpFormulationTest, RuntimeConstraintContextFeedsCompilerRows) {
   EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + kHorizon)
       << "runtime targets must reach ConstraintCompiler CPA hard rows";
 }
+
+TEST(MidMpcNlpFormulationTest, HorizonSecondsOverridesDefaultStepCount) {
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 18;
+  cfg.dt_s = 5.0;
+
+  const auto resolved = mass_l3::m5::mid_mpc::resolve_mid_mpc_horizon_config(
+      cfg,
+      60.0,
+      cfg.n_horizon,
+      5.0);
+
+  EXPECT_EQ(resolved.n_horizon, 12);
+  EXPECT_DOUBLE_EQ(resolved.dt_s, 5.0);
+}

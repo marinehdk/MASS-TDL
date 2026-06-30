@@ -174,12 +174,7 @@ MidMpcNlpFormulation::Config MidMpcNode::resolve_nlp_config_(
   const int64_t n_steps = declare_parameter<int64_t>(
       "mid_mpc.n_steps", static_cast<int64_t>(resolved.n_horizon));
   resolved.dt_s = declare_parameter<double>("mid_mpc.dt_s", resolved.dt_s);
-  const int32_t horizon_steps = static_cast<int32_t>(std::max<int64_t>(
-      2, static_cast<int64_t>(std::lround(horizon_s / resolved.dt_s))));
-  resolved.n_horizon = n_steps > 1
-      ? static_cast<int32_t>(std::min<int64_t>(n_steps, 120))
-      : horizon_steps;
-  return resolved;
+  return resolve_mid_mpc_horizon_config(resolved, horizon_s, n_steps, resolved.dt_s);
 }
 
 MidMpcWaypointGenerator::Config MidMpcNode::resolve_waypoint_config_(
@@ -316,6 +311,7 @@ MidMpcInput MidMpcNode::assemble_input_()
     ts.cpa_sigma_m = std::sqrt(std::max(tgt.cpa_covariance_m2, 0.0));
     ts.tcpa_s   = tgt.tcpa_s;
     inp.targets.push_back(ts);
+    inp.tail_gate_targets.push_back(ts);
   }
 
   // Normalize heading bounds relative to own ship psi_rad to prevent wrap-around infeasibility
@@ -429,6 +425,7 @@ MidMpcInput MidMpcNode::assemble_input_()
 
   const double hs_m = 0.0;  // [TBD-HAZID] sea state from EnvironmentState
   inp.rot_max_rad_s = vessel_model_.rot_max_rad_s(inp.own_ship.u_mps, hs_m);
+  inp.decel_max_mps2 = std::max(effective_gnc_odd_().max_decel_mps2, 1.0e-6);
 
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
   mass_l3::m5::synchronize_mid_mpc_constraint_context(inp);
@@ -1131,6 +1128,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
     plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
     plan.nlp_kkt_residual = 0.0F;
     plan.nlp_tail_gate_failed = (plan.behavior_mode != "return_to_route");
+    mass_l3::m5::apply_tail_gate_publish_contract(input, plan);
   }
   plan.waypoints.clear();
   plan.waypoints.reserve(plan.latitude.size());

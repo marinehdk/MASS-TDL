@@ -27,6 +27,8 @@
 // docs/Design/HAZID/RUN-001-kickoff.md).
 
 #include <casadi/casadi.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "m5_tactical_planner/common/types.hpp"
@@ -141,6 +143,23 @@ class MidMpcNlpFormulation {
   // Constraint helper.
   [[nodiscard]] casadi::MX build_constraints_() const;
 };
+
+inline MidMpcNlpFormulation::Config resolve_mid_mpc_horizon_config(
+    const MidMpcNlpFormulation::Config& cfg,
+    double horizon_s,
+    int64_t n_steps,
+    double dt_s) {
+  MidMpcNlpFormulation::Config resolved = cfg;
+  resolved.dt_s = dt_s;
+  const int64_t horizon_steps = std::max<int64_t>(
+      2, static_cast<int64_t>(std::lround(horizon_s / resolved.dt_s)));
+  const bool explicit_nondefault_steps = n_steps > 1 &&
+      n_steps != static_cast<int64_t>(cfg.n_horizon);
+  resolved.n_horizon = explicit_nondefault_steps
+      ? static_cast<int32_t>(std::min<int64_t>(n_steps, 120))
+      : static_cast<int32_t>(std::min<int64_t>(horizon_steps, 120));
+  return resolved;
+}
 
 }  // namespace mass_l3::m5::mid_mpc
 

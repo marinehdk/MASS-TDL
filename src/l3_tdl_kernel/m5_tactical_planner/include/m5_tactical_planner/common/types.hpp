@@ -18,6 +18,7 @@
 #include <Eigen/Dense>
 
 #include "m5_tactical_planner/common/units.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 
 namespace mass_l3::m5 {
 
@@ -145,6 +146,7 @@ struct TargetRiskSnapshot {
 struct MidMpcInput {
   TrajectoryPoint own_ship;               // current own-ship state
   std::vector<TargetState> targets;       // max 16 per spec §4.2
+  std::vector<TargetState> tail_gate_targets;  // Raw M2 target CPA/covariance before optimizer weighting
   ConstraintInputs constraints;
   double planned_route_bearing_rad{0.0};  // current route leg bearing [rad]
   double route_xte_m{0.0};
@@ -160,6 +162,7 @@ struct MidMpcInput {
   // [TBD-HAZID] planned_speed_mps: from L2 SpeedProfile; default 5.0 m/s ≈ 9.7 kn.
   // Calibrate per vessel service speed profile.
   double planned_speed_mps{5.0};
+  double decel_max_mps2{0.08};
 
   /// D3.2: dynamic ROT max [rad/s] from VesselDynamicsModel (replaces D0.1 hardcoded stub)
   double rot_max_rad_s{0.2094};
@@ -168,6 +171,9 @@ struct MidMpcInput {
 };
 
 inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
+  if (input.tail_gate_targets.empty()) {
+    input.tail_gate_targets = input.targets;
+  }
   input.constraints.targets = input.targets;
   input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
 }
@@ -580,18 +586,21 @@ inline bool terminal_offset_matches_m6_direction(
 }
 
 inline const TargetState* primary_tail_gate_target(const MidMpcInput& input) {
-  if (input.targets.empty()) {
+  const auto& candidates = input.tail_gate_targets.empty()
+      ? input.targets
+      : input.tail_gate_targets;
+  if (candidates.empty()) {
     return nullptr;
   }
   const TargetRiskSnapshot* risk = primary_target_risk(input);
   if (risk != nullptr) {
-    for (const auto& target : input.targets) {
+    for (const auto& target : candidates) {
       if (std::to_string(target.id) == risk->target_id) {
         return &target;
       }
     }
   }
-  return &input.targets.front();
+  return &candidates.front();
 }
 
 inline bool tail_gate_cpa_release_clear(const MidMpcInput& input) {
@@ -610,20 +619,95 @@ inline bool tail_gate_risk_opening(const MidMpcInput& input) {
 
 inline bool tail_gate_turns_are_feasible(
     const std::vector<TrajectoryPoint>& trajectory,
+    double own_ship_psi_rad,
     double rot_max_rad_s) {
-  if (trajectory.size() < 2U || rot_max_rad_s <= 0.0) {
+  if (trajectory.empty() || rot_max_rad_s <= 0.0) {
     return true;
   }
-  for (std::size_t i = 1U; i < trajectory.size(); ++i) {
-    const auto& prev = trajectory[i - 1U];
-    const auto& cur = trajectory[i];
-    const double dt_s = std::max(cur.t_s - prev.t_s, 1.0e-6);
-    if ((circular_heading_distance(cur.psi_rad, prev.psi_rad) / dt_s) >
+  double prev_heading = own_ship_psi_rad;
+  double prev_time = 0.0;
+  for (const auto& cur : trajectory) {
+    const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
+    if ((circular_heading_distance(cur.psi_rad, prev_heading) / dt_s) >
         (rot_max_rad_s + 1.0e-6)) {
       return false;
     }
+    prev_heading = cur.psi_rad;
+    prev_time = cur.t_s;
   }
   return true;
+}
+
+inline bool tail_gate_decel_is_feasible(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double own_ship_speed_mps,
+    double decel_max_mps2) {
+  if (trajectory.empty() || decel_max_mps2 <= 0.0) {
+    return true;
+  }
+  double prev_speed = own_ship_speed_mps;
+  double prev_time = 0.0;
+  for (const auto& cur : trajectory) {
+    const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
+    const double decel = (prev_speed - cur.u_mps) / dt_s;
+    if (decel > decel_max_mps2 + 1.0e-6) {
+      return false;
+    }
+    prev_speed = cur.u_mps;
+    prev_time = cur.t_s;
+  }
+  return true;
+}
+
+inline bool trajectory_crosses_ahead_of_target(
+    const std::vector<TrajectoryPoint>& trajectory,
+    const TargetState& target,
+    double route_brg) {
+  constexpr double kAheadAlongMarginM = 0.0;
+  constexpr double kCrossTrackWindowM = 100.0;
+  const double route_n = std::cos(route_brg);
+  const double route_e = std::sin(route_brg);
+  const double right_n = -std::sin(route_brg);
+  const double right_e = std::cos(route_brg);
+  for (const auto& own : trajectory) {
+    const double tgt_x = target.x_m + target.sog_mps * own.t_s * std::cos(target.cog_rad);
+    const double tgt_y = target.y_m + target.sog_mps * own.t_s * std::sin(target.cog_rad);
+    const double rel_x = own.x_m - tgt_x;
+    const double rel_y = own.y_m - tgt_y;
+    const double along_m = rel_x * route_n + rel_y * route_e;
+    const double lateral_m = rel_x * right_n + rel_y * right_e;
+    if (along_m > kAheadAlongMarginM && std::fabs(lateral_m) <= kCrossTrackWindowM) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool tail_gate_no_crossing_ahead(
+    const MidMpcSolution& solution,
+    const MidMpcInput& input) {
+  const TargetState* target = primary_tail_gate_target(input);
+  return target == nullptr || !trajectory_crosses_ahead_of_target(
+      solution.trajectory, *target, input.planned_route_bearing_rad);
+}
+
+inline void apply_tail_gate_publish_contract(
+    const MidMpcInput& input,
+    l3_msgs::msg::AvoidancePlan& plan) {
+  if (input.colregs_conflict_active && input.colregs_primary_role == 0U) {
+    plan.latitude.clear();
+    plan.longitude.clear();
+    plan.command_speed_mps.clear();
+    plan.navigation_mode.clear();
+    plan.segment_source.clear();
+    plan.waypoints.clear();
+    plan.status = "NORMAL";
+    plan.confidence = 1.0F;
+    plan.rationale = "M5 stand-on hold — no avoidance tail published";
+    plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+    plan.nlp_tail_gate_failed = false;
+    plan.allow_degraded_execution = false;
+  }
 }
 
 inline TailGateAcceptance accept_tail_gate(
@@ -668,7 +752,17 @@ inline TailGateAcceptance accept_tail_gate(
     result.reason = "cpa_worsening";
     return result;
   }
-  if (!tail_gate_turns_are_feasible(solution.trajectory, input.rot_max_rad_s)) {
+  if (!tail_gate_no_crossing_ahead(solution, input)) {
+    result.reason = "crossing_ahead";
+    return result;
+  }
+  if (!tail_gate_decel_is_feasible(
+          solution.trajectory, input.own_ship.u_mps, input.decel_max_mps2)) {
+    result.reason = "decel_infeasible";
+    return result;
+  }
+  if (!tail_gate_turns_are_feasible(
+          solution.trajectory, input.own_ship.psi_rad, input.rot_max_rad_s)) {
     result.reason = "turn_radius_infeasible";
     return result;
   }

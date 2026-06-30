@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 
 using mass_l3::m5::ColregsPreferredDirection;
@@ -51,4 +52,22 @@ TEST(StandOnReject, NlpProducingOffsetIsRejected)
   EXPECT_FALSE(result.accepted);
   EXPECT_TRUE(result.nlp_tail_gate_failed);
   EXPECT_EQ(result.reason, "stand_on_heading_violation");
+}
+
+TEST(StandOnReject, DegradedPublishDoesNotMarkTerminalHoldForStandOnConflict)
+{
+  MidMpcInput input = stand_on_fixture();
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.behavior_mode = "emergency_avoidance";
+  plan.segment_source = {
+      l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD};
+
+  mass_l3::m5::apply_tail_gate_publish_contract(input, plan);
+
+  EXPECT_TRUE(plan.latitude.empty());
+  EXPECT_TRUE(plan.segment_source.empty());
+  EXPECT_EQ(plan.status, "NORMAL");
+  EXPECT_FALSE(plan.nlp_tail_gate_failed);
+  EXPECT_EQ(plan.rationale, "M5 stand-on hold — no avoidance tail published");
 }
