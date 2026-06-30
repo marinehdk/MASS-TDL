@@ -80,3 +80,21 @@ Commit: 97c3eefb (`fix(m5): validate committed avoidance route snapshots`).
 Concerns:
 - Optimized selected routes are now canonicalized and preflight-checked before publish; if the selected optimized geometry itself fails GNC preflight, M5 drops it rather than publishing invalid geometry. Existing geometric fallback behavior remains for solver-failure/fallback branches.
 - `nlp_kkt_residual` remains `0.0` because current `MidMpcSolution` exposes no KKT residual field; status/tail-gate audit is populated from available solver status.
+## Review Fix 3
+
+Status: DONE
+
+Finding fixed:
+- Stabilized M5 committed-route `route_hash` semantics by removing volatile per-publication `plan_id` from the hash inputs. The hash now represents execution route content/revision metadata, so otherwise-identical optimized canonical route snapshots no longer force `route_changed` every 1 Hz solve cycle solely because `plan_id` was regenerated from `now.nanoseconds()`.
+
+RED/GREEN commands and outcomes:
+- RED: `docker run --rm -v "/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/src:/opt/ws/src" -w /opt/ws codex-colregs-12probe-debug-sil-nodes:latest bash -lc 'source /opt/ros/humble/setup.bash && rm -rf build/l3_msgs install/l3_msgs build/m5_tactical_planner install/m5_tactical_planner log && colcon build --packages-up-to m5_tactical_planner --cmake-args -DBUILD_TESTING=ON && source install/setup.bash && colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R test_avoidance_plan_contract --output-on-failure'` failed as expected: `route_hash_ignores_volatile_plan_id_for_identical_route_content` produced different hashes (`3335386538` vs `1906439583`).
+- GREEN: same Docker rebuild/test command passed: `test_avoidance_plan_contract` 3 tests, 0 failures.
+- GREEN: relevant M5-target command `colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R "test_(avoidance_plan_contract|mid_mpc_waypoint_generator|mid_mpc_nlp_formulation|mid_mpc_solver)" --output-on-failure` passed in the same Docker rebuild flow; available image selected and ran `test_avoidance_plan_contract` only (3 tests, 0 failures).
+
+Commit hash:
+- `b78e44c4` (`fix(m5): stabilize avoidance route hash`)
+
+Concerns:
+- Local host lacks `/opt/ros/jazzy`; verification used the existing `codex-colregs-12probe-debug-sil-nodes:latest` Docker image with worktree `src` bind-mounted and dependencies rebuilt in-container to avoid stale generated `l3_msgs` headers.
+- The Docker image did not expose/build CasADi mid-MPC tests under the requested regex in this run; focused contract test covers the blocker directly.
