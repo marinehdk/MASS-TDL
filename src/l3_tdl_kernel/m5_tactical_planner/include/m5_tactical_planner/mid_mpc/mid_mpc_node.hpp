@@ -120,7 +120,9 @@ class MidMpcNode : public rclcpp::Node {
   void publish_avoidance_waypoints_(rclcpp::Time now,
                                     const MidMpcInput& input,
                                     double lat0_deg,
-                                    double lon0_deg);
+                                    double lon0_deg,
+                                    const l3_msgs::msg::AvoidancePlan& selected_plan,
+                                    const MidMpcSolution& sol);
   bool last_emitted_conflict_active_{false};
   std::optional<rclcpp::Time> return_to_route_emit_until_;
   struct AvoidanceCorridorAnchor {

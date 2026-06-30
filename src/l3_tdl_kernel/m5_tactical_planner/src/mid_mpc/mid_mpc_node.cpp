@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -39,8 +38,6 @@ constexpr double kDefaultPlannedSpeed_mps = 5.14;
 // accelerated sim time, so repeat the M6-owned release intent long enough for
 // the GNC guard to admit one return_to_route update.
 constexpr double kReturnToRouteRepublishWindow_s = 30.0;
-
-constexpr double kAvoidancePlanHeartbeat_s = 60.0;
 
 void fnv1a_update(std::uint32_t& hash, const void* data, std::size_t size) {
   const auto* bytes = static_cast<const std::uint8_t*>(data);
@@ -121,51 +118,6 @@ void append_route_point(l3_msgs::msg::AvoidancePlan& plan,
   plan.command_speed_mps.push_back(speed_mps);
   plan.navigation_mode.push_back(navigation_mode);
   plan.segment_source.push_back(segment_source);
-}
-
-double route_point_distance_m(double lat_a, double lon_a, double lat_b, double lon_b) {
-  const double dn = (lat_b - lat_a) * units::kRadPerDeg * units::kEarthRadiusMean_m;
-  const double de = (lon_b - lon_a) * units::kRadPerDeg * units::kEarthRadiusMean_m
-      * std::cos(lat_a * units::kRadPerDeg);
-  return std::hypot(dn, de);
-}
-
-void append_l2_nominal_suffix(
-    l3_msgs::msg::AvoidancePlan& plan,
-    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
-    double speed_mps) {
-  if (planned_route == nullptr || planned_route->route.poses.empty()
-      || plan.latitude.empty() || plan.longitude.empty()) {
-    return;
-  }
-
-  const double last_lat = plan.latitude.back();
-  const double last_lon = plan.longitude.back();
-  std::size_t closest_idx = 0u;
-  double closest_m = std::numeric_limits<double>::infinity();
-  for (std::size_t i = 0; i < planned_route->route.poses.size(); ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
-    const double distance_m = route_point_distance_m(last_lat, last_lon, pos.latitude, pos.longitude);
-    if (distance_m < closest_m) {
-      closest_m = distance_m;
-      closest_idx = i;
-    }
-  }
-
-  constexpr double kDuplicateWaypointToleranceM = 1.0;
-  const std::size_t first_suffix_idx = closest_m <= kDuplicateWaypointToleranceM
-      ? closest_idx + 1u
-      : closest_idx;
-  for (std::size_t i = first_suffix_idx; i < planned_route->route.poses.size(); ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
-    append_route_point(
-        plan,
-        pos.latitude,
-        pos.longitude,
-        speed_mps,
-        "transit",
-        l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
-  }
 }
 
 l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
@@ -597,7 +549,7 @@ void MidMpcNode::on_solve_cycle_()
   // reports conflict we keep a rolling avoidance plan; on conflict-clear we
   // keep publishing the same return intent briefly so GNC update guards cannot
   // drop the only release message.
-  publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon);
+  publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon, plan, sol);
 }
 
 // ===========================================================================
@@ -857,7 +809,7 @@ void MidMpcNode::publish_avoidance_plan_(
   }
 
   // Heartbeat refreshes valid_until without forcing a new revision/hash.
-  out.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s);
+  out.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
   pub_avoidance_plan_->publish(out);
   last_published_route_hash_ = out.route_hash;
   last_avoidance_plan_publish_time_ = now;
@@ -920,7 +872,9 @@ void MidMpcNode::publish_avoidance_waypoints_(
     rclcpp::Time now,
     const MidMpcInput& input,
     double lat0_deg,
-    double lon0_deg) {
+    double lon0_deg,
+    const l3_msgs::msg::AvoidancePlan& selected_plan,
+    const MidMpcSolution& sol) {
   const bool collision_avoidance_authorized =
       behavior_plan_ != nullptr &&
       mass_l3::m5::should_emit_collision_avoidance_waypoints(
@@ -948,7 +902,35 @@ void MidMpcNode::publish_avoidance_waypoints_(
     return;
   }
 
-  if (conflict_active) {
+  if (conflict_active && selected_plan.status == "NORMAL" && !selected_plan.waypoints.empty()) {
+    return_to_route_emit_until_.reset();
+    return_route_anchor_.reset();
+    avoidance_corridor_anchor_.reset();
+    plan = selected_plan;
+    populate_canonical_route_from_selected_plan(
+        plan,
+        sol,
+        "m5-midmpc-" + std::to_string(now.nanoseconds()),
+        "nominal",
+        mass_l3::m5::gnc_avoidance_navigation_mode(/*colregs_overtake_corridor=*/false));
+    plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
+    if (!append_l2_nominal_suffix_if_preflight_feasible(
+            plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",
+          plan.plan_id.c_str());
+    }
+    const auto preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg});
+    if (!preflight.feasible) {
+      RCLCPP_WARN(
+          get_logger(),
+          "[M5][GNCPreflight] drop infeasible optimized plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
+          plan.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
+          preflight.required_m, preflight.available_m);
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
+  } else if (conflict_active) {
     return_to_route_emit_until_.reset();
     return_route_anchor_.reset();
     const bool colregs_overtake_corridor =
@@ -1058,7 +1040,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           : l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR;
       append_route_point(plan, wps[i].lat, wps[i].lon, speeds[i], navigation_mode, segment_source);
     }
-    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
+    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
     plan.allow_degraded_execution  = true;
     plan.rationale                 = colregs_overtake_corridor
         ? "m5 stable Rule13 overtake corridor for GNC bridge"
@@ -1142,7 +1124,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
         return_route_anchor_->navigation_mode == "colregs_overtake"
             ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
             : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
-    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanHeartbeat_s));
+    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
     plan.allow_degraded_execution  = true;
   } else {
     // No conflict and already returned: emit nothing this cycle.
@@ -1150,12 +1132,30 @@ void MidMpcNode::publish_avoidance_waypoints_(
     return;
   }
 
-  append_l2_nominal_suffix(plan, planned_route_, input.planned_speed_mps);
+  if (plan.status != "NORMAL") {
+    if (!append_l2_nominal_suffix_if_preflight_feasible(
+            plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][GNCPreflight] reject L2 nominal suffix for plan_id=%s; publishing preflighted base route without suffix",
+          plan.plan_id.c_str());
+    }
+    const auto full_preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg});
+    if (!full_preflight.feasible) {
+      RCLCPP_WARN(
+          get_logger(),
+          "[M5][GNCPreflight] drop infeasible full route plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
+          plan.plan_id.c_str(), full_preflight.reason.c_str(), full_preflight.index,
+          full_preflight.required_m, full_preflight.available_m);
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
 
-  plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
-  plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
-  plan.nlp_kkt_residual = 0.0F;
-  plan.nlp_tail_gate_failed = (plan.behavior_mode != "return_to_route");
+    plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
+    plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+    plan.nlp_kkt_residual = 0.0F;
+    plan.nlp_tail_gate_failed = (plan.behavior_mode != "return_to_route");
+  }
+  plan.waypoints.clear();
   plan.waypoints.reserve(plan.latitude.size());
   for (std::size_t i = 0; i < plan.latitude.size(); ++i) {
     const double speed = i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : 0.0;

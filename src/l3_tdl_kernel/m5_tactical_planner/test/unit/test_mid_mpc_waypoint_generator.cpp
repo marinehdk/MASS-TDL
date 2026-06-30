@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <vector>
 
+#include "geographic_msgs/msg/geo_pose_stamped.hpp"
+#include "l3_external_msgs/msg/planned_route.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
 
@@ -175,4 +178,70 @@ TEST(MidMpcWaypointGeneratorTest, NlpConverged_TurnRadiusIsPositive)
   // KEY ASSERTION: turn_radius_m must be > 0 so bridge gate passes
   EXPECT_GT(plan.waypoints[0].turn_radius_m, 1e-6)
       << "Bridge gate abs(turn_radius_m) > 1e-6 must pass for avoidance to activate";
+}
+
+
+TEST(MidMpcWaypointGeneratorTest, CanonicalOptimizedRouteUsesSelectedSolverWaypoints)
+{
+  MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
+  const auto sol = make_converged_solution(0.0, 5.0);
+  auto plan = gen.generate(sol, 30.0, 122.0);
+
+  mass_l3::m5::mid_mpc::populate_canonical_route_from_selected_plan(
+      plan,
+      sol,
+      "m5-midmpc-test",
+      "nominal",
+      "emergency_avoidance");
+
+  ASSERT_EQ(plan.status, "NORMAL");
+  ASSERT_EQ(plan.latitude.size(), plan.waypoints.size());
+  ASSERT_EQ(plan.segment_source.size(), plan.latitude.size());
+  EXPECT_EQ(plan.plan_id, "m5-midmpc-test");
+  EXPECT_EQ(plan.parent_route_id, "nominal");
+  EXPECT_EQ(plan.behavior_mode, "emergency_avoidance");
+  EXPECT_EQ(plan.nlp_solver_status, l3_msgs::msg::AvoidancePlan::NLP_CONVERGED);
+  EXPECT_FALSE(plan.nlp_tail_gate_failed);
+  for (std::size_t i = 0; i < plan.waypoints.size(); ++i) {
+    EXPECT_DOUBLE_EQ(plan.latitude[i], plan.waypoints[i].position.latitude);
+    EXPECT_DOUBLE_EQ(plan.longitude[i], plan.waypoints[i].position.longitude);
+    EXPECT_EQ(plan.segment_source[i], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
+  }
+}
+
+TEST(MidMpcWaypointGeneratorTest, RejectsL2SuffixThatBreaksFullRoutePreflight)
+{
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.latitude = {30.0020, 30.0040};
+  plan.longitude = {122.0, 122.0};
+  plan.command_speed_mps = {3.0, 3.0};
+  plan.navigation_mode = {"emergency_avoidance", "emergency_avoidance"};
+  plan.segment_source = {
+      l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD,
+  };
+
+  auto route = std::make_shared<l3_external_msgs::msg::PlannedRoute>();
+  geographic_msgs::msg::GeoPoseStamped suffix;
+  suffix.pose.position.latitude = 30.00405;
+  suffix.pose.position.longitude = 122.0;
+  route->route.poses.push_back(suffix);
+
+  const bool accepted = mass_l3::m5::mid_mpc::append_l2_nominal_suffix_if_preflight_feasible(
+      plan,
+      route,
+      mass_l3::m5::WaypointLatLon{30.0, 122.0},
+      3.0);
+
+  EXPECT_FALSE(accepted);
+  ASSERT_EQ(plan.latitude.size(), 2u);
+  EXPECT_EQ(plan.segment_source.back(), l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD);
+}
+
+TEST(MidMpcWaypointGeneratorTest, AvoidancePlanTtlHasHeartbeatMargin)
+{
+  EXPECT_DOUBLE_EQ(mass_l3::m5::mid_mpc::kAvoidancePlanHeartbeat_s, 60.0);
+  EXPECT_GT(mass_l3::m5::mid_mpc::kAvoidancePlanTtl_s,
+            mass_l3::m5::mid_mpc::kAvoidancePlanHeartbeat_s);
+  EXPECT_GE(mass_l3::m5::mid_mpc::kAvoidancePlanTtl_s, 70.0);
 }

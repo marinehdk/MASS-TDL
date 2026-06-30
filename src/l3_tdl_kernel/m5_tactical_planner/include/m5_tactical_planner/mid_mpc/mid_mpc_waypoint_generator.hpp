@@ -15,12 +15,35 @@
 #include <vector>
 
 #include "geographic_msgs/msg/geo_point.hpp"
+#include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/avoidance_waypoint.hpp"
 
+#include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 
 namespace mass_l3::m5::mid_mpc {
+
+inline constexpr double kAvoidancePlanHeartbeat_s = 60.0;
+inline constexpr double kAvoidancePlanTtl_s = 70.0;
+
+void populate_canonical_route_from_selected_plan(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const MidMpcSolution& solution,
+    const std::string& plan_id,
+    const std::string& parent_route_id,
+    const std::string& navigation_mode);
+
+[[nodiscard]] GncAvoidancePreflightResult validate_canonical_route_for_gnc(
+    const l3_msgs::msg::AvoidancePlan& plan,
+    const WaypointLatLon& origin);
+
+[[nodiscard]] bool append_l2_nominal_suffix_if_preflight_feasible(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    const WaypointLatLon& origin,
+    double speed_mps);
 
 class MidMpcWaypointGenerator {
  public:
