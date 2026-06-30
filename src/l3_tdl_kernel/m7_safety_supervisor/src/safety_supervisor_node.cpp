@@ -127,6 +127,37 @@ float avoidance_speed_mps(l3_msgs::msg::AvoidancePlan const& plan) noexcept
   return 0.0F;
 }
 
+float route_bearing_deg(double lat0, double lon0, double lat1, double lon1) noexcept
+{
+  double const mean_lat_rad = ((lat0 + lat1) * 0.5) * M_PI / 180.0;
+  double const dx = (lon1 - lon0) * static_cast<double>(kEarthMetresPerDeg) * std::cos(mean_lat_rad);
+  double const dy = (lat1 - lat0) * static_cast<double>(kEarthMetresPerDeg);
+  return static_cast<float>(std::atan2(dx, dy) * 180.0 / M_PI);
+}
+
+float route_distance_m(double lat0, double lon0, double lat1, double lon1) noexcept
+{
+  double const mean_lat_rad = ((lat0 + lat1) * 0.5) * M_PI / 180.0;
+  double const dx = (lon1 - lon0) * static_cast<double>(kEarthMetresPerDeg) * std::cos(mean_lat_rad);
+  double const dy = (lat1 - lat0) * static_cast<double>(kEarthMetresPerDeg);
+  return static_cast<float>(std::hypot(dx, dy));
+}
+
+float avoidance_commanded_rot_deg_s(l3_msgs::msg::AvoidancePlan const& plan) noexcept
+{
+  if (plan.latitude.size() < 3U || plan.longitude.size() < 3U) {
+    return 0.0F;
+  }
+  float const heading0 = route_bearing_deg(
+      plan.latitude[0], plan.longitude[0], plan.latitude[1], plan.longitude[1]);
+  float const heading1 = route_bearing_deg(
+      plan.latitude[1], plan.longitude[1], plan.latitude[2], plan.longitude[2]);
+  float const segment_m = route_distance_m(
+      plan.latitude[0], plan.longitude[0], plan.latitude[1], plan.longitude[1]);
+  float const segment_time_s = std::max(segment_m / std::max(avoidance_speed_mps(plan), 0.1F), 1.0F);
+  return wrap_deg_180(heading1 - heading0) / segment_time_s;
+}
+
 // ---------------------------------------------------------------------------
 // build_ros_stamp — extract ROS2 clock stamp building
 // ---------------------------------------------------------------------------
@@ -378,7 +409,7 @@ void SafetySupervisorNode::on_avoidance_plan(
   watchdog_->on_message_received(iec61508::MonitoredModule::kM5, kNow);
   last_avoidance_ = *msg;
   last_avoidance_speed_          = avoidance_speed_mps(*msg);
-  last_avoidance_rot_            = static_cast<float>(last_world_.own_ship.r_dot_deg_s);
+  last_avoidance_rot_            = avoidance_commanded_rot_deg_s(*msg);
   last_avoidance_heading_change_ = route_heading_change_deg(*msg, last_world_);
   last_avoidance_dcpa_           = derive_route_dcpa_m(*msg, last_world_);
   last_nlp_solver_status_        = msg->nlp_solver_status;

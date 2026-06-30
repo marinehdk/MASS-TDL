@@ -21,6 +21,21 @@ GREEN:
 full gate:
 - `colcon test --packages-select m7_safety_supervisor` in Docker/ROS still fails on pre-existing unrelated test `MrmSelectorTest.ChangeWithin30s_KeepsLastMrm` (`Expected dec2.confidence < dec1.confidence, actual 0.5 vs 0.5`). Slice K targeted tests pass.
 
+## 2026-07-01 — Review Fix 1
+
+status: DONE
+summary:
+- Fixed reviewer Important finding: M7 runtime ROT policing now checks commanded avoidance route ROT derived from canonical `AvoidancePlan` geometry, not measured own-ship `WorldState.r_dot_deg_s`.
+- Added regression `HardConstraintRuntime.CommandedRotViolationTriggersAlertWhenMeasuredRotIsSafe` proving unsafe commanded ROT raises HC-6 even when measured ROT is safe.
+
+RED:
+- Reviewer identified the missing test/bug: prior runtime path set `last_avoidance_rot_` from measured world ROT, so a commanded route turn could evade HC-6 when current measured ROT was still safe.
+
+GREEN:
+- `rtk docker compose run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && cd /opt/ws && colcon build --symlink-install --packages-select l3_msgs l3_external_msgs m7_safety_supervisor --cmake-args -DBUILD_TESTING=ON && source install/setup.bash && colcon test --packages-select m7_safety_supervisor --event-handlers console_direct+ --ctest-args -R test_hard_constraint_runtime --output-on-failure && colcon test-result --verbose'`
+  - PASS: `test_hard_constraint_runtime` 2/2 tests, 0 failures; package result 3 tests, 0 errors, 0 failures, 0 skipped.
+- `bash tools/ci/check-doer-checker-independence.sh`
+  - PASS: `Doer-Checker independence: OK`; optional `cloc`/`lizard`/`syft` checks skipped because tools absent.
+
 concerns:
-- Host lacks `colcon`; all ROS build/test commands were run in Docker via `sil-nodes`.
-- Worktree had pre-existing unrelated dirty docs/handoff/untracked files before Slice K; commit should stage only Slice K files.
+- Full M7 suite still not rerun after this focused fix; prior full-suite failure was unrelated `MrmSelectorTest.ChangeWithin30s_KeepsLastMrm`.
