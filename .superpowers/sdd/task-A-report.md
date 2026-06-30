@@ -55,7 +55,7 @@ RED/GREEN tests:
 - GREEN: `npm --prefix /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web test -- --run src/map/__tests__/AvoidanceRouteLayer.test.tsx` passed: 6 tests.
 - GREEN: `npm --prefix /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web run build` passed; existing Vite warnings about foxglove eval and chunk size remain.
 
-Commit: pending at report-write time.
+Commit: 3907fa19 (fix(m5): preserve avoidance plan audit handoff).
 
 Concerns:
 - Slice D still owns real keep-last/stale transition semantics; Slice A only publishes explicit non-stale zero timestamps.
