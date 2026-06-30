@@ -18,6 +18,7 @@
 #include "l3_risk_model/risk_model.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_policy.hpp"
+#include "m5_tactical_planner/avoidance_route_hash.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
@@ -38,57 +39,6 @@ constexpr double kDefaultPlannedSpeed_mps = 5.14;
 // accelerated sim time, so repeat the M6-owned release intent long enough for
 // the GNC guard to admit one return_to_route update.
 constexpr double kReturnToRouteRepublishWindow_s = 30.0;
-
-void fnv1a_update(std::uint32_t& hash, const void* data, std::size_t size) {
-  const auto* bytes = static_cast<const std::uint8_t*>(data);
-  for (std::size_t i = 0; i < size; ++i) {
-    hash ^= bytes[i];
-    hash *= 16777619u;
-  }
-}
-
-void fnv1a_update_double(std::uint32_t& hash, double value) {
-  static_assert(sizeof(double) == sizeof(std::uint64_t));
-  std::uint64_t bits = 0u;
-  std::memcpy(&bits, &value, sizeof(double));
-  fnv1a_update(hash, &bits, sizeof(bits));
-}
-
-void fnv1a_update_string(std::uint32_t& hash, const std::string& value) {
-  fnv1a_update(hash, value.data(), value.size());
-  const char nul = '\0';
-  fnv1a_update(hash, &nul, sizeof(nul));
-}
-
-std::uint32_t route_hash(const l3_msgs::msg::AvoidancePlan& plan) {
-  std::uint32_t hash = 2166136261u;
-  fnv1a_update_string(hash, plan.plan_id);
-  fnv1a_update_string(hash, plan.parent_route_id);
-  fnv1a_update_string(hash, plan.behavior_mode);
-  fnv1a_update_string(hash, plan.command_source);
-  for (const double value : plan.latitude) {
-    fnv1a_update_double(hash, value);
-  }
-  for (const double value : plan.longitude) {
-    fnv1a_update_double(hash, value);
-  }
-  for (const double value : plan.command_speed_mps) {
-    fnv1a_update_double(hash, value);
-  }
-  for (const auto& value : plan.navigation_mode) {
-    fnv1a_update_string(hash, value);
-  }
-  for (const auto value : plan.segment_source) {
-    fnv1a_update(hash, &value, sizeof(value));
-  }
-  fnv1a_update(hash, &plan.allow_degraded_execution, sizeof(plan.allow_degraded_execution));
-  fnv1a_update(hash, &plan.has_return_to_route_point, sizeof(plan.has_return_to_route_point));
-  fnv1a_update_double(hash, plan.return_latitude);
-  fnv1a_update_double(hash, plan.return_longitude);
-  fnv1a_update(hash, &plan.nlp_solver_status, sizeof(plan.nlp_solver_status));
-  fnv1a_update(hash, &plan.nlp_tail_gate_failed, sizeof(plan.nlp_tail_gate_failed));
-  return hash;
-}
 
 l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
     double latitude,
@@ -797,7 +747,7 @@ void MidMpcNode::publish_avoidance_plan_(
   l3_msgs::msg::AvoidancePlan out = plan;
   out.schema_version = 114;
   out.stamp = now;
-  out.route_hash = route_hash(out);
+  out.route_hash = mass_l3::m5::avoidance_route_hash(out);
 
   const bool route_changed = !last_published_route_hash_.has_value()
       || last_published_route_hash_.value() != out.route_hash;

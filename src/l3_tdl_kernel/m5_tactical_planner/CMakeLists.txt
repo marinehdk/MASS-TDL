@@ -92,6 +92,7 @@ find_package(Boost REQUIRED COMPONENTS headers)
 # commented find_package(IPOPT) block above must be re-enabled.
 # ---------------------------------------------------------------------------
 set(M5_SHARED_SOURCES
+  src/avoidance_route_hash.cpp
   # --- common/ ---
   src/common/error.cpp
   src/common/types.cpp
