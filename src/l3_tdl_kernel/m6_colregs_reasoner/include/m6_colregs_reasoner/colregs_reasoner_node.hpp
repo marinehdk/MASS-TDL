@@ -58,6 +58,10 @@ class ColregsReasonerNode : public rclcpp::Node {
   static void test_populate_colregs_semantics(
       l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
       bool latch_released, bool release_predicted);
+  static void test_populate_colregs_publish_semantics(
+      l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+      bool actual_latch_released, bool release_predicted,
+      bool resolved_bookkeeping);
 
   // Test hooks for cross-run reset coverage. encounter_fsms_ is populated per
   // (target,rule) during run_reasoning (a timer callback not reachable from
@@ -75,6 +79,10 @@ class ColregsReasonerNode : public rclcpp::Node {
   static void populate_colregs_semantics_(
       l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
       bool latch_released, bool release_predicted);
+  static void populate_colregs_publish_semantics_(
+      l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+      bool actual_latch_released, bool release_predicted,
+      bool resolved_bookkeeping);
 
   void declare_parameters();
   void load_odd_thresholds();

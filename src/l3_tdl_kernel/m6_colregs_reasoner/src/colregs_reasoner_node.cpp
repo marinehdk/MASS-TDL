@@ -775,18 +775,24 @@ void ColregsReasonerNode::run_reasoning() {
         (reference_projection_resolved || current_projection_resolved);
     const bool target_release_predicted =
         finally_resolved || projection_resolved || standon_action_release;
-    const bool target_latch_released =
-        target_release_predicted || any_latch_released ||
-        resolved_targets_.count(mmsi) > 0;
+    const bool target_latch_released = any_latch_released;
     release_predicted_by_target[mmsi] = target_release_predicted;
     latch_released_by_target[mmsi] = target_latch_released;
-    if (target_latch_released) {
-      semantic_state_by_target[mmsi] = EncounterState::RELEASE;
-    }
 
     if (finally_resolved || projection_resolved || standon_action_release ||
         any_latch_released ||
         resolved_targets_.count(mmsi) > 0) {
+      if (semantic_state_by_target.count(mmsi) == 0) {
+        for (const int primary_rid : {13, 14, 15}) {
+          const uint64_t primary_key =
+              (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(primary_rid);
+          const auto fsm_it = encounter_fsms_.find(primary_key);
+          if (fsm_it != encounter_fsms_.end()) {
+            semantic_state_by_target[mmsi] = fsm_it->second.state();
+            break;
+          }
+        }
+      }
       resolved_targets_.insert(mmsi);
       rule_latches_.erase(rule13_key);
       rule_latches_.erase(rule14_key);
@@ -1179,7 +1185,9 @@ void ColregsReasonerNode::run_reasoning() {
     release_predicted =
         predicted_it != release_predicted_by_target.end() && predicted_it->second;
   }
-  populate_colregs_semantics_(constraint, semantic_state, latch_released, release_predicted);
+  populate_colregs_publish_semantics_(
+      constraint, semantic_state, latch_released, release_predicted,
+      semantic_target_mmsi != 0 && resolved_targets_.count(semantic_target_mmsi) > 0);
 
   constraint_pub_->publish(constraint);
 
@@ -1612,10 +1620,26 @@ void ColregsReasonerNode::populate_colregs_semantics_(
   msg.release_predicted = release_predicted;
 }
 
+void ColregsReasonerNode::populate_colregs_publish_semantics_(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+    bool actual_latch_released, bool release_predicted,
+    bool /*resolved_bookkeeping*/) {
+  populate_colregs_semantics_(msg, fsm_state, actual_latch_released, release_predicted);
+}
+
 void ColregsReasonerNode::test_populate_colregs_semantics(
     l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
     bool latch_released, bool release_predicted) {
   populate_colregs_semantics_(msg, state, latch_released, release_predicted);
+}
+
+void ColregsReasonerNode::test_populate_colregs_publish_semantics(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+    bool actual_latch_released, bool release_predicted,
+    bool resolved_bookkeeping) {
+  populate_colregs_publish_semantics_(
+      msg, fsm_state, actual_latch_released, release_predicted,
+      resolved_bookkeeping);
 }
 
 void ColregsReasonerNode::on_scenario_loaded(
