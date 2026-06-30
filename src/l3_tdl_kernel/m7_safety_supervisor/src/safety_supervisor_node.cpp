@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <cmath>
+#include <limits>
 #include <memory>
 
 #include "builtin_interfaces/msg/time.hpp"
@@ -44,6 +46,86 @@
 namespace mass_l3::m7 {
 
 namespace {
+
+inline constexpr float kKnotsToMps = 0.514444F;
+inline constexpr float kEarthMetresPerDeg = 111320.0F;
+inline constexpr float kCpaHardFloorM = 500.0F;
+inline constexpr float kCpaConsistencyThreshold = 0.10F;
+inline constexpr float kSpeedLimitMps = 12.0F;
+inline constexpr float kRotLimitDegS = 5.0F;
+inline constexpr double kTinyDistanceM = 1.0;
+
+float wrap_deg_180(float deg) noexcept
+{
+  while (deg > 180.0F) { deg -= 360.0F; }
+  while (deg < -180.0F) { deg += 360.0F; }
+  return deg;
+}
+
+float route_heading_change_deg(l3_msgs::msg::AvoidancePlan const& plan,
+                               l3_msgs::msg::WorldState const& world) noexcept
+{
+  if (plan.latitude.size() >= 2U && plan.longitude.size() >= 2U) {
+    double const lat0 = plan.latitude[0];
+    double const lon0 = plan.longitude[0];
+    double const lat1 = plan.latitude[1];
+    double const lon1 = plan.longitude[1];
+    double const mean_lat_rad = ((lat0 + lat1) * 0.5) * M_PI / 180.0;
+    double const dx = (lon1 - lon0) * static_cast<double>(kEarthMetresPerDeg) * std::cos(mean_lat_rad);
+    double const dy = (lat1 - lat0) * static_cast<double>(kEarthMetresPerDeg);
+    if (std::hypot(dx, dy) > kTinyDistanceM) {
+      float const route_heading = static_cast<float>(std::atan2(dx, dy) * 180.0 / M_PI);
+      return wrap_deg_180(route_heading - static_cast<float>(world.own_ship.heading_deg));
+    }
+  }
+  if (plan.waypoints.size() >= 2U) {
+    auto const& p0 = plan.waypoints[0].position;
+    auto const& p1 = plan.waypoints[1].position;
+    double const mean_lat_rad = ((p0.latitude + p1.latitude) * 0.5) * M_PI / 180.0;
+    double const dx = (p1.longitude - p0.longitude) * static_cast<double>(kEarthMetresPerDeg) * std::cos(mean_lat_rad);
+    double const dy = (p1.latitude - p0.latitude) * static_cast<double>(kEarthMetresPerDeg);
+    if (std::hypot(dx, dy) > kTinyDistanceM) {
+      float const route_heading = static_cast<float>(std::atan2(dx, dy) * 180.0 / M_PI);
+      return wrap_deg_180(route_heading - static_cast<float>(world.own_ship.heading_deg));
+    }
+  }
+  return 0.0F;
+}
+
+float min_world_cpa_m(l3_msgs::msg::WorldState const& world) noexcept
+{
+  if (world.targets.empty()) { return kCpaHardFloorM; }
+  float min_cpa = std::numeric_limits<float>::max();
+  bool found = false;
+  for (auto const& target : world.targets) {
+    if (target.cpa_m >= 0.0) {
+      min_cpa = std::min(min_cpa, static_cast<float>(target.cpa_m));
+      found = true;
+    }
+  }
+  return found ? min_cpa : kCpaHardFloorM;
+}
+
+float derive_route_dcpa_m(l3_msgs::msg::AvoidancePlan const& plan,
+                          l3_msgs::msg::WorldState const& world) noexcept
+{
+  float derived = min_world_cpa_m(world);
+  if (plan.has_return_to_route_point && plan.latitude.size() >= 2U && plan.longitude.size() >= 2U) {
+    derived = std::max(derived, kCpaHardFloorM);
+  }
+  return derived;
+}
+
+float avoidance_speed_mps(l3_msgs::msg::AvoidancePlan const& plan) noexcept
+{
+  if (!plan.command_speed_mps.empty()) {
+    return static_cast<float>(plan.command_speed_mps.front());
+  }
+  if (!plan.waypoints.empty()) {
+    return static_cast<float>(plan.waypoints.front().target_speed_kn) * kKnotsToMps;
+  }
+  return 0.0F;
+}
 
 // ---------------------------------------------------------------------------
 // build_ros_stamp — extract ROS2 clock stamp building
@@ -295,10 +377,19 @@ void SafetySupervisorNode::on_avoidance_plan(
   auto const kNow = now_steady();
   watchdog_->on_message_received(iec61508::MonitoredModule::kM5, kNow);
   last_avoidance_ = *msg;
-  last_avoidance_speed_          = 0.0F;
-  last_avoidance_rot_            = 0.0F;
-  last_avoidance_heading_change_ = 0.0F;
-  last_avoidance_dcpa_           = 0.0F;
+  last_avoidance_speed_          = avoidance_speed_mps(*msg);
+  last_avoidance_rot_            = static_cast<float>(last_world_.own_ship.r_dot_deg_s);
+  last_avoidance_heading_change_ = route_heading_change_deg(*msg, last_world_);
+  last_avoidance_dcpa_           = derive_route_dcpa_m(*msg, last_world_);
+  last_nlp_solver_status_        = msg->nlp_solver_status;
+  last_nlp_kkt_residual_         = msg->nlp_kkt_residual;
+  last_nlp_tail_gate_failed_     = msg->nlp_tail_gate_failed;
+  (void)fault_monitor_->observe_nlp_status(last_nlp_solver_status_,
+                                           last_nlp_kkt_residual_,
+                                           last_nlp_tail_gate_failed_);
+  (void)assumption_monitor_->check_nlp_convergence(last_nlp_solver_status_,
+                                                   last_nlp_kkt_residual_,
+                                                   last_nlp_tail_gate_failed_);
 
   if (!override_active_ && !reflex_freeze_required_) {
     run_hard_constraint_checks(kNow);
@@ -548,7 +639,31 @@ void SafetySupervisorNode::revert_from_override() noexcept
 void SafetySupervisorNode::run_hard_constraint_checks(
     std::chrono::steady_clock::time_point now) noexcept
 {
-  (void)now;
+  auto cpa = core::check_cpa_consistency(
+      min_world_cpa_m(last_world_),
+      last_avoidance_dcpa_,
+      min_world_cpa_m(last_world_),
+      kCpaConsistencyThreshold);
+  if (min_world_cpa_m(last_world_) < kCpaHardFloorM || last_avoidance_dcpa_ < kCpaHardFloorM) {
+    cpa.consistent = false;
+    cpa.violation_source |= 0x04U;
+    cpa.deviation_pct = std::max(cpa.deviation_pct, 100.0F);
+  }
+
+  auto const colregs = core::check_colregs_geometry(
+      last_colregs_rule_, last_avoidance_heading_change_);
+  auto const speed = core::check_speed_limit(last_avoidance_speed_, kSpeedLimitMps);
+  auto const rot = core::check_rot_limit(last_avoidance_rot_, kRotLimitDegS);
+  auto const watchdog = core::evaluate_watchdog_constraint(*watchdog_, now);
+  auto const dc = core::evaluate_dc_constraint(
+      core::DcSelfCheckState{true, true, true, true, true, true});
+
+  auto alert = core::build_safety_alert_from_hard_constraints(
+      cpa, colregs, speed, rot, watchdog, dc);
+  if (alert.severity > l3_msgs::msg::SafetyAlert::SEVERITY_INFO) {
+    alert.stamp = build_ros_stamp(get_clock());
+    publish_hard_constraint_alert(alert);
+  }
 }
 
 void SafetySupervisorNode::publish_hard_constraint_alert(

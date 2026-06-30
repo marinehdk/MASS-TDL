@@ -311,6 +311,18 @@ if(BUILD_TESTING)
     test/integration/test_e2e_alert_pipeline.cpp)
   target_link_libraries(test_e2e_alert_pipeline m7_lib)
 
+  ament_add_gtest(test_hard_constraint_runtime
+    test/integration/test_hard_constraint_runtime.cpp)
+  target_link_libraries(test_hard_constraint_runtime m7_lib spdlog::spdlog)
+  ament_target_dependencies(test_hard_constraint_runtime
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces std_msgs)
+
+  ament_add_gtest(test_nlp_status_monitor
+    test/unit/test_nlp_status_monitor.cpp)
+  target_link_libraries(test_nlp_status_monitor m7_lib spdlog::spdlog)
+  ament_target_dependencies(test_nlp_status_monitor
+    rclcpp l3_msgs l3_external_msgs builtin_interfaces)
+
   # ---------------------------------------------------------------------------
   # Hard constraint unit tests (D3.3a M7-core 4)
   # ---------------------------------------------------------------------------

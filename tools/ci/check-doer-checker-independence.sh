@@ -45,6 +45,17 @@ readonly FORBIDDEN_INTERNAL=(
 # M8 isolation (D3.3a spec 7.3) - F-CRIT-C-003
 readonly FORBIDDEN_INTERNAL_M8=("mass_l3/m8/")
 
+# Slice K allowlist: l3_risk_model is a deterministic geometry/risk utility, not a
+# doer reasoning implementation. M7 may link/include it only for X-axis checker
+# calculations; the VETO path must not share M1-M6 internal module headers.
+readonly ALLOWED_SHARED_LIBS=("l3_risk_model")
+
+for lib in "${ALLOWED_SHARED_LIBS[@]}"; do
+    if grep -rn "${lib}" "${M7_SRC}" 2>/dev/null; then
+        echo "ALLOWLIST: M7 references ${lib} (deterministic geometry library; no doer reasoning path shared)"
+    fi
+done
+
 for h in "${FORBIDDEN_INTERNAL_M8[@]}"; do
     if grep -rn "#include.*${h}" "${M7_SRC}" 2>/dev/null; then
         echo "VIOLATION: M7 includes forbidden M8 internal header pattern '${h}'"

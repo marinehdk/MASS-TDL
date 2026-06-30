@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "l3_msgs/msg/avoidance_plan.hpp"
+
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
@@ -130,8 +132,36 @@ bool AssumptionMonitor::check_checker_veto_rate(double current_rate) const noexc
   return current_rate >= cfg_.checker_veto_rate_threshold;
 }
 
+
 // ---------------------------------------------------------------------------
-// evaluate() — aggregate all 6 assumptions
+// Assumption 7: M5 NLP convergence — consecutive non-converged statuses
+// ---------------------------------------------------------------------------
+
+bool AssumptionMonitor::check_nlp_convergence(
+    std::uint8_t solver_status,
+    float kkt_residual,
+    bool tail_gate_failed) noexcept
+{
+  nlp_last_metric_ = kkt_residual;
+  bool const kConverged =
+      (solver_status == l3_msgs::msg::AvoidancePlan::NLP_CONVERGED) && !tail_gate_failed;
+  if (tail_gate_failed) {
+    nlp_violation_active_ = true;
+    nlp_failure_count_ = cfg_.nlp_consecutive_failure_count;
+    return true;
+  }
+  if (kConverged) {
+    nlp_failure_count_ = 0U;
+    nlp_violation_active_ = false;
+    return false;
+  }
+  ++nlp_failure_count_;
+  nlp_violation_active_ = (nlp_failure_count_ >= cfg_.nlp_consecutive_failure_count);
+  return nlp_violation_active_;
+}
+
+// ---------------------------------------------------------------------------
+// evaluate() — aggregate all SOTIF assumptions
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -142,6 +172,7 @@ namespace {
   constexpr std::size_t kIdxColreg = static_cast<std::size_t>(AssumptionId::kColregsSolvability);
   constexpr std::size_t kIdxComm   = static_cast<std::size_t>(AssumptionId::kCommLink);
   constexpr std::size_t kIdxVeto   = static_cast<std::size_t>(AssumptionId::kCheckerVetoRate);
+  constexpr std::size_t kIdxNlp    = static_cast<std::size_t>(AssumptionId::kNlpConvergence);
 }  // namespace
 
 AssumptionStatus AssumptionMonitor::evaluate(
@@ -166,6 +197,8 @@ AssumptionStatus AssumptionMonitor::evaluate(
   status.violation_metric[kIdxComm]   = static_cast<float>(comm_link.rtt_s);
   status.violation_active[kIdxVeto]   = check_checker_veto_rate(current_checker_veto_rate);
   status.violation_metric[kIdxVeto]   = static_cast<float>(current_checker_veto_rate);
+  status.violation_active[kIdxNlp]    = nlp_violation_active_;
+  status.violation_metric[kIdxNlp]    = nlp_last_metric_;
   // Aggregate violation count
   std::uint32_t count = 0U;
   for (bool const kIsViolation : status.violation_active) { if (kIsViolation) { ++count; } }
@@ -183,6 +216,9 @@ void AssumptionMonitor::reset() noexcept {
   motion_low_since_ = {};
   motion_tracking_ = false;
   colregs_failure_count_ = 0U;
+  nlp_failure_count_ = 0U;
+  nlp_violation_active_ = false;
+  nlp_last_metric_ = 0.0F;
 }
 
 }  // namespace mass_l3::m7::sotif

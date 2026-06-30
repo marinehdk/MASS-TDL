@@ -10,6 +10,7 @@
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 
 namespace mass_l3::m7::sotif {
 
@@ -26,6 +27,7 @@ enum class AssumptionId : std::uint8_t {
   kColregsSolvability,
   kCommLink,
   kCheckerVetoRate,
+  kNlpConvergence,
   kCount  // sentinel — must remain last; used as array cardinality
 };
 
@@ -39,6 +41,7 @@ struct AssumptionConfig {
   double rtt_threshold_s{common::kDefaultRttThresholdS};
   double packet_loss_pct_threshold{common::kDefaultPacketLossPctThreshold};
   double checker_veto_rate_threshold{common::kCheckerVetoRateThreshold};
+  std::uint32_t nlp_consecutive_failure_count{3U};
 };
 
 struct AssumptionStatus {
@@ -84,6 +87,11 @@ public:
   // Assumption 6: M7 self-veto rate exceeds RFC-003 locked threshold (0.20).
   [[nodiscard]] bool check_checker_veto_rate(double current_rate) const noexcept;
 
+  // Assumption 7: M5 NLP convergence — three consecutive non-converged statuses or any tail-gate fail.
+  [[nodiscard]] bool check_nlp_convergence(std::uint8_t solver_status,
+                                           float kkt_residual,
+                                           bool tail_gate_failed) noexcept;
+
   // Reset all internal state (used after MRC activation or ODD re-entry).
   void reset() noexcept;
 
@@ -104,6 +112,11 @@ private:
 
   // Assumption 4 state — consecutive COLREGs failure counter
   std::uint32_t colregs_failure_count_{0};
+
+  // Assumption 7 state — consecutive M5 NLP non-convergence counter
+  std::uint32_t nlp_failure_count_{0};
+  bool nlp_violation_active_{false};
+  float nlp_last_metric_{0.0F};
 };
 
 }  // namespace mass_l3::m7::sotif
