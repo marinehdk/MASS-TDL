@@ -165,7 +165,8 @@ MidMpcWaypointGenerator::sample_waypoints_(
   }
 
   const int32_t N      = static_cast<int32_t>(trajectory.size());
-  const int32_t num_wp = (cfg_.num_waypoints < N) ? cfg_.num_waypoints : N;
+  const int32_t desired_wp = std::max(cfg_.num_waypoints, N);
+  const int32_t num_wp = std::min(desired_wp, N);
 
   std::vector<std::pair<double, double>> ned_pos;
   ned_pos.reserve(static_cast<std::size_t>(N + 1));

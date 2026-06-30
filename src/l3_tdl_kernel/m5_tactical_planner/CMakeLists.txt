@@ -327,6 +327,16 @@ if(BUILD_TESTING)
       test/unit/test_mid_mpc_waypoint_generator.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
+
+    # ── Slice B: Mid-MPC tail-gate and stand-on acceptance tests ───────────────
+    m5_add_gtest(test_midmpc_tail_gate
+      test/unit/test_midmpc_tail_gate.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
+    m5_add_gtest(test_stand_on_reject
+      test/unit/test_stand_on_reject.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
   endif()
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────

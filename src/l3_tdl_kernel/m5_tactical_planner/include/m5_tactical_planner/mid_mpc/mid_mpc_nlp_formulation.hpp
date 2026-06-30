@@ -65,8 +65,8 @@ class MidMpcNlpFormulation {
   // All [TBD-HAZID] tunables. Defaults aligned with detailed design §5.2.3.
   // -------------------------------------------------------------------------
   struct Config {
-    // [TBD-HAZID] Horizon length N (12–18); calibrate from FCB stopping distance.
-    int32_t n_horizon{12};
+    // [TBD-HAZID] Horizon length N per spec v2 baseline: 18 × 5 s = 90 s.
+    int32_t n_horizon{18};
     // Step duration [s] (aligned with L4 LOS period, detailed design §5.2.3).
     double dt_s{5.0};
     // [TBD-HAZID] COLREGs compliance cost weight (~3x route per colav_algorithms NLM).

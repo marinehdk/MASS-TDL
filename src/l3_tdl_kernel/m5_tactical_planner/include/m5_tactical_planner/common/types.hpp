@@ -55,6 +55,7 @@ struct TargetState {
   double cog_rad{0.0};   // course over ground [rad]
   double sog_mps{0.0};   // speed over ground [m/s]
   double cpa_m{0.0};     // closest point of approach [m]
+  double cpa_sigma_m{0.0};  // 1σ CPA uncertainty [m], sourced from M2 covariance when available
   double tcpa_s{0.0};    // time to CPA [s]; negative = already passed
   double confidence{0.0};  // track confidence ∈ [0, 1]
   Intent predicted_intent{Intent::Unknown};
@@ -151,6 +152,8 @@ struct MidMpcInput {
   std::vector<TargetRiskSnapshot> target_risks;
 
   bool colregs_conflict_active{false};
+  // M6-owned primary role: 0=STAND_ON, 1=GIVE_WAY, 2=BOTH_GIVE_WAY, 3=FREE/UNKNOWN.
+  std::uint8_t colregs_primary_role{3U};
   ColregsPreferredDirection colregs_preferred_direction{ColregsPreferredDirection::Hold};
   double colregs_min_alteration_rad{0.0};
 
@@ -547,6 +550,133 @@ inline bool trajectory_reaches_colregs_target(
   const double target_heading = fallback_target_heading(
       route_brg, h_min, h_max, target_min_alt, direction);
   return trajectory_reaches_heading(trajectory, target_heading, tolerance_rad);
+}
+
+struct TailGateAcceptance {
+  bool accepted{false};
+  bool nlp_tail_gate_failed{true};
+  std::string reason{"not_evaluated"};
+};
+
+inline double trajectory_terminal_lateral_offset_m(
+    const TrajectoryPoint& point,
+    double route_brg) {
+  return (-std::sin(route_brg) * point.x_m) + (std::cos(route_brg) * point.y_m);
+}
+
+inline bool terminal_offset_matches_m6_direction(
+    const TrajectoryPoint& terminal,
+    double route_brg,
+    ColregsPreferredDirection direction) {
+  constexpr double kMinTailLateralOffsetM = 25.0;
+  const double lateral_m = trajectory_terminal_lateral_offset_m(terminal, route_brg);
+  if (direction == ColregsPreferredDirection::Starboard) {
+    return lateral_m >= kMinTailLateralOffsetM;
+  }
+  if (direction == ColregsPreferredDirection::Port) {
+    return lateral_m <= -kMinTailLateralOffsetM;
+  }
+  return true;
+}
+
+inline const TargetState* primary_tail_gate_target(const MidMpcInput& input) {
+  if (input.targets.empty()) {
+    return nullptr;
+  }
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  if (risk != nullptr) {
+    for (const auto& target : input.targets) {
+      if (std::to_string(target.id) == risk->target_id) {
+        return &target;
+      }
+    }
+  }
+  return &input.targets.front();
+}
+
+inline bool tail_gate_cpa_release_clear(const MidMpcInput& input) {
+  const TargetState* target = primary_tail_gate_target(input);
+  if (target == nullptr) {
+    return true;
+  }
+  const double sigma_m = std::max(target->cpa_sigma_m, 0.0);
+  return (target->cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_safe_m;
+}
+
+inline bool tail_gate_risk_opening(const MidMpcInput& input) {
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  return risk == nullptr || risk->closing_speed_mps <= 0.0;
+}
+
+inline bool tail_gate_turns_are_feasible(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double rot_max_rad_s) {
+  if (trajectory.size() < 2U || rot_max_rad_s <= 0.0) {
+    return true;
+  }
+  for (std::size_t i = 1U; i < trajectory.size(); ++i) {
+    const auto& prev = trajectory[i - 1U];
+    const auto& cur = trajectory[i];
+    const double dt_s = std::max(cur.t_s - prev.t_s, 1.0e-6);
+    if ((circular_heading_distance(cur.psi_rad, prev.psi_rad) / dt_s) >
+        (rot_max_rad_s + 1.0e-6)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline TailGateAcceptance accept_tail_gate(
+    const MidMpcSolution& solution,
+    const MidMpcInput& input) {
+  TailGateAcceptance result;
+  if (solution.status != MidMpcSolution::Status::Converged || solution.trajectory.empty()) {
+    result.reason = "solver_not_converged";
+    return result;
+  }
+
+  const auto& terminal = solution.trajectory.back();
+  if (input.colregs_primary_role == 0U) {
+    constexpr double kStandOnHeadingToleranceRad = 2.0 * units::kRadPerDeg;
+    constexpr double kStandOnOffsetToleranceM = 10.0;
+    const bool biased_heading = circular_heading_distance(
+        terminal.psi_rad, input.planned_route_bearing_rad) > kStandOnHeadingToleranceRad;
+    const bool biased_offset = std::fabs(trajectory_terminal_lateral_offset_m(
+        terminal, input.planned_route_bearing_rad)) > kStandOnOffsetToleranceM;
+    if (biased_heading || biased_offset) {
+      result.reason = "stand_on_heading_violation";
+      return result;
+    }
+    result.accepted = true;
+    result.nlp_tail_gate_failed = false;
+    result.reason = "accepted";
+    return result;
+  }
+
+  if (!terminal_offset_matches_m6_direction(
+          terminal,
+          input.planned_route_bearing_rad,
+          input.colregs_preferred_direction)) {
+    result.reason = "wrong_m6_side";
+    return result;
+  }
+  if (!tail_gate_cpa_release_clear(input)) {
+    result.reason = "cpa_release_floor";
+    return result;
+  }
+  if (!tail_gate_risk_opening(input)) {
+    result.reason = "cpa_worsening";
+    return result;
+  }
+  if (!tail_gate_turns_are_feasible(solution.trajectory, input.rot_max_rad_s)) {
+    result.reason = "turn_radius_infeasible";
+    return result;
+  }
+
+  result.accepted = true;
+  result.nlp_tail_gate_failed = false;
+  result.reason = "accepted";
+  return result;
 }
 
 }  // namespace mass_l3::m5

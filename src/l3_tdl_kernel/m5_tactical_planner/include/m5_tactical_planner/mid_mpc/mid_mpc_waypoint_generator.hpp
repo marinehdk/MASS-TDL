@@ -48,8 +48,8 @@ void populate_canonical_route_from_selected_plan(
 class MidMpcWaypointGenerator {
  public:
   struct Config {
-    // Fixed 4 waypoints per RFC-001 方案 B (Kongsberg K-Pos compatible).
-    int32_t num_waypoints{4};
+    // Dense route points: default follows Mid-MPC NLP step resolution (N=18, dt=5s).
+    int32_t num_waypoints{18};
     // [TBD-HAZID] Safety corridor [m] — nominal COLREGs separation margin.
     // Calibrate from FCB CPA safe distance (HAZID RUN-001 WP-03).
     double safety_corridor_m{500.0};
@@ -59,7 +59,7 @@ class MidMpcWaypointGenerator {
 
   explicit MidMpcWaypointGenerator(const Config& cfg);
 
-  // Convert a Converged MidMpcSolution to AvoidancePlan (4 waypoints).
+  // Convert a Converged MidMpcSolution to a dense AvoidancePlan.
   // Non-Converged status returns an empty plan with status="DEGRADED".
   // @param solution  Solved MPC solution (unpack_solution() output).
   // @param own_ship_lat  Initial latitude [WGS84 deg].
@@ -74,7 +74,7 @@ class MidMpcWaypointGenerator {
  private:
   Config cfg_;
 
-  // Sample cfg_.num_waypoints GeoPoints at evenly spaced trajectory indices.
+  // Sample at NLP step resolution or denser, capped by trajectory length.
   // Uses flat-earth NED → WGS84 (Phase E1 approximation).
   [[nodiscard]] std::vector<geographic_msgs::msg::GeoPoint> sample_waypoints_(
       const std::vector<TrajectoryPoint>& trajectory,

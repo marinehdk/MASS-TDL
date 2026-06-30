@@ -165,6 +165,34 @@ std::vector<TargetRiskSnapshot> build_target_risk_snapshots(
 // ===========================================================================
 // Constructor
 // ===========================================================================
+MidMpcNlpFormulation::Config MidMpcNode::resolve_nlp_config_(
+    const MidMpcNlpFormulation::Config& cfg)
+{
+  MidMpcNlpFormulation::Config resolved = cfg;
+  const double horizon_s = declare_parameter<double>("mid_mpc.horizon_s",
+      static_cast<double>(resolved.n_horizon) * resolved.dt_s);
+  const int64_t n_steps = declare_parameter<int64_t>(
+      "mid_mpc.n_steps", static_cast<int64_t>(resolved.n_horizon));
+  resolved.dt_s = declare_parameter<double>("mid_mpc.dt_s", resolved.dt_s);
+  const int32_t horizon_steps = static_cast<int32_t>(std::max<int64_t>(
+      2, static_cast<int64_t>(std::lround(horizon_s / resolved.dt_s))));
+  resolved.n_horizon = n_steps > 1
+      ? static_cast<int32_t>(std::min<int64_t>(n_steps, 120))
+      : horizon_steps;
+  return resolved;
+}
+
+MidMpcWaypointGenerator::Config MidMpcNode::resolve_waypoint_config_(
+    const MidMpcWaypointGenerator::Config& cfg,
+    double dt_s,
+    int32_t n_horizon)
+{
+  MidMpcWaypointGenerator::Config resolved = cfg;
+  resolved.dt_s = dt_s;
+  resolved.num_waypoints = std::max(resolved.num_waypoints, n_horizon);
+  return resolved;
+}
+
 MidMpcNode::MidMpcNode(const Config& cfg)
     : rclcpp::Node("m5_mid_mpc_node"),
       manifest_(mass_l3::m5::shared::CapabilityManifest::load_from_yaml(
@@ -172,9 +200,10 @@ MidMpcNode::MidMpcNode(const Config& cfg)
           "/config/fcb_vessel_capability.yaml")),
       vessel_model_(manifest_),
       nomoto_fallback_(nomoto_cfg_, manifest_),
-      formulation_(cfg.nlp),
+      formulation_(resolve_nlp_config_(cfg.nlp)),
       solver_(formulation_, cfg.ipopt),
-      wp_gen_(cfg.waypoint)
+      wp_gen_(resolve_waypoint_config_(
+          cfg.waypoint, formulation_.config().dt_s, formulation_.config().n_horizon))
 {
   formulation_.build_symbolic_graph();
 
@@ -284,6 +313,7 @@ MidMpcInput MidMpcNode::assemble_input_()
     ts.sog_mps  = tgt.sog_kn * units::kMsPerKn;
     ts.cog_rad  = tgt.cog_deg * units::kRadPerDeg;
     ts.cpa_m    = tgt.cpa_m;
+    ts.cpa_sigma_m = std::sqrt(std::max(tgt.cpa_covariance_m2, 0.0));
     ts.tcpa_s   = tgt.tcpa_s;
     inp.targets.push_back(ts);
   }
@@ -320,6 +350,7 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.colregs_conflict_active =
       colregs_constraint_ != nullptr && colregs_constraint_->conflict_detected;
   if (colregs_constraint_ != nullptr) {
+    inp.colregs_primary_role = colregs_constraint_->primary_role;
     inp.colregs_preferred_direction = mass_l3::m5::parse_colregs_preferred_direction(
         colregs_constraint_->primary_preferred_direction);
     for (const auto& rule : colregs_constraint_->active_rules) {
@@ -446,18 +477,14 @@ void MidMpcNode::on_solve_cycle_()
       behavior_plan_->rationale.find("geometric starboard") != std::string::npos
       || behavior_plan_->rationale.find("fallback") != std::string::npos;
   bool nlp_misses_colregs_target = false;
-  if (!solver_failed && input.colregs_conflict_active &&
-      input.colregs_preferred_direction != ColregsPreferredDirection::Hold &&
-      input.colregs_preferred_direction != ColregsPreferredDirection::ReduceSpeed) {
-    constexpr double kTargetToleranceRad = 5.0 * units::kRadPerDeg;
-    nlp_misses_colregs_target = !mass_l3::m5::trajectory_reaches_colregs_target(
-        sol.trajectory,
-        input.planned_route_bearing_rad,
-        input.constraints.heading_min_rad,
-        input.constraints.heading_max_rad,
-        input.colregs_min_alteration_rad,
-        input.colregs_preferred_direction,
-        kTargetToleranceRad);
+  std::string nlp_reject_reason;
+  if (!solver_failed && input.colregs_conflict_active) {
+    const auto tail_gate = mass_l3::m5::accept_tail_gate(sol, input);
+    nlp_misses_colregs_target = !tail_gate.accepted;
+    nlp_reject_reason = tail_gate.reason;
+    if (nlp_misses_colregs_target) {
+      spdlog::warn("[M5][TailGate] reject optimized NLP candidate: {}", nlp_reject_reason);
+    }
   }
 
   l3_msgs::msg::AvoidancePlan plan;
@@ -485,7 +512,7 @@ void MidMpcNode::on_solve_cycle_()
     } else if (solver_failed) {
       reason = "solver_status=" + std::to_string(static_cast<int>(sol.status));
     } else if (nlp_misses_colregs_target) {
-      reason = "nlp_misses_colregs_target";
+      reason = nlp_reject_reason.empty() ? "nlp_tail_gate_failed" : nlp_reject_reason;
     } else {
       reason = "m4_geometric";
     }

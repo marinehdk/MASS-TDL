@@ -59,6 +59,13 @@ class MidMpcNode : public rclcpp::Node {
   void reset_cross_run_state();
 
  private:
+  [[nodiscard]] MidMpcNlpFormulation::Config resolve_nlp_config_(
+      const MidMpcNlpFormulation::Config& cfg);
+  [[nodiscard]] MidMpcWaypointGenerator::Config resolve_waypoint_config_(
+      const MidMpcWaypointGenerator::Config& cfg,
+      double dt_s,
+      int32_t n_horizon);
+
   mass_l3::m5::shared::CapabilityManifest manifest_;
   mass_l3::m5::shared::VesselDynamicsModel vessel_model_;
   NomotoFallbackConfig nomoto_cfg_;
