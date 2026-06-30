@@ -55,6 +55,10 @@ class ColregsReasonerNode : public rclcpp::Node {
       const RuleParameters& params,
       const std::vector<TargetGeometricState>& targets);
 
+  static void test_populate_colregs_semantics(
+      l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
+      bool latch_released, bool release_predicted);
+
   // Test hooks for cross-run reset coverage. encounter_fsms_ is populated per
   // (target,rule) during run_reasoning (a timer callback not reachable from
   // unit tests); these expose size and a seeder so test_cross_run_reset can
@@ -68,6 +72,10 @@ class ColregsReasonerNode : public rclcpp::Node {
       const std::vector<TargetGeometricState>& targets);
 
  private:
+  static void populate_colregs_semantics_(
+      l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
+      bool latch_released, bool release_predicted);
+
   void declare_parameters();
   void load_odd_thresholds();
   void create_components();

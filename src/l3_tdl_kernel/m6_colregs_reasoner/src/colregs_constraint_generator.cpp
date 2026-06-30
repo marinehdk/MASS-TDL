@@ -109,7 +109,7 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     const std::vector<RuleEvaluation>& evaluations,
     const RuleParameters& params, double confidence) const {
   l3_msgs::msg::COLREGsConstraint msg;
-  msg.schema_version = 114U;
+  msg.schema_version = 115U;
 
   std::vector<RuleEvaluation> effective_evaluations;
   effective_evaluations.reserve(evaluations.size());
