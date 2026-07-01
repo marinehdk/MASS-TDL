@@ -341,5 +341,33 @@ TEST(EncounterStateMachine, T5_ResetClearsAllState) {
   EXPECT_FALSE(fsm.had_been_released());
 }
 
+// --- T6b: CPA-trend hysteresis (kill ACTIVE<->MONITOR chatter) -------------
+// Numerical CPA jitter of ~1m during an active encounter drove rapid
+// ACTIVE<->MONITOR toggling (rule14-ho trace t=505-598: dozens of transitions
+// from a CPA oscillating around 390m). A sub-threshold trend must not count as
+// improvement (no false graduation) nor as deterioration (no false regression).
+TEST(EncounterStateMachine, CpaTrendHysteresisBlocksGraduationOnSubThresholdTrend) {
+  auto fsm = drive_to_active(make_test_params());
+  ASSERT_EQ(fsm.state(), EncounterState::ACTIVE);
+  // last_cpa_m_ = 800 (drive_to_active entry). Sub-threshold increasing trend:
+  fsm.transition(snap(400.0, 800.5), false, true, false, 4.0);  // +0.5m
+  fsm.transition(snap(400.0, 800.9), false, true, false, 5.0);  // +0.4m (2nd)
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE)
+      << "sub-threshold CPA trend must not graduate ACTIVE->MONITOR (chatter)";
+}
+
+TEST(EncounterStateMachine, CpaTrendHysteresisBlocksRegressionOnSubThresholdDeterioration) {
+  auto fsm = drive_to_active(make_test_params());
+  // Graduate to MONITOR on a real (super-threshold) improving trend.
+  fsm.transition(snap(400.0, 900.0), false, true, false, 4.0);   // +100m
+  fsm.transition(snap(400.0, 1000.0), false, true, false, 5.0);  // +100m -> MONITOR
+  ASSERT_EQ(fsm.state(), EncounterState::MONITOR);
+  // Sub-threshold deterioration within the T_plan window: current code
+  // regresses to ACTIVE (chatter); with hysteresis it must hold MONITOR.
+  fsm.transition(snap(400.0, 999.6), false, true, false, 6.0);  // -0.4m jitter
+  EXPECT_EQ(fsm.state(), EncounterState::MONITOR)
+      << "sub-threshold CPA deterioration must not regress MONITOR->ACTIVE";
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

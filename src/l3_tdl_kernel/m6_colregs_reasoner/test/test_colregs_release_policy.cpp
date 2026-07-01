@@ -500,5 +500,51 @@ TEST(ColregsReleasePolicy, Rule5BypassAppliesOnlyToRule5) {
       /*rule15_latched=*/false));
 }
 
+// --- rule13_release_context_active (Bug D: phantom conflict) ---------------
+// The rule13 along-axis release context must apply ONLY when rule13 is the
+// dominant primary encounter. A sticky rule13 FSM that engages after the target
+// draws astern into the overtaking sector during a rule14/15 encounter must NOT
+// block the primary encounter's release (root cause of rule14-ho phantom
+// conflict: M6 predicted release but never executed it).
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenRule14PrimaryEvenWithRule13Fsm) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/true, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenRule15Primary) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/true,
+      /*give_way_duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextTrueWhenRule13IsPrimary) {
+  EXPECT_TRUE(rule13_release_context_active(
+      /*rule13_projection_latched=*/true, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextTrueWhenOvertakingOnsetOnly) {
+  EXPECT_TRUE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/true,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenNothingPrimary) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/false,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

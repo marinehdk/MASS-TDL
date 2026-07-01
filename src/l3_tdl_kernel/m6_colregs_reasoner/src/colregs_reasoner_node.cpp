@@ -739,10 +739,15 @@ void ColregsReasonerNode::run_reasoning() {
     const bool rule13_fsm_engaged =
         rule13_fsm_it != encounter_fsms_.end() &&
         rule13_fsm_it->second.state() != EncounterState::CLEAR;
-    const bool rule13_release_context =
-        rule13_projection_latched || rule13_fsm_engaged || is_overtaking_onset;
     const bool duty_latched =
         give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.latched();
+    // Bug D: rule13 along-axis release context applies only when rule13 is the
+    // dominant primary encounter. A sticky rule13 FSM (target drew astern into
+    // the overtaking sector during a rule14/15 encounter) must NOT block the
+    // primary encounter's release. See rule13_release_context_active.
+    const bool rule13_release_context = rule13_release_context_active(
+        rule13_projection_latched, rule13_fsm_engaged, is_overtaking_onset,
+        rule14_projection_latched, rule15_projection_latched, duty_latched);
     const bool give_way_resolution_latched =
         rule13_projection_latched ||
         rule14_projection_latched ||

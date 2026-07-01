@@ -13,6 +13,15 @@
 
 namespace mass_l3::m6_colregs {
 
+namespace {
+// CPA-trend hysteresis: ignore sub-threshold cycle-to-cycle CPA changes
+// (numerical jitter ~1m during active avoidance) so ACTIVE<->MONITOR does not
+// chatter. Both graduation (cpa_improved) and regression (cpa_deteriorating)
+// require a change exceeding this margin. The rule14-ho trace showed dozens of
+// spurious ACTIVE<->MONITOR transitions from a CPA oscillating around 390m.
+constexpr double kCpaTrendHysteresisM = 5.0;
+}  // namespace
+
 EncounterStateMachine::EncounterStateMachine(const EncounterParams& params)
     : params_(params) {}
 
@@ -68,7 +77,7 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
   // Track CPA trend across cycles for ACTIVE<->MONITOR. last_cpa_m_ is updated
   // every cycle at the bottom; prev_cpa_m is the value from the prior cycle.
   const bool cpa_improved =
-      prev_cpa_m > 0.0 && target.cpa_m > prev_cpa_m;
+      prev_cpa_m > 0.0 && target.cpa_m > prev_cpa_m + kCpaTrendHysteresisM;
   const bool cpa_hard_hit = target.cpa_m < params_.cpa_hard_m;
   const bool cpa_soft_context = target.cpa_m < params_.cpa_soft_m;
 
@@ -152,7 +161,7 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
       // Regression: CPA deteriorating AND still within the T_plan action
       // window means the maneuver is not working -- go back to ACTIVE.
       const bool cpa_deteriorating =
-          prev_cpa_m > 0.0 && target.cpa_m < prev_cpa_m;
+          prev_cpa_m > 0.0 && target.cpa_m < prev_cpa_m - kCpaTrendHysteresisM;
       if (cpa_deteriorating && target.tcpa_s <= params_.t_plan_s) {
         state_ = EncounterState::ACTIVE;
         cpa_improve_counter_ = 0;

@@ -309,6 +309,32 @@ inline bool rule13_release_past_and_clear(
       (!rule13_release_context || along_axis_past_and_clear);
 }
 
+// Bug D (rule14-ho phantom conflict): the rule13 along-axis release context
+// must apply ONLY when rule13 is the dominant primary encounter for this
+// target. A sticky rule13 FSM that engages after the target draws astern into
+// the overtaking sector (112.5-247.5 deg) during a rule14/15 encounter must NOT
+// block the primary encounter's release. Previously rule13_release_context was
+// driven by rule13_fsm_engaged alone, which held TRUE forever once the target
+// passed astern — so M6 kept predicting release (projection_resolved is not
+// gated by rule13_release_context for rule14) but the release execution
+// (rule_projection_release_ok = !rule13_release_context && ...) was blocked,
+// and the latch never released. Guarding with "no higher-priority primary
+// latched" restores rule14/15 release while preserving the rule13 along-axis
+// path for genuine overtaking encounters.
+inline bool rule13_release_context_active(
+    bool rule13_projection_latched,
+    bool rule13_fsm_engaged,
+    bool is_overtaking_onset,
+    bool rule14_primary_latched,
+    bool rule15_primary_latched,
+    bool give_way_duty_latched) {
+  const bool rule13_is_primary =
+      rule13_projection_latched || rule13_fsm_engaged || is_overtaking_onset;
+  const bool higher_priority_primary =
+      rule14_primary_latched || rule15_primary_latched || give_way_duty_latched;
+  return rule13_is_primary && !higher_priority_primary;
+}
+
 inline bool give_way_projection_release_safe(
     bool cpa_projection_past_and_safe,
     double range_m,
