@@ -94,6 +94,7 @@ find_package(Boost REQUIRED COMPONENTS headers)
 set(M5_SHARED_SOURCES
   src/avoidance_route_hash.cpp
   src/committed_route/committed_route.cpp
+  src/gnc_preflight.cpp
   # --- common/ ---
   src/common/error.cpp
   src/common/types.cpp
@@ -356,6 +357,11 @@ if(BUILD_TESTING)
   # ── Slice E: degraded fallback candidates ─────────────────────────────────
   m5_add_gtest(test_degraded_candidate_adapter
     test/unit/test_degraded_candidate_adapter.cpp
+  )
+
+  # ── Slice F: GNC feasibility preflight ──────────────────────────────────────
+  m5_add_gtest(test_gnc_preflight
+    test/unit/test_gnc_preflight.cpp
   )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────

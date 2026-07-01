@@ -29,6 +29,9 @@ struct GncExecutionOdd {
   double min_turn_radius_m{120.0};
   double max_yaw_rate_rad_s{0.04};
   double max_lateral_accel_mps2{0.25};
+  double max_decel_mps2{0.20};
+  double min_first_changed_distance_m{100.0};
+  double min_update_interval_s{1.0};
 };
 
 struct TailSegment {
