@@ -24,6 +24,7 @@
 #include "std_msgs/msg/string.hpp"
 
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/committed_route/committed_route.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
@@ -75,6 +76,7 @@ class MidMpcNode : public rclcpp::Node {
   MidMpcWaypointGenerator     wp_gen_;
   std::optional<MidMpcSolution> last_solution_;
   mass_l3::risk::RankingState risk_ranking_state_;
+  mass_l3::m5::committed_route::CommittedAvoidanceRoute committed_route_manager_;
 
   l3_msgs::msg::WorldState::SharedPtr                        world_state_;
   l3_msgs::msg::BehaviorPlan::SharedPtr                      behavior_plan_;

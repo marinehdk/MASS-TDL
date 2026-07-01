@@ -22,7 +22,9 @@
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/committed_route/committed_route.hpp"
 #include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
+#include "m5_tactical_planner/mid_mpc/degraded_candidate_adapter.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -57,19 +59,6 @@ l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
   return wp;
 }
 
-void append_route_point(l3_msgs::msg::AvoidancePlan& plan,
-                        double latitude,
-                        double longitude,
-                        double speed_mps,
-                        const std::string& navigation_mode,
-                        std::uint8_t segment_source) {
-  plan.latitude.push_back(latitude);
-  plan.longitude.push_back(longitude);
-  plan.command_speed_mps.push_back(speed_mps);
-  plan.navigation_mode.push_back(navigation_mode);
-  plan.segment_source.push_back(segment_source);
-}
-
 l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
     const l3_msgs::msg::AvoidancePlan& plan) {
   l3_external_msgs::msg::AvoidanceWaypoints wp;
@@ -91,6 +80,38 @@ l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
   wp.confidence = plan.confidence;
   wp.rationale = plan.rationale;
   return wp;
+}
+
+mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_plan(
+    const l3_msgs::msg::AvoidancePlan& plan,
+    bool nlp_ok,
+    double valid_until_s) {
+  mass_l3::m5::committed_route::CommittedRouteCandidate candidate;
+  candidate.plan_id = plan.plan_id;
+  candidate.valid_until_s = valid_until_s;
+  candidate.nlp_ok = nlp_ok;
+  candidate.frozen_prefix_count = 0U;
+  const std::size_t n = std::min(
+      {plan.latitude.size(), plan.longitude.size(), plan.command_speed_mps.size(),
+       plan.navigation_mode.size(), plan.segment_source.size()});
+  candidate.geometry.reserve(n);
+  for (std::size_t i = 0U; i < n; ++i) {
+    std::string nav_mode = plan.navigation_mode[i];
+    if (plan.segment_source[i] == l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED) {
+      nav_mode = "MID_MPC_OPTIMIZED";
+    } else if (plan.segment_source[i] == l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD) {
+      nav_mode = "MID_MPC_TERMINAL_HOLD";
+    } else if (plan.segment_source[i] == l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2) {
+      nav_mode = "REJOIN_TO_L2";
+    } else if (plan.segment_source[i] == l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX) {
+      nav_mode = "L2_NOMINAL_SUFFIX";
+    } else if (plan.segment_source[i] == l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR) {
+      nav_mode = "DEGRADED_CORRIDOR";
+    }
+    candidate.geometry.push_back(mass_l3::m5::committed_route::GeoWP{
+        plan.latitude[i], plan.longitude[i], plan.command_speed_mps[i], nav_mode});
+  }
+  return candidate;
 }
 
 
@@ -904,6 +925,15 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
+    if (!committed_route_manager_.try_revise(
+            committed_candidate_from_plan(plan, true, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds()),
+            now.seconds())) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",
+          plan.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
   } else if (conflict_active) {
     return_to_route_emit_until_.reset();
     return_route_anchor_.reset();
@@ -1008,17 +1038,37 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
+    DegradedCandidateRequest degraded_request;
+    degraded_request.plan_id = anchor.plan_id;
+    degraded_request.parent_route_id = "nominal";
+    degraded_request.behavior_mode = navigation_mode;
+    degraded_request.confidence = 0.8F;
+    degraded_request.rationale = colregs_overtake_corridor
+        ? "Rule13 overtake corridor candidate"
+        : "encounter-anchored avoidance corridor candidate";
+    degraded_request.nlp_unavailable = selected_plan.status == "DEGRADED" ||
+        sol.status != MidMpcSolution::Status::Converged;
+    degraded_request.committed_route_can_continue =
+        !committed_route_manager_.current().active_geometry.empty() &&
+        !committed_route_manager_.should_enter_degraded_hold(now.seconds());
+    degraded_request.has_return_to_route_point = false;
+    degraded_request.safety_concern_event = "m5_degraded_corridor_no_return_route";
+    degraded_request.points.reserve(wps.size());
     for (std::size_t i = 0; i < wps.size(); ++i) {
-      const std::uint8_t segment_source = (i + 1 == wps.size())
-          ? l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD
-          : l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR;
-      append_route_point(plan, wps[i].lat, wps[i].lon, speeds[i], navigation_mode, segment_source);
+      degraded_request.points.push_back(
+          DegradedCandidatePoint{wps[i].lat, wps[i].lon, speeds[i], navigation_mode});
     }
-    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
-    plan.allow_degraded_execution  = true;
-    plan.rationale                 = colregs_overtake_corridor
-        ? "m5 stable Rule13 overtake corridor for GNC bridge"
-        : "m5 stable encounter-anchored avoidance corridor for GNC bridge";
+    const auto degraded_plan = build_degraded_candidate_plan(degraded_request);
+    if (!degraded_plan.has_value()) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][DegradedCandidate] drop avoidance plan_id=%s reason=adapter_rejected",
+          anchor.plan_id.c_str());
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
+    plan = degraded_plan.value();
+    plan.stamp = now;
+    plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
   } else if (last_emitted_conflict_active_ || return_republish_active) {
     if (last_emitted_conflict_active_) {
       return_to_route_emit_until_ =
@@ -1083,23 +1133,42 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
+    DegradedCandidateRequest degraded_return_request;
+    degraded_return_request.plan_id = return_route_anchor_->plan_id;
+    degraded_return_request.parent_route_id = "nominal";
+    degraded_return_request.behavior_mode = "return_to_route";
+    degraded_return_request.confidence = 0.8F;
+    degraded_return_request.rationale =
+        return_route_anchor_->navigation_mode == "colregs_overtake"
+            ? "Rule13 return_to_route candidate on M6 conflict-clear"
+            : "return_to_route candidate on M6 conflict-clear";
+    degraded_return_request.nlp_unavailable = selected_plan.status == "DEGRADED" ||
+        sol.status != MidMpcSolution::Status::Converged;
+    degraded_return_request.committed_route_can_continue =
+        !committed_route_manager_.current().active_geometry.empty() &&
+        !committed_route_manager_.should_enter_degraded_hold(now.seconds());
+    degraded_return_request.has_return_to_route_point = true;
+    degraded_return_request.return_latitude = wps.back().lat;
+    degraded_return_request.return_longitude = wps.back().lon;
+    degraded_return_request.points.reserve(wps.size());
     for (std::size_t i = 0; i < wps.size(); ++i) {
-      append_route_point(
-          plan,
+      degraded_return_request.points.push_back(DegradedCandidatePoint{
           wps[i].lat,
           wps[i].lon,
           speeds[i],
-          return_route_anchor_->navigation_mode,
-          l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2);
+          return_route_anchor_->navigation_mode});
     }
-    plan.return_latitude           = wps.back().lat;
-    plan.return_longitude          = wps.back().lon;
-    plan.rationale                 =
-        return_route_anchor_->navigation_mode == "colregs_overtake"
-            ? "m5 stable Rule13 return_to_route on M6 conflict-clear using protected GNC mode"
-            : "m5 stable return_to_route on M6 conflict-clear using emergency route guard";
-    plan.valid_until               = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
-    plan.allow_degraded_execution  = true;
+    const auto degraded_return_plan = build_degraded_candidate_plan(degraded_return_request);
+    if (!degraded_return_plan.has_value()) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][DegradedCandidate] drop return plan_id=%s reason=adapter_rejected",
+          return_route_anchor_->plan_id.c_str());
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
+    plan = degraded_return_plan.value();
+    plan.stamp = now;
+    plan.valid_until = (now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s));
   } else {
     // No conflict and already returned: emit nothing this cycle.
     last_emitted_conflict_active_ = conflict_active;
@@ -1107,7 +1176,8 @@ void MidMpcNode::publish_avoidance_waypoints_(
   }
 
   if (plan.status != "NORMAL") {
-    if (!append_l2_nominal_suffix_if_preflight_feasible(
+    if (plan.status != "DEGRADED" &&
+        !append_l2_nominal_suffix_if_preflight_feasible(
             plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
       RCLCPP_WARN(get_logger(),
           "[M5][GNCPreflight] reject L2 nominal suffix for plan_id=%s; publishing preflighted base route without suffix",
@@ -1122,6 +1192,11 @@ void MidMpcNode::publish_avoidance_waypoints_(
           full_preflight.required_m, full_preflight.available_m);
       last_emitted_conflict_active_ = conflict_active;
       return;
+    }
+    if (plan.status == "DEGRADED") {
+      (void)committed_route_manager_.try_revise(
+          committed_candidate_from_plan(plan, false, rclcpp::Time(plan.valid_until).seconds()),
+          now.seconds());
     }
 
     plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";

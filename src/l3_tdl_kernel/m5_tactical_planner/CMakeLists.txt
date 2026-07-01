@@ -112,6 +112,7 @@ set(M5_SHARED_SOURCES
   src/bc_mpc/bc_mpc_override_generator.cpp
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
+  src/mid_mpc/degraded_candidate_adapter.cpp
   # --- tail_builder/ ---
   src/tail_builder/tail_builder.cpp
 )
@@ -350,6 +351,11 @@ if(BUILD_TESTING)
   # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
   m5_add_gtest(test_committed_route
     test/unit/test_committed_route.cpp
+  )
+
+  # ── Slice E: degraded fallback candidates ─────────────────────────────────
+  m5_add_gtest(test_degraded_candidate_adapter
+    test/unit/test_degraded_candidate_adapter.cpp
   )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
