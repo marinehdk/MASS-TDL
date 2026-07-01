@@ -107,6 +107,11 @@ GeoWP RouteFrame::sample(double s_m, double lateral_m, double speed_mps) const
 namespace {
 
 constexpr double kMinSafeOffsetM = 25.0;
+constexpr double kMinTailSpacingM = 50.0;
+constexpr double kMaxTailSpacingM = 150.0;
+constexpr double kNearRejoinToleranceM = 1.0;
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kMaxRouteCornerHeadingDeltaRad = kPi / 4.0;
 
 [[nodiscard]] double clamp_abs(double value, double min_abs, double max_abs) noexcept
 {
@@ -128,6 +133,31 @@ constexpr double kMinSafeOffsetM = 25.0;
       inputs.m6_encounter_state == static_cast<std::uint8_t>(EncounterState::Clear);
 }
 
+[[nodiscard]] double heading_rad(double dx, double dy) noexcept
+{
+  return std::atan2(dy, dx);
+}
+
+[[nodiscard]] double heading_delta_rad(double a_rad, double b_rad) noexcept
+{
+  double delta = std::fmod(a_rad - b_rad + kPi, 2.0 * kPi);
+  if (delta < 0.0) {
+    delta += 2.0 * kPi;
+  }
+  return std::abs(delta - kPi);
+}
+
+[[nodiscard]] bool target_cpa_evidence_available(const TailInputs& inputs) noexcept
+{
+  if (inputs.targets.empty()) {
+    return false;
+  }
+  return std::all_of(inputs.targets.begin(), inputs.targets.end(), [](const TargetSnapshot& target) {
+    return std::isfinite(target.cpa_m) && std::isfinite(target.cpa_sigma_m) &&
+        target.cpa_sigma_m >= 0.0;
+  });
+}
+
 [[nodiscard]] bool cpa_release_floor_clear(const TailInputs& inputs) noexcept
 {
   for (const auto& target : inputs.targets) {
@@ -136,6 +166,43 @@ constexpr double kMinSafeOffsetM = 25.0;
     }
   }
   return true;
+}
+
+[[nodiscard]] bool ship_domain_floor_clear(const TailInputs& inputs) noexcept
+{
+  for (const auto& target : inputs.targets) {
+    if ((target.cpa_m - target.cpa_sigma_m) < inputs.cpa_safe_m) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool route_frame_has_sharp_corner(const RouteFrame& route_frame) noexcept
+{
+  if (route_frame.waypoints.size() < 3U) {
+    return false;
+  }
+
+  for (std::size_t i = 1; i + 1U < route_frame.waypoints.size(); ++i) {
+    const auto& prev = route_frame.waypoints[i - 1U];
+    const auto& corner = route_frame.waypoints[i];
+    const auto& next = route_frame.waypoints[i + 1U];
+    const double ax = corner.x_m - prev.x_m;
+    const double ay = corner.y_m - prev.y_m;
+    const double bx = next.x_m - corner.x_m;
+    const double by = next.y_m - corner.y_m;
+    const double a_len = std::hypot(ax, ay);
+    const double b_len = std::hypot(bx, by);
+    if (a_len <= 1.0e-6 || b_len <= 1.0e-6) {
+      return true;
+    }
+    if (heading_delta_rad(heading_rad(ax, ay), heading_rad(bx, by)) >
+        kMaxRouteCornerHeadingDeltaRad) {
+      return true;
+    }
+  }
+  return false;
 }
 
 [[nodiscard]] bool side_matches_m6(ColregSide side, double lateral_m) noexcept
@@ -156,6 +223,99 @@ constexpr double kMinSafeOffsetM = 25.0;
   const double accel_limited = speed * std::sqrt(std::abs(lateral_m) / std::max(inputs.gnc_odd.max_lateral_accel_mps2, 1.0e-3));
   const double turn_limited = 2.0 * std::sqrt(std::max(inputs.gnc_odd.min_turn_radius_m * std::abs(lateral_m), 0.0));
   return std::max({3.0 * inputs.gnc_odd.min_segment_length_m, yaw_limited, accel_limited, turn_limited});
+}
+
+[[nodiscard]] bool validate_tail_segment(
+    const TailInputs& inputs, const TailSegment& segment, std::string& reject_reason)
+{
+  if (!target_cpa_evidence_available(inputs)) {
+    reject_reason = "missing_m2_targets";
+    return false;
+  }
+  if (!cpa_release_floor_clear(inputs)) {
+    reject_reason = "cpa_release_floor";
+    return false;
+  }
+  if (!ship_domain_floor_clear(inputs)) {
+    reject_reason = "ship_domain_floor";
+    return false;
+  }
+  if (segment.waypoints.empty() || segment.waypoints.size() != segment.source_labels.size()) {
+    reject_reason = "tail_waypoints_invalid";
+    return false;
+  }
+
+  RouteProjection previous_projection{};
+  GeoWP previous_wp{};
+  double previous_heading = 0.0;
+  double previous_spacing = 0.0;
+  bool have_previous = false;
+  bool have_previous_heading = false;
+
+  for (std::size_t i = 0; i < segment.waypoints.size(); ++i) {
+    const auto& waypoint = segment.waypoints[i];
+    if (!std::isfinite(waypoint.speed_mps) || waypoint.speed_mps < 0.0) {
+      reject_reason = "tail_speed_invalid";
+      return false;
+    }
+
+    const auto projection = inputs.route_frame.project(waypoint);
+    if (!projection.valid) {
+      reject_reason = "tail_route_projection_failed";
+      return false;
+    }
+
+    const bool final_waypoint = (i + 1U == segment.waypoints.size());
+    if (!final_waypoint && std::abs(projection.l_m) <= kNearRejoinToleranceM) {
+      reject_reason = "tail_crosses_route_early";
+      return false;
+    }
+    if (std::abs(projection.l_m) > kNearRejoinToleranceM &&
+        !side_matches_m6(inputs.protected_side, projection.l_m)) {
+      reject_reason = "m6_side_violation";
+      return false;
+    }
+    if (final_waypoint && std::abs(projection.l_m) > kNearRejoinToleranceM) {
+      reject_reason = "tail_rejoin_failed";
+      return false;
+    }
+
+    if (have_previous) {
+      if (projection.s_m + 1.0e-3 < previous_projection.s_m) {
+        reject_reason = "tail_reverse_station";
+        return false;
+      }
+
+      const double dx = waypoint.x_m - previous_wp.x_m;
+      const double dy = waypoint.y_m - previous_wp.y_m;
+      const double spacing = std::hypot(dx, dy);
+      if (spacing < kMinTailSpacingM - 1.0e-3 || spacing > kMaxTailSpacingM + 1.0e-3) {
+        reject_reason = "tail_spacing_invalid";
+        return false;
+      }
+
+      const double current_heading = heading_rad(dx, dy);
+      if (have_previous_heading) {
+        const double delta = heading_delta_rad(current_heading, previous_heading);
+        if (delta > 1.0e-3) {
+          const double radius = std::min(previous_spacing, spacing) / (2.0 * std::sin(delta / 2.0));
+          if (radius + 1.0e-3 < inputs.gnc_odd.min_turn_radius_m) {
+            reject_reason = "tail_turn_radius";
+            return false;
+          }
+        }
+      }
+      previous_heading = current_heading;
+      previous_spacing = spacing;
+      have_previous_heading = true;
+    }
+
+    previous_projection = projection;
+    previous_wp = waypoint;
+    have_previous = true;
+  }
+
+  return true;
 }
 
 }  // namespace
@@ -180,8 +340,20 @@ TailResult TailBuilder::build(const TailInputs& inputs)
     result.reject_reason = "m6_not_past_clear";
     return result;
   }
+  if (!target_cpa_evidence_available(inputs)) {
+    result.reject_reason = "missing_m2_targets";
+    return result;
+  }
   if (!cpa_release_floor_clear(inputs)) {
     result.reject_reason = "cpa_release_floor";
+    return result;
+  }
+  if (!ship_domain_floor_clear(inputs)) {
+    result.reject_reason = "ship_domain_floor";
+    return result;
+  }
+  if (route_frame_has_sharp_corner(inputs.route_frame)) {
+    result.reject_reason = "route_frame_sharp_corner";
     return result;
   }
 
@@ -235,6 +407,10 @@ TailResult TailBuilder::build(const TailInputs& inputs)
   }
   segment.waypoints.push_back(inputs.route_frame.sample(end_s, 0.0, inputs.uN_mps));
   segment.source_labels.push_back(l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2);
+
+  if (!validate_tail_segment(inputs, segment, result.reject_reason)) {
+    return result;
+  }
 
   result.hold_then_rejoin = std::move(segment);
   return result;

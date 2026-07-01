@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "m5_tactical_planner/tail_builder/tail_builder.hpp"
@@ -124,4 +125,66 @@ TEST(TailBuilder, rejects_when_l_hold_too_small)
 
   EXPECT_FALSE(result.hold_then_rejoin.has_value());
   EXPECT_EQ(result.reject_reason, "l_hold_too_small");
+}
+
+TEST(TailBuilder, rejects_empty_m2_target_snapshot)
+{
+  auto inputs = give_way_starboard_fixture();
+  inputs.targets.clear();
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "missing_m2_targets");
+}
+
+TEST(TailBuilder, rejects_target_below_cpa_release_floor)
+{
+  auto inputs = give_way_starboard_fixture();
+  inputs.targets = {TargetSnapshot{7, 1900.0, 180.0, 50.0}};
+  inputs.cpa_release_m = 1800.0;
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "cpa_release_floor");
+}
+
+TEST(TailBuilder, rejects_target_below_ship_domain_floor)
+{
+  auto inputs = give_way_starboard_fixture();
+  inputs.targets = {TargetSnapshot{7, 2140.0, 180.0, 50.0}};
+  inputs.cpa_release_m = 1800.0;
+  inputs.cpa_safe_m = 2100.0;
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "ship_domain_floor");
+}
+
+TEST(TailBuilder, rejects_route_frame_with_sharp_corner)
+{
+  auto inputs = give_way_starboard_fixture();
+  inputs.pN = GeoWP{900.0, 120.0, 5.0, "MID_MPC"};
+  inputs.route_frame.waypoints = {
+      GeoWP{0.0, 0.0, 5.0, "TRANSIT"},
+      GeoWP{1000.0, 0.0, 5.0, "TRANSIT"},
+      GeoWP{1000.0, 1000.0, 5.0, "TRANSIT"}};
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "route_frame_sharp_corner");
+}
+
+TEST(TailBuilder, rejects_unsafe_tail_waypoint_speed)
+{
+  auto inputs = give_way_starboard_fixture();
+  inputs.uN_mps = std::numeric_limits<double>::infinity();
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "tail_speed_invalid");
 }
