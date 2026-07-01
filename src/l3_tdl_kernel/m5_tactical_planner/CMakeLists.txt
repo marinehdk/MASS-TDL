@@ -111,6 +111,8 @@ set(M5_SHARED_SOURCES
   src/bc_mpc/bc_mpc_override_generator.cpp
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
+  # --- tail_builder/ ---
+  src/tail_builder/tail_builder.cpp
 )
 
 set(M5_LINK_LIBS
@@ -338,6 +340,11 @@ if(BUILD_TESTING)
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
   endif()
+
+  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
+  m5_add_gtest(test_tail_builder
+    test/unit/test_tail_builder.cpp
+  )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
   m5_add_gtest(test_bc_mpc_collision_detector
