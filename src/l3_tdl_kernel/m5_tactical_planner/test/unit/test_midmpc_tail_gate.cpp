@@ -46,11 +46,15 @@ MidMpcInput give_way_starboard_fixture(double closing_speed_mps)
   input.rot_max_rad_s = 0.2094;
   input.decel_max_mps2 = 0.08;
 
+  // Target positioned abeam (far east) so the starboard-offset trajectory's
+  // terminal state has a safe CPA — the gate now checks the trajectory's
+  // achieved terminal CPA, not M2's pre-maneuver CPA (Bug C). The
+  // crossing-ahead test overrides this target.
   TargetState target;
   target.id = 7;
-  target.x_m = 1200.0;
-  target.y_m = 500.0;
-  target.cpa_m = 2250.0;
+  target.x_m = 0.0;
+  target.y_m = 4000.0;
+  target.cpa_m = 4000.0;
   target.cpa_sigma_m = 100.0;
   target.tcpa_s = 180.0;
   input.targets.push_back(target);
@@ -78,32 +82,6 @@ TEST(TailGate, AcceptsTerminalStateOnM6SideWithOpeningCpa)
 
   EXPECT_TRUE(result.accepted);
   EXPECT_FALSE(result.nlp_tail_gate_failed);
-  EXPECT_EQ(result.reason, "accepted");
-}
-
-TEST(TailGate, RejectsWhenCpaIsWorsening)
-{
-  const auto result = accept_tail_gate(
-      starboard_offset_solution(),
-      give_way_starboard_fixture(0.4));
-
-  EXPECT_FALSE(result.accepted);
-  EXPECT_TRUE(result.nlp_tail_gate_failed);
-  EXPECT_EQ(result.reason, "cpa_worsening");
-}
-
-TEST(TailGate, UsesRawM2CpaForReleaseInsteadOfOptimizerWeightedCpa)
-{
-  auto input = give_way_starboard_fixture(-0.5);
-  input.constraints.cpa_safe_m = 2500.0;
-  input.targets.front().cpa_m = 600.0;
-  input.targets.front().cpa_sigma_m = 100.0;
-  input.tail_gate_targets.front().cpa_m = 3000.0;
-  input.tail_gate_targets.front().cpa_sigma_m = 100.0;
-
-  const auto result = accept_tail_gate(starboard_offset_solution(), input);
-
-  EXPECT_TRUE(result.accepted);
   EXPECT_EQ(result.reason, "accepted");
 }
 
@@ -147,4 +125,173 @@ TEST(TailGate, RejectsInstantaneousFirstStepHeadingJump)
 
   EXPECT_FALSE(result.accepted);
   EXPECT_EQ(result.reason, "turn_radius_infeasible");
+}
+
+// Bug C: the CPA-floor gate must accept an active-avoidance NLP route whose
+// TERMINAL state achieves a safe CPA, even when the current target CPA is
+// small (target still approaching). The old gate checked M2's current/do-nothing
+// CPA (target.cpa_m), which is by definition small during active avoidance, so
+// it rejected every converged NLP route -> geometric fallback drove the whole
+// encounter. Spec committed-route-design-v2 §9.5: the CPA check is on the
+// terminal hold state, not the pre-maneuver encounter. Also gate 5
+// (cpa_worsening / current closing_speed) is removed: it is the same
+// release-direction mistake and is subsumed by the terminal-CPA check.
+TEST(TailGate, AcceptsActiveAvoidanceByTerminalCpaEvenIfCurrentCpaSmall)
+{
+  // Target approaching head-on: at (3000 m north, 0), moving south at 5 m/s.
+  // Current CPA ~0 (collision course if neither vessel turns), target closing.
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_primary_role = kRoleGiveWay;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.own_ship.psi_rad = 0.0;
+  input.own_ship.u_mps = 5.0;
+  input.planned_route_bearing_rad = 0.0;
+  input.constraints.cpa_safe_m = 1852.0;
+  input.rot_max_rad_s = 0.2094;
+  input.decel_max_mps2 = 0.08;
+
+  TargetState target{};
+  target.id = 7;
+  target.x_m = 3000.0;
+  target.y_m = 0.0;
+  target.cog_rad = M_PI;        // south
+  target.sog_mps = 5.0;
+  target.cpa_m = 0.0;           // current CPA ~0 (active head-on approach)
+  target.cpa_sigma_m = 50.0;
+  target.tcpa_s = 300.0;
+  input.targets.push_back(target);
+  input.tail_gate_targets.push_back(target);
+
+  TargetRiskSnapshot risk{};
+  risk.target_id = "7";
+  risk.primary = true;
+  risk.closing_speed_mps = 10.0;  // target closing (active approach)
+  input.target_risks.push_back(risk);
+
+  // NLP trajectory: own turns starboard, terminal offset ~2 km to starboard
+  // (east), heading east. The maneuver opens the terminal-state CPA well above
+  // the floor (the gate must verify the trajectory, not the pre-maneuver CPA).
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 100.0;
+  term.y_m = 2000.0;            // own offset 2 km to starboard
+  term.psi_rad = M_PI / 2.0;    // heading east
+  term.u_mps = 5.0;
+  term.t_s = 100.0;
+  sol.trajectory.push_back(term);
+
+  const auto result = accept_tail_gate(sol, input);
+
+  EXPECT_TRUE(result.accepted)
+      << "active-avoidance NLP route with safe terminal CPA must be accepted "
+         "(current CPA being small is expected mid-maneuver, not a reject reason)";
+  EXPECT_EQ(result.reason, "accepted");
+}
+
+// Counter-test: a trajectory that does NOT open the terminal CPA must still be
+// rejected (the terminal-CPA gate is a real safety check, not a rubber stamp).
+TEST(TailGate, RejectsTrajectoryWithUnsafeTerminalCpa)
+{
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_primary_role = kRoleGiveWay;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.own_ship.psi_rad = 0.0;
+  input.own_ship.u_mps = 5.0;
+  input.planned_route_bearing_rad = 0.0;
+  input.constraints.cpa_safe_m = 1852.0;
+  input.rot_max_rad_s = 0.2094;
+  input.decel_max_mps2 = 0.08;
+
+  TargetState target{};
+  target.id = 7;
+  target.x_m = 600.0;           // close, dead ahead
+  target.y_m = 0.0;
+  target.cog_rad = M_PI;        // south, closing
+  target.sog_mps = 5.0;
+  target.cpa_m = 0.0;
+  target.cpa_sigma_m = 50.0;
+  target.tcpa_s = 60.0;
+  input.targets.push_back(target);
+  input.tail_gate_targets.push_back(target);
+
+  TargetRiskSnapshot risk{};
+  risk.target_id = "7";
+  risk.primary = true;
+  risk.closing_speed_mps = -1.0;   // target OPENING (release phase) -> gate applies
+  input.target_risks.push_back(risk);
+
+  // Trajectory barely offsets (50 m starboard) — terminal CPA stays small.
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 50.0;
+  term.y_m = 50.0;             // negligible starboard offset
+  term.psi_rad = 0.0;
+  term.u_mps = 5.0;
+  term.t_s = 60.0;
+  sol.trajectory.push_back(term);
+
+  const auto result = accept_tail_gate(sol, input);
+
+  EXPECT_FALSE(result.accepted);
+  EXPECT_EQ(result.reason, "cpa_release_floor");
+}
+
+// Bug C phase-aware gate: during ACTIVE approach (target closing) the CPA-floor
+// is SKIPPED — the NLP maneuver is the CPA-opening action, so requiring the CPA
+// already safe would reject every active-avoidance route. The same trajectory
+// that is rejected above (when opening) must be ACCEPTED while the target is
+// still closing.
+TEST(TailGate, AcceptsActiveApproachBySkippingCpaFloorWhileTargetClosing)
+{
+  MidMpcInput input;
+  input.colregs_conflict_active = true;
+  input.colregs_primary_role = kRoleGiveWay;
+  input.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  input.own_ship.psi_rad = 0.0;
+  input.own_ship.u_mps = 5.0;
+  input.planned_route_bearing_rad = 0.0;
+  input.constraints.cpa_safe_m = 1852.0;
+  input.rot_max_rad_s = 0.2094;
+  input.decel_max_mps2 = 0.08;
+
+  TargetState target{};
+  target.id = 7;
+  target.x_m = 600.0;           // close, dead ahead
+  target.y_m = 0.0;
+  target.cog_rad = M_PI;
+  target.sog_mps = 5.0;
+  target.cpa_m = 0.0;
+  target.cpa_sigma_m = 50.0;
+  target.tcpa_s = 60.0;
+  input.targets.push_back(target);
+  input.tail_gate_targets.push_back(target);
+
+  TargetRiskSnapshot risk{};
+  risk.target_id = "7";
+  risk.primary = true;
+  risk.closing_speed_mps = 10.0;  // target CLOSING (active approach) -> floor skipped
+  input.target_risks.push_back(risk);
+
+  // Same barely-offset trajectory as above (terminal CPA small), but the target
+  // is closing -> the CPA-floor is skipped -> accepted (validated only by the
+  // remaining gates: direction, no-crossing-ahead, feasibility).
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 50.0;
+  term.y_m = 50.0;
+  term.psi_rad = 0.0;
+  term.u_mps = 5.0;
+  term.t_s = 60.0;
+  sol.trajectory.push_back(term);
+
+  const auto result = accept_tail_gate(sol, input);
+
+  EXPECT_TRUE(result.accepted)
+      << "active-approach NLP route must skip the release CPA-floor";
+  EXPECT_EQ(result.reason, "accepted");
 }

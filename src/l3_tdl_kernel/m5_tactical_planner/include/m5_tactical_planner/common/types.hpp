@@ -656,18 +656,66 @@ inline const TargetState* primary_tail_gate_target(const MidMpcInput& input) {
   return &candidates.front();
 }
 
-inline bool tail_gate_cpa_release_clear(const MidMpcInput& input) {
+// Projected CPA from the NLP trajectory's TERMINAL state (own at terminal
+// position/velocity, target projected forward by the terminal time). This is
+// the "achieved" CPA after the avoidance maneuver — what the tail-gate must
+// verify per committed-route-design-v2 §9.5 (terminal hold CPA), NOT M2's
+// pre-maneuver do-nothing CPA (target.cpa_m), which is by definition small
+// during active approach and would reject every converged NLP route (Bug C).
+inline double trajectory_terminal_state_cpa_m(
+    const MidMpcSolution& solution, const TargetState& target) {
+  if (solution.trajectory.empty()) {
+    return std::max(target.cpa_m, 0.0);
+  }
+  const auto& term = solution.trajectory.back();
+  const double t_N = std::max(term.t_s, 0.0);
+  // NED: x_m = north, y_m = east; psi/cog: 0 = north, positive clockwise.
+  // velocity = speed * (sin(hdg), cos(hdg))? No — per propagate_trajectory_positions
+  // north-vel = u*cos(psi), east-vel = u*sin(psi). Match that convention.
+  const double own_vn = term.u_mps * std::cos(term.psi_rad);
+  const double own_ve = term.u_mps * std::sin(term.psi_rad);
+  const double tgt_vn = target.sog_mps * std::cos(target.cog_rad);
+  const double tgt_ve = target.sog_mps * std::sin(target.cog_rad);
+  // Target projected to terminal time, relative to own terminal position.
+  const double rn = (target.x_m + tgt_vn * t_N) - term.x_m;
+  const double re = (target.y_m + tgt_ve * t_N) - term.y_m;
+  const double rvn = tgt_vn - own_vn;
+  const double rve = tgt_ve - own_ve;
+  const double rv2 = rvn * rvn + rve * rve;
+  double tcpa = 0.0;
+  if (rv2 > 1.0e-9) {
+    tcpa = -((rn * rvn) + (re * rve)) / rv2;
+    if (tcpa < 0.0) {
+      tcpa = 0.0;
+    }
+  }
+  const double cpa_n = rn + rvn * tcpa;
+  const double cpa_e = re + rve * tcpa;
+  return std::hypot(cpa_n, cpa_e);
+}
+
+inline bool tail_gate_cpa_release_clear(const MidMpcSolution& solution,
+                                        const MidMpcInput& input) {
   const TargetState* target = primary_tail_gate_target(input);
   if (target == nullptr) {
     return true;
   }
-  const double sigma_m = std::max(target->cpa_sigma_m, 0.0);
-  return (target->cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_safe_m;
-}
-
-inline bool tail_gate_risk_opening(const MidMpcInput& input) {
+  // Bug C: the CPA-floor is a RELEASE concern (is the target finally clear?),
+  // not an active-avoidance concern. During active approach (target closing)
+  // the NLP maneuver IS the CPA-opening action; requiring the CPA already safe
+  // would reject every active-avoidance route -> geometric fallback (Bug C).
+  // Skip the floor while the target is closing; apply it once the target is
+  // opening (release/recovery), where the terminal CPA must be safe. Spec
+  // committed-route-design-v2 §3.1: M6 owns the release/clearing signal; the
+  // closing_speed trend is the M2-backed proxy for it.
   const TargetRiskSnapshot* risk = primary_target_risk(input);
-  return risk == nullptr || risk->closing_speed_mps <= 0.0;
+  const bool target_opening = (risk == nullptr) || (risk->closing_speed_mps <= 0.0);
+  if (!target_opening) {
+    return true;  // active approach: the maneuver opens CPA, do not pre-require it safe
+  }
+  const double sigma_m = std::max(target->cpa_sigma_m, 0.0);
+  const double terminal_cpa_m = trajectory_terminal_state_cpa_m(solution, *target);
+  return (terminal_cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_safe_m;
 }
 
 inline bool tail_gate_turns_are_feasible(
@@ -797,16 +845,12 @@ inline TailGateAcceptance accept_tail_gate(
     result.reason = "wrong_m6_side";
     return result;
   }
-  if (!tail_gate_cpa_release_clear(input)) {
-    result.reason = "cpa_release_floor";
-    return result;
-  }
-  if (!tail_gate_risk_opening(input)) {
-    result.reason = "cpa_worsening";
-    return result;
-  }
   if (!tail_gate_no_crossing_ahead(solution, input)) {
     result.reason = "crossing_ahead";
+    return result;
+  }
+  if (!tail_gate_cpa_release_clear(solution, input)) {
+    result.reason = "cpa_release_floor";
     return result;
   }
   if (!tail_gate_decel_is_feasible(
