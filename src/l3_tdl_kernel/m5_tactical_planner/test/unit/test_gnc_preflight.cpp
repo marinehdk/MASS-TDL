@@ -187,6 +187,39 @@ TEST(GncPreflight, rejects_lateral_delta_too_large)
   expect_rejects_with_reason(request, "max_lateral_delta");
 }
 
+TEST(GncPreflight, rejects_lateral_delta_too_large_in_x_axis)
+{
+  auto request = input();
+  request.route.x_m[2] = request.previous_route->x_m[2] + request.odd.max_lateral_offset_m + 1.0;
+  request.route.x_m[3] = request.previous_route->x_m[3] + request.odd.max_lateral_offset_m + 1.0;
+
+  expect_rejects_with_reason(request, "max_lateral_delta");
+}
+
+TEST(GncPreflight, rejects_nonfinite_max_decel_odd)
+{
+  auto request = input();
+  request.odd.max_decel_mps2 = std::numeric_limits<double>::quiet_NaN();
+
+  expect_rejects_with_reason(request, "odd_max_decel_mps2");
+}
+
+TEST(GncPreflight, rejects_nonfinite_turn_radius_odd)
+{
+  auto request = input();
+  request.odd.min_turn_radius_m = std::numeric_limits<double>::quiet_NaN();
+
+  expect_rejects_with_reason(request, "odd_min_turn_radius_m");
+}
+
+TEST(GncPreflight, rejects_nonpositive_lateral_offset_odd)
+{
+  auto request = input();
+  request.odd.max_lateral_offset_m = 0.0;
+
+  expect_rejects_with_reason(request, "odd_max_lateral_offset_m");
+}
+
 TEST(GncPreflight, rejects_min_update_interval_violation)
 {
   auto request = input();

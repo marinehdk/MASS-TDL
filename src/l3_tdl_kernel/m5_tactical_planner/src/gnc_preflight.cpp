@@ -129,10 +129,58 @@ bool protection_active(const GncPreflightProtection& protection)
   return protection.enabled && valid_protected_exception(protection);
 }
 
+bool finite_positive(const double value)
+{
+  return std::isfinite(value) && value > 0.0;
+}
+
+GncPreflightResult validate_odd(const mass_l3::m5::tail_builder::GncExecutionOdd& odd)
+{
+  if (!finite_positive(odd.ship_length_m)) {
+    return reject("odd_ship_length_m");
+  }
+  if (!finite_positive(odd.max_lateral_offset_m)) {
+    return reject("odd_max_lateral_offset_m");
+  }
+  if (!finite_positive(odd.min_segment_length_m)) {
+    return reject("odd_min_segment_length_m");
+  }
+  if (!finite_positive(odd.min_turn_radius_m)) {
+    return reject("odd_min_turn_radius_m");
+  }
+  if (!finite_positive(odd.max_yaw_rate_rad_s)) {
+    return reject("odd_max_yaw_rate_rad_s");
+  }
+  if (!finite_positive(odd.max_lateral_accel_mps2)) {
+    return reject("odd_max_lateral_accel_mps2");
+  }
+  if (!finite_positive(odd.max_decel_mps2)) {
+    return reject("odd_max_decel_mps2");
+  }
+  if (!finite_positive(odd.min_first_changed_distance_m)) {
+    return reject("odd_min_first_changed_distance_m");
+  }
+  if (!finite_positive(odd.min_update_interval_s)) {
+    return reject("odd_min_update_interval_s");
+  }
+  return accept();
+}
+
+double waypoint_displacement(const GncPreflightRoute& route, const GncPreflightRoute& previous,
+                             const std::size_t i)
+{
+  return std::hypot(route.x_m[i] - previous.x_m[i], route.y_m[i] - previous.y_m[i]);
+}
+
 }  // namespace
 
 GncPreflightResult validate(const GncPreflightInput& input)
 {
+  const auto& odd_result = validate_odd(input.odd);
+  if (!odd_result.accepted) {
+    return odd_result;
+  }
+
   const auto& route = input.route;
   if (!equal_lengths(route)) {
     return reject("equal_length");
@@ -201,7 +249,7 @@ GncPreflightResult validate(const GncPreflightInput& input)
     }
 
     for (std::size_t i = 0U; i < n; ++i) {
-      const double lateral_delta = std::abs(route.y_m[i] - previous.y_m[i]);
+      const double lateral_delta = waypoint_displacement(route, previous, i);
       if (lateral_delta > input.odd.max_lateral_offset_m && !protection_active(input.protection)) {
         return reject("max_lateral_delta");
       }
