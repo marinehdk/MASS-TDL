@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Eigen 3 — column-major Dense matrices; NO_MODULE ensures modern CMake target.
@@ -36,6 +37,28 @@ struct TrajectoryPoint {
   double r_rad_s{0.0};  // yaw rate [rad/s], positive = turn to starboard
   double t_s{0.0};      // time offset from cycle start [s]
 };
+
+// Dead-reckon trajectory x_m/y_m from a heading/speed sequence.
+// point[k] position = start + Σ_{j<k} u[j]·(cos(psi[j]), sin(psi[j]))·dt.
+// psi_rad and u_mps must already be set on each point; x_m/y_m are overwritten.
+//
+// The Mid-MPC NLP decision variable is x=[psi; u] (no position state), so
+// without this reconstruction the solved trajectory carries x_m=y_m=0 and every
+// position-based acceptance gate (tail-gate terminal lateral offset) sees 0 —
+// Bug B: every converged solution rejected as wrong_m6_side.
+inline void propagate_trajectory_positions(std::vector<TrajectoryPoint>& traj,
+                                            double dt_s,
+                                            double x0_m = 0.0,
+                                            double y0_m = 0.0) {
+  double x = x0_m;
+  double y = y0_m;
+  for (auto& p : traj) {
+    p.x_m = x;
+    p.y_m = y;
+    x += p.u_mps * std::cos(p.psi_rad) * dt_s;
+    y += p.u_mps * std::sin(p.psi_rad) * dt_s;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // TargetState — tracked obstacle state, sourced from M2 WorldState
@@ -298,6 +321,36 @@ inline double clamp_heading_window(double target, double h_min, double h_max) {
   const double min_distance = circular_heading_distance(target, h_min);
   const double max_distance = circular_heading_distance(target, h_max);
   return (min_distance <= max_distance) ? h_min : h_max;
+}
+
+// Resolve an M4 raw heading window [h_min_raw, h_max_raw] (rad, absolute) into
+// IPOPT box-safe bounds (lb <= ub). Returned bounds feed the Mid-MPC per-variable
+// box (lbx/ubx); CasADi nlpsol asserts "lb <= ub" so inversion is fatal.
+//
+// A near-full-circle window (span ≈ 2π — e.g. M4 TRANSIT emits [0, 360 deg] or
+// the quantised [0, 359 deg]) means "no heading constraint" and resolves to the
+// unconstrained [-π, +π] box. Without this, normalize_angle maps [0, 359 deg]
+// to an inverted psi-relative window (min > max) that throws every transit
+// cycle. Narrow corridors are unwrapped near ref_psi (own-ship heading) to stay
+// contiguous without crossing the ±π seam mid-window.
+inline std::pair<double, double> resolve_heading_box_bounds(
+    double h_min_raw, double h_max_raw, double ref_psi) {
+  constexpr double kTwoPi = 6.283185307179586;
+  constexpr double kFullCircleTolRad = 0.05;  // ~3 deg
+  if ((h_max_raw - h_min_raw) >= (kTwoPi - kFullCircleTolRad)) {
+    return {-M_PI, M_PI};
+  }
+  auto normalize_angle = [](double angle, double ref) {
+    double diff = angle - ref;
+    diff = std::fmod(diff + M_PI, kTwoPi);
+    if (diff < 0.0) {
+      diff += kTwoPi;
+    }
+    diff -= M_PI;
+    return ref + diff;
+  };
+  return {normalize_angle(h_min_raw, ref_psi),
+          normalize_angle(h_max_raw, ref_psi)};
 }
 
 inline bool is_m4_fallback_rationale(const std::string& rationale) {

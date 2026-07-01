@@ -338,6 +338,10 @@ if(BUILD_TESTING)
       test/unit/test_midmpc_tail_gate.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
+    m5_add_gtest(test_heading_bounds
+      test/unit/test_heading_bounds.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
     m5_add_gtest(test_stand_on_reject
       test/unit/test_stand_on_reject.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp

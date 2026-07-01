@@ -335,20 +335,15 @@ MidMpcInput MidMpcNode::assemble_input_()
     inp.tail_gate_targets.push_back(ts);
   }
 
-  // Normalize heading bounds relative to own ship psi_rad to prevent wrap-around infeasibility
-  auto normalize_angle = [](double angle, double ref) {
-    const double kPi = 3.14159265358979323846;
-    double diff = angle - ref;
-    diff = fmod(diff + kPi, 2.0 * kPi);
-    if (diff < 0) diff += 2.0 * kPi;
-    diff -= kPi;
-    return ref + diff;
-  };
-
   double h_min_raw = static_cast<double>(behavior_plan_->heading_min_deg) * units::kRadPerDeg;
   double h_max_raw = static_cast<double>(behavior_plan_->heading_max_deg) * units::kRadPerDeg;
-  inp.constraints.heading_min_rad = normalize_angle(h_min_raw, inp.own_ship.psi_rad);
-  inp.constraints.heading_max_rad = normalize_angle(h_max_raw, inp.own_ship.psi_rad);
+  // Full-circle M4 window (transit) ⇒ unconstrained [-π, +π]; else unwrap near
+  // own_ship psi. Guarantees lb <= ub (CasADi nlpsol asserts it). See
+  // resolve_heading_box_bounds + test_heading_bounds.
+  const std::pair<double, double> heading_bounds =
+      mass_l3::m5::resolve_heading_box_bounds(h_min_raw, h_max_raw, inp.own_ship.psi_rad);
+  inp.constraints.heading_min_rad = heading_bounds.first;
+  inp.constraints.heading_max_rad = heading_bounds.second;
 
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
   double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);

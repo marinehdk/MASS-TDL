@@ -399,6 +399,9 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
     point.u_mps   = static_cast<double>(x_opt(N + k));
     point.t_s     = static_cast<double>(k) * cfg_.dt_s;
   }
+  // Reconstruct position by dead-reckon — NLP optimises x=[psi;u] only, so
+  // without this x_m/y_m stay 0 and the tail-gate lateral gate always fails.
+  mass_l3::m5::propagate_trajectory_positions(sol.trajectory, cfg_.dt_s);
   if (stats.count("iter_count") > 0u) {
     sol.ipopt_iterations = static_cast<int32_t>(
         static_cast<int>(stats.at("iter_count")));

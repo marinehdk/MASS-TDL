@@ -4,7 +4,27 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
-## [2026-06-30] Claude Code / 无新 commit / M5 Spec v2 三方评审 + 路径A认证 + 架构同步
+## [2026-07-01] Claude Code / M5 Bug A+B FIXED (transit throw + wrong-side position) / 1 commit
+
+### Task Goal
+Fix M5 NLP so it outputs a trustworthy avoidance route; verify via rule14-ho. systematic-debugging + ASDR/trace cross-tab proved the 07-01 "NLP throws every cycle" framing was INCOMPLETE — two independent bugs.
+
+### Core Changes (worktree `.worktrees/colregs-12probe-debug`, branch `codex/colregs-12probe-debug`)
+- **Bug A (transit NLP throw)**: M4 full-circle heading window [0,359]/[0,360] during TRANSIT → `normalize_angle` (mid_mpc_node.cpp:339) inverted to min>max → bypassed `heading_window_is_wrapped` guard (gated `!is_transit && !is_recovery`, :472) → CasADi nlpsol `"lb<=ub"` assertion every transit cycle. Fix: `resolve_heading_box_bounds()` helper (types.hpp) — full-circle span≈2π ⇒ unconstrained [-π,+π]; wired mid_mpc_node.cpp:348.
+- **Bug B (wrong-side avoidance)**: `unpack_solution` (mid_mpc_nlp_formulation.cpp:396) filled only psi/u from NLP x=[psi;u] (no position state), left x_m/y_m=0 → tail-gate terminal lateral offset always 0 → every converged solution rejected `wrong_m6_side`. Fix: `propagate_trajectory_positions()` helper (types.hpp) — dead-reckon x/y; wired formulation.cpp:401.
+- **TDD**: new `test/unit/test_heading_bounds.cpp` (7 tests: 4 HeadingBoxBounds + 3 TrajectoryPositions) + CMakeLists registration. test_midmpc_tail_gate 6/6 + test_stand_on_reject 2/2 no regression. Temporary [M5DIAG-TG] diagnostic reverted before commit.
+
+### Current Status
+- **rule14-ho: safety_pass=True, colregs_pass=True (L4 PASS)**, clean starboard turn, CPA 180m (4.0L), score 0.92, no circling. Transit throws 0 (was ~182/run), wrong_m6_side 2661→0. Overall FAIL solely on L5 route_recovery.
+- End-to-end built + verified in container `codex-gnc-validation-sil-nodes-1` (source /opt/ros/humble/setup.bash; colcon build --packages-select m5_tactical_planner).
+
+### Handoff Notes (Bug C+D → new conversation; see memory [[l3-m5-cd-remain]])
+- **Bug C** (NLP tail-gate rejections): fixing Bug B unblocked wrong_m6_side; accept_tail_gate now rejects NLP traj for `turn_radius_infeasible` (cold-start psi[0] unanchored; `kIdxOwnPsi` mid_mpc_nlp_formulation.cpp:311 reserved Phase E2) / `cpa_release_floor` (CPA-3σ < cpa_safe=2500) / `decel_infeasible` (no hard decel constraint). NLP constraints don't align with acceptance gates → NLP route rejected → geometric fallback published. Non-blocking for safety; blocks "NLP as normal route source" (cert).
+- **Bug D** (route_return L5 FAIL): ship avoids correctly but doesn't return. Ends HDG 344.4° vs 0° (15.6° off), Max XTE 418.8m. Diagnosis "M4: route return failed" → M4 TRANSIT re-transition / bridge release / M5 recovery plan (NOT M5 NLP). Check past fixes [[l3-no-route-return-rule18-noriskgate]], [[l3-route-return-plumbing-4-breaks]].
+- **rule15-cs NOT verified** (probe killed mid-cs). Re-run ho+cs after C/D.
+- Build/test/probe commands in [[l3-m5-cd-remain]].
+
+
 
 ### Task Goal
 对 M5 committed route spec v1 做三方评审（COLREGs 合规 / 架构合理性 / 船级社认证可行性），固化 7 决策点为完整 spec v2；验证路径 A（非凸 NLP + policing-function）认证前提；同步架构报告措辞使其与代码/spec 一致。终极目标：彻底解决 M5 输出不稳定 → GNC 不可执行 → 避碰不合规。
@@ -1904,3 +1924,14 @@ Implement standalone M5 `CommittedAvoidanceRoute` manager for committed-route li
 - Unit-level only: manager records `safety_concern_event`; no direct MRM publish and no M7 DDS wiring in Slice D.
 - Uses standalone double seconds rather than `rclcpp::Time` to keep library light and tests exact.
 - Worktree still has unrelated dirty/untracked files predating Slice D; stage Slice D paths only.
+
+### 2026-07-01 — Slice J smoke: root-caused "no M5 output" = ABI incomplete-rebuild; chain now executes; M5 NLP throw is next blocker
+- **Agent:** Claude (ZCode), branch `codex/colregs-12probe-debug`, HEAD `f2d5f742` (Slice F, unchanged — deploy-only fix, no source commits).
+- **Goal:** diagnose why 2-probe smoke (colreg-rule14-ho, colreg-rule15-cs) output 0 `/l3/m5/avoidance_plan` and was 0/2 RED.
+- **Root cause:** ABI mismatch from incomplete rebuild. Slice G changed `l3_msgs/COLREGsConstraint.msg` (schema 114→115) and Slice A changed `AvoidancePlan` (`l3_msgs`+`ship_interfaces`); the `codex-gnc-validation-sil-nodes-1` container is image-baked 2026-06-30, entrypoint doesn't rebuild, and prior `docker exec` rebuilds omitted m4/m2/m8 → those stayed 06-30 while msgs moved → glibc heap corruption (`malloc(): invalid size` / `sysmalloc Assertion`) → node SIGABRT. m4 dying latched behavior=TRANSIT → M5 `should_emit_collision_avoidance_waypoints` false → 0 avoidance_plan. NOT a logic bug; ASan build of m4 ran fine (relinked against current msg lib).
+- **Fix (deploy-only):** full consistent rebuild into the running container — `colcon build --packages-above l3_msgs ship_interfaces --packages-skip fcb_simulator --executor sequential --cmake-args -DBUILD_TESTING=OFF`. Verified all launched nodes (m1-m8, gnc_bridge, sil_fusion/trace/pulse_adapter) fresh + ABI-consistent.
+- **Smoke result after fix (colreg-rule14-ho, run-19f1d163011):** chain executes — m4 `{TRANSIT:740, COLREG_AVOID:16313, RECOVERY:1}`, M6 conflict STARBOARD, m5 4128 cycles, maneuver executed, no crashes. Still RED but for a NEW reason.
+- **New blocker:** M5 MidMPC CasADi/IPOPT throws every cycle (`Error in Function::call for 'mid_mpc_solver'`, 260+ consecutive failures) → geometric fallback → M7 MRM-02 → CPA=nan, port-dominant turn (wrong side for Rule 14), no route return. This is the real-MPC keystone (J_colreg non-smooth), likely Slice-J constraint regression; needs dedicated M5-NLP investigation.
+- **Status:** deploy blocker RESOLVED; "no M5 output" answered. Slice J smoke still RED on M5 NLP throw — defer rule15-cs + full 2-probe until NLP resolved. No source commits this session (deploy-only). A4000 deploy must repeat the full `--packages-above` rebuild (scp + colcon build, never partial, never git pull).
+- **Key files:** `.superpowers/sdd/task-J-report.md` (full root-cause writeup), memory `l3-sil-throwaway-rebuild-deploy-gap` (gotcha #2 = completeness), memory `l3-m5-midmpc-casadi-throw` (next blocker).
+- **Next command (when NLP triage starts):** rerun `rtk python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs --sim-rate 5 --trace-report-dir runs/<tag> --summary-out runs/<tag>-summary.json --scenario colreg-rule14-ho` after rebuilding M5 with any NLP fix.
