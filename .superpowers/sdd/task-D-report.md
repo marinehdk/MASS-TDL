@@ -68,3 +68,30 @@ DONE_WITH_CONCERNS
 ### Concerns
 - Unit-level only; no M7 DDS publication/wiring added in this review fix.
 - Pre-existing unrelated dirty/untracked files remain in the worktree; commit stages only Slice D files and this report.
+
+## Review Fix: DegradedHold Sticky Rejection
+
+### Summary
+- Fixed invalid revision handling while already in DegradedHold: preflight failures, bad source labels, prefix conflicts, and other rejected candidates now preserve DegradedHold and the original `safety_concern_event` until a valid revised route is accepted.
+- Added regression coverage for stale-triggered DegradedHold followed by empty geometry, invented label, prefix-conflicting candidate, and valid recovery to Committed.
+
+### RED Evidence
+- Command: `docker exec codex-gnc-validation-sil-nodes-1 bash -lc 'source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash && cd /opt/ws && colcon build --build-base /tmp/m5_slice_d_sticky_red_build --install-base /tmp/m5_slice_d_sticky_red_install --packages-up-to m5_tactical_planner --cmake-args -DBUILD_TESTING=ON && cd /tmp/m5_slice_d_sticky_red_build/m5_tactical_planner && ctest -R "test_committed_route" --output-on-failure'`
+- Outcome: FAIL as expected, 1/12 failed: invalid revisions changed state to KeepLast and overwrote `committed_route_stale_gt_45s` with `candidate_preflight_failed` / `frozen_prefix_conflict`.
+
+### GREEN Evidence
+- Command: `docker exec codex-gnc-validation-sil-nodes-1 bash -lc 'source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash && cd /opt/ws && colcon build --build-base /tmp/m5_slice_d_sticky_green_build --install-base /tmp/m5_slice_d_sticky_green_install --packages-up-to m5_tactical_planner --cmake-args -DBUILD_TESTING=ON && cd /tmp/m5_slice_d_sticky_green_build/m5_tactical_planner && ctest -R "test_committed_route" --output-on-failure'`
+- Outcome: PASS; `test_committed_route` 1/1 passed.
+- Command: `docker exec codex-gnc-validation-sil-nodes-1 bash -lc 'source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash && cd /opt/ws && colcon build --build-base /tmp/m5_slice_d_sticky_final_build --install-base /tmp/m5_slice_d_sticky_final_install --packages-up-to m5_tactical_planner --cmake-args -DBUILD_TESTING=ON && cd /tmp/m5_slice_d_sticky_final_build/m5_tactical_planner && ctest -R "test_(committed_route|tail_builder|avoidance_plan_contract)" --output-on-failure'`
+- Outcome: PASS; `test_tail_builder`, `test_committed_route`, `test_avoidance_plan_contract`; 3/3 passed, 0 failed.
+
+### Changed Paths
+- `src/l3_tdl_kernel/m5_tactical_planner/src/committed_route/committed_route.cpp`
+- `src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_committed_route.cpp`
+- `.superpowers/sdd/task-D-report.md`
+
+### Commit
+- 39ede6a6
+
+### Concerns
+- Pre-existing unrelated dirty/untracked files remain in the worktree; commits staged only the Slice D fix files and this report.
