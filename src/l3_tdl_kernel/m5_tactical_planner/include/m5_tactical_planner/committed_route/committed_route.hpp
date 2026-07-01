@@ -62,8 +62,10 @@ class CommittedAvoidanceRoute {
 
  private:
   [[nodiscard]] std::uint32_t hash_geometry(const std::vector<GeoWP>& geometry) const;
-  [[nodiscard]] std::vector<GeoWP> merged_with_frozen_prefix(
-      const std::vector<GeoWP>& candidate_geometry) const;
+  [[nodiscard]] bool preflight_candidate(const CommittedRouteCandidate& candidate) const;
+  [[nodiscard]] bool preserves_committed_prefix(const std::vector<GeoWP>& geometry) const;
+  [[nodiscard]] std::string risk_trigger_event(const CommittedRouteCandidate& candidate) const;
+  void reject_keep_last(const std::string& safety_concern_event);
   void enter_degraded_hold(const std::string& safety_concern_event);
 
   CommittedAvoidanceRouteState current_;
