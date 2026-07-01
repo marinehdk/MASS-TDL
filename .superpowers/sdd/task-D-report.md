@@ -63,7 +63,7 @@ DONE_WITH_CONCERNS
 - `.superpowers/sdd/task-D-report.md`
 
 ### Commit
-- Pending at report append time.
+- 1614e50a
 
 ### Concerns
 - Unit-level only; no M7 DDS publication/wiring added in this review fix.
