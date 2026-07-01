@@ -2,13 +2,20 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "l3_msgs/msg/avoidance_plan.hpp"
+#include "m5_tactical_planner/committed_route/committed_route.hpp"
 #include "m5_tactical_planner/mid_mpc/degraded_candidate_adapter.hpp"
 
+using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+using mass_l3::m5::committed_route::CommittedRouteCandidate;
+using mass_l3::m5::committed_route::GeoWP;
 using mass_l3::m5::mid_mpc::DegradedCandidatePoint;
 using mass_l3::m5::mid_mpc::DegradedCandidateRequest;
+using mass_l3::m5::mid_mpc::build_committed_degraded_candidate_plan;
 using mass_l3::m5::mid_mpc::build_degraded_candidate_plan;
 
 namespace {
@@ -82,4 +89,63 @@ TEST(DegradedCandidateAdapter, requires_return_to_route_or_explicit_m7_handoff_i
   EXPECT_NE(plan->rationale.find("safety_concern_event=m5_degraded_candidate_no_return_route"),
             std::string::npos);
   EXPECT_NE(plan->rationale.find("mrm_handoff_intent=m7_only"), std::string::npos);
+}
+
+
+TEST(DegradedCandidateAdapter, rejects_invalid_confidence_values)
+{
+  auto request = base_request();
+  request.has_return_to_route_point = true;
+  request.return_latitude = 30.0020;
+  request.return_longitude = 122.0030;
+
+  request.confidence = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_FALSE(build_degraded_candidate_plan(request).has_value());
+
+  request.confidence = -0.01F;
+  EXPECT_FALSE(build_degraded_candidate_plan(request).has_value());
+
+  request.confidence = 1.01F;
+  EXPECT_FALSE(build_degraded_candidate_plan(request).has_value());
+}
+
+TEST(DegradedCandidateAdapter, rejects_invalid_return_to_route_coordinates_when_flagged)
+{
+  auto request = base_request();
+  request.has_return_to_route_point = true;
+  request.return_latitude = std::numeric_limits<double>::quiet_NaN();
+  request.return_longitude = 122.0030;
+  EXPECT_FALSE(build_degraded_candidate_plan(request).has_value());
+
+  request.return_latitude = 30.0020;
+  request.return_longitude = std::numeric_limits<double>::infinity();
+  EXPECT_FALSE(build_degraded_candidate_plan(request).has_value());
+}
+
+TEST(DegradedCandidateAdapter, route_manager_rejection_blocks_committed_degraded_candidate)
+{
+  CommittedAvoidanceRoute manager;
+  CommittedRouteCandidate committed;
+  committed.plan_id = "normal-plan";
+  committed.valid_until_s = 30.0;
+  committed.nlp_ok = true;
+  committed.frozen_prefix_count = 2U;
+  committed.geometry = std::vector<GeoWP>{
+      GeoWP{30.0000, 122.0000, 3.2, "MID_MPC_OPTIMIZED"},
+      GeoWP{30.0010, 122.0015, 3.2, "MID_MPC_OPTIMIZED"},
+      GeoWP{30.0020, 122.0030, 3.2, "REJOIN_TO_L2"},
+  };
+  ASSERT_TRUE(manager.try_revise(committed, 0.0));
+
+  auto request = base_request();
+  request.has_return_to_route_point = true;
+  request.return_latitude = 30.0020;
+  request.return_longitude = 122.0030;
+  request.points.front().latitude = 30.0100;
+
+  const auto plan = build_committed_degraded_candidate_plan(request, manager, 5.0, 65.0);
+
+  EXPECT_FALSE(plan.has_value());
+  EXPECT_EQ(manager.current().plan_id, "normal-plan");
+  EXPECT_EQ(manager.current().safety_concern_event, "frozen_prefix_conflict");
 }

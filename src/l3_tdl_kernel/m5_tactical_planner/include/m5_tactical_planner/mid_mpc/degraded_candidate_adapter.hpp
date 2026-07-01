@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "l3_msgs/msg/avoidance_plan.hpp"
+#include "m5_tactical_planner/committed_route/committed_route.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -33,6 +34,12 @@ struct DegradedCandidateRequest {
 
 [[nodiscard]] std::optional<l3_msgs::msg::AvoidancePlan> build_degraded_candidate_plan(
     const DegradedCandidateRequest& request);
+
+[[nodiscard]] std::optional<l3_msgs::msg::AvoidancePlan> build_committed_degraded_candidate_plan(
+    const DegradedCandidateRequest& request,
+    mass_l3::m5::committed_route::CommittedAvoidanceRoute& committed_route_manager,
+    double now_s,
+    double valid_until_s);
 
 }  // namespace mass_l3::m5::mid_mpc
 

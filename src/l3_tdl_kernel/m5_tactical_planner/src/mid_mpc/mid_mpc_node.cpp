@@ -1058,17 +1058,19 @@ void MidMpcNode::publish_avoidance_waypoints_(
       degraded_request.points.push_back(
           DegradedCandidatePoint{wps[i].lat, wps[i].lon, speeds[i], navigation_mode});
     }
-    const auto degraded_plan = build_degraded_candidate_plan(degraded_request);
+    const auto valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+    const auto degraded_plan = build_committed_degraded_candidate_plan(
+        degraded_request, committed_route_manager_, now.seconds(), valid_until.seconds());
     if (!degraded_plan.has_value()) {
       RCLCPP_WARN(get_logger(),
-          "[M5][DegradedCandidate] drop avoidance plan_id=%s reason=adapter_rejected",
-          anchor.plan_id.c_str());
+          "[M5][DegradedCandidate] drop avoidance plan_id=%s reason=committed_route_rejected event=%s",
+          anchor.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
     plan = degraded_plan.value();
     plan.stamp = now;
-    plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
+    plan.valid_until = valid_until;
   } else if (last_emitted_conflict_active_ || return_republish_active) {
     if (last_emitted_conflict_active_) {
       return_to_route_emit_until_ =
@@ -1158,17 +1160,20 @@ void MidMpcNode::publish_avoidance_waypoints_(
           speeds[i],
           return_route_anchor_->navigation_mode});
     }
-    const auto degraded_return_plan = build_degraded_candidate_plan(degraded_return_request);
+    const auto valid_until = now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s);
+    const auto degraded_return_plan = build_committed_degraded_candidate_plan(
+        degraded_return_request, committed_route_manager_, now.seconds(), valid_until.seconds());
     if (!degraded_return_plan.has_value()) {
       RCLCPP_WARN(get_logger(),
-          "[M5][DegradedCandidate] drop return plan_id=%s reason=adapter_rejected",
-          return_route_anchor_->plan_id.c_str());
+          "[M5][DegradedCandidate] drop return plan_id=%s reason=committed_route_rejected event=%s",
+          return_route_anchor_->plan_id.c_str(),
+          committed_route_manager_.current().safety_concern_event.c_str());
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
     plan = degraded_return_plan.value();
     plan.stamp = now;
-    plan.valid_until = (now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s));
+    plan.valid_until = valid_until;
   } else {
     // No conflict and already returned: emit nothing this cycle.
     last_emitted_conflict_active_ = conflict_active;
@@ -1193,12 +1198,6 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
-    if (plan.status == "DEGRADED") {
-      (void)committed_route_manager_.try_revise(
-          committed_candidate_from_plan(plan, false, rclcpp::Time(plan.valid_until).seconds()),
-          now.seconds());
-    }
-
     plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
     plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
     plan.nlp_kkt_residual = 0.0F;

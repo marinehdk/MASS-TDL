@@ -1,5 +1,6 @@
 #include "m5_tactical_planner/mid_mpc/degraded_candidate_adapter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -13,12 +14,46 @@ bool finite_point(const DegradedCandidatePoint& point)
          std::isfinite(point.speed_mps) && !point.navigation_mode.empty();
 }
 
+bool valid_confidence(const float confidence)
+{
+  return std::isfinite(confidence) && confidence >= 0.0F && confidence <= 1.0F;
+}
+
+bool valid_return_to_route_point(const DegradedCandidateRequest& request)
+{
+  return !request.has_return_to_route_point ||
+         (std::isfinite(request.return_latitude) && std::isfinite(request.return_longitude));
+}
+
+mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_degraded_plan(
+    const l3_msgs::msg::AvoidancePlan& plan,
+    const double valid_until_s)
+{
+  mass_l3::m5::committed_route::CommittedRouteCandidate candidate;
+  candidate.plan_id = plan.plan_id;
+  candidate.valid_until_s = valid_until_s;
+  candidate.nlp_ok = true;
+  candidate.frozen_prefix_count = 0U;
+  const std::size_t n = std::min(
+      {plan.latitude.size(), plan.longitude.size(), plan.command_speed_mps.size(),
+       plan.segment_source.size()});
+  candidate.geometry.reserve(n);
+  for (std::size_t i = 0U; i < n; ++i) {
+    candidate.geometry.push_back(mass_l3::m5::committed_route::GeoWP{
+        plan.latitude[i], plan.longitude[i], plan.command_speed_mps[i], "DEGRADED_CORRIDOR"});
+  }
+  return candidate;
+}
+
 }  // namespace
 
 std::optional<l3_msgs::msg::AvoidancePlan> build_degraded_candidate_plan(
     const DegradedCandidateRequest& request)
 {
   if (!request.nlp_unavailable || request.committed_route_can_continue || request.points.empty()) {
+    return std::nullopt;
+  }
+  if (!valid_confidence(request.confidence) || !valid_return_to_route_point(request)) {
     return std::nullopt;
   }
   if (!request.has_return_to_route_point && request.safety_concern_event.empty()) {
@@ -63,6 +98,23 @@ std::optional<l3_msgs::msg::AvoidancePlan> build_degraded_candidate_plan(
     plan.segment_source.push_back(l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR);
   }
 
+  return plan;
+}
+
+std::optional<l3_msgs::msg::AvoidancePlan> build_committed_degraded_candidate_plan(
+    const DegradedCandidateRequest& request,
+    mass_l3::m5::committed_route::CommittedAvoidanceRoute& committed_route_manager,
+    const double now_s,
+    const double valid_until_s)
+{
+  auto plan = build_degraded_candidate_plan(request);
+  if (!plan.has_value()) {
+    return std::nullopt;
+  }
+  if (!committed_route_manager.try_revise(
+          committed_candidate_from_degraded_plan(plan.value(), valid_until_s), now_s)) {
+    return std::nullopt;
+  }
   return plan;
 }
 
