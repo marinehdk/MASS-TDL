@@ -169,6 +169,51 @@ TEST(CommittedAvoidanceRoute, valid_revised_route_can_exit_degraded_hold)
   EXPECT_EQ(manager.current().revision, 2U);
 }
 
+TEST(CommittedAvoidanceRoute, invalid_revisions_do_not_clear_degraded_hold)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  ASSERT_TRUE(manager.should_enter_degraded_hold(45.001));
+  const std::uint32_t degraded_revision = manager.current().revision;
+  const std::uint32_t degraded_hash = manager.current().route_hash;
+  const double stale_started_at = manager.current().stale_committed_at_s;
+  const std::string degraded_event = manager.current().safety_concern_event;
+
+  EXPECT_FALSE(manager.try_revise(candidate("empty", {}, 0U, 80.0), 50.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+  EXPECT_EQ(manager.current().safety_concern_event, degraded_event);
+  EXPECT_EQ(manager.current().revision, degraded_revision);
+  EXPECT_EQ(manager.current().route_hash, degraded_hash);
+  EXPECT_DOUBLE_EQ(manager.current().stale_committed_at_s, stale_started_at);
+  EXPECT_EQ(manager.current().plan_id, "plan-a");
+
+  auto bad_label = route_b_with_same_prefix();
+  bad_label[2].nav_mode = "MID_MPC";
+  EXPECT_FALSE(manager.try_revise(candidate("bad-label", bad_label, 2U, 85.0), 51.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+  EXPECT_EQ(manager.current().safety_concern_event, degraded_event);
+  EXPECT_EQ(manager.current().revision, degraded_revision);
+  EXPECT_EQ(manager.current().route_hash, degraded_hash);
+  EXPECT_DOUBLE_EQ(manager.current().stale_committed_at_s, stale_started_at);
+  EXPECT_EQ(manager.current().plan_id, "plan-a");
+
+  auto conflicting = route_b_with_same_prefix();
+  conflicting[0].x_m = 10.0;
+  EXPECT_FALSE(manager.try_revise(candidate("prefix-conflict", conflicting, 2U, 90.0), 52.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+  EXPECT_EQ(manager.current().safety_concern_event, degraded_event);
+  EXPECT_EQ(manager.current().revision, degraded_revision);
+  EXPECT_EQ(manager.current().route_hash, degraded_hash);
+  EXPECT_DOUBLE_EQ(manager.current().stale_committed_at_s, stale_started_at);
+  EXPECT_EQ(manager.current().plan_id, "plan-a");
+
+  ASSERT_TRUE(manager.try_revise(candidate("plan-b", route_b_with_same_prefix(), 2U, 95.0), 53.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::Committed);
+  EXPECT_TRUE(manager.current().safety_concern_event.empty());
+  EXPECT_EQ(manager.current().plan_id, "plan-b");
+  EXPECT_EQ(manager.current().revision, degraded_revision + 1U);
+}
+
 TEST(CommittedAvoidanceRoute, frozen_prefix_cannot_shrink_and_conflicting_revision_is_rejected)
 {
   CommittedAvoidanceRoute manager;

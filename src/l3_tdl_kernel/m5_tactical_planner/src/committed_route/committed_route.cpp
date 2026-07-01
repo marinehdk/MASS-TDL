@@ -62,6 +62,17 @@ bool CommittedAvoidanceRoute::try_revise(
     const CommittedRouteCandidate& candidate,
     const double now_s)
 {
+  const bool was_degraded_hold = current_.state == LifecycleState::DegradedHold;
+  const std::string original_safety_concern_event = current_.safety_concern_event;
+  const auto preserve_degraded_hold = [&]() {
+    if (!was_degraded_hold) {
+      return false;
+    }
+    current_.state = LifecycleState::DegradedHold;
+    current_.safety_concern_event = original_safety_concern_event;
+    return true;
+  };
+
   current_.state = LifecycleState::CandidateEvaluating;
 
   const std::string risk_event = risk_trigger_event(candidate);
@@ -69,12 +80,17 @@ bool CommittedAvoidanceRoute::try_revise(
     if (!candidate.nlp_ok) {
       ++consecutive_nlp_failures_;
     }
-    enter_degraded_hold(risk_event);
+    if (!preserve_degraded_hold()) {
+      enter_degraded_hold(risk_event);
+    }
     return false;
   }
 
   if (!candidate.nlp_ok) {
     ++consecutive_nlp_failures_;
+    if (preserve_degraded_hold()) {
+      return false;
+    }
     if (consecutive_nlp_failures_ >= 3U) {
       enter_degraded_hold("nlp_consecutive_failures_ge_3");
     } else {
@@ -84,12 +100,16 @@ bool CommittedAvoidanceRoute::try_revise(
   }
 
   if (!preflight_candidate(candidate)) {
-    reject_keep_last("candidate_preflight_failed");
+    if (!preserve_degraded_hold()) {
+      reject_keep_last("candidate_preflight_failed");
+    }
     return false;
   }
 
   if (!preserves_committed_prefix(candidate.geometry)) {
-    reject_keep_last("frozen_prefix_conflict");
+    if (!preserve_degraded_hold()) {
+      reject_keep_last("frozen_prefix_conflict");
+    }
     return false;
   }
 
@@ -234,6 +254,9 @@ std::string CommittedAvoidanceRoute::risk_trigger_event(
 
 void CommittedAvoidanceRoute::reject_keep_last(const std::string& safety_concern_event)
 {
+  if (current_.state == LifecycleState::DegradedHold) {
+    return;
+  }
   current_.state = LifecycleState::KeepLast;
   current_.safety_concern_event = safety_concern_event;
 }
