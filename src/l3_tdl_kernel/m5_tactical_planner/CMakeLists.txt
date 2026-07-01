@@ -93,6 +93,7 @@ find_package(Boost REQUIRED COMPONENTS headers)
 # ---------------------------------------------------------------------------
 set(M5_SHARED_SOURCES
   src/avoidance_route_hash.cpp
+  src/committed_route/committed_route.cpp
   # --- common/ ---
   src/common/error.cpp
   src/common/types.cpp
@@ -344,6 +345,11 @@ if(BUILD_TESTING)
   # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
   m5_add_gtest(test_tail_builder
     test/unit/test_tail_builder.cpp
+  )
+
+  # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
+  m5_add_gtest(test_committed_route
+    test/unit/test_committed_route.cpp
   )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────

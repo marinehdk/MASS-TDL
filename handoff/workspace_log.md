@@ -4,6 +4,89 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-06-30] Claude Code / 无新 commit / M5 Spec v2 三方评审 + 路径A认证 + 架构同步
+
+### Task Goal
+对 M5 committed route spec v1 做三方评审（COLREGs 合规 / 架构合理性 / 船级社认证可行性），固化 7 决策点为完整 spec v2；验证路径 A（非凸 NLP + policing-function）认证前提；同步架构报告措辞使其与代码/spec 一致。终极目标：彻底解决 M5 输出不稳定 → GNC 不可执行 → 避碰不合规。
+
+### Core Changes（设计文档 + 调研 + 验证，非代码）
+- **新增 spec v2**：`.worktrees/colregs-12probe-debug/docs/superpowers/specs/2026-06-30-m5-committed-route-design-v2.md`（25 章，11 Slice A-K，supersedes v1）。关键新增章：§4 COLREGs 角色矩阵（stand-on 无 hold tail）/ §13 非凸论证（路径A）/ §14 M6→M5 信号契约（扩 `past_clear`/`encounter_state`/`release_predicted`）/ §9.7 s_clear 复用 M6+M2 禁重判 / §9.12 keep-last-route ≤45s 风险门控 / §15 confidence 量化 / §18 架构同步清单 / §25 决策记录
+- **Slice H（Task#9）验证 M7/X-axis 独立性**：理论🟢 / 独立性🟢（CI 强制）/ 确定性🟢（全 enum）/ 复杂度比🟡（ADR-001 已降 `1:100`→`50-100:1 非强制`，`08c-adr-deltas.md:36-38`）/ **运行时覆盖🔴**（`run_hard_constraint_checks`@m7_safety_supervisor_node.cpp:548 空 stub + HC-1~6 死代码 + `on_avoidance_plan`:298 置 0 + NLP solver status 不消费）→ 新增 **Slice K**（M7 接线，决策点 7 纳入 spec）
+- **架构报告同步（Task#10）13 处**：§4.5/§10.1/§10.4/§10.6 凸性事实修正（凸优化→非凸 NLP/IPOPT）+ §10.4 新增「非凸性论证与 SOTIF/policing-function 安全边界」段 + §11.3/§11.7 复杂度比引用 §2.5 + §11.3/行49/行2852 频率 RFC-003 偏差标注（代码实测 4 Hz/25 s 真值，不擅改 RFC 锁定）+ §10.3 AvoidancePlan 频率 1–2 Hz→event-driven+60 s/10 s
+- **7 决策点（spec §25）**：1 M6 语义独占 side/role/past-clear（M5 不兜底）/ 2 keep-last ≤45 s / 3 路径A 承认非凸+修文档+Slice K / 4 stand-on 全角色 / 5 s_clear 复用现有不自写 / 6 V&V Monte Carlo 暂搁 / 7 Slice K 纳入本 spec
+- **review 修正**：`H_publish` 开阔水域 60 s / 危险水域 10 s（v2 草稿原误写 30 s/60 s 且开阔/危险写反，已统一改 11 处）
+- **memory**：新建 `l3-m5-patha-m7-policing-deadcode.md`；更正 `l3-m6-onset-latch-no-generalize` 过期条目（`_check_geometry_release` 随 `docker/sil_topic_bridge.py` 被 commit `f138b0d9` 删除，整仓无命中）；MEMORY.md 索引同步
+
+### Current Status
+- 仅设计文档（spec v2）+ 架构报告 + memory + handlog 改动；**无 M5/M6/M7 代码改动，无测试运行，无 commit/push**
+- spec v2 ↔ 架构报告 ↔ 代码 三者一致；7 决策可追溯（spec §25）
+- worktree `colregs-12probe-debug`，branch `codex/colregs-12probe-debug`
+
+### Handoff Notes（下一步 = 实现，见同目录 implementation plan）
+- 实现顺序：**Slice G（M6 msg 扩字段，前置）→ A（M5 interface + NLP status 字段）→ K（M7 接线，认证前置）→ B/C/D/E/F（M5 核心）→ J（runtime 验证）**
+- ⚠ **Slice K 是 Slice H 新发现的额外工作**（M7 policing 当前死代码）；不做则路径 A 认证演示「NLP-fail→veto→MRM」过不了
+- ⚠ **Slice C（tail builder s_clear）依赖 Slice G**（M6 msg）；G 未就绪前 TailBuilder 进 DegradedHold，**不重判语义**
+- ⚠ **stand-on（§4）**：`role==STAND_ON` 无 terminal-hold tail，NLP 受 keep-heading 约束；全 COLREGs 角色矩阵须实现
+- ⚠ **M5 不兜底 M6 语义**（决策点 1）；M6 须保证 side/role/past-clear 正确 + M7 独立监督
+- 路径 A **CCS 接受度 🟡**：policing-function 立场须与 CCS 直接沟通（nlm 🟢 MAXCMAS + DNV AROS 先例；CCS 具体立场 🔴 未确认）
+- M5 不稳定历史病灶见 memory：`circling-root-cause-m5-valid-forever` / `route-return-plumbing-4-breaks` / `avoidance-cold-start` / `m5-restoration-failed-keystone`
+- 实现期遵守 CLAUDE.md「COLREGs debugging discipline」（全链路、不 tune 单 probe、无 mock/skip/forced-pass/vessel-specific 分支）+ TDD（每 Slice 先写 acceptance 测试）
+
+## [2026-06-30] Codex / 无新 commit / M5 committed route Spec
+
+### Task Goal
+将 M5 输出能力从双 path/1Hz 几何重发，收敛为单一 committed route 设计：M5 内部维护完整避碰+回归航线，GNC 消费完整 active route revision，route 只在 commit/revision/return/heartbeat 时发布。
+
+### Core Changes（设计文档，非代码）
+- 新增 Spec：`docs/superpowers/specs/2026-06-30-m5-committed-route-design.md`
+- 明确 M5 后续能力：`CommittedAvoidanceRoute` 为单一真相源；Mid-MPC 是候选生成器，不强求一次 NLP 求完整生命周期；fallback/corridor/recovery 统一为候选/生命周期，不再独立发布执行 path
+- 明确发布策略：不是每 60s 发后续片段，而是初次发送完整 active route，后续只发 heartbeat 或通过 GNC preflight 的 future-suffix revision
+- 用户追问后收紧 Spec：Mid-MPC NLP 是正常 COLREG 主生成源，必须输出避碰 maneuver + terminal rejoin gate + nominal-route splice；corridor/fallback 只能作为 degraded candidate，不能长期替 NLP 干主线几何
+- 继续细化完整链路：snapshot inputs → full-route-frame → NLP problem → tactical maneuver solve → rejoin gate validation → dense maneuver waypoints → nominal route splice → GNC preflight → commit/revision → complete route publish；并列出当前阻塞点（只用首段 route、无 rejoin gate、4-wp sparse output、path2/fallback 独立执行等）
+- 补充 rolling NLP 策略：不拼接独立 60s chunk；区分 `H_pred`(NLP 预测，需看见 rejoin)、`H_commit`(GNC guard 内不可改)、`H_publish`(30/60s heartbeat)。NLP 若在 `H_pred` 内找不到 rejoin gate，不发布 NORMAL complete route
+- 追加 trace-derived horizon evidence：近期 13 组完整 trace 显示正常 cs-edge active route 约 987-989s，avoid 段约 677-679s，return 段约 310s；head-on 常见 1265-2062s；U1 NLP spike active 3965s 且 donut/no stable rejoin
+- 追加 Mid-MPC 能力边界：当前 NLP 是 `psi/u` 短视距局部优化器，无 route-frame `s/l`、terminal rejoin/capture state，runtime 还每周期 rebuild graph 且 2s CPU cap；不适合作为 10min monolithic full-route solver
+- 追加 GNC 契约结论：GNC 接收完整 route 并全量替换 active path；index-based guard 使 suffix/window 发布容易被判为近端改线。M5 应发布完整 committed route revision，保持 stable prefix，真实变更放在 future suffix
+
+### Current Status
+- 仅新增/更新设计文档和本日志，无 M5/GNC 代码改动，无测试运行
+- 已做文档占位词扫描和 `git diff --check`
+
+### Handoff Notes
+- 下一步应进入 implementation plan：接口统一、CommittedRouteManager、candidate adapters、GNC preflight、GNC-profile sim-rate 5 验证
+- 实施前注意 current issue：`m5_params.yaml` 的 Mid-MPC horizon 参数当前疑似未接入 `MidMpcNode::Config`
+- 不要把修复方向设为“把 NLP horizon 拉到 600s/10min”。正确方向是 route manager 维护完整避碰+返航 committed route，NLP 保持 90-120s 局部优化候选；180s 以后必须先有 graph caching/param wiring/solve telemetry 证据
+
+## [2026-06-30] Claude Code / 无新 commit / M5 双 path 统一 handoff（NLP spike 证伪 + U1 方向确认）
+
+### Task Goal
+排查 M5 严重失稳 + 实现统一输出正确可用航路给 L4/GNC。用 spike 验证 NLP 经 GNC 执行效果（证伪"NLP 解 under-turn"），定 U1 统一契约方向。
+
+### Core Changes（分析 + spike revert，非实施）
+- U1-MVP spike（临时让 GNC 执行 NLP 轨迹）已 `git checkout` revert，恢复 W4 baseline b1b55b7a，m5 rebuild 恢复
+- 完整 handoff doc + 2 个 mempalace drawer 保存
+- 无新 commit，无 push，无 A4000 sync
+
+### 关键发现（决定性）
+- **M5 双 path 双轨架构债**：path1 `/l3/m5/avoidance_plan`(l3_msgs, NLP/fallback/recovery/transit) vs path2 `/l3/m5/avoidance_waypoints`(l3_external_msgs, W4 corridor)。双 profile：SIL=path1/fcb_simulator，GNC profile=path2/gnc guidance 栈（GNC profile 下改 path2 才影响 own）
+- **NLP 是真 NLP 非 stub**（CasADi/IPOPT，J_colreg 重设计修了 ho 的 Restoration_Failed），但 cs-edge conflict 时段 **53% DEGRADED**：solver_status=VALID(=收敛)，主因 `nlp_misses_colregs_target`（NLP 4-wp/turn_r 500m 平缓，90s 转 ~57° < COLREG ~75°）→ fallback 跳变
+- **spike 证伪**：NLP 经 GNC 执行 = **donut 180° + XTE 16km + 不返航**（比 W4 corridor 更糟）。trace `runs/trace_eval/20260630_135149_u1mvp_cs_edge`
+- W4 corridor 稳定（frozen anchor 单一几何）但 under-turn 23.4°（wp0-behind）
+- mid_mpc_node.cpp:385-387,417 注释"stub never converges"**过时**；M5-progress.md:105"NLP 已修复"**过乐观**（实际 53% 仍 fallback）
+
+### U1 方向（用户确认一次到位）
+单发 `l3_msgs/AvoidancePlan`（spec 正式，补 plan_id/valid_until/behavior_mode/nav_mode/return hint，保留 turn_radius 认证富字段）+ GNC bridge 改订 avoidance_plan 翻译 ship_interfaces + 废弃 path2（topic+msg+W4 corridor 独立 gen）+ 执行器差异下游适配。三块：① U1 msg 统一+bridge 改订 ② W6' corridor 连续性改造（onset 冻结 cap+dense+GncExecutionOdd preflight，作 conflict 段生成源）③ NLP 修收敛/转向（独立 D3.x，不阻塞）
+
+### Current Status
+- W4 baseline b1b55b7a 干净（spike revert），cs-edge under-turn 23.4° 稳定 CPA 929m
+- 无 push 无 A4000 sync。GNC profile 栈可用
+
+### Handoff Notes
+- **完整 handoff doc**: `docs/Doc From Claude/2026-06-30-m5-dual-path-unification-handoff.md`（新对话入口，含执行链/msg 契约/代码坐标/验证方法/必读）
+- mempalace drawer `697e6e0f`（双path架构债+U1方向）、`cbdbb541`（NLP真实状态+spike失稳+修法）。wing `mass_l3_tactical_layer`
+- spike trace: `runs/trace_eval/20260630_135149_u1mvp_cs_edge`（NLP donut 证据，wp 数 4/10 非 corridor 11）
+- **下次新对话**：读 handoff doc + 2 drawer → 块1（U1 msg 统一）+ 块2（W6' corridor 连续性）+ 块3（NLP 修收敛，独立）。先 trace 证据复现根因 → spec → plan → 实施 → sim-rate 5 多试验证
+
 ## [2026-06-29] ZCode / 无新 commit / W4 debate（Codex 独立调研对照）+ 实施plan + 提示词
 
 ### Task Goal
@@ -1782,3 +1865,42 @@ Continue strict COLREGs 12-probe debugging on `codex/colregs-12probe-debug`, usi
 - codex `--full-access` 仍受沙箱 socket 限制（docker exec 被拦），主会话跑容器验证。colcon 验证权威性在主 Agent。
 - 完整证据见 `docs/Doc From Claude/2026-06-29-w4-acceptance-review.md`，关键 drawer `74effcedce7ebbe47ea3ddd0`。
 - A4000 gate 未跑（本地 gate 已显示 cs-edge RED，无需上 A4000）。
+
+## 2026-07-01 Claude / pending commit / Task K M7 policing runtime wiring
+
+### Task Goal
+Wire M7 hard-constraint runtime policing and NLP status monitoring for Path A certification prerequisite.
+
+### Core Changes
+- M7 `SafetySupervisorNode` consumes canonical `AvoidancePlan` speed/geometry/NLP fields and invokes HC-1~6 on each eligible avoidance plan.
+- Added NLP convergence SOTIF assumption and FaultMonitor diagnostic observation.
+- Added RED/GREEN tests: `test_hard_constraint_runtime.cpp`, `test_nlp_status_monitor.cpp`.
+- Clarified sliding-window true duration and documented `l3_risk_model` independence allowlist.
+
+### Current Status
+Slice K targeted Docker tests pass; full M7 package gate still has unrelated existing `MrmSelectorTest.ChangeWithin30s_KeepsLastMrm` failure.
+
+### Handoff Notes
+Do not stage pre-existing unrelated dirty docs/untracked files in this worktree when committing Slice K.
+
+---
+
+## [2026-07-01] Claude / pending commit / Slice D CommittedAvoidanceRoute manager
+
+### Task Goal
+Implement standalone M5 `CommittedAvoidanceRoute` manager for committed-route lifecycle, prefix freeze, heartbeat refresh, and keep-last DegradedHold triggers.
+
+### Core Changes
+- Added `committed_route.hpp/cpp` standalone manager with 8-state lifecycle enum, stable route hash/revision semantics, committed prefix freeze, active geometry snapshot, valid-until heartbeat refresh, and safety concern event recording for future M7 integration.
+- Added unit tests for five Slice D contract cases: prefix freeze with suffix revision, repeated geometry no revision bump, heartbeat no revision bump, stale >45s DegradedHold, and NLP failures >=3 DegradedHold.
+- Registered `test_committed_route` and `committed_route.cpp` in M5 CMake.
+
+### Current Status
+- RED observed before implementation: `test_committed_route.cpp` failed to compile because `m5_tactical_planner/committed_route/committed_route.hpp` was missing.
+- GREEN in existing `codex-gnc-validation-sil-nodes-1`: fresh build up to `m5_tactical_planner`, then `ctest -R "test_(committed_route|tail_builder|avoidance_plan_contract)"` passed 3/3.
+- Report: `.superpowers/sdd/task-D-report.md`.
+
+### Handoff Notes
+- Unit-level only: manager records `safety_concern_event`; no direct MRM publish and no M7 DDS wiring in Slice D.
+- Uses standalone double seconds rather than `rclcpp::Time` to keep library light and tests exact.
+- Worktree still has unrelated dirty/untracked files predating Slice D; stage Slice D paths only.
