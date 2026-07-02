@@ -287,7 +287,11 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
   if (N < 1 || Nt < 1) { return {}; }
 
   const casadi::DM dt(dt_s);
-  const casadi::DM cpa_safe_sq(inputs.cpa_safe_m * inputs.cpa_safe_m);
+  // Hard floor is cpa_hard_m (un-bumped shared floor), NOT cpa_safe_m — the node
+  // bumps cpa_safe_m during conflict for SOFT cost-scaling only. Using the
+  // bumped value here made the hard floor unreachable (target inside 2500 m →
+  // Infeasible). Bug C deep, RC-C; spec committed-route-design-v2 §L84.
+  const casadi::DM cpa_safe_sq(inputs.cpa_hard_m * inputs.cpa_hard_m);
   casadi::MX cx(0.0);
   casadi::MX cy(0.0);
   std::vector<casadi::MX> g_rows;

@@ -204,6 +204,44 @@ TEST_F(MidMpcNlpTest, InfeasibleProblem) {
   EXPECT_NE(sol.status, MidMpcSolver::SolveStatus::NotInitialized);
 }
 
+// Bug C deep (RC-C): the HARD CPA floor must be cpa_hard_m, NOT the cost-scaled
+// cpa_safe_m. The node bumps cpa_safe_m→2500 during conflict for SOFT cost
+// scaling; that bump must not leak into the hard floor. Target abeam at 2000 m
+// (inside 2500, outside 1852): feasible only when the hard floor is cpa_hard=1852.
+// Before the fix the bumped cpa_safe (2500) was used → Infeasible for any target
+// inside 2500 m. Graph is baked at build_symbolic_graph from constraint_inputs_,
+// so this test builds its own formulation with the target set.
+TEST_F(MidMpcNlpTest, HardCpaFloorStaysAtCpaHardWhenCpaSafeIsBumped) {
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 8; cfg.dt_s = 5.0; cfg.max_targets = 4;
+  cfg.w_colreg = 30.0; cfg.w_dist = 10.0; cfg.w_vel = 1.0;
+  MidMpcNlpFormulation form(cfg);
+
+  TargetState tgt;
+  tgt.x_m = 0.0; tgt.y_m = 2000.0;  // 2000 m abeam (east); own north → d grows
+  tgt.cog_rad = 0.0; tgt.sog_mps = 0.0;
+  mass_l3::m5::ConstraintInputs ci;
+  ci.cpa_safe_m = 2500.0;   // cost-scaling bump (active encounter)
+  ci.cpa_hard_m = 1852.0;   // hard floor (un-bumped, shared)
+  ci.targets.push_back(tgt);
+  form.set_constraint_inputs(ci);
+  form.build_symbolic_graph();
+  MidMpcSolver::IpoptOptions opts;
+  opts.max_iter = 150; opts.tol = 1.0e-4; opts.timeout_s = 2.0;
+  MidMpcSolver solver(form, opts);
+
+  MidMpcInput input = make_base_input();
+  input.constraints.cpa_safe_m = 2500.0;
+  input.constraints.cpa_hard_m = 1852.0;
+  input.constraints.heading_min_rad = -M_PI;
+  input.constraints.heading_max_rad =  M_PI;
+  input.targets.push_back(tgt);
+  const auto sol = solver.solve(input, nullptr);
+
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "target at 2000m must be feasible when hard floor is cpa_hard=1852, not 2500";
+}
+
 // ---------------------------------------------------------------------------
 // 场景 5: Warm start — starting from the optimal requires fewer IPOPT iterations.
 // Uses ipopt_iterations (deterministic) rather than wall-clock (hardware-dependent).

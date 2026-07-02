@@ -115,8 +115,12 @@ TEST(TailGate, RejectsDecelInfeasibleTrajectory)
 
 TEST(TailGate, RejectsInstantaneousFirstStepHeadingJump)
 {
+  // trajectory[0].t_s == 0 (NLP initial label); the first-step turn rate is
+  // measured over one control step (dt_s = 5 s here), not zero time. A jump
+  // exceeding rot_max*dt_s must still be rejected: 1.5 rad / 5 s = 0.30 rad/s
+  // > rot_max 0.2094 rad/s.
   auto solution = starboard_offset_solution();
-  solution.trajectory.front().psi_rad = 1.0;
+  solution.trajectory.front().psi_rad = 1.5;
   solution.trajectory.front().t_s = 0.0;
   auto input = give_way_starboard_fixture(-0.5);
   input.own_ship.psi_rad = 0.0;
@@ -125,6 +129,39 @@ TEST(TailGate, RejectsInstantaneousFirstStepHeadingJump)
 
   EXPECT_FALSE(result.accepted);
   EXPECT_EQ(result.reason, "turn_radius_infeasible");
+}
+
+// Bug C deep (RC-A): the NLP returns trajectory[0].t_s == 0 (it is the first
+// command over interval [0, dt_s], not a zero-duration step). The feasibility
+// checks divided the own→traj[0] rate by ~0 (clamped 1e-6), rejecting every
+// converged NLP whose u[0] != own_u exactly (decel_infeasible=512/512 in the
+// rule14-ho trace). The rate must be measured over the step cadence.
+TEST(TailGate, DecelCheckAcceptsGentleFirstStepWhenOwnSpeedDiffersFromU0)
+{
+  std::vector<TrajectoryPoint> traj;
+  for (int k = 0; k < 4; ++k) {
+    TrajectoryPoint p;
+    p.t_s = static_cast<double>(k) * 5.0;  // dt_s = 5 s, traj[0].t_s = 0
+    p.u_mps = 4.9 - 0.1 * static_cast<double>(k);  // 4.9, 4.8, 4.7, 4.6
+    p.psi_rad = 0.0;
+    traj.push_back(p);
+  }
+  // own_u = 5.0; first-step decel = (5.0 - 4.9)/5 = 0.02 m/s² < 0.08.
+  EXPECT_TRUE(mass_l3::m5::tail_gate_decel_is_feasible(traj, 5.0, 0.08));
+}
+
+TEST(TailGate, TurnCheckAcceptsGentleFirstStepWhenOwnHeadingDiffersFromPsi0)
+{
+  std::vector<TrajectoryPoint> traj;
+  for (int k = 0; k < 4; ++k) {
+    TrajectoryPoint p;
+    p.t_s = static_cast<double>(k) * 5.0;  // dt_s = 5 s, traj[0].t_s = 0
+    p.psi_rad = 0.3 + 0.05 * static_cast<double>(k);  // 0.30, 0.35, 0.40, 0.45
+    p.u_mps = 5.0;
+    traj.push_back(p);
+  }
+  // own_psi = 0; first-step rate = 0.3/5 = 0.06 rad/s < rot_max 0.2094.
+  EXPECT_TRUE(mass_l3::m5::tail_gate_turns_are_feasible(traj, 0.0, 0.2094));
 }
 
 // Bug C: the CPA-floor gate must accept an active-avoidance NLP route whose

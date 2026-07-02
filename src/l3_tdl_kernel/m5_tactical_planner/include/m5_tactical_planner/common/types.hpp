@@ -109,6 +109,16 @@ struct ConstraintInputs {
   // Calibrate via HAZID RUN-001 workpackage 03 (SOTIF thresholds).
   double cpa_safe_m{1852.0};
 
+  // [TBD-HAZID] cpa_hard_m: the HARD CPA floor used by compile_cpa_distance.
+  // Distinct from cpa_safe_m: the node bumps cpa_safe_m→2500 during conflict
+  // for SOFT cost-scaling (the colreg barrier), but that bump must NOT leak
+  // into the hard floor. Spec committed-route-design-v2 §L84: the hard floor
+  // is odd_aware_thresholds.yaml cpa_hard_m (shared with M6/M2, =1852); M5 must
+  // not self-define it. Before this field existed the hard floor tracked the
+  // bumped cpa_safe (2500) → Infeasible whenever a target was inside 2500 m
+  // (Bug C deep, RC-C).
+  double cpa_hard_m{1852.0};
+
   std::vector<TargetState> targets;
 
   // COLREGs rule set received from M6 COLREGsConstraint.
@@ -725,8 +735,16 @@ inline bool tail_gate_turns_are_feasible(
   if (trajectory.empty() || rot_max_rad_s <= 0.0) {
     return true;
   }
+  // trajectory[0].t_s == 0: it is the first command over interval [0, dt_s],
+  // not a zero-duration step. The own_ship→traj[0] turn rate applies over one
+  // control step, so seed prev_time one step before t=0. Dividing by ~0
+  // (clamped 1e-6) instead rejected every converged NLP whose psi[0] differed
+  // from own_ship psi (Bug C deep, RC-A).
+  const double first_step_dt = (trajectory.size() >= 2u)
+      ? std::max(trajectory[1].t_s - trajectory[0].t_s, 1.0e-6)
+      : std::max(trajectory[0].t_s, 1.0e-6);
   double prev_heading = own_ship_psi_rad;
-  double prev_time = 0.0;
+  double prev_time = -first_step_dt;
   for (const auto& cur : trajectory) {
     const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
     if ((circular_heading_distance(cur.psi_rad, prev_heading) / dt_s) >
@@ -746,8 +764,16 @@ inline bool tail_gate_decel_is_feasible(
   if (trajectory.empty() || decel_max_mps2 <= 0.0) {
     return true;
   }
+  // trajectory[0].t_s == 0: it is the first command over interval [0, dt_s],
+  // not a zero-duration step. The own_ship→traj[0] decel applies over one
+  // control step, so seed prev_time one step before t=0. Dividing by ~0
+  // (clamped 1e-6) instead rejected every converged NLP whose u[0] differed
+  // from own_ship speed (decel_infeasible=512/512 in rule14-ho; Bug C deep, RC-A).
+  const double first_step_dt = (trajectory.size() >= 2u)
+      ? std::max(trajectory[1].t_s - trajectory[0].t_s, 1.0e-6)
+      : std::max(trajectory[0].t_s, 1.0e-6);
   double prev_speed = own_ship_speed_mps;
-  double prev_time = 0.0;
+  double prev_time = -first_step_dt;
   for (const auto& cur : trajectory) {
     const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
     const double decel = (prev_speed - cur.u_mps) / dt_s;

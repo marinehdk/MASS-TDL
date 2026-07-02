@@ -410,6 +410,10 @@ MidMpcInput MidMpcNode::assemble_input_()
     }
   }
   inp.constraints.cpa_safe_m       = cpa_safe;
+  // Hard CPA floor is the un-bumped ODD CPA safe (1852), NOT the cost-scaled
+  // cpa_safe above. compile_cpa_distance reads cpa_hard_m; the 2500 bump is for
+  // the SOFT colreg barrier only (Bug C deep, RC-C; spec §L84).
+  inp.constraints.cpa_hard_m       = kCpaSafeFallback_m;
 
   const bool has_route = planned_route_ != nullptr
       && planned_route_->route.poses.size() >= 2u;
