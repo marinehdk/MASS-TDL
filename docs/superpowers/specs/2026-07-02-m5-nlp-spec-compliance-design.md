@@ -3,7 +3,7 @@
 - Date: 2026-07-02
 - Worktree: `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug`
 - Branch: `codex/colregs-12probe-debug`
-- Status: Draft v2（Codex 对抗评审后修订，待二次评审）
+- Status: Draft v3（Codex 二次评审后修订，待轻评审）
 - Supersedes: `2026-06-30-m5-committed-route-design-v2.md` §9.3/§9.5 NLP 内部条款 + §9.7 TailBuilder active-phase 语义 + §9.12 H_commit prefix 契约（本 spec 修订这三处的实现依据；committed-route spec v2 的 publish heartbeat / M6 msg / M7 policing 外部契约保留不变）
 - 关联: `M5-jcolreg-redesign-spec.md`（J_colreg/J_asym 来历，本 spec 不改其公式）
 
@@ -13,6 +13,7 @@
 | --- | --- | --- |
 | v1 | 2026-07-02 | 初版：基于 Codex NLP 完备性评审 + nlm 🟢 continuity 调研，定义完整 NLP（route-frame + terminal + Rule13 + continuity）+ TailBuilder 接线 + 前置 bug 修复 |
 | v2 | 2026-07-02 | Codex 对抗评审后修订 6 项 Critical/High：(1) continuity 冻结对象改为 H_commit/GNC guard + committed 几何（非 H_publish/psi-u）；(2) TailBuilder active-phase terminal hold 到预测 s_clear（非 release 后）；(3) J_route/J_terminal dimensionless 化 + 去 nonsmooth max + COLREG dominance test；(4) one-time graph 声明改为"承认继续 rebuild 或全参数化二选一"；(5) §9.3 措辞降级为 partial coverage（risk/covariance/ship-domain 明确标注后续）；(6) M7 兜底改为前置依赖声明（未就绪前 prefix CPA 软化不可用，用 Keep-Last + fallback 兜底）。另修 kParamDim 计数、direction/min_alt 在 preferred_direction=0/HOLD/ReduceSpeed 时禁用规则。 |
+| v3 | 2026-07-02 | Codex 二次评审后修订 5 项：(A) §3.7 GeoWP 坐标契约统一 WGS84 + tolerance 比较；(B) §3.8 NLP row registry 契约（per-class lbg/ubg + inactive equality 双边禁用）；(D) §5.2 TailBuilder active s_clear 数据源 + 缺字段 DegradedHold（不假 tail，遵守 §14.3）；§6.6 manager prefix prune + Keep-Last risk fields 接线（current_cpa/cpa_hard/heading_delta/cpa_drift）；§9.1 删 K≥12 残留（对齐 §6.3 K≈4）；§4.3 kIdxRouteWeight slot（kParamDim 140）。 |
 
 ## 0. Scope
 
@@ -138,20 +139,21 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 
 **COLREG hard rows 分段激活（Codex 评审 Critical 修复）**：所有 COLREG 相关 hard rows（CPA/direction/min_alt/terminal）在 prefix 段（k<K）软化（lbg=-inf），只 suffix 段（k≥K）保留 hard floor。理由：prefix 几何钉死后 target 移动使 prefix 段违反新 CPA/direction，NLP 不可修。安全靠 Keep-Last §9.12 + fallback（§6.4）。
 
-### 3.4 Parameter 扩展（kParamDim 94 → 139）
+### 3.4 Parameter 扩展（kParamDim 94 → 140）
 
 新增 parameter slot（kParamDim 扩展，编译时固定）：
 - `kIdxRouteFrameOriginX`, `kIdxRouteFrameOriginY`：route-frame 原点 NED（2 slot）
 - `kIdxRouteFrameNormalX`, `kIdxRouteFrameNormalY`：当前 active leg 法向单位向量分量（2 slot，pre-computed = bearing+90°）
 - `kIdxRouteFrameActiveLegBearing`：当前 active leg bearing（1 slot）
 - `kIdxLateralScale`：l_scale 归一化尺度（1 slot，= GncExecutionOdd.max_lateral_offset_m）
+- `kIdxRouteWeight`：J_route 权重系数（1 slot，§4.3 跨 leg guard；正常 1.0，跨 leg 0.0）
 - `kIdxPrefixPsi[N]`, `kIdxPrefixU[N]`：committed prefix 的 psi/u 值（2·18=36 slot）
 - `kIdxPrefixActiveK`：当前 active prefix 长度 K（1 slot）
 - `kIdxPreferredDir`：M6 preferred_direction（1 slot）
 - `kIdxMinAlterationRad`：M6 minimum alteration（1 slot）
 - `kIdxRole`：M6 primary_role enum（1 slot）
 
-**kParamDim 重算**：94（现）+ 9 head slots + 36 prefix = **139**。更新 `static_assert(kParamDim==139)`。
+**kParamDim 重算**：94（现）+ 10 head slots + 36 prefix = **140**。更新 `static_assert(kParamDim==140)`。
 
 ### 3.5 明确降级项（Codex 评审要求诚实声明）
 
@@ -172,6 +174,30 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 - **选项 G2（激进，性能优化）**：全约束参数化——target/rules/zones 从 numeric-baked 改为 fixed-max-rows + dynamic lbg/ubg 激活。一次建图。代价：formulation 大改，所有 compile_* 方法重写，风险高。
 
 **推荐 G1**：continuity（§6）的 prefix-equality 本就通过 lbg/ubg 动态激活（不依赖 G2），且 J_colreg spec §6 决策 4 已接受 rebuild 模式。G2 留作性能优化独立 D-task（若 CPU cap 成瓶颈）。
+
+### 3.7 Committed Geometry 坐标契约（Codex 二次评审 Critical 修复）
+
+**当前 bug**：`GeoWP` 定义为 `x_m/y_m`（NED 米，committed_route.hpp:22-27），但 `committed_candidate_from_plan`（node.cpp:113-115）把 `plan.latitude[i]/plan.longitude[i]`（WGS84 度）直接填进 `x_m/y_m` 字段——**语义错配**。`same_waypoint`（committed_route.cpp:36-40）精确比较 double，WGS84 度值经浮点运算后几乎不可能精确相等。
+
+**契约定义（plan 阶段实现遵守）**：
+- `GeoWP` 字段语义**统一为 WGS84**：重命名 `x_m→lat_deg, y_m→lon_deg`（或新增 lat/lon 字段），消除 NED/度 混淆。NED 运算（如 §6.2 prefix 重投影）在转换函数内做，不持久化在 GeoWP。
+- `same_waypoint` 改为 **tolerance 比较**：lat/lon 用 `|Δ| < 1e-7 deg`（≈1cm），speed 用 `|Δ| < 0.01 m/s`。精确 double 比较禁止。
+- 转换函数：`wgs84_to_ownship_ned(lat, lon, own_lat, own_lon) → (x_north_m, y_east_m)` + 逆转换。§6.2 prefix 重投影 + §4.2 l[k] 投影共用。
+
+**影响**：manager hash_geometry（committed_route.cpp:200-209）也要改用 tolerance 或 hash 数值化（非精确）。但 hash 用于去重，false-positive（hash 不同但几何同）比 false-negative（hash 同但几何不同）安全，故 hash 可保持精确，仅 `same_waypoint`（prefix 冻结判定）用 tolerance。
+
+### 3.8 NLP Row Registry 契约（Codex 二次评审 High——plan 阶段定义数据结构）
+
+**当前**：solver（mid_mpc_solver.cpp:108-114）对所有 g 行统一 `lbg=zeros, ubg=inf`。v2 要支持 per-row 动态 bounds（prefix-equality `lbg=ubg=0`、prefix 段 COLREG 软化 `lbg=-inf,ubg=+inf`、suffix 段 COLREG hard `lbg=0,ubg=inf`），需要 row class 管理。
+
+**spec 契约约束（plan 阶段定义具体实现）**：
+- g 行按 **class** 分段排列（固定顺序，不随 K 变）：`[ROT rows][prefix_psi_eq rows][prefix_u_eq rows][CPA rows][direction rows][min_alt rows][terminal rows][rule rows][zone rows]`。
+- 每 class 有 **row index range**（formulation 暴露，如 `rot_rows=[0, 2(N-1))`, `prefix_psi_eq_rows=[2(N-1), 2(N-1)+N)`...）。
+- solver 每 cycle 收到 `RowBoundConfig{K, prefix_active, colreg_prefix_softened, direction_disabled, ...}`，按 class + k 映射生成 lbg/ubg 数组。
+- **inactive equality 双边禁用**：prefix-equality 行 k≥K 时 `lbg=-inf AND ubg=+inf`（双边，非单边，防止半约束）。
+- ConstraintCompiler 已有 `CompiledConstraints.names/lb/ub`（constraint_compiler.hpp:37），但 formulation 当前 vertcat 后丢弃（build_constraints_ :232-246）。plan 阶段需保留 row metadata 或在 formulation 内重建 class 边界。
+
+**plan 阶段交付**：RowBoundConfig 结构 + per-class lbg/ubg builder + 单测验证各类行 bounds 正确。
 
 ## 4. Route-Frame 与 Route-Return Pressure
 
@@ -207,7 +233,9 @@ J_route = Σ_{k=0}^{N-1} (l[k]/l_scale)²  +  λ_terminal · (l[N-1]/l_scale)²
 
 **与 J_dist 的关系**：J_dist 拉回 heading bearing（方向），J_route 拉回 cross-track（位置）。两者互补。J_dist 保留不变。
 
-**单 leg 近似风险缓解（Codex 评审 High 修复）**：90s horizon at 10m/s = 900m，若跨越 L2 route corner，single-leg 法向投影失真。缓解：assemble_input_ 算 active leg 时，**若 NLP 预测轨迹（用 own_psi 直线外推 900m）跨越多个 L2 leg，则 pack 时标记 route-frame 不可靠 → J_route 权重临时降为 0（只保留 J_dist）**，避免拉错方向。这是一个 runtime guard，不重建图。
+**单 leg 近似风险缓解（Codex 评审 High 修复 + 二次评审 E）**：90s horizon at 10m/s = 900m，若跨越 L2 route corner，single-leg 法向投影失真。缓解：assemble_input_ 算 active leg 时，**若 NLP 预测轨迹（用 own_psi 直线外推 900m）跨越多个 L2 leg，则 pack `kIdxRouteWeight=0.0`**（J_route 权重临时降为 0，只保留 J_dist），避免拉错方向。
+
+**`kIdxRouteWeight` slot（Codex 二次评审 E 修复）**：新增 parameter slot（kParamDim 139→140）。J_route 项乘以 `p(kIdxRouteWeight)`（CasADi 支持 parameter 作 cost 系数，现有 give_way·k_asym 已是此模式 :200）。正常 `kIdxRouteWeight=1.0`，跨 leg guard 时 `=0.0`。G1 rebuild 模式下每 cycle pack，不重建图。
 
 ## 5. Terminal Tail-Extension 约束 + TailBuilder Active-Phase 接线
 
@@ -223,13 +251,15 @@ nlm 🟢 High（technique 3）：immutable prefix + **deterministic Terminal Set
 
 **spec §9.7 真实要求**：TailBuilder 在 **active 阶段就生成** hold 段（从 NLP terminal state 延伸到**预测的** s_clear），不是 release 后才开始。`past_clear` 只决定 rejoin 起点，不决定是否生成 tail。
 
-**修复**：TailBuilder 的 `m6_reports_clear` gate 改为**两阶段语义**：
-- **active 阶段**（`encounter_state==ACTIVE`，`!past_clear`）：生成 MID_MPC_TERMINAL_HOLD 段（constant-offset hold 到**预测 s_clear**），**不生成 REJOIN_TO_L2**（rejoin 待 release）。`s_clear` 预测：用 M2 target 速度外推 + `release_predicted` 信号（M6 Slice G msg）。
-- **release 阶段**（`encounter_state==RELEASE` 或 `past_clear`）：在已生成 hold 基础上 append REJOIN_TO_L2 段（曲率受限回归 nominal）。
+**修复**：TailBuilder 的 `m6_reports_clear` gate 改为**两阶段语义** + **active 阶段多 gate 放宽**：
+- **active 阶段**（`encounter_state==ACTIVE`，`!past_clear`）：生成 MID_MPC_TERMINAL_HOLD 段（constant-offset hold 到**预测 s_clear**），**不生成 REJOIN_TO_L2**（rejoin 待 release）。active 阶段**放宽** `cpa_release_floor_clear`/`ship_domain_floor_clear` 检查（这些是 release 判据，active 阶段 target 在 CPA 范围内是预期的；现有 tail_builder.cpp:235-240 会 reject）。
+- **release 阶段**（`encounter_state==RELEASE` 或 `past_clear`）：在已生成 hold 基础上 append REJOIN_TO_L2 段（曲率受限回归 nominal），恢复全部 gate 检查。
 
-这使 normal route 在整个 encounter 生命周期（active→release→return）都有完整 tail，不被 `past_clear` 卡死。
+**s_clear 预测数据源（Codex 二次评审 D 修复）**：
+- `release_predicted`（Slice G msg）当前是 bool，无 station/time。active 阶段 s_clear 预测：用 M2 target 当前 cpa/tcpa + 本船 hold 段速度外推——`s_clear ≈ own_u_hold · max(tcpa_s, T_min_dwell)`（target past-and-clear 所需本船前进距离）。
+- **M6 msg 缺字段时的降级（遵守 commit-route spec §14.3）**：若 `release_predicted==false` 且无法外推 s_clear（tcpa_s 无效），**不假 tail（不 hold 到 horizon 尽头）**，而是 reject `active_s_clear_unavailable` → 候选标 `nlp_tail_gate_failed` → 走 fallback。这是诚实降级，符合 §14.3"宁可降级不假信号"。
 
-**`release_predicted` 消费（Slice G msg 字段）**：active 阶段预测 s_clear 需 M6 `release_predicted`（commit-route spec §14.1）。Slice G 须就绪。若未就绪，TailBuilder active 阶段用保守 s_clear（hold 到 horizon 尽头），release 阶段正常。
+这使 normal route 在整个 encounter 生命周期（active→release→return）都有完整 tail，不被 `past_clear` 卡死，也不假造不可延伸的 tail。
 
 ### 5.3 TailBuilder 接线（normal path）
 
@@ -359,13 +389,13 @@ cold-start（首次 K=0）: 不变（pack_cold_start_ 用 own_psi/own_u）。
 
 **当前**：`committed_candidate_from_plan`（node.cpp:85-126）固定 `frozen_prefix_count=0U`。manager `try_revise` 虽接收 `frozen_prefix_count` 但永远是 0，`committed_prefix` 始终空。
 
-**修复**：`committed_candidate_from_plan` 算 `frozen_prefix_count`：
-1. 取 plan 的 WGS84 waypoints + 本船 current position
-2. 算每点到本船的 along-track 距离
-3. `frozen_prefix_count` = 距离 < `GncExecutionOdd.min_first_changed_distance_m` 的点数（GNC guard 内）
-4. 这些点进 candidate.geometry 作为 prefix
+**修复（Codex 二次评审 Critical）**：
+1. **坐标系统一**（§3.7）：GeoWP 改 WGS84 lat/lon，`committed_candidate_from_plan` 填 `plan.latitude[i]/plan.longitude[i]` 字段语义正确（当前是字段错配，改名后自洽）。`same_waypoint` 改 tolerance 比较。
+2. **frozen_prefix_count 计算**：取 plan 的 WGS84 waypoints + 本船 current position，算每点到本船 along-track 距离，`frozen_prefix_count` = 距离 < `GncExecutionOdd.min_first_changed_distance_m`（100m）的点数。
+3. **prefix prune（Codex 二次评审新发现）**：当前 `try_revise` 用 `max(existing, requested)`（committed_route.cpp:135-142）只增不减，与 rolling H_commit 冲突（本船越过的 prefix 应 prune）。改为：`prefix_count = requested`（不取 max），且 prune 已越过航点（along-track 距离 < 0 或 < prune_threshold 的点从 committed_prefix 移除）。
+4. **Keep-Last risk fields 接线（Codex 二次评审 Critical）**：当前 `committed_candidate_from_plan` 不填 `current_cpa_m/cpa_hard_m/target_heading_delta_deg/cpa_drift_fraction`（默认 1e9/0/0/0），导致 Keep-Last §9.12 的 `current_cpa < cpa_hard` 永不触发。修复：从 M2 WorldState + snapshot 填这些字段。
 
-manager `try_revise` 的 `preserves_committed_prefix` 检查（committed_route.cpp:226-238）已存在，会真正生效（之前 prefix 空所以 trivially pass）。需验证 `same_waypoint` 的 NED vs WGS84 一致性（GeoWP 当前是 x_m/y_m NED，但发布几何是 lat/lon——§6.2 重投影需一致坐标系）。
+manager `try_revise` 的 `preserves_committed_prefix` 检查（committed_route.cpp:226-238）在 §3.7 tolerance + §6.6 prune 后真正生效。
 
 ## 7. Rule13 + COLREG Direction/Min-Alt 内化
 
@@ -414,9 +444,10 @@ cum_y = cum_y + u_k * dt * sin(psi_k);   // y=east
 
 ## 9. 时序连续性 + GNC 可执行性
 
-### 9.1 时序连续（prefix + heartbeat 对齐）
+### 9.1 时序连续（prefix + heartbeat 关系）
 
-- **prefix 冻结时长 ≥ heartbeat 间隔**: committed prefix 覆盖 ≥ H_publish（60s 开阔）的执行段。K·dt ≥ 60s → K ≥ 12 步。结合 §6.3 K_max，K 范围 [1, N-K_suffix_min]=[1,12]。
+- **prefix 冻结 = H_commit（GNC guard），不是 H_publish（heartbeat）**：K 由 `min_first_changed_distance_m`(100m) 算（§6.3，K≈4），不由 60s heartbeat。prefix 覆盖 GNC 不可变段（~20s），不是 60s。
+- **prefix 与 heartbeat 的关系**：heartbeat（60s）是**发布节奏**，prefix（~20s）是**几何冻结**，两者正交。60s 内本船执行掉约 12 步，但只有前 ~4 步在 GNC guard 内不可变（prefix），后 ~8 步可被新 revision 替换（GNC 接受，first-changed-distance 足够远）。这符合 commit-route spec §9.12 rolling：append/replace 本船前方足够远的未来几何。
 - **heartbeat 到期时发布的几何**: prefix 段（GNC guard 内）= 上次发布的对应段（连续，§6.2 重投影保证）；suffix 段是 NLP 新解（可能变），但在 GNC guard 之外（GNC 可接受更新）。
 - **route_hash 稳定性（Codex 评审修复——删虚假声明）**：manager hash 全几何（committed_route.cpp:200-209），suffix 每变 hash 就变。**prefix 不变 ≠ hash 不变 ≠ heartbeat 不增 revision**。真实行为：heartbeat 刷新 valid_until 不增 revision **仅当 suffix 几何也未变**；suffix 变则 route_changed=true 立即发布 + revision+1。continuity 的价值是**几何时序连续**（prefix 段），不是 hash 稳定。
 
@@ -454,6 +485,13 @@ cycle T:
 - Rule13：overtake side = M6 preferred_direction（单测 port/stbd 两案例）
 - direction/min_alt 禁用：preferred_direction=0 / STAND_ON / HOLD 时 lbg=-inf（单测）
 - **manager frozen_prefix_count（Codex 评审 Critical）**：plan waypoints 中 GNC guard 内点数 == candidate.frozen_prefix_count（单测）
+- **GeoWP 坐标契约（Codex 二次评审 A）**：GeoWP.lat_deg/lon_deg 字段存在；`committed_candidate_from_plan` 填 WGS84 值（非 NED 错配）；`same_waypoint` tolerance 比较（两近但不等点返回 true）
+- **prefix prune（Codex 二次评审）**：本船越过 prefix 点后，manager.committed_prefix 缩短（不只增不减）
+- **Keep-Last risk fields（Codex 二次评审）**：candidate.current_cpa_m/cpa_hard_m/target_heading_delta_deg/cpa_drift_fraction 从 M2/snapshot 填（非默认 1e9/0）；`current_cpa < cpa_hard` 可触发
+- **TailBuilder active s_clear 降级（Codex 二次评审 D）**：mock `release_predicted=false && tcpa_s 无效` → reject `active_s_clear_unavailable`（不假 hold-to-horizon tail）
+- **TailBuilder active gate 放宽（Codex 二次评审）**：mock active + target 在 CPA range → 不 reject `cpa_release_floor`/`ship_domain_floor`（active 阶段预期）
+- **row registry（Codex 二次评审 B）**：RowBoundConfig 各 class 的 lbg/ubg 正确——prefix-equality k<K 为 [0,0]，k≥K 为 [-inf,+inf]（双边）；COLREG prefix 段 [-inf,+inf]，suffix 段 [0,+inf]
+- **kIdxRouteWeight 跨 leg guard（Codex 二次评审 E）**：mock 轨迹跨 L2 leg → pack kIdxRouteWeight=0.0；不跨 → 1.0
 
 ### 10.2 Integration-level
 - TailBuilder 段标签在 ASDR trace 可见（grep `segment_source` in trace jsonl）
@@ -522,6 +560,7 @@ rtk python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs \
 - **nlm colav_algorithms 🟢 High**: receding-horizon NMPC continuity 四技术对比，technique 3（immutable prefix + Terminal Set）最鲁棒；homotopy class switch 需多 prefix 点防御；Maciejowski / Bemporad & Morari Terminal Set 理论
 - **Codex NLP 完备性评审（2026-07-02）**: §9.3 七项逐项判定 + 疑点 A/B 确认 + zone bug + risk weight 死代码 + TailBuilder 未接线
 - **Codex 对抗评审（2026-07-02）**: 6 项 Critical/High 修订——H_commit vs H_publish 混淆、TailBuilder active 卡死、J_route 尺度压制、J_terminal nonsmooth max、one-time graph 假声明、M7 兜底未就绪 + §9.3 虚假 coverage + kParamDim 计数 + direction 禁用规则
+- **Codex 二次评审（2026-07-02）**: 5 项 patch——GeoWP WGS84/NED 坐标错配、NLP row registry 缺失、TailBuilder active s_clear 不闭合 + horizon-end 假 tail、Keep-Last risk fields 未接线、单 leg guard 无 param slot + §9.1 K≥12 残留 + manager prefix 只增不减
 - **J_colreg redesign spec §3/§6/§7**: J_colreg/J_asym 公式 + 权重决策 + nlm 接地（不改）
 - **committed-route spec v2 §0/§9.3/§9.5/§9.7/§9.12/§13**: H_commit 定义 + NLP 须含 + tail-gate + TailBuilder active/hold 到 s_clear + rolling policy + 非凸论证
 - **handoff workspace_log 2026-07-02 (cont.)**: continuity 根因 pinned（psi[0] 自由 + warm-start 累积 → 极限环）
@@ -530,13 +569,16 @@ rtk python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs \
 ## 15. Implementation Slices（概要，详细 plan 由 writing-plans 产出）
 
 - **Slice P0**: 前置 bug（zone 积分 + risk weight 死代码），独立 commit
-- **Slice R1**: route-frame active-leg 投影 + J_route dimensionless + l[k] 符号计算 + 单 leg 跨越 guard（§4）
+- **Slice R1**: route-frame active-leg 投影 + J_route dimensionless + l[k] 符号计算 + `kIdxRouteWeight` 跨 leg guard（§4）
 - **Slice T1**: terminal 约束 + J_terminal smooth-only（§5.4/§5.5）
-- **Slice W1**: TailBuilder active-phase 语义改造（§5.2 两阶段 hold/rejoin）+ normal path 接线（§5.3）
+- **Slice W1**: TailBuilder active-phase 语义改造（§5.2 两阶段 hold/rejoin + active gate 放宽 + s_clear 预测 + 缺字段 DegradedHold）+ normal path 接线（§5.3）
 - **Slice C1**: continuity H_commit prefix（§6.2 几何映射 + §6.3 GNC guard K + §6.4 CPA 软化 + §6.5 warm-start）
-- **Slice M1**: manager frozen_prefix_count 数据源（§6.6，改 committed_candidate_from_plan + 坐标系一致性）
+- **Slice M1**: manager 改造（§6.6 + §3.7）：GeoWP WGS84 统一 + tolerance 比较 + frozen_prefix_count 数据源 + prefix prune + Keep-Last risk fields 接线
+- **Slice N1**: NLP row registry（§3.8）：per-class lbg/ubg builder + RowBoundConfig + inactive equality 双边禁用
 - **Slice D1**: COLREG direction + min_alt 内化 + 分段激活（§7.1）
 - **Slice O1**: Rule13 side+min_alt（§7.2，降级：不含 pass-astern/no-crossing-ahead）
 - **Slice V1**: runtime 验证（rule14-ho 主验收 + rule15-cs + rule13-ot，GNC profile sim-rate 5）
+
+**依赖**：P0 独立先做；R1→T1→W1（TailBuilder 需 terminal state + route-frame）；N1 为 C1/D1/O1 提供动态 bounds 基础设施（先行或并行）；C1 依赖 M1（manager prefix 数据源 + 坐标统一）+ N1；D1/O1 依赖 R1（l[k]）+ N1（分段激活）；V1 依赖全部。
 
 **依赖**：P0 独立先做；R1→T1→W1（TailBuilder 需 terminal state + route-frame）；C1 依赖 M1（manager prefix 数据源）；D1/O1 依赖 R1（l[k]）+ C1（分段激活）；V1 依赖全部。
