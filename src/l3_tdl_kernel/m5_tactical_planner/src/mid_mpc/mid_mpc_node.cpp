@@ -395,19 +395,15 @@ MidMpcInput MidMpcNode::assemble_input_()
     }
   }
 
-  // Dynamically adjust CPA safe distance and target weights based on COLREGs constraint
+  // Dynamically adjust CPA safe distance based on COLREGs constraint.
+  // Only the SOFT colreg-barrier cpa_safe is bumped here; J_colreg's range-ramp
+  // weight (mid_mpc_nlp_formulation build_colreg_cost_) is the correct dynamic
+  // weighting mechanism. The earlier target.cpa_m/tcpa_s mutation was dead code
+  // — the NLP parameter pack does not read those fields (J_colreg redesign,
+  // spec §8.2). target cpa_m/tcpa_s now stay at their M2-sourced values.
   double cpa_safe = kCpaSafeFallback_m;
   if (inp.colregs_conflict_active) {
     cpa_safe = 2500.0; // increase CPA boundary during active encounter
-    
-    // Scale up weights for the primary target causing the collision conflict
-    std::string target_id = colregs_constraint_->colregs_chain_target_id;
-    for (auto& tgt : inp.targets) {
-      if (std::to_string(tgt.id) == target_id) {
-        tgt.cpa_m = std::max(tgt.cpa_m * 0.2, 50.0);   // reduce CPA by 80% to boost its MPC cost weight
-        tgt.tcpa_s = std::max(tgt.tcpa_s * 0.2, 10.0); // reduce TCPA by 80% to boost its MPC cost weight
-      }
-    }
   }
   inp.constraints.cpa_safe_m       = cpa_safe;
   // Hard CPA floor is the un-bumped ODD CPA safe (1852), NOT the cost-scaled

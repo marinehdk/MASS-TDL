@@ -404,9 +404,11 @@ std::vector<Polygon2D> ConstraintCompiler::decompose_polygon(
 // ===========================================================================
 // compile_zone_constraints() — polygon containment over trajectory positions
 //
-// Phase E1 simplified trajectory (origin = own ship at k=0):
-//   x[k] = sum_{j=0}^{k} u[j]*dt*sin(psi[j])   (NED: x=north)
-//   y[k] = sum_{j=0}^{k} u[j]*dt*cos(psi[j])   (NED: y=east)
+// Phase E1 simplified trajectory (origin = own ship at k=0), NED convention
+// (psi=0 → north = +x). Must match compile_cpa_distance (:305-306):
+//   x[k] = sum_{j=0}^{k} u[j]*dt*cos(psi[j])   (NED: x=north)
+//   y[k] = sum_{j=0}^{k} u[j]*dt*sin(psi[j])   (NED: y=east)
+// spec §8.1: prior sin/cos swap placed north-heading ships on the east axis.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints
 ConstraintCompiler::compile_zone_constraints(
@@ -444,8 +446,8 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::build_zone_steps(
   for (int32_t k = 0; k < N; ++k) {
     casadi::MX psi_k = psi_seq(casadi::Slice(k, k + 1));
     casadi::MX u_k   = u_seq(casadi::Slice(k, k + 1));
-    cum_x = cum_x + u_k * casadi::DM(dt_s) * casadi::MX::sin(psi_k);
-    cum_y = cum_y + u_k * casadi::DM(dt_s) * casadi::MX::cos(psi_k);
+    cum_x = cum_x + u_k * casadi::DM(dt_s) * casadi::MX::cos(psi_k);
+    cum_y = cum_y + u_k * casadi::DM(dt_s) * casadi::MX::sin(psi_k);
 
     // Union of sub-polygons: point is inside union if inside any sub-polygon
     casadi::MX best(kMxNegInf);

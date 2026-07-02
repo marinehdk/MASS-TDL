@@ -561,6 +561,105 @@ TEST(ConstraintCompilerTest, CompileCpaDistanceProducesBarrierConstraint) {
   EXPECT_EQ(cc.names.front().find("cpa_distance"), 0u);
 }
 
+// ===========================================================================
+// Test 18: ZoneIntegrationDirection_matchesCPACoordinatesForSameTrajectory
+// spec §8.1: zone trajectory integration must match the CPA integration's NED
+// convention (psi=0 → north = +x). CPA (compile_cpa_distance, :305-306) uses
+//   cx += u*dt*cos(psi), cy += u*dt*sin(psi)   ← correct NED
+// but zone (build_zone_steps, :447-448) had sin/cos swapped:
+//   cum_x += u*dt*sin(psi), cum_y += u*dt*cos(psi)   ← BUG
+//
+// With psi=0 (north), u=5 m/s, dt=5s: each step moves +25 m north. The zone
+// integrator accumulates position inclusive of step k, so at step k the ship is
+// at x = 25*(k+1) along the north axis:
+//   step 0 → x=25,  step 1 → x=50,  step 2 → x=75.
+//   correct (cos/sin): position = (25*(k+1), 0)   (north axis grows)
+//   bug     (sin/cos): position = (0, 25*(k+1))   (east axis grows instead)
+//
+// We place a thin polygon band centred on the NORTH (x) axis spanning x∈[40,120].
+// At step 2 the ship is either at (75, 0) [correct → inside → g>0] or
+// at (0, 75) [bug → outside → g<0]. This unambiguously distinguishes cos vs sin
+// (sin(0)=0 → cum_x stays 0 → ship never reaches the north band).
+// ===========================================================================
+TEST(ZoneIntegrationDirection, matchesCPACoordinatesForSameTrajectory) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  constexpr int32_t N = 3;
+  casadi::MX psi_sym = casadi::MX::sym("psi", N, 1);
+  casadi::MX u_sym   = casadi::MX::sym("u",   N, 1);
+
+  // North-axis band: x ∈ [40, 120], y ∈ [-10, 10]. CCW (same winding as the
+  // existing convex_square helper, which point_inside_convex treats as inside).
+  // At step 2 the corrected ship position (75, 0) is centred in this band.
+  mass_l3::m5::ZoneConstraint zone;
+  zone.polygon = {
+    Eigen::Vector2d{40.0,  -10.0},
+    Eigen::Vector2d{120.0, -10.0},
+    Eigen::Vector2d{120.0,  10.0},
+    Eigen::Vector2d{40.0,   10.0},
+  };
+  zone.must_stay_inside = true;
+  zone.name             = "north_band";
+
+  mass_l3::m5::ConstraintInputs inputs = default_inputs();
+  inputs.applicable_rules  = {};
+  inputs.zone_constraints  = {zone};
+
+  const auto zone_cc = cc.compile_zone_constraints(psi_sym, u_sym, inputs, 5.0);
+
+  // Build a CasADi Function over the zone constraint vector for evaluation.
+  casadi::Function fz("fz", std::vector<casadi::MX>{psi_sym, u_sym},
+                            std::vector<casadi::MX>{zone_cc.g});
+
+  // psi = 0 (north), u = 5 m/s, dt = 5 s → +25 m/step along north axis.
+  casadi::DM psi_val = casadi::DM::zeros(N, 1);   // all north
+  casadi::DM u_val   = casadi::DM::ones(N, 1) * 5.0;
+  const std::vector<casadi::DM> z_out =
+      fz(std::vector<casadi::DM>{psi_val, u_val});
+
+  // step 2 (index 2): after fix ship is at (75, 0) → inside band → g >= 0.
+  const auto it2 = std::find(zone_cc.names.begin(), zone_cc.names.end(),
+                             "north_band_step[2]");
+  ASSERT_NE(it2, zone_cc.names.end())
+      << "zone compile must emit a 'north_band_step[2]' constraint";
+  const auto idx2 = static_cast<int32_t>(
+      std::distance(zone_cc.names.begin(), it2));
+
+  const double g2 = static_cast<double>(z_out[0](idx2));
+  EXPECT_GT(g2, 0.0)
+      << "psi=0 (north) ship must reach (75,0) after 2 steps → inside band; "
+      << "g2=" << g2 << " indicates the zone integration used the wrong trig "
+      << "function (sin(psi=0)=0 keeps cum_x at the origin).";
+
+  // Same psi/u fed to CPA integration must also place own-ship at (75, 0) at
+  // step 2: a static target at (75, 0) yields d→0 → CPA g = d² - cpa_hard² is
+  // strongly negative, proving BOTH integrators agree on the north position.
+  mass_l3::m5::ConstraintInputs cpa_inputs;
+  cpa_inputs.cpa_hard_m = 1852.0;
+  mass_l3::m5::TargetState tgt;
+  tgt.x_m     = 75.0;   // on the north axis the ship travels along
+  tgt.y_m     = 0.0;
+  tgt.cog_rad = 0.0;
+  tgt.sog_mps = 0.0;    // static target
+  cpa_inputs.targets.push_back(tgt);
+
+  const auto cpa_cc = cc.compile_cpa_distance(psi_sym, u_sym, cpa_inputs, 5.0);
+  casadi::Function fc("fc", std::vector<casadi::MX>{psi_sym, u_sym},
+                            std::vector<casadi::MX>{cpa_cc.g});
+  const std::vector<casadi::DM> c_out =
+      fc(std::vector<casadi::DM>{psi_val, u_val});
+
+  const auto cit = std::find(cpa_cc.names.begin(), cpa_cc.names.end(),
+                             std::string("cpa_distance_t0_k2"));
+  ASSERT_NE(cit, cpa_cc.names.end());
+  const auto cidx = static_cast<int32_t>(
+      std::distance(cpa_cc.names.begin(), cit));
+  const double cg2 = static_cast<double>(c_out[0](cidx));
+  // d² ≈ 0 at step 2 → g = d² − 1852² ≈ −3.43e6 (large negative).
+  EXPECT_LT(cg2, -1.0e6)
+      << "CPA integrator (reference NED) must also place ship at (75,0) at "
+      << "step 2; cg2=" << cg2 << " (must be strongly negative for d≈0).";
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
