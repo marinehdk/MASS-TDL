@@ -29,7 +29,11 @@ using mass_l3::m5::mid_mpc::MidMpcSolver;
 
 // ---------------------------------------------------------------------------
 // Fixture — builds the route-frame-enabled NLP once; reused by all tests.
-// N=8 (small horizon) balances test speed vs scenario realism.
+// N=8 (NOT the spec §3.2/§4.1 default N=18) is used here to keep the unit-test
+// suite fast (each cost/dominance solve is a real IPOPT NLP). The dominance
+// ratios measured below are ratio-based (w·J / w·J), so they are not sensitive
+// to the horizon length; the route-convergence TEST 1 asserts DIRECTION (solver
+// turns toward the route), not full convergence at N=8.
 // ---------------------------------------------------------------------------
 class RouteCostTest : public ::testing::Test {
  protected:
@@ -223,22 +227,27 @@ TEST_F(RouteCostTest, NoTargetConvergesToRouteLateralDimensionless) {
 // solver must respect cpa_hard. Cost components are evaluated via the
 // formulation's real NLP cost Functions at the solved optimum.
 //
-// R1 ROUND-2 EMPIRICAL FINDING (spec §3.2 line-114 full contract). The literal
+// R1 ROUND-2/3 EMPIRICAL FINDING (spec §3.2 v3.1 incremental dominance). The
+// literal full inequality
 //   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist
 // was measured empirically (DISABLED_DominanceComponentsDiag) at the solved
 // near-floor optimum over w_route ∈ {3.0, 1.0, 0.5, 0.1} and cpa_safe ∈
 // {1852, 2500}. It is FALSE at every point — and lowering w_route cannot make
 // it true, because J_dist (≈31.8, w_dist·J_dist ≈316) ALONE exceeds
-// w_colreg·J_colreg (≈124 at cpa_safe=2500). J_dist = Σ(psi-route_bearing)² is
-// an AVOIDANCE DRIVER: the ship incurs ~114° RMS heading deviation while
-// clearing the head-on target (forced by the CPA HARD floor), and J_dist prices
-// that deviation. J_colreg is the SOFT barrier gradient, small at the floor.
-// So w_dist·J_dist > w_colreg·J_colreg structurally — the full inequality is
-// physically impossible for the spec-fixed w_colreg=30 / w_dist=10. Reported for
-// the main agent to decide on a spec wording revision; the R1-specific dominance
-// asserted here is the correct safety gate. See the in-test note for the exact
-// numbers. w_route stays at 3.0 (route-only dominance holds with ample margin:
-// colreg_term ≈124 >> route_term ≈4).
+// w_colreg·J_colreg (≈124 at cpa_safe=2500). J_dist = Σ(psi-route_bearing)² is an
+// AVOIDANCE-INDUCED HEADING PENALTY (the existing route-bearing pullback cost),
+// NOT a new R1 term or an avoidance incentive: the CPA HARD floor (§3.3) FORCES
+// the ship to turn ~114° RMS off route_bearing to clear the head-on target, and
+// J_dist prices that deviation. J_colreg is the SOFT barrier gradient, small at
+// the floor. So w_dist·J_dist > w_colreg·J_colreg structurally — the full
+// inequality is physically impossible for the spec-fixed w_colreg=30 / w_dist=10.
+// SPEC v3.1 RESOLUTION: §3.2/§10.1 revised to INCREMENTAL dominance
+//   w_colreg·J_colreg > w_route·J_route
+// (verify the NEW R1 J_route term does not suppress avoidance), with CPA safety
+// guaranteed by the hard floor + acceptance tail-gate defense-in-depth (§3.3/§5.6)
+// rather than by the soft barrier dominating J_dist. The incremental dominance
+// asserted here is the correct safety gate. w_route stays at 3.0 (incremental
+// dominance holds with ample margin: colreg_term ≈124 >> route_term ≈4).
 // ---------------------------------------------------------------------------
 TEST_F(RouteCostTest, ColregDominanceNearCpaFloor) {
   MidMpcInput inp = make_base_input();
@@ -299,40 +308,47 @@ TEST_F(RouteCostTest, ColregDominanceNearCpaFloor) {
       << " <= w_route·J_route=" << route_term
       << " (J_colreg=" << j_colreg << " J_route=" << j_route << ")";
 
-  // ── Empirical note on the spec §3.2 line-114 FULL contract
-  //   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist.
+  // ── Empirical note on the spec §3.2 v3.1 incremental dominance contract.
+  // The v3 literal full inequality
+  //   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist
+  // was measured FALSE; spec §3.2/§10.1 is revised (v3.1) to INCREMENTAL
+  // dominance (verified above): w_colreg·J_colreg > w_route·J_route.
   //
   // Measured at the solved near-floor optimum (cpa_safe=2500, cpa_hard=1852,
   // target@1900m closing, w_route=3.0, R1 round-2 off-by-one fix applied):
   //   w_colreg·J_colreg ≈ 124   (J_colreg ≈ 4.13)
   //   w_route ·J_route  ≈   4   (J_route  ≈ 1.35)
   //   w_dist  ·J_dist   ≈ 316   (J_dist   ≈ 31.8  ← RMS heading dev ≈ 114°)
-  //   FULL rhs = route_term + dist_term ≈ 320 >> colreg_term 124.
-  // The full contract CANNOT hold, and lowering w_route cannot make it hold:
-  // even at w_route=0 the dist_term alone (316) exceeds colreg_term (124).
-  // Root cause: J_dist = Σ(psi - route_bearing)² is an AVOIDANCE DRIVER — it
-  // measures the heading deviation incurred WHILE avoiding (the ship must turn
-  // hard to clear a head-on target at the CPA floor; ~114° RMS deviation). The
-  // CPA HARD floor forces the avoidance; J_dist prices its cost. The soft
-  // COLREG barrier J_colreg only supplies gradient guidance and is small at the
-  // hard floor. So J_dist (an avoidance penalty) is structurally larger than
-  // J_colreg (the avoidance incentive) at the near-floor optimum — making the
-  // literal inequality w_colreg·J_colreg > w_dist·J_dist impossible for any
-  // fixed w_colreg/w_dist (both are spec-§3.2 fixed; the inequality would
-  // require w_colreg/w_dist ≈ 25 here).
+  // The full inequality rhs (route_term + dist_term ≈ 320) >> colreg_term 124.
+  // Root cause: J_dist = Σ(psi - route_bearing)² is an AVOIDANCE-INDUCED HEADING
+  // PENALTY — it is the existing route-bearing pullback cost, not a new R1 term
+  // and not an avoidance incentive. The CPA HARD floor (§3.3) forces the ship to
+  // turn ~114° RMS off route_bearing to clear the head-on target, and J_dist
+  // prices that deviation. The soft COLREG barrier J_colreg only supplies
+  // gradient guidance and is small at the hard floor. So J_dist (the avoidance
+  // heading cost) is structurally larger than J_colreg (the soft avoidance
+  // gradient) at the near-floor optimum — making the literal inequality
+  // w_colreg·J_colreg > w_dist·J_dist impossible for the spec-fixed
+  // w_colreg=30 / w_dist=10 (would require w_colreg/w_dist ≈ 7.7:
+  // w_dist·J_dist/w_colreg·J_colreg = 316/124·(10/30)... more precisely
+  // w_colreg·J_colreg > w_dist·J_dist ⟺ w_colreg/w_dist > J_dist/J_colreg
+  // = 31.8/4.13 ≈ 7.7, conflicting with the spec-§3.2 fixed ratio 30/10=3).
   //
-  // This is reported for the main agent to decide: spec §3.2 line-114 needs a
-  // wording revision (the intended "avoidance dominates the new R1 term" holds;
-  // the literal "w_colreg·J_colreg > w_route·J_route + w_dist·J_dist" does not).
-  // The asserted R1-specific dominance above (colreg_term > route_term) is the
-  // correct safety gate. The assertion below documents the full-contract
-  // measurement WITHOUT enforcing it (it is expected to be false).
+  // SPEC v3.1 RESOLUTION: rather than force the soft barrier to dominate the
+  // hard-floor-forced heading deviation, dominance is made INCREMENTAL — the
+  // asserted check above verifies only the NEW R1 term (J_route) does not
+  // suppress avoidance. CPA safety itself is guaranteed by defense-in-depth:
+  // the CPA hard floor (§3.3 g-rows) + acceptance tail-gate (§5.6 reactive) +
+  // geometric fallback. J_dist being large is the CORRECT cost of avoidance,
+  // not a safety defect. The assertion below documents that the (superseded)
+  // full-contract measurement remains false, WITHOUT enforcing it.
   const bool full_contract_holds = (colreg_term > route_term + dist_term);
   EXPECT_FALSE(full_contract_holds)
-      << "spec §3.2 line-114 full contract unexpectedly HOLDS now — the spec "
-      << "wording should be re-examined (was empirically false: colreg_term="
-      << colreg_term << " <= route_term+dist_term=" << (route_term + dist_term)
-      << "; dist_term=" << dist_term << " is the avoidance-driver penalty).";
+      << "the superseded spec §3.2 v3 full contract unexpectedly HOLDS now — "
+      << "spec v3.1 revised to incremental dominance (see §3.2); was empirically "
+      << "false: colreg_term=" << colreg_term
+      << " <= route_term+dist_term=" << (route_term + dist_term)
+      << "; dist_term=" << dist_term << " is the avoidance-induced heading penalty.";
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 - Date: 2026-07-02
 - Worktree: `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug`
 - Branch: `codex/colregs-12probe-debug`
-- Status: Draft v3（Codex 二次评审后修订，待轻评审）
+- Status: Draft v3.1（R1 实施期间修订 dominance 契约，见 revision history）
 - Supersedes: `2026-06-30-m5-committed-route-design-v2.md` §9.3/§9.5 NLP 内部条款 + §9.7 TailBuilder active-phase 语义 + §9.12 H_commit prefix 契约（本 spec 修订这三处的实现依据；committed-route spec v2 的 publish heartbeat / M6 msg / M7 policing 外部契约保留不变）
 - 关联: `M5-jcolreg-redesign-spec.md`（J_colreg/J_asym 来历，本 spec 不改其公式）
 
@@ -14,6 +14,7 @@
 | v1 | 2026-07-02 | 初版：基于 Codex NLP 完备性评审 + nlm 🟢 continuity 调研，定义完整 NLP（route-frame + terminal + Rule13 + continuity）+ TailBuilder 接线 + 前置 bug 修复 |
 | v2 | 2026-07-02 | Codex 对抗评审后修订 6 项 Critical/High：(1) continuity 冻结对象改为 H_commit/GNC guard + committed 几何（非 H_publish/psi-u）；(2) TailBuilder active-phase terminal hold 到预测 s_clear（非 release 后）；(3) J_route/J_terminal dimensionless 化 + 去 nonsmooth max + COLREG dominance test；(4) one-time graph 声明改为"承认继续 rebuild 或全参数化二选一"；(5) §9.3 措辞降级为 partial coverage（risk/covariance/ship-domain 明确标注后续）；(6) M7 兜底改为前置依赖声明（未就绪前 prefix CPA 软化不可用，用 Keep-Last + fallback 兜底）。另修 kParamDim 计数、direction/min_alt 在 preferred_direction=0/HOLD/ReduceSpeed 时禁用规则。 |
 | v3 | 2026-07-02 | Codex 二次评审后修订 5 项：(A) §3.7 GeoWP 坐标契约统一 WGS84 + tolerance 比较；(B) §3.8 NLP row registry 契约（per-class lbg/ubg + inactive equality 双边禁用）；(D) §5.2 TailBuilder active s_clear 数据源 + 缺字段 DegradedHold（不假 tail，遵守 §14.3）；§6.6 manager prefix prune + Keep-Last risk fields 接线（current_cpa/cpa_hard/heading_delta/cpa_drift）；§9.1 删 K≥12 残留（对齐 §6.3 K≈4）；§4.3 kIdxRouteWeight slot（kParamDim 141）。 |
+| v3.1 | 2026-07-02 | R1 实施 round-2/3 review 后修订 dominance 契约：§3.2/§10.1 字面 full inequality `w_colreg·J_colreg > w_route·J_route + w_dist·J_dist` 经 subagent fixture 实测 + Codex 独立核查为**结构性不可能**（J_dist 是 CPA hard floor 强制避让的 heading 代价，非避让激励；需 w_colreg/w_dist≈7.7 与 J_colreg spec 固化值冲突）。改为 **incremental dominance** `w_colreg·J_colreg > w_route·J_route`（验证 J_route 不压制避让）+ CPA 安全靠 hard floor/tail-gate defense-in-depth。J_route λ_terminal 明确 >1（实现取 2.0 [TBD-HAZID]）。 |
 
 ## 0. Scope
 
@@ -110,10 +111,14 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 
 **Dimensionless 归一化（Codex 评审 Critical 修复）**：`l_scale` = GNC feasible lateral limit（`GncExecutionOdd.max_lateral_offset_m`，现 400m）。`l[k]/l_scale ∈ [-1,1]` 使 J_route 无量纲且 O(1)，与已平均化的 J_colreg（`avg` 后 O(1)）同量级。**禁止用 m² 原始尺度**（100m XTE 时 Σl²≈180k 会压制 w_colreg≈30 的避让 cost）。
 
-**COLREG dominance 契约（必须验证，非自证）**：
-- 单测：构造 target@cpa_hard 附近 fixture，验证 `w_colreg·J_colreg > w_route·J_route + w_dist·J_dist`（避让 cost 主导）
+**COLREG dominance 契约（必须验证，非自证）**——**incremental dominance（v3.1 修订，2026-07-02）**：
+
+> **修订理由**：v3 字面契约 `w_colreg·J_colreg > w_route·J_route + w_dist·J_dist` 经双重数值验证（subagent fixture 实测 + Codex 独立核查）为**结构性不可能**。`J_dist = Σ(psi - route_bearing)²` 是既有 heading-tracking penalty（非 R1 新增、非避让激励）；CPA hard floor（§3.3）**强制**避让 → 船须大幅转向偏离 route_bearing → J_dist 必然大。把 J_dist 放进 RHS 等于要求 soft COLREG barrier 压过整个避让 heading 代价，与 J_colreg spec 固化的 w_colreg=30/w_dist=10 不可调和（需 w_colreg/w_dist ≈ 7.7）。降 w_route 也解不了（w_route=0 时 w_dist·J_dist 仍单独 > w_colreg·J_colreg）。
+
+- **incremental dominance（R1 新增项验证，单测）**：构造 target@cpa_hard 附近 fixture（CPA hard rows 进 graph），验证 `w_colreg·J_colreg > w_route·J_route`（J_route 新增项不压制避让 soft barrier）。实测余量充足（124 >> 4 @ w_route=3.0）。
+- **CPA 安全 defense-in-depth（非靠 soft barrier 压过 J_dist）**：suffix 段 CPA hard floor（§3.3 hard g 行）+ acceptance tail-gate（§5.6 reactive 验证）+ fallback（geometric）三层保证不进 hard floor。J_dist 大是避让的**正确代价**，不是安全缺陷。
 - 集成测：rule14-ho 探针 CPA≥cpa_hard 全程（route cost 不把船拉进 target）
-- 若 dominance 不成立，降 w_route 而非升 w_colreg（不破坏 J_colreg spec 权重平衡）
+- 若 incremental dominance 不成立，降 w_route 而非升 w_colreg（不破坏 J_colreg spec 权重平衡）
 
 **权重依据**：w_colreg/w_dist/w_vel/k_asym 已在 J_colreg spec §6 固化（nlm 🟢）。w_route/w_terminal 用文献经验值（route 跟踪权重 ≈ w_dist 量级；terminal 引导 < J_colreg）+ [TBD-HAZID]，HAZID RUN-001 校准。**禁止用权重压 probe 绿**（CLAUDE.md）。
 
@@ -479,7 +484,7 @@ cycle T:
 - Zone 积分方向修复：`colcon test --packages-select m5_tactical_planner --ctest-labels "ZoneIntegration"`，验证 zone 约束点与 CPA 约束点 NED 几何一致（同 psi/u 输入）
 - Risk weight 死代码移除：grep 确认 node.cpp 无 `tgt.cpa_m=.../tgt.tcpa_s=...` 改动；单测 pack 后 target cpa_m/tcpa_s == M2 原值
 - J_route dimensionless：无 target fixture NLP solve 后 `l[k]/l_scale < 0.1 ∀k`（lateral 收敛）；J_route 值 O(1)
-- **COLREG dominance（Codex 评审 Critical）**：target@cpa_hard fixture，验证 `w_colreg·J_colreg > w_route·J_route + w_dist·J_dist`（单测断言 cost 分量大小关系）
+- **COLREG incremental dominance（v3.1 修订，见 §3.2）**：target@cpa_hard fixture（CPA hard rows 进 graph），验证 `w_colreg·J_colreg > w_route·J_route`（J_route 新增项不压制避让 soft barrier；J_dist 不计入 RHS，理由见 §3.2 修订）。CPA 安全由 hard floor + tail-gate defense-in-depth 保证
 - terminal 硬约束：give-way fixture，terminal `direction·l[N-1] ≥ l_min`；lateral 在 [−l_max, +l_max]
 - TailBuilder 接线：normal path 输出含 MID_MPC_OPTIMIZED + TERMINAL_HOLD（active 阶段）+ REJOIN（release 阶段）+ NOMINAL 段（单测 mock M6 state）
 - **TailBuilder active-phase（Codex 评审 Critical）**：mock `encounter_state==ACTIVE && !past_clear`，TailBuilder 返回 hold-only（无 rejoin），不 reject `m6_not_past_clear`

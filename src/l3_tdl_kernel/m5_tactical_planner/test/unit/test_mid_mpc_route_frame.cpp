@@ -111,46 +111,47 @@ TEST(MidMpcRouteFrame, CrossLegGuardDoesNotTripWhenReachShortOfCorner) {
 // TEST 4 (Critical 3B): end-clamped fallback uses the END-CLAMPED point distance,
 // NOT the infinite-line perpendicular distance.
 //
-// Own is far BEYOND the end of a short leg whose INFINITE-LINE extension passes
-// near own. The perpendicular distance to the infinite line is small (own is
-// near the line), but the actual nearest segment point is the far endpoint,
-// which is far from own. The old fallback used the infinite-line distance and
-// would wrongly accept this leg; the fixed fallback uses the clamped point
-// distance and picks the genuinely-nearest segment.
+// RED-GREEN DISCRIMINATING FIXTURE (R1 round-3 review): own's own-relative
+// position is constructed so the segment whose INFINITE-LINE extension passes
+// nearest to own (leg0, inf-line dist = 5 m) is DIFFERENT from the segment whose
+// actual nearest endpoint is closest (leg1, clamped dist ≈ 70.7 m). The OLD
+// infinite-line fallback minimises perpendicular distance and picks leg0 (the
+// leg whose extension passes near own, but whose actual segment is 300 m away);
+// the FIXED end-clamped fallback minimises the distance to the nearest segment
+// point and picks leg1 (whose endpoint is genuinely nearest).
 //
-// Setup: two legs meeting at a corner near own. leg0 goes north, leg1 goes east.
-// Own is positioned so the infinite line of leg0 passes close, but leg0's actual
-// endpoint is far — only the clamped distance reveals leg1 is the real nearest.
+// Geometry (own-relative NED, own at origin (0,0)):
+//   leg0: wp0=(5, 300) -> wp1=(5, 900)  — a north leg 5 m EAST of own. own's
+//          perpendicular to its infinite line is just the 5 m east offset, but
+//          own projects along it at -300 m (before the segment start), so the
+//          nearest ACTUAL leg0 point is wp0=(5,300), dist = hypot(5,300)≈300 m.
+//   leg1: wp1=(5, 900) -> wp2=(50, 50)  — a diagonal leg. own projects along it
+//          well past wp2, so its nearest clamped point is wp2=(50,50), dist =
+//          hypot(50,50)≈70.7 m. leg1's infinite-line distance is ~52.6 m.
+//
+// Per-leg distances at own=(0,0):
+//                  infinite-line    end-clamped
+//   leg0           5.0 m  (min✓)    300.0 m
+//   leg1          52.6 m            70.7 m  (min✓)
+// OLD logic → leg0 (inf-line min); FIXED logic → leg1 (clamped min). Asserting
+// leg_index==1 therefore FAILS on the old infinite-line fallback and PASSES only
+// on the end-clamped fallback — a genuine red→green gate.
 // ---------------------------------------------------------------------------
 TEST(MidMpcRouteFrame, FallbackUsesEndClampedDistanceNotInfiniteLine) {
-  // leg0: (0,0) -> (100, 0)  (short north leg, ends at (100,0)).
-  // leg1: (100,0) -> (100, 1000)  (long east leg).
-  // Own at (0,0) relative; own's TRUE position in world: at wp_n=0,wp_e=0, i.e.
-  // at the leg0 start. But construct own RELATIVE so own is far past leg0's end
-  // along its infinite line yet close to leg1's start.
-  // Place own such that: own world ≈ (100, 5) → relative = own - wp[0]...
-  // Simpler: own at (0,0) relative; world waypoints chosen so own is past leg0.
-  // leg0 world: (-100, 5) -> (100, 5) → own relative frame: wp = leg0 - own.
-  // own is at origin. leg0 starts at (-100,5) ends at (100,5): own at (0,0) is
-  // INSIDE leg0 here — not a fallback case. To force fallback, own must be off
-  // both segments. Use own past the route end.
-  //
-  // Route: leg0 (0,0)→(50,0) north, leg1 (50,0)→(50,50) east (an L). Own far
-  // north-east, past both legs. Own relative = own - world_origin; place own
-  // world at (200, 200): relative wp = world - own = (-200,-200),(-150,-200),...
-  const std::vector<double> wp_n{-200.0, -150.0, -150.0};  // world 0,50,50 - own 200
-  const std::vector<double> wp_e{-200.0, -200.0, -150.0};  // world 0,0,50 - own 200
+  // own-relative NED waypoints (own at origin). See fixture comment above.
+  const std::vector<double> wp_n{5.0, 5.0, 50.0};     // (5,300),(5,900),(50,50)
+  const std::vector<double> wp_e{300.0, 900.0, 50.0};
   const auto proj = project_own_onto_polyline(wp_n, wp_e);
   ASSERT_TRUE(proj.valid);
-  // Own (0,0) is past the route end. The nearest segment endpoint is leg1's end
-  // (50,50) in world = (-150,-150) relative, distance = hypot(150,150)=212.1.
-  // The nearest SEGMENT by clamped distance is leg1 (its end is closest). The
-  // infinite-line distance to leg0 (a north line through x=-200) would be 200
-  // (purely the east offset), which is SMALLER than leg1's clamped 212 — so the
-  // OLD infinite-line fallback would wrongly pick leg0. The fix picks leg1.
+  // leg1 must be selected: its end-clamped point (50,50) is the nearest segment
+  // point to own (≈70.7 m). The OLD infinite-line fallback would pick leg0
+  // (perpendicular to its infinite line is only the 5 m east offset) — a bug,
+  // since leg0's actual segment starts 300 m away. This assertion fails on the
+  // old logic (leg0) and passes only on the clamped fix (leg1).
   EXPECT_EQ(proj.leg_index, 1u)
-      << "end-clamped fallback must pick the segment whose actual endpoint is "
-      << "nearest (leg1), not the one whose infinite line passes nearest (leg0)";
+      << "end-clamped fallback must pick the segment whose actual nearest point "
+      << "is closest (leg1, clamped dist≈70.7 m), not the one whose infinite "
+      << "line passes nearest (leg0, inf-line dist=5 m but segment 300 m away)";
 }
 
 // ---------------------------------------------------------------------------

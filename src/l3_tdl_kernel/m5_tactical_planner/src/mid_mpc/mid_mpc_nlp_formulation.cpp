@@ -119,9 +119,10 @@ casadi::MX MidMpcNlpFormulation::build_distance_cost_() const {
 //   - kIdxRouteWeight (parameter): 1.0 normal, 0.0 when the predicted trajectory
 //     crosses an L2 leg corner (cross-leg guard, §4.3). Multiplied here so a
 //     single parameter nulls the term; cfg_.w_route is applied in the J assembly.
-//   - λ_t: terminal cross-track reinforcement (spec §4.3, default 1.0). The full
-//     §5.4 terminal side/wrong-side softplus is Slice T1; here the §4.3 terminal
-//     strengthening term keeps J_route's own terminal weight, deferred detail to T1.
+//   - λ_t: terminal cross-track reinforcement (spec §4.3, default 2.0 — terminal
+//     reinforced ABOVE the running cost per spec §4.3 λ_terminal > 1; the full
+//     §5.4 terminal side/wrong-side softplus is Slice T1, [TBD-HAZID] RUN-001 T1
+//     tunes λ_t alongside the softplus).
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
   const int32_t N = cfg_.n_horizon;
