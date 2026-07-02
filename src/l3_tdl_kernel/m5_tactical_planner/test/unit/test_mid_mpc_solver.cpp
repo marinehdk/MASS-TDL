@@ -350,3 +350,38 @@ TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
   ASSERT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
   EXPECT_EQ(solver_->consecutive_failures(), 0);
 }
+
+// ---------------------------------------------------------------------------
+// FAIL-CLOSED on row registry / g_dim size mismatch (spec §3.8/§10.1 review High).
+// The registry (total_rows) MUST equal the formulation g_dim. A divergence is a
+// row-contract bug (registry and symbolic g out of sync). Previously solve()
+// silently fell back to legacy zeros/inf — re-hardening softened COLREG rows /
+// degrading active equalities into half-constraints. It must now return
+// NumericalFailure WITHOUT calling IPOPT (no silent solve).
+//
+// A formulation with NO build_symbolic_graph() call exposes the contract: g_dim
+// returns its legacy fallback 2*(N-1) while the registry is default-constructed
+// (total_rows==0) → nb != gdim → fail-closed. Crucially the uncached solver()
+// Function would be empty, so proving we return before invoking IPOPT.
+// ---------------------------------------------------------------------------
+TEST(MidMpcSolverMismatch, SizeMismatchReturnsNumericalFailureNotSilentSolve) {
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 8;
+  MidMpcNlpFormulation form(cfg);  // NO build_symbolic_graph() → registry empty
+  MidMpcSolver::IpoptOptions opts;
+  opts.timeout_s = 2.0;
+  MidMpcSolver solver(form, opts);
+
+  const int32_t gdim = form.g_dim();
+  const int32_t nb = form.row_registry().total_rows();
+  ASSERT_NE(nb, gdim) << "test precondition: registry/g_dim must diverge";
+  ASSERT_EQ(nb, 0);
+  ASSERT_GT(gdim, 0);
+
+  const MidMpcInput input = make_base_input();
+  const auto sol = solver.solve(input, nullptr);
+
+  // Fail-closed: must be NumericalFailure, not a converged/silent solve.
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::NumericalFailure);
+  EXPECT_GT(solver.consecutive_failures(), 0);  // failure counter incremented
+}

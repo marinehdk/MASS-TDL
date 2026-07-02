@@ -145,6 +145,12 @@ class RowRegistry {
   // Produces lbg/ubg of length total_rows() implementing the spec §3.8 +
   // §3.3 policies. Default config reproduces legacy [0,+inf] everywhere except
   // prefix-equality (which is [-inf,+inf] when K=0).
+  //
+  // K clamp (spec §6.3): the active prefix K is caller-supplied (C1 derives it
+  // from the GNC guard). A defensive clamp to [0, N_] guards against an upstream
+  // K>N that would otherwise index out of bounds in the prefix loops. This does
+  // NOT validate K against the spec K_max=N-K_suffix_min (that is C1's duty);
+  // it only prevents OOB writes. K>N clamps to N (entire horizon = prefix).
   [[nodiscard]] BoundArray build_bounds(const RowBoundConfig& cfg) const {
     const int32_t n = total_rows();
     BoundArray b;
@@ -152,9 +158,14 @@ class RowRegistry {
     b.lbg.resize(nu, 0.0);
     b.ubg.resize(nu, std::numeric_limits<double>::infinity());
 
-    apply_prefix_equality_(cfg, b);
-    if (cfg.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg, b); }
-    if (cfg.direction_disabled) { apply_direction_disable_(b); }
+    // Clamp K to [0, N_] so prefix loops never index past the horizon.
+    RowBoundConfig cfg_eff = cfg;
+    if (cfg_eff.K < 0) { cfg_eff.K = 0; }
+    if (cfg_eff.K > N_) { cfg_eff.K = N_; }
+
+    apply_prefix_equality_(cfg_eff, b);
+    if (cfg_eff.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg_eff, b); }
+    if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
     return b;
   }
 

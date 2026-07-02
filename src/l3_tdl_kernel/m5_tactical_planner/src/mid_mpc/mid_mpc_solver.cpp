@@ -118,18 +118,34 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // prefix → the placeholder rows are unconstrained, a no-op).
   const BoundArray bounds =
       formulation_.row_registry().build_bounds(row_bounds);
+  const int32_t nb = static_cast<int32_t>(bounds.lbg.size());
+  // FAIL-CLOSED (spec §3.8/§10.1, review High): the registry is rebuilt per-cycle
+  // in build_constraints_, so total_rows() MUST equal g_dim(). A size mismatch is
+  // a row-contract bug (registry and the symbolic g built out of sync). Falling
+  // back to legacy zeros/inf would silently re-harden softened COLREG rows /
+  // degrade active equalities into half-constraints — so do NOT solve; return a
+  // NumericalFailure instead (same path as an IPOPT throw, below).
+  if (nb != gdim) {
+    const auto t_mm = std::chrono::steady_clock::now();
+    spdlog::error("[M5][MidMPC] row registry size mismatch: registry={} g_dim={}",
+                  nb, gdim);
+    ++consecutive_failures_;
+    if (consecutive_failures_ > kConsecutiveFailureEscalation) {
+      spdlog::critical("[M5][MidMPC] {} consecutive failures; M7 MRM-02 escalation",
+                       consecutive_failures_);
+    }
+    MidMpcSolution fail;
+    fail.status = SolveStatus::NumericalFailure;
+    fail.solve_duration_ms = static_cast<int32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(t_mm - t_start).count());
+    return fail;
+  }
+
   casadi::DM lbg = casadi::DM::zeros(gdim, 1);
   casadi::DM ubg = casadi::DM::inf(gdim, 1);
-  const int32_t nb = static_cast<int32_t>(bounds.lbg.size());
-  // Defensive: the registry is rebuilt per-cycle in build_constraints_, so its
-  // total_rows() must equal g_dim(). If a future caller forgets to rebuild the
-  // graph after set_constraint_inputs(), the sizes diverge — fall back to the
-  // legacy zeros/inf bounds (safe) rather than crashing.
-  if (nb == gdim) {
-    for (int32_t i = 0; i < gdim; ++i) {
-      lbg(i) = bounds.lbg[static_cast<std::size_t>(i)];
-      ubg(i) = bounds.ubg[static_cast<std::size_t>(i)];
-    }
+  for (int32_t i = 0; i < gdim; ++i) {
+    lbg(i) = bounds.lbg[static_cast<std::size_t>(i)];
+    ubg(i) = bounds.ubg[static_cast<std::size_t>(i)];
   }
 
   const casadi::DMDict arg = {

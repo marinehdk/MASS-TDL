@@ -157,12 +157,54 @@ TEST(RowRegistry, directionMinAltSoftenedInPrefixWhenColregSoftened) {
   cfg.colreg_prefix_softened = true;
   const BoundArray b = reg.build_bounds(cfg);
   for (int k = 0; k < 3; ++k) {
+    // prefix softened: lbg=-inf AND ubg=+inf (double-sided, not a half-constraint).
     ExpectNegInf(b.lbg[static_cast<std::size_t>(reg.direction_row(k))]);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.direction_row(k))]);
     ExpectNegInf(b.lbg[static_cast<std::size_t>(reg.min_alt_row(k))]);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.min_alt_row(k))]);
   }
   for (int k = 3; k < 10; ++k) {
+    // suffix hard floor [0,+inf]: lbg=0 AND ubg=+inf (upper bound must stay open).
     EXPECT_DOUBLE_EQ(b.lbg[static_cast<std::size_t>(reg.direction_row(k))], 0.0);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.direction_row(k))]);
     EXPECT_DOUBLE_EQ(b.lbg[static_cast<std::size_t>(reg.min_alt_row(k))], 0.0);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.min_alt_row(k))]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// K clamp (spec §6.3): an upstream K>N must NOT index out of bounds.
+// build_bounds clamps K to [0,N]. With K=25 (>N=18) + softening, K_eff=18 → the
+// ENTIRE horizon is the prefix (all CPA/direction/min_alt softened, no suffix),
+// and BoundArray stays exactly total_rows() with no OOB write. This only guards
+// OOB; spec K_max=N-K_suffix_min validation is C1's responsibility.
+// ---------------------------------------------------------------------------
+TEST(RowRegistry, kLargerThanHorizonIsClampedNoOutOfBoundsWrite) {
+  const int32_t N = 18;
+  RowRegistry reg(N, /*n_targets=*/2, /*n_rule_rows=*/0, /*n_zone_rows=*/0);
+  RowBoundConfig cfg;
+  cfg.K = 25;  // > N (would OOB-iterate without clamp)
+  cfg.colreg_prefix_softened = true;
+  const BoundArray b = reg.build_bounds(cfg);
+
+  // Size contract: no spurious growth / OOB beyond total_rows().
+  EXPECT_EQ(static_cast<int>(b.lbg.size()), reg.total_rows());
+  EXPECT_EQ(static_cast<int>(b.ubg.size()), reg.total_rows());
+
+  // K clamped to N → every step is prefix (softened [-inf,+inf]), none is the
+  // hard-floor suffix. Verify across all CPA/direction/min_alt rows.
+  for (int t = 0; t < 2; ++t) {
+    for (int k = 0; k < N; ++k) {
+      const int r = reg.cpa_row(t, k);
+      ExpectNegInf(b.lbg[static_cast<std::size_t>(r)]);
+      ExpectInf(b.ubg[static_cast<std::size_t>(r)]);
+    }
+  }
+  for (int k = 0; k < N; ++k) {
+    ExpectNegInf(b.lbg[static_cast<std::size_t>(reg.direction_row(k))]);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.direction_row(k))]);
+    ExpectNegInf(b.lbg[static_cast<std::size_t>(reg.min_alt_row(k))]);
+    ExpectInf(b.ubg[static_cast<std::size_t>(reg.min_alt_row(k))]);
   }
 }
 
