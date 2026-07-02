@@ -233,8 +233,12 @@ TEST(CommittedCandidateGeometry, PrunesOverrunWaypointsAsOwnAdvances) {
   EXPECT_EQ(r2.frozen_prefix_count, 0u)
       << "own past all waypoints: all overrun → pruned, count must DROP to 0";
 
-  // Assert the prune direction explicitly: advancing own never INCREASES the
-  // count (it is non-increasing across own_station growth).
+  // Verify overrun prune takes effect across this fixture's own advance. NOTE:
+  // count is NOT globally non-increasing in general — a sliding guard window can
+  // grow when own advances into a denser waypoint region (more points enter the
+  // ahead window than are overrun). This fixture uses evenly-spaced waypoints so
+  // the sequence happens to be 2→1→0; the assertion validates THAT overrun points
+  // are pruned (not a universal monotonicity property of the function).
   EXPECT_LE(r1.frozen_prefix_count, r0.frozen_prefix_count);
   EXPECT_LE(r2.frozen_prefix_count, r1.frozen_prefix_count);
 }
