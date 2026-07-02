@@ -275,3 +275,43 @@ TEST(TailBuilder, rejects_unsafe_tail_waypoint_speed)
   EXPECT_FALSE(result.hold_then_rejoin.has_value());
   EXPECT_EQ(result.reject_reason, "tail_speed_invalid");
 }
+
+// ---------------------------------------------------------------------------
+// Review High-2 (spec §5.2/§10.1/§14.3): M5 must not rejudge the M6 lifecycle.
+// ENCOUNTER_ONSET means "encounter just beginning" — it is NOT fully ACTIVE, so
+// it must NOT produce an active-phase hold tail (that would be M5 assuming a
+// lifecycle state M6 did not grant). The TailBuilder EncounterState::Onset is
+// neither active nor released, so build() rejects it as abnormal (m6_not_past_clear)
+// and the candidate falls back honestly instead of publishing a tail built on an
+// assumed-but-unconfirmed active phase.
+// ---------------------------------------------------------------------------
+TEST(TailBuilderAbnormal, onsetIsNeitherActiveNorReleasedAndRejects)
+{
+  // ONSET (!past_clear): not active (state != Active), not released → reject.
+  auto inputs = give_way_starboard_fixture();
+  inputs.m6_past_clear = false;
+  inputs.m6_encounter_state = static_cast<std::uint8_t>(EncounterState::Onset);
+  inputs.m6_release_predicted = true;
+  inputs.targets.front().tcpa_s = 180.0;
+
+  const auto result = TailBuilder::build(inputs);
+
+  EXPECT_FALSE(result.hold_then_rejoin.has_value());
+  EXPECT_EQ(result.reject_reason, "m6_not_past_clear");
+}
+
+TEST(TailBuilderAbnormal, onsetWithPastClearStillTreatedAsReleaseByPastClearFlag)
+{
+  // ONSET is not the issue when past_clear is independently true: m6_reports_clear
+  // keys on the past_clear flag, so a past_clear ONSET is released (Clear path),
+  // NOT active. This guards against over-rejecting a genuine past_clear.
+  auto inputs = give_way_starboard_fixture();
+  inputs.m6_past_clear = true;
+  inputs.m6_encounter_state = static_cast<std::uint8_t>(EncounterState::Onset);
+
+  const auto result = TailBuilder::build(inputs);
+
+  ASSERT_TRUE(result.hold_then_rejoin.has_value()) << result.reject_reason;
+  EXPECT_TRUE(segment_has_label(result.hold_then_rejoin.value(),
+      l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2));
+}

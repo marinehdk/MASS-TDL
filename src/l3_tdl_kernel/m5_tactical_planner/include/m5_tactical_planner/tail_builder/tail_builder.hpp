@@ -12,7 +12,22 @@ namespace mass_l3::m5::tail_builder {
 
 enum class ColregSide : std::int8_t { PORT = -1, NONE = 0, STBD = 1 };
 enum class ColregRole : std::uint8_t { StandOn = 0U, GiveWay = 1U, BothGiveWay = 2U, Free = 3U };
-enum class EncounterState : std::uint8_t { Active = 0U, Release = 1U, Clear = 2U };
+// TailBuilder EncounterState lifecycle contract (spec §5.2). This is the
+// authoritative two-phase enum the build() semantics branch on:
+//   Active   = M6 ENCOUNTER_ACTIVE  (encounter in progress, hold-only)
+//   Release  = M6 ENCOUNTER_RELEASE (rejoin permitted)
+//   Clear    = M6 ENCOUNTER_CLEAR   (rejoin permitted)
+//   Onset    = M6 ENCOUNTER_ONSET / unknown (encounter just beginning, NOT yet
+//               fully ACTIVE). Per spec §10.1 M5 must not rejudge the lifecycle:
+//               ONSET is neither active nor released, so build() routes it to the
+//               abnormal reject (m6_not_past_clear) rather than assuming ACTIVE.
+//               Review High-2: mapping ONSET→Active violated state authority.
+enum class EncounterState : std::uint8_t {
+  Active = 0U,
+  Release = 1U,
+  Clear = 2U,
+  Onset = 3U
+};
 
 struct TargetSnapshot {
   std::int32_t id{0};

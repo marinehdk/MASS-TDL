@@ -135,6 +135,32 @@ TEST(CommittedAvoidanceRoute, three_consecutive_nlp_failures_enter_degraded_hold
   EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
 }
 
+// ---------------------------------------------------------------------------
+// Review Critical (spec §5.3/§14.3): a TailBuilder reject marks the candidate
+// nlp_tail_gate_failed, and the node wires committed_candidate_from_plan with
+// nlp_ok = !nlp_tail_gate_failed = false. The manager must NOT commit such a
+// candidate as a fresh route; it must KeepLast (honest degradation) rather than
+// publish a broken-tail route. This test pins the nlp_ok=false → KeepLast
+// contract that the node's reject path depends on (the off-by-true bug passed
+// nlp_ok=true on reject, so the broken tail got committed).
+// ---------------------------------------------------------------------------
+TEST(CommittedAvoidanceRoute, tailGateRejectCandidateKeepsLastInsteadOfCommitting)
+{
+  CommittedAvoidanceRoute manager;
+  // An NLP-healthy route is committed first.
+  ASSERT_TRUE(manager.try_revise(candidate("plan-healthy", route_a(), 2U, 20.0), 0.0));
+  const std::uint32_t healthy_revision = manager.current().revision;
+
+  // A revised route whose tail gate failed arrives with nlp_ok=false (what the
+  // node must pass when plan.nlp_tail_gate_failed is true). It must NOT commit.
+  EXPECT_FALSE(manager.try_revise(
+      candidate("plan-tail-reject", route_b_with_same_prefix(), 2U, 30.0, /*nlp_ok=*/false), 1.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::KeepLast);
+  // The previously committed healthy route is preserved (KeepLast), not the
+  // broken-tail candidate.
+  EXPECT_EQ(manager.current().revision, healthy_revision);
+  EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
+}
 
 TEST(CommittedAvoidanceRoute, heartbeat_does_not_clear_degraded_hold_after_stale_gate)
 {

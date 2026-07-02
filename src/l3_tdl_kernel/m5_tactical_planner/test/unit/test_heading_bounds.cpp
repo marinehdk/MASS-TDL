@@ -99,3 +99,35 @@ TEST(TrajectoryPositions, EmptyTrajectorySafe) {
   propagate_trajectory_positions(traj, 1.0);
   SUCCEED();
 }
+
+// ---------------------------------------------------------------------------
+// Review High-3 (spec §5.3): the NLP terminal position pN must equal
+// sol.trajectory.back()'s position, NOT a re-accumulation of all N intervals.
+// propagate_trajectory_positions assigns point[k].pos = Σ_{j<k} (BEFORE advancing),
+// so back() = point[N-1] = the position after N-1 intervals — the true terminal.
+// Re-summing every point's u·dt from 0 yields Σ_{j<N} = one extra interval (the
+// N-th step), which is off-by-one beyond the NLP terminal. This test pins that
+// invariant so append_tail_waypoints_ can safely use back().x_m/y_m directly.
+// ---------------------------------------------------------------------------
+TEST(TrajectoryPositions, TerminalPositionIsBackNotReaccumulated) {
+  // 3 points, dt=1, constant u=5 heading north.
+  constexpr int kN = 3;
+  constexpr double kDt = 1.0;
+  constexpr double kSpeed = 5.0;
+  std::vector<TrajectoryPoint> traj(kN);
+  for (auto& p : traj) { p.psi_rad = 0.0; p.u_mps = kSpeed; }
+  propagate_trajectory_positions(traj, kDt);
+
+  // back() = point[N-1] = 2 intervals advanced = 10 m north (terminal).
+  ASSERT_FALSE(traj.empty());
+  EXPECT_NEAR(traj.back().x_m, static_cast<double>(kN - 1) * kSpeed * kDt, 1e-9);
+  EXPECT_NEAR(traj.back().y_m, 0.0, 1e-9);
+
+  // The off-by-one re-accumulation (sum ALL N steps) would give 15 m — wrong.
+  double reaccumulated_n = 0.0;
+  for (const auto& p : traj) {
+    reaccumulated_n += p.u_mps * std::cos(p.psi_rad) * kDt;
+  }
+  EXPECT_NE(reaccumulated_n, traj.back().x_m);
+  EXPECT_NEAR(reaccumulated_n, static_cast<double>(kN) * kSpeed * kDt, 1e-9);
+}

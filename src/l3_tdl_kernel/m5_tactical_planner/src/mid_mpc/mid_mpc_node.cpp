@@ -57,9 +57,16 @@ constexpr double kReturnToRouteRepublishWindow_s = 30.0;
 // waypoints back into the AvoidancePlan parallel arrays as lat/lon.
 
 // Map the M6-owned encounter_state (CLEAR=0,ONSET=1,ACTIVE=2,RELEASE=3) onto the
-// TailBuilder's EncounterState enum (Active=0,Release=1,Clear=2). The TailBuilder
-// enum is the authoritative lifecycle contract used by its two-phase semantics;
-// M5 must not rejudge the lifecycle, only translate (spec §5.2).
+// TailBuilder's EncounterState enum. The TailBuilder enum is the authoritative
+// lifecycle contract used by its two-phase semantics; M5 must not rejudge the
+// lifecycle, only translate (spec §5.2/§10.1).
+//
+// Review High-2: ONSET and unknown must NOT map to Active. spec §5.2 defines the
+// active phase strictly as ENCOUNTER_ACTIVE && !past_clear. ONSET means M6 reports
+// the encounter "just beginning" (not yet fully ACTIVE); unknown is missing data.
+// Mapping either to Active was an M5 lifecycle rejudgement that violated spec
+// §10.1 state authority. They now map to Onset, which build() treats as abnormal
+// (neither active nor released) → reject m6_not_past_clear → honest fallback.
 std::uint8_t tail_encounter_state_from_m6(std::uint8_t m6_state) noexcept
 {
   namespace tb = mass_l3::m5::tail_builder;
@@ -69,11 +76,12 @@ std::uint8_t tail_encounter_state_from_m6(std::uint8_t m6_state) noexcept
     case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE:
       return static_cast<std::uint8_t>(tb::EncounterState::Release);
     case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ACTIVE:
+      return static_cast<std::uint8_t>(tb::EncounterState::Active);
     case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ONSET:
     default:
-      // ONSET and unknown map to Active: rejoin must not be generated until M6
-      // explicitly signals Release/Clear.
-      return static_cast<std::uint8_t>(tb::EncounterState::Active);
+      // ONSET / unknown → Onset: NOT active, NOT released. build() rejects it as
+      // m6_not_past_clear rather than assuming ACTIVE (spec §5.2/§10.1/§14.3).
+      return static_cast<std::uint8_t>(tb::EncounterState::Onset);
   }
 }
 
@@ -1085,21 +1093,20 @@ std::string MidMpcNode::append_tail_waypoints_(
     double lat0_deg,
     double lon0_deg)
 {
-  // The NLP terminal state (last trajectory point) is the tail's anchor. Its
-  // NED position is reconstructed by dead-reckoning the psi/u trajectory, in the
-  // same own-relative frame the TailBuilder's RouteFrame uses.
+  // The NLP terminal state (last trajectory point) is the tail's anchor. spec
+  // §5.3: pN ← NLP terminal position. unpack_solution() already dead-reckoned
+  // the trajectory positions (propagate_trajectory_positions, types.hpp), so
+  // sol.trajectory.back() carries the true NLP terminal x/y. Use it directly —
+  // do NOT re-accumulate: re-summing N intervals yields pos[N] (one step beyond
+  // the terminal pos[N-1]) because the propagation sets point[k].pos BEFORE
+  // advancing, so back() is the last command's position (Review High-3 off-by-one).
   if (sol.trajectory.empty()) {
     return "tail_empty_trajectory";
   }
 
   const auto& term = sol.trajectory.back();
-  double pN_n_m = 0.0;
-  double pN_e_m = 0.0;
-  const double dt_s = formulation_.config().dt_s;
-  for (const auto& pt : sol.trajectory) {
-    pN_n_m += pt.u_mps * std::cos(pt.psi_rad) * dt_s;
-    pN_e_m += pt.u_mps * std::sin(pt.psi_rad) * dt_s;
-  }
+  const double pN_n_m = term.x_m;
+  const double pN_e_m = term.y_m;
 
   // Only give-way encounters produce a tail; stand-on/free have no rejoin need.
   const tb::ColregRole role = (colregs_constraint_ != nullptr)
@@ -1293,7 +1300,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
       }
     }
     if (!committed_route_manager_.try_revise(
-            committed_candidate_from_plan(plan, true, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
+            committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
             now.seconds())) {
       RCLCPP_WARN(get_logger(),
           "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",
