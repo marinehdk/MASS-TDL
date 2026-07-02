@@ -329,9 +329,7 @@ TEST_F(RouteCostTest, ColregDominanceNearCpaFloor) {
   // heading cost) is structurally larger than J_colreg (the soft avoidance
   // gradient) at the near-floor optimum — making the literal inequality
   // w_colreg·J_colreg > w_dist·J_dist impossible for the spec-fixed
-  // w_colreg=30 / w_dist=10 (would require w_colreg/w_dist ≈ 7.7:
-  // w_dist·J_dist/w_colreg·J_colreg = 316/124·(10/30)... more precisely
-  // w_colreg·J_colreg > w_dist·J_dist ⟺ w_colreg/w_dist > J_dist/J_colreg
+  // w_colreg=30 / w_dist=10 (would require w_colreg/w_dist > J_dist/J_colreg
   // = 31.8/4.13 ≈ 7.7, conflicting with the spec-§3.2 fixed ratio 30/10=3).
   //
   // SPEC v3.1 RESOLUTION: rather than force the soft barrier to dominate the
