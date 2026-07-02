@@ -54,6 +54,40 @@ TEST(HeadingBoxBounds, NarrowWindowNeverInvertsAcrossRefs) {
   }
 }
 
+// Regression guard: pre-existing normalize_angle inversion bug (observed after
+// the casadi lib-path fix let M5 actually run). When own_psi drifts so the M4
+// corridor straddles the ref_psi ± pi seam, normalize_angle wraps the two bounds
+// to opposite sides and produces lb > ub, tripping CasADi nlpsol's
+// "lb <= ub" assertion every cycle. The contract is to fall back to the
+// unconstrained [-pi, +pi] box in that case rather than emit an invalid bound.
+// These two cases reproduce the exact violation values seen in container logs.
+
+TEST(HeadingBoxBounds, NarrowSymmetricWindowAcrossSeamReturnsUnconstrained) {
+  // M4 emits [-5, 5] deg. With own_psi ≈ 180 deg the normalized bounds land at
+  // ≈ ±178 deg in inverted order (lb=3.107, ub=-3.107 observed).
+  const double h_min = -5.0 * kDeg2Rad;
+  const double h_max =  5.0 * kDeg2Rad;
+  const double ref = 180.0 * kDeg2Rad;
+  const auto b = resolve_heading_box_bounds(h_min, h_max, ref);
+  EXPECT_LE(b.first, b.second);
+  // Inverted case must fall back to full box, not an arbitrary swapped window.
+  EXPECT_NEAR(b.first, -M_PI, 1e-6);
+  EXPECT_NEAR(b.second, M_PI, 1e-6);
+}
+
+TEST(HeadingBoxBounds, AvoidanceCorridorAcrossSeamNeverInverts) {
+  // M4 emits [~60, ~90] deg avoidance corridor during a rule14-ho encounter.
+  // As own_psi sweeps, the corridor crosses the seam and inverts. Sweep all
+  // own_psi and assert lb <= ub everywhere — the values observed in the wild
+  // (lb=9.39, ub=3.18) must be impossible post-fix.
+  const double h_min = 60.0 * kDeg2Rad;
+  const double h_max = 90.0 * kDeg2Rad;
+  for (double ref_deg = 0.0; ref_deg < 360.0; ref_deg += 5.0) {
+    const auto b = resolve_heading_box_bounds(h_min, h_max, ref_deg * kDeg2Rad);
+    EXPECT_LE(b.first, b.second) << "ref_deg=" << ref_deg;
+  }
+}
+
 // Bug B regression guard (Slice J M5 wrong-side rejection):
 // unpack_solution fills psi_rad/u_mps from the NLP x=[psi;u] but must also
 // dead-reckon x_m/y_m, otherwise the trajectory has zero position everywhere

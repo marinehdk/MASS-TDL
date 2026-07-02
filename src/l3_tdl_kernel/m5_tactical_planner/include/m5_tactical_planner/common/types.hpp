@@ -390,8 +390,20 @@ inline std::pair<double, double> resolve_heading_box_bounds(
     diff -= M_PI;
     return ref + diff;
   };
-  return {normalize_angle(h_min_raw, ref_psi),
-          normalize_angle(h_max_raw, ref_psi)};
+  double lb = normalize_angle(h_min_raw, ref_psi);
+  double ub = normalize_angle(h_max_raw, ref_psi);
+  // Contract: guarantee lb <= ub for CasADi nlpsol (asserts "lb <= ub").
+  // normalize_angle wraps each bound independently around ref_psi; when the
+  // original window is narrow but ref_psi has drifted so the window now straddles
+  // the ref_psi ± pi seam, the two normalized values can invert (lb > ub). A
+  // single contiguous [lb, ub] cannot represent a wrapped-around corridor, so
+  // fall back to the unconstrained full box — same policy as the full-circle
+  // case above. This is conservative (the corridor is widened for that cycle)
+  // but never produces an invalid bound that would trip the NLP solver.
+  if (lb > ub) {
+    return {-M_PI, M_PI};
+  }
+  return {lb, ub};
 }
 
 inline bool is_m4_fallback_rationale(const std::string& rationale) {
