@@ -2015,3 +2015,58 @@ grep M5DIAG / docker logs … | parse fallback_reason — see scripts/analysis/p
 **NEXT (new session) — committed-route redesign.** Spec `docs/superpowers/specs/2026-06-30-m5-committed-route-design-v2.md` (+ plan `docs/superpowers/plans/2026-06-30-m5-committed-route-implementation.md`). Branch from `ccef2503`. Core: NLP commits to a trajectory; per-cycle 续接/微调 (strong warm-start / continuity) rather than greedy re-solve; route-return incentive once CPA safe. Consider also dt 5s→1s (每步 ROT budget 5× smaller → natural continuity). Do NOT tune w_rot / w_colreg / w_dist to suppress over-turn (治标, forbidden). Re-add J_rot only if the committed-route design calls for a ROT-effort term.
 **Memory:** `l3-m5-bugc-tailgate-nlp-quality` (updated this session — RC-A/RC-C + structural finding).
 **Uncommitted:** pre-existing scenario YAML regen + docs + this handoff append (not code).
+
+## [2026-07-03] ZCode / 0b1fdadf..a6c8f594 (16 commits) / M5 NLP v3 spec-compliance 实施 (P0→O1 全 10 Slice) / V1 部分
+
+### Task Goal
+实施 M5 Mid-MPC NLP spec v3.1（`docs/superpowers/specs/2026-07-02-m5-nlp-spec-compliance-design.md`）完整升级：route-frame + terminal + continuity + Rule13 + TailBuilder 接线 + manager 改造。subagent-driven per Slice + Codex CLI spec review 两阶段 gate。10 Slice（P0→V1）按依赖图分 6 batch。
+
+### Core Changes（16 commits, branch codex/colregs-12probe-debug, 基于 63e283f4）
+- **P0** `abdc8151` — zone 积分 NED 方向（sin/cos 对齐 CPA）+ risk-weight 死代码移除（spec §8）
+- **R1** `16991b78`→`a6c8f594`（5 commits, 4 轮 review）— route-frame J_route dimensionless + cross-leg guard（spec §4）。**spec v3.1 修订**：dominance 契约 full→incremental（`w_colreg·J_colreg > w_route·J_route`，J_dist 物理结构性不可能压过，§3.2/§10.1 + revision history v3.1）
+- **N1** `5fab8675`→`b8c21c13` — NLP row registry per-class lbg/ubg（spec §3.8）。g 行固定顺序 [ROT][prefix_psi_eq][prefix_u_eq][CPA][direction][min_alt][terminal][rule][zone]，inactive equality 双边禁用，fail-closed mismatch
+- **T1** `c8b9b31c`→`7013570a` — terminal 约束 + smooth J_terminal（spec §5.4/§5.5）。softplus wrong-side（无 max/abs），3 行硬约束两线性替 abs，role-gated（kIdxRole 非 kIdxGiveWay）
+- **M1** `5f39db8a`→`9d068513`（4 commits）— GeoWP WGS84（x_m/y_m→lat_deg/lon_deg）+ same_waypoint tolerance（1e-7 deg）+ prefix prune（requested 非 max）+ along-track frozen_prefix_count + Keep-Last risk fields 安全降级（spec §3.7/§6.6）
+- **W1** `289eee32`→`4a05bacf` — TailBuilder active-phase 两阶段（active hold-only 到 s_clear，release hold+rejoin）+ normal path 接线 + reject→fallback（nlp_ok=false 路由 KeepLast）+ ONSET enum（非 Active）+ pN=trajectory.back()（spec §5.2/§5.3）
+- **C1** `3aabf747`→`10d009d7` — continuity H_commit prefix equality + WGS84 重投影（committed_prefix_reproject.hpp 纯函数）+ 动态 K（GNC guard，§6.3）+ warm-start suffix cold-start（防漂移）（spec §6）
+- **D1** `f73599df` — COLREG direction + min_alt 内化（g_dir=pref_dir·l[k], g_minalt=pref_dir·(psi-own_psi)-min_alt），compute_cross_track_all_ helper，激活条件同 terminal（spec §7.1）
+- **O1** `0b1fdadf` — Rule13 audit marker（不加 compiler heading row，side 从 formulation pref_dir，降级 pass-astern/no-crossing-ahead）（spec §7.2）
+- **kParamDim** 94→141（head 0..24 + PrefixPsi 25..42 + PrefixU 43..60 + targets 61..140）
+
+### Current Status
+**10 Slice 全实施 + Codex spec review 全 PASS。全 14 单测 suite 绿（容器内 fresh 跑）：** test_constraint_compiler 23, test_mid_mpc_route_cost 5, test_row_registry 12, test_mid_mpc_terminal 6, test_committed_route 17, test_tail_builder 15, test_mid_mpc_continuity 5, test_mid_mpc_direction 5, test_midmpc_tail_gate 9, test_mid_mpc_nlp_formulation 8, test_mid_mpc_solver 11, test_mid_mpc_route_frame 8, test_committed_candidate_geometry 6, test_heading_bounds 8。
+
+**V1 runtime probe（rule14-ho, GNC profile, sim-rate 5, restart-between-runs）— 主目标达成 + CPA 穿透待诊断：**
+| metric | spec §10.3 阈值 | v1 baseline | **v3 实测** | 判定 |
+|---|---|---|---|---|
+| steering_reversals | <50 | 1660 | **0** | ✅ 极大改善（limit cycle 消除）|
+| int_abs_xte | <300000 | 1,587,980 | **827** | ✅ 改善 99.9% |
+| route_return | PASS | FAIL | False（max XTE -2.4m，几何在 route）| ⚠️ 几何在 route，probe required 判 False |
+| CPA min | ≥1852 | 812 | **1.5** | ❌ 严重穿透（比 v1 更差）|
+| port/stbd 翻转 | 0 | 存在 | 0 | ✅ |
+Evidence: `runs/nlp_v3_rule14ho/`（trace_current.jsonl 12.9MB + summary.json + trajectory_dashboard.png）。
+
+### ⚠️ 待诊断（新对话排查）— CPA=1.5m 穿透 + applicable_rules 空
+rule14-ho probe trace 关键证据：
+- `applicable_rules: []`（空）—— M6 判 role=give_way 但**没传 rule 14/15 给 M5**
+- `solver_stats: {}`（空）—— M5 solver 状态未上报
+- `cpa_floor_m: 180`（probe profile 配置，非 spec 1852）
+- stability RED: turn_starboard（starboard 0.1° port 0.2°，船几乎没转）
+- `early_stop_reason: "cpa_floor_violated"`
+
+**疑似全链路断点（CLAUDE.md COLREGs debug）：** M6→M5 applicable_rules 传递断裂 → M5 constraint_inputs.applicable_rules 空 → compile_colregs_rules 无 row（rule14/15 heading + CPA hard floor 依赖此）。但需 trace 确认是 (a) v3 regression（NLP 改造影响）还是 (b) pre-existing 链路问题（baseline 也存在，v1 贪婪重解碰避让了）。rule15-cs/rule13-ot 未跑（先诊断 rule14）。
+
+**排查起点（新对话）：**
+1. trace M6→M5 applicable_rules：M6 是否发 rule 14/15？M5 assemble_input_ / synchronize_mid_mpc_constraint_context 是否收/填 constraint_inputs.applicable_rules？
+2. compile_cpa_distance 是否激活（constraint_inputs.targets/cpa_hard_m 非空）？
+3. NLP 是否真 solve（solver_stats 为何空）？pref_dir/min_alt 是否正确 pack 使 direction/min_alt 约束激活？
+4. 对比 v1 baseline（commit 63e283f4 前）同 probe 的 applicable_rules —— 确认是否 pre-existing。
+
+### Handoff Notes
+- **spec v3.1 修订**（用户批准）：dominance full→incremental。影响后续 dominance 验收口径（incremental `w_colreg·J_colreg > w_route·J_route` + CPA 安全靠 hard floor/tail-gate defense-in-depth）。revision history v3.1 已记。
+- **诚实降级**：M1 target_heading_delta/cpa_drift 填安全值 0.0（需历史 snapshot，后续）；manager committed_prefix 仍 leading slice（完全剔除越过 HEAD waypoint future work）；GncExecutionOdd.msg 缺字段（max_lateral_offset_m 等）用 spec 默认 [TBD-HAZID]。
+- spec §3.5 降级项未覆盖（risk covariance/ship-domain/BCT/no-crossing-ahead/GNC yaw-decel），不声称 §9.3 full compliance。
+- **不 push**（local gate 未全过：CPA 穿透；A4000 未验证）。所有 commits 在 codex/colregs-12probe-debug。
+- worktree 另有 pre-existing dirty（scenarios/docs/tools，非本次工作，保留未动）。
+- 容器 codex-gnc-validation-sil-nodes-1 已 restart 加载 v3 代码。
+- **Memory:** mempalace drawer + diary（本条目）。
