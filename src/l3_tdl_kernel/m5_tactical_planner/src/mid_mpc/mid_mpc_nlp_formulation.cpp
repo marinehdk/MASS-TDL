@@ -140,17 +140,26 @@ casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
   casadi::MX lN(0.0);  // terminal cross-track l[N-1]
   casadi::MX cost(0.0);
   for (int32_t k = 0; k < N; ++k) {
+    // Evaluate l[k] AT pos[k] FIRST (spec §3.1: pos[0] = own current = real XTE).
+    // The previous implementation advanced the integral BEFORE evaluating, so the
+    // loop body at index k actually evaluated l at pos[k+1] — the own current
+    // cross-track l[0] never entered the cost (R1 review round-2 Critical 1).
+    const casadi::MX l = (cx - ox) * nx + (cy - oy) * ny;  // cross-track at pos[k]
+    cost = cost + casadi::MX::sq(l / l_scale);
+    if (k == N - 1) { lN = l; }
+    // THEN advance to pos[k+1] = pos[k] + u[k]·dt·(cos,sin)(psi[k]) (spec §3.1:
+    // pos[k] = x0 + Σ_{j<k} u[j]·dt·...; the advance to pos[N] after the last
+    // evaluation is harmless, it simply is not read again).
     const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
     const casadi::MX u_k   = u_(casadi::Slice(k, k + 1));
     cx = cx + u_k * dt * casadi::MX::cos(psi_k);
     cy = cy + u_k * dt * casadi::MX::sin(psi_k);
-    const casadi::MX l = (cx - ox) * nx + (cy - oy) * ny;  // cross-track
-    cost = cost + casadi::MX::sq(l / l_scale);
-    if (k == N - 1) { lN = l; }
   }
-  // Terminal cross-track reinforcement (spec §4.3, λ_terminal term).
-  // λ_t = 1.0 here (terminal as important as running cost; [TBD-HAZID] T1 tunes).
-  const casadi::MX lambda_terminal = casadi::DM(1.0);
+  // Terminal cross-track reinforcement (spec §4.3: λ_terminal > 1, a STRENGTHENED
+  // terminal weight relative to the running cost). λ_t = 2.0 doubles the terminal
+  // l[N-1] penalty so the NLP biases the horizon tail back toward the route
+  // ([TBD-HAZID] HAZID RUN-001 calibrates; T1 tunes alongside §5.4 softplus).
+  const casadi::MX lambda_terminal = casadi::DM(2.0);
   cost = cost + lambda_terminal * casadi::MX::sq(lN / l_scale);
   return w_guard * cost;
 }

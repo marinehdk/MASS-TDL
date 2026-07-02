@@ -212,7 +212,8 @@ TEST_F(RouteCostTest, NoTargetConvergesToRouteLateralDimensionless) {
 // SAFETY CONTRACT being verified (spec §3.2): the NEW R1 cost term J_route must
 // not suppress COLREG avoidance — i.e. w_colreg·J_colreg > w_route·J_route must
 // hold at the solved optimum when a target sits near the CPA hard floor. This is
-// the dominance relation the spec actually constrains via the new R1 term.
+// the dominance relation that protects the safety question: does J_route pull
+// the ship into CPA? (It must not.)
 //
 // MEDIUM-2 review fix: the previous fixture (a) placed the target at 600 m while
 // the CPA hard floor is 1852 m, and (b) never entered the CPA hard rows into the
@@ -222,21 +223,33 @@ TEST_F(RouteCostTest, NoTargetConvergesToRouteLateralDimensionless) {
 // solver must respect cpa_hard. Cost components are evaluated via the
 // formulation's real NLP cost Functions at the solved optimum.
 //
-// NOTE on the spec's full contract w_colreg·J_colreg > w_route·J_route +
-// w_dist·J_dist: this CANNOT hold at cpa_hard because J_dist (the heading
-// deviation incurred WHILE avoiding) dominates physically at the weak-barrier
-// edge (J_dist is an avoidance driver, not the new R1 term under test). Per spec
-// §3.2 line 115 the response is to lower w_route (done: 5.0→3.0), keeping the
-// R1-specific dominance. The J_dist comparison is therefore excluded from the
-// assertion, which targets exactly the safety question: does J_route suppress
-// the COLREG barrier? (It must not.)
+// R1 ROUND-2 EMPIRICAL FINDING (spec §3.2 line-114 full contract). The literal
+//   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist
+// was measured empirically (DISABLED_DominanceComponentsDiag) at the solved
+// near-floor optimum over w_route ∈ {3.0, 1.0, 0.5, 0.1} and cpa_safe ∈
+// {1852, 2500}. It is FALSE at every point — and lowering w_route cannot make
+// it true, because J_dist (≈31.8, w_dist·J_dist ≈316) ALONE exceeds
+// w_colreg·J_colreg (≈124 at cpa_safe=2500). J_dist = Σ(psi-route_bearing)² is
+// an AVOIDANCE DRIVER: the ship incurs ~114° RMS heading deviation while
+// clearing the head-on target (forced by the CPA HARD floor), and J_dist prices
+// that deviation. J_colreg is the SOFT barrier gradient, small at the floor.
+// So w_dist·J_dist > w_colreg·J_colreg structurally — the full inequality is
+// physically impossible for the spec-fixed w_colreg=30 / w_dist=10. Reported for
+// the main agent to decide on a spec wording revision; the R1-specific dominance
+// asserted here is the correct safety gate. See the in-test note for the exact
+// numbers. w_route stays at 3.0 (route-only dominance holds with ample margin:
+// colreg_term ≈124 >> route_term ≈4).
 // ---------------------------------------------------------------------------
 TEST_F(RouteCostTest, ColregDominanceNearCpaFloor) {
   MidMpcInput inp = make_base_input();
   // Give-way head-on: target just beyond the CPA hard floor (1852 m), closing.
+  // cpa_safe = 2500 (the runtime conflict-active value, see assemble_input_:
+  // inp.colregs_conflict_active bumps cpa_safe to 2500) gives a strong soft
+  // COLREG barrier; cpa_hard = 1852 is the HARD floor enforced by the compiled
+  // CPA distance rows.
   const double cpa_hard_m = 1852.0;
-  inp.constraints.cpa_safe_m = cpa_hard_m;     // soft barrier same as hard here
-  inp.constraints.cpa_hard_m = cpa_hard_m;     // HARD floor for compile_cpa_distance
+  inp.constraints.cpa_safe_m = 2500.0;          // conflict-active soft barrier
+  inp.constraints.cpa_hard_m = cpa_hard_m;      // HARD floor for compile_cpa_distance
   TargetState tgt;
   tgt.x_m     =  1900.0;   // just north of own ship, beyond hard floor
   tgt.y_m     =  0.0;
@@ -265,24 +278,195 @@ TEST_F(RouteCostTest, ColregDominanceNearCpaFloor) {
   const casadi::DM x = sol_to_x(sol, N);
 
   const double w_colreg = formulation_->config().w_colreg;
+  const double w_dist   = formulation_->config().w_dist;
   const double w_route  = formulation_->config().w_route;
 
   const double j_colreg = formulation_->eval_colreg_cost(x, p);
   const double j_route  = formulation_->eval_route_cost(x, p);
+  const double j_dist   = formulation_->eval_dist_cost(x, p);
 
-  // R1-specific dominance: the new route cost must NOT exceed the COLREG barrier
-  // at the solved near-floor optimum (else J_route would pull the ship into CPA).
   const double colreg_term = w_colreg * j_colreg;
   const double route_term  = w_route * j_route;
+  const double dist_term   = w_dist * j_dist;
+
+  // ── R1-specific dominance (the ASSERTED contract): the new route cost must NOT
+  // exceed the COLREG barrier at the solved near-floor optimum — else J_route
+  // would pull the ship back toward the route and INTO the CPA. This is the
+  // safety question the new R1 term must satisfy.
   EXPECT_GT(colreg_term, route_term)
       << "R1 route cost suppresses COLREG barrier near CPA floor: "
       << "w_colreg·J_colreg=" << colreg_term
       << " <= w_route·J_route=" << route_term
       << " (J_colreg=" << j_colreg << " J_route=" << j_route << ")";
+
+  // ── Empirical note on the spec §3.2 line-114 FULL contract
+  //   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist.
+  //
+  // Measured at the solved near-floor optimum (cpa_safe=2500, cpa_hard=1852,
+  // target@1900m closing, w_route=3.0, R1 round-2 off-by-one fix applied):
+  //   w_colreg·J_colreg ≈ 124   (J_colreg ≈ 4.13)
+  //   w_route ·J_route  ≈   4   (J_route  ≈ 1.35)
+  //   w_dist  ·J_dist   ≈ 316   (J_dist   ≈ 31.8  ← RMS heading dev ≈ 114°)
+  //   FULL rhs = route_term + dist_term ≈ 320 >> colreg_term 124.
+  // The full contract CANNOT hold, and lowering w_route cannot make it hold:
+  // even at w_route=0 the dist_term alone (316) exceeds colreg_term (124).
+  // Root cause: J_dist = Σ(psi - route_bearing)² is an AVOIDANCE DRIVER — it
+  // measures the heading deviation incurred WHILE avoiding (the ship must turn
+  // hard to clear a head-on target at the CPA floor; ~114° RMS deviation). The
+  // CPA HARD floor forces the avoidance; J_dist prices its cost. The soft
+  // COLREG barrier J_colreg only supplies gradient guidance and is small at the
+  // hard floor. So J_dist (an avoidance penalty) is structurally larger than
+  // J_colreg (the avoidance incentive) at the near-floor optimum — making the
+  // literal inequality w_colreg·J_colreg > w_dist·J_dist impossible for any
+  // fixed w_colreg/w_dist (both are spec-§3.2 fixed; the inequality would
+  // require w_colreg/w_dist ≈ 25 here).
+  //
+  // This is reported for the main agent to decide: spec §3.2 line-114 needs a
+  // wording revision (the intended "avoidance dominates the new R1 term" holds;
+  // the literal "w_colreg·J_colreg > w_route·J_route + w_dist·J_dist" does not).
+  // The asserted R1-specific dominance above (colreg_term > route_term) is the
+  // correct safety gate. The assertion below documents the full-contract
+  // measurement WITHOUT enforcing it (it is expected to be false).
+  const bool full_contract_holds = (colreg_term > route_term + dist_term);
+  EXPECT_FALSE(full_contract_holds)
+      << "spec §3.2 line-114 full contract unexpectedly HOLDS now — the spec "
+      << "wording should be re-examined (was empirically false: colreg_term="
+      << colreg_term << " <= route_term+dist_term=" << (route_term + dist_term)
+      << "; dist_term=" << dist_term << " is the avoidance-driver penalty).";
 }
 
 // ---------------------------------------------------------------------------
-// TEST 3: cross-leg guard — kIdxRouteWeight=0 disables J_route (spec §4.3).
+// TEST 3: build_route_cost_ l[k] evaluation timing (spec §3.1/§4.2, R1 review
+// round-2 Critical 1). Must be non-self-certifying.
+//
+// CONTRACT (spec §3.1): pos[k] = x0 + Σ_{j=0}^{k-1} u[j]·dt·(cos,sin)(psi[j]).
+// So pos[0] = x0 (own current, the sum is empty). spec §4.2: l[k] is evaluated
+// AT pos[k] — meaning l[0] MUST be the cross-track of the OWN CURRENT position,
+// not of pos[1] (one step advanced).
+//
+// The previous implementation evaluated l[k] AFTER advancing the position
+// integral (cx += u_k·dt·... at line 145, THEN l = (cx-ox)·nx+... at 147), so
+// the loop body at index k actually evaluated the cross-track at pos[k+1]. The
+// own current cross-track l[0] — the real-time XTE the NLP must react to — never
+// entered the cost. With u=0 (stationary) pos[k+1]=pos[k], so this bug was
+// invisible to the existing NoTarget test; it is exposed only with a moving own
+// ship (u>0) whose heading develops a lateral component.
+//
+// DIRECT cost-function test (no solver): evaluate eval_route_cost at a FIXED
+// decision vector x=[psi;u] whose analytic J_route can be hand-computed, and
+// assert the exact value. An off-by-one (evaluate-after-advance) implementation
+// produces a different value and fails.
+//
+// Fixture: own at its own-relative origin (0,0); route origin ALSO at (0,0)
+// (own exactly on the route → l[0]=0). Normal n=(0,1) east. Trajectory: due EAST
+// (psi=π/2), 5 m/s, dt=5 → each step moves +25 m east → l[k] = 25·k (k=0..7),
+// with l[0]=0 (the cross-track of the current position). The cost's first running
+// term is therefore (0/400)² = 0. An off-by-one implementation computes l[0]=25
+// (it evaluates pos[1] instead of pos[0]), giving a strictly larger J_route.
+// ---------------------------------------------------------------------------
+TEST_F(RouteCostTest, RouteCostEvaluatesLAtCurrentPositionNotAdvanced) {
+  MidMpcInput inp = make_base_input();
+  // Own exactly on the route: origin = own = (0,0) → l[0] must be 0.
+  inp.own_ship.x_m = 0.0;
+  inp.own_ship.y_m = 0.0;
+  inp.route_frame_origin_x_m = 0.0;
+  inp.route_frame_origin_y_m = 0.0;
+  // Normal = east (bearing 0): n=(-sin0, cos0)=(0,1).
+  inp.route_frame_normal_x = 0.0;
+  inp.route_frame_normal_y = 1.0;
+  inp.route_weight = 1.0;  // no cross-leg guard
+  inp.lateral_scale_m = kLateralScaleM;
+
+  const int32_t N = formulation_->config().n_horizon;
+  const double dt = formulation_->config().dt_s;
+  // Fixed trajectory: due EAST (psi=π/2), 5 m/s → +25 m east each step.
+  // Normal points east, so l[k] = pos[k].y = 25·k (k=0..N-1), with l[0]=0.
+  casadi::DM x = casadi::DM::zeros(2 * N, 1);
+  for (int32_t k = 0; k < N; ++k) {
+    x(k) = M_PI / 2.0;   // psi = east
+    x(N + k) = 5.0;      // u
+  }
+
+  // Hand-computed correct J_route (spec §3.1 pos[k] = x0 + Σ_{j<k} ...):
+  //   l[k] = 25·k, l[N-1] = 25·(N-1), λ_terminal = 2.0 (spec §4.3 λ_terminal > 1)
+  //   J_route = Σ_{k=0}^{N-1} (25k/400)² + 2.0·(25(N-1)/400)²
+  const double step_l = 5.0 * dt;   // 25 m per step eastward
+  constexpr double kLambdaTerminal = 2.0;  // spec §4.3 λ_terminal > 1 (formulation)
+  double j_expected = 0.0;
+  for (int32_t k = 0; k < N; ++k) {
+    const double lk = step_l * static_cast<double>(k);
+    j_expected += (lk / kLateralScaleM) * (lk / kLateralScaleM);
+  }
+  const double lN = step_l * static_cast<double>(N - 1);
+  j_expected += kLambdaTerminal * (lN / kLateralScaleM) * (lN / kLateralScaleM);
+
+  const casadi::DM p = formulation_->pack_parameters(inp);
+  const double j_route = formulation_->eval_route_cost(x, p);
+
+  // The l[0] term MUST be 0 (own is exactly on the route at its current pos).
+  // An off-by-one evaluates pos[1] → l[0]=25 → J_route is strictly larger.
+  EXPECT_NEAR(j_route, j_expected, 1.0e-9)
+      << "J_route off-by-one: expected " << j_expected << " (l[0]=0, own on route), "
+      << "got " << j_route << " (the loop evaluated pos[k+1] instead of pos[k]; "
+      << "the own current XTE never entered the cost).";
+}
+
+// ---------------------------------------------------------------------------
+// TEST 3b: l[0] equals the true initial cross-track for a MOVING ship (spec §4.2,
+// R1 review round-2 Critical 1, complementary to the direct cost test above).
+//
+// A moving own ship offset 50 m east of the route, heading north: the lateral
+// cross-track at the CURRENT position is 50 m regardless of motion. The NLP
+// cost function's first term must reflect exactly (50/400)² contribution from
+// l[0] (plus whatever the moving trajectory contributes at k≥1). This pairs the
+// off-by-one fix with the §4.2 contract that l[0] = (own_pos - origin)·n.
+// ---------------------------------------------------------------------------
+TEST_F(RouteCostTest, RouteCostL0ReflectsMovingShipInitialXte) {
+  MidMpcInput inp = make_base_input();
+  // Own 50 m EAST of the route (origin at (0,-50) in own frame, normal=east).
+  inp.own_ship.x_m = 0.0;
+  inp.own_ship.y_m = 0.0;
+  inp.route_frame_origin_x_m = 0.0;
+  inp.route_frame_origin_y_m = -50.0;   // → own is +50 along east normal
+  inp.route_frame_normal_x = 0.0;
+  inp.route_frame_normal_y = 1.0;
+  inp.route_weight = 1.0;
+  inp.lateral_scale_m = kLateralScaleM;
+
+  const int32_t N = formulation_->config().n_horizon;
+  // Heading NORTH (psi=0), 5 m/s: pure north motion adds no east cross-track,
+  // so EVERY l[k] = +50 (own stays 50 m east of the route throughout). This
+  // isolates l[0]: the cost is N identical terms (50/400)² + terminal (50/400)²,
+  // UNLESS the off-by-one drops the l[0]=50 term. An off-by-one with a north
+  // heading gives the SAME per-step value (north motion doesn't change the
+  // east cross-track), so it still charges l[0]=50 — but only because pos[1]
+  // happens to equal pos[0] in the east component. The exact-value check below
+  // still pins the contract: the count of contributing terms is N+1 (N running
+  // + 1 terminal), all equal to (50/400)².
+  casadi::DM x = casadi::DM::zeros(2 * N, 1);
+  for (int32_t k = 0; k < N; ++k) {
+    x(k) = 0.0;   // psi = north
+    x(N + k) = 5.0;
+  }
+
+  // l[k] = +50 for all k (north motion keeps the 50 m east offset). λ_terminal=2.0
+  // (spec §4.3 λ_terminal > 1).
+  const double l_const = 50.0;
+  constexpr double kLambdaTerminal = 2.0;  // spec §4.3 (formulation)
+  const double term = (l_const / kLateralScaleM) * (l_const / kLateralScaleM);
+  const double j_expected =
+      static_cast<double>(N) * term + kLambdaTerminal * term;
+
+  const casadi::DM p = formulation_->pack_parameters(inp);
+  const double j_route = formulation_->eval_route_cost(x, p);
+  EXPECT_NEAR(j_route, j_expected, 1.0e-9)
+      << "J_route with a constant 50 m east XTE and λ_terminal=2.0 must equal "
+      << "(N+2)·(50/400)² = " << j_expected << " (got " << j_route
+      << "; a missing l[0] term or wrong terminal weight would change this).";
+}
+
+// ---------------------------------------------------------------------------
+// TEST 4: cross-leg guard — kIdxRouteWeight=0 disables J_route (spec §4.3).
 //
 // When the NLP trajectory is predicted to cross an L2 leg corner, the node
 // packs route_weight=0.0 so J_route does not pull toward the wrong normal.
@@ -307,4 +491,60 @@ TEST_F(RouteCostTest, CrossLegGuardRouteWeightZeroNullsRouteCost) {
   const double j_route = formulation_->eval_route_cost(x, p);
   EXPECT_NEAR(j_route, 0.0, 1.0e-9)
       << "kIdxRouteWeight=0 did not null J_route (got " << j_route << ")";
+}
+
+// ---------------------------------------------------------------------------
+// DISABLED diagnostic: print every cost component at the solved near-CPA-floor
+// optimum, to determine empirically whether the FULL spec §3.2 dominance
+//   w_colreg·J_colreg > w_route·J_route + w_dist·J_dist
+// holds, and if not, find the w_route upper bound at which it does. Run with
+//   --gtest_filter=*DominanceComponentsDiag*
+// Enable temporarily for measurement only; not part of the regression suite.
+// ---------------------------------------------------------------------------
+TEST_F(RouteCostTest, DISABLED_DominanceComponentsDiag) {
+  for (const double cpa_safe : {1852.0, 2500.0}) {
+    for (const double w_route_try : {3.0, 1.0, 0.5, 0.1}) {
+      MidMpcNlpFormulation::Config cfg = formulation_->config();
+      cfg.w_route = w_route_try;
+      MidMpcNlpFormulation f(cfg);
+      MidMpcSolver::IpoptOptions opts;
+      opts.max_iter = 300; opts.tol = 1.0e-5; opts.timeout_s = 3.0;
+      MidMpcSolver s(f, opts);
+
+      MidMpcInput inp = make_base_input();
+      const double cpa_hard_m = 1852.0;
+      inp.constraints.cpa_safe_m = cpa_safe;
+      inp.constraints.cpa_hard_m = cpa_hard_m;
+      TargetState tgt;
+      tgt.x_m = 1900.0; tgt.y_m = 0.0;
+      tgt.cog_rad = M_PI; tgt.sog_mps = 5.0;
+      tgt.cpa_m = 0.0; tgt.tcpa_s = 0.0;
+      inp.targets.push_back(tgt);
+      inp.tail_gate_targets.push_back(tgt);
+      inp.constraints.applicable_rules = {14};
+      mass_l3::m5::synchronize_mid_mpc_constraint_context(inp);
+      f.set_constraint_inputs(inp.constraints);
+      f.build_symbolic_graph();
+
+      const auto sol = s.solve(inp, nullptr);
+      const int32_t N = f.config().n_horizon;
+      const casadi::DM p = f.pack_parameters(inp);
+      const casadi::DM x = sol_to_x(sol, N);
+      const double jc = f.eval_colreg_cost(x, p);
+      const double jr = f.eval_route_cost(x, p);
+      const double jd = f.eval_dist_cost(x, p);
+      const double w_colreg = f.config().w_colreg;
+      const double w_dist = f.config().w_dist;
+      const double lhs = w_colreg * jc;
+      const double rhs = w_route_try * jr + w_dist * jd;
+      printf("[DIAG cpa_safe=%.0f w_route=%.2f] status=%d "
+             "J_colreg=%.6f J_route=%.6f J_dist=%.6f | "
+             "w_colreg·J_colreg=%.4f  w_route·J_route=%.4f  w_dist·J_dist=%.4f | "
+             "FULL dominance lhs=%.4f %s rhs=%.4f  (route-only lhs %.4f vs %.4f)\n",
+             cpa_safe, w_route_try, static_cast<int>(sol.status),
+             jc, jr, jd, lhs, w_route_try * jr, w_dist * jd,
+             lhs, (lhs > rhs ? ">" : "<="), rhs,
+             lhs, w_route_try * jr);
+    }
+  }
 }

@@ -333,6 +333,12 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
+    m5_add_gtest(test_mid_mpc_route_frame
+      test/unit/test_mid_mpc_route_frame.cpp
+      spdlog::spdlog
+    )
+
     # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
     m5_add_gtest(test_mid_mpc_waypoint_generator
       test/unit/test_mid_mpc_waypoint_generator.cpp
