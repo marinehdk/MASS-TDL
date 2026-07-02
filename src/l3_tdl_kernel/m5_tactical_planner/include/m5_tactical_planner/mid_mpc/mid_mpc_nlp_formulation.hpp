@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/row_registry.hpp"
@@ -216,6 +217,15 @@ class MidMpcNlpFormulation {
   // terminal hard rows so the l[N-1] used in the cost and the constraint is
   // identical (extracted to avoid duplicating the position integral).
   [[nodiscard]] casadi::MX compute_terminal_cross_track_() const;
+  // Slice D1: full cross-track sequence l[k] for k ∈ [0,N) (spec §7.1). Returns
+  // one MX per step so build_constraints_ can assemble the direction rows
+  // g_dir[k] = pref_dir·l[k] (§7.1). Uses the SAME position integral as
+  // build_route_cost_ (pos[k] = x0 + Σ_{j<k} u[j]·dt·(cos,sin)(psi[j]), spec §3.1)
+  // and the SAME own-relative origin/normal (R1 Critical-2). Kept separate from
+  // compute_terminal_cross_track_ (which returns a single l[N-1]) because the
+  // direction/min_alt rows need the WHOLE sequence, and extracting it lets the
+  // route cost / terminal cost reuse the identical kinematics without coupling.
+  [[nodiscard]] std::vector<casadi::MX> compute_cross_track_all_() const;
 
   // Constraint helper.
   [[nodiscard]] casadi::MX build_constraints_() const;

@@ -172,28 +172,43 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   if (K_eff > 0) {
     rb_eff.colreg_prefix_softened = true;  // §6.4: soften prefix COLREG rows
   }
-  if (!rb_eff.terminal_disabled) {
-    const bool pref_active =
-        (input.colregs_preferred_direction ==
-             mass_l3::m5::ColregsPreferredDirection::Starboard ||
-         input.colregs_preferred_direction ==
-             mass_l3::m5::ColregsPreferredDirection::Port);
-    const bool give_way_role =
-        (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
-    // spec §3.3: HOLD / ReduceSpeed are NOT lateral-alteration behaviors, so
-    // the direction / min_alt / terminal rows are disabled. pref_active above
-    // is already false for Hold/ReduceSpeed (only Starboard/Port are active),
-    // so this is belt-and-suspenders: an EXPLICIT behavior check makes the
-    // §3.3 "non-HOLD" activation condition self-documenting and robust to a
-    // future change that widens pref_active (e.g. adding Hold to Starboard).
-    const bool lateral_behavior =
-        (input.colregs_preferred_direction !=
-             mass_l3::m5::ColregsPreferredDirection::Hold &&
-         input.colregs_preferred_direction !=
-             mass_l3::m5::ColregsPreferredDirection::ReduceSpeed);
-    if (!pref_active || !give_way_role || !lateral_behavior) {
-      rb_eff.terminal_disabled = true;  // §3.3: not a give-way terminal scenario
-    }
+  // Slice T1 + D1 (spec §3.3 / §5.5 / §7.1): the terminal hard rows (T1) and the
+  // direction / min_alt rows (D1) share the SAME activation condition — a give-
+  // way role (primary_role ∈ {GIVE_WAY, BOTH_GIVE_WAY}) + a LATERAL preferred
+  // direction (Starboard/Port, NOT Hold/ReduceSpeed) + preferred_direction≠0.
+  // When that condition fails (stand-on / Hold / ReduceSpeed / no side pref) the
+  // rows are disabled (lbg/ubg → [-inf,+inf]); otherwise g_minalt would read
+  // -min_alt < 0 at own_psi and the §3.3 "min_alt>0 && direction==0 ⇒ infeasible"
+  // case would trip. The booleans are derived ONCE here and feed both flags so
+  // the two row classes stay in lockstep (a caller may still override either flag
+  // explicitly; we only auto-set when the caller left it at the default false).
+  //
+  // pref_active already excludes Hold/ReduceSpeed (only Starboard/Port qualify),
+  // but lateral_behavior is checked explicitly too — belt-and-suspenders so the
+  // §3.3 "non-HOLD" condition is self-documenting and robust to a future enum
+  // change that widens pref_active (e.g. adding Hold to Starboard).
+  const bool pref_active =
+      (input.colregs_preferred_direction ==
+           mass_l3::m5::ColregsPreferredDirection::Starboard ||
+       input.colregs_preferred_direction ==
+           mass_l3::m5::ColregsPreferredDirection::Port);
+  const bool give_way_role =
+      (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
+  const bool lateral_behavior =
+      (input.colregs_preferred_direction !=
+           mass_l3::m5::ColregsPreferredDirection::Hold &&
+       input.colregs_preferred_direction !=
+           mass_l3::m5::ColregsPreferredDirection::ReduceSpeed);
+  const bool lateral_colreg_active =
+      pref_active && give_way_role && lateral_behavior;  // §3.3 activation
+  if (!rb_eff.terminal_disabled && !lateral_colreg_active) {
+    rb_eff.terminal_disabled = true;  // §3.3/§5.5: not a give-way terminal scenario
+  }
+  // Slice D1: direction / min_alt rows disabled under the SAME condition. Kept
+  // separate from terminal_disabled so the two are independently overridable,
+  // though in practice they always activate together.
+  if (!rb_eff.direction_disabled && !lateral_colreg_active) {
+    rb_eff.direction_disabled = true;  // §3.3/§7.1: not a give-way lateral scenario
   }
   const BoundArray bounds =
       formulation_.row_registry().build_bounds(rb_eff);

@@ -201,6 +201,47 @@ casadi::MX MidMpcNlpFormulation::compute_terminal_cross_track_() const {
 }
 
 // ===========================================================================
+// compute_cross_track_all_() — Slice D1 full l[k] sequence (spec §7.1).
+//
+// Returns l[k] = (pos[k] - route_origin) · n_hat for every k ∈ [0,N), where
+// pos[k] is integrated from the OWN SHIP CURRENT position (kIdxX0/Y0), the SAME
+// kinematics contract as build_route_cost_ / compute_terminal_cross_track_
+// (spec §3.1: pos[k] = x0 + Σ_{j<k} u[j]·dt·(cos,sin)(psi[j])). The route-frame
+// origin/normal are in the same own-relative NED frame (R1 Critical-2).
+//
+// l[k] is evaluated BEFORE the integral advances to pos[k+1], so l[0] is the
+// TRUE current cross-track (own_pos - leg_point)·n_hat — matching the R1 fix
+// in build_route_cost_. The direction rows g_dir[k] = pref_dir·l[k] (§7.1) thus
+// constrain the actual step-k lateral, not a shifted one.
+//
+// This is the per-step analogue of compute_terminal_cross_track_ (which returns
+// the single l[N-1]); both re-evaluate the integral faithfully rather than
+// sharing an MX node, so the direction/constraint expressions stay decoupled
+// from the cost expressions (spec keeps cost vs constraint independent, §5.4/§7.1).
+// ===========================================================================
+std::vector<casadi::MX> MidMpcNlpFormulation::compute_cross_track_all_() const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::MX dt   = casadi::DM(cfg_.dt_s);
+  casadi::MX cx   = slot(p_, kIdxX0);
+  casadi::MX cy   = slot(p_, kIdxY0);
+  const casadi::MX ox   = slot(p_, kIdxRouteFrameOriginX);
+  const casadi::MX oy   = slot(p_, kIdxRouteFrameOriginY);
+  const casadi::MX nx   = slot(p_, kIdxRouteFrameNormalX);
+  const casadi::MX ny   = slot(p_, kIdxRouteFrameNormalY);
+  std::vector<casadi::MX> l(static_cast<std::size_t>(N));
+  for (int32_t k = 0; k < N; ++k) {
+    // Evaluate l[k] at pos[k] FIRST (spec §3.1: pos[0]=own current, R1 fix).
+    l[static_cast<std::size_t>(k)] = (cx - ox) * nx + (cy - oy) * ny;
+    // Then advance to pos[k+1] = pos[k] + u[k]·dt·(cos,sin)(psi[k]).
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    const casadi::MX u_k   = u_(casadi::Slice(k, k + 1));
+    cx = cx + u_k * dt * casadi::MX::cos(psi_k);
+    cy = cy + u_k * dt * casadi::MX::sin(psi_k);
+  }
+  return l;
+}
+
+// ===========================================================================
 // build_terminal_cost_() — Slice T1 terminal wrong-side softplus (spec §5.4).
 //
 //   J_terminal = give_way · τ_t · softplus((l_wrong_side)/τ_t)
@@ -403,8 +444,48 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   }
   const casadi::MX g_prefix_psi_eq = casadi::MX::vertcat(g_prefix_psi_vec);
   const casadi::MX g_prefix_u_eq   = casadi::MX::vertcat(g_prefix_u_vec);
-  const casadi::MX g_direction     = casadi::MX::zeros(N, 1);
-  const casadi::MX g_min_alt       = casadi::MX::zeros(N, 1);
+
+  // Slice D1: COLREG direction + min_alt hard rows (spec §7.1).
+  //
+  //   g_dir[k]:    preferred_direction · l[k] ≥ 0          (lateral same-side)
+  //   g_minalt[k]: preferred_direction · (psi[k]-own_psi) ≥ min_alt
+  //                                                            (min alteration)
+  //
+  // Built for ALL k ∈ [0,N) unconditionally; the RowRegistry + per-cycle
+  // RowBoundConfig decide which are active:
+  //   - prefix segment k<K: softened to [-inf,+inf] by colreg_prefix_softened
+  //     (C1, §6.4) so a target moving into the frozen prefix cannot make the
+  //     NLP infeasible;
+  //   - direction_disabled (pref_dir==0 / STAND_ON / HOLD/ReduceSpeed, §3.3):
+  //     ALL direction + min_alt rows double-disabled [-inf,+inf].
+  // Otherwise (give-way + pref_dir≠0, suffix segment) the rows are hard [0,+inf].
+  //
+  // l[k] = (pos[k] - route_origin) · n_hat is the route-frame cross-track (§4.2,
+  // R1). preferred_direction (kIdxPreferredDir) is the M6 signed side (+1 stbd /
+  // -1 port / 0 none); it is a PARAMETER so g_dir is LINEAR in l[k] (l[k] itself
+  // is a smooth function of the psi/u integral) and g_minalt is LINEAR in psi —
+  // no new non-smooth source (spec §7.1 smoothness). own_psi = kIdxOwnPsi;
+  // min_alt = kIdxMinAlterationRad.
+  //
+  // Note: when preferred_direction==0 the rows are disabled (RowRegistry), but
+  // the EXPRESSION g_dir[k]=0·l[k]=0 still evaluates (harmless with [-inf,+inf]
+  // bounds). g_minalt[k]=0·(...)−min_alt=−min_alt; with disabled bounds this is
+  // also harmless. The §3.3 rule "min_alt>0 && direction==0 directly infeasible"
+  // is enforced by direction_disabled being TRUE when pref_dir==0, so the
+  // g_minalt expression never sees active bounds with pref_dir=0.
+  const std::vector<casadi::MX> l_all = compute_cross_track_all_();
+  const casadi::MX pref_dir    = slot(p_, kIdxPreferredDir);
+  const casadi::MX own_psi     = slot(p_, kIdxOwnPsi);
+  const casadi::MX min_alt_par = slot(p_, kIdxMinAlterationRad);
+  std::vector<casadi::MX> g_dir_vec(static_cast<std::size_t>(N));
+  std::vector<casadi::MX> g_minalt_vec(static_cast<std::size_t>(N));
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    g_dir_vec[static_cast<std::size_t>(k)]    = pref_dir * l_all[static_cast<std::size_t>(k)];
+    g_minalt_vec[static_cast<std::size_t>(k)] = pref_dir * (psi_k - own_psi) - min_alt_par;
+  }
+  const casadi::MX g_direction = casadi::MX::vertcat(g_dir_vec);
+  const casadi::MX g_min_alt   = casadi::MX::vertcat(g_minalt_vec);
 
   // Slice T1: terminal hard rows (spec §5.5). Three g≥0 rows evaluated at the
   // suffix terminal step k=N-1, give-way role only (stand-on disabled via

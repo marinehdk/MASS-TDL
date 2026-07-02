@@ -351,6 +351,12 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # ── Slice D1: COLREG direction + min_alt internalization (spec §7.1) ─────────
+    m5_add_gtest(test_mid_mpc_direction
+      test/unit/test_mid_mpc_direction.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
     # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
     m5_add_gtest(test_mid_mpc_route_frame
       test/unit/test_mid_mpc_route_frame.cpp
