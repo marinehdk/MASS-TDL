@@ -382,6 +382,11 @@ if(BUILD_TESTING)
     test/unit/test_committed_route.cpp
   )
 
+  # ── M1 review High-4/High-5: along-track frozen_prefix_count pure function ──
+  m5_add_gtest(test_committed_candidate_geometry
+    test/unit/test_committed_candidate_geometry.cpp
+  )
+
   # ── Slice E: degraded fallback candidates ─────────────────────────────────
   m5_add_gtest(test_degraded_candidate_adapter
     test/unit/test_degraded_candidate_adapter.cpp

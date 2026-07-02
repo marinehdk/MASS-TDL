@@ -141,19 +141,26 @@ bool CommittedAvoidanceRoute::try_revise(
     current_.active_geometry = candidate.geometry;
     current_.route_hash = new_hash;
     ++current_.revision;
-    // Spec §6.6.3: prefix_count = requested (NOT max(existing, requested)).
-    // The legacy max-only behavior prevented the rolling H_commit from
-    // pruning waypoints the own-ship has already overrun. The prune itself is
-    // computed upstream in committed_candidate_from_plan (along-track distance
-    // < min_first_changed_distance_m) and communicated via frozen_prefix_count;
-    // the manager honours that count here so committed_prefix can shrink.
-    const std::size_t requested_prefix_count = std::min(
-        candidate.frozen_prefix_count,
-        current_.active_geometry.size());
-    current_.committed_prefix.assign(
-        current_.active_geometry.begin(),
-        current_.active_geometry.begin() + static_cast<std::ptrdiff_t>(requested_prefix_count));
   }
+
+  // Spec §6.6.3: prefix_count = requested (NOT max(existing, requested)), and
+  // the prefix is recomputed on EVERY successful revise — not only when the
+  // geometry changes. This is the rolling prune: when the own-ship advances and
+  // the upstream candidate's frozen_prefix_count shrinks (fewer waypoints inside
+  // the in-guard window), the committed_prefix must shrink too, even though the
+  // geometry hash is unchanged (Critical-3 review fix). The legacy code only
+  // reassigned committed_prefix inside the geometry_changed block, so a same-
+  // geometry revise with a smaller frozen_prefix_count left the stale (larger)
+  // prefix in place — waypoints the vessel had already overrun stayed frozen.
+  // The prune count is computed upstream in committed_candidate_from_plan
+  // (along-track projection, committed_candidate_geometry.hpp) and communicated
+  // via frozen_prefix_count; the manager honours that count here.
+  const std::size_t requested_prefix_count = std::min(
+      candidate.frozen_prefix_count,
+      current_.active_geometry.size());
+  current_.committed_prefix.assign(
+      current_.active_geometry.begin(),
+      current_.active_geometry.begin() + static_cast<std::ptrdiff_t>(requested_prefix_count));
 
   return true;
 }

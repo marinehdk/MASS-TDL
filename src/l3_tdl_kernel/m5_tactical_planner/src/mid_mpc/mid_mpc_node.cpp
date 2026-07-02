@@ -23,6 +23,7 @@
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/committed_route/committed_candidate_geometry.hpp"
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
 #include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 #include "m5_tactical_planner/mid_mpc/degraded_candidate_adapter.hpp"
@@ -135,31 +136,21 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
         plan.latitude[i], plan.longitude[i], plan.command_speed_mps[i], nav_mode});
   }
 
-  // Spec §6.6.2 frozen_prefix_count: count plan waypoints whose along-track
-  // distance from the own-ship is < min_first_changed_distance_m (100 m). Those
-  // are inside the GNC guard (already executing) and must be frozen so a new
-  // revision cannot alter geometry the vessel is already committed to. The
-  // distance here is the straight-line own-relative NED distance; waypoints the
-  // own-ship has overrun (very small / behind) are also inside the guard and
-  // frozen, and are pruned from the manager's committed_prefix on the next
-  // revise via the requested-count honouring (§6.6.3).
-  const double cos_lat = std::cos(risk.own_lat_deg * units::kRadPerDeg);
-  std::size_t frozen_prefix_count = 0U;
-  for (std::size_t i = 0U; i < n; ++i) {
-    const double dlat = plan.latitude[i] - risk.own_lat_deg;
-    const double dlon = plan.longitude[i] - risk.own_lon_deg;
-    const double dn = dlat * units::kRadPerDeg * units::kEarthRadiusMean_m;
-    const double de = dlon * units::kRadPerDeg * units::kEarthRadiusMean_m * cos_lat;
-    const double dist_m = std::sqrt(dn * dn + de * de);
-    if (dist_m < kMinFirstChangedDistance_m) {
-      ++frozen_prefix_count;
-    } else {
-      // Prefix is the leading run of in-guard waypoints; the first waypoint
-      // beyond the guard ends the frozen run (plan order is along-track).
-      break;
-    }
-  }
-  candidate.frozen_prefix_count = frozen_prefix_count;
+  // Spec §6.6.2 frozen_prefix_count: leading plan waypoints within the in-guard
+  // window AHEAD of the own-ship (along-track station <= own_station +
+  // min_first_changed_distance_m). Those are inside the GNC guard (already
+  // executing) and must be frozen so a new revision cannot alter geometry the
+  // vessel is already committed to. The count is computed by the pure
+  // along-track projection in committed_candidate_geometry.hpp (unit-tested in
+  // test_committed_candidate_geometry), NOT the legacy Euclidean distance: the
+  // Euclidean own↔waypoint distance stays < guard for a stretch even after own
+  // has overrun the waypoint, so it could not bound the window correctly (spec
+  // §6.6, Critical High-4 review fix). Overrun waypoints are pruned as own
+  // advances via the manager's requested-count honouring (§6.6.3).
+  const auto frozen = mass_l3::m5::committed_route::compute_frozen_prefix_count(
+      plan.latitude, plan.longitude,
+      risk.own_lat_deg, risk.own_lon_deg, kMinFirstChangedDistance_m);
+  candidate.frozen_prefix_count = frozen.frozen_prefix_count;
 
   // Spec §6.6.4 / §9.12 Keep-Last risk fields — wired from M2 WorldState.
   // current_cpa_m: minimum CPA over tracked targets (1e9 = no target → inert).
@@ -169,30 +160,35 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
   candidate.current_cpa_m = risk.min_target_cpa_m;
   candidate.cpa_hard_m = kCpaSafeFallback_m;
 
-  if (risk.has_target) {
-    // target_heading_delta_deg: heading geometry of the closest-CPA target
-    // relative to own-ship. A large relative bearing/course difference is the
-    // signal the §9.12 "> 15 deg" gate watches (e.g. a target swinging onto a
-    // collision course). We use the delta between the target's COG and own
-    // course — a directly observable, history-free geometry proxy.
-    double delta_rad = risk.primary_target_cog_rad - risk.own_psi_rad;
-    // Wrap to [-π, +π].
-    while (delta_rad > M_PI) { delta_rad -= 2.0 * M_PI; }
-    while (delta_rad < -M_PI) { delta_rad += 2.0 * M_PI; }
-    candidate.target_heading_delta_deg = delta_rad * units::kDegPerRad;
-
-    // cpa_drift_fraction: CPA deterioration relative to the hard floor. With no
-    // persisted initial-CPA history available here, we measure how far the
-    // current CPA has penetrated below the safe floor as a fraction of the
-    // floor: (cpa_hard - current_cpa) / cpa_hard. A CPA at the floor → 0
-    // drift; a CPA well below the floor → positive drift (triggers the
-    // > 0.20 gate when CPA < 0.8·cpa_hard). This keeps the gate conservative:
-    // it only fires once the current CPA is materially inside the hard floor.
-    if (candidate.cpa_hard_m > 0.0) {
-      candidate.cpa_drift_fraction =
-          (candidate.cpa_hard_m - risk.min_target_cpa_m) / candidate.cpa_hard_m;
-    }
-  }
+  // Spec §6.6.4 / §9.12 Keep-Last risk fields — target_heading_delta_deg and
+  // cpa_drift_fraction are intentionally left at their safe "no risk" defaults
+  // (0.0) so the manager's > 15 deg / > 0.20 gates do NOT spuriously fire.
+  //
+  // WHY (Critical 1/2 review fix): the spec §9.12 semantics are
+  //   target_heading_delta_deg = the target's heading CHANGE between two
+  //     consecutive snapshots (a target manoeuvre signal), NOT target-own
+  //     heading difference; and
+  //   cpa_drift_fraction = the CPA's deterioration RELATIVE TO ITS INITIAL /
+  //     EXPECTED value (current vs initial CPA), NOT (cpa_hard - current).
+  // Both correctly require PERSISTED history (previous snapshot's target
+  // heading / CPA) — a manager-level state, not derivable from a single
+  // snapshot's input.targets. The previous M1 code filled them with
+  // history-free proxies that triggered on SAFE geometry:
+  //   - target_heading_delta_deg = target_COG - own_heading → any crossing
+  //     target whose course differs from own by > 15 deg fired DegradedHold;
+  //   - cpa_drift_fraction = (cpa_hard - current_cpa)/cpa_hard → a SAFE CPA
+  //     (current=2500 > hard=1852) gave -0.35, |−0.35| > 0.20 → fired.
+  // Safe-defaulting them to 0.0 (no deterioration, no target manoeuvre
+  // observed) is the honest, conservative M1 position: the primary Keep-Last
+  // trigger current_cpa < cpa_hard (real, single-snapshot data source) remains
+  // active. The manager's risk_trigger_event heading/drift checks
+  // (committed_route.cpp) are RETAINED so a future snapshot/history wiring can
+  // activate them without further surgery here (spec §6.6.4 "from snapshot").
+  (void)risk.has_target;
+  (void)risk.primary_target_cog_rad;
+  (void)risk.own_psi_rad;
+  candidate.target_heading_delta_deg = 0.0;
+  candidate.cpa_drift_fraction = 0.0;
   return candidate;
 }
 

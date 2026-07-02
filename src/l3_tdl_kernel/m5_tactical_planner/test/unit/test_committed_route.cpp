@@ -235,6 +235,34 @@ TEST(CommittedAvoidanceRoute, committed_prefix_shrinks_when_smaller_prefix_reque
   EXPECT_EQ(manager.current().active_geometry.size(), 4U);
 }
 
+// Spec §6.6.3 (Critical-3 review fix): the committed prefix must shrink on a
+// SAME-GEOMETRY revise when a smaller frozen_prefix_count is requested. The
+// legacy code only reassigned committed_prefix inside the geometry_changed
+// block, so a same-hash revise (e.g. a heartbeat-rate refresh of the identical
+// route after own advanced and pruned) left the stale larger prefix in place.
+// Here the route is IDENTICAL (same hash) but the candidate requests prefix=1
+// after an initial prefix=2 → the prefix must shrink to 1 with NO revision bump.
+TEST(CommittedAvoidanceRoute, committed_prefix_shrinks_on_same_geometry_smaller_count)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  ASSERT_EQ(manager.current().committed_prefix.size(), 2U);
+  const std::uint32_t first_revision = manager.current().revision;
+  const std::uint32_t first_hash = manager.current().route_hash;
+
+  // Identical geometry (route_a), new plan_id, SMALLER requested prefix (2 → 1).
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a-pruned", route_a(), 1U, 30.0), 5.0));
+
+  // No geometry change → no revision/hash bump, but the prefix MUST shrink.
+  EXPECT_EQ(manager.current().revision, first_revision);
+  EXPECT_EQ(manager.current().route_hash, first_hash);
+  EXPECT_EQ(manager.current().plan_id, "plan-a-pruned");
+  EXPECT_EQ(manager.current().committed_prefix.size(), 1U)
+      << "same geometry + smaller frozen_prefix_count must prune the prefix";
+  // The surviving prefix waypoint is geometry[0] (the route head is unchanged).
+  EXPECT_DOUBLE_EQ(manager.current().committed_prefix[0].lat_deg, 34.00000);
+}
+
 TEST(CommittedAvoidanceRoute, prefix_conflict_on_genuinely_different_waypoint_is_rejected)
 {
   CommittedAvoidanceRoute manager;
