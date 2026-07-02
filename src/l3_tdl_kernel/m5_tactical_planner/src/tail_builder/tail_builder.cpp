@@ -112,6 +112,17 @@ constexpr double kMaxTailSpacingM = 150.0;
 constexpr double kNearRejoinToleranceM = 1.0;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kMaxRouteCornerHeadingDeltaRad = kPi / 4.0;
+// Slice W1 (spec §5.2): minimum dwell time used to extrapolate s_clear when the
+// target's tcpa_s is shorter than a credible past-clear window. [TBD] calibrate.
+constexpr double kActiveMinDwellS = 30.0;
+
+[[nodiscard]] bool is_active_phase(const TailInputs& inputs) noexcept
+{
+  // Active encounter: not yet released (no past_clear, encounter ACTIVE).
+  // Rejoin is deferred to the release phase.
+  return !inputs.m6_past_clear &&
+      inputs.m6_encounter_state == static_cast<std::uint8_t>(EncounterState::Active);
+}
 
 [[nodiscard]] double clamp_abs(double value, double min_abs, double max_abs) noexcept
 {
@@ -226,19 +237,25 @@ constexpr double kMaxRouteCornerHeadingDeltaRad = kPi / 4.0;
 }
 
 [[nodiscard]] bool validate_tail_segment(
-    const TailInputs& inputs, const TailSegment& segment, std::string& reject_reason)
+    const TailInputs& inputs, const TailSegment& segment, std::string& reject_reason,
+    bool expect_rejoin)
 {
   if (!target_cpa_evidence_available(inputs)) {
     reject_reason = "missing_m2_targets";
     return false;
   }
-  if (!cpa_release_floor_clear(inputs)) {
-    reject_reason = "cpa_release_floor";
-    return false;
-  }
-  if (!ship_domain_floor_clear(inputs)) {
-    reject_reason = "ship_domain_floor";
-    return false;
+  // cpa_release_floor / ship_domain_floor are RELEASE criteria (spec §5.2). In
+  // the active phase the target is expected to remain inside the CPA band, so
+  // these gates are relaxed; they re-engage for release-phase hold+rejoin.
+  if (expect_rejoin) {
+    if (!cpa_release_floor_clear(inputs)) {
+      reject_reason = "cpa_release_floor";
+      return false;
+    }
+    if (!ship_domain_floor_clear(inputs)) {
+      reject_reason = "ship_domain_floor";
+      return false;
+    }
   }
   if (segment.waypoints.empty() || segment.waypoints.size() != segment.source_labels.size()) {
     reject_reason = "tail_waypoints_invalid";
@@ -275,7 +292,7 @@ constexpr double kMaxRouteCornerHeadingDeltaRad = kPi / 4.0;
       reject_reason = "m6_side_violation";
       return false;
     }
-    if (final_waypoint && std::abs(projection.l_m) > kNearRejoinToleranceM) {
+    if (expect_rejoin && final_waypoint && std::abs(projection.l_m) > kNearRejoinToleranceM) {
       reject_reason = "tail_rejoin_failed";
       return false;
     }
@@ -336,7 +353,15 @@ TailResult TailBuilder::build(const TailInputs& inputs)
     result.reject_reason = "missing_m6_side";
     return result;
   }
-  if (!m6_reports_clear(inputs)) {
+
+  // Slice W1 (spec §5.2): two-phase semantics. The m6_reports_clear gate no
+  // longer blocks the whole build. Active encounters (!past_clear, ACTIVE) now
+  // generate a hold-only tail to the predicted s_clear (rejoin deferred to
+  // release). Only an encounter that is NEITHER active NOR released (abnormal
+  // state) rejects m6_not_past_clear.
+  const bool active = is_active_phase(inputs);
+  const bool released = m6_reports_clear(inputs);
+  if (!active && !released) {
     result.reject_reason = "m6_not_past_clear";
     return result;
   }
@@ -344,14 +369,9 @@ TailResult TailBuilder::build(const TailInputs& inputs)
     result.reject_reason = "missing_m2_targets";
     return result;
   }
-  if (!cpa_release_floor_clear(inputs)) {
-    result.reject_reason = "cpa_release_floor";
-    return result;
-  }
-  if (!ship_domain_floor_clear(inputs)) {
-    result.reject_reason = "ship_domain_floor";
-    return result;
-  }
+  // cpa_release_floor / ship_domain_floor are release criteria and are enforced
+  // inside validate_tail_segment only when a rejoin is expected (release phase).
+  // The active phase relaxes them (target still inside CPA band is expected).
   if (route_frame_has_sharp_corner(inputs.route_frame)) {
     result.reject_reason = "route_frame_sharp_corner";
     return result;
@@ -373,21 +393,74 @@ TailResult TailBuilder::build(const TailInputs& inputs)
 
   const double max_offset = std::max(kMinSafeOffsetM, inputs.gnc_odd.max_lateral_offset_m);
   const double l_hold = clamp_abs(projection.l_m, kMinSafeOffsetM, max_offset);
+  const double spacing_m = std::clamp(inputs.gnc_odd.min_segment_length_m, 50.0, 150.0);
+  const double route_len = inputs.route_frame.length_m();
+
+  if (active) {
+    // ── Active phase (spec §5.2): hold-only to the PREDICTED s_clear.
+    // Rejoin is deferred until the encounter releases. s_clear is the station
+    // the own ship reaches once the target has passed and cleared:
+    //   s_clear ≈ s_pN + own_u_hold · max(tcpa_s, T_min_dwell).
+    // Honest degradation (spec §14.3): if release is not predicted AND no valid
+    // tcpa_s is available to extrapolate, do NOT fabricate a hold-to-horizon
+    // tail — reject so the candidate falls back to DegradedHold.
+    const double own_u_hold = std::max(inputs.uN_mps, 0.1);
+    double dwell_s = 0.0;
+    bool s_clear_available = inputs.m6_release_predicted;
+    if (!s_clear_available) {
+      // Try to extrapolate from the primary target's tcpa_s.
+      if (!inputs.targets.empty() && std::isfinite(inputs.targets.front().tcpa_s) &&
+          inputs.targets.front().tcpa_s > 0.0) {
+        dwell_s = inputs.targets.front().tcpa_s;
+        s_clear_available = true;
+      }
+    } else if (!inputs.targets.empty() && std::isfinite(inputs.targets.front().tcpa_s) &&
+               inputs.targets.front().tcpa_s > 0.0) {
+      // Release predicted AND a tcpa is available → use the tighter of the two.
+      dwell_s = inputs.targets.front().tcpa_s;
+    }
+    if (!s_clear_available) {
+      result.reject_reason = "active_s_clear_unavailable";
+      return result;
+    }
+    dwell_s = std::max(dwell_s, kActiveMinDwellS);
+    const double advance_m = own_u_hold * dwell_s;
+    const double s_clear = std::min(route_len, projection.s_m + advance_m);
+    if (s_clear <= projection.s_m + inputs.gnc_odd.min_segment_length_m) {
+      result.reject_reason = "insufficient_route_for_active_hold";
+      return result;
+    }
+
+    TailSegment segment{};
+    for (double s = projection.s_m; s < s_clear; s += spacing_m) {
+      segment.waypoints.push_back(inputs.route_frame.sample(s, l_hold, inputs.uN_mps));
+      segment.source_labels.push_back(l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD);
+    }
+    segment.waypoints.push_back(inputs.route_frame.sample(s_clear, l_hold, inputs.uN_mps));
+    segment.source_labels.push_back(l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD);
+
+    if (!validate_tail_segment(inputs, segment, result.reject_reason, /*expect_rejoin=*/false)) {
+      return result;
+    }
+
+    result.hold_then_rejoin = std::move(segment);
+    return result;
+  }
+
+  // ── Release phase (spec §5.2): hold + rejoin (existing semantics).
   const double dwell_m = std::clamp(4.0 * inputs.gnc_odd.ship_length_m,
                                     inputs.gnc_odd.min_segment_length_m,
                                     5.0 * inputs.gnc_odd.ship_length_m);
   const double s_clear = projection.s_m;
   const double rejoin_start = s_clear + dwell_m;
   const double rejoin_len = feasible_rejoin_length_m(inputs, l_hold);
-  const double end_s = std::min(inputs.route_frame.length_m(), rejoin_start + rejoin_len);
+  const double end_s = std::min(route_len, rejoin_start + rejoin_len);
   if (end_s <= rejoin_start + inputs.gnc_odd.min_segment_length_m) {
     result.reject_reason = "insufficient_route_for_rejoin";
     return result;
   }
 
   TailSegment segment{};
-  const double spacing_m = std::clamp(inputs.gnc_odd.min_segment_length_m, 50.0, 150.0);
-
   for (double s = s_clear; s < rejoin_start; s += spacing_m) {
     segment.waypoints.push_back(inputs.route_frame.sample(s, l_hold, inputs.uN_mps));
     segment.source_labels.push_back(l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD);
@@ -408,7 +481,7 @@ TailResult TailBuilder::build(const TailInputs& inputs)
   segment.waypoints.push_back(inputs.route_frame.sample(end_s, 0.0, inputs.uN_mps));
   segment.source_labels.push_back(l3_msgs::msg::AvoidancePlan::REJOIN_TO_L2);
 
-  if (!validate_tail_segment(inputs, segment, result.reject_reason)) {
+  if (!validate_tail_segment(inputs, segment, result.reject_reason, /*expect_rejoin=*/true)) {
     return result;
   }
 

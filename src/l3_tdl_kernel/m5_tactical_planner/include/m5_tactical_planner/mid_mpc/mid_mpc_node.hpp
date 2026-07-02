@@ -132,6 +132,16 @@ class MidMpcNode : public rclcpp::Node {
                                     double lon0_deg,
                                     const l3_msgs::msg::AvoidancePlan& selected_plan,
                                     const MidMpcSolution& sol);
+  // Slice W1 (spec §5.3): build the TailBuilder hold[+rejoin] segment from the
+  // NLP terminal state + M6 lifecycle + L2 route-frame and append its NED
+  // waypoints to the AvoidancePlan parallel arrays (between MID_MPC_OPTIMIZED
+  // and L2_NOMINAL_SUFFIX). Returns the reject_reason if TailBuilder declined
+  // (caller marks the candidate nlp_tail_gate_failed); empty on success/no-op.
+  std::string append_tail_waypoints_(l3_msgs::msg::AvoidancePlan& plan,
+                                     const MidMpcInput& input,
+                                     const MidMpcSolution& sol,
+                                     double lat0_deg,
+                                     double lon0_deg);
   bool last_emitted_conflict_active_{false};
   std::optional<rclcpp::Time> return_to_route_emit_until_;
   struct AvoidanceCorridorAnchor {
