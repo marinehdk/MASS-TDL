@@ -212,17 +212,28 @@ casadi::MX MidMpcNlpFormulation::compute_terminal_cross_track_() const {
 // §5.5 hard rows (two linear constraints, not a cost), so this term only supplies
 // a smooth gradient that nudges the terminal to the preferred side.
 //
-// Gated by give_way (kIdxGiveWay): stand-on / no-encounter → zero terminal cost
-// (spec §5.4: stand-on keeps heading, Rule 17). preferred_direction (kIdxPreferredDir)
-// is the M6 signed side (+1 stbd / -1 port / 0 no preference); when 0 the wrong-
-// side argument is 0 → softplus(0)=τ·log2 ≈ 0.69·τ, a small constant gradient —
-// acceptable since the §5.5 hard rows are also disabled when pref_dir=0 (§3.3).
+// Gated by give_way derived from the ROLE (kIdxRole), NOT from kIdxGiveWay
+// (rule14/15-only). spec §5.4 + §3.3: the give-way gate is role-based — the
+// terminal cost / hard rows activate for primary_role ∈ {GIVE_WAY, BOTH_GIVE_WAY},
+// which includes Rule 13 (overtaking give-way), not just Rule 14/15. The
+// solver's terminal_disabled derivation (mid_mpc_solver.cpp, give_way_role =
+// role==1 || role==2) uses the SAME role source, so the cost gate and the
+// constraint-row gate are CONSISTENT (cost=0 ⟺ rows disabled). kIdxRole is
+// packed 1.0 for give-way, 0.0 for stand-on/free (pack_parameters). Using it
+// directly as the cost gate keeps a single source of truth.
+//
+// preferred_direction (kIdxPreferredDir) is the M6 signed side (+1 stbd / -1
+// port / 0 no preference); when 0 the wrong-side argument is 0 → softplus(0)=
+// τ·log2 ≈ 0.69·τ, a small constant gradient — acceptable since the §5.5 hard
+// rows are also disabled when pref_dir=0 / HOLD / ReduceSpeed (§3.3).
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_terminal_cost_() const {
   const casadi::MX lN        = compute_terminal_cross_track_();
   const casadi::MX l_scale   = slot(p_, kIdxLateralScale);
   const casadi::MX pref_dir  = slot(p_, kIdxPreferredDir);
-  const casadi::MX give_way  = slot(p_, kIdxGiveWay);
+  // give_way gate from ROLE (kIdxRole), same source as the solver's
+  // terminal_disabled derivation — NOT kIdxGiveWay (rule14/15-only, §5.4 review).
+  const casadi::MX give_way  = slot(p_, kIdxRole);
   const casadi::MX tau_t     = casadi::DM(cfg_.terminal_tau);
   // l_wrong_side > 0 when the terminal is on the side OPPOSITE to preferred.
   const casadi::MX wrong_side = -pref_dir * (lN / l_scale);

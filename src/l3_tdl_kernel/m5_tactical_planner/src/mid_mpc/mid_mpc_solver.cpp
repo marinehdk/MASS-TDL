@@ -134,7 +134,18 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
              mass_l3::m5::ColregsPreferredDirection::Port);
     const bool give_way_role =
         (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
-    if (!pref_active || !give_way_role) {
+    // spec §3.3: HOLD / ReduceSpeed are NOT lateral-alteration behaviors, so
+    // the direction / min_alt / terminal rows are disabled. pref_active above
+    // is already false for Hold/ReduceSpeed (only Starboard/Port are active),
+    // so this is belt-and-suspenders: an EXPLICIT behavior check makes the
+    // §3.3 "non-HOLD" activation condition self-documenting and robust to a
+    // future change that widens pref_active (e.g. adding Hold to Starboard).
+    const bool lateral_behavior =
+        (input.colregs_preferred_direction !=
+             mass_l3::m5::ColregsPreferredDirection::Hold &&
+         input.colregs_preferred_direction !=
+             mass_l3::m5::ColregsPreferredDirection::ReduceSpeed);
+    if (!pref_active || !give_way_role || !lateral_behavior) {
       rb_eff.terminal_disabled = true;  // §3.3: not a give-way terminal scenario
     }
   }
