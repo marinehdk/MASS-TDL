@@ -37,6 +37,20 @@ int32_t MidMpcSolver::g_dim_() const noexcept {
 // pack_warm_start_() — extract previous-cycle trajectory into x0 = [psi; u].
 // If warm trajectory is shorter than N (degenerate), repeats the last valid
 // point rather than leaving zeros (avoids psi=0/u=0 starting outside bounds).
+//
+// Slice C1 (spec §6.5): warm-start is now SPLIT prefix/suffix:
+//   prefix segment (k < K): x0 = prefix_psi/prefix_u (the equality-pinned values
+//     from the committed-geometry reprojection). These are read from the input's
+//     prefix_psi_rad/prefix_u_mps (the solver's input, not the raw previous
+//     solution), so the warm start is consistent with the equality rows.
+//   suffix segment (k >= K): x0 = COLD-START seed (own_psi/own_u), NOT the
+//     previous solution. Spec §6.5 rationale: prefix equality already guarantees
+//     prefix continuity; the suffix uses cold-start (own_psi) to avoid warm-start
+//     accumulation drift (v1 root cause). Suffix stability comes from the prefix
+//     anchor + J_route/J_dist pull-back, not warm-start continuation.
+//
+// This signature is kept (warm only) for legacy callers; the K-aware split
+// happens in solve() which builds x0 directly when K>0.
 // ===========================================================================
 casadi::DM MidMpcSolver::pack_warm_start_(const MidMpcSolution& warm) const {
   const int32_t N     = formulation_.config().n_horizon;
@@ -90,9 +104,29 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   const auto t_start = std::chrono::steady_clock::now();
 
   const casadi::DM p_val = formulation_.pack_parameters(input);
-  const casadi::DM x0_val = (warm_start != nullptr)
-      ? pack_warm_start_(*warm_start)
-      : pack_cold_start_(input);
+
+  // ── Slice C1 (spec §6.5): warm-start prefix/suffix split.
+  //   prefix (k<K): x0 = prefix_psi/prefix_u (equality-pinned reprojected values).
+  //   suffix (k>=K): x0 = cold-start seed (own_psi/own_u), NOT previous solution.
+  // The previous-cycle warm trajectory is deliberately ignored for BOTH segments:
+  // prefix is anchored by equality; suffix uses cold-start to prevent accumulation
+  // drift (spec §6.5, v1 root cause). When K=0 (no prefix / first commit) this
+  // reduces to pure cold-start, matching pack_cold_start_ exactly.
+  const int32_t N = formulation_.config().n_horizon;
+  const int32_t K = static_cast<int32_t>(static_cast<double>(p_val(
+      mass_l3::m5::mid_mpc::kIdxPrefixActiveK)));
+  const int32_t K_eff = (K < 0) ? 0 : ((K > N) ? N : K);
+  casadi::DM x0_val = pack_cold_start_(input);
+  for (int32_t k = 0; k < K_eff; ++k) {
+    const std::size_t kk = static_cast<std::size_t>(k);
+    const double psi_k = (kk < input.prefix_psi_rad.size())
+        ? input.prefix_psi_rad[kk] : input.own_ship.psi_rad;
+    const double u_k = (kk < input.prefix_u_mps.size())
+        ? input.prefix_u_mps[kk] : input.own_ship.u_mps;
+    x0_val(k)     = psi_k;
+    x0_val(N + k) = u_k;
+  }
+  (void)warm_start;  // C1: suffix uses cold-start, not previous solution (§6.5)
 
   const int32_t gdim = g_dim_();
 
@@ -101,7 +135,6 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // IPOPT keeps every iterate strictly inside these bounds and auto-projects
   // x0, so a box-active optimum is the robust case (vs. restoration-fragile
   // general inequality rows — see MidMpcNlpFormulation::g_dim rationale).
-  const int32_t N = formulation_.config().n_horizon;
   const auto& cst = input.constraints;
   casadi::DM lbx = casadi::DM::zeros(2 * N, 1);
   casadi::DM ubx = casadi::DM::zeros(2 * N, 1);
@@ -125,7 +158,20 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // when the caller did not explicitly enable it — this keeps legacy callers
   // (which pass the default RowBoundConfig{}) no-op-safe: a Hold/stand-on input
   // disables the terminal rows automatically. W1/node may still override.
+  //
+  // Slice C1 (spec §6.3/§6.4): the active prefix K is derived from the input
+  // (prefix_active_k, packed by assemble_input_ from the GNC guard distance)
+  // and propagated into the RowBoundConfig. When K>0 the COLREG prefix rows are
+  // softened (colreg_prefix_softened) so a target moving into the frozen prefix
+  // geometry cannot make the NLP infeasible (§6.4). A caller-supplied K in the
+  // RowBoundConfig takes precedence (e.g. a test that sets K explicitly).
   RowBoundConfig rb_eff = row_bounds;
+  if (rb_eff.K == 0 && K_eff > 0) {
+    rb_eff.K = K_eff;
+  }
+  if (K_eff > 0) {
+    rb_eff.colreg_prefix_softened = true;  // §6.4: soften prefix COLREG rows
+  }
   if (!rb_eff.terminal_disabled) {
     const bool pref_active =
         (input.colregs_preferred_direction ==

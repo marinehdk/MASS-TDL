@@ -214,6 +214,23 @@ struct MidMpcInput {
   /// D3.2: dynamic ROT max [rad/s] from VesselDynamicsModel (replaces D0.1 hardcoded stub)
   double rot_max_rad_s{0.2094};
 
+  // ── Slice C1: continuity H_commit prefix (spec §6) ─────────────────────────
+  // The committed-route prefix is frozen WGS84 geometry (the GNC guard inner
+  // waypoints). assemble_input_ reprojects that geometry to the current cycle's
+  // ownship NED origin (spec §6.2) and back-infers the per-step psi/u that the
+  // NLP equality rows pin. These fields hold the NED-reprojected values so the
+  // formulation's pack_parameters can write them directly to kIdxPrefixPsi/U.
+  // prefix_active_k=0 (default) ⇒ no prefix (K=0, first commit, full suffix free).
+  int32_t prefix_active_k{0};
+  std::vector<double> prefix_psi_rad;   // [K] NLP psi[k] equality targets (reprojected)
+  std::vector<double> prefix_u_mps;     // [K] NLP u[k]   equality targets (reprojected)
+  // Own-ship WGS84 position for the cycle (the reprojection origin). Packed so
+  // the reprojection test can verify WGS84 continuity across two different
+  // NED origins. Both own_lat/lon and own_n/own_e describe the same current
+  // position; they are redundant representations kept for test clarity.
+  double own_lat_deg{0.0};
+  double own_lon_deg{0.0};
+
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 

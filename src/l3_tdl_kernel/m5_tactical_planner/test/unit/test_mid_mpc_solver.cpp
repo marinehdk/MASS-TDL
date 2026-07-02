@@ -243,10 +243,24 @@ TEST_F(MidMpcNlpTest, HardCpaFloorStaysAtCpaHardWhenCpaSafeIsBumped) {
 }
 
 // ---------------------------------------------------------------------------
-// 场景 5: Warm start — starting from the optimal requires fewer IPOPT iterations.
-// Uses ipopt_iterations (deterministic) rather than wall-clock (hardware-dependent).
+// 场景 5: Warm start contract (Slice C1, spec §6.5).
+//
+// The solver's warm-start is now SPLIT prefix/suffix:
+//   prefix (k<K): x0 = prefix_psi/prefix_u (equality-pinned values)
+//   suffix (k>=K): x0 = COLD-START seed (own_psi/own_u), NOT the previous
+//                  solution. Spec §6.5 rationale: prevent accumulation drift.
+//
+// When K=0 (no committed prefix, the default for these test inputs), the entire
+// horizon uses the cold-start seed, so solve(input, &prev) behaves IDENTICALLY
+// to solve(input, nullptr). This replaces the v1 "warm start needs fewer
+// iterations" expectation, which is no longer the contract: the suffix is
+// deliberately NOT seeded from the previous solution to avoid drift.
+//
+// We verify the new contract: with K=0, warm-start and cold-start produce the
+// same iteration count (both use the cold-start seed). The trajectory must also
+// match (deterministic solve from the same seed).
 // ---------------------------------------------------------------------------
-TEST_F(MidMpcNlpTest, WarmStartFasterThanColdStart) {
+TEST_F(MidMpcNlpTest, WarmStartSuffixUsesColdStartSeedWhenKZero) {
   const MidMpcInput input = make_crossing_give_way_input();
   const auto cold = solver_->solve(input, nullptr);
   const auto warm = solver_->solve(input, &cold);
@@ -254,8 +268,12 @@ TEST_F(MidMpcNlpTest, WarmStartFasterThanColdStart) {
   // Both must converge for the comparison to be meaningful.
   ASSERT_EQ(cold.status, MidMpcSolver::SolveStatus::Converged);
   ASSERT_EQ(warm.status, MidMpcSolver::SolveStatus::Converged);
-  // Warm start is near-optimal: IPOPT should need strictly fewer iterations.
-  EXPECT_LT(warm.ipopt_iterations, cold.ipopt_iterations);
+  // C1 §6.5: with K=0 both use the cold-start seed → same iteration count
+  // (the previous solution is deliberately ignored for the suffix).
+  EXPECT_EQ(warm.ipopt_iterations, cold.ipopt_iterations)
+      << "K=0 warm-start should use cold-start seed (same iterations); "
+      << "got cold=" << cold.ipopt_iterations
+      << " warm=" << warm.ipopt_iterations;
 }
 
 // ---------------------------------------------------------------------------

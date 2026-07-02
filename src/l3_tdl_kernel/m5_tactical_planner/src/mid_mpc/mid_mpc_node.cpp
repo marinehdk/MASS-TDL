@@ -358,6 +358,107 @@ std::vector<TargetRiskSnapshot> build_target_risk_snapshots(
   }
   return snapshots;
 }
+
+// ===========================================================================
+// Slice C1: prefix reprojection + K computation (spec §6.2 / §6.3).
+//
+// Frozen committed-geometry prefix (WGS84 lat/lon) → NLP psi/u equality targets
+// reprojected into the current cycle's ownship-relative NED frame.
+//
+// CONTRACT (spec §6.2 Critical): the prefix is frozen in WGS84 (the committed
+// route geometry), NOT in psi/u (which are ownship-relative control quantities
+// whose implied WGS84 geometry shifts each cycle as the ownship origin moves).
+// Each cycle reprojects the frozen WGS84 waypoints to the CURRENT NED origin and
+// back-infers the per-step psi/u, so the published geometry stays continuous.
+//
+// Algorithm (spec §6.2 step 3 — back-infer psi/u):
+//   - Convert each prefix waypoint to own-relative NED metres (flat-earth).
+//   - For step k, the displacement from wp[k] to wp[k+1] over one dt gives
+//     speed u[k] = |Δ|/dt and heading psi[k] = atan2(Δe, Δn). The LAST prefix
+//     step repeats the penultimate psi/u (no further waypoint to define it).
+//   - When the prefix has <2 points, psi/u default to own_psi/own_u.
+//
+// K computation (spec §6.3): K = ceil(guard_distance / (own_u · dt)), clamped to
+//   [0, K_max] where K_max = N - K_suffix_min (K_suffix_min = 8 → 40 s suffix,
+//   ample avoidance room). K=0 on first commit (no committed prefix yet).
+// ===========================================================================
+struct PrefixPsiU {
+  int32_t K{0};
+  std::vector<double> psi_rad;
+  std::vector<double> u_mps;
+};
+
+// K_suffix_min: minimum suffix length (spec §6.3, default 8 = 40 s at dt=5).
+// Guarantees the suffix retains ample avoidance room regardless of K.
+constexpr int32_t kSuffixMinSteps = 8;
+
+PrefixPsiU reproject_committed_prefix(
+    const std::vector<mass_l3::m5::committed_route::GeoWP>& prefix_wgs84,
+    double own_lat_deg, double own_lon_deg,
+    double own_psi_rad, double own_u_mps,
+    double dt_s, int32_t N,
+    double guard_distance_m = kMinFirstChangedDistance_m) {
+  PrefixPsiU out;
+  // K from GNC guard distance (spec §6.3). own_u clamped to a floor so a
+  // near-stationary ship does not inflate K to the full horizon.
+  const double u_eff = std::max(own_u_mps, 0.5);
+  const double step_m = u_eff * dt_s;
+  int32_t K = (step_m > 1.0e-6)
+      ? static_cast<int32_t>(std::ceil(guard_distance_m / step_m))
+      : 0;
+  const int32_t K_max = std::max(0, N - kSuffixMinSteps);
+  if (K > K_max) { K = K_max; }
+  if (K < 0) { K = 0; }
+  out.K = K;
+  if (K == 0 || prefix_wgs84.empty()) { return out; }
+
+  // Reproject prefix waypoints to the current ownship-relative NED frame.
+  const double cos_lat = std::cos(own_lat_deg * units::kRadPerDeg);
+  const std::size_t np = prefix_wgs84.size();
+  std::vector<double> wn(np), we(np);
+  for (std::size_t i = 0u; i < np; ++i) {
+    wn[i] = (prefix_wgs84[i].lat_deg - own_lat_deg) * units::kRadPerDeg
+            * units::kEarthRadiusMean_m;
+    we[i] = (prefix_wgs84[i].lon_deg - own_lon_deg) * units::kRadPerDeg
+            * units::kEarthRadiusMean_m * cos_lat;
+  }
+
+  // Back-infer psi/u from adjacent-point displacement over dt (spec §6.2 step 3).
+  //
+  // NLP psi[k]/u[k] is the heading/speed of control step k, which advances own
+  // from pos[k] to pos[k+1]. To make the prefix reach the frozen waypoints, the
+  // segment for step k goes from waypoint k-1 (or own origin if k==0) to waypoint
+  // k. So u[k] = |wp[k] - start|/dt, psi[k] = atan2 of that displacement.
+  // (For k==0, start is the own origin (0,0) in the reprojected NED frame.)
+  // The last prefix step (k == K-1 with K==np) reuses wp[np-2]→wp[np-1]; if the
+  // prefix has fewer waypoints than K, the excess steps repeat the last segment.
+  out.psi_rad.resize(static_cast<std::size_t>(K));
+  out.u_mps.resize(static_cast<std::size_t>(K));
+  for (int32_t k = 0; k < K; ++k) {
+    const std::size_t kk = static_cast<std::size_t>(k);
+    if (np < 2u) {
+      out.psi_rad[kk] = own_psi_rad;
+      out.u_mps[kk]   = own_u_mps;
+      continue;
+    }
+    // End waypoint = wp[min(k, np-1)]; start = wp[k-1] (own origin if k==0).
+    const std::size_t end_idx = std::min(kk, np - 1u);
+    const double start_n = (kk == 0u) ? 0.0 : wn[std::min(kk - 1u, np - 1u)];
+    const double start_e = (kk == 0u) ? 0.0 : we[std::min(kk - 1u, np - 1u)];
+    const double dn = wn[end_idx] - start_n;
+    const double de = we[end_idx] - start_e;
+    const double dist = std::hypot(dn, de);
+    out.psi_rad[kk] = std::atan2(de, dn);
+    out.u_mps[kk]   = (dt_s > 1.0e-6) ? (dist / dt_s) : own_u_mps;
+    // Guard against a degenerate near-zero displacement (coincident waypoints):
+    // keep own_psi/own_u rather than atan2(0,0)=0.
+    if (dist < 0.5) {
+      out.psi_rad[kk] = own_psi_rad;
+      out.u_mps[kk]   = own_u_mps;
+    }
+  }
+  return out;
+}
 }  // namespace
 
 // ===========================================================================
@@ -677,6 +778,26 @@ MidMpcInput MidMpcNode::assemble_input_()
   const double hs_m = 0.0;  // [TBD-HAZID] sea state from EnvironmentState
   inp.rot_max_rad_s = vessel_model_.rot_max_rad_s(inp.own_ship.u_mps, hs_m);
   inp.decel_max_mps2 = std::max(effective_gnc_odd_().max_decel_mps2, 1.0e-6);
+
+  // Slice C1 (spec §6): continuity H_commit prefix. Reproject the committed-route
+  // prefix (frozen WGS84 geometry from the manager) to the current cycle's
+  // ownship NED origin and back-infer the per-step psi/u the NLP equality rows
+  // pin (spec §6.2). K is derived from the GNC guard distance (§6.3), NOT from a
+  // heartbeat. K=0 on first commit (no committed prefix) or when the suffix
+  // would shrink below K_suffix_min.
+  inp.own_lat_deg = own_lat;
+  inp.own_lon_deg = own_lon;
+  const auto& committed_prefix =
+      committed_route_manager_.current().committed_prefix;
+  if (!committed_prefix.empty()) {
+    const PrefixPsiU pp = reproject_committed_prefix(
+        committed_prefix, own_lat, own_lon,
+        inp.own_ship.psi_rad, inp.own_ship.u_mps,
+        formulation_.config().dt_s, formulation_.config().n_horizon);
+    inp.prefix_active_k = pp.K;
+    inp.prefix_psi_rad = std::move(pp.psi_rad);
+    inp.prefix_u_mps = std::move(pp.u_mps);
+  }
 
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
   mass_l3::m5::synchronize_mid_mpc_constraint_context(inp);

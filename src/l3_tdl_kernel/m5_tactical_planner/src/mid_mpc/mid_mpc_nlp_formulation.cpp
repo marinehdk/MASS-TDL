@@ -377,11 +377,32 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const casadi::MX g_rot_hi = rot_step_rep - dpsi;
   const casadi::MX g_rot_lo = rot_step_rep + dpsi;
 
-  // Slice N1 placeholder rows: zero MX columns of the right height. Zero rows
-  // with default [0,+inf] bounds are always feasible (0 >= 0). C1/D1/T1 replace
-  // these with the real constraint expressions.
-  const casadi::MX g_prefix_psi_eq = casadi::MX::zeros(N, 1);
-  const casadi::MX g_prefix_u_eq   = casadi::MX::zeros(N, 1);
+  // Slice C1: prefix-equality rows (spec §6.2). For each NLP step k the equality
+  //   g_prefix_psi_eq[k] = psi[k] - prefix_psi[k]   (prefix_psi = p[kIdxPrefixPsi+k])
+  //   g_prefix_u_eq[k]   = u[k]   - prefix_u[k]     (prefix_u   = p[kIdxPrefixU+k])
+  // The RowRegistry activates the first K rows as equality [0,0] and leaves the
+  // remaining (k>=K) rows double-disabled [-inf,+inf] (the K is supplied per-cycle
+  // via RowBoundConfig, NOT baked into the symbolic graph — the graph always
+  // builds all N rows; only the bounds toggle). So the expressions are written
+  // for ALL k unconditionally; the bounds decide which are active.
+  //
+  // CONTRACT (spec §6.2 Critical): the prefix values are the OWN-NED-reprojected
+  // committed geometry (WGS84 → NED at the current cycle origin, then back-inferred
+  // psi/u), NOT frozen raw psi/u from a prior cycle. Freezing raw psi/u would
+  // change the published WGS84 geometry as the ownship origin shifts each cycle.
+  // The symbolic expression itself only references p[kIdxPrefixPsi/U]; the
+  // reprojection is the solver/node's responsibility (pack_parameters writes the
+  // reprojected values, assemble_input_ computes them).
+  std::vector<casadi::MX> g_prefix_psi_vec(static_cast<std::size_t>(N));
+  std::vector<casadi::MX> g_prefix_u_vec(static_cast<std::size_t>(N));
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    const casadi::MX u_k   = u_(casadi::Slice(k, k + 1));
+    g_prefix_psi_vec[static_cast<std::size_t>(k)] = psi_k - slot(p_, kIdxPrefixPsi + k);
+    g_prefix_u_vec[static_cast<std::size_t>(k)]   = u_k   - slot(p_, kIdxPrefixU   + k);
+  }
+  const casadi::MX g_prefix_psi_eq = casadi::MX::vertcat(g_prefix_psi_vec);
+  const casadi::MX g_prefix_u_eq   = casadi::MX::vertcat(g_prefix_u_vec);
   const casadi::MX g_direction     = casadi::MX::zeros(N, 1);
   const casadi::MX g_min_alt       = casadi::MX::zeros(N, 1);
 
@@ -529,13 +550,19 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxRouteWeight)       = input.route_weight;
 
   // Slice C1/D1 reserved slots (prefix K, preferred direction, min alteration,
-  // role). kIdxPrefixActiveK / kIdxMinAlterationRad default to 0 — inactive until
-  // C1/D1 populate them. kIdxPreferredDir / kIdxRole are packed from the M6-owned
-  // MidMpcInput fields (colregs_preferred_direction / colregs_primary_role) so the
-  // T1 terminal cost (§5.4) and hard rows (§5.5) activate correctly at solve time.
+  // role). kIdxPrefixActiveK is now packed from input.prefix_active_k (C1, §6.3);
+  // the default 0 = no prefix (first commit). kIdxPreferredDir / kIdxRole are
+  // packed from the M6-owned MidMpcInput fields (colregs_preferred_direction /
+  // colregs_primary_role) so the T1 terminal cost (§5.4) and hard rows (§5.5)
+  // activate correctly at solve time.
   //   preferred_direction: Starboard→+1, Port→-1, Hold/ReduceSpeed→0 (no side pref).
   //   role: GIVE_WAY(1)/BOTH_GIVE_WAY(2)→1.0 (give-way gate open), else 0.0.
-  p(kIdxPrefixActiveK)    = 0.0;
+  // kIdxPrefixActiveK: C1 derives K from the GNC guard distance (§6.3, clamped to
+  // [0, N]). pack_parameters writes whatever the caller computed; the solver's
+  // RowBoundConfig.K drives the actual row activation.
+  const int32_t K_raw = input.prefix_active_k;
+  const int32_t K = (K_raw < 0) ? 0 : ((K_raw > cfg_.n_horizon) ? cfg_.n_horizon : K_raw);
+  p(kIdxPrefixActiveK)    = static_cast<double>(K);
   double pref_dir_val = 0.0;
   if (input.colregs_preferred_direction == ColregsPreferredDirection::Starboard) {
     pref_dir_val = 1.0;
@@ -546,9 +573,22 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxMinAlterationRad) = input.colregs_min_alteration_rad;
   const bool is_give_way = (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
   p(kIdxRole)             = is_give_way ? 1.0 : 0.0;
+  // Slice C1: prefix psi/u equality targets (spec §6.2). The first K entries are
+  // the reprojected committed-geometry values; entries k>=K stay 0 but are
+  // inactive (the RowRegistry deactivates those rows via [-inf,+inf] bounds).
   for (int32_t k = 0; k < cfg_.n_horizon; ++k) {
-    p(kIdxPrefixPsi + k) = 0.0;
-    p(kIdxPrefixU   + k) = 0.0;
+    if (k < K) {
+      const std::size_t kk = static_cast<std::size_t>(k);
+      const double psi_k = (kk < input.prefix_psi_rad.size())
+          ? input.prefix_psi_rad[kk] : 0.0;
+      const double u_k   = (kk < input.prefix_u_mps.size())
+          ? input.prefix_u_mps[kk] : input.own_ship.u_mps;
+      p(kIdxPrefixPsi + k) = psi_k;
+      p(kIdxPrefixU   + k) = u_k;
+    } else {
+      p(kIdxPrefixPsi + k) = 0.0;
+      p(kIdxPrefixU   + k) = 0.0;
+    }
   }
 
   // Targets: zero-padded up to cfg_.max_targets.

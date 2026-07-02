@@ -345,6 +345,12 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # ── Slice C1: continuity H_commit prefix equality + reprojection (spec §6) ─
+    m5_add_gtest(test_mid_mpc_continuity
+      test/unit/test_mid_mpc_continuity.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
     # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
     m5_add_gtest(test_mid_mpc_route_frame
       test/unit/test_mid_mpc_route_frame.cpp
@@ -456,7 +462,8 @@ if(BUILD_TESTING)
     foreach(_no_asan_tgt
         test_constraint_compiler
         test_mid_mpc_nlp_formulation
-        test_mid_mpc_solver)
+        test_mid_mpc_solver
+        test_mid_mpc_continuity)
       target_compile_options(${_no_asan_tgt} PRIVATE
         -fno-sanitize=address -fno-sanitize=undefined)
       target_link_options(${_no_asan_tgt} PRIVATE
