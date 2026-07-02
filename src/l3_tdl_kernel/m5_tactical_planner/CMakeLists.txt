@@ -339,6 +339,12 @@ if(BUILD_TESTING)
       casadi::casadi
     )
 
+    # ── Slice T1: terminal constraints + smooth J_terminal (spec §5.4/§5.5) ────
+    m5_add_gtest(test_mid_mpc_terminal
+      test/unit/test_mid_mpc_terminal.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
     # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
     m5_add_gtest(test_mid_mpc_route_frame
       test/unit/test_mid_mpc_route_frame.cpp

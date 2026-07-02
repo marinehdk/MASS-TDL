@@ -114,6 +114,24 @@ class MidMpcNlpFormulation {
     double k_asym{50.0};
     // [TBD-HAZID] Asymmetry smoothing scale [rad] (~5 deg).
     double asym_tau{0.0873};
+    // ── Slice T1: terminal side/bound tunables (spec §5.4 / §5.5) ───────────
+    // [TBD-HAZID] J_terminal softplus smoothing scale (dimensionless, on l/l_scale).
+    // Default 0.5: l_scale-normalized, so the softplus transition spans ~O(1) of
+    // the normalized lateral (≈400 m at the default l_scale). Same family as
+    // asym_tau (a softplus scale); chosen O(1) on the normalized lateral axis
+    // rather than the rad axis. HAZID RUN-001 to recalibrate.
+    double terminal_tau{0.5};
+    // [TBD-HAZID] Terminal same-side minimum feasible lateral [m] (spec §5.5
+    // g_term_side: pref_dir·l[N-1] ≥ l_min_feasible). COLREG apparent-action
+    // minimum offset so the avoidance tail is not negligibly small. Default
+    // 30 m ≈ 0.16 nm (small but non-zero apparent action).
+    double terminal_l_min_feasible_m{30.0};
+    // [TBD-HAZID] Terminal lateral feasibility upper bound [m] (spec §5.5
+    // g_term_lo/hi: |l[N-1]| ≤ l_max_feasible via two linear rows). =
+    // min(GncExecutionOdd.max_lateral_offset_m=400, TailBuilder rejoin upper
+    // bound). Default 400 m (the GncExecutionOdd cap); HAZID to clamp to the
+    // TailBuilder geometry once measured.
+    double terminal_l_max_feasible_m{400.0};
     // Max obstacle count per cycle (parametric upper bound, must be ≤ kMaxTargets).
     int32_t max_targets{kMaxTargets};
   };
@@ -162,6 +180,8 @@ class MidMpcNlpFormulation {
   [[nodiscard]] double eval_colreg_cost(const casadi::DM& x, const casadi::DM& p) const;
   [[nodiscard]] double eval_dist_cost(const casadi::DM& x, const casadi::DM& p) const;
   [[nodiscard]] double eval_route_cost(const casadi::DM& x, const casadi::DM& p) const;
+  // Slice T1: terminal wrong-side softplus cost evaluator (spec §5.4 / §10.1).
+  [[nodiscard]] double eval_terminal_cost(const casadi::DM& x, const casadi::DM& p) const;
 
  private:
   Config cfg_;
@@ -188,6 +208,14 @@ class MidMpcNlpFormulation {
   [[nodiscard]] casadi::MX build_velocity_cost_() const;
   // Slice R1: route-frame dimensionless cross-track cost (spec §4.3).
   [[nodiscard]] casadi::MX build_route_cost_() const;
+  // Slice T1: terminal wrong-side softplus cost (spec §5.4, smooth, no max/abs).
+  [[nodiscard]] casadi::MX build_terminal_cost_() const;
+  // Slice T1: terminal cross-track l[N-1] = (pos[N-1] - origin)·n_hat, where
+  // pos[N-1] is integrated from the own current position (same contract as
+  // build_route_cost_, spec §3.1/§4.2). Shared by build_terminal_cost_ and the
+  // terminal hard rows so the l[N-1] used in the cost and the constraint is
+  // identical (extracted to avoid duplicating the position integral).
+  [[nodiscard]] casadi::MX compute_terminal_cross_track_() const;
 
   // Constraint helper.
   [[nodiscard]] casadi::MX build_constraints_() const;

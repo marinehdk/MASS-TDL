@@ -55,6 +55,12 @@ struct RowBoundConfig {
   // True → direction + min_alt rows fully disabled (preferred_direction==0,
   // primary_role==STAND_ON, or M4 behavior HOLD/REDUCE_SPEED — spec §3.3).
   bool direction_disabled{false};
+  // True → terminal rows (side/lo/hi) fully disabled (spec §5.5: stand-on has
+  // no terminal constraint). Shares the §3.3 activation condition with
+  // direction_disabled (give-way + preferred_direction≠0 + non-HOLD), so in
+  // practice the two flags are set together; kept separate so D1 can independently
+  // control the k=N-1 terminal rows if a future slice decouples them.
+  bool terminal_disabled{false};
 };
 
 // ---------------------------------------------------------------------------
@@ -166,6 +172,7 @@ class RowRegistry {
     apply_prefix_equality_(cfg_eff, b);
     if (cfg_eff.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg_eff, b); }
     if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
+    if (cfg_eff.terminal_disabled) { apply_terminal_disable_(b); }
     return b;
   }
 
@@ -221,6 +228,21 @@ class RowRegistry {
       const std::size_t rm = static_cast<std::size_t>(min_alt_row(k));
       b.lbg[rd] = -kInf; b.ubg[rd] = kInf;
       b.lbg[rm] = -kInf; b.ubg[rm] = kInf;
+    }
+  }
+
+  // terminal_disabled: ALL 3 terminal rows (side/lo/hi) → [-inf,+inf]
+  // (spec §5.5: stand-on has no terminal constraint). Guarded against an empty
+  // registry (total_rows()==0, e.g. before build_symbolic_graph) so the fail-
+  // closed size-mismatch path does not write out of bounds.
+  void apply_terminal_disable_(BoundArray& b) const {
+    const int32_t n = total_rows();
+    for (int32_t i = 0; i < kTerminalRowCount; ++i) {
+      const int32_t r = terminal_row(i);
+      if (r >= 0 && r < n) {
+        const std::size_t idx = static_cast<std::size_t>(r);
+        b.lbg[idx] = -kInf; b.ubg[idx] = kInf;
+      }
     }
   }
 };

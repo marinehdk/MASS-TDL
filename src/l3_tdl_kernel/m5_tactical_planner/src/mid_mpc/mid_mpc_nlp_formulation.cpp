@@ -166,6 +166,71 @@ casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
 }
 
 // ===========================================================================
+// compute_terminal_cross_track_() — Slice T1 shared l[N-1] helper (spec §3.1).
+//
+// Returns the terminal cross-track l[N-1] = (pos[N-1] - route_origin) · n_hat,
+// where pos[N-1] is integrated from the OWN SHIP CURRENT position (kIdxX0/Y0),
+// exactly as build_route_cost_ does (spec §3.1: pos[k] = x0 + Σ_{j<k} ...). The
+// route-frame origin/normal are in the same own-relative NED frame (R1 Critical-2).
+//
+// Extracted so build_terminal_cost_ (§5.4) and the terminal hard rows (§5.5)
+// use the IDENTICAL l[N-1] expression — avoiding a divergence between the cost
+// gradient and the constraint the cost complements. The integral here is a
+// faithful re-evaluation of the same kinematics (the alternative — sharing a
+// single MX node across cost and constraint — is possible but couples the two
+// expressions; the spec keeps them independent, §5.4 cost vs §5.5 hard rows).
+// ===========================================================================
+casadi::MX MidMpcNlpFormulation::compute_terminal_cross_track_() const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::MX dt   = casadi::DM(cfg_.dt_s);
+  casadi::MX cx   = slot(p_, kIdxX0);
+  casadi::MX cy   = slot(p_, kIdxY0);
+  const casadi::MX ox   = slot(p_, kIdxRouteFrameOriginX);
+  const casadi::MX oy   = slot(p_, kIdxRouteFrameOriginY);
+  const casadi::MX nx   = slot(p_, kIdxRouteFrameNormalX);
+  const casadi::MX ny   = slot(p_, kIdxRouteFrameNormalY);
+  // Integrate pos up to (but not advancing past) k=N-1, then evaluate l there.
+  // pos[N-1] = x0 + Σ_{j=0}^{N-2} u[j]·dt·(cos,sin)(psi[j]).
+  for (int32_t k = 0; k < N - 1; ++k) {
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    const casadi::MX u_k   = u_(casadi::Slice(k, k + 1));
+    cx = cx + u_k * dt * casadi::MX::cos(psi_k);
+    cy = cy + u_k * dt * casadi::MX::sin(psi_k);
+  }
+  return (cx - ox) * nx + (cy - oy) * ny;  // l[N-1]
+}
+
+// ===========================================================================
+// build_terminal_cost_() — Slice T1 terminal wrong-side softplus (spec §5.4).
+//
+//   J_terminal = give_way · τ_t · softplus((l_wrong_side)/τ_t)
+//   l_wrong_side = -preferred_direction · (l[N-1]/l_scale)   (>0 on wrong side)
+//
+// softplus(z) = τ·log(1+exp(z/τ)) is C∞ smooth (no max/abs kink — spec §5.4
+// Critical: the v1 (max(0,|l|-lmax))² was deleted because max is non-smooth and
+// caused IPOPT Restoration_Failed). The lateral UPPER bound is handled by the
+// §5.5 hard rows (two linear constraints, not a cost), so this term only supplies
+// a smooth gradient that nudges the terminal to the preferred side.
+//
+// Gated by give_way (kIdxGiveWay): stand-on / no-encounter → zero terminal cost
+// (spec §5.4: stand-on keeps heading, Rule 17). preferred_direction (kIdxPreferredDir)
+// is the M6 signed side (+1 stbd / -1 port / 0 no preference); when 0 the wrong-
+// side argument is 0 → softplus(0)=τ·log2 ≈ 0.69·τ, a small constant gradient —
+// acceptable since the §5.5 hard rows are also disabled when pref_dir=0 (§3.3).
+// ===========================================================================
+casadi::MX MidMpcNlpFormulation::build_terminal_cost_() const {
+  const casadi::MX lN        = compute_terminal_cross_track_();
+  const casadi::MX l_scale   = slot(p_, kIdxLateralScale);
+  const casadi::MX pref_dir  = slot(p_, kIdxPreferredDir);
+  const casadi::MX give_way  = slot(p_, kIdxGiveWay);
+  const casadi::MX tau_t     = casadi::DM(cfg_.terminal_tau);
+  // l_wrong_side > 0 when the terminal is on the side OPPOSITE to preferred.
+  const casadi::MX wrong_side = -pref_dir * (lN / l_scale);
+  // softplus(z) = τ·log(1+exp(z/τ)); C∞ smooth, ≈ z for large z, ≈ 0 for z≪0.
+  return give_way * tau_t * casadi::MX::log(1.0 + casadi::MX::exp(wrong_side / tau_t));
+}
+
+// ===========================================================================
 // build_velocity_cost_() — sum_k (u[k] - planned_speed)^2
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_velocity_cost_() const {
@@ -308,7 +373,23 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const casadi::MX g_prefix_u_eq   = casadi::MX::zeros(N, 1);
   const casadi::MX g_direction     = casadi::MX::zeros(N, 1);
   const casadi::MX g_min_alt       = casadi::MX::zeros(N, 1);
-  const casadi::MX g_terminal      = casadi::MX::zeros(kTerminalRowCount, 1);
+
+  // Slice T1: terminal hard rows (spec §5.5). Three g≥0 rows evaluated at the
+  // suffix terminal step k=N-1, give-way role only (stand-on disabled via
+  // RowBoundConfig::terminal_disabled → bounds [-inf,+inf], §5.5). NO abs: the
+  // lateral bound is two linear rows (lo + hi) replacing |l[N-1]| (spec §5.5,
+  // aligned with the J_colreg smoothness principle).
+  //   g_term_side: preferred_direction · l[N-1] - l_min_feasible ≥ 0  (same side)
+  //   g_term_lo:   l[N-1] + l_max_feasible ≥ 0                        (lower bound)
+  //   g_term_hi:   l_max_feasible - l[N-1] ≥ 0                        (upper bound)
+  const casadi::MX lN_term       = compute_terminal_cross_track_();
+  const casadi::MX pref_dir_term = slot(p_, kIdxPreferredDir);
+  const casadi::MX l_min         = casadi::DM(cfg_.terminal_l_min_feasible_m);
+  const casadi::MX l_max         = casadi::DM(cfg_.terminal_l_max_feasible_m);
+  const casadi::MX g_term_side   = pref_dir_term * lN_term - l_min;
+  const casadi::MX g_term_lo     = lN_term + l_max;
+  const casadi::MX g_term_hi     = l_max - lN_term;
+  const casadi::MX g_terminal    = casadi::MX::vertcat({g_term_side, g_term_lo, g_term_hi});
 
   // ConstraintCompiler rows (numeric-baked; G1 rebuild model).
   const auto cpa_cc = compiler_.compile_cpa_distance(
@@ -358,7 +439,8 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
      + casadi::DM(cfg_.w_dist)   * build_distance_cost_()
      + casadi::DM(cfg_.w_vel)    * build_velocity_cost_()
      + casadi::DM(cfg_.w_route)  * build_route_cost_()   // Slice R1 (§4.3)
-     + build_asym_cost_();  // gated starboard preference (give-way only)
+     + build_asym_cost_()        // gated starboard preference (give-way only)
+     + build_terminal_cost_();   // Slice T1 terminal wrong-side softplus (§5.4)
 
   g_ = build_constraints_();
   g_dim_ = static_cast<int32_t>(g_.size1());
@@ -436,11 +518,23 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxRouteWeight)       = input.route_weight;
 
   // Slice C1/D1 reserved slots (prefix K, preferred direction, min alteration,
-  // role) default to 0 — inactive until those slices populate them.
+  // role). kIdxPrefixActiveK / kIdxMinAlterationRad default to 0 — inactive until
+  // C1/D1 populate them. kIdxPreferredDir / kIdxRole are packed from the M6-owned
+  // MidMpcInput fields (colregs_preferred_direction / colregs_primary_role) so the
+  // T1 terminal cost (§5.4) and hard rows (§5.5) activate correctly at solve time.
+  //   preferred_direction: Starboard→+1, Port→-1, Hold/ReduceSpeed→0 (no side pref).
+  //   role: GIVE_WAY(1)/BOTH_GIVE_WAY(2)→1.0 (give-way gate open), else 0.0.
   p(kIdxPrefixActiveK)    = 0.0;
-  p(kIdxPreferredDir)     = 0.0;
-  p(kIdxMinAlterationRad) = 0.0;
-  p(kIdxRole)             = 0.0;
+  double pref_dir_val = 0.0;
+  if (input.colregs_preferred_direction == ColregsPreferredDirection::Starboard) {
+    pref_dir_val = 1.0;
+  } else if (input.colregs_preferred_direction == ColregsPreferredDirection::Port) {
+    pref_dir_val = -1.0;
+  }
+  p(kIdxPreferredDir)     = pref_dir_val;
+  p(kIdxMinAlterationRad) = input.colregs_min_alteration_rad;
+  const bool is_give_way = (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
+  p(kIdxRole)             = is_give_way ? 1.0 : 0.0;
   for (int32_t k = 0; k < cfg_.n_horizon; ++k) {
     p(kIdxPrefixPsi + k) = 0.0;
     p(kIdxPrefixU   + k) = 0.0;
@@ -568,6 +662,17 @@ double MidMpcNlpFormulation::eval_route_cost(
   const casadi::DM psi_dm = x(casadi::Slice(0, N), casadi::Slice(0, 1));
   const casadi::DM u_dm   = x(casadi::Slice(N, 2 * N), casadi::Slice(0, 1));
   casadi::Function f("eval_route", {psi_, u_, p_}, {build_route_cost_()});
+  std::vector<casadi::DM> out = f(std::vector<casadi::DM>{psi_dm, u_dm, p});
+  return static_cast<double>(casadi::DM::vec(out.at(0))(0));
+}
+
+// Slice T1: terminal wrong-side softplus cost evaluator (spec §5.4 / §10.1).
+double MidMpcNlpFormulation::eval_terminal_cost(
+    const casadi::DM& x, const casadi::DM& p) const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::DM psi_dm = x(casadi::Slice(0, N), casadi::Slice(0, 1));
+  const casadi::DM u_dm   = x(casadi::Slice(N, 2 * N), casadi::Slice(0, 1));
+  casadi::Function f("eval_terminal", {psi_, u_, p_}, {build_terminal_cost_()});
   std::vector<casadi::DM> out = f(std::vector<casadi::DM>{psi_dm, u_dm, p});
   return static_cast<double>(casadi::DM::vec(out.at(0))(0));
 }

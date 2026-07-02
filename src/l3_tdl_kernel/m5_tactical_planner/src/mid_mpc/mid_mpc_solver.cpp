@@ -116,8 +116,30 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // RowBoundConfig (default {}) reproduces legacy zeros/inf except for the
   // prefix-equality class, which is double-disabled [-inf,+inf] when K=0 (no
   // prefix → the placeholder rows are unconstrained, a no-op).
+  //
+  // Slice T1: the terminal hard rows (§5.5) now hold REAL expressions (not the
+  // N1 zero placeholders). g_term_side = pref_dir·l[N-1] - l_min is INFEASIBLE
+  // (≡ -l_min < 0) when preferred_direction==0. spec §3.3: terminal rows share
+  // the direction/min_alt activation condition (give-way + pref_dir≠0 + non-
+  // HOLD/ReduceSpeed). So the solver derives terminal_disabled from the input
+  // when the caller did not explicitly enable it — this keeps legacy callers
+  // (which pass the default RowBoundConfig{}) no-op-safe: a Hold/stand-on input
+  // disables the terminal rows automatically. W1/node may still override.
+  RowBoundConfig rb_eff = row_bounds;
+  if (!rb_eff.terminal_disabled) {
+    const bool pref_active =
+        (input.colregs_preferred_direction ==
+             mass_l3::m5::ColregsPreferredDirection::Starboard ||
+         input.colregs_preferred_direction ==
+             mass_l3::m5::ColregsPreferredDirection::Port);
+    const bool give_way_role =
+        (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
+    if (!pref_active || !give_way_role) {
+      rb_eff.terminal_disabled = true;  // §3.3: not a give-way terminal scenario
+    }
+  }
   const BoundArray bounds =
-      formulation_.row_registry().build_bounds(row_bounds);
+      formulation_.row_registry().build_bounds(rb_eff);
   const int32_t nb = static_cast<int32_t>(bounds.lbg.size());
   // FAIL-CLOSED (spec §3.8/§10.1, review High): the registry is rebuilt per-cycle
   // in build_constraints_, so total_rows() MUST equal g_dim(). A size mismatch is
