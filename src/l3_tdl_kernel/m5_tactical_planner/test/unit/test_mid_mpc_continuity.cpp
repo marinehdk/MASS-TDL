@@ -29,6 +29,7 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/committed_route/committed_prefix_reproject.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
 #include "m5_tactical_planner/mid_mpc/row_registry.hpp"
@@ -36,6 +37,7 @@
 using mass_l3::m5::MidMpcInput;
 using mass_l3::m5::MidMpcSolution;
 using mass_l3::m5::TargetState;
+using mass_l3::m5::committed_route::reproject_prefix_psi_u;
 using mass_l3::m5::mid_mpc::MidMpcNlpFormulation;
 using mass_l3::m5::mid_mpc::MidMpcSolver;
 using mass_l3::m5::mid_mpc::RowBoundConfig;
@@ -108,6 +110,8 @@ MidMpcInput make_base_input() {
 
 // Replicate the node's K computation (spec §6.3) for the test to assert.
 // K = ceil(guard_distance / (own_u · dt)), clamped to [0, N - K_suffix_min].
+// own_u floored at 0.5 m/s so a near-stationary ship does not inflate K to the
+// full horizon (spec §6.3 footnote; K_max clamp is the hard backstop).
 int32_t compute_k_from_guard(double guard_m, double own_u, double dt_s,
                              int32_t N, int32_t k_suffix_min = 8) {
   const double u_eff = std::max(own_u, 0.5);
@@ -247,19 +251,25 @@ TEST_F(ContinuityTest, KFromGncGuardDistance) {
 // published WGS84 waypoints from the prefix segment — because we froze the
 // geometry, not the raw psi/u.
 //
-// Setup: a committed prefix of 4 WGS84 waypoints extending north from a base
-// position. Cycle A has own at base_lat; cycle B has own advanced 25 m north
-// (one step) — the NED origin shifted, but the committed WGS84 prefix is
-// unchanged. After reprojection + back-inference, the NLP prefix psi/u differ
-// between cycles (different NED frames), BUT the WGS84 waypoints reconstructed
-// from each cycle's solved prefix must match (within flat-earth tolerance).
+// This test drives the PRODUCTION reproject path (committed_route::
+// reproject_prefix_psi_u in committed_prefix_reproject.hpp — the pure function
+// the node's reproject_committed_prefix delegates to) for BOTH cycles. No
+// back-infer logic is duplicated in the test. Cycle A and cycle B call the same
+// production pure function with DIFFERENT ownship origins (same frozen WGS84
+// prefix), then each reconstructs WGS84 from its returned psi/u; both must
+// reconstruct the SAME frozen waypoints (the whole point of freezing geometry).
 //
 // This is the core §6.2 Critical contract: freezing raw psi/u would make the
 // published geometry JUMP as the origin moves; freezing WGS84 + reprojection
 // keeps it continuous.
 // ===========================================================================
 TEST_F(ContinuityTest, ReprojectPreservesWGS84Geometry) {
-  const double dt = formulation_->config().dt_s;
+  const double dt = formulation_->config().dt_s;  // 5.0
+  // Use the spec default N=18 so K_max = 18 - 8 = 10 >= 4 (the N=8 fixture would
+  // clamp K to 0). own_u=5 m/s, guard=100 m, dt=5 → K = ceil(100/25) = 4.
+  constexpr int32_t kN = 18;
+  constexpr double kOwnU = 5.0;
+  constexpr double kGuardM = 100.0;
   constexpr std::size_t kPrefixLen = 4u;
 
   // Base WGS84 position (well away from the equator/poles for flat-earth).
@@ -267,53 +277,24 @@ TEST_F(ContinuityTest, ReprojectPreservesWGS84Geometry) {
   const double base_lon = 139.0;
 
   // Committed prefix: 4 WGS84 waypoints, each 25 m north of the previous
-  // (5 m/s × 5 s = 25 m/step, due north). This is the FROZEN geometry.
-  const double step_m = 5.0 * dt;  // 25 m
-  std::vector<std::pair<double, double>> prefix_wgs84(kPrefixLen);
+  // (5 m/s × 5 s = 25 m/step, due north). This is the FROZEN geometry shared by
+  // both cycles.
+  const double step_m = kOwnU * dt;  // 25 m
+  std::vector<double> prefix_lat(kPrefixLen);
+  std::vector<double> prefix_lon(kPrefixLen);
   for (std::size_t i = 0u; i < kPrefixLen; ++i) {
     const double n_m = step_m * static_cast<double>(i + 1u);  // 25,50,75,100 m N
-    ned_to_wgs84(n_m, 0.0, base_lat, base_lon,
-                 prefix_wgs84[i].first, prefix_wgs84[i].second);
+    ned_to_wgs84(n_m, 0.0, base_lat, base_lon, prefix_lat[i], prefix_lon[i]);
   }
 
-  // Helper: back-infer prefix psi/u from WGS84 prefix reprojected to a given
-  // ownship origin (mirrors reproject_committed_prefix in the node).
-  //
-  // NLP psi[k]/u[k] is the heading/speed of control step k, which advances own
-  // from pos[k] to pos[k+1]. To make the prefix reach the frozen waypoints, the
-  // segment for step k goes from waypoint k-1 (or own if k==0) to waypoint k.
-  // So u[k] = |wp[k] - wp[k-1]|/dt, psi[k] = atan2 of that displacement.
-  // (wp[-1] is the own origin (0,0) in the reprojected NED frame.)
-  auto back_infer = [&](double own_lat, double own_lon)
-      -> std::pair<std::vector<double>, std::vector<double>> {
-    const double cos_lat = std::cos(own_lat * mass_l3::m5::units::kRadPerDeg);
-    std::vector<double> wn(kPrefixLen), we(kPrefixLen);
-    for (std::size_t i = 0u; i < kPrefixLen; ++i) {
-      wn[i] = (prefix_wgs84[i].first - own_lat) * mass_l3::m5::units::kRadPerDeg
-              * mass_l3::m5::units::kEarthRadiusMean_m;
-      we[i] = (prefix_wgs84[i].second - own_lon) * mass_l3::m5::units::kRadPerDeg
-              * mass_l3::m5::units::kEarthRadiusMean_m * cos_lat;
-    }
-    std::vector<double> psi(kPrefixLen), u(kPrefixLen);
-    for (std::size_t k = 0u; k < kPrefixLen; ++k) {
-      // Segment endpoint = wp[k]; start = wp[k-1] (own origin if k==0).
-      const double start_n = (k == 0u) ? 0.0 : wn[k - 1u];
-      const double start_e = (k == 0u) ? 0.0 : we[k - 1u];
-      const double dn = wn[k] - start_n;
-      const double de = we[k] - start_e;
-      const double dist = std::hypot(dn, de);
-      psi[k] = std::atan2(de, dn);
-      u[k] = (dt > 1.0e-6) ? (dist / dt) : 5.0;
-      if (dist < 0.5) {  // degenerate: own already at wp[k]
-        psi[k] = 0.0;
-        u[k] = 5.0;
-      }
-    }
-    return {psi, u};
-  };
+  // ── Both cycles run the PRODUCTION reproject pure function (the node's path).
+  // Cycle A: own at the base position.
+  const auto rA = reproject_prefix_psi_u(
+      prefix_lat, prefix_lon, base_lat, base_lon,
+      0.0, kOwnU, dt, kN, kGuardM);
+  ASSERT_EQ(rA.K, 4) << "cycle A: production reproject did not yield K=4";
+  ASSERT_EQ(rA.psi_rad.size(), kPrefixLen);
 
-  // Cycle A: own at base position.
-  const auto [psiA, uA] = back_infer(base_lat, base_lon);
   // Cycle B: own shifted 30 m EAST (lateral origin shift, NOT along-track, so
   // the frozen prefix waypoints remain ahead of own in both cycles). The NED
   // psi/u for cycle B differ (the prefix is now at a lateral bearing), but the
@@ -321,7 +302,11 @@ TEST_F(ContinuityTest, ReprojectPreservesWGS84Geometry) {
   double ownB_lat = base_lat;
   double ownB_lon = base_lon;
   ned_to_wgs84(0.0, 30.0, base_lat, base_lon, ownB_lat, ownB_lon);
-  const auto [psiB, uB] = back_infer(ownB_lat, ownB_lon);
+  const auto rB = reproject_prefix_psi_u(
+      prefix_lat, prefix_lon, ownB_lat, ownB_lon,
+      0.0, kOwnU, dt, kN, kGuardM);
+  ASSERT_EQ(rB.K, 4) << "cycle B: production reproject did not yield K=4";
+  ASSERT_EQ(rB.psi_rad.size(), kPrefixLen);
 
   // Reconstruct the WGS84 waypoints from a cycle's NED prefix psi/u. The own
   // position is the NED origin; pos starts at own (0,0) and advances by u·dt.
@@ -341,28 +326,30 @@ TEST_F(ContinuityTest, ReprojectPreservesWGS84Geometry) {
     return wgs;
   };
 
-  const auto wgsA = reconstruct_wgs84(psiA, uA, base_lat, base_lon);
-  const auto wgsB = reconstruct_wgs84(psiB, uB, ownB_lat, ownB_lon);
+  const auto wgsA = reconstruct_wgs84(rA.psi_rad, rA.u_mps, base_lat, base_lon);
+  const auto wgsB = reconstruct_wgs84(rB.psi_rad, rB.u_mps, ownB_lat, ownB_lon);
 
   // Both cycles' reconstructed prefix WGS84 must match the FROZEN prefix.
   // Tolerance: flat-earth approximation introduces ~1e-7 deg (~1 cm) error.
   for (std::size_t i = 0u; i < kPrefixLen; ++i) {
-    EXPECT_NEAR(wgsA[i].first, prefix_wgs84[i].first, 1.0e-5)
+    EXPECT_NEAR(wgsA[i].first, prefix_lat[i], 1.0e-5)
         << "cycle A prefix wp[" << i << "] lat mismatch";
-    EXPECT_NEAR(wgsA[i].second, prefix_wgs84[i].second, 1.0e-5)
+    EXPECT_NEAR(wgsA[i].second, prefix_lon[i], 1.0e-5)
         << "cycle A prefix wp[" << i << "] lon mismatch";
-    EXPECT_NEAR(wgsB[i].first, prefix_wgs84[i].first, 1.0e-5)
+    EXPECT_NEAR(wgsB[i].first, prefix_lat[i], 1.0e-5)
         << "cycle B prefix wp[" << i << "] lat mismatch (origin shifted!)";
-    EXPECT_NEAR(wgsB[i].second, prefix_wgs84[i].second, 1.0e-5)
+    EXPECT_NEAR(wgsB[i].second, prefix_lon[i], 1.0e-5)
         << "cycle B prefix wp[" << i << "] lon mismatch (origin shifted!)";
   }
 
-  // ── Full NLP solve with K=4 prefix in cycle A: verify the solved prefix
-  // reconstructs the frozen WGS84 geometry (end-to-end, through the solver).
+  // ── Full NLP solve with K=4 prefix in cycle A: feed the PRODUCTION-derived
+  // psi/u into the solver and verify the solved prefix reconstructs the frozen
+  // WGS84 geometry (end-to-end, through the solver equality rows). This ties
+  // the production reproject to a real IPOPT solve.
   MidMpcInput inpA = make_base_input();
   inpA.prefix_active_k = 4;
-  inpA.prefix_psi_rad = psiA;
-  inpA.prefix_u_mps = uA;
+  inpA.prefix_psi_rad = rA.psi_rad;
+  inpA.prefix_u_mps = rA.u_mps;
   inpA.own_lat_deg = base_lat;
   inpA.own_lon_deg = base_lon;
   RowBoundConfig rb;
@@ -381,9 +368,9 @@ TEST_F(ContinuityTest, ReprojectPreservesWGS84Geometry) {
   }
   const auto wgs_solved = reconstruct_wgs84(solved_psi, solved_u, base_lat, base_lon);
   for (std::size_t i = 0u; i < kPrefixLen; ++i) {
-    EXPECT_NEAR(wgs_solved[i].first, prefix_wgs84[i].first, 5.0e-4)
+    EXPECT_NEAR(wgs_solved[i].first, prefix_lat[i], 5.0e-4)
         << "solved prefix wp[" << i << "] lat drifts from frozen geometry";
-    EXPECT_NEAR(wgs_solved[i].second, prefix_wgs84[i].second, 5.0e-4)
+    EXPECT_NEAR(wgs_solved[i].second, prefix_lon[i], 5.0e-4)
         << "solved prefix wp[" << i << "] lon drifts from frozen geometry";
   }
 }

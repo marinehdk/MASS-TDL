@@ -24,6 +24,7 @@
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
 #include "m5_tactical_planner/committed_route/committed_candidate_geometry.hpp"
+#include "m5_tactical_planner/committed_route/committed_prefix_reproject.hpp"
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
 #include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 #include "m5_tactical_planner/mid_mpc/degraded_candidate_adapter.hpp"
@@ -371,16 +372,17 @@ std::vector<TargetRiskSnapshot> build_target_risk_snapshots(
 // Each cycle reprojects the frozen WGS84 waypoints to the CURRENT NED origin and
 // back-infers the per-step psi/u, so the published geometry stays continuous.
 //
-// Algorithm (spec §6.2 step 3 — back-infer psi/u):
-//   - Convert each prefix waypoint to own-relative NED metres (flat-earth).
-//   - For step k, the displacement from wp[k] to wp[k+1] over one dt gives
-//     speed u[k] = |Δ|/dt and heading psi[k] = atan2(Δe, Δn). The LAST prefix
-//     step repeats the penultimate psi/u (no further waypoint to define it).
-//   - When the prefix has <2 points, psi/u default to own_psi/own_u.
+// The core logic (WGS84 → NED reproject + back-infer psi/u + K) lives in the
+// pure function committed_route::reproject_prefix_psi_u
+// (committed_prefix_reproject.hpp), unit-tested by test_mid_mpc_continuity
+// (§6.2 Critical reprojection). This node wrapper adapts the GeoWP vector to the
+// pure function's lat/lon-array interface (spec §3.7 coordinate contract).
 //
 // K computation (spec §6.3): K = ceil(guard_distance / (own_u · dt)), clamped to
 //   [0, K_max] where K_max = N - K_suffix_min (K_suffix_min = 8 → 40 s suffix,
-//   ample avoidance room). K=0 on first commit (no committed prefix yet).
+//   ample avoidance room). own_u is floored at 0.5 m/s so a near-stationary ship
+//   does not inflate K to the full horizon (spec §6.3 footnote; K_max clamp is
+//   the hard backstop). K=0 on first commit (no committed prefix yet).
 // ===========================================================================
 struct PrefixPsiU {
   int32_t K{0};
@@ -388,76 +390,24 @@ struct PrefixPsiU {
   std::vector<double> u_mps;
 };
 
-// K_suffix_min: minimum suffix length (spec §6.3, default 8 = 40 s at dt=5).
-// Guarantees the suffix retains ample avoidance room regardless of K.
-constexpr int32_t kSuffixMinSteps = 8;
-
 PrefixPsiU reproject_committed_prefix(
     const std::vector<mass_l3::m5::committed_route::GeoWP>& prefix_wgs84,
     double own_lat_deg, double own_lon_deg,
     double own_psi_rad, double own_u_mps,
     double dt_s, int32_t N,
     double guard_distance_m = kMinFirstChangedDistance_m) {
-  PrefixPsiU out;
-  // K from GNC guard distance (spec §6.3). own_u clamped to a floor so a
-  // near-stationary ship does not inflate K to the full horizon.
-  const double u_eff = std::max(own_u_mps, 0.5);
-  const double step_m = u_eff * dt_s;
-  int32_t K = (step_m > 1.0e-6)
-      ? static_cast<int32_t>(std::ceil(guard_distance_m / step_m))
-      : 0;
-  const int32_t K_max = std::max(0, N - kSuffixMinSteps);
-  if (K > K_max) { K = K_max; }
-  if (K < 0) { K = 0; }
-  out.K = K;
-  if (K == 0 || prefix_wgs84.empty()) { return out; }
-
-  // Reproject prefix waypoints to the current ownship-relative NED frame.
-  const double cos_lat = std::cos(own_lat_deg * units::kRadPerDeg);
-  const std::size_t np = prefix_wgs84.size();
-  std::vector<double> wn(np), we(np);
-  for (std::size_t i = 0u; i < np; ++i) {
-    wn[i] = (prefix_wgs84[i].lat_deg - own_lat_deg) * units::kRadPerDeg
-            * units::kEarthRadiusMean_m;
-    we[i] = (prefix_wgs84[i].lon_deg - own_lon_deg) * units::kRadPerDeg
-            * units::kEarthRadiusMean_m * cos_lat;
+  // Delegate to the pure, unit-tested function (committed_prefix_reproject.hpp).
+  // Convert the GeoWP vector to parallel lat/lon degree arrays (spec §3.7).
+  std::vector<double> lat_deg(prefix_wgs84.size());
+  std::vector<double> lon_deg(prefix_wgs84.size());
+  for (std::size_t i = 0u; i < prefix_wgs84.size(); ++i) {
+    lat_deg[i] = prefix_wgs84[i].lat_deg;
+    lon_deg[i] = prefix_wgs84[i].lon_deg;
   }
-
-  // Back-infer psi/u from adjacent-point displacement over dt (spec §6.2 step 3).
-  //
-  // NLP psi[k]/u[k] is the heading/speed of control step k, which advances own
-  // from pos[k] to pos[k+1]. To make the prefix reach the frozen waypoints, the
-  // segment for step k goes from waypoint k-1 (or own origin if k==0) to waypoint
-  // k. So u[k] = |wp[k] - start|/dt, psi[k] = atan2 of that displacement.
-  // (For k==0, start is the own origin (0,0) in the reprojected NED frame.)
-  // The last prefix step (k == K-1 with K==np) reuses wp[np-2]→wp[np-1]; if the
-  // prefix has fewer waypoints than K, the excess steps repeat the last segment.
-  out.psi_rad.resize(static_cast<std::size_t>(K));
-  out.u_mps.resize(static_cast<std::size_t>(K));
-  for (int32_t k = 0; k < K; ++k) {
-    const std::size_t kk = static_cast<std::size_t>(k);
-    if (np < 2u) {
-      out.psi_rad[kk] = own_psi_rad;
-      out.u_mps[kk]   = own_u_mps;
-      continue;
-    }
-    // End waypoint = wp[min(k, np-1)]; start = wp[k-1] (own origin if k==0).
-    const std::size_t end_idx = std::min(kk, np - 1u);
-    const double start_n = (kk == 0u) ? 0.0 : wn[std::min(kk - 1u, np - 1u)];
-    const double start_e = (kk == 0u) ? 0.0 : we[std::min(kk - 1u, np - 1u)];
-    const double dn = wn[end_idx] - start_n;
-    const double de = we[end_idx] - start_e;
-    const double dist = std::hypot(dn, de);
-    out.psi_rad[kk] = std::atan2(de, dn);
-    out.u_mps[kk]   = (dt_s > 1.0e-6) ? (dist / dt_s) : own_u_mps;
-    // Guard against a degenerate near-zero displacement (coincident waypoints):
-    // keep own_psi/own_u rather than atan2(0,0)=0.
-    if (dist < 0.5) {
-      out.psi_rad[kk] = own_psi_rad;
-      out.u_mps[kk]   = own_u_mps;
-    }
-  }
-  return out;
+  const auto r = mass_l3::m5::committed_route::reproject_prefix_psi_u(
+      lat_deg, lon_deg, own_lat_deg, own_lon_deg,
+      own_psi_rad, own_u_mps, dt_s, N, guard_distance_m);
+  return PrefixPsiU{r.K, std::move(r.psi_rad), std::move(r.u_mps)};
 }
 }  // namespace
 

@@ -368,6 +368,8 @@ K = ceil(GncExecutionOdd.min_first_changed_distance_m / (own_u · dt_s))
 - K_max = N - K_suffix_min，K_suffix_min = 8（40s suffix，充足避让空间）→ K_max = 10
 - 首次 commit: K=0（全 suffix 自由）
 
+> **实现注脚（C1 review, Medium）**：实现用 `u_eff = max(own_u, 0.5)` 取代字面的 `own_u`。低速时 own_u→0 会使 K→∞（爆炸），故设 0.5 m/s 下限防护；K_max clamp 仍为硬兜底。此 0.5 m/s 下限为实现防护，非 spec 物理常数——纯函数 `committed_route::reproject_prefix_psi_u`（committed_prefix_reproject.hpp）中实现，被 node 与单测共用。
+
 **与 H_publish 的关系**：K≈4 步 = 20s << H_publish=60s。heartbeat 内本船执行掉约 12 步 prefix，但只有前 4 步在 GNC guard 内（不可变），后 8 步可被新 revision 替换（GNC 接受，因 first-changed-distance 足够远）。这符合 spec §9.12 rolling：append/replace 本船前方足够远的未来几何。
 
 ### 6.4 CPA 冲突处理（prefix 段软化，安全网诚实声明）
