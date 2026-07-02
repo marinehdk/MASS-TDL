@@ -1,7 +1,14 @@
 // test/unit/test_committed_candidate_geometry.cpp
-// M1 review High-4/High-5: along-track frozen_prefix_count pure function
-// (spec §6.6.2). Extracted from committed_candidate_from_plan so the guard
-// window is unit-testable independently of the ROS node.
+// M1 review High-4/High-5 + round-2 fix: along-track frozen_prefix_count pure
+// function (spec §6.6.2). Extracted from committed_candidate_from_plan so the
+// guard window is unit-testable independently of the ROS node.
+//
+// Round-2 (spec §6.6 prune crossed points): frozen_prefix_count counts ONLY
+// waypoints strictly AHEAD of own within the in-guard window
+// (own_station < station <= own_station + guard). Waypoints own has already
+// overrun (station <= own_station) are pruned — they are executed geometry, not
+// a frozen prefix. Therefore as own advances, the count shrinks or stays the
+// same, never grows from an overrun waypoint (Critical High-4 round-2).
 //
 // CasADi LGPL-3.0: internal MISRA violations exempted per coding-standards.md §10.
 
@@ -69,15 +76,18 @@ TEST(CommittedCandidateGeometry, DoesNotFreezeWaypointBeyondGuard) {
 }
 
 // ---------------------------------------------------------------------------
-// TEST 3 (Critical High-4): along-track projection is own-station-relative.
-// Build a route with waypoints at stations 0, 50, 150 (a clear gap so the 100 m
-// guard from own_at_wp0 excludes wp2). own placed exactly at wp0 (own_station≈0):
-//   guard window [.., 0+100=100] → wp0(0) and wp1(50) frozen, wp2(150) NOT.
-// Then advance own 200 m so own_station≈200 and add wp3 at 400:
-//   guard window [.., 300] → wp0(0),wp1(50),wp2(150) frozen, wp3(400) NOT.
-// This asserts own_station advances monotonically with own and the window bound
-// (own_station+guard), NOT the legacy absolute Euclidean distance, governs the
-// frozen run.
+// TEST 3 (Critical High-4 round-2 prune): along-track projection is own-station-
+// relative AND overrun waypoints are pruned. Route waypoints at stations 0, 50,
+// 150 (then 400 added). own placed exactly at wp0 (own_station≈0):
+//   AHEAD window (own_station, own_station+100] = (0, 100] → wp1(50) frozen;
+//   wp0(0) is NOT strictly ahead (own is AT it → already executing) → pruned;
+//   wp2(150) > 100 → not frozen. frozen_prefix_count == 1.
+// Then advance own 200 m north (own_station≈200) and add wp3 at 400:
+//   AHEAD window (200, 300]: wp0(0)/wp1(50)/wp2(150) all station <= 200 →
+//   OVERRUN, pruned; wp3(400) > 300 → not frozen. frozen_prefix_count == 0.
+// This asserts own_station advances monotonically with own, the forward bound
+// (own_station+guard) governs the window, AND overrun waypoints are pruned as
+// own advances — so the count drops (2→1→0), it never grows from an overrun.
 // ---------------------------------------------------------------------------
 TEST(CommittedCandidateGeometry, AlongTrackStationIsSignedAndBoundedByOwn) {
   // Route: wp0 at +0, wp1 at +50, wp2 at +150 (stations from route start).
@@ -92,9 +102,10 @@ TEST(CommittedCandidateGeometry, AlongTrackStationIsSignedAndBoundedByOwn) {
   const auto r0 = compute_frozen_prefix_count(lat, lon, lat[0], lon[0]);
   ASSERT_TRUE(r0.valid);
   EXPECT_NEAR(r0.own_station_m, 0.0, 1.0);
-  // Window [.., 100]: wp0(0), wp1(50) ≤ 100; wp2(150) > 100 → count 2.
-  EXPECT_EQ(r0.frozen_prefix_count, 2u)
-      << "own at wp0: wp0(0)+wp1(50) within 100 m, wp2(150) beyond";
+  // AHEAD window (0, 100]: wp0(0) pruned (own AT it); wp1(50) frozen; wp2(150)
+  // beyond → frozen_prefix_count == 1.
+  EXPECT_EQ(r0.frozen_prefix_count, 1u)
+      << "own at wp0: wp0 pruned (own on it), wp1(50) frozen, wp2(150) beyond";
 
   // Advance own 200 m north, add wp3 at station 400.
   lat.push_back(kBaseLat + 400.0 / kMetersPerDegLat);
@@ -104,10 +115,10 @@ TEST(CommittedCandidateGeometry, AlongTrackStationIsSignedAndBoundedByOwn) {
   ASSERT_TRUE(r1.valid);
   EXPECT_NEAR(r1.own_station_m, 200.0, 2.0)
       << "own advanced 200 m along the route";
-  // Window = 200 + 100 = 300. Waypoints at stations 0,50,150,400. wp0-2 ≤ 300;
-  // wp3 at 400 > 300 → frozen_prefix_count == 3 (wp3 excluded).
-  EXPECT_EQ(r1.frozen_prefix_count, 3u)
-      << "own_station=200 → guard window [..,300]; wp3 at 400 must NOT be frozen";
+  // AHEAD window (200, 300]: wp0-2 all station <= 200 → OVERRUN pruned; wp3(400)
+  // > 300 → not frozen. frozen_prefix_count == 0 (everything overrun/beyond).
+  EXPECT_EQ(r1.frozen_prefix_count, 0u)
+      << "own_station=200: wp0-2 overrun pruned, wp3 at 400 beyond 300 window";
 }
 
 // ---------------------------------------------------------------------------
@@ -139,20 +150,18 @@ TEST(CommittedCandidateGeometry, DegeneratePlanHandling) {
 }
 
 // ---------------------------------------------------------------------------
-// TEST 5 (Critical High-4 discriminator vs legacy Euclidean): the legacy
-// Euclidean guard froze any waypoint within 100 m of own REGARDLESS of whether
-// own had overrun it. Construct a case where own is far along the route so the
-// FIRST waypoint is far BEHIND own (> 100 m behind), making it clear the
-// along-track bound — not the Euclidean distance — governs the window.
-//
-// wp0 at own-300 (300 m behind), wp1 at own+50, wp2 at own+120. own_station≈300.
-// Euclidean dist(own,wp0)=300 m (> 100, so even legacy would not freeze it —
-// not a discriminator here). The real discriminator is wp1 vs wp2: both are
-// ~50-120 m ahead. Along-track window [.., 300+100=400]: wp0(0)≤400 counted,
-// wp1(350)≤400 counted, wp2(420)>400 NOT counted → count 2. This asserts the
-// window is own_station-relative, not absolute-from-route-start.
+// TEST 5 (Critical High-4 round-2 prune discriminator): own is far along the
+// route so wp0 is far BEHIND own (station 0 < own_station 300 → overrun). The
+// ahead window (own_station, own_station+guard] = (300, 400]:
+//   wp0(0)  → station <= own_station → OVERRUN, pruned;
+//   wp1(350)→ 300 < 350 <= 400 → frozen (50 m ahead, in guard);
+//   wp2(420)→ 420 > 400 → beyond the 100 m guard, not frozen.
+// frozen_prefix_count == 1. This is the prune contract: a waypoint 50 m AHEAD
+// is frozen while the far-behind wp0 is dropped, proving the window is own-
+// station-relative AND that overrun waypoints are excluded (not the legacy
+// absolute-Euclidean / route-start-relative count).
 // ---------------------------------------------------------------------------
-TEST(CommittedCandidateGeometry, GuardWindowIsRelativeToOwnStation) {
+TEST(CommittedCandidateGeometry, GuardWindowIsRelativeToOwnStationAndPrunesOverrun) {
   // Route: wp0 at +0, wp1 at +350, wp2 at +420 (stations from route start).
   auto [lat, lon] = north_plan(/*first_wp_offset_m=*/0.0, /*step_m=*/350.0, 2u);
   lat.push_back(kBaseLat + 420.0 / kMetersPerDegLat);
@@ -162,9 +171,70 @@ TEST(CommittedCandidateGeometry, GuardWindowIsRelativeToOwnStation) {
   const auto r = compute_frozen_prefix_count(lat, lon, own_lat, kBaseLon);
   ASSERT_TRUE(r.valid);
   EXPECT_NEAR(r.own_station_m, 300.0, 2.0);
-  // Stations: 0, 350, 420. Window [.., 300+100=400]. wp0(0)≤400, wp1(350)≤400,
-  // wp2(420)>400 → count 2. wp1 is only 50 m ahead of own and IS frozen; wp2 is
-  // 120 m ahead (> 100 m guard) and is NOT. This is the own-relative window.
-  EXPECT_EQ(r.frozen_prefix_count, 2u)
-      << "wp1 (350, i.e. +50 m ahead) frozen; wp2 (420, i.e. +120 m ahead) not";
+  // Ahead window (300, 400]: wp0(0) overrun pruned; wp1(350) frozen; wp2(420)
+  // beyond → frozen_prefix_count == 1.
+  EXPECT_EQ(r.frozen_prefix_count, 1u)
+      << "wp1 (350, +50 m ahead) frozen; wp0(0) overrun + wp2(420) beyond pruned";
+}
+
+// ---------------------------------------------------------------------------
+// TEST 6 (Critical High-4 round-2 — the prune direction discriminator): the
+// defining property of spec §6.6 is that as own ADVANCES, overrun waypoints are
+// PRUNED, so frozen_prefix_count DECREASES (or stays equal), never grows from an
+// overrun waypoint.
+//
+// Route with waypoints at along-track stations 0, 100, 200 (route start at own's
+// initial base, so own_station is the clean north offset):
+//   own at station 0  → ahead window (0,100]: wp0(0) own-on-it pruned,
+//                        wp1(100) frozen, wp2(200) beyond → count 1.
+//   own at station 150→ wp0(0) + wp1(100) overrun (<=150) pruned; wp2(200) is
+//                        in (150,250] → frozen → count 1 (wp1 dropped, wp2 added).
+//   own at station 250→ wp0-2 all overrun (<=250) pruned → count 0.
+// The count sequence 1 → 1 → 0 NEVER grows above the initial 1 from an overrun
+// waypoint; specifically the transition 150→250 is a strict decrease (prune).
+// ---------------------------------------------------------------------------
+TEST(CommittedCandidateGeometry, PrunesOverrunWaypointsAsOwnAdvances) {
+  // Route start at base; waypoints at stations 0, 100, 200 north of base.
+  auto [lat, lon] = north_plan(/*first_wp_offset_m=*/0.0, /*step_m=*/100.0, 3u);
+  ASSERT_EQ(lat.size(), 3u);
+
+  // own at route start (own == wp0). own_station≈0.
+  const auto r0 = compute_frozen_prefix_count(lat, lon, kBaseLat, kBaseLon);
+  ASSERT_TRUE(r0.valid);
+  EXPECT_NEAR(r0.own_station_m, 0.0, 1.0);
+  // Ahead window (0, 100]: wp0(0) pruned (own on it); wp1(100) frozen;
+  // wp2(200) beyond → count 1.
+  EXPECT_EQ(r0.frozen_prefix_count, 1u)
+      << "own at wp0: wp0 pruned (own on it), wp1(+100) frozen, wp2(+200) beyond";
+
+  // Advance own 150 m north (own_station≈150). wp0(0) and wp1(100) overrun
+  // (station <= 150) → pruned; wp2(200) is in (150, 250] → frozen → count 1.
+  const double own_150_lat = kBaseLat + 150.0 / kMetersPerDegLat;
+  const auto r1 = compute_frozen_prefix_count(lat, lon, own_150_lat, kBaseLon);
+  ASSERT_TRUE(r1.valid);
+  EXPECT_NEAR(r1.own_station_m, 150.0, 2.0)
+      << "own advanced 150 m along the route";
+  EXPECT_EQ(r1.frozen_prefix_count, 1u)
+      << "own at 150: wp0/wp1 overrun pruned, wp2(200) in (150,250] frozen";
+
+  // Advance own a further 100 m (own physically at +250 m). wp0,wp1,wp2 all
+  // overrun (station <= 250) → pruned; ahead window is empty → count 0. This is
+  // the STRICT PRUNE: count drops 1 → 0 as own overruns wp2.
+  // NOTE: own is now PAST the route end (wp2 at +200), so the projection's
+  // end-clamped fallback reports own_station≈200 (the route-end station), not
+  // 250. own_station is by construction clamped to [0, total_route_length]; the
+  // prune contract still holds because no waypoint is strictly ahead of a
+  // route-end own_station.
+  const double own_250_lat = kBaseLat + 250.0 / kMetersPerDegLat;
+  const auto r2 = compute_frozen_prefix_count(lat, lon, own_250_lat, kBaseLon);
+  ASSERT_TRUE(r2.valid);
+  EXPECT_NEAR(r2.own_station_m, 200.0, 2.0)
+      << "own past route end → own_station end-clamped to route-end station 200";
+  EXPECT_EQ(r2.frozen_prefix_count, 0u)
+      << "own past all waypoints: all overrun → pruned, count must DROP to 0";
+
+  // Assert the prune direction explicitly: advancing own never INCREASES the
+  // count (it is non-increasing across own_station growth).
+  EXPECT_LE(r1.frozen_prefix_count, r0.frozen_prefix_count);
+  EXPECT_LE(r2.frozen_prefix_count, r1.frozen_prefix_count);
 }
