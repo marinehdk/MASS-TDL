@@ -32,6 +32,7 @@
 #include <cstdint>
 
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/mid_mpc/row_registry.hpp"
 #include "m5_tactical_planner/shared/constraint_compiler.hpp"
 
 namespace mass_l3::m5::mid_mpc {
@@ -144,6 +145,16 @@ class MidMpcNlpFormulation {
   // Public access to active config (read-only).
   [[nodiscard]] const Config& config() const noexcept { return cfg_; }
 
+  // ── Slice N1: row registry ───────────────────────────────────────────────
+  // Per-cycle fixed-class g row layout (spec §3.8). Built during
+  // build_symbolic_graph() from the compiled ConstraintInputs (n_targets /
+  // rule_rows / zone_rows). The MidMpcSolver uses it to build per-class
+  // lbg/ubg via RowRegistry::build_bounds(RowBoundConfig).
+  // @pre build_symbolic_graph() has been called.
+  [[nodiscard]] const RowRegistry& row_registry() const noexcept {
+    return row_registry_;
+  }
+
   // ── Slice R1: cost-component evaluators (spec §3.2 / §10.1) ───────────────
   // Evaluate an individual (unweighted) cost sub-term at a given (x, p). Used by
   // unit tests to assert the COLREG-dominance contract without relying on
@@ -161,6 +172,9 @@ class MidMpcNlpFormulation {
   casadi::MX g_;       // constraint vector (g >= 0 convention)
   casadi::Function solver_;  // nlpsol-cached IPOPT Function
   int32_t g_dim_{0};
+  // Slice N1: per-cycle row registry (built in build_constraints_, which is const;
+  // mutable mirrors the symbolic-graph caching pattern). Spec §3.8.
+  mutable RowRegistry row_registry_;
   mass_l3::m5::shared::ConstraintCompiler compiler_{};
   ConstraintInputs constraint_inputs_{};
 

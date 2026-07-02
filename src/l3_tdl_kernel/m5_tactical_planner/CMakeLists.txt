@@ -333,6 +333,12 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # ── Slice N1: NLP row registry per-class lbg/ubg (spec §3.8) ───────────────
+    m5_add_gtest(test_row_registry
+      test/unit/test_row_registry.cpp
+      casadi::casadi
+    )
+
     # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
     m5_add_gtest(test_mid_mpc_route_frame
       test/unit/test_mid_mpc_route_frame.cpp

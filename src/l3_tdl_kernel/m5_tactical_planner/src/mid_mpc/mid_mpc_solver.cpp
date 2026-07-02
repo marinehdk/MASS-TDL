@@ -74,12 +74,19 @@ casadi::DM MidMpcSolver::pack_cold_start_(const MidMpcInput& input) const {
 // ===========================================================================
 // solve() — pack params, call IPOPT, record timing, update failure counter.
 //
-// Constraint convention (g >= 0): lbg = zeros, ubg = +inf.
-// Spec snippet §5.4 has lbg/ubg inverted; implementation follows the
-// MidMpcNlpFormulation header comment ("g >= 0: lower bound = 0, upper bound = +inf").
+// Constraint convention (g >= 0): lbg = zeros, ubg = +inf by default.
+// Slice N1 (spec §3.8): the per-class lbg/ubg are now built from the
+// formulation's RowRegistry + the per-cycle RowBoundConfig, enabling:
+//   - prefix-equality rows (active k<K → [0,0], inactive → [-inf,+inf] double)
+//   - COLREG prefix softening (k<K → [-inf,+inf], k>=K → [0,+inf])
+//   - direction_disabled (all direction/min_alt → [-inf,+inf])
+// Default RowBoundConfig (K=0, no flags) reproduces the legacy zeros/inf
+// everywhere except prefix-equality (which becomes [-inf,+inf] = no-op), so
+// N1 first version does not change runtime behaviour.
 // ===========================================================================
 MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
-                                    const MidMpcSolution* warm_start) {
+                                    const MidMpcSolution* warm_start,
+                                    const RowBoundConfig& row_bounds) {
   const auto t_start = std::chrono::steady_clock::now();
 
   const casadi::DM p_val = formulation_.pack_parameters(input);
@@ -105,13 +112,33 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
     ubx(N + k) = cst.speed_max_mps;
   }
 
+  // Slice N1: per-class lbg/ubg from the formulation's RowRegistry.
+  // RowBoundConfig (default {}) reproduces legacy zeros/inf except for the
+  // prefix-equality class, which is double-disabled [-inf,+inf] when K=0 (no
+  // prefix → the placeholder rows are unconstrained, a no-op).
+  const BoundArray bounds =
+      formulation_.row_registry().build_bounds(row_bounds);
+  casadi::DM lbg = casadi::DM::zeros(gdim, 1);
+  casadi::DM ubg = casadi::DM::inf(gdim, 1);
+  const int32_t nb = static_cast<int32_t>(bounds.lbg.size());
+  // Defensive: the registry is rebuilt per-cycle in build_constraints_, so its
+  // total_rows() must equal g_dim(). If a future caller forgets to rebuild the
+  // graph after set_constraint_inputs(), the sizes diverge — fall back to the
+  // legacy zeros/inf bounds (safe) rather than crashing.
+  if (nb == gdim) {
+    for (int32_t i = 0; i < gdim; ++i) {
+      lbg(i) = bounds.lbg[static_cast<std::size_t>(i)];
+      ubg(i) = bounds.ubg[static_cast<std::size_t>(i)];
+    }
+  }
+
   const casadi::DMDict arg = {
       {"x0",  x0_val},
       {"p",   p_val},
       {"lbx", lbx},
       {"ubx", ubx},
-      {"lbg", casadi::DM::zeros(gdim, 1)},
-      {"ubg", casadi::DM::inf(gdim, 1)},
+      {"lbg", lbg},
+      {"ubg", ubg},
   };
 
   casadi::DMDict res;

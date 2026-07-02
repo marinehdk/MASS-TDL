@@ -21,6 +21,7 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
+#include "m5_tactical_planner/mid_mpc/row_registry.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -51,9 +52,14 @@ class MidMpcSolver {
   // Solve one Mid-MPC cycle.
   // @param input  Time-aligned runtime snapshot for this cycle.
   // @param warm_start  Previous-cycle solution (nullptr → cold start).
+  // @param row_bounds  Per-cycle row-bound policy (Slice N1, spec §3.8).
+  //                    Default (K=0, no soften, no disable) reproduces the legacy
+  //                    zeros/inf general-constraint bounds → N1 first version is a
+  //                    no-op until C1/D1 populate K>0 / direction flags.
   // @return  MidMpcSolution including status, trajectory, solve_duration_ms.
   [[nodiscard]] MidMpcSolution solve(const MidMpcInput& input,
-                                     const MidMpcSolution* warm_start);
+                                     const MidMpcSolution* warm_start,
+                                     const RowBoundConfig& row_bounds = {});
 
   // Count of consecutive non-Converged cycles since last success.
   [[nodiscard]] int64_t consecutive_failures() const noexcept {

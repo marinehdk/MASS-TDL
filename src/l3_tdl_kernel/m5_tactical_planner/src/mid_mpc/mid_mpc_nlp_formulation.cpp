@@ -271,50 +271,76 @@ casadi::MX MidMpcNlpFormulation::build_asym_cost_() const {
 }
 
 // ===========================================================================
-// build_constraints_() — ROT differential + ConstraintCompiler hard rows.
+// build_constraints_() — fixed-class g vector + RowRegistry (Slice N1, §3.8).
+//
+// Row-class ORDER is FIXED and never re-ordered by K (spec §3.8):
+//   [ROT][prefix_psi_eq][prefix_u_eq][CPA][direction][min_alt][terminal]
+//   [rule][zone]
+//
+// Slice N1 places placeholder zero rows for prefix_psi_eq / prefix_u_eq /
+// direction / min_alt / terminal (real expressions come in C1/D1/T1). A zero
+// row with the default [0,+inf] bound is trivially satisfied (0 >= 0), so the
+// placeholders do not change runtime behaviour. CPA/rule/zone rows come from
+// ConstraintCompiler as before, but CPA is now placed BEFORE rule (fixed
+// order), not after.
+//
+// The RowRegistry is rebuilt here (mutable, mirrors g_dim_ caching) so the
+// MidMpcSolver can build per-class lbg/ubg via RowRegistry::build_bounds.
 //
 // Heading/speed box limits are NOT here — they are per-variable bounds passed
 // to IPOPT as lbx/ubx by MidMpcSolver::solve (see g_dim() rationale).
-//
-// Constraint convention: g >= 0 (lower bound = 0, upper bound = +inf).
-// P1: numeric ConstraintInputs are baked into the graph, so callers rebuild
-// after set_constraint_inputs() when targets/rules/zones change.
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const int32_t N = cfg_.n_horizon;
 
   // ROT differential: |psi[k+1] - psi[k]| <= rot_max*dt for k ∈ [0, N-2].
-  // Encoded as TWO smooth linear rows per step rather than one |.| row:
-  //   rot_step - dpsi >= 0   (dpsi <=  rot_step)
-  //   rot_step + dpsi >= 0   (dpsi >= -rot_step)
-  // Exactly equivalent feasible set, but smooth. The abs() form has a gradient
-  // kink at dpsi=0 — precisely where a near-constant-heading trajectory sits —
-  // so its constraint Jacobian sign-flips every iteration even while the bound
-  // is slack, which destabilises the limited-memory Hessian and contributed to
-  // intermittent Restoration_Failed / Maximum_Iterations.
+  // Two smooth linear rows per step (hi/lo) — see class rationale above.
   const casadi::MX dpsi = psi_(casadi::Slice(1, N)) - psi_(casadi::Slice(0, N - 1));
   const casadi::MX rot_step = slot(p_, kIdxRotMax) * casadi::DM(cfg_.dt_s);
   const casadi::MX rot_step_rep = casadi::MX::repmat(rot_step, N - 1, 1);
   const casadi::MX g_rot_hi = rot_step_rep - dpsi;
   const casadi::MX g_rot_lo = rot_step_rep + dpsi;
-  casadi::MX g_all = casadi::MX::vertcat({g_rot_hi, g_rot_lo});
 
-  const auto rule_cc = compiler_.compile_colregs_rules(
-      psi_, u_, constraint_inputs_);
-  if (!rule_cc.names.empty()) {
-    g_all = casadi::MX::vertcat({g_all, rule_cc.g});
-  }
+  // Slice N1 placeholder rows: zero MX columns of the right height. Zero rows
+  // with default [0,+inf] bounds are always feasible (0 >= 0). C1/D1/T1 replace
+  // these with the real constraint expressions.
+  const casadi::MX g_prefix_psi_eq = casadi::MX::zeros(N, 1);
+  const casadi::MX g_prefix_u_eq   = casadi::MX::zeros(N, 1);
+  const casadi::MX g_direction     = casadi::MX::zeros(N, 1);
+  const casadi::MX g_min_alt       = casadi::MX::zeros(N, 1);
+  const casadi::MX g_terminal      = casadi::MX::zeros(kTerminalRowCount, 1);
+
+  // ConstraintCompiler rows (numeric-baked; G1 rebuild model).
   const auto cpa_cc = compiler_.compile_cpa_distance(
       psi_, u_, constraint_inputs_, cfg_.dt_s);
-  if (!cpa_cc.names.empty()) {
-    g_all = casadi::MX::vertcat({g_all, cpa_cc.g});
-  }
+  const auto rule_cc = compiler_.compile_colregs_rules(
+      psi_, u_, constraint_inputs_);
   const auto zone_cc = compiler_.compile_zone_constraints(
       psi_, u_, constraint_inputs_, cfg_.dt_s);
-  if (!zone_cc.names.empty()) {
-    g_all = casadi::MX::vertcat({g_all, zone_cc.g});
-  }
-  return g_all;
+
+  const int32_t n_targets  = static_cast<int32_t>(
+      constraint_inputs_.targets.size());
+  const int32_t n_rule_rows = static_cast<int32_t>(rule_cc.names.size());
+  const int32_t n_zone_rows = static_cast<int32_t>(zone_cc.names.size());
+  row_registry_.reset(N, n_targets, n_rule_rows, n_zone_rows);
+
+  // Assemble g in the FIXED class order (spec §3.8). vertcat of the per-class
+  // blocks; CPA/rule/zone blocks are only appended when non-empty (the compiler
+  // returns an empty g for zero targets/rules/zones, which would otherwise
+  // contribute a spurious zero-size row that breaks g_dim accounting).
+  std::vector<casadi::MX> blocks;
+  blocks.reserve(9);
+  blocks.push_back(g_rot_hi);
+  blocks.push_back(g_rot_lo);
+  blocks.push_back(g_prefix_psi_eq);
+  blocks.push_back(g_prefix_u_eq);
+  if (!cpa_cc.names.empty()) { blocks.push_back(cpa_cc.g); }
+  blocks.push_back(g_direction);
+  blocks.push_back(g_min_alt);
+  blocks.push_back(g_terminal);
+  if (!rule_cc.names.empty()) { blocks.push_back(rule_cc.g); }
+  if (!zone_cc.names.empty()) { blocks.push_back(zone_cc.g); }
+  return casadi::MX::vertcat(blocks);
 }
 
 // ===========================================================================
