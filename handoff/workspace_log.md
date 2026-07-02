@@ -2070,3 +2070,57 @@ rule14-ho probe trace 关键证据：
 - worktree 另有 pre-existing dirty（scenarios/docs/tools，非本次工作，保留未动）。
 - 容器 codex-gnc-validation-sil-nodes-1 已 restart 加载 v3 代码。
 - **Memory:** mempalace drawer + diary（本条目）。
+
+## [2026-07-03] ZCode / a2d0d1b9..12551069 (2 commits) / rule14-ho 全链路诊断: M5 从未运行 → 修复后避让成功 / NLP 占比仍低
+
+### Task Goal
+诊断 V1 probe CPA 穿透（1.5m）+ applicable_rules 空的根因。原假设 M6→M5 rule 传递断裂 / v3 NLP regression。实际根因完全不同。
+
+### Core Changes（2 commits, branch codex/colregs-12probe-debug）
+- **`12551069`** fix(sil): casadi runtime lib 路径暴露 — m5_mid_mpc_node link libcasadi.so.3.7 但 pip 装的 casadi lib 在 dist-packages/casadi/ 不在 LD_LIBRARY_PATH → M5 启动即 exit 127（整个 V1 probe 期间 M5 从未运行）。修 docker/sil_entrypoint.sh（bind mount，持久）动态加 casadi lib dir。
+- **`c413db95`** fix(m5): heading box bounds inversion — resolve_heading_box_bounds normalize 各自 wrap own_psi 但未保证 lb≤ub。M4 corridor 跨 own_psi±π seam 时 lb>ub → CasADi nlpsol 断言失败（465+ IPOPT throw）。pre-existing bug（b490ec0a），casadi 修复后首次暴露。方案1：normalize 后 lb>ub 则返回 [-π,π]。+2 regression test。
+
+### Current Status
+**V1 "NLP v3 regression" 假设作废。** 三重独立证据推翻原诊断：
+1. M5 node 在 V1 probe 全程未运行（exit 127，publisher count=0）→ V1 所有"NLP v3 表现"数据无效（steering_reversals 0 / int_abs_xte 827 是 L4 几何直行，非 NLP）。
+2. M6 rule 传递完全正常：trace 字段是 `active_rules`（非 `applicable_rules`），含 rule 14（role=2 give_way, T_act, preferred_direction=STARBOARD, min_alteration=30°）。handoff 说"applicable_rules 空"是字段名误读。
+3. v3 RowBoundConfig / row_registry 全正确（单测全 PASS，g 行 bounds 无 violation）。
+
+**rule14-ho 修复后实测（runs/nlp_v3c_rule14ho/）— M5 避让功能验证通过：**
+| metric | spec 阈值 | v3 实测 | 判定 |
+|---|---|---|---|
+| CPA min | ≥180 (probe floor) | **362.8** | ✅ 不再穿透 |
+| starboard 转向 | give_way 右转 | **35.0°** | ✅ 船真转 |
+| steering_reversals | <4 | **0** | ✅ |
+| route_return | required | **True** (final XTE 114m) | ✅ |
+| Phase Gate (C1-C8) | all True | **True** | ✅ |
+| Risk Gate | True | **True** | ✅ |
+| Max XTE | <550m | **366m** | ✅ |
+| **Seamanship Gate** | int_abs_xte<300000 | **368713 (path_ratio 0.71)** | ❌ 唯一 RED |
+
+### ⚠️ 待诊断（新对话）— NLP 占比仍低，主要靠几何 fallback
+用户问"NLP 输出 vs fallback 次数"。rule14-ho 全程 1410 samples 的 planner_health_counts：
+| planner_health | 次数 | 占比 | 含义 |
+|---|---|---|---|
+| **GEOMETRIC_FALLBACK** | **862** | **61%** | 几何 fallback（非 NLP）|
+| RECOVERY | 347 | 25% | 恢复模式 |
+| EMPTY_TRANSIT | 193 | 14% | 空 transit（无 plan）|
+| **SOLVER_CONVERGED** | **6** | **0.4%** | **NLP 真正收敛（仅 6 次）** |
+
+**结论（用户判断正确）：rule14-ho 仍主要依赖几何 fallback（61%），NLP 仅收敛 6 次（0.4%）。** 设计目标是"态势不变 60s 更新，NLP+tailbuilder 输出"，实际 NLP 大部分 cycle 失败（container 日志 465+ IPOPT Infeasible_Problem_Detected）走 fallback。CPA 362m 避让靠**几何 fallback + 那 6 次 NLP**，非 NLP 主导。
+
+avoidance_plan trace 仅 2 条（sim_t=192 DEGRADED, sim_t=1105 RECOVERY，solver_status 都 VALID），reactive_override_cmd 0 条。
+
+**排查起点（新对话）：**
+1. NLP Infeasible 根因：idle 态 dump（targets=0/role=stand-on/K=0）input sane 但仍 infeasible。疑 v3 NLP 改动（prefix eq placeholder / compute_cross_track_all_ 无 route 时 NaN / J_route+J_terminal NaN 传播）。
+2. 对比 v1 baseline binary（abdc8151^）同 input 能否 solve — 区分 v3 regression vs 输入问题。
+3. NLP 收敛后为何 plan_status=DEGRADED/RECOVERY（非 NORMAL）。
+4. 60s 更新频率为何只发 2 条 plan（M5 publish 频率 / trace 采样 / status 抑制）。
+
+### Handoff Notes
+- **不 push**（seamanship RED 未解 + NLP 占比诊断未完 + A4000 未验证）。
+- 2 commits 在 codex/colregs-12probe-debug：c413db95（heading bounds）+ 12551069（casadi entrypoint）。
+- 容器 codex-gnc-validation-sil-nodes-1 已 restart 加载修复。
+- worktree pre-existing dirty（scenarios/docs/tools）保留未动，仅 commit 本次 3 文件。
+- evidence: runs/nlp_v3c_rule14ho/（trace + summary + dashboard）。
+- **Memory:** mempalace drawer + diary（本条目）。
