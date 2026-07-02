@@ -84,15 +84,36 @@ l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
   return wp;
 }
 
+// GNC execution-ODD minimum first-changed distance [m]. The ROS
+// GncExecutionOdd msg does not yet carry this field, so the spec §6.6.2 default
+// (= GncExecutionOdd.min_first_changed_distance_m, 100 m) is used. Plan
+// waypoints closer than this to the own-ship are inside the GNC guard and must
+// be frozen (frozen_prefix_count).
+constexpr double kMinFirstChangedDistance_m = 100.0;
+
+// Risk context sourced from M2 WorldState (spec §6.6.4 / §9.12 Keep-Last risk
+// gate). Used to populate the candidate's risk fields so the manager's
+// current_cpa < cpa_hard gate can trigger (the legacy default 1e9/0 left it
+// inert). All fields fall back to safe "no risk" values when no target is
+// present so the gate does not spuriously fire on target-free transits.
+struct CommittedCandidateRiskContext {
+  double own_lat_deg{0.0};
+  double own_lon_deg{0.0};
+  double own_psi_rad{0.0};
+  double min_target_cpa_m{1.0e9};        // min CPA over tracked targets [m]
+  double primary_target_cog_rad{0.0};    // COG of the min-CPA target [rad]
+  bool   has_target{false};
+};
+
 mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_plan(
     const l3_msgs::msg::AvoidancePlan& plan,
     bool nlp_ok,
-    double valid_until_s) {
+    double valid_until_s,
+    const CommittedCandidateRiskContext& risk) {
   mass_l3::m5::committed_route::CommittedRouteCandidate candidate;
   candidate.plan_id = plan.plan_id;
   candidate.valid_until_s = valid_until_s;
   candidate.nlp_ok = nlp_ok;
-  candidate.frozen_prefix_count = 0U;
   const std::size_t n = std::min(
       {plan.latitude.size(), plan.longitude.size(), plan.command_speed_mps.size(),
        plan.navigation_mode.size(), plan.segment_source.size()});
@@ -112,6 +133,65 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
     }
     candidate.geometry.push_back(mass_l3::m5::committed_route::GeoWP{
         plan.latitude[i], plan.longitude[i], plan.command_speed_mps[i], nav_mode});
+  }
+
+  // Spec §6.6.2 frozen_prefix_count: count plan waypoints whose along-track
+  // distance from the own-ship is < min_first_changed_distance_m (100 m). Those
+  // are inside the GNC guard (already executing) and must be frozen so a new
+  // revision cannot alter geometry the vessel is already committed to. The
+  // distance here is the straight-line own-relative NED distance; waypoints the
+  // own-ship has overrun (very small / behind) are also inside the guard and
+  // frozen, and are pruned from the manager's committed_prefix on the next
+  // revise via the requested-count honouring (§6.6.3).
+  const double cos_lat = std::cos(risk.own_lat_deg * units::kRadPerDeg);
+  std::size_t frozen_prefix_count = 0U;
+  for (std::size_t i = 0U; i < n; ++i) {
+    const double dlat = plan.latitude[i] - risk.own_lat_deg;
+    const double dlon = plan.longitude[i] - risk.own_lon_deg;
+    const double dn = dlat * units::kRadPerDeg * units::kEarthRadiusMean_m;
+    const double de = dlon * units::kRadPerDeg * units::kEarthRadiusMean_m * cos_lat;
+    const double dist_m = std::sqrt(dn * dn + de * de);
+    if (dist_m < kMinFirstChangedDistance_m) {
+      ++frozen_prefix_count;
+    } else {
+      // Prefix is the leading run of in-guard waypoints; the first waypoint
+      // beyond the guard ends the frozen run (plan order is along-track).
+      break;
+    }
+  }
+  candidate.frozen_prefix_count = frozen_prefix_count;
+
+  // Spec §6.6.4 / §9.12 Keep-Last risk fields — wired from M2 WorldState.
+  // current_cpa_m: minimum CPA over tracked targets (1e9 = no target → inert).
+  // cpa_hard_m:    the un-bumped hard floor (= kCpaSafeFallback_m 1852), the
+  //                same value the NLP uses (node.cpp:414); the manager's gate
+  //                current_cpa < cpa_hard then mirrors the NLP hard floor.
+  candidate.current_cpa_m = risk.min_target_cpa_m;
+  candidate.cpa_hard_m = kCpaSafeFallback_m;
+
+  if (risk.has_target) {
+    // target_heading_delta_deg: heading geometry of the closest-CPA target
+    // relative to own-ship. A large relative bearing/course difference is the
+    // signal the §9.12 "> 15 deg" gate watches (e.g. a target swinging onto a
+    // collision course). We use the delta between the target's COG and own
+    // course — a directly observable, history-free geometry proxy.
+    double delta_rad = risk.primary_target_cog_rad - risk.own_psi_rad;
+    // Wrap to [-π, +π].
+    while (delta_rad > M_PI) { delta_rad -= 2.0 * M_PI; }
+    while (delta_rad < -M_PI) { delta_rad += 2.0 * M_PI; }
+    candidate.target_heading_delta_deg = delta_rad * units::kDegPerRad;
+
+    // cpa_drift_fraction: CPA deterioration relative to the hard floor. With no
+    // persisted initial-CPA history available here, we measure how far the
+    // current CPA has penetrated below the safe floor as a fraction of the
+    // floor: (cpa_hard - current_cpa) / cpa_hard. A CPA at the floor → 0
+    // drift; a CPA well below the floor → positive drift (triggers the
+    // > 0.20 gate when CPA < 0.8·cpa_hard). This keeps the gate conservative:
+    // it only fires once the current CPA is materially inside the hard floor.
+    if (candidate.cpa_hard_m > 0.0) {
+      candidate.cpa_drift_fraction =
+          (candidate.cpa_hard_m - risk.min_target_cpa_m) / candidate.cpa_hard_m;
+    }
   }
   return candidate;
 }
@@ -980,8 +1060,21 @@ void MidMpcNode::publish_avoidance_waypoints_(
       last_emitted_conflict_active_ = conflict_active;
       return;
     }
+    // Spec §6.6.2/§6.6.4: build risk context from M2 WorldState (via the
+    // assembled input targets) for the Keep-Last risk gate + frozen prefix.
+    CommittedCandidateRiskContext risk_ctx;
+    risk_ctx.own_lat_deg = lat0_deg;
+    risk_ctx.own_lon_deg = lon0_deg;
+    risk_ctx.own_psi_rad = input.own_ship.psi_rad;
+    for (const auto& tgt : input.targets) {
+      if (tgt.cpa_m < risk_ctx.min_target_cpa_m) {
+        risk_ctx.min_target_cpa_m = tgt.cpa_m;
+        risk_ctx.primary_target_cog_rad = tgt.cog_rad;
+        risk_ctx.has_target = true;
+      }
+    }
     if (!committed_route_manager_.try_revise(
-            committed_candidate_from_plan(plan, true, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds()),
+            committed_candidate_from_plan(plan, true, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
             now.seconds())) {
       RCLCPP_WARN(get_logger(),
           "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",

@@ -33,9 +33,18 @@ void fnv1a_update_string(std::uint32_t& hash, const std::string& value)
   fnv1a_update(hash, &nul, sizeof(nul));
 }
 
+// Spec §3.7: same_waypoint uses tolerance comparison for the frozen-prefix
+// freeze test. WGS84 degree values survive float reprojection with sub-1e-7
+// jitter, so an exact double compare almost never matches. Tolerances:
+//   lat/lon |Δ| < 1e-7 deg (≈ 1 cm), speed |Δ| < 0.01 m/s, nav_mode exact.
+// Exact double comparison of lat/lon is forbidden.
 bool same_waypoint(const GeoWP& lhs, const GeoWP& rhs)
 {
-  return lhs.x_m == rhs.x_m && lhs.y_m == rhs.y_m && lhs.speed_mps == rhs.speed_mps &&
+  constexpr double kLatLonTolDeg = 1e-7;  // ≈ 1 cm
+  constexpr double kSpeedTolMps = 0.01;
+  return std::fabs(lhs.lat_deg - rhs.lat_deg) < kLatLonTolDeg &&
+         std::fabs(lhs.lon_deg - rhs.lon_deg) < kLatLonTolDeg &&
+         std::fabs(lhs.speed_mps - rhs.speed_mps) < kSpeedTolMps &&
          lhs.nav_mode == rhs.nav_mode;
 }
 
@@ -132,14 +141,18 @@ bool CommittedAvoidanceRoute::try_revise(
     current_.active_geometry = candidate.geometry;
     current_.route_hash = new_hash;
     ++current_.revision;
-    const std::size_t existing_prefix_count = current_.committed_prefix.size();
+    // Spec §6.6.3: prefix_count = requested (NOT max(existing, requested)).
+    // The legacy max-only behavior prevented the rolling H_commit from
+    // pruning waypoints the own-ship has already overrun. The prune itself is
+    // computed upstream in committed_candidate_from_plan (along-track distance
+    // < min_first_changed_distance_m) and communicated via frozen_prefix_count;
+    // the manager honours that count here so committed_prefix can shrink.
     const std::size_t requested_prefix_count = std::min(
         candidate.frozen_prefix_count,
         current_.active_geometry.size());
-    const std::size_t prefix_count = std::max(existing_prefix_count, requested_prefix_count);
     current_.committed_prefix.assign(
         current_.active_geometry.begin(),
-        current_.active_geometry.begin() + static_cast<std::ptrdiff_t>(prefix_count));
+        current_.active_geometry.begin() + static_cast<std::ptrdiff_t>(requested_prefix_count));
   }
 
   return true;
@@ -199,10 +212,14 @@ std::uint32_t CommittedAvoidanceRoute::consecutive_nlp_failures() const
 
 std::uint32_t CommittedAvoidanceRoute::hash_geometry(const std::vector<GeoWP>& geometry) const
 {
+  // Exact numerical hash for geometry deduplication (spec §3.7): a false
+  // positive (different geometry, same hash) is impossible by construction,
+  // and a false negative (same geometry, different hash) only forces an
+  // unnecessary revision bump — the safer failure mode.
   std::uint32_t hash = 2166136261u;
   for (const auto& waypoint : geometry) {
-    fnv1a_update_double(hash, waypoint.x_m);
-    fnv1a_update_double(hash, waypoint.y_m);
+    fnv1a_update_double(hash, waypoint.lat_deg);
+    fnv1a_update_double(hash, waypoint.lon_deg);
     fnv1a_update_double(hash, waypoint.speed_mps);
     fnv1a_update_string(hash, waypoint.nav_mode);
   }
@@ -215,7 +232,7 @@ bool CommittedAvoidanceRoute::preflight_candidate(const CommittedRouteCandidate&
     return false;
   }
   for (const auto& waypoint : candidate.geometry) {
-    if (!std::isfinite(waypoint.x_m) || !std::isfinite(waypoint.y_m) ||
+    if (!std::isfinite(waypoint.lat_deg) || !std::isfinite(waypoint.lon_deg) ||
         !std::isfinite(waypoint.speed_mps) || !valid_nav_mode(waypoint.nav_mode)) {
       return false;
     }

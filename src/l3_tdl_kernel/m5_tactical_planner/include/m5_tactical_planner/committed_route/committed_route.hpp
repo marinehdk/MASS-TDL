@@ -19,9 +19,14 @@ enum class LifecycleState : std::uint8_t {
   Released = 7U,
 };
 
+// GeoWP holds WGS84 waypoint coordinates in DEGREES (spec §3.7 coordinate
+// contract). lat_deg/lon_deg replace the legacy x_m/y_m NED-metre fields,
+// which were a semantic mismatch — committed_candidate_from_plan always filled
+// them with plan.latitude/longitude (degrees). NED-metre projections are
+// performed in conversion helpers at point of use and are NOT persisted here.
 struct GeoWP {
-  double x_m{0.0};
-  double y_m{0.0};
+  double lat_deg{0.0};   // WGS84 latitude  [deg]
+  double lon_deg{0.0};   // WGS84 longitude [deg]
   double speed_mps{0.0};
   std::string nav_mode;
 };

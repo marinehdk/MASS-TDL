@@ -15,22 +15,25 @@ using mass_l3::m5::committed_route::LifecycleState;
 
 namespace {
 
+// Route fixtures use realistic WGS84 lat/lon (degrees) per spec §3.7 GeoWP
+// coordinate contract — GeoWP.lat_deg/lon_deg hold WGS84 degrees, NOT NED metres.
+// Base near Imazu: lat≈34.0, lon≈130.0. ~0.001 deg ≈ 111 m latitude.
 std::vector<GeoWP> route_a()
 {
   return {
-      GeoWP{0.0, 0.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{100.0, 20.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{200.0, 20.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{300.0, 0.0, 5.0, "REJOIN_TO_L2"}};
+      GeoWP{34.00000, 130.00000, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00090, 130.00018, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00180, 130.00018, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00270, 130.00000, 5.0, "REJOIN_TO_L2"}};
 }
 
 std::vector<GeoWP> route_b_with_same_prefix()
 {
   return {
-      GeoWP{0.0, 0.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{100.0, 20.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{220.0, 35.0, 5.0, "MID_MPC_OPTIMIZED"},
-      GeoWP{340.0, 0.0, 5.0, "REJOIN_TO_L2"}};
+      GeoWP{34.00000, 130.00000, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00090, 130.00018, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00198, 130.00031, 5.0, "MID_MPC_OPTIMIZED"},
+      GeoWP{34.00306, 130.00000, 5.0, "REJOIN_TO_L2"}};
 }
 
 CommittedRouteCandidate candidate(
@@ -63,12 +66,12 @@ TEST(CommittedAvoidanceRoute, keeps_committed_prefix_when_suffix_revised)
   EXPECT_EQ(committed.revision, first_revision + 1U);
   ASSERT_EQ(committed.committed_prefix.size(), 2U);
   ASSERT_EQ(committed.active_geometry.size(), 4U);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[0].x_m, 0.0);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[0].y_m, 0.0);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[1].x_m, 100.0);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[1].y_m, 20.0);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[2].x_m, 220.0);
-  EXPECT_DOUBLE_EQ(committed.active_geometry[2].y_m, 35.0);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[0].lat_deg, 34.00000);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[0].lon_deg, 130.00000);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[1].lat_deg, 34.00090);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[1].lon_deg, 130.00018);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[2].lat_deg, 34.00198);
+  EXPECT_DOUBLE_EQ(committed.active_geometry[2].lon_deg, 130.00031);
 }
 
 TEST(CommittedAvoidanceRoute, repeated_geometry_refreshes_without_revision_bump)
@@ -198,7 +201,7 @@ TEST(CommittedAvoidanceRoute, invalid_revisions_do_not_clear_degraded_hold)
   EXPECT_EQ(manager.current().plan_id, "plan-a");
 
   auto conflicting = route_b_with_same_prefix();
-  conflicting[0].x_m = 10.0;
+  conflicting[0].lat_deg = 34.00009;  // > 1e-7 deg → not same waypoint → prefix conflict
   EXPECT_FALSE(manager.try_revise(candidate("prefix-conflict", conflicting, 2U, 90.0), 52.0));
   EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
   EXPECT_EQ(manager.current().safety_concern_event, degraded_event);
@@ -214,28 +217,38 @@ TEST(CommittedAvoidanceRoute, invalid_revisions_do_not_clear_degraded_hold)
   EXPECT_EQ(manager.current().revision, degraded_revision + 1U);
 }
 
-TEST(CommittedAvoidanceRoute, frozen_prefix_cannot_shrink_and_conflicting_revision_is_rejected)
+// Spec §6.6.3: prefix_count = requested (NOT max(existing, requested)).
+// The committed prefix must shrink when a smaller frozen_prefix_count is
+// requested (own-ship has pruned/overrun earlier waypoints). The legacy
+// max-only behavior is removed.
+TEST(CommittedAvoidanceRoute, committed_prefix_shrinks_when_smaller_prefix_requested)
 {
   CommittedAvoidanceRoute manager;
   ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
-
-  ASSERT_TRUE(manager.try_revise(candidate("plan-b", route_b_with_same_prefix(), 0U, 30.0), 5.0));
-  const std::uint32_t accepted_revision = manager.current().revision;
-  const std::uint32_t accepted_hash = manager.current().route_hash;
   ASSERT_EQ(manager.current().committed_prefix.size(), 2U);
-  EXPECT_DOUBLE_EQ(manager.current().committed_prefix[0].x_m, 0.0);
-  EXPECT_DOUBLE_EQ(manager.current().committed_prefix[1].x_m, 100.0);
+
+  // Revise geometry (new hash → geometry_changed) requesting a SMALLER prefix.
+  ASSERT_TRUE(manager.try_revise(candidate("plan-b", route_b_with_same_prefix(), 0U, 30.0), 5.0));
+
+  // prefix_count = requested (0), not max(2, 0). committed_prefix must be empty.
+  EXPECT_EQ(manager.current().committed_prefix.size(), 0U);
+  EXPECT_EQ(manager.current().active_geometry.size(), 4U);
+}
+
+TEST(CommittedAvoidanceRoute, prefix_conflict_on_genuinely_different_waypoint_is_rejected)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  ASSERT_EQ(manager.current().committed_prefix.size(), 2U);
 
   auto conflicting = route_b_with_same_prefix();
-  conflicting[0].x_m = 10.0;
-  EXPECT_FALSE(manager.try_revise(candidate("plan-conflict", conflicting, 0U, 40.0), 10.0));
+  conflicting[0].lat_deg = 34.00009;  // 9e-5 deg ≈ 10 m → outside 1e-7 tolerance
+  EXPECT_FALSE(manager.try_revise(candidate("plan-conflict", conflicting, 2U, 40.0), 10.0));
 
-  EXPECT_EQ(manager.current().revision, accepted_revision);
-  EXPECT_EQ(manager.current().route_hash, accepted_hash);
   EXPECT_EQ(manager.current().state, LifecycleState::KeepLast);
   ASSERT_EQ(manager.current().committed_prefix.size(), 2U);
-  EXPECT_DOUBLE_EQ(manager.current().active_geometry[0].x_m, 0.0);
-  EXPECT_DOUBLE_EQ(manager.current().active_geometry[1].x_m, 100.0);
+  EXPECT_DOUBLE_EQ(manager.current().active_geometry[0].lat_deg, 34.00000);
+  EXPECT_DOUBLE_EQ(manager.current().active_geometry[1].lat_deg, 34.00090);
 }
 
 TEST(CommittedAvoidanceRoute, failed_nlp_risk_triggers_enter_degraded_hold_immediately)
@@ -264,6 +277,46 @@ TEST(CommittedAvoidanceRoute, failed_nlp_risk_triggers_enter_degraded_hold_immed
   auto drift = candidate("fail-drift", route_b_with_same_prefix(), 2U, 30.0, false);
   drift.cpa_drift_fraction = 0.201;
   expect_failed_nlp_degraded_hold(drift, "cpa_drift_gt_20pct");
+}
+
+// Spec §3.7 / §10.1 "GeoWP 坐标契约": same_waypoint uses tolerance comparison
+// (|Δlat|,|Δlon| < 1e-7 deg ≈ 1cm, |Δspeed| < 0.01 m/s). Exact double
+// comparison is forbidden. Verified indirectly via preserves_committed_prefix:
+// a revised geometry whose prefix waypoints differ only by sub-tolerance
+// WGS84 jitter must be accepted (not rejected as a prefix conflict).
+TEST(CommittedAvoidanceRoute, preserves_committed_prefix_accepts_sub_tolerance_jitter)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  // Jitter well below 1e-7 deg tolerance — represents WGS84 float reprojection
+  // noise, NOT a real geometry change.
+  auto jittered = route_b_with_same_prefix();
+  jittered[0].lat_deg += 1e-9;
+  jittered[0].lon_deg += 1e-9;
+  jittered[1].lat_deg += 5e-10;
+  jittered[1].speed_mps += 0.001;  // < 0.01 m/s speed tolerance
+
+  EXPECT_TRUE(manager.try_revise(candidate("plan-jitter", jittered, 2U, 30.0), 5.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::Committed);
+}
+
+// Spec §3.7: tolerance must REJECT points that exceed the threshold, so that
+// a real ~10 m waypoint move is treated as a genuine geometry change (the
+// hash changes) but a sub-1e-7 deg perturbation is a no-op.
+TEST(CommittedAvoidanceRoute, preserves_committed_prefix_rejects_above_tolerance_lat_delta)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  auto drifted = route_b_with_same_prefix();
+  drifted[0].lat_deg += 1e-6;  // 1e-6 deg ≈ 11 cm > 1e-7 tolerance
+
+  // With a 2U frozen prefix, the drifted prefix[0] is NOT the same waypoint
+  // → preserves_committed_prefix fails → KeepLast rejection.
+  EXPECT_FALSE(manager.try_revise(candidate("plan-drift", drifted, 2U, 30.0), 5.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::KeepLast);
+  EXPECT_EQ(manager.current().safety_concern_event, "frozen_prefix_conflict");
 }
 
 TEST(CommittedAvoidanceRoute, successful_empty_or_invalid_candidate_is_rejected_without_revision)
