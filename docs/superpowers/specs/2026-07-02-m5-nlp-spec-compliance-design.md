@@ -184,7 +184,7 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 - `same_waypoint` 改为 **tolerance 比较**：lat/lon 用 `|Δ| < 1e-7 deg`（≈1cm），speed 用 `|Δ| < 0.01 m/s`。精确 double 比较禁止。
 - 转换函数：`wgs84_to_ownship_ned(lat, lon, own_lat, own_lon) → (x_north_m, y_east_m)` + 逆转换。§6.2 prefix 重投影 + §4.2 l[k] 投影共用。
 
-**影响**：manager hash_geometry（committed_route.cpp:200-209）也要改用 tolerance 或 hash 数值化（非精确）。但 hash 用于去重，false-positive（hash 不同但几何同）比 false-negative（hash 同但几何不同）安全，故 hash 可保持精确，仅 `same_waypoint`（prefix 冻结判定）用 tolerance。
+**影响**：manager hash_geometry（committed_route.cpp:200-209）保持精确数值 hash（用于去重，false-positive 即 hash 不同但几何同，比 false-negative 安全）。仅 `same_waypoint`（prefix 冻结判定）改 tolerance 比较。
 
 ### 3.8 NLP Row Registry 契约（Codex 二次评审 High——plan 阶段定义数据结构）
 
