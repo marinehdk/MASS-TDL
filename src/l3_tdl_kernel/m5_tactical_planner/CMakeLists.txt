@@ -327,6 +327,12 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # ── Slice R1: route-frame J_route dimensionless + COLREG dominance ─────────
+    m5_add_gtest(test_mid_mpc_route_cost
+      test/unit/test_mid_mpc_route_cost.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
     # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
     m5_add_gtest(test_mid_mpc_waypoint_generator
       test/unit/test_mid_mpc_waypoint_generator.cpp

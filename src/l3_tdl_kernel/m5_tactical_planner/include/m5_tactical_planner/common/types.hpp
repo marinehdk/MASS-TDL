@@ -186,6 +186,16 @@ struct MidMpcInput {
   double route_corridor_limit_m{500.0};
   std::vector<TargetRiskSnapshot> target_risks;
 
+  // Slice R1: route-frame parameters (spec §4). Computed in assemble_input_
+  // (active-leg bearing + normal + cross-leg guard), packed into kIdx slots.
+  double route_frame_origin_x_m{0.0};            // active-leg origin, NED north
+  double route_frame_origin_y_m{0.0};            // active-leg origin, NED east
+  double route_frame_normal_x{0.0};              // active-leg normal unit vector, north comp
+  double route_frame_normal_y{1.0};              // active-leg normal unit vector, east comp
+  double route_frame_active_leg_bearing_rad{0.0};
+  double lateral_scale_m{400.0};                 // GncExecutionOdd.max_lateral_offset_m
+  double route_weight{1.0};                      // cross-leg guard: 1.0 normal, 0.0 across corner
+
   bool colregs_conflict_active{false};
   // M6-owned primary role: 0=STAND_ON, 1=GIVE_WAY, 2=BOTH_GIVE_WAY, 3=FREE/UNKNOWN.
   std::uint8_t colregs_primary_role{3U};

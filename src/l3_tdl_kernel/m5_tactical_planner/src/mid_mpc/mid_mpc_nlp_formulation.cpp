@@ -96,6 +96,49 @@ casadi::MX MidMpcNlpFormulation::build_distance_cost_() const {
 }
 
 // ===========================================================================
+// build_route_cost_() — Slice R1 route-frame dimensionless cross-track (§4.3).
+//
+// Integrates own-ship cumulative position from (kIdxRouteFrameOriginX/Y) using
+// the same NED convention as build_colreg_cost_ (x=north=cos, y=east=sin), then
+// projects the cross-track offset onto the active-leg normal:
+//   l[k] = (pos[k] - origin) · n_hat
+// n_hat = (kIdxRouteFrameNormalX, kIdxRouteFrameNormalY) is packed as
+// (-sinψ, cosψ) so starboard is positive (spec §3.1/§4.2).
+//
+// J_route = kIdxRouteWeight · Σ_{k} (l[k]/l_scale)²
+//   - dimensionless: l_scale = GncExecutionOdd.max_lateral_offset_m (400 m) →
+//     l/l_scale ∈ [-1,1], J_route O(1), same order as the averaged J_colreg.
+//   - kIdxRouteWeight (parameter): 1.0 normal, 0.0 when the predicted trajectory
+//     crosses an L2 leg corner (cross-leg guard, §4.3). Multiplied here so a
+//     single parameter nulls the term; cfg_.w_route is applied in the J assembly.
+// First version re-integrates position (same pattern as build_colreg_cost_);
+// extracting a shared position-integral helper is a later refactor (plan §4 n.).
+// ===========================================================================
+casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::MX dt   = casadi::DM(cfg_.dt_s);
+  const casadi::MX ox   = slot(p_, kIdxRouteFrameOriginX);
+  const casadi::MX oy   = slot(p_, kIdxRouteFrameOriginY);
+  const casadi::MX nx   = slot(p_, kIdxRouteFrameNormalX);
+  const casadi::MX ny   = slot(p_, kIdxRouteFrameNormalY);
+  const casadi::MX l_scale = slot(p_, kIdxLateralScale);
+  const casadi::MX w_guard = slot(p_, kIdxRouteWeight);  // cross-leg guard
+
+  casadi::MX cx = ox;
+  casadi::MX cy = oy;
+  casadi::MX cost(0.0);
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
+    const casadi::MX u_k   = u_(casadi::Slice(k, k + 1));
+    cx = cx + u_k * dt * casadi::MX::cos(psi_k);
+    cy = cy + u_k * dt * casadi::MX::sin(psi_k);
+    const casadi::MX l = (cx - ox) * nx + (cy - oy) * ny;  // cross-track
+    cost = cost + casadi::MX::sq(l / l_scale);
+  }
+  return w_guard * cost;
+}
+
+// ===========================================================================
 // build_velocity_cost_() — sum_k (u[k] - planned_speed)^2
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_velocity_cost_() const {
@@ -257,10 +300,11 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   p_   = casadi::MX::sym("p", parameter_dim_(), 1);
   const casadi::MX x = casadi::MX::vertcat({psi_, u_});
 
-  // Objective: weighted sum of three sub-costs.
+  // Objective: weighted sum of cost sub-terms (spec §3.2).
   J_ = casadi::DM(cfg_.w_colreg) * build_colreg_cost_()
      + casadi::DM(cfg_.w_dist)   * build_distance_cost_()
      + casadi::DM(cfg_.w_vel)    * build_velocity_cost_()
+     + casadi::DM(cfg_.w_route)  * build_route_cost_()   // Slice R1 (§4.3)
      + build_asym_cost_();  // gated starboard preference (give-way only)
 
   g_ = build_constraints_();
@@ -322,6 +366,30 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
     if (rule == 14u || rule == 15u) { give_way = true; }
   }
   p(kIdxGiveWay) = give_way ? 1.0 : 0.0;
+
+  // Slice R1: route-frame parameters (spec §4). Computed by assemble_input_.
+  // Defaults keep J_route inert when a caller does not populate them: origin at
+  // own ship, normal along east, weight 0 (no spurious lateral pull until the
+  // node computes the active-leg guard).
+  p(kIdxRouteFrameOriginX) = input.route_frame_origin_x_m;
+  p(kIdxRouteFrameOriginY) = input.route_frame_origin_y_m;
+  p(kIdxRouteFrameNormalX) = input.route_frame_normal_x;
+  p(kIdxRouteFrameNormalY) = input.route_frame_normal_y;
+  p(kIdxRouteFrameBearing) = input.route_frame_active_leg_bearing_rad;
+  p(kIdxLateralScale)      = (input.lateral_scale_m > 1.0e-6)
+                             ? input.lateral_scale_m : 400.0;
+  p(kIdxRouteWeight)       = input.route_weight;
+
+  // Slice C1/D1 reserved slots (prefix K, preferred direction, min alteration,
+  // role) default to 0 — inactive until those slices populate them.
+  p(kIdxPrefixActiveK)    = 0.0;
+  p(kIdxPreferredDir)     = 0.0;
+  p(kIdxMinAlterationRad) = 0.0;
+  p(kIdxRole)             = 0.0;
+  for (int32_t k = 0; k < cfg_.n_horizon; ++k) {
+    p(kIdxPrefixPsi + k) = 0.0;
+    p(kIdxPrefixU   + k) = 0.0;
+  }
 
   // Targets: zero-padded up to cfg_.max_targets.
   const int32_t n_t = std::min(
@@ -407,6 +475,46 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
         static_cast<int>(stats.at("iter_count")));
   }
   return sol;
+}
+
+// ===========================================================================
+// eval_*_cost — Slice R1 cost-component evaluators (spec §3.2 / §10.1).
+//
+// Build a one-shot CasADi Function from the symbolic expressions (psi_, u_, p_
+// are fixed MX symbols after build_symbolic_graph), then call it at the given
+// (x=[psi;u], p). Used by unit tests to assert the COLREG-dominance contract
+// without relying on unpack_solution (Phase E1 does not split costs). The
+// returned value is the UNWEIGHTED sub-term; callers multiply by the w_* weight.
+// @pre build_symbolic_graph() has been called.
+// ===========================================================================
+double MidMpcNlpFormulation::eval_colreg_cost(
+    const casadi::DM& x, const casadi::DM& p) const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::DM psi_dm = x(casadi::Slice(0, N), casadi::Slice(0, 1));
+  const casadi::DM u_dm   = x(casadi::Slice(N, 2 * N), casadi::Slice(0, 1));
+  casadi::Function f("eval_colreg", {psi_, u_, p_}, {build_colreg_cost_()});
+  std::vector<casadi::DM> out = f(std::vector<casadi::DM>{psi_dm, u_dm, p});
+  return static_cast<double>(casadi::DM::vec(out.at(0))(0));
+}
+
+double MidMpcNlpFormulation::eval_dist_cost(
+    const casadi::DM& x, const casadi::DM& p) const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::DM psi_dm = x(casadi::Slice(0, N), casadi::Slice(0, 1));
+  const casadi::DM u_dm   = x(casadi::Slice(N, 2 * N), casadi::Slice(0, 1));
+  casadi::Function f("eval_dist", {psi_, u_, p_}, {build_distance_cost_()});
+  std::vector<casadi::DM> out = f(std::vector<casadi::DM>{psi_dm, u_dm, p});
+  return static_cast<double>(casadi::DM::vec(out.at(0))(0));
+}
+
+double MidMpcNlpFormulation::eval_route_cost(
+    const casadi::DM& x, const casadi::DM& p) const {
+  const int32_t N = cfg_.n_horizon;
+  const casadi::DM psi_dm = x(casadi::Slice(0, N), casadi::Slice(0, 1));
+  const casadi::DM u_dm   = x(casadi::Slice(N, 2 * N), casadi::Slice(0, 1));
+  casadi::Function f("eval_route", {psi_, u_, p_}, {build_route_cost_()});
+  std::vector<casadi::DM> out = f(std::vector<casadi::DM>{psi_dm, u_dm, p});
+  return static_cast<double>(casadi::DM::vec(out.at(0))(0));
 }
 
 }  // namespace mass_l3::m5::mid_mpc

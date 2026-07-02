@@ -54,11 +54,25 @@ constexpr int32_t kIdxCpaSafe        = 10;
 constexpr int32_t kIdxRotMax         = 11;
 constexpr int32_t kIdxOwnPsi         = 12;
 constexpr int32_t kIdxGiveWay        = 13;  // 1.0 if M6 rule 14/15 (give-way) active, else 0.0
-constexpr int32_t kIdxTargets        = 14;
-constexpr int32_t kTargetStride      = 5;
-constexpr int32_t kMaxTargets        = 16;
-constexpr int32_t kParamDim          = kIdxTargets + kMaxTargets * kTargetStride;  // 94
-static_assert(kParamDim == 94, "parameter layout mismatch — update kParamDim if constants change");
+// Slice R1: route-frame + continuity/direction parameter slots (spec §3.4).
+constexpr int32_t kIdxRouteFrameOriginX   = 14;  // route-frame origin, NED north [m]
+constexpr int32_t kIdxRouteFrameOriginY   = 15;  // route-frame origin, NED east  [m]
+constexpr int32_t kIdxRouteFrameNormalX   = 16;  // active-leg normal unit vector, north comp
+constexpr int32_t kIdxRouteFrameNormalY   = 17;  // active-leg normal unit vector, east  comp
+constexpr int32_t kIdxRouteFrameBearing   = 18;  // active-leg bearing [rad] (vs kIdxRouteBearing=4 first-leg)
+constexpr int32_t kIdxLateralScale        = 19;  // l_scale = GncExecutionOdd.max_lateral_offset_m
+constexpr int32_t kIdxRouteWeight         = 20;  // cross-leg guard: 1.0 normal, 0.0 across L2 corner
+constexpr int32_t kIdxPrefixActiveK       = 21;  // active prefix length K (C1)
+constexpr int32_t kIdxPreferredDir        = 22;  // M6 preferred_direction (D1)
+constexpr int32_t kIdxMinAlterationRad    = 23;  // M6 min alteration (D1)
+constexpr int32_t kIdxRole                = 24;  // M6 primary_role enum (D1)
+constexpr int32_t kIdxPrefixPsi           = 25;  // [N=18] prefix psi (C1)
+constexpr int32_t kIdxPrefixU             = 43;  // [N=18] prefix u   (C1)
+constexpr int32_t kIdxTargets             = 61;
+constexpr int32_t kTargetStride          = 5;
+constexpr int32_t kMaxTargets            = 16;
+constexpr int32_t kParamDim              = kIdxTargets + kMaxTargets * kTargetStride;  // 61+80=141
+static_assert(kParamDim == 141, "parameter layout mismatch — update kParamDim if constants change");
 
 class MidMpcNlpFormulation {
  public:
@@ -77,6 +91,12 @@ class MidMpcNlpFormulation {
     double w_dist{10.0};
     // [TBD-HAZID] Speed efficiency cost weight.
     double w_vel{1.0};
+    // [TBD-HAZID] Route-frame cross-track (J_route) weight. Dimensionless cost
+    // (l/l_scale)^2 is O(1); w_route ≈ w_dist order per colav_algorithms NLM
+    // (route tracking ≈ heading tracking). COLREG dominance enforced by test
+    // (spec §3.2): w_colreg·J_colreg > w_route·J_route + w_dist·J_dist.
+    // HAZID RUN-001 to calibrate (default 5.0 < w_colreg=30 to preserve dominance).
+    double w_route{5.0};
     // [TBD-HAZID] Exponential-barrier steepness zeta [1/m] in exp(-zeta*(d-cpa_safe)).
     // ~e-fold per 200 m: strong avoidance gradient inside cpa_safe, ≈0 beyond ~2·cpa.
     double zeta{5.0e-3};
@@ -119,6 +139,14 @@ class MidMpcNlpFormulation {
   // Public access to active config (read-only).
   [[nodiscard]] const Config& config() const noexcept { return cfg_; }
 
+  // ── Slice R1: cost-component evaluators (spec §3.2 / §10.1) ───────────────
+  // Evaluate an individual (unweighted) cost sub-term at a given (x, p). Used by
+  // unit tests to assert the COLREG-dominance contract without relying on
+  // unpack_solution (Phase E1 does not split cost components). @pre graph built.
+  [[nodiscard]] double eval_colreg_cost(const casadi::DM& x, const casadi::DM& p) const;
+  [[nodiscard]] double eval_dist_cost(const casadi::DM& x, const casadi::DM& p) const;
+  [[nodiscard]] double eval_route_cost(const casadi::DM& x, const casadi::DM& p) const;
+
  private:
   Config cfg_;
   casadi::MX psi_;     // [N×1] symbolic decision variable: heading sequence [rad]
@@ -139,6 +167,8 @@ class MidMpcNlpFormulation {
   [[nodiscard]] casadi::MX build_asym_cost_() const;
   [[nodiscard]] casadi::MX build_distance_cost_() const;
   [[nodiscard]] casadi::MX build_velocity_cost_() const;
+  // Slice R1: route-frame dimensionless cross-track cost (spec §4.3).
+  [[nodiscard]] casadi::MX build_route_cost_() const;
 
   // Constraint helper.
   [[nodiscard]] casadi::MX build_constraints_() const;

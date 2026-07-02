@@ -421,7 +421,8 @@ MidMpcInput MidMpcNode::assemble_input_()
     const double ddx = (p1_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
     const double ddy = (p1_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
                        * std::cos(p0_lat * units::kRadPerDeg);
-    inp.planned_route_bearing_rad = std::atan2(ddy, ddx);
+    const double route_bearing = std::atan2(ddy, ddx);
+    inp.planned_route_bearing_rad = route_bearing;
     const double own_dx = (own_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
     const double own_dy = (own_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
                           * std::cos(p0_lat * units::kRadPerDeg);
@@ -429,8 +430,48 @@ MidMpcInput MidMpcNode::assemble_input_()
     if (route_len > 1.0) {
       inp.route_xte_m = ((ddx * own_dy) - (ddy * own_dx)) / route_len;
     }
+
+    // Slice R1: route-frame projection (spec §4.1/§4.2).
+    // Origin = own ship relative to the active-leg start (p0), NED.
+    // Active-leg normal n = (-sinψ, cosψ) → starboard is positive (spec §3.1).
+    inp.route_frame_origin_x_m = own_dx;  // own ship north relative to p0
+    inp.route_frame_origin_y_m = own_dy;  // own ship east  relative to p0
+    inp.route_frame_normal_x = -std::sin(route_bearing);
+    inp.route_frame_normal_y =  std::cos(route_bearing);
+    inp.route_frame_active_leg_bearing_rad = route_bearing;
+    // l_scale = GncExecutionOdd.max_lateral_offset_m (spec §3.2/§4.3). The
+    // execution-ODD ROS msg does not yet carry this field (it lives in the
+    // TailBuilder/GNC-preflight local struct, default 400 m); use the spec
+    // default here. [TBD-HAZID] wire to the ODD msg field once published.
+    inp.lateral_scale_m = 400.0;
+
+    // Cross-leg guard (spec §4.3): extrapolate own_psi straight ahead ~900 m
+    // (90 s horizon × ~10 m/s); if that ray passes the active leg end (p1), the
+    // NLP trajectory would cross into the next L2 leg → null J_route to avoid
+    // pulling toward the wrong normal. Single-segment routes cannot cross a
+    // corner, so the guard defaults to active (weight=1.0).
+    bool crosses_corner = false;
+    const std::size_t n_wp = planned_route_->route.poses.size();
+    if (n_wp > 2u && route_len > 1.0) {
+      const double reach_m = std::max(
+          inp.own_ship.u_mps *
+              formulation_.config().n_horizon * formulation_.config().dt_s,
+          900.0);
+      // Along-track progress of the own_psi ray projected onto the active leg.
+      const double own_psi = inp.own_ship.psi_rad;
+      const double ex_n = std::cos(own_psi);
+      const double ex_e = std::sin(own_psi);
+      const double along_proj = (ex_n * ddx + ex_e * ddy) / route_len;
+      if (along_proj > 1.0e-6 && reach_m * along_proj > route_len) {
+        crosses_corner = true;  // ray reaches beyond p1 → next leg
+      }
+    }
+    inp.route_weight = crosses_corner ? 0.0 : 1.0;
   } else {
     inp.planned_route_bearing_rad = 0.0;
+    // No L2 route: disable J_route (no leg to return to) so it does not
+    // introduce a spurious lateral setpoint.
+    inp.route_weight = 0.0;
   }
 
   const bool has_speed = speed_profile_ != nullptr
