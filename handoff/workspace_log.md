@@ -1935,3 +1935,83 @@ Implement standalone M5 `CommittedAvoidanceRoute` manager for committed-route li
 - **Status:** deploy blocker RESOLVED; "no M5 output" answered. Slice J smoke still RED on M5 NLP throw — defer rule15-cs + full 2-probe until NLP resolved. No source commits this session (deploy-only). A4000 deploy must repeat the full `--packages-above` rebuild (scp + colcon build, never partial, never git pull).
 - **Key files:** `.superpowers/sdd/task-J-report.md` (full root-cause writeup), memory `l3-sil-throwaway-rebuild-deploy-gap` (gotcha #2 = completeness), memory `l3-m5-midmpc-casadi-throw` (next blocker).
 - **Next command (when NLP triage starts):** rerun `rtk python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs --sim-rate 5 --trace-report-dir runs/<tag> --summary-out runs/<tag>-summary.json --scenario colreg-rule14-ho` after rebuilding M5 with any NLP fix.
+
+---
+
+## 2026-07-02 — Bug D FIXED + Bug C tail-gate FIXED; NLP solver quality = next blocker
+
+**Agent:** Claude (glm-5.2). **Branch/worktree:** `codex/colregs-12probe-debug` @ `.worktrees/colregs-12probe-debug`. **HEAD:** `f69c30fb` (on top of `68e7ac68`).
+**Goal:** (continuation of [[l3-m5-cd-remain]]) fix Bug D (rule14-ho route_return FAIL) + Bug C (NLP tail-gate, NLP not route source).
+
+**Bug D — RESOLVED (commit `68e7ac68`, M6).** Root cause was NOT M4/M5 (prior "M4" attribution was the scorer's inaccurate `_has_recovery_or_transit_release` heuristic). It was an **M6 phantom conflict**: a sticky rule13 EncounterStateMachine engaged when the target drew astern into the overtaking sector, setting `rule13_release_context=TRUE` forever → blocked rule14 release execution (`rule_projection_release_ok = !rule13_release_context && …`) while `projection_resolved` still fired (rule14 path ungated) → latch never released (`anyRel=0` all run) → conflict stuck ~5800s → ship stopped dead, never returned.
+- **F1:** `rule13_release_context_active()` in `m6_colregs_reasoner/include/m6_colregs_reasoner/colregs_release_policy.hpp` — context only when rule13 is dominant primary `(rule13_proj||fsm||overtake) && !(rule14||rule15||duty primary)`.
+- **F2:** CPA-trend hysteresis `kCpaTrendHysteresisM=5.0` in `encounter_state_machine.cpp` — killed ACTIVE↔MONITOR ±1m chatter.
+- **Verified** (runs/m6verify-r14ho): route_return PASS; ship TRANSIT→COLREG_AVOID(t=192.8)→RECOVERY(t=1077.8)→TRANSIT(t=1462.1); m5 GEOMETRIC_FALLBACK 5803→885, new RECOVERY=382; Final XTE 112m. 228 M6 unit tests pass.
+
+**Bug C — tail-gate FIXED (commit `f69c30fb`, M5); NLP solver quality = remaining blocker.** `accept_tail_gate` (m5 `common/types.hpp`) gate 4 `cpa_release_floor` checked M2's pre-maneuver do-nothing CPA vs `cpa_safe_m` (bumped to 2500 during conflict for cost-scaling) → rejected every converged NLP during active avoidance → fallback.
+- Fix: `trajectory_terminal_state_cpa_m()` helper (CPA from NLP terminal state) + **phase-aware** gate — skip CPA-floor while target closing (the NLP maneuver IS the CPA-opening action), apply only during release/opening. Removed gate 5 (`tail_gate_risk_opening`). Reordered `no_crossing_ahead` before `cpa_release_floor`. 7 tail-gate tests.
+- **Verified:** `cpa_release_floor` rejections 499→0.
+- **BUT NLP still doesn't publish** — fix exposed the deeper blocker: NLP solver itself produces **`decel_infeasible=501`** (trajectory decel > `decel_max_mps2`) + **`solver_status=2`=368 (41% non-convergence)** + turn_radius=19. Tail-gate is now correct; the NLP FORMULATION is the problem.
+
+**L6_seamanship unchanged** (int_abs_xte=368353 vs threshold 300000) — because NLP still not the route source → avoidance still geometric fallback → same XTE profile. L6↔Bug C synergy NOT yet realized.
+
+**NEXT (new session) — NLP solver quality (deep).** This is the only path to NLP-as-route-source + L6 green.
+1. **First check:** what is `decel_max_mps2` in the run? (`effective_gnc_odd_().max_decel_mps2`, mid_mpc_node.cpp:444). Is it overly strict (e.g. 0.08 m/s²)? vs the NLP's actual trajectory decel. Log both per-cycle.
+2. **J_vel / decel formulation** (mid_mpc_nlp_formulation.cpp): is the NLP penalizing/over-commanding deceleration? Connects to spec `docs/Design/TDL-Kernel/M5-Tactical-Planner/M5-jcolreg-redesign-spec.md` + memory [[l3-m5-restoration-failed-keystone]] (J_colreg/J_vel work).
+3. **Cold-start convergence (41% solver_status=2):** kIdxOwnPsi anchoring (mid_mpc_nlp_formulation.cpp:311, "reserved for Phase E2") — psi[0] cold-start unanchored. Also Bug-A fix region (resolve_heading_box_bounds).
+4. **DO NOT** loosen `decel_max`/`turn` gates or `cpa_safe` to force-publish infeasible NLP routes (CLAUDE.md: no threshold-tuning-to-green). Fix the NLP formulation so it produces feasible trajectories.
+
+**Build/run:**
+```bash
+# build m5 (test+release) in running container
+docker exec codex-gnc-validation-sil-nodes-1 bash -lc 'source /opt/ros/humble/setup.bash; cd /opt/ws && colcon build --packages-select m5_tactical_planner --cmake-args -DBUILD_TESTING=ON'
+# restart to load (symlink-install → restart re-sources)
+docker restart codex-gnc-validation-sil-nodes-1
+# probe (from worktree host)
+python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs --sim-rate 5 \
+  --trace-report-dir runs/<tag> --summary-out runs/<tag>-summary.json --scenario colreg-rule14-ho
+# tail-gate fallback breakdown (parse m5 asdr decision_json fallback_reason):
+grep M5DIAG / docker logs … | parse fallback_reason — see scripts/analysis/parse_m6diag.py (M6; adapt for M5)
+```
+
+**Key files:** `m5_tactical_planner/include/m5_tactical_planner/common/types.hpp` (`accept_tail_gate`, `trajectory_terminal_state_cpa_m`, :697 gate), `src/mid_mpc/mid_mpc_nlp_formulation.cpp` (NLP: :311 kIdxOwnPsi, :189 build_asym_cost_, :213 build_constraints_, :396 unpack_solution), `src/mid_mpc/mid_mpc_node.cpp` (:444 decel_max, :495 tail-gate call, :348 heading bounds).
+**Memory:** `l3-m6-rule13-fsm-blocks-rule14-release` (Bug D), `l3-m5-bugc-tailgate-nlp-quality` (Bug C tail-gate + NLP blocker), `l3-m5-restoration-failed-keystone` (J_colreg/J_vel spec).
+**Uncommitted:** only pre-existing scenario YAML regen + docs (not mine). My 2 commits are clean surgical M5/M6 changes.
+
+---
+
+## 2026-07-02 (cont.) — Bug C deep: 2 check/constraint bugs FIXED (ccef2503); NLP-as-route-source BLOCKED by structural over-turn (deferred to committed-route)
+
+**Agent:** Claude (glm-5.2). **Branch:** `codex/colregs-12probe-debug`. **HEAD:** `ccef2503` (on `f69c30fb`).
+**Goal:** fix Bug C deep — why the NLP never publishes during rule14-ho avoidance (the L6↔Bug-C synergy needs NLP as route source).
+
+**Method:** systematic-debugging + [M5DIAG-NLP] per-cycle instrumentation (solver_status, decel magnitude, cpa_safe vs init_range, psi0_delta). Three root causes pinned by code + runtime evidence, then TDD.
+
+**Committed at `ccef2503` (2 correctness fixes, both real bugs independent of the NLP-quality issue):**
+- **RC-A — feasibility-check ÷0.** `tail_gate_decel_is_feasible` / `tail_gate_turns_are_feasible` (types.hpp) initialised `prev_time=0`, but `trajectory[0].t_s == 0` (unpack_solution sets `t_s = k*dt_s`) → first iteration `dt = max(0-0, 1e-6) = 1e-6` → `(own_u - u[0])/1e-6` huge → rejected every converged NLP whose u[0]/psi[0] ≠ own state. **decel_infeasible = 512/512 conflict cycles.** Fix: `prev_time = -first_step_dt` (derive step cadence from traj[1].t_s - traj[0].t_s) so the own→traj[0] rate is measured over one control step. traj[0] is the first command over [0,dt_s], NOT a zero-duration step. TDD: 2 new tests + updated InstantaneousJump (1.0→1.5 rad so it still genuinely exceeds rot_max·dt post-fix).
+- **RC-C — cpa_safe hard-floor leak.** `compile_cpa_distance` (constraint_compiler.cpp:290) used `inputs.cpa_safe_m` as the HARD CPA floor, but the node bumps `cpa_safe → 2500` during conflict for SOFT cost-scaling (the colreg barrier) only. The bump leaked into the hard floor → **Infeasible (status=2) = 425/881 cycles** (whenever target inside 2500 m). Fix: add `cpa_hard_m{1852.0}` to ConstraintInputs (the shared `odd_aware_thresholds.yaml` floor, spec committed-route-design-v2 §L84 "M5 不应自定"), set it in the node to the un-bumped `kCpaSafeFallback_m` (1852), use it in compile_cpa_distance. Soft barrier keeps the bumped cpa_safe. Verified: infeasible 425 → 111. TDD: HardCpaFloor solve test (target@2000m, cpa_safe=2500/cpa_hard=1852 → Converged).
+
+**Verified (build m5 + unit):** test_midmpc_tail_gate 9/9, test_mid_mpc_solver 10/10, test_mid_mpc_nlp_formulation 8/8.
+
+**NLP-as-route-source STILL BLOCKED — structural, not a bug (deferred to committed-route redesign).** With RC-A+RC-C the NLP finally publishes, but its trajectories are WORSE than geometric fallback: `int_abs_xte 368k → 1.59M`, `steering_reversals 0 → 1660`, full 180° starboard/port reversals, route_return=False. Root cause (pinned via M5DIAG):
+- The NLP **re-solves a fresh 90s trajectory every cycle, executes only the first 5s.** `psi[0]` is a free decision var (only bounded by the M4 heading window + intra-horizon ROT), NOT anchored to own_psi or the previous cycle. Warm-start续接 the previous turn direction.
+- Single cold solve psi0_delta ≈ 12° (calibrated), but integrated p50 = **42°** (warm-start accumulation) → 180° → geometry flips → port reversal = **limit cycle**.
+- A hard first-step ROT constraint won't help: `rot_max·dt = 0.25×5 = 1.25 rad = 72°/step` — dt=5s is too coarse, 42° jumps are ROT-legal.
+
+**J_rot exploration — TRIED then REVERTED as 治标.** Implemented `J_rot = (psi[0]-own_psi)² + Σ(Δψ/(rot_max·dt))²` (principled ROT-effort + soft cold-start anchor) to suppress over-turning. Offline calibration (target 1500/3000 m): w_rot=300→psi0_delta 4.6°, 1000→2.9° (final heading preserved — avoidance intact). But integrated w_rot=10 → 1660 reversals (negligible); user correctly challenged that **tuning w_rot = adding a 5th magic weight (w_colreg/w_dist/w_vel/k_asym were tuned for IPOPT convergence, not trajectory quality) to suppress a structural instability = threshold-tuning-to-green (CLAUDE.md forbids).** Reverted the J_rot term + diag + calibration test. The 治本 path is the committed-route architecture (NLP commits to a trajectory, cycles 续接/微调 not greedy re-solve), spec already exists: `docs/superpowers/specs/2026-06-30-m5-committed-route-design-v2.md`.
+
+**Key runtime numbers (rule14-ho, gnc profile, sim-rate 5):**
+| metric | baseline (÷0 gates NLP) | RC-A+RC-C (NLP publishes) |
+|---|---|---|
+| int_abs_xte m·s | 368559 | 1,587,980 |
+| steering_reversals | 0 | 1660 |
+| CPA min m | 362 | 812 |
+| route_return | PASS (XTE 112m) | FAIL (XTE 630m) |
+| infeasible cycles | 368 | 111 (RC-C) → was 425 at w_rot=10 |
+| converged decel-rejected | 512/512 (RC-A bug) | ~35 (real) |
+
+**Status:** RC-A + RC-C are correct, committed, durable. The NLP-quality / L6-green goal is deferred to committed-route redesign (new session). These 2 fixes un-gate the NLP, so any probe run on this branch will show the over-turn regression until committed-route lands — that is expected, not a regression caused by the fixes (they correct latent bugs the ÷0 was masking).
+
+**NEXT (new session) — committed-route redesign.** Spec `docs/superpowers/specs/2026-06-30-m5-committed-route-design-v2.md` (+ plan `docs/superpowers/plans/2026-06-30-m5-committed-route-implementation.md`). Branch from `ccef2503`. Core: NLP commits to a trajectory; per-cycle 续接/微调 (strong warm-start / continuity) rather than greedy re-solve; route-return incentive once CPA safe. Consider also dt 5s→1s (每步 ROT budget 5× smaller → natural continuity). Do NOT tune w_rot / w_colreg / w_dist to suppress over-turn (治标, forbidden). Re-add J_rot only if the committed-route design calls for a ROT-effort term.
+**Memory:** `l3-m5-bugc-tailgate-nlp-quality` (updated this session — RC-A/RC-C + structural finding).
+**Uncommitted:** pre-existing scenario YAML regen + docs + this handoff append (not code).
