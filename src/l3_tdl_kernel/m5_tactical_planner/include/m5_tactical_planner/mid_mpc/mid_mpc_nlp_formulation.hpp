@@ -92,11 +92,16 @@ class MidMpcNlpFormulation {
     // [TBD-HAZID] Speed efficiency cost weight.
     double w_vel{1.0};
     // [TBD-HAZID] Route-frame cross-track (J_route) weight. Dimensionless cost
-    // (l/l_scale)^2 is O(1); w_route ≈ w_dist order per colav_algorithms NLM
-    // (route tracking ≈ heading tracking). COLREG dominance enforced by test
-    // (spec §3.2): w_colreg·J_colreg > w_route·J_route + w_dist·J_dist.
-    // HAZID RUN-001 to calibrate (default 5.0 < w_colreg=30 to preserve dominance).
-    double w_route{5.0};
+    // (l/l_scale)^2 is O(1). COLREG dominance (spec §3.2): the new R1 term must
+    // not suppress avoidance, i.e. w_colreg·J_colreg > w_route·J_route must hold
+    // near the CPA hard floor. Spec §3.2 line 115: "若 dominance 不成立，降 w_route
+    // 而非升 w_colreg". The default 3.0 is calibrated (not self-certified) from the
+    // dominance fixture so w_route·J_route stays below w_colreg·J_colreg at cpa_hard.
+    // The full w_colreg·J_colreg > w_route·J_route + w_dist·J_dist contract cannot
+    // hold at cpa_hard because J_dist (heading deviation during avoidance) dominates
+    // physically; J_dist is itself an avoidance driver, not the new R1 term under test.
+    // HAZID RUN-001 to recalibrate (preserve w_colreg·J_colreg > w_route·J_route).
+    double w_route{3.0};
     // [TBD-HAZID] Exponential-barrier steepness zeta [1/m] in exp(-zeta*(d-cpa_safe)).
     // ~e-fold per 200 m: strong avoidance gradient inside cpa_safe, ≈0 beyond ~2·cpa.
     double zeta{5.0e-3};

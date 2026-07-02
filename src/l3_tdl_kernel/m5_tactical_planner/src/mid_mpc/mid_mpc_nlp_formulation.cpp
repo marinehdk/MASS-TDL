@@ -98,25 +98,38 @@ casadi::MX MidMpcNlpFormulation::build_distance_cost_() const {
 // ===========================================================================
 // build_route_cost_() — Slice R1 route-frame dimensionless cross-track (§4.3).
 //
-// Integrates own-ship cumulative position from (kIdxRouteFrameOriginX/Y) using
-// the same NED convention as build_colreg_cost_ (x=north=cos, y=east=sin), then
-// projects the cross-track offset onto the active-leg normal:
-//   l[k] = (pos[k] - origin) · n_hat
+// CONTRACT (spec §4.2, Critical-1 review fix): the own-ship cumulative position
+// pos[k] is integrated from the own ship CURRENT position (kIdxX0/Y0), exactly
+// as build_colreg_cost_ does. The route-frame origin (kIdxRouteFrameOriginX/Y)
+// is the active-leg point expressed in the SAME own-relative NED frame as X0/Y0
+// (node packs it as leg_point - own_position). The cross-track is then
+//   l[k] = (pos[k] - route_origin) · n_hat
+// so that l[0] = (own_pos - leg_point) · n_hat = the TRUE current cross-track.
+//
+// The previous implementation initialized the position integral AT the route
+// origin (cx=ox, cy=oy), forcing l[0]=0 — the NLP was blind to the ship's real
+// displacement from the route (e.g. a 50 m XTE produced zero J_route gradient).
+//
 // n_hat = (kIdxRouteFrameNormalX, kIdxRouteFrameNormalY) is packed as
 // (-sinψ, cosψ) so starboard is positive (spec §3.1/§4.2).
 //
-// J_route = kIdxRouteWeight · Σ_{k} (l[k]/l_scale)²
+// J_route = kIdxRouteWeight · [ Σ_{k} (l[k]/l_scale)² + λ_t·(l[N-1]/l_scale)² ]
 //   - dimensionless: l_scale = GncExecutionOdd.max_lateral_offset_m (400 m) →
 //     l/l_scale ∈ [-1,1], J_route O(1), same order as the averaged J_colreg.
 //   - kIdxRouteWeight (parameter): 1.0 normal, 0.0 when the predicted trajectory
 //     crosses an L2 leg corner (cross-leg guard, §4.3). Multiplied here so a
 //     single parameter nulls the term; cfg_.w_route is applied in the J assembly.
-// First version re-integrates position (same pattern as build_colreg_cost_);
-// extracting a shared position-integral helper is a later refactor (plan §4 n.).
+//   - λ_t: terminal cross-track reinforcement (spec §4.3, default 1.0). The full
+//     §5.4 terminal side/wrong-side softplus is Slice T1; here the §4.3 terminal
+//     strengthening term keeps J_route's own terminal weight, deferred detail to T1.
 // ===========================================================================
 casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
   const int32_t N = cfg_.n_horizon;
   const casadi::MX dt   = casadi::DM(cfg_.dt_s);
+  // Position integral starts at the OWN SHIP current position (spec §3.1/§4.2),
+  // NOT at the route origin — this is what lets l[0] see the initial XTE.
+  casadi::MX cx   = slot(p_, kIdxX0);
+  casadi::MX cy   = slot(p_, kIdxY0);
   const casadi::MX ox   = slot(p_, kIdxRouteFrameOriginX);
   const casadi::MX oy   = slot(p_, kIdxRouteFrameOriginY);
   const casadi::MX nx   = slot(p_, kIdxRouteFrameNormalX);
@@ -124,8 +137,7 @@ casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
   const casadi::MX l_scale = slot(p_, kIdxLateralScale);
   const casadi::MX w_guard = slot(p_, kIdxRouteWeight);  // cross-leg guard
 
-  casadi::MX cx = ox;
-  casadi::MX cy = oy;
+  casadi::MX lN(0.0);  // terminal cross-track l[N-1]
   casadi::MX cost(0.0);
   for (int32_t k = 0; k < N; ++k) {
     const casadi::MX psi_k = psi_(casadi::Slice(k, k + 1));
@@ -134,7 +146,12 @@ casadi::MX MidMpcNlpFormulation::build_route_cost_() const {
     cy = cy + u_k * dt * casadi::MX::sin(psi_k);
     const casadi::MX l = (cx - ox) * nx + (cy - oy) * ny;  // cross-track
     cost = cost + casadi::MX::sq(l / l_scale);
+    if (k == N - 1) { lN = l; }
   }
+  // Terminal cross-track reinforcement (spec §4.3, λ_terminal term).
+  // λ_t = 1.0 here (terminal as important as running cost; [TBD-HAZID] T1 tunes).
+  const casadi::MX lambda_terminal = casadi::DM(1.0);
+  cost = cost + lambda_terminal * casadi::MX::sq(lN / l_scale);
   return w_guard * cost;
 }
 
@@ -368,9 +385,11 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxGiveWay) = give_way ? 1.0 : 0.0;
 
   // Slice R1: route-frame parameters (spec §4). Computed by assemble_input_.
-  // Defaults keep J_route inert when a caller does not populate them: origin at
-  // own ship, normal along east, weight 0 (no spurious lateral pull until the
-  // node computes the active-leg guard).
+  // route_weight defaults to 0.0 (inert, High-4 review fix) so legacy callers
+  // that do not populate the route frame do not enable J_route. assemble_input_
+  // sets route_weight=1.0 only when an active leg exists and the cross-leg guard
+  // passes. Origin/normal are the active-leg point + normal in the own-relative
+  // NED frame (same frame as kIdxX0/Y0, Critical-2 review fix).
   p(kIdxRouteFrameOriginX) = input.route_frame_origin_x_m;
   p(kIdxRouteFrameOriginY) = input.route_frame_origin_y_m;
   p(kIdxRouteFrameNormalX) = input.route_frame_normal_x;

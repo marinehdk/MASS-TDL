@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -414,45 +415,108 @@ MidMpcInput MidMpcNode::assemble_input_()
   const bool has_route = planned_route_ != nullptr
       && planned_route_->route.poses.size() >= 2u;
   if (has_route) {
-    const double p0_lat = planned_route_->route.poses[0].pose.position.latitude;
-    const double p0_lon = planned_route_->route.poses[0].pose.position.longitude;
-    const double p1_lat = planned_route_->route.poses[1].pose.position.latitude;
-    const double p1_lon = planned_route_->route.poses[1].pose.position.longitude;
-    const double ddx = (p1_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
-    const double ddy = (p1_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
-                       * std::cos(p0_lat * units::kRadPerDeg);
-    const double route_bearing = std::atan2(ddy, ddx);
-    inp.planned_route_bearing_rad = route_bearing;
-    const double own_dx = (own_lat - p0_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
-    const double own_dy = (own_lon - p0_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
-                          * std::cos(p0_lat * units::kRadPerDeg);
-    const double route_len = std::hypot(ddx, ddy);
-    if (route_len > 1.0) {
-      inp.route_xte_m = ((ddx * own_dy) - (ddy * own_dx)) / route_len;
+    // ── Convert the full L2 polyline to own-relative NED metres (spec §4.1).
+    // own_ship.x_m/y_m (kIdxX0/Y0) are ALWAYS (0,0) — the own-relative origin
+    // (targets are packed as lat/lon offsets from own). To keep J_route's
+    // route-frame origin in the SAME frame (Critical-2 review fix), every
+    // waypoint is projected to NED metres relative to the OWN ship current
+    // position. The active-leg point thus lives in the same frame as X0/Y0, and
+    // l[0] = (own_pos - leg_point) · n_hat is the true current cross-track.
+    const double cos_lat = std::cos(own_lat * units::kRadPerDeg);
+    const auto& poses = planned_route_->route.poses;
+    const std::size_t n_wp = poses.size();
+    std::vector<double> wp_n(n_wp), wp_e(n_wp);
+    for (std::size_t i = 0u; i < n_wp; ++i) {
+      const double plat = poses[i].pose.position.latitude;
+      const double plon = poses[i].pose.position.longitude;
+      wp_n[i] = (plat - own_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+      wp_e[i] = (plon - own_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
+                * cos_lat;
     }
 
-    // Slice R1: route-frame projection (spec §4.1/§4.2).
-    // Origin = own ship relative to the active-leg start (p0), NED.
+    // ── Nearest-leg search (Critical-3 review fix, spec §4.1): scan ALL
+    // adjacent segments, project own (0,0) onto each, pick the segment whose
+    // perpendicular distance to own is smallest = the ACTIVE leg. The previous
+    // implementation hard-coded the first segment (poses[0]→poses[1]).
+    std::size_t active_leg = 0u;
+    double active_len = 0.0;
+    double min_cross_dist = std::numeric_limits<double>::max();
+    for (std::size_t i = 0u; i + 1u < n_wp; ++i) {
+      const double sx = wp_n[i + 1u] - wp_n[i];   // segment north delta
+      const double sy = wp_e[i + 1u] - wp_e[i];   // segment east  delta
+      const double seg_len = std::hypot(sx, sy);
+      if (seg_len < 1.0) { continue; }  // degenerate segment
+      // Project own (0,0) onto the segment; own relative to leg start = (-wp_n[i], -wp_e[i]).
+      const double ox_rel = -wp_n[i];
+      const double oy_rel = -wp_e[i];
+      const double along = (ox_rel * sx + oy_rel * sy) / seg_len;  // [0,seg_len]
+      // Perpendicular distance from own to the infinite line through the segment.
+      const double cross = std::fabs((sx * oy_rel - sy * ox_rel) / seg_len);
+      // Prefer the segment own actually projects onto (along within [0,len]).
+      // If own is beyond the segment end (along>len), it is closer to a later
+      // segment; only accept an end-clamped segment if no better one exists.
+      const bool on_segment = (along >= 0.0 && along <= seg_len);
+      if (on_segment && cross < min_cross_dist) {
+        min_cross_dist = cross;
+        active_leg = i;
+        active_len = seg_len;
+      }
+    }
+    // Fallback: if no segment contained the projection (own before the route or
+    // past its end), use the closest end-clamped segment.
+    if (min_cross_dist == std::numeric_limits<double>::max()) {
+      for (std::size_t i = 0u; i + 1u < n_wp; ++i) {
+        const double sx = wp_n[i + 1u] - wp_n[i];
+        const double sy = wp_e[i + 1u] - wp_e[i];
+        const double seg_len = std::hypot(sx, sy);
+        if (seg_len < 1.0) { continue; }
+        const double ox_rel = -wp_n[i];
+        const double oy_rel = -wp_e[i];
+        const double cross = std::fabs((sx * oy_rel - sy * ox_rel) / seg_len);
+        if (cross < min_cross_dist) {
+          min_cross_dist = cross;
+          active_leg = i;
+          active_len = seg_len;
+        }
+      }
+    }
+
+    // Active-leg bearing + normal from the nearest segment.
+    const double ax = wp_n[active_leg + 1u] - wp_n[active_leg];
+    const double ay = wp_e[active_leg + 1u] - wp_e[active_leg];
+    const double route_bearing = std::atan2(ay, ax);
+    inp.planned_route_bearing_rad = route_bearing;
+    // route_xte_m: signed cross-track of own (0,0) against the active leg.
+    // n=(-sinψ, cosψ), origin=active-leg start in own-relative frame.
+    if (active_len > 1.0) {
+      const double ox_rel = -wp_n[active_leg];
+      const double oy_rel = -wp_e[active_leg];
+      inp.route_xte_m = ox_rel * (-std::sin(route_bearing))
+                      + oy_rel * ( std::cos(route_bearing));
+    }
+
+    // ── Route-frame origin = ACTIVE-LEG START in the own-relative frame
+    // (Critical-2 review fix). This is the point whose displacement from own
+    // gives l[0]. Since own is at (0,0), the leg start (wp_n,wp_e) is already
+    // the own-relative vector FROM own TO the leg point.
+    inp.route_frame_origin_x_m = wp_n[active_leg];
+    inp.route_frame_origin_y_m = wp_e[active_leg];
     // Active-leg normal n = (-sinψ, cosψ) → starboard is positive (spec §3.1).
-    inp.route_frame_origin_x_m = own_dx;  // own ship north relative to p0
-    inp.route_frame_origin_y_m = own_dy;  // own ship east  relative to p0
     inp.route_frame_normal_x = -std::sin(route_bearing);
     inp.route_frame_normal_y =  std::cos(route_bearing);
     inp.route_frame_active_leg_bearing_rad = route_bearing;
     // l_scale = GncExecutionOdd.max_lateral_offset_m (spec §3.2/§4.3). The
-    // execution-ODD ROS msg does not yet carry this field (it lives in the
-    // TailBuilder/GNC-preflight local struct, default 400 m); use the spec
-    // default here. [TBD-HAZID] wire to the ODD msg field once published.
+    // execution-ODD ROS msg does not yet carry this field; use the spec default.
+    // [TBD-HAZID] wire to the ODD msg field once published.
     inp.lateral_scale_m = 400.0;
 
-    // Cross-leg guard (spec §4.3): extrapolate own_psi straight ahead ~900 m
-    // (90 s horizon × ~10 m/s); if that ray passes the active leg end (p1), the
-    // NLP trajectory would cross into the next L2 leg → null J_route to avoid
-    // pulling toward the wrong normal. Single-segment routes cannot cross a
-    // corner, so the guard defaults to active (weight=1.0).
+    // ── Cross-leg guard (spec §4.3): extrapolate own_psi straight ahead ~900 m
+    // (90 s horizon × ~10 m/s); if that ray passes the ACTIVE leg end (the next
+    // waypoint), the NLP trajectory would cross into the next L2 leg → null
+    // J_route to avoid pulling toward the wrong normal. The guard is based on
+    // the active leg (Critical-3), extrapolating past the active leg's end.
     bool crosses_corner = false;
-    const std::size_t n_wp = planned_route_->route.poses.size();
-    if (n_wp > 2u && route_len > 1.0) {
+    if (n_wp > active_leg + 2u && active_len > 1.0) {
       const double reach_m = std::max(
           inp.own_ship.u_mps *
               formulation_.config().n_horizon * formulation_.config().dt_s,
@@ -461,16 +525,17 @@ MidMpcInput MidMpcNode::assemble_input_()
       const double own_psi = inp.own_ship.psi_rad;
       const double ex_n = std::cos(own_psi);
       const double ex_e = std::sin(own_psi);
-      const double along_proj = (ex_n * ddx + ex_e * ddy) / route_len;
-      if (along_proj > 1.0e-6 && reach_m * along_proj > route_len) {
-        crosses_corner = true;  // ray reaches beyond p1 → next leg
+      const double along_proj = (ex_n * ax + ex_e * ay) / active_len;
+      if (along_proj > 1.0e-6 && reach_m * along_proj > active_len) {
+        crosses_corner = true;  // ray reaches beyond active leg end → next leg
       }
     }
     inp.route_weight = crosses_corner ? 0.0 : 1.0;
   } else {
     inp.planned_route_bearing_rad = 0.0;
     // No L2 route: disable J_route (no leg to return to) so it does not
-    // introduce a spurious lateral setpoint.
+    // introduce a spurious lateral setpoint. route_weight stays at its 0.0
+    // default (High-4 review fix).
     inp.route_weight = 0.0;
   }
 

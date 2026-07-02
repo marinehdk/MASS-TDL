@@ -194,7 +194,11 @@ struct MidMpcInput {
   double route_frame_normal_y{1.0};              // active-leg normal unit vector, east comp
   double route_frame_active_leg_bearing_rad{0.0};
   double lateral_scale_m{400.0};                 // GncExecutionOdd.max_lateral_offset_m
-  double route_weight{1.0};                      // cross-leg guard: 1.0 normal, 0.0 across corner
+  // High-4 review fix: default 0.0 (inert) so legacy callers that do not build a
+  // route frame do not silently enable J_route and change behaviour. assemble_input_
+  // sets 1.0 only when a valid active leg + cross-leg guard passes. The cross-leg
+  // guard still drives this to 0.0 when the trajectory would cross an L2 corner.
+  double route_weight{0.0};                      // cross-leg guard: 1.0 active, 0.0 inert/cross-corner
 
   bool colregs_conflict_active{false};
   // M6-owned primary role: 0=STAND_ON, 1=GIVE_WAY, 2=BOTH_GIVE_WAY, 3=FREE/UNKNOWN.
