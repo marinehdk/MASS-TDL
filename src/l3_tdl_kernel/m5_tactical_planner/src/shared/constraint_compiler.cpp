@@ -251,6 +251,35 @@ ConstraintCompiler::compile_colregs_rules(
   for (const uint8_t rule : inputs.applicable_rules) {
     CompiledConstraints cc{};
     switch (rule) {
+      // -------------------------------------------------------------------
+      // Rule 13 (Overtaking) — spec §7.2.
+      // Rule13 does NOT add a compiler-level heading row. Its side + minimum-
+      // alteration constraints are provided by the FORMULATION-layer direction/
+      // min_alt g rows (Slice D1, §7.1):
+      //   g_dir[k]    = preferred_direction · l[k]                 (same-side)
+      //   g_minalt[k] = preferred_direction · (psi[k]-own_psi) - min_alt
+      // which are role-gated (give-way, kIdxRole) and driven by M6
+      // preferred_direction (kIdxPreferredDir, +1 stbd / -1 port). Rule13
+      // give-way activates those same rows, so the overtake side follows M6's
+      // preferred_direction (NOT a hardcoded starboard assumption, §7.2).
+      //
+      // Downgrade notice (§7.2 / §3.5): pass-astern / no-crossing-ahead /
+      // side-release semantics are NOT covered by this spec (they depend on a
+      // ship-domain model not yet in the kernel); only side + min_alt here.
+      //
+      // This case emits a single trivially-satisfied g=0 audit marker so the
+      // rule is SAT-2 visible in the active-set log without duplicating the
+      // formulation-layer constraints.
+      // -------------------------------------------------------------------
+      case 13u: {
+        CompiledConstraints marker;
+        marker.g     = casadi::DM(0.0);
+        marker.g_lb  = casadi::DM::zeros(1, 1);
+        marker.g_ub  = casadi::DM(kInf);
+        marker.names = {"rule_13_overtake_side_via_formulation_direction"};
+        cc = marker;
+        break;
+      }
       case 14u: cc = compile_rule14(psi_seq, psi_0); break;
       case 15u: cc = compile_rule15(psi_seq, psi_0); break;
       case 16u: cc = compile_rule16(psi_seq, psi_0); break;

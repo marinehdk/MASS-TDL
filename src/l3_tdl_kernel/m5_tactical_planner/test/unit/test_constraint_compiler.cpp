@@ -562,6 +562,130 @@ TEST(ConstraintCompilerTest, CompileCpaDistanceProducesBarrierConstraint) {
 }
 
 // ===========================================================================
+// Test O1.a: Rule13_Overtake_NotUnsupportedSentinel
+// spec §7.2: Rule13 must be an explicitly-handled case, NOT the generic
+// "colreg_unsupported_rule_N" default sentinel. Compile with {13u} → the
+// active-set name must identify Rule13 (NOT "unsupported").
+// ===========================================================================
+TEST(ConstraintCompilerTest, Rule13_Overtake_NotUnsupportedSentinel) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  constexpr int32_t N = 5;
+  auto psi = make_sym("psi", N);
+  auto u   = make_sym("u",   N);
+
+  mass_l3::m5::ConstraintInputs inputs = default_inputs();
+  inputs.applicable_rules = {13u};
+
+  const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
+
+  // Rule 13 must NOT be reported as an unsupported-rule placeholder.
+  EXPECT_FALSE(has_name_containing(result.names, "colreg_unsupported_rule_13"))
+      << "Rule 13 must be an explicit case, not the default unsupported sentinel";
+  // It MUST be audit-visible (SAT-2: all requested rules appear in active-set log).
+  EXPECT_TRUE(has_name_containing(result.names, "rule_13"))
+      << "Rule 13 must be audit-visible in the active-set log";
+}
+
+// ===========================================================================
+// Test O1.b: Rule13_Overtake_NoCompilerHeadingRow
+// spec §7.2: "复用 §7.1 的 g_dir + g_minalt（Rule13 不额外加 heading-row）".
+// Rule13 side + min_alt come from the FORMULATION-layer direction/min_alt rows
+// (Slice D1, mid_mpc_nlp_formulation.cpp, role-gated via kIdxRole +
+// kIdxPreferredDir). The constraint_compiler Rule13 case must therefore add NO
+// heading-restriction row (unlike rule14/15 which emit starboard_turn rows).
+//
+// We verify: compile_colregs_rules for {13u} produces no "starboard_turn" /
+// "substantial_action" / "stand_on" heading-type constraint, and the only
+// Rule13 contribution is a trivially-satisfied audit marker.
+// ===========================================================================
+TEST(ConstraintCompilerTest, Rule13_Overtake_NoCompilerHeadingRow) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  constexpr int32_t N = 5;
+  auto psi = make_sym("psi", N);
+  auto u   = make_sym("u",   N);
+
+  mass_l3::m5::ConstraintInputs inputs = default_inputs();
+  inputs.applicable_rules = {13u};
+
+  // Isolate the COLREGs rules (no heading/speed/ROT/zone) by calling the
+  // dispatch directly.
+  const auto result = cc.compile_colregs_rules(psi, u, inputs);
+
+  // No compiler-level heading-restriction row of any other rule's flavour.
+  EXPECT_FALSE(has_name_containing(result.names, "starboard_turn"))
+      << "Rule 13 must not add a heading-restriction row (side from formulation)";
+  EXPECT_FALSE(has_name_containing(result.names, "substantial_action"))
+      << "Rule 13 must not add a Rule16-style heading row";
+  EXPECT_FALSE(has_name_containing(result.names, "stand_on"))
+      << "Rule 13 must not add a Rule17-style stand-on row";
+
+  // It must be present (audit-visible) but trivial (g == 0 → satisfied).
+  const auto it = std::find_if(
+      result.names.begin(), result.names.end(),
+      [](const std::string& n) { return n.find("rule_13") != std::string::npos; });
+  ASSERT_NE(it, result.names.end())
+      << "Rule 13 must contribute an audit-visible name";
+  const auto idx = static_cast<int32_t>(std::distance(result.names.begin(), it));
+
+  // Build a CasADi Function over the COLREGs g and evaluate at an arbitrary
+  // trajectory — the Rule13 audit row must evaluate to 0 (trivially satisfied).
+  casadi::Function f("f", std::vector<casadi::MX>{psi, u},
+                          std::vector<casadi::MX>{result.g});
+  casadi::DM psi_val = casadi::DM::zeros(N, 1);
+  casadi::DM u_val   = casadi::DM::ones(N, 1) * 5.0;
+  const std::vector<casadi::DM> g_out =
+      f(std::vector<casadi::DM>{psi_val, u_val});
+
+  EXPECT_NEAR(static_cast<double>(g_out[0](idx)), 0.0, 1.0e-9)
+      << "Rule 13 compiler row must be trivially satisfied (g == 0); real "
+      << "side/min_alt constraints live in the formulation-layer g_dir/g_minalt "
+      << "rows (Slice D1, spec §7.1/§7.2).";
+}
+
+// ===========================================================================
+// Test O1.c: Rule13_Overtake_SideFromM6PreferredDirection
+// spec §7.2: "side 由 M6 preferred_direction 定（不默认 starboard）". The side
+// decision is NOT baked into the constraint_compiler (which has no preferred-
+// direction parameter); it is delegated to the formulation layer where
+// preferred_direction (kIdxPreferredDir, ±1) drives g_dir = pref_dir·l[k].
+//
+// We verify the constraint_compiler delegation is side-agnostic: compiling
+// Rule13 produces the SAME audit marker regardless of any give-way/starboard
+// assumption — the compiler neither hardcodes starboard nor reads a side.
+// (The port/stbd side itself is unit-tested in test_mid_mpc_direction.cpp,
+// Slice D1.) Here we assert the compiler emits exactly ONE rule_13 marker and
+// it carries a formulation-delegation name.
+// ===========================================================================
+TEST(ConstraintCompilerTest, Rule13_Overtake_SideFromM6PreferredDirection) {
+  mass_l3::m5::shared::ConstraintCompiler cc;
+  constexpr int32_t N = 4;
+  auto psi = make_sym("psi", N);
+  auto u   = make_sym("u",   N);
+
+  mass_l3::m5::ConstraintInputs inputs = default_inputs();
+  inputs.applicable_rules = {13u};
+
+  const auto result = cc.compile_colregs_rules(psi, u, inputs);
+
+  // Exactly one Rule13 contribution (a single audit marker), not per-step.
+  const int32_t rule13_count = static_cast<int32_t>(
+      std::count_if(result.names.begin(), result.names.end(),
+                    [](const std::string& n) {
+                      return n.find("rule_13") != std::string::npos;
+                    }));
+  EXPECT_EQ(rule13_count, 1)
+      << "Rule 13 contributes a single audit marker; per-step side/min_alt rows "
+      << "are emitted by the formulation layer (Slice D1), not the compiler.";
+
+  // The marker name must declare that side is delegated to formulation
+  // (preferred_direction), so a reader of the active-set log knows the overtake
+  // side is NOT a hardcoded starboard assumption.
+  EXPECT_TRUE(has_name_containing(result.names, "formulation"))
+      << "Rule 13 audit marker must name the formulation layer as the side "
+      << "source (preferred_direction), per spec §7.2.";
+}
+
+// ===========================================================================
 // Test 18: ZoneIntegrationDirection_matchesCPACoordinatesForSameTrajectory
 // spec §8.1: zone trajectory integration must match the CPA integration's NED
 // convention (psi=0 → north = +x). CPA (compile_cpa_distance, :305-306) uses
