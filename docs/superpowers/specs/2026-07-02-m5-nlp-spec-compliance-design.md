@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | v1 | 2026-07-02 | 初版：基于 Codex NLP 完备性评审 + nlm 🟢 continuity 调研，定义完整 NLP（route-frame + terminal + Rule13 + continuity）+ TailBuilder 接线 + 前置 bug 修复 |
 | v2 | 2026-07-02 | Codex 对抗评审后修订 6 项 Critical/High：(1) continuity 冻结对象改为 H_commit/GNC guard + committed 几何（非 H_publish/psi-u）；(2) TailBuilder active-phase terminal hold 到预测 s_clear（非 release 后）；(3) J_route/J_terminal dimensionless 化 + 去 nonsmooth max + COLREG dominance test；(4) one-time graph 声明改为"承认继续 rebuild 或全参数化二选一"；(5) §9.3 措辞降级为 partial coverage（risk/covariance/ship-domain 明确标注后续）；(6) M7 兜底改为前置依赖声明（未就绪前 prefix CPA 软化不可用，用 Keep-Last + fallback 兜底）。另修 kParamDim 计数、direction/min_alt 在 preferred_direction=0/HOLD/ReduceSpeed 时禁用规则。 |
-| v3 | 2026-07-02 | Codex 二次评审后修订 5 项：(A) §3.7 GeoWP 坐标契约统一 WGS84 + tolerance 比较；(B) §3.8 NLP row registry 契约（per-class lbg/ubg + inactive equality 双边禁用）；(D) §5.2 TailBuilder active s_clear 数据源 + 缺字段 DegradedHold（不假 tail，遵守 §14.3）；§6.6 manager prefix prune + Keep-Last risk fields 接线（current_cpa/cpa_hard/heading_delta/cpa_drift）；§9.1 删 K≥12 残留（对齐 §6.3 K≈4）；§4.3 kIdxRouteWeight slot（kParamDim 140）。 |
+| v3 | 2026-07-02 | Codex 二次评审后修订 5 项：(A) §3.7 GeoWP 坐标契约统一 WGS84 + tolerance 比较；(B) §3.8 NLP row registry 契约（per-class lbg/ubg + inactive equality 双边禁用）；(D) §5.2 TailBuilder active s_clear 数据源 + 缺字段 DegradedHold（不假 tail，遵守 §14.3）；§6.6 manager prefix prune + Keep-Last risk fields 接线（current_cpa/cpa_hard/heading_delta/cpa_drift）；§9.1 删 K≥12 残留（对齐 §6.3 K≈4）；§4.3 kIdxRouteWeight slot（kParamDim 141）。 |
 
 ## 0. Scope
 
@@ -139,7 +139,7 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 
 **COLREG hard rows 分段激活（Codex 评审 Critical 修复）**：所有 COLREG 相关 hard rows（CPA/direction/min_alt/terminal）在 prefix 段（k<K）软化（lbg=-inf），只 suffix 段（k≥K）保留 hard floor。理由：prefix 几何钉死后 target 移动使 prefix 段违反新 CPA/direction，NLP 不可修。安全靠 Keep-Last §9.12 + fallback（§6.4）。
 
-### 3.4 Parameter 扩展（kParamDim 94 → 140）
+### 3.4 Parameter 扩展（kParamDim 94 → 141）
 
 新增 parameter slot（kParamDim 扩展，编译时固定）：
 - `kIdxRouteFrameOriginX`, `kIdxRouteFrameOriginY`：route-frame 原点 NED（2 slot）
@@ -147,13 +147,17 @@ J = w_colreg·J_colreg + w_dist·J_dist + w_vel·J_vel + J_asym
 - `kIdxRouteFrameActiveLegBearing`：当前 active leg bearing（1 slot）
 - `kIdxLateralScale`：l_scale 归一化尺度（1 slot，= GncExecutionOdd.max_lateral_offset_m）
 - `kIdxRouteWeight`：J_route 权重系数（1 slot，§4.3 跨 leg guard；正常 1.0，跨 leg 0.0）
-- `kIdxPrefixPsi[N]`, `kIdxPrefixU[N]`：committed prefix 的 psi/u 值（2·18=36 slot）
 - `kIdxPrefixActiveK`：当前 active prefix 长度 K（1 slot）
 - `kIdxPreferredDir`：M6 preferred_direction（1 slot）
 - `kIdxMinAlterationRad`：M6 minimum alteration（1 slot）
 - `kIdxRole`：M6 primary_role enum（1 slot）
 
-**kParamDim 重算**：94（现）+ 10 head slots + 36 prefix = **140**。更新 `static_assert(kParamDim==140)`。
+prefix 数组（kIdxPrefixPsi/kIdxPrefixU 各 N=18 slot）：
+- `kIdxPrefixPsi[0..17]`, `kIdxPrefixU[0..17]`：committed prefix 的 psi/u 值（2·18=36 slot）
+
+**kParamDim 重算**：14（原有 head: Psi0/U0/X0/Y0/RouteBearing/PlannedSpeed/HeadingMin/Max/SpeedMin/Max/CpaSafe/RotMax/OwnPsi/GiveWay）+ 11（新增 head）+ 36（prefix）+ 80（targets: 16·5）= **141**。更新 `static_assert(kParamDim==141)`。
+
+> **slot 索引（plan 执行参考）**：head=0..24，PrefixPsi=25..42，PrefixU=43..60，kIdxTargets=61，targets=61..140。
 
 ### 3.5 明确降级项（Codex 评审要求诚实声明）
 
@@ -235,7 +239,7 @@ J_route = Σ_{k=0}^{N-1} (l[k]/l_scale)²  +  λ_terminal · (l[N-1]/l_scale)²
 
 **单 leg 近似风险缓解（Codex 评审 High 修复 + 二次评审 E）**：90s horizon at 10m/s = 900m，若跨越 L2 route corner，single-leg 法向投影失真。缓解：assemble_input_ 算 active leg 时，**若 NLP 预测轨迹（用 own_psi 直线外推 900m）跨越多个 L2 leg，则 pack `kIdxRouteWeight=0.0`**（J_route 权重临时降为 0，只保留 J_dist），避免拉错方向。
 
-**`kIdxRouteWeight` slot（Codex 二次评审 E 修复）**：新增 parameter slot（kParamDim 139→140）。J_route 项乘以 `p(kIdxRouteWeight)`（CasADi 支持 parameter 作 cost 系数，现有 give_way·k_asym 已是此模式 :200）。正常 `kIdxRouteWeight=1.0`，跨 leg guard 时 `=0.0`。G1 rebuild 模式下每 cycle pack，不重建图。
+**`kIdxRouteWeight` slot（Codex 二次评审 E 修复）**：新增 parameter slot（kParamDim 140→141，见 §3.4 重算）。J_route 项乘以 `p(kIdxRouteWeight)`（CasADi 支持 parameter 作 cost 系数，现有 give_way·k_asym 已是此模式 :200）。正常 `kIdxRouteWeight=1.0`，跨 leg guard 时 `=0.0`。G1 rebuild 模式下每 cycle pack，不重建图。
 
 ## 5. Terminal Tail-Extension 约束 + TailBuilder Active-Phase 接线
 
