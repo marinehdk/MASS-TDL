@@ -155,9 +155,13 @@ TEST_F(ContinuityTest, PrefixEqualityPinsFirstKSteps) {
   const int32_t K = 4;
   inp.prefix_active_k = K;
   // Prefix psi: a gradual starboard turn (0, 0.1, 0.2, 0.3 rad).
-  // Prefix u: constant 4.0 m/s (differs from own 5.0 to make pinning visible).
+  // Prefix u: 4.8 m/s — must be within decel_max·dt=0.4 of own_u=5.0 (Fix D-2
+  // speed-rate constraint: u[0] >= own_u - decel_max·dt = 4.6). The live system
+  // guarantees this because prefix_u is back-inferred from the committed WGS84
+  // geometry (§6.2 reprojection) which is itself decel-feasible; the fixture
+  // must respect the same limit or the equality + speed-rate rows conflict.
   inp.prefix_psi_rad = {0.0, 0.1, 0.2, 0.3};
-  inp.prefix_u_mps   = {4.0, 4.0, 4.0, 4.0};
+  inp.prefix_u_mps   = {4.8, 4.8, 4.8, 4.8};
 
   // RowBoundConfig must carry K + soften for the solver path. The default {}
   // has K=0; the solver derives K from the input, but pass it explicitly so the

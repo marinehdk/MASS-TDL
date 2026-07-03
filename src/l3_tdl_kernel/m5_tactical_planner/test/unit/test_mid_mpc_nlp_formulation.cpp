@@ -63,18 +63,18 @@ TEST(MidMpcNlpFormulationTest, PackParameters_CorrectDim) {
 }
 
 TEST(MidMpcNlpFormulationTest, GDim_MatchesTwoNMinus1_RotOnly) {
-  // Slice N1 (spec §3.8): g holds the FIXED-class layout
-  //   [ROT 2(N-1)][prefix_psi_eq N][prefix_u_eq N][CPA n_targets*N]
+  // Slice N1 (spec §3.8) + Fix D-2 (speed_rate N rows): g holds the FIXED-class
+  //   [ROT 2(N-1)][speed_rate N][prefix_psi_eq N][prefix_u_eq N][CPA n_targets*N]
   //   [direction N][min_alt N][terminal 3][rule][zone]
   // With no targets/rules/zones, the count is
-  //   2*(N-1) + N + N + 0 + N + N + 3 = 2*(N-1) + 4*N + 3.
+  //   2*(N-1) + N + N + N + 0 + N + N + 3 = 2*(N-1) + 5*N + 3.
   for (const int32_t n : {2, 6, 12}) {
     MidMpcNlpFormulation::Config cfg;
     cfg.n_horizon   = n;
     cfg.max_targets = 4;
     MidMpcNlpFormulation formulation(cfg);
     formulation.build_symbolic_graph();
-    EXPECT_EQ(formulation.g_dim(), 2 * (n - 1) + 4 * n + 3)
+    EXPECT_EQ(formulation.g_dim(), 2 * (n - 1) + 5 * n + 3)
         << "g_dim mismatch for N=" << n;
   }
 }
@@ -128,8 +128,9 @@ TEST(MidMpcNlpFormulationTest, GDimIncludesCpaHardConstraintRows) {
   formulation.set_constraint_inputs(constraints);
   formulation.build_symbolic_graph();
 
-  // Fixed-class base (no CPA): 2*(N-1) + 4*N + 3; plus 1 target → N CPA rows.
-  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + 4 * kHorizon + 3 + kHorizon)
+  // Fixed-class base (no CPA): 2*(N-1) + 5*N + 3 (Fix D-2 adds N speed_rate);
+  // plus 1 target → N CPA rows.
+  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + 5 * kHorizon + 3 + kHorizon)
       << "one target must add one CPA hard-constraint row per horizon step";
 }
 
@@ -158,7 +159,7 @@ TEST(MidMpcNlpFormulationTest, RuntimeConstraintContextFeedsCompilerRows) {
   formulation.set_constraint_inputs(input.constraints);
   formulation.build_symbolic_graph();
 
-  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + 4 * kHorizon + 3 + kHorizon)
+  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + 5 * kHorizon + 3 + kHorizon)
       << "runtime targets must reach ConstraintCompiler CPA hard rows";
 }
 

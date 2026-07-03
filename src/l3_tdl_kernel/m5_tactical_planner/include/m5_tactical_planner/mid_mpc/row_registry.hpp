@@ -94,7 +94,8 @@ class RowRegistry {
       : N_(N),
         n_targets_(n_targets),
         rot_end_(2 * (N - 1)),
-        prefix_psi_end_(rot_end_ + N),
+        speed_rate_end_(rot_end_ + N),          // Fix D-2: N decel-rate rows
+        prefix_psi_end_(speed_rate_end_ + N),
         prefix_u_end_(prefix_psi_end_ + N),
         cpa_end_(prefix_u_end_ + n_targets * N),
         dir_end_(cpa_end_ + N),
@@ -115,9 +116,17 @@ class RowRegistry {
   [[nodiscard]] int32_t rot_row_start() const noexcept { return 0; }
   [[nodiscard]] int32_t rot_row_end() const noexcept { return rot_end_; }
 
+  // Fix D-2: speed-rate (decel) rows, one per step k ∈ [0, N).
+  // g_speed_rate[k] = decel_max·dt - (u[k-1] - u[k]) ≥ 0, where u[-1] = own_u.
+  // Always hard [0,+inf] (no per-cycle activation — decel is a physical limit).
+  [[nodiscard]] int32_t speed_rate_row(int32_t k) const noexcept {
+    return rot_end_ + k;
+  }
+  [[nodiscard]] int32_t speed_rate_end() const noexcept { return speed_rate_end_; }
+
   // prefix psi/u equality: one row per step k ∈ [0, N).
   [[nodiscard]] int32_t prefix_psi_eq_row(int32_t k) const noexcept {
-    return rot_end_ + k;
+    return speed_rate_end_ + k;
   }
   [[nodiscard]] int32_t prefix_u_eq_row(int32_t k) const noexcept {
     return prefix_psi_end_ + k;
@@ -180,6 +189,7 @@ class RowRegistry {
   int32_t N_{0};
   int32_t n_targets_{0};
   int32_t rot_end_{0};
+  int32_t speed_rate_end_{0};  // Fix D-2
   int32_t prefix_psi_end_{0};
   int32_t prefix_u_end_{0};
   int32_t cpa_end_{0};

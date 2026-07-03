@@ -418,6 +418,29 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const casadi::MX g_rot_hi = rot_step_rep - dpsi;
   const casadi::MX g_rot_lo = rot_step_rep + dpsi;
 
+  // Fix D-2 (Codex review 2026-07-03, session 019f266b): speed-rate (decel)
+  // hard constraint. Without this the NLP freely selects u[0] anywhere in the
+  // M4 speed box to track planned_speed, ignoring the physical decel limit —
+  // tail-gate then rejects every converged NLP whose (own_u → u[0]) decel
+  // exceeds decel_max. Adding the constraint IN the NLP makes the solver find
+  // a decel-feasible trajectory directly.
+  //
+  // g_speed_rate[k] = decel_max·dt - (u_prev - u[k]) ≥ 0
+  //   k=0:    u_prev = own_u (kIdxU0)
+  //   k>0:    u_prev = u[k-1]
+  // decel_max = kIdxDecelMax (parameter, packed from input.decel_max_mps2).
+  // Always hard [0,+inf] — a physical limit, no per-cycle activation.
+  const casadi::MX decel_step = slot(p_, kIdxDecelMax) * casadi::DM(cfg_.dt_s);
+  std::vector<casadi::MX> g_speed_rate_vec(static_cast<std::size_t>(N));
+  for (int32_t k = 0; k < N; ++k) {
+    const casadi::MX u_k = u_(casadi::Slice(k, k + 1));
+    const casadi::MX u_prev = (k == 0)
+        ? slot(p_, kIdxU0)
+        : u_(casadi::Slice(k - 1, k));
+    g_speed_rate_vec[static_cast<std::size_t>(k)] = decel_step - (u_prev - u_k);
+  }
+  const casadi::MX g_speed_rate = casadi::MX::vertcat(g_speed_rate_vec);
+
   // Slice C1: prefix-equality rows (spec §6.2). For each NLP step k the equality
   //   g_prefix_psi_eq[k] = psi[k] - prefix_psi[k]   (prefix_psi = p[kIdxPrefixPsi+k])
   //   g_prefix_u_eq[k]   = u[k]   - prefix_u[k]     (prefix_u   = p[kIdxPrefixU+k])
@@ -523,9 +546,10 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   // returns an empty g for zero targets/rules/zones, which would otherwise
   // contribute a spurious zero-size row that breaks g_dim accounting).
   std::vector<casadi::MX> blocks;
-  blocks.reserve(9);
+  blocks.reserve(10);
   blocks.push_back(g_rot_hi);
   blocks.push_back(g_rot_lo);
+  blocks.push_back(g_speed_rate);  // Fix D-2
   blocks.push_back(g_prefix_psi_eq);
   blocks.push_back(g_prefix_u_eq);
   if (!cpa_cc.names.empty()) { blocks.push_back(cpa_cc.g); }
@@ -654,6 +678,10 @@ casadi::DM MidMpcNlpFormulation::pack_parameters(const MidMpcInput& input) const
   p(kIdxMinAlterationRad) = input.colregs_min_alteration_rad;
   const bool is_give_way = (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
   p(kIdxRole)             = is_give_way ? 1.0 : 0.0;
+  // Fix D-2: max decel for the speed-rate hard constraint. Guard against <=0
+  // (uninitialized input) which would disable the constraint — clamp to a safe
+  // positive floor so the constraint always enforces a real decel limit.
+  p(kIdxDecelMax) = (input.decel_max_mps2 > 1.0e-6) ? input.decel_max_mps2 : 0.08;
   // Slice C1: prefix psi/u equality targets (spec §6.2). The first K entries are
   // the reprojected committed-geometry values; entries k>=K stay 0 but are
   // inactive (the RowRegistry deactivates those rows via [-inf,+inf] bounds).

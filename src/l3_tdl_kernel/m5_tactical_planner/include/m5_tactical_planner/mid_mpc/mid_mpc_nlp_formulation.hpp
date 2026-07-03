@@ -68,13 +68,14 @@ constexpr int32_t kIdxPrefixActiveK       = 21;  // active prefix length K (C1)
 constexpr int32_t kIdxPreferredDir        = 22;  // M6 preferred_direction (D1)
 constexpr int32_t kIdxMinAlterationRad    = 23;  // M6 min alteration (D1)
 constexpr int32_t kIdxRole                = 24;  // M6 primary_role enum (D1)
-constexpr int32_t kIdxPrefixPsi           = 25;  // [N=18] prefix psi (C1)
-constexpr int32_t kIdxPrefixU             = 43;  // [N=18] prefix u   (C1)
-constexpr int32_t kIdxTargets             = 61;
+constexpr int32_t kIdxDecelMax            = 25;  // Fix D-2: max decel [m/s²] (speed-rate hard constraint)
+constexpr int32_t kIdxPrefixPsi           = 26;  // [N=18] prefix psi (C1)
+constexpr int32_t kIdxPrefixU             = 44;  // [N=18] prefix u   (C1)
+constexpr int32_t kIdxTargets             = 62;
 constexpr int32_t kTargetStride          = 5;
 constexpr int32_t kMaxTargets            = 16;
-constexpr int32_t kParamDim              = kIdxTargets + kMaxTargets * kTargetStride;  // 61+80=141
-static_assert(kParamDim == 141, "parameter layout mismatch — update kParamDim if constants change");
+constexpr int32_t kParamDim              = kIdxTargets + kMaxTargets * kTargetStride;  // 62+80=142
+static_assert(kParamDim == 142, "parameter layout mismatch — update kParamDim if constants change");
 
 class MidMpcNlpFormulation {
  public:

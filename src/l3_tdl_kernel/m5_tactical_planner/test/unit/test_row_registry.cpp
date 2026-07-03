@@ -38,33 +38,53 @@ void ExpectNegInf(double v) { EXPECT_EQ(v, -kInf); }
 TEST(RowRegistry, totalRowsIsSumOfClassSpans) {
   const RowRegistry reg(/*N=*/18, /*n_targets=*/2, /*n_rule_rows=*/4,
                         /*n_zone_rows=*/8);
-  // ROT 2*(18-1)=34, prefix_psi 18, prefix_u 18, CPA 2*18=36, dir 18,
-  // minalt 18, term 3, rule 4, zone 8 → 34+18+18+36+18+18+3+4+8 = 157
-  EXPECT_EQ(reg.total_rows(), 34 + 18 + 18 + 36 + 18 + 18 + 3 + 4 + 8);
+  // ROT 2*(18-1)=34, speed_rate 18 (Fix D-2), prefix_psi 18, prefix_u 18,
+  // CPA 2*18=36, dir 18, minalt 18, term 3, rule 4, zone 8
+  EXPECT_EQ(reg.total_rows(), 34 + 18 + 18 + 18 + 36 + 18 + 18 + 3 + 4 + 8);
 }
 
 TEST(RowRegistry, classRangesAreContiguousAndOrdered) {
   const RowRegistry reg(/*N=*/6, /*n_targets=*/1, /*n_rule_rows=*/0,
                         /*n_zone_rows=*/0);
-  // ROT 2*(6-1)=10 → [0,10), prefix_psi_eq [10,16), prefix_u_eq [16,22),
-  // CPA n_targets*N=6 → [22,28), direction [28,34), min_alt [34,40),
-  // terminal [40,43), rule [43,43), zone [43,43).
+  // ROT 2*(6-1)=10 → [0,10), speed_rate [10,16), prefix_psi_eq [16,22),
+  // prefix_u_eq [22,28), CPA 6 → [28,34), direction [34,40), min_alt [40,46),
+  // terminal [46,49), rule/zone [49,49).
   EXPECT_EQ(reg.rot_row_start(), 0);
   EXPECT_EQ(reg.rot_row_end(), 10);          // 2*(6-1)
-  EXPECT_EQ(reg.prefix_psi_eq_row(0), 10);
-  EXPECT_EQ(reg.prefix_psi_eq_row(5), 15);
-  EXPECT_EQ(reg.prefix_u_eq_row(0), 16);
-  EXPECT_EQ(reg.prefix_u_eq_row(5), 21);
-  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/0), 22);
-  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/5), 27);
-  EXPECT_EQ(reg.direction_row(0), 28);
-  EXPECT_EQ(reg.direction_row(5), 33);
-  EXPECT_EQ(reg.min_alt_row(0), 34);
-  EXPECT_EQ(reg.min_alt_row(5), 39);
-  EXPECT_EQ(reg.terminal_row(0), 40);
-  EXPECT_EQ(reg.terminal_row(2), 42);
-  EXPECT_EQ(reg.rule_row_start(), 43);
-  EXPECT_EQ(reg.zone_row_start(), 43);  // 0 rule rows
+  EXPECT_EQ(reg.speed_rate_row(0), 10);      // Fix D-2
+  EXPECT_EQ(reg.speed_rate_row(5), 15);
+  EXPECT_EQ(reg.speed_rate_end(), 16);
+  EXPECT_EQ(reg.prefix_psi_eq_row(0), 16);
+  EXPECT_EQ(reg.prefix_psi_eq_row(5), 21);
+  EXPECT_EQ(reg.prefix_u_eq_row(0), 22);
+  EXPECT_EQ(reg.prefix_u_eq_row(5), 27);
+  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/0), 28);
+  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/5), 33);
+  EXPECT_EQ(reg.direction_row(0), 34);
+  EXPECT_EQ(reg.direction_row(5), 39);
+  EXPECT_EQ(reg.min_alt_row(0), 40);
+  EXPECT_EQ(reg.min_alt_row(5), 45);
+  EXPECT_EQ(reg.terminal_row(0), 46);
+  EXPECT_EQ(reg.terminal_row(2), 48);
+  EXPECT_EQ(reg.rule_row_start(), 49);
+  EXPECT_EQ(reg.zone_row_start(), 49);  // 0 rule rows
+}
+
+// ---------------------------------------------------------------------------
+// Fix D-2: speed_rate rows always hard [0,+inf] (physical decel limit, no
+// per-cycle activation).
+// ---------------------------------------------------------------------------
+TEST(RowRegistry, speedRateRowsAlwaysHardZeroInf) {
+  RowRegistry reg(/*N=*/8, /*n_targets=*/1, /*n_rule_rows=*/0,
+                  /*n_zone_rows=*/0);
+  RowBoundConfig cfg;  // default
+  const BoundArray b = reg.build_bounds(cfg);
+  for (int k = 0; k < 8; ++k) {
+    const int r = reg.speed_rate_row(k);
+    EXPECT_DOUBLE_EQ(b.lbg[static_cast<std::size_t>(r)], 0.0)
+        << "speed_rate row " << k << " lbg";
+    ExpectInf(b.ubg[static_cast<std::size_t>(r)]);
+  }
 }
 
 // ---------------------------------------------------------------------------
