@@ -1426,3 +1426,33 @@ Merge all committed content from `codex/colregs-gnc-debug` into local `main`, pr
 - The GNC no-restart reproducibility evidence remains under `.worktrees/colregs-gnc-debug/runs/repro_c/r1-r4` and is gitignored.
 - The merged handoff records R1/R3/R4 as consistent, with R2 diagnosed as a trace-writer rotation artifact.
 - If GNC task-stack work continues, restart it with `bash .worktrees/colregs-gnc-debug/scripts/gnc-profile-start.sh up`.
+
+## [2026-07-03] Codex / no commit / A4000 marine.huang Codex CLI install
+
+### Task Goal
+Install Codex CLI under the A4000 `marine.huang` workspace for remote repository management.
+
+### Core Changes
+- Installed Codex CLI `0.142.5` from GitHub release `rust-v0.142.5` into `/home/marine.huang/.local/share/codex-0.142.5`.
+- Created `/home/marine.huang/.local/bin/codex` symlink to the installed package binary.
+- Added an idempotent `~/.local/bin` PATH block to `/home/marine.huang/.profile` and `/home/marine.huang/.bashrc`.
+- Used the checksum-covered `codex-package-x86_64-unknown-linux-musl.tar.gz` release asset because `https://chatgpt.com/codex/install.sh` timed out from A4000.
+
+### Current Status
+- `bash -lc "command -v codex; codex --version"` on A4000 resolves `/home/marine.huang/.local/bin/codex` and prints `codex-cli 0.142.5`.
+- `codex doctor` reports install consistency OK, bundled `rg` OK, Git OK, config load OK.
+- Authentication is not configured. `codex doctor` reports no Codex credentials.
+- A4000 outbound network to `chatgpt.com` and `api.openai.com` currently times out, so Codex cannot authenticate or reach OpenAI providers until proxy/firewall routing is fixed.
+
+### Handoff Notes
+- Official Codex auth options checked from the current Codex manual: ChatGPT login, API key login, access token stdin, device auth, or copying `~/.codex/auth.json` to a trusted headless host.
+- For this A4000 host, ChatGPT/device auth will likely fail until `chatgpt.com` reachability is fixed.
+- API-key mode may still fail unless `api.openai.com` reachability is fixed or a working proxy is configured.
+
+### Follow-up Update
+- Copied local file-backed `~/.codex/auth.json` to A4000; `ssh a4000 'codex login status'` reports `Logged in using ChatGPT`.
+- A4000 direct outbound to ChatGPT/OpenAI remained blocked, causing remote Codex App threads to hang with request timeout.
+- Mac local proxy was detected on `127.0.0.1:7897`; started SSH reverse tunnel `ssh -fN -o ExitOnForwardFailure=yes -R 127.0.0.1:7897:127.0.0.1:7897 a4000`.
+- Added A4000 user-level proxy environment in `/home/marine.huang/.pam_environment` for `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and lowercase variants.
+- With the reverse tunnel active, `ssh a4000 'codex doctor'` reports `18 ok · 0 warn · 0 fail ok`, websocket `HTTP 101 Switching Protocols`, and ChatGPT backend reachable.
+- Operational caveat: this setup depends on the Mac proxy and SSH reverse tunnel staying alive; Mac sleep/reboot or killing the tunnel breaks A4000 Codex provider connectivity.
