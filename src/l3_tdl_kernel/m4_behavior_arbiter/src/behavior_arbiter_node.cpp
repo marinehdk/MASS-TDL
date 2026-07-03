@@ -632,7 +632,27 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       double tgt_lon = latest_mission_->current_target_wp.longitude;
       nominal_hdg = compute_bearing_deg(own_lat, own_lon, tgt_lat, tgt_lon);
     }
-    double nominal_spd = speed_max_kn_; // Target nominal speed
+    // Fix D-1/D-3 (Codex review 2026-07-03, session 019f266b): nominal speed
+    // must come from the L2/M3 planned speed (MissionGoal.speed_recommend_kn),
+    // NOT the hardcoded speed_max_kn_ (22 kn). The previous hardcode made the
+    // transit IvP pieces emit a speed box [21.5, 22] kn that excluded both the
+    // planned speed (6 kn) and the current own SOG, so M5 NLP's hard speed box
+    // was physically incoherent → tail-gate decel_infeasible on every converged
+    // NLP whose u[0] tracked planned_speed away from own_u.
+    //
+    // Priority: M3 speed_recommend_kn → current own SOG → speed_max_kn_ fallback.
+    // The fallback to current SOG (Fix D-3) guarantees the speed box always
+    // contains a physically reachable speed for continuity, even if M3 has not
+    // published a recommendation yet.
+    double nominal_spd = speed_max_kn_;
+    if (mission_received_ && latest_mission_ &&
+        latest_mission_->speed_recommend_kn > 0.5F) {
+      nominal_spd = static_cast<double>(latest_mission_->speed_recommend_kn);
+    } else if (latest_world_ && latest_world_->own_ship.sog_kn > 0.5F) {
+      nominal_spd = static_cast<double>(latest_world_->own_ship.sog_kn);
+    }
+    // Clamp to the configured speed domain ceiling.
+    nominal_spd = std::min(nominal_spd, speed_max_kn_);
 
     if (colregs_for_directive) {
       colregs_directive = extract_colregs_directive(*colregs_for_directive);
@@ -1263,6 +1283,24 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   }
 
   // --- Publish Behavior_PlanMsg ---
+  // Fix D-3 (Codex review 2026-07-03): the speed box must include the current
+  // own SOG so M5 NLP's hard lbx/ubx always admits at least the current speed
+  // (continuity — the ship cannot instantaneously jump to a different speed).
+  // Without this, a transit box [5.5, 6] kn when own is at 11.3 kn forces M5
+  // NLP u[0] to 6 kn, and the (11.3→6) decel exceeds decel_max → every
+  // converged NLP is rejected by tail-gate decel_infeasible. Widen the box to
+  // [min(planned_min, own_sog), max(planned_max, own_sog)] so the ship can
+  // hold current speed on step 0 then decelerate toward planned within
+  // decel_max over subsequent steps. Emergency/MRC behaviors override this
+  // (they own hard decel to stop).
+  if (primary != BehaviorType::MRC_DRIFT && primary != BehaviorType::MRC_ANCHOR &&
+      primary != BehaviorType::MRC_HEAVE_TO && latest_world_) {
+    const double own_sog_kn = static_cast<double>(latest_world_->own_ship.sog_kn);
+    if (own_sog_kn > 0.5) {
+      s_min = std::min(s_min, own_sog_kn);
+      s_max = std::max(s_max, own_sog_kn);
+    }
+  }
   BehaviorPlanMsg plan;
   plan.schema_version = 113;
   plan.stamp = now();
