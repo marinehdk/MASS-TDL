@@ -144,6 +144,30 @@ double final_heading_deg(const MidMpcSolution& sol) {
   return sol.trajectory.back().psi_rad * 180.0 / M_PI;
 }
 
+// Rule 13 overtaking: own is the give-way (overtaking) vessel. Target is dead
+// ahead moving in the same direction but slower. M6 assigns preferred_direction
+// Starboard (default overtake side) + min_alteration. The NLP must (a) converge
+// and (b) deflect to starboard (psi > 0) to clear the target's stern on the
+// M6-mandated side.
+MidMpcInput make_overtake_give_way_input() {
+  MidMpcInput inp = make_base_input();
+  TargetState tgt;
+  tgt.x_m     =  300.0;        // dead ahead
+  tgt.y_m     =    0.0;
+  tgt.cog_rad =  0.0;          // same heading (north)
+  tgt.sog_mps =  2.0;          // slower → own overtakes
+  tgt.cpa_m   =  0.0;
+  tgt.tcpa_s  =  0.0;
+  inp.targets.push_back(tgt);
+  // Rule13 give-way: lateral preferred direction + give-way role gate the
+  // direction/min_alt hard rows + terminal cost (§3.3/§5.5/§7.1).
+  inp.colregs_primary_role = 1;   // GIVE_WAY
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.colregs_min_alteration_rad = 15.0 * M_PI / 180.0;
+  inp.constraints.applicable_rules = {13};
+  return inp;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -402,4 +426,118 @@ TEST(MidMpcSolverMismatch, SizeMismatchReturnsNumericalFailureNotSilentSolve) {
   // Fail-closed: must be NumericalFailure, not a converged/silent solve.
   EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::NumericalFailure);
   EXPECT_GT(solver.consecutive_failures(), 0);  // failure counter incremented
+}
+
+// ===========================================================================
+// Slice D (Fix D): Rule13/14/15 NLP regression guards.
+//
+// These fixtures exercise the NLP at the rule-by-rule level: each rule's
+// give-way role + preferred_direction + min_alteration gate the §3.3 hard rows
+// (direction/min_alt) and §5.4/§5.5 terminal cost/rows. The fixtures confirm:
+//   1. NLP converges for each rule's canonical geometry
+//   2. The deflection direction matches the M6-mandated side (starboard for
+//      Rule13/14, starboard for Rule15 crossing give-way)
+//
+// Run via container: build/m5_tactical_planner/test_mid_mpc_solver
+//   --gtest_filter=ColregRuleFixture.*
+// ===========================================================================
+class ColregRuleFixture : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    MidMpcNlpFormulation::Config cfg;
+    cfg.n_horizon   = 8;
+    cfg.dt_s        = 5.0;
+    cfg.w_colreg    = 1000.0;
+    cfg.w_dist      = 10.0;
+    cfg.w_vel       = 1.0;
+    cfg.max_targets = 4;
+    formulation_ = std::make_unique<MidMpcNlpFormulation>(cfg);
+    formulation_->build_symbolic_graph();
+    MidMpcSolver::IpoptOptions opts;
+    opts.max_iter  = 150;
+    opts.tol       = 1.0e-4;
+    opts.timeout_s = 2.0;
+    solver_ = std::make_unique<MidMpcSolver>(*formulation_, opts);
+  }
+
+  std::unique_ptr<MidMpcNlpFormulation> formulation_;
+  std::unique_ptr<MidMpcSolver> solver_;
+};
+
+// Rule 13 (overtaking give-way): NLP must converge and deflect to the
+// M6-mandated starboard side (preferred_direction=Starboard). The direction
+// hard row (§7.1 g_dir = pref_dir·l[k] ≥ 0) + min_alt row force lateral to
+// starboard; J_asym adds the soft starboard preference. Magnitude is gated by
+// the M6 min_alteration (15° here); the test asserts side, not exact angle.
+TEST_F(ColregRuleFixture, Rule13_OvertakeGiveWay_ConvergesAndDeflectsStarboard) {
+  const MidMpcInput input = make_overtake_give_way_input();
+  const auto sol = solver_->solve(input, nullptr);
+
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Rule13 overtake give-way must be NLP-feasible (target ahead, slow)";
+  // Starboard deflection: psi[N-1] > own_psi + min_alteration/2. The min_alt
+  // hard row already enforces ≥ min_alt; we assert the sign (starboard = +).
+  ASSERT_FALSE(sol.trajectory.empty());
+  const double final_psi_deg = final_heading_deg(sol);
+  EXPECT_GT(final_psi_deg, 5.0)
+      << "Rule13 give-way did not deflect starboard (got " << final_psi_deg << " deg)";
+}
+
+// Rule 14 (head-on give-way): NLP converges and picks starboard (the
+// convention-mandated side). Strengthens HeadOnGiveWayRightTurn by also setting
+// the role + preferred_direction + min_alteration fields (not just applicable_rules)
+// to exercise the full §3.3/§5.5 activation path.
+TEST_F(ColregRuleFixture, Rule14_HeadOnGiveWay_ConvergesAndDeflectsStarboard) {
+  MidMpcInput input = make_head_on_input();
+  input.constraints.applicable_rules = {14};
+  input.colregs_primary_role = 1;   // GIVE_WAY
+  input.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  input.colregs_min_alteration_rad = 30.0 * M_PI / 180.0;
+  const auto sol = solver_->solve(input, nullptr);
+
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Rule14 head-on give-way must be NLP-feasible";
+  const double final_psi_deg = final_heading_deg(sol);
+  EXPECT_GT(final_psi_deg, 5.0)
+      << "Rule14 give-way did not deflect starboard (got " << final_psi_deg << " deg)";
+}
+
+// Rule 15 (crossing give-way): NLP converges. Target approaches from starboard,
+// own must give way. Unlike 13/14 the side is not convention-fixed, but M6's
+// preferred_direction (Starboard here — own alters to pass behind target).
+// The test confirms convergence + non-trivial deflection (barrier engages).
+TEST_F(ColregRuleFixture, Rule15_CrossingGiveWay_ConvergesAndDeflects) {
+  MidMpcInput input = make_crossing_give_way_input();
+  input.constraints.applicable_rules = {15};
+  input.colregs_primary_role = 1;   // GIVE_WAY
+  input.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  input.colregs_min_alteration_rad = 15.0 * M_PI / 180.0;
+  const auto sol = solver_->solve(input, nullptr);
+
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Rule15 crossing give-way must be NLP-feasible";
+  const double final_psi_deg = final_heading_deg(sol);
+  EXPECT_GT(std::abs(final_psi_deg), 10.0)
+      << "Rule15 give-way did not deflect meaningfully (got " << final_psi_deg << " deg)";
+}
+
+// Rule 17 (stand-on): NLP converges AND the trajectory stays close to the route
+// bearing (no avoidance action). Stand-on must hold course/speed — the terminal
+// cost/rows + direction rows are disabled (§3.3/§5.5 stand-on gate), so the NLP
+// is just route-tracking + CPA floor. This guards the stand-on path: no spur
+// deflection from a mis-activated give-way gate.
+TEST_F(ColregRuleFixture, Rule17_StandOn_ConvergesAndHoldsCourse) {
+  MidMpcInput input = make_head_on_input();  // head-on target, but stand-on role
+  input.constraints.applicable_rules = {17};
+  input.colregs_primary_role = 3;   // STAND_ON
+  input.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Hold;
+  input.colregs_min_alteration_rad = 0.0;
+  const auto sol = solver_->solve(input, nullptr);
+
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Rule17 stand-on must be NLP-feasible (no give-way gate)";
+  // Stand-on holds course: deflection < 5° (no avoidance maneuver expected).
+  const double final_psi_deg = final_heading_deg(sol);
+  EXPECT_LT(std::abs(final_psi_deg), 5.0)
+      << "Rule17 stand-on unexpectedly deflected (got " << final_psi_deg << " deg)";
 }

@@ -162,29 +162,6 @@ l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
   return wp;
 }
 
-l3_external_msgs::msg::AvoidanceWaypoints compatibility_shadow_from_plan(
-    const l3_msgs::msg::AvoidancePlan& plan) {
-  l3_external_msgs::msg::AvoidanceWaypoints wp;
-  wp.stamp = plan.stamp;
-  wp.schema_version = 1;
-  wp.command_source = "collision_avoidance";
-  wp.plan_id = plan.plan_id;
-  wp.parent_route_id = plan.parent_route_id;
-  wp.behavior_mode = plan.behavior_mode;
-  wp.latitude = plan.latitude;
-  wp.longitude = plan.longitude;
-  wp.command_speed_mps = plan.command_speed_mps;
-  wp.navigation_mode = plan.navigation_mode;
-  wp.valid_until = plan.valid_until;
-  wp.allow_degraded_execution = plan.allow_degraded_execution;
-  wp.has_return_to_route_point = plan.has_return_to_route_point;
-  wp.return_latitude = plan.return_latitude;
-  wp.return_longitude = plan.return_longitude;
-  wp.confidence = plan.confidence;
-  wp.rationale = plan.rationale;
-  return wp;
-}
-
 // GNC execution-ODD minimum first-changed distance [m]. The ROS
 // GncExecutionOdd msg does not yet carry this field, so the spec §6.6.2 default
 // (= GncExecutionOdd.min_first_changed_distance_m, 100 m) is used. Plan
@@ -501,10 +478,6 @@ MidMpcNode::MidMpcNode(const Config& cfg)
       });
 
   pub_avoidance_plan_ = create_publisher<l3_msgs::msg::AvoidancePlan>("/l3/m5/avoidance_plan", 10);
-  // Track A A3: L3-owned waypoint plan for the GNC bridge.
-  pub_avoidance_waypoints_ =
-      create_publisher<l3_external_msgs::msg::AvoidanceWaypoints>(
-          "/l3/m5/avoidance_waypoints", 10);
   pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/l3/asdr/record", 10);
   pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/l3/sat/data", 10);
   pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
@@ -840,12 +813,12 @@ void MidMpcNode::on_solve_cycle_()
     plan = wp_gen_.generate(sol, lat, lon);
   }
   publish_outputs_(sol, plan);
-  // Track A A3: mirror the intent on the L3-owned waypoint plan so the GNC
-  // bridge can translate it. Release authority lives here (spec D4): while M6
+  // Slice A: publish the committed route on /l3/m5/avoidance_plan (the only M5
+  // execution-truth topic). Release authority lives here (spec D4): while M6
   // reports conflict we keep a rolling avoidance plan; on conflict-clear we
   // keep publishing the same return intent briefly so GNC update guards cannot
   // drop the only release message.
-  publish_avoidance_waypoints_(this->get_clock()->now(), input, lat, lon, plan, sol);
+  publish_committed_route_(this->get_clock()->now(), input, lat, lon, plan, sol);
 }
 
 // ===========================================================================
@@ -1116,6 +1089,65 @@ void MidMpcNode::publish_avoidance_plan_(
 }
 
 // ===========================================================================
+// publish_keep_last_ — Slice B Keep-Last heartbeat fallback (spec §9.10/§9.12)
+//
+// Called by publish_committed_route_ on every GNC-preflight or committed_route
+// rejection path. Without this, those paths silently returned and the 60s
+// heartbeat went silent for the entire encounter (rule14-ho trace showed only
+// 2 publishes over 1470 s). This helper always reaches publish_avoidance_plan_
+// so the heartbeat refreshes valid_until and GNC keeps a route snapshot.
+//
+// Source: committed_route_manager_.current().active_geometry (last accepted
+// committed route). If empty (no prior commit), emits a minimal DEGRADED plan
+// with no waypoints so the heartbeat still fires and downstream sees the
+// keep-last marker rather than a missing topic.
+// ===========================================================================
+void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason) {
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.schema_version = 114;
+  plan.stamp = now;
+  plan.status = "DEGRADED";
+  plan.confidence = 0.5F;
+  plan.command_source = "m5_keep_last";
+  plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+  plan.nlp_tail_gate_failed = true;
+  plan.rationale = std::string{"keep_last ("} + reason + ")";
+  plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+
+  const auto& committed = committed_route_manager_.current();
+  if (!committed.active_geometry.empty()) {
+    plan.plan_id = committed.plan_id.empty() ? std::string{"m5_keep_last"} : committed.plan_id;
+    plan.parent_route_id = "nominal";
+    plan.behavior_mode = "collision_avoidance";
+    plan.latitude.reserve(committed.active_geometry.size());
+    plan.longitude.reserve(committed.active_geometry.size());
+    plan.command_speed_mps.reserve(committed.active_geometry.size());
+    plan.navigation_mode.reserve(committed.active_geometry.size());
+    for (const auto& wp : committed.active_geometry) {
+      plan.latitude.push_back(wp.lat_deg);
+      plan.longitude.push_back(wp.lon_deg);
+      plan.command_speed_mps.push_back(wp.speed_mps);
+      plan.navigation_mode.push_back(wp.nav_mode.empty() ? std::string{"collision_avoidance"} : wp.nav_mode);
+    }
+    plan.waypoints.clear();
+    plan.waypoints.reserve(plan.latitude.size());
+    for (std::size_t i = 0u; i < plan.latitude.size(); ++i) {
+      const double speed = i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : 0.0;
+      plan.waypoints.push_back(waypoint_from_route_point(
+          plan.latitude[i], plan.longitude[i], speed, plan.confidence, plan.rationale));
+    }
+  } else {
+    plan.plan_id = "m5_keep_last_empty";
+    plan.parent_route_id = "nominal";
+    plan.behavior_mode = "collision_avoidance";
+    RCLCPP_WARN(get_logger(),
+        "[M5][KeepLast] no prior committed route; publishing empty DEGRADED heartbeat reason=%s",
+        reason.c_str());
+  }
+  publish_avoidance_plan_(plan, std::string{"keep_last:"} + reason);
+}
+
+// ===========================================================================
 // publish_trajectory_candidates_ — DEMO-2 P0: SAT3Data with Nomoto fallback
 // ===========================================================================
 void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
@@ -1273,16 +1305,21 @@ std::string MidMpcNode::append_tail_waypoints_(
 }
 
 // ===========================================================================
-// publish_avoidance_waypoints_ (Track A A3)
-// Mirrors the avoidance intent on the L3-owned waypoint plan
-// (/l3/m5/avoidance_waypoints) for the GNC bridge to translate to
-// ship_interfaces/AvoidancePlan. The bridge is a pure field-mapper, so all
-// waypoint geometry is generated here. Release authority (spec D4): while M6
+// publish_committed_route_ (Slice A: /l3/m5/avoidance_plan is canonical truth)
+// Emits the committed avoidance route on /l3/m5/avoidance_plan — the only M5
+// execution-truth topic. The gnc_bridge translates it to /colav/avoidance_plan
+// for GNC active_route_manager_node. Release authority (spec D4): while M6
 // reports conflict we emit one encounter-anchored avoidance corridor; on the
 // conflict->clear transition we emit a stable current-anchored rejoin corridor,
 // then stop emitting.
+//
+// Slice B (heartbeat discipline): every path MUST reach publish_avoidance_plan_
+// at the end. Preflight failures or committed_route rejections no longer
+// silently return — they fall through to publish a Keep-Last DEGRADED plan so
+// the 60s heartbeat (spec §9.10) keeps refreshing valid_until and GNC never
+// loses the only release message.
 // ===========================================================================
-void MidMpcNode::publish_avoidance_waypoints_(
+void MidMpcNode::publish_committed_route_(
     rclcpp::Time now,
     const MidMpcInput& input,
     double lat0_deg,
@@ -1355,6 +1392,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           plan.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
           preflight.required_m, preflight.available_m);
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "optimized_preflight_failed");
       return;
     }
     // Spec §6.6.2/§6.6.4: build risk context from M2 WorldState (via the
@@ -1377,6 +1415,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",
           plan.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "optimized_committed_rejected");
       return;
     }
   } else if (conflict_active) {
@@ -1481,6 +1520,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           anchor.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
           preflight.required_m, preflight.available_m);
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "degraded_preflight_failed");
       return;
     }
     DegradedCandidateRequest degraded_request;
@@ -1511,6 +1551,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           "[M5][DegradedCandidate] drop avoidance plan_id=%s reason=committed_route_rejected event=%s",
           anchor.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "degraded_committed_rejected");
       return;
     }
     plan = degraded_plan.value();
@@ -1578,6 +1619,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           return_route_anchor_->plan_id.c_str(), preflight.reason.c_str(), preflight.index,
           preflight.required_m, preflight.available_m);
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "return_preflight_failed");
       return;
     }
     DegradedCandidateRequest degraded_return_request;
@@ -1614,6 +1656,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           return_route_anchor_->plan_id.c_str(),
           committed_route_manager_.current().safety_concern_event.c_str());
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "return_committed_rejected");
       return;
     }
     plan = degraded_return_plan.value();
@@ -1641,6 +1684,7 @@ void MidMpcNode::publish_avoidance_waypoints_(
           plan.plan_id.c_str(), full_preflight.reason.c_str(), full_preflight.index,
           full_preflight.required_m, full_preflight.available_m);
       last_emitted_conflict_active_ = conflict_active;
+      publish_keep_last_(now, "full_preflight_failed");
       return;
     }
     plan.status = (plan.behavior_mode == "return_to_route") ? "RECOVERY" : "DEGRADED";
@@ -1657,11 +1701,11 @@ void MidMpcNode::publish_avoidance_waypoints_(
         plan.latitude[i], plan.longitude[i], speed, plan.confidence, plan.rationale));
   }
 
-  // Slice A: /l3/m5/avoidance_plan is the canonical execution truth. The legacy
-  // waypoint topic is derived from that complete route snapshot as a compatibility shadow.
+  // Slice A: /l3/m5/avoidance_plan is the canonical execution truth — the only
+  // route M5 publishes. The legacy /l3/m5/avoidance_waypoints shadow topic was
+  // removed (no execution consumer; only sil_trace_writer subscribed).
   publish_avoidance_plan_(plan, plan.behavior_mode);
   last_emitted_conflict_active_ = conflict_active;
-  pub_avoidance_waypoints_->publish(compatibility_shadow_from_plan(plan));
 }
 
 void MidMpcNode::on_scenario_loaded_(const std_msgs::msg::String::SharedPtr msg) {

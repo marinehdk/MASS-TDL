@@ -352,44 +352,6 @@ def _as_string_list(values: Any) -> list[str]:
     return [str(value) for value in list(values)]
 
 
-def _normalize_avoidance_waypoints_msg(msg: Any) -> dict[str, Any]:
-    stamp = getattr(msg, "stamp", None)
-    valid_until = getattr(msg, "valid_until", None)
-    latitudes = _as_float_list(getattr(msg, "latitude", []))
-    longitudes = _as_float_list(getattr(msg, "longitude", []))
-    payload: dict[str, Any] = {
-        "stamp_sec": int(getattr(stamp, "sec", 0)) if stamp is not None else 0,
-        "stamp_nanosec": int(getattr(stamp, "nanosec", 0)) if stamp is not None else 0,
-        "schema_version": int(getattr(msg, "schema_version", 0)),
-        "plan_id": str(getattr(msg, "plan_id", "")),
-        "parent_route_id": str(getattr(msg, "parent_route_id", "")),
-        "behavior_mode": str(getattr(msg, "behavior_mode", "")),
-        "command_source": str(getattr(msg, "command_source", "")),
-        "n_waypoints": min(len(latitudes), len(longitudes)),
-        "latitude": latitudes,
-        "longitude": longitudes,
-        "command_speed_mps": _as_float_list(getattr(msg, "command_speed_mps", [])),
-        "navigation_mode": _as_string_list(getattr(msg, "navigation_mode", [])),
-        "valid_until_sec": int(getattr(valid_until, "sec", 0)) if valid_until is not None else 0,
-        "valid_until_nanosec": int(getattr(valid_until, "nanosec", 0))
-        if valid_until is not None
-        else 0,
-        "allow_degraded_execution": bool(getattr(msg, "allow_degraded_execution", False)),
-        "has_return_to_route_point": bool(getattr(msg, "has_return_to_route_point", False)),
-        "return_latitude": float(getattr(msg, "return_latitude", 0.0)),
-        "return_longitude": float(getattr(msg, "return_longitude", 0.0)),
-        "confidence": float(getattr(msg, "confidence", 0.0)),
-        "rationale": str(getattr(msg, "rationale", "")),
-    }
-    if latitudes:
-        payload["wp0_lat"] = latitudes[0]
-        payload["wp_last_lat"] = latitudes[-1]
-    if longitudes:
-        payload["wp0_lon"] = longitudes[0]
-        payload["wp_last_lon"] = longitudes[-1]
-    return payload
-
-
 def _normalize_avoidance_plan_msg(msg: Any) -> dict[str, Any]:
     waypoints = list(getattr(msg, "waypoints", []))
     wp0 = waypoints[0] if waypoints else None
@@ -427,7 +389,6 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         WorldState,
     )
     from l3_external_msgs.msg import (
-        AvoidanceWaypoints,
         CheckerVetoNotification,
         GncExecutionStatus,
         PlannedRoute,
@@ -490,13 +451,6 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         writer.record(
             "/l3/m5/avoidance_plan",
             _normalize_avoidance_plan_msg(msg),
-            t_now(),
-        )
-
-    def on_avoidance_waypoints(msg):
-        writer.record(
-            "/l3/m5/avoidance_waypoints",
-            _normalize_avoidance_waypoints_msg(msg),
             t_now(),
         )
 
@@ -640,7 +594,6 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/sil/own_ship_state", SilOwnShipState, on_own),
         ("/l3/m4/behavior_plan", BehaviorPlan, on_behavior),
         ("/l3/m5/avoidance_plan", AvoidancePlan, on_avoidance),
-        ("/l3/m5/avoidance_waypoints", AvoidanceWaypoints, on_avoidance_waypoints),
         ("/l3/m6/colregs_constraint", COLREGsConstraint, on_colregs),
         ("/l3/m2/world_state", WorldState, on_world_state),
         ("/l3/checker/veto", CheckerVetoNotification, on_veto),

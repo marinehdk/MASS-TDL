@@ -12,7 +12,6 @@
 
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_external_msgs/msg/speed_profile.hpp"
-#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
 #include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
@@ -85,8 +84,6 @@ class MidMpcNode : public rclcpp::Node {
   l3_external_msgs::msg::SpeedProfile::SharedPtr             speed_profile_;
 
   rclcpp::Publisher<l3_msgs::msg::AvoidancePlan>::SharedPtr  pub_avoidance_plan_;
-  // Track A A3: L3-owned waypoint plan consumed by the GNC bridge (A4).
-  rclcpp::Publisher<l3_external_msgs::msg::AvoidanceWaypoints>::SharedPtr pub_avoidance_waypoints_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
@@ -119,19 +116,29 @@ class MidMpcNode : public rclcpp::Node {
                         const l3_msgs::msg::AvoidancePlan& plan);
   void publish_avoidance_plan_(const l3_msgs::msg::AvoidancePlan& plan,
                                const std::string& reason);
+  // Slice B Keep-Last heartbeat (spec §9.10/§9.12): when the optimized or
+  // degraded candidate fails GNC preflight / committed_route gates, this still
+  // publishes a plan so the 60s heartbeat does not go silent. Falls back to the
+  // committed_route_manager's last active geometry; if none, emits a minimal
+  // DEGRADED plan (no waypoints) so GNC sees a stale/keep-last marker rather
+  // than losing the route entirely.
+  void publish_keep_last_(rclcpp::Time now, const std::string& reason);
   void publish_trajectory_candidates_(const MidMpcInput& input);
 
-  // Track A A3: emit the L3-owned waypoint plan on /l3/m5/avoidance_waypoints
-  // for the GNC bridge to translate. Called from publish_outputs_ with the same
-  // avoidance/intent context. When behavior is not avoidance (transit/recovery,
-  // i.e. M6 conflict clear), return_to_route is emitted for a short delivery
-  // window so the GNC route-update guard cannot drop the only release message.
-  void publish_avoidance_waypoints_(rclcpp::Time now,
-                                    const MidMpcInput& input,
-                                    double lat0_deg,
-                                    double lon0_deg,
-                                    const l3_msgs::msg::AvoidancePlan& selected_plan,
-                                    const MidMpcSolution& sol);
+  // Publish the committed avoidance route on /l3/m5/avoidance_plan (the only
+  // execution-truth topic M5 owns; the legacy /l3/m5/avoidance_waypoints shadow
+  // was removed — only sil_trace_writer subscribed and no GNC consumer did).
+  //
+  // Slice B: every code path through this function MUST reach publish_avoidance_plan_
+  // at the end so the 60s heartbeat (spec §9.10) keeps firing even when the
+  // optimized/degraded candidate fails GNC preflight — the heartbeat publishes a
+  // Keep-Last DEGRADED plan in that case (spec §9.12) instead of silently dropping.
+  void publish_committed_route_(rclcpp::Time now,
+                                const MidMpcInput& input,
+                                double lat0_deg,
+                                double lon0_deg,
+                                const l3_msgs::msg::AvoidancePlan& selected_plan,
+                                const MidMpcSolution& sol);
   // Slice W1 (spec §5.3): build the TailBuilder hold[+rejoin] segment from the
   // NLP terminal state + M6 lifecycle + L2 route-frame and append its NED
   // waypoints to the AvoidancePlan parallel arrays (between MID_MPC_OPTIMIZED
