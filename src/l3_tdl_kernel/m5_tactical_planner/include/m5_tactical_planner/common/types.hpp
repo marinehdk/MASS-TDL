@@ -323,6 +323,20 @@ inline double normalize_heading_positive(double angle) {
   return normalized;
 }
 
+// Normalize heading to [-π, +π] — the NLP psi variable box (Fix C-2b). Rule17
+// and direction/min_alt constraints use raw psi - own_psi subtraction; if
+// own_psi is at 2π (positive normalization) while NLP psi ∈ [-π, π], the
+// subtraction yields π instead of 0, making the constraint set empty. All
+// own_psi values fed to the NLP (kIdxOwnPsi, constraint_inputs.own_ship_psi_rad)
+// must pass through this to stay in the same branch as the NLP psi box.
+inline double normalize_heading_signed(double angle) {
+  double normalized = normalize_heading_positive(angle);
+  if (normalized > M_PI) {
+    normalized -= 2.0 * M_PI;
+  }
+  return normalized;
+}
+
 inline double circular_heading_distance(double lhs, double rhs) {
   const double two_pi = 2.0 * M_PI;
   double diff = std::fabs(normalize_heading_positive(lhs) - normalize_heading_positive(rhs));

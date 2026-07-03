@@ -117,6 +117,44 @@ l3_msgs::msg::COLREGsConstraint ConstraintGenerator::generate(
     effective_evaluations.push_back(effective_evaluation(eval, params));
   }
 
+  // Fix C-1 (Codex review 2026-07-03): Rule17 (stand-on) must NOT survive as
+  // an active STAND_ON directive when a PRIMARY give-way rule (13/14/15/16) is
+  // also active on the same target. COLREGs exclusivity: own ship cannot be
+  // simultaneously give-way (primary duty to act) and stand-on (duty to hold).
+  //
+  // Root cause this fixes: rule17_stand_on.cpp:30 activates Rule17 + STAND_ON
+  // on a single-CPA threshold (cpa_m < cpa_safe·2) with NO encounter-geometry
+  // cross-check. A head-on target (Rule14 give-way for own) also has small cpa_m
+  // → Rule17 spuriously fires STAND_ON. The reasoner's duty-latch gate
+  // (colregs_reasoner_node.cpp:1196) only suppresses Rule17 when the give-way
+  // duty has onset — but onset requires tcpa_s <= t_plan_s (120 s), so a far
+  // target (tcpa=1121s) bypasses the gate and Rule17 STAND_ON reaches M5.
+  // Downstream M5 trusts role=STAND_ON + rules={17} and builds a hard stand-on
+  // constraint (|psi-own_psi|<=5°), which makes the NLP infeasible when the
+  // ship must actually turn (gives CPA penetration).
+  //
+  // This suppress pass is the contract-level fix: regardless of duty-latch
+  // state, a primary give-way rule active ⇒ Rule17 stand-on is downgraded to
+  // inactive (its CPA-proximity rationale is preserved as telemetry but it no
+  // longer drives primary_role=STAND_ON).
+  const bool any_primary_give_way_active = std::any_of(
+      effective_evaluations.begin(), effective_evaluations.end(),
+      [](const RuleEvaluation& e) {
+        return e.is_active &&
+               (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) &&
+               (e.rule_id == 13 || e.rule_id == 14 ||
+                e.rule_id == 15 || e.rule_id == 16);
+      });
+  if (any_primary_give_way_active) {
+    for (auto& e : effective_evaluations) {
+      if (e.is_active && e.rule_id == 17 && e.role == Role::STAND_ON) {
+        e.is_active = false;
+        if (!e.rationale.empty()) { e.rationale += " "; }
+        e.rationale += "[suppressed: primary give-way rule active (Fix C-1)]";
+      }
+    }
+  }
+
   // Collect active rules and determine overall phase
   std::string dominant_phase = "PRESERVE_COURSE";
   std::string rationale_parts;

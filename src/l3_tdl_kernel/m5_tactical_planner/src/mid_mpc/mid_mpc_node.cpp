@@ -519,7 +519,15 @@ MidMpcInput MidMpcNode::assemble_input_()
 
   inp.own_ship.x_m     = 0.0;
   inp.own_ship.y_m     = 0.0;
-  inp.own_ship.psi_rad = world_state_->own_ship.heading_deg * units::kRadPerDeg;
+  // Fix C-2b (Codex review 2026-07-03): normalize own_psi to [-π, +π] to match
+  // the NLP psi variable box. Rule17 (|psi-own_psi|<=5°) and direction/min_alt
+  // rows use raw psi - own_psi; if own_psi=2π (positive-normalized from a
+  // 0..360° heading) while NLP psi ∈ [-π,π], the subtraction yields π instead
+  // of 0 → constraint set empty → Infeasible. All downstream consumers
+  // (kIdxOwnPsi, constraint_inputs.own_ship_psi_rad, route-frame, risk_ctx)
+  // read inp.own_ship.psi_rad, so wrapping once here fixes all paths.
+  inp.own_ship.psi_rad = mass_l3::m5::normalize_heading_signed(
+      world_state_->own_ship.heading_deg * units::kRadPerDeg);
   
   const double u_water = world_state_->own_ship.u_water;
   inp.own_ship.u_mps   = (u_water > 0.1) ? u_water
@@ -577,7 +585,18 @@ MidMpcInput MidMpcNode::assemble_input_()
       const auto rule_id = static_cast<std::uint8_t>(rule.rule_id);
       const bool planner_visible = rule_id == 13u || rule_id == 14u || rule_id == 15u
           || rule_id == 16u || rule_id == 17u;
-      if (planner_visible
+      // Fix C-2a (Codex review 2026-07-03): Rule 17 (stand-on) is a
+      // COLREGs-mandated duty to HOLD course/speed. It only applies to own
+      // ship when own is the stand-on vessel (primary_role == STAND_ON=0).
+      // M6 may publish Rule17 as active with role=FREE (CPA proximity
+      // evaluation) when no primary give-way rule has onset (e.g. tcpa >
+      // t_plan_s). Trusting that and compiling the |psi-own_psi|<=5° hard
+      // constraint makes the NLP infeasible when own must actually maneuver.
+      // Defensive gate: only forward Rule17 to the NLP when primary_role is
+      // STAND_ON. Belt-and-suspenders with the M6 generate() suppress (C-1).
+      const bool rule17_eligible = rule_id != 17u ||
+          colregs_constraint_->primary_role == 0U;  // STAND_ON
+      if (planner_visible && rule17_eligible
           && std::find(inp.constraints.applicable_rules.begin(),
                        inp.constraints.applicable_rules.end(),
                        rule_id) == inp.constraints.applicable_rules.end()) {
