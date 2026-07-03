@@ -178,8 +178,9 @@ struct CommittedCandidateRiskContext {
   double own_lat_deg{0.0};
   double own_lon_deg{0.0};
   double own_psi_rad{0.0};
-  double min_target_cpa_m{1.0e9};        // min CPA over tracked targets [m]
-  double primary_target_cog_rad{0.0};    // COG of the min-CPA target [rad]
+  double min_target_cpa_m{1.0e9};              // min predicted CPA over targets [m] (M2)
+  double min_target_current_range_m{1.0e9};    // min current own↔target range [m] (hypot x_m,y_m)
+  double primary_target_cog_rad{0.0};          // COG of the min-range target [rad]
   bool   has_target{false};
 };
 
@@ -230,11 +231,17 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
   candidate.frozen_prefix_count = frozen.frozen_prefix_count;
 
   // Spec §6.6.4 / §9.12 Keep-Last risk fields — wired from M2 WorldState.
-  // current_cpa_m: minimum CPA over tracked targets (1e9 = no target → inert).
-  // cpa_hard_m:    the un-bumped hard floor (= kCpaSafeFallback_m 1852), the
-  //                same value the NLP uses (node.cpp:414); the manager's gate
-  //                current_cpa < cpa_hard then mirrors the NLP hard floor.
-  candidate.current_cpa_m = risk.min_target_cpa_m;
+  // current_cpa_m semantics (Codex review 2026-07-03, WRONG ABSTRACTION fix):
+  //   the manager's `current_cpa < cpa_hard_m` gate must compare the CURRENT
+  //   own↔target geometric range, NOT M2's predicted CPA. A target on a
+  //   collision course has tgt.cpa_m → 0 by definition (that is why avoidance
+  //   is needed); using the predicted CPA here rejected every candidate whose
+  //   whole point was to resolve that CPA (4670 spurious rejections in
+  //   rule14-ho). The current range only drops below cpa_hard when the target
+  //   is ACTUALLY inside the hard floor right now — the correct trigger.
+  //   min_target_cpa_m (M2 predicted) is retained on the context for telemetry
+  //   / future candidate-route CPA work, but no longer feeds the commit gate.
+  candidate.current_cpa_m = risk.min_target_current_range_m;
   candidate.cpa_hard_m = kCpaSafeFallback_m;
 
   // Spec §6.6.4 / §9.12 Keep-Last risk fields — target_heading_delta_deg and
@@ -1397,13 +1404,18 @@ void MidMpcNode::publish_committed_route_(
     }
     // Spec §6.6.2/§6.6.4: build risk context from M2 WorldState (via the
     // assembled input targets) for the Keep-Last risk gate + frozen prefix.
+    // Both M2 predicted CPA (tgt.cpa_m) and current geometric range
+    // (hypot(tgt.x_m, tgt.y_m)) are collected; the commit gate uses the
+    // CURRENT range (see committed_candidate_from_plan above, Codex fix).
     CommittedCandidateRiskContext risk_ctx;
     risk_ctx.own_lat_deg = lat0_deg;
     risk_ctx.own_lon_deg = lon0_deg;
     risk_ctx.own_psi_rad = input.own_ship.psi_rad;
     for (const auto& tgt : input.targets) {
-      if (tgt.cpa_m < risk_ctx.min_target_cpa_m) {
-        risk_ctx.min_target_cpa_m = tgt.cpa_m;
+      const double current_range_m = std::hypot(tgt.x_m, tgt.y_m);
+      if (current_range_m < risk_ctx.min_target_current_range_m) {
+        risk_ctx.min_target_current_range_m = current_range_m;
+        risk_ctx.min_target_cpa_m = tgt.cpa_m;  // telemetry / future candidate-CPA
         risk_ctx.primary_target_cog_rad = tgt.cog_rad;
         risk_ctx.has_target = true;
       }

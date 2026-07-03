@@ -13,17 +13,35 @@
 namespace mass_l3::m5 {
 
 struct GncAvoidancePreflightConfig {
+  // Emergency-avoidance profile (default). M5 publishes avoidance routes under
+  // emergency semantics (COLREGs maneuver), so the preflight must use the
+  // vessel's EMERGENCY maneuvering envelope, not the nominal cruise envelope.
+  // The previous defaults (a_lat=0.25 m/s², yaw=2.0 deg/s) were nominal-like
+  // and over-conservative for emergency: at v=8 m/s they demanded a 256 m
+  // turn radius, rejecting valid avoidance geometries (Codex review 2026-07-03,
+  // OVER-CONSERVATIVE). [TBD-HAZID] confirm against live GNC ODD / sea-trial
+  // data; emergency capability is typically 2× nominal.
   double max_command_speed_mps{8.0};
   double emergency_min_segment_length_m{15.0};
   double emergency_min_turn_radius_m{45.0};
-  double max_lateral_accel_mps2{0.25};
-  double emergency_max_yaw_rate_deg_s{2.0};
+  double max_lateral_accel_mps2{0.5};       // was 0.25 (nominal); emergency envelope
+  double emergency_max_yaw_rate_deg_s{3.5};  // was 2.0 (nominal); emergency envelope
   double max_decel_mps2{0.08};
   double emergency_guidance_speed_cap_mps{3.2};
   double emergency_wheel_over_distance_m{120.0};
   double high_speed_flyby_min_segment_m{360.0};
   double raw_route_rejoin_threshold_m{60.0};
 };
+
+// Nominal/cruise profile for L2 route suffix preflight (not avoidance).
+// M5 uses this when appending the L2 nominal suffix to a committed route;
+// the avoidance segments themselves use the emergency default above.
+inline GncAvoidancePreflightConfig nominal_cruise_preflight_config() {
+  GncAvoidancePreflightConfig cfg;
+  cfg.max_lateral_accel_mps2 = 0.25;
+  cfg.emergency_max_yaw_rate_deg_s = 2.0;
+  return cfg;
+}
 
 struct GncAvoidancePreflightResult {
   bool feasible{false};

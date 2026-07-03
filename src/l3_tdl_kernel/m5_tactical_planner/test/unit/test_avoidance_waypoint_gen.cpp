@@ -302,8 +302,18 @@ TEST(AvoidanceWaypointGen, NonRule13AvoidanceKeepsEmergencySpeedEnvelope) {
 }
 
 TEST(AvoidanceWaypointGen, RequiredTurnRadiusMirrorsGncYawRateGate) {
-  EXPECT_NEAR(required_turn_radius_m(3.2), 91.673, 0.01);
-  EXPECT_NEAR(required_turn_radius_m(8.0), 256.0, 1e-9);
+  // Emergency profile (Codex review 2026-07-03): a_lat=0.5 m/s², yaw=3.5 deg/s.
+  // required = max(emergency_min_turn_radius=45, v²/a_lat, v/yaw_rate).
+  // Compute expected inline so the test tracks the formula, not a magic no.
+  constexpr double kALat = 0.5;
+  constexpr double kYawRadS = 3.5 * M_PI / 180.0;
+  const double exp_3_2 = std::max({45.0, 3.2 * 3.2 / kALat, 3.2 / kYawRadS});
+  const double exp_8_0 = std::max({45.0, 8.0 * 8.0 / kALat, 8.0 / kYawRadS});
+  EXPECT_NEAR(required_turn_radius_m(3.2), exp_3_2, 1.0e-6);
+  EXPECT_NEAR(required_turn_radius_m(8.0), exp_8_0, 1.0e-6);
+  // Both must be driven by the yaw term (v/yaw > v²/a at emergency profile).
+  EXPECT_GT(exp_3_2, 3.2 * 3.2 / kALat);
+  EXPECT_GT(exp_8_0, 8.0 * 8.0 / kALat);
 }
 
 TEST(AvoidanceWaypointGen, RequiredDecelDistanceMirrorsGncGate) {

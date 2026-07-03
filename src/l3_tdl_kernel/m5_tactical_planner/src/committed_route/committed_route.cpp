@@ -264,14 +264,23 @@ bool CommittedAvoidanceRoute::preserves_committed_prefix(
 std::string CommittedAvoidanceRoute::risk_trigger_event(
     const CommittedRouteCandidate& candidate) const
 {
+  // Hard-block gates (Codex review 2026-07-03): only keep gates that are
+  // sound as COMMIT REJECTION criteria. A candidate commit should be blocked
+  // only when the CURRENT own↔target geometry is already inside the hard
+  // floor (current_cpa < cpa_hard) — meaning the situation is already unsafe
+  // regardless of the candidate route.
+  //
+  // REMOVED from this block path (WRONG ABSTRACTION):
+  //   - target_heading_change_gt_15deg: a target maneuver is a reason to
+  //     REPLAN / invalidate the keep-last snapshot, not to reject a FRESH
+  //     candidate that may already account for the new target heading.
+  //   - cpa_drift_gt_20pct: same — drift invalidates the stale keep-last, not
+  //     a fresh candidate.
+  // Both still have advisory slots in should_enter_degraded_hold() (via the
+  // target_heading_trigger_ / cpa_drift_trigger_ members); wiring those from
+  // the candidate fields is future work (they currently stay false).
   if (candidate.current_cpa_m < candidate.cpa_hard_m) {
     return "current_cpa_below_hard_floor";
-  }
-  if (std::fabs(candidate.target_heading_delta_deg) > 15.0) {
-    return "target_heading_change_gt_15deg";
-  }
-  if (std::fabs(candidate.cpa_drift_fraction) > 0.20) {
-    return "cpa_drift_gt_20pct";
   }
   return "";
 }

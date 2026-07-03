@@ -319,18 +319,46 @@ TEST(CommittedAvoidanceRoute, failed_nlp_risk_triggers_enter_degraded_hold_immed
     EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
   };
 
+  // current_cpa < cpa_hard remains a hard-block gate (Codex review 2026-07-03):
+  // the situation is already unsafe regardless of the candidate route.
   auto hard_cpa = candidate("fail-hard-cpa", route_b_with_same_prefix(), 2U, 30.0, false);
   hard_cpa.current_cpa_m = 49.0;
   hard_cpa.cpa_hard_m = 50.0;
   expect_failed_nlp_degraded_hold(hard_cpa, "current_cpa_below_hard_floor");
 
-  auto heading = candidate("fail-heading", route_b_with_same_prefix(), 2U, 30.0, false);
-  heading.target_heading_delta_deg = 15.1;
-  expect_failed_nlp_degraded_hold(heading, "target_heading_change_gt_15deg");
+  // REMOVED (Codex WRONG ABSTRACTION): target_heading_change_gt_15deg and
+  // cpa_drift_gt_20pct were removed from risk_trigger_event (the commit-block
+  // path). A target maneuver / CPA drift is a reason to replan or invalidate
+  // the keep-last snapshot, NOT to reject a fresh candidate. They retain
+  // advisory slots in should_enter_degraded_hold (target_heading_trigger_ /
+  // cpa_drift_trigger_ members); wiring those is future work. A candidate
+  // with nlp_ok=false + no hard-block gate now goes through the nlp_ok==false
+  // path (KeepLast on first failure, DegradedHold after 3 consecutive).
+}
 
-  auto drift = candidate("fail-drift", route_b_with_same_prefix(), 2U, 30.0, false);
-  drift.cpa_drift_fraction = 0.201;
-  expect_failed_nlp_degraded_hold(drift, "cpa_drift_gt_20pct");
+// A candidate with nlp_ok=false but NO hard-block risk (target_heading /
+// cpa_drift fields set, but those are no longer block gates per Codex review)
+// must be rejected (nlp not ok) but must NOT trigger the immediate
+// DegradedHold that a hard-block risk would — it goes to KeepLast on first
+// failure (consecutive_nlp_failures < 3).
+TEST(CommittedAvoidanceRoute, nlp_failed_without_hard_risk_goes_keeplast_not_degraded)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  // Candidate with target_heading_delta + cpa_drift set but nlp_ok=false and
+  // current_cpa above hard floor — previously blocked by heading/drift gates,
+  // now only nlp_ok=false applies.
+  auto c = candidate("plan-heading", route_b_with_same_prefix(), 2U, 30.0, false);
+  c.target_heading_delta_deg = 15.1;
+  c.cpa_drift_fraction = 0.201;
+  c.current_cpa_m = 100.0;   // well above cpa_hard
+  c.cpa_hard_m = 50.0;
+
+  EXPECT_FALSE(manager.try_revise(c, 1.0));
+  // Not DegradedHold (no hard risk trigger); first nlp failure → KeepLast.
+  EXPECT_EQ(manager.current().state, LifecycleState::KeepLast);
+  EXPECT_EQ(manager.current().revision, 1U);
 }
 
 // Spec §3.7 / §10.1 "GeoWP 坐标契约": same_waypoint uses tolerance comparison
