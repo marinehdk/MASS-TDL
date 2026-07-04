@@ -29,7 +29,13 @@ struct GncAvoidancePreflightConfig {
   double max_decel_mps2{0.20};  // v2.2 §4.7: aligned with GNC ship_config 0.20 baseline
   double emergency_guidance_speed_cap_mps{3.2};
   double emergency_wheel_over_distance_m{120.0};
-  double high_speed_flyby_min_segment_m{360.0};
+  // Calibrated 2026-07-05 (NLM 🟢 ship_maneuvering + IMO MSC.137(76)): 360m
+  // (7.2L) was over-conservative WIP value (commit 11d86dd8, no provenance).
+  // 120m (2.4L) aligns with emergency_wheel_over_distance_m, within measured
+  // 35° turning advance range (2.8-3.31L=140-165m) with margin, below IMO
+  // MSC.137(76) advance limit (4.5L=225m). See spec
+  // docs/superpowers/specs/2026-07-05-m5-preflight-threshold-calibration-design.md.
+  double high_speed_flyby_min_segment_m{120.0};
   double raw_route_rejoin_threshold_m{60.0};
 };
 
