@@ -21,6 +21,7 @@
 using mass_l3::m5::mid_mpc::BoundArray;
 using mass_l3::m5::mid_mpc::RowBoundConfig;
 using mass_l3::m5::mid_mpc::RowRegistry;
+using mass_l3::m5::mid_mpc::kTerminalRowCount;
 
 namespace {
 constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -387,4 +388,32 @@ TEST(RowRegistry, CpaSuffixHardSoftensBeforeDeadline) {
       }
     }
   }
+}
+
+// v2.1 spec §4.5 — terminal_nlp_soft=true disables all 3 terminal rows.
+TEST(RowRegistry, TerminalNlpSoftDisablesAllTerminalRows) {
+  RowRegistry reg;
+  reg.reset(18, 1, 0, 0);
+  RowBoundConfig cfg;
+  cfg.terminal_disabled = false;     // give-way lateral (not stand-on)
+  cfg.terminal_nlp_soft = true;      // v2.1 default
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t i = 0; i < kTerminalRowCount; ++i) {
+    const std::size_t r = static_cast<std::size_t>(reg.terminal_row(i));
+    EXPECT_EQ(b.lbg[r], -std::numeric_limits<double>::infinity()) << "terminal row " << i;
+    EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "terminal row " << i;
+  }
+}
+
+// terminal_nlp_soft=false + terminal_disabled=false -> legacy hard terminal.
+TEST(RowRegistry, TerminalNlpSoftFalseKeepsHardForGiveWay) {
+  RowRegistry reg;
+  reg.reset(18, 1, 0, 0);
+  RowBoundConfig cfg;
+  cfg.terminal_disabled = false;
+  cfg.terminal_nlp_soft = false;     // legacy v2
+  BoundArray b = reg.build_bounds(cfg);
+  // terminal_row(0) is g_term_side (hard [0,+inf]); (1)/(2) are lo/hi
+  const std::size_t r0 = static_cast<std::size_t>(reg.terminal_row(0));
+  EXPECT_EQ(b.lbg[r0], 0.0);  // legacy hard lower bound
 }

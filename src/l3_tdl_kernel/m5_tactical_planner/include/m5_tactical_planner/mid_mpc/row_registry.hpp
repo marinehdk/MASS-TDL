@@ -201,7 +201,9 @@ class RowRegistry {
     apply_cpa_suffix_hard_(cfg_eff, b);  // v2.1 §4.3
     if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
     else { apply_minalt_reachable_schedule_(cfg_eff, b); }  // v2.1 §4.2
-    if (cfg_eff.terminal_disabled) { apply_terminal_disable_(b); }
+    if (cfg_eff.terminal_disabled || cfg_eff.terminal_nlp_soft) {
+      apply_terminal_disable_(b);
+    }
     return b;
   }
 
