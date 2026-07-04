@@ -26,7 +26,7 @@ struct GncAvoidancePreflightConfig {
   double emergency_min_turn_radius_m{45.0};
   double max_lateral_accel_mps2{0.5};       // was 0.25 (nominal); emergency envelope
   double emergency_max_yaw_rate_deg_s{3.5};  // was 2.0 (nominal); emergency envelope
-  double max_decel_mps2{0.08};
+  double max_decel_mps2{0.20};  // v2.2 §4.7: aligned with GNC ship_config 0.20 baseline
   double emergency_guidance_speed_cap_mps{3.2};
   double emergency_wheel_over_distance_m{120.0};
   double high_speed_flyby_min_segment_m{360.0};

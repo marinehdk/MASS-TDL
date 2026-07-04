@@ -317,7 +317,9 @@ TEST(AvoidanceWaypointGen, RequiredTurnRadiusMirrorsGncYawRateGate) {
 }
 
 TEST(AvoidanceWaypointGen, RequiredDecelDistanceMirrorsGncGate) {
-  EXPECT_NEAR(required_decel_distance_m(8.0, 3.2), 336.0, 1e-9);
+  // v2.2 §4.7: aligned with GNC ship_config 0.20 baseline (was 336.0 at 0.08).
+  // distance = (v0² - v1²) / (2 * max_decel_mps2) = 53.76 / 0.40 = 134.4.
+  EXPECT_NEAR(required_decel_distance_m(8.0, 3.2), 134.4, 1e-9);
   EXPECT_DOUBLE_EQ(required_decel_distance_m(3.2, 8.0), 0.0);
 }
 

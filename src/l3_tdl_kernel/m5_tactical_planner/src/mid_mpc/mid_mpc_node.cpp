@@ -1797,7 +1797,7 @@ ship_interfaces::msg::GncExecutionOdd MidMpcNode::effective_gnc_odd_() const {
   fallback.cruise_min_speed_mps = 3.8;
   fallback.max_transit_speed_mps = 3.0;
   fallback.max_lateral_accel_mps2 = 0.25;
-  fallback.max_decel_mps2 = 0.08;
+  fallback.max_decel_mps2 = 0.20;  // v2.2 §4.7: aligned with GNC ship_config 0.20 baseline
   fallback.emergency_min_turn_radius_m = 45.0;
   fallback.cruise_max_yaw_rate_deg_s = 1.2;
   fallback.emergency_max_yaw_rate_deg_s = 2.0;
