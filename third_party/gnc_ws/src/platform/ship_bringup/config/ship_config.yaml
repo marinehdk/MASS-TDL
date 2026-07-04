@@ -637,7 +637,7 @@ active_route_manager_node:
     max_lateral_accel_mps2: 0.25
     max_yaw_rate_deg_s: 4.7              # v2.1: cruise ROT baseline, IMO MSC.137(76) derived 🟡 [TBD-HAZID-2026-08-19]; published as cruise_max_yaw_rate_deg_s; NLP rot_max source (mid_mpc_node.cpp:728)
     emergency_max_yaw_rate_deg_s: 4.7    # v2.1 B3: GNC clamps max(cruise,emergency); keep equal per spec §5.2
-    max_decel_mps2: 0.08
+    max_decel_mps2: 0.20                  # v2.2 §4.7: NLM 🟢 emergency crash-astern 下限; IMO MSC.137(76) 15L 推导 3.9L pass
     default_avoidance_hold_s: 60.0
     publish_nominal_status: false
 
