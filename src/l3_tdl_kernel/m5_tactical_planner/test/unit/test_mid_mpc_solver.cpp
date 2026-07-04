@@ -824,3 +824,19 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKBoxExactlyAtMinAltNotInfeasible) {
   EXPECT_FALSE(cfg.minalt_box_infeasible);
   EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // k_minalt_rot, 非 N
 }
+
+TEST_F(MidMpcNlpTest, MinaltHardFromKBoxWithinEpsilonNotInfeasible) {
+  // Codex β review 🟡4: epsilon tolerance (~0.005 rad ≈ 0.3°) absorbs M4/M5
+  // float32(deg)→float64(rad) conversion noise. box_reach is just under min_alt
+  // by less than epsilon → must NOT flag infeasible (would cause false INFEAS).
+  // min_alt=30° = 0.5236 rad; box_reach=29.8° = 0.5203 rad → diff 0.0033 < 0.005.
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.rot_max_rad_s = 0.0820;  // 4.7°/s
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.heading_box_reachable_from_psi0_deg = 29.8;  // 0.0033 rad under min_alt
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_FALSE(cfg.minalt_box_infeasible);
+  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // within epsilon → ROT schedule
+}

@@ -332,7 +332,15 @@ RowBoundConfig derive_row_bound_config(
           input.constraints.heading_box_reachable_from_psi0_deg;
       if (box_reach_deg > 0.0) {  // M4 publish 合约
         const double box_reach_rad = box_reach_deg * units::kRadPerDeg;
-        if (box_reach_rad < input.colregs_min_alteration_rad) {
+        // Codex β review 🟡4: epsilon tolerance for M4/M5 float32(deg)→float64(rad)
+        // conversion noise. M4 publishes the directional reach as a float32 deg
+        // field; M5 converts to rad (float64). The independent deg↔rad paths
+        // accumulate ~0.02° error at the boundary, and a strict < test would
+        // flag a box that is genuinely reachable as infeasible (false INFEAS →
+        // §13.1 BC-MPC dispatch). ~0.005 rad ≈ 0.3° absorbs the noise while
+        // staying well above ROT precision and below any real min_alt margin.
+        constexpr double kBoxReachEpsilonRad = 0.005;
+        if (box_reach_rad < input.colregs_min_alteration_rad - kBoxReachEpsilonRad) {
           cfg.minalt_box_infeasible = true;
           cfg.minalt_hard_from_k = n_horizon;  // 全 soft
         } else {

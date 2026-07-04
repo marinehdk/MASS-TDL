@@ -383,30 +383,52 @@ void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
   h_max_deg = std::max(new_h_min, new_h_max);
 }
 
-// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
-// Compute the published contract fields for a heading box:
-//   - heading_box_reachable_from_psi0_deg: |delta| of the box edge nearer to
-//     own_psi (own-relative). ≥0 degrees.
-//   - box_allows_min_alt: true iff the box width ≥ min_alt + rot_step, i.e. the
-//     box is wide enough to unfold a min_alt-magnitude turn with one ROT step
-//     of slack. When false, reachability_rationale explains why (M5 then sees
-//     the box upper bound < min_alt and degrades to a soft schedule).
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume) — direction-aware.
+// Codex β review 🔴 Blocker fix (task-mr6d2jyi-jnd08o):
+//   heading_box_reachable_from_psi0_deg now publishes the MAX ATTAINABLE
+//   DEVIATION in the preferred COLREGS direction within the box, measured from
+//   own_psi — NOT the nearest-edge distance. The nearest-edge semantic was
+//   consumed by M5 derive_row_bound_config as the preferred-direction min_alt
+//   reach ceiling, so a starboard box [23,53] own=0 min_alt=30 published 23
+//   (nearest edge) and M5 falsely flagged minalt_box_infeasible even though
+//   30° is inside [23,53] and reachable via ROT. Direction-aware:
+//     Starboard (+): d_max if positive (own→h_max), else 0 (box not on stbd).
+//     Port      (-): |d_min| if negative (own→h_min), else 0 (box not on port).
+//     Hold/ReduceSpeed: max(|d_min|,|d_max|) — no lateral direction.
+//   box_allows_min_alt iff directional_reach ≥ min_alt (replaces the incorrect
+//   box_width ≥ min_alt + rot_step criterion — 🟡1).
+//   rot_step_deg is retained in the signature for API stability and future
+//   per-step reach reasoning; the v2.2 direction-aware criterion does not
+//   require it.
 HeadingBoxReachability compute_heading_box_reachability(
     double h_min_deg, double h_max_deg,
     double own_hdg_deg, double rot_step_deg,
-    double min_alt_rad) {
+    double min_alt_rad,
+    ColregsDirection preferred_direction) {
+  (void)rot_step_deg;  // reserved (see rationale above); not used in v2.2 criterion
   HeadingBoxReachability r;
-  // box 起点距 own_psi（own-relative，取靠 own 的边的 |delta|）
-  const double d_min = signed_delta_deg(own_hdg_deg, h_min_deg);
-  const double d_max = signed_delta_deg(own_hdg_deg, h_max_deg);
-  r.heading_box_reachable_from_psi0_deg = std::min(std::fabs(d_min), std::fabs(d_max));
+  const double d_min = signed_delta_deg(own_hdg_deg, h_min_deg);  // own→h_min, signed
+  const double d_max = signed_delta_deg(own_hdg_deg, h_max_deg);  // own→h_max, signed
 
-  // box 是否允许 min_alt 量级偏转：box 宽度 ≥ min_alt_deg + rot_step_deg
+  // Direction-aware: max attainable deviation in the preferred COLREGS direction.
+  // Starboard (+): positive deltas (h_max side); Port (-): negative deltas (h_min
+  // side, magnitude). Hold/ReduceSpeed: no lateral direction, use max of both.
+  double directional_reach_deg = 0.0;
+  if (preferred_direction == ColregsDirection::Starboard) {
+    directional_reach_deg = (d_max > 0.0) ? d_max : 0.0;
+  } else if (preferred_direction == ColregsDirection::Port) {
+    directional_reach_deg = (d_min < 0.0) ? std::fabs(d_min) : 0.0;
+  } else {  // Hold / ReduceSpeed
+    directional_reach_deg = std::max(std::fabs(d_min), std::fabs(d_max));
+  }
+  r.heading_box_reachable_from_psi0_deg = directional_reach_deg;
+
+  // box_allows_min_alt: directional reach must be ≥ min_alt (NOT box_width).
   const double min_alt_deg = min_alt_rad * 180.0 / M_PI;
-  const double box_width = std::fabs(h_max_deg - h_min_deg);
-  r.box_allows_min_alt = (box_width >= min_alt_deg + rot_step_deg);
+  r.box_allows_min_alt = (directional_reach_deg >= min_alt_deg);
   if (!r.box_allows_min_alt) {
-    r.reachability_rationale = "box_width < min_alt + rot_step";
+    r.reachability_rationale =
+        "directional_reach < min_alt (box caps preferred-direction deviation)";
   }
   return r;
 }

@@ -462,25 +462,71 @@ TEST(ColregsDirectiveClamp, ZeroRotStep_NoOp) {
   EXPECT_DOUBLE_EQ(h_max, orig_max);
 }
 
-// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
-// compute_heading_box_reachability(): box 起点距 own_psi + box_allows_min_alt +
-// rationale. min_alt=30°, rot_step=23.5° → 53.5° minimum box width required.
-TEST(HeadingBoxReachabilityV22, NarrowBoxFlagsRationale) {
-  auto r = compute_heading_box_reachability(
-      /*h_min_deg=*/20.0, /*h_max_deg=*/50.0, /*own_hdg_deg=*/0.0,
-      /*rot_step_deg=*/23.5, /*min_alt_rad=*/30.0 * M_PI / 180.0);
-  // box_width=30° < min_alt 30° + rot_step 23.5° = 53.5° → rationale
-  EXPECT_FALSE(r.box_allows_min_alt);
-  EXPECT_FALSE(r.reachability_rationale.empty());
-}
-
-TEST(HeadingBoxReachabilityV22, WideBoxNoRationale) {
-  auto r = compute_heading_box_reachability(
-      /*h_min_deg=*/-30.0, /*h_max_deg=*/60.0, /*own_hdg_deg=*/0.0,
-      /*rot_step_deg=*/23.5, /*min_alt_rad=*/30.0 * M_PI / 180.0);
-  // box_width=90° ≥ 53.5° → OK
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume) — direction-aware.
+// Codex β review (task-mr6d2jyi-jnd08o) 🔴 Blocker fix:
+// heading_box_reachable_from_psi0_deg now means "max attainable deviation in the
+// preferred COLREGS direction within the box, measured from own_psi".
+//   Starboard: d_max (positive edge) — own→h_max signed delta if >0, else 0.
+//   Port:      |d_min| (negative edge magnitude) — if d_min<0, else 0.
+// box_allows_min_alt iff directional_reach ≥ min_alt (NOT box_width criterion).
+TEST(HeadingBoxReachabilityV22, StarboardBoxContainsMinAltNoRationale) {
+  // v2.2 direction-aware: starboard box [23,53], own=0, min_alt=30.
+  // d_max = +53° ≥ 30° → directional_reach = 53 → no rationale.
+  // (Codex β example: previously M4 published min(23,53)=23 → false infeasible.)
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      23.0, 53.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Starboard);
   EXPECT_TRUE(r.box_allows_min_alt);
   EXPECT_TRUE(r.reachability_rationale.empty());
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 53.0, 0.01);
+}
+
+TEST(HeadingBoxReachabilityV22, StarboardBoxBelowMinAltFlagsRationale) {
+  // starboard box [5,15], own=0, min_alt=30 → directional_reach = d_max = 15 < 30.
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      5.0, 15.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Starboard);
+  EXPECT_FALSE(r.box_allows_min_alt);
+  EXPECT_FALSE(r.reachability_rationale.empty());
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 15.0, 0.01);
+}
+
+TEST(HeadingBoxReachabilityV22, PortBoxContainsMinAltNoRationale) {
+  // port box [-53,-23], own=0, min_alt=30 → directional_reach = |d_min| = 53 ≥ 30.
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      -53.0, -23.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Port);
+  EXPECT_TRUE(r.box_allows_min_alt);
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 53.0, 0.01);
+}
+
+TEST(HeadingBoxReachabilityV22, PortBoxBelowMinAltFlagsRationale) {
+  // port box [-15,-5], own=0, min_alt=30 → directional_reach = |d_min| = 15 < 30.
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      -15.0, -5.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Port);
+  EXPECT_FALSE(r.box_allows_min_alt);
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 15.0, 0.01);
+}
+
+TEST(HeadingBoxReachabilityV22, BoxNotInPreferredDirectionPublishesZero) {
+  // starboard directive but box entirely to port → no preferred-direction reach.
+  // box [-50,-20], own=0, min_alt=30: d_max = -20 (not >0) → reach=0 sentinel.
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      -50.0, -20.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Starboard);
+  EXPECT_FALSE(r.box_allows_min_alt);
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 0.0, 0.01);
+}
+
+TEST(HeadingBoxReachabilityV22, HoldDirectionUsesMaxEdge) {
+  // Hold/ReduceSpeed: no lateral direction → use max(|d_min|,|d_max|).
+  // box [-20,40], own=0 → reach = max(20,40) = 40 ≥ 30.
+  auto r = mass_l3::m4::compute_heading_box_reachability(
+      -20.0, 40.0, 0.0, 23.5, 30.0 * M_PI / 180.0,
+      mass_l3::m4::ColregsDirection::Hold);
+  EXPECT_TRUE(r.box_allows_min_alt);
+  EXPECT_NEAR(r.heading_box_reachable_from_psi0_deg, 40.0, 0.01);
 }
 
 }  // namespace

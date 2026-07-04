@@ -42,17 +42,23 @@ struct HeadingWindow {
   double heading_max_deg{0.0};
 };
 
-// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume)
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
+// Codex β review 🔴 Blocker fix (task-mr6d2jyi-jnd08o): the
+// heading_box_reachable_from_psi0_deg semantic is now DIRECTION-AWARE — it is
+// the max attainable deviation in the preferred COLREGS direction within the
+// box, measured from own_psi (not the nearest-edge distance). This is the value
+// M5 consumes as the preferred-direction min_alt reach ceiling.
 struct HeadingBoxReachability {
-  double heading_box_reachable_from_psi0_deg{0.0};  // box 起点距 own_psi 度数
-  bool   box_allows_min_alt{false};                  // box 宽度是否够 min_alt 展开
+  double heading_box_reachable_from_psi0_deg{0.0};  // preferred-direction max deviation from own_psi
+  bool   box_allows_min_alt{false};                  // directional reach ≥ min_alt?
   std::string reachability_rationale;                 // 不够时 reason
 };
 
 [[nodiscard]] HeadingBoxReachability compute_heading_box_reachability(
     double h_min_deg, double h_max_deg,
     double own_hdg_deg, double rot_step_deg,
-    double min_alt_rad);
+    double min_alt_rad,
+    ColregsDirection preferred_direction);
 
 [[nodiscard]] double wrap_heading_deg(double heading_deg);
 [[nodiscard]] ColregsDirection parse_colregs_direction(const std::string& direction);

@@ -1340,13 +1340,23 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   // rot_step aligns with the GNC execution ODD cruise ROT (same source as the
   // F-1 clamp above + the M5 NLP rot_max); fall back to 4.7°/s·dt when the ODD
   // is unavailable. own_hdg comes from the latest world snapshot.
+  //
+  // Codex β review 🟡2 — KNOWN LIMITATION (deferred): when the GNC ODD is
+  // unavailable, this node falls back to rot_step = 4.7°/s·dt (M1 envelope
+  // cruise ROT). M5's own NLP rot_max fallback is 1.2°/s (the more pessimistic
+  // GNC execution cap). This asymmetry means M4 may publish a contract derived
+  // from an optimistic ROT while M5 enforces a tighter ROT — but M5's epsilon
+  // tolerance (🟡4) + its independent max(ROT, box) derivation make M5
+  // self-protecting. The real fix is for behavior_arbiter to subscribe to the
+  // GNC ODD so M4 and M5 share the identical ROT source; until then this
+  // fallback is documented as conservative-safe (M5 will not over-trust M4).
   auto fill_reachability_contract = [&](BehaviorPlanMsg& p,
                                         const ColregsDirective& directive) {
     if (directive.conflict_active && directive.min_alteration_deg > 0.0 &&
         latest_world_) {
       const double own_hdg_deg =
           static_cast<double>(latest_world_->own_ship.heading_deg);
-      double rot_step_deg = 4.7 * heading_reachability_dt_s_;  // GNC baseline fallback
+      double rot_step_deg = 4.7 * heading_reachability_dt_s_;  // GNC baseline fallback (🟡2)
       if (latest_gnc_odd_) {
         rot_step_deg = static_cast<double>(latest_gnc_odd_->cruise_max_yaw_rate_deg_s) *
                        heading_reachability_dt_s_;
@@ -1355,13 +1365,23 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
           static_cast<double>(p.heading_min_deg),
           static_cast<double>(p.heading_max_deg),
           own_hdg_deg, rot_step_deg,
-          directive.min_alteration_deg * M_PI / 180.0);
+          directive.min_alteration_deg * M_PI / 180.0,
+          directive.direction);
       p.heading_box_reachable_from_psi0_deg =
           static_cast<float>(reach.heading_box_reachable_from_psi0_deg);
       p.rot_step_deg = static_cast<float>(rot_step_deg);
       p.min_alt_required_rad =
           static_cast<float>(directive.min_alteration_deg * M_PI / 180.0);
-      p.earliest_min_alt_k = 1.0f;  // M4 hint (M5 derive 用 max(ROT, box), 此值参考)
+      // Codex β review 🟡3: earliest_min_alt_k derived from min_alt/rot_step
+      // (matches M5's k_minalt_rot = ceil(min_alt/rot_step)-1, clamped ≥ 0),
+      // not a hardcoded 1.0. This is an M4 hint; M5 derive still takes
+      // max(ROT, box) so the value is advisory.
+      const double min_alt_rad = directive.min_alteration_deg * M_PI / 180.0;
+      const double rot_step_rad = rot_step_deg * M_PI / 180.0;
+      const int earliest_k = (rot_step_rad > 1.0e-9)
+          ? std::max(0, static_cast<int>(std::ceil(min_alt_rad / rot_step_rad)) - 1)
+          : 0;
+      p.earliest_min_alt_k = static_cast<float>(earliest_k);
       p.reachability_rationale = reach.reachability_rationale;
     }
     // 非 COLREG active: 字段保持 0 sentinel（M5 不 consume）
