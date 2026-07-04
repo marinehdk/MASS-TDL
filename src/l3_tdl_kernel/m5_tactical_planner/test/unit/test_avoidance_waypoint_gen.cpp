@@ -271,10 +271,12 @@ TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorKeepsHighSpeedFlyBySegmentsLong
 }
 
 TEST(AvoidanceWaypointGen, PreflightRejectsHighSpeedFlyBySegmentBelowWheelOverMargin) {
+  // Calibrated 2026-07-05: high_speed_flyby_min_segment_m 360→120. Segment
+  // must be < 120m to trigger flyby_segment_too_short; 100m exercises the gate.
   const mass_l3::m5::WaypointLatLon origin{0.0, 0.0};
   const std::vector<mass_l3::m5::WaypointLatLon> wps = {
       {500.0 / kMetersPerDegLat, 0.0},
-      {800.0 / kMetersPerDegLat, 0.0},
+      {600.0 / kMetersPerDegLat, 0.0},
   };
   const auto result = validate_gnc_avoidance_plan(origin, wps, {7.2, 7.2});
   EXPECT_FALSE(result.feasible);
