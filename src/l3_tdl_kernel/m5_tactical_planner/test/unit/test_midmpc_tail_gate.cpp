@@ -332,3 +332,37 @@ TEST(TailGate, AcceptsActiveApproachBySkippingCpaFloorWhileTargetClosing)
       << "active-approach NLP route must skip the release CPA-floor";
   EXPECT_EQ(result.reason, "accepted");
 }
+
+// v2.1 spec §4.3 B6-r2 — tail-gate CPA release uses cpa_hard_m (unbumped),
+// NOT cpa_safe_m (bumped to 2500 during conflict). Target OPENING with
+// terminal CPA = 2000m, cpa_safe=2500, cpa_hard=1852. Old code (cpa_safe):
+// 2000 >= 2500 -> reject (wrong, safe). New code (cpa_hard): 2000 >= 1852
+// -> accept (correct).
+TEST(TailGateCpaRelease, UsesCpaHardNotBumpedCpaSafe) {
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  // Own terminal at (0,0) heading north (psi=0); target abeam to east at
+  // (0, 2000). Own moves north at 5 m/s, target static → CPA = lateral sep
+  // = 2000m (own opening northward away from the target's CPA point).
+  term.x_m = 0.0; term.y_m = 0.0; term.t_s = 90.0;
+  term.psi_rad = 0.0; term.u_mps = 5.0;
+  sol.trajectory.push_back(term);
+
+  MidMpcInput inp;
+  TargetState tgt{};
+  tgt.x_m = 0.0; tgt.y_m = 2000.0;  // east of own, abeam
+  tgt.sog_mps = 0.0;                 // static
+  tgt.cpa_sigma_m = 0.0;             // sigma=0 -> 3σ margin = 0
+  inp.targets.push_back(tgt);
+  TargetRiskSnapshot risk{};
+  risk.closing_speed_mps = -1.0;  // OPENING (release phase) -> gate applies
+  inp.target_risks.push_back(risk);
+  inp.constraints.cpa_safe_m = 2500.0;  // bumped during conflict
+  inp.constraints.cpa_hard_m = 1852.0;  // unbumped floor
+
+  EXPECT_TRUE(tail_gate_cpa_release_clear(sol, inp));
+  // Sanity: with cpa_hard=2500 (matching old bumped value), this is FALSE.
+  inp.constraints.cpa_hard_m = 2500.0;
+  EXPECT_FALSE(tail_gate_cpa_release_clear(sol, inp));
+}

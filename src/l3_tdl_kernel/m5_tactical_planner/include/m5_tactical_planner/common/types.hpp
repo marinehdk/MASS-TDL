@@ -782,7 +782,10 @@ inline bool tail_gate_cpa_release_clear(const MidMpcSolution& solution,
   }
   const double sigma_m = std::max(target->cpa_sigma_m, 0.0);
   const double terminal_cpa_m = trajectory_terminal_state_cpa_m(solution, *target);
-  return (terminal_cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_safe_m;
+  // v2.1 §4.3 B6-r2: release check uses cpa_hard_m (unbumped), not cpa_safe_m
+  // (bumped to 2500 during conflict — that's the J_colreg soft barrier radius,
+  // not a hard floor). Using bumped value made the release floor unreachable.
+  return (terminal_cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_hard_m;
 }
 
 inline bool tail_gate_turns_are_feasible(
