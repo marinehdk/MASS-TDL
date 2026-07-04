@@ -412,11 +412,26 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
 
   // ROT differential: |psi[k+1] - psi[k]| <= rot_max*dt for k ∈ [0, N-2].
   // Two smooth linear rows per step (hi/lo) — see class rationale above.
-  const casadi::MX dpsi = psi_(casadi::Slice(1, N)) - psi_(casadi::Slice(0, N - 1));
+  // Fix E (Codex+ZCode review 2026-07-03, task-mr4ki83s): the inter-step ROT
+  // rows alone leave psi[0] free in the heading box, so the NLP can legally
+  // pick psi[0] anywhere in [heading_min, heading_max] regardless of own_psi.
+  // When M4's corridor jumps (e.g. onset → [60°,90°] while own_psi≈0°), the
+  // NLP picks psi[0] inside the box but the own_psi→psi[0] step violates the
+  // physical ROT limit → tail_gate_turns_are_feasible rejects every converged
+  // NLP (70 turn_radius_infeasible in rule14-ho). Same gap family as Fix D-2
+  // (speed_rate k=0 uses own_u). Add the missing own_psi→psi[0] step as the
+  // FIRST hi/lo row so rot_end_ = 2N. own_psi is signed-normalized at the node
+  // (Fix C-2b) so no wrap handling is needed inside the smooth NLP graph.
   const casadi::MX rot_step = slot(p_, kIdxRotMax) * casadi::DM(cfg_.dt_s);
+  const casadi::MX dpsi = psi_(casadi::Slice(1, N)) - psi_(casadi::Slice(0, N - 1));
   const casadi::MX rot_step_rep = casadi::MX::repmat(rot_step, N - 1, 1);
-  const casadi::MX g_rot_hi = rot_step_rep - dpsi;
-  const casadi::MX g_rot_lo = rot_step_rep + dpsi;
+  // First step own_psi→psi[0], then N-1 inter-step rows.
+  const casadi::MX psi0 = psi_(casadi::Slice(0, 1));
+  const casadi::MX own_psi_par = slot(p_, kIdxOwnPsi);
+  const casadi::MX g_rot_hi_first = rot_step - (psi0 - own_psi_par);
+  const casadi::MX g_rot_lo_first = rot_step + (psi0 - own_psi_par);
+  const casadi::MX g_rot_hi = casadi::MX::vertcat({g_rot_hi_first, rot_step_rep - dpsi});
+  const casadi::MX g_rot_lo = casadi::MX::vertcat({g_rot_lo_first, rot_step_rep + dpsi});
 
   // Fix D-2 (Codex review 2026-07-03, session 019f266b): speed-rate (decel)
   // hard constraint. Without this the NLP freely selects u[0] anywhere in the

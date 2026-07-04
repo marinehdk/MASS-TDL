@@ -93,7 +93,7 @@ class RowRegistry {
               int32_t n_zone_rows) noexcept
       : N_(N),
         n_targets_(n_targets),
-        rot_end_(2 * (N - 1)),
+        rot_end_(2 * N),                        // Fix E: 2N rows (own_psi→psi[0] + N-1 inter-step)
         speed_rate_end_(rot_end_ + N),          // Fix D-2: N decel-rate rows
         prefix_psi_end_(speed_rate_end_ + N),
         prefix_u_end_(prefix_psi_end_ + N),
@@ -112,7 +112,8 @@ class RowRegistry {
   }
 
   // ── Per-row accessors ───────────────────────────────────────────────────
-  // ROT: 2 smooth linear rows per step (hi/lo), k ∈ [0, N-2).
+  // ROT: 2N smooth linear rows. Fix E layout: rows [0,2) own_psi→psi[0] (hi/lo),
+  // rows [2, 2N) inter-step |psi[k+1]-psi[k]| ≤ rot_max·dt for k ∈ [0, N-2).
   [[nodiscard]] int32_t rot_row_start() const noexcept { return 0; }
   [[nodiscard]] int32_t rot_row_end() const noexcept { return rot_end_; }
 

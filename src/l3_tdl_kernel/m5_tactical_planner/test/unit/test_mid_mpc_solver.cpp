@@ -310,10 +310,20 @@ TEST_F(MidMpcNlpTest, WarmStartSuffixUsesColdStartSeedWhenKZero) {
 // (~2°) and wide (~100°) windows, so both are covered, cold + warm-outside.
 // ---------------------------------------------------------------------------
 TEST_F(MidMpcNlpTest, BearingOutsideWindow_OptimumPinnedToEdge_Converges) {
+  // Fix E: NLP now constrains |psi[0]-own_psi| ≤ rot_max·dt, so the heading
+  // window must be ROT-reachable from own_psi. Default rot_max=0.2094 rad/s,
+  // dt=5 → rot_step=1.047 rad (60°). With own_psi=5° the first-step reachable
+  // band is [-55°,65°]; window lower edge 65° is just reachable (pinned edge).
   struct Win { double lo_deg; double hi_deg; };
   const Win wins[] = {{65.0, 69.0}, {65.0, 165.0}};
   for (const Win& w : wins) {
     MidMpcInput input = make_head_on_input();  // bearing 0 (north) + head-on target
+    // Fix E: own_psi must be ROT-reachable to the window edge. Place own_psi
+    // 58° below the window lower edge (rot_step=60° at default rot_max, dt=5)
+    // so the window edge is feasible with ~2° margin (avoids floating-point
+    // boundary at exactly rot_step).
+    input.own_ship.psi_rad = (w.lo_deg - 58.0) * M_PI / 180.0;
+    input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
     input.constraints.heading_min_rad = w.lo_deg * M_PI / 180.0;
     input.constraints.heading_max_rad = w.hi_deg * M_PI / 180.0;
 
@@ -548,4 +558,42 @@ TEST_F(ColregRuleFixture, Rule17_StandOn_ConvergesAndHoldsCourse) {
       << "Rule17 stand-on input must be NLP-feasible (no give-way gate)";
   // No deflection assertion: without Rule17 compiled, the NLP may find the
   // anti-parallel cost minimum. Live system enforces stand-on via Rule17 rows.
+}
+
+// Fix E (Codex+ZCode review 2026-07-03, task-mr4ki83s): the NLP ROT rows now
+// include the own_psi→psi[0] first step (rot_end_ = 2N, not 2(N-1)). When the
+// M4 heading box is not ROT-reachable from own_psi (box_lo > own_psi+rot_step),
+// the NLP must be infeasible rather than silently picking a psi[0] that the
+// physical vessel cannot reach (which the tail-gate would then reject as
+// turn_radius_infeasible). This regression guards the Fix E row.
+TEST_F(MidMpcNlpTest, FixE_FirstStepRot_UnreachableHeadingBox_IsInfeasible) {
+  MidMpcInput input = make_base_input();
+  input.own_ship.psi_rad = 0.0;                  // own heading 0°
+  input.constraints.own_ship_psi_rad = 0.0;
+  // Default rot_max_rad_s=0.2094, dt=5 → rot_step=1.047 rad (60°). Box lower
+  // edge 90° is 30° beyond the first-step reachable upper bound 60°.
+  input.constraints.heading_min_rad = M_PI / 2.0;   // 90°
+  input.constraints.heading_max_rad = 2.0;          // ~114°
+  const auto sol = solver_->solve(input, nullptr);
+  EXPECT_NE(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Fix E: heading box outside own_psi+rot_step reach must NOT converge";
+}
+
+// Fix E positive case: heading box just within reach converges and psi[0]
+// respects the own_psi→psi[0] ROT bound (verifies the row is active, not just
+// a no-op). With own_psi=0, rot_step=60°, box [30°,50°], psi[0] must be ≤60°.
+TEST_F(MidMpcNlpTest, FixE_FirstStepRot_ReachableBox_ConvergesAndPsi0Bounded) {
+  MidMpcInput input = make_base_input();
+  input.own_ship.psi_rad = 0.0;
+  input.constraints.own_ship_psi_rad = 0.0;
+  input.constraints.heading_min_rad = 30.0 * M_PI / 180.0;
+  input.constraints.heading_max_rad = 50.0 * M_PI / 180.0;
+  const auto sol = solver_->solve(input, nullptr);
+  EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged)
+      << "Fix E: reachable box must converge";
+  ASSERT_FALSE(sol.trajectory.empty());
+  const double psi0 = sol.trajectory.front().psi_rad;
+  const double rot_step = 0.2094 * 5.0;  // default rot_max · dt
+  EXPECT_LE(std::fabs(psi0 - 0.0), rot_step + 1.0e-6)
+      << "Fix E: |psi[0]-own_psi| must respect rot_max·dt";
 }

@@ -32,42 +32,44 @@ void ExpectNegInf(double v) { EXPECT_EQ(v, -kInf); }
 
 // ---------------------------------------------------------------------------
 // total_rows: fixed-class spans must be contiguous (no gaps, no overlap).
-// Layout: [ROT 2(N-1)][prefix_psi_eq N][prefix_u_eq N][CPA n_targets*N]
+// Layout: [ROT 2N (Fix E: own_psi→psi[0] + N-1 inter-step)][speed_rate N]
+//         [prefix_psi_eq N][prefix_u_eq N][CPA n_targets*N]
 //         [direction N][min_alt N][terminal 3]  (rule/zone appended after)
 // ---------------------------------------------------------------------------
 TEST(RowRegistry, totalRowsIsSumOfClassSpans) {
   const RowRegistry reg(/*N=*/18, /*n_targets=*/2, /*n_rule_rows=*/4,
                         /*n_zone_rows=*/8);
-  // ROT 2*(18-1)=34, speed_rate 18 (Fix D-2), prefix_psi 18, prefix_u 18,
+  // ROT 2*18=36 (Fix E), speed_rate 18 (Fix D-2), prefix_psi 18, prefix_u 18,
   // CPA 2*18=36, dir 18, minalt 18, term 3, rule 4, zone 8
-  EXPECT_EQ(reg.total_rows(), 34 + 18 + 18 + 18 + 36 + 18 + 18 + 3 + 4 + 8);
+  EXPECT_EQ(reg.total_rows(), 36 + 18 + 18 + 18 + 36 + 18 + 18 + 3 + 4 + 8);
 }
 
 TEST(RowRegistry, classRangesAreContiguousAndOrdered) {
   const RowRegistry reg(/*N=*/6, /*n_targets=*/1, /*n_rule_rows=*/0,
                         /*n_zone_rows=*/0);
-  // ROT 2*(6-1)=10 → [0,10), speed_rate [10,16), prefix_psi_eq [16,22),
-  // prefix_u_eq [22,28), CPA 6 → [28,34), direction [34,40), min_alt [40,46),
-  // terminal [46,49), rule/zone [49,49).
+  // ROT 2*6=12 → [0,12) (Fix E: rows 0-1 own_psi→psi[0], 2-11 inter-step),
+  // speed_rate [12,18), prefix_psi_eq [18,24), prefix_u_eq [24,30),
+  // CPA 6 → [30,36), direction [36,42), min_alt [42,48),
+  // terminal [48,51), rule/zone [51,51).
   EXPECT_EQ(reg.rot_row_start(), 0);
-  EXPECT_EQ(reg.rot_row_end(), 10);          // 2*(6-1)
-  EXPECT_EQ(reg.speed_rate_row(0), 10);      // Fix D-2
-  EXPECT_EQ(reg.speed_rate_row(5), 15);
-  EXPECT_EQ(reg.speed_rate_end(), 16);
-  EXPECT_EQ(reg.prefix_psi_eq_row(0), 16);
-  EXPECT_EQ(reg.prefix_psi_eq_row(5), 21);
-  EXPECT_EQ(reg.prefix_u_eq_row(0), 22);
-  EXPECT_EQ(reg.prefix_u_eq_row(5), 27);
-  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/0), 28);
-  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/5), 33);
-  EXPECT_EQ(reg.direction_row(0), 34);
-  EXPECT_EQ(reg.direction_row(5), 39);
-  EXPECT_EQ(reg.min_alt_row(0), 40);
-  EXPECT_EQ(reg.min_alt_row(5), 45);
-  EXPECT_EQ(reg.terminal_row(0), 46);
-  EXPECT_EQ(reg.terminal_row(2), 48);
-  EXPECT_EQ(reg.rule_row_start(), 49);
-  EXPECT_EQ(reg.zone_row_start(), 49);  // 0 rule rows
+  EXPECT_EQ(reg.rot_row_end(), 12);          // 2*6 (Fix E)
+  EXPECT_EQ(reg.speed_rate_row(0), 12);      // Fix D-2
+  EXPECT_EQ(reg.speed_rate_row(5), 17);
+  EXPECT_EQ(reg.speed_rate_end(), 18);
+  EXPECT_EQ(reg.prefix_psi_eq_row(0), 18);
+  EXPECT_EQ(reg.prefix_psi_eq_row(5), 23);
+  EXPECT_EQ(reg.prefix_u_eq_row(0), 24);
+  EXPECT_EQ(reg.prefix_u_eq_row(5), 29);
+  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/0), 30);
+  EXPECT_EQ(reg.cpa_row(/*t=*/0, /*k=*/5), 35);
+  EXPECT_EQ(reg.direction_row(0), 36);
+  EXPECT_EQ(reg.direction_row(5), 41);
+  EXPECT_EQ(reg.min_alt_row(0), 42);
+  EXPECT_EQ(reg.min_alt_row(5), 47);
+  EXPECT_EQ(reg.terminal_row(0), 48);
+  EXPECT_EQ(reg.terminal_row(2), 50);
+  EXPECT_EQ(reg.rule_row_start(), 51);
+  EXPECT_EQ(reg.zone_row_start(), 51);  // 0 rule rows
 }
 
 // ---------------------------------------------------------------------------
