@@ -201,9 +201,12 @@ MidMpcWaypointGenerator::sample_waypoints_(
   result.reserve(static_cast<std::size_t>(num_wp));
   // Phase 2: wps[0] = anchor (own ship origin).
   result.push_back(ned_to_geopoint_(own_ship_lat, own_ship_lon, 0.0, 0.0));
-  // Phase 3: wps[1..num_wp-1] sampled uniformly across [start_idx, last_ned_idx].
-  const int32_t maneuver_wp = num_wp - 1;
+  // Phase 3: wps[1..maneuver_wp] sampled uniformly across [start_idx, last_ned_idx].
+  // Cap maneuver_wp to span+1 so each k maps to a distinct ned_pos index
+  // (prevents segment_too_short from int-truncation when num_wp > span+1,
+  // e.g. short horizon with wheel-over prefix).
   const int32_t span = last_ned_idx - start_idx;
+  const int32_t maneuver_wp = std::min(num_wp - 1, span + 1);
   for (int32_t k = 0; k < maneuver_wp; ++k) {
     const int32_t idx = (maneuver_wp <= 1)
         ? start_idx
@@ -243,8 +246,10 @@ std::vector<l3_msgs::msg::AvoidanceWaypoint> MidMpcWaypointGenerator::build_wayp
       break;
     }
   }
-  const int32_t maneuver_wp = num_wp - 1;
+  // Phase 3: cap maneuver_wp to span+1 (must match sample_waypoints_ cap so
+  // geopoints.size() aligns with maneuver indexing).
   const int32_t span = last_ned_idx - start_idx;
+  const int32_t maneuver_wp = std::min(num_wp - 1, span + 1);
 
   std::vector<l3_msgs::msg::AvoidanceWaypoint> waypoints;
   waypoints.reserve(static_cast<std::size_t>(num_wp));

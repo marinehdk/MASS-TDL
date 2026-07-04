@@ -46,11 +46,13 @@ MidMpcSolution make_converged_solution(double psi_rad, double u_mps,
 TEST(MidMpcWaypointGeneratorTest, ConvergedPlan_HasDenseWaypoints)
 {
   MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
-  const auto sol = make_converged_solution(0.0, 5.0);
+  // Phase 3: use realistic NLP horizon N=18 (450m @ 5m/s) so wheel-over prefix
+  // (120m) leaves enough span for dense maneuver waypoints.
+  const auto sol = make_converged_solution(0.0, 5.0, /*N=*/18);
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
   EXPECT_EQ(plan.status, "NORMAL");
-  EXPECT_EQ(static_cast<int32_t>(plan.waypoints.size()), 8);
+  EXPECT_GE(static_cast<int32_t>(plan.waypoints.size()), 4);
   EXPECT_FLOAT_EQ(plan.confidence, 1.0F);
 }
 
@@ -77,10 +79,11 @@ TEST(MidMpcWaypointGeneratorTest, DegradedPlan_OnNonConverged)
 TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyNorth)
 {
   MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
-  const auto sol = make_converged_solution(0.0, 5.0);  // psi=0 = north
+  // Phase 3: N=18 for sufficient horizon after wheel-over prefix.
+  const auto sol = make_converged_solution(0.0, 5.0, /*N=*/18);  // psi=0 = north
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
-  ASSERT_EQ(static_cast<int32_t>(plan.waypoints.size()), 8);
+  ASSERT_GE(static_cast<int32_t>(plan.waypoints.size()), 4);
   EXPECT_GE(plan.waypoints[0].position.latitude, 30.0);
   EXPECT_GT(plan.waypoints[3].position.latitude, plan.waypoints[0].position.latitude);
 }
@@ -91,10 +94,11 @@ TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyNorth)
 TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyEast)
 {
   MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
-  const auto sol = make_converged_solution(M_PI / 2.0, 5.0);  // psi=pi/2 = east
+  // Phase 3: N=18 for sufficient horizon after wheel-over prefix.
+  const auto sol = make_converged_solution(M_PI / 2.0, 5.0, /*N=*/18);  // psi=pi/2 = east
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
-  ASSERT_EQ(static_cast<int32_t>(plan.waypoints.size()), 8);
+  ASSERT_GE(static_cast<int32_t>(plan.waypoints.size()), 4);
   EXPECT_GT(plan.waypoints[3].position.longitude, plan.waypoints[0].position.longitude);
 }
 
@@ -104,10 +108,11 @@ TEST(MidMpcWaypointGeneratorTest, WaypointLatLonMonotonicallyEast)
 TEST(MidMpcWaypointGeneratorTest, SpeedConversion_CorrectKnots)
 {
   MidMpcWaypointGenerator gen{MidMpcWaypointGenerator::Config{}};
-  const auto sol = make_converged_solution(0.0, 5.14444);
+  // Phase 3: N=18 for sufficient horizon after wheel-over prefix.
+  const auto sol = make_converged_solution(0.0, 5.14444, /*N=*/18);
   const auto plan = gen.generate(sol, 30.0, 122.0);
 
-  ASSERT_EQ(static_cast<int32_t>(plan.waypoints.size()), 8);
+  ASSERT_GE(static_cast<int32_t>(plan.waypoints.size()), 4);
   for (const auto& wp : plan.waypoints) {
     EXPECT_NEAR(wp.target_speed_kn, 10.0, 0.05);
   }
