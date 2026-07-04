@@ -39,6 +39,7 @@ services:
       - SIL_L4_ADAPTER_ENABLE=1       # L4 adapter owns /sil/actuator_cmd; set 0 for legacy bridge actuator
       - SIL_BRIDGE_RELEASE_FALLBACK=0 # Legacy bridge latch release; keep off for module-owned handback
       - TDL_INTEGRATION_PROFILE=${TDL_INTEGRATION_PROFILE:-default}
+      - M5_DIRECTION_DIAG=${M5_DIRECTION_DIAG:-0}  # v2.1 §4.4 implementation-only direction diag (Task 10 probe; remove before merge)
     network_mode: host
 
   foxglove-bridge:

@@ -635,8 +635,8 @@ active_route_manager_node:
     min_turn_radius_m: 80.0
     emergency_min_turn_radius_m: 45.0
     max_lateral_accel_mps2: 0.25
-    max_yaw_rate_deg_s: 1.2
-    emergency_max_yaw_rate_deg_s: 2.0
+    max_yaw_rate_deg_s: 4.7              # v2.1: synced with ship_config.yaml (IMO MSC.137(76) derived 🟡 [TBD-HAZID-2026-08-19])
+    emergency_max_yaw_rate_deg_s: 4.7    # v2.1 B3: GNC clamps max(cruise,emergency); keep equal
     max_decel_mps2: 0.08
     default_avoidance_hold_s: 60.0
     publish_nominal_status: false
