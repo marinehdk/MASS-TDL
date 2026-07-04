@@ -199,6 +199,7 @@ class RowRegistry {
     apply_prefix_equality_(cfg_eff, b);
     if (cfg_eff.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg_eff, b); }
     if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
+    else { apply_minalt_reachable_schedule_(cfg_eff, b); }  // v2.1 §4.2
     if (cfg_eff.terminal_disabled) { apply_terminal_disable_(b); }
     return b;
   }
@@ -256,6 +257,20 @@ class RowRegistry {
       const std::size_t rm = static_cast<std::size_t>(min_alt_row(k));
       b.lbg[rd] = -kInf; b.ubg[rd] = kInf;
       b.lbg[rm] = -kInf; b.ubg[rm] = kInf;
+    }
+  }
+
+  // v2.1 spec §4.2: min_alt reachable schedule. Only called when
+  // direction_disabled=false (lateral give-way). When direction_disabled=true,
+  // apply_direction_disable_ already double-disables ALL min_alt rows (B9).
+  void apply_minalt_reachable_schedule_(const RowBoundConfig& cfg,
+                                        BoundArray& b) const {
+    for (int32_t k = 0; k < N_; ++k) {
+      if (k < cfg.minalt_hard_from_k) {
+        const std::size_t rm = static_cast<std::size_t>(min_alt_row(k));
+        b.lbg[rm] = -kInf;
+        b.ubg[rm] =  kInf;
+      }
     }
   }
 

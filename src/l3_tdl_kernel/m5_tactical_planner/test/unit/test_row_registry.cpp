@@ -328,3 +328,41 @@ TEST(RowRegistry, V21FieldsHaveCorrectDefaults) {
   EXPECT_FALSE(cfg.cpa_override_valid);
   EXPECT_FALSE(cfg.terminal_nlp_soft);  // Task 1: false; Task 7 flips to true
 }
+
+// v2.1 spec §4.2 — min_alt reachable schedule. k<deadline soft, k>=deadline hard.
+TEST(RowRegistry, MinaltReachableScheduleSoftensBeforeDeadline) {
+  RowRegistry reg;
+  reg.reset(/*N=*/18, /*n_targets=*/1, /*n_rule=*/0, /*n_zone=*/0);
+  RowBoundConfig cfg;
+  cfg.K = 0;
+  cfg.direction_disabled = false;
+  cfg.minalt_hard_from_k = 2;  // k<2 soft, k>=2 hard
+  cfg.minalt_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t k = 0; k < 18; ++k) {
+    const std::size_t r = static_cast<std::size_t>(reg.min_alt_row(k));
+    if (k < 2) {
+      EXPECT_EQ(b.lbg[r], -std::numeric_limits<double>::infinity()) << "k=" << k;
+      EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "k=" << k;
+    } else {
+      EXPECT_EQ(b.lbg[r], 0.0) << "k=" << k;
+      EXPECT_EQ(b.ubg[r], std::numeric_limits<double>::infinity()) << "k=" << k;
+    }
+  }
+}
+
+// direction_disabled wins over minalt schedule (B9): ALL minalt rows disabled.
+TEST(RowRegistry, MinaltScheduleIgnoredWhenDirectionDisabled) {
+  RowRegistry reg;
+  reg.reset(18, 1, 0, 0);
+  RowBoundConfig cfg;
+  cfg.direction_disabled = true;       // stand-on / HOLD / ReduceSpeed
+  cfg.minalt_hard_from_k = 5;          // would soften k<5, but ignored
+  cfg.minalt_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t k = 0; k < 18; ++k) {
+    const std::size_t r = static_cast<std::size_t>(reg.min_alt_row(k));
+    EXPECT_EQ(b.lbg[r], -std::numeric_limits<double>::infinity()) << "k=" << k;
+    EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "k=" << k;
+  }
+}
