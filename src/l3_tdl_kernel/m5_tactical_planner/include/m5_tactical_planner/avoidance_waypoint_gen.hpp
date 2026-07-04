@@ -178,7 +178,11 @@ inline std::vector<WaypointLatLon> generate_stable_avoidance_corridor_waypoints(
   const double taper_start_m = std::max(0.0, rejoin_taper_start_m);
   const double taper_end_m = std::max(taper_start_m + 1.0, rejoin_taper_end_m);
 
+  // Phase 2 anchor contract (spec §3.2): kDistancesM[0]=0.0 → wps[0]=anchor
+  // (own ship position at plan generation). Preflight skips wps[0] via
+  // has_anchor=true. Old first maneuver at 150m becomes wps[1].
   static const std::vector<double> kDistancesM = {
+      0.0,  // anchor
       150.0, 300.0, 600.0, 1000.0, 1500.0, 2200.0, 3200.0, 4500.0,
       6000.0, 7500.0, 9000.0};
 
@@ -284,7 +288,10 @@ inline std::vector<WaypointLatLon> generate_rule13_overtake_corridor_waypoints(
 
   const double taper_start_m = std::max(0.0, rejoin_taper_start_m);
   const double taper_end_m = std::max(taper_start_m + 1.0, rejoin_taper_end_m);
+  // Phase 2 anchor contract (spec §3.2): kDistancesM[0]=0.0 → wps[0]=anchor.
+  // Preflight skips wps[0] via has_anchor=true.
   static const std::vector<double> kDistancesM = {
+      0.0,  // anchor
       600.0, 1200.0, 2000.0, 3000.0, 4200.0, 5600.0, 7000.0,
       8400.0, 10000.0, 12000.0};
 
