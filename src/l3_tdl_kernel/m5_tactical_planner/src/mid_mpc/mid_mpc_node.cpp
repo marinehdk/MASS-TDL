@@ -1527,7 +1527,8 @@ void MidMpcNode::publish_committed_route_(
           "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",
           plan.plan_id.c_str());
     }
-    const auto preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg});
+    // Phase 2: plan.waypoints[0] is anchor (MidMpcWaypointGenerator).
+    const auto preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/true);
     if (!preflight.feasible) {
       RCLCPP_WARN(
           get_logger(),
@@ -1659,8 +1660,10 @@ void MidMpcNode::publish_committed_route_(
           target_tracks.size(), corridor_max_east);
     }
     const std::vector<double> speeds(wps.size(), anchor.command_speed_mps);
+    // Phase 2: corridor wps[0] is now anchor (kDistancesM[0]=0.0).
     const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
-        {anchor.lat_deg, anchor.lon_deg}, wps, speeds);
+        {anchor.lat_deg, anchor.lon_deg}, wps, speeds,
+        mass_l3::m5::GncAvoidancePreflightConfig{}, /*wps_has_anchor=*/true);
     if (!preflight.feasible) {
       RCLCPP_WARN(
           get_logger(),
@@ -1758,6 +1761,8 @@ void MidMpcNode::publish_committed_route_(
     plan.has_return_to_route_point = true;
     const auto& wps = return_route_anchor_->waypoints;
     const std::vector<double> speeds(wps.size(), return_route_anchor_->command_speed_mps);
+    // Phase 2 exception: return path WP[0] is a real 500m maneuver target
+    // (generate_return_to_route_waypoints), NOT an anchor. Keep has_anchor=false.
     const auto preflight = mass_l3::m5::validate_gnc_avoidance_plan(
         {lat0_deg, lon0_deg}, wps, speeds);
     if (!preflight.feasible) {
@@ -1824,7 +1829,8 @@ void MidMpcNode::publish_committed_route_(
           "[M5][GNCPreflight] reject L2 nominal suffix for plan_id=%s; publishing preflighted base route without suffix",
           plan.plan_id.c_str());
     }
-    const auto full_preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg});
+    // Phase 2: plan.waypoints[0] is anchor.
+    const auto full_preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/true);
     if (!full_preflight.feasible) {
       RCLCPP_WARN(
           get_logger(),
