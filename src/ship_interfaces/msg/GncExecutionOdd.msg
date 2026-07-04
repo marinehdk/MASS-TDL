@@ -21,6 +21,7 @@ float64 max_transit_speed_mps                 # upper target speed (3.0)
 float64 max_lateral_accel_mps2                # lateral acceleration cap (0.25)
 float64 max_decel_mps2                        # deceleration cap (0.08)
 float64 emergency_min_turn_radius_m           # geometric minimum turn radius in emergency mode (45)
+float64 cruise_max_yaw_rate_deg_s             # yaw rate cap in cruise/transit mode (1.2) — planning ROT baseline
 float64 emergency_max_yaw_rate_deg_s          # yaw rate cap in emergency mode (2.0)
 
-string schema_version   # "1.0"
+string schema_version   # "1.1"

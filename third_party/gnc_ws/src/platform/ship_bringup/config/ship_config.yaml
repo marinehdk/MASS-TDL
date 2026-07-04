@@ -635,7 +635,7 @@ active_route_manager_node:
     min_turn_radius_m: 80.0
     emergency_min_turn_radius_m: 45.0
     max_lateral_accel_mps2: 0.25
-    max_yaw_rate_deg_s: 1.2
+    max_yaw_rate_deg_s: 1.2              # cruise/transit yaw cap (planning ROT baseline, published as cruise_max_yaw_rate_deg_s)
     emergency_max_yaw_rate_deg_s: 2.0
     max_decel_mps2: 0.08
     default_avoidance_hold_s: 60.0

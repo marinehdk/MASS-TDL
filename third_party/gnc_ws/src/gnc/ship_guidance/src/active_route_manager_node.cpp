@@ -175,8 +175,9 @@ private:
         odd.max_lateral_accel_mps2 = max_lateral_accel_mps2_;
         odd.max_decel_mps2 = max_decel_mps2_;
         odd.emergency_min_turn_radius_m = emergency_min_turn_radius_m_;
+        odd.cruise_max_yaw_rate_deg_s = max_yaw_rate_deg_s_;
         odd.emergency_max_yaw_rate_deg_s = emergency_max_yaw_rate_deg_s_;
-        odd.schema_version = "1.0";
+        odd.schema_version = "1.1";
         execution_odd_pub_->publish(odd);
     }
     void ship_state_callback(const ship_interfaces::msg::GeoPosition::SharedPtr msg)

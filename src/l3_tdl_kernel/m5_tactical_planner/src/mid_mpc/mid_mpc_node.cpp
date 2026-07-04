@@ -724,8 +724,20 @@ MidMpcInput MidMpcNode::assemble_input_()
       ? speed_profile_->target_speeds_kn[0] * units::kMsPerKn
       : kDefaultPlannedSpeed_mps;
 
+  // Fix F/G (plan↔exec ROT alignment, 2026-07-03): the NLP ROT constraint must
+  // respect the GNC execution yaw cap, not the vessel's physical ROT limit.
+  // The vessel model (rot_max_at_18kn ≈ 12°/s) is the physical capability; GNC
+  // active_route_manager enforces cruise_max_yaw_rate (1.2°/s) at execution. A
+  // plan that turns at 12°/s is unexecutable — GNC rate-limits it to 1.2°/s,
+  // the ship cannot follow the planned heading profile, and CPA penetrates.
+  // Architecture §L4: GNC owns final (psi,u,ROT) generation; M5 plans within
+  // the execution envelope. The cruise cap is the planning baseline (emergency
+  // is the TailBuilder fallback floor, see gnc_odd.max_yaw_rate_rad_s).
   const double hs_m = 0.0;  // [TBD-HAZID] sea state from EnvironmentState
-  inp.rot_max_rad_s = vessel_model_.rot_max_rad_s(inp.own_ship.u_mps, hs_m);
+  (void)hs_m;  // vessel_model_.rot_max_rad_s no longer drives NLP ROT (kept for future HAZID)
+  const double cruise_yaw_rad_s =
+      effective_gnc_odd_().cruise_max_yaw_rate_deg_s * M_PI / 180.0;
+  inp.rot_max_rad_s = std::max(cruise_yaw_rad_s, 1.0e-3);
   inp.decel_max_mps2 = std::max(effective_gnc_odd_().max_decel_mps2, 1.0e-6);
 
   // Slice C1 (spec §6): continuity H_commit prefix. Reproject the committed-route
@@ -1759,6 +1771,7 @@ ship_interfaces::msg::GncExecutionOdd MidMpcNode::effective_gnc_odd_() const {
   fallback.max_lateral_accel_mps2 = 0.25;
   fallback.max_decel_mps2 = 0.08;
   fallback.emergency_min_turn_radius_m = 45.0;
+  fallback.cruise_max_yaw_rate_deg_s = 1.2;
   fallback.emergency_max_yaw_rate_deg_s = 2.0;
   return fallback;
 }
