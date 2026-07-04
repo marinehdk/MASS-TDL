@@ -194,7 +194,9 @@ TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorPassesGncPreflightAtPlannedSpee
       49.0, 79.0, origin.lat, origin.lon, 0.0,
       ColregsPreferredDirection::Starboard, 7500.0, 12000.0);
   const std::vector<double> speeds(wps.size(), speed);
-  const auto result = validate_gnc_avoidance_plan(origin, wps, speeds);
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, speeds, mass_l3::m5::GncAvoidancePreflightConfig{},
+      /*wps_has_anchor=*/true);
   EXPECT_TRUE(result.feasible) << result.reason
       << " required=" << result.required_m
       << " available=" << result.available_m;
@@ -226,12 +228,14 @@ TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorEncodesInitialApparentActionFor
   const auto wps = generate_rule13_overtake_corridor_waypoints(
       49.0, 79.0, origin.lat, origin.lon, 0.0,
       ColregsPreferredDirection::Starboard, 7500.0, 12000.0);
+  // Phase 2: wps[0]=anchor (own ship). The 600m first maneuver is wps[1]; the
+  // peak-offset point (3000m along, lateral=270) is wps[4].
   ASSERT_GE(wps.size(), 10u);
-  EXPECT_NEAR(route_lateral_offset_m(origin, wps.front(), 0.0), 60.0, 0.5);
-  EXPECT_GT(route_relative_path_angle_deg(origin, wps.front(), 0.0), 5.0);
-  EXPECT_LT(route_relative_path_angle_deg(origin, wps.front(), 0.0), 6.0);
+  EXPECT_NEAR(route_lateral_offset_m(origin, wps[1], 0.0), 60.0, 0.5);
+  EXPECT_GT(route_relative_path_angle_deg(origin, wps[1], 0.0), 5.0);
   EXPECT_LT(route_relative_path_angle_deg(origin, wps[1], 0.0), 6.0);
-  EXPECT_NEAR(route_lateral_offset_m(origin, wps[3], 0.0),
+  EXPECT_LT(route_relative_path_angle_deg(origin, wps[2], 0.0), 6.0);
+  EXPECT_NEAR(route_lateral_offset_m(origin, wps[4], 0.0),
               kRule13OvertakeCorridorPeakOffsetM, 0.5);
   EXPECT_LT(route_lateral_offset_m(origin, wps.back(), 0.0),
             kRule13OvertakeCorridorPeakOffsetM);
@@ -244,8 +248,10 @@ TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorAvoidsInitialRawRouteRejoin) {
       ColregsPreferredDirection::Starboard, 7500.0, 12000.0);
   ASSERT_GE(wps.size(), 2u);
   mass_l3::m5::GncAvoidancePreflightConfig cfg{};
+  // Phase 2: wps[0]=anchor. The first maneuver segment is wps[1] -> wps[2].
+  ASSERT_GE(wps.size(), 3u);
   const double initial_raw_xte =
-      mass_l3::m5::gnc_cross_track_to_segment_m(origin, wps[0], wps[1], origin.lat);
+      mass_l3::m5::gnc_cross_track_to_segment_m(origin, wps[1], wps[2], origin.lat);
   EXPECT_LE(initial_raw_xte, cfg.raw_route_rejoin_threshold_m);
 }
 
@@ -257,14 +263,18 @@ TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorKeepsHighSpeedFlyBySegmentsLong
       ColregsPreferredDirection::Starboard, 7500.0, 12000.0);
   ASSERT_GT(wps.size(), 2u);
   mass_l3::m5::GncAvoidancePreflightConfig cfg{};
-  EXPECT_GE(distance_m(origin, wps.front(), origin.lat),
+  // Phase 2: wps[0]=anchor (0m from origin). The first maneuver is wps[1]
+  // (600m); assert against that. The anchor->wps[1] leg (600m) trivially
+  // clears the fly-by floor, so start the segment loop at the first maneuver.
+  EXPECT_GE(distance_m(origin, wps[1], origin.lat),
             cfg.high_speed_flyby_min_segment_m);
-  for (std::size_t i = 0; i + 1 < wps.size(); ++i) {
+  for (std::size_t i = 1; i + 1 < wps.size(); ++i) {
     EXPECT_GE(distance_m(wps[i], wps[i + 1], origin.lat),
               cfg.high_speed_flyby_min_segment_m) << "segment " << i;
   }
   const std::vector<double> speeds(wps.size(), speed);
-  const auto result = validate_gnc_avoidance_plan(origin, wps, speeds, cfg);
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, speeds, cfg, /*wps_has_anchor=*/true);
   EXPECT_TRUE(result.feasible) << result.reason
       << " required=" << result.required_m
       << " available=" << result.available_m;
@@ -342,7 +352,9 @@ TEST(AvoidanceWaypointGen, StableCorridorPassesGncPreflight) {
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       45.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
   const std::vector<double> speeds(wps.size(), speed);
-  const auto result = validate_gnc_avoidance_plan(origin, wps, speeds);
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, speeds, mass_l3::m5::GncAvoidancePreflightConfig{},
+      /*wps_has_anchor=*/true);
   EXPECT_TRUE(result.feasible) << result.reason;
 }
 
@@ -375,7 +387,10 @@ TEST(AvoidanceWaypointGen, StableCorridorKeepsStarboardLateralIntent) {
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       45.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
   ASSERT_FALSE(wps.empty());
-  EXPECT_GT(route_lateral_offset_m(origin, wps.front(), route_bearing_rad), 0.0);
+  // Phase 2: wps[0]=anchor (lateral=0). Assert starboard intent on the first
+  // real maneuver waypoint (wps[1], 150m out with lateral offset > 0).
+  ASSERT_GE(wps.size(), 2u);
+  EXPECT_GT(route_lateral_offset_m(origin, wps[1], route_bearing_rad), 0.0);
   std::vector<double> lateral_offsets;
   lateral_offsets.reserve(wps.size());
   for (const auto& wp : wps) {
@@ -405,7 +420,10 @@ TEST(AvoidanceWaypointGen, StableCorridorHonorsStarboardIntentWhenHeadingWindowN
     lateral_offsets.push_back(route_lateral_offset_m(origin, wp, route_bearing_rad));
   }
   const auto peak = *std::max_element(lateral_offsets.begin(), lateral_offsets.end());
-  EXPECT_GT(lateral_offsets.front(), 0.0);
+  // Phase 2: wps[0]=anchor (lateral=0). Assert starboard intent on first
+  // maneuver waypoint (index 1).
+  ASSERT_GE(lateral_offsets.size(), 2u);
+  EXPECT_GT(lateral_offsets[1], 0.0);
   EXPECT_NEAR(peak, 2.0 * kGncEmergencyWaypointSwitchGateM, 0.6);
 }
 
@@ -422,7 +440,10 @@ TEST(AvoidanceWaypointGen, StableCorridorHonorsPortIntentWhenHeadingWindowNearRo
     lateral_offsets.push_back(route_lateral_offset_m(origin, wp, route_bearing_rad));
   }
   const auto peak = *std::min_element(lateral_offsets.begin(), lateral_offsets.end());
-  EXPECT_LT(lateral_offsets.front(), 0.0);
+  // Phase 2: wps[0]=anchor (lateral=0). Assert port intent on first maneuver
+  // waypoint (index 1).
+  ASSERT_GE(lateral_offsets.size(), 2u);
+  EXPECT_LT(lateral_offsets[1], 0.0);
   EXPECT_NEAR(peak, -2.0 * kGncEmergencyWaypointSwitchGateM, 0.6);
 }
 
@@ -432,9 +453,11 @@ TEST(AvoidanceWaypointGen, StableCorridorKeepsLongitudinalLadderForGncFlyBy) {
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       60.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
   ASSERT_GE(wps.size(), 3u);
-  EXPECT_NEAR(route_along_offset_m(origin, wps[0], route_bearing_rad), 150.0, 0.2);
-  EXPECT_NEAR(route_along_offset_m(origin, wps[1], route_bearing_rad), 300.0, 0.2);
-  EXPECT_NEAR(route_along_offset_m(origin, wps[2], route_bearing_rad), 600.0, 0.2);
+  // Phase 2: wps[0]=anchor (0m along). The 150/300/600m ladder is wps[1..3].
+  ASSERT_GE(wps.size(), 4u);
+  EXPECT_NEAR(route_along_offset_m(origin, wps[1], route_bearing_rad), 150.0, 0.2);
+  EXPECT_NEAR(route_along_offset_m(origin, wps[2], route_bearing_rad), 300.0, 0.2);
+  EXPECT_NEAR(route_along_offset_m(origin, wps[3], route_bearing_rad), 600.0, 0.2);
 }
 
 TEST(AvoidanceWaypointGen, StableCorridorFirstPointClearsGncSwitchGateAndCorridorCap) {
@@ -443,12 +466,14 @@ TEST(AvoidanceWaypointGen, StableCorridorFirstPointClearsGncSwitchGateAndCorrido
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       60.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
   ASSERT_GE(wps.size(), 3u);
-  EXPECT_GT(distance_m(origin, wps.front(), origin.lat), kGncEmergencyWaypointSwitchGateM);
-  EXPECT_LE(
-      std::abs(route_lateral_offset_m(origin, wps[0], route_bearing_rad)),
-      kDefaultStableCorridorPeakOffsetM);
+  // Phase 2: wps[0]=anchor (own ship). The first maneuver is wps[1].
+  ASSERT_GE(wps.size(), 3u);
+  EXPECT_GT(distance_m(origin, wps[1], origin.lat), kGncEmergencyWaypointSwitchGateM);
   EXPECT_LE(
       std::abs(route_lateral_offset_m(origin, wps[1], route_bearing_rad)),
+      kDefaultStableCorridorPeakOffsetM);
+  EXPECT_LE(
+      std::abs(route_lateral_offset_m(origin, wps[2], route_bearing_rad)),
       kDefaultStableCorridorPeakOffsetM);
 }
 
@@ -459,12 +484,17 @@ TEST(AvoidanceWaypointGen, StableCorridorUsesBoundedGncVisibleDogleg) {
       49.0, 79.0, origin.lat, origin.lon, route_bearing_rad,
       ColregsPreferredDirection::Starboard);
   ASSERT_FALSE(wps.empty());
+  // Phase 2: wps[0]=anchor (lateral=0, no dogleg). The dogleg lives on the
+  // first maneuver waypoint wps[1].
+  ASSERT_GE(wps.size(), 2u);
   const double first_leg_deg =
-      route_relative_path_angle_deg(origin, wps.front(), route_bearing_rad);
+      route_relative_path_angle_deg(origin, wps[1], route_bearing_rad);
   EXPECT_GT(first_leg_deg, 15.0);
   EXPECT_LE(first_leg_deg, 20.1);
   const std::vector<double> speeds(wps.size(), gnc_emergency_command_speed_mps(6.0));
-  const auto result = validate_gnc_avoidance_plan(origin, wps, speeds);
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, speeds, mass_l3::m5::GncAvoidancePreflightConfig{},
+      /*wps_has_anchor=*/true);
   EXPECT_TRUE(result.feasible) << result.reason;
 }
 
@@ -473,10 +503,11 @@ TEST(AvoidanceWaypointGen, DefaultStableCorridorHoldsLateralClearanceUntilReleas
   const double route_bearing_rad = 0.0;
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       60.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
-  ASSERT_GE(wps.size(), 10u);
-  EXPECT_GT(route_lateral_offset_m(origin, wps[5], route_bearing_rad),
+  // Phase 2: wps[0]=anchor. All maneuver indices shift +1.
+  ASSERT_GE(wps.size(), 11u);
+  EXPECT_GT(route_lateral_offset_m(origin, wps[6], route_bearing_rad),
             2.0 * kGncEmergencyWaypointSwitchGateM);
-  EXPECT_NEAR(route_lateral_offset_m(origin, wps[8], route_bearing_rad),
+  EXPECT_NEAR(route_lateral_offset_m(origin, wps[9], route_bearing_rad),
               kDefaultStableCorridorPeakOffsetM, 1.0);
   EXPECT_NEAR(route_lateral_offset_m(origin, wps.back(), route_bearing_rad),
               kDefaultStableCorridorPeakOffsetM, 0.2);
@@ -487,17 +518,19 @@ TEST(AvoidanceWaypointGen, StableCorridorApproachesLateralClearanceSmoothly) {
   const double route_bearing_rad = 0.0;
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       60.0, 90.0, origin.lat, origin.lon, route_bearing_rad);
-  ASSERT_GE(wps.size(), 7u);
+  // Phase 2: wps[0]=anchor (lateral=0). Maneuver waypoints are wps[1..];
+  // shift all assertions +1 to track the smooth-approach curve on maneuvers.
+  ASSERT_GE(wps.size(), 8u);
   std::vector<double> lateral_offsets;
   lateral_offsets.reserve(wps.size());
   for (const auto& wp : wps) {
     lateral_offsets.push_back(route_lateral_offset_m(origin, wp, route_bearing_rad));
   }
-  EXPECT_GT(lateral_offsets[0], 0.0);
-  for (std::size_t i = 1; i <= 6; ++i) {
+  EXPECT_GT(lateral_offsets[1], 0.0);
+  for (std::size_t i = 2; i <= 7; ++i) {
     EXPECT_GT(lateral_offsets[i], lateral_offsets[i - 1]) << "index " << i;
   }
-  EXPECT_LT(lateral_offsets[3], kDefaultStableCorridorPeakOffsetM - 50.0);
+  EXPECT_LT(lateral_offsets[4], kDefaultStableCorridorPeakOffsetM - 50.0);
   EXPECT_NEAR(lateral_offsets.back(), kDefaultStableCorridorPeakOffsetM, 0.2);
 }
 
@@ -515,8 +548,11 @@ TEST(AvoidanceWaypointGen, ReversedRouteFrameStillKeepsStarboardCorridorEastward
   const auto wps = generate_stable_avoidance_corridor_waypoints(
       60.0, 90.0, origin.lat, origin.lon, frame.bearing_rad);
   ASSERT_FALSE(wps.empty());
-  EXPECT_GT(route_lateral_offset_m(origin, wps.front(), frame.bearing_rad), 0.0);
-  EXPECT_GT(wps.front().lon, origin.lon);
+  // Phase 2: wps[0]=anchor (== origin). The first maneuver wps[1] carries the
+  // starboard lateral intent.
+  ASSERT_GE(wps.size(), 2u);
+  EXPECT_GT(route_lateral_offset_m(origin, wps[1], frame.bearing_rad), 0.0);
+  EXPECT_GT(wps[1].lon, origin.lon);
 }
 
 TEST(AvoidanceWaypointGen, ReversedRouteFrameKeepsReturnCorrectionInSameFrame) {
@@ -643,4 +679,53 @@ TEST(GenerateTargetSafeCorridor, HonorsCapMax) {
     max_east = std::max(max_east, (w.lon - 10.38) * m_per_deg_lon);
   }
   EXPECT_LT(max_east, 850.0);
+}
+
+// Phase 2 anchor contract: corridor generators emit wps[0]=anchor.
+TEST(AvoidanceWaypointGen, StableCorridorEmitsAnchorFirst) {
+  const mass_l3::m5::WaypointLatLon anchor{63.44, 10.38};
+  const auto wps = generate_stable_avoidance_corridor_waypoints(
+      45.0, 90.0, anchor.lat, anchor.lon, 0.0);
+  ASSERT_GE(wps.size(), 2u);
+  EXPECT_LT(distance_m(anchor, wps[0], anchor.lat), 1.0);
+  EXPECT_NEAR(distance_m(anchor, wps[1], anchor.lat), 150.0, 5.0);
+}
+
+TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorEmitsAnchorFirst) {
+  const mass_l3::m5::WaypointLatLon anchor{63.44, 10.38};
+  const auto wps = generate_rule13_overtake_corridor_waypoints(
+      49.0, 79.0, anchor.lat, anchor.lon, 0.0);
+  ASSERT_GE(wps.size(), 2u);
+  EXPECT_LT(distance_m(anchor, wps[0], anchor.lat), 1.0);
+  EXPECT_NEAR(distance_m(anchor, wps[1], anchor.lat), 600.0, 5.0);
+}
+
+// Phase 2: has_anchor=true skips wps[0] in preflight.
+TEST(AvoidanceWaypointGen, PreflightHasAnchorSkipsFirstWaypoint) {
+  const mass_l3::m5::WaypointLatLon origin{0.0, 0.0};
+  const double lon_50m = 50.0 / kMetersPerDegLat;
+  const std::vector<mass_l3::m5::WaypointLatLon> wps = {
+      {0.0, 0.0},             // anchor
+      {0.0, lon_50m * 4.0},   // 200m maneuver (>=120m required)
+      {0.0, lon_50m * 8.0},   // 400m
+  };
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, {3.2, 3.2, 3.2}, mass_l3::m5::GncAvoidancePreflightConfig{},
+      /*wps_has_anchor=*/true);
+  EXPECT_TRUE(result.feasible) << result.reason;
+}
+
+TEST(AvoidanceWaypointGen, PreflightHasAnchorStillRejectsCloseManeuver) {
+  const mass_l3::m5::WaypointLatLon origin{0.0, 0.0};
+  const double lon_50m = 50.0 / kMetersPerDegLat;
+  const std::vector<mass_l3::m5::WaypointLatLon> wps = {
+      {0.0, 0.0},        // anchor
+      {0.0, lon_50m},    // 50m maneuver (< 120m required)
+      {0.0, lon_50m * 4.0},
+  };
+  const auto result = validate_gnc_avoidance_plan(
+      origin, wps, {3.2, 3.2, 3.2}, mass_l3::m5::GncAvoidancePreflightConfig{},
+      /*wps_has_anchor=*/true);
+  EXPECT_FALSE(result.feasible);
+  EXPECT_EQ(result.reason, "first_maneuver_point_too_close");
 }
