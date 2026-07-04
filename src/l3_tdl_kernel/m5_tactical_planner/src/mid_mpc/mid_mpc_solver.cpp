@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
 #include <exception>
 #include <limits>
 #include <string>
@@ -259,6 +261,29 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   const auto t_end = std::chrono::steady_clock::now();
   const int32_t duration_ms = static_cast<int32_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
+
+  // v2.1 spec §4.4 / C3: implementation-only diag dump for direction rows.
+  // Activated ONLY when env var M5_DIRECTION_DIAG=1. Default off. Remove after
+  // direction-soften decision (Task 10 probe evidence). Uses res.at("g")
+  // (CasADi nlpsol standard output, sibling to res.at("x")). Placed before
+  // unpack_solution so the dump runs even on infeasible exits (g(x*) is still
+  // returned by IPOPT on Infeasible).
+  if (const char* env = std::getenv("M5_DIRECTION_DIAG")) {
+    if (env[0] == '1') {
+      const casadi::DM& g_at_sol = res.at("g");
+      const auto& reg = formulation_.row_registry();
+      const int32_t N_diag = formulation_.config().n_horizon;
+      for (int32_t k = 0; k < N_diag; ++k) {
+        const std::size_t r = static_cast<std::size_t>(reg.direction_row(k));
+        const double g_val = static_cast<double>(g_at_sol(r, 0));
+        const double lb = 0.0;  // direction hard lower bound
+        const double margin = g_val - lb;
+        std::fprintf(stderr,
+            "[M5_DIRECTION_DIAG] k=%d g=%g lb=%g margin=%g %s\n",
+            k, g_val, lb, margin, (margin < 1e-6 ? "ACTIVE" : "satisfied"));
+      }
+    }
+  }
 
   MidMpcSolution sol = formulation_.unpack_solution(res.at("x"), stats);
   sol.solve_duration_ms = duration_ms;
