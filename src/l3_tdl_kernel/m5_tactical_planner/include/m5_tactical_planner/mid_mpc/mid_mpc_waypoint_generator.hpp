@@ -37,7 +37,8 @@ void populate_canonical_route_from_selected_plan(
 
 [[nodiscard]] GncAvoidancePreflightResult validate_canonical_route_for_gnc(
     const l3_msgs::msg::AvoidancePlan& plan,
-    const WaypointLatLon& origin);
+    const WaypointLatLon& origin,
+    bool wps_has_anchor = false);
 
 [[nodiscard]] bool append_l2_nominal_suffix_if_preflight_feasible(
     l3_msgs::msg::AvoidancePlan& plan,
