@@ -561,6 +561,16 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.constraints.heading_min_rad = heading_bounds.first;
   inp.constraints.heading_max_rad = heading_bounds.second;
 
+  // v2.2 §4.6: M4 reachability 合约字段（schema 113+）。0 sentinel = M4 未升级。
+  inp.constraints.heading_box_reachable_from_psi0_deg =
+      static_cast<double>(behavior_plan_->heading_box_reachable_from_psi0_deg);
+  inp.constraints.rot_step_deg =
+      static_cast<double>(behavior_plan_->rot_step_deg);
+  inp.constraints.min_alt_required_rad =
+      static_cast<double>(behavior_plan_->min_alt_required_rad);
+  inp.constraints.earliest_min_alt_k =
+      static_cast<double>(behavior_plan_->earliest_min_alt_k);
+
   inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
   double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);
 
