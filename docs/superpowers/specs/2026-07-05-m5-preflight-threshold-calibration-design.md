@@ -1,10 +1,10 @@
 # M5 GNCPreflight Threshold Calibration + WP Anchor Contract — Design Spec (v2.3 δ)
 
-**Date**: 2026-07-04 (revised 2026-07-05)
-**Status**: Revised (user-approved 360→120 calibration; anchor contract deferred)
-**Supersedes**: commit `244a9002` (anchor-contract-only draft)
+**Date**: 2026-07-04 (revised 2026-07-05 after V2.3 probe)
+**Status**: Revised R2 (Phase 1 calibration landed `a97c959b`; Phase 2 anchor contract PROMOTED from deferred to primary after V2.3 probe confirmed it is the real blocker)
+**Supersedes**: commit `244a9002` (anchor-contract-only draft), commit `5d6c15d7` (Phase 2 deferred draft)
 **Supersedes spec**: none (incremental on v2.2 `2026-07-04-m5-nlp-constraint-restructure-design-v2.1.md`)
-**Scope**: M5 Tactical Planner — preflight threshold calibration (Phase 1) + WP anchor contract (Phase 2 deferred)
+**Scope**: M5 Tactical Planner — preflight threshold calibration (Phase 1 DONE) + WP anchor contract (Phase 2 PROMOTED)
 **D-task ID**: D-ε (delta on v2.2)
 
 ## 1. Problem
@@ -34,7 +34,7 @@ V2.2 validation probe (rule14-ho, run-19f2dad3b5a) RED with CPA 3.8m (floor 180m
 - Aligns with IMO MSC.137(76) ship-length-based standard (2.4L < 4.5L limit)
 - Eliminates the unjustified 3× gap between `high_speed_flyby_min_segment_m` (360) and `emergency_wheel_over_distance_m` (120)
 
-### 1.2 Defect B (Phase 2 — deferred): WP list anchor contract inconsistency
+### 1.2 Defect B (Phase 2 — PROMOTED to primary after V2.3 probe): WP list anchor contract inconsistency
 
 Three M5 WP generators have inconsistent WP[0] semantics:
 
@@ -48,7 +48,13 @@ Three M5 WP generators have inconsistent WP[0] semantics:
 
 For anchor-WP[0] generators, `first_distance = 0m` → optimized/fallback plans rejected regardless of threshold.
 
-**Deferral rationale**: After Phase 1 calibration (360→120), corridor path (`generate_stable_avoidance_corridor_waypoints` WP[0]=150m > 120m) passes preflight and becomes viable fallback. Optimized path's WP[0]=anchor rejection becomes non-blocking (corridor covers). Phase 2 anchor contract is follow-up for optimized-path-first success, not a probe-pass blocker.
+**V2.3 probe (run-19f2e0a5232) finding — original deferral rationale was WRONG**:
+- Original §1.2 assumption: "After Phase 1 calibration, corridor path (WP[0]=150m > 120m) passes preflight and becomes viable fallback"
+- V2.3 reality: NLP solver **occasionally Converges**, producing `selected_plan.status == "NORMAL"` with non-empty waypoints. This activates the optimized path (`mid_mpc_node.cpp:1499`) instead of the corridor else-if branch (`:1569`). Optimized WP[0]=anchor=0m < 120m → preflight rejects → `publish_keep_last_` → next cycle NLP Converges again → re-enters optimized → rejects again. **Deadloop between optimized-attempt and keep-last**.
+- Corridor path never activates because it requires `selected_plan.status != "NORMAL"`, but NLP keeps occasionally producing NORMAL plans.
+- V2.3 CPA = 1.3m (worse than v2.2's 3.8m — regression signal, root cause not yet traced but the deadloop is the primary blocker).
+
+**Conclusion**: Phase 2 anchor contract is NOT a defer — it is the probe-pass blocker. Phase 2 is promoted to primary.
 
 ### 1.3 Not a v2.2 regression
 
@@ -82,56 +88,112 @@ After calibration, `high_speed_flyby_min_segment_m == emergency_wheel_over_dista
 
 Existing preflight unit tests (`test_gnc_avoidance_preflight.cpp`) that hardcode `required=360` or test the 360m boundary will fail and must update to 120m. This is expected regression from the calibration; tests must reflect the new calibrated value, not preserve the old over-conservative one.
 
-## 3. Phase 2 Design (DEFERRED): Uniform Anchor Contract
+## 3. Phase 2 Design (PROMOTED to primary): Uniform Anchor Contract
 
-Recorded for follow-up D-task. Not implemented in this D-ε.
+Phase 2 is promoted from deferred to primary after V2.3 probe (`run-19f2e0a5232`) confirmed optimized-path deadloop is the real probe-pass blocker (§1.2).
 
-### 3.1 Contract (deferred)
+### 3.1 Contract
 
-WP list = `[anchor, maneuver_1, ..., maneuver_N]`. WP[0] = own ship anchor. All generators conform. Preflight adds `bool wps_has_anchor` parameter; true → skip wps[0] for first_distance/segment/turn_radius.
+WP list = `[anchor, maneuver_1, ..., maneuver_N]`. WP[0] = own ship anchor (own ship position at plan generation time). WP[1..N] = real maneuver targets. All avoidance generators conform. Preflight `has_anchor=true` skips wps[0] for first_distance/segment/turn_radius checks.
 
-### 3.2 Generator changes (deferred)
+### 3.2 Generator changes
 
-- `generate_stable_avoidance_corridor_waypoints`: `kDistancesM` prepend 0.0
-- `generate_rule13_overtake_corridor_waypoints`: `kDistancesM` prepend 0.0
-- `MidMpcWaypointGenerator`: no change (already conforms)
-- `build_geometric_fallback_plan_`: no change (already conforms)
-- `generate_return_to_route_waypoints`: no change (exception, has_anchor=false)
+- `generate_stable_avoidance_corridor_waypoints` (`avoidance_waypoint_gen.hpp:176`): `kDistancesM` prepend 0.0:
+  ```cpp
+  static const std::vector<double> kDistancesM = {
+      0.0,  // anchor: own ship position at plan generation
+      150.0, 300.0, 600.0, 1000.0, 1500.0, 2200.0, 3200.0, 4500.0,
+      6000.0, 7500.0, 9000.0};
+  ```
+  At `d=0.0`: `d_north = d_east = 0.0` → `wps[0] = {anchor_lat, anchor_lon}`. Lateral cap formula yields `lateral_abs = cap * (1 - exp(-0/approach_distance)) = 0` → no dogleg at anchor.
+- `generate_rule13_overtake_corridor_waypoints` (`avoidance_waypoint_gen.hpp:287`): `kDistancesM` prepend 0.0:
+  ```cpp
+  static const std::vector<double> kDistancesM = {
+      0.0,  // anchor
+      600.0, 1200.0, 2000.0, 3000.0, 4200.0, 5600.0, 7000.0,
+      8400.0, 10000.0, 12000.0};
+  ```
+- `MidMpcWaypointGenerator` (`mid_mpc_waypoint_generator.cpp:171-189`): **no change**. Already conforms: `ned_pos[0]=(0,0)` is the anchor.
+- `build_geometric_fallback_plan_` (`mid_mpc_node.cpp:986-1005`): **no change**. Already conforms: `arc_point(t=0)` returns own ship position as WP[0].
+- `generate_return_to_route_waypoints` (`avoidance_waypoint_gen.hpp:312`): **no change — exception**. WP[0] is a real 500m maneuver target, NOT an anchor. Caller passes `has_anchor=false`. Rationale: return path starts after avoidance release, own ship already maneuvering, no anchor semantics.
 
-### 3.3 Preflight changes (deferred)
+### 3.3 Preflight changes
 
-`validate_gnc_avoidance_plan` + `validate_canonical_route_for_gnc` add `bool wps_has_anchor=false`. 5 callers classified (return path is sole exception).
+**`validate_gnc_avoidance_plan`** (`gnc_avoidance_preflight.hpp:208`): add `bool wps_has_anchor = false` parameter (default false, backward compat).
 
-## 4. Testing (Phase 1 only)
+When `wps_has_anchor == true`:
+- Size check: `wps.size() < 3` → invalid (need anchor + ≥2 maneuver for segment check). Exception: `wps.size() == 2` (anchor + 1 maneuver) → only first_distance + turn_radius check, skip segment loop.
+- `first_distance = origin → wps[1]` (skip wps[0]=anchor). Since `origin ≈ wps[0]` (both own ship), this is anchor → first maneuver distance.
+- Segment loop: `for i in [1, wps.size()-1)`: segment = wps[i] → wps[i+1]. Anchor→wps[1] segment skipped (validated by first_distance + turn_radius).
+- Turn radius check: `origin → wps[1] → wps[2]` (skip anchor as middle node).
+- XTE check (`high_speed_flyby` branch, line 237-248): unchanged — uses `wps[0]` and `wps[1]` as the initial segment. **When has_anchor=true, XTE check must also shift to wps[1] and wps[2]** to avoid using the anchor as segment start.
 
-### 4.1 Unit test updates
+When `wps_has_anchor == false` (default): behavior unchanged.
 
-Update `test_gnc_avoidance_preflight.cpp` boundary tests:
-- Tests asserting `required=360` update to `required=120`
-- Tests constructing plans at 200m expecting reject now expect pass (200m > 120m)
-- Tests constructing plans at 100m expecting reject remain reject (100m < 120m)
-- High-speed-flyby branch coverage preserved (XTE check still gated by speed cap)
+**`validate_canonical_route_for_gnc`** (`mid_mpc_waypoint_generator.cpp:88`): add `bool wps_has_anchor = false` parameter, forward to `validate_gnc_avoidance_plan`.
 
-### 4.2 Integration: V2 probe rerun
+### 3.4 Caller classification
 
-After Phase 1 calibration, rerun V2 rule14-ho probe. Pass criteria unchanged (spec §7.2):
+| Caller | File:line | WP[0] semantics | `has_anchor` |
+|---|---|---|---|
+| optimized path preflight | `mid_mpc_node.cpp:1530` (via `validate_canonical_route_for_gnc`) | anchor (from `MidMpcWaypointGenerator`) | `true` |
+| degraded corridor preflight | `mid_mpc_node.cpp:1662` (direct `validate_gnc_avoidance_plan`) | anchor (after §3.2 change) | `true` |
+| return-to-route preflight | `mid_mpc_node.cpp:1761` (direct) | real maneuver (500m) | `false` |
+| full route preflight | `mid_mpc_node.cpp:1827` (via `validate_canonical_route_for_gnc`) | anchor (plan.waypoints starts with anchor) | `true` |
+| L2 suffix feasibility | `mid_mpc_waypoint_generator.cpp:133` (via `validate_canonical_route_for_gnc`) | anchor (candidate = plan + suffix) | `true` |
+
+Return path is the sole exception. Its caller keeps `has_anchor=false`.
+
+### 3.5 Compound preflight caller details
+
+`append_l2_nominal_suffix_if_preflight_feasible` (`mid_mpc_waypoint_generator.cpp:94-139`) calls `validate_canonical_route_for_gnc(candidate, origin)` at line 133 where `candidate = plan + L2 suffix`. After Phase 2, `plan.waypoints[0]` is the anchor (from generator), so `candidate` also starts with the anchor. This caller passes `has_anchor=true`.
+
+The optimized-path caller at `mid_mpc_node.cpp:1524` calls `append_l2_nominal_suffix_if_preflight_feasible` BEFORE the `validate_canonical_route_for_gnc` at line 1530. Both must pass `has_anchor=true` consistently.
+
+## 4. Testing
+
+### 4.1 Phase 1 unit test updates (DONE, commit `8376f214`)
+
+`PreflightRejectsHighSpeedFlyBySegmentBelowWheelOverMargin` boundary updated: wps {500m, 800m} → {500m, 600m}, segment 300m→100m < 120m.
+
+### 4.2 Phase 2 unit tests (new)
+
+New test `test_wp_anchor_contract.cpp` (or extend `test_avoidance_waypoint_gen.cpp`):
+
+1. **Generator conformance** (after §3.2 change):
+   - `generate_stable_avoidance_corridor_waypoints`: WP[0] = anchor lat/lon (within 1m), WP[1] at ~150m
+   - `generate_rule13_overtake_corridor_waypoints`: WP[0] = anchor, WP[1] at ~600m
+   - `MidMpcWaypointGenerator`: WP[0] = own ship lat/lon (within 1m)
+   - `build_geometric_fallback_plan_`: WP[0] = own ship lat/lon
+   - `generate_return_to_route_waypoints`: WP[0] at 500m (NOT anchor — exception)
+
+2. **Preflight `has_anchor` semantics**:
+   - `validate_gnc_avoidance_plan` with `has_anchor=true`:
+     - wps `[anchor, maneuver_360m, ...]` → feasible (first_distance=360m ≥ required)
+     - wps `[anchor, maneuver_100m, ...]` → infeasible (first_distance=100m < required)
+     - wps `[anchor]` (size=1) → invalid
+     - wps `[anchor, maneuver]` (size=2) → feasible if first_distance ≥ required
+   - With `has_anchor=false` (default): unchanged behavior (regression)
+
+3. **Existing tests regression**: `test_gnc_preflight.cpp` + `test_avoidance_waypoint_gen.cpp` must still pass with default `has_anchor=false`.
+
+### 4.3 Integration: V2 probe rerun (after Phase 1 + Phase 2)
+
+Rerun V2 rule14-ho probe. Pass criteria unchanged (spec §7.2):
 - NLP SOLVER_CONVERGED > 30%
 - CPA min ≥ 180m
 
-**Expected post-Phase-1 behavior**:
-- Optimized path: still rejected (WP[0]=anchor=0m < 120m) — Phase 2 deferred
-- Geometric fallback: still rejected (WP[0]=anchor=0m < 120m) — Phase 2 deferred
-- **Corridor path**: WP[0]=150m > 120m → **passes preflight** → publishes corridor plan → L4 executes avoidance
-- If NLP solver still INFEASIBLE (Layer 1 structural, Codex 🟡 Medium), corridor is the working path
-
-Probe pass depends on corridor path producing sufficient CPA. This is the real signal we need.
+**Expected post-Phase-1+2 behavior**:
+- Optimized path: WP list `[anchor, maneuver_1, ...]` passes preflight (maneuver_1 at wheel-over distance from dead-reckon, has_anchor=true skips anchor)
+- If NLP still INFEASIBLE (Layer 1 structural), plan falls to geometric fallback (also has_anchor=true, passes) or corridor path (WP[0]=anchor, WP[1]=150m, has_anchor=true, 150m > 120m → passes)
+- L4 receives non-empty avoidance plan → steering activates → CPA improves
 
 ## 5. Out of Scope (deferred)
 
-- **Phase 2 WP anchor contract**: §3 above. Follow-up D-task.
-- **Layer 1 NLP IPOPT INFEASIBLE**: structural solver/constraint feasibility. Codex diagnosis Q2 🟡 Medium.
-- **Layer 2 TailBuilder m6_not_past_clear**: M6 ONSET vs ACTIVE contract. Codex Q3 🟢/🟡.
-- **`emergency_guidance_speed_cap_mps` 3.2 m/s threshold review**: separate HAZID question (is 3.2 the right cruise/emergency boundary?). Not touched.
+- **Layer 1 NLP IPOPT INFEASIBLE**: structural solver/constraint feasibility. Codex diagnosis Q2 🟡 Medium. Layer 3 calibration + anchor contract may surface real NLP behavior; if still INFEASIBLE post-Phase-2, defer to follow-up D-task with row-class residual telemetry.
+- **Layer 2 TailBuilder m6_not_past_clear**: M6 ONSET vs ACTIVE contract. Codex Q3 🟢/🟡. Defer to follow-up.
+- **V2.3 CPA regression root cause** (1.3m vs v2.2 3.8m): not yet traced. May be sim timing variance or NLP convergence frequency change. Phase 2 anchor contract fix should resolve the deadloop regardless; if CPA still regresses post-Phase-2, trace then.
+- **`emergency_guidance_speed_cap_mps` 3.2 m/s threshold review**: separate HAZID question. Not touched.
 
 ## 6. Architecture Invariants Preserved
 
