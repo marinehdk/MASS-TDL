@@ -216,7 +216,11 @@ TEST_F(TerminalConstraintTest, StandOnDisablesTerminalBounds) {
   }
 
   // Conversely, terminal_disabled=false → terminal rows stay [0,+inf] (active).
+  // v2.1 §4.5 flipped terminal_nlp_soft default to true, so this legacy-shape
+  // assertion explicitly pins terminal_nlp_soft=false to test the hard-terminal
+  // path independently of the v2.1 default.
   RowBoundConfig rb_active;  // terminal_disabled=false (default)
+  rb_active.terminal_nlp_soft = false;  // pin legacy hard-terminal shape
   const auto b2 = reg.build_bounds(rb_active);
   for (int i = 0; i < 3; ++i) {
     const int r = reg.terminal_row(i);
