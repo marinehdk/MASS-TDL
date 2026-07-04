@@ -30,3 +30,15 @@ TEST(SpeedContractV22, GapExactlyAtThresholdNoFlag) {
   // gap = |19.0 - 1.0| = 18.0 == 0.20*5.0*18 = 18.0 → strict >, no flag.
   EXPECT_FALSE(mass_l3::m5::compute_speed_gap_infeasible(19.0, 1.0, 0.20, 18, 5.0));
 }
+
+// Spec v2.2 §4.6: ConstraintInputs reachability 合约字段（M4 publish via
+// BehaviorPlan.msg schema 113, M5 consume into MidMpcInput.constraints).
+// Default 0 = M4 未升级 sentinel; M5 退化 v2.1 ROT-only 公式.
+
+TEST(MidMpcConstraintsV22Test, ReachabilityContractFieldsDefault) {
+  mass_l3::m5::ConstraintInputs c;
+  EXPECT_EQ(c.heading_box_reachable_from_psi0_deg, 0.0);  // sentinel = M4 未升级
+  EXPECT_EQ(c.rot_step_deg, 0.0);
+  EXPECT_EQ(c.min_alt_required_rad, 0.0);
+  EXPECT_EQ(c.earliest_min_alt_k, 0.0);
+}

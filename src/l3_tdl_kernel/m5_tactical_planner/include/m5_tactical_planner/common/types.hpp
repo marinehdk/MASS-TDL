@@ -147,6 +147,14 @@ struct ConstraintInputs {
 
   // ENC / TSS zone constraints (stay-inside lanes or avoid zones).
   std::vector<ZoneConstraint> zone_constraints;
+
+  // v2.2 §4.6 reachability 合约（M4 publish via BehaviorPlan.msg schema 113,
+  // M5 consume into MidMpcInput.constraints). 0 sentinel = M4 未升级 → M5 退化
+  // v2.1 ROT-only 公式.
+  double heading_box_reachable_from_psi0_deg{0.0};
+  double rot_step_deg{0.0};
+  double min_alt_required_rad{0.0};
+  double earliest_min_alt_k{0.0};
 };
 
 // ---------------------------------------------------------------------------
