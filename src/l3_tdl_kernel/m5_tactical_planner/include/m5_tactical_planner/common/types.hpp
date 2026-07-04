@@ -217,6 +217,7 @@ struct MidMpcInput {
   // Calibrate per vessel service speed profile.
   double planned_speed_mps{5.0};
   double decel_max_mps2{0.08};
+  bool speed_gap_infeasible{false};  // v2.2 §4.7: own_u/planned_u gap > N·decel_max·dt，dispatch 信号
 
   /// D3.2: dynamic ROT max [rad/s] from VesselDynamicsModel (replaces D0.1 hardcoded stub)
   double rot_max_rad_s{0.2094};

@@ -327,6 +327,11 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # Spec v2.2 §4.7 (D2): MidMpcInput.speed_gap_infeasible flag + compute fn.
+    m5_add_gtest(test_mid_mpc_types
+      test/unit/test_mid_mpc_types.cpp
+    )
+
     # ── Slice R1: route-frame J_route dimensionless + COLREG dominance ─────────
     m5_add_gtest(test_mid_mpc_route_cost
       test/unit/test_mid_mpc_route_cost.cpp
