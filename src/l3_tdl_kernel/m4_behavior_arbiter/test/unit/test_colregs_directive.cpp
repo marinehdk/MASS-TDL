@@ -462,5 +462,26 @@ TEST(ColregsDirectiveClamp, ZeroRotStep_NoOp) {
   EXPECT_DOUBLE_EQ(h_max, orig_max);
 }
 
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
+// compute_heading_box_reachability(): box 起点距 own_psi + box_allows_min_alt +
+// rationale. min_alt=30°, rot_step=23.5° → 53.5° minimum box width required.
+TEST(HeadingBoxReachabilityV22, NarrowBoxFlagsRationale) {
+  auto r = compute_heading_box_reachability(
+      /*h_min_deg=*/20.0, /*h_max_deg=*/50.0, /*own_hdg_deg=*/0.0,
+      /*rot_step_deg=*/23.5, /*min_alt_rad=*/30.0 * M_PI / 180.0);
+  // box_width=30° < min_alt 30° + rot_step 23.5° = 53.5° → rationale
+  EXPECT_FALSE(r.box_allows_min_alt);
+  EXPECT_FALSE(r.reachability_rationale.empty());
+}
+
+TEST(HeadingBoxReachabilityV22, WideBoxNoRationale) {
+  auto r = compute_heading_box_reachability(
+      /*h_min_deg=*/-30.0, /*h_max_deg=*/60.0, /*own_hdg_deg=*/0.0,
+      /*rot_step_deg=*/23.5, /*min_alt_rad=*/30.0 * M_PI / 180.0);
+  // box_width=90° ≥ 53.5° → OK
+  EXPECT_TRUE(r.box_allows_min_alt);
+  EXPECT_TRUE(r.reachability_rationale.empty());
+}
+
 }  // namespace
 }  // namespace mass_l3::m4

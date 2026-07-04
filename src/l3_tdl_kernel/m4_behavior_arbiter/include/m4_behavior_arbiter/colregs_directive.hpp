@@ -42,6 +42,18 @@ struct HeadingWindow {
   double heading_max_deg{0.0};
 };
 
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume)
+struct HeadingBoxReachability {
+  double heading_box_reachable_from_psi0_deg{0.0};  // box 起点距 own_psi 度数
+  bool   box_allows_min_alt{false};                  // box 宽度是否够 min_alt 展开
+  std::string reachability_rationale;                 // 不够时 reason
+};
+
+[[nodiscard]] HeadingBoxReachability compute_heading_box_reachability(
+    double h_min_deg, double h_max_deg,
+    double own_hdg_deg, double rot_step_deg,
+    double min_alt_rad);
+
 [[nodiscard]] double wrap_heading_deg(double heading_deg);
 [[nodiscard]] ColregsDirection parse_colregs_direction(const std::string& direction);
 [[nodiscard]] mass_l3::risk::ColregsDuty map_role_to_duty(

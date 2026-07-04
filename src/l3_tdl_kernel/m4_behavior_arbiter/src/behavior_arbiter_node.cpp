@@ -1333,6 +1333,39 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     const double own_hdg_now = static_cast<double>(latest_world_->own_ship.heading_deg);
     clamp_heading_box_reachable(h_min, h_max, own_hdg_now, rot_step_deg);
   }
+  // v2.2 §4.6 reachability 合约 (M4 publish, M5 consume, schema 113).
+  // Fill the reachability fields only when a COLREG conflict is active and M6
+  // produced a positive min_alteration; otherwise the fields stay at their
+  // 0-sentinel default (M5 then degrades to v2.1 ROT-only schedule).
+  // rot_step aligns with the GNC execution ODD cruise ROT (same source as the
+  // F-1 clamp above + the M5 NLP rot_max); fall back to 4.7°/s·dt when the ODD
+  // is unavailable. own_hdg comes from the latest world snapshot.
+  auto fill_reachability_contract = [&](BehaviorPlanMsg& p,
+                                        const ColregsDirective& directive) {
+    if (directive.conflict_active && directive.min_alteration_deg > 0.0 &&
+        latest_world_) {
+      const double own_hdg_deg =
+          static_cast<double>(latest_world_->own_ship.heading_deg);
+      double rot_step_deg = 4.7 * heading_reachability_dt_s_;  // GNC baseline fallback
+      if (latest_gnc_odd_) {
+        rot_step_deg = static_cast<double>(latest_gnc_odd_->cruise_max_yaw_rate_deg_s) *
+                       heading_reachability_dt_s_;
+      }
+      const auto reach = compute_heading_box_reachability(
+          static_cast<double>(p.heading_min_deg),
+          static_cast<double>(p.heading_max_deg),
+          own_hdg_deg, rot_step_deg,
+          directive.min_alteration_deg * M_PI / 180.0);
+      p.heading_box_reachable_from_psi0_deg =
+          static_cast<float>(reach.heading_box_reachable_from_psi0_deg);
+      p.rot_step_deg = static_cast<float>(rot_step_deg);
+      p.min_alt_required_rad =
+          static_cast<float>(directive.min_alteration_deg * M_PI / 180.0);
+      p.earliest_min_alt_k = 1.0f;  // M4 hint (M5 derive 用 max(ROT, box), 此值参考)
+      p.reachability_rationale = reach.reachability_rationale;
+    }
+    // 非 COLREG active: 字段保持 0 sentinel（M5 不 consume）
+  };
   BehaviorPlanMsg plan;
   plan.schema_version = 113;
   plan.stamp = now();
@@ -1346,6 +1379,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     rationale += risk_rationale_suffix;
   }
   plan.rationale = rationale;
+  fill_reachability_contract(plan, colregs_directive);
   pub_plan_->publish(plan);
 
   // --- Publish ivp_contributions (SAT-2) ---

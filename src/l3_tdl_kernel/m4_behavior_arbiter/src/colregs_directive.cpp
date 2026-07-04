@@ -318,15 +318,14 @@ std::vector<std::pair<double, double>> directive_allowed_ranges(
 }
 
 // Signed smallest angular difference (b - a), wrapped to [-180, +180].
-// Used by clamp_heading_box_reachable to reason in own-relative coordinates.
-namespace {
+// Used by clamp_heading_box_reachable and compute_heading_box_reachability to
+// reason in own-relative coordinates. (File scope: shared by both functions.)
 double signed_delta_deg(double from_deg, double to_deg) {
   double d = std::fmod(to_deg - from_deg, 360.0);
   if (d > 180.0) { d -= 360.0; }
   if (d < -180.0) { d += 360.0; }
   return d;
 }
-}  // namespace
 
 void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
                                  double own_hdg_deg, double rot_step_deg) {
@@ -382,6 +381,34 @@ void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
   // Keep min/max ordered (no wrap-around box after clamp).
   h_min_deg = std::min(new_h_min, new_h_max);
   h_max_deg = std::max(new_h_min, new_h_max);
+}
+
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
+// Compute the published contract fields for a heading box:
+//   - heading_box_reachable_from_psi0_deg: |delta| of the box edge nearer to
+//     own_psi (own-relative). ≥0 degrees.
+//   - box_allows_min_alt: true iff the box width ≥ min_alt + rot_step, i.e. the
+//     box is wide enough to unfold a min_alt-magnitude turn with one ROT step
+//     of slack. When false, reachability_rationale explains why (M5 then sees
+//     the box upper bound < min_alt and degrades to a soft schedule).
+HeadingBoxReachability compute_heading_box_reachability(
+    double h_min_deg, double h_max_deg,
+    double own_hdg_deg, double rot_step_deg,
+    double min_alt_rad) {
+  HeadingBoxReachability r;
+  // box 起点距 own_psi（own-relative，取靠 own 的边的 |delta|）
+  const double d_min = signed_delta_deg(own_hdg_deg, h_min_deg);
+  const double d_max = signed_delta_deg(own_hdg_deg, h_max_deg);
+  r.heading_box_reachable_from_psi0_deg = std::min(std::fabs(d_min), std::fabs(d_max));
+
+  // box 是否允许 min_alt 量级偏转：box 宽度 ≥ min_alt_deg + rot_step_deg
+  const double min_alt_deg = min_alt_rad * 180.0 / M_PI;
+  const double box_width = std::fabs(h_max_deg - h_min_deg);
+  r.box_allows_min_alt = (box_width >= min_alt_deg + rot_step_deg);
+  if (!r.box_allows_min_alt) {
+    r.reachability_rationale = "box_width < min_alt + rot_step";
+  }
+  return r;
 }
 
 }  // namespace mass_l3::m4
