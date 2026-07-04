@@ -482,3 +482,68 @@ TEST_F(TerminalConstraintTest, HoldReduceSpeedAutoDisablesTerminal) {
         << static_cast<int>(beh) << ")";
   }
 }
+
+// v2.1 spec §4.5 B7-r2 — upper-band two-sided softplus activates at |l| > l_max.
+//
+// Strategy: isolate the upper-band by comparing J_terminal at two terminals on
+// the SAME correct side (Starboard, pref_dir=+1) so the lower-band wrong-side
+// softplus stays ≈constant small. One terminal is within the lateral band
+// (y << l_max → upper-band off); the other is far outside (y >> l_max →
+// upper-band on). The cost difference isolates the upper-band contribution.
+//
+// To make the upper-band signal decisive despite tau_t=0.5, use a tight
+// lateral_scale (l_scale=80m) so z=(y-l_max)/l_scale becomes O(1) at y=200.
+//
+// Route frame: bearing=0 (north), normal=+east → lateral offset = y_m.
+// u=5 m/s, dt=5s, N=8 → each step moves 25·sin(psi) m in y. y=200 over 8 steps
+// needs sin(psi)=1.0 → psi=π/2. y=30: sin(psi)=30/(25·7)≈0.171 → psi≈0.172.
+TEST_F(TerminalConstraintTest, UpperBandCostActivatesBeyondLMax) {
+  MidMpcNlpFormulation::Config cfg_tight = formulation_->config();
+  cfg_tight.terminal_l_max_feasible_m = 50.0;
+  MidMpcNlpFormulation form_tight(cfg_tight);
+  form_tight.build_symbolic_graph();
+
+  const int32_t N = form_tight.config().n_horizon;  // 8
+  auto eval_j_terminal_at_psi = [&](double psi_rad, double l_scale) -> double {
+    MidMpcInput inp = make_base_input();
+    inp.colregs_primary_role = 1U;  // give-way
+    inp.colregs_preferred_direction =
+        mass_l3::m5::ColregsPreferredDirection::Starboard;  // +1 correct side = +y
+    inp.constraints.applicable_rules = {15};  // give-way gate
+    inp.lateral_scale_m = l_scale;
+    casadi::DM p = form_tight.pack_parameters(inp);
+    casadi::DM x = casadi::DM::zeros(2 * N, 1);
+    for (int32_t k = 0; k < N; ++k) {
+      x(k) = psi_rad;
+      x(N + k) = 5.0;
+    }
+    return form_tight.eval_terminal_cost(x, p);
+  };
+
+  constexpr double kPi2 = 1.5707963267948966;
+  constexpr double kLscale = 80.0;  // tight l_scale to sharpen upper-band signal
+  // Both terminals on the starboard (correct) side: lower-band ≈ equal & small.
+  // y≈+200 (>> l_max=50): upper-band strongly active.
+  // y≈+30  (< l_max=50):   upper-band off.
+  const double cost_far  = eval_j_terminal_at_psi( kPi2, kLscale);          // y≈+200
+  const double cost_near = eval_j_terminal_at_psi(0.172, kLscale);          // y≈+30
+
+  // Upper-band must dominate: far terminal cost exceeds near by a clear margin.
+  EXPECT_GT(cost_far, cost_near + 0.5)
+      << "upper-band failed to activate at |l|>l_max (cost_far=" << cost_far
+      << " cost_near=" << cost_near << ")";
+
+  // Two-sided symmetry: compare y≈-200 (wrong side, pref_dir=+1) vs y≈+200
+  // (correct side). Both are |y|>l_max so both pay upper-band, but wrong side
+  // additionally pays lower-band → wrong side cost > correct side cost, AND
+  // the wrong-side cost must also exceed the in-band near baseline.
+  const double cost_wrong = eval_j_terminal_at_psi(-kPi2, kLscale);         // y≈-200
+  EXPECT_GT(cost_wrong, cost_near + 0.5)
+      << "upper-band failed on negative side (cost_wrong=" << cost_wrong
+      << " cost_near=" << cost_near << ")";
+
+  // Smoothness: finite difference at y=0 (no NaN from abs kink).
+  const double cost_plus1  = eval_j_terminal_at_psi( 0.5 * M_PI / 180.0, kLscale);
+  const double cost_minus1 = eval_j_terminal_at_psi(-0.5 * M_PI / 180.0, kLscale);
+  EXPECT_TRUE(std::isfinite(cost_plus1 - cost_minus1)) << "non-smooth at l=0";
+}

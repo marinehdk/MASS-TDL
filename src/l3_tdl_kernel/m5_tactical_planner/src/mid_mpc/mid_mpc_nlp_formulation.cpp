@@ -276,10 +276,35 @@ casadi::MX MidMpcNlpFormulation::build_terminal_cost_() const {
   // terminal_disabled derivation — NOT kIdxGiveWay (rule14/15-only, §5.4 review).
   const casadi::MX give_way  = slot(p_, kIdxRole);
   const casadi::MX tau_t     = casadi::DM(cfg_.terminal_tau);
+  // v2.1 §4.5 B7-r2: upper-band two-sided softplus (no abs kink).
+  const casadi::MX l_max     = casadi::DM(cfg_.terminal_l_max_feasible_m);
+
+  // Existing: lower-band wrong-side softplus (keep verbatim, spec §5.4).
   // l_wrong_side > 0 when the terminal is on the side OPPOSITE to preferred.
   const casadi::MX wrong_side = -pref_dir * (lN / l_scale);
-  // softplus(z) = τ·log(1+exp(z/τ)); C∞ smooth, ≈ z for large z, ≈ 0 for z≪0.
-  return give_way * tau_t * casadi::MX::log(1.0 + casadi::MX::exp(wrong_side / tau_t));
+  const casadi::MX J_lower = tau_t * casadi::MX::log(1.0 + casadi::MX::exp(wrong_side / tau_t));
+
+  // v2.1 §4.5 B7-r2: upper-band two-sided softplus. Two smooth terms, each C∞
+  // at z=0. softplus(z) = τ·log(1+exp(z/τ)); z>0 activates.
+  // z_pos > 0 when lN > +l_max; z_neg > 0 when lN < -l_max.
+  const casadi::MX z_pos = (lN - l_max) / l_scale;
+  const casadi::MX z_neg = (-lN - l_max) / l_scale;
+  const casadi::MX J_upper = tau_t * (
+      casadi::MX::log(1.0 + casadi::MX::exp(z_pos / tau_t)) +
+      casadi::MX::log(1.0 + casadi::MX::exp(z_neg / tau_t)));
+
+  // give_way gate applies to both. BUT ReduceSpeed packs kIdxPreferredDir=0
+  // (not kIdxRole=0 — kIdxRole stays 1.0 for give-way ReduceSpeed per
+  // pack_parameters). To avoid levying a lateral upper-band cost on a
+  // non-lateral ReduceSpeed maneuver (B3-r2/C4-r2), gate the UPPER term by
+  // lateral_active = give_way · (pref_dir · pref_dir). (pref_dir·pref_dir is 0
+  // for Hold/ReduceSpeed, 1 for Starboard(±1)/Port.) The LOWER term
+  // (wrong-side softplus) keeps the give_way-only gate: when pref_dir=0,
+  // wrong_side=0 → softplus(0)=τ·log2, a constant offset with zero gradient
+  // w.r.t. l — does not steer the solution, just adds a constant. Acceptable
+  // per existing §5.4 reasoning.
+  const casadi::MX lateral_active = give_way * pref_dir * pref_dir;
+  return give_way * J_lower + lateral_active * J_upper;
 }
 
 // ===========================================================================
