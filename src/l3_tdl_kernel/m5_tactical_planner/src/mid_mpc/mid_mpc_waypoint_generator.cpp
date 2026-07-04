@@ -87,8 +87,11 @@ void populate_canonical_route_from_selected_plan(
 
 GncAvoidancePreflightResult validate_canonical_route_for_gnc(
     const l3_msgs::msg::AvoidancePlan& plan,
-    const WaypointLatLon& origin) {
-  return validate_gnc_avoidance_plan(origin, route_waypoints(plan), plan.command_speed_mps);
+    const WaypointLatLon& origin,
+    bool wps_has_anchor = false) {
+  return validate_gnc_avoidance_plan(
+      origin, route_waypoints(plan), plan.command_speed_mps,
+      GncAvoidancePreflightConfig{}, wps_has_anchor);
 }
 
 bool append_l2_nominal_suffix_if_preflight_feasible(
@@ -130,7 +133,8 @@ bool append_l2_nominal_suffix_if_preflight_feasible(
         l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
   }
 
-  const auto result = validate_canonical_route_for_gnc(candidate, origin);
+  // Phase 2: candidate = plan + L2 suffix; plan.waypoints[0] is anchor.
+  const auto result = validate_canonical_route_for_gnc(candidate, origin, /*wps_has_anchor=*/true);
   if (!result.feasible) {
     return false;
   }
