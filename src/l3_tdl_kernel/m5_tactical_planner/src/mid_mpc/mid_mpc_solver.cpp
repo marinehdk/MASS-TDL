@@ -311,16 +311,37 @@ RowBoundConfig derive_row_bound_config(
   cfg.K = 0;
   cfg.colreg_prefix_softened = false;
 
-  // v2.1 §4.2 k_minalt = ceil(min_alt/rot_step) - 1, clamped [0, N].
+  // v2.2 §4.2/§4.6: k_minalt = max(ROT-reach deadline, box-reach 检查).
+  // ROT-reach: k_minalt_rot = ceil(min_alt / rot_step) - 1 (v2.1 公式).
+  // Box-reach: 若 M4 publish 合约 (heading_box_reachable_from_psi0_deg > 0):
+  //   - box_reach ≥ min_alt → box 不限制, k_minalt = k_minalt_rot
+  //   - box_reach < min_alt → box upper 不可达 min_alt, minalt_box_infeasible=true,
+  //     k_minalt = N (全 soft, 让 NLP 尝试但预期 infeasible, §13.1 dispatch)
+  // M4 未升级 (sentinel=0) → 退化 v2.1 ROT-only 公式.
   // rot_step = rot_max_rad_s · dt. Only lateral give-way needs the schedule;
   // stand-on/HOLD/ReduceSpeed are direction_disabled above (apply_direction_disable_
   // double-disables min_alt rows, schedule is a no-op).
   if (!cfg.direction_disabled) {
     const double rot_step = input.rot_max_rad_s * dt_s;
     if (rot_step > 1e-9) {
-      const int32_t k_minalt = static_cast<int32_t>(
+      const int32_t k_minalt_rot = static_cast<int32_t>(
           std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
-      cfg.minalt_hard_from_k = std::max(0, std::min(k_minalt, n_horizon));
+      const int32_t k_minalt_rot_clamped = std::max(0, std::min(k_minalt_rot, n_horizon));
+
+      const double box_reach_deg =
+          input.constraints.heading_box_reachable_from_psi0_deg;
+      if (box_reach_deg > 0.0) {  // M4 publish 合约
+        const double box_reach_rad = box_reach_deg * units::kRadPerDeg;
+        if (box_reach_rad < input.colregs_min_alteration_rad) {
+          cfg.minalt_box_infeasible = true;
+          cfg.minalt_hard_from_k = n_horizon;  // 全 soft
+        } else {
+          cfg.minalt_hard_from_k = k_minalt_rot_clamped;
+        }
+      } else {
+        // M4 未升级 sentinel: 退化 v2.1 ROT-only
+        cfg.minalt_hard_from_k = k_minalt_rot_clamped;
+      }
     }
   }
 

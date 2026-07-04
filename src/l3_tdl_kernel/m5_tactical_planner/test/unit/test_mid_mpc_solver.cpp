@@ -759,3 +759,53 @@ TEST_F(MidMpcNlpTest, DeriveDirectionScheduleSoftensPortWrongSide) {
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
   EXPECT_EQ(cfg.direction_hard_from_k, 1);  // same k_dir math as Starboard case
 }
+
+// v2.2 spec §4.2/§4.6 — k_minalt derive over {ROT ∩ box}.
+// M4 publishes heading_box_reachable_from_psi0_deg (schema 113). When the box
+// upper bound is closer than min_alt, the hard min_alt floor is unreachable →
+// minalt_box_infeasible=true, k_minalt=N (全 soft, §13.1 BC-MPC dispatch).
+// M4 未升级 (sentinel=0) → 退化 v2.1 ROT-only 公式.
+
+TEST_F(MidMpcNlpTest, MinaltHardFromKTakesMaxOfRotAndBox) {
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = 0.524;  // 30°
+  inp.rot_max_rad_s = 0.0820;              // 4.7°/s
+  inp.colregs_primary_role = 1U;           // give-way lateral
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  // dt=5 → rot_step=0.41 rad=23.5° → k_minalt_rot = ceil(0.524/0.41)-1 = 1
+  inp.constraints.heading_box_reachable_from_psi0_deg = 5.0;  // box 仅 5°（< min_alt 30°）
+  // box_reach 5° < min_alt 30° → minalt_box_infeasible=true, k_minalt=N（全 soft）
+
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+
+  EXPECT_TRUE(cfg.minalt_box_infeasible);
+  EXPECT_EQ(cfg.minalt_hard_from_k, 18);
+}
+
+TEST_F(MidMpcNlpTest, MinaltHardFromKFallsBackWhenM4NotUpgraded) {
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = 0.524;
+  inp.rot_max_rad_s = 0.0820;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.heading_box_reachable_from_psi0_deg = 0.0;  // sentinel: M4 未升级
+
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+
+  EXPECT_FALSE(cfg.minalt_box_infeasible);
+  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // v2.1 ROT-only
+}
+
+TEST_F(MidMpcNlpTest, MinaltHardFromKRotReachWhenBoxAllows) {
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = 0.524;
+  inp.rot_max_rad_s = 0.0820;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.heading_box_reachable_from_psi0_deg = 35.0;  // box 35° > min_alt 30°
+
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+
+  EXPECT_FALSE(cfg.minalt_box_infeasible);
+  EXPECT_EQ(cfg.minalt_hard_from_k, 1);
+}

@@ -68,6 +68,10 @@ struct RowBoundConfig {
   // k*=ceil(min_alt/rot_step)-1 when minalt_override_valid=false (Task 4).
   int32_t minalt_hard_from_k{0};
   bool    minalt_override_valid{false};
+  // v2.2 §4.6: M4 reachability 合约 — heading box upper < own+min_alt 时 hard
+  // min_alt floor 不可达。minalt_box_infeasible=true → k_minalt=N (全 soft),
+  // §13.1 BC-MPC dispatch 信号。Default false (M4 未升级 sentinel=0 → v2.1 公式).
+  bool    minalt_box_infeasible{false};
   // CPA floor suffix-hard schedule deadline (spec §4.3). k < cpa_hard_from_k
   // softened; k >= cpa_hard_from_k hard. Default 0 = legacy v2 hard-all.
   int32_t cpa_hard_from_k{0};
