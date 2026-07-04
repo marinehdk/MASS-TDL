@@ -242,6 +242,18 @@ struct MidMpcInput {
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 
+// v2.2 §4.7 (D2): speed-gap feasibility check. Free function so the dispatch
+// rule is unit-testable without the private MidMpcNode::assemble_input_().
+// Returns true when |own_u - planned_u| exceeds the reachable decel envelope
+// decel_max·dt·N over the MPC horizon → BC-MPC take-over candidate (§13.1).
+inline bool compute_speed_gap_infeasible(
+    double own_u_mps, double planned_u_mps,
+    double decel_max_mps2, int n_horizon, double dt_s) {
+  const double max_delta =
+      decel_max_mps2 * dt_s * static_cast<double>(n_horizon);
+  return std::fabs(own_u_mps - planned_u_mps) > max_delta;
+}
+
 inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
   if (input.tail_gate_targets.empty()) {
     input.tail_gate_targets = input.targets;

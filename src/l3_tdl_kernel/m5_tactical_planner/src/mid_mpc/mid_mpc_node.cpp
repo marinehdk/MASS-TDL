@@ -745,6 +745,17 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.rot_max_rad_s = std::max(cruise_yaw_rad_s, 1.0e-3);
   inp.decel_max_mps2 = std::max(effective_gnc_odd_().max_decel_mps2, 1.0e-6);
 
+  // v2.2 §4.7 (D2): dispatch-only speed-gap flag. Computed after both
+  // planned_speed_mps and decel_max_mps2 are finalized so the reachable
+  // envelope reflects the GNC execution decel cap (0.20 m/s² after α1).
+  // Does NOT touch NLP constraints; feeds §13.1 BC-MPC take-over condition.
+  inp.speed_gap_infeasible = mass_l3::m5::compute_speed_gap_infeasible(
+      inp.own_ship.u_mps, inp.planned_speed_mps, inp.decel_max_mps2,
+      formulation_.config().n_horizon, formulation_.config().dt_s);
+  if (inp.speed_gap_infeasible) {
+    spdlog::warn("[M5][MidMPC] speed gap exceeds N·decel_max·dt; flagging");
+  }
+
   // Slice C1 (spec §6): continuity H_commit prefix. Reproject the committed-route
   // prefix (frozen WGS84 geometry from the manager) to the current cycle's
   // ownship NED origin and back-infer the per-step psi/u the NLP equality rows
