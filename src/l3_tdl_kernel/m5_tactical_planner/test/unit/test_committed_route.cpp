@@ -130,7 +130,11 @@ TEST(CommittedAvoidanceRoute, three_consecutive_nlp_failures_enter_degraded_hold
 
   EXPECT_TRUE(manager.should_enter_degraded_hold(3.0));
   EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
-  EXPECT_EQ(manager.current().safety_concern_event, "nlp_consecutive_failures_ge_3");
+  // v2.2 §13.2: event tag distinguishes the no-BC-MPC path (renamed from the
+  // v2.1 "nlp_consecutive_failures_ge_3"). When BC-MPC is not taking over, the
+  // escalation goes to DegradedHold + MRM-02 (SOTIF fail-safe).
+  EXPECT_EQ(manager.current().safety_concern_event,
+            "nlp_consecutive_failures_ge_3_no_bcmpc");
   EXPECT_EQ(manager.current().revision, 1U);
   EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
 }
@@ -447,4 +451,80 @@ TEST(LifecycleStateV22, BcMpcFollowExists) {
   mass_l3::m5::committed_route::LifecycleState s =
       mass_l3::m5::committed_route::LifecycleState::BcMpcFollow;
   EXPECT_EQ(static_cast<std::uint8_t>(s), 8U);
+}
+
+// v2.2 §13.1/§13.2: when BC-MPC take-over has been signaled (MidMpcNode dispatch
+// calls mark_bc_mpc_takeover() when solver consecutive_failures >= 3), three
+// consecutive NLP failures must route the committed route into BcMpcFollow — NOT
+// KeepLast (hold stale corridor) and NOT DegradedHold. BC-MPC owns the maneuver.
+TEST(CommittedRouteV22, BcMpcFollowOnTakeoverRequest) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  manager.mark_bc_mpc_takeover();  // MidMpcNode signals BC-MPC take-over
+
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false), 1.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-2", route_b_with_same_prefix(), 2U, 30.0, false), 2.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-3", route_b_with_same_prefix(), 2U, 30.0, false), 3.0));
+
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "v2.2 §13.2: takeover requested → BcMpcFollow, not KeepLast/DegradedHold";
+}
+
+// v2.2 §13.2: when NO BC-MPC take-over is signaled, three consecutive NLP
+// failures must enter DegradedHold (fail-safe / SOTIF ISO 21448:2022) — NOT
+// KeepLast stale corridor. This is the "no BC-MPC available" path; MRM-02
+// escalation is wired upstream (M7 Slice K). Pins the existing v2.1 behavior as
+// the v2.2 no-takeover contract.
+TEST(CommittedRouteV22, DegradedHoldWhenNoBcMpc) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  // No mark_bc_mpc_takeover() — BC-MPC not taking over.
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false), 1.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-2", route_b_with_same_prefix(), 2U, 30.0, false), 2.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-3", route_b_with_same_prefix(), 2U, 30.0, false), 3.0));
+
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+  EXPECT_EQ(manager.current().safety_concern_event,
+            "nlp_consecutive_failures_ge_3_no_bcmpc")
+      << "v2.2 §13.2: distinct event tag when BC-MPC is NOT taking over";
+}
+
+// v2.2 §13.2 regression guard: at consecutive_failures >= 3 the state must NEVER
+// be KeepLast. v2.2 policy removes KeepLast-at-escalation entirely (SOTIF/IEC
+// 61508 fail-safe/predictable). Only BcMpcFollow (takeover) or DegradedHold
+// (no takeover) are permissible at the escalation threshold.
+TEST(CommittedRouteV22, NoKeepLastStaleCorridorAtConsecutive3) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false), 1.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-2", route_b_with_same_prefix(), 2U, 30.0, false), 2.0));
+  // Without takeover: at the 3rd failure state must be DegradedHold, never KeepLast.
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-3", route_b_with_same_prefix(), 2U, 30.0, false), 3.0));
+  EXPECT_NE(manager.current().state, LifecycleState::KeepLast);
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+
+  // With takeover: a fresh manager reaching 3 with takeover must be BcMpcFollow.
+  CommittedAvoidanceRoute manager_bc;
+  ASSERT_TRUE(manager_bc.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager_bc.mark_bc_mpc_takeover();
+  EXPECT_FALSE(manager_bc.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false), 1.0));
+  EXPECT_FALSE(manager_bc.try_revise(
+      candidate("fail-2", route_b_with_same_prefix(), 2U, 30.0, false), 2.0));
+  EXPECT_FALSE(manager_bc.try_revise(
+      candidate("fail-3", route_b_with_same_prefix(), 2U, 30.0, false), 3.0));
+  EXPECT_NE(manager_bc.current().state, LifecycleState::KeepLast);
+  EXPECT_EQ(manager_bc.current().state, LifecycleState::BcMpcFollow);
 }

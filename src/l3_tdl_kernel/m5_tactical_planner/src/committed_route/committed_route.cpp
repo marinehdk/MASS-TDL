@@ -6,6 +6,8 @@
 #include <string>
 #include <utility>
 
+#include <spdlog/spdlog.h>
+
 namespace mass_l3::m5::committed_route {
 namespace {
 
@@ -101,7 +103,21 @@ bool CommittedAvoidanceRoute::try_revise(
       return false;
     }
     if (consecutive_nlp_failures_ >= 3U) {
-      enter_degraded_hold("nlp_consecutive_failures_ge_3");
+      // v2.2 §13.2: KeepLast policy revision. At the escalation threshold the
+      // route must NEVER hold a stale NLP corridor (SOTIF ISO 21448:2022 / IEC
+      // 61508 fail-safe). If BC-MPC has taken over (§13.1), follow its maneuver;
+      // otherwise enter DegradedHold + MRM-02 escalation (M7 Slice K wires the
+      // real MRM; until then this is a log-critical fail-safe state).
+      if (bc_mpc_takeover_requested_) {
+        current_.state = LifecycleState::BcMpcFollow;
+        current_.safety_concern_event = "bc_mpc_takeover_active";
+      } else {
+        enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
+        spdlog::critical(
+            "[M5][CommittedRoute] DegradedHold + MRM-02 escalate "
+            "(consecutive_nlp_failures={}, bc_mpc_takeover=false)",
+            consecutive_nlp_failures_);
+      }
     } else {
       current_.state = LifecycleState::KeepLast;
     }
@@ -126,6 +142,9 @@ bool CommittedAvoidanceRoute::try_revise(
   target_heading_trigger_ = false;
   cpa_drift_trigger_ = false;
   cpa_hard_trigger_ = false;
+  // v2.2 §13.2: a successful (nlp_ok) candidate clears the BC-MPC take-over —
+  // the NLP solver has recovered and owns the maneuver again.
+  bc_mpc_takeover_requested_ = false;
 
   const std::uint32_t new_hash = hash_geometry(candidate.geometry);
   const bool first_commit = current_.active_geometry.empty();
@@ -189,12 +208,26 @@ bool CommittedAvoidanceRoute::should_enter_degraded_hold(const double now_s)
   if (current_.state == LifecycleState::DegradedHold) {
     return true;
   }
+  // v2.2 §13.2: if BC-MPC has taken over, the route stays in BcMpcFollow and is
+  // NOT forced into DegradedHold by the stale/escalation gates below — BC-MPC
+  // owns the maneuver. (BC-MPC failing is handled upstream by its own validity
+  // expiry, which clears the takeover flag.)
+  if (current_.state == LifecycleState::BcMpcFollow) {
+    return false;
+  }
   if ((now_s - current_.stale_committed_at_s) > stale_route_max_age_s_) {
     enter_degraded_hold("committed_route_stale_gt_45s");
     return true;
   }
   if (consecutive_nlp_failures_ >= 3U) {
-    enter_degraded_hold("nlp_consecutive_failures_ge_3");
+    // v2.2 §13.2: same KeepLast-policy revision as try_revise — at the escalation
+    // threshold, follow BC-MPC if it has taken over, otherwise DegradedHold.
+    if (bc_mpc_takeover_requested_) {
+      current_.state = LifecycleState::BcMpcFollow;
+      current_.safety_concern_event = "bc_mpc_takeover_active";
+    } else {
+      enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
+    }
     return true;
   }
   if (target_heading_trigger_) {

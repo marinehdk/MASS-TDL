@@ -838,6 +838,25 @@ void MidMpcNode::on_solve_cycle_()
     pub_consecutive_failures_->publish(failures_msg);
   }
 
+  // v2.2 §13.1: BC-MPC take-over signal. kThreshold = 3 (synced with
+  // committed_route's escalation threshold, committed_route.cpp). When the NLP
+  // solver is stuck (consecutive_failures >= 3), signal the committed_route
+  // manager to follow BC-MPC instead of holding a stale NLP corridor (§13.2).
+  // The flag is cleared on the next successful (nlp_ok) revise.
+  //
+  // γ3 minimal viable: primary trigger = consecutive_failures >= 3.
+  // minalt_box_infeasible / speed_gap_infeasible OR conditions are deferred —
+  // they require the solver to expose its derived RowBoundConfig (larger change).
+  constexpr int64_t kBcMpcTakeoverThreshold = 3;
+  if (solver_.consecutive_failures() >= kBcMpcTakeoverThreshold) {
+    if (!committed_route_manager_.bc_mpc_takeover_requested()) {
+      spdlog::warn("[M5][MidMPC] BC-MPC take-over signaled (consecutive_failures={})",
+                   solver_.consecutive_failures());
+    }
+    committed_route_manager_.mark_bc_mpc_takeover();
+  }
+
+
   const double lat = world_state_->own_ship.position.latitude;
   const double lon = world_state_->own_ship.position.longitude;
 

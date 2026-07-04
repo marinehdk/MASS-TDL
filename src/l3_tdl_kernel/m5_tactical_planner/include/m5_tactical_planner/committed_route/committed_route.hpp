@@ -66,6 +66,15 @@ class CommittedAvoidanceRoute {
   [[nodiscard]] bool should_enter_degraded_hold(double now_s);
   [[nodiscard]] std::uint32_t consecutive_nlp_failures() const;
 
+  // v2.2 §13.1/§13.2: signal that BC-MPC has taken over (MidMpcNode dispatch
+  // calls this when solver consecutive_failures >= kThreshold=3). While set, the
+  // escalation branch (consecutive_nlp_failures_ >= 3) routes the route into
+  // LifecycleState::BcMpcFollow instead of DegradedHold — BC-MPC owns the
+  // maneuver, committed_route follows its ReactiveOverrideCmd and does NOT keep a
+  // stale NLP corridor alive. Cleared on a successful revise (nlp_ok candidate).
+  void mark_bc_mpc_takeover() { bc_mpc_takeover_requested_ = true; }
+  [[nodiscard]] bool bc_mpc_takeover_requested() const { return bc_mpc_takeover_requested_; }
+
  private:
   [[nodiscard]] std::uint32_t hash_geometry(const std::vector<GeoWP>& geometry) const;
   [[nodiscard]] bool preflight_candidate(const CommittedRouteCandidate& candidate) const;
@@ -80,6 +89,7 @@ class CommittedAvoidanceRoute {
   bool target_heading_trigger_{false};
   bool cpa_drift_trigger_{false};
   bool cpa_hard_trigger_{false};
+  bool bc_mpc_takeover_requested_{false};  // v2.2 §13.1/§13.2
 };
 
 }  // namespace mass_l3::m5::committed_route
