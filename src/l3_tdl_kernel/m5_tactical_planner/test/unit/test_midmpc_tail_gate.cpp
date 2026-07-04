@@ -12,6 +12,8 @@ using mass_l3::m5::TargetRiskSnapshot;
 using mass_l3::m5::TargetState;
 using mass_l3::m5::TrajectoryPoint;
 using mass_l3::m5::accept_tail_gate;
+using mass_l3::m5::TailGateAcceptance;
+using mass_l3::m5::tail_gate_terminal_lateral_feasible;
 
 namespace {
 
@@ -206,14 +208,17 @@ TEST(TailGate, AcceptsActiveAvoidanceByTerminalCpaEvenIfCurrentCpaSmall)
   risk.closing_speed_mps = 10.0;  // target closing (active approach)
   input.target_risks.push_back(risk);
 
-  // NLP trajectory: own turns starboard, terminal offset ~2 km to starboard
-  // (east), heading east. The maneuver opens the terminal-state CPA well above
-  // the floor (the gate must verify the trajectory, not the pre-maneuver CPA).
+  // NLP trajectory: own turns starboard, terminal offset 300 m to starboard
+  // (east) within the v2.1 §4.5 lateral band [30, 400], heading east. The
+  // maneuver opens the terminal-state CPA well above the floor (the gate must
+  // verify the trajectory, not the pre-maneuver CPA). v2.1 §4.5 caps terminal
+  // lateral at l_max_feasible_m=400 (default) — a 2 km offset would now be
+  // out of band; 300 m stays in band while still opening CPA past the floor.
   MidMpcSolution sol;
   sol.status = MidMpcSolution::Status::Converged;
   TrajectoryPoint term{};
   term.x_m = 100.0;
-  term.y_m = 2000.0;            // own offset 2 km to starboard
+  term.y_m = 300.0;             // own offset 300 m to starboard (in v2.1 band)
   term.psi_rad = M_PI / 2.0;    // heading east
   term.u_mps = 5.0;
   term.t_s = 100.0;
@@ -365,4 +370,75 @@ TEST(TailGateCpaRelease, UsesCpaHardNotBumpedCpaSafe) {
   // Sanity: with cpa_hard=2500 (matching old bumped value), this is FALSE.
   inp.constraints.cpa_hard_m = 2500.0;
   EXPECT_FALSE(tail_gate_cpa_release_clear(sol, inp));
+}
+
+// v2.1 spec §4.5 — terminal lateral band check, role-guarded. Construct a
+// non-empty trajectory with an actual terminal point so the check evaluates
+// real geometry (empty trajectory early-returns true, not a useful test).
+// route_brg=0 (north), normal=+east -> lateral = y_m.
+TEST(TailGateLateral, RejectsOutOfBandGiveWayLateral) {
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 0.0; term.y_m = 500.0; term.t_s = 90.0;  // y=+500 > l_max=400
+  term.psi_rad = 0.0; term.u_mps = 5.0;
+  sol.trajectory.push_back(term);
+  EXPECT_FALSE(tail_gate_terminal_lateral_feasible(
+      sol, /*route_brg_rad=*/0.0, ColregsPreferredDirection::Starboard,
+      /*lateral_active=*/true, /*l_min=*/30.0, /*l_max=*/400.0));
+}
+
+TEST(TailGateLateral, AcceptsInBandGiveWayLateral) {
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 0.0; term.y_m = 100.0; term.t_s = 90.0;  // 100m stbd, in [30,400]
+  term.psi_rad = 0.0; term.u_mps = 5.0;
+  sol.trajectory.push_back(term);
+  EXPECT_TRUE(tail_gate_terminal_lateral_feasible(
+      sol, 0.0, ColregsPreferredDirection::Starboard, true, 30.0, 400.0));
+}
+
+TEST(TailGateLateral, SkipsForNonLateralReduceSpeed) {
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  TrajectoryPoint term{};
+  term.x_m = 0.0; term.y_m = 1000.0; term.t_s = 90.0;  // way out of band
+  term.psi_rad = 0.0; term.u_mps = 5.0;
+  sol.trajectory.push_back(term);
+  // lateral_active=false (ReduceSpeed) -> skip, always accept.
+  EXPECT_TRUE(tail_gate_terminal_lateral_feasible(
+      sol, 0.0, ColregsPreferredDirection::ReduceSpeed, false, 30.0, 400.0));
+}
+
+// v2.1 §4.5: integration test via accept_tail_gate() (the actual wiring point).
+TEST(TailGateLateral, AcceptTailGateRejectsOutOfBandGiveWay) {
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  // Uniform psi=0 (north), constant u=5; inter-step turn = 0 -> turn check OK.
+  // y grows linearly; terminal y=500 > l_max=400 -> out of band.
+  for (int k = 0; k < 8; ++k) {
+    TrajectoryPoint p{};
+    p.x_m = 0.0;
+    p.y_m = static_cast<double>(k) * 71.4;  // 0, 71.4, ..., 500 (k=7)
+    p.psi_rad = 0.0;
+    p.u_mps = 5.0;
+    p.t_s = static_cast<double>(k) * 5.0;
+    sol.trajectory.push_back(p);
+  }
+
+  MidMpcInput inp;
+  inp.colregs_primary_role = 1U;  // give-way
+  inp.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  inp.planned_route_bearing_rad = 0.0;
+  inp.own_ship.psi_rad = 0.0;
+  inp.own_ship.u_mps = 5.0;
+  inp.rot_max_rad_s = 0.4;     // generous ROT so turn check passes
+  inp.decel_max_mps2 = 0.5;    // generous decel
+  inp.constraints.terminal_l_min_feasible_m = 30.0;
+  inp.constraints.terminal_l_max_feasible_m = 400.0;
+
+  const TailGateAcceptance result = accept_tail_gate(sol, inp);
+  EXPECT_FALSE(result.accepted);
+  EXPECT_EQ(result.reason, "terminal_lateral_out_of_band");
 }

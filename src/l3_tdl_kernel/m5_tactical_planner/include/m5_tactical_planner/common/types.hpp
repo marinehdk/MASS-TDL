@@ -119,6 +119,13 @@ struct ConstraintInputs {
   // (Bug C deep, RC-C).
   double cpa_hard_m{1852.0};
 
+  // v2.1 §4.5: terminal lateral feasibility band (6th tail-gate check).
+  // Mirrors MidMpcNlpFormulation::Config defaults (terminal_l_min/max_feasible_m).
+  // Packed by mid_mpc_node from the formulation Config so accept_tail_gate
+  // (which receives MidMpcInput only) can enforce the band the NLP softend.
+  double terminal_l_min_feasible_m{30.0};
+  double terminal_l_max_feasible_m{400.0};
+
   std::vector<TargetState> targets;
 
   // COLREGs rule set received from M6 COLREGsConstraint.
@@ -897,6 +904,29 @@ inline void apply_tail_gate_publish_contract(
   }
 }
 
+// v2.1 spec §4.5 B7-gap2: terminal lateral band feasibility (6th tail-gate
+// check). Uses existing trajectory_terminal_lateral_offset_m(point, route_brg).
+// Role guard via lateral_colreg_active: stand-on / ReduceSpeed / HOLD skip.
+// pref_dir is the enum (Starboard/Port are lateral; ReduceSpeed/Hold are not).
+inline bool tail_gate_terminal_lateral_feasible(
+    const MidMpcSolution& solution,
+    double route_brg_rad,
+    ColregsPreferredDirection pref_dir,
+    bool   lateral_colreg_active,
+    double l_min_feasible_m,
+    double l_max_feasible_m) {
+  if (!lateral_colreg_active) return true;  // C4-r2 role guard: non-lateral skip
+  if (solution.trajectory.empty()) return true;
+  const double lN = trajectory_terminal_lateral_offset_m(
+      solution.trajectory.back(), route_brg_rad);
+  const double signed_pref = (pref_dir == ColregsPreferredDirection::Starboard) ? +1.0
+                           : (pref_dir == ColregsPreferredDirection::Port)       ? -1.0
+                           : 0.0;
+  if (signed_pref * lN < l_min_feasible_m) return false;  // wrong side / insufficient
+  if (lN < -l_max_feasible_m || lN > l_max_feasible_m) return false;  // out of band
+  return true;
+}
+
 inline TailGateAcceptance accept_tail_gate(
     const MidMpcSolution& solution,
     const MidMpcInput& input) {
@@ -947,6 +977,25 @@ inline TailGateAcceptance accept_tail_gate(
   if (!tail_gate_turns_are_feasible(
           solution.trajectory, input.own_ship.psi_rad, input.rot_max_rad_s)) {
     result.reason = "turn_radius_infeasible";
+    return result;
+  }
+
+  // v2.1 §4.5: 6th check — terminal lateral band. Backstops the NLP terminal
+  // rows being softened (terminal_nlp_soft=true default). lateral_active
+  // mirrors the solver give-way-lateral condition (mid_mpc_solver.cpp:195):
+  //   role == 1U || role == 2U  AND  pref_dir ∈ {Starboard, Port}
+  const bool lateral_colreg_active =
+      (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U) &&
+      (input.colregs_preferred_direction == ColregsPreferredDirection::Starboard ||
+       input.colregs_preferred_direction == ColregsPreferredDirection::Port);
+  if (!tail_gate_terminal_lateral_feasible(
+          solution,
+          input.planned_route_bearing_rad,
+          input.colregs_preferred_direction,
+          lateral_colreg_active,
+          input.constraints.terminal_l_min_feasible_m,
+          input.constraints.terminal_l_max_feasible_m)) {
+    result.reason = "terminal_lateral_out_of_band";
     return result;
   }
 

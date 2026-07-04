@@ -637,6 +637,11 @@ MidMpcInput MidMpcNode::assemble_input_()
   // cpa_safe above. compile_cpa_distance reads cpa_hard_m; the 2500 bump is for
   // the SOFT colreg barrier only (Bug C deep, RC-C; spec §L84).
   inp.constraints.cpa_hard_m       = kCpaSafeFallback_m;
+  // v2.1 §4.5: terminal lateral feasibility band packed from the formulation
+  // Config so accept_tail_gate (which receives MidMpcInput only) can enforce
+  // the band the NLP softened terminal rows no longer hard-enforce.
+  inp.constraints.terminal_l_min_feasible_m = formulation_.config().terminal_l_min_feasible_m;
+  inp.constraints.terminal_l_max_feasible_m = formulation_.config().terminal_l_max_feasible_m;
 
   const bool has_route = planned_route_ != nullptr
       && planned_route_->route.poses.size() >= 2u;
