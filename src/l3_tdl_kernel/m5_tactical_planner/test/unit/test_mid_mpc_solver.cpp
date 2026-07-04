@@ -597,3 +597,62 @@ TEST_F(MidMpcNlpTest, FixE_FirstStepRot_ReachableBox_ConvergesAndPsi0Bounded) {
   EXPECT_LE(std::fabs(psi0 - 0.0), rot_step + 1.0e-6)
       << "Fix E: |psi[0]-own_psi| must respect rot_max·dt";
 }
+
+// v2.1 spec §4.2/§4.3 — auto-derive k_minalt + k_cpa from input.
+using mass_l3::m5::mid_mpc::derive_row_bound_config;
+using mass_l3::m5::mid_mpc::RowBoundConfig;
+
+namespace {
+// 4.7°/s in rad; 30° in rad (avoid units:: namespace leakage into the test).
+constexpr double kRot47radPerS = 4.7 * M_PI / 180.0;
+constexpr double kMinAlt30rad  = 30.0 * M_PI / 180.0;
+}  // namespace
+
+TEST_F(MidMpcNlpTest, DeriveMinaltKStarForRot4p7) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, /*n_horizon=*/18, /*dt_s=*/5.0);
+  ASSERT_FALSE(cfg.minalt_override_valid);
+  // rot_step = 0.0820*5 = 0.4105 rad; min_alt=0.5236
+  // k* = ceil(0.5236/0.4105) - 1 = ceil(1.275) - 1 = 2 - 1 = 1
+  EXPECT_EQ(cfg.minalt_hard_from_k, 1);
+}
+
+TEST_F(MidMpcNlpTest, DeriveCpaKCPAUsesTcpaMargin) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  TargetState tgt{};
+  tgt.tcpa_s = 15.0;
+  inp.targets.push_back(tgt);
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  ASSERT_FALSE(cfg.cpa_override_valid);
+  // k_minalt=1; k_tcpa = ceil(15/5) - 1 = 2; k_cpa=max(1,2)=2.
+  EXPECT_EQ(cfg.cpa_hard_from_k, 2);
+}
+
+TEST_F(MidMpcNlpTest, DeriveDisabledForReduceSpeed) {
+  MidMpcInput inp = make_base_input();
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::ReduceSpeed;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_TRUE(cfg.direction_disabled);  // B9: ReduceSpeed disables direction
+}
+
+TEST_F(MidMpcNlpTest, DeriveCpaConservativeWhenAllTcpaNonPositive) {
+  // B3-r3: all targets tcpa<=0 -> conservative cpa_hard_from_k=0 (v2 legacy)
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  TargetState tgt{};
+  tgt.tcpa_s = 0.0;  // already past
+  inp.targets.push_back(tgt);
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.cpa_hard_from_k, 0);  // conservative fallback
+}

@@ -2,10 +2,13 @@
 // (dynamic-link boundary).
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <string>
 
 #include <casadi/casadi.hpp>
@@ -172,44 +175,27 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   if (K_eff > 0) {
     rb_eff.colreg_prefix_softened = true;  // §6.4: soften prefix COLREG rows
   }
-  // Slice T1 + D1 (spec §3.3 / §5.5 / §7.1): the terminal hard rows (T1) and the
-  // direction / min_alt rows (D1) share the SAME activation condition — a give-
-  // way role (primary_role ∈ {GIVE_WAY, BOTH_GIVE_WAY}) + a LATERAL preferred
-  // direction (Starboard/Port, NOT Hold/ReduceSpeed) + preferred_direction≠0.
-  // When that condition fails (stand-on / Hold / ReduceSpeed / no side pref) the
-  // rows are disabled (lbg/ubg → [-inf,+inf]); otherwise g_minalt would read
-  // -min_alt < 0 at own_psi and the §3.3 "min_alt>0 && direction==0 ⇒ infeasible"
-  // case would trip. The booleans are derived ONCE here and feed both flags so
-  // the two row classes stay in lockstep (a caller may still override either flag
-  // explicitly; we only auto-set when the caller left it at the default false).
-  //
-  // pref_active already excludes Hold/ReduceSpeed (only Starboard/Port qualify),
-  // but lateral_behavior is checked explicitly too — belt-and-suspenders so the
-  // §3.3 "non-HOLD" condition is self-documenting and robust to a future enum
-  // change that widens pref_active (e.g. adding Hold to Starboard).
-  const bool pref_active =
-      (input.colregs_preferred_direction ==
-           mass_l3::m5::ColregsPreferredDirection::Starboard ||
-       input.colregs_preferred_direction ==
-           mass_l3::m5::ColregsPreferredDirection::Port);
-  const bool give_way_role =
-      (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
-  const bool lateral_behavior =
-      (input.colregs_preferred_direction !=
-           mass_l3::m5::ColregsPreferredDirection::Hold &&
-       input.colregs_preferred_direction !=
-           mass_l3::m5::ColregsPreferredDirection::ReduceSpeed);
-  const bool lateral_colreg_active =
-      pref_active && give_way_role && lateral_behavior;  // §3.3 activation
-  if (!rb_eff.terminal_disabled && !lateral_colreg_active) {
-    rb_eff.terminal_disabled = true;  // §3.3/§5.5: not a give-way terminal scenario
-  }
-  // Slice D1: direction / min_alt rows disabled under the SAME condition. Kept
-  // separate from terminal_disabled so the two are independently overridable,
-  // though in practice they always activate together.
-  if (!rb_eff.direction_disabled && !lateral_colreg_active) {
-    rb_eff.direction_disabled = true;  // §3.3/§7.1: not a give-way lateral scenario
-  }
+  // v2.1 §4.2/§4.3: derive defaults from input, then merge caller row_bounds
+  // on top. Caller K/colreg_prefix_softened precedence preserved above (K_eff
+  // propagation). For direction/terminal_disabled + the v2.1 schedule fields,
+  // caller wins only when explicitly set: caller true on direction/terminal
+  // wins; v2.1 schedule fields honor *_override_valid.
+  const RowBoundConfig derived = derive_row_bound_config(
+      input, formulation_.config().n_horizon, formulation_.config().dt_s);
+  // direction_disabled / terminal_disabled: bool fields have no sentinel, so
+  // caller explicit-true wins (matches the original auto-disable contract: the
+  // caller could force-disable but could not force-enable). If the caller left
+  // it false, derived overwrites (give-way lateral → false, else → true).
+  if (!rb_eff.direction_disabled) { rb_eff.direction_disabled = derived.direction_disabled; }
+  if (!rb_eff.terminal_disabled)  { rb_eff.terminal_disabled  = derived.terminal_disabled; }
+  // v2.1 schedule merge: caller override_valid wins, else use derived.
+  rb_eff.minalt_hard_from_k = rb_eff.minalt_override_valid
+      ? rb_eff.minalt_hard_from_k : derived.minalt_hard_from_k;
+  rb_eff.cpa_hard_from_k = rb_eff.cpa_override_valid
+      ? rb_eff.cpa_hard_from_k : derived.cpa_hard_from_k;
+  // terminal_nlp_soft: caller explicit always wins (it's a bool with no
+  // "override_valid" sentinel; default true from Task 7 flip).
+  // (rb_eff.terminal_nlp_soft already equals row_bounds.terminal_nlp_soft.)
   const BoundArray bounds =
       formulation_.row_registry().build_bounds(rb_eff);
   const int32_t nb = static_cast<int32_t>(bounds.lbg.size());
@@ -291,6 +277,76 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
     }
   }
   return sol;
+}
+
+// v2.1 spec §4.2/§4.3: derive k_minalt + k_cpa from input. Returns a cfg with
+// override_valid=false for the v2.1 fields; solve() merges caller row_bounds
+// on top (caller fields with override_valid=true win; K/colreg_prefix_softened
+// keep their existing caller-precedence from the original solve() block).
+RowBoundConfig derive_row_bound_config(
+    const MidMpcInput& input,
+    int32_t n_horizon,
+    double dt_s) {
+  RowBoundConfig cfg;
+  // Replicate the EXISTING direction/terminal derivation (mid_mpc_solver.cpp
+  // pre-Task-8 lines 190-211): give-way lateral active ↔ role∈{1,2} AND pref_dir
+  // ∈ {Starboard,Port} AND not Hold/ReduceSpeed.
+  const bool pref_active =
+      (input.colregs_preferred_direction == mass_l3::m5::ColregsPreferredDirection::Starboard ||
+       input.colregs_preferred_direction == mass_l3::m5::ColregsPreferredDirection::Port);
+  const bool give_way_role =
+      (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U);
+  const bool lateral_behavior =
+      (input.colregs_preferred_direction != mass_l3::m5::ColregsPreferredDirection::Hold &&
+       input.colregs_preferred_direction != mass_l3::m5::ColregsPreferredDirection::ReduceSpeed);
+  const bool lateral_colreg_active = give_way_role && pref_active && lateral_behavior;
+  cfg.direction_disabled = !lateral_colreg_active;
+  cfg.terminal_disabled = !lateral_colreg_active;
+  // K / colreg_prefix_softened are NOT derived here — solve() keeps its existing
+  // K_eff derivation from prefix_active_k + caller row_bounds.K precedence.
+  cfg.K = 0;
+  cfg.colreg_prefix_softened = false;
+
+  // v2.1 §4.2 k_minalt = ceil(min_alt/rot_step) - 1, clamped [0, N].
+  // rot_step = rot_max_rad_s · dt. Only lateral give-way needs the schedule;
+  // stand-on/HOLD/ReduceSpeed are direction_disabled above (apply_direction_disable_
+  // double-disables min_alt rows, schedule is a no-op).
+  if (!cfg.direction_disabled) {
+    const double rot_step = input.rot_max_rad_s * dt_s;
+    if (rot_step > 1e-9) {
+      const int32_t k_minalt = static_cast<int32_t>(
+          std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
+      cfg.minalt_hard_from_k = std::max(0, std::min(k_minalt, n_horizon));
+    }
+  }
+
+  // v2.1 §4.3 k_cpa = max(k_minalt, k_tcpa_margin), where
+  //   k_tcpa_margin = ceil(min(tcpa_primary, t_cap)/dt) - 1
+  // Spec §4.3 B8-r2: if all targets have tcpa_s <= 0 (already past) or no
+  // targets, derive fails -> conservative default cpa_hard_from_k = k_minalt
+  // (mirrors min_alt reachability floor; avoids v2 legacy 0 which would over-
+  // harden when min_alt itself is reachable). When targets exist but all tcpa
+  // <= 0, fall back to cpa_hard_from_k = 0 (v2 legacy all-hard) per spec §4.3.
+  if (!cfg.direction_disabled && !input.targets.empty()) {
+    double tcpa_min = std::numeric_limits<double>::infinity();
+    for (const auto& t : input.targets) {
+      if (t.tcpa_s > 0.0) tcpa_min = std::min(tcpa_min, t.tcpa_s);
+    }
+    if (std::isfinite(tcpa_min)) {
+      const double t_cap = static_cast<double>(n_horizon) * dt_s;
+      const double tcpa_eff = std::min(tcpa_min, t_cap);
+      int32_t k_tcpa = static_cast<int32_t>(std::ceil(tcpa_eff / dt_s)) - 1;
+      k_tcpa = std::max(0, std::min(k_tcpa, n_horizon));
+      cfg.cpa_hard_from_k = std::max(cfg.minalt_hard_from_k, k_tcpa);
+    } else {
+      // All tcpa_s <= 0 (targets past) -> conservative all-hard per spec §4.3.
+      cfg.cpa_hard_from_k = 0;
+    }
+  } else if (!cfg.direction_disabled) {
+    // Lateral give-way but no targets: CPA floor moot, mirror min_alt deadline.
+    cfg.cpa_hard_from_k = cfg.minalt_hard_from_k;
+  }
+  return cfg;
 }
 
 }  // namespace mass_l3::m5::mid_mpc

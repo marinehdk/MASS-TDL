@@ -82,6 +82,15 @@ class MidMpcSolver {
   [[nodiscard]] int32_t g_dim_() const noexcept;
 };
 
+// v2.1 spec §4.2/§4.3: derive k_minalt + k_cpa from input when caller doesn't
+// override. Returns RowBoundConfig with override_valid=false for derived fields;
+// solve() merges caller row_bounds on top (caller fields with override_valid=true
+// win; K/colreg_prefix_softened keep their existing caller-precedence).
+RowBoundConfig derive_row_bound_config(
+    const MidMpcInput& input,
+    int32_t n_horizon,
+    double dt_s);
+
 }  // namespace mass_l3::m5::mid_mpc
 
 #endif  // MASS_L3_M5_MID_MPC_SOLVER_HPP_
