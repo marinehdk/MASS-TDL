@@ -61,6 +61,23 @@ struct RowBoundConfig {
   // practice the two flags are set together; kept separate so D1 can independently
   // control the k=N-1 terminal rows if a future slice decouples them.
   bool terminal_disabled{false};
+  // ── v2.1 spec §4.2/§4.3/§4.5: reachable/suffix-hard schedules + terminal soften ──
+  // min_alt reachable schedule deadline (spec §4.2). Rows k < minalt_hard_from_k
+  // are softened to [-inf,+inf]; k >= minalt_hard_from_k stay hard [0,+inf].
+  // Default 0 = legacy v2 hard-all (regression baseline). Solver auto-derives
+  // k*=ceil(min_alt/rot_step)-1 when minalt_override_valid=false (Task 4).
+  int32_t minalt_hard_from_k{0};
+  bool    minalt_override_valid{false};
+  // CPA floor suffix-hard schedule deadline (spec §4.3). k < cpa_hard_from_k
+  // softened; k >= cpa_hard_from_k hard. Default 0 = legacy v2 hard-all.
+  int32_t cpa_hard_from_k{0};
+  bool    cpa_override_valid{false};
+  // Terminal NLP rows softened to [-inf,+inf] for give-way lateral (spec §4.5).
+  // Default FALSE initially (Task 1) — flipped to TRUE in Task 7 after the
+  // upper-band cost (Task 5) + tail-gate lateral (Task 7) land, so we never
+  // ship an intermediate state with terminal soften but no upper-band pressure
+  // (Concern 1 from Codex plan round-1/round-2).
+  bool    terminal_nlp_soft{false};
 };
 
 // ---------------------------------------------------------------------------

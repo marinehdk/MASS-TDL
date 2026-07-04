@@ -316,3 +316,15 @@ TEST(RowRegistry, boundArraySizeMatchesTotalRows) {
   EXPECT_EQ(static_cast<int>(b.lbg.size()), reg.total_rows());
   EXPECT_EQ(static_cast<int>(b.ubg.size()), reg.total_rows());
 }
+
+// v2.1 spec §4.2/§4.3/§4.5 — new RowBoundConfig fields default values.
+// NOTE: terminal_nlp_soft defaults FALSE in Task 1; flipped to TRUE in Task 7
+// after upper-band cost (Task 5) + tail-gate lateral (Task 7) land.
+TEST(RowRegistry, V21FieldsHaveCorrectDefaults) {
+  RowBoundConfig cfg;
+  EXPECT_EQ(cfg.minalt_hard_from_k, 0);
+  EXPECT_FALSE(cfg.minalt_override_valid);
+  EXPECT_EQ(cfg.cpa_hard_from_k, 0);
+  EXPECT_FALSE(cfg.cpa_override_valid);
+  EXPECT_FALSE(cfg.terminal_nlp_soft);  // Task 1: false; Task 7 flips to true
+}
