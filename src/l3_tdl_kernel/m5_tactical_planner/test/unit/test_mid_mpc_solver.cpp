@@ -809,3 +809,18 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKRotReachWhenBoxAllows) {
   EXPECT_FALSE(cfg.minalt_box_infeasible);
   EXPECT_EQ(cfg.minalt_hard_from_k, 1);
 }
+
+TEST_F(MidMpcNlpTest, MinaltHardFromKBoxExactlyAtMinAltNotInfeasible) {
+  // v2.2 §4.6 boundary: box_reach == min_alt → strict <, not infeasible.
+  // min_alt 用 kMinAlt30rad (= 30°·π/180) 使与 box_reach 30°·kRadPerDeg 严格相等,
+  // 否则字面 0.524 > 0.5236 会使 strict < 误触发 infeasible (浮点语义).
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.rot_max_rad_s = 0.0820;  // 4.7°/s
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.heading_box_reachable_from_psi0_deg = 30.0;  // == min_alt 边界
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_FALSE(cfg.minalt_box_infeasible);
+  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // k_minalt_rot, 非 N
+}
