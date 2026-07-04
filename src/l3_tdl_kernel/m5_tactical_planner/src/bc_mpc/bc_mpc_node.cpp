@@ -44,11 +44,12 @@ BcMpcNode::BcMpcNode(const Config& cfg)
       });
 
   // v2.2 §13.1: BC-MPC Phase E2 wiring. Subscribe to Mid-MPC's consecutive
-  // failures counter (best-effort) and cache atomically. assemble_input_ reads
-  // this instead of the Phase E1 stub = 0. Activation logic (is_bc_active_ when
-  // failures >= kThreshold) is γ3.
+  // failures counter and cache atomically. assemble_input_ reads this instead
+  // of the Phase E1 stub = 0. Activation logic (is_bc_active_ when failures
+  // >= kThreshold) is γ3. Reliable QoS (Codex 🟡1): safety-relevant dispatch
+  // signal — a dropped sample could leave BC-MPC stale at 0 and delay take-over.
   sub_mid_mpc_failures_ = create_subscription<std_msgs::msg::UInt64>(
-      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).best_effort(),
+      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).reliable(),
       [this](const std_msgs::msg::UInt64::SharedPtr msg) {
         mid_mpc_consecutive_failures_atomic_.store(
             msg->data, std::memory_order_relaxed);

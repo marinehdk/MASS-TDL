@@ -488,10 +488,13 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/l3/asdr/record", 10);
   pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/l3/sat/data", 10);
   pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
-  // v2.2 §13.1: BC-MPC Phase E2 wiring. Best-effort QoS so a slow/missing BC-MPC
-  // subscriber never back-pressures the Mid-MPC solve cycle.
+  // v2.2 §13.1: BC-MPC Phase E2 wiring. Reliable QoS (Codex 🟡1): this is a
+  // safety-relevant dispatch signal — a dropped consecutive_failures sample
+  // could leave BC-MPC stale at 0 and delay take-over. The signal is low-
+  // frequency (~1-4 Hz, one msg per Mid-MPC cycle) so reliable backpressure
+  // cannot starve the solve cycle; the 10-deep buffer absorbs bursts.
   pub_consecutive_failures_ = create_publisher<std_msgs::msg::UInt64>(
-      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).best_effort());
+      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).reliable());
 
   nomoto_cfg_.n_steps = 12;
   nomoto_cfg_.dt_s    = 5.0;
