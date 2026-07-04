@@ -366,3 +366,25 @@ TEST(RowRegistry, MinaltScheduleIgnoredWhenDirectionDisabled) {
     EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "k=" << k;
   }
 }
+
+// v2.1 spec §4.3 — CPA suffix-hard. Row order: cpa_row(t,k)=cpa_start+k*n_targets+t
+TEST(RowRegistry, CpaSuffixHardSoftensBeforeDeadline) {
+  RowRegistry reg;
+  reg.reset(/*N=*/18, /*n_targets=*/2, /*n_rule=*/0, /*n_zone=*/0);
+  RowBoundConfig cfg;
+  cfg.cpa_hard_from_k = 3;  // k<3 soft, k>=3 hard
+  cfg.cpa_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t k = 0; k < 18; ++k) {
+    for (int32_t t = 0; t < 2; ++t) {
+      const std::size_t r = static_cast<std::size_t>(reg.cpa_row(t, k));
+      if (k < 3) {
+        EXPECT_EQ(b.lbg[r], -std::numeric_limits<double>::infinity()) << "k=" << k << " t=" << t;
+        EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "k=" << k << " t=" << t;
+      } else {
+        EXPECT_EQ(b.lbg[r], 0.0) << "k=" << k << " t=" << t;
+        EXPECT_EQ(b.ubg[r], std::numeric_limits<double>::infinity()) << "k=" << k << " t=" << t;
+      }
+    }
+  }
+}

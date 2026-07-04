@@ -198,6 +198,7 @@ class RowRegistry {
 
     apply_prefix_equality_(cfg_eff, b);
     if (cfg_eff.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg_eff, b); }
+    apply_cpa_suffix_hard_(cfg_eff, b);  // v2.1 §4.3
     if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
     else { apply_minalt_reachable_schedule_(cfg_eff, b); }  // v2.1 §4.2
     if (cfg_eff.terminal_disabled) { apply_terminal_disable_(b); }
@@ -270,6 +271,22 @@ class RowRegistry {
         const std::size_t rm = static_cast<std::size_t>(min_alt_row(k));
         b.lbg[rm] = -kInf;
         b.ubg[rm] =  kInf;
+      }
+    }
+  }
+
+  // v2.1 spec §4.3: CPA suffix-hard (receding constraint). k<deadline soft
+  // (J_colreg barrier drives opening); k>=deadline hard floor. Composes with
+  // apply_colreg_prefix_soften_ (OR: row soft if k<K or k<k_cpa).
+  // Row order: cpa_row(t,k) = cpa_start + k*n_targets_ + t (line 137).
+  void apply_cpa_suffix_hard_(const RowBoundConfig& cfg, BoundArray& b) const {
+    for (int32_t k = 0; k < N_; ++k) {
+      if (k < cfg.cpa_hard_from_k) {
+        for (int32_t t = 0; t < n_targets_; ++t) {
+          const std::size_t r = static_cast<std::size_t>(cpa_row(t, k));
+          b.lbg[r] = -kInf;
+          b.ubg[r] =  kInf;
+        }
       }
     }
   }
