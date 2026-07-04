@@ -43,6 +43,17 @@ BcMpcNode::BcMpcNode(const Config& cfg)
         on_mid_mpc_plan_(std::move(msg));
       });
 
+  // v2.2 §13.1: BC-MPC Phase E2 wiring. Subscribe to Mid-MPC's consecutive
+  // failures counter (best-effort) and cache atomically. assemble_input_ reads
+  // this instead of the Phase E1 stub = 0. Activation logic (is_bc_active_ when
+  // failures >= kThreshold) is γ3.
+  sub_mid_mpc_failures_ = create_subscription<std_msgs::msg::UInt64>(
+      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).best_effort(),
+      [this](const std_msgs::msg::UInt64::SharedPtr msg) {
+        mid_mpc_consecutive_failures_atomic_.store(
+            msg->data, std::memory_order_relaxed);
+      });
+
   pub_override_ = create_publisher<l3_msgs::msg::ReactiveOverrideCmd>(
       "/l3/m5/reactive_override_cmd", 10);
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
@@ -152,7 +163,13 @@ BcMpcInput BcMpcNode::assemble_input_()
   }
   inp.predicted_short_horizon_cpa_m = min_cpa;
 
-  inp.mid_mpc_consecutive_failures = 0;  // Phase E1; Phase E2 reads shared state
+  // v2.2 §13.1: BC-MPC Phase E2 — read the live consecutive_failures from the
+  // atomic cache (subscribed from /l3/m5/mid_mpc/consecutive_failures). Replaces
+  // the Phase E1 stub (=0). Relaxed load: a slightly stale value only delays
+  // take-over by one cycle, which is acceptable (BC-MPC still gates on its own
+  // CPA check before issuing an Override).
+  inp.mid_mpc_consecutive_failures = static_cast<std::int32_t>(
+      mid_mpc_consecutive_failures_atomic_.load(std::memory_order_relaxed));
   inp.stamp_ns = this->get_clock()->now().nanoseconds();
 
   return inp;

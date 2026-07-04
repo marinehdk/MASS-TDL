@@ -21,6 +21,7 @@
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/u_int64.hpp"
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
@@ -87,6 +88,10 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
+  // v2.2 §13.1: publish consecutive_failures so BC-MPC (Phase E2) can take over
+  // when the NLP solver is stuck. Best-effort QoS — BC-MPC treats a stale/missing
+  // value as 0 (no take-over).
+  rclcpp::Publisher<std_msgs::msg::UInt64>::SharedPtr         pub_consecutive_failures_;
 
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr             sub_world_;
   rclcpp::Subscription<l3_msgs::msg::BehaviorPlan>::SharedPtr           sub_behavior_;

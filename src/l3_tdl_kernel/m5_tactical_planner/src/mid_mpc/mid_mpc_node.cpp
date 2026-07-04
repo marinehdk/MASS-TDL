@@ -488,6 +488,10 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   pub_asdr_record_    = create_publisher<l3_msgs::msg::ASDRRecord>("/l3/asdr/record", 10);
   pub_sat_data_       = create_publisher<l3_msgs::msg::SATData>("/l3/sat/data", 10);
   pub_sat3_data_      = create_publisher<l3_msgs::msg::SAT3Data>("/sil/sat3_data", 10);
+  // v2.2 §13.1: BC-MPC Phase E2 wiring. Best-effort QoS so a slow/missing BC-MPC
+  // subscriber never back-pressures the Mid-MPC solve cycle.
+  pub_consecutive_failures_ = create_publisher<std_msgs::msg::UInt64>(
+      "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).best_effort());
 
   nomoto_cfg_.n_steps = 12;
   nomoto_cfg_.dt_s    = 5.0;
@@ -822,6 +826,16 @@ void MidMpcNode::on_solve_cycle_()
   } else {
     sol = solver_.solve(input, warm);
     last_solution_ = sol;
+  }
+
+  // v2.2 §13.1: broadcast consecutive_failures so BC-MPC (Phase E2) can decide
+  // take-over. Published every cycle (best-effort); BC-MPC caches atomically and
+  // treats a stale/missing value as 0. The counter is maintained inside solve().
+  {
+    std_msgs::msg::UInt64 failures_msg;
+    failures_msg.data = static_cast<std::uint64_t>(
+        solver_.consecutive_failures() > 0 ? solver_.consecutive_failures() : 0);
+    pub_consecutive_failures_->publish(failures_msg);
   }
 
   const double lat = world_state_->own_ship.position.latitude;

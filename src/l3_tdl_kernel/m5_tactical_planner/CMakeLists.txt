@@ -36,6 +36,7 @@ endif()
 # ---------------------------------------------------------------------------
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
 find_package(ship_interfaces REQUIRED)
@@ -170,6 +171,7 @@ if(M5_HAS_CASADI)
   )
   ament_target_dependencies(m5_mid_mpc_node
     rclcpp
+    std_msgs
     l3_msgs
     l3_external_msgs
     ship_interfaces
@@ -195,6 +197,7 @@ target_include_directories(m5_bc_mpc_node
 )
 ament_target_dependencies(m5_bc_mpc_node
   rclcpp
+  std_msgs
   l3_msgs
   l3_external_msgs
   builtin_interfaces
