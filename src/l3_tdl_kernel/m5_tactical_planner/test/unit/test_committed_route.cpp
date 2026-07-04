@@ -528,3 +528,32 @@ TEST(CommittedRouteV22, NoKeepLastStaleCorridorAtConsecutive3) {
   EXPECT_NE(manager_bc.current().state, LifecycleState::KeepLast);
   EXPECT_EQ(manager_bc.current().state, LifecycleState::BcMpcFollow);
 }
+
+// v2.2 §13.2 (Codex integration blocker 2): once in BcMpcFollow, the committed
+// route must STAY in BcMpcFollow — the stale/escalation gate
+// (should_enter_degraded_hold) must NOT force it back to DegradedHold. This is
+// the precondition for the publish path: MidMpcNode::publish_keep_last_ guards
+// on state==BcMpcFollow to suppress republishing the stale NLP corridor. If the
+// gate could transition it away, the guard would be ineffective. BC-MPC owns the
+// maneuver via ReactiveOverrideCmd (架构 §L4); a stale NLP corridor must never be
+// resurrected while BC-MPC is driving.
+TEST(CommittedRouteV22, BcMpcFollowStableAcrossStaleGate) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false), 1.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-2", route_b_with_same_prefix(), 2U, 30.0, false), 2.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-3", route_b_with_same_prefix(), 2U, 30.0, false), 3.0));
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // The stale gate must keep returning false past the 45s stale threshold while
+  // BC-MPC owns the maneuver — DegradedHold would resurrect the stale corridor
+  // via publish_keep_last_, violating §13.2.
+  EXPECT_FALSE(manager.should_enter_degraded_hold(1000.0))
+      << "v2.2 §13.2: BcMpcFollow must not be forced into DegradedHold by the stale gate";
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "state unchanged after stale gate probe";
+}

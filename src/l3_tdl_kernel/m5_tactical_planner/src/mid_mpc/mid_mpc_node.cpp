@@ -1211,6 +1211,38 @@ void MidMpcNode::publish_avoidance_plan_(
 // keep-last marker rather than a missing topic.
 // ===========================================================================
 void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason) {
+  // v2.2 §13.2: BcMpcFollow must NOT republish a stale NLP corridor (Codex
+  // integration blocker 2). When the committed route has transitioned to
+  // BcMpcFollow, BC-MPC owns the maneuver via ReactiveOverrideCmd (架构 §L4)
+  // and drives L4 directly. Republishing the last committed active_geometry
+  // here would resurrect a stale corridor that the NLP could not make feasible
+  // — exactly the failure that triggered the take-over. So emit an empty
+  // BcMpcFollow-status heartbeat (bridge sees no valid NLP plan; BC-MPC
+  // override is the active path) and return BEFORE touching active_geometry.
+  if (committed_route_manager_.current().state ==
+      mass_l3::m5::committed_route::LifecycleState::BcMpcFollow) {
+    l3_msgs::msg::AvoidancePlan bc_plan;
+    bc_plan.schema_version = 114;
+    bc_plan.stamp = now;
+    bc_plan.status = "BcMpcFollow";
+    bc_plan.confidence = 0.0F;
+    bc_plan.command_source = "m5_bcmpc_override";
+    bc_plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+    bc_plan.nlp_tail_gate_failed = true;
+    bc_plan.rationale =
+        "BC-MPC take-over active; NLP corridor suppressed (v2.2 §13.2, " +
+        reason + ")";
+    bc_plan.plan_id = "m5_bcmpc_follow";
+    bc_plan.parent_route_id = "nominal";
+    bc_plan.behavior_mode = "collision_avoidance";
+    bc_plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+    // waypoints left empty — release NLP corridor; BC-MPC override drives L4.
+    spdlog::warn("[M5][CommittedRoute] BcMpcFollow - suppress stale corridor publish (reason={})",
+                 reason);
+    publish_avoidance_plan_(bc_plan, std::string{"bcmpc_follow:"} + reason);
+    return;  // CRITICAL: skip the stale active_geometry republish below.
+  }
+
   l3_msgs::msg::AvoidancePlan plan;
   plan.schema_version = 114;
   plan.stamp = now;
