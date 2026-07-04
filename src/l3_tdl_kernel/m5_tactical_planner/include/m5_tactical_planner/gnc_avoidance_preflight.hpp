@@ -215,45 +215,54 @@ inline GncAvoidancePreflightResult validate_gnc_avoidance_plan(
     const WaypointLatLon& origin,
     const std::vector<WaypointLatLon>& wps,
     const std::vector<double>& speeds,
-    const GncAvoidancePreflightConfig& cfg = {}) {
-  if (wps.size() < 2U) {
+    const GncAvoidancePreflightConfig& cfg = {},
+    bool wps_has_anchor = false) {
+  // Phase 2 anchor contract (spec §3.3): when wps_has_anchor=true, wps[0] is
+  // the own ship anchor. Skip it for first_distance/segment/turn_radius/XTE
+  // checks. Effective maneuver list is wps[anchor_offset..end].
+  const std::size_t anchor_offset = wps_has_anchor ? 1U : 0U;
+  if (wps.size() < 2U + anchor_offset) {
     return {false, "invalid_avoidance_route", 0U, 2.0, static_cast<double>(wps.size())};
   }
   if (!speeds.empty() && speeds.size() != wps.size()) {
     return {false, "speed_length_mismatch", 0U, static_cast<double>(wps.size()), static_cast<double>(speeds.size())};
   }
 
-  const double first_speed = speed_at_or_default(speeds, 0U, cfg);
+  // Phase 2: when has_anchor, first maneuver is wps[anchor_offset] (skip wps[0]).
+  const std::size_t first_idx = anchor_offset;
+  const double first_speed = speed_at_or_default(speeds, first_idx, cfg);
   const bool high_speed_flyby =
       first_speed > cfg.emergency_guidance_speed_cap_mps + 1.0e-6;
   const double first_required = high_speed_flyby
       ? cfg.high_speed_flyby_min_segment_m
       : cfg.emergency_wheel_over_distance_m;
-  const double first_distance = gnc_distance_m(origin, wps.front(), origin.lat);
+  const double first_distance = gnc_distance_m(origin, wps[first_idx], origin.lat);
   if (first_distance + 1.0e-6 < first_required) {
     return {
         false,
         "first_maneuver_point_too_close",
-        0U,
+        first_idx,
         first_required,
         first_distance};
   }
 
-  const double ref_lat = wps.front().lat;
-  if (high_speed_flyby && wps.size() >= 2U) {
+  // Phase 2: XTE segment uses wps[first_idx] and wps[first_idx+1] (skip anchor).
+  const double ref_lat = wps[first_idx].lat;
+  if (high_speed_flyby && wps.size() >= first_idx + 2U) {
     const double initial_raw_xte =
-        gnc_cross_track_to_segment_m(origin, wps[0U], wps[1U], ref_lat);
+        gnc_cross_track_to_segment_m(origin, wps[first_idx], wps[first_idx + 1U], ref_lat);
     if (initial_raw_xte > cfg.raw_route_rejoin_threshold_m + 1.0e-6) {
       return {
           false,
           "initial_raw_route_xte_too_large",
-          0U,
+          first_idx,
           cfg.raw_route_rejoin_threshold_m,
           initial_raw_xte};
     }
   }
 
-  for (std::size_t i = 0U; i + 1U < wps.size(); ++i) {
+  // Phase 2: segment loop starts at first_idx (skip anchor if present).
+  for (std::size_t i = first_idx; i + 1U < wps.size(); ++i) {
     const double segment = gnc_distance_m(wps[i], wps[i + 1U], ref_lat);
     if (segment + 1.0e-6 < cfg.emergency_min_segment_length_m) {
       return {false, "segment_too_short", i, cfg.emergency_min_segment_length_m, segment};
@@ -267,12 +276,13 @@ inline GncAvoidancePreflightResult validate_gnc_avoidance_plan(
     }
   }
 
-  if (wps.size() >= 2U) {
+  // Phase 2: turn_radius uses wps[first_idx] and wps[first_idx+1] (skip anchor).
+  if (wps.size() >= first_idx + 2U) {
     const double available =
-        gnc_available_turn_radius_m(origin, wps.front(), wps[1U], ref_lat);
+        gnc_available_turn_radius_m(origin, wps[first_idx], wps[first_idx + 1U], ref_lat);
     const double required = required_turn_radius_m(first_speed, cfg);
     if (available + 1.0e-6 < required) {
-      return {false, "first_turn_radius_too_small", 0U, required, available};
+      return {false, "first_turn_radius_too_small", first_idx, required, available};
     }
   }
 
