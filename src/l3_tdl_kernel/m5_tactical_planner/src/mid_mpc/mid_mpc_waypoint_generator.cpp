@@ -88,7 +88,7 @@ void populate_canonical_route_from_selected_plan(
 GncAvoidancePreflightResult validate_canonical_route_for_gnc(
     const l3_msgs::msg::AvoidancePlan& plan,
     const WaypointLatLon& origin,
-    bool wps_has_anchor = false) {
+    bool wps_has_anchor) {
   return validate_gnc_avoidance_plan(
       origin, route_waypoints(plan), plan.command_speed_mps,
       GncAvoidancePreflightConfig{}, wps_has_anchor);
