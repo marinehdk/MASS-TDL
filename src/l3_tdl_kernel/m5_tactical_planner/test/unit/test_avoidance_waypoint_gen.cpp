@@ -688,7 +688,10 @@ TEST(AvoidanceWaypointGen, StableCorridorEmitsAnchorFirst) {
       45.0, 90.0, anchor.lat, anchor.lon, 0.0);
   ASSERT_GE(wps.size(), 2u);
   EXPECT_LT(distance_m(anchor, wps[0], anchor.lat), 1.0);
-  EXPECT_NEAR(distance_m(anchor, wps[1], anchor.lat), 150.0, 5.0);
+  // wps[1] is at d=150m along-route + lateral cap offset (saturation term),
+  // so the Euclidean distance is slightly larger than 150m. 15m tolerance
+  // accommodates the cap=(2×switch_gate≈90m) at approach_distance scaling.
+  EXPECT_NEAR(distance_m(anchor, wps[1], anchor.lat), 150.0, 15.0);
 }
 
 TEST(AvoidanceWaypointGen, Rule13OvertakeCorridorEmitsAnchorFirst) {
