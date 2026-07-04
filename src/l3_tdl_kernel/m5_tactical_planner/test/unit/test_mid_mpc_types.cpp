@@ -25,3 +25,8 @@ TEST(SpeedContractV22, GapExceedsHorizonFlag) {
   // gap = |20.0 - 1.0| = 19.0 > 18.0 → flag.
   EXPECT_TRUE(mass_l3::m5::compute_speed_gap_infeasible(20.0, 1.0, 0.20, 18, 5.0));
 }
+
+TEST(SpeedContractV22, GapExactlyAtThresholdNoFlag) {
+  // gap = |19.0 - 1.0| = 18.0 == 0.20*5.0*18 = 18.0 → strict >, no flag.
+  EXPECT_FALSE(mass_l3::m5::compute_speed_gap_infeasible(19.0, 1.0, 0.20, 18, 5.0));
+}

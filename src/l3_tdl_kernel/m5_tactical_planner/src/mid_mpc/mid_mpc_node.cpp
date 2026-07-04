@@ -753,7 +753,9 @@ MidMpcInput MidMpcNode::assemble_input_()
       inp.own_ship.u_mps, inp.planned_speed_mps, inp.decel_max_mps2,
       formulation_.config().n_horizon, formulation_.config().dt_s);
   if (inp.speed_gap_infeasible) {
-    spdlog::warn("[M5][MidMPC] speed gap exceeds N·decel_max·dt; flagging");
+    spdlog::warn("[M5][MidMPC] speed gap {:.1f} m/s exceeds N·decel_max·dt {:.1f}; flagging",
+                 std::fabs(inp.own_ship.u_mps - inp.planned_speed_mps),
+                 inp.decel_max_mps2 * formulation_.config().dt_s * formulation_.config().n_horizon);
   }
 
   // Slice C1 (spec §6): continuity H_commit prefix. Reproject the committed-route
