@@ -46,7 +46,7 @@
 > - **RFC-006 决议**：§15.1 新增 `ReplanResponseMsg` IDL（L2 → M3，事件触发，含 SUCCESS / FAILED_TIMEOUT / FAILED_INFEASIBLE / FAILED_NO_RESOURCES 四种状态）
 > - **RFC-006 决议**：§15.2 接口矩阵新增 L2 → M3 ReplanResponseMsg 行
 > - **RFC-004 决议**：§15.2 接口矩阵增补 M3 / M5 → ASDR ASDR_RecordMsg 行（v1.1.1 仅列 M1/M2/M4/M6/M7）
-> - **RFC-003 决议**：§11.7 + §11.3 锁定 M7 监控窗口 = 100 周期 = **15 s 滑窗**（v1.1.1 仅说"100 周期"）
+> - **RFC-003 决议**：§11.7 + §11.3 锁定 M7 监控窗口 = 100 周期（kCapacity=100）；**[2026-06-30 校正]** 代码实测 M7 主循环 4 Hz，故 100 cycle = **25 s 滑窗**（非文档原称 15 s/6.7 Hz——RFC-003 锁定的是周期数，频率真值以代码为准，待 RFC 更新，见 M5 spec v2 §13.4）
 > - **RFC-001/002/005 决议**：v1.1.1 IDL 不变；跨团队接口承诺（详见 RFC-decisions.md）
 > - **接口跨团队锁定证据**：`docs/Design/Cross-Team Alignment/RFC-decisions.md`
 
@@ -458,7 +458,7 @@ TDL 遵循时间分层（Temporal Stratification）原则 [R10, R13]，不同模
 
 | 算法 | 白盒可审计性 | CCS 接受度 | 解算时间（目标）| 预测域 | 实现复杂度 | Phase 可用性 |
 |---|---|---|---|---|---|---|
-| **Mid-MPC**（当前主算法）| ✅ 高（凸优化，解析解可追溯）| ✅ 高（轨迹可解释，CCS surveyor 友好）| < 500 ms / step | ≥ 90 s | 中（需调参 + NMPC 求解器）| Phase 2 ✅ |
+| **Mid-MPC**（当前主算法）| 🟡 中（**非凸 NLP**，IPOPT 局部最优；安全边界由独立 Checker policing，见 §10.4 非凸论证段 / §11）| 🟡 中-高（白盒可审计性依赖 Doer-Checker 架构论证，见 §11）| < 500 ms / step | ≥ 90 s | 中（需调参 + NMPC 求解器）| Phase 2 ✅ |
 | **BC-MPC**（当前辅助）| ✅ 高（规则约束显式编码）| ✅ 高（COLREGs 约束可直接审计）| < 200 ms / step | 30–90 s | 低（BC 约束集简单）| Phase 1 ✅ |
 | **RRT\***（备选）| 🟡 中（路径节点可追溯，但随机性难复现）| 🟡 中（CCS 需额外解释随机搜索）| 1–5 s / step（密集障碍）| 可变 | 高（需 kinodynamic 扩展）| Phase 4 选项 |
 | **VO / COLREGS-VO**（备选）| ✅ 高（几何可视，速度障碍可解释）| 🟡 中（静态障碍假设，需扩展）| < 50 ms / step | 约 60 s | 低（几何方法）| Phase 3 补充 |
@@ -857,7 +857,7 @@ M5 Tactical Planner 候选算法评估。评分 1-5（5 最优）。当前默认
 
 | 候选算法 | 实时性（≤1 Hz 帧内求解）| CCS 白盒可审计性 | COLREG 约束表达 | SIL 验证成本 | 总评 |
 |---|---|---|---|---|---|
-| **Mid-MPC N=18/90s** ✅ | 5（CasADi 25ms 实测）| 5（状态轨迹全可视）| 5（约束直接入 QP）| 5（D2.5 pipeline 已建）| **25 — 默认路径** |
+| **Mid-MPC N=18/90s** ✅ | 5（CasADi 25ms 实测）| 5（状态轨迹全可视）| 4（约束直接入 NLP/IPOPT，**非凸**——CPA 硬约束使可行域非凸，见 §10.4 非凸论证段）| 5（D2.5 pipeline 已建）| **24 — 默认路径** |
 | RRT* | 3（树扩展不确定）| 3（路径采样难审计）| 2（COLREGs 需后处理）| 2（场景 coverage 难量化）| 10 — 障碍物密集 + MPC 超时时备用 |
 | VO（Velocity Obstacle）| 4（反应快）| 4（几何直观）| 3（Rule 8 大动作不自然）| 3（VO + COLREGs patch 验证量大）| 14 — BC-MPC 降级时辅助 |
 | MPPI | 2（GPU 依赖，OT 兼容差）| 1（采样轨迹难审计）| 3（代价函数可编码）| 1（OT 实机部署风险高）| 7 — Phase 4 研究选项，不入认证路径 |
@@ -877,7 +877,7 @@ graph LR
         direction TB
         subgraph MID["中程 MPC (Mid-MPC)"]
             MID_OBJ["目标函数:\n• COLREG 合规代价\n• 到达目标点代价\n• 速度效率代价\n• 环境约束代价"]
-            MID_HOR["时域: 60–120 s\n频率: 1–2 Hz\n优化变量: Δheading sequence"]
+            MID_HOR["时域: 60–120 s\n频率: event-driven + 30/60s heartbeat（M5 spec v2 §6.3，原 1–2 Hz 已修订）\n优化变量: Δheading sequence"]
         end
         subgraph BC["短程 BC-MPC (Branching-Course MPC)"]
             BC_OBJ["目标函数:\n• 最大化最坏情况CPA\n• 约束: 物理极限\n分支树: k条候选航向"]
@@ -889,14 +889,14 @@ graph LR
     M6["M6 COLREGs约束"] --> MID
     M2["M2 World Model"] --> BC
     MID -->|"粗略 WP 区间"| BC
-    MID -->|"AvoidancePlan (WP[] + speed_adj)\n@ 1-2 Hz (主接口)"| L4["L4 引导层 (Guidance Layer)\nLOS + WOP"]
+    MID -->|"AvoidancePlan (WP[] + speed_adj)\n@ event-driven + 30/60s heartbeat (主接口, spec v2 §6.3)"| L4["L4 引导层 (Guidance Layer)\nLOS + WOP"]
     BC -->|"ReactiveOverrideCmd (ψ, u, ROT)\n@ 事件触发, 频率上限 10 Hz"| L4
 ```
 
 > **图10-1（v1.1 修订 — 方案 B）** M5 双层 MPC 架构。
 >
 > **接口设计 [F-P1-D4-032 — v1.1 升级到方案 B，与 v3.0 Kongsberg 4-WP 思路对齐]**：
-> - **主接口（Mid-MPC → L4）**：`AvoidancePlan` = WP 序列 + speed_profile_adjustments，频率 1-2 Hz；L4 在避让模式下用 AvoidancePlan **覆盖 L2 PlannedRoute**，并以自身 LOS+WOP 处理 → L5
+> - **主接口（Mid-MPC → L4）**：`AvoidancePlan` = WP 序列 + speed_profile_adjustments，频率 **event-driven + 30/60s heartbeat**（M5 spec v2 §6.3 修订，原 1-2 Hz 改 event-driven；走接口变更流程）；L4 在避让模式下用 AvoidancePlan **覆盖 L2 PlannedRoute**，并以自身 LOS+WOP 处理 → L5
 > - **紧急接口（BC-MPC → L4）**：`ReactiveOverrideCmd` = (ψ_cmd, u_cmd, ROT_cmd)，仅在 BC-MPC 检测到 Mid-MPC 兜不住短时危险时激活（CPA 急剧恶化）；L4 切换到 reactive_override 模式直接转发到 L5；事件触发，频率上限 10 Hz
 >
 > **设计理由**：
@@ -907,7 +907,7 @@ graph LR
 
 ### 10.4 Mid-MPC 详细设计
 
-Mid-MPC 采用线性化 MPC，优化问题定义为：
+Mid-MPC 采用**非线性 MPC（NLP）**——位置由 ψ/u 经 cos/sin 积分（非线性耦合），目标含 CPA 非凸项，CPA 硬约束使可行域非凸。求解器为 CasADi/IPOPT（interior-point，局部最优，L-BFGS，2 s CPU cap）。安全边界由独立确定性 Checker（M7 SOTIF §11.3 + X-axis §11.7）policing 保证（见下方非凸论证段 / §13 / M5 spec v2 §13 路径 A）。优化问题定义为：
 
 ```
 min  ∑_{k=0}^{N} [w_col × J_colreg(k) + w_dist × J_dist(k) + w_vel × J_vel(k)]
@@ -916,7 +916,7 @@ min  ∑_{k=0}^{N} [w_col × J_colreg(k) + w_dist × J_dist(k) + w_vel × J_vel(
 s.t.
   |Δψ_k| ≤ ROT_max × Δt          # 转艏率约束
   speed_k ≤ speed_limit(ODD)      # ODD 速度约束
-  CPA(ψ_k) ≥ CPA_safe(ODD)       # COLREG 安全距离
+  CPA(ψ_k) ≥ CPA_safe(ODD)       # COLREG 安全距离（**非凸硬约束**：可行域 = CPA 圆外部，非凸集）
   ENC_check(trajectory) = SAFE    # 水深/禁区约束
 
 参数（FCB Capability Manifest 驱动）：
@@ -924,6 +924,16 @@ s.t.
   ROT_max = 12°/s（FCB 18 kn时实测值）
   CPA_safe(ODD-A) = 1.0 nm，CPA_safe(ODD-B) = 0.3 nm
 ```
+
+**非凸性论证与 SOTIF / policing-function 安全边界 [2026-06-30 新增 — M5 spec v2 §13 决策点 3 路径 A]**
+
+上述 NLP 是**非凸**问题：CPA 硬约束 `CPA(ψ_k) ≥ CPA_safe` 使可行域为 "CPA 圆外部"（非凸集）；目标 `J_colreg` 含 exp-barrier + sqrt(d²) 项；位置由 ψ/u 经 cos/sin 积分（非线性耦合）。IPOPT 返回局部最优/KKT 点，不保证全局最优，且解可能不可复现（warm-start 依赖）。此非凸性来自本节规定的 CPA 硬约束（COLREG 安全语义核心，不可去除）。
+
+传统 IEC 61508 SIL2 白盒路径为确定性软件设计，非凸 NLP 无法直接过白盒。本项目采 **policing-function（Doer-Checker）架构**：Doer（M5 Mid-MPC 非凸 NLP）负责高性能解，**独立确定性 Checker**（M7 SOTIF 监控 §11.3 + X-axis Deterministic Checker §11.7）用降维确定性算法（CPA/TTC/ship-domain 几何 + enum 分类）设硬边界 + VETO + MRM。**仅 Checker 须过 IEC 61508 SIL2，Doer 不需要**。先例：MAXCMAS（Rolls-Royce 等）非确定优化 + policing function 过 IEC 61508 / ISO 26262 论证；DNV 通过 TQ/AiP + AROS notation 风险路径接受。CCS 接受度依赖此架构论证（🟡，须与 CCS 直接沟通）。
+
+**前提证据**（M5 spec v2 §13.4 Slice H 代码层验证 2026-06-30）：Checker 独立性 🟢（CI 强制 `tools/ci/check-doer-checker-independence.sh`）/ 确定性 🟢（全 enum + 几何，零 ML/随机）/ 复杂度比 🟡（设计目标 50-100:1 非规范强制，见 §2.5 决策四）/ **运行时覆盖 🔴（须 M5 spec v2 §19 Slice K 接线：`run_hard_constraint_checks` 当前空 stub + HC-1~6 死代码 + `on_avoidance_plan` 置 0 + NLP solver status 不消费）**。Slice K 完成前 policing 无法运行时演示 NLP-fail→veto→MRM。Slice K 亦含 M6 `COLREGsConstraint` 扩 `past_clear/encounter_state` 字段（M5 spec v2 §14）+ M5 AvoidancePlan 扩 NLP solver status 字段供 M7 消费。
+
+> **[2026-07-04 v2.2 校正]**：M5 内部的 `tail-gate`（types.hpp `accept_tail_gate`）是 **NLP publish 前 deterministic publish gate**（filter IPOPT KKT 点容差残留 + defense-in-depth），**非 IEC 61508 SIL2 independent checker**。tail-gate 与 NLP 共享同一 `MidMpcInput`（rot_max_rad_s / cpa_hard_m / decel_max_mps2 数值同源）+ 共享 `types.hpp` inline 实现，不满足 SIL2 独立性（systematic capability + architectural constraints + common-cause-failure isolation）。**SIL2 independent checker 责任唯一归属 M7 X-axis Deterministic Checker（§11.7）**。tail-gate 角色：NLM colav_algorithms 🟢 Option 2 论证的 Doer-Checker SOTIF 分层中的 publish gate（Doer=NLP, publish-gate=tail-gate, SIL2-checker=M7）。
 
 ### 10.5 BC-MPC 详细设计
 
@@ -957,7 +967,9 @@ BC-MPC 采用 Eriksen 等（2020）的分支树算法 [R20]，生成 k 条候选
 |---|---|---|
 | `SOG ≤ 12 kn` AND `hull_class ≠ SEMI_PLANING` | **4-DOF 适用**（Yasukawa 2015 [R7]）| `FCBPlugin::DisplacementMMG::step()` |
 | `hull_class == SEMI_PLANING` | **6-DOF 激活**（Savitsky / semi-planing empirical）| D2.1 stub → D3.2 完整 |
-| `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学）| Phase 4 实装 D4.7 |
+| `SOG > 12 kn` | **6-DOF 预留**（CasADi/IPOPT 高速流体动力学扩展）| Phase 4 实装 D4.7 |
+
+> **[2026-06-30 校正]**：CasADi/IPOPT **已是当前 Mid-MPC 主求解器**（§10.4），非 Phase 4 才启用。本行指高速 6-DOF 流体动力学扩展（额外 DOF + 高速流体效应），而非求解器本身。
 
 > **[HAZID 2026-08-19 校准待填，D3.5 Track B 回填]**：12 kn 阈值在 HAZID RUN-001（8/19）以 FCB 实测操纵数据校准。当前值为 Yasukawa 2015 MMG 标准方法适用范围上限估算。
 > **D-task 联动**：D1.3a（FCBPlugin 实装）/ D2.1 M1 ODD（hull_class 判断接口）/ D3.2 M5 完整（6-DOF 实装）。
@@ -1045,7 +1057,7 @@ graph TD
 | 感知覆盖充分性 | 盲区占比 | > 20% of 360° | 降低 D4/D3 允许等级 |
 | COLREGs 可解析性 | 冲突解析失败次数 | 连续 3 次失败 | 触发减速 + ROC 告警 |
 | 通信链路可用性 | RTT / 丢包率 | RTT > 2s 或丢包 > 20% | TMR 窗口收窄；D4 不允许 |
-| **L3 Checker 否决率** [F-P2-D3-036 + v1.1.2 RFC-003 锁定] | X-axis Checker 否决次数 / 100 周期（**= 15 s 滑窗**，M7 周期 ≈ 6.7 Hz）| > 20（即 20% 否决率，**[文献基线 2026-07-31: ADR-001 Doer-Checker 1:100 复杂度比约束, AoU 10-35%/100周期]**）| 升级 SOTIF 告警："COLREGs 推理可信度下降"；触发降级到 D2 评估 |
+| **L3 Checker 否决率** [F-P2-D3-036 + v1.1.2 RFC-003 锁定] | X-axis Checker 否决次数 / 100 周期（RFC-003 锁定 kCapacity=100；**[2026-06-30 校正]** 代码实测 M7 主循环 4 Hz → 100 cycle = **25 s 滑窗**，非文档原称 15 s/6.7 Hz——RFC-003 锁定的是周期数，频率真值以代码为准，待 RFC 更新，见 M5 spec v2 §13.4）| > 20（即 20% 否决率，**[文献基线 2026-07-31: ADR-001 Doer-Checker 复杂度比 — 设计目标 50-100:1 非规范强制，见 §2.5 决策四, AoU 10-35%/100周期]**）| 升级 SOTIF 告警："COLREGs 推理可信度下降"；触发降级到 D2 评估 |
 
 **M7 SOTIF PERF 监控独立性约束 [F-P1-D3-003]**：
 
@@ -1117,7 +1129,7 @@ X-axis 与 M7 通过独立总线通信，**不共享代码 / 库 / 数据结构*
 - **veto_reason_class 是受限枚举 enum**（详见 §15.1 IDL VetoReasonClass）—— enum 是**共享分类词汇**，不是**共享规则实现**
 - M7 仅按 enum 分类做统计聚合（如 "COLREGS_VIOLATION 否决率 > 20% → SOTIF 告警"），**不重新推理 X-axis 的具体规则违反内容**
 - **veto_reason_detail（自由文本）只供 ASDR 记录用，M7 不解析**
-- 这保留了 Checker 形式化验证的简化性（M7 处理逻辑 = enum 计数器 + 阈值比较，远低于 100:1 复杂度比例）
+- 这保留了 Checker 形式化验证的简化性（M7 处理逻辑 = enum 计数器 + 阈值比较，复杂度比设计目标 50-100:1，见 §2.5 决策四「非规范强制」）
 - 同时避免了 M7 解析自由文本可能引入的语义不确定性
 
 **为什么 enum 共享词汇不违反独立性**：
@@ -2849,7 +2861,7 @@ v1.1 沿用 v1.0 的章节顺序：§9 = M6 COLREGs Reasoner（先），§10 = M
 - 锁定：(u, v) **不含**海流估计；M2 须自行减去 current_speed/direction
 
 ### RFC-003 决议（M7 ↔ X-axis Checker enum 化）→ §11.3 + §11.7 锁定
-- §11.3：Checker 否决率监控窗口锁定 = **100 周期 = 15 s 滑窗**
+- §11.3：Checker 否决率监控窗口锁定 = **100 周期**（kCapacity=100；代码实测 M7 4 Hz → 实际 25 s 滑窗，非 15 s，见 M5 spec v2 §13.4 / Slice H）
 - §11.7：M7 ↔ X-axis 优先级仲裁锁定（X-axis VETO 直接生效；M7 MRM 通过 M1 仲裁后置）
 
 ### RFC-004 决议（L3 → ASDR）→ §15.2 接口矩阵增补

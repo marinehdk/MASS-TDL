@@ -795,14 +795,21 @@ inline bool tail_gate_cpa_release_clear(const MidMpcSolution& solution,
   if (target == nullptr) {
     return true;
   }
-  // Bug C: the CPA-floor is a RELEASE concern (is the target finally clear?),
-  // not an active-avoidance concern. During active approach (target closing)
-  // the NLP maneuver IS the CPA-opening action; requiring the CPA already safe
-  // would reject every active-avoidance route -> geometric fallback (Bug C).
-  // Skip the floor while the target is closing; apply it once the target is
-  // opening (release/recovery), where the terminal CPA must be safe. Spec
-  // committed-route-design-v2 §3.1: M6 owns the release/clearing signal; the
-  // closing_speed trend is the M2-backed proxy for it.
+  // v2.2 §13.4: tail-gate is a deterministic NLP PUBLISH GATE (defense-in-depth),
+  // NOT an IEC 61508 SIL2 independent checker. tail-gate shares numeric inputs
+  // (rot_max_rad_s, cpa_hard_m, decel_max_mps2) with the NLP constraint compiler
+  // (types.hpp vs mid_mpc_solver.cpp), so it does NOT meet SIL2 independence
+  // criteria. SIL2 responsibility: M7 X-axis Deterministic Checker (架构 §11.7).
+  // Spec ref: docs/superpowers/specs/2026-07-04-m5-nlp-constraint-restructure-design-v2.1.md §13.4
+  //
+  // Bug C context (still relevant): the CPA-floor is a RELEASE concern (is the
+  // target finally clear?), not an active-avoidance concern. During active
+  // approach (target closing) the NLP maneuver IS the CPA-opening action;
+  // requiring the CPA already safe would reject every active-avoidance route
+  // -> geometric fallback (Bug C). Skip the floor while the target is closing;
+  // apply it once the target is opening (release/recovery), where the terminal
+  // CPA must be safe. Spec committed-route-design-v2 §3.1: M6 owns the
+  // release/clearing signal; the closing_speed trend is the M2-backed proxy.
   const TargetRiskSnapshot* risk = primary_target_risk(input);
   const bool target_opening = (risk == nullptr) || (risk->closing_speed_mps <= 0.0);
   if (!target_opening) {
