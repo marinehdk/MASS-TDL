@@ -77,7 +77,7 @@ struct RowBoundConfig {
   // upper-band cost (Task 5) + tail-gate lateral (Task 7) land, so we never
   // ship an intermediate state with terminal soften but no upper-band pressure
   // (Concern 1 from Codex plan round-1/round-2).
-  bool    terminal_nlp_soft{false};
+  bool    terminal_nlp_soft{true};   // v2.1 §4.5 default (flipped in Task 7 after upper-band cost + tail-gate lateral land)
 };
 
 // ---------------------------------------------------------------------------

@@ -259,7 +259,10 @@ TEST(RowRegistry, directionDisabledNullifiesAllDirectionAndMinAltRows) {
 TEST(RowRegistry, rotTerminalRuleZoneRowsAreLegacyZeroInfBounds) {
   RowRegistry reg(/*N=*/6, /*n_targets=*/1, /*n_rule_rows=*/2,
                   /*n_zone_rows=*/3);
-  RowBoundConfig cfg;  // defaults
+  RowBoundConfig cfg;  // defaults, except terminal_nlp_soft=false (v2.1 §4.5
+                       // default flipped to true in Task 7; this legacy-shape
+                       // test pins the hard-terminal semantics explicitly).
+  cfg.terminal_nlp_soft = false;
   const BoundArray b = reg.build_bounds(cfg);
   for (int r = reg.rot_row_start(); r < reg.rot_row_end(); ++r) {
     EXPECT_DOUBLE_EQ(b.lbg[static_cast<std::size_t>(r)], 0.0);
@@ -327,7 +330,7 @@ TEST(RowRegistry, V21FieldsHaveCorrectDefaults) {
   EXPECT_FALSE(cfg.minalt_override_valid);
   EXPECT_EQ(cfg.cpa_hard_from_k, 0);
   EXPECT_FALSE(cfg.cpa_override_valid);
-  EXPECT_FALSE(cfg.terminal_nlp_soft);  // Task 1: false; Task 7 flips to true
+  EXPECT_TRUE(cfg.terminal_nlp_soft);  // Task 7 flips default to true
 }
 
 // v2.1 spec §4.2 — min_alt reachable schedule. k<deadline soft, k>=deadline hard.
