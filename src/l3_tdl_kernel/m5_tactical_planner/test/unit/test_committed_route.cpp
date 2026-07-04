@@ -439,3 +439,12 @@ TEST(CommittedAvoidanceRoute, invented_source_label_is_rejected)
   EXPECT_EQ(manager.current().state, LifecycleState::KeepLast);
   EXPECT_EQ(manager.current().safety_concern_event, "candidate_preflight_failed");
 }
+
+// v2.2 §13.2 (spec D3): LifecycleState 扩第九态 BcMpcFollow — committed_route
+// 跟随 BC-MPC ReactiveOverrideCmd，不 KeepLast stale NLP corridor. v2 lifecycle
+// 八态 (Idle..Released=7) 扩为九态，BcMpcFollow=8.
+TEST(LifecycleStateV22, BcMpcFollowExists) {
+  mass_l3::m5::committed_route::LifecycleState s =
+      mass_l3::m5::committed_route::LifecycleState::BcMpcFollow;
+  EXPECT_EQ(static_cast<std::uint8_t>(s), 8U);
+}

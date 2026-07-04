@@ -17,6 +17,7 @@ enum class LifecycleState : std::uint8_t {
   Stale = 5U,
   DegradedHold = 6U,
   Released = 7U,
+  BcMpcFollow = 8U,  // v2.2 §13.2: BC-MPC take-over, committed_route 跟随 BC-MPC
 };
 
 // GeoWP holds WGS84 waypoint coordinates in DEGREES (spec §3.7 coordinate
