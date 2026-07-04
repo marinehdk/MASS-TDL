@@ -245,3 +245,41 @@ TEST(MidMpcWaypointGeneratorTest, AvoidancePlanTtlHasHeartbeatMargin)
             mass_l3::m5::mid_mpc::kAvoidancePlanHeartbeat_s);
   EXPECT_GE(mass_l3::m5::mid_mpc::kAvoidancePlanTtl_s, 70.0);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3 (spec §3.6): wps[1] (first maneuver after anchor) must be at
+// >= wheel_over_distance_m from origin so preflight emergency_wheel_over gate
+// passes. Anchor (wps[0]) stays at own ship position.
+// ---------------------------------------------------------------------------
+TEST(MidMpcWaypointGeneratorTest, SamplesFirstManeuverBeyondWheelOver)
+{
+  MidMpcWaypointGenerator::Config cfg;
+  cfg.num_waypoints = 10;
+  cfg.dt_s = 5.0;
+  cfg.wheel_over_distance_m = 120.0;
+  MidMpcWaypointGenerator gen(cfg);
+
+  MidMpcSolution sol;
+  sol.status = MidMpcSolution::Status::Converged;
+  sol.trajectory.resize(18);
+  double t = 0.0;
+  for (auto& pt : sol.trajectory) {
+    pt.t_s = t;
+    pt.u_mps = 5.0;     // 25m/step
+    pt.psi_rad = 0.0;   // straight north
+    t += 5.0;
+  }
+
+  const auto plan = gen.generate(sol, /*own_ship_lat=*/63.44, /*own_ship_lon=*/10.38);
+  ASSERT_EQ(plan.status, "NORMAL");
+  ASSERT_GE(plan.waypoints.size(), 2u);
+  const auto& wp0 = plan.waypoints[0].position;
+  const auto& wp1 = plan.waypoints[1].position;
+  // wps[0] = anchor within 1m of own ship
+  EXPECT_LT(std::hypot((wp0.latitude - 63.44) * 111000.0,
+                       (wp0.longitude - 10.38) * 111000.0), 1.0);
+  // wps[1] >= wheel_over_distance_m (120m) from own ship
+  const double d1_m = std::hypot((wp1.latitude - 63.44) * 111000.0,
+                                 (wp1.longitude - 10.38) * 111000.0);
+  EXPECT_GE(d1_m, 120.0 - 1.0) << "wps[1] distance: " << d1_m << "m";
+}

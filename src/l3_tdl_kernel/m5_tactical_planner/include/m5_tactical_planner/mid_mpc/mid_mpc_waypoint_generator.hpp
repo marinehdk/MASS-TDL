@@ -56,6 +56,10 @@ class MidMpcWaypointGenerator {
     double safety_corridor_m{500.0};
     // [TBD-HAZID] NLP step duration [s] — must match MidMpcNlpFormulation::Config::dt_s.
     double dt_s{5.0};
+    // Phase 3 (spec §3.6): start sampling at first trajectory index whose
+    // cumulative distance from origin >= this. Must match
+    // GncAvoidancePreflightConfig::emergency_wheel_over_distance_m.
+    double wheel_over_distance_m{120.0};
   };
 
   explicit MidMpcWaypointGenerator(const Config& cfg);

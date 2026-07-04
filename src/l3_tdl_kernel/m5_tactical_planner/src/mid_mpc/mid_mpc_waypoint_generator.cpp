@@ -183,11 +183,31 @@ MidMpcWaypointGenerator::sample_waypoints_(
     ned_pos.emplace_back(ned_pos.back().first + dx, ned_pos.back().second + dy);
   }
 
+  // Phase 3 (spec §3.6): start maneuvers at first ned_pos index whose
+  // cumulative distance from origin >= wheel_over_distance_m (default 120m).
+  // ned_pos[0] = origin (anchor). Fallback to last index if horizon is short.
+  const int32_t last_ned_idx = static_cast<int32_t>(ned_pos.size()) - 1;
+  int32_t start_idx = last_ned_idx;
+  for (int32_t k = 1; k <= last_ned_idx; ++k) {
+    const auto& pos = ned_pos[static_cast<std::size_t>(k)];
+    const double dist_m = std::sqrt(pos.first * pos.first + pos.second * pos.second);
+    if (dist_m >= cfg_.wheel_over_distance_m) {
+      start_idx = k;
+      break;
+    }
+  }
+
   std::vector<geographic_msgs::msg::GeoPoint> result;
   result.reserve(static_cast<std::size_t>(num_wp));
-
-  for (int32_t k = 0; k < num_wp; ++k) {
-    const int32_t idx = (num_wp == 1) ? 0 : k * (N - 1) / (num_wp - 1);
+  // Phase 2: wps[0] = anchor (own ship origin).
+  result.push_back(ned_to_geopoint_(own_ship_lat, own_ship_lon, 0.0, 0.0));
+  // Phase 3: wps[1..num_wp-1] sampled uniformly across [start_idx, last_ned_idx].
+  const int32_t maneuver_wp = num_wp - 1;
+  const int32_t span = last_ned_idx - start_idx;
+  for (int32_t k = 0; k < maneuver_wp; ++k) {
+    const int32_t idx = (maneuver_wp <= 1)
+        ? start_idx
+        : start_idx + k * span / (maneuver_wp - 1);
     const auto& pos = ned_pos[static_cast<std::size_t>(idx)];
     result.push_back(ned_to_geopoint_(own_ship_lat, own_ship_lon, pos.first, pos.second));
   }
@@ -211,23 +231,50 @@ std::vector<l3_msgs::msg::AvoidanceWaypoint> MidMpcWaypointGenerator::build_wayp
     ned_pos.emplace_back(ned_pos.back().first + dx, ned_pos.back().second + dy);
   }
 
+  // Phase 3 (spec §3.6): mirror sample_waypoints_ wheel-over indexing so that
+  // turn_radius/target_speed/wp_distance map to the same maneuver positions.
+  const int32_t last_ned_idx = static_cast<int32_t>(ned_pos.size()) - 1;
+  int32_t start_idx = last_ned_idx;
+  for (int32_t k = 1; k <= last_ned_idx; ++k) {
+    const auto& pos = ned_pos[static_cast<std::size_t>(k)];
+    const double dist_m = std::sqrt(pos.first * pos.first + pos.second * pos.second);
+    if (dist_m >= cfg_.wheel_over_distance_m) {
+      start_idx = k;
+      break;
+    }
+  }
+  const int32_t maneuver_wp = num_wp - 1;
+  const int32_t span = last_ned_idx - start_idx;
+
   std::vector<l3_msgs::msg::AvoidanceWaypoint> waypoints;
   waypoints.reserve(static_cast<std::size_t>(num_wp));
+
+  constexpr double kMinRot        = 1e-4;    // rad/s — below ~0.006°/s treated as straight
+  constexpr double kMaxTurnRadius = 500.0;   // m — straight-line fallback
 
   for (int32_t i = 0; i < num_wp; ++i) {
     l3_msgs::msg::AvoidanceWaypoint wp;
     wp.position          = geopoints[static_cast<std::size_t>(i)];
     wp.safety_corridor_m = cfg_.safety_corridor_m;
 
-    const int32_t traj_idx = (num_wp == 1) ? 0 : i * (N - 1) / (num_wp - 1);
+    // Phase 3: wps[0] = anchor (traj_idx=0); wps[1..num_wp-1] use indices from
+    // [start_idx, last_ned_idx]. Clamp traj_idx to trajectory domain [0, N-1]
+    // since ned_pos has N+1 entries (anchor + N steps).
+    int32_t traj_idx;
+    if (i == 0) {
+      traj_idx = 0;
+    } else if (maneuver_wp <= 1) {
+      traj_idx = std::min(start_idx, N - 1);
+    } else {
+      const int32_t ned_idx = start_idx + (i - 1) * span / (maneuver_wp - 1);
+      traj_idx = std::min(ned_idx, N - 1);
+    }
 
     // Compute local ROT from adjacent trajectory steps to derive turn_radius_m.
     // Bridge gate: abs(turn_radius_m) > 1e-6 must be true for avoidance to activate.
     // Formula: R = u / |omega|, omega = dpsi / dt_s (rad/s).
     // Use next available step; for last trajectory point use previous step.
     // Guard: if N==1 there's no adjacent step — fall back to straight-line radius.
-    constexpr double kMinRot        = 1e-4;    // rad/s — below ~0.006°/s treated as straight
-    constexpr double kMaxTurnRadius = 500.0;   // m — straight-line fallback
     if (N >= 2) {
       const int32_t rot_idx_a = (traj_idx < N - 1) ? traj_idx : traj_idx - 1;
       const int32_t rot_idx_b = rot_idx_a + 1;
@@ -246,12 +293,20 @@ std::vector<l3_msgs::msg::AvoidanceWaypoint> MidMpcWaypointGenerator::build_wayp
     wp.target_speed_kn =
         solution.trajectory[static_cast<std::size_t>(traj_idx)].u_mps * units::kKnPerMs;
 
+    // Phase 3: wp_distance_m measured between consecutive waypoints in NED.
+    // wps[0] = anchor → distance 0; wps[1] = distance from origin to its ned_pos;
+    // wps[i>=2] = distance from wps[i-1]'s ned_pos to wps[i]'s ned_pos.
     if (i == 0) {
       wp.wp_distance_m = 0.0;
+    } else if (i == 1) {
+      const auto& cur = ned_pos[static_cast<std::size_t>(traj_idx)];
+      wp.wp_distance_m = std::sqrt(cur.first * cur.first + cur.second * cur.second);
     } else {
-      const int32_t prev_idx = (num_wp == 1) ? 0 : (i - 1) * (N - 1) / (num_wp - 1);
+      // Re-derive previous waypoint's traj_idx using the same wheel-over mapping.
+      const int32_t prev_traj_idx = std::min(
+          start_idx + (i - 2) * span / (maneuver_wp - 1), N - 1);
       const auto& cur  = ned_pos[static_cast<std::size_t>(traj_idx)];
-      const auto& prev = ned_pos[static_cast<std::size_t>(prev_idx)];
+      const auto& prev = ned_pos[static_cast<std::size_t>(prev_traj_idx)];
       const double ddx = cur.first  - prev.first;
       const double ddy = cur.second - prev.second;
       wp.wp_distance_m = std::sqrt(ddx * ddx + ddy * ddy);
