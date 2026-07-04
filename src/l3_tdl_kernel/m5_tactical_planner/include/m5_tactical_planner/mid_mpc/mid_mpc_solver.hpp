@@ -66,11 +66,21 @@ class MidMpcSolver {
     return consecutive_failures_;
   }
 
+  // v2.2 §13.1: expose derived minalt_box_infeasible for dispatch OR condition.
+  // Set in solve() after derive_row_bound_config(): true when the M4-published
+  // heading box upper < own+min_alt (the ship physically cannot reach the min
+  // alteration floor inside its directional envelope). Drives the BC-MPC
+  // take-over OR condition (can trigger on the first solve, consecutive=0).
+  [[nodiscard]] bool last_minalt_box_infeasible() const noexcept {
+    return last_minalt_box_infeasible_;
+  }
+
  private:
   const MidMpcNlpFormulation& formulation_;
   IpoptOptions opts_;
   casadi::Dict ipopt_dict_;          // reserved for Phase E2 call-level overrides
   int64_t consecutive_failures_{0};
+  bool last_minalt_box_infeasible_{false};  // v2.2 §13.1: set in solve() after derive
 
   // Pack previous-cycle trajectory into x0 ∈ R^{2N}: [psi; u].
   [[nodiscard]] casadi::DM pack_warm_start_(const MidMpcSolution& warm) const;

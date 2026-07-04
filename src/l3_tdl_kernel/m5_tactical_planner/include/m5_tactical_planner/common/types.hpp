@@ -262,6 +262,25 @@ inline bool compute_speed_gap_infeasible(
   return std::fabs(own_u_mps - planned_u_mps) > max_delta;
 }
 
+// v2.2 §13.1: BC-MPC take-over dispatch rule. Free function so the OR condition
+// is unit-testable without the private MidMpcNode dispatch block. Spec:
+//   take-over = consecutive_failures >= kThreshold
+//               OR minalt_box_infeasible
+//               OR speed_gap_infeasible
+// The latter two can fire on the FIRST solve (consecutive=0): minalt_box when
+// the M4 heading-box upper < own+min_alt (architectural infeasibility),
+// speed_gap when |own_u - planned_u| exceeds N·decel_max·dt. Either is grounds
+// for immediate BC-MPC dispatch — holding a stale NLP corridor would be wrong.
+inline bool compute_bc_mpc_take_over(
+    std::int64_t consecutive_failures,
+    std::int64_t threshold,
+    bool minalt_box_infeasible,
+    bool speed_gap_infeasible) {
+  return (consecutive_failures >= threshold)
+      || minalt_box_infeasible
+      || speed_gap_infeasible;
+}
+
 inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
   if (input.tail_gate_targets.empty()) {
     input.tail_gate_targets = input.targets;

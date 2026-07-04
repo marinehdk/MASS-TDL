@@ -840,3 +840,84 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKBoxWithinEpsilonNotInfeasible) {
   EXPECT_FALSE(cfg.minalt_box_infeasible);
   EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // within epsilon → ROT schedule
 }
+
+// ===========================================================================
+// v2.2 §13.1: solver exposes last_minalt_box_infeasible() after solve() for the
+// BC-MPC dispatch OR condition (Codex integration blocker 1). minalt_box can
+// trigger on the FIRST solve (consecutive=0), so it must be queryable without
+// relying on the consecutive-failure counter.
+// ===========================================================================
+TEST(MidMpcSolverV22, LastMinaltBoxInfeasibleDefaultsFalseBeforeSolve) {
+  // A freshly-constructed solver has not derived a RowBoundConfig yet.
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 8;
+  MidMpcNlpFormulation form(cfg);
+  form.build_symbolic_graph();
+  MidMpcSolver::IpoptOptions opts;
+  opts.timeout_s = 2.0;
+  MidMpcSolver solver(form, opts);
+  EXPECT_FALSE(solver.last_minalt_box_infeasible());
+}
+
+TEST_F(MidMpcNlpTest, LastMinaltBoxInfeasibleExposedAfterBoxInfeasibleSolve) {
+  // Solve with input that triggers minalt_box_infeasible (box < min_alt):
+  // box_reach 5° < min_alt 30° → derived.minalt_box_infeasible=true.
+  MidMpcInput inp = make_base_input();
+  inp.colregs_min_alteration_rad = kMinAlt30rad;  // 30°
+  inp.rot_max_rad_s = 0.0820;                      // 4.7°/s
+  inp.colregs_primary_role = 1U;                   // give-way
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.heading_box_reachable_from_psi0_deg = 5.0;  // box 仅 5° (< 30°)
+
+  static_cast<void>(solver_->solve(inp, nullptr));
+  EXPECT_TRUE(solver_->last_minalt_box_infeasible());
+}
+
+TEST_F(MidMpcNlpTest, LastMinaltBoxInfeasibleFalseAfterFeasibleSolve) {
+  // Baseline straight-line solve (no COLREG conflict, no box contract) must
+  // leave the flag false — and it must be reset from a prior true state.
+  // First force box-infeasible, then solve a clean input → flag flips back.
+  MidMpcInput infeas_inp = make_base_input();
+  infeas_inp.colregs_min_alteration_rad = kMinAlt30rad;
+  infeas_inp.rot_max_rad_s = 0.0820;
+  infeas_inp.colregs_primary_role = 1U;
+  infeas_inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;
+  infeas_inp.constraints.heading_box_reachable_from_psi0_deg = 5.0;
+  static_cast<void>(solver_->solve(infeas_inp, nullptr));
+  ASSERT_TRUE(solver_->last_minalt_box_infeasible());
+
+  // Clean solve: no box contract (sentinel 0) → v2.1 ROT-only, not infeasible.
+  static_cast<void>(solver_->solve(make_straight_line_input(), nullptr));
+  EXPECT_FALSE(solver_->last_minalt_box_infeasible());
+}
+
+// ===========================================================================
+// v2.2 §13.1: BC-MPC take-over dispatch OR condition (Codex integration 🟡3).
+// compute_bc_mpc_take_over() is a free function so the rule is unit-testable.
+// ===========================================================================
+using mass_l3::m5::compute_bc_mpc_take_over;
+
+TEST(MidMpcDispatchV22, ConsecutiveAtThresholdTriggersTakeover) {
+  // consecutive>=3 alone, no box/speed infeasible → take-over.
+  EXPECT_TRUE(compute_bc_mpc_take_over(3, 3, false, false));
+  EXPECT_TRUE(compute_bc_mpc_take_over(5, 3, false, false));
+}
+
+TEST(MidMpcDispatchV22, OrConditionBoxInfeasibleAloneTriggersTakeover) {
+  // consecutive=0, minalt_box_infeasible=true, speed_gap=false → take-over.
+  // This is the Codex blocker-1 case: fires on the FIRST solve.
+  EXPECT_TRUE(compute_bc_mpc_take_over(0, 3, true, false));
+}
+
+TEST(MidMpcDispatchV22, OrConditionSpeedInfeasibleAloneTriggersTakeover) {
+  // consecutive=0, minalt_box_infeasible=false, speed_gap=true → take-over.
+  EXPECT_TRUE(compute_bc_mpc_take_over(0, 3, false, true));
+}
+
+TEST(MidMpcDispatchV22, NoConditionMetDoesNotTriggerTakeover) {
+  // consecutive<threshold, no box/speed infeasible → no take-over.
+  EXPECT_FALSE(compute_bc_mpc_take_over(0, 3, false, false));
+  EXPECT_FALSE(compute_bc_mpc_take_over(2, 3, false, false));
+}

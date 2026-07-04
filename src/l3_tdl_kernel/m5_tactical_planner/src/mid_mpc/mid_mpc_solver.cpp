@@ -184,6 +184,7 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // wins; v2.1 schedule fields honor *_override_valid.
   const RowBoundConfig derived = derive_row_bound_config(
       input, formulation_.config().n_horizon, formulation_.config().dt_s);
+  last_minalt_box_infeasible_ = derived.minalt_box_infeasible;  // v2.2 §13.1 expose
   // direction_disabled / terminal_disabled: bool fields have no sentinel, so
   // caller explicit-true wins (matches the original auto-disable contract: the
   // caller could force-disable but could not force-enable). If the caller left

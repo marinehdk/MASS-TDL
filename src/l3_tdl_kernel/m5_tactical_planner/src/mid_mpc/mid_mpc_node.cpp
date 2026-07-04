@@ -844,14 +844,23 @@ void MidMpcNode::on_solve_cycle_()
   // manager to follow BC-MPC instead of holding a stale NLP corridor (§13.2).
   // The flag is cleared on the next successful (nlp_ok) revise.
   //
-  // γ3 minimal viable: primary trigger = consecutive_failures >= 3.
-  // minalt_box_infeasible / speed_gap_infeasible OR conditions are deferred —
-  // they require the solver to expose its derived RowBoundConfig (larger change).
+  // Dispatch OR condition (spec §13.1): take-over = consecutive>=3 OR
+  // minalt_box_infeasible OR speed_gap_infeasible. The latter two can trigger on
+  // the FIRST solve (consecutive=0): minalt_box_infeasible when the M4-published
+  // heading box upper < own+min_alt (ship physically cannot reach min_alt inside
+  // its directional envelope), speed_gap_infeasible when the speed gap exceeds
+  // N·decel_max·dt. Both are architectural infeasibilities — holding a stale NLP
+  // corridor would be wrong, so dispatch immediately.
   constexpr int64_t kBcMpcTakeoverThreshold = 3;
-  if (solver_.consecutive_failures() >= kBcMpcTakeoverThreshold) {
+  const bool bc_mpc_should_take_over = mass_l3::m5::compute_bc_mpc_take_over(
+      solver_.consecutive_failures(), kBcMpcTakeoverThreshold,
+      solver_.last_minalt_box_infeasible(), input.speed_gap_infeasible);  // v2.2 §13.1 OR
+  if (bc_mpc_should_take_over) {
     if (!committed_route_manager_.bc_mpc_takeover_requested()) {
-      spdlog::warn("[M5][MidMPC] BC-MPC take-over signaled (consecutive_failures={})",
-                   solver_.consecutive_failures());
+      spdlog::warn("[M5][MidMPC] BC-MPC take-over signaled (consecutive={}, box_infeas={}, speed_infeas={})",
+                   solver_.consecutive_failures(),
+                   solver_.last_minalt_box_infeasible(),
+                   input.speed_gap_infeasible);
     }
     committed_route_manager_.mark_bc_mpc_takeover();
   }
