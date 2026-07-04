@@ -1,8 +1,8 @@
-# M5 Mid-MPC NLP 约束重构 Spec (v2.1)
+# M5 Mid-MPC NLP 约束重构 Spec (v2.2)
 
-- Date: 2026-07-04 (v2.1)
+- Date: 2026-07-04 (v2.1) / 2026-07-04 (v2.2)
 - Worktree: `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug`
-- Branch: `fix/m5-nlp-heartbeat-shadow-upstream`
+- Branch: `codex/colregs-12probe-debug`
 - Supersedes（约束章节）: `2026-06-30-m5-committed-route-design-v2.md` §5.5 / §7.1 / §9.3 / §13（仅约束分类与 hard/soft split，其余 v2 章节保持权威）
 - Review basis: Codex task-mr53qtfa 决定性分析（horizon vs 避让生命周期）+ Fix A-F 修复链实测（CPA 穿透 0.2-3.4m + NLP 100% Infeasible）+ 用户 4 决策点拍板（Codex 完整方案 / ROT 4.7°/s / CPA hard 仅 release/suffix / 先 spec 后代码）
 
@@ -11,7 +11,8 @@
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
 | v2 | 2026-06-30 | 评审后修订：stand-on 角色矩阵 + M6 语义独占 + s_clear 复用 + keep-last ≤45s + 非凸 SOTIF + 架构同步清单 |
-| **v2.1** | **2026-07-04** | **NLP 约束分类重构**（round-1 + round-2 Codex adversarial + NLM 🟢 修订）：(1) min_alt reachable schedule `k* = ceil(min_alt/rot_step)-1`（C1 off-by-one）= **k*=1** for 4.7°/s；(2) CPA floor **suffix-hard schedule**（k≥k_cpa 后 hard，前 J_colreg barrier soft）+ tail-gate release hard（B5 + NLM 🟢）+ B5-round2 k_cpa 唯一公式 + RF 条件化；(3) terminal full soften + tail-gate hard（B7 + NLM 🟢）+ B7-round2 two-sided softplus upper-band（无 abs kink）+ 复用 terminal_tau + helper 用 trajectory_terminal_lateral_offset_m（非不存在的 cross_track_m）；(4) direction 保持 hard + implementation-only diag probe（C3）；(5) ROT 4.7°/s（IMO MSC.137(76) 二次推导 🟡 B 级，B2 修订，**NLP rot_max 来自 GNC cruise 非 fcb_45m rot_max_curve**，B3/B4-round2）；(6) ROT 出处统一 4.7（cruise + emergency YAML，GNC `max(cruise,emergency)` clamp）；(7) 不声称「NLP 可行域凸化」（B1：l 经 cos/sin 积分仍非凸）；(8) CPA 名义术语（B6-round2 拍板 cpa_release 复用 cpa_hard_m）；(9) RowBoundConfig `*_override_valid` bool 区分 explicit vs derived（B8-round2）；(10) ReduceSpeed/stand-on/non-lateral disable precedence（B9-round2）；(11) CPA row order k·n_targets+t（C2-round2）；(12) probe 面扩展 Rule13/15/ReduceSpeed/stand-on（C5-round2）|
+| v2.1 | 2026-07-04 | NLP 约束分类重构（round-1 + round-2 Codex adversarial + NLM 🟢 修订）：(1) min_alt reachable schedule `k* = ceil(min_alt/rot_step)-1`（C1 off-by-one）= **k*=1** for 4.7°/s；(2) CPA floor **suffix-hard schedule**（k≥k_cpa 后 hard，前 J_colreg barrier soft）+ tail-gate release hard（B5 + NLM 🟢）+ B5-round2 k_cpa 唯一公式 + RF 条件化；(3) terminal full soften + tail-gate hard（B7 + NLM 🟢）+ B7-round2 two-sided softplus upper-band（无 abs kink）+ 复用 terminal_tau + helper 用 trajectory_terminal_lateral_offset_m（非不存在的 cross_track_m）；(4) direction 保持 hard + implementation-only diag probe（C3）；(5) ROT 4.7°/s（IMO MSC.137(76) 二次推导 🟡 B 级，B2 修订，**NLP rot_max 来自 GNC cruise 非 fcb_45m rot_max_curve**，B3/B4-round2）；(6) ROT 出处统一 4.7（cruise + emergency YAML，GNC `max(cruise,emergency)` clamp）；(7) 不声称「NLP 可行域凸化」（B1：l 经 cos/sin 积分仍非凸）；(8) CPA 名义术语（B6-round2 拍板 cpa_release 复用 cpa_hard_m）；(9) RowBoundConfig `*_override_valid` bool 区分 explicit vs derived（B8-round2）；(10) ReduceSpeed/stand-on/non-lateral disable precedence（B9-round2）；(11) CPA row order k·n_targets+t（C2-round2）；(12) probe 面扩展 Rule13/15/ReduceSpeed/stand-on（C5-round2）|
+| **v2.2** | **2026-07-04** | **架构评估根治（ZCode + Codex task-mr67jyu5 双独立评审 + 4 用户决策）**：(D1) **M4↔M5 reachability 合约**（§4.6 新增）— M4 publish `heading_box_reachable_from_psi0` / `rot_step_rad` / `min_alt_required_rad` / `earliest_min_alt_k` + reason；M5 derive schedule over `{ROT reach tube} ∩ {heading box}`（Codex Q2 暴露 v2.1 只 ROT-reachable 是 moving target）；(D2) **decel_max 0.08→0.20 + speed contract**（§4.7 新增，NLM 🟢 High：0.20 在 emergency crash-astern 0.10-0.25 范围；IMO MSC.137(76) 15L 推导支持）；(D3) **BC-MPC Phase E2 wiring**（§13 新增）— 接受 NLP 偶发 fail，BC-MPC（架构 §10.5）作真独立路径；KeepLast/DegradedHold policy 修订（CPA floor 下不 keep stale corridor）；(D4) **tail-gate 文档化为 NLP filter**（§13.4 + §6.2）— SIL2 责任归 M7 X-axis（架构 §11.7），tail-gate 是 deterministic publish gate；(D5) **min_alt schedule 加 box-reach**（§4.2 修订）— k_minalt 公式扩 `ceil(min_alt / max(rot_step, h_min_reach)) - 1`，h_min_reach = M4 合约字段 |
 
 ## 0. Scope & How To Read This Spec
 
@@ -42,6 +43,12 @@
 - **物理可达性**：每类约束的 hard 时机由物理 deadline 决定（min_alt reachable schedule + CPA suffix-hard schedule），可审计（CCS/i-Ship）。
 - **tail-gate 契约正式化**：types.hpp:770 的 CPA release skip 逻辑从「Bug C 修复」升级为 spec-mandated。
 - **ROT 物理基线**：从 [TBD-HAZID] preliminary 12°/s 改为 IMO MSC.137(76) 二次推导 4.7°/s（🟡 derived engineering estimate，非 MSC.137 直接规定值；仍标 HAZID 校准候选）。
+
+**v2.2 新增目标**（架构评估根治）：
+- **M4↔M5 reachability 合约**（§4.6，D1）：v2.1 min_alt schedule 只 ROT-reachable，未考虑 M4 heading box upper bound（Codex Q2 暴露 moving target：k_minalt=1 hard 要 psi[1] 达 30°，但 box upper < own+30° 时不可达）。v2.2 加 M4 publish reachability metadata + M5 derive over `{ROT reach tube} ∩ {heading box}`。
+- **decel_max 校准 + speed contract**（§4.7，D2）：GNC `max_decel_mps2` 0.08→0.20（NLM 🟢 High emergency crash-astern 下限）；L2/M4/GNC/M5 speed contract 明确化（planned_speed execution-reachable OR soft+ramp）。
+- **BC-MPC Phase E2 wiring**（§13，D3）：接受 NLP 偶发 fail（rule14-ho 382+ consecutive failures），BC-MPC 作真独立路径（架构 §10.5）。KeepLast/DegradedHold policy 修订：CPA floor 下不 keep stale corridor，上抛 M7 MRM。
+- **tail-gate 文档化**（§13.4 + §6.2，D4）：tail-gate 是 NLP publish 前 deterministic publish gate，非 SIL2 independent checker；SIL2 责任归 M7 X-axis（架构 §11.7）。
 
 **本 spec 不做**（与 v2 §21 Non-Goals 一致，不重复）：
 - 不扩 horizon（N=18, dt=5 锁定，v2 §12.0）。
@@ -100,7 +107,7 @@ g_rows[t·N + k] = dx² + dy² - cpa_safe² ≥ 0   per (target, step)
 | 1 | ROT (own→psi[0] + inter-step) | hard all | **hard all** ✅ 保持 | 物理执行极限（Fix E） |
 | 2 | speed bounds / speed_rate (decel) | hard all | **hard all** ✅ 保持 | 物理执行极限（Fix D-2） |
 | 3 | prefix-equality (psi/u) | hard k<K | **hard k<K** ✅ 保持 | committed prefix 不可变（v2 §6.2） |
-| 4 | **min_alt** | hard all k | **reachable schedule**（§4.2） | ROT 物理最早可达 |
+| 4 | **min_alt** | hard all k | **reachable schedule**（§4.2） | ROT 物理最早可达（v2.2：含 M4 heading box reach，§4.6 合约） |
 | 5 | **CPA floor** | hard all k (NLP) | **suffix-hard schedule（k ≥ k_cpa 后 hard，前 soft）+ J_colreg barrier 驱动**（§4.3） | ROT 物理展开时间 + NLM 🟢 recursive feasibility 保证 |
 | 6 | direction (wrong-side) | hard all k | **保持 hard all + diag probe**（§4.4） | k=0 时 l[0]=0 不冲突，待 probe 验证 |
 | 7 | **terminal lateral** | hard 3 rows at k=N-1 | **NLP full soften + J_terminal upper-band cost（新增）+ tail-gate hard**（§4.5） | 90s 不够完成避让回归 + Doer-Checker 架构对齐 SOTIF/SIL2 |
@@ -173,6 +180,22 @@ void apply_minalt_reachable_schedule_(const RowBoundConfig& cfg, BoundArray& b) 
 ```
 
 **退化语义**：`minalt_hard_from_k=0` → 全 hard（与 v2 等价，用于回归测试）。`minalt_hard_from_k=N` → 全 soft。
+
+**v2.2 修订（D5 + D1，Codex Q2 暴露 moving target）**：v2.1 公式 `k* = ceil(min_alt/rot_step) - 1` 只考虑 ROT 累计偏转能力，未考虑 M4 heading box upper bound。但 NLP 对每个 `psi[k]` 应用同一 heading box（mid_mpc_solver.cpp:138），若 box upper < own_psi + min_alt，k* 起的 hard row 不可达（box-reach 不满足）。v2.2 扩 k_minalt 公式：
+
+```cpp
+// v2.2: effective rot_step = max(physical rot_step, M4 box-implied step)
+//   h_min_reach_step = (min_alt_rad - (heading_max_rad - own_psi_rad)) when box upper < own+min_alt
+//                    = +inf otherwise（box 不限制 min_alt 达成）
+//   若 h_min_reach_step <= 0：box 已包含 min_alt，不限制
+//   若 h_min_reach_step > 0：需要 ceil(h_min_reach_step / rot_step) 额外 step 才能从 box upper 转出
+// k_minalt_v2_2 = ceil(min_alt / max(rot_step, h_step_to_box_upper)) - 1
+//               （取更严格的 deadline，即 ROT 限制与 box 限制的 max）
+```
+
+实现：M5 derive 时读 M4 合约字段 `heading_box_reachable_from_psi0` / `heading_max_rad` / `min_alt_required_rad`（§4.6），算 box-implied deadline 与 ROT-deadline 取 max。若 M4 未 publish 合约字段（旧 M4 binary），退化到 v2.1 公式（仅 ROT-reach）。
+
+**降级路径**（M4 合约缺失）：v2.2 不强制 M4 立即升级。M5 检测 `heading_box_reachable_from_psi0 == 0`（sentinel，M4 未 publish）→ 用 v2.1 公式。rule14-ho 在 M4 合约落地前仍会 NLP Infeasible（box-seam 问题未解），但其他 scenario 可正常工作。
 
 **B9 修订（round-2 ReduceSpeed/stand-on/non-lateral disable precedence）**：
 reachable schedule 仅在 lateral COLREG active（give-way + pref_dir≠0 + non-HOLD/ReduceSpeed）时生效。precedence（高 → 低）：
@@ -349,6 +372,134 @@ struct RowBoundConfig {
 
 **退化语义**：`terminal_nlp_soft=false` → hard（v2 等价，回归测试）。
 
+### 4.6 M4↔M5 Reachability 合约（v2.2 D1 新增）
+
+**触发理由**（Codex task-mr67jyu5 Q2 + Q4 暴露）：v2.1 min_alt schedule（§4.2）与 direction schedule（§4.4）只考虑 ROT 累计偏转能力。但 NLP `lbx/ubx` 对每个 `psi[k]` 应用同一 M4 heading box（mid_mpc_solver.cpp:138-151），若 box 不允许 min_alt 量级偏转（rule14-ho 实测：box [23°,53°] vs min_alt 30° → k=1 hard 要求 psi[1]≈30° 但 box 限制下 psi[0] 可行域仅 0.37° 缝），schedule 公式给出错误「可达」承诺，NLP 实际不可行。
+
+**根本问题**：M4 publish 的 heading box 是 IvP 多目标仲裁结果，目前只保证与 own_psi ±rot_step 有交集（`clamp_heading_box_reachable` colregs_directive.cpp:363，0.3° epsilon margin），不保证：
+1. box 宽度允许 NLP 在 k_minalt schedule 内展开 min_alt 偏转
+2. box 起点距 own_psi ≥ 1·rot_step（psi[0] 可行域有数值求解所需宽度）
+
+**v2.2 合约设计**（M4 publish，M5 consume）：
+
+M4 在 `BehaviorPlan.msg` 扩展（schema_version 112→113）新增字段：
+```
+# v2.2 §4.6 reachability 合约（M4 publish，M5 consume）
+float32 heading_box_reachable_from_psi0_deg   # box 起点距 own_psi 的度数（≥0）；0 = M4 未升级，M5 退化
+float32 rot_step_deg                          # M4 假设的 ROT step（与 M5 GNC cruise 对齐校验用）
+float32 min_alt_required_rad                  # M4 期望的本船达成的 min_alt（M6 packed，透传）
+float32 earliest_min_alt_k                    # M4 建议的 earliest k that min_alt can be reached（M5 derive 参考上限）
+string   reachability_rationale               # 若 box narrower than required，说明 reason（如 "IvP speed_priority"）
+```
+
+M5 `MidMpcInput.constraints` 扩展对应字段（mid_mpc_node.cpp:554-562 heading box 解析处同步）。
+
+**M5 derive 修订**（mid_mpc_solver.cpp derive_row_bound_config）：
+```cpp
+// v2.2 §4.6: k_minalt 取 ROT-deadline 与 box-deadline 的 max
+const double rot_step = input.rot_max_rad_s * dt_s;
+const int32_t k_minalt_rot = static_cast<int32_t>(
+    std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
+
+// box-implied deadline：从 box 起点到 min_alt 所需 step
+int32_t k_minalt_box = 0;  // 默认 box 不限制
+if (input.constraints.heading_box_reachable_from_psi0_deg > 0.0) {
+  const double box_reach_rad = input.constraints.heading_box_reachable_from_psi0_deg * kRadPerDeg;
+  const double min_alt_rad = input.colregs_min_alteration_rad;
+  // 若 box 起点已达 min_alt，box 不限制（k_minalt_box=0）
+  // 若 box 起点 < min_alt，需要额外 step 从 box upper 转出（但 box 是硬约束，转不出）
+  //   → 这种情况下 M4 应在上游 widening box 或加 reachability_rationale
+  // M5 仅在 box physically allows 时给 reachable deadline
+  if (box_reach_rad < min_alt_rad) {
+    // box upper < min_alt：检查 box 是否会随 k 进展（不会，box 是全 horizon）
+    // → box 本身不可达 min_alt，M5 标记 infeasible-by-contract，触发 §13 BC-MPC fallback
+    cfg.minalt_box_infeasible = true;  // 新增 RowBoundConfig flag（见下）
+    cfg.minalt_hard_from_k = n_horizon;  // 全 soft（让 NLP 尝试，但预期 infeasible）
+  } else {
+    cfg.minalt_hard_from_k = std::max(k_minalt_rot, 0);
+  }
+} else {
+  // M4 未 publish 合约（旧 binary）：退化 v2.1 公式
+  cfg.minalt_hard_from_k = std::max(k_minalt_rot, 0);
+}
+```
+
+**RowBoundConfig v2.2 扩展字段**（row_registry.hpp，与 §4.2/§4.3 v2.1 字段并列）：
+```cpp
+struct RowBoundConfig {
+  // ... v2.1 fields ...
+  bool minalt_box_infeasible{false};  // v2.2 §4.6: M4 box upper < min_alt，触发 §13 BC-MPC dispatch
+};
+```
+
+`minalt_box_infeasible` 不影响 NLP 约束本身（minalt_hard_from_k=N 已全 soft），仅作为 dispatch 信号传给 mid_mpc_node（§13.1 BC-MPC take-over 条件之一）。
+
+**M4 侧实现要求**（D-task β，触 M4 authority）：
+- `clamp_heading_box_reachable` 升级：除 `overlaps` 检查外，新增 box 宽度检查
+- 若 box 宽度 < `min_alt_required_rad + rot_step_deg`：M4 widening box（拉远 own_psi）OR publish `reachability_rationale` 说明为何不能 widening（让 M5 走 fallback）
+- IvP 权重不变（speed vs heading vs COLREG 仲裁），仅扩 publish 字段 + widening policy
+
+**降级兼容性**：
+- M5 检测 `heading_box_reachable_from_psi0_deg == 0.0`（sentinel）→ v2.1 ROT-only 公式
+- M4 未升级时 rule14-ho box-seam 仍存在（NLP Infeasible），但其他 scenario 正常
+- 两侧独立部署，不强制同步升级
+
+### 4.7 decel_max 校准 + Speed Contract（v2.2 D2 新增）
+
+**触发理由**（Codex task-mr67jyu5 Q3 + NLM ship_maneuvering 🟢 High）：GNC `max_decel_mps2 = 0.08` 使 own_u=7.58 → planned_u=3.087 gap（4.5 m/s）需 56s 完成。NLP `speed_rate` hard 在 u[0] 强制 ≥7.18，与 planned_u 拉力冲突。
+
+**NLM 🟢 High 调研结论**（2026-07-04，ship_maneuvering domain，sources: IMO MSC.137(76) + ABS Guide for Passenger Comfort + ITTC 7.5-04-02-01）：
+- 45m 类似船（passenger ferry / RoRo）comfort decel 0.05-0.10 m/s²
+- emergency crash-astern decel 0.10-0.25 m/s²
+- IMO MSC.137(76) stopping test 15L track reach：45m 船 15kn 起 0.08 m/s² 减速 = 7.8L（远低 15L 上限，pass）
+- **结论**：0.08 作为 comfort decel 合理，作为 absolute max 偏保守 2-3×；emergency 路径可达 0.15-0.25
+
+**v2.2 选值**：`max_decel_mps2 = 0.20`（emergency crash-astern 下限，HAZID 校准前导值）
+- 物理依据：0.20 在 NLM 🟢 emergency 范围 [0.10, 0.25] 内，偏保守侧
+- IMO MSC.137(76) 15L 推导：0.20 m/s² → 3.9L track reach（仍满足 ≤15L）
+- 仍标 `[TBD-HAZID-2026-08-19]`，HAZID 后可调至实船 zig-zag 试验或 MMG 模型推导值
+
+**改动文件**（D-task α）：
+
+| 文件 | 当前 | 改为 | 备注 |
+| --- | --- | --- | --- |
+| `third_party/gnc_ws/src/platform/ship_bringup/config/ship_config.yaml:640` | `max_decel_mps2: 0.08` | `max_decel_mps2: 0.20` | NLM 🟢 emergency 下限 |
+| `ship_config_fast10.yaml` 对应行 | `0.08` | `0.20` | fast10 overlay 同步 |
+
+**Speed Contract**（Codex ownership split 明确化，§4.7 contract）：
+
+| 模块 | 职责 | 字段 |
+| --- | --- | --- |
+| **L2 SpeedProfile** | 期望速度剖面（mission/voyage 级）| `target_speeds_kn[]` |
+| **GNC** | 物理执行包络（cruise/emergency decel, max_yaw_rate）| `max_decel_mps2`, `cruise_max_yaw_rate_deg_s` |
+| **M4 speed box** | 防不可行边界（IvP 仲裁结果）| `speed_min_kn`, `speed_max_kn` |
+| **M5 NLP** | transition feasibility（own_u → planned_u 在 N·decel_max·dt 内可达）| `planned_speed_mps`, `decel_max_mps2` |
+
+**新合约**（v2.2 D2，mid_mpc_node.cpp assemble_input_ 检查）：
+```cpp
+// v2.2 §4.7: own_u / planned_u gap 必须在 N·decel_max·dt 内可达，否则 flag
+const double max_speed_delta = input.decel_max_mps2 * dt_s * n_horizon;  // N=18, dt=5, decel=0.20 → 18 m/s
+const double speed_gap = std::fabs(input.own_ship.u_mps - input.planned_speed_mps);
+if (speed_gap > max_speed_delta) {
+  // Gap 不可达：planned_speed 不 executable，触发 §13 BC-MPC 或 L2 replan signal
+  spdlog::warn("[M5][MidMPC] speed gap {:.1f} m/s exceeds N·decel_max·dt {:.1f}; flagging",
+               speed_gap, max_speed_delta);
+  input.speed_gap_infeasible = true;  // 新增 MidMpcInput flag（见下）
+}
+```
+
+**MidMpcInput v2.2 扩展字段**（types.hpp MidMpcInput struct）：
+```cpp
+struct MidMpcInput {
+  // ... existing fields ...
+  bool speed_gap_infeasible{false};  // v2.2 §4.7: own_u/planned_u gap > N·decel_max·dt，触发 §13 dispatch
+};
+```
+
+`speed_gap_infeasible` 与 `minalt_box_infeasible`（§4.6）都是 dispatch-only flag，不影响 NLP 约束表达式，仅在 mid_mpc_node dispatch 时作为 BC-MPC take-over 触发条件（§13.1）。
+
+**降级语义**：speed_gap 可达时，NLP `speed_rate` hard all-k 不变（v2.1 物理约束）。不可达时 NLP 在 u[k] 轨迹上仍尝试（speed_rate soft 部分由 J_vel 拉向 planned_u），但 dispatch 时若 NLP fail 走 §13 BC-MPC。
+
 ## 5. ROT 参数定标
 
 ### 5.1 选值：4.7°/s（design baseline，derived engineering estimate）
@@ -398,6 +549,8 @@ struct RowBoundConfig {
 | `ship_config.yaml:639` | `emergency_max_yaw_rate_deg_s: 2.0` | `emergency_max_yaw_rate_deg_s: 4.7` | B3：与 cruise 统一（GNC clamp `max(cruise,emergency)` 实际生效值 = 4.7）|
 | `ship_config_fast10.yaml:560` | `max_yaw_rate_deg_s: 1.2` | `max_yaw_rate_deg_s: 4.7` | fast10 overlay 同步 |
 | `ship_config_fast10.yaml:561` | `emergency_max_yaw_rate_deg_s: 2.0` | `emergency_max_yaw_rate_deg_s: 4.7` | fast10 overlay 同步 |
+| `ship_config.yaml:640` | `max_decel_mps2: 0.08` | `max_decel_mps2: 0.20` | **v2.2 D2**：NLM 🟢 emergency crash-astern 下限；IMO MSC.137(76) 15L 推导 3.9L track reach（≤15L pass） |
+| `ship_config_fast10.yaml` decel 行 | `0.08` | `0.20` | **v2.2 D2**：fast10 overlay 同步 |
 
 **fcb_45m.yaml rot_max_curve 处理说明**：当前是 speed-dependent 曲线（低速高 ROT、高速低 ROT）。spec baseline 4.7°/s 是 speed-averaged 估计。实施时可选：(a) flatten 为常数 4.7；(b) 保持曲线 shape 但 scale 至 4.7 平均；(c) 等 MMG D1.3a 水动力验证（[TBD-D1.3a]）。推荐 (b) 保 shape + scale，但本 spec 不强制——实施会话决定。
 
@@ -532,17 +685,115 @@ NLP 非凸性来源（v2.1 后）：
 
 v2 §13.4 SOTIF/policing-function 论证不变（M7 独立 checker + X-axis veto + tail-gate defense-in-depth）。CPA floor 的 hard check 从「NLP 内 all-k」改为「NLP 内 suffix-hard + tail-gate release hard」，仍是确定性 policing function，不弱化安全边界。supersede 范围仅 §13.1-§13.3 非凸论证，**§13.4 SOTIF 不变**。
 
+## 13. BC-MPC Phase E2 Wiring + KeepLast Policy + tail-gate 定位（v2.2 D3 + D4 新增）
+
+### 13.1 BC-MPC Phase E2 wiring（D3，架构 §10.5 实装）
+
+**触发理由**（Codex task-mr67jyu5 Q6 + Q7）：rule14-ho probe 382+ consecutive NLP failures → 全走 GeoFallback → GeoFallback 因 share M4 box（types.hpp:621 clamp_heading_window）也只转 0.2° → committed_route 进 KeepLast/DegradedHold（committed_route.cpp:98/104/197）→ 在 CPA 2.4m 下 hold stale corridor **非 SOTIF safe state**（ISO 21448:2022 functional insufficiency + IEC 61508 fail-safe/predictable 原则）。
+
+**v2.2 设计**（5B 用户决策：BC-MPC 接管）：
+
+BC-MPC（架构 §10.5，branch-tree 算法，非 NLP）作为 NLP-Infeasible 时的真独立路径。Phase E2 完成接线：
+
+| 改动点 | 当前 | 改为 | 源 |
+| --- | --- | --- | --- |
+| `bc_mpc_node.cpp:155` | `inp.mid_mpc_consecutive_failures = 0;  // Phase E1` | 真读取 MidMpcNode 共享状态（ROS param / topic / service）| bc_mpc_node.cpp assemble_input_ |
+| `MidMpcNode` dispatch | NLP fail → GeoFallback（mid_mpc_node.cpp:842-854）| NLP consecutive_failures ≥ kThreshold → publish BC-MPC take-over flag；BC-MPC 在 mid_mpc_consecutive_failures ≥ kThreshold 时激活 | mid_mpc_node.cpp:809 dispatch |
+| BC-MPC 激活条件 | `is_bc_active_` 仅 validity tick（bc_mpc_node.cpp:97）| is_bc_active_ = (consecutive_failures ≥ kThreshold) && (validity_s > 0) | bc_mpc_node.cpp on_validity_tick_ |
+
+**kThreshold 选值**（spec default，HAZID 校准候选）：3（与 committed_route.cpp:104 KeepLast 触发同步）。即 NLP 连续 3 次 fail 时 BC-MPC 接管 + committed_route 进 DegradedHold（不 KeepLast stale corridor）。
+
+**独立性论证**（SOTIF/IEC 61508 视角）：
+- BC-MPC 是 branch-tree 算法（k=7 候选航向，§10.5），**非 NLP**（无非凸 IPOPT 局部最优问题）
+- BC-MPC 不 share NLP 的 constraint rows / tail-gate / GeoFallback 路径（真独立 implementation path）
+- BC-MPC 输出 `ReactiveOverrideCmd`（架构 §L4 紧急接口），L4 切换到 reactive_override 模式
+- 这是架构 §10.5 + §L4 设计原意，v2.2 仅完成 Phase E2 wiring
+
+### 13.2 KeepLast / DegradedHold policy 修订（D3）
+
+**当前**（committed_route.cpp:98/104/106/197）：
+- `consecutive_failures ≥ 3` → `KeepLast`（hold stale corridor）或 `DegradedHold`（若有 active safety concern）
+
+**问题**：KeepLast 在 CPA floor 下 hold stale corridor 非 safe state。
+
+**v2.2 修订**：
+```cpp
+// committed_route.cpp dispatch 修订
+if (consecutive_failures >= kConsecutiveFailureEscalation) {
+  // v2.2 §13.2: 不再 KeepLast stale corridor。
+  // 若 BC-MPC 已接管（§13.1），committed_route 进 BC-MPC-follow 模式
+  // 若 BC-MPC 未激活（kThreshold 未到 OR BC-MPC fail），进 DegradedHold + 上抛 M7 MRM
+  if (bc_mpc_active) {
+    current_.state = LifecycleState::BcMpcFollow;  // 新增 state
+  } else {
+    enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
+    // 上抛 M7 MRM-02（架构 §11）触发 minimum-risk condition
+  }
+}
+```
+
+**新增 LifecycleState**：`BcMpcFollow`（committed_route 跟随 BC-MPC 输出，不 KeepLast stale NLP corridor）。v2 lifecycle 八态扩为九态。
+
+**LifecycleState v2.2 扩展**（committed_route.hpp enum）：
+```cpp
+enum class LifecycleState : std::uint8_t {
+  // ... v2 八态 ...
+  BcMpcFollow = 8U  // v2.2 §13.2: BC-MPC take-over，committed_route 跟随 BC-MPC ReactiveOverrideCmd
+};
+```
+
+`BcMpcFollow` 语义：committed_route 不 publish stale NLP corridor，改 publish BC-MPC 的 ReactiveOverrideCmd 转译的 4-WP；BC-MPC 失败时降级到 `DegradedHold` + MRM 上抛。
+
+**MRM 上抛**（架构 §11 + §10.4 line 934 Slice K）：M7 X-axis Deterministic Checker 接收 DegradedHold 信号 + CPA floor violation → 触发 MRM-02（minimum-risk drift/anchor）。Slice K 接线完成前，M5 仅 log critical + spdlog::critical（已有，mid_mpc_solver.cpp:276）。
+
+### 13.3 降级兼容性
+
+- BC-MPC Phase E2 未实施时：NLP fail 仍走 GeoFallback（v2.1 等价），但 KeepLast policy 修订（13.2）已生效 → DegradedHold + log critical（无 BC-MPC follow 模式）
+- BC-MPC 实施后：NLP fail ≥ 3 → BC-MPC 接管，GeoFallback 仅作 BC-MPC 也 fail 时的最后 fallback
+- M7 Slice K 完成前：MRM 上抛仅 log，不真触发（架构 §10.4 line 934 已知 stub）
+
+### 13.4 tail-gate 文档化定位（D4）
+
+**v2.2 重新定位**（ZCode + Codex 一致评估）：
+
+tail-gate（types.hpp:930-1006 `accept_tail_gate`）是 **NLP publish 前 deterministic publish gate**，**非 IEC 61508 SIL2 independent checker**。
+
+**理由**：
+- tail-gate 6 checks 数值与 NLP 同源（同一 `MidMpcInput`：`rot_max_rad_s`, `cpa_hard_m`, `decel_max_mps2`, `terminal_l_min/max_feasible_m` 都来自同一 input struct）
+- tail-gate 与 NLP constraint compiler 共享 `types.hpp` inline 实现
+- IEC 61508-3 SIL2独立性要求：checker 必须 implementation independent + parameter independent + common-cause-failure isolated。tail-gate 都不满足
+
+**SIL2 责任归属**（架构 §10.4 line 932-934 + §11.7 原意）：
+- **SIL2 independent checker = M7 X-axis Deterministic Checker**（架构 §11.7）
+- tail-gate 是 NLP layer 的 defense-in-depth publish gate（filter NLP KKT 点的 IPOPT 容差残留），不是 SIL2 layer
+- NLM colav_algorithms 🟢 Option 2 论证：tail-gate 作为 deterministic publish gate 符合 Doer-Checker SOTIF 分层（Doer=NLP, publish-gate=tail-gate, SIL2-checker=M7）
+
+**文档改动**（D-task δ）：
+- `types.hpp:770` 注释从「Bug C 修复 / v2.1 §4.3 spec-mandated」升级为「v2.2 §13.4: NLP publish gate (deterministic, defense-in-depth). NOT SIL2 independent checker — SIL2 responsibility: M7 X-axis (架构 §11.7)」
+- 架构报告 §10.4 line 932-934 措辞修订：明确「tail-gate 是 NLP publish gate，非 SIL2 checker；SIL2 责任在 M7 X-axis」
+- spec v2 §13.4 SOTIF/policing 章节加 v2.2 §13.4 指针
+
 ## 9. Open Items（下个会话）
 
-- [ ] 代码实施 §4.2-4.5（min_alt reachable / CPA soft / terminal soft / direction probe）
-- [ ] ROT 参数 YAML 改动（§5.2）
-- [ ] 单测矩阵实施（§7.1）
-- [ ] rule14-ho probe 验证（§7.2）
-- [ ] direction diag probe 数据收集 + 软化决策（§4.4）
-- [ ] 文档改动清单（§6.3）
-- [ ] GNC rebuild（ship_config cruise 4.7 + 需 `--cmake-clean-cache` + touch cpp 强制重编，per handoff）
+**v2.1 Open Items（部分已 v2.2 覆盖）**：
+- [x] 代码实施 §4.2-4.5（min_alt reachable / CPA soft / terminal soft / direction reachable）— v2.1 13 commits 已落（`9cea517d..2b265d10`），28/28 ctest PASS
+- [x] ROT 参数 YAML 改动（§5.2 cruise + emergency + fast10）— v2.1 已落
+- [ ] 单测矩阵实施（§7.1）— 部分完成（direction reachable 已加 10 测，余下待补）
+- [ ] rule14-ho probe 验证（§7.2）— **v2.2 后重做**（v2.1 仍 RED，需 v2.2 D1+D2 落地后）
+- [x] direction diag probe 数据收集 + 软化决策（§4.4）— v2.1 Phase 1 已完成（direction reachable fix）
+- [ ] 文档改动清单（§6.3）— 待 v2.2 全部落地后统一做
+- [ ] GNC rebuild（ship_config cruise 4.7 + 需 `--cmake-clean-cache` + touch cpp 强制重编，per handoff）— **v2.2 加 decel_max 0.20 一起 rebuild**
 - [ ] M5/M4 colcon build + 全单测
 - [ ] Codex 评审（per AGENTS.md「兼听则明」，代码实施完成后）
+
+**v2.2 新增 Open Items（D-task α/β/γ/δ）**：
+- [ ] **α（ODD 参数 + speed 合约，§4.7）**：decel_max 0.08→0.20（ship_config.yaml + fast10）+ speed_gap_infeasible flag wiring（mid_mpc_node assemble_input_）
+- [ ] **β（M4↔M5 reachability 合约，§4.6）**：BehaviorPlan.msg schema 112→113 加 4 字段 + M4 clamp_heading_box_reachable 升级 + M5 derive over {ROT ∩ box} + 降级兼容（M4 未升级时退化 v2.1）
+- [ ] **γ（BC-MPC Phase E2 + KeepLast policy，§13.1+§13.2）**：bc_mpc_node.cpp 真读 consecutive_failures + MidMpcNode dispatch BC-MPC take-over + committed_route.cpp BcMpcFollow state + MRM 上抛 wiring（依赖 M7 Slice K）
+- [ ] **δ（tail-gate 文档化，§13.4）**：types.hpp:770 注释 + 架构 §10.4 line 932-934 措辞 + spec v2 §13.4 指针
+- [ ] v2.2 单测：M4↔M5 合约字段 / speed_gap_infeasible / BC-MPC take-over dispatch / BcMpcFollow lifecycle
+- [ ] v2.2 rule14-ho probe 重做（α+β 落地后，验证 NLP CONVERGED % + CPA min ≥ 180m）
+- [ ] D-task β 与 M4 owner 协调（AGENTS.md「另一模块有问题报告不改」）
 
 ## 10. Source Coordinates
 
@@ -565,7 +816,9 @@ v2 §13.4 SOTIF/policing-function 论证不变（M7 独立 checker + X-axis veto
 - handoff 末条：`handoff/workspace_log.md`（`[2026-07-03] ZCode / f4ad6bab..55554ab8`）
 - rule14-ho probe 证据：`runs/fix_e_diagf_rule14ho/`、`runs/fix_f*_rule14ho/`、`runs/fix_f2_diag/`
 
-## 11. Decision Record（v2.1 — 4 用户决策 + 5 Codex/NLM 修订追溯）
+## 11. Decision Record
+
+### v2.1（4 用户决策 + 5 Codex/NLM 修订追溯）
 
 | # | 议题 | 决策 | 依据 | spec 落地 |
 | --- | --- | --- | --- | --- |
@@ -578,6 +831,17 @@ v2 §13.4 SOTIF/policing-function 论证不变（M7 独立 checker + X-axis veto
 | 7 | CPA floor 设计（B5 修订） | **Suffix-Hard Schedule**（k≥k_cpa 后 hard，前 J_colreg barrier soft） | Codex B5（test 实测 soft barrier 弱于 route pullback）+ NLM colav_algorithms 🟢（RF 保证 + COLREGs safety）| §4.3 重写 |
 | 8 | terminal lateral 设计（B7 修订） | **保 full soften + tail-gate hard**（NLM Option 2），补 J_terminal upper-band cost + tail-gate 接线 | Codex B7（暴露 2 implementation gap）+ NLM 🟢（Doer-Checker SOTIF 最优）| §4.5 重写 |
 | 9 | GNC emergency ROT（B3 修订） | **所有 ROT 出处统一 4.7°/s**（cruise + emergency YAML 都改） | 用户拍板；GNC `emergency = max(cruise, emergency_YAML)` clamp 实际生效值 = 4.7 | §5.2 |
+
+### v2.2（架构评估根治 — 4 用户决策 + Codex task-mr67jyu5 + NLM 🟢）
+
+| # | 议题 | 决策 | 依据 | spec 落地 |
+| --- | --- | --- | --- | --- |
+| 10 | M4↔M5 合约方向 | **1B 真 reachability 合约**（M4 publish 4 字段 + M5 derive over {ROT ∩ box}） | 用户拍板；Codex Q1+Q2+Q4 一致（"just widen epsilon" 反对：0.3° seam 是合约症状非 numeric bug）| §4.6 |
+| 11 | decel_max 校准 | **0.08 → 0.20 m/s² + speed contract**（planned_speed execution-reachable OR soft+ramp） | 用户拍板；NLM ship_maneuvering 🟢 High（emergency 0.10-0.25）；IMO MSC.137(76) 15L 推导 3.9L pass；Codex Q3 ownership split | §4.7、§5.2 |
+| 12 | 架构路线 | **5B BC-MPC Phase E2 wiring 接管**（接受 NLP 偶发 fail，BC-MPC 真独立路径） | 用户拍板；Codex Q6+Q7（GeoFallback unsafe as long-duration fallback；Johansen ICRA'18 behavior candidates）；架构 §10.5 设计原意 | §13.1 |
+| 13 | tail-gate SIL2 定位 | **4A 重新文档化为 NLP publish gate**（SIL2 责任归 M7 X-axis） | 用户拍板；ZCode + Codex Q5 一致（数值同源，非独立 checker）；架构 §10.4 line 932-934 原意；NLM 🟢 Option 2 | §13.4、§6.2 |
+| 14 | min_alt schedule moving target | **k_minalt 公式扩 max(ROT-step, box-step)**（D5，Codex Q2 暴露） | Codex Q2 + 用户决策 10（1B 合约）连带 | §4.2 修订 |
+| 15 | KeepLast stale corridor | **committed_route BcMpcFollow + DegradedHold + MRM 上抛**（不 keep stale） | Codex Q6（SOTIF/IEC 61508 fail-safe/predictable）；用户决策 12（5B）连带 | §13.2 |
 
 ## 12. References
 
@@ -592,3 +856,13 @@ v2 §13.4 SOTIF/policing-function 论证不变（M7 独立 checker + X-axis veto
 - [R9] handoff `workspace_log.md` entries `35818e27..55554ab8`（2026-07-03）—— Fix A-F 修复链实测证据。
 - [R10] AGENTS.md「COLREGs 全链路 debug」「design and documentation rules」「local-first deployment gate」—— 工程纪律约束。
 - [R11] NLM ship_maneuvering notebook（36.4m RoRo ferry ROT 1.5-5.5°/s）—— 相似船舶实测支持（🟡 C 级）。
+
+### v2.2 新增 References
+
+- [R12] Codex task-mr67jyu5「M5 NLP architecture independent evaluation」（2026-07-04）—— Q1-Q7 双独立评审，输出在 `/var/folders/.../codex-companion/colregs-12probe-debug-25f90e3311160839/jobs/task-mr67jyu5-49a0ia.log`。verdict: (b)+(c) 非 (a)。
+- [R13] NLM ship_maneuvering notebook「45m ferry decel rate comfort vs emergency」ask 🟢 High（2026-07-04）—— comfort 0.05-0.10, emergency 0.10-0.25 m/s²；IMO MSC.137(76) 15L track reach 推导 0.20 m/s² → 3.9L pass。
+- [R14] NLM ship_maneuvering sources（2026-07-04 import）：IMO MSC.137(76)、IMO MSC/Circ.1053 Explanatory Notes、ABS Guide for Vessel Maneuverability 2017、ABS Guide for Passenger Comfort on Ships、ITTC 7.5-04-02-01 Full Scale Manoeuvring Trials、IMO MSC.97(73) HSC Code 2000。
+- [R15] IEC 61508-3:2010 Functional safety of electrical/electronic safety-related systems — SIL2 architectural constraints + systematic capability + independence criteria（v2.2 §13.4 tail-gate 定位依据）。
+- [R16] ISO 21448:2022 Road vehicles — Safety of the intended functionality (SOTIF) — functional insufficiency + V&V/design measures framework（v2.2 §13.2 KeepLast policy + §13.4 tail-gate 定位依据）。
+- [R17] Johansen, Breivik et al. ICRA'18「MPC COLREGs behavior candidates」—— 短时域 MPC + behavior candidates 避免 NLP 非凸 + guidance/prediction mismatch（v2.2 §13.1 BC-MPC 接管依据）。
+- [R18] ZCode + Codex 双独立架构评估 handoff entries（2026-07-04，`handoff/workspace_log.md` 末段）—— 4 真问题 + 1 根本性问题的双评估收敛证据。
