@@ -195,6 +195,8 @@ void apply_minalt_reachable_schedule_(const RowBoundConfig& cfg, BoundArray& b) 
 
 实现：M5 derive 时读 M4 合约字段 `heading_box_reachable_from_psi0` / `heading_max_rad` / `min_alt_required_rad`（§4.6），算 box-implied deadline 与 ROT-deadline 取 max。若 M4 未 publish 合约字段（旧 M4 binary），退化到 v2.1 公式（仅 ROT-reach）。
 
+**注（v2.2 集成校正，Codex 🟡2）**：上述 smooth `max(ROT, box-step)` 公式是早期 draft 推理。**§4.6 是权威实现**：bimodal —— `box_reach < min_alt → minalt_box_infeasible=true + k=N (全 soft)`, 否则 `k_minalt_rot_clamped`。code 实现（`mid_mpc_solver.cpp` `derive_row_bound_config()`）遵循 §4.6。本节 smooth 公式保留作为设计动机记录，不作为实施依据。
+
 **降级路径**（M4 合约缺失）：v2.2 不强制 M4 立即升级。M5 检测 `heading_box_reachable_from_psi0 == 0`（sentinel，M4 未 publish）→ 用 v2.1 公式。rule14-ho 在 M4 合约落地前仍会 NLP Infeasible（box-seam 问题未解），但其他 scenario 可正常工作。
 
 **B9 修订（round-2 ReduceSpeed/stand-on/non-lateral disable precedence）**：
