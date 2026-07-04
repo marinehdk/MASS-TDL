@@ -1,10 +1,10 @@
 # M5 GNCPreflight Threshold Calibration + WP Anchor Contract — Design Spec (v2.3 δ)
 
-**Date**: 2026-07-04 (revised 2026-07-05 after V2.3 probe)
-**Status**: Revised R2 (Phase 1 calibration landed `a97c959b`; Phase 2 anchor contract PROMOTED from deferred to primary after V2.3 probe confirmed it is the real blocker)
-**Supersedes**: commit `244a9002` (anchor-contract-only draft), commit `5d6c15d7` (Phase 2 deferred draft)
+**Date**: 2026-07-04 (revised 2026-07-05 R3 after V2.3 Phase1+2 probe)
+**Status**: Revised R3 (Phase 1 calibration `a97c959b`, Phase 2 anchor contract landed; Phase 3 wheel-over sampling PROMOTED after V2.3 Phase1+2 probe confirmed NLP wps[1]=25m is the real blocker)
+**Supersedes**: commit `244a9002` (anchor-contract-only draft), commit `5d6c15d7` (Phase 2 deferred draft), commit `f855de55` (R2 Phase 2 only)
 **Supersedes spec**: none (incremental on v2.2 `2026-07-04-m5-nlp-constraint-restructure-design-v2.1.md`)
-**Scope**: M5 Tactical Planner — preflight threshold calibration (Phase 1 DONE) + WP anchor contract (Phase 2 PROMOTED)
+**Scope**: M5 Tactical Planner — preflight threshold calibration (Phase 1 DONE) + WP anchor contract (Phase 2 DONE) + wheel-over sampling (Phase 3 PROMOTED)
 **D-task ID**: D-ε (delta on v2.2)
 
 ## 1. Problem
@@ -56,9 +56,32 @@ For anchor-WP[0] generators, `first_distance = 0m` → optimized/fallback plans 
 
 **Conclusion**: Phase 2 anchor contract is NOT a defer — it is the probe-pass blocker. Phase 2 is promoted to primary.
 
-### 1.3 Not a v2.2 regression
+### 1.3 Defect C (Phase 3 — PROMOTED to primary after V2.3 Phase1+2 probe): NLP optimized wps[1] violates wheel-over distance
 
-v2.2 changes constraint derive (ROT∩box direction-aware); WP generation and preflight thresholds unchanged. v2.1 also 0% CONVERGED. Defect A (360m) introduced in `11d86dd8` WIP commit, predates v2.2.
+V2.3 Phase1+2 probe (`run-19f2e3cbd12`) confirmed Phase 1 calibration + Phase 2 anchor contract both landed correctly (`required=120.0`, preflight rejects at `idx=1` not `idx=0`). But CPA regressed further to 0.4m.
+
+**Root cause**: `MidMpcWaypointGenerator::sample_waypoints_` (`mid_mpc_waypoint_generator.cpp:171-189`) samples wps uniformly across trajectory:
+```cpp
+const int32_t idx = (num_wp == 1) ? 0 : k * (N - 1) / (num_wp - 1);
+```
+With `num_waypoints=18`, `N=18` → `num_wp=18`, so `idx=k`. wps[1] corresponds to trajectory[1].
+
+**NLP horizon geometry** (`mid_mpc_nlp_formulation.hpp:88,90`):
+- `n_horizon = 18` steps, `dt_s = 5.0` s → 90s total
+- Step distance = u × dt = 5 m/s × 5s = **25m/step**
+- trajectory[1] dead-reckon ≈ 25m (33m at u≈6.6 m/s, matches probe log)
+
+**Preflight reject**: `first_maneuver_point_too_close idx=1 required=120.0 available=33.0`. wps[1]=trajectory[1]=33m < 120m emergency_wheel_over_distance_m.
+
+**Horizon is sufficient** (90s × 5m/s = 450m > 120m; 120m = 27% of horizon). The sampling start point is wrong, not the horizon length. First maneuver WP should be at trajectory[5] (5×25=125m ≥ 120m), not trajectory[1].
+
+**Codex diagnosis Q1** identified this as the WP translator indexing defect (🟢 High). User-confirmed geometry (2026-07-05): "18 个 5s 步长，3×5=15m 间隔" — direction correct (actual 25m/step at u=5 m/s).
+
+**Phase 3 fix**: `sample_waypoints_` + `build_waypoints_` start sampling at the first trajectory index whose cumulative distance from origin ≥ `emergency_wheel_over_distance_m`. Horizon comfortably covers this (trajectory[5] @ 125m).
+
+### 1.4 Not a v2.2 regression
+
+v2.2 changes constraint derive (ROT∩box direction-aware); WP generation and preflight thresholds unchanged. v2.1 also 0% CONVERGED. Defect A (360m) introduced in `11d86dd8` WIP commit, predates v2.2. Defect C (sample_waypoints_ uniform sampling) is original Phase-3 generator code, also predates v2.2.
 
 ## 2. Phase 1 Design: Calibrate `high_speed_flyby_min_segment_m` 360→120
 
@@ -149,6 +172,45 @@ Return path is the sole exception. Its caller keeps `has_anchor=false`.
 `append_l2_nominal_suffix_if_preflight_feasible` (`mid_mpc_waypoint_generator.cpp:94-139`) calls `validate_canonical_route_for_gnc(candidate, origin)` at line 133 where `candidate = plan + L2 suffix`. After Phase 2, `plan.waypoints[0]` is the anchor (from generator), so `candidate` also starts with the anchor. This caller passes `has_anchor=true`.
 
 The optimized-path caller at `mid_mpc_node.cpp:1524` calls `append_l2_nominal_suffix_if_preflight_feasible` BEFORE the `validate_canonical_route_for_gnc` at line 1530. Both must pass `has_anchor=true` consistently.
+
+### 3.6 Phase 3 Design: wheel-over起始 sampling in MidMpcWaypointGenerator
+
+Phase 3 fixes Defect C (§1.3): `sample_waypoints_` uniform sampling puts wps[1] at trajectory[1]≈25m, violating the 120m wheel-over distance even though horizon (450m) comfortably covers it.
+
+**Change `sample_waypoints_`** (`mid_mpc_waypoint_generator.cpp:158-191`):
+
+After building `ned_pos` cumulative positions, find the first index whose cumulative distance from origin ≥ `cfg_.wheel_over_distance_m` (new Config field, default 120.0 to match `emergency_wheel_over_distance_m`). Use this index as the sampling start. Then uniformly sample `num_wp` waypoints from `[start_idx, N-1]`.
+
+```cpp
+// Phase 3: start sampling at first trajectory index whose cumulative distance
+// from origin >= wheel_over_distance_m. Ensures wps[1] (first maneuver after
+// anchor) clears the GNC preflight first_maneuver_point_too_close gate.
+std::size_t start_idx = 1;
+for (std::size_t k = 1; k < ned_pos.size(); ++k) {
+  const double dx = ned_pos[k].first;
+  const double dy = ned_pos[k].second;
+  const double dist = std::sqrt(dx*dx + dy*dy);
+  if (dist + 1.0e-6 >= cfg_.wheel_over_distance_m) {
+    start_idx = k;
+    break;
+  }
+}
+// Sample num_wp waypoints uniformly across [start_idx, N-1].
+// Map wp k (0-indexed) to trajectory index: start_idx + k*(N-1-start_idx)/(num_wp-1)
+for (int32_t k = 0; k < num_wp; ++k) {
+  const int32_t idx = (num_wp == 1) ? static_cast<int32_t>(start_idx)
+      : static_cast<int32_t>(start_idx + k * (N - 1 - start_idx) / (num_wp - 1));
+  // ... use ned_pos[idx] as before
+}
+```
+
+**`build_waypoints_`** (`mid_mpc_waypoint_generator.cpp:193-258`): apply the same `start_idx` logic so turn_radius / target_speed / wp_distance indexing aligns with `sample_waypoints_`.
+
+**Config addition** (`mid_mpc_waypoint_generator.hpp:53-58`): add `wheel_over_distance_m{120.0}` to `MidMpcWaypointGenerator::Config`, comment "must match `GncAvoidancePreflightConfig::emergency_wheel_over_distance_m`".
+
+**Fallback**: if entire trajectory < wheel_over_distance_m (short horizon or low speed), `start_idx = N-1` (last point); wps[1] = wps[N-1] = furthest available. Preflight will still reject if < 120m, but that's the honest signal (horizon too short for safe maneuver).
+
+**Test**: new test `MidMpcWaypointGeneratorSamplesFirstManeuverBeyondWheelOver` — construct a converged MidMpcSolution trajectory with N=18, dt=5, u=5 m/s (25m/step). Assert wps[1] distance from origin ≥ 120m.
 
 ## 4. Testing
 
