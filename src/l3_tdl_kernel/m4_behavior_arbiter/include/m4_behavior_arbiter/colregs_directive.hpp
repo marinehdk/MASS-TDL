@@ -81,4 +81,22 @@ void apply_primary_risk_guidance(
     const ColregsDirective& directive,
     double required_deviation_deg);
 
+// Fix F-1 (plan↔exec ROT alignment, 2026-07-03): clamp a finite M4 heading box
+// [h_min_deg, h_max_deg] (degrees, may wrap across 0/360) so it always contains
+// at least one heading reachable from own_hdg_deg within one ROT step
+// (rot_step_deg = rot_max_deg_s * dt_s). Preserves the directive direction: if
+// the box partially overlaps the reachable arc [own-rot_step, own+rot_step],
+// the overlap is kept (directive-side edge preferred); if the box is entirely
+// outside the reachable arc, it is translated along the directive direction
+// (sign of box-centre minus own_hdg) until just tangent to the reachable arc.
+// No-op when rot_step_deg <= 0 (clamp disabled) or the box already overlaps.
+//
+// Rationale: without this clamp M4 can publish a corridor (e.g. onset [60,90]
+// while own_psi≈0) that is not one-step ROT-reachable. M5 NLP (Fix E) then finds
+// the own_psi→psi[0] ROT row infeasible → IPOPT Infeasible → geometric fallback
+// → no real avoidance. The clamp guarantees the published corridor is always
+// first-step executable by GNC.
+void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
+                                 double own_hdg_deg, double rot_step_deg);
+
 }  // namespace mass_l3::m4

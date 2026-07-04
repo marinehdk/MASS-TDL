@@ -348,6 +348,8 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   const auto asdr_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
 
   interval_ms_ = declare_parameter<int>("m4.arbitration.interval_ms", 250);
+  heading_reachability_dt_s_ = declare_parameter<double>(
+      "m4.heading_reachability.dt_s", 5.0);
   double h_res = declare_parameter<double>("m4.arbitration.heading_domain_resolution_deg", 1.0);
   double s_min = declare_parameter<double>("m4.arbitration.speed_domain_min_kn", 0.0);
   speed_max_kn_ = declare_parameter<double>("m4.arbitration.speed_domain_max_kn", 22.0);
@@ -363,6 +365,17 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   sub_odd_ = create_subscription<ODDStateMsg>(
       "/l3/m1/odd_state", qos,
       [this](const ODDStateMsg::SharedPtr msg) { on_odd_state(msg); });
+  // Fix F-1: GNC execution ODD — source of cruise_max_yaw_rate_deg_s used for
+  // heading-box ROT clamp. Must be the SAME source M5 NLP uses (plan↔exec ROT
+  // alignment contract); ODDState.rot_max_current is the M1 ODD envelope
+  // (13°/s) and drifts from the GNC execution cap (1.2°/s), so it cannot be
+  // used for the clamp — that mismatch left M4 boxes unclamped while M5 NLP
+  // found them unreachable (probe runs/fix_f_diag_rule14ho, all INFEAS).
+  sub_gnc_odd_ = create_subscription<ship_interfaces::msg::GncExecutionOdd>(
+      "/gnc/execution_odd", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+      [this](const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+        on_gnc_execution_odd(msg);
+      });
   sub_world_ = create_subscription<WorldStateMsg>(
       "/l3/m2/world_state", qos,
       [this](const WorldStateMsg::SharedPtr msg) { on_world_state(msg); });
@@ -421,6 +434,10 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
 
 void BehaviorArbiterNode::on_odd_state(const ODDStateMsg::SharedPtr msg) {
   latest_odd_ = msg; odd_received_ = true;
+}
+void BehaviorArbiterNode::on_gnc_execution_odd(
+    const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+  latest_gnc_odd_ = msg;
 }
 void BehaviorArbiterNode::on_world_state(const WorldStateMsg::SharedPtr msg) {
   latest_world_ = msg; world_received_ = true;
@@ -1300,6 +1317,21 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       s_min = std::min(s_min, own_sog_kn);
       s_max = std::max(s_max, own_sog_kn);
     }
+  }
+  // Fix F-1 (plan↔exec ROT alignment, 2026-07-03): clamp the finite heading box
+  // to be first-step ROT-reachable from own heading before publish. Uses GNC
+  // execution ODD cruise_max_yaw_rate (SAME source as M5 NLP rot_max) so M4
+  // corridor and M5 NLP share the identical ROT feasibility contract. Earlier
+  // revision used ODDState.rot_max_current (M1 envelope ~13°/s) which drifted
+  // from the GNC execution cap (1.2°/s) and left boxes unclamped → M5 INFEAS.
+  if (primary != BehaviorType::MRC_DRIFT && primary != BehaviorType::MRC_ANCHOR &&
+      primary != BehaviorType::MRC_HEAVE_TO && latest_world_ && latest_gnc_odd_ &&
+      h_min != h_max) {
+    const double rot_step_deg =
+        static_cast<double>(latest_gnc_odd_->cruise_max_yaw_rate_deg_s) *
+        heading_reachability_dt_s_;
+    const double own_hdg_now = static_cast<double>(latest_world_->own_ship.heading_deg);
+    clamp_heading_box_reachable(h_min, h_max, own_hdg_now, rot_step_deg);
   }
   BehaviorPlanMsg plan;
   plan.schema_version = 113;

@@ -317,4 +317,71 @@ std::vector<std::pair<double, double>> directive_allowed_ranges(
   return {};
 }
 
+// Signed smallest angular difference (b - a), wrapped to [-180, +180].
+// Used by clamp_heading_box_reachable to reason in own-relative coordinates.
+namespace {
+double signed_delta_deg(double from_deg, double to_deg) {
+  double d = std::fmod(to_deg - from_deg, 360.0);
+  if (d > 180.0) { d -= 360.0; }
+  if (d < -180.0) { d += 360.0; }
+  return d;
+}
+}  // namespace
+
+void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
+                                 double own_hdg_deg, double rot_step_deg) {
+  if (rot_step_deg <= 0.0) {
+    return;  // clamp disabled
+  }
+  // Safety margin: shrink the effective reachable arc by a small epsilon so the
+  // clamped box edges sit strictly inside the M5 NLP ROT feasibility bound.
+  // Without this, float32(deg)→float64(rad) conversion + M4/M5 independent
+  // deg↔rad paths accumulate ~0.02° error at the boundary, and M5's overlap
+  // test (heading_min ≤ own_psi + rot_step) fails by a hair (e.g. M4 emits
+  // 6.000° → M5 computes 5.998° reachable → 0.002° miss → INFEAS). A 0.3°
+  // margin absorbs the conversion noise while staying well above ROT precision.
+  constexpr double kClampMarginDeg = 0.3;
+  const double eff_rot_step = std::max(rot_step_deg - kClampMarginDeg, 0.0);
+  // Compute box centre + half-width in absolute heading, then map the CENTRE
+  // into own-relative signed delta ∈ [-180, 180]. Reasoning on the centre
+  // (not the two edges independently) avoids wrap artefacts where a narrow box
+  // straddling the ±180° back-axis would have its edges map to opposite signs
+  // and be mistaken for a full-range box.
+  const double w_min = wrap_heading_deg(h_min_deg);
+  const double w_max = wrap_heading_deg(h_max_deg);
+  // Box width along the shorter arc (handles wrap-around boxes).
+  double width = w_max - w_min;
+  if (width < 0.0) { width += 360.0; }
+  const double half_width = 0.5 * width;
+  const double centre_abs = wrap_heading_deg(w_min + half_width);
+  const double centre = signed_delta_deg(own_hdg_deg, centre_abs);
+  const double d_min = centre - half_width;
+  const double d_max = centre + half_width;
+  const double reach_lo = -eff_rot_step;
+  const double reach_hi =  eff_rot_step;
+  // Already overlaps reachable arc → no-op.
+  const bool overlaps = (d_min <= reach_hi) && (d_max >= reach_lo);
+  if (overlaps) {
+    return;
+  }
+  // Entirely outside. Translate along the directive direction (sign of centre)
+  // until just tangent to the reachable arc.
+  double new_d_min, new_d_max;
+  if (centre > 0.0) {
+    // Box is to starboard — pull lower edge to reach_hi.
+    new_d_min = reach_hi;
+    new_d_max = reach_hi + 2.0 * half_width;
+  } else {
+    // Box is to port — pull upper edge to reach_lo.
+    new_d_max = reach_lo;
+    new_d_min = reach_lo - 2.0 * half_width;
+  }
+  // Map back to absolute headings (preserve original min<max ordering).
+  const double new_h_min = wrap_heading_deg(own_hdg_deg + new_d_min);
+  const double new_h_max = wrap_heading_deg(own_hdg_deg + new_d_max);
+  // Keep min/max ordered (no wrap-around box after clamp).
+  h_min_deg = std::min(new_h_min, new_h_max);
+  h_max_deg = std::max(new_h_min, new_h_max);
+}
+
 }  // namespace mass_l3::m4
