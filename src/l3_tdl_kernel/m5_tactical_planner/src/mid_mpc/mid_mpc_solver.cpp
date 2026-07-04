@@ -195,6 +195,8 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
       ? rb_eff.minalt_hard_from_k : derived.minalt_hard_from_k;
   rb_eff.cpa_hard_from_k = rb_eff.cpa_override_valid
       ? rb_eff.cpa_hard_from_k : derived.cpa_hard_from_k;
+  rb_eff.direction_hard_from_k = rb_eff.direction_override_valid
+      ? rb_eff.direction_hard_from_k : derived.direction_hard_from_k;
   // terminal_nlp_soft: caller explicit always wins (it's a bool with no
   // "override_valid" sentinel; default true from Task 7 flip).
   // (rb_eff.terminal_nlp_soft already equals row_bounds.terminal_nlp_soft.)
@@ -262,29 +264,6 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   const int32_t duration_ms = static_cast<int32_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
 
-  // v2.1 spec §4.4 / C3: implementation-only diag dump for direction rows.
-  // Activated ONLY when env var M5_DIRECTION_DIAG=1. Default off. Remove after
-  // direction-soften decision (Task 10 probe evidence). Uses res.at("g")
-  // (CasADi nlpsol standard output, sibling to res.at("x")). Placed before
-  // unpack_solution so the dump runs even on infeasible exits (g(x*) is still
-  // returned by IPOPT on Infeasible).
-  if (const char* env = std::getenv("M5_DIRECTION_DIAG")) {
-    if (env[0] == '1') {
-      const casadi::DM& g_at_sol = res.at("g");
-      const auto& reg = formulation_.row_registry();
-      const int32_t N_diag = formulation_.config().n_horizon;
-      for (int32_t k = 0; k < N_diag; ++k) {
-        const std::size_t r = static_cast<std::size_t>(reg.direction_row(k));
-        const double g_val = static_cast<double>(g_at_sol(r, 0));
-        const double lb = 0.0;  // direction hard lower bound
-        const double margin = g_val - lb;
-        std::fprintf(stderr,
-            "[M5_DIRECTION_DIAG] k=%d g=%g lb=%g margin=%g %s\n",
-            k, g_val, lb, margin, (margin < 1e-6 ? "ACTIVE" : "satisfied"));
-      }
-    }
-  }
-
   MidMpcSolution sol = formulation_.unpack_solution(res.at("x"), stats);
   sol.solve_duration_ms = duration_ms;
 
@@ -343,6 +322,58 @@ RowBoundConfig derive_row_bound_config(
           std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
       cfg.minalt_hard_from_k = std::max(0, std::min(k_minalt, n_horizon));
     }
+  }
+
+  // v2.1 §4.4 reachable schedule (Phase 1 root-cause fix): direction row at k=0
+  // is g_dir[0] = pref_dir · l[0], where l[0] = (own_pos - route_origin) · n_hat
+  // is the OWN SHIP current cross-track. pos[0] is the NLP initial condition
+  // (parameter), so the NLP cannot change l[0] — if the ship starts on the
+  // "wrong" side relative to M6's chosen give-way side (a perfectly valid
+  // scenario, e.g. rule14-ho starts ~1 m left of route, M6 picks Starboard),
+  // g_dir[0] < 0 is an immovable HARD VIOLATION.
+  //
+  // spec §4.4 explicitly authorizes this soften: "若有非 0 残差且活跃 → 下个会话
+  // 软化（同 min_alt reachable schedule 模式）". Same geometric reasoning as
+  // min_alt: the ship needs k_dir steps of lateral closure (rate ≈ u·sin(rot_step)
+  // · dt) before the cross-track sign can flip. Soften the early rows so J_colreg
+  // drives the maneuver; hard floor returns once the ship has had physical time to
+  // reach the preferred side.
+  if (!cfg.direction_disabled) {
+    // l[0] = (own_pos - route_origin) · n_hat. MidMpcInput already exposes this
+    // as route_xte_m (the node computes it from the same route frame); sign
+    // convention: positive = starboard of route (n_hat packed as (-sin,cos),
+    // see formulation.cpp:113). pref_dir=+1=Starboard, -1=Port.
+    //
+    // g_dir[0] = pref_dir · l[0]. The NLP cannot move pos[0] (own current pos),
+    // so g_dir[0] < 0 is an immovable HARD VIOLATION only when l[0] is on the
+    // OPPOSITE side of pref_dir (wrong side: pref_dir·l[0] < 0). If the ship is
+    // already on the correct side (pref_dir·l[0] > 0), direction is satisfied
+    // and no softening is needed — applying it anyway would over-soften hard
+    // rows beyond what spec §4.4 authorizes ("non-zero residual" = wrong side).
+    const double pref_dir_sign =
+        (input.colregs_preferred_direction ==
+            mass_l3::m5::ColregsPreferredDirection::Starboard) ? +1.0
+      : (input.colregs_preferred_direction ==
+            mass_l3::m5::ColregsPreferredDirection::Port)        ? -1.0
+                                                                  :  0.0;
+    const double g_dir0 = pref_dir_sign * input.route_xte_m;
+    const double rot_step = input.rot_max_rad_s * dt_s;
+    // Worst-case closure rate at the first reachable heading (one ROT step from
+    // own_psi). Floor u to 0.5 so a near-stationary ship does not divide by ~0.
+    const double u_eff = std::max(input.own_ship.u_mps, 0.5);
+    const double closure_rate = u_eff * dt_s * std::sin(rot_step);
+    if (g_dir0 < -1e-6 && closure_rate > 1e-6) {
+      // Wrong-side violation: soften the first k_dir rows until closure can
+      // flip the cross-track sign into the preferred side.
+      const int32_t k_dir = static_cast<int32_t>(
+          std::ceil(std::fabs(g_dir0) / closure_rate));
+      cfg.direction_hard_from_k = std::max(0, std::min(k_dir, n_horizon));
+    } else {
+      // Already on the correct side (or on the route line): all-hard.
+      cfg.direction_hard_from_k = 0;
+    }
+    // If closure_rate <= eps (zero ROT / zero speed): leave default 0 (all-hard);
+    // solver will report Infeasible correctly (true geometric impossibility).
   }
 
   // v2.1 §4.3 k_cpa = max(k_minalt, k_tcpa_margin), where

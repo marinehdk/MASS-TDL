@@ -72,6 +72,14 @@ struct RowBoundConfig {
   // softened; k >= cpa_hard_from_k hard. Default 0 = legacy v2 hard-all.
   int32_t cpa_hard_from_k{0};
   bool    cpa_override_valid{false};
+  // direction reachable schedule deadline (spec §4.4, Phase 1 root-cause fix).
+  // g_dir[0] = pref_dir · l[0] where l[0] = own current XTE (initial condition,
+  // NLP cannot move). If ship starts on the wrong side of the route relative to
+  // M6's chosen give-way side, k=0 is an immovable HARD violation. So rows
+  // k < direction_hard_from_k are softened; k >= direction_hard_from_k hard.
+  // Default 0 = legacy v2 hard-all. Solver auto-derives when override_valid=false.
+  int32_t direction_hard_from_k{0};
+  bool    direction_override_valid{false};
   // Terminal NLP rows softened to [-inf,+inf] for give-way lateral (spec §4.5).
   // Default FALSE initially (Task 1) — flipped to TRUE in Task 7 after the
   // upper-band cost (Task 5) + tail-gate lateral (Task 7) land, so we never
@@ -199,8 +207,12 @@ class RowRegistry {
     apply_prefix_equality_(cfg_eff, b);
     if (cfg_eff.colreg_prefix_softened) { apply_colreg_prefix_soften_(cfg_eff, b); }
     apply_cpa_suffix_hard_(cfg_eff, b);  // v2.1 §4.3
-    if (cfg_eff.direction_disabled) { apply_direction_disable_(b); }
-    else { apply_minalt_reachable_schedule_(cfg_eff, b); }  // v2.1 §4.2
+    if (cfg_eff.direction_disabled) {
+      apply_direction_disable_(b);
+    } else {
+      apply_direction_reachable_schedule_(cfg_eff, b);  // v2.1 §4.4 (Phase 1 fix)
+      apply_minalt_reachable_schedule_(cfg_eff, b);     // v2.1 §4.2
+    }
     if (cfg_eff.terminal_disabled || cfg_eff.terminal_nlp_soft) {
       apply_terminal_disable_(b);
     }
@@ -273,6 +285,24 @@ class RowRegistry {
         const std::size_t rm = static_cast<std::size_t>(min_alt_row(k));
         b.lbg[rm] = -kInf;
         b.ubg[rm] =  kInf;
+      }
+    }
+  }
+
+  // v2.1 spec §4.4 reachable schedule (Phase 1 root-cause fix). direction row
+  // at k=0 evaluates g_dir[0] = pref_dir · l[0] where l[0] = own current XTE
+  // (NLP initial condition, immovable). So k=0 is HARD-infeasible when the ship
+  // starts on the wrong side of the route. Soften the first k_dir rows (closure
+  // rate ≈ u·sin(rot_step)·dt) so J_colreg drives the maneuver; hard floor
+  // returns once the ship has had physical time to reach the preferred side.
+  // Only called when direction_disabled=false (mirrors min_alt gating).
+  void apply_direction_reachable_schedule_(const RowBoundConfig& cfg,
+                                           BoundArray& b) const {
+    for (int32_t k = 0; k < N_; ++k) {
+      if (k < cfg.direction_hard_from_k) {
+        const std::size_t rd = static_cast<std::size_t>(direction_row(k));
+        b.lbg[rd] = -kInf;
+        b.ubg[rd] =  kInf;
       }
     }
   }

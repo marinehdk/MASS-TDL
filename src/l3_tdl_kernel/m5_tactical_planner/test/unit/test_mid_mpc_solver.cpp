@@ -656,3 +656,106 @@ TEST_F(MidMpcNlpTest, DeriveCpaConservativeWhenAllTcpaNonPositive) {
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
   EXPECT_EQ(cfg.cpa_hard_from_k, 0);  // conservative fallback
 }
+
+// v2.1 spec §4.4 — direction reachable schedule derivation (Phase 1 fix).
+// rule14-ho-replica geometry: own ship 1 m on the wrong side of the route,
+// M6 picks Starboard give-way. Verify k_dir=1 (one step closure suffices).
+TEST_F(MidMpcNlpTest, DeriveDirectionKDirFromXte) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;            // 4.7°/s
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;                 // give-way
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.route_xte_m = -1.0;                        // 1 m LEFT of route
+  inp.own_ship.u_mps = 7.584;                    // observed runtime value
+  // rot_step = 0.0820*5 = 0.4105; sin(0.4105) = 0.3992
+  // closure_rate = 7.584*5*0.3992 = 15.14 m/step
+  // k_dir = ceil(1.0/15.14) = 1
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  ASSERT_FALSE(cfg.direction_override_valid);
+  EXPECT_EQ(cfg.direction_hard_from_k, 1);
+}
+
+TEST_F(MidMpcNlpTest, DeriveDirectionKDirLargeXte) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.route_xte_m = -50.0;                       // large wrong-side XTE
+  inp.own_ship.u_mps = 3.0;
+  // closure_rate = 3*5*sin(0.4105) = 5.988 m/step
+  // k_dir = ceil(50/5.988) = 9
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 9);
+}
+
+TEST_F(MidMpcNlpTest, DeriveDirectionKDirZeroXteIsAllHard) {
+  // Ship starts on the route line: no soften needed, all-hard (legacy v2).
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.route_xte_m = 0.0;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 0);
+}
+
+TEST_F(MidMpcNlpTest, DeriveDirectionScheduleIgnoredWhenDisabled) {
+  // ReduceSpeed disables direction class entirely; k_dir must stay 0.
+  MidMpcInput inp = make_base_input();
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::ReduceSpeed;
+  inp.route_xte_m = -50.0;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 0);
+}
+
+// Codex review High: schedule must NOT soften when ship is already on the
+// preferred side (pref_dir · l[0] > 0 = direction satisfied). Only wrong-side
+// (pref_dir · l[0] < 0) is the immovable violation per spec §4.4.
+TEST_F(MidMpcNlpTest, DeriveDirectionScheduleAllHardWhenOnPreferredSide) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Starboard;  // pref_dir = +1
+  inp.route_xte_m = +5.0;  // already on Starboard side → g_dir[0] = +5 > 0
+  inp.own_ship.u_mps = 3.0;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 0);  // all-hard, no soften needed
+}
+
+TEST_F(MidMpcNlpTest, DeriveDirectionScheduleAllHardWhenPortOnPreferredSide) {
+  // Symmetric: Port pref_dir = -1, ship on Port side (route_xte_m < 0) →
+  // g_dir[0] = (-1)·(-) = + > 0 → satisfied → all-hard.
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Port;  // pref_dir = -1
+  inp.route_xte_m = -5.0;  // on Port side → g_dir[0] = (-1)·(-5) = +5 > 0
+  inp.own_ship.u_mps = 3.0;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 0);
+}
+
+TEST_F(MidMpcNlpTest, DeriveDirectionScheduleSoftensPortWrongSide) {
+  // Port give-way but ship on Starboard side → wrong side → soften.
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction =
+      mass_l3::m5::ColregsPreferredDirection::Port;  // pref_dir = -1
+  inp.route_xte_m = +1.0;  // on Starboard side → g_dir[0] = (-1)·(+1) = -1 < 0
+  inp.own_ship.u_mps = 7.584;
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  EXPECT_EQ(cfg.direction_hard_from_k, 1);  // same k_dir math as Starboard case
+}

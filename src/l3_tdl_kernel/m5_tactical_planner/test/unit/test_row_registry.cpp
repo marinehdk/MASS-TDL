@@ -371,6 +371,62 @@ TEST(RowRegistry, MinaltScheduleIgnoredWhenDirectionDisabled) {
   }
 }
 
+// v2.1 spec §4.4 — direction reachable schedule (Phase 1 root-cause fix).
+// k<direction_hard_from_k soft, k>=direction_hard_from_k hard. Mirrors MinaltReachable.
+TEST(RowRegistry, DirectionReachableScheduleSoftensBeforeDeadline) {
+  RowRegistry reg;
+  reg.reset(/*N=*/18, /*n_targets=*/1, /*n_rule=*/0, /*n_zone=*/0);
+  RowBoundConfig cfg;
+  cfg.K = 0;
+  cfg.direction_disabled = false;
+  cfg.direction_hard_from_k = 1;  // k<1 (k=0) soft, k>=1 hard
+  cfg.direction_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t k = 0; k < 18; ++k) {
+    const std::size_t r = static_cast<std::size_t>(reg.direction_row(k));
+    if (k < 1) {
+      EXPECT_EQ(b.lbg[r], -std::numeric_limits<double>::infinity()) << "k=" << k;
+      EXPECT_EQ(b.ubg[r],  std::numeric_limits<double>::infinity()) << "k=" << k;
+    } else {
+      EXPECT_EQ(b.lbg[r], 0.0) << "k=" << k;
+      EXPECT_EQ(b.ubg[r], std::numeric_limits<double>::infinity()) << "k=" << k;
+    }
+  }
+}
+
+// v2.1 spec §4.4 — direction schedule does NOT affect min_alt rows (independent
+// classes; min_alt keeps its own minalt_hard_from_k deadline).
+TEST(RowRegistry, DirectionScheduleIndependentOfMinAlt) {
+  RowRegistry reg;
+  reg.reset(18, 1, 0, 0);
+  RowBoundConfig cfg;
+  cfg.direction_disabled = false;
+  cfg.direction_hard_from_k = 1;  // direction: k=0 soft
+  cfg.direction_override_valid = true;
+  cfg.minalt_hard_from_k = 0;     // min_alt: all hard (no schedule)
+  cfg.minalt_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  // direction row 0 = soft; min_alt row 0 = hard (independent).
+  EXPECT_EQ(b.lbg[static_cast<std::size_t>(reg.direction_row(0))],
+            -std::numeric_limits<double>::infinity());
+  EXPECT_EQ(b.lbg[static_cast<std::size_t>(reg.min_alt_row(0))], 0.0);
+}
+
+// v2.1 spec §4.4 — direction schedule with deadline=0 = legacy all-hard.
+TEST(RowRegistry, DirectionScheduleDeadline0IsLegacyAllHard) {
+  RowRegistry reg;
+  reg.reset(18, 1, 0, 0);
+  RowBoundConfig cfg;
+  cfg.direction_disabled = false;
+  cfg.direction_hard_from_k = 0;
+  cfg.direction_override_valid = true;
+  BoundArray b = reg.build_bounds(cfg);
+  for (int32_t k = 0; k < 18; ++k) {
+    const std::size_t r = static_cast<std::size_t>(reg.direction_row(k));
+    EXPECT_EQ(b.lbg[r], 0.0) << "k=" << k;
+  }
+}
+
 // v2.1 spec §4.3 — CPA suffix-hard. Row order: cpa_row(t,k)=cpa_start+k*n_targets+t
 TEST(RowRegistry, CpaSuffixHardSoftensBeforeDeadline) {
   RowRegistry reg;
