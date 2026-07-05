@@ -297,23 +297,40 @@ bool CommittedAvoidanceRoute::preserves_committed_prefix(
 std::string CommittedAvoidanceRoute::risk_trigger_event(
     const CommittedRouteCandidate& candidate) const
 {
-  // Hard-block gates (Codex review 2026-07-03): only keep gates that are
-  // sound as COMMIT REJECTION criteria. A candidate commit should be blocked
-  // only when the CURRENT own↔target geometry is already inside the hard
-  // floor (current_cpa < cpa_hard) — meaning the situation is already unsafe
-  // regardless of the candidate route.
+  // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): rewrite the CPA-floor commit gate
+  // to mirror tail-gate semantics (types.hpp tail_gate_cpa_release_clear).
   //
-  // REMOVED from this block path (WRONG ABSTRACTION):
-  //   - target_heading_change_gt_15deg: a target maneuver is a reason to
-  //     REPLAN / invalidate the keep-last snapshot, not to reject a FRESH
-  //     candidate that may already account for the new target heading.
-  //   - cpa_drift_gt_20pct: same — drift invalidates the stale keep-last, not
-  //     a fresh candidate.
-  // Both still have advisory slots in should_enter_degraded_hold() (via the
-  // target_heading_trigger_ / cpa_drift_trigger_ members); wiring those from
-  // the candidate fields is future work (they currently stay false).
-  if (candidate.current_cpa_m < candidate.cpa_hard_m) {
-    return "current_cpa_below_hard_floor";
+  // The legacy gate rejected any candidate whenever the CURRENT own↔target
+  // range was below cpa_hard. On a rule14-ho approach that is the steady-
+  // state geometry for the entire encounter (range < 1852 m long before CPA
+  // opens), so the gate rejected every optimized candidate that was actually
+  // the CPA-opening maneuver (optimized_committed_rejected × 790 in V2.3
+  // phase 3b probe). The candidate's terminal_cpa_m — the achieved CPA from
+  // the NLP terminal state — was never consulted.
+  //
+  // The new gate keeps the hard floor but only on the candidate's *achieved*
+  // CPA, and only when the target is OPENING (release/recovery phase). When
+  // the target is still closing (active approach), the maneuver IS the CPA-
+  // opening action; requiring it already safe would reject every active-
+  // avoidance route — exactly the tail-gate reasoning at types.hpp:824-842.
+  //
+  // A true MRM-fail-safe is preserved: if even the achieved terminal CPA is
+  // below the hard floor AND the target is opening, the route genuinely
+  // cannot save the situation — that is the only case the gate rejects.
+  const bool below_hard_floor = candidate.current_cpa_m < candidate.cpa_hard_m;
+  if (!below_hard_floor) {
+    return "";
+  }
+  // Active approach: target still closing → maneuver is the CPA-opening
+  // action. Skip the floor, mirror tail_gate_cpa_release_clear.
+  if (!candidate.target_opening) {
+    return "";
+  }
+  // Release/recovery: target opening but achieved terminal CPA still below
+  // the hard floor → the candidate did not open enough clearance. This is
+  // the genuine fail-safe case that justifies rejecting the commit.
+  if (candidate.terminal_cpa_m < candidate.cpa_hard_m) {
+    return "terminal_cpa_below_hard_floor_on_release";
   }
   return "";
 }

@@ -60,6 +60,16 @@ struct CommittedRouteCandidate {
   double cpa_drift_fraction{0.0};
   double current_cpa_m{1.0e9};
   double cpa_hard_m{0.0};
+  // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): risk_trigger_event previously
+  // rejected every optimized candidate whenever current range < cpa_hard,
+  // which on rule14-ho approach is the steady-state geometry — the gate
+  // blocked the very CPA-opening maneuver it was supposed to author. The
+  // fix requires knowing (a) the candidate's achieved terminal CPA, and
+  // (b) whether the target is opening or closing (active approach vs
+  // release/recovery). These mirror tail-gate's trajectory_terminal_state_cpa_m
+  // + target_opening logic so the two gates share the same floor semantics.
+  double terminal_cpa_m{1.0e9};   // achieved CPA from the NLP terminal state
+  bool target_opening{false};     // true when target closing_speed_mps <= 0
 };
 
 struct CommittedAvoidanceRouteState {

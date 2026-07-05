@@ -325,12 +325,19 @@ TEST(CommittedAvoidanceRoute, failed_nlp_risk_triggers_enter_degraded_hold_immed
     EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
   };
 
-  // current_cpa < cpa_hard remains a hard-block gate (Codex review 2026-07-03):
-  // the situation is already unsafe regardless of the candidate route.
+  // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): the commit gate now mirrors
+  // tail-gate floor semantics. A candidate is hard-blocked only when the
+  // target is OPENING (release/recovery) AND the achieved terminal CPA is
+  // still below the hard floor — the true fail-safe case. The legacy gate
+  // rejected any candidate with current range < cpa_hard regardless of phase,
+  // which on rule14-ho approach blocked the very CPA-opening maneuver it was
+  // supposed to author (optimized_committed_rejected × 790 in V2.3 phase 3b).
   auto hard_cpa = candidate("fail-hard-cpa", route_b_with_same_prefix(), 2U, 30.0, false);
-  hard_cpa.current_cpa_m = 49.0;
+  hard_cpa.current_cpa_m = 49.0;       // range inside hard floor
   hard_cpa.cpa_hard_m = 50.0;
-  expect_failed_nlp_degraded_hold(hard_cpa, "current_cpa_below_hard_floor");
+  hard_cpa.target_opening = true;       // release/recovery phase
+  hard_cpa.terminal_cpa_m = 30.0;       // candidate did not open enough clearance
+  expect_failed_nlp_degraded_hold(hard_cpa, "terminal_cpa_below_hard_floor_on_release");
 
   // REMOVED (Codex WRONG ABSTRACTION): target_heading_change_gt_15deg and
   // cpa_drift_gt_20pct were removed from risk_trigger_event (the commit-block
@@ -558,6 +565,115 @@ TEST(CommittedRouteV22, BcMpcFollowStableAcrossStaleGate) {
       << "v2.2 §13.2: BcMpcFollow must not be forced into DegradedHold by the stale gate";
   EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
       << "state unchanged after stale gate probe";
+}
+
+// Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): the commit gate risk_trigger_event
+// was rewritten to mirror tail-gate floor semantics. The legacy gate rejected
+// any candidate when current range < cpa_hard, which on a rule14-ho approach
+// is the steady-state geometry for the entire encounter — blocking the very
+// CPA-opening maneuver it was supposed to author (optimized_committed_rejected
+// × 790 in V2.3 phase 3b). The new gate:
+//   - skips the floor when target is closing (active approach — maneuver IS
+//     the CPA-opening action),
+//   - only enforces the floor on the candidate's achieved terminal CPA when
+//     the target is opening (release/recovery),
+//   - rejects only when terminal_cpa < cpa_hard AND target opening.
+// These tests pin each branch so a regression to "current range < hard → reject"
+// is caught.
+
+static CommittedRouteCandidate candidate_with_cpa(
+    std::string plan_id,
+    double current_cpa_m,
+    double terminal_cpa_m,
+    double cpa_hard_m,
+    bool target_opening,
+    bool nlp_ok = true) {
+  CommittedRouteCandidate c;
+  c.plan_id = std::move(plan_id);
+  c.geometry = {GeoWP{34.001, 130.001, 5.0, "MID_MPC_OPTIMIZED"},
+                GeoWP{34.002, 130.002, 5.0, "MID_MPC_OPTIMIZED"}};
+  c.frozen_prefix_count = 0U;
+  c.valid_until_s = 100.0;
+  c.nlp_ok = nlp_ok;
+  c.current_cpa_m = current_cpa_m;
+  c.terminal_cpa_m = terminal_cpa_m;
+  c.cpa_hard_m = cpa_hard_m;
+  c.target_opening = target_opening;
+  return c;
+}
+
+TEST(CommittedRouteRiskGate, ActiveApproachWithRangeBelowHardDoesNotReject) {
+  // rule14-ho approach: range < 1852 (steady state), target closing.
+  // The legacy gate rejected this and starved every optimized candidate.
+  CommittedAvoidanceRoute manager;
+  EXPECT_TRUE(manager.try_revise(
+      candidate_with_cpa(
+          "plan-active-approach",
+          /*current_cpa_m=*/800.0,
+          /*terminal_cpa_m=*/2000.0,  // candidate opens CPA past hard
+          /*cpa_hard_m=*/1852.0,
+          /*target_opening=*/false),
+      0.0))
+      << "active approach: maneuver IS the CPA-opening action, must not be rejected";
+}
+
+TEST(CommittedRouteRiskGate, ReleaseWithTerminalCpaAboveHardAccepts) {
+  // Target opening, candidate achieved safe terminal CPA. Should accept.
+  CommittedAvoidanceRoute manager;
+  EXPECT_TRUE(manager.try_revise(
+      candidate_with_cpa(
+          "plan-release-safe",
+          /*current_cpa_m=*/800.0,
+          /*terminal_cpa_m=*/2200.0,
+          /*cpa_hard_m=*/1852.0,
+          /*target_opening=*/true),
+      0.0))
+      << "release with safe terminal CPA: must accept";
+}
+
+TEST(CommittedRouteRiskGate, ReleaseWithTerminalCpaBelowHardRejects) {
+  // Target opening but candidate did NOT open enough — true fail-safe case.
+  CommittedAvoidanceRoute manager;
+  EXPECT_FALSE(manager.try_revise(
+      candidate_with_cpa(
+          "plan-release-unsafe",
+          /*current_cpa_m=*/800.0,
+          /*terminal_cpa_m=*/1200.0,  // below hard
+          /*cpa_hard_m=*/1852.0,
+          /*target_opening=*/true),
+      0.0))
+      << "release with terminal CPA still below hard floor: must reject";
+  EXPECT_EQ(manager.current().safety_concern_event,
+            "terminal_cpa_below_hard_floor_on_release");
+}
+
+TEST(CommittedRouteRiskGate, RangeAboveHardNeverRejects) {
+  // Far target — no floor concerns regardless of phase.
+  CommittedAvoidanceRoute manager;
+  EXPECT_TRUE(manager.try_revise(
+      candidate_with_cpa(
+          "plan-far",
+          /*current_cpa_m=*/5000.0,
+          /*terminal_cpa_m=*/0.0,
+          /*cpa_hard_m=*/1852.0,
+          /*target_opening=*/false),
+      0.0));
+}
+
+TEST(CommittedRouteRiskGate, ActiveApproachEvenWithSmallTerminalCpaAccepts) {
+  // Active approach, terminal CPA small (maneuver hasn't fully developed yet).
+  // Must still accept — the maneuver is what opens CPA, requiring it already
+  // safe is the very bug tail-gate also fixed (types.hpp:824-842).
+  CommittedAvoidanceRoute manager;
+  EXPECT_TRUE(manager.try_revise(
+      candidate_with_cpa(
+          "plan-active-small-terminal",
+          /*current_cpa_m=*/600.0,
+          /*terminal_cpa_m=*/600.0,
+          /*cpa_hard_m=*/1852.0,
+          /*target_opening=*/false),
+      0.0))
+      << "active approach with small terminal CPA: must accept (mirrors tail-gate)";
 }
 
 // Phase 1.4 (G-M5-2, spec v2.3 §15): lifecycle_state_name is the stable name

@@ -182,6 +182,13 @@ struct CommittedCandidateRiskContext {
   double min_target_current_range_m{1.0e9};    // min current own↔target range [m] (hypot x_m,y_m)
   double primary_target_cog_rad{0.0};          // COG of the min-range target [rad]
   bool   has_target{false};
+  // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): the commit gate now needs the
+  // candidate's achieved terminal CPA and whether the target is opening or
+  // closing — same semantics tail-gate uses (types.hpp:824-842). Filled by
+  // the optimized branch from sol + primary_target_risk(input) before
+  // try_revise is called.
+  double primary_target_closing_speed_mps{0.0};  // >0 closing, <=0 opening
+  double candidate_terminal_cpa_m{1.0e9};        // achieved CPA from NLP terminal state
 };
 
 mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_plan(
@@ -243,6 +250,12 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
   //   / future candidate-route CPA work, but no longer feeds the commit gate.
   candidate.current_cpa_m = risk.min_target_current_range_m;
   candidate.cpa_hard_m = kCpaSafeFallback_m;
+  // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): forward the candidate's achieved
+  // terminal CPA + target open/close state so risk_trigger_event can apply
+  // the tail-gate-aligned floor (skip on active approach, hard on release).
+  candidate.terminal_cpa_m = risk.candidate_terminal_cpa_m;
+  candidate.target_opening = risk.has_target &&
+      risk.primary_target_closing_speed_mps <= 0.0;
 
   // Spec §6.6.4 / §9.12 Keep-Last risk fields — target_heading_delta_deg and
   // cpa_drift_fraction are intentionally left at their safe "no risk" defaults
@@ -1686,6 +1699,17 @@ void MidMpcNode::publish_committed_route_(
         risk_ctx.primary_target_cog_rad = tgt.cog_rad;
         risk_ctx.has_target = true;
       }
+    }
+    // Phase 2.1/2.3 (R2/R6): forward target closing speed + candidate
+    // terminal CPA so risk_trigger_event can apply the tail-gate-aligned
+    // floor. closing_speed comes from M2 TargetRiskSnapshot (primary target);
+    // terminal CPA is the NLP solution's achieved CPA against that target.
+    if (const auto* risk = mass_l3::m5::primary_target_risk(input)) {
+      risk_ctx.primary_target_closing_speed_mps = risk->closing_speed_mps;
+    }
+    if (const auto* primary_tgt = mass_l3::m5::primary_tail_gate_target(input)) {
+      risk_ctx.candidate_terminal_cpa_m =
+          mass_l3::m5::trajectory_terminal_state_cpa_m(sol, *primary_tgt);
     }
     if (!committed_route_manager_.try_revise(
             committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
