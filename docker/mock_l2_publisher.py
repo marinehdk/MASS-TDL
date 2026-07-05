@@ -110,6 +110,87 @@ def _project_point(lat: float, lon: float, bearing_deg: float,
     return math.degrees(lat2), math.degrees(lon2)
 
 
+# Phase 3.10 (C2, spec v2.3 §5.2): L2 nominal route densification.
+# Scenarios commonly specify nominalRoute as 2 endpoints (start + finish). The
+# downstream coordinate_transform_node pairs incoming routes against
+# last_feedback_path_ element-by-element (1 m tolerance), and the M5 avoidance
+# plan re-anchors at ownship. Without a dense L2 nominal path, the M5 prefix
+# helper cannot find history waypoints before ownship to align the paired
+# comparison, and every M5 plan is rejected with "first changed waypoint is too
+# close to current ship position". Densifying the published L2 route to a
+# sensible station spacing (~1 NM open-sea baseline) gives coord_transform a
+# dense feedback path the M5 prefix can index into.
+L2_DENSIFY_DEFAULT_SPACING_NM = 1.0
+
+
+def _densify_waypoints(
+    waypoints: list[tuple[float, float]],
+    spacing_nm: float = L2_DENSIFY_DEFAULT_SPACING_NM,
+) -> list[tuple[float, float]]:
+    """Linear-interpolate extra waypoints between nominal endpoints.
+
+    Splits each leg longer than ``spacing_nm`` into sub-legs of roughly
+    ``spacing_nm``. Legs already shorter than the spacing are kept as-is.
+    The endpoint order is preserved; the start of each leg is always kept
+    and the leg's true finish is appended verbatim (no rounding drift on the
+    final waypoint).
+    """
+    if len(waypoints) < 2 or spacing_nm <= 0.0:
+        return list(waypoints)
+    densified: list[tuple[float, float]] = [waypoints[0]]
+    for i in range(len(waypoints) - 1):
+        lat1, lon1 = waypoints[i]
+        lat2, lon2 = waypoints[i + 1]
+        leg_nm = _haversine_nm(lat1, lon1, lat2, lon2)
+        if leg_nm <= spacing_nm:
+            densified.append((lat2, lon2))
+            continue
+        bearing = _bearing_between(lat1, lon1, lat2, lon2)
+        n_steps = max(1, int(math.ceil(leg_nm / spacing_nm)))
+        step_nm = leg_nm / n_steps
+        for step in range(1, n_steps + 1):
+            sub_lat, sub_lon = _project_point(lat1, lon1, bearing, step_nm * step)
+            if step == n_steps:
+                # Snap the last sub-step to the leg's true finish to avoid
+                # accumulated projection drift.
+                densified.append((lat2, lon2))
+            else:
+                densified.append((sub_lat, sub_lon))
+    return densified
+
+
+def _resample_speeds(
+    speeds_kn: list[float],
+    nominal_count: int,
+    densified_count: int,
+) -> list[float]:
+    """Re-stretch per-waypoint speeds to the densified waypoint count.
+
+    Phase 3.10 mock-L2 densify companion: when nominalRoute has 2 endpoints
+    the publisher holds a single cruise speed; densification simply repeats
+    it. For multi-leg routes each nominal leg's start speed is held constant
+    across that leg's densified sub-waypoints (step-wise constant profile).
+    """
+    if densified_count <= 0:
+        return []
+    if not speeds_kn:
+        return [float(DEFAULT_TRANSIT_SPEED_KN)] * densified_count
+    if nominal_count < 2 or densified_count <= 1:
+        return [float(speeds_kn[0])] * densified_count
+    # Walk the nominal legs in lock-step with _densify_waypoints: each leg
+    # contributes ceil(leg_nm / spacing) sub-steps. We don't have waypoints
+    # here so re-stretch by proportional bucketing of the densified range.
+    per_leg = max(1, densified_count // (nominal_count - 1))
+    out: list[float] = []
+    for i in range(densified_count):
+        leg = min(i // per_leg, nominal_count - 2)
+        if i == densified_count - 1:
+            out.append(float(speeds_kn[-1]))
+        else:
+            out.append(float(speeds_kn[leg]))
+    return out
+
+
 def _make_geo_point(lat: float, lon: float, alt: float = 0.0) -> GeoPoint:
     p = GeoPoint()
     p.latitude = lat
@@ -431,18 +512,29 @@ class MockL2Publisher(Node):
 
         nominal = own.get("nominalRoute")
         if nominal and len(nominal) >= 2:
-            self._yaml_waypoints = []
-            self._yaml_speeds_kn = []
-            for wp in nominal:
-                self._yaml_waypoints.append((
-                    float(wp["latitude"]),
-                    float(wp["longitude"]),
-                ))
-                self._yaml_speeds_kn.append(
-                    float(wp.get("target_sog_kn", self._default_speed)))
-            self._route_source = "YAML nominalRoute"
+            raw_waypoints = [
+                (float(wp["latitude"]), float(wp["longitude"])) for wp in nominal
+            ]
+            raw_speeds_kn = [
+                float(wp.get("target_sog_kn", self._default_speed)) for wp in nominal
+            ]
+            # Phase 3.10 (C2): densify to L2_DENSIFY_DEFAULT_SPACING_NM so the
+            # downstream coordinate_transform_node feedback path is indexable by
+            # the M5 prefix helper. Without this, scenarios that specify only
+            # start + finish endpoints produce a 2-point feedback path and the
+            # M5 ownship-anchored avoidance plan is rejected on every cycle
+            # (probe run-19f320d48d5: 0 ACCEPTED / 98 REJECTED).
+            self._yaml_waypoints = _densify_waypoints(raw_waypoints)
+            self._yaml_speeds_kn = self._resample_speeds(
+                raw_speeds_kn, len(raw_waypoints), len(self._yaml_waypoints))
+            self._route_source = (
+                f"YAML nominalRoute (densified {len(raw_waypoints)}→"
+                f"{len(self._yaml_waypoints)} @ "
+                f"{L2_DENSIFY_DEFAULT_SPACING_NM:.1f}NM)"
+            )
             self.get_logger().info(
-                f"Route from YAML: {len(self._yaml_waypoints)} waypoints")
+                f"Route from YAML: {len(raw_waypoints)} nominal → "
+                f"{len(self._yaml_waypoints)} densified waypoints")
         else:
             self._generate_default_route()
             return
