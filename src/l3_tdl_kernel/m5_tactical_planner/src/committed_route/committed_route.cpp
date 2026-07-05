@@ -71,8 +71,15 @@ const CommittedAvoidanceRouteState& CommittedAvoidanceRoute::current() const
 
 bool CommittedAvoidanceRoute::try_revise(
     const CommittedRouteCandidate& candidate,
-    const double now_s)
+    const double now_s,
+    const std::uint32_t solver_consecutive_failures)
 {
+  // Phase 2.2 (R1, spec v2.3 §13.5): cache the latest solver counter so
+  // should_enter_degraded_hold (no caller-supplied solver counter) can
+  // escalate on the same value try_revise used. Updated unconditionally so
+  // a fresh solver success clears the cache even when this candidate is
+  // rejected for other reasons.
+  last_solver_consecutive_failures_ = solver_consecutive_failures;
   const bool was_degraded_hold = current_.state == LifecycleState::DegradedHold;
   const std::string original_safety_concern_event = current_.safety_concern_event;
   const auto preserve_degraded_hold = [&]() {
@@ -102,7 +109,19 @@ bool CommittedAvoidanceRoute::try_revise(
     if (preserve_degraded_hold()) {
       return false;
     }
-    if (consecutive_nlp_failures_ >= 3U) {
+    // Phase 2.2 (R1, spec v2.3 §13.5): escalate on the SOLVER counter (fed
+    // from mid_mpc_solver.cpp via mid_mpc_node), not just the in-class commit
+    // counter. The legacy gate used consecutive_nlp_failures_ alone, which
+    // only incremented inside try_revise on candidate.nlp_ok=false. A steady
+    // NLP Infeasible drove plan.status=DEGRADED → corridor branch → no
+    // optimized try_revise call → commit counter never accumulated →
+    // DegradedHold unreachable through the dominant solver-Infeasible path
+    // (the V2.3 phase 3b root cause). Take the max of the two counters so
+    // tail-gate-reject escalation (commit counter) still works alongside the
+    // solver counter.
+    const std::uint32_t escalation_failures = std::max<std::uint32_t>(
+        consecutive_nlp_failures_, solver_consecutive_failures);
+    if (escalation_failures >= 3U) {
       // v2.2 §13.2: KeepLast policy revision. At the escalation threshold the
       // route must NEVER hold a stale NLP corridor (SOTIF ISO 21448:2022 / IEC
       // 61508 fail-safe). If BC-MPC has taken over (§13.1), follow its maneuver;
@@ -115,8 +134,8 @@ bool CommittedAvoidanceRoute::try_revise(
         enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
         spdlog::critical(
             "[M5][CommittedRoute] DegradedHold + MRM-02 escalate "
-            "(consecutive_nlp_failures={}, bc_mpc_takeover=false)",
-            consecutive_nlp_failures_);
+            "(solver_consecutive={}, commit_consecutive={}, bc_mpc_takeover=false)",
+            solver_consecutive_failures, consecutive_nlp_failures_);
       }
     } else {
       current_.state = LifecycleState::KeepLast;
@@ -219,16 +238,27 @@ bool CommittedAvoidanceRoute::should_enter_degraded_hold(const double now_s)
     enter_degraded_hold("committed_route_stale_gt_45s");
     return true;
   }
-  if (consecutive_nlp_failures_ >= 3U) {
-    // v2.2 §13.2: same KeepLast-policy revision as try_revise — at the escalation
-    // threshold, follow BC-MPC if it has taken over, otherwise DegradedHold.
-    if (bc_mpc_takeover_requested_) {
-      current_.state = LifecycleState::BcMpcFollow;
-      current_.safety_concern_event = "bc_mpc_takeover_active";
-    } else {
-      enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
+  // Phase 2.2 (R1, spec v2.3 §13.5): escalate when EITHER counter crosses 3.
+  // The commit counter catches persistent tail-gate rejects (optimized path
+  // try_revise with candidate.nlp_ok=false); the SOLVER counter catches
+  // persistent NLP Infeasible that drove plan.status=DEGRADED and never
+  // reached the optimized try_revise path. Take the max so either trigger
+  // fires escalation.
+  {
+    const std::uint32_t escalation_failures = std::max<std::uint32_t>(
+        consecutive_nlp_failures_, last_solver_consecutive_failures_);
+    if (escalation_failures >= 3U) {
+      // v2.2 §13.2: same KeepLast-policy revision as try_revise — at the
+      // escalation threshold, follow BC-MPC if it has taken over, otherwise
+      // DegradedHold.
+      if (bc_mpc_takeover_requested_) {
+        current_.state = LifecycleState::BcMpcFollow;
+        current_.safety_concern_event = "bc_mpc_takeover_active";
+      } else {
+        enter_degraded_hold("nlp_consecutive_failures_ge_3_no_bcmpc");
+      }
+      return true;
     }
-    return true;
   }
   if (target_heading_trigger_) {
     enter_degraded_hold("target_heading_change_gt_15deg");

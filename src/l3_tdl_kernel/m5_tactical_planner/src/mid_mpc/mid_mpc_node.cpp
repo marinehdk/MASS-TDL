@@ -880,6 +880,14 @@ void MidMpcNode::on_solve_cycle_()
     }
     committed_route_manager_.mark_bc_mpc_takeover();
   }
+  // Phase 2.2 (R1, spec v2.3 §13.5): every cycle, push the SOLVER counter to
+  // the committed_route manager so should_enter_degraded_hold can escalate on
+  // it even when the optimized try_revise path is not reached (plan.status=
+  // DEGRADED → corridor branch). Without this, persistent NLP Infeasible
+  // never crossed the escalation threshold through the in-class commit
+  // counter alone (it only increments inside optimized try_revise).
+  committed_route_manager_.notify_solver_consecutive_failures(
+      static_cast<std::uint32_t>(solver_.consecutive_failures()));
 
 
   const double lat = world_state_->own_ship.position.latitude;
@@ -1713,7 +1721,8 @@ void MidMpcNode::publish_committed_route_(
     }
     if (!committed_route_manager_.try_revise(
             committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
-            now.seconds())) {
+            now.seconds(),
+            static_cast<std::uint32_t>(solver_.consecutive_failures()))) {
       RCLCPP_WARN(get_logger(),
           "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",
           plan.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());

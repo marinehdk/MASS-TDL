@@ -141,6 +141,56 @@ TEST(CommittedAvoidanceRoute, three_consecutive_nlp_failures_enter_degraded_hold
   EXPECT_EQ(manager.current().active_geometry.size(), route_a().size());
 }
 
+// Phase 2.2 (R1, spec v2.3 §13.5): a persistent NLP solver Infeasible that
+// drives plan.status=DEGRADED never reaches the optimized try_revise path
+// (corridor branch instead). The legacy commit counter (incremented only
+// inside optimized try_revise on candidate.nlp_ok=false) could not cross 3
+// through that path, so DegradedHold was unreachable for the dominant
+// failure mode. The SOLVER counter (fed via notify_solver_consecutive_failures
+// + try_revise 3rd arg) closes this gap.
+TEST(CommittedAvoidanceRoute, solver_consecutive_failures_escalates_even_without_optimized_try_revise)
+{
+  CommittedAvoidanceRoute manager;
+  // First commit succeeds.
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  // Simulate NLP Infeasible: every cycle the solver counter grows but the
+  // optimized try_revise path is NOT called (plan.status=DEGRADED → corridor).
+  // Only notify_solver_consecutive_failures + should_enter_degraded_hold run.
+  manager.notify_solver_consecutive_failures(1U);
+  EXPECT_FALSE(manager.should_enter_degraded_hold(1.0));
+  manager.notify_solver_consecutive_failures(2U);
+  EXPECT_FALSE(manager.should_enter_degraded_hold(2.0));
+  manager.notify_solver_consecutive_failures(3U);
+  EXPECT_TRUE(manager.should_enter_degraded_hold(3.0))
+      << "solver counter crossing 3 must escalate even without optimized try_revise";
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold);
+  EXPECT_EQ(manager.current().safety_concern_event,
+            "nlp_consecutive_failures_ge_3_no_bcmpc");
+}
+
+TEST(CommittedAvoidanceRoute, solver_counter_below_3_does_not_escalate)
+{
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.notify_solver_consecutive_failures(2U);
+  EXPECT_FALSE(manager.should_enter_degraded_hold(1.0))
+      << "solver counter < 3 must not escalate";
+}
+
+TEST(CommittedAvoidanceRoute, try_revise_takes_max_of_solver_and_commit_counters)
+{
+  // If solver counter is 3 but commit counter is 0 (no candidate.nlp_ok=false
+  // rejected yet), an optimized try_revise with nlp_ok=false should escalate
+  // immediately on the first call because the SOLVER counter is already 3.
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  EXPECT_FALSE(manager.try_revise(
+      candidate("fail-1", route_b_with_same_prefix(), 2U, 30.0, false),
+      1.0, /*solver_consecutive_failures=*/3U));
+  EXPECT_EQ(manager.current().state, LifecycleState::DegradedHold)
+      << "solver counter=3 should escalate on the first nlp_ok=false try_revise";
+}
+
 // ---------------------------------------------------------------------------
 // Review Critical (spec §5.3/§14.3): a TailBuilder reject marks the candidate
 // nlp_tail_gate_failed, and the node wires committed_candidate_from_plan with

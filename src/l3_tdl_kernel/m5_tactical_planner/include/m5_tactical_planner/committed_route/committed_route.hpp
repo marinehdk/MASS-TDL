@@ -89,7 +89,21 @@ class CommittedAvoidanceRoute {
   explicit CommittedAvoidanceRoute(double stale_route_max_age_s = 45.0);
 
   [[nodiscard]] const CommittedAvoidanceRouteState& current() const;
-  [[nodiscard]] bool try_revise(const CommittedRouteCandidate& candidate, double now_s);
+  // Phase 2.2 (R1, spec v2.3 §13.5): solver_consecutive_failures is the
+  // authoritative escalation counter — it counts Mid-MPC solver Infeasible /
+  // non-Converged cycles (mid_mpc_solver.cpp), incremented every cycle the
+  // solver fails and reset on Converged. The legacy in-class counter only
+  // incremented inside try_revise when candidate.nlp_ok=false, so a steady
+  // NLP Infeasible that drove plan.status=DEGRADED (and thus skipped the
+  // optimized try_revise path entirely) never accumulated — escalation was
+  // unreachable (nlp_consecutive_failures_ge_3 × 784 only fired via tail-gate
+  // rejects, not via the dominant solver-Infeasible path). The new parameter
+  // is fed from mid_mpc_node's solver_.consecutive_failures() each cycle.
+  // Default 0 preserves legacy behavior for callers/tests that don't supply it.
+  [[nodiscard]] bool try_revise(
+      const CommittedRouteCandidate& candidate,
+      double now_s,
+      std::uint32_t solver_consecutive_failures = 0U);
   [[nodiscard]] bool heartbeat(const std::string& plan_id, double valid_until_s, double now_s);
   [[nodiscard]] bool should_enter_degraded_hold(double now_s);
   [[nodiscard]] std::uint32_t consecutive_nlp_failures() const;
@@ -102,6 +116,14 @@ class CommittedAvoidanceRoute {
   // stale NLP corridor alive. Cleared on a successful revise (nlp_ok candidate).
   void mark_bc_mpc_takeover() { bc_mpc_takeover_requested_ = true; }
   [[nodiscard]] bool bc_mpc_takeover_requested() const { return bc_mpc_takeover_requested_; }
+  // Phase 2.2 (R1, spec v2.3 §13.5): per-cycle solver-failure notification so
+  // should_enter_degraded_hold can escalate on the SOLVER counter even when
+  // the optimized try_revise path is never reached (plan.status=DEGRADED →
+  // corridor branch). Caller (mid_mpc_node) invokes this every cycle with
+  // solver_.consecutive_failures().
+  void notify_solver_consecutive_failures(std::uint32_t failures) {
+    last_solver_consecutive_failures_ = failures;
+  }
 
  private:
   [[nodiscard]] std::uint32_t hash_geometry(const std::vector<GeoWP>& geometry) const;
@@ -114,6 +136,13 @@ class CommittedAvoidanceRoute {
   CommittedAvoidanceRouteState current_;
   double stale_route_max_age_s_{45.0};
   std::uint32_t consecutive_nlp_failures_{0U};
+  // Phase 2.2 (R1, spec v2.3 §13.5): cached from the latest try_revise call so
+  // should_enter_degraded_hold (which has no caller-supplied solver counter)
+  // can escalate on the same SOLVER counter used by try_revise. Without this,
+  // a steady NLP Infeasible that never reached the optimized try_revise path
+  // (plan.status=DEGRADED → corridor branch) could not trigger DegradedHold
+  // through should_enter_degraded_hold either.
+  std::uint32_t last_solver_consecutive_failures_{0U};
   bool target_heading_trigger_{false};
   bool cpa_drift_trigger_{false};
   bool cpa_hard_trigger_{false};
