@@ -343,10 +343,31 @@ class LifecycleBridge(Node):
             raise ScenarioInjectionError(
                 f"SetParameters client for '{node_name}' not available")
 
-        if not client.wait_for_service(timeout_sec=3.0):
-            raise ScenarioInjectionError(
-                f"SetParameters service /{node_name}/set_parameters "
-                "not available after 3s")
+        # Phase 3.6 (probe env fix): DDS discovery after a container restart
+        # can take longer than the legacy 3s timeout, especially when the
+        # probe drives --restart-between-runs (the lifecycle_bridge recreates
+        # its SetParameters clients on each restart, and DDS graph rediscovery
+        # races with the scenario-injection step). Wait up to 15s with one
+        # retry to absorb slow discovery; the service itself is alive (it is
+        # a lifecycle-managed node's standard parameter service), this is a
+        # pure timing fix.
+        if not client.wait_for_service(timeout_sec=15.0):
+            # One retry: drop + recreate the client to force a fresh DDS
+            # reader match, then wait again. DDS sometimes drops the reader
+            # for a stale service handle after a fast container recycle.
+            # Use the default callback group (None) — service clients do not
+            # depend on the group for wait_for_service or call semantics.
+            try:
+                client = self.create_client(
+                    SetParameters, f"/{node_name}/set_parameters")
+                self._sil_set_parameters_clients[node_name] = client
+            except Exception as exc:
+                raise ScenarioInjectionError(
+                    f"SetParameters client recreate failed for '{node_name}': {exc}")
+            if not client.wait_for_service(timeout_sec=10.0):
+                raise ScenarioInjectionError(
+                    f"SetParameters service /{node_name}/set_parameters "
+                    "not available after 15s+10s retry")
 
         req = SetParameters.Request()
         for param_name, (value, param_type) in params.items():

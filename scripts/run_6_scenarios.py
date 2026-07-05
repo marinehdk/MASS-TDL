@@ -127,7 +127,12 @@ def configure_scenario(scenario_id, *, attempts=CONFIGURE_RETRY_ATTEMPTS,
                        retry_delay_s=CONFIGURE_RETRY_DELAY_S):
     last = {"success": False, "error": "configure not attempted"}
     for attempt in range(max(1, attempts)):
-        last = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id})
+        # Phase 3.6 (probe env fix): configure drives lifecycle reset + 6-node
+        # param injection, each waiting up to 15s on DDS discovery after a
+        # container restart. Default req() timeout=30s is too tight when the
+        # restart cycle makes multiple clients retry. Allow 90s for configure.
+        last = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id},
+                   timeout=90)
         if last.get("success"):
             return last
         if attempt + 1 < attempts:
