@@ -369,5 +369,66 @@ TEST(EncounterStateMachine, CpaTrendHysteresisBlocksRegressionOnSubThresholdDete
       << "sub-threshold CPA deterioration must not regress MONITOR->ACTIVE";
 }
 
+// --- T10: encounter_state_rank ordering (Phase 1.1 / R8 fix) ---------------
+// The legacy per-target semantic_state aggregation gate at
+// colregs_reasoner_node.cpp:988-994 was first-write-wins (with a narrow
+// CLEAR-to-non-CLEAR exception). Because Rule13 is evaluated before Rule14
+// (colregs_rule_library.yaml order 13<14) and Rule13's FSM defaults to
+// DETECTED when the overtaking geometry does not hold, DETECTED occupied the
+// slot and suppressed Rule14's ACTIVE — pinning M6 at ONSET for the entire
+// encounter (m6_not_past_clear × 874 in V2.3 phase 3b probe).
+//
+// The fix is rank-based aggregation: the highest-rank FSM state wins
+// regardless of evaluation order. These tests pin the rank ordering so a
+// future regression to first-write-wins is caught.
+
+TEST(EncounterStateRank, ClearsIsLowest) {
+  EXPECT_EQ(encounter_state_rank(EncounterState::CLEAR), 0);
+}
+
+TEST(EncounterStateRank, DetectedBeatsClear) {
+  EXPECT_GT(encounter_state_rank(EncounterState::DETECTED),
+            encounter_state_rank(EncounterState::CLEAR));
+}
+
+TEST(EncounterStateRank, ActiveBeatsDetected) {
+  // The R8 bug case: Rule13 DETECTED must NOT suppress Rule14 ACTIVE.
+  EXPECT_GT(encounter_state_rank(EncounterState::ACTIVE),
+            encounter_state_rank(EncounterState::DETECTED));
+}
+
+TEST(EncounterStateRank, ActiveParityWithMonitor) {
+  EXPECT_EQ(encounter_state_rank(EncounterState::ACTIVE),
+            encounter_state_rank(EncounterState::MONITOR));
+}
+
+TEST(EncounterStateRank, ReleaseDominatesAll) {
+  // RELEASE is the authoritative "encounter over" signal — it must dominate
+  // even ACTIVE so a past-clear on one rule is not overwritten by an active
+  // state on another.
+  EXPECT_GT(encounter_state_rank(EncounterState::RELEASE),
+            encounter_state_rank(EncounterState::ACTIVE));
+  EXPECT_GT(encounter_state_rank(EncounterState::RELEASE),
+            encounter_state_rank(EncounterState::MONITOR));
+}
+
+TEST(EncounterStateRank, MonotonicExceptActiveMonitorParity) {
+  // Documented ordering invariant: CLEAR < DETECTED < CANDIDATE < PREPLAN
+  // < ACTIVE == MONITOR < RELEASE.
+  const int r_clear    = encounter_state_rank(EncounterState::CLEAR);
+  const int r_detected = encounter_state_rank(EncounterState::DETECTED);
+  const int r_cand     = encounter_state_rank(EncounterState::CANDIDATE);
+  const int r_preplan  = encounter_state_rank(EncounterState::PREPLAN);
+  const int r_active   = encounter_state_rank(EncounterState::ACTIVE);
+  const int r_monitor  = encounter_state_rank(EncounterState::MONITOR);
+  const int r_release  = encounter_state_rank(EncounterState::RELEASE);
+  EXPECT_LT(r_clear, r_detected);
+  EXPECT_LT(r_detected, r_cand);
+  EXPECT_LT(r_cand, r_preplan);
+  EXPECT_LT(r_preplan, r_active);
+  EXPECT_EQ(r_active, r_monitor);
+  EXPECT_LT(r_monitor, r_release);
+}
+
 }  // namespace
 }  // namespace mass_l3::m6_colregs

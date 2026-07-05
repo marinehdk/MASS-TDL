@@ -985,11 +985,23 @@ void ColregsReasonerNode::run_reasoning() {
         const EncounterState fsm_state = fit->second.transition(
             fsm_snap, /*rule_geometric_hit=*/primary_onset_allowed && eval.is_active, range_closing,
             fsm_past_and_clear, /*now_s=*/last_world_stamp_.seconds(), &eval);
+        // Phase 1.1 (R8 fix, spec v2.3 §3.1): aggregate per-target semantic
+        // state by taking the highest-rank FSM state across all rules
+        // evaluated this cycle. The legacy "first-write + CLEAR-to-non-CLEAR"
+        // gate let Rule13's DETECTED (rule-library order 13 before 14) occupy
+        // the slot and suppress Rule14's ACTIVE — pinning M6 at ONSET and
+        // starving M5 TailBuilder of the active-phase signal
+        // (m6_not_past_clear × 874). Rank-based aggregation is order-
+        // independent, so Rule14 ACTIVE wins over Rule13 DETECTED regardless
+        // of evaluation order. RELEASE (rank 5) dominates; the natural
+        // CLEAR-after-dwell return at rank 0 is allowed to overwrite only when
+        // no higher-rank state is present this cycle.
         const auto prev_semantic_state = semantic_state_by_target.find(mmsi);
-        if (prev_semantic_state == semantic_state_by_target.end() ||
-            fsm_state == EncounterState::RELEASE ||
-            (fsm_state != EncounterState::CLEAR &&
-             prev_semantic_state->second == EncounterState::CLEAR)) {
+        const bool no_prior = prev_semantic_state == semantic_state_by_target.end();
+        const bool dominates = no_prior ||
+            encounter_state_rank(fsm_state) >=
+                encounter_state_rank(prev_semantic_state->second);
+        if (dominates) {
           semantic_state_by_target[mmsi] = fsm_state;
         }
         const bool fsm_engaged =
