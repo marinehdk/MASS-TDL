@@ -1,8 +1,24 @@
 # M5 committed avoidance route contract (Slice A, spec v2 §5/§6).
-# /l3/m5/avoidance_plan is the execution truth for GNC;
-# /l3/m5/avoidance_waypoints is a compatibility shadow only.
-uint16 schema_version 114
+# /l3/m5/avoidance_plan is the execution truth for GNC.
+# (Phase 2.6 R9: legacy /l3/m5/avoidance_waypoints shadow removed; do not
+#  reintroduce. Phase 2.4 G-M5-1: commit_branch enum makes the
+#  publish_committed_route_ 4-branch identity observable from /l3/asdr/record
+#  + trace without container log scraping.)
+uint16 schema_version 115
+
+# Phase 2.4 (G-M5-1, spec v2.3 §15): which publish_committed_route_ branch
+# produced this plan. Stable across schema revisions; consumers group/audit
+# by this enum instead of string-matching command_source/rationale.
+uint8 COMMIT_BRANCH_UNSPECIFIED=0
+uint8 COMMIT_BRANCH_OPTIMIZED=1     # NLP converged + tail ok + try_revise ok
+uint8 COMMIT_BRANCH_CORRIDOR=2      # encounter-anchored fallback (NLP/optimized failed)
+uint8 COMMIT_BRANCH_RETURN=3        # M6 conflict-clear return-to-route
+uint8 COMMIT_BRANCH_KEEP_LAST=4     # preflight/commit reject → stale heartbeat
+uint8 COMMIT_BRANCH_BCMPC_FOLLOW=5  # BC-MPC takeover, NLP corridor suppressed
+uint8 COMMIT_BRANCH_EMPTY=6         # TRANSIT release / no conflict
+
 builtin_interfaces/Time stamp
+uint8 commit_branch
 
 # Exactly five per-waypoint segment-source labels (spec v2 §0).
 uint8 MID_MPC_OPTIMIZED=0

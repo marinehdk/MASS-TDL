@@ -7,7 +7,7 @@
 
 namespace {
 
-TEST(AvoidancePlanContract, exposes_committed_route_schema_v114_fields) {
+TEST(AvoidancePlanContract, exposes_committed_route_schema_v115_fields) {
   l3_msgs::msg::AvoidancePlan msg;
 
   msg.segment_source = {
@@ -31,8 +31,19 @@ TEST(AvoidancePlanContract, exposes_committed_route_schema_v114_fields) {
   msg.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_CONVERGED;
   msg.nlp_kkt_residual = 0.01F;
   msg.nlp_tail_gate_failed = false;
+  msg.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED;
 
-  EXPECT_EQ(msg.schema_version, 114u);
+  EXPECT_EQ(msg.schema_version, 115u);
+  EXPECT_EQ(msg.segment_source.size(), msg.latitude.size());
+  EXPECT_EQ(msg.latitude.size(), msg.longitude.size());
+  EXPECT_EQ(msg.command_speed_mps.size(), msg.latitude.size());
+  EXPECT_EQ(msg.navigation_mode.size(), msg.latitude.size());
+  EXPECT_EQ(msg.route_hash, 0xdeadbeefu);
+  EXPECT_EQ(msg.nlp_solver_status, l3_msgs::msg::AvoidancePlan::NLP_CONVERGED);
+  EXPECT_FALSE(msg.nlp_tail_gate_failed);
+  // Phase 2.4 (G-M5-1): commit_branch enum default is UNSPECIFIED; the
+  // optimized value set above must round-trip.
+  EXPECT_EQ(msg.commit_branch, l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED);
   EXPECT_EQ(msg.segment_source.size(), msg.latitude.size());
   EXPECT_EQ(msg.latitude.size(), msg.longitude.size());
   EXPECT_EQ(msg.command_speed_mps.size(), msg.latitude.size());

@@ -940,7 +940,7 @@ void MidMpcNode::on_solve_cycle_()
     // this the geometric fallback below keeps a VALID plan alive forever (the
     // NLP solver is a Phase-3 stub that never converges → solver_failed always
     // true), trapping the bridge in avoidance → endless circling, no return.
-    plan.schema_version = 112;
+    plan.schema_version = 115;
     plan.status     = "NORMAL";
     plan.rationale  = "M4 TRANSIT — no avoidance required";
     plan.confidence = 1.0F;
@@ -1007,7 +1007,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   constexpr int kNWp = 10;
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 112;
+  plan.schema_version = 115;
   plan.stamp = this->get_clock()->now();
   plan.horizon_s = static_cast<float>(
       mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1));
@@ -1084,7 +1084,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_recovery_plan_(
       mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1);
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 112;
+  plan.schema_version = 115;
   plan.stamp = this->get_clock()->now();
   plan.horizon_s = static_cast<float>(horizon_s);
   plan.status = "RECOVERY";
@@ -1295,7 +1295,7 @@ void MidMpcNode::publish_avoidance_plan_(
 {
   const auto now = this->get_clock()->now();
   l3_msgs::msg::AvoidancePlan out = plan;
-  out.schema_version = 114;
+  out.schema_version = 115;
   out.stamp = now;
   out.route_hash = mass_l3::m5::avoidance_route_hash(out);
 
@@ -1355,11 +1355,12 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
   if (committed_route_manager_.current().state ==
       mass_l3::m5::committed_route::LifecycleState::BcMpcFollow) {
     l3_msgs::msg::AvoidancePlan bc_plan;
-    bc_plan.schema_version = 114;
+    bc_plan.schema_version = 115;
     bc_plan.stamp = now;
     bc_plan.status = "BcMpcFollow";
     bc_plan.confidence = 0.0F;
     bc_plan.command_source = "m5_bcmpc_override";
+    bc_plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_BCMPC_FOLLOW;
     bc_plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
     bc_plan.nlp_tail_gate_failed = true;
     bc_plan.rationale =
@@ -1387,11 +1388,12 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
   }
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 114;
+  plan.schema_version = 115;
   plan.stamp = now;
   plan.status = "DEGRADED";
   plan.confidence = 0.5F;
   plan.command_source = "m5_keep_last";
+  plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_KEEP_LAST;
   plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
   plan.nlp_tail_gate_failed = true;
   plan.rationale = std::string{"keep_last ("} + reason + ")";
@@ -1627,10 +1629,13 @@ void MidMpcNode::publish_committed_route_(
   const bool conflict_active = collision_avoidance_authorized;
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 114;
+  plan.schema_version = 115;
   plan.stamp = now;
   plan.command_source = "m5_committed_route";
   plan.confidence = 0.8F;
+  // Phase 2.4 (G-M5-1): default to UNSPECIFIED; each branch below sets the
+  // real value before publish_avoidance_plan_ emits.
+  plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_UNSPECIFIED;
   // Slice D owns keep-last stale transitions. Slice A emits fresh route snapshots,
   // so zero is the explicit non-stale/unset value.
   plan.stale_committed_at.sec = 0;
@@ -1730,6 +1735,8 @@ void MidMpcNode::publish_committed_route_(
       publish_keep_last_(now, "optimized_committed_rejected");
       return;
     }
+    // Phase 2.4 (G-M5-1): optimized branch committed successfully.
+    plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED;
   } else if (conflict_active) {
     return_to_route_emit_until_.reset();
     return_route_anchor_.reset();
@@ -1871,6 +1878,8 @@ void MidMpcNode::publish_committed_route_(
     plan = degraded_plan.value();
     plan.stamp = now;
     plan.valid_until = valid_until;
+    // Phase 2.4 (G-M5-1): encounter-anchored corridor fallback.
+    plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_CORRIDOR;
   } else if (last_emitted_conflict_active_ || return_republish_active) {
     if (last_emitted_conflict_active_) {
       return_to_route_emit_until_ =
@@ -1978,6 +1987,8 @@ void MidMpcNode::publish_committed_route_(
     plan = degraded_return_plan.value();
     plan.stamp = now;
     plan.valid_until = valid_until;
+    // Phase 2.4 (G-M5-1): M6 conflict-clear return-to-route.
+    plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_RETURN;
   } else {
     // No conflict and already returned: emit nothing this cycle.
     last_emitted_conflict_active_ = conflict_active;

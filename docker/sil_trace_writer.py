@@ -378,6 +378,22 @@ def _normalize_avoidance_plan_msg(msg: Any) -> dict[str, Any]:
         "wp0_lon": float(wp0_pos.longitude) if wp0_pos else 0.0,
         "wp1_lat": float(wp1_pos.latitude) if wp1_pos else 0.0,
         "wp1_lon": float(wp1_pos.longitude) if wp1_pos else 0.0,
+        # Phase 2.4 (G-M5-1/G-TR-1, spec v2.3 §15): publish_committed_route_
+        # 4-branch identity + per-branch audit fields so the trace can answer
+        # "which branch produced this avoidance_plan?" without parsing
+        # rationale strings. nlp_solver_status / nlp_kkt_residual /
+        # nlp_tail_gate_failed / segment_source expose the M5 NLP diagnostic
+        # state that was previously invisible (V2.3 phase 3b CPA analysis
+        # required container docker logs to recover these).
+        "commit_branch": int(getattr(msg, "commit_branch", 0)),
+        "behavior_mode": str(getattr(msg, "behavior_mode", "")),
+        "command_source": str(getattr(msg, "command_source", "")),
+        "plan_id": str(getattr(msg, "plan_id", "")),
+        "nlp_solver_status": int(getattr(msg, "nlp_solver_status", 0)),
+        "nlp_kkt_residual": float(getattr(msg, "nlp_kkt_residual", 0.0)),
+        "nlp_tail_gate_failed": bool(getattr(msg, "nlp_tail_gate_failed", False)),
+        "stale_committed_at_sec": int(getattr(getattr(msg, "stale_committed_at", None), "sec", 0) or 0),
+        "segment_source_count": len(getattr(msg, "segment_source", []) or []),
     }
 
 
