@@ -110,6 +110,17 @@ GncSideNode::GncSideNode(std::shared_ptr<CrossDomainHandoff> handoff,
         CrossDomainHandoff::L3ToGnc item;
         while (handoff_->try_pop_l3_to_gnc(item)) {
           if (item.has_avoidance) {
+            // Phase 3.9 diagnostic: log array sizes + plan_id so GNC
+            // invalid_avoidance_route rejects are traceable to a size mismatch
+            // at the L3→GNC boundary (vs M5-side already-verified consistency).
+            const auto& ap = item.avoidance_plan;
+            RCLCPP_INFO(get_logger(),
+                "[GncSide][drain] forward avoidance plan_id='%s' lat=%zu lon=%zu "
+                "speed=%zu heading=%zu nav_mode=%zu seg_src=%zu",
+                ap.plan_id.c_str(),
+                ap.latitude.size(), ap.longitude.size(),
+                ap.command_speed_mps.size(), ap.command_heading_deg.size(),
+                ap.navigation_mode.size(), ap.segment_source.size());
             rebase_avoidance_plan_timebase(item.avoidance_plan, now());
             pub_avoidance_->publish(item.avoidance_plan);
           }
