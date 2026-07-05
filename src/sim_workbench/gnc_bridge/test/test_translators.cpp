@@ -67,7 +67,7 @@ TEST(Translators, AvoidancePlanToGncPlanPreservesWaypoints) {
 
 TEST(Translators, AvoidancePlanToGncPlanPreservesAuditMetadata) {
   l3_msgs::msg::AvoidancePlan src;
-  src.schema_version = 114;
+  src.schema_version = 116;
   src.stamp = make_stamp(101, 200);
   src.plan_id = "audit-1";
   src.latitude = {63.44, 63.45, 63.46};

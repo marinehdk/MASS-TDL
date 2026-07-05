@@ -61,7 +61,7 @@ std::optional<l3_msgs::msg::AvoidancePlan> build_degraded_candidate_plan(
   }
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 114;
+  plan.schema_version = 116;
   plan.status = "DEGRADED";
   plan.plan_id = request.plan_id;
   plan.parent_route_id = request.parent_route_id;

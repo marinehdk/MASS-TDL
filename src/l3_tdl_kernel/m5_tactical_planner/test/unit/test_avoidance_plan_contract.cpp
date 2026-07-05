@@ -33,7 +33,7 @@ TEST(AvoidancePlanContract, exposes_committed_route_schema_v115_fields) {
   msg.nlp_tail_gate_failed = false;
   msg.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED;
 
-  EXPECT_EQ(msg.schema_version, 115u);
+  EXPECT_EQ(msg.schema_version, 116u);
   EXPECT_EQ(msg.segment_source.size(), msg.latitude.size());
   EXPECT_EQ(msg.latitude.size(), msg.longitude.size());
   EXPECT_EQ(msg.command_speed_mps.size(), msg.latitude.size());

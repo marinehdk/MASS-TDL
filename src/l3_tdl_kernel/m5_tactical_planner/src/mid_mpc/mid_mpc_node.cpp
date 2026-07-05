@@ -940,7 +940,7 @@ void MidMpcNode::on_solve_cycle_()
     // this the geometric fallback below keeps a VALID plan alive forever (the
     // NLP solver is a Phase-3 stub that never converges → solver_failed always
     // true), trapping the bridge in avoidance → endless circling, no return.
-    plan.schema_version = 115;
+    plan.schema_version = 116;
     plan.status     = "NORMAL";
     plan.rationale  = "M4 TRANSIT — no avoidance required";
     plan.confidence = 1.0F;
@@ -1007,7 +1007,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_geometric_fallback_plan_(
   constexpr int kNWp = 10;
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 115;
+  plan.schema_version = 116;
   plan.stamp = this->get_clock()->now();
   plan.horizon_s = static_cast<float>(
       mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1));
@@ -1084,7 +1084,7 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_recovery_plan_(
       mass_l3::m5::geometric_fallback_waypoint_time_s(kNWp - 1);
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 115;
+  plan.schema_version = 116;
   plan.stamp = this->get_clock()->now();
   plan.horizon_s = static_cast<float>(horizon_s);
   plan.status = "RECOVERY";
@@ -1334,7 +1334,7 @@ void MidMpcNode::publish_avoidance_plan_(
 {
   const auto now = this->get_clock()->now();
   l3_msgs::msg::AvoidancePlan out = plan;
-  out.schema_version = 115;
+  out.schema_version = 116;
   out.stamp = now;
   out.route_hash = mass_l3::m5::avoidance_route_hash(out);
 
@@ -1394,7 +1394,7 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
   if (committed_route_manager_.current().state ==
       mass_l3::m5::committed_route::LifecycleState::BcMpcFollow) {
     l3_msgs::msg::AvoidancePlan bc_plan;
-    bc_plan.schema_version = 115;
+    bc_plan.schema_version = 116;
     bc_plan.stamp = now;
     bc_plan.status = "BcMpcFollow";
     bc_plan.confidence = 0.0F;
@@ -1427,7 +1427,7 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
   }
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 115;
+  plan.schema_version = 116;
   plan.stamp = now;
   plan.status = "DEGRADED";
   plan.confidence = 0.5F;
@@ -1668,7 +1668,7 @@ void MidMpcNode::publish_committed_route_(
   const bool conflict_active = collision_avoidance_authorized;
 
   l3_msgs::msg::AvoidancePlan plan;
-  plan.schema_version = 115;
+  plan.schema_version = 116;
   plan.stamp = now;
   plan.command_source = "m5_committed_route";
   plan.confidence = 0.8F;

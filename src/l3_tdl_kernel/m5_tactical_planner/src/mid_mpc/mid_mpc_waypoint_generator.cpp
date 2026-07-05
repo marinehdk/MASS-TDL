@@ -54,7 +54,7 @@ void populate_canonical_route_from_selected_plan(
     const std::string& plan_id,
     const std::string& parent_route_id,
     const std::string& navigation_mode) {
-  plan.schema_version = 114;
+  plan.schema_version = 116;
   plan.plan_id = plan_id;
   plan.parent_route_id = parent_route_id;
   plan.behavior_mode = navigation_mode;

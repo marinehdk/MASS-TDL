@@ -4,7 +4,7 @@
 #  reintroduce. Phase 2.4 G-M5-1: commit_branch enum makes the
 #  publish_committed_route_ 4-branch identity observable from /l3/asdr/record
 #  + trace without container log scraping.)
-uint16 schema_version 115
+uint16 schema_version 116
 
 # Phase 2.4 (G-M5-1, spec v2.3 §15): which publish_committed_route_ branch
 # produced this plan. Stable across schema revisions; consumers group/audit
@@ -20,12 +20,15 @@ uint8 COMMIT_BRANCH_EMPTY=6         # TRANSIT release / no conflict
 builtin_interfaces/Time stamp
 uint8 commit_branch
 
-# Exactly five per-waypoint segment-source labels (spec v2 §0).
+# Per-waypoint segment-source labels (spec v2 §0; Phase 3.10 §5.2 adds the
+# L2 historical prefix used to align coordinate_transform_node's
+# first_geometry_change_index pairing against an L2-anchored feedback path).
 uint8 MID_MPC_OPTIMIZED=0
 uint8 MID_MPC_TERMINAL_HOLD=1
 uint8 REJOIN_TO_L2=2
 uint8 L2_NOMINAL_SUFFIX=3
 uint8 DEGRADED_CORRIDOR=4
+uint8 L2_HISTORICAL_PREFIX=5
 
 # NLP solver status audit (Slice A field plumbing; Slice B/K consume semantics).
 uint8 NLP_CONVERGED=0

@@ -39,6 +39,7 @@ uint8 MID_MPC_TERMINAL_HOLD=1
 uint8 REJOIN_TO_L2=2
 uint8 L2_NOMINAL_SUFFIX=3
 uint8 DEGRADED_CORRIDOR=4
+uint8 L2_HISTORICAL_PREFIX=5
 uint8[] segment_source
 uint32 route_hash
 builtin_interfaces/Time stale_committed_at
