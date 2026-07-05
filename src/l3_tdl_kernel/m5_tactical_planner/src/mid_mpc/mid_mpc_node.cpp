@@ -1171,6 +1171,12 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
     }
   }
 
+  // Phase 3.4 (spec v2.3 §4): NLP diagnostic fields. cpa_slack > 0 means
+  // the maneuver could not fully open CPA inside the horizon and σ softened
+  // a hard-infeasibility window — the marker that distinguishes "tuned
+  // green" (σ always active) from "genuine fix" (σ zero except close-range).
+  char slack_buf[32];
+  std::snprintf(slack_buf, sizeof(slack_buf), "%.3f", sol.cpa_slack);
   const std::string json =
       std::string("{\"status\":\"") + plan.status
       + "\",\"planner_health\":\"" + planner_health
@@ -1180,6 +1186,7 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
       + ",\"solve_ms\":"     + std::to_string(sol.solve_duration_ms)
       + ",\"ipopt_iter\":"   + std::to_string(sol.ipopt_iterations)
       + ",\"solver_status\":" + std::to_string(static_cast<int>(sol.status))
+      + ",\"cpa_slack\":"    + slack_buf
       + "}";
 
   l3_msgs::msg::ASDRRecord record;
@@ -1195,10 +1202,19 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   sat.stamp                   = now;
   sat.source_module           = "M5_Tactical_Planner";
   sat.sat2.trigger_reason     = "mpc_cycle";
+  // Phase 3.4: append σ diagnostic to reasoning_chain so the audit trail
+  // shows whether NLP softened a hard-infeasibility window this cycle.
+  std::string slack_diagnostic;
+  if (sol.cpa_slack > 1.0e-6) {
+    slack_diagnostic = "; nlp_slack_active=" + std::string(slack_buf)
+        + " (CPA floor softened — close-range hard-infeasibility window)";
+  } else {
+    slack_diagnostic = "; nlp_slack=0 (CPA floor compliant)";
+  }
   sat.sat2.reasoning_chain    =
       plan.rationale + "; planner_health=" + planner_health
       + "; semantic_mode=" + semantic_mode
-      + "; fallback_reason=" + fallback_reason;
+      + "; fallback_reason=" + fallback_reason + slack_diagnostic;
   sat.sat2.system_confidence  = plan.confidence;
   pub_sat_data_->publish(sat);
 }

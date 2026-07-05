@@ -307,6 +307,12 @@ struct MidMpcSolution {
   double cost_colreg{0.0};
   double cost_dist{0.0};
   double cost_vel{0.0};
+  // Phase 3.1/3.4 (spec v2.3 §2/§4): CPA slack value at the optimum. 0 when
+  // NLP did not need slack (geometry compliant); >0 means the maneuver could
+  // not fully open CPA inside the horizon and σ softened a hard-infeasibility
+  // window. Reported to ASDR/SAT so "tuned green" (σ always active) is
+  // distinguishable from "genuine fix" (σ zero except close-range).
+  double cpa_slack{0.0};
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};

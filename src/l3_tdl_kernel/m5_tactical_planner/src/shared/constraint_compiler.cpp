@@ -303,14 +303,17 @@ ConstraintCompiler::compile_colregs_rules(
 }
 
 // ===========================================================================
-// compile_cpa_distance() — CPA hard constraint: d_k^2 - cpa_safe^2 >= 0
+// compile_cpa_distance() — CPA constraint: d_k^2 - cpa_hard^2 + sigma >= 0
 // Per (target, step). Target is constant-velocity from cog/sog.
+// Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
+// making the feasible region non-empty by construction regardless of geometry.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance(
     const casadi::MX& psi_seq,
     const casadi::MX& u_seq,
     const ConstraintInputs& inputs,
-    double dt_s) const {
+    double dt_s,
+    const casadi::MX& slack) const {
   const int32_t N  = static_cast<int32_t>(psi_seq.size1());
   const int32_t Nt = static_cast<int32_t>(inputs.targets.size());
   if (N < 1 || Nt < 1) { return {}; }
@@ -321,6 +324,10 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
   // bumped value here made the hard floor unreachable (target inside 2500 m →
   // Infeasible). Bug C deep, RC-C; spec committed-route-design-v2 §L84.
   const casadi::DM cpa_safe_sq(inputs.cpa_hard_m * inputs.cpa_hard_m);
+  // Phase 3.1: slack must be either empty (legacy hard-only) or a scalar MX.
+  // Per-target / per-step slack is [TBD-MULTI-SHIP]; current form is the
+  // exact-penalty scalar shared across all rows.
+  const bool slack_active = !slack.is_empty() && slack.size2() == 1;
   casadi::MX cx(0.0);
   casadi::MX cy(0.0);
   std::vector<casadi::MX> g_rows;
@@ -343,7 +350,11 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
           + target.sog_mps * std::sin(target.cog_rad) * kdt;
       const casadi::MX dx = cx - casadi::DM(tx);
       const casadi::MX dy = cy - casadi::DM(ty);
-      g_rows.push_back(dx * dx + dy * dy - cpa_safe_sq);
+      casadi::MX row = dx * dx + dy * dy - cpa_safe_sq;
+      if (slack_active) {
+        row = row + slack;
+      }
+      g_rows.push_back(row);
       names.push_back("cpa_distance_t" + std::to_string(t)
                       + "_k" + std::to_string(k));
     }

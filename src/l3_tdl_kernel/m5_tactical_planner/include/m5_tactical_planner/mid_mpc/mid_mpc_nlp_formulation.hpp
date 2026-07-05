@@ -105,6 +105,14 @@ class MidMpcNlpFormulation {
     // physically; J_dist is itself an avoidance driver, not the new R1 term under test.
     // HAZID RUN-001 to recalibrate (preserve w_colreg·J_colreg > w_route·J_route).
     double w_route{3.0};
+    // Phase 3.1 (spec v2.3 §2.3): CPA slack-variable penalty weight. Large
+    // constant so NLP only activates σ when the alternative is geometric
+    // infeasibility (exact-penalty form, Kerrigan 2000). σ is a single
+    // scalar shared across all targets and horizon steps — keeps graph
+    // dimension growth at +1 regardless of target count. Per-target / per-
+    // window slack is [TBD-MULTI-SHIP] (spec v2.3 §7).
+    bool   cpa_slack_enabled{true};
+    double w_slack{1.0e4};
     // [TBD-HAZID] Exponential-barrier steepness zeta [1/m] in exp(-zeta*(d-cpa_safe)).
     // ~e-fold per 200 m: strong avoidance gradient inside cpa_safe, ≈0 beyond ~2·cpa.
     double zeta{5.0e-3};
@@ -189,6 +197,9 @@ class MidMpcNlpFormulation {
   Config cfg_;
   casadi::MX psi_;     // [N×1] symbolic decision variable: heading sequence [rad]
   casadi::MX u_;       // [N×1] symbolic decision variable: speed sequence [m/s]
+  // Phase 3.1 (spec v2.3 §2.1): CPA slack — single scalar shared across all
+  // targets and horizon steps. Empty MX when cfg_.cpa_slack_enabled=false.
+  casadi::MX sigma_;
   casadi::MX p_;       // [kParamDim×1] parameter vector
   casadi::MX J_;       // objective expression
   casadi::MX g_;       // constraint vector (g >= 0 convention)

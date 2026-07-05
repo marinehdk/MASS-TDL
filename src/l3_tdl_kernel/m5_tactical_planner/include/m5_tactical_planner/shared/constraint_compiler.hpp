@@ -81,15 +81,23 @@ class ConstraintCompiler {
       const casadi::MX& py,
       const Polygon2D& polygon) const;
 
-  // CPA distance hard constraint: d_k^2 - cpa_safe^2 >= 0 for each
+  // CPA distance constraint: d_k^2 - cpa_hard^2 + sigma >= 0 for each
   // (target, step). Own-ship position is integrated from psi_seq/u_seq;
   // target motion uses TargetState cog_rad/sog_mps. Squared form avoids sqrt
   // non-smoothness while implementing architecture §10.4 CPA hard constraint.
+  //
+  // Phase 3.1 (spec v2.3 §2.2): sigma is the per-cycle slack symbol. When
+  // non-empty, every CPA row adds sigma — making the feasible region non-
+  // empty by construction regardless of geometry (IPOPT never reports
+  // structural Infeasibility; sigma activates only when geometry is genuinely
+  // unreachable). When empty (slack disabled), behavior is the legacy
+  // hard-only form d_k^2 - cpa_hard^2 >= 0.
   [[nodiscard]] CompiledConstraints compile_cpa_distance(
       const casadi::MX& psi_seq,
       const casadi::MX& u_seq,
       const ConstraintInputs& inputs,
-      double dt_s) const;
+      double dt_s,
+      const casadi::MX& slack = casadi::MX()) const;
 
   [[nodiscard]] CompiledConstraints compile_colregs_rules(
       const casadi::MX& psi_seq,

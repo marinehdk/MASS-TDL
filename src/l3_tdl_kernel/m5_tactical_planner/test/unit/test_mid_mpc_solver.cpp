@@ -644,7 +644,12 @@ TEST_F(MidMpcNlpTest, DeriveDisabledForReduceSpeed) {
 }
 
 TEST_F(MidMpcNlpTest, DeriveCpaConservativeWhenAllTcpaNonPositive) {
-  // B3-r3: all targets tcpa<=0 -> conservative cpa_hard_from_k=0 (v2 legacy)
+  // B3-r3 + Phase 3.2 (spec v2.3 §2.5): all targets tcpa<=0 -> conservative
+  // fallback. v2.1 returned 0 (all-hard). Phase 3.2 forces max(...,k_initial_
+  // relax=2) so k=0/1 stay soft even when tcpa≤0 — range(0) is an NLP-
+  // immovable initial condition and hardening it forces Infeasible when the
+  // target is already inside cpa_hard at k=0. σ in the constraint now also
+  // covers this, but the floor keeps σ clean.
   MidMpcInput inp = make_base_input();
   inp.rot_max_rad_s = kRot47radPerS;
   inp.colregs_min_alteration_rad = kMinAlt30rad;
@@ -654,7 +659,50 @@ TEST_F(MidMpcNlpTest, DeriveCpaConservativeWhenAllTcpaNonPositive) {
   tgt.tcpa_s = 0.0;  // already past
   inp.targets.push_back(tgt);
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
-  EXPECT_EQ(cfg.cpa_hard_from_k, 0);  // conservative fallback
+  EXPECT_EQ(cfg.cpa_hard_from_k, 2);  // Phase 3.2 initial-relax floor
+}
+
+// Phase 3.3 (spec v2.3 §2.6): geometric-reach floor. Target inside cpa_hard
+// at k=0 needs N steps to physically reach cpa_hard at the closing rate.
+// The floor pushes cpa_hard_from_k up so hard rows only appear where the
+// own-ship can actually reach the floor.
+TEST_F(MidMpcNlpTest, DeriveCpaGeometricReachWhenTargetInsideFloor) {
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.cpa_hard_m = 1852.0;
+  TargetState tgt{};
+  tgt.tcpa_s = 60.0;            // would give k_tcpa = ceil(60/5)-1 = 11
+  tgt.x_m = 0.0;                // target dead ahead
+  tgt.y_m = 800.0;              // range = 800 m, well inside cpa_hard 1852
+  tgt.sog_mps = 5.0;            // closing rate ~5 m/s
+  inp.targets.push_back(tgt);
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  // deficit = 1852 - 800 = 1052 m; geom_reach_k = ceil(1052 / (5*5)) = ceil(42.08) = 43
+  // capped to n_horizon=18.
+  EXPECT_EQ(cfg.cpa_hard_from_k, 18)
+      << "geometric reach inside floor must cap hard rows at n_horizon";
+}
+
+TEST_F(MidMpcNlpTest, DeriveCpaGeometricReachInertWhenTargetOutsideFloor) {
+  // Target outside cpa_hard -> deficit = 0 -> geometric_reach_k inert.
+  MidMpcInput inp = make_base_input();
+  inp.rot_max_rad_s = kRot47radPerS;
+  inp.colregs_min_alteration_rad = kMinAlt30rad;
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
+  inp.constraints.cpa_hard_m = 1852.0;
+  TargetState tgt{};
+  tgt.tcpa_s = 60.0;
+  tgt.x_m = 0.0;
+  tgt.y_m = 5000.0;             // range = 5000 m, outside cpa_hard
+  tgt.sog_mps = 5.0;
+  inp.targets.push_back(tgt);
+  const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
+  // No geometric floor applies; result = max(k_minalt=1, k_tcpa=11, k_initial_relax=2) = 11.
+  EXPECT_EQ(cfg.cpa_hard_from_k, 11);
 }
 
 // v2.1 spec §4.4 — direction reachable schedule derivation (Phase 1 fix).

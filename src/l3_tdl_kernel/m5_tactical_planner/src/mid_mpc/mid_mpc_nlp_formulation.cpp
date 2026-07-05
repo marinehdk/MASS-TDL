@@ -568,8 +568,10 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   const casadi::MX g_terminal    = casadi::MX::vertcat({g_term_side, g_term_lo, g_term_hi});
 
   // ConstraintCompiler rows (numeric-baked; G1 rebuild model).
+  // Phase 3.1 (spec v2.3 §2.2): forward σ to compile_cpa_distance so every
+  // CPA row gets +sigma in the expression (feasibility-preserving slack).
   const auto cpa_cc = compiler_.compile_cpa_distance(
-      psi_, u_, constraint_inputs_, cfg_.dt_s);
+      psi_, u_, constraint_inputs_, cfg_.dt_s, sigma_);
   const auto rule_cc = compiler_.compile_colregs_rules(
       psi_, u_, constraint_inputs_);
   const auto zone_cc = compiler_.compile_zone_constraints(
@@ -609,7 +611,19 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   psi_ = casadi::MX::sym("psi", N, 1);
   u_   = casadi::MX::sym("u",   N, 1);
   p_   = casadi::MX::sym("p", parameter_dim_(), 1);
-  const casadi::MX x = casadi::MX::vertcat({psi_, u_});
+  // Phase 3.1 (spec v2.3 §2.1): single scalar slack σ shared across all CPA
+  // rows. Empty when cfg_.cpa_slack_enabled=false (legacy hard-only mode).
+  if (cfg_.cpa_slack_enabled) {
+    sigma_ = casadi::MX::sym("cpa_slack", 1, 1);
+  } else {
+    sigma_ = casadi::MX();
+  }
+  const casadi::MX x = [&]() {
+    if (cfg_.cpa_slack_enabled) {
+      return casadi::MX::vertcat({psi_, u_, sigma_});
+    }
+    return casadi::MX::vertcat({psi_, u_});
+  }();
 
   // Objective: weighted sum of cost sub-terms (spec §3.2).
   J_ = casadi::DM(cfg_.w_colreg) * build_colreg_cost_()
@@ -618,6 +632,11 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
      + casadi::DM(cfg_.w_route)  * build_route_cost_()   // Slice R1 (§4.3)
      + build_asym_cost_()        // gated starboard preference (give-way only)
      + build_terminal_cost_();   // Slice T1 terminal wrong-side softplus (§5.4)
+  // Phase 3.1 (spec v2.3 §2.3): exact-penalty slack cost. Large w_slack so
+  // σ stays 0 except when geometry is genuinely hard-infeasible.
+  if (cfg_.cpa_slack_enabled) {
+    J_ = J_ + casadi::DM(cfg_.w_slack) * (sigma_ * sigma_);
+  }
 
   g_ = build_constraints_();
   g_dim_ = static_cast<int32_t>(g_.size1());
@@ -803,7 +822,8 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
   }
 
   // Guard against degenerate x_opt (IPOPT failure may return wrong-size vector).
-  const int32_t expected_dim = 2 * N;
+  // Phase 3.1: expected dim is 2N+1 when slack is enabled (last entry is σ).
+  const int32_t expected_dim = cfg_.cpa_slack_enabled ? (2 * N + 1) : (2 * N);
   if (static_cast<int32_t>(x_opt.numel()) != expected_dim) {
     sol.status = MidMpcSolution::Status::NumericalFailure;
     return sol;  // trajectory stays empty
@@ -815,6 +835,10 @@ MidMpcSolution MidMpcNlpFormulation::unpack_solution(
     point.psi_rad = static_cast<double>(x_opt(k));
     point.u_mps   = static_cast<double>(x_opt(N + k));
     point.t_s     = static_cast<double>(k) * cfg_.dt_s;
+  }
+  // Phase 3.1/3.4: capture σ for diagnostic (ASDR/SAT reporting).
+  if (cfg_.cpa_slack_enabled) {
+    sol.cpa_slack = static_cast<double>(x_opt(2 * N));
   }
   // Reconstruct position by dead-reckon — NLP optimises x=[psi;u] only, so
   // without this x_m/y_m stay 0 and the tail-gate lateral gate always fails.

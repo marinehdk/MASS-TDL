@@ -141,13 +141,28 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // x0, so a box-active optimum is the robust case (vs. restoration-fragile
   // general inequality rows — see MidMpcNlpFormulation::g_dim rationale).
   const auto& cst = input.constraints;
-  casadi::DM lbx = casadi::DM::zeros(2 * N, 1);
-  casadi::DM ubx = casadi::DM::zeros(2 * N, 1);
+  // Phase 3.1 (spec v2.3 §2.1): extend lbx/ubx with the σ dimension when the
+  // formulation built it. σ is bounded below by 0 (sign-constrained slack)
+  // and above by +inf. x0_val also gets a 0 seed for σ (start with no slack).
+  const bool slack_enabled = formulation_.config().cpa_slack_enabled;
+  const int32_t x_dim = slack_enabled ? (2 * N + 1) : (2 * N);
+  casadi::DM lbx = casadi::DM::zeros(x_dim, 1);
+  casadi::DM ubx = casadi::DM::zeros(x_dim, 1);
   for (int32_t k = 0; k < N; ++k) {
     lbx(k)     = cst.heading_min_rad;
     ubx(k)     = cst.heading_max_rad;
     lbx(N + k) = cst.speed_min_mps;
     ubx(N + k) = cst.speed_max_mps;
+  }
+  if (slack_enabled) {
+    lbx(2 * N) = 0.0;     // σ ≥ 0
+    ubx(2 * N) = std::numeric_limits<double>::infinity();    // σ ≤ +inf
+    // Extend x0_val to match x_dim with σ seed 0 (start with no slack).
+    casadi::DM x0_slack = casadi::DM::zeros(x_dim, 1);
+    for (int32_t i = 0; i < 2 * N; ++i) {
+      x0_slack(i) = x0_val(i);
+    }
+    x0_val = x0_slack;
   }
 
   // Slice N1: per-class lbg/ubg from the formulation's RowRegistry.
@@ -431,6 +446,47 @@ RowBoundConfig derive_row_bound_config(
   } else if (!cfg.direction_disabled) {
     // Lateral give-way but no targets: CPA floor moot, mirror min_alt deadline.
     cfg.cpa_hard_from_k = cfg.minalt_hard_from_k;
+  }
+
+  // Phase 3.2 (spec v2.3 §2.5): initial-condition relax. k=0/1 are always
+  // soft. range(0) is an NLP-immovable initial condition; making it hard
+  // forces Infeasible whenever the target is already inside cpa_hard at k=0
+  // (a common rule14-ho close-range geometry). With σ now in the constraint
+  // this is belt-and-suspenders, but it keeps σ clean (σ does not need to
+  // absorb initial-condition violations).
+  constexpr int32_t k_initial_relax = 2;
+  if (!cfg.direction_disabled) {
+    cfg.cpa_hard_from_k = std::max(cfg.cpa_hard_from_k, k_initial_relax);
+  }
+
+  // Phase 3.3 (spec v2.3 §2.6): geometric reach floor. When the target is
+  // inside cpa_hard, estimate how many steps the own-ship needs to physically
+  // reach cpa_hard at the current closing rate. Hard rows beyond this floor
+  // are reachable; hard rows before it are not. σ remains the global
+  // feasibility preserver behind this schedule.
+  if (!cfg.direction_disabled && !input.targets.empty()) {
+    const double cpa_hard_m = input.constraints.cpa_hard_m;
+    double min_inside_deficit_m = 0.0;  // 0 when target already outside floor
+    double max_closing_rate = 0.0;
+    for (const auto& t : input.targets) {
+      const double range_m = std::hypot(t.x_m, t.y_m);
+      if (range_m < cpa_hard_m) {
+        const double deficit = cpa_hard_m - range_m;
+        if (deficit > min_inside_deficit_m) {
+          min_inside_deficit_m = deficit;
+        }
+      }
+      const double sog_mps = std::fabs(t.sog_mps);
+      if (sog_mps > max_closing_rate) {
+        max_closing_rate = sog_mps;
+      }
+    }
+    if (min_inside_deficit_m > 0.0 && max_closing_rate > 0.01) {
+      const int32_t geom_reach_k = static_cast<int32_t>(
+          std::ceil(min_inside_deficit_m / (max_closing_rate * dt_s)));
+      cfg.cpa_hard_from_k = std::max(
+          cfg.cpa_hard_from_k, std::min(geom_reach_k, n_horizon));
+    }
   }
   return cfg;
 }
