@@ -887,6 +887,23 @@ void MidMpcNode::on_solve_cycle_()
     nlp_reject_reason = tail_gate.reason;
     if (nlp_misses_colregs_target) {
       spdlog::warn("[M5][TailGate] reject optimized NLP candidate: {}", nlp_reject_reason);
+      // Phase 1.4 (G-M5-3, spec v2.3 §15): audit the tail-gate reject so the
+      // reject reason is recoverable from /l3/asdr/record alone. terminal_cpa
+      // is the achieved CPA from the NLP terminal state against the primary
+      // tail-gate target (the same value computed inside tail_gate_cpa_release_clear).
+      const auto* primary_tgt = mass_l3::m5::primary_tail_gate_target(input);
+      const double terminal_cpa_m = (primary_tgt != nullptr)
+          ? mass_l3::m5::trajectory_terminal_state_cpa_m(sol, *primary_tgt)
+          : 0.0;
+      const std::string target_id = (primary_tgt != nullptr)
+          ? std::to_string(primary_tgt->id)
+          : std::string{};
+      emit_tail_gate_rejected_asdr_(
+          this->get_clock()->now(),
+          nlp_reject_reason.empty() ? std::string{"nlp_tail_gate_failed"} : nlp_reject_reason,
+          /*plan_id=*/"",  // plan_id is assigned downstream in wp_gen.generate
+          terminal_cpa_m,
+          target_id);
     }
   }
 
@@ -1165,6 +1182,88 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   pub_sat_data_->publish(sat);
 }
 
+// ===========================================================================
+// Phase 1.4 (G-M5-2/3, spec v2.3 §15): audit-trail emitters for the
+// committed-route reject and tail-gate reject paths. Previously these
+// rejections only surfaced as RCLCPP_WARN + in-memory safety_concern_event,
+// so the V2.3 phase 3b probe needed container docker logs to recover the
+// per-cycle reject reason (optimized_committed_rejected × 790,
+// committed_route_rejected × 375, nlp_consecutive_failures_ge_3 × 784).
+// Publishing each rejection as its own ASDR decision_type puts the audit
+// trail on the same bus as the rest of M5's decisions so future debugging
+// can be done from /l3/asdr/record alone.
+// ===========================================================================
+void MidMpcNode::emit_committed_route_rejected_asdr_(
+    rclcpp::Time now,
+    const std::string& reason,
+    const std::string& safety_concern_event,
+    const std::string& lifecycle_state_name,
+    std::uint32_t consecutive_nlp_failures,
+    const std::string& plan_id) {
+  l3_msgs::msg::ASDRRecord record;
+  record.stamp = now;
+  record.source_module = "M5_Tactical_Planner";
+  record.decision_type = "committed_route_rejected";
+  record.decision_json =
+      std::string("{\"reason\":\"") + reason
+      + "\",\"safety_concern_event\":\"" + safety_concern_event
+      + "\",\"lifecycle_state\":\"" + lifecycle_state_name
+      + "\",\"consecutive_nlp_failures\":" + std::to_string(consecutive_nlp_failures)
+      + ",\"plan_id\":\"" + plan_id + "\"}";
+  record.confidence = 0.0F;
+  record.rationale = std::string{"committed route rejected ("} + reason + ")";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(record);
+}
+
+void MidMpcNode::emit_tail_gate_rejected_asdr_(
+    rclcpp::Time now,
+    const std::string& reject_reason,
+    const std::string& plan_id,
+    double terminal_cpa_m,
+    const std::string& target_id) {
+  l3_msgs::msg::ASDRRecord record;
+  record.stamp = now;
+  record.source_module = "M5_Tactical_Planner";
+  record.decision_type = "tail_gate_rejected";
+  // Fixed-point formatting avoids the locale-dependent exponent form so the
+  // ASDR JSON stays grep-friendly.
+  char cpa_buf[32];
+  std::snprintf(cpa_buf, sizeof(cpa_buf), "%.1f", terminal_cpa_m);
+  record.decision_json =
+      std::string("{\"reject_reason\":\"") + reject_reason
+      + "\",\"plan_id\":\"" + plan_id
+      + "\",\"terminal_cpa_m\":" + cpa_buf
+      + ",\"target_id\":\"" + target_id + "\"}";
+  record.confidence = 0.0F;
+  record.rationale = std::string{"NLP tail-gate rejected ("} + reject_reason + ")";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(record);
+}
+
+void MidMpcNode::emit_empty_plan_handoff_asdr_(
+    rclcpp::Time now,
+    const std::string& reason,
+    const std::string& plan_id,
+    const std::string& plan_status) {
+  l3_msgs::msg::ASDRRecord record;
+  record.stamp = now;
+  record.source_module = "M5_Tactical_Planner";
+  record.decision_type = "gnc_empty_plan_nack";
+  record.decision_json =
+      std::string("{\"reason\":\"") + reason
+      + "\",\"plan_id\":\"" + plan_id
+      + "\",\"plan_status\":\"" + plan_status
+      + "\",\"note\":\"GNC active_route_manager requires >=2 waypoints; empty plan will be silently dropped\"}";
+  record.confidence = 0.0F;
+  record.rationale = std::string{"empty avoidance_plan hand-off ("} + reason + ")";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(record);
+}
+
 
 // ===========================================================================
 // publish_avoidance_plan_ — Slice A committed-route execution truth
@@ -1190,6 +1289,16 @@ void MidMpcNode::publish_avoidance_plan_(
 
   // Heartbeat refreshes valid_until without forcing a new revision/hash.
   out.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+  // Phase 1.4 (G-GNC-1, spec v2.3 §15): GNC active_route_manager silently
+  // rejects plans with fewer than 2 waypoints. A NORMAL status with empty
+  // waypoints is the legitimate M4-TRANSIT release signal (bridge sees
+  // has_valid_plan==False → avoidance released). Any OTHER status with empty
+  // waypoints (DEGRADED / BcMpcFollow / keep_last empty) is a hand-off GNC
+  // will drop without acknowledgement — audit it so the silent drop is
+  // visible from /l3/asdr/record.
+  if (out.waypoints.empty() && out.status != "NORMAL") {
+    emit_empty_plan_handoff_asdr_(now, reason, out.plan_id, out.status);
+  }
   pub_avoidance_plan_->publish(out);
   last_published_route_hash_ = out.route_hash;
   last_avoidance_plan_publish_time_ = now;
@@ -1242,6 +1351,16 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
     // waypoints left empty — release NLP corridor; BC-MPC override drives L4.
     spdlog::warn("[M5][CommittedRoute] BcMpcFollow - suppress stale corridor publish (reason={})",
                  reason);
+    // Phase 1.4 (G-M5-2): audit the BcMpcFollow suppress path too — it is
+    // where takeover signalled but no NLP corridor is published (the R4
+    // chain-break from the V2.3 audit).
+    emit_committed_route_rejected_asdr_(
+        now,
+        reason,
+        committed_route_manager_.current().safety_concern_event,
+        lifecycle_state_name(committed_route_manager_.current().state),
+        committed_route_manager_.consecutive_nlp_failures(),
+        bc_plan.plan_id);
     publish_avoidance_plan_(bc_plan, std::string{"bcmpc_follow:"} + reason);
     return;  // CRITICAL: skip the stale active_geometry republish below.
   }
@@ -1287,6 +1406,17 @@ void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason)
         "[M5][KeepLast] no prior committed route; publishing empty DEGRADED heartbeat reason=%s",
         reason.c_str());
   }
+  // Phase 1.4 (G-M5-2, spec v2.3 §15): audit the keep-last path so the
+  // reject reason lands on the ASDR bus alongside M5's other decisions. The
+  // V2.3 phase 3b probe had to scrape container logs to recover why each
+  // candidate was rejected; this puts the same evidence in /l3/asdr/record.
+  emit_committed_route_rejected_asdr_(
+      now,
+      reason,
+      committed_route_manager_.current().safety_concern_event,
+      lifecycle_state_name(committed_route_manager_.current().state),
+      committed_route_manager_.consecutive_nlp_failures(),
+      plan.plan_id);
   publish_avoidance_plan_(plan, std::string{"keep_last:"} + reason);
 }
 

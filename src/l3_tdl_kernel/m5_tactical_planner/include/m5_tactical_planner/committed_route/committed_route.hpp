@@ -20,6 +20,24 @@ enum class LifecycleState : std::uint8_t {
   BcMpcFollow = 8U,  // v2.2 §13.2: BC-MPC take-over, committed_route 跟随 BC-MPC
 };
 
+// Phase 1.4 (spec v2.3 §15): stable name for ASDR decision_json. Pinned so
+// audit consumers can group by lifecycle state without depending on the
+// numeric enum value (which changes when states are inserted).
+inline const char* lifecycle_state_name(LifecycleState s) noexcept {
+  switch (s) {
+    case LifecycleState::Idle:               return "Idle";
+    case LifecycleState::CandidateEvaluating:return "CandidateEvaluating";
+    case LifecycleState::Committed:          return "Committed";
+    case LifecycleState::HeartbeatOnly:      return "HeartbeatOnly";
+    case LifecycleState::KeepLast:           return "KeepLast";
+    case LifecycleState::Stale:              return "Stale";
+    case LifecycleState::DegradedHold:       return "DegradedHold";
+    case LifecycleState::Released:           return "Released";
+    case LifecycleState::BcMpcFollow:        return "BcMpcFollow";
+  }
+  return "Unknown";
+}
+
 // GeoWP holds WGS84 waypoint coordinates in DEGREES (spec §3.7 coordinate
 // contract). lat_deg/lon_deg replace the legacy x_m/y_m NED-metre fields,
 // which were a semantic mismatch — committed_candidate_from_plan always filled

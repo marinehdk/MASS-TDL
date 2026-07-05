@@ -130,6 +130,40 @@ class MidMpcNode : public rclcpp::Node {
   void publish_keep_last_(rclcpp::Time now, const std::string& reason);
   void publish_trajectory_candidates_(const MidMpcInput& input);
 
+  // Phase 1.4 (G-M5-2/3, spec v2.3 §15): audit-trail emitters for the
+  // committed-route reject / tail-gate reject paths. These previously only
+  // logged via RCLCPP_WARN and stored safety_concern_event in
+  // committed_route_manager_'s in-memory state, so the V2.3 phase 3b probe
+  // needed container docker logs to recover why each candidate was rejected
+  // (optimized_committed_rejected × 790, etc.). Each emitter publishes an
+  // ASDRRecord decision_type so the rejection reason lands in the same ASDR
+  // audit bus as the rest of M5's decisions.
+  void emit_committed_route_rejected_asdr_(
+      rclcpp::Time now,
+      const std::string& reason,
+      const std::string& safety_concern_event,
+      const std::string& lifecycle_state_name,
+      std::uint32_t consecutive_nlp_failures,
+      const std::string& plan_id);
+  void emit_tail_gate_rejected_asdr_(
+      rclcpp::Time now,
+      const std::string& reject_reason,
+      const std::string& plan_id,
+      double terminal_cpa_m,
+      const std::string& target_id);
+  // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
+  // publish an empty-waypoints avoidance_plan. GNC active_route_manager
+  // silently rejects plans with fewer than 2 waypoints (size>=2 hard gate),
+  // so an empty plan from M5 BcMpcFollow/KeepLast-empty/TRANSIT branches
+  // causes GNC to fall back to route-following without any audit signal on
+  // the L3 side. Emitting this ASDR makes the empty-plan hand-off visible
+  // without requiring changes to the GNC-side active_route_manager.
+  void emit_empty_plan_handoff_asdr_(
+      rclcpp::Time now,
+      const std::string& reason,
+      const std::string& plan_id,
+      const std::string& plan_status);
+
   // Publish the committed avoidance route on /l3/m5/avoidance_plan (the only
   // execution-truth topic M5 owns; the legacy /l3/m5/avoidance_waypoints shadow
   // was removed — only sil_trace_writer subscribed and no GNC consumer did).

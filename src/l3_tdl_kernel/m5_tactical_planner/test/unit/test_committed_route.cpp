@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -12,6 +13,7 @@ using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
 using mass_l3::m5::committed_route::CommittedRouteCandidate;
 using mass_l3::m5::committed_route::GeoWP;
 using mass_l3::m5::committed_route::LifecycleState;
+using mass_l3::m5::committed_route::lifecycle_state_name;
 
 namespace {
 
@@ -556,4 +558,46 @@ TEST(CommittedRouteV22, BcMpcFollowStableAcrossStaleGate) {
       << "v2.2 §13.2: BcMpcFollow must not be forced into DegradedHold by the stale gate";
   EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
       << "state unchanged after stale gate probe";
+}
+
+// Phase 1.4 (G-M5-2, spec v2.3 §15): lifecycle_state_name is the stable name
+// used in ASDR decision_json so audit consumers can group by lifecycle state
+// without depending on the numeric enum value (which changes when states are
+// inserted). Pin every state's name so a rename or insertion breaks tests
+// before it breaks downstream audit parsers.
+TEST(LifecycleStateName, AllStatesHaveStableNames) {
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::Idle), "Idle");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::CandidateEvaluating), "CandidateEvaluating");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::Committed), "Committed");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::HeartbeatOnly), "HeartbeatOnly");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::KeepLast), "KeepLast");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::Stale), "Stale");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::DegradedHold), "DegradedHold");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::Released), "Released");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::BcMpcFollow), "BcMpcFollow");
+}
+
+TEST(LifecycleStateName, DistinctAcrossAllStates) {
+  // No two states may share a name — otherwise ASDR audit consumers cannot
+  // disambiguate them in decision_json.
+  const std::vector<LifecycleState> states = {
+      LifecycleState::Idle,
+      LifecycleState::CandidateEvaluating,
+      LifecycleState::Committed,
+      LifecycleState::HeartbeatOnly,
+      LifecycleState::KeepLast,
+      LifecycleState::Stale,
+      LifecycleState::DegradedHold,
+      LifecycleState::Released,
+      LifecycleState::BcMpcFollow,
+  };
+  std::vector<std::string> names;
+  names.reserve(states.size());
+  for (const auto s : states) {
+    names.emplace_back(lifecycle_state_name(s));
+  }
+  std::sort(names.begin(), names.end());
+  const auto last = std::unique(names.begin(), names.end());
+  EXPECT_EQ(last, names.end())
+      << "lifecycle_state_name returned duplicate names; audit consumers cannot disambiguate";
 }
