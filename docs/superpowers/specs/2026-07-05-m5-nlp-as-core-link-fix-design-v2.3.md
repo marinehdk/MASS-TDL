@@ -126,6 +126,20 @@ These make the difference between "tuned green" (σ always active, every cycle) 
 
 Phase 2.1+2.3 (commit `f440d5bd`) rewrote `risk_trigger_event` to mirror tail-gate floor semantics. Phase 2.2 (commit `41d822a7`) separated the escalation counter into solver-layer + commit-layer. These remain in force; Phase 3 NLP slack is independent of them.
 
+### 5.1 Phase 3.8 Amend — TailBuilder Geometry Rejection vs NLP Solver Verdict
+
+**Defect discovered on rule14-ho V2 probe run-19f31173732**: 135 consecutive `optimized_committed_rejected` ASDR events with safety_concern_event `nlp_consecutive_failures_ge_3_no_bcmpc`, while ASDR `avoid_wp` reported 140 cycles `status=NORMAL, planner_health=SOLVER_CONVERGED, cpa_slack≈0, solver_status=0`. The NLP solver had converged; the optimized candidate was rejected anyway.
+
+**Root cause**: `MidMpcNode::publish_committed_route_` (mid_mpc_node.cpp:1689-1695) set `plan.nlp_tail_gate_failed = true` whenever `append_tail_waypoints_` returned a non-empty reject reason (e.g. `tail_spacing_invalid` from `tail_builder.cpp:310`). `committed_candidate_from_plan` then passed `candidate.nlp_ok = !plan.nlp_tail_gate_failed = false` (mid_mpc_node.cpp:1744). `try_revise` (committed_route.cpp:107-144) treated this as an NLP solver failure and escalated: `consecutive_nlp_failures_` incremented past 3 → `DegradedHold` → `publish_keep_last_` emitted an empty-geometry DEGRADED plan → GNC `active_route_manager_node.cpp:343` rejected with `invalid_avoidance_route`.
+
+**Semantic confusion**: `nlp_tail_gate_failed` conflated two distinct failure modes:
+1. NLP solver failure / NLP-achievable-CPA failure (legitimately an NLP verdict — populate_canonical_route_from_selected_plan line 75 sets it from `sol.status`).
+2. TailBuilder geometry failure (a *post-hoc* geometric extension failure unrelated to the NLP solver).
+
+**Fix**: Phase 3.8 removes the `plan.nlp_tail_gate_failed = true` write from the TailBuilder-reject branch in `publish_committed_route_`. The NLP solver verdict (populate_canonical_route_from_selected_plan) is authoritative for `candidate.nlp_ok`. TailBuilder rejection is honest degradation per §14.3 of [R2]: the optimized MID_MPC body still commits without a tail extension; the rejection reason is recorded in `plan.rationale` and emitted as a new `tail_builder_rejected` ASDR decision_type so future debugging does not require container logs.
+
+**Why this is a chain fix, not a single-module patch**: the failure mode is a field-semantic confusion that crossed MidMpcNode → CommittedRouteCandidate → CommittedAvoidanceRoute → GNC active_route_manager. Each module behaved per its local contract; the chain broke at the semantic boundary between "NLP solver verdict" and "geometric tail feasibility". This is exactly the COLREGs full-chain debugging rule (AGENTS.md): the fix explains why upstream inputs (NLP solver Converged), internal state (CommittedAvoidanceRoute DegradedHold), output message (keep_last empty plan), and downstream consumer behavior (GNC invalid_avoidance_route) were mutually incoherent.
+
 ## 6. Acceptance Criteria
 
 - NLP solver reports Infeasible 0 times during rule14-ho (excluding genuinely under-actuated edge cases that pass even with σ — those still escalate to fallback, but should be 0 on rule14-ho).

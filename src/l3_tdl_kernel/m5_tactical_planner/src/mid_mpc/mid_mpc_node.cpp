@@ -1280,6 +1280,29 @@ void MidMpcNode::emit_tail_gate_rejected_asdr_(
   pub_asdr_record_->publish(record);
 }
 
+void MidMpcNode::emit_tail_builder_rejected_asdr_(
+    rclcpp::Time now,
+    const std::string& reject_reason,
+    const std::string& plan_id) {
+  l3_msgs::msg::ASDRRecord record;
+  record.stamp = now;
+  record.source_module = "M5_Tactical_Planner";
+  record.decision_type = "tail_builder_rejected";
+  record.decision_json =
+      std::string("{\"reject_reason\":\"") + reject_reason
+      + "\",\"plan_id\":\"" + plan_id + "\"}";
+  record.confidence = 0.0F;
+  // Phase 3.8: distinguish TailBuilder geometry failure from NLP tail-gate
+  // failure. The NLP solver may have converged (nlp_tail_gate_failed=false);
+  // only the geometric tail extension failed. Honest degradation per
+  // spec §14.3 (amended): the optimized body still commits.
+  record.rationale = std::string{"TailBuilder geometry rejected ("} + reject_reason
+      + "); NLP solver verdict unaffected";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(record);
+}
+
 void MidMpcNode::emit_empty_plan_handoff_asdr_(
     rclcpp::Time now,
     const std::string& reason,
@@ -1683,14 +1706,23 @@ void MidMpcNode::publish_committed_route_(
     // Slice W1 (spec §5.3): append the TailBuilder hold[+rejoin] segment between
     // the MID_MPC_OPTIMIZED waypoints and the L2 nominal suffix. The tail
     // extends the NLP terminal state to the predicted s_clear (active phase,
-    // hold-only) or to a curvature-limited rejoin (release phase). On reject the
-    // candidate is marked nlp_tail_gate_failed so CommittedAvoidanceRoute falls
-    // back to DegradedHold (honest degradation, spec §14.3).
+    // hold-only) or to a curvature-limited rejoin (release phase).
+    //
+    // Phase 3.8 (spec §14.3 amended): TailBuilder geometry rejection (e.g.
+    // tail_spacing_invalid) is honest degradation that does NOT affect the NLP
+    // solver verdict. The legacy code set plan.nlp_tail_gate_failed=true here,
+    // which made committed_candidate_from_plan pass candidate.nlp_ok=false to
+    // try_revise, escalating NLP-converged candidates into DegradedHold on
+    // every cycle where the tail geometry failed (135 spurious escalations on
+    // rule14-ho). The optimized body still commits — the NLP solver's
+    // convergence verdict (populate_canonical_route_from_selected_plan sets
+    // nlp_tail_gate_failed from sol.status, line 75) is authoritative.
     const std::string tail_reject = append_tail_waypoints_(plan, input, sol, lat0_deg, lon0_deg);
     if (!tail_reject.empty()) {
       spdlog::warn("[M5][TailBuilder] reject tail for plan_id={} reason={}",
                    plan.plan_id, tail_reject);
-      plan.nlp_tail_gate_failed = true;
+      emit_tail_builder_rejected_asdr_(
+          now, tail_reject, plan.plan_id);
       plan.rationale += " tail_gate=" + tail_reject;
     }
     if (!append_l2_nominal_suffix_if_preflight_feasible(

@@ -151,6 +151,17 @@ class MidMpcNode : public rclcpp::Node {
       const std::string& plan_id,
       double terminal_cpa_m,
       const std::string& target_id);
+  // Phase 3.8 (spec v2.3 §14.3 amend): TailBuilder.build rejection (geometry
+  // failure such as tail_spacing_invalid) is honest degradation and MUST NOT
+  // contaminate candidate.nlp_ok. The NLP solver's convergence verdict is
+  // authoritative; mixing TailBuilder geometry failures into nlp_tail_gate_failed
+  // caused 135 spurious optimized_committed_rejected escalations on rule14-ho
+  // (DegradedHold → keep_last empty plan → GNC invalid_avoidance_route × 32).
+  // Emit on /l3/asdr/record so future debugging does not require container logs.
+  void emit_tail_builder_rejected_asdr_(
+      rclcpp::Time now,
+      const std::string& reject_reason,
+      const std::string& plan_id);
   // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
   // publish an empty-waypoints avoidance_plan. GNC active_route_manager
   // silently rejects plans with fewer than 2 waypoints (size>=2 hard gate),
