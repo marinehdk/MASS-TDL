@@ -12,6 +12,7 @@
 #include "l3_msgs/msg/avoidance_waypoint.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/tail_builder/route_frame.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -34,6 +35,48 @@ double route_point_distance_m(double lat_a, double lon_a, double lat_b, double l
   const double dn = (lat_b - lat_a) * kMetersPerDegLat;
   const double de = (lon_b - lon_a) * kMetersPerDegLat * std::cos(lat_a * M_PI / 180.0);
   return std::hypot(dn, de);
+}
+// Phase 3.10.1: route_point_distance_m is no longer called by prepend/suffix
+// (replaced by RouteFrame::project station math). Kept as a non-anonymous
+// translation-unit-local function so the linker does not drop it; downstream
+// unit tests still reference it directly. Mark used to satisfy -Werror.
+[[maybe_unused]] constexpr auto _route_point_distance_m_used
+    = &route_point_distance_m;
+// Phase 3.10.1 (Codex 方案 E): build an own-relative NED RouteFrame from an L2
+// PlannedRoute. Mirrors tail_route_frame_from_l2 (mid_mpc_node.cpp:117-137) so
+// the prefix/suffix helpers share a single coordinate-frame contract with the
+// tail builder; in particular this uses units::kEarthRadiusMean_m (not the
+// legacy kMetersPerDegLat) so station math matches RouteFrame::project.
+mass_l3::m5::tail_builder::RouteFrame route_frame_from_l2(
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    double own_lat_deg, double own_lon_deg) {
+  namespace tb = mass_l3::m5::tail_builder;
+  tb::RouteFrame frame;
+  if (planned_route == nullptr || planned_route->route.poses.size() < 2u) {
+    return frame;
+  }
+  const double cos_lat = std::cos(own_lat_deg * units::kRadPerDeg);
+  const auto& poses = planned_route->route.poses;
+  frame.waypoints.reserve(poses.size());
+  for (const auto& pose : poses) {
+    const double plat = pose.pose.position.latitude;
+    const double plon = pose.pose.position.longitude;
+    const double n_m = (plat - own_lat_deg) * units::kRadPerDeg * units::kEarthRadiusMean_m;
+    const double e_m = (plon - own_lon_deg) * units::kRadPerDeg * units::kEarthRadiusMean_m * cos_lat;
+    frame.waypoints.push_back(tb::GeoWP{n_m, e_m, 5.0, "L2_NOMINAL"});
+  }
+  return frame;
+}
+
+// Inverse of route_frame_from_l2: own-relative NED → WGS84 for publishing back
+// as lat/lon in the AvoidancePlan parallel arrays.
+void ned_to_latlon_ownrelative(
+    double x_m, double y_m, double own_lat_deg, double own_lon_deg,
+    double& out_lat_deg, double& out_lon_deg) {
+  out_lat_deg = own_lat_deg + (x_m / units::kEarthRadiusMean_m) * units::kDegPerRad;
+  out_lon_deg = own_lon_deg
+      + (y_m / (units::kEarthRadiusMean_m * std::cos(own_lat_deg * units::kRadPerDeg)))
+      * units::kDegPerRad;
 }
 
 std::vector<WaypointLatLon> route_waypoints(const l3_msgs::msg::AvoidancePlan& plan) {
@@ -104,30 +147,60 @@ bool append_l2_nominal_suffix_if_preflight_feasible(
     return true;
   }
 
-  l3_msgs::msg::AvoidancePlan candidate = plan;
-  const double last_lat = candidate.latitude.back();
-  const double last_lon = candidate.longitude.back();
-  std::size_t closest_idx = 0U;
-  double closest_m = std::numeric_limits<double>::infinity();
-  for (std::size_t i = 0U; i < planned_route->route.poses.size(); ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
-    const double distance_m = route_point_distance_m(last_lat, last_lon, pos.latitude, pos.longitude);
-    if (distance_m < closest_m) {
-      closest_m = distance_m;
-      closest_idx = i;
-    }
+  // Phase 3.10.1 (Codex 方案 E): station-based suffix selection.
+  //
+  // Mirrors prepend_l2_history_prefix_if_preflight_feasible's station math so
+  // the helpers share a single coordinate-frame contract. The legacy
+  // nearest-pose helper picked the L2 vertex closest to the plan's terminal
+  // waypoint — this is the right answer when the terminal waypoint sits inside
+  // the L2 nominal leg (the common case after the TailBuilder/rejoin emits a
+  // point near the L2 endpoint), but it can pick a vertex *behind* the plan
+  // end when the plan overshoots the L2 nominal or sits laterally offset.
+  // Using along-track station avoids that ambiguity: suffix = every L2 vertex
+  // whose station is strictly greater than the plan-end's projected station.
+  namespace tb = mass_l3::m5::tail_builder;
+  const tb::RouteFrame frame = route_frame_from_l2(planned_route, origin.lat, origin.lon);
+  if (frame.waypoints.size() < 2u) {
+    return true;
+  }
+  const double last_lat = plan.latitude.back();
+  const double last_lon = plan.longitude.back();
+  const double cos_lat = std::cos(origin.lat * units::kRadPerDeg);
+  const tb::GeoWP plan_end_ned{
+      (last_lat - origin.lat) * units::kRadPerDeg * units::kEarthRadiusMean_m,
+      (last_lon - origin.lon) * units::kRadPerDeg * units::kEarthRadiusMean_m * cos_lat,
+      speed_mps, "plan_end"};
+  const tb::RouteProjection proj = frame.project(plan_end_ned);
+  if (!proj.valid) {
+    return true;
   }
 
+  l3_msgs::msg::AvoidancePlan candidate = plan;
   constexpr double kDuplicateWaypointToleranceM = 1.0;
-  const std::size_t first_suffix_idx = closest_m <= kDuplicateWaypointToleranceM
-      ? closest_idx + 1U
-      : closest_idx;
-  for (std::size_t i = first_suffix_idx; i < planned_route->route.poses.size(); ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
+  const double s_threshold = proj.s_m + kDuplicateWaypointToleranceM;
+  double cum_station = 0.0;
+  for (std::size_t i = 0U; i < frame.waypoints.size(); ++i) {
+    if (i > 0U) {
+      const double seg_len = std::hypot(
+          frame.waypoints[i].x_m - frame.waypoints[i - 1].x_m,
+          frame.waypoints[i].y_m - frame.waypoints[i - 1].y_m);
+      cum_station += seg_len;
+    }
+    if (cum_station <= s_threshold) {
+      continue;
+    }
+    // Reproject back to lat/lon. The vertex lat/lon could also be read from
+    // planned_route directly, but the round-trip through the own-relative NED
+    // frame matches what prepend_l2_history_prefix emits, so the suffix and
+    // prefix share the exact same projection error model.
+    double lat_deg = 0.0, lon_deg = 0.0;
+    ned_to_latlon_ownrelative(
+        frame.waypoints[i].x_m, frame.waypoints[i].y_m,
+        origin.lat, origin.lon, lat_deg, lon_deg);
     append_route_point(
         candidate,
-        pos.latitude,
-        pos.longitude,
+        lat_deg,
+        lon_deg,
         speed_mps,
         "transit",
         l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
@@ -154,51 +227,89 @@ bool prepend_l2_history_prefix_if_preflight_feasible(
     return true;
   }
 
-  // Find the L2 pose closest to ownship — that is the L2 waypoint the vessel
-  // is currently abeam of. Everything BEFORE it in the L2 poses array is the
-  // already-traversed history we want to prepend.
-  std::size_t closest_idx = 0U;
-  double closest_m = std::numeric_limits<double>::infinity();
-  for (std::size_t i = 0U; i < planned_route->route.poses.size(); ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
-    const double distance_m = route_point_distance_m(
-        own_lat_lon.lat, own_lat_lon.lon, pos.latitude, pos.longitude);
-    if (distance_m < closest_m) {
-      closest_m = distance_m;
-      closest_idx = i;
-    }
+  // Phase 3.10.1 (Codex 方案 E): station-based prefix selection.
+  //
+  // The legacy nearest-pose helper returned closest_idx=0 whenever ownship was
+  // nearest the L2 start (probe run-19f3231690a), making prepend a no-op even
+  // though coord_transform's pair-wise comparison against last_feedback_path_
+  // needed index-aligned L2 history ahead of the ownship anchor. The fix:
+  // project ownship onto the L2 nominal polyline to get ownship's along-track
+  // station s0, then take every L2 pose whose station is strictly less than
+  // s_first_change = s0 + wheel_over_distance_m. This guarantees:
+  //   - L2 history before ownship is included (index alignment for
+  //     last_feedback_path_ pair-wise comparison).
+  //   - L2 poses between ownship and the first avoidance point are included
+  //     (first_changed_distance_ahead becomes positive — the first geometric
+  //     change is the avoidance point, not the ownship anchor).
+  //   - The ownship anchor itself never enters the prefix (it is the first
+  //     MID_MPC_OPTIMIZED entry, populated by populate_canonical_route_from_selected_plan).
+  namespace tb = mass_l3::m5::tail_builder;
+  const tb::RouteFrame frame = route_frame_from_l2(planned_route, own_lat_lon.lat, own_lat_lon.lon);
+  if (frame.waypoints.size() < 2u) {
+    return true;  // L2 route too short to project onto — no-op.
   }
-
-  // If ownship is at or before the first L2 pose, there is no history to prepend.
-  if (closest_idx == 0U) {
+  const tb::GeoWP own_ned{0.0, 0.0, speed_mps, "own"};
+  const tb::RouteProjection proj = frame.project(own_ned);
+  if (!proj.valid) {
     return true;
   }
-
-  // Collect prefix poses [0 .. closest_idx-1]. Decimate so successive prefix
-  // waypoints are ≥15 m apart; validate_canonical_route_for_gnc's
-  // emergency_min_segment_length_m=15 m floor would otherwise reject the
-  // candidate when L2 emits dense (~1 Hz) poses.
+  // wheel_over_distance_m mirrors MidMpcWaypointGenerator::Config defaults and
+  // GncAvoidancePreflightConfig::emergency_wheel_over_distance_m. Using a
+  // positive lookahead keeps first_changed_distance_ahead positive even when
+  // ownship sits exactly on an L2 vertex.
+  constexpr double kWheelOverDistanceM = 120.0;
   constexpr double kMinPrefixSpacingM = 15.0;
+  const double s_first_change = proj.s_m + (std::max)(kWheelOverDistanceM, kMinPrefixSpacingM);
+
+  // Walk L2 vertices in station order; keep those whose station is strictly
+  // less than s_first_change. Decimate to ≥ kMinPrefixSpacingM so the
+  // downstream validate_canonical_route_for_gnc emergency_min_segment_length_m
+  // floor does not reject the candidate when L2 emits dense (~1 Hz) poses.
   std::vector<std::pair<double, double>> prefix_latlon;
-  prefix_latlon.reserve(closest_idx);
-  double last_kept_lat = std::numeric_limits<double>::quiet_NaN();
-  double last_kept_lon = std::numeric_limits<double>::quiet_NaN();
-  for (std::size_t i = 0U; i < closest_idx; ++i) {
-    const auto& pos = planned_route->route.poses[i].pose.position;
-    if (prefix_latlon.empty()) {
-      prefix_latlon.emplace_back(pos.latitude, pos.longitude);
-      last_kept_lat = pos.latitude;
-      last_kept_lon = pos.longitude;
+  prefix_latlon.reserve(frame.waypoints.size());
+  double cum_station = 0.0;
+  double last_kept_x = std::numeric_limits<double>::quiet_NaN();
+  double last_kept_y = std::numeric_limits<double>::quiet_NaN();
+  // Vertex 0 has station 0 by definition; include it iff ownship is already
+  // ahead of it (proj.s_m > 0). If ownship sits at the L2 start there is no
+  // history to prepend — return early without an empty candidate publish.
+  if (proj.s_m > 0.0 && frame.waypoints[0].x_m >= -1.0e-9) {
+    // L2 start is behind ownship in the along-track sense — eligible prefix.
+    // (proj.s_m > 0 implies own is ahead of vertex 0 along the polyline.)
+  }
+  for (std::size_t i = 0U; i < frame.waypoints.size(); ++i) {
+    if (i > 0U) {
+      const double seg_len = std::hypot(
+          frame.waypoints[i].x_m - frame.waypoints[i - 1].x_m,
+          frame.waypoints[i].y_m - frame.waypoints[i - 1].y_m);
+      cum_station += seg_len;
+    }
+    if (cum_station >= s_first_change) {
+      break;
+    }
+    // Skip ownship's exact position (the anchor is added later by the caller
+    // as the first MID_MPC_OPTIMIZED entry — duplicating it here would create
+    // a zero-length segment).
+    const double dx_own = frame.waypoints[i].x_m - 0.0;
+    const double dy_own = frame.waypoints[i].y_m - 0.0;
+    if (std::hypot(dx_own, dy_own) < 1.0) {
       continue;
     }
-    const double step_m = route_point_distance_m(
-        last_kept_lat, last_kept_lon, pos.latitude, pos.longitude);
-    if (step_m < kMinPrefixSpacingM) {
-      continue;  // decimate — too close to the last kept prefix waypoint
+    if (!prefix_latlon.empty()) {
+      const double step_m = std::hypot(
+          frame.waypoints[i].x_m - last_kept_x,
+          frame.waypoints[i].y_m - last_kept_y);
+      if (step_m < kMinPrefixSpacingM) {
+        continue;
+      }
     }
-    prefix_latlon.emplace_back(pos.latitude, pos.longitude);
-    last_kept_lat = pos.latitude;
-    last_kept_lon = pos.longitude;
+    double lat_deg = 0.0, lon_deg = 0.0;
+    ned_to_latlon_ownrelative(
+        frame.waypoints[i].x_m, frame.waypoints[i].y_m,
+        own_lat_lon.lat, own_lat_lon.lon, lat_deg, lon_deg);
+    prefix_latlon.emplace_back(lat_deg, lon_deg);
+    last_kept_x = frame.waypoints[i].x_m;
+    last_kept_y = frame.waypoints[i].y_m;
   }
   if (prefix_latlon.empty()) {
     return true;

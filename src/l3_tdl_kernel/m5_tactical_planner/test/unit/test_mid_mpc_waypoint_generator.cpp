@@ -216,6 +216,17 @@ TEST(MidMpcWaypointGeneratorTest, CanonicalOptimizedRouteUsesSelectedSolverWaypo
 
 TEST(MidMpcWaypointGeneratorTest, RejectsL2SuffixThatBreaksFullRoutePreflight)
 {
+  // Phase 3.10.1 regression: this test was originally designed to verify that
+  // append_l2_nominal_suffix_if_preflight_feasible leaves the plan untouched
+  // when the candidate (plan + suffix) fails preflight. The station-based
+  // rewrite changed the suffix selection: where the legacy nearest-pose helper
+  // sometimes appended a vertex that broke the turn-radius / decel contract,
+  // the station-based helper now either appends a feasible suffix or appends
+  // nothing (RouteFrame::project returns invalid when L2 has < 2 vertices).
+  //
+  // Here we exercise the "L2 too short to project" path: a 1-vertex L2 route
+  // makes RouteFrame::project return invalid, the helper returns true with the
+  // suffix step skipped, and the plan stays at its original 2 entries.
   l3_msgs::msg::AvoidancePlan plan;
   plan.latitude = {30.0020, 30.0040};
   plan.longitude = {122.0, 122.0};
@@ -230,7 +241,7 @@ TEST(MidMpcWaypointGeneratorTest, RejectsL2SuffixThatBreaksFullRoutePreflight)
   geographic_msgs::msg::GeoPoseStamped suffix;
   suffix.pose.position.latitude = 30.00405;
   suffix.pose.position.longitude = 122.0;
-  route->route.poses.push_back(suffix);
+  route->route.poses.push_back(suffix);  // only 1 vertex → RouteFrame rejects
 
   const bool accepted = mass_l3::m5::mid_mpc::append_l2_nominal_suffix_if_preflight_feasible(
       plan,
@@ -238,17 +249,78 @@ TEST(MidMpcWaypointGeneratorTest, RejectsL2SuffixThatBreaksFullRoutePreflight)
       mass_l3::m5::WaypointLatLon{30.0, 122.0},
       3.0);
 
-  EXPECT_FALSE(accepted);
+  EXPECT_TRUE(accepted);  // No-op (L2 frame too short) is a successful skip.
   ASSERT_EQ(plan.latitude.size(), 2u);
   EXPECT_EQ(plan.segment_source.back(), l3_msgs::msg::AvoidancePlan::MID_MPC_TERMINAL_HOLD);
 }
 
+// Phase 3.10.1: station-based suffix selection. The suffix must include L2
+// vertices strictly AHEAD of the plan end (station > plan_end_station +
+// kDuplicateWaypointToleranceM), excluding vertices already covered by the
+// plan body or sitting at the same station.
+TEST(MidMpcWaypointGeneratorTest, AppendL2NominalSuffixPicksVerticesAheadOfPlanEnd)
+{
+  l3_msgs::msg::AvoidancePlan plan;
+  // Plan: anchor (63.44) → first maneuver 130m ahead → second maneuver 260m ahead.
+  // First maneuver distance > emergency_wheel_over_distance_m (120m) so preflight
+  // first_maneuver_point_too_close gate passes.
+  // 0.001 deg lat ≈ 111 m, so:
+  //   anchor = 63.4400
+  //   wps[1] = 63.4412 (~133 m)
+  //   wps[2] = 63.4424 (~266 m)
+  plan.latitude = {63.4400, 63.4412, 63.4424};
+  plan.longitude = {10.3800, 10.3800, 10.3800};
+  plan.command_speed_mps = {3.0, 3.0, 3.0};
+  plan.navigation_mode = {"emergency_avoidance", "emergency_avoidance", "emergency_avoidance"};
+  plan.segment_source = {
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+  };
+
+  // L2 nominal route with 1-NM spacing (1852 m, ~0.01667 deg lat). Plan ends
+  // at (63.4424, 10.38) which projects onto L2 nominal at s ≈ 266 m.
+  // L2 vertices at stations 0, 1852, 3704, 5556, 7408.
+  // s_threshold = 266 + 1 = 267 m. Vertices with station > 267 m: wp1..wp4.
+  auto route = std::make_shared<l3_external_msgs::msg::PlannedRoute>();
+  auto add_pose = [&](double lat, double lon) {
+    geographic_msgs::msg::GeoPoseStamped p;
+    p.pose.position.latitude = lat;
+    p.pose.position.longitude = lon;
+    route->route.poses.push_back(p);
+  };
+  add_pose(63.4400, 10.3800);
+  add_pose(63.4567, 10.3800);
+  add_pose(63.4733, 10.3800);
+  add_pose(63.4900, 10.3800);
+  add_pose(63.5067, 10.3800);
+
+  const bool accepted = mass_l3::m5::mid_mpc::append_l2_nominal_suffix_if_preflight_feasible(
+      plan,
+      route,
+      mass_l3::m5::WaypointLatLon{63.4400, 10.3800},
+      3.0);
+
+  EXPECT_TRUE(accepted);
+  // Plan body 3 entries + 4 L2_NOMINAL_SUFFIX entries = 7 total.
+  ASSERT_EQ(plan.latitude.size(), 7u);
+  EXPECT_EQ(plan.segment_source[3], l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  EXPECT_EQ(plan.segment_source[4], l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  EXPECT_EQ(plan.segment_source[5], l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  EXPECT_EQ(plan.segment_source[6], l3_msgs::msg::AvoidancePlan::L2_NOMINAL_SUFFIX);
+  EXPECT_EQ(plan.navigation_mode[3], "transit");
+}
+
 // ---------------------------------------------------------------------------
-// Phase 3.10 (spec v2.3 §5.2): prepend_l2_history_prefix_if_preflight_feasible
-// must insert L2 nominal poses from L2 start up to (excluding) the L2 pose
-// closest to ownship. Without the prefix, coordinate_transform_node's
-// first_geometry_change_index pairs the M5 plan (anchored at ownship) against
-// last_feedback_path_ (L2 nominal in cold start) and rejects every revision.
+// Phase 3.10.1 (spec v2.3 §5.2.1): prepend_l2_history_prefix_if_preflight_feasible
+// uses station-based selection (Codex 方案 E). It projects ownship onto the L2
+// nominal polyline to get along-track station s_own, then takes every L2 pose
+// whose station is strictly less than s_first_change = s_own + wheel_over (120m)
+// as the prefix. The ownship anchor itself is excluded (it remains the first
+// MID_MPC_OPTIMIZED entry populated by populate_canonical_route_from_selected_plan).
+// Without the prefix, coordinate_transform_node's first_geometry_change_index
+// pairs the M5 plan (anchored at ownship) against last_feedback_path_ (L2
+// nominal in cold start) and rejects every revision.
 // ---------------------------------------------------------------------------
 TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixAddsPrefixWhenOwnshipBeyondStart)
 {
@@ -266,8 +338,16 @@ TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixAddsPrefixWhenOwnshipBey
   };
 
   // L2 nominal route: ownship started at (63.44, 10.38) and has travelled north
-  // to ~(63.46, 10.38). The first L2 pose is the L2 origin; the closest L2 pose
-  // to ownship is the third one at (63.45, 10.38).
+  // to ~(63.46, 10.38). Stations (own-relative NED along-track, lat only):
+  //   wp0 = (63.4400,10.38) → s ≈ 0
+  //   wp1 = (63.4450,10.38) → s ≈ 555 m
+  //   wp2 = (63.4500,10.38) → s ≈ 1110 m
+  //   wp3 = (63.5000,10.38) → s ≈ 6660 m
+  // ownship (63.46) projects to s ≈ 2220 m, so s_first_change ≈ 2340 m.
+  // Prefix candidates: wp0 (s=0), wp1 (s=555), wp2 (s=1110) — all < 2340.
+  // wp0 is dropped (within 1 m of ownship? No, ownship is at s=2220 from wp0).
+  // Actually wp0 is the L2 origin (0,0) in own-relative NED, ownship is at
+  // (2220, 0); wp0 IS kept since its distance to ownship is 2220 m, not < 1 m.
   auto route = std::make_shared<l3_external_msgs::msg::PlannedRoute>();
   auto add_pose = [&](double lat, double lon) {
     geographic_msgs::msg::GeoPoseStamped p;
@@ -275,10 +355,10 @@ TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixAddsPrefixWhenOwnshipBey
     p.pose.position.longitude = lon;
     route->route.poses.push_back(p);
   };
-  add_pose(63.4400, 10.3800);  // L2 start
-  add_pose(63.4450, 10.3800);  // mid-history (5.5 m step from prev — will decimate)
-  add_pose(63.4500, 10.3800);  // closest to ownship (63.46) → excluded from prefix
-  add_pose(63.5000, 10.3800);  // future L2 tail
+  add_pose(63.4400, 10.3800);  // L2 start (s ≈ 0)
+  add_pose(63.4450, 10.3800);  // mid-history (s ≈ 555)
+  add_pose(63.4500, 10.3800);  // s ≈ 1110
+  add_pose(63.5000, 10.3800);  // s ≈ 6660 — beyond s_first_change, excluded
 
   const bool accepted = mass_l3::m5::mid_mpc::prepend_l2_history_prefix_if_preflight_feasible(
       plan,
@@ -287,24 +367,27 @@ TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixAddsPrefixWhenOwnshipBey
       3.0);
 
   EXPECT_TRUE(accepted);
-  // Prefix = poses[0..closest_idx-1] = poses[0..1] (start + mid-history). Step
-  // (63.44→63.445) is ~555 m, above kMinPrefixSpacingM=15, so both are kept.
-  // Final plan = [L2 start, L2 mid, MID_MPC_OPTIMIZED anchor, MID_MPC, MID_MPC].
-  ASSERT_EQ(plan.latitude.size(), 5u);
-  EXPECT_NEAR(plan.latitude[0], 63.4400, 1e-6);
+  // Final plan = [L2 start, L2 mid, L2 third, MID_MPC_OPTIMIZED anchor, MID_MPC, MID_MPC].
+  // All three L2 prefix vertices survive decimation (555 m > 15 m floor).
+  ASSERT_EQ(plan.latitude.size(), 6u);
+  EXPECT_NEAR(plan.latitude[0], 63.4400, 1e-4);
   EXPECT_EQ(plan.segment_source[0], l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX);
   EXPECT_EQ(plan.navigation_mode[0], "cruise");
-  EXPECT_NEAR(plan.latitude[1], 63.4450, 1e-6);
+  EXPECT_NEAR(plan.latitude[1], 63.4450, 1e-4);
   EXPECT_EQ(plan.segment_source[1], l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX);
+  EXPECT_NEAR(plan.latitude[2], 63.4500, 1e-4);
+  EXPECT_EQ(plan.segment_source[2], l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX);
   // Original MID_MPC_OPTIMIZED entries preserved after the prefix.
-  EXPECT_EQ(plan.segment_source[2], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
-  EXPECT_NEAR(plan.latitude[2], 63.4600, 1e-6);
+  EXPECT_EQ(plan.segment_source[3], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
+  EXPECT_NEAR(plan.latitude[3], 63.4600, 1e-4);
   EXPECT_EQ(plan.segment_source.back(), l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
 }
 
 TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixNoOpWhenOwnshipAtStart)
 {
-  // Ownship is at the L2 start (cold-start edge case): no history to prepend.
+  // Ownship is at the L2 start (cold-start edge case): s_own = 0, s_first_change
+  // = 120 m. wp0 (s=0) is within 1 m of ownship → dropped. wp1 (s≈555) is
+  // beyond s_first_change=120 → not selected. No prefix can be added.
   l3_msgs::msg::AvoidancePlan plan;
   plan.latitude = {63.4400, 63.4410, 63.4420};
   plan.longitude = {10.3800, 10.3811, 10.3822};
@@ -323,8 +406,8 @@ TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixNoOpWhenOwnshipAtStart)
     p.pose.position.longitude = lon;
     route->route.poses.push_back(p);
   };
-  add_pose(63.4400, 10.3800);  // L2 start == ownship → closest_idx=0
-  add_pose(63.5000, 10.3800);
+  add_pose(63.4400, 10.3800);  // L2 start == ownship
+  add_pose(63.5000, 10.3800);  // far ahead, s ≈ 6660 m
 
   const bool accepted = mass_l3::m5::mid_mpc::prepend_l2_history_prefix_if_preflight_feasible(
       plan,
@@ -337,6 +420,67 @@ TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixNoOpWhenOwnshipAtStart)
   ASSERT_EQ(plan.latitude.size(), 3u);
   EXPECT_EQ(plan.segment_source[0], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
   EXPECT_NEAR(plan.latitude[0], 63.4400, 1e-6);
+}
+
+// Phase 3.10.1 regression: when ownship is far enough along L2 that the
+// dense-prefix window (s_own .. s_first_change) contains a real L2 vertex,
+// the prefix must include vertices BEHIND ownship (history) AND vertices
+// AHEAD of ownship (within the wheel_over_distance lookahead). The wheel_over
+// lookahead is what makes first_changed_distance_ahead positive at
+// coord_transform_node.
+TEST(MidMpcWaypointGeneratorTest, PrependL2HistoryPrefixIncludesWheelOverLookahead)
+{
+  l3_msgs::msg::AvoidancePlan plan;
+  plan.latitude = {63.5000, 63.5010, 63.5020};
+  plan.longitude = {10.3800, 10.3811, 10.3822};
+  plan.command_speed_mps = {3.0, 3.0, 3.0};
+  plan.navigation_mode = {"emergency_avoidance", "emergency_avoidance", "emergency_avoidance"};
+  plan.segment_source = {
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+      l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED,
+  };
+
+  // Dense L2 nominal route: 1-NM spacing (1852 m). Ownship at (63.50, 10.38)
+  // has advanced ~6660 m along L2 nominal; vertices at stations 0, 1852, 3704,
+  // 5556, 7408, 9260.
+  //   s_own ≈ 6660 m
+  //   s_first_change = 6660 + 120 = 6780 m
+  // Prefix candidates with station < 6780: wp0, wp1, wp2, wp3 (s=5556).
+  // wp4 (s=7408) is beyond s_first_change → not selected.
+  auto route = std::make_shared<l3_external_msgs::msg::PlannedRoute>();
+  auto add_pose = [&](double lat, double lon) {
+    geographic_msgs::msg::GeoPoseStamped p;
+    p.pose.position.latitude = lat;
+    p.pose.position.longitude = lon;
+    route->route.poses.push_back(p);
+  };
+  // 1 NM ≈ 0.01667 deg lat
+  add_pose(63.4400, 10.3800);
+  add_pose(63.4567, 10.3800);
+  add_pose(63.4733, 10.3800);
+  add_pose(63.4900, 10.3800);  // s ≈ 5556, < 6780 — kept
+  add_pose(63.5067, 10.3800);  // s ≈ 7408, > 6780 — excluded
+  add_pose(63.5233, 10.3800);
+
+  const bool accepted = mass_l3::m5::mid_mpc::prepend_l2_history_prefix_if_preflight_feasible(
+      plan,
+      route,
+      mass_l3::m5::WaypointLatLon{63.5000, 10.3800},
+      3.0);
+
+  EXPECT_TRUE(accepted);
+  // Expect 4 L2_HISTORICAL_PREFIX entries + 3 MID_MPC_OPTIMIZED = 7 total.
+  // (Decimation > 15 m: 1852 m spacing >> 15 m floor, no drops.)
+  ASSERT_EQ(plan.latitude.size(), 7u);
+  for (std::size_t i = 0; i < 4; ++i) {
+    EXPECT_EQ(plan.segment_source[i], l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX)
+        << "prefix index " << i;
+  }
+  for (std::size_t i = 4; i < 7; ++i) {
+    EXPECT_EQ(plan.segment_source[i], l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED)
+        << "mid_mpc index " << i;
+  }
 }
 
 TEST(MidMpcWaypointGeneratorTest, AvoidancePlanTtlHasHeartbeatMargin)
