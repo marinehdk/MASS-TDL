@@ -142,6 +142,155 @@ bool append_l2_nominal_suffix_if_preflight_feasible(
   return true;
 }
 
+bool prepend_l2_history_prefix_if_preflight_feasible(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    const WaypointLatLon& own_lat_lon,
+    double speed_mps) {
+  // No-op cases: no L2 route, or plan empty (caller must populate MID_MPC
+  // segment first — prepend runs AFTER populate_canonical_route_from_selected_plan).
+  if (planned_route == nullptr || planned_route->route.poses.empty()
+      || plan.latitude.empty() || plan.longitude.empty()) {
+    return true;
+  }
+
+  // Find the L2 pose closest to ownship — that is the L2 waypoint the vessel
+  // is currently abeam of. Everything BEFORE it in the L2 poses array is the
+  // already-traversed history we want to prepend.
+  std::size_t closest_idx = 0U;
+  double closest_m = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0U; i < planned_route->route.poses.size(); ++i) {
+    const auto& pos = planned_route->route.poses[i].pose.position;
+    const double distance_m = route_point_distance_m(
+        own_lat_lon.lat, own_lat_lon.lon, pos.latitude, pos.longitude);
+    if (distance_m < closest_m) {
+      closest_m = distance_m;
+      closest_idx = i;
+    }
+  }
+
+  // If ownship is at or before the first L2 pose, there is no history to prepend.
+  if (closest_idx == 0U) {
+    return true;
+  }
+
+  // Collect prefix poses [0 .. closest_idx-1]. Decimate so successive prefix
+  // waypoints are ≥15 m apart; validate_canonical_route_for_gnc's
+  // emergency_min_segment_length_m=15 m floor would otherwise reject the
+  // candidate when L2 emits dense (~1 Hz) poses.
+  constexpr double kMinPrefixSpacingM = 15.0;
+  std::vector<std::pair<double, double>> prefix_latlon;
+  prefix_latlon.reserve(closest_idx);
+  double last_kept_lat = std::numeric_limits<double>::quiet_NaN();
+  double last_kept_lon = std::numeric_limits<double>::quiet_NaN();
+  for (std::size_t i = 0U; i < closest_idx; ++i) {
+    const auto& pos = planned_route->route.poses[i].pose.position;
+    if (prefix_latlon.empty()) {
+      prefix_latlon.emplace_back(pos.latitude, pos.longitude);
+      last_kept_lat = pos.latitude;
+      last_kept_lon = pos.longitude;
+      continue;
+    }
+    const double step_m = route_point_distance_m(
+        last_kept_lat, last_kept_lon, pos.latitude, pos.longitude);
+    if (step_m < kMinPrefixSpacingM) {
+      continue;  // decimate — too close to the last kept prefix waypoint
+    }
+    prefix_latlon.emplace_back(pos.latitude, pos.longitude);
+    last_kept_lat = pos.latitude;
+    last_kept_lon = pos.longitude;
+  }
+  if (prefix_latlon.empty()) {
+    return true;
+  }
+
+  // Build candidate = prefix + original plan. Insert at front of all five
+  // parallel arrays. plan.waypoints (the rich audit structs) is not touched —
+  // downstream consumers (preflight, gnc_bridge, coord_transform) key off the
+  // parallel arrays; plan.waypoints stays as the MID_MPC_OPTIMIZED-only view.
+  l3_msgs::msg::AvoidancePlan candidate;
+  candidate.schema_version = plan.schema_version;
+  candidate.stamp = plan.stamp;
+  candidate.commit_branch = plan.commit_branch;
+  candidate.plan_id = plan.plan_id;
+  candidate.parent_route_id = plan.parent_route_id;
+  candidate.behavior_mode = plan.behavior_mode;
+  candidate.command_source = plan.command_source;
+  candidate.waypoints = plan.waypoints;
+  candidate.speed_adjustments = plan.speed_adjustments;
+  candidate.horizon_s = plan.horizon_s;
+  candidate.status = plan.status;
+  candidate.active_constraints = plan.active_constraints;
+  candidate.valid_until = plan.valid_until;
+  candidate.allow_degraded_execution = plan.allow_degraded_execution;
+  candidate.has_return_to_route_point = plan.has_return_to_route_point;
+  candidate.return_latitude = plan.return_latitude;
+  candidate.return_longitude = plan.return_longitude;
+  candidate.route_hash = plan.route_hash;
+  candidate.stale_committed_at = plan.stale_committed_at;
+  candidate.nlp_solver_status = plan.nlp_solver_status;
+  candidate.nlp_kkt_residual = plan.nlp_kkt_residual;
+  candidate.nlp_tail_gate_failed = plan.nlp_tail_gate_failed;
+  candidate.confidence = plan.confidence;
+  candidate.rationale = plan.rationale;
+
+  candidate.latitude.reserve(prefix_latlon.size() + plan.latitude.size());
+  candidate.longitude.reserve(prefix_latlon.size() + plan.longitude.size());
+  candidate.command_speed_mps.reserve(prefix_latlon.size() + plan.command_speed_mps.size());
+  candidate.navigation_mode.reserve(prefix_latlon.size() + plan.navigation_mode.size());
+  candidate.segment_source.reserve(prefix_latlon.size() + plan.segment_source.size());
+  for (const auto& latlon : prefix_latlon) {
+    append_route_point(
+        candidate,
+        latlon.first,
+        latlon.second,
+        speed_mps,
+        "cruise",
+        l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX);
+  }
+  for (std::size_t i = 0U; i < plan.latitude.size(); ++i) {
+    append_route_point(
+        candidate,
+        plan.latitude[i],
+        plan.longitude[i],
+        i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : speed_mps,
+        i < plan.navigation_mode.size() ? plan.navigation_mode[i] : std::string{"emergency_avoidance"},
+        i < plan.segment_source.size() ? plan.segment_source[i]
+                                       : static_cast<std::uint8_t>(l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED));
+  }
+
+  // Preflight semantics after prepend: the prefix is HISTORICAL (already
+  // traversed), not future maneuver. validate_canonical_route_for_gnc models
+  // the route as "origin=ownship + future waypoints" and checks first_distance
+  // / turn_radius / segment_length against origin. Applying it to the full
+  // candidate (prefix + MID_MPC + ...) mis-frames the prefix as future maneuvers
+  // starting from ownship — origin↔wps[0] (L2 start) reverses heading relative
+  // to wps[0]→wps[1] (L2 forward), producing a false U-turn / tiny radius.
+  //
+  // Fix: run preflight on a post-prefix sub-plan that starts at the ownship
+  // anchor (the first MID_MPC_OPTIMIZED entry). wps_has_anchor=true is correct
+  // for the sub-plan (its wps[0] is the anchor). Prefix geometry is validated
+  // separately by the decimation step (≥15 m spacing).
+  l3_msgs::msg::AvoidancePlan post_prefix_subplan;
+  post_prefix_subplan.latitude.assign(
+      plan.latitude.begin(), plan.latitude.end());
+  post_prefix_subplan.longitude.assign(
+      plan.longitude.begin(), plan.longitude.end());
+  post_prefix_subplan.command_speed_mps.assign(
+      plan.command_speed_mps.begin(), plan.command_speed_mps.end());
+  post_prefix_subplan.navigation_mode.assign(
+      plan.navigation_mode.begin(), plan.navigation_mode.end());
+  post_prefix_subplan.segment_source.assign(
+      plan.segment_source.begin(), plan.segment_source.end());
+  const auto result = validate_canonical_route_for_gnc(
+      post_prefix_subplan, own_lat_lon, /*wps_has_anchor=*/true);
+  if (!result.feasible) {
+    return false;
+  }
+  plan = std::move(candidate);
+  return true;
+}
+
 MidMpcWaypointGenerator::MidMpcWaypointGenerator(const Config& cfg) : cfg_(cfg) {}
 
 // ned_to_geopoint_ — flat-earth NED → WGS84 (Phase E1 approximation).

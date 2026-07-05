@@ -1703,6 +1703,22 @@ void MidMpcNode::publish_committed_route_(
         "nominal",
         mass_l3::m5::gnc_avoidance_navigation_mode(/*colregs_overtake_corridor=*/false));
     plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
+    // Phase 3.10 (spec §5.2): prepend L2 nominal history prefix (L2 start →
+    // ownship projection) so coordinate_transform_node's first_geometry_change_index
+    // pairs the incoming route against last_feedback_path_ (L2 nominal in cold
+    // start) element-by-element. Without the prefix the M5 plan anchors at ownship
+    // and the first changed waypoint lands behind ownship → perpetual reject.
+    // Must run AFTER populate_canonical_route_from_selected_plan (which clears the
+    // parallel arrays) and BEFORE append_tail_waypoints_ / append_l2_nominal_suffix
+    // (so the suffix closest-L2-pose search starts from the avoidance tail, not
+    // from the prefix). Prepend failure is honest degradation: publish without
+    // prefix and let the coord_transform guard reject if it must (audit via trace).
+    if (!prepend_l2_history_prefix_if_preflight_feasible(
+            plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
+      RCLCPP_WARN(get_logger(),
+          "[M5][L2HistoryPrefix] reject prepend for plan_id=%s; publishing selected route without prefix",
+          plan.plan_id.c_str());
+    }
     // Slice W1 (spec §5.3): append the TailBuilder hold[+rejoin] segment between
     // the MID_MPC_OPTIMIZED waypoints and the L2 nominal suffix. The tail
     // extends the NLP terminal state to the predicted s_clear (active phase,
@@ -1731,8 +1747,15 @@ void MidMpcNode::publish_committed_route_(
           "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",
           plan.plan_id.c_str());
     }
-    // Phase 2: plan.waypoints[0] is anchor (MidMpcWaypointGenerator).
-    const auto preflight = validate_canonical_route_for_gnc(plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/true);
+    // Phase 3.10 (spec §5.2): after prepend, wps[0] is the L2 historical start
+    // (not the ownship anchor), so the final preflight must use wps_has_anchor=false.
+    // When prepend was a no-op (ownship at L2 start, or planned_route null/empty),
+    // wps[0] is still the ownship anchor and wps_has_anchor=true remains correct.
+    // Detect by checking the first segment_source label.
+    const bool prefix_prepended = !plan.segment_source.empty()
+        && plan.segment_source.front() == l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX;
+    const auto preflight = validate_canonical_route_for_gnc(
+        plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/!prefix_prepended);
     if (!preflight.feasible) {
       RCLCPP_WARN(
           get_logger(),

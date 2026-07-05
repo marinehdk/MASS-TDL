@@ -46,6 +46,22 @@ void populate_canonical_route_from_selected_plan(
     const WaypointLatLon& origin,
     double speed_mps);
 
+// Phase 3.10 (spec v2.3 §5.2): prepend the L2 nominal poses from L2 start up
+// to (but excluding) the L2 pose closest to ownship. The prefix aligns the
+// plan's first N waypoints with last_feedback_path_ (L2 nominal in cold-start)
+// so coordinate_transform_node::first_geometry_change_index returns the ownship
+// anchor index instead of 1, and first_changed_distance_ahead becomes positive.
+// Prefix poses are decimated to ≥15 m spacing so validate_canonical_route_for_gnc
+// segment_too_short (15 m floor) does not reject. Prefix navigation_mode="cruise"
+// (the prefix is a historical transit, not emergency_avoidance). On preflight
+// reject the plan is left untouched and the function returns false (mirrors
+// append_l2_nominal_suffix_if_preflight_feasible degradation semantics).
+[[nodiscard]] bool prepend_l2_history_prefix_if_preflight_feasible(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    const WaypointLatLon& own_lat_lon,
+    double speed_mps);
+
 class MidMpcWaypointGenerator {
  public:
   struct Config {
