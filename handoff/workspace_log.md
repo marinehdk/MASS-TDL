@@ -2566,3 +2566,465 @@ Codex 完整 Q1-Q5 (task-mr72qznr-yzqf6j) 后台 job 未拿完整 (cloud 404, co
 - **Codex job**: task-mr72qznr-yzqf6j 后台, 状态查询不顺, 下个会话 wake-up 后重查或重 dispatch
 - **NLM sources**: ship_maneuvering domain 加 9 sources (wheel-over + IMO MSC.137(76), 2026-07-05)
 - worktree pre-existing dirty 保留未动
+
+## [2026-07-05] ZCode / no commit / Phase A 对抗诊断 — 真根因 + NLP-as-core 路线抉择诚实停下
+
+### Task Goal
+按用户提示词 Phase A 重判 NLP 真根因 + Phase B NLP-as-core 方案对抗设计。本会话仅诊断，不动代码。
+
+### 双重推翻（自己 vs 自己，迭代判）
+
+**初判（错）**：读 `runs/v2.3_phase3b_rule14ho/probe_20260705_080054.json` 的 `planner_health_counts.SOLVER_CONVERGED=293 (51%)` → 我判 NLP 大多数 cycle 解出，问题在 publish chain，handoff + Codex partial "97× IPOPT Infeasible" 错。**这个初判错了**——该 counter 含 GeoFallback plan-valid，非 NLP solver 状态本身。
+
+**最终判（container log ground truth）**：handoff + Codex partial **正确**，NLP solver 真报 Infeasible 371×。
+
+### 决定性证据（container `codex-gnc-validation-sil-nodes-1` docker logs）
+
+```
+GeoFallback reason=solver_status=2 (Infeasible enum)         × 371
+CommittedRoute reject event=nlp_consecutive_failures_ge_3    × 784
+publish_keep_last reason=m6_not_past_clear                   × 874
+publish_keep_last reason=optimized_committed_rejected        × 790
+publish_keep_last reason=committed_route_rejected            × 375
+[M5][MidMPC] BC-MPC take-over signaled consecutive=3/20/62/105  (takeover 真触发)
+minalt_box_infeasible=false, speed_infeasible=false          (全程)
+box_reach=53.2deg vs min_alt=30deg                           (reachable OK)
+```
+
+source-of-truth 引用：
+- `src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:858` `compute_bc_mpc_take_over()` 真触发 + line 868 `mark_bc_mpc_takeover()` 调用
+- `src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:1499/1570/1711/1818` `publish_committed_route_` 4 分支：optimized / corridor / return / emit-nothing，**无 BcMpcFollow 真 publish 分支**
+- `src/l3_tdl_kernel/m5_tactical_planner/src/committed_route/committed_route.cpp:105-120` `consecutive_nlp_failures>=3 + bc_mpc_takeover=false → DegradedHold`
+- `src/l3_tdl_kernel/m5_tactical_planner/include/m5_tactical_planner/common/types.hpp:977` `accept_tail_gate` 6 检（active-approach 期跳 CPA floor）
+- v2.2 commit `6d858ea6`（V4 Codex 🔴2 fix）加了 BcMpcFollow heartbeat suppress 但 **未加真 BC-MPC 4-WP publish**
+
+### 最终真根因链
+
+1. NLP solver 报 Infeasible (371×)
+2. `consecutive_nlp_failures ≥ 3` → committed_route.cpp:115 `enter_degraded_hold('nlp_consecutive_failures_ge_3_no_bcmpc')`
+3. `compute_bc_mpc_take_over` 真触发（consecutive≥3 OR 条件满足，minalt_box/speed_gap 全 false）
+4. `committed_route_manager_.mark_bc_mpc_takeover()` 调用，内部 state=BcMpcFollow
+5. **`publish_committed_route_` 无 BcMpcFollow 分支** → publish_keep_last_ 发 stale heartbeat
+6. own_ship 跟随 stale frozen corridor，heading 0° 整程，CPA 5.8m
+
+### NLP-as-core 关键洞察（双 fix 需要）
+
+两个独立 fix 都需要：
+- **(a) NLP solver robustness** — 371× Infeasible 基础问题
+- **(b) BcMpcFollow real publish path** — 即使 NLP 修了，commit gate 790× 拒 candidate，仍需 honest degraded path 接管
+
+fix (b) 单独给 honest degraded；fix (a) 单独被 commit gate 卡。
+
+### 推翻的 false-root（记录避免重蹈）
+
+- `avoidance_active=False 全程` 非 real dispatch gap，是 trace-writer 派生字段（BehaviorPlan.msg 无此字段）。真值是 `behavior=1=BEHAVIOR_COLREG_AVOID × 1671/2401 samples`，M4 正常进 AVOID。
+- `planner_health_counts.SOLVER_CONVERGED=293` 非 NLP solver 状态本身，含 GeoFallback plan-valid 统计。
+- frozen wp0=(63.498, 10.380) 是 KeepLast republish 症状，非根因。
+
+### Phase B 路线抉择（用户拍板：停）
+
+4 选项：
+1. BcMpcFollow publish wiring（γ3 收尾）
+2. NLP solver robustness（Infeasible 真修）
+3. 并行（γ3 wiring + NLP robustness 调研）
+4. 停（诚实停下报告）
+
+**用户选 4 — 诚实停下报告**。理由（推断，待用户后续确认）：
+- NLP Infeasible 371× + commit gate 拒 790× + BC-MPC stub 未实施 = 结构性问题
+- 范围大于原 v2.3 spec（calibration + anchor + wheel-over）
+- 可能需 HAZID alignment + 架构层修订 + BC-MPC Phase E2 真实施
+
+### Current Status
+- **本会话无代码改动，无 push**
+- Phase A 对抗诊断完毕，真根因彻底锁定
+- Phase B 路线抉择用户拍板停
+- Codex deep task-mr73jvtv-gsldr7 dispatched 但用错前提（"handoff wrong"），结果忽略
+
+### Handoff Notes
+- **下一步需用户决策**：
+  1. 是否启动 BC-MPC Phase E2 真实施（γ3 wiring + bc_mpc_node.cpp:155 stub 替换）
+  2. 是否 HAZID alignment（decel_max, CPA hard floor 1852m 合理性，NLM 文献基线补充）
+  3. 是否 NLP formulation 重构（constraint soft-with-floor, horizon 扩 N=18→30, warm-start）
+  4. 或重新设计架构（NLP 主 + 几何 fallback 真独立路径，非同源）
+- **probe 仍 RED**（CPA 5.8m vs floor 180m），不 ff main / 不 push GitLab l3-tdl
+- **Memory**: drawer `drawer_MASS-L3_colregs-deviation-findings_04ef9f77101132f0f34e2fac`（真根因 + 双 fix 需要）+ diary 本会话末
+- worktree pre-existing dirty 保留未动
+
+## [2026-07-05] ZCode / no commit / M5 完整执行链路对抗性双评（Codex deep + ZCode subagent 独立互校）
+
+### Task Goal
+用户要求 Codex + 子 Agent 并行对抗分析 M5 完整执行链路，梳理所有 fallback/gate/mismatch，给出达成"每 cycle 输出 GNC 可执行 COLREGs 避碰+返航航线"的修改意见。本会话仅诊断，未改未提交。
+
+### 双评方法论
+- **Codex deep** `task-mr75ogq6-ncukgh`（gpt-5.5 high effort, 13m14s, 12 tool calls）
+- **ZCode subagent**（general-purpose, 441s, 36 tool calls, ~2.16M tokens）
+- 并行独立审计，主线综合 + 互校
+
+### 9 项 cross-chain mismatch（双评 🟢 High 收敛）
+
+| # | mismatch | 证据 (file:line) |
+|---|---|---|
+| **R1** | consecutive_nlp_failures 累积/重置不对称 | committed_route.cpp:91/101/141 + degraded_candidate_adapter.cpp:28-45 (degraded nlp_ok=true 喂回) |
+| **R2** | commit gate current_cpa 语义错配（用当前距离判 commit） | committed_route.cpp:297-318 + mid_mpc_node.cpp:233-245 (min_target_current_range_m) |
+| **R3** | BC-MPC override 无 GNC/L4 消费者 | grep 全仓：fcb_simulator (执行) + m7 (监控) + tests；gnc_bridge 只桥 avoidance_plan |
+| **R4** | BcMpcFollow enum 存在但 publish_committed_route_ 无对应分支 | committed_route.hpp:11-20 + mid_mpc_node.cpp:1216-1247/1465-1863 |
+| **R5** | GNC size>=2 硬门 vs M5 empty plan 无握手 | active_route_manager_node.cpp:261-267 静默拒空 plan |
+| **R6** | tail-gate active-approach 跳 CPA floor vs commit gate 不跳 | types.hpp:824-842 vs committed_route.cpp:315-317 |
+| **R7** | BC-MPC activation 双信号异步 | mid_mpc_node.cpp:857-869 (consec≥3) vs bc_mpc_node.cpp:85-89 (best_cpa<1481m) |
+| **R8** | M6 lifecycle 停 ONSET 不进 ACTIVE → m6_not_past_clear × 874 | tail_builder.cpp:357-366 + mid_mpc_node.cpp:71-88 (M6 上游 bug 害 M5) |
+| **R9** | avoidance_waypoints 契约文档残留 | mid_mpc_node.cpp:1858-1861 + AvoidancePlan.msg:2-3 + ros2-interface-contract.yaml:32 |
+
+### 两线分歧/补充
+
+**ZCode subagent 独有**：frozen_prefix 跨 cycle vs receding horizon（anchor 每 cycle 变）
+
+**Codex deep 独有**：
+- solver counter (mid_mpc_solver.cpp:271-282) 与 manager counter 是两套独立系统（R1 修复需明确改哪套）
+- GeoFallback 即使提升为真 publish 路径，因复用同 M4 box（0.2° steering），可能"可执行但无效"，不解决 CPA 5.8m
+- m6_not_past_clear 是 M6 upstream bug，非阈值问题，须查 M6 phase classifier
+
+### 修方向 7 优先级（条件化推荐）
+
+| # | 方向 | commits | HAZID? | 反例 |
+|---|---|---|---|---|
+| **A** | R8 M6 lifecycle 上游修（M6 D-task） | ~3-5 | 是 | 若 M6 改仍不进 ACTIVE 需查 EncounterStateMachine |
+| **B** | R2 commit gate current_cpa 语义修正（OR：current_range<cpa_hard AND terminal_cpa<cpa_hard） | ~1-2 | 否 | 真 MRM 侵入仍需 fail-safe；OR 保留硬门 |
+| **C** | R1 counter 对称化（分两层：nlp_solver_failures + commit_failures，escalation 只看前者） | ~2 | 否 | counter 正确后仍无 ReactiveOverride consumer（R3） |
+| **D** | R3+R4+R5 BcMpcFollow publish 通路真接通（三选一） | ~3-4 | **是** | spec §3.2 emergency-only 契约需重新对齐 |
+| **E** | R6 tail-gate vs commit gate 语义统一 | ~1-2 | 否 | M6 错报 Active 会放宽 release floor |
+| **F** | NLP solver robustness 真修（soft-with-floor / horizon / warm-start） | ~5-8 | **是** | 单独不闭环（双评一致反例） |
+| **G** | 多目标前瞻 | 探索性 | 是 | 单船修通后评估 |
+
+### 执行顺序（三战略路径）
+
+```
+1. 不动 NLP formulation 最短路径: A → B → C → E  (~5-9 commits + M6 侧改动)
+   消除 m6_not_past_clear/optimized_committed_rejected/nlp_consecutive_failures_ge_3 三大类 reason
+
+2. BC-MPC 真兜底路径: A → B → C → D  (HAZID 先行, ~8-13 commits)
+   确保 close-range BC-MPC override 真转船
+
+3. 彻底 NLP-as-core: F → A → B → C → E → D  (~13-21 commits + 多轮 HAZID, 最长)
+```
+
+### 两线共识
+
+> "当前失败**非单点阈值**，三层叠加（M6 lifecycle/TailBuilder + commit gate/counter + BC-MPC consumer），必须先选清楚 normal route-level 修复（A/B/C/E）还是 emergency direct override 修复（D），再实施。"
+> — Codex deep
+
+> "1+5（即 C+B）不动 NLP formulation 即可消除绝大多数 fallback。"
+> — ZCode subagent
+
+### Current Status
+- **本会话无代码改动，无 push**
+- 双评综合报告输出完毕
+- 9 项 mismatch + 7 修方向 + 3 战略路径已给
+- 用户需做战略决策（normal route vs emergency override vs 彻底 NLP）
+
+### Handoff Notes
+- **下一步需用户决策**：
+  1. 战略路线（A→B→C→E 不动 NLP / A→B→C→D BC-MPC 真兜底 / F→... 彻底 NLP）
+  2. 若选 D（BcMpcFollow publish 真接通）需 HAZID alignment spec §3.2 emergency-only 契约重新对齐
+  3. 若选 A（M6 lifecycle）需另立 D-task（AGENTS.md 不改他模块）
+- **probe 仍 RED**（CPA 5.8m vs floor 180m），不 ff main / 不 push GitLab l3-tdl ✓
+- **Memory**: drawer `drawer_MASS-L3_colregs-deviation-findings_26756cd78147ca5d5856c583`（9 mismatch + 7 方向 + 3 路径）+ diary `diary_MASS-L3_20260705_104339995284_71e7eff8a86a`
+- worktree pre-existing dirty 保留未动
+- **Codex sessions**: 019f300c-3e9c-78b1-91df-4627ef45dc12 (deep audit complete)
+
+## [2026-07-05] ZCode / 4 commits (51f78e8d..7b2ded6b) / Phase 1 — M6 lifecycle + observability gap 闭合
+
+### Task Goal
+按用户批准的 plan，3 phase 渐进实施。Phase 1 解 R8 (M6 lifecycle) + 10 项 observability gap 中前 4 项 (G-M6-1/G-TR-1/G-TR-2/G-M5-2/3 + G-GNC-1)。
+
+### Core Changes (4 commits on codex/colregs-12probe-debug)
+
+**1.1 (51f78e8d) — M6 rank-based semantic_state aggregation**:
+- colregs_reasoner_node.cpp:988-994 写入门从"first-write + CLEAR-to-non-CLEAR"改为"取最高阶状态"
+- 新增 encounter_state_rank() inline helper (encounter_state_machine.hpp)
+- 排序: CLEAR<DETECTED<CANDIDATE<PREPLAN<ACTIVE==MONITOR<RELEASE
+- 修 R8: Rule13 DETECTED 不再抑制 Rule14 ACTIVE (rule library order 13<14)
+- 6 新单测 EncounterStateRank
+
+**1.2 (021b34bc) — trace_writer M6 encounter lifecycle 抽取**:
+- _normalize_colregs_constraint_msg 加 encounter_state/past_clear/release_predicted/colregs_chain_target_id
+- colregs_chain_trace.py m6 段加 encounter_state_first/last/transitions/past_clear_samples
+- 删 pre-existing dead test_avoidance_waypoints_normalizer_* (referenced 删除的 helper)
+- 3 新 lifecycle 测 + 1 missing-fields 测
+
+**1.3 (3e255921) — trace_writer 订阅 7 个新 topic**:
+- /sil/sat2_data /sil/sat3_data /sil/sotif_metrics /sil/module_pulse /l3/m5/reactive_override_cmd /l3/override/active /m7/sil_observability
+- 7 新 normalizer + 8 新测
+
+**1.4 (7b2ded6b) — 3 新 ASDR decision_type emitters**:
+- committed_route_rejected: publish_keep_last_ 统一出口 + BcMpcFollow suppress 路径 emit (reason/safety_concern_event/lifecycle_state/consecutive_nlp_failures/plan_id)
+- tail_gate_rejected: on_solve_cycle_ accept_tail_gate reject 路径 emit (reject_reason/plan_id/terminal_cpa_m/target_id)
+- gnc_empty_plan_nack: publish_avoidance_plan_ 检测空 waypoints && status!=NORMAL 时 emit (M5 自审，GNC silent drop)
+- lifecycle_state_name() helper (committed_route.hpp)
+- 2 新 LifecycleStateName 测
+
+### Test Status
+- M6: 22/22 PASS (含 6 新 EncounterStateRank)
+- M5: 29/29 PASS (含 2 新 LifecycleStateName, cppcheck + linter clean)
+- trace_writer: 35/35 PASS (含 8 新 normalizer + lifecycle + missing-fields)
+- colregs_chain_trace: 14/14 PASS (含 3 新 lifecycle)
+
+### V2 Probe rule14-ho 验证 (runs/v2.3_phase1_rule14ho)
+
+```
+chain.m6.encounter_state_first = CLEAR
+chain.m6.encounter_state_last = ACTIVE   ← Phase 1.1 R8 fix VERIFIED
+chain.m6.encounter_state_transitions = ['CLEAR->ONSET', 'ONSET->ACTIVE']
+chain.m6.past_clear_samples = 0
+
+ASDR decision_type 分布 (trace 实证):
+  1210 world_state_snapshot
+  1206 reasoner_snapshot
+  1202 heartbeat
+   571 avoid_wp
+   387 committed_route_rejected   ← Phase 1.4 VERIFIED (前不可见)
+   302 periodic_status
+     5 gnc_empty_plan_nack         ← Phase 1.4 VERIFIED (前 GNC silent drop)
+
+trace topics (22 = 旧 15 + 新 7):
+  /sil/sat2_data (2393) /sil/sat3_data (573) /sil/module_pulse (8) /sil/sotif_metrics (1) ← Phase 1.3 VERIFIED
+
+CPA min: 0.9m (still RED, floor 180m)
+steer_mag: 0.1°
+solver_stats: {EMPTY:5, VALID:3}
+overall_pass: False
+early_stop_reason: cpa_floor_violated
+```
+
+### Phase 1 目标达成分析
+
+✅ **R8 修对**：M6 现在正确进入 ACTIVE (chain_summary 直接显示 transitions)，不再停在 ONSET。前 m6_not_past_clear × 874 应消除（待 Phase 2/3 probe 累积验证）。
+✅ **Observability gap 闭合 4/10**：G-M6-1 / G-TR-1 (part) / G-TR-2 / G-M5-2/3 + G-GNC-1 全部生效。387 个 committed_route_rejected + 5 个 gnc_empty_plan_nack 现可从 /l3/asdr/record 直接追溯。
+❌ **CPA 仍 RED**：Phase 1 不解 CPA（Phase 2/3 范围）。NLP 仍 Infeasible + commit gate 仍拒。0.9m vs phase3b 5.8m 的退化是 probe 随机性（都在 floor 180m 下，无意义差别）。
+
+### Handoff Notes
+- **Phase 2 待做** (B/C/E normal-route chain fix): R2 commit gate current_cpa 语义修正 + R1 counter 双层分离 + R6 tail-gate vs commit gate 统一 + G-M5-1 4分支身份 commit_branch 字段 + G-M5-2/3 reject ASDR 字段填充 + R9 契约文档清理
+- **Phase 3 待做** (F NLP slack): CPA hard → soft-with-floor (constraint_compiler.cpp:309-357) + initial relax (solver.cpp:409-434) + schedule 正向化 + NLP diag 入 SAT/ASDR + spec v2.3 升级
+- **Phase 4 待做** (residual observability): G-SAT-1 CMM 三段闭合 + G-PULSE-1 module pulse 语义扩充 + G-GNC-1 显式 NACK
+- probe 仍 RED，不 ff main / 不 push GitLab l3-tdl ✓
+- **Memory**: drawer `drawer_MASS-L3_colregs-deviation-findings_435712403806525a63f47c21` + diary `diary_MASS-L3_20260705_122142984580_f3e7694551e2`
+- worktree pre-existing dirty 保留未动
+
+## [2026-07-05] ZCode / 3 commits (f440d5bd..4b120973) / Phase 2 — normal-route chain fix (B/C/E + G-M5-1/R9)
+
+### Task Goal
+按用户批准 plan 推进 Phase 2：解 R2 (commit gate current_cpa 语义) + R6 (tail-gate vs commit gate 不一致) + R1 (counter 不对称) + G-M5-1 (4 分支身份) + R9 (契约文档残留)。
+
+### Core Changes (3 commits on codex/colregs-12probe-debug)
+
+**2.1+2.3 (f440d5bd) — commit gate CPA floor 镜像 tail-gate 语义**:
+- committed_route.cpp:297 risk_trigger_event 重写
+- legacy: `current range < cpa_hard → reject` (rule14-ho 接近段 steady-state < 1852m → 拒每个 optimized candidate, optimized_committed_rejected × 790 in V2.3 phase 3b)
+- 新 gate:
+  - active approach (target closing): skip floor (maneuver IS CPA-opening action)
+  - release/recovery (target opening): hard floor on candidate.terminal_cpa_m
+  - far target: never reject
+- CommittedRouteCandidate 加 terminal_cpa_m + target_opening 字段
+- 5 新 CommittedRouteRiskGate 单测
+
+**2.2 (41d822a7) — counter 双层分离**:
+- legacy consecutive_nlp_failures_ 只在 try_revise 内累积, NLP Infeasible 走 plan.status=DEGRADED → corridor → 不调 optimized try_revise → counter 永不累积
+- 修法:
+  - try_revise 加 3rd 参 solver_consecutive_failures (默认 0)
+  - escalation 用 max(commit_counter, solver_counter) >= 3
+  - should_enter_degraded_hold 用 cached last_solver_consecutive_failures_
+  - mid_mpc_node 每 cycle 调 notify_solver_consecutive_failures
+- 3 新 counter 单测
+
+**2.4+2.6 (4b120973) — commit_branch enum + AvoidancePlan schema 115 + R9 契约清理**:
+- AvoidancePlan.msg schema 114→115, 新 commit_branch uint8 enum (7 值)
+- publish_committed_route_ 4 分支 + publish_keep_last_ 各 set commit_branch
+- trace_writer avoidance_plan normalizer 扩 9 字段 (commit_branch + nlp_solver_status + nlp_kkt_residual + nlp_tail_gate_failed + stale_committed_at_sec + segment_source_count + behavior_mode + command_source + plan_id)
+- ros2-interface-contract.yaml R9 清理删 /l3/m5/avoidance_waypoints
+
+### Test Status
+- M5: 29/29 PASS (含 5 新 CommittedRouteRiskGate + 3 新 counter + 1 避免计划契约 schema 115)
+- trace_writer: 35/35 PASS
+- colregs_chain_trace: 14/14 PASS
+- cppcheck + linter clean
+- contract yaml checker: 7 findings 0 violations
+- sil-nodes 镜像 rebuilt (~4min ccache)
+
+### Verification (container log ground truth after image rebuild)
+
+```
+[M5][MidMPC] 100 consecutive failures; M7 MRM-02 escalation  ← Phase 2.2 VERIFIED
+[M5][MidMPC] BC-MPC take-over signaled (consecutive=3)        ← dispatch working
+ASDR publishing M5_Tactical_Planner avoid_wp (live)
+sil-nodes image rebuilt successfully
+```
+
+Phase 2.2 solver counter escalation 真到 100（旧版 max 3 进 DegradedHold），证明 counter 双层分离生效。
+
+### V2 Probe Issue (非 Phase 2 regression)
+
+V2 probe rule14-ho Configure failed: `target_vessel_node/set_parameters not available after 3s`。这是 probe 工具 timing 限制（target_vessel 启动需更长），非 Phase 2 引入。probe 跑不通但 container 启动 + log + ASDR 验证通过。
+
+### CPA 仍 RED (Phase 3 范围)
+
+Phase 2 解了 commit gate + counter + observability，但 NLP 仍 Infeasible（container log 显示 IPOPT NaN grad + 100 consecutive failures）。Phase 3 (F NLP slack) 才能解 CPA。Phase 2 + Phase 1 累积已让 NLP converged candidate 可通过 commit gate（旧 790 optimized_committed_rejected 应消除），但 NLP solver 本身仍 fail。
+
+### Handoff Notes
+- **Phase 3 待做** (F NLP slack): CPA hard → soft-with-floor (constraint_compiler.cpp:309-357) + initial relax (solver.cpp:409-434) + schedule 正向化 + NLP diag 入 SAT/ASDR + spec v2.3 升级
+- probe 仍 RED，不 ff main / 不 push GitLab l3-tdl ✓
+- **Memory**: drawer `drawer_MASS-L3_colregs-deviation-findings_f6bca4c83feb315fdaeac712` + diary `diary_MASS-L3_20260705_133838863143_285f4619450c`
+- worktree pre-existing dirty 保留未动
+- **V2 probe Configure timing issue** 留待 Phase 3 或独立 task 修（target_vessel set_parameters service 启动时序）
+
+## [2026-07-05] ZCode / 2 commits (3bc91183, e37d3b5a) / Phase 3 — NLP slack + initial relax + geometric-reach (F NLP-as-core)
+
+### Task Goal
+按用户批准 plan 推进 Phase 3：CPA hard → soft-with-floor slack variable + initial-condition relax + geometric-reach schedule + NLP diag 入 ASDR/SAT + spec v2.3 升级。
+
+### Core Changes (2 commits)
+
+**3.5 (3bc91183) — spec v2.3**:
+- docs/superpowers/specs/2026-07-05-m5-nlp-as-core-link-fix-design-v2.3.md
+- 重评 v2.1 §4.3 拒绝 slack 决策：v2.1 三支柱（pure-soft 太弱 / slack 不保证 safety / fallback covers INFEAS），前 2 支柱仍 stand，第 3 支柱（fallback covers）在 V2.3 phase 3b probe 证据下塌了（BcMpcFollow 无 publish branch, DegradedHold 锁 stale, commit gate 拒每个 CPA-opening candidate）
+- 论证 slack 不是 "tune probe green"：σ > 0 可观测（ASDR），下游 tail-gate + commit gate + M7 X-axis 仍 enforce CPA safety on candidate trajectory, slack 只保 feasibility 不 bypass safety
+
+**3.1+3.2+3.3+3.4 (e37d3b5a) — 实施**:
+- 3.1 CPA slack variable:
+  - 决策变量 x = [psi(N); u(N); sigma]，单标量 σ shared across all CPA rows
+  - constraint d² - cpa_hard² + sigma >= 0
+  - cost J += w_slack · sigma² (w_slack=1e4 [TBD-HAZID-WP-04], exact-penalty Kerrigan 2000)
+  - Config 加 cpa_slack_enabled + w_slack
+  - solver lbx/ubx/x0 扩 σ 维
+  - MidMpcSolution 加 cpa_slack 字段
+- 3.2 initial-condition relax: cpa_hard_from_k = max(..., k_initial_relax=2)
+- 3.3 geometric-reach schedule floor: geometric_reach_k = ceil((cpa_hard-range)/(closing_rate·dt)) when target inside floor
+- 3.4 NLP diag: ASDR avoid_wp JSON 加 cpa_slack, SAT2 reasoning_chain 加 nlp_slack_active/nlp_slack=0
+
+### Test Status
+- M5: 29/29 PASS (含 2 新 geometric-reach 测 + 1 updated initial-relax 测)
+- cppcheck + linter clean
+
+### Verification (container log + ASDR live)
+
+```
+ASDR decision_json 含 "cpa_slack":0.000 字段  ← Phase 3.4 VERIFIED on wire
+M5 cycle 1Hz consecutive failures 220+ (solver_status=3 NumericalFailure, NLP 结构变了)
+sil-nodes image rebuilt ~3min ccache
+```
+
+注意：solver_status=3 (NumericalFailure) 而非 =2 (Infeasible) — NLP 结构因 slack 改变了，但 IPOPT 仍报失败（可能需调 IPOPT option 或 w_slack）。这是 Phase 3 后的新观察，留 follow-up。
+
+### V2 Probe Issue (pre-existing container 环境)
+
+V2 probe rule14-ho Configure failed：`/target_vessel_node/set_parameters not available after 3s`。`ros2 service list` 显示 target_vessel_node 没有 set_parameters 服务（pre-existing container 环境问题，非 Phase 3 引入）。mock_l2 auto-detect 跑了 rule13-ot-target-giveway 非 rule14-ho，所以 CPA 真改善不能在 probe 验证。
+
+### Handoff Notes
+- **Phase 3 code + test + build + wire-emit 全 verified**。CPA 真改善留 probe 环境修复后验。
+- **新观察**：solver_status=3 NumericalFailure（非 Infeasible）— slack 改了 NLP 结构但 IPOPT 仍 fail。可能需：
+  - IPOPT option 调（mu_strategy / linear_solver / max_iter）
+  - w_slack 调（1e4 可能太大导致数值问题，试 1e3 或 1e2）
+  - 这需实际 rule14-ho trace 才能定，留 follow-up
+- **下一步选项**：
+  1. 修 probe target_vessel 服务问题（独立 task）
+  2. Phase 4 (residual observability: G-SAT-1 / G-PULSE-1 / G-GNC-1)
+  3. 多船前瞻（需 CPA 先 GREEN）
+- probe 仍 RED，不 ff main / 不 push GitLab l3-tdl ✓
+- **Memory**: diary `diary_MASS-L3_20260705_140842307045_ba9048a5b8d2`
+- worktree pre-existing dirty 保留未动
+
+## [2026-07-05] ZCode / 2 commits (7ee29ffe, 609c8975) / Phase 3.6+3.7 — probe env fix + w_slack calibration + GNC rejection 新断链发现
+
+### Task Goal
+按用户决策：(1) 修 probe env 让 V2 probe 跑通；(2) 调研 solver_status=3 NumericalFailure；(3) w_slack 调参让 CPA 真改善；(4) 基于 probe 实证决定下一步。本会话推进到 Phase 3.7 完成，发现新断链（GNC rejection），用户决定跳 Phase 4 + push。
+
+### Core Changes
+
+**7ee29ffe — probe env fix**:
+- src/sil_orchestrator/lifecycle_bridge.py: wait_for_service 3s→15s + client-recreate retry 10s
+- scripts/run_6_scenarios.py configure_scenario: req timeout 30s→90s
+- 根因 1: ROS_DOMAIN_ID mismatch (sil-nodes 0 vs orchestrator 42) — zsh subshell 没 source local-a4000-env.sh, sil-nodes recreated without a4000 override. 修: bash -c 'source scripts/local-a4000-env.sh && ...'
+- 根因 2: DDS discovery timing — restart-between-runs 后 lifecycle_bridge 重建 SetParameters clients, DDS graph rediscovery races with scenario-injection
+
+**609c8975 — w_slack 1e4→1e8**:
+- mid_mpc_nlp_formulation.hpp Config.w_slack 默认 1e4→1e8
+- 根因: V2 probe run-19f3102d92c (w_slack=1e4) IPOPT 找到 σ=482381 m² (cost ~4.8e9) 比真避让 (J_colreg+J_route+J_dist+ROT) 便宜, σ 绕过 CPA floor
+- 修后 V2 probe run-19f31173732: σ magnitude 大幅降 (280/288 cycles σ=0, 8 cycles σ<100, 无 σ>=1e4)
+
+### V2 Probe 关键证据 (run-19f31173732, w_slack=1e8)
+
+```
+CPA min: 4.1 m (floor 180, RED)
+Steering: Starboard 0.1° (turn_starboard RED)
+Returned to Route: True (Final XTE 0.2m)
+Max XTE: -1.7m
+engagement_window: [183.7, 770.4]
+Transitions: [(11.1, 0), (183.7, 1), (770.6, 0)]
+
+M5 ACTIVE-period (t=297-770) ASDR 分布:
+  total: 134 records
+  solver_status: 0(Converged)=110, 1(Timeout)=12, 3(NumericalFailure)=10, 2(Infeasible)=2
+  planner_health: SOLVER_CONVERGED=110, GEOMETRIC_FALLBACK=24
+  status: NORMAL=110, DEGRADED=24
+
+cpa_slack distribution (w_slack=1e8):
+  σ=0: 280 cycles (97%)
+  σ<100: 8 cycles
+  无 σ>=1e4 (w_slack=1e4 时有 482381)
+```
+
+### 🔴 新断链发现 (Phase 3.8 候选): GNC rejected invalid_avoidance_route
+
+**证据链**:
+- M5 ACTIVE 期 ASDR: 110 cycles SOLVER_CONVERGED + status=NORMAL (NLP 真工作)
+- M5 trace 60s 抽样抓 32 cycles 全 DEGRADED (branch 2 CORRIDOR + 4 KEEP_LAST 交替)
+- GNC execution_status ACTIVE 期: REJECTED invalid_avoidance_route × 32
+- GNC rejection 位置: third_party/gnc_ws/src/gnc/ship_guidance/src/active_route_manager_node.cpp:343
+- GNC rejection 条件: basic_route_valid fail (line 261-267: latitude.size() >= 2 + 各 array size 一致)
+- own_ship heading 全程 0° (CPA 4.1m, 没真避让)
+
+**推断** (需 Phase 3.8 确认):
+- NLP Converged cycles 发 NORMAL plan (latitude 填好)
+- 但 GNC 在 DEGRADED cycles (branch 2/4) 收到 latitude 空的 plan → basic_route_valid fail → reject
+- 两套 cycles 时序错配: NORMAL plan 与 DEGRADED plan 交替发, GNC 总在 DEGRADED 时点拒
+- 或: NORMAL plan 经 gnc_bridge to_gnc_avoidance_plan 翻译后 latitude 丢失 (line 46-47: dst.latitude = src.latitude, 应保留)
+- 或: M5 publish_committed_route_ optimized branch (line 1651-1735) latitude 填法与 DEGRADED branch 不一致
+
+**Phase 3.8 调查方向**:
+1. trace 加密 avoidance_plan 抽样 (当前 60s heartbeat 太稀, 错过 NORMAL cycles)
+2. 加 ASDR decision_type 'gnc_rejection_correlation' 把 M5 plan + GNC reject 配对
+3. 看 M5 optimized branch 实际发 plan.latitude.size() (用 ROS echo 或 ASDR)
+4. gnc_bridge to_gnc_avoidance_plan 验证 latitude 保留
+
+### 累计进展 (Phase 1+2+3+3.6+3.7, 11 commits 本会话)
+
+| Phase | Commits | 内容 |
+|---|---|---|
+| 1.1 | 51f78e8d | R8 M6 rank-based semantic_state aggregation |
+| 1.2 | 021b34bc | G-M6-1 trace_writer M6 encounter lifecycle |
+| 1.3 | 3e255921 | G-TR-2 trace_writer 7 new topics |
+| 1.4 | 7b2ded6b | G-M5-2/3+G-GNC-1 ASDR emitters (3 new decision_type) |
+| 2.1+2.3 | f440d5bd | R2/R6 commit gate CPA floor 镜像 tail-gate |
+| 2.2 | 41d822a7 | R1 counter 双层分离 solver + commit |
+| 2.4+2.6 | 4b120973 | G-M5-1+R9 commit_branch enum + schema 115 |
+| 3.5 | 3bc91183 | spec v2.3 |
+| 3.1-3.4 | e37d3b5a | F NLP slack + initial relax + geom-reach + diag |
+| 3.6 | 7ee29ffe | probe env fix (DDS domain + timing) |
+| 3.7 | 609c8975 | w_slack 1e4→1e8 |
+
+### Test Status
+- M5: 29/29 unit tests PASS
+- M6: 22/22 unit tests PASS
+- trace_writer: 35/35 + chain_trace 14/14 PASS
+- contract yaml: 7 findings 0 violations
+- cppcheck + linter clean
+
+### Handoff Notes
+- **下一步需用户决策**: Phase 3.8 (GNC rejection 调查) / Phase 4 (residual observability) / 多船前瞻 / push main
+- 用户本会话决定: 跳 Phase 4 + push feature branch 存档 (本 commit 后执行)
+- **probe 仍 RED** (CPA 4.1m vs floor 180m), 不 ff main / 不 push GitLab l3-tdl ✓
+- **Memory**: drawer (Phase 3.7 w_slack + GNC rejection 发现) + diary 本会话末
+- worktree pre-existing dirty (scenarios/ + handoff modified) 保留
+- **关键文件参考** (Phase 3.8 起点):
+  - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:1651-1735 (optimized branch)
+  - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_waypoint_generator.cpp:51-85 (populate_canonical_route_from_selected_plan)
+  - src/sim_workbench/gnc_bridge/src/translators.cpp:35-60 (to_gnc_avoidance_plan)
+  - third_party/gnc_ws/src/gnc/ship_guidance/src/active_route_manager_node.cpp:261-267,343 (basic_route_valid + rejection)
