@@ -34,6 +34,14 @@ _normalize_colregs_constraint_msg = _module._normalize_colregs_constraint_msg
 _normalize_world_state_msg = _module._normalize_world_state_msg
 _normalize_gnc_execution_status_msg = _module._normalize_gnc_execution_status_msg
 _normalize_avoidance_plan_msg = _module._normalize_avoidance_plan_msg
+# Phase 1.3 (G-TR-2): new normalizers closing the trace blind spots.
+_normalize_sat2_data_msg = _module._normalize_sat2_data_msg
+_normalize_sat3_data_msg = _module._normalize_sat3_data_msg
+_normalize_sotif_metrics_msg = _module._normalize_sotif_metrics_msg
+_normalize_module_pulse_msg = _module._normalize_module_pulse_msg
+_normalize_reactive_override_cmd_msg = _module._normalize_reactive_override_cmd_msg
+_normalize_override_active_msg = _module._normalize_override_active_msg
+_normalize_m7_observability_msg = _module._normalize_m7_observability_msg
 
 
 class _FakeLogger:
@@ -485,3 +493,133 @@ def test_gnc_execution_status_normalizer_preserves_l4_contract_fields() -> None:
 # The corresponding test_avoidance_waypoints_normalizer_* case is also dropped
 # here so the suite collects cleanly. R9 contract-yaml cleanup lives in
 # Phase 2 Task 2.6 (spec v2.3).
+
+
+# --- Phase 1.3 (G-TR-2, spec v2.3 §15): new topic normalizers ---------------
+# These pin the audit-relevant fields captured for each previously-untraced
+# topic, so a future regression that drops a field is caught.
+
+
+def test_sat2_data_normalizer_captures_reasoning_chain_summary() -> None:
+    msg = SimpleNamespace(
+        trigger_reason="mpc_cycle",
+        system_confidence=0.82,
+        colregs_chain_target_id="100000001",
+        reasoning_latency_ms=12.5,
+    )
+
+    payload = _normalize_sat2_data_msg(msg)
+
+    assert payload["trigger_reason"] == "mpc_cycle"
+    assert payload["system_confidence"] == pytest.approx(0.82)
+    assert payload["colregs_chain_target_id"] == "100000001"
+    assert payload["reasoning_latency_ms"] == pytest.approx(12.5)
+
+
+def test_sat3_data_normalizer_captures_forecast_horizon_fields() -> None:
+    msg = SimpleNamespace(
+        predicted_state="AVOIDANCE",
+        prediction_uncertainty=0.15,
+        tdl_s=120.0,
+        tmr_s=60.0,
+        primary_trajectory_idx=3,
+        takeover_window_s=45.0,
+        trajectory_candidates=[object(), object(), object()],  # count only
+    )
+
+    payload = _normalize_sat3_data_msg(msg)
+
+    assert payload["predicted_state"] == "AVOIDANCE"
+    assert payload["prediction_uncertainty"] == pytest.approx(0.15)
+    assert payload["tdl_s"] == pytest.approx(120.0)
+    assert payload["tmr_s"] == pytest.approx(60.0)
+    assert payload["primary_trajectory_idx"] == 3
+    assert payload["takeover_window_s"] == pytest.approx(45.0)
+    assert payload["trajectory_candidate_count"] == 3
+
+
+def test_sotif_metrics_normalizer_lists_active_violations() -> None:
+    msg = SimpleNamespace(
+        active_violation_count=2,
+        metrics=[
+            SimpleNamespace(assumption_id=0, violation_flag=True, severity=0.8),
+            SimpleNamespace(assumption_id=1, violation_flag=False, severity=0.0),
+            SimpleNamespace(assumption_id=3, violation_flag=True, severity=0.6),
+        ],
+    )
+
+    payload = _normalize_sotif_metrics_msg(msg)
+
+    assert payload["active_violation_count"] == 2
+    assert payload["active_violations"] == [
+        {"assumption_id": 0, "severity": pytest.approx(0.8)},
+        {"assumption_id": 3, "severity": pytest.approx(0.6)},
+    ]
+
+
+def test_module_pulse_normalizer_captures_health_state() -> None:
+    msg = SimpleNamespace(module_id=5, state=2, latency_ms=42, message_drops=1)
+
+    payload = _normalize_module_pulse_msg(msg)
+
+    assert payload["module_id"] == 5  # M5
+    assert payload["state"] == 2  # AMBER
+    assert payload["latency_ms"] == 42
+    assert payload["message_drops"] == 1
+
+
+def test_reactive_override_cmd_normalizer_captures_command_and_validity() -> None:
+    msg = SimpleNamespace(
+        trigger_reason="CPA_EMERGENCY",
+        heading_cmd_deg=53.2,
+        speed_cmd_kn=6.0,
+        rot_cmd_deg_s=4.7,
+        validity_s=2.0,
+        confidence=0.9,
+    )
+
+    payload = _normalize_reactive_override_cmd_msg(msg)
+
+    assert payload["trigger_reason"] == "CPA_EMERGENCY"
+    assert payload["heading_cmd_deg"] == pytest.approx(53.2)
+    assert payload["speed_cmd_kn"] == pytest.approx(6.0)
+    assert payload["rot_cmd_deg_s"] == pytest.approx(4.7)
+    assert payload["validity_s"] == pytest.approx(2.0)
+    assert payload["confidence"] == pytest.approx(0.9)
+
+
+def test_override_active_normalizer_captures_activation_source() -> None:
+    msg = SimpleNamespace(
+        override_active=True,
+        activation_source="automatic_trigger",
+        confidence=1.0,
+    )
+
+    payload = _normalize_override_active_msg(msg)
+
+    assert payload["override_active"] is True
+    assert payload["activation_source"] == "automatic_trigger"
+    assert payload["confidence"] == pytest.approx(1.0)
+
+
+def test_m7_observability_normalizer_captures_verdict_and_path_s() -> None:
+    msg = SimpleNamespace(verdict_code=2, path_s_clean=True)
+
+    payload = _normalize_m7_observability_msg(msg)
+
+    assert payload["verdict_code"] == 2
+    assert payload["path_s_clean"] is True
+
+
+def test_new_normalizers_default_safely_on_missing_fields() -> None:
+    """All Phase 1.3 normalizers use getattr defaults so a malformed or partial
+    ROS message (e.g. older schema_version) does not crash the trace writer."""
+    empty = SimpleNamespace()
+
+    assert _normalize_sat2_data_msg(empty)["trigger_reason"] == ""
+    assert _normalize_sat3_data_msg(empty)["trajectory_candidate_count"] == 0
+    assert _normalize_sotif_metrics_msg(empty)["active_violations"] == []
+    assert _normalize_module_pulse_msg(empty)["module_id"] == 0
+    assert _normalize_reactive_override_cmd_msg(empty)["validity_s"] == 0.0
+    assert _normalize_override_active_msg(empty)["override_active"] is False
+    assert _normalize_m7_observability_msg(empty)["verdict_code"] == 0

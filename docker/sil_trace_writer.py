@@ -381,6 +381,93 @@ def _normalize_avoidance_plan_msg(msg: Any) -> dict[str, Any]:
     }
 
 
+# Phase 1.3 (G-TR-2, spec v2.3 §15): close the trace blind spots that hid
+# BC-MPC override issuance, M5 NLP diagnostic state, M7 SOTIF assumptions,
+# and per-module health during V2.3 debugging. Each normalizer captures the
+# audit-relevant fields; payloads stay small to preserve the writer's flush
+# budget. See the gap analysis (drawer drawer_MASS-L3_colregs-deviation-findings_26756cd78147ca5d5856c583).
+
+
+def _normalize_sat2_data_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "trigger_reason": str(getattr(msg, "trigger_reason", "")),
+        "system_confidence": float(getattr(msg, "system_confidence", 0.0)),
+        "colregs_chain_target_id": str(getattr(msg, "colregs_chain_target_id", "")),
+        "reasoning_latency_ms": float(getattr(msg, "reasoning_latency_ms", 0.0)),
+    }
+
+
+def _normalize_sat3_data_msg(msg: Any) -> dict[str, Any]:
+    # trajectory_candidates is a fixed-size 13 array; count how many carry a
+    # real CPA forecast without retaining every float (kept lightweight).
+    candidates = list(getattr(msg, "trajectory_candidates", []) or [])
+    return {
+        "predicted_state": str(getattr(msg, "predicted_state", "")),
+        "prediction_uncertainty": float(getattr(msg, "prediction_uncertainty", 0.0)),
+        "tdl_s": float(getattr(msg, "tdl_s", 0.0)),
+        "tmr_s": float(getattr(msg, "tmr_s", 0.0)),
+        "primary_trajectory_idx": int(getattr(msg, "primary_trajectory_idx", 0)),
+        "takeover_window_s": float(getattr(msg, "takeover_window_s", 0.0)),
+        "trajectory_candidate_count": len(candidates),
+    }
+
+
+def _normalize_sotif_metrics_msg(msg: Any) -> dict[str, Any]:
+    metrics = list(getattr(msg, "metrics", []) or [])
+    # Each SotifMetricEntry has at least assumption_id + violation_flag +
+    # severity. Capture the active-violation short list (assumption_id +
+    # severity) so the chain trace surfaces SOTIF degradation alongside
+    # COLREGs state without retaining the full 6-entry payload verbatim.
+    active = []
+    for entry in metrics:
+        if bool(getattr(entry, "violation_flag", False)):
+            active.append(
+                {
+                    "assumption_id": int(getattr(entry, "assumption_id", 0)),
+                    "severity": float(getattr(entry, "severity", 0.0)),
+                }
+            )
+    return {
+        "active_violation_count": int(getattr(msg, "active_violation_count", 0)),
+        "active_violations": active,
+    }
+
+
+def _normalize_module_pulse_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "module_id": int(getattr(msg, "module_id", 0)),
+        "state": int(getattr(msg, "state", 0)),
+        "latency_ms": int(getattr(msg, "latency_ms", 0)),
+        "message_drops": int(getattr(msg, "message_drops", 0)),
+    }
+
+
+def _normalize_reactive_override_cmd_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "trigger_reason": str(getattr(msg, "trigger_reason", "")),
+        "heading_cmd_deg": float(getattr(msg, "heading_cmd_deg", 0.0)),
+        "speed_cmd_kn": float(getattr(msg, "speed_cmd_kn", 0.0)),
+        "rot_cmd_deg_s": float(getattr(msg, "rot_cmd_deg_s", 0.0)),
+        "validity_s": float(getattr(msg, "validity_s", 0.0)),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+    }
+
+
+def _normalize_override_active_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "override_active": bool(getattr(msg, "override_active", False)),
+        "activation_source": str(getattr(msg, "activation_source", "")),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+    }
+
+
+def _normalize_m7_observability_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "verdict_code": int(getattr(msg, "verdict_code", 0)),
+        "path_s_clean": bool(getattr(msg, "path_s_clean", False)),
+    }
+
+
 # Topic → (message type import path, normalizer). Normalizers turn a ROS msg
 # into the dict the trace evaluators expect. Kept 1:1 with the deleted bridge's
 # record() payloads so downstream consumers are unaffected.
@@ -395,12 +482,19 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         COLREGsConstraint,
         FsmState,
         MissionGoal,
+        M7Observability,
+        ReactiveOverrideCmd,
+        SAT2Data,
+        SAT3Data,
         SafetyAlert,
+        SotifMetrics,
         WorldState,
     )
+    from sil_msgs.msg import ModulePulse
     from l3_external_msgs.msg import (
         CheckerVetoNotification,
         GncExecutionStatus,
+        OverrideActiveSignal,
         PlannedRoute,
     )
 
@@ -575,6 +669,35 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
             t_now(),
         )
 
+    def on_sat2(msg):
+        writer.record("/sil/sat2_data", _normalize_sat2_data_msg(msg), t_now())
+
+    def on_sat3(msg):
+        writer.record("/sil/sat3_data", _normalize_sat3_data_msg(msg), t_now())
+
+    def on_sotif(msg):
+        writer.record("/sil/sotif_metrics", _normalize_sotif_metrics_msg(msg), t_now())
+
+    def on_module_pulse(msg):
+        writer.record("/sil/module_pulse", _normalize_module_pulse_msg(msg), t_now())
+
+    def on_reactive_override(msg):
+        writer.record(
+            "/l3/m5/reactive_override_cmd",
+            _normalize_reactive_override_cmd_msg(msg),
+            t_now(),
+        )
+
+    def on_override_active(msg):
+        writer.record("/l3/override/active", _normalize_override_active_msg(msg), t_now())
+
+    def on_m7_observability(msg):
+        writer.record(
+            "/m7/sil_observability",
+            _normalize_m7_observability_msg(msg),
+            t_now(),
+        )
+
     def on_lifecycle(msg):
         # Update the sim_t anchor from the authoritative lifecycle_status field.
         # This is the primary sim_t source now (see t_now); the ROS sim clock is
@@ -616,6 +739,16 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/l2/planned_route", PlannedRoute, on_route),
         ("/l3/gnc/execution_status", GncExecutionStatus, on_gnc_execution),
         ("/sil/lifecycle_status", LifecycleStatus, on_lifecycle),
+        # Phase 1.3 (G-TR-2, spec v2.3 §15): close the trace blind spots that
+        # hid BC-MPC override issuance, M5 NLP diagnostic state, M7 SOTIF
+        # assumptions, and per-module health during V2.3 debugging.
+        ("/sil/sat2_data", SAT2Data, on_sat2),
+        ("/sil/sat3_data", SAT3Data, on_sat3),
+        ("/sil/sotif_metrics", SotifMetrics, on_sotif),
+        ("/sil/module_pulse", ModulePulse, on_module_pulse),
+        ("/l3/m5/reactive_override_cmd", ReactiveOverrideCmd, on_reactive_override),
+        ("/l3/override/active", OverrideActiveSignal, on_override_active),
+        ("/m7/sil_observability", M7Observability, on_m7_observability),
     ]
     # Return the holder alongside the subscriptions so main() can populate it
     # with the ROS node (which owns the sim clock the callbacks read via t_now()).
