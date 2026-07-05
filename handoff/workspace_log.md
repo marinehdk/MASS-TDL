@@ -2299,3 +2299,270 @@ echo "handoff appended, $(wc -l < '/Users/marine/Code/MASS-L3-Tactical Layer/.wo
 __zcode_status=$?
 if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/v8/fdl1682s09xgrbmlk51sjtxc0000gp/T/zcode-4daacafa-0298-4430-8852-f420be703c29-cwd'; fi
 exit "$__zcode_status"
+## [2026-07-04] ZCode / 2b265d10 (1 commit) / systematic-debugging M5 NLP v2.1 rule14-ho Infeasible / 找到根因 + 应用 direction reachable schedule fix + 暴露新 ODD blocker
+
+### Task Goal
+systematic-debugging skill 调查 M5 NLP v2.1 约束重构（12 commit, ctest 28/28 PASS）后 rule14-ho probe 仍 100% NLP Infeasible。要求找真实根因，不 tune 阈值/几何。
+
+### Core Changes（1 commit, branch codex/colregs-12probe-debug, from e78aee04）
+
+**`2b265d10` feat(m5): direction reachable schedule (spec §4.4 Phase 1 fix）**
+- 根因（Phase 1 决定性证据，临时 M5_ROWCFG_DIAG/M5_INFEAS_DIAG env hook 收集，merge 前已移除）：
+  direction row HARD at k=0 with `g_dir[0] = pref_dir · l[0] = -1.02` across 5 infeasible cycles。
+  `l[0] = (own_pos - route_origin) · n_hat` = OWN SHIP 当前 XTE（pos[0] 是 NLP 参数，初始条件，NLP 不能改）。
+  rule14-ho 起始 own 在航线左侧 ~1m（l[0]≈-1），M6 正确选 Starboard give-way（pref_dir=+1，head-on 右对右）→ `g_dir[0] = +1·(-1) = -1 < 0` HARD VIOLATION，结构性不可解。
+  spec §4.4 明确预见：「若有非 0 残差且活跃 → 下个会话软化（同 min_alt reachable schedule 模式）」。
+- Fix（surgical，mirror §4.2 min_alt 模式）：
+  - `row_registry.hpp`: `RowBoundConfig.direction_hard_from_k` + `direction_override_valid` 字段 + `apply_direction_reachable_schedule_` 方法
+  - `mid_mpc_solver.cpp derive_row_bound_config`: 派生 `k_dir = ceil(|pref_dir · route_xte_m| / (u_eff · dt · sin(rot_step)))`，**仅当 wrong side**（pref_dir·l[0] < 0）时软化（Codex review High 修订：correct side 不软化）
+  - `solve()`: `direction_override_valid` merge
+  - 10 个新单测（3 row_registry + 7 derive），全 ctest 28/28 PASS
+- Diag hook 清理（spec §4.4/C3 merge gate，全移除）：
+  M5_DIRECTION_DIAG dump（e78aee04 添加）+ M5_ROWCFG_DIAG + M5_INFEAS_DIAG（Phase 1 only）+ diag_dump_count_/diag_infeas_dump_count_ solver 成员 + row_registry DEBUG class-start accessors + docker-compose env line。
+
+### Current Status
+**Direction fix 验证有效**（runs/fix_p1_direction_v2_final/）：direction row 现在 SOFT at k=0，g_dir=+1.9 SATISFIED — 原 blocker 移除。但 re-probe 暴露**两个新 blocker，都是外部 ODD 参数，非 NLP 架构**：
+1. **rot_hi HARD VIOLATED at k=0** (g=-0.108, 5/5 cycles)：M4 heading box [0.404, 0.928] rad = [23°, 53°] vs ROT step 0.4105 rad = 23.5°，own_psi=-0.001。psi[0] 须同时满足 heading box AND |psi[0]-own_psi|≤0.4105 → 交集 [0.404, 0.409] = 0.3° 缝（Fix F-1 epsilon margin）。NLP 要在 k=0 起步做够 alteration 以满足 k_minalt=1 的 30° 目标，但 rot_hi 禁止 psi[0] > 0.41。
+2. **speed_rate HARD VIOLATED at k=0** (g=-0.22..-0.60, 4/5 cycles)：own_u=7.58, planned_u=3.087, GNC decel_max=0.08 m/s² × dt=5 = 0.4 m/s max step → u[0] ≥ 7.18 forced。decel_max 太保守（GNC ODD 参数 [TBD-HAZID]）。
+
+probe 结果：CPA min 2.4m（floor 180m），M5 Solver {'EMPTY': 5, 'VALID': 4}，spec §7.2 未达成（NLP CONVERGED 0%, CPA 2.4m vs 180m）。
+
+### ⚠️ 待续（新对话，分立 D-task）
+新 blocker 触及 M4 + GNC，不在原任务范围（spec §2.2 是 direction + min_alt + CPA + terminal 重构）。候选方向（用户尚未选）：
+- **A. 拓宽 M4 heading-box reachable margin**（Fix F-1 epsilon 0.3° → ~1-2°）。触及 M4 `clamp_heading_box_reachable`，M4 authority，按 AGENTS.md「另一模块有问题报告不改」需另立 D-task。
+- **B. 调研 GNC decel_max=0.08**（HAZID param，[TBD-HAZID]）。可能过于保守；需 HAZID alignment + GNC config 变更。
+- **C. 加长 NLP horizon** N=18 → 30 或强制 k_minalt≥2。架构变更更大（IPOPT 时间，g_dim，所有 N=18 fixture 测试）。
+- **D. 停在此**（用户本次选）：direction fix 单独 commit，新 blocker 另立 D-task。
+
+### Handoff Notes
+- **不 push**（probe RED 在新 blocker 上 + A4000 未验证）。1 commit `2b265d10` 在 codex/colregs-12probe-debug。
+- 全 ctest 28/28 PASS（3 新 row_registry + 7 新 derive + 21 既有）。
+- **Codex review gate**：1 High finding（correct side 不应软化），已修，加 3 个 coverage 测试。
+- worktree pre-existing dirty（scenarios/docs/runs）保留未动。
+- evidence: `runs/debug_p1_diag_v4/`（Phase 1 决定性证据）、`runs/fix_p1_direction_v1/`（首验，新 blocker 发现）、`runs/fix_p1_direction_v2_final/`（Codex 修订后最终验证）。
+- **Memory**: 3 mempalace drawers（root cause + fix applied + new blockers）+ diary。
+- 容器 codex-gnc-validation-* 用 `bash scripts/gnc-profile-start.sh` 启动。当前 stack 已带新 M5 binary（diag hook 移除后版本）。
+
+
+## [2026-07-04] ZCode + Codex / 2b265d10 (no code change) / M5 NLP 架构评估（Mid-MPC + TailBuilder + GeoFallback + tail-gate 根本性审视）
+
+### Task Goal
+按用户提示词对 M5 NLP 整体架构做根本性评估：Mid-MPC（NLP）+ TailBuilder（可行化）+ tail-gate（doer-checker）持续解算链路是否被正确理解和实现。**不调参 / 不补丁 / 不 push / 不归各单一模块**。预期产出：架构理解澄清 + 限制清单 + 候选方向 trade-off。
+
+### 双独立评估（ZCode + Codex task-mr67jyu5-49a0ia，兼听则明）
+**Verdict 收敛**：**(b) 合约缺失 + (c) 部分架构缺陷**，非 (a) 纯 ODD 参数错配。
+
+### Core Findings（4 真问题 + 1 根本性问题，无代码改动）
+
+1. **M4↔M5 reachability 合约缺失** 🟢 一致
+   - `colregs_directive.cpp:363` `overlaps` 只查交集，不查宽度
+   - Codex 暴露更深：min_alt schedule 只 ROT-reachable，不 box-reachable（`mid_mpc_solver.cpp:314` derive 只用 ROT，`:138` heading lbx/ubx 全 horizon 同一 box）→ box upper < own+30° 时 k=1 hard 不可达。**moving target**
+   - Codex 推荐合约：M4 publish `heading_box_reachable_from_psi0`, `rot_step_rad`, `min_alt_required_rad`, `earliest_min_alt_k`
+
+2. **decel_max=0.08 m/s² 校准** 🟢 NLM High
+   - NLM ship_maneuvering 🟢：comfort 0.05-0.10 合理，emergency crash-astern 0.10-0.25。0.08 作为 comfort **合理**，作为 absolute max **偏保守 2-3×**
+   - IMO MSC.137(76) 15L 推导：45m 船 15kn 起 0.08 m/s² 减速 = 7.8L track reach（远低 15L 上限）
+   - Codex ownership split：L2/GNC/M5/M4 各 own 一块，缺失合约是 `planned_speed[0]` 必须 execution-reachable 或 soft reference + ramp metadata
+
+3. **GeoFallback 不安全（long-duration fail）** 🟢 Codex 关键
+   - GeoFallback 复用 M4 box + GNC ODD，**非独立路径**（types.hpp:621 clamp_heading_window 是 0.2° 转向根因）
+   - `committed_route.cpp:98/104/197` KeepLast + DegradedHold（consecutive_failures ≥ 3）：CPA 2.4m 下 hold stale corridor **非 safe state**
+   - SOTIF/IEC 61508 期望：compute-function 长 fail 应上抛 M7/MRM
+
+4. **tail-gate 非 SIL2 Checker** 🟡 一致
+   - 数值同源 NLP（types.hpp:771 vs mid_mpc_solver.cpp:106），是 good publish gate / defense-in-depth，非独立 SIL2 checker
+   - 架构 §10.4 line 934 原意：真 policing 是 M7/X-axis（§11.7）；NLM 🟢 Option 2 论证 tail-gate 是 deterministic publish gate
+
+5. **根本性：90s rolling horizon 假设 NLP 大多数 cycle 可解** 🟡
+   - 5A（NLP-first + OD 修）vs 5B（BC-MPC 接管）互斥
+   - Codex 引 Johansen ICRA'18：MPC COLAV behavior candidates + prediction/guidance mismatch 是核心 issue
+
+### Current Status
+- **本会话无代码改动，无 push**。仅评估产出。
+- mempalace: diary + drawer `m5-nlp-architecture-evaluation` 已记
+- Codex task-mr67jyu5-49a0ia 已完成，log 在 `/var/folders/.../codex-companion/colregs-12probe-debug-25f90e3311160839/jobs/`
+
+### Handoff Notes
+- **4 个用户决策点待拍板**：
+  1. M4↔M5 合约（1A 扩 margin vs 1B 真 reachability 合约）
+  2. decel_max HAZID 前导校准值（NLM 已给 comfort/emergency 基线）
+  3. 架构路线（5A NLP-first vs 5B BC-MPC 接管）
+  4. tail-gate 定位（4A 重新文档化 vs 等 M7 Slice K）
+- 关键合约问题（真问题 1）若选 1B 触及 M4 authority，按 AGENTS.md 需另立 D-task
+- decel 校准、M4 margin 调整属 ODD 参数级，HAZID（2026-08-19）前导可做
+- 真问题 3/4 涉及架构（GeoFallback/MRM wiring、tail-gate 文档化），范围大于原 v2.1 spec
+- worktree pre-existing dirty 保留未动
+
+### 用户 4 决策点拍板（2026-07-04）
+
+1. **M4↔M5 合约 → 1B 真 reachability 合约**
+   - M4 publish reachability metadata（heading_box_reachable_from_psi0 / rot_step_rad / min_alt_required_rad / earliest_min_alt_k + reason）
+   - M5 derive schedule over `{ROT reach tube} ∩ {M4 heading box}`
+   - 触 M4 authority，另立 D-task（AGENTS.md「另一模块有问题报告不改」）
+
+2. **decel_max → 0.08 → 0.20 m/s² + speed 合约**
+   - NLM 🟢 High：0.20 在 emergency crash-astern 0.10-0.25 范围内
+   - 合约：`planned_speed[0]` execution-reachable from own_u OR soft reference + ramp metadata
+
+3. **架构路线 → 5B BC-MPC Phase E2 wiring 接管**
+   - 接受 NLP 偶发 fail，BC-MPC 作为真独立路径（架构 §10.5）
+   - bc_mpc_node.cpp:155 当前 stub，Phase E2 待实施
+
+4. **tail-gate 定位 → 4A 重新文档化为 NLP filter**
+   - SIL2 责任归 M7 X-axis（架构 §11.7），tail-gate 是 deterministic publish gate
+   - 架构 §10.4 line 932-934 + spec v2 §13.4 + types.hpp:770 注释
+
+### D-task 分解建议（依赖关系）
+- **α（ODD 参数 + speed 合约）**：decel_max 0.20 + L2/GNC/M5 speed contract。独立小改动
+- **β（M4↔M5 reachability 合约）**：M4 publish metadata + M5 derive over intersection。中改动，触 M4 authority
+- **γ（BC-MPC Phase E2 + MRM wiring）**：bc_mpc 接线 + M7 MRM 上抛 + KeepLast/DegradedHold policy 修订。架构变更。依赖 α+β
+- **δ（tail-gate 文档化）**：架构 §10.4 + spec v2 §13.4 + types.hpp:770。独立小改动
+
+依赖：α ‖ β（并行）→ γ → δ（δ 任意时机）
+
+## [2026-07-04] ZCode / 9267150f (16 commits) / spec v2.2 实施 α+β+γ+δ 全落地
+
+### Task Goal
+落地 spec v2.2 4 决策根治：M4↔M5 reachability 合约 + decel_max + BC-MPC + tail-gate 文档化。subagent-driven development + 每 D-task Codex 评审。
+
+### Core Changes (16 commits on codex/colregs-12probe-debug, parent 55f507b6)
+
+**α (decel_max + speed contract, 5 commits)**:
+- d5d0e01a: GNC ship_config + fast10 decel 0.08→0.20
+- d837f0aa: MidMpcInput.speed_gap_infeasible flag
+- 87cc2514: compute_speed_gap_infeasible + assemble_input_ wiring
+- 7040b9ed: boundary test + warn interpolate
+- df3c7a19: Codex α review fixes (🔴 docker overlay 0.08 + 🟡 preflight default + fallback ODD)
+
+**β (M4↔M5 reachability 合约, 7 commits)**:
+- ec4ff37e: BehaviorPlan.msg schema 112→113 + 5 fields
+- 27ad7807: ConstraintInputs 扩 4 合约字段
+- 54968912: assemble_input_ parse 合约字段
+- d66c9c11: RowBoundConfig.minalt_box_infeasible + derive over {ROT ∩ box}
+- 86e5a2b5: β4 boundary test
+- e856ab35: M4 publish (compute_heading_box_reachability + fill_reachability_contract)
+- bd6fec18: Codex β review fixes (🔴 direction-aware + 🟡 criterion/earliest_k/epsilon)
+
+**γ (BC-MPC Phase E2 wiring + KeepLast, 3 commits)**:
+- 1285d19a: LifecycleState BcMpcFollow (8→9 态)
+- 80c7e471: BC-MPC 真读 consecutive_failures (publish + subscribe + atomic)
+- ec02fe67: dispatch BC-MPC take-over + BcMpcFollow + KeepLast policy 修订
+
+**δ (tail-gate 文档化, 1 commit)**:
+- 9267150f: types.hpp 注释 + 架构 §10.4 措辞 + spec v2 §13.4 指针
+
+### Test Status
+- m5: 470/470 PASS (含新 35+ v2.2 测)
+- m4: 155/155 PASS (3 pre-existing D-3 speed-box failures, 与 v2.2 正交)
+- m4 colregs_directive reachability: 34/34 PASS (含 Codex β direction 测)
+
+### Codex Review Status
+- α: task-mr6bj23a-t2hcmo ✅ PASS (1🔴 + 3🟡 全修 df3c7a19)
+- β: task-mr6d2jyi-jnd08o ✅ PASS (1🔴 + 5🟡 全修 bd6fec18)
+- γ: ZCode sonnet two-stage ✅ PASS (3 deferred documented)
+- δ: comment-only (no code review)
+- 整体集成评审: task-mr6eqycu-cd3x17 后台运行中
+
+### Current Status
+- spec v2.2 + plan + 4 D-task 实施全完成
+- 不 push（待 V2 probe + V3 OrbStack gate）
+
+### Handoff Notes
+- **V2 rule14-ho probe 未做**：需 GNC rebuild（decel_max 0.20 改动需 sync 到 GNC 容器 `/opt/gnc_ws` + `--cmake-clean-cache` + touch cpp）。codex-gnc-validation stack 在运行但 GNC 容器是独立 /opt/gnc_ws，非 worktree mount
+- **V3 OrbStack gate 未做**：依赖 V2
+- **γ3 deferred**: minalt_box_infeasible / speed_gap_infeasible OR 条件未接入 BC-MPC take-over（需 solver 暴露 derived RowBoundConfig getter，更大改动）；BC-MPC self-activation on failures 未 gating（is_bc_active_ 仍 key on CPA validity）；BcMpcFollow publish path 未 wiring（不 publish BC-MPC 4-WP）
+- **β fallback ROT asymmetry (🟡2)**: M4 hardcode 4.7 vs M5 fallback 1.2，文档化为 known limitation，defer 到 behavior_arbiter 订阅 GNC ODD
+- **m4 pre-existing 3 failures**: D-3 speed-box widening (behavior_arbiter_node.cpp:1313-1320), 与 v2.2 正交, 需另立 task
+- 容器 codex-gnc-validation-* 用 `bash scripts/gnc-profile-start.sh` 启动
+- worktree pre-existing dirty 保留未动
+- **Memory**: mempalace drawers (m5-nlp-architecture-decisions + m5-nlp-v2.2-impl-alpha-beta) + diary
+
+### V4 Codex 整体评审 + fix（2026-07-04，task-mr6eqycu-cd3x17）
+
+Codex 整体评审 2 🔴 + 3 🟡（γ3 deferred 项正确判定为 blocker）：
+
+- 🔴1 `mid_mpc_node.cpp:847` §13.1 OR 条件未实现。minalt_box_infeasible 可在 consecutive=0/1 触发（首次 solve box<min_alt）
+- 🔴2 `mid_mpc_node.cpp:1640` BcMpcFollow 无 publish 语义，fallback publish_keep_last_ republish stale corridor
+- 🟡1 QoS best_effort 对 safety dispatch 太弱
+- 🟡2 spec §4.2 vs §4.6 wording conflict
+- 🟡3 missing integration tests
+
+4 fix commits (5b014ef1..77ccac0f):
+- 5b014ef1: solver last_minalt_box_infeasible_ getter + compute_bc_mpc_take_over() free fn + OR condition + 7 tests
+- 6d858ea6: BcMpcFollow publish_keep_last_ guard (suppress stale, emit empty BcMpcFollow heartbeat) + 1 test
+- adb5da2c: QoS best_effort → reliable (pub + sub)
+- 77ccac0f: spec §4.2 reconcile note (§4.6 bimodal authoritative)
+
+Test: 449/449 PASS (m5 全测含新 8 integration tests)
+
+### 最终状态 (20 commits on codex/colregs-12probe-debug)
+- spec v2.2 + plan + 4 D-tasks (α/β/γ/δ) + Codex 整体 fix 全落地
+- 不 push（V2 probe + V3 OrbStack gate 待下个会话）
+- 所有 Codex 评审 gate 通过（α + β + integration）
+
+## [2026-07-05] ZCode / 7db27596 (33 commits on top of v2.2 20) / V2.3 Phase 1+2+3 calibration + anchor contract + wheel-over sampling
+
+### Task Goal
+V2.2 validation probe RED 后, 用户授权深挖 NLP optimized path 多层 defect。3 phase 实施 + 4 轮 probe + NLP INFEASIBLE 根因诊断 + Codex 深度调研。
+
+### Core Changes (13 commits on top of v2.2 20)
+
+**Phase 1 (calibration, 2 commits)**:
+- a97c959b: high_speed_flyby_min_segment_m 360→120 (NLM 🟢 + IMO MSC.137(76) backed; 360m=7.2L over-conservative vs IMO 4.5L=225m limit, measured advance 2.8-3.31L=140-165m; 360m WIP commit 11d86dd8 无 provenance)
+- 8376f214: PreflightRejectsHighSpeedFlyBySegment test boundary update (wps {500,800}→{500,600}, segment 300→100m < 120m)
+
+**Phase 2 (anchor contract, 7 commits)**:
+- 5bfb275a: corridor generators (stable + rule13) prepend 0.0 anchor to kDistancesM
+- 8cad4a03: preflight validate_gnc_avoidance_plan + has_anchor param (skip wps[0] for first_distance/segment/turn_radius/XTE)
+- 25b8f191 + 6d35894e: validate_canonical_route_for_gnc wrapper forward + header decl fix
+- e019efcc: 4 preflight callers pass has_anchor=true (optimized/corridor/full route; return path exception false)
+- cc99fdfe: 13 corridor tests updated + 4 new Phase 2 tests
+- 4ccfa72b: StableCorridorEmitsAnchorFirst tolerance 5→15m (lateral cap geometry)
+
+**Phase 3 (wheel-over sampling, 2 commits)**:
+- 99e5debaf: MidMpcWaypointGenerator sample_waypoints_ + build_waypoints_ wheel-over 起始采样 (start_idx = first trajectory idx ≥ wheel_over_distance_m 120m; wps[0]=anchor explicit; Config adds wheel_over_distance_m{120.0})
+- 7db27596: maneuver_wp = min(num_wp-1, span+1) cap (Phase 3 edge case fix; prevents segment_too_short from int truncation)
+
+**Spec/Plan (6 commits)**: 244a9002, 5d6c15d7, 243f87c9, f855de55, c48650c2, 07521488, 24965ae0
+
+### Test Status
+- m5: 365/365 PASS (含 ~30 新 v2.3 测)
+- 所有 Codex spec + code quality review gate 通过 (Phase 1+2+3 每层两阶段 review)
+
+### V2.3 Probe 4 轮结果 (rule14-ho)
+| 轮次 | CPA | 新 blocker |
+|---|---|---|
+| v2.2 baseline | 3.8m | required=360m over-conservative |
+| v2.3 P1 (calibration) | 1.3m | WP[0]=anchor=0m |
+| v2.3 P1+2 (anchor contract) | 0.4m | wps[1]=33m (NLP trajectory[1]) |
+| v2.3 P1+2+3 (wheel-over) | 0.2m | segment_too_short (maneuver_wp cap bug) |
+| **v2.3 P1+2+3+cap** | **5.8m ↑** | 趋势反转, gate 转到 CommittedRoute NLP failure counter |
+
+probe 仍 RED (floor 180m) 但 CPA 趋势首次反转。preflight 全过。
+
+### NLP INFEASIBLE 根因诊断 (ZCode DIAG + Codex partial)
+**ZCode 初判**: CPA hard constraint + own_u=7.58 + horizon 几何矛盾
+**Codex partial 修正**:
+- 2500m 是 soft barrier (build_colreg_cost_), 非 hard blocker
+- hard CPA floor = 1852m (1 NM, ConstraintCompiler)
+- own_u=7.58 来自 SIL plant (ship_dynamics_node n_rps_initial 独立设巡航转速, 非 scenario)
+- NLP INFEASIBLE 集中 sim_t>530s (close-range, hard 1852m 在 90s horizon 不可达)
+
+Codex 完整 Q1-Q5 (task-mr72qznr-yzqf6j) 后台 job 未拿完整 (cloud 404, companion runtime 本地 job)。
+
+### Current Status
+- 13 commits on top of v2.2 (33 total on branch)
+- preflight 全过, CPA 趋势反转 (0.2→5.8m)
+- 不 ff main (probe 仍 RED)
+- push feature branch WIP (GitHub, 不 ff main, 不 push GitLab l3-tdl)
+
+### Handoff Notes
+- **真根因待 Codex 完整**: close-range + hard 1852m + 90s horizon + own_u=7.58 plant 异常
+- **修复方向候选** (Codex 完整后定):
+  1. CPA hard 1852→soft (COLREGs 安全语义弱化, M7 X-axis 兜底)
+  2. 扩 horizon N=18→30 (750m, 性能 tradeoff)
+  3. own_u plant 修正 (scenario 一致性, ship_dynamics_node)
+  4. γ3 BC-MPC takeover 真激活 (close-range 时 BC-MPC 接管, is_bc_active_ 改 key on consecutive_failures)
+- **Codex job**: task-mr72qznr-yzqf6j 后台, 状态查询不顺, 下个会话 wake-up 后重查或重 dispatch
+- **NLM sources**: ship_maneuvering domain 加 9 sources (wheel-over + IMO MSC.137(76), 2026-07-05)
+- worktree pre-existing dirty 保留未动
