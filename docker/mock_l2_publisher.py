@@ -281,6 +281,16 @@ class MockL2Publisher(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=5,
         )
+        # Phase 3.10.1: latched QoS to match orchestrator's _SCENARIO_LOADED_QOS
+        # and lifecycle_mgr's _STATUS_QOS (both TRANSIENT_LOCAL). Without this,
+        # mock_l2 missed the latched scenario_id broadcast during entrypoint
+        # Stage 1 → fell back to auto-detect → densify ran on the wrong scenario.
+        latched_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
 
         self._pub_voyage_task = self.create_publisher(
             VoyageTask, "/l1/voyage_task", tl_qos)
@@ -300,10 +310,10 @@ class MockL2Publisher(Node):
             self._on_own_ship_state, sensor_qos)
         self._sub_lifecycle = self.create_subscription(
             LifecycleStatus, "/sil/lifecycle_status",
-            self._on_lifecycle_status, 10)
+            self._on_lifecycle_status, latched_qos)
         self._sub_scenario = self.create_subscription(
             String, "/sil/scenario_loaded",
-            self._on_scenario_loaded, 10)
+            self._on_scenario_loaded, latched_qos)
         # F1a: Subscribe to M3's replan request and respond with SUCCESS.
         # QoS: RELIABLE keep_last(10) — match M3's publisher contract.
         replan_sub_qos = QoSProfile(
@@ -436,6 +446,7 @@ class MockL2Publisher(Node):
 
     def _auto_detect_scenario(self):
         import glob as _glob
+        import yaml as _yaml
         yaml_files = sorted(_glob.glob(os.path.join(self._scenario_dir, "**/*.yaml"), recursive=True))
         if not yaml_files:
             self.get_logger().warn(
@@ -444,11 +455,34 @@ class MockL2Publisher(Node):
             self._generate_default_route()
             return
 
-        first_yaml = os.path.basename(yaml_files[0])
+        # Phase 3.10.1: prefer the YAML whose metadata.scenario_id matches the
+        # current_scenario_id (set from latched /sil/scenario_loaded or
+        # lifecycle_status.scenario_id). Fallback: pick the YAML whose own
+        # metadata.scenario_id is set and is non-baseline; final fallback:
+        # alphabetical first (legacy behavior).
+        chosen_path = None
+        chosen_source = ""
+        if self._current_scenario_id:
+            for path in yaml_files:
+                try:
+                    with open(path, "r") as stream:
+                        data = _yaml.safe_load(stream)
+                    if (isinstance(data, dict)
+                            and isinstance(data.get("metadata"), dict)
+                            and data["metadata"].get("scenario_id") == self._current_scenario_id):
+                        chosen_path = path
+                        chosen_source = "metadata.scenario_id match"
+                        break
+                except Exception:
+                    continue
+        if chosen_path is None:
+            chosen_path = yaml_files[0]
+            chosen_source = f"alphabetical first of {len(yaml_files)}"
+
+        first_yaml = os.path.basename(chosen_path)
         scenario_id = os.path.splitext(first_yaml)[0]
         self.get_logger().info(
-            f"Auto-detected scenario: {scenario_id} "
-            f"(first of {len(yaml_files)} YAML files)")
+            f"Auto-detected scenario: {scenario_id} ({chosen_source})")
         self._current_scenario_id = scenario_id
         self._load_scenario(scenario_id)
 
@@ -525,7 +559,7 @@ class MockL2Publisher(Node):
             # M5 ownship-anchored avoidance plan is rejected on every cycle
             # (probe run-19f320d48d5: 0 ACCEPTED / 98 REJECTED).
             self._yaml_waypoints = _densify_waypoints(raw_waypoints)
-            self._yaml_speeds_kn = self._resample_speeds(
+            self._yaml_speeds_kn = _resample_speeds(
                 raw_speeds_kn, len(raw_waypoints), len(self._yaml_waypoints))
             self._route_source = (
                 f"YAML nominalRoute (densified {len(raw_waypoints)}→"
