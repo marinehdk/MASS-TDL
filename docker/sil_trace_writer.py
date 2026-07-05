@@ -261,6 +261,16 @@ def _normalize_colregs_constraint_msg(msg: Any) -> dict[str, Any]:
         "primary_preferred_direction": str(msg.primary_preferred_direction),
         "confidence": float(msg.confidence),
         "active_rules": active_rules,
+        # Phase 1.2 (G-M6-1, spec v2.3 §15): M6 encounter lifecycle fields are
+        # the authoritative source for M5 TailBuilder's active/release branch
+        # and M7's release check. Without these in trace, the V2.3 phase 3b
+        # m6_not_past_clear × 874 root cause was only inferable via geometry
+        # back-projection (ZCode audit 2026-07-05). Capture the full lifecycle
+        # so future release/active debugging has direct evidence.
+        "encounter_state": int(getattr(msg, "encounter_state", 0)),
+        "past_clear": bool(getattr(msg, "past_clear", False)),
+        "release_predicted": bool(getattr(msg, "release_predicted", False)),
+        "colregs_chain_target_id": str(getattr(msg, "colregs_chain_target_id", "")),
     }
 
 

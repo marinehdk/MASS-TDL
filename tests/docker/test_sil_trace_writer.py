@@ -33,7 +33,6 @@ DebugTraceWriter = _module.DebugTraceWriter
 _normalize_colregs_constraint_msg = _module._normalize_colregs_constraint_msg
 _normalize_world_state_msg = _module._normalize_world_state_msg
 _normalize_gnc_execution_status_msg = _module._normalize_gnc_execution_status_msg
-_normalize_avoidance_waypoints_msg = _module._normalize_avoidance_waypoints_msg
 _normalize_avoidance_plan_msg = _module._normalize_avoidance_plan_msg
 
 
@@ -278,6 +277,11 @@ def test_colregs_normalizer_preserves_active_rules() -> None:
                 confidence=0.9,
             )
         ],
+        # Phase 1.2 (G-M6-1): M6 lifecycle fields are part of the contract.
+        encounter_state=2,  # ENCOUNTER_ACTIVE
+        past_clear=False,
+        release_predicted=False,
+        colregs_chain_target_id="100000001",
     )
 
     payload = _normalize_colregs_constraint_msg(msg)
@@ -294,6 +298,78 @@ def test_colregs_normalizer_preserves_active_rules() -> None:
             "confidence": 0.9,
         }
     ]
+
+
+def test_colregs_normalizer_preserves_encounter_lifecycle_fields() -> None:
+    """Phase 1.2 (G-M6-1, spec v2.3 §15): M6 encounter lifecycle fields must
+    be captured so future release/active debugging has direct trace evidence.
+    The V2.3 phase 3b m6_not_past_clear × 874 root cause was only inferable
+    via geometry back-projection because these fields were absent from trace.
+    """
+    # ACTIVE phase: encounter_state=2 (ENCOUNTER_ACTIVE), past_clear False,
+    # release_predicted False. This is the state M5 TailBuilder needs to see
+    # to enter the active-phase tail branch (the R8 fix unblocks this).
+    msg_active = SimpleNamespace(
+        conflict_detected=True,
+        primary_role=2,
+        phase="T_act",
+        primary_preferred_direction="STARBOARD",
+        confidence=0.9,
+        active_rules=[],
+        encounter_state=2,  # ENCOUNTER_ACTIVE
+        past_clear=False,
+        release_predicted=False,
+        colregs_chain_target_id="100000001",
+    )
+
+    payload_active = _normalize_colregs_constraint_msg(msg_active)
+
+    assert payload_active["encounter_state"] == 2
+    assert payload_active["past_clear"] is False
+    assert payload_active["release_predicted"] is False
+    assert payload_active["colregs_chain_target_id"] == "100000001"
+
+    # RELEASE phase: encounter_state=3 (ENCOUNTER_RELEASE), past_clear True.
+    # M5 TailBuilder uses past_clear=True to enter the rejoin branch.
+    msg_release = SimpleNamespace(
+        conflict_detected=False,
+        primary_role=0,
+        phase="T_postAvoid",
+        primary_preferred_direction="NONE",
+        confidence=1.0,
+        active_rules=[],
+        encounter_state=3,  # ENCOUNTER_RELEASE
+        past_clear=True,
+        release_predicted=True,
+        colregs_chain_target_id="100000001",
+    )
+
+    payload_release = _normalize_colregs_constraint_msg(msg_release)
+
+    assert payload_release["encounter_state"] == 3
+    assert payload_release["past_clear"] is True
+    assert payload_release["release_predicted"] is True
+
+    # ONSET phase: encounter_state=1. The R8 bug case — M6 must NOT stay here
+    # when Rule14 geometry is ACTIVE. After the Phase 1.1 fix, M6 publishes
+    # ENCOUNTER_ACTIVE; this test only pins that ONSET is also captured.
+    msg_onset = SimpleNamespace(
+        conflict_detected=True,
+        primary_role=2,
+        phase="",
+        primary_preferred_direction="STARBOARD",
+        confidence=0.5,
+        active_rules=[],
+        encounter_state=1,  # ENCOUNTER_ONSET
+        past_clear=False,
+        release_predicted=False,
+        colregs_chain_target_id="",
+    )
+
+    payload_onset = _normalize_colregs_constraint_msg(msg_onset)
+
+    assert payload_onset["encounter_state"] == 1
+    assert payload_onset["past_clear"] is False
 
 
 def test_world_state_normalizer_records_primary_target_geometry() -> None:
@@ -403,46 +479,9 @@ def test_gnc_execution_status_normalizer_preserves_l4_contract_fields() -> None:
     assert payload["rationale"] == "bridge-translated"
 
 
-def test_avoidance_waypoints_normalizer_preserves_external_m5_contract_fields() -> None:
-    msg = SimpleNamespace(
-        stamp=SimpleNamespace(sec=12, nanosec=34),
-        schema_version=1,
-        plan_id="m5-return-42",
-        parent_route_id="nominal-route",
-        behavior_mode="return_to_route",
-        command_source="M5_COLREGS",
-        latitude=[63.0, 63.001, 63.002],
-        longitude=[10.0, 10.002, 10.004],
-        command_speed_mps=[3.2, 3.2, 3.2],
-        navigation_mode=["emergency", "emergency", "normal"],
-        valid_until=SimpleNamespace(sec=99, nanosec=88),
-        allow_degraded_execution=True,
-        has_return_to_route_point=True,
-        return_latitude=63.002,
-        return_longitude=10.004,
-        confidence=0.8,
-        rationale="stable-return-corridor",
-    )
-
-    payload = _normalize_avoidance_waypoints_msg(msg)
-
-    assert payload["stamp_sec"] == 12
-    assert payload["schema_version"] == 1
-    assert payload["plan_id"] == "m5-return-42"
-    assert payload["parent_route_id"] == "nominal-route"
-    assert payload["behavior_mode"] == "return_to_route"
-    assert payload["command_source"] == "M5_COLREGS"
-    assert payload["n_waypoints"] == 3
-    assert payload["latitude"] == [63.0, 63.001, 63.002]
-    assert payload["longitude"] == [10.0, 10.002, 10.004]
-    assert payload["command_speed_mps"] == [3.2, 3.2, 3.2]
-    assert payload["navigation_mode"] == ["emergency", "emergency", "normal"]
-    assert payload["valid_until_sec"] == 99
-    assert payload["allow_degraded_execution"] is True
-    assert payload["has_return_to_route_point"] is True
-    assert payload["return_latitude"] == pytest.approx(63.002)
-    assert payload["return_longitude"] == pytest.approx(10.004)
-    assert payload["wp0_lat"] == pytest.approx(63.0)
-    assert payload["wp_last_lon"] == pytest.approx(10.004)
-    assert payload["confidence"] == pytest.approx(0.8)
-    assert payload["rationale"] == "stable-return-corridor"
+# The legacy `_normalize_avoidance_waypoints_msg` helper and its test were
+# removed when the `/l3/m5/avoidance_waypoints` shadow topic was deleted
+# (Slice A: `/l3/m5/avoidance_plan` is the only M5 execution-truth topic).
+# The corresponding test_avoidance_waypoints_normalizer_* case is also dropped
+# here so the suite collects cleanly. R9 contract-yaml cleanup lives in
+# Phase 2 Task 2.6 (spec v2.3).

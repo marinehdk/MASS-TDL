@@ -275,3 +275,70 @@ def test_gate_diagnosis_maps_risk_gate_to_m7():
 
     assert diagnosed["diagnosis"]["first_broken_stage"] == "M7"
     assert diagnosed["diagnosis"]["failing_gate"] == "RISK"
+
+
+def test_m6_encounter_lifecycle_transition_sequence_is_captured():
+    """Phase 1.2 (G-M6-1): chain summary must surface the M6 encounter_state
+    sequence so a stuck-at-ONSET bug (R8) is visible directly from trace,
+    without geometry back-projection.
+    """
+    records = [
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=False, encounter_state=0),  # CLEAR
+        rec(2.0, "/l3/m6/colregs_constraint", conflict_detected=True,  encounter_state=1),  # ONSET
+        rec(3.0, "/l3/m6/colregs_constraint", conflict_detected=True,  encounter_state=2),  # ACTIVE
+        rec(4.0, "/l3/m6/colregs_constraint", conflict_detected=True,  encounter_state=2),  # ACTIVE (stable)
+        rec(5.0, "/l3/m6/colregs_constraint", conflict_detected=False, encounter_state=3, past_clear=True),  # RELEASE
+    ]
+
+    summary = build_chain_summary(records)
+
+    assert summary["m6"]["encounter_state_first"] == "CLEAR"
+    assert summary["m6"]["encounter_state_last"] == "RELEASE"
+    # 4 distinct transitions: CLEAR->ONSET, ONSET->ACTIVE, ACTIVE->RELEASE.
+    # (ACTIVE->ACTIVE within-state does not count.)
+    assert summary["m6"]["encounter_state_transitions"] == [
+        "CLEAR->ONSET",
+        "ONSET->ACTIVE",
+        "ACTIVE->RELEASE",
+    ]
+    assert summary["m6"]["past_clear_samples"] == 1
+    assert summary["m6"]["samples"] == 5
+
+
+def test_m6_encounter_lifecycle_stuck_at_onset_is_visible():
+    """Phase 1.2 regression guard for R8: when M6 stays at ONSET the entire
+    encounter (the bug fixed by Phase 1.1 rank-based aggregation), the chain
+    summary must show first==last=="ONSET" and an empty transition list so
+    the diagnostic is unambiguous.
+    """
+    records = [
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True, encounter_state=1),
+        rec(2.0, "/l3/m6/colregs_constraint", conflict_detected=True, encounter_state=1),
+        rec(3.0, "/l3/m6/colregs_constraint", conflict_detected=True, encounter_state=1),
+    ]
+
+    summary = build_chain_summary(records)
+
+    assert summary["m6"]["encounter_state_first"] == "ONSET"
+    assert summary["m6"]["encounter_state_last"] == "ONSET"
+    assert summary["m6"]["encounter_state_transitions"] == []
+    assert summary["m6"]["past_clear_samples"] == 0
+
+
+def test_m6_encounter_lifecycle_absent_fields_default_safely():
+    """Older traces (pre-Phase 1.2) lack encounter_state / past_clear fields.
+    The chain summary must not crash and must report None / 0 defaults so the
+    tool stays usable on legacy evidence.
+    """
+    records = [
+        rec(1.0, "/l3/m6/colregs_constraint", conflict_detected=True),  # no encounter_state
+        rec(2.0, "/l3/m6/colregs_constraint", conflict_detected=True),
+    ]
+
+    summary = build_chain_summary(records)
+
+    # encounter_state defaults to 0 (CLEAR) when absent; first/last reflect that.
+    assert summary["m6"]["encounter_state_first"] == "CLEAR"
+    assert summary["m6"]["encounter_state_last"] == "CLEAR"
+    assert summary["m6"]["encounter_state_transitions"] == []
+    assert summary["m6"]["past_clear_samples"] == 0
