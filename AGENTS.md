@@ -52,85 +52,89 @@ Mandatory discipline:
 
 ## branch / remote conventions
 
-- 本地开发与 GitHub 以 `main` 作为主分支。
-- A4000 上的 GitLab 仓库因权限限制，以 `l3-tdl` 作为主分支/同步目标。
-- 涉及 A4000 部署、验收或 GitLab 同步时，目标分支使用 `l3-tdl`；不要把 A4000 GitLab 主线误判为 `main`。
-- Do not commit directly on `main`; use task branches and merge only after the relevant local and A4000 gates pass.
+- 本仓库的 remote 是 GitLab (`origin` = `git@gitlab.sangoai.com:mass_devgroup/01-dynamics/01-simulation.git`)。本机 A4000 上没有独立的 GitHub remote；不要假设存在 `github` remote 或把分支 push 到 GitHub。
+- 开发与集成的 source of truth 是 `l3-tdl` 分支（本地 + `origin/l3-tdl`）。远程仓库同时存在 `main` 与 `master`，但当前工作主线是 `l3-tdl`，不要把 GitLab 主线误判为 `main`/`master`。
+- 任务分支命名沿用 `codex/<task>` / `feat/<task>` / `fix/<task>`；集成完成后合并回 `l3-tdl` 并 `git push origin l3-tdl`。
+- Do not commit directly on `l3-tdl`; use task branches/worktrees and merge only after the acceptance gate in the next section passes.
+- 同步规则（本机即 A4000，无 ssh/rsync 跨机）：只 push 到 `origin/l3-tdl`。涉及外部模块联调时，再单独处理 `/home/mass/...` 路径（见下）。
 
 ## parallel Codex development workflow
 
 Hard rule: each concurrent Codex development thread works in its own local branch/worktree. The primary checkout is the integration surface for tested branches, not a shared dirty development area.
 
+本机就是 A4000（`tigerwang-System-Product-Name`，Ubuntu 22.04 x86_64，账户 `marine.huang`）。开发、容器构建、仿真验收都在这一台机器上完成，没有跨机 ssh/rsync。
+
 Recommended layout:
-- Keep the primary checkout at `/Users/marine/Code/MASS-L3-Tactical Layer` for integration, final local `main`, release notes, and promotion commands.
+- Keep the primary checkout at `/home/marine.huang/Code/mass-l3`（分支 `l3-tdl`）作为集成面：集成、release notes、promotion 命令都在这里执行。
 - Put parallel work under project-local `.worktrees/`, for example:
   ```bash
-  git worktree add .worktrees/backend-colregs -b codex/backend-colregs main
-  git worktree add .worktrees/frontend-map -b codex/frontend-map main
+  git worktree add .worktrees/backend-colregs -b codex/backend-colregs l3-tdl
+  git worktree add .worktrees/frontend-map -b codex/frontend-map l3-tdl
   ```
 - Use one short-lived branch per task or subsystem. Example split: backend COLREGs/adapter logic, frontend SIL/HMI display, scenario/gate tooling.
 - Do not let two Codex threads edit the same worktree or branch unless the user explicitly asks for a handoff.
 
 Main runtime container rule:
-- Treat the local `main` runtime stack as the stable demo/verification surface. When persistent `main` containers are needed, run them from a dedicated clean worktree such as `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/main-runtime`, not from a dirty feature checkout.
-- The default `main` stack uses `COMPOSE_PROJECT_NAME=mass-l3-sil` and owns the normal local demo ports: orchestrator `18000`, Foxglove `18765`, Martin tiles `3000`, and Vite `5173`. Feature work must not take these ports from a running `main` demo stack.
-- Feature or bugfix container work must use a new isolated worktree plus a task-specific compose project name, for example `COMPOSE_PROJECT_NAME=codex-colregs-fix`. Do not reuse `mass-l3-sil` for experiments unless the task explicitly targets the `main` runtime stack.
-- If a temporary feature stack must use the normal demo ports, stop or move only the conflicting feature stack first. Do not stop the `main` stack unless the user explicitly prioritizes the feature stack or the task is to repair `main`.
-- When repairing the `main` stack, first confirm its source mounts point at the intended `main` worktree, then rebuild/recreate only the `mass-l3-sil` project.
+- Treat the `l3-tdl` runtime stack as the stable demo/verification surface. When persistent demo containers are needed, run them from a dedicated clean worktree such as `/home/marine.huang/Code/mass-l3/.worktrees/main-runtime`，而不是从脏的 feature checkout。
+- The default demo stack uses `COMPOSE_PROJECT_NAME=mass-l3-sil` and owns the normal demo ports: orchestrator `18000`, Foxglove `18765`, Martin tiles `3000`, and Vite `5173`. Feature work must not take these ports from a running demo stack.
+- Feature or bugfix container work must use a new isolated worktree plus a task-specific compose project name, for example `COMPOSE_PROJECT_NAME=codex-colregs-fix`. Do not reuse `mass-l3-sil` for experiments unless the task explicitly targets the demo stack.
+- If a temporary feature stack must use the normal demo ports, stop or move only the conflicting feature stack first. Do not stop the demo stack unless the user explicitly prioritizes the feature stack or the task is to repair the demo stack.
+- When repairing the demo stack, first confirm its source mounts point at the intended `l3-tdl` worktree, then rebuild/recreate only the `mass-l3-sil` project.
 
 Per-thread completion contract before integration:
 - Keep diffs surgical and limited to the task.
 - Run targeted tests for the touched code in that worktree.
-- Report changed paths, test commands, test results, and whether A4000 validation is required.
-- Do not push feature branches to GitHub/GitLab before the integration gate below passes.
+- Report changed paths, test commands, test results.
+- Do not push feature branches to GitLab before the acceptance gate below passes.
 - Clean up after the worktree is finished: stop its compose project with the same `COMPOSE_PROJECT_NAME`, remove task-owned orphan containers, stop detached Vite/tmux sessions, and remove the worktree after its branch is merged or abandoned.
-- Space cleanup must be scoped. Remove task-owned build/install/log artifacts, `web/node_modules`, generated runs, and images only when they belong to that worktree/project. Do not prune shared Docker volumes, shared images, or the `main` runtime stack without explicit approval.
+- Space cleanup must be scoped. Remove task-owned build/install/log artifacts, `web/node_modules`, generated runs, and images only when they belong to that worktree/project. Do not prune shared Docker volumes, shared images, or the demo runtime stack without explicit approval.
 
-Integration flow:
-1. Start from current local `main` in the primary checkout.
+Integration flow（单机，无跨机同步）:
+1. Start from current `l3-tdl` in the primary checkout.
 2. Create a short-lived integration branch, for example `codex/integration-YYYYMMDD`.
 3. Merge tested feature branches into the integration branch one by one.
 4. Resolve conflicts only in the integration branch unless the fix clearly belongs back in a feature branch.
-5. Run targeted tests again after merges, then run the local OrbStack gate from the next section.
-6. After local gate passes, sync only touched paths from the integration result to A4000 and run A4000 verification.
-7. After local and A4000 gates both pass, fast-forward local `main` from the integration branch.
-8. Push local `main` to GitHub `main` and GitLab `l3-tdl`.
+5. Run targeted tests again after merges, then run the acceptance gate from the next section.
+6. After the gate passes, fast-forward `l3-tdl` from the integration branch.
+7. Push `l3-tdl` to `origin/l3-tdl`（GitLab）。
 
-If any gate fails, fix locally first, rerun the local targeted tests and local OrbStack gate, then resync touched paths to A4000. Do not repair by editing directly on A4000, and do not use A4000 as the first real test host.
+If any gate fails, fix in the worktree first, rerun the targeted tests and the acceptance gate, then redo the integration merge. Do not repair by editing directly on the demo stack checkout.
 
 ## local-first deployment gate
 
-Hard rule: local OrbStack gate must pass before any A4000 sync; A4000 gate must pass before any GitHub/GitLab push.
+Hard rule: 本机即 A4000，验收 gate 必须在本机通过后才能 push 到 GitLab `origin/l3-tdl`。没有跨机 "local OrbStack → A4000" 二段式 gate；本机的容器验收就是 A4000 验收。
 
 Required order:
-1. Develop in local branch/worktree.
-2. Run targeted local tests for touched code.
-3. Run local A4000-equivalent container gate:
+1. Develop in a task branch/worktree（`.worktrees/<task>`）。
+2. Run targeted local tests for touched code（colcon test / gtest 二进制）。
+3. Run the A4000 本机 acceptance gate（即标准 A4000 验收）:
    ```bash
-   source scripts/local-a4000-env.sh
-   ./scripts/local-a4000-acceptance.sh
+   source scripts/a4000-env.sh        # 本机用 a4000-env.sh，不再用 local-a4000-env.sh
+   npm run sys:start
+   ./scripts/a4000-acceptance.sh
    ```
-4. Only after local gate passes, sync touched paths to A4000.
-5. Run A4000 acceptance/probe.
-6. Only after both gates pass, push to GitHub and GitLab.
+4. Only after the gate passes, merge into `l3-tdl` and `git push origin l3-tdl`。
 
-Do not push code to GitHub/GitLab first and use A4000 as the first real test host. The local checkout is source of truth; A4000 is a runtime validation host.
+Do not push to GitLab first and use the running stack as the first real test host. The worktree checkout under test is source of truth; the running demo stack (`mass-l3-sil`) is the verification surface, not a development area.
 
-## local OrbStack stack
+## A4000 native container stack
 
-- Local A4000-equivalent compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml:docker-compose.plugins.yml`.
-- Plugin-local profile env: `COMPOSE_PROFILES=plugins`.
-- Local isolated DDS domain: `ROS_DOMAIN_ID=42`.
-- Local ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Martin tiles `http://localhost:3000/`, Vite `http://localhost:5173/`.
-- Local acceptance evidence is written under `runs/local_a4000_container_probe_*.json` and `runs/local_runtime_probe_*.json`.
-- `scripts/local-a4000-acceptance.sh` must run from the checkout/worktree under test. If the local `mass-l3-sil` compose project was created from another checkout, the script fails fast by default. Stop that stack first, or rerun with `RECLAIM_STALE_LOCAL_PROJECT=1` to recreate it for the current worktree before collecting evidence.
-- Runtime Console container control mounts `/var/run/docker.sock` only through the A4000/local compose override, not base compose.
+本机用原生 Docker（非 OrbStack；`which orb` 无输出）。compose 环境由 `scripts/a4000-env.sh` 定义。
+
+- A4000-native compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml:docker-compose.plugins.yml`。
+- Plugin profile env: `COMPOSE_PROFILES=plugins`（仅外部插件联调时开启；默认 `TDL_RUNTIME_PROFILE=internal-local` 无外部插件）。
+- Isolated DDS domain: `ROS_DOMAIN_ID=42`。
+- Ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Martin tiles `http://localhost:3000/`, Vite `http://localhost:5173/`。不要碰生产/共享端口 `8000`、`8765`（jitsi 等服务占用）。
+- Acceptance evidence 写在 `runs/local_a4000_container_probe_*.json` 和 `runs/local_runtime_probe_*.json`。
+- `scripts/local-a4000-acceptance.sh` 仍可用于"非 `mass-l3-sil` 项目"的本机等价验收，但默认 gate 是 `scripts/a4000-acceptance.sh`（本机即 A4000）。若 `mass-l3-sil` compose 项目是从别的 checkout 创建的，脚本会 fail-fast；先停掉该 stack，或用 `RECLAIM_STALE_LOCAL_PROJECT=1` 在当前 worktree 重建后再收证据。
+- Runtime Console 容器对 `/var/run/docker.sock` 的挂载只在 `docker-compose.a4000.yml` override 中存在，base compose 没有。
 - Inactive plugin candidates may be created but stopped for hot switching; the runtime gate still requires exactly one running plugin per role.
-- Main demo stack startup from a clean `main` worktree:
+- Demo stack startup from a clean `l3-tdl` worktree:
   ```bash
-  source scripts/local-a4000-env.sh
+  source scripts/a4000-env.sh
   COMPOSE_PROJECT_NAME=mass-l3-sil docker compose up -d --build
   ```
+- Feature/bugfix 容器工作必须用独立 worktree + 任务级 compose project name，例如 `COMPOSE_PROJECT_NAME=nlp-cpa-fix`（当前活跃示例：`nlp-cpa-fix-sil-nodes-1` 等）。不要把实验容器复用 `mass-l3-sil`。
 - Frontend dev server for screen 2 `仿真检查`:
   ```bash
   cd web
@@ -139,29 +143,25 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 - If a persistent local frontend is needed, run it in a detached shell/tmux session; do not treat Vite as part of the Docker acceptance gate.
 - Screen 02 `仿真检查` runtime surface is the Runtime Console for TDL core readiness and one-active-plugin-per-role external plugin checks. Do not add extra display-only dependencies or subscribe to nonessential external data.
 
-## A4000 sync and verification
+## A4000 verification（本机）
 
-- Default TDL deployment and verification login: `ssh a4000`, configured for the personal account `marine.huang`. This is the only default target for syncing this repository, running the TDL stack, and collecting acceptance evidence.
-- Do not use the A4000 `mass` account as the TDL deployment or verification environment. Treat `mass` as a shared upload/staging area for teammate code only.
-- Do not write plaintext passwords into repo docs, scripts, commits, logs, or prompts. Use SSH key/agent or interactive login.
-- Known shared external module paths on A4000:
+本机就是 A4000，不存在 `ssh a4000` 跨机部署/同步。开发、构建、容器验收、证据采集都在 `/home/marine.huang/Code/mass-l3` 这一台机器上完成。
+
+- TDL 部署与验证账户：`marine.huang`（本机当前账户）。Checkout 路径：`/home/marine.huang/Code/mass-l3`（分支 `l3-tdl`）。不要创建第二个 TDL checkout。
+- 不要把 A4000 的 `mass` 账户当作 TDL 部署/验证环境。`mass` 账户是队友代码的共享上传/暂存区，本仓库不部署到那里。
+- Do not write plaintext passwords into repo docs, scripts, commits, logs, or prompts.
+- 本机上的共享外部模块路径（外部联调用，访问权限以本机实际为准）:
   - Hydrodynamics and route planning: `/home/mass/simulation/`
   - Sensor fusion ROS2 workspace: `/home/mass/yougc/ros2_ws`
-- A4000 ports are orchestrator `18000`, Foxglove `18765`, and Vite `5173`. Do not touch production ports `8000` or `8765`.
-- TDL checkout path must be verified before first copy. Current runbook example:
-  ```bash
-  ssh a4000 'whoami; pwd; ls -la ~'
-  # Set A4000_TDL to the verified TDL checkout under the marine.huang account.
-  ```
-  Do not create a second TDL checkout if one already exists.
-- Sync only touched paths with `rsync -avR` or `scp`. Never use `rsync --delete`, repo-wide overwrite, `git pull`, `git reset`, or broad checkout replacement on A4000 unless the user explicitly approves it for a clean host.
-- Normal A4000 flow after narrow sync:
+- Ports: orchestrator `18000`, Foxglove `18765`, Vite `5173`。不要碰生产/共享端口 `8000`、`8765`。
+- Normal 本机 verification flow（无 sync 步骤）:
   ```bash
   source scripts/a4000-env.sh
   npm run sys:start
   ./scripts/a4000-acceptance.sh
   ```
-- Do not use `./scripts/a4000-acceptance.sh --sync` in normal dirty-host work. It may pull/reset host state; only use it after explicit user approval and clean-host confirmation.
+- 不要用 `./scripts/a4000-acceptance.sh --sync`（脚本里的 sync 分支面向历史跨机场景，可能 reset 本机状态；仅在你显式确认 clean-host 后使用）。
+- 版本管理一律走 git：在 worktree 里 commit/merge，最后 `git push origin l3-tdl`。不要用 `rsync --delete`、repo-wide overwrite、`git pull`/`git reset` 或 broad checkout replacement 去覆盖本机 checkout，除非用户显式批准 clean-host 重建。
 - If scenario configuration wedges around `env_disturbance`, suspect concurrent configure drivers. Only one driver should configure SIL at a time; reset with `docker compose restart sil-nodes`.
 - For external adaptor testing, switch profile and keep JSON evidence:
   ```bash
@@ -174,12 +174,12 @@ Do not push code to GitHub/GitLab first and use A4000 as the first real test hos
 
 ## promotion rule
 
-- A branch is promotable only when local targeted tests, local OrbStack gate, A4000 acceptance, and required adaptor probe all pass.
-- After promotion gate passes:
-  - GitHub target remains `main`.
-  - GitLab target remains `l3-tdl`.
-  - Include local evidence path and A4000 evidence path in handoff/PR notes.
-- If either local or A4000 gate fails, fix locally first, rerun local gate, then resync touched paths to A4000.
+- A branch is promotable only when targeted unit tests, the A4000 本机 acceptance gate, and any required adaptor probe all pass.
+- After the gate passes:
+  - Merge the integration branch into `l3-tdl`.
+  - GitLab target remains `l3-tdl` (`origin/l3-tdl`)。本机无 GitHub remote，不要尝试 push `main` 到 GitHub。
+  - Include the acceptance evidence path（`runs/...json`）in handoff/MR notes.
+- If the gate fails, fix in the worktree first, rerun targeted tests and the acceptance gate, then redo the integration merge.
 
 ## Docker and build cache
 
