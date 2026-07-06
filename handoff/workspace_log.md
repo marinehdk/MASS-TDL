@@ -3226,3 +3226,34 @@ Continue COLREGs rule14-ho V2 probe CPA RED root-cause investigation on branch `
 - **Pre-existing ctest failures (5)** predate this session and are unrelated to Phase 3.8/3.9. Track separately; do not block promotion on them unless they touch `committed_route` / `mid_mpc_node` paths.
 - **Evidence**: `runs/v2.3_phase39_fix/` (run-19f316f26a9, the schema-sync GREEN-chain run). Older `runs/v2.3_phase37_rule14ho/` and `runs/v2.3_phase38_rule14ho/` show the progressive fix.
 - **Memory**: drawer filed in wing `MASS-L3` room `colregs-deviation-findings` covering Phase 3.8 + 3.9 root cause + fixes + open Phase 3.10. Diary entry `colregs-12probe-debug phase 3.8+3.9 chain-break-fix session` written.
+
+## [2026-07-06] Codex / commits 38b36cf5 + b75170c4 / Integrate colregs-12probe-debug production-safe fixes
+
+### Task Goal
+Integrate the production-safe part of `codex/colregs-12probe-debug` into local `main`, while preserving the branch/worktree for continued NLP avoidance-route debugging. User explicitly requested to include the handoff/root-cause/fix commits and drop debug-only commit `53a9b6e5` because it adds high-rate `spdlog::warn` instrumentation.
+
+### Core Changes
+- Created integration branch `codex/integration-colregs-12probe-20260706`.
+- Merged `codex/colregs-12probe-debug` history through `473ee9ed`, excluding `53a9b6e5`.
+- Resolved `handoff/workspace_log.md` by retaining both main-side Phase 3.8/3.9 notes and branch-side Phase 3.10.2 investigation notes.
+- Added `b75170c4` to let `scripts/run_colregs_clean_8probe.py --list` run without requiring a live Docker runtime stack.
+- Verified debug-only strings `INFEAS_DIAG` / `D3RECV` are absent from production source after merge.
+
+### Verification
+- `git diff --check` passed.
+- `python3 tools/sil/check_ros2_interface_contract.py --contract docs/Design/SIL/ros2-interface-contract.yaml --root src` passed: 0 violations.
+- `python3 -m pytest tests/docker/test_sil_trace_writer.py tests/docker/test_gnc_route_mock_publisher.py tests/scripts/test_gnc_reset_interface.py tests/scripts/test_gnc_ship_config_overlay.py tests/scripts/test_run_6_scenarios_gate.py tests/sil/test_mock_publisher_densify.py tests/tools/test_colregs_l4_oracle.py tests/tools/test_colregs_module_oracle.py tests/tools/test_colregs_oracle_adapter.py tests/tools/test_evidence_session.py tools/sil/test_colregs_chain_trace.py -q` passed: 142 passed, 5 skipped.
+- `cd web && npm test -- --run src/map/__tests__/AvoidanceRouteLayer.test.tsx` passed: 6 passed.
+- Local OrbStack gate passed with `COMPOSE_PROJECT_NAME=mass-l3-sil ./scripts/local-a4000-acceptance.sh`; evidence `/opt/runs/runtime_probe_20260706_083704_447727.json`.
+- A4000 clean gate worktree `/home/marine.huang/Code/mass-l3/.worktrees/a4000-gate-colregs-20260706` built and ran from commit `b75170c4a`.
+- A4000 health/runtime checks passed: orchestrator REST ok, RTF 1x/5x/10x ok, runtime probe GO.
+- A4000 Playwright behavior gate failed at Rule14 `A_turn` (`peak heading change` 0 deg vs >20 deg). User acknowledged current merged code may not avoid collision and explicitly approved skipping this behavior assertion for this sync.
+
+### Current Status
+- Integration branch HEAD: `b75170c4`.
+- `codex/colregs-12probe-debug` branch and `.worktrees/colregs-12probe-debug` are intentionally preserved.
+- A4000 dirty checkout was not reset. Touched paths were backed up before narrow sync at `/home/marine.huang/tdl_sync_backups/colregs_12probe_pre_sync_20260706_083812.tar.gz`; final A4000 verification used a clean worktree to avoid trampling that dirty checkout.
+
+### Handoff Notes
+- Proceeding with fast-forwarding local `main` and pushing GitHub `main` / GitLab `l3-tdl` under user-approved skip of the known Rule14 avoidance behavior failure.
+- Local feature containers `codex-gnc-validation-foxglove-bridge-1` and `codex-gnc-validation-martin-tile-server-1` were stopped to release ports 18765/3000 for the main local gate; their branch/worktree were not modified.
