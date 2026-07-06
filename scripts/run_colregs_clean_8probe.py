@@ -87,6 +87,8 @@ def main(argv=None):
         help="Execution stack target (sil=default, gnc=GNC integration).",
     )
     known, remaining = parser.parse_known_args(argv)
+    if "--list" in remaining:
+        return _load_runner().main(remaining)
     _verify_profile_stack(known.profile)
     # Forward the resolved profile into the runner so it can apply profile-aware
     # behaviour (e.g. the gnc three-container restart set) without re-parsing.
