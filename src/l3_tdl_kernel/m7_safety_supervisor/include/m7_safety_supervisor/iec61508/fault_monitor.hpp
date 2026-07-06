@@ -7,6 +7,7 @@
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 
 namespace mass_l3::m7::iec61508 {
 
@@ -46,6 +47,10 @@ public:
       l3_msgs::msg::ODDState const& odd,
       l3_msgs::msg::WorldState const& world,
       l3_msgs::msg::COLREGsConstraint const& colregs) noexcept;
+
+  [[nodiscard]] bool observe_nlp_status(std::uint8_t solver_status,
+                                          float kkt_residual,
+                                          bool tail_gate_failed) noexcept;
 
   [[nodiscard]] std::uint32_t fault_count() const noexcept { return fault_count_; }
   void reset_count() noexcept { fault_count_ = 0U; }

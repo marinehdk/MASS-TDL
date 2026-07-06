@@ -120,6 +120,60 @@ TEST(EncounterStateMachine, T8_TcpaGate_EntersActiveWhenTcpaAtOrBelowTplan) {
   EXPECT_EQ(fsm.onset().role, Role::BOTH_GIVE_WAY);
 }
 
+TEST(EncounterStateMachine, T8_TcpaGate_UsesEarlierHardCpaBreachForSameEncounter) {
+  EncounterStateMachine fsm(make_test_params());
+  fsm.transition(snap(2000.0, 0.0), false, false, false, 0.0);
+  fsm.transition(snap(1120.0, 1730.0), true, true, false, 1.0);
+  EXPECT_EQ(fsm.state(), EncounterState::CANDIDATE);
+  fsm.transition(snap(1120.0, 1730.0), true, true, false, 2.0);
+  EXPECT_EQ(fsm.state(), EncounterState::PREPLAN);
+
+  RuleEvaluation raw{};
+  raw.role = Role::GIVE_WAY;
+  raw.encounter_type = EncounterType::CROSSING;
+  raw.preferred_direction = "STARBOARD";
+  raw.min_alteration_deg = 50.0;
+  fsm.transition(snap(650.0, 2035.0), true, true, false, 3.0, &raw);
+
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE);
+  EXPECT_TRUE(fsm.requires_action());
+}
+
+TEST(EncounterStateMachine, PreservesPreplanOnsetWhenGeometryDropsBeforeActive) {
+  EncounterStateMachine fsm(make_test_params());
+  RuleEvaluation head_on{};
+  head_on.is_active = true;
+  head_on.role = Role::BOTH_GIVE_WAY;
+  head_on.encounter_type = EncounterType::HEAD_ON;
+  head_on.phase = TimingPhase::SOUND_WARNING;
+  head_on.preferred_direction = "STARBOARD";
+  head_on.min_alteration_deg = 30.0;
+
+  fsm.transition(snap(2000.0, 0.0), false, false, false, 0.0);  // -> DETECTED
+  fsm.transition(snap(1450.0, 900.0), true, true, false, 1.0, &head_on);
+  EXPECT_EQ(fsm.state(), EncounterState::CANDIDATE);
+  fsm.transition(snap(1400.0, 900.0), true, true, false, 2.0, &head_on);
+  EXPECT_EQ(fsm.state(), EncounterState::PREPLAN);
+
+  RuleEvaluation raw_free{};
+  raw_free.is_active = false;
+  raw_free.role = Role::FREE;
+  raw_free.encounter_type = EncounterType::NONE;
+  raw_free.preferred_direction = "HOLD";
+  fsm.transition(snap(700.0, 900.0), false, true, false, 3.0, &raw_free);
+
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE);
+  ASSERT_TRUE(fsm.onset().valid);
+  EXPECT_EQ(fsm.onset().role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(fsm.onset().encounter_type, EncounterType::HEAD_ON);
+  RuleEvaluation held = raw_free;
+  fsm.apply_onset(held);
+  EXPECT_TRUE(held.is_active);
+  EXPECT_EQ(held.role, Role::BOTH_GIVE_WAY);
+  EXPECT_EQ(held.encounter_type, EncounterType::HEAD_ON);
+  EXPECT_EQ(held.preferred_direction, "STARBOARD");
+}
+
 // --- T1: onset snapshot held through own-ship maneuver ----------------------
 
 // Own-ship turns starboard; raw rule geometry falls out (rule_hit=false), but
@@ -285,6 +339,95 @@ TEST(EncounterStateMachine, T5_ResetClearsAllState) {
   EXPECT_EQ(fsm.state(), EncounterState::CLEAR);
   EXPECT_FALSE(fsm.onset().valid);
   EXPECT_FALSE(fsm.had_been_released());
+}
+
+// --- T6b: CPA-trend hysteresis (kill ACTIVE<->MONITOR chatter) -------------
+// Numerical CPA jitter of ~1m during an active encounter drove rapid
+// ACTIVE<->MONITOR toggling (rule14-ho trace t=505-598: dozens of transitions
+// from a CPA oscillating around 390m). A sub-threshold trend must not count as
+// improvement (no false graduation) nor as deterioration (no false regression).
+TEST(EncounterStateMachine, CpaTrendHysteresisBlocksGraduationOnSubThresholdTrend) {
+  auto fsm = drive_to_active(make_test_params());
+  ASSERT_EQ(fsm.state(), EncounterState::ACTIVE);
+  // last_cpa_m_ = 800 (drive_to_active entry). Sub-threshold increasing trend:
+  fsm.transition(snap(400.0, 800.5), false, true, false, 4.0);  // +0.5m
+  fsm.transition(snap(400.0, 800.9), false, true, false, 5.0);  // +0.4m (2nd)
+  EXPECT_EQ(fsm.state(), EncounterState::ACTIVE)
+      << "sub-threshold CPA trend must not graduate ACTIVE->MONITOR (chatter)";
+}
+
+TEST(EncounterStateMachine, CpaTrendHysteresisBlocksRegressionOnSubThresholdDeterioration) {
+  auto fsm = drive_to_active(make_test_params());
+  // Graduate to MONITOR on a real (super-threshold) improving trend.
+  fsm.transition(snap(400.0, 900.0), false, true, false, 4.0);   // +100m
+  fsm.transition(snap(400.0, 1000.0), false, true, false, 5.0);  // +100m -> MONITOR
+  ASSERT_EQ(fsm.state(), EncounterState::MONITOR);
+  // Sub-threshold deterioration within the T_plan window: current code
+  // regresses to ACTIVE (chatter); with hysteresis it must hold MONITOR.
+  fsm.transition(snap(400.0, 999.6), false, true, false, 6.0);  // -0.4m jitter
+  EXPECT_EQ(fsm.state(), EncounterState::MONITOR)
+      << "sub-threshold CPA deterioration must not regress MONITOR->ACTIVE";
+}
+
+// --- T10: encounter_state_rank ordering (Phase 1.1 / R8 fix) ---------------
+// The legacy per-target semantic_state aggregation gate at
+// colregs_reasoner_node.cpp:988-994 was first-write-wins (with a narrow
+// CLEAR-to-non-CLEAR exception). Because Rule13 is evaluated before Rule14
+// (colregs_rule_library.yaml order 13<14) and Rule13's FSM defaults to
+// DETECTED when the overtaking geometry does not hold, DETECTED occupied the
+// slot and suppressed Rule14's ACTIVE — pinning M6 at ONSET for the entire
+// encounter (m6_not_past_clear × 874 in V2.3 phase 3b probe).
+//
+// The fix is rank-based aggregation: the highest-rank FSM state wins
+// regardless of evaluation order. These tests pin the rank ordering so a
+// future regression to first-write-wins is caught.
+
+TEST(EncounterStateRank, ClearsIsLowest) {
+  EXPECT_EQ(encounter_state_rank(EncounterState::CLEAR), 0);
+}
+
+TEST(EncounterStateRank, DetectedBeatsClear) {
+  EXPECT_GT(encounter_state_rank(EncounterState::DETECTED),
+            encounter_state_rank(EncounterState::CLEAR));
+}
+
+TEST(EncounterStateRank, ActiveBeatsDetected) {
+  // The R8 bug case: Rule13 DETECTED must NOT suppress Rule14 ACTIVE.
+  EXPECT_GT(encounter_state_rank(EncounterState::ACTIVE),
+            encounter_state_rank(EncounterState::DETECTED));
+}
+
+TEST(EncounterStateRank, ActiveParityWithMonitor) {
+  EXPECT_EQ(encounter_state_rank(EncounterState::ACTIVE),
+            encounter_state_rank(EncounterState::MONITOR));
+}
+
+TEST(EncounterStateRank, ReleaseDominatesAll) {
+  // RELEASE is the authoritative "encounter over" signal — it must dominate
+  // even ACTIVE so a past-clear on one rule is not overwritten by an active
+  // state on another.
+  EXPECT_GT(encounter_state_rank(EncounterState::RELEASE),
+            encounter_state_rank(EncounterState::ACTIVE));
+  EXPECT_GT(encounter_state_rank(EncounterState::RELEASE),
+            encounter_state_rank(EncounterState::MONITOR));
+}
+
+TEST(EncounterStateRank, MonotonicExceptActiveMonitorParity) {
+  // Documented ordering invariant: CLEAR < DETECTED < CANDIDATE < PREPLAN
+  // < ACTIVE == MONITOR < RELEASE.
+  const int r_clear    = encounter_state_rank(EncounterState::CLEAR);
+  const int r_detected = encounter_state_rank(EncounterState::DETECTED);
+  const int r_cand     = encounter_state_rank(EncounterState::CANDIDATE);
+  const int r_preplan  = encounter_state_rank(EncounterState::PREPLAN);
+  const int r_active   = encounter_state_rank(EncounterState::ACTIVE);
+  const int r_monitor  = encounter_state_rank(EncounterState::MONITOR);
+  const int r_release  = encounter_state_rank(EncounterState::RELEASE);
+  EXPECT_LT(r_clear, r_detected);
+  EXPECT_LT(r_detected, r_cand);
+  EXPECT_LT(r_cand, r_preplan);
+  EXPECT_LT(r_preplan, r_active);
+  EXPECT_EQ(r_active, r_monitor);
+  EXPECT_LT(r_monitor, r_release);
 }
 
 }  // namespace

@@ -66,6 +66,7 @@ struct RuleEvaluation {
   TimingPhase phase{TimingPhase::PRESERVE_COURSE};
   double min_alteration_deg{0.0};
   double target_compliance{0.5};
+  double tcpa_s{0.0};  // time to CPA [s], >=0; populated at runtime from TargetGeometricState
   std::string preferred_direction{"HOLD"};  // STARBOARD | PORT | REDUCE_SPEED | HOLD
   float confidence{0.0f};
   std::string rationale;

@@ -17,9 +17,11 @@
 
   <!-- Runtime dependencies — PATH-D whitelist -->
   <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
   <depend>builtin_interfaces</depend>
   <depend>l3_msgs</depend>
   <depend>l3_external_msgs</depend>
+  <depend>ship_interfaces</depend>
   <depend>l3_risk_model</depend>
   <depend>spdlog</depend>
   <depend>yaml-cpp</depend>

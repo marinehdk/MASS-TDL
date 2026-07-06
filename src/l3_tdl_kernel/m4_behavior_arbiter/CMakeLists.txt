@@ -14,6 +14,7 @@ find_package(l3_risk_model REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(builtin_interfaces REQUIRED)
+find_package(ship_interfaces REQUIRED)
 
 # Core library — pure logic, no ROS dependency
 add_library(m4_core STATIC
@@ -53,6 +54,7 @@ target_link_libraries(m4_node_lib PUBLIC
   ${l3_msgs_TARGETS}
   ${l3_external_msgs_TARGETS}
   ${builtin_interfaces_TARGETS}
+  ${ship_interfaces_TARGETS}
 )
 target_compile_options(m4_node_lib PRIVATE -Wall -Wextra -Wpedantic)
 

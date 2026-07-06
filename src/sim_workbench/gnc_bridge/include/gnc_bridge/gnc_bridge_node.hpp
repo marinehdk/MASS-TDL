@@ -14,15 +14,17 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include "rclcpp/rclcpp.hpp"
 
 #include "gnc_bridge/translators.hpp"
-#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_external_msgs/msg/gnc_execution_status.hpp"
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "ship_interfaces/msg/avoidance_plan.hpp"
 #include "ship_interfaces/msg/geo_position.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
 #include "ship_interfaces/msg/ship_reset.hpp"
@@ -30,6 +32,10 @@
 #include "sil_msgs/msg/ship_reset.hpp"
 
 namespace gnc_bridge {
+
+inline rclcpp::QoS latched_reset_qos() {
+  return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+}
 
 // Thread-safe multi-producer/multi-consumer queue of variant-typed ROS messages
 // crossing the L3<->GNC domain boundary inside one process. Each side pushes
@@ -51,6 +57,8 @@ class CrossDomainHandoff {
     bool has_own_ship{false};
     l3_external_msgs::msg::GncExecutionStatus exec_status;
     bool has_exec_status{false};
+    ship_interfaces::msg::GncExecutionOdd execution_odd;  // W2: GNC execution ODD contract
+    bool has_execution_odd{false};
   };
 
   void push_l3_to_gnc(L3ToGnc msg) {
@@ -129,7 +137,9 @@ class L3SideNode : public rclcpp::Node {
                       const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
  private:
   std::shared_ptr<CrossDomainHandoff> handoff_;
-  rclcpp::Subscription<l3_external_msgs::msg::AvoidanceWaypoints>::SharedPtr sub_avoidance_;
+  rclcpp::Subscription<l3_msgs::msg::AvoidancePlan>::SharedPtr sub_avoidance_;
+  rclcpp::TimerBase::SharedPtr avoidance_watchdog_timer_;
+  std::optional<rclcpp::Time> last_avoidance_plan_wall_time_;
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr sub_route_;
   rclcpp::Subscription<sil_msgs::msg::ShipReset>::SharedPtr sub_reset_;
 };
@@ -145,6 +155,7 @@ class GncSideNode : public rclcpp::Node {
   std::shared_ptr<CrossDomainHandoff> handoff_;
   rclcpp::Subscription<ship_interfaces::msg::GeoPosition>::SharedPtr sub_geo_;
   rclcpp::Subscription<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr sub_status_;
+  rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_odd_;  // W2
   rclcpp::Publisher<ship_interfaces::msg::AvoidancePlan>::SharedPtr pub_avoidance_;
   rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr pub_route_;
   rclcpp::Publisher<ship_interfaces::msg::ShipReset>::SharedPtr pub_geo_reset_;
@@ -162,6 +173,7 @@ class L3PublisherNode : public rclcpp::Node {
   std::shared_ptr<CrossDomainHandoff> handoff_;
   rclcpp::Publisher<sil_msgs::msg::OwnShipState>::SharedPtr pub_own_ship_;
   rclcpp::Publisher<l3_external_msgs::msg::GncExecutionStatus>::SharedPtr pub_exec_status_;
+  rclcpp::Publisher<ship_interfaces::msg::GncExecutionOdd>::SharedPtr pub_odd_;  // W2
   rclcpp::TimerBase::SharedPtr drain_timer_;
 };
 

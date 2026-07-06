@@ -44,10 +44,17 @@ def evaluate_m6_oracle(*, compiled: dict, m6_output: dict) -> OracleResult:
     # Preferred direction must be in allowed_actions
     allowed = compiled.get("allowed_actions", [])
     pref = m6_output.get("preferred_direction")
-    if allowed and pref and pref not in allowed:
+    stand_on_in_extremis_action = (
+        compiled.get("own_role") == "STAND_ON"
+        and bool(m6_output.get("stand_on_in_extremis_action"))
+        and pref in ("STARBOARD_TURN", "DECELERATE")
+    )
+    if allowed and pref and pref not in allowed and not stand_on_in_extremis_action:
         failed.append("FORBIDDEN_DIRECTION")
         evidence["m6_direction"] = pref
         evidence["allowed"] = allowed
+    if stand_on_in_extremis_action:
+        evidence["stand_on_in_extremis_action"] = True
 
     # Latch/hysteresis stability
     flip_count = int(m6_output.get("flip_count", 0))
@@ -150,16 +157,16 @@ def evaluate_m2_oracle(*, truth: dict, estimated: dict,
     return OracleResult("M2_WorldModel", len(failed) == 0, failed, evidence)
 
 
-def evaluate_m5_oracle(*, plan_output: dict) -> OracleResult:
+def evaluate_m5_oracle(*, plan_output: dict, plan_required: bool = True) -> OracleResult:
     """M5 TacticalPlanner oracle: feasible plan + no oscillation (design §5.2.4)."""
     failed: list[str] = []
-    evidence: dict = {}
+    evidence: dict = {"plan_required": plan_required}
     status = plan_output.get("solver_status", "EMPTY")
-    if status != "VALID":
+    if plan_required and status != "VALID":
         failed.append("NO_FEASIBLE_PLAN")
         evidence["solver_status"] = status
     n_wp = int(plan_output.get("n_waypoints", 0))
-    if status == "VALID" and n_wp == 0:
+    if plan_required and status == "VALID" and n_wp == 0:
         failed.append("NO_FEASIBLE_PLAN")
         evidence["n_waypoints"] = n_wp
     osc = int(plan_output.get("oscillation_count", 0))
@@ -190,23 +197,43 @@ def evaluate_m7_oracle(*, unsafe_trajectory_vetoed: bool, safe_trajectory_vetoed
 
 def evaluate_l4_oracle(*, first_command_t: float, first_realized_t: float,
                        realized_heading_change_deg: float,
+                       route_accepted: bool | None = None,
+                       first_accepted_t: float | None = None,
+                       action_required: bool = True,
                        act_delay_max_s: float = 20.0,
+                       handoff_delay_max_s: float = 10.0,
                        min_heading_change_deg: float = 10.0) -> OracleResult:
     """L4 GuidanceAdapter oracle: actuation realized + delay (design §5.2.6).
 
-    act_delay_max_s defaults to 20s for surface vessels: the delay spans the
-    M5 solve + L4 handoff + rudder/hydrodynamic response, which for a
-    large-inertia ship is 15-20s (not the 5s automotive ADAS value in the
-    design draft). The threshold is a tuning parameter — flag ACTUATION_DELAY
-    only when the maneuver is materially late, not when normal ship dynamics
-    apply.
+    GNC executes waypoint routes, not explicit COLREG heading intents. When a
+    GNC execution-status trace is available, the functional L4 contract is:
+    M5 avoidance waypoints are accepted promptly and the ship later realizes a
+    material maneuver. Slow heading growth is plant/path geometry, not a L4
+    handoff fault. Legacy traces without GNC status fall back to the historical
+    first-command to first-realized heading-delay proxy.
     """
     failed: list[str] = []
-    evidence: dict = {}
-    delay = first_realized_t - first_command_t
-    evidence["actuation_delay_s"] = round(delay, 3)
-    if delay > act_delay_max_s:
-        failed.append("ACTUATION_DELAY_EXCEEDED")
+    evidence: dict = {"action_required": action_required}
+    if not action_required:
+        evidence["realized_heading_change_deg"] = round(realized_heading_change_deg, 3)
+        if route_accepted is not None:
+            evidence["route_accepted"] = route_accepted
+        return OracleResult("L4_GuidanceAdapter", True, failed, evidence)
+    if route_accepted is not None:
+        evidence["route_accepted"] = route_accepted
+        if not route_accepted:
+            failed.append("ROUTE_NOT_ACCEPTED")
+        elif first_accepted_t is not None:
+            handoff_delay = first_accepted_t - first_command_t
+            evidence["handoff_delay_s"] = round(handoff_delay, 3)
+            if handoff_delay > handoff_delay_max_s:
+                failed.append("ROUTE_HANDOFF_DELAY_EXCEEDED")
+            evidence["plant_response_delay_s"] = round(first_realized_t - first_accepted_t, 3)
+    else:
+        delay = first_realized_t - first_command_t
+        evidence["actuation_delay_s"] = round(delay, 3)
+        if delay > act_delay_max_s:
+            failed.append("ACTUATION_DELAY_EXCEEDED")
     evidence["realized_heading_change_deg"] = round(realized_heading_change_deg, 3)
     if abs(realized_heading_change_deg) < min_heading_change_deg:
         failed.append("INSUFFICIENT_ACTION")

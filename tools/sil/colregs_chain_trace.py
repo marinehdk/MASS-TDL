@@ -93,6 +93,27 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     m6_rows = [r for r in rows if r.get("topic") == "/l3/m6/colregs_constraint"]
     m6_conflicts = [bool(_value(r, "conflict_detected", default=False)) for r in m6_rows]
     m6_targets = [_value(r, "colregs_chain_target_id", "target_id") for r in m6_rows]
+    # Phase 1.2 (G-M6-1, spec v2.3 §15): M6 encounter lifecycle sequence is
+    # the authoritative source for M5 TailBuilder active/release branching and
+    # M7 release checking. Capture the state sequence + transitions + the
+    # past_clear samples so the chain trace surfaces M6 lifecycle bugs (e.g.
+    # stuck at ONSET when geometry says ACTIVE — the R8 root cause) directly,
+    # without geometry back-projection.
+    _ENCOUNTER_STATE_LABEL = {0: "CLEAR", 1: "ONSET", 2: "ACTIVE", 3: "RELEASE"}
+    m6_encounter_states = [
+        _value(r, "encounter_state", default=0) for r in m6_rows
+    ]
+    m6_encounter_labels = [
+        _ENCOUNTER_STATE_LABEL.get(int(s), f"UNKNOWN_{s}") for s in m6_encounter_states
+    ]
+    m6_encounter_transitions = _transitions([
+        # Treat each distinct label as a state for transition counting; CLEAR
+        # samples absent from trace default to None and are skipped.
+        s if s is not None else None for s in m6_encounter_labels
+    ])
+    m6_past_clear_samples = sum(
+        1 for r in m6_rows if bool(_value(r, "past_clear", default=False))
+    )
     m4_behaviors = [_value(r, "behavior") for r in rows if r.get("topic") == "/l3/m4/behavior_plan"]
     m5_rows = [r for r in rows if r.get("topic") == "/l3/m5/avoidance_plan"]
     m5_asdr_decisions = [
@@ -123,6 +144,11 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
         r for r in rows
         if r.get("topic") in ("/sil/actuator_cmd", "/l4/guidance_cmd")
     ] + l4_asdr_rows
+    l4_gnc_rows = [r for r in rows if r.get("topic") == "/l3/gnc/execution_status"]
+    l4_rows += l4_gnc_rows
+    l4_gnc_plan_ids = [
+        str(_value(r, "plan_id", default="")) for r in l4_gnc_rows
+    ]
     m7_rows = [r for r in rows if r.get("topic") in ("/l3/checker/veto", "/l3/m7/safety_alert")]
 
     m6_active = any(m6_conflicts)
@@ -158,7 +184,17 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {
         "route": {"hashes": route_hashes, "hash_changes": route_changes},
         "m2": {"present": any(r.get("topic") == "/l3/m2/world_state" for r in rows)},
-        "m6": {"conflict_toggles": m6_toggles, "targets": [t for t in m6_targets if t is not None]},
+        "m6": {
+            "conflict_toggles": m6_toggles,
+            "targets": [t for t in m6_targets if t is not None],
+            # Phase 1.2: lifecycle diagnostics — surface "stuck at ONSET"
+            # (R8) and similar directly from trace.
+            "encounter_state_transitions": m6_encounter_transitions,
+            "encounter_state_first": m6_encounter_labels[0] if m6_encounter_labels else None,
+            "encounter_state_last": m6_encounter_labels[-1] if m6_encounter_labels else None,
+            "past_clear_samples": m6_past_clear_samples,
+            "samples": len(m6_rows),
+        },
         "m4": {"behavior_toggles": m4_toggles, "behaviors": m4_behaviors},
         "m5": {
             "status_transitions": m5_transitions,
@@ -175,6 +211,16 @@ def build_chain_summary(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "samples": len(l4_rows),
             "execution_sources": [s for s in l4_execution_sources if s],
             "execution_source_transitions": _transitions([s for s in l4_execution_sources if s]),
+            "gnc_execution_state_counts": _counter_dict(
+                _value(r, "execution_state") for r in l4_gnc_rows
+            ),
+            "gnc_reason_counts": _counter_dict(
+                _value(r, "reason") for r in l4_gnc_rows
+            ),
+            "gnc_suggested_action_counts": _counter_dict(
+                _value(r, "suggested_action") for r in l4_gnc_rows
+            ),
+            "gnc_plan_id_changes": _count_changes([p for p in l4_gnc_plan_ids if p]),
         },
         "m7": {"samples": len(m7_rows)},
         "diagnosis": {"first_broken_stage": first_stage, "reason": reason},

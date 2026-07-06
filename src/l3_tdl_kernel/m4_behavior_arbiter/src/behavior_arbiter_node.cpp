@@ -348,6 +348,8 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   const auto asdr_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
 
   interval_ms_ = declare_parameter<int>("m4.arbitration.interval_ms", 250);
+  heading_reachability_dt_s_ = declare_parameter<double>(
+      "m4.heading_reachability.dt_s", 5.0);
   double h_res = declare_parameter<double>("m4.arbitration.heading_domain_resolution_deg", 1.0);
   double s_min = declare_parameter<double>("m4.arbitration.speed_domain_min_kn", 0.0);
   speed_max_kn_ = declare_parameter<double>("m4.arbitration.speed_domain_max_kn", 22.0);
@@ -363,6 +365,17 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
   sub_odd_ = create_subscription<ODDStateMsg>(
       "/l3/m1/odd_state", qos,
       [this](const ODDStateMsg::SharedPtr msg) { on_odd_state(msg); });
+  // Fix F-1: GNC execution ODD — source of cruise_max_yaw_rate_deg_s used for
+  // heading-box ROT clamp. Must be the SAME source M5 NLP uses (plan↔exec ROT
+  // alignment contract); ODDState.rot_max_current is the M1 ODD envelope
+  // (13°/s) and drifts from the GNC execution cap (1.2°/s), so it cannot be
+  // used for the clamp — that mismatch left M4 boxes unclamped while M5 NLP
+  // found them unreachable (probe runs/fix_f_diag_rule14ho, all INFEAS).
+  sub_gnc_odd_ = create_subscription<ship_interfaces::msg::GncExecutionOdd>(
+      "/gnc/execution_odd", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+      [this](const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+        on_gnc_execution_odd(msg);
+      });
   sub_world_ = create_subscription<WorldStateMsg>(
       "/l3/m2/world_state", qos,
       [this](const WorldStateMsg::SharedPtr msg) { on_world_state(msg); });
@@ -421,6 +434,10 @@ BehaviorArbiterNode::BehaviorArbiterNode(const rclcpp::NodeOptions& options)
 
 void BehaviorArbiterNode::on_odd_state(const ODDStateMsg::SharedPtr msg) {
   latest_odd_ = msg; odd_received_ = true;
+}
+void BehaviorArbiterNode::on_gnc_execution_odd(
+    const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg) {
+  latest_gnc_odd_ = msg;
 }
 void BehaviorArbiterNode::on_world_state(const WorldStateMsg::SharedPtr msg) {
   latest_world_ = msg; world_received_ = true;
@@ -632,7 +649,27 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
       double tgt_lon = latest_mission_->current_target_wp.longitude;
       nominal_hdg = compute_bearing_deg(own_lat, own_lon, tgt_lat, tgt_lon);
     }
-    double nominal_spd = speed_max_kn_; // Target nominal speed
+    // Fix D-1/D-3 (Codex review 2026-07-03, session 019f266b): nominal speed
+    // must come from the L2/M3 planned speed (MissionGoal.speed_recommend_kn),
+    // NOT the hardcoded speed_max_kn_ (22 kn). The previous hardcode made the
+    // transit IvP pieces emit a speed box [21.5, 22] kn that excluded both the
+    // planned speed (6 kn) and the current own SOG, so M5 NLP's hard speed box
+    // was physically incoherent → tail-gate decel_infeasible on every converged
+    // NLP whose u[0] tracked planned_speed away from own_u.
+    //
+    // Priority: M3 speed_recommend_kn → current own SOG → speed_max_kn_ fallback.
+    // The fallback to current SOG (Fix D-3) guarantees the speed box always
+    // contains a physically reachable speed for continuity, even if M3 has not
+    // published a recommendation yet.
+    double nominal_spd = speed_max_kn_;
+    if (mission_received_ && latest_mission_ &&
+        latest_mission_->speed_recommend_kn > 0.5F) {
+      nominal_spd = static_cast<double>(latest_mission_->speed_recommend_kn);
+    } else if (latest_world_ && latest_world_->own_ship.sog_kn > 0.5F) {
+      nominal_spd = static_cast<double>(latest_world_->own_ship.sog_kn);
+    }
+    // Clamp to the configured speed domain ceiling.
+    nominal_spd = std::min(nominal_spd, speed_max_kn_);
 
     if (colregs_for_directive) {
       colregs_directive = extract_colregs_directive(*colregs_for_directive);
@@ -1174,6 +1211,15 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   // not route recovery.
   if (colregs_turn_active) {
     colregs_recovery_armed_ = true;
+    if (!has_mrc && primary != BehaviorType::COLREG_AVOID) {
+      // M6's live turn directive is the hard COLREG handoff. The activation
+      // phase/action gate may flicker for one sample while the directive and
+      // heading constraints remain valid; never publish TRANSIT for that state.
+      primary = BehaviorType::COLREG_AVOID;
+      if (rationale.find("M6 live turn directive") == std::string::npos) {
+        rationale += " | M6 live turn directive held COLREG_AVOID";
+      }
+    }
   }
   const bool colregs_conflict_active =
       inputs.colregs_conflict_detected && !risk_controlled_colregs_released;
@@ -1254,6 +1300,92 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
   }
 
   // --- Publish Behavior_PlanMsg ---
+  // Fix D-3 (Codex review 2026-07-03): the speed box must include the current
+  // own SOG so M5 NLP's hard lbx/ubx always admits at least the current speed
+  // (continuity — the ship cannot instantaneously jump to a different speed).
+  // Without this, a transit box [5.5, 6] kn when own is at 11.3 kn forces M5
+  // NLP u[0] to 6 kn, and the (11.3→6) decel exceeds decel_max → every
+  // converged NLP is rejected by tail-gate decel_infeasible. Widen the box to
+  // [min(planned_min, own_sog), max(planned_max, own_sog)] so the ship can
+  // hold current speed on step 0 then decelerate toward planned within
+  // decel_max over subsequent steps. Emergency/MRC behaviors override this
+  // (they own hard decel to stop).
+  if (primary != BehaviorType::MRC_DRIFT && primary != BehaviorType::MRC_ANCHOR &&
+      primary != BehaviorType::MRC_HEAVE_TO && latest_world_) {
+    const double own_sog_kn = static_cast<double>(latest_world_->own_ship.sog_kn);
+    if (own_sog_kn > 0.5) {
+      s_min = std::min(s_min, own_sog_kn);
+      s_max = std::max(s_max, own_sog_kn);
+    }
+  }
+  // Fix F-1 (plan↔exec ROT alignment, 2026-07-03): clamp the finite heading box
+  // to be first-step ROT-reachable from own heading before publish. Uses GNC
+  // execution ODD cruise_max_yaw_rate (SAME source as M5 NLP rot_max) so M4
+  // corridor and M5 NLP share the identical ROT feasibility contract. Earlier
+  // revision used ODDState.rot_max_current (M1 envelope ~13°/s) which drifted
+  // from the GNC execution cap (1.2°/s) and left boxes unclamped → M5 INFEAS.
+  if (primary != BehaviorType::MRC_DRIFT && primary != BehaviorType::MRC_ANCHOR &&
+      primary != BehaviorType::MRC_HEAVE_TO && latest_world_ && latest_gnc_odd_ &&
+      h_min != h_max) {
+    const double rot_step_deg =
+        static_cast<double>(latest_gnc_odd_->cruise_max_yaw_rate_deg_s) *
+        heading_reachability_dt_s_;
+    const double own_hdg_now = static_cast<double>(latest_world_->own_ship.heading_deg);
+    clamp_heading_box_reachable(h_min, h_max, own_hdg_now, rot_step_deg);
+  }
+  // v2.2 §4.6 reachability 合约 (M4 publish, M5 consume, schema 113).
+  // Fill the reachability fields only when a COLREG conflict is active and M6
+  // produced a positive min_alteration; otherwise the fields stay at their
+  // 0-sentinel default (M5 then degrades to v2.1 ROT-only schedule).
+  // rot_step aligns with the GNC execution ODD cruise ROT (same source as the
+  // F-1 clamp above + the M5 NLP rot_max); fall back to 4.7°/s·dt when the ODD
+  // is unavailable. own_hdg comes from the latest world snapshot.
+  //
+  // Codex β review 🟡2 — KNOWN LIMITATION (deferred): when the GNC ODD is
+  // unavailable, this node falls back to rot_step = 4.7°/s·dt (M1 envelope
+  // cruise ROT). M5's own NLP rot_max fallback is 1.2°/s (the more pessimistic
+  // GNC execution cap). This asymmetry means M4 may publish a contract derived
+  // from an optimistic ROT while M5 enforces a tighter ROT — but M5's epsilon
+  // tolerance (🟡4) + its independent max(ROT, box) derivation make M5
+  // self-protecting. The real fix is for behavior_arbiter to subscribe to the
+  // GNC ODD so M4 and M5 share the identical ROT source; until then this
+  // fallback is documented as conservative-safe (M5 will not over-trust M4).
+  auto fill_reachability_contract = [&](BehaviorPlanMsg& p,
+                                        const ColregsDirective& directive) {
+    if (directive.conflict_active && directive.min_alteration_deg > 0.0 &&
+        latest_world_) {
+      const double own_hdg_deg =
+          static_cast<double>(latest_world_->own_ship.heading_deg);
+      double rot_step_deg = 4.7 * heading_reachability_dt_s_;  // GNC baseline fallback (🟡2)
+      if (latest_gnc_odd_) {
+        rot_step_deg = static_cast<double>(latest_gnc_odd_->cruise_max_yaw_rate_deg_s) *
+                       heading_reachability_dt_s_;
+      }
+      const auto reach = compute_heading_box_reachability(
+          static_cast<double>(p.heading_min_deg),
+          static_cast<double>(p.heading_max_deg),
+          own_hdg_deg, rot_step_deg,
+          directive.min_alteration_deg * M_PI / 180.0,
+          directive.direction);
+      p.heading_box_reachable_from_psi0_deg =
+          static_cast<float>(reach.heading_box_reachable_from_psi0_deg);
+      p.rot_step_deg = static_cast<float>(rot_step_deg);
+      p.min_alt_required_rad =
+          static_cast<float>(directive.min_alteration_deg * M_PI / 180.0);
+      // Codex β review 🟡3: earliest_min_alt_k derived from min_alt/rot_step
+      // (matches M5's k_minalt_rot = ceil(min_alt/rot_step)-1, clamped ≥ 0),
+      // not a hardcoded 1.0. This is an M4 hint; M5 derive still takes
+      // max(ROT, box) so the value is advisory.
+      const double min_alt_rad = directive.min_alteration_deg * M_PI / 180.0;
+      const double rot_step_rad = rot_step_deg * M_PI / 180.0;
+      const int earliest_k = (rot_step_rad > 1.0e-9)
+          ? std::max(0, static_cast<int>(std::ceil(min_alt_rad / rot_step_rad)) - 1)
+          : 0;
+      p.earliest_min_alt_k = static_cast<float>(earliest_k);
+      p.reachability_rationale = reach.reachability_rationale;
+    }
+    // 非 COLREG active: 字段保持 0 sentinel（M5 不 consume）
+  };
   BehaviorPlanMsg plan;
   plan.schema_version = 113;
   plan.stamp = now();
@@ -1267,6 +1399,7 @@ void BehaviorArbiterNode::arbitration_timer_callback() {
     rationale += risk_rationale_suffix;
   }
   plan.rationale = rationale;
+  fill_reachability_contract(plan, colregs_directive);
   pub_plan_->publish(plan);
 
   // --- Publish ivp_contributions (SAT-2) ---

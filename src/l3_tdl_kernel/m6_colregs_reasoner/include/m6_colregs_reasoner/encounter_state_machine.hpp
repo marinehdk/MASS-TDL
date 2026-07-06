@@ -30,9 +30,35 @@ enum class EncounterState : uint8_t {
   RELEASE = 6
 };
 
-// Onset snapshot (Rule 13(d): classification fixed at ACTIVE entry and held
-// through own-ship's maneuver so the raw geometric rule falling out of its
-// cone does not reclassify the encounter mid-action).
+// Phase 1.1 (R8 fix, spec v2.3 §3.1): rank EncounterState for per-target
+// semantic_state aggregation. The legacy "first-write + CLEAR-to-non-CLEAR"
+// gate at colregs_reasoner_node.cpp:988-994 let Rule13 (rule-library order
+// 13 before 14) populate semantic_state with DETECTED before Rule14's ACTIVE,
+// suppressing the ACTIVE write and pinning M6 at ONSET
+// (m6_not_past_clear × 874 in V2.3 phase 3b probe). Rank-based aggregation is
+// evaluation-order independent.
+//
+// Rank ordering: CLEAR < DETECTED < CANDIDATE < PREPLAN
+//   < ACTIVE == MONITOR (parity) < RELEASE (terminal past-clear).
+// RELEASE dominates: it is the authoritative "encounter over" signal. The
+// natural CLEAR-after-dwell return at rank 0 is allowed to overwrite only
+// when no higher-rank state is present this cycle.
+inline int encounter_state_rank(EncounterState s) noexcept {
+  switch (s) {
+    case EncounterState::CLEAR:    return 0;
+    case EncounterState::DETECTED: return 1;
+    case EncounterState::CANDIDATE:return 2;
+    case EncounterState::PREPLAN:  return 3;
+    case EncounterState::ACTIVE:   return 4;
+    case EncounterState::MONITOR:  return 4;  // parity with ACTIVE
+    case EncounterState::RELEASE:  return 5;
+  }
+  return 0;
+}
+
+// Onset snapshot (Rule 13(d): classification fixed at first stable classifier
+// geometry and held through own-ship/target maneuvering so the raw geometric
+// rule falling out of its cone does not reclassify the encounter mid-action).
 struct OnsetSnapshot {
   bool valid{false};
   Role role{Role::FREE};
@@ -121,12 +147,15 @@ class EncounterStateMachine {
   void reset();
 
  private:
+  void capture_onset_if_classified_(const RuleEvaluation* raw_eval);
+
   EncounterParams params_;
   EncounterState state_{EncounterState::CLEAR};
   OnsetSnapshot onset_;
   double release_condition_met_since_s_{-1.0};  // RELEASE dwell start clock
   double last_cpa_m_{-1.0};                      // for dCPA/dt ACTIVE<->MONITOR
   int cpa_improve_counter_{0};                   // consecutive improving cycles
+  bool cpa_hard_seen_{false};                    // hard-zone breach in this encounter
   bool had_been_released_{false};
 };
 

@@ -2,6 +2,7 @@
 #include "m7_safety_supervisor/common/error.hpp"
 
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/odd_state.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 
@@ -56,6 +57,26 @@ FaultMonitor::validate_colregs_consistency(
     return common::NoExceptionResult<bool>::ok(false);
   }
   return common::NoExceptionResult<bool>::ok(true);
+}
+
+
+// ---------------------------------------------------------------------------
+// observe_nlp_status
+// M5 NLP status diagnostic: any non-converged/tail-gate failure is a diagnostic fault.
+// SOTIF escalation hysteresis remains in AssumptionMonitor.
+// ---------------------------------------------------------------------------
+
+bool FaultMonitor::observe_nlp_status(
+    std::uint8_t solver_status,
+    float /*kkt_residual*/,
+    bool tail_gate_failed) noexcept
+{
+  bool const kOk =
+      (solver_status == l3_msgs::msg::AvoidancePlan::NLP_CONVERGED) && !tail_gate_failed;
+  if (!kOk) {
+    ++fault_count_;
+  }
+  return kOk;
 }
 
 // ---------------------------------------------------------------------------

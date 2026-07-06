@@ -251,6 +251,35 @@ ConstraintCompiler::compile_colregs_rules(
   for (const uint8_t rule : inputs.applicable_rules) {
     CompiledConstraints cc{};
     switch (rule) {
+      // -------------------------------------------------------------------
+      // Rule 13 (Overtaking) — spec §7.2.
+      // Rule13 does NOT add a compiler-level heading row. Its side + minimum-
+      // alteration constraints are provided by the FORMULATION-layer direction/
+      // min_alt g rows (Slice D1, §7.1):
+      //   g_dir[k]    = preferred_direction · l[k]                 (same-side)
+      //   g_minalt[k] = preferred_direction · (psi[k]-own_psi) - min_alt
+      // which are role-gated (give-way, kIdxRole) and driven by M6
+      // preferred_direction (kIdxPreferredDir, +1 stbd / -1 port). Rule13
+      // give-way activates those same rows, so the overtake side follows M6's
+      // preferred_direction (NOT a hardcoded starboard assumption, §7.2).
+      //
+      // Downgrade notice (§7.2 / §3.5): pass-astern / no-crossing-ahead /
+      // side-release semantics are NOT covered by this spec (they depend on a
+      // ship-domain model not yet in the kernel); only side + min_alt here.
+      //
+      // This case emits a single trivially-satisfied g=0 audit marker so the
+      // rule is SAT-2 visible in the active-set log without duplicating the
+      // formulation-layer constraints.
+      // -------------------------------------------------------------------
+      case 13u: {
+        CompiledConstraints marker;
+        marker.g     = casadi::DM(0.0);
+        marker.g_lb  = casadi::DM::zeros(1, 1);
+        marker.g_ub  = casadi::DM(kInf);
+        marker.names = {"rule_13_overtake_side_via_formulation_direction"};
+        cc = marker;
+        break;
+      }
       case 14u: cc = compile_rule14(psi_seq, psi_0); break;
       case 15u: cc = compile_rule15(psi_seq, psi_0); break;
       case 16u: cc = compile_rule16(psi_seq, psi_0); break;
@@ -274,20 +303,31 @@ ConstraintCompiler::compile_colregs_rules(
 }
 
 // ===========================================================================
-// compile_cpa_distance() — CPA hard constraint: d_k^2 - cpa_safe^2 >= 0
+// compile_cpa_distance() — CPA constraint: d_k^2 - cpa_hard^2 + sigma >= 0
 // Per (target, step). Target is constant-velocity from cog/sog.
+// Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
+// making the feasible region non-empty by construction regardless of geometry.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance(
     const casadi::MX& psi_seq,
     const casadi::MX& u_seq,
     const ConstraintInputs& inputs,
-    double dt_s) const {
+    double dt_s,
+    const casadi::MX& slack) const {
   const int32_t N  = static_cast<int32_t>(psi_seq.size1());
   const int32_t Nt = static_cast<int32_t>(inputs.targets.size());
   if (N < 1 || Nt < 1) { return {}; }
 
   const casadi::DM dt(dt_s);
-  const casadi::DM cpa_safe_sq(inputs.cpa_safe_m * inputs.cpa_safe_m);
+  // Hard floor is cpa_hard_m (un-bumped shared floor), NOT cpa_safe_m — the node
+  // bumps cpa_safe_m during conflict for SOFT cost-scaling only. Using the
+  // bumped value here made the hard floor unreachable (target inside 2500 m →
+  // Infeasible). Bug C deep, RC-C; spec committed-route-design-v2 §L84.
+  const casadi::DM cpa_safe_sq(inputs.cpa_hard_m * inputs.cpa_hard_m);
+  // Phase 3.1: slack must be either empty (legacy hard-only) or a scalar MX.
+  // Per-target / per-step slack is [TBD-MULTI-SHIP]; current form is the
+  // exact-penalty scalar shared across all rows.
+  const bool slack_active = !slack.is_empty() && slack.size2() == 1;
   casadi::MX cx(0.0);
   casadi::MX cy(0.0);
   std::vector<casadi::MX> g_rows;
@@ -310,7 +350,11 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
           + target.sog_mps * std::sin(target.cog_rad) * kdt;
       const casadi::MX dx = cx - casadi::DM(tx);
       const casadi::MX dy = cy - casadi::DM(ty);
-      g_rows.push_back(dx * dx + dy * dy - cpa_safe_sq);
+      casadi::MX row = dx * dx + dy * dy - cpa_safe_sq;
+      if (slack_active) {
+        row = row + slack;
+      }
+      g_rows.push_back(row);
       names.push_back("cpa_distance_t" + std::to_string(t)
                       + "_k" + std::to_string(k));
     }
@@ -400,9 +444,11 @@ std::vector<Polygon2D> ConstraintCompiler::decompose_polygon(
 // ===========================================================================
 // compile_zone_constraints() — polygon containment over trajectory positions
 //
-// Phase E1 simplified trajectory (origin = own ship at k=0):
-//   x[k] = sum_{j=0}^{k} u[j]*dt*sin(psi[j])   (NED: x=north)
-//   y[k] = sum_{j=0}^{k} u[j]*dt*cos(psi[j])   (NED: y=east)
+// Phase E1 simplified trajectory (origin = own ship at k=0), NED convention
+// (psi=0 → north = +x). Must match compile_cpa_distance (:305-306):
+//   x[k] = sum_{j=0}^{k} u[j]*dt*cos(psi[j])   (NED: x=north)
+//   y[k] = sum_{j=0}^{k} u[j]*dt*sin(psi[j])   (NED: y=east)
+// spec §8.1: prior sin/cos swap placed north-heading ships on the east axis.
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints
 ConstraintCompiler::compile_zone_constraints(
@@ -440,8 +486,8 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::build_zone_steps(
   for (int32_t k = 0; k < N; ++k) {
     casadi::MX psi_k = psi_seq(casadi::Slice(k, k + 1));
     casadi::MX u_k   = u_seq(casadi::Slice(k, k + 1));
-    cum_x = cum_x + u_k * casadi::DM(dt_s) * casadi::MX::sin(psi_k);
-    cum_y = cum_y + u_k * casadi::DM(dt_s) * casadi::MX::cos(psi_k);
+    cum_x = cum_x + u_k * casadi::DM(dt_s) * casadi::MX::cos(psi_k);
+    cum_y = cum_y + u_k * casadi::DM(dt_s) * casadi::MX::sin(psi_k);
 
     // Union of sub-polygons: point is inside union if inside any sub-polygon
     casadi::MX best(kMxNegInf);

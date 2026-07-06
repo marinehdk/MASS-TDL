@@ -50,6 +50,24 @@ def _behavior_record(t_s, behavior, *, avoidance_active=False):
     }
 
 
+def _m2_record(t_s, cpa_m, tcpa_s, rng_m):
+    return {
+        "topic": "/l3/m2/world_state",
+        "sim_t": t_s,
+        "primary_cpa_m": cpa_m,
+        "primary_tcpa_s": tcpa_s,
+        "primary_rng_m": rng_m,
+    }
+
+
+def _m6_record(t_s, conflict_detected):
+    return {
+        "topic": "/l3/m6/colregs_constraint",
+        "sim_t": t_s,
+        "conflict_detected": conflict_detected,
+    }
+
+
 def _risk_defaults(**overrides):
     values = {
         "primary_threat_id": "",
@@ -389,6 +407,32 @@ def test_route_return_requires_stable_transit_after_last_avoidance():
     assert stable["returned_to_route"] is True
 
 
+def test_route_status_counts_no_avoidance_route_preserved_as_returned():
+    runner = _load_runner()
+    records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": 10.0, "behavior": 0},
+        {
+            "topic": "/sil/own_ship_state",
+            "sim_t": 100.0,
+            "lat": 20.0 / 111120.0,
+            "lon": 5.0 / 111120.0,
+            "heading_deg": 1.0,
+        },
+    ]
+
+    status = runner.compute_route_return_status(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        init_hdg=0.0,
+    )
+
+    assert status["had_avoidance"] is False
+    assert status["returned_to_route"] is True
+
+
 def test_route_status_ignores_ownship_records_far_from_scenario_origin():
     runner = _load_runner()
     records = [
@@ -431,6 +475,28 @@ def test_route_status_ignores_ownship_records_far_from_scenario_origin():
     assert status["returned_to_route"] is True
     assert status["max_route_xte_m"] == pytest.approx(450.0, abs=1.0)
     assert status["route_corridor_ok"] is True
+
+
+def test_trace_slice_drops_pre_reset_prefix_before_scenario_initial():
+    runner = _load_runner()
+    records = [
+        _ownship_record(3.0, 10.0, 17000.0),
+        _behavior_record(4.0, 1, avoidance_active=True),
+        _ownship_record(15.0, 120.0, 120.0),
+        _behavior_record(16.0, 1, avoidance_active=True),
+        _ownship_record(30.0, 150.0, 300.0),
+    ]
+
+    sliced = runner._slice_records_from_scenario_start(
+        records,
+        lat0=0.0,
+        lon0=0.0,
+        init_lat=0.0,
+        init_lon=0.0,
+        max_initial_distance_m=1000.0,
+    )
+
+    assert [r["sim_t"] for r in sliced] == [15.0, 16.0, 30.0]
 
 
 def test_overtake_status_requires_ownship_longitudinally_ahead():
@@ -928,6 +994,50 @@ def test_length_scaled_cpa_floor_has_small_measurement_tolerance():
     assert runner.cpa_floor_measurement_tolerance_m(expected) == pytest.approx(2.25)
 
 
+def test_early_stop_does_not_report_recovery_stalled_while_m6_conflict_active():
+    runner = _load_runner()
+
+    failed, reason = runner.assess_encounter_failure(
+        route_status={"returned_to_route": False, "final_behavior": 1},
+        m2_records=[
+            _m2_record(2900.0, cpa_m=480.0, tcpa_s=0.0, rng_m=460.0),
+            _m2_record(2910.0, cpa_m=480.0, tcpa_s=0.0, rng_m=500.0),
+        ],
+        m6_records=[
+            _m6_record(2900.0, True),
+            _m6_record(2910.0, True),
+        ],
+        cpa_floor_m=180.0,
+        tcpa_nominal_s=2600.0,
+        route_return_budget_s=200.0,
+        current_sim_t=2910.0,
+    )
+
+    assert (failed, reason) == (False, None)
+
+
+def test_early_stop_reports_recovery_stalled_after_m6_conflict_clears():
+    runner = _load_runner()
+
+    failed, reason = runner.assess_encounter_failure(
+        route_status={"returned_to_route": False, "final_behavior": 1},
+        m2_records=[
+            _m2_record(2900.0, cpa_m=480.0, tcpa_s=0.0, rng_m=460.0),
+            _m2_record(2910.0, cpa_m=480.0, tcpa_s=0.0, rng_m=500.0),
+        ],
+        m6_records=[
+            _m6_record(2900.0, True),
+            _m6_record(2910.0, False),
+        ],
+        cpa_floor_m=180.0,
+        tcpa_nominal_s=2600.0,
+        route_return_budget_s=200.0,
+        current_sim_t=2910.0,
+    )
+
+    assert (failed, reason) == (True, "recovery_stalled")
+
+
 def test_restart_between_runs_restarts_sil_nodes_and_settles(monkeypatch):
     runner = _load_runner()
     calls = []
@@ -960,6 +1070,26 @@ def test_rule13_yaml_requires_overtake_completion():
     assert expected["cpa_acceptance"]["profile"] == (
         "corridor_follow_or_overtake_4L")
     assert expected["cpa_acceptance"]["threshold_m"] == 180.0
+
+
+def test_non_route_return_probe_stops_at_declared_horizon():
+    runner = _load_runner()
+
+    assert runner.should_stop_at_declared_horizon(
+        sim_t=3597.9,
+        total_time_s=3600.0,
+        route_return_required=False,
+    ) is False
+    assert runner.should_stop_at_declared_horizon(
+        sim_t=3598.0,
+        total_time_s=3600.0,
+        route_return_required=False,
+    ) is True
+    assert runner.should_stop_at_declared_horizon(
+        sim_t=3600.0,
+        total_time_s=3600.0,
+        route_return_required=True,
+    ) is False
 
 
 def test_safe_route_left_encounter_fixture_is_not_in_clean_8_probe():
@@ -1058,6 +1188,31 @@ def test_trace_evaluation_report_uses_runner_phase_gate(tmp_path):
     assert data["first_failure"] == "L4_colregs_compliance"
 
 
+def test_trace_evaluation_report_splits_route_recovery_from_seamanship(tmp_path):
+    runner = _load_runner()
+    result = {
+        "cpa_ok": True,
+        "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": False},
+        "route_corridor_ok": True,
+        "route_return_required": True,
+        "returned_to_route": True,
+        "overtake_required": False,
+        "overtake_completed": True,
+        "compliance_verdict": "full",
+        "phase_semantics": {"phase_semantics_ok": True},
+        "stability_pass": True,
+        "overall_pass": False,
+    }
+
+    report_path = runner._write_trace_evaluation_report(
+        "colreg-rule14-ho", result, tmp_path)
+
+    data = yaml.safe_load(Path(report_path).read_text())
+    assert data["verdict"]["mission_pass"] is False
+    assert data["layers"]["L5_route_recovery"]["status"] == "PASS"
+    assert data["layers"]["L6_seamanship"]["status"] == "FAIL"
+
+
 def test_runner_archives_per_scenario_raw_trace(tmp_path):
     runner = _load_runner()
     trace_path = tmp_path / "trace_current.jsonl"
@@ -1071,6 +1226,22 @@ def test_runner_archives_per_scenario_raw_trace(tmp_path):
 
     assert archived == str(tmp_path / "reports" / "colreg-rule14-ho.trace_current.jsonl")
     assert Path(archived).read_text() == trace_path.read_text()
+
+
+def test_read_trace_run_records_keeps_lagging_interleaved_topics(tmp_path):
+    runner = _load_runner()
+    trace_path = tmp_path / "trace_current.jsonl"
+    rows = [
+        {"topic": "/sil/own_ship_state", "sim_t": 100.0},
+        {"topic": "/l3/m4/behavior_plan", "sim_t": 108.0, "behavior": 1},
+        {"topic": "/sil/lifecycle_status", "sim_t": 101.0, "state": 3},
+        {"topic": "/l3/m5/avoidance_plan", "sim_t": 109.0, "n_waypoints": 10},
+    ]
+    trace_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+
+    records = runner.read_trace_run_records(trace_path)
+
+    assert [record["topic"] for record in records] == [row["topic"] for row in rows]
 
 
 # ── C1 crossing past-and-clear threshold (90° beam + tcpa<0 backstop) ──────
@@ -1221,6 +1392,59 @@ def test_c1_crossing_passes_astern_opening_safe_before_beam():
     assert result["c1_past_clear_ok"] is True
 
 
+def test_c5_crossing_uses_closest_pass_not_entire_early_action_window():
+    """Rule15 give-way may act early while still forward of the target track.
+    C5 should judge the closest-pass/post-CPA geometry, not require the whole
+    ample-time avoidance window to be majority abaft."""
+    target_cog = 290.0
+    target_speed_mps = 4.91
+    own_speed_mps = 5.14
+    # Trace-like geometry: active at t=0, own becomes abaft near t=875, closest
+    # pass near release at t=1100 with own safely abaft the target track.
+    release_t = 1100.0
+    release_range = 1305.0
+    release_bearing = 340.0
+    release_own_e = 0.0
+    release_own_n = own_speed_mps * release_t
+    rel_e = release_range * math.sin(math.radians(release_bearing))
+    rel_n = release_range * math.cos(math.radians(release_bearing))
+    vel_e = target_speed_mps * math.sin(math.radians(target_cog))
+    vel_n = target_speed_mps * math.cos(math.radians(target_cog))
+    start_e = release_own_e + rel_e - vel_e * release_t
+    start_n = release_own_n + rel_n - vel_n * release_t
+    targets_meta = [{
+        "lat0": start_n / 111120.0,
+        "lon0": start_e / (111120.0 * math.cos(math.radians(0.0))),
+        "cog": target_cog,
+        "sog_kn": target_speed_mps / 0.514444,
+    }]
+    own_records = [
+        {"topic": "/sil/own_ship_state", "sim_t": float(t),
+         "lat": (own_speed_mps * float(t)) / 111120.0,
+         "lon": 0.0,
+         "heading_deg": 0.0,
+         "sog_kn": own_speed_mps / 0.514444}
+        for t in range(0, 1401, 25)
+    ]
+    behavior_records = [
+        {"topic": "/l3/m4/behavior_plan", "sim_t": float(t),
+         "behavior": 1 if 0 <= t <= 1100 else 0}
+        for t in range(0, 1401, 25)
+    ]
+
+    result = _c1_phase_semantics(
+        own_records=own_records,
+        behavior_records=behavior_records,
+        targets_meta=targets_meta,
+        cpa_safe_m=900.0,
+    )
+
+    assert result["evaluated"] is True
+    assert result["cpa_moment_along_m"] < 0.0
+    assert result["c5_avoid_window_abaft_frac"] < 0.6
+    assert result["c5_no_cross_ahead_ok"] is True
+
+
 def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
     """Mechanical right-turn + early route return while the target is still on
     the bow (rel_brg ~36°) and tcpa>0 (CPA still ahead): C1 must stay RED. This
@@ -1258,6 +1482,50 @@ def test_c1_early_return_at_bow_with_tcpa_ahead_stays_red():
     assert result["c1_past_clear_ok"] is False, (
         "early return at rel_brg~36° with tcpa>0 must stay RED"
     )
+
+
+def test_rule13_long_horizon_overtake_is_not_rejected_for_early_ample_action():
+    runner = _load_runner()
+    target_speed_mps = 5.0
+    own_speed_mps = 8.0
+    target_start_n = 6000.0
+    targets_meta = [{
+        "lat0": target_start_n / 111120.0,
+        "lon0": 0.0,
+        "cog": 0.0,
+        "sog_kn": target_speed_mps / 0.514444,
+    }]
+    own_records = []
+    behavior_records = []
+    for t in range(0, 3301, 100):
+        north_m = own_speed_mps * t
+        heading = 0.0 if t <= 100 or t >= 3100 else 35.0
+        own_records.append({
+            "topic": "/sil/own_ship_state",
+            "sim_t": float(t),
+            "lat": north_m / 111120.0,
+            "lon": 0.0,
+            "heading_deg": heading,
+            "sog_kn": own_speed_mps / 0.514444,
+        })
+        behavior_records.append({
+            "topic": "/l3/m4/behavior_plan",
+            "sim_t": float(t),
+            "behavior": 1 if 100 <= t <= 3000 else 0,
+        })
+
+    result = _c1_phase_semantics(
+        own_records=own_records,
+        behavior_records=behavior_records,
+        targets_meta=targets_meta,
+        rule="Rule13",
+    )
+
+    assert result["evaluated"] is True
+    assert result["onset_tcpa_s"] > runner.PHASE_GATE_T_PLAN_S
+    assert result["c3_ample_time_ok"] is True
+    assert result["c7_overtake_past_clear_ok"] is True
+    assert result["phase_semantics_ok"] is True
 
 
 def _write_valid_trace(path: Path) -> None:
@@ -1310,7 +1578,7 @@ def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0, trace_report_dir=None: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):
@@ -1353,7 +1621,7 @@ def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "run_scenario",
-        lambda scenario_id, total_time_override=None, sim_rate=10.0: _fake_runner_result(),
+        lambda scenario_id, total_time_override=None, sim_rate=10.0, trace_report_dir=None: _fake_runner_result(),
     )
 
     def fake_report(scenario_id, result, trace_report_dir):
@@ -1383,3 +1651,40 @@ def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
     manual_dir = tmp_path / "runs" / "trace_eval" / "manual_dir"
     assert (manual_dir / "manifest.json").exists()
     assert (manual_dir / "batch_summary.json").exists()
+
+
+def test_trace_evaluation_report_preserves_frozen_trace_artifact(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.chdir(tmp_path)
+    report_dir = tmp_path / "runs" / "trace_eval" / "session"
+    frozen_trace = report_dir / "colreg-rule14-ho.trace_current.jsonl"
+    _write_valid_trace(frozen_trace)
+    current_trace = tmp_path / "runs" / "trace_current.jsonl"
+    current_trace.write_text(json.dumps({
+        "sim_t": 0.0,
+        "wall_t": 2000.0,
+        "topic": "/sil/lifecycle_status",
+    }) + "\n")
+
+    captured = {}
+
+    class FakeReport:
+        def to_json_dict(self):
+            return {"verdict": {"overall_pass": True}}
+
+    def fake_report_from_runner_result(**kwargs):
+        trace_path = Path(kwargs["trace_artifact_path"])
+        captured["trace_artifact_path"] = str(trace_path)
+        captured["line_count"] = sum(1 for _ in trace_path.open())
+        return FakeReport()
+
+    monkeypatch.setattr(runner, "_load_expected_outcome", lambda _scenario_id: {})
+    monkeypatch.setattr(runner, "report_from_runner_result", fake_report_from_runner_result)
+    result = _fake_runner_result()
+    result["trace_artifact_path"] = str(frozen_trace)
+
+    runner._write_trace_evaluation_report("colreg-rule14-ho", result, report_dir)
+
+    assert captured["trace_artifact_path"] == str(frozen_trace)
+    assert captured["line_count"] == 25
+    assert sum(1 for _ in frozen_trace.open()) == 25

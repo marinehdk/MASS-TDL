@@ -133,11 +133,23 @@ TEST(ColregsReleasePolicy, AllowsReferenceHeadingReleaseWhenReturnCpaSafe) {
       /*cpa_safe_m=*/926.0));
 }
 
-TEST(ColregsReleasePolicy, AllowsOpeningReferenceReleaseBeforeBeamWhenReturnCpaSafe) {
-  EXPECT_TRUE(give_way_opening_reference_heading_release_safe(
+TEST(ColregsReleasePolicy, BlocksOpeningReferenceReleaseBeforeBeamWhenReturnCpaSafe) {
+  EXPECT_FALSE(give_way_opening_reference_heading_release_safe(
       /*range_closing=*/false,
       /*range_m=*/1200.0,
       /*bearing_deg=*/285.2,
+      /*target_heading_deg=*/290.0,
+      /*target_speed_kn=*/10.61,
+      /*own_speed_kn=*/9.88,
+      /*reference_heading_deg=*/0.0,
+      /*cpa_safe_m=*/926.0));
+}
+
+TEST(ColregsReleasePolicy, AllowsOpeningReferenceReleasePastBeamWhenReturnCpaSafe) {
+  EXPECT_TRUE(give_way_opening_reference_heading_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/3719.0,
+      /*bearing_deg=*/95.0,
       /*target_heading_deg=*/290.0,
       /*target_speed_kn=*/10.61,
       /*own_speed_kn=*/9.88,
@@ -186,6 +198,50 @@ TEST(ColregsReleasePolicy, OpeningReferenceReleaseAppliesOnlyToRule15Crossing) {
   EXPECT_FALSE(give_way_opening_reference_release_applies_to_rule(13));
 }
 
+TEST(ColregsReleasePolicy, AllowsCrossingTargetTrackReleaseAfterPastCpaAsternAndSafe) {
+  EXPECT_TRUE(rule15_target_track_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/2202.2,
+      /*bearing_deg=*/339.6,
+      /*target_heading_deg=*/290.0,
+      /*cpa_m=*/2207.1,
+      /*tcpa_s=*/0.0,
+      /*cpa_safe_m=*/900.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingTargetTrackReleaseBeforePastCpa) {
+  EXPECT_FALSE(rule15_target_track_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/2637.6,
+      /*bearing_deg=*/13.2,
+      /*target_heading_deg=*/290.0,
+      /*cpa_m=*/2201.5,
+      /*tcpa_s=*/297.4,
+      /*cpa_safe_m=*/900.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingTargetTrackReleaseWhileStillClosing) {
+  EXPECT_FALSE(rule15_target_track_release_safe(
+      /*range_closing=*/true,
+      /*range_m=*/3866.4,
+      /*bearing_deg=*/43.8,
+      /*target_heading_deg=*/290.0,
+      /*cpa_m=*/3878.5,
+      /*tcpa_s=*/0.0,
+      /*cpa_safe_m=*/900.0));
+}
+
+TEST(ColregsReleasePolicy, BlocksCrossingTargetTrackReleaseBeforeOwnIsAsternOfTargetTrack) {
+  EXPECT_FALSE(rule15_target_track_release_safe(
+      /*range_closing=*/false,
+      /*range_m=*/5000.0,
+      /*bearing_deg=*/60.0,
+      /*target_heading_deg=*/290.0,
+      /*cpa_m=*/2200.0,
+      /*tcpa_s=*/0.0,
+      /*cpa_safe_m=*/900.0));
+}
+
 TEST(ColregsReleasePolicy, ProjectionReferenceReleaseAppliesOnlyToRule15Crossing) {
   EXPECT_TRUE(give_way_projection_reference_release_applies_to_rule(15));
   EXPECT_FALSE(give_way_projection_reference_release_applies_to_rule(13));
@@ -199,6 +255,21 @@ TEST(ColregsReleasePolicy, GiveWayFinalReleaseUsesConfiguredReleaseFloor) {
           /*give_way_latched=*/true,
           /*rule13_latched=*/false),
       1000.0);
+}
+
+TEST(ColregsReleasePolicy, GiveWayProjectionReleaseCanUseConfiguredReleaseFloor) {
+  const double release_floor_m = give_way_final_release_cpa_floor_m(
+      /*configured_cpa_safe_m=*/1852.0,
+      /*configured_cpa_release_m=*/1000.0,
+      /*give_way_latched=*/true,
+      /*rule13_latched=*/false);
+  EXPECT_TRUE(give_way_projection_release_safe(
+      /*cpa_projection_past_and_safe=*/true,
+      /*range_m=*/1300.0,
+      release_floor_m,
+      /*current_relative_bearing_abs_deg=*/152.0,
+      /*reference_relative_bearing_abs_deg=*/152.0,
+      GiveWayProjectionReleaseGate::CURRENT_ABAFT));
 }
 
 TEST(ColregsReleasePolicy, NonGiveWayFinalReleaseKeepsSafeFloor) {
@@ -237,6 +308,20 @@ TEST(ColregsReleasePolicy, AllowsGiveWayDutyInsideTPlanWindow) {
       /*range_closing=*/true));
 }
 
+TEST(ColregsReleasePolicy, BlocksSecondaryOnlyGiveWayDutyWithoutPrimaryClassifier) {
+  EXPECT_FALSE(give_way_duty_onset_signal(
+      /*raw_own_give_way=*/true,
+      /*own_stand_on=*/false,
+      /*past_and_clear=*/false,
+      /*cpa_projection_past_and_safe=*/false,
+      /*tcpa_s=*/240.0,
+      /*cpa_m=*/0.8,
+      /*t_plan_s=*/720.0,
+      /*cpa_hard_m=*/1852.0,
+      /*range_closing=*/true,
+      /*primary_own_give_way=*/false));
+}
+
 TEST(ColregsReleasePolicy, BlocksGiveWayDutyWhenNotClosing) {
   EXPECT_FALSE(give_way_duty_onset_signal(
       /*raw_own_give_way=*/true,
@@ -248,6 +333,17 @@ TEST(ColregsReleasePolicy, BlocksGiveWayDutyWhenNotClosing) {
       /*t_plan_s=*/720.0,
       /*cpa_hard_m=*/1852.0,
       /*range_closing=*/false));
+}
+
+TEST(ColregsReleasePolicy, PrimaryRuleOnsetDoesNotPreemptLatchedPrimaryRule) {
+  EXPECT_TRUE(primary_rule_onset_allowed(
+      /*candidate_rule_id=*/15, /*latched_primary_rule_id=*/15));
+  EXPECT_TRUE(primary_rule_onset_allowed(
+      /*candidate_rule_id=*/14, /*latched_primary_rule_id=*/0));
+  EXPECT_FALSE(primary_rule_onset_allowed(
+      /*candidate_rule_id=*/14, /*latched_primary_rule_id=*/15));
+  EXPECT_FALSE(primary_rule_onset_allowed(
+      /*candidate_rule_id=*/15, /*latched_primary_rule_id=*/13));
 }
 
 TEST(ColregsReleasePolicy, Rule13FinalReleaseUsesPastClearEmergencyFloor) {
@@ -272,6 +368,21 @@ TEST(ColregsReleasePolicy, Rule13AlongAxisAllowsReleaseAfterOwnPassesTarget) {
       /*range_m=*/700.0,
       /*bearing_deg=*/164.0,
       /*target_heading_deg=*/0.0));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleasePastClearRequiresAlongAxisClear) {
+  EXPECT_FALSE(rule13_release_past_and_clear(
+      /*rule13_release_context=*/true,
+      /*bearing_past_and_clear=*/true,
+      /*along_axis_past_and_clear=*/false));
+  EXPECT_TRUE(rule13_release_past_and_clear(
+      /*rule13_release_context=*/true,
+      /*bearing_past_and_clear=*/true,
+      /*along_axis_past_and_clear=*/true));
+  EXPECT_TRUE(rule13_release_past_and_clear(
+      /*rule13_release_context=*/false,
+      /*bearing_past_and_clear=*/true,
+      /*along_axis_past_and_clear=*/false));
 }
 
 TEST(ColregsReleasePolicy, BlocksOvertakingProjectionReleaseBeforeRule13PastClear) {
@@ -341,6 +452,98 @@ TEST(ColregsReleasePolicy, UsesFsmHeldGiveWayDutyWhenRawGeometryDropsOut) {
       /*raw_give_way_duty=*/false,
       /*fsm_engaged=*/true,
       held_eval));
+}
+
+TEST(ColregsReleasePolicy, Rule5FollowsPrimaryLatchWhenRule14Latched) {
+  // Rule 5 must stay active while a primary rule (here Rule 14) is latched for
+  // this target, so the instantaneous-CPA risk gate cannot churn Rule 5 out.
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/true,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5FollowsPrimaryLatchWhenAnyPrimaryLatched) {
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/true));
+  EXPECT_TRUE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5DoesNotFollowWhenNoPrimaryLatched) {
+  // No primary rule latched: Rule 5 falls back to the normal risk gate.
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/5,
+      /*rule13_latched=*/false,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule5BypassAppliesOnlyToRule5) {
+  // Non-Rule-5 rules never take the follow path, regardless of latch state.
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/6,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/true,
+      /*rule15_latched=*/true));
+  EXPECT_FALSE(rule5_follows_primary_latch(
+      /*rule_id=*/17,
+      /*rule13_latched=*/true,
+      /*rule14_latched=*/false,
+      /*rule15_latched=*/false));
+}
+
+// --- rule13_release_context_active (Bug D: phantom conflict) ---------------
+// The rule13 along-axis release context must apply ONLY when rule13 is the
+// dominant primary encounter. A sticky rule13 FSM that engages after the target
+// draws astern into the overtaking sector during a rule14/15 encounter must NOT
+// block the primary encounter's release (root cause of rule14-ho phantom
+// conflict: M6 predicted release but never executed it).
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenRule14PrimaryEvenWithRule13Fsm) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/true, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenRule15Primary) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/true,
+      /*give_way_duty_latched=*/true));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextTrueWhenRule13IsPrimary) {
+  EXPECT_TRUE(rule13_release_context_active(
+      /*rule13_projection_latched=*/true, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextTrueWhenOvertakingOnsetOnly) {
+  EXPECT_TRUE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/true,
+      /*is_overtaking_onset=*/true,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
+}
+
+TEST(ColregsReleasePolicy, Rule13ReleaseContextFalseWhenNothingPrimary) {
+  EXPECT_FALSE(rule13_release_context_active(
+      /*rule13_projection_latched=*/false, /*rule13_fsm_engaged=*/false,
+      /*is_overtaking_onset=*/false,
+      /*rule14_primary_latched=*/false, /*rule15_primary_latched=*/false,
+      /*give_way_duty_latched=*/false));
 }
 
 }  // namespace

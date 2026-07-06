@@ -17,11 +17,21 @@ export interface VoyagePlanData {
   routeId?: number;
 }
 
+export type AvoidanceSegmentSource =
+  | 'MID_MPC_OPTIMIZED'
+  | 'MID_MPC_TERMINAL_HOLD'
+  | 'REJOIN_TO_L2'
+  | 'L2_NOMINAL_SUFFIX'
+  | 'DEGRADED_CORRIDOR'
+  | 'UNKNOWN';
+
 export interface AvoidanceWaypointData extends NormalizedWaypoint {
   confidence?: number;
   targetSpeedKn?: number;
+  targetSpeedMps?: number;
   turnRadiusM?: number;
   rationale?: string;
+  segmentSource?: AvoidanceSegmentSource;
 }
 
 export interface AvoidancePlanData {
@@ -30,6 +40,10 @@ export interface AvoidancePlanData {
   status?: string;
   confidence?: number;
   rationale?: string;
+  routeHash?: number;
+  nlpSolverStatus?: number;
+  nlpKktResidual?: number;
+  nlpTailGateFailed?: boolean;
 }
 
 export interface OddStateData {
@@ -292,11 +306,51 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+
+function segmentSourceLabel(value: unknown): AvoidanceSegmentSource {
+  switch (value) {
+    case 0: return 'MID_MPC_OPTIMIZED';
+    case 1: return 'MID_MPC_TERMINAL_HOLD';
+    case 2: return 'REJOIN_TO_L2';
+    case 3: return 'L2_NOMINAL_SUFFIX';
+    case 4: return 'DEGRADED_CORRIDOR';
+    case 'MID_MPC_OPTIMIZED':
+    case 'MID_MPC_TERMINAL_HOLD':
+    case 'REJOIN_TO_L2':
+    case 'L2_NOMINAL_SUFFIX':
+    case 'DEGRADED_CORRIDOR':
+      return value;
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 function normalizeAvoidancePlan(plan: any | null): AvoidancePlanData | null {
   if (!plan) return null;
 
-  const waypoints = Array.isArray(plan.waypoints)
-    ? plan.waypoints.flatMap((wp: any) => {
+  const routeLatitudes = Array.isArray(plan.latitude) ? plan.latitude : [];
+  const routeLongitudes = Array.isArray(plan.longitude) ? plan.longitude : [];
+  const routeSpeeds = Array.isArray(plan.command_speed_mps ?? plan.commandSpeedMps)
+    ? (plan.command_speed_mps ?? plan.commandSpeedMps)
+    : [];
+  const segmentSources = Array.isArray(plan.segment_source ?? plan.segmentSource)
+    ? (plan.segment_source ?? plan.segmentSource)
+    : [];
+
+  const routeWaypoints = routeLatitudes.flatMap((latRaw: unknown, index: number) => {
+    const lat = numberOrUndefined(latRaw);
+    const lon = numberOrUndefined(routeLongitudes[index]);
+    if (lat === undefined || lon === undefined) return [];
+    return [{
+      lat,
+      lon,
+      targetSpeedMps: numberOrUndefined(routeSpeeds[index]),
+      segmentSource: segmentSourceLabel(segmentSources[index]),
+    }];
+  });
+
+  const richWaypoints = Array.isArray(plan.waypoints)
+    ? plan.waypoints.flatMap((wp: any, index: number) => {
       const pos = wp?.position ?? wp;
       const lat = numberOrUndefined(pos?.latitude ?? pos?.lat);
       const lon = numberOrUndefined(pos?.longitude ?? pos?.lon);
@@ -309,9 +363,12 @@ function normalizeAvoidancePlan(plan: any | null): AvoidancePlanData | null {
         targetSpeedKn: numberOrUndefined(wp?.target_speed_kn ?? wp?.targetSpeedKn),
         turnRadiusM: numberOrUndefined(wp?.turn_radius_m ?? wp?.turnRadiusM),
         rationale: typeof wp?.rationale === 'string' ? wp.rationale : undefined,
+        segmentSource: segmentSourceLabel(segmentSources[index]),
       }];
     })
     : [];
+
+  const waypoints = routeWaypoints.length > 0 ? routeWaypoints : richWaypoints;
 
   return {
     waypoints,
@@ -319,6 +376,12 @@ function normalizeAvoidancePlan(plan: any | null): AvoidancePlanData | null {
     status: typeof plan.status === 'string' ? plan.status : undefined,
     confidence: numberOrUndefined(plan.confidence),
     rationale: typeof plan.rationale === 'string' ? plan.rationale : undefined,
+    routeHash: numberOrUndefined(plan.route_hash ?? plan.routeHash),
+    nlpSolverStatus: numberOrUndefined(plan.nlp_solver_status ?? plan.nlpSolverStatus),
+    nlpKktResidual: numberOrUndefined(plan.nlp_kkt_residual ?? plan.nlpKktResidual),
+    nlpTailGateFailed: typeof (plan.nlp_tail_gate_failed ?? plan.nlpTailGateFailed) === 'boolean'
+      ? (plan.nlp_tail_gate_failed ?? plan.nlpTailGateFailed)
+      : undefined,
   };
 }
 

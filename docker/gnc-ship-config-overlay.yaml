@@ -59,7 +59,7 @@ ship_control_node:
   ros__parameters:
     arrival_radius: 15.0
     control_authority: manual
-    control_period: 0.1
+    control_period: 0.01
     coordinate_conventions:
       yaw_torque_sign: 1.0
       yaw_torque_sign_cruise: 1.0  # C-level mock convention verified by 002: cruise yaw loop sign matches allocator/dynamics.
@@ -161,7 +161,7 @@ ship_dynamics_node:
     auto_initial_yaw_max_speed_mps: 0.05
     auto_initial_yaw_max_position_offset_m: 5.0
     log_dir: logs/ship_dynamics/
-    time_scale: 1.0              # 快测专用；1.0=真实墙钟速度，>1 仅用于离线长航线筛查
+    time_scale: 10.0             # GNC profile strict probes run SIL lifecycle at 10x; plant dt must match sim_time.
     thrusters:
       num: 7
       r1:
@@ -228,7 +228,7 @@ ship_dynamics_node:
       - tb2
       - r1
       - r2
-    update_rate: 50.0
+    update_rate: 500.0
     vessel:
       B: 8.0
       Lpp: 44.1
@@ -256,7 +256,7 @@ ship_dynamics_node:
     water_depth: 20.0
 ship_guidance_node:
   ros__parameters:
-    guidance_period_s: 0.5      # 制导循环周期；快测 launch 会按 time_scale 缩短
+    guidance_period_s: 0.05     # GNC profile strict probes run SIL lifecycle at 10x; keep guidance cadence in sim_time.
     capture_radius: 60.0   # [FIX] larger for DP approach
     intermediate_capture_radius: 15.0  # 中间航点切换半径，与最终 DP 捕获半径分离
     use_adaptive_los: true   # 启用 ALOS 漂移角补偿，降低稳态横偏
@@ -635,9 +635,9 @@ active_route_manager_node:
     min_turn_radius_m: 80.0
     emergency_min_turn_radius_m: 45.0
     max_lateral_accel_mps2: 0.25
-    max_yaw_rate_deg_s: 1.2
-    emergency_max_yaw_rate_deg_s: 2.0
-    max_decel_mps2: 0.08
+    max_yaw_rate_deg_s: 4.7              # v2.1: synced with ship_config.yaml (IMO MSC.137(76) derived 🟡 [TBD-HAZID-2026-08-19])
+    emergency_max_yaw_rate_deg_s: 4.7    # v2.1 B3: GNC clamps max(cruise,emergency); keep equal
+    max_decel_mps2: 0.20                  # v2.2 §4.7: NLM 🟢 emergency crash-astern 下限; IMO MSC.137(76) 15L 推导 3.9L pass
     default_avoidance_hold_s: 60.0
     publish_nominal_status: false
 

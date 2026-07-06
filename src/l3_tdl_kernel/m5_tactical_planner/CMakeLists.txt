@@ -36,8 +36,10 @@ endif()
 # ---------------------------------------------------------------------------
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(l3_msgs REQUIRED)
 find_package(l3_external_msgs REQUIRED)
+find_package(ship_interfaces REQUIRED)
 find_package(l3_risk_model REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(spdlog REQUIRED)
@@ -91,6 +93,9 @@ find_package(Boost REQUIRED COMPONENTS headers)
 # commented find_package(IPOPT) block above must be re-enabled.
 # ---------------------------------------------------------------------------
 set(M5_SHARED_SOURCES
+  src/avoidance_route_hash.cpp
+  src/committed_route/committed_route.cpp
+  src/gnc_preflight.cpp
   # --- common/ ---
   src/common/error.cpp
   src/common/types.cpp
@@ -109,6 +114,9 @@ set(M5_SHARED_SOURCES
   src/bc_mpc/bc_mpc_override_generator.cpp
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
+  src/mid_mpc/degraded_candidate_adapter.cpp
+  # --- tail_builder/ ---
+  src/tail_builder/tail_builder.cpp
 )
 
 set(M5_LINK_LIBS
@@ -143,6 +151,7 @@ ament_target_dependencies(m5_shared_lib
   rclcpp
   l3_msgs
   l3_external_msgs
+  ship_interfaces
   builtin_interfaces
 )
 
@@ -162,8 +171,10 @@ if(M5_HAS_CASADI)
   )
   ament_target_dependencies(m5_mid_mpc_node
     rclcpp
+    std_msgs
     l3_msgs
     l3_external_msgs
+    ship_interfaces
     builtin_interfaces
     ament_index_cpp
   )
@@ -186,6 +197,7 @@ target_include_directories(m5_bc_mpc_node
 )
 ament_target_dependencies(m5_bc_mpc_node
   rclcpp
+  std_msgs
   l3_msgs
   l3_external_msgs
   builtin_interfaces
@@ -318,12 +330,92 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # Spec v2.2 §4.7 (D2): MidMpcInput.speed_gap_infeasible flag + compute fn.
+    m5_add_gtest(test_mid_mpc_types
+      test/unit/test_mid_mpc_types.cpp
+    )
+
+    # ── Slice R1: route-frame J_route dimensionless + COLREG dominance ─────────
+    m5_add_gtest(test_mid_mpc_route_cost
+      test/unit/test_mid_mpc_route_cost.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── Slice N1: NLP row registry per-class lbg/ubg (spec §3.8) ───────────────
+    m5_add_gtest(test_row_registry
+      test/unit/test_row_registry.cpp
+      casadi::casadi
+    )
+
+    # ── Slice T1: terminal constraints + smooth J_terminal (spec §5.4/§5.5) ────
+    m5_add_gtest(test_mid_mpc_terminal
+      test/unit/test_mid_mpc_terminal.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── Slice C1: continuity H_commit prefix equality + reprojection (spec §6) ─
+    m5_add_gtest(test_mid_mpc_continuity
+      test/unit/test_mid_mpc_continuity.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── Slice D1: COLREG direction + min_alt internalization (spec §7.1) ─────────
+    m5_add_gtest(test_mid_mpc_direction
+      test/unit/test_mid_mpc_direction.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── Slice R1 review round-2: route-frame active-leg geometry (Critical 3) ──
+    m5_add_gtest(test_mid_mpc_route_frame
+      test/unit/test_mid_mpc_route_frame.cpp
+      spdlog::spdlog
+    )
+
     # ── Task 2.3: Mid-MPC waypoint generator unit tests ────────────────────────
     m5_add_gtest(test_mid_mpc_waypoint_generator
       test/unit/test_mid_mpc_waypoint_generator.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
+
+    # ── Slice B: Mid-MPC tail-gate and stand-on acceptance tests ───────────────
+    m5_add_gtest(test_midmpc_tail_gate
+      test/unit/test_midmpc_tail_gate.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
+    m5_add_gtest(test_heading_bounds
+      test/unit/test_heading_bounds.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
+    m5_add_gtest(test_stand_on_reject
+      test/unit/test_stand_on_reject.cpp
+      spdlog::spdlog yaml-cpp::yaml-cpp
+    )
   endif()
+
+  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
+  m5_add_gtest(test_tail_builder
+    test/unit/test_tail_builder.cpp
+  )
+
+  # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
+  m5_add_gtest(test_committed_route
+    test/unit/test_committed_route.cpp
+  )
+
+  # ── M1 review High-4/High-5: along-track frozen_prefix_count pure function ──
+  m5_add_gtest(test_committed_candidate_geometry
+    test/unit/test_committed_candidate_geometry.cpp
+  )
+
+  # ── Slice E: degraded fallback candidates ─────────────────────────────────
+  m5_add_gtest(test_degraded_candidate_adapter
+    test/unit/test_degraded_candidate_adapter.cpp
+  )
+
+  # ── Slice F: GNC feasibility preflight ──────────────────────────────────────
+  m5_add_gtest(test_gnc_preflight
+    test/unit/test_gnc_preflight.cpp
+  )
 
   # ── Task 3.1: BC-MPC branch formulation + collision detector unit tests ──────
   m5_add_gtest(test_bc_mpc_collision_detector
@@ -365,6 +457,16 @@ if(BUILD_TESTING)
     test/unit/test_avoidance_waypoint_gen.cpp
   )
 
+  # Slice A: M5 AvoidancePlan committed-route message contract.
+  m5_add_gtest(test_avoidance_plan_contract
+    test/unit/test_avoidance_plan_contract.cpp
+  )
+
+  # W4-A: target-track vs corridor clearance gate (pure geometry, no ROS).
+  m5_add_gtest(test_target_corridor_clearance
+    test/unit/test_target_corridor_clearance.cpp
+  )
+
   # CasADi loads its IPOPT/MA57/HSL backends via dlopen(RTLD_DEEPBIND).
   # RTLD_DEEPBIND is incompatible with AddressSanitizer: the loaded DSO sees
   # its own (un-instrumented) libc symbols, causing ASAN to crash on
@@ -374,7 +476,8 @@ if(BUILD_TESTING)
     foreach(_no_asan_tgt
         test_constraint_compiler
         test_mid_mpc_nlp_formulation
-        test_mid_mpc_solver)
+        test_mid_mpc_solver
+        test_mid_mpc_continuity)
       target_compile_options(${_no_asan_tgt} PRIVATE
         -fno-sanitize=address -fno-sanitize=undefined)
       target_link_options(${_no_asan_tgt} PRIVATE

@@ -21,6 +21,7 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
+#include "m5_tactical_planner/mid_mpc/row_registry.hpp"
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -51,13 +52,27 @@ class MidMpcSolver {
   // Solve one Mid-MPC cycle.
   // @param input  Time-aligned runtime snapshot for this cycle.
   // @param warm_start  Previous-cycle solution (nullptr → cold start).
+  // @param row_bounds  Per-cycle row-bound policy (Slice N1, spec §3.8).
+  //                    Default (K=0, no soften, no disable) reproduces the legacy
+  //                    zeros/inf general-constraint bounds → N1 first version is a
+  //                    no-op until C1/D1 populate K>0 / direction flags.
   // @return  MidMpcSolution including status, trajectory, solve_duration_ms.
   [[nodiscard]] MidMpcSolution solve(const MidMpcInput& input,
-                                     const MidMpcSolution* warm_start);
+                                     const MidMpcSolution* warm_start,
+                                     const RowBoundConfig& row_bounds = {});
 
   // Count of consecutive non-Converged cycles since last success.
   [[nodiscard]] int64_t consecutive_failures() const noexcept {
     return consecutive_failures_;
+  }
+
+  // v2.2 §13.1: expose derived minalt_box_infeasible for dispatch OR condition.
+  // Set in solve() after derive_row_bound_config(): true when the M4-published
+  // heading box upper < own+min_alt (the ship physically cannot reach the min
+  // alteration floor inside its directional envelope). Drives the BC-MPC
+  // take-over OR condition (can trigger on the first solve, consecutive=0).
+  [[nodiscard]] bool last_minalt_box_infeasible() const noexcept {
+    return last_minalt_box_infeasible_;
   }
 
  private:
@@ -65,6 +80,7 @@ class MidMpcSolver {
   IpoptOptions opts_;
   casadi::Dict ipopt_dict_;          // reserved for Phase E2 call-level overrides
   int64_t consecutive_failures_{0};
+  bool last_minalt_box_infeasible_{false};  // v2.2 §13.1: set in solve() after derive
 
   // Pack previous-cycle trajectory into x0 ∈ R^{2N}: [psi; u].
   [[nodiscard]] casadi::DM pack_warm_start_(const MidMpcSolution& warm) const;
@@ -75,6 +91,15 @@ class MidMpcSolver {
   // Delegate to formulation_.g_dim() for internal use.
   [[nodiscard]] int32_t g_dim_() const noexcept;
 };
+
+// v2.1 spec §4.2/§4.3: derive k_minalt + k_cpa from input when caller doesn't
+// override. Returns RowBoundConfig with override_valid=false for derived fields;
+// solve() merges caller row_bounds on top (caller fields with override_valid=true
+// win; K/colreg_prefix_softened keep their existing caller-precedence).
+RowBoundConfig derive_row_bound_config(
+    const MidMpcInput& input,
+    int32_t n_horizon,
+    double dt_s);
 
 }  // namespace mass_l3::m5::mid_mpc
 

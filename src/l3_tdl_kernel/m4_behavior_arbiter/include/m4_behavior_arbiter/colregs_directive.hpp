@@ -42,6 +42,24 @@ struct HeadingWindow {
   double heading_max_deg{0.0};
 };
 
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume).
+// Codex β review 🔴 Blocker fix (task-mr6d2jyi-jnd08o): the
+// heading_box_reachable_from_psi0_deg semantic is now DIRECTION-AWARE — it is
+// the max attainable deviation in the preferred COLREGS direction within the
+// box, measured from own_psi (not the nearest-edge distance). This is the value
+// M5 consumes as the preferred-direction min_alt reach ceiling.
+struct HeadingBoxReachability {
+  double heading_box_reachable_from_psi0_deg{0.0};  // preferred-direction max deviation from own_psi
+  bool   box_allows_min_alt{false};                  // directional reach ≥ min_alt?
+  std::string reachability_rationale;                 // 不够时 reason
+};
+
+[[nodiscard]] HeadingBoxReachability compute_heading_box_reachability(
+    double h_min_deg, double h_max_deg,
+    double own_hdg_deg, double rot_step_deg,
+    double min_alt_rad,
+    ColregsDirection preferred_direction);
+
 [[nodiscard]] double wrap_heading_deg(double heading_deg);
 [[nodiscard]] ColregsDirection parse_colregs_direction(const std::string& direction);
 [[nodiscard]] mass_l3::risk::ColregsDuty map_role_to_duty(
@@ -80,5 +98,23 @@ void apply_primary_risk_guidance(
 [[nodiscard]] double signed_deviation_deg(
     const ColregsDirective& directive,
     double required_deviation_deg);
+
+// Fix F-1 (plan↔exec ROT alignment, 2026-07-03): clamp a finite M4 heading box
+// [h_min_deg, h_max_deg] (degrees, may wrap across 0/360) so it always contains
+// at least one heading reachable from own_hdg_deg within one ROT step
+// (rot_step_deg = rot_max_deg_s * dt_s). Preserves the directive direction: if
+// the box partially overlaps the reachable arc [own-rot_step, own+rot_step],
+// the overlap is kept (directive-side edge preferred); if the box is entirely
+// outside the reachable arc, it is translated along the directive direction
+// (sign of box-centre minus own_hdg) until just tangent to the reachable arc.
+// No-op when rot_step_deg <= 0 (clamp disabled) or the box already overlaps.
+//
+// Rationale: without this clamp M4 can publish a corridor (e.g. onset [60,90]
+// while own_psi≈0) that is not one-step ROT-reachable. M5 NLP (Fix E) then finds
+// the own_psi→psi[0] ROT row infeasible → IPOPT Infeasible → geometric fallback
+// → no real avoidance. The clamp guarantees the published corridor is always
+// first-step executable by GNC.
+void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
+                                 double own_hdg_deg, double rot_step_deg);
 
 }  // namespace mass_l3::m4

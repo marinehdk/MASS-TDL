@@ -154,4 +154,52 @@ TEST(Rule13_OvertakingTest, NonZeroHeading_TargetAheadSameCourseSlowerIsGiveWay)
   EXPECT_GE(result.min_alteration_deg, 65.0);
 }
 
+// --- W6: COLREGs Rule 13(a) "any vessel overtaking any other" imposes NO
+// same/similar-course requirement. Overtaking is determined solely by the
+// abaft-beam sector (13(b)) + a closing speed differential. Verified against
+// maritime_regulations notebook (high confidence). The previous kSameCourseMaxDeg
+// gate was non-COLREGs and violated 13(c) "if in doubt, assume overtaking". ---
+
+// Geometry: own heading 0 at 14 kn, target heading 300 (60 deg course difference)
+// at 4 kn. Target is at absolute bearing 300 from own, so own lies abaft the
+// target's beam (own relative bearing from target = 180 deg, inside
+// [112.5, 247.5]). Own faster + abaft + closing => own is overtaking target.
+TEST(Rule13_OvertakingTest, ClassifiesOvertakingWithLargeCourseDifference) {
+  Rule13_Overtaking rule;
+  TargetGeometricState geo{};
+  geo.target_id = 10;
+  geo.bearing_deg = 300.0;          // absolute: target ahead-right of own
+  geo.target_heading_deg = 300.0;   // 60 deg course difference from own
+  geo.ownship_heading_deg = 0.0;
+  geo.ownship_speed_kn = 14.0;      // own faster
+  geo.target_speed_kn = 4.0;
+
+  RuleParameters params{};
+  params.min_alteration_deg = 15.0;
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_TRUE(result.is_active);
+  EXPECT_EQ(result.role, Role::GIVE_WAY);
+  EXPECT_EQ(result.encounter_type, EncounterType::OVERTAKING);
+}
+
+// Counterfactual: same 60 deg course difference and own is still geometrically
+// abaft the target's beam (own rel bearing from target = 240 deg, in sector),
+// but own is NOT closing (equal speed, no speed differential). Must NOT be
+// classified as overtaking. Guards against over-classification once the
+// same-course gate is removed: the speed-differential gate is the real guard.
+TEST(Rule13_OvertakingTest, LargeCourseDiffButNotClosing_IsNotOvertaking) {
+  Rule13_Overtaking rule;
+  TargetGeometricState geo{};
+  geo.target_id = 11;
+  geo.bearing_deg = 180.0;          // target directly astern of own
+  geo.target_heading_deg = 300.0;   // 60 deg course difference
+  geo.ownship_heading_deg = 0.0;
+  geo.ownship_speed_kn = 10.0;      // equal speed => no closing differential
+  geo.target_speed_kn = 10.0;
+
+  RuleParameters params{};
+  auto result = rule.evaluate(geo, OddDomain::ODD_A, params);
+  EXPECT_FALSE(result.is_active);
+}
+
 }  // namespace mass_l3::m6_colregs::rules::colregs

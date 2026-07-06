@@ -110,6 +110,87 @@ def _project_point(lat: float, lon: float, bearing_deg: float,
     return math.degrees(lat2), math.degrees(lon2)
 
 
+# Phase 3.10 (C2, spec v2.3 §5.2): L2 nominal route densification.
+# Scenarios commonly specify nominalRoute as 2 endpoints (start + finish). The
+# downstream coordinate_transform_node pairs incoming routes against
+# last_feedback_path_ element-by-element (1 m tolerance), and the M5 avoidance
+# plan re-anchors at ownship. Without a dense L2 nominal path, the M5 prefix
+# helper cannot find history waypoints before ownship to align the paired
+# comparison, and every M5 plan is rejected with "first changed waypoint is too
+# close to current ship position". Densifying the published L2 route to a
+# sensible station spacing (~1 NM open-sea baseline) gives coord_transform a
+# dense feedback path the M5 prefix can index into.
+L2_DENSIFY_DEFAULT_SPACING_NM = 1.0
+
+
+def _densify_waypoints(
+    waypoints: list[tuple[float, float]],
+    spacing_nm: float = L2_DENSIFY_DEFAULT_SPACING_NM,
+) -> list[tuple[float, float]]:
+    """Linear-interpolate extra waypoints between nominal endpoints.
+
+    Splits each leg longer than ``spacing_nm`` into sub-legs of roughly
+    ``spacing_nm``. Legs already shorter than the spacing are kept as-is.
+    The endpoint order is preserved; the start of each leg is always kept
+    and the leg's true finish is appended verbatim (no rounding drift on the
+    final waypoint).
+    """
+    if len(waypoints) < 2 or spacing_nm <= 0.0:
+        return list(waypoints)
+    densified: list[tuple[float, float]] = [waypoints[0]]
+    for i in range(len(waypoints) - 1):
+        lat1, lon1 = waypoints[i]
+        lat2, lon2 = waypoints[i + 1]
+        leg_nm = _haversine_nm(lat1, lon1, lat2, lon2)
+        if leg_nm <= spacing_nm:
+            densified.append((lat2, lon2))
+            continue
+        bearing = _bearing_between(lat1, lon1, lat2, lon2)
+        n_steps = max(1, int(math.ceil(leg_nm / spacing_nm)))
+        step_nm = leg_nm / n_steps
+        for step in range(1, n_steps + 1):
+            sub_lat, sub_lon = _project_point(lat1, lon1, bearing, step_nm * step)
+            if step == n_steps:
+                # Snap the last sub-step to the leg's true finish to avoid
+                # accumulated projection drift.
+                densified.append((lat2, lon2))
+            else:
+                densified.append((sub_lat, sub_lon))
+    return densified
+
+
+def _resample_speeds(
+    speeds_kn: list[float],
+    nominal_count: int,
+    densified_count: int,
+) -> list[float]:
+    """Re-stretch per-waypoint speeds to the densified waypoint count.
+
+    Phase 3.10 mock-L2 densify companion: when nominalRoute has 2 endpoints
+    the publisher holds a single cruise speed; densification simply repeats
+    it. For multi-leg routes each nominal leg's start speed is held constant
+    across that leg's densified sub-waypoints (step-wise constant profile).
+    """
+    if densified_count <= 0:
+        return []
+    if not speeds_kn:
+        return [float(DEFAULT_TRANSIT_SPEED_KN)] * densified_count
+    if nominal_count < 2 or densified_count <= 1:
+        return [float(speeds_kn[0])] * densified_count
+    # Walk the nominal legs in lock-step with _densify_waypoints: each leg
+    # contributes ceil(leg_nm / spacing) sub-steps. We don't have waypoints
+    # here so re-stretch by proportional bucketing of the densified range.
+    per_leg = max(1, densified_count // (nominal_count - 1))
+    out: list[float] = []
+    for i in range(densified_count):
+        leg = min(i // per_leg, nominal_count - 2)
+        if i == densified_count - 1:
+            out.append(float(speeds_kn[-1]))
+        else:
+            out.append(float(speeds_kn[leg]))
+    return out
+
+
 def _make_geo_point(lat: float, lon: float, alt: float = 0.0) -> GeoPoint:
     p = GeoPoint()
     p.latitude = lat
@@ -200,6 +281,16 @@ class MockL2Publisher(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=5,
         )
+        # Phase 3.10.1: latched QoS to match orchestrator's _SCENARIO_LOADED_QOS
+        # and lifecycle_mgr's _STATUS_QOS (both TRANSIENT_LOCAL). Without this,
+        # mock_l2 missed the latched scenario_id broadcast during entrypoint
+        # Stage 1 → fell back to auto-detect → densify ran on the wrong scenario.
+        latched_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
 
         self._pub_voyage_task = self.create_publisher(
             VoyageTask, "/l1/voyage_task", tl_qos)
@@ -219,10 +310,10 @@ class MockL2Publisher(Node):
             self._on_own_ship_state, sensor_qos)
         self._sub_lifecycle = self.create_subscription(
             LifecycleStatus, "/sil/lifecycle_status",
-            self._on_lifecycle_status, 10)
+            self._on_lifecycle_status, latched_qos)
         self._sub_scenario = self.create_subscription(
             String, "/sil/scenario_loaded",
-            self._on_scenario_loaded, 10)
+            self._on_scenario_loaded, latched_qos)
         # F1a: Subscribe to M3's replan request and respond with SUCCESS.
         # QoS: RELIABLE keep_last(10) — match M3's publisher contract.
         replan_sub_qos = QoSProfile(
@@ -355,6 +446,7 @@ class MockL2Publisher(Node):
 
     def _auto_detect_scenario(self):
         import glob as _glob
+        import yaml as _yaml
         yaml_files = sorted(_glob.glob(os.path.join(self._scenario_dir, "**/*.yaml"), recursive=True))
         if not yaml_files:
             self.get_logger().warn(
@@ -363,11 +455,34 @@ class MockL2Publisher(Node):
             self._generate_default_route()
             return
 
-        first_yaml = os.path.basename(yaml_files[0])
+        # Phase 3.10.1: prefer the YAML whose metadata.scenario_id matches the
+        # current_scenario_id (set from latched /sil/scenario_loaded or
+        # lifecycle_status.scenario_id). Fallback: pick the YAML whose own
+        # metadata.scenario_id is set and is non-baseline; final fallback:
+        # alphabetical first (legacy behavior).
+        chosen_path = None
+        chosen_source = ""
+        if self._current_scenario_id:
+            for path in yaml_files:
+                try:
+                    with open(path, "r") as stream:
+                        data = _yaml.safe_load(stream)
+                    if (isinstance(data, dict)
+                            and isinstance(data.get("metadata"), dict)
+                            and data["metadata"].get("scenario_id") == self._current_scenario_id):
+                        chosen_path = path
+                        chosen_source = "metadata.scenario_id match"
+                        break
+                except Exception:
+                    continue
+        if chosen_path is None:
+            chosen_path = yaml_files[0]
+            chosen_source = f"alphabetical first of {len(yaml_files)}"
+
+        first_yaml = os.path.basename(chosen_path)
         scenario_id = os.path.splitext(first_yaml)[0]
         self.get_logger().info(
-            f"Auto-detected scenario: {scenario_id} "
-            f"(first of {len(yaml_files)} YAML files)")
+            f"Auto-detected scenario: {scenario_id} ({chosen_source})")
         self._current_scenario_id = scenario_id
         self._load_scenario(scenario_id)
 
@@ -431,18 +546,29 @@ class MockL2Publisher(Node):
 
         nominal = own.get("nominalRoute")
         if nominal and len(nominal) >= 2:
-            self._yaml_waypoints = []
-            self._yaml_speeds_kn = []
-            for wp in nominal:
-                self._yaml_waypoints.append((
-                    float(wp["latitude"]),
-                    float(wp["longitude"]),
-                ))
-                self._yaml_speeds_kn.append(
-                    float(wp.get("target_sog_kn", self._default_speed)))
-            self._route_source = "YAML nominalRoute"
+            raw_waypoints = [
+                (float(wp["latitude"]), float(wp["longitude"])) for wp in nominal
+            ]
+            raw_speeds_kn = [
+                float(wp.get("target_sog_kn", self._default_speed)) for wp in nominal
+            ]
+            # Phase 3.10 (C2): densify to L2_DENSIFY_DEFAULT_SPACING_NM so the
+            # downstream coordinate_transform_node feedback path is indexable by
+            # the M5 prefix helper. Without this, scenarios that specify only
+            # start + finish endpoints produce a 2-point feedback path and the
+            # M5 ownship-anchored avoidance plan is rejected on every cycle
+            # (probe run-19f320d48d5: 0 ACCEPTED / 98 REJECTED).
+            self._yaml_waypoints = _densify_waypoints(raw_waypoints)
+            self._yaml_speeds_kn = _resample_speeds(
+                raw_speeds_kn, len(raw_waypoints), len(self._yaml_waypoints))
+            self._route_source = (
+                f"YAML nominalRoute (densified {len(raw_waypoints)}→"
+                f"{len(self._yaml_waypoints)} @ "
+                f"{L2_DENSIFY_DEFAULT_SPACING_NM:.1f}NM)"
+            )
             self.get_logger().info(
-                f"Route from YAML: {len(self._yaml_waypoints)} waypoints")
+                f"Route from YAML: {len(raw_waypoints)} nominal → "
+                f"{len(self._yaml_waypoints)} densified waypoints")
         else:
             self._generate_default_route()
             return

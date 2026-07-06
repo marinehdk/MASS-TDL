@@ -112,8 +112,13 @@ def run_oracles(*, scenario_id: str, trace_path: Path,
     m2_result = evaluate_m2_oracle(truth=truth, estimated=estimate)
 
     # ── M5 ────────────────────────────────────────────────────────────
+    cmd_t = _first_avoidance_onset(rows)
+    action_required = cmd_t is not None
     m5_output = extract_m5_plan_output(rows)
-    m5_result = evaluate_m5_oracle(plan_output=m5_output)
+    m5_result = evaluate_m5_oracle(
+        plan_output=m5_output,
+        plan_required=action_required,
+    )
 
     # ── M7 ────────────────────────────────────────────────────────────
     # unsafe_trajectory_present defaults False (conservative). The caller can
@@ -125,7 +130,6 @@ def run_oracles(*, scenario_id: str, trace_path: Path,
         unsafe_trajectory_present=m7_input["unsafe_trajectory_present"])
 
     # ── L4 ────────────────────────────────────────────────────────────
-    cmd_t = _first_avoidance_onset(rows)
     if cmd_t is None:
         cmd_t = 0.0
     # Release time: first TRANSIT after the last avoidance sample.
@@ -134,7 +138,10 @@ def run_oracles(*, scenario_id: str, trace_path: Path,
     l4_result = evaluate_l4_oracle(
         first_command_t=l4_input["first_command_t"],
         first_realized_t=l4_input["first_realized_t"],
-        realized_heading_change_deg=l4_input["realized_heading_change_deg"])
+        realized_heading_change_deg=l4_input["realized_heading_change_deg"],
+        route_accepted=l4_input.get("route_accepted"),
+        first_accepted_t=l4_input.get("first_accepted_t"),
+        action_required=action_required)
 
     def _to_dict(res) -> dict:
         return {

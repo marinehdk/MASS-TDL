@@ -9,6 +9,8 @@
 // validity_timer_ at 10 Hz republishes the active command with a decrementing
 // validity_s so downstream L4 always has a fresh expiry timestamp.
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "rclcpp/rclcpp.hpp"
@@ -17,6 +19,7 @@
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/reactive_override_cmd.hpp"
 #include "l3_msgs/msg/world_state.hpp"
+#include "std_msgs/msg/u_int64.hpp"
 
 #include "m5_tactical_planner/bc_mpc/bc_mpc_branch_formulation.hpp"
 #include "m5_tactical_planner/bc_mpc/bc_mpc_override_generator.hpp"
@@ -43,6 +46,12 @@ class BcMpcNode : public rclcpp::Node {
   l3_msgs::msg::WorldState::SharedPtr      world_state_;
   l3_msgs::msg::AvoidancePlan::SharedPtr   last_mid_mpc_plan_;
 
+  // v2.2 §13.1: BC-MPC Phase E2 wiring. Atomic cache of Mid-MPC's
+  // consecutive_failures (subscribed from /l3/m5/mid_mpc/consecutive_failures).
+  // Initialised to 0 → no take-over until Mid-MPC reports failures (replaces the
+  // Phase E1 stub at the old assemble_input_ site).
+  std::atomic<std::uint64_t> mid_mpc_consecutive_failures_atomic_{0U};
+
   bool   is_bc_active_{false};
   double remaining_validity_s_{0.0};
   l3_msgs::msg::ReactiveOverrideCmd active_cmd_;
@@ -51,6 +60,7 @@ class BcMpcNode : public rclcpp::Node {
 
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr     sub_world_;
   rclcpp::Subscription<l3_msgs::msg::AvoidancePlan>::SharedPtr  sub_mid_plan_;
+  rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr        sub_mid_mpc_failures_;
   rclcpp::Publisher<l3_msgs::msg::ReactiveOverrideCmd>::SharedPtr pub_override_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr         pub_asdr_;
   rclcpp::TimerBase::SharedPtr validity_timer_;

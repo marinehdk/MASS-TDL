@@ -11,6 +11,15 @@
 source /opt/ros/humble/setup.bash
 source /opt/ws/install/setup.bash
 
+# CasADi runtime libs are shipped inside the pip wheel (under
+# .../dist-packages/casadi/), not in a standard linker path. M5's
+# mid_mpc_node links libcasadi.so.3.7 at build time and fails to start
+# (exit 127) unless this directory is on the loader path.
+_casadi_lib_dir="$(python3 -c 'import casadi, os; print(os.path.dirname(casadi.__file__))' 2>/dev/null || true)"
+if [[ -n "$_casadi_lib_dir" && -f "$_casadi_lib_dir/libcasadi.so.3.7" ]]; then
+  export LD_LIBRARY_PATH="${_casadi_lib_dir}:${LD_LIBRARY_PATH}"
+fi
+
 if [[ "${TDL_INTEGRATION_PROFILE:-default}" != "default" ]]; then
   /opt/ws/scripts/integration/start_external_adapters.sh &
 fi

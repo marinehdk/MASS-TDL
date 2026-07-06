@@ -2,7 +2,7 @@
 // gnc_bridge field translators. Pure functions, no ROS node state. TDD-covered.
 // Spec D3/D6: the ONLY place ship_interfaces types appear in L3-land. L3 core
 // modules use l3_external_msgs/sil_msgs; this header maps to/from ship_interfaces.
-#include "l3_external_msgs/msg/avoidance_waypoints.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_external_msgs/msg/gnc_execution_status.hpp"
 #include "l3_external_msgs/msg/planned_route.hpp"
 #include "ship_interfaces/msg/avoidance_plan.hpp"
@@ -15,11 +15,11 @@
 
 namespace gnc_bridge {
 
-// L3 AvoidanceWaypoints -> GNC ship_interfaces/AvoidancePlan.
+// L3 AvoidancePlan -> GNC ship_interfaces/AvoidancePlan.
 // GNC follows waypoint geometry (docking doc §9.2): command_heading_deg is left
 // empty so GNC derives heading from the corridor.
 ship_interfaces::msg::AvoidancePlan to_gnc_avoidance_plan(
-    const l3_external_msgs::msg::AvoidanceWaypoints& src,
+    const l3_msgs::msg::AvoidancePlan& src,
     const builtin_interfaces::msg::Time& stamp);
 
 // Rebase an L3 sim-time avoidance deadline onto the GNC node clock before

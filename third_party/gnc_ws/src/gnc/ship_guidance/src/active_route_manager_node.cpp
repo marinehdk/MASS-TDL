@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -13,8 +14,10 @@
 
 #include "ship_interfaces/msg/avoidance_plan.hpp"
 #include "ship_interfaces/msg/geo_position.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "ship_interfaces/msg/route_execution_status.hpp"
 #include "ship_interfaces/msg/route_plan.hpp"
+#include "ship_guidance/navigation_mode_policy.hpp"
 
 namespace {
 
@@ -95,6 +98,12 @@ public:
         declare_parameter("max_yaw_rate_deg_s", 1.2);
         declare_parameter("emergency_max_yaw_rate_deg_s", 2.0);
         declare_parameter("max_decel_mps2", 0.08);
+        // W2: speed-envelope parameters duplicated from ship_guidance_node so the
+        // whole GNC execution ODD is published from this single node (decision #3,
+        // option a). Both nodes read the same overlay param block, staying in sync.
+        declare_parameter("emergency_avoidance_speed_cap_mps", 3.2);
+        declare_parameter("cruise_min_speed_mps", 3.8);
+        declare_parameter("max_transit_speed_mps", 3.0);
         declare_parameter("default_avoidance_hold_s", 60.0);
         declare_parameter("publish_nominal_status", false);
 
@@ -113,6 +122,11 @@ public:
         emergency_max_yaw_rate_deg_s_ = std::max(
             max_yaw_rate_deg_s_, get_parameter("emergency_max_yaw_rate_deg_s").as_double());
         max_decel_mps2_ = std::max(0.01, get_parameter("max_decel_mps2").as_double());
+        emergency_avoidance_speed_cap_mps_ = std::clamp(
+            get_parameter("emergency_avoidance_speed_cap_mps").as_double(),
+            0.5, std::max(max_command_speed_mps_, 0.5));
+        cruise_min_speed_mps_ = std::max(0.0, get_parameter("cruise_min_speed_mps").as_double());
+        max_transit_speed_mps_ = std::max(0.0, get_parameter("max_transit_speed_mps").as_double());
         default_avoidance_hold_s_ = std::max(1.0, get_parameter("default_avoidance_hold_s").as_double());
         publish_nominal_status_ = get_parameter("publish_nominal_status").as_bool();
 
@@ -121,6 +135,11 @@ public:
             active_route_topic_, route_qos);
         status_pub_ = create_publisher<ship_interfaces::msg::RouteExecutionStatus>(
             execution_status_topic_, 10);
+        // W2: latched execution-ODD contract for TDL (single publisher, all ODD
+        // params, transient_local so late-joining subscribers get the last value).
+        execution_odd_pub_ = create_publisher<ship_interfaces::msg::GncExecutionOdd>(
+            "/gnc/execution_odd", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+        publish_execution_odd();  // initial latched publish after params loaded
 
         nominal_route_sub_ = create_subscription<ship_interfaces::msg::RoutePlan>(
             nominal_route_topic_, 10,
@@ -131,6 +150,9 @@ public:
         ship_state_sub_ = create_subscription<ship_interfaces::msg::GeoPosition>(
             ship_state_topic_, 10,
             std::bind(&ActiveRouteManagerNode::ship_state_callback, this, std::placeholders::_1));
+        deferred_nominal_timer_ = create_wall_timer(
+            std::chrono::milliseconds(500),
+            std::bind(&ActiveRouteManagerNode::retry_deferred_nominal_route, this));
 
         RCLCPP_INFO(
             get_logger(),
@@ -140,6 +162,24 @@ public:
     }
 
 private:
+    // W2: publish the latched execution-ODD contract so TDL (M5) can consume the
+    // actual GNC execution limits instead of hardcoding them. Called once after
+    // params load; the transient_local QoS keeps it available to late joiners.
+    void publish_execution_odd()
+    {
+        ship_interfaces::msg::GncExecutionOdd odd;
+        odd.header.stamp = this->now();
+        odd.emergency_avoidance_speed_cap_mps = emergency_avoidance_speed_cap_mps_;
+        odd.cruise_min_speed_mps = cruise_min_speed_mps_;
+        odd.max_transit_speed_mps = max_transit_speed_mps_;
+        odd.max_lateral_accel_mps2 = max_lateral_accel_mps2_;
+        odd.max_decel_mps2 = max_decel_mps2_;
+        odd.emergency_min_turn_radius_m = emergency_min_turn_radius_m_;
+        odd.cruise_max_yaw_rate_deg_s = max_yaw_rate_deg_s_;
+        odd.emergency_max_yaw_rate_deg_s = emergency_max_yaw_rate_deg_s_;
+        odd.schema_version = "1.1";
+        execution_odd_pub_->publish(odd);
+    }
     void ship_state_callback(const ship_interfaces::msg::GeoPosition::SharedPtr msg)
     {
         latest_ship_state_ = *msg;
@@ -155,6 +195,7 @@ private:
 
         latest_nominal_route_ = *msg;
         if (avoidance_is_active()) {
+            deferred_nominal_pending_ = true;
             auto result = accepted_result();
             result.executing = false;
             result.state = "DEFERRED";
@@ -169,6 +210,7 @@ private:
         }
 
         active_route_pub_->publish(*msg);
+        deferred_nominal_pending_ = false;
 
         if (publish_nominal_status_) {
             auto result = accepted_result();
@@ -241,11 +283,37 @@ private:
     {
         has_active_avoidance_ = true;
         active_avoidance_plan_id_ = plan.plan_id;
+        deferred_nominal_pending_ =
+            deferred_nominal_pending_ || basic_route_valid(latest_nominal_route_);
         if (!time_is_zero(plan.valid_until)) {
             active_avoidance_until_ = rclcpp::Time(plan.valid_until);
         } else {
             active_avoidance_until_ = now() + rclcpp::Duration::from_seconds(default_avoidance_hold_s_);
         }
+    }
+
+    void retry_deferred_nominal_route()
+    {
+        if (!deferred_nominal_pending_) {
+            return;
+        }
+        if (avoidance_is_active()) {
+            return;
+        }
+        if (!basic_route_valid(latest_nominal_route_)) {
+            deferred_nominal_pending_ = false;
+            return;
+        }
+
+        active_route_pub_->publish(latest_nominal_route_);
+        auto result = accepted_result();
+        result.reason = "nominal_route_forwarded_after_avoidance";
+        publish_status_for_route(latest_nominal_route_, result);
+        deferred_nominal_pending_ = false;
+        RCLCPP_INFO(
+            get_logger(),
+            "[ActiveRouteManager] forwarded deferred nominal route_id='%s' after avoidance expiry",
+            latest_nominal_route_.route_id.c_str());
     }
 
     ship_interfaces::msg::RoutePlan to_route_plan(
@@ -283,8 +351,10 @@ private:
             return rejected_result("speed_length_mismatch", "fix_speed_array");
         }
 
-        const bool emergency = is_emergency_mode(plan.behavior_mode) ||
-            std::any_of(route.navigation_mode.begin(), route.navigation_mode.end(), is_emergency_mode);
+        const bool emergency = is_colregs_protected_mode(plan.behavior_mode) ||
+            std::any_of(
+                route.navigation_mode.begin(), route.navigation_mode.end(),
+                is_colregs_protected_mode);
         const double min_segment = emergency ? emergency_min_segment_length_m_ : min_segment_length_m_;
         const double static_min_turn_radius =
             emergency ? emergency_min_turn_radius_m_ : min_turn_radius_m_;
@@ -445,13 +515,9 @@ private:
         return std::min(len1, len2) / std::tan(angle * 0.5);
     }
 
-    static bool is_emergency_mode(const std::string& raw_mode)
+    static bool is_colregs_protected_mode(const std::string& raw_mode)
     {
-        const std::string mode = normalize_mode(raw_mode);
-        return mode == "emergency_avoidance" ||
-            mode == "emergency_avoid" ||
-            mode == "collision_avoidance" ||
-            mode == "avoidance";
+        return ship_guidance::is_colregs_protected_mode(raw_mode);
     }
 
     double requested_speed_at(const ship_interfaces::msg::RoutePlan& route, size_t index) const
@@ -597,9 +663,13 @@ private:
     double max_yaw_rate_deg_s_{1.2};
     double emergency_max_yaw_rate_deg_s_{2.0};
     double max_decel_mps2_{0.08};
+    double emergency_avoidance_speed_cap_mps_{3.2};
+    double cruise_min_speed_mps_{3.8};
+    double max_transit_speed_mps_{3.0};
     double default_avoidance_hold_s_{60.0};
     bool publish_nominal_status_{false};
     bool has_active_avoidance_{false};
+    bool deferred_nominal_pending_{false};
     std::string active_avoidance_plan_id_;
     rclcpp::Time active_avoidance_until_{0, 0, RCL_ROS_TIME};
 
@@ -608,6 +678,8 @@ private:
     rclcpp::Subscription<ship_interfaces::msg::GeoPosition>::SharedPtr ship_state_sub_;
     rclcpp::Publisher<ship_interfaces::msg::RoutePlan>::SharedPtr active_route_pub_;
     rclcpp::Publisher<ship_interfaces::msg::RouteExecutionStatus>::SharedPtr status_pub_;
+    rclcpp::Publisher<ship_interfaces::msg::GncExecutionOdd>::SharedPtr execution_odd_pub_;
+    rclcpp::TimerBase::SharedPtr deferred_nominal_timer_;
 
     ship_interfaces::msg::RoutePlan latest_nominal_route_;
     ship_interfaces::msg::GeoPosition latest_ship_state_;

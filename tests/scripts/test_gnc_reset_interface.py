@@ -63,3 +63,11 @@ def test_build_ship_reset_defaults_missing_heading_sog():
     assert msg is not None
     assert msg.heading_deg == pytest.approx(0.0)
     assert msg.sog_kn == pytest.approx(0.0)
+
+
+def test_gnc_reset_qos_is_latched_for_late_bridge_discovery():
+    """Configure-time reset must survive DDS discovery lag."""
+    mod = _load_lifecycle_bridge()
+    assert mod._GNC_RESET_QOS.depth == 1
+    assert mod._GNC_RESET_QOS.reliability == mod.ReliabilityPolicy.RELIABLE
+    assert mod._GNC_RESET_QOS.durability == mod.DurabilityPolicy.TRANSIENT_LOCAL

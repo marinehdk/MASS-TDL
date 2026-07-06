@@ -97,10 +97,20 @@ def extract_compiled(scenario_doc: dict[str, Any]) -> dict[str, Any]:
     give_way_vessel; BOTH_GIVE_WAY head-on maps to GIVE_WAY.
     """
     geometry = _straight_line_cpa(scenario_doc)
-    own_heading = float(
-        scenario_doc["ownShip"]["initial"].get("heading",
-        scenario_doc["ownShip"]["initial"].get("cog", 0.0)))
-    cls = _encounter_classification(geometry, own_heading)
+    own_initial = scenario_doc["ownShip"]["initial"]
+    target_initial = scenario_doc["targetShips"][0]["initial"]
+    own_heading = float(own_initial.get("heading", own_initial.get("cog", 0.0)))
+    own_course = float(own_initial.get("cog", own_heading))
+    target_course = float(target_initial.get(
+        "cog", target_initial.get("heading", 0.0)))
+    cls = _encounter_classification(
+        geometry,
+        own_heading,
+        own_speed=float(own_initial["sog"]) if "sog" in own_initial else None,
+        own_course=own_course,
+        target_speed=float(target_initial["sog"]) if "sog" in target_initial else None,
+        target_course=target_course,
+    )
     metadata = scenario_doc.get("metadata", {})
     encounter = metadata.get("encounter", {})
     give_way_decl = str(encounter.get("give_way_vessel", "")).strip().lower()
@@ -127,6 +137,7 @@ def extract_compiled(scenario_doc: dict[str, Any]) -> dict[str, Any]:
         "forbidden_actions": ["PORT_TURN"] if own_role == "GIVE_WAY" else [],
         "classification": cls["classification"],
         "compiled_rel_bearing_deg": cls["compiled_rel_bearing_deg"],
+        "overtake_dynamic": cls.get("overtake_dynamic", False),
         "geometry": geometry,
     }
 
@@ -144,31 +155,78 @@ def extract_m6_output(rows: list[dict[str, Any]]) -> dict[str, Any]:
         key=lambda r: float(r.get("sim_t", 0.0)),
     )
     conflict_rows = [r for r in m6 if bool(_value(r, "conflict_detected", False))]
-    if not conflict_rows:
+    diagnostic_rows = conflict_rows
+    no_own_action_required = False
+    if not diagnostic_rows:
+        passive_rows = [
+            r for r in m6
+            if any(
+                isinstance(ar, dict)
+                and int(ar.get("rule_id", 0)) in (13, 14, 15)
+                and int(ar.get("role", -1)) == 0
+                for ar in (r.get("active_rules") or [])
+            )
+        ]
+        diagnostic_rows = passive_rows
+        no_own_action_required = bool(passive_rows)
+    if not diagnostic_rows:
         return {"rule": "", "role": "", "preferred_direction": "",
+                "stand_on_in_extremis_action": False,
+                "no_own_action_required": False,
                 "flip_count": 0, "flip_intervals_s": []}
 
     # Dominant rule from active_rules across the conflict window.
-    all_active = [ar for r in conflict_rows
+    all_active = [ar for r in diagnostic_rows
                   for ar in (r.get("active_rules") or [])
                   if isinstance(ar, dict)]
     dom_rid = _dominant_rule_id(all_active)
     rule = RULE_ID_TO_KEY.get(dom_rid, "") if dom_rid else ""
+    stand_on_in_extremis_action = any(
+        int(ar.get("rule_id", 0)) == 17
+        and int(ar.get("role", -1)) == 0
+        and str(ar.get("rule_phase", ar.get("phase", ""))) in (
+            "T_act",
+            "T_emergency",
+            "INDEPENDENT_ACTION",
+            "CRITICAL_ACTION",
+        )
+        and str(ar.get("preferred_direction", "")) in (
+            "STARBOARD",
+            "DECELERATE",
+        )
+        for ar in all_active
+    )
 
-    # Role: mode of primary_role int over the conflict window.
+    # Role: mode of primary_role int over the conflict window. For stand-on
+    # no-action diagnostics, conflict_detected remains false and primary_role is
+    # FREE; use the diagnostic primary-rule rows instead.
     role_counts: dict[int, int] = {}
-    for r in conflict_rows:
-        role_counts[int(_value(r, "primary_role", 0))] = (
-            role_counts.get(int(_value(r, "primary_role", 0)), 0) + 1)
+    if conflict_rows:
+        for r in conflict_rows:
+            role_counts[int(_value(r, "primary_role", 0))] = (
+                role_counts.get(int(_value(r, "primary_role", 0)), 0) + 1)
+    else:
+        for ar in all_active:
+            if dom_rid is None or int(ar.get("rule_id", 0)) == dom_rid:
+                role_int = int(ar.get("role", 3))
+                role_counts[role_int] = role_counts.get(role_int, 0) + 1
     dom_role_int = max(role_counts, key=role_counts.get) if role_counts else 3
     role = ROLE_INT_TO_STR.get(dom_role_int, "")
 
-    # Preferred direction: mode of primary_preferred_direction over window.
+    # Preferred direction: mode of primary_preferred_direction over window, or
+    # diagnostic primary-rule preferred_direction for stand-on no-action.
     dir_counts: dict[str, int] = {}
-    for r in conflict_rows:
-        d = str(_value(r, "primary_preferred_direction", ""))
-        if d:
-            dir_counts[d] = dir_counts.get(d, 0) + 1
+    if conflict_rows:
+        for r in conflict_rows:
+            d = str(_value(r, "primary_preferred_direction", ""))
+            if d:
+                dir_counts[d] = dir_counts.get(d, 0) + 1
+    else:
+        for ar in all_active:
+            if dom_rid is None or int(ar.get("rule_id", 0)) == dom_rid:
+                d = str(ar.get("preferred_direction", ""))
+                if d:
+                    dir_counts[d] = dir_counts.get(d, 0) + 1
     dom_dir = max(dir_counts, key=dir_counts.get) if dir_counts else ""
     preferred = _DIRECTION_TO_ACTION.get(dom_dir, dom_dir)
 
@@ -178,7 +236,7 @@ def extract_m6_output(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # conflict on/off transitions instead would flag a normal single
     # encounter as unstable.
     rule_seq = [_dominant_rule_id(r.get("active_rules") or [])
-                for r in conflict_rows]
+                for r in diagnostic_rows]
     flips = 0
     prev_rule = rule_seq[0] if rule_seq else None
     for rid in rule_seq[1:]:
@@ -202,6 +260,8 @@ def extract_m6_output(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "rule": rule,
         "role": role,
         "preferred_direction": preferred,
+        "stand_on_in_extremis_action": stand_on_in_extremis_action,
+        "no_own_action_required": no_own_action_required,
         "flip_count": flips,
         "flip_intervals_s": intervals,
     }
@@ -337,6 +397,11 @@ def extract_l4_actuation(rows: list[dict[str, Any]], *, command_t: float,
     the true maneuver magnitude, not the first 5deg jitter sample.
     first_realized_t = sim_t at which the heading first reaches >=50% of that
     max excursion (the maneuver is materially underway).
+
+    For GNC profile traces, also extract the L4 handoff contract from
+    /l3/gnc/execution_status: GNC must accept a collision-avoidance route
+    promptly. The ship may turn slowly because GNC tracks waypoints and M5
+    intentionally emits a smooth corridor.
     """
     own = sorted(
         (r for r in rows if r.get("topic") == "/sil/own_ship_state"),
@@ -366,11 +431,45 @@ def extract_l4_actuation(rows: list[dict[str, Any]], *, command_t: float,
         if _dev(r) >= threshold:
             realized_t = float(r.get("sim_t", command_t))
             break
-    return {
+    result = {
         "first_command_t": command_t,
         "first_realized_t": realized_t,
         "realized_heading_change_deg": round(max_dev, 3),
     }
+    gnc_status = sorted(
+        (r for r in rows if r.get("topic") == "/l3/gnc/execution_status"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    if not gnc_status:
+        return result
+
+    def _is_avoidance_route(r: dict[str, Any]) -> bool:
+        source = str(_value(r, "command_source", "") or "")
+        active_route = str(_value(r, "active_route_id", "") or "")
+        plan_id = str(_value(r, "plan_id", "") or "")
+        return (
+            source == "collision_avoidance"
+            or active_route.startswith(("m5-colregs-", "m5-return-"))
+            or plan_id.startswith(("m5-colregs-", "m5-return-"))
+        )
+
+    def _accepted(r: dict[str, Any]) -> bool:
+        state = str(_value(r, "execution_state", "") or "").upper()
+        return bool(_value(r, "accepted", False)) or state == "ACCEPTED"
+
+    status_end = release_t if release_t is not None else float("inf")
+    accepted_rows = [
+        r for r in gnc_status
+        if command_t <= float(r.get("sim_t", 0.0)) <= status_end
+        and _is_avoidance_route(r)
+        and _accepted(r)
+    ]
+    first_accepted = accepted_rows[0] if accepted_rows else None
+    result["route_accepted"] = first_accepted is not None
+    if first_accepted is not None:
+        result["first_accepted_t"] = float(first_accepted.get("sim_t", command_t))
+        result["accepted_plan_id"] = _value(first_accepted, "plan_id", "")
+    return result
 
 
 # ─── trace → M7 oracle input ──────────────────────────────────────────────

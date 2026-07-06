@@ -13,6 +13,15 @@
 
 namespace mass_l3::m6_colregs {
 
+namespace {
+// CPA-trend hysteresis: ignore sub-threshold cycle-to-cycle CPA changes
+// (numerical jitter ~1m during active avoidance) so ACTIVE<->MONITOR does not
+// chatter. Both graduation (cpa_improved) and regression (cpa_deteriorating)
+// require a change exceeding this margin. The rule14-ho trace showed dozens of
+// spurious ACTIVE<->MONITOR transitions from a CPA oscillating around 390m.
+constexpr double kCpaTrendHysteresisM = 5.0;
+}  // namespace
+
 EncounterStateMachine::EncounterStateMachine(const EncounterParams& params)
     : params_(params) {}
 
@@ -26,6 +35,7 @@ void EncounterStateMachine::reset() {
   release_condition_met_since_s_ = -1.0;
   last_cpa_m_ = -1.0;
   cpa_improve_counter_ = 0;
+  cpa_hard_seen_ = false;
   had_been_released_ = false;
 }
 
@@ -41,6 +51,22 @@ void EncounterStateMachine::apply_onset(RuleEvaluation& eval) const {
   eval.min_alteration_deg = onset_.min_alteration_deg;
 }
 
+void EncounterStateMachine::capture_onset_if_classified_(const RuleEvaluation* raw_eval) {
+  if (onset_.valid || raw_eval == nullptr) return;
+  const bool classified =
+      raw_eval->role != Role::FREE ||
+      raw_eval->encounter_type != EncounterType::NONE ||
+      raw_eval->preferred_direction != "HOLD" ||
+      raw_eval->min_alteration_deg > 0.0;
+  if (!classified) return;
+  onset_.valid = true;
+  onset_.role = raw_eval->role;
+  onset_.encounter_type = raw_eval->encounter_type;
+  onset_.phase = raw_eval->phase;
+  onset_.preferred_direction = raw_eval->preferred_direction;
+  onset_.min_alteration_deg = raw_eval->min_alteration_deg;
+}
+
 EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
                                                   bool rule_geometric_hit,
                                                   bool range_closing,
@@ -51,7 +77,9 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
   // Track CPA trend across cycles for ACTIVE<->MONITOR. last_cpa_m_ is updated
   // every cycle at the bottom; prev_cpa_m is the value from the prior cycle.
   const bool cpa_improved =
-      prev_cpa_m > 0.0 && target.cpa_m > prev_cpa_m;
+      prev_cpa_m > 0.0 && target.cpa_m > prev_cpa_m + kCpaTrendHysteresisM;
+  const bool cpa_hard_hit = target.cpa_m < params_.cpa_hard_m;
+  const bool cpa_soft_context = target.cpa_m < params_.cpa_soft_m;
 
   switch (state_) {
     case EncounterState::CLEAR:
@@ -65,11 +93,17 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
     case EncounterState::DETECTED:
       // Rule 13/14/15 raw geometry holds -> classify as a real encounter.
       if (rule_geometric_hit) {
+        cpa_hard_seen_ = cpa_hard_seen_ || cpa_hard_hit;
+        capture_onset_if_classified_(raw_eval);
         state_ = EncounterState::CANDIDATE;
       }
       break;
 
     case EncounterState::CANDIDATE: {
+      if (rule_geometric_hit) {
+        cpa_hard_seen_ = cpa_hard_seen_ || cpa_hard_hit;
+        capture_onset_if_classified_(raw_eval);
+      }
       // Enter pre-planning when TCPA is within the monitor window AND CPA is
       // below the soft threshold (threat is becoming real). Spec §3.2 row
       // CANDIDATE->PREPLAN.
@@ -82,24 +116,22 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
     }
 
     case EncounterState::PREPLAN: {
+      if (rule_geometric_hit) {
+        cpa_hard_seen_ = cpa_hard_seen_ || cpa_hard_hit;
+        capture_onset_if_classified_(raw_eval);
+      }
       // T8 TCPA gate (D-3): the core fix. Enter ACTIVE only when ALL of:
       //   TCPA <= t_plan  (A-level C-12 ample time -- not too early)
       //   CPA  <  cpa_hard (threat is real at action range)
       //   range closing   (target is actually approaching)
       // A far target with CPA~0 but TCPA > t_plan stays in PREPLAN.
       const bool tcpa_ripe = target.tcpa_s <= params_.t_plan_s;
-      const bool cpa_hard_hit = target.cpa_m < params_.cpa_hard_m;
-      if (tcpa_ripe && cpa_hard_hit && range_closing) {
+      const bool cpa_action_context = cpa_hard_hit || (cpa_hard_seen_ && cpa_soft_context);
+      if (tcpa_ripe && cpa_action_context && range_closing) {
         state_ = EncounterState::ACTIVE;
-        // Onset snapshot (Rule 13(d)): freeze classification at ACTIVE entry.
-        if (raw_eval != nullptr) {
-          onset_.valid = true;
-          onset_.role = raw_eval->role;
-          onset_.encounter_type = raw_eval->encounter_type;
-          onset_.phase = raw_eval->phase;
-          onset_.preferred_direction = raw_eval->preferred_direction;
-          onset_.min_alteration_deg = raw_eval->min_alteration_deg;
-        }
+        // Onset snapshot (Rule 13(d)): use the first classifier geometry seen
+        // during CANDIDATE/PREPLAN, falling back to ACTIVE-entry raw eval.
+        capture_onset_if_classified_(raw_eval);
         cpa_improve_counter_ = 0;
       }
       break;
@@ -129,7 +161,7 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
       // Regression: CPA deteriorating AND still within the T_plan action
       // window means the maneuver is not working -- go back to ACTIVE.
       const bool cpa_deteriorating =
-          prev_cpa_m > 0.0 && target.cpa_m < prev_cpa_m;
+          prev_cpa_m > 0.0 && target.cpa_m < prev_cpa_m - kCpaTrendHysteresisM;
       if (cpa_deteriorating && target.tcpa_s <= params_.t_plan_s) {
         state_ = EncounterState::ACTIVE;
         cpa_improve_counter_ = 0;
@@ -170,6 +202,7 @@ EncounterState EncounterStateMachine::transition(const TargetSnapshot& target,
         state_ = EncounterState::CLEAR;
         onset_ = OnsetSnapshot{};  // forget onset (Rule 13(d) hold released)
         release_condition_met_since_s_ = -1.0;
+        cpa_hard_seen_ = false;
         had_been_released_ = true;
       }
       break;

@@ -12,6 +12,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <builtin_interfaces/msg/time.hpp>
@@ -111,6 +112,32 @@ std::string role_action_str(Role r) {
     case Role::BOTH_GIVE_WAY: return "both_give_way";
     default: return "free";
   }
+}
+
+struct ReleaseOrderingSemantics {
+  EncounterState state{EncounterState::CLEAR};
+  bool has_state{false};
+  bool actual_latch_released{false};
+};
+
+ReleaseOrderingSemantics transition_release_before_erase(
+    EncounterStateMachine* fsm, RuleLatch* latch, const TargetSnapshot& target,
+    bool range_closing, bool past_and_clear, double now_s,
+    bool projection_release_ok = false, bool allow_projection_release = true) {
+  ReleaseOrderingSemantics result;
+  if (fsm != nullptr) {
+    result.state = fsm->transition(
+        target, /*rule_geometric_hit=*/false, range_closing, past_and_clear,
+        now_s, nullptr);
+    result.has_state = true;
+  }
+  if (latch != nullptr) {
+    (void)latch->update(
+        /*rule_active=*/false, target.cpa_m, range_closing, past_and_clear,
+        nullptr, projection_release_ok, allow_projection_release);
+    result.actual_latch_released = latch->released();
+  }
+  return result;
 }
 
 float compute_geometry_clarity(double relative_bearing_deg, EncounterType enc_type) {
@@ -565,9 +592,18 @@ void ColregsReasonerNode::run_reasoning() {
   // 4. Run all rules against all targets; propagate target_id after each evaluate()
   std::vector<RuleEvaluation> evaluations;
   evaluations.reserve(kTargetStates.size() * rules_.size());
+  std::unordered_map<uint32_t, EncounterState> semantic_state_by_target;
+  std::unordered_map<uint32_t, bool> latch_released_by_target;
+  std::unordered_map<uint32_t, bool> release_predicted_by_target;
+  uint32_t semantic_fallback_target_mmsi = 0;
+  double semantic_fallback_min_cpa = std::numeric_limits<double>::max();
 
   for (const auto& target : kTargetStates) {
     uint32_t mmsi = static_cast<uint32_t>(target.target_id);
+    if (target.cpa_m < semantic_fallback_min_cpa) {
+      semantic_fallback_min_cpa = target.cpa_m;
+      semantic_fallback_target_mmsi = mmsi;
+    }
 
     // ── Per-target threat geometry (hoisted; shared by the per-rule 14/15 onset
     //    latch and the per-target give-way duty latch) ──
@@ -607,9 +643,13 @@ void ColregsReasonerNode::run_reasoning() {
         has_release_reference &&
         past_and_clear_from_heading(target.bearing_deg, release_reference_heading,
                                     abaft_threshold_deg);
+    const double give_way_release_floor_m =
+        (std::isfinite(kParams.cpa_release_m) && kParams.cpa_release_m > 0.0)
+            ? kParams.cpa_release_m
+            : kParams.cpa_safe_m;
     const bool cpa_projection_past_and_safe =
         (target.tcpa_s <= kTcpaClampedPastEpsilonS) &&
-        (target.cpa_m >= kParams.cpa_safe_m);
+        (target.cpa_m >= give_way_release_floor_m);
     const double current_relative_bearing_abs_deg = std::fabs(
         signed_relative_bearing_deg(target.bearing_deg, target.ownship_heading_deg));
     const double reference_relative_bearing_abs_deg = std::fabs(
@@ -618,7 +658,7 @@ void ColregsReasonerNode::run_reasoning() {
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
             target.range_m,
-            kParams.cpa_safe_m,
+            give_way_release_floor_m,
             current_relative_bearing_abs_deg,
             reference_relative_bearing_abs_deg,
             GiveWayProjectionReleaseGate::REFERENCE_CLEAR);
@@ -631,7 +671,7 @@ void ColregsReasonerNode::run_reasoning() {
             target.target_speed_kn,
             target.ownship_speed_kn,
             release_reference_heading,
-            kParams.cpa_safe_m);
+            give_way_release_floor_m);
     const bool give_way_opening_reference_heading_release_ok =
         has_release_reference &&
         give_way_opening_reference_heading_release_safe(
@@ -642,16 +682,26 @@ void ColregsReasonerNode::run_reasoning() {
             target.target_speed_kn,
             target.ownship_speed_kn,
             release_reference_heading,
-            kParams.cpa_safe_m);
+            give_way_release_floor_m);
+    const bool rule15_target_track_release_ok =
+        rule15_target_track_release_safe(
+            range_closing,
+            target.range_m,
+            target.bearing_deg,
+            target.target_heading_deg,
+            target.cpa_m,
+            target.tcpa_s,
+            give_way_release_floor_m);
     const bool give_way_reference_release_ok =
         give_way_projection_release_reference_ok ||
         give_way_reference_heading_release_ok ||
-        give_way_opening_reference_heading_release_ok;
+        give_way_opening_reference_heading_release_ok ||
+        rule15_target_track_release_ok;
     const bool give_way_projection_release_current_ok =
         give_way_projection_release_safe(
             cpa_projection_past_and_safe,
             target.range_m,
-            kParams.cpa_safe_m,
+            give_way_release_floor_m,
             current_relative_bearing_abs_deg,
             reference_relative_bearing_abs_deg,
             GiveWayProjectionReleaseGate::CURRENT_ABAFT);
@@ -689,10 +739,15 @@ void ColregsReasonerNode::run_reasoning() {
     const bool rule13_fsm_engaged =
         rule13_fsm_it != encounter_fsms_.end() &&
         rule13_fsm_it->second.state() != EncounterState::CLEAR;
-    const bool rule13_release_context =
-        rule13_projection_latched || rule13_fsm_engaged || is_overtaking_onset;
     const bool duty_latched =
         give_way_latch_it != give_way_latches_.end() && give_way_latch_it->second.latched();
+    // Bug D: rule13 along-axis release context applies only when rule13 is the
+    // dominant primary encounter. A sticky rule13 FSM (target drew astern into
+    // the overtaking sector during a rule14/15 encounter) must NOT block the
+    // primary encounter's release. See rule13_release_context_active.
+    const bool rule13_release_context = rule13_release_context_active(
+        rule13_projection_latched, rule13_fsm_engaged, is_overtaking_onset,
+        rule14_projection_latched, rule15_projection_latched, duty_latched);
     const bool give_way_resolution_latched =
         rule13_projection_latched ||
         rule14_projection_latched ||
@@ -710,9 +765,12 @@ void ColregsReasonerNode::run_reasoning() {
             target.range_m,
             target.bearing_deg,
             target.target_heading_deg);
+    const bool release_past_and_clear = rule13_release_past_and_clear(
+        rule13_release_context,
+        past_and_clear,
+        rule13_along_axis_past_clear);
     const bool finally_resolved =
-        has_release_reference && past_and_clear &&
-        rule13_along_axis_past_clear &&
+        has_release_reference && release_past_and_clear &&
         !range_closing && target.cpa_m >= final_release_cpa_floor_m;
     const bool standon_action_latched =
         standon_latch_it != standon_latches_.end() && standon_latch_it->second.latched();
@@ -736,7 +794,9 @@ void ColregsReasonerNode::run_reasoning() {
         (rule15_projection_latched &&
          (((!range_closing) && give_way_projection_release_reference_ok) ||
           give_way_reference_heading_release_ok)) ||
-        (rule15_projection_latched && give_way_opening_reference_heading_release_ok);
+        (rule15_projection_latched &&
+         (give_way_opening_reference_heading_release_ok ||
+          rule15_target_track_release_ok));
     const bool current_projection_resolved =
         (!range_closing) &&
         (rule14_projection_latched || (duty_latched && !rule13_release_context)) &&
@@ -744,9 +804,112 @@ void ColregsReasonerNode::run_reasoning() {
     const bool projection_resolved =
         has_release_reference &&
         (reference_projection_resolved || current_projection_resolved);
-    if (finally_resolved || projection_resolved || standon_action_release ||
-        any_latch_released ||
-        resolved_targets_.count(mmsi) > 0) {
+    const bool target_release_predicted =
+        finally_resolved || projection_resolved || standon_action_release;
+    const bool target_latch_released = any_latch_released;
+    release_predicted_by_target[mmsi] = target_release_predicted;
+    latch_released_by_target[mmsi] = target_latch_released;
+
+    if (target_release_predicted) {
+      bool transitioned_to_release = false;
+      bool actual_latch_released_now = false;
+      for (const int primary_rid : {13, 14, 15}) {
+        const uint64_t primary_key =
+            (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(primary_rid);
+        auto fsm_it = encounter_fsms_.find(primary_key);
+        auto latch_it = rule_latches_.find(primary_key);
+        if (fsm_it == encounter_fsms_.end() && latch_it == rule_latches_.end()) {
+          continue;
+        }
+        const bool allow_primary_projection_release =
+            latch_it == rule_latches_.end() || !latch_it->second.has_onset() ||
+            latch_it->second.onset_role() == Role::GIVE_WAY ||
+            latch_it->second.onset_role() == Role::BOTH_GIVE_WAY;
+        const bool raw_rule_projection_release_ok =
+            (primary_rid == 14) ? give_way_projection_release_current_ok :
+            (give_way_projection_reference_release_applies_to_rule(primary_rid) &&
+             !give_way_opening_reference_release_applies_to_rule(primary_rid)) ?
+            (give_way_projection_release_reference_ok || give_way_reference_heading_release_ok) :
+            (give_way_projection_reference_release_applies_to_rule(primary_rid) &&
+             give_way_opening_reference_release_applies_to_rule(primary_rid)) ?
+            give_way_reference_release_ok :
+            false;
+        const bool rule_projection_release_ok =
+            !rule13_release_context && raw_rule_projection_release_ok;
+        const bool fsm_release_condition =
+            release_past_and_clear || rule_projection_release_ok;
+        const TargetSnapshot release_snap{target.tcpa_s, target.cpa_m};
+        const auto ordering = transition_release_before_erase(
+            fsm_it != encounter_fsms_.end() ? &fsm_it->second : nullptr,
+            latch_it != rule_latches_.end() ? &latch_it->second : nullptr,
+            release_snap, range_closing, fsm_release_condition,
+            /*now_s=*/last_world_stamp_.seconds(), rule_projection_release_ok,
+            allow_primary_projection_release);
+        if (ordering.has_state) {
+          semantic_state_by_target[mmsi] = ordering.state;
+          transitioned_to_release =
+              transitioned_to_release || ordering.state == EncounterState::RELEASE;
+        }
+        actual_latch_released_now =
+            actual_latch_released_now || ordering.actual_latch_released;
+      }
+
+      auto duty_it = give_way_latches_.find(mmsi);
+      if (duty_it != give_way_latches_.end()) {
+        const TargetSnapshot release_snap{target.tcpa_s, target.cpa_m};
+        const bool duty_projection_release_ok =
+            !rule13_release_context && give_way_projection_release_current_ok;
+        const auto ordering = transition_release_before_erase(
+            nullptr, &duty_it->second, release_snap, range_closing,
+            release_past_and_clear, /*now_s=*/last_world_stamp_.seconds(),
+            duty_projection_release_ok);
+        actual_latch_released_now =
+            actual_latch_released_now || ordering.actual_latch_released;
+      }
+
+      auto standon_it = standon_latches_.find(mmsi);
+      if (standon_it != standon_latches_.end()) {
+        const TargetSnapshot release_snap{target.tcpa_s, target.cpa_m};
+        const auto ordering = transition_release_before_erase(
+            nullptr, &standon_it->second, release_snap, range_closing,
+            past_and_clear, /*now_s=*/last_world_stamp_.seconds(),
+            /*projection_release_ok=*/false, /*allow_projection_release=*/false);
+        actual_latch_released_now =
+            actual_latch_released_now || ordering.actual_latch_released;
+      }
+
+      if (actual_latch_released_now) {
+        latch_released_by_target[mmsi] = true;
+      }
+      if (transitioned_to_release && actual_latch_released_now) {
+        resolved_targets_.insert(mmsi);
+        rule_latches_.erase(rule13_key);
+        rule_latches_.erase(rule14_key);
+        rule_latches_.erase(rule15_key);
+        give_way_latches_.erase(mmsi);
+        standon_latches_.erase(mmsi);
+        encounter_reference_heading_.erase(mmsi);
+        // Clear only after publishing one real RELEASE + latch-release cycle;
+        // otherwise FSM stickiness can re-arm a resolved encounter next cycle.
+        encounter_fsms_.erase(rule13_key);
+        encounter_fsms_.erase(rule14_key);
+        encounter_fsms_.erase(rule15_key);
+        continue;
+      }
+    }
+
+    if (any_latch_released || resolved_targets_.count(mmsi) > 0) {
+      if (semantic_state_by_target.count(mmsi) == 0) {
+        for (const int primary_rid : {13, 14, 15}) {
+          const uint64_t primary_key =
+              (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(primary_rid);
+          const auto fsm_it = encounter_fsms_.find(primary_key);
+          if (fsm_it != encounter_fsms_.end()) {
+            semantic_state_by_target[mmsi] = fsm_it->second.state();
+            break;
+          }
+        }
+      }
       resolved_targets_.insert(mmsi);
       rule_latches_.erase(rule13_key);
       rule_latches_.erase(rule14_key);
@@ -754,11 +917,6 @@ void ColregsReasonerNode::run_reasoning() {
       give_way_latches_.erase(mmsi);
       standon_latches_.erase(mmsi);
       encounter_reference_heading_.erase(mmsi);
-      // Also clear the encounter FSMs so FSM stickiness cannot immediately
-      // re-arm the just-erased latches on the next reasoning cycle.
-      // Without this, projection_resolved triggers an erase at line 709-714
-      // but the FSM (still ACTIVE/MONITOR) calls apply_onset() next cycle,
-      // reconstructing the latch and preventing the release from taking hold.
       encounter_fsms_.erase(rule13_key);
       encounter_fsms_.erase(rule14_key);
       encounter_fsms_.erase(rule15_key);
@@ -771,6 +929,7 @@ void ColregsReasonerNode::run_reasoning() {
       auto eval = rule->evaluate(target, domain, kParams);
       eval.target_id = target.target_id;
       eval.target_compliance = target.target_compliance;
+      eval.tcpa_s = target.tcpa_s;
 
       // Onset-latched hysteresis for Rules 13 (overtaking), 14 (head-on),
       // and 15 (crossing):
@@ -779,6 +938,19 @@ void ColregsReasonerNode::run_reasoning() {
       const int rid = rule->rule_id();
       if (rid == 13 || rid == 14 || rid == 15) {
         const uint64_t key = (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(rid);
+        int latched_primary_rule_id = 0;
+        for (const int primary_rid : {13, 14, 15}) {
+          const uint64_t primary_key =
+              (static_cast<uint64_t>(mmsi) << 8) | static_cast<uint64_t>(primary_rid);
+          const auto primary_it = rule_latches_.find(primary_key);
+          if (primary_it != rule_latches_.end() &&
+              (primary_it->second.latched() || primary_it->second.has_onset())) {
+            latched_primary_rule_id = primary_rid;
+            break;
+          }
+        }
+        const bool primary_onset_allowed =
+            primary_rule_onset_allowed(rid, latched_primary_rule_id);
         auto it = rule_latches_.find(key);
         if (it == rule_latches_.end()) {
           it = rule_latches_.emplace(key, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
@@ -809,16 +981,29 @@ void ColregsReasonerNode::run_reasoning() {
           fit = encounter_fsms_.emplace(key, EncounterStateMachine{ep}).first;
         }
         const TargetSnapshot fsm_snap{target.tcpa_s, target.cpa_m};
-        const bool fsm_past_and_clear =
-            past_and_clear &&
-            (rid != 13 ||
-             rule13_overtaking_along_axis_past_clear(
-                 target.range_m,
-                 target.bearing_deg,
-                 target.target_heading_deg));
+        const bool fsm_past_and_clear = release_past_and_clear;
         const EncounterState fsm_state = fit->second.transition(
-            fsm_snap, /*rule_geometric_hit=*/eval.is_active, range_closing,
+            fsm_snap, /*rule_geometric_hit=*/primary_onset_allowed && eval.is_active, range_closing,
             fsm_past_and_clear, /*now_s=*/last_world_stamp_.seconds(), &eval);
+        // Phase 1.1 (R8 fix, spec v2.3 §3.1): aggregate per-target semantic
+        // state by taking the highest-rank FSM state across all rules
+        // evaluated this cycle. The legacy "first-write + CLEAR-to-non-CLEAR"
+        // gate let Rule13's DETECTED (rule-library order 13 before 14) occupy
+        // the slot and suppress Rule14's ACTIVE — pinning M6 at ONSET and
+        // starving M5 TailBuilder of the active-phase signal
+        // (m6_not_past_clear × 874). Rank-based aggregation is order-
+        // independent, so Rule14 ACTIVE wins over Rule13 DETECTED regardless
+        // of evaluation order. RELEASE (rank 5) dominates; the natural
+        // CLEAR-after-dwell return at rank 0 is allowed to overwrite only when
+        // no higher-rank state is present this cycle.
+        const auto prev_semantic_state = semantic_state_by_target.find(mmsi);
+        const bool no_prior = prev_semantic_state == semantic_state_by_target.end();
+        const bool dominates = no_prior ||
+            encounter_state_rank(fsm_state) >=
+                encounter_state_rank(prev_semantic_state->second);
+        if (dominates) {
+          semantic_state_by_target[mmsi] = fsm_state;
+        }
         const bool fsm_engaged =
             fsm_state == EncounterState::ACTIVE ||
             fsm_state == EncounterState::MONITOR;
@@ -839,7 +1024,7 @@ void ColregsReasonerNode::run_reasoning() {
             eval.role == Role::BOTH_GIVE_WAY;
         const bool give_way_duty = give_way_duty_from_raw_or_fsm(
             raw_give_way_duty, fsm_engaged, fsm_held_eval);
-        if (!fsm_engaged && give_way_duty) {
+        if ((!fsm_engaged && give_way_duty) || !primary_onset_allowed) {
           eval.is_active = false;
         }
         // Pass the raw evaluation so the latch can snapshot the give-way
@@ -848,7 +1033,7 @@ void ColregsReasonerNode::run_reasoning() {
             !it->second.has_onset() ||
             it->second.onset_role() == Role::GIVE_WAY ||
             it->second.onset_role() == Role::BOTH_GIVE_WAY;
-        const bool rule_projection_release_ok =
+        const bool raw_rule_projection_release_ok =
             (rid == 14) ? give_way_projection_release_current_ok :
             (give_way_projection_reference_release_applies_to_rule(rid) &&
              !give_way_opening_reference_release_applies_to_rule(rid)) ?
@@ -857,8 +1042,10 @@ void ColregsReasonerNode::run_reasoning() {
              give_way_opening_reference_release_applies_to_rule(rid)) ?
             give_way_reference_release_ok :
             false;
+        const bool rule_projection_release_ok =
+            !rule13_release_context && raw_rule_projection_release_ok;
         bool latched = it->second.update(
-            eval.is_active, target.cpa_m, range_closing, past_and_clear,
+            eval.is_active, target.cpa_m, range_closing, fsm_past_and_clear,
             &eval, rule_projection_release_ok, allow_primary_projection_release);
         // FSM stickiness (D-3): if the FSM is engaged (ACTIVE/MONITOR) but the
         // legacy latch computed a release this cycle (a transient projection
@@ -888,6 +1075,10 @@ void ColregsReasonerNode::run_reasoning() {
         } else {
           eval.is_active = false;
         }
+        if (!primary_onset_allowed) {
+          eval.is_active = false;
+          eval.rationale += " [gated: primary Rule latch already engaged]";
+        }
       } else {
         // COLREG Rule 7 (risk of collision) gate for NON-give-way obligations
         // (stand-on Rule 17, Rule 18 stand-on, Rule 5/6/19...): a rule must not
@@ -903,7 +1094,18 @@ void ColregsReasonerNode::run_reasoning() {
         if (!give_way_role) {
           const bool raw_risk =
               (target.tcpa_s >= 0.0) && (target.cpa_m < kParams.cpa_safe_m);
-          if (!raw_risk) {
+          // Rule 5 (proper look-out) is a continuous obligation that must
+          // persist through an active encounter. While a primary rule
+          // (13/14/15) is latched for this target, an instantaneous CPA
+          // transient must not gate Rule 5 off — otherwise Rule 5 flaps in/out
+          // of the active set and drives M6 RULE_INSTABILITY. The latch
+          // iterators are computed earlier in this per-target block.
+          const bool follows_primary_latch = rule5_follows_primary_latch(
+              eval.rule_id,
+              rule13_latch_it != rule_latches_.end() && rule13_latch_it->second.latched(),
+              rule14_latch_it != rule_latches_.end() && rule14_latch_it->second.latched(),
+              rule15_latch_it != rule_latches_.end() && rule15_latch_it->second.latched());
+          if (!raw_risk && !follows_primary_latch) {
             eval.is_active = false;
           }
         }
@@ -919,6 +1121,7 @@ void ColregsReasonerNode::run_reasoning() {
     // PRIMARY classifier (13/14/15) made own ship stand-on, and whether Rule 17
     // raw-evaluated to an in-extremis stand-on action.
     bool raw_own_give_way = false;
+    bool primary_own_give_way = false;
     bool own_stand_on = false;
     bool rule17_inextremis_raw = false;
     for (size_t i = target_eval_start; i < evaluations.size(); ++i) {
@@ -928,6 +1131,9 @@ void ColregsReasonerNode::run_reasoning() {
       }
       if (e.role == Role::GIVE_WAY || e.role == Role::BOTH_GIVE_WAY) {
         raw_own_give_way = true;
+        if (e.rule_id == 13 || e.rule_id == 14 || e.rule_id == 15) {
+          primary_own_give_way = true;
+        }
       }
       if (e.role == Role::STAND_ON &&
           (e.rule_id == 13 || e.rule_id == 14 || e.rule_id == 15)) {
@@ -948,20 +1154,23 @@ void ColregsReasonerNode::run_reasoning() {
     const bool duty_onset_signal = give_way_duty_onset_signal(
         raw_own_give_way,
         own_stand_on,
-        past_and_clear,
+        release_past_and_clear,
         cpa_projection_past_and_safe,
         target.tcpa_s,
         target.cpa_m,
         kParams.t_plan_s,
         kParams.cpa_hard_m,
-        range_closing);
+        range_closing,
+        primary_own_give_way);
     auto dit = give_way_latches_.find(mmsi);
     if (dit == give_way_latches_.end()) {
       dit = give_way_latches_.emplace(mmsi, RuleLatch{kParams.cpa_safe_m, 1.5}).first;
     }
+    const bool duty_projection_release_ok =
+        !rule13_release_context && give_way_projection_release_current_ok;
     const bool duty_latched_now = dit->second.update(
-        duty_onset_signal, target.cpa_m, range_closing, past_and_clear,
-        nullptr, give_way_projection_release_current_ok);
+        duty_onset_signal, target.cpa_m, range_closing, release_past_and_clear,
+        nullptr, duty_projection_release_ok);
     if (duty_latched_now) {
       encounter_reference_heading_.try_emplace(mmsi, target.ownship_heading_deg);
     }
@@ -1064,6 +1273,45 @@ void ColregsReasonerNode::run_reasoning() {
   const auto kChain = build_colregs_chain(evaluations, domain, kParams, kTargetStates);
   constraint.colregs_chain = kChain.layers;
   constraint.colregs_chain_target_id = kChain.target_id;
+
+  uint32_t semantic_target_mmsi = 0;
+  if (!kChain.target_id.empty()) {
+    try {
+      semantic_target_mmsi = static_cast<uint32_t>(std::stoul(kChain.target_id));
+    } catch (const std::exception&) {
+      semantic_target_mmsi = 0;
+    }
+  }
+  if (semantic_target_mmsi == 0) {
+    for (const auto& eval : evaluations) {
+      if (eval.is_active) {
+        semantic_target_mmsi = static_cast<uint32_t>(eval.target_id);
+        break;
+      }
+    }
+  }
+  if (semantic_target_mmsi == 0) {
+    semantic_target_mmsi = semantic_fallback_target_mmsi;
+  }
+
+  EncounterState semantic_state = EncounterState::CLEAR;
+  bool latch_released = false;
+  bool release_predicted = false;
+  if (semantic_target_mmsi != 0) {
+    const auto state_it = semantic_state_by_target.find(semantic_target_mmsi);
+    if (state_it != semantic_state_by_target.end()) {
+      semantic_state = state_it->second;
+    }
+    const auto latch_it = latch_released_by_target.find(semantic_target_mmsi);
+    latch_released =
+        latch_it != latch_released_by_target.end() && latch_it->second;
+    const auto predicted_it = release_predicted_by_target.find(semantic_target_mmsi);
+    release_predicted =
+        predicted_it != release_predicted_by_target.end() && predicted_it->second;
+  }
+  populate_colregs_publish_semantics_(
+      constraint, semantic_state, latch_released, release_predicted,
+      semantic_target_mmsi != 0 && resolved_targets_.count(semantic_target_mmsi) > 0);
 
   constraint_pub_->publish(constraint);
 
@@ -1467,6 +1715,130 @@ ColregsReasonerNode::ColregsChainResult ColregsReasonerNode::test_build_colregs_
     const RuleParameters& params,
     const std::vector<TargetGeometricState>& targets) {
   return ColregsReasonerNode::build_colregs_chain(evals, domain, params, targets);
+}
+
+void ColregsReasonerNode::populate_colregs_semantics_(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
+    bool latch_released, bool release_predicted) {
+  switch (state) {
+    case EncounterState::CLEAR:
+      msg.encounter_state = l3_msgs::msg::COLREGsConstraint::ENCOUNTER_CLEAR;
+      break;
+    case EncounterState::DETECTED:
+    case EncounterState::CANDIDATE:
+    case EncounterState::PREPLAN:
+      msg.encounter_state = l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ONSET;
+      break;
+    case EncounterState::ACTIVE:
+    case EncounterState::MONITOR:
+      msg.encounter_state = l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ACTIVE;
+      break;
+    case EncounterState::RELEASE:
+      msg.encounter_state = l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE;
+      break;
+  }
+  msg.past_clear =
+      (msg.encounter_state == l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE ||
+       msg.encounter_state == l3_msgs::msg::COLREGsConstraint::ENCOUNTER_CLEAR) &&
+      latch_released;
+  msg.release_predicted = release_predicted;
+}
+
+void ColregsReasonerNode::populate_colregs_publish_semantics_(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+    bool actual_latch_released, bool release_predicted,
+    bool /*resolved_bookkeeping*/) {
+  populate_colregs_semantics_(msg, fsm_state, actual_latch_released, release_predicted);
+}
+
+void ColregsReasonerNode::test_populate_colregs_semantics(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState state,
+    bool latch_released, bool release_predicted) {
+  populate_colregs_semantics_(msg, state, latch_released, release_predicted);
+}
+
+void ColregsReasonerNode::test_populate_colregs_publish_semantics(
+    l3_msgs::msg::COLREGsConstraint& msg, EncounterState fsm_state,
+    bool actual_latch_released, bool release_predicted,
+    bool resolved_bookkeeping) {
+  populate_colregs_publish_semantics_(
+      msg, fsm_state, actual_latch_released, release_predicted,
+      resolved_bookkeeping);
+}
+
+void ColregsReasonerNode::test_populate_release_ordering_semantics(
+    l3_msgs::msg::COLREGsConstraint& msg) {
+  EncounterParams params{};
+  params.t_plan_s = 120.0;
+  params.t_monitor_s = 300.0;
+  params.cpa_hard_m = 1000.0;
+  params.cpa_soft_m = 1500.0;
+  params.cpa_safe_m = 1000.0;
+  params.cpa_release_m = 900.0;
+
+  RuleEvaluation onset_eval;
+  onset_eval.is_active = true;
+  onset_eval.role = Role::GIVE_WAY;
+  onset_eval.encounter_type = EncounterType::CROSSING;
+  onset_eval.phase = TimingPhase::PRESERVE_COURSE;
+  onset_eval.preferred_direction = "STARBOARD";
+  onset_eval.min_alteration_deg = 30.0;
+
+  EncounterStateMachine fsm{params};
+  (void)fsm.transition({100.0, 500.0}, false, true, false, 0.0, nullptr);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 0.5, &onset_eval);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 1.0, &onset_eval);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 1.5, &onset_eval);
+  (void)fsm.transition({90.0, 600.0}, false, true, false, 2.0, nullptr);
+  (void)fsm.transition({80.0, 700.0}, false, true, false, 2.5, nullptr);
+  RuleLatch latch{params.cpa_safe_m, 1.5};
+  (void)latch.update(true, 500.0, true, false, &onset_eval);
+  const auto ordering = transition_release_before_erase(
+      &fsm, &latch, {0.0, 1000.0}, /*range_closing=*/false,
+      /*past_and_clear=*/true, /*now_s=*/3.0);
+
+  populate_colregs_publish_semantics_(
+      msg, ordering.state, ordering.actual_latch_released,
+      /*release_predicted=*/true, /*resolved_bookkeeping=*/true);
+}
+
+void ColregsReasonerNode::test_populate_projection_release_ordering_semantics(
+    l3_msgs::msg::COLREGsConstraint& msg) {
+  EncounterParams params{};
+  params.t_plan_s = 120.0;
+  params.t_monitor_s = 300.0;
+  params.cpa_hard_m = 1000.0;
+  params.cpa_soft_m = 1500.0;
+  params.cpa_safe_m = 1000.0;
+  params.cpa_release_m = 900.0;
+
+  RuleEvaluation onset_eval;
+  onset_eval.is_active = true;
+  onset_eval.role = Role::GIVE_WAY;
+  onset_eval.encounter_type = EncounterType::HEAD_ON;
+  onset_eval.phase = TimingPhase::PRESERVE_COURSE;
+  onset_eval.preferred_direction = "STARBOARD";
+  onset_eval.min_alteration_deg = 30.0;
+
+  EncounterStateMachine fsm{params};
+  (void)fsm.transition({100.0, 500.0}, false, true, false, 0.0, nullptr);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 0.5, &onset_eval);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 1.0, &onset_eval);
+  (void)fsm.transition({100.0, 500.0}, true, true, false, 1.5, &onset_eval);
+  (void)fsm.transition({90.0, 600.0}, false, true, false, 2.0, nullptr);
+  (void)fsm.transition({80.0, 700.0}, false, true, false, 2.5, nullptr);
+
+  RuleLatch latch{params.cpa_safe_m, 1.5};
+  (void)latch.update(true, 500.0, true, false, &onset_eval);
+  constexpr bool kProjectionReleaseOk = true;
+  const auto ordering = transition_release_before_erase(
+      &fsm, &latch, {0.0, 1000.0}, /*range_closing=*/false,
+      /*past_and_clear=*/kProjectionReleaseOk, /*now_s=*/3.0,
+      kProjectionReleaseOk);
+
+  populate_colregs_publish_semantics_(
+      msg, ordering.state, ordering.actual_latch_released,
+      /*release_predicted=*/true, /*resolved_bookkeeping=*/true);
 }
 
 void ColregsReasonerNode::on_scenario_loaded(

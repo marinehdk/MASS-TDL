@@ -82,6 +82,7 @@ ROUTE_CORRIDOR_PASS_LIMIT_M = 500.0
 ROUTE_CORRIDOR_PASS_EPS_M = 5.0
 DEFAULT_CPA_FLOOR_M = 500.0
 CPA_FLOOR_MEASUREMENT_TOLERANCE_LOA = 0.05
+SCENARIO_START_PROXIMITY_M = 1000.0
 # Empty by default: --restart-between-runs REQUIRES an explicit --restart-container
 # so a worktree run cannot accidentally bounce the main mass-l3-sil-sil-nodes-1
 # container (the previous hardcoded default). Set it explicitly per stack, e.g.
@@ -126,7 +127,12 @@ def configure_scenario(scenario_id, *, attempts=CONFIGURE_RETRY_ATTEMPTS,
                        retry_delay_s=CONFIGURE_RETRY_DELAY_S):
     last = {"success": False, "error": "configure not attempted"}
     for attempt in range(max(1, attempts)):
-        last = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id})
+        # Phase 3.6 (probe env fix): configure drives lifecycle reset + 6-node
+        # param injection, each waiting up to 15s on DDS discovery after a
+        # container restart. Default req() timeout=30s is too tight when the
+        # restart cycle makes multiple clients retry. Allow 90s for configure.
+        last = req("POST", "/lifecycle/configure", {"scenario_id": scenario_id},
+                   timeout=90)
         if last.get("success"):
             return last
         if attempt + 1 < attempts:
@@ -157,6 +163,45 @@ def _ownship_record_near_origin(record, lat0, lon0, max_distance_m=20000.0):
     except (KeyError, TypeError, ValueError):
         return False
     return math.hypot(x_m, y_m) <= max_distance_m
+
+def _slice_records_from_scenario_start(
+    run_records,
+    *,
+    lat0,
+    lon0,
+    init_lat,
+    init_lon,
+    max_initial_distance_m=SCENARIO_START_PROXIMITY_M,
+):
+    """Drop pre-reset trace prefix before own ship reaches scenario initial."""
+    init_x_m, init_y_m = _enu(init_lat, init_lon, lat0, lon0)
+    start_sim_t = None
+    ownship_records = sorted(
+        (r for r in run_records if r.get("topic") == "/sil/own_ship_state"),
+        key=lambda r: float(r.get("sim_t", 0.0)),
+    )
+    for record in ownship_records:
+        try:
+            x_m, y_m = _enu(float(record["lat"]), float(record["lon"]), lat0, lon0)
+            sim_t = float(record.get("sim_t", 0.0))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.hypot(x_m - init_x_m, y_m - init_y_m) <= max_initial_distance_m:
+            start_sim_t = sim_t
+            break
+    if start_sim_t is None:
+        return list(run_records)
+
+    sliced = []
+    for record in run_records:
+        try:
+            sim_t = float(record.get("sim_t", 0.0))
+        except (TypeError, ValueError):
+            sliced.append(record)
+            continue
+        if sim_t >= start_sim_t:
+            sliced.append(record)
+    return sliced
 
 def _knots_to_mps(knots: float) -> float:
     return float(knots) * 0.514444
@@ -647,7 +692,11 @@ def read_trace_run_records(trace_path=Path("runs/trace_current.jsonl")):
     for i in range(1, len(records)):
         prev = records[i - 1].get("sim_t", 0.0)
         cur = records[i].get("sim_t", 0.0)
-        if cur + 1.0 < prev:
+        # Mixed DDS topics are not globally ordered by sim_t: slower status
+        # topics can legitimately lag several seconds behind high-rate module
+        # topics. Treat only a large drop back toward the run origin as a new
+        # run boundary; otherwise we slice away valid M2/M4/M5 evidence.
+        if cur + 1.0 < prev and cur < max(5.0, 0.5 * prev):
             start_idx = i
     return records[start_idx:]
 
@@ -1067,7 +1116,13 @@ def compute_phase_semantics(
         defaults["onset_tcpa_s"] = onset_tcpa
         # Ample: TCPA at onset should be <= T_plan (acted early enough) but
         # > emergency (not last-second).
-        c3_ok = (onset_tcpa <= t_plan_s and onset_tcpa > t_emergency_s)
+        if "rule13" in rule_l:
+            # Rule 13 overtaking probes may require an early, stable corridor
+            # well before the generic crossing/head-on planning window. Early
+            # action is not the violation; last-second action is.
+            c3_ok = onset_tcpa > t_emergency_s
+        else:
+            c3_ok = (onset_tcpa <= t_plan_s and onset_tcpa > t_emergency_s)
     defaults["c3_ample_time_ok"] = c3_ok
 
     # ── C4: Rule 14(a) pass on the port side (head-on give-way) ──────────
@@ -1112,21 +1167,28 @@ def compute_phase_semantics(
                         and onset_s <= p["sim_t"]
                         and (release_s is None or p["sim_t"] <= release_s + 5.0)]
         if avoid_window:
-            cpa_sample = min(avoid_window, key=lambda p: p["range_m"])
-            # Project own-target vector onto target course axis.
-            axis_e = math.sin(math.radians(cpa_sample["tcog"]))
-            axis_n = math.cos(math.radians(cpa_sample["tcog"]))
-            along = (cpa_sample["ox"] - cpa_sample["tx"]) * axis_e + \
-                    (cpa_sample["oy"] - cpa_sample["ty"]) * axis_n
-            defaults["cpa_moment_along_m"] = along
             def _along_axis(p):
                 ae = math.sin(math.radians(p["tcog"]))
                 an = math.cos(math.radians(p["tcog"]))
                 return (p["ox"] - p["tx"]) * ae + (p["oy"] - p["ty"]) * an
+            cpa_index = min(range(len(avoid_window)), key=lambda i: avoid_window[i]["range_m"])
+            cpa_sample = avoid_window[cpa_index]
+            along = _along_axis(cpa_sample)
+            defaults["cpa_moment_along_m"] = along
             abaft_frac = sum(1 for p in avoid_window if _along_axis(p) < 0) / len(avoid_window)
+            post_cpa_window = avoid_window[cpa_index:]
+            post_cpa_abaft_frac = (
+                sum(1 for p in post_cpa_window if _along_axis(p) < 0) /
+                max(1, len(post_cpa_window))
+            )
             defaults["c5_avoid_window_abaft_frac"] = round(abaft_frac, 3)
-            # along < 0 -> own abaft target at closest pass AND majority abaft.
-            c5_ok = along < 0.0 and abaft_frac >= 0.6
+            defaults["c5_post_cpa_abaft_frac"] = round(post_cpa_abaft_frac, 3)
+            # along < 0 -> own abaft target at closest pass. Early ample-time
+            # Rule15 action can spend most of the avoidance window forward of the
+            # target track before the target passes ahead; require the
+            # closest-pass/post-CPA segment to stay abaft instead of requiring a
+            # majority of the whole early-action window.
+            c5_ok = along < 0.0 and post_cpa_abaft_frac >= 0.8
         else:
             c5_ok = False
     defaults["c5_no_cross_ahead_ok"] = c5_ok
@@ -1264,6 +1326,7 @@ def compute_overtake_status(
 # lag (<=2.0x) with positive margin; extreme lag is caught by
 # assess_encounter_failure before hard_stop matters.
 HARD_STOP_MULTIPLIER = 2.0
+SIM_HORIZON_SETTLE_MARGIN_S = 2.0
 
 
 def estimate_sim_horizon(scen_data, *, route_return_budget_s=SCENARIO_AUDIT_MIN_RETURN_WINDOW_S,
@@ -1305,9 +1368,15 @@ def estimate_sim_horizon(scen_data, *, route_return_budget_s=SCENARIO_AUDIT_MIN_
     }
 
 
+def should_stop_at_declared_horizon(*, sim_t, total_time_s, route_return_required):
+    if route_return_required:
+        return False
+    return float(sim_t) >= float(total_time_s) - SIM_HORIZON_SETTLE_MARGIN_S
+
+
 def assess_encounter_failure(*, route_status, m2_records, cpa_floor_m,
                              tcpa_nominal_s, route_return_budget_s,
-                             current_sim_t):
+                             current_sim_t, m6_records=None):
     """Behavior-aware early-stop check. Returns (failed, reason).
 
     A run that is clearly succeeding (route returned) is never flagged.
@@ -1318,11 +1387,11 @@ def assess_encounter_failure(*, route_status, m2_records, cpa_floor_m,
       a failure — avoidance may still open it up.
 
     - ``recovery_stalled``: past (tcpa_nominal + route_return_budget) AND CPA
-      is past (tcpa<=0) AND the own ship is still in an avoidance behavior
-      (never released: behavior not in {0=TRANSIT, 7=RECOVERY}). RECOVERY(7)
-      with a large XTE is the healthy route-return terminal state and is never
-      flagged here; a non-converging RECOVERY is caught by the hard_stop
-      backstop.
+      is past (tcpa<=0) AND M6 has cleared the conflict AND the own ship is
+      still in an avoidance behavior (never released: behavior not in
+      {0=TRANSIT, 7=RECOVERY}). RECOVERY(7) with a large XTE is the healthy
+      route-return terminal state and is never flagged here; a non-converging
+      RECOVERY is caught by the hard_stop backstop.
 
     ``route_status`` may be None when the scenario does not require route return;
     only the CPA-floor check (A) applies in that case.
@@ -1385,6 +1454,11 @@ def assess_encounter_failure(*, route_status, m2_records, cpa_floor_m,
         final_behavior = route_status.get("final_behavior")
         still_avoiding = final_behavior not in (0, 7, None)
         if still_avoiding:
+            if m6_records:
+                sorted_m6 = sorted(
+                    m6_records, key=lambda r: float(r.get("sim_t", 0.0)))
+                if sorted_m6[-1].get("conflict_detected") is True:
+                    return False, None
             return True, "recovery_stalled"
 
     return False, None
@@ -1477,7 +1551,7 @@ def _restart_sil_nodes(container, settle_s):
         raise RuntimeError(f"failed to restart {containers}")
     time.sleep(settle_s)
 
-def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
+def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0, trace_report_dir=None):
     print(f"\n==================================================")
     print(f"RUNNING SCENARIO: {scenario_id}")
     print(f"==================================================")
@@ -1586,6 +1660,11 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         route_status = None
         if route_return_required:
             trace_records = read_trace_run_records()
+            trace_records = _slice_records_from_scenario_start(
+                trace_records,
+                lat0=lat0, lon0=lon0,
+                init_lat=init_lat, init_lon=init_lon,
+            )
             route_status = compute_route_return_status(
                 trace_records,
                 lat0=lat0, lon0=lon0,
@@ -1625,11 +1704,19 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
             last_failure_check_sim_t = sim_t
             if route_status is None:
                 trace_records = read_trace_run_records()
+                trace_records = _slice_records_from_scenario_start(
+                    trace_records,
+                    lat0=lat0, lon0=lon0,
+                    init_lat=init_lat, init_lon=init_lon,
+                )
             m2_records = [r for r in trace_records
                           if r.get("topic") == "/l3/m2/world_state"]
+            m6_records = [r for r in trace_records
+                          if r.get("topic") == "/l3/m6/colregs_constraint"]
             failed, reason = assess_encounter_failure(
                 route_status=route_status,
                 m2_records=m2_records,
+                m6_records=m6_records,
                 cpa_floor_m=cpa_floor_m,
                 tcpa_nominal_s=tcpa_nominal_s,
                 route_return_budget_s=route_return_budget_s,
@@ -1640,8 +1727,18 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
                 early_stop_reason = reason
                 break
 
-        # Hard-stop backstop: 2x total_time (covers CPA lag; extreme cases are
-        # caught by assess_encounter_failure first).
+        if should_stop_at_declared_horizon(
+                sim_t=sim_t,
+                total_time_s=total_time,
+                route_return_required=route_return_required):
+            print(
+                f"\n  Simulation reached declared horizon: "
+                f"{sim_t:.1f}s / {total_time:.1f}s"
+            )
+            break
+
+        # Hard-stop backstop: 2x total_time (covers CPA lag; route-return
+        # scenarios still need extra time if RECOVERY is converging).
         if sim_t >= hard_stop - 2.0:
             print(f"\n  Simulation reached hard stop: {sim_t:.1f}s / {hard_stop:.1f}s")
             break
@@ -1662,6 +1759,17 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         last_sim_t = sim_t
         time.sleep(0.5)
         
+    analysis_trace_path = Path("runs/trace_current.jsonl")
+    trace_artifact_path = None
+    if trace_report_dir:
+        trace_artifact_path = _archive_trace_artifact(
+            scenario_id,
+            trace_report_dir,
+            trace_path=analysis_trace_path,
+        )
+        if trace_artifact_path:
+            analysis_trace_path = Path(trace_artifact_path)
+
     # 6. Cleanup
     req("POST", "/lifecycle/cleanup")
     time.sleep(2.0)
@@ -1695,7 +1803,12 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         except Exception as e:
             print(f"  Failed to read scoring.arrow: {e}")
             
-    run_records = read_trace_run_records()
+    run_records = read_trace_run_records(analysis_trace_path)
+    run_records = _slice_records_from_scenario_start(
+        run_records,
+        lat0=lat0, lon0=lon0,
+        init_lat=init_lat, init_lon=init_lon,
+    )
     
     # 8. Analyze Own Ship State
     osh = [r for r in run_records if r.get("topic") == "/sil/own_ship_state"]
@@ -2014,6 +2127,7 @@ def run_scenario(scenario_id, total_time_override=None, sim_rate=10.0):
         "overall_pass": overall_pass,
         "phase_semantics": phase_sem,
         "chain_summary": chain_summary,
+        "trace_artifact_path": trace_artifact_path,
         "plot_path": str(plot_path) if 'plot_path' in locals() else None
     }
     result["chain_summary"] = attach_gate_diagnosis(chain_summary, result)
@@ -2052,10 +2166,14 @@ def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
         return None
     report_dir = Path(trace_report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
-    trace_artifact_path = (
-        _archive_trace_artifact(scenario_id, report_dir)
-        or "runs/trace_current.jsonl"
-    )
+    frozen_trace = result.get("trace_artifact_path")
+    if frozen_trace and Path(frozen_trace).exists():
+        trace_artifact_path = frozen_trace
+    else:
+        trace_artifact_path = (
+            _archive_trace_artifact(scenario_id, report_dir)
+            or "runs/trace_current.jsonl"
+        )
     report = report_from_runner_result(
         scenario_id=scenario_id,
         expected_outcome=_load_expected_outcome(scenario_id),
@@ -2264,6 +2382,7 @@ def main(argv=None):
                 scen,
                 total_time_override=args.total_time_override,
                 sim_rate=args.sim_rate,
+                trace_report_dir=args.trace_report_dir,
             )
             if res:
                 report_path = _write_trace_evaluation_report(
@@ -2284,7 +2403,7 @@ def main(argv=None):
                 scenario_entry = evidence_manager.archive_scenario(
                     evidence_session,
                     scen,
-                    trace_path=Path("runs/trace_current.jsonl"),
+                    trace_path=Path(res.get("trace_artifact_path") or "runs/trace_current.jsonl"),
                     report_path=Path(report_path) if report_path else None,
                     status="pass" if res.get("overall_pass") else "fail",
                     run_id=res.get("run_id"),

@@ -158,7 +158,7 @@ TEST(ConstraintGen, StandOnEarlyPhaseDoesNotRaiseConflict) {
   RuleParameters p{};
   const auto msg = g.generate(
       {mk(17, Role::STAND_ON, TimingPhase::PRESERVE_COURSE, "HOLD")}, p, 0.9);
-  EXPECT_EQ(msg.schema_version, 114U);
+  EXPECT_EQ(msg.schema_version, 115U);
   EXPECT_FALSE(msg.conflict_detected);
   ASSERT_EQ(msg.active_rules.size(), 1u);
   EXPECT_EQ(msg.active_rules[0].role, static_cast<uint8_t>(Role::STAND_ON));
@@ -222,6 +222,42 @@ TEST(ConstraintGen, GiveWayCrossingRaisesConflict) {
   ASSERT_EQ(msg.active_rules.size(), 1u);
   EXPECT_EQ(msg.active_rules[0].rule_phase, "T_warn");
   EXPECT_EQ(msg.primary_role, static_cast<uint8_t>(Role::GIVE_WAY));
+}
+
+TEST(ConstraintGeneratorTest, GivewayCrossingEscalatesOnSmallTcpa) {
+  ConstraintGenerator gen;
+  RuleParameters params{};
+  RuleEvaluation eval{};
+  eval.is_active = true;
+  eval.rule_id = 15;
+  eval.role = Role::GIVE_WAY;
+  eval.phase = TimingPhase::SOUND_WARNING;
+  eval.preferred_direction = "STARBOARD";
+  eval.min_alteration_deg = 50.0;
+  eval.tcpa_s = 60.0;
+  eval.confidence = 0.85f;
+  eval.rationale = "Rule 15 give-way";
+  eval.target_compliance = 0.5;
+  auto msg = gen.generate({eval}, params, 0.9);
+  EXPECT_EQ(msg.phase, "INDEPENDENT_ACTION");
+}
+
+TEST(ConstraintGeneratorTest, GivewayCrossingStaysSoundWarningOnAmpleTcpa) {
+  ConstraintGenerator gen;
+  RuleParameters params{};
+  RuleEvaluation eval{};
+  eval.is_active = true;
+  eval.rule_id = 15;
+  eval.role = Role::GIVE_WAY;
+  eval.phase = TimingPhase::SOUND_WARNING;
+  eval.preferred_direction = "STARBOARD";
+  eval.min_alteration_deg = 50.0;
+  eval.tcpa_s = 600.0;
+  eval.confidence = 0.85f;
+  eval.rationale = "Rule 15 give-way";
+  eval.target_compliance = 0.5;
+  auto msg = gen.generate({eval}, params, 0.9);
+  EXPECT_EQ(msg.phase, "SOUND_WARNING");
 }
 
 }  // namespace mass_l3::m6_colregs

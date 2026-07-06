@@ -1,5 +1,8 @@
 std_msgs/Header header
 
+uint16 schema_version
+builtin_interfaces/Time source_stamp
+
 # Collision-avoidance command plan from the COLAV/planning side to GNC.
 # GNC treats this as an intended command, then accepts, degrades, or rejects it
 # according to vessel physical limits and current navigation state.
@@ -29,3 +32,25 @@ bool allow_degraded_execution
 bool has_return_to_route_point
 float64 return_latitude
 float64 return_longitude
+
+# Preserved M5 audit metadata for GNC handoff/M8 traceability.
+uint8 MID_MPC_OPTIMIZED=0
+uint8 MID_MPC_TERMINAL_HOLD=1
+uint8 REJOIN_TO_L2=2
+uint8 L2_NOMINAL_SUFFIX=3
+uint8 DEGRADED_CORRIDOR=4
+uint8 L2_HISTORICAL_PREFIX=5
+uint8[] segment_source
+uint32 route_hash
+builtin_interfaces/Time stale_committed_at
+
+uint8 NLP_CONVERGED=0
+uint8 NLP_NONCONVERGED=1
+uint8 NLP_RESTOREMENT_FAILED=2
+uint8 NLP_MAX_ITER=3
+uint8 nlp_solver_status
+float32 nlp_kkt_residual
+bool nlp_tail_gate_failed
+
+float32 confidence
+string rationale

@@ -317,4 +317,120 @@ std::vector<std::pair<double, double>> directive_allowed_ranges(
   return {};
 }
 
+// Signed smallest angular difference (b - a), wrapped to [-180, +180].
+// Used by clamp_heading_box_reachable and compute_heading_box_reachability to
+// reason in own-relative coordinates. (File scope: shared by both functions.)
+double signed_delta_deg(double from_deg, double to_deg) {
+  double d = std::fmod(to_deg - from_deg, 360.0);
+  if (d > 180.0) { d -= 360.0; }
+  if (d < -180.0) { d += 360.0; }
+  return d;
+}
+
+void clamp_heading_box_reachable(double& h_min_deg, double& h_max_deg,
+                                 double own_hdg_deg, double rot_step_deg) {
+  if (rot_step_deg <= 0.0) {
+    return;  // clamp disabled
+  }
+  // Safety margin: shrink the effective reachable arc by a small epsilon so the
+  // clamped box edges sit strictly inside the M5 NLP ROT feasibility bound.
+  // Without this, float32(deg)→float64(rad) conversion + M4/M5 independent
+  // deg↔rad paths accumulate ~0.02° error at the boundary, and M5's overlap
+  // test (heading_min ≤ own_psi + rot_step) fails by a hair (e.g. M4 emits
+  // 6.000° → M5 computes 5.998° reachable → 0.002° miss → INFEAS). A 0.3°
+  // margin absorbs the conversion noise while staying well above ROT precision.
+  constexpr double kClampMarginDeg = 0.3;
+  const double eff_rot_step = std::max(rot_step_deg - kClampMarginDeg, 0.0);
+  // Compute box centre + half-width in absolute heading, then map the CENTRE
+  // into own-relative signed delta ∈ [-180, 180]. Reasoning on the centre
+  // (not the two edges independently) avoids wrap artefacts where a narrow box
+  // straddling the ±180° back-axis would have its edges map to opposite signs
+  // and be mistaken for a full-range box.
+  const double w_min = wrap_heading_deg(h_min_deg);
+  const double w_max = wrap_heading_deg(h_max_deg);
+  // Box width along the shorter arc (handles wrap-around boxes).
+  double width = w_max - w_min;
+  if (width < 0.0) { width += 360.0; }
+  const double half_width = 0.5 * width;
+  const double centre_abs = wrap_heading_deg(w_min + half_width);
+  const double centre = signed_delta_deg(own_hdg_deg, centre_abs);
+  const double d_min = centre - half_width;
+  const double d_max = centre + half_width;
+  const double reach_lo = -eff_rot_step;
+  const double reach_hi =  eff_rot_step;
+  // Already overlaps reachable arc → no-op.
+  const bool overlaps = (d_min <= reach_hi) && (d_max >= reach_lo);
+  if (overlaps) {
+    return;
+  }
+  // Entirely outside. Translate along the directive direction (sign of centre)
+  // until just tangent to the reachable arc.
+  double new_d_min, new_d_max;
+  if (centre > 0.0) {
+    // Box is to starboard — pull lower edge to reach_hi.
+    new_d_min = reach_hi;
+    new_d_max = reach_hi + 2.0 * half_width;
+  } else {
+    // Box is to port — pull upper edge to reach_lo.
+    new_d_max = reach_lo;
+    new_d_min = reach_lo - 2.0 * half_width;
+  }
+  // Map back to absolute headings (preserve original min<max ordering).
+  const double new_h_min = wrap_heading_deg(own_hdg_deg + new_d_min);
+  const double new_h_max = wrap_heading_deg(own_hdg_deg + new_d_max);
+  // Keep min/max ordered (no wrap-around box after clamp).
+  h_min_deg = std::min(new_h_min, new_h_max);
+  h_max_deg = std::max(new_h_min, new_h_max);
+}
+
+// v2.2 §4.6 reachability 合约 (M4 publish, M5 consume) — direction-aware.
+// Codex β review 🔴 Blocker fix (task-mr6d2jyi-jnd08o):
+//   heading_box_reachable_from_psi0_deg now publishes the MAX ATTAINABLE
+//   DEVIATION in the preferred COLREGS direction within the box, measured from
+//   own_psi — NOT the nearest-edge distance. The nearest-edge semantic was
+//   consumed by M5 derive_row_bound_config as the preferred-direction min_alt
+//   reach ceiling, so a starboard box [23,53] own=0 min_alt=30 published 23
+//   (nearest edge) and M5 falsely flagged minalt_box_infeasible even though
+//   30° is inside [23,53] and reachable via ROT. Direction-aware:
+//     Starboard (+): d_max if positive (own→h_max), else 0 (box not on stbd).
+//     Port      (-): |d_min| if negative (own→h_min), else 0 (box not on port).
+//     Hold/ReduceSpeed: max(|d_min|,|d_max|) — no lateral direction.
+//   box_allows_min_alt iff directional_reach ≥ min_alt (replaces the incorrect
+//   box_width ≥ min_alt + rot_step criterion — 🟡1).
+//   rot_step_deg is retained in the signature for API stability and future
+//   per-step reach reasoning; the v2.2 direction-aware criterion does not
+//   require it.
+HeadingBoxReachability compute_heading_box_reachability(
+    double h_min_deg, double h_max_deg,
+    double own_hdg_deg, double rot_step_deg,
+    double min_alt_rad,
+    ColregsDirection preferred_direction) {
+  (void)rot_step_deg;  // reserved (see rationale above); not used in v2.2 criterion
+  HeadingBoxReachability r;
+  const double d_min = signed_delta_deg(own_hdg_deg, h_min_deg);  // own→h_min, signed
+  const double d_max = signed_delta_deg(own_hdg_deg, h_max_deg);  // own→h_max, signed
+
+  // Direction-aware: max attainable deviation in the preferred COLREGS direction.
+  // Starboard (+): positive deltas (h_max side); Port (-): negative deltas (h_min
+  // side, magnitude). Hold/ReduceSpeed: no lateral direction, use max of both.
+  double directional_reach_deg = 0.0;
+  if (preferred_direction == ColregsDirection::Starboard) {
+    directional_reach_deg = (d_max > 0.0) ? d_max : 0.0;
+  } else if (preferred_direction == ColregsDirection::Port) {
+    directional_reach_deg = (d_min < 0.0) ? std::fabs(d_min) : 0.0;
+  } else {  // Hold / ReduceSpeed
+    directional_reach_deg = std::max(std::fabs(d_min), std::fabs(d_max));
+  }
+  r.heading_box_reachable_from_psi0_deg = directional_reach_deg;
+
+  // box_allows_min_alt: directional reach must be ≥ min_alt (NOT box_width).
+  const double min_alt_deg = min_alt_rad * 180.0 / M_PI;
+  r.box_allows_min_alt = (directional_reach_deg >= min_alt_deg);
+  if (!r.box_allows_min_alt) {
+    r.reachability_rationale =
+        "directional_reach < min_alt (box caps preferred-direction deviation)";
+  }
+  return r;
+}
+
 }  // namespace mass_l3::m4

@@ -27,9 +27,14 @@ RuleEvaluation Rule13_Overtaking::evaluate(const TargetGeometricState& geo,
   // abaft the other vessel's beam. That requires checking both perspectives:
   // target-in-own-stern means own is being overtaken; own-in-target-stern means
   // own is overtaking the target ahead.
+  // Rule 13(a) "any vessel overtaking any other" imposes NO same/similar-course
+  // requirement; overtaking is determined solely by the abaft-beam sector
+  // (13(b)) and a closing speed differential. A course difference is recorded in
+  // the rationale for auditability but does not gate classification. This also
+  // honours Rule 13(c): "if in doubt as to whether she is overtaking, a vessel
+  // shall assume that she is."
   constexpr double kAbaftBeamMinDeg = 112.5;
   constexpr double kAbaftBeamMaxDeg = 247.5;
-  constexpr double kSameCourseMaxDeg = 45.0;
   constexpr double kMinOvertakingSpeedDiffKn = 2.0;
   const auto in_abaft_beam_sector = [](double relative_bearing_deg_value) {
     return relative_bearing_deg_value >= kAbaftBeamMinDeg &&
@@ -41,16 +46,16 @@ RuleEvaluation Rule13_Overtaking::evaluate(const TargetGeometricState& geo,
   const double kOwnBearingFromTarget = normalize_bearing_deg(geo.bearing_deg + 180.0);
   const double kOwnRelBearingFromTarget =
       relative_bearing_deg(geo.target_heading_deg, kOwnBearingFromTarget);
-  const bool kSameCourse =
-      angle_diff_deg(geo.ownship_heading_deg, geo.target_heading_deg) <= kSameCourseMaxDeg;
+  const double kCourseDiffDeg =
+      angle_diff_deg(geo.ownship_heading_deg, geo.target_heading_deg);
   const bool kOwnFaster =
       geo.ownship_speed_kn > geo.target_speed_kn + kMinOvertakingSpeedDiffKn;
   const bool kTargetFaster =
       geo.target_speed_kn > geo.ownship_speed_kn + kMinOvertakingSpeedDiffKn;
   const bool kOwnOvertakingTarget =
-      kSameCourse && kOwnFaster && in_abaft_beam_sector(kOwnRelBearingFromTarget);
+      kOwnFaster && in_abaft_beam_sector(kOwnRelBearingFromTarget);
   const bool kTargetOvertakingOwn =
-      kSameCourse && kTargetFaster && in_abaft_beam_sector(kTargetRelBearingFromOwn);
+      kTargetFaster && in_abaft_beam_sector(kTargetRelBearingFromOwn);
 
   if (!kOwnOvertakingTarget && !kTargetOvertakingOwn) {
     result.is_active = false;
@@ -72,7 +77,8 @@ RuleEvaluation Rule13_Overtaking::evaluate(const TargetGeometricState& geo,
     result.confidence = 0.75F;
     result.rationale = "Rule 13: Overtaking. Own vessel overtaking target " +
                        std::to_string(geo.target_id) +
-                       " from astern. Give-way obligation.";
+                       " from astern (course diff " + std::to_string(kCourseDiffDeg) +
+                       " deg). Give-way obligation.";
   } else {
     result.is_active = true;
     result.role = Role::STAND_ON;
@@ -81,7 +87,8 @@ RuleEvaluation Rule13_Overtaking::evaluate(const TargetGeometricState& geo,
     result.confidence = 0.7F;
     result.rationale = "Rule 13: Being overtaken. Target " +
                        std::to_string(geo.target_id) +
-                       " approaching from astern. Stand-on obligation.";
+                       " approaching from astern (course diff " + std::to_string(kCourseDiffDeg) +
+                       " deg). Stand-on obligation.";
   }
 
   return result;

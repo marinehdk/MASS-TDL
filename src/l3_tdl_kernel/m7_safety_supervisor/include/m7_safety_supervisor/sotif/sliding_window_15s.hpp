@@ -7,8 +7,8 @@
 
 namespace mass_l3::m7::sotif {
 
-// Circular buffer for 100-cycle (= 15 s at ~6.7 Hz) sliding window.
-// RFC-003 LOCKED: kCapacity = 100. Stack-allocated — PATH-S compliant (no malloc).
+// kCapacity=100 @ M7 4Hz = 25s window (not 15s; filename is historical, RFC-003 LOCKED capacity unchanged).
+// Stack-allocated — PATH-S compliant (no malloc).
 class SlidingWindow15s {
 public:
   static constexpr std::size_t kCapacity{100};

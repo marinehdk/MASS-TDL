@@ -1,0 +1,100 @@
+# Task A Report — M5 AvoidancePlan interface unification
+
+## Status
+
+CODE GREEN and committed.
+
+## Summary of code changes
+
+- Extended `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/src/l3_tdl_kernel/l3_msgs/msg/AvoidancePlan.msg` to schema v114 while preserving `stamp`, `schema_version`, `confidence`, and `rationale`.
+- Added exactly five segment source labels: `MID_MPC_OPTIMIZED`, `MID_MPC_TERMINAL_HOLD`, `REJOIN_TO_L2`, `L2_NOMINAL_SUFFIX`, `DEGRADED_CORRIDOR`.
+- Added committed-route execution/audit fields: `route_hash`, `stale_committed_at`, `nlp_solver_status`, `nlp_kkt_residual`, `nlp_tail_gate_failed`, route arrays, validity, degraded execution, and return-to-route hints.
+- Added M5 contract test at `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_avoidance_plan_contract.cpp`; RED verified before implementation via missing-field compile failure.
+- Updated M5 Mid-MPC node so `/l3/m5/avoidance_plan` is the event-driven committed-route execution truth and `/l3/m5/avoidance_waypoints` remains compatibility shadow.
+- Added route hash over route geometry plus execution-critical metadata and 60 s heartbeat/`valid_until` refresh; no shortening of validity semantics.
+- Migrated `gnc_bridge` to subscribe to `/l3/m5/avoidance_plan` and translate `l3_msgs/AvoidancePlan` to `ship_interfaces/AvoidancePlan`; added 60 s heartbeat watchdog warning.
+- Updated frontend telemetry normalization in `/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web/src/store/telemetryStore.ts` to prefer committed route arrays and expose segment source + NLP audit fields.
+
+## Tests
+
+- RED: `test_avoidance_plan_contract` compile failed before schema implementation because `segment_source`, route arrays, route hash, and NLP status fields/constants did not exist.
+- GREEN: Docker `sil-nodes` build/test with regenerated `l3_msgs`:
+  - `colcon test --packages-select m5_tactical_planner gnc_bridge`
+  - Result: `249 tests, 0 errors, 0 failures, 59 skipped`.
+- Frontend:
+  - `npm --prefix "/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web" ci`
+  - `npm --prefix "/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web" run build`
+  - Result: build passed. Existing Vite warnings remain: Foxglove serialization uses eval; bundle chunk exceeds 500 kB.
+
+## Commit hash(es)
+
+- `bbff9fea` — `feat(m5): unify AvoidancePlan as execution truth`
+
+## Self-review notes and concerns
+
+- M6 authority preserved: no new M5 COLREGs side/role/past-clear judgment; M5 consumes existing behavior/constraint signals and route geometry.
+- `AvoidancePlan` now uses schema v114 as requested; no monotonic bump beyond v114 was needed.
+- Segment label constants intentionally use the exact requested names without `SEG_` prefix.
+- NLP audit fields are Slice A plumbing. Current committed-route publisher marks geometric/shadow-generated route snapshots as `NLP_NONCONVERGED`, `nlp_kkt_residual=0.0`, and `nlp_tail_gate_failed` true except return-to-route; Slice B/K should wire richer solver diagnostics.
+- `stale_committed_at` field exists in the schema but no keep-last stale-entry semantics are implemented in Slice A.
+- Local Docker containers are ephemeral, so ROS tests rebuilt `l3_msgs` in the same container process before M5/GNC verification.
+- Unrelated pre-existing dirty/untracked files remained unstaged and were not committed.
+## Review Fix
+
+Status: DONE
+
+Fixes:
+- Reworked M5 `/l3/m5/avoidance_plan` emission so the canonical `AvoidancePlan` route snapshot is built first, with per-waypoint `segment_source`, explicit non-stale `stale_committed_at=0`, route hash publication via existing publisher path, and legacy `/l3/m5/avoidance_waypoints` derived as a compatibility shadow.
+- Added L2 nominal suffix append support when a planned route is available, labelled `L2_NOMINAL_SUFFIX`, while preserving M6-exclusive COLREGs semantics and avoiding scenario/threshold tuning.
+- Extended `ship_interfaces/msg/AvoidancePlan.msg` with schema/source timestamp, confidence/rationale, segment source, route hash, stale timestamp, and NLP audit fields; `gnc_bridge` translator now preserves them.
+- Added HMI audit visibility by exposing segment source plus route/NLP audit fields in avoidance route GeoJSON properties.
+
+RED/GREEN tests:
+- RED: `npm --prefix /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web test -- --run src/map/__tests__/AvoidanceRouteLayer.test.tsx` failed with `buildGeoJSON is not a function` before production web change.
+- GREEN: `docker compose run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && cd /opt/ws && colcon build --symlink-install --packages-select l3_msgs ship_interfaces m5_tactical_planner gnc_bridge --cmake-args -DBUILD_TESTING=ON -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake && source install/setup.bash && colcon test --packages-select l3_msgs ship_interfaces m5_tactical_planner gnc_bridge --event-handlers console_direct+ --ctest-args -R "test_avoidance_plan_contract|test_translators" && colcon test-result --verbose'` passed: 4 packages built, 15 tests, 0 failures.
+- GREEN: `npm --prefix /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web test -- --run src/map/__tests__/AvoidanceRouteLayer.test.tsx` passed: 6 tests.
+- GREEN: `npm --prefix /Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/web run build` passed; existing Vite warnings about foxglove eval and chunk size remain.
+
+Commit: 3907fa19 (fix(m5): preserve avoidance plan audit handoff).
+
+Concerns:
+- Slice D still owns real keep-last/stale transition semantics; Slice A only publishes explicit non-stale zero timestamps.
+- `l3_msgs` and `ship_interfaces` have no package-local tests; verification coverage is through build plus `m5_tactical_planner`/`gnc_bridge` consumers.
+## Review Fix 2
+
+Status: DONE_WITH_CONCERNS
+
+Fixes:
+- Routed the selected `wp_gen_.generate(sol, lat, lon)` result into canonical `/l3/m5/avoidance_plan` generation when the NLP route is the selected plan, preserving selected waypoint geometry with `MID_MPC_OPTIMIZED` segment labels and `NLP_CONVERGED` audit status.
+- Moved L2 suffix handling into shared route-snapshot helpers that validate the full route snapshot after suffix append; infeasible suffixes are rejected and the preflighted base route is kept rather than publishing invalid geometry.
+- Increased `valid_until` TTL to 70 s while keeping the 60 s heartbeat cadence as a named constant.
+- Added regression coverage for optimized-route canonicalization, suffix rejection on full-route preflight failure, and heartbeat/TTL margin.
+
+RED/GREEN tests:
+- RED: `docker compose run --rm --no-deps sil-nodes bash -lc 'source /opt/ros/humble/setup.bash && cd /opt/ws && colcon build --symlink-install --packages-select l3_msgs l3_external_msgs m5_tactical_planner --cmake-args -DBUILD_TESTING=ON -Dcasadi_DIR=/usr/local/lib/python3.10/dist-packages/casadi/cmake && source install/setup.bash && colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R test_mid_mpc_waypoint_generator'` failed at compile because `populate_canonical_route_from_selected_plan`, `append_l2_nominal_suffix_if_preflight_feasible`, `WaypointLatLon` include, and TTL constants were absent.
+- GREEN: same targeted M5 command passed: `test_mid_mpc_waypoint_generator` 11 tests, 0 failures.
+- GREEN: required Docker build/test passed for `l3_msgs ship_interfaces m5_tactical_planner gnc_bridge` with `test_avoidance_plan_contract|test_mid_mpc_waypoint_generator|test_translators`: 4 packages built, 27 tests, 0 failures. `l3_msgs` reports no package-local tests.
+
+Commit: 97c3eefb (`fix(m5): validate committed avoidance route snapshots`).
+
+Concerns:
+- Optimized selected routes are now canonicalized and preflight-checked before publish; if the selected optimized geometry itself fails GNC preflight, M5 drops it rather than publishing invalid geometry. Existing geometric fallback behavior remains for solver-failure/fallback branches.
+- `nlp_kkt_residual` remains `0.0` because current `MidMpcSolution` exposes no KKT residual field; status/tail-gate audit is populated from available solver status.
+## Review Fix 3
+
+Status: DONE
+
+Finding fixed:
+- Stabilized M5 committed-route `route_hash` semantics by removing volatile per-publication `plan_id` from the hash inputs. The hash now represents execution route content/revision metadata, so otherwise-identical optimized canonical route snapshots no longer force `route_changed` every 1 Hz solve cycle solely because `plan_id` was regenerated from `now.nanoseconds()`.
+
+RED/GREEN commands and outcomes:
+- RED: `docker run --rm -v "/Users/marine/Code/MASS-L3-Tactical Layer/.worktrees/colregs-12probe-debug/src:/opt/ws/src" -w /opt/ws codex-colregs-12probe-debug-sil-nodes:latest bash -lc 'source /opt/ros/humble/setup.bash && rm -rf build/l3_msgs install/l3_msgs build/m5_tactical_planner install/m5_tactical_planner log && colcon build --packages-up-to m5_tactical_planner --cmake-args -DBUILD_TESTING=ON && source install/setup.bash && colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R test_avoidance_plan_contract --output-on-failure'` failed as expected: `route_hash_ignores_volatile_plan_id_for_identical_route_content` produced different hashes (`3335386538` vs `1906439583`).
+- GREEN: same Docker rebuild/test command passed: `test_avoidance_plan_contract` 3 tests, 0 failures.
+- GREEN: relevant M5-target command `colcon test --packages-select m5_tactical_planner --event-handlers console_direct+ --ctest-args -R "test_(avoidance_plan_contract|mid_mpc_waypoint_generator|mid_mpc_nlp_formulation|mid_mpc_solver)" --output-on-failure` passed in the same Docker rebuild flow; available image selected and ran `test_avoidance_plan_contract` only (3 tests, 0 failures).
+
+Commit hash:
+- `b78e44c4` (`fix(m5): stabilize avoidance route hash`)
+
+Concerns:
+- Local host lacks `/opt/ros/jazzy`; verification used the existing `codex-colregs-12probe-debug-sil-nodes:latest` Docker image with worktree `src` bind-mounted and dependencies rebuilt in-container to avoid stale generated `l3_msgs` headers.
+- The Docker image did not expose/build CasADi mid-MPC tests under the requested regex in this run; focused contract test covers the blocker directly.

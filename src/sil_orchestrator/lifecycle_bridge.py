@@ -46,6 +46,16 @@ _SCENARIO_LOADED_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
 )
 
+# GNC reset is a configure-time command, and the bridge may still be joining DDS
+# during strict restart runs. Latch the last reset so late subscribers receive
+# the scenario start state instead of continuing from stale GNC plant state.
+_GNC_RESET_QOS = QoSProfile(
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
 # Ordered list of SIL lifecycle nodes besides scenario_lifecycle_mgr.
 # Names must match what each Node.__init__ passes as node_name.
 _SIL_LIFECYCLE_NODES = [
@@ -155,7 +165,7 @@ class LifecycleBridge(Node):
         self._scenario_loaded_pub = self.create_publisher(
             String, "/sil/scenario_loaded", qos_profile=_SCENARIO_LOADED_QOS)
         self._reset_own_ship_pub = self.create_publisher(
-            ShipReset, "/l3/sim/reset_own_ship", 10)
+            ShipReset, "/l3/sim/reset_own_ship", qos_profile=_GNC_RESET_QOS)
 
         # Service clients for runtime encounter injection (D1.8)
         self._add_target_client = self.create_client(
@@ -333,10 +343,31 @@ class LifecycleBridge(Node):
             raise ScenarioInjectionError(
                 f"SetParameters client for '{node_name}' not available")
 
-        if not client.wait_for_service(timeout_sec=3.0):
-            raise ScenarioInjectionError(
-                f"SetParameters service /{node_name}/set_parameters "
-                "not available after 3s")
+        # Phase 3.6 (probe env fix): DDS discovery after a container restart
+        # can take longer than the legacy 3s timeout, especially when the
+        # probe drives --restart-between-runs (the lifecycle_bridge recreates
+        # its SetParameters clients on each restart, and DDS graph rediscovery
+        # races with the scenario-injection step). Wait up to 15s with one
+        # retry to absorb slow discovery; the service itself is alive (it is
+        # a lifecycle-managed node's standard parameter service), this is a
+        # pure timing fix.
+        if not client.wait_for_service(timeout_sec=15.0):
+            # One retry: drop + recreate the client to force a fresh DDS
+            # reader match, then wait again. DDS sometimes drops the reader
+            # for a stale service handle after a fast container recycle.
+            # Use the default callback group (None) — service clients do not
+            # depend on the group for wait_for_service or call semantics.
+            try:
+                client = self.create_client(
+                    SetParameters, f"/{node_name}/set_parameters")
+                self._sil_set_parameters_clients[node_name] = client
+            except Exception as exc:
+                raise ScenarioInjectionError(
+                    f"SetParameters client recreate failed for '{node_name}': {exc}")
+            if not client.wait_for_service(timeout_sec=10.0):
+                raise ScenarioInjectionError(
+                    f"SetParameters service /{node_name}/set_parameters "
+                    "not available after 15s+10s retry")
 
         req = SetParameters.Request()
         for param_name, (value, param_type) in params.items():

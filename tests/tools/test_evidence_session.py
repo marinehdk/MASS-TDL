@@ -95,6 +95,30 @@ def test_archive_valid_scenario_keeps_session_on_finalize(tmp_path: Path):
     assert final_manifest["scenarios"][0]["run_id"] == "run-test"
 
 
+def test_archive_scenario_accepts_trace_already_in_session_dir(tmp_path: Path):
+    run_root = tmp_path / "runs"
+    mgr = EvidenceSessionManager(root=tmp_path / "trace_eval", run_root=run_root)
+    session = mgr.start(
+        source="cli",
+        suite="single",
+        scenario_id="colreg-rule14-ho",
+        created_at=datetime(2026, 6, 22, 15, 30, 12),
+    )
+    trace = session.session_dir / "colreg-rule14-ho.trace_current.jsonl"
+    _write_trace(trace, samples=25, duration_s=10.0)
+
+    archived = mgr.archive_scenario(
+        session,
+        "colreg-rule14-ho",
+        trace_path=trace,
+        status="fail",
+        run_id="run-test",
+    )
+
+    assert archived["valid_data"] is True
+    assert archived["trace_path"] == "colreg-rule14-ho.trace_current.jsonl"
+
+
 def test_finalize_discards_session_with_no_valid_scenario(tmp_path: Path):
     run_root = tmp_path / "runs"
     trace = run_root / "trace_current.jsonl"
@@ -112,4 +136,3 @@ def test_finalize_discards_session_with_no_valid_scenario(tmp_path: Path):
 
     assert final_manifest is None
     assert not session.session_dir.exists()
-

@@ -15,10 +15,11 @@ inline constexpr float kDcTarget         = 0.90F;
 DcConstraintResult evaluate_dc_constraint(DcSelfCheckState const& state) noexcept
 {
   DcConstraintResult result{};
-  float product = 1.0F;
-  auto const apply = [&product](bool ok, float dc) {
-    float const contrib = ok ? dc * kDcWeight : 0.0F;
-    product *= (1.0F - contrib);
+  float weighted_sum = 0.0F;
+  auto const apply = [&weighted_sum](bool ok, float dc) {
+    if (ok) {
+      weighted_sum += dc * kDcWeight;
+    }
   };
   apply(state.ram_integrity_ok,    kDcRamIntegrity);
   apply(state.alu_test_passed,     kDcAluTest);
@@ -26,7 +27,7 @@ DcConstraintResult evaluate_dc_constraint(DcSelfCheckState const& state) noexcep
   apply(state.input_integrity_ok,  kDcInputIntegrity);
   apply(state.output_integrity_ok, kDcOutputIntegrity);
   apply(state.watchdog_ok,         kDcWatchdog);
-  result.effective_dc_pct = (1.0F - product) * 100.0F;
+  result.effective_dc_pct = weighted_sum * 100.0F;
   result.dc_met   = (result.effective_dc_pct >= kDcTarget * 100.0F);
   result.violation = !result.dc_met;
   return result;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { useRef } from 'react';
-import { AvoidanceRouteLayer } from '../AvoidanceRouteLayer';
+import { AvoidanceRouteLayer, buildGeoJSON } from '../AvoidanceRouteLayer';
 import { useTelemetryStore, type AvoidancePlanData } from '../../store/telemetryStore';
 
 const addSourceMock = vi.fn();
@@ -129,4 +129,33 @@ describe('AvoidanceRouteLayer', () => {
       })]),
     }));
   });
+});
+
+it('includes segment source and audit metadata in route layer properties', () => {
+  const geojson = buildGeoJSON({
+    waypoints: [
+      { lat: 63.44, lon: 10.38, segmentSource: 'MID_MPC_OPTIMIZED', targetSpeedMps: 3.2 },
+      { lat: 63.45, lon: 10.39, segmentSource: 'REJOIN_TO_L2', targetSpeedMps: 3.0 },
+      { lat: 63.46, lon: 10.40, segmentSource: 'L2_NOMINAL_SUFFIX', targetSpeedMps: 4.0 },
+    ],
+    status: 'RECOVERY',
+    confidence: 0.82,
+    rationale: 'audit visible',
+    routeHash: 0x1234abcd,
+    nlpSolverStatus: 3,
+    nlpKktResidual: 0.125,
+    nlpTailGateFailed: true,
+  });
+
+  const line = geojson.features.find((feature) => feature.geometry.type === 'LineString');
+  expect(line?.properties).toMatchObject({
+    segmentSources: 'MID_MPC_OPTIMIZED,REJOIN_TO_L2,L2_NOMINAL_SUFFIX',
+    routeHash: 0x1234abcd,
+    nlpSolverStatus: 3,
+    nlpKktResidual: 0.125,
+    nlpTailGateFailed: true,
+  });
+  const points = geojson.features.filter((feature) => feature.geometry.type === 'Point');
+  expect(points[0]?.properties?.segmentSource).toBe('MID_MPC_OPTIMIZED');
+  expect(points[1]?.properties?.segmentSource).toBe('REJOIN_TO_L2');
 });

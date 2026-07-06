@@ -97,6 +97,9 @@ private:
   float last_avoidance_heading_change_{0.0F};
   float last_avoidance_dcpa_{0.0F};
   core::ColregsRule last_colregs_rule_{core::ColregsRule::kUnknown};
+  std::uint8_t last_nlp_solver_status_{l3_msgs::msg::AvoidancePlan::NLP_CONVERGED};
+  float last_nlp_kkt_residual_{0.0F};
+  bool last_nlp_tail_gate_failed_{false};
 
   // Input snapshots (pre-allocated at boot)
   l3_msgs::msg::ODDState last_odd_{};

@@ -12,12 +12,14 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Eigen 3 — column-major Dense matrices; NO_MODULE ensures modern CMake target.
 #include <Eigen/Dense>
 
 #include "m5_tactical_planner/common/units.hpp"
+#include "l3_msgs/msg/avoidance_plan.hpp"
 
 namespace mass_l3::m5 {
 
@@ -35,6 +37,28 @@ struct TrajectoryPoint {
   double r_rad_s{0.0};  // yaw rate [rad/s], positive = turn to starboard
   double t_s{0.0};      // time offset from cycle start [s]
 };
+
+// Dead-reckon trajectory x_m/y_m from a heading/speed sequence.
+// point[k] position = start + Σ_{j<k} u[j]·(cos(psi[j]), sin(psi[j]))·dt.
+// psi_rad and u_mps must already be set on each point; x_m/y_m are overwritten.
+//
+// The Mid-MPC NLP decision variable is x=[psi; u] (no position state), so
+// without this reconstruction the solved trajectory carries x_m=y_m=0 and every
+// position-based acceptance gate (tail-gate terminal lateral offset) sees 0 —
+// Bug B: every converged solution rejected as wrong_m6_side.
+inline void propagate_trajectory_positions(std::vector<TrajectoryPoint>& traj,
+                                            double dt_s,
+                                            double x0_m = 0.0,
+                                            double y0_m = 0.0) {
+  double x = x0_m;
+  double y = y0_m;
+  for (auto& p : traj) {
+    p.x_m = x;
+    p.y_m = y;
+    x += p.u_mps * std::cos(p.psi_rad) * dt_s;
+    y += p.u_mps * std::sin(p.psi_rad) * dt_s;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // TargetState — tracked obstacle state, sourced from M2 WorldState
@@ -55,6 +79,7 @@ struct TargetState {
   double cog_rad{0.0};   // course over ground [rad]
   double sog_mps{0.0};   // speed over ground [m/s]
   double cpa_m{0.0};     // closest point of approach [m]
+  double cpa_sigma_m{0.0};  // 1σ CPA uncertainty [m], sourced from M2 covariance when available
   double tcpa_s{0.0};    // time to CPA [s]; negative = already passed
   double confidence{0.0};  // track confidence ∈ [0, 1]
   Intent predicted_intent{Intent::Unknown};
@@ -84,6 +109,23 @@ struct ConstraintInputs {
   // Calibrate via HAZID RUN-001 workpackage 03 (SOTIF thresholds).
   double cpa_safe_m{1852.0};
 
+  // [TBD-HAZID] cpa_hard_m: the HARD CPA floor used by compile_cpa_distance.
+  // Distinct from cpa_safe_m: the node bumps cpa_safe_m→2500 during conflict
+  // for SOFT cost-scaling (the colreg barrier), but that bump must NOT leak
+  // into the hard floor. Spec committed-route-design-v2 §L84: the hard floor
+  // is odd_aware_thresholds.yaml cpa_hard_m (shared with M6/M2, =1852); M5 must
+  // not self-define it. Before this field existed the hard floor tracked the
+  // bumped cpa_safe (2500) → Infeasible whenever a target was inside 2500 m
+  // (Bug C deep, RC-C).
+  double cpa_hard_m{1852.0};
+
+  // v2.1 §4.5: terminal lateral feasibility band (6th tail-gate check).
+  // Mirrors MidMpcNlpFormulation::Config defaults (terminal_l_min/max_feasible_m).
+  // Packed by mid_mpc_node from the formulation Config so accept_tail_gate
+  // (which receives MidMpcInput only) can enforce the band the NLP softend.
+  double terminal_l_min_feasible_m{30.0};
+  double terminal_l_max_feasible_m{400.0};
+
   std::vector<TargetState> targets;
 
   // COLREGs rule set received from M6 COLREGsConstraint.
@@ -105,6 +147,14 @@ struct ConstraintInputs {
 
   // ENC / TSS zone constraints (stay-inside lanes or avoid zones).
   std::vector<ZoneConstraint> zone_constraints;
+
+  // v2.2 §4.6 reachability 合约（M4 publish via BehaviorPlan.msg schema 113,
+  // M5 consume into MidMpcInput.constraints). 0 sentinel = M4 未升级 → M5 退化
+  // v2.1 ROT-only 公式.
+  double heading_box_reachable_from_psi0_deg{0.0};
+  double rot_step_deg{0.0};
+  double min_alt_required_rad{0.0};
+  double earliest_min_alt_k{0.0};
 };
 
 // ---------------------------------------------------------------------------
@@ -144,27 +194,97 @@ struct TargetRiskSnapshot {
 struct MidMpcInput {
   TrajectoryPoint own_ship;               // current own-ship state
   std::vector<TargetState> targets;       // max 16 per spec §4.2
+  std::vector<TargetState> tail_gate_targets;  // Raw M2 target CPA/covariance before optimizer weighting
   ConstraintInputs constraints;
   double planned_route_bearing_rad{0.0};  // current route leg bearing [rad]
   double route_xte_m{0.0};
   double route_corridor_limit_m{500.0};
   std::vector<TargetRiskSnapshot> target_risks;
 
+  // Slice R1: route-frame parameters (spec §4). Computed in assemble_input_
+  // (active-leg bearing + normal + cross-leg guard), packed into kIdx slots.
+  double route_frame_origin_x_m{0.0};            // active-leg origin, NED north
+  double route_frame_origin_y_m{0.0};            // active-leg origin, NED east
+  double route_frame_normal_x{0.0};              // active-leg normal unit vector, north comp
+  double route_frame_normal_y{1.0};              // active-leg normal unit vector, east comp
+  double route_frame_active_leg_bearing_rad{0.0};
+  double lateral_scale_m{400.0};                 // GncExecutionOdd.max_lateral_offset_m
+  // High-4 review fix: default 0.0 (inert) so legacy callers that do not build a
+  // route frame do not silently enable J_route and change behaviour. assemble_input_
+  // sets 1.0 only when a valid active leg + cross-leg guard passes. The cross-leg
+  // guard still drives this to 0.0 when the trajectory would cross an L2 corner.
+  double route_weight{0.0};                      // cross-leg guard: 1.0 active, 0.0 inert/cross-corner
+
   bool colregs_conflict_active{false};
+  // M6-owned primary role: 0=STAND_ON, 1=GIVE_WAY, 2=BOTH_GIVE_WAY, 3=FREE/UNKNOWN.
+  std::uint8_t colregs_primary_role{3U};
   ColregsPreferredDirection colregs_preferred_direction{ColregsPreferredDirection::Hold};
   double colregs_min_alteration_rad{0.0};
 
   // [TBD-HAZID] planned_speed_mps: from L2 SpeedProfile; default 5.0 m/s ≈ 9.7 kn.
   // Calibrate per vessel service speed profile.
   double planned_speed_mps{5.0};
+  double decel_max_mps2{0.08};
+  bool speed_gap_infeasible{false};  // v2.2 §4.7: own_u/planned_u gap > N·decel_max·dt，dispatch 信号
 
   /// D3.2: dynamic ROT max [rad/s] from VesselDynamicsModel (replaces D0.1 hardcoded stub)
   double rot_max_rad_s{0.2094};
 
+  // ── Slice C1: continuity H_commit prefix (spec §6) ─────────────────────────
+  // The committed-route prefix is frozen WGS84 geometry (the GNC guard inner
+  // waypoints). assemble_input_ reprojects that geometry to the current cycle's
+  // ownship NED origin (spec §6.2) and back-infers the per-step psi/u that the
+  // NLP equality rows pin. These fields hold the NED-reprojected values so the
+  // formulation's pack_parameters can write them directly to kIdxPrefixPsi/U.
+  // prefix_active_k=0 (default) ⇒ no prefix (K=0, first commit, full suffix free).
+  int32_t prefix_active_k{0};
+  std::vector<double> prefix_psi_rad;   // [K] NLP psi[k] equality targets (reprojected)
+  std::vector<double> prefix_u_mps;     // [K] NLP u[k]   equality targets (reprojected)
+  // Own-ship WGS84 position for the cycle (the reprojection origin). Packed so
+  // the reprojection test can verify WGS84 continuity across two different
+  // NED origins. Both own_lat/lon and own_n/own_e describe the same current
+  // position; they are redundant representations kept for test clarity.
+  double own_lat_deg{0.0};
+  double own_lon_deg{0.0};
+
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
 };
 
+// v2.2 §4.7 (D2): speed-gap feasibility check. Free function so the dispatch
+// rule is unit-testable without the private MidMpcNode::assemble_input_().
+// Returns true when |own_u - planned_u| exceeds the reachable decel envelope
+// decel_max·dt·N over the MPC horizon → BC-MPC take-over candidate (§13.1).
+inline bool compute_speed_gap_infeasible(
+    double own_u_mps, double planned_u_mps,
+    double decel_max_mps2, int n_horizon, double dt_s) {
+  const double max_delta =
+      decel_max_mps2 * dt_s * static_cast<double>(n_horizon);
+  return std::fabs(own_u_mps - planned_u_mps) > max_delta;
+}
+
+// v2.2 §13.1: BC-MPC take-over dispatch rule. Free function so the OR condition
+// is unit-testable without the private MidMpcNode dispatch block. Spec:
+//   take-over = consecutive_failures >= kThreshold
+//               OR minalt_box_infeasible
+//               OR speed_gap_infeasible
+// The latter two can fire on the FIRST solve (consecutive=0): minalt_box when
+// the M4 heading-box upper < own+min_alt (architectural infeasibility),
+// speed_gap when |own_u - planned_u| exceeds N·decel_max·dt. Either is grounds
+// for immediate BC-MPC dispatch — holding a stale NLP corridor would be wrong.
+inline bool compute_bc_mpc_take_over(
+    std::int64_t consecutive_failures,
+    std::int64_t threshold,
+    bool minalt_box_infeasible,
+    bool speed_gap_infeasible) {
+  return (consecutive_failures >= threshold)
+      || minalt_box_infeasible
+      || speed_gap_infeasible;
+}
+
 inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
+  if (input.tail_gate_targets.empty()) {
+    input.tail_gate_targets = input.targets;
+  }
   input.constraints.targets = input.targets;
   input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
 }
@@ -187,6 +307,12 @@ struct MidMpcSolution {
   double cost_colreg{0.0};
   double cost_dist{0.0};
   double cost_vel{0.0};
+  // Phase 3.1/3.4 (spec v2.3 §2/§4): CPA slack value at the optimum. 0 when
+  // NLP did not need slack (geometry compliant); >0 means the maneuver could
+  // not fully open CPA inside the horizon and σ softened a hard-infeasibility
+  // window. Reported to ASDR/SAT so "tuned green" (σ always active) is
+  // distinguishable from "genuine fix" (σ zero except close-range).
+  double cpa_slack{0.0};
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};
@@ -250,6 +376,20 @@ inline double normalize_heading_positive(double angle) {
   return normalized;
 }
 
+// Normalize heading to [-π, +π] — the NLP psi variable box (Fix C-2b). Rule17
+// and direction/min_alt constraints use raw psi - own_psi subtraction; if
+// own_psi is at 2π (positive normalization) while NLP psi ∈ [-π, π], the
+// subtraction yields π instead of 0, making the constraint set empty. All
+// own_psi values fed to the NLP (kIdxOwnPsi, constraint_inputs.own_ship_psi_rad)
+// must pass through this to stay in the same branch as the NLP psi box.
+inline double normalize_heading_signed(double angle) {
+  double normalized = normalize_heading_positive(angle);
+  if (normalized > M_PI) {
+    normalized -= 2.0 * M_PI;
+  }
+  return normalized;
+}
+
 inline double circular_heading_distance(double lhs, double rhs) {
   const double two_pi = 2.0 * M_PI;
   double diff = std::fabs(normalize_heading_positive(lhs) - normalize_heading_positive(rhs));
@@ -289,6 +429,48 @@ inline double clamp_heading_window(double target, double h_min, double h_max) {
   const double min_distance = circular_heading_distance(target, h_min);
   const double max_distance = circular_heading_distance(target, h_max);
   return (min_distance <= max_distance) ? h_min : h_max;
+}
+
+// Resolve an M4 raw heading window [h_min_raw, h_max_raw] (rad, absolute) into
+// IPOPT box-safe bounds (lb <= ub). Returned bounds feed the Mid-MPC per-variable
+// box (lbx/ubx); CasADi nlpsol asserts "lb <= ub" so inversion is fatal.
+//
+// A near-full-circle window (span ≈ 2π — e.g. M4 TRANSIT emits [0, 360 deg] or
+// the quantised [0, 359 deg]) means "no heading constraint" and resolves to the
+// unconstrained [-π, +π] box. Without this, normalize_angle maps [0, 359 deg]
+// to an inverted psi-relative window (min > max) that throws every transit
+// cycle. Narrow corridors are unwrapped near ref_psi (own-ship heading) to stay
+// contiguous without crossing the ±π seam mid-window.
+inline std::pair<double, double> resolve_heading_box_bounds(
+    double h_min_raw, double h_max_raw, double ref_psi) {
+  constexpr double kTwoPi = 6.283185307179586;
+  constexpr double kFullCircleTolRad = 0.05;  // ~3 deg
+  if ((h_max_raw - h_min_raw) >= (kTwoPi - kFullCircleTolRad)) {
+    return {-M_PI, M_PI};
+  }
+  auto normalize_angle = [](double angle, double ref) {
+    double diff = angle - ref;
+    diff = std::fmod(diff + M_PI, kTwoPi);
+    if (diff < 0.0) {
+      diff += kTwoPi;
+    }
+    diff -= M_PI;
+    return ref + diff;
+  };
+  double lb = normalize_angle(h_min_raw, ref_psi);
+  double ub = normalize_angle(h_max_raw, ref_psi);
+  // Contract: guarantee lb <= ub for CasADi nlpsol (asserts "lb <= ub").
+  // normalize_angle wraps each bound independently around ref_psi; when the
+  // original window is narrow but ref_psi has drifted so the window now straddles
+  // the ref_psi ± pi seam, the two normalized values can invert (lb > ub). A
+  // single contiguous [lb, ub] cannot represent a wrapped-around corridor, so
+  // fall back to the unconstrained full box — same policy as the full-circle
+  // case above. This is conservative (the corridor is widened for that cycle)
+  // but never produces an invalid bound that would trip the NLP solver.
+  if (lb > ub) {
+    return {-M_PI, M_PI};
+  }
+  return {lb, ub};
 }
 
 inline bool is_m4_fallback_rationale(const std::string& rationale) {
@@ -547,6 +729,333 @@ inline bool trajectory_reaches_colregs_target(
   const double target_heading = fallback_target_heading(
       route_brg, h_min, h_max, target_min_alt, direction);
   return trajectory_reaches_heading(trajectory, target_heading, tolerance_rad);
+}
+
+struct TailGateAcceptance {
+  bool accepted{false};
+  bool nlp_tail_gate_failed{true};
+  std::string reason{"not_evaluated"};
+};
+
+inline double trajectory_terminal_lateral_offset_m(
+    const TrajectoryPoint& point,
+    double route_brg) {
+  return (-std::sin(route_brg) * point.x_m) + (std::cos(route_brg) * point.y_m);
+}
+
+inline bool terminal_offset_matches_m6_direction(
+    const TrajectoryPoint& terminal,
+    double route_brg,
+    ColregsPreferredDirection direction) {
+  constexpr double kMinTailLateralOffsetM = 25.0;
+  const double lateral_m = trajectory_terminal_lateral_offset_m(terminal, route_brg);
+  if (direction == ColregsPreferredDirection::Starboard) {
+    return lateral_m >= kMinTailLateralOffsetM;
+  }
+  if (direction == ColregsPreferredDirection::Port) {
+    return lateral_m <= -kMinTailLateralOffsetM;
+  }
+  return true;
+}
+
+inline const TargetState* primary_tail_gate_target(const MidMpcInput& input) {
+  const auto& candidates = input.tail_gate_targets.empty()
+      ? input.targets
+      : input.tail_gate_targets;
+  if (candidates.empty()) {
+    return nullptr;
+  }
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  if (risk != nullptr) {
+    for (const auto& target : candidates) {
+      if (std::to_string(target.id) == risk->target_id) {
+        return &target;
+      }
+    }
+  }
+  return &candidates.front();
+}
+
+// Projected CPA from the NLP trajectory's TERMINAL state (own at terminal
+// position/velocity, target projected forward by the terminal time). This is
+// the "achieved" CPA after the avoidance maneuver — what the tail-gate must
+// verify per committed-route-design-v2 §9.5 (terminal hold CPA), NOT M2's
+// pre-maneuver do-nothing CPA (target.cpa_m), which is by definition small
+// during active approach and would reject every converged NLP route (Bug C).
+inline double trajectory_terminal_state_cpa_m(
+    const MidMpcSolution& solution, const TargetState& target) {
+  if (solution.trajectory.empty()) {
+    return std::max(target.cpa_m, 0.0);
+  }
+  const auto& term = solution.trajectory.back();
+  const double t_N = std::max(term.t_s, 0.0);
+  // NED: x_m = north, y_m = east; psi/cog: 0 = north, positive clockwise.
+  // velocity = speed * (sin(hdg), cos(hdg))? No — per propagate_trajectory_positions
+  // north-vel = u*cos(psi), east-vel = u*sin(psi). Match that convention.
+  const double own_vn = term.u_mps * std::cos(term.psi_rad);
+  const double own_ve = term.u_mps * std::sin(term.psi_rad);
+  const double tgt_vn = target.sog_mps * std::cos(target.cog_rad);
+  const double tgt_ve = target.sog_mps * std::sin(target.cog_rad);
+  // Target projected to terminal time, relative to own terminal position.
+  const double rn = (target.x_m + tgt_vn * t_N) - term.x_m;
+  const double re = (target.y_m + tgt_ve * t_N) - term.y_m;
+  const double rvn = tgt_vn - own_vn;
+  const double rve = tgt_ve - own_ve;
+  const double rv2 = rvn * rvn + rve * rve;
+  double tcpa = 0.0;
+  if (rv2 > 1.0e-9) {
+    tcpa = -((rn * rvn) + (re * rve)) / rv2;
+    if (tcpa < 0.0) {
+      tcpa = 0.0;
+    }
+  }
+  const double cpa_n = rn + rvn * tcpa;
+  const double cpa_e = re + rve * tcpa;
+  return std::hypot(cpa_n, cpa_e);
+}
+
+inline bool tail_gate_cpa_release_clear(const MidMpcSolution& solution,
+                                        const MidMpcInput& input) {
+  const TargetState* target = primary_tail_gate_target(input);
+  if (target == nullptr) {
+    return true;
+  }
+  // v2.2 §13.4: tail-gate is a deterministic NLP PUBLISH GATE (defense-in-depth),
+  // NOT an IEC 61508 SIL2 independent checker. tail-gate shares numeric inputs
+  // (rot_max_rad_s, cpa_hard_m, decel_max_mps2) with the NLP constraint compiler
+  // (types.hpp vs mid_mpc_solver.cpp), so it does NOT meet SIL2 independence
+  // criteria. SIL2 responsibility: M7 X-axis Deterministic Checker (架构 §11.7).
+  // Spec ref: docs/superpowers/specs/2026-07-04-m5-nlp-constraint-restructure-design-v2.1.md §13.4
+  //
+  // Bug C context (still relevant): the CPA-floor is a RELEASE concern (is the
+  // target finally clear?), not an active-avoidance concern. During active
+  // approach (target closing) the NLP maneuver IS the CPA-opening action;
+  // requiring the CPA already safe would reject every active-avoidance route
+  // -> geometric fallback (Bug C). Skip the floor while the target is closing;
+  // apply it once the target is opening (release/recovery), where the terminal
+  // CPA must be safe. Spec committed-route-design-v2 §3.1: M6 owns the
+  // release/clearing signal; the closing_speed trend is the M2-backed proxy.
+  const TargetRiskSnapshot* risk = primary_target_risk(input);
+  const bool target_opening = (risk == nullptr) || (risk->closing_speed_mps <= 0.0);
+  if (!target_opening) {
+    return true;  // active approach: the maneuver opens CPA, do not pre-require it safe
+  }
+  const double sigma_m = std::max(target->cpa_sigma_m, 0.0);
+  const double terminal_cpa_m = trajectory_terminal_state_cpa_m(solution, *target);
+  // v2.1 §4.3 B6-r2: release check uses cpa_hard_m (unbumped), not cpa_safe_m
+  // (bumped to 2500 during conflict — that's the J_colreg soft barrier radius,
+  // not a hard floor). Using bumped value made the release floor unreachable.
+  return (terminal_cpa_m - (3.0 * sigma_m)) >= input.constraints.cpa_hard_m;
+}
+
+inline bool tail_gate_turns_are_feasible(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double own_ship_psi_rad,
+    double rot_max_rad_s) {
+  if (trajectory.empty() || rot_max_rad_s <= 0.0) {
+    return true;
+  }
+  // trajectory[0].t_s == 0: it is the first command over interval [0, dt_s],
+  // not a zero-duration step. The own_ship→traj[0] turn rate applies over one
+  // control step, so seed prev_time one step before t=0. Dividing by ~0
+  // (clamped 1e-6) instead rejected every converged NLP whose psi[0] differed
+  // from own_ship psi (Bug C deep, RC-A).
+  const double first_step_dt = (trajectory.size() >= 2u)
+      ? std::max(trajectory[1].t_s - trajectory[0].t_s, 1.0e-6)
+      : std::max(trajectory[0].t_s, 1.0e-6);
+  double prev_heading = own_ship_psi_rad;
+  double prev_time = -first_step_dt;
+  for (const auto& cur : trajectory) {
+    const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
+    if ((circular_heading_distance(cur.psi_rad, prev_heading) / dt_s) >
+        (rot_max_rad_s + 1.0e-6)) {
+      return false;
+    }
+    prev_heading = cur.psi_rad;
+    prev_time = cur.t_s;
+  }
+  return true;
+}
+
+inline bool tail_gate_decel_is_feasible(
+    const std::vector<TrajectoryPoint>& trajectory,
+    double own_ship_speed_mps,
+    double decel_max_mps2) {
+  if (trajectory.empty() || decel_max_mps2 <= 0.0) {
+    return true;
+  }
+  // trajectory[0].t_s == 0: it is the first command over interval [0, dt_s],
+  // not a zero-duration step. The own_ship→traj[0] decel applies over one
+  // control step, so seed prev_time one step before t=0. Dividing by ~0
+  // (clamped 1e-6) instead rejected every converged NLP whose u[0] differed
+  // from own_ship speed (decel_infeasible=512/512 in rule14-ho; Bug C deep, RC-A).
+  const double first_step_dt = (trajectory.size() >= 2u)
+      ? std::max(trajectory[1].t_s - trajectory[0].t_s, 1.0e-6)
+      : std::max(trajectory[0].t_s, 1.0e-6);
+  double prev_speed = own_ship_speed_mps;
+  double prev_time = -first_step_dt;
+  for (const auto& cur : trajectory) {
+    const double dt_s = std::max(cur.t_s - prev_time, 1.0e-6);
+    const double decel = (prev_speed - cur.u_mps) / dt_s;
+    if (decel > decel_max_mps2 + 1.0e-6) {
+      return false;
+    }
+    prev_speed = cur.u_mps;
+    prev_time = cur.t_s;
+  }
+  return true;
+}
+
+inline bool trajectory_crosses_ahead_of_target(
+    const std::vector<TrajectoryPoint>& trajectory,
+    const TargetState& target,
+    double route_brg) {
+  constexpr double kAheadAlongMarginM = 0.0;
+  constexpr double kCrossTrackWindowM = 100.0;
+  const double route_n = std::cos(route_brg);
+  const double route_e = std::sin(route_brg);
+  const double right_n = -std::sin(route_brg);
+  const double right_e = std::cos(route_brg);
+  for (const auto& own : trajectory) {
+    const double tgt_x = target.x_m + target.sog_mps * own.t_s * std::cos(target.cog_rad);
+    const double tgt_y = target.y_m + target.sog_mps * own.t_s * std::sin(target.cog_rad);
+    const double rel_x = own.x_m - tgt_x;
+    const double rel_y = own.y_m - tgt_y;
+    const double along_m = rel_x * route_n + rel_y * route_e;
+    const double lateral_m = rel_x * right_n + rel_y * right_e;
+    if (along_m > kAheadAlongMarginM && std::fabs(lateral_m) <= kCrossTrackWindowM) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool tail_gate_no_crossing_ahead(
+    const MidMpcSolution& solution,
+    const MidMpcInput& input) {
+  const TargetState* target = primary_tail_gate_target(input);
+  return target == nullptr || !trajectory_crosses_ahead_of_target(
+      solution.trajectory, *target, input.planned_route_bearing_rad);
+}
+
+inline void apply_tail_gate_publish_contract(
+    const MidMpcInput& input,
+    l3_msgs::msg::AvoidancePlan& plan) {
+  if (input.colregs_conflict_active && input.colregs_primary_role == 0U) {
+    plan.latitude.clear();
+    plan.longitude.clear();
+    plan.command_speed_mps.clear();
+    plan.navigation_mode.clear();
+    plan.segment_source.clear();
+    plan.waypoints.clear();
+    plan.status = "NORMAL";
+    plan.confidence = 1.0F;
+    plan.rationale = "M5 stand-on hold — no avoidance tail published";
+    plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+    plan.nlp_tail_gate_failed = false;
+    plan.allow_degraded_execution = false;
+  }
+}
+
+// v2.1 spec §4.5 B7-gap2: terminal lateral band feasibility (6th tail-gate
+// check). Uses existing trajectory_terminal_lateral_offset_m(point, route_brg).
+// Role guard via lateral_colreg_active: stand-on / ReduceSpeed / HOLD skip.
+// pref_dir is the enum (Starboard/Port are lateral; ReduceSpeed/Hold are not).
+inline bool tail_gate_terminal_lateral_feasible(
+    const MidMpcSolution& solution,
+    double route_brg_rad,
+    ColregsPreferredDirection pref_dir,
+    bool   lateral_colreg_active,
+    double l_min_feasible_m,
+    double l_max_feasible_m) {
+  if (!lateral_colreg_active) return true;  // C4-r2 role guard: non-lateral skip
+  if (solution.trajectory.empty()) return true;
+  const double lN = trajectory_terminal_lateral_offset_m(
+      solution.trajectory.back(), route_brg_rad);
+  const double signed_pref = (pref_dir == ColregsPreferredDirection::Starboard) ? +1.0
+                           : (pref_dir == ColregsPreferredDirection::Port)       ? -1.0
+                           : 0.0;
+  if (signed_pref * lN < l_min_feasible_m) return false;  // wrong side / insufficient
+  if (lN < -l_max_feasible_m || lN > l_max_feasible_m) return false;  // out of band
+  return true;
+}
+
+inline TailGateAcceptance accept_tail_gate(
+    const MidMpcSolution& solution,
+    const MidMpcInput& input) {
+  TailGateAcceptance result;
+  if (solution.status != MidMpcSolution::Status::Converged || solution.trajectory.empty()) {
+    result.reason = "solver_not_converged";
+    return result;
+  }
+
+  const auto& terminal = solution.trajectory.back();
+  if (input.colregs_primary_role == 0U) {
+    constexpr double kStandOnHeadingToleranceRad = 2.0 * units::kRadPerDeg;
+    constexpr double kStandOnOffsetToleranceM = 10.0;
+    const bool biased_heading = circular_heading_distance(
+        terminal.psi_rad, input.planned_route_bearing_rad) > kStandOnHeadingToleranceRad;
+    const bool biased_offset = std::fabs(trajectory_terminal_lateral_offset_m(
+        terminal, input.planned_route_bearing_rad)) > kStandOnOffsetToleranceM;
+    if (biased_heading || biased_offset) {
+      result.reason = "stand_on_heading_violation";
+      return result;
+    }
+    result.accepted = true;
+    result.nlp_tail_gate_failed = false;
+    result.reason = "accepted";
+    return result;
+  }
+
+  if (!terminal_offset_matches_m6_direction(
+          terminal,
+          input.planned_route_bearing_rad,
+          input.colregs_preferred_direction)) {
+    result.reason = "wrong_m6_side";
+    return result;
+  }
+  if (!tail_gate_no_crossing_ahead(solution, input)) {
+    result.reason = "crossing_ahead";
+    return result;
+  }
+  if (!tail_gate_cpa_release_clear(solution, input)) {
+    result.reason = "cpa_release_floor";
+    return result;
+  }
+  if (!tail_gate_decel_is_feasible(
+          solution.trajectory, input.own_ship.u_mps, input.decel_max_mps2)) {
+    result.reason = "decel_infeasible";
+    return result;
+  }
+  if (!tail_gate_turns_are_feasible(
+          solution.trajectory, input.own_ship.psi_rad, input.rot_max_rad_s)) {
+    result.reason = "turn_radius_infeasible";
+    return result;
+  }
+
+  // v2.1 §4.5: 6th check — terminal lateral band. Backstops the NLP terminal
+  // rows being softened (terminal_nlp_soft=true default). lateral_active
+  // mirrors the solver give-way-lateral condition (mid_mpc_solver.cpp:195):
+  //   role == 1U || role == 2U  AND  pref_dir ∈ {Starboard, Port}
+  const bool lateral_colreg_active =
+      (input.colregs_primary_role == 1U || input.colregs_primary_role == 2U) &&
+      (input.colregs_preferred_direction == ColregsPreferredDirection::Starboard ||
+       input.colregs_preferred_direction == ColregsPreferredDirection::Port);
+  if (!tail_gate_terminal_lateral_feasible(
+          solution,
+          input.planned_route_bearing_rad,
+          input.colregs_preferred_direction,
+          lateral_colreg_active,
+          input.constraints.terminal_l_min_feasible_m,
+          input.constraints.terminal_l_max_feasible_m)) {
+    result.reason = "terminal_lateral_out_of_band";
+    return result;
+  }
+
+  result.accepted = true;
+  result.nlp_tail_gate_failed = false;
+  result.reason = "accepted";
+  return result;
 }
 
 }  // namespace mass_l3::m5

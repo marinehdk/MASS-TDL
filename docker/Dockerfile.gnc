@@ -61,6 +61,22 @@ WORKDIR /opt/gnc_ws
 # Vendor-copied GNC source (no edits).
 COPY third_party/gnc_ws/src ./src
 
+# Phase 3.9: ship_interfaces schema sync. The L3-side ship_interfaces
+# (src/ship_interfaces) carries Phase 1+2 audit extension fields
+# (schema_version, source_stamp, segment_source, route_hash,
+# stale_committed_at, nlp_solver_status, nlp_kkt_residual,
+# nlp_tail_gate_failed, confidence, rationale) that gnc_bridge publishes on
+# /colav/avoidance_plan. Without this overlay, the gnc-nodes image builds
+# against third_party/gnc_ws/src/platform/ship_interfaces (original schema),
+# causing a DDS type mismatch: GNC deserializes the extended AvoidancePlan
+# with the original layout, reading plan_id as empty and latitude arrays as
+# garbage, so active_route_manager basic_route_valid fails with
+# invalid_avoidance_route on every M5 OPTIMIZED plan (probe rule14-ho
+# run-19f31630e0c: 125 rejects). src/ship_interfaces is the single source of
+# truth; this overlay keeps the GNC build in sync without editing
+# third_party/gnc_ws source.
+COPY src/ship_interfaces ./src/platform/ship_interfaces
+
 # Build GNC stack. BuildKit ccache mount per AGENTS.md Docker convention — keep it.
 # NOTE: do NOT cache-mount /opt/gnc_ws/build. colcon --symlink-install creates
 # symlinks from install/ into build/ and src/; if build/ is a cache mount it is

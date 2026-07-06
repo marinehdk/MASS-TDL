@@ -62,17 +62,20 @@ TEST(MidMpcNlpFormulationTest, PackParameters_CorrectDim) {
   EXPECT_EQ(static_cast<int32_t>(p.size2()), 1);
 }
 
-TEST(MidMpcNlpFormulationTest, GDim_MatchesTwoNMinus1_RotOnly) {
-  // g holds only the ROT differential rows — two smooth linear bounds (upper +
-  // lower) per step = 2*(N-1). Heading/speed box limits moved to IPOPT variable
-  // bounds (lbx/ubx) for restoration robustness.
+TEST(MidMpcNlpFormulationTest, GDim_MatchesTwoN_RotOnly) {
+  // Slice N1 (spec §3.8) + Fix D-2 (speed_rate N rows) + Fix E (ROT 2N rows:
+  // own_psi→psi[0] + N-1 inter-step): g holds the FIXED-class
+  //   [ROT 2N][speed_rate N][prefix_psi_eq N][prefix_u_eq N][CPA n_targets*N]
+  //   [direction N][min_alt N][terminal 3][rule][zone]
+  // With no targets/rules/zones, the count is
+  //   2*N + N + N + N + 0 + N + N + 3 = 2*N + 5*N + 3 = 7*N + 3.
   for (const int32_t n : {2, 6, 12}) {
     MidMpcNlpFormulation::Config cfg;
     cfg.n_horizon   = n;
     cfg.max_targets = 4;
     MidMpcNlpFormulation formulation(cfg);
     formulation.build_symbolic_graph();
-    EXPECT_EQ(formulation.g_dim(), 2 * (n - 1))
+    EXPECT_EQ(formulation.g_dim(), 2 * n + 5 * n + 3)
         << "g_dim mismatch for N=" << n;
   }
 }
@@ -105,6 +108,9 @@ TEST(MidMpcNlpFormulationTest, PackGiveWayFlag_FromApplicableRules) {
 }
 
 TEST(MidMpcNlpFormulationTest, GDimIncludesCpaHardConstraintRows) {
+  // Slice N1 fixed-class layout. One target adds N CPA rows; the placeholder
+  // classes (prefix_psi_eq/prefix_u_eq/direction/min_alt/terminal) contribute
+  // 2*N + N + N + 3 = 4*N + 3 rows even with zero targets.
   constexpr int32_t kHorizon = 4;
   MidMpcNlpFormulation::Config cfg;
   cfg.n_horizon = kHorizon;
@@ -123,7 +129,9 @@ TEST(MidMpcNlpFormulationTest, GDimIncludesCpaHardConstraintRows) {
   formulation.set_constraint_inputs(constraints);
   formulation.build_symbolic_graph();
 
-  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + kHorizon)
+  // Fixed-class base (no CPA): 2*N + 5*N + 3 (Fix E ROT 2N + Fix D-2 speed_rate);
+  // plus 1 target → N CPA rows.
+  EXPECT_EQ(formulation.g_dim(), 2 * kHorizon + 5 * kHorizon + 3 + kHorizon)
       << "one target must add one CPA hard-constraint row per horizon step";
 }
 
@@ -152,6 +160,21 @@ TEST(MidMpcNlpFormulationTest, RuntimeConstraintContextFeedsCompilerRows) {
   formulation.set_constraint_inputs(input.constraints);
   formulation.build_symbolic_graph();
 
-  EXPECT_EQ(formulation.g_dim(), 2 * (kHorizon - 1) + kHorizon)
+  EXPECT_EQ(formulation.g_dim(), 2 * kHorizon + 5 * kHorizon + 3 + kHorizon)
       << "runtime targets must reach ConstraintCompiler CPA hard rows";
+}
+
+TEST(MidMpcNlpFormulationTest, HorizonSecondsOverridesDefaultStepCount) {
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon = 18;
+  cfg.dt_s = 5.0;
+
+  const auto resolved = mass_l3::m5::mid_mpc::resolve_mid_mpc_horizon_config(
+      cfg,
+      60.0,
+      cfg.n_horizon,
+      5.0);
+
+  EXPECT_EQ(resolved.n_horizon, 12);
+  EXPECT_DOUBLE_EQ(resolved.dt_s, 5.0);
 }

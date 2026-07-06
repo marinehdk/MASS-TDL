@@ -83,7 +83,7 @@ class DebugTraceWriter:
     # File size above which flush() gzips the current file aside and reopens
     # fresh. Exposed as an instance attribute (not the constant) so tests can
     # shrink it via monkeypatch without writing 50 MB.
-    _rotate_size_bytes = 50 * 1024 * 1024
+    _rotate_size_bytes = 256 * 1024 * 1024
 
     def __init__(self, logger: _LoggerLike | None = None) -> None:
         """``logger`` is anything with ``error``/``warning``/``info`` (a ROS2
@@ -261,6 +261,16 @@ def _normalize_colregs_constraint_msg(msg: Any) -> dict[str, Any]:
         "primary_preferred_direction": str(msg.primary_preferred_direction),
         "confidence": float(msg.confidence),
         "active_rules": active_rules,
+        # Phase 1.2 (G-M6-1, spec v2.3 §15): M6 encounter lifecycle fields are
+        # the authoritative source for M5 TailBuilder's active/release branch
+        # and M7's release check. Without these in trace, the V2.3 phase 3b
+        # m6_not_past_clear × 874 root cause was only inferable via geometry
+        # back-projection (ZCode audit 2026-07-05). Capture the full lifecycle
+        # so future release/active debugging has direct evidence.
+        "encounter_state": int(getattr(msg, "encounter_state", 0)),
+        "past_clear": bool(getattr(msg, "past_clear", False)),
+        "release_predicted": bool(getattr(msg, "release_predicted", False)),
+        "colregs_chain_target_id": str(getattr(msg, "colregs_chain_target_id", "")),
     }
 
 
@@ -311,6 +321,169 @@ def _normalize_world_state_msg(msg: Any) -> dict[str, Any]:
     return payload
 
 
+def _normalize_gnc_execution_status_msg(msg: Any) -> dict[str, Any]:
+    stamp = getattr(msg, "stamp", None)
+    return {
+        "stamp_sec": int(getattr(stamp, "sec", 0)) if stamp is not None else 0,
+        "stamp_nanosec": int(getattr(stamp, "nanosec", 0)) if stamp is not None else 0,
+        "schema_version": int(getattr(msg, "schema_version", 0)),
+        "plan_id": str(getattr(msg, "plan_id", "")),
+        "active_route_id": str(getattr(msg, "active_route_id", "")),
+        "command_source": str(getattr(msg, "command_source", "")),
+        "accepted": bool(getattr(msg, "accepted", False)),
+        "executing": bool(getattr(msg, "executing", False)),
+        "degraded": bool(getattr(msg, "degraded", False)),
+        "rejected": bool(getattr(msg, "rejected", False)),
+        "execution_state": str(getattr(msg, "execution_state", "")),
+        "reason": str(getattr(msg, "reason", "")),
+        "suggested_action": str(getattr(msg, "suggested_action", "")),
+        "requested_speed_mps": float(getattr(msg, "requested_speed_mps", 0.0)),
+        "applied_speed_mps": float(getattr(msg, "applied_speed_mps", 0.0)),
+        "suggested_max_speed_mps": float(getattr(msg, "suggested_max_speed_mps", 0.0)),
+        "current_latitude": float(getattr(msg, "current_latitude", 0.0)),
+        "current_longitude": float(getattr(msg, "current_longitude", 0.0)),
+        "current_heading_deg": float(getattr(msg, "current_heading_deg", 0.0)),
+        "current_speed_mps": float(getattr(msg, "current_speed_mps", 0.0)),
+        "cross_track_error_m": float(getattr(msg, "cross_track_error_m", 0.0)),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+        "rationale": str(getattr(msg, "rationale", "")),
+    }
+
+
+def _as_float_list(values: Any) -> list[float]:
+    if values is None:
+        return []
+    return [float(value) for value in list(values)]
+
+
+def _as_string_list(values: Any) -> list[str]:
+    if values is None:
+        return []
+    return [str(value) for value in list(values)]
+
+
+def _normalize_avoidance_plan_msg(msg: Any) -> dict[str, Any]:
+    waypoints = list(getattr(msg, "waypoints", []))
+    wp0 = waypoints[0] if waypoints else None
+    wp1 = waypoints[1] if len(waypoints) > 1 else None
+    wp0_pos = getattr(wp0, "position", None) if wp0 else None
+    wp1_pos = getattr(wp1, "position", None) if wp1 else None
+    return {
+        "n_waypoints": len(waypoints),
+        "solver_status": "VALID" if waypoints else "EMPTY",
+        "plan_status": str(getattr(msg, "status", "")),
+        "wp0_turn_radius_m": float(wp0.turn_radius_m) if wp0 else 0.0,
+        "wp0_target_speed_kn": float(wp0.target_speed_kn) if wp0 else 0.0,
+        "wp0_lat": float(wp0_pos.latitude) if wp0_pos else 0.0,
+        "wp0_lon": float(wp0_pos.longitude) if wp0_pos else 0.0,
+        "wp1_lat": float(wp1_pos.latitude) if wp1_pos else 0.0,
+        "wp1_lon": float(wp1_pos.longitude) if wp1_pos else 0.0,
+        # Phase 2.4 (G-M5-1/G-TR-1, spec v2.3 §15): publish_committed_route_
+        # 4-branch identity + per-branch audit fields so the trace can answer
+        # "which branch produced this avoidance_plan?" without parsing
+        # rationale strings. nlp_solver_status / nlp_kkt_residual /
+        # nlp_tail_gate_failed / segment_source expose the M5 NLP diagnostic
+        # state that was previously invisible (V2.3 phase 3b CPA analysis
+        # required container docker logs to recover these).
+        "commit_branch": int(getattr(msg, "commit_branch", 0)),
+        "behavior_mode": str(getattr(msg, "behavior_mode", "")),
+        "command_source": str(getattr(msg, "command_source", "")),
+        "plan_id": str(getattr(msg, "plan_id", "")),
+        "nlp_solver_status": int(getattr(msg, "nlp_solver_status", 0)),
+        "nlp_kkt_residual": float(getattr(msg, "nlp_kkt_residual", 0.0)),
+        "nlp_tail_gate_failed": bool(getattr(msg, "nlp_tail_gate_failed", False)),
+        "stale_committed_at_sec": int(getattr(getattr(msg, "stale_committed_at", None), "sec", 0) or 0),
+        "segment_source_count": len(getattr(msg, "segment_source", []) or []),
+    }
+
+
+# Phase 1.3 (G-TR-2, spec v2.3 §15): close the trace blind spots that hid
+# BC-MPC override issuance, M5 NLP diagnostic state, M7 SOTIF assumptions,
+# and per-module health during V2.3 debugging. Each normalizer captures the
+# audit-relevant fields; payloads stay small to preserve the writer's flush
+# budget. See the gap analysis (drawer drawer_MASS-L3_colregs-deviation-findings_26756cd78147ca5d5856c583).
+
+
+def _normalize_sat2_data_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "trigger_reason": str(getattr(msg, "trigger_reason", "")),
+        "system_confidence": float(getattr(msg, "system_confidence", 0.0)),
+        "colregs_chain_target_id": str(getattr(msg, "colregs_chain_target_id", "")),
+        "reasoning_latency_ms": float(getattr(msg, "reasoning_latency_ms", 0.0)),
+    }
+
+
+def _normalize_sat3_data_msg(msg: Any) -> dict[str, Any]:
+    # trajectory_candidates is a fixed-size 13 array; count how many carry a
+    # real CPA forecast without retaining every float (kept lightweight).
+    candidates = list(getattr(msg, "trajectory_candidates", []) or [])
+    return {
+        "predicted_state": str(getattr(msg, "predicted_state", "")),
+        "prediction_uncertainty": float(getattr(msg, "prediction_uncertainty", 0.0)),
+        "tdl_s": float(getattr(msg, "tdl_s", 0.0)),
+        "tmr_s": float(getattr(msg, "tmr_s", 0.0)),
+        "primary_trajectory_idx": int(getattr(msg, "primary_trajectory_idx", 0)),
+        "takeover_window_s": float(getattr(msg, "takeover_window_s", 0.0)),
+        "trajectory_candidate_count": len(candidates),
+    }
+
+
+def _normalize_sotif_metrics_msg(msg: Any) -> dict[str, Any]:
+    metrics = list(getattr(msg, "metrics", []) or [])
+    # Each SotifMetricEntry has at least assumption_id + violation_flag +
+    # severity. Capture the active-violation short list (assumption_id +
+    # severity) so the chain trace surfaces SOTIF degradation alongside
+    # COLREGs state without retaining the full 6-entry payload verbatim.
+    active = []
+    for entry in metrics:
+        if bool(getattr(entry, "violation_flag", False)):
+            active.append(
+                {
+                    "assumption_id": int(getattr(entry, "assumption_id", 0)),
+                    "severity": float(getattr(entry, "severity", 0.0)),
+                }
+            )
+    return {
+        "active_violation_count": int(getattr(msg, "active_violation_count", 0)),
+        "active_violations": active,
+    }
+
+
+def _normalize_module_pulse_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "module_id": int(getattr(msg, "module_id", 0)),
+        "state": int(getattr(msg, "state", 0)),
+        "latency_ms": int(getattr(msg, "latency_ms", 0)),
+        "message_drops": int(getattr(msg, "message_drops", 0)),
+    }
+
+
+def _normalize_reactive_override_cmd_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "trigger_reason": str(getattr(msg, "trigger_reason", "")),
+        "heading_cmd_deg": float(getattr(msg, "heading_cmd_deg", 0.0)),
+        "speed_cmd_kn": float(getattr(msg, "speed_cmd_kn", 0.0)),
+        "rot_cmd_deg_s": float(getattr(msg, "rot_cmd_deg_s", 0.0)),
+        "validity_s": float(getattr(msg, "validity_s", 0.0)),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+    }
+
+
+def _normalize_override_active_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "override_active": bool(getattr(msg, "override_active", False)),
+        "activation_source": str(getattr(msg, "activation_source", "")),
+        "confidence": float(getattr(msg, "confidence", 0.0)),
+    }
+
+
+def _normalize_m7_observability_msg(msg: Any) -> dict[str, Any]:
+    return {
+        "verdict_code": int(getattr(msg, "verdict_code", 0)),
+        "path_s_clean": bool(getattr(msg, "path_s_clean", False)),
+    }
+
+
 # Topic → (message type import path, normalizer). Normalizers turn a ROS msg
 # into the dict the trace evaluators expect. Kept 1:1 with the deleted bridge's
 # record() payloads so downstream consumers are unaffected.
@@ -325,10 +498,21 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         COLREGsConstraint,
         FsmState,
         MissionGoal,
+        M7Observability,
+        ReactiveOverrideCmd,
+        SAT2Data,
+        SAT3Data,
         SafetyAlert,
+        SotifMetrics,
         WorldState,
     )
-    from l3_external_msgs.msg import CheckerVetoNotification, PlannedRoute
+    from sil_msgs.msg import ModulePulse
+    from l3_external_msgs.msg import (
+        CheckerVetoNotification,
+        GncExecutionStatus,
+        OverrideActiveSignal,
+        PlannedRoute,
+    )
 
     def sim_t(node) -> float:
         return node.get_clock().now().nanoseconds * 1e-9
@@ -384,22 +568,9 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         )
 
     def on_avoidance(msg):
-        wp0 = msg.waypoints[0] if msg.waypoints else None
-        wp1 = msg.waypoints[1] if len(msg.waypoints) > 1 else None
-        wp0_pos = getattr(wp0, "position", None) if wp0 else None
-        wp1_pos = getattr(wp1, "position", None) if wp1 else None
         writer.record(
             "/l3/m5/avoidance_plan",
-            {
-                "n_waypoints": len(msg.waypoints),
-                "solver_status": "VALID" if (wp0 and abs(wp0.turn_radius_m) > 1e-6) else "EMPTY",
-                "wp0_turn_radius_m": float(wp0.turn_radius_m) if wp0 else 0.0,
-                "wp0_target_speed_kn": float(wp0.target_speed_kn) if wp0 else 0.0,
-                "wp0_lat": float(wp0_pos.latitude) if wp0_pos else 0.0,
-                "wp0_lon": float(wp0_pos.longitude) if wp0_pos else 0.0,
-                "wp1_lat": float(wp1_pos.latitude) if wp1_pos else 0.0,
-                "wp1_lon": float(wp1_pos.longitude) if wp1_pos else 0.0,
-            },
+            _normalize_avoidance_plan_msg(msg),
             t_now(),
         )
 
@@ -504,8 +675,44 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
             )
             route_hash = hashlib.md5(coords.encode()).hexdigest()[:12]
         except Exception:
-            route_hash = ""
+                route_hash = ""
         writer.record("/l2/planned_route", {"route_hash": route_hash}, t_now())
+
+    def on_gnc_execution(msg):
+        writer.record(
+            "/l3/gnc/execution_status",
+            _normalize_gnc_execution_status_msg(msg),
+            t_now(),
+        )
+
+    def on_sat2(msg):
+        writer.record("/sil/sat2_data", _normalize_sat2_data_msg(msg), t_now())
+
+    def on_sat3(msg):
+        writer.record("/sil/sat3_data", _normalize_sat3_data_msg(msg), t_now())
+
+    def on_sotif(msg):
+        writer.record("/sil/sotif_metrics", _normalize_sotif_metrics_msg(msg), t_now())
+
+    def on_module_pulse(msg):
+        writer.record("/sil/module_pulse", _normalize_module_pulse_msg(msg), t_now())
+
+    def on_reactive_override(msg):
+        writer.record(
+            "/l3/m5/reactive_override_cmd",
+            _normalize_reactive_override_cmd_msg(msg),
+            t_now(),
+        )
+
+    def on_override_active(msg):
+        writer.record("/l3/override/active", _normalize_override_active_msg(msg), t_now())
+
+    def on_m7_observability(msg):
+        writer.record(
+            "/m7/sil_observability",
+            _normalize_m7_observability_msg(msg),
+            t_now(),
+        )
 
     def on_lifecycle(msg):
         # Update the sim_t anchor from the authoritative lifecycle_status field.
@@ -546,7 +753,18 @@ def _build_subscriptions(writer: DebugTraceWriter) -> list[tuple[str, str, Any]]
         ("/l3/fsm_state", FsmState, on_fsm),
         ("/l3/m7/safety_alert", SafetyAlert, on_safety_alert),
         ("/l2/planned_route", PlannedRoute, on_route),
+        ("/l3/gnc/execution_status", GncExecutionStatus, on_gnc_execution),
         ("/sil/lifecycle_status", LifecycleStatus, on_lifecycle),
+        # Phase 1.3 (G-TR-2, spec v2.3 §15): close the trace blind spots that
+        # hid BC-MPC override issuance, M5 NLP diagnostic state, M7 SOTIF
+        # assumptions, and per-module health during V2.3 debugging.
+        ("/sil/sat2_data", SAT2Data, on_sat2),
+        ("/sil/sat3_data", SAT3Data, on_sat3),
+        ("/sil/sotif_metrics", SotifMetrics, on_sotif),
+        ("/sil/module_pulse", ModulePulse, on_module_pulse),
+        ("/l3/m5/reactive_override_cmd", ReactiveOverrideCmd, on_reactive_override),
+        ("/l3/override/active", OverrideActiveSignal, on_override_active),
+        ("/m7/sil_observability", M7Observability, on_m7_observability),
     ]
     # Return the holder alongside the subscriptions so main() can populate it
     # with the ROS node (which owns the sim clock the callbacks read via t_now()).

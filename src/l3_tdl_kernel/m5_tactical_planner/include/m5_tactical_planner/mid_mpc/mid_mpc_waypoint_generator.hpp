@@ -15,28 +15,72 @@
 #include <vector>
 
 #include "geographic_msgs/msg/geo_point.hpp"
+#include "l3_external_msgs/msg/planned_route.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
 #include "l3_msgs/msg/avoidance_waypoint.hpp"
 
+#include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/common/types.hpp"
+#include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 
 namespace mass_l3::m5::mid_mpc {
+
+inline constexpr double kAvoidancePlanHeartbeat_s = 60.0;
+inline constexpr double kAvoidancePlanTtl_s = 70.0;
+
+void populate_canonical_route_from_selected_plan(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const MidMpcSolution& solution,
+    const std::string& plan_id,
+    const std::string& parent_route_id,
+    const std::string& navigation_mode);
+
+[[nodiscard]] GncAvoidancePreflightResult validate_canonical_route_for_gnc(
+    const l3_msgs::msg::AvoidancePlan& plan,
+    const WaypointLatLon& origin,
+    bool wps_has_anchor = false);
+
+[[nodiscard]] bool append_l2_nominal_suffix_if_preflight_feasible(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    const WaypointLatLon& origin,
+    double speed_mps);
+
+// Phase 3.10 (spec v2.3 §5.2): prepend the L2 nominal poses from L2 start up
+// to (but excluding) the L2 pose closest to ownship. The prefix aligns the
+// plan's first N waypoints with last_feedback_path_ (L2 nominal in cold-start)
+// so coordinate_transform_node::first_geometry_change_index returns the ownship
+// anchor index instead of 1, and first_changed_distance_ahead becomes positive.
+// Prefix poses are decimated to ≥15 m spacing so validate_canonical_route_for_gnc
+// segment_too_short (15 m floor) does not reject. Prefix navigation_mode="cruise"
+// (the prefix is a historical transit, not emergency_avoidance). On preflight
+// reject the plan is left untouched and the function returns false (mirrors
+// append_l2_nominal_suffix_if_preflight_feasible degradation semantics).
+[[nodiscard]] bool prepend_l2_history_prefix_if_preflight_feasible(
+    l3_msgs::msg::AvoidancePlan& plan,
+    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
+    const WaypointLatLon& own_lat_lon,
+    double speed_mps);
 
 class MidMpcWaypointGenerator {
  public:
   struct Config {
-    // Fixed 4 waypoints per RFC-001 方案 B (Kongsberg K-Pos compatible).
-    int32_t num_waypoints{4};
+    // Dense route points: default follows Mid-MPC NLP step resolution (N=18, dt=5s).
+    int32_t num_waypoints{18};
     // [TBD-HAZID] Safety corridor [m] — nominal COLREGs separation margin.
     // Calibrate from FCB CPA safe distance (HAZID RUN-001 WP-03).
     double safety_corridor_m{500.0};
     // [TBD-HAZID] NLP step duration [s] — must match MidMpcNlpFormulation::Config::dt_s.
     double dt_s{5.0};
+    // Phase 3 (spec §3.6): start sampling at first trajectory index whose
+    // cumulative distance from origin >= this. Must match
+    // GncAvoidancePreflightConfig::emergency_wheel_over_distance_m.
+    double wheel_over_distance_m{120.0};
   };
 
   explicit MidMpcWaypointGenerator(const Config& cfg);
 
-  // Convert a Converged MidMpcSolution to AvoidancePlan (4 waypoints).
+  // Convert a Converged MidMpcSolution to a dense AvoidancePlan.
   // Non-Converged status returns an empty plan with status="DEGRADED".
   // @param solution  Solved MPC solution (unpack_solution() output).
   // @param own_ship_lat  Initial latitude [WGS84 deg].
@@ -51,7 +95,7 @@ class MidMpcWaypointGenerator {
  private:
   Config cfg_;
 
-  // Sample cfg_.num_waypoints GeoPoints at evenly spaced trajectory indices.
+  // Sample at NLP step resolution or denser, capped by trajectory length.
   // Uses flat-earth NED → WGS84 (Phase E1 approximation).
   [[nodiscard]] std::vector<geographic_msgs::msg::GeoPoint> sample_waypoints_(
       const std::vector<TrajectoryPoint>& trajectory,

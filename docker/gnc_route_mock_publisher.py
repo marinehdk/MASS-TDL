@@ -41,6 +41,7 @@ class GncRouteMockPublisher(Node):
         self._is_active = False
         self._current_scenario_id = ""
         self._waypoints: list[tuple[float, float]] = []
+        self._yaml_speeds_kn: list[float] = []
 
         route_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
@@ -93,6 +94,13 @@ class GncRouteMockPublisher(Node):
             return
         self._waypoints = [(float(wp["latitude"]), float(wp["longitude"]))
                            for wp in nominal]
+        # W1: preserve per-waypoint target_sog_kn so RoutePlan.speed_limit_mps is
+        # populated downstream and GNC respects the per-scenario own-ship design
+        # speed instead of falling back to global max_transit_speed. Fall back to
+        # ownShip.initial.sog, then 0 (no limit).
+        own_sog = scenario.get("ownShip", {}).get("initial", {}).get("sog", 0.0)
+        self._yaml_speeds_kn = [float(wp.get("target_sog_kn", own_sog))
+                                for wp in nominal]
         self._is_active = True
         self.get_logger().info(
             f"GNC route ACTIVE — {len(self._waypoints)} wp from {scenario_id}")
@@ -104,6 +112,11 @@ class GncRouteMockPublisher(Node):
         msg.header = Header(stamp=_now(self), frame_id="map")
         msg.latitude = [lat for lat, _ in self._waypoints]
         msg.longitude = [lon for _, lon in self._waypoints]
+        # W1: populate speed_limit_mps (m/s). Per RoutePlan.msg, 0/empty means
+        # "no limit" and GNC then uses global max_transit_speed. Only emit when
+        # every waypoint actually had a non-zero target_sog specified.
+        if self._yaml_speeds_kn and all(s > 0 for s in self._yaml_speeds_kn):
+            msg.speed_limit_mps = [s * 0.514444 for s in self._yaml_speeds_kn]
         self._pub.publish(msg)
 
 

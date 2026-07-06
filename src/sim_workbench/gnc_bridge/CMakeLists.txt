@@ -72,7 +72,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_translators test/test_translators.cpp)
   target_link_libraries(test_translators gnc_bridge_translators)
   ament_target_dependencies(test_translators
+    rclcpp
     builtin_interfaces
+    l3_msgs
     l3_external_msgs
     sil_msgs
     ship_interfaces

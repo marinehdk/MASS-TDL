@@ -20,6 +20,7 @@
 #include "l3_msgs/msg/rule_assessment.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "l3_external_msgs/msg/planned_route.hpp"
+#include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "l3_risk_model/risk_model.hpp"
 
 #include "m4_behavior_arbiter/behavior_activation.hpp"
@@ -62,6 +63,7 @@ public:
 private:
   void on_scenario_loaded(const std_msgs::msg::String::SharedPtr msg);
   void on_odd_state(const ODDStateMsg::SharedPtr msg);
+  void on_gnc_execution_odd(const ship_interfaces::msg::GncExecutionOdd::SharedPtr msg);
   void on_world_state(const WorldStateMsg::SharedPtr msg);
   void on_mode_cmd(const ModeCmdMsg::SharedPtr msg);
   void on_mission_goal(const MissionGoalMsg::SharedPtr msg);
@@ -88,6 +90,7 @@ private:
 
   // Cached messages
   ODDStateMsg::SharedPtr          latest_odd_;
+  ship_interfaces::msg::GncExecutionOdd::SharedPtr latest_gnc_odd_;
   WorldStateMsg::SharedPtr        latest_world_;
   ModeCmdMsg::SharedPtr           latest_mode_;
   MissionGoalMsg::SharedPtr       latest_mission_;
@@ -104,6 +107,7 @@ private:
 
   // Subscriptions
   rclcpp::Subscription<ODDStateMsg>::SharedPtr          sub_odd_;
+  rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_gnc_odd_;
   rclcpp::Subscription<WorldStateMsg>::SharedPtr        sub_world_;
   rclcpp::Subscription<ModeCmdMsg>::SharedPtr           sub_mode_;
   rclcpp::Subscription<MissionGoalMsg>::SharedPtr       sub_mission_;
@@ -165,6 +169,10 @@ private:
   // Parameters
   int    interval_ms_{250};
   double speed_max_kn_{22.0};
+  // Fix F-1: M5 Mid-MPC step duration (s). Used to size the one-step ROT
+  // reachability arc for the heading-box clamp. Defaults to the Mid-MPC dt
+  // (5 s); kept as a parameter so M4/M5 coupling is explicit, not hardcoded.
+  double heading_reachability_dt_s_{5.0};
 };
 
 }  // namespace mass_l3::m4
