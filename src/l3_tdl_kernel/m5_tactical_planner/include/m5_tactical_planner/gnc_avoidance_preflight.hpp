@@ -92,12 +92,26 @@ inline double gnc_available_turn_radius_m(
   const double v2y = c_xy.y - b_xy.y;
   const double len1 = std::hypot(v1x, v1y);
   const double len2 = std::hypot(v2x, v2y);
+  // Fix A (2026-07-07): coincident waypoints → infinity, symmetric with
+  // the same fix in gnc_cross_track_to_segment_m (line 122).  Returning 0.0
+  // here would cause a false turn_radius_too_small rejection.
   if (len1 < 1.0e-6 || len2 < 1.0e-6) {
-    return 0.0;
+    return std::numeric_limits<double>::infinity();
   }
   const double dot = std::clamp((v1x * v2x + v1y * v2y) / (len1 * len2), -1.0, 1.0);
   const double angle = std::acos(dot);
+  // Near-straight (collinear): effectively infinite turn radius.
   if (angle < M_PI / 180.0) {
+    return std::numeric_limits<double>::infinity();
+  }
+  // Fix B (2026-07-07): near-180° heading reversal — the 3-point local
+  // curvature formula R = min(len1,len2)/tan(angle/2) degenerates as
+  // angle → π because tan(π/2) → ∞ drives R → 0.  A U-turn / heading
+  // reversal cannot be evaluated from just 3 adjacent waypoints; returning
+  // infinity defers to the remaining preflight checks (segment length,
+  // decel distance) and the downstream GNC guidance layer which has
+  // dedicated 180°-turn handling (turn_speed_180deg, etc.).
+  if (angle > M_PI - M_PI / 180.0) {
     return std::numeric_limits<double>::infinity();
   }
   return std::min(len1, len2) / std::tan(angle * 0.5);

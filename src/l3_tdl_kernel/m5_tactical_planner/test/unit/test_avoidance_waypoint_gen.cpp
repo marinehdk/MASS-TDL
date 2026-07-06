@@ -69,11 +69,14 @@ double available_turn_radius(const mass_l3::m5::WaypointLatLon& a,
   const double v2x = c_xy.x - b_xy.x, v2y = c_xy.y - b_xy.y;
   const double l1 = std::hypot(v1x, v1y);
   const double l2 = std::hypot(v2x, v2y);
-  if (l1 < 1e-9 || l2 < 1e-9) return 0.0;
+  // Fix A: coincident waypoints → infinity (consistent with production).
+  if (l1 < 1e-9 || l2 < 1e-9) return std::numeric_limits<double>::infinity();
   double dot = (v1x * v2x + v1y * v2y) / (l1 * l2);
   dot = std::max(-1.0, std::min(1.0, dot));
   const double angle = std::acos(dot);
-  if (angle < 1.0 * M_PI / 180.0) return 1.0e18;  // collinear -> effectively infinite
+  if (angle < 1.0 * M_PI / 180.0) return std::numeric_limits<double>::infinity();  // collinear
+  // Fix B: near-180° heading reversal — 3-point local curvature degenerates.
+  if (angle > M_PI - M_PI / 180.0) return std::numeric_limits<double>::infinity();
   return std::min(l1, l2) / std::tan(angle * 0.5);
 }
 
