@@ -3028,3 +3028,104 @@ cpa_slack distribution (w_slack=1e8):
   - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_waypoint_generator.cpp:51-85 (populate_canonical_route_from_selected_plan)
   - src/sim_workbench/gnc_bridge/src/translators.cpp:35-60 (to_gnc_avoidance_plan)
   - third_party/gnc_ws/src/gnc/ship_guidance/src/active_route_manager_node.cpp:261-267,343 (basic_route_valid + rejection)
+
+## [2026-07-05] Phase 3.10.1 — mock_l2 三修 + M5 station-based builder (Codex 方案 E) — coord_transform 链路修通, 新 Phase 3.10.2 NLP Infeasible
+
+### Agent / Commit
+- Agent: ZCode (caveman full mode)
+- Branch: `codex/colregs-12probe-debug` (worktree `.worktrees/colregs-12probe-debug`)
+- New commits (this session, on top of 60ef0cf9):
+  - `9ccce476` fix(mock-l2): Phase 3.10.1 — three mock_l2 fixes so densify actually runs
+  - `353e1448` fix(m5): Phase 3.10.1 — rewrite prepend/suffix as station-based builders (Codex 方案 E)
+- main / GitLab l3-tdl: NOT touched (probe still stability RED)
+
+### Task Goal
+Phase 3.10 治本 C+E 实施: (C) mock_l2 densify 运行时未生效 + (E) M5 prepend helper 重写为 station-based builder. 用户 handoff 列出 4 步: mock_l2 SIL_SCENARIO_YAML env 修, prepend 重写, spec amend, rebuild+probe.
+
+### Core Changes
+1. **mock_l2 三修** (`docker/mock_l2_publisher.py`):
+   - typo `self._resample_speeds` → `_resample_speeds` (line 528, AttributeError crash 根因)
+   - 新 `latched_qos` helper (RELIABLE+TRANSIENT_LOCAL+KEEP_LAST), 应用到 `/sil/lifecycle_status` 和 `/sil/scenario_loaded` 订阅 (原 VOLATILE 与 publisher latch 不兼容)
+   - `_auto_detect_scenario` 偏好 `metadata.scenario_id` 匹配 latched `current_scenario_id`, fallback alphabetical first
+
+2. **M5 station-based prepend/suffix** (`mid_mpc_waypoint_generator.cpp`):
+   - 新 `route_frame_from_l2` + `ned_to_latlon_ownrelative` (复用 tail_builder::RouteFrame)
+   - prepend: project ownship → s_own; s_first_change = s_own + max(wheel_over=120m, kMinPrefix=15m); prefix = L2 poses station < s_first_change; ownship anchor (within 1m) excluded
+   - append_suffix: project plan_end → s_plan_end; suffix = L2 poses station > s_plan_end + 1m
+   - `route_point_distance_m` legacy helper 不再用, kept `[[maybe_unused]]` for test linkage
+
+3. **单测**:
+   - `tests/sil/test_mock_publisher_densify.py` 新增 (7 cases, host-runnable via rclpy exec stubs)
+   - `test_mid_mpc_waypoint_generator.cpp` 更新 + 新增 (PrependL2HistoryPrefix wheel_over lookahead, AppendL2NominalSuffix station-based pick) — 16/16 PASS
+
+4. **spec amend** v2.3 §5.2.1: 三修 + station-based builder 契约 wording, 不引入 COMMITTED_OR_L2_PREFIX enum (L2_HISTORICAL_PREFIX=5 已覆盖)
+
+### Current Status
+- **C+E 实施完成, 单测全过, sil-nodes build OK**
+- **probe run-19f327a8830** (colreg-rule14-ho):
+  - **CPA min: 4437.8 m** (floor 180) ✓ — 但因 target 路径经过 ownship 静止位置旁边, 不是真避让
+  - **Steering: 0.0°** (turn_starboard RED)
+  - **avoidance_plan telemetry: 0** — M5 没发任何 avoidance plan
+  - **M5 NLP 全程 Infeasible: collision unavoidable** (新 Phase 3.10.2 断链)
+- **关键链路证明**: mock_l2 log "Route from YAML: 2 nominal → 12 densified waypoints" + "Scenario loaded event: colreg-rule14-ho" → QoS fix + densify 真生效. coord_transform 不再是 reject 原因 (链路从 coord_transform reject 移到 NLP solver 自身 infeasible).
+- mempalace drawer: `drawer_mass_l3_tactical_layer_colregs-deviation-findings_595d2d3ff3eeb51ab4bf29ce`
+
+### Handoff Notes
+- **新 Phase 3.10.2 真因**: NLP constraint formulation 太硬, σ slack variable (Phase 3 已加 w_slack=1e8) 不够放松. spec §7 [TBD-FOLLOWUP] augmented-Lagrangian 路径可能是下一步. 也可能 NLP CPA constraint 公式 (cpa_hard²) 在 close-range 几何不可达 — 需重审 constraint_compiler.cpp + mid_mpc_nlp_formulation.cpp.
+- **Phase 3.10.1 完成清单**: mock_l2 三修 ✓, M5 prepend/suffix station-based ✓, spec amend ✓, unit tests ✓, probe 验证 coord_transform 链路修通 ✓.
+- **不 ff main / 不 push GitLab l3-tdl** (stability RED)
+- 用户决策点: Phase 3.10.2 NLP constraint 调查 / push feature branch 存档 / 其他
+
+## [2026-07-05] Phase 3.10.2 — NLP Infeasible root cause 调查 (systematic-debugging + Codex 双轮 🔴 + M4 audit)
+
+### Agent / Commit
+- Agent: ZCode (caveman full mode + normal mode for arch decisions)
+- Branch: `codex/colregs-12probe-debug` (worktree `.worktrees/colregs-12probe-debug`)
+- 本会话无 production commit (仅 instrumentation + handoff 记录, 待拆分提交)
+- main / GitLab l3-tdl: NOT touched
+
+### Task Goal
+Phase 3.10.2 root cause: M5 NLP 全程 `Infeasible_Problem_Detected` → `avoidance_plan telemetry=0` → GNC 收不到 plan. 用户问"为什么 NLP 无解, 是约束太严吗". 调查从 NLP 内部 σ slack 假设一路追到 M4 cold-start race, 经历多次 root cause shift.
+
+### Core Investigation (按时间顺序)
+
+**1. σ slack 假设 (排除)**: σ slack 已生效 (x_dim=37=2N+1, σ 在 IPOPT 决策向量). w_slack=1e8 exact-penalty. σ 只放松 CPA rows, 不放松 speed_rate/ROT/terminal/direction.
+
+**2. INFEAS_DIAG instrument 加入** (mid_mpc_solver.cpp solve() Infeasible 分支): res["g"] row residuals + RowRegistry class labels + speed_box/planned/decel/heading_box 字段. 容器 colcon build + 重跑 probe.
+
+**3. Run 1 INFEAS_DIAG 结果**: 39/49 hits worst_class=`speed_rate_first(own_u->u[0])`, g=-1.756~-1.813. 数学: own_u=5.82 m/s, planned_speed=3.087 m/s, decel_step=1.0 → speed_rate[0] 要 u[0]>=4.82, J_vel 拉 u→3.087 违反.
+
+**4. Codex adversarial review F-A spec (speed_rate reach schedule)**: 🔴 NO-GO. 反对: 软化错行类 (speed_rate 软化但 ubx 仍 hard), tail-gate 不知 k_speed, prefix_u hole. 退回.
+
+**5. INFEAS_DIAG cluster 分析 + Codex 🔴#2 F-B' v2**: INFEAS_DIAG 49/49 全 pref=0 role=0 (stand-on). cluster A (30 hits transit) + cluster B (17 hits give-way corridor). F-B' v2 = speed_max box clamp + cold-start J_vel-feasible projection. Codex 🔴 NO-GO: M4 D-3 widening 已存在但 trace 表明未生效, F-B' 掩盖 M4 contract break; prefix_u hole 仍未解.
+
+**6. M4 D-3 + M5 D3RECV instrument**: 加 log 证 D-3 widening 实际触发 (own_sog widen s_max). M5 D3RECV 显示 speed_box 与 M4 D3 widen post 一致. D-3 widening **生效** — 之前判断错.
+
+**7. Run 3 worst_class shift**: 最新 run worst_class 从 speed_rate_first 变为 **rot_first_step / rot_hi_inter_step**. own_psi=-0.02°, heading_box=[23.2, 53.2], rot_step=6° → psi[0] ROT reach [-6, 6] ∩ heading_box [23.2, 53.2] = ∅ → 数学不可解.
+
+**8. M4 fix audit (用户钦定路径 c)**: Explore agent 深挖 M4 behavior_arbiter_node.cpp Fix F-1 (line 1338-1346). 真因 pinned:
+   - **F-1 guard clause 5 `latest_gnc_odd_` nullptr 失败** — `/gnc/execution_odd` topic cold-start race: scenario reload 后 M2 立即 publish 但 GNC `active_route_manager` 还在 unconfigured, 无 latched message, latest_gnc_odd_ 保持 nullptr
+   - M5 有 `effective_gnc_odd_()` hardcoded fallback (cruise_max_yaw_rate=1.2°/s); M4 latest_gnc_odd_ 是 SharedPtr, nullptr 时直接 skip F-1, **无 fallback** — M4/M5 不对称
+   - F-1 跳过后, Rule14 geometric fallback `[23.2, 53.2]` (30° wide) 原样 publish, M5 NLP 数学不可解
+   - **secondary**: reachability contract fill (line 1370-1374) 同样 latest_gnc_odd_ null 时 fallback rot_step=23.5° (M1 envelope), 但 M5 enforce 6° → plan↔exec ROT drift, F-1 设计要 close 的同问题
+
+### Fix Path (用户钦定, 待实施)
+- **(2) M4 by-value + default-init latest_gnc_odd_** (推荐): `behavior_arbiter_node.hpp:93` 改 by-value + default-init (同 M5 mid_mpc_node.hpp:105), 加 effective_gnc_odd_() helper. F-1 guard 去 latest_gnc_odd_ clause. 架构对称, 根治 race.
+- 备选 (1) inline fallback / (3) orchestrator lifecycle ordering / (2)+reachability contract fallback
+
+### Current Status
+- **Root cause PINNED**: M4 F-1 clamp guard clause 5 `latest_gnc_odd_` nullptr cold-start race
+- **Fix path 选定**: (2) M4 by-value + default-init + effective_gnc_odd_() helper (同 M5 pattern)
+- **本会话 instrument 保留**: 3 处 spdlog log (mid_mpc_solver INFEAS_DIAG, m4 D3 widen, m5 D3RECV), 用于 fix 后回归验证. 待 fix 实施后一并清理.
+- mempalace drawers:
+  - `drawer_..._colregs-environment-pitfalls_878a1bf1ebc5c4bce05e9c87` (host probe ABI failure pivot)
+  - `drawer_..._colregs-deviation-findings_e2292fa813f7177cc770e542` (Phase 3.10.2 root cause 初版 pinned)
+  - `drawer_..._colregs-deviation-findings_de601743cb96dee7d5d5af1d` (root cause refined after Codex 🔴#2)
+  - `drawer_..._colregs-deviation-findings_c984d270899c437dfa2e0335` (multi-shift masking + path decision)
+
+### Handoff Notes
+- **用户决策**: 先 commit 调查结果 + instrument (拆分: handoff commit + instrumentation debug commit), 再合并 main. Fix (2) 留下一个会话实施.
+- **instrumentation 清理**: 合并 main 时 cherry-pick handoff commit, 丢弃 instrumentation commit (or 转 RCLCPP_DEBUG). INFEAS_DIAG block ~100 行 spdlog::warn / cycle 不进生产 log.
+- **未做**: Phase 3.10.2 fix (2) 实施 + ctest + probe GREEN 验证. 留下会话.
+- **不 ff main / 不 push GitLab l3-tdl** (stability RED, fix 未实施)
+- 用户决策点 (下会话): fix (2) 实施细节 / Codex 评审 / ctest + probe GREEN 验证
