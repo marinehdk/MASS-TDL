@@ -193,8 +193,8 @@ def _gate_rows(
         by_gate[row["gate_id"]].append(row)
 
     for gate_id, gate_rows in by_gate.items():
-        statuses = {row["status"] for row in gate_rows}
-        if len(statuses) > 1:
+        known_statuses = {row["status"] for row in gate_rows if row["status"] != "UNKNOWN"}
+        if len(known_statuses) > 1:
             conflict_group = f"{scenario_id}:{gate_id}:conflict"
             for row in gate_rows:
                 row["conflict_group"] = conflict_group

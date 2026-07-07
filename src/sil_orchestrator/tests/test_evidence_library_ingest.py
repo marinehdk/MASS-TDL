@@ -361,6 +361,55 @@ def test_ingest_session_records_missing_batch_gate_sources_as_unknown(tmp_path):
     }
 
 
+def test_ingest_session_does_not_flag_unknown_plus_pass_as_conflict(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path, session_name="20260707_135500_single_colreg-rule14-ho-pass-plus-unknown")
+    (session / "colreg-rule14-ho.json").write_text(
+        json.dumps(
+            {
+                "verdict": {"overall_pass": True},
+                "layers": {
+                    "L4_colregs_compliance": {"passed": True, "reason": "phase semantic passed"},
+                    "L7_stability": {"passed": True},
+                },
+                "kpis": {"min_cpa_m": 450.0, "min_cpa_nm": 0.243},
+            }
+        )
+    )
+    (session / "batch_summary.json").write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "scenario": "colreg-rule14-ho",
+                        "overall_pass": True,
+                        "cpa_ok": True,
+                        "stability_pass": True,
+                        "returned_to_route": True,
+                        "route_corridor_ok": True,
+                        "compliance_verdict": "PASS",
+                        "phase_semantics": {"phase_semantics_ok": True},
+                        "domain_gates": {"seamanship_gate_ok": True},
+                    }
+                ]
+            }
+        )
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    sep_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEP"]
+    assert {(row["source"], row["status"]) for row in sep_rows} == {
+        ("batch_summary.cpa_ok", "PASS"),
+        ("batch_summary.domain_gates.risk_gate_ok", "UNKNOWN"),
+    }
+    assert all(row["conflict_group"] is None for row in sep_rows)
+    assert not [event for event in replay["events"] if event["event_type"] == "gate_conflict"]
+
+
 def test_trajectory_rows_use_unknown_when_target_identity_missing(tmp_path):
     root_path = tmp_path / "runs" / "trace_eval"
     session = _write_fixture_session(
