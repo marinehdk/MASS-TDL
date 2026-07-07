@@ -17,6 +17,7 @@ import { ScoringRadarChart } from './shared/ScoringRadarChart';
 import { ColregsDecisionTree } from './shared/ColregsDecisionTree';
 import { BoundaryDiagnostics } from './shared/BoundaryDiagnostics';
 import { EvidenceLibraryView } from './evaluator/EvidenceLibraryView';
+import { ReplayDetailView } from './evaluator/ReplayDetailView';
 
 interface KpiCardProps {
   label: string;
@@ -46,7 +47,19 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
     return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
   }
 
-  return <SimulationEvaluatorDetail evidenceId={evidenceId} />;
+  return <ReplayDetailRoute evidenceId={evidenceId} />;
+}
+
+function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
+  const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
+  const session = data?.sessions?.find((item) => item.evidence_id === evidenceId);
+  const scenarioId = session?.scenario_ids?.[0];
+
+  if (isLoading || !scenarioId) {
+    return <div style={{ padding: 16 }}>Loading replay metadata</div>;
+  }
+
+  return <ReplayDetailView evidenceId={evidenceId} scenarioId={scenarioId} />;
 }
 
 function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {

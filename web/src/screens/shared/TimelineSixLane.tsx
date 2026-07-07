@@ -13,6 +13,7 @@ interface TimelineSixLaneProps {
   durationSec: number;
   currentTimeSec: number;
   onScrub: (timeSec: number) => void;
+  onEventSelect?: (event: TimelineEvent) => void;
 }
 
 const SEV_COLORS: Record<string, string> = {
@@ -42,7 +43,7 @@ const getLaneIndex = (evt: TimelineEvent): number => {
 };
 
 export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
-  events, durationSec, currentTimeSec, onScrub,
+  events, durationSec, currentTimeSec, onScrub, onEventSelect,
 }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -148,7 +149,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
 
               {/* Event nodes on this lane */}
               {laneEvents.map((evt, i) => {
-                const leftPct = (evt.t / durationSec) * 100;
+                const leftPct = durationSec > 0 ? (evt.t / durationSec) * 100 : 0;
                 const k = evt.k || (evt as any).type || '';
                 const sev = evt.sev || (evt as any).payload?.severity?.toLowerCase() || 'info';
                 const color = SEV_COLORS[sev] ?? 'var(--txt-2)';
@@ -159,7 +160,14 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
                 return (
                   <div
                     key={i}
+                    role="button"
+                    tabIndex={0}
                     title={`${formatTime(evt.t)} [${k}]: ${desc}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onScrub(evt.t);
+                      onEventSelect?.(evt);
+                    }}
                     style={{
                       position: 'absolute',
                       left: `${leftPct}%`,
@@ -171,6 +179,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
                       border: isCurrent ? '1px solid #fff' : `1px solid rgba(0,0,0,0.5)`,
                       boxShadow: sev === 'crit' ? '0 0 6px var(--c-danger)' : sev === 'warn' ? '0 0 4px var(--c-warn)' : 'none',
                       zIndex: isCurrent ? 5 : 2,
+                      cursor: 'pointer',
                     }}
                   />
                 );

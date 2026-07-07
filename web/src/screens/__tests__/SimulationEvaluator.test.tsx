@@ -122,14 +122,13 @@ beforeEach(() => {
 });
 
 describe('SimulationEvaluator', () => {
-  it('renders report container successfully with run_id and KPIs', () => {
+  it('renders replay detail successfully with indexed replay data', () => {
     apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario());
     render(<SimulationEvaluator evidenceId="evidence-123" />);
-    expect(screen.getByText('EXPORT MARZIP')).toBeInTheDocument();
-    expect(screen.getByText('0.350 nm')).toBeInTheDocument();
-    expect(screen.getByText('120 s')).toBeInTheDocument();
-    expect(screen.getByTestId('decision-tree')).toBeInTheDocument();
-    expect(screen.getByTestId('boundary-diagnostics')).toBeInTheDocument();
+    expect(screen.getByText('session-123')).toBeInTheDocument();
+    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-6lane')).toBeInTheDocument();
   });
 
   it('renders evidence library when no evidence id is bound', () => {

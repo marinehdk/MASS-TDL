@@ -1,13 +1,28 @@
 import React, { useState, useMemo } from 'react';
+import type { EvidenceReplayTrajectoryPoint } from '../../api/silApi';
 
 interface TrajectoryReplayProps {
   durationSec: number;
   currentTimeSec: number;
   onTimeChange?: (t: number) => void;
+  points?: EvidenceReplayTrajectoryPoint[];
 }
 
+const project = (
+  lat: number,
+  lon: number,
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number },
+): [number, number] => {
+  const lonSpan = Math.max(0.000001, bounds.maxLon - bounds.minLon);
+  const latSpan = Math.max(0.000001, bounds.maxLat - bounds.minLat);
+  return [
+    40 + ((lon - bounds.minLon) / lonSpan) * 400,
+    320 - ((lat - bounds.minLat) / latSpan) * 280,
+  ];
+};
+
 export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
-  durationSec, currentTimeSec, onTimeChange,
+  durationSec, currentTimeSec, onTimeChange, points,
 }) => {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
@@ -35,8 +50,27 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
     setPlaying(!playing);
   };
 
-  // Generate simulated ownship trajectory (straight north then jog right)
+  const dataPoints = points ?? [];
+  const bounds = useMemo(() => {
+    const valid = dataPoints.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number');
+    if (valid.length === 0) return { minLat: 0, maxLat: 1, minLon: 0, maxLon: 1 };
+    const lats = valid.map((p) => p.lat as number);
+    const lons = valid.map((p) => p.lon as number);
+    return {
+      minLat: Math.min(...lats),
+      maxLat: Math.max(...lats),
+      minLon: Math.min(...lons),
+      maxLon: Math.max(...lons),
+    };
+  }, [dataPoints]);
+
   const ownshipPts = useMemo(() => {
+    if (dataPoints.length > 0) {
+      return dataPoints
+        .filter((p) => p.vessel_id === 'OWN' && typeof p.lat === 'number' && typeof p.lon === 'number')
+        .sort((a, b) => a.sim_t - b.sim_t)
+        .map((p) => project(p.lat as number, p.lon as number, bounds));
+    }
     const N = 60;
     return Array.from({ length: N }, (_, i) => {
       const u = i / (N - 1);
@@ -44,11 +78,19 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
       const y = 320 - u * 280;
       return [x, y] as [number, number];
     });
-  }, []);
+  }, [dataPoints, bounds]);
 
-  const t01Pts = useMemo(() => ownshipPts.map(([x, y], i) =>
-    [x + 120 - i * 1.6, y - 80 + i * 1.0] as [number, number]
-  ), [ownshipPts]);
+  const t01Pts = useMemo(() => {
+    if (dataPoints.length > 0) {
+      return dataPoints
+        .filter((p) => p.vessel_id !== 'OWN' && typeof p.lat === 'number' && typeof p.lon === 'number')
+        .sort((a, b) => a.sim_t - b.sim_t)
+        .map((p) => project(p.lat as number, p.lon as number, bounds));
+    }
+    return ownshipPts.map(([x, y], i) =>
+      [x + 120 - i * 1.6, y - 80 + i * 1.0] as [number, number]
+    );
+  }, [dataPoints, ownshipPts, bounds]);
 
   const visIdx = Math.floor(progress * (ownshipPts.length - 1));
   const visOwn = ownshipPts.slice(0, visIdx + 1);
@@ -167,6 +209,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
         ))}
         <input
           type="range"
+          aria-label="Replay time"
           min={0}
           max={durationSec}
           value={currentTimeSec}
