@@ -170,7 +170,7 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
         if topic == "/sil/own_ship_state":
             trajectory.append((evidence_id, session_id, scenario_id, "OWN", "ownship", sim_t, wall_t, row.get("lat"), row.get("lon"), row.get("heading_deg"), row.get("sog_kn"), row.get("rot_deg_s"), topic, seq))
         if topic == "/l3/m2/world_state":
-            target_id = str(row.get("target_id") or row.get("primary_target_id") or "T01")
+            target_id = str(row.get("target_id") or row.get("primary_target_id") or "UNKNOWN")
             trajectory.append((evidence_id, session_id, scenario_id, target_id, "target", sim_t, wall_t, row.get("target_lat"), row.get("target_lon"), row.get("target_heading_deg"), row.get("target_sog_kn"), None, topic, seq))
             for field in ("primary_target_id", "cpa_m", "tcpa_s", "confidence"):
                 if field in row:
@@ -347,8 +347,29 @@ def query_decision_frame(conn: sqlite3.Connection, evidence_id: str, scenario_id
     chain = {module: {"status": "UNKNOWN", "status_source": "diagnostic_availability", "facts": {}} for module in modules}
     rows = _rows(
         conn,
-        "select * from state_segments where evidence_id = ? and scenario_id = ? and start_t <= ? and end_t >= ? order by module, field",
-        (evidence_id, scenario_id, sim_t, sim_t),
+        """
+        select *
+        from state_segments as s
+        where s.evidence_id = ?
+          and s.scenario_id = ?
+          and s.start_t <= ?
+          and (
+            ? < s.end_t
+            or (
+              ? = s.end_t
+              and s.end_t = (
+                select max(s2.end_t)
+                from state_segments as s2
+                where s2.evidence_id = s.evidence_id
+                  and s2.scenario_id = s.scenario_id
+                  and s2.module = s.module
+                  and s2.field = s.field
+              )
+            )
+          )
+        order by s.module, s.field, s.start_t
+        """,
+        (evidence_id, scenario_id, sim_t, sim_t, sim_t),
     )
     for row in rows:
         module = row["module"]

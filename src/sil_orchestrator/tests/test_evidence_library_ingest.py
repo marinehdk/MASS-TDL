@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from sil_orchestrator.evidence_library.config import EvidenceRootConfig
 from sil_orchestrator.evidence_library.ingest import (
@@ -13,9 +14,38 @@ from sil_orchestrator.evidence_library.ingest import (
 from sil_orchestrator.evidence_library.store import initialize_schema
 
 
-def _write_fixture_session(root: Path, session_name: str = "20260707_132000_single_colreg-rule14-ho") -> Path:
+def _write_fixture_session(
+    root: Path,
+    session_name: str = "20260707_132000_single_colreg-rule14-ho",
+    world_state_rows: list[dict[str, Any]] | None = None,
+) -> Path:
     session = root / session_name
     session.mkdir(parents=True)
+    world_state_rows = world_state_rows or [
+        {
+            "sim_t": 1.0,
+            "wall_t": 11.0,
+            "topic": "/l3/m2/world_state",
+            "primary_target_id": "T01",
+            "target_id": "T01",
+            "target_lat": 0.01,
+            "target_lon": 0.0,
+            "cpa_m": 450.0,
+            "tcpa_s": 127.0,
+            "confidence": 0.9,
+        },
+        {
+            "sim_t": 2.0,
+            "wall_t": 11.5,
+            "topic": "/l3/m2/world_state",
+            "primary_target_id": "T02",
+            "target_lat": 0.015,
+            "target_lon": 0.0,
+            "cpa_m": 430.0,
+            "tcpa_s": 117.0,
+            "confidence": 0.85,
+        },
+    ]
     manifest = {
         "session_name": session_name,
         "source": "frontend",
@@ -66,8 +96,8 @@ def _write_fixture_session(root: Path, session_name: str = "20260707_132000_sing
     (session / "colreg-rule14-ho_trajectory_dashboard.png").write_bytes(b"png")
     rows = [
         {"sim_t": 0.0, "wall_t": 10.0, "topic": "/sil/own_ship_state", "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 8.0},
-        {"sim_t": 1.0, "wall_t": 11.0, "topic": "/l3/m2/world_state", "primary_target_id": "T01", "target_id": "T01", "target_lat": 0.01, "target_lon": 0.0, "cpa_m": 450.0, "tcpa_s": 127.0, "confidence": 0.9},
-        {"sim_t": 2.0, "wall_t": 12.0, "topic": "/l3/m6/colregs", "rule": "Rule14", "role": "give_way", "preferred_direction": "starboard", "phase": "active", "release_predicted": False},
+        *world_state_rows,
+        {"sim_t": 2.5, "wall_t": 12.0, "topic": "/l3/m6/colregs", "rule": "Rule14", "role": "give_way", "preferred_direction": "starboard", "phase": "active", "release_predicted": False},
         {"sim_t": 3.0, "wall_t": 13.0, "topic": "/l3/m5/trajectory", "solver_status": "VALID", "plan_status": "NORMAL", "route_hash": "abc", "waypoint_count": 4},
         {"sim_t": 4.0, "wall_t": 14.0, "topic": "/l4/guidance", "execution_state": "DEFERRED", "reason": "avoidance_active"},
         {"sim_t": 5.0, "wall_t": 15.0, "topic": "/l3/asdr/record", "module": "M5", "event_type": "PLAN_READY", "severity": "info", "payload": {"plan_id": "abc"}},
@@ -124,8 +154,50 @@ def test_decision_frame_returns_time_aligned_module_facts(tmp_path):
 
     frame = query_decision_frame(conn, result.evidence_id, "colreg-rule14-ho", 3.5)
 
-    assert frame["chain"]["M2"]["facts"]["primary_target_id"] == "T01"
+    assert frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
     assert frame["chain"]["M6"]["facts"]["rule"] == "Rule14"
     assert frame["chain"]["M5"]["facts"]["solver_status"] == "VALID"
     assert frame["chain"]["L4"]["facts"] == {}
     assert frame["gates"][0]["temporal_scope"] in {"final_run_verdict", "artifact_consistency"}
+
+
+def test_decision_frame_prefers_latest_segment_at_transition_and_final_end(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path)
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+    result = ingest_session(conn, root, session)
+
+    transition_frame = query_decision_frame(conn, result.evidence_id, "colreg-rule14-ho", 2.0)
+    final_frame = query_decision_frame(conn, result.evidence_id, "colreg-rule14-ho", 5.0)
+
+    assert transition_frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
+    assert final_frame["chain"]["M5"]["facts"]["solver_status"] == "VALID"
+    assert final_frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
+
+
+def test_trajectory_rows_use_unknown_when_target_identity_missing(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(
+        root_path,
+        session_name="20260707_133000_single_colreg-rule14-ho-unknown",
+        world_state_rows=[
+            {
+                "sim_t": 1.0,
+                "wall_t": 11.0,
+                "topic": "/l3/m2/world_state",
+                "target_lat": 0.01,
+                "target_lon": 0.0,
+                "cpa_m": 450.0,
+                "tcpa_s": 127.0,
+                "confidence": 0.9,
+            }
+        ],
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+    result = ingest_session(conn, root, session)
+
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    assert any(row["vessel_id"] == "UNKNOWN" and row["vessel_role"] == "target" for row in replay["trajectory"])
