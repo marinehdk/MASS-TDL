@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from sil_orchestrator.config import RUN_DIR
+from sil_orchestrator.evidence_library.service import ingest_frontend_session
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
@@ -104,6 +105,11 @@ async def finalize_session(
             with _session_lock:
                 _active_frontend_session = None
         return {"discarded": True, "session_id": session_id, "valid_data": False}
+    evidence_id = None
+    try:
+        evidence_id = ingest_frontend_session(session.session_dir)
+    except Exception:
+        evidence_id = None
     if scenario_entry.get("valid_data"):
         background_tasks.add_task(
             _build_png,
@@ -115,7 +121,7 @@ async def finalize_session(
     if _active_frontend_session == session_id:
         with _session_lock:
             _active_frontend_session = None
-    return {"discarded": False, **manifest}
+    return {"discarded": False, "evidence_id": evidence_id, **manifest}
 
 
 @router.get("/session/{session_id:path}")
