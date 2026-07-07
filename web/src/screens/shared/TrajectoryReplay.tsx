@@ -21,6 +21,12 @@ const project = (
   ];
 };
 
+const hasPosition = (point: EvidenceReplayTrajectoryPoint) =>
+  typeof point.lat === 'number' && typeof point.lon === 'number';
+
+const isOwnship = (point: EvidenceReplayTrajectoryPoint) =>
+  point.vessel_role === 'ownship' || point.vessel_id === 'OWN';
+
 export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   durationSec, currentTimeSec, onTimeChange, points,
 }) => {
@@ -67,7 +73,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   const ownshipPts = useMemo(() => {
     if (dataPoints.length > 0) {
       return dataPoints
-        .filter((p) => p.vessel_id === 'OWN' && typeof p.lat === 'number' && typeof p.lon === 'number')
+        .filter((p) => isOwnship(p) && hasPosition(p))
         .sort((a, b) => a.sim_t - b.sim_t)
         .map((p) => project(p.lat as number, p.lon as number, bounds));
     }
@@ -83,7 +89,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   const t01Pts = useMemo(() => {
     if (dataPoints.length > 0) {
       return dataPoints
-        .filter((p) => p.vessel_id !== 'OWN' && typeof p.lat === 'number' && typeof p.lon === 'number')
+        .filter((p) => !isOwnship(p) && hasPosition(p))
         .sort((a, b) => a.sim_t - b.sim_t)
         .map((p) => project(p.lat as number, p.lon as number, bounds));
     }

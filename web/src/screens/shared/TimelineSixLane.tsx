@@ -71,6 +71,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
   };
 
   const progressPct = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
+  const hoverPct = hoverTime != null && durationSec > 0 ? (hoverTime / durationSec) * 100 : 0;
 
   const formatTime = (t: number) => {
     const m = Math.floor(t / 60).toString().padStart(2, '0');
@@ -199,7 +200,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
         {/* Hover vertical line guide */}
         {hoverTime != null && (
           <div style={{
-            position: 'absolute', left: `${(hoverTime / durationSec) * 100}%`, top: 0, bottom: 0,
+            position: 'absolute', left: `${hoverPct}%`, top: 0, bottom: 0,
             width: 1, borderLeft: '1px dashed var(--c-phos)', opacity: 0.5,
             pointerEvents: 'none', zIndex: 14,
           }} />

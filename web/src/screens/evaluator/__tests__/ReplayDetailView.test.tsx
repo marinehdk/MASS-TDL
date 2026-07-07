@@ -9,8 +9,8 @@ vi.mock('../../../api/silApi', () => ({
       scenario: { scenario_id: 'colreg-rule14-ho', verdict: 'FAIL', overall_pass: false, min_cpa_nm: 0.243 },
       duration_s: 10,
       trajectory: [
-        { vessel_id: 'OWN', vessel_role: 'ownship', sim_t: 0, lat: 0, lon: 0, heading_deg: 0, sog_kn: 8 },
-        { vessel_id: 'OWN', vessel_role: 'ownship', sim_t: 10, lat: 0.01, lon: 0, heading_deg: 10, sog_kn: 8 },
+        { vessel_id: 'OS-9', vessel_role: 'ownship', sim_t: 0, lat: 0, lon: 0, heading_deg: 0, sog_kn: 8 },
+        { vessel_id: 'OS-9', vessel_role: 'ownship', sim_t: 10, lat: 0.01, lon: 0, heading_deg: 10, sog_kn: 8 },
         { vessel_id: 'T01', vessel_role: 'target', sim_t: 0, lat: 0.01, lon: 0.01, heading_deg: 180, sog_kn: 8 },
       ],
       events: [
