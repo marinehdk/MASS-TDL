@@ -40,10 +40,20 @@ def _session_dirs(root: EvidenceRootConfig) -> list[Path]:
         root_path = Path(match)
         if not root_path.exists():
             continue
+        if root_path.is_symlink() and not root.follow_symlinks:
+            continue
         if root_path.is_file():
             root_path = root_path.parent
+        resolved_root = root_path.resolve()
         for manifest_path in sorted(root_path.glob("*/manifest.json")):
-            session_dirs.append(manifest_path.parent)
+            session_dir = manifest_path.parent
+            if not root.follow_symlinks and (session_dir.is_symlink() or manifest_path.is_symlink()):
+                continue
+            try:
+                session_dir.resolve().relative_to(resolved_root)
+            except ValueError:
+                continue
+            session_dirs.append(session_dir)
     return session_dirs
 
 
@@ -54,8 +64,12 @@ def _root_for_session_dir(session_dir: Path, config: EvidenceLibraryConfig) -> E
             root_path = Path(match)
             if not root_path.exists():
                 continue
+            if root_path.is_symlink() and not root.follow_symlinks:
+                continue
             if root_path.is_file():
                 root_path = root_path.parent
+            if not root.follow_symlinks and Path(session_dir).is_symlink():
+                continue
             try:
                 resolved_session.relative_to(root_path.resolve())
             except ValueError:

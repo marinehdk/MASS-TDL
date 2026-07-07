@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import {
-  useGetDecisionFrameQuery,
   useGetEvidenceReplayQuery,
   type EvidenceReplayEvent,
 } from '../../api/silApi';
@@ -26,7 +25,6 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
   const [inspectorTimeSec, setInspectorTimeSec] = useState<number | null>(null);
   const { data, isLoading } = useGetEvidenceReplayQuery({ evidenceId, scenarioId });
-  const { data: decisionFrame } = useGetDecisionFrameQuery({ evidenceId, scenarioId, simT: currentTimeSec });
   const timelineEvents = useMemo(() => (data?.events ?? []).map(toTimelineEvent), [data?.events]);
   const durationSec = Math.max(0, data?.duration_s ?? 0);
 
@@ -84,7 +82,7 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
             Chain Inspector
           </div>
           <div style={{ fontFamily: 'var(--f-mono)', fontSize: 12, marginTop: 6 }}>
-            {decisionFrame ? `T+${decisionFrame.sim_t.toFixed(1)} s` : 'Select a gate or timeline event'}
+            {inspectorTimeSec != null ? `T+${inspectorTimeSec.toFixed(1)} s` : 'Select a gate or timeline event'}
           </div>
         </section>
         {selectedEvent && (

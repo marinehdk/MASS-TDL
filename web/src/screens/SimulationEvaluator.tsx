@@ -52,14 +52,17 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
 
 function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
   const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
-  const session = data?.sessions?.find((item) => item.evidence_id === evidenceId);
+  const session = evidenceId === 'latest'
+    ? data?.sessions?.[0]
+    : data?.sessions?.find((item) => item.evidence_id === evidenceId);
+  const resolvedEvidenceId = session?.evidence_id ?? evidenceId;
   const scenarioId = session?.scenario_ids?.[0];
 
   if (isLoading || !scenarioId) {
     return <div style={{ padding: 16 }}>Loading replay metadata</div>;
   }
 
-  return <ReplayDetailView evidenceId={evidenceId} scenarioId={scenarioId} />;
+  return <ReplayDetailView evidenceId={resolvedEvidenceId} scenarioId={scenarioId} />;
 }
 
 function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {

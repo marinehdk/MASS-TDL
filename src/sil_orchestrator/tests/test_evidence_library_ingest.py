@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from sil_orchestrator.evidence_library.config import EvidenceRootConfig
 from sil_orchestrator.evidence_library.ingest import (
     ingest_session,
@@ -99,8 +101,25 @@ def _write_fixture_session(
     rows = [
         {"sim_t": 0.0, "wall_t": 10.0, "topic": "/sil/own_ship_state", "lat": 0.0, "lon": 0.0, "heading_deg": 0.0, "sog_kn": 8.0},
         *world_state_rows,
-        {"sim_t": 2.5, "wall_t": 12.0, "topic": "/l3/m6/colregs", "rule": "Rule14", "role": "give_way", "preferred_direction": "starboard", "phase": "active", "release_predicted": False},
-        {"sim_t": 3.0, "wall_t": 13.0, "topic": "/l3/m5/trajectory", "solver_status": "VALID", "plan_status": "NORMAL", "route_hash": "abc", "waypoint_count": 4},
+        {
+            "sim_t": 2.5,
+            "wall_t": 12.0,
+            "topic": "/l3/m6/colregs_constraint",
+            "active_rules": [{"rule_id": 14}],
+            "primary_role": 1,
+            "primary_preferred_direction": "STARBOARD",
+            "phase": "ACTIVE",
+            "release_predicted": False,
+        },
+        {
+            "sim_t": 3.0,
+            "wall_t": 13.0,
+            "topic": "/l3/m5/avoidance_plan",
+            "solver_status": "VALID",
+            "plan_status": "DEGRADED",
+            "plan_id": "m5-plan-abc",
+            "n_waypoints": 12,
+        },
         {"sim_t": 4.0, "wall_t": 14.0, "topic": "/l4/guidance", "execution_state": "DEFERRED", "reason": "avoidance_active"},
         {"sim_t": 5.0, "wall_t": 15.0, "topic": "/l3/asdr/record", "module": "M5", "event_type": "PLAN_READY", "severity": "info", "payload": {"plan_id": "abc"}},
     ]
@@ -166,15 +185,15 @@ def test_decision_frame_returns_time_aligned_module_facts(tmp_path):
     assert frame["chain"]["M6"]["facts"] == {
         "rule": "Rule14",
         "role": "give_way",
-        "preferred_direction": "starboard",
-        "phase": "active",
+        "preferred_direction": "STARBOARD",
+        "phase": "ACTIVE",
         "release_predicted": False,
     }
     assert frame["chain"]["M5"]["facts"] == {
         "solver_status": "VALID",
-        "plan_status": "NORMAL",
-        "route_hash": "abc",
-        "waypoint_count": 4,
+        "plan_status": "DEGRADED",
+        "route_hash": "m5-plan-abc",
+        "waypoint_count": 12,
     }
     assert frame["chain"]["L4"]["facts"] == {
         "execution_state": "UNKNOWN",
@@ -499,3 +518,19 @@ def test_trajectory_rows_use_unknown_when_target_identity_missing(tmp_path):
     replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
 
     assert any(row["vessel_id"] == "UNKNOWN" and row["vessel_role"] == "target" for row in replay["trajectory"])
+
+
+def test_ingest_rejects_manifest_artifact_path_escape(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path, session_name="20260707_134000_single_path_escape")
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"verdict": {"overall_pass": True}}))
+    manifest_path = session / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["scenarios"][0]["report_path"] = "../../outside.json"
+    manifest_path.write_text(json.dumps(manifest))
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    with pytest.raises(ValueError, match="escapes session"):
+        ingest_session(conn, root, session)

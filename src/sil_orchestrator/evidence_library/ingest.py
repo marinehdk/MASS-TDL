@@ -44,6 +44,55 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _safe_session_child(session_path: Path, value: Any, default_name: str) -> Path:
+    relative = Path(str(value or default_name))
+    candidate = session_path / relative
+    resolved_session = session_path.resolve()
+    resolved_candidate = candidate.resolve(strict=False)
+    try:
+        resolved_candidate.relative_to(resolved_session)
+    except ValueError as exc:
+        raise ValueError(f"Evidence artifact path escapes session: {relative}") from exc
+    return resolved_candidate
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row[key]
+    return "UNKNOWN"
+
+
+def _first_rule(row: dict[str, Any]) -> Any:
+    if "rule" in row:
+        return row["rule"]
+    rules = row.get("active_rules")
+    if isinstance(rules, list) and rules:
+        first = rules[0]
+        if isinstance(first, dict) and first.get("rule_id") is not None:
+            return f"Rule{first['rule_id']}"
+    return "UNKNOWN"
+
+
+def _role_label(value: Any) -> Any:
+    if value == "UNKNOWN":
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    try:
+        role = int(value)
+    except (TypeError, ValueError):
+        return value
+    return {
+        0: "stand_on",
+        1: "give_way",
+        2: "both_give_way",
+        3: "free",
+    }.get(role, role)
+
+
 def _bool_status(value: Any) -> str:
     if value is True:
         return "PASS"
@@ -244,6 +293,9 @@ def _gate_rows(
 def _insert_artifact(conn: sqlite3.Connection, evidence_id: str, session_id: str, scenario_id: str | None, kind: str, session_path: Path, path: Path) -> None:
     if not path.exists():
         return
+    path = path.resolve()
+    session_path = session_path.resolve()
+    path.relative_to(session_path)
     conn.execute(
         """
         insert into artifacts(evidence_id, session_id, scenario_id, kind, path, relative_path, sha256, mtime, compressed, available)
@@ -254,7 +306,7 @@ def _insert_artifact(conn: sqlite3.Connection, evidence_id: str, session_id: str
             session_id,
             scenario_id,
             kind,
-            str(path.resolve()),
+            str(path),
             str(path.relative_to(session_path)),
             _sha256(path),
             path.stat().st_mtime,
@@ -270,10 +322,63 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
     last_state: dict[tuple[str, str], tuple[float, Any, str]] = {}
     final_t = 0.0
     expected_state_fields = {
-        "/l3/m2/world_state": ("M2", ("primary_target_id", "cpa_m", "tcpa_s", "confidence")),
-        "/l3/m6/colregs": ("M6", ("rule", "role", "preferred_direction", "phase", "release_predicted")),
-        "/l3/m5/trajectory": ("M5", ("solver_status", "plan_status", "route_hash", "waypoint_count")),
-        "/l4/guidance": ("L4", ("execution_state", "accepted", "rejected", "degraded", "reason")),
+        "/l3/m2/world_state": (
+            "M2",
+            {
+                "primary_target_id": lambda row: _first_present(row, "primary_target_id", "target_id", "colregs_chain_target_id"),
+                "cpa_m": lambda row: _first_present(row, "cpa_m"),
+                "tcpa_s": lambda row: _first_present(row, "tcpa_s"),
+                "confidence": lambda row: _first_present(row, "confidence"),
+            },
+        ),
+        "/l3/m6/colregs": (
+            "M6",
+            {
+                "rule": _first_rule,
+                "role": lambda row: _role_label(_first_present(row, "role", "primary_role")),
+                "preferred_direction": lambda row: _first_present(row, "preferred_direction", "primary_preferred_direction"),
+                "phase": lambda row: _first_present(row, "phase"),
+                "release_predicted": lambda row: _first_present(row, "release_predicted"),
+            },
+        ),
+        "/l3/m6/colregs_constraint": (
+            "M6",
+            {
+                "rule": _first_rule,
+                "role": lambda row: _role_label(_first_present(row, "role", "primary_role")),
+                "preferred_direction": lambda row: _first_present(row, "preferred_direction", "primary_preferred_direction"),
+                "phase": lambda row: _first_present(row, "phase"),
+                "release_predicted": lambda row: _first_present(row, "release_predicted"),
+            },
+        ),
+        "/l3/m5/trajectory": (
+            "M5",
+            {
+                "solver_status": lambda row: _first_present(row, "solver_status"),
+                "plan_status": lambda row: _first_present(row, "plan_status"),
+                "route_hash": lambda row: _first_present(row, "route_hash", "plan_id"),
+                "waypoint_count": lambda row: _first_present(row, "waypoint_count", "n_waypoints", "segment_source_count"),
+            },
+        ),
+        "/l3/m5/avoidance_plan": (
+            "M5",
+            {
+                "solver_status": lambda row: _first_present(row, "solver_status"),
+                "plan_status": lambda row: _first_present(row, "plan_status"),
+                "route_hash": lambda row: _first_present(row, "route_hash", "plan_id"),
+                "waypoint_count": lambda row: _first_present(row, "waypoint_count", "n_waypoints", "segment_source_count"),
+            },
+        ),
+        "/l4/guidance": (
+            "L4",
+            {
+                "execution_state": lambda row: _first_present(row, "execution_state"),
+                "accepted": lambda row: _first_present(row, "accepted"),
+                "rejected": lambda row: _first_present(row, "rejected"),
+                "degraded": lambda row: _first_present(row, "degraded"),
+                "reason": lambda row: _first_present(row, "reason"),
+            },
+        ),
     }
 
     def close_state(key: tuple[str, str], end_t: float) -> None:
@@ -299,8 +404,8 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
         mapped_snapshot = expected_state_fields.get(topic)
         if mapped_snapshot is not None:
             module, fields = mapped_snapshot
-            for field in fields:
-                set_state(module, field, sim_t, row[field] if field in row else "UNKNOWN", topic)
+            for field, getter in fields.items():
+                set_state(module, field, sim_t, getter(row), topic)
         if topic == "/l3/m2/world_state":
             target_id = str(row.get("target_id") or row.get("primary_target_id") or "UNKNOWN")
             trajectory.append((evidence_id, session_id, scenario_id, target_id, "target", sim_t, wall_t, row.get("target_lat"), row.get("target_lon"), row.get("target_heading_deg"), row.get("target_sog_kn"), None, topic, seq))
@@ -370,11 +475,11 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
         event_count = 0
         for scenario in scenarios:
             scenario_id = str(scenario["scenario_id"])
-            report_path = session_path / str(scenario.get("report_path") or f"{scenario_id}.json")
-            trace_path = session_path / str(scenario.get("trace_path") or f"{scenario_id}.trace_current.jsonl")
+            report_path = _safe_session_child(session_path, scenario.get("report_path"), f"{scenario_id}.json")
+            trace_path = _safe_session_child(session_path, scenario.get("trace_path"), f"{scenario_id}.trace_current.jsonl")
             if not trace_path.exists() and (trace_path.with_suffix(trace_path.suffix + ".gz")).exists():
                 trace_path = trace_path.with_suffix(trace_path.suffix + ".gz")
-            art_path = session_path / f"{scenario_id}.artifact_consistency.json"
+            art_path = _safe_session_child(session_path, f"{scenario_id}.artifact_consistency.json", f"{scenario_id}.artifact_consistency.json")
             report = _read_json(report_path) if report_path.exists() else {}
             art = _read_json(art_path) if art_path.exists() else {}
             batch_row = _scenario_from_batch(batch, scenario_id)
@@ -410,7 +515,8 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "trace_report", session_path, report_path)
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "trace_jsonl_gz" if trace_path.suffix == ".gz" else "trace_jsonl", session_path, trace_path)
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "artifact_consistency", session_path, art_path)
-            _insert_artifact(conn, evidence_id, session_id, scenario_id, "trajectory_dashboard_png", session_path, session_path / str(scenario.get("png_path") or f"{scenario_id}_trajectory_dashboard.png"))
+            png_path = _safe_session_child(session_path, scenario.get("png_path"), f"{scenario_id}_trajectory_dashboard.png")
+            _insert_artifact(conn, evidence_id, session_id, scenario_id, "trajectory_dashboard_png", session_path, png_path)
             if trace_path.exists():
                 trajectory, events, states = _trajectory_rows(evidence_id, session_id, scenario_id, trace_path)
                 conn.executemany("insert into trajectory_samples values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", trajectory)

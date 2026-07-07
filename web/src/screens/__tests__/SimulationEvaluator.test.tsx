@@ -153,6 +153,17 @@ describe('SimulationEvaluator', () => {
     expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
   });
 
+  it('resolves latest route to the newest indexed evidence session', () => {
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario('latest-scenario'));
+
+    render(<SimulationEvaluator evidenceId="latest" />);
+
+    expect(apiMocks.getEvidenceReplay).toHaveBeenCalledWith(
+      { evidenceId: 'evidence-123', scenarioId: 'latest-scenario' },
+    );
+    expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
+  });
+
   it('resolves replay scenario from indexed evidence session metadata', () => {
     apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario('indexed-scenario'));
 
@@ -161,9 +172,7 @@ describe('SimulationEvaluator', () => {
     expect(apiMocks.getEvidenceReplay).toHaveBeenCalledWith(
       { evidenceId: 'evidence-123', scenarioId: 'indexed-scenario' },
     );
-    expect(apiMocks.getDecisionFrame).toHaveBeenCalledWith(
-      { evidenceId: 'evidence-123', scenarioId: 'indexed-scenario', simT: 0 },
-    );
+    expect(apiMocks.getDecisionFrame).not.toHaveBeenCalled();
   });
 
   it('skips replay queries until evidence id and indexed scenario id are known', () => {

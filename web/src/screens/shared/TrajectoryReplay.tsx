@@ -27,13 +27,43 @@ const hasPosition = (point: EvidenceReplayTrajectoryPoint) =>
 const isOwnship = (point: EvidenceReplayTrajectoryPoint) =>
   point.vessel_role === 'ownship' || point.vessel_id === 'OWN';
 
+type ProjectedPoint = { sim_t: number; x: number; y: number };
+
+const pointAtTime = (track: ProjectedPoint[], simT: number): ProjectedPoint | undefined => {
+  if (track.length === 0) return undefined;
+  if (simT <= track[0].sim_t) return track[0];
+  if (simT >= track[track.length - 1].sim_t) return track[track.length - 1];
+  for (let index = 1; index < track.length; index += 1) {
+    const next = track[index];
+    if (next.sim_t < simT) continue;
+    const prev = track[index - 1];
+    const span = Math.max(0.000001, next.sim_t - prev.sim_t);
+    const frac = (simT - prev.sim_t) / span;
+    return {
+      sim_t: simT,
+      x: prev.x + (next.x - prev.x) * frac,
+      y: prev.y + (next.y - prev.y) * frac,
+    };
+  }
+  return track[track.length - 1];
+};
+
+const visibleTrack = (track: ProjectedPoint[], simT: number): [number, number][] => {
+  const visible = track
+    .filter((point) => point.sim_t <= simT)
+    .map((point) => [point.x, point.y] as [number, number]);
+  const current = pointAtTime(track, simT);
+  if (current && !visible.some(([x, y]) => x === current.x && y === current.y)) {
+    visible.push([current.x, current.y]);
+  }
+  return visible;
+};
+
 export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   durationSec, currentTimeSec, onTimeChange, points,
 }) => {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
-
-  const progress = durationSec > 0 ? currentTimeSec / durationSec : 0;
 
   React.useEffect(() => {
     if (!playing || !onTimeChange) return;
@@ -70,46 +100,62 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
     };
   }, [dataPoints]);
 
-  const ownshipPts = useMemo(() => {
-    if (dataPoints.length > 0) {
-      return dataPoints
-        .filter((p) => isOwnship(p) && hasPosition(p))
-        .sort((a, b) => a.sim_t - b.sim_t)
-        .map((p) => project(p.lat as number, p.lon as number, bounds));
-    }
+  const makeFallbackTrack = (): ProjectedPoint[] => {
     const N = 60;
     return Array.from({ length: N }, (_, i) => {
       const u = i / (N - 1);
       const x = 80 + u * 360 + (u > 0.4 && u < 0.7 ? 50 * Math.sin((u - 0.4) * Math.PI / 0.3) : 0);
       const y = 320 - u * 280;
-      return [x, y] as [number, number];
+      return { sim_t: u * durationSec, x, y };
     });
-  }, [dataPoints, bounds]);
+  };
 
-  const t01Pts = useMemo(() => {
+  const ownshipTrack = useMemo(() => {
     if (dataPoints.length > 0) {
       return dataPoints
-        .filter((p) => !isOwnship(p) && hasPosition(p))
+        .filter((p) => isOwnship(p) && hasPosition(p))
         .sort((a, b) => a.sim_t - b.sim_t)
-        .map((p) => project(p.lat as number, p.lon as number, bounds));
+        .map((p) => {
+          const [x, y] = project(p.lat as number, p.lon as number, bounds);
+          return { sim_t: p.sim_t, x, y };
+        });
     }
-    return ownshipPts.map(([x, y], i) =>
-      [x + 120 - i * 1.6, y - 80 + i * 1.0] as [number, number]
-    );
-  }, [dataPoints, ownshipPts, bounds]);
+    return makeFallbackTrack();
+  }, [dataPoints, bounds, durationSec]);
 
-  const visIdx = Math.floor(progress * (ownshipPts.length - 1));
-  const visOwn = ownshipPts.slice(0, visIdx + 1);
-  const visT01 = t01Pts.slice(0, visIdx + 1);
-  const cur = ownshipPts[Math.min(visIdx, ownshipPts.length - 1)];
-  const nextPt = ownshipPts[Math.min(visIdx + 1, ownshipPts.length - 1)];
+  const targetTrack = useMemo(() => {
+    if (dataPoints.length > 0) {
+      const targetId = dataPoints.find((p) => !isOwnship(p) && hasPosition(p))?.vessel_id;
+      return dataPoints
+        .filter((p) => !isOwnship(p) && hasPosition(p) && (!targetId || p.vessel_id === targetId))
+        .sort((a, b) => a.sim_t - b.sim_t)
+        .map((p) => {
+          const [x, y] = project(p.lat as number, p.lon as number, bounds);
+          return { sim_t: p.sim_t, x, y };
+        });
+    }
+    return ownshipTrack.map((point, i) =>
+      ({ sim_t: point.sim_t, x: point.x + 120 - i * 1.6, y: point.y - 80 + i * 1.0 })
+    );
+  }, [dataPoints, ownshipTrack, bounds]);
+
+  const ownshipPts = ownshipTrack.map((point) => [point.x, point.y] as [number, number]);
+  const t01Pts = targetTrack.map((point) => [point.x, point.y] as [number, number]);
+  const visOwn = visibleTrack(ownshipTrack, currentTimeSec);
+  const visT01 = visibleTrack(targetTrack, currentTimeSec);
+  const curPoint = pointAtTime(ownshipTrack, currentTimeSec);
+  const nextPoint = pointAtTime(ownshipTrack, currentTimeSec + Math.max(0.1, durationSec * 0.01));
+  const cur = curPoint ? [curPoint.x, curPoint.y] as [number, number] : undefined;
+  const nextPt = nextPoint ? [nextPoint.x, nextPoint.y] as [number, number] : undefined;
   const angleRad = cur && nextPt && (nextPt[0] !== cur[0] || nextPt[1] !== cur[1])
     ? Math.atan2(nextPt[1] - cur[1], nextPt[0] - cur[0])
     : -Math.PI / 2;
   const angleDeg = (angleRad * 180) / Math.PI + 90;
 
-  const curT01 = t01Pts[Math.min(visIdx, t01Pts.length - 1)];
-  const nextT01Pt = t01Pts[Math.min(visIdx + 1, t01Pts.length - 1)];
+  const curT01Point = pointAtTime(targetTrack, currentTimeSec);
+  const nextT01 = pointAtTime(targetTrack, currentTimeSec + Math.max(0.1, durationSec * 0.01));
+  const curT01 = curT01Point ? [curT01Point.x, curT01Point.y] as [number, number] : undefined;
+  const nextT01Pt = nextT01 ? [nextT01.x, nextT01.y] as [number, number] : undefined;
   const angleT01Rad = curT01 && nextT01Pt && (nextT01Pt[0] !== curT01[0] || nextT01Pt[1] !== curT01[1])
     ? Math.atan2(nextT01Pt[1] - curT01[1], nextT01Pt[0] - curT01[0])
     : -Math.PI / 2;
