@@ -195,6 +195,50 @@ def test_decision_frame_returns_time_aligned_module_facts(tmp_path):
     assert frame["gates"][0]["temporal_scope"] in {"final_run_verdict", "artifact_consistency"}
 
 
+def test_decision_frame_clears_missing_snapshot_fields(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(
+        root_path,
+        session_name="20260707_133000_single_colreg-rule14-ho-missing-m2-field",
+        world_state_rows=[
+            {
+                "sim_t": 1.0,
+                "wall_t": 11.0,
+                "topic": "/l3/m2/world_state",
+                "primary_target_id": "T01",
+                "target_id": "T01",
+                "target_lat": 0.01,
+                "target_lon": 0.0,
+                "cpa_m": 450.0,
+                "tcpa_s": 127.0,
+                "confidence": 0.9,
+            },
+            {
+                "sim_t": 2.0,
+                "wall_t": 11.5,
+                "topic": "/l3/m2/world_state",
+                "target_lat": 0.015,
+                "target_lon": 0.0,
+                "cpa_m": 430.0,
+                "tcpa_s": 117.0,
+                "confidence": 0.85,
+            },
+        ],
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+    result = ingest_session(conn, root, session)
+
+    frame = query_decision_frame(conn, result.evidence_id, "colreg-rule14-ho", 2.5)
+
+    assert frame["chain"]["M2"]["facts"] == {
+        "primary_target_id": "UNKNOWN",
+        "cpa_m": 430.0,
+        "tcpa_s": 117.0,
+        "confidence": 0.85,
+    }
+
+
 def test_decision_frame_prefers_latest_segment_at_transition_and_final_end(tmp_path):
     root_path = tmp_path / "runs" / "trace_eval"
     session = _write_fixture_session(root_path)

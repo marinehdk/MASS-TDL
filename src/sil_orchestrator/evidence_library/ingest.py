@@ -244,6 +244,12 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
     states: list[tuple[Any, ...]] = []
     last_state: dict[tuple[str, str], tuple[float, Any, str]] = {}
     final_t = 0.0
+    expected_state_fields = {
+        "/l3/m2/world_state": ("M2", ("primary_target_id", "cpa_m", "tcpa_s", "confidence")),
+        "/l3/m6/colregs": ("M6", ("rule", "role", "preferred_direction", "phase", "release_predicted")),
+        "/l3/m5/trajectory": ("M5", ("solver_status", "plan_status", "route_hash", "waypoint_count")),
+        "/l4/guidance": ("L4", ("execution_state", "accepted", "rejected", "degraded", "reason")),
+    }
 
     def close_state(key: tuple[str, str], end_t: float) -> None:
         start_t, value, topic = last_state[key]
@@ -265,24 +271,14 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
         final_t = max(final_t, sim_t)
         if topic == "/sil/own_ship_state":
             trajectory.append((evidence_id, session_id, scenario_id, "OWN", "ownship", sim_t, wall_t, row.get("lat"), row.get("lon"), row.get("heading_deg"), row.get("sog_kn"), row.get("rot_deg_s"), topic, seq))
+        mapped_snapshot = expected_state_fields.get(topic)
+        if mapped_snapshot is not None:
+            module, fields = mapped_snapshot
+            for field in fields:
+                set_state(module, field, sim_t, row[field] if field in row else "UNKNOWN", topic)
         if topic == "/l3/m2/world_state":
             target_id = str(row.get("target_id") or row.get("primary_target_id") or "UNKNOWN")
             trajectory.append((evidence_id, session_id, scenario_id, target_id, "target", sim_t, wall_t, row.get("target_lat"), row.get("target_lon"), row.get("target_heading_deg"), row.get("target_sog_kn"), None, topic, seq))
-            for field in ("primary_target_id", "cpa_m", "tcpa_s", "confidence"):
-                if field in row:
-                    set_state("M2", field, sim_t, row[field], topic)
-        if topic == "/l3/m6/colregs":
-            for field in ("rule", "role", "preferred_direction", "phase", "release_predicted"):
-                if field in row:
-                    set_state("M6", field, sim_t, row[field], topic)
-        if topic == "/l3/m5/trajectory":
-            for field in ("solver_status", "plan_status", "route_hash", "waypoint_count"):
-                if field in row:
-                    set_state("M5", field, sim_t, row[field], topic)
-        if topic == "/l4/guidance":
-            for field in ("execution_state", "accepted", "rejected", "degraded", "reason"):
-                if field in row:
-                    set_state("L4", field, sim_t, row[field], topic)
         if topic == "/l3/asdr/record":
             events.append(
                 (
