@@ -303,6 +303,64 @@ def test_ingest_session_preserves_conflicting_batch_gate_sources(tmp_path):
     assert {json.loads(event["payload_json"])["gate_id"] for event in conflict_events} == {"G-SEP", "G-SEM", "G-REL"}
 
 
+def test_ingest_session_records_missing_batch_gate_sources_as_unknown(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(
+        root_path,
+        session_name="20260707_135000_single_colreg-rule14-ho-missing-batch-fields",
+        batch_rows=[
+            {
+                "scenario": "colreg-rule14-ho",
+                "overall_pass": False,
+                "cpa_ok": False,
+                "stability_pass": True,
+                "returned_to_route": False,
+                "compliance_verdict": "PASS",
+                "phase_semantics": {"phase_semantics_ok": False},
+                "domain_gates": {"seamanship_gate_ok": False},
+            }
+        ],
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    sep_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEP"]
+    rel_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-REL"]
+
+    sep_by_source = {row["source"]: row for row in sep_rows}
+    rel_by_source = {row["source"]: row for row in rel_rows}
+
+    assert sep_by_source["batch_summary.cpa_ok"]["status"] == "FAIL"
+    assert json.loads(sep_by_source["batch_summary.cpa_ok"]["payload_json"]) == {
+        "field": "batch_summary.cpa_ok",
+        "value": False,
+    }
+    assert sep_by_source["batch_summary.domain_gates.risk_gate_ok"]["status"] == "UNKNOWN"
+    assert json.loads(sep_by_source["batch_summary.domain_gates.risk_gate_ok"]["payload_json"]) == {
+        "field": "batch_summary.domain_gates.risk_gate_ok",
+        "value": None,
+    }
+
+    assert rel_by_source["batch_summary.returned_to_route"]["status"] == "FAIL"
+    assert json.loads(rel_by_source["batch_summary.returned_to_route"]["payload_json"]) == {
+        "field": "batch_summary.returned_to_route",
+        "value": False,
+    }
+    assert rel_by_source["batch_summary.route_corridor_ok"]["status"] == "UNKNOWN"
+    assert json.loads(rel_by_source["batch_summary.route_corridor_ok"]["payload_json"]) == {
+        "field": "batch_summary.route_corridor_ok",
+        "value": None,
+    }
+    assert rel_by_source["batch_summary.domain_gates.seamanship_gate_ok"]["status"] == "FAIL"
+    assert json.loads(rel_by_source["batch_summary.domain_gates.seamanship_gate_ok"]["payload_json"]) == {
+        "field": "batch_summary.domain_gates.seamanship_gate_ok",
+        "value": False,
+    }
+
+
 def test_trajectory_rows_use_unknown_when_target_identity_missing(tmp_path):
     root_path = tmp_path / "runs" / "trace_eval"
     session = _write_fixture_session(

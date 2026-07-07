@@ -122,51 +122,64 @@ def _gate_rows(
         )
 
     if batch_row:
-        phase = batch_row.get("phase_semantics") or {}
-        domain_gates = batch_row.get("domain_gates") or {}
-        if "cpa_ok" in batch_row:
-            add("G-SEP", _bool_status(batch_row.get("cpa_ok")), "final_run_verdict", 10, batch_row, "batch_summary.cpa_ok")
-        if "risk_gate_ok" in domain_gates:
-            add(
+        batch_gate_specs = (
+            (
                 "G-SEP",
-                _bool_status(domain_gates.get("risk_gate_ok")),
-                "final_run_verdict",
-                10,
-                batch_row,
+                "batch_summary.cpa_ok",
+                batch_row.get("cpa_ok"),
+                _bool_status,
+            ),
+            (
+                "G-SEP",
                 "batch_summary.domain_gates.risk_gate_ok",
-            )
-        if "phase_semantics_ok" in phase:
-            add(
+                (batch_row.get("domain_gates") or {}).get("risk_gate_ok"),
+                _bool_status,
+            ),
+            (
                 "G-SEM",
-                _bool_status(phase.get("phase_semantics_ok")),
-                "final_run_verdict",
-                10,
-                batch_row,
                 "batch_summary.phase_semantics.phase_semantics_ok",
-            )
-        if "compliance_verdict" in batch_row:
-            add(
+                (batch_row.get("phase_semantics") or {}).get("phase_semantics_ok"),
+                _bool_status,
+            ),
+            (
                 "G-SEM",
-                _compliance_status(batch_row.get("compliance_verdict")),
-                "final_run_verdict",
-                10,
-                batch_row,
                 "batch_summary.compliance_verdict",
-            )
-        if "stability_pass" in batch_row:
-            add("G-ACT", _bool_status(batch_row.get("stability_pass")), "final_run_verdict", 10, batch_row, "batch_summary.stability_pass")
-        if "returned_to_route" in batch_row:
-            add("G-REL", _bool_status(batch_row.get("returned_to_route")), "final_run_verdict", 10, batch_row, "batch_summary.returned_to_route")
-        if "route_corridor_ok" in batch_row:
-            add("G-REL", _bool_status(batch_row.get("route_corridor_ok")), "final_run_verdict", 10, batch_row, "batch_summary.route_corridor_ok")
-        if "seamanship_gate_ok" in domain_gates:
-            add(
+                batch_row.get("compliance_verdict"),
+                _compliance_status,
+            ),
+            (
+                "G-ACT",
+                "batch_summary.stability_pass",
+                batch_row.get("stability_pass"),
+                _bool_status,
+            ),
+            (
                 "G-REL",
-                _bool_status(domain_gates.get("seamanship_gate_ok")),
+                "batch_summary.returned_to_route",
+                batch_row.get("returned_to_route"),
+                _bool_status,
+            ),
+            (
+                "G-REL",
+                "batch_summary.route_corridor_ok",
+                batch_row.get("route_corridor_ok"),
+                _bool_status,
+            ),
+            (
+                "G-REL",
+                "batch_summary.domain_gates.seamanship_gate_ok",
+                (batch_row.get("domain_gates") or {}).get("seamanship_gate_ok"),
+                _bool_status,
+            ),
+        )
+        for gate_id, source_field, source_value, status_fn in batch_gate_specs:
+            add(
+                gate_id,
+                status_fn(source_value),
                 "final_run_verdict",
                 10,
-                batch_row,
-                "batch_summary.domain_gates.seamanship_gate_ok",
+                {"field": source_field, "value": source_value},
+                source_field,
             )
 
     if artifact_consistency:
