@@ -106,21 +106,31 @@ void FcbSimulatorNode::on_avoidance_plan(
   if (msg->waypoints.empty()) {
     return;
   }
-  // Aim at the first waypoint as heading reference.
-  const auto& wp = msg->waypoints.front();
-  const double dlat = wp.position.latitude - cfg_.origin_lat;
-  const double dlon = wp.position.longitude - cfg_.origin_lon;
-  const double tgt_y = dlat * kEarthMperDeg;
-  const double tgt_x = dlon * kEarthMperDeg
-                       * std::cos(cfg_.origin_lat * kDegToRad);
-  // state_ reads are safe under SingleThreadedExecutor (no concurrent timer callbacks).
-  // If switching to MultiThreadedExecutor for SIL harness, move state_ under cmd_mutex_.
-  const double dx = tgt_x - state_.x;
-  const double dy = tgt_y - state_.y;
-  if (std::hypot(dx, dy) > 1.0) {
-    psi_target_rad_ = std::atan2(dy, dx);
+  // Fix #8 (2026-07-07): the first waypoint (wps[0]) is the ownship anchor
+  // (position ≈ ownship). Using it directly gives dx≈0, dy≈0 → no steering.
+  // Skip anchor and any coincident waypoints to find the first maneuver point
+  // with meaningful displacement (>1 m).
+  bool found = false;
+  for (const auto& wp : msg->waypoints) {
+    const double dlat = wp.position.latitude - cfg_.origin_lat;
+    const double dlon = wp.position.longitude - cfg_.origin_lon;
+    const double tgt_y = dlat * kEarthMperDeg;
+    const double tgt_x = dlon * kEarthMperDeg
+                         * std::cos(cfg_.origin_lat * kDegToRad);
+    const double dx = tgt_x - state_.x;
+    const double dy = tgt_y - state_.y;
+    if (std::hypot(dx, dy) > 1.0) {
+      psi_target_rad_ = std::atan2(dy, dx);
+      u_target_mps_ = wp.target_speed_kn * kKnotsToMps;
+      found = true;
+      break;
+    }
   }
-  u_target_mps_ = wp.target_speed_kn * kKnotsToMps;
+  // If all waypoints are coincident with ownship (should not happen for a
+  // valid plan), keep the last speed target at least.
+  if (!found && !msg->waypoints.empty()) {
+    u_target_mps_ = msg->waypoints.back().target_speed_kn * kKnotsToMps;
+  }
 }
 
 void FcbSimulatorNode::on_reactive_override(

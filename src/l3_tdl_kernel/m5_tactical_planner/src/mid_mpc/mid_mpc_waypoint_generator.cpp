@@ -12,6 +12,7 @@
 #include "l3_msgs/msg/avoidance_waypoint.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/gnc_avoidance_preflight.hpp"
 #include "m5_tactical_planner/tail_builder/route_frame.hpp"
 
 namespace mass_l3::m5::mid_mpc {
@@ -118,11 +119,19 @@ void populate_canonical_route_from_selected_plan(
   plan.nlp_tail_gate_failed = solution.status != MidMpcSolution::Status::Converged;
 
   for (const auto& wp : plan.waypoints) {
+    // Fix #6 (2026-07-07): clamp NLP trajectory speed to emergency guidance cap
+    // (3.2 m/s). The NLP solver optimises speed toward the L2 planned speed
+    // (~8.0 m/s cruise), but avoidance routes must be executable inside the
+    // emergency envelope. Without the clamp, validate_gnc_avoidance_plan
+    // triggers high_speed_flyby (speed > 3.2), which demands ≥ 120 m segments
+    // that the NLP's ~28 m segments cannot satisfy → flyby_segment_too_short.
+    const double speed_mps = gnc_emergency_command_speed_mps(
+        wp.target_speed_kn * units::kMsPerKn);
     append_route_point(
         plan,
         wp.position.latitude,
         wp.position.longitude,
-        wp.target_speed_kn * units::kMsPerKn,
+        speed_mps,
         navigation_mode,
         l3_msgs::msg::AvoidancePlan::MID_MPC_OPTIMIZED);
   }

@@ -23,7 +23,11 @@ namespace {
 
 // [TBD-HAZID] IPOPT max iterations per Mid-MPC cycle.
 // Default 150; calibrate from FCB sea-trial timing data (HAZID RUN-001 WP-04).
-constexpr int32_t kIpoptMaxIter = 500;
+// Fix #8 (2026-07-07): increased from 500→800 and CPU time 2.0→3.0.
+// The L-BFGS Hessian rebuild (per-cycle build_symbolic_graph) was the primary
+// bottleneck; with caching the solver converges faster, but a deeper limit
+// provides headroom for complex encounters.
+constexpr int32_t kIpoptMaxIter = 800;
 
 // [TBD-HAZID] IPOPT convergence tolerance.
 // Default 1e-4; calibrate per detailed design §5.2.4 SLA budget.
@@ -38,7 +42,7 @@ constexpr double kIpoptAcceptableTol = 1.0e-3;
 constexpr int32_t kIpoptAcceptableIter = 5;
 
 // [TBD-HAZID] IPOPT max CPU time [s] — 2.0 s within 1 Hz cycle (detailed design §5.2.4).
-constexpr double kIpoptMaxCpuTime = 2.0;
+constexpr double kIpoptMaxCpuTime = 3.0;
 
 // [TBD-HAZID] Default ROT max [rad/s] when caller does not override via p_.
 // 0.2094 rad/s ≈ 12°/s; FCB nominal at 18 kn (vessel_dynamics_model default).

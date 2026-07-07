@@ -224,6 +224,12 @@ class MidMpcNode : public rclcpp::Node {
   std::optional<std::uint32_t> last_published_route_hash_;
   std::optional<rclcpp::Time> last_avoidance_plan_publish_time_;
 
+  // Fix #8: cache the constraint structure signature so build_symbolic_graph()
+  // is only called when the symbolic structure actually changes, not every cycle.
+  // Rebuilding the CasADi Function resets IPOPT's L-BFGS Hessian approximation,
+  // forcing 500+ iterations to converge from scratch each time.
+  std::uint64_t last_constraint_signature_{0};
+
 
   // Geometric starboard fallback: generates arc waypoints from vessel kinematics
   // when the NLP solver fails or M4 signals a geometric starboard requirement.

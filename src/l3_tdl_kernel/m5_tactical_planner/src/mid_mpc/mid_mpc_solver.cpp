@@ -248,6 +248,36 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
     ubg(i) = bounds.ubg[static_cast<std::size_t>(i)];
   }
 
+  // Fix #7 (2026-07-07): detect NaN in solver inputs before IPOPT call.
+  // Invalid_Number_Detected at iter=0 means IPOPT aborts immediately because
+  // the initial function/gradient evaluation returns NaN. Log which parameter
+  // slot is NaN so the root cause (M4 heading box, M2 target, route frame,
+  // or prefix reprojection) is identifiable from the telemetry alone.
+  {
+    bool p_nan = false;
+    for (casadi_int i = 0; i < p_val.size1(); ++i) {
+      if (!std::isfinite(static_cast<double>(p_val(i)))) {
+        spdlog::warn("[M5][MidMPC] NaN/Inf in p_val[{}] = {}", i,
+                     static_cast<double>(p_val(i)));
+        p_nan = true;
+      }
+    }
+    if (p_nan) {
+      spdlog::warn("[M5][MidMPC] p_val has NaN/Inf — solver will fail with Invalid_Number_Detected");
+    }
+    bool x0_nan = false;
+    for (casadi_int i = 0; i < x0_val.size1(); ++i) {
+      if (!std::isfinite(static_cast<double>(x0_val(i)))) {
+        spdlog::warn("[M5][MidMPC] NaN/Inf in x0_val[{}] = {}", i,
+                     static_cast<double>(x0_val(i)));
+        x0_nan = true;
+      }
+    }
+    if (x0_nan) {
+      spdlog::warn("[M5][MidMPC] x0_val has NaN/Inf — solver will fail with Invalid_Number_Detected");
+    }
+  }
+
   const casadi::DMDict arg = {
       {"x0",  x0_val},
       {"p",   p_val},

@@ -106,9 +106,23 @@ bool CommittedAvoidanceRoute::try_revise(
 
   if (!candidate.nlp_ok) {
     ++consecutive_nlp_failures_;
-    if (preserve_degraded_hold()) {
-      return false;
-    }
+    // Fix #7 (2026-07-07): DegradedHold recovery path. Corridor/degraded
+    // candidates always have nlp_ok=false (generated outside the NLP solver).
+    // The legacy preserve_degraded_hold() unconditionally blocked them, making
+    // DegradedHold a dead-end state — once entered, no route could ever be
+    // committed again. Now when already in DegradedHold but below the escalation
+    // threshold (failures < 3), allow the candidate to proceed to preflight +
+    // prefix checks. A valid corridor candidate can exit DegradedHold.
+    if (was_degraded_hold) {
+      // Fix #7: DegradedHold recovery. The stale check may have entered
+      // DegradedHold while consecutive_nlp_failures_ was already >= 3 from
+      // prior NLP cycles. Reset the counter unconditionally on the recovery
+      // attempt — the candidate will still be gated by risk_trigger_event
+      // and preflight checks below. Only preserve DegradedHold when the
+      // risk gate flags a genuine safety concern (handled above).
+      consecutive_nlp_failures_ = 0U;
+      // Fall through to preflight + prefix checks below.
+    } else {
     // Phase 2.2 (R1, spec v2.3 §13.5): escalate on the SOLVER counter (fed
     // from mid_mpc_solver.cpp via mid_mpc_node), not just the in-class commit
     // counter. The legacy gate used consecutive_nlp_failures_ alone, which
@@ -141,6 +155,7 @@ bool CommittedAvoidanceRoute::try_revise(
       current_.state = LifecycleState::KeepLast;
     }
     return false;
+  }
   }
 
   if (!preflight_candidate(candidate)) {

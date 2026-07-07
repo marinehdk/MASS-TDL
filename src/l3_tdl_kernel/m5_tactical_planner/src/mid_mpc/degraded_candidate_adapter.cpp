@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <string>
 
+#include "m5_tactical_planner/common/units.hpp"
+
 namespace mass_l3::m5::mid_mpc {
 namespace {
 
@@ -96,6 +98,22 @@ std::optional<l3_msgs::msg::AvoidancePlan> build_degraded_candidate_plan(
     plan.command_speed_mps.push_back(point.speed_mps);
     plan.navigation_mode.push_back(point.navigation_mode);
     plan.segment_source.push_back(l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR);
+  }
+
+  // Fix #7 (2026-07-07): populate plan.waypoints (rich struct array) so
+  // fcb_simulator::on_avoidance_plan reads the first waypoint for guidance.
+  // Without this, msg->waypoints.empty() → simulator ignores the plan → 0° steering.
+  plan.waypoints.reserve(request.points.size());
+  for (const auto& point : request.points) {
+    l3_msgs::msg::AvoidanceWaypoint wp;
+    wp.schema_version = 112;
+    wp.position.latitude = point.latitude;
+    wp.position.longitude = point.longitude;
+    wp.position.altitude = 0.0;
+    wp.target_speed_kn = point.speed_mps / units::kMsPerKn;
+    wp.confidence = request.confidence;
+    wp.rationale = "M5 degraded corridor";
+    plan.waypoints.push_back(wp);
   }
 
   return plan;

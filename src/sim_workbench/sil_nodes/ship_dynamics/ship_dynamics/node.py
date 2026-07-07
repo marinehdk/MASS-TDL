@@ -116,6 +116,13 @@ class ShipDynamicsNode(LifecycleNode):
         self._current_dir: float = 0.0
         self._cmd_lock = threading.Lock()
 
+        # Fix #8: avoidance plan heading override. SIL 环境中无 GNC guidance 层将
+        # M5 avoidance plan 转为 actuator 命令。ship_dynamics 直接订阅
+        # /l3/m5/avoidance_plan，提取第一个有效 waypoint 作为 heading 目标。
+        self._avoidance_heading_rad: float | None = None
+        self._avoidance_speed_mps: float | None = None
+        self._avoidance_sub = None
+
         # ROS2 句柄
         self._timer = None
         self._state_pub = None
@@ -211,6 +218,21 @@ class ShipDynamicsNode(LifecycleNode):
             qos_profile=qos_sensor,
         )
 
+        # Fix #8: subscribe to M5 avoidance plan for heading override.
+        # In the SIL default profile, no GNC guidance layer converts avoidance
+        # plans to actuator commands. ship_dynamics bridges this gap directly:
+        # extract the first waypoint with displacement > 1 m as heading target.
+        try:
+            from l3_msgs.msg import AvoidancePlan
+            self._avoidance_sub = self.create_subscription(
+                AvoidancePlan,
+                "/l3/m5/avoidance_plan",
+                self._on_avoidance_plan,
+                qos_sensor,
+            )
+        except ImportError:
+            self.get_logger().warn("l3_msgs not available — avoidance plan override disabled")
+
         self._timer = self.create_timer(self._model.c.dt, self._step_callback)
 
         if hasattr(self, "get_logger"):
@@ -281,6 +303,31 @@ class ShipDynamicsNode(LifecycleNode):
             self._current_speed = getattr(msg, "current_speed_mps", 0.0)
             self._current_dir = math.radians(getattr(msg, "current_direction", 0.0))
 
+    def _on_avoidance_plan(self, msg):
+        """Fix #8: 从 M5 avoidance plan 提取 heading/speed 目标。"""
+        if not hasattr(msg, "waypoints") or not msg.waypoints:
+            return
+        # 跳过 anchor (ownship 同位置) 等距离 < 1m 的 waypoint
+        for wp in msg.waypoints:
+            lat = getattr(wp.position, "latitude", 0.0)
+            lon = getattr(wp.position, "longitude", 0.0)
+            dlat = lat - math.degrees(self._origin_lat_rad)
+            dlon = lon - math.degrees(self._origin_lon_rad)
+            dy = dlat * 111120.0  # m per deg lat
+            dx = dlon * 111120.0 * math.cos(self._origin_lat_rad)
+            dist = math.hypot(dx - self._state.x, dy - self._state.y)
+            if dist > 1.0:
+                with self._cmd_lock:
+                    self._avoidance_heading_rad = math.atan2(dy, dx)
+                    self._avoidance_speed_mps = (
+                        getattr(wp, "target_speed_kn", 7.0) * 0.514444
+                    )
+                return
+        # 所有 waypoint 都在 1m 内 → 清除 override
+        with self._cmd_lock:
+            self._avoidance_heading_rad = None
+            self._avoidance_speed_mps = None
+
     def _step_callback(self):
         """50Hz 推进步 — RK4 积分 + 发布 OwnShipState。"""
         if self._model is None:
@@ -306,6 +353,20 @@ class ShipDynamicsNode(LifecycleNode):
             wd = self._wind_dir
             cs = self._current_speed
             cd = self._current_dir
+            # Fix #8: override rudder from avoidance plan heading target.
+            # Simple P-controller: heading error → rudder angle.
+            if self._avoidance_heading_rad is not None:
+                psi_err = self._avoidance_heading_rad - self._state.psi
+                # wrap to [-π, +π]
+                while psi_err > math.pi:
+                    psi_err -= 2.0 * math.pi
+                while psi_err < -math.pi:
+                    psi_err += 2.0 * math.pi
+                dc = max(-0.6108, min(0.6108, 1.5 * psi_err))  # ±35° clamp
+                if self._avoidance_speed_mps is not None:
+                    # Adjust RPM for target speed
+                    c = self._model.c
+                    nr = self._avoidance_speed_mps * (c.n_rps_cruise / c.u0)
 
         for _ in range(steps):
             self._state = self._model.rk4_step(

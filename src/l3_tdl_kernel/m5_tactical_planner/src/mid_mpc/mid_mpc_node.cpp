@@ -833,7 +833,33 @@ void MidMpcNode::on_solve_cycle_()
       && mass_l3::m5::heading_window_is_wrapped(
           input.constraints.heading_min_rad, input.constraints.heading_max_rad);
   formulation_.set_constraint_inputs(input.constraints);
-  formulation_.build_symbolic_graph();
+
+  // Fix #8 (2026-07-07): only rebuild the CasADi symbolic graph when the
+  // constraint structure changes. Rebuilding every cycle (legacy) creates a
+  // new nlpsol instance, which resets IPOPT's L-BFGS Hessian approximation
+  // and forces the solver to start from scratch each time — the root cause
+  // of Maximum_Iterations_Exceeded (500 iter without convergence).
+  //
+  // The symbolic structure changes only when the number/types of active
+  // constraints change: applicable_rules, prefix K, direction flags, or
+  // the number of targets. These are captured in a 64-bit signature hash.
+  // Numerical parameters (p_val) are passed at solve time and do not
+  // require rebuilding the graph.
+  std::uint64_t sig = 0u;
+  sig ^= static_cast<std::uint64_t>(input.constraints.applicable_rules.size()) << 48;
+  for (std::size_t i = 0u; i < input.constraints.applicable_rules.size() && i < 4u; ++i) {
+    sig ^= static_cast<std::uint64_t>(input.constraints.applicable_rules[i]) << (40 - i * 8);
+  }
+  sig ^= static_cast<std::uint64_t>(input.prefix_active_k) << 32;
+  sig ^= static_cast<std::uint64_t>(input.targets.size()) << 24;
+  sig ^= static_cast<std::uint64_t>(input.colregs_preferred_direction == ColregsPreferredDirection::Starboard ? 1u :
+          input.colregs_preferred_direction == ColregsPreferredDirection::Port ? 2u : 0u) << 16;
+  sig ^= static_cast<std::uint64_t>(input.colregs_primary_role) << 8;
+  const bool rebuild = (sig != last_constraint_signature_);
+  if (rebuild || !formulation_.solver_valid()) {
+    formulation_.build_symbolic_graph();
+    last_constraint_signature_ = sig;
+  }
   const MidMpcSolution* warm = last_solution_.has_value() ? &last_solution_.value() : nullptr;
   MidMpcSolution sol;
   if (wrapped_heading_window) {
@@ -1691,124 +1717,135 @@ void MidMpcNode::publish_committed_route_(
     return;
   }
 
-  if (conflict_active && selected_plan.status == "NORMAL" && !selected_plan.waypoints.empty()) {
-    return_to_route_emit_until_.reset();
-    return_route_anchor_.reset();
-    avoidance_corridor_anchor_.reset();
-    plan = selected_plan;
-    populate_canonical_route_from_selected_plan(
-        plan,
-        sol,
-        "m5-midmpc-" + std::to_string(now.nanoseconds()),
-        "nominal",
-        mass_l3::m5::gnc_avoidance_navigation_mode(/*colregs_overtake_corridor=*/false));
-    plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
-    // Phase 3.10 (spec §5.2): prepend L2 nominal history prefix (L2 start →
-    // ownship projection) so coordinate_transform_node's first_geometry_change_index
-    // pairs the incoming route against last_feedback_path_ (L2 nominal in cold
-    // start) element-by-element. Without the prefix the M5 plan anchors at ownship
-    // and the first changed waypoint lands behind ownship → perpetual reject.
-    // Must run AFTER populate_canonical_route_from_selected_plan (which clears the
-    // parallel arrays) and BEFORE append_tail_waypoints_ / append_l2_nominal_suffix
-    // (so the suffix closest-L2-pose search starts from the avoidance tail, not
-    // from the prefix). Prepend failure is honest degradation: publish without
-    // prefix and let the coord_transform guard reject if it must (audit via trace).
-    if (!prepend_l2_history_prefix_if_preflight_feasible(
-            plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
-      RCLCPP_WARN(get_logger(),
-          "[M5][L2HistoryPrefix] reject prepend for plan_id=%s; publishing selected route without prefix",
-          plan.plan_id.c_str());
-    }
-    // Slice W1 (spec §5.3): append the TailBuilder hold[+rejoin] segment between
-    // the MID_MPC_OPTIMIZED waypoints and the L2 nominal suffix. The tail
-    // extends the NLP terminal state to the predicted s_clear (active phase,
-    // hold-only) or to a curvature-limited rejoin (release phase).
-    //
-    // Phase 3.8 (spec §14.3 amended): TailBuilder geometry rejection (e.g.
-    // tail_spacing_invalid) is honest degradation that does NOT affect the NLP
-    // solver verdict. The legacy code set plan.nlp_tail_gate_failed=true here,
-    // which made committed_candidate_from_plan pass candidate.nlp_ok=false to
-    // try_revise, escalating NLP-converged candidates into DegradedHold on
-    // every cycle where the tail geometry failed (135 spurious escalations on
-    // rule14-ho). The optimized body still commits — the NLP solver's
-    // convergence verdict (populate_canonical_route_from_selected_plan sets
-    // nlp_tail_gate_failed from sol.status, line 75) is authoritative.
-    const std::string tail_reject = append_tail_waypoints_(plan, input, sol, lat0_deg, lon0_deg);
-    if (!tail_reject.empty()) {
-      spdlog::warn("[M5][TailBuilder] reject tail for plan_id={} reason={}",
-                   plan.plan_id, tail_reject);
-      emit_tail_builder_rejected_asdr_(
-          now, tail_reject, plan.plan_id);
-      plan.rationale += " tail_gate=" + tail_reject;
-    }
-    if (!append_l2_nominal_suffix_if_preflight_feasible(
-            plan, planned_route_, {lat0_deg, lon0_deg}, input.planned_speed_mps)) {
-      RCLCPP_WARN(get_logger(),
-          "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",
-          plan.plan_id.c_str());
-    }
-    // Phase 3.10 (spec §5.2): after prepend, wps[0] is the L2 historical start
-    // (not the ownship anchor), so the final preflight must use wps_has_anchor=false.
-    // When prepend was a no-op (ownship at L2 start, or planned_route null/empty),
-    // wps[0] is still the ownship anchor and wps_has_anchor=true remains correct.
-    // Detect by checking the first segment_source label.
-    const bool prefix_prepended = !plan.segment_source.empty()
-        && plan.segment_source.front() == l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX;
-    const auto preflight = validate_canonical_route_for_gnc(
-        plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/!prefix_prepended);
-    if (!preflight.feasible) {
-      RCLCPP_WARN(
-          get_logger(),
-          "[M5][GNCPreflight] drop infeasible optimized plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f",
-          plan.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
-          preflight.required_m, preflight.available_m);
-      last_emitted_conflict_active_ = conflict_active;
-      publish_keep_last_(now, "optimized_preflight_failed");
-      return;
-    }
-    // Spec §6.6.2/§6.6.4: build risk context from M2 WorldState (via the
-    // assembled input targets) for the Keep-Last risk gate + frozen prefix.
-    // Both M2 predicted CPA (tgt.cpa_m) and current geometric range
-    // (hypot(tgt.x_m, tgt.y_m)) are collected; the commit gate uses the
-    // CURRENT range (see committed_candidate_from_plan above, Codex fix).
-    CommittedCandidateRiskContext risk_ctx;
-    risk_ctx.own_lat_deg = lat0_deg;
-    risk_ctx.own_lon_deg = lon0_deg;
-    risk_ctx.own_psi_rad = input.own_ship.psi_rad;
-    for (const auto& tgt : input.targets) {
-      const double current_range_m = std::hypot(tgt.x_m, tgt.y_m);
-      if (current_range_m < risk_ctx.min_target_current_range_m) {
-        risk_ctx.min_target_current_range_m = current_range_m;
-        risk_ctx.min_target_cpa_m = tgt.cpa_m;  // telemetry / future candidate-CPA
-        risk_ctx.primary_target_cog_rad = tgt.cog_rad;
-        risk_ctx.has_target = true;
-      }
-    }
-    // Phase 2.1/2.3 (R2/R6): forward target closing speed + candidate
-    // terminal CPA so risk_trigger_event can apply the tail-gate-aligned
-    // floor. closing_speed comes from M2 TargetRiskSnapshot (primary target);
-    // terminal CPA is the NLP solution's achieved CPA against that target.
-    if (const auto* risk = mass_l3::m5::primary_target_risk(input)) {
-      risk_ctx.primary_target_closing_speed_mps = risk->closing_speed_mps;
-    }
-    if (const auto* primary_tgt = mass_l3::m5::primary_tail_gate_target(input)) {
-      risk_ctx.candidate_terminal_cpa_m =
-          mass_l3::m5::trajectory_terminal_state_cpa_m(sol, *primary_tgt);
-    }
-    if (!committed_route_manager_.try_revise(
-            committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
-            now.seconds(),
-            static_cast<std::uint32_t>(solver_.consecutive_failures()))) {
-      RCLCPP_WARN(get_logger(),
-          "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s",
-          plan.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
-      last_emitted_conflict_active_ = conflict_active;
-      publish_keep_last_(now, "optimized_committed_rejected");
-      return;
-    }
-    // Phase 2.4 (G-M5-1): optimized branch committed successfully.
-    plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED;
-  } else if (conflict_active) {
+	  // Fix #6 (2026-07-07): when the optimized NLP plan fails preflight or
+	  // commit, fall through to the corridor fallback instead of returning
+	  // directly to keep-last. This ensures GNC always has at least a geometric
+	  // corridor to execute, even on the first conflict cycle when no prior
+	  // committed route exists.
+	  bool optimized_committed = false;
+	  if (conflict_active && selected_plan.status == "NORMAL" && !selected_plan.waypoints.empty()) {
+	    return_to_route_emit_until_.reset();
+	    return_route_anchor_.reset();
+	    avoidance_corridor_anchor_.reset();
+	    plan = selected_plan;
+	    populate_canonical_route_from_selected_plan(
+	        plan,
+	        sol,
+	        "m5-midmpc-" + std::to_string(now.nanoseconds()),
+	        "nominal",
+	        mass_l3::m5::gnc_avoidance_navigation_mode(/*colregs_overtake_corridor=*/false));
+	    plan.valid_until = (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s));
+	    // Fix #6 (2026-07-07): clamp L2 prefix/suffix speed to emergency guidance
+	    // cap (3.2 m/s) so validate_gnc_avoidance_plan does not trigger high_speed_flyby
+	    // on segments that bridge NLP waypoints (now also clamped) to L2 nominal ones.
+    const double capped_speed_mps = mass_l3::m5::gnc_emergency_command_speed_mps(
+        input.planned_speed_mps);
+	    // Phase 3.10 (spec §5.2): prepend L2 nominal history prefix (L2 start →
+	    // ownship projection) so coordinate_transform_node's first_geometry_change_index
+	    // pairs the incoming route against last_feedback_path_ (L2 nominal in cold
+	    // start) element-by-element. Without the prefix the M5 plan anchors at ownship
+	    // and the first changed waypoint lands behind ownship → perpetual reject.
+	    // Must run AFTER populate_canonical_route_from_selected_plan (which clears the
+	    // parallel arrays) and BEFORE append_tail_waypoints_ / append_l2_nominal_suffix
+	    // (so the suffix closest-L2-pose search starts from the avoidance tail, not
+	    // from the prefix). Prepend failure is honest degradation: publish without
+	    // prefix and let the coord_transform guard reject if it must (audit via trace).
+	    if (!prepend_l2_history_prefix_if_preflight_feasible(
+	            plan, planned_route_, {lat0_deg, lon0_deg}, capped_speed_mps)) {
+	      RCLCPP_WARN(get_logger(),
+	          "[M5][L2HistoryPrefix] reject prepend for plan_id=%s; publishing selected route without prefix",
+	          plan.plan_id.c_str());
+	    }
+	    // Slice W1 (spec §5.3): append the TailBuilder hold[+rejoin] segment between
+	    // the MID_MPC_OPTIMIZED waypoints and the L2 nominal suffix. The tail
+	    // extends the NLP terminal state to the predicted s_clear (active phase,
+	    // hold-only) or to a curvature-limited rejoin (release phase).
+	    //
+	    // Phase 3.8 (spec §14.3 amended): TailBuilder geometry rejection (e.g.
+	    // tail_spacing_invalid) is honest degradation that does NOT affect the NLP
+	    // solver verdict. The legacy code set plan.nlp_tail_gate_failed=true here,
+	    // which made committed_candidate_from_plan pass candidate.nlp_ok=false to
+	    // try_revise, escalating NLP-converged candidates into DegradedHold on
+	    // every cycle where the tail geometry failed (135 spurious escalations on
+	    // rule14-ho). The optimized body still commits — the NLP solver's
+	    // convergence verdict (populate_canonical_route_from_selected_plan sets
+	    // nlp_tail_gate_failed from sol.status, line 75) is authoritative.
+	    const std::string tail_reject = append_tail_waypoints_(plan, input, sol, lat0_deg, lon0_deg);
+	    if (!tail_reject.empty()) {
+	      spdlog::warn("[M5][TailBuilder] reject tail for plan_id={} reason={}",
+	                   plan.plan_id, tail_reject);
+	      emit_tail_builder_rejected_asdr_(
+	          now, tail_reject, plan.plan_id);
+	      plan.rationale += " tail_gate=" + tail_reject;
+	    }
+	    if (!append_l2_nominal_suffix_if_preflight_feasible(
+	            plan, planned_route_, {lat0_deg, lon0_deg}, capped_speed_mps)) {
+	      RCLCPP_WARN(get_logger(),
+	          "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",
+	          plan.plan_id.c_str());
+	    }
+	    // Phase 3.10 (spec §5.2): after prepend, wps[0] is the L2 historical start
+	    // (not the ownship anchor), so the final preflight must use wps_has_anchor=false.
+	    // When prepend was a no-op (ownship at L2 start, or planned_route null/empty),
+	    // wps[0] is still the ownship anchor and wps_has_anchor=true remains correct.
+	    // Detect by checking the first segment_source label.
+	    const bool prefix_prepended = !plan.segment_source.empty()
+	        && plan.segment_source.front() == l3_msgs::msg::AvoidancePlan::L2_HISTORICAL_PREFIX;
+	    const auto preflight = validate_canonical_route_for_gnc(
+	        plan, {lat0_deg, lon0_deg}, /*wps_has_anchor=*/!prefix_prepended);
+	    if (preflight.feasible) {
+	      // Spec §6.6.2/§6.6.4: build risk context from M2 WorldState (via the
+	      // assembled input targets) for the Keep-Last risk gate + frozen prefix.
+	      // Both M2 predicted CPA (tgt.cpa_m) and current geometric range
+	      // (hypot(tgt.x_m, tgt.y_m)) are collected; the commit gate uses the
+	      // CURRENT range (see committed_candidate_from_plan above, Codex fix).
+	      CommittedCandidateRiskContext risk_ctx;
+	      risk_ctx.own_lat_deg = lat0_deg;
+	      risk_ctx.own_lon_deg = lon0_deg;
+	      risk_ctx.own_psi_rad = input.own_ship.psi_rad;
+	      for (const auto& tgt : input.targets) {
+	        const double current_range_m = std::hypot(tgt.x_m, tgt.y_m);
+	        if (current_range_m < risk_ctx.min_target_current_range_m) {
+	          risk_ctx.min_target_current_range_m = current_range_m;
+	          risk_ctx.min_target_cpa_m = tgt.cpa_m;  // telemetry / future candidate-CPA
+	          risk_ctx.primary_target_cog_rad = tgt.cog_rad;
+	          risk_ctx.has_target = true;
+	        }
+	      }
+	      // Phase 2.1/2.3 (R2/R6): forward target closing speed + candidate
+	      // terminal CPA so risk_trigger_event can apply the tail-gate-aligned
+	      // floor. closing_speed comes from M2 TargetRiskSnapshot (primary target);
+	      // terminal CPA is the NLP solution's achieved CPA against that target.
+	      if (const auto* risk = mass_l3::m5::primary_target_risk(input)) {
+	        risk_ctx.primary_target_closing_speed_mps = risk->closing_speed_mps;
+	      }
+	      if (const auto* primary_tgt = mass_l3::m5::primary_tail_gate_target(input)) {
+	        risk_ctx.candidate_terminal_cpa_m =
+	            mass_l3::m5::trajectory_terminal_state_cpa_m(sol, *primary_tgt);
+	      }
+	      if (committed_route_manager_.try_revise(
+	              committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
+	              now.seconds(),
+	              static_cast<std::uint32_t>(solver_.consecutive_failures()))) {
+	        optimized_committed = true;
+	        // Phase 2.4 (G-M5-1): optimized branch committed successfully.
+	        plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_OPTIMIZED;
+	      } else {
+	        RCLCPP_WARN(get_logger(),
+	            "[M5][CommittedRoute] reject optimized candidate plan_id=%s event=%s; falling through to corridor",
+	            plan.plan_id.c_str(), committed_route_manager_.current().safety_concern_event.c_str());
+	        last_emitted_conflict_active_ = conflict_active;
+	      }
+	    } else {
+	      RCLCPP_WARN(
+	          get_logger(),
+	          "[M5][GNCPreflight] drop infeasible optimized plan_id=%s reason=%s idx=%zu required=%.1f available=%.1f; falling through to corridor",
+	          plan.plan_id.c_str(), preflight.reason.c_str(), preflight.index,
+	          preflight.required_m, preflight.available_m);
+	      last_emitted_conflict_active_ = conflict_active;
+	    }
+	  }
+	  if (conflict_active && !optimized_committed) {
     return_to_route_emit_until_.reset();
     return_route_anchor_.reset();
     const bool colregs_overtake_corridor =
@@ -1925,9 +1962,15 @@ void MidMpcNode::publish_committed_route_(
         : "encounter-anchored avoidance corridor candidate";
     degraded_request.nlp_unavailable = selected_plan.status == "DEGRADED" ||
         sol.status != MidMpcSolution::Status::Converged;
+    // Fix #7 (2026-07-07): when NLP is unavailable, always force a new degraded
+    // plan even if the committed route is fresh. A fresh committed route from a
+    // previous corridor cycle is itself a degraded plan — the new corridor
+    // candidate should replace it rather than being blocked by can_continue.
     degraded_request.committed_route_can_continue =
-        !committed_route_manager_.current().active_geometry.empty() &&
-        !committed_route_manager_.should_enter_degraded_hold(now.seconds());
+        degraded_request.nlp_unavailable
+            ? false
+            : (!committed_route_manager_.current().active_geometry.empty() &&
+               !committed_route_manager_.should_enter_degraded_hold(now.seconds()));
     degraded_request.has_return_to_route_point = false;
     degraded_request.safety_concern_event = "m5_degraded_corridor_no_return_route";
     degraded_request.points.reserve(wps.size());
@@ -1951,7 +1994,7 @@ void MidMpcNode::publish_committed_route_(
     plan.valid_until = valid_until;
     // Phase 2.4 (G-M5-1): encounter-anchored corridor fallback.
     plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_CORRIDOR;
-  } else if (last_emitted_conflict_active_ || return_republish_active) {
+	  } else if (!optimized_committed && (last_emitted_conflict_active_ || return_republish_active)) {
     if (last_emitted_conflict_active_) {
       return_to_route_emit_until_ =
           now + rclcpp::Duration::from_seconds(kReturnToRouteRepublishWindow_s);
@@ -2029,9 +2072,12 @@ void MidMpcNode::publish_committed_route_(
             : "return_to_route candidate on M6 conflict-clear";
     degraded_return_request.nlp_unavailable = selected_plan.status == "DEGRADED" ||
         sol.status != MidMpcSolution::Status::Converged;
+    // Fix #7: same can_continue bypass as corridor path above.
     degraded_return_request.committed_route_can_continue =
-        !committed_route_manager_.current().active_geometry.empty() &&
-        !committed_route_manager_.should_enter_degraded_hold(now.seconds());
+        degraded_return_request.nlp_unavailable
+            ? false
+            : (!committed_route_manager_.current().active_geometry.empty() &&
+               !committed_route_manager_.should_enter_degraded_hold(now.seconds()));
     degraded_return_request.has_return_to_route_point = true;
     degraded_return_request.return_latitude = wps.back().lat;
     degraded_return_request.return_longitude = wps.back().lon;
@@ -2144,6 +2190,7 @@ void MidMpcNode::reset_cross_run_state() {
   return_route_anchor_.reset();
   last_published_route_hash_.reset();
   last_avoidance_plan_publish_time_.reset();
+  last_constraint_signature_ = 0;  // Fix #8: force graph rebuild on next scenario
 }
 
 }  // namespace mass_l3::m5::mid_mpc

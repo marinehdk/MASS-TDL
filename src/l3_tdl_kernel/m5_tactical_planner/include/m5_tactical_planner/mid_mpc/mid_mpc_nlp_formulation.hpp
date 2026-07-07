@@ -165,6 +165,8 @@ class MidMpcNlpFormulation {
 
   // Cached nlpsol Function (called by MidMpcSolver per cycle).
   [[nodiscard]] const casadi::Function& solver() const noexcept { return solver_; }
+  // Fix #8: true after at least one successful build_symbolic_graph() call.
+  [[nodiscard]] bool solver_valid() const noexcept { return !solver_.is_null(); }
 
   // Pack MidMpcInput into IPOPT parameter vector p ∈ R^kParamDim.
   [[nodiscard]] casadi::DM pack_parameters(const MidMpcInput& input) const;
