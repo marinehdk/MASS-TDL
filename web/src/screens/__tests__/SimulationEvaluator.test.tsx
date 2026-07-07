@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { SimulationEvaluator } from '../SimulationEvaluator';
 import { useScenarioStore } from '../../store';
 
@@ -64,6 +64,25 @@ const replayDetail = () => ({
     isLoading: false,
   });
 
+const evidenceLibraryWithScenario = (scenarioId = 'colreg-rule14-ho') => ({
+  data: {
+    sessions: [{
+      evidence_id: 'evidence-123',
+      session_id: 'session-123',
+      source: 'cli',
+      suite: 'single',
+      root_id: 'local',
+      session_path: '/tmp/session',
+      valid_data: true,
+      scenario_count: 1,
+      scenario_ids: [scenarioId],
+      ingest_status: 'indexed',
+    }],
+  },
+  isLoading: false,
+  refetch: vi.fn(),
+});
+
 const scoring = () => ({
     data: {
       run_id: 'test-run-id-12345',
@@ -104,7 +123,8 @@ beforeEach(() => {
 
 describe('SimulationEvaluator', () => {
   it('renders report container successfully with run_id and KPIs', () => {
-    render(<SimulationEvaluator />);
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario());
+    render(<SimulationEvaluator evidenceId="evidence-123" />);
     expect(screen.getByText('EXPORT MARZIP')).toBeInTheDocument();
     expect(screen.getByText('0.350 nm')).toBeInTheDocument();
     expect(screen.getByText('120 s')).toBeInTheDocument();
@@ -117,49 +137,25 @@ describe('SimulationEvaluator', () => {
     expect(screen.getByText('Evidence Library')).toBeInTheDocument();
   });
 
+  it('navigates from evidence library to selected replay', () => {
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario());
+    window.location.hash = '#/evaluator';
+
+    render(<SimulationEvaluator />);
+    fireEvent.click(screen.getByText('Open Replay'));
+
+    expect(window.location.hash).toBe('#/evaluator/evidence-123');
+  });
+
   it('renders replay detail when evidence id is bound', () => {
-    apiMocks.getEvidenceLibrarySessions.mockReturnValue({
-      data: {
-        sessions: [{
-          evidence_id: 'evidence-123',
-          session_id: 'session-123',
-          source: 'cli',
-          suite: 'single',
-          root_id: 'local',
-          session_path: '/tmp/session',
-          valid_data: true,
-          scenario_count: 1,
-          scenario_ids: ['colreg-rule14-ho'],
-          ingest_status: 'indexed',
-        }],
-      },
-      isLoading: false,
-      refetch: vi.fn(),
-    });
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario());
     render(<SimulationEvaluator evidenceId="evidence-123" />);
     expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
     expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
   });
 
   it('resolves replay scenario from indexed evidence session metadata', () => {
-    apiMocks.getEvidenceLibrarySessions.mockReturnValue({
-      data: {
-        sessions: [{
-          evidence_id: 'evidence-123',
-          session_id: 'session-123',
-          source: 'cli',
-          suite: 'single',
-          root_id: 'local',
-          session_path: '/tmp/session',
-          valid_data: true,
-          scenario_count: 1,
-          scenario_ids: ['indexed-scenario'],
-          ingest_status: 'indexed',
-        }],
-      },
-      isLoading: false,
-      refetch: vi.fn(),
-    });
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario('indexed-scenario'));
 
     render(<SimulationEvaluator evidenceId="evidence-123" />);
 

@@ -6,7 +6,6 @@ import {
   useGetLastRunScoringQuery,
   useGetAsdrEventsQuery,
   useGetEvidenceLibrarySessionsQuery,
-  useRescanEvidenceLibraryMutation,
   useGetEvidenceReplayQuery,
   useGetDecisionFrameQuery,
 } from '../api/silApi';
@@ -17,6 +16,7 @@ import { TrajectoryReplay } from './shared/TrajectoryReplay';
 import { ScoringRadarChart } from './shared/ScoringRadarChart';
 import { ColregsDecisionTree } from './shared/ColregsDecisionTree';
 import { BoundaryDiagnostics } from './shared/BoundaryDiagnostics';
+import { EvidenceLibraryView } from './evaluator/EvidenceLibraryView';
 
 interface KpiCardProps {
   label: string;
@@ -42,16 +42,23 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
 }
 
 export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
+  if (!evidenceId) {
+    return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
+  }
+
+  return <SimulationEvaluatorDetail evidenceId={evidenceId} />;
+}
+
+function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
   const storeRunId = useScenarioStore((s) => s.runId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
   const { data: asdrData } = useGetAsdrEventsQuery();
-  const { data: evidenceLibrary, refetch: refetchEvidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
-  const [rescanEvidenceLibrary, { isLoading: isRescanning }] = useRescanEvidenceLibraryMutation();
+  const { data: evidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
   const reportEvents = asdrData?.events ?? [];
   const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
-  const activeEvidenceId = evidenceId ?? null;
+  const activeEvidenceId = evidenceId;
   const indexedEvidenceSession = activeEvidenceId
     ? evidenceLibrary?.sessions?.find((session) => session.evidence_id === activeEvidenceId)
     : undefined;
@@ -104,10 +111,6 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
   }, [exportStatus, exportUrl]);
 
   const handleVerdict = (v: 'PASS' | 'FAIL') => setVerdict(v);
-  const handleRescanEvidenceLibrary = async () => {
-    await rescanEvidenceLibrary({ force: false }).unwrap();
-    await refetchEvidenceLibrary();
-  };
   const handleNewRun = () => {
     // Reset client state so next run starts clean — Preflight will also call
     // POST /lifecycle/cleanup to bring backend FSM back to UNCONFIGURED
@@ -211,58 +214,29 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
                 letterSpacing: '0.16em',
                 textTransform: 'uppercase',
               }}>
-                {activeEvidenceId ? 'Replay Detail' : 'Evidence Library'}
+                Replay Detail
               </span>
-              {!activeEvidenceId && (
-                <button
-                  onClick={handleRescanEvidenceLibrary}
-                  disabled={isRescanning}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--line-2)',
-                    color: 'var(--txt-2)',
-                    padding: '2px 8px',
-                    cursor: isRescanning ? 'wait' : 'pointer',
-                    fontFamily: 'var(--f-mono)',
-                    fontSize: 9,
-                  }}
-                >
-                  {isRescanning ? 'RESCANNING' : 'RESCAN'}
-                </button>
+            </div>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 8px',
+              borderBottom: '1px solid var(--line-1)',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 10,
+              color: 'var(--txt-2)',
+            }}>
+              <span>{replay?.scenario?.scenario_id ?? activeEvidenceId}</span>
+              {decisionFrame && (
+                <span>
+                  T+{decisionFrame.sim_t.toFixed(1)} s
+                </span>
               )}
             </div>
-            {!activeEvidenceId ? (
-              <div style={{
-                padding: '6px 8px',
-                borderBottom: '1px solid var(--line-1)',
-                fontFamily: 'var(--f-mono)',
-                fontSize: 10,
-                color: 'var(--txt-2)',
-              }}>
-                {evidenceLibrary?.sessions?.length ? `${evidenceLibrary.sessions.length} sessions indexed` : 'No evidence sessions indexed yet'}
-              </div>
-            ) : (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 12,
-                padding: '6px 8px',
-                borderBottom: '1px solid var(--line-1)',
-                fontFamily: 'var(--f-mono)',
-                fontSize: 10,
-                color: 'var(--txt-2)',
-              }}>
-                <span>{replay?.scenario?.scenario_id ?? activeEvidenceId}</span>
-                {decisionFrame && (
-                  <span>
-                    T+{decisionFrame.sim_t.toFixed(1)} s
-                  </span>
-                )}
-              </div>
-            )}
             <TrajectoryReplay
-              durationSec={activeEvidenceId ? replay?.duration_s ?? 600 : 600}
+              durationSec={replay?.duration_s ?? 600}
               currentTimeSec={currentTimeSec}
               onTimeChange={setCurrentTimeSec}
             />
