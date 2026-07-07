@@ -61,3 +61,40 @@ async def test_rescan_sessions_replay_and_decision_frame(tmp_path, monkeypatch):
         frame = await client.get(f"/api/v1/evidence-library/sessions/{evidence_id}/scenarios/colreg-rule14-ho/decision-frame?sim_t=0")
         assert frame.status_code == 200
         assert frame.json()["evidence_id"] == evidence_id
+
+
+@pytest.mark.asyncio
+async def test_replay_missing_evidence_returns_404(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/v1/evidence-library/sessions/missing-evidence/scenarios/missing-scenario/replay")
+        assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_decision_frame_missing_scenario_returns_404(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    root = repo / "runs" / "trace_eval"
+    _session(root)
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert rescan.status_code == 200
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+
+        resp = await client.get(
+            f"/api/v1/evidence-library/sessions/{evidence_id}/scenarios/missing-scenario/decision-frame?sim_t=0"
+        )
+        assert resp.status_code == 404

@@ -47,6 +47,23 @@ def _session_dirs(root: EvidenceRootConfig) -> list[Path]:
     return session_dirs
 
 
+def _root_for_session_dir(session_dir: Path, config: EvidenceLibraryConfig) -> EvidenceRootConfig | None:
+    resolved_session = Path(session_dir).resolve()
+    for root in config.roots:
+        for match in sorted(glob.glob(root.path_glob)):
+            root_path = Path(match)
+            if not root_path.exists():
+                continue
+            if root_path.is_file():
+                root_path = root_path.parent
+            try:
+                resolved_session.relative_to(root_path.resolve())
+            except ValueError:
+                continue
+            return root
+    return None
+
+
 def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, Any]:
     config = load_effective_config(repo_root=repo_root)
     ingested = 0
@@ -70,13 +87,19 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
     return {"ingested": ingested, "errors": errors}
 
 
-def ingest_frontend_session(session_dir: Path) -> str | None:
-    config = load_effective_config()
-    root = EvidenceRootConfig(
+def ingest_frontend_session(session_dir: Path, repo_root: Path | None = None) -> str | None:
+    resolved_session = Path(session_dir).resolve()
+    if repo_root is None:
+        try:
+            repo_root = resolved_session.parents[2]
+        except IndexError:
+            repo_root = None
+    config = load_effective_config(repo_root=repo_root)
+    root = _root_for_session_dir(session_dir, config) or EvidenceRootConfig(
         root_id="frontend",
         label="Frontend evidence sessions",
         source="frontend",
-        path_glob=str(session_dir.parent),
+        path_glob=str(resolved_session.parent),
         enabled=True,
         trusted=True,
         allow_retention_mutation=False,
@@ -89,12 +112,30 @@ def ingest_frontend_session(session_dir: Path) -> str | None:
             session_dir,
             raw_trace_policy=config.effective_retention_policy,
             force=True,
-        )
+    )
     return result.evidence_id
 
 
-def list_sessions(limit: int = 200) -> list[dict[str, Any]]:
-    with closing(open_initialized()) as conn:
+def _require_session_target(
+    conn: sqlite3.Connection,
+    *,
+    evidence_id: str,
+    scenario_id: str,
+) -> None:
+    if conn.execute("select 1 from sessions where evidence_id = ?", (evidence_id,)).fetchone() is None:
+        raise LookupError(f"Evidence session not found: {evidence_id}")
+    if (
+        conn.execute(
+            "select 1 from scenarios where evidence_id = ? and scenario_id = ?",
+            (evidence_id, scenario_id),
+        ).fetchone()
+        is None
+    ):
+        raise LookupError(f"Scenario not found: {scenario_id}")
+
+
+def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[str, Any]]:
+    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
         rows = conn.execute(
             "select * from sessions order by coalesce(created_at, ended_at, session_id) desc limit ?",
             (max(1, min(limit, 500)),),
@@ -102,13 +143,20 @@ def list_sessions(limit: int = 200) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-def get_replay(evidence_id: str, scenario_id: str) -> dict[str, Any]:
-    with closing(open_initialized()) as conn:
+def get_replay(evidence_id: str, scenario_id: str, repo_root: Path | None = None) -> dict[str, Any]:
+    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
+        _require_session_target(conn, evidence_id=evidence_id, scenario_id=scenario_id)
         return query_replay(conn, evidence_id, scenario_id)
 
 
-def get_decision_frame(evidence_id: str, scenario_id: str, sim_t: float) -> dict[str, Any]:
-    with closing(open_initialized()) as conn:
+def get_decision_frame(
+    evidence_id: str,
+    scenario_id: str,
+    sim_t: float,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
+        _require_session_target(conn, evidence_id=evidence_id, scenario_id=scenario_id)
         return query_decision_frame(conn, evidence_id, scenario_id, sim_t)
 
 

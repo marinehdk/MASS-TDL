@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from .service import get_config_payload, get_decision_frame, get_replay, list_sessions, rescan_all
 
@@ -29,14 +29,20 @@ async def rescan(request: dict):
 
 @router.get("/sessions")
 async def sessions(limit: int = 200):
-    return {"sessions": list_sessions(limit=limit)}
+    return {"sessions": list_sessions(limit=limit, repo_root=REPO_ROOT)}
 
 
 @router.get("/sessions/{evidence_id}/scenarios/{scenario_id}/replay")
 async def replay(evidence_id: str, scenario_id: str):
-    return get_replay(evidence_id, scenario_id)
+    try:
+        return get_replay(evidence_id, scenario_id, repo_root=REPO_ROOT)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/sessions/{evidence_id}/scenarios/{scenario_id}/decision-frame")
 async def decision_frame(evidence_id: str, scenario_id: str, sim_t: float):
-    return get_decision_frame(evidence_id, scenario_id, sim_t)
+    try:
+        return get_decision_frame(evidence_id, scenario_id, sim_t, repo_root=REPO_ROOT)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

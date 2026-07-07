@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from sil_orchestrator import evidence_routes
+from sil_orchestrator.evidence_library import routes as evidence_library_routes
 
 
 def _write_trace(path: Path, samples: int = 25, duration_s: float = 10.0) -> None:
@@ -131,3 +132,60 @@ async def test_finalize_returns_evidence_id_when_library_ingest_succeeds(tmp_pat
         })
         assert fin.status_code == 200
         assert fin.json()["evidence_id"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_frontend_finalize_and_rescan_share_primary_root_identity(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    runs = repo / "runs"
+    trace_eval = runs / "trace_eval"
+    config_home = tmp_path / "config"
+
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(evidence_routes, "RUN_DIR", runs)
+    monkeypatch.setattr(evidence_routes, "TRACE_EVAL_DIR", trace_eval)
+    monkeypatch.setattr(
+        evidence_routes,
+        "generate_trajectory_dashboard",
+        lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
+    )
+    monkeypatch.setattr(evidence_library_routes, "REPO_ROOT", repo)
+    _write_trace(runs / "trace_current.jsonl")
+
+    app = FastAPI()
+    app.include_router(evidence_routes.router)
+    app.include_router(evidence_library_routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        start = await client.post(
+            "/api/v1/evidence/session/start",
+            json={
+                "source": "frontend",
+                "suite": "frontend",
+                "scenario_id": "colreg-rule14-ho",
+            },
+        )
+        assert start.status_code == 200
+        session_id = start.json()["session_id"]
+
+        fin = await client.post(
+            f"/api/v1/evidence/session/{session_id}/finalize",
+            json={
+                "scenario_id": "colreg-rule14-ho",
+                "status": "stopped",
+                "run_id": "run-test",
+            },
+        )
+        assert fin.status_code == 200
+        evidence_id = fin.json()["evidence_id"]
+
+        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert rescan.status_code == 200
+        assert rescan.json()["ingested"] == 1
+
+        listed = await client.get("/api/v1/evidence-library/sessions")
+        assert listed.status_code == 200
+        sessions = listed.json()["sessions"]
+        assert len(sessions) == 1
+        assert sessions[0]["evidence_id"] == evidence_id
+        assert sessions[0]["session_path"] == str(trace_eval / session_id)
