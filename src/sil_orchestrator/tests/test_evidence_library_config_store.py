@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+import hashlib
 
 from sil_orchestrator.evidence_library.config import load_effective_config
 from sil_orchestrator.evidence_library.store import (
@@ -63,3 +64,11 @@ def test_compute_evidence_id_uses_root_and_resolved_path(tmp_path):
     assert len(first) == 64
     assert len(second) == 64
     assert first != second
+
+
+def test_compute_evidence_id_matches_sha256_contract():
+    session_path = Path("/tmp/evidence-library/task-1/sessionA")
+    root_id = "primary"
+    expected = "9087558c54a3d697005477b379905b5dbc173e9b78577c68c8818a839ed32840"
+
+    assert compute_evidence_id(root_id, session_path) == expected

@@ -153,7 +153,7 @@ create table if not exists gate_results (
 
 def compute_evidence_id(root_id: str, session_path: Path) -> str:
     canonical = session_path.resolve()
-    return hashlib.sha256(f"{root_id}:{canonical}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{root_id}{canonical}".encode("utf-8")).hexdigest()
 
 
 def open_database(config: EvidenceLibraryConfig) -> sqlite3.Connection:
