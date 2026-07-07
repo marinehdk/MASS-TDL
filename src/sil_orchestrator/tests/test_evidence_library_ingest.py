@@ -284,6 +284,8 @@ def test_ingest_session_preserves_conflicting_batch_gate_sources(tmp_path):
     rel_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-REL"]
 
     assert {(row["source"], row["status"]) for row in sep_rows} == {
+        ("TraceEvaluationReport.layers.L2_safety_floor", "UNKNOWN"),
+        ("TraceEvaluationReport.layers.L3_dynamic_risk", "UNKNOWN"),
         ("batch_summary.cpa_ok", "FAIL"),
         ("batch_summary.domain_gates.risk_gate_ok", "PASS"),
     }
@@ -293,6 +295,8 @@ def test_ingest_session_preserves_conflicting_batch_gate_sources(tmp_path):
         ("batch_summary.compliance_verdict", "PASS"),
     }
     assert {(row["source"], row["status"]) for row in rel_rows} == {
+        ("TraceEvaluationReport.layers.L5_route_recovery", "UNKNOWN"),
+        ("TraceEvaluationReport.layers.L6_seamanship", "UNKNOWN"),
         ("batch_summary.returned_to_route", "FAIL"),
         ("batch_summary.route_corridor_ok", "PASS"),
         ("batch_summary.domain_gates.seamanship_gate_ok", "FAIL"),
@@ -361,6 +365,64 @@ def test_ingest_session_records_missing_batch_gate_sources_as_unknown(tmp_path):
     }
 
 
+def test_ingest_session_materializes_missing_trace_report_layer_as_unknown(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path)
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    scn_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SCN"]
+    assert len(scn_rows) == 1
+    assert scn_rows[0]["source"] == "TraceEvaluationReport.layers.L1_scenario_validity"
+    assert scn_rows[0]["status"] == "UNKNOWN"
+    assert json.loads(scn_rows[0]["payload_json"]) == {
+        "layer_id": "L1_scenario_validity",
+        "missing": True,
+    }
+
+
+def test_ingest_session_materializes_missing_batch_summary_sources_as_unknown_without_summary_file(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path)
+    (session / "batch_summary.json").unlink()
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    sep_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEP"]
+    sem_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEM"]
+    rel_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-REL"]
+    act_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-ACT"]
+
+    assert {(row["source"], row["status"]) for row in sep_rows} == {
+        ("TraceEvaluationReport.layers.L2_safety_floor", "UNKNOWN"),
+        ("TraceEvaluationReport.layers.L3_dynamic_risk", "UNKNOWN"),
+        ("batch_summary.cpa_ok", "UNKNOWN"),
+        ("batch_summary.domain_gates.risk_gate_ok", "UNKNOWN"),
+    }
+    assert {(row["source"], row["status"]) for row in sem_rows} == {
+        ("TraceEvaluationReport.layers.L4_colregs_compliance", "FAIL"),
+        ("batch_summary.phase_semantics.phase_semantics_ok", "UNKNOWN"),
+        ("batch_summary.compliance_verdict", "UNKNOWN"),
+    }
+    assert {(row["source"], row["status"]) for row in rel_rows} == {
+        ("TraceEvaluationReport.layers.L5_route_recovery", "UNKNOWN"),
+        ("TraceEvaluationReport.layers.L6_seamanship", "UNKNOWN"),
+        ("batch_summary.returned_to_route", "UNKNOWN"),
+        ("batch_summary.route_corridor_ok", "UNKNOWN"),
+        ("batch_summary.domain_gates.seamanship_gate_ok", "UNKNOWN"),
+    }
+    assert {(row["source"], row["status"]) for row in act_rows} == {
+        ("TraceEvaluationReport.layers.L7_stability", "PASS"),
+        ("batch_summary.stability_pass", "UNKNOWN"),
+    }
+
+
 def test_ingest_session_does_not_flag_unknown_plus_pass_as_conflict(tmp_path):
     root_path = tmp_path / "runs" / "trace_eval"
     session = _write_fixture_session(root_path, session_name="20260707_135500_single_colreg-rule14-ho-pass-plus-unknown")
@@ -403,6 +465,8 @@ def test_ingest_session_does_not_flag_unknown_plus_pass_as_conflict(tmp_path):
 
     sep_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEP"]
     assert {(row["source"], row["status"]) for row in sep_rows} == {
+        ("TraceEvaluationReport.layers.L2_safety_floor", "UNKNOWN"),
+        ("TraceEvaluationReport.layers.L3_dynamic_risk", "UNKNOWN"),
         ("batch_summary.cpa_ok", "PASS"),
         ("batch_summary.domain_gates.risk_gate_ok", "UNKNOWN"),
     }

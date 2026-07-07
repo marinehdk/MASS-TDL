@@ -111,9 +111,21 @@ def _gate_rows(
         "L6_seamanship": "G-REL",
         "L7_stability": "G-ACT",
     }
-    for layer_id, payload in (report.get("layers") or {}).items():
+    report_layers = report.get("layers") or {}
+    for layer_id, gate_id in layer_map.items():
+        payload = report_layers.get(layer_id)
+        if payload is None:
+            add(
+                gate_id,
+                "UNKNOWN",
+                "final_run_verdict",
+                20,
+                {"layer_id": layer_id, "missing": True},
+                f"TraceEvaluationReport.layers.{layer_id}",
+            )
+            continue
         add(
-            layer_map.get(layer_id, layer_id),
+            gate_id,
             _source_status(payload),
             "final_run_verdict",
             20,
@@ -121,66 +133,66 @@ def _gate_rows(
             f"TraceEvaluationReport.layers.{layer_id}",
         )
 
-    if batch_row:
-        batch_gate_specs = (
-            (
-                "G-SEP",
-                "batch_summary.cpa_ok",
-                batch_row.get("cpa_ok"),
-                _bool_status,
-            ),
-            (
-                "G-SEP",
-                "batch_summary.domain_gates.risk_gate_ok",
-                (batch_row.get("domain_gates") or {}).get("risk_gate_ok"),
-                _bool_status,
-            ),
-            (
-                "G-SEM",
-                "batch_summary.phase_semantics.phase_semantics_ok",
-                (batch_row.get("phase_semantics") or {}).get("phase_semantics_ok"),
-                _bool_status,
-            ),
-            (
-                "G-SEM",
-                "batch_summary.compliance_verdict",
-                batch_row.get("compliance_verdict"),
-                _compliance_status,
-            ),
-            (
-                "G-ACT",
-                "batch_summary.stability_pass",
-                batch_row.get("stability_pass"),
-                _bool_status,
-            ),
-            (
-                "G-REL",
-                "batch_summary.returned_to_route",
-                batch_row.get("returned_to_route"),
-                _bool_status,
-            ),
-            (
-                "G-REL",
-                "batch_summary.route_corridor_ok",
-                batch_row.get("route_corridor_ok"),
-                _bool_status,
-            ),
-            (
-                "G-REL",
-                "batch_summary.domain_gates.seamanship_gate_ok",
-                (batch_row.get("domain_gates") or {}).get("seamanship_gate_ok"),
-                _bool_status,
-            ),
+    batch_row = batch_row or {}
+    batch_gate_specs = (
+        (
+            "G-SEP",
+            "batch_summary.cpa_ok",
+            batch_row.get("cpa_ok"),
+            _bool_status,
+        ),
+        (
+            "G-SEP",
+            "batch_summary.domain_gates.risk_gate_ok",
+            (batch_row.get("domain_gates") or {}).get("risk_gate_ok"),
+            _bool_status,
+        ),
+        (
+            "G-SEM",
+            "batch_summary.phase_semantics.phase_semantics_ok",
+            (batch_row.get("phase_semantics") or {}).get("phase_semantics_ok"),
+            _bool_status,
+        ),
+        (
+            "G-SEM",
+            "batch_summary.compliance_verdict",
+            batch_row.get("compliance_verdict"),
+            _compliance_status,
+        ),
+        (
+            "G-ACT",
+            "batch_summary.stability_pass",
+            batch_row.get("stability_pass"),
+            _bool_status,
+        ),
+        (
+            "G-REL",
+            "batch_summary.returned_to_route",
+            batch_row.get("returned_to_route"),
+            _bool_status,
+        ),
+        (
+            "G-REL",
+            "batch_summary.route_corridor_ok",
+            batch_row.get("route_corridor_ok"),
+            _bool_status,
+        ),
+        (
+            "G-REL",
+            "batch_summary.domain_gates.seamanship_gate_ok",
+            (batch_row.get("domain_gates") or {}).get("seamanship_gate_ok"),
+            _bool_status,
+        ),
+    )
+    for gate_id, source_field, source_value, status_fn in batch_gate_specs:
+        add(
+            gate_id,
+            status_fn(source_value),
+            "final_run_verdict",
+            10,
+            {"field": source_field, "value": source_value},
+            source_field,
         )
-        for gate_id, source_field, source_value, status_fn in batch_gate_specs:
-            add(
-                gate_id,
-                status_fn(source_value),
-                "final_run_verdict",
-                10,
-                {"field": source_field, "value": source_value},
-                source_field,
-            )
 
     if artifact_consistency:
         add("G-ART", _bool_status(artifact_consistency.get("g_art_ok")), "artifact_consistency", 5, artifact_consistency, "artifact_consistency")
