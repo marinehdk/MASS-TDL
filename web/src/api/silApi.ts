@@ -326,8 +326,12 @@ export interface EvidenceGateResult {
   source: string;
 }
 
+export type EvidenceReplaySession = Omit<EvidenceLibrarySession, 'scenario_ids'> & {
+  scenario_ids?: string[];
+};
+
 export interface EvidenceReplayResponse {
-  session: EvidenceLibrarySession;
+  session: EvidenceReplaySession;
   scenario: {
     scenario_id: string;
     verdict?: string | null;
