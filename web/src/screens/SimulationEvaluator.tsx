@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
+import { skipToken } from '@reduxjs/toolkit/query';
 import {
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useGetLastRunScoringQuery,
   useGetAsdrEventsQuery,
+  useGetEvidenceLibrarySessionsQuery,
+  useRescanEvidenceLibraryMutation,
+  useGetEvidenceReplayQuery,
+  useGetDecisionFrameQuery,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
 import { TimelineSixLane } from './shared/TimelineSixLane';
@@ -19,6 +24,10 @@ interface KpiCardProps {
   unit: string;
 }
 
+interface SimulationEvaluatorProps {
+  evidenceId?: string;
+}
+
 function KpiCard({ label, value, unit }: KpiCardProps) {
   return (
     <div style={{
@@ -32,20 +41,31 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
   );
 }
 
-export function SimulationEvaluator() {
+export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
   const storeRunId = useScenarioStore((s) => s.runId);
+  const storeEvidenceId = useScenarioStore((s) => s.evidenceId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
   const { data: asdrData } = useGetAsdrEventsQuery();
+  const { data: evidenceLibrary, refetch: refetchEvidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
+  const [rescanEvidenceLibrary, { isLoading: isRescanning }] = useRescanEvidenceLibraryMutation();
   const reportEvents = asdrData?.events ?? [];
   const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
+  const activeEvidenceId = evidenceId ?? storeEvidenceId ?? null;
+  const replayScenarioId = scoring?.scenario_id || scenarioId || 'colreg-rule14-ho';
   const [exportMarzip, { isLoading }] = useExportMarzipMutation();
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportRequested, setExportRequested] = useState(false);
   const [verdict, setVerdict] = useState<'PASS' | 'FAIL' | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
+  const { data: replay } = useGetEvidenceReplayQuery(
+    activeEvidenceId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId } : skipToken,
+  );
+  const { data: decisionFrame } = useGetDecisionFrameQuery(
+    activeEvidenceId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId, simT: currentTimeSec } : skipToken,
+  );
   const { data: exportStatus } = useGetExportStatusQuery(runId, {
     skip: !exportRequested || !!exportUrl,
     pollingInterval: 1500,
@@ -82,6 +102,10 @@ export function SimulationEvaluator() {
   }, [exportStatus, exportUrl]);
 
   const handleVerdict = (v: 'PASS' | 'FAIL') => setVerdict(v);
+  const handleRescanEvidenceLibrary = async () => {
+    await rescanEvidenceLibrary({ force: false }).unwrap();
+    await refetchEvidenceLibrary();
+  };
   const handleNewRun = () => {
     // Reset client state so next run starts clean — Preflight will also call
     // POST /lifecycle/cleanup to bring backend FSM back to UNCONFIGURED
@@ -170,8 +194,73 @@ export function SimulationEvaluator() {
           minWidth: 0,
         }}>
           <div className="glass-panel" style={{ flex: 1, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 8px',
+              borderBottom: '1px solid var(--line-1)',
+            }}>
+              <span style={{
+                fontFamily: 'var(--f-disp)',
+                fontSize: 9,
+                color: 'var(--txt-3)',
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+              }}>
+                {activeEvidenceId ? 'Replay Detail' : 'Evidence Library'}
+              </span>
+              {!activeEvidenceId && (
+                <button
+                  onClick={handleRescanEvidenceLibrary}
+                  disabled={isRescanning}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--line-2)',
+                    color: 'var(--txt-2)',
+                    padding: '2px 8px',
+                    cursor: isRescanning ? 'wait' : 'pointer',
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 9,
+                  }}
+                >
+                  {isRescanning ? 'RESCANNING' : 'RESCAN'}
+                </button>
+              )}
+            </div>
+            {!activeEvidenceId ? (
+              <div style={{
+                padding: '6px 8px',
+                borderBottom: '1px solid var(--line-1)',
+                fontFamily: 'var(--f-mono)',
+                fontSize: 10,
+                color: 'var(--txt-2)',
+              }}>
+                {evidenceLibrary?.sessions?.length ? `${evidenceLibrary.sessions.length} sessions indexed` : 'No evidence sessions indexed yet'}
+              </div>
+            ) : (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                padding: '6px 8px',
+                borderBottom: '1px solid var(--line-1)',
+                fontFamily: 'var(--f-mono)',
+                fontSize: 10,
+                color: 'var(--txt-2)',
+              }}>
+                <span>{replay?.scenario?.scenario_id ?? activeEvidenceId}</span>
+                {decisionFrame && (
+                  <span>
+                    T+{decisionFrame.sim_t.toFixed(1)} s
+                  </span>
+                )}
+              </div>
+            )}
             <TrajectoryReplay
-              durationSec={600}
+              durationSec={activeEvidenceId ? replay?.duration_s ?? 600 : 600}
               currentTimeSec={currentTimeSec}
               onTimeChange={setCurrentTimeSec}
             />
