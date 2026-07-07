@@ -18,6 +18,7 @@ def _write_fixture_session(
     root: Path,
     session_name: str = "20260707_132000_single_colreg-rule14-ho",
     world_state_rows: list[dict[str, Any]] | None = None,
+    batch_rows: list[dict[str, Any]] | None = None,
 ) -> Path:
     session = root / session_name
     session.mkdir(parents=True)
@@ -77,7 +78,8 @@ def _write_fixture_session(
     }
     (session / "colreg-rule14-ho.json").write_text(json.dumps(report))
     batch = {
-        "results": [
+        "results": batch_rows
+        or [
             {
                 "scenario": "colreg-rule14-ho",
                 "overall_pass": False,
@@ -140,9 +142,10 @@ def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     assert replay["duration_s"] == 5.0
     assert replay["trajectory"][0]["vessel_id"] == "OWN"
     assert replay["events"][0]["event_type"] in {"PLAN_READY", "GATE_RESULT"}
-    gates = {gate["gate_id"]: gate["status"] for gate in replay["gates"]}
-    assert gates["G-SEM"] == "FAIL"
-    assert gates["G-ART"] == "PASS"
+    gates = {(gate["gate_id"], gate["source"]): gate["status"] for gate in replay["gates"]}
+    assert gates[("G-SEM", "batch_summary.phase_semantics.phase_semantics_ok")] == "FAIL"
+    assert gates[("G-SEM", "batch_summary.compliance_verdict")] == "FAIL"
+    assert gates[("G-ART", "artifact_consistency")] == "PASS"
 
 
 def test_decision_frame_returns_time_aligned_module_facts(tmp_path):
@@ -154,10 +157,41 @@ def test_decision_frame_returns_time_aligned_module_facts(tmp_path):
 
     frame = query_decision_frame(conn, result.evidence_id, "colreg-rule14-ho", 3.5)
 
-    assert frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
-    assert frame["chain"]["M6"]["facts"]["rule"] == "Rule14"
-    assert frame["chain"]["M5"]["facts"]["solver_status"] == "VALID"
-    assert frame["chain"]["L4"]["facts"] == {}
+    assert frame["chain"]["M2"]["facts"] == {
+        "primary_target_id": "T02",
+        "cpa_m": 430.0,
+        "tcpa_s": 117.0,
+        "confidence": 0.85,
+    }
+    assert frame["chain"]["M6"]["facts"] == {
+        "rule": "Rule14",
+        "role": "give_way",
+        "preferred_direction": "starboard",
+        "phase": "active",
+        "release_predicted": False,
+    }
+    assert frame["chain"]["M5"]["facts"] == {
+        "solver_status": "VALID",
+        "plan_status": "NORMAL",
+        "route_hash": "abc",
+        "waypoint_count": 4,
+    }
+    assert frame["chain"]["L4"]["facts"] == {
+        "execution_state": "UNKNOWN",
+        "accepted": "UNKNOWN",
+        "rejected": "UNKNOWN",
+        "degraded": "UNKNOWN",
+        "reason": "UNKNOWN",
+    }
+    assert frame["chain"]["M4"]["facts"] == {
+        "behavior": "UNKNOWN",
+        "avoidance_active": "UNKNOWN",
+    }
+    assert frame["chain"]["M7"]["facts"] == {
+        "alert_type": "UNKNOWN",
+        "severity": "UNKNOWN",
+        "recommended_mrm": "UNKNOWN",
+    }
     assert frame["gates"][0]["temporal_scope"] in {"final_run_verdict", "artifact_consistency"}
 
 
@@ -174,6 +208,55 @@ def test_decision_frame_prefers_latest_segment_at_transition_and_final_end(tmp_p
     assert transition_frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
     assert final_frame["chain"]["M5"]["facts"]["solver_status"] == "VALID"
     assert final_frame["chain"]["M2"]["facts"]["primary_target_id"] == "T02"
+
+
+def test_ingest_session_preserves_conflicting_batch_gate_sources(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(
+        root_path,
+        session_name="20260707_134000_single_colreg-rule14-ho-conflict",
+        batch_rows=[
+            {
+                "scenario": "colreg-rule14-ho",
+                "overall_pass": False,
+                "cpa_ok": False,
+                "stability_pass": True,
+                "returned_to_route": False,
+                "route_corridor_ok": True,
+                "compliance_verdict": "PASS",
+                "phase_semantics": {"phase_semantics_ok": False},
+                "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": False},
+            }
+        ],
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+
+    sep_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEP"]
+    sem_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-SEM"]
+    rel_rows = [gate for gate in replay["gates"] if gate["gate_id"] == "G-REL"]
+
+    assert {(row["source"], row["status"]) for row in sep_rows} == {
+        ("batch_summary.cpa_ok", "FAIL"),
+        ("batch_summary.domain_gates.risk_gate_ok", "PASS"),
+    }
+    assert {(row["source"], row["status"]) for row in sem_rows} == {
+        ("TraceEvaluationReport.layers.L4_colregs_compliance", "FAIL"),
+        ("batch_summary.phase_semantics.phase_semantics_ok", "FAIL"),
+        ("batch_summary.compliance_verdict", "PASS"),
+    }
+    assert {(row["source"], row["status"]) for row in rel_rows} == {
+        ("batch_summary.returned_to_route", "FAIL"),
+        ("batch_summary.route_corridor_ok", "PASS"),
+        ("batch_summary.domain_gates.seamanship_gate_ok", "FAIL"),
+    }
+    assert all(row["conflict_group"] for row in sep_rows + sem_rows + rel_rows)
+    conflict_events = [event for event in replay["events"] if event["event_type"] == "gate_conflict"]
+    assert {event["module"] for event in conflict_events} == {"GATE"}
+    assert {json.loads(event["payload_json"])["gate_id"] for event in conflict_events} == {"G-SEP", "G-SEM", "G-REL"}
 
 
 def test_trajectory_rows_use_unknown_when_target_identity_missing(tmp_path):

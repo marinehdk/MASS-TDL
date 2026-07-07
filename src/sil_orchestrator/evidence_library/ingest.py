@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -59,6 +60,14 @@ def _source_status(payload: dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
+def _compliance_status(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        if normalized in {"PASS", "FAIL"}:
+            return normalized
+    return "UNKNOWN"
+
+
 def _scenario_from_batch(batch: dict[str, Any], scenario_id: str) -> dict[str, Any]:
     rows = batch.get("results") or batch.get("scenarios") or []
     for row in rows:
@@ -74,23 +83,23 @@ def _gate_rows(
     report: dict[str, Any],
     batch_row: dict[str, Any],
     artifact_consistency: dict[str, Any],
-) -> list[tuple[Any, ...]]:
-    rows: list[tuple[Any, ...]] = []
+) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+    rows: list[dict[str, Any]] = []
 
     def add(gate_id: str, status: str, temporal_scope: str, rank: int, payload: dict[str, Any], source: str) -> None:
         rows.append(
-            (
-                evidence_id,
-                session_id,
-                scenario_id,
-                gate_id,
-                status,
-                temporal_scope,
-                rank,
-                None,
-                json.dumps(payload, sort_keys=True),
-                source,
-            )
+            {
+                "evidence_id": evidence_id,
+                "session_id": session_id,
+                "scenario_id": scenario_id,
+                "gate_id": gate_id,
+                "status": status,
+                "temporal_scope": temporal_scope,
+                "precedence_rank": rank,
+                "conflict_group": None,
+                "payload_json": json.dumps(payload, sort_keys=True),
+                "source": source,
+            }
         )
 
     layer_map = {
@@ -103,21 +112,108 @@ def _gate_rows(
         "L7_stability": "G-ACT",
     }
     for layer_id, payload in (report.get("layers") or {}).items():
-        add(layer_map.get(layer_id, layer_id), _source_status(payload), "final_run_verdict", 20, payload, "TraceEvaluationReport")
+        add(
+            layer_map.get(layer_id, layer_id),
+            _source_status(payload),
+            "final_run_verdict",
+            20,
+            payload,
+            f"TraceEvaluationReport.layers.{layer_id}",
+        )
 
     if batch_row:
-        add("G-SEP", _bool_status(batch_row.get("cpa_ok")), "final_run_verdict", 10, batch_row, "batch_summary")
         phase = batch_row.get("phase_semantics") or {}
-        add("G-SEM", _bool_status(phase.get("phase_semantics_ok")), "final_run_verdict", 10, batch_row, "batch_summary")
-        add("G-ACT", _bool_status(batch_row.get("stability_pass")), "final_run_verdict", 10, batch_row, "batch_summary")
-        seamanship = (batch_row.get("domain_gates") or {}).get("seamanship_gate_ok")
-        add("G-REL", _bool_status(seamanship if seamanship is not None else batch_row.get("returned_to_route")), "final_run_verdict", 10, batch_row, "batch_summary")
+        domain_gates = batch_row.get("domain_gates") or {}
+        if "cpa_ok" in batch_row:
+            add("G-SEP", _bool_status(batch_row.get("cpa_ok")), "final_run_verdict", 10, batch_row, "batch_summary.cpa_ok")
+        if "risk_gate_ok" in domain_gates:
+            add(
+                "G-SEP",
+                _bool_status(domain_gates.get("risk_gate_ok")),
+                "final_run_verdict",
+                10,
+                batch_row,
+                "batch_summary.domain_gates.risk_gate_ok",
+            )
+        if "phase_semantics_ok" in phase:
+            add(
+                "G-SEM",
+                _bool_status(phase.get("phase_semantics_ok")),
+                "final_run_verdict",
+                10,
+                batch_row,
+                "batch_summary.phase_semantics.phase_semantics_ok",
+            )
+        if "compliance_verdict" in batch_row:
+            add(
+                "G-SEM",
+                _compliance_status(batch_row.get("compliance_verdict")),
+                "final_run_verdict",
+                10,
+                batch_row,
+                "batch_summary.compliance_verdict",
+            )
+        if "stability_pass" in batch_row:
+            add("G-ACT", _bool_status(batch_row.get("stability_pass")), "final_run_verdict", 10, batch_row, "batch_summary.stability_pass")
+        if "returned_to_route" in batch_row:
+            add("G-REL", _bool_status(batch_row.get("returned_to_route")), "final_run_verdict", 10, batch_row, "batch_summary.returned_to_route")
+        if "route_corridor_ok" in batch_row:
+            add("G-REL", _bool_status(batch_row.get("route_corridor_ok")), "final_run_verdict", 10, batch_row, "batch_summary.route_corridor_ok")
+        if "seamanship_gate_ok" in domain_gates:
+            add(
+                "G-REL",
+                _bool_status(domain_gates.get("seamanship_gate_ok")),
+                "final_run_verdict",
+                10,
+                batch_row,
+                "batch_summary.domain_gates.seamanship_gate_ok",
+            )
 
     if artifact_consistency:
         add("G-ART", _bool_status(artifact_consistency.get("g_art_ok")), "artifact_consistency", 5, artifact_consistency, "artifact_consistency")
     else:
         add("G-ART", "UNKNOWN", "artifact_consistency", 5, {}, "artifact_consistency")
-    return rows
+
+    conflict_events: list[tuple[Any, ...]] = []
+    by_gate: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_gate[row["gate_id"]].append(row)
+
+    for gate_id, gate_rows in by_gate.items():
+        statuses = {row["status"] for row in gate_rows}
+        if len(statuses) > 1:
+            conflict_group = f"{scenario_id}:{gate_id}:conflict"
+            for row in gate_rows:
+                row["conflict_group"] = conflict_group
+            conflict_events.append(
+                (
+                    evidence_id,
+                    session_id,
+                    scenario_id,
+                    0.0,
+                    None,
+                    "GATE",
+                    "gate_conflict",
+                    "warn",
+                    json.dumps(
+                        {
+                            "gate_id": gate_id,
+                            "conflict_group": conflict_group,
+                            "sources": [
+                                {
+                                    "source": row["source"],
+                                    "status": row["status"],
+                                }
+                                for row in gate_rows
+                            ],
+                        },
+                        sort_keys=True,
+                    ),
+                    "gate_conflict",
+                )
+            )
+
+    return [tuple(row[key] for key in ("evidence_id", "session_id", "scenario_id", "gate_id", "status", "temporal_scope", "precedence_rank", "conflict_group", "payload_json", "source")) for row in rows], conflict_events
 
 
 def _insert_artifact(conn: sqlite3.Connection, evidence_id: str, session_id: str, scenario_id: str | None, kind: str, session_path: Path, path: Path) -> None:
@@ -303,12 +399,18 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
                 conn.executemany("insert into state_segments values (?, ?, ?, ?, ?, ?, ?, ?, ?)", states)
                 trajectory_count += len(trajectory)
                 event_count += len(events)
-            gates = _gate_rows(evidence_id, session_id, scenario_id, report, batch_row, art)
+            gates, gate_conflicts = _gate_rows(evidence_id, session_id, scenario_id, report, batch_row, art)
             conn.executemany("insert into gate_results values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", gates)
             for gate in gates:
                 conn.execute(
                     "insert into events(evidence_id, session_id, scenario_id, sim_t, wall_t, module, event_type, severity, payload_json, source_topic) values (?, ?, ?, 0, null, 'GATE', 'GATE_RESULT', ?, ?, ?)",
                     (evidence_id, session_id, scenario_id, "crit" if gate[4] == "FAIL" else "info", gate[8], gate[9]),
+                )
+                event_count += 1
+            for conflict_event in gate_conflicts:
+                conn.execute(
+                    "insert into events(evidence_id, session_id, scenario_id, sim_t, wall_t, module, event_type, severity, payload_json, source_topic) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    conflict_event,
                 )
                 event_count += 1
     return IngestResult(evidence_id=evidence_id, session_id=session_id, scenario_count=len(scenarios), trajectory_count=trajectory_count, event_count=event_count)
@@ -343,8 +445,22 @@ def query_replay(conn: sqlite3.Connection, evidence_id: str, scenario_id: str) -
 
 
 def query_decision_frame(conn: sqlite3.Connection, evidence_id: str, scenario_id: str, sim_t: float) -> dict[str, Any]:
-    modules = ["M2", "M6", "M4", "M5", "L4", "M7"]
-    chain = {module: {"status": "UNKNOWN", "status_source": "diagnostic_availability", "facts": {}} for module in modules}
+    expected_fields = {
+        "M2": ("primary_target_id", "cpa_m", "tcpa_s", "confidence"),
+        "M6": ("rule", "role", "preferred_direction", "phase", "release_predicted"),
+        "M4": ("behavior", "avoidance_active"),
+        "M5": ("solver_status", "plan_status", "route_hash", "waypoint_count"),
+        "L4": ("execution_state", "accepted", "rejected", "degraded", "reason"),
+        "M7": ("alert_type", "severity", "recommended_mrm"),
+    }
+    chain = {
+        module: {
+            "status": "UNKNOWN",
+            "status_source": "diagnostic_availability",
+            "facts": {field: "UNKNOWN" for field in fields},
+        }
+        for module, fields in expected_fields.items()
+    }
     rows = _rows(
         conn,
         """
@@ -374,7 +490,10 @@ def query_decision_frame(conn: sqlite3.Connection, evidence_id: str, scenario_id
     for row in rows:
         module = row["module"]
         if module in chain:
-            chain[module]["facts"][row["field"]] = json.loads(row["value_json"])
+            facts = chain[module]["facts"]
+            if row["field"] not in facts:
+                facts[row["field"]] = "UNKNOWN"
+            facts[row["field"]] = json.loads(row["value_json"])
             chain[module]["status"] = "OK"
     gates = _rows(conn, "select gate_id, status, temporal_scope, payload_json, source from gate_results where evidence_id = ? and scenario_id = ? order by precedence_rank, gate_id", (evidence_id, scenario_id))
     nearby = _rows(conn, "select * from events where evidence_id = ? and scenario_id = ? and sim_t between ? and ? order by sim_t", (evidence_id, scenario_id, sim_t - 5.0, sim_t + 5.0))
