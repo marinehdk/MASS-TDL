@@ -326,8 +326,8 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
             "M2",
             {
                 "primary_target_id": lambda row: _first_present(row, "primary_target_id", "target_id", "colregs_chain_target_id"),
-                "cpa_m": lambda row: _first_present(row, "cpa_m"),
-                "tcpa_s": lambda row: _first_present(row, "tcpa_s"),
+                "cpa_m": lambda row: _first_present(row, "cpa_m", "primary_cpa_m"),
+                "tcpa_s": lambda row: _first_present(row, "tcpa_s", "primary_tcpa_s"),
                 "confidence": lambda row: _first_present(row, "confidence"),
             },
         ),
@@ -401,6 +401,8 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
         final_t = max(final_t, sim_t)
         if topic == "/sil/own_ship_state":
             trajectory.append((evidence_id, session_id, scenario_id, "OWN", "ownship", sim_t, wall_t, row.get("lat"), row.get("lon"), row.get("heading_deg"), row.get("sog_kn"), row.get("rot_deg_s"), topic, seq))
+        if topic == "/l3/m2/world_state" and ("own_lat" in row or "own_lon" in row):
+            trajectory.append((evidence_id, session_id, scenario_id, "OWN", "ownship", sim_t, wall_t, row.get("own_lat"), row.get("own_lon"), row.get("own_heading_deg"), row.get("own_sog_kn"), None, topic, seq))
         mapped_snapshot = expected_state_fields.get(topic)
         if mapped_snapshot is not None:
             module, fields = mapped_snapshot

@@ -58,8 +58,11 @@ function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
   const resolvedEvidenceId = session?.evidence_id ?? evidenceId;
   const scenarioId = session?.scenario_ids?.[0];
 
-  if (isLoading || !scenarioId) {
+  if (isLoading) {
     return <div style={{ padding: 16 }}>Loading replay metadata</div>;
+  }
+  if (!scenarioId) {
+    return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
   }
 
   return <ReplayDetailView evidenceId={resolvedEvidenceId} scenarioId={scenarioId} />;

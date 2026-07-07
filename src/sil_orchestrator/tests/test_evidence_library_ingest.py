@@ -33,8 +33,8 @@ def _write_fixture_session(
             "target_id": "T01",
             "target_lat": 0.01,
             "target_lon": 0.0,
-            "cpa_m": 450.0,
-            "tcpa_s": 127.0,
+            "primary_cpa_m": 450.0,
+            "primary_tcpa_s": 127.0,
             "confidence": 0.9,
         },
         {
@@ -42,10 +42,12 @@ def _write_fixture_session(
             "wall_t": 11.5,
             "topic": "/l3/m2/world_state",
             "primary_target_id": "T02",
-            "target_lat": 0.015,
-            "target_lon": 0.0,
-            "cpa_m": 430.0,
-            "tcpa_s": 117.0,
+            "own_lat": 0.015,
+            "own_lon": 0.0,
+            "own_heading_deg": 10.0,
+            "own_sog_kn": 8.0,
+            "primary_cpa_m": 430.0,
+            "primary_tcpa_s": 117.0,
             "confidence": 0.85,
         },
     ]
@@ -160,6 +162,7 @@ def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     assert replay["scenario"]["overall_pass"] is False
     assert replay["duration_s"] == 5.0
     assert replay["trajectory"][0]["vessel_id"] == "OWN"
+    assert any(row["source_topic"] == "/l3/m2/world_state" and row["vessel_role"] == "ownship" for row in replay["trajectory"])
     assert replay["events"][0]["event_type"] in {"PLAN_READY", "GATE_RESULT"}
     gates = {(gate["gate_id"], gate["source"]): gate["status"] for gate in replay["gates"]}
     assert gates[("G-SEM", "batch_summary.phase_semantics.phase_semantics_ok")] == "FAIL"

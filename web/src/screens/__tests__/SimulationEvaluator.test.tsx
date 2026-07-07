@@ -164,6 +164,15 @@ describe('SimulationEvaluator', () => {
     expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
   });
 
+  it('falls back to evidence library when latest has no indexed session', () => {
+    render(<SimulationEvaluator evidenceId="latest" />);
+
+    expect(screen.getByText('Evidence Library')).toBeInTheDocument();
+    expect(apiMocks.getEvidenceReplay).not.toHaveBeenCalledWith(
+      expect.objectContaining({ evidenceId: 'latest' }),
+    );
+  });
+
   it('resolves replay scenario from indexed evidence session metadata', () => {
     apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario('indexed-scenario'));
 
