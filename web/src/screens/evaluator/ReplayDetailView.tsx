@@ -6,6 +6,7 @@ import {
 } from '../../api/silApi';
 import { TimelineSixLane, type TimelineEvent } from '../shared/TimelineSixLane';
 import { TrajectoryReplay } from '../shared/TrajectoryReplay';
+import { ChainInspector } from './ChainInspector';
 
 interface ReplayDetailViewProps {
   evidenceId: string;
@@ -23,6 +24,7 @@ const toTimelineEvent = (event: EvidenceReplayEvent): TimelineEvent => ({
 export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewProps) {
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
+  const [inspectorTimeSec, setInspectorTimeSec] = useState<number | null>(null);
   const { data, isLoading } = useGetEvidenceReplayQuery({ evidenceId, scenarioId });
   const { data: decisionFrame } = useGetDecisionFrameQuery({ evidenceId, scenarioId, simT: currentTimeSec });
   const timelineEvents = useMemo(() => (data?.events ?? []).map(toTimelineEvent), [data?.events]);
@@ -41,6 +43,7 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
       padding: 16,
       background: 'var(--bg-0)',
       color: 'var(--txt-1)',
+      position: 'relative',
     }}>
       <main style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{
@@ -68,17 +71,20 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
             durationSec={durationSec}
             currentTimeSec={currentTimeSec}
             onScrub={setCurrentTimeSec}
-            onEventSelect={setSelectedEvent}
+            onEventSelect={(event) => {
+              setSelectedEvent(event);
+              setInspectorTimeSec(event.t);
+            }}
           />
         </div>
       </main>
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
         <section style={{ border: '1px solid var(--line-2)', background: 'var(--bg-1)', padding: 10 }}>
           <div style={{ fontFamily: 'var(--f-disp)', fontSize: 10, color: 'var(--txt-3)', textTransform: 'uppercase' }}>
-            Decision Frame
+            Chain Inspector
           </div>
           <div style={{ fontFamily: 'var(--f-mono)', fontSize: 12, marginTop: 6 }}>
-            {decisionFrame ? `T+${decisionFrame.sim_t.toFixed(1)} s` : 'No frame'}
+            {decisionFrame ? `T+${decisionFrame.sim_t.toFixed(1)} s` : 'Select a gate or timeline event'}
           </div>
         </section>
         {selectedEvent && (
@@ -95,6 +101,7 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
           <button
             key={`${gate.gate_id}-${gate.source}`}
             type="button"
+            onClick={() => setInspectorTimeSec(currentTimeSec)}
             style={{
               textAlign: 'left',
               border: '1px solid var(--line-2)',
@@ -108,6 +115,14 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
           </button>
         ))}
       </aside>
+      {inspectorTimeSec != null && (
+        <ChainInspector
+          evidenceId={evidenceId}
+          scenarioId={scenarioId}
+          simT={inspectorTimeSec}
+          onClose={() => setInspectorTimeSec(null)}
+        />
+      )}
     </div>
   );
 }
