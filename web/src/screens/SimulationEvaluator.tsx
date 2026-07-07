@@ -44,7 +44,6 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
 export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
   const storeRunId = useScenarioStore((s) => s.runId);
-  const storeEvidenceId = useScenarioStore((s) => s.evidenceId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
   const { data: asdrData } = useGetAsdrEventsQuery();
   const { data: evidenceLibrary, refetch: refetchEvidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
@@ -52,8 +51,11 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
   const reportEvents = asdrData?.events ?? [];
   const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
-  const activeEvidenceId = evidenceId ?? storeEvidenceId ?? null;
-  const replayScenarioId = scoring?.scenario_id || scenarioId || 'colreg-rule14-ho';
+  const activeEvidenceId = evidenceId ?? null;
+  const indexedEvidenceSession = activeEvidenceId
+    ? evidenceLibrary?.sessions?.find((session) => session.evidence_id === activeEvidenceId)
+    : undefined;
+  const replayScenarioId = indexedEvidenceSession?.scenario_ids?.[0] ?? null;
   const [exportMarzip, { isLoading }] = useExportMarzipMutation();
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
@@ -61,10 +63,10 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
   const [verdict, setVerdict] = useState<'PASS' | 'FAIL' | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const { data: replay } = useGetEvidenceReplayQuery(
-    activeEvidenceId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId } : skipToken,
+    activeEvidenceId && replayScenarioId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId } : skipToken,
   );
   const { data: decisionFrame } = useGetDecisionFrameQuery(
-    activeEvidenceId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId, simT: currentTimeSec } : skipToken,
+    activeEvidenceId && replayScenarioId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId, simT: currentTimeSec } : skipToken,
   );
   const { data: exportStatus } = useGetExportStatusQuery(runId, {
     skip: !exportRequested || !!exportUrl,

@@ -140,7 +140,16 @@ def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[
             "select * from sessions order by coalesce(created_at, ended_at, session_id) desc limit ?",
             (max(1, min(limit, 500)),),
         ).fetchall()
-        return [dict(row) for row in rows]
+        sessions = []
+        for row in rows:
+            session = dict(row)
+            scenario_rows = conn.execute(
+                "select scenario_id from scenarios where evidence_id = ? order by scenario_id",
+                (session["evidence_id"],),
+            ).fetchall()
+            session["scenario_ids"] = [scenario["scenario_id"] for scenario in scenario_rows]
+            sessions.append(session)
+        return sessions
 
 
 def get_replay(evidence_id: str, scenario_id: str, repo_root: Path | None = None) -> dict[str, Any]:

@@ -52,7 +52,9 @@ async def test_rescan_sessions_replay_and_decision_frame(tmp_path, monkeypatch):
 
         listed = await client.get("/api/v1/evidence-library/sessions")
         assert listed.status_code == 200
-        evidence_id = listed.json()["sessions"][0]["evidence_id"]
+        session = listed.json()["sessions"][0]
+        assert session["scenario_ids"] == ["colreg-rule14-ho"]
+        evidence_id = session["evidence_id"]
 
         replay = await client.get(f"/api/v1/evidence-library/sessions/{evidence_id}/scenarios/colreg-rule14-ho/replay")
         assert replay.status_code == 200

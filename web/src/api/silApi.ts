@@ -284,6 +284,7 @@ export interface EvidenceLibrarySession {
   status?: string | null;
   valid_data: number | boolean;
   scenario_count: number;
+  scenario_ids: string[];
   ingest_status: string;
   ingest_error?: string | null;
 }
