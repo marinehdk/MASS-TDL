@@ -35,6 +35,26 @@ def _session(root: Path) -> Path:
 
 
 @pytest.mark.asyncio
+async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    root = repo / "runs" / "trace_eval"
+    _session(root)
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        second = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert first.status_code == 200
+        assert second.status_code == 200
+        listed = await client.get("/api/v1/evidence-library/sessions")
+        assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_rescan_sessions_replay_and_decision_frame(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     root = repo / "runs" / "trace_eval"
