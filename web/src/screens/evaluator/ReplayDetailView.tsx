@@ -37,11 +37,13 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
       height: '100%',
       display: 'grid',
       gridTemplateColumns: 'minmax(0, 1fr) 360px',
+      gridTemplateRows: 'minmax(0, 1fr)',
       gap: 12,
       padding: 16,
       background: 'var(--bg-0)',
       color: 'var(--txt-1)',
       position: 'relative',
+      boxSizing: 'border-box',
     }}>
       <main style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{
