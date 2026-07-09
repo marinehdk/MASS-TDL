@@ -9,7 +9,7 @@ interface EvidenceLibraryViewProps {
   onOpen: (evidenceId: string) => void;
 }
 
-type SortKey = 'id' | 'time' | 'name' | 'suite' | 'mode' | 'scenario' | 'source' | 'worktree' | 'status';
+type SortKey = 'id' | 'time' | 'result' | 'suite' | 'mode' | 'scenario' | 'source' | 'worktree';
 type SortDirection = 'asc' | 'desc';
 type RefreshIntervalSeconds = 600 | 3600 | 86400;
 
@@ -18,20 +18,13 @@ interface SessionRow {
   id: string;
   time: string;
   timeValue: number;
-  name: string;
+  result: string;
   suite: string;
   mode: string;
   scenario: string;
   source: string;
   worktree: string;
-  status: string;
 }
-
-const statusColor = (status?: string | null) => {
-  if (status === 'OK') return 'var(--c-stbd)';
-  if (status === 'NO') return 'var(--c-danger)';
-  return 'var(--txt-3)';
-};
 
 const compactId = (value: string) => (value.length > 12 ? `${value.slice(0, 8)}...` : value);
 
@@ -85,20 +78,27 @@ const displayWorktree = (session: EvidenceLibrarySession) => {
 const canOpen = (session: EvidenceLibrarySession) =>
   session.ingest_status === 'ok' && Boolean(session.valid_data) && scenarioCount(session) > 0;
 
-const displayStatus = (session: EvidenceLibrarySession) => (canOpen(session) ? 'OK' : 'NO');
+const displayResult = (session: EvidenceLibrarySession) => {
+  const count = scenarioCount(session);
+  const passed = session.passed_scenarios ?? 0;
+  const failed = session.failed_scenarios ?? 0;
+  if (count > 1) return `${passed}/${count} 通过`;
+  if (passed > 0) return '通过';
+  if (failed > 0) return '不通过';
+  return '-';
+};
 
 const toRow = (session: EvidenceLibrarySession): SessionRow => ({
   raw: session,
   id: session.evidence_id,
   time: displayRunTime(session.created_at),
   timeValue: session.created_at ? Date.parse(session.created_at) || 0 : 0,
-  name: displayName(session),
+  result: displayResult(session),
   suite: displaySuite(session),
   mode: displayMode(session),
   scenario: displayScenario(session),
   source: displaySource(session),
   worktree: displayWorktree(session),
-  status: displayStatus(session),
 });
 
 const compareRows = (a: SessionRow, b: SessionRow, key: SortKey) => {
@@ -140,6 +140,13 @@ const filterStyle = {
   height: 22,
 } as const;
 
+const refreshControlStyle = {
+  ...filterStyle,
+  height: 26,
+  borderRadius: 4,
+  boxSizing: 'border-box',
+} as const;
+
 const formatCountdown = (seconds: number) => {
   const clamped = Math.max(0, seconds);
   const hours = Math.floor(clamped / 3600);
@@ -157,8 +164,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [pageSize, setPageSize] = useState<20 | 50>(20);
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
-  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(600);
-  const [countdownSeconds, setCountdownSeconds] = useState(600);
+  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(86400);
+  const [countdownSeconds, setCountdownSeconds] = useState(86400);
+  const [overviewSession, setOverviewSession] = useState<EvidenceLibrarySession | null>(null);
+  const [overviewIndex, setOverviewIndex] = useState(0);
+  const [overviewScale, setOverviewScale] = useState(1);
+  const [overviewOffset, setOverviewOffset] = useState({ x: 0, y: 0 });
+  const [overviewDrag, setOverviewDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
@@ -174,6 +186,36 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const visibleRows = sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const overviewPngs = overviewSession
+    ? overviewSession.overview_pngs?.length
+      ? overviewSession.overview_pngs
+      : overviewSession.overview_png
+        ? [overviewSession.overview_png]
+        : []
+    : [];
+  const currentOverview = overviewPngs[Math.min(overviewIndex, Math.max(overviewPngs.length - 1, 0))];
+
+  const resetOverviewView = () => {
+    setOverviewScale(1);
+    setOverviewOffset({ x: 0, y: 0 });
+    setOverviewDrag(null);
+  };
+
+  const closeOverview = () => {
+    setOverviewSession(null);
+    setOverviewIndex(0);
+    resetOverviewView();
+  };
+
+  const changeOverviewImage = (delta: number) => {
+    if (overviewPngs.length <= 1) return;
+    setOverviewIndex((current) => (current + delta + overviewPngs.length) % overviewPngs.length);
+    resetOverviewView();
+  };
+
+  const zoomOverview = (delta: number) => {
+    setOverviewScale((current) => Math.max(0.5, Math.min(4, Number((current + delta).toFixed(2)))));
+  };
 
   const handleRescan = useCallback(async () => {
     await rescan({ force: false });
@@ -296,16 +338,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 color: 'var(--txt-3)',
                 fontSize: 12,
               }}>
-                <select
-                  value={autoRefreshSeconds}
-                  onChange={(event) => setAutoRefreshSeconds(Number(event.target.value) as RefreshIntervalSeconds)}
-                  style={{ ...filterStyle, width: 86 }}
-                  aria-label="自动刷新间隔"
-                >
-                  <option value={600}>10min</option>
-                  <option value={3600}>60min</option>
-                  <option value={86400}>24h</option>
-                </select>
                 <button
                   onClick={handleRescan}
                   disabled={rescanState.isLoading}
@@ -313,13 +345,35 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     border: '1px solid var(--c-phos)',
                     color: 'var(--c-phos)',
                     background: 'rgba(69, 211, 207, 0.06)',
-                    padding: '6px 16px',
+                    height: 26,
+                    minWidth: 60,
+                    padding: '0 14px',
+                    borderRadius: 4,
+                    whiteSpace: 'nowrap',
+                    lineHeight: '24px',
                     cursor: rescanState.isLoading ? 'wait' : 'pointer',
                   }}
                 >
                   {rescanState.isLoading ? '刷新中' : '刷新'}
                 </button>
-                <span style={{ fontSize: 10, minWidth: 74, textAlign: 'right' }}>
+                <select
+                  value={autoRefreshSeconds}
+                  onChange={(event) => setAutoRefreshSeconds(Number(event.target.value) as RefreshIntervalSeconds)}
+                  style={{ ...refreshControlStyle, width: 86 }}
+                  aria-label="自动刷新间隔"
+                >
+                  <option value={600}>10min</option>
+                  <option value={3600}>60min</option>
+                  <option value={86400}>24h</option>
+                </select>
+                <span style={{
+                  ...refreshControlStyle,
+                  width: 58,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 6px',
+                }}>
                   {formatCountdown(countdownSeconds)}
                 </span>
               </div>
@@ -336,14 +390,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--line-2)' }}>
                     {columnHeader('会话ID', 'id', 135)}
                     {columnHeader('仿真时间', 'time', 150)}
-                    {columnHeader('名称', 'name', 240)}
+                    {columnHeader('仿真结果', 'result', 120)}
                     {columnHeader('套件', 'suite', 125, 'enum')}
                     {columnHeader('模式', 'mode', 125, 'enum')}
-                    {columnHeader('想定', 'scenario', 190)}
+                    {columnHeader('仿真场景', 'scenario', 190)}
                     {columnHeader('来源', 'source', 90, 'enum')}
                     {columnHeader('工作树', 'worktree', 185)}
-                    {columnHeader('状态', 'status', 90, 'enum')}
-                    <th align="left" style={{ width: 85, padding: '8px 8px 7px', verticalAlign: 'top' }}>打开</th>
+                    <th align="center" style={{ width: 130, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>打开</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -357,14 +410,36 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     >
                       <td style={cellStyle} title={row.id}>{compactId(row.id)}</td>
                       <td style={cellStyle} title={row.raw.created_at ?? ''}>{row.time}</td>
-                      <td style={cellStyle} title={row.raw.session_id}>{row.name}</td>
+                      <td style={{
+                        ...cellStyle,
+                        color: row.result === '不通过' ? 'var(--c-danger)' : row.result === '通过' || row.result.includes('/' ) ? 'var(--c-stbd)' : 'var(--txt-3)',
+                        fontWeight: 700,
+                      }}>{row.result}</td>
                       <td style={cellStyle}>{row.suite}</td>
                       <td style={cellStyle}>{row.mode}</td>
                       <td style={cellStyle} title={(row.raw.scenario_ids ?? []).join(', ')}>{row.scenario}</td>
                       <td style={cellStyle}>{row.source}</td>
                       <td style={cellStyle} title={row.worktree}>{row.worktree}</td>
-                      <td style={{ ...cellStyle, color: statusColor(row.status), fontWeight: 700 }}>{row.status}</td>
-                      <td style={cellStyle}>
+                      <td style={{ ...cellStyle, display: 'flex', justifyContent: 'center', gap: 6 }}>
+                        <button
+                          disabled={!row.raw.overview_png}
+                          onClick={() => {
+                            if (row.raw.overview_png) {
+                              setOverviewSession(row.raw);
+                              setOverviewIndex(0);
+                              resetOverviewView();
+                            }
+                          }}
+                          style={{
+                            border: '1px solid var(--line-2)',
+                            background: row.raw.overview_png ? 'rgba(69, 211, 207, 0.08)' : 'transparent',
+                            color: row.raw.overview_png ? 'var(--txt-1)' : 'var(--txt-3)',
+                            padding: '4px 8px',
+                            cursor: row.raw.overview_png ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          概述
+                        </button>
                         <button
                           disabled={!canOpen(row.raw)}
                           onClick={() => {
@@ -378,7 +453,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                             cursor: canOpen(row.raw) ? 'pointer' : 'not-allowed',
                           }}
                         >
-                          Open
+                          回放
                         </button>
                       </td>
                     </tr>
@@ -415,6 +490,171 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
           </>
         )}
       </main>
+      {overviewSession && (
+        <div
+          role="dialog"
+          aria-label="仿真概述"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.72)',
+          }}
+          onClick={closeOverview}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '96vw',
+              height: '88vh',
+              border: '1px solid var(--line-2)',
+              background: 'var(--bg-1)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{
+              height: 42,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 14px',
+              borderBottom: '1px solid var(--line-2)',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 12,
+            }}>
+              <span>
+                仿真概述 · {displayName(overviewSession)}
+                {currentOverview ? ` · ${currentOverview.scenario_id} · ${overviewIndex + 1}/${overviewPngs.length}` : ''}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {overviewPngs.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => changeOverviewImage(-1)}
+                      style={{ ...headerButtonStyle, width: 28, height: 24 }}
+                      title="上一张"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeOverviewImage(1)}
+                      style={{ ...headerButtonStyle, width: 28, height: 24 }}
+                      title="下一张"
+                    >
+                      ›
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => zoomOverview(-0.25)}
+                  style={{ ...headerButtonStyle, width: 30, height: 24 }}
+                  title="缩小"
+                >
+                  -
+                </button>
+                <span style={{ color: 'var(--txt-2)', minWidth: 42, textAlign: 'center' }}>
+                  {Math.round(overviewScale * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => zoomOverview(0.25)}
+                  style={{ ...headerButtonStyle, width: 30, height: 24 }}
+                  title="放大"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={resetOverviewView}
+                  title="重置"
+                  style={{
+                    border: '1px solid var(--line-2)',
+                    background: 'rgba(69, 211, 207, 0.08)',
+                    color: 'var(--txt-1)',
+                    height: 24,
+                    padding: '0 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  重置
+                </button>
+                <button
+                  type="button"
+                  onClick={closeOverview}
+                  style={{
+                    border: '1px solid var(--line-2)',
+                    background: 'rgba(69, 211, 207, 0.08)',
+                    color: 'var(--txt-1)',
+                    height: 24,
+                    padding: '0 12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                padding: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                cursor: overviewDrag ? 'grabbing' : 'grab',
+              }}
+              onWheel={(event) => {
+                event.preventDefault();
+                zoomOverview(event.deltaY > 0 ? -0.15 : 0.15);
+              }}
+              onMouseDown={(event) => {
+                setOverviewDrag({
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  originX: overviewOffset.x,
+                  originY: overviewOffset.y,
+                });
+              }}
+              onMouseMove={(event) => {
+                if (!overviewDrag) return;
+                setOverviewOffset({
+                  x: overviewDrag.originX + event.clientX - overviewDrag.startX,
+                  y: overviewDrag.originY + event.clientY - overviewDrag.startY,
+                });
+              }}
+              onMouseUp={() => setOverviewDrag(null)}
+              onMouseLeave={() => setOverviewDrag(null)}
+            >
+              {currentOverview && (
+                <img
+                  alt={`${currentOverview.scenario_id} 仿真概述`}
+                  draggable={false}
+                  src={`/api/v1/evidence-library/sessions/${encodeURIComponent(overviewSession.evidence_id)}/overview-png?scenario_id=${encodeURIComponent(currentOverview.scenario_id)}`}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                    border: '1px solid var(--line-1)',
+                    transform: `translate(${overviewOffset.x}px, ${overviewOffset.y}px) scale(${overviewScale})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

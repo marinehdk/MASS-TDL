@@ -10,6 +10,9 @@ import { ChainInspector } from './ChainInspector';
 interface ReplayDetailViewProps {
   evidenceId: string;
   scenarioId: string;
+  scenarioIds?: string[];
+  onScenarioChange?: (scenarioId: string) => void;
+  onBack?: () => void;
 }
 
 const toTimelineEvent = (event: EvidenceReplayEvent): TimelineEvent => ({
@@ -20,7 +23,10 @@ const toTimelineEvent = (event: EvidenceReplayEvent): TimelineEvent => ({
   d: event.payload_json,
 });
 
-export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewProps) {
+const displayDateTime = (value?: string | null) =>
+  value ? value.replace('T', ' ').replace(/([+-]\d\d:\d\d|Z)$/, '') : '-';
+
+export function ReplayDetailView({ evidenceId, scenarioId, scenarioIds = [scenarioId], onScenarioChange, onBack }: ReplayDetailViewProps) {
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
   const [inspectorTimeSec, setInspectorTimeSec] = useState<number | null>(null);
@@ -37,7 +43,7 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
       height: '100%',
       display: 'grid',
       gridTemplateColumns: 'minmax(0, 1fr) 360px',
-      gridTemplateRows: 'minmax(0, 1fr)',
+      gridTemplateRows: '34px minmax(0, 1fr)',
       gap: 12,
       padding: 16,
       background: 'var(--bg-0)',
@@ -45,18 +51,73 @@ export function ReplayDetailView({ evidenceId, scenarioId }: ReplayDetailViewPro
       position: 'relative',
       boxSizing: 'border-box',
     }}>
-      <main style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{
+        gridColumn: '1 / -1',
+        display: 'grid',
+        gridTemplateColumns: '160px minmax(0, 1fr) minmax(240px, auto)',
+        alignItems: 'center',
+        gap: 12,
+        color: 'var(--txt-1)',
+        fontFamily: 'var(--f-mono)',
+        fontSize: 12,
+      }}>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="返回仿真数据库"
+          style={{
+            width: 112,
+            height: 30,
+            border: '1px solid var(--line-1)',
+            borderRadius: 4,
+            background: 'rgba(91,192,190,0.15)',
+            color: 'var(--c-phos)',
+            fontFamily: 'var(--f-disp)',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.05em',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          返回
+        </button>
         <div style={{
           display: 'flex',
-          justifyContent: 'space-between',
-          gap: 12,
-          color: 'var(--txt-1)',
-          fontFamily: 'var(--f-mono)',
-          fontSize: 12,
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 36,
+          minWidth: 0,
         }}>
-          <span>{data.session.session_id}</span>
-          <span>{data.scenario.scenario_id}</span>
+          <span>会话: {data.session.session_id}</span>
+          <span>创建时间: {displayDateTime(data.session.created_at)}</span>
         </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 0 }}>
+          {scenarioIds.length > 1 ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              想定:
+              <select
+                value={data.scenario.scenario_id}
+                onChange={(event) => onScenarioChange?.(event.target.value)}
+                style={{
+                  border: '1px solid var(--line-2)',
+                  background: 'var(--bg-1)',
+                  color: 'var(--txt-1)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 12,
+                  height: 24,
+                }}
+                aria-label="选择想定"
+              >
+                {scenarioIds.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+            </span>
+          ) : (
+            <span>想定: {data.scenario.scenario_id}</span>
+          )}
+        </div>
+      </div>
+      <main style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="glass-panel" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <TrajectoryReplay
             durationSec={durationSec}

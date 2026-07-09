@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
-from .service import get_config_payload, get_decision_frame, get_replay, list_sessions, rescan_all
+from .service import get_config_payload, get_decision_frame, get_overview_png_path, get_replay, list_sessions, rescan_all
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -38,6 +39,15 @@ async def replay(evidence_id: str, scenario_id: str):
         return get_replay(evidence_id, scenario_id, repo_root=REPO_ROOT)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/sessions/{evidence_id}/overview-png")
+async def overview_png(evidence_id: str, scenario_id: str | None = None):
+    try:
+        path = get_overview_png_path(evidence_id, scenario_id=scenario_id, repo_root=REPO_ROOT)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/sessions/{evidence_id}/scenarios/{scenario_id}/decision-frame")

@@ -20,6 +20,7 @@ interface SilMapViewProps {
   previewData?: {
     ownShip?: { lat: number; lon: number; heading: number; sog?: number; cog?: number };
     targets?: Array<{ id: string; lat: number; lon: number; heading: number; sog?: number; cog?: number }>;
+    targetTrails?: Array<{ id: string; trail: [number, number][] }>;
     encRegion?: string;
   };
   /** ENC Region tileset name (e.g. 'trondelag', 'coastal_archipelago') */
@@ -1261,6 +1262,14 @@ export function SilMapView({
     }
 
     if (previewData) {
+      const previewTrailFeatures = (previewData.targetTrails ?? [])
+        .filter((entry) => entry.trail.length >= 2)
+        .map((entry) => ({
+          type: 'Feature' as const,
+          properties: { id: entry.id },
+          geometry: { type: 'LineString' as const, coordinates: entry.trail },
+        }));
+      (map.getSource('tgt-trail') as any)?.setData({ type: 'FeatureCollection', features: previewTrailFeatures });
       (map.getSource('tgt-cog') as any)?.setData({ type: 'FeatureCollection', features: [] });
       (map.getSource('tgt-cog-ticks') as any)?.setData({ type: 'FeatureCollection', features: [] });
     } else {
@@ -1457,7 +1466,7 @@ export function SilMapView({
           font-family: var(--f-mono) !important;
           font-size: 11px !important;
           font-weight: 600 !important;
-          height: 38px !important;
+          height: 30px !important;
           width: 90px !important;
           min-width: 90px !important;
           display: flex !important;
@@ -1465,7 +1474,7 @@ export function SilMapView({
           justify-content: center !important;
           padding: 0 !important;
           border-radius: 4px !important;
-          margin-bottom: 68px !important;
+          margin-bottom: 18px !important;
           margin-left: 20px !important;
           box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3) !important;
         }
@@ -1474,8 +1483,8 @@ export function SilMapView({
       {/* Coordinate Display next to Scale */}
       {status === 'ready' && displayCoords && (
         <div className="glass-panel hmi-surface" style={{
-          position: 'absolute', bottom: 68, left: 120, padding: '0 16px',
-          height: 38, display: 'flex', alignItems: 'center', gap: 12,
+          position: 'absolute', bottom: 18, left: 120, padding: '0 16px',
+          height: 30, display: 'flex', alignItems: 'center', gap: 12,
           border: '1px solid var(--line-1)', borderRadius: 4,
           fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--txt-1)',
           zIndex: 10, pointerEvents: 'none', letterSpacing: '0.02em'

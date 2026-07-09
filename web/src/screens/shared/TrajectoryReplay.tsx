@@ -1,5 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
+import type maplibregl from 'maplibre-gl';
 import type { EvidenceReplayTrajectoryPoint } from '../../api/silApi';
+import { SilMapView } from '../../map/SilMapView';
+import { MapLayerSwitcher } from '../../map/MapLayerSwitcher';
+import { ActualTrackLayer } from '../../map/ActualTrackLayer';
+import {
+  LucideAlertTriangle,
+  LucidePause,
+  LucidePlay,
+  LucideSquare,
+  LucideTerminalSquare,
+} from 'lucide-react';
 
 interface TrajectoryReplayProps {
   durationSec: number;
@@ -28,6 +39,44 @@ const isOwnship = (point: EvidenceReplayTrajectoryPoint) =>
   point.vessel_role === 'ownship' || point.vessel_id === 'OWN';
 
 type ProjectedPoint = { sim_t: number; x: number; y: number };
+type MapSubstrate = 'enc' | 'sat' | 'osm';
+const MAX_REASONABLE_TARGET_SPEED_KN = 80;
+const MAX_REASONABLE_TARGET_JUMP_NM = 0.25;
+
+const rangeNm = (
+  a: EvidenceReplayTrajectoryPoint,
+  b: EvidenceReplayTrajectoryPoint,
+): number => {
+  if (!hasPosition(a) || !hasPosition(b)) return Number.POSITIVE_INFINITY;
+  const lat1 = (a.lat as number) * Math.PI / 180;
+  const lat2 = (b.lat as number) * Math.PI / 180;
+  const dLat = ((b.lat as number) - (a.lat as number)) * Math.PI / 180;
+  const dLon = ((b.lon as number) - (a.lon as number)) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 3440.065 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+};
+
+const sanitizeTargetTrack = (track: EvidenceReplayTrajectoryPoint[]) => {
+  const sorted = track.filter(hasPosition).sort((a, b) => a.sim_t - b.sim_t);
+  const accepted: EvidenceReplayTrajectoryPoint[] = [];
+  for (const point of sorted) {
+    const previous = accepted[accepted.length - 1];
+    if (!previous) {
+      accepted.push(point);
+      continue;
+    }
+    const dtHours = Math.max((point.sim_t - previous.sim_t) / 3600, 0);
+    if (dtHours === 0) continue;
+    const distNm = rangeNm(previous, point);
+    const impliedSpeedKn = distNm / dtHours;
+    if (distNm > MAX_REASONABLE_TARGET_JUMP_NM && impliedSpeedKn > MAX_REASONABLE_TARGET_SPEED_KN) {
+      continue;
+    }
+    accepted.push(point);
+  }
+  return accepted;
+};
 
 const pointAtTime = (track: ProjectedPoint[], simT: number): ProjectedPoint | undefined => {
   if (track.length === 0) return undefined;
@@ -59,11 +108,42 @@ const visibleTrack = (track: ProjectedPoint[], simT: number): [number, number][]
   return visible;
 };
 
+const rawPointAtTime = (
+  track: EvidenceReplayTrajectoryPoint[],
+  simT: number,
+  clampBeforeStart = true,
+): EvidenceReplayTrajectoryPoint | undefined => {
+  if (track.length === 0) return undefined;
+  if (simT < track[0].sim_t) return clampBeforeStart ? track[0] : undefined;
+  if (simT === track[0].sim_t) return track[0];
+  if (simT >= track[track.length - 1].sim_t) return track[track.length - 1];
+  for (let index = 1; index < track.length; index += 1) {
+    const next = track[index];
+    if (next.sim_t < simT) continue;
+    const prev = track[index - 1];
+    const span = Math.max(0.000001, next.sim_t - prev.sim_t);
+    const frac = (simT - prev.sim_t) / span;
+    const interp = (a?: number | null, b?: number | null) =>
+      typeof a === 'number' && typeof b === 'number' ? a + (b - a) * frac : (b ?? a ?? null);
+    return {
+      ...next,
+      sim_t: simT,
+      lat: interp(prev.lat, next.lat),
+      lon: interp(prev.lon, next.lon),
+      heading_deg: interp(prev.heading_deg, next.heading_deg),
+      sog_kn: interp(prev.sog_kn, next.sog_kn),
+    };
+  }
+  return track[track.length - 1];
+};
+
 export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   durationSec, currentTimeSec, onTimeChange, points,
 }) => {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
+  const [substrate, setSubstrate] = useState<MapSubstrate>('enc');
+  const mapRef = useRef<maplibregl.Map | null>(null);
 
   React.useEffect(() => {
     if (!playing || !onTimeChange) return;
@@ -79,11 +159,20 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
     return () => clearInterval(interval);
   }, [playing, rate, durationSec, currentTimeSec, onTimeChange]);
 
-  const handlePlayClick = () => {
+  const handlePlay = () => {
     if (currentTimeSec >= durationSec && onTimeChange) {
       onTimeChange(0);
     }
-    setPlaying(!playing);
+    setPlaying(true);
+  };
+
+  const handlePause = () => {
+    setPlaying(false);
+  };
+
+  const handleStop = () => {
+    setPlaying(false);
+    onTimeChange?.(0);
   };
 
   const dataPoints = points ?? [];
@@ -138,6 +227,59 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
       ({ sim_t: point.sim_t, x: point.x + 120 - i * 1.6, y: point.y - 80 + i * 1.0 })
     );
   }, [dataPoints, ownshipTrack, bounds]);
+  const ownshipRawTrack = useMemo(() => dataPoints
+    .filter((p) => isOwnship(p) && hasPosition(p))
+    .sort((a, b) => a.sim_t - b.sim_t), [dataPoints]);
+  const targetRawTracks = useMemo(() => {
+    const grouped = new Map<string, EvidenceReplayTrajectoryPoint[]>();
+    for (const point of dataPoints) {
+      if (isOwnship(point) || !hasPosition(point)) continue;
+      const key = point.vessel_id || 'target';
+      grouped.set(key, [...(grouped.get(key) ?? []), point]);
+    }
+    return Array.from(grouped.entries()).map(([id, track]) => ({
+      id,
+      track: sanitizeTargetTrack(track),
+    }));
+  }, [dataPoints]);
+  const ownRaw = rawPointAtTime(ownshipRawTrack, currentTimeSec);
+  const targetRaw = targetRawTracks
+    .map(({ id, track }) => ({ id, point: rawPointAtTime(track, currentTimeSec, false) }))
+    .filter((item) => item.point && hasPosition(item.point));
+  const canUseNauticalMap = Boolean(
+    ownRaw
+    && typeof ownRaw.lat === 'number'
+    && typeof ownRaw.lon === 'number'
+    && dataPoints.some(hasPosition),
+  );
+  const ownshipTrail = ownshipRawTrack
+    .filter((point) => point.sim_t <= currentTimeSec && hasPosition(point))
+    .map((point) => [point.lon as number, point.lat as number] as [number, number]);
+  const previewData = canUseNauticalMap && ownRaw ? {
+    ownShip: {
+      lat: ownRaw.lat as number,
+      lon: ownRaw.lon as number,
+      heading: ownRaw.heading_deg ?? 0,
+      sog: ownRaw.sog_kn ?? 0,
+      cog: ownRaw.heading_deg ?? 0,
+    },
+    targets: targetRaw.map(({ id, point }) => ({
+      id,
+      lat: point!.lat as number,
+      lon: point!.lon as number,
+      heading: point!.heading_deg ?? 0,
+      sog: point!.sog_kn ?? 0,
+      cog: point!.heading_deg ?? 0,
+    })),
+    targetTrails: targetRawTracks
+      .map(({ id, track }) => ({
+        id,
+        trail: track
+          .filter((point) => point.sim_t <= currentTimeSec && hasPosition(point))
+          .map((point) => [point.lon as number, point.lat as number] as [number, number]),
+      }))
+      .filter(({ trail }) => trail.length > 0),
+  } : undefined;
 
   const ownshipPts = ownshipTrack.map((point) => [point.x, point.y] as [number, number]);
   const t01Pts = targetTrack.map((point) => [point.x, point.y] as [number, number]);
@@ -161,27 +303,32 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
     : -Math.PI / 2;
   const angleT01Deg = (angleT01Rad * 180) / Math.PI + 90;
 
-  const fmtT = (t: number) => `T+${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  const fmtT = (t: number) => {
+    const seconds = Math.floor(t);
+    return `T+${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  };
 
   return (
     <div data-testid="trajectory-replay" style={{
       display: 'flex', flexDirection: 'column', height: '100%',
       background: 'var(--bg-1)', border: '1px solid var(--line-1)',
     }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '6px 8px', borderBottom: '1px solid var(--line-1)',
-      }}>
-        <span style={{
-          fontFamily: 'var(--f-disp)', fontSize: 9, color: 'var(--txt-3)',
-          letterSpacing: '0.16em', textTransform: 'uppercase',
-        }}>
-          TRAJECTORY REPLAY
-        </span>
-      </div>
-
       {/* Map area */}
       <div style={{ flex: 1, position: 'relative' }}>
+        {canUseNauticalMap && previewData ? (
+          <>
+            <SilMapView
+              mapRef={mapRef}
+              viewMode="engineer"
+              substrate={substrate}
+              previewData={previewData}
+            />
+            <ActualTrackLayer mapRef={mapRef} trail={ownshipTrail} visible={true} />
+            <div style={{ position: 'absolute', right: 14, bottom: 14, zIndex: 20 }}>
+              <MapLayerSwitcher activeLayer={substrate} onLayerChange={setSubstrate} />
+            </div>
+          </>
+        ) : (
         <svg viewBox="0 0 480 360" style={{ width: '100%', height: '100%', background: '#050810' }}>
           {/* Grid */}
           {[0, 1, 2, 3, 4, 5].map(i => (
@@ -236,49 +383,123 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
               fontFamily="var(--f-body)" fontSize="8" fill="var(--c-danger)">T01</text>
           )}
         </svg>
+        )}
       </div>
 
-      {/* Playback controls */}
+      {/* Playback controls: keep identical control grammar with Screen 03. */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
-        borderTop: '1px solid var(--line-1)',
+        height: 48, background: 'var(--bg-1)', borderTop: '1px solid var(--line-2)',
+        display: 'flex', alignItems: 'center', padding: '0 24px', gap: 24,
+        fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--txt-1)', flexShrink: 0,
       }}>
-        <button onClick={handlePlayClick} style={{
-          background: 'transparent', border: '1px solid var(--line-2)',
-          color: 'var(--txt-1)', padding: '2px 8px', cursor: 'pointer',
-          fontFamily: 'var(--f-mono)', fontSize: 10,
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            aria-label="播放"
+            onClick={handlePlay}
+            style={{ background: 'transparent', color: playing ? 'var(--c-phos)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}
+          >
+            <LucidePlay size={20} />
+          </button>
+          <button
+            type="button"
+            aria-label="暂停"
+            onClick={handlePause}
+            style={{ background: 'transparent', color: !playing ? 'var(--c-warn)' : 'var(--txt-2)', border: 'none', cursor: 'pointer' }}
+          >
+            <LucidePause size={20} />
+          </button>
+          <button
+            type="button"
+            aria-label="停止"
+            onClick={handleStop}
+            style={{ background: 'transparent', color: 'var(--c-danger)', border: 'none', cursor: 'pointer', marginLeft: 8 }}
+          >
+            <LucideSquare size={20} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              type="range"
+              aria-label="Replay time"
+              min={0}
+              max={durationSec}
+              value={currentTimeSec}
+              onChange={(e) => onTimeChange?.(Number(e.target.value))}
+              style={{ flex: 1, accentColor: 'var(--c-phos)' }}
+            />
+          </div>
+          <span data-testid="sim-clock-text" style={{ color: 'var(--txt-1)' }}>
+            {fmtT(currentTimeSec)}
+          </span>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          background: 'var(--bg-2)',
+          border: '1px solid var(--line-2)',
+          borderRadius: 6,
+          padding: 2,
+          gap: 2,
         }}>
-          {playing ? '⏸' : '▶'}
-        </button>
-        {[0.5, 1, 2, 4, 10].map(r => (
-          <button key={r} onClick={() => setRate(r)} style={{
-            background: rate === r ? 'rgba(91,192,190,0.15)' : 'transparent',
-            border: `1px solid ${rate === r ? 'var(--c-phos)' : 'var(--line-2)'}`,
-            color: rate === r ? 'var(--c-phos)' : 'var(--txt-3)',
-            padding: '2px 6px', cursor: 'pointer',
-            fontFamily: 'var(--f-mono)', fontSize: 9,
-          }}>&times;{r}</button>
-        ))}
-        <input
-          type="range"
-          aria-label="Replay time"
-          min={0}
-          max={durationSec}
-          value={currentTimeSec}
-          onChange={(e) => onTimeChange?.(Number(e.target.value))}
-          style={{
-            flex: 1,
-            margin: '0 12px',
-            accentColor: 'var(--c-phos)',
-            background: 'var(--line-2)',
-            height: 4,
-            borderRadius: 2,
-            cursor: 'pointer',
-          }}
-        />
-        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--c-phos)' }}>
-          {fmtT(currentTimeSec)}
-        </span>
+          {[1, 5, 10].map((r) => {
+            const active = rate === r;
+            return (
+              <button
+                key={r}
+                type="button"
+                data-testid={`rate-btn-${r}x`}
+                onClick={() => setRate(r)}
+                onMouseEnter={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = 'var(--txt-1)';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = 'var(--txt-3)';
+                    e.currentTarget.style.background = 'transparent';
+                  }
+                }}
+                style={{
+                  background: active ? 'rgba(45,212,191,0.15)' : 'transparent',
+                  color: active ? 'var(--c-phos)' : 'var(--txt-3)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 12px',
+                  fontSize: 11,
+                  fontFamily: 'var(--f-mono)',
+                  fontWeight: active ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  borderBottom: active ? '1px solid var(--c-phos)' : 'none',
+                }}
+              >
+                {r}x
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 16, borderLeft: '1px solid var(--line-2)', paddingLeft: 24 }}>
+          <button
+            type="button"
+            aria-label="ASDR"
+            style={{ background: 'transparent', color: 'var(--txt-2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <LucideTerminalSquare size={18} /> ASDR
+          </button>
+          <button
+            type="button"
+            aria-label="FAULT"
+            style={{ background: 'transparent', color: 'var(--c-danger)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <LucideAlertTriangle size={18} /> FAULT
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -52,11 +52,20 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
 
 function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
   const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const session = evidenceId === 'latest'
     ? data?.sessions?.[0]
     : data?.sessions?.find((item) => item.evidence_id === evidenceId);
   const resolvedEvidenceId = session?.evidence_id ?? evidenceId;
-  const scenarioId = session?.scenario_ids?.[0];
+  const scenarioIds = session?.scenario_ids ?? [];
+  const scenarioId = selectedScenarioId && scenarioIds.includes(selectedScenarioId)
+    ? selectedScenarioId
+    : scenarioIds[0];
+
+  useEffect(() => {
+    if (!scenarioIds.length) return;
+    setSelectedScenarioId((current) => (current && scenarioIds.includes(current) ? current : scenarioIds[0]));
+  }, [scenarioIds.join('\0')]);
 
   if (isLoading) {
     return <div style={{ padding: 16 }}>Loading replay metadata</div>;
@@ -65,7 +74,15 @@ function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
     return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
   }
 
-  return <ReplayDetailView evidenceId={resolvedEvidenceId} scenarioId={scenarioId} />;
+  return (
+    <ReplayDetailView
+      evidenceId={resolvedEvidenceId}
+      scenarioId={scenarioId}
+      scenarioIds={scenarioIds}
+      onScenarioChange={setSelectedScenarioId}
+      onBack={() => { window.location.hash = '#/evaluator'; }}
+    />
+  );
 }
 
 function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {

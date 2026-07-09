@@ -158,12 +158,65 @@ def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[
         for row in rows:
             session = dict(row)
             scenario_rows = conn.execute(
-                "select scenario_id from scenarios where evidence_id = ? order by scenario_id",
+                "select scenario_id, overall_pass from scenarios where evidence_id = ? order by scenario_id",
                 (session["evidence_id"],),
             ).fetchall()
             session["scenario_ids"] = [scenario["scenario_id"] for scenario in scenario_rows]
+            session["passed_scenarios"] = sum(1 for scenario in scenario_rows if scenario["overall_pass"] == 1)
+            session["failed_scenarios"] = sum(1 for scenario in scenario_rows if scenario["overall_pass"] == 0)
+            overview_rows = conn.execute(
+                """
+                select scenario_id, relative_path
+                from artifacts
+                where evidence_id = ?
+                  and kind = 'trajectory_dashboard_png'
+                  and available = 1
+                order by scenario_id
+                """,
+                (session["evidence_id"],),
+            ).fetchall()
+            session["overview_pngs"] = [dict(overview) for overview in overview_rows]
+            session["overview_png"] = session["overview_pngs"][0] if session["overview_pngs"] else None
             sessions.append(session)
         return sessions
+
+
+def get_overview_png_path(evidence_id: str, scenario_id: str | None = None, repo_root: Path | None = None) -> Path:
+    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
+        args: tuple[Any, ...]
+        scenario_clause = ""
+        if scenario_id:
+            scenario_clause = "and scenario_id = ?"
+            args = (evidence_id, scenario_id)
+        else:
+            args = (evidence_id,)
+        row = conn.execute(
+            f"""
+            select path
+            from artifacts
+            where evidence_id = ?
+              and kind = 'trajectory_dashboard_png'
+              and available = 1
+              {scenario_clause}
+            order by scenario_id
+            limit 1
+            """,
+            args,
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Overview PNG not found for evidence session: {evidence_id}")
+        path = Path(row["path"]).resolve()
+        session = conn.execute("select session_path from sessions where evidence_id = ?", (evidence_id,)).fetchone()
+        if session is None:
+            raise LookupError(f"Evidence session not found: {evidence_id}")
+        session_path = Path(session["session_path"]).resolve()
+        try:
+            path.relative_to(session_path)
+        except ValueError as exc:
+            raise LookupError("Overview PNG path escaped evidence session") from exc
+        if not path.exists() or not path.is_file():
+            raise LookupError(f"Overview PNG not available for evidence session: {evidence_id}")
+        return path
 
 
 def get_replay(evidence_id: str, scenario_id: str, repo_root: Path | None = None) -> dict[str, Any]:

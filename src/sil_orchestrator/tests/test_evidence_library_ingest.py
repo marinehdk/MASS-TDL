@@ -13,6 +13,7 @@ from sil_orchestrator.evidence_library.ingest import (
     query_decision_frame,
     query_replay,
 )
+from sil_orchestrator.evidence_library.service import get_overview_png_path, list_sessions, open_initialized
 from sil_orchestrator.evidence_library.store import initialize_schema
 
 
@@ -138,6 +139,41 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
+def test_service_lists_result_summary_and_overview_png(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    root = repo / "runs" / "trace_eval"
+    session = _write_fixture_session(root)
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    conn = open_initialized()
+    ingest_session(
+        conn,
+        EvidenceRootConfig(root_id="primary", label="Primary", source="cli", path_glob=str(root), trusted=True),
+        session,
+    )
+    conn.close()
+
+    sessions = list_sessions(repo_root=repo)
+
+    assert sessions[0]["passed_scenarios"] == 0
+    assert sessions[0]["failed_scenarios"] == 1
+    assert sessions[0]["overview_png"] == {
+        "scenario_id": "colreg-rule14-ho",
+        "relative_path": "colreg-rule14-ho_trajectory_dashboard.png",
+    }
+    assert sessions[0]["overview_pngs"] == [
+        {
+            "scenario_id": "colreg-rule14-ho",
+            "relative_path": "colreg-rule14-ho_trajectory_dashboard.png",
+        }
+    ]
+    assert get_overview_png_path(sessions[0]["evidence_id"], repo_root=repo).name == "colreg-rule14-ho_trajectory_dashboard.png"
+    assert (
+        get_overview_png_path(sessions[0]["evidence_id"], scenario_id="colreg-rule14-ho", repo_root=repo).name
+        == "colreg-rule14-ho_trajectory_dashboard.png"
+    )
+
+
 def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     root_path = tmp_path / "runs" / "trace_eval"
     session = _write_fixture_session(root_path)
@@ -168,6 +204,45 @@ def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     assert gates[("G-SEM", "batch_summary.phase_semantics.phase_semantics_ok")] == "FAIL"
     assert gates[("G-SEM", "batch_summary.compliance_verdict")] == "FAIL"
     assert gates[("G-ART", "artifact_consistency")] == "PASS"
+
+
+def test_ingest_session_derives_target_position_from_m2_relative_measurements(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(
+        root_path,
+        session_name="20260707_132500_single_colreg-rule15-cs-relative-target",
+        world_state_rows=[
+            {
+                "sim_t": 10.0,
+                "wall_t": 20.0,
+                "topic": "/l3/m2/world_state",
+                "own_lat": 63.0,
+                "own_lon": 10.0,
+                "own_heading_deg": 5.0,
+                "own_sog_kn": 7.0,
+                "primary_target_id": 100000001,
+                "primary_target_heading_deg": 290.0,
+                "primary_target_sog_kn": 9.5,
+                "primary_brg_deg": 90.0,
+                "primary_rng_m": 1852.0,
+                "primary_cpa_m": 300.0,
+                "primary_tcpa_s": 120.0,
+                "confidence": 0.8,
+            },
+        ],
+    )
+    root = EvidenceRootConfig(root_id="primary", label="Primary", source="background_probe", path_glob=str(root_path), trusted=True)
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+    replay = query_replay(conn, result.evidence_id, "colreg-rule14-ho")
+    target = next(row for row in replay["trajectory"] if row["vessel_role"] == "target")
+
+    assert target["vessel_id"] == "100000001"
+    assert target["lat"] == pytest.approx(63.0, abs=0.001)
+    assert target["lon"] == pytest.approx(10.037, abs=0.001)
+    assert target["heading_deg"] == 290.0
+    assert target["sog_kn"] == 9.5
 
 
 def test_decision_frame_returns_time_aligned_module_facts(tmp_path):

@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { ReplayDetailView } from '../ReplayDetailView';
 
 const apiMocks = vi.hoisted(() => ({
+  silMapViewProps: [] as any[],
   useGetDecisionFrameQuery: vi.fn(() => ({
     data: {
       evidence_id: 'ev-1',
@@ -27,13 +28,15 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../../../api/silApi', () => ({
   useGetEvidenceReplayQuery: () => ({
     data: {
-      session: { evidence_id: 'ev-1', session_id: 'session-1' },
+      session: { evidence_id: 'ev-1', session_id: 'session-1', created_at: '2026-07-08T08:48:30Z', scenario_ids: ['colreg-rule14-ho'] },
       scenario: { scenario_id: 'colreg-rule14-ho', verdict: 'FAIL', overall_pass: false, min_cpa_nm: 0.243 },
       duration_s: 10,
       trajectory: [
         { vessel_id: 'OS-9', vessel_role: 'ownship', sim_t: 0, lat: 0, lon: 0, heading_deg: 0, sog_kn: 8 },
         { vessel_id: 'OS-9', vessel_role: 'ownship', sim_t: 10, lat: 0.01, lon: 0, heading_deg: 10, sog_kn: 8 },
-        { vessel_id: 'T01', vessel_role: 'target', sim_t: 0, lat: 0.01, lon: 0.01, heading_deg: 180, sog_kn: 8 },
+        { vessel_id: 'T01', vessel_role: 'target', sim_t: 2, lat: 0.01, lon: 0.01, heading_deg: 180, sog_kn: 8 },
+        { vessel_id: 'T01', vessel_role: 'target', sim_t: 5, lat: 1, lon: 1, heading_deg: 180, sog_kn: 8 },
+        { vessel_id: 'T01', vessel_role: 'target', sim_t: 10, lat: 0.011, lon: 0.011, heading_deg: 180, sog_kn: 8 },
       ],
       events: [
         { event_id: 1, sim_t: 5, module: 'M5', event_type: 'PLAN_READY', severity: 'info', payload_json: '{"detail":"ready"}' },
@@ -48,20 +51,65 @@ vi.mock('../../../api/silApi', () => ({
   useGetDecisionFrameQuery: apiMocks.useGetDecisionFrameQuery,
 }));
 
+vi.mock('../../../map/SilMapView', () => ({
+  SilMapView: (props: any) => {
+    apiMocks.silMapViewProps.push(props);
+    return <div data-testid="sil-map-view" />;
+  },
+}));
+
+vi.mock('../../../map/MapLayerSwitcher', () => ({
+  MapLayerSwitcher: () => <div data-testid="map-layer-switcher" />,
+}));
+
+vi.mock('../../../map/ActualTrackLayer', () => ({
+  ActualTrackLayer: () => null,
+}));
+
 describe('ReplayDetailView', () => {
   afterEach(() => {
     apiMocks.useGetDecisionFrameQuery.mockClear();
+    apiMocks.silMapViewProps.length = 0;
   });
 
   it('renders indexed replay data and scrubs from controls and timeline events', () => {
-    render(<ReplayDetailView evidenceId="ev-1" scenarioId="colreg-rule14-ho" />);
+    const onBack = vi.fn();
+    render(<ReplayDetailView evidenceId="ev-1" scenarioId="colreg-rule14-ho" onBack={onBack} />);
 
-    expect(screen.getByText('session-1')).toBeInTheDocument();
-    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: '返回仿真数据库' });
+    expect(backButton).toHaveStyle({
+      height: '30px',
+      borderRadius: '4px',
+      fontFamily: 'var(--f-disp)',
+      fontWeight: '700',
+    });
+    fireEvent.click(backButton);
+    expect(onBack).toHaveBeenCalled();
+    expect(screen.getByText('会话: session-1')).toBeInTheDocument();
+    expect(screen.getByText('想定: colreg-rule14-ho')).toBeInTheDocument();
+    expect(screen.getByText('创建时间: 2026-07-08 08:48:30')).toBeInTheDocument();
+    expect(screen.queryByText('态势回放')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sil-map-view')).toBeInTheDocument();
+    expect(apiMocks.silMapViewProps[apiMocks.silMapViewProps.length - 1].previewData.targets).toHaveLength(0);
+    expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '暂停' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1x' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '5x' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '10x' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ASDR' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'FAULT' })).toBeInTheDocument();
+    expect(screen.queryByText('×0.5')).not.toBeInTheDocument();
+    expect(screen.queryByText('×2')).not.toBeInTheDocument();
     expect(screen.getByText('G-SEM')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Replay time'), { target: { value: '5' } });
     expect(screen.getAllByText('T+00:05').length).toBeGreaterThan(0);
+    const previewAtFive = apiMocks.silMapViewProps[apiMocks.silMapViewProps.length - 1].previewData;
+    expect(previewAtFive.targets).toHaveLength(1);
+    expect(previewAtFive.targets[0].lat).toBeLessThan(0.02);
+    expect(previewAtFive.targets[0].lon).toBeLessThan(0.02);
+    expect(previewAtFive.targetTrails[0].trail).toEqual([[0.01, 0.01]]);
 
     fireEvent.change(screen.getByLabelText('Replay time'), { target: { value: '0' } });
     fireEvent.click(screen.getByTitle(/PLAN_READY/));

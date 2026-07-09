@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import math
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -115,6 +116,42 @@ def _compliance_status(value: Any) -> str:
         if normalized in {"PASS", "FAIL"}:
             return normalized
     return "UNKNOWN"
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result):
+        return None
+    return result
+
+
+def _project_relative_position(lat: Any, lon: Any, bearing_deg: Any, range_m: Any) -> tuple[float | None, float | None]:
+    origin_lat = _as_float(lat)
+    origin_lon = _as_float(lon)
+    bearing = _as_float(bearing_deg)
+    distance_m = _as_float(range_m)
+    if origin_lat is None or origin_lon is None or bearing is None or distance_m is None:
+        return None, None
+    if distance_m < 0:
+        return None, None
+    radius_m = 6_371_000.0
+    angular_distance = distance_m / radius_m
+    bearing_rad = math.radians(bearing)
+    lat1 = math.radians(origin_lat)
+    lon1 = math.radians(origin_lon)
+    lat2 = math.asin(
+        math.sin(lat1) * math.cos(angular_distance)
+        + math.cos(lat1) * math.sin(angular_distance) * math.cos(bearing_rad)
+    )
+    lon2 = lon1 + math.atan2(
+        math.sin(bearing_rad) * math.sin(angular_distance) * math.cos(lat1),
+        math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
+    )
+    normalized_lon = (math.degrees(lon2) + 540.0) % 360.0 - 180.0
+    return math.degrees(lat2), normalized_lon
 
 
 def _scenario_from_batch(batch: dict[str, Any], scenario_id: str) -> dict[str, Any]:
@@ -410,7 +447,31 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
                 set_state(module, field, sim_t, getter(row), topic)
         if topic == "/l3/m2/world_state":
             target_id = str(row.get("target_id") or row.get("primary_target_id") or "UNKNOWN")
-            trajectory.append((evidence_id, session_id, scenario_id, target_id, "target", sim_t, wall_t, row.get("target_lat"), row.get("target_lon"), row.get("target_heading_deg"), row.get("target_sog_kn"), None, topic, seq))
+            target_lat = row.get("target_lat")
+            target_lon = row.get("target_lon")
+            if target_lat is None or target_lon is None:
+                target_lat, target_lon = _project_relative_position(
+                    row.get("own_lat"),
+                    row.get("own_lon"),
+                    row.get("primary_brg_deg"),
+                    row.get("primary_rng_m"),
+                )
+            trajectory.append((
+                evidence_id,
+                session_id,
+                scenario_id,
+                target_id,
+                "target",
+                sim_t,
+                wall_t,
+                target_lat,
+                target_lon,
+                row.get("target_heading_deg", row.get("primary_target_heading_deg")),
+                row.get("target_sog_kn", row.get("primary_target_sog_kn")),
+                None,
+                topic,
+                seq,
+            ))
         if topic == "/l3/asdr/record":
             events.append(
                 (
