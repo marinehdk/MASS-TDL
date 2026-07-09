@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
+import { skipToken } from '@reduxjs/toolkit/query';
 import {
   useExportMarzipMutation,
   useGetExportStatusQuery,
   useGetLastRunScoringQuery,
   useGetAsdrEventsQuery,
+  useGetEvidenceLibrarySessionsQuery,
+  useGetEvidenceReplayQuery,
+  useGetDecisionFrameQuery,
 } from '../api/silApi';
 import { useScenarioStore } from '../store';
 import { TimelineSixLane } from './shared/TimelineSixLane';
@@ -12,11 +16,17 @@ import { TrajectoryReplay } from './shared/TrajectoryReplay';
 import { ScoringRadarChart } from './shared/ScoringRadarChart';
 import { ColregsDecisionTree } from './shared/ColregsDecisionTree';
 import { BoundaryDiagnostics } from './shared/BoundaryDiagnostics';
+import { EvidenceLibraryView } from './evaluator/EvidenceLibraryView';
+import { ReplayDetailView } from './evaluator/ReplayDetailView';
 
 interface KpiCardProps {
   label: string;
   value: string;
   unit: string;
+}
+
+interface SimulationEvaluatorProps {
+  evidenceId?: string;
 }
 
 function KpiCard({ label, value, unit }: KpiCardProps) {
@@ -32,20 +42,75 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
   );
 }
 
-export function SimulationEvaluator() {
+export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
+  if (!evidenceId) {
+    return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
+  }
+
+  return <ReplayDetailRoute evidenceId={evidenceId} />;
+}
+
+function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
+  const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const session = evidenceId === 'latest'
+    ? data?.sessions?.[0]
+    : data?.sessions?.find((item) => item.evidence_id === evidenceId);
+  const resolvedEvidenceId = session?.evidence_id ?? evidenceId;
+  const scenarioIds = session?.scenario_ids ?? [];
+  const scenarioId = selectedScenarioId && scenarioIds.includes(selectedScenarioId)
+    ? selectedScenarioId
+    : scenarioIds[0];
+
+  useEffect(() => {
+    if (!scenarioIds.length) return;
+    setSelectedScenarioId((current) => (current && scenarioIds.includes(current) ? current : scenarioIds[0]));
+  }, [scenarioIds.join('\0')]);
+
+  if (isLoading) {
+    return <div style={{ padding: 16 }}>Loading replay metadata</div>;
+  }
+  if (!scenarioId) {
+    return <EvidenceLibraryView onOpen={(id) => { window.location.hash = `#/evaluator/${id}`; }} />;
+  }
+
+  return (
+    <ReplayDetailView
+      evidenceId={resolvedEvidenceId}
+      scenarioId={scenarioId}
+      scenarioIds={scenarioIds}
+      onScenarioChange={setSelectedScenarioId}
+      onBack={() => { window.location.hash = '#/evaluator'; }}
+    />
+  );
+}
+
+function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {
   const scenarioId = useScenarioStore((s) => s.scenarioId);
   const storeRunId = useScenarioStore((s) => s.runId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
   const { data: asdrData } = useGetAsdrEventsQuery();
+  const { data: evidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
   const reportEvents = asdrData?.events ?? [];
   const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
+  const activeEvidenceId = evidenceId;
+  const indexedEvidenceSession = activeEvidenceId
+    ? evidenceLibrary?.sessions?.find((session) => session.evidence_id === activeEvidenceId)
+    : undefined;
+  const replayScenarioId = indexedEvidenceSession?.scenario_ids?.[0] ?? null;
   const [exportMarzip, { isLoading }] = useExportMarzipMutation();
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportRequested, setExportRequested] = useState(false);
   const [verdict, setVerdict] = useState<'PASS' | 'FAIL' | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
+  const { data: replay } = useGetEvidenceReplayQuery(
+    activeEvidenceId && replayScenarioId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId } : skipToken,
+  );
+  const { data: decisionFrame } = useGetDecisionFrameQuery(
+    activeEvidenceId && replayScenarioId ? { evidenceId: activeEvidenceId, scenarioId: replayScenarioId, simT: currentTimeSec } : skipToken,
+  );
   const { data: exportStatus } = useGetExportStatusQuery(runId, {
     skip: !exportRequested || !!exportUrl,
     pollingInterval: 1500,
@@ -170,8 +235,44 @@ export function SimulationEvaluator() {
           minWidth: 0,
         }}>
           <div className="glass-panel" style={{ flex: 1, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 8px',
+              borderBottom: '1px solid var(--line-1)',
+            }}>
+              <span style={{
+                fontFamily: 'var(--f-disp)',
+                fontSize: 9,
+                color: 'var(--txt-3)',
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+              }}>
+                Replay Detail
+              </span>
+            </div>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 8px',
+              borderBottom: '1px solid var(--line-1)',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 10,
+              color: 'var(--txt-2)',
+            }}>
+              <span>{replay?.scenario?.scenario_id ?? activeEvidenceId}</span>
+              {decisionFrame && (
+                <span>
+                  T+{decisionFrame.sim_t.toFixed(1)} s
+                </span>
+              )}
+            </div>
             <TrajectoryReplay
-              durationSec={600}
+              durationSec={replay?.duration_s ?? 600}
               currentTimeSec={currentTimeSec}
               onTimeChange={setCurrentTimeSec}
             />

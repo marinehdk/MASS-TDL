@@ -13,6 +13,7 @@ interface TimelineSixLaneProps {
   durationSec: number;
   currentTimeSec: number;
   onScrub: (timeSec: number) => void;
+  onEventSelect?: (event: TimelineEvent) => void;
 }
 
 const SEV_COLORS: Record<string, string> = {
@@ -42,7 +43,7 @@ const getLaneIndex = (evt: TimelineEvent): number => {
 };
 
 export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
-  events, durationSec, currentTimeSec, onScrub,
+  events, durationSec, currentTimeSec, onScrub, onEventSelect,
 }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -70,6 +71,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
   };
 
   const progressPct = durationSec > 0 ? (currentTimeSec / durationSec) * 100 : 0;
+  const hoverPct = hoverTime != null && durationSec > 0 ? (hoverTime / durationSec) * 100 : 0;
 
   const formatTime = (t: number) => {
     const m = Math.floor(t / 60).toString().padStart(2, '0');
@@ -148,7 +150,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
 
               {/* Event nodes on this lane */}
               {laneEvents.map((evt, i) => {
-                const leftPct = (evt.t / durationSec) * 100;
+                const leftPct = durationSec > 0 ? (evt.t / durationSec) * 100 : 0;
                 const k = evt.k || (evt as any).type || '';
                 const sev = evt.sev || (evt as any).payload?.severity?.toLowerCase() || 'info';
                 const color = SEV_COLORS[sev] ?? 'var(--txt-2)';
@@ -159,7 +161,14 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
                 return (
                   <div
                     key={i}
+                    role="button"
+                    tabIndex={0}
                     title={`${formatTime(evt.t)} [${k}]: ${desc}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onScrub(evt.t);
+                      onEventSelect?.(evt);
+                    }}
                     style={{
                       position: 'absolute',
                       left: `${leftPct}%`,
@@ -171,6 +180,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
                       border: isCurrent ? '1px solid #fff' : `1px solid rgba(0,0,0,0.5)`,
                       boxShadow: sev === 'crit' ? '0 0 6px var(--c-danger)' : sev === 'warn' ? '0 0 4px var(--c-warn)' : 'none',
                       zIndex: isCurrent ? 5 : 2,
+                      cursor: 'pointer',
                     }}
                   />
                 );
@@ -190,7 +200,7 @@ export const TimelineSixLane: React.FC<TimelineSixLaneProps> = ({
         {/* Hover vertical line guide */}
         {hoverTime != null && (
           <div style={{
-            position: 'absolute', left: `${(hoverTime / durationSec) * 100}%`, top: 0, bottom: 0,
+            position: 'absolute', left: `${hoverPct}%`, top: 0, bottom: 0,
             width: 1, borderLeft: '1px dashed var(--c-phos)', opacity: 0.5,
             pointerEvents: 'none', zIndex: 14,
           }} />

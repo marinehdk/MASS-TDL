@@ -5,6 +5,7 @@ import { SimulationMonitor } from './screens/SimulationMonitor';
 import { SimulationEvaluator } from './screens/SimulationEvaluator';
 import { TopChrome } from './screens/shared/TopChrome';
 import { FooterHotkeyHints } from './screens/shared/FooterHotkeyHints';
+import { useScenarioStore } from './store';
 
 type Screen = 'scenario' | 'check' | 'monitor' | 'evaluator';
 
@@ -44,6 +45,10 @@ export default function App() {
   const [route, setRoute] = useState<{ screen: Screen; runId?: string }>(parseHash);
 
   useEffect(() => {
+    useScenarioStore.getState().setEvidenceId(route.screen === 'evaluator' ? route.runId ?? null : null);
+  }, [route.screen, route.runId]);
+
+  useEffect(() => {
     const onHashChange = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -63,7 +68,7 @@ export default function App() {
         {route.screen === 'scenario'   && <SimulationScenario />}
         {route.screen === 'check'      && <SimulationCheck />}
         {route.screen === 'monitor'    && <SimulationMonitor routeScenarioId={route.runId} />}
-        {route.screen === 'evaluator'  && <SimulationEvaluator />}
+        {route.screen === 'evaluator'  && <SimulationEvaluator evidenceId={route.runId} />}
       </div>
       <FooterHotkeyHints screen={route.screen} />
     </div>

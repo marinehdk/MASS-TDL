@@ -4,6 +4,7 @@ import { appendCurrentPositionToTrail, SilMapView } from '../SilMapView';
 
 const mocks = vi.hoisted(() => {
   const addLayerMock = vi.fn();
+  const setDataMock = vi.fn();
   const markerMock = vi.fn((options?: { element?: HTMLDivElement }) => ({
     setLngLat: vi.fn().mockReturnThis(),
     addTo: vi.fn().mockReturnThis(),
@@ -19,7 +20,7 @@ const mocks = vi.hoisted(() => {
     addSource: vi.fn(),
     addLayer: addLayerMock,
     getLayer: vi.fn(),
-    getSource: vi.fn(() => ({ setData: vi.fn() })),
+    getSource: vi.fn(() => ({ setData: setDataMock })),
     getCenter: vi.fn(() => ({ lng: 10.4, lat: 63.4 })),
     getContainer: vi.fn(() => ({ clientHeight: 800 })),
     jumpTo: vi.fn(),
@@ -35,10 +36,11 @@ const mocks = vi.hoisted(() => {
     setLayoutProperty: vi.fn(),
   };
 
-  return { addLayerMock, markerMock, mockMap };
+  return { addLayerMock, setDataMock, markerMock, mockMap };
 });
 
 const addLayerMock = mocks.addLayerMock;
+const setDataMock = mocks.setDataMock;
 const mockMap = mocks.mockMap;
 
 vi.mock('maplibre-gl', () => ({
@@ -53,6 +55,7 @@ vi.mock('maplibre-gl', () => ({
 describe('SilMapView', () => {
   beforeEach(() => {
     addLayerMock.mockClear();
+    setDataMock.mockClear();
     mockMap.on.mockClear();
     mocks.markerMock.mockClear();
   });
@@ -110,5 +113,50 @@ describe('SilMapView', () => {
     const markerElements = mocks.markerMock.mock.calls.map(([options]) => options?.element as HTMLDivElement);
 
     expect(markerElements.map((el) => el.style.position)).toEqual(['absolute', 'absolute']);
+  });
+
+  it('renders preview target historical trails on the same target trail layer as live monitor', async () => {
+    render(
+      <SilMapView
+        previewData={{
+          ownShip: { lat: 63.4, lon: 10.4, heading: 30, sog: 7, cog: 30 },
+          targets: [{ id: 'target-1', lat: 63.41, lon: 10.41, heading: 210, sog: 8, cog: 210 }],
+          targetTrails: [{ id: 'target-1', trail: [[10.4, 63.4], [10.41, 63.41]] }],
+        }}
+      />
+    );
+
+    const loadHandler = mockMap.on.mock.calls.find((call) => call[0] === 'load')?.[1];
+    expect(loadHandler).toBeTypeOf('function');
+    act(() => {
+      loadHandler();
+    });
+
+    await waitFor(() => expect(setDataMock).toHaveBeenCalled());
+    const targetTrailPayload = setDataMock.mock.calls
+      .map(([payload]) => payload)
+      .find((payload) => payload?.features?.some((feature: any) => feature.properties?.id === 'target-1'));
+
+    expect(targetTrailPayload).toMatchObject({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { id: 'target-1' },
+          geometry: { type: 'LineString', coordinates: [[10.4, 63.4], [10.41, 63.41]] },
+        },
+      ],
+    });
+  });
+
+  it('keeps map scale and coordinate chips aligned with the layer switcher baseline', () => {
+    render(<SilMapView />);
+
+    const styleText = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    expect(styleText).not.toContain('margin-bottom: 68px');
+    expect(styleText).toContain('height: 30px');
+    expect(styleText).toContain('margin-bottom: 18px');
   });
 });

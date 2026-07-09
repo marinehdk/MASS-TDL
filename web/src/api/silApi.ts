@@ -270,10 +270,98 @@ export interface EvidenceSessionFinalizeRequest {
   run_id?: string;
 }
 
+export interface EvidenceLibrarySession {
+  evidence_id: string;
+  session_id: string;
+  source: string;
+  suite: string;
+  root_id: string;
+  worktree_name?: string | null;
+  branch?: string | null;
+  session_path: string;
+  created_at?: string | null;
+  ended_at?: string | null;
+  status?: string | null;
+  valid_data: number | boolean;
+  scenario_count: number;
+  passed_scenarios?: number;
+  failed_scenarios?: number;
+  scenario_ids: string[];
+  overview_png?: { scenario_id: string; relative_path: string } | null;
+  overview_pngs?: { scenario_id: string; relative_path: string }[];
+  ingest_status: string;
+  ingest_error?: string | null;
+}
+
+export interface EvidenceLibrarySessionsResponse {
+  sessions: EvidenceLibrarySession[];
+}
+
+export interface EvidenceReplayTrajectoryPoint {
+  vessel_id: string;
+  vessel_role: string;
+  sim_t: number;
+  wall_t?: number | null;
+  lat?: number | null;
+  lon?: number | null;
+  heading_deg?: number | null;
+  sog_kn?: number | null;
+  rot_deg_s?: number | null;
+  source_topic?: string | null;
+  sample_seq?: number;
+}
+
+export interface EvidenceReplayEvent {
+  event_id?: number;
+  sim_t: number;
+  wall_t?: number | null;
+  module: string;
+  event_type: string;
+  severity: string;
+  payload_json: string;
+  source_topic?: string | null;
+}
+
+export interface EvidenceGateResult {
+  gate_id: string;
+  status: string;
+  temporal_scope: string;
+  payload_json: string;
+  source: string;
+}
+
+export type EvidenceReplaySession = Omit<EvidenceLibrarySession, 'scenario_ids'> & {
+  scenario_ids?: string[];
+};
+
+export interface EvidenceReplayResponse {
+  session: EvidenceReplaySession;
+  scenario: {
+    scenario_id: string;
+    verdict?: string | null;
+    overall_pass?: boolean | number | null;
+    min_cpa_nm?: number | null;
+  };
+  duration_s: number;
+  trajectory: EvidenceReplayTrajectoryPoint[];
+  events: EvidenceReplayEvent[];
+  gates: EvidenceGateResult[];
+  artifacts: Array<{ artifact_id: number; kind: string; relative_path: string; available: number | boolean }>;
+}
+
+export interface EvidenceDecisionFrame {
+  evidence_id: string;
+  scenario_id: string;
+  sim_t: number;
+  chain: Record<string, { status: string; status_source: string; facts: Record<string, unknown> }>;
+  gates: EvidenceGateResult[];
+  nearby_events: EvidenceReplayEvent[];
+}
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
-  tagTypes: ['Scenario', 'Run', 'Integration', 'Runtime'],
+  tagTypes: ['Scenario', 'Run', 'Integration', 'Runtime', 'EvidenceLibrary'],
   endpoints: (builder) => ({
 
     // Scenario CRUD
@@ -366,6 +454,30 @@ export const silApi = createApi({
         method: 'POST',
         body,
       }),
+    }),
+
+    getEvidenceLibrarySessions: builder.query<EvidenceLibrarySessionsResponse, void>({
+      query: () => '/evidence-library/sessions',
+      providesTags: ['EvidenceLibrary'],
+    }),
+
+    rescanEvidenceLibrary: builder.mutation<{ ingested: number; errors: Array<{ path: string; error: string }> }, { force?: boolean }>({
+      query: (body) => ({
+        url: '/evidence-library/rescan',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['EvidenceLibrary'],
+    }),
+
+    getEvidenceReplay: builder.query<EvidenceReplayResponse, { evidenceId: string; scenarioId: string }>({
+      query: ({ evidenceId, scenarioId }) =>
+        `/evidence-library/sessions/${encodeURIComponent(evidenceId)}/scenarios/${encodeURIComponent(scenarioId)}/replay`,
+    }),
+
+    getDecisionFrame: builder.query<EvidenceDecisionFrame, { evidenceId: string; scenarioId: string; simT: number }>({
+      query: ({ evidenceId, scenarioId, simT }) =>
+        `/evidence-library/sessions/${encodeURIComponent(evidenceId)}/scenarios/${encodeURIComponent(scenarioId)}/decision-frame?sim_t=${encodeURIComponent(simT)}`,
     }),
 
     // Scoring (Screen ④)
@@ -548,6 +660,10 @@ export const {
   useChangeLifecycleRateMutation,
   useStartEvidenceSessionMutation,
   useFinalizeEvidenceSessionMutation,
+  useGetEvidenceLibrarySessionsQuery,
+  useRescanEvidenceLibraryMutation,
+  useGetEvidenceReplayQuery,
+  useGetDecisionFrameQuery,
   useGetLastRunScoringQuery,
   useGetAsdrEventsQuery,
   useProbeSelfCheckMutation,
