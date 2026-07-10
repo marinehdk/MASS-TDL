@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  LucideAlertTriangle,
+  LucideImage,
+  LucidePlay,
+  LucideScanSearch,
+  LucideSearch,
+  LucideTrash2,
+} from 'lucide-react';
+import {
+  useDeleteEvidenceLibrarySessionMutation,
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
   type EvidenceLibrarySession,
@@ -78,6 +87,9 @@ const displayWorktree = (session: EvidenceLibrarySession) => {
 const canOpen = (session: EvidenceLibrarySession) =>
   session.ingest_status === 'ok' && Boolean(session.valid_data) && scenarioCount(session) > 0;
 
+const hasOverview = (session: EvidenceLibrarySession) =>
+  Boolean(session.overview_png || session.overview_pngs?.length);
+
 const displayResult = (session: EvidenceLibrarySession) => {
   const count = scenarioCount(session);
   const passed = session.passed_scenarios ?? 0;
@@ -111,8 +123,31 @@ const uniqueValues = (rows: SessionRow[], key: SortKey) =>
     a.localeCompare(b, 'zh-Hans-CN', { numeric: true }),
   );
 
+const matchesSearch = (row: SessionRow, searchText: string) => {
+  const query = searchText.trim().toLocaleLowerCase();
+  if (!query) return true;
+  const values = [
+    row.id,
+    row.raw.session_id,
+    row.scenario,
+    ...(row.raw.scenario_ids ?? []),
+    row.source,
+    row.raw.source,
+    row.suite,
+    row.raw.suite,
+    row.mode,
+    row.worktree,
+    row.raw.worktree_name,
+    row.raw.branch,
+    row.result,
+  ];
+  return values.some((value) => String(value ?? '').toLocaleLowerCase().includes(query));
+};
+
 const cellStyle = {
-  padding: '10px 8px',
+  height: 42,
+  padding: '0 8px',
+  boxSizing: 'border-box',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -147,6 +182,19 @@ const refreshControlStyle = {
   boxSizing: 'border-box',
 } as const;
 
+const actionButtonStyle = {
+  height: 28,
+  padding: '0 9px',
+  borderRadius: 4,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 5,
+  whiteSpace: 'nowrap',
+  fontFamily: 'var(--f-mono)',
+  fontSize: 11,
+} as const;
+
 const formatCountdown = (seconds: number) => {
   const clamped = Math.max(0, seconds);
   const hours = Math.floor(clamped / 3600);
@@ -159,11 +207,13 @@ const formatCountdown = (seconds: number) => {
 export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const { data, isLoading, refetch } = useGetEvidenceLibrarySessionsQuery();
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
+  const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
   const sessions = data?.sessions ?? [];
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'time', direction: 'desc' });
   const [pageSize, setPageSize] = useState<20 | 50>(20);
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
+  const [searchText, setSearchText] = useState('');
   const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(86400);
   const [countdownSeconds, setCountdownSeconds] = useState(86400);
   const [overviewSession, setOverviewSession] = useState<EvidenceLibrarySession | null>(null);
@@ -171,12 +221,18 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [overviewScale, setOverviewScale] = useState(1);
   const [overviewOffset, setOverviewOffset] = useState({ x: 0, y: 0 });
   const [overviewDrag, setOverviewDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<EvidenceLibrarySession | null>(null);
+  const [deleteFailed, setDeleteFailed] = useState(false);
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
     const activeFilters = Object.entries(filters).filter(([, value]) => value);
-    return rows.filter((row) => activeFilters.every(([key, value]) => String(row[key as SortKey]) === value));
-  }, [filters, rows]);
+    return rows.filter((row) =>
+      matchesSearch(row, searchText)
+      && activeFilters.every(([key, value]) => String(row[key as SortKey]) === value),
+    );
+  }, [filters, rows, searchText]);
   const sortedRows = useMemo(() => {
     return [...filteredRows].sort((a, b) => {
       const result = compareRows(a, b, sort.key);
@@ -205,6 +261,30 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setOverviewSession(null);
     setOverviewIndex(0);
     resetOverviewView();
+  };
+
+  const openDeleteDialog = (session: EvidenceLibrarySession) => {
+    setDeleteFailed(false);
+    setPendingDelete(session);
+  };
+
+  const cancelDelete = () => {
+    setDeleteFailed(false);
+    setPendingDelete(null);
+  };
+
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setDeleteFailed(false);
+    try {
+      await deleteSession(target.evidence_id).unwrap();
+      if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
+      setPendingDelete(null);
+      await refetch();
+    } catch {
+      setDeleteFailed(true);
+    }
   };
 
   const changeOverviewImage = (delta: number) => {
@@ -275,7 +355,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   ) => (
     <th align="center" style={{ width, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 24 }}>
-        <span style={{ flex: 1, textAlign: 'center' }}>{label}</span>
+        <span style={{ flex: 1, textAlign: 'center', whiteSpace: 'nowrap' }}>{label}</span>
         {filter === 'enum' ? (
           enumFilter(key)
         ) : (
@@ -302,34 +382,57 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
+              flexWrap: 'wrap',
+              gap: 10,
               padding: '0 0 10px',
               fontFamily: 'var(--f-mono)',
-              position: 'relative',
-              minHeight: 34,
+              minHeight: 36,
             }}>
-              <div style={{
-                display: 'flex',
-                gap: 16,
-                color: 'var(--txt-3)',
-                fontSize: 12,
-              }}>
-                <span>记录数: {sessions.length}</span>
-                <span>显示: {sortedRows.length}</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flex: '0 1 auto' }}>
+                <h1 style={{
+                  fontFamily: 'var(--f-disp)',
+                  fontSize: 15,
+                  fontWeight: 800,
+                  letterSpacing: 0,
+                  color: 'var(--txt-1)',
+                  margin: 0,
+                  whiteSpace: 'nowrap',
+                }}>
+                  仿真数据库
+                </h1>
+                <div style={{ display: 'flex', gap: 12, color: 'var(--txt-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  <span>记录数: {sessions.length}</span>
+                  <span>显示: {sortedRows.length}</span>
+                </div>
               </div>
-              <h1 style={{
-                position: 'absolute',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                fontFamily: 'var(--f-disp)',
-                fontSize: 15,
-                fontWeight: 800,
-                letterSpacing: '0.08em',
-                color: 'var(--txt-1)',
-                margin: 0,
+              <label style={{
+                position: 'relative',
+                flex: '1 1 260px',
+                maxWidth: 420,
+                minWidth: 220,
               }}>
-                仿真数据库
-              </h1>
+                <LucideSearch
+                  size={14}
+                  aria-hidden="true"
+                  style={{ position: 'absolute', left: 9, top: 7, color: 'var(--txt-3)', pointerEvents: 'none' }}
+                />
+                <input
+                  type="search"
+                  aria-label="筛选仿真记录"
+                  value={searchText}
+                  onChange={(event) => {
+                    setSearchText(event.target.value);
+                    setPage(0);
+                  }}
+                  placeholder="筛选会话、场景、来源、工作树"
+                  style={{
+                    ...refreshControlStyle,
+                    width: '100%',
+                    padding: '0 10px 0 30px',
+                    outline: 'none',
+                  }}
+                />
+              </label>
               <div style={{
                 marginLeft: 'auto',
                 display: 'flex',
@@ -339,6 +442,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 fontSize: 12,
               }}>
                 <button
+                  type="button"
+                  aria-label={rescanState.isLoading ? '扫描中' : '扫描'}
+                  title="扫描证据库"
                   onClick={handleRescan}
                   disabled={rescanState.isLoading}
                   style={{
@@ -350,11 +456,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     padding: '0 14px',
                     borderRadius: 4,
                     whiteSpace: 'nowrap',
-                    lineHeight: '24px',
                     cursor: rescanState.isLoading ? 'wait' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
                   }}
                 >
-                  {rescanState.isLoading ? '刷新中' : '刷新'}
+                  <LucideScanSearch size={14} aria-hidden="true" />
+                  {rescanState.isLoading ? '扫描中' : '扫描'}
                 </button>
                 <select
                   value={autoRefreshSeconds}
@@ -385,7 +495,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               border: '1px solid var(--line-2)',
               background: 'linear-gradient(180deg, rgba(18, 29, 44, 0.72), rgba(7, 12, 19, 0.9))',
             }}>
-              <table style={{ width: '100%', minWidth: 1420, tableLayout: 'fixed', borderCollapse: 'collapse', fontFamily: 'var(--f-mono)', fontSize: 12 }}>
+              <table style={{ width: '100%', minWidth: 1400, tableLayout: 'fixed', borderCollapse: 'collapse', fontFamily: 'var(--f-mono)', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(13, 23, 35, 0.96)' }}>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--line-2)' }}>
                     {columnHeader('会话ID', 'id', 135)}
@@ -393,10 +503,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     {columnHeader('仿真结果', 'result', 120)}
                     {columnHeader('套件', 'suite', 125, 'enum')}
                     {columnHeader('模式', 'mode', 125, 'enum')}
-                    {columnHeader('仿真场景', 'scenario', 190)}
-                    {columnHeader('来源', 'source', 90, 'enum')}
-                    {columnHeader('工作树', 'worktree', 185)}
-                    <th align="center" style={{ width: 130, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>打开</th>
+                    {columnHeader('仿真场景', 'scenario', 180)}
+                    {columnHeader('来源', 'source', 125, 'enum')}
+                    {columnHeader('工作树', 'worktree', 170)}
+                    <th align="center" style={{ width: 240, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -405,56 +515,110 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                       key={row.raw.evidence_id}
                       style={{
                         borderTop: '1px solid rgba(78, 108, 139, 0.24)',
-                        background: index % 2 === 0 ? 'rgba(255, 255, 255, 0.012)' : 'transparent',
+                        background: hoveredRowId === row.id
+                          ? 'rgba(69, 211, 207, 0.09)'
+                          : index % 2 === 0 ? 'rgba(255, 255, 255, 0.018)' : 'transparent',
+                        transition: 'background 120ms ease',
                       }}
+                      onMouseEnter={() => setHoveredRowId(row.id)}
+                      onMouseLeave={() => setHoveredRowId(null)}
                     >
                       <td style={cellStyle} title={row.id}>{compactId(row.id)}</td>
                       <td style={cellStyle} title={row.raw.created_at ?? ''}>{row.time}</td>
-                      <td style={{
-                        ...cellStyle,
-                        color: row.result === '不通过' ? 'var(--c-danger)' : row.result === '通过' || row.result.includes('/' ) ? 'var(--c-stbd)' : 'var(--txt-3)',
-                        fontWeight: 700,
-                      }}>{row.result}</td>
+                      <td style={cellStyle}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: 48,
+                          height: 22,
+                          padding: '0 7px',
+                          borderRadius: 3,
+                          border: row.result === '不通过'
+                            ? '1px solid rgba(255, 91, 112, 0.55)'
+                            : row.result === '通过' || row.result.includes('/')
+                              ? '1px solid rgba(69, 211, 207, 0.48)'
+                              : '1px solid var(--line-2)',
+                          background: row.result === '不通过'
+                            ? 'rgba(255, 91, 112, 0.1)'
+                            : row.result === '通过' || row.result.includes('/')
+                              ? 'rgba(69, 211, 207, 0.08)'
+                              : 'rgba(255, 255, 255, 0.025)',
+                          color: row.result === '不通过'
+                            ? 'var(--c-danger)'
+                            : row.result === '通过' || row.result.includes('/')
+                              ? 'var(--c-stbd)'
+                              : 'var(--txt-3)',
+                          fontWeight: 700,
+                        }}>
+                          {row.result}
+                        </span>
+                      </td>
                       <td style={cellStyle}>{row.suite}</td>
                       <td style={cellStyle}>{row.mode}</td>
                       <td style={cellStyle} title={(row.raw.scenario_ids ?? []).join(', ')}>{row.scenario}</td>
                       <td style={cellStyle}>{row.source}</td>
                       <td style={cellStyle} title={row.worktree}>{row.worktree}</td>
-                      <td style={{ ...cellStyle, display: 'flex', justifyContent: 'center', gap: 6 }}>
-                        <button
-                          disabled={!row.raw.overview_png}
-                          onClick={() => {
-                            if (row.raw.overview_png) {
-                              setOverviewSession(row.raw);
-                              setOverviewIndex(0);
-                              resetOverviewView();
-                            }
-                          }}
-                          style={{
-                            border: '1px solid var(--line-2)',
-                            background: row.raw.overview_png ? 'rgba(69, 211, 207, 0.08)' : 'transparent',
-                            color: row.raw.overview_png ? 'var(--txt-1)' : 'var(--txt-3)',
-                            padding: '4px 8px',
-                            cursor: row.raw.overview_png ? 'pointer' : 'not-allowed',
-                          }}
-                        >
-                          概述
-                        </button>
-                        <button
-                          disabled={!canOpen(row.raw)}
-                          onClick={() => {
-                            if (canOpen(row.raw)) onOpen(row.raw.evidence_id);
-                          }}
-                          style={{
-                            border: '1px solid var(--line-2)',
-                            background: canOpen(row.raw) ? 'rgba(69, 211, 207, 0.08)' : 'transparent',
-                            color: canOpen(row.raw) ? 'var(--txt-1)' : 'var(--txt-3)',
-                            padding: '4px 10px',
-                            cursor: canOpen(row.raw) ? 'pointer' : 'not-allowed',
-                          }}
-                        >
-                          回放
-                        </button>
+                      <td style={cellStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: '100%' }}>
+                          <button
+                            type="button"
+                            disabled={!hasOverview(row.raw)}
+                            title="打开仿真概述"
+                            onClick={() => {
+                              if (hasOverview(row.raw)) {
+                                setOverviewSession(row.raw);
+                                setOverviewIndex(0);
+                                resetOverviewView();
+                              }
+                            }}
+                            style={{
+                              ...actionButtonStyle,
+                              border: '1px solid var(--line-2)',
+                              background: hasOverview(row.raw) ? 'rgba(69, 211, 207, 0.07)' : 'transparent',
+                              color: hasOverview(row.raw) ? 'var(--txt-1)' : 'var(--txt-3)',
+                              cursor: hasOverview(row.raw) ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <LucideImage size={13} aria-hidden="true" />
+                            概述
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canOpen(row.raw)}
+                            title="打开轨迹回放"
+                            onClick={() => {
+                              if (canOpen(row.raw)) onOpen(row.raw.evidence_id);
+                            }}
+                            style={{
+                              ...actionButtonStyle,
+                              border: '1px solid var(--line-2)',
+                              background: canOpen(row.raw) ? 'rgba(69, 211, 207, 0.07)' : 'transparent',
+                              color: canOpen(row.raw) ? 'var(--txt-1)' : 'var(--txt-3)',
+                              cursor: canOpen(row.raw) ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <LucidePlay size={13} aria-hidden="true" />
+                            回放
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`删除 ${row.raw.session_id}`}
+                            title={`删除 ${row.raw.session_id}`}
+                            disabled={deleteState.isLoading}
+                            onClick={() => openDeleteDialog(row.raw)}
+                            style={{
+                              ...actionButtonStyle,
+                              border: '1px solid rgba(255, 91, 112, 0.52)',
+                              background: 'rgba(255, 91, 112, 0.08)',
+                              color: 'var(--c-danger)',
+                              cursor: deleteState.isLoading ? 'wait' : 'pointer',
+                            }}
+                          >
+                            <LucideTrash2 size={13} aria-hidden="true" />
+                            删除
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -490,6 +654,111 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
           </>
         )}
       </main>
+      {pendingDelete && (
+        <div
+          role="dialog"
+          aria-label="删除仿真记录"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 70,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            background: 'rgba(0, 0, 0, 0.76)',
+          }}
+          onClick={() => {
+            if (!deleteState.isLoading) cancelDelete();
+          }}
+        >
+          <div
+            style={{
+              width: 'min(560px, 100%)',
+              border: '1px solid rgba(255, 91, 112, 0.5)',
+              borderRadius: 6,
+              background: 'var(--bg-1)',
+              boxShadow: '0 18px 50px rgba(0, 0, 0, 0.45)',
+              padding: 18,
+              fontFamily: 'var(--f-mono)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--c-danger)' }}>
+              <LucideAlertTriangle size={18} aria-hidden="true" />
+              <h2 style={{ margin: 0, fontSize: 15, letterSpacing: 0 }}>删除仿真记录</h2>
+            </div>
+            <p style={{ margin: '16px 0 7px', color: 'var(--txt-2)', fontSize: 12, lineHeight: 1.6 }}>
+              将永久删除会话 <strong style={{ color: 'var(--txt-1)' }}>{pendingDelete.session_id}</strong>。
+            </p>
+            <p style={{ margin: '0 0 8px', color: 'var(--txt-3)', fontSize: 11 }}>已索引运行上下文</p>
+            <code style={{
+              display: 'block',
+              padding: '9px 10px',
+              border: '1px solid var(--line-2)',
+              borderRadius: 4,
+              background: 'var(--bg-0)',
+              color: 'var(--txt-2)',
+              fontSize: 11,
+              lineHeight: 1.5,
+              overflowWrap: 'anywhere',
+              whiteSpace: 'normal',
+            }}>
+              {pendingDelete.session_path}
+            </code>
+            {deleteFailed && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 12,
+                  padding: '9px 10px',
+                  border: '1px solid rgba(255, 91, 112, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 91, 112, 0.08)',
+                  color: 'var(--c-danger)',
+                  fontSize: 11,
+                }}
+              >
+                删除失败，请保留记录后重试。
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={cancelDelete}
+                disabled={deleteState.isLoading}
+                style={{
+                  ...actionButtonStyle,
+                  minWidth: 72,
+                  border: '1px solid var(--line-2)',
+                  background: 'rgba(255, 255, 255, 0.025)',
+                  color: 'var(--txt-2)',
+                  cursor: deleteState.isLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={deleteState.isLoading}
+                style={{
+                  ...actionButtonStyle,
+                  minWidth: 96,
+                  border: '1px solid var(--c-danger)',
+                  background: 'rgba(255, 91, 112, 0.13)',
+                  color: 'var(--c-danger)',
+                  cursor: deleteState.isLoading ? 'wait' : 'pointer',
+                }}
+              >
+                <LucideTrash2 size={13} aria-hidden="true" />
+                {deleteState.isLoading ? '删除中' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {overviewSession && (
         <div
           role="dialog"

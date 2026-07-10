@@ -297,6 +297,18 @@ export interface EvidenceLibrarySessionsResponse {
   sessions: EvidenceLibrarySession[];
 }
 
+export interface EvidenceLibraryScanResult {
+  ingested: number;
+  pruned: number;
+  errors: Array<{ path: string; error: string }>;
+}
+
+export interface EvidenceLibraryDeleteResult {
+  evidence_id: string;
+  deleted_path: string;
+  filesystem_deleted: boolean;
+}
+
 export interface EvidenceReplayTrajectoryPoint {
   vessel_id: string;
   vessel_role: string;
@@ -461,11 +473,19 @@ export const silApi = createApi({
       providesTags: ['EvidenceLibrary'],
     }),
 
-    rescanEvidenceLibrary: builder.mutation<{ ingested: number; errors: Array<{ path: string; error: string }> }, { force?: boolean }>({
+    rescanEvidenceLibrary: builder.mutation<EvidenceLibraryScanResult, { force?: boolean }>({
       query: (body) => ({
         url: '/evidence-library/rescan',
         method: 'POST',
         body,
+      }),
+      invalidatesTags: ['EvidenceLibrary'],
+    }),
+
+    deleteEvidenceLibrarySession: builder.mutation<EvidenceLibraryDeleteResult, string>({
+      query: (evidenceId) => ({
+        url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
+        method: 'DELETE',
       }),
       invalidatesTags: ['EvidenceLibrary'],
     }),
@@ -662,6 +682,7 @@ export const {
   useFinalizeEvidenceSessionMutation,
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
+  useDeleteEvidenceLibrarySessionMutation,
   useGetEvidenceReplayQuery,
   useGetDecisionFrameQuery,
   useGetLastRunScoringQuery,
