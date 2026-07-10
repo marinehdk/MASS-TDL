@@ -396,6 +396,23 @@ describe('EvidenceLibraryView', () => {
     expect(apiMocks.refetch).not.toHaveBeenCalled();
   });
 
+  it('disables every delete action until the deleted row disappears and search regains focus', async () => {
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton(primarySession.session_id));
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+
+    await waitFor(() => expect(apiMocks.deleteSession).toHaveBeenCalledWith(primarySession.evidence_id));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument());
+    expect(deleteButton(secondarySession.session_id)).toBeDisabled();
+
+    apiMocks.sessions = [{ ...secondarySession }];
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole('searchbox', { name: '筛选仿真记录' })).toHaveFocus());
+    expect(deleteButton(secondarySession.session_id)).toBeEnabled();
+  });
+
   it('keeps the deletion dialog open and reports request failure', async () => {
     apiMocks.deleteUnwrap.mockRejectedValueOnce(new Error('delete failed'));
     render(<EvidenceLibraryView onOpen={vi.fn()} />);

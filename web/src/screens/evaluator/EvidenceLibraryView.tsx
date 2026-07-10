@@ -233,7 +233,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const deleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const focusSearchAfterDeleteRef = useRef<string | null>(null);
+  const [focusSearchAfterDeleteId, setFocusSearchAfterDeleteId] = useState<string | null>(null);
   const backgroundRef = useRef<HTMLElement | null>(null);
   const overviewDialogRef = useRef<HTMLDivElement | null>(null);
   const automaticScanAttemptedRef = useRef(false);
@@ -255,6 +255,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const visibleRows = sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const deleteActionsDisabled = deleteState.isLoading || focusSearchAfterDeleteId !== null;
   const overviewPngs = overviewSession
     ? overviewSession.overview_pngs?.length
       ? overviewSession.overview_pngs
@@ -303,7 +304,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     try {
       await deleteSession(target.evidence_id).unwrap();
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
-      focusSearchAfterDeleteRef.current = target.evidence_id;
+      setFocusSearchAfterDeleteId(target.evidence_id);
       closeDeleteDialog(false);
     } catch {
       setDeleteFailed(true);
@@ -375,12 +376,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [pendingDelete]);
 
   useEffect(() => {
-    const deletedEvidenceId = focusSearchAfterDeleteRef.current;
+    const deletedEvidenceId = focusSearchAfterDeleteId;
     if (!deletedEvidenceId || sessions.some((session) => session.evidence_id === deletedEvidenceId)) return;
-    searchInputRef.current?.focus();
-    focusSearchAfterDeleteRef.current = null;
-    deleteTriggerRef.current = null;
-  }, [sessions]);
+    const searchInput = searchInputRef.current;
+    searchInput?.focus();
+    if (searchInput && document.activeElement === searchInput) {
+      setFocusSearchAfterDeleteId(null);
+      deleteTriggerRef.current = null;
+    }
+  }, [focusSearchAfterDeleteId, sessions]);
 
   useEffect(() => {
     for (const element of [backgroundRef.current, overviewDialogRef.current]) {
@@ -731,14 +735,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                             type="button"
                             aria-label={`删除 ${row.raw.session_id}`}
                             title={`删除 ${row.raw.session_id}`}
-                            disabled={deleteState.isLoading}
+                            disabled={deleteActionsDisabled}
                             onClick={(event) => openDeleteDialog(row.raw, event.currentTarget)}
                             style={{
                               ...actionButtonStyle,
                               border: '1px solid rgba(255, 91, 112, 0.52)',
                               background: 'rgba(255, 91, 112, 0.08)',
                               color: 'var(--c-danger)',
-                              cursor: deleteState.isLoading ? 'wait' : 'pointer',
+                              cursor: deleteActionsDisabled ? 'wait' : 'pointer',
                             }}
                           >
                             <LucideTrash2 size={13} aria-hidden="true" />
