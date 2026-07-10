@@ -9,8 +9,20 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from sil_orchestrator.evidence_library import routes
+from sil_orchestrator.evidence_library import routes, service
 from sil_orchestrator.evidence_library.config import load_effective_config
+
+
+EVIDENCE_TABLES = (
+    "trajectory_downsample",
+    "trajectory_samples",
+    "state_segments",
+    "events",
+    "gate_results",
+    "artifacts",
+    "scenarios",
+    "sessions",
+)
 
 
 def _session(root: Path) -> Path:
@@ -101,6 +113,41 @@ def _app_for(repo: Path, tmp_path: Path, monkeypatch) -> FastAPI:
     app = FastAPI()
     app.include_router(routes.router)
     return app
+
+
+def _seed_all_evidence_tables(repo: Path, evidence_id: str, session: dict) -> Path:
+    database_path = load_effective_config(repo_root=repo).database_path
+    session_id = session["session_id"]
+    scenario_id = session["scenario_ids"][0]
+    with sqlite3.connect(database_path) as conn:
+        conn.execute(
+            "insert into state_segments values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (evidence_id, session_id, scenario_id, "M2", "test", 0.0, 1.0, "{}", "test"),
+        )
+        conn.execute(
+            "insert into events(evidence_id, session_id, scenario_id, sim_t, wall_t, module, "
+            "event_type, severity, payload_json, source_topic) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (evidence_id, session_id, scenario_id, 0.0, None, "test", "test", "info", "{}", "test"),
+        )
+        conn.commit()
+        assert all(
+            conn.execute(
+                f"select count(*) from {table} where evidence_id = ?", (evidence_id,)
+            ).fetchone()[0]
+            > 0
+            for table in EVIDENCE_TABLES
+        )
+    return database_path
+
+
+def _evidence_row_counts(database_path: Path, evidence_id: str) -> dict[str, int]:
+    with sqlite3.connect(database_path) as conn:
+        return {
+            table: conn.execute(
+                f"select count(*) from {table} where evidence_id = ?", (evidence_id,)
+            ).fetchone()[0]
+            for table in EVIDENCE_TABLES
+        }
 
 
 @pytest.mark.asyncio
@@ -383,7 +430,9 @@ async def test_delete_unified_session_removes_run_dir_and_all_index_rows(tmp_pat
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         await client.post("/api/v1/evidence-library/rescan", json={"force": True})
-        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+        database_path = _seed_all_evidence_tables(repo, evidence_id, session)
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
         listed = await client.get("/api/v1/evidence-library/sessions")
 
@@ -395,6 +444,7 @@ async def test_delete_unified_session_removes_run_dir_and_all_index_rows(tmp_pat
     }
     assert not trace_dir.parent.exists()
     assert listed.json()["sessions"] == []
+    assert _evidence_row_counts(database_path, evidence_id) == dict.fromkeys(EVIDENCE_TABLES, 0)
 
 
 @pytest.mark.asyncio
@@ -464,6 +514,194 @@ async def test_delete_untrusted_root_returns_409_without_deletion(tmp_path, monk
     assert response.status_code == 409
     assert trace_dir.parent.is_dir()
     assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_evidence_returns_404(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete("/api/v1/evidence-library/sessions/missing-evidence")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_disabled_root_returns_409_without_deletion(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    config_path = config_home / "evidence_library.json"
+
+    def write_config(enabled: bool) -> None:
+        config_path.write_text(json.dumps({
+            "roots": [{
+                "root_id": "disabled-root",
+                "label": "Disabled root",
+                "source": "test",
+                "path_glob": str(trace_dir),
+                "enabled": enabled,
+                "trusted": True,
+            }],
+        }))
+
+    write_config(True)
+    app = _app_for(repo, tmp_path, monkeypatch)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        write_config(False)
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 409
+    assert trace_dir.parent.is_dir()
+    assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_final_session_symlink(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        outside_trace = tmp_path / "outside-trace"
+        trace_dir.rename(outside_trace)
+        trace_dir.symlink_to(outside_trace, target_is_directory=True)
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 409
+    assert outside_trace.is_dir()
+    assert trace_dir.parent.is_dir()
+    assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_symlink_in_repo_runs_ancestor(tmp_path, monkeypatch):
+    real_repo = tmp_path / "real-repo"
+    trace_dir = _unified_session(real_repo)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "runs").symlink_to(real_repo / "runs", target_is_directory=True)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert rescan.json()["ingested"] == 1
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 409
+    assert trace_dir.parent.is_dir()
+    assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_session_path_escape(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    outside_session = _session(tmp_path / "outside-root")
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+        database_path = load_effective_config(repo_root=repo).database_path
+        with sqlite3.connect(database_path) as conn:
+            conn.execute(
+                "update sessions set session_path = ? where evidence_id = ?",
+                (str(outside_session), evidence_id),
+            )
+            conn.commit()
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 409
+    assert session_dir.is_dir()
+    assert outside_session.is_dir()
+    assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_rmtree_failure_retains_all_index_rows(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+        database_path = _seed_all_evidence_tables(repo, evidence_id, session)
+
+        def fail_rmtree(_target: Path) -> None:
+            raise OSError("mocked rmtree failure")
+
+        monkeypatch.setattr(service.shutil, "rmtree", fail_rmtree)
+        with pytest.raises(OSError, match="mocked rmtree failure"):
+            await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+
+    assert trace_dir.parent.is_dir()
+    assert all(count > 0 for count in _evidence_row_counts(database_path, evidence_id).values())
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_unified_run_meta_id_mismatch(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        run_meta_path = trace_dir.parent / "run_meta.json"
+        run_meta = json.loads(run_meta_path.read_text())
+        run_meta["run_id"] = "different-run-id"
+        run_meta_path.write_text(json.dumps(run_meta))
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+
+    assert response.status_code == 409
+    assert trace_dir.parent.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_nonliteral_unified_layout(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    relocated_run = repo / "custom-runs" / trace_dir.parent.name
+    relocated_run.parent.mkdir()
+    trace_dir.parent.rename(relocated_run)
+    trace_dir = relocated_run / "trace"
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    (config_home / "evidence_library.json").write_text(json.dumps({
+        "roots": [{
+            "root_id": "nonliteral-unified",
+            "label": "Nonliteral unified",
+            "source": "test",
+            "path_glob": str(trace_dir),
+            "enabled": True,
+            "trusted": True,
+        }],
+    }))
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+
+    assert response.status_code == 409
+    assert trace_dir.parent.is_dir()
 
 
 @pytest.mark.asyncio

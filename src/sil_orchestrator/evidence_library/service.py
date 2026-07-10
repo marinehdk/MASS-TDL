@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import shutil
 import sqlite3
 from contextlib import closing
@@ -101,29 +102,82 @@ def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
         conn.execute("delete from " + table + " where evidence_id = ?", (evidence_id,))
 
 
-def _deletion_target(session_path: Path) -> Path:
-    run_meta = session_path.parent / "run_meta.json"
-    if session_path.name == "trace" and run_meta.is_file() and not run_meta.is_symlink():
-        return session_path.parent
-    return session_path
+def _absolute_safe_path(path: Path, label: str) -> Path:
+    candidate = Path(path)
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        raise PermissionError(f"{label} must be an absolute path without parent traversal")
+    return candidate
+
+
+def _reject_symlink_components(path: Path, label: str) -> None:
+    candidate = _absolute_safe_path(path, label)
+    current = Path(candidate.anchor)
+    if current.is_symlink():
+        raise PermissionError(f"{label} contains a symlink component")
+    for part in candidate.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise PermissionError(f"{label} contains a symlink component")
+
+
+def _literal_unified_run_id(session_path: Path) -> str | None:
+    if session_path.name != "trace" or session_path.parent.parent.name != "runs":
+        return None
+    run_id = session_path.parent.name
+    if run_id in {"", ".", ".."} or Path(run_id).parts != (run_id,):
+        raise PermissionError("Unified evidence run ID must be one path component")
+    return run_id
+
+
+def _deletion_target(session_path: Path, session_id: str) -> Path:
+    run_meta_path = session_path.parent / "run_meta.json"
+    run_id = _literal_unified_run_id(session_path)
+    if run_id is None:
+        if session_path.name == "trace" and (run_meta_path.exists() or run_meta_path.is_symlink()):
+            raise PermissionError("Unified evidence must use the literal runs/<run_id>/trace layout")
+        return session_path
+    if session_id != run_id:
+        raise PermissionError("Unified run ID must match the indexed session ID")
+
+    target = session_path.parent
+    if not target.exists():
+        return target
+
+    _reject_symlink_components(run_meta_path, "Unified run metadata path")
+    if not run_meta_path.is_file():
+        raise PermissionError("Unified run metadata is missing")
+    try:
+        run_meta = json.loads(run_meta_path.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise PermissionError("Unified run metadata is invalid") from exc
+    if not isinstance(run_meta, dict) or run_meta.get("run_id") != run_id:
+        raise PermissionError("Unified run metadata does not match its run ID component")
+    return target
 
 
 def _matched_root_path(session_path: Path, root: EvidenceRootConfig) -> Path | None:
-    resolved_session = session_path.resolve()
+    session_path = _absolute_safe_path(session_path, "Evidence session path")
+    root_glob = _absolute_safe_path(Path(root.path_glob), "Configured evidence root glob")
+    _reject_symlink_components(session_path, "Evidence session path")
+    resolved_session = session_path.resolve(strict=False)
+
+    if session_path.match(str(root_glob)):
+        return session_path
+
     for match in sorted(glob.glob(root.path_glob)):
-        root_path = Path(match)
-        if not root_path.exists() or root_path.is_symlink():
+        root_path = _absolute_safe_path(Path(match), "Configured evidence root match")
+        if not root_path.exists():
             continue
         if root_path.is_file():
             root_path = root_path.parent
-        if session_path.is_symlink():
-            raise PermissionError("Evidence session path must not be a symlink")
-        if (root_path / "manifest.json").exists() and resolved_session != root_path.resolve():
+        resolved_root = root_path.resolve(strict=False)
+        if (root_path / "manifest.json").exists() and resolved_session != resolved_root:
             continue
         try:
-            resolved_session.relative_to(root_path.resolve())
+            resolved_session.relative_to(resolved_root)
         except ValueError:
             continue
+        _reject_symlink_components(root_path, "Configured evidence root match")
         return root_path
     return None
 
@@ -314,10 +368,12 @@ def get_config_payload(repo_root: Path | None = None) -> dict[str, Any]:
 
 
 def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> dict[str, Any]:
+    if repo_root is not None:
+        _reject_symlink_components(Path(repo_root).absolute(), "Repository root")
     config = load_effective_config(repo_root=repo_root)
     with closing(open_initialized(config)) as conn:
         row = conn.execute(
-            "select session_path, root_id from sessions where evidence_id = ?", (evidence_id,)
+            "select session_id, session_path, root_id from sessions where evidence_id = ?", (evidence_id,)
         ).fetchone()
         if row is None:
             raise LookupError(f"Evidence session not found: {evidence_id}")
@@ -329,27 +385,16 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
         if not root.enabled or not root.trusted:
             raise PermissionError("Evidence root must be enabled and trusted for deletion")
 
-        target = _deletion_target(session_path)
-        if not target.exists() and session_path.name == "trace" and not session_path.parent.exists():
-            target = session_path.parent
-        if target.is_symlink():
-            raise PermissionError("Evidence deletion target must not be a symlink")
-        if not target.exists():
-            _delete_evidence_rows(conn, evidence_id)
-            conn.commit()
-            return {
-                "evidence_id": evidence_id,
-                "deleted_path": str(target.resolve()),
-                "filesystem_deleted": False,
-            }
-
         matched_root = _matched_root_path(session_path, root)
         if matched_root is None:
             raise PermissionError("Evidence session is outside its configured root match")
 
-        resolved_session = session_path.resolve()
-        resolved_root = matched_root.resolve()
-        resolved_target = target.resolve()
+        target = _deletion_target(session_path, str(row["session_id"]))
+        _reject_symlink_components(matched_root, "Configured evidence root match")
+        _reject_symlink_components(target, "Evidence deletion target")
+        resolved_session = session_path.resolve(strict=False)
+        resolved_root = matched_root.resolve(strict=False)
+        resolved_target = target.resolve(strict=False)
         if target != session_path:
             if resolved_root != resolved_session or resolved_target != resolved_session.parent:
                 raise PermissionError("Unified run deletion requires the matched trace directory")
@@ -360,6 +405,15 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
                 raise PermissionError("Legacy evidence target escaped configured root") from exc
             if relative_target == Path("."):
                 raise PermissionError("Legacy evidence target must be below configured root")
+
+        if not target.exists():
+            _delete_evidence_rows(conn, evidence_id)
+            conn.commit()
+            return {
+                "evidence_id": evidence_id,
+                "deleted_path": str(resolved_target),
+                "filesystem_deleted": False,
+            }
 
         shutil.rmtree(target)
         _delete_evidence_rows(conn, evidence_id)
