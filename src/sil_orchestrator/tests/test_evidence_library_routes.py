@@ -126,9 +126,81 @@ async def test_rescan_prunes_indexed_session_when_manifest_is_removed(tmp_path, 
         await client.post("/api/v1/evidence-library/rescan", json={"force": True})
         (session_dir / "manifest.json").unlink()
         response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        listed = await client.get("/api/v1/evidence-library/sessions")
 
     assert response.status_code == 200
     assert response.json()["pruned"] == 1
+    assert listed.status_code == 200
+    assert listed.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_rescan_prunes_indexed_session_when_session_path_becomes_file(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        session_dir.rename(tmp_path / "renamed-session")
+        session_dir.write_text("session path replaced by file")
+        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert first.status_code == 200
+    assert first.json()["ingested"] == 1
+    assert response.status_code == 200
+    assert response.json()["pruned"] == 1
+    assert listed.status_code == 200
+    assert listed.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_rescan_retains_physical_session_under_disabled_root(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    root = repo / "runs" / "disabled-root"
+    session_dir = _session(root)
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    config_path = config_home / "evidence_library.json"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+
+    def write_root_config(enabled: bool) -> None:
+        config_path.write_text(json.dumps({
+            "roots": [{
+                "root_id": "test-root",
+                "label": "Test root",
+                "source": "test",
+                "path_glob": str(root),
+                "enabled": enabled,
+                "trusted": True,
+            }],
+        }))
+
+    write_root_config(True)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        write_root_config(False)
+        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert session_dir.is_dir()
+    assert (session_dir / "manifest.json").is_file()
+    assert first.status_code == 200
+    assert first.json()["ingested"] == 1
+    assert response.status_code == 200
+    assert response.json()["pruned"] == 0
+    assert listed.status_code == 200
+    assert len(listed.json()["sessions"]) == 1
+    assert listed.json()["sessions"][0]["session_path"] == str(session_dir.resolve())
 
 
 @pytest.mark.asyncio
