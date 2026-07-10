@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -98,6 +99,33 @@ def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
         "sessions",
     ):
         conn.execute("delete from " + table + " where evidence_id = ?", (evidence_id,))
+
+
+def _deletion_target(session_path: Path) -> Path:
+    run_meta = session_path.parent / "run_meta.json"
+    if session_path.name == "trace" and run_meta.is_file() and not run_meta.is_symlink():
+        return session_path.parent
+    return session_path
+
+
+def _matched_root_path(session_path: Path, root: EvidenceRootConfig) -> Path | None:
+    resolved_session = session_path.resolve()
+    for match in sorted(glob.glob(root.path_glob)):
+        root_path = Path(match)
+        if not root_path.exists() or root_path.is_symlink():
+            continue
+        if root_path.is_file():
+            root_path = root_path.parent
+        if session_path.is_symlink():
+            raise PermissionError("Evidence session path must not be a symlink")
+        if (root_path / "manifest.json").exists() and resolved_session != root_path.resolve():
+            continue
+        try:
+            resolved_session.relative_to(root_path.resolve())
+        except ValueError:
+            continue
+        return root_path
+    return None
 
 
 def _prune_missing_sessions(conn: sqlite3.Connection) -> int:
@@ -282,4 +310,62 @@ def get_config_payload(repo_root: Path | None = None) -> dict[str, Any]:
         "raw_trace_policy": config.raw_trace_policy,
         "effective_retention_policy": config.effective_retention_policy,
         "roots": _root_rows(config),
+    }
+
+
+def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> dict[str, Any]:
+    config = load_effective_config(repo_root=repo_root)
+    with closing(open_initialized(config)) as conn:
+        row = conn.execute(
+            "select session_path, root_id from sessions where evidence_id = ?", (evidence_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Evidence session not found: {evidence_id}")
+
+        session_path = Path(row["session_path"])
+        root = next((item for item in config.roots if item.root_id == row["root_id"]), None)
+        if root is None:
+            raise PermissionError("Evidence root is no longer configured")
+        if not root.enabled or not root.trusted:
+            raise PermissionError("Evidence root must be enabled and trusted for deletion")
+
+        target = _deletion_target(session_path)
+        if not target.exists() and session_path.name == "trace" and not session_path.parent.exists():
+            target = session_path.parent
+        if target.is_symlink():
+            raise PermissionError("Evidence deletion target must not be a symlink")
+        if not target.exists():
+            _delete_evidence_rows(conn, evidence_id)
+            conn.commit()
+            return {
+                "evidence_id": evidence_id,
+                "deleted_path": str(target.resolve()),
+                "filesystem_deleted": False,
+            }
+
+        matched_root = _matched_root_path(session_path, root)
+        if matched_root is None:
+            raise PermissionError("Evidence session is outside its configured root match")
+
+        resolved_session = session_path.resolve()
+        resolved_root = matched_root.resolve()
+        resolved_target = target.resolve()
+        if target != session_path:
+            if resolved_root != resolved_session or resolved_target != resolved_session.parent:
+                raise PermissionError("Unified run deletion requires the matched trace directory")
+        else:
+            try:
+                relative_target = resolved_target.relative_to(resolved_root)
+            except ValueError as exc:
+                raise PermissionError("Legacy evidence target escaped configured root") from exc
+            if relative_target == Path("."):
+                raise PermissionError("Legacy evidence target must be below configured root")
+
+        shutil.rmtree(target)
+        _delete_evidence_rows(conn, evidence_id)
+        conn.commit()
+    return {
+        "evidence_id": evidence_id,
+        "deleted_path": str(resolved_target),
+        "filesystem_deleted": True,
     }

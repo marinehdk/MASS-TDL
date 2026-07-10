@@ -5,7 +5,15 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from .service import get_config_payload, get_decision_frame, get_overview_png_path, get_replay, list_sessions, rescan_all
+from .service import (
+    delete_evidence_session,
+    get_config_payload,
+    get_decision_frame,
+    get_overview_png_path,
+    get_replay,
+    list_sessions,
+    rescan_all,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -31,6 +39,16 @@ async def rescan(request: dict):
 @router.get("/sessions")
 async def sessions(limit: int = 200):
     return {"sessions": list_sessions(limit=limit, repo_root=REPO_ROOT)}
+
+
+@router.delete("/sessions/{evidence_id}")
+async def delete_session(evidence_id: str):
+    try:
+        return delete_evidence_session(evidence_id, repo_root=REPO_ROOT)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/sessions/{evidence_id}/scenarios/{scenario_id}/replay")

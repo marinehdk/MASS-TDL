@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -92,6 +93,14 @@ def _unified_session(repo: Path) -> Path:
         json.dumps({"sim_t": 0, "topic": "/sil/own_ship_state", "lat": 0, "lon": 0}) + "\n"
     )
     return trace
+
+
+def _app_for(repo: Path, tmp_path: Path, monkeypatch) -> FastAPI:
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+    return app
 
 
 @pytest.mark.asyncio
@@ -364,6 +373,97 @@ async def test_rescan_supports_unified_run_trace_folder(tmp_path, monkeypatch):
             "scenario_id": "colreg-rule15-cs",
             "relative_path": "colreg-rule15-cs/trajectory_dashboard.png",
         }
+
+
+@pytest.mark.asyncio
+async def test_delete_unified_session_removes_run_dir_and_all_index_rows(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "evidence_id": evidence_id,
+        "deleted_path": str(trace_dir.parent.resolve()),
+        "filesystem_deleted": True,
+    }
+    assert not trace_dir.parent.exists()
+    assert listed.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_legacy_session_removes_only_indexed_session_directory(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+
+    assert response.status_code == 200
+    assert response.json()["deleted_path"] == str(session_dir.resolve())
+    assert response.json()["filesystem_deleted"] is True
+    assert not session_dir.exists()
+    assert (repo / "runs" / "trace_eval").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_session_target_removes_index_rows_only(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        shutil.rmtree(trace_dir.parent)
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "evidence_id": evidence_id,
+        "deleted_path": str(trace_dir.parent.resolve()),
+        "filesystem_deleted": False,
+    }
+    assert listed.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_untrusted_root_returns_409_without_deletion(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    (config_home / "evidence_library.json").write_text(json.dumps({
+        "roots": [{
+            "root_id": "untrusted-root",
+            "label": "Untrusted root",
+            "source": "test",
+            "path_glob": str(trace_dir),
+            "enabled": True,
+            "trusted": False,
+        }],
+    }))
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 409
+    assert trace_dir.parent.is_dir()
+    assert len(listed.json()["sessions"]) == 1
 
 
 @pytest.mark.asyncio
