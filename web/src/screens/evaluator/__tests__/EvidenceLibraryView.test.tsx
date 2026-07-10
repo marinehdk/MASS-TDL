@@ -670,4 +670,58 @@ describe('evidence library RTK invalidation', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('does not resurrect a deleted row when an older sessions request wins before a failed refetch', async () => {
+    const raceSession = {
+      ...primarySession,
+      evidence_id: 'pending-before-delete',
+      session_id: '20260710_120000_pending_before_delete',
+    };
+    const requestOrder: string[] = [];
+    let getCount = 0;
+    let resolveStaleGet!: (response: Response) => void;
+    const staleGet = new Promise<Response>((resolve) => {
+      resolveStaleGet = resolve;
+    });
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        requestOrder.push(`GET-${getCount}`);
+        if (getCount === 1) return staleGet;
+        return jsonResponse({ detail: 'invalidation refresh failed' }, 500);
+      }
+      requestOrder.push('DELETE');
+      return jsonResponse({
+        evidence_id: raceSession.evidence_id,
+        deleted_path: raceSession.deletion_target,
+        filesystem_deleted: true,
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await waitFor(() => expect(requestOrder).toEqual(['GET-1']));
+      await store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(raceSession.evidence_id),
+      ).unwrap();
+      expect(requestOrder).toEqual(['GET-1', 'DELETE']);
+
+      resolveStaleGet(jsonResponse({ sessions: [raceSession, secondarySession] }));
+      await subscription.unwrap();
+      await waitFor(() => expect(requestOrder).toEqual(['GET-1', 'DELETE', 'GET-2']));
+      await waitFor(() => {
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+        expect(query.isError).toBe(true);
+      });
+
+      const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
+        secondarySession.evidence_id,
+      ]);
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
 });

@@ -373,6 +373,9 @@ export interface EvidenceDecisionFrame {
   nearby_events: EvidenceReplayEvent[];
 }
 
+// Older in-flight list requests must not overwrite successful local deletions.
+const deletedEvidenceLibrarySessionIds = new Set<string>();
+
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
@@ -473,6 +476,12 @@ export const silApi = createApi({
 
     getEvidenceLibrarySessions: builder.query<EvidenceLibrarySessionsResponse, void>({
       query: () => '/evidence-library/sessions',
+      transformResponse: (response: EvidenceLibrarySessionsResponse) => ({
+        ...response,
+        sessions: response.sessions.filter(
+          (session) => !deletedEvidenceLibrarySessionIds.has(session.evidence_id),
+        ),
+      }),
       providesTags: ['EvidenceLibrary'],
     }),
 
@@ -492,11 +501,12 @@ export const silApi = createApi({
         url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
         method: 'DELETE',
       }),
-      async onQueryStarted(_evidenceId, { dispatch, queryFulfilled }) {
+      async onQueryStarted(evidenceId, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled;
+          await queryFulfilled;
+          deletedEvidenceLibrarySessionIds.add(evidenceId);
           dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
-            draft.sessions = draft.sessions.filter((session) => session.evidence_id !== data.evidence_id);
+            draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
           }));
         } catch {
           // Rejected deletes leave the indexed-session cache unchanged.
