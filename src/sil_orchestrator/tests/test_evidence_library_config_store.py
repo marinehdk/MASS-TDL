@@ -22,9 +22,16 @@ def test_load_effective_config_uses_mass_l3_config_home(tmp_path, monkeypatch):
 
     assert config.config_home == config_home
     assert config.database_path == config_home / "evidence_index.sqlite"
-    assert [root.root_id for root in config.roots] == ["primary", "worktrees"]
-    assert config.roots[0].path_glob == str(repo / "runs" / "trace_eval")
-    assert config.roots[1].path_glob == str(repo / ".worktrees" / "*" / "runs" / "trace_eval")
+    assert [root.root_id for root in config.roots] == [
+        "primary-unified",
+        "worktrees-unified",
+        "primary",
+        "worktrees",
+    ]
+    assert config.roots[0].path_glob == str(repo / "runs" / "*" / "trace")
+    assert config.roots[1].path_glob == str(repo / ".worktrees" / "*" / "runs" / "*" / "trace")
+    assert config.roots[2].path_glob == str(repo / "runs" / "trace_eval")
+    assert config.roots[3].path_glob == str(repo / ".worktrees" / "*" / "runs" / "trace_eval")
     assert config.raw_trace_policy == "compress_after_ingest"
     assert config.effective_retention_policy == "keep"
 

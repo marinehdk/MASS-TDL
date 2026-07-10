@@ -35,6 +35,63 @@ def _session(root: Path) -> Path:
     return session
 
 
+def _unified_session(repo: Path) -> Path:
+    run = repo / "runs" / "20260709_094036"
+    trace = run / "trace"
+    scenario = trace / "colreg-rule15-cs"
+    scenario.mkdir(parents=True)
+    (run / "run_meta.json").write_text(json.dumps({
+        "run_id": "20260709_094036",
+        "created_at": "2026-07-09T09:40:36+00:00",
+        "source": "cli",
+        "mode": "fast",
+        "scenario_count": 1,
+        "name": "ho-cs-fast-debug",
+        "scenarios": ["colreg-rule15-cs"],
+        "git_head": "50a1681c1",
+        "status": "completed",
+        "overall_pass": False,
+        "verdicts": {"colreg-rule15-cs": "fail"},
+    }))
+    (trace / "manifest.json").write_text(json.dumps({
+        "session_name": "trace",
+        "source": "cli",
+        "suite": "clean8",
+        "created_at": "2026-07-09T17:42:06+08:00",
+        "status": "completed",
+        "valid_data": True,
+        "scenarios": [{
+            "scenario_id": "colreg-rule15-cs",
+            "trace_path": "colreg-rule15-cs/trace_current.jsonl",
+            "report_path": "colreg-rule15-cs/report.json",
+            "png_path": "colreg-rule15-cs/trajectory_dashboard.png",
+            "run_id": "20260709_094036",
+            "valid_data": True,
+        }],
+    }))
+    (trace / "summary.json").write_text(json.dumps({
+        "colreg-rule15-cs": {
+            "scenario_id": "colreg-rule15-cs",
+            "overall_pass": False,
+            "cpa_ok": True,
+            "stability_pass": True,
+            "returned_to_route": False,
+            "route_corridor_ok": True,
+            "compliance_verdict": "full",
+            "phase_semantics": {"phase_semantics_ok": True},
+            "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+            "artifact_consistency": {"g_art_ok": True},
+        }
+    }))
+    (scenario / "report.json").write_text(json.dumps({"verdict": {"overall_pass": False}, "layers": {}}))
+    (scenario / "trajectory_dashboard.png").write_bytes(b"png")
+    (scenario / "m5_timeline.json").write_text(json.dumps({"events": []}))
+    (scenario / "trace_current.jsonl").write_text(
+        json.dumps({"sim_t": 0, "topic": "/sil/own_ship_state", "lat": 0, "lon": 0}) + "\n"
+    )
+    return trace
+
+
 @pytest.mark.asyncio
 async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
@@ -126,6 +183,35 @@ async def test_rescan_sessions_replay_and_decision_frame(tmp_path, monkeypatch):
         frame = await client.get(f"/api/v1/evidence-library/sessions/{evidence_id}/scenarios/colreg-rule14-ho/decision-frame?sim_t=0")
         assert frame.status_code == 200
         assert frame.json()["evidence_id"] == evidence_id
+
+
+@pytest.mark.asyncio
+async def test_rescan_supports_unified_run_trace_folder(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    _unified_session(repo)
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert rescan.status_code == 200
+        assert rescan.json()["ingested"] == 1
+
+        listed = await client.get("/api/v1/evidence-library/sessions")
+        session = listed.json()["sessions"][0]
+        assert session["session_id"] == "20260709_094036"
+        assert session["source"] == "cli"
+        assert session["suite"] == "fast"
+        assert session["scenario_ids"] == ["colreg-rule15-cs"]
+        assert session["passed_scenarios"] == 0
+        assert session["failed_scenarios"] == 1
+        assert session["overview_png"] == {
+            "scenario_id": "colreg-rule15-cs",
+            "relative_path": "colreg-rule15-cs/trajectory_dashboard.png",
+        }
 
 
 @pytest.mark.asyncio

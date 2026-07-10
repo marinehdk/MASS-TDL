@@ -155,11 +155,36 @@ def _project_relative_position(lat: Any, lon: Any, bearing_deg: Any, range_m: An
 
 
 def _scenario_from_batch(batch: dict[str, Any], scenario_id: str) -> dict[str, Any]:
+    direct = batch.get(scenario_id)
+    if isinstance(direct, dict):
+        return direct
     rows = batch.get("results") or batch.get("scenarios") or []
     for row in rows:
         if row.get("scenario") == scenario_id or row.get("scenario_id") == scenario_id:
             return row
     return {}
+
+
+def _run_meta_path(session_path: Path) -> Path | None:
+    candidates = [session_path / "run_meta.json"]
+    if session_path.name == "trace":
+        candidates.append(session_path.parent / "run_meta.json")
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _read_run_meta(session_path: Path) -> dict[str, Any]:
+    path = _run_meta_path(session_path)
+    return _read_json(path) if path is not None else {}
+
+
+def _latest_mtime(session_path: Path, run_meta_path: Path | None) -> float:
+    file_mtimes = [p.stat().st_mtime for p in session_path.rglob("*") if p.is_file()]
+    if run_meta_path is not None:
+        file_mtimes.append(run_meta_path.stat().st_mtime)
+    return max(file_mtimes, default=(session_path / "manifest.json").stat().st_mtime)
 
 
 def _gate_rows(
@@ -495,12 +520,15 @@ def _trajectory_rows(evidence_id: str, session_id: str, scenario_id: str, trace_
 def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_path: Path, raw_trace_policy: str = "keep", force: bool = False) -> IngestResult:
     session_path = session_path.resolve()
     manifest = _read_json(session_path / "manifest.json")
-    session_id = str(manifest.get("session_name") or session_path.name)
+    run_meta_path = _run_meta_path(session_path)
+    run_meta = _read_run_meta(session_path)
+    session_id = str(run_meta.get("run_id") or manifest.get("session_name") or session_path.name)
     evidence_id = compute_evidence_id(root.root_id, session_path)
     scenarios = manifest.get("scenarios") or []
-    latest_mtime = max((p.stat().st_mtime for p in session_path.glob("*") if p.is_file()), default=(session_path / "manifest.json").stat().st_mtime)
+    latest_mtime = _latest_mtime(session_path, run_meta_path)
+    summary_path = session_path / "summary.json"
     batch_path = session_path / "batch_summary.json"
-    batch = _read_json(batch_path) if batch_path.exists() else {}
+    batch = _read_json(summary_path) if summary_path.exists() else _read_json(batch_path) if batch_path.exists() else {}
 
     with conn:
         for table in ("scenarios", "artifacts", "trajectory_samples", "trajectory_downsample", "state_segments", "events", "gate_results"):
@@ -516,22 +544,23 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
             (
                 evidence_id,
                 session_id,
-                str(manifest.get("source") or root.source),
-                str(manifest.get("suite") or "unknown"),
+                str(run_meta.get("source") or manifest.get("source") or root.source),
+                str(run_meta.get("mode") or manifest.get("suite") or "unknown"),
                 root.root_id,
                 None,
-                None,
+                run_meta.get("git_head"),
                 str(session_path),
-                manifest.get("created_at"),
+                run_meta.get("created_at") or manifest.get("created_at"),
                 manifest.get("ended_at"),
-                manifest.get("status"),
-                1 if manifest.get("valid_data") else 0,
-                len(scenarios),
+                run_meta.get("status") or manifest.get("status"),
+                1 if manifest.get("valid_data", True) else 0,
+                int(run_meta.get("scenario_count") or len(scenarios)),
                 raw_trace_policy,
                 latest_mtime,
             ),
         )
         _insert_artifact(conn, evidence_id, session_id, None, "manifest", session_path, session_path / "manifest.json")
+        _insert_artifact(conn, evidence_id, session_id, None, "summary", session_path, summary_path)
         _insert_artifact(conn, evidence_id, session_id, None, "batch_summary", session_path, batch_path)
 
         trajectory_count = 0
@@ -544,11 +573,19 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
                 trace_path = trace_path.with_suffix(trace_path.suffix + ".gz")
             art_path = _safe_session_child(session_path, f"{scenario_id}.artifact_consistency.json", f"{scenario_id}.artifact_consistency.json")
             report = _read_json(report_path) if report_path.exists() else {}
-            art = _read_json(art_path) if art_path.exists() else {}
             batch_row = _scenario_from_batch(batch, scenario_id)
+            art = _read_json(art_path) if art_path.exists() else batch_row.get("artifact_consistency") or {}
             overall = batch_row.get("overall_pass")
             if overall is None:
                 overall = (report.get("verdict") or {}).get("overall_pass")
+            if overall is None:
+                verdict = (run_meta.get("verdicts") or {}).get(scenario_id)
+                if isinstance(verdict, str):
+                    normalized_verdict = verdict.strip().lower()
+                    if normalized_verdict in {"pass", "passed", "ok"}:
+                        overall = True
+                    elif normalized_verdict in {"fail", "failed", "no"}:
+                        overall = False
             conn.execute(
                 """
                 insert into scenarios(evidence_id, session_id, scenario_id, run_id, verdict, overall_pass, first_failure, first_failed_gate, first_failed_module, role, cpa_floor_m, min_cpa_m, min_cpa_nm, returned_to_route, route_return_required, route_corridor_ok, stability_pass, compliance_verdict)
@@ -578,6 +615,10 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "trace_report", session_path, report_path)
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "trace_jsonl_gz" if trace_path.suffix == ".gz" else "trace_jsonl", session_path, trace_path)
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "artifact_consistency", session_path, art_path)
+            m5_timeline_path = _safe_session_child(session_path, scenario.get("m5_timeline_path"), f"{scenario_id}/m5_timeline.json")
+            _insert_artifact(conn, evidence_id, session_id, scenario_id, "m5_timeline", session_path, m5_timeline_path)
+            trajectory_png_path = _safe_session_child(session_path, scenario.get("trajectory_path"), f"{scenario_id}/trajectory.png")
+            _insert_artifact(conn, evidence_id, session_id, scenario_id, "trajectory_png", session_path, trajectory_png_path)
             png_path = _safe_session_child(session_path, scenario.get("png_path"), f"{scenario_id}_trajectory_dashboard.png")
             _insert_artifact(conn, evidence_id, session_id, scenario_id, "trajectory_dashboard_png", session_path, png_path)
             if trace_path.exists():

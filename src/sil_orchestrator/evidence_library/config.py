@@ -47,6 +47,26 @@ def _default_config(repo_root: Path) -> dict[str, Any]:
         "raw_trace_policy": "compress_after_ingest",
         "roots": [
             {
+                "root_id": "primary-unified",
+                "label": "Primary checkout unified runs",
+                "source": "background_probe",
+                "path_glob": "{repo_root}/runs/*/trace",
+                "enabled": True,
+                "trusted": True,
+                "allow_retention_mutation": False,
+                "follow_symlinks": False,
+            },
+            {
+                "root_id": "worktrees-unified",
+                "label": "Worktree unified runs",
+                "source": "background_probe",
+                "path_glob": "{repo_root}/.worktrees/*/runs/*/trace",
+                "enabled": True,
+                "trusted": True,
+                "allow_retention_mutation": False,
+                "follow_symlinks": False,
+            },
+            {
                 "root_id": "primary",
                 "label": "Primary checkout trace_eval",
                 "source": "background_probe",
