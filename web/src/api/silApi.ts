@@ -279,6 +279,9 @@ export interface EvidenceLibrarySession {
   worktree_name?: string | null;
   branch?: string | null;
   session_path: string;
+  deletion_allowed: boolean;
+  deletion_target: string | null;
+  deletion_error?: string | null;
   created_at?: string | null;
   ended_at?: string | null;
   status?: string | null;
@@ -489,6 +492,16 @@ export const silApi = createApi({
         url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
         method: 'DELETE',
       }),
+      async onQueryStarted(_evidenceId, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+            draft.sessions = draft.sessions.filter((session) => session.evidence_id !== data.evidence_id);
+          }));
+        } catch {
+          // Rejected deletes leave the indexed-session cache unchanged.
+        }
+      },
       invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
     }),
 

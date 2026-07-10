@@ -278,6 +278,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const openDeleteDialog = (session: EvidenceLibrarySession, trigger: HTMLButtonElement) => {
+    if (deleteState.isLoading || !session.deletion_allowed || !session.deletion_target) return;
     setDeleteFailed(false);
     deleteTriggerRef.current = trigger;
     setPendingDelete(session);
@@ -294,13 +295,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const cancelDelete = () => {
+    if (deleteState.isLoading) return;
     closeDeleteDialog();
   };
 
   const handleDelete = async () => {
     if (!pendingDelete) return;
     const target = pendingDelete;
-    setDeleteFailed(false);
     try {
       await deleteSession(target.evidence_id).unwrap();
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
@@ -322,10 +323,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const handleRescan = useCallback(async () => {
-    setScanFailed(false);
-    setScanResult(null);
     try {
       const result = await rescan({ force: false }).unwrap();
+      setScanFailed(false);
       setScanResult(result);
       automaticScanAttemptedRef.current = false;
       setCountdownSeconds(autoRefreshSeconds);
@@ -586,7 +586,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 </span>
               </div>
             </div>
-            {(scanFailed || Boolean(scanResult?.errors.length)) && (
+            {scanFailed && (
               <div
                 role="alert"
                 style={{
@@ -600,22 +600,39 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   fontSize: 11,
                 }}
               >
-                {scanFailed ? (
-                  '扫描失败，请保留当前结果后重试。'
-                ) : scanResult ? (
-                  <>
-                    <strong>
-                      扫描部分完成：写入 {scanResult.ingested}，清理 {scanResult.pruned}，错误 {scanResult.errors.length}。
-                    </strong>
-                    <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                      {scanResult.errors.map((error, index) => (
-                        <li key={`${error.path}-${index}`}>
-                          <code>{error.path}</code>: {error.error}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
+                扫描失败，请保留当前结果后重试。
+              </div>
+            )}
+            {scanResult && (
+              <div
+                role={scanResult.errors.length > 0 ? 'alert' : 'status'}
+                style={{
+                  margin: '0 0 10px',
+                  padding: '8px 10px',
+                  border: scanResult.errors.length > 0
+                    ? '1px solid rgba(255, 91, 112, 0.5)'
+                    : '1px solid rgba(69, 211, 207, 0.42)',
+                  borderRadius: 4,
+                  background: scanResult.errors.length > 0
+                    ? 'rgba(255, 91, 112, 0.08)'
+                    : 'rgba(69, 211, 207, 0.06)',
+                  color: scanResult.errors.length > 0 ? 'var(--c-danger)' : 'var(--txt-2)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 11,
+                }}
+              >
+                <strong>
+                  {scanResult.errors.length > 0 ? '扫描部分完成' : '扫描完成'}：写入 {scanResult.ingested}，清理 {scanResult.pruned}，错误 {scanResult.errors.length}。
+                </strong>
+                {scanResult.errors.length > 0 && (
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {scanResult.errors.map((error, index) => (
+                      <li key={`${error.path}-${index}`}>
+                        <code>{error.path}</code>: {error.error}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
             <div style={{
@@ -734,15 +751,19 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                           <button
                             type="button"
                             aria-label={`删除 ${row.raw.session_id}`}
-                            title={`删除 ${row.raw.session_id}`}
-                            disabled={deleteActionsDisabled}
+                            title={row.raw.deletion_allowed && row.raw.deletion_target
+                              ? `删除 ${row.raw.session_id}`
+                              : row.raw.deletion_error || '删除目标不安全'}
+                            disabled={deleteActionsDisabled || !row.raw.deletion_allowed || !row.raw.deletion_target}
                             onClick={(event) => openDeleteDialog(row.raw, event.currentTarget)}
                             style={{
                               ...actionButtonStyle,
                               border: '1px solid rgba(255, 91, 112, 0.52)',
                               background: 'rgba(255, 91, 112, 0.08)',
                               color: 'var(--c-danger)',
-                              cursor: deleteActionsDisabled ? 'wait' : 'pointer',
+                              cursor: deleteActionsDisabled
+                                ? 'wait'
+                                : row.raw.deletion_allowed && row.raw.deletion_target ? 'pointer' : 'not-allowed',
                             }}
                           >
                             <LucideTrash2 size={13} aria-hidden="true" />
@@ -802,9 +823,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             padding: 20,
             background: 'rgba(0, 0, 0, 0.76)',
           }}
-          onClick={() => {
-            if (!deleteState.isLoading) cancelDelete();
-          }}
+          onClick={cancelDelete}
         >
           <div
             style={{
@@ -825,7 +844,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             <p style={{ margin: '16px 0 7px', color: 'var(--txt-2)', fontSize: 12, lineHeight: 1.6 }}>
               将永久删除会话 <strong style={{ color: 'var(--txt-1)' }}>{pendingDelete.session_id}</strong>。
             </p>
-            <p style={{ margin: '0 0 8px', color: 'var(--txt-3)', fontSize: 11 }}>已索引运行上下文</p>
+            <p style={{ margin: '0 0 8px', color: 'var(--txt-3)', fontSize: 11 }}>服务器确认删除目标</p>
             <code style={{
               display: 'block',
               padding: '9px 10px',
@@ -838,7 +857,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               overflowWrap: 'anywhere',
               whiteSpace: 'normal',
             }}>
-              {pendingDelete.session_path}
+              {pendingDelete.deletion_target}
             </code>
             {deleteFailed && (
               <div

@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   deleteSession: vi.fn(),
   deleteUnwrap: vi.fn(),
+  deleteIsLoading: false,
 }));
 
 vi.mock('../../../api/silApi', () => ({
@@ -19,7 +20,10 @@ vi.mock('../../../api/silApi', () => ({
     refetch: apiMocks.refetch,
   }),
   useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: false }],
-  useDeleteEvidenceLibrarySessionMutation: () => [apiMocks.deleteSession, { isLoading: false, error: null }],
+  useDeleteEvidenceLibrarySessionMutation: () => [
+    apiMocks.deleteSession,
+    { isLoading: apiMocks.deleteIsLoading, error: null },
+  ],
 }));
 
 const primarySession = {
@@ -30,7 +34,10 @@ const primarySession = {
   root_id: 'worktrees',
   worktree_name: null,
   branch: 'codex/colregs-nlp-cpa-fix',
-  session_path: '/tmp/.worktrees/colregs-nlp-cpa-fix/runs/trace_eval/session',
+  session_path: '/tmp/.worktrees/colregs-nlp-cpa-fix/runs/20260707_132000_rule14_ho_fast_debug/trace',
+  deletion_allowed: true,
+  deletion_target: '/tmp/.worktrees/colregs-nlp-cpa-fix/runs/20260707_132000_rule14_ho_fast_debug',
+  deletion_error: null,
   created_at: '2026-07-07T13:20:00Z',
   status: 'completed',
   valid_data: true,
@@ -54,6 +61,9 @@ const secondarySession = {
   worktree_name: 'evidence-library-replay-impl',
   branch: 'codex/evidence-library-replay-impl',
   session_path: '/tmp/runs/20260708_091500_rule15_cs_clean8_full',
+  deletion_allowed: true,
+  deletion_target: '/tmp/runs/20260708_091500_rule15_cs_clean8_full',
+  deletion_error: null,
   created_at: '2026-07-08T09:15:00Z',
   status: 'completed',
   valid_data: true,
@@ -73,6 +83,9 @@ const makeSessions = (count: number) => Array.from({ length: count }, (_, index)
   worktree_name: 'pagination-worktree',
   branch: 'codex/pagination',
   session_path: `/tmp/runs/page_session_${String(index).padStart(2, '0')}`,
+  deletion_allowed: true,
+  deletion_target: `/tmp/runs/page_session_${String(index).padStart(2, '0')}`,
+  deletion_error: null,
   created_at: new Date(Date.UTC(2026, 6, 1, 0, 0, index)).toISOString(),
   status: 'completed',
   valid_data: true,
@@ -93,12 +106,13 @@ beforeEach(() => {
   apiMocks.refetch.mockReset();
   apiMocks.deleteSession.mockReset();
   apiMocks.deleteUnwrap.mockReset();
+  apiMocks.deleteIsLoading = false;
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
   apiMocks.refetch.mockResolvedValue(undefined);
   apiMocks.deleteUnwrap.mockResolvedValue({
     evidence_id: primarySession.evidence_id,
-    deleted_path: primarySession.session_path,
+    deleted_path: primarySession.deletion_target,
     filesystem_deleted: true,
   });
   apiMocks.deleteSession.mockReturnValue({ unwrap: apiMocks.deleteUnwrap });
@@ -190,6 +204,24 @@ describe('EvidenceLibraryView', () => {
     expect(alert).toHaveTextContent('trajectory unreadable');
     expect(alert).not.toHaveTextContent('扫描成功');
     expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('always shows the latest successful scan counts across a later request failure', async () => {
+    apiMocks.rescanUnwrap
+      .mockResolvedValueOnce({ ingested: 3, pruned: 2, errors: [] })
+      .mockRejectedValueOnce(new Error('later scan failed'));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('写入 3');
+    expect(screen.getByRole('status')).toHaveTextContent('清理 2');
+    expect(screen.getByRole('status')).toHaveTextContent('错误 0');
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('扫描失败');
+    expect(screen.getByRole('status')).toHaveTextContent('写入 3');
+    expect(screen.getByRole('status')).toHaveTextContent('清理 2');
+    expect(screen.getByRole('status')).toHaveTextContent('错误 0');
   });
 
   it('waits for the selected interval after an automatic scan returns payload errors', async () => {
@@ -368,6 +400,31 @@ describe('EvidenceLibraryView', () => {
     expect(apiMocks.deleteSession).not.toHaveBeenCalled();
   });
 
+  it('shows only the exact server-derived deletion target', () => {
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton());
+
+    const dialog = screen.getByRole('dialog', { name: '删除仿真记录' });
+    expect(dialog).toHaveTextContent(primarySession.deletion_target);
+    expect(dialog).not.toHaveTextContent(primarySession.session_path);
+  });
+
+  it('disables deletion when the backend marks the target unsafe', () => {
+    apiMocks.sessions = [{
+      ...primarySession,
+      deletion_allowed: false,
+      deletion_target: null,
+      deletion_error: 'Evidence root must be enabled and trusted for deletion',
+    }];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const trigger = deleteButton();
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument();
+  });
+
   it('closes deletion dialog on Escape and restores triggering focus', () => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
     const trigger = deleteButton();
@@ -377,6 +434,29 @@ describe('EvidenceLibraryView', () => {
 
     expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('blocks Escape, cancel, and overlay close while deletion is in flight', async () => {
+    let rejectDelete!: (reason?: unknown) => void;
+    const pendingDelete = new Promise<never>((_resolve, reject) => {
+      rejectDelete = reject;
+    });
+    apiMocks.deleteUnwrap.mockReturnValueOnce(pendingDelete);
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton());
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    apiMocks.deleteIsLoading = true;
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const dialog = screen.getByRole('dialog', { name: '删除仿真记录' });
+    expect(screen.getByRole('button', { name: '取消' })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: '删除仿真记录' })).toBeInTheDocument();
+    fireEvent.click(dialog);
+    expect(screen.getByRole('dialog', { name: '删除仿真记录' })).toBeInTheDocument();
+
+    await act(async () => rejectDelete(new Error('cleanup')));
   });
 
   it('moves focus to stable search after refreshed data removes the deleted trigger', async () => {
@@ -423,6 +503,28 @@ describe('EvidenceLibraryView', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('删除失败');
     expect(screen.getByRole('dialog', { name: '删除仿真记录' })).toBeInTheDocument();
     expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous delete error visible while a retry is loading', async () => {
+    let rejectRetry!: (reason?: unknown) => void;
+    const pendingRetry = new Promise<never>((_resolve, reject) => {
+      rejectRetry = reject;
+    });
+    apiMocks.deleteUnwrap
+      .mockRejectedValueOnce(new Error('first delete failed'))
+      .mockReturnValueOnce(pendingRetry);
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton());
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('删除失败');
+
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    apiMocks.deleteIsLoading = true;
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('删除失败');
+
+    await act(async () => rejectRetry(new Error('retry failed')));
   });
 });
 
@@ -514,6 +616,55 @@ describe('evidence library RTK invalidation', () => {
       });
       await store.dispatch(silApi.endpoints.deleteEvidenceLibrarySession.initiate('evidence-1')).unwrap();
       await waitFor(() => expect(getCount).toBe(2));
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('removes a fulfilled deletion from cache even when invalidated refetch fails', async () => {
+    let getCount = 0;
+    let resolveRefetch!: (response: Response) => void;
+    const pendingRefetch = new Promise<Response>((resolve) => {
+      resolveRefetch = resolve;
+    });
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return pendingRefetch;
+      }
+      return jsonResponse({
+        evidence_id: primarySession.evidence_id,
+        deleted_path: primarySession.deletion_target,
+        filesystem_deleted: true,
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(primarySession.evidence_id),
+      ).unwrap();
+      await waitFor(() => expect(getCount).toBe(2));
+
+      const pendingQuery = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      expect(pendingQuery.data?.sessions.map((session) => session.evidence_id)).toEqual([
+        secondarySession.evidence_id,
+      ]);
+
+      resolveRefetch(jsonResponse({ detail: 'stale list refresh failed' }, 500));
+      await waitFor(() => {
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+        expect(query.isError).toBe(true);
+      });
+
+      const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
+        secondarySession.evidence_id,
+      ]);
     } finally {
       subscription.unsubscribe();
       vi.unstubAllGlobals();

@@ -40,26 +40,31 @@ def _session_dirs(root: EvidenceRootConfig) -> list[Path]:
     session_dirs: list[Path] = []
     for match in sorted(glob.glob(root.path_glob)):
         root_path = Path(match)
-        if not root_path.exists():
+        try:
+            _reject_symlink_components(root_path, "Configured evidence root match")
+        except PermissionError:
             continue
-        if root_path.is_symlink() and not root.follow_symlinks:
+        if not root_path.exists():
             continue
         if root_path.is_file():
             root_path = root_path.parent
-        resolved_root = root_path.resolve()
+        try:
+            _reject_symlink_components(root_path, "Configured evidence root match")
+            resolved_root = root_path.resolve(strict=True)
+        except (OSError, PermissionError):
+            continue
         manifest_path = root_path / "manifest.json"
-        if manifest_path.exists():
-            if not root.follow_symlinks and manifest_path.is_symlink():
-                continue
-            session_dirs.append(root_path)
+        if manifest_path.exists() or manifest_path.is_symlink():
+            if _session_path_is_healthy(root_path):
+                session_dirs.append(root_path)
             continue
         for manifest_path in sorted(root_path.glob("*/manifest.json")):
             session_dir = manifest_path.parent
-            if not root.follow_symlinks and (session_dir.is_symlink() or manifest_path.is_symlink()):
+            if not _session_path_is_healthy(session_dir):
                 continue
             try:
-                session_dir.resolve().relative_to(resolved_root)
-            except ValueError:
+                session_dir.resolve(strict=True).relative_to(resolved_root)
+            except (OSError, ValueError):
                 continue
             session_dirs.append(session_dir)
     return session_dirs
@@ -120,6 +125,17 @@ def _reject_symlink_components(path: Path, label: str) -> None:
             raise PermissionError(f"{label} contains a symlink component")
 
 
+def _session_path_is_healthy(session_path: Path) -> bool:
+    try:
+        session_path = _absolute_safe_path(session_path, "Evidence session path")
+        manifest_path = session_path / "manifest.json"
+        _reject_symlink_components(session_path, "Evidence session path")
+        _reject_symlink_components(manifest_path, "Evidence session manifest path")
+        return session_path.is_dir() and manifest_path.is_file()
+    except (OSError, PermissionError):
+        return False
+
+
 def _literal_unified_run_id(session_path: Path) -> str | None:
     if session_path.name != "trace" or session_path.parent.parent.name != "runs":
         return None
@@ -148,7 +164,7 @@ def _deletion_target(session_path: Path, session_id: str) -> Path:
         raise PermissionError("Unified run metadata is missing")
     try:
         run_meta = json.loads(run_meta_path.read_text())
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         raise PermissionError("Unified run metadata is invalid") from exc
     if not isinstance(run_meta, dict) or run_meta.get("run_id") != run_id:
         raise PermissionError("Unified run metadata does not match its run ID component")
@@ -182,14 +198,51 @@ def _matched_root_path(session_path: Path, root: EvidenceRootConfig) -> Path | N
     return None
 
 
+def _resolve_deletion_target(
+    *,
+    session_id: str,
+    session_path: Path,
+    root_id: str,
+    config: EvidenceLibraryConfig,
+    repo_root: Path | None,
+) -> tuple[Path, Path]:
+    if repo_root is not None:
+        _reject_symlink_components(Path(repo_root).absolute(), "Repository root")
+
+    root = next((item for item in config.roots if item.root_id == root_id), None)
+    if root is None:
+        raise PermissionError("Evidence root is no longer configured")
+    if not root.enabled or not root.trusted:
+        raise PermissionError("Evidence root must be enabled and trusted for deletion")
+
+    matched_root = _matched_root_path(session_path, root)
+    if matched_root is None:
+        raise PermissionError("Evidence session is outside its configured root match")
+
+    target = _deletion_target(session_path, session_id)
+    _reject_symlink_components(matched_root, "Configured evidence root match")
+    _reject_symlink_components(target, "Evidence deletion target")
+    resolved_session = session_path.resolve(strict=False)
+    resolved_root = matched_root.resolve(strict=False)
+    resolved_target = target.resolve(strict=False)
+    if target != session_path:
+        if resolved_root != resolved_session or resolved_target != resolved_session.parent:
+            raise PermissionError("Unified run deletion requires the matched trace directory")
+    else:
+        try:
+            relative_target = resolved_target.relative_to(resolved_root)
+        except ValueError as exc:
+            raise PermissionError("Legacy evidence target escaped configured root") from exc
+        if relative_target == Path("."):
+            raise PermissionError("Legacy evidence target must be below configured root")
+    return target, resolved_target
+
+
 def _prune_missing_sessions(conn: sqlite3.Connection) -> int:
     stale_ids = [
         row["evidence_id"]
         for row in conn.execute("select evidence_id, session_path from sessions")
-        if not (
-            Path(row["session_path"]).is_dir()
-            and (Path(row["session_path"]) / "manifest.json").is_file()
-        )
+        if not _session_path_is_healthy(Path(row["session_path"]))
     ]
     for evidence_id in stale_ids:
         _delete_evidence_rows(conn, evidence_id)
@@ -269,14 +322,34 @@ def _require_session_target(
 
 
 def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[str, Any]]:
-    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
+    config = load_effective_config(repo_root=repo_root)
+    result_limit = max(1, min(limit, 500))
+    with closing(open_initialized(config)) as conn:
         rows = conn.execute(
-            "select * from sessions order by coalesce(created_at, ended_at, session_id) desc limit ?",
-            (max(1, min(limit, 500)),),
+            "select * from sessions order by coalesce(created_at, ended_at, session_id) desc",
         ).fetchall()
         sessions = []
         for row in rows:
             session = dict(row)
+            session_path = Path(session["session_path"])
+            if not _session_path_is_healthy(session_path):
+                continue
+            try:
+                _, resolved_target = _resolve_deletion_target(
+                    session_id=str(session["session_id"]),
+                    session_path=session_path,
+                    root_id=str(session["root_id"]),
+                    config=config,
+                    repo_root=repo_root,
+                )
+            except (OSError, PermissionError) as exc:
+                session["deletion_allowed"] = False
+                session["deletion_target"] = None
+                session["deletion_error"] = str(exc)
+            else:
+                session["deletion_allowed"] = True
+                session["deletion_target"] = str(resolved_target)
+                session["deletion_error"] = None
             scenario_rows = conn.execute(
                 "select scenario_id, overall_pass from scenarios where evidence_id = ? order by scenario_id",
                 (session["evidence_id"],),
@@ -298,11 +371,14 @@ def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[
             session["overview_pngs"] = [dict(overview) for overview in overview_rows]
             session["overview_png"] = session["overview_pngs"][0] if session["overview_pngs"] else None
             sessions.append(session)
+            if len(sessions) >= result_limit:
+                break
         return sessions
 
 
 def get_overview_png_path(evidence_id: str, scenario_id: str | None = None, repo_root: Path | None = None) -> Path:
-    with closing(open_initialized(load_effective_config(repo_root=repo_root))) as conn:
+    config = load_effective_config(repo_root=repo_root)
+    with closing(open_initialized(config)) as conn:
         args: tuple[Any, ...]
         scenario_clause = ""
         if scenario_id:
@@ -325,18 +401,31 @@ def get_overview_png_path(evidence_id: str, scenario_id: str | None = None, repo
         ).fetchone()
         if row is None:
             raise LookupError(f"Overview PNG not found for evidence session: {evidence_id}")
-        path = Path(row["path"]).resolve()
-        session = conn.execute("select session_path from sessions where evidence_id = ?", (evidence_id,)).fetchone()
+        session = conn.execute(
+            "select session_path, root_id from sessions where evidence_id = ?", (evidence_id,)
+        ).fetchone()
         if session is None:
             raise LookupError(f"Evidence session not found: {evidence_id}")
-        session_path = Path(session["session_path"]).resolve()
+        session_path = Path(session["session_path"])
+        if not _session_path_is_healthy(session_path):
+            raise LookupError(f"Evidence session path is not safe: {evidence_id}")
+        root = next((item for item in config.roots if item.root_id == session["root_id"]), None)
+        if root is None:
+            raise LookupError(f"Evidence root is no longer configured: {session['root_id']}")
         try:
-            path.relative_to(session_path)
-        except ValueError as exc:
+            matched_root = _matched_root_path(session_path, root)
+            if matched_root is None:
+                raise LookupError("Evidence session escaped its configured root")
+            path = _absolute_safe_path(Path(row["path"]), "Overview PNG path")
+            _reject_symlink_components(path, "Overview PNG path")
+            resolved_path = path.resolve(strict=True)
+            resolved_session = session_path.resolve(strict=True)
+            resolved_path.relative_to(resolved_session)
+        except (OSError, PermissionError, ValueError) as exc:
             raise LookupError("Overview PNG path escaped evidence session") from exc
-        if not path.exists() or not path.is_file():
+        if not resolved_path.is_file():
             raise LookupError(f"Overview PNG not available for evidence session: {evidence_id}")
-        return path
+        return resolved_path
 
 
 def get_replay(evidence_id: str, scenario_id: str, repo_root: Path | None = None) -> dict[str, Any]:
@@ -368,8 +457,6 @@ def get_config_payload(repo_root: Path | None = None) -> dict[str, Any]:
 
 
 def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> dict[str, Any]:
-    if repo_root is not None:
-        _reject_symlink_components(Path(repo_root).absolute(), "Repository root")
     config = load_effective_config(repo_root=repo_root)
     with closing(open_initialized(config)) as conn:
         row = conn.execute(
@@ -378,33 +465,13 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
         if row is None:
             raise LookupError(f"Evidence session not found: {evidence_id}")
 
-        session_path = Path(row["session_path"])
-        root = next((item for item in config.roots if item.root_id == row["root_id"]), None)
-        if root is None:
-            raise PermissionError("Evidence root is no longer configured")
-        if not root.enabled or not root.trusted:
-            raise PermissionError("Evidence root must be enabled and trusted for deletion")
-
-        matched_root = _matched_root_path(session_path, root)
-        if matched_root is None:
-            raise PermissionError("Evidence session is outside its configured root match")
-
-        target = _deletion_target(session_path, str(row["session_id"]))
-        _reject_symlink_components(matched_root, "Configured evidence root match")
-        _reject_symlink_components(target, "Evidence deletion target")
-        resolved_session = session_path.resolve(strict=False)
-        resolved_root = matched_root.resolve(strict=False)
-        resolved_target = target.resolve(strict=False)
-        if target != session_path:
-            if resolved_root != resolved_session or resolved_target != resolved_session.parent:
-                raise PermissionError("Unified run deletion requires the matched trace directory")
-        else:
-            try:
-                relative_target = resolved_target.relative_to(resolved_root)
-            except ValueError as exc:
-                raise PermissionError("Legacy evidence target escaped configured root") from exc
-            if relative_target == Path("."):
-                raise PermissionError("Legacy evidence target must be below configured root")
+        target, resolved_target = _resolve_deletion_target(
+            session_id=str(row["session_id"]),
+            session_path=Path(row["session_path"]),
+            root_id=str(row["root_id"]),
+            config=config,
+            repo_root=repo_root,
+        )
 
         if not target.exists():
             _delete_evidence_rows(conn, evidence_id)
