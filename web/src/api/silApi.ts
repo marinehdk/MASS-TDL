@@ -373,9 +373,6 @@ export interface EvidenceDecisionFrame {
   nearby_events: EvidenceReplayEvent[];
 }
 
-// Older in-flight list requests must not overwrite successful local deletions.
-const deletedEvidenceLibrarySessionIds = new Set<string>();
-
 export const silApi = createApi({
   reducerPath: 'silApi',
   baseQuery: fetchBaseQuery({ baseUrl: '/api/v1' }),
@@ -476,12 +473,6 @@ export const silApi = createApi({
 
     getEvidenceLibrarySessions: builder.query<EvidenceLibrarySessionsResponse, void>({
       query: () => '/evidence-library/sessions',
-      transformResponse: (response: EvidenceLibrarySessionsResponse) => ({
-        ...response,
-        sessions: response.sessions.filter(
-          (session) => !deletedEvidenceLibrarySessionIds.has(session.evidence_id),
-        ),
-      }),
       providesTags: ['EvidenceLibrary'],
     }),
 
@@ -501,18 +492,40 @@ export const silApi = createApi({
         url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
         method: 'DELETE',
       }),
-      async onQueryStarted(evidenceId, { dispatch, queryFulfilled }) {
+      async onQueryStarted(evidenceId, { dispatch, getState, queryFulfilled }) {
+        const runningListQuery = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (runningListQuery) {
+          runningListQuery.abort();
+          await runningListQuery;
+        }
         try {
           await queryFulfilled;
-          deletedEvidenceLibrarySessionIds.add(evidenceId);
-          dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
-            draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
-          }));
         } catch {
           // Rejected deletes leave the indexed-session cache unchanged.
+          return;
+        }
+
+        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+          draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
+        }));
+        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+        const refresh = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (refresh) await refresh;
+
+        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select()(getState());
+        if (refreshed.isError && refreshed.data) {
+          // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
+          await dispatch(silApi.util.upsertQueryData(
+            'getEvidenceLibrarySessions',
+            undefined,
+            refreshed.data,
+          ));
         }
       },
-      invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
     }),
 
     getEvidenceReplay: builder.query<EvidenceReplayResponse, { evidenceId: string; scenarioId: string }>({

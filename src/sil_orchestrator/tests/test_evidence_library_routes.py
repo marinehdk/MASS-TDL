@@ -654,6 +654,29 @@ async def test_delete_missing_session_target_removes_index_rows_only(tmp_path, m
 
 
 @pytest.mark.asyncio
+async def test_delete_missing_legacy_root_removes_index_rows_only(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+        database_path = _seed_all_evidence_tables(repo, evidence_id, session)
+        shutil.rmtree(repo / "runs" / "trace_eval")
+        response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "evidence_id": evidence_id,
+        "deleted_path": str(session_dir.resolve()),
+        "filesystem_deleted": False,
+    }
+    assert _evidence_row_counts(database_path, evidence_id) == dict.fromkeys(EVIDENCE_TABLES, 0)
+
+
+@pytest.mark.asyncio
 async def test_delete_untrusted_root_returns_409_without_deletion(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     trace_dir = _unified_session(repo)

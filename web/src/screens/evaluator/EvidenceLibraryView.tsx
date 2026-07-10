@@ -255,7 +255,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const visibleRows = sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize);
-  const deleteActionsDisabled = deleteState.isLoading || focusSearchAfterDeleteId !== null;
+  const deleteActionsDisabled = deleteState.isLoading;
   const overviewPngs = overviewSession
     ? overviewSession.overview_pngs?.length
       ? overviewSession.overview_pngs
@@ -376,23 +376,22 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [pendingDelete]);
 
   useEffect(() => {
-    const deletedEvidenceId = focusSearchAfterDeleteId;
-    if (!deletedEvidenceId || sessions.some((session) => session.evidence_id === deletedEvidenceId)) return;
-    const searchInput = searchInputRef.current;
-    searchInput?.focus();
-    if (searchInput && document.activeElement === searchInput) {
-      setFocusSearchAfterDeleteId(null);
-      deleteTriggerRef.current = null;
-    }
-  }, [focusSearchAfterDeleteId, sessions]);
-
-  useEffect(() => {
     for (const element of [backgroundRef.current, overviewDialogRef.current]) {
       if (!element) continue;
       if (pendingDelete) element.setAttribute('inert', '');
       else element.removeAttribute('inert');
     }
   }, [pendingDelete]);
+
+  useEffect(() => {
+    if (!focusSearchAfterDeleteId || pendingDelete) return;
+    const searchInput = searchInputRef.current;
+    searchInput?.focus();
+    if (searchInput && document.activeElement === searchInput) {
+      setFocusSearchAfterDeleteId(null);
+      deleteTriggerRef.current = null;
+    }
+  }, [focusSearchAfterDeleteId, pendingDelete]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

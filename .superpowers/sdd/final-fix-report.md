@@ -298,3 +298,254 @@ Result: pass. Diff contains only the three owned paths.
   one entry per successful interactive deletion. Both are accepted tradeoffs
   for durable client-side deletion consistency.
 - No browser, SIL, container, or A4000 gate required for this cache-only fix.
+
+---
+
+## Complete Final Review Finding Fix
+
+Date: 2026-07-10
+
+Starting HEAD: `fb2b7586f5aa625facc24bb9bf91d0139a7ff34b`
+
+### Task Header
+
+- Affected modules: M8 Screen 04 and evidence-library backend.
+- Changed paths:
+  - `web/src/api/silApi.ts`
+  - `web/src/screens/evaluator/EvidenceLibraryView.tsx`
+  - `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
+  - `src/sil_orchestrator/evidence_library/service.py`
+  - `src/sil_orchestrator/tests/test_evidence_library_routes.py`
+  - `.superpowers/sdd/final-fix-report.md`
+- ROS2 topics/messages/IDL: none.
+- ODD, COLREGs, and M5/M7 boundary impact: none.
+- SIL scenarios: none.
+- Evidence: focused frontend mounted-hook tests, backend evidence suites,
+  TypeScript/Vite build, and Git whitespace/scope checks.
+
+### Verified Root Causes
+
+1. The module-level tombstone set outlived cache stores and scan generations.
+   A deterministic evidence ID rebuilt at the same legal path was therefore
+   filtered from every later successful list response.
+2. The scan-triggered mounted list refetch remained active when DELETE began.
+   Its stale response could win after DELETE. Aborting that exact running RTK
+   query prevents the pre-delete response from writing cache state.
+3. RTK Query invalidation middleware runs on mutation fulfillment before the
+   `queryFulfilled` continuation patches cache. A failed invalidation refetch
+   also makes a mounted hook expose its previous fulfilled value even when the
+   raw selector contains patched data. The delete lifecycle now patches first,
+   explicitly invalidates, awaits the refresh, and re-fulfills retained patched
+   data only when that refresh fails.
+4. The view tied search focus and every delete action to disappearance of the
+   deleted row. Focus now runs after dialog inert cleanup and does not wait for
+   list reconciliation; other delete actions are disabled only during DELETE.
+5. Legacy deletion trust resolution depended on a live configured-root glob
+   match. After the complete direct root disappeared, no match remained. A
+   missing indexed path may now use only an exact configured glob-matching
+   ancestor, after enabled/trusted and symlink checks; normal live-path,
+   unconfigured-root, path-escape, and untrusted-root rejection stays intact.
+
+### Production Fix
+
+- Removed all process-lifetime evidence tombstones and response filtering.
+- At DELETE start, abort and await the currently running
+  `getEvidenceLibrarySessions` query for this API store.
+- After DELETE success, patch the cached list, explicitly invalidate the
+  EvidenceLibrary tag, and await the mounted refresh. If that refresh fails,
+  use RTK `upsertQueryData` to publish the retained patched list as the latest
+  fulfilled value. A later successful scan/list response remains authoritative,
+  including legal reconstruction of the same evidence ID.
+- Decoupled stable-search focus and remaining-row delete availability from
+  deleted-row reconciliation.
+- Added missing-root lexical validation only for absent indexed paths. The
+  deletion target must still remain below the exact configured root match.
+
+### TDD RED Output
+
+Frontend command:
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t "restores stable focus|aborts a mounted|shows a legally rebuilt"
+```
+
+Output before production changes:
+
+```text
+RUN  v2.1.9
+EvidenceLibraryView.test.tsx (33 tests | 3 failed | 30 skipped)
+
+FAIL EvidenceLibraryView > restores stable focus and keeps remaining delete
+actions enabled without waiting for row reconciliation
+expect(element).toHaveFocus()
+Expected: search input
+Received: BODY
+
+FAIL evidence library RTK invalidation > aborts a mounted scan refetch before
+delete so stale success and failed invalidation cannot resurrect a row
+AssertionError: expected false to be true
+Expected stale GET signal aborted: true
+Received: false
+
+FAIL evidence library RTK invalidation > shows a legally rebuilt session with
+the same evidence ID after scan and list refresh
+Expected: ["rebuilt-same-evidence-id", "fedcba98-7654-3210-fedc-ba9876543210"]
+Received: ["fedcba98-7654-3210-fedc-ba9876543210"]
+
+Test Files  1 failed (1)
+Tests       3 failed | 30 skipped (33)
+Duration    3.11s
+```
+
+The first cache-selector implementation then passed, but replacing the manual
+subscription with a real mounted RTK hook exposed one additional RED:
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t "aborts a mounted scan refetch"
+```
+
+```text
+RUN  v2.1.9
+EvidenceLibraryView.test.tsx (33 tests | 1 failed | 32 skipped)
+
+FAIL evidence library RTK invalidation > aborts a mounted scan refetch before
+delete so stale success and failed invalidation cannot resurrect a row
+expect(element).not.toBeInTheDocument()
+Found: <button aria-label="mounted delete mounted-race-delete">
+
+The raw RTK selector contained only B, but the mounted hook still rendered A+B
+after GET-3 returned HTTP 500. This isolated the rejected-query/last-fulfilled
+hook behavior addressed by the final upsert-on-refresh-failure step.
+
+Test Files  1 failed (1)
+Tests       1 failed | 32 skipped (33)
+Duration    2.09s
+```
+
+Backend command:
+
+```bash
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py::test_delete_missing_legacy_root_removes_index_rows_only
+```
+
+Output before production changes:
+
+```text
+F                                                                        [100%]
+FAILED test_delete_missing_legacy_root_removes_index_rows_only
+assert response.status_code == 200
+E assert 409 == 200
+1 failed in 0.42s
+```
+
+### TDD GREEN Output
+
+New frontend regressions:
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t "restores stable focus|aborts a mounted|shows a legally rebuilt"
+```
+
+```text
+RUN  v2.1.9
+PASS EvidenceLibraryView.test.tsx (33 tests | 30 skipped)
+Test Files  1 passed (1)
+Tests       3 passed | 30 skipped (33)
+Duration    1.49s
+```
+
+New backend regression:
+
+```bash
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py::test_delete_missing_legacy_root_removes_index_rows_only
+```
+
+```text
+.                                                                        [100%]
+1 passed in 0.39s
+```
+
+### Final Verification Output
+
+Focused frontend suite:
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
+```
+
+```text
+RUN  v2.1.9
+PASS EvidenceLibraryView.test.tsx (33 tests)
+Test Files  1 passed (1)
+Tests       33 passed (33)
+Duration    4.77s
+```
+
+Backend evidence suites:
+
+```bash
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
+  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py
+```
+
+```text
+....................................................                     [100%]
+52 passed in 1.47s
+```
+
+Production build:
+
+```bash
+cd web
+npm run build
+```
+
+```text
+> tsc && vite build
+vite v5.4.21 building for production...
+2396 modules transformed.
+dist/index.html                     0.73 kB | gzip:   0.42 kB
+dist/assets/index-Bc4R5AAw.css     67.57 kB | gzip:  10.00 kB
+dist/assets/index-ljVCTGe7.js   1,804.44 kB | gzip: 497.57 kB
+built in 8.61s
+```
+
+Retained build warnings: Foxglove serialization uses `eval`; the main output
+chunk exceeds Vite's 500 kB warning threshold.
+
+Scope and whitespace:
+
+```bash
+git diff --check
+git diff --name-only
+```
+
+```text
+git diff --check: pass
+Changed paths: exactly the six owned files in this task header.
+```
+
+### Self-Review
+
+- Exact mounted order is asserted as `GET-1 200 -> SCAN 200 -> GET-2 pending
+  -> DELETE 200 -> GET-2 200 -> GET-3 500`; GET-2's AbortSignal must be set.
+- Final mounted hook contains no A and keeps B's delete button enabled.
+- View test independently confirms stable search focus and no focus-guard lock.
+- Same-store scan/list reconstruction restores the same deterministic evidence
+  ID, with no module state, growth, reset hook, or cross-store pollution.
+- Missing legacy root removes all related SQLite rows and reports
+  `filesystem_deleted: false`; existing untrusted, disabled, escaped, symlink,
+  and filesystem-failure tests stay green.
+- No Playwright run: the mounted React/RTK regression directly executes the
+  reviewed concurrency order and exposes the hook-specific stale-value path.

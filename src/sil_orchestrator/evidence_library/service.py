@@ -195,6 +195,12 @@ def _matched_root_path(session_path: Path, root: EvidenceRootConfig) -> Path | N
             continue
         _reject_symlink_components(root_path, "Configured evidence root match")
         return root_path
+
+    if not session_path.exists():
+        for ancestor in session_path.parents:
+            if ancestor.match(str(root_glob)):
+                _reject_symlink_components(ancestor, "Configured evidence root match")
+                return ancestor
     return None
 
 
