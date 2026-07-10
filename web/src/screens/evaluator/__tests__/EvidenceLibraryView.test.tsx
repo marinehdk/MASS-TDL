@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EvidenceLibraryView } from '../EvidenceLibraryView';
 
@@ -156,14 +157,71 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('24:00:00');
   });
 
-  it('unwraps a successful scan before refreshing indexed sessions', async () => {
+  it('unwraps a successful scan without manually duplicating RTK invalidation', async () => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '扫描' }));
 
     expect(apiMocks.rescan).toHaveBeenCalledWith({ force: false });
     await waitFor(() => expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('shows every HTTP-200 scan error while retaining successful result counts', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      ingested: 2,
+      pruned: 1,
+      errors: [
+        { path: '/runs/broken-a', error: 'manifest missing' },
+        { path: '/runs/broken-b', error: 'trajectory unreadable' },
+      ],
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('扫描部分完成');
+    expect(alert).toHaveTextContent('写入 2');
+    expect(alert).toHaveTextContent('清理 1');
+    expect(alert).toHaveTextContent('/runs/broken-a');
+    expect(alert).toHaveTextContent('manifest missing');
+    expect(alert).toHaveTextContent('/runs/broken-b');
+    expect(alert).toHaveTextContent('trajectory unreadable');
+    expect(alert).not.toHaveTextContent('扫描成功');
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('waits for the selected interval after an automatic scan returns payload errors', async () => {
+    vi.useFakeTimers();
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      ingested: 1,
+      pruned: 0,
+      errors: [{ path: '/runs/broken', error: 'index failed' }],
+    });
+
+    try {
+      fireEvent.change(screen.getByRole('combobox', { name: '自动刷新间隔' }), {
+        target: { value: '600' },
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(600_000);
+        await Promise.resolve();
+      });
+      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('alert')).toHaveTextContent('扫描部分完成');
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+        await Promise.resolve();
+      });
+      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('9:55');
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps the countdown and rows unchanged and alerts when scan unwrap rejects', async () => {
@@ -321,16 +379,21 @@ describe('EvidenceLibraryView', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('deletes a session, restores triggering focus, and refreshes the list', async () => {
-    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+  it('moves focus to stable search after refreshed data removes the deleted trigger', async () => {
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
     const trigger = deleteButton();
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
 
     await waitFor(() => expect(apiMocks.deleteSession).toHaveBeenCalledWith(primarySession.evidence_id));
-    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument());
+
+    apiMocks.sessions = [{ ...secondarySession }];
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole('searchbox', { name: '筛选仿真记录' })).toHaveFocus());
+    expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
   });
 
   it('keeps the deletion dialog open and reports request failure', async () => {
@@ -343,5 +406,100 @@ describe('EvidenceLibraryView', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('删除失败');
     expect(screen.getByRole('dialog', { name: '删除仿真记录' })).toBeInTheDocument();
     expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('evidence library RTK invalidation', () => {
+  const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const createApiStore = async (fetchMock: ReturnType<typeof vi.fn>) => {
+    const NativeRequest = globalThis.Request;
+    class AbsoluteUrlRequest extends NativeRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        super(typeof input === 'string' && input.startsWith('/') ? `http://localhost${input}` : input, init);
+      }
+    }
+    vi.stubGlobal('Request', AbsoluteUrlRequest);
+    vi.stubGlobal('fetch', fetchMock);
+    const { silApi } = await vi.importActual<typeof import('../../../api/silApi')>('../../../api/silApi');
+    const store = configureStore({
+      reducer: { [silApi.reducerPath]: silApi.reducer },
+      middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(silApi.middleware),
+    });
+    return { silApi, store };
+  };
+
+  it('refetches once for changed scan results but not for rejected or unchanged scans', async () => {
+    let scanResponse = jsonResponse({ detail: 'scan rejected' }, 500);
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({ sessions: [] });
+      }
+      return scanResponse;
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      await expect(store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap())
+        .rejects.toBeDefined();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      expect(getCount).toBe(1);
+
+      scanResponse = jsonResponse({ ingested: 0, pruned: 0, errors: [] });
+      await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      expect(getCount).toBe(1);
+
+      scanResponse = jsonResponse({
+        ingested: 1,
+        pruned: 1,
+        errors: [{ path: '/runs/broken', error: 'partial failure' }],
+      });
+      await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
+      await waitFor(() => expect(getCount).toBe(2));
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('refetches once after fulfilled deletion but not after rejected deletion', async () => {
+    let deleteResponse = jsonResponse({ detail: 'delete rejected' }, 500);
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({ sessions: [] });
+      }
+      return deleteResponse;
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      await expect(store.dispatch(silApi.endpoints.deleteEvidenceLibrarySession.initiate('evidence-1')).unwrap())
+        .rejects.toBeDefined();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      expect(getCount).toBe(1);
+
+      deleteResponse = jsonResponse({
+        evidence_id: 'evidence-1',
+        deleted_path: '/runs/evidence-1',
+        filesystem_deleted: true,
+      });
+      await store.dispatch(silApi.endpoints.deleteEvidenceLibrarySession.initiate('evidence-1')).unwrap();
+      await waitFor(() => expect(getCount).toBe(2));
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
   });
 });

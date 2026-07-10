@@ -15,6 +15,7 @@ vi.mock('../../api/silApi', () => ({
   useGetExportStatusQuery: vi.fn(() => ({ data: null })),
   useGetEvidenceLibrarySessionsQuery: apiMocks.getEvidenceLibrarySessions,
   useRescanEvidenceLibraryMutation: () => [vi.fn().mockResolvedValue({ ingested: 0 }), { isLoading: false }],
+  useDeleteEvidenceLibrarySessionMutation: () => [vi.fn(), { isLoading: false, error: null }],
   useGetEvidenceReplayQuery: apiMocks.getEvidenceReplay,
   useGetDecisionFrameQuery: apiMocks.getDecisionFrame,
   useGetLastRunScoringQuery: apiMocks.getLastRunScoring,

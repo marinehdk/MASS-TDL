@@ -479,7 +479,9 @@ export const silApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['EvidenceLibrary'],
+      invalidatesTags: (result) => (
+        result && (result.ingested > 0 || result.pruned > 0) ? ['EvidenceLibrary'] : []
+      ),
     }),
 
     deleteEvidenceLibrarySession: builder.mutation<EvidenceLibraryDeleteResult, string>({
@@ -487,7 +489,7 @@ export const silApi = createApi({
         url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['EvidenceLibrary'],
+      invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
     }),
 
     getEvidenceReplay: builder.query<EvidenceReplayResponse, { evidenceId: string; scenarioId: string }>({
