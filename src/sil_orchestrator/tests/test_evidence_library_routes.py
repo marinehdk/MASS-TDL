@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from sil_orchestrator.evidence_library import routes
+from sil_orchestrator.evidence_library.config import load_effective_config
 
 
 def _session(root: Path) -> Path:
@@ -135,7 +137,7 @@ async def test_rescan_prunes_indexed_session_when_manifest_is_removed(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_rescan_prunes_indexed_session_when_session_path_becomes_file(tmp_path, monkeypatch):
+async def test_rescan_prunes_indexed_session_when_session_directory_is_renamed(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     session_dir = _session(repo / "runs" / "trace_eval")
     config_home = tmp_path / "config"
@@ -147,7 +149,6 @@ async def test_rescan_prunes_indexed_session_when_session_path_becomes_file(tmp_
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
         session_dir.rename(tmp_path / "renamed-session")
-        session_dir.write_text("session path replaced by file")
         response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
         listed = await client.get("/api/v1/evidence-library/sessions")
 
@@ -157,6 +158,66 @@ async def test_rescan_prunes_indexed_session_when_session_path_becomes_file(tmp_
     assert response.json()["pruned"] == 1
     assert listed.status_code == 200
     assert listed.json()["sessions"] == []
+
+
+@pytest.mark.asyncio
+async def test_rescan_prune_removes_evidence_from_every_table(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert first.status_code == 200
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+
+    database_path = load_effective_config(repo_root=repo).database_path
+    with sqlite3.connect(database_path) as conn:
+        session_id = session["session_id"]
+        scenario_id = session["scenario_ids"][0]
+        conn.execute(
+            "insert into state_segments values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (evidence_id, session_id, scenario_id, "M2", "test", 0.0, 1.0, "{}", "test"),
+        )
+        conn.execute(
+            "insert into events(evidence_id, session_id, scenario_id, sim_t, wall_t, module, event_type, severity, payload_json, source_topic) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (evidence_id, session_id, scenario_id, 0.0, None, "test", "test", "info", "{}", "test"),
+        )
+        conn.commit()
+        tables = (
+            "trajectory_downsample",
+            "trajectory_samples",
+            "state_segments",
+            "events",
+            "gate_results",
+            "artifacts",
+            "scenarios",
+            "sessions",
+        )
+        assert all(
+            conn.execute(f"select count(*) from {table} where evidence_id = ?", (evidence_id,)).fetchone()[0] > 0
+            for table in tables
+        )
+
+    session_dir.rename(tmp_path / "renamed-session")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 200
+    assert response.json()["pruned"] == 1
+    assert listed.status_code == 200
+    assert listed.json()["sessions"] == []
+    with sqlite3.connect(database_path) as conn:
+        assert all(
+            conn.execute(f"select count(*) from {table} where evidence_id = ?", (evidence_id,)).fetchone()[0] == 0
+            for table in tables
+        )
 
 
 @pytest.mark.asyncio
