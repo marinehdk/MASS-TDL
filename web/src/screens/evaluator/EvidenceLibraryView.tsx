@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import {
   LucideAlertTriangle,
   LucideImage,
@@ -214,8 +215,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
   const [searchText, setSearchText] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(86400);
   const [countdownSeconds, setCountdownSeconds] = useState(86400);
+  const [scanFailed, setScanFailed] = useState(false);
   const [overviewSession, setOverviewSession] = useState<EvidenceLibrarySession | null>(null);
   const [overviewIndex, setOverviewIndex] = useState(0);
   const [overviewScale, setOverviewScale] = useState(1);
@@ -224,6 +227,12 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [pendingDelete, setPendingDelete] = useState<EvidenceLibrarySession | null>(null);
   const [deleteFailed, setDeleteFailed] = useState(false);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const deleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const backgroundRef = useRef<HTMLElement | null>(null);
+  const overviewDialogRef = useRef<HTMLDivElement | null>(null);
+  const automaticScanAttemptedRef = useRef(false);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
@@ -263,14 +272,21 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     resetOverviewView();
   };
 
-  const openDeleteDialog = (session: EvidenceLibrarySession) => {
+  const openDeleteDialog = (session: EvidenceLibrarySession, trigger: HTMLButtonElement) => {
     setDeleteFailed(false);
+    deleteTriggerRef.current = trigger;
     setPendingDelete(session);
   };
 
-  const cancelDelete = () => {
+  const closeDeleteDialog = () => {
+    const trigger = deleteTriggerRef.current;
     setDeleteFailed(false);
-    setPendingDelete(null);
+    flushSync(() => setPendingDelete(null));
+    trigger?.focus();
+  };
+
+  const cancelDelete = () => {
+    closeDeleteDialog();
   };
 
   const handleDelete = async () => {
@@ -280,7 +296,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     try {
       await deleteSession(target.evidence_id).unwrap();
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
-      setPendingDelete(null);
+      closeDeleteDialog();
       await refetch();
     } catch {
       setDeleteFailed(true);
@@ -298,21 +314,75 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const handleRescan = useCallback(async () => {
-    await rescan({ force: false });
-    await refetch();
-    setCountdownSeconds(autoRefreshSeconds);
+    setScanFailed(false);
+    try {
+      await rescan({ force: false }).unwrap();
+      await refetch();
+      automaticScanAttemptedRef.current = false;
+      setCountdownSeconds(autoRefreshSeconds);
+    } catch {
+      setScanFailed(true);
+    }
   }, [autoRefreshSeconds, refetch, rescan]);
 
+  const handleDeleteDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelDelete();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = Array.from(
+      deleteDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [],
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    } else if (!deleteDialogRef.current?.contains(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   useEffect(() => {
+    automaticScanAttemptedRef.current = false;
     setCountdownSeconds(autoRefreshSeconds);
   }, [autoRefreshSeconds]);
+
+  useEffect(() => {
+    if (pendingDelete) deleteCancelButtonRef.current?.focus();
+  }, [pendingDelete]);
+
+  useEffect(() => {
+    for (const element of [backgroundRef.current, overviewDialogRef.current]) {
+      if (!element) continue;
+      if (pendingDelete) element.setAttribute('inert', '');
+      else element.removeAttribute('inert');
+    }
+  }, [pendingDelete]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       setCountdownSeconds((current) => {
         if (current <= 1) {
-          void handleRescan();
-          return autoRefreshSeconds;
+          if (!automaticScanAttemptedRef.current) {
+            automaticScanAttemptedRef.current = true;
+            void handleRescan();
+          }
+          return 0;
         }
         return current - 1;
       });
@@ -374,7 +444,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       background: 'var(--bg-0)',
       color: 'var(--txt-1)',
     }}>
-      <main style={{ flex: 1, padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <main
+        ref={backgroundRef}
+        aria-hidden={pendingDelete ? true : undefined}
+        style={{ flex: 1, padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}
+      >
         {isLoading ? (
           <div>Loading evidence</div>
         ) : (
@@ -424,12 +498,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     setSearchText(event.target.value);
                     setPage(0);
                   }}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => setSearchFocused(false)}
                   placeholder="筛选会话、场景、来源、工作树"
                   style={{
                     ...refreshControlStyle,
                     width: '100%',
                     padding: '0 10px 0 30px',
-                    outline: 'none',
+                    outline: searchFocused ? '2px solid var(--c-phos)' : '2px solid transparent',
+                    outlineOffset: 2,
                   }}
                 />
               </label>
@@ -483,11 +560,28 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: '0 6px',
-                }}>
+                }} aria-label="距离下次扫描">
                   {formatCountdown(countdownSeconds)}
                 </span>
               </div>
             </div>
+            {scanFailed && (
+              <div
+                role="alert"
+                style={{
+                  margin: '0 0 10px',
+                  padding: '8px 10px',
+                  border: '1px solid rgba(255, 91, 112, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 91, 112, 0.08)',
+                  color: 'var(--c-danger)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 11,
+                }}
+              >
+                扫描失败，请保留当前结果后重试。
+              </div>
+            )}
             <div style={{
               flex: 1,
               minHeight: 0,
@@ -606,7 +700,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                             aria-label={`删除 ${row.raw.session_id}`}
                             title={`删除 ${row.raw.session_id}`}
                             disabled={deleteState.isLoading}
-                            onClick={() => openDeleteDialog(row.raw)}
+                            onClick={(event) => openDeleteDialog(row.raw, event.currentTarget)}
                             style={{
                               ...actionButtonStyle,
                               border: '1px solid rgba(255, 91, 112, 0.52)',
@@ -637,6 +731,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             }}>
               <span>每页</span>
               <select
+                aria-label="每页记录数"
                 value={pageSize}
                 onChange={(event) => {
                   setPageSize(Number(event.target.value) as 20 | 50);
@@ -648,17 +743,19 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 <option value={50}>50</option>
               </select>
               <span>{safePage + 1} / {totalPages}</span>
-              <button type="button" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} style={headerButtonStyle}>‹</button>
-              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} style={headerButtonStyle}>›</button>
+              <button type="button" aria-label="上一页" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} style={headerButtonStyle}>‹</button>
+              <button type="button" aria-label="下一页" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} style={headerButtonStyle}>›</button>
             </div>
           </>
         )}
       </main>
       {pendingDelete && (
         <div
+          ref={deleteDialogRef}
           role="dialog"
           aria-label="删除仿真记录"
           aria-modal="true"
+          onKeyDown={handleDeleteDialogKeyDown}
           style={{
             position: 'fixed',
             inset: 0,
@@ -725,6 +822,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button
+                ref={deleteCancelButtonRef}
                 type="button"
                 onClick={cancelDelete}
                 disabled={deleteState.isLoading}
@@ -761,8 +859,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       )}
       {overviewSession && (
         <div
+          ref={overviewDialogRef}
           role="dialog"
           aria-label="仿真概述"
+          aria-hidden={pendingDelete ? true : undefined}
           style={{
             position: 'fixed',
             inset: 0,
