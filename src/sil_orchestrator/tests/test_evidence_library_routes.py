@@ -113,6 +113,25 @@ async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_rescan_prunes_indexed_session_when_manifest_is_removed(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    session_dir = _session(repo / "runs" / "trace_eval")
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(routes, "REPO_ROOT", repo)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        (session_dir / "manifest.json").unlink()
+        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert response.status_code == 200
+    assert response.json()["pruned"] == 1
+
+
+@pytest.mark.asyncio
 async def test_rescan_skips_symlink_sessions_when_root_disallows_symlinks(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     root = repo / "runs" / "trace_eval"

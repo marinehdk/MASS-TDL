@@ -86,6 +86,35 @@ def _root_for_session_dir(session_dir: Path, config: EvidenceLibraryConfig) -> E
     return None
 
 
+def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
+    for table in (
+        "trajectory_downsample",
+        "trajectory_samples",
+        "state_segments",
+        "events",
+        "gate_results",
+        "artifacts",
+        "scenarios",
+        "sessions",
+    ):
+        conn.execute("delete from " + table + " where evidence_id = ?", (evidence_id,))
+
+
+def _prune_missing_sessions(conn: sqlite3.Connection) -> int:
+    stale_ids = [
+        row["evidence_id"]
+        for row in conn.execute("select evidence_id, session_path from sessions")
+        if not (
+            Path(row["session_path"]).is_dir()
+            and (Path(row["session_path"]) / "manifest.json").is_file()
+        )
+    ]
+    for evidence_id in stale_ids:
+        _delete_evidence_rows(conn, evidence_id)
+    conn.commit()
+    return len(stale_ids)
+
+
 def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, Any]:
     config = load_effective_config(repo_root=repo_root)
     ingested = 0
@@ -106,7 +135,8 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
                     ingested += 1
                 except Exception as exc:  # pragma: no cover - defensive aggregation
                     errors.append({"path": str(session_dir), "error": str(exc)})
-    return {"ingested": ingested, "errors": errors}
+        pruned = _prune_missing_sessions(conn)
+    return {"ingested": ingested, "pruned": pruned, "errors": errors}
 
 
 def ingest_frontend_session(session_dir: Path, repo_root: Path | None = None) -> str | None:
