@@ -1057,11 +1057,13 @@ describe('evidence library RTK invalidation', () => {
 
       await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
       await waitFor(() => expect(getCount).toBe(3));
-      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
-        .map((session) => session.evidence_id)).toEqual([
-        rebuiltSession.evidence_id,
-        secondarySession.evidence_id,
-      ]);
+      await waitFor(() => {
+        expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+          .map((session) => session.evidence_id)).toEqual([
+          rebuiltSession.evidence_id,
+          secondarySession.evidence_id,
+        ]);
+      });
     } finally {
       subscription.unsubscribe();
       vi.unstubAllGlobals();
