@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from .config import EvidenceLibraryConfig, EvidenceRootConfig, load_effective_config
 from .ingest import ingest_session, query_decision_frame, query_replay
@@ -109,6 +109,7 @@ def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
 
 
 _DELETION_STAGING_DIR = ".evidence-library-delete-staging"
+_DELETION_STAGE_METADATA_VERSION = 1
 
 
 def _remove_empty_staging_dir(staging_dir: Path) -> None:
@@ -118,8 +119,58 @@ def _remove_empty_staging_dir(staging_dir: Path) -> None:
         pass
 
 
-def _stage_deletion_target(target: Path) -> tuple[Path, Path]:
+def _deletion_stage_paths(evidence_id: str, target: Path) -> tuple[Path, Path, Path]:
     staging_dir = target.parent / _DELETION_STAGING_DIR
+    digest = hashlib.sha256(f"{evidence_id}\0{target}".encode()).hexdigest()[:24]
+    staged_target = staging_dir / f"delete-{digest}"
+    metadata_path = staging_dir / f"{staged_target.name}.json"
+    return staging_dir, staged_target, metadata_path
+
+
+def _stage_metadata_payload(evidence_id: str, target: Path, staged_target: Path) -> dict[str, Any]:
+    return {
+        "evidence_id": evidence_id,
+        "original_path": str(target),
+        "staged_path": str(staged_target),
+        "version": _DELETION_STAGE_METADATA_VERSION,
+    }
+
+
+def _write_stage_metadata(metadata_path: Path, payload: dict[str, Any]) -> None:
+    temporary_path = metadata_path.with_name(metadata_path.name + ".tmp")
+    if metadata_path.exists() or metadata_path.is_symlink() or temporary_path.exists():
+        raise OSError("Evidence deletion staging metadata already exists")
+    try:
+        with temporary_path.open("x", encoding="utf-8") as stream:
+            json.dump(payload, stream, sort_keys=True)
+            stream.write("\n")
+        temporary_path.chmod(0o600)
+        temporary_path.replace(metadata_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _read_stage_metadata(
+    metadata_path: Path,
+    *,
+    evidence_id: str,
+    target: Path,
+    staged_target: Path,
+) -> None:
+    _reject_symlink_components(metadata_path, "Evidence deletion staging metadata")
+    if not metadata_path.is_file():
+        raise OSError("Evidence deletion staging metadata is missing")
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OSError("Evidence deletion staging metadata is invalid") from exc
+    if payload != _stage_metadata_payload(evidence_id, target, staged_target):
+        raise OSError("Evidence deletion staging metadata does not match its target")
+
+
+def _stage_deletion_target(evidence_id: str, target: Path) -> tuple[Path, Path, Path]:
+    staging_dir, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
     if staging_dir.exists() or staging_dir.is_symlink():
         _reject_symlink_components(staging_dir, "Evidence deletion staging directory")
     else:
@@ -128,19 +179,42 @@ def _stage_deletion_target(target: Path) -> tuple[Path, Path]:
     if not staging_dir.is_dir():
         raise OSError("Evidence deletion staging path is not a directory")
 
-    staged_target = staging_dir / uuid4().hex
+    if staged_target.exists() or staged_target.is_symlink():
+        raise OSError("Evidence deletion staging target already exists")
+    _write_stage_metadata(
+        metadata_path,
+        _stage_metadata_payload(evidence_id, target, staged_target),
+    )
     try:
         target.rename(staged_target)
     except OSError:
+        metadata_path.unlink(missing_ok=True)
         _remove_empty_staging_dir(staging_dir)
         raise
-    return staging_dir, staged_target
+    return staging_dir, staged_target, metadata_path
 
 
-def _restore_staged_target(staging_dir: Path, staged_target: Path, target: Path) -> None:
+def _restore_staged_target(
+    staging_dir: Path,
+    staged_target: Path,
+    metadata_path: Path,
+    *,
+    evidence_id: str,
+    target: Path,
+) -> None:
+    _read_stage_metadata(
+        metadata_path,
+        evidence_id=evidence_id,
+        target=target,
+        staged_target=staged_target,
+    )
+    _reject_symlink_components(staged_target, "Evidence deletion staged target")
+    if not staged_target.is_dir():
+        raise OSError("Evidence deletion staged target is not a directory")
     if target.exists() or target.is_symlink():
         raise OSError("Evidence deletion target was recreated before restoration")
     staged_target.rename(target)
+    metadata_path.unlink(missing_ok=True)
     _remove_empty_staging_dir(staging_dir)
 
 
@@ -281,11 +355,74 @@ def _resolve_deletion_target(
     return target, resolved_target
 
 
-def _prune_missing_sessions(conn: sqlite3.Connection) -> int:
+def _recover_interrupted_deletions(
+    conn: sqlite3.Connection,
+    config: EvidenceLibraryConfig,
+    repo_root: Path | None,
+) -> tuple[list[dict[str, str]], set[str]]:
+    errors: list[dict[str, str]] = []
+    protected_ids: set[str] = set()
+    rows = conn.execute(
+        "select evidence_id, session_id, session_path, root_id from sessions"
+    ).fetchall()
+    for row in rows:
+        evidence_id = str(row["evidence_id"])
+        try:
+            target, _ = _resolve_deletion_target(
+                session_id=str(row["session_id"]),
+                session_path=Path(row["session_path"]),
+                root_id=str(row["root_id"]),
+                config=config,
+                repo_root=repo_root,
+            )
+        except (OSError, PermissionError):
+            continue
+
+        staging_dir, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
+        has_staged_target = staged_target.exists() or staged_target.is_symlink()
+        has_metadata = metadata_path.exists() or metadata_path.is_symlink()
+        if not has_staged_target and not has_metadata:
+            continue
+
+        try:
+            _read_stage_metadata(
+                metadata_path,
+                evidence_id=evidence_id,
+                target=target,
+                staged_target=staged_target,
+            )
+            if has_staged_target:
+                _restore_staged_target(
+                    staging_dir,
+                    staged_target,
+                    metadata_path,
+                    evidence_id=evidence_id,
+                    target=target,
+                )
+            elif target.exists() and not target.is_symlink():
+                metadata_path.unlink()
+                _remove_empty_staging_dir(staging_dir)
+            else:
+                raise OSError("Evidence deletion staged target is missing")
+        except (OSError, PermissionError):
+            protected_ids.add(evidence_id)
+            errors.append({
+                "path": str(metadata_path),
+                "error": "interrupted deletion recovery failed",
+            })
+    return errors, protected_ids
+
+
+def _prune_missing_sessions(
+    conn: sqlite3.Connection,
+    protected_ids: set[str] | None = None,
+) -> int:
+    protected = protected_ids or set()
     stale_ids = [
         row["evidence_id"]
         for row in conn.execute("select evidence_id, session_path from sessions")
-        if not _session_path_is_healthy(Path(row["session_path"]))
+        if row["evidence_id"] not in protected
+        and not _session_path_is_healthy(Path(row["session_path"]))
     ]
     for evidence_id in stale_ids:
         _delete_evidence_rows(conn, evidence_id)
@@ -298,6 +435,8 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
     ingested = 0
     errors: list[dict[str, str]] = []
     with closing(open_initialized(config)) as conn:
+        recovery_errors, protected_ids = _recover_interrupted_deletions(conn, config, repo_root)
+        errors.extend(recovery_errors)
         for root in config.roots:
             if not root.enabled:
                 continue
@@ -313,7 +452,7 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
                     ingested += 1
                 except Exception as exc:  # pragma: no cover - defensive aggregation
                     errors.append({"path": str(session_dir), "error": str(exc)})
-        pruned = _prune_missing_sessions(conn)
+        pruned = _prune_missing_sessions(conn, protected_ids)
     return {"ingested": ingested, "pruned": pruned, "errors": errors}
 
 
@@ -526,7 +665,7 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
                 "filesystem_cleanup": "not_needed",
             }
 
-        staging_dir, staged_target = _stage_deletion_target(target)
+        staging_dir, staged_target, metadata_path = _stage_deletion_target(evidence_id, target)
         try:
             _delete_evidence_rows(conn, evidence_id)
             conn.commit()
@@ -536,13 +675,20 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
             except sqlite3.Error:
                 pass
             try:
-                _restore_staged_target(staging_dir, staged_target, target)
+                _restore_staged_target(
+                    staging_dir,
+                    staged_target,
+                    metadata_path,
+                    evidence_id=evidence_id,
+                    target=target,
+                )
             except OSError as restore_error:
                 raise RuntimeError("Evidence deletion target restoration failed") from restore_error
             raise
 
     try:
         shutil.rmtree(staged_target)
+        metadata_path.unlink(missing_ok=True)
     except Exception:
         return {
             "evidence_id": evidence_id,
@@ -551,6 +697,7 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
             "filesystem_cleanup": "pending",
             "cleanup_error": "staged filesystem cleanup is pending",
             "cleanup_path": str(staged_target),
+            "cleanup_metadata_path": str(metadata_path),
         }
 
     _remove_empty_staging_dir(staging_dir)

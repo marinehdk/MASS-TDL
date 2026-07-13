@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   rescanUnwrap: vi.fn(),
   rescanIsLoading: false,
   refetch: vi.fn(),
+  refetchUnwrap: vi.fn(),
   deleteSession: vi.fn(),
   deleteUnwrap: vi.fn(),
   deleteIsLoading: false,
@@ -124,6 +125,7 @@ beforeEach(() => {
   apiMocks.rescanUnwrap.mockReset();
   apiMocks.rescanIsLoading = false;
   apiMocks.refetch.mockReset();
+  apiMocks.refetchUnwrap.mockReset();
   apiMocks.deleteSession.mockReset();
   apiMocks.deleteUnwrap.mockReset();
   apiMocks.deleteIsLoading = false;
@@ -132,7 +134,8 @@ beforeEach(() => {
   apiMocks.batchDeleteIsLoading = false;
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
-  apiMocks.refetch.mockResolvedValue(undefined);
+  apiMocks.refetchUnwrap.mockResolvedValue(undefined);
+  apiMocks.refetch.mockReturnValue({ unwrap: apiMocks.refetchUnwrap });
   apiMocks.deleteUnwrap.mockResolvedValue({
     evidence_id: primarySession.evidence_id,
     deleted_path: primarySession.deletion_target,
@@ -213,14 +216,16 @@ describe('EvidenceLibraryView', () => {
     }
   });
 
-  it('unwraps a successful scan without manually duplicating RTK invalidation', async () => {
+  it('forces an authoritative list refresh after a successful zero-change scan', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({ ingested: 0, pruned: 0, errors: [] });
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '扫描' }));
 
     expect(apiMocks.rescan).toHaveBeenCalledWith({ force: false });
     await waitFor(() => expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1));
-    expect(apiMocks.refetch).not.toHaveBeenCalled();
+    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
+    expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
   });
 
   it('shows every HTTP-200 scan error while retaining successful result counts', async () => {
@@ -245,7 +250,8 @@ describe('EvidenceLibraryView', () => {
     expect(alert).toHaveTextContent('/runs/broken-b');
     expect(alert).toHaveTextContent('trajectory unreadable');
     expect(alert).not.toHaveTextContent('扫描成功');
-    expect(apiMocks.refetch).not.toHaveBeenCalled();
+    expect(apiMocks.refetch).toHaveBeenCalledTimes(1);
+    expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
   });
 
   it('always shows the latest successful scan counts across a later request failure', async () => {
@@ -850,6 +856,9 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
     expect(screen.getByRole('alert')).toHaveTextContent('批量删除结果未知');
     expect(screen.getByRole('button', { name: '删除所选（2）' })).toBeDisabled();
+    expect(deleteButton()).toBeDisabled();
+    fireEvent.click(deleteButton());
+    expect(apiMocks.deleteSession).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
     expect(apiMocks.batchDeleteSessions).toHaveBeenCalledTimes(1);
 
@@ -857,6 +866,62 @@ describe('EvidenceLibraryView', () => {
     await waitFor(() => expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText('批量删除结果未知')).not.toBeInTheDocument());
     expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+  });
+
+  it('keeps unknown deletion state until zero-change scan list refresh completes', async () => {
+    let resolveRefresh!: () => void;
+    apiMocks.batchDeleteUnwrap.mockRejectedValueOnce(new Error('response lost'));
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({ ingested: 0, pruned: 0, errors: [] });
+    apiMocks.refetchUnwrap.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    await within(dialog).findByRole('alert');
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('alert')).toHaveTextContent('批量删除结果未知');
+    expect(deleteButton()).toBeDisabled();
+
+    await act(async () => resolveRefresh());
+    await waitFor(() => expect(screen.queryByText('批量删除结果未知')).not.toBeInTheDocument());
+    expect(deleteButton()).not.toBeDisabled();
+  });
+
+  it.each([
+    {
+      name: 'scan reports item errors',
+      scanResult: { ingested: 0, pruned: 0, errors: [{ path: '/runs/broken', error: 'unreadable' }] },
+      refreshError: null,
+    },
+    {
+      name: 'authoritative list refresh fails',
+      scanResult: { ingested: 0, pruned: 0, errors: [] },
+      refreshError: new Error('list unavailable'),
+    },
+  ])('keeps unknown deletion state when $name', async ({ scanResult, refreshError }) => {
+    apiMocks.batchDeleteUnwrap.mockRejectedValueOnce(new Error('response lost'));
+    apiMocks.rescanUnwrap.mockResolvedValueOnce(scanResult);
+    if (refreshError) apiMocks.refetchUnwrap.mockRejectedValueOnce(refreshError);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    await within(dialog).findByRole('alert');
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    await waitFor(() => expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('批量删除结果未知。请扫描核对证据库后重新选择。')).toBeInTheDocument();
+    expect(deleteButton()).toBeDisabled();
   });
 
   it('reports pending post-commit filesystem cleanup as deleted without offering retry', async () => {
@@ -897,6 +962,92 @@ describe('EvidenceLibraryView', () => {
     expect(dialog).toHaveTextContent('/runs/.evidence-library-delete-staging/cleanup-token');
     expect(within(dialog).queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a single-delete cleanup path visible until explicitly acknowledged', async () => {
+    apiMocks.deleteUnwrap.mockResolvedValueOnce({
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-single',
+      cleanup_metadata_path: '/runs/.evidence-library-delete-staging/delete-single.json',
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton());
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+
+    const cleanupAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
+    expect(cleanupAlert).toHaveTextContent(primarySession.evidence_id);
+    expect(cleanupAlert).toHaveTextContent('/runs/.evidence-library-delete-staging/delete-single');
+    expect(cleanupAlert).toHaveTextContent('/runs/.evidence-library-delete-staging/delete-single.json');
+    expect(screen.queryByRole('dialog', { name: '删除仿真记录' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(cleanupAlert).getByRole('button', {
+      name: `确认已记录 ${primarySession.evidence_id}`,
+    }));
+    expect(screen.queryByRole('alert', { name: '待处理文件清理' })).not.toBeInTheDocument();
+  });
+
+  it('preserves pending cleanup paths across failed-item batch retries until acknowledgment', async () => {
+    const cleanupPath = '/runs/.evidence-library-delete-staging/delete-batch';
+    apiMocks.batchDeleteUnwrap
+      .mockResolvedValueOnce({
+        requested: 2,
+        deleted: 1,
+        failed: 1,
+        results: [
+          {
+            evidence_id: primarySession.evidence_id,
+            deleted_path: primarySession.deletion_target,
+            filesystem_deleted: false,
+            filesystem_cleanup: 'pending',
+            cleanup_error: 'staged filesystem cleanup is pending',
+            cleanup_path: cleanupPath,
+            status: 'deleted',
+          },
+          {
+            evidence_id: secondarySession.evidence_id,
+            status: 'failed',
+            error: 'filesystem operation failed',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        requested: 1,
+        deleted: 1,
+        failed: 0,
+        results: [{
+          evidence_id: secondarySession.evidence_id,
+          deleted_path: secondarySession.deletion_target,
+          filesystem_deleted: true,
+          filesystem_cleanup: 'completed',
+          status: 'deleted',
+        }],
+      });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+
+    const resultDialog = await screen.findByRole('dialog', { name: '批量删除仿真记录' });
+    expect(resultDialog).toHaveTextContent(cleanupPath);
+    fireEvent.click(within(resultDialog).getByRole('button', { name: '重试失败项（1）' }));
+
+    await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenNthCalledWith(2, {
+      evidence_ids: [secondarySession.evidence_id],
+    }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '批量删除仿真记录' })).not.toBeInTheDocument());
+    const cleanupAlert = screen.getByRole('alert', { name: '待处理文件清理' });
+    expect(cleanupAlert).toHaveTextContent(cleanupPath);
+
+    fireEvent.click(within(cleanupAlert).getByRole('button', {
+      name: `确认已记录 ${primarySession.evidence_id}`,
+    }));
+    expect(screen.queryByText(cleanupPath)).not.toBeInTheDocument();
   });
 
   it('partial batch delete disables controls, preserves failed selection, and retries only failures', async () => {
@@ -1159,7 +1310,7 @@ describe('evidence library RTK invalidation', () => {
     return { silApi, store };
   };
 
-  it('refetches once for changed scan results but not for rejected or unchanged scans', async () => {
+  it('refetches once after every fulfilled scan, including zero-change and error results', async () => {
     let scanResponse = jsonResponse({ detail: 'scan rejected' }, 500);
     let getCount = 0;
     const fetchMock = vi.fn(async (request: Request) => {
@@ -1181,8 +1332,7 @@ describe('evidence library RTK invalidation', () => {
 
       scanResponse = jsonResponse({ ingested: 0, pruned: 0, errors: [] });
       await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-      expect(getCount).toBe(1);
+      await waitFor(() => expect(getCount).toBe(2));
 
       scanResponse = jsonResponse({
         ingested: 1,
@@ -1190,7 +1340,7 @@ describe('evidence library RTK invalidation', () => {
         errors: [{ path: '/runs/broken', error: 'partial failure' }],
       });
       await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
-      await waitFor(() => expect(getCount).toBe(2));
+      await waitFor(() => expect(getCount).toBe(3));
     } finally {
       subscription.unsubscribe();
       vi.unstubAllGlobals();
@@ -1305,12 +1455,13 @@ describe('evidence library RTK invalidation', () => {
           evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
         }),
       ).unwrap()).rejects.toBeDefined();
-      await waitFor(() => expect(getCount).toBe(2));
-
-      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
-        .map((session) => session.evidence_id)).toEqual([
-          secondarySession.evidence_id,
-        ]);
+      await waitFor(() => {
+        expect(getCount).toBe(2);
+        expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+          .map((session) => session.evidence_id)).toEqual([
+            secondarySession.evidence_id,
+          ]);
+      });
     } finally {
       subscription.unsubscribe();
       vi.unstubAllGlobals();

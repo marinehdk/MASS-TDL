@@ -17,6 +17,7 @@ import {
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
   type EvidenceLibraryBatchDeleteResult,
+  type EvidenceLibraryDeleteResult,
   type EvidenceLibraryScanResult,
   type EvidenceLibrarySession,
 } from '../../api/silApi';
@@ -256,7 +257,7 @@ const actionButtonStyle = {
 } as const;
 
 export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
-  const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
+  const { data, isLoading, refetch: refetchSessions } = useGetEvidenceLibrarySessionsQuery();
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
   const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
   const [batchDeleteSessions, batchDeleteState] = useBatchDeleteEvidenceLibrarySessionsMutation();
@@ -283,6 +284,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [pendingBatchDelete, setPendingBatchDelete] = useState<SelectedSessionSnapshot[] | null>(null);
   const [batchDeleteResult, setBatchDeleteResult] = useState<EvidenceLibraryBatchDeleteResult | null>(null);
   const [batchDeleteNeedsRescan, setBatchDeleteNeedsRescan] = useState(false);
+  const [scanReconciliationPending, setScanReconciliationPending] = useState(false);
+  const [pendingCleanupByPath, setPendingCleanupByPath] = useState<Map<string, EvidenceLibraryDeleteResult>>(
+    () => new Map(),
+  );
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement | null>(null);
   const batchDeleteDialogRef = useRef<HTMLDivElement | null>(null);
@@ -327,7 +332,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const allVisibleSelected = visibleSelectableIds.length > 0 && selectedOnPage === visibleSelectableIds.length;
   const visibleSelectionMixed = selectedOnPage > 0 && !allVisibleSelected;
   const deleteActionsDisabled = deleteState.isLoading || batchDeleteState.isLoading;
-  const selectionDisabled = deleteActionsDisabled || rescanState.isLoading || batchDeleteNeedsRescan;
+  const scanInProgress = rescanState.isLoading || scanReconciliationPending;
+  const destructiveActionsDisabled = deleteActionsDisabled || scanInProgress || batchDeleteNeedsRescan;
+  const selectionDisabled = destructiveActionsDisabled;
   const allFilteredSelected = selectableRows.length > 0
     && selectableRows.every((row) => selectedEvidenceIds.has(row.raw.evidence_id));
   const batchDeleteSummary = useMemo(() => {
@@ -345,9 +352,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     return summary;
   }, [pendingBatchDelete]);
   const batchDeleteFailures = batchDeleteResult?.results.filter((item) => item.status === 'failed') ?? [];
-  const batchDeleteCleanupPending = (batchDeleteResult?.results ?? []).flatMap((item) => (
-    item.status === 'deleted' && item.filesystem_cleanup === 'pending' ? [item] : []
-  ));
+  const batchDeleteCleanupPending = Array.from(pendingCleanupByPath.values());
   const overviewPngs = overviewSession
     ? overviewSession.overview_pngs?.length
       ? overviewSession.overview_pngs
@@ -356,6 +361,26 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         : []
     : [];
   const currentOverview = overviewPngs[Math.min(overviewIndex, Math.max(overviewPngs.length - 1, 0))];
+
+  const recordPendingCleanup = useCallback((results: EvidenceLibraryDeleteResult[]) => {
+    setPendingCleanupByPath((current) => {
+      const next = new Map(current);
+      for (const result of results) {
+        if (result.filesystem_cleanup === 'pending' && result.cleanup_path) {
+          next.set(result.cleanup_path, result);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const acknowledgePendingCleanup = useCallback((cleanupPath: string) => {
+    setPendingCleanupByPath((current) => {
+      const next = new Map(current);
+      next.delete(cleanupPath);
+      return next;
+    });
+  }, []);
 
   const resetOverviewView = () => {
     setOverviewScale(1);
@@ -370,7 +395,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const openDeleteDialog = (session: EvidenceLibrarySession, trigger: HTMLButtonElement) => {
-    if (deleteState.isLoading || !session.deletion_allowed || !session.deletion_target) return;
+    if (destructiveActionsDisabled || !session.deletion_allowed || !session.deletion_target) return;
     setDeleteFailed(false);
     deleteTriggerRef.current = trigger;
     setPendingDelete(session);
@@ -392,10 +417,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const handleDelete = async () => {
-    if (!pendingDelete) return;
+    if (!pendingDelete || destructiveActionsDisabled) return;
     const target = pendingDelete;
     try {
-      await deleteSession(target.evidence_id).unwrap();
+      const result = await deleteSession(target.evidence_id).unwrap();
+      recordPendingCleanup([result]);
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
       setFocusSearchAfterDeleteId(target.evidence_id);
       closeDeleteDialog(false);
@@ -405,7 +431,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const openBatchDeleteDialog = (trigger: HTMLButtonElement) => {
-    if (deleteActionsDisabled || batchDeleteNeedsRescan || selectedSessions.length === 0) return;
+    if (destructiveActionsDisabled || selectedSessions.length === 0) return;
     batchDeleteTriggerRef.current = trigger;
     setBatchDeleteResult(null);
     setPendingBatchDelete([...selectedSessions]);
@@ -426,6 +452,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       const result = await batchDeleteSessions({
         evidence_ids: pendingBatchDelete.map((session) => session.evidenceId),
       }).unwrap();
+      recordPendingCleanup(result.results.flatMap((item) => (
+        item.status === 'deleted' ? [item] : []
+      )));
       const failedIds = new Set(
         result.results.filter((item) => item.status === 'failed').map((item) => item.evidence_id),
       );
@@ -434,7 +463,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         failedSnapshots.map((session) => [session.evidenceId, session]),
       ));
       setBatchDeleteResult(result);
-      setBatchDeleteNeedsRescan(false);
       const cleanupPending = result.results.some(
         (item) => item.status === 'deleted' && item.filesystem_cleanup === 'pending',
       );
@@ -467,15 +495,19 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
 
   const handleRescan = useCallback(async () => {
     clearSelection();
+    setScanReconciliationPending(true);
     try {
       const result = await rescan({ force: false }).unwrap();
       setScanFailed(false);
       setScanResult(result);
-      setBatchDeleteNeedsRescan(false);
+      await refetchSessions().unwrap();
+      if (result.errors.length === 0) setBatchDeleteNeedsRescan(false);
     } catch {
       setScanFailed(true);
+    } finally {
+      setScanReconciliationPending(false);
     }
-  }, [clearSelection, rescan]);
+  }, [clearSelection, refetchSessions, rescan]);
 
   const toggleSelected = (session: EvidenceLibrarySession) => {
     if (selectionDisabled || !session.deletion_allowed || !session.deletion_target) return;
@@ -871,14 +903,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   <button
                     type="button"
                     onClick={clearSelection}
-                    disabled={deleteActionsDisabled || rescanState.isLoading}
+                    disabled={deleteActionsDisabled || scanInProgress}
                     style={{
                       ...actionButtonStyle,
                       height: 26,
                       border: '1px solid var(--line-2)',
                       background: 'rgba(255, 255, 255, 0.025)',
                       color: 'var(--txt-2)',
-                      cursor: deleteActionsDisabled || rescanState.isLoading ? 'not-allowed' : 'pointer',
+                      cursor: deleteActionsDisabled || scanInProgress ? 'not-allowed' : 'pointer',
                     }}
                   >
                     取消选择
@@ -888,14 +920,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     type="button"
                     title={batchDeleteNeedsRescan ? '请先扫描核对证据库' : undefined}
                     onClick={(event) => openBatchDeleteDialog(event.currentTarget)}
-                    disabled={deleteActionsDisabled || batchDeleteNeedsRescan}
+                    disabled={destructiveActionsDisabled}
                     style={{
                       ...actionButtonStyle,
                       height: 26,
                       border: '1px solid rgba(255, 91, 112, 0.52)',
                       background: 'rgba(255, 91, 112, 0.08)',
                       color: 'var(--c-danger)',
-                      cursor: deleteActionsDisabled || batchDeleteNeedsRescan ? 'not-allowed' : 'pointer',
+                      cursor: destructiveActionsDisabled ? 'not-allowed' : 'pointer',
                     }}
                   >
                     <LucideTrash2 size={13} aria-hidden="true" />
@@ -913,10 +945,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               }}>
                 <button
                   type="button"
-                  aria-label={rescanState.isLoading ? '扫描中' : '扫描'}
+                  aria-label={scanInProgress ? '扫描中' : '扫描'}
                   title="扫描证据库"
                   onClick={handleRescan}
-                  disabled={rescanState.isLoading || deleteActionsDisabled}
+                  disabled={scanInProgress || deleteActionsDisabled}
                   style={{
                     border: '1px solid var(--c-phos)',
                     color: 'var(--c-phos)',
@@ -926,7 +958,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     padding: '0 14px',
                     borderRadius: 4,
                     whiteSpace: 'nowrap',
-                    cursor: rescanState.isLoading || deleteActionsDisabled ? 'wait' : 'pointer',
+                    cursor: scanInProgress || deleteActionsDisabled ? 'wait' : 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -934,7 +966,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   }}
                 >
                   <LucideScanSearch size={14} aria-hidden="true" />
-                  {rescanState.isLoading ? '扫描中' : '扫描'}
+                  {scanInProgress ? '扫描中' : '扫描'}
                 </button>
               </div>
             </div>
@@ -970,6 +1002,43 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 }}
               >
                 批量删除结果未知。请扫描核对证据库后重新选择。
+              </div>
+            )}
+            {batchDeleteCleanupPending.length > 0 && (
+              <div
+                role="alert"
+                aria-label="待处理文件清理"
+                style={{
+                  margin: '0 0 10px',
+                  padding: '8px 10px',
+                  border: '1px solid rgba(255, 190, 70, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 190, 70, 0.08)',
+                  color: 'var(--txt-2)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 11,
+                }}
+              >
+                <strong>文件清理待确认 {batchDeleteCleanupPending.length}</strong>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {batchDeleteCleanupPending.map((item) => (
+                    <li key={item.cleanup_path} style={{ marginTop: 6, overflowWrap: 'anywhere' }}>
+                      <code>{item.evidence_id}</code>: {item.cleanup_error}
+                      <div>暂存路径：<code>{item.cleanup_path}</code></div>
+                      {item.cleanup_metadata_path && (
+                        <div>恢复元数据：<code>{item.cleanup_metadata_path}</code></div>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={`确认已记录 ${item.evidence_id}`}
+                        onClick={() => acknowledgePendingCleanup(item.cleanup_path!)}
+                        style={{ ...actionButtonStyle, marginTop: 5 }}
+                      >
+                        已记录
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             {scanResult && (
@@ -1139,18 +1208,20 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                           <button
                             type="button"
                             aria-label={`删除 ${row.raw.session_id}`}
-                            title={row.raw.deletion_allowed && row.raw.deletion_target
-                              ? `删除 ${row.raw.session_id}`
-                              : row.raw.deletion_error || '删除目标不安全'}
-                            disabled={deleteActionsDisabled || !row.raw.deletion_allowed || !row.raw.deletion_target}
+                            title={batchDeleteNeedsRescan
+                              ? '请先扫描核对证据库'
+                              : row.raw.deletion_allowed && row.raw.deletion_target
+                                ? `删除 ${row.raw.session_id}`
+                                : row.raw.deletion_error || '删除目标不安全'}
+                            disabled={destructiveActionsDisabled || !row.raw.deletion_allowed || !row.raw.deletion_target}
                             onClick={(event) => openDeleteDialog(row.raw, event.currentTarget)}
                             style={{
                               ...actionButtonStyle,
                               border: '1px solid rgba(255, 91, 112, 0.52)',
                               background: 'rgba(255, 91, 112, 0.08)',
                               color: 'var(--c-danger)',
-                              cursor: deleteActionsDisabled
-                                ? 'wait'
+                              cursor: destructiveActionsDisabled
+                                ? 'not-allowed'
                                 : row.raw.deletion_allowed && row.raw.deletion_target ? 'pointer' : 'not-allowed',
                             }}
                           >
@@ -1272,6 +1343,21 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                           <div>
                             暂存路径：<code style={{ color: 'var(--txt-1)' }}>{item.cleanup_path}</code>
                           </div>
+                        )}
+                        {item.cleanup_metadata_path && (
+                          <div>
+                            恢复元数据：<code style={{ color: 'var(--txt-1)' }}>{item.cleanup_metadata_path}</code>
+                          </div>
+                        )}
+                        {item.cleanup_path && (
+                          <button
+                            type="button"
+                            aria-label={`确认已记录 ${item.evidence_id}`}
+                            onClick={() => acknowledgePendingCleanup(item.cleanup_path!)}
+                            style={{ ...actionButtonStyle, marginTop: 5 }}
+                          >
+                            已记录
+                          </button>
                         )}
                       </li>
                     ))}

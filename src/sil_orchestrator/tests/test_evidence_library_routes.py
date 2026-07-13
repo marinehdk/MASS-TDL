@@ -1082,6 +1082,7 @@ async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_
     assert payload["failed"] == 0
     result = payload["results"][0]
     cleanup_path = Path(result.pop("cleanup_path"))
+    cleanup_metadata_path = Path(result.pop("cleanup_metadata_path"))
     assert result == {
         "evidence_id": evidence_id,
         "deleted_path": str(trace_dir.parent.resolve()),
@@ -1096,7 +1097,73 @@ async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_
     assert staging_dir.is_dir()
     assert cleanup_path.parent == staging_dir
     assert cleanup_path.is_dir()
-    assert len(list(staging_dir.iterdir())) == 1
+    assert cleanup_metadata_path == cleanup_path.with_name(cleanup_path.name + ".json")
+    assert json.loads(cleanup_metadata_path.read_text()) == {
+        "evidence_id": evidence_id,
+        "original_path": str(trace_dir.parent.resolve()),
+        "staged_path": str(cleanup_path),
+        "version": 1,
+    }
+    assert len(list(staging_dir.iterdir())) == 2
+
+
+@pytest.mark.asyncio
+async def test_rescan_restores_deterministically_named_stage_after_precommit_process_exit(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
+        evidence_id = session["evidence_id"]
+        original_delete_rows = service._delete_evidence_rows
+
+        def exit_before_database_commit(_conn: sqlite3.Connection, _evidence_id: str) -> None:
+            raise SystemExit("simulated process exit")
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", exit_before_database_commit)
+        with pytest.raises(SystemExit, match="simulated process exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+
+        staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+        staged_targets = [path for path in staging_dir.iterdir() if path.is_dir()]
+        metadata_paths = list(staging_dir.glob("*.json"))
+        assert len(staged_targets) == 1
+        assert len(metadata_paths) == 1
+        first_staged_target = staged_targets[0]
+        assert first_staged_target.name.startswith("delete-")
+        assert metadata_paths[0] == first_staged_target.with_name(first_staged_target.name + ".json")
+        assert json.loads(metadata_paths[0].read_text()) == {
+            "evidence_id": evidence_id,
+            "original_path": str(trace_dir.parent.resolve()),
+            "staged_path": str(first_staged_target),
+            "version": 1,
+        }
+        assert not trace_dir.parent.exists()
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
+        first_recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        assert first_recovery.json()["errors"] == []
+        assert trace_dir.parent.is_dir()
+        assert _indexed_session_count(repo, evidence_id) == 1
+        assert not staging_dir.exists()
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", exit_before_database_commit)
+        with pytest.raises(SystemExit, match="simulated process exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+        second_staged_target = next(path for path in staging_dir.iterdir() if path.is_dir())
+        assert second_staged_target.name == first_staged_target.name
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
+        second_recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert second_recovery.json()["errors"] == []
+    assert trace_dir.parent.is_dir()
+    assert _indexed_session_count(repo, evidence_id) == 1
+    assert not staging_dir.exists()
 
 
 @pytest.mark.asyncio

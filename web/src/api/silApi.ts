@@ -313,6 +313,7 @@ export interface EvidenceLibraryDeleteResult {
   filesystem_cleanup: 'completed' | 'not_needed' | 'pending';
   cleanup_error?: string;
   cleanup_path?: string;
+  cleanup_metadata_path?: string;
 }
 
 export interface EvidenceLibraryBatchDeleteRequest {
@@ -503,9 +504,7 @@ export const silApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: (result) => (
-        result && (result.ingested > 0 || result.pruned > 0) ? ['EvidenceLibrary'] : []
-      ),
+      invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
     }),
 
     deleteEvidenceLibrarySession: builder.mutation<EvidenceLibraryDeleteResult, string>({
