@@ -314,6 +314,7 @@ export interface EvidenceLibraryDeleteResult {
   cleanup_error?: string;
   cleanup_path?: string;
   cleanup_metadata_path?: string;
+  cleanup_paths?: string[];
 }
 
 export interface EvidenceLibraryBatchDeleteRequest {

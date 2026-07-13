@@ -1102,6 +1102,7 @@ async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_
     result = payload["results"][0]
     cleanup_path = Path(result.pop("cleanup_path"))
     cleanup_metadata_path = Path(result.pop("cleanup_metadata_path"))
+    cleanup_paths = [Path(path) for path in result.pop("cleanup_paths")]
     assert result == {
         "evidence_id": evidence_id,
         "deleted_path": str(trace_dir.parent.resolve()),
@@ -1117,6 +1118,10 @@ async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_
     assert cleanup_path.parent == staging_dir
     assert cleanup_path.is_dir()
     assert cleanup_metadata_path == cleanup_path.with_name(cleanup_path.name + ".json")
+    recovery_record = next(
+        (tmp_path / "config" / ".evidence-library-delete-recovery").glob("*.json")
+    )
+    assert cleanup_paths == [cleanup_path, cleanup_metadata_path, recovery_record]
     assert json.loads(cleanup_metadata_path.read_text()) == {
         "evidence_id": evidence_id,
         "original_path": str(trace_dir.parent.resolve()),
@@ -1521,6 +1526,11 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
         "cleanup_error": "staged filesystem cleanup is pending",
         "cleanup_path": str(cleanup_path),
         "cleanup_metadata_path": str(recovery_record),
+        "cleanup_paths": [
+            str(cleanup_path),
+            str(cleanup_metadata_path),
+            str(recovery_record),
+        ],
     }]
     assert first_recovery.json().get("cleanup_pending") == expected_pending
     assert second_recovery.json().get("cleanup_pending") == expected_pending

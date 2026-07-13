@@ -110,6 +110,11 @@ const loadPendingCleanup = (storageKey: string) => {
   return pending;
 };
 
+const additionalCleanupPaths = (result: EvidenceLibraryDeleteResult) => {
+  const primaryPaths = new Set([result.cleanup_path, result.cleanup_metadata_path]);
+  return (result.cleanup_paths ?? []).filter((path) => path && !primaryPaths.has(path));
+};
+
 const displayRunTime = (value?: string | null) => {
   if (!value) return '-';
   return value
@@ -347,6 +352,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [scanReconciliationPending, setScanReconciliationPending] = useState(false);
   const [cleanupStorageKey, setCleanupStorageKey] = useState<string | null>(null);
   const [cleanupStorageReady, setCleanupStorageReady] = useState(false);
+  const [cleanupStorageUnavailable, setCleanupStorageUnavailable] = useState(false);
+  const [cleanupStorageOperationPending, setCleanupStorageOperationPending] = useState(false);
   const [pendingCleanupByPath, setPendingCleanupByPath] = useState<Map<string, EvidenceLibraryDeleteResult>>(
     () => new Map(),
   );
@@ -365,6 +372,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const backgroundRef = useRef<HTMLElement | null>(null);
   const overviewDialogRef = useRef<HTMLDivElement | null>(null);
   const selectPageRef = useRef<HTMLInputElement | null>(null);
+  const pendingCleanupByPathRef = useRef<Map<string, EvidenceLibraryDeleteResult>>(new Map());
+  const acknowledgedCleanupPathsRef = useRef<Set<string>>(new Set());
+  const cleanupStorageReadyRef = useRef(false);
+  const cleanupStorageActiveRef = useRef(true);
+  const cleanupStorageAttemptRef = useRef<Promise<boolean> | null>(null);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
@@ -393,9 +405,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const selectedOnPage = visibleSelectableIds.filter((id) => selectedEvidenceIds.has(id)).length;
   const allVisibleSelected = visibleSelectableIds.length > 0 && selectedOnPage === visibleSelectableIds.length;
   const visibleSelectionMixed = selectedOnPage > 0 && !allVisibleSelected;
-  const deleteActionsDisabled = deleteState.isLoading || batchDeleteState.isLoading;
+  const deleteActionsDisabled = deleteState.isLoading
+    || batchDeleteState.isLoading
+    || cleanupStorageOperationPending;
   const scanInProgress = rescanState.isLoading || scanReconciliationPending;
-  const destructiveActionsDisabled = deleteActionsDisabled || scanInProgress || batchDeleteNeedsRescan;
+  const destructiveActionsDisabled = deleteActionsDisabled
+    || scanInProgress
+    || batchDeleteNeedsRescan
+    || cleanupStorageUnavailable;
   const selectionDisabled = destructiveActionsDisabled;
   const allFilteredSelected = selectableRows.length > 0
     && selectableRows.every((row) => selectedEvidenceIds.has(row.raw.evidence_id));
@@ -425,52 +442,75 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const currentOverview = overviewPngs[Math.min(overviewIndex, Math.max(overviewPngs.length - 1, 0))];
 
   const recordPendingCleanup = useCallback((results: EvidenceLibraryDeleteResult[]) => {
-    setPendingCleanupByPath((current) => {
-      const next = new Map(current);
-      for (const result of results) {
-        if (result.filesystem_cleanup === 'pending' && result.cleanup_path) {
-          next.set(result.cleanup_path, result);
-        }
+    const next = new Map(pendingCleanupByPathRef.current);
+    for (const result of results) {
+      if (result.filesystem_cleanup === 'pending' && result.cleanup_path) {
+        acknowledgedCleanupPathsRef.current.delete(result.cleanup_path);
+        next.set(result.cleanup_path, result);
       }
-      return next;
-    });
+    }
+    pendingCleanupByPathRef.current = next;
+    setPendingCleanupByPath(next);
   }, []);
 
   const acknowledgePendingCleanup = useCallback((cleanupPath: string) => {
-    setPendingCleanupByPath((current) => {
-      const next = new Map(current);
-      next.delete(cleanupPath);
-      return next;
-    });
+    acknowledgedCleanupPathsRef.current.add(cleanupPath);
+    const next = new Map(pendingCleanupByPathRef.current);
+    next.delete(cleanupPath);
+    pendingCleanupByPathRef.current = next;
+    setPendingCleanupByPath(next);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    const hydratePendingCleanup = async () => {
-      try {
+  const initializeCleanupStorage = useCallback(() => {
+    if (cleanupStorageReadyRef.current) return Promise.resolve(true);
+    if (cleanupStorageAttemptRef.current) return cleanupStorageAttemptRef.current;
+
+    const attempt = Promise.resolve()
+      .then(async () => {
         const response = await fetch('/api/v1/evidence-library/config', {
           headers: { Accept: 'application/json' },
         });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error('Evidence cleanup identity request failed');
         const storageKey = cleanupStorageKeyForConfig(await response.json());
-        if (!active || !storageKey) return;
+        if (!storageKey) throw new Error('Evidence cleanup identity is invalid');
+        if (!cleanupStorageActiveRef.current) return false;
         const stored = loadPendingCleanup(storageKey);
-        setPendingCleanupByPath((current) => {
-          const next = new Map(stored);
-          current.forEach((result, path) => next.set(path, result));
-          return next;
+        acknowledgedCleanupPathsRef.current.forEach((path) => stored.delete(path));
+        pendingCleanupByPathRef.current.forEach((result, path) => {
+          if (!acknowledgedCleanupPathsRef.current.has(path)) stored.set(path, result);
         });
+        window.localStorage.setItem(
+          storageKey,
+          JSON.stringify(Array.from(stored.values())),
+        );
+        pendingCleanupByPathRef.current = stored;
+        setPendingCleanupByPath(stored);
         setCleanupStorageKey(storageKey);
+        cleanupStorageReadyRef.current = true;
         setCleanupStorageReady(true);
-      } catch {
-        // Current cleanup results remain visible without cross-config persistence.
+        setCleanupStorageUnavailable(false);
+        return true;
+      })
+      .catch(() => {
+        if (cleanupStorageActiveRef.current) setCleanupStorageUnavailable(true);
+        return false;
+      });
+    const trackedAttempt = attempt.finally(() => {
+      if (cleanupStorageAttemptRef.current === trackedAttempt) {
+        cleanupStorageAttemptRef.current = null;
       }
-    };
-    void hydratePendingCleanup();
-    return () => {
-      active = false;
-    };
+    });
+    cleanupStorageAttemptRef.current = trackedAttempt;
+    return trackedAttempt;
   }, []);
+
+  useEffect(() => {
+    cleanupStorageActiveRef.current = true;
+    void initializeCleanupStorage();
+    return () => {
+      cleanupStorageActiveRef.current = false;
+    };
+  }, [initializeCleanupStorage]);
 
   useEffect(() => {
     if (!cleanupStorageKey || !cleanupStorageReady) return;
@@ -521,7 +561,12 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const handleDelete = async () => {
     if (!pendingDelete || destructiveActionsDisabled) return;
     const target = pendingDelete;
+    setCleanupStorageOperationPending(true);
     try {
+      if (!await initializeCleanupStorage()) {
+        setDeleteFailed(true);
+        return;
+      }
       const result = await deleteSession(target.evidence_id).unwrap();
       recordPendingCleanup([result]);
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
@@ -529,6 +574,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       closeDeleteDialog(false);
     } catch {
       setDeleteFailed(true);
+    } finally {
+      setCleanupStorageOperationPending(false);
     }
   };
 
@@ -549,8 +596,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const handleBatchDelete = async () => {
-    if (!pendingBatchDelete || pendingBatchDelete.length === 0) return;
+    if (!pendingBatchDelete || pendingBatchDelete.length === 0 || destructiveActionsDisabled) return;
+    setCleanupStorageOperationPending(true);
     try {
+      if (!await initializeCleanupStorage()) return;
       const result = await batchDeleteSessions({
         evidence_ids: pendingBatchDelete.map((session) => session.evidenceId),
       }).unwrap();
@@ -578,6 +627,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       }
     } catch {
       setBatchDeleteNeedsRescan(true);
+    } finally {
+      setCleanupStorageOperationPending(false);
     }
   };
 
@@ -608,9 +659,17 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     } catch {
       setScanFailed(true);
     } finally {
+      if (cleanupStorageUnavailable) await initializeCleanupStorage();
       setScanReconciliationPending(false);
     }
-  }, [clearSelection, recordPendingCleanup, refetchSessions, rescan]);
+  }, [
+    cleanupStorageUnavailable,
+    clearSelection,
+    initializeCleanupStorage,
+    recordPendingCleanup,
+    refetchSessions,
+    rescan,
+  ]);
 
   const toggleSelected = (session: EvidenceLibrarySession) => {
     if (selectionDisabled || !session.deletion_allowed || !session.deletion_target) return;
@@ -705,20 +764,20 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [pendingBatchDelete, pendingDelete]);
 
   useEffect(() => {
-    if (!focusSearchAfterDeleteId || pendingDelete) return;
+    if (!focusSearchAfterDeleteId || pendingDelete || cleanupStorageOperationPending) return;
     const searchInput = searchInputRef.current;
     searchInput?.focus();
     if (searchInput && document.activeElement === searchInput) {
       setFocusSearchAfterDeleteId(null);
       deleteTriggerRef.current = null;
     }
-  }, [focusSearchAfterDeleteId, pendingDelete]);
+  }, [cleanupStorageOperationPending, focusSearchAfterDeleteId, pendingDelete]);
 
   useEffect(() => {
-    if (!focusSearchAfterBatchDelete || pendingBatchDelete) return;
+    if (!focusSearchAfterBatchDelete || pendingBatchDelete || cleanupStorageOperationPending) return;
     searchInputRef.current?.focus();
     setFocusSearchAfterBatchDelete(false);
-  }, [focusSearchAfterBatchDelete, pendingBatchDelete]);
+  }, [cleanupStorageOperationPending, focusSearchAfterBatchDelete, pendingBatchDelete]);
 
   useEffect(() => {
     if (selectPageRef.current) selectPageRef.current.indeterminate = visibleSelectionMixed;
@@ -1131,6 +1190,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                       {item.cleanup_metadata_path && (
                         <div>恢复元数据：<code>{item.cleanup_metadata_path}</code></div>
                       )}
+                      {additionalCleanupPaths(item).map((path) => (
+                        <div key={path}>待清理路径：<code>{path}</code></div>
+                      ))}
                       <button
                         type="button"
                         aria-label={`确认已记录 ${item.evidence_id}`}
@@ -1452,6 +1514,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                             恢复元数据：<code style={{ color: 'var(--txt-1)' }}>{item.cleanup_metadata_path}</code>
                           </div>
                         )}
+                        {additionalCleanupPaths(item).map((path) => (
+                          <div key={path}>
+                            待清理路径：<code style={{ color: 'var(--txt-1)' }}>{path}</code>
+                          </div>
+                        ))}
                         {item.cleanup_path && (
                           <button
                             type="button"
@@ -1518,14 +1585,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 <button
                   type="button"
                   onClick={() => void handleBatchDelete()}
-                  disabled={batchDeleteState.isLoading}
+                  disabled={destructiveActionsDisabled}
                   style={{
                     ...actionButtonStyle,
                     minWidth: 118,
                     border: '1px solid var(--c-danger)',
                     background: 'rgba(255, 91, 112, 0.13)',
                     color: 'var(--c-danger)',
-                    cursor: batchDeleteState.isLoading ? 'wait' : 'pointer',
+                    cursor: destructiveActionsDisabled ? 'wait' : 'pointer',
                   }}
                 >
                   <LucideTrash2 size={13} aria-hidden="true" />
@@ -1629,14 +1696,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               <button
                 type="button"
                 onClick={() => void handleDelete()}
-                disabled={deleteActionsDisabled}
+                disabled={destructiveActionsDisabled}
                 style={{
                   ...actionButtonStyle,
                   minWidth: 96,
                   border: '1px solid var(--c-danger)',
                   background: 'rgba(255, 91, 112, 0.13)',
                   color: 'var(--c-danger)',
-                  cursor: deleteActionsDisabled ? 'wait' : 'pointer',
+                  cursor: destructiveActionsDisabled ? 'wait' : 'pointer',
                 }}
               >
                 <LucideTrash2 size={13} aria-hidden="true" />

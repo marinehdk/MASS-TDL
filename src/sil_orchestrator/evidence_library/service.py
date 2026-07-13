@@ -637,7 +637,7 @@ def _validate_postcommit_recovery_paths(
     target: Path,
     staged_target: Path,
     metadata_path: Path,
-) -> tuple[Path, int, Path, Path]:
+) -> tuple[Path, int, Path, Path, Path]:
     _reject_symlink_components(target, "Evidence deletion recovery target")
     _reject_symlink_components(staged_target, "Evidence deletion recovery stage")
     _reject_symlink_components(metadata_path, "Evidence deletion recovery metadata")
@@ -660,6 +660,7 @@ def _validate_postcommit_recovery_paths(
             else:
                 if relative_target != Path("."):
                     relative_staged_target = staged_target.relative_to(matched_root)
+                    relative_metadata_path = metadata_path.relative_to(matched_root)
                     anchor_path = matched_root
                     anchor_descriptor = _open_directory_without_symlinks(anchor_path)
                     return (
@@ -667,6 +668,7 @@ def _validate_postcommit_recovery_paths(
                         anchor_descriptor,
                         relative_target,
                         relative_staged_target,
+                        relative_metadata_path,
                     )
 
         if unified_run_id is None or unified_run_id != target.name:
@@ -681,12 +683,14 @@ def _validate_postcommit_recovery_paths(
         ):
             anchor_path = target.parent
             relative_staged_target = staged_target.relative_to(anchor_path)
+            relative_metadata_path = metadata_path.relative_to(anchor_path)
             anchor_descriptor = _open_directory_without_symlinks(anchor_path)
             return (
                 anchor_path,
                 anchor_descriptor,
                 Path(target.name),
                 relative_staged_target,
+                relative_metadata_path,
             )
 
     raise PermissionError("Evidence deletion recovery target is outside configured trusted roots")
@@ -765,10 +769,13 @@ def _relative_path_state(
             final_stat.st_ino,
             stat.S_IFMT(final_stat.st_mode),
         ))
-        return (
-            "directory" if stat.S_ISDIR(final_stat.st_mode) else "other",
-            tuple(identities),
-        )
+        if stat.S_ISDIR(final_stat.st_mode):
+            kind = "directory"
+        elif stat.S_ISREG(final_stat.st_mode):
+            kind = "file"
+        else:
+            kind = "other"
+        return kind, tuple(identities)
     finally:
         os.close(descriptor)
 
@@ -847,19 +854,27 @@ def _discover_postcommit_cleanup(
             ).fetchone() is not None:
                 continue
 
-            anchor_path, anchor_descriptor, relative_target, relative_staged_target = (
-                _validate_postcommit_recovery_paths(
-                    config,
-                    target,
-                    staged_target,
-                    metadata_path,
-                )
+            (
+                anchor_path,
+                anchor_descriptor,
+                relative_target,
+                relative_staged_target,
+                relative_metadata_path,
+            ) = _validate_postcommit_recovery_paths(
+                config,
+                target,
+                staged_target,
+                metadata_path,
             )
             try:
                 target_state = _relative_path_state(anchor_descriptor, relative_target)
                 staged_target_state = _relative_path_state(
                     anchor_descriptor,
                     relative_staged_target,
+                )
+                metadata_state = _relative_path_state(
+                    anchor_descriptor,
+                    relative_metadata_path,
                 )
                 _revalidate_recovery_path_state(
                     anchor_path,
@@ -873,12 +888,27 @@ def _discover_postcommit_cleanup(
                     relative_staged_target,
                     staged_target_state,
                 )
+                _revalidate_recovery_path_state(
+                    anchor_path,
+                    anchor_descriptor,
+                    relative_metadata_path,
+                    metadata_state,
+                )
             finally:
                 os.close(anchor_descriptor)
 
             target_kind = target_state[0]
             staged_target_kind = staged_target_state[0]
-            if target_kind == "missing" and staged_target_kind == "directory":
+            metadata_kind = metadata_state[0]
+            if (
+                target_kind == "missing"
+                and staged_target_kind == "directory"
+                and metadata_kind in {"missing", "file"}
+            ):
+                cleanup_paths = [str(staged_target)]
+                if metadata_kind == "file":
+                    cleanup_paths.append(str(metadata_path))
+                cleanup_paths.append(str(record_path))
                 pending.append({
                     "evidence_id": evidence_id,
                     "deleted_path": str(target),
@@ -887,6 +917,7 @@ def _discover_postcommit_cleanup(
                     "cleanup_error": "staged filesystem cleanup is pending",
                     "cleanup_path": str(staged_target),
                     "cleanup_metadata_path": str(record_path),
+                    "cleanup_paths": cleanup_paths,
                 })
                 continue
             if not (
@@ -1323,6 +1354,11 @@ def _delete_evidence_session_locked(
             "cleanup_error": "staged filesystem cleanup is pending",
             "cleanup_path": str(staged_target),
             "cleanup_metadata_path": str(metadata_path),
+            "cleanup_paths": [
+                str(staged_target),
+                str(metadata_path),
+                str(recovery_record_path),
+            ],
         }
 
     _remove_empty_staging_dir(staging_dir)
