@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -1164,6 +1166,352 @@ async def test_rescan_restores_deterministically_named_stage_after_precommit_pro
     assert trace_dir.parent.is_dir()
     assert _indexed_session_count(repo, evidence_id) == 1
     assert not staging_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_single_delete_retry_before_rescan_recovers_interrupted_precommit_stage(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_delete_rows = service._delete_evidence_rows
+
+        def exit_before_database_commit(_conn: sqlite3.Connection, _evidence_id: str) -> None:
+            raise SystemExit("simulated process exit")
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", exit_before_database_commit)
+        with pytest.raises(SystemExit, match="simulated process exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+
+        staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+        staged_target = next(path for path in staging_dir.iterdir() if path.is_dir())
+        assert not trace_dir.parent.exists()
+        assert _indexed_session_count(repo, evidence_id) == 1
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
+        retry = await client.delete(f"/api/v1/evidence-library/sessions/{evidence_id}")
+
+    assert retry.status_code == 200
+    assert retry.json()["filesystem_cleanup"] == "completed"
+    assert not trace_dir.parent.exists()
+    assert not staged_target.exists()
+    assert not staging_dir.exists()
+    assert _indexed_session_count(repo, evidence_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_concurrent_single_delete_rejects_active_stage_without_restoring_it(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+
+    first_staged = threading.Event()
+    release_first = threading.Event()
+    original_delete_rows = service._delete_evidence_rows
+
+    def pause_first_delete(conn: sqlite3.Connection, current_evidence_id: str) -> None:
+        if threading.current_thread().name.startswith("first-evidence-delete"):
+            first_staged.set()
+            assert release_first.wait(timeout=5)
+        original_delete_rows(conn, current_evidence_id)
+
+    monkeypatch.setattr(service, "_delete_evidence_rows", pause_first_delete)
+    original_stage_target = service._stage_deletion_target
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="first-evidence-delete") as executor:
+        first_delete = executor.submit(service.delete_evidence_session, evidence_id, repo)
+        assert first_staged.wait(timeout=5)
+
+        def fail_second_stage(*args, **kwargs):
+            if threading.current_thread().name == "MainThread":
+                raise OSError("simulated second-request staging failure")
+            return original_stage_target(*args, **kwargs)
+
+        monkeypatch.setattr(service, "_stage_deletion_target", fail_second_stage)
+        try:
+            try:
+                service.delete_evidence_session(evidence_id, repo_root=repo)
+            except Exception as exc:  # noqa: BLE001 - assertion captures public failure type
+                concurrent_error = exc
+            else:
+                concurrent_error = None
+        finally:
+            release_first.set()
+        first_result = first_delete.result(timeout=5)
+
+    assert isinstance(concurrent_error, PermissionError)
+    assert str(concurrent_error) == "Evidence deletion is already in progress"
+    assert first_result["filesystem_cleanup"] == "completed"
+    assert not trace_dir.parent.exists()
+    assert _indexed_session_count(repo, evidence_id) == 0
+    assert not (repo / "runs" / ".evidence-library-delete-staging").exists()
+
+
+@pytest.mark.asyncio
+async def test_rescan_does_not_recover_or_prune_an_active_deletion(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+
+    first_staged = threading.Event()
+    release_first = threading.Event()
+    original_delete_rows = service._delete_evidence_rows
+
+    def pause_active_delete(conn: sqlite3.Connection, current_evidence_id: str) -> None:
+        if threading.current_thread().name.startswith("active-evidence-delete"):
+            first_staged.set()
+            assert release_first.wait(timeout=5)
+        original_delete_rows(conn, current_evidence_id)
+
+    monkeypatch.setattr(service, "_delete_evidence_rows", pause_active_delete)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="active-evidence-delete") as executor:
+        active_delete = executor.submit(service.delete_evidence_session, evidence_id, repo)
+        assert first_staged.wait(timeout=5)
+        try:
+            scan = service.rescan_all(repo_root=repo, force=True)
+        finally:
+            release_first.set()
+        delete_result = active_delete.result(timeout=5)
+
+    assert scan == {
+        "ingested": 0,
+        "pruned": 0,
+        "errors": [{
+            "path": str(tmp_path / "config" / ".evidence-library-delete-locks"),
+            "error": "evidence deletion is in progress",
+        }],
+        "cleanup_pending": [],
+    }
+    assert delete_result["filesystem_cleanup"] == "completed"
+    assert not trace_dir.parent.exists()
+    assert _indexed_session_count(repo, evidence_id) == 0
+    assert not (repo / "runs" / ".evidence-library-delete-staging").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["removed-root", "indexed-path"])
+async def test_rescan_protects_interrupted_stage_when_recovery_target_drifts(
+    tmp_path, monkeypatch, drift
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_delete_rows = service._delete_evidence_rows
+
+        def exit_before_database_commit(_conn: sqlite3.Connection, _evidence_id: str) -> None:
+            raise SystemExit("simulated process exit")
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", exit_before_database_commit)
+        with pytest.raises(SystemExit, match="simulated process exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+        monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
+
+        if drift == "removed-root":
+            config_home = tmp_path / "config"
+            (config_home / "evidence_library.json").write_text(json.dumps({"roots": []}))
+        else:
+            database_path = load_effective_config(repo_root=repo).database_path
+            with sqlite3.connect(database_path) as conn:
+                conn.execute(
+                    "update sessions set session_path = ? where evidence_id = ?",
+                    (str(tmp_path / "outside" / "trace"), evidence_id),
+                )
+                conn.commit()
+
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert recovery.status_code == 200
+    assert recovery.json()["errors"] == [{
+        "path": str(repo / "runs" / ".evidence-library-delete-staging"),
+        "error": "interrupted deletion recovery failed",
+    }]
+    assert _indexed_session_count(repo, evidence_id) == 1
+    staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+    assert any(path.is_dir() for path in staging_dir.iterdir())
+    assert not trace_dir.parent.exists()
+
+
+@pytest.mark.asyncio
+async def test_rescan_recovers_interrupted_temporary_sidecar_write(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_json_dump = service.json.dump
+
+        def exit_during_sidecar_write(_payload, stream, **_kwargs) -> None:
+            stream.write('{"version":')
+            raise SystemExit("simulated sidecar write exit")
+
+        monkeypatch.setattr(service.json, "dump", exit_during_sidecar_write)
+        with pytest.raises(SystemExit, match="simulated sidecar write exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+
+        staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+        temporary_sidecars = list(staging_dir.glob("*.json.tmp"))
+        assert len(temporary_sidecars) == 1
+        assert trace_dir.parent.is_dir()
+
+        monkeypatch.setattr(service.json, "dump", original_json_dump)
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        retry = await client.delete(f"/api/v1/evidence-library/sessions/{evidence_id}")
+
+    assert recovery.json()["errors"] == []
+    assert retry.status_code == 200
+    assert retry.json()["filesystem_cleanup"] == "completed"
+    assert not trace_dir.parent.exists()
+    assert not staging_dir.exists()
+    assert _indexed_session_count(repo, evidence_id) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("temporary_metadata", ["partial", "valid"])
+async def test_rescan_retries_when_process_exits_during_precommit_recovery_metadata_write(
+    tmp_path, monkeypatch, temporary_metadata
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_delete_rows = service._delete_evidence_rows
+
+        def exit_before_database_commit(_conn: sqlite3.Connection, _evidence_id: str) -> None:
+            raise SystemExit("simulated precommit exit")
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", exit_before_database_commit)
+        with pytest.raises(SystemExit, match="simulated precommit exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+        monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
+
+        staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+        staged_target = next(path for path in staging_dir.iterdir() if path.is_dir())
+        staged_target.with_name(staged_target.name + ".json").unlink()
+        recovery_dir = tmp_path / "config" / ".evidence-library-delete-recovery"
+        assert len(list(recovery_dir.glob("*.json"))) == 1
+
+        original_json_dump = service.json.dump
+
+        def exit_during_recovery_write(payload, stream, **kwargs) -> None:
+            if temporary_metadata == "valid":
+                original_json_dump(payload, stream, **kwargs)
+            else:
+                stream.write('{"version":')
+            raise SystemExit("simulated recovery exit")
+
+        monkeypatch.setattr(service.json, "dump", exit_during_recovery_write)
+        config = load_effective_config(repo_root=repo)
+        with pytest.raises(SystemExit, match="simulated recovery exit"):
+            service._recover_indexed_deletion(
+                config, evidence_id, trace_dir.parent.resolve()
+            )
+        assert staged_target.with_name(staged_target.name + ".json.tmp").is_file()
+        monkeypatch.setattr(service.json, "dump", original_json_dump)
+
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert recovery.json()["errors"] == []
+    assert trace_dir.parent.is_dir()
+    assert _indexed_session_count(repo, evidence_id) == 1
+    assert not staging_dir.exists()
+    assert not recovery_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_restart(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_rmtree = service.shutil.rmtree
+
+        def exit_after_database_commit(_target: Path) -> None:
+            raise SystemExit("simulated postcommit exit")
+
+        monkeypatch.setattr(service.shutil, "rmtree", exit_after_database_commit)
+        with pytest.raises(SystemExit, match="simulated postcommit exit"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+
+    assert _indexed_session_count(repo, evidence_id) == 0
+    assert not trace_dir.parent.exists()
+    staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+    cleanup_path = next(path for path in staging_dir.iterdir() if path.is_dir())
+    cleanup_metadata_path = cleanup_path.with_name(cleanup_path.name + ".json")
+
+    monkeypatch.setattr(service.shutil, "rmtree", original_rmtree)
+    restarted_app = _app_for(repo, tmp_path, monkeypatch)
+    async with AsyncClient(
+        transport=ASGITransport(app=restarted_app), base_url="http://restart"
+    ) as restarted_client:
+        first_recovery = await restarted_client.post(
+            "/api/v1/evidence-library/rescan", json={"force": True}
+        )
+        second_recovery = await restarted_client.post(
+            "/api/v1/evidence-library/rescan", json={"force": True}
+        )
+
+    expected_pending = [{
+        "evidence_id": evidence_id,
+        "deleted_path": str(trace_dir.parent.resolve()),
+        "filesystem_deleted": False,
+        "filesystem_cleanup": "pending",
+        "cleanup_error": "staged filesystem cleanup is pending",
+        "cleanup_path": str(cleanup_path),
+        "cleanup_metadata_path": str(cleanup_metadata_path),
+    }]
+    expected_errors = [{
+        "path": str(cleanup_path),
+        "error": "staged filesystem cleanup is pending",
+    }]
+    assert first_recovery.json().get("cleanup_pending") == expected_pending
+    assert second_recovery.json().get("cleanup_pending") == expected_pending
+    assert first_recovery.json()["errors"] == expected_errors
+    assert second_recovery.json()["errors"] == expected_errors
+    assert cleanup_path.is_dir()
+    assert cleanup_metadata_path.is_file()
 
 
 @pytest.mark.asyncio

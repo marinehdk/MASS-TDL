@@ -50,6 +50,39 @@ interface SelectedSessionSnapshot {
   readonly worktreeName: string | null;
 }
 
+type EvidenceLibraryRecoveryScanResult = EvidenceLibraryScanResult & {
+  cleanup_pending?: EvidenceLibraryDeleteResult[];
+};
+
+const PENDING_CLEANUP_STORAGE_KEY = 'mass-l3:evidence-library:pending-cleanup:v1';
+
+const loadPendingCleanup = () => {
+  const pending = new Map<string, EvidenceLibraryDeleteResult>();
+  if (typeof window === 'undefined') return pending;
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(PENDING_CLEANUP_STORAGE_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return pending;
+    for (const value of parsed) {
+      if (
+        typeof value === 'object'
+        && value !== null
+        && 'evidence_id' in value
+        && typeof value.evidence_id === 'string'
+        && 'filesystem_cleanup' in value
+        && value.filesystem_cleanup === 'pending'
+        && 'cleanup_path' in value
+        && typeof value.cleanup_path === 'string'
+        && value.cleanup_path
+      ) {
+        pending.set(value.cleanup_path, value as EvidenceLibraryDeleteResult);
+      }
+    }
+  } catch {
+    return pending;
+  }
+  return pending;
+};
+
 const displayRunTime = (value?: string | null) => {
   if (!value) return '-';
   return value
@@ -286,7 +319,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [batchDeleteNeedsRescan, setBatchDeleteNeedsRescan] = useState(false);
   const [scanReconciliationPending, setScanReconciliationPending] = useState(false);
   const [pendingCleanupByPath, setPendingCleanupByPath] = useState<Map<string, EvidenceLibraryDeleteResult>>(
-    () => new Map(),
+    loadPendingCleanup,
   );
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement | null>(null);
@@ -381,6 +414,17 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PENDING_CLEANUP_STORAGE_KEY,
+        JSON.stringify(Array.from(pendingCleanupByPath.values())),
+      );
+    } catch {
+      // The in-memory notice remains available when storage is unavailable.
+    }
+  }, [pendingCleanupByPath]);
 
   const resetOverviewView = () => {
     setOverviewScale(1);
@@ -497,9 +541,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     clearSelection();
     setScanReconciliationPending(true);
     try {
-      const result = await rescan({ force: false }).unwrap();
+      const result = await rescan({ force: false }).unwrap() as EvidenceLibraryRecoveryScanResult;
       setScanFailed(false);
       setScanResult(result);
+      recordPendingCleanup(result.cleanup_pending ?? []);
       await refetchSessions().unwrap();
       if (result.errors.length === 0) setBatchDeleteNeedsRescan(false);
     } catch {
@@ -507,7 +552,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     } finally {
       setScanReconciliationPending(false);
     }
-  }, [clearSelection, refetchSessions, rescan]);
+  }, [clearSelection, recordPendingCleanup, refetchSessions, rescan]);
 
   const toggleSelected = (session: EvidenceLibrarySession) => {
     if (selectionDisabled || !session.deletion_allowed || !session.deletion_target) return;

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import fcntl
 import glob
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .config import EvidenceLibraryConfig, EvidenceRootConfig, load_effective_config
 from .ingest import ingest_session, query_decision_frame, query_replay
@@ -109,6 +111,8 @@ def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
 
 
 _DELETION_STAGING_DIR = ".evidence-library-delete-staging"
+_DELETION_RECOVERY_DIR = ".evidence-library-delete-recovery"
+_DELETION_LOCK_DIR = ".evidence-library-delete-locks"
 _DELETION_STAGE_METADATA_VERSION = 1
 
 
@@ -117,6 +121,113 @@ def _remove_empty_staging_dir(staging_dir: Path) -> None:
         staging_dir.rmdir()
     except OSError:
         pass
+
+
+def _temporary_metadata_path(metadata_path: Path) -> Path:
+    return metadata_path.with_name(metadata_path.name + ".tmp")
+
+
+def _path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _recovery_dir_path(config: EvidenceLibraryConfig) -> Path:
+    return Path(config.config_home).absolute() / _DELETION_RECOVERY_DIR
+
+
+def _ensure_recovery_dir(config: EvidenceLibraryConfig) -> Path:
+    recovery_dir = _recovery_dir_path(config)
+    if _path_exists(recovery_dir):
+        _reject_symlink_components(recovery_dir, "Evidence deletion recovery directory")
+    else:
+        recovery_dir.mkdir(mode=0o700, parents=True)
+    _reject_symlink_components(recovery_dir, "Evidence deletion recovery directory")
+    if not recovery_dir.is_dir():
+        raise OSError("Evidence deletion recovery path is not a directory")
+    return recovery_dir
+
+
+def _recovery_record_path(config: EvidenceLibraryConfig, staged_target: Path) -> Path:
+    return _recovery_dir_path(config) / f"{staged_target.name}.json"
+
+
+def _remove_empty_recovery_dir(config: EvidenceLibraryConfig) -> None:
+    try:
+        _recovery_dir_path(config).rmdir()
+    except OSError:
+        pass
+
+
+class _DeletionLockConflict(PermissionError):
+    pass
+
+
+def _deletion_lock_dir_path(config: EvidenceLibraryConfig) -> Path:
+    return Path(config.config_home).absolute() / _DELETION_LOCK_DIR
+
+
+@contextmanager
+def _deletion_file_lock(
+    config: EvidenceLibraryConfig,
+    lock_name: str,
+    mode: int,
+    conflict_message: str,
+) -> Iterator[None]:
+    lock_dir = _deletion_lock_dir_path(config)
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _reject_symlink_components(lock_dir, "Evidence deletion lock directory")
+    if not lock_dir.is_dir():
+        raise OSError("Evidence deletion lock path is not a directory")
+
+    lock_path = lock_dir / lock_name
+    if _path_exists(lock_path):
+        _reject_symlink_components(lock_path, "Evidence deletion lock")
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise _DeletionLockConflict(conflict_message) from exc
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def _evidence_deletion_lock(
+    config: EvidenceLibraryConfig,
+    evidence_id: str,
+) -> Iterator[None]:
+    digest = hashlib.sha256(evidence_id.encode()).hexdigest()
+    with _deletion_file_lock(
+        config,
+        f"{digest}.lock",
+        fcntl.LOCK_EX,
+        "Evidence deletion is already in progress",
+    ):
+        yield
+
+
+@contextmanager
+def _deletion_scan_coordination_lock(
+    config: EvidenceLibraryConfig,
+    *,
+    exclusive: bool,
+) -> Iterator[None]:
+    with _deletion_file_lock(
+        config,
+        "scan-coordination.lock",
+        fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH,
+        "evidence deletion is in progress" if exclusive else "Evidence library rescan is in progress",
+    ):
+        yield
 
 
 def _deletion_stage_paths(evidence_id: str, target: Path) -> tuple[Path, Path, Path]:
@@ -137,7 +248,7 @@ def _stage_metadata_payload(evidence_id: str, target: Path, staged_target: Path)
 
 
 def _write_stage_metadata(metadata_path: Path, payload: dict[str, Any]) -> None:
-    temporary_path = metadata_path.with_name(metadata_path.name + ".tmp")
+    temporary_path = _temporary_metadata_path(metadata_path)
     if metadata_path.exists() or metadata_path.is_symlink() or temporary_path.exists():
         raise OSError("Evidence deletion staging metadata already exists")
     try:
@@ -151,13 +262,7 @@ def _write_stage_metadata(metadata_path: Path, payload: dict[str, Any]) -> None:
         raise
 
 
-def _read_stage_metadata(
-    metadata_path: Path,
-    *,
-    evidence_id: str,
-    target: Path,
-    staged_target: Path,
-) -> None:
+def _read_metadata_payload(metadata_path: Path) -> dict[str, Any]:
     _reject_symlink_components(metadata_path, "Evidence deletion staging metadata")
     if not metadata_path.is_file():
         raise OSError("Evidence deletion staging metadata is missing")
@@ -165,11 +270,29 @@ def _read_stage_metadata(
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise OSError("Evidence deletion staging metadata is invalid") from exc
+    if not isinstance(payload, dict):
+        raise OSError("Evidence deletion staging metadata is invalid")
+    return payload
+
+
+def _read_stage_metadata(
+    metadata_path: Path,
+    *,
+    evidence_id: str,
+    target: Path,
+    staged_target: Path,
+) -> dict[str, Any]:
+    payload = _read_metadata_payload(metadata_path)
     if payload != _stage_metadata_payload(evidence_id, target, staged_target):
         raise OSError("Evidence deletion staging metadata does not match its target")
+    return payload
 
 
-def _stage_deletion_target(evidence_id: str, target: Path) -> tuple[Path, Path, Path]:
+def _stage_deletion_target(
+    evidence_id: str,
+    target: Path,
+    config: EvidenceLibraryConfig,
+) -> tuple[Path, Path, Path, Path]:
     staging_dir, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
     if staging_dir.exists() or staging_dir.is_symlink():
         _reject_symlink_components(staging_dir, "Evidence deletion staging directory")
@@ -181,23 +304,34 @@ def _stage_deletion_target(evidence_id: str, target: Path) -> tuple[Path, Path, 
 
     if staged_target.exists() or staged_target.is_symlink():
         raise OSError("Evidence deletion staging target already exists")
-    _write_stage_metadata(
-        metadata_path,
-        _stage_metadata_payload(evidence_id, target, staged_target),
-    )
+    recovery_record_path = _recovery_record_path(config, staged_target)
+    payload = _stage_metadata_payload(evidence_id, target, staged_target)
+    _ensure_recovery_dir(config)
+    _write_stage_metadata(metadata_path, payload)
+    try:
+        _write_stage_metadata(recovery_record_path, payload)
+    except Exception:
+        metadata_path.unlink(missing_ok=True)
+        _remove_empty_staging_dir(staging_dir)
+        _remove_empty_recovery_dir(config)
+        raise
     try:
         target.rename(staged_target)
     except OSError:
         metadata_path.unlink(missing_ok=True)
+        recovery_record_path.unlink(missing_ok=True)
+        _temporary_metadata_path(recovery_record_path).unlink(missing_ok=True)
         _remove_empty_staging_dir(staging_dir)
+        _remove_empty_recovery_dir(config)
         raise
-    return staging_dir, staged_target, metadata_path
+    return staging_dir, staged_target, metadata_path, recovery_record_path
 
 
 def _restore_staged_target(
     staging_dir: Path,
     staged_target: Path,
     metadata_path: Path,
+    recovery_record_path: Path,
     *,
     evidence_id: str,
     target: Path,
@@ -215,7 +349,14 @@ def _restore_staged_target(
         raise OSError("Evidence deletion target was recreated before restoration")
     staged_target.rename(target)
     metadata_path.unlink(missing_ok=True)
+    _temporary_metadata_path(metadata_path).unlink(missing_ok=True)
+    recovery_record_path.unlink(missing_ok=True)
+    _temporary_metadata_path(recovery_record_path).unlink(missing_ok=True)
     _remove_empty_staging_dir(staging_dir)
+    try:
+        recovery_record_path.parent.rmdir()
+    except OSError:
+        pass
 
 
 def _absolute_safe_path(path: Path, label: str) -> Path:
@@ -355,62 +496,345 @@ def _resolve_deletion_target(
     return target, resolved_target
 
 
+def _indexed_deletion_target(session_id: str, session_path: Path) -> Path:
+    session_path = _absolute_safe_path(session_path, "Indexed evidence session path")
+    run_id = _literal_unified_run_id(session_path)
+    if run_id is None:
+        return session_path
+    if session_id != run_id:
+        raise PermissionError("Indexed unified run ID does not match its path")
+    return session_path.parent
+
+
+def _stage_metadata_sources(
+    config: EvidenceLibraryConfig,
+    staged_target: Path,
+    metadata_path: Path,
+) -> tuple[Path, Path, Path, Path]:
+    recovery_record_path = _recovery_record_path(config, staged_target)
+    return (
+        metadata_path,
+        _temporary_metadata_path(metadata_path),
+        recovery_record_path,
+        _temporary_metadata_path(recovery_record_path),
+    )
+
+
+def _clear_stage_metadata_sources(paths: tuple[Path, ...]) -> None:
+    for path in paths:
+        if not _path_exists(path):
+            continue
+        _reject_symlink_components(path, "Evidence deletion recovery metadata")
+        path.unlink()
+
+
+def _has_indexed_recovery_artifacts(
+    config: EvidenceLibraryConfig,
+    evidence_id: str,
+    target: Path,
+) -> bool:
+    _, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
+    return _path_exists(staged_target) or any(
+        _path_exists(path)
+        for path in _stage_metadata_sources(config, staged_target, metadata_path)
+    )
+
+
+def _recover_indexed_deletion(
+    config: EvidenceLibraryConfig,
+    evidence_id: str,
+    target: Path,
+) -> bool:
+    staging_dir, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
+    metadata_sources = _stage_metadata_sources(config, staged_target, metadata_path)
+    target_exists = _path_exists(target)
+    staged_target_exists = _path_exists(staged_target)
+    has_metadata = any(_path_exists(path) for path in metadata_sources)
+    if not staged_target_exists and not has_metadata:
+        return False
+
+    if target_exists and not staged_target_exists:
+        _clear_stage_metadata_sources(metadata_sources)
+        _remove_empty_staging_dir(staging_dir)
+        _remove_empty_recovery_dir(config)
+        return True
+    if target_exists or not staged_target_exists:
+        raise OSError("Evidence deletion recovery state is ambiguous")
+    _reject_symlink_components(staged_target, "Evidence deletion staged target")
+    if not staged_target.is_dir():
+        raise OSError("Evidence deletion staged target is not a directory")
+
+    valid_metadata_sources: list[Path] = []
+    for source in metadata_sources:
+        if not _path_exists(source):
+            continue
+        try:
+            _read_stage_metadata(
+                source,
+                evidence_id=evidence_id,
+                target=target,
+                staged_target=staged_target,
+            )
+        except (OSError, PermissionError):
+            continue
+        valid_metadata_sources.append(source)
+    if not valid_metadata_sources:
+        raise OSError("Evidence deletion recovery metadata is unavailable")
+
+    recovery_record_path = _recovery_record_path(config, staged_target)
+    if metadata_path not in valid_metadata_sources:
+        payload = _stage_metadata_payload(evidence_id, target, staged_target)
+        metadata_tmp_path = _temporary_metadata_path(metadata_path)
+        if metadata_tmp_path in valid_metadata_sources:
+            if _path_exists(metadata_path):
+                _clear_stage_metadata_sources((metadata_path,))
+            metadata_tmp_path.replace(metadata_path)
+        else:
+            _clear_stage_metadata_sources((metadata_path, metadata_tmp_path))
+            _write_stage_metadata(metadata_path, payload)
+    _restore_staged_target(
+        staging_dir,
+        staged_target,
+        metadata_path,
+        recovery_record_path,
+        evidence_id=evidence_id,
+        target=target,
+    )
+    return True
+
+
+def _validated_recovery_record(
+    config: EvidenceLibraryConfig,
+    record_path: Path,
+) -> tuple[str, Path, Path, Path]:
+    payload = _read_metadata_payload(record_path)
+    if set(payload) != {"evidence_id", "original_path", "staged_path", "version"}:
+        raise OSError("Evidence deletion recovery record is invalid")
+    evidence_id = payload.get("evidence_id")
+    original_path = payload.get("original_path")
+    staged_path = payload.get("staged_path")
+    if (
+        not isinstance(evidence_id, str)
+        or not evidence_id
+        or not isinstance(original_path, str)
+        or not isinstance(staged_path, str)
+        or payload.get("version") != _DELETION_STAGE_METADATA_VERSION
+    ):
+        raise OSError("Evidence deletion recovery record is invalid")
+
+    target = _absolute_safe_path(Path(original_path), "Evidence deletion recovery target")
+    staged_target = _absolute_safe_path(Path(staged_path), "Evidence deletion recovery stage")
+    _, expected_staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
+    expected_record_path = _recovery_record_path(config, expected_staged_target)
+    if staged_target != expected_staged_target or record_path != expected_record_path:
+        raise OSError("Evidence deletion recovery record is not deterministic")
+    return evidence_id, target, staged_target, metadata_path
+
+
+def _valid_recovery_records_by_evidence(
+    config: EvidenceLibraryConfig,
+) -> dict[str, list[tuple[Path, Path, Path, Path]]]:
+    recovery_dir = _recovery_dir_path(config)
+    if not _path_exists(recovery_dir):
+        return {}
+    _reject_symlink_components(recovery_dir, "Evidence deletion recovery directory")
+    if not recovery_dir.is_dir():
+        raise OSError("Evidence deletion recovery path is not a directory")
+
+    records: dict[str, list[tuple[Path, Path, Path, Path]]] = {}
+    for record_path in sorted(recovery_dir.glob("*.json")):
+        try:
+            evidence_id, target, staged_target, metadata_path = _validated_recovery_record(
+                config, record_path
+            )
+        except (OSError, PermissionError):
+            continue
+        records.setdefault(evidence_id, []).append(
+            (record_path, target, staged_target, metadata_path)
+        )
+    return records
+
+
+def _discover_postcommit_cleanup(
+    conn: sqlite3.Connection,
+    config: EvidenceLibraryConfig,
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    errors: list[dict[str, str]] = []
+    pending: list[dict[str, Any]] = []
+    recovery_dir = _recovery_dir_path(config)
+    if not _path_exists(recovery_dir):
+        return errors, pending
+    try:
+        _reject_symlink_components(recovery_dir, "Evidence deletion recovery directory")
+        if not recovery_dir.is_dir():
+            raise OSError("Evidence deletion recovery path is not a directory")
+    except (OSError, PermissionError):
+        return ([{
+            "path": str(recovery_dir),
+            "error": "interrupted deletion recovery failed",
+        }], pending)
+
+    for record_path in sorted(recovery_dir.glob("*.json")):
+        try:
+            evidence_id, target, staged_target, metadata_path = _validated_recovery_record(
+                config, record_path
+            )
+            if conn.execute(
+                "select 1 from sessions where evidence_id = ?", (evidence_id,)
+            ).fetchone() is not None:
+                continue
+
+            target_exists = _path_exists(target)
+            staged_target_exists = _path_exists(staged_target)
+            if target_exists and not staged_target_exists:
+                _clear_stage_metadata_sources((
+                    metadata_path,
+                    _temporary_metadata_path(metadata_path),
+                    record_path,
+                    _temporary_metadata_path(record_path),
+                ))
+                _remove_empty_staging_dir(staged_target.parent)
+                _remove_empty_recovery_dir(config)
+                continue
+            if not target_exists and not staged_target_exists:
+                _clear_stage_metadata_sources((
+                    metadata_path,
+                    _temporary_metadata_path(metadata_path),
+                    record_path,
+                    _temporary_metadata_path(record_path),
+                ))
+                _remove_empty_staging_dir(staged_target.parent)
+                _remove_empty_recovery_dir(config)
+                continue
+            if target_exists or staged_target.is_symlink() or not staged_target.is_dir():
+                raise OSError("Evidence deletion cleanup recovery state is ambiguous")
+
+            try:
+                _read_stage_metadata(
+                    metadata_path,
+                    evidence_id=evidence_id,
+                    target=target,
+                    staged_target=staged_target,
+                )
+            except (OSError, PermissionError):
+                _clear_stage_metadata_sources((
+                    metadata_path,
+                    _temporary_metadata_path(metadata_path),
+                ))
+                _write_stage_metadata(
+                    metadata_path,
+                    _stage_metadata_payload(evidence_id, target, staged_target),
+                )
+
+            pending.append({
+                "evidence_id": evidence_id,
+                "deleted_path": str(target),
+                "filesystem_deleted": False,
+                "filesystem_cleanup": "pending",
+                "cleanup_error": "staged filesystem cleanup is pending",
+                "cleanup_path": str(staged_target),
+                "cleanup_metadata_path": str(metadata_path),
+            })
+            errors.append({
+                "path": str(staged_target),
+                "error": "staged filesystem cleanup is pending",
+            })
+        except (OSError, PermissionError):
+            errors.append({
+                "path": str(record_path),
+                "error": "interrupted deletion recovery failed",
+            })
+
+    for temporary_record in sorted(recovery_dir.glob("*.json.tmp")):
+        final_record = temporary_record.with_name(temporary_record.name[:-4])
+        if _path_exists(final_record):
+            try:
+                _reject_symlink_components(temporary_record, "Evidence deletion recovery metadata")
+                temporary_record.unlink()
+            except (OSError, PermissionError):
+                errors.append({
+                    "path": str(temporary_record),
+                    "error": "interrupted deletion recovery failed",
+                })
+            continue
+        errors.append({
+            "path": str(temporary_record),
+            "error": "interrupted deletion recovery failed",
+        })
+    return errors, pending
+
+
 def _recover_interrupted_deletions(
     conn: sqlite3.Connection,
     config: EvidenceLibraryConfig,
     repo_root: Path | None,
-) -> tuple[list[dict[str, str]], set[str]]:
+) -> tuple[list[dict[str, str]], set[str], list[dict[str, Any]]]:
     errors: list[dict[str, str]] = []
     protected_ids: set[str] = set()
+    try:
+        recovery_records = _valid_recovery_records_by_evidence(config)
+    except (OSError, PermissionError):
+        recovery_records = {}
+        errors.append({
+            "path": str(_recovery_dir_path(config)),
+            "error": "interrupted deletion recovery failed",
+        })
+
     rows = conn.execute(
         "select evidence_id, session_id, session_path, root_id from sessions"
     ).fetchall()
     for row in rows:
         evidence_id = str(row["evidence_id"])
+        linked_records = recovery_records.get(evidence_id, [])
+        linked_targets = {record[1] for record in linked_records}
         try:
-            target, _ = _resolve_deletion_target(
+            indexed_target = _indexed_deletion_target(
+                str(row["session_id"]), Path(row["session_path"])
+            )
+        except (OSError, PermissionError):
+            indexed_target = None
+        target = next(iter(linked_targets)) if len(linked_targets) == 1 else indexed_target
+
+        if target is None or len(linked_targets) > 1:
+            if linked_records:
+                protected_ids.add(evidence_id)
+                errors.append({
+                    "path": str(linked_records[0][2].parent),
+                    "error": "interrupted deletion recovery failed",
+                })
+            continue
+
+        try:
+            resolved_target, _ = _resolve_deletion_target(
                 session_id=str(row["session_id"]),
                 session_path=Path(row["session_path"]),
                 root_id=str(row["root_id"]),
                 config=config,
                 repo_root=repo_root,
             )
+            if resolved_target != target:
+                raise PermissionError("Indexed deletion target changed during recovery")
         except (OSError, PermissionError):
-            continue
-
-        staging_dir, staged_target, metadata_path = _deletion_stage_paths(evidence_id, target)
-        has_staged_target = staged_target.exists() or staged_target.is_symlink()
-        has_metadata = metadata_path.exists() or metadata_path.is_symlink()
-        if not has_staged_target and not has_metadata:
+            if linked_records or _has_indexed_recovery_artifacts(config, evidence_id, target):
+                protected_ids.add(evidence_id)
+                errors.append({
+                    "path": str(target.parent / _DELETION_STAGING_DIR),
+                    "error": "interrupted deletion recovery failed",
+                })
             continue
 
         try:
-            _read_stage_metadata(
-                metadata_path,
-                evidence_id=evidence_id,
-                target=target,
-                staged_target=staged_target,
-            )
-            if has_staged_target:
-                _restore_staged_target(
-                    staging_dir,
-                    staged_target,
-                    metadata_path,
-                    evidence_id=evidence_id,
-                    target=target,
-                )
-            elif target.exists() and not target.is_symlink():
-                metadata_path.unlink()
-                _remove_empty_staging_dir(staging_dir)
-            else:
-                raise OSError("Evidence deletion staged target is missing")
+            _recover_indexed_deletion(config, evidence_id, target)
         except (OSError, PermissionError):
             protected_ids.add(evidence_id)
             errors.append({
-                "path": str(metadata_path),
+                "path": str(target.parent / _DELETION_STAGING_DIR),
                 "error": "interrupted deletion recovery failed",
             })
-    return errors, protected_ids
+
+    cleanup_errors, cleanup_pending = _discover_postcommit_cleanup(conn, config)
+    errors.extend(cleanup_errors)
+    return errors, protected_ids, cleanup_pending
 
 
 def _prune_missing_sessions(
@@ -430,12 +854,17 @@ def _prune_missing_sessions(
     return len(stale_ids)
 
 
-def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, Any]:
-    config = load_effective_config(repo_root=repo_root)
+def _rescan_all_locked(
+    config: EvidenceLibraryConfig,
+    repo_root: Path | None,
+    force: bool,
+) -> dict[str, Any]:
     ingested = 0
     errors: list[dict[str, str]] = []
     with closing(open_initialized(config)) as conn:
-        recovery_errors, protected_ids = _recover_interrupted_deletions(conn, config, repo_root)
+        recovery_errors, protected_ids, cleanup_pending = _recover_interrupted_deletions(
+            conn, config, repo_root
+        )
         errors.extend(recovery_errors)
         for root in config.roots:
             if not root.enabled:
@@ -453,7 +882,29 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
                 except Exception as exc:  # pragma: no cover - defensive aggregation
                     errors.append({"path": str(session_dir), "error": str(exc)})
         pruned = _prune_missing_sessions(conn, protected_ids)
-    return {"ingested": ingested, "pruned": pruned, "errors": errors}
+    return {
+        "ingested": ingested,
+        "pruned": pruned,
+        "errors": errors,
+        "cleanup_pending": cleanup_pending,
+    }
+
+
+def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, Any]:
+    config = load_effective_config(repo_root=repo_root)
+    try:
+        with _deletion_scan_coordination_lock(config, exclusive=True):
+            return _rescan_all_locked(config, repo_root, force)
+    except _DeletionLockConflict as exc:
+        return {
+            "ingested": 0,
+            "pruned": 0,
+            "errors": [{
+                "path": str(_deletion_lock_dir_path(config)),
+                "error": str(exc),
+            }],
+            "cleanup_pending": [],
+        }
 
 
 def ingest_frontend_session(session_dir: Path, repo_root: Path | None = None) -> str | None:
@@ -638,8 +1089,11 @@ def get_config_payload(repo_root: Path | None = None) -> dict[str, Any]:
     }
 
 
-def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> dict[str, Any]:
-    config = load_effective_config(repo_root=repo_root)
+def _delete_evidence_session_locked(
+    evidence_id: str,
+    config: EvidenceLibraryConfig,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
     with closing(open_initialized(config)) as conn:
         row = conn.execute(
             "select session_id, session_path, root_id from sessions where evidence_id = ?", (evidence_id,)
@@ -654,6 +1108,10 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
             config=config,
             repo_root=repo_root,
         )
+        try:
+            _recover_indexed_deletion(config, evidence_id, target)
+        except (OSError, PermissionError) as exc:
+            raise PermissionError("Interrupted evidence deletion recovery failed") from exc
 
         if not target.exists():
             _delete_evidence_rows(conn, evidence_id)
@@ -665,7 +1123,9 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
                 "filesystem_cleanup": "not_needed",
             }
 
-        staging_dir, staged_target, metadata_path = _stage_deletion_target(evidence_id, target)
+        staging_dir, staged_target, metadata_path, recovery_record_path = _stage_deletion_target(
+            evidence_id, target, config
+        )
         try:
             _delete_evidence_rows(conn, evidence_id)
             conn.commit()
@@ -679,6 +1139,7 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
                     staging_dir,
                     staged_target,
                     metadata_path,
+                    recovery_record_path,
                     evidence_id=evidence_id,
                     target=target,
                 )
@@ -689,6 +1150,8 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
     try:
         shutil.rmtree(staged_target)
         metadata_path.unlink(missing_ok=True)
+        recovery_record_path.unlink(missing_ok=True)
+        _temporary_metadata_path(recovery_record_path).unlink(missing_ok=True)
     except Exception:
         return {
             "evidence_id": evidence_id,
@@ -701,12 +1164,20 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
         }
 
     _remove_empty_staging_dir(staging_dir)
+    _remove_empty_recovery_dir(config)
     return {
         "evidence_id": evidence_id,
         "deleted_path": str(resolved_target),
         "filesystem_deleted": True,
         "filesystem_cleanup": "completed",
     }
+
+
+def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> dict[str, Any]:
+    config = load_effective_config(repo_root=repo_root)
+    with _deletion_scan_coordination_lock(config, exclusive=False):
+        with _evidence_deletion_lock(config, evidence_id):
+            return _delete_evidence_session_locked(evidence_id, config, repo_root)
 
 
 def delete_evidence_sessions(evidence_ids: list[str], repo_root: Path | None = None) -> dict[str, Any]:

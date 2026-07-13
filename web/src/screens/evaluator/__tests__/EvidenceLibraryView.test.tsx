@@ -120,6 +120,7 @@ const deleteButton = (sessionId = primarySession.session_id) =>
   screen.getByRole('button', { name: `删除 ${sessionId}` });
 
 beforeEach(() => {
+  window.localStorage.clear();
   apiMocks.sessions = [{ ...primarySession }, { ...secondarySession }];
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
@@ -988,6 +989,51 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(within(cleanupAlert).getByRole('button', {
       name: `确认已记录 ${primarySession.evidence_id}`,
     }));
+    expect(screen.queryByRole('alert', { name: '待处理文件清理' })).not.toBeInTheDocument();
+  });
+
+  it('restores a rescan-discovered cleanup notice after reload until acknowledgment', async () => {
+    const cleanupResult = {
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-recovered',
+      cleanup_metadata_path: '/runs/.evidence-library-delete-staging/delete-recovered.json',
+    };
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      ingested: 0,
+      pruned: 0,
+      errors: [{
+        path: cleanupResult.cleanup_path,
+        error: cleanupResult.cleanup_error,
+      }],
+      cleanup_pending: [cleanupResult],
+    });
+    const firstView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    const discoveredAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
+    expect(discoveredAlert).toHaveTextContent(cleanupResult.cleanup_path);
+    await waitFor(() => expect(window.localStorage.getItem(
+      'mass-l3:evidence-library:pending-cleanup:v1',
+    )).toContain(cleanupResult.cleanup_path));
+
+    firstView.unmount();
+    const reloadedView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    const restoredAlert = screen.getByRole('alert', { name: '待处理文件清理' });
+    expect(restoredAlert).toHaveTextContent(cleanupResult.cleanup_metadata_path);
+
+    fireEvent.click(within(restoredAlert).getByRole('button', {
+      name: `确认已记录 ${primarySession.evidence_id}`,
+    }));
+    await waitFor(() => expect(window.localStorage.getItem(
+      'mass-l3:evidence-library:pending-cleanup:v1',
+    )).toBe('[]'));
+    reloadedView.unmount();
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
     expect(screen.queryByRole('alert', { name: '待处理文件清理' })).not.toBeInTheDocument();
   });
 
