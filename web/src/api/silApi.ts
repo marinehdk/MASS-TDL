@@ -345,7 +345,10 @@ export interface EvidenceGateResult {
   source: string;
 }
 
-export type EvidenceReplaySession = Omit<EvidenceLibrarySession, 'scenario_ids'> & {
+export type EvidenceReplaySession = Omit<
+  EvidenceLibrarySession,
+  'scenario_ids' | 'deletion_allowed' | 'deletion_target' | 'deletion_error'
+> & {
   scenario_ids?: string[];
 };
 
@@ -493,18 +496,19 @@ export const silApi = createApi({
         method: 'DELETE',
       }),
       async onQueryStarted(evidenceId, { dispatch, getState, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+        } catch {
+          // Rejected deletes leave the indexed-session cache unchanged.
+          return;
+        }
+
         const runningListQuery = dispatch(
           silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
         );
         if (runningListQuery) {
           runningListQuery.abort();
           await runningListQuery;
-        }
-        try {
-          await queryFulfilled;
-        } catch {
-          // Rejected deletes leave the indexed-session cache unchanged.
-          return;
         }
 
         dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {

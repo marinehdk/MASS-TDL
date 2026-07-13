@@ -549,3 +549,116 @@ Changed paths: exactly the six owned files in this task header.
   and filesystem-failure tests stay green.
 - No Playwright run: the mounted React/RTK regression directly executes the
   reviewed concurrency order and exposes the hook-specific stale-value path.
+
+---
+
+## Final Rejected-Delete Scan Recovery Fix
+
+Date: 2026-07-13
+
+### Task Header
+
+- Affected module: M8 Web HMI evidence-library API lifecycle.
+- Changed paths:
+  - `web/src/api/silApi.ts`
+  - `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
+  - `.superpowers/sdd/final-fix-report.md`
+- ROS2 topics/messages/IDL: none.
+- ODD, COLREGs, and M5/M7 boundary impact: none.
+- Required tests: rejected-DELETE/scan overlap regression, successful mounted
+  DELETE race regression, replay wire-type compile check, full focused view
+  suite, production build, and diff check.
+- SIL scenarios and evidence output: none; test/build output recorded below.
+- `EvidenceLibraryView.tsx`: intentionally unchanged.
+
+### Root Causes and Minimal Fixes
+
+1. DELETE aborted the running sessions query before `queryFulfilled` established
+   success. A rejected DELETE therefore canceled the scan-triggered authoritative
+   GET and returned without recovery, leaving the query rejected with stale A+B.
+   DELETE now waits for fulfillment first. Rejections leave the independent scan
+   GET untouched; successful deletes retain the existing abort, cache patch,
+   invalidation, and failed-refresh recovery sequence.
+2. `EvidenceReplaySession` omitted only `scenario_ids` from the list response
+   type, inheriting list-only deletion preview fields absent from replay wire
+   payloads. Its wire type now also omits `deletion_allowed`, `deletion_target`,
+   and `deletion_error` while preserving optional replay `scenario_ids`.
+
+### TDD RED Evidence
+
+Rejected DELETE overlap regression before production changes:
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t "preserves a scan refetch when overlapping delete is rejected"
+```
+
+```text
+FAIL evidence library RTK invalidation > preserves a scan refetch when overlapping delete is rejected
+Expected scan GET AbortSignal aborted: false
+Received: true
+Tests: 1 failed | 34 skipped (35)
+```
+
+Replay wire-type regression before production changes:
+
+```bash
+cd web
+npx tsc --noEmit
+```
+
+```text
+TS2322: replay payload without deletion preview fields is missing
+deletion_allowed and deletion_target from EvidenceReplaySession.
+```
+
+### TDD GREEN Evidence
+
+```bash
+cd web
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t "preserves a scan refetch when overlapping delete is rejected|aborts a mounted scan refetch before delete|accepts replay session wire payloads"
+npx tsc --noEmit
+```
+
+```text
+Test Files  1 passed (1)
+Tests       3 passed | 32 skipped (35)
+TypeScript  passed
+```
+
+The rejected path asserts exact order `GET-1 A+B -> SCAN 200 -> GET-2 pending
+-> DELETE A 404 -> GET-2 B 200`, an un-aborted GET-2, no GET-3, fulfilled query
+status, and final cache containing only B. The retained successful path confirms
+pending scan GET cancellation still prevents stale resurrection after DELETE 200.
+
+### Final Verification
+
+Focused suite:
+
+```text
+EvidenceLibraryView.test.tsx: 35 passed in 6.01s
+```
+
+Production build:
+
+```text
+tsc: passed
+vite: 2396 modules transformed; built in 8.03s
+```
+
+Retained warnings: Foxglove serialization uses `eval`; the main output chunk is
+1,804.44 kB and exceeds Vite's 500 kB warning threshold.
+
+Scope and whitespace:
+
+```text
+git diff --check: passed
+Changed paths: exactly the three owned files in this task header.
+```
+
+### Remaining Concerns
+
+- No browser, container, SIL, or A4000 gate was required or run for this scoped
+  RTK Query lifecycle and TypeScript wire-contract correction.

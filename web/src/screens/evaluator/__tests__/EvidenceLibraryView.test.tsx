@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EvidenceReplaySession } from '../../../api/silApi';
 import { EvidenceLibraryView } from '../EvidenceLibraryView';
 
 const apiMocks = vi.hoisted(() => ({
@@ -74,6 +75,15 @@ const secondarySession = {
   overview_png: null,
   ingest_status: 'ok',
 };
+
+const {
+  deletion_allowed: _deletionAllowed,
+  deletion_target: _deletionTarget,
+  deletion_error: _deletionError,
+  scenario_ids: _scenarioIds,
+  ...replaySessionWireFields
+} = primarySession;
+const replaySessionWireFixture: EvidenceReplaySession = replaySessionWireFields;
 
 const makeSessions = (count: number) => Array.from({ length: count }, (_, index) => ({
   evidence_id: `page-${String(index).padStart(4, '0')}`,
@@ -525,6 +535,13 @@ describe('EvidenceLibraryView', () => {
 });
 
 describe('evidence library RTK invalidation', () => {
+  it('accepts replay session wire payloads without list-only deletion preview fields', () => {
+    expect(replaySessionWireFixture.evidence_id).toBe(primarySession.evidence_id);
+    expect(replaySessionWireFixture).not.toHaveProperty('deletion_allowed');
+    expect(replaySessionWireFixture).not.toHaveProperty('deletion_target');
+    expect(replaySessionWireFixture).not.toHaveProperty('deletion_error');
+  });
+
   const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
@@ -612,6 +629,75 @@ describe('evidence library RTK invalidation', () => {
       });
       await store.dispatch(silApi.endpoints.deleteEvidenceLibrarySession.initiate('evidence-1')).unwrap();
       await waitFor(() => expect(getCount).toBe(2));
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('preserves a scan refetch when overlapping delete is rejected', async () => {
+    const prunedSession = {
+      ...primarySession,
+      evidence_id: 'scan-pruned-before-delete',
+      session_id: '20260713_120000_scan_pruned_before_delete',
+    };
+    const events: string[] = [];
+    let getCount = 0;
+    let scanGetSignal: AbortSignal | undefined;
+    let resolveScanGet!: (response: Response) => void;
+    const scanGet = new Promise<Response>((resolve) => {
+      resolveScanGet = resolve;
+    });
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) {
+          events.push('GET-1 A+B');
+          return jsonResponse({ sessions: [prunedSession, secondarySession] });
+        }
+        events.push('GET-2 pending');
+        scanGetSignal = request.signal;
+        return scanGet;
+      }
+      if (request.method === 'POST') {
+        events.push('SCAN 200');
+        return jsonResponse({ ingested: 1, pruned: 1, errors: [] });
+      }
+      events.push('DELETE A 404');
+      queueMicrotask(() => {
+        events.push('GET-2 B 200');
+        resolveScanGet(jsonResponse({ sessions: [secondarySession] }));
+      });
+      return jsonResponse({ detail: 'session already pruned' }, 404);
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
+      await waitFor(() => expect(events).toEqual(['GET-1 A+B', 'SCAN 200', 'GET-2 pending']));
+
+      await expect(store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(prunedSession.evidence_id),
+      ).unwrap()).rejects.toBeDefined();
+
+      await waitFor(() => expect(events).toEqual([
+        'GET-1 A+B',
+        'SCAN 200',
+        'GET-2 pending',
+        'DELETE A 404',
+        'GET-2 B 200',
+      ]));
+      expect(scanGetSignal?.aborted).toBe(false);
+      expect(getCount).toBe(2);
+      await waitFor(() => {
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+        expect(query.isSuccess).toBe(true);
+        expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
     } finally {
       subscription.unsubscribe();
       vi.unstubAllGlobals();
