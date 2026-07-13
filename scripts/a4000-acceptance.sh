@@ -2,14 +2,12 @@
 # ============================================================================
 # A4000 SIL acceptance — one-shot deterministic RTF + full multi-screen E2E.
 #
-# Run ON the A4000 server, from repo root, AFTER services are up
+# Run from the A4000 checkout under test, AFTER services are up
 # (`source scripts/a4000-env.sh && npm run sys:start`):
 #
-#     ssh a4000
-#     cd ~/Code/mass-l3
+#     cd /home/marine.huang/Code/mass-l3/.worktrees/l3-tdl
 #     source scripts/a4000-env.sh
-#     ./scripts/a4000-acceptance.sh            # full acceptance
-#     ./scripts/a4000-acceptance.sh --sync     # git pull l3-tdl first
+#     ./scripts/a4000-acceptance.sh
 #
 # Two gating stages:
 #   [2] RTF / determinism   headless sweep {1,5,10}x == nominal (>=85% eff)
@@ -44,12 +42,11 @@ if ! command -v npx >/dev/null 2>&1; then
   nvm use 20 >/dev/null 2>&1 || true
 fi
 
-# ---- Stage 0 (optional): sync to latest l3-tdl ----------------------------
+# This host is the development and validation host. Acceptance never updates
+# source state; integrate through task branches/worktrees before running it.
 if [[ "${1:-}" == "--sync" ]]; then
-  echo -e "${B}[0] sync l3-tdl${N}"
-  git checkout -- scenarios/*/.preflight/ 2>/dev/null || true
-  git pull --ff-only origin l3-tdl 2>&1 | tail -3
-  echo "    HEAD $(git rev-parse --short HEAD)"
+  echo -e "${R}${B}ERROR: --sync is disabled; merge through git worktrees before acceptance${N}" >&2
+  exit 2
 fi
 
 # ---- Stage 1: orchestrator health ----------------------------------------
