@@ -339,16 +339,90 @@ describe('EvidenceLibraryView', () => {
     expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
   });
 
-  it('composes enum and text filters', () => {
+  it('opens compact filter menus for scenario counts and applies a selection', () => {
+    apiMocks.sessions = [
+      { ...primarySession, scenario_count: 1, scenario_ids: ['one'] },
+      { ...secondarySession, scenario_count: 2, scenario_ids: ['two-a', 'two-b'] },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const trigger = screen.getByRole('button', { name: '筛选场景数量' });
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const menu = screen.getByRole('menu', { name: '场景数量筛选选项' });
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['全部', '1', '2']);
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '2' }));
+
+    expect(screen.getByLabelText('场景数量筛选值')).toHaveTextContent('2');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).toHaveFocus();
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+  });
+
+  it('filters by mode and source with compact menus', () => {
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选模式' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '完整验证' }));
+    expect(screen.getByLabelText('模式筛选值')).toHaveTextContent('完整验证');
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选来源' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Front' }));
+    expect(screen.getByLabelText('来源筛选值')).toHaveTextContent('Front');
+    expect(deleteButton(secondarySession.session_id)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+  });
+
+  it('keeps only one compact filter menu open', () => {
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选模式' }));
+    expect(screen.getByRole('menu', { name: '模式筛选选项' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选来源' }));
+    expect(screen.queryByRole('menu', { name: '模式筛选选项' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '来源筛选选项' })).toBeInTheDocument();
+  });
+
+  it('closes filter menus on outside pointerdown and Escape', () => {
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: '筛选来源' });
+
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu', { name: '来源筛选选项' })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: '来源筛选选项' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('resets pages after popover selection', () => {
+    apiMocks.sessions = makeSessions(21);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByText('2 / 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '筛选来源' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'CLI' }));
+
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+  });
+
+  it('composes popover filters with search', () => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
     const search = screen.getByRole('searchbox', { name: '筛选仿真记录' });
-    const sourceFilter = screen.getByRole('combobox', { name: 'source filter' });
 
     fireEvent.change(search, { target: { value: 'rule15' } });
-    fireEvent.change(sourceFilter, { target: { value: 'CLI' } });
+    fireEvent.click(screen.getByRole('button', { name: '筛选来源' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'CLI' }));
     expect(screen.queryByRole('button', { name: `删除 ${secondarySession.session_id}` })).not.toBeInTheDocument();
 
-    fireEvent.change(sourceFilter, { target: { value: 'Front' } });
+    fireEvent.click(screen.getByRole('button', { name: '筛选来源' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Front' }));
     expect(deleteButton(secondarySession.session_id)).toBeInTheDocument();
   });
 
@@ -416,7 +490,7 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('2026-07-08 09:15:00');
   });
 
-  it('sorts scenario counts in both directions while preserving its native filter', () => {
+  it('sorts scenario counts in both directions while preserving its compact filter', () => {
     apiMocks.sessions = [
       {
         ...primarySession,
@@ -442,7 +516,6 @@ describe('EvidenceLibraryView', () => {
     ];
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
-    const countFilter = screen.getByRole('combobox', { name: 'scenarioCount filter' });
     const ascending = screen.getByRole('button', { name: '按场景数量升序' });
     const descending = screen.getByRole('button', { name: '按场景数量降序' });
 
@@ -456,7 +529,8 @@ describe('EvidenceLibraryView', () => {
     expect(descending).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('ten-1 +9');
 
-    fireEvent.change(countFilter, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: '筛选场景数量' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '2' }));
     expect(screen.getAllByRole('row')).toHaveLength(2);
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('two-a, two-b');
   });

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import {
   LucideAlertTriangle,
   LucideArrowDown,
   LucideArrowUp,
   LucideImage,
+  LucideListFilter,
   LucidePlay,
   LucideScanSearch,
   LucideSearch,
@@ -119,10 +120,11 @@ const compareRows = (a: SessionRow, b: SessionRow, key: SortKey) => {
   return String(a[key]).localeCompare(String(b[key]), 'zh-Hans-CN', { numeric: true });
 };
 
-const uniqueValues = (rows: SessionRow[], key: SortKey) =>
-  Array.from(new Set(rows.map((row) => String(row[key])).filter(Boolean))).sort((a, b) =>
-    a.localeCompare(b, 'zh-Hans-CN', { numeric: true }),
-  );
+const uniqueValues = (rows: SessionRow[], key: SortKey) => {
+  const values = Array.from(new Set(rows.map((row) => String(row[key])).filter(Boolean)));
+  if (key === 'scenarioCount') return values.sort((a, b) => Number(a) - Number(b));
+  return values.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }));
+};
 
 const matchesSearch = (row: SessionRow, searchText: string) => {
   const query = searchText.trim().toLocaleLowerCase();
@@ -175,6 +177,17 @@ const sortDirectionButtonStyle = {
   justifyContent: 'center',
 } as const;
 
+const filterTriggerStyle = {
+  ...headerButtonStyle,
+  width: 24,
+  height: 24,
+  lineHeight: '22px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 4,
+} as const;
+
 const filterStyle = {
   width: '100%',
   border: '1px solid var(--line-2)',
@@ -223,6 +236,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [pageSize, setPageSize] = useState<20 | 50>(20);
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
+  const [openFilterKey, setOpenFilterKey] = useState<SortKey | null>(null);
   const [searchText, setSearchText] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(86400);
@@ -238,6 +252,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [deleteFailed, setDeleteFailed] = useState(false);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
+  const filterTriggerRefs = useRef<Partial<Record<SortKey, HTMLButtonElement | null>>>({});
   const deleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -342,7 +358,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     }
   }, [autoRefreshSeconds, rescan]);
 
-  const handleDeleteDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       cancelDelete();
@@ -417,6 +433,29 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     return () => window.clearInterval(timer);
   }, [autoRefreshSeconds, handleRescan]);
 
+  useEffect(() => {
+    if (!openFilterKey) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      const trigger = filterTriggerRefs.current[openFilterKey];
+      if (filterMenuRef.current?.contains(event.target) || trigger?.contains(event.target)) return;
+      setOpenFilterKey(null);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      const trigger = filterTriggerRefs.current[openFilterKey];
+      flushSync(() => setOpenFilterKey(null));
+      trigger?.focus();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openFilterKey]);
+
   const setSortDirection = (key: SortKey, direction: SortDirection) => {
     setSort({ key, direction });
     setPage(0);
@@ -427,19 +466,106 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setPage(0);
   };
 
-  const enumFilter = (key: SortKey) => (
-    <select
-      value={filters[key] ?? ''}
-      onChange={(event) => setFilter(key, event.target.value)}
-      style={{ ...filterStyle, width: 76 }}
-      aria-label={`${key} filter`}
-    >
-      <option value="">全部</option>
-      {uniqueValues(rows, key).map((value) => (
-        <option key={value} value={value}>{value}</option>
-      ))}
-    </select>
-  );
+  const popoverFilter = (key: SortKey, label: string) => {
+    const open = openFilterKey === key;
+    const value = filters[key] ?? '';
+    return (
+      <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+        <button
+          ref={(element) => {
+            filterTriggerRefs.current[key] = element;
+          }}
+          type="button"
+          onClick={() => setOpenFilterKey((current) => current === key ? null : key)}
+          style={{
+            ...filterTriggerStyle,
+            color: value ? 'var(--c-phos)' : filterTriggerStyle.color,
+            background: value ? 'rgba(69, 211, 207, 0.1)' : filterTriggerStyle.background,
+          }}
+          aria-label={`筛选${label}`}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-controls={`${key}-filter-menu`}
+          title={`筛选${label}`}
+        >
+          <LucideListFilter size={13} aria-hidden="true" />
+        </button>
+        {value && (
+          <span
+            aria-label={`${label}筛选值`}
+            style={{
+              position: 'absolute',
+              top: -5,
+              right: -5,
+              minWidth: 12,
+              height: 12,
+              padding: '0 2px',
+              borderRadius: 4,
+              background: 'var(--c-phos)',
+              color: 'var(--bg-0)',
+              fontSize: 8,
+              fontWeight: 800,
+              lineHeight: '12px',
+              textAlign: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            {value}
+          </span>
+        )}
+        {open && (
+          <div
+            ref={filterMenuRef}
+            id={`${key}-filter-menu`}
+            role="menu"
+            aria-label={`${label}筛选选项`}
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 6px)',
+              right: 0,
+              zIndex: 30,
+              minWidth: 78,
+              padding: 4,
+              border: '1px solid var(--line-2)',
+              borderRadius: 4,
+              background: 'var(--bg-0)',
+              boxShadow: '0 6px 16px rgba(0, 0, 0, 0.28)',
+            }}
+          >
+            {['', ...uniqueValues(rows, key)].map((option) => (
+              <button
+                key={option || 'all'}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setFilter(key, option);
+                  const trigger = filterTriggerRefs.current[key];
+                  flushSync(() => setOpenFilterKey(null));
+                  trigger?.focus();
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  minHeight: 24,
+                  padding: '0 7px',
+                  border: 0,
+                  borderRadius: 3,
+                  background: option === value ? 'rgba(69, 211, 207, 0.12)' : 'transparent',
+                  color: option === value ? 'var(--c-phos)' : 'var(--txt-1)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 10,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                }}
+              >
+                {option || '全部'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const sortDirectionControls = (label: string, key: SortKey) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -472,13 +598,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     label: string,
     key: SortKey,
     width: number,
-    filter?: 'enum',
+    filter?: boolean,
   ) => (
     <th align="center" style={{ width, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 24 }}>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 24 }}>
         <span style={{ flex: 1, textAlign: 'center', whiteSpace: 'nowrap' }}>{label}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {filter === 'enum' && enumFilter(key)}
+          {filter && popoverFilter(key, label)}
           {sortDirectionControls(label, key)}
         </div>
       </div>
@@ -676,10 +802,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     <th align="center" style={{ width: 60, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>序号</th>
                     {columnHeader('仿真时间', 'time', 150)}
                     {columnHeader('仿真结果', 'result', 120)}
-                    {columnHeader('场景数量', 'scenarioCount', 150, 'enum')}
-                    {columnHeader('模式', 'mode', 125, 'enum')}
+                    {columnHeader('场景数量', 'scenarioCount', 150, true)}
+                    {columnHeader('模式', 'mode', 125, true)}
                     {columnHeader('仿真场景', 'scenario', 180)}
-                    {columnHeader('来源', 'source', 125, 'enum')}
+                    {columnHeader('来源', 'source', 125, true)}
                     {columnHeader('工作树', 'worktree', 170)}
                     <th align="center" style={{ width: 240, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>操作</th>
                   </tr>
