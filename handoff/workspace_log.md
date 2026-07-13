@@ -2037,6 +2037,45 @@ python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs --sim-ra
 grep M5DIAG / docker logs … | parse fallback_reason — see scripts/analysis/parse_m6diag.py (M6; adapt for M5)
 ```
 
+---
+
+## [2026-07-13] Codex / Evidence Library lifecycle and table controls / commit d18bb29af
+
+### Task Goal
+
+Unify Screen 04 evidence indexing and deletion with `runs/<run_id>` storage,
+then modernize the simulation database table with compact, consistent controls.
+
+### Core Changes
+
+- Scan imports valid unified runs, prunes missing records, and hides stale rows.
+- Delete uses server-validated targets; unified runs delete `runs/<run_id>` and
+  legacy sessions remain constrained to trusted configured roots.
+- RTK Query handles successful and rejected delete/refetch races without stale
+  row resurrection or suppression of legal same-ID reconstruction.
+- Table uses continuous cross-page sequence numbers, whole-second timestamps,
+  numeric scenario counts, separate direction controls, and compact popover
+  filters for scenario count, mode, and source.
+
+### Current Status
+
+- Branch: `codex/evidence-library-replay-impl`
+- HEAD: `d18bb29af`
+- Frontend focused tests: 48 passed.
+- Backend evidence suites: 52 passed.
+- Production build: passed.
+- Browser evidence: `runs/e2e/evidence_library_table_controls_20260713_104130/`
+  with `result.json` reporting `ok: true` at 1920x1080.
+- Final adversarial review: Critical 0, Important 0, Minor 0.
+
+### Handoff Notes
+
+- Live frontend: `http://192.168.121.50:55763/#/evaluator`.
+- Existing build warnings remain for Foxglove `eval` use and the large Vite
+  output chunk.
+- Local OrbStack and A4000 acceptance were not run; required before promotion or
+  push under repository policy.
+
 **Key files:** `m5_tactical_planner/include/m5_tactical_planner/common/types.hpp` (`accept_tail_gate`, `trajectory_terminal_state_cpa_m`, :697 gate), `src/mid_mpc/mid_mpc_nlp_formulation.cpp` (NLP: :311 kIdxOwnPsi, :189 build_asym_cost_, :213 build_constraints_, :396 unpack_solution), `src/mid_mpc/mid_mpc_node.cpp` (:444 decel_max, :495 tail-gate call, :348 heading bounds).
 **Memory:** `l3-m6-rule13-fsm-blocks-rule14-release` (Bug D), `l3-m5-bugc-tailgate-nlp-quality` (Bug C tail-gate + NLP blocker), `l3-m5-restoration-failed-keystone` (J_colreg/J_vel spec).
 **Uncommitted:** only pre-existing scenario YAML regen + docs (not mine). My 2 commits are clean surgical M5/M6 changes.
