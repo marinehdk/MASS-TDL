@@ -670,3 +670,126 @@ large-chunk warning.
   source discoverable through manual scan.
 - Local OrbStack and A4000 acceptance were not run. Both remain promotion gates;
   no live destructive browser test, remote sync, or push was performed.
+
+## Final Partial-Cleanup Closure After `ea637bdf1`
+
+Status: all findings under `Re-review After ea637bdf1` closed by implementation
+commit `7f571ef80` (`fix(evidence): close cleanup recovery gaps`).
+
+### Changed Files
+
+- `src/sil_orchestrator/evidence_library/service.py`
+- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
+- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
+- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
+
+`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
+unstaged.
+
+### Behavior Closed
+
+- Restart recovery now distinguishes a completed staged-payload removal from a
+  retained root-local sidecar. It reports the sidecar and central recovery
+  record as pending cleanup, leaves both durable, and retires the central record
+  only after no root-local cleanup artifact remains.
+- Any post-initialization local-storage write failure clears the ready state,
+  marks persistence unavailable, keeps cleanup state in memory, displays an
+  actionable lock warning, and disables further destructive actions. Manual
+  scan retries identity/storage initialization and persists the current warning
+  set before unlocking deletion.
+- Single and batch initialization failures state that no deletion request was
+  sent and direct the operator through the actual close, scan, then retry or
+  reselect flow. Dialog confirmation remains disabled until recovery.
+- Persisted cleanup records now require the complete pending-record shape.
+  Optional `cleanup_paths` must be an array of non-empty, NUL-free strings;
+  malformed records and unsafe optional metadata are omitted and removed when
+  valid state is written back, preventing render crashes.
+
+### Strict TDD Evidence
+
+Backend partial-cleanup RED:
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py \
+  -k 'sidecar_after_exit_between_payload_and_metadata_cleanup'
+1 failed, 61 deselected
+```
+
+The recovery response had an empty `cleanup_pending` list and had silently
+retired the central record.
+
+Runtime persistence RED:
+
+```text
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'locks deletion when the first runtime cleanup persistence write fails'
+1 failed, 68 skipped
+```
+
+The cleanup warning remained in memory, but persistence stayed ready, deletion
+stayed enabled, and no recovery status appeared.
+
+Recovery UX RED:
+
+```text
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'explains the close'
+2 failed, 69 skipped
+```
+
+Single delete showed an inaccurate direct-retry message; batch delete showed no
+dialog alert.
+
+Persisted-schema RED:
+
+```text
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'quarantines persisted cleanup records'
+1 failed, 71 skipped; 1 uncaught TypeError
+```
+
+Malformed `cleanup_paths` reached rendering and called `.filter` on a string.
+
+Focused GREEN:
+
+```text
+Backend old/new restart recovery: 2 passed, 60 deselected in 0.28s
+Runtime persistence recovery: 1 passed, 68 skipped in 1.20s
+Single/batch initialization UX: 2 passed, 69 skipped in 1.16s
+Persisted schema quarantine: 1 passed, 71 skipped in 1.12s
+Combined new frontend coverage: 4 passed, 68 skipped in 1.43s
+```
+
+### Final Verification
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
+  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py
+80 passed in 2.53s
+
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
+1 file passed; 72 tests passed in 7.69s
+
+npm run build
+TypeScript pass; Vite pass; 2396 modules transformed; built in 5.24s
+
+git diff --check
+pass
+```
+
+Build retains existing Foxglove dependency `eval` warnings and existing
+large-chunk warning.
+
+### Residual Risks
+
+- Filesystem artifact cleanup remains explicit/manual. The central recovery
+  record remains the restart-durable locator until root-local artifacts are
+  removed; no ledger, daemon, or blind retry was added.
+- Browser local storage remains required for reload-durable frontend notices.
+  Backend central records remain authoritative and scan-discoverable when
+  browser persistence is unavailable.
+- Local OrbStack and A4000 acceptance were not run. Both remain promotion gates;
+  no live destructive browser test, remote sync, or push was performed.

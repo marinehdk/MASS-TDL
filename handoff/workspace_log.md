@@ -3580,3 +3580,35 @@ late-hydration acknowledgement safety, and complete operator cleanup paths.
   rediscovery after reload.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+---
+
+## [2026-07-13] Codex / `7f571ef80` / Partial Cleanup Final Closure
+
+### Task Goal
+Close findings after `ea637bdf1`: partial postcommit sidecar discovery,
+runtime persistence fail-closed behavior, actionable recovery UX, and durable
+record schema validation.
+
+### Core Changes
+- Recovery keeps and reports central metadata when payload deletion completed
+  but the root-local sidecar survived a process exit.
+- Runtime local-storage write failures clear readiness, preserve in-memory
+  cleanup warnings, lock destructive controls, and recover through manual scan.
+- Single and batch dialogs distinguish persistence initialization failure from
+  request failure and describe the required close/scan/retry flow.
+- Persisted cleanup records and `cleanup_paths` are validated; malformed entries
+  are omitted and quarantined without reaching rendering.
+
+### Current Status
+- Implementation commit: `7f571ef80` (`fix(evidence): close cleanup recovery gaps`).
+- Backend Evidence Library suite: 80 passed.
+- Owned frontend suite: 72 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands, exact counts, and residual risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Cleanup remains manual and central-record anchored; no schema ledger or daemon.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
