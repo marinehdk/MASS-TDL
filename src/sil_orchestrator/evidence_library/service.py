@@ -902,10 +902,13 @@ def _discover_postcommit_cleanup(
             metadata_kind = metadata_state[0]
             if (
                 target_kind == "missing"
-                and staged_target_kind == "directory"
+                and staged_target_kind in {"missing", "directory"}
                 and metadata_kind in {"missing", "file"}
+                and (staged_target_kind == "directory" or metadata_kind == "file")
             ):
-                cleanup_paths = [str(staged_target)]
+                cleanup_paths: list[str] = []
+                if staged_target_kind == "directory":
+                    cleanup_paths.append(str(staged_target))
                 if metadata_kind == "file":
                     cleanup_paths.append(str(metadata_path))
                 cleanup_paths.append(str(record_path))
@@ -915,7 +918,7 @@ def _discover_postcommit_cleanup(
                     "filesystem_deleted": False,
                     "filesystem_cleanup": "pending",
                     "cleanup_error": "staged filesystem cleanup is pending",
-                    "cleanup_path": str(staged_target),
+                    "cleanup_path": cleanup_paths[0],
                     "cleanup_metadata_path": str(record_path),
                     "cleanup_paths": cleanup_paths,
                 })

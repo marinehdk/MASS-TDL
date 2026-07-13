@@ -83,6 +83,29 @@ const cleanupStorageKeyForConfig = (value: unknown) => {
   return `${PENDING_CLEANUP_STORAGE_PREFIX}:${encodeURIComponent(identity)}`;
 };
 
+const isSafePersistedString = (value: unknown): value is string => (
+  typeof value === 'string' && value.length > 0 && !value.includes('\0')
+);
+
+const isPersistedCleanupResult = (value: unknown): value is EvidenceLibraryDeleteResult => {
+  if (typeof value !== 'object' || value === null) return false;
+  const result = value as Record<string, unknown>;
+  return isSafePersistedString(result.evidence_id)
+    && isSafePersistedString(result.deleted_path)
+    && typeof result.filesystem_deleted === 'boolean'
+    && result.filesystem_cleanup === 'pending'
+    && isSafePersistedString(result.cleanup_path)
+    && (result.cleanup_error === undefined || typeof result.cleanup_error === 'string')
+    && (result.cleanup_metadata_path === undefined || isSafePersistedString(result.cleanup_metadata_path))
+    && (
+      result.cleanup_paths === undefined
+      || (
+        Array.isArray(result.cleanup_paths)
+        && result.cleanup_paths.every(isSafePersistedString)
+      )
+    );
+};
+
 const loadPendingCleanup = (storageKey: string) => {
   const pending = new Map<string, EvidenceLibraryDeleteResult>();
   if (typeof window === 'undefined') return pending;
@@ -90,19 +113,7 @@ const loadPendingCleanup = (storageKey: string) => {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]');
     if (!Array.isArray(parsed)) return pending;
     for (const value of parsed) {
-      if (
-        typeof value === 'object'
-        && value !== null
-        && 'evidence_id' in value
-        && typeof value.evidence_id === 'string'
-        && 'filesystem_cleanup' in value
-        && value.filesystem_cleanup === 'pending'
-        && 'cleanup_path' in value
-        && typeof value.cleanup_path === 'string'
-        && value.cleanup_path
-      ) {
-        pending.set(value.cleanup_path, value as EvidenceLibraryDeleteResult);
-      }
+      if (isPersistedCleanupResult(value)) pending.set(value.cleanup_path!, value);
     }
   } catch {
     return pending;
@@ -346,8 +357,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [overviewDrag, setOverviewDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<EvidenceLibrarySession | null>(null);
   const [deleteFailed, setDeleteFailed] = useState(false);
+  const [deletePersistenceFailed, setDeletePersistenceFailed] = useState(false);
   const [pendingBatchDelete, setPendingBatchDelete] = useState<SelectedSessionSnapshot[] | null>(null);
   const [batchDeleteResult, setBatchDeleteResult] = useState<EvidenceLibraryBatchDeleteResult | null>(null);
+  const [batchDeletePersistenceFailed, setBatchDeletePersistenceFailed] = useState(false);
   const [batchDeleteNeedsRescan, setBatchDeleteNeedsRescan] = useState(false);
   const [scanReconciliationPending, setScanReconciliationPending] = useState(false);
   const [cleanupStorageKey, setCleanupStorageKey] = useState<string | null>(null);
@@ -461,6 +474,12 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setPendingCleanupByPath(next);
   }, []);
 
+  const markCleanupStorageUnavailable = useCallback(() => {
+    cleanupStorageReadyRef.current = false;
+    setCleanupStorageReady(false);
+    setCleanupStorageUnavailable(true);
+  }, []);
+
   const initializeCleanupStorage = useCallback(() => {
     if (cleanupStorageReadyRef.current) return Promise.resolve(true);
     if (cleanupStorageAttemptRef.current) return cleanupStorageAttemptRef.current;
@@ -492,7 +511,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         return true;
       })
       .catch(() => {
-        if (cleanupStorageActiveRef.current) setCleanupStorageUnavailable(true);
+        if (cleanupStorageActiveRef.current) markCleanupStorageUnavailable();
         return false;
       });
     const trackedAttempt = attempt.finally(() => {
@@ -502,7 +521,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     });
     cleanupStorageAttemptRef.current = trackedAttempt;
     return trackedAttempt;
-  }, []);
+  }, [markCleanupStorageUnavailable]);
 
   useEffect(() => {
     cleanupStorageActiveRef.current = true;
@@ -520,9 +539,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         JSON.stringify(Array.from(pendingCleanupByPath.values())),
       );
     } catch {
-      // The in-memory notice remains available when storage is unavailable.
+      markCleanupStorageUnavailable();
     }
-  }, [cleanupStorageKey, cleanupStorageReady, pendingCleanupByPath]);
+  }, [cleanupStorageKey, cleanupStorageReady, markCleanupStorageUnavailable, pendingCleanupByPath]);
 
   const resetOverviewView = () => {
     setOverviewScale(1);
@@ -539,6 +558,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const openDeleteDialog = (session: EvidenceLibrarySession, trigger: HTMLButtonElement) => {
     if (destructiveActionsDisabled || !session.deletion_allowed || !session.deletion_target) return;
     setDeleteFailed(false);
+    setDeletePersistenceFailed(false);
     deleteTriggerRef.current = trigger;
     setPendingDelete(session);
   };
@@ -546,6 +566,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const closeDeleteDialog = (restoreTrigger = true) => {
     const trigger = deleteTriggerRef.current;
     setDeleteFailed(false);
+    setDeletePersistenceFailed(false);
     flushSync(() => setPendingDelete(null));
     if (restoreTrigger) {
       trigger?.focus();
@@ -564,9 +585,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setCleanupStorageOperationPending(true);
     try {
       if (!await initializeCleanupStorage()) {
-        setDeleteFailed(true);
+        setDeletePersistenceFailed(true);
         return;
       }
+      setDeletePersistenceFailed(false);
       const result = await deleteSession(target.evidence_id).unwrap();
       recordPendingCleanup([result]);
       if (overviewSession?.evidence_id === target.evidence_id) closeOverview();
@@ -583,6 +605,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     if (destructiveActionsDisabled || selectedSessions.length === 0) return;
     batchDeleteTriggerRef.current = trigger;
     setBatchDeleteResult(null);
+    setBatchDeletePersistenceFailed(false);
     setPendingBatchDelete([...selectedSessions]);
   };
 
@@ -590,6 +613,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     if (batchDeleteState.isLoading) return;
     const trigger = batchDeleteTriggerRef.current;
     setBatchDeleteResult(null);
+    setBatchDeletePersistenceFailed(false);
     flushSync(() => setPendingBatchDelete(null));
     trigger?.focus();
     batchDeleteTriggerRef.current = null;
@@ -599,7 +623,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     if (!pendingBatchDelete || pendingBatchDelete.length === 0 || destructiveActionsDisabled) return;
     setCleanupStorageOperationPending(true);
     try {
-      if (!await initializeCleanupStorage()) return;
+      if (!await initializeCleanupStorage()) {
+        setBatchDeletePersistenceFailed(true);
+        return;
+      }
+      setBatchDeletePersistenceFailed(false);
       const result = await batchDeleteSessions({
         evidence_ids: pendingBatchDelete.map((session) => session.evidenceId),
       }).unwrap();
@@ -1166,6 +1194,23 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 批量删除结果未知。请扫描核对证据库后重新选择。
               </div>
             )}
+            {cleanupStorageUnavailable && (
+              <div
+                role="alert"
+                style={{
+                  margin: '0 0 10px',
+                  padding: '8px 10px',
+                  border: '1px solid rgba(255, 190, 70, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 190, 70, 0.08)',
+                  color: 'var(--txt-2)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 11,
+                }}
+              >
+                清理记录未能持久保存，删除已锁定。请扫描恢复后再执行删除。
+              </div>
+            )}
             {batchDeleteCleanupPending.length > 0 && (
               <div
                 role="alert"
@@ -1564,6 +1609,22 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 未收到批量删除结果。为避免重复删除，不能直接重试；请关闭后扫描核对证据库。
               </div>
             )}
+            {batchDeletePersistenceFailed && !batchDeleteResult && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 12,
+                  padding: '9px 10px',
+                  border: '1px solid rgba(255, 91, 112, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 91, 112, 0.08)',
+                  color: 'var(--c-danger)',
+                  fontSize: 11,
+                }}
+              >
+                清理记录持久化不可用，尚未发送批量删除请求。请关闭对话框，扫描恢复后重新选择并重试。
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button
                 ref={batchDeleteCancelButtonRef}
@@ -1579,7 +1640,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   cursor: batchDeleteState.isLoading ? 'not-allowed' : 'pointer',
                 }}
               >
-                {batchDeleteResult || batchDeleteNeedsRescan ? '关闭' : '取消'}
+                {batchDeleteResult || batchDeleteNeedsRescan || batchDeletePersistenceFailed ? '关闭' : '取消'}
               </button>
               {!batchDeleteNeedsRescan && (!batchDeleteResult || batchDeleteFailures.length > 0) && (
                 <button
@@ -1660,7 +1721,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             }}>
               {pendingDelete.deletion_target}
             </code>
-            {deleteFailed && (
+            {(deleteFailed || deletePersistenceFailed) && (
               <div
                 role="alert"
                 style={{
@@ -1673,7 +1734,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   fontSize: 11,
                 }}
               >
-                删除失败，请保留记录后重试。
+                {deletePersistenceFailed
+                  ? '清理记录持久化不可用，尚未发送删除请求。请关闭对话框，扫描恢复后重新发起删除。'
+                  : '删除失败，请保留记录后重试。'}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
@@ -1691,7 +1754,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   cursor: deleteActionsDisabled ? 'not-allowed' : 'pointer',
                 }}
               >
-                取消
+                {deletePersistenceFailed ? '关闭' : '取消'}
               </button>
               <button
                 type="button"

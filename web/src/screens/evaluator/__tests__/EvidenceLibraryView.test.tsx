@@ -1106,6 +1106,60 @@ describe('EvidenceLibraryView', () => {
     ).not.toBeInTheDocument());
   });
 
+  it('quarantines persisted cleanup records with malformed cleanup paths', async () => {
+    const seedView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    await waitFor(() => expect(pendingCleanupStorageKeys()).toHaveLength(1));
+    const [storageKey] = pendingCleanupStorageKeys();
+    seedView.unmount();
+
+    const validRecord = {
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-valid-storage',
+      cleanup_metadata_path: '/tmp/config-primary/.evidence-library-delete-recovery/delete-valid-storage.json',
+      cleanup_paths: [
+        '/runs/.evidence-library-delete-staging/delete-valid-storage',
+        '/runs/.evidence-library-delete-staging/delete-valid-storage.json',
+      ],
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify([
+      validRecord,
+      {
+        ...validRecord,
+        evidence_id: 'malformed-array-record',
+        cleanup_path: '/runs/malformed-array-record',
+        cleanup_paths: ['/runs/malformed-array-record', 42],
+      },
+      {
+        ...validRecord,
+        evidence_id: 'malformed-shape-record',
+        cleanup_path: '/runs/malformed-shape-record',
+        cleanup_paths: '/runs/not-an-array',
+      },
+      {
+        ...validRecord,
+        evidence_id: 'malformed-metadata-record',
+        cleanup_path: '/runs/malformed-metadata-record',
+        cleanup_metadata_path: { path: '/runs/not-a-string' },
+      },
+    ]));
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const cleanupAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
+    expect(cleanupAlert).toHaveTextContent(validRecord.cleanup_path);
+    expect(cleanupAlert).toHaveTextContent(validRecord.cleanup_paths[1]);
+    expect(cleanupAlert).not.toHaveTextContent('malformed-array-record');
+    expect(cleanupAlert).not.toHaveTextContent('malformed-shape-record');
+    expect(cleanupAlert).not.toHaveTextContent('malformed-metadata-record');
+    await waitFor(() => expect(JSON.parse(window.localStorage.getItem(storageKey) ?? '[]')).toEqual([
+      validRecord,
+    ]));
+  });
+
   it.each([
     {
       name: 'HTTP failure',
@@ -1160,6 +1214,95 @@ describe('EvidenceLibraryView', () => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
     const restoredAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
     expect(restoredAlert).toHaveTextContent(cleanupResult.cleanup_path);
+  });
+
+  it('explains the close and scan recovery flow when single-delete persistence initialization fails', async () => {
+    let resolveConfig!: (response: Response) => void;
+    apiMocks.configFetch.mockReset();
+    apiMocks.configFetch.mockReturnValue(new Promise<Response>((resolve) => {
+      resolveConfig = resolve;
+    }));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(deleteButton());
+    const dialog = screen.getByRole('dialog', { name: '删除仿真记录' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }));
+    await act(async () => resolveConfig(new Response('unavailable', { status: 503 })));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      '清理记录持久化不可用，尚未发送删除请求。请关闭对话框，扫描恢复后重新发起删除。',
+    );
+    expect(within(dialog).getByRole('button', { name: '关闭' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: '确认删除' })).toBeDisabled();
+    expect(apiMocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('explains the close, scan, and reselection flow when batch persistence initialization fails', async () => {
+    let resolveConfig!: (response: Response) => void;
+    apiMocks.configFetch.mockReset();
+    apiMocks.configFetch.mockReturnValue(new Promise<Response>((resolve) => {
+      resolveConfig = resolve;
+    }));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认批量删除' }));
+    await act(async () => resolveConfig(new Response('unavailable', { status: 503 })));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      '清理记录持久化不可用，尚未发送批量删除请求。请关闭对话框，扫描恢复后重新选择并重试。',
+    );
+    expect(within(dialog).getByRole('button', { name: '关闭' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: '确认批量删除' })).toBeDisabled();
+    expect(apiMocks.batchDeleteSessions).not.toHaveBeenCalled();
+  });
+
+  it('locks deletion when the first runtime cleanup persistence write fails until scan recovery', async () => {
+    const cleanupResult = {
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-runtime-storage-failure',
+      cleanup_metadata_path: '/tmp/config-primary/.evidence-library-delete-recovery/delete-runtime-storage-failure.json',
+    };
+    apiMocks.rescanUnwrap.mockResolvedValue({
+      ingested: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [cleanupResult],
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    await waitFor(() => expect(pendingCleanupStorageKeys()).toHaveLength(1));
+    const [storageKey] = pendingCleanupStorageKeys();
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    try {
+      setItemSpy.mockImplementationOnce(() => {
+        throw new Error('runtime storage failure');
+      });
+      fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+      const cleanupAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
+      expect(cleanupAlert).toHaveTextContent(cleanupResult.cleanup_path);
+      expect(await screen.findByText(
+        '清理记录未能持久保存，删除已锁定。请扫描恢复后再执行删除。',
+      )).toBeInTheDocument();
+      expect(deleteButton()).toBeDisabled();
+
+      fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+      await waitFor(() => expect(screen.queryByText(
+        '清理记录未能持久保存，删除已锁定。请扫描恢复后再执行删除。',
+      )).not.toBeInTheDocument());
+      expect(deleteButton()).toBeEnabled();
+      expect(window.localStorage.getItem(storageKey)).toContain(cleanupResult.cleanup_path);
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 
   it('does not resurrect an acknowledged notice when identity hydration resolves late', async () => {

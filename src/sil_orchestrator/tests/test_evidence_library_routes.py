@@ -1542,6 +1542,63 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
 
 
 @pytest.mark.asyncio
+async def test_rescan_reports_sidecar_after_exit_between_payload_and_metadata_cleanup(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
+            "evidence_id"
+        ]
+        original_rmtree = service.shutil.rmtree
+
+        def exit_after_payload_cleanup(target: Path) -> None:
+            original_rmtree(target)
+            raise SystemExit("simulated exit after payload cleanup")
+
+        monkeypatch.setattr(service.shutil, "rmtree", exit_after_payload_cleanup)
+        with pytest.raises(SystemExit, match="simulated exit after payload cleanup"):
+            service.delete_evidence_session(evidence_id, repo_root=repo)
+
+    assert _indexed_session_count(repo, evidence_id) == 0
+    assert not trace_dir.parent.exists()
+    staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+    cleanup_sidecar = next(staging_dir.glob("delete-*.json"))
+    staged_target = cleanup_sidecar.with_suffix("")
+    recovery_record = next(
+        (tmp_path / "config" / ".evidence-library-delete-recovery").glob("*.json")
+    )
+    assert not staged_target.exists()
+
+    monkeypatch.setattr(service.shutil, "rmtree", original_rmtree)
+    restarted_app = _app_for(repo, tmp_path, monkeypatch)
+    async with AsyncClient(
+        transport=ASGITransport(app=restarted_app), base_url="http://restart"
+    ) as restarted_client:
+        recovery = await restarted_client.post(
+            "/api/v1/evidence-library/rescan", json={"force": True}
+        )
+
+    assert recovery.json()["errors"] == []
+    assert recovery.json().get("cleanup_pending") == [{
+        "evidence_id": evidence_id,
+        "deleted_path": str(trace_dir.parent.resolve()),
+        "filesystem_deleted": False,
+        "filesystem_cleanup": "pending",
+        "cleanup_error": "staged filesystem cleanup is pending",
+        "cleanup_path": str(cleanup_sidecar),
+        "cleanup_metadata_path": str(recovery_record),
+        "cleanup_paths": [str(cleanup_sidecar), str(recovery_record)],
+    }]
+    assert cleanup_sidecar.is_file()
+    assert recovery_record.is_file()
+
+
+@pytest.mark.asyncio
 async def test_postcommit_recovery_rejects_deterministic_out_of_root_paths_without_mutation(
     tmp_path, monkeypatch
 ):
