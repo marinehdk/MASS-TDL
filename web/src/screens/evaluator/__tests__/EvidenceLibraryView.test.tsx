@@ -416,6 +416,51 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('2026-07-08 09:15:00');
   });
 
+  it('sorts scenario counts in both directions while preserving its native filter', () => {
+    apiMocks.sessions = [
+      {
+        ...primarySession,
+        evidence_id: 'count-two',
+        session_id: 'count_two',
+        scenario_count: 2,
+        scenario_ids: ['two-a', 'two-b'],
+      },
+      {
+        ...primarySession,
+        evidence_id: 'count-ten',
+        session_id: 'count_ten',
+        scenario_count: 10,
+        scenario_ids: Array.from({ length: 10 }, (_, index) => `ten-${index + 1}`),
+      },
+      {
+        ...primarySession,
+        evidence_id: 'count-one',
+        session_id: 'count_one',
+        scenario_count: 1,
+        scenario_ids: ['one'],
+      },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const countFilter = screen.getByRole('combobox', { name: 'scenarioCount filter' });
+    const ascending = screen.getByRole('button', { name: '按场景数量升序' });
+    const descending = screen.getByRole('button', { name: '按场景数量降序' });
+
+    fireEvent.click(ascending);
+    expect(ascending).toHaveAttribute('aria-pressed', 'true');
+    expect(descending).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('one');
+
+    fireEvent.click(descending);
+    expect(ascending).toHaveAttribute('aria-pressed', 'false');
+    expect(descending).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('ten-1 +9');
+
+    fireEvent.change(countFilter, { target: { value: '2' } });
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('two-a, two-b');
+  });
+
   it('resets to the first page when search changes', () => {
     apiMocks.sessions = makeSessions(25);
     render(<EvidenceLibraryView onOpen={vi.fn()} />);

@@ -441,6 +441,33 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     </select>
   );
 
+  const sortDirectionControls = (label: string, key: SortKey) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {(['asc', 'desc'] as const).map((direction) => {
+        const active = sort.key === key && sort.direction === direction;
+        const directionLabel = direction === 'asc' ? '升序' : '降序';
+        const Icon = direction === 'asc' ? LucideArrowUp : LucideArrowDown;
+        return (
+          <button
+            key={direction}
+            type="button"
+            onClick={() => setSortDirection(key, direction)}
+            style={{
+              ...sortDirectionButtonStyle,
+              color: active ? 'var(--c-phos)' : 'var(--txt-3)',
+              background: active ? 'rgba(69, 211, 207, 0.1)' : sortDirectionButtonStyle.background,
+            }}
+            aria-label={`按${label}${directionLabel}`}
+            aria-pressed={active}
+            title={`按${label}${directionLabel}`}
+          >
+            <Icon size={10} aria-hidden="true" />
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const columnHeader = (
     label: string,
     key: SortKey,
@@ -450,34 +477,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     <th align="center" style={{ width, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 24 }}>
         <span style={{ flex: 1, textAlign: 'center', whiteSpace: 'nowrap' }}>{label}</span>
-        {filter === 'enum' ? (
-          enumFilter(key)
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {(['asc', 'desc'] as const).map((direction) => {
-              const active = sort.key === key && sort.direction === direction;
-              const directionLabel = direction === 'asc' ? '升序' : '降序';
-              const Icon = direction === 'asc' ? LucideArrowUp : LucideArrowDown;
-              return (
-                <button
-                  key={direction}
-                  type="button"
-                  onClick={() => setSortDirection(key, direction)}
-                  style={{
-                    ...sortDirectionButtonStyle,
-                    color: active ? 'var(--c-phos)' : 'var(--txt-3)',
-                    background: active ? 'rgba(69, 211, 207, 0.1)' : sortDirectionButtonStyle.background,
-                  }}
-                  aria-label={`按${label}${directionLabel}`}
-                  aria-pressed={active}
-                  title={`按${label}${directionLabel}`}
-                >
-                  <Icon size={10} aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {filter === 'enum' && enumFilter(key)}
+          {sortDirectionControls(label, key)}
+        </div>
       </div>
     </th>
   );
@@ -673,7 +676,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     <th align="center" style={{ width: 60, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>序号</th>
                     {columnHeader('仿真时间', 'time', 150)}
                     {columnHeader('仿真结果', 'result', 120)}
-                    {columnHeader('场景数量', 'scenarioCount', 100, 'enum')}
+                    {columnHeader('场景数量', 'scenarioCount', 150, 'enum')}
                     {columnHeader('模式', 'mode', 125, 'enum')}
                     {columnHeader('仿真场景', 'scenario', 180)}
                     {columnHeader('来源', 'source', 125, 'enum')}
