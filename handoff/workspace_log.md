@@ -3515,8 +3515,6 @@ temporary-sidecar recovery, and reload-durable cleanup notices.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
 
----
-
 ## [2026-07-13] Codex / `7cd508292` / Trusted Postcommit Recovery Closure
 
 ### Task Goal
@@ -3546,5 +3544,39 @@ backend/worktree-scoped durable frontend notices.
   `.superpowers/sdd/task-4-report.md`.
 - Pending staged payload cleanup remains manual; no ledger, daemon, or automatic
   destructive retry added.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+---
+
+## [2026-07-13] Codex / `be27ef4c9` / Cleanup Persistence Final Closure
+
+### Task Goal
+Close final blockers after `814919315`: fail-closed cleanup persistence identity,
+late-hydration acknowledgement safety, and complete operator cleanup paths.
+
+### Core Changes
+- Configuration identity HTTP, shape, and storage failures now lock destructive
+  calls; single and batch mutations await readiness, while manual scan can retry
+  initialization and persist discovered cleanup state.
+- Synchronous pending/acknowledgement tracking prevents delayed hydration from
+  resurrecting an acknowledged notice.
+- Backend recovery reports staged payload, retained root-local sidecar, and
+  central record; frontend renders and persists the complete path set.
+- Added focused HTTP failure, malformed response, exception, delayed hydration,
+  reload, and complete recovery-path regressions.
+
+### Current Status
+- Implementation commit: `be27ef4c9`
+  (`fix(evidence): fail closed until cleanup persistence is ready`).
+- Backend Evidence Library suite: 79 passed.
+- Owned frontend suite: 68 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands, output, changed files, and risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Pending filesystem cleanup remains manual; central recovery records support
+  rediscovery after reload.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.

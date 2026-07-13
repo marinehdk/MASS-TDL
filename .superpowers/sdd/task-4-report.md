@@ -564,3 +564,109 @@ large-chunk warning.
   `flock`, matching deployed hosts; unsupported hosts fail closed.
 - Local OrbStack and A4000 acceptance were not run. Both remain promotion
   gates. No live destructive browser test or remote push was performed.
+
+## Final Cleanup-Persistence Closure After `814919315`
+
+Status: final blocker set under `Re-review After 814919315` closed by
+implementation commit `be27ef4c9`
+(`fix(evidence): fail closed until cleanup persistence is ready`).
+
+### Changed Files
+
+- `src/sil_orchestrator/evidence_library/service.py`
+- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
+- `web/src/api/silApi.ts`
+- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
+- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
+
+`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
+unstaged.
+
+### Behavior Closed
+
+- Cleanup storage initialization now validates the configuration-identity HTTP
+  response and payload, proves the scoped local-storage key is writable, and
+  locks destructive requests after any failed attempt. Single and batch delete
+  handlers also await successful initialization before calling their mutation.
+- Manual scan remains available while persistence is unavailable. Its completion
+  retries identity initialization, merges scan-discovered cleanup state, and
+  persists that state before deletion becomes available again.
+- Synchronous cleanup and acknowledgement refs prevent delayed identity
+  hydration from merging an already acknowledged stored notice back into state.
+- Backend immediate and restart recovery responses enumerate all retained
+  cleanup artifacts through `cleanup_paths`: staged payload, root-local sidecar
+  when present, and central recovery record. Frontend durable notices and batch
+  results render every additional path.
+
+### Strict TDD Evidence
+
+Backend RED:
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py \
+  -k 'rediscovers_postcommit_cleanup_after_process_exit_and_restart'
+1 failed, 60 deselected
+
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py \
+  -k 'post_commit_cleanup_failure_reports_pending_logical_success'
+1 failed, 60 deselected
+```
+
+Both failures were missing `cleanup_paths` contract evidence.
+
+Frontend RED:
+
+```text
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'locks deletion after|does not resurrect|restores a rescan-discovered cleanup notice'
+5 failed, 63 skipped
+```
+
+Failures covered HTTP 503, malformed identity, thrown fetch, delayed hydration,
+and omitted root-local sidecar display.
+
+Focused GREEN:
+
+```text
+Backend cleanup reporting: 2 passed, 59 deselected in 0.28s
+Frontend identity/reload/hydration/reporting: 5 passed, 63 skipped
+Frontend delete-focus follow-up: 2 passed, 66 skipped
+```
+
+The first full frontend run exposed two focus-restoration regressions while the
+new persistence operation was pending. Those existing tests were RED; focus is
+now deferred until the operation unlocks, and both passed before the full run.
+
+### Final Verification
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
+  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py
+79 passed in 3.85s
+
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
+1 file passed; 68 tests passed in 8.36s
+
+npm run build
+TypeScript pass; Vite pass; 2396 modules transformed; built in 8.35s
+
+git diff --check
+pass
+```
+
+Build retains existing Foxglove dependency `eval` warnings and the existing
+large-chunk warning.
+
+### Residual Risks
+
+- Pending filesystem cleanup remains explicit/manual. No schema ledger, daemon,
+  or automatic destructive retry was introduced.
+- A browser that loses local-storage write capability after initialization keeps
+  current notices in memory; backend central recovery records remain the durable
+  source discoverable through manual scan.
+- Local OrbStack and A4000 acceptance were not run. Both remain promotion gates;
+  no live destructive browser test, remote sync, or push was performed.
