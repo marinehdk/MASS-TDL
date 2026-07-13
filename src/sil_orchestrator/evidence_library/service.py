@@ -496,3 +496,21 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
         "deleted_path": str(resolved_target),
         "filesystem_deleted": True,
     }
+
+
+def delete_evidence_sessions(evidence_ids: list[str], repo_root: Path | None = None) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    for evidence_id in evidence_ids:
+        try:
+            deleted = delete_evidence_session(evidence_id, repo_root=repo_root)
+        except (LookupError, PermissionError, OSError) as exc:
+            results.append({"evidence_id": evidence_id, "status": "failed", "error": str(exc)})
+        else:
+            results.append({**deleted, "status": "deleted"})
+    deleted_count = sum(item["status"] == "deleted" for item in results)
+    return {
+        "requested": len(evidence_ids),
+        "deleted": deleted_count,
+        "failed": len(results) - deleted_count,
+        "results": results,
+    }

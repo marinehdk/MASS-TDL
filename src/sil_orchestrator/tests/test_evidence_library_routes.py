@@ -50,13 +50,13 @@ def _session(root: Path) -> Path:
     return session
 
 
-def _unified_session(repo: Path) -> Path:
-    run = repo / "runs" / "20260709_094036"
+def _unified_session(repo: Path, run_id: str = "20260709_094036") -> Path:
+    run = repo / "runs" / run_id
     trace = run / "trace"
     scenario = trace / "colreg-rule15-cs"
     scenario.mkdir(parents=True)
     (run / "run_meta.json").write_text(json.dumps({
-        "run_id": "20260709_094036",
+        "run_id": run_id,
         "created_at": "2026-07-09T09:40:36+00:00",
         "source": "cli",
         "mode": "fast",
@@ -80,7 +80,7 @@ def _unified_session(repo: Path) -> Path:
             "trace_path": "colreg-rule15-cs/trace_current.jsonl",
             "report_path": "colreg-rule15-cs/report.json",
             "png_path": "colreg-rule15-cs/trajectory_dashboard.png",
-            "run_id": "20260709_094036",
+            "run_id": run_id,
             "valid_data": True,
         }],
     }))
@@ -820,6 +820,124 @@ async def test_delete_rejects_session_path_escape(tmp_path, monkeypatch):
     assert session_dir.is_dir()
     assert outside_session.is_dir()
     assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_preserves_request_order_and_removes_all_indexed_rows(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    first_trace = _unified_session(repo, "20260709_094036")
+    second_trace = _unified_session(repo, "20260709_094037")
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
+        by_session_id = {session["session_id"]: session for session in sessions}
+        first = by_session_id[first_trace.parent.name]
+        second = by_session_id[second_trace.parent.name]
+        first_database = _seed_all_evidence_tables(repo, first["evidence_id"], first)
+        second_database = _seed_all_evidence_tables(repo, second["evidence_id"], second)
+        requested_ids = [second["evidence_id"], first["evidence_id"]]
+
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            json={"evidence_ids": requested_ids},
+        )
+        listed = await client.get("/api/v1/evidence-library/sessions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["evidence_id"] for item in payload["results"]] == requested_ids
+    assert payload["requested"] == 2
+    assert payload["deleted"] == 2
+    assert payload["failed"] == 0
+    assert not first_trace.parent.exists()
+    assert not second_trace.parent.exists()
+    assert listed.json()["sessions"] == []
+    assert _evidence_row_counts(first_database, first["evidence_id"]) == dict.fromkeys(EVIDENCE_TABLES, 0)
+    assert _evidence_row_counts(second_database, second["evidence_id"]) == dict.fromkeys(EVIDENCE_TABLES, 0)
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_returns_partial_result_without_touching_failed_sessions(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    valid_trace = _unified_session(repo, "20260709_094036")
+    unsafe_trace = _unified_session(repo, "20260709_094037")
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    (config_home / "evidence_library.json").write_text(json.dumps({
+        "roots": [
+            {
+                "root_id": "valid-root",
+                "label": "Valid root",
+                "source": "test",
+                "path_glob": str(valid_trace),
+                "enabled": True,
+                "trusted": True,
+            },
+            {
+                "root_id": "unsafe-root",
+                "label": "Unsafe root",
+                "source": "test",
+                "path_glob": str(unsafe_trace),
+                "enabled": True,
+                "trusted": False,
+            },
+        ],
+    }))
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
+        by_session_id = {session["session_id"]: session for session in sessions}
+        valid = by_session_id[valid_trace.parent.name]
+        unsafe = by_session_id[unsafe_trace.parent.name]
+        valid_database = _seed_all_evidence_tables(repo, valid["evidence_id"], valid)
+        unsafe_database = _seed_all_evidence_tables(repo, unsafe["evidence_id"], unsafe)
+        requested_ids = [valid["evidence_id"], "missing-evidence", unsafe["evidence_id"]]
+
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            json={"evidence_ids": requested_ids},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["evidence_id"] for item in payload["results"]] == requested_ids
+    assert [item["status"] for item in payload["results"]] == ["deleted", "failed", "failed"]
+    assert payload["requested"] == 3
+    assert payload["deleted"] == 1
+    assert payload["failed"] == 2
+    assert not valid_trace.parent.exists()
+    assert unsafe_trace.parent.is_dir()
+    assert _evidence_row_counts(valid_database, valid["evidence_id"]) == dict.fromkeys(EVIDENCE_TABLES, 0)
+    assert all(count > 0 for count in _evidence_row_counts(unsafe_database, unsafe["evidence_id"]).values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "evidence_ids",
+    [[], ["same", "same"], [""], [123], [f"id-{index}" for index in range(501)]],
+)
+async def test_batch_delete_rejects_invalid_evidence_ids_without_changing_sessions(
+    tmp_path, monkeypatch, evidence_ids
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            json={"evidence_ids": evidence_ids},
+        )
+
+    assert response.status_code == 422
+    assert trace_dir.parent.is_dir()
+    assert _indexed_session_count(repo, evidence_id) == 1
 
 
 @pytest.mark.asyncio

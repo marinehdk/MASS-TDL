@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 
 from .service import (
     delete_evidence_session,
+    delete_evidence_sessions,
     get_config_payload,
     get_decision_frame,
     get_overview_png_path,
@@ -39,6 +40,24 @@ async def rescan(request: dict):
 @router.get("/sessions")
 async def sessions(limit: int = 200):
     return {"sessions": list_sessions(limit=limit, repo_root=REPO_ROOT)}
+
+
+def _batch_evidence_ids(request: dict) -> list[str]:
+    evidence_ids = request.get("evidence_ids")
+    valid = (
+        isinstance(evidence_ids, list)
+        and 1 <= len(evidence_ids) <= 500
+        and all(isinstance(item, str) and item.strip() == item and item for item in evidence_ids)
+        and len(set(evidence_ids)) == len(evidence_ids)
+    )
+    if not valid:
+        raise HTTPException(status_code=422, detail="evidence_ids must contain 1 to 500 unique non-empty strings")
+    return evidence_ids
+
+
+@router.post("/sessions/batch-delete")
+async def batch_delete_sessions(request: dict):
+    return delete_evidence_sessions(_batch_evidence_ids(request), repo_root=REPO_ROOT)
 
 
 @router.delete("/sessions/{evidence_id}")
