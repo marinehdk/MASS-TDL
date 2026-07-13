@@ -3447,3 +3447,36 @@ Close every Critical and Important final-review finding with recoverable backend
 - Pending filesystem cleanup exposes exact `cleanup_path` for manual removal; no schema/idempotency ledger added.
 - Local OrbStack and A4000 gates still required before promotion/push.
 - `.agent/rules/superpowers.md` was pre-existing modified and remained untouched/uncommitted.
+
+---
+
+## [2026-07-13] Codex / `a0016cd91` / Close Remaining Batch-Delete Re-review Blockers
+
+### Task Goal
+Close all five blockers appended after `5744dc703`: authoritative zero-change
+scan reconciliation, complete unknown-state deletion lock, durable cleanup
+notices, deterministic crash-recovery mapping, and focused regressions.
+
+### Core Changes
+- Manual scan now awaits authoritative list refresh and clears unknown state only
+  after an error-free scan plus successful refresh; single and batch deletion
+  remain blocked while state is unknown.
+- Pending cleanup entries merge across single deletion and batch retries, expose
+  payload and metadata paths, and remain until explicit acknowledgement.
+- Same-parent staging now uses a deterministic hash and versioned atomic sidecar;
+  rescan restores interrupted pre-commit deletions without schema or daemon work.
+- Added focused frontend/backend regressions, including repeated process-exit
+  recovery. Tightened one asynchronous RTK assertion exposed by external review.
+
+### Current Status
+- Implementation commit: `a0016cd91` (`fix(evidence): close remaining deletion blockers`).
+- Backend Evidence Library suite: 67 passed.
+- Task-owned frontend suites: 64 passed. TypeScript/Vite build passed.
+- External uncommitted review: no actionable correctness defects.
+
+### Handoff Notes
+- Full RED/GREEN evidence: `.superpowers/sdd/task-4-report.md`.
+- Requested three-file frontend run: 67 passed; six unchanged pre-existing
+  `SimulationEvaluator.test.tsx` text/canvas failures.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and uncommitted.
