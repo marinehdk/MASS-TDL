@@ -607,6 +607,7 @@ async def test_delete_unified_session_removes_run_dir_and_all_index_rows(tmp_pat
         "evidence_id": evidence_id,
         "deleted_path": str(trace_dir.parent.resolve()),
         "filesystem_deleted": True,
+        "filesystem_cleanup": "completed",
     }
     assert not trace_dir.parent.exists()
     assert listed.json()["sessions"] == []
@@ -627,6 +628,7 @@ async def test_delete_legacy_session_removes_only_indexed_session_directory(tmp_
     assert response.status_code == 200
     assert response.json()["deleted_path"] == str(session_dir.resolve())
     assert response.json()["filesystem_deleted"] is True
+    assert response.json()["filesystem_cleanup"] == "completed"
     assert not session_dir.exists()
     assert (repo / "runs" / "trace_eval").is_dir()
 
@@ -649,6 +651,7 @@ async def test_delete_missing_session_target_removes_index_rows_only(tmp_path, m
         "evidence_id": evidence_id,
         "deleted_path": str(trace_dir.parent.resolve()),
         "filesystem_deleted": False,
+        "filesystem_cleanup": "not_needed",
     }
     assert listed.json()["sessions"] == []
 
@@ -672,6 +675,7 @@ async def test_delete_missing_legacy_root_removes_index_rows_only(tmp_path, monk
         "evidence_id": evidence_id,
         "deleted_path": str(session_dir.resolve()),
         "filesystem_deleted": False,
+        "filesystem_cleanup": "not_needed",
     }
     assert _evidence_row_counts(database_path, evidence_id) == dict.fromkeys(EVIDENCE_TABLES, 0)
 
@@ -916,6 +920,55 @@ async def test_batch_delete_returns_partial_result_without_touching_failed_sessi
 
 
 @pytest.mark.asyncio
+async def test_batch_delete_restores_staged_path_after_database_failure_and_continues(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    failed_trace = _unified_session(repo, "20260709_094036")
+    successful_trace = _unified_session(repo, "20260709_094037")
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
+        by_session_id = {session["session_id"]: session for session in sessions}
+        failed = by_session_id[failed_trace.parent.name]
+        successful = by_session_id[successful_trace.parent.name]
+        database_path = _seed_all_evidence_tables(repo, failed["evidence_id"], failed)
+        _seed_all_evidence_tables(repo, successful["evidence_id"], successful)
+        original_delete_rows = service._delete_evidence_rows
+
+        def fail_first_database_delete(conn, evidence_id):
+            if evidence_id == failed["evidence_id"]:
+                conn.execute(
+                    "delete from trajectory_downsample where evidence_id = ?",
+                    (evidence_id,),
+                )
+                raise sqlite3.OperationalError(f"database locked at {database_path}")
+            original_delete_rows(conn, evidence_id)
+
+        monkeypatch.setattr(service, "_delete_evidence_rows", fail_first_database_delete)
+        requested_ids = [failed["evidence_id"], successful["evidence_id"]]
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            json={"evidence_ids": requested_ids},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["evidence_id"] for item in payload["results"]] == requested_ids
+    assert [item["status"] for item in payload["results"]] == ["failed", "deleted"]
+    assert payload["results"][0]["error"] == "database operation failed"
+    assert str(database_path) not in json.dumps(payload)
+    assert payload["results"][1]["filesystem_cleanup"] == "completed"
+    assert failed_trace.parent.is_dir()
+    assert not successful_trace.parent.exists()
+    assert all(count > 0 for count in _evidence_row_counts(database_path, failed["evidence_id"]).values())
+    assert _evidence_row_counts(database_path, successful["evidence_id"]) == dict.fromkeys(EVIDENCE_TABLES, 0)
+    assert not (repo / "runs" / ".evidence-library-delete-staging").exists()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "evidence_ids",
     [[], ["same", "same"], [""], [123], [f"id-{index}" for index in range(501)]],
@@ -941,7 +994,68 @@ async def test_batch_delete_rejects_invalid_evidence_ids_without_changing_sessio
 
 
 @pytest.mark.asyncio
-async def test_delete_rmtree_failure_retains_all_index_rows(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "request_kwargs",
+    [
+        {},
+        {"content": "{", "headers": {"content-type": "application/json"}},
+        {"json": None},
+        {"json": []},
+        {"json": {}},
+    ],
+)
+async def test_batch_delete_rejects_missing_or_malformed_body_without_changing_sessions(
+    tmp_path, monkeypatch, request_kwargs
+):
+    repo = tmp_path / "repo"
+    trace_dir = _unified_session(repo)
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            **request_kwargs,
+        )
+
+    assert response.status_code == 422
+    assert trace_dir.parent.is_dir()
+    assert _indexed_session_count(repo, evidence_id) == 1
+
+
+def test_batch_delete_sanitizes_unexpected_failures_and_continues(monkeypatch):
+    def delete_one(evidence_id, repo_root=None):
+        del repo_root
+        if evidence_id == "database-failure":
+            raise sqlite3.OperationalError("database secret")
+        if evidence_id == "unexpected-failure":
+            raise RuntimeError("unexpected secret")
+        return {
+            "evidence_id": evidence_id,
+            "deleted_path": "/runs/deleted",
+            "filesystem_deleted": True,
+            "filesystem_cleanup": "completed",
+        }
+
+    monkeypatch.setattr(service, "delete_evidence_session", delete_one)
+
+    payload = service.delete_evidence_sessions(
+        ["database-failure", "unexpected-failure", "deleted"]
+    )
+
+    assert [item["status"] for item in payload["results"]] == ["failed", "failed", "deleted"]
+    assert [item.get("error") for item in payload["results"]] == [
+        "database operation failed",
+        "evidence deletion failed",
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_success(
+    tmp_path, monkeypatch
+):
     repo = tmp_path / "repo"
     trace_dir = _unified_session(repo)
     app = _app_for(repo, tmp_path, monkeypatch)
@@ -953,14 +1067,36 @@ async def test_delete_rmtree_failure_retains_all_index_rows(tmp_path, monkeypatc
         database_path = _seed_all_evidence_tables(repo, evidence_id, session)
 
         def fail_rmtree(_target: Path) -> None:
-            raise OSError("mocked rmtree failure")
+            raise OSError(f"mocked cleanup failure for {_target}")
 
         monkeypatch.setattr(service.shutil, "rmtree", fail_rmtree)
-        with pytest.raises(OSError, match="mocked rmtree failure"):
-            await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
+        response = await client.post(
+            "/api/v1/evidence-library/sessions/batch-delete",
+            json={"evidence_ids": [evidence_id]},
+        )
 
-    assert trace_dir.parent.is_dir()
-    assert all(count > 0 for count in _evidence_row_counts(database_path, evidence_id).values())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested"] == 1
+    assert payload["deleted"] == 1
+    assert payload["failed"] == 0
+    result = payload["results"][0]
+    cleanup_path = Path(result.pop("cleanup_path"))
+    assert result == {
+        "evidence_id": evidence_id,
+        "deleted_path": str(trace_dir.parent.resolve()),
+        "filesystem_deleted": False,
+        "filesystem_cleanup": "pending",
+        "cleanup_error": "staged filesystem cleanup is pending",
+        "status": "deleted",
+    }
+    assert not trace_dir.parent.exists()
+    assert _evidence_row_counts(database_path, evidence_id) == dict.fromkeys(EVIDENCE_TABLES, 0)
+    staging_dir = repo / "runs" / ".evidence-library-delete-staging"
+    assert staging_dir.is_dir()
+    assert cleanup_path.parent == staging_dir
+    assert cleanup_path.is_dir()
+    assert len(list(staging_dir.iterdir())) == 1
 
 
 @pytest.mark.asyncio

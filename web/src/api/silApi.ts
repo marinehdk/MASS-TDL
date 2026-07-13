@@ -310,6 +310,9 @@ export interface EvidenceLibraryDeleteResult {
   evidence_id: string;
   deleted_path: string;
   filesystem_deleted: boolean;
+  filesystem_cleanup: 'completed' | 'not_needed' | 'pending';
+  cleanup_error?: string;
+  cleanup_path?: string;
 }
 
 export interface EvidenceLibraryBatchDeleteRequest {
@@ -561,7 +564,8 @@ export const silApi = createApi({
         try {
           ({ data: result } = await queryFulfilled);
         } catch {
-          // Rejected batch deletes leave the indexed-session cache unchanged.
+          // Response loss can hide a committed delete; reconcile from the authoritative list.
+          dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
           return;
         }
 

@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .config import EvidenceLibraryConfig, EvidenceRootConfig, load_effective_config
 from .ingest import ingest_session, query_decision_frame, query_replay
@@ -105,6 +106,42 @@ def _delete_evidence_rows(conn: sqlite3.Connection, evidence_id: str) -> None:
         "sessions",
     ):
         conn.execute("delete from " + table + " where evidence_id = ?", (evidence_id,))
+
+
+_DELETION_STAGING_DIR = ".evidence-library-delete-staging"
+
+
+def _remove_empty_staging_dir(staging_dir: Path) -> None:
+    try:
+        staging_dir.rmdir()
+    except OSError:
+        pass
+
+
+def _stage_deletion_target(target: Path) -> tuple[Path, Path]:
+    staging_dir = target.parent / _DELETION_STAGING_DIR
+    if staging_dir.exists() or staging_dir.is_symlink():
+        _reject_symlink_components(staging_dir, "Evidence deletion staging directory")
+    else:
+        staging_dir.mkdir(mode=0o700)
+    _reject_symlink_components(staging_dir, "Evidence deletion staging directory")
+    if not staging_dir.is_dir():
+        raise OSError("Evidence deletion staging path is not a directory")
+
+    staged_target = staging_dir / uuid4().hex
+    try:
+        target.rename(staged_target)
+    except OSError:
+        _remove_empty_staging_dir(staging_dir)
+        raise
+    return staging_dir, staged_target
+
+
+def _restore_staged_target(staging_dir: Path, staged_target: Path, target: Path) -> None:
+    if target.exists() or target.is_symlink():
+        raise OSError("Evidence deletion target was recreated before restoration")
+    staged_target.rename(target)
+    _remove_empty_staging_dir(staging_dir)
 
 
 def _absolute_safe_path(path: Path, label: str) -> Path:
@@ -486,15 +523,42 @@ def delete_evidence_session(evidence_id: str, repo_root: Path | None = None) -> 
                 "evidence_id": evidence_id,
                 "deleted_path": str(resolved_target),
                 "filesystem_deleted": False,
+                "filesystem_cleanup": "not_needed",
             }
 
-        shutil.rmtree(target)
-        _delete_evidence_rows(conn, evidence_id)
-        conn.commit()
+        staging_dir, staged_target = _stage_deletion_target(target)
+        try:
+            _delete_evidence_rows(conn, evidence_id)
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            try:
+                _restore_staged_target(staging_dir, staged_target, target)
+            except OSError as restore_error:
+                raise RuntimeError("Evidence deletion target restoration failed") from restore_error
+            raise
+
+    try:
+        shutil.rmtree(staged_target)
+    except Exception:
+        return {
+            "evidence_id": evidence_id,
+            "deleted_path": str(resolved_target),
+            "filesystem_deleted": False,
+            "filesystem_cleanup": "pending",
+            "cleanup_error": "staged filesystem cleanup is pending",
+            "cleanup_path": str(staged_target),
+        }
+
+    _remove_empty_staging_dir(staging_dir)
     return {
         "evidence_id": evidence_id,
         "deleted_path": str(resolved_target),
         "filesystem_deleted": True,
+        "filesystem_cleanup": "completed",
     }
 
 
@@ -503,8 +567,26 @@ def delete_evidence_sessions(evidence_ids: list[str], repo_root: Path | None = N
     for evidence_id in evidence_ids:
         try:
             deleted = delete_evidence_session(evidence_id, repo_root=repo_root)
-        except (LookupError, PermissionError, OSError) as exc:
+        except (LookupError, PermissionError) as exc:
             results.append({"evidence_id": evidence_id, "status": "failed", "error": str(exc)})
+        except sqlite3.Error:
+            results.append({
+                "evidence_id": evidence_id,
+                "status": "failed",
+                "error": "database operation failed",
+            })
+        except OSError:
+            results.append({
+                "evidence_id": evidence_id,
+                "status": "failed",
+                "error": "filesystem operation failed",
+            })
+        except Exception:
+            results.append({
+                "evidence_id": evidence_id,
+                "status": "failed",
+                "error": "evidence deletion failed",
+            })
         else:
             results.append({**deleted, "status": "deleted"})
     deleted_count = sum(item["status"] == "deleted" for item in results)

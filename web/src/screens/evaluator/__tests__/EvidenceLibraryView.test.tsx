@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   sessions: [] as Array<Record<string, unknown>>,
   rescan: vi.fn(),
   rescanUnwrap: vi.fn(),
+  rescanIsLoading: false,
   refetch: vi.fn(),
   deleteSession: vi.fn(),
   deleteUnwrap: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../../../api/silApi', () => ({
     isLoading: false,
     refetch: apiMocks.refetch,
   }),
-  useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: false }],
+  useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
   useDeleteEvidenceLibrarySessionMutation: () => [
     apiMocks.deleteSession,
     { isLoading: apiMocks.deleteIsLoading, error: null },
@@ -121,6 +122,7 @@ beforeEach(() => {
   apiMocks.sessions = [{ ...primarySession }, { ...secondarySession }];
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
+  apiMocks.rescanIsLoading = false;
   apiMocks.refetch.mockReset();
   apiMocks.deleteSession.mockReset();
   apiMocks.deleteUnwrap.mockReset();
@@ -461,9 +463,24 @@ describe('EvidenceLibraryView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '选择全部 25 条筛选结果' }));
     expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '选择全部 25 条筛选结果' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '上一页' }));
     expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
+  });
+
+  it('shows cancel selection and hides select-all when every filtered safe row is selected', () => {
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+
+    expect(screen.getByText('已选择 2 条')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '选择全部 2 条筛选结果' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '取消选择' }));
+
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /colreg-rule14-ho/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /colreg-rule15-cs/ })).not.toBeChecked();
   });
 
   it('excludes a safe filtered-out row when selecting all filtered results', () => {
@@ -477,10 +494,62 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '不通过' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
 
-    expect(screen.getByRole('button', { name: '选择全部 1 条筛选结果' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '选择全部 1 条筛选结果' }));
+    expect(screen.queryByRole('button', { name: '选择全部 1 条筛选结果' })).not.toBeInTheDocument();
     expect(screen.getByText('已选择 1 条')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+  });
+
+  it('uses canonical scenario-count outcomes for multi-scenario filtering', () => {
+    const scenarios = Array.from({ length: 8 }, (_, index) => `scenario-${index + 1}`);
+    apiMocks.sessions = [
+      {
+        ...primarySession,
+        evidence_id: 'multi-failed',
+        session_id: 'multi_failed',
+        scenario_ids: scenarios,
+        scenario_count: 8,
+        passed_scenarios: 0,
+        failed_scenarios: 8,
+      },
+      {
+        ...primarySession,
+        evidence_id: 'multi-partial',
+        session_id: 'multi_partial',
+        scenario_ids: scenarios.map((scenario) => `${scenario}-partial`),
+        scenario_count: 8,
+        passed_scenarios: 4,
+        failed_scenarios: 4,
+      },
+      {
+        ...primarySession,
+        evidence_id: 'multi-passed',
+        session_id: 'multi_passed',
+        scenario_ids: scenarios.map((scenario) => `${scenario}-passed`),
+        scenario_count: 8,
+        passed_scenarios: 8,
+        failed_scenarios: 0,
+      },
+      {
+        ...primarySession,
+        evidence_id: 'multi-unknown',
+        session_id: 'multi_unknown',
+        scenario_ids: scenarios.map((scenario) => `${scenario}-unknown`),
+        scenario_count: 8,
+        passed_scenarios: 4,
+        failed_scenarios: 0,
+      },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选仿真结果' }));
+    const menu = screen.getByRole('menu', { name: '仿真结果筛选选项' });
+    expect(within(menu).queryByRole('menuitem', { name: '0/8 通过' })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '不通过' }));
+
+    expect(deleteButton('multi_failed')).toBeInTheDocument();
+    expect(deleteButton('multi_partial')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除 multi_passed' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除 multi_unknown' })).not.toBeInTheDocument();
   });
 
   it('clears selection when the result set or manual scan changes', async () => {
@@ -518,6 +587,33 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(screen.getByRole('button', { name: '扫描' }));
     await waitFor(() => expect(apiMocks.rescan).toHaveBeenCalledTimes(1));
     expectCleared();
+  });
+
+  it('locks selection throughout a rescan and keeps refreshed query data unselected', async () => {
+    let resolveRescan!: (value: unknown) => void;
+    apiMocks.rescanUnwrap.mockReturnValueOnce(new Promise((resolve) => {
+      resolveRescan = resolve;
+    }));
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /colreg-rule14-ho/ }));
+    expect(screen.getByText('已选择 1 条')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    apiMocks.rescanIsLoading = true;
+    apiMocks.sessions = [{ ...primarySession, worktree_name: 'refreshed-worktree' }];
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '选择当前页' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /colreg-rule14-ho/ })).toBeDisabled();
+
+    await act(async () => resolveRescan({ ingested: 1, pruned: 0, errors: [] }));
+    apiMocks.rescanIsLoading = false;
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByRole('checkbox', { name: /colreg-rule14-ho/ })).not.toBeDisabled();
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
   });
 
   it('renders continuous row numbers', () => {
@@ -624,25 +720,36 @@ describe('EvidenceLibraryView', () => {
   });
 
   it('batch confirmation summarizes mixed selected sessions and closes after complete success', async () => {
+    const multiScenarios = Array.from({ length: 8 }, (_, index) => `batch-scenario-${index + 1}`);
     const failInSecondWorktree = {
       ...secondarySession,
       evidence_id: 'batch-fail-worktree-b',
       session_id: 'batch_fail_worktree_b',
       source: 'cli',
       worktree_name: 'worktree-b',
+      scenario_count: 8,
+      scenario_ids: multiScenarios,
+      passed_scenarios: 0,
+      failed_scenarios: 8,
     };
     const failWithoutWorktree = {
       ...secondarySession,
       evidence_id: 'batch-fail-front',
       session_id: 'batch_fail_front',
       worktree_name: null,
+      scenario_count: 8,
+      scenario_ids: multiScenarios.map((scenario) => `${scenario}-partial`),
+      passed_scenarios: 4,
+      failed_scenarios: 4,
     };
     const unknownInFirstWorktree = {
       ...primarySession,
       evidence_id: 'batch-unknown-worktree-a',
       session_id: 'batch_unknown_worktree_a',
       worktree_name: 'worktree-a',
-      passed_scenarios: 0,
+      scenario_count: 8,
+      scenario_ids: multiScenarios.map((scenario) => `${scenario}-unknown`),
+      passed_scenarios: 4,
       failed_scenarios: 0,
     };
     apiMocks.sessions = [
@@ -678,9 +785,117 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '确认批量删除' }));
 
     await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenCalledWith({
-      evidence_ids: apiMocks.sessions.map((session) => session.evidence_id),
+      evidence_ids: [...apiMocks.sessions]
+        .sort((left, right) => Date.parse(String(right.created_at)) - Date.parse(String(left.created_at)))
+        .map((session) => session.evidence_id),
     }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '批量删除仿真记录' })).not.toBeInTheDocument());
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+  });
+
+  it('keeps selected IDs and confirmation metadata fixed across query refreshes', async () => {
+    const originalSessions = [
+      { ...primarySession, worktree_name: 'snapshot-worktree-a' },
+      { ...secondarySession, worktree_name: 'snapshot-worktree-b' },
+    ];
+    apiMocks.sessions = originalSessions;
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    apiMocks.sessions = [
+      {
+        ...primarySession,
+        worktree_name: 'mutated-worktree',
+        passed_scenarios: 0,
+        failed_scenarios: 1,
+      },
+      {
+        ...primarySession,
+        evidence_id: 'new-query-session',
+        session_id: 'new_query_session',
+        worktree_name: 'new-worktree',
+      },
+    ];
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByText('已选择 2 条')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    expect(dialog).toHaveTextContent('通过 1');
+    expect(dialog).toHaveTextContent('不通过 1');
+    expect(dialog).toHaveTextContent('工作树 2');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认批量删除' }));
+    await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenCalledWith({
+      evidence_ids: [...originalSessions]
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+        .map((session) => session.evidence_id),
+    }));
+  });
+
+  it('marks a rejected batch response unknown and blocks destructive retry until scan', async () => {
+    apiMocks.batchDeleteUnwrap.mockRejectedValueOnce(new Error('response lost'));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('未收到批量删除结果');
+    expect(within(dialog).queryByRole('button', { name: '确认批量删除' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
+    expect(apiMocks.batchDeleteSessions).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('批量删除结果未知');
+    expect(screen.getByRole('button', { name: '删除所选（2）' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    expect(apiMocks.batchDeleteSessions).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    await waitFor(() => expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('批量删除结果未知')).not.toBeInTheDocument());
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+  });
+
+  it('reports pending post-commit filesystem cleanup as deleted without offering retry', async () => {
+    apiMocks.batchDeleteUnwrap.mockResolvedValueOnce({
+      requested: 2,
+      deleted: 2,
+      failed: 0,
+      results: [
+        {
+          evidence_id: primarySession.evidence_id,
+          deleted_path: primarySession.deletion_target,
+          filesystem_deleted: false,
+          filesystem_cleanup: 'pending',
+          cleanup_error: 'staged filesystem cleanup is pending',
+          cleanup_path: '/runs/.evidence-library-delete-staging/cleanup-token',
+          status: 'deleted',
+        },
+        {
+          evidence_id: secondarySession.evidence_id,
+          deleted_path: secondarySession.deletion_target,
+          filesystem_deleted: true,
+          filesystem_cleanup: 'completed',
+          status: 'deleted',
+        },
+      ],
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '批量删除仿真记录' });
+    expect(dialog).toHaveTextContent('已删除 2');
+    expect(dialog).toHaveTextContent('文件清理待处理 1');
+    expect(dialog).toHaveTextContent(primarySession.evidence_id);
+    expect(dialog).toHaveTextContent('staged filesystem cleanup is pending');
+    expect(dialog).toHaveTextContent('/runs/.evidence-library-delete-staging/cleanup-token');
+    expect(within(dialog).queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
   });
 
@@ -1069,12 +1284,14 @@ describe('evidence library RTK invalidation', () => {
     }
   });
 
-  it('batch delete mutation preserves cache when the request is rejected', async () => {
+  it('batch delete mutation refreshes authoritative cache when the response is rejected', async () => {
     let getCount = 0;
     const fetchMock = vi.fn(async (request: Request) => {
       if (request.method === 'GET') {
         getCount += 1;
-        return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return jsonResponse({
+          sessions: getCount === 1 ? [primarySession, secondarySession] : [secondarySession],
+        });
       }
       return jsonResponse({ detail: 'batch delete rejected' }, 500);
     });
@@ -1088,12 +1305,10 @@ describe('evidence library RTK invalidation', () => {
           evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
         }),
       ).unwrap()).rejects.toBeDefined();
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      await waitFor(() => expect(getCount).toBe(2));
 
-      expect(getCount).toBe(1);
       expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
         .map((session) => session.evidence_id)).toEqual([
-          primarySession.evidence_id,
           secondarySession.evidence_id,
         ]);
     } finally {
