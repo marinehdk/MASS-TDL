@@ -5,6 +5,7 @@ import { useScenarioStore } from '../../store';
 
 const apiMocks = vi.hoisted(() => ({
   getEvidenceLibrarySessions: vi.fn(),
+  batchDeleteEvidenceLibrarySessions: vi.fn(),
   getEvidenceReplay: vi.fn(),
   getDecisionFrame: vi.fn(),
   getLastRunScoring: vi.fn(),
@@ -16,6 +17,10 @@ vi.mock('../../api/silApi', () => ({
   useGetEvidenceLibrarySessionsQuery: apiMocks.getEvidenceLibrarySessions,
   useRescanEvidenceLibraryMutation: () => [vi.fn().mockResolvedValue({ ingested: 0 }), { isLoading: false }],
   useDeleteEvidenceLibrarySessionMutation: () => [vi.fn(), { isLoading: false, error: null }],
+  useBatchDeleteEvidenceLibrarySessionsMutation: () => [
+    apiMocks.batchDeleteEvidenceLibrarySessions,
+    { isLoading: false, error: null },
+  ],
   useGetEvidenceReplayQuery: apiMocks.getEvidenceReplay,
   useGetDecisionFrameQuery: apiMocks.getDecisionFrame,
   useGetLastRunScoringQuery: apiMocks.getLastRunScoring,

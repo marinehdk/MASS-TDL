@@ -830,6 +830,200 @@ describe('evidence library RTK invalidation', () => {
     }
   });
 
+  it('batch delete mutation posts exact IDs and removes only successfully deleted sessions', async () => {
+    let getCount = 0;
+    let postedBody: unknown;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({
+          sessions: getCount === 1 ? [primarySession, secondarySession] : [secondarySession],
+        });
+      }
+      postedBody = await request.json();
+      return jsonResponse({
+        requested: 2,
+        deleted: 1,
+        failed: 1,
+        results: [
+          {
+            evidence_id: primarySession.evidence_id,
+            deleted_path: primarySession.deletion_target,
+            filesystem_deleted: true,
+            status: 'deleted',
+          },
+          {
+            evidence_id: secondarySession.evidence_id,
+            status: 'failed',
+            error: 'session is not deletable',
+          },
+        ],
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      const result = await store.dispatch(
+        silApi.endpoints.batchDeleteEvidenceLibrarySessions.initiate({
+          evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
+        }),
+      ).unwrap();
+
+      expect(postedBody).toEqual({
+        evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
+      });
+      expect(result.deleted).toBe(1);
+      await waitFor(() => expect(getCount).toBe(2));
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+        .map((session) => session.evidence_id)).toEqual([secondarySession.evidence_id]);
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('batch delete mutation preserves cache when the request is rejected', async () => {
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({ sessions: [primarySession, secondarySession] });
+      }
+      return jsonResponse({ detail: 'batch delete rejected' }, 500);
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+
+    try {
+      await subscription.unwrap();
+      await expect(store.dispatch(
+        silApi.endpoints.batchDeleteEvidenceLibrarySessions.initiate({
+          evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
+        }),
+      ).unwrap()).rejects.toBeDefined();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+      expect(getCount).toBe(1);
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+        .map((session) => session.evidence_id)).toEqual([
+          primarySession.evidence_id,
+          secondarySession.evidence_id,
+        ]);
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('batch delete mutation aborts a pending list response so stale data cannot restore deleted sessions', async () => {
+    const raceSession = {
+      ...primarySession,
+      evidence_id: 'mounted-race-batch-delete',
+      session_id: '20260713_120000_mounted_race_batch_delete',
+    };
+    const events: string[] = [];
+    let getCount = 0;
+    let staleGetSignal: AbortSignal | undefined;
+    let resolveStaleGet!: (response: Response) => void;
+    const staleGet = new Promise<Response>((resolve) => {
+      resolveStaleGet = resolve;
+    });
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) {
+          events.push('GET-1 200');
+          return jsonResponse({ sessions: [raceSession, secondarySession] });
+        }
+        if (getCount === 2) {
+          events.push('GET-2 pending');
+          staleGetSignal = request.signal;
+          return staleGet;
+        }
+        events.push('GET-3 500');
+        return jsonResponse({ detail: 'invalidation refresh failed' }, 500);
+      }
+      if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/rescan')) {
+        events.push('SCAN 200');
+        return jsonResponse({ ingested: 1, pruned: 0, errors: [] });
+      }
+      events.push('BATCH DELETE 200');
+      queueMicrotask(() => {
+        events.push('GET-2 200');
+        resolveStaleGet(jsonResponse({ sessions: [raceSession, secondarySession] }));
+      });
+      return jsonResponse({
+        requested: 2,
+        deleted: 1,
+        failed: 1,
+        results: [
+          {
+            evidence_id: raceSession.evidence_id,
+            deleted_path: raceSession.deletion_target,
+            filesystem_deleted: true,
+            status: 'deleted',
+          },
+          {
+            evidence_id: secondarySession.evidence_id,
+            status: 'failed',
+            error: 'session is not deletable',
+          },
+        ],
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const MountedSessions = () => {
+      const { data } = silApi.useGetEvidenceLibrarySessionsQuery();
+      return data?.sessions.map((session) => (
+        <button key={session.evidence_id} type="button" aria-label={`mounted batch delete ${session.evidence_id}`}>
+          {session.evidence_id}
+        </button>
+      ));
+    };
+    const view = render(
+      <Provider store={store}>
+        <MountedSessions />
+      </Provider>,
+    );
+
+    try {
+      await screen.findByRole('button', { name: `mounted batch delete ${raceSession.evidence_id}` });
+      await act(async () => {
+        await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
+      });
+      await waitFor(() => expect(events).toEqual(['GET-1 200', 'SCAN 200', 'GET-2 pending']));
+
+      await act(async () => {
+        await store.dispatch(
+          silApi.endpoints.batchDeleteEvidenceLibrarySessions.initiate({
+            evidence_ids: [raceSession.evidence_id, secondarySession.evidence_id],
+          }),
+        ).unwrap();
+      });
+      await waitFor(() => expect(staleGetSignal?.aborted).toBe(true));
+      await waitFor(() => expect(events).toEqual([
+        'GET-1 200',
+        'SCAN 200',
+        'GET-2 pending',
+        'BATCH DELETE 200',
+        'GET-2 200',
+        'GET-3 500',
+      ]));
+      await waitFor(() => {
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+        expect(query.isSuccess).toBe(true);
+        expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('preserves a scan refetch when overlapping delete is rejected', async () => {
     const prunedSession = {
       ...primarySession,
