@@ -135,17 +135,17 @@ describe('EvidenceLibraryView', () => {
     render(<EvidenceLibraryView onOpen={onOpen} />);
 
     expect(screen.getByText('仿真数据库')).toBeInTheDocument();
-    expect(screen.getByText('12345678...')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /序号/ })).toBeInTheDocument();
     expect(screen.getByText('2026-07-07 13:20:00')).toBeInTheDocument();
     expect(screen.getByText('仿真结果')).toBeInTheDocument();
     expect(screen.getByText('通过')).toBeInTheDocument();
-    expect(screen.getAllByText('单个场景').length).toBeGreaterThan(0);
+    expect(screen.getByRole('columnheader', { name: /场景数量/ })).toBeInTheDocument();
     expect(screen.getAllByText('调试验证').length).toBeGreaterThan(0);
     expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
     expect(screen.getAllByText('CLI').length).toBeGreaterThan(0);
     expect(screen.getByText('colregs-nlp-cpa-fix')).toBeInTheDocument();
 
-    const firstSessionRow = screen.getByText('12345678...').closest('tr');
+    const firstSessionRow = screen.getByText('colreg-rule14-ho').closest('tr');
     expect(firstSessionRow).not.toBeNull();
     fireEvent.click(within(firstSessionRow!).getByRole('button', { name: '概述' }));
     expect(screen.getByRole('dialog', { name: '仿真概述' })).toBeInTheDocument();
@@ -370,6 +370,50 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(50);
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(1);
+  });
+
+  it('renders continuous row numbers', () => {
+    apiMocks.sessions = makeSessions(21);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByRole('columnheader', { name: /序号/ })).toBeInTheDocument();
+    expect(screen.queryByText('会话ID')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /场景数量/ })).toBeInTheDocument();
+    expect(screen.queryByText('套件')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+
+    const firstDataRow = screen.getAllByRole('row')[1];
+    expect(within(firstDataRow).getByText('21')).toBeInTheDocument();
+  });
+
+  it('formats run time to whole seconds', () => {
+    apiMocks.sessions = [{ ...primarySession, created_at: '2026-07-07T13:20:00.123Z' }];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByText('2026-07-07 13:20:00')).toBeInTheDocument();
+    expect(screen.queryByText(/13:20:00\.\d+/)).not.toBeInTheDocument();
+  });
+
+  it('uses separate sort directions', () => {
+    apiMocks.sessions = [
+      { ...primarySession, created_at: '2026-07-07T13:20:00Z' },
+      { ...secondarySession, created_at: '2026-07-08T09:15:00Z' },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const ascending = screen.getByRole('button', { name: '按仿真时间升序' });
+    const descending = screen.getByRole('button', { name: '按仿真时间降序' });
+
+    fireEvent.click(ascending);
+    expect(ascending).toHaveAttribute('aria-pressed', 'true');
+    expect(descending).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('2026-07-07 13:20:00');
+
+    fireEvent.click(descending);
+    expect(ascending).toHaveAttribute('aria-pressed', 'false');
+    expect(descending).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('2026-07-08 09:15:00');
   });
 
   it('resets to the first page when search changes', () => {

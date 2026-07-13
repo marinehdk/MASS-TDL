@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { flushSync } from 'react-dom';
 import {
   LucideAlertTriangle,
+  LucideArrowDown,
+  LucideArrowUp,
   LucideImage,
   LucidePlay,
   LucideScanSearch,
@@ -20,27 +22,29 @@ interface EvidenceLibraryViewProps {
   onOpen: (evidenceId: string) => void;
 }
 
-type SortKey = 'id' | 'time' | 'result' | 'suite' | 'mode' | 'scenario' | 'source' | 'worktree';
+type SortKey = 'time' | 'result' | 'scenarioCount' | 'mode' | 'scenario' | 'source' | 'worktree';
 type SortDirection = 'asc' | 'desc';
 type RefreshIntervalSeconds = 600 | 3600 | 86400;
 
 interface SessionRow {
   raw: EvidenceLibrarySession;
-  id: string;
   time: string;
   timeValue: number;
   result: string;
-  suite: string;
+  scenarioCount: number;
   mode: string;
   scenario: string;
   source: string;
   worktree: string;
 }
 
-const compactId = (value: string) => (value.length > 12 ? `${value.slice(0, 8)}...` : value);
-
-const displayRunTime = (value?: string | null) =>
-  value ? value.replace('T', ' ').replace(/([+-]\d\d:\d\d|Z)$/, '') : '-';
+const displayRunTime = (value?: string | null) => {
+  if (!value) return '-';
+  return value
+    .replace('T', ' ')
+    .replace(/\.\d+(?=Z|[+-]\d\d:\d\d$)/, '')
+    .replace(/([+-]\d\d:\d\d|Z)$/, '');
+};
 
 const displayName = (session: EvidenceLibrarySession) => {
   const withoutTime = session.session_id.replace(/^\d{8}_\d{6}_?/, '');
@@ -49,11 +53,6 @@ const displayName = (session: EvidenceLibrarySession) => {
 
 const scenarioCount = (session: EvidenceLibrarySession) =>
   session.scenario_ids?.length || session.scenario_count || 0;
-
-const displaySuite = (session: EvidenceLibrarySession) => {
-  const count = scenarioCount(session);
-  return count <= 1 ? '单个场景' : `批量场景(${count})`;
-};
 
 const displayMode = (session: EvidenceLibrarySession) => {
   const text = `${session.session_id} ${session.suite}`.toLowerCase();
@@ -104,11 +103,10 @@ const displayResult = (session: EvidenceLibrarySession) => {
 
 const toRow = (session: EvidenceLibrarySession): SessionRow => ({
   raw: session,
-  id: session.evidence_id,
   time: displayRunTime(session.created_at),
   timeValue: session.created_at ? Date.parse(session.created_at) || 0 : 0,
   result: displayResult(session),
-  suite: displaySuite(session),
+  scenarioCount: scenarioCount(session),
   mode: displayMode(session),
   scenario: displayScenario(session),
   source: displaySource(session),
@@ -117,6 +115,7 @@ const toRow = (session: EvidenceLibrarySession): SessionRow => ({
 
 const compareRows = (a: SessionRow, b: SessionRow, key: SortKey) => {
   if (key === 'time') return a.timeValue - b.timeValue;
+  if (key === 'scenarioCount') return a.scenarioCount - b.scenarioCount;
   return String(a[key]).localeCompare(String(b[key]), 'zh-Hans-CN', { numeric: true });
 };
 
@@ -129,13 +128,12 @@ const matchesSearch = (row: SessionRow, searchText: string) => {
   const query = searchText.trim().toLocaleLowerCase();
   if (!query) return true;
   const values = [
-    row.id,
+    row.raw.evidence_id,
     row.raw.session_id,
     row.scenario,
     ...(row.raw.scenario_ids ?? []),
     row.source,
     row.raw.source,
-    row.suite,
     row.raw.suite,
     row.mode,
     row.worktree,
@@ -165,6 +163,16 @@ const headerButtonStyle = {
   lineHeight: '18px',
   padding: 0,
   cursor: 'pointer',
+} as const;
+
+const sortDirectionButtonStyle = {
+  ...headerButtonStyle,
+  width: 18,
+  height: 10,
+  lineHeight: '10px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
 } as const;
 
 const filterStyle = {
@@ -409,11 +417,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     return () => window.clearInterval(timer);
   }, [autoRefreshSeconds, handleRescan]);
 
-  const toggleSort = (key: SortKey) => {
-    setSort((current) => ({
-      key,
-      direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
-    }));
+  const setSortDirection = (key: SortKey, direction: SortDirection) => {
+    setSort({ key, direction });
     setPage(0);
   };
 
@@ -448,9 +453,30 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         {filter === 'enum' ? (
           enumFilter(key)
         ) : (
-          <button type="button" onClick={() => toggleSort(key)} style={headerButtonStyle} title={`按${label}排序`}>
-            {sort.key === key ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {(['asc', 'desc'] as const).map((direction) => {
+              const active = sort.key === key && sort.direction === direction;
+              const directionLabel = direction === 'asc' ? '升序' : '降序';
+              const Icon = direction === 'asc' ? LucideArrowUp : LucideArrowDown;
+              return (
+                <button
+                  key={direction}
+                  type="button"
+                  onClick={() => setSortDirection(key, direction)}
+                  style={{
+                    ...sortDirectionButtonStyle,
+                    color: active ? 'var(--c-phos)' : 'var(--txt-3)',
+                    background: active ? 'rgba(69, 211, 207, 0.1)' : sortDirectionButtonStyle.background,
+                  }}
+                  aria-label={`按${label}${directionLabel}`}
+                  aria-pressed={active}
+                  title={`按${label}${directionLabel}`}
+                >
+                  <Icon size={10} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </th>
@@ -644,10 +670,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               <table style={{ width: '100%', minWidth: 1400, tableLayout: 'fixed', borderCollapse: 'collapse', fontFamily: 'var(--f-mono)', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(13, 23, 35, 0.96)' }}>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--line-2)' }}>
-                    {columnHeader('会话ID', 'id', 135)}
+                    <th align="center" style={{ width: 60, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>序号</th>
                     {columnHeader('仿真时间', 'time', 150)}
                     {columnHeader('仿真结果', 'result', 120)}
-                    {columnHeader('套件', 'suite', 125, 'enum')}
+                    {columnHeader('场景数量', 'scenarioCount', 100, 'enum')}
                     {columnHeader('模式', 'mode', 125, 'enum')}
                     {columnHeader('仿真场景', 'scenario', 180)}
                     {columnHeader('来源', 'source', 125, 'enum')}
@@ -661,15 +687,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                       key={row.raw.evidence_id}
                       style={{
                         borderTop: '1px solid rgba(78, 108, 139, 0.24)',
-                        background: hoveredRowId === row.id
+                        background: hoveredRowId === row.raw.evidence_id
                           ? 'rgba(69, 211, 207, 0.09)'
                           : index % 2 === 0 ? 'rgba(255, 255, 255, 0.018)' : 'transparent',
                         transition: 'background 120ms ease',
                       }}
-                      onMouseEnter={() => setHoveredRowId(row.id)}
+                      onMouseEnter={() => setHoveredRowId(row.raw.evidence_id)}
                       onMouseLeave={() => setHoveredRowId(null)}
                     >
-                      <td style={cellStyle} title={row.id}>{compactId(row.id)}</td>
+                      <td style={cellStyle}>{safePage * pageSize + index + 1}</td>
                       <td style={cellStyle} title={row.raw.created_at ?? ''}>{row.time}</td>
                       <td style={cellStyle}>
                         <span style={{
@@ -700,7 +726,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                           {row.result}
                         </span>
                       </td>
-                      <td style={cellStyle}>{row.suite}</td>
+                      <td style={cellStyle}>{row.scenarioCount}</td>
                       <td style={cellStyle}>{row.mode}</td>
                       <td style={cellStyle} title={(row.raw.scenario_ids ?? []).join(', ')}>{row.scenario}</td>
                       <td style={cellStyle}>{row.source}</td>
