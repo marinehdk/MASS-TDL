@@ -1,6 +1,10 @@
-# Superpowers Rules (Always-On)
+---
+trigger: model_decision
+---
 
-These rules apply to ALL work unless the user explicitly opts out.
+# Superpowers Rules (Model Decision)
+
+ZCode loads these rules when the model determines the task needs the Superpowers workflow. Once loaded, they apply unless the user explicitly opts out.
 
 ## 1) Plan gate for non-trivial work
 If the task is anything beyond a tiny change, do NOT edit code immediately.
