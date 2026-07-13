@@ -210,3 +210,83 @@ Rules:
   - HNSW corruption symptom (`status` reports `quarantined` / repeated `.drift-*` segments): run `mempalace repair --yes`. After a full re-embed of ~110k drawers on v3.4.1, `legacy` rebuild mode recovered all drawers while `from-sqlite` mode truncated to ~10%; prefer `legacy` unless the chromadb client itself cannot open the collection.
 - After meaningful work, append a curated handoff entry to `handoff/workspace_log.md` using: `## [date] Agent / Git Commit / Task Goal / Core Changes / Current Status / Handoff Notes`.
 - Do not run retired `archive_to_headroom.py`.
+
+## Codex subagent routing
+
+Primary agent is sole TDL Lead: it owns stage classification, routing, final synthesis, and decision authority. Routing must not be delegated to another agent. Custom agents supply bounded implementation or independent evidence; they never decide by majority vote.
+
+### Stage classification
+
+Classify task by stage before selecting role:
+
+| Stage | Default route | Exit condition |
+|---|---|---|
+| Discovery / product intent | `tdl_product_conops` for requirements; `tdl_spec_architect` for system/design readiness | Scope, authority, unknowns, evidence needs identified |
+| Concrete failure diagnosis | `superpowers:systematic-debugging`, then `tdl_sil_vv_engineer` for SIL first-divergence evidence | First broken contract and owning domain identified |
+| Implementation | Exactly one workspace-write domain role | Targeted tests and task evidence complete |
+| Verification | `tdl_sil_vv_engineer` plus conditional independent reviewers | Required RED/GREEN, regression, and gate evidence complete |
+| Review / assurance | `tdl_code_reviewer` plus risk-triggered safety, GNC, cyber, or certification reviewer | Blocking findings resolved or explicitly accepted by user |
+
+Do not escalate a reproducible failure into new design merely because cause is unknown. Run systematic debugging and SIL first-divergence analysis first. Use Spec preflight only when evidence shows missing/contradictory authority, contract, lifecycle, or requirement.
+
+### Ownership and independence
+
+- Unique write owner: every implementation assignment has exactly one write owner. Cross-domain work is split into explicit tasks or assigned to dominant owner with other roles read-only.
+- Reviewers default to read-only. Product, Spec, GNC, M7, code, cyber, certification, and SIL roles do not modify workspace by default.
+- Approved M7 production changes use one fresh, scoped dynamic implementation agent in an isolated worktree as unique write owner; do not add a persistent role. `tdl_m7_safety_reviewer` remains independent and read-only, then reviews that implementation. Primary agent may own only an explicitly scoped small M7 fix. Reviewer and implementer must never share the same agent context.
+- M5 planner must not self-approve M5-to-L4 executability. `tdl_gnc_contract_reviewer` supplies independent contract review.
+- SIL must not edit or modify production behavior. Primary agent may override SIL to `workspace-write` only for explicit test/scenario authoring.
+- Primary agent selects conditional independent reviewers from actual impact, not role count or consensus.
+- No-chain rule: subagents must return findings to primary agent. They must not freely delegate, spawn chains, or reroute work.
+
+Permissions override: primary agent may narrow access at dispatch. Expansion from `read-only` to `workspace-write` requires explicit task-scoped write authorization, named paths, and a stated reason; reviewer independence cannot be overridden.
+
+Model and reasoning override: task dispatch may override both model and reasoning effort when the runtime supports them; otherwise use the role defaults. A Codex model override must name a model exposed by the current Codex runtime; never inherit a ZCode-only model name such as `deepseek-v4-flash`. Promote reasoning effort to `xhigh` for contested cross-module architecture or safety decisions. Lower effort only for proven mechanical work. Record every override reason in dispatch.
+
+### Stage and domain routes
+
+| Trigger / assignment | Role | Default mode |
+|---|---|---|
+| PRD, ConOps, ODD outcome, ROC/Captain workflow, ToR/MRC acceptance semantics | `tdl_product_conops` | read-only |
+| M1-M4 ODD, world state, mission tracking, CPA/TCPA flow, behavior arbitration | `tdl_decision_chain_engineer` | workspace-write |
+| M6 COLREGs rule, role, phase, direction, constraint, release semantics | `tdl_colregs_m6_reasoner` | workspace-write |
+| M5 Mid-MPC/BC-MPC, NLP, committed route, recovery, solver behavior | `tdl_m5_planner_engineer` | workspace-write |
+| Approved M7 production implementation | Fresh scoped dynamic implementation agent selected by primary agent; not a persistent role | isolated worktree, workspace-write |
+| ROS2 topic, message/IDL/schema, QoS, launch, timing, bridge compatibility | `tdl_ros2_integration_engineer` | workspace-write |
+| M8 HMI, Runtime Console, SAT display, replay, alerts, ToR frontend | `tdl_hmi_m8_frontend` | workspace-write |
+| Docker, compose, BuildKit, A4000 runtime, ports, deployment/acceptance gate | `tdl_devops_a4000_engineer` | workspace-write |
+| Explicit low-risk mechanical edit with no semantic or interface choice | `tdl_mechanical_implementer` | workspace-write |
+| Independent M5-to-L4 route/command executability review | `tdl_gnc_contract_reviewer` | read-only |
+| M7, doer-checker independence, VETO/MRM, SOTIF, degradation, fail-safe review | `tdl_m7_safety_reviewer` | read-only |
+| Diff/package correctness, regression, tests, maintainability, rule compliance | `tdl_code_reviewer` | read-only |
+| DDS security, integrity/replay, secrets, dependency/plugin, adapter exposure | `tdl_cyber_reviewer` | read-only |
+| CCS/IMO/IEC/ISO claims, ASDR traceability, requirement-test-evidence gaps | `tdl_cert_evidence_engineer` | read-only |
+| SIL scenario reproduction, RED/GREEN, first divergence, probe/gate evidence | `tdl_sil_vv_engineer` | read-only |
+| Spec preflight, current-system reconstruction, contracts/options/readiness | `tdl_spec_architect` | read-only |
+
+Conditional independent reviewer triggers:
+
+- Any M5 route/command or recovery change affecting L4: `tdl_gnc_contract_reviewer`.
+- Any M5/M6/M7, ODD degradation, VETO, MRM, ToR safety, or fail-safe change: `tdl_m7_safety_reviewer`.
+- Any non-mechanical production diff: `tdl_code_reviewer`.
+- Any trust boundary, external adapter, secret, DDS security, plugin, Docker socket, or dependency change: `tdl_cyber_reviewer`.
+- Any certification-facing requirement, safety claim, architecture evidence, or traceability change: `tdl_cert_evidence_engineer`.
+- Any safety-critical behavior change: `tdl_sil_vv_engineer` for independent regression evidence.
+
+### Mandatory task header
+
+Before implementation, primary agent states:
+
+1. Affected modules: M1-M8.
+2. Affected files.
+3. Affected ROS2 topics / messages / IDL.
+4. ODD impact.
+5. COLREGs impact.
+6. M5/M7 boundary impact.
+7. Required tests.
+8. Required SIL scenarios.
+9. Required evidence output.
+
+### Completion contract
+
+Every subagent returns status (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`), changed paths (or none), commands run, exact results, evidence paths, interface/ODD/COLREGs/M5-M7 impact, remaining risks, and escalation needs. Write owners also report tests for touched code. Reviewers explicitly report workspace writes as none. Primary agent verifies evidence, synthesizes disagreements, and alone declares task completion.
