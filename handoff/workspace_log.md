@@ -3422,3 +3422,28 @@ Complete Evidence Library batch-delete confirmation, full-success close, partial
 - Full report: `.superpowers/sdd/task-4-report.md`.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - Do not treat six `SimulationEvaluator` harness failures as Task 4 regressions; exact names recorded in report.
+
+---
+
+## [2026-07-13] Codex / Final Batch-Delete Review Fixes / `b439c342b`
+
+### Task Goal
+Close every Critical and Important final-review finding with recoverable backend deletion, explicit cleanup state, safe uncertain-response handling, canonical outcomes, immutable selection snapshots, and focused regressions.
+
+### Core Changes
+- Added same-parent filesystem staging, database-failure restoration, per-item sanitized continuation, and explicit post-commit cleanup state/path.
+- Added authoritative refresh plus rescan-required lock after rejected/lost batch responses; no blind destructive retry.
+- Unified multi-scenario outcome semantics; snapshotted selected IDs/outcomes/worktrees; rescan clears and locks selection; added cancel-selection and conditional select-all toolbar behavior.
+- Added malformed/missing body, database failure, cleanup failure, outcome, rescan/query snapshot, and toolbar tests.
+
+### Current Status
+- Implementation commit: `b439c342b` (`fix(evidence): harden batch deletion recovery`).
+- Backend Evidence Library suite: 66 passed.
+- Task-owned frontend suites: 59 passed. Frontend build passed.
+- Three-file frontend run: 62 passed; six unchanged pre-existing `SimulationEvaluator` text/canvas failures.
+
+### Handoff Notes
+- Full RED/GREEN evidence and residual risks: `.superpowers/sdd/task-4-report.md`.
+- Pending filesystem cleanup exposes exact `cleanup_path` for manual removal; no schema/idempotency ledger added.
+- Local OrbStack and A4000 gates still required before promotion/push.
+- `.agent/rules/superpowers.md` was pre-existing modified and remained untouched/uncommitted.
