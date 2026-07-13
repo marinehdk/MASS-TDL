@@ -175,11 +175,23 @@ describe('EvidenceLibraryView', () => {
     expect(onOpen).toHaveBeenCalledWith(primarySession.evidence_id);
   });
 
-  it('defaults automatic scans to 24 hours', () => {
-    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+  it('uses manual scans only', async () => {
+    vi.useFakeTimers();
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
-    expect(screen.getByRole('combobox', { name: '自动刷新间隔' })).toHaveValue('86400');
-    expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('24:00:00');
+    try {
+      expect(screen.queryByRole('combobox', { name: '自动刷新间隔' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('距离下次扫描')).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(86_400_000));
+      expect(apiMocks.rescan).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+      fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+      await waitFor(() => expect(apiMocks.rescan).toHaveBeenCalledTimes(1));
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it('unwraps a successful scan without manually duplicating RTK invalidation', async () => {
@@ -233,91 +245,6 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getByRole('status')).toHaveTextContent('写入 3');
     expect(screen.getByRole('status')).toHaveTextContent('清理 2');
     expect(screen.getByRole('status')).toHaveTextContent('错误 0');
-  });
-
-  it('waits for the selected interval after an automatic scan returns payload errors', async () => {
-    vi.useFakeTimers();
-    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
-    apiMocks.rescanUnwrap.mockResolvedValueOnce({
-      ingested: 1,
-      pruned: 0,
-      errors: [{ path: '/runs/broken', error: 'index failed' }],
-    });
-
-    try {
-      fireEvent.change(screen.getByRole('combobox', { name: '自动刷新间隔' }), {
-        target: { value: '600' },
-      });
-      await act(async () => {
-        vi.advanceTimersByTime(600_000);
-        await Promise.resolve();
-      });
-      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole('alert')).toHaveTextContent('扫描部分完成');
-
-      await act(async () => {
-        vi.advanceTimersByTime(5_000);
-        await Promise.resolve();
-      });
-      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
-      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('9:55');
-    } finally {
-      view.unmount();
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps the countdown and rows unchanged and alerts when scan unwrap rejects', async () => {
-    vi.useFakeTimers();
-    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
-    apiMocks.rescanUnwrap.mockRejectedValueOnce(new Error('scan failed'));
-
-    try {
-      act(() => vi.advanceTimersByTime(1000));
-      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('23:59:59');
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: '扫描' }));
-        await Promise.resolve();
-      });
-
-      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
-      expect(apiMocks.refetch).not.toHaveBeenCalled();
-      expect(screen.getByRole('alert')).toHaveTextContent('扫描失败');
-      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('23:59:59');
-      expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
-    } finally {
-      view.unmount();
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not reset an elapsed automatic countdown after scan rejection', async () => {
-    vi.useFakeTimers();
-    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
-    apiMocks.rescanUnwrap.mockRejectedValueOnce(new Error('scan failed'));
-
-    try {
-      fireEvent.change(screen.getByRole('combobox', { name: '自动刷新间隔' }), {
-        target: { value: '600' },
-      });
-      for (let second = 0; second < 599; second += 1) {
-        act(() => vi.advanceTimersByTime(1_000));
-      }
-      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent('0:01');
-      await act(async () => {
-        vi.advanceTimersByTime(1_000);
-        await Promise.resolve();
-      });
-
-      expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1);
-      expect(apiMocks.refetch).not.toHaveBeenCalled();
-      expect(screen.getByRole('alert')).toHaveTextContent('扫描失败');
-      expect(screen.getByLabelText('距离下次扫描')).toHaveTextContent(/^0:00$/);
-    } finally {
-      view.unmount();
-      vi.useRealTimers();
-    }
   });
 
   it.each([
@@ -476,6 +403,87 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(50);
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(1);
+  });
+
+  it('selects safe rows across pages and snapshots all filtered safe rows', () => {
+    apiMocks.sessions = [
+      ...makeSessions(25),
+      {
+        ...primarySession,
+        evidence_id: 'unsafe-session',
+        session_id: 'unsafe_session',
+        created_at: '2026-06-01T00:00:00Z',
+        scenario_ids: ['unsafe-scenario'],
+        deletion_allowed: false,
+        deletion_target: null,
+        deletion_error: 'unsafe evidence target',
+      },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const headers = screen.getAllByRole('columnheader');
+    expect(headers[0]).toContainElement(screen.getByRole('checkbox', { name: '选择当前页' }));
+    expect(headers[1]).toHaveTextContent('序号');
+
+    const selectPage = screen.getByRole('checkbox', { name: '选择当前页' });
+    fireEvent.click(selectPage);
+    expect(selectPage).toBeChecked();
+    expect(screen.getByText('已选择 20 条')).toBeInTheDocument();
+
+    const firstRowSelection = screen.getAllByRole('checkbox').find((checkbox) => checkbox !== selectPage);
+    expect(firstRowSelection).toBeDefined();
+    fireEvent.click(firstRowSelection!);
+    expect(selectPage).not.toBeChecked();
+    expect((selectPage as HTMLInputElement).indeterminate).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByText('已选择 19 条')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    expect(screen.getByText('已选择 24 条')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /unsafe-scenario/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '选择全部 25 条筛选结果' }));
+    expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
+  });
+
+  it('clears selection when the result set or manual scan changes', async () => {
+    apiMocks.sessions = makeSessions(25);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const selectCurrentPage = () => fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    const expectSelected = (count: number) => expect(screen.getByText(`已选择 ${count} 条`)).toBeInTheDocument();
+    const expectCleared = () => expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+
+    selectCurrentPage();
+    expectSelected(20);
+    fireEvent.change(screen.getByRole('searchbox', { name: '筛选仿真记录' }), { target: { value: 'page_session_00' } });
+    expectCleared();
+    fireEvent.change(screen.getByRole('searchbox', { name: '筛选仿真记录' }), { target: { value: '' } });
+
+    selectCurrentPage();
+    expectSelected(20);
+    fireEvent.click(screen.getByRole('button', { name: '筛选仿真结果' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '通过' }));
+    expectCleared();
+
+    selectCurrentPage();
+    expectSelected(20);
+    fireEvent.click(screen.getByRole('button', { name: '按仿真时间升序' }));
+    expectCleared();
+
+    selectCurrentPage();
+    expectSelected(20);
+    fireEvent.change(screen.getByRole('combobox', { name: '每页记录数' }), { target: { value: '50' } });
+    expectCleared();
+
+    selectCurrentPage();
+    expectSelected(25);
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    await waitFor(() => expect(apiMocks.rescan).toHaveBeenCalledTimes(1));
+    expectCleared();
   });
 
   it('renders continuous row numbers', () => {

@@ -25,7 +25,6 @@ interface EvidenceLibraryViewProps {
 
 type SortKey = 'time' | 'result' | 'scenarioCount' | 'mode' | 'scenario' | 'source' | 'worktree';
 type SortDirection = 'asc' | 'desc';
-type RefreshIntervalSeconds = 600 | 3600 | 86400;
 
 interface SessionRow {
   raw: EvidenceLibrarySession;
@@ -218,15 +217,6 @@ const actionButtonStyle = {
   fontSize: 11,
 } as const;
 
-const formatCountdown = (seconds: number) => {
-  const clamped = Math.max(0, seconds);
-  const hours = Math.floor(clamped / 3600);
-  const minutes = Math.floor((clamped % 3600) / 60);
-  const secs = clamped % 60;
-  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  return `${minutes}:${String(secs).padStart(2, '0')}`;
-};
-
 export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
@@ -239,8 +229,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [openFilterKey, setOpenFilterKey] = useState<SortKey | null>(null);
   const [searchText, setSearchText] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
-  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState<RefreshIntervalSeconds>(86400);
-  const [countdownSeconds, setCountdownSeconds] = useState(86400);
+  const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<Set<string>>(() => new Set());
   const [scanFailed, setScanFailed] = useState(false);
   const [scanResult, setScanResult] = useState<EvidenceLibraryScanResult | null>(null);
   const [overviewSession, setOverviewSession] = useState<EvidenceLibrarySession | null>(null);
@@ -260,7 +249,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [focusSearchAfterDeleteId, setFocusSearchAfterDeleteId] = useState<string | null>(null);
   const backgroundRef = useRef<HTMLElement | null>(null);
   const overviewDialogRef = useRef<HTMLDivElement | null>(null);
-  const automaticScanAttemptedRef = useRef(false);
+  const selectPageRef = useRef<HTMLInputElement | null>(null);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
@@ -279,6 +268,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const visibleRows = sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const selectableRows = sortedRows.filter((row) => row.raw.deletion_allowed && row.raw.deletion_target);
+  const visibleSelectableIds = visibleRows
+    .filter((row) => row.raw.deletion_allowed && row.raw.deletion_target)
+    .map((row) => row.raw.evidence_id);
+  const selectedSessions = sessions.filter((session) => selectedEvidenceIds.has(session.evidence_id));
+  const selectedOnPage = visibleSelectableIds.filter((id) => selectedEvidenceIds.has(id)).length;
+  const allVisibleSelected = visibleSelectableIds.length > 0 && selectedOnPage === visibleSelectableIds.length;
+  const visibleSelectionMixed = selectedOnPage > 0 && !allVisibleSelected;
   const deleteActionsDisabled = deleteState.isLoading;
   const overviewPngs = overviewSession
     ? overviewSession.overview_pngs?.length
@@ -347,16 +344,40 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   const handleRescan = useCallback(async () => {
+    setSelectedEvidenceIds(new Set());
     try {
       const result = await rescan({ force: false }).unwrap();
       setScanFailed(false);
       setScanResult(result);
-      automaticScanAttemptedRef.current = false;
-      setCountdownSeconds(autoRefreshSeconds);
     } catch {
       setScanFailed(true);
     }
-  }, [autoRefreshSeconds, rescan]);
+  }, [rescan]);
+
+  const toggleSelected = (evidenceId: string) => {
+    setSelectedEvidenceIds((current) => {
+      const next = new Set(current);
+      if (next.has(evidenceId)) next.delete(evidenceId);
+      else next.add(evidenceId);
+      return next;
+    });
+  };
+
+  const toggleCurrentPage = () => {
+    setSelectedEvidenceIds((current) => {
+      const next = new Set(current);
+      if (visibleSelectableIds.every((id) => next.has(id))) {
+        visibleSelectableIds.forEach((id) => next.delete(id));
+      } else {
+        visibleSelectableIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedEvidenceIds(new Set(selectableRows.map((row) => row.raw.evidence_id)));
+  };
 
   const handleDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
@@ -391,11 +412,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   };
 
   useEffect(() => {
-    automaticScanAttemptedRef.current = false;
-    setCountdownSeconds(autoRefreshSeconds);
-  }, [autoRefreshSeconds]);
-
-  useEffect(() => {
     if (pendingDelete) deleteCancelButtonRef.current?.focus();
   }, [pendingDelete]);
 
@@ -418,20 +434,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [focusSearchAfterDeleteId, pendingDelete]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCountdownSeconds((current) => {
-        if (current <= 1) {
-          if (!automaticScanAttemptedRef.current) {
-            automaticScanAttemptedRef.current = true;
-            void handleRescan();
-          }
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [autoRefreshSeconds, handleRescan]);
+    if (selectPageRef.current) selectPageRef.current.indeterminate = visibleSelectionMixed;
+  }, [visibleSelectionMixed]);
 
   useEffect(() => {
     if (!openFilterKey) return;
@@ -457,11 +461,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [openFilterKey]);
 
   const setSortDirection = (key: SortKey, direction: SortDirection) => {
+    setSelectedEvidenceIds(new Set());
     setSort({ key, direction });
     setPage(0);
   };
 
   const setFilter = (key: SortKey, value: string) => {
+    setSelectedEvidenceIds(new Set());
     setFilters((current) => ({ ...current, [key]: value }));
     setPage(0);
   };
@@ -670,6 +676,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   aria-label="筛选仿真记录"
                   value={searchText}
                   onChange={(event) => {
+                    setSelectedEvidenceIds(new Set());
                     setSearchText(event.target.value);
                     setPage(0);
                   }}
@@ -685,6 +692,26 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   }}
                 />
               </label>
+              {selectedSessions.length > 0 && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: 'var(--txt-2)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  <span>已选择 {selectedSessions.length} 条</span>
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    disabled={selectableRows.length === 0 || deleteActionsDisabled}
+                    style={{
+                      ...actionButtonStyle,
+                      height: 26,
+                      border: '1px solid var(--line-2)',
+                      background: 'rgba(69, 211, 207, 0.06)',
+                      color: 'var(--c-phos)',
+                      cursor: deleteActionsDisabled ? 'wait' : 'pointer',
+                    }}
+                  >
+                    选择全部 {selectableRows.length} 条筛选结果
+                  </button>
+                </div>
+              )}
               <div style={{
                 marginLeft: 'auto',
                 display: 'flex',
@@ -718,26 +745,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   <LucideScanSearch size={14} aria-hidden="true" />
                   {rescanState.isLoading ? '扫描中' : '扫描'}
                 </button>
-                <select
-                  value={autoRefreshSeconds}
-                  onChange={(event) => setAutoRefreshSeconds(Number(event.target.value) as RefreshIntervalSeconds)}
-                  style={{ ...refreshControlStyle, width: 86 }}
-                  aria-label="自动刷新间隔"
-                >
-                  <option value={600}>10min</option>
-                  <option value={3600}>60min</option>
-                  <option value={86400}>24h</option>
-                </select>
-                <span style={{
-                  ...refreshControlStyle,
-                  width: 58,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '0 6px',
-                }} aria-label="距离下次扫描">
-                  {formatCountdown(countdownSeconds)}
-                </span>
               </div>
             </div>
             {scanFailed && (
@@ -799,9 +806,19 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               <table style={{ width: '100%', minWidth: 1400, tableLayout: 'fixed', borderCollapse: 'collapse', fontFamily: 'var(--f-mono)', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(13, 23, 35, 0.96)' }}>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--line-2)' }}>
+                    <th align="center" style={{ width: 42, padding: '8px 0 7px', verticalAlign: 'middle', textAlign: 'center' }}>
+                      <input
+                        ref={selectPageRef}
+                        type="checkbox"
+                        aria-label="选择当前页"
+                        checked={allVisibleSelected}
+                        disabled={visibleSelectableIds.length === 0 || deleteActionsDisabled}
+                        onChange={toggleCurrentPage}
+                      />
+                    </th>
                     <th align="center" style={{ width: 60, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>序号</th>
                     {columnHeader('仿真时间', 'time', 150)}
-                    {columnHeader('仿真结果', 'result', 120)}
+                    {columnHeader('仿真结果', 'result', 120, true)}
                     {columnHeader('场景数量', 'scenarioCount', 150, true)}
                     {columnHeader('模式', 'mode', 125, true)}
                     {columnHeader('仿真场景', 'scenario', 180)}
@@ -824,6 +841,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                       onMouseEnter={() => setHoveredRowId(row.raw.evidence_id)}
                       onMouseLeave={() => setHoveredRowId(null)}
                     >
+                      <td style={{ ...cellStyle, width: 42, padding: 0 }}>
+                        <input
+                          type="checkbox"
+                          aria-label={`选择第 ${safePage * pageSize + index + 1} 条 ${row.scenario}`}
+                          disabled={deleteActionsDisabled || !row.raw.deletion_allowed || !row.raw.deletion_target}
+                          checked={selectedEvidenceIds.has(row.raw.evidence_id)}
+                          onChange={() => toggleSelected(row.raw.evidence_id)}
+                        />
+                      </td>
                       <td style={cellStyle}>{safePage * pageSize + index + 1}</td>
                       <td style={cellStyle} title={row.raw.created_at ?? ''}>{row.time}</td>
                       <td style={cellStyle}>
@@ -945,6 +971,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 aria-label="每页记录数"
                 value={pageSize}
                 onChange={(event) => {
+                  setSelectedEvidenceIds(new Set());
                   setPageSize(Number(event.target.value) as 20 | 50);
                   setPage(0);
                 }}
