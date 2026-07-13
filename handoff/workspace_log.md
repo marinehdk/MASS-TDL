@@ -3396,3 +3396,29 @@ SIL default profile 中 ship_dynamics 的 avoidance plan heading override 是临
 - src/sim_workbench/gnc_bridge/src/gnc_bridge_node.cpp (L3→GNC plan 转发)
 - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/ (NLP solver+node)
 ```
+
+---
+
+## [2026-07-13] Codex / Batch Delete Task 4 / implementation commit containing this entry
+
+### Task Goal
+Complete Evidence Library batch-delete confirmation, full-success close, partial-failure details, failed-only retry, busy-state locking, Task 3 filter-scope regression coverage, and non-destructive browser verification.
+
+### Core Changes
+- Branch: `codex/evidence-library-replay-impl`; baseline `d11c1e3d4`; earlier batch interfaces `f5e798531`, `9513239c1`, `d11c1e3d4`.
+- `EvidenceLibraryView.tsx`: added selected-session snapshot confirmation, pass/fail/unknown/worktree summary, permanent database/filesystem warning, batch mutation integration, partial result list, failed-only reselection/retry, request-failure state, focus trap/inert behavior, and delete-busy control locking.
+- `EvidenceLibraryView.test.tsx`: added Task 3 safe filtered-out row regression plus Task 4 complete-success, partial-failure, retry-only-failed, escaped error, and busy-control tests.
+- No API/backend files changed. `.agent/rules/superpowers.md` left untouched.
+
+### Verification
+- RED: focused Task 4 command failed 2/2 because batch action/dialog absent.
+- GREEN: focused Task 4 2/2; Task 3 review test 1/1; full `EvidenceLibraryView` 50/50.
+- Requested three-file frontend run: 56 passed, exactly six pre-existing unrelated `SimulationEvaluator` English/canvas failures retained.
+- `npm run build`: pass; existing Foxglove `eval` and large-chunk warnings only.
+- Backend Evidence Library suite: 59 passed in 22.64s.
+- Browser evidence: `runs/e2e/evidence_library_batch_delete_20260713_181544/`; 132 filtered failures selected across pagination; confirmation opened then canceled; zero batch-delete requests.
+
+### Current Status / Handoff Notes
+- Full report: `.superpowers/sdd/task-4-report.md`.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- Do not treat six `SimulationEvaluator` harness failures as Task 4 regressions; exact names recorded in report.

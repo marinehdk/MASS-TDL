@@ -13,6 +13,9 @@ const apiMocks = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   deleteUnwrap: vi.fn(),
   deleteIsLoading: false,
+  batchDeleteSessions: vi.fn(),
+  batchDeleteUnwrap: vi.fn(),
+  batchDeleteIsLoading: false,
 }));
 
 vi.mock('../../../api/silApi', () => ({
@@ -25,6 +28,10 @@ vi.mock('../../../api/silApi', () => ({
   useDeleteEvidenceLibrarySessionMutation: () => [
     apiMocks.deleteSession,
     { isLoading: apiMocks.deleteIsLoading, error: null },
+  ],
+  useBatchDeleteEvidenceLibrarySessionsMutation: () => [
+    apiMocks.batchDeleteSessions,
+    { isLoading: apiMocks.batchDeleteIsLoading, error: null },
   ],
 }));
 
@@ -118,6 +125,9 @@ beforeEach(() => {
   apiMocks.deleteSession.mockReset();
   apiMocks.deleteUnwrap.mockReset();
   apiMocks.deleteIsLoading = false;
+  apiMocks.batchDeleteSessions.mockReset();
+  apiMocks.batchDeleteUnwrap.mockReset();
+  apiMocks.batchDeleteIsLoading = false;
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
   apiMocks.refetch.mockResolvedValue(undefined);
@@ -127,6 +137,13 @@ beforeEach(() => {
     filesystem_deleted: true,
   });
   apiMocks.deleteSession.mockReturnValue({ unwrap: apiMocks.deleteUnwrap });
+  apiMocks.batchDeleteUnwrap.mockResolvedValue({
+    requested: 0,
+    deleted: 0,
+    failed: 0,
+    results: [],
+  });
+  apiMocks.batchDeleteSessions.mockReturnValue({ unwrap: apiMocks.batchDeleteUnwrap });
 });
 
 describe('EvidenceLibraryView', () => {
@@ -449,6 +466,23 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
   });
 
+  it('excludes a safe filtered-out row when selecting all filtered results', () => {
+    apiMocks.sessions = [
+      { ...primarySession, worktree_name: 'safe-pass-worktree' },
+      { ...secondarySession, worktree_name: 'safe-fail-worktree' },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选仿真结果' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '不通过' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+
+    expect(screen.getByRole('button', { name: '选择全部 1 条筛选结果' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '选择全部 1 条筛选结果' }));
+    expect(screen.getByText('已选择 1 条')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+  });
+
   it('clears selection when the result set or manual scan changes', async () => {
     apiMocks.sessions = makeSessions(25);
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
@@ -587,6 +621,149 @@ describe('EvidenceLibraryView', () => {
 
     expect(screen.getByText('1 / 1')).toBeInTheDocument();
     expect(deleteButton('page_session_00')).toBeInTheDocument();
+  });
+
+  it('batch confirmation summarizes mixed selected sessions and closes after complete success', async () => {
+    const failInSecondWorktree = {
+      ...secondarySession,
+      evidence_id: 'batch-fail-worktree-b',
+      session_id: 'batch_fail_worktree_b',
+      source: 'cli',
+      worktree_name: 'worktree-b',
+    };
+    const failWithoutWorktree = {
+      ...secondarySession,
+      evidence_id: 'batch-fail-front',
+      session_id: 'batch_fail_front',
+      worktree_name: null,
+    };
+    const unknownInFirstWorktree = {
+      ...primarySession,
+      evidence_id: 'batch-unknown-worktree-a',
+      session_id: 'batch_unknown_worktree_a',
+      worktree_name: 'worktree-a',
+      passed_scenarios: 0,
+      failed_scenarios: 0,
+    };
+    apiMocks.sessions = [
+      { ...primarySession, worktree_name: 'worktree-a' },
+      failInSecondWorktree,
+      failWithoutWorktree,
+      unknownInFirstWorktree,
+    ];
+    apiMocks.batchDeleteUnwrap.mockResolvedValueOnce({
+      requested: 4,
+      deleted: 4,
+      failed: 0,
+      results: apiMocks.sessions.map((session) => ({
+        evidence_id: session.evidence_id,
+        deleted_path: session.deletion_target,
+        filesystem_deleted: true,
+        status: 'deleted',
+      })),
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（4）' }));
+
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    expect(dialog).toHaveTextContent('共 4 条');
+    expect(dialog).toHaveTextContent('通过 1');
+    expect(dialog).toHaveTextContent('不通过 2');
+    expect(dialog).toHaveTextContent('未知 1');
+    expect(dialog).toHaveTextContent('工作树 2');
+    expect(dialog).toHaveTextContent(/数据库与文件系统永久删除/);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认批量删除' }));
+
+    await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenCalledWith({
+      evidence_ids: apiMocks.sessions.map((session) => session.evidence_id),
+    }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '批量删除仿真记录' })).not.toBeInTheDocument());
+    expect(screen.queryByText(/已选择 \d+ 条/)).not.toBeInTheDocument();
+  });
+
+  it('partial batch delete disables controls, preserves failed selection, and retries only failures', async () => {
+    const allSessions = makeSessions(21);
+    const selectedSessions = [...allSessions]
+      .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+      .slice(0, 20);
+    const failedSession = selectedSessions[9];
+    const successfulSessions = selectedSessions.filter((session) => session.evidence_id !== failedSession.evidence_id);
+    let resolveBatch!: (value: unknown) => void;
+    const pendingBatch = new Promise((resolve) => {
+      resolveBatch = resolve;
+    });
+    apiMocks.sessions = allSessions;
+    apiMocks.batchDeleteUnwrap
+      .mockReturnValueOnce(pendingBatch)
+      .mockResolvedValueOnce({
+        requested: 1,
+        deleted: 1,
+        failed: 0,
+        results: [{
+          evidence_id: failedSession.evidence_id,
+          deleted_path: failedSession.deletion_target,
+          filesystem_deleted: true,
+          status: 'deleted',
+        }],
+      });
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（20）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+    apiMocks.batchDeleteIsLoading = true;
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByRole('searchbox', { name: '筛选仿真记录', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '扫描', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '筛选仿真结果', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '按仿真时间升序', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: '选择当前页', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '每页记录数', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '上一页', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '下一页', hidden: true })).toBeDisabled();
+
+    apiMocks.sessions = [failedSession, allSessions[0]];
+    apiMocks.batchDeleteIsLoading = false;
+    await act(async () => resolveBatch({
+      requested: 20,
+      deleted: 19,
+      failed: 1,
+      results: [
+        ...successfulSessions.map((session) => ({
+          evidence_id: session.evidence_id,
+          deleted_path: session.deletion_target,
+          filesystem_deleted: true,
+          status: 'deleted',
+        })),
+        {
+          evidence_id: failedSession.evidence_id,
+          status: 'failed',
+          error: 'unsafe <script>alert(1)</script>',
+        },
+      ],
+    }));
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const resultDialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    expect(resultDialog).toHaveTextContent('已删除 19');
+    expect(resultDialog).toHaveTextContent('失败 1');
+    expect(resultDialog).toHaveTextContent(failedSession.evidence_id);
+    expect(resultDialog).toHaveTextContent('unsafe <script>alert(1)</script>');
+    expect(resultDialog.querySelector('script')).toBeNull();
+    expect(screen.getByText('已选择 1 条', { selector: 'span' })).toBeInTheDocument();
+    successfulSessions.forEach((session) => {
+      expect(screen.queryByRole('button', { name: `删除 ${session.session_id}`, hidden: true })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(within(resultDialog).getByRole('button', { name: '重试失败项（1）' }));
+    await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenNthCalledWith(2, {
+      evidence_ids: [failedSession.evidence_id],
+    }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '批量删除仿真记录' })).not.toBeInTheDocument());
   });
 
   it('moves focus into deletion dialog, traps Tab, makes background inert, and restores focus on cancel', () => {

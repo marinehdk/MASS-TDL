@@ -12,9 +12,11 @@ import {
   LucideTrash2,
 } from 'lucide-react';
 import {
+  useBatchDeleteEvidenceLibrarySessionsMutation,
   useDeleteEvidenceLibrarySessionMutation,
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
+  type EvidenceLibraryBatchDeleteResult,
   type EvidenceLibraryScanResult,
   type EvidenceLibrarySession,
 } from '../../api/silApi';
@@ -221,6 +223,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
   const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
+  const [batchDeleteSessions, batchDeleteState] = useBatchDeleteEvidenceLibrarySessionsMutation();
   const sessions = data?.sessions ?? [];
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'time', direction: 'desc' });
   const [pageSize, setPageSize] = useState<20 | 50>(20);
@@ -239,14 +242,21 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [overviewDrag, setOverviewDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<EvidenceLibrarySession | null>(null);
   const [deleteFailed, setDeleteFailed] = useState(false);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<EvidenceLibrarySession[] | null>(null);
+  const [batchDeleteResult, setBatchDeleteResult] = useState<EvidenceLibraryBatchDeleteResult | null>(null);
+  const [batchDeleteFailed, setBatchDeleteFailed] = useState(false);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const batchDeleteDialogRef = useRef<HTMLDivElement | null>(null);
   const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const filterTriggerRefs = useRef<Partial<Record<SortKey, HTMLButtonElement | null>>>({});
   const deleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const batchDeleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const batchDeleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [focusSearchAfterDeleteId, setFocusSearchAfterDeleteId] = useState<string | null>(null);
+  const [focusSearchAfterBatchDelete, setFocusSearchAfterBatchDelete] = useState(false);
   const backgroundRef = useRef<HTMLElement | null>(null);
   const overviewDialogRef = useRef<HTMLDivElement | null>(null);
   const selectPageRef = useRef<HTMLInputElement | null>(null);
@@ -276,7 +286,23 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const selectedOnPage = visibleSelectableIds.filter((id) => selectedEvidenceIds.has(id)).length;
   const allVisibleSelected = visibleSelectableIds.length > 0 && selectedOnPage === visibleSelectableIds.length;
   const visibleSelectionMixed = selectedOnPage > 0 && !allVisibleSelected;
-  const deleteActionsDisabled = deleteState.isLoading;
+  const deleteActionsDisabled = deleteState.isLoading || batchDeleteState.isLoading;
+  const batchDeleteSummary = useMemo(() => {
+    const summary = { passed: 0, failed: 0, unknown: 0, worktrees: 0 };
+    if (!pendingBatchDelete) return summary;
+
+    for (const session of pendingBatchDelete) {
+      const result = displayResult(session);
+      if (result === '不通过') summary.failed += 1;
+      else if (result === '通过' || result.endsWith(' 通过')) summary.passed += 1;
+      else summary.unknown += 1;
+    }
+    summary.worktrees = new Set(
+      pendingBatchDelete.map((session) => session.worktree_name).filter((name): name is string => Boolean(name)),
+    ).size;
+    return summary;
+  }, [pendingBatchDelete]);
+  const batchDeleteFailures = batchDeleteResult?.results.filter((item) => item.status === 'failed') ?? [];
   const overviewPngs = overviewSession
     ? overviewSession.overview_pngs?.length
       ? overviewSession.overview_pngs
@@ -333,6 +359,49 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     }
   };
 
+  const openBatchDeleteDialog = (trigger: HTMLButtonElement) => {
+    if (deleteActionsDisabled || selectedSessions.length === 0) return;
+    batchDeleteTriggerRef.current = trigger;
+    setBatchDeleteFailed(false);
+    setBatchDeleteResult(null);
+    setPendingBatchDelete([...selectedSessions]);
+  };
+
+  const closeBatchDeleteDialog = () => {
+    if (batchDeleteState.isLoading) return;
+    const trigger = batchDeleteTriggerRef.current;
+    setBatchDeleteFailed(false);
+    setBatchDeleteResult(null);
+    flushSync(() => setPendingBatchDelete(null));
+    trigger?.focus();
+    batchDeleteTriggerRef.current = null;
+  };
+
+  const handleBatchDelete = async () => {
+    if (!pendingBatchDelete || pendingBatchDelete.length === 0) return;
+    setBatchDeleteFailed(false);
+    try {
+      const result = await batchDeleteSessions({
+        evidence_ids: pendingBatchDelete.map((session) => session.evidence_id),
+      }).unwrap();
+      const failedIds = new Set(
+        result.results.filter((item) => item.status === 'failed').map((item) => item.evidence_id),
+      );
+      setSelectedEvidenceIds(failedIds);
+      setBatchDeleteResult(result);
+      if (result.failed === 0) {
+        setPendingBatchDelete(null);
+        setBatchDeleteResult(null);
+        batchDeleteTriggerRef.current = null;
+        setFocusSearchAfterBatchDelete(true);
+      } else {
+        setPendingBatchDelete((current) => current?.filter((session) => failedIds.has(session.evidence_id)) ?? null);
+      }
+    } catch {
+      setBatchDeleteFailed(true);
+    }
+  };
+
   const changeOverviewImage = (delta: number) => {
     if (overviewPngs.length <= 1) return;
     setOverviewIndex((current) => (current + delta + overviewPngs.length) % overviewPngs.length);
@@ -379,16 +448,20 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setSelectedEvidenceIds(new Set(selectableRows.map((row) => row.raw.evidence_id)));
   };
 
-  const handleDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const trapDialogFocus = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    dialogRef: { current: HTMLDivElement | null },
+    cancel: () => void,
+  ) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      cancelDelete();
+      cancel();
       return;
     }
     if (event.key !== 'Tab') return;
 
     const focusable = Array.from(
-      deleteDialogRef.current?.querySelectorAll<HTMLElement>(
+      dialogRef.current?.querySelectorAll<HTMLElement>(
         'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       ) ?? [],
     );
@@ -405,10 +478,18 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     } else if (!event.shiftKey && document.activeElement === last) {
       event.preventDefault();
       first.focus();
-    } else if (!deleteDialogRef.current?.contains(document.activeElement)) {
+    } else if (!dialogRef.current?.contains(document.activeElement)) {
       event.preventDefault();
       first.focus();
     }
+  };
+
+  const handleDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    trapDialogFocus(event, deleteDialogRef, cancelDelete);
+  };
+
+  const handleBatchDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    trapDialogFocus(event, batchDeleteDialogRef, closeBatchDeleteDialog);
   };
 
   useEffect(() => {
@@ -416,12 +497,16 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [pendingDelete]);
 
   useEffect(() => {
+    if (pendingBatchDelete) batchDeleteCancelButtonRef.current?.focus();
+  }, [pendingBatchDelete]);
+
+  useEffect(() => {
     for (const element of [backgroundRef.current, overviewDialogRef.current]) {
       if (!element) continue;
-      if (pendingDelete) element.setAttribute('inert', '');
+      if (pendingDelete || pendingBatchDelete) element.setAttribute('inert', '');
       else element.removeAttribute('inert');
     }
-  }, [pendingDelete]);
+  }, [pendingBatchDelete, pendingDelete]);
 
   useEffect(() => {
     if (!focusSearchAfterDeleteId || pendingDelete) return;
@@ -432,6 +517,12 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       deleteTriggerRef.current = null;
     }
   }, [focusSearchAfterDeleteId, pendingDelete]);
+
+  useEffect(() => {
+    if (!focusSearchAfterBatchDelete || pendingBatchDelete) return;
+    searchInputRef.current?.focus();
+    setFocusSearchAfterBatchDelete(false);
+  }, [focusSearchAfterBatchDelete, pendingBatchDelete]);
 
   useEffect(() => {
     if (selectPageRef.current) selectPageRef.current.indeterminate = visibleSelectionMixed;
@@ -482,6 +573,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
             filterTriggerRefs.current[key] = element;
           }}
           type="button"
+          disabled={deleteActionsDisabled}
           onClick={() => setOpenFilterKey((current) => current === key ? null : key)}
           style={{
             ...filterTriggerStyle,
@@ -543,6 +635,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 key={option || 'all'}
                 type="button"
                 role="menuitem"
+                disabled={deleteActionsDisabled}
                 onClick={() => {
                   setFilter(key, option);
                   const trigger = filterTriggerRefs.current[key];
@@ -583,6 +676,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
           <button
             key={direction}
             type="button"
+            disabled={deleteActionsDisabled}
             onClick={() => setSortDirection(key, direction)}
             style={{
               ...sortDirectionButtonStyle,
@@ -626,7 +720,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     }}>
       <main
         ref={backgroundRef}
-        aria-hidden={pendingDelete ? true : undefined}
+        aria-hidden={pendingDelete || pendingBatchDelete ? true : undefined}
         style={{ flex: 1, padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}
       >
         {isLoading ? (
@@ -674,6 +768,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   ref={searchInputRef}
                   type="search"
                   aria-label="筛选仿真记录"
+                  disabled={deleteActionsDisabled}
                   value={searchText}
                   onChange={(event) => {
                     setSelectedEvidenceIds(new Set());
@@ -710,6 +805,23 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   >
                     选择全部 {selectableRows.length} 条筛选结果
                   </button>
+                  <button
+                    ref={batchDeleteTriggerRef}
+                    type="button"
+                    onClick={(event) => openBatchDeleteDialog(event.currentTarget)}
+                    disabled={deleteActionsDisabled}
+                    style={{
+                      ...actionButtonStyle,
+                      height: 26,
+                      border: '1px solid rgba(255, 91, 112, 0.52)',
+                      background: 'rgba(255, 91, 112, 0.08)',
+                      color: 'var(--c-danger)',
+                      cursor: deleteActionsDisabled ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <LucideTrash2 size={13} aria-hidden="true" />
+                    删除所选（{selectedSessions.length}）
+                  </button>
                 </div>
               )}
               <div style={{
@@ -725,7 +837,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   aria-label={rescanState.isLoading ? '扫描中' : '扫描'}
                   title="扫描证据库"
                   onClick={handleRescan}
-                  disabled={rescanState.isLoading}
+                  disabled={rescanState.isLoading || deleteActionsDisabled}
                   style={{
                     border: '1px solid var(--c-phos)',
                     color: 'var(--c-phos)',
@@ -735,7 +847,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     padding: '0 14px',
                     borderRadius: 4,
                     whiteSpace: 'nowrap',
-                    cursor: rescanState.isLoading ? 'wait' : 'pointer',
+                    cursor: rescanState.isLoading || deleteActionsDisabled ? 'wait' : 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -890,7 +1002,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: '100%' }}>
                           <button
                             type="button"
-                            disabled={!hasOverview(row.raw)}
+                            disabled={deleteActionsDisabled || !hasOverview(row.raw)}
                             title="打开仿真概述"
                             onClick={() => {
                               if (hasOverview(row.raw)) {
@@ -904,7 +1016,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                               border: '1px solid var(--line-2)',
                               background: hasOverview(row.raw) ? 'rgba(69, 211, 207, 0.07)' : 'transparent',
                               color: hasOverview(row.raw) ? 'var(--txt-1)' : 'var(--txt-3)',
-                              cursor: hasOverview(row.raw) ? 'pointer' : 'not-allowed',
+                              cursor: deleteActionsDisabled ? 'wait' : hasOverview(row.raw) ? 'pointer' : 'not-allowed',
                             }}
                           >
                             <LucideImage size={13} aria-hidden="true" />
@@ -912,7 +1024,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                           </button>
                           <button
                             type="button"
-                            disabled={!canOpen(row.raw)}
+                            disabled={deleteActionsDisabled || !canOpen(row.raw)}
                             title="打开轨迹回放"
                             onClick={() => {
                               if (canOpen(row.raw)) onOpen(row.raw.evidence_id);
@@ -922,7 +1034,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                               border: '1px solid var(--line-2)',
                               background: canOpen(row.raw) ? 'rgba(69, 211, 207, 0.07)' : 'transparent',
                               color: canOpen(row.raw) ? 'var(--txt-1)' : 'var(--txt-3)',
-                              cursor: canOpen(row.raw) ? 'pointer' : 'not-allowed',
+                              cursor: deleteActionsDisabled ? 'wait' : canOpen(row.raw) ? 'pointer' : 'not-allowed',
                             }}
                           >
                             <LucidePlay size={13} aria-hidden="true" />
@@ -970,6 +1082,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               <select
                 aria-label="每页记录数"
                 value={pageSize}
+                disabled={deleteActionsDisabled}
                 onChange={(event) => {
                   setSelectedEvidenceIds(new Set());
                   setPageSize(Number(event.target.value) as 20 | 50);
@@ -981,12 +1094,148 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 <option value={50}>50</option>
               </select>
               <span>{safePage + 1} / {totalPages}</span>
-              <button type="button" aria-label="上一页" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} style={headerButtonStyle}>‹</button>
-              <button type="button" aria-label="下一页" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} style={headerButtonStyle}>›</button>
+              <button type="button" aria-label="上一页" disabled={deleteActionsDisabled || safePage <= 0} onClick={() => setPage(safePage - 1)} style={headerButtonStyle}>‹</button>
+              <button type="button" aria-label="下一页" disabled={deleteActionsDisabled || safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} style={headerButtonStyle}>›</button>
             </div>
           </>
         )}
       </main>
+      {pendingBatchDelete && (
+        <div
+          ref={batchDeleteDialogRef}
+          role="dialog"
+          aria-label="批量删除仿真记录"
+          aria-modal="true"
+          onKeyDown={handleBatchDeleteDialogKeyDown}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 70,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            background: 'rgba(0, 0, 0, 0.76)',
+          }}
+          onClick={closeBatchDeleteDialog}
+        >
+          <div
+            style={{
+              width: 'min(620px, 100%)',
+              maxHeight: 'min(720px, 90vh)',
+              overflow: 'auto',
+              border: '1px solid rgba(255, 91, 112, 0.5)',
+              borderRadius: 6,
+              background: 'var(--bg-1)',
+              boxShadow: '0 18px 50px rgba(0, 0, 0, 0.45)',
+              padding: 18,
+              fontFamily: 'var(--f-mono)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--c-danger)' }}>
+              <LucideAlertTriangle size={18} aria-hidden="true" />
+              <h2 style={{ margin: 0, fontSize: 15, letterSpacing: 0 }}>
+                {batchDeleteResult ? '批量删除结果' : '批量删除仿真记录'}
+              </h2>
+            </div>
+            {batchDeleteResult ? (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 16,
+                  padding: '11px 12px',
+                  border: '1px solid rgba(255, 91, 112, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 91, 112, 0.08)',
+                  color: 'var(--txt-2)',
+                  fontSize: 11,
+                  lineHeight: 1.6,
+                }}
+              >
+                <div style={{ display: 'flex', gap: 16, color: 'var(--txt-1)', fontWeight: 700 }}>
+                  <span>已删除 {batchDeleteResult.deleted}</span>
+                  <span style={{ color: 'var(--c-danger)' }}>失败 {batchDeleteResult.failed}</span>
+                </div>
+                <ul style={{ margin: '10px 0 0', paddingLeft: 18 }}>
+                  {batchDeleteFailures.map((item) => (
+                    <li key={item.evidence_id} style={{ marginTop: 6, overflowWrap: 'anywhere' }}>
+                      <code style={{ color: 'var(--txt-1)' }}>{item.evidence_id}</code>: {item.error}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16, color: 'var(--txt-2)', fontSize: 11 }}>
+                  <span>共 {pendingBatchDelete.length} 条</span>
+                  <span>通过 {batchDeleteSummary.passed}</span>
+                  <span>不通过 {batchDeleteSummary.failed}</span>
+                  <span>未知 {batchDeleteSummary.unknown}</span>
+                  <span>工作树 {batchDeleteSummary.worktrees}</span>
+                </div>
+                <p style={{ margin: '14px 0 0', color: 'var(--c-danger)', fontSize: 12, lineHeight: 1.6 }}>
+                  此操作将从数据库与文件系统永久删除所选证据，无法撤销。
+                </p>
+              </>
+            )}
+            {batchDeleteFailed && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 12,
+                  padding: '9px 10px',
+                  border: '1px solid rgba(255, 91, 112, 0.5)',
+                  borderRadius: 4,
+                  background: 'rgba(255, 91, 112, 0.08)',
+                  color: 'var(--c-danger)',
+                  fontSize: 11,
+                }}
+              >
+                批量删除失败，请保留所选记录后重试。
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              <button
+                ref={batchDeleteCancelButtonRef}
+                type="button"
+                onClick={closeBatchDeleteDialog}
+                disabled={batchDeleteState.isLoading}
+                style={{
+                  ...actionButtonStyle,
+                  minWidth: 72,
+                  border: '1px solid var(--line-2)',
+                  background: 'rgba(255, 255, 255, 0.025)',
+                  color: 'var(--txt-2)',
+                  cursor: batchDeleteState.isLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {batchDeleteResult ? '关闭' : '取消'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBatchDelete()}
+                disabled={batchDeleteState.isLoading}
+                style={{
+                  ...actionButtonStyle,
+                  minWidth: 118,
+                  border: '1px solid var(--c-danger)',
+                  background: 'rgba(255, 91, 112, 0.13)',
+                  color: 'var(--c-danger)',
+                  cursor: batchDeleteState.isLoading ? 'wait' : 'pointer',
+                }}
+              >
+                <LucideTrash2 size={13} aria-hidden="true" />
+                {batchDeleteState.isLoading
+                  ? '删除中'
+                  : batchDeleteResult
+                    ? `重试失败项（${batchDeleteFailures.length}）`
+                    : '确认批量删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {pendingDelete && (
         <div
           ref={deleteDialogRef}
@@ -1061,14 +1310,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 ref={deleteCancelButtonRef}
                 type="button"
                 onClick={cancelDelete}
-                disabled={deleteState.isLoading}
+                disabled={deleteActionsDisabled}
                 style={{
                   ...actionButtonStyle,
                   minWidth: 72,
                   border: '1px solid var(--line-2)',
                   background: 'rgba(255, 255, 255, 0.025)',
                   color: 'var(--txt-2)',
-                  cursor: deleteState.isLoading ? 'not-allowed' : 'pointer',
+                  cursor: deleteActionsDisabled ? 'not-allowed' : 'pointer',
                 }}
               >
                 取消
@@ -1076,14 +1325,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               <button
                 type="button"
                 onClick={() => void handleDelete()}
-                disabled={deleteState.isLoading}
+                disabled={deleteActionsDisabled}
                 style={{
                   ...actionButtonStyle,
                   minWidth: 96,
                   border: '1px solid var(--c-danger)',
                   background: 'rgba(255, 91, 112, 0.13)',
                   color: 'var(--c-danger)',
-                  cursor: deleteState.isLoading ? 'wait' : 'pointer',
+                  cursor: deleteActionsDisabled ? 'wait' : 'pointer',
                 }}
               >
                 <LucideTrash2 size={13} aria-hidden="true" />
@@ -1098,7 +1347,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
           ref={overviewDialogRef}
           role="dialog"
           aria-label="仿真概述"
-          aria-hidden={pendingDelete ? true : undefined}
+          aria-hidden={pendingDelete || pendingBatchDelete ? true : undefined}
           style={{
             position: 'fixed',
             inset: 0,
