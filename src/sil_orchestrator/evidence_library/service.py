@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -631,6 +632,168 @@ def _validated_recovery_record(
     return evidence_id, target, staged_target, metadata_path
 
 
+def _validate_postcommit_recovery_paths(
+    config: EvidenceLibraryConfig,
+    target: Path,
+    staged_target: Path,
+    metadata_path: Path,
+) -> tuple[Path, int, Path, Path]:
+    _reject_symlink_components(target, "Evidence deletion recovery target")
+    _reject_symlink_components(staged_target, "Evidence deletion recovery stage")
+    _reject_symlink_components(metadata_path, "Evidence deletion recovery metadata")
+
+    unified_session = target / "trace"
+    unified_run_id = _literal_unified_run_id(unified_session)
+    for root in config.roots:
+        if not root.enabled or not root.trusted:
+            continue
+
+        try:
+            matched_root = _matched_root_path(target, root)
+        except (OSError, PermissionError):
+            matched_root = None
+        if matched_root is not None:
+            try:
+                relative_target = target.relative_to(matched_root)
+            except ValueError:
+                pass
+            else:
+                if relative_target != Path("."):
+                    relative_staged_target = staged_target.relative_to(matched_root)
+                    anchor_path = matched_root
+                    anchor_descriptor = _open_directory_without_symlinks(anchor_path)
+                    return (
+                        anchor_path,
+                        anchor_descriptor,
+                        relative_target,
+                        relative_staged_target,
+                    )
+
+        if unified_run_id is None or unified_run_id != target.name:
+            continue
+        try:
+            matched_trace_root = _matched_root_path(unified_session, root)
+        except (OSError, PermissionError):
+            continue
+        if (
+            matched_trace_root is not None
+            and matched_trace_root == unified_session
+        ):
+            anchor_path = target.parent
+            relative_staged_target = staged_target.relative_to(anchor_path)
+            anchor_descriptor = _open_directory_without_symlinks(anchor_path)
+            return (
+                anchor_path,
+                anchor_descriptor,
+                Path(target.name),
+                relative_staged_target,
+            )
+
+    raise PermissionError("Evidence deletion recovery target is outside configured trusted roots")
+
+
+def _directory_open_flags() -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("Symlink-safe evidence deletion recovery is unsupported")
+    flags |= os.O_NOFOLLOW
+    return flags
+
+
+def _open_directory_without_symlinks(path: Path) -> int:
+    candidate = _absolute_safe_path(path, "Evidence deletion recovery anchor")
+    descriptor = os.open(candidate.anchor, _directory_open_flags())
+    try:
+        for part in candidate.parts[1:]:
+            next_descriptor = os.open(
+                part,
+                _directory_open_flags(),
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _relative_path_state(
+    anchor_descriptor: int,
+    relative_path: Path,
+) -> tuple[str, tuple[tuple[int, int, int], ...]]:
+    if relative_path.is_absolute() or not relative_path.parts or ".." in relative_path.parts:
+        raise PermissionError("Evidence deletion recovery path escaped its trusted anchor")
+
+    descriptor = os.dup(anchor_descriptor)
+    identities: list[tuple[int, int, int]] = []
+    try:
+        anchor_stat = os.fstat(descriptor)
+        identities.append((anchor_stat.st_dev, anchor_stat.st_ino, stat.S_IFMT(anchor_stat.st_mode)))
+        for part in relative_path.parts[:-1]:
+            try:
+                next_descriptor = os.open(
+                    part,
+                    _directory_open_flags(),
+                    dir_fd=descriptor,
+                )
+            except FileNotFoundError:
+                return "missing", tuple(identities)
+            os.close(descriptor)
+            descriptor = next_descriptor
+            component_stat = os.fstat(descriptor)
+            identities.append((
+                component_stat.st_dev,
+                component_stat.st_ino,
+                stat.S_IFMT(component_stat.st_mode),
+            ))
+
+        try:
+            final_stat = os.stat(
+                relative_path.name,
+                dir_fd=descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return "missing", tuple(identities)
+        if stat.S_ISLNK(final_stat.st_mode):
+            raise PermissionError("Evidence deletion recovery path is a symlink")
+        identities.append((
+            final_stat.st_dev,
+            final_stat.st_ino,
+            stat.S_IFMT(final_stat.st_mode),
+        ))
+        return (
+            "directory" if stat.S_ISDIR(final_stat.st_mode) else "other",
+            tuple(identities),
+        )
+    finally:
+        os.close(descriptor)
+
+
+def _revalidate_recovery_path_state(
+    anchor_path: Path,
+    anchor_descriptor: int,
+    relative_path: Path,
+    expected_state: tuple[str, tuple[tuple[int, int, int], ...]],
+) -> None:
+    current_descriptor = _open_directory_without_symlinks(anchor_path)
+    try:
+        current_anchor = os.fstat(current_descriptor)
+        trusted_anchor = os.fstat(anchor_descriptor)
+        if (current_anchor.st_dev, current_anchor.st_ino) != (
+            trusted_anchor.st_dev,
+            trusted_anchor.st_ino,
+        ):
+            raise PermissionError("Evidence deletion recovery anchor changed")
+    finally:
+        os.close(current_descriptor)
+    if _relative_path_state(anchor_descriptor, relative_path) != expected_state:
+        raise PermissionError("Evidence deletion recovery path changed")
+
+
 def _valid_recovery_records_by_evidence(
     config: EvidenceLibraryConfig,
 ) -> dict[str, list[tuple[Path, Path, Path, Path]]]:
@@ -684,61 +847,60 @@ def _discover_postcommit_cleanup(
             ).fetchone() is not None:
                 continue
 
-            target_exists = _path_exists(target)
-            staged_target_exists = _path_exists(staged_target)
-            if target_exists and not staged_target_exists:
-                _clear_stage_metadata_sources((
+            anchor_path, anchor_descriptor, relative_target, relative_staged_target = (
+                _validate_postcommit_recovery_paths(
+                    config,
+                    target,
+                    staged_target,
                     metadata_path,
-                    _temporary_metadata_path(metadata_path),
-                    record_path,
-                    _temporary_metadata_path(record_path),
-                ))
-                _remove_empty_staging_dir(staged_target.parent)
-                _remove_empty_recovery_dir(config)
+                )
+            )
+            try:
+                target_state = _relative_path_state(anchor_descriptor, relative_target)
+                staged_target_state = _relative_path_state(
+                    anchor_descriptor,
+                    relative_staged_target,
+                )
+                _revalidate_recovery_path_state(
+                    anchor_path,
+                    anchor_descriptor,
+                    relative_target,
+                    target_state,
+                )
+                _revalidate_recovery_path_state(
+                    anchor_path,
+                    anchor_descriptor,
+                    relative_staged_target,
+                    staged_target_state,
+                )
+            finally:
+                os.close(anchor_descriptor)
+
+            target_kind = target_state[0]
+            staged_target_kind = staged_target_state[0]
+            if target_kind == "missing" and staged_target_kind == "directory":
+                pending.append({
+                    "evidence_id": evidence_id,
+                    "deleted_path": str(target),
+                    "filesystem_deleted": False,
+                    "filesystem_cleanup": "pending",
+                    "cleanup_error": "staged filesystem cleanup is pending",
+                    "cleanup_path": str(staged_target),
+                    "cleanup_metadata_path": str(record_path),
+                })
                 continue
-            if not target_exists and not staged_target_exists:
-                _clear_stage_metadata_sources((
-                    metadata_path,
-                    _temporary_metadata_path(metadata_path),
-                    record_path,
-                    _temporary_metadata_path(record_path),
-                ))
-                _remove_empty_staging_dir(staged_target.parent)
-                _remove_empty_recovery_dir(config)
-                continue
-            if target_exists or staged_target.is_symlink() or not staged_target.is_dir():
+            if not (
+                staged_target_kind == "missing"
+                and target_kind in {"missing", "directory"}
+            ):
                 raise OSError("Evidence deletion cleanup recovery state is ambiguous")
 
-            try:
-                _read_stage_metadata(
-                    metadata_path,
-                    evidence_id=evidence_id,
-                    target=target,
-                    staged_target=staged_target,
-                )
-            except (OSError, PermissionError):
-                _clear_stage_metadata_sources((
-                    metadata_path,
-                    _temporary_metadata_path(metadata_path),
-                ))
-                _write_stage_metadata(
-                    metadata_path,
-                    _stage_metadata_payload(evidence_id, target, staged_target),
-                )
-
-            pending.append({
-                "evidence_id": evidence_id,
-                "deleted_path": str(target),
-                "filesystem_deleted": False,
-                "filesystem_cleanup": "pending",
-                "cleanup_error": "staged filesystem cleanup is pending",
-                "cleanup_path": str(staged_target),
-                "cleanup_metadata_path": str(metadata_path),
-            })
-            errors.append({
-                "path": str(staged_target),
-                "error": "staged filesystem cleanup is pending",
-            })
+            # Root-local artifacts remain untouched when no staged payload remains.
+            # The central record can be retired after anchored state verification.
+            _reject_symlink_components(record_path, "Evidence deletion recovery metadata")
+            record_path.unlink()
+            _temporary_metadata_path(record_path).unlink(missing_ok=True)
+            _remove_empty_recovery_dir(config)
         except (OSError, PermissionError):
             errors.append({
                 "path": str(record_path),

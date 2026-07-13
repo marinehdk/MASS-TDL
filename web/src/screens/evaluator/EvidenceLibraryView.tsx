@@ -54,13 +54,40 @@ type EvidenceLibraryRecoveryScanResult = EvidenceLibraryScanResult & {
   cleanup_pending?: EvidenceLibraryDeleteResult[];
 };
 
-const PENDING_CLEANUP_STORAGE_KEY = 'mass-l3:evidence-library:pending-cleanup:v1';
+const PENDING_CLEANUP_STORAGE_PREFIX = 'mass-l3:evidence-library:pending-cleanup:v1';
 
-const loadPendingCleanup = () => {
+const cleanupStorageKeyForConfig = (value: unknown) => {
+  if (typeof value !== 'object' || value === null) return null;
+  const config = value as Record<string, unknown>;
+  if (
+    typeof config.config_home !== 'string'
+    || typeof config.database_path !== 'string'
+    || !Array.isArray(config.roots)
+  ) return null;
+  const roots = config.roots.map((value) => {
+    if (typeof value !== 'object' || value === null) return null;
+    const root = value as Record<string, unknown>;
+    if (typeof root.root_id !== 'string' || typeof root.path_glob !== 'string') return null;
+    return {
+      allow_retention_mutation: root.allow_retention_mutation === true,
+      enabled: root.enabled !== false,
+      follow_symlinks: root.follow_symlinks === true,
+      path_glob: root.path_glob,
+      root_id: root.root_id,
+      trusted: root.trusted === true,
+    };
+  });
+  if (roots.some((root) => root === null)) return null;
+  roots.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const identity = JSON.stringify([config.config_home, config.database_path, roots]);
+  return `${PENDING_CLEANUP_STORAGE_PREFIX}:${encodeURIComponent(identity)}`;
+};
+
+const loadPendingCleanup = (storageKey: string) => {
   const pending = new Map<string, EvidenceLibraryDeleteResult>();
   if (typeof window === 'undefined') return pending;
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(PENDING_CLEANUP_STORAGE_KEY) ?? '[]');
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]');
     if (!Array.isArray(parsed)) return pending;
     for (const value of parsed) {
       if (
@@ -318,8 +345,10 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const [batchDeleteResult, setBatchDeleteResult] = useState<EvidenceLibraryBatchDeleteResult | null>(null);
   const [batchDeleteNeedsRescan, setBatchDeleteNeedsRescan] = useState(false);
   const [scanReconciliationPending, setScanReconciliationPending] = useState(false);
+  const [cleanupStorageKey, setCleanupStorageKey] = useState<string | null>(null);
+  const [cleanupStorageReady, setCleanupStorageReady] = useState(false);
   const [pendingCleanupByPath, setPendingCleanupByPath] = useState<Map<string, EvidenceLibraryDeleteResult>>(
-    loadPendingCleanup,
+    () => new Map(),
   );
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement | null>(null);
@@ -416,15 +445,44 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const hydratePendingCleanup = async () => {
+      try {
+        const response = await fetch('/api/v1/evidence-library/config', {
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) return;
+        const storageKey = cleanupStorageKeyForConfig(await response.json());
+        if (!active || !storageKey) return;
+        const stored = loadPendingCleanup(storageKey);
+        setPendingCleanupByPath((current) => {
+          const next = new Map(stored);
+          current.forEach((result, path) => next.set(path, result));
+          return next;
+        });
+        setCleanupStorageKey(storageKey);
+        setCleanupStorageReady(true);
+      } catch {
+        // Current cleanup results remain visible without cross-config persistence.
+      }
+    };
+    void hydratePendingCleanup();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!cleanupStorageKey || !cleanupStorageReady) return;
     try {
       window.localStorage.setItem(
-        PENDING_CLEANUP_STORAGE_KEY,
+        cleanupStorageKey,
         JSON.stringify(Array.from(pendingCleanupByPath.values())),
       );
     } catch {
       // The in-memory notice remains available when storage is unavailable.
     }
-  }, [pendingCleanupByPath]);
+  }, [cleanupStorageKey, cleanupStorageReady, pendingCleanupByPath]);
 
   const resetOverviewView = () => {
     setOverviewScale(1);

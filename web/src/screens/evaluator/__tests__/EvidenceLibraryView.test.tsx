@@ -18,6 +18,12 @@ const apiMocks = vi.hoisted(() => ({
   batchDeleteSessions: vi.fn(),
   batchDeleteUnwrap: vi.fn(),
   batchDeleteIsLoading: false,
+  configIdentity: {
+    config_home: '/tmp/config-primary',
+    database_path: '/tmp/config-primary/evidence-index.sqlite',
+    roots: [{ root_id: 'worktrees', path_glob: '/tmp/.worktrees/*/runs/*/trace' }],
+  } as Record<string, unknown>,
+  configFetch: vi.fn(),
 }));
 
 vi.mock('../../../api/silApi', () => ({
@@ -119,6 +125,13 @@ const makeSessions = (count: number) => Array.from({ length: count }, (_, index)
 const deleteButton = (sessionId = primarySession.session_id) =>
   screen.getByRole('button', { name: `删除 ${sessionId}` });
 
+const pendingCleanupStorageKeys = () => Array.from(
+  { length: window.localStorage.length },
+  (_, index) => window.localStorage.key(index),
+).filter((key): key is string => Boolean(
+  key?.startsWith('mass-l3:evidence-library:pending-cleanup:v1:'),
+));
+
 beforeEach(() => {
   window.localStorage.clear();
   apiMocks.sessions = [{ ...primarySession }, { ...secondarySession }];
@@ -133,6 +146,17 @@ beforeEach(() => {
   apiMocks.batchDeleteSessions.mockReset();
   apiMocks.batchDeleteUnwrap.mockReset();
   apiMocks.batchDeleteIsLoading = false;
+  apiMocks.configIdentity = {
+    config_home: '/tmp/config-primary',
+    database_path: '/tmp/config-primary/evidence-index.sqlite',
+    roots: [{ root_id: 'worktrees', path_glob: '/tmp/.worktrees/*/runs/*/trace' }],
+  };
+  apiMocks.configFetch.mockReset();
+  apiMocks.configFetch.mockImplementation(async () => new Response(
+    JSON.stringify(apiMocks.configIdentity),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  ));
+  vi.stubGlobal('fetch', apiMocks.configFetch);
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
   apiMocks.refetchUnwrap.mockResolvedValue(undefined);
@@ -895,6 +919,42 @@ describe('EvidenceLibraryView', () => {
     expect(deleteButton()).not.toBeDisabled();
   });
 
+  it('reconciles a lost delete response when authoritative scan finds only pending cleanup', async () => {
+    const cleanupResult = {
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-lost-response',
+      cleanup_metadata_path: '/runs/.evidence-library-delete-staging/delete-lost-response.json',
+    };
+    apiMocks.batchDeleteUnwrap.mockRejectedValueOnce(new Error('response lost'));
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      ingested: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [cleanupResult],
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择当前页' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选（2）' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认批量删除' }));
+    const dialog = screen.getByRole('dialog', { name: '批量删除仿真记录' });
+    await within(dialog).findByRole('alert');
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
+    expect(deleteButton()).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    await waitFor(() => expect(screen.queryByText('批量删除结果未知')).not.toBeInTheDocument());
+    expect(deleteButton()).not.toBeDisabled();
+    expect(screen.getByRole('alert', { name: '待处理文件清理' })).toHaveTextContent(
+      cleanupResult.cleanup_path,
+    );
+  });
+
   it.each([
     {
       name: 'scan reports item errors',
@@ -1005,10 +1065,7 @@ describe('EvidenceLibraryView', () => {
     apiMocks.rescanUnwrap.mockResolvedValueOnce({
       ingested: 0,
       pruned: 0,
-      errors: [{
-        path: cleanupResult.cleanup_path,
-        error: cleanupResult.cleanup_error,
-      }],
+      errors: [],
       cleanup_pending: [cleanupResult],
     });
     const firstView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
@@ -1016,25 +1073,88 @@ describe('EvidenceLibraryView', () => {
     fireEvent.click(screen.getByRole('button', { name: '扫描' }));
     const discoveredAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
     expect(discoveredAlert).toHaveTextContent(cleanupResult.cleanup_path);
-    await waitFor(() => expect(window.localStorage.getItem(
-      'mass-l3:evidence-library:pending-cleanup:v1',
-    )).toContain(cleanupResult.cleanup_path));
+    await waitFor(() => expect(pendingCleanupStorageKeys()).toHaveLength(1));
+    const [storageKey] = pendingCleanupStorageKeys();
+    expect(storageKey).toContain(encodeURIComponent(String(apiMocks.configIdentity.database_path)));
+    expect(window.localStorage.getItem(storageKey)).toContain(cleanupResult.cleanup_path);
+    expect(window.localStorage.getItem('mass-l3:evidence-library:pending-cleanup:v1')).toBeNull();
 
     firstView.unmount();
     const reloadedView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
-    const restoredAlert = screen.getByRole('alert', { name: '待处理文件清理' });
+    const restoredAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
     expect(restoredAlert).toHaveTextContent(cleanupResult.cleanup_metadata_path);
 
     fireEvent.click(within(restoredAlert).getByRole('button', {
       name: `确认已记录 ${primarySession.evidence_id}`,
     }));
-    await waitFor(() => expect(window.localStorage.getItem(
-      'mass-l3:evidence-library:pending-cleanup:v1',
-    )).toBe('[]'));
+    await waitFor(() => expect(window.localStorage.getItem(storageKey)).toBe('[]'));
     reloadedView.unmount();
 
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    await waitFor(() => expect(
+      screen.queryByRole('alert', { name: '待处理文件清理' }),
+    ).not.toBeInTheDocument());
+  });
+
+  it('isolates durable cleanup notices by backend evidence-library configuration', async () => {
+    const primaryConfig = {
+      config_home: '/tmp/config-primary',
+      database_path: '/tmp/config-primary/evidence-index.sqlite',
+      roots: [
+        { root_id: 'primary', path_glob: '/tmp/repo/runs/*/trace', enabled: true, trusted: true },
+        { root_id: 'worktrees', path_glob: '/tmp/repo/.worktrees/*/runs/*/trace', enabled: true, trusted: true },
+      ],
+    };
+    const cleanupResult = {
+      evidence_id: primarySession.evidence_id,
+      deleted_path: primarySession.deletion_target,
+      filesystem_deleted: false,
+      filesystem_cleanup: 'pending',
+      cleanup_error: 'staged filesystem cleanup is pending',
+      cleanup_path: '/runs/.evidence-library-delete-staging/delete-config-scoped',
+    };
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      ingested: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [cleanupResult],
+    });
+    apiMocks.configIdentity = primaryConfig;
+    const primaryView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+    await screen.findByRole('alert', { name: '待处理文件清理' });
+    await waitFor(() => expect(pendingCleanupStorageKeys()).toHaveLength(1));
+    primaryView.unmount();
+
+    apiMocks.configIdentity = {
+      ...primaryConfig,
+      roots: [{ root_id: 'other-worktree', path_glob: '/tmp/other/runs/*/trace' }],
+    };
+    const otherWorktreeView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    await waitFor(() => expect(apiMocks.configFetch).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('alert', { name: '待处理文件清理' })).not.toBeInTheDocument();
+    otherWorktreeView.unmount();
+
+    apiMocks.configIdentity = {
+      ...primaryConfig,
+      database_path: '/tmp/config-primary/other-evidence-index.sqlite',
+    };
+    const otherBackendView = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    await waitFor(() => expect(apiMocks.configFetch).toHaveBeenCalledTimes(3));
+    expect(screen.queryByRole('alert', { name: '待处理文件清理' })).not.toBeInTheDocument();
+    otherBackendView.unmount();
+
+    apiMocks.configIdentity = {
+      database_path: primaryConfig.database_path,
+      config_home: primaryConfig.config_home,
+      roots: [
+        { trusted: true, enabled: true, path_glob: '/tmp/repo/.worktrees/*/runs/*/trace', root_id: 'worktrees' },
+        { path_glob: '/tmp/repo/runs/*/trace', root_id: 'primary', trusted: true, enabled: true },
+      ],
+    };
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    const restoredAlert = await screen.findByRole('alert', { name: '待处理文件清理' });
+    expect(restoredAlert).toHaveTextContent(cleanupResult.cleanup_path);
   });
 
   it('preserves pending cleanup paths across failed-item batch retries until acknowledgment', async () => {

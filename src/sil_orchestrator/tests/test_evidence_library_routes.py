@@ -160,6 +160,23 @@ def _indexed_session_count(repo: Path, evidence_id: str) -> int:
         ).fetchone()[0]
 
 
+def _write_postcommit_recovery_record(
+    config,
+    evidence_id: str,
+    target: Path,
+) -> tuple[Path, Path, Path, Path]:
+    _, staged_target, metadata_path = service._deletion_stage_paths(evidence_id, target)
+    staged_target.mkdir(parents=True)
+    payload_marker = staged_target / "payload-marker.txt"
+    payload_marker.write_text("must remain untouched")
+    recovery_record = service._recovery_record_path(config, staged_target)
+    recovery_record.parent.mkdir(parents=True)
+    recovery_record.write_text(json.dumps(
+        service._stage_metadata_payload(evidence_id, target, staged_target)
+    ))
+    return staged_target, metadata_path, recovery_record, payload_marker
+
+
 @pytest.mark.asyncio
 async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
@@ -1480,6 +1497,9 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
     staging_dir = repo / "runs" / ".evidence-library-delete-staging"
     cleanup_path = next(path for path in staging_dir.iterdir() if path.is_dir())
     cleanup_metadata_path = cleanup_path.with_name(cleanup_path.name + ".json")
+    recovery_record = next(
+        (tmp_path / "config" / ".evidence-library-delete-recovery").glob("*.json")
+    )
 
     monkeypatch.setattr(service.shutil, "rmtree", original_rmtree)
     restarted_app = _app_for(repo, tmp_path, monkeypatch)
@@ -1500,18 +1520,127 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
         "filesystem_cleanup": "pending",
         "cleanup_error": "staged filesystem cleanup is pending",
         "cleanup_path": str(cleanup_path),
-        "cleanup_metadata_path": str(cleanup_metadata_path),
-    }]
-    expected_errors = [{
-        "path": str(cleanup_path),
-        "error": "staged filesystem cleanup is pending",
+        "cleanup_metadata_path": str(recovery_record),
     }]
     assert first_recovery.json().get("cleanup_pending") == expected_pending
     assert second_recovery.json().get("cleanup_pending") == expected_pending
-    assert first_recovery.json()["errors"] == expected_errors
-    assert second_recovery.json()["errors"] == expected_errors
+    assert first_recovery.json()["errors"] == []
+    assert second_recovery.json()["errors"] == []
     assert cleanup_path.is_dir()
     assert cleanup_metadata_path.is_file()
+    assert recovery_record.is_file()
+
+
+@pytest.mark.asyncio
+async def test_postcommit_recovery_rejects_deterministic_out_of_root_paths_without_mutation(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    app = _app_for(repo, tmp_path, monkeypatch)
+    config = load_effective_config(repo_root=repo)
+    staged_target, metadata_path, recovery_record, payload_marker = (
+        _write_postcommit_recovery_record(
+            config,
+            "out-of-root-evidence",
+            tmp_path / "outside-root" / "run-escape",
+        )
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert recovery.json()["cleanup_pending"] == []
+    assert recovery.json()["errors"] == [{
+        "path": str(recovery_record),
+        "error": "interrupted deletion recovery failed",
+    }]
+    assert staged_target.is_dir()
+    assert payload_marker.read_text() == "must remain untouched"
+    assert not metadata_path.exists()
+    assert recovery_record.is_file()
+
+
+@pytest.mark.asyncio
+async def test_postcommit_recovery_rejects_replaced_symlink_ancestor_before_metadata_write(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    runs_dir = repo / "runs"
+    runs_dir.mkdir(parents=True)
+    app = _app_for(repo, tmp_path, monkeypatch)
+    config = load_effective_config(repo_root=repo)
+    staged_target, metadata_path, recovery_record, payload_marker = (
+        _write_postcommit_recovery_record(
+            config,
+            "symlink-ancestor-evidence",
+            runs_dir / "run-symlink-swap",
+        )
+    )
+    staged_relative = staged_target.relative_to(runs_dir)
+    metadata_relative = metadata_path.relative_to(runs_dir)
+    marker_relative = payload_marker.relative_to(runs_dir)
+    moved_runs = tmp_path / "moved-runs"
+    runs_dir.rename(moved_runs)
+    runs_dir.symlink_to(moved_runs, target_is_directory=True)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert recovery.json()["cleanup_pending"] == []
+    assert recovery.json()["errors"] == [{
+        "path": str(recovery_record),
+        "error": "interrupted deletion recovery failed",
+    }]
+    assert (moved_runs / staged_relative).is_dir()
+    assert (moved_runs / marker_relative).read_text() == "must remain untouched"
+    assert not (moved_runs / metadata_relative).exists()
+    assert recovery_record.is_file()
+
+
+@pytest.mark.asyncio
+async def test_postcommit_recovery_rejects_symlink_swap_after_validation_without_mutation(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    runs_dir = repo / "runs"
+    runs_dir.mkdir(parents=True)
+    app = _app_for(repo, tmp_path, monkeypatch)
+    config = load_effective_config(repo_root=repo)
+    staged_target, metadata_path, recovery_record, payload_marker = (
+        _write_postcommit_recovery_record(
+            config,
+            "post-validation-symlink-evidence",
+            runs_dir / "run-post-validation-swap",
+        )
+    )
+    metadata_relative = metadata_path.relative_to(runs_dir)
+    marker_relative = payload_marker.relative_to(runs_dir)
+    moved_runs = tmp_path / "moved-after-validation"
+    original_validate = service._validate_postcommit_recovery_paths
+
+    def validate_then_replace_ancestor(*args, **kwargs):
+        validated = original_validate(*args, **kwargs)
+        runs_dir.rename(moved_runs)
+        runs_dir.symlink_to(moved_runs, target_is_directory=True)
+        return validated
+
+    monkeypatch.setattr(
+        service,
+        "_validate_postcommit_recovery_paths",
+        validate_then_replace_ancestor,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+
+    assert recovery.json()["cleanup_pending"] == []
+    assert recovery.json()["errors"] == [{
+        "path": str(recovery_record),
+        "error": "interrupted deletion recovery failed",
+    }]
+    assert (moved_runs / marker_relative).read_text() == "must remain untouched"
+    assert not (moved_runs / metadata_relative).exists()
+    assert recovery_record.is_file()
 
 
 @pytest.mark.asyncio
