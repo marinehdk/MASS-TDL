@@ -3480,3 +3480,37 @@ notices, deterministic crash-recovery mapping, and focused regressions.
   `SimulationEvaluator.test.tsx` text/canvas failures.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and uncommitted.
+
+---
+
+## [2026-07-13] Codex / `7a17d192d` / Durable Deletion Recovery Closure
+
+### Task Goal
+Close all five final adversarial blockers after `973e87540`: safe retry before
+rescan, fail-closed config/path drift, restart-durable post-commit discovery,
+temporary-sidecar recovery, and reload-durable cleanup notices.
+
+### Core Changes
+- Added atomic central recovery records keyed by deterministic evidence/path
+  identity while retaining same-parent staged payloads.
+- Recovery now restores pre-commit stages on retry, protects IDs from pruning
+  during config/path drift, discovers post-commit payloads without surviving DB
+  rows, and handles final plus temporary metadata.
+- Added per-evidence and scan-coordination `flock` guards against duplicate
+  deletion/rescan races.
+- Persisted rescan-discovered cleanup notices in local storage until explicit
+  acknowledgement.
+- Added focused regressions for all requested crash, drift, retry, concurrency,
+  and reload paths.
+
+### Current Status
+- Implementation commit: `7a17d192d` (`fix(evidence): make deletion recovery restart durable`).
+- Backend Evidence Library coverage: 76 passed.
+- Task-owned frontend coverage: 65 passed. TypeScript/Vite build passed.
+- Final uncommitted adversarial review: no actionable correctness defects.
+
+### Handoff Notes
+- Full RED/GREEN commands and residual risks: `.superpowers/sdd/task-4-report.md`.
+- Manual cleanup remains explicit and fail-closed; no schema ledger or daemon.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
