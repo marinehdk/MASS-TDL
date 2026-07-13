@@ -43,7 +43,7 @@ const displayRunTime = (value?: string | null) => {
   if (!value) return '-';
   return value
     .replace('T', ' ')
-    .replace(/\.\d+(?=Z|[+-]\d\d:\d\d$)/, '')
+    .replace(/\.\d+(?=Z|[+-]\d\d:\d\d$|$)/, '')
     .replace(/([+-]\d\d:\d\d|Z)$/, '');
 };
 
@@ -53,7 +53,7 @@ const displayName = (session: EvidenceLibrarySession) => {
 };
 
 const scenarioCount = (session: EvidenceLibrarySession) =>
-  session.scenario_ids?.length || session.scenario_count || 0;
+  session.scenario_ids != null ? session.scenario_ids.length : session.scenario_count ?? 0;
 
 const displayMode = (session: EvidenceLibrarySession) => {
   const text = `${session.session_id} ${session.suite}`.toLowerCase();

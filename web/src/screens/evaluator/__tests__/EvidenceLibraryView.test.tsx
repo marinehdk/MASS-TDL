@@ -361,6 +361,38 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('row')).toHaveLength(2);
   });
 
+  it('uses present empty scenario ids as zero for display, sorting, filtering, and replay availability', () => {
+    const emptyIndexedSession = {
+      ...primarySession,
+      evidence_id: 'count-empty',
+      session_id: 'count_empty',
+      source: 'empty',
+      scenario_count: 12,
+      passed_scenarios: 0,
+      scenario_ids: [],
+    };
+    apiMocks.sessions = [
+      emptyIndexedSession,
+      { ...secondarySession, evidence_id: 'count-one', session_id: 'count_one', scenario_count: 1, scenario_ids: ['one'] },
+    ];
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    const emptyRow = screen.getByRole('button', { name: '删除 count_empty' }).closest('tr');
+    expect(emptyRow).not.toBeNull();
+    expect(within(emptyRow!).getByText('0')).toBeInTheDocument();
+    expect(within(emptyRow!).getByRole('button', { name: '回放' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '按场景数量升序' }));
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('empty');
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选场景数量' }));
+    const menu = screen.getByRole('menu', { name: '场景数量筛选选项' });
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['全部', '0', '1']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '0' }));
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: '删除 count_empty' })).toBeInTheDocument();
+  });
+
   it('filters by mode and source with compact menus', () => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
@@ -461,8 +493,8 @@ describe('EvidenceLibraryView', () => {
     expect(within(firstDataRow).getByText('21')).toBeInTheDocument();
   });
 
-  it('formats run time to whole seconds', () => {
-    apiMocks.sessions = [{ ...primarySession, created_at: '2026-07-07T13:20:00.123Z' }];
+  it('formats timezone-less run time to whole seconds', () => {
+    apiMocks.sessions = [{ ...primarySession, created_at: '2026-07-07T13:20:00.123' }];
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
     expect(screen.getByText('2026-07-07 13:20:00')).toBeInTheDocument();
