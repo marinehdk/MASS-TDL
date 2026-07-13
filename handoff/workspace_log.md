@@ -3514,3 +3514,37 @@ temporary-sidecar recovery, and reload-durable cleanup notices.
 - Manual cleanup remains explicit and fail-closed; no schema ledger or daemon.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+---
+
+## [2026-07-13] Codex / `7cd508292` / Trusted Postcommit Recovery Closure
+
+### Task Goal
+Close final blockers after `612c631d1`: trusted-root and symlink-safe
+postcommit discovery, cleanup_pending lost-response reconciliation, and
+backend/worktree-scoped durable frontend notices.
+
+### Core Changes
+- Recovery paths must map to an enabled trusted root, then are inspected through
+  no-follow directory descriptors. Inode/anchor revalidation catches ancestor
+  replacement without writing through untrusted pathnames.
+- Postcommit staged payloads produce durable cleanup warnings but no scan error,
+  allowing authoritative unknown-state reconciliation.
+- Cleanup local-storage identity now canonically includes config home, evidence
+  database, and sorted root path/security fields.
+- Added out-of-root, symlink-before-validation, symlink-after-validation,
+  lost-response, reload, and configuration-isolation regressions.
+
+### Current Status
+- Implementation commit: `7cd508292` (`fix(evidence): harden postcommit recovery scope`).
+- Backend Evidence Library suite: 79 passed.
+- Owned frontend suite: 64 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands and residual risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Pending staged payload cleanup remains manual; no ledger, daemon, or automatic
+  destructive retry added.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.

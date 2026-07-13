@@ -448,3 +448,119 @@ pass
 - Local OrbStack and A4000 acceptance were not run. Both remain promotion gates.
 - No live destructive browser test issued. Build retains existing Foxglove
   `eval` and large-chunk warnings.
+
+## Final Trusted-Recovery Closure After `612c631d1`
+
+Status: two Important blockers and both focused test gaps under
+`Re-review After 612c631d1` closed by implementation commit `7cd508292`
+(`fix(evidence): harden postcommit recovery scope`).
+
+### Changed Files
+
+- `src/sil_orchestrator/evidence_library/service.py`
+- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
+- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
+- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
+
+No route, API, schema, or Simulation Evaluator files changed.
+`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
+unstaged.
+
+### Behavior Closed
+
+- Post-commit discovery first matches deterministic recovery paths to an
+  enabled, trusted configured root. Root access then uses component-wise
+  `openat`-style directory descriptors with `O_NOFOLLOW`; inode snapshots and
+  anchor revalidation reject symlink insertion or ancestor replacement.
+- Out-of-root, symlinked, changed, non-directory, and ambiguous recovery states
+  fail closed. Staged payload, central record, and recovery IDs remain intact;
+  discovery no longer rewrites root-local sidecars.
+- A valid staged payload with no database row is reported as
+  `cleanup_pending` without adding a scan error. This preserves logical deletion
+  success, permits lost-response unknown-state reconciliation, and keeps the
+  durable cleanup warning.
+- Durable cleanup notices now use a canonical local-storage key derived from
+  backend `config_home`, evidence database path, and sorted root security/path
+  identity. Different backends/worktrees do not share notices; semantically
+  identical root order/property order restores the same notice.
+
+### Strict TDD Evidence
+
+Initial backend RED:
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py \
+  -k 'postcommit_recovery or rediscovers_postcommit_cleanup'
+3 failed, 57 deselected
+```
+
+Failures proved cleanup_pending was still a scan error, an out-of-root record
+wrote a local sidecar, and a symlinked ancestor allowed the same write.
+
+Initial frontend RED:
+
+```text
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'lost delete response|rescan-discovered cleanup notice|isolates durable cleanup notices'
+2 failed, 1 passed, 61 skipped
+```
+
+Failures proved notices still used the origin-global key and crossed backend
+configuration boundaries. Lost-response reconciliation already passed with
+the required error-free cleanup_pending response contract.
+
+Adversarial follow-up RED:
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py \
+  -k 'symlink_swap_after_validation'
+1 failed, 60 deselected
+
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
+  -t 'isolates durable cleanup notices'
+1 failed, 63 skipped
+```
+
+These failures exposed a one-shot pathname-validation TOCTOU and root-array
+order sensitivity. Minimal fixes added descriptor-anchored state checks and
+canonical root sorting.
+
+Focused GREEN:
+
+```text
+Backend postcommit recovery: 4 passed, 57 deselected in 0.39s
+Frontend lost-response/reload/config scope: 3 passed, 61 skipped
+```
+
+### Final Verification
+
+```text
+PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
+  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
+  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
+  src/sil_orchestrator/tests/test_evidence_library_routes.py
+79 passed in 2.54s
+
+npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
+1 file passed; 64 tests passed
+
+npm run build
+TypeScript pass; Vite pass; 2390 modules transformed in 6.20s
+
+git diff --check
+pass
+```
+
+Build retains existing Foxglove dependency `eval` warnings and the existing
+large-chunk warning.
+
+### Residual Risks
+
+- Pending staged-payload cleanup remains explicit/manual and warning-only. No
+  schema ledger, daemon, or blind destructive retry was introduced.
+- Descriptor-safe recovery requires Linux/POSIX `dir_fd`, `O_NOFOLLOW`, and
+  `flock`, matching deployed hosts; unsupported hosts fail closed.
+- Local OrbStack and A4000 acceptance were not run. Both remain promotion
+  gates. No live destructive browser test or remote push was performed.
