@@ -132,6 +132,71 @@ def _write_fixture_session(
     return session
 
 
+def _write_unified_fixture_run(repo: Path) -> Path:
+    run = repo / "runs" / "20260709_094036"
+    trace = run / "trace"
+    scenario_dir = trace / "colreg-rule15-cs"
+    scenario_dir.mkdir(parents=True)
+    (run / "run_meta.json").write_text(json.dumps({
+        "run_id": "20260709_094036",
+        "created_at": "2026-07-09T09:40:36+00:00",
+        "source": "cli",
+        "mode": "fast",
+        "scenario_count": 1,
+        "name": "ho-cs-fast-debug",
+        "scenarios": ["colreg-rule15-cs"],
+        "git_head": "50a1681c1",
+        "status": "completed",
+        "overall_pass": False,
+        "verdicts": {"colreg-rule15-cs": "fail"},
+    }))
+    (trace / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "session_name": "trace",
+        "source": "cli",
+        "suite": "clean8",
+        "created_at": "2026-07-09T17:42:06+08:00",
+        "status": "completed",
+        "valid_data": True,
+        "scenarios": [{
+            "scenario_id": "colreg-rule15-cs",
+            "status": "fail",
+            "valid_data": True,
+            "trace_path": "colreg-rule15-cs/trace_current.jsonl",
+            "report_path": "colreg-rule15-cs/report.json",
+            "png_path": "colreg-rule15-cs/trajectory_dashboard.png",
+            "run_id": "20260709_094036",
+        }],
+    }))
+    (trace / "summary.json").write_text(json.dumps({
+        "colreg-rule15-cs": {
+            "scenario_id": "colreg-rule15-cs",
+            "run_id": "20260709_094036",
+            "overall_pass": False,
+            "cpa_ok": True,
+            "stability_pass": True,
+            "returned_to_route": False,
+            "route_corridor_ok": True,
+            "compliance_verdict": "full",
+            "phase_semantics": {"phase_semantics_ok": True},
+            "domain_gates": {"risk_gate_ok": True, "seamanship_gate_ok": True},
+            "artifact_consistency": {"g_art_ok": True},
+        }
+    }))
+    (scenario_dir / "report.json").write_text(json.dumps({
+        "verdict": {"overall_pass": False},
+        "layers": {},
+        "kpis": {"min_cpa_m": 4483.3, "min_cpa_nm": 2.42},
+    }))
+    (scenario_dir / "m5_timeline.json").write_text(json.dumps({"events": []}))
+    (scenario_dir / "trajectory_dashboard.png").write_bytes(b"png")
+    (scenario_dir / "trajectory.png").write_bytes(b"png2")
+    (scenario_dir / "trace_current.jsonl").write_text(
+        json.dumps({"sim_t": 0.0, "topic": "/sil/own_ship_state", "lat": 63.0, "lon": 10.0}) + "\n"
+    )
+    return trace
+
+
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -204,6 +269,34 @@ def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     assert gates[("G-SEM", "batch_summary.phase_semantics.phase_semantics_ok")] == "FAIL"
     assert gates[("G-SEM", "batch_summary.compliance_verdict")] == "FAIL"
     assert gates[("G-ART", "artifact_consistency")] == "PASS"
+
+
+def test_ingest_session_supports_unified_run_folder(tmp_path):
+    repo = tmp_path / "repo"
+    session = _write_unified_fixture_run(repo)
+    root = EvidenceRootConfig(
+        root_id="primary-unified",
+        label="Primary unified",
+        source="background_probe",
+        path_glob=str(repo / "runs" / "*" / "trace"),
+        trusted=True,
+    )
+    conn = _conn()
+
+    result = ingest_session(conn, root, session)
+
+    assert result.session_id == "20260709_094036"
+    replay = query_replay(conn, result.evidence_id, "colreg-rule15-cs")
+    assert replay["session"]["session_id"] == "20260709_094036"
+    assert replay["session"]["source"] == "cli"
+    assert replay["session"]["suite"] == "fast"
+    assert replay["session"]["branch"] == "50a1681c1"
+    assert replay["session"]["scenario_count"] == 1
+    assert replay["scenario"]["overall_pass"] is False
+    artifacts = {(artifact["kind"], artifact["relative_path"]) for artifact in replay["artifacts"]}
+    assert ("summary", "summary.json") in artifacts
+    assert ("m5_timeline", "colreg-rule15-cs/m5_timeline.json") in artifacts
+    assert ("trajectory_dashboard_png", "colreg-rule15-cs/trajectory_dashboard.png") in artifacts
 
 
 def test_ingest_session_derives_target_position_from_m2_relative_measurements(tmp_path):

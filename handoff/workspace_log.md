@@ -2037,6 +2037,45 @@ python3 scripts/run_6_scenarios.py --profile gnc --restart-between-runs --sim-ra
 grep M5DIAG / docker logs … | parse fallback_reason — see scripts/analysis/parse_m6diag.py (M6; adapt for M5)
 ```
 
+---
+
+## [2026-07-13] Codex / Evidence Library lifecycle and table controls / commit d18bb29af
+
+### Task Goal
+
+Unify Screen 04 evidence indexing and deletion with `runs/<run_id>` storage,
+then modernize the simulation database table with compact, consistent controls.
+
+### Core Changes
+
+- Scan imports valid unified runs, prunes missing records, and hides stale rows.
+- Delete uses server-validated targets; unified runs delete `runs/<run_id>` and
+  legacy sessions remain constrained to trusted configured roots.
+- RTK Query handles successful and rejected delete/refetch races without stale
+  row resurrection or suppression of legal same-ID reconstruction.
+- Table uses continuous cross-page sequence numbers, whole-second timestamps,
+  numeric scenario counts, separate direction controls, and compact popover
+  filters for scenario count, mode, and source.
+
+### Current Status
+
+- Branch: `codex/evidence-library-replay-impl`
+- HEAD: `d18bb29af`
+- Frontend focused tests: 48 passed.
+- Backend evidence suites: 52 passed.
+- Production build: passed.
+- Browser evidence: `runs/e2e/evidence_library_table_controls_20260713_104130/`
+  with `result.json` reporting `ok: true` at 1920x1080.
+- Final adversarial review: Critical 0, Important 0, Minor 0.
+
+### Handoff Notes
+
+- Live frontend: `http://192.168.121.50:55763/#/evaluator`.
+- Existing build warnings remain for Foxglove `eval` use and the large Vite
+  output chunk.
+- Local OrbStack and A4000 acceptance were not run; required before promotion or
+  push under repository policy.
+
 **Key files:** `m5_tactical_planner/include/m5_tactical_planner/common/types.hpp` (`accept_tail_gate`, `trajectory_terminal_state_cpa_m`, :697 gate), `src/mid_mpc/mid_mpc_nlp_formulation.cpp` (NLP: :311 kIdxOwnPsi, :189 build_asym_cost_, :213 build_constraints_, :396 unpack_solution), `src/mid_mpc/mid_mpc_node.cpp` (:444 decel_max, :495 tail-gate call, :348 heading bounds).
 **Memory:** `l3-m6-rule13-fsm-blocks-rule14-release` (Bug D), `l3-m5-bugc-tailgate-nlp-quality` (Bug C tail-gate + NLP blocker), `l3-m5-restoration-failed-keystone` (J_colreg/J_vel spec).
 **Uncommitted:** only pre-existing scenario YAML regen + docs (not mine). My 2 commits are clean surgical M5/M6 changes.
@@ -3357,3 +3396,219 @@ SIL default profile 中 ship_dynamics 的 avoidance plan heading override 是临
 - src/sim_workbench/gnc_bridge/src/gnc_bridge_node.cpp (L3→GNC plan 转发)
 - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/ (NLP solver+node)
 ```
+
+---
+
+## [2026-07-13] Codex / Batch Delete Task 4 / implementation commit containing this entry
+
+### Task Goal
+Complete Evidence Library batch-delete confirmation, full-success close, partial-failure details, failed-only retry, busy-state locking, Task 3 filter-scope regression coverage, and non-destructive browser verification.
+
+### Core Changes
+- Branch: `codex/evidence-library-replay-impl`; baseline `d11c1e3d4`; earlier batch interfaces `f5e798531`, `9513239c1`, `d11c1e3d4`.
+- `EvidenceLibraryView.tsx`: added selected-session snapshot confirmation, pass/fail/unknown/worktree summary, permanent database/filesystem warning, batch mutation integration, partial result list, failed-only reselection/retry, request-failure state, focus trap/inert behavior, and delete-busy control locking.
+- `EvidenceLibraryView.test.tsx`: added Task 3 safe filtered-out row regression plus Task 4 complete-success, partial-failure, retry-only-failed, escaped error, and busy-control tests.
+- No API/backend files changed. `.agent/rules/superpowers.md` left untouched.
+
+### Verification
+- RED: focused Task 4 command failed 2/2 because batch action/dialog absent.
+- GREEN: focused Task 4 2/2; Task 3 review test 1/1; full `EvidenceLibraryView` 50/50.
+- Requested three-file frontend run: 56 passed, exactly six pre-existing unrelated `SimulationEvaluator` English/canvas failures retained.
+- `npm run build`: pass; existing Foxglove `eval` and large-chunk warnings only.
+- Backend Evidence Library suite: 59 passed in 22.64s.
+- Browser evidence: `runs/e2e/evidence_library_batch_delete_20260713_181544/`; 132 filtered failures selected across pagination; confirmation opened then canceled; zero batch-delete requests.
+
+### Current Status / Handoff Notes
+- Full report: `.superpowers/sdd/task-4-report.md`.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- Do not treat six `SimulationEvaluator` harness failures as Task 4 regressions; exact names recorded in report.
+
+---
+
+## [2026-07-13] Codex / Final Batch-Delete Review Fixes / `b439c342b`
+
+### Task Goal
+Close every Critical and Important final-review finding with recoverable backend deletion, explicit cleanup state, safe uncertain-response handling, canonical outcomes, immutable selection snapshots, and focused regressions.
+
+### Core Changes
+- Added same-parent filesystem staging, database-failure restoration, per-item sanitized continuation, and explicit post-commit cleanup state/path.
+- Added authoritative refresh plus rescan-required lock after rejected/lost batch responses; no blind destructive retry.
+- Unified multi-scenario outcome semantics; snapshotted selected IDs/outcomes/worktrees; rescan clears and locks selection; added cancel-selection and conditional select-all toolbar behavior.
+- Added malformed/missing body, database failure, cleanup failure, outcome, rescan/query snapshot, and toolbar tests.
+
+### Current Status
+- Implementation commit: `b439c342b` (`fix(evidence): harden batch deletion recovery`).
+- Backend Evidence Library suite: 66 passed.
+- Task-owned frontend suites: 59 passed. Frontend build passed.
+- Three-file frontend run: 62 passed; six unchanged pre-existing `SimulationEvaluator` text/canvas failures.
+
+### Handoff Notes
+- Full RED/GREEN evidence and residual risks: `.superpowers/sdd/task-4-report.md`.
+- Pending filesystem cleanup exposes exact `cleanup_path` for manual removal; no schema/idempotency ledger added.
+- Local OrbStack and A4000 gates still required before promotion/push.
+- `.agent/rules/superpowers.md` was pre-existing modified and remained untouched/uncommitted.
+
+---
+
+## [2026-07-13] Codex / `a0016cd91` / Close Remaining Batch-Delete Re-review Blockers
+
+### Task Goal
+Close all five blockers appended after `5744dc703`: authoritative zero-change
+scan reconciliation, complete unknown-state deletion lock, durable cleanup
+notices, deterministic crash-recovery mapping, and focused regressions.
+
+### Core Changes
+- Manual scan now awaits authoritative list refresh and clears unknown state only
+  after an error-free scan plus successful refresh; single and batch deletion
+  remain blocked while state is unknown.
+- Pending cleanup entries merge across single deletion and batch retries, expose
+  payload and metadata paths, and remain until explicit acknowledgement.
+- Same-parent staging now uses a deterministic hash and versioned atomic sidecar;
+  rescan restores interrupted pre-commit deletions without schema or daemon work.
+- Added focused frontend/backend regressions, including repeated process-exit
+  recovery. Tightened one asynchronous RTK assertion exposed by external review.
+
+### Current Status
+- Implementation commit: `a0016cd91` (`fix(evidence): close remaining deletion blockers`).
+- Backend Evidence Library suite: 67 passed.
+- Task-owned frontend suites: 64 passed. TypeScript/Vite build passed.
+- External uncommitted review: no actionable correctness defects.
+
+### Handoff Notes
+- Full RED/GREEN evidence: `.superpowers/sdd/task-4-report.md`.
+- Requested three-file frontend run: 67 passed; six unchanged pre-existing
+  `SimulationEvaluator.test.tsx` text/canvas failures.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and uncommitted.
+
+---
+
+## [2026-07-13] Codex / `7a17d192d` / Durable Deletion Recovery Closure
+
+### Task Goal
+Close all five final adversarial blockers after `973e87540`: safe retry before
+rescan, fail-closed config/path drift, restart-durable post-commit discovery,
+temporary-sidecar recovery, and reload-durable cleanup notices.
+
+### Core Changes
+- Added atomic central recovery records keyed by deterministic evidence/path
+  identity while retaining same-parent staged payloads.
+- Recovery now restores pre-commit stages on retry, protects IDs from pruning
+  during config/path drift, discovers post-commit payloads without surviving DB
+  rows, and handles final plus temporary metadata.
+- Added per-evidence and scan-coordination `flock` guards against duplicate
+  deletion/rescan races.
+- Persisted rescan-discovered cleanup notices in local storage until explicit
+  acknowledgement.
+- Added focused regressions for all requested crash, drift, retry, concurrency,
+  and reload paths.
+
+### Current Status
+- Implementation commit: `7a17d192d` (`fix(evidence): make deletion recovery restart durable`).
+- Backend Evidence Library coverage: 76 passed.
+- Task-owned frontend coverage: 65 passed. TypeScript/Vite build passed.
+- Final uncommitted adversarial review: no actionable correctness defects.
+
+### Handoff Notes
+- Full RED/GREEN commands and residual risks: `.superpowers/sdd/task-4-report.md`.
+- Manual cleanup remains explicit and fail-closed; no schema ledger or daemon.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+## [2026-07-13] Codex / `7cd508292` / Trusted Postcommit Recovery Closure
+
+### Task Goal
+Close final blockers after `612c631d1`: trusted-root and symlink-safe
+postcommit discovery, cleanup_pending lost-response reconciliation, and
+backend/worktree-scoped durable frontend notices.
+
+### Core Changes
+- Recovery paths must map to an enabled trusted root, then are inspected through
+  no-follow directory descriptors. Inode/anchor revalidation catches ancestor
+  replacement without writing through untrusted pathnames.
+- Postcommit staged payloads produce durable cleanup warnings but no scan error,
+  allowing authoritative unknown-state reconciliation.
+- Cleanup local-storage identity now canonically includes config home, evidence
+  database, and sorted root path/security fields.
+- Added out-of-root, symlink-before-validation, symlink-after-validation,
+  lost-response, reload, and configuration-isolation regressions.
+
+### Current Status
+- Implementation commit: `7cd508292` (`fix(evidence): harden postcommit recovery scope`).
+- Backend Evidence Library suite: 79 passed.
+- Owned frontend suite: 64 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands and residual risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Pending staged payload cleanup remains manual; no ledger, daemon, or automatic
+  destructive retry added.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+---
+
+## [2026-07-13] Codex / `be27ef4c9` / Cleanup Persistence Final Closure
+
+### Task Goal
+Close final blockers after `814919315`: fail-closed cleanup persistence identity,
+late-hydration acknowledgement safety, and complete operator cleanup paths.
+
+### Core Changes
+- Configuration identity HTTP, shape, and storage failures now lock destructive
+  calls; single and batch mutations await readiness, while manual scan can retry
+  initialization and persist discovered cleanup state.
+- Synchronous pending/acknowledgement tracking prevents delayed hydration from
+  resurrecting an acknowledged notice.
+- Backend recovery reports staged payload, retained root-local sidecar, and
+  central record; frontend renders and persists the complete path set.
+- Added focused HTTP failure, malformed response, exception, delayed hydration,
+  reload, and complete recovery-path regressions.
+
+### Current Status
+- Implementation commit: `be27ef4c9`
+  (`fix(evidence): fail closed until cleanup persistence is ready`).
+- Backend Evidence Library suite: 79 passed.
+- Owned frontend suite: 68 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands, output, changed files, and risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Pending filesystem cleanup remains manual; central recovery records support
+  rediscovery after reload.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+
+---
+
+## [2026-07-13] Codex / `7f571ef80` / Partial Cleanup Final Closure
+
+### Task Goal
+Close findings after `ea637bdf1`: partial postcommit sidecar discovery,
+runtime persistence fail-closed behavior, actionable recovery UX, and durable
+record schema validation.
+
+### Core Changes
+- Recovery keeps and reports central metadata when payload deletion completed
+  but the root-local sidecar survived a process exit.
+- Runtime local-storage write failures clear readiness, preserve in-memory
+  cleanup warnings, lock destructive controls, and recover through manual scan.
+- Single and batch dialogs distinguish persistence initialization failure from
+  request failure and describe the required close/scan/retry flow.
+- Persisted cleanup records and `cleanup_paths` are validated; malformed entries
+  are omitted and quarantined without reaching rendering.
+
+### Current Status
+- Implementation commit: `7f571ef80` (`fix(evidence): close cleanup recovery gaps`).
+- Backend Evidence Library suite: 80 passed.
+- Owned frontend suite: 72 passed. TypeScript/Vite build passed.
+- `git diff --check`: passed.
+
+### Handoff Notes
+- Full RED/GREEN commands, exact counts, and residual risks:
+  `.superpowers/sdd/task-4-report.md`.
+- Cleanup remains manual and central-record anchored; no schema ledger or daemon.
+- Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
+- `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.

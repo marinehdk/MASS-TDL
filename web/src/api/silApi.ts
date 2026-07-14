@@ -279,6 +279,9 @@ export interface EvidenceLibrarySession {
   worktree_name?: string | null;
   branch?: string | null;
   session_path: string;
+  deletion_allowed: boolean;
+  deletion_target: string | null;
+  deletion_error?: string | null;
   created_at?: string | null;
   ended_at?: string | null;
   status?: string | null;
@@ -295,6 +298,38 @@ export interface EvidenceLibrarySession {
 
 export interface EvidenceLibrarySessionsResponse {
   sessions: EvidenceLibrarySession[];
+}
+
+export interface EvidenceLibraryScanResult {
+  ingested: number;
+  pruned: number;
+  errors: Array<{ path: string; error: string }>;
+}
+
+export interface EvidenceLibraryDeleteResult {
+  evidence_id: string;
+  deleted_path: string;
+  filesystem_deleted: boolean;
+  filesystem_cleanup: 'completed' | 'not_needed' | 'pending';
+  cleanup_error?: string;
+  cleanup_path?: string;
+  cleanup_metadata_path?: string;
+  cleanup_paths?: string[];
+}
+
+export interface EvidenceLibraryBatchDeleteRequest {
+  evidence_ids: string[];
+}
+
+export type EvidenceLibraryBatchDeleteItem =
+  | (EvidenceLibraryDeleteResult & { status: 'deleted' })
+  | { evidence_id: string; status: 'failed'; error: string };
+
+export interface EvidenceLibraryBatchDeleteResult {
+  requested: number;
+  deleted: number;
+  failed: number;
+  results: EvidenceLibraryBatchDeleteItem[];
 }
 
 export interface EvidenceReplayTrajectoryPoint {
@@ -330,7 +365,10 @@ export interface EvidenceGateResult {
   source: string;
 }
 
-export type EvidenceReplaySession = Omit<EvidenceLibrarySession, 'scenario_ids'> & {
+export type EvidenceReplaySession = Omit<
+  EvidenceLibrarySession,
+  'scenario_ids' | 'deletion_allowed' | 'deletion_target' | 'deletion_error'
+> & {
   scenario_ids?: string[];
 };
 
@@ -461,13 +499,108 @@ export const silApi = createApi({
       providesTags: ['EvidenceLibrary'],
     }),
 
-    rescanEvidenceLibrary: builder.mutation<{ ingested: number; errors: Array<{ path: string; error: string }> }, { force?: boolean }>({
+    rescanEvidenceLibrary: builder.mutation<EvidenceLibraryScanResult, { force?: boolean }>({
       query: (body) => ({
         url: '/evidence-library/rescan',
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['EvidenceLibrary'],
+      invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
+    }),
+
+    deleteEvidenceLibrarySession: builder.mutation<EvidenceLibraryDeleteResult, string>({
+      query: (evidenceId) => ({
+        url: `/evidence-library/sessions/${encodeURIComponent(evidenceId)}`,
+        method: 'DELETE',
+      }),
+      async onQueryStarted(evidenceId, { dispatch, getState, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+        } catch {
+          // Rejected deletes leave the indexed-session cache unchanged.
+          return;
+        }
+
+        const runningListQuery = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (runningListQuery) {
+          runningListQuery.abort();
+          await runningListQuery;
+        }
+
+        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+          draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
+        }));
+        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+        const refresh = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (refresh) await refresh;
+
+        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select()(getState());
+        if (refreshed.isError && refreshed.data) {
+          // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
+          await dispatch(silApi.util.upsertQueryData(
+            'getEvidenceLibrarySessions',
+            undefined,
+            refreshed.data,
+          ));
+        }
+      },
+    }),
+
+    batchDeleteEvidenceLibrarySessions: builder.mutation<
+      EvidenceLibraryBatchDeleteResult,
+      EvidenceLibraryBatchDeleteRequest
+    >({
+      query: (body) => ({
+        url: '/evidence-library/sessions/batch-delete',
+        method: 'POST',
+        body,
+      }),
+      async onQueryStarted(_request, { dispatch, getState, queryFulfilled }) {
+        let result: EvidenceLibraryBatchDeleteResult;
+        try {
+          ({ data: result } = await queryFulfilled);
+        } catch {
+          // Response loss can hide a committed delete; reconcile from the authoritative list.
+          dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+          return;
+        }
+
+        const deletedIds = new Set(
+          result.results
+            .filter((item) => item.status === 'deleted')
+            .map((item) => item.evidence_id),
+        );
+        const runningListQuery = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (runningListQuery) {
+          runningListQuery.abort();
+          await runningListQuery;
+        }
+
+        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+          draft.sessions = draft.sessions.filter((session) => !deletedIds.has(session.evidence_id));
+        }));
+        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+        const refresh = dispatch(
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+        );
+        if (refresh) await refresh;
+
+        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select()(getState());
+        if (refreshed.isError && refreshed.data) {
+          // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
+          await dispatch(silApi.util.upsertQueryData(
+            'getEvidenceLibrarySessions',
+            undefined,
+            refreshed.data,
+          ));
+        }
+      },
     }),
 
     getEvidenceReplay: builder.query<EvidenceReplayResponse, { evidenceId: string; scenarioId: string }>({
@@ -662,6 +795,8 @@ export const {
   useFinalizeEvidenceSessionMutation,
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
+  useDeleteEvidenceLibrarySessionMutation,
+  useBatchDeleteEvidenceLibrarySessionsMutation,
   useGetEvidenceReplayQuery,
   useGetDecisionFrameQuery,
   useGetLastRunScoringQuery,
