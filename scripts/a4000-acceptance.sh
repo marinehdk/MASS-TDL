@@ -70,7 +70,7 @@ for R in $RATES_HEADLESS; do
          | grep -E "nominal ->" | tail -1)
   # line e.g.:  "    10x nominal -> 10.00x real  (100%)"
   meas=$(echo "$line" | grep -oE '[0-9]+\.[0-9]+x real' | grep -oE '[0-9]+\.[0-9]+')
-  pct=$(echo "$line"  | grep -oE '\([0-9]+%\)'         | grep -oE '[0-9]+')
+  pct=$(echo "$line"  | grep -oE '\([[:space:]]*[0-9]+%\)' | grep -oE '[0-9]+')
   if [[ -n "$meas" && -n "$pct" ]] && (( pct >= EFF_MIN )); then
     ok "${R}x -> ${meas}x  (eff ${pct}%)"
   else

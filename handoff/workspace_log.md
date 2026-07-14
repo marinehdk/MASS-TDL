@@ -3612,3 +3612,33 @@ record schema validation.
 - Cleanup remains manual and central-record anchored; no schema ledger or daemon.
 - Local OrbStack and A4000 acceptance remain promotion gates; no push performed.
 - `.agent/rules/superpowers.md` remains pre-existing modified, untouched, and unstaged.
+---
+
+## [2026-07-14] Codex / `cc096ffe3` / Evidence Library Promotion to `l3-tdl`
+
+### Task Goal
+Merge the Evidence Library replay/database management branch into the local
+`l3-tdl` integration line and prepare GitLab promotion.
+
+### Core Changes
+- Merged `codex/evidence-library-replay-impl` into
+  `codex/integration-20260714-evidence-library`.
+- Kept A4000 acceptance parsing robust when RTF percentage output contains
+  padded spaces.
+- Hardened the MVP consistency E2E timing guard so replay sampling waits for a
+  fresh run before checking the 250s avoidance window.
+
+### Current Status
+- Backend Evidence Library suite: 80 passed.
+- Owned frontend evaluator suite: 75 passed.
+- TypeScript/Vite production build passed.
+- A4000 REST health passed; headless RTF 1x/5x/10x measured 100%.
+- Full A4000 Playwright gate still fails at `A_turn` because current TDL
+  avoidance behavior does not turn in `colreg-rule14-ho`; user explicitly
+  waived this behavior gate for this promotion.
+
+### Handoff Notes
+- `scripts/a4000-acceptance.sh` and `web/e2e/mvp_consistency.spec.ts` have
+  promotion-gate robustness fixes on top of the merged feature branch.
+- Temporary `colregs-nlp-cpa-fix` containers were stopped to avoid ROS domain
+  contamination during verification.

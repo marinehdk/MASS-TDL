@@ -112,6 +112,13 @@ async function readHmiSample(page: Page): Promise<HmiSample> {
   return { wall: Date.now(), sim_t, hdg: hdg * 57.29577951308232 };
 }
 
+async function waitForFreshRunSimTime(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const t = (window as any).__TELEMETRY_STORE__?.getState?.()?.lifecycleStatus?.sim_time;
+    return typeof t === 'number' && t >= 0 && t < 30;
+  }, { timeout: 60_000, polling: 500 });
+}
+
 // Read backend trace snapshot via the SAME origin proxy the HMI uses.
 async function readBackendSample(req: APIRequestContext): Promise<BackendSample> {
   const res = await req.get('/api/v1/debug/snapshot');
@@ -162,6 +169,7 @@ test(`MVP consistency rate=${RATE} [${SCENARIO}]`, async ({ page, request }) => 
 
   // ===== Switch rate via the real button (same as a user click) =====
   await page.click(`[data-testid="rate-btn-${RATE}x"]`);
+  await waitForFreshRunSimTime(page);
   // Advance simulation to well PAST the expected avoidance time (200s sim per
   // scenario config) so A_turn samples during the active maneuver.
   const AVOIDANCE_SIM_SEC = 250;
@@ -298,6 +306,7 @@ test(`A_stateful warm-start rate=${RATE} [${SCENARIO}]`, async ({ page, request 
   await page.waitForURL(`**/#/monitor/${SCENARIO}`, { timeout: 120_000 });
 
   await page.click(`[data-testid="rate-btn-${RATE}x"]`);
+  await waitForFreshRunSimTime(page);
   await page.waitForFunction(
     (target) => {
       const t = (window as any).__TELEMETRY_STORE__?.getState?.()?.lifecycleStatus?.sim_time;
