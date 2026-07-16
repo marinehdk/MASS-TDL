@@ -43,19 +43,35 @@ constexpr int NSH = 1;  // one softened row (CPA, idxsh=[0])
 // x0: origin, heading east (psi=0), surge 5 m/s (matches base x0).
 constexpr double X0[NX] = {0.0, 0.0, 0.0, 5.0};
 
-// Per-scenario CPA target/radius (must match gen_slack.py SCENARIOS exactly).
+// Per-scenario CPA target/radius + heading box + seed heading-rate (must match
+// gen_slack.py SCENARIOS exactly). The box (psi_lb/psi_ub) is baked into the
+// generated solver, so it is carried here ONLY to shape a BOX-RESPECTING
+// warm-start seed (the seed psi must stay within [psi_lb, psi_ub] at every
+// stage, otherwise the first QP starts from a box-infeasible point).
 struct ScenarioSpec {
   const char* tag;
   double target_x;
   double target_y;
   double cpa_hard;
-  double psi_ref;     // for seed shaping
+  double psi_ref;     // cost reference (for reporting)
+  double psi_lb;      // heading box lower bound (baked into solver)
+  double psi_ub;      // heading box upper bound (baked into solver)
+  double seed_dpsi;   // stage-0 seed heading-rate (box-respecting mild turn)
 };
 
+// Scenario 1 (FEASIBLE): target (500,0), cpa_hard=100, wide box +-1.2.
+// Seed: hard north turn dpsi=+0.2 at stage 0 -> psi=1.0 (within +-1.2), hold.
 constexpr ScenarioSpec FEAS{
-    "feasible", 500.0, 0.0, 100.0, 0.3};
+    "feasible", 500.0, 0.0, 100.0, 0.3, -1.2, 1.2, 0.2};
+// Scenario 2 (INFEASIBLE -- FUTURE-VIOLATION, the production-correct sigma
+// trigger): target (100,20), cpa_hard=22, TIGHT box psi in [-0.02, 0.02]. Vessel
+// starts OUTSIDE the disc (stage-0 dist 102 > 22, g_cpa(0)=+9916 > 0) but the box
+// is tight enough that the best southward avoidance reaches only py ~ -1.5 at
+// stage 4 (dist 21.5 < 22, g_cpa=-22) -> HARD CPA genuinely infeasible. The
+// violation is small/localized (slack ~22-84) -> keeps the softened QP well-
+// conditioned. Seed: straight east dpsi=0 (the least-violating trajectory).
 constexpr ScenarioSpec INFEAS{
-    "infeasible", 30.0, 0.0, 100.0, 0.3};  // vessel starts inside CPA disc (prod radius)
+    "infeasible", 100.0, 20.0, 22.0, 0.0, -0.02, 0.02, 0.0};
 
 // Exact-penalty tolerances (do NOT widen to hide a non-zero feasible-slack).
 constexpr double FEAS_MAX_SLACK_TOL = 1.0e-4;   // scenario 1: xi_k < tol
@@ -159,23 +175,27 @@ int run_scenario(const ScenarioSpec& s, bool expect_feasible,
   ocp_nlp_constraints_model_set(cfg, dims, Api::get_in(capsule), 0, "ubx", x0);
 
   // ---- F1: warm-start seed (forward-propagated, non-zero, BOX-RESPECTING).
-  //      Turn hard north (dpsi=+0.2 for stage 0 -> psi -> 1.0 rad, within the
-  //      +-1.2 box of BOTH scenarios) then HOLD north. The seed steers AWAY
-  //      from an eastward target. Non-zero (F1: a zero seed yields an
-  //      ill-conditioned first QP). Mirrors subset_runner.cpp:64-78.
+  //      Per-scenario seed_dpsi at stage 0 (a mild north turn that steers AWAY
+  //      from an eastward target), then HOLD. The seed psi must stay within the
+  //      scenario's heading box [psi_lb, psi_ub] at every stage (the box is
+  //      baked into the generated solver, so a box-violating seed makes the
+  //      first QP start from an infeasible point). For scenario 1 (wide box
+  //      +-1.2) seed_dpsi=+0.2 -> psi=1.0; for scenario 2 (tight box +-0.08)
+  //      seed_dpsi=+0.016 -> psi=0.08 (box edge). Non-zero (F1: a zero seed
+  //      yields an ill-conditioned first QP). Mirrors subset_runner.cpp:64-78.
   //
-  //      NOTE: the slack "sl" is deliberately NOT warm-started. An earlier
-  //      attempt seeded sl to the CPA violation; that made the OUTPUT show a
-  //      non-zero slack but the solver still returned status 4 (first-QP HPIPM
-  //      error 3) with the trajectory unchanged -- i.e. the "relaxation" was
-  //      just the read-back of our own seed, not a solver-confirmed result.
-  //      Seeding sl would create a FALSE pass; we leave sl at 0 and let the
-  //      honest solver-confirmed check below detect the non-convergence. ----
+  //      NOTE: the slack "sl" is deliberately NOT warm-started by default.
+  //      Seeding sl to the CPA violation makes the OUTPUT show a non-zero
+  //      slack even when the solver returns the seed unchanged (status 4,
+  //      traj_delta=0) -- a FALSE pass. We leave sl at 0 and rely on the
+  //      honest solver_moved check below. The sl warm-start is used ONLY as a
+  //      last-resort fallback (SL_WARMSTART env) when HPIPM cannot iterate
+  //      from a zero-slack seed -- and even then solver_moved must still hold.
   double x_seed[NX] = {x0[0], x0[1], x0[2], x0[3]};
   for (int k = 0; k <= N; ++k) {
     ocp_nlp_out_set(cfg, dims, out, k, "x", x_seed);
     if (k < N) {
-      const double dpsi = (k == 0) ? 0.2 : 0.0;
+      const double dpsi = (k == 0) ? s.seed_dpsi : 0.0;
       double u_seed[NU] = {dpsi};
       ocp_nlp_out_set(cfg, dims, out, k, "u", u_seed);
       double px = x_seed[0], py = x_seed[1], psi = x_seed[2], u = x_seed[3];
@@ -184,6 +204,28 @@ int run_scenario(const ScenarioSpec& s, bool expect_feasible,
       x_seed[1] = py + u * DT * std::sin(psi);
       x_seed[2] = psi_new;
     }
+  }
+
+  // ---- Optional slack warm-start (LAST-RESORT fallback, off by default). ----
+  // HPIPM's interior-point QP can struggle to find a feasible interior for the
+  // softened QP when the seed violates the nonlinear h even at a single stage.
+  // Seeding sl to a small positive value at the CPA-violating stages gives the
+  // interior-point method a feasible slack starting point. This is ONLY a
+  // fallback: solver_moved must STILL hold (the solver must confirm the
+  // relaxation, not just read back the seed). Enabled via env SL_WARMSTART=1.
+  // The seed violation magnitude sets the sl hint (smallest relaxation that
+  // makes g_cpa + sl >= 0 at the violating stages).
+  const char* sl_ws_env = std::getenv("SL_WARMSTART");
+  const bool sl_warmstart = (sl_ws_env != nullptr && sl_ws_env[0] == '1');
+  if (sl_warmstart) {
+    for (int k = 0; k < N; ++k) {
+      double xk[NX] = {0, 0, 0, 0};
+      ocp_nlp_out_get(cfg, dims, out, k, "x", xk);
+      const double g = g_cpa_eval(xk[0], xk[1], s);
+      double sl_hint[NSH] = {g < 0.0 ? -g : 0.0};  // smallest sl s.t. g+sl>=0
+      ocp_nlp_out_set(cfg, dims, out, k, "sl", sl_hint);
+    }
+    std::printf("SLACK [%s]: sl warm-start hint ON (SL_WARMSTART=1)\n", s.tag);
   }
 
   // Snapshot the seed trajectory (px,py per stage) BEFORE solve so we can

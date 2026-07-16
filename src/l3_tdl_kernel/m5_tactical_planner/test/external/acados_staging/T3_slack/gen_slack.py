@@ -49,12 +49,15 @@ Both must hold for mapping (b) to be recommended.
     every reachable trajectory -> the softening MUST NOT engage. Assert
     max_k xi_k < tol (1e-4). This is exact-penalty: feasible => slack = 0.
 
-  Scenario 2 (INFEASIBLE): target (150, 0), cpa_hard=100, box psi in [-0.05,
-    0.05]. Vessel starts OUTSIDE the disc (dist 150 > 100) but the tight box
-    pins the heading near east -> the straight-ish path is forced THROUGH the
-    disc (exclusion zone x in [50,250] on y=0). There is no feasible trajectory
-    within the box -> the slack MUST relax. Assert some stage has xi_k > tol
-    (1e-3) AND the relaxed CPA g_cpa + xi_k >= -tol at that stage.
+  Scenario 2 (INFEASIBLE -- FUTURE-VIOLATION, the production-correct sigma
+  trigger): target (100, 20), cpa_hard=22, box psi in [-0.02, 0.02]. The vessel
+  starts OUTSIDE the CPA disc (stage-0 dist 102 > 22, g_cpa(0)=+9916 > 0 --
+  FEASIBLE START), but the box is tight enough that the vessel cannot turn south
+  far enough to clear the disc at stage 4 (best south avoidance reaches only
+  py ~ -1.5 -> dist 21.5 < 22, g_cpa=-22). The HARD CPA is genuinely infeasible,
+  yet the violation is small/localized (slack ~22-84) -> the softened QP stays
+  well-conditioned and SQP can iterate from the straight-east seed. Assert some
+  stage has xi_k > tol (1e-3) AND the relaxed CPA g_cpa + xi_k >= -tol there.
 
 The two scenarios share the SAME dynamics, SAME cost (NONLINEAR_LS tracking
 psi_ref + heading-rate), SAME Zl/zl; ONLY the target position and heading box
@@ -65,7 +68,7 @@ acatos bakes the heading box (lbx/ubx, stage-uniform) and the CPA target/radius
 (into con_h_expr) into the generated solver. They are NOT runtime-settable per
 solve. So scenario 1 and scenario 2 each need their OWN generated solver:
   m5_staging_slack_feas    (target 500,0; box +-1.2)
-  m5_staging_slack_infeas  (target 150,0; box +-0.05)
+  m5_staging_slack_infeas  (target 100,20; box +-0.02, cpa_hard=22)
 runner_slack.cpp links BOTH libs and runs the two scenarios sequentially.
 
 ====================  Mapping (a) -- sigma as a dummy control (RULED OUT)  ====================
@@ -131,21 +134,23 @@ W_DPSI = 1.0e0
 W_TRACK_PSI_E = 1.0e2
 
 # Scenario specs: (solver_name, target_x, target_y, cpa_hard, psi_lb, psi_ub,
-#                 psi_ref). The two scenarios share the SAME dynamics, SAME box
-#                 ([-1.2,1.2]), SAME cost, SAME Zl/zl; ONLY the target position
-#                 differs -- isolating the exact-penalty test to the CPA
-#                 feasibility change.
+#                 psi_ref). The two scenarios share the SAME dynamics, SAME cost
+#                 (NONLINEAR_LS tracking psi_ref + heading-rate), SAME Zl/zl.
+#                 The target position AND the heading box BOTH differ between
+#                 scenarios (acatos bakes both into the generated solver).
 #
-# Scenario 2 design note: the brief offers two routes for the infeasible case --
-# (1) a tight heading box, or (2) "target extremely close to x0". Route (1)
-# (box +-0.05) was tried first and caused a QP solver error (status 4) before
-# the slack could engage (the tight box + box-violating seed made the first QP
-# infeasible). Route (2) is cleaner: put the target close enough to x0 that the
-# vessel STARTS INSIDE the CPA disc (dist 30 < cpa_hard 100) -> CPA is
-# unambiguously infeasible at the early stages (the fixed initial state itself
-# violates g_cpa >= 0), and the slack MUST relax those stages. With a normal
-# box the vessel exits the disc by ~stage 6, so the slack is >0 early and ~0
-# late -- the cleanest exact-penalty demonstration (non-zero ONLY where needed).
+# Scenario 2 design note (FUTURE-VIOLATION -- the production-correct sigma
+# trigger): the vessel starts OUTSIDE the CPA disc (feasible at stage 0), but
+# the tight heading box psi in [-0.02, 0.02] makes it impossible to keep all
+# future stages out of the disc -- the best achievable southward avoidance
+# reaches only py ~ -1.5 at stage 4 (dist 21.5 < 22), so the disc is genuinely
+# unavoidable at stage 4. This is the production trigger (currently CPA-feasible
+# but cannot avoid a future CPA violation within maneuvering limits), NOT the
+# degenerate "start inside the disc" worst-case the prior implementation used
+# (which HPIPM could not solve -- the fixed initial state itself violated
+# g_cpa, so the interior-point QP found no feasible interior from the seed).
+# The violation is small/localized (slack ~24), keeping the softened QP well-
+# conditioned. See task-3-report.md.
 SCENARIOS = [
     {
         "solver": "m5_staging_slack_feas",
@@ -158,35 +163,43 @@ SCENARIOS = [
         "tag": "feasible",     # CPA satisfiable along every reachable traj
     },
     {
-        # Infeasible via TARGET INSIDE THE REACHABLE SET: target at (30,0),
-        # cpa_hard=100 (matches production CPA_SAFE=100 / T2). The vessel
-        # starts at the origin (dist 30 < 100) -> INSIDE the CPA disc, so
-        # g_cpa(x0) = 900 - 10000 = -9100 < 0. Because x0 is a hard equality
-        # (lbx0=ubx0=x0), stage 0 cannot satisfy g_cpa >= 0, and the early
-        # stages (vessel still near origin, 25m/step) also violate -- the
-        # vessel cannot exit a 100m disc in 1-2 stages. So CPA is genuinely
-        # infeasible at the early stages and the slack MUST relax them.
+        # Infeasible via FUTURE CPA VIOLATION (the production-correct sigma
+        # trigger): target (100, 20), cpa_hard=22, TIGHT heading box psi in
+        # [-0.02, 0.02]. The vessel starts OUTSIDE the CPA disc (stage-0 dist
+        # 102 > 22, g_cpa(0) = +9916 > 0 -- FEASIBLE START), but the box is
+        # tight enough that the vessel CANNOT turn south far enough to clear
+        # the disc at stage 4: the best achievable southward avoidance within
+        # the box reaches only py ~ -1.5 at stage 4 (dist 21.5 < 22, g_cpa=-22),
+        # so the HARD CPA is genuinely infeasible. This is the production
+        # trigger (currently CPA-feasible but cannot AVOID a future CPA
+        # violation within maneuvering limits), AND it is well-conditioned:
+        # the violation is small/localized (g_cpa ~ -22 at the tightest
+        # avoidance, -84 at the straight-east seed), so the slack needed is
+        # ~22-84 -- NOT the thousands that ill-conditioned HPIPM's interior-
+        # point QP in the prior deep-penetration attempts. The straight-east
+        # seed is the least-violating trajectory, so SQP has a well-conditioned
+        # linearization point.
         #
-        # FINDING (documented in task-3-report.md): with this construction the
-        # acatos QP (FULL_CONDENSING_HPIPM) returns HPIPM error 3 on the FIRST
-        # SQP iteration -- before the slack engages -- and the solver returns
-        # the seed unchanged (status 4). This QP failure is robust to zl
-        # (1..1000), Zu (0..Zl), condensing (FULL/PARTIAL), hessian
-        # (EXACT/GAUSS_NEWTON), and slack warm-start. The feasible scenario
-        # (target 500) converges cleanly (status 0) with slack ~= 2e-12,
-        # confirming exact-penalty on the feasible side. The infeasible-side
-        # relaxation could NOT be solver-confirmed in this spike -- see the
-        # report's BLOCKER analysis (candidate cause: HPIPM soft-constraint QP
-        # conditioning when the linearization point heavily violates the
-        # softened nonlinear h; P3 TBD-6 / a different QP solver may be
-        # needed).
+        # WHY THIS REPLACED the prior constructions:
+        #  - "target (30,0), cpa_hard=100, box +-1.2" started the vessel INSIDE
+        #    the disc (degenerate; HPIPM error 3, status 4, traj_delta=0).
+        #  - "target (75,5), cpa_hard=30, box +-0.08" had a feasible start but
+        #    DEEP future penetration (g_cpa=-899); the large slack (~900)
+        #    ill-conditioned HPIPM -> error 3, traj_delta=0.
+        #  - "target (100,20), cpa_hard=22, box +-0.1" had a feasible start and
+        #    solver iterated (status 0) but the box was too LOOSE -> the vessel
+        #    avoided by going south to py=-2 (CPA feasible, slack stayed ~0),
+        #    so it was NOT actually infeasible.
+        # The box must be tight enough (<= +-0.03) that the vessel cannot reach
+        # the clearance offset (py <= -2). +-0.02 is the well-conditioned
+        # genuinely-infeasible choice. See task-3-report.md for the result.
         "solver": "m5_staging_slack_infeas",
-        "target_x": 30.0,
-        "target_y": 0.0,
-        "cpa_hard": 100.0,
-        "psi_lb": -1.2,        # SAME wide box as scenario 1
-        "psi_ub": 1.2,
-        "psi_ref": 0.3,
+        "target_x": 100.0,
+        "target_y": 20.0,
+        "cpa_hard": 22.0,
+        "psi_lb": -0.02,       # TIGHT: best south avoidance only reaches py~-1.5 < 2
+        "psi_ub": 0.02,
+        "psi_ref": 0.0,        # straight-east cost (seed is least-violating)
         "tag": "infeasible",
     },
 ]
