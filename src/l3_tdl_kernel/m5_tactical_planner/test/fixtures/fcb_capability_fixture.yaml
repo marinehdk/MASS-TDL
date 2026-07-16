@@ -37,5 +37,5 @@ vessel:
     yaw_added_inertia_factor: 0.07
 
   nomoto:
-    T_s: 15.0
-    K_inv_s: 0.08
+    T_s: 6.0
+    K_s: 0.3

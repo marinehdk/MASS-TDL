@@ -63,8 +63,8 @@ class NomotoFallback {
 
  private:
   NomotoFallbackConfig cfg_;
-  double nomoto_T_s_;       // Nomoto time constant [s]
-  double nomoto_K_inv_s_;   // Nomoto rudder gain [1/s] (stored for future use)
+  double nomoto_T_s_;   // Nomoto time constant [s]
+  double nomoto_K_s_;   // Nomoto rudder gain K [1/s], Tṙ+r=Kδ (stored for future use)
 
   /// Forward-Euler integration of one heading branch (δ = 0, hold heading).
   /// Returns (n_steps + 1) positions starting from (x0_m, y0_m).

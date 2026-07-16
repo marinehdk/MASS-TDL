@@ -81,9 +81,9 @@ class CapabilityManifest {
     double yaw_added_inertia_factor{0.07};  // J_z / I_zz (typically 0.05–0.15)
 
     // --- Nomoto 1st-order model parameters (DEMO-2 fallback) ---
-    // [TBD-HAZID] nomoto_T_s, nomoto_K_inv_s: from zigzag trial or CFD.
-    double nomoto_T_s{15.0};
-    double nomoto_K_inv_s{0.08};
+    // Nomoto 1st-order model T·ṙ + r = K·δ ([TBD-HAZID] sea-trial calibration).
+    double nomoto_T_s{6.0};      // yaw time constant [s] (was 15.0; [R22] scaled-estimate mid)
+    double nomoto_K_s{0.3};      // rudder gain K [1/s] (renamed from K_inv_s; stores K itself)
   };
 
   // -------------------------------------------------------------------------

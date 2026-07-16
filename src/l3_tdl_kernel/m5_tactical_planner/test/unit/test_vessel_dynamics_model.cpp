@@ -341,6 +341,13 @@ TEST(CapabilityManifestTest, LoadFromYaml) {
   EXPECT_NEAR(manifest.service_speed_mps(),
               mass_l3::m5::units::kn_to_mps(18.0), 1.0e-6)
       << "service_speed_mps derived value must match kn_to_mps(18)";
+
+  // P0: Nomoto 字段重命名 K_inv_s -> K_s(存 K 本身),值 0.3;T_s 重估 6.0
+  // 断言解析值 == fixture 写入值(非 header 默认值),捕获 loader key 静默回退。
+  EXPECT_NEAR(cfg.nomoto_K_s, 0.3, 1.0e-9)
+      << "nomoto_K_s must load K itself (renamed from K_inv_s); value from fixture";
+  EXPECT_NEAR(cfg.nomoto_T_s, 6.0, 1.0e-9)
+      << "nomoto_T_s must be re-estimated to 6.0 (was 15.0); value from fixture";
 }
 
 // ===========================================================================
