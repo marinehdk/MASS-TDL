@@ -38,6 +38,31 @@ P1b-0 证明了 acatos 工具链 + M5 subset 的 4 个结构决策点(prefix equ
 - 但 VDM 自标"Simplified linear hull-force/rudder-force approximations,exact non-linear MMG awaits pool-test data [TBD-HAZID]"。
 - **故 VDM zigzag 辨识的 T,K 是"45m FCB 简化 MMG 的拟合值"** —— 比纯缩律估算([R22] 2x 误差)更可信(因 VDM 编码了几何+桨舵),但**不是真海试值**。海试后仍需标定(TBD-5 最终闭环)。
 
+## 关键设计变更(2026-07-16,P1b-1a T8 执行中发现)—— Path B 双积分器 dynamics
+
+> **本节覆盖原 VR-02 一阶 Nomoto 假设。T8 执行(2026-07-16)撞到真实物理墙,用户裁决(2026-07-16)采用 Path B:honest 双积分器 dynamics,不造 VDM 系数。下方所有 T6/T8/T9/P1b-1b/P1b-1c 条目以本节为准。**
+
+**发现(实测 + 双重独立复核确认)**:`VesselDynamicsModel::compute_accelerations()` 的偏航加速度 `dr/dt = (k_n_rudder·u²·δ)/izz_e`(`vessel_dynamics_model.cpp:52-59`)**没有 `N_r·r` 偏航阻尼项**(全仓 grep 确认 yaw-damping 仅此一处且无 r 依赖)。
+
+**后果**:VDM 偏航通道是**纯积分器**:`r(t)=r₀+∫c·δ dt`,`ψ(t)=ψ₀+∫r dt`(ψ 是 δ 的二重积分)——即**二阶系统**,一阶 Nomoto `Tṙ+r=Kδ` 结构上不可拟合。T8 实测最小二乘 `ṙ=a·δ+b·r` 得 `b≈-9.7e-4`(≈0)→ `T=-1/b≈1027s`(有效无穷),回代误差 35°(门 2°),`IDENT FAIL`。R²=0.97 不是好结果而是**确认 `ṙ≈a·δ`**(b·r≈0)的 integrator 指征。独立数值复核:60s 恒舵下 yaw rate 线性增长(前后半程增量 -0.1046 vs -0.1029 近等,非指数收敛),确认积分器。
+
+**裁决(用户,2026-07-16;GNC reviewer + 主代理双重复核背书):Path B** —— T6/T9 dynamics 改为 honest 双积分器 `ṙ=c(u)·δ, ψ̇=r`,`c(u)=k_n_rudder·u²/izz_e` 直接读 VDM 源码(不造系数)。T8 改为辨识 `c(u)` + 积分器线性度诊断。
+
+**为何选 Path B(否决 A/C)**:
+- Path A(给生产 VDM 加 `N_r·r`)BLOCK:触碰 `[TBD-HAZID]` 生产系数(无海试数据),等于 M5 自造水动力证据过自己的可执行性门,违反 doer-checker 独立性。仅作 T8 局部合成 plant 才可,label 为合成,非生产路径。
+- Path C(用 manifest DEMO-2 fallback T=6/K=0.3)违背本 spec 承诺"T,K 来自 VDM 辨识比缩律更可信"(§关键解释点),断言了 VDM 没有的阻尼时间尺度,诚实度差;仅作显式降级 label 才可。
+- Path B 不碰任何 `[TBD-HAZID]` 生产系数 / VDM 行 / manifest 值,只改 staging/生产 **OCP dynamics 表达**(P1b-1 合法产出),保物理诚实,仍达成 spec 核心意图("ψ,u 扁平决策变量 → 舵驱动航向 dynamics"的 physics 升级)。
+
+**对原 VR-02/TS-12 假设的偏差(须记录,路由 TDL Lead)**:VR-02/TS-12 假设一阶 Nomoto `Tṙ+r=Kδ`;生产 VDM 结构上是二阶双积分器。Path B 把 OCP 预测器定为双积分器,这是对 VR-02 的实测落地偏差,记录在此供后续裁决(真海试 TBD-5 给 VDM 补 `N_r` 阻尼后,可升级回真一阶 Nomoto)。
+
+**已知 gap(诚实)**:纯双积分器极点在 z=1(临界稳定),靠 ROT box `|r|≤rot_max` + 代价 + 终端约束保持 r 有界(标准 kinematic-bicycle OCP 处理方式)。缺真实偏航阻尼意味着命令对扰动敏感 —— 对 staging(T6/T9)与 benchmark(P1b-1c 行为等价 vs IPOPT)可接受;真 FCB 可执行性仍待 TBD-5 海试闭环。
+
+**T6/T8/T9 修订要点**(详见下方各节修订):
+- **T8**:从"拟合 T,K"改为"辨识速度相关增益 `c(u)=k_n_rudder·u²/izz_e` + 报积分器线性度诊断(60s 恒舵前后半程 r 增量比∈[0.95,1.05] 作 model-class 正向证据)"。`ident_runner.cpp` zigzag 仿真不变;`ident_nomoto.py`/`verify_nomoto.py` 改为 c(u) 估计 + 线性度门(去一阶回代 2° 门)。
+- **T6**:dynamics 从一阶 Nomoto 改双积分器 `disc_dyn_expr`: `r[k+1]=r[k]+dt·c(u)·δ[k]`,`ψ[k+1]=ψ[k]+dt·r[k]`,`px/py` 运动学积分。state x=[px,py,ψ,r](4),control u=[δ](1,surge 作 param)。forward-match 门 1e-9 仍适用且可达(多项式离散更新)。
+- **T9**:6 点合并的 dynamics 行改双积分器;其余(prefix/J_colreg/per-target ξ/bound schedule)不变。
+- **P1b-1c benchmark**:ψ 序列 max|Δ|<0.1 rad 容差须对**双积分器预测器**(非一阶 Nomoto)重新论证;两 physics 本不同仍成立。
+
 ## 架构
 
 ### 三阶段分解(方案 A)
@@ -92,34 +117,35 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 **架构升级(不重验 P1b-0 已验点)**:P1b-0 的 prefix equality(T1)、bound schedule(T4)参数激活因子在 Nomoto 双通道下同样适用(只作用于 h-row,与 dynamics 无关)。T6-T9 只验 2 新点 + 合并。
 
-### T6: Nomoto 变速 dynamics staging
-- **验证点**:Nomoto 离散 dynamics `r[k+1]=r[k]+dt·(K·δ[k]-r[k])/T`,`ψ[k+1]=ψ[k]+dt·r[k]`,`px/py` 运动学积分,控制 u=[δ,n] 双通道能否映射到 acatos `disc_dyn_expr`,且变速下 SQP 收敛。
-- **场景**:舵角阶跃(±10°)+ 变速(加减速)。
-- **断言**:dynamics 数值正确(forward 模拟 vs acatos 积分一致 < 1e-9)+ 求解收敛 + ROT `|r|≤rot_max`/舵角 box 满足。
+### T6: 双积分器 heading dynamics staging(Path B 修订,2026-07-16)
+- **验证点**:honest 双积分器 dynamics `r[k+1]=r[k]+dt·c(u)·δ[k]`,`ψ[k+1]=ψ[k]+dt·r[k]`,`px[k+1]=px[k]+u·dt·cos(ψ[k])`,`py[k+1]=py[k]+u·dt·sin(ψ[k])`(c(u)=k_n_rudder·u²/izz_e,从 T8 辨识或 VDM 源码直读)能否映射到 acatos `disc_dyn_expr`,且 SQP 收敛。state x=[px,py,ψ,r](4),control u=[δ](1,surge 恒定作 stage param)。**不是一阶 Nomoto**(见上方 Path B 变更节)。
+- **场景**:舵角阶跃(±10°),surge 恒定 u0。
+- **断言**:dynamics 数值正确(forward 模拟 vs acatos 积分一致 < 1e-9,多项式离散更新可达)+ 求解收敛或 status 4(F5)+ ROT `|r|≤rot_max`/舵角 box 满足。**风险(诚实)**:纯积分器极点 z=1,临界稳定,靠 ROT box 保 r 有界;须在 T6 显式 stress-test 大 rot_max 激活下 SQP 收敛。
 
 ### T7: per-target per-step ξ 高维 slack staging
 - **验证点**:从 P1b-0 单标量 σ(idxsh=[0])升级到 per-target per-step ξ(每 target 每 stage 一个 slack,Nt×N 维)。acatos `idxsh` 软化多行 h + `Zl/zl` 混合 L1/L2(线性 ρ 保精确性 + 二次 w 保 Hessian 正定,TBD-6 VR-TBD6 选项 B)。
 - **场景**:2 target,各自 CPA 独立软化。
 - **断言**:per-target ξ 独立精确性(可行 ≈0,不可行 >0 松弛各自 CPA)+ 混合 L1/L2 penalty `ρ·ξ+½w·ξ²` 数值正确。
 
-### T8: Nomoto 参数 VDM zigzag 辨识
-- **验证点**:对仓库内 45m FCB 的 `VesselDynamicsModel`(4-DOF MMG)跑 10/10 + 20/20 zigzag 仿真 → 最小二乘拟合 Nomoto T, K。
-- **产出**:T, K + 无量纲 T', K' + 回代误差 + IMO MSC.137(76)指标(一超调 ≤10-20°/≤25°)。
-- **精度标注**:"简化 MMG 拟合值",海试后标定(TBD-5 闭环)。T,K 用于 T6/T9/T9b 的 acatos dynamics。
+### T8: VDM zigzag 辨识 → c(u) 增益 + 积分器 model-class 诊断(Path B 修订,2026-07-16)
+- **验证点**:对仓库内 45m FCB 的 `VesselDynamicsModel`(4-DOF MMG)跑 10/10 + 20/20 zigzag 仿真 → 估计速度相关偏航增益 `c(u)=k_n_rudder·u²/izz_e` 并**诊断 VDM 偏航是积分器(二阶)而非一阶 Nomoto**(model-class 正向证据)。
+- **产出**:`c_u`(在 cruise u 下,rad/s² per rad 舵) + 积分器线性度指标(60s 恒舵前后半程 r 增量比) + IMO MSC.137(76) 参考(一超调,仅参考不门)。
+- **门**:积分器线性度正向证据(前后半程 r 增量比 ∈ [0.95, 1.05],确认 `ṙ≈a·δ` 积分器结构)。**不再有一阶 Nomoto 回代 2° 门**(那是 Path B 取代掉的)。`c_u` 用于 T6/T9 双积分器 dynamics 的 `c(u)` 项。
+- **精度标注**:"VDM 直读的偏航增益,无造系数;真偏航阻尼 N_r 待 TBD-5 海试给 VDM 补后可升级回一阶 Nomoto"。
 
 ### T9: 6 点合并共存
-- **验证点**:Nomoto 双通道 dynamics + prefix(T1)+ J_colreg(T2)+ per-target ξ(T7)+ bound schedule(T4)全共存一个 acatos OCP。
-- **断言**:6 点共存求解收敛 + 全约束正确。
+- **验证点**:**双积分器 dynamics**(Path B,T6)+ prefix(T1)+ J_colreg(T2)+ per-target ξ(T7)+ bound schedule(T4)全共存一个 acatos OCP。
+- **断言**:6 点共存求解收敛或 status 4(F5)+ 全约束正确。
 
 ## P1b-1b: 生产 backend(MidMpcAcadosSolver)
 
 ### 决策变量映射(IPOPT 扁平 → acatos staged)
 - IPOPT:`x = vertcat(psi_[N], u_[N], [sigma])` 扁平 + 位置前向积分(无状态)。
-- acatos:状态 x=[px,py,ψ,r](4),控制 u=[δ,n](2),Nomoto dynamics 推进。psi/u 序列从 acatos 状态/控制轨迹 per-stage 重构。
+- acatos:状态 x=[px,py,ψ,r](4),控制 u=[δ,n](2),**双积分器 dynamics(Path B)**`ṙ=c(u)·δ, ψ̇=r` 推进(c(u)=k_n_rudder·u²/izz_e,VDM 直读,非 Nomoto T/K)。psi/u 序列从 acatos 状态/控制轨迹 per-stage 重构。
 - 这是最大的映射工作:扁平决策变量 → staged 状态/控制。
 
 ### 142 参数 per-stage 分区
-- stage-uniform 量(route frame, cpa_safe, weights, Nomoto T/K, rot_max)作全局 p。
+- stage-uniform 量(route frame, cpa_safe, weights, **偏航增益 c(u)**(Path B,替代 Nomoto T/K)、rot_max)作全局 p。
 - stage-varying 量(prefix psi/u 序列、target drift、disc_k、activation 因子 pact/cpa_act)作 per-stage p,用生成的 `<name>_acados_update_params(capsule, stage, vals, NP)`(P1b-0 验证的 C API,非 `ocp_nlp_in_set "p"`)。
 
 ### 6 cost 全迁移
@@ -134,23 +160,23 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 ### 输出契约(与 IPOPT 一致)
 - 同输入 `MidMpcInput` + 142 参数 → 同输出契约字段(psi 航向序列、u surge 速度序列、cost、status、CPA/box 满足标志)。
-- acatos backend 内部状态/控制是 x=[px,py,ψ,r]/u=[δ,n],但**输出时重构为 IPOPT 契约字段**(从 acatos 状态轨迹取 ψ 序列;从 δ/n 控制 + Nomoto dynamics 重构 surge u 序列;ROT r 作为附加诊断字段)。下游(M4/L4)收到的字段与 IPOPT 一致,无感知 backend 切换。
+- acatos backend 内部状态/控制是 x=[px,py,ψ,r]/u=[δ,n],但**输出时重构为 IPOPT 契约字段**(从 acatos 状态轨迹取 ψ 序列;从 δ/n 控制 + 双积分器 dynamics 重构 surge u 序列;ROT r 作为附加诊断字段)。下游(M4/L4)收到的字段与 IPOPT 一致,无感知 backend 切换。
 
 ## P1b-1c: Rule14 HO benchmark
 
 - **场景**:标准 head-on Rule14(两船对遇,本船 give-way 让路)。可扩 2-3 变体(不同速度比/接近角)。
-- **对比**:`M5_USE_ACADOS=OFF`(IPOPT 运动学)vs `=ON`(acatos Nomoto),同 MidMpcInput。
+- **对比**:`M5_USE_ACADOS=OFF`(IPOPT 运动学)vs `=ON`(acatos **双积分器 Path B**),同 MidMpcInput。
 - **判据(轨迹级行为等价 + 物理更优)**:
   1. 避让决策一致(都 starboard turn / 都 give-way)
   2. CPA-feasible 一致(都满足 CPA ≥ cpa_safe)
-  3. 轨迹形状一致(psi 序列 max|Δ| < 0.1 rad;不要求 bit-close,两 physics 不同)
+  3. 轨迹形状一致(psi 序列 max|Δ| < 0.1 rad;不要求 bit-close,两 physics 不同 —— **Path B 修订:此容差须对双积分器预测器(非一阶 Nomoto)重新论证;T6 stress-test 收敛后再定**)
   4. IMO MSC.137(76)回转指标对齐(advance ≤ 4.5L,tactical dia ≤ 5L)
   5. 实时性:acatos 单次 solve ≤ 求解预算(vs IPOPT 3s)
   6. cost 数值报告(参考,非硬门)
 
 ## 验收门(promotable 进 l3-tdl)
 
-- **staging 门(P1b-1a)**:T6 Nomoto dynamics 可扩 / T7 per-target ξ 可扩 / T8 Nomoto 参数辨识完成 / T9 6 点合并共存。
+- **staging 门(P1b-1a)**:T6 双积分器 dynamics 可扩(Path B)/ T7 per-target ξ 可扩 / T8 c(u) 辨识 + 积分器 model-class 诊断完成(Path B)/ T9 6 点合并共存。
 - **backend 门(P1b-1b)**:生产 acatos backend 标准场景求解收敛 + 输出契约匹配 + 142 参数正确 pack。
 - **benchmark 门(P1b-1c)**:Rule14 HO 6 条判据全过。
 - **回归门**:IPOPT 路径无回归(M5_USE_ACADOS=OFF colcon 与基线一致)+ acatos 路径新测试全绿。
@@ -160,10 +186,11 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 - 某 task/scenario 不可达即**停**,记录阻塞点,**不强行绕过、不 mock、不 forced-pass、不为过测试调阈值**。
 - 按阻塞性质分类回炉:
-  - Nomoto dynamics 病态 → 查 T/K 辨识质量、离散化稳定性、warm-start(TBD-5 参数)
+  - **Path B 已落地**(2026-07-16):原 "一阶 Nomoto 辨识失败" 阻塞已由 Path B 双积分器 dynamics 解决(去 T→∞ 病态);双积分器本身的临界稳定(极点 z=1)靠 ROT box 保 r 有界,T6 须显式 stress-test。
+  - 双积分器 dynamics 数值病态(若 T6 SQP 不收敛)→ 查 c(u) 辨识值、离散化稳定性、warm-start、ROT box 是否够紧(TBD-5 真 N_r 补后可升级一阶)
   - per-target ξ staging 不可扩 → 回 P3 TBD-6(降级或外层 σ)
   - QP solver(HPIPM error 3)→ 评估装 qpOASES(active-set)
-  - Rule14 HO 超容差 → 先查是否 physics 差异(Nomoto vs 运动学本就不同)还是 bug
+  - Rule14 HO 超容差 → 先查是否 physics 差异(双积分器 vs 运动学本就不同)还是 bug
 - **IPOPT 路径始终在**(M5_USE_ACADOS 默认 OFF),生产不受任何阻塞影响。
 
 ## 沿用配置(P1b-0 F1-F5 + staging 发现)
