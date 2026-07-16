@@ -3888,3 +3888,38 @@ Continue from branch codex/m5-design-grounding at HEAD 3847cee03, worktree .work
 - **下一对话**:brainstorm P1b spec(完整 NLP 迁移 + Rule14 HO benchmark),基于 P1a F1-F5 映射阻抗/工具链事实。
 
 **关键文件**:P1a spec `docs/superpowers/specs/2026-07-16-m5-p1a-acados-feasibility-spike-design.md` / P1a plan `docs/superpowers/plans/2026-07-16-m5-p1a-acados-feasibility-spike.md`。spike 代码 `src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_smoke/` + `acados_m5_subset/`。
+
+---
+
+## [2026-07-16] ZCode / codex/m5-design-grounding @ a2db064b1 / P1b 重新分阶段 + P1b-0 staging spike spec+plan / 不执行,留后续对话
+
+### Task Goal
+P1a 通过后,brainstorm P1b。基于 P1a F1-F5 + migration reference 探索,发现现有 NLP 是 flat lumped(无 dynamics/lumped cost/全局 σ/bound schedule),与 acados staged 有 4 个结构决策点。重新分阶段 P1b:P1b-0(staging 扩展 spike)→ P1b-1(全量等价迁移)→ P1b-2(增强)。本对话产出 P1b-0 spec+plan,不执行。
+
+### Core Changes(全部 untracked docs,本次 commit)
+- **P1b 重新分阶段**(用户决策): P1b-0 staging spike → P1b-1 全量 → P1b-2 增强
+- **P1b-0 spec**: `docs/superpowers/specs/2026-07-16-m5-p1b0-acados-staging-spike-design.md` — 在 P1a subset 基础上 4 task 各验证一个复杂度点(prefix equality / J_colreg per-stage EXTERNAL / 全局 σ slack 三映射 / bound schedule per-stage)+ T5 合并。用户审通过。
+- **P1b-0 plan**: `docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md` — 7 task(T0 common + T1-T5 + T6 验收),TDD,沿用 P1a F1-F5。
+
+### 4 个结构决策点(migration reference 探索暴露)
+1. prefix equality(每 cycle K 变)— T1
+2. J_colreg 完整 per-stage EXTERNAL(lumped→staged 数值等价)— T2
+3. 全局 σ slack 映射三选一(exact-penalty)— T3
+4. bound schedule per-stage lb/ub(每 cycle 变)— T4
+位置状态引入决策:用户选"先扩 spike 验证 staging"(非直接全量)。
+
+### Current Status
+- P0 + P1a 已执行(commit a2db064b1,P1a 6/6 通过 + F1-F5)
+- P1b-0 spec+plan 已产出(本次 commit),**不执行**(用户要求执行留后续新对话)
+- 待执行:P1b-0 plan → P1b-1 spec(基于 P1b-0 staging 结果)→ ...
+
+### Handoff Notes
+**下一对话**:执行 P1b-0 plan(`docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md`,7 task)。执行提示词已随本次产出给用户。
+
+**关键**:P1b-0 是 spike(可行性验证),失败即停 + 回炉评估 P1b-1 策略。4 个结构决策点的 staging 可扩性是 P1b-1 全量 spec 的前置信心门。
+
+**关键文件**:
+- P1b-0 spec: `docs/superpowers/specs/2026-07-16-m5-p1b0-acados-staging-spike-design.md`
+- P1b-0 plan: `docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md`
+- P1a 起点(模板): `test/external/acados_m5_subset/{gen_m5_subset.py, subset_runner.cpp}`
+- P1a F1-F5 记录: handoff (2026-07-16 P1a 条目)
