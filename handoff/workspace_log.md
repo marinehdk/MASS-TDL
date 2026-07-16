@@ -3923,3 +3923,59 @@ P1a 通过后,brainstorm P1b。基于 P1a F1-F5 + migration reference 探索,发
 - P1b-0 plan: `docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md`
 - P1a 起点(模板): `test/external/acados_m5_subset/{gen_m5_subset.py, subset_runner.cpp}`
 - P1a F1-F5 记录: handoff (2026-07-16 P1a 条目)
+
+---
+
+## [2026-07-16] ZCode / codex/m5-design-grounding @ 02ce2bec0 / P1b-0 acados staging spike 执行 → PASS(7/7 验收门) / 可进 P1b-1
+
+### Task Goal
+执行 P1b-0 plan(`docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md`,7 task)。在 P1a subset(已验证)基础上逐步加 4 个真实复杂度点,每个验证 acados staging 可扩,最后合并验证共存。给 P1b-1 全量迁移前置信心门。
+
+### Core Changes(8 commit,5a4998725..02ce2bec0)
+全部新增,全部在 `src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_staging/` 独立目录。**未碰生产 NLP**(`mid_mpc_nlp_formulation.cpp`/`solver.cpp` 零改动,IPOPT 路径保留)。
+- T0 `common.py`(`build_base_ocp`+`forward_seed`,从 P1a 提取)+ `run_all.sh`
+- T1 `T1_prefix/` prefix equality staging — **WINNER: 参数激活** `h_prefix=pact*(psi-ppsi)`
+- T2 `T2_colreg/` J_colreg per-stage EXTERNAL — **数值等价 1.1e-16**(机器精度)
+- T3 `T3_slack/` 全局 σ slack — **WINNER: (b) idxsh/Zl/zl**,exact-penalty 双场景确认
+- T4 `T4_bounds/` bound schedule — per-stage 激活因子 + OR-composition,status 0
+- T5 `T5_merged/` 4 点合并共存 — **PASS**,4 点正交共存
+
+### 关键 staging 发现(P1b-1 必读)
+1. **acados `lh/uh`/`lbx/ubx`/`idxsh`/`Zl/zl` 全是 stage-UNIFORM**(按 h-row 索引,非按 stage)。**唯一 per-stage 杠杆是参数向量 `p`**。→ per-stage 硬/软切换(prefix equality / bound schedule)必须用**参数激活因子**(T1/T4: `pact*(...)`,k<K=1 绑定,k≥K=0 行恒零释放)。
+2. **T2 CRITICAL**:acados 默认 `cost_scaling=[DT,...,DT,1]`(连续时间积分惯例)会 silently 把 per-stage EXTERNAL cost ×DT → 离散求和的 J_colreg 必须 `cost_scaling=ones(N+1)`,否则 total 偏 ×5(=DT)。首跑 ratio 正好 5.0×,根因即此。
+3. **C-API**:per-stage p 用**生成的** `<name>_acados_update_params(capsule, stage, vals, NP)`,非 `ocp_nlp_in_set "p"`(后者返回 "field p not available")。
+4. **T3 σ 触发条件**:σ 在 **FUTURE-violation**(当前可行但未来阶段不可避免进 CPA disc)时激活,非"起点在 disc 内"(后者 HPIPM 内点法无法从不可行种子迭代,error 3)。exact-penalty:feasible 时 σ≈0(2e-12),infeasible 时 σ>0 松弛(g_cpa+σ≥0)。
+5. **T5 正交性**:同一 CPA h-row 同时挂 idxsh slack(P3)+ cpa_act 激活(P4)——k<cpa_hard_from_k cpa_act=0 行恒零 slack 平凡为 0;k≥cpa_act=1 hard + exact-penalty slack。两者不冲突。
+6. **status 4 容忍(F5)**:全 task 在 CPA-active 起点报 status 4(HPIPM QP error 3,SQP refinement 期)——鲁棒性/容差项,**非映射失败**。以约束满足判 PASS。T4 曾达 status 0(全收敛)。
+
+### Current Status — SPIKE PASS
+- **7/7 验收门全过**:
+  1. T1 prefix staging 可扩 ✓
+  2. T2 J_colreg EXTERNAL 数值等价(<1e-6)✓
+  3. T3 σ slack 推荐 mapping + exact-penalty ✓
+  4. T4 bound schedule per-stage + OR-composition ✓
+  5. T5 4 点合并共存 ✓
+  6. P1a smoke/subset + IPOPT 无回归 ✓(smoke status 0,subset PASS;colcon 8 fail 全是 pre-existing COLREGs/direction/terminal/route-cost 族,acados 无关,P1b-0 生产 src 零改动;acados_staging 不在 CMakeLists)
+  7. staging 可扩结论:4 点全过 → **可进 P1b-1** ✓
+- `run_all.sh` 顺序跑 T1→T5 终态 `ALL PASS: staging scalable, P1b-1 全量 spec 可写`
+
+### Handoff Notes
+**下一对话**:brainstorm P1b-1 spec(全量等价迁移)。基于 P1b-0 推荐配置:
+- prefix equality = T1 参数激活(`pact*(psi-ppsi)`)
+- J_colreg/per-stage cost = T2 EXTERNAL + **`cost_scaling=ones`**
+- 全局 σ = T3 idxsh/Zl/zl(exact-penalty)
+- bound schedule = T4 参数激活(cpa_act)
+P1b-1 范围:142 参数 per-stage 分区 + 全 cost 项(J_route/dist/vel/asym/terminal)+ 全约束类 + 生产 mid_mpc_solver feature flag 切换 + Rule14 HO benchmark 等价性。
+
+**P1b-1 前置 spike 项(建议先补)**:
+- T5 merged 只验了 σ feasible 方向(σ≈0);P1b-1 应加 merged infeasible-σ 场景(σ>0 在 k≥3 + P4 + P2 共存验证)。
+- 容器内仅 HPIPM(无 qpoases/osqp .so,只有 headers);更深 infeasible-CPA 违反可能需 active-set QP。P1b-1 评估是否装 qpOASES。
+- P3 TBD-6 per-target per-step ξ 混合 L1/L2(本 spike 只验单标量 σ 等价;per-target 升级是 P1b-2/P3)。
+
+**关键文件**:
+- P1b-0 spike 代码:`src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_staging/{common.py, T1_prefix/, T2_colreg/, T3_slack/, T4_bounds/, T5_merged/, run_all.sh}`
+- P1b-0 spec:`docs/superpowers/specs/2026-07-16-m5-p1b0-acados-staging-spike-design.md`
+- P1b-0 plan:`docs/superpowers/plans/2026-07-16-m5-p1b0-acados-staging-spike.md`
+- SDD ledger:`.superpowers/sdd/progress.md`(gitignored,本机)
+
+**容器清理**:`codex-acados-staging` project 无常驻容器(run --rm);镜像复用 P1a 的 sil-nodes。无需额外清理。
