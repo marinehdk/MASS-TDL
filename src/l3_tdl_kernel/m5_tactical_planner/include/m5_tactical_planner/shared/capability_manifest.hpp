@@ -36,13 +36,13 @@ class CapabilityManifest {
     std::string vessel_class; // e.g. "fast-crew-boat"
 
     // --- Geometry [m] ---
-    double length_m{28.0};   // LOA
-    double beam_m{6.5};
-    double draft_m{1.4};
+    double length_m{45.0};   // LOA (LBP 44.1); [R22] FCB datasheet
+    double beam_m{8.0};      // [R22] FCB datasheet
+    double draft_m{1.55};    // [R22] build spec
 
     // --- Inertia ---
     // [TBD-HAZID] mass_kg: from inclining experiment / loading computer
-    double mass_kg{95000.0};
+    double mass_kg{145000.0};  // displacement mid (130-160T range); [TBD-HAZID] inclining
 
     // --- Maneuvering (MMG Yasukawa 2015 [R7]) ---
     // [TBD-HAZID] rot_max_at_18kn_rad_s: from IMO turning circle trial

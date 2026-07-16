@@ -348,6 +348,17 @@ TEST(CapabilityManifestTest, LoadFromYaml) {
       << "nomoto_K_s must load K itself (renamed from K_inv_s); value from fixture";
   EXPECT_NEAR(cfg.nomoto_T_s, 6.0, 1.0e-9)
       << "nomoto_T_s must be re-estimated to 6.0 (was 15.0); value from fixture";
+
+  // P0: 几何参数修正为实际 FCB(45m LOA / 8.0m beam / 1.55m draft / ~145t)
+  // 断言解析值 == fixture 写入值(非 header 默认值),捕获 loader 静默回退。
+  EXPECT_NEAR(cfg.length_m, 45.0, 1.0e-9)
+      << "length_m must match fixture (corrected to FCB LOA 45m)";
+  EXPECT_NEAR(cfg.beam_m, 8.0, 1.0e-9)
+      << "beam_m must match fixture (corrected to FCB beam 8.0m)";
+  EXPECT_NEAR(cfg.draft_m, 1.55, 1.0e-9)
+      << "draft_m must match fixture (corrected to FCB draft 1.55m)";
+  EXPECT_NEAR(cfg.mass_kg, 145000.0, 1.0e-9)
+      << "mass_kg must match fixture (corrected to FCB displacement mid 145t)";
 }
 
 // ===========================================================================
