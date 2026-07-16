@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# P1b-1a T8 -- orchestrate Nomoto T,K identification (compile -> run -> fit -> verify).
+# P1b-1a T8 -- orchestrate c(u) yaw-gain + integrator model-class identification
+# (Path B: compile -> VDM zigzag sim -> c(u) fit -> verify).
 #
 # NOT production code. test/external staging spike only.
 #
@@ -80,12 +81,12 @@ echo "=== [2/4] VDM zigzag simulation -> zigzag.csv ==="
 ( cd "$WORKTREE_ROOT" && "$OLDPWD/ident_runner" "$FIXTURE" ) > zigzag.csv
 echo "zigzag.csv: $(wc -l < zigzag.csv) lines"
 
-# ------------------------------------------------------- [3/4] Nomoto fit
-echo "=== [3/4] Nomoto T,K least-squares fit ==="
+# ------------------------------------------------------- [3/4] c(u) fit
+echo "=== [3/4] c(u) yaw-gain + integrator model-class fit ==="
 python3 ident_nomoto.py zigzag.csv nomoto_params.json
 echo "--- nomoto_params.json ---"
 cat nomoto_params.json
 
-# ---------------------------------------------------- [4/4] verify (gate)
-echo "=== [4/4] verification (reprojection + IMO reference) ==="
+# --------------------------------------------- [4/4] verify (forward-match)
+echo "=== [4/4] verification (double-integrator forward-match + linearity gate) ==="
 python3 verify_nomoto.py nomoto_params.json zigzag.csv
