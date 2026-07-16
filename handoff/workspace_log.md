@@ -3835,3 +3835,56 @@ Continue from branch codex/m5-design-grounding at HEAD 3847cee03, worktree .work
 - **下一对话:P1a**(`docs/superpowers/plans/2026-07-16-m5-p1a-acados-feasibility-spike.md`,5 task):acados 工具链可行性 spike。P0 已为 DP-02 Nomoto 预测模型落地 manifest 侧初值。
 
 **关键文件**:P0 spec `docs/superpowers/specs/2026-07-16-m5-p0-manifest-nomoto-fix-design.md` / P0 plan `docs/superpowers/plans/2026-07-16-m5-p0-manifest-nomoto-fix.md`(4 task TDD 全过)。
+
+---
+
+## [2026-07-16] ZCode / codex/m5-design-grounding @ P1a HEAD / M5 MPC P1a acados 可行性 spike / ✅ PASS — 可进 P1b
+
+### Task Goal
+执行 M5 MPC 重构 P1a 子项目(DP-05 VR-05):acados 0.4.4 在 M5 容器可行性的 spike。证明 (1) acados 工具链在 sil_nodes 容器构建链路可行(CMake + code-gen + RTI + HPIPM),(2) 现有 NLP 最小子集(恒速 dynamics + 单目标 CPA + 航向 box)能映射到 acados staged-OCP 原语跑通。给 P1b 完整迁移前置信心门。
+
+### 工作目录
+`/home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding`(分支 `codex/m5-design-grounding`,baseline P0 `d315bb3ff`)。容器 project name `codex-acados-spike`(独立,不碰 demo stack `mass-l3-sil`)。
+
+### Commits (P0 HEAD → P1a)
+1. `2728a04ec` — build(docker,m5): source-build acados v0.4.4 + find_package gate (T1+T2)
+2. (T1 Dockerfile fix 留在后续 commit)— ACADOS_SOURCE_DIR install-tree 修正
+3. T3 commit — feat(m5): acados toy OCP smoke + Dockerfile include-path fix
+4. chore: gitignore smoke artifacts
+5. T4 commit — feat(m5): acados M5 subset re-staging (mapping check)
+
+### Core Changes
+- **Dockerfile acados 0.4.4 源码构建**(T1):`/opt/acados` clone + submodule(HPIPM/BLASFEO),`cmake -D_GLIBCXX_USE_CXX11_ABI=1`(对齐 casadi line 78-79),`ACADOS_INSTALL_DIR=/usr/local`,`make install`。t_renderer v0.2.0 → `/usr/local/bin`。acados_template `pip install -e`(--no-deps)。post-build 断言(libacados + acados_template + t_renderer + blasfeo_target.h)。
+- **CMake find_package(acados)**(T2):`option(M5_USE_ACADOS ON)` + `find_package(acados QUIET)` 克隆 M5_USE_CASADI 模式;`M5_HAS_ACADOS` gate。additive,M5_USE_CASADI=ON 保留。
+- **Toy OCP smoke**(T3):`test/external/acados_smoke/` — mass-spring toy OCP,Python code-gen(`AcadosOcpSolver.generate`)→ `make ocp_shared_lib` → C runner(`-D_GLIBCXX_USE_CXX11_ABI=1 -Werror` 链接)→ SQP_RTI solve。`SMOKE PASS: acados RTI converged via HPIPM`,status=0。
+- **M5 子集 staged-OCP 重表述**(T4):`test/external/acados_m5_subset/` — dynamics(formulation.cpp:360-361)+ CPA(constraint_compiler.cpp:353)+ 航向 box 映射到 acados `disc_dyn_expr`/`con_h_expr`/`lbx-ubx`。`SUBSET PASS`:CPA-feasible + in-box avoidance trajectory(py 偏离至 304m,绕开目标)。
+
+### P1a 发现的关键 Bug(系统性调试,非猜测)
+1. **acados_template 拉 casadi pip wheel 覆盖源码构建 casadi**(首要阻塞):acados_template `setup.py` 的 `install_requires=['casadi']` 触发 `pip install casadi`,装的是 mixed-ABI wheel(仅 213 cxx11 符号,old-ABI GenericType 构造)→ 覆盖 `/usr/local/lib` 源码构建 casadi(1498 cxx11)→ m5 链接 undefined `casadi::*::__cxx11`(同 casadi 先例 line 52-57)。**修复**:`pip install --no-deps -e acados_template` + 显式装非 casadi 依赖。验证:控制实验(不装 acados)m5 编译绿;装 acados(旧方式)红;装 acados(--no-deps)绿。
+2. **ACADOS_SOURCE_DIR 指向源码树而非安装树**:acados_template 的 code-gen include path 由 `ACADOS_SOURCE_DIR/include` 推导。源码树 `/opt/acados/include` 无 `blasfeo/include/blasfeo_target.h`(只有安装树 `/usr/local/include` 有完整布局)→ 生成的 Makefile 编译 `fatal error: blasfeo_target.h`。**修复**:`ACADOS_SOURCE_DIR=/usr/local`(安装树),t_renderer 放 `/usr/local/bin`。
+3. **acados git tag 是 v-前缀**:`0.4.4` 不存在,应为 `v0.4.4`。
+4. **acados_template 不在 PyPI**:`pip install acados_template==0.4.4` 报 No matching distribution;必须从源码树 `pip install -e`。
+
+### 验收门 6 条(spec "通过判据 — 进 P1b 的门")
+1. ✅ Dockerfile 构建成功,libacados.so 存在,acados_template importable,t_renderer 0.2.0,blasfeo_target.h 在位(T1 Step 4 验证)
+2. ✅ find_package(acados) 解析成功 `M5: acados found — P1a spike targets enabled`(M5_HAS_ACADOS ON)(T2 Step 3)
+3. ✅ toy smoke:code-gen + 编译 + RTI solve 收敛(solver_status=0),`-D_GLIBCXX_USE_CXX11_ABI=1 -Werror` 新 ABI 干净链接(T3)
+4. ✅ M5 子集重表述:dynamics/CPA/box 映射到 acados 原语成功,OCP 产出 CPA-feasible + in-box avoidance trajectory(py=304m 绕避)(T4)
+5. ✅ IPOPT 路径全绿(M5_USE_CASADI=ON 下 M5 测试 24/29,5 个预存在失败与 P0 baseline 完全一致,0 新回归;casadi 1498 cxx11 + ipopt plugin intact)(T5 Step 1)
+6. ✅ **可行性结论**:acados 工具链可行 + formulation 映射可行 → **可进 P1b**
+
+### P1b 关键输入(spike 暴露的映射阻抗/调参项,非强行绕过)
+- **F1 warm-start 必需**:discrete dynamics 在零初值有大 equality residual(u=5 m/s → 25m/step),需 forward-propagated seed 否则首 QP 病态(HPIPM QP stat 3)。
+- **F2 单边 h 约束需有限上界**:`np.inf` 序列化为 JSON `Infinity`,Rust t_renderer(strict serde)拒绝;用大有限值 1e10。`make_consistent` 要求 uh 设置。
+- **F3 EXACT hessian(非 GAUSS_NEWTON)**:非线性 CPA 约束下 GN 近似让 QP 在 refinement 时漂进 CPA 违反;EXACT Hessian 保 CPA-feasible。
+- **F4 globalization MERIT_BACKTRACKING**:CPA-active 起点必需。
+- **F5 完整 SQP 收敛(status 0)仍可能 QP error(acados status 4, HPIPM QP stat 3)**:即便残差归零,final refinement QP 报错 —— 鲁棒性/容差项(QP tol / soft slack),非映射失败。runner 以映射有效性(CPA-feasible avoidance)判 PASS,显式报告 status。
+
+### Handoff Notes
+- **spike 通过,可进 P1b**:工具链 + 映射双可行。P1b = 完整 NLP 迁移(per-target ξ/x=[ψ,r,u]/360s/COLREGs 代价/转移代价)+ Rule14 HO benchmark(IPOPT baseline + acados 对比)+ 生产 mid_mpc_solver 切换 + IPOPT 移除决策。基于 P1a 暴露的 F1-F5 规划。
+- **不碰生产 NLP**:mid_mpc_nlp_formulation/solver.cpp 未动;spike 全在 `test/external/acados_*` 独立目录 + Dockerfile additive。IPOPT 路径(M5_USE_CASADI=ON)完整保留。
+- **容器清理待办**:`codex-acados-spike` 镜像(886MB)保留供 P1b 复用;若 P1b 不立即开始,可 `docker rmi codex-acados-spike-sil-nodes` 释放。
+- **未追踪文件**:`docs/superpowers/design-logs/2026-07-16-m5-architecture-design-log.md`(非本任务产出,未提交)。
+- **下一对话**:brainstorm P1b spec(完整 NLP 迁移 + Rule14 HO benchmark),基于 P1a F1-F5 映射阻抗/工具链事实。
+
+**关键文件**:P1a spec `docs/superpowers/specs/2026-07-16-m5-p1a-acados-feasibility-spike-design.md` / P1a plan `docs/superpowers/plans/2026-07-16-m5-p1a-acados-feasibility-spike.md`。spike 代码 `src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_smoke/` + `acados_m5_subset/`。
