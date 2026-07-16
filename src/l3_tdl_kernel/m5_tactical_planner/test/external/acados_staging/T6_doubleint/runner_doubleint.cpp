@@ -19,7 +19,9 @@
 //   Boxes : |delta|<=0.2 (idxbu 0); psi in [-1.2,1.2] (idxbx 2);
 //           ROT |r|<=rot_max=0.2 (idxbx 3) -- marginal-stability bound.
 //   CPA   : g_cpa = (px-tx)^2+(py-ty)^2-cpa_hard^2 >= 0 (one-sided, nh=1).
-//   Cost  : NONLINEAR_LS y=[psi,delta], yref=[psi_ref,0], W=diag(1,1e-2).
+//   Cost  : NONLINEAR_LS y=[psi,delta], yref=[psi_ref,0], W=diag(1,1)
+//           (W_DELTA=1.0 keeps delta interior away from the +-0.2 box; see
+//            gen_doubleint.py W_DELTA comment + Finding 1 marginal-stability).
 //   Solver: SQP FULL_CONDENSING_HPIPM EXACT MERIT_BACKTRACKING max_iter=200.
 //
 // ====================  the CORE assertion: dynamics forward-match  ===========
