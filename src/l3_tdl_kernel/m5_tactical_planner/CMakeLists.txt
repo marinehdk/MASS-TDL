@@ -74,6 +74,25 @@ else()
   message(STATUS "M5: CasADi disabled by option — Mid-MPC and constraint_compiler will be skipped")
 endif()
 
+# acados — optional, P1a spike target for solver migration (DP-05 VR-05).
+# Additive: M5_USE_CASADI remains the production IPOPT path; acados is exercised
+# only by the spike targets in test/external/acados_* until P1b. No ABI patch
+# here — the Dockerfile forces -D_GLIBCXX_USE_CXX11_ABI=1 at the acados build,
+# so it is already aligned with casadi (line 78-79) and the workspace.
+option(M5_USE_ACADOS "Build acados spike targets (P1a, requires acados)" ON)
+if(M5_USE_ACADOS)
+  find_package(acados QUIET)
+  if(NOT acados_FOUND)
+    message(STATUS "M5: acados not found — P1a spike targets will be skipped")
+    set(M5_HAS_ACADOS OFF)
+  else()
+    set(M5_HAS_ACADOS ON)
+    message(STATUS "M5: acados found — P1a spike targets enabled")
+  endif()
+else()
+  set(M5_HAS_ACADOS OFF)
+endif()
+
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
 # find_package(IPOPT 3.14.19 EXACT REQUIRED)
 
