@@ -3797,3 +3797,41 @@ Continue from branch codex/m5-design-grounding at HEAD 3847cee03, worktree .work
 - `docs/superpowers/plans/2026-07-16-m5-p0-manifest-nomoto-fix.md`(P0 plan,4 task)
 - `docs/superpowers/specs/2026-07-16-m5-p1a-acados-feasibility-spike-design.md`(P1a spec,用户同意)
 - `docs/superpowers/plans/2026-07-16-m5-p1a-acados-feasibility-spike.md`(P1a plan,5 task)
+
+---
+
+## [2026-07-16] ZCode / codex/m5-design-grounding @ 26023d53f / M5 MPC 重构 P0 子项目:manifest 几何修正 + Nomoto 字段语义澄清
+
+### Task Goal
+执行 M5 MPC 避碰重构 P0 子项目(7 子项目第 0 个,前置小修):修正 vessel manifest 几何参数与实际 FCB 船型偏差(28m/95t→45m/145t),澄清 Nomoto 字段语义(`nomoto_K_inv_s`→`nomoto_K_s` 存 K 本身),为 DP-02 Nomoto 预测模型奠基。纯配置 + behavior-preserving 重命名,VDM 删除推 P2。
+
+### Core Changes
+- **设计文档前置提交**(`338fa87a9`):决策树日志 + 方案包 + P0 spec/plan + P1a spec/plan 共 7 文件。
+- **Task 1 — Nomoto 字段重命名**(`6e9e7e0ae`,6 文件成对更新):`nomoto_K_inv_s`→`nomoto_K_s`(存 K 本身,值 0.3);T_s 重估 15→6.0。改 hpp 字段+注释 / loader key `K_inv_s`→`K_s` / nomoto_fallback 成员 `nomoto_K_inv_s_`→`nomoto_K_s_` / fixture / 生产 yaml / header 默认值。loader 用 `yaml_get` 默认值回退,**漏改 key 静默加载默认值不报错**,故测试断言"解析值==yaml 值"捕获。
+- **Task 2 — 几何修正**(`a30938e4d`,4 文件):length 28→45 / beam 6.5→8.0 / draft 1.4→1.55 / mass 95000→145000(均 [R22] FCB 文档,mass 标 [TBD-HAZID] inclining)。
+- **Task 3 — NomotoFallback 活路径回归**(`26023d53f`):新增 `TsChangeDoesNotAffectZeroYawRatePath` 测试,证明 T_s 改值不影响活路径输出(r₀=0/δ=0 → r≡0 → 纯平移 x=u·k·dt,T 项消失)。
+
+### Current Status — P0 完成,验收门 9 条全绿
+- **TDD 全程红→绿**:每 task 先写失败测试(编译错误/值不符),再实现,后绿。
+- **测试结果**(容器 `codex-m5-p0`,本机即 A4000,`COMPOSE_PROJECT_NAME=codex-m5-p0` 不碰 `mass-l3-sil`):
+  - `test_vessel_dynamics_model`:**25/25 PASSED**(含新 nomoto_K_s==0.3 / nomoto_T_s==6.0 / length==45 / beam==8.0 / draft==1.55 / mass==145000 断言)。
+  - `test_nomoto_fallback`:**4/4 PASSED**(含新 TsChange 回归)。
+  - 全 M5 包:24/29 PASSED。**5 个失败全部是预先存在的 NLP 数值缺陷**(test_mid_mpc_solver / route_cost / terminal / continuity / direction),已在干净基线 `3847cee03` 上逐一复现(同 5 文件,无 manifest 字段消费),**P0 引入 0 新失败**。
+- **验收门 9 条**(spec "验收边界"):
+  1. ✅ manifest 加载值==spec(length 45/beam 8.0/draft 1.55/mass 145000/T_s 6.0/K_s 0.3)
+  2. ✅ 解析单测断言解析值==yaml 值(非默认值,捕获静默回退)
+  3. ✅ 6 文件成对更新(yaml/loader/hpp/nomoto_fallback/fixture/header 默认值);grep 确认代码/yaml 无残留 `K_inv_s`(仅注释/失败消息)
+  4. ✅ VDM 回归:test_vessel_dynamics_model 用新 fixture 全绿(断言定性,新参数下仍物理合理)
+  5. ✅ NomotoFallback 回归:活路径纯平移,T_s 改值不影响输出(Task 3)
+  6. ✅ fixture 一致性:fixture 值==生产 yaml 值(已核对)
+  7. ✅ manifest 消费者编译+启动不报错(全包编译成功)
+  8. ✅ 无 ROS2 消息字段变化(git diff 无 .msg/.idl/srv)
+  9. ✅ 编译通过(6 文件改动无破坏)
+
+### Handoff Notes
+- **Behavior-preserving 已自闭环验证**:消费者链探索证实 mass/length 唯一消费者 VDM 无生产 caller;T_s 活路径 r₀=0 消失;K_s 纯存储。改值不改变任何生产路径输出。
+- **预先存在的 M5 NLP 缺陷不在 P0 范围**:5 个失败测试是 NLP solver 数值不稳定(casadi `lb<=ub` 断言 / CrossingGiveWay 等),与本 P0 的 manifest 配置无关,属 P1a/P2 的 NLP 重构范畴。**不可为过测试调阈值或 mock/forced-pass**。
+- **新值均标 [TBD-HAZID]**:T_s=6.0/K_s=0.3 是 [R22] 数量级中值估算(2x 误差),海试校准为残余待办(海试 zigzag,IMO MSC.137(76) 框架)。
+- **下一对话:P1a**(`docs/superpowers/plans/2026-07-16-m5-p1a-acados-feasibility-spike.md`,5 task):acados 工具链可行性 spike。P0 已为 DP-02 Nomoto 预测模型落地 manifest 侧初值。
+
+**关键文件**:P0 spec `docs/superpowers/specs/2026-07-16-m5-p0-manifest-nomoto-fix-design.md` / P0 plan `docs/superpowers/plans/2026-07-16-m5-p0-manifest-nomoto-fix.md`(4 task TDD 全过)。
