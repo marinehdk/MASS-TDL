@@ -100,9 +100,16 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
 #
 # IMPORTANT (verified during P1a): acados git tags are v-prefixed (v0.4.4, not
 # 0.4.4); acados_template is NOT on PyPI (must pip install -e from the source
-# tree at interfaces/acados_template); and code-gen needs the tera_renderer
-# (t_renderer) binary in <acados>/bin. The source tree is therefore KEPT at
-# /opt/acados (ACADOS_SOURCE_DIR) — it is small and required for code-gen.
+# tree at interfaces/acados_template); code-gen needs the tera_renderer
+# (t_renderer) binary; and acados_template derives its include path from
+# ACADOS_SOURCE_DIR (utils.get_acados_path -> <dir>/include). That dir MUST be
+# the INSTALL dir (/usr/local), which carries the full header layout
+# (acados/, blasfeo/include/blasfeo_target.h, hpipm/include/) produced by
+# `make install` with BLASFEO_INSTALL_HEADERS=ON. Pointing it at the source
+# tree (/opt/acados) makes the generated Makefile look for blasfeo_target.h
+# under /opt/acados/include/blasfeo/include, which does NOT exist there ->
+# fatal compile error in the generated solver lib. The source tree /opt/acados
+# is KEPT only for the `pip install -e interfaces/acados_template` step.
 ARG ACADOS_TAG=v0.4.4
 RUN git clone --depth 1 --branch ${ACADOS_TAG} https://github.com/acados/acados.git /opt/acados && \
     cd /opt/acados && \
@@ -119,12 +126,13 @@ RUN git clone --depth 1 --branch ${ACADOS_TAG} https://github.com/acados/acados.
       > /dev/null 2>&1 && \
     make install -j$(nproc) > /dev/null 2>&1 && \
     ldconfig && \
-    mkdir -p /opt/acados/bin && \
     curl -sL https://github.com/acados/tera_renderer/releases/download/v0.2.0/t_renderer-v0.2.0-linux-amd64 \
-      -o /opt/acados/bin/t_renderer && \
-    chmod +x /opt/acados/bin/t_renderer
-ENV ACADOS_SOURCE_DIR=/opt/acados
-ENV PATH="${PATH}:/opt/acados/bin"
+      -o /usr/local/bin/t_renderer && \
+    chmod +x /usr/local/bin/t_renderer
+# ACADOS_SOURCE_DIR points at the INSTALL tree so the code-gen include path
+# resolves the installed acados/blasfeo/hpipm headers.
+ENV ACADOS_SOURCE_DIR=/usr/local
+ENV PATH="${PATH}:/usr/local/bin"
 # Python code-gen interface: install from source tree (NOT on PyPI).
 # setup.py version string is 0.1 and does NOT track the acados tag; the
 # template is coupled to the C library by being checked out at the same tag.
@@ -145,8 +153,9 @@ RUN pip install --no-deps -e /opt/acados/interfaces/acados_template && \
 RUN ( find /usr/local -name 'libacados.so*' 2>/dev/null | grep -q . || \
       { echo "FATAL: libacados.so missing after build — P1a spike blocked"; exit 1; } ) && \
     python3 -c "import acados_template" && \
-    test -x /opt/acados/bin/t_renderer && \
-    echo "acados ${ACADOS_TAG} installed (new-ABI + HPIPM + acados_template + t_renderer verified)"
+    test -x /usr/local/bin/t_renderer && \
+    test -f /usr/local/include/blasfeo/include/blasfeo_target.h && \
+    echo "acados ${ACADOS_TAG} installed (new-ABI + HPIPM + acados_template + t_renderer + install-headers verified)"
 
 # Copy the sim_workbench colcon packages
 COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
