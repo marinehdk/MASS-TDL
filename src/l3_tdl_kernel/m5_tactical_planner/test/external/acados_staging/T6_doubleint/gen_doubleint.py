@@ -33,27 +33,32 @@ N_r*r damping -- Path B decision). Read from
 ../T8_ident/nomoto_params.json key `c_u`; if the json is absent (gitignored) we
 fall back to the hard-coded literal cited to T8.
 
-====================  self-contained builder (inlined)  ========================
-This script INLINES build_base_ocp_doubleint rather than importing it from
-../common.py. The inlined body is identical to common.py's function; the
-duplication is deliberate so the gen step is robust to the bind-mount dirent
-flakiness seen for the staging subtree in the SIL container (a parent-dir
-import intermittently fails to resolve). common.py still carries the canonical
-copy for T7/T9 consumption.
+====================  builder import  =========================================
+This script imports build_base_ocp_doubleint (and UH_INF) from ../common.py,
+exactly like the other staging tasks (T1-T5 import build_base_ocp/UH_INF). The
+base OCP (dynamics + CPA-h + psi/r boxes + EXACT hessian + MERIT_BACKTRACKING)
+is defined once in common.py; gen adds only the cost here before generate. The
+inlined-builder duplication that shipped in the first T6 commit was a workaround
+for intermittent bind-mount dirent flakiness in the SIL container and is a drift
+hazard -- removed. If `from common import` ever fails it is an environment issue
+to fix (re-run on a healthy mount), not a reason to duplicate the builder.
 
 NOT production NLP code. spike/external only. IPOPT path untouched.
 """
 import json
 import os
+import sys
 
 import casadi as ca
 import numpy as np
-from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
+from acados_template import AcadosOcpSolver
+
+# common.py lives one dir up (acatos_staging/); add parent to sys.path.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+from common import build_base_ocp_doubleint, UH_INF  # noqa: E402
 
 SOLVER_NAME = "m5_staging_doubleint"
-
-# F2: bounded pseudo-infinity (t_renderer rejects JSON Infinity).
-UH_INF = 1e10
 
 # ---- Constants (must match runner_doubleint.cpp EXACTLY) ----
 N, DT = 10, 5.0
@@ -76,81 +81,6 @@ PSI_REF = 0.1               # staging heading attractor (rad) -- non-zero to exe
 # so the target is placed off-path to isolate the dynamics question.
 TARGET_X, TARGET_Y = 0.0, 300.0
 CPA_HARD = 100.0
-
-
-def build_base_ocp_doubleint(N=10, DT=5.0, c_u=0.01, u_surge=9.26,
-                             target_x=200.0, target_y=0.0, cpa_hard=100.0,
-                             psi_lb=-1.2, psi_ub=1.2, rot_max=0.2):
-    """INLINED copy of common.build_base_ocp_doubleint (see module docstring).
-
-    Builds the Path B double-integrator OCP: dynamics + CPA-h + psi/r boxes +
-    EXACT hessian + MERIT_BACKTRACKING. Does NOT set any cost.
-    """
-    ocp = AcadosOcp()
-
-    model = AcadosModel()
-    model.name = "m5_staging_doubleint_base"
-
-    px = ca.SX.sym("px")
-    py = ca.SX.sym("py")
-    psi = ca.SX.sym("psi")
-    r = ca.SX.sym("r")            # yaw rate (rad/s) -- double-integrator
-    x = ca.vertcat(px, py, psi, r)
-
-    delta = ca.SX.sym("delta")    # control: rudder angle (rad)
-    u_ctrl = ca.vertcat(delta)
-
-    # Discrete explicit dynamics -- Path B double integrator. c_u and u_surge
-    # baked as literals (no param vector). Explicit Euler: psi uses r[k].
-    f_expl = ca.vertcat(
-        px + u_surge * DT * ca.cos(psi),
-        py + u_surge * DT * ca.sin(psi),
-        psi + DT * r,
-        r + DT * c_u * delta,
-    )
-
-    model.x = x
-    model.u = u_ctrl
-    model.disc_dyn_expr = f_expl
-    model.p = []                  # param-free (c_u/u_surge baked)
-
-    g_cpa = (px - target_x) ** 2 + (py - target_y) ** 2 - cpa_hard ** 2
-    model.con_h_expr = ca.vertcat(g_cpa)
-
-    ocp.model = model
-
-    nh = model.con_h_expr.rows()
-    Tf = N * DT
-
-    ocp.solver_options.N_horizon = N
-    ocp.solver_options.tf = Tf
-    ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"
-    ocp.solver_options.hessian_approx = "EXACT"          # F3
-    ocp.solver_options.integrator_type = "DISCRETE"
-    ocp.solver_options.nlp_solver_type = "SQP"
-    ocp.solver_options.nlp_solver_max_iter = 200
-    ocp.solver_options.globalization = "MERIT_BACKTRACKING"   # F4
-
-    DDELTA_MAX = 0.2
-    ocp.constraints.lbu = np.array([-DDELTA_MAX])
-    ocp.constraints.ubu = np.array([+DDELTA_MAX])
-    ocp.constraints.idxbu = np.array([0])
-
-    # State box on BOTH psi (idx 2) AND r (idx 3). ROT box on r is CRITICAL:
-    # the double-integrator pole is at z=1 (marginally stable); the box keeps
-    # r bounded during SQP.
-    ocp.constraints.lbx = np.array([psi_lb, -rot_max])
-    ocp.constraints.ubx = np.array([psi_ub, +rot_max])
-    ocp.constraints.idxbx = np.array([2, 3])
-
-    ocp.constraints.lh = np.zeros((nh,))
-    ocp.constraints.uh = np.full((nh,), UH_INF)
-    ocp.constraints.lh0 = np.zeros((nh,))
-    ocp.constraints.uh0 = np.full((nh,), UH_INF)
-
-    ocp.constraints.x0 = np.array([0.0, 0.0, 0.0, 0.0])
-
-    return ocp
 
 
 def _load_c_u():
