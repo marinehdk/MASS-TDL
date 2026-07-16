@@ -3979,3 +3979,41 @@ P1b-1 范围:142 参数 per-stage 分区 + 全 cost 项(J_route/dist/vel/asym/te
 - SDD ledger:`.superpowers/sdd/progress.md`(gitignored,本机)
 
 **容器清理**:`codex-acados-staging` project 无常驻容器(run --rm);镜像复用 P1a 的 sil-nodes。无需额外清理。
+
+---
+
+## [2026-07-16] ZCode / codex/m5-design-grounding @ f0f72bcaf / P1b-1 spec+plan 产出(brainstorming 完成) / 留新对话实施
+
+### Task Goal
+P1b-0 staging spike 通过(7/7 门)后,brainstorm P1b-1 spec + 写 implementation plan。目标:生产 NLP 从 IPOPT(恒速运动学)全量迁移到 acatos(Nomoto 变速 dynamics),用更合适的预测模型提升避碰航线求解精度/效率。DP-05(VR-05)实测落地 + VR-02 Nomoto 升级。
+
+### Core Changes(2 commit docs,本对话产出)
+- **P1b-1 spec** `docs/superpowers/specs/2026-07-16-m5-p1b1-acados-full-migration-design.md`(commit 4aff16587)
+- **P1b-1 plan** `docs/superpowers/plans/2026-07-16-m5-p1b1-acados-full-migration.md`(commit f0f72bcaf)
+
+### 关键设计决策(brainstorming 用户裁决)
+- 决策变量:双通道 psi[N]+u[N]
+- dynamics:**VR-02 完整 Nomoto** Tṙ+r=Kδ,state x=[px,py,ψ,r],control u=[δ,n]
+- Nomoto 参数:**VDM zigzag 辨识**(45m FCB 4-DOF MMG,10/10+20/20 → 最小二乘)
+- solver 切换:**compile-time M5_USE_ACADOS**(默认 OFF,IPOPT 不动)
+- benchmark:轨迹级行为等价(Nomoto vs 运动学非同 physics,不要求 bit-close)
+- slack:per-target per-step ξ 混合 L1/L2(TBD-6)
+- 实施路径:**方案 A**(staging 验证 2 新点 → 生产 backend → benchmark)
+
+### 关键诚实标注
+- **"迁移 + physics 升级",非纯等价**:生产现状根本没 Nomoto([R6] 恒速运动学),P1b-1 引入 Nomoto 是升级。
+- **VDM 辨识 T,K 是"简化 MMG 拟合值"**,非真海试值(VDM 自标 simplified linear,await pool-test [TBD-HAZID])。比缩律估算([R22] 2x 误差)可信,但海试后标定(TBD-5)。
+- **benchmark 是"不同 physics 比行为"**,判据主观性高于数值等价,轨迹容差 0.1 rad 需实证校准。
+
+### Current Status
+- spec + plan 已产出并 commit,**P1b-1 实施留新对话**(用户要求)
+- P1b-1a(Task 8→6→7→9→10)有完整 step;P1b-1b/c(Task 11-14)是骨架,P1b-1a 过了再补全
+
+### Handoff Notes
+**下一对话**:执行 P1b-1 plan P1b-1a 阶段(`docs/superpowers/plans/2026-07-16-m5-p1b1-acados-full-migration.md`)。执行序 T8(辨识)→ T6(Nomoto staging)→ T7(per-target ξ)→ T9(6 点合并)→ T10(验收门)。用 superpowers:subagent-driven-development。
+
+**关键文件**:
+- P1b-1 spec:`docs/superpowers/specs/2026-07-16-m5-p1b1-acados-full-migration-design.md`
+- P1b-1 plan:`docs/superpowers/plans/2026-07-16-m5-p1b1-acados-full-migration.md`
+- P1b-0 已验证配置(模板):`test/external/acados_staging/{common.py, T1-T5}`
+- VDM(辨识用):`src/shared/vessel_dynamics_model.cpp` + fixture `test/fixtures/fcb_capability_fixture.yaml`
