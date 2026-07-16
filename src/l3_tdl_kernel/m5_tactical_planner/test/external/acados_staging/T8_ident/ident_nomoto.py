@@ -220,8 +220,14 @@ def main():
     coef2, *_ = np.linalg.lstsq(A2, y2, rcond=None)
     a_diag, b_diag = float(coef2[0]), float(coef2[1])
     if abs(b_diag) < 1e-9:
-        T_diag = float("inf") if b_diag >= 0.0 else float("-inf")
-        K_diag = float("nan")
+        # Integrator case (b ~= 0 -> VDM is a pure integrator): the 1st-order
+        # Nomoto T/K are undefined here. Emit JSON null (Python None) rather than
+        # -Infinity/NaN: the latter are bare tokens under Python's json.dump and
+        # are forbidden by strict RFC-8259, which would break non-Python
+        # consumers (jq, C++ parsers, CI json-schema checks) of this contract
+        # surface. The non-degenerate branch below keeps the finite floats.
+        T_diag = None
+        K_diag = None
     else:
         T_diag = -1.0 / b_diag
         K_diag = a_diag / (-b_diag)
@@ -280,8 +286,12 @@ def main():
     print("  c_prime = c_u*L/U = %.6f" % c_prime)
     print("--- (c) DIAGNOSTIC-ONLY 2-var fit r_dot = a*delta + b*r ---")
     print("  a = %.6e, b = %.6e (expect b ~= 0)" % (a_diag, b_diag))
-    print("  T = %.6f s, K = %.6f 1/s (meaningless for an integrator)" %
-          (T_diag, K_diag))
+    if T_diag is None:
+        print("  T = undefined (null), K = undefined (null)  "
+              "(integrator case, b ~= 0; meaningless for an integrator)")
+    else:
+        print("  T = %.6f s, K = %.6f 1/s (meaningless for an integrator)" %
+              (T_diag, K_diag))
     print("wrote %s" % out_path)
     return 0
 
