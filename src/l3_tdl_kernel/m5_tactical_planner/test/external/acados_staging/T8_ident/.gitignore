@@ -1,0 +1,6 @@
+c_generated_code/
+__pycache__/
+*.json
+ident_runner
+zigzag.csv
+*.o
