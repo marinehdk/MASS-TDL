@@ -929,6 +929,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   std::vector<double> u_traj(static_cast<std::size_t>(kAcadosN + 1), 0.0);
   bool any_nan = false;
   double cpa_slack_max = 0.0;  // σ = max over (target, stage) of per-target xi.
+  // P3: per-target ξ max over stages (max over k per target slot t).
+  std::array<double, 16> per_target_max{};  // zero-init
   for (int k = 0; k <= kAcadosN; ++k) {
     double xk[kAcadosNx] = {0, 0, 0, 0, 0};
     ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "x", xk);
@@ -948,8 +950,16 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
       ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "sl", sl_vec);
       for (int t = 0; t < kAcadosNsh; ++t) {
         const double xi = sl_vec[t];
-        if (std::isfinite(xi) && std::fabs(xi) > cpa_slack_max) {
-          cpa_slack_max = std::fabs(xi);
+        const double xi_abs = std::fabs(xi);
+        if (std::isfinite(xi)) {
+          if (xi_abs > cpa_slack_max) {
+            cpa_slack_max = xi_abs;
+          }
+          // P3: per-target ξ max over stages.
+          const std::size_t tu = static_cast<std::size_t>(t);
+          if (xi_abs > per_target_max[tu]) {
+            per_target_max[tu] = xi_abs;
+          }
         }
       }
     }
@@ -998,6 +1008,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   sol.solve_duration_ms = static_cast<std::int32_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
   sol.cpa_slack = cpa_slack_max;
+  sol.cpa_slack_per_target = per_target_max;
 
   // SQP iter count (the field name stays ipopt_iterations per the output
   // contract — downstream reads it; do NOT rename). ocp_nlp_get "sqp_iter".
