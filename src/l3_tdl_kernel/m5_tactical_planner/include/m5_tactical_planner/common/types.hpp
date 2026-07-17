@@ -313,6 +313,11 @@ struct MidMpcSolution {
   // window. Reported to ASDR/SAT so "tuned green" (σ always active) is
   // distinguishable from "genuine fix" (σ zero except close-range).
   double cpa_slack{0.0};
+  // P3: per-target ξ max breakdown (max over stage, per target slot).
+  // Length = max_targets (16); slot t is max |ξ_{t,k}| over stages k.
+  // Empty target slots (t >= n_targets) are 0.0. For observability/认证
+  // (CCS i-Ship ξ 行为可追溯) + SIL ρ-exact-penalty analysis.
+  std::array<double, 16> cpa_slack_per_target{};
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};
