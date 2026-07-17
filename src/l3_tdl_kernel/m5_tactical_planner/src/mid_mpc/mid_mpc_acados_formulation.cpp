@@ -535,6 +535,15 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
       static_cast<std::size_t>(N + 1),
       std::vector<double>(static_cast<std::size_t>(np_per_stage()), 0.0));
   // Precompute per-target drift components (sog*cos/sin cog) once.
+  // Empty target slots [n_t..Nt-1]: tx/ty/cog/sog stay 0.0 (the per-target loop
+  // above only fills the tw range-ramp weight for t<n_t, so the COLREG COST is
+  // neutralized for empty slots). The CPA CONSTRAINT rows for empty slots are
+  // relaxed to [-inf,+inf] by the solver wrapper (build_stage_row_bounds with
+  // n_targets), mirroring IPOPT — which emits CPA rows only for real targets.
+  // We do NOT push empty-slot positions to a huge value here: a 1e14-scale CPA
+  // residual poisons the EXACT-hessian KKT conditioning when other rows (prefix
+  // equality) are active (CASE B divergence, isolated 2026-07-17). Keeping the
+  // empty slot at (0,0) is harmless once its CPA row bound is relaxed.
   const std::size_t Nt_sz = static_cast<std::size_t>(Nt);
   std::vector<double> tdx(Nt_sz, 0.0);
   std::vector<double> tdy(Nt_sz, 0.0);

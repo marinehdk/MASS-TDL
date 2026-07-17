@@ -17,11 +17,18 @@
 
 #include <casadi/casadi.hpp>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/row_registry.hpp"
+
+// P1b-1b Task 17: the production acados backend wrapper. Only included under
+// M5_USE_ACADOS so OFF builds do not pull the generated-solver header chain.
+#ifdef M5_USE_ACADOS
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_solver.hpp"
+#endif
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -81,6 +88,25 @@ class MidMpcSolver {
   casadi::Dict ipopt_dict_;          // reserved for Phase E2 call-level overrides
   int64_t consecutive_failures_{0};
   bool last_minalt_box_infeasible_{false};  // v2.2 §13.1: set in solve() after derive
+
+#ifdef M5_USE_ACADOS
+  // P1b-1b Task 17: production acados backend. When non-null, solve() dispatches
+  // to it at the TOP of the function (before the IPOPT path). Null when the
+  // acados backend failed to construct OR when M5_USE_ACADOS is off; in either
+  // case solve() falls through to the existing IPOPT path UNCHANGED. The MidMpc
+  // node wires this via a new constructor (or a setter) that takes ownership of
+  // a MidMpcAcadosSolver; legacy callers (IPOPT-only) never install it. This
+  // member is the ONLY state the dispatch branch reads.
+  std::unique_ptr<MidMpcAcadosSolver> acados_solver_{nullptr};
+
+ public:
+  // Install the acados backend (takes ownership). When set, solve() dispatches
+  // to it; passing nullptr reverts to the IPOPT path. Public so the node (which
+  // builds the formulation) can install the backend without friending.
+  void set_acados_solver(std::unique_ptr<MidMpcAcadosSolver> solver) noexcept {
+    acados_solver_ = std::move(solver);
+  }
+#endif
 
   // Pack previous-cycle trajectory into x0 ∈ R^{2N}: [psi; u].
   [[nodiscard]] casadi::DM pack_warm_start_(const MidMpcSolution& warm) const;

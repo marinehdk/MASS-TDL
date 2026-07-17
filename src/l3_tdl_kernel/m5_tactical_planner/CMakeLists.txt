@@ -74,6 +74,14 @@ else()
   message(STATUS "M5: CasADi disabled by option — Mid-MPC and constraint_compiler will be skipped")
 endif()
 
+# Empty default for M5_ACADOS_CONSUMER_LIBS: stays empty under M5_USE_ACADOS=OFF
+# so the consumer link lists below (node + m5_add_gtest macro) are no-ops.
+# Populated under M5_HAS_ACADOS in the option block below with the acatos solver
+# .so + the imported acados target. MUST be defined BEFORE the option block so
+# the list(APPEND ...) inside it is not clobbered; consumers (node, tests) read
+# it AFTER the option block has run.
+set(M5_ACADOS_CONSUMER_LIBS)
+
 # acados — optional, P1b-1b PRODUCTION backend for MidMpc (parallel to IPOPT).
 # Default OFF: IPOPT (M5_USE_CASADI) is the production solve path. acados is a
 # parallel backend exercised only inside the sil_nodes container
@@ -114,6 +122,14 @@ if(M5_USE_ACADOS)
   set(M5_ACADOS_SOLVER_LIB
       ${ACADOS_GEN_DIR}/libacados_ocp_solver_m5_mid_mpc_acados.so)
   list(APPEND M5_LINK_LIBS ${M5_ACADOS_SOLVER_LIB} acados)
+  # m5_shared_lib is STATIC: its link deps do NOT auto-propagate to consumers
+  # (node + test executables) under the plain-signature target_link_libraries
+  # used throughout this file. Task 17's wrapper references acatos symbols that
+  # must resolve at the FINAL executable link, so every consumer of
+  # m5_shared_lib must also link the acatos solver .so + the imported acados
+  # target. Collected here as M5_ACADOS_CONSUMER_LIBS and appended to each
+  # consumer's target_link_libraries call (node + m5_add_gtest macro).
+  list(APPEND M5_ACADOS_CONSUMER_LIBS ${M5_ACADOS_SOLVER_LIB} acados)
 endif()
 
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
@@ -275,6 +291,18 @@ if(M5_HAS_ACADOS)
   # Public so Task 17's #ifdef M5_USE_ACADOS wrapper compiles in for every
   # consumer of m5_shared_lib.
   target_compile_definitions(m5_shared_lib PUBLIC M5_USE_ACADOS=1)
+
+  # P1b-1b Task 17: the acados solver wrapper. Only added under M5_HAS_ACADOS —
+  # it includes acados_solver_m5_mid_mpc_acados.h (T16 codegen output), which is
+  # absent when codegen did not run. The include dirs + link deps for it are
+  # wired by the T16 block above (target_include_directories PUBLIC +
+  # M5_LINK_LIBS). IPOPT-only sources (mid_mpc_solver.cpp, the NLP formulation)
+  # stay in the M5_HAS_CASADI block; this wrapper is additive. Uses
+  # target_sources (NOT list APPEND on M5_SHARED_SOURCES) because add_library
+  # above already snapshotted that list — only target_sources retroactively adds
+  # to an existing target.
+  target_sources(m5_shared_lib PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mid_mpc/mid_mpc_acados_solver.cpp)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -301,6 +329,7 @@ if(M5_HAS_CASADI)
   target_link_libraries(m5_mid_mpc_node
     m5_shared_lib
     spdlog::spdlog
+    ${M5_ACADOS_CONSUMER_LIBS}
   )
 endif()
 
@@ -322,11 +351,12 @@ ament_target_dependencies(m5_bc_mpc_node
   l3_external_msgs
   builtin_interfaces
 )
-target_link_libraries(m5_bc_mpc_node
-  m5_shared_lib
-  spdlog::spdlog
-  Eigen3::Eigen
-)
+  target_link_libraries(m5_bc_mpc_node
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+    ${M5_ACADOS_CONSUMER_LIBS}
+  )
 
 # ---------------------------------------------------------------------------
 # Install
@@ -406,6 +436,7 @@ if(BUILD_TESTING)
       m5_shared_lib
       m5_gtest_main
       ${ARGN}
+      ${M5_ACADOS_CONSUMER_LIBS}
     )
     # Pass --gtest_output so colcon test-result can parse the XML.
     set(_m5_result_file
@@ -615,6 +646,22 @@ if(BUILD_TESTING)
       target_link_options(${_no_asan_tgt} PRIVATE
         -fno-sanitize=address -fno-sanitize=undefined)
     endforeach()
+  endif()
+
+  # ── P1b-1b Task 17: production acados MidMpc solver wrapper tests. ──────────
+  # End-to-end: build the formulation + the acados wrapper (links the generated
+  # solver .so via m5_shared_lib), run the standard straight-line scenario,
+  # assert the SAME MidMpcSolution output contract as IPOPT (psi/u/x/y finite,
+  # cost/duration/slack populated, status Converged or status-4+solver-moved).
+  # Gated on M5_HAS_ACADOS: the wrapper's #include of the generated solver
+  # header only resolves when T16 codegen ran. OFF builds skip this test (the
+  # dispatch branch compiles to nothing under OFF, so the IPOPT test suite
+  # already covers the OFF path).
+  if(M5_HAS_ACADOS)
+    m5_add_gtest(test_mid_mpc_acados_solver
+      test/unit/test_mid_mpc_acados_solver.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
   endif()
 endif()
 

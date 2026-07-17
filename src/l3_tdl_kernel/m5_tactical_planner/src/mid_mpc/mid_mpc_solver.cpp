@@ -106,6 +106,24 @@ casadi::DM MidMpcSolver::pack_cold_start_(const MidMpcInput& input) const {
 MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
                                     const MidMpcSolution* warm_start,
                                     const RowBoundConfig& row_bounds) {
+#ifdef M5_USE_ACADOS
+  // P1b-1b Task 17: dispatch to the production acados backend when it has been
+  // installed (acados_solver_ non-null). The dispatch is a pure #ifdef branch
+  // at the TOP of solve(); the existing IPOPT path below is byte-for-byte
+  // UNCHANGED (no reformatting, no while-I'm-here edits). When the flag is off
+  // this branch compiles to nothing; when on but acados_solver_ is null (e.g.
+  // the node chose IPOPT, or the acados backend failed to construct) solve()
+  // falls through to IPOPT.
+  //
+  // NOTE: row_bounds (Slice N1 / C1 / D1) is an IPOPT-path concern (the acados
+  // formulation encodes prefix activation + CPA schedule via per-stage params
+  // + idxsh, not via lbg/ubg row bounds). The acados wrapper's pack_parameters
+  // already derives prefix_active_k / pact_pre / per-stage drift from the input,
+  // so row_bounds is intentionally NOT forwarded — it would be a no-op there.
+  if (acados_solver_ != nullptr) {
+    return acados_solver_->solve(input, warm_start);
+  }
+#endif
   const auto t_start = std::chrono::steady_clock::now();
 
   const casadi::DM p_val = formulation_.pack_parameters(input);
