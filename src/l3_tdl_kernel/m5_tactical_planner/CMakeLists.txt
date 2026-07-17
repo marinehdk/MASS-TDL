@@ -165,6 +165,7 @@ set(M5_SHARED_SOURCES
   src/shared/vessel_dynamics_model.cpp
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
+  src/shared/relative_track.cpp
   # --- bc_mpc/ ---
   src/bc_mpc/bc_mpc_branch_formulation.cpp
   src/bc_mpc/bc_mpc_collision_detector.cpp
@@ -457,6 +458,13 @@ if(BUILD_TESTING)
   target_compile_definitions(test_vessel_dynamics_model
     PRIVATE
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
+  )
+
+  # P2 T1: relative_track project_to_segment pure function (Eriksen t_b, VR-07b).
+  # No CasADi/acados dependency — pure point-to-segment projection.
+  m5_add_gtest(test_relative_track
+    test/unit/test_relative_track.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 
   if(M5_HAS_CASADI)
