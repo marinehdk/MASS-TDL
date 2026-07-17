@@ -154,6 +154,10 @@ if(M5_HAS_CASADI)
     src/mid_mpc/mid_mpc_nlp_formulation.cpp
     src/mid_mpc/mid_mpc_solver.cpp
     src/mid_mpc/mid_mpc_waypoint_generator.cpp
+    # P1b-1b Task 15: production acados OCP symbol graph (CasADi MX). Built
+    # unconditionally under M5_HAS_CASADI; the acados codegen script consumes
+    # it but the .cpp itself only links CasADi (no acados link dep here).
+    src/mid_mpc/mid_mpc_acados_formulation.cpp
   )
   list(APPEND M5_LINK_LIBS casadi::casadi)
 endif()
@@ -340,6 +344,18 @@ if(BUILD_TESTING)
     # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
     m5_add_gtest(test_mid_mpc_nlp_formulation
       test/unit/test_mid_mpc_nlp_formulation.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── P1b-1b Task 15: production acados OCP symbol-graph (CasADi MX) ────────
+    # Dimension/parameter-partition contract test for the acados formulation.
+    # Depends on CasADi (MX graph) but NOT on acados being installed; the symbol
+    # graph is buildable from CasADi alone (acados codegen is verified separately
+    # in the container via test/external/acados_backend/gen_mid_mpc_acados.py).
+    # Gated on M5_HAS_CASADI (not M5_HAS_ACADOS) so the contract test runs in
+    # both acados-OFF and acados-ON builds.
+    m5_add_gtest(test_mid_mpc_acados_formulation
+      test/unit/test_mid_mpc_acados_formulation.cpp
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
