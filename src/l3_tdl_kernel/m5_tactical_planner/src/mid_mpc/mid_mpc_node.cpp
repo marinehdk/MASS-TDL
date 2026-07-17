@@ -1164,6 +1164,22 @@ l3_msgs::msg::AvoidancePlan MidMpcNode::build_recovery_plan_(
 }
 
 // ===========================================================================
+// P3: per-target ξ breakdown → JSON array string.
+// Each target slot i ∈ [0, 15] is formatted as "ξ_i" (3 decimal places).
+// Empty-target slots are 0.000. Result is e.g. "[0.000,1.234,0.000,...]".
+// Must not throw; returns "[]" on any unexpected state.
+static std::string assemble_per_target_slack_json(const MidMpcSolution& sol) {
+  std::string out = "[";
+  char buf[32];
+  for (std::size_t i = 0; i < sol.cpa_slack_per_target.size(); ++i) {
+    if (i > 0) out += ",";
+    std::snprintf(buf, sizeof(buf), "%.3f", sol.cpa_slack_per_target[i]);
+    out += buf;
+  }
+  out += "]";
+  return out;
+}
+
 // publish_outputs_
 // ===========================================================================
 void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
@@ -1213,6 +1229,9 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
       + ",\"ipopt_iter\":"   + std::to_string(sol.ipopt_iterations)
       + ",\"solver_status\":" + std::to_string(static_cast<int>(sol.status))
       + ",\"cpa_slack\":"    + slack_buf
+      // P3: per-target ξ breakdown for observability/CCS certification trace.
+      // Array of 16 floats; empty-target slots are 0.0.
+      + ",\"cpa_slack_per_target\":" + assemble_per_target_slack_json(sol)
       + "}";
 
   l3_msgs::msg::ASDRRecord record;
