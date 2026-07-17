@@ -6,8 +6,13 @@ import sys
 
 def main():
     d = json.load(open(sys.argv[1]))
-    print(f"backend={d['backend']} status={d['status']['name']} "
-          f"usable={d['usable']} cost_total={d['cost_total']:.3f} "
+    sc = d.get("scenario", {})
+    role = sc.get("role", "primary")
+    tgt_d = sc.get("target_distance_m", "?")
+    tcpa = sc.get("tcpa_s", "?")
+    print(f"backend={d['backend']} role={role} target_d={tgt_d}m tcpa={tcpa}s "
+          f"status={d['status']['name']} usable={d['usable']} "
+          f"cost_total={d['cost_total']:.3f} "
           f"traj_cpa_m={d['trajectory_cpa_m']:.1f} "
           f"solve_ms={d['solve_duration_ms']} iter={d['iterations']}")
     # also dump the psi sequence so we can eyeball stbd/port direction

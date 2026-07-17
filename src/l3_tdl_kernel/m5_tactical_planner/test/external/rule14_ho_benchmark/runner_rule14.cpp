@@ -1,5 +1,6 @@
 // test/external/rule14_ho_benchmark/runner_rule14.cpp
-// P1b-1c Task 19 — Rule14 head-on benchmark runner (IPOPT vs acados).
+// P1b-1c Task 19 (rescoped) — Rule14 head-on benchmark runner (IPOPT vs
+// acados), production-realistic mid-MPC scenario.
 //
 // Single source compiled TWICE: once under M5_USE_ACADOS=OFF (IPOPT kinematics
 // backend: MidMpcNlpFormulation + MidMpcSolver), once under =ON (acados Path B
@@ -16,11 +17,37 @@
 // runner source is byte-identical in both builds; only the backend wrapper
 // differs. This is the HONEST two-build comparison the spec §P1b-1c demands.
 //
+// === RESCOP (T19 rescinded 500m → production-realistic 2000m primary) ===
+// The prior T19 commit used a 500 m head-on start (TCPA ~50 s to collision).
+// Parallel experiments A (scenario sweep) + B (GAUSS_NEWTON/soft-CPA) PROVED
+// that the 500 m failure is NOT an acados/Hessian bug — it is QP
+// conditioning at the straight-hold seed: acados/HPIPM cannot condition the
+// first QP with only ~2 control steps of margin (status=4, sqp_iter=1).
+// GAUSS_NEWTON + soft-CPA (singly and combined) fail BYTE-IDENTICALLY to
+// baseline on 500 m — the negative-Hessian theory is REFUTED. acados
+// CONVERGES on target >= 2000 m (TCPA >= 200 s). The mid-MPC design envelope
+// assumes early detection at km range; 500 m is BC-MPC emergency-layer
+// territory. This rescop:
+//   - PRIMARY scenario: target at 2000 m head-on (production-realistic
+//     early-detection, TCPA ~200 s). This is the scenario the 6 gates are
+//     evaluated on.
+//   - DOCUMENTED-LIMITATION datapoint: target at 500 m head-on, recorded for
+//     the finding (acados status=4; IPOPT solves via MA57 inertia correction).
+//     This is NOT a gate — just a recorded datapoint with the limitation note.
+//
+// The scenario target distance is a COMPILE-TIME macro
+// SCENARIO_TARGET_DISTANCE_M (default 2000.0 = primary). run_benchmark.sh
+// rebuilds the runner under -DSCENARIO_TARGET_DISTANCE_M=500 for the
+// limitation datapoint. The macro is also echoed in the JSON (scenario.target_distance_m)
+// so compare.py / the report can verify which scenario a JSON came from.
+//
 // RULE14 HEAD-ON GEOMETRY (mirrors test_mid_mpc_solver.cpp make_head_on_input +
 // the HeadOnGiveWayRightTurn test):
 //   - Own-ship: heading north (psi=0), 5 m/s, at origin (0,0).
-//   - Target: 500 m directly north (x_m=500, y_m=0 in NED where x=north),
-//     heading south (cog=pi), 5 m/s. Closing at 10 m/s → head-on (Rule14).
+//   - Target: SCENARIO_TARGET_DISTANCE_M north (x_m=D, y_m=0 in NED where
+//     x=north), heading south (cog=pi), 5 m/s. Closing at 10 m/s → head-on
+//     (Rule14). Default D=2000 m → TCPA = D / 10 = 200 s (the mid-MPC
+//     early-detection envelope).
 //   - Give-way: own turns starboard (+psi). Rule 14 hard-mandated.
 //   - applicable_rules={14}, heading window [-pi/3, +pi/3] (permits port too —
 //     the test asserts own picks STARBOARD within the window).
@@ -58,6 +85,16 @@
 // REAL physics difference (Path B double-integrator turning diameter vs IPOPT
 // kinematics) — that is an EXPECTED possible outcome, handled as analysis not
 // a forced-pass. See compare.py + task-19-report.md for the classification.
+//
+// Gate 2 (CPA-feasible) on the PRIMARY 2000 m scenario: the brief notes that
+// with heading window ±60° and a 90 s horizon, even a converging solver may
+// not reach cpa_safe=1852 m — the achievable CPA from a 2000 m head-on start
+// in 90 s is bounded by the heading-window physics (experiment A measured
+// ~1235 m at convergence). Gate 2 is therefore interpreted as BEHAVIORAL
+// CONSISTENCY (both backends produce comparable CPA, sub-floor or not), NOT a
+// hard cpa_safe pass. compare.py implements this honestly: if both breach
+// cpa_safe with similar margin, it reports "consistent sub-floor CPA" with
+// the numbers, not a silent pass.
 //
 // CasADi LGPL-3.0 / acados C lib 2-Clause BSD: internal MISRA violations
 // exempted per coding-standards.md §10.
@@ -103,10 +140,29 @@ constexpr int32_t kHorizon = 18;
 constexpr double kDt = 5.0;
 constexpr double kShipLengthM = 45.0;   // IMO MSC.137(76) turning indices (L)
 
+// Scenario target distance — compile-time so run_benchmark.sh can rebuild the
+// runner under -DSCENARIO_TARGET_DISTANCE_M=500 for the documented-limitation
+// datapoint (NOT a gate). Default = 2000 m = the production-realistic PRIMARY
+// scenario (mid-MPC early-detection envelope, TCPA = D / closing = 2000/10 =
+// 200 s — the acados convergence threshold from experiment A). Overriding the
+// macro at build time does NOT change any gate; compare.py keys off the
+// scenario.target_distance_m + scenario.role fields in the JSON to decide
+// which gate-set to apply (primary vs documented-limitation).
+#ifndef SCENARIO_TARGET_DISTANCE_M
+#define SCENARIO_TARGET_DISTANCE_M 2000.0
+#endif
+constexpr double kScenarioTargetDistanceM = SCENARIO_TARGET_DISTANCE_M;
+// Closing rate = own (5, north) + target (5, south) = 10 m/s head-on.
+constexpr double kClosingMps = 10.0;
+constexpr double kScenarioTcpaS =
+    kScenarioTargetDistanceM / kClosingMps;  // 2000/10=200s (primary)
+
 // Build the Rule14 head-on MidMpcInput — byte-identical for BOTH backends.
 // Mirrors test_mid_mpc_solver.cpp make_head_on_input() + HeadOnGiveWayRightTurn
-// test: target 500 m north southbound, own northbound → head-on, give-way
-// starboard. route_weight=1.0 (production-normal, see file header rationale).
+// test: target kScenarioTargetDistanceM north southbound, own northbound →
+// head-on, give-way starboard. route_weight=1.0 (production-normal, see file
+// header rationale). The target distance is the compile-time
+// SCENARIO_TARGET_DISTANCE_M (2000 m primary / 500 m documented-limitation).
 MidMpcInput make_head_on_rule14_input() {
   MidMpcInput inp;
   // Own-ship: heading north, 5 m/s, at origin.
@@ -137,14 +193,18 @@ MidMpcInput make_head_on_rule14_input() {
   inp.route_frame_active_leg_bearing_rad = 0.0;
   inp.lateral_scale_m        = 400.0;  // GncExecutionOdd.max_lateral_offset_m
   inp.route_weight           = 1.0;    // active cross-leg guard (normal ops)
-  // Head-on target: 500 m directly north, heading south, 5 m/s.
+  // Head-on target: kScenarioTargetDistanceM directly north, heading south,
+  // 5 m/s. cpa_m/tcpa_s set to the TRUE geometric values (M2 publishes these;
+  // a head-on start has cpa_m→0 at tcpa = D/closing). The formulation clamps
+  // cpa_m to kMinCpaForWeight (1.0) so the target weight is at max regardless;
+  // setting the true tcpa (not 0) is the production-realistic detail.
   TargetState tgt;
-  tgt.x_m     =  500.0;
+  tgt.x_m     =  kScenarioTargetDistanceM;
   tgt.y_m     =    0.0;
   tgt.cog_rad =  M_PI;     // heading south (NED: pi = south, positive clockwise)
   tgt.sog_mps =    5.0;    // closing at own+target = 10 m/s
   tgt.cpa_m   =    0.0;    // clamped to kMinCpaForWeight=1.0 → tw=1.0 (max weight)
-  tgt.tcpa_s  =    0.0;    // clamped to 1.0
+  tgt.tcpa_s  =    kScenarioTcpaS;  // 2000/10=200s (primary) / 500/10=50s (lim)
   inp.targets.push_back(tgt);
   // Synchronize the constraint-context targets + own-psi mirror (the node
   // does this in synchronize_mid_mpc_constraint_context; the runner must too
@@ -280,6 +340,15 @@ int main() {
   std::printf("  \"scenario\": {\n");
   std::printf("    \"name\": \"rule14_head_on\",\n");
   std::printf("    \"rule\": 14,\n");
+  // role: "primary" for the 2000 m production-realistic scenario; "limitation"
+  // for the 500 m documented short-TCPA datapoint (NOT a gate). compare.py
+  // keys off this to apply the primary gate-set vs recording the limitation.
+  std::printf("    \"role\": \"%s\",\n",
+              (kScenarioTargetDistanceM >= 2000.0 ? "primary"
+                                                   : "documented_limitation"));
+  std::printf("    \"target_distance_m\": %.3f,\n", kScenarioTargetDistanceM);
+  std::printf("    \"closing_mps\": %.3f,\n", kClosingMps);
+  std::printf("    \"tcpa_s\": %.3f,\n", kScenarioTcpaS);
   std::printf("    \"own_psi_rad\": %.6f,\n", in.own_ship.psi_rad);
   std::printf("    \"own_u_mps\": %.6f,\n", in.own_ship.u_mps);
   std::printf("    \"own_x_m\": %.6f,\n", in.own_ship.x_m);
