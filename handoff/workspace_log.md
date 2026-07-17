@@ -4205,3 +4205,43 @@ M5 跨树同步在 worktree m5-design-grounding @ f09122a00。
 - src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:1942/2052/2124(preflight调用点)
 ```
 
+
+---
+
+## [2026-07-17] ZCode (design-grounding 文档同步) / worktree m5-design-grounding @ 997d7eb6d / M5 MPC P0–P7 路线图落地 + GNC 对接决策跨树同步 / 待 commit
+
+### Task Goal
+把 2026-07-16 brainstorming 的 P0–P7 子项目分解草案(此前仅在会话 TXT,从未落为文档)落为权威路线图文档,并把 2026-07-17 L3→L4 GNC 契约设计的跨树修订(VR-06b/VR-07b/VR-01/02/05)同步到 M5 MPC phase 级,保证设计一致性。
+
+### Core Changes(均在 .worktrees/m5-design-grounding)
+- **新建** `docs/superpowers/specs/2026-07-17-m5-mpc-p0-p7-roadmap.md`(核心产出):P0–P7 执行路线图,含依赖链、状态总表、各 phase scope、GNC 跨树同步节、两套 phase 编号区分(M5 MPC 核心 P0–P7 ≠ GNC 迁移 P1–P4)
+- **复制进 worktree**(从主 checkout,保证数据来源一致):
+  - `docs/superpowers/specs/2026-07-17-l3-l4-gnc-contract-solution-pack.md`
+  - `docs/superpowers/design-logs/2026-07-17-l3-l4-gnc-contract-design-log.md`
+- **小改**:
+  - `specs/2026-07-16-m5-p1b1-acados-full-migration-design.md`:2 处 horizon 标注 360s→1200s(P4,VR-06b 修订)
+  - `specs/2026-07-16-m5-mpc-colav-solution-pack.md`:补"执行路线图"交叉引用节
+  - `design-logs/2026-07-16-m5-mpc-colav-design-log.md`:跨树反馈修订节补"P0–P7 phase 归属映射"小节
+
+### GNC 决策 → M5 phase 归属(核心映射)
+| VR | 内容 | 归属 phase |
+|---|---|---|
+| VR-06b | horizon 360s→1200s | P4 |
+| VR-07b | 废弃人工参考→相对跟踪 t_b+Huber;废除 C10/C11 | P2(终端)+ P5(位置代价) |
+| VR-02 | 淘汰 TailBuilder | P2 输出流程 |
+| VR-01 | 新 TimedTrajectory 输出 | 契约兑现项(新) |
+| VR-05 | preflight 4 调用点删硬编码 | 契约兑现项(新) |
+
+### Current Status
+- ✅ GNC 文档同步进 worktree(byte-identical 验证)
+- ✅ P0–P7 路线图文档新建
+- ✅ 3 处已存在 spec/design-log 同步
+- ⏳ **未 commit**(待用户决定时机;建议分两次:① GNC 文档同步 ② 路线图+phase 同步)
+- ✗ 无代码/接口改动(纯文档)
+
+### Handoff Notes
+- **两套 phase 编号防混淆**: M5 MPC 核心 P0–P7(本路线图) ≠ GNC 迁移路线 P1–P4(VR-11)。后续任何 phase 引用须显式标注。
+- **P1b-1b 生产 backend 的 kNDefault=18(90s/dt=5)是 P1b 范围正确值,未动**;horizon 延长到 1200s 是 P4 范围,待 P1b 全量迁移通过后做。
+- **P2/P4/P5 仍无 spec**: GNC 影响已写入路线图,待执行时按路线图开 spec(本任务不开 spec,避免超前)。
+- **下一步**:用户 commit 后,可继续 P1b-1b 实施;或开 P2 spec(Nomoto+相对跟踪 t_b+Huber+废除 C10/C11+淘汰 TailBuilder 输出流程)。
+- **关键文件**: `specs/2026-07-17-m5-mpc-p0-p7-roadmap.md`(路线图权威) + `specs/2026-07-17-l3-l4-gnc-contract-solution-pack.md`(GNC 13 改动点权威)

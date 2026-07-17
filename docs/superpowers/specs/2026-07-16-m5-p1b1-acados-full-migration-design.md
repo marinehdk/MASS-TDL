@@ -106,7 +106,7 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 | `test/unit/test_mid_mpc_acados_*.cpp` | acatos backend 单元测试 | 新增 |
 
 **明确排除(推 P1b-2 或更后)**:
-- 360s horizon(P4)
+- horizon 延长(P4;原 360s,VR-06b 修订为 **1200s**,见 P0–P7 路线图 `specs/2026-07-17-m5-mpc-p0-p7-roadmap.md` §4 P4)
 - COLREGs 几何 P5 移除硬编码 Rule14/15 行
 - zone 约束(非平滑)
 - 海试标定真 Nomoto 参数(TBD-5 最终闭环)
@@ -216,7 +216,7 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 ## 出 P1b-1 范围(后续)
 
-- **P1b-2**:增强(360s horizon P4 / COLREGs 几何 P5 移除硬编码 / zone 约束)。~~x=[x,y,ψ,r,u] 5 维 VR-07~~ **[2026-07-17 已纳入 P1b-1b]**
+- **P1b-2**:增强(horizon 延长 P4:原 360s,**VR-06b 修订为 1200s** / COLREGs 几何 P5 移除硬编码 / zone 约束)。~~x=[x,y,ψ,r,u] 5 维 VR-07~~ **[2026-07-17 已纳入 P1b-1b]**
 - **海试标定**:真 Nomoto 参数(TBD-5 最终闭环)
 - **per-target ξ 升级**:若 P1b-1 单标量等价够用,per-target 可推 P3
 
