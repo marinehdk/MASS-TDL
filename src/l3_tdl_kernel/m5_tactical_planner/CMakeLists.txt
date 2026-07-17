@@ -685,6 +685,37 @@ if(BUILD_TESTING)
         -fno-sanitize=address -fno-sanitize=undefined)
     endif()
   endif()
+
+  # ── P1b-1c Task 19: Rule14 head-on benchmark runner (IPOPT vs acatos). ──────
+  # Standalone executable (NOT a gtest). Same source compiled under BOTH
+  # M5_USE_ACADOS=OFF (IPOPT kinematics) and =ON (acatos Path B double-
+  # integrator); the #ifdef M5_USE_ACADOS branch in the runner picks the
+  # backend. run_benchmark.sh orchestrates the two builds + runs + compare.
+  # This target sits under M5_HAS_CASADI (NOT M5_HAS_ACADOS) so it builds in
+  # BOTH the OFF (IPOPT) and ON (acatos) builds — m5_shared_lib propagates
+  # M5_USE_ACADOS=1 PUBLIC under ON (T16), so the runner's #ifdef branch
+  # compiles to the acatos wrapper + links the generated solver .so via
+  # M5_ACADOS_CONSUMER_LIBS (empty under OFF); under OFF it compiles to the
+  # IPOPT wrapper. NOT registered as a ctest — the benchmark gate is the
+  # cross-build compare.py, not a single-build pass/fail.
+  add_executable(rule14_bench_runner
+    test/external/rule14_ho_benchmark/runner_rule14.cpp
+  )
+  target_link_libraries(rule14_bench_runner
+    m5_shared_lib
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    ${M5_ACADOS_CONSUMER_LIBS}
+  )
+  # CasADi dlopen(RTLD_DEEPBIND) + ASAN incompatibility (mirrors the existing
+  # CasADi test exceptions). Strip ASAN in Debug builds.
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(rule14_bench_runner PRIVATE
+      -fno-sanitize=address -fno-sanitize=undefined)
+    target_link_options(rule14_bench_runner PRIVATE
+      -fno-sanitize=address -fno-sanitize=undefined)
+  endif()
+  install(TARGETS rule14_bench_runner
+    DESTINATION lib/m5_tactical_planner)
 endif()
 
 ament_export_include_directories(include)

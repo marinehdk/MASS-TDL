@@ -1,0 +1,6 @@
+# Rule14 HO benchmark outputs — generated at run time by run_benchmark.sh.
+# runner_rule14.cpp dumps JSON here per build; compare.py writes the result.
+out/
+*.json
+*.stderr
+compare_result.txt
