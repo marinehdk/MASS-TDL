@@ -76,7 +76,7 @@ P0 (config fix) ──► P1 (acados 使能器)
 | **P1b-2** | 增强(1200s horizon P4 / COLREGs 几何 P5 / zone) | P1b-1 | 中-高 | ⏳ 待(部分内容已前移,见 §5.4) | (P1b1 spec §明确排除) |
 | **P2** | Nomoto 接入 NLP + x=[ψ,r,u] + 终端路线(**VR-07b 修订**) | P0 | 中-高 | ⏳ 待 | **无 spec(待开)** |
 | **P3** | per-target ξ 行为验证 + ρ 校准 + 测试缺口(formulation 不改,ξ+L1/L2 已 P1b-1b 落地) | P1 | 低-中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p3-slack-validation-design.md` + `plans/2026-07-18-m5-p3-slack-validation.md` |
-| **P4** | Eriksen 分层时域(**VR-06b 修订:1200s**) + RFC-001 推翻 | P1+P2 | 高 | ⏳ 待 | **无 spec(待开)** |
+| **P4** | horizon 1200s + 废终端 C10/C11 + TailBuilder 拼接淘汰 + timer 60s + 承诺前缀 180s + 切 acados 默认 ON(含 carryover I-1~4) | P1+P2 | 高 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p4-horizon-terminal-tailbuilder-design.md` + `plans/2026-07-18-m5-p4-horizon-terminal-tailbuilder.md` |
 | **P5** | M6 几何约束 + 反 chattering 三层组合(**+Huber 联动**) | (相对独立) | 高 | ⏳ 待 | **无 spec(待开)** |
 | **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 | P2/P3/P4 | 中 | ⏳ 待(P6-a/P6-b 子项) | **无 spec(待开)** |
 | **P7** | A+ 不确定性(OU) + 意图建模 | P4 | 中 | ⏳ 后置/并行 | **无 spec(待开)** |
