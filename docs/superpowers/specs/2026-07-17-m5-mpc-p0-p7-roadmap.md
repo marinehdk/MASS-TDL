@@ -75,7 +75,7 @@ P0 (config fix) ──► P1 (acados 使能器)
 | **P1b-1c** | Rule14 HO benchmark(行为等价) | P1b-1b | 高 | ⏳ 待 | (P1b1 spec §P1b-1c) |
 | **P1b-2** | 增强(1200s horizon P4 / COLREGs 几何 P5 / zone) | P1b-1 | 中-高 | ⏳ 待(部分内容已前移,见 §5.4) | (P1b1 spec §明确排除) |
 | **P2** | Nomoto 接入 NLP + x=[ψ,r,u] + 终端路线(**VR-07b 修订**) | P0 | 中-高 | ⏳ 待 | **无 spec(待开)** |
-| **P3** | per-target per-step ξ + 混合 L1/L2 slack | P1 | 低-中 | ⏳ 待(部分已在 P1b-1a T7 staging) | **无 spec(待开)** |
+| **P3** | per-target ξ 行为验证 + ρ 校准 + 测试缺口(formulation 不改,ξ+L1/L2 已 P1b-1b 落地) | P1 | 低-中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p3-slack-validation-design.md` + `plans/2026-07-18-m5-p3-slack-validation.md` |
 | **P4** | Eriksen 分层时域(**VR-06b 修订:1200s**) + RFC-001 推翻 | P1+P2 | 高 | ⏳ 待 | **无 spec(待开)** |
 | **P5** | M6 几何约束 + 反 chattering 三层组合(**+Huber 联动**) | (相对独立) | 高 | ⏳ 待 | **无 spec(待开)** |
 | **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 | P2/P3/P4 | 中 | ⏳ 待(P6-a/P6-b 子项) | **无 spec(待开)** |
@@ -126,16 +126,20 @@ P0 (config fix) ──► P1 (acados 使能器)
 - **依赖**: P0
 - **风险**: 中-高(formulation 层重大重构)
 
-### P3. per-target per-step ξ + 混合 L1/L2 slack [核心,低-中风险]
+### P3. per-target ξ 行为验证 + ρ 校准 + 测试缺口填补 [核心,低-中风险]
+
+> **⚠ 2026-07-18 scope 收敛**: 原 P3 scope 写"per-target per-step ξ + 混合 L1/L2 slack"。**核心实现已由 P1b-1b 落地**(kAcadosNsh=16 per-target × N stages = ξ∈R^{16·N};gen Zl=1e2 quad + zl=1e3 linear L1)。P3 收敛为**验证 + 校准 + 测试缺口填补**(formulation 不改):① ρ exact-penalty SIL 实测(zl=1e3 是否满足 Kerrigan ρ>‖λ*‖∞);② ξ 独立性(masking 消除)+ 精确性(feasible ξ≈0)单测;③ ξ 可观测性(per-target breakdown publish,认证可见)。spec/plan: `specs/2026-07-18-m5-p3-slack-validation-design.md` + `plans/2026-07-18-m5-p3-slack-validation.md`。
 
 - **DP/TBD**: DP-03 + TBD-6 · VR-03 + VR-TBD6
-- **scope**:
-  - ξ∈R^{M·N} per-target per-step(废单标量 σ)
-  - 混合 L1/L2 惩罚 ρ·ξ+½w·ξ²(acados zl/Zl 原生)
-  - ρ 取值(Eriksen 同伦 K_ξ=[0.1,1,10,100,∞] 或 ρ>max|λ*| 下界)
-  - σ_t 独立性单测 + slack 精确性单测(feasible 时 ξ=0)
-- **依赖**: P1(acados 原生支持混合 L1/L2)
-- **状态**: 部分已在 P1b-1a T7 staging 验证;若 staging 不可扩则回 P3 降级外层 σ
+- **scope(收敛后)**:
+  - **不改 formulation**(ξ∈R^{M·N} + 混合 L1/L2 已 P1b-1b 落地)
+  - ρ(zl=1e3)exact-penalty SIL 实测(imazu-*-ms 多船场景)+ 条件性校准(固定/调大/同伦,据 SIL 结果)
+  - ξ 独立性单测(多船一目标松弛不拖累其他,masking 消除 SC-02)
+  - ξ 精确性单测(feasible ξ≈0 / infeasible ξ>0)
+  - ξ 可观测性(per-target ξ breakdown publish,M8/ASDR/CCS 认证可见)
+- **依赖**: P1(acados 原生支持混合 L1/L2,已落地)
+- **状态**: spec/plan ready(2026-07-18);P1b-1a T7 staging 已证 per-target ξ 可扩
+- **风险**: 低-中(只测试 + 可观测性 + 可能调 zl 一个数值;SIL 实测驱动)
 
 ### P4. Eriksen 分层时域 + RFC-001 推翻 [参数,高风险]
 
