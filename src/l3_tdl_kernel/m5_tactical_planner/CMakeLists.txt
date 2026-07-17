@@ -174,6 +174,11 @@ set(M5_SHARED_SOURCES
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
   src/mid_mpc/degraded_candidate_adapter.cpp
+  # P2 T4 (VR-07b): per-stage t_b closest-point (project_to_segment on the F1
+  # seed). CasADi-free free function; the acatos solver .cpp calls it, and the
+  # unit test links it directly (no acatos .so dependency — testable in
+  # isolation from the stale codegen until T5 regenerates NP=143).
+  src/mid_mpc/mid_mpc_per_stage_tb.cpp
   # --- tail_builder/ ---
   src/tail_builder/tail_builder.cpp
 )
@@ -472,6 +477,18 @@ if(BUILD_TESTING)
   # Header-only — NO .cpp added to M5_SHARED_SOURCES.
   m5_add_gtest(test_huber_cost
     test/unit/test_huber_cost.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # P2 T4: per-stage t_b closest-point computation (VR-07b). CasADi-free free
+  # function (compute_per_stage_tb) the acatos solver .cpp calls to fill the
+  # per-stage tb_x/tb_y slots via project_to_segment on the F1 seed. The test
+  # cross-checks the packed tb against the T1 project_to_segment ORACLE directly
+  # (no acatos .so dependency — the .so is stale NP=141 until T5 regenerates
+  # NP=143; the full solver test PASS is deferred to T5/T6, but this test proves
+  # the tb computation itself is correct in isolation).
+  m5_add_gtest(test_mid_mpc_per_stage_tb
+    test/unit/test_mid_mpc_per_stage_tb.cpp
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 

@@ -25,6 +25,12 @@
 
 #include <spdlog/spdlog.h>
 
+// P2 T4 (VR-07b): per-stage t_b closest-point computation. CasADi-free free
+// function that calls the T1 project_to_segment on the F1 seed positions; the
+// result fills the per-stage tb_x/tb_y slots the route COST (T3) and terminal
+// COST (T4) read as the lateral-deviation origin.
+#include "m5_tactical_planner/mid_mpc/mid_mpc_per_stage_tb.hpp"
+
 // CasADi (MX/Function) for the C1 status-4 constraint-satisfaction re-check
 // (T17 review-fix C1): the check recomputes the constraint residuals h(x,u,p)
 // from the SAME MX expression the acados codegen derives from
@@ -490,6 +496,40 @@ double steady_state_n_for_u(double u_mps) {
   const double n_raw = std::sqrt(ratio) * u_mps;
   return std::max(kNMin, std::min(kNMax, n_raw));
 }
+
+// P2 T4 (VR-07b): forward-propagate the F1 seed positions (px, py) per stage,
+// WITHOUT touching acatos. This mirrors the seed loop in solve() (step 4) —
+// delta->0 hold, n->steady-state hold — and returns the per-stage own-ship
+// PREDICTED positions used as the input to compute_per_stage_tb. Extracted so
+// the tb computation can run BEFORE the per-stage update_params write loop
+// (the tb slots must be populated in ps BEFORE update_params concatenates them
+// into the 141-vector the acatos graph reads).
+//
+// The propagation is DETERMINISTIC, so the values here EXACTLY match what the
+// seed loop in solve() writes via ocp_nlp_out_set (the F1 seed itself is
+// UNCHANGED — this only READS the same forward propagation to derive tb).
+std::vector<double> forward_propagate_seed_axis(const MidMpcInput& input,
+                                                double dt, int N, bool x_axis) {
+  SeedState s;
+  s.px  = input.own_ship.x_m;
+  s.py  = input.own_ship.y_m;
+  s.psi = input.own_ship.psi_rad;
+  s.r   = 0.0;
+  s.u   = (input.own_ship.u_mps > 0.0) ? input.own_ship.u_mps
+                                       : input.planned_speed_mps;
+  const double n_hold = steady_state_n_for_u(s.u);
+  std::vector<double> out(static_cast<std::size_t>(N + 1), 0.0);
+  for (int k = 0; k <= N; ++k) {
+    const std::size_t kk = static_cast<std::size_t>(k);
+    out[kk] = x_axis ? s.px : s.py;
+    if (k < N) {
+      SeedState next;
+      path_b_step(s, /*delta=*/0.0, n_hold, dt, next);
+      s = next;
+    }
+  }
+  return out;
+}
 }  // namespace
 
 // ===========================================================================
@@ -681,9 +721,14 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   MidMpcSolution sol;  // status defaults to NotInitialized
 
   // ---- 1. pack parameters. ----
-  const auto packed = formulation_.pack_parameters(input);
+  // NOTE: packed.second (ps) is NON-const because P2 T4 writes the per-stage
+  // tb_x/tb_y slots AFTER pack_parameters (which leaves them at 0.0) and BEFORE
+  // the update_params write loop. pack_parameters fills the prefix + drift
+  // slots; the tb slots are the solver's responsibility (computed from the F1
+  // seed via project_to_segment, see step 1b below). g (global) stays const.
+  auto packed = formulation_.pack_parameters(input);
   const std::vector<double>& g = packed.first;           // np_global = 106
-  const std::vector<std::vector<double>>& ps = packed.second;  // [N+1][np_per_stage]
+  std::vector<std::vector<double>>& ps = packed.second;  // [N+1][np_per_stage]
 
   // Parity asserts (fail-closed: a pack/formulation mismatch is a contract bug,
   // not a tunable). Lengths MUST match the codegen-generated partition.
@@ -694,6 +739,59 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                   g.size(), formulation_.np_global(), ps.size(), kAcadosN + 1);
     sol.status = MidMpcSolution::Status::NumericalFailure;
     return sol;
+  }
+
+  // ---- 1b. P2 T4 (VR-07b): fill the per-stage t_b slots (tb_x/tb_y) via ----
+  // project_to_segment on the F1 forward-propagated seed positions. The route
+  // COST (build_route_cost_, T3) and terminal COST (build_terminal_cost_, T4)
+  // read these slots as the lateral-deviation origin; pack_parameters leaves
+  // them at 0.0 (neutral placeholder), so the solver MUST populate them here
+  // BEFORE the update_params write loop concatenates them into the 141-vector
+  // the acatos graph reads.
+  //
+  // The leg is treated as an effectively-infinite ray from the active-leg
+  // origin A along the leg bearing; B = A + bearing_dir * extent with extent
+  // large enough that projection onto [A, B] never clamps to B over the
+  // horizon. leg_extent = planned_speed * (N+2) * dt is a safe multiple of the
+  // maximum own displacement (own + planned_speed * N * dt); a degenerate seed
+  // (NaN own / degenerate leg) falls back to the ABSOLUTE route origin A — the
+  // honest fallback (cost well-defined relative to the leg start), never (0,0).
+  //
+  // The seed positions are READ ONLY here — the F1 seed loop below (step 4)
+  // writes them to ocp_nlp_out_set unchanged. This block only computes tb FROM
+  // the same forward propagation; it does NOT alter the seed trajectory.
+  {
+    const double ax = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameOriginX)];
+    const double ay = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameOriginY)];
+    const double bearing = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameBearing)];
+    const double nx = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameNormalX)];
+    const double ny = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameNormalY)];
+    const double planned = g[static_cast<std::size_t>(kAcadosGIdxPlannedSpeed)];
+    const double dt_tb = formulation_.config().dt_s;
+    // Generous extent: (N+2) steps of planned speed. Guards against clamp-to-B
+    // for any realistic own position over the horizon (own displacement is at
+    // most planned_speed * N * dt; +2 steps is a safety margin).
+    const double leg_extent = std::fabs(planned) *
+        static_cast<double>(kAcadosN + 2) * dt_tb;
+    // Forward-propagate the F1 seed positions (READ ONLY — the F1 seed itself
+    // is unchanged; this only reproduces the propagation to derive tb).
+    const std::vector<double> px_seed =
+        forward_propagate_seed_axis(input, dt_tb, kAcadosN, /*x_axis=*/true);
+    const std::vector<double> py_seed =
+        forward_propagate_seed_axis(input, dt_tb, kAcadosN, /*x_axis=*/false);
+    const PerStageTb tb = compute_per_stage_tb(px_seed, py_seed,
+                                               ax, ay, bearing, nx, ny,
+                                               leg_extent, kAcadosN);
+    // Write tb into the per-stage slots (single source of truth: the offsets
+    // are the PUBLIC constexpr kAcadosPerStageTbXOff/YOff in the formulation
+    // hpp — no magic numbers here).
+    const std::size_t off_tx = static_cast<std::size_t>(kAcadosPerStageTbXOff);
+    const std::size_t off_ty = static_cast<std::size_t>(kAcadosPerStageTbYOff);
+    for (int k = 0; k <= kAcadosN; ++k) {
+      const std::size_t kk = static_cast<std::size_t>(k);
+      ps[kk][off_tx] = tb.tb_x[kk];
+      ps[kk][off_ty] = tb.tb_y[kk];
+    }
   }
 
   // ---- 2. write per-stage concatenated params (141 per stage). ----

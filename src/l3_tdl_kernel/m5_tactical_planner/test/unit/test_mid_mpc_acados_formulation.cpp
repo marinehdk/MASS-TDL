@@ -445,3 +445,157 @@ TEST_F(AcadosFormulationTest, RouteCost_UsesPerStageTbNotGlobalOrigin) {
   EXPECT_NE(actual, expected_go)  // sanity: actual is not the global-origin value
       << "regression: route cost still reads GLOBAL origin (expected per-stage tb)";
 }
+
+// ===========================================================================
+// P2 T4 (VR-07b): terminal cost lN anchor -> per-stage t_b. build_terminal_cost_
+// computes lN = (px - ox)*nx + (py - oy)*ny; this test PROVES ox/oy now come
+// from the PER-STAGE tb slots (NOT the GLOBAL route-frame origin), without
+// touching the softplus shape (wrong_side / l_max / J_lower / J_upper are
+// UNCHANGED). The discriminating input places the global origin and per-stage
+// t_b FAR apart so the two interpretations give very different lN -> very
+// different terminal cost. The graph must match the t_b-anchored oracle, not
+// the global-origin oracle.
+//
+// The terminal cost is the WRONG-SIDE softplus (spec §5.4):
+//   wrong_side = -pref_dir * (lN / l_scale)
+//   J_lower    = tau_t * softplus(wrong_side / tau_t) * tau_t
+//   J_upper    = tau_t * (softplus((lN - l_max)/l_scale/tau_t) +
+//                         softplus((-lN - l_max)/l_scale/tau_t))
+//   lateral_active = give_way * pref_dir^2
+//   J_terminal = give_way * J_lower + lateral_active * J_upper
+// We compute the same formula in double (oracle), parameterized on lN, so the
+// test directly probes the lN origin (not the softplus constants, which are
+// formulation-private but mirrored here from the .cpp source).
+// ===========================================================================
+
+namespace {
+
+// Build a 1-output MX Function that evaluates J_terminal over the formulation's
+// symbol graph: f(x, u, p_global, p_stage) -> {J_terminal}. Mirrors
+// build_route_cost_function.
+casadi::Function build_terminal_cost_function(const MidMpcAcadosFormulation& form) {
+  casadi::MX x  = form.x_sym();
+  casadi::MX u  = form.u_sym();
+  casadi::MX pg = form.p_global_sym();
+  casadi::MX ps = form.p_stage_sym();
+  return casadi::Function("J_terminal", casadi::MXVector{x, u, pg, ps},
+                          casadi::MXVector{form.J_terminal()});
+}
+
+// Evaluate J_terminal numerically for one (x, u, p_global, p_stage) point.
+double eval_terminal_cost(const casadi::Function& f,
+                          const std::vector<double>& x,
+                          const std::vector<double>& u,
+                          const std::vector<double>& pg,
+                          const std::vector<double>& ps) {
+  const std::vector<casadi::DM> res = f(casadi::DMVector{
+      casadi::DM(x), casadi::DM(u), casadi::DM(pg), casadi::DM(ps)});
+  return res.at(0).scalar();
+}
+
+// Softplus(x) = log(1 + exp(x)); the form used in build_terminal_cost_ is
+// tau * softplus(z / tau) (so the result has units of z, not tau). This mirror
+// lets the oracle be parameterized on lN directly.
+inline double softplus_scaled(double z, double tau) {
+  // log(1 + exp(z/tau)) * tau  — numerically stable for large |z/tau|.
+  const double zi = z / tau;
+  if (zi > 50.0)  return z;             // exp overflow -> softplus ~ z
+  if (zi < -50.0) return tau * std::exp(zi);  // ~tau*exp(zi)
+  return tau * std::log1p(std::exp(zi));
+}
+
+// Terminal cost oracle (parameterized on lN). Mirrors build_terminal_cost_:
+//   wrong_side = -pref_dir * (lN / l_scale)
+//   J_lower    = softplus_scaled(wrong_side, tau_t)
+//   z_pos      = (lN - l_max) / l_scale
+//   z_neg      = (-lN - l_max) / l_scale
+//   J_upper    = softplus_scaled(z_pos, tau_t) + softplus_scaled(z_neg, tau_t)
+//   lateral_active = give_way * pref_dir^2
+//   J_terminal = give_way * J_lower + lateral_active * J_upper
+// Constants mirror the .cpp (kTerminalLMaxFeasibleM=400; tau_t = cfg.terminal_tau
+// = 0.5 default).
+double terminal_cost_oracle(double lN, double pref_dir, double give_way,
+                            double l_scale, double tau_t, double l_max) {
+  const double wrong_side = -pref_dir * (lN / l_scale);
+  const double j_lower    = softplus_scaled(wrong_side, tau_t);
+  const double z_pos      = (lN - l_max) / l_scale;
+  const double z_neg      = (-lN - l_max) / l_scale;
+  const double j_upper    = softplus_scaled(z_pos, tau_t) +
+                            softplus_scaled(z_neg, tau_t);
+  const double lateral_active = give_way * pref_dir * pref_dir;
+  return give_way * j_lower + lateral_active * j_upper;
+}
+
+}  // namespace
+
+// Global slot offsets the terminal cost reads (mirror kGIdx* in the .cpp):
+//   [16/17] kGIdxRouteFrameNormalX/Y (already aliased kGNormalX/kGNormalY above)
+//   [19]    kGIdxLateralScale        (already aliased kGLatScale above)
+//   [22]    kGIdxPreferredDir,  [24] kGIdxRole  (terminal-only, aliased below).
+// The global ORIGIN slots (14,15) are read ONLY by the constraint rows now,
+// NOT by the terminal cost (T4 moved lN to per-stage t_b).
+constexpr int kGPrefDir_t = 22;
+constexpr int kGRole_t    = 24;
+
+// P2 T4 Test — TerminalCost_LNAnchorPerStageTb:
+// Prove build_terminal_cost_ reads the PER-STAGE tb_x/tb_y slots for lN, NOT
+// the GLOBAL kGIdxRouteFrameOriginX/Y. Construct an input where the global
+// origin and the per-stage t_b DIFFER; the MX terminal cost must equal the
+// softplus oracle parameterized on the t_b-anchored lN (NOT the global-origin
+// lN). This catches a regression where build_terminal_cost_ still reads the
+// global origin slot for lN.
+TEST_F(AcadosFormulationTest, TerminalCost_LNAnchorPerStageTb) {
+  const casadi::Function fterm = build_terminal_cost_function(form_);
+  const double tau_t = form_.config().terminal_tau;
+  constexpr double l_max = 400.0;   // kTerminalLMaxFeasibleM (mirror .cpp)
+
+  // Route frame: normal +y. Place global origin and tb FAR apart so the two
+  // interpretations give very different lN.
+  const double nx = 0.0;
+  const double ny = 1.0;
+  const double l_scale = 400.0;
+  const double pref_dir = 1.0;       // starboard preference
+  const double give_way = 1.0;       // role give-way (activates both terms)
+  const double tb_x = 0.0;
+  const double tb_y = 100.0;
+  const double go_x = 5000.0;        // global origin x — DIFFERENT from tb_x
+  const double go_y = -3000.0;       // global origin y — DIFFERENT from tb_y
+
+  std::vector<double> pgv(static_cast<std::size_t>(form_.np_global()), 0.0);
+  pgv[kGOriginX]   = go_x;           // global origin (the OLD lN anchor)
+  pgv[kGOriginY]   = go_y;
+  pgv[kGNormalX]   = nx;
+  pgv[kGNormalY]   = ny;
+  pgv[kGLatScale]  = l_scale;
+  pgv[kGPrefDir_t] = pref_dir;
+  pgv[kGRole_t]    = give_way;
+
+  std::vector<double> psv(static_cast<std::size_t>(form_.np_per_stage()), 0.0);
+  psv[kPtbX] = tb_x;                 // per-stage t_b (the NEW lN anchor)
+  psv[kPtbY] = tb_y;
+
+  // px/py chosen so lN is non-trivial (outside the l_max band -> J_upper > 0
+  // AND on the wrong side -> J_lower > 0). This exercises BOTH softplus terms,
+  // so a wrong lN origin shifts BOTH oracles.
+  const std::vector<double> xvec{120.0, tb_y + 1.5 * l_max, 0.0, 0.0, 5.0};
+  const std::vector<double> uvec{0.0, 9.0};
+
+  // Oracle anchored at the PER-STAGE t_b (what the graph MUST match).
+  const double lN_tb = (xvec[0] - tb_x) * nx + (xvec[1] - tb_y) * ny;
+  const double expected_tb = terminal_cost_oracle(lN_tb, pref_dir, give_way,
+                                                  l_scale, tau_t, l_max);
+  // Oracle anchored at the GLOBAL origin (what the OLD graph did — must NOT match).
+  const double lN_go = (xvec[0] - go_x) * nx + (xvec[1] - go_y) * ny;
+  const double expected_go = terminal_cost_oracle(lN_go, pref_dir, give_way,
+                                                  l_scale, tau_t, l_max);
+
+  const double actual = eval_terminal_cost(fterm, xvec, uvec, pgv, psv);
+  EXPECT_NEAR(actual, expected_tb, 1e-6)
+      << "terminal cost must use PER-STAGE tb for lN, not global origin";
+  // The two oracles must be far apart (else the test is non-discriminating).
+  ASSERT_GT(std::fabs(expected_go - expected_tb), 1.0)
+      << "test is non-discriminating: tb-anchored and global-anchored terminal "
+      << "costs nearly equal (lN_tb=" << lN_tb << " lN_go=" << lN_go << ")";
+  EXPECT_NE(actual, expected_go)
+      << "regression: terminal cost still reads GLOBAL origin for lN";
+}

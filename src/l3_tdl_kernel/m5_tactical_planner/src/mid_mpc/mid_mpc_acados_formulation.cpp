@@ -54,7 +54,7 @@ constexpr int32_t kGIdxU0               = 1;   // RESERVED: x0 seed (u_surge) �
 constexpr int32_t kGIdxX0               = 2;   // RESERVED: x0 seed (px)   — solver via ocp.constraints.x0
 constexpr int32_t kGIdxY0               = 3;   // RESERVED: x0 seed (py)   — solver via ocp.constraints.x0
 constexpr int32_t kGIdxRouteBearing     = 4;
-constexpr int32_t kGIdxPlannedSpeed     = 5;
+constexpr int32_t kGIdxPlannedSpeed     = kAcadosGIdxPlannedSpeed;      // 5
 constexpr int32_t kGIdxHeadingMin       = 6;
 constexpr int32_t kGIdxHeadingMax       = 7;
 constexpr int32_t kGIdxSpeedMin         = 8;
@@ -63,11 +63,11 @@ constexpr int32_t kGIdxCpaSafe          = 10;
 constexpr int32_t kGIdxRotMax           = 11;
 constexpr int32_t kGIdxOwnPsi           = 12;
 constexpr int32_t kGIdxGiveWay          = 13;  // rule14/15 give-way flag
-constexpr int32_t kGIdxRouteFrameOriginX = 14;
-constexpr int32_t kGIdxRouteFrameOriginY = 15;
-constexpr int32_t kGIdxRouteFrameNormalX = 16;
-constexpr int32_t kGIdxRouteFrameNormalY = 17;
-constexpr int32_t kGIdxRouteFrameBearing = 18;
+constexpr int32_t kGIdxRouteFrameOriginX = kAcadosGIdxRouteFrameOriginX;  // 14
+constexpr int32_t kGIdxRouteFrameOriginY = kAcadosGIdxRouteFrameOriginY;  // 15
+constexpr int32_t kGIdxRouteFrameNormalX = kAcadosGIdxRouteFrameNormalX;  // 16
+constexpr int32_t kGIdxRouteFrameNormalY = kAcadosGIdxRouteFrameNormalY;  // 17
+constexpr int32_t kGIdxRouteFrameBearing = kAcadosGIdxRouteFrameBearing;  // 18
 constexpr int32_t kGIdxLateralScale      = 19;
 constexpr int32_t kGIdxRouteWeight       = 20;
 constexpr int32_t kGIdxPrefixActiveK     = 21;
@@ -387,7 +387,9 @@ casadi::MX MidMpcAcadosFormulation::build_dist_cost_() const {
 // per-stage t_b, but the route CONSTRAINT origin (build_con_h_ direction /
 // min_alt / terminal C10/C11 rows) stays the GLOBAL route origin. Switching
 // the constraint origin to per-stage t_b is deferred to P4 ("废除终端
-// C10/C11 -> P4"). build_terminal_cost_ also keeps the global origin (T4).
+// C10/C11 -> P4"). build_terminal_cost_ ALSO moved to per-stage t_b for its
+// lN anchor (P2 T4, VR-07b); only the CONSTRAINT rows still use the global
+// origin until P4.
 casadi::MX MidMpcAcadosFormulation::build_route_cost_() const {
   const casadi::MX px = x_(0);
   const casadi::MX py = x_(1);
@@ -427,11 +429,21 @@ casadi::MX MidMpcAcadosFormulation::build_asym_cost_() const {
 
 // J_terminal: terminal wrong-side softplus (spec §5.4). Single-stage form;
 // the codegen script applies this only at the terminal stage (cost_type_e).
+//
+// VR-07b T4: the lN ANCHOR origin is the PER-STAGE t_b (tb_x_at_k_slot_ /
+// tb_y_at_k_slot_), matching build_route_cost_. The terminal stage N reads
+// tb[N] = tb[N-1] packed by the solver (the last real projection — see
+// mid_mpc_acados_solver.cpp compute_per_stage_tb). The softplus SHAPE
+// (wrong_side / l_max band / J_lower / J_upper / lateral_active / return expr)
+// is UNCHANGED — only the lN origin moved from the global route origin to the
+// per-stage t_b. The route NORMAL (nx,ny) stays global (the leg bearing is
+// stage-uniform). P2 does NOT touch the terminal weight; P4 abolishes C10/C11.
 casadi::MX MidMpcAcadosFormulation::build_terminal_cost_() const {
   const casadi::MX px = x_(0);
   const casadi::MX py = x_(1);
-  const casadi::MX ox = gslot_(kGIdxRouteFrameOriginX);
-  const casadi::MX oy = gslot_(kGIdxRouteFrameOriginY);
+  // VR-07b T4: per-stage t_b closest-point origin (NOT the global route origin).
+  const casadi::MX ox = tb_x_at_k_slot_();
+  const casadi::MX oy = tb_y_at_k_slot_();
   const casadi::MX nx = gslot_(kGIdxRouteFrameNormalX);
   const casadi::MX ny = gslot_(kGIdxRouteFrameNormalY);
   const casadi::MX l_scale = gslot_(kGIdxLateralScale);

@@ -110,6 +110,22 @@ constexpr int32_t kAcadosPerStageTbXOff =
 constexpr int32_t kAcadosPerStageTbYOff = kAcadosPerStageTbXOff + 1;  // 36
 constexpr int32_t kAcadosNpPerStageDefault = kAcadosPerStageTbYOff + 1;  // 3 + 32 + 2 = 37
 
+// PUBLIC global-slot indices for the route-frame scalars the solver pack needs
+// to read by offset (P2 T4): the per-stage t_b computation reads the active-leg
+// origin / bearing / normal + planned speed from the GLOBAL param vector the
+// solver already packs via pack_parameters. These alias the SAME values as the
+// anonymous-namespace kGIdx* constants in the .cpp (single source of truth —
+// the values are pinned by IPOPT kIdx parity and asserted via the
+// static_asserts below). Exposed publicly so the solver .cpp (a separate TU)
+// can index g[] without magic numbers; mirrors how the per-stage offsets above
+// are already public.
+constexpr int32_t kAcadosGIdxRouteFrameOriginX = 14;
+constexpr int32_t kAcadosGIdxRouteFrameOriginY = 15;
+constexpr int32_t kAcadosGIdxRouteFrameNormalX = 16;
+constexpr int32_t kAcadosGIdxRouteFrameNormalY = 17;
+constexpr int32_t kAcadosGIdxRouteFrameBearing = 18;
+constexpr int32_t kAcadosGIdxPlannedSpeed      = 5;
+
 // Static contract (T15 F2/F4 + P2 T3): the GLOBAL block stays 142-compatible
 // with the IPOPT stage-uniform portion (26 head + 80 target = 106). The
 // per-stage block is the documented acatos expansion (prefix scalars +
@@ -233,6 +249,14 @@ class MidMpcAcadosFormulation {
   // the formulation test can build a single-output MX Function over the graph
   // and cross-check against the T2 huber_cost oracle; mirrors disc_dyn_expr().
   const casadi::MX& J_route() const noexcept { return J_route_; }
+  // Terminal cost expression (VR-07b T4): wrong-side softplus + two-sided
+  // l_max band, anchored at the PER-STAGE t_b (lN = (px-tb_x)*nx + (py-tb_y)*ny
+  // — same per-stage origin as J_route). The softplus SHAPE is unchanged from
+  // the prior global-origin form; only the lN ANCHOR origin moved to per-stage
+  // t_b. Exposed so the formulation test can build a single-output MX Function
+  // and cross-check the lN anchor against a discriminating input where the
+  // global route origin and the per-stage t_b DIFFER. Mirrors J_route().
+  const casadi::MX& J_terminal() const noexcept { return J_terminal_; }
   const casadi::MX& x_sym() const noexcept { return x_; }
   const casadi::MX& u_sym() const noexcept { return u_; }
   const casadi::MX& p_global_sym() const noexcept { return p_global_; }
