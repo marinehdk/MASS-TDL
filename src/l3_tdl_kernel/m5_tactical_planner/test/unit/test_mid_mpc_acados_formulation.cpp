@@ -3,10 +3,14 @@
 // symbol-graph dimension / parameter-partition assertions.
 //
 // This test verifies the SYMBOL-GRAPH CONTRACT of the production acados
-// formulation (Path B 5-dim state, 2-dim control, 142-param IPOPT-equivalent
-// global/per-stage partition), NOT a real acados solve (that is Task 16+).
-// It mirrors the IPOPT MidMpcNlpFormulation kParamDim==142 contract but on
-// the acados MX graph (state x=[px,py,psi,r,u_surge], control u=[delta,n]).
+// formulation (Path B 5-dim state, 2-dim control, documented global/per-stage
+// parameter partition), NOT a real acados solve (that is Task 16+).
+// Parameter partition (T15 F2/F4): global=106 (26 IPOPT head scalars + 80
+// target block, IPOPT-142-compatible for the stage-uniform part) + per-stage=35
+// (prefix psi/u + pact_pre + per-target drifted x/y). The per-stage block is an
+// honest acados expansion beyond IPOPT's flat kParamDim==142; see
+// mid_mpc_acados_formulation.hpp partition doc + static_assert (np_global==106,
+// np_per_stage==35). State x=[px,py,psi,r,u_surge], control u=[delta,n].
 //
 // The IPOPT formulation (mid_mpc_nlp_formulation.{hpp,cpp}) is READ-ONLY
 // reference; this test does NOT touch it. acados codegen (gen_mid_mpc_acados.py)

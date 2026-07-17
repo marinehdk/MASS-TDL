@@ -193,8 +193,10 @@ G_TARGETS = NP_GLOBAL_HEAD             # 26 (target block start in global p)
 
 def build_model() -> AcadosModel:
     """Build the CasADi SX model: 5-dim state, 2-dim control, Path B discrete
-    dynamics, con_h_expr (CPA per-target + direction + min_alt + terminal),
-    per-stage EXTERNAL cost expressions, 142-param partition."""
+    dynamics, con_h_expr (prefix-equality + CPA per-target + direction + min_alt
+    + terminal), per-stage EXTERNAL cost expressions. Parameter partition:
+    global=106 (IPOPT-142-compatible stage-uniform part) + per-stage=35 (T15
+    F2/F4 documented acados expansion beyond IPOPT flat 142)."""
     model = AcadosModel()
     model.name = SOLVER_NAME
 
