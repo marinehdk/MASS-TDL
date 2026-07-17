@@ -497,39 +497,14 @@ double steady_state_n_for_u(double u_mps) {
   return std::max(kNMin, std::min(kNMax, n_raw));
 }
 
-// P2 T4 (VR-07b): forward-propagate the F1 seed positions (px, py) per stage,
-// WITHOUT touching acatos. This mirrors the seed loop in solve() (step 4) —
-// delta->0 hold, n->steady-state hold — and returns the per-stage own-ship
-// PREDICTED positions used as the input to compute_per_stage_tb. Extracted so
-// the tb computation can run BEFORE the per-stage update_params write loop
-// (the tb slots must be populated in ps BEFORE update_params concatenates them
-// into the 141-vector the acatos graph reads).
-//
-// The propagation is DETERMINISTIC, so the values here EXACTLY match what the
-// seed loop in solve() writes via ocp_nlp_out_set (the F1 seed itself is
-// UNCHANGED — this only READS the same forward propagation to derive tb).
-std::vector<double> forward_propagate_seed_axis(const MidMpcInput& input,
-                                                double dt, int N, bool x_axis) {
-  SeedState s;
-  s.px  = input.own_ship.x_m;
-  s.py  = input.own_ship.y_m;
-  s.psi = input.own_ship.psi_rad;
-  s.r   = 0.0;
-  s.u   = (input.own_ship.u_mps > 0.0) ? input.own_ship.u_mps
-                                       : input.planned_speed_mps;
-  const double n_hold = steady_state_n_for_u(s.u);
-  std::vector<double> out(static_cast<std::size_t>(N + 1), 0.0);
-  for (int k = 0; k <= N; ++k) {
-    const std::size_t kk = static_cast<std::size_t>(k);
-    out[kk] = x_axis ? s.px : s.py;
-    if (k < N) {
-      SeedState next;
-      path_b_step(s, /*delta=*/0.0, n_hold, dt, next);
-      s = next;
-    }
-  }
-  return out;
-}
+// P2 T4 (VR-07b, review-fix I-1): the per-stage F1 seed positions (px, py) are
+// computed ONCE in solve() (block 1a below) into a shared std::vector<SeedState>
+// that BOTH the tb-pack block (1b) and the F1 seed-write loop (step 4) read
+// from. This REMOVES the prior duplicate forward-propagation helper
+// (forward_propagate_seed_axis) so the tb computation and the acatos seed are
+// provably the SAME trajectory by construction — no drift hazard if the F1 seed
+// init/propagation changes later (there is now exactly ONE call site for the
+// SeedState init + path_b_step loop).
 }  // namespace
 
 // ===========================================================================
@@ -741,6 +716,40 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     return sol;
   }
 
+  // ---- 1a. P2 T4 (VR-07b, review-fix I-1): compute the F1 seed trajectory ----
+  // ONCE into a shared per-stage vector. This is the SINGLE forward propagation
+  // of the F1 seed (delta->0 hold, n->steady-state hold, path_b_step per stage);
+  // BOTH the tb-pack block (1b) and the F1 seed-write loop (step 4) read from
+  // it, so the tb closest-point origins and the acatos seed are PROVABLY the
+  // same trajectory by construction (no duplicate helper, no drift hazard).
+  //
+  // The SeedState init + propagation here are byte-for-byte identical to the
+  // pre-refactor seed loop: s.px=own_x, s.py=own_y, s.psi=own_psi, s.r=0.0,
+  // s.u = own_u>0 ? own_u : planned; n_hold = steady_state_n_for_u(s.u);
+  // path_b_step(s, 0.0, n_hold, dt, next). The vector captures the per-stage
+  // state BEFORE any ocp_nlp_out_set write, so step 4 simply replays it.
+  const double dt = formulation_.config().dt_s;
+  SeedState s_seed;
+  s_seed.px  = input.own_ship.x_m;
+  s_seed.py  = input.own_ship.y_m;
+  s_seed.psi = input.own_ship.psi_rad;
+  s_seed.r   = 0.0;
+  s_seed.u   = (input.own_ship.u_mps > 0.0) ? input.own_ship.u_mps
+                                            : input.planned_speed_mps;
+  const double n_hold = steady_state_n_for_u(s_seed.u);
+  std::vector<SeedState> seed_traj(static_cast<std::size_t>(kAcadosN + 1));
+  {
+    SeedState s = s_seed;  // working copy; advanced by path_b_step below.
+    for (int k = 0; k <= kAcadosN; ++k) {
+      seed_traj[static_cast<std::size_t>(k)] = s;
+      if (k < kAcadosN) {
+        SeedState next;
+        path_b_step(s, /*delta=*/0.0, n_hold, dt, next);
+        s = next;
+      }
+    }
+  }
+
   // ---- 1b. P2 T4 (VR-07b): fill the per-stage t_b slots (tb_x/tb_y) via ----
   // project_to_segment on the F1 forward-propagated seed positions. The route
   // COST (build_route_cost_, T3) and terminal COST (build_terminal_cost_, T4)
@@ -757,9 +766,15 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // (NaN own / degenerate leg) falls back to the ABSOLUTE route origin A — the
   // honest fallback (cost well-defined relative to the leg start), never (0,0).
   //
-  // The seed positions are READ ONLY here — the F1 seed loop below (step 4)
-  // writes them to ocp_nlp_out_set unchanged. This block only computes tb FROM
-  // the same forward propagation; it does NOT alter the seed trajectory.
+  // Review-fix M-2: leg_extent is FLOORED at dt so a stationary / low-speed
+  // ship (planned_speed == 0) still gets a finite leg to project onto (the
+  // projection is well-defined for any non-zero extent). The TRUE degenerate
+  // case (NaN leg origin / NaN bearing) is still handled by the
+  // seed_or_leg_degenerate fallback inside compute_per_stage_tb.
+  //
+  // The seed positions come from the shared seed_traj (block 1a) — the SAME
+  // vector the F1 seed-write loop (step 4) reads from, so the tb origins and
+  // the acatos seed are identical by construction.
   {
     const double ax = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameOriginX)];
     const double ay = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameOriginY)];
@@ -767,18 +782,20 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     const double nx = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameNormalX)];
     const double ny = g[static_cast<std::size_t>(kAcadosGIdxRouteFrameNormalY)];
     const double planned = g[static_cast<std::size_t>(kAcadosGIdxPlannedSpeed)];
-    const double dt_tb = formulation_.config().dt_s;
     // Generous extent: (N+2) steps of planned speed. Guards against clamp-to-B
     // for any realistic own position over the horizon (own displacement is at
-    // most planned_speed * N * dt; +2 steps is a safety margin).
-    const double leg_extent = std::fabs(planned) *
-        static_cast<double>(kAcadosN + 2) * dt_tb;
-    // Forward-propagate the F1 seed positions (READ ONLY — the F1 seed itself
-    // is unchanged; this only reproduces the propagation to derive tb).
-    const std::vector<double> px_seed =
-        forward_propagate_seed_axis(input, dt_tb, kAcadosN, /*x_axis=*/true);
-    const std::vector<double> py_seed =
-        forward_propagate_seed_axis(input, dt_tb, kAcadosN, /*x_axis=*/false);
+    // most planned_speed * N * dt; +2 steps is a safety margin). FLOORED at dt
+    // (review-fix M-2) so a stationary ship still projects onto a finite leg.
+    const double leg_extent = std::max(
+        std::fabs(planned) * static_cast<double>(kAcadosN + 2) * dt, dt);
+    // Read px/py per stage from the shared seed trajectory (block 1a).
+    std::vector<double> px_seed(static_cast<std::size_t>(kAcadosN + 1), 0.0);
+    std::vector<double> py_seed(static_cast<std::size_t>(kAcadosN + 1), 0.0);
+    for (int k = 0; k <= kAcadosN; ++k) {
+      const std::size_t kk = static_cast<std::size_t>(k);
+      px_seed[kk] = seed_traj[kk].px;
+      py_seed[kk] = seed_traj[kk].py;
+    }
     const PerStageTb tb = compute_per_stage_tb(px_seed, py_seed,
                                                ax, ay, bearing, nx, ny,
                                                leg_extent, kAcadosN);
@@ -870,26 +887,22 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // the gentlest physically-consistent seed: no turn, constant speed. The seed
   // is written to every stage so the first QP starts at a feasible interior
   // point (a zero seed is ill-conditioned — P1b-1a finding).
-  SeedState s;
-  s.px  = input.own_ship.x_m;
-  s.py  = input.own_ship.y_m;
-  s.psi = input.own_ship.psi_rad;
-  s.r   = 0.0;
-  s.u   = (input.own_ship.u_mps > 0.0) ? input.own_ship.u_mps
-                                       : input.planned_speed_mps;
-  const double dt = formulation_.config().dt_s;
-  const double n_hold = steady_state_n_for_u(s.u);
+  //
+  // Review-fix I-1: the per-stage SeedState is read from seed_traj (block 1a),
+  // the SAME vector the tb-pack block (1b) read from — so the acatos seed and
+  // the tb closest-point origins are provably the same trajectory. The values
+  // written here (x_seed, u_seed) are byte-for-byte identical to the pre-refactor
+  // seed loop: x_seed = {px, py, psi, r, u} per stage; u_seed = {0, n_hold} per
+  // stage; the SeedState init and path_b_step propagation are unchanged (now in
+  // block 1a). Only the code structure changed (shared vector vs re-propagation).
+  const double delta_hold_seed = 0.0;
   for (int k = 0; k <= kAcadosN; ++k) {
-    double x_seed[kAcadosNx] = {s.px, s.py, s.psi, s.r, s.u};
+    const SeedState& sk = seed_traj[static_cast<std::size_t>(k)];
+    double x_seed[kAcadosNx] = {sk.px, sk.py, sk.psi, sk.r, sk.u};
     ocp_nlp_out_set(impl_->cfg, impl_->dims, impl_->out, k, "x", x_seed);
     if (k < kAcadosN) {
-      const double delta_hold = 0.0;
-      double u_seed[kAcadosNu] = {delta_hold, n_hold};
+      double u_seed[kAcadosNu] = {delta_hold_seed, n_hold};
       ocp_nlp_out_set(impl_->cfg, impl_->dims, impl_->out, k, "u", u_seed);
-      // Forward-propagate one Path B step so stage k+1 seed is consistent.
-      SeedState next;
-      path_b_step(s, delta_hold, n_hold, dt, next);
-      s = next;
     }
   }
 
