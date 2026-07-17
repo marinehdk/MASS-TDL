@@ -4283,3 +4283,54 @@ M5 跨树同步在 worktree m5-design-grounding @ f09122a00。
 - **下一步 P2**: 用户将在 P2 考虑 spec 输出。P2 范围参考 roadmap(Nomoto+相对跟踪 t_b+Huber+废除 C10/C11+淘汰 TailBuilder)。
 - 关键文件:`.superpowers/sdd/progress.md`(T15-T20 + 评审全记录)、`specs/2026-07-17-m5-mpc-p0-p7-roadmap.md`(路线图权威)。
 - 评审 ledger 在 `.superpowers/sdd/progress.md` 末尾(codex-rescue 全量评审节)。
+
+## [2026-07-17] ZCode (tdl-sil-verify) / c1b5ac444(+handoff) / M5 MPC P2 T6 集成+benchmark+回归+7 验收门+handoff / P2 全 7 门 PASS,0 新回归,待 T7 codex 对抗评审
+
+### Task Goal
+P2(VR-07b Eriksen 相对跟踪 t_b + Huber)的最终验证门 T6。NO 生产代码改动 —— 仅跑全回归(IPOPT OFF + acados ON)、benchmark、7 验收门,然后 append handoff + commit。任何门失败即 BLOCKED,不强行 green。
+
+### Core Changes (T1-T6 完整提交链, worktree codex/m5-design-grounding)
+- **dd1e9a3d6** docs(m5): P2 spec + plan — Eriksen relative-track t_b + Huber (VR-07b)
+- **afc33131e** feat(m5): relative_track project_to_segment pure function (P2 T1)
+- **1c2eec51a** feat(m5): huber_cost pure function (P2 T2, VR-07b)
+- **a53f000c7** feat(m5): acados build_route_cost_ per-stage t_b + Huber (P2 T3, VR-07b)
+- **3821abec3** feat(m5): terminal lN anchor per-stage t_b + solver pack t_b (P2 T4)
+- **5dac79f82** fix(m5): dedupe F1 seed positions for t_b pack + leg_extent floor (P2 T4 review-fix)
+- **c1b5ac444** feat(m5): codegen SX route cost parity t_b + Huber (P2 T5)
+- (本提交) docs(handoff): record P2 relative-track + Huber completion (T1-T6, 7 gates)
+
+文件:`include/m5_tactical_planner/shared/{relative_track.hpp,huber_cost.hpp}`、
+`include/mid_mpc/{mid_mpc_acados_formulation.hpp,mid_mpc_per_stage_tb.hpp}`、
+`src/shared/relative_track.cpp`、`src/mid_mpc/{mid_mpc_acados_formulation.cpp,mid_mpc_acados_solver.cpp,mid_mpc_per_stage_tb.cpp}`、
+`test/external/acados_backend/gen_mid_mpc_acados.py`、
+`test/unit/test_{relative_track,huber_cost,mid_mpc_per_stage_tb,mid_mpc_acados_formulation}.cpp`、`CMakeLists.txt`。
+**禁忌文件未动**:`mid_mpc_nlp_formulation.{hpp,cpp}`、`mid_mpc_solver.cpp`(IPOPT 生产路径)、`vessel_dynamics_model.cpp`、`capability_manifest.hpp` 全部 byte-identical(dd1e9a3d6..c1b5ac444 git diff 空)。
+
+### Current Status — **P2 T1-T6 完成,7 验收门全 PASS,0 新回归(双路径)**
+7 门逐条(T6 独立容器 codex-m5-p2 跑全 m5_tactical_planner 套件):
+1. ✅ t_b 投影单测全绿(含退化)—— `test_relative_track` 5/5
+2. ✅ Huber 代价单测全绿(连续/可导)—— `test_huber_cost` 4/4
+3. ✅ acados build_route_cost_ t_b + Huber + codegen SX parity —— `test_mid_mpc_acados_formulation` 15/15(含 `RouteCost_HuberMatchesOracle` + `RouteCost_UsesPerStageTbNotGlobalOrigin`)
+4. ✅ build_terminal_cost_ lN 锚 t_b —— `TerminalCost_LNAnchorPerStageTb` PASS
+5. ✅ acatos 收敛 + 轨迹合理 —— `AcadosSolverTest.StraightLine_ConvergesAndProducesTrajectory` Converged + psi/u/x/y 全 finite;`MidMpcAcadosParityTest.StraightLine_BothHoldCourse` 双 backend PASS;cold-capsule route_weight=1 warm solve sqp_iter=156 traj_delta=5.9e-47 cost=4.08e-14(Huber 在 l≈0 退化为 0.5·l²,无 on-route 回归)
+6. ✅ IPOPT 路径无回归(M5_USE_ACADOS=OFF)—— 28/33 PASS,5 executable FAIL = 8 pre-existing gtest 案例(全在 MidMpcNlp/RouteCost/Terminal/Continuity/Direction 族,环境 IPOPT/MUMPS 不收敛 Maximum_Iterations_Exceeded iter=800 + solve_duration_ms>500)
+7. ✅ acados 现有测试全绿(M5_USE_ACADOS=ON)—— 30/35 PASS,同 8 pre-existing 案例,0 新;formulation 15/15 + per_stage_tb 5/5 + solver 5/5 + parity 3/3 + relative_track 5/5 + huber_cost 4/4
+
+### 回归对比(baseline dd1e9a3d6 OFF-path vs HEAD c1b5ac444 OFF-path)
+- baseline: 25/30 PASS, 5 FAIL(8 案例)
+- HEAD:    28/33 PASS, 5 FAIL(8 案例)—— 失败集**按名逐字相同**,只是 +3 个新 P2 测试全 PASS
+- IPOPT 生产源码 byte-identical(`git diff dd1e9a3d6..HEAD -- mid_mpc_nlp_formulation.{hpp,cpp} mid_mpc_solver.cpp` 空)
+
+### Handoff Notes
+- **per-stage t_b user override 35→37**:acatos 参数 per-stage np 从 35(3 + 2·Nt)扩到 37(+ tb_x/tb_y 两 slot)。`kAcadosNpPerStageDefault == 37` static_assert 在 formulation test `ParamDims_MatchDocumentedPartition` 验证。
+- **MX/SX parity 已验**:T5 codegen SX route cost 表达式与 .cpp MX 表达式逐项 parity(T5 review c1b5ac444);T6 在容器跑 `test_mid_mpc_acados_formulation` 15/15 PASS 印证 pack 正确(包含 `RouteCost_HuberMatchesOracle` 双 region 对比 oracle)。
+- **deferred items**:full solver test 在 T5 NP=143 .so regen 后已 unblocked(`test_mid_mpc_acados_solver` 5/5 + `test_mid_mpc_acados_parity` 3/3 全 PASS)。off-route Huber 行为差异(避让不过早归航)留给 P5 COLREGs 验。T7 codex 对抗评审待跑。
+- **8 pre-existing IPOPT env fails** 全在容器 IPOPT/MUMPS 不收敛(Maximum_Iterations_Exceeded iter=800)+ 一个 timing 阈值(solve_duration_ms>500),非 P2 引起(baseline 同名同模式),需 mass-l3-sil 参考环境才能完全 green。NOT P2 regression。
+- **Operational finding**:`docker compose run --rm` 每次从镜像烤好的 /opt/ws/build(BUILD_TESTING=OFF)起,build/test 必须在**同一个 bash -c invocation** 内并显式 `-DBUILD_TESTING=ON -DM5_USE_CASADI=ON`;否则 colcon test 跑 0 个测试。T7+ 沿用此模式。
+- **worktree dirty**:T6 起手有 2 个 pre-existing 未 commit 改动(design-log modified + solution-pack untracked,与本任务无关)。baseline checkout 时 stash 还原,未碰。
+- **关键文件**:
+  - T6 报告:`.superpowers/sdd/briefs/p2-t6-report.md`(7 门逐条 + 容器输出尾 + 回归对比表 + concerns)
+  - 测试日志(供审查):`runs/p2-t6-{off,on,baseline-off}/{build,test}.log`
+  - T1-T5 报告:`.superpowers/sdd/briefs/p2-t{1..5}-report.md`
+  - 生产 P2 源:`src/l3_tdl_kernel/m5_tactical_planner/{src/mid_mpc/mid_mpc_acados_{formulation,solver}.cpp,src/mid_mpc/mid_mpc_per_stage_tb.cpp,src/shared/relative_track.cpp,include/m5_tactical_planner/shared/huber_cost.hpp}`
+  - spec:`docs/superpowers/specs/2026-07-17-m5-p2-eriksen-relative-track-huber-design.md`
