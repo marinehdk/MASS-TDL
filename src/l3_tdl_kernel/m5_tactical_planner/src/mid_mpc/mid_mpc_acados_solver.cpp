@@ -54,8 +54,9 @@ namespace {
 constexpr int kAcadosNx  = M5_MID_MPC_ACADOS_NX;    // 5 ([px,py,psi,r,u_surge])
 constexpr int kAcadosNu  = M5_MID_MPC_ACADOS_NU;    // 2 ([delta,n])
 constexpr int kAcadosN   = M5_MID_MPC_ACADOS_N;     // 18 (production horizon)
-constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 141 (106 global + 35 per-stage,
-                                                    //      concatenated by codegen)
+constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 143 (106 global + 37 per-stage,
+                                                    //      concatenated by codegen; 37 = 3 prefix
+                                                    //      + 2*16 target drift + 2 tb_x/tb_y, P2 VR-07b)
 constexpr int kAcadosNsh = M5_MID_MPC_ACADOS_NSH;   // 16 (per-target CPA slacks)
 constexpr int kAcadosNs  = M5_MID_MPC_ACADOS_NS;    // 16 (slacks per path stage)
 constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 23 (path h rows)
@@ -677,8 +678,8 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
 
 // ===========================================================================
 // solve() — one acatos cycle. Sequence (P1b-1a T9 + staging runner pattern):
-//   1. pack_parameters(input) -> {global[106], per-stage[N+1][35]}.
-//   2. Per stage 0..N: concatenate global + per-stage -> 141-vector, write via
+//   1. pack_parameters(input) -> {global[106], per-stage[N+1][37]}.
+//   2. Per stage 0..N: concatenate global + per-stage -> 143-vector, write via
 //      the GENERATED update_params (finding 3: NOT ocp_nlp_in_set "p").
 //   3. Pin initial state: lbx0/ubx0 = [own_x, own_y, own_psi, 0, own_u] (r=0:
 //      MidMpcInput has no measured yaw rate). idxbxe_0=[0..4] is set by codegen
@@ -755,7 +756,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // COST (build_route_cost_, T3) and terminal COST (build_terminal_cost_, T4)
   // read these slots as the lateral-deviation origin; pack_parameters leaves
   // them at 0.0 (neutral placeholder), so the solver MUST populate them here
-  // BEFORE the update_params write loop concatenates them into the 141-vector
+  // BEFORE the update_params write loop concatenates them into the 143-vector
   // the acatos graph reads.
   //
   // The leg is treated as an effectively-infinite ray from the active-leg
@@ -811,8 +812,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     }
   }
 
-  // ---- 2. write per-stage concatenated params (141 per stage). ----
-  // Concatenate global (106) + per-stage (35) = 141 (codegen's NP). The single-
+  // ---- 2. write per-stage concatenated params (143 per stage). ----
+  // Concatenate global (106) + per-stage (37) = 143 (codegen's NP). The single-
   // stage graph reads fixed offsets; the global portion is stage-uniform.
   std::vector<double> p_stage_vec(static_cast<std::size_t>(kAcadosNp), 0.0);
   for (int k = 0; k <= kAcadosN; ++k) {
