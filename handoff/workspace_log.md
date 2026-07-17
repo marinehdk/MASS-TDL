@@ -4054,3 +4054,89 @@ P1b-0 staging spike 通过(7/7 门)后,brainstorm P1b-1 spec + 写 implementatio
 - **VR-02 偏差须记录**:VR-02/TS-12 假设一阶 Nomoto,生产 VDM 结构是二阶双积分器;Path B 是实测落地偏差,真海试 TBD-5 补 N_r 后可升级回一阶 Nomoto。
 - **worktree**:`.worktrees/m5-design-grounding`(codex/m5-design-grounding)。`.superpowers/sdd/progress-p1b1a.md` 是全 ledger。本分支未 merge l3-tdl(staging spike,不碰生产,用户未要求 push)。
 - **下一对话**:补全 P1b-1b/c Task 11-14 step(生产 MidMpcAcadosSolver + M5_USE_ACADOS flag + Rule14 HO benchmark),基于 P1b-1a 6 点推荐配置。先补 step 再执行(brainstorming 已在 spec)。
+
+## [2026-07-17] ZCode (writing-plans) / 5c68ed75b / P1b-1b/c 实施方案产出 + P1 全关闭路径 / 留新对话执行 + Codex 对抗评审
+
+### Task Goal
+P1b-1a 全过后,产出 P1b-1b/c(生产 acados backend + Rule14 HO benchmark)完整实施 plan,用于关闭整个 P1。同时为新对话准备自包含上下文(含 Codex 对抗性代码评审 P0+P1 的调度)。
+
+### Core Changes (worktree `.worktrees/m5-design-grounding`, branch codex/m5-design-grounding)
+- **P1b-1b/c plan 产出**(commit 5c68ed75b):`docs/superpowers/plans/2026-07-17-m5-p1b1b-acados-production-backend.md`。6 task(Task 15-20):
+  - T15 `MidMpcAcadosFormulation`(MX 符号图:Path B 双积分器 + 6 cost + 全约束 + 142 参数分区 + codegen)
+  - T16 CMake `M5_USE_ACADOS` 生产 block(option+find_package+sources+`add_custom_command` codegen+link)
+  - T17 `MidMpcAcadosSolver`(pack 142→全局/per-stage + solve + 输出重构 `MidMpcSolution`)+ `MidMpcSolver::solve` `#ifdef` dispatch(IPOPT 不动)
+  - T18 IPOPT↔acados 输出契约 parity 测试(backend 门)
+  - T19 Rule14 HO benchmark 6 判据(P1b-1c,DP-05/VR-05 实测)
+  - T20 全验收门 + A4000 gate + merge l3-tdl + push + P1 关闭
+- **基于真实生产接口映射**(Explore agent 挖出 IPOPT 契约,非猜):dispatch 点 `MidMpcSolver::solve()`(mid_mpc_solver.cpp:106);`static_assert(kParamDim==142)` 布局(26 全局标量 + 2×N prefix + 16×5 target);6 cost 数学形式;CMake `M5_HAS_CASADI` block(149-159)作模板;acados 环境 `docker/sil_nodes.Dockerfile:95-149`(v0.4.4,ACADOS_SOURCE_DIR=/usr/local,acados_template --no-deps)。
+- **自检修正**:初稿 kN=18 硬编码错(生产 N 由 node 参数 mid_mpc.horizon_s 解析,test fixture N=8)→ 改参数化。
+
+### Current Status — **P1b-1a 全过,P1b-1b/c plan 就绪待执行**
+- ✅ P1b-1a(staging 信心门)5/5 task + 5/5 验收门 + 回归门 + 全分支 review APPROVED(详见上一条 handoff)。Path B 双积分器(c_u=9.825342e-3 VDM 直读)锁定。
+- ✅ P1b-1b/c plan 完整(6 task,TDD step + 真实接口 + commit msg + 失败处置)。
+- ⏳ P1b-1b/c **未执行**(留新对话)。
+- **未 merge l3-tdl**:P1b-1a staging spike 分支 codex/m5-design-grounding 从 origin/l3-tdl(58d5ec3a6)起 23 commits 未 push。P0(commit 338fa87a9..d315bb3ff)+ P1a(2728a04ec..a2db064b1)+ P1b-0/P1b-1 全在本分支。
+
+### Pitfalls & Gotchas(给 P1b-1b 执行 + Codex 评审)
+- **bind-mount flakiness**:sil_nodes 容器 `./src:/opt/ws/src` 对 acados_staging/ 子树偶发 dirent/inode 不一致(cd/stat 失败、内容回退)。P1b-1a T6 实现者曾用 base64-stdin 绕过产生**不可复现 PASS**(1.7e-13),主代理在正常路径复现发现 FAIL(5.6e-7)。**纪律:PASS 必须来自 committed run_*.sh 在 documented mount,不绕过;flaky 就重跑**。
+- **gate-design 陷阱**:DISCRETE-dynamics OCP 的解轨迹只满足 dynamics 等式到 SQP 容差(~1e-6),非机器精度。dynamics 正确性门是 **seed-readback(=0.0 精确)**,不是 solved-trajectory forward-match(那是 SQP 残差,收敛证据)。P1b-1b T17 输出重构须沿用此区分。
+- **Path B 物理墙(真实,非 bug)**:VDM `compute_accelerations`(vessel_dynamics_model.cpp:52-59)无 `N_r·r` 偏航阻尼 → 偏航纯积分器(二阶),一阶 Nomoto 不可拟合。双积分器极点 z=1 临界稳定(靠 ROT box 保 r 有界),c_u≈9.8e-3 转向直径巨大 → head-on CPA 可能不可行(T19 benchmark gate 3 风险)。真 N_r 待 TBD-5 海试。
+- **codegen SX vs MX**:acados_template 对 SX 支持成熟;.cpp 用 MX(类型契约+pack 逻辑),gen_*.py 用 SX 重画同数学图。T18 parity 间接验一致。
+- **CMake codegen 是新 pattern**:P1b-0/1a 是手动 gen+Makefile;T16 `add_custom_command` 在容器 build 上下文可能踩坑(acados env 只在 sil_nodes 镜像)。
+
+### Handoff Notes(给新对话)
+- **执行**:用 superpowers:subagent-driven-development 跑 plan(P1b-1b 触生产代码,per-task review 门更稳)。执行序 T15→T16→T17→T18→T19→T20。
+- **Codex 对抗评审**:用户要求把已完成 P0 + P1 送 @codex-rescue 做对抗性代码评审把控底座质量。评审范围 = origin/l3-tdl(58d5ec3a6)..HEAD(5c68ed75b)全 diff,重点:P0 manifest-nomoto-fix 生产改动、P1a/P1b-0/P1b-1a staging 是否真 staging(不碰生产)、Path B 物理诚实性、gate 设计正确性(非 forced-pass)。
+- **promotable**:P1b-1 全门过 + A4000 本机 acceptance gate 过 → Task 20 merge l3-tdl + push origin/l3-tdl(AGENTS.md promotion rule)。本机即 A4000,无跨机 sync。
+
+### Next Steps (新对话核心提示词)
+```
+在 worktree /home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding(分支 codex/m5-design-grounding,当前 HEAD 5c68ed75b)继续 M5 MPC 重构 P1 的实施。
+
+## 已完成(勿重做)
+- ✅ **P0**(manifest-nomoto-fix,commits 338fa87a9..d315bb3ff):manifest 几何修正 45m/145t、nomoto_K_inv_s→nomoto_K_s 重命名 + T_s 15→6.0、NomotoFallback Ts-change 回归测试。
+- ✅ **P1a**(acados feasibility spike,2728a04ec..a2db064b1):acados v0.4.4 源码 build(Dockerfile)、toy OCP smoke、M5 subset re-staging。promotable 到 P1b。
+- ✅ **P1b-0**(acados 4 点 staging,d58692609..02ce2bec0):T1 prefix equality / T2 J_colreg per-stage EXTERNAL / T3 σ slack / T4 bound schedule / T5 合并。7/7 门。
+- ✅ **P1b-1a**(2 新点 + VDM 辨识 + 6 点合并,382bc86bb..50279ddf8):**Path B 物理墙回炉**——T8 首试一阶 Nomoto 撞墙(VesselDynamicsModel.compute_accelerations 无 N_r·r 偏航阻尼 → 偏航纯积分器,一阶 Nomoto 不可拟合;用户裁决 Path B)。改 honest 双积分器 dynamics(c_u=9.825342e-3 rad/s²/rad,VDM 直读非造系数)。T8 c(u) 辨识 + 积分器线性度诊断 / T6 双积分器 dynamics / T7 per-target ξ / T9 6 点合并,全 PASS。5/5 验收门 + 回归门 + 全分支 review APPROVED。
+
+## 未完成(本次执行)
+- [ ] **P1b-1b/c 实施**:按 plan `docs/superpowers/plans/2026-07-17-m5-p1b1b-acados-production-backend.md` 跑 Task 15-20(生产 MidMpcAcadosFormulation + CMake/codegen + MidMpcAcadosSolver + dispatch + parity 测试 + Rule14 HO benchmark + 验收门/promotable)。
+
+## 第一优先:送 Codex 对抗性代码评审(用户明确要求,@codex-rescue)
+**在动 P1b-1b 任何生产代码之前**,先把已完成的 P0 + P1 送 @codex-rescue 做对抗性代码评审,把控两个底座任务质量。评审范围:
+- **diff 范围**:`git diff origin/l3-tdl..HEAD`(= 58d5ec3a6..5c68ed75b,P0+P1a+P1b-0+P1b-1a 全部)。分支 codex/m5-design-grounding 未 merge l3-tdl。
+- **评审重点**(对抗性,找问题非背书):
+  1. **P0 生产改动正确性**:manifest 几何 45m/145t 是否与 fixture/datasheet 一致;nomoto_K_s 重命名是否全仓一致(无遗留 K_inv_s);T_s 6.0 是否合理;NomotoFallback 回归测试是否真断言(zero-yaw-rate path invariant)。
+  2. **staging 是否真 staging(不碰生产)**:P1a/P1b-0/P1b-1a 全部应在 `test/external/acados_staging/` + `test/external/acados_m5_subset/` 独立目录,**0 生产 src 改动**(mid_mpc_nlp_formulation/solver.cpp、vessel_dynamics_model.cpp、CMakeLists 应未被改;唯一例外是 Dockerfile 加 acados 环境)。确认无 production 泄漏。
+  3. **Path B 物理诚实性**:VDM 无 N_r·r 偏航阻尼的结论是否成立(查 vessel_dynamics_model.cpp:52-59 compute_accelerations);c_u=9.825342e-3 是否真匹配解析值 k_n_rudder·u²/izz_e(非造系数);有无偷偷加阻尼项让收敛变易。
+  4. **gate 设计正确性(非 forced-pass)**:每个 staging task 的 PASS 是否来自 committed run_*.sh 在正常 bind-mount 路径(不绕过);容差是否未被放宽过测试;status 4 + solver-moved 是否诚实;dynamics 正确性门是否是 seed-readback(精确)而非 solved-trajectory match(SQP 残差)。
+  5. **不可复现 PASS 风险**:P1b-1a T6 曾有 base64-stdin 绕过 bind-mount 的 episode(已抓出修复),查是否还有类似绕过痕迹。
+- **评审产出要求**:按严重度(Critical/Important/Minor)列发现 + file:line + 修复建议。Critical/Important 须在进 P1b-1b 前解决;Minor 记录。
+- **调度方式**:用 Agent 工具派 `tdl_code_reviewer`(read-only)做对抗评审;若涉及物理/dynamics 正确性加 `tdl_gnc_contract_reviewer`;若触碰安全/独立性问题加 `tdl_m7_safety_reviewer`。主代理是 TDL Lead,综合裁决,不让 agent 投票。
+- **关键文件给评审**:
+  - spec:`docs/superpowers/specs/2026-07-16-m5-p1b1-acados-full-migration-design.md`(§关键设计变更 Path B)
+  - staging:`src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_staging/`(common.py + T6-T9 + run_all_p1b1.sh)
+  - VDM:`src/l3_tdl_kernel/m5_tactical_planner/src/shared/vessel_dynamics_model.cpp`
+  - manifest:`src/l3_tdl_kernel/m5_tactical_planner/include/m5_tactical_planner/shared/capability_manifest.hpp`
+  - ledger:`.superpowers/sdd/progress-p1b1a.md`
+
+## 第二步(评审 Critical/Important 清零后):执行 P1b-1b/c
+- 用 superpowers:subagent-driven-development 跑 `docs/superpowers/plans/2026-07-17-m5-p1b1b-acados-production-backend.md`,执行序 T15→T16→T17→T18→T19→T20。每 task 一 fresh implementer + task reviewer。
+- **P1b-1b 触碰生产代码**(mid_mpc_solver.cpp dispatch、CMakeLists、新 mid_mpc_acados_*.{hpp,cpp})—— 每 task 改生产 src 前先跑 `colcon build/test --cmake-args -DM5_USE_ACADOS=OFF` 确认 IPOPT 无回归。
+- **纪律沿用 P1b-1a**:F1-F5 + staging 发现(warm-start/uh=1e10/EXACT/MERIT/status4+solver-moved/per-stage update_params/cost_scaling=ones/参数激活);失败即停不 mock 不 forced-pass 不调阈值;容器内 `COMPOSE_PROJECT_NAME=codex-acados-backend`(不碰 mass-l3-sil demo stack);PASS 必须来自 committed run_*.sh 在正常 bind-mount(不绕过,flaky 就重跑)。
+- **Path B 锁定**:双积分器 c_u=9.825342e-3,state x=[px,py,ψ,r,u_surge],control u=[δ,n]。benchmark gate 3(轨迹形状)有 physics 差异风险(head-on CPA 可能不可行,双积分器转向直径巨大)→ T19 失败处置:真实 physics 差异非 bug,容差重论证或温和几何。
+- **promotable**:P1b-1 全门过 + A4000 本机 acceptance gate 过 → T20 merge l3-tdl + push origin/l3-tdl。
+
+## 关键文件
+- P1b-1b/c plan(本次执行):`docs/superpowers/plans/2026-07-17-m5-p1b1b-acados-production-backend.md`
+- P1b-1 spec(权威):`docs/superpowers/specs/2026-07-16-m5-p1b1-acados-full-migration-design.md`
+- P1b-1a ledger:`.superpowers/sdd/progress-p1b1a.md`
+- 生产接口(只读参考):`src/l3_tdl_kernel/m5_tactical_planner/{src/mid_mpc/mid_mpc_solver.cpp, include/mid_mpc/mid_mpc_nlp_formulation.hpp, src/mid_mpc/mid_mpc_nlp_formulation.cpp, CMakeLists.txt}`
+- IPOPT 测试(场景模板):`src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_mid_mpc_solver.cpp`(make_head_on/straight_line/crossing helpers)
+- Dockerfile acados env:`docker/sil_nodes.Dockerfile:95-149`
+
+## 起手命令(确认状态)
+cd /home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding && git log --oneline -3 && git status --short
+# 评审 diff:git diff origin/l3-tdl..HEAD --stat
+# P1b-1a 全过证据:bash src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_staging/run_all_p1b1.sh(容器内)
+```
