@@ -18,7 +18,7 @@ P1b-0 证明了 acatos 工具链 + M5 subset 的 4 个结构决策点(prefix equ
 ## 用户裁决(brainstorming 澄清,2026-07-16)
 
 - **决策变量维度**: 双通道 psi[N]+u[N](生产忠实)[用户]
-- **dynamics**: 实现 VR-02 完整 Nomoto `Tṙ+r=Kδ`,状态 x=[px,py,ψ,r],控制 u=[δ,n](舵角+转速)[用户]
+- **dynamics**: 实现 VR-02 完整 Nomoto `Tṙ+r=Kδ`(Path B 修订为双积分器,见下方§关键设计变更),状态 **x=[px,py,ψ,r,u_surge]**(5 维,真变速),控制 u=[δ,n](舵角+转速)[用户 2026-07-17 裁决:接受 plan 5 维,surge 作 state 使 control n 有真实动力学通路]。注:原 brainstorming(2026-07-16)写 4 维 state + u=[δ,n],P1b-1b 启动前发现该组合动力学不自洽(surge 不在 state 则 n 无通路),用户裁决扩 5 维,覆盖下方原"明确排除"条款
 - **Nomoto 参数来源**: VDM zigzag 辨识(对 45m FCB 的 4-DOF MMG 跑 10/10+20/20 → 最小二乘拟合 T,K)[用户]
 - **solver 切换**: compile-time flag `M5_USE_ACADOS`(默认 OFF)[用户]
 - **benchmark 判据**: 轨迹级行为等价(避让决策+CPA-feasible 一致;Nomoto vs 运动学非同 physics,不要求 bit-close)[用户]
@@ -62,6 +62,7 @@ P1b-0 证明了 acatos 工具链 + M5 subset 的 4 个结构决策点(prefix equ
 - **T6**:dynamics 从一阶 Nomoto 改双积分器 `disc_dyn_expr`: `r[k+1]=r[k]+dt·c(u)·δ[k]`,`ψ[k+1]=ψ[k]+dt·r[k]`,`px/py` 运动学积分。state x=[px,py,ψ,r](4),control u=[δ](1,surge 作 param)。forward-match 门 1e-9 仍适用且可达(多项式离散更新)。
 - **T9**:6 点合并的 dynamics 行改双积分器;其余(prefix/J_colreg/per-target ξ/bound schedule)不变。
 - **P1b-1c benchmark**:ψ 序列 max|Δ|<0.1 rad 容差须对**双积分器预测器**(非一阶 Nomoto)重新论证;两 physics 本不同仍成立。
+- **P1b-1b 生产扩 5 维**(2026-07-17 用户裁决,覆盖原"明确排除"):staging T6/T9 用 4 维 + surge 作 stage param(已完成);生产 P1b-1b 扩 state 为 `x=[px,py,ψ,r,u_surge]`(5),control `u=[δ,n]`(2),加 surge dynamics `u_surge[k+1]=u_surge[k]+DT·(k_prop·n²-k_drag·u_surge²)`(VDM 直读 k_prop=500/k_drag=100),让 control n 经 thrust 模型真正改变 surge。理由:原 4 维 state + u=[δ,n] 组合动力学不自洽(surge 不在 state 则 n 无通路)。
 
 ## 架构
 
@@ -109,7 +110,7 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 - COLREGs 几何 P5 移除硬编码 Rule14/15 行
 - zone 约束(非平滑)
 - 海试标定真 Nomoto 参数(TBD-5 最终闭环)
-- x=[x,y,ψ,r,u] 5 维状态(VR-07 后续,本阶段 4 维)
+- ~~x=[x,y,ψ,r,u] 5 维状态(VR-07 后续,本阶段 4 维)~~ **[2026-07-17 用户裁决:移除此排除。5 维 surge-state 纳入 P1b-1b(见 §P1b-1b/§关键设计变更)。理由:原 4 维 state + u=[δ,n] 组合动力学不自洽(surge 不在 state 则 control n 无通路),扩 5 维让 n 经 thrust 模型真正改变 u_surge]**
 
 ## P1b-1a: staging task 验证点
 
@@ -141,7 +142,8 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 ### 决策变量映射(IPOPT 扁平 → acatos staged)
 - IPOPT:`x = vertcat(psi_[N], u_[N], [sigma])` 扁平 + 位置前向积分(无状态)。
-- acatos:状态 x=[px,py,ψ,r](4),控制 u=[δ,n](2),**双积分器 dynamics(Path B)**`ṙ=c(u)·δ, ψ̇=r` 推进(c(u)=k_n_rudder·u²/izz_e,VDM 直读,非 Nomoto T/K)。psi/u 序列从 acatos 状态/控制轨迹 per-stage 重构。
+- acatos:状态 **x=[px,py,ψ,r,u_surge](5 维,真变速)**,控制 u=[δ,n](2),**双积分器 dynamics(Path B)**`ṙ=c(u)·δ, ψ̇=r` 推进偏航(c(u)=k_n_rudder·u²/izz_e,VDM 直读,非 Nomoto T/K)+ surge dynamics `u_surge[k+1]=u_surge[k]+DT·(thrust(n)-drag(u_surge))`(thrust=k_prop·n²,drag=k_drag·u²,k_prop=500/k_drag=100 VDM 直读)。psi/u 序列从 acatos 状态/控制轨迹 per-stage 重构。
+- **注**:P1b-1a staging(T6/T9)用 4 维 + surge 作 stage param 是 staging 降阶(已完成,不可改);生产 P1b-1b 扩 5 维(2026-07-17 用户裁决),让 control n 有真实动力学通路。
 - 这是最大的映射工作:扁平决策变量 → staged 状态/控制。
 
 ### 142 参数 per-stage 分区
@@ -214,7 +216,7 @@ P1b-0 已验证 4 点 (prefix/J_colreg/σ/bound schedule, 单 dpsi 通道, commi
 
 ## 出 P1b-1 范围(后续)
 
-- **P1b-2**:增强(360s horizon P4 / COLREGs 几何 P5 移除硬编码 / zone 约束 / x=[x,y,ψ,r,u] 5 维 VR-07)
+- **P1b-2**:增强(360s horizon P4 / COLREGs 几何 P5 移除硬编码 / zone 约束)。~~x=[x,y,ψ,r,u] 5 维 VR-07~~ **[2026-07-17 已纳入 P1b-1b]**
 - **海试标定**:真 Nomoto 参数(TBD-5 最终闭环)
 - **per-target ξ 升级**:若 P1b-1 单标量等价够用,per-target 可推 P3
 
