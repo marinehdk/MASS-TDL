@@ -662,6 +662,28 @@ if(BUILD_TESTING)
       test/unit/test_mid_mpc_acados_solver.cpp
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
+
+    # ── P1b-1b Task 18: IPOPT ↔ acados output-contract parity test. ──────────
+    # Backend-switch gate. Same MidMpcInput fed to BOTH backends; the test
+    # proves the produced MidMpcSolution shapes are CONTRACT-compatible
+    # (downstream M4/L4/tail_gate is agnostic to which backend produced the
+    # trajectory). NOT bit-close (two physics differ per spec gate 3).
+    # Gated on BOTH M5_HAS_CASADI AND M5_HAS_ACADOS (this block already sits
+    # inside the M5_HAS_CASADI block, so the test compiles out under either
+    # flag OFF). Under OFF the IPOPT-only test suite already covers the OFF
+    # path; the parity test is meaningless without both backends present.
+    m5_add_gtest(test_mid_mpc_acados_parity
+      test/unit/test_mid_mpc_acados_parity.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    # IPOPT loads its linear solver via dlopen (RTLD_DEEPBIND) — strip ASAN
+    # in Debug builds (mirrors the test_mid_mpc_solver exception above).
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_mid_mpc_acados_parity PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_mid_mpc_acados_parity PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
   endif()
 endif()
 
