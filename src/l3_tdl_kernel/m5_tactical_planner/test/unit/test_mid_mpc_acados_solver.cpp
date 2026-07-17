@@ -31,6 +31,7 @@
 #include "m5_tactical_planner/mid_mpc/mid_mpc_acados_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_acados_solver.hpp"
 
+using mass_l3::m5::ColregsPreferredDirection;
 using mass_l3::m5::ConstraintInputs;
 using mass_l3::m5::MidMpcInput;
 using mass_l3::m5::MidMpcSolution;
@@ -534,6 +535,106 @@ TEST_F(AcadosSolverTest, SlackPenalty_MixedL1L2Value) {
               << " — ξ≈0 so penalty lower-bound trivially 0 (ρ calibration"
               << " needed for ξ>0 in Task 5).\n";
     SUCCEED();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8 (P3 T5): ρ exact-penalty calibration — realistic multi-ship
+// encounter with COLREGs active. Tests whether the solver satisfies CPA
+// constraints and uses slack when needed, in a scenario that mirrors SIL
+// conditions (imazu-06-ms style: 2-ship crossing with GIVE_WAY role).
+//
+// Key question: does zl=1e3 meet the Kerrigan exact-penalty condition
+// (ρ > ‖λ*‖∞) for realistic CPA violations? If not, slack may be 0 even
+// when constraints are violated, leading to silent infeasibility.
+//
+// NOTE: stage 0 (x0 pinned) is a known special case — slack at stage 0
+// in squared-distance space is unaffordably large, so the solver never
+// uses it there. This test focuses on later stages where the solver CAN
+// choose between slack and trajectory change.
+// ---------------------------------------------------------------------------
+TEST_F(AcadosSolverTest, RhoCalibration_RealisticMultiShip) {
+  // Realistic 2-ship crossing scenario (imazu-06-ms style):
+  // Own-ship heading north at 5 m/s.
+  // Target A: crossing from port at 2 m/s, 1500 m away, 90° COG (eastward).
+  // Target B: ahead at 2000 m, stationary (no conflict).
+  // Settings: GIVE_WAY role (1), preferred direction STARBOARD, Rule 15.
+  MidMpcInput inp;
+  inp.own_ship.psi_rad = 0.0;
+  inp.own_ship.u_mps   = 5.0;
+  inp.own_ship.x_m     = 0.0;
+  inp.own_ship.y_m     = 0.0;
+  inp.planned_route_bearing_rad = 0.0;
+  inp.planned_speed_mps         = 5.0;
+  inp.constraints.heading_min_rad = -M_PI;
+  inp.constraints.heading_max_rad =  M_PI;
+  inp.constraints.speed_min_mps   = 0.0;
+  inp.constraints.speed_max_mps   = 15.0;
+  inp.constraints.cpa_safe_m      = 1852.0;
+  inp.constraints.own_ship_psi_rad = 0.0;
+  inp.route_frame_origin_x_m = 0.0;
+  inp.route_frame_origin_y_m = 0.0;
+  inp.route_frame_normal_x   = 0.0;
+  inp.route_frame_normal_y   = 1.0;
+  inp.lateral_scale_m        = 400.0;
+  inp.route_weight           = 1.0;
+  // COLREGs: GIVE_WAY (role=1), starboard turn, Rule 15 crossing.
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  inp.colregs_min_alteration_rad = 0.349;  // ~20°
+  inp.constraints.applicable_rules = {15u};
+
+  // Target A: crossing from port, 1500 m west, heading east at 2 m/s.
+  // CPA at closest approach would be the crossing point, well inside
+  // cpa_safe=1852 m at early stages. Own-ship must turn starboard.
+  TargetState a;
+  a.id = 1;
+  a.x_m = -1500.0;   // 1500 m west (port side)
+  a.y_m = 0.0;        // same latitude
+  a.sog_mps = 2.0;
+  a.cog_rad = M_PI_2;  // eastward (90°)
+  a.confidence = 1.0;
+  inp.targets.push_back(a);
+
+  // Target B: distant, stationary, no CPA conflict.
+  TargetState b;
+  b.id = 2;
+  b.x_m = 0.0;
+  b.y_m = 10000.0;    // 10 km north — far beyond cpa_safe
+  b.sog_mps = 0.0;
+  b.cog_rad = 0.0;
+  b.confidence = 1.0;
+  inp.targets.push_back(b);
+
+  const auto sol = solver_->solve(inp, nullptr);
+  const bool csat = solver_->debug_constraints_satisfied_after_solve(inp);
+
+  std::cout << "[P5-RHO] RhoCalibration_RealisticMultiShip:\n"
+            << "  status=" << static_cast<int>(sol.status)
+            << " raw=" << solver_->last_raw_status()
+            << " sqp=" << solver_->last_sqp_iter()
+            << " cost_total=" << sol.cost_total
+            << "\n  cpa_slack=" << sol.cpa_slack
+            << " ξ[0]=" << sol.cpa_slack_per_target[0]
+            << " ξ[1]=" << sol.cpa_slack_per_target[1]
+            << " cost=" << sol.cost_total
+            << " constraints_satisfied=" << csat
+            << "\n  traj_delta=" << solver_->last_traj_delta()
+            << " duration_ms=" << sol.solve_duration_ms
+            << "\n";
+
+  // No hard assertion on ξ > 0 (same reason as InfeasiblePositive).
+  // The key metrics for ρ calibration are reported above.
+  EXPECT_TRUE(std::isfinite(sol.cpa_slack));
+  EXPECT_GE(sol.cpa_slack, 0.0);
+  for (int i = 0; i < 2; ++i) {
+    EXPECT_TRUE(std::isfinite(sol.cpa_slack_per_target[static_cast<std::size_t>(i)]));
+  }
+  // Empty target slots 2..15 must be ~0.
+  for (int i = 2; i < 16; ++i) {
+    EXPECT_LT(
+        std::fabs(sol.cpa_slack_per_target[static_cast<std::size_t>(i)]), 1e-15)
+        << "empty target slot " << i << " must be ~0";
   }
 }
 
