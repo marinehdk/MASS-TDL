@@ -41,10 +41,18 @@ namespace {
 // Global head scalar indices (IDENTICAL to IPOPT kIdx 0-25). Keeping the same
 // integer offsets means pack_parameters writes the same value to the same
 // semantic slot in both backends — the contract the spec locks.
-constexpr int32_t kGIdxPsi0             = 0;   // own initial heading [rad]
-constexpr int32_t kGIdxU0               = 1;   // own initial surge   [m/s]
-constexpr int32_t kGIdxX0               = 2;   // own current NED north [m]
-constexpr int32_t kGIdxY0               = 3;   // own current NED east  [m]
+//
+// T15 F3: slots 0-3 (own initial psi/u/x/y) are RESERVED — they seed the
+// acatos initial state via ocp.constraints.x0 (px=own_x, py=own_y, psi=own_psi,
+// u_surge=own_u) which the Task 16 solver writes from g[0..3]. They are NOT
+// graph-referenced (the acatos graph takes x0 as a hard initial-state equality,
+// not a soft param slot); keeping them reserved preserves the IPOPT kIdx parity
+// and lets the solver read the seed from the same global slots the IPOPT pack
+// writes. r=state[3] (yaw rate) seeds as 0 (no measured yaw rate in MidMpcInput).
+constexpr int32_t kGIdxPsi0             = 0;   // RESERVED: x0 seed (psi)  — solver via ocp.constraints.x0
+constexpr int32_t kGIdxU0               = 1;   // RESERVED: x0 seed (u_surge) — solver via ocp.constraints.x0
+constexpr int32_t kGIdxX0               = 2;   // RESERVED: x0 seed (px)   — solver via ocp.constraints.x0
+constexpr int32_t kGIdxY0               = 3;   // RESERVED: x0 seed (py)   — solver via ocp.constraints.x0
 constexpr int32_t kGIdxRouteBearing     = 4;
 constexpr int32_t kGIdxPlannedSpeed     = 5;
 constexpr int32_t kGIdxHeadingMin       = 6;
@@ -120,31 +128,53 @@ int MidMpcAcadosFormulation::np_global() const noexcept {
   return kAcadosNpGlobal;                                                  // 106
 }
 int MidMpcAcadosFormulation::np_per_stage() const noexcept {
-  return 2 * cfg_.n_horizon;                                               // 2*N
+  // 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y). 35 at Nt=16.
+  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets;
 }
 
 // nh: single-stage constraint row count (the acatos con_h_expr is a per-stage
 // expression; acatos stacks it N times itself). Row classes (FIXED order,
-// mirrors the gen script gen_mid_mpc_acados.py and IPOPT build_constraints_
-// minus ROT/prefix which are lbx/ubx here):
-//   [CPA per-target (Nt)][direction (1)][min_alt (1)][terminal (3)]
-// At default Nt=16: nh = 16 + 1 + 1 + 3 = 21 (matches gen script output).
+// mirrors the gen script gen_mid_mpc_acados.py and IPOPT build_constraints_;
+// ROT is lbx/ubx here so it is NOT in h):
+//   [prefix_psi (1)][prefix_u (1)][CPA per-target (Nt)][direction (1)]
+//   [min_alt (1)][terminal (3)]
+// The prefix rows come FIRST (right after ROT-via-lbx) to mirror IPOPT's
+// [ROT][prefix][CPA][direction][min_alt][terminal] class order. At default
+// Nt=16: nh = 2 + 16 + 1 + 1 + 3 = 23 (matches gen script output).
 int MidMpcAcadosFormulation::nh() const noexcept {
   const int32_t Nt = cfg_.max_targets;
-  return static_cast<int>(Nt + 1 + 1 + 3);
+  return static_cast<int>(2 + Nt + 1 + 1 + 3);
 }
 
 casadi::MX MidMpcAcadosFormulation::gslot_(int32_t i) const {
   return gslot_at(p_global_, i);
 }
 
-casadi::MX MidMpcAcadosFormulation::prefix_psi_slot_(int32_t k) const {
-  return p_stage_(casadi::Slice(kAcadosPerStagePrefixPsiOffset + k,
-                                kAcadosPerStagePrefixPsiOffset + k + 1));
+// Per-stage fixed-offset slot helpers (T15 F2/F4). The single-stage graph reads
+// stage k's value at a FIXED offset; pack_parameters writes a different value
+// to that offset in each stage's per-stage vector (set via update_params).
+casadi::MX MidMpcAcadosFormulation::prefix_psi_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStagePrefixPsiOff,
+                                kAcadosPerStagePrefixPsiOff + 1));
 }
 
-casadi::MX MidMpcAcadosFormulation::prefix_u_slot_(int32_t k) const {
-  const int32_t off = cfg_.n_horizon + k;  // prefix u follows N prefix-psi
+casadi::MX MidMpcAcadosFormulation::prefix_u_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStagePrefixUOff,
+                                kAcadosPerStagePrefixUOff + 1));
+}
+
+casadi::MX MidMpcAcadosFormulation::pact_pre_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStagePactPreOff,
+                                kAcadosPerStagePactPreOff + 1));
+}
+
+casadi::MX MidMpcAcadosFormulation::target_x_at_k_slot_(int32_t t) const {
+  const int32_t off = kAcadosPerStageTgtDriftOff + t;
+  return p_stage_(casadi::Slice(off, off + 1));
+}
+
+casadi::MX MidMpcAcadosFormulation::target_y_at_k_slot_(int32_t t) const {
+  const int32_t off = kAcadosPerStageTgtDriftOff + cfg_.max_targets + t;
   return p_stage_(casadi::Slice(off, off + 1));
 }
 
@@ -153,7 +183,7 @@ casadi::MX MidMpcAcadosFormulation::prefix_u_slot_(int32_t k) const {
 //
 //   r[k+1]       = r       + DT * c_u * delta
 //   psi[k+1]     = psi     + DT * r          (explicit Euler, pre-update r)
-//   u_surge[k+1] = u_surge + DT * (k_prop*n^2 - k_drag*u_surge^2)
+//   u_surge[k+1] = u_surge + DT * (k_prop*n^2 - k_drag*u_surge^2) / m_sge
 //   px[k+1]      = px      + u_surge * DT * cos(psi)
 //   py[k+1]      = py      + u_surge * DT * sin(psi)
 //
@@ -161,6 +191,15 @@ casadi::MX MidMpcAcadosFormulation::prefix_u_slot_(int32_t k) const {
 // u = [delta, n] (indices 0,1). Coefficients are constexpr literals (VDM-direct
 // + T8 yaw gain) — they are NOT parameters (acatos bakes them into the
 // generated dyn_disc C, same as build_base_ocp_doubleint).
+//
+// T15 F1: surge accel is MASS-NORMALIZED by m_sge = mass_kg*(1+surge_added_mass)
+// = 152250 (VDM ground truth, vessel_dynamics_model.cpp:43,57). The raw
+// (k_prop*n^2 - k_drag*u^2) is a FORCE [N]; dividing by m_sge [kg] yields m/s^2.
+// The graph uses the baked effective coefficients kKPropPerMass/kKDragPerMass
+// (= kKProp/kMSge, kKDrag/kMSge), mathematically identical to dividing the raw
+// force expression by kMSge. Without this the surge accel was ~152250x too
+// large (e.g. n=9.26,u=5 -> 40374 m/s^2 vs VDM 0.265 m/s^2). Verified: with the
+// fix, (500*9.26^2 - 100*5^2)/152250 = 0.265 m/s^2.
 // ===========================================================================
 casadi::MX MidMpcAcadosFormulation::build_disc_dyn_() const {
   const casadi::MX px      = x_(0);
@@ -173,13 +212,15 @@ casadi::MX MidMpcAcadosFormulation::build_disc_dyn_() const {
   const double dt = cfg_.dt_s;
   // Explicit-Euler order (matches build_base_ocp_doubleint): psi uses pre-update
   // r; position uses pre-update psi + pre-update u_surge. Surge integrates the
-  // thrust(n)=k_prop*n^2 minus drag(u)=k_drag*u^2 simplified model (spec
-  // amendment 2026-07-17; VDM-direct k_prop/k_drag, no sign-guard — rpm is
-  // unsigned by convention, drag opposes motion via the square).
+  // thrust(n)=k_prop*n^2 minus drag(u)=k_drag*u^2 simplified model, DIVIDED BY
+  // m_sge (T15 F1: mass normalization via baked effective coeffs). No sign-guard
+  // — rpm is unsigned by convention (n_min=0 box) and drag opposes motion via
+  // the square (u_surge>=0 box), so n*n==n*|n| and u*u==u*|u| in the feasible
+  // domain, matching the VDM sign-guarded form there.
   const casadi::MX r_next       = r       + dt * kC_u * delta;
   const casadi::MX psi_next     = psi     + dt * r;
   const casadi::MX u_surge_next = u_surge +
-      dt * (kKProp * n * n - kKDrag * u_surge * u_surge);
+      dt * (kKPropPerMass * n * n - kKDragPerMass * u_surge * u_surge);
   const casadi::MX px_next      = px      + u_surge * dt * casadi::MX::cos(psi);
   const casadi::MX py_next      = py      + u_surge * dt * casadi::MX::sin(psi);
   return casadi::MX::vertcat({px_next, py_next, psi_next, r_next, u_surge_next});
@@ -188,21 +229,36 @@ casadi::MX MidMpcAcadosFormulation::build_disc_dyn_() const {
 // ===========================================================================
 // build_con_h_() — nonlinear path constraints (single-stage h(x,u,p), nh rows).
 //
-// Row classes (FIXED order, mirrors IPOPT build_constraints_ minus ROT/prefix
-// which are lbx/ubx here):
-//   [CPA per-target][direction][min_alt][terminal]
+// Row classes (FIXED order, mirrors IPOPT build_constraints_; ROT is lbx/ubx
+// here so it is NOT in h — prefix comes right after ROT-via-lbx, first h rows):
+//   [prefix_psi (1)][prefix_u (1)][CPA per-target (Nt)][direction (1)]
+//   [min_alt (1)][terminal (3)]
+//
+// prefix_psi / prefix_u (T15 F2): committed-route prefix lock. The expression
+//   pact_pre * (psi - prefix_psi_at_k)
+//   pact_pre * (u_surge - prefix_u_at_k)
+// enforces psi[k]==prefix_psi[k], u_surge[k]==prefix_u[k] for the active prefix
+// stages (k<K, pact_pre=1.0) and is trivially 0==0 (satisfied) for k>=K
+// (pact_pre=0.0). acatos lh=uh=0 (equality). This is the activation-factor
+// approach (P1b-1a staging finding): acatos lbx/ubx/lh/uh are stage-uniform, so
+// per-stage activation is encoded by multiplying the row by a per-stage param
+// factor rather than toggling per-stage bounds. Mirrors IPOPT's prefix equality
+// rows (mid_mpc_nlp_formulation.cpp:504-513) which activate the first K rows via
+// RowBoundConfig equality [0,0] and leave k>=K double-disabled [-inf,+inf]; here
+// the [0,0] equality is stage-uniform and pact_pre selects active vs inactive.
 //
 // CPA (per-target, Nt rows): smooth squared-distance residual (one-sided >= 0
-// after acatos lh=0). P1b-1a T7 per-target xi slack softens these rows
-// (idxsh=[0..Nt-1]) in the codegen script; the EXPRESSION here is the raw
-// per-target residual. Target drift is per-target-global (kGIdxTargets block);
-// this single-stage form evaluates CPA at the current stage's own state x
-// (acatos stacks it per stage, so each stage sees its own x[k]).
+// after acatos lh=0). T15 F4: target position is the PER-STAGE drifted position
+// target_x_at_k[t]/target_y_at_k[t] (precomputed in pack_parameters as
+// tx + sog*cos(cog)*k*dt, ty + sog*sin(cog)*k*dt — matches IPOPT
+// mid_mpc_nlp_formulation.cpp:375-380). The single-stage graph cannot index k,
+// so drift is delivered per-stage via update_params. P1b-1a T7 per-target xi
+// slack softens these rows (idxsh=[2..2+Nt-1]) in the codegen script.
 //
-// direction (N rows): preferred_direction · l[k] >= 0. l[k] is the route-frame
+// direction (1 row): preferred_direction · l[k] >= 0. l[k] is the route-frame
 // cross-track at the current stage (own pos - route origin)·n_hat.
 //
-// min_alt (N rows): preferred_direction · (psi - own_psi) >= min_alt.
+// min_alt (1 row): preferred_direction · (psi - own_psi) >= min_alt.
 //
 // terminal (3 rows): g_term_side / g_term_lo / g_term_hi (spec §5.5). Built
 // here unconditionally (acatos evaluates them every stage; the codegen script
@@ -218,20 +274,20 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
   const casadi::MX px      = x_(0);
   const casadi::MX py      = x_(1);
   const casadi::MX psi     = x_(2);
-  // CPA per-target residual (one row each). Targets use the global target block
-  // (kGIdxTargets). tdx/tdy = sog*(cos cog, sin cog) drift; here we bake the
-  // DRIFT-FREE position (target tx/ty are the stage-0 positions; per-stage drift
-  // is a P1b-1c extension — staging T9 used per-stage drift, production keeps
-  // the IPOPT global-block semantics for the contract test).
+  const casadi::MX u_surge = x_(4);
   std::vector<casadi::MX> rows;
-  rows.reserve(static_cast<std::size_t>(Nt + 1 + 1 + 3));
+  rows.reserve(static_cast<std::size_t>(2 + Nt + 1 + 1 + 3));
+  // ---- Prefix lock (F2): activation-factor equality rows. ----
+  const casadi::MX pact_pre = pact_pre_slot_();
+  rows.push_back(pact_pre * (psi     - prefix_psi_at_k_slot_()));  // prefix_psi
+  rows.push_back(pact_pre * (u_surge - prefix_u_at_k_slot_()));    // prefix_u
+  // ---- CPA per-target residual (F4: per-stage drifted target position). ----
   const casadi::MX cpa_safe = gslot_(kGIdxCpaSafe);
   for (int32_t t = 0; t < Nt; ++t) {
-    const int32_t base = kGIdxTargets + t * kGTargetStride;
-    const casadi::MX tx = gslot_at(p_global_, base + 0);
-    const casadi::MX ty = gslot_at(p_global_, base + 1);
-    const casadi::MX dx = px - tx;
-    const casadi::MX dy = py - ty;
+    const casadi::MX tx_at_k = target_x_at_k_slot_(t);
+    const casadi::MX ty_at_k = target_y_at_k_slot_(t);
+    const casadi::MX dx = px - tx_at_k;
+    const casadi::MX dy = py - ty_at_k;
     // Squared-distance residual (one-sided >= cpa_safe^2 after acatos lh).
     rows.push_back(dx * dx + dy * dy - cpa_safe * cpa_safe);
   }
@@ -264,6 +320,8 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
 // Nt). disc_k is folded in numerically by the codegen script per stage; here
 // the symbol form omits disc_k (it is a stage-dependent numeric coefficient,
 // applied as cost_scaling in the codegen). Mirror IPOPT build_colreg_cost_.
+// T15 F4: target position is the per-stage drifted position (target_x_at_k /
+// target_y_at_k), matching the CPA constraint rows and IPOPT's per-stage drift.
 casadi::MX MidMpcAcadosFormulation::build_colreg_cost_() const {
   const int32_t Nt = std::max(cfg_.max_targets, 1);
   const casadi::MX px = x_(0);
@@ -273,11 +331,11 @@ casadi::MX MidMpcAcadosFormulation::build_colreg_cost_() const {
   casadi::MX cost(0.0);
   for (int32_t t = 0; t < cfg_.max_targets; ++t) {
     const int32_t base = kGIdxTargets + t * kGTargetStride;
-    const casadi::MX tx = gslot_at(p_global_, base + 0);
-    const casadi::MX ty = gslot_at(p_global_, base + 1);
     const casadi::MX tw = gslot_at(p_global_, base + 4);  // range-ramp weight
-    const casadi::MX dx = px - tx;
-    const casadi::MX dy = py - ty;
+    const casadi::MX tx_at_k = target_x_at_k_slot_(t);     // F4 per-stage drift
+    const casadi::MX ty_at_k = target_y_at_k_slot_(t);
+    const casadi::MX dx = px - tx_at_k;
+    const casadi::MX dy = py - ty_at_k;
     const casadi::MX d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
     cost = cost + tw * casadi::MX::exp(-zeta * (d - cpa));
   }
@@ -364,7 +422,7 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
   x_ = casadi::MX::sym("x", nx(), 1);               // [px,py,psi,r,u_surge]
   u_ = casadi::MX::sym("u", nu(), 1);               // [delta,n]
   p_global_ = casadi::MX::sym("p_global", np_global(), 1);      // 106
-  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 2*N
+  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 35 (F2/F4)
   disc_dyn_expr_ = build_disc_dyn_();
   con_h_expr_    = build_con_h_();
   J_colreg_   = build_colreg_cost_();
@@ -376,17 +434,20 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
 }
 
 // ===========================================================================
-// pack_parameters() — MidMpcInput -> {global[106], per_stage[N+1][2N]}.
+// pack_parameters() — MidMpcInput -> {global[106], per_stage[N+1][35]}.
 //
 // Global block (stage-uniform, 106 = 26 head + 80 target):
 //   mirrors IPOPT kIdx 0-25 (head) and kIdx 62-141 (target block, remapped to
-//   26-105 since the prefix sequence moves to the per-stage block).
+//   26-105 since the prefix sequence moves to the per-stage block). Slots 0-3
+//   (own psi/u/x/y) are RESERVED x0 seeds (F3) — the Task 16 solver writes them
+//   to ocp.constraints.x0; they are NOT graph-referenced.
 //
-// Per-stage block (2N = prefix psi[N] + prefix u[N], mirrors IPOPT kIdx 26-61):
-//   stage k carries [prefix_psi[k], prefix_u[k]]. N+1 rows (stages 0..N);
-//   the terminal stage repeats the last prefix entry (acatos requires a
-//   per-stage param at every stage 0..N; the terminal value is unused by the
-//   dynamics but must be present for the update_params shape).
+// Per-stage block (np_per_stage = 3 + 2*Nt = 35 at Nt=16; N+1 rows):
+//   stage k carries [prefix_psi_at_k, prefix_u_at_k, pact_pre,
+//                    target_x_at_k[0..Nt-1], target_y_at_k[0..Nt-1]] (F2/F4).
+//   The terminal stage N repeats stage N-1 (acatos requires a per-stage param at
+//   every stage 0..N; the terminal value is unused by the path constraints but
+//   must be present for the update_params shape).
 // ===========================================================================
 std::pair<std::vector<double>, std::vector<std::vector<double>>>
 MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
@@ -453,18 +514,48 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
     g[base + 4u] = w_range;
   }
 
-  // ---- Per-stage prefix block (2N values: prefix psi[N] + prefix u[N]).
-  // One row per acatos stage 0..N (N+1 rows). Stages k<K carry the reprojected
-  // committed-geometry psi/u; stages k>=K carry 0 (inactive, like IPOPT).
-  const int32_t N = cfg_.n_horizon;
+  // ---- Per-stage block (np_per_stage = 3 + 2*Nt per stage, N+1 rows). T15 F2/F4.
+  // Each stage k carries (at fixed offsets the single-stage graph reads):
+  //   [0]      prefix_psi_at_k  — committed-geometry psi target (C1, F2)
+  //   [1]      prefix_u_at_k    — committed-geometry u   target (C1, F2)
+  //   [2]      pact_pre         — prefix activation (1.0 if k<K else 0.0, F2)
+  //   [3..]    target_x_at_k[t] — drifted target x (F4)
+  //   [3+Nt..] target_y_at_k[t] — drifted target y (F4)
+  // Stages k<K carry the reprojected committed-geometry psi/u (F2 prefix lock);
+  // stages k>=K carry pact_pre=0 (row deactivated) and psi/u values that are
+  // unused (the activation factor zeroes the row). Target drift matches IPOPT
+  // (mid_mpc_nlp_formulation.cpp:375-380): tdx=sog*cos(cog), tdy=sog*sin(cog),
+  // target_x_at_k = tx + tdx*k*dt. The terminal stage N repeats stage N-1
+  // (acatos requires a per-stage param at every stage 0..N; the terminal value
+  // is unused by the path constraints but must be present for update_params).
+  const int32_t N  = cfg_.n_horizon;
+  const int32_t Nt = cfg_.max_targets;
+  const double dt  = cfg_.dt_s;
   std::vector<std::vector<double>> ps(
       static_cast<std::size_t>(N + 1),
-      std::vector<double>(static_cast<std::size_t>(2 * N), 0.0));
+      std::vector<double>(static_cast<std::size_t>(np_per_stage()), 0.0));
+  // Precompute per-target drift components (sog*cos/sin cog) once.
+  const std::size_t Nt_sz = static_cast<std::size_t>(Nt);
+  std::vector<double> tdx(Nt_sz, 0.0);
+  std::vector<double> tdy(Nt_sz, 0.0);
+  std::vector<double> tx0(Nt_sz, 0.0);
+  std::vector<double> ty0(Nt_sz, 0.0);
+  for (int32_t t = 0; t < n_t; ++t) {
+    const auto& tgt = input.targets[static_cast<std::size_t>(t)];
+    tx0[static_cast<std::size_t>(t)] = tgt.x_m;
+    ty0[static_cast<std::size_t>(t)] = tgt.y_m;
+    tdx[static_cast<std::size_t>(t)] = tgt.sog_mps * std::cos(tgt.cog_rad);
+    tdy[static_cast<std::size_t>(t)] = tgt.sog_mps * std::sin(tgt.cog_rad);
+  }
   for (int32_t k = 0; k < N; ++k) {
     const std::size_t kk = static_cast<std::size_t>(k);
+    const double kdt = static_cast<double>(k) * dt;
+    // Prefix scalars + activation (F2). k<K active (pact_pre=1), else inactive.
     double psi_k = 0.0;
     double u_k   = input.own_ship.u_mps;
+    double pact  = 0.0;
     if (k < K) {
+      pact = 1.0;
       if (kk < input.prefix_psi_rad.size()) {
         psi_k = input.prefix_psi_rad[kk];
       }
@@ -472,11 +563,19 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
         u_k = input.prefix_u_mps[kk];
       }
     }
-    ps[kk][static_cast<std::size_t>(k)] = psi_k;          // prefix psi slot
-    ps[kk][static_cast<std::size_t>(N + k)] = u_k;        // prefix u slot
+    ps[kk][static_cast<std::size_t>(kAcadosPerStagePrefixPsiOff)] = psi_k;
+    ps[kk][static_cast<std::size_t>(kAcadosPerStagePrefixUOff)]   = u_k;
+    ps[kk][static_cast<std::size_t>(kAcadosPerStagePactPreOff)]   = pact;
+    // Per-stage target drift (F4): target_x_at_k = tx + tdx*k*dt.
+    for (int32_t t = 0; t < Nt; ++t) {
+      const std::size_t tt = static_cast<std::size_t>(t);
+      ps[kk][static_cast<std::size_t>(kAcadosPerStageTgtDriftOff + t)] =
+          tx0[tt] + tdx[tt] * kdt;
+      ps[kk][static_cast<std::size_t>(kAcadosPerStageTgtDriftOff + Nt + t)] =
+          ty0[tt] + tdy[tt] * kdt;
+    }
   }
-  // Terminal stage N: repeat the last prefix entry (unused by dynamics; fills
-  // the required per-stage shape for update_params).
+  // Terminal stage N: repeat stage N-1 (unused by path constraints; fills shape).
   if (N >= 1) {
     ps[static_cast<std::size_t>(N)] = ps[static_cast<std::size_t>(N - 1)];
   }

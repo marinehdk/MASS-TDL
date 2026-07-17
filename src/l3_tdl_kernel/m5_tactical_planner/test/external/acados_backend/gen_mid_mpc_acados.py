@@ -17,15 +17,21 @@ Discrete dynamics (DISCRETE integrator, explicit Euler; surge as STATE so the
 rpm control has a real dynamics path, per the 2026-07-17 user ruling):
     r[k+1]       = r       + DT*c_u*delta                   (c_u VDM-direct T8)
     psi[k+1]     = psi     + DT*r                           (pre-update r)
-    u_surge[k+1] = u_surge + DT*(k_prop*n^2 - k_drag*u_surge^2)   (VDM-direct)
+    u_surge[k+1] = u_surge + DT*(k_prop*n^2 - k_drag*u_surge^2)/m_sge  (VDM-direct)
     px[k+1]      = px      + u_surge*DT*cos(psi)
     py[k+1]      = py      + u_surge*DT*sin(psi)
 
 Coefficients (VDM-direct literals, NOT invented -- vessel_dynamics_model.cpp:47-48
 + P1b-1a T8 yaw-gain identification):
     c_u    = 9.825342e-3   (= k_n_rudder * u^2 / izz_e at cruise, T8)
-    k_prop = 500.0
-    k_drag = 100.0
+    k_prop = 500.0         (vessel_dynamics_model.cpp:47)
+    k_drag = 100.0         (vessel_dynamics_model.cpp:48)
+    m_sge  = 152250.0      (mass_kg*(1+surge_added_mass_factor) = 145000*1.05;
+                            vessel_dynamics_model.cpp:43;
+                            capability_manifest.hpp:45,79). T15 F1: surge accel is
+                            MASS-NORMALIZED exactly as VDM ground truth (the raw
+                            k_prop*n^2-k_drag*u^2 is a FORCE [N], /m_sge -> m/s^2).
+                            Without /m_sge the accel was ~152250x too large.
 
 ====================  6 costs (mirror IPOPT build_*_cost_)  ====================
 EXTERNAL per-stage (cost_scaling = ones(N+1), T2/T9 finding -- acatos DEFAULT
@@ -41,23 +47,42 @@ production J_colreg/J_route/J_dist/J_vel/J_asym do NOT want):
                (spec §5.4); applied at terminal stage (cost_type_e).
 
 ====================  Constraints (mirror IPOPT, lbx/ubx for ROT/box)  =========
-    con_h_expr = vertcat( CPA per-target (Nt rows, idxsh=[0..Nt-1] per-target
+    con_h_expr = vertcat( prefix_psi (1): pact_pre*(psi - prefix_psi_at_k),
+                          prefix_u   (1): pact_pre*(u_surge - prefix_u_at_k),
+                          CPA per-target (Nt rows, idxsh=[2..2+Nt-1] per-target
                           xi slack, T7/T9 mixed L1/L2 Zl/zl),
                           direction (pref_dir*l[k]),
                           min_alt (pref_dir*(psi-own_psi) - min_alt),
                           terminal 3 rows (g_term_side/lo/hi) )
-    ROT/prefix via lbx/ubx (NOT h): |r| <= rot_max (state idx 3),
-                                    |psi| <= heading box (state idx 2),
-                                    u_min <= u_surge <= u_max (state idx 4),
-                                    |delta| <= delta_max, |n| <= n_max (control).
+    T15 F2: prefix rows come FIRST (right after ROT-via-lbx, mirroring IPOPT's
+           [ROT][prefix][CPA]... class order). lh=uh=0 (equality); pact_pre is a
+           per-stage activation factor (1.0 for k<K, 0.0 for k>=K) so inactive
+           stages get 0==0 (trivially satisfied). This is the committed-route
+           prefix lock (the GNC guard inner waypoints L4 is tracking MUST stay
+           stable across replans).
+    T15 F4: CPA target position is the per-stage drifted target_x_at_k/y_at_k
+           (precomputed = tx+sog*cos(cog)*k*dt), matching IPOPT's per-stage drift.
+    ROT via lbx/ubx (NOT h): |r| <= rot_max (state idx 3),
+                             |psi| <= heading box (state idx 2),
+                             u_min <= u_surge <= u_max (state idx 4),
+                             |delta| <= delta_max, |n| <= n_max (control).
 
-====================  142-param partition (IPOPT kParamDim contract)  =========
+====================  Param partition (T15 F2/F4 documented deviation)  =========
 GLOBAL (np_global = 106, stage-uniform): 26 IPOPT head scalars (kIdx 0-25) +
-    16x5 target block (kIdx 62-141, remapped to global 26-105).
-PER-STAGE (np_per_stage = 2*N = 36 at N=18): prefix psi[N] + prefix u[N]
-    (IPOPT kIdx 26-61). Set via the generated
-    m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
-Sum = 142 (== MidMpcNlpFormulation::kParamDim).
+    16x5 target block (kIdx 62-141, remapped to global 26-105). Slots 0-3
+    (own psi/u/x/y) are RESERVED x0 seeds (F3) -- the solver writes them to
+    ocp.constraints.x0; they are NOT graph-referenced.
+PER-STAGE (np_per_stage = 3 + 2*Nt = 35 at Nt=16): per-stage scalars stage k
+    needs -- [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre (F2),
+    [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t] (F4). Set via
+    the generated m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
+Why this is no longer exactly 142: IPOPT packs a single flat 142-vector and
+    computes per-stage target drift symbolically from global (cog,sog). acatos
+    receives a stage-uniform graph that CANNOT index stage k, so per-stage drift
+    (F4) and the prefix-equality activation factor (F2) are precomputed per-stage
+    and delivered via update_params. The GLOBAL block stays 106 (142-compatible
+    for the stage-uniform portion); the per-stage block is the documented acatos
+    expansion (3 + 2*Nt = 35 at default Nt=16).
 
 ====================  Solver opts (locked, P1b-1a T9 cost-read-back)  =========
     FULL_CONDENSING_HPIPM, EXACT hessian (F3), DISCRETE integrator, SQP,
@@ -89,10 +114,17 @@ SOLVER_NAME = "m5_mid_mpc_acados"
 # ---- Horizon / step (production default; matches .cpp kNDefault/kDt). ----
 N, DT = 18, 5.0
 
-# ---- Path B VDM-direct coefficients (mirror .cpp kC_u/kKProp/kKDrag). ----
+# ---- Path B VDM-direct coefficients (mirror .cpp kC_u/kKProp/kKDrag/kMSge). ----
 C_U = 9.825342e-3       # T8 VDM-direct yaw gain (rad/s^2 per rad)
 K_PROP = 500.0          # vessel_dynamics_model.cpp:47
 K_DRAG = 100.0          # vessel_dynamics_model.cpp:48
+# T15 F1: surge effective mass m_sge = mass_kg*(1+surge_added_mass_factor)
+# = 145000*1.05 = 152250 (vessel_dynamics_model.cpp:43;
+# capability_manifest.hpp:45 mass_kg=145000, :79 surge_added_mass_factor=0.05).
+# The surge accel is MASS-NORMALIZED exactly as VDM ground truth.
+M_SGE = 145000.0 * (1.0 + 0.05)   # 152250.0
+K_PROP_PER_MASS = K_PROP / M_SGE  # baked effective coeff (force[N]/mass[kg])
+K_DRAG_PER_MASS = K_DRAG / M_SGE  # baked effective coeff
 
 # ---- F2 bounded pseudo-infinity (t_renderer rejects JSON Infinity). ----
 UH_INF = 1.0e10
@@ -133,14 +165,22 @@ U_SURGE_MIN, U_SURGE_MAX = 0.0, 15.0   # surge box (state idx 4)
 DELTA_MAX = 0.4                        # |delta| <= delta_max (control idx 0), rad
 N_MIN, N_MAX = 0.0, 12.0              # rpm box (control idx 1), rps
 
-# ---- Parameter partition layout (must match .cpp exactly). ----
+# ---- Parameter partition layout (must match .cpp exactly). T15 F2/F4. ----
 NP_GLOBAL_HEAD = 26                    # kGIdx 0-25 (IPOPT kIdx 0-25)
 NP_GLOBAL_TARGETS = NT * 5             # 80 (IPOPT kIdx 62-141 remapped)
 NP_GLOBAL = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 106
-NP_PER_STAGE = 2 * N                   # prefix psi[N] + prefix u[N] = 36
+# Per-stage: [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre,
+#            [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t].
+PS_PREFIX_PSI_OFF = 0
+PS_PREFIX_U_OFF = 1
+PS_PACT_PRE_OFF = 2
+PS_TGT_DRIFT_OFF = 3                   # target_x_at_k[0] starts here
+NP_PER_STAGE = PS_TGT_DRIFT_OFF + 2 * NT   # 3 + 32 = 35
 
 # Global head-scalar indices (IDENTICAL to IPOPT kIdx 0-25 + .cpp kGIdx*).
-G_PSI0, G_U0, G_X0, G_Y0 = 0, 1, 2, 3
+# Slots 0-3 (own psi/u/x/y) are RESERVED x0 seeds (F3): the solver writes them
+# to ocp.constraints.x0; they are NOT graph-referenced.
+G_PSI0, G_U0, G_X0, G_Y0 = 0, 1, 2, 3   # RESERVED: x0 seed (solver via x0)
 G_ROUTE_BEARING, G_PLANNED_SPEED = 4, 5
 G_HEADING_MIN, G_HEADING_MAX = 6, 7
 G_SPEED_MIN, G_SPEED_MAX = 8, 9
@@ -149,10 +189,6 @@ G_RF_OX, G_RF_OY, G_RF_NX, G_RF_NY, G_RF_BRG = 14, 15, 16, 17, 18
 G_LAT_SCALE, G_ROUTE_WEIGHT = 19, 20
 G_PREFIX_ACTIVE_K, G_PREF_DIR, G_MIN_ALT_RAD, G_ROLE, G_DECEL_MAX = 21, 22, 23, 24, 25
 G_TARGETS = NP_GLOBAL_HEAD             # 26 (target block start in global p)
-
-# Per-stage prefix offsets (prefix psi[N] then prefix u[N]).
-PS_PREFIX_PSI_OFF = 0
-PS_PREFIX_U_OFF = N
 
 
 def build_model() -> AcadosModel:
@@ -174,7 +210,7 @@ def build_model() -> AcadosModel:
     n = ca.SX.sym("n")
     u_ctrl = ca.vertcat(delta, n)
 
-    # ---- Parameters: global (106) + per-stage (36). ----
+    # ---- Parameters: global (106) + per-stage (35, T15 F2/F4). ----
     p_global = ca.SX.sym("p_global", NP_GLOBAL)
     p_stage = ca.SX.sym("p_stage", NP_PER_STAGE)
     # acatos receives a SINGLE param vector per stage (p_global concatenated with
@@ -186,33 +222,49 @@ def build_model() -> AcadosModel:
     def gslot(i):
         return p_global[i]
 
-    def prefix_psi(k):
-        return p_stage[PS_PREFIX_PSI_OFF + k]
+    # Per-stage fixed-offset slot accessors (T15 F2/F4). The single-stage graph
+    # reads stage k's value at a FIXED offset; pack_parameters writes a different
+    # value to that offset in each stage's per-stage vector.
+    def prefix_psi_at_k():
+        return p_stage[PS_PREFIX_PSI_OFF]
 
-    def prefix_u(k):
-        return p_stage[PS_PREFIX_U_OFF + k]
+    def prefix_u_at_k():
+        return p_stage[PS_PREFIX_U_OFF]
 
-    # ---- Path B discrete dynamics (explicit Euler; surge as STATE). ----
+    def pact_pre():
+        return p_stage[PS_PACT_PRE_OFF]
+
+    def target_x_at_k(t):
+        return p_stage[PS_TGT_DRIFT_OFF + t]
+
+    def target_y_at_k(t):
+        return p_stage[PS_TGT_DRIFT_OFF + NT + t]
+
+    # ---- Path B discrete dynamics (explicit Euler; surge as STATE). T15 F1:
+    #      surge accel MASS-NORMALIZED by m_sge via baked effective coeffs. ----
     disc_dyn = ca.vertcat(
         px + u_surge * DT * ca.cos(psi),
         py + u_surge * DT * ca.sin(psi),
         psi + DT * r,
         r + DT * C_U * delta,
-        u_surge + DT * (K_PROP * n * n - K_DRAG * u_surge * u_surge),
+        u_surge + DT * (K_PROP_PER_MASS * n * n - K_DRAG_PER_MASS * u_surge * u_surge),
     )
 
-    # ---- con_h_expr: CPA per-target + direction + min_alt + terminal. ----
+    # ---- con_h_expr: prefix lock (F2) + CPA per-target (F4 drift) + direction
+    #      + min_alt + terminal. Row order mirrors IPOPT [ROT-via-lbx][prefix]
+    #      [CPA][direction][min_alt][terminal]; prefix is the first h rows. ----
+    # Prefix lock (F2): activation-factor equality. pact_pre=1 for k<K enforces
+    # psi==prefix_psi, u_surge==prefix_u; pact_pre=0 for k>=K -> 0==0 (inactive).
+    h_prefix_psi = pact_pre() * (psi - prefix_psi_at_k())
+    h_prefix_u = pact_pre() * (u_surge - prefix_u_at_k())
     cpa_safe = gslot(G_CPA_SAFE)
     cpa_rows = []
     for t in range(NT):
-        base = G_TARGETS + 5 * t
-        tx = p_global[base + 0]
-        ty = p_global[base + 1]
-        # Drift-free stage CPA residual (one-sided >= 0 after lh=0). Per-stage
-        # target drift is a P1b-1c extension; production keeps the IPOPT global
-        # target block + per-stage prefix partition (142 contract).
-        dx = px - tx
-        dy = py - ty
+        # F4: per-stage drifted target position (precomputed in pack_parameters).
+        tx_at_k = target_x_at_k(t)
+        ty_at_k = target_y_at_k(t)
+        dx = px - tx_at_k
+        dy = py - ty_at_k
         cpa_rows.append(dx * dx + dy * dy - cpa_safe * cpa_safe)
     # Direction + min_alt (single-stage form; acatos stacks per stage).
     ox = gslot(G_RF_OX)
@@ -231,7 +283,7 @@ def build_model() -> AcadosModel:
     h_term_side = pref_dir * l_k - TERMINAL_L_MIN_M
     h_term_lo = l_k + TERMINAL_L_MAX_M
     h_term_hi = TERMINAL_L_MAX_M - l_k
-    con_h = ca.vertcat(*cpa_rows, h_dir, h_min_alt,
+    con_h = ca.vertcat(h_prefix_psi, h_prefix_u, *cpa_rows, h_dir, h_min_alt,
                        h_term_side, h_term_lo, h_term_hi)
 
     model.x = x
@@ -247,14 +299,16 @@ def build_model() -> AcadosModel:
     # solver writes per-stage discount factors (P1b-1c); the symbol form here
     # omits disc_k (constant 1) so the codegen matches the .cpp MX graph.
     # CPA range-ramp weight tw is per-target in p_global (slot base+4).
+    # T15 F4: target position is the per-stage drifted position (matches CPA rows
+    # and IPOPT's per-stage drift).
     cost_colreg = 0.0
     for t in range(NT):
         base = G_TARGETS + 5 * t
-        tx = p_global[base + 0]
-        ty = p_global[base + 1]
         tw = p_global[base + 4]
-        dx = px - tx
-        dy = py - ty
+        tx_at_k = target_x_at_k(t)
+        ty_at_k = target_y_at_k(t)
+        dx = px - tx_at_k
+        dy = py - ty_at_k
         d_t = ca.sqrt(dx * dx + dy * dy + K_SQRT_GUARD)
         cost_colreg = cost_colreg + tw * ca.exp(-ZETA * (d_t - cpa_safe))
     cost_colreg = cost_colreg / max(1, NT)
@@ -343,12 +397,17 @@ def build_ocp() -> AcadosOcp:
     ocp.constraints.ubx_0 = np.array([PSI_UB, +ROT_MAX, U_SURGE_MAX])
     ocp.constraints.idxbx_0 = np.array([2, 3, 4])
 
-    # ---- h bounds: CPA per-target one-sided >= 0 (rows 0..NT-1); direction
-    #      and min_alt one-sided >= 0 (rows NT, NT+1); terminal 3 rows
-    #      stage-uniform here (real terminal-only enforcement is via
-    #      cost_type_e + per-stage bound masks in Task 16 solver). F2 bounded uh.----
+    # ---- h bounds (T15 F2 row order: [prefix_psi(0), prefix_u(1),
+    #      CPA(2..2+NT-1), direction(2+NT), min_alt(2+NT+1),
+    #      terminal(2+NT+2..2+NT+4)]).
+    #      Prefix rows 0,1: EQUALITY lh=uh=0 (the activation factor pact_pre
+    #      deactivates them at stages k>=K by making the expression 0).
+    #      CPA rows: one-sided >= 0 (lh=0, uh=+inf), softened via idxsh below.
+    #      direction/min_alt/terminal: one-sided >= 0. F2 bounded uh. ----
     lh = np.zeros((nh,))
     uh = np.full((nh,), UH_INF)
+    uh[0] = 0.0   # prefix_psi: equality (lh=0 already)
+    uh[1] = 0.0   # prefix_u:   equality (lh=0 already)
     # terminal rows (last 3): lo/hi are two-sided around +/- l_max; side row
     # is one-sided >= 0. Keep them one-sided >= 0 here (stage-uniform); Task 16
     # tightens the terminal stage via the solver bound API.
@@ -358,9 +417,10 @@ def build_ocp() -> AcadosOcp:
     ocp.constraints.uh0 = uh
 
     # ---- P3 per-target soft constraint: soften the NT CPA rows (idxsh).
-    #      acatos adds ns=NT lower-slacks per stage. Mixed L1/L2 (zl*xi +
-    #      0.5*Zl*xi^2) -> exact-penalty (xi=0 when CPA feasible). ----
-    ocp.constraints.idxsh = np.arange(NT)
+    #      CPA rows now start at row 2 (after the 2 prefix rows); idxsh shifts
+    #      from [0..NT-1] to [2..2+NT-1]. acatos adds ns=NT lower-slacks per
+    #      stage. Mixed L1/L2 (zl*xi + 0.5*Zl*xi^2) -> exact-penalty. ----
+    ocp.constraints.idxsh = np.arange(NT) + 2
     ocp.cost.Zl = ZL
     ocp.cost.zl = ZL_LIN
     ocp.cost.Zu = ZU
@@ -389,6 +449,9 @@ def build_ocp() -> AcadosOcp:
     p_global_seed[G_LAT_SCALE] = LATERAL_SCALE_M
     p_global_seed[G_ROUTE_WEIGHT] = 0.0    # default inert (High-4 review fix)
     p_global_seed[G_DECEL_MAX] = 0.08
+    # Per-stage seed (NP_PER_STAGE=35): all-zero -> pact_pre=0 (no prefix),
+    # target drift = 0 (targets static at their global tx/ty). The solver
+    # updates these per-cycle via update_params (F2 prefix + F4 drift).
     p_stage_seed = np.zeros(NP_PER_STAGE)
     ocp.parameter_values = np.concatenate([p_global_seed, p_stage_seed])
 
@@ -413,11 +476,13 @@ def main():
     print(f"SOLVER_NAME={SOLVER_NAME}")
     print(f"DYNAMICS (Path B 5-dim): x=[px,py,psi,r,u_surge] nx={nx}, "
           f"u=[delta,n] nu={nu}")
-    print(f"  c_u={C_U:.9e} (VDM-direct T8)  k_prop={K_PROP}  k_drag={K_DRAG}")
-    print(f"  u_surge[k+1]=u_surge+DT*(k_prop*n^2-k_drag*u_surge^2)  "
-          f"(rpm -> surge STATE)")
-    print(f"CONSTRAINTS: con_h nh={nh} (CPA per-target={NT} + direction + "
-          f"min_alt + terminal 3); ROT/prefix via lbx/ubx")
+    print(f"  c_u={C_U:.9e} (VDM-direct T8)  k_prop={K_PROP}  k_drag={K_DRAG}  "
+          f"m_sge={M_SGE}")
+    print(f"  u_surge[k+1]=u_surge+DT*(k_prop*n^2-k_drag*u_surge^2)/m_sge  "
+          f"(T15 F1 mass-normalized; rpm -> surge STATE)")
+    print(f"CONSTRAINTS: con_h nh={nh} (prefix 2 + CPA per-target={NT} + "
+          f"direction + min_alt + terminal 3); ROT via lbx/ubx")
+    print(f"  prefix rows 0,1: equality lh=uh=0 (pact_pre activation factor, F2)")
     print(f"  idxsh={list(ocp.constraints.idxsh)} (per-target xi slack, "
           f"ns={nsh}/stage)")
     print(f"  Zl={W_QUAD} zl={RHO_LIN} (mixed L1/L2 exact-penalty)")
@@ -426,8 +491,9 @@ def main():
     print(f"  cost_scaling=ones({N+1}) (T2/T9 -- discrete ungated sum)")
     print(f"PARAM PARTITION: global np_global={NP_GLOBAL} "
           f"(26 head + {NT}x5 target) + per-stage np_per_stage={NP_PER_STAGE} "
-          f"(prefix psi[N]+u[N]) = {NP_GLOBAL+NP_PER_STAGE} (== IPOPT "
-          f"kParamDim 142)")
+          f"(prefix psi/u + pact_pre + per-stage target drift x/y) = "
+          f"{NP_GLOBAL+NP_PER_STAGE} (T15 F2/F4 documented deviation: GLOBAL "
+          f"stays 142-compatible (106); per-stage expands for drift+activation)")
     print(f"SOLVER OPTS: FULL_CONDENSING_HPIPM, EXACT (F3), DISCRETE, SQP, "
           f"tol 1e-9, max_iter 400, MERIT_BACKTRACKING (F4)")
 
