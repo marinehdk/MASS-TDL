@@ -72,17 +72,20 @@ GLOBAL (np_global = 106, stage-uniform): 26 IPOPT head scalars (kIdx 0-25) +
     16x5 target block (kIdx 62-141, remapped to global 26-105). Slots 0-3
     (own psi/u/x/y) are RESERVED x0 seeds (F3) -- the solver writes them to
     ocp.constraints.x0; they are NOT graph-referenced.
-PER-STAGE (np_per_stage = 3 + 2*Nt = 35 at Nt=16): per-stage scalars stage k
+PER-STAGE (np_per_stage = 3 + 2*Nt + 2 = 37 at Nt=16): per-stage scalars stage k
     needs -- [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre (F2),
-    [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t] (F4). Set via
-    the generated m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
+    [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t] (F4),
+    [35]tb_x_at_k, [36]tb_y_at_k (VR-07b T3/T5 per-stage t_b closest-point,
+    route + terminal COST origin). Set via the generated
+    m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
 Why this is no longer exactly 142: IPOPT packs a single flat 142-vector and
     computes per-stage target drift symbolically from global (cog,sog). acatos
     receives a stage-uniform graph that CANNOT index stage k, so per-stage drift
-    (F4) and the prefix-equality activation factor (F2) are precomputed per-stage
-    and delivered via update_params. The GLOBAL block stays 106 (142-compatible
-    for the stage-uniform portion); the per-stage block is the documented acatos
-    expansion (3 + 2*Nt = 35 at default Nt=16).
+    (F4), the prefix-equality activation factor (F2), and the per-stage t_b
+    closest-point (VR-07b T3) are precomputed per-stage and delivered via
+    update_params. The GLOBAL block stays 106 (142-compatible for the
+    stage-uniform portion); the per-stage block is the documented acatos
+    expansion (3 + 2*Nt + 2 = 37 at default Nt=16; NP_TOTAL=143).
 
 ====================  Solver opts (locked, P1b-1a T9 cost-read-back)  =========
     FULL_CONDENSING_HPIPM, EXACT hessian (F3), DISCRETE integrator, SQP,
@@ -158,6 +161,11 @@ ZL_LIN = np.full(NT, RHO_LIN)
 ZU = np.full(NT, W_QUAD)
 ZU_LIN = np.full(NT, 0.0)
 
+# ---- VR-07b T3/T5: Huber route-cost delta_h (literal, mirrors MX .cpp). ----
+# The MX side bakes cfg_.huber_delta_h=400.0 as a double into huber_mx_; for
+# MX/SX parity the SX side MUST use the SAME literal here (NOT a param).
+HUBER_DELTA_H = 400.0
+
 # ---- State/control box defaults (lbx/ubx; node overrides per-cycle). ----
 PSI_LB, PSI_UB = -np.pi, np.pi        # heading box (state idx 2)
 ROT_MAX = 0.2094                       # |r| <= rot_max (state idx 3), ~12 deg/s
@@ -170,12 +178,17 @@ NP_GLOBAL_HEAD = 26                    # kGIdx 0-25 (IPOPT kIdx 0-25)
 NP_GLOBAL_TARGETS = NT * 5             # 80 (IPOPT kIdx 62-141 remapped)
 NP_GLOBAL = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 106
 # Per-stage: [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre,
-#            [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t].
+#            [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t],
+#            [35]tb_x_at_k, [36]tb_y_at_k (VR-07b T3/T5 per-stage t_b closest
+#            point -- route + terminal COST origin; constraint rows keep global).
 PS_PREFIX_PSI_OFF = 0
 PS_PREFIX_U_OFF = 1
 PS_PACT_PRE_OFF = 2
 PS_TGT_DRIFT_OFF = 3                   # target_x_at_k[0] starts here
-NP_PER_STAGE = PS_TGT_DRIFT_OFF + 2 * NT   # 3 + 32 = 35
+# VR-07b T3/T5: per-stage t_b slots appended at the END (non-disruptive).
+PS_TB_X_OFF = PS_TGT_DRIFT_OFF + 2 * NT   # 3 + 32 = 35 (mirror kAcadosPerStageTbXOff)
+PS_TB_Y_OFF = PS_TB_X_OFF + 1             # 36 (mirror kAcadosPerStageTbYOff)
+NP_PER_STAGE = PS_TB_Y_OFF + 1            # 3 + 32 + 2 = 37 (mirror kAcadosNpPerStageDefault)
 
 # Global head-scalar indices (IDENTICAL to IPOPT kIdx 0-25 + .cpp kGIdx*).
 # Slots 0-3 (own psi/u/x/y) are RESERVED x0 seeds (F3): the solver writes them
@@ -195,8 +208,9 @@ def build_model() -> AcadosModel:
     """Build the CasADi SX model: 5-dim state, 2-dim control, Path B discrete
     dynamics, con_h_expr (prefix-equality + CPA per-target + direction + min_alt
     + terminal), per-stage EXTERNAL cost expressions. Parameter partition:
-    global=106 (IPOPT-142-compatible stage-uniform part) + per-stage=35 (T15
-    F2/F4 documented acados expansion beyond IPOPT flat 142)."""
+    global=106 (IPOPT-142-compatible stage-uniform part) + per-stage=37 (T15
+    F2/F4 documented acados expansion beyond IPOPT flat 142; +2 for VR-07b T3/T5
+    per-stage t_b closest-point origin used by route + terminal COST)."""
     model = AcadosModel()
     model.name = SOLVER_NAME
 
@@ -212,7 +226,7 @@ def build_model() -> AcadosModel:
     n = ca.SX.sym("n")
     u_ctrl = ca.vertcat(delta, n)
 
-    # ---- Parameters: global (106) + per-stage (35, T15 F2/F4). ----
+    # ---- Parameters: global (106) + per-stage (37, T15 F2/F4 + VR-07b T3 tb). ----
     p_global = ca.SX.sym("p_global", NP_GLOBAL)
     p_stage = ca.SX.sym("p_stage", NP_PER_STAGE)
     # acatos receives a SINGLE param vector per stage (p_global concatenated with
@@ -241,6 +255,14 @@ def build_model() -> AcadosModel:
 
     def target_y_at_k(t):
         return p_stage[PS_TGT_DRIFT_OFF + NT + t]
+
+    # VR-07b T3/T5: per-stage t_b closest-point slots (route + terminal COST
+    # origin). The CONSTRAINT rows keep the GLOBAL route origin (C10/C11 P4).
+    def tb_x_at_k():
+        return p_stage[PS_TB_X_OFF]
+
+    def tb_y_at_k():
+        return p_stage[PS_TB_Y_OFF]
 
     # ---- Path B discrete dynamics (explicit Euler; surge as STATE). T15 F1:
     #      surge accel MASS-NORMALIZED by m_sge via baked effective coeffs. ----
@@ -323,7 +345,16 @@ def build_model() -> AcadosModel:
     role = gslot(G_ROLE)
 
     cost_dist = (psi - bearing) ** 2
-    cost_route = route_w * ((l_k / l_scale) ** 2)
+    # VR-07b T3/T5: route cost origin is the PER-STAGE t_b closest point (NOT
+    # the global route origin). The route NORMAL (nx,ny) stays global. Loss is
+    # Huber(l, delta_h)/l_scale^2 (mirrors MX build_route_cost_ + huber_mx_).
+    # l_route uses per-stage tb_x/tb_y; the CONSTRAINT rows below still use the
+    # global-origin l_k (C10/C11 deferred to P4 -- intentional asymmetry).
+    l_route = (px - tb_x_at_k()) * nx + (py - tb_y_at_k()) * ny
+    route_hub = ca.if_else(ca.fabs(l_route) <= HUBER_DELTA_H,
+                           0.5 * l_route * l_route,
+                           HUBER_DELTA_H * (ca.fabs(l_route) - 0.5 * HUBER_DELTA_H))
+    cost_route = route_w * route_hub / (l_scale * l_scale)
     cost_vel = (u_surge - planned) ** 2
     z_asym = (bearing - psi) / ASYM_TAU
     cost_asym = give_way * K_ASYM * ASYM_TAU * ca.log(1.0 + ca.exp(z_asym))
@@ -334,10 +365,15 @@ def build_model() -> AcadosModel:
     model.cost_expr_ext_cost_0 = j_stage   # stage 0 identical (no initial cost)
 
     # Terminal cost (spec §5.4): wrong-side softplus + upper-band two-sided.
-    wrong_side = -pref_dir * (l_k / l_scale)
+    # VR-07b T4/T5: the lN ANCHOR origin is the PER-STAGE t_b closest point
+    # (same expression as l_route); the route NORMAL stays global. The softplus
+    # SHAPE (wrong_side / l_max band / J_lower / J_upper / lateral_active) is
+    # UNCHANGED -- only the lN origin moved. Mirrors MX build_terminal_cost_.
+    l_term = (px - tb_x_at_k()) * nx + (py - tb_y_at_k()) * ny
+    wrong_side = -pref_dir * (l_term / l_scale)
     j_lower = TERMINAL_TAU * ca.log(1.0 + ca.exp(wrong_side / TERMINAL_TAU))
-    z_pos = (l_k - TERMINAL_L_MAX_M) / l_scale
-    z_neg = (-l_k - TERMINAL_L_MAX_M) / l_scale
+    z_pos = (l_term - TERMINAL_L_MAX_M) / l_scale
+    z_neg = (-l_term - TERMINAL_L_MAX_M) / l_scale
     j_upper = TERMINAL_TAU * (ca.log(1.0 + ca.exp(z_pos / TERMINAL_TAU)) +
                               ca.log(1.0 + ca.exp(z_neg / TERMINAL_TAU)))
     lateral_active = role * pref_dir * pref_dir
@@ -451,9 +487,10 @@ def build_ocp() -> AcadosOcp:
     p_global_seed[G_LAT_SCALE] = LATERAL_SCALE_M
     p_global_seed[G_ROUTE_WEIGHT] = 0.0    # default inert (High-4 review fix)
     p_global_seed[G_DECEL_MAX] = 0.08
-    # Per-stage seed (NP_PER_STAGE=35): all-zero -> pact_pre=0 (no prefix),
-    # target drift = 0 (targets static at their global tx/ty). The solver
-    # updates these per-cycle via update_params (F2 prefix + F4 drift).
+    # Per-stage seed (NP_PER_STAGE=37): all-zero -> pact_pre=0 (no prefix),
+    # target drift = 0 (targets static at their global tx/ty), tb_x/tb_y = 0
+    # (route origin coincident with global route origin -- benign). The solver
+    # updates these per-cycle via update_params (F2 prefix + F4 drift + T3 tb).
     p_stage_seed = np.zeros(NP_PER_STAGE)
     ocp.parameter_values = np.concatenate([p_global_seed, p_stage_seed])
 
@@ -493,9 +530,9 @@ def main():
     print(f"  cost_scaling=ones({N+1}) (T2/T9 -- discrete ungated sum)")
     print(f"PARAM PARTITION: global np_global={NP_GLOBAL} "
           f"(26 head + {NT}x5 target) + per-stage np_per_stage={NP_PER_STAGE} "
-          f"(prefix psi/u + pact_pre + per-stage target drift x/y) = "
-          f"{NP_GLOBAL+NP_PER_STAGE} (T15 F2/F4 documented deviation: GLOBAL "
-          f"stays 142-compatible (106); per-stage expands for drift+activation)")
+          f"(prefix psi/u + pact_pre + per-stage target drift x/y + tb_x/tb_y) "
+          f"= {NP_GLOBAL+NP_PER_STAGE} (T15 F2/F4 + VR-07b T3 tb: GLOBAL stays "
+          f"142-compatible (106); per-stage expands for drift+activation+t_b)")
     print(f"SOLVER OPTS: FULL_CONDENSING_HPIPM, EXACT (F3), DISCRETE, SQP, "
           f"tol 1e-9, max_iter 400, MERIT_BACKTRACKING (F4)")
 
