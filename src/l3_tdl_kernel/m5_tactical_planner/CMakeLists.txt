@@ -467,6 +467,14 @@ if(BUILD_TESTING)
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 
+  # P2 T2: huber_cost pure function (VR-07b). Header-only inline Huber loss:
+  # numeric oracle for T3's acados MX Huber helper + T6's parity/benchmark.
+  # Header-only — NO .cpp added to M5_SHARED_SOURCES.
+  m5_add_gtest(test_huber_cost
+    test/unit/test_huber_cost.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
   if(M5_HAS_CASADI)
     m5_add_gtest(test_constraint_compiler
       test/unit/test_constraint_compiler.cpp
