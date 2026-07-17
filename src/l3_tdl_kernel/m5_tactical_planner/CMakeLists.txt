@@ -74,23 +74,46 @@ else()
   message(STATUS "M5: CasADi disabled by option — Mid-MPC and constraint_compiler will be skipped")
 endif()
 
-# acados — optional, P1a spike target for solver migration (DP-05 VR-05).
-# Additive: M5_USE_CASADI remains the production IPOPT path; acados is exercised
-# only by the spike targets in test/external/acados_* until P1b. No ABI patch
-# here — the Dockerfile forces -D_GLIBCXX_USE_CXX11_ABI=1 at the acados build,
-# so it is already aligned with casadi (line 78-79) and the workspace.
-option(M5_USE_ACADOS "Build acados spike targets (P1a, requires acados)" ON)
+# acados — optional, P1b-1b PRODUCTION backend for MidMpc (parallel to IPOPT).
+# Default OFF: IPOPT (M5_USE_CASADI) is the production solve path. acados is a
+# parallel backend exercised only inside the sil_nodes container
+# (docker/sil_nodes.Dockerfile:95-149 installs acados v0.4.4 + t_renderer +
+# acados_template). ON requires both the acados C lib AND the Python codegen
+# toolchain (gen_mid_mpc_acados.py runs at build time). No ABI patch here — the
+# Dockerfile forces -D_GLIBCXX_USE_CXX11_ABI=1 at the acados build, so it is
+# already aligned with casadi (line 78-79) and the workspace.
+#
+# What ON enables (see codegen block after add_library(m5_shared_lib)):
+#   1. Runs gen_mid_mpc_acados.py (CasADi SX codegen -> C sources + Makefile).
+#   2. Builds the generated solver shared lib (libacados_ocp_solver_m5_mid_mpc_acados.so)
+#      via its Makefile `ocp_shared_lib` target.
+#   3. Links that .so into m5_shared_lib + exposes its include dir.
+#   4. Defines M5_USE_ACADOS=1 so Task 17's solver wrapper (#ifdef) compiles in.
+# The formulation source (mid_mpc_acados_formulation.cpp) is CasADi-only and is
+# already built under M5_HAS_CASADI (line 160); it is NOT re-added here.
+option(M5_USE_ACADOS "Build production acados M5 MidMpc backend (P1b-1b)" OFF)
+set(M5_HAS_ACADOS OFF)
 if(M5_USE_ACADOS)
-  find_package(acados QUIET)
-  if(NOT acados_FOUND)
-    message(STATUS "M5: acados not found — P1a spike targets will be skipped")
-    set(M5_HAS_ACADOS OFF)
-  else()
-    set(M5_HAS_ACADOS ON)
-    message(STATUS "M5: acados found — P1a spike targets enabled")
-  endif()
-else()
-  set(M5_HAS_ACADOS OFF)
+  find_package(acados QUIET REQUIRED)
+  # Python3 Interpreter is needed to run gen_mid_mpc_acados.py at build time.
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  set(M5_HAS_ACADOS ON)
+  message(STATUS "M5: acados production backend enabled (P1b-1b) — codegen + "
+                 "solver lib will be built and linked into m5_shared_lib")
+
+  # Absolute paths to the codegen outputs (built by the custom_command block
+  # after add_library(m5_shared_lib)). Defined here so they can be appended to
+  # M5_LINK_LIBS and flow through the EXISTING PLAIN target_link_libraries call
+  # at line ~190 (the plain signature is already in use via ament_target_deps +
+  # that call, so we cannot introduce a keyword-signature target_link_libraries
+  # on the same target — CMake forbids mixing the two). `acados` is the IMPORTED
+  # target exported by acadosConfig.cmake (transitively links hpipm + blasfeo).
+  set(ACADOS_BACKEND_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/external/acados_backend)
+  set(ACADOS_GEN_DIR     ${ACADOS_BACKEND_DIR}/c_generated_code)
+  set(M5_ACADOS_SOLVER_HEADER ${ACADOS_GEN_DIR}/acados_solver_m5_mid_mpc_acados.h)
+  set(M5_ACADOS_SOLVER_LIB
+      ${ACADOS_GEN_DIR}/libacados_ocp_solver_m5_mid_mpc_acados.so)
+  list(APPEND M5_LINK_LIBS ${M5_ACADOS_SOLVER_LIB} acados)
 endif()
 
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
@@ -179,6 +202,80 @@ ament_target_dependencies(m5_shared_lib
 )
 
 target_link_libraries(m5_shared_lib ${M5_LINK_LIBS})
+
+# ---------------------------------------------------------------------------
+# P1b-1b Task 16: acados codegen + generated solver lib (M5_HAS_ACADOS only).
+# ---------------------------------------------------------------------------
+# When the production acados backend is enabled (M5_USE_ACADOS=ON), run the
+# CasADi-SX codegen (gen_mid_mpc_acados.py) at BUILD time to emit the C solver
+# sources + Makefile into c_generated_code/, then build the generated solver
+# shared lib via its Makefile `ocp_shared_lib` target, and link it into
+# m5_shared_lib. The generated header dir is exposed so Task 17's solver
+# wrapper (mid_mpc_acados_solver.cpp, #ifdef M5_USE_ACADOS) can include
+# acados_solver_m5_mid_mpc_acados.h. M5_USE_ACADOS=1 is defined PUBLIC so the
+# Task 17 wrapper compiles in wherever m5_shared_lib is consumed.
+#
+# LINK wiring: the generated .so + the imported `acados` target are appended to
+# M5_LINK_LIBS in the option block above, so they flow through the EXISTING
+# plain-signature target_link_libraries at line ~204. We do NOT add a separate
+# keyword-signature target_link_libraries here: m5_shared_lib already uses the
+# plain signature (ament_target_dependencies + line 204), and CMake forbids
+# mixing plain and keyword signatures on the same target.
+#
+# Why two add_custom_command + one add_custom_target:
+#   - custom_command #1 (OUTPUT: generated .h): runs the Python codegen.
+#   - custom_command #2 (OUTPUT: generated .so): runs `make ocp_shared_lib`.
+#   - custom_target (ALL): ties the .so into the build graph; add_dependencies
+#     forces m5_shared_lib to wait for the .so before linking.
+# The Makefile (acados codegen output) hardcodes INCLUDE_PATH=/usr/local/include
+# and LIB_PATH=/usr/local/lib and links -lacados -lhpipm -lblasfeo (verified in
+# c_generated_code/Makefile:75-99); the Dockerfile installs all three to those
+# exact paths (sil_nodes.Dockerfile:95-149). ACADOS_SOURCE_DIR=/usr/local is set
+# in the image so the codegen include path resolves the installed headers.
+# ACADOS_BACKEND_DIR / ACADOS_GEN_DIR / M5_ACADOS_SOLVER_HEADER / LIB are set in
+# the option block above (they are also needed to populate M5_LINK_LIBS there).
+if(M5_HAS_ACADOS)
+  # codegen: gen_mid_mpc_acados.py -> C sources + Makefile + json (the header is
+  # the canonical "codegen complete" sentinel; it is emitted alongside the .c).
+  add_custom_command(
+    OUTPUT  ${M5_ACADOS_SOLVER_HEADER}
+    COMMAND ${Python3_EXECUTABLE} gen_mid_mpc_acados.py
+    WORKING_DIRECTORY ${ACADOS_BACKEND_DIR}
+    DEPENDS ${ACADOS_BACKEND_DIR}/gen_mid_mpc_acados.py
+    COMMENT "[acados] codegen m5_mid_mpc_acados solver (CasADi SX -> C)"
+    VERBATIM)
+
+  # build generated solver shared lib via its Makefile (Makefile:119-121
+  # `ocp_shared_lib` -> libacados_ocp_solver_m5_mid_mpc_acados.so).
+  add_custom_command(
+    OUTPUT  ${M5_ACADOS_SOLVER_LIB}
+    COMMAND ${CMAKE_MAKE_PROGRAM} -C ${ACADOS_GEN_DIR} ocp_shared_lib
+    DEPENDS ${M5_ACADOS_SOLVER_HEADER}
+    COMMENT "[acados] build generated solver shared lib (ocp_shared_lib)")
+
+  add_custom_target(m5_acados_solver_lib ALL
+    DEPENDS ${M5_ACADOS_SOLVER_LIB})
+
+  # Force m5_shared_lib to wait for the generated .so before linking (the .so
+  # path is on M5_LINK_LIBS, but add_dependencies makes the build-order
+  # dependency explicit so the linker never sees a stale/absent file).
+  add_dependencies(m5_shared_lib m5_acados_solver_lib)
+
+  # Generated solver header (Task 17 wrapper includes it) + the acados/blasfeo/
+  # hpipm include dirs the generated header chain transitively #includes
+  # (matches the Makefile CPPFLAGS, Makefile:79-82). Keyword signature here is
+  # fine: target_include_directories has no plain variant, so no conflict with
+  # the plain target_link_libraries on the same target.
+  target_include_directories(m5_shared_lib PUBLIC
+    ${ACADOS_GEN_DIR}
+    /usr/local/include/acados
+    /usr/local/include/blasfeo/include
+    /usr/local/include/hpipm/include)
+
+  # Public so Task 17's #ifdef M5_USE_ACADOS wrapper compiles in for every
+  # consumer of m5_shared_lib.
+  target_compile_definitions(m5_shared_lib PUBLIC M5_USE_ACADOS=1)
+endif()
 
 # ---------------------------------------------------------------------------
 # m5_mid_mpc_node executable (CasADi-dependent)
