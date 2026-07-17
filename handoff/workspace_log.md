@@ -4245,3 +4245,41 @@ M5 跨树同步在 worktree m5-design-grounding @ f09122a00。
 - **P2/P4/P5 仍无 spec**: GNC 影响已写入路线图,待执行时按路线图开 spec(本任务不开 spec,避免超前)。
 - **下一步**:用户 commit 后,可继续 P1b-1b 实施;或开 P2 spec(Nomoto+相对跟踪 t_b+Huber+废除 C10/C11+淘汰 TailBuilder 输出流程)。
 - **关键文件**: `specs/2026-07-17-m5-mpc-p0-p7-roadmap.md`(路线图权威) + `specs/2026-07-17-l3-l4-gnc-contract-solution-pack.md`(GNC 13 改动点权威)
+
+## [2026-07-17] ZCode (subagent-driven-development) / worktree m5-design-grounding @ 4321a4d1a(+design-logs) / P1b-1b/c 全实施 + P1 关闭 + P0+P1 全量对抗评审 / P0+P1 底座评审通过(0 Critical),待 P0-P7 完成合并 l3-tdl
+
+### Task Goal
+完成 M5 MPC 重构 P1 的最后阶段 P1b-1b/c(生产 acados backend + Rule14 benchmark),跑全验收门,对 P0+P1 底座做严格对抗评审(避免问题留到 P7),为 P2 spec 输出做准备。
+
+### Core Changes(均在 .worktrees/m5-design-grounding,分支 codex/m5-design-grounding)
+- **Spec 修正(63f4eada1)**: 用户裁决 Path B state 扩 5 维(x=[px,py,ψ,r,u_surge]),覆盖原"明确排除"条款 —— 原 4 维 state + u=[δ,n] 动力学不自洽(surge 不在 state 则 control n 无通路)。spec 4 处更新。
+- **T15 MidMpcAcadosFormulation(d96c3f84f + f7351fd0a + d751d00e1)**: MX 符号图 + codegen。GNC review 发现 4 真实缺陷(F1 surge 缺 /m_sge=152250、F2 prefix lock 丢失、F3 dead slots、F4 target drift 丢失)→ 全修 + GNC re-review **Sound**。
+- **T16 CMakeLists(83bf28cbb)**: M5_USE_ACADOS 生产 block + codegen custom_command。review Approved-with-minor。
+- **T17 MidMpcAcadosSolver(56a28e306 + 86a8e9870)**: wrapper + dispatch。经历**有争议 root-cause 历史**:codex-rescue 解析证明 F1 seed 精确碰撞退化 → seed-verify 实证(5 变体)推翻 → 并行 A/B 实验定位真因(QP conditioning 非 Hessian,GN+soft-CPA 字节相同失败)→ cold-capsule warm-up(CONFIRMED 2×2 矩阵)。修 review C1(status-4 约束检查)+ S1(warm-up 失败回退 IPOPT)。IPOPT 路径 byte-identical。
+- **T18 parity test(93fd578e9)**: IPOPT↔acados 输出契约 parity 3/3 PASS。review Approved-with-minor。
+- **T19 benchmark(7a03ab971 + 4321a4d1a)**: Rule14 HO。500m head-on acados 失败 → 调研链定位(场景非 solver 坏)→ rescop 2000m(production-realistic)4/5 hard gate PASS。**acados 29ms vs IPOPT 2081ms(~72x 快)**。
+- **设计日志**: 2 个 M5 design-logs(架构职责 + 模块功能划分)提交。
+
+### P1b-1 全门验收(TDL Lead 独立验证)
+- staging P1b-1a: T8→T6→T7→T9 ALL PASS
+- backend P1b-1b: formulation 12/12 + solver 5/5 + parity 3/3(ON)
+- benchmark P1b-1c: 2000m primary 4/5 hard PASS(gate 3 shape FAIL = 预期 Path B vs IPOPT dynamics 差异)
+- regression: OFF,IPOPT 8 pre-existing env fails,0 新回归
+
+### P0+P1 全量对抗评审(3 路 codex-rescue 并行)
+- **0 Critical**。底座技术 sound。
+- Stream 1 (P0): COMPLETE+CORRECT。Stream 2 (staging): COMPLETE+CORRECT+HONEST。Stream 3 (生产 backend): COMPLETE-WITH-DOCUMENTED-GAPS。
+- Important(4,全 forward-looking,acados OFF 下不激活):mass 145t-vs-350t 冲突(用户裁决维持 145t 到海试)、kMSge 双源、S2 escalation gap、short-TCPA guard 缺失。
+- Minor ~6,均非阻塞。
+
+### Current Status
+- 分支 codex/m5-design-grounding 持有全部 P0+P1 工作(P0+P1a+P1b-0+P1b-1a+P1b-1b/c + 评审 + design-logs)。**不 merge l3-tdl**,待 P0-P7 全部完成。
+- acados Path B backend: SOUND on ≥2000m TCPA 场景,72x 快。M5_USE_ACADOS 默认 OFF,IPOPT 仍是生产路径。
+- 已知 gap(切 acados 默认 ON 前补):short-TCPA dispatch guard、S2 escalation counter、F2 colreg_prefix_softened、cost decomposition。
+
+### Handoff Notes
+- **VR-06b 1200s horizon**: acados 72x 速度支撑,需 N-scaling 测试(N=120-240 codegen)+ short-TCPA guard 后推进。
+- **mass 参数**: 维持 145t(130-160t FCB 范围),cross-tree VPR 350t 冲突待海试。
+- **下一步 P2**: 用户将在 P2 考虑 spec 输出。P2 范围参考 roadmap(Nomoto+相对跟踪 t_b+Huber+废除 C10/C11+淘汰 TailBuilder)。
+- 关键文件:`.superpowers/sdd/progress.md`(T15-T20 + 评审全记录)、`specs/2026-07-17-m5-mpc-p0-p7-roadmap.md`(路线图权威)。
+- 评审 ledger 在 `.superpowers/sdd/progress.md` 末尾(codex-rescue 全量评审节)。
