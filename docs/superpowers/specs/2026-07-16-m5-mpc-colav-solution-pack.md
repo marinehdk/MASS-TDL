@@ -43,20 +43,22 @@
 
 ## 组件 2: 技术规约表(六类)
 
+> **⚠ 跨树修订(2026-07-17)**: 本表"时域"行(360s)与"终端约束"行(人工参考)已被 L3→L4 契约设计树反馈修订。**权威修订见决策树日志"跨树反馈修订"节 VR-06b/VR-07b**:(1) horizon 360s→**1200s**(覆盖完整避碰生命周期,Johansen 用 600-1200s);(2) 废弃人工参考轨迹→改 Eriksen 相对跟踪 t_b + Huber 损失;(3) 废除终端 C10/C11(长 horizon 保证收敛);(4) **淘汰 TailBuilder**(NLP 内部完成端到端轨迹)。下表保留原值作历史,实施以 VR-06b/VR-07b 为准。
+
 | 类别 | 规约(权威) | 来源 | 与现状差异 |
 |---|---|---|---|
 | 坐标系 | WGS84/NED(psi=0北顺时针);body(x艏前/y左舷) | TS-01~03 [R6] | 一致 |
 | 单位 | 内部 rad/m/s/m;消息 deg;YAML kn | TS-04 [R6] | 一致 |
 | 符号 | ψ右舷正;ROT右转正;l右舷正 | TS-03 [R6] | 一致 |
 | **决策变量** | **x=[ψ;r;u;ξ_{M·N}]** 含 ROT + per-target per-step slack;控制 u=[δ,n] | TS-06 [VR-03/05/07] | **重大重构:[psi(2N)+σ(1)]→[ψ,r,u+ξ(M·N)]** |
-| **时域** | **Mid: horizon=360s,dt=10s(Np36),replan=60s;BC: 短horizon,replan=5s** | TS-05/11 [VR-06] | **90s/dt5s/replan1s→360s/dt10s/replan60s(RFC-001推翻)** |
+| **时域** | **Mid: horizon=360s,dt=10s(Np36),replan=60s;BC: 短horizon,replan=5s** | TS-05/11 [VR-06] | **90s/dt5s/replan1s→360s/dt10s/replan60s(RFC-001推翻)** **[VR-06b 修订:360s→1200s,见跨树反馈]** |
 | **预测模型** | **Nomoto-扩展(Mid+BC同一套),存 T',K' 运行时缩放**;VDM 4-DOF MMG 删除;manifest 几何修正(28→45m) | TS-12 [VR-02][R22] | **恒速→Nomoto;TBD-5 参数辨识/字段语义** |
 | **约束层级** | 物理硬;CPA ξ 混合 L1/L2 软;Rule13/14/15 M6几何hard;Rule8/17 soft;反chatter:warm-start首要+混合范数转移 | TS-13 [VR-03/04] | **硬编码偏移→M6几何;纯L2→混合L1/L2;转移代价分层** |
 | **slack 惩罚** | **混合 L1/L2: ρ·ξ+½w·ξ²,ρ>‖λ*‖∞**(acados zl/Zl 原生);Eriksen 同伦 K_ξ=[0.1,1,10,100,∞] | TS-07 [R23][TBD-6] | **纯 L2(w=1e8)→混合 L1/L2** |
 | **回退交接** | **四状态机**+BC连续级联+stale45s/15°/20%门控+交还hysteresis连续2周期+废空plan+geo=BC后最终层+报M7 | TS-14 [VR-01b/08] | **失败计数→四状态机+连续级联** |
 | **求解器** | **NLP 建模维持,求解器 IPOPT→acados**(RTI+HPIPM,μs-ms) | TS-06 [VR-05][R18] | **IPOPT→acados;TBD-4 实测** |
 | 不确定性 | Mid 用 A+(OU+intent_confidence);BC Nominal;SB-MPC+GPU 完整 C 标待选 | TS-13 [VR-09][R21] | Nominal→A+ |
-| 终端约束 | Eriksen 路线(无终端集+stage cost+转移代价+长horizon+per-step可行性)+人工参考;T1 降辅助 | TS-06 [VR-07][R20] | 维持T1→Eriksen路线+人工参考 |
+| 终端约束 | Eriksen 路线(无终端集+stage cost+转移代价+长horizon+per-step可行性)+人工参考;T1 降辅助 | TS-06 [VR-07][R20] | 维持T1→Eriksen路线+人工参考 **[VR-07b 修订:废弃人工参考→相对跟踪t_b+Huber;废除C10/C11;见跨树反馈]** |
 | 接口 | psi_cmd/u_cmd→L4;AvoidancePlan→L4/M7/M8;ReactiveOverrideCmd(BC接管)→L4;waypoint CMM 字段待补 | TS-09 [R6] | Override 路径+CMM 字段待补 |
 
 (完整 14 条 TS-01~14 含来源/单位/关联DP,见决策树日志注册表 0.8)

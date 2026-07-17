@@ -1122,3 +1122,31 @@ Step3 暴露 3 个 TBD(TBD-5/6/7),均经 Step4 判定为**单源指向、低风�
 ---
 
 **状态**: **已交付 brainstorming**(2026-07-16 用户接受方案包)。方案包 `docs/superpowers/specs/2026-07-16-m5-mpc-colav-solution-pack.md` 为权威交付物。
+
+---
+
+## 跨树反馈修订(2026-07-17,来自 L3→L4 契约设计树)
+
+> **来源**: `docs/superpowers/design-logs/2026-07-17-l3-l4-gnc-contract-design-log.md`(L3→L4 GNC 契约设计,Step2 模块①)
+> **触发**: L3→L4 契约设计 grilling DP-02 时,用户质疑"360s 时域下 TailBuilder 几何续貂是否冗余",触发 Eriksen 原文 + NLM 三方高置信度查证,推翻本树 VR-06(360s)与 VR-07(人工参考轨迹/终端 C10/C11)的部分假设。
+> **处理纪律**: append-only。不抹除原 VR-06/VR-07,新增 VR-06b/VR-07b 修订行 + 反馈块。原裁决保留作历史溯源。
+
+### 新增裁决(修订 VR-06 / VR-07)
+
+| ID | 裁决对象 | 结论(覆盖原 VR) | 采纳/弃用 | 理由 | 时间 |
+|----|----------|------------------|-----------|------|------|
+| VR-06b | DP-06 时域(**修订 VR-06**) | **horizon 从 360s 延长到 1200s**(dt=10s → Np=120,或 dt 适当加大);replan 保持 60s;BC 5s 不变 | 采纳(用户 2026-07-17) | [R19-修订] Johansen SB-MPC 用 600s 甚至 1200s(dt=30s/N=40)覆盖完整遭遇;用户 SIL 仿真观测完整避碰生命周期(避让→保持→返航)最长 900s;45m FCB 18kn 巡航下 20 分钟(1200s)覆盖一般避碰+返航;360s < 900s 致 myopia(premature return/chattering/稳定性丢失) | 2026-07-17 |
+| VR-07b | DP-07 终端 + 人工参考(**修订 VR-07**) | **(a) 废弃"人工参考轨迹"**(因果倒置误读:Eriksen reference 始终是 nominal,用相对跟踪 t_b,从不切换成"避让参考");**(b) 位置代价纯二次 → Huber 损失**(Eq20-21,近原点二次/远处线性,防被障碍推开时指数回拉);**(c) 废除终端 C10(同侧)/C11(横向)**(VR-06b 长 horizon 1200s 下靠 horizon 保证收敛,不需终端集);**(d) 改相对轨迹跟踪 t_b**(每周期投影回 nominal route 找最近点) | 采纳(用户 2026-07-17) | [R18] Eriksen PDF 原文 + [R19-修订] NLM high:Eriksen 单一 NLP 相对跟踪+Huber 内部完成返航,无几何续貂,无终端集;C10/C11 是"防过早归航"误读的连带产物 | 2026-07-17 |
+
+### 连带影响(须同步本树下游)
+
+1. **TailBuilder 淘汰**:原范围声明(行7)把 TailBuilder 划为"开新决策树"——现裁决**淘汰老 TailBuilder**(几何 hold+rejoin 尾段拼接),因 VR-06b 长 horizon + VR-07b 相对跟踪+Huber 使 NLP 内部完成端到端轨迹(避让+保持+返航),无续貂。老 TailBuilder 是 VR-07"人工参考轨迹防过早归航"误读的补丁,根因消除后补丁亦消除。
+2. **TS-05/TS-11 时域规约修订**:horizon 360s/Np36 → **1200s**(Np 待定,dt=10s 则 Np=120;若计算量过大可 dt=15-20s 降 Np,replan 60s 不变)。
+3. **M5 输出流程简化**:NLP 解[ψ,r,u,x,y]→ 直接 trajectory(单一真相)→ preflight → publish。**无 TailBuilder 尾段拼接步骤**。这对 L3→L4 契约(DP-01 timed trajectory 主原语)是正面支撑。
+4. **acados(VR-05)价值兑现**:1200s horizon 是 IPOPT O(n³) 不可承受的,正是 acados RTI O(n) 的用武之地。VR-06b 强化 VR-05 的迁移必要性。
+5. **VR-07 原文保留作历史**:原 VR-07"人工参考轨迹防过早归航 + T1 降辅助"不删除,标"被 VR-07b 修订"。
+
+### 开放项(反馈回 L3→L4 契约设计树)
+
+- horizon 1200s 的 dt/Np 具体取值(dt=10s/Np=120 vs dt=15s/Np=80 vs dt=20s/Np=60)需在 M5 P1b acados 实施时 benchmark 实时性后定。本树不裁决,留给 M5 实现侧。
+- 相对轨迹跟踪 t_b 的投影算法(本船→nominal route 最近点)是新增实现项,非本树原范围。
