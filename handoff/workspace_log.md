@@ -4017,3 +4017,40 @@ P1b-0 staging spike 通过(7/7 门)后,brainstorm P1b-1 spec + 写 implementatio
 - P1b-1 plan:`docs/superpowers/plans/2026-07-16-m5-p1b1-acados-full-migration.md`
 - P1b-0 已验证配置(模板):`test/external/acados_staging/{common.py, T1-T5}`
 - VDM(辨识用):`src/shared/vessel_dynamics_model.cpp` + fixture `test/fixtures/fcb_capability_fixture.yaml`
+
+## [2026-07-16] ZCode (subagent-driven-development) / P1b-1a acados staging 执行 + Path B 物理墙回炉
+
+### Task Goal
+执行 M5 MPC 重构 P1b-1 的 P1b-1a 阶段(acatos 全量迁移 staging 验证):2 新 physics/staging 点 + VDM 辨识 + 6 点合并。worktree `.worktrees/m5-design-grounding`(分支 codex/m5-design-grounding,P1b-1a base f2acbc294)。
+
+### Core Changes (commits f2acbc294..71951ddde,9 commits,21 files +3616 lines,全在 test/external/acados_staging/ + docs,0 生产 src)
+- **T8 首试(382bc86bb)→ Path B 回炉**:原一阶 Nomoto `Tṙ+r=Kδ` 辨识撞真实物理墙。独立复核(GNC reviewer + 数值双查)确认:`VesselDynamicsModel.compute_accelerations`(`vessel_dynamics_model.cpp:52-59`)的 `dr/dt=(k_n_rudder·u²·δ)/izz_e` **无 `N_r·r` 偏航阻尼项** → VDM 偏航是纯积分器(r=∫δ, ψ=∫∫δ,二阶),一阶 Nomoto 结构不可拟合(拟合 b≈-9.7e-4→T≈1027s,回代误差 35°,门 2°,IDENT FAIL)。**用户裁决 Path B**(bf1cf283e 改 spec+plan):honest 双积分器 dynamics `ṙ=c(u)·δ, ψ̇=r`,`c(u)=k_n_rudder·u²/izz_e` 直接读 VDM 源码,**不造系数**。仍达成 "ψ,u 扁平→舵驱动航向" physics 升级。真偏航阻尼 N_r 待 TBD-5 海试。
+- **T8 Path B(ea660cebf + a7f71a628)**:辨识 c(u)=**9.825342e-3 rad/s²/rad**(匹配解析值 8 位有效数字)+ 积分器线性度诊断(ratio 0.9894∈[0.95,1.05])。IDENT PASS。实现者还诚实发现并修了 CSV 配对 bug(应用舵是 rows[k+1].delta 非 rows[k].delta),修正后 b=-5.2e-12(真≈0),独立印证 Path B。M1(JSON -Infinity/NaN→null,RFC-8259)已修。
+- **T6(4acd49107 + 1e60e63d8 + fcf09f080)**:双积分器 dynamics staging。state x=[px,py,ψ,r],control u=[δ],ROT box |r|≤rot_max。`build_base_ocp_doubleint` 加进 common.py。**EPISODE**:实现者用 base64-stdin 绕过 bind-mount 报 PASS(1.7e-13),主代理在正常路径复现发现 **FAIL(5.6e-7)**。根因是 GATE-DESIGN 错误(DISCRETE OCP 解轨迹只满足 dynamics 等式到 SQP 容差~1e-6,非机器精度)。修:seed-readback(=0.0 精确)是 disc_dyn_expr 正确性门(1e-9),solved_dyn(~5.6e-7)降为 SQP 收敛证据(1e-4,非正确性门)。reviewer 确认 SOUND 非掩饰。M-3(过时 W 注释)已修。
+- **T7(74c2b3c3f)**:per-target ξ 高维 slack(idxsh=[0,1] 混合 L1/L2 Zl=1e2/zl=1e3)。两场景:都可行(ξ_A=ξ_B=2.7e-12)+ A 可行 B 不可达(ξ_A=1.2e-12 独立,ξ_B=24.0 at k=4 松弛)。per-target exact-penalty 独立性验证,无 acatos 耦合,无需 ρ 调参。
+- **T9(8db550349)**:6 点合并(双积分器+prefix+J_colreg EXTERNAL+per-target ξ+bound schedule)一个 OCP。MERGE6 PASS,status=0,dynamics seed-readback=0.0,prefix 2.33e-15,J_colreg |acatos-hand|=4.11e-9,per-target ξ=1.6e-14,CPA hard +8.27e4,ROT max|r|=3.9e-2。场景诚实(reviewer 独立重构:target 北方离航迹,cpa_hard=100 物理值,最小激进可行几何,非作弊)。SQP tol 收紧(1e-9/max_iter 400)为 cost 读回,合法 solver config 非放宽门。
+- **run_all_p1b1.sh**:T8→T6→T7→T9 顺序跑,ALL PASS(exit 0,主代理独立复现)。
+
+### Current Status — **P1b-1a 通过(5/5 task + 5/5 验收门 + 回归门 + 全分支 review APPROVED)**
+验收门逐条:
+1. ✅ T8 Nomoto 参数辨识完成(Path B:c_u=9.825342e-3 + 积分器 model-class 诊断;一阶 Nomoto 不可拟合是真实发现,Path B 取代)
+2. ✅ T6 双积分器 dynamics staging 可扩(seed-readback=0.0 + 收敛)
+3. ✅ T7 per-target ξ 可扩(per-target 独立 exact-penalty)
+4. ✅ T9 6 点合并共存(Nomoto→双积分器 + prefix + J_colreg + per-target ξ + bound schedule)
+5. ✅ P1b-0 + P1a 无回归(run_all T1-T5 PASS;acados_m5_subset PASS)
+全分支 review:**APPROVED for P1b-1b greenlight**(0 critical/important,minor 均已修或记录)。
+
+### 6 点推荐配置(给 P1b-1b 生产 backend)
+- **dynamics**:T6 双积分器 `ṙ=c(u)·δ, ψ̇=r`,c_u=9.825342e-3(T8 VDM 直读);state x=[px,py,ψ,r],u=[δ](P1b-1b 扩 u=[δ,n] 变速);ROT box |r|≤rot_max 保临界稳定
+- **prefix**:T1 参数激活 `pact_pre·(ψ−ppsi_pre)`
+- **J_colreg**:T2 EXTERNAL per-stage + **cost_scaling=ones(N+1)**(关键)
+- **per-target ξ**:T7 idxsh=[0,1]+混合 L1/L2 Zl=1e2/zl=1e3
+- **bound schedule**:T4 `cpa_act·g_cpa` 参数激活
+- **SQP**:tol 1e-9/max_iter 400(cost 读回需要;P1b-1b 确认是否场景相关)
+
+### Handoff Notes — **进 P1b-1b**
+- P1b-1a staging 信心门通过,**P1b-1b 生产 backend 可写**(Task 11-14 plan 已有骨架,P1b-1a 过了补全 step)。
+- **关键风险(P1b-1b 须处理)**:(1)双积分器极点 z=1 临界稳定,激进转向场景 SQP 收敛敏感;(2)c_u≈9.8e-3 转向直径巨大,head-on CPA 几何物理不可行,待 TBD-5 真 N_r 阻尼或 P1b-1b 变速 surge;(3)cost 等价门需 SQP tol 1e-9;(4)NT>2 未验证;(5)terminal CPA 检查。
+- **VR-02 偏差须记录**:VR-02/TS-12 假设一阶 Nomoto,生产 VDM 结构是二阶双积分器;Path B 是实测落地偏差,真海试 TBD-5 补 N_r 后可升级回一阶 Nomoto。
+- **worktree**:`.worktrees/m5-design-grounding`(codex/m5-design-grounding)。`.superpowers/sdd/progress-p1b1a.md` 是全 ledger。本分支未 merge l3-tdl(staging spike,不碰生产,用户未要求 push)。
+- **下一对话**:补全 P1b-1b/c Task 11-14 step(生产 MidMpcAcadosSolver + M5_USE_ACADOS flag + Rule14 HO benchmark),基于 P1b-1a 6 点推荐配置。先补 step 再执行(brainstorming 已在 spec)。
