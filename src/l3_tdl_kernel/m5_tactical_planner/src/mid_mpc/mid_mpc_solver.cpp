@@ -121,7 +121,21 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
   // already derives prefix_active_k / pact_pre / per-stage drift from the input,
   // so row_bounds is intentionally NOT forwarded — it would be a no-op there.
   if (acados_solver_ != nullptr) {
-    return acados_solver_->solve(input, warm_start);
+    // S1 safety gate (T17 review-fix): refuse to dispatch to an acados backend
+    // whose ctor warm-up did NOT converge. A non-converged warm-up leaves the
+    // capsule in the cold-start state where the first real cycle spuriously
+    // reports Infeasible (false DEGRADED/BC-MPC escalation on a feasible
+    // initial state). Fall back to the IPOPT path instead. The acados backend
+    // stays installed (the capsule is valid; it may recover on a later reset),
+    // but the dispatch treats it as unusable until warm_up_succeeded() flips.
+    // (NOTE: this gate does NOT clear acados_solver_ — the lifetime owner
+    // decides that; dispatch only chooses the path for THIS cycle.)
+    if (acados_solver_->warm_up_succeeded()) {
+      return acados_solver_->solve(input, warm_start);
+    }
+    spdlog::warn("[M5][MidMPC] acados backend installed but warm-up did not "
+                 "converge (warm_up_succeeded=false); falling back to IPOPT for "
+                 "this cycle.");
   }
 #endif
   const auto t_start = std::chrono::steady_clock::now();

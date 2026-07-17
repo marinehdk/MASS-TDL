@@ -25,6 +25,14 @@
 
 #include <spdlog/spdlog.h>
 
+// CasADi (MX/Function) for the C1 status-4 constraint-satisfaction re-check
+// (T17 review-fix C1): the check recomputes the constraint residuals h(x,u,p)
+// from the SAME MX expression the acados codegen derives from
+// (MidMpcAcadosFormulation::con_h_expr), evaluated independently on the solved
+// trajectory. This is constraint CLARIFICATION (independent read-back), not a
+// new constraint. CasADi is already a hard dependency via the formulation.
+#include <casadi/casadi.hpp>
+
 // acados C API (generated header chain transitively pulls acados_c/ocp_nlp_interface.h
 // + acados/utils/types.h; include dirs wired by T16 CMake under M5_HAS_ACADOS).
 #include "acados_c/ocp_nlp_interface.h"
@@ -214,6 +222,18 @@ struct MidMpcAcadosSolver::Impl {
   // status=2 is EXPECTED and would mislead operators if logged at production
   // telemetry level).
   bool warm_up{false};
+  // TEST-ONLY diagnostic mirrors of the last solve()'s raw signals (T17
+  // review-fix Step 1 cold-capsule matrix). Production code does not read
+  // these. Exposed to the friend test via MidMpcAcadosSolver::last_raw_*.
+  int last_raw_status{-1};
+  double last_traj_delta{0.0};
+  int last_sqp_iter{-1};
+  // C1 status-4 constraint re-check (T17 review-fix C1): a CasADi Function
+  // built lazily on the FIRST status-4 outcome, wrapping the formulation's
+  // con_h_expr over (x, u, p_global, p_stage). Cached so the per-status-4
+  // re-check does not rebuild the function graph on every call. Null until
+  // first use; stays null if status 4 never occurs (the common case).
+  std::unique_ptr<casadi::Function> h_fn;
 
   Impl() = default;
   ~Impl() {
@@ -240,12 +260,27 @@ struct MidMpcAcadosSolver::Impl {
 };
 
 // ---------------------------------------------------------------------------
-// Constructor — create the capsule + nlp; fetch the per-cycle C handles.
-// Throws on failure: the caller (MidMpcSolver ctor under #ifdef) treats a
-// failed backend as a lifecycle error and must NOT install a non-null
-// acados_solver_ (so the dispatch falls back to IPOPT).
+// Constructor (public, production) — delegates to the private CtorOpts ctor
+// with the default opts (warm-up ENABLED). Production callers have no way to
+// reach the skip_warm_up=true path: the CtorOpts ctor is private and only the
+// test friend MidMpcAcadosSolverColdCapsuleTest can name it.
 // ---------------------------------------------------------------------------
 MidMpcAcadosSolver::MidMpcAcadosSolver(const MidMpcAcadosFormulation& formulation)
+    : MidMpcAcadosSolver(formulation, CtorOpts{}) {}
+
+// ---------------------------------------------------------------------------
+// Constructor (private, CtorOpts) — create the capsule + nlp; fetch the
+// per-cycle C handles. Throws on failure: the caller (MidMpcSolver ctor under
+// #ifdef) treats a failed backend as a lifecycle error and must NOT install a
+// non-null acados_solver_ (so the dispatch falls back to IPOPT).
+//
+// opts.skip_warm_up=true is TEST-ONLY (T17 review-fix Step 1 diagnostic). It
+// suppresses the cold-capsule warm-up so the cold first-solve can be observed
+// in isolation. Only the friend class MidMpcAcadosSolverColdCapsuleTest may
+// pass it; production always goes through the public ctor above.
+// ---------------------------------------------------------------------------
+MidMpcAcadosSolver::MidMpcAcadosSolver(const MidMpcAcadosFormulation& formulation,
+                                       const CtorOpts& opts)
     : impl_(std::make_unique<Impl>()), formulation_(formulation) {
   impl_->capsule = m5_mid_mpc_acados_acados_create_capsule();
   if (impl_->capsule == nullptr) {
@@ -297,6 +332,21 @@ MidMpcAcadosSolver::MidMpcAcadosSolver(const MidMpcAcadosFormulation& formulatio
   // DISCARDED — only the capsule state matters. The warm-up input mirrors
   // mid_mpc_node.cpp:746 (`route_weight = guard.crosses_corner ? 0.0 : 1.0`)
   // — 1.0 is the normal operational value whenever a valid active leg exists.
+  //
+  // S1 safety gate (T17 review-fix): the warm-up outcome is recorded in
+  // warm_up_succeeded_. The MidMpcSolver dispatch reads warm_up_succeeded()
+  // and, if false, refuses to dispatch to this (known-degraded) backend and
+  // falls back to IPOPT — a non-converged warm-up means the first real cycle
+  // would likely spuriously report Infeasible (false DEGRADED/BC-MPC).
+  //
+  // TEST-ONLY (T17 review-fix Step 1): when opts.skip_warm_up=true the warm-up
+  // is bypassed entirely so the cold first-solve can be observed in isolation.
+  // In that case warm_up_succeeded_ is left false — only the diagnostic friend
+  // reaches this path, and it never dispatches through MidMpcSolver::solve.
+  if (opts.skip_warm_up) {
+    warm_up_succeeded_ = false;  // cold capsule; diagnostic-only.
+    return;
+  }
   warm_up_capsule_();
 }
 
@@ -350,17 +400,41 @@ void MidMpcAcadosSolver::warm_up_capsule_() {
     }
   }
   impl_->warm_up = false;
-  if (last_warm_status != MidMpcSolution::Status::Converged) {
+  // S1 safety gate (T17 review-fix): record the warm-up outcome so the
+  // MidMpcSolver dispatch can refuse to use a known-degraded backend. A
+  // non-converged warm-up is treated as "acados unusable": dispatch falls back
+  // to IPOPT rather than risking a spurious Infeasible on the first real cycle
+  // (which would escalate to DEGRADED/BC-MPC on a feasible initial state).
+  warm_up_succeeded_ = (last_warm_status == MidMpcSolution::Status::Converged);
+  if (!warm_up_succeeded_) {
     spdlog::warn("[M5][MidMPC][acados] cold-capsule warm-up did not converge "
-                 "after {} solves (last status={}); first real cycle may report "
-                 "Infeasible. This is a known acatos v0.4.4 cold-start effect; "
-                 "the production retry/fallback path handles a non-converged "
-                 "first cycle.",
+                 "after {} solves (last status={}); acados backend is DISABLED "
+                 "for this solver lifetime — MidMpcSolver dispatch will fall "
+                 "back to IPOPT. (Known acatos v0.4.4 cold-start effect.)",
                  kWarmUpSolves, static_cast<int>(last_warm_status));
   }
 }
 
 MidMpcAcadosSolver::~MidMpcAcadosSolver() = default;
+
+// TEST-ONLY diagnostic accessors (T17 review-fix Step 1): defined here because
+// Impl is complete in this TU. Production code does not call these.
+int    MidMpcAcadosSolver::last_raw_status() const noexcept { return impl_->last_raw_status; }
+int    MidMpcAcadosSolver::last_sqp_iter()   const noexcept { return impl_->last_sqp_iter; }
+double MidMpcAcadosSolver::last_traj_delta() const noexcept { return impl_->last_traj_delta; }
+
+// TEST-ONLY C1 verification hook (T17 review-fix C1): re-run the constraint
+// re-check on the last solved trajectory. Used by the friend test to exercise
+// the status-4 recompute path on a converged solve. Production never calls this.
+bool MidMpcAcadosSolver::debug_constraints_satisfied_after_solve(
+    const MidMpcInput& input) {
+  const auto packed = formulation_.pack_parameters(input);
+  const bool lateral_active = derive_lateral_active(input);
+  const int n_targets = static_cast<int>(
+      std::min<std::size_t>(input.targets.size(),
+                            static_cast<std::size_t>(formulation_.config().max_targets)));
+  return constraints_satisfied_(packed.first, packed.second, lateral_active, n_targets);
+}
 
 // ===========================================================================
 // F1 warm-start seed: forward-propagate the Path B 5-dim double-integrator
@@ -417,6 +491,174 @@ double steady_state_n_for_u(double u_mps) {
   return std::max(kNMin, std::min(kNMax, n_raw));
 }
 }  // namespace
+
+// ===========================================================================
+// constraints_satisfied_ — C1 status-4 constraint re-check (T17 review-fix C1).
+//
+// F5 spec: status 4 (QP error during refinement) is tolerated ONLY when
+// (a) solver_moved (traj_delta > tol) AND (b) constraints satisfied. The prior
+// code checked (a) but NOT (b): a status-4 solve that moved but violated a
+// constraint (e.g. CPA hard floor breached) was re-mapped to Converged and
+// flowed to L4 unchallenged. This helper closes that gap by recomputing the
+// constraint residuals h(x,u,p) from the formulation's MX con_h_expr (the SAME
+// expression the acatos codegen derives from) on the SOLVED trajectory and
+// verifying each ACTIVE row satisfies its lh/uh bound within kBoxTol.
+//
+// Row treatment (mirror build_stage_row_bounds):
+//   prefix(0,1)        equality [0,0]              -> |h| <= kBoxTol
+//   CPA(2..17)         >= 0, softened via idxsh    -> h + xi >= -kBoxTol
+//                      empty target slots relaxed  -> skip (bound is ±kUhInf)
+//   direction(18)      >= 0 when lateral_active    -> h >= -kBoxTol
+//   min_alt(19)        >= 0 when lateral_active    -> h >= -kBoxTol
+//   terminal(20,21,22) >= 0 when lateral_active    -> h >= -kBoxTol (stage N only)
+// Rows deactivated via [-kUhInf, +kUhInf] are always satisfied (skip).
+//
+// The check is INDEPENDENT of the solver's internal residual bookkeeping: it
+// rebuilds h from the published trajectory + the packed parameters and applies
+// the documented bounds. A NaN residual (divergent iterate) fails the check.
+// Returns false on any active-row violation; the caller keeps NumericalFailure
+// instead of re-mapping status 4 to Converged.
+// ===========================================================================
+bool MidMpcAcadosSolver::constraints_satisfied_(
+    const std::vector<double>& g,
+    const std::vector<std::vector<double>>& ps,
+    bool lateral_active,
+    int n_targets) {
+  // ---- Lazy-build the h function on first use (cached in Impl::h_fn). ----
+  // The graph is the formulation's con_h_expr (MX); the Function wraps it over
+  // (x, u, p_global, p_stage) so we can evaluate it on the solved trajectory.
+  if (!impl_->h_fn) {
+    // con_h_expr must reference the same symbols the formulation exposes; if
+    // the graph is not built, fail CLOSED (cannot verify -> not satisfied).
+    if (!formulation_.graph_valid()) {
+      spdlog::warn("[M5][MidMPC][acados] C1 status-4 re-check: formulation graph "
+                   "not valid; cannot verify constraints -> rejecting.");
+      return false;
+    }
+    casadi::Function fn("m5_mid_mpc_acados_h_check",
+                        {formulation_.x_sym(), formulation_.u_sym(),
+                         formulation_.p_global_sym(), formulation_.p_stage_sym()},
+                        {formulation_.con_h_expr()});
+    impl_->h_fn = std::make_unique<casadi::Function>(std::move(fn));
+  }
+
+  // Helper: is a bound row double-disabled (±kUhInf)? Skip those.
+  auto is_relaxed = [](double lo, double hi) {
+    return lo <= -kUhInf * 0.5 && hi >= kUhInf * 0.5;
+  };
+
+  const int n_t = std::max(0, std::min(n_targets, kAcadosNsh));
+  for (int k = 0; k <= kAcadosN; ++k) {
+    const std::size_t kk = static_cast<std::size_t>(k);
+
+    // Read solved state x_k and control u_k. Terminal stage N has no control;
+    // u_N is unused by the (deactivated) terminal rows when lateral_active is
+    // false, and the gen script evaluates terminal rows with the last control
+    // shape — feed zeros (terminal rows are one-sided on l_k which depends on
+    // x only, so u_N does not affect the active terminal residual).
+    double xk[kAcadosNx] = {0, 0, 0, 0, 0};
+    ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "x", xk);
+    double uk[kAcadosNu] = {0.0, 0.0};
+    if (k < kAcadosN) {
+      ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "u", uk);
+    }
+
+    // Read per-stage CPA slack xi (length NS=16) for k<N; for stage N there is
+    // no slack vector (no control at N) so CPA rows at N use xi=0. In practice
+    // CPA rows at the terminal stage are still >= 0 ones; xi=0 is the safe
+    // (strict) choice.
+    double sl_vec[kAcadosNs] = {0.0};
+    if (k < kAcadosN) {
+      ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "sl", sl_vec);
+    }
+
+    // Recompute h_k = con_h(x_k, u_k, g, ps_k) via the cached Function. The
+    // Function takes (x, u, p_global, p_stage) as separate inputs (the
+    // formulation exposes them as distinct MX symbols).
+    if (g.size() + ps[kk].size() != static_cast<std::size_t>(kAcadosNp)) {
+      spdlog::warn("[M5][MidMPC][acados] C1 re-check param shape mismatch at "
+                   "k={}: g={} ps={} np={}", k, g.size(), ps[kk].size(), kAcadosNp);
+      return false;
+    }
+    std::vector<double> x_vec(xk, xk + kAcadosNx);
+    std::vector<double> u_vec(uk, uk + kAcadosNu);
+    std::vector<double> h_val;
+    try {
+      // Use explicit casadi::DM inputs + std::vector<DM> call (the brace-init
+      // call operator overload is ambiguous in CasADi for this arg count).
+      std::vector<casadi::DM> h_in = {
+          casadi::DM(casadi::Sparsity::dense(kAcadosNx, 1), x_vec),
+          casadi::DM(casadi::Sparsity::dense(kAcadosNu, 1), u_vec),
+          casadi::DM(casadi::Sparsity::dense(static_cast<int>(g.size()), 1), g),
+          casadi::DM(casadi::Sparsity::dense(static_cast<int>(ps[kk].size()), 1), ps[kk]),
+      };
+      const std::vector<casadi::DM> h_out = (*impl_->h_fn)(h_in);
+      // h_out[0] is a dense (nh x 1) DM; nonzeros() returns its stored values
+      // (for a dense matrix this is all nh elements in column-major order).
+      h_val = h_out.at(0).nonzeros();
+    } catch (const std::exception& e) {
+      spdlog::warn("[M5][MidMPC][acados] C1 re-check h-eval threw at k={}: {}",
+                   k, e.what());
+      return false;
+    }
+    if (static_cast<int>(h_val.size()) != kAcadosNh) {
+      spdlog::warn("[M5][MidMPC][acados] C1 re-check h-size mismatch at k={}: "
+                   "got {} expect {}", k, h_val.size(), kAcadosNh);
+      return false;
+    }
+
+    // Per-stage bounds (mirror build_stage_row_bounds). Terminal rows active
+    // ONLY at stage N (and only when lateral_active).
+    const bool terminal_active = lateral_active && (k == kAcadosN);
+    RowBounds rb = build_stage_row_bounds(k, kAcadosNh, lateral_active, n_targets);
+
+    for (int r = 0; r < kAcadosNh; ++r) {
+      const std::size_t rr = static_cast<std::size_t>(r);
+      const double hv = h_val[rr];
+      const double lo = rb.lh[rr];
+      const double hi = rb.uh[rr];
+      // NaN residual -> fail (divergent iterate).
+      if (!std::isfinite(hv)) {
+        spdlog::warn("[M5][MidMPC][acados] C1 status-4 REJECT: h[{}][{}]={} not "
+                     "finite", k, r, hv);
+        return false;
+      }
+      // Relaxed row (double-disabled) -> always satisfied.
+      if (is_relaxed(lo, hi)) continue;
+
+      // CPA softened rows [kRowCpaBase..kRowCpaBase+n_t-1]: effective lower
+      // bound is lo - xi (the slack relaxes the one-sided >= 0). Only the
+      // n_targets REAL CPA rows are softened-and-active; empty slots are
+      // relaxed (skipped above). For real CPA rows with t < n_t, subtract xi.
+      double eff_lo = lo;
+      if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
+        const int t = r - kRowCpaBase;
+        if (t < kAcadosNsh) {
+          eff_lo = lo - sl_vec[t];
+        }
+      }
+
+      // The actual bound check.
+      if (hv < eff_lo - kBoxTol || hv > hi + kBoxTol) {
+        // Prefix equality rows (0,1) report |h| > kBoxTol (hi==lo==0).
+        const char* row_kind =
+            (r == kRowPrefixPsi) ? "prefix_psi" :
+            (r == kRowPrefixU)   ? "prefix_u"   :
+            (r >= kRowCpaBase && r < kRowCpaBase + kAcadosNsh) ? "cpa" :
+            (r == kRowDirection) ? "direction"  :
+            (r == kRowMinAlt)    ? "min_alt"    :
+            (r == kRowTermSide || r == kRowTermLo || r == kRowTermHi) ? "terminal" :
+            "?";
+        spdlog::warn("[M5][MidMPC][acados] C1 status-4 REJECT: stage={} row={} "
+                     "({}) h={} outside [{}, {}] (eff_lo={}, tol={})",
+                     k, r, row_kind, hv, lo, hi, eff_lo, kBoxTol);
+        (void)terminal_active;  // bounds already encode the terminal mask.
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 // ===========================================================================
 // solve() — one acatos cycle. Sequence (P1b-1a T9 + staging runner pattern):
@@ -565,6 +807,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
 
   // ---- 5b. solve. ----
   const int status = m5_mid_mpc_acados_acados_solve(impl_->capsule);
+  // TEST-ONLY diagnostic mirror (T17 review-fix Step 1).
+  impl_->last_raw_status = status;
 
   // ---- 6. extract solved trajectory + per-stage per-target slack. ----
   std::vector<double> px_traj(static_cast<std::size_t>(kAcadosN + 1), 0.0);
@@ -607,15 +851,30 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                   std::fabs(py_traj[kk] - py_seed_snap[kk]);
   }
   const bool solver_moved = (status == 0) || (traj_delta > kTrajDeltaTol);
+  // TEST-ONLY diagnostic mirror (T17 review-fix Step 1).
+  impl_->last_traj_delta = traj_delta;
 
   // ---- Map acados status -> MidMpcSolution::Status (F5 contract). ----
   // status 0 -> Converged.
-  // status 4 tolerated IF solver_moved (re-map to Converged); else the
-  //   NumericalFailure from map_acados_status stands.
+  // status 4 tolerated ONLY when (a) solver_moved AND (b) constraints satisfied
+  //   (C1 T17 review-fix: the prior code checked only (a); a status-4 that
+  //   moved but violated a constraint — e.g. CPA hard floor breached — was
+  //   reported Converged and flowed to L4 unchallenged). Now both gates must
+  //   pass; otherwise the NumericalFailure from map_acados_status stands.
   // status 1 -> Timeout; status 2 -> Infeasible; status 3/other -> NumFailure.
   MidMpcSolution::Status mapped = map_acados_status(status);
   if (status == 4 && solver_moved) {
-    mapped = MidMpcSolution::Status::Converged;
+    const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets);
+    if (csat) {
+      mapped = MidMpcSolution::Status::Converged;
+    } else {
+      // Keep NumericalFailure: the solve moved but a constraint is violated.
+      // Log which gate failed for telemetry (constraints_satisfied_ already
+      // logged the offending row).
+      spdlog::warn("[M5][MidMPC][acados] status=4 RE-MAP DENIED: solver moved "
+                   "(traj_delta={}) but constraint re-check FAILED -> keeping "
+                   "NumericalFailure (NOT Converged).", traj_delta);
+    }
   }
   // NaN in the trajectory is ALWAYS a NumericalFailure, regardless of status.
   if (any_nan) {
@@ -633,6 +892,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   int sqp_iter = 0;
   ocp_nlp_get(impl_->solver, "sqp_iter", &sqp_iter);
   sol.ipopt_iterations = static_cast<std::int32_t>(sqp_iter);
+  // TEST-ONLY diagnostic mirror (T17 review-fix Step 1).
+  impl_->last_sqp_iter = sqp_iter;
 
   // Real cost value (ocp_nlp_eval_cost populates it; ocp_nlp_get reads it).
   // This is an IMPROVEMENT over IPOPT (which leaves cost_total=0 in some paths
