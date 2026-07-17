@@ -128,8 +128,9 @@ int MidMpcAcadosFormulation::np_global() const noexcept {
   return kAcadosNpGlobal;                                                  // 106
 }
 int MidMpcAcadosFormulation::np_per_stage() const noexcept {
-  // 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y). 35 at Nt=16.
-  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets;
+  // 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y) + 2 (tb_x/tb_y
+  // per-stage t_b closest-point, VR-07b T3). 37 at Nt=16.
+  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets + 2;
 }
 
 // nh: single-stage constraint row count (the acatos con_h_expr is a per-stage
@@ -176,6 +177,30 @@ casadi::MX MidMpcAcadosFormulation::target_x_at_k_slot_(int32_t t) const {
 casadi::MX MidMpcAcadosFormulation::target_y_at_k_slot_(int32_t t) const {
   const int32_t off = kAcadosPerStageTgtDriftOff + cfg_.max_targets + t;
   return p_stage_(casadi::Slice(off, off + 1));
+}
+
+// Per-stage t_b closest-point slots (VR-07b T3). The route COST reads these as
+// the lateral-deviation origin; the route CONSTRAINT keeps the GLOBAL route
+// origin (C10/C11 deferred to P4 — intentional asymmetry, see build_route_cost_).
+casadi::MX MidMpcAcadosFormulation::tb_x_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStageTbXOff, kAcadosPerStageTbXOff + 1));
+}
+
+casadi::MX MidMpcAcadosFormulation::tb_y_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStageTbYOff, kAcadosPerStageTbYOff + 1));
+}
+
+// Precise Huber loss on MX (VR-07b T3). Mirrors shared/huber_cost.hpp (the T2
+// pure-function oracle used in the formulation test). C0 continuous, C1 smooth
+// at delta_h. MX::abs is the CasADi MX absolute value (unary OP_FABS); if_else
+// is MX::if_else (piecewise conditional; codegen emits a piecewise C expr).
+casadi::MX MidMpcAcadosFormulation::huber_mx_(const casadi::MX& l,
+                                              double delta_h) const {
+  // |l|<=delta_h -> 0.5*l^2 ; else delta_h*(|l|-0.5*delta_h). C0/C1 at delta_h.
+  const casadi::MX a    = casadi::MX::abs(l);
+  const casadi::MX quad = 0.5 * l * l;
+  const casadi::MX lin  = delta_h * (a - 0.5 * delta_h);
+  return casadi::MX::if_else(a <= delta_h, quad, lin);
 }
 
 // ===========================================================================
@@ -349,19 +374,34 @@ casadi::MX MidMpcAcadosFormulation::build_dist_cost_() const {
   return (psi - bearing) * (psi - bearing);
 }
 
-// J_route: route-frame dimensionless cross-track (single-stage form). Mirror
-// IPOPT build_route_cost_ (l_scale normalization + route_weight guard).
+// J_route: route-frame lateral-deviation cost (single-stage form). VR-07b T3:
+// origin is the PER-STAGE t_b closest point (own predicted position projected
+// onto the nominal route leg); solver pack (T4) computes t_b[k] via
+// project_to_segment and writes it to the per-stage tb_x/tb_y slots. The route
+// NORMAL (nx,ny) stays GLOBAL (the leg bearing is stage-uniform). The lateral
+// deviation l[k] = (px - tb_x)*nx + (py - tb_y)*ny is measured relative to
+// t_b[k]. The loss is a PRECISE Huber (quadratic near zero, linear far — no
+// exponential pull-back when the solver is pushed off-route by an obstacle).
+//
+// INTENTIONAL asymmetry (spec deferral, NOT a bug): the route COST origin is
+// per-stage t_b, but the route CONSTRAINT origin (build_con_h_ direction /
+// min_alt / terminal C10/C11 rows) stays the GLOBAL route origin. Switching
+// the constraint origin to per-stage t_b is deferred to P4 ("废除终端
+// C10/C11 -> P4"). build_terminal_cost_ also keeps the global origin (T4).
 casadi::MX MidMpcAcadosFormulation::build_route_cost_() const {
   const casadi::MX px = x_(0);
   const casadi::MX py = x_(1);
-  const casadi::MX ox = gslot_(kGIdxRouteFrameOriginX);
-  const casadi::MX oy = gslot_(kGIdxRouteFrameOriginY);
+  // VR-07b T3: per-stage t_b closest-point origin (NOT the global route origin).
+  const casadi::MX ox = tb_x_at_k_slot_();
+  const casadi::MX oy = tb_y_at_k_slot_();
   const casadi::MX nx = gslot_(kGIdxRouteFrameNormalX);
   const casadi::MX ny = gslot_(kGIdxRouteFrameNormalY);
   const casadi::MX l_scale = gslot_(kGIdxLateralScale);
   const casadi::MX w_guard = gslot_(kGIdxRouteWeight);
   const casadi::MX l = (px - ox) * nx + (py - oy) * ny;
-  return w_guard * (l / l_scale) * (l / l_scale);
+  // VR-07b T3: pure quadratic (l/l_scale)^2 -> Huber(l, delta_h)/l_scale^2.
+  const casadi::MX hub = huber_mx_(l, cfg_.huber_delta_h);
+  return w_guard * hub / (l_scale * l_scale);
 }
 
 // J_vel: surge deviation from planned speed (single-stage form). Uses the
@@ -422,7 +462,7 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
   x_ = casadi::MX::sym("x", nx(), 1);               // [px,py,psi,r,u_surge]
   u_ = casadi::MX::sym("u", nu(), 1);               // [delta,n]
   p_global_ = casadi::MX::sym("p_global", np_global(), 1);      // 106
-  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 35 (F2/F4)
+  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 37 (F2/F4 + T3 tb)
   disc_dyn_expr_ = build_disc_dyn_();
   con_h_expr_    = build_con_h_();
   J_colreg_   = build_colreg_cost_();
@@ -434,7 +474,7 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
 }
 
 // ===========================================================================
-// pack_parameters() — MidMpcInput -> {global[106], per_stage[N+1][35]}.
+// pack_parameters() — MidMpcInput -> {global[106], per_stage[N+1][37]}.
 //
 // Global block (stage-uniform, 106 = 26 head + 80 target):
 //   mirrors IPOPT kIdx 0-25 (head) and kIdx 62-141 (target block, remapped to
@@ -442,12 +482,15 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
 //   (own psi/u/x/y) are RESERVED x0 seeds (F3) — the Task 16 solver writes them
 //   to ocp.constraints.x0; they are NOT graph-referenced.
 //
-// Per-stage block (np_per_stage = 3 + 2*Nt = 35 at Nt=16; N+1 rows):
+// Per-stage block (np_per_stage = 3 + 2*Nt + 2 tb = 37 at Nt=16; N+1 rows):
 //   stage k carries [prefix_psi_at_k, prefix_u_at_k, pact_pre,
-//                    target_x_at_k[0..Nt-1], target_y_at_k[0..Nt-1]] (F2/F4).
-//   The terminal stage N repeats stage N-1 (acatos requires a per-stage param at
-//   every stage 0..N; the terminal value is unused by the path constraints but
-//   must be present for the update_params shape).
+//                    target_x_at_k[0..Nt-1], target_y_at_k[0..Nt-1],
+//                    tb_x, tb_y] (F2/F4 + VR-07b T3 per-stage t_b).
+//   tb_x/tb_y DEFAULT to 0.0 here (neutral fallback); T4 fills them with real
+//   project_to_segment results in the solver pack. The terminal stage N repeats
+//   stage N-1 (acatos requires a per-stage param at every stage 0..N; the
+//   terminal value is unused by the path constraints but must be present for
+//   the update_params shape).
 // ===========================================================================
 std::pair<std::vector<double>, std::vector<std::vector<double>>>
 MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
@@ -514,13 +557,19 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
     g[base + 4u] = w_range;
   }
 
-  // ---- Per-stage block (np_per_stage = 3 + 2*Nt per stage, N+1 rows). T15 F2/F4.
-  // Each stage k carries (at fixed offsets the single-stage graph reads):
+  // ---- Per-stage block (np_per_stage = 3 + 2*Nt + 2 tb per stage, N+1 rows).
+  // T15 F2/F4 + VR-07b T3. Each stage k carries (at fixed offsets the
+  // single-stage graph reads):
   //   [0]      prefix_psi_at_k  — committed-geometry psi target (C1, F2)
   //   [1]      prefix_u_at_k    — committed-geometry u   target (C1, F2)
   //   [2]      pact_pre         — prefix activation (1.0 if k<K else 0.0, F2)
   //   [3..]    target_x_at_k[t] — drifted target x (F4)
   //   [3+Nt..] target_y_at_k[t] — drifted target y (F4)
+  //   [35]     tb_x             — per-stage t_b closest-point x (VR-07b T3)
+  //   [36]     tb_y             — per-stage t_b closest-point y (VR-07b T3)
+  // tb_x/tb_y are left at their 0.0 default here (neutral fallback). T4 fills
+  // them with real project_to_segment results in the solver pack; for T3 only
+  // the SHAPE (37) matters.
   // Stages k<K carry the reprojected committed-geometry psi/u (F2 prefix lock);
   // stages k>=K carry pact_pre=0 (row deactivated) and psi/u values that are
   // unused (the activation factor zeroes the row). Target drift matches IPOPT

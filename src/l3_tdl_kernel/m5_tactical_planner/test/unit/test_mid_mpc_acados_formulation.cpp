@@ -4,13 +4,14 @@
 //
 // This test verifies the SYMBOL-GRAPH CONTRACT of the production acados
 // formulation (Path B 5-dim state, 2-dim control, documented global/per-stage
-// parameter partition), NOT a real acados solve (that is Task 16+).
-// Parameter partition (T15 F2/F4): global=106 (26 IPOPT head scalars + 80
-// target block, IPOPT-142-compatible for the stage-uniform part) + per-stage=35
-// (prefix psi/u + pact_pre + per-target drifted x/y). The per-stage block is an
-// honest acados expansion beyond IPOPT's flat kParamDim==142; see
-// mid_mpc_acados_formulation.hpp partition doc + static_assert (np_global==106,
-// np_per_stage==35). State x=[px,py,psi,r,u_surge], control u=[delta,n].
+// parameter partition), NOT a real acatos solve (that is Task 16+).
+// Parameter partition (T15 F2/F4 + P2 T3): global=106 (26 IPOPT head scalars + 80
+// target block, IPOPT-142-compatible for the stage-uniform part) + per-stage=37
+// (prefix psi/u + pact_pre + per-target drifted x/y + tb_x/tb_y per-stage
+// closest-point, VR-07b). The per-stage block is an honest acatos expansion
+// beyond IPOPT's flat kParamDim==142; see mid_mpc_acados_formulation.hpp
+// partition doc + static_assert (np_global==106, np_per_stage==37).
+// State x=[px,py,psi,r,u_surge], control u=[delta,n].
 //
 // The IPOPT formulation (mid_mpc_nlp_formulation.{hpp,cpp}) is READ-ONLY
 // reference; this test does NOT touch it. acados codegen (gen_mid_mpc_acados.py)
@@ -30,10 +31,12 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_acados_formulation.hpp"
+#include "m5_tactical_planner/shared/huber_cost.hpp"  // P2 T2 oracle for the MX Huber cross-check
 
 using mass_l3::m5::MidMpcInput;
 using mass_l3::m5::TargetState;
 using mass_l3::m5::mid_mpc::MidMpcAcadosFormulation;
+using mass_l3::m5::shared::huber_cost;
 
 // ---------------------------------------------------------------------------
 // Fixture: default config + built graph. Mirror of the brief's Step 2 test
@@ -52,17 +55,20 @@ TEST_F(AcadosFormulationTest, StateControlDims_MatchPathB) {
   EXPECT_EQ(form_.nu(), 2);  // [delta,n]
 }
 
-// Parameter partition (T15 F2/F4 documented deviation from IPOPT flat 142):
+// Parameter partition (T15 F2/F4 + P2 T3 documented deviation from IPOPT flat
+// 142):
 //   global     = 106 (26 IPOPT head scalars + 16x5 target block — the
 //              stage-uniform portion, 142-compatible for the global half).
-//   per-stage  = 35  (prefix psi/u scalars + pact_pre + per-stage target
-//              drift x/y). acatos precomputes per-stage drift (F4) and the
-//              prefix-equality activation factor (F2) because the single-stage
-//              graph cannot index stage k; IPOPT folds these into its flat
-//              142-vector + per-row bounds. GLOBAL stays 106; per-stage expands.
+//   per-stage  = 37  (prefix psi/u scalars + pact_pre + per-stage target
+//              drift x/y + tb_x/tb_y per-stage closest-point). acatos
+//              precomputes per-stage drift (F4), the prefix-equality activation
+//              factor (F2), and the per-stage t_b closest point (VR-07b T3)
+//              because the single-stage graph cannot index stage k; IPOPT folds
+//              these into its flat 142-vector + per-row bounds. GLOBAL stays
+//              106; per-stage expands.
 TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   EXPECT_EQ(form_.np_global(), 106);     // 26 head + 80 target (IPOPT-compatible)
-  EXPECT_EQ(form_.np_per_stage(), 35);   // 3 + 2*Nt (prefix+act+drift)
+  EXPECT_EQ(form_.np_per_stage(), 37);   // 3 + 2*Nt + 2 tb (prefix+act+drift+tb)
   MidMpcInput in{};
   std::pair<std::vector<double>, std::vector<std::vector<double>>> r;
   EXPECT_NO_THROW({ r = form_.pack_parameters(in); });
@@ -72,8 +78,8 @@ TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   EXPECT_EQ(static_cast<int>(g.size()), 106);
   // Every per-stage vector has the SAME length (stage-uniform param layout).
   for (const auto& s : ps) {
-    EXPECT_EQ(static_cast<int>(s.size()), 35)
-        << "per-stage param vectors must be stage-uniform length 35";
+    EXPECT_EQ(static_cast<int>(s.size()), 37)
+        << "per-stage param vectors must be stage-uniform length 37";
   }
   // N+1 rows (stages 0..N), terminal stage repeats stage N-1.
   EXPECT_EQ(static_cast<int>(ps.size()), form_.n_horizon() + 1);
@@ -145,7 +151,7 @@ TEST_F(AcadosFormulationTest, DiscDynExpr_NonNullFiveRows) {
   EXPECT_FALSE(form_.con_h_expr().is_null());
   EXPECT_EQ(form_.nh(), 23);                      // 2+16+1+1+3 (matches gen script)
   EXPECT_EQ(form_.np_global(), 106);              // 26 head + 80 target block
-  EXPECT_EQ(form_.np_per_stage(), 35);            // 3 + 2*Nt (prefix+act+drift)
+  EXPECT_EQ(form_.np_per_stage(), 37);            // 3 + 2*Nt + 2 tb (prefix+act+drift+tb)
 }
 
 // Default horizon N: production default (horizon_s=90s / dt=5s -> N=18).
@@ -281,4 +287,161 @@ TEST_F(AcadosFormulationTest, TargetDrift_PerStagePackedMatchesIpopt) {
   // Geometric significance: drift at last stage vs cpa_safe.
   const double drift_last = tdx * static_cast<double>(N - 1) * dt;
   EXPECT_GT(drift_last, 700.0);   // ~787m — large vs cpa_safe=1852m (45%)
+}
+
+// ===========================================================================
+// P2 T3 (VR-07b): route cost = per-stage t_b closest-point origin + precise
+// Huber lateral-deviation loss. The next two tests verify the MX graph wires
+// this correctly, by evaluating the J_route MX Function and comparing against
+// (a) the T2 huber_cost pure-function ORACLE, and (b) a discriminating input
+// where the global route origin and the per-stage t_b DIFFER.
+//
+// Global slot offsets (mirror the .cpp anonymous-namespace kGIdx aliases):
+//   [14] kGIdxRouteFrameOriginX, [15] kGIdxRouteFrameOriginY  (GLOBAL origin)
+//   [16] kGIdxRouteFrameNormalX, [17] kGIdxRouteFrameNormalY  (GLOBAL normal)
+//   [19] kGIdxLateralScale,       [20] kGIdxRouteWeight       (cost weights)
+// Per-stage slot offsets (mirror kAcadosPerStage* in the .hpp):
+//   [35] kAcadosPerStageTbXOff,   [36] kAcadosPerStageTbYOff  (per-stage t_b)
+// ===========================================================================
+
+namespace {
+
+// Build a 1-output MX Function that evaluates J_route over the formulation's
+// symbol graph: f(x, u, p_global, p_stage) -> {J_route}. Mirrors how the
+// PrefixLock_HRowsEqualitySatisfied test builds the con_h Function.
+casadi::Function build_route_cost_function(const MidMpcAcadosFormulation& form) {
+  casadi::MX x  = form.x_sym();
+  casadi::MX u  = form.u_sym();
+  casadi::MX pg = form.p_global_sym();
+  casadi::MX ps = form.p_stage_sym();
+  return casadi::Function("J_route", casadi::MXVector{x, u, pg, ps},
+                          casadi::MXVector{form.J_route()});
+}
+
+// Evaluate J_route numerically for one (x, u, p_global, p_stage) point.
+double eval_route_cost(const casadi::Function& f,
+                       const std::vector<double>& x,
+                       const std::vector<double>& u,
+                       const std::vector<double>& pg,
+                       const std::vector<double>& ps) {
+  const std::vector<casadi::DM> res = f(casadi::DMVector{
+      casadi::DM(x), casadi::DM(u), casadi::DM(pg), casadi::DM(ps)});
+  return res.at(0).scalar();
+}
+
+// Global slot offsets (mirror kGIdx* in the .cpp anonymous namespace).
+constexpr int kGOriginX = 14;
+constexpr int kGOriginY = 15;
+constexpr int kGNormalX = 16;
+constexpr int kGNormalY = 17;
+constexpr int kGLatScale = 19;
+constexpr int kGRouteW   = 20;
+// Per-stage tb offsets (mirror kAcadosPerStageTbXOff / TbYOff in the .hpp).
+constexpr int kPtbX = 35;
+constexpr int kPtbY = 36;
+
+}  // namespace
+
+// P2 T3 Test A — RouteCost_HuberMatchesOracle:
+// The route cost MX graph must implement a PRECISE Huber loss
+//   w_guard * huber_cost(l, delta_h) / l_scale^2
+// where l = (px - tb_x)*nx + (py - tb_y)*ny and huber_cost is the T2 pure
+// function. We test BOTH the quadratic region (|l| < delta_h) and the linear
+// region (|l| > delta_h) to catch a regression to the old pure-quadratic cost
+// or a wrong Huber piecewise definition.
+TEST_F(AcadosFormulationTest, RouteCost_HuberMatchesOracle) {
+  const casadi::Function froute = build_route_cost_function(form_);
+  const double delta_h = form_.config().huber_delta_h;
+  ASSERT_GT(delta_h, 0.0) << "Config.huber_delta_h must be positive";
+
+  // Route frame: leg along +x (bearing 0). Normal = +y. Origin/tb placed so the
+  // lateral deviation l = (py - tb_y) (since nx=0, ny=1).
+  const double nx = 0.0;
+  const double ny = 1.0;
+  const double l_scale = 400.0;
+  const double w_guard = 3.0;
+  const double tb_x = 100.0;
+  const double tb_y = 200.0;
+
+  std::vector<double> pgv(static_cast<std::size_t>(form_.np_global()), 0.0);
+  pgv[kGNormalX] = nx;
+  pgv[kGNormalY] = ny;
+  pgv[kGLatScale] = l_scale;
+  pgv[kGRouteW]   = w_guard;
+
+  std::vector<double> psv(static_cast<std::size_t>(form_.np_per_stage()), 0.0);
+  psv[kPtbX] = tb_x;
+  psv[kPtbY] = tb_y;
+
+  const std::vector<double> uvec{0.0, 9.0};
+
+  // Two lateral-deviation cases spanning both Huber regions.
+  struct Case { double py; const char* region; };
+  const std::vector<Case> cases = {
+      {tb_y + 0.25 * delta_h, "quadratic (|l|<delta_h)"},   // |l|=0.25*delta_h
+      {tb_y + 3.00 * delta_h, "linear    (|l|>delta_h)"},   // |l|=3.0 *delta_h
+  };
+  for (const Case& c : cases) {
+    const std::vector<double> xvec{tb_x + 50.0, c.py, 0.0, 0.0, 5.0};
+    const double l = (xvec[0] - tb_x) * nx + (xvec[1] - tb_y) * ny;
+    const double expected = w_guard * huber_cost(l, delta_h) / (l_scale * l_scale);
+    const double actual = eval_route_cost(froute, xvec, uvec, pgv, psv);
+    EXPECT_NEAR(actual, expected, 1e-9)
+        << "region " << c.region << ": l=" << l << " delta_h=" << delta_h;
+  }
+}
+
+// P2 T3 Test B — RouteCost_UsesPerStageTbNotGlobalOrigin:
+// Prove the route cost reads the PER-STAGE tb_x/tb_y slots, NOT the GLOBAL
+// kGIdxRouteFrameOriginX/Y. Construct an input where the global origin and the
+// per-stage t_b DIFFER; the MX route cost must equal the Huber oracle computed
+// with tb (NOT with the global origin). This catches a regression where
+// build_route_cost_ accidentally still reads the global origin slot.
+TEST_F(AcadosFormulationTest, RouteCost_UsesPerStageTbNotGlobalOrigin) {
+  const casadi::Function froute = build_route_cost_function(form_);
+  const double delta_h = form_.config().huber_delta_h;
+
+  // Route frame: normal +y. Place global origin and tb FAR apart so the two
+  // interpretations give very different lateral deviations.
+  const double nx = 0.0;
+  const double ny = 1.0;
+  const double l_scale = 400.0;
+  const double w_guard = 3.0;
+  const double tb_x = 0.0;
+  const double tb_y = 100.0;
+  const double go_x = 5000.0;   // global origin x — DIFFERENT from tb_x
+  const double go_y = -3000.0;  // global origin y — DIFFERENT from tb_y
+
+  std::vector<double> pgv(static_cast<std::size_t>(form_.np_global()), 0.0);
+  pgv[kGOriginX] = go_x;
+  pgv[kGOriginY] = go_y;
+  pgv[kGNormalX] = nx;
+  pgv[kGNormalY] = ny;
+  pgv[kGLatScale] = l_scale;
+  pgv[kGRouteW]   = w_guard;
+
+  std::vector<double> psv(static_cast<std::size_t>(form_.np_per_stage()), 0.0);
+  psv[kPtbX] = tb_x;
+  psv[kPtbY] = tb_y;
+
+  const std::vector<double> xvec{120.0, tb_y + 1.5 * delta_h, 0.0, 0.0, 5.0};
+  const std::vector<double> uvec{0.0, 9.0};
+
+  // Oracle using the PER-STAGE t_b (this is what the graph MUST match).
+  const double l_tb = (xvec[0] - tb_x) * nx + (xvec[1] - tb_y) * ny;
+  const double expected_tb =
+      w_guard * huber_cost(l_tb, delta_h) / (l_scale * l_scale);
+  // Oracle using the GLOBAL origin (this is what the OLD graph did — must NOT match).
+  const double l_go = (xvec[0] - go_x) * nx + (xvec[1] - go_y) * ny;
+  const double expected_go =
+      w_guard * huber_cost(l_go, delta_h) / (l_scale * l_scale);
+
+  const double actual = eval_route_cost(froute, xvec, uvec, pgv, psv);
+  EXPECT_NEAR(actual, expected_tb, 1e-6)
+      << "route cost must use PER-STAGE tb, not global origin";
+  // The two oracles must be far apart (else the test is non-discriminating).
+  ASSERT_GT(std::fabs(expected_go - expected_tb), 1.0)
+      << "test is non-discriminating: tb-origin and global-origin costs nearly equal";
+  EXPECT_NE(actual, expected_go)  // sanity: actual is not the global-origin value
+      << "regression: route cost still reads GLOBAL origin (expected per-stage tb)";
 }

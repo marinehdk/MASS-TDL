@@ -30,20 +30,22 @@
 //                           must be divided by m_sge [kg] to yield m/s^2. Omitting
 //                           /m_sge makes surge accel ~152250x too large (T15 F1).
 //
-// Parameter partition (T15 F2/F4 — acados per-stage expansion, documented
-// deviation from the IPOPT flat kParamDim==142):
+// Parameter partition (T15 F2/F4 + P2 T3 — acados per-stage expansion,
+// documented deviation from the IPOPT flat kParamDim==142):
 //   global     (np_global   = 106): 26 IPOPT head scalars (kIdx 0-25) +
 //                                   16x5 target block (kIdx 62-141, remapped to
 //                                   global 26-105). The target block keeps
 //                                   (tx,ty,cog,sog,tw) so the solver/node can
 //                                   recompute/reproject per-stage drift.
-//   per-stage  (np_per_stage = 35): per-stage scalars that stage k needs:
+//   per-stage  (np_per_stage = 37): per-stage scalars that stage k needs:
 //         [0]      prefix_psi_at_k  — prefix psi equality target (C1, F2)
 //         [1]      prefix_u_at_k    — prefix u   equality target (C1, F2)
 //         [2]      pact_pre         — prefix activation (1.0 if k<K else 0.0, F2)
 //         [3..18]  target_x_at_k[t] — drifted target x per target (F4)
 //         [19..34] target_y_at_k[t] — drifted target y per target (F4)
-//   np_per_stage = 3 + 2*Nt = 35 at default Nt=16.
+//         [35]     tb_x             — per-stage t_b closest-point x (VR-07b T3)
+//         [36]     tb_y             — per-stage t_b closest-point y (VR-07b T3)
+//   np_per_stage = 3 + 2*Nt + 2 tb = 37 at default Nt=16.
 //
 // Why this is no longer exactly 142: IPOPT packs a single flat 142-vector and
 // computes per-stage target drift symbolically inside the graph from the global
@@ -88,35 +90,41 @@ constexpr int32_t kAcadosNpGlobalTargetBlock =
 constexpr int32_t kAcadosNpGlobal =
     kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock;  // 106
 
-// Per-stage parameter layout (T15 F2/F4). Each stage k carries only the scalars
-// that stage needs (NOT the whole prefix sequence — the single-stage graph reads
-// fixed offsets that hold stage k's values):
+// Per-stage parameter layout (T15 F2/F4 + P2 T3). Each stage k carries only the
+// scalars that stage needs (NOT the whole prefix sequence — the single-stage
+// graph reads fixed offsets that hold stage k's values):
 //   [0]                       prefix_psi_at_k
 //   [1]                       prefix_u_at_k
 //   [2]                       pact_pre (prefix activation, 1.0 if k<K else 0.0)
 //   [3 .. 3+Nt-1]             target_x_at_k[t]
 //   [3+Nt .. 3+2Nt-1]         target_y_at_k[t]
+//   [3+2Nt]                   tb_x (per-stage t_b closest-point x, VR-07b T3)
+//   [3+2Nt+1]                 tb_y (per-stage t_b closest-point y, VR-07b T3)
 constexpr int32_t kAcadosNDefault = 18;               // production default N
 constexpr int32_t kAcadosPerStagePrefixPsiOff = 0;
 constexpr int32_t kAcadosPerStagePrefixUOff   = 1;
 constexpr int32_t kAcadosPerStagePactPreOff   = 2;
 constexpr int32_t kAcadosPerStageTgtDriftOff  = 3;  // target_x_at_k[0] starts here
-constexpr int32_t kAcadosNpPerStageDefault =
-    kAcadosPerStageTgtDriftOff + 2 * kAcadosMaxTargets;  // 3 + 32 = 35
+constexpr int32_t kAcadosPerStageTbXOff =
+    kAcadosPerStageTgtDriftOff + 2 * kAcadosMaxTargets;  // 3 + 32 = 35 (VR-07b T3)
+constexpr int32_t kAcadosPerStageTbYOff = kAcadosPerStageTbXOff + 1;  // 36
+constexpr int32_t kAcadosNpPerStageDefault = kAcadosPerStageTbYOff + 1;  // 3 + 32 + 2 = 37
 
-// Static contract (T15 F2/F4): the GLOBAL block stays 142-compatible with the
-// IPOPT stage-uniform portion (26 head + 80 target = 106). The per-stage block
-// is the documented acados expansion (prefix scalars + activation + per-stage
-// target drift); it is NOT summed to 142 because acados precomputes per-stage
-// drift/activation that IPOPT folds into its flat 142-vector + per-row bounds.
-// See the partition doc above. This asserts the per-stage count is stable.
-static_assert(kAcadosNpPerStageDefault == 35,
-              "acados np_per_stage(default) = 3 + 2*Nt = 35; update if Nt changes");
+// Static contract (T15 F2/F4 + P2 T3): the GLOBAL block stays 142-compatible
+// with the IPOPT stage-uniform portion (26 head + 80 target = 106). The
+// per-stage block is the documented acatos expansion (prefix scalars +
+// activation + per-stage target drift + per-stage t_b closest-point); it is
+// NOT summed to 142 because acatos precomputes per-stage drift/activation and
+// the per-stage t_b (VR-07b) that IPOPT folds into its flat 142-vector +
+// per-row bounds. See the partition doc above. This asserts the per-stage
+// count is stable.
+static_assert(kAcadosNpPerStageDefault == 37,
+              "acados np_per_stage(default) = 3 + 2*Nt + 2 tb = 37; update if Nt changes");
 static_assert(kAcadosNpGlobal == 106,
               "acados np_global = 26 head + 80 target = 106 (IPOPT-compatible)");
 
-// Production acados OCP symbol graph (MX). Path B 5-dim state, 2-dim control,
-// 6 costs + full constraints + 106-global / 35-per-stage partition.
+// Production acatos OCP symbol graph (MX). Path B 5-dim state, 2-dim control,
+// 6 costs + full constraints + 106-global / 37-per-stage partition.
 //
 // This class ONLY builds the CasADi MX symbol graph and packs parameters. It
 // does NOT call acatos codegen (that is gen_mid_mpc_acados.py) and does NOT
@@ -124,14 +132,16 @@ static_assert(kAcadosNpGlobal == 106,
 // acados backend; the IPOPT MidMpcNlpFormulation stays the default otherwise.
 class MidMpcAcadosFormulation {
  public:
-  // Parameter dimension accounting (T15 F2/F4 documented deviation):
+  // Parameter dimension accounting (T15 F2/F4 + P2 T3 documented deviation):
   //   kParamDimGlobal = 106 (IPOPT stage-uniform portion: 26 head + 80 target)
-  //   kParamDimPerStage = 35 (acados per-stage expansion: prefix + act + drift)
+  //   kParamDimPerStage = 37 (acados per-stage expansion: prefix + act + drift
+  //                          + tb_x/tb_y per-stage closest-point, VR-07b T3)
   // IPOPT's flat kParamDim==142 is preserved in the IPOPT formulation; the
-  // acados backend expands per-stage (drift precomputed, activation factor)
-  // because the single-stage graph cannot index stage k. See partition doc.
+  // acados backend expands per-stage (drift precomputed, activation factor,
+  // per-stage t_b) because the single-stage graph cannot index stage k. See
+  // partition doc.
   static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 106
-  static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 35
+  static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 37
   // Production default horizon N (horizon_s=90s / dt=5s -> N=18; node-config
   // overrides via resolve_mid_mpc_horizon_config, clamped to 120 max).
   static constexpr int32_t kNDefault = kAcadosNDefault;
@@ -166,6 +176,11 @@ class MidMpcAcadosFormulation {
     double w_vel{1.0};
     double k_asym{50.0};
     double terminal_tau{0.5};
+    // Huber radius [m] for the route cost lateral-deviation loss (VR-07b T3).
+    // Default = lateral_scale (400m); quadratic near zero, linear far (no
+    // exponential pull-back when the solver is pushed off-route by an obstacle).
+    // Benchmark-tunable (REC) — start at lateral_scale, recalibrate at RUN-001.
+    double huber_delta_h{400.0};
     // CPA per-target slack penalty (exact-penalty; IPOPT w_slack analog).
     // P1b-1a T7/T9: per-target xi slack on CPA rows, mixed L1/L2.
     double w_slack{1.0e8};
@@ -186,12 +201,15 @@ class MidMpcAcadosFormulation {
 
   // Pack MidMpcInput into the acados parameter partition.
   //   first  = global params (np_global=106), stage-uniform.
-  //   second = per-stage params (N+1 rows of np_per_stage=35), one row per
+  //   second = per-stage params (N+1 rows of np_per_stage=37), one row per
   //            acatos stage 0..N. Each row k carries the per-stage scalars the
   //            single-stage graph reads at fixed offsets:
   //              [0] prefix_psi_at_k, [1] prefix_u_at_k, [2] pact_pre,
-  //              [3..3+Nt-1] target_x_at_k[t], [3+Nt..3+2Nt-1] target_y_at_k[t].
-  //            (T15 F2 prefix lock + F4 per-stage target drift.)
+  //              [3..3+Nt-1] target_x_at_k[t], [3+Nt..3+2Nt-1] target_y_at_k[t],
+  //              [35] tb_x, [36] tb_y (per-stage t_b closest-point, VR-07b T3).
+  //            (T15 F2 prefix lock + F4 per-stage target drift + VR-07b T3 tb.)
+  //            The tb slots default to 0.0 here; T4 fills them via
+  //            project_to_segment in the solver pack.
   // Mirrors IPOPT pack_parameters semantics (formulation.cpp:670-787) but
   // splits global vs per-stage so acados can update them independently.
   [[nodiscard]] std::pair<std::vector<double>, std::vector<std::vector<double>>>
@@ -203,13 +221,18 @@ class MidMpcAcadosFormulation {
   int nu() const noexcept;            // 2 (delta, n)
   int nh() const noexcept;            // h rows: prefix(2) + CPA(Nt) + dir + min_alt + terminal(3)
   int np_global() const noexcept;     // 106
-  int np_per_stage() const noexcept;  // 3 + 2*Nt (35 at default Nt=16)
+  int np_per_stage() const noexcept;  // 3 + 2*Nt + 2 tb (37 at default Nt=16)
   int n_horizon() const noexcept { return cfg_.n_horizon; }
 
   // CasADi MX graph handles (for the codegen script / solver to consume).
   // Empty until build_symbolic_graph() is called.
   const casadi::MX& disc_dyn_expr() const noexcept { return disc_dyn_expr_; }
   const casadi::MX& con_h_expr() const noexcept { return con_h_expr_; }
+  // Route cost expression (VR-07b T3): w_guard * Huber(l, delta_h) / l_scale^2
+  // with l = (px - tb_x)*nx + (py - tb_y)*ny (per-stage t_b origin). Exposed so
+  // the formulation test can build a single-output MX Function over the graph
+  // and cross-check against the T2 huber_cost oracle; mirrors disc_dyn_expr().
+  const casadi::MX& J_route() const noexcept { return J_route_; }
   const casadi::MX& x_sym() const noexcept { return x_; }
   const casadi::MX& u_sym() const noexcept { return u_; }
   const casadi::MX& p_global_sym() const noexcept { return p_global_; }
@@ -223,8 +246,9 @@ class MidMpcAcadosFormulation {
   std::string solver_name_{"m5_mid_mpc_acados"};
 
   // CasADi MX symbol-graph members. State x=[px,py,psi,r,u_surge] (5),
-  // control u=[delta,n] (2). p_global (106) is stage-uniform; p_stage (35)
-  // is per-stage (prefix psi/u scalars + pact_pre + per-target drift x/y).
+  // control u=[delta,n] (2). p_global (106) is stage-uniform; p_stage (37)
+  // is per-stage (prefix psi/u scalars + pact_pre + per-target drift x/y +
+  // per-stage t_b closest-point tb_x/tb_y, VR-07b T3).
   casadi::MX x_, u_, p_global_, p_stage_;
   casadi::MX disc_dyn_expr_;  // x[k+1] = f_disc(x[k], u[k], p)  (5 rows)
   casadi::MX con_h_expr_;     // nonlinear path constraint h(x,u,p) (nh rows)
@@ -243,14 +267,24 @@ class MidMpcAcadosFormulation {
   [[nodiscard]] casadi::MX build_asym_cost_() const;
   [[nodiscard]] casadi::MX build_terminal_cost_() const;
 
+  // Precise Huber loss on MX (VR-07b T3): 0.5*l^2 if |l|<=delta_h, else
+  // delta_h*(|l|-0.5*delta_h). C0/C1 at delta_h. CasADi MX::if_else emits the
+  // piecewise expr at codegen time. Mirrors shared/huber_cost.hpp (T2 oracle).
+  [[nodiscard]] casadi::MX huber_mx_(const casadi::MX& l, double delta_h) const;
+
   // Per-stage param slot helpers (fixed offsets — the single-stage graph reads
   // stage k's value at a fixed offset; pack_parameters writes a different value
-  // to that offset in each stage's per-stage vector). T15 F2/F4.
+  // to that offset in each stage's per-stage vector). T15 F2/F4 + VR-07b T3.
   [[nodiscard]] casadi::MX prefix_psi_at_k_slot_() const;  // p_stage[0]
   [[nodiscard]] casadi::MX prefix_u_at_k_slot_() const;    // p_stage[1]
   [[nodiscard]] casadi::MX pact_pre_slot_() const;         // p_stage[2]
   [[nodiscard]] casadi::MX target_x_at_k_slot_(int32_t t) const;  // p_stage[3+t]
   [[nodiscard]] casadi::MX target_y_at_k_slot_(int32_t t) const;  // p_stage[3+Nt+t]
+  // Per-stage t_b closest-point slots (VR-07b T3). The route COST reads these
+  // as the lateral-deviation origin; the route CONSTRAINT (build_con_h_) keeps
+  // the GLOBAL route origin (C10/C11 terminal constraints deferred to P4).
+  [[nodiscard]] casadi::MX tb_x_at_k_slot_() const;  // p_stage[35] = tb_x
+  [[nodiscard]] casadi::MX tb_y_at_k_slot_() const;  // p_stage[36] = tb_y
   // Global param slot helper (scalar p_global[i]).
   [[nodiscard]] casadi::MX gslot_(int32_t i) const;
 };
