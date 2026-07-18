@@ -100,7 +100,7 @@ constexpr int32_t kAcadosNpGlobal =
 //   [3+Nt .. 3+2Nt-1]         target_y_at_k[t]
 //   [3+2Nt]                   tb_x (per-stage t_b closest-point x, VR-07b T3)
 //   [3+2Nt+1]                 tb_y (per-stage t_b closest-point y, VR-07b T3)
-constexpr int32_t kAcadosNDefault = 18;               // production default N
+constexpr int32_t kAcadosNDefault = 80;               // P4 N=80 dt=15 1200s (was 18)
 constexpr int32_t kAcadosPerStagePrefixPsiOff = 0;
 constexpr int32_t kAcadosPerStagePrefixUOff   = 1;
 constexpr int32_t kAcadosPerStagePactPreOff   = 2;
@@ -158,10 +158,12 @@ class MidMpcAcadosFormulation {
   // partition doc.
   static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 106
   static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 37
-  // Production default horizon N (horizon_s=90s / dt=5s -> N=18; node-config
-  // overrides via resolve_mid_mpc_horizon_config, clamped to 120 max).
+  // Production default horizon N (P4: horizon_s=1200s / dt_s=15 -> N=80; was 18).
+  // RFC-001: 90s locked design overturned 2026-07-16 Step2 (user-authorized).
+  // node-config overrides via resolve_mid_mpc_horizon_config.
   static constexpr int32_t kNDefault = kAcadosNDefault;
-  // Step duration [s] (IPOPT dt_s default 5.0, aligned with L4 LOS period).
+  // Step duration [s] (compile-time default; runtime config dt_s=15 overrides).
+  // P4: dt=15s from benchmark, acados codegen DT=15.
   static constexpr double kDt = 5.0;
   // Path B double-integrator yaw gain (P1b-1a T8 VDM-direct, not invented).
   // = k_n_rudder * u^2 / izz_e at cruise; verified analytically in T8.

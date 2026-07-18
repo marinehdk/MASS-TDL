@@ -120,9 +120,17 @@
 
 ### 0.8 技术规约注册表 [TS]
 
-| ID | 类别 | 规约内容 | 单位/定义 | 来源 | 关联DP/接口 | 与现状差异 |
-|----|------|----------|-----------|------|-------------|-----------|
-| (Step6 填充) | | | | | | |
+| ID | 类别 | 规约内容 | 来源 | 关联DP | 与现状差异 |
+|----|------|----------|------|--------|-----------|
+| TS-A01 | 职责边界 | Mid-MPC仅产裸候选轨迹,组装归DP-06 | DESIGN_DECISION[VR-02] | DP-02/06 | 现状混在2196行须拆解 |
+| TS-A02 | 所有权 | COLREGs语义归M6,数学编译归M5(只翻译不推理) | [R5]+[R8]VR-04 | DP-04 | 已基本落地 |
+| TS-A03 | 所有权 | 候选选择归M5,MRM触发归M7,M5只emit concern | [R3][R16]+[R8]VR-08 | DP-05/08 | M5无publish须加 |
+| TS-A04 | 契约 | SafetyConcernEvent: M5 publish /l3/safety/concern; M7接入仲裁; failure_type enum | DESIGN_DECISION[VR-08] | DP-08 | 两端都缺须建 |
+| TS-A05 | 契约 | M7/M1→M5冻结返回路径(/l3/m5/freeze或M1 mode_cmd) | DESIGN_DECISION[VR-08/09] | DP-08/09 | 完全缺失 |
+| TS-A06 | 契约 | ODD门控: M5订阅/l3/m1/odd_state; M1 6状态→M5行为映射; M5_RESUME回切 | DESIGN_DECISION[VR-09]+[R4][R16] | DP-09 | 零订阅+FSM不对齐 |
+| TS-A07 | 职责边界 | preflight=Doer自检(非authority); GNC reject>M5 preflight>heartbeat | [R5][R9][R16] | DP-07 | 方向已定4调用点须改 |
+| TS-A08 | 职责边界 | TailBuilder拼接须清理; NLP单段直生; committed_route→契约管理器 | [R8]VR-02/07b+[VR-06] | DP-06 | 拼接仍活跃须清理 |
+| TS-A09 | 所有权 | warm-start与前缀冻结正交无冲突 | Step3代码核实 | DP-11 | 已正确实装 |
 
 ---
 
@@ -397,3 +405,30 @@ M5 核心职责一句话（架构报告 §10.2[R10]）："在 ODD 约束下，�
 **DP-06/08/09关联**: DP-09(ODD)触发DP-08(concern);DP-08依赖DP-05(候选健康);DP-06(航线重组)与DP-08/09正交。
 
 **风险量化**: DP-06/08/09均为高风险(架构断裂),须SIL验证。DP-03/05/07为中风险(P phase/工程债)。其余低风险。
+
+### Step5 · DESIGN-IT-TWICE  [2026-07-17 · 3高风险DP对抗验证]
+
+**对象选择(用户确认)**: 跳过8个低/中风险DP(DP-01/02/03/04/05/07/10/11直接采纳Step4推荐),对DP-06/08/09三个高风险架构断裂做DESIGN-IT-TWICE。
+
+**DP-06航线所有权重组**:
+- 方案A(NLP单段直生+committed_route契约管理化) ★★★★☆ vs 方案B(保留拼接参数化) ★★☆☆☆
+- 裁决采纳A: 方案B保留拼接是"过渡期永远"技术债+双重真相源是当前bug根因。[R8]已裁决TailBuilder淘汰,A是落地。acados实时性由[R8]VR-05/P1b兜底。
+
+**DP-08 MUST-9两端断修复**:
+- 方案A(完整两端修复:M5 publish+M7仲裁+冻结返回) ★★★★☆ vs 方案B(仅M5日志增强) ★☆☆☆☆
+- 裁决采纳A: 方案B不构成fail-safe链路,M7永远收不到。方案A两端改但M7 HC policing+MRM基座已就绪(Step3纠正),实际工作量比预期小。
+
+**DP-09 ADR-1 ODD门控补全**:
+- 方案A(完整门控:订阅+FSM映射+行为+回切) ★★★★☆ vs 方案B(M5内部保守降级) ★☆☆☆☆
+- 裁决采纳A: 方案B违反[R4][R16]外部manager原则+M5视角不全(无海况/感知/系统健康)。方案A M1 6状态FSM已实现+M4/M6订阅参考模式可复用。
+
+**三张卡片共同结论**: 方案A(完整修复)均优于方案B。**共同特点:外部基座(M1 6状态FSM/M7 HC policing/M7 MRM触发)已就绪,M5是缺失的连接方**。修复=M5加缺失的订阅/publish/行为映射,非从零建。
+
+**Step5结论: 3裁决经DESIGN-IT-TWICE无回炉。8低风险DP用户授权跳过。全部11 DP最终态确定。**
+
+### Step6 · 术语+技术规约+方案包  [2026-07-17 · 待用户接受]
+
+- **术语表**: 7术语(职责维度/候选健康状态机/契约管理器/承诺前缀冻结/SafetyConcernEvent/ODD门控映射/Doer自检),每含定义+本方案含义+边界+关联DP
+- **技术规约表**: 9条TS-A01~09,聚焦职责边界/所有权/契约层面(坐标系/单位等已归另两对话TS)
+- **方案包八组件**: 独立成文 `docs/superpowers/specs/2026-07-17-m5-module-functional-partition-solution-pack.md`
+- **状态**: 待用户接受→标"已交付brainstorming"

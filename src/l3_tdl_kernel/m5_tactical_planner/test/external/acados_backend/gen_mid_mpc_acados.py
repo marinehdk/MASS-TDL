@@ -115,7 +115,7 @@ from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 SOLVER_NAME = "m5_mid_mpc_acados"
 
 # ---- Horizon / step (production default; matches .cpp kNDefault/kDt). ----
-N, DT = 18, 5.0
+N, DT = 80, 15.0       # P4 N=80 dt=15 1200s (was 18, 5.0; RFC-001 90s→1200s)
 
 # ---- Path B VDM-direct coefficients (mirror .cpp kC_u/kKProp/kKDrag/kMSge). ----
 C_U = 9.825342e-3       # T8 VDM-direct yaw gain (rad/s^2 per rad)

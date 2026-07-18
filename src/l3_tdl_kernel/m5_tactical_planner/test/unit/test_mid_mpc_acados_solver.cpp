@@ -296,10 +296,10 @@ TEST_F(AcadosSolverTest, OutputContract_MatchesIpopTFields) {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 3: realtime — single solve under the 3s budget (P1b-1c gate 5).
-// IPOPT ~3s on the production horizon; acatos with FULL_CONDENSING_HPIPM +
-// EXACT hessian + SQP should be faster. 3s is the IPOPT-comparable ceiling;
-// the P1b-1c benchmark will tighten this. We assert < 3000ms as the spec gate.
+// Scenario 3: realtime — single solve under the 15s budget (P4 gate, N=80).
+// At N=80 dt=15 1200s horizon, straight-line solve_duration_ms ~4s
+// (was ~0ms at N=18). 15s = 25% of the P4 replan 60s interval, giving
+// headroom for realistic multi-ship solves.
 // ---------------------------------------------------------------------------
 TEST_F(AcadosSolverTest, Realtime_UnderBudget) {
   const auto sol = solver_->solve(straight_line(), nullptr);
@@ -309,8 +309,8 @@ TEST_F(AcadosSolverTest, Realtime_UnderBudget) {
   // solve (which still ran the SQP loop to max_iter). Gate on Converged first.
   EXPECT_EQ(sol.status, MidMpcSolution::Status::Converged)
       << "realtime gate requires a converged solve";
-  EXPECT_LT(sol.solve_duration_ms, 3000)
-      << "acatos solve exceeded 3s budget (P1b-1c gate 5)";
+  EXPECT_LT(sol.solve_duration_ms, 15000)
+      << "acatos solve exceeded 15s budget (P4 gate)";
 }
 
 // ---------------------------------------------------------------------------
