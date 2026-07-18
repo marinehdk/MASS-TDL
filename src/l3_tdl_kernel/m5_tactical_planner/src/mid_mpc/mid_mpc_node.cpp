@@ -512,12 +512,14 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   nomoto_cfg_.n_steps = 12;
   nomoto_cfg_.dt_s    = 5.0;
 
-  solve_timer_ = rclcpp::create_timer(
-      get_node_base_interface(),
-      get_node_timers_interface(),
-      get_clock(),
-      std::chrono::seconds(1),
-      [this]() { on_solve_cycle_(); });
+	  solve_timer_ = rclcpp::create_timer(
+	      get_node_base_interface(),
+	      get_node_timers_interface(),
+	      get_clock(),
+	      std::chrono::seconds(60),  // P4 VR-06b: 60s replan (was 1s; 1Hz chattering
+	                                 // with radar/AIS micro-noise, 60s opens wide
+	                                 // waters ample-time, BC-MPC handles emergencies)
+	      [this]() { on_solve_cycle_(); });
 }
 
 // ===========================================================================
