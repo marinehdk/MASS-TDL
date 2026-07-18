@@ -79,7 +79,7 @@ P0 (config fix) ──► P1 (acados 使能器)
 | **P4** | horizon 1200s + 废终端 C10/C11 + TailBuilder 拼接淘汰 + timer 60s + 承诺前缀 180s + 切 acados 默认 ON(含 carryover I-1~4) | P1+P2 | 高 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p4-horizon-terminal-tailbuilder-design.md` + `plans/2026-07-18-m5-p4-horizon-terminal-tailbuilder.md` |
 | **P5** | 反 chattering(warm-start shift-init + 转移代价)+ ample-time 验收门/ODD 边界 + IPOPT compiler 清理(M6 几何/Huber 已由 P1b-1b/P2 落地) | (相对独立) | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p5-anti-chatter-ample-time-design.md` + `plans/2026-07-18-m5-p5-anti-chatter-ample-time.md` |
 | **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 + keep-last 废除 + FINAL_DEGRADE 报 M7 + L4 override 接线验证 | P2/P3/P4 | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p6-bcmpc-four-state-handover-design.md` + `plans/2026-07-18-m5-p6-bcmpc-four-state-handover.md` |
-| **P7** | A+ 不确定性(OU) + 意图建模 | P4 | 中 | ⏳ 后置/并行 | **无 spec(待开)** |
+| **P7** | 鲁棒性扩展:OU 横向方差 + UT expected cost + intent 缩放 + BC 加速度优化([RMD] Ch3 依据,非 Eriksen 方法) | P4+P6 | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p7-robustness-ou-intent-design.md` + `plans/2026-07-18-m5-p7-robustness-ou-intent.md` |
 
 ---
 
@@ -195,16 +195,21 @@ P0 (config fix) ──► P1 (acados 使能器)
 - **子任务**(单 spec/plan 覆盖,不拆 P6-a/P6-b): T1 SIL baseline → T2 launch+health → T3 11 状态机 → T4 keep-last 废除 → T5 mid 编排 → T6 SIL e2e → T7 codex review
 - **关联 GNC**: ReactiveOverrideCmd 契约在 GNC 设计树 DP-10/VR-08 已定义;P6 覆盖 M5 publish + L4 验证(双侧)
 
-### P7(后续/并行). A+ 不确定性 + 意图建模 [增强,中风险]
+### P7(收尾). 鲁棒性扩展 — OU 不确定性 + Intent 缩放 + BC 加速度优化 [增强,中风险]
+
+> **⚠ 2026-07-18 scope 精化(brainstorming 9 Q&A)**: 原 §P7 写"A+ 不确定性(OU)+ 意图建模 + BC Nominal(短时域)"。**2026-07-18 brainstorming 9 个 Q&A 裁决后精化为**:OU 横向方差 + UT expected cost(5 sigma points)+ intent_confidence 乘性缩放 + BC 加速度优化(非 OU)。**关键边界**:P7 的 OU/UT/intent 决策依据是 **Rawlings-Mayne-Diehl《MPC》教材 Ch3 Robust and Stochastic MPC**(p193),**非 Eriksen 系列 3 篇论文方法**(3 篇论文无 OU/UT/intent)。P0–P6 是 Eriksen 方法落地;P7 是 [RMD] Ch3 工程扩展。
 
 - **DP/TBD**: DP-09 · VR-09
-- **scope**:
-  - OU 过程有界化横向不确定性
-  - intent_confidence 标量缩放 CPA 代价
-  - BC Nominal(短时域)
-- **依赖**: P4(长时域才需 OU)
-- **风险**: 中
+- **scope(2026-07-18 brainstorming 精化)**:
+  - **OU 横向方差 + UT expected cost**(Q2/Q6):σ_pos²(t)=σ_0²·(1-exp(-2t/τ_OU))有界;colreg cost 改 UT 5 sigma points expected cost
+  - **OU 参数动态推导**(Q3):从 target classification + sog + intent_confidence 推导(σ_0, τ_OU)
+  - **intent_confidence 乘性缩放**(Q4):colreg cost weight 乘 (1 + k·(1-intent_conf))
+  - **BC 加速度优化**(Q5):BC-MPC Override + CPA 低时减速(decel_factor=0.5);不加 OU
+  - **数据通道修复**(Q7):M5 TargetState 加 intent_confidence/target_compliance/classification 3 字段(M2 已算)
+- **依赖**: P4(长时域才需 OU)+ P6(BC-MPC 已激活)
+- **风险**: 中(UT 5 sigma points 计算量;target stride 5→8 破坏 codegen parity;MX 原生 UT 数值稳定性)
 - **回炉触发**: 若 A+ 在 SIL 多船极端场景验证中不足(意图感知/不确定性有界不够)→ 回炉 P1/DP-05 重评 SB-MPC+GPU 完整 C
+- **MPC 重构定位**: P7 是 P0–P7 MPC 避碰重构的**收尾阶段**。P7 实现完成后,生成完整 markdown 收尾报告(参考 [E1][E2][E3][RMD] 图表/表格评价形式),证明 MPC 模块有效且闭环。
 
 ---
 
