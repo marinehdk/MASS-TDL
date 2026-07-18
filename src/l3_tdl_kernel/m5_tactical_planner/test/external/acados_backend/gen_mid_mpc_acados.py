@@ -52,8 +52,8 @@ production J_colreg/J_route/J_dist/J_vel/J_asym do NOT want):
                           CPA per-target (Nt rows, idxsh=[2..2+Nt-1] per-target
                           xi slack, T7/T9 mixed L1/L2 Zl/zl),
                           direction (pref_dir*l[k]),
-                          min_alt (pref_dir*(psi-own_psi) - min_alt),
-                          terminal 3 rows (g_term_side/lo/hi) )
+                          min_alt (pref_dir*(psi-own_psi) - min_alt) )
+                          # P4: terminal C10/C11 abolished (long horizon)
     T15 F2: prefix rows come FIRST (right after ROT-via-lbx, mirroring IPOPT's
            [ROT][prefix][CPA]... class order). lh=uh=0 (equality); pact_pre is a
            per-stage activation factor (1.0 for k<K, 0.0 for k>=K) so inactive
@@ -301,14 +301,7 @@ def build_model() -> AcadosModel:
     l_k = (px - ox) * nx + (py - oy) * ny
     h_dir = pref_dir * l_k
     h_min_alt = pref_dir * (psi - own_psi) - min_alt
-    # Terminal 3 rows (codegen evaluates every stage; non-terminal stages are
-    # masked by lh/uh = [-inf, +inf] -- here we keep stage-uniform bounds and
-    # rely on the terminal cost_type_e to apply J_terminal only at stage N).
-    h_term_side = pref_dir * l_k - TERMINAL_L_MIN_M
-    h_term_lo = l_k + TERMINAL_L_MAX_M
-    h_term_hi = TERMINAL_L_MAX_M - l_k
-    con_h = ca.vertcat(h_prefix_psi, h_prefix_u, *cpa_rows, h_dir, h_min_alt,
-                       h_term_side, h_term_lo, h_term_hi)
+    con_h = ca.vertcat(h_prefix_psi, h_prefix_u, *cpa_rows, h_dir, h_min_alt)
 
     model.x = x
     model.u = u_ctrl
@@ -435,20 +428,19 @@ def build_ocp() -> AcadosOcp:
     ocp.constraints.ubx_0 = np.array([PSI_UB, +ROT_MAX, U_SURGE_MAX])
     ocp.constraints.idxbx_0 = np.array([2, 3, 4])
 
-    # ---- h bounds (T15 F2 row order: [prefix_psi(0), prefix_u(1),
-    #      CPA(2..2+NT-1), direction(2+NT), min_alt(2+NT+1),
-    #      terminal(2+NT+2..2+NT+4)]).
-    #      Prefix rows 0,1: EQUALITY lh=uh=0 (the activation factor pact_pre
-    #      deactivates them at stages k>=K by making the expression 0).
+        # ---- h bounds (T15 F2 row order: [prefix_psi(0), prefix_u(1),
+        #      CPA(2..2+NT-1), direction(2+NT), min_alt(2+NT+1)]).
+        #      P4: terminal C10/C11 abolished.
+        #      Prefix rows 0,1: EQUALITY lh=uh=0 (the activation factor pact_pre
+        #      deactivates them at stages k>=K by making the expression 0).
     #      CPA rows: one-sided >= 0 (lh=0, uh=+inf), softened via idxsh below.
-    #      direction/min_alt/terminal: one-sided >= 0. F2 bounded uh. ----
+    #      direction/min_alt: one-sided >= 0.
     lh = np.zeros((nh,))
     uh = np.full((nh,), UH_INF)
     uh[0] = 0.0   # prefix_psi: equality (lh=0 already)
     uh[1] = 0.0   # prefix_u:   equality (lh=0 already)
-    # terminal rows (last 3): lo/hi are two-sided around +/- l_max; side row
-    # is one-sided >= 0. Keep them one-sided >= 0 here (stage-uniform); Task 16
-    # tightens the terminal stage via the solver bound API.
+    # P4: terminal C10/C11 abolished (long horizon 1200s ensures convergence
+    # without terminal set). Terminal COST J_terminal remains as cost_type_e.
     ocp.constraints.lh = lh
     ocp.constraints.uh = uh
     ocp.constraints.lh0 = lh

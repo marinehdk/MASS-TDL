@@ -59,30 +59,24 @@ constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 143 (106 global + 37 per-
                                                     //      + 2*16 target drift + 2 tb_x/tb_y, P2 VR-07b)
 constexpr int kAcadosNsh = M5_MID_MPC_ACADOS_NSH;   // 16 (per-target CPA slacks)
 constexpr int kAcadosNs  = M5_MID_MPC_ACADOS_NS;    // 16 (slacks per path stage)
-constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 23 (path h rows)
+constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 20 (P4: abolished terminal C10/C11, was 23)
 
 // Row-class offsets in con_h (mirror MidMpcAcadosFormulation::build_con_h_ and
 // gen_mid_mpc_acados.py). FIXED order; the codegen emits the same layout. These
 // are the indices the solver wrapper writes to when it sets per-stage lh/uh to
-// mirror IPOPT's derive_row_bound_config (deactivate direction/min_alt/terminal
+// mirror IPOPT's derive_row_bound_config (deactivate direction/min_alt
 // for non-lateral scenarios).
 //   [0]      prefix_psi      (equality via pact_pre activation factor)
 //   [1]      prefix_u        (equality via pact_pre activation factor)
 //   [2..17]  CPA per-target  (one-sided >= 0, softened via idxsh=[2..17])
 //   [18]     direction       (pref_dir * l_k)
 //   [19]     min_alt         (pref_dir * (psi - own_psi) - min_alt_par)
-//   [20]     g_term_side     (pref_dir * l_k - l_min)
-//   [21]     g_term_lo       (l_k + l_max)
-//   [22]     g_term_hi       (l_max - l_k)
 constexpr int kRowPrefixPsi = 0;
 constexpr int kRowPrefixU   = 1;
 constexpr int kRowCpaBase   = 2;                    // CPA rows [2..2+Nt-1]
 constexpr int kRowDirection = 2 + kAcadosNsh;       // 18 (Nt=16)
 constexpr int kRowMinAlt    = 2 + kAcadosNsh + 1;   // 19
-constexpr int kRowTermSide  = 2 + kAcadosNsh + 2;   // 20
-constexpr int kRowTermLo    = 2 + kAcadosNsh + 3;   // 21
-constexpr int kRowTermHi    = 2 + kAcadosNsh + 4;   // 22
-static_assert(kRowTermHi == kAcadosNh - 1,
+static_assert(kRowMinAlt == kAcadosNh - 1,
               "row offset layout must match build_con_h_ + gen script");
 
 // F5 solver-moved tolerance: reject a status-4 that returns the seed unchanged
@@ -153,7 +147,7 @@ struct RowBounds {
   std::vector<double> uh;  // length nh
 };
 
-RowBounds build_stage_row_bounds(int stage, int nh, bool lateral_active,
+RowBounds build_stage_row_bounds(int nh, bool lateral_active,
                                  int n_targets) {
   std::vector<double> lh(static_cast<std::size_t>(nh), 0.0);
   std::vector<double> uh(static_cast<std::size_t>(nh), kUhInf);
@@ -178,9 +172,7 @@ RowBounds build_stage_row_bounds(int stage, int nh, bool lateral_active,
       set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // empty slot: relaxed
     }
   }
-  // Direction / min_alt / terminal: deactivate unless lateral_active.
-  const bool dir_active = lateral_active;
-  const bool terminal_active = lateral_active && (stage == kAcadosN);
+  // Direction / min_alt: deactivate unless lateral_active. P4: terminal C10/C11 abolished.
   auto set_row = [&](int idx, bool active) {
     if (active) {
       set_row_value(idx, 0.0, kUhInf);        // one-sided >= 0
@@ -188,15 +180,12 @@ RowBounds build_stage_row_bounds(int stage, int nh, bool lateral_active,
       set_row_value(idx, -kUhInf, kUhInf);    // double-disabled
     }
   };
-  set_row(kRowDirection, dir_active);
-  set_row(kRowMinAlt,    dir_active);
-  set_row(kRowTermSide,  terminal_active);
-  set_row(kRowTermLo,    terminal_active);
-  set_row(kRowTermHi,    terminal_active);
+  set_row(kRowDirection, lateral_active);
+  set_row(kRowMinAlt,    lateral_active);
   return {std::move(lh), std::move(uh)};
 }
 
-// Derive lateral_colreg_active from the input (mirrors derive_row_bound_config
+	// Derive lateral_colreg_active from the input (mirrors derive_row_bound_config
 // in mid_mpc_solver.cpp:343-354). Same condition the IPOPT path uses to decide
 // whether direction/terminal rows are enabled.
 bool derive_lateral_active(const MidMpcInput& input) {
@@ -623,10 +612,8 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       return false;
     }
 
-    // Per-stage bounds (mirror build_stage_row_bounds). Terminal rows active
-    // ONLY at stage N (and only when lateral_active).
-    const bool terminal_active = lateral_active && (k == kAcadosN);
-    RowBounds rb = build_stage_row_bounds(k, kAcadosNh, lateral_active, n_targets);
+    // Per-stage bounds (mirror build_stage_row_bounds). P4: terminal C10/C11 abolished.
+    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets);
 
     for (int r = 0; r < kAcadosNh; ++r) {
       const std::size_t rr = static_cast<std::size_t>(r);
@@ -658,18 +645,16 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       if (hv < eff_lo - kBoxTol || hv > hi + kBoxTol) {
         // Prefix equality rows (0,1) report |h| > kBoxTol (hi==lo==0).
         const char* row_kind =
-            (r == kRowPrefixPsi) ? "prefix_psi" :
-            (r == kRowPrefixU)   ? "prefix_u"   :
-            (r >= kRowCpaBase && r < kRowCpaBase + kAcadosNsh) ? "cpa" :
-            (r == kRowDirection) ? "direction"  :
-            (r == kRowMinAlt)    ? "min_alt"    :
-            (r == kRowTermSide || r == kRowTermLo || r == kRowTermHi) ? "terminal" :
-            "?";
+	        (r == kRowPrefixPsi) ? "prefix_psi" :
+	        (r == kRowPrefixU)   ? "prefix_u"   :
+	        (r >= kRowCpaBase && r < kRowCpaBase + kAcadosNsh) ? "cpa" :
+	        (r == kRowDirection) ? "direction"  :
+	        (r == kRowMinAlt)    ? "min_alt"    :
+	        "?";
         spdlog::warn("[M5][MidMPC][acados] C1 status-4 REJECT: stage={} row={} "
                      "({}) h={} outside [{}, {}] (eff_lo={}, tol={})",
                      k, r, row_kind, hv, lo, hi, eff_lo, kBoxTol);
-        (void)terminal_active;  // bounds already encode the terminal mask.
-        return false;
+	        return false;
       }
     }
   }
@@ -857,7 +842,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
       std::min<std::size_t>(input.targets.size(),
                             static_cast<std::size_t>(formulation_.config().max_targets)));
   for (int k = 0; k <= kAcadosN; ++k) {
-    RowBounds rb = build_stage_row_bounds(k, kAcadosNh, lateral_active, n_targets);
+    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets);
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,
                                   "lh", rb.lh.data());
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,

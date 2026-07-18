@@ -144,7 +144,7 @@ int MidMpcAcadosFormulation::np_per_stage() const noexcept {
 // Nt=16: nh = 2 + 16 + 1 + 1 + 3 = 23 (matches gen script output).
 int MidMpcAcadosFormulation::nh() const noexcept {
   const int32_t Nt = cfg_.max_targets;
-  return static_cast<int>(2 + Nt + 1 + 1 + 3);
+  return static_cast<int>(2 + Nt + 1 + 1);  // prefix(2) + CPA(Nt) + dir + min_alt (P4: terminal C10/C11 abolished)
 }
 
 casadi::MX MidMpcAcadosFormulation::gslot_(int32_t i) const {
@@ -327,12 +327,6 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
   const casadi::MX l_k = (px - ox) * nx + (py - oy) * ny;
   rows.push_back(pref_dir * l_k);                         // direction
   rows.push_back(pref_dir * (psi - own_psi) - min_alt_par);  // min_alt
-  // Terminal 3 rows (evaluated at current stage; codegen masks non-terminal).
-  const casadi::MX l_min = casadi::DM(kTerminalLMinFeasibleM);
-  const casadi::MX l_max = casadi::DM(kTerminalLMaxFeasibleM);
-  rows.push_back(pref_dir * l_k - l_min);   // g_term_side
-  rows.push_back(l_k + l_max);              // g_term_lo
-  rows.push_back(l_max - l_k);              // g_term_hi
   return casadi::MX::vertcat(rows);
 }
 

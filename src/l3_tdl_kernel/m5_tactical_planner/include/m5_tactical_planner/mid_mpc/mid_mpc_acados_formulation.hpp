@@ -237,7 +237,7 @@ class MidMpcAcadosFormulation {
   const std::string& solver_name() const noexcept { return solver_name_; }
   int nx() const noexcept;            // 5 (Path B)
   int nu() const noexcept;            // 2 (delta, n)
-  int nh() const noexcept;            // h rows: prefix(2) + CPA(Nt) + dir + min_alt + terminal(3)
+  int nh() const noexcept;            // h rows: prefix(2) + CPA(Nt) + dir + min_alt (P4: abolished terminal C10/C11)
   int np_global() const noexcept;     // 106
   int np_per_stage() const noexcept;  // 3 + 2*Nt + 2 tb (37 at default Nt=16)
   int n_horizon() const noexcept { return cfg_.n_horizon; }
@@ -307,8 +307,8 @@ class MidMpcAcadosFormulation {
   [[nodiscard]] casadi::MX target_x_at_k_slot_(int32_t t) const;  // p_stage[3+t]
   [[nodiscard]] casadi::MX target_y_at_k_slot_(int32_t t) const;  // p_stage[3+Nt+t]
   // Per-stage t_b closest-point slots (VR-07b T3). The route COST reads these
-  // as the lateral-deviation origin; the route CONSTRAINT (build_con_h_) keeps
-  // the GLOBAL route origin (C10/C11 terminal constraints deferred to P4).
+  // as the lateral-deviation origin. P4: C10/C11 terminal constraints abolished
+  // (long horizon 1200s ensures convergence without terminal set).
   [[nodiscard]] casadi::MX tb_x_at_k_slot_() const;  // p_stage[35] = tb_x
   [[nodiscard]] casadi::MX tb_y_at_k_slot_() const;  // p_stage[36] = tb_y
   // Global param slot helper (scalar p_global[i]).
