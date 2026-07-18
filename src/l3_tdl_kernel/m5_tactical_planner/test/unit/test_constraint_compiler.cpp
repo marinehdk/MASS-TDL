@@ -75,7 +75,8 @@ mass_l3::m5::Polygon2D nonconvex_l_shape() {
 
 // ===========================================================================
 // Test 1: Rule14_HeadOn_ConstraintPresent
-// Compile Rule 14 constraint → names contain "rule_14_starboard_turn"
+// P5 T4: Rule 14 now emits only an audit marker (formulation-layer
+// direction/min_alt provide the actual constraint).
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule14_HeadOn_ConstraintPresent) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -87,13 +88,15 @@ TEST(ConstraintCompilerTest, Rule14_HeadOn_ConstraintPresent) {
   inputs.applicable_rules = {14u};
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
-  EXPECT_TRUE(has_name(result.names, "rule_14_starboard_turn"))
-      << "Rule 14 must produce a constraint named 'rule_14_starboard_turn'";
+  // P5 T4: the compiler emits only an audit marker.
+  EXPECT_TRUE(has_name(result.names, "rule_14_side_via_formulation_direction"))
+      << "Rule 14 must produce an audit marker named "
+      << "'rule_14_side_via_formulation_direction'";
 }
 
 // ===========================================================================
 // Test 1b: Rule14_HeadOn_NumericCorrectness
-// Evaluate Rule 14 constraint at psi[N-1] = psi_0 + 10° → constraint g >= 0.
+// P5 T4: Rule 14 audit marker is g=0 (trivially satisfied).
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule14_HeadOn_NumericCorrectness) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -109,26 +112,27 @@ TEST(ConstraintCompilerTest, Rule14_HeadOn_NumericCorrectness) {
   casadi::Function f("f", std::vector<casadi::MX>{psi_sym, u_sym},
                          std::vector<casadi::MX>{compiled.g});
 
-  // psi[3] = psi_0 + 10deg satisfies Rule 14 (min turn is 5deg)
+  // The audit marker is g=0, always satisfied.
   casadi::DM psi_val = casadi::DM::zeros(N, 1);
-  psi_val(3)         = in.own_ship_psi_rad + 10.0 * M_PI / 180.0;
   casadi::DM u_val   = casadi::DM::ones(N, 1) * 5.0;
 
   const std::vector<casadi::DM> g_out =
       f(std::vector<casadi::DM>{psi_val, u_val});
 
+  // Verify the marker exists and evaluates to 0.
   const auto it = std::find(compiled.names.begin(), compiled.names.end(),
-                            "rule_14_starboard_turn");
+                            "rule_14_side_via_formulation_direction");
   ASSERT_NE(it, compiled.names.end());
   const int64_t idx = std::distance(compiled.names.begin(), it);
-  EXPECT_GE(static_cast<double>(g_out[0](idx)), 0.0)
-      << "Rule 14: psi[N-1] = psi_0 + 10deg must satisfy constraint (g >= 0)";
+  EXPECT_NEAR(static_cast<double>(g_out[0](idx)), 0.0, 1e-15)
+      << "Rule 14 audit marker must evaluate to 0 (trivially satisfied). "
+      << "The formulation-layer direction/min_alt provide the actual constraint.";
 }
 
 // ===========================================================================
 // Test 2: Rule15_Crossing_GiveWayStarboard
-// Compile Rule 15 constraint → produces N constraints (one per step), not 1.
-// After fix: Rule 15 constrains psi[k] >= psi_0 + 5° for ALL k in [0..N-1].
+// P5 T4: Rule 15 emits only an audit marker (formulation-layer provides the
+// actual starboard-turn constraint via direction/min_alt).
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule15_Crossing_GiveWayStarboard) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -140,23 +144,23 @@ TEST(ConstraintCompilerTest, Rule15_Crossing_GiveWayStarboard) {
   inputs.applicable_rules = {15u};
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
-  // Rule 15 must produce N per-step constraints named "rule_15_starboard_turn[k]"
+  // P5 T4: single audit marker, NOT N per-step constraints.
   const int32_t rule15_count = static_cast<int32_t>(
       std::count_if(result.names.begin(), result.names.end(),
                     [](const std::string& n) {
-                      return n.find("rule_15_starboard_turn") != std::string::npos;
+                      return n.find("rule_15_side_via") != std::string::npos;
                     }));
-  EXPECT_EQ(rule15_count, N)
-      << "Rule 15 (crossing) must produce N per-step constraints, not 1";
-  EXPECT_TRUE(has_name(result.names, "rule_15_starboard_turn[0]"))
-      << "Rule 15 must produce a constraint named 'rule_15_starboard_turn[0]'";
-  EXPECT_TRUE(has_name(result.names, "rule_15_starboard_turn[4]"))
-      << "Rule 15 must produce a constraint named 'rule_15_starboard_turn[4]'";
+  EXPECT_EQ(rule15_count, 1)
+      << "Rule 15 (crossing) must produce 1 audit marker (formulation-layer "
+      << "direction/min_alt provide the actual per-step constraints)";
+  EXPECT_TRUE(has_name(result.names, "rule_15_side_via_formulation_direction"))
+      << "Rule 15 must produce an audit marker named "
+      << "'rule_15_side_via_formulation_direction'";
 }
 
 // ===========================================================================
 // Test 3: Rule16_GiveWay_SubstantialAction
-// Compile Rule 16 → names contain "rule_16_substantial_action"
+// P5 T4: Rule 16 emits only an audit marker.
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule16_GiveWay_SubstantialAction) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -168,13 +172,14 @@ TEST(ConstraintCompilerTest, Rule16_GiveWay_SubstantialAction) {
   inputs.applicable_rules = {16u};
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
-  EXPECT_TRUE(has_name(result.names, "rule_16_substantial_action"))
-      << "Rule 16 must produce a constraint named 'rule_16_substantial_action'";
+  EXPECT_TRUE(has_name(result.names, "rule_16_side_via_formulation_direction"))
+      << "Rule 16 must produce an audit marker named "
+      << "'rule_16_side_via_formulation_direction'";
 }
 
 // ===========================================================================
 // Test 4: Rule17_StandOn_SmallMotionBound
-// Compile Rule 17 → names contain "rule_17_stand_on_bound" (any step)
+// P5 T4: Rule 17 emits only an audit marker.
 // ===========================================================================
 TEST(ConstraintCompilerTest, Rule17_StandOn_SmallMotionBound) {
   mass_l3::m5::shared::ConstraintCompiler cc;
@@ -186,16 +191,9 @@ TEST(ConstraintCompilerTest, Rule17_StandOn_SmallMotionBound) {
   inputs.applicable_rules = {17u};
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
-  EXPECT_TRUE(has_name_containing(result.names, "rule_17_stand_on_bound"))
-      << "Rule 17 must produce constraints containing 'rule_17_stand_on_bound'";
-  // 2*N constraints (upper + lower per step)
-  const int32_t rule17_count = static_cast<int32_t>(
-      std::count_if(result.names.begin(), result.names.end(),
-                    [](const std::string& n) {
-                      return n.find("rule_17_stand_on_bound") != std::string::npos;
-                    }));
-  EXPECT_EQ(rule17_count, 2 * N)
-      << "Rule 17 must produce 2*N stand-on constraints";
+  EXPECT_TRUE(has_name(result.names, "rule_17_side_via_formulation_direction"))
+      << "Rule 17 must produce an audit marker named "
+      << "'rule_17_side_via_formulation_direction'";
 }
 
 // ===========================================================================
@@ -312,9 +310,9 @@ TEST(ConstraintCompilerTest, CompoundConstraints_Stacked) {
 
   const auto result = cc.compile(psi, u, inputs, 1.0, 0.1);
 
-  // Expected: 2N heading + 2N speed + (N-1) rot + 1 rule14 + N rule15
-  // (Rule 15 after fix produces N per-step constraints, Rule 14 produces 1)
-  const int32_t expected = 2 * N + 2 * N + (N - 1) + 1 + N;
+  // P5 T4: Rules 14 and 15 each produce 1 audit marker (2 total for both rules).
+  // Expected: 2N heading + 2N speed + (N-1) rot + 2 audit markers
+  const int32_t expected = 2 * N + 2 * N + (N - 1) + 2;
   EXPECT_EQ(static_cast<int32_t>(result.names.size()), expected)
       << "Stacked constraints must equal the sum of individual counts";
   EXPECT_EQ(static_cast<int32_t>(result.g.size1()), expected)

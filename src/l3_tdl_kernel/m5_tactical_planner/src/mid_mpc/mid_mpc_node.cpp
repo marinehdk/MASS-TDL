@@ -396,8 +396,6 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   // AcadosFormulation must outlive the solver; stored as a member below.
   acados_formulation_ = std::move(acados_form);
   solver_.set_acados_solver(std::move(acados_slv));
-#else
-  (void)acados_formulation_;  // unused when acados is OFF
 #endif
 
   nominal_speed_kn_ = declare_parameter<double>("m5.nominal_speed_kn", 10.0);

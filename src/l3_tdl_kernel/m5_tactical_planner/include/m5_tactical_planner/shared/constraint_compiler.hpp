@@ -128,29 +128,12 @@ class ConstraintCompiler {
       double dt_s,
       double rot_max_rad_s) const;
 
-  // Rule 14 (Head-on): give-way shall alter course to starboard.
-  // [TBD-HAZID] min turn angle 5°: calibrate from encounter simulation data.
-  [[nodiscard]] CompiledConstraints compile_rule14(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 15 (Crossing): give-way shall pass astern; turn starboard.
-  // [TBD-HAZID] min turn angle 5°: calibrate from encounter simulation data.
-  [[nodiscard]] CompiledConstraints compile_rule15(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 16 (Give-way action): take early substantial action.
-  // [TBD-HAZID] 10° within first N/2 steps: calibrate from encounter data.
-  [[nodiscard]] CompiledConstraints compile_rule16(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 17 (Stand-on): maintain course and speed.
-  // [TBD-HAZID] epsilon 5°: calibrate per ODD / sea state.
-  [[nodiscard]] CompiledConstraints compile_rule17(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
+  // COREGs rules 14-17 handling — REMOVED in P5 T4 (VR-04).
+  // The M6 geometry rows (direction + min_alt) are now provided by the
+  // FORMULATION layer (Slice D1) for both acados and IPOPT paths.
+  // The compiler-level hardcoded degree offsets (5°/5°/10°/5°) were
+  // redundant and could conflict with the formulation-layer geometry.
+  // Each rule now emits only an audit marker in compile_colregs_rules.
 
   // Per-zone, per-step accumulation helper (extracted to honour 60-line limit).
   [[nodiscard]] CompiledConstraints build_zone_steps(
