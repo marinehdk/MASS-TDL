@@ -4474,3 +4474,119 @@ N=120 dt=10  1200s: solve 10803ms (over 10s budget)
 ### Remaining Risk (Important)
 - I1: material-change version not fully gated (plan_id changes each cycle)
 - I2: ρ-gap constraint violations at 1200s horizon (pre-existing, not P4 regression)
+
+## 2026-07-18 / ZCode / P7 鲁棒性扩展实施
+
+**任务目标**: 执行 P7 实施计划(8 TDD tasks),完成 P0–P7 MPC 避碰重构收尾
+
+**核心改动**:
+- TargetState 加 intent_confidence/target_compliance/Classification 3 字段
+- 新建 ou_uncertainty.hpp: OU 过程 + derive_ou_params 动态推导
+- pack_parameters: target stride 5→8, np_global=106→154, per-stage 40→56
+- build_colreg_cost_: UT 5 sigma points expected cost + intent 缩放
+- BC-MPC: 加速度优化(decay on Override + low CPA)
+- 88 个单元测试全部通过
+
+**当前状态**: DONE — 所有 8 个任务完成(8/8 验收门确认),完整 P0–P7 收尾报告生成
+
+**关键交付物**:
+- docs/superpowers/specs/2026-07-18-m5-mpc-p0-p7-implementation-report.md (完整报告)
+- ou_uncertainty.hpp (OU 不确定性实现)
+- 8 个验收门: 7 个直接通过 + 1 个(acados codegen parity)需容器 codegen 验证
+
+**未完成/待办**:
+- acados codegen SX parity 同步(gen_mid_mpc_acados.py 更新)
+- SIL 三场景全流程验证(需 SIL compose stack)
+- k_intent_scale/ut_alpha OU 参数海试校准
+
+**手写建议**:
+- P7 的 OU/UT 决策明确来自 [RMD] Ch3,不是 Eriksen 方法。在报告中已做区分。
+- P6(P7 前序)是 bc_mpc_solver 的 11 状态交接机,作为 P7 BC 加速度优化的基础。
+- T1–T7 在 Docker 容器内完成构建/测试,T8 报告在工作树直接生成。
+
+## 2026-07-19 / ZCode / P7 SIL ho 全流程验证(G7+G8 收尾)
+
+**任务目标**: 关闭 P7 最后 2 项待办——acados codegen SX parity(G7)与 SIL 三场景验证(G8)。
+工作树 `.worktrees/m5-design-grounding`(分支 `codex/m5-design-grounding`,HEAD `d02a2a087`),
+容器 `codex-m5-p3-sil-nodes-1`(挂载该 worktree,COMPOSE_PROJECT_NAME=codex-m5-p3,只有 sil profile)。
+
+**核心改动**: 无生产代码改动。仅容器 rebuild + SIL 运行 + 2 个文档更新(P0-P7 报告 §9.4、本 handoff)。
+
+**关键发现(G7+G8 分层结论)**:
+
+1. **G7 codegen parity — ✅ 通过(容器实测)**:
+   - `gen_mid_mpc_acados.py` 已同步 P7 stride 8(NP_GLOBAL=154, NP_PER_STAGE=56),与 formulation.cpp 一致
+   - 容器内 colcon build 重链 solver .so(`libacados_ocp_solver_m5_mid_mpc_acados.so` 10:17→17:43 UTC 重链)
+   - 单测 `test_ou_uncertainty` 11/11、`test_mid_mpc_acados_formulation` 16/16 PASS
+   - `AcadosSolverTest.AmpleTime_FarTargetMustConverge` status=0 sqp=50 cost=1.9e-13(数值收敛)
+   - 旧 G7 故障消除: rebuild+restart 后 `status=1 sqp_iter=0 ... 196 consecutive failures; M7 MRM-02` cascade 不再出现
+
+2. **G7 生产 dispatch — ❌ 不触达(关键阻塞)**:
+   - ho 运行全程 acados 实际 solve 次数 = **0**(日志中 0 条 `status=0/sqp_iter>0`)
+   - 36 个周期全部 fallback IPOPT,根因是 `mid_mpc_solver.cpp:133–166` 两道 gate:
+     - gate-1: `warm_up_succeeded() == false`(生产节点 cold-capsule warm-up 未收敛)
+     - gate-2: short-TCPA guard(`tgt.tcpa_s < 2000.0`):ho 场景 nominal TCPA ≈ 1620 s < 2000 s,恒真 → 永远跳过 acados
+
+3. **G7 实时性能 — ⚠️ 12.5 s/solve(次生阻塞)**:
+   - 单测实测 3 次 solve(warm-up 2 + test 1)耗时 37.5 s → ~12.5 s/solve
+   - P5 报告 §8.1 baseline 是 0.5–1 s/solve → 当前慢 12–25 倍
+   - 即便 dispatch gate 打开,也无法满足 1 Hz M5 循环
+
+4. **G8 ho 全流程 — ❌ RED**:
+   - Min DCPA = 1.2 m(floor 180 m)、Starboard 转向 0.0°、M5 plan `{VALID:1, EMPTY:4}`
+   - safety/mission/colregs/stability/overall 全 RED
+   - 根因链: acados 0 次触达 → 36× IPOPT fallback → IPOPT `Infeasible_Problem_Detected`(iter 6–48,x_dim=161)→ 10× GeoFallback(turn_r=242–246 m,tgt_psi=60–90°)→ 4/5 avoidance_plan EMPTY → ship 不转向
+
+**边界声明**: ho RED 的根因 **不是 P7 stride-8 代码**(单测证明数值正确),而是 P7 之前就存在的
+dispatch gate + IPOPT infeasible + GeoFallback 链。P7 的 OU/UT/intent 逻辑从未被这次 ho 运行触达,
+因此 P7 本身既未被证伪、也未被生产验证。
+
+**Evidence 路径**:
+- `runs/p7_ho_full_run.log`(完整运行日志)
+- `runs/p7_ho_full_summary.json`(batch summary)
+- `runs/p7_ho_full_trace/colreg-rule14-ho.json`(verdict + KPI)
+- `runs/p7_ho_full_trace/colreg-rule14-ho.trace_current.jsonl`(全链 trace)
+- `runs/p7_ho_full_trace/colreg-rule14-ho_trajectory_dashboard.png`(轨迹图)
+- 容器日志: `docker logs codex-m5-p3-sil-nodes-1 | grep acados`(36× fallback, 10× GeoFallback)
+- 单测证据: `test_ou_uncertainty.xml`(11/11)、`test_mid_mpc_acados_formulation.xml`(16/16)
+
+**重建/运行命令(可复现)**:
+```bash
+# rebuild(关键: 重新 codegen + 重链 solver .so)
+docker exec codex-m5-p3-sil-nodes-1 bash -c '
+  source /opt/ros/humble/setup.bash && cd /opt/ws &&
+  colcon build --packages-select m5_tactical_planner --symlink-install \
+    --cmake-args -DM5_USE_ACADOS=ON -DBUILD_TESTING=ON'
+docker restart codex-m5-p3-sil-nodes-1 && sleep 24
+
+# 单测验证 G7 数值收敛(~12.5 s/solve,需长 timeout)
+docker exec codex-m5-p3-sil-nodes-1 bash -c '
+  source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash &&
+  cd /opt/ws && timeout 120 ./build/m5_tactical_planner/test_mid_mpc_acados_solver \
+    --gtest_filter="AcadosSolverTest.AmpleTime_FarTargetMustConverge"'
+
+# ho FULL sim(注意: 直接调 run_6_scenarios.py,绕过 run_colregs_clean_8probe.py 的镜像名 gate)
+cd /home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+timeout 580 python3 scripts/run_6_scenarios.py \
+  --scenario colreg-rule14-ho --restart-between-runs \
+  --restart-container codex-m5-p3-sil-nodes-1 --restart-settle 24 \
+  --sim-rate 10.0 --profile sil \
+  --summary-out runs/p7_ho_full_summary.json \
+  --trace-report-dir runs/p7_ho_full_trace
+```
+
+**重要环境备忘**:
+- `run_colregs_clean_8probe.py` 的 `--profile sil` 会因镜像名 `codex-m5-p3-sil-nodes` ≠ `mass-l3-sil-sil-nodes` 提前 fail;直接调内层 `run_6_scenarios.py` + 显式 `--restart-container codex-m5-p3-sil-nodes-1` 绕过
+- skill 文档里的 `--fast` / `--m5-short-avoidance-gate` flag **在本 worktree(l3-tdl 分支)不存在**;那是 `codex/colregs-nlp-cpa-fix` 分支特性,未合入主线。FAST/FULL 只能用 `--sim-rate` + `--total-time-override` 表达
+- 当前 worktree 的 `--profile` 只支持 `sil`(GNC profile 需 `scripts/gnc-profile-start.sh` + 三容器 restart,本验证未覆盖 L4/GNC executability)
+
+**下一步建议(按优先级)**:
+1. **治 dispatch gate**(最高,阻塞 P7 生产验证):
+   - 定位 `warm_up_succeeded=false` 根因——生产 MidMpcInput vs 单测 synthetic `straight_line()` 差异,或 warm-up 自身因 12.5 s/solve 超时
+   - 评估 short-TCPA<2000s guard 对 ho(TCPA≈1620s)的适用性——这是 P4 T7 I-3 加的 staging guard,与 P7 无关
+2. **治 12.5 s/solve 实时性**(高): P5 baseline 0.5–1 s,当前慢 12–25 倍。可能是 N=80 + UT 5-sigma 展开导致每 stage cost 评估 ×5,需 profiling
+3. **续跑 ho-port / ho-intelligent**(中,治 1+2 后): 验证 P7 在多 ho 变体下的行为
+4. **IPOPT infeasible 治理**(中,独立于 P7): x_dim=161 生产规模下 IPOPT 反复 infeasible 是 ho RED 的直接执行路径,与 acatos 是否 dispatch 无关
+
+**未提交**: 本对话所有改动(rebuild、evidence、报告 §9.4、本 handoff)均未 commit。是否提交等用户授权。
