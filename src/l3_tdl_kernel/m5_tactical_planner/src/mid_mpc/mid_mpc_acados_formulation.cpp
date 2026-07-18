@@ -129,8 +129,10 @@ int MidMpcAcadosFormulation::np_global() const noexcept {
 }
 int MidMpcAcadosFormulation::np_per_stage() const noexcept {
   // 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y) + 2 (tb_x/tb_y
-  // per-stage t_b closest-point, VR-07b T3). 37 at Nt=16.
-  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets + 2;
+  // per-stage t_b closest-point, VR-07b T3) + 2 (psi_prev/u_prev, P5 T2)
+  // + 1 (w_trans_active, P5 T2). 40 at Nt=16.
+  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets + 2  // tb
+         + 3;  // P5 T2: psi_prev, u_prev, w_trans_active
 }
 
 // nh: single-stage constraint row count (the acatos con_h_expr is a per-stage
@@ -188,6 +190,17 @@ casadi::MX MidMpcAcadosFormulation::tb_x_at_k_slot_() const {
 
 casadi::MX MidMpcAcadosFormulation::tb_y_at_k_slot_() const {
   return p_stage_(casadi::Slice(kAcadosPerStageTbYOff, kAcadosPerStageTbYOff + 1));
+}
+
+// P5 T2: per-stage transition cost slots (last cycle psi/u for J_transition).
+casadi::MX MidMpcAcadosFormulation::psi_prev_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStagePsiPrevOff,
+                                kAcadosPerStagePsiPrevOff + 1));
+}
+
+casadi::MX MidMpcAcadosFormulation::u_prev_at_k_slot_() const {
+  return p_stage_(casadi::Slice(kAcadosPerStageUPrevOff,
+                                kAcadosPerStageUPrevOff + 1));
 }
 
 // Precise Huber loss on MX (VR-07b T3). Mirrors shared/huber_cost.hpp (the T2
@@ -459,7 +472,33 @@ casadi::MX MidMpcAcadosFormulation::build_terminal_cost_() const {
 }
 
 // ===========================================================================
-// build_symbolic_graph() — assemble the MX symbols + disc_dyn + h + 6 costs.
+// build_transition_cost_() — P5 T2: J_transition = w_trans_active * w_trans *
+// (K_Δχ·(ψ-ψ_prev)² + K_ΔU·|u-u_prev|). Eriksen mixed-norm anti-chattering
+// (layer 2). ψ_prev and u_prev are per-stage parameters read from
+// psi_prev_at_k / u_prev_at_k (set by the solver pack from
+// last_converged_solution_). w_trans_active is a per-stage flag (1.0 when
+// a cached solution exists, 0.0 for the first cycle) that disables the
+// transition cost when there is no previous solution to compare against.
+// ===========================================================================
+casadi::MX MidMpcAcadosFormulation::build_transition_cost_() const {
+  const casadi::MX psi = x_(2);       // current heading
+  const casadi::MX u_surge = x_(4);   // current surge speed
+  const casadi::MX psi_prev = psi_prev_at_k_slot_();  // last cycle psi at this stage
+  const casadi::MX u_prev = u_prev_at_k_slot_();      // last cycle u at this stage
+  // w_trans_active: 1.0 when previous solution exists, 0.0 for first cycle.
+  // This ensures J_transition = 0 when there is no prior trajectory to compare.
+  const casadi::MX active = p_stage_(casadi::Slice(
+      kAcadosPerStageWTransActiveOff, kAcadosPerStageWTransActiveOff + 1));
+  // Eriksen tran_χ (L2) + tran_U (L1)
+  const casadi::MX dpsi = psi - psi_prev;
+  const casadi::MX du = u_surge - u_prev;
+  const casadi::MX tran_chi = cfg_.k_dchi * dpsi * dpsi;                 // L2 heading
+  const casadi::MX tran_u   = cfg_.k_du * casadi::MX::abs(du);          // L1 speed
+  return active * cfg_.w_trans * (tran_chi + tran_u);
+}
+
+// ===========================================================================
+// build_symbolic_graph() — assemble the MX symbols + disc_dyn + h + 7 costs.
 // Idempotent. The codegen script (gen_mid_mpc_acados.py) re-derives the SAME
 // expressions in SX for acatos_template; this .cpp MX graph is the C++
 // dimension/param contract + pack-logic home.
@@ -468,7 +507,7 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
   x_ = casadi::MX::sym("x", nx(), 1);               // [px,py,psi,r,u_surge]
   u_ = casadi::MX::sym("u", nu(), 1);               // [delta,n]
   p_global_ = casadi::MX::sym("p_global", np_global(), 1);      // 106
-  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 37 (F2/F4 + T3 tb)
+  p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 39 (F2/F4 + T3 tb + P5 T2)
   disc_dyn_expr_ = build_disc_dyn_();
   con_h_expr_    = build_con_h_();
   J_colreg_   = build_colreg_cost_();
@@ -477,6 +516,7 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
   J_vel_      = build_vel_cost_();
   J_asym_     = build_asym_cost_();
   J_terminal_ = build_terminal_cost_();
+  J_transition_ = build_transition_cost_();
 }
 
 // ===========================================================================

@@ -151,6 +151,11 @@ TERMINAL_L_MIN_M = 30.0
 TERMINAL_L_MAX_M = 400.0
 LATERAL_SCALE_M = 400.0  # GncExecutionOdd.max_lateral_offset_m
 
+# ---- P5 T2 transition cost (Eriksen mixed-norm, anti-chattering). ----
+W_TRANS = 1.0       # w_trans: global transition weight (relative to collision ~40)
+K_DCHI = 2.5        # K_Δχ: heading-change penalty (L2, Eriksen tran_χ)
+K_DU = 0.3          # K_ΔU: speed-change penalty (L1, Eriksen tran_U)
+
 # ---- P3 per-target slack penalty (T7/T9 mixed L1/L2 exact-penalty). ----
 # Zl = quadratic regularizer, zl = LARGE linear -> L1 exact-penalty (xi=0 when
 # CPA feasible). Length Nt (one per softened CPA row).
@@ -196,7 +201,11 @@ PS_TGT_DRIFT_OFF = 3                   # target_x_at_k[0] starts here
 # VR-07b T3/T5: per-stage t_b slots appended at the END (non-disruptive).
 PS_TB_X_OFF = PS_TGT_DRIFT_OFF + 2 * NT   # 3 + 32 = 35 (mirror kAcadosPerStageTbXOff)
 PS_TB_Y_OFF = PS_TB_X_OFF + 1             # 36 (mirror kAcadosPerStageTbYOff)
-NP_PER_STAGE = PS_TB_Y_OFF + 1            # 3 + 32 + 2 = 37 (mirror kAcadosNpPerStageDefault)
+# P5 T2: transition cost per-stage slots (last cycle psi/u for J_transition).
+PS_PSI_PREV_OFF = PS_TB_Y_OFF + 1         # 37 (mirror kAcadosPerStagePsiPrevOff)
+PS_U_PREV_OFF = PS_PSI_PREV_OFF + 1       # 38 (mirror kAcadosPerStageUPrevOff)
+PS_W_TRANS_ACTIVE_OFF = PS_U_PREV_OFF + 1 # 39 (mirror kAcadosPerStageWTransActiveOff)
+NP_PER_STAGE = PS_W_TRANS_ACTIVE_OFF + 1  # 3 + 32 + 2 + 2 + 1 = 40 (mirror kAcadosNpPerStageDefault)
 
 # Global head-scalar indices (IDENTICAL to IPOPT kIdx 0-25 + .cpp kGIdx*).
 # Slots 0-3 (own psi/u/x/y) are RESERVED x0 seeds (F3): the solver writes them
@@ -271,6 +280,17 @@ def build_model() -> AcadosModel:
 
     def tb_y_at_k():
         return p_stage[PS_TB_Y_OFF]
+
+    # P5 T2: transition cost per-stage slots (last cycle psi/u for J_transition).
+    def psi_prev_at_k():
+        return p_stage[PS_PSI_PREV_OFF]
+
+    def u_prev_at_k():
+        return p_stage[PS_U_PREV_OFF]
+
+    # P5 T2: transition cost active flag (1.0 when prev solution exists, 0 for first cycle).
+    def w_trans_active_at_k():
+        return p_stage[PS_W_TRANS_ACTIVE_OFF]
 
     # ---- Path B discrete dynamics (explicit Euler; surge as STATE). T15 F1:
     #      surge accel MASS-NORMALIZED by m_sge via baked effective coeffs. ----
@@ -360,8 +380,18 @@ def build_model() -> AcadosModel:
     z_asym = (bearing - psi) / ASYM_TAU
     cost_asym = give_way * K_ASYM * ASYM_TAU * ca.log(1.0 + ca.exp(z_asym))
 
+    # P5 T2: transition cost (Eriksen mixed-norm, anti-chattering layer 2).
+    # J_transition = w_trans_active * w_trans * (K_Δχ·(ψ-ψ_prev)² + K_ΔU·|u-u_prev|).
+    # w_trans_active is 0 for first cycle (no prior trajectory), 1 for subsequent.
+    dpsi_trans = psi - psi_prev_at_k()
+    du_trans = u_surge - u_prev_at_k()
+    cost_transition = (w_trans_active_at_k() * W_TRANS *
+                       (K_DCHI * dpsi_trans * dpsi_trans +
+                        K_DU * ca.fabs(du_trans)))
+
     j_stage = (W_COLREG * cost_colreg + W_DIST * cost_dist +
-               W_ROUTE * cost_route + W_VEL * cost_vel + cost_asym)
+               W_ROUTE * cost_route + W_VEL * cost_vel + cost_asym +
+               cost_transition)
     model.cost_expr_ext_cost = j_stage
     model.cost_expr_ext_cost_0 = j_stage   # stage 0 identical (no initial cost)
 

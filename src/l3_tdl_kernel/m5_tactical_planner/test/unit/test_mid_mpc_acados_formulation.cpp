@@ -55,20 +55,21 @@ TEST_F(AcadosFormulationTest, StateControlDims_MatchPathB) {
   EXPECT_EQ(form_.nu(), 2);  // [delta,n]
 }
 
-// Parameter partition (T15 F2/F4 + P2 T3 documented deviation from IPOPT flat
-// 142):
+// Parameter partition (T15 F2/F4 + P2 T3 + P5 T2 documented deviation from IPOPT
+// flat 142):
 //   global     = 106 (26 IPOPT head scalars + 16x5 target block — the
 //              stage-uniform portion, 142-compatible for the global half).
-//   per-stage  = 37  (prefix psi/u scalars + pact_pre + per-stage target
-//              drift x/y + tb_x/tb_y per-stage closest-point). acatos
+//   per-stage  = 40  (prefix psi/u scalars + pact_pre + per-stage target
+//              drift x/y + tb_x/tb_y per-stage closest-point
+//              + psi_prev/u_prev + w_trans_active (P5 T2)). acatos
 //              precomputes per-stage drift (F4), the prefix-equality activation
-//              factor (F2), and the per-stage t_b closest point (VR-07b T3)
-//              because the single-stage graph cannot index stage k; IPOPT folds
-//              these into its flat 142-vector + per-row bounds. GLOBAL stays
-//              106; per-stage expands.
+//              factor (F2), the per-stage t_b closest point (VR-07b T3), and
+//              per-stage transition cost params (P5 T2) because the single-stage
+//              graph cannot index stage k; IPOPT folds these into its flat
+//              142-vector + per-row bounds. GLOBAL stays 106; per-stage expands.
 TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   EXPECT_EQ(form_.np_global(), 106);     // 26 head + 80 target (IPOPT-compatible)
-  EXPECT_EQ(form_.np_per_stage(), 37);   // 3 + 2*Nt + 2 tb (prefix+act+drift+tb)
+  EXPECT_EQ(form_.np_per_stage(), 40);   // prefix+act+drift+tb+transition
   MidMpcInput in{};
   std::pair<std::vector<double>, std::vector<std::vector<double>>> r;
   EXPECT_NO_THROW({ r = form_.pack_parameters(in); });
@@ -78,8 +79,8 @@ TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   EXPECT_EQ(static_cast<int>(g.size()), 106);
   // Every per-stage vector has the SAME length (stage-uniform param layout).
   for (const auto& s : ps) {
-    EXPECT_EQ(static_cast<int>(s.size()), 37)
-        << "per-stage param vectors must be stage-uniform length 37";
+    EXPECT_EQ(static_cast<int>(s.size()), 40)
+        << "per-stage param vectors must be stage-uniform length 40";
   }
   // N+1 rows (stages 0..N), terminal stage repeats stage N-1.
   EXPECT_EQ(static_cast<int>(ps.size()), form_.n_horizon() + 1);
@@ -143,21 +144,21 @@ TEST_F(AcadosFormulationTest, PackParameters_NoThrow) {
 // disc_dyn_expr(x, u, p) must be a 5-vector. This is the symbol-graph evidence
 // that the surge state + rudder/rpm control channel is wired. nh matches the
 // gen script (gen_mid_mpc_acados.py) row count: 2 prefix + Nt CPA + 1 direction
-// + 1 min_alt + 3 terminal = 2+16+1+1+3 = 23 at default Nt=16 (T15 F2 added the
-// 2 prefix rows).
+// + 1 min_alt = 2+16+1+1 = 20 at default Nt=16 (P4: terminal C10/C11 abolished).
+// np_per_stage = 3 + 2*Nt + 2 tb + 2 transition + 1 active = 40 (P5 T2).
 TEST_F(AcadosFormulationTest, DiscDynExpr_NonNullFiveRows) {
   EXPECT_FALSE(form_.disc_dyn_expr().is_null());
   EXPECT_EQ(form_.disc_dyn_expr().size1(), 5);   // Path B 5-dim dynamics
   EXPECT_FALSE(form_.con_h_expr().is_null());
-  EXPECT_EQ(form_.nh(), 23);                      // 2+16+1+1+3 (matches gen script)
+  EXPECT_EQ(form_.nh(), 20);                      // 2+16+1+1 (P4: abolished terminal C10/C11)
   EXPECT_EQ(form_.np_global(), 106);              // 26 head + 80 target block
-  EXPECT_EQ(form_.np_per_stage(), 37);            // 3 + 2*Nt + 2 tb (prefix+act+drift+tb)
+  EXPECT_EQ(form_.np_per_stage(), 40);            // 3+2*Nt+2 tb+2 transition+1 active
 }
 
-// Default horizon N: production default (horizon_s=90s / dt=5s -> N=18).
+// Default horizon N: production default (P4: horizon=1200s, dt=15s -> N=80).
 TEST_F(AcadosFormulationTest, DefaultHorizon_IsProductionDefault) {
-  EXPECT_EQ(MidMpcAcadosFormulation::kNDefault, 18);
-  EXPECT_NEAR(MidMpcAcadosFormulation::kDt, 5.0, 1e-9);
+  EXPECT_EQ(MidMpcAcadosFormulation::kNDefault, 80);
+  EXPECT_NEAR(MidMpcAcadosFormulation::kDt, 5.0, 1e-9);  // Compile-time default; runtime=15.0
 }
 
 // T15 F2: committed-route prefix lock. With prefix_active_k=K, the per-stage

@@ -54,9 +54,10 @@ namespace {
 constexpr int kAcadosNx  = M5_MID_MPC_ACADOS_NX;    // 5 ([px,py,psi,r,u_surge])
 constexpr int kAcadosNu  = M5_MID_MPC_ACADOS_NU;    // 2 ([delta,n])
 constexpr int kAcadosN   = M5_MID_MPC_ACADOS_N;     // 18 (production horizon)
-constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 143 (106 global + 37 per-stage,
-                                                    //      concatenated by codegen; 37 = 3 prefix
-                                                    //      + 2*16 target drift + 2 tb_x/tb_y, P2 VR-07b)
+constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 146 (106 global + 40 per-stage,
+	                                                    //      40 = 3 prefix + 2*16 target drift
+	                                                    //      + 2 tb_x/tb_y + 2 psi/u_prev
+	                                                    //      + 1 w_trans_active (P5 T2))
 constexpr int kAcadosNsh = M5_MID_MPC_ACADOS_NSH;   // 16 (per-target CPA slacks)
 constexpr int kAcadosNs  = M5_MID_MPC_ACADOS_NS;    // 16 (slacks per path stage)
 constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 20 (P4: abolished terminal C10/C11, was 23)
@@ -864,10 +865,54 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
       ps[kk][off_tx] = tb.tb_x[kk];
       ps[kk][off_ty] = tb.tb_y[kk];
     }
+	  }
+
+	  // ---- 1c. P5 T2: fill per-stage psi_prev/u_prev for transition cost. ----
+	  // Shift the last converged solution by one stage: stage k's psi_prev uses
+	  // the converged trajectory's stage k (shifted: stage k of current cycle
+	  // should compare against stage k of the PREVIOUS cycle, not k+1, because
+	  // both cycles start from the same own-ship position and the shift is in
+	  // the SEED, not in the transition comparison).
+	  //
+	  // When no cached solution exists (first cycle / cold start), psi_prev and
+	  // u_prev default to 0.0 which produces a small J_transition but does not
+	  // dominate the total cost. This is acceptable: the first cycle has no
+	  // prior solution to compare against.
+	  if (!impl_->last_converged_solution_.trajectory.empty() &&
+	      impl_->last_converged_solution_.trajectory.size() ==
+	          static_cast<std::size_t>(kAcadosN)) {
+	    for (int k = 0; k <= kAcadosN; ++k) {
+	      const std::size_t kk = static_cast<std::size_t>(k);
+	      if (k < kAcadosN) {
+	        // Stage k compares against converged trajectory[k] (same index).
+	        const auto& tp = impl_->last_converged_solution_.trajectory[kk];
+        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
+        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
+      } else {
+        // Terminal stage N: use the last trajectory point.
+        const auto& tp = impl_->last_converged_solution_.trajectory[
+            static_cast<std::size_t>(kAcadosN - 1)];
+        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
+        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
+      }
+      // Transition cost active: cached solution exists.
+      ps[kk][kAcadosPerStageWTransActiveOff] = 1.0;
+    }
+  } else {
+    // No cached solution (first cycle / cold start): use the seed_traj psi/u as
+    // psi_prev/u_prev so J_transition ≈ 0, with w_trans_active=0 to fully
+    // disable the transition cost. This prevents penalizing the first solve
+    // for deviating from the seed trajectory to avoid obstacles.
+    for (int k = 0; k <= kAcadosN; ++k) {
+      const std::size_t kk = static_cast<std::size_t>(k);
+      ps[kk][kAcadosPerStagePsiPrevOff] = seed_traj[kk].psi;
+      ps[kk][kAcadosPerStageUPrevOff]   = seed_traj[kk].u;
+      ps[kk][kAcadosPerStageWTransActiveOff] = 0.0;
+    }
   }
 
-  // ---- 2. write per-stage concatenated params (143 per stage). ----
-  // Concatenate global (106) + per-stage (37) = 143 (codegen's NP). The single-
+  // ---- 2. write per-stage concatenated params (146 per stage). ----
+  // Concatenate global (106) + per-stage (40) = 146 (codegen's NP). The single-
   // stage graph reads fixed offsets; the global portion is stage-uniform.
   std::vector<double> p_stage_vec(static_cast<std::size_t>(kAcadosNp), 0.0);
   for (int k = 0; k <= kAcadosN; ++k) {
