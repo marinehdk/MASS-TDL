@@ -50,6 +50,7 @@ set(MSG_FILES
   msg/SotifMetrics.msg
   msg/FsmState.msg
   msg/ThreatState.msg
+  msg/BcMpcHealth.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

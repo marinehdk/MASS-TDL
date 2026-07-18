@@ -18,6 +18,8 @@ enum class LifecycleState : std::uint8_t {
   DegradedHold = 6U,
   Released = 7U,
   BcMpcFollow = 8U,  // v2.2 §13.2: BC-MPC take-over, committed_route 跟随 BC-MPC
+  HandoverNeutral = 9U,  // P6: BC handing back to Mid-MPC transition — override still active
+  FinalDegrade = 10U,    // P6: BC failure dual-condition met — M5 silent, M7 MRM
 };
 
 // Phase 1.4 (spec v2.3 §15): stable name for ASDR decision_json. Pinned so
@@ -34,6 +36,8 @@ inline const char* lifecycle_state_name(LifecycleState s) noexcept {
     case LifecycleState::DegradedHold:       return "DegradedHold";
     case LifecycleState::Released:           return "Released";
     case LifecycleState::BcMpcFollow:        return "BcMpcFollow";
+    case LifecycleState::HandoverNeutral:     return "HandoverNeutral";
+    case LifecycleState::FinalDegrade:        return "FinalDegrade";
   }
   return "Unknown";
 }
@@ -86,7 +90,11 @@ struct CommittedAvoidanceRouteState {
 
 class CommittedAvoidanceRoute {
  public:
-  explicit CommittedAvoidanceRoute(double stale_route_max_age_s = 45.0);
+  explicit CommittedAvoidanceRoute(
+      double stale_route_max_age_s = 45.0,
+      std::uint32_t bc_final_degrade_threshold = 5U,
+      std::uint32_t mid_unrecovered_threshold = 3U,
+      double cpa_safe_m = 1852.0);
 
   [[nodiscard]] const CommittedAvoidanceRouteState& current() const;
   // Phase 2.2 (R1, spec v2.3 §13.5): solver_consecutive_failures is the
@@ -116,6 +124,16 @@ class CommittedAvoidanceRoute {
   // stale NLP corridor alive. Cleared on a successful revise (nlp_ok candidate).
   void mark_bc_mpc_takeover() { bc_mpc_takeover_requested_ = true; }
   [[nodiscard]] bool bc_mpc_takeover_requested() const { return bc_mpc_takeover_requested_; }
+
+  // P6: receive BC-MPC health metrics from mid_mpc_node (forwarded from /l3/m5/bc_mpc/health)
+  void notify_bc_mpc_health(std::uint32_t override_no_improve_count,
+                             double worst_case_cpa_m, bool override_active);
+  // P6: receive Mid-NLP converged status + BC predicted CPA for hysteresis evaluation
+  void notify_handover_inputs(bool mid_converged, double bc_predicted_cpa_m);
+  // P6: evaluate dual-condition FinalDegrade trigger (Condition A && Condition B)
+  [[nodiscard]] bool should_enter_final_degrade() const;
+  // P6: enter FinalDegrade state — irreversible, M5 silent, M7 MRM
+  void enter_final_degrade();
   // Phase 2.2 (R1, spec v2.3 §13.5): per-cycle solver-failure notification so
   // should_enter_degraded_hold can escalate on the SOLVER counter even when
   // the optimized try_revise path is never reached (plan.status=DEGRADED →
@@ -135,6 +153,10 @@ class CommittedAvoidanceRoute {
 
   CommittedAvoidanceRouteState current_;
   double stale_route_max_age_s_{45.0};
+  // P6: tunable thresholds for dual-condition FinalDegrade (spec §7.1)
+  std::uint32_t bc_final_degrade_threshold_{5U};
+  std::uint32_t mid_unrecovered_threshold_{3U};
+  double cpa_safe_m_{1852.0};
   std::uint32_t consecutive_nlp_failures_{0U};
   // Phase 2.2 (R1, spec v2.3 §13.5): cached from the latest try_revise call so
   // should_enter_degraded_hold (which has no caller-supplied solver counter)
@@ -147,6 +169,17 @@ class CommittedAvoidanceRoute {
   bool cpa_drift_trigger_{false};
   bool cpa_hard_trigger_{false};
   bool bc_mpc_takeover_requested_{false};  // v2.2 §13.1/§13.2
+
+  // P6 hysteresis: consecutive cycles with dual-condition met before handover
+  std::uint32_t handover_hysteresis_count_{0U};
+  static constexpr std::uint32_t kHandoverHysteresisThreshold = 2U;
+
+  // P6 FinalDegrade dual-condition tracking
+  std::uint32_t bc_override_no_improve_count_{0U};
+  double bc_last_worst_case_cpa_m_{1.0e9};
+  bool bc_health_received_{false};
+  std::uint32_t mid_unrecovered_count_{0U};
+  bool last_mid_converged_{true};
 };
 
 }  // namespace mass_l3::m5::committed_route

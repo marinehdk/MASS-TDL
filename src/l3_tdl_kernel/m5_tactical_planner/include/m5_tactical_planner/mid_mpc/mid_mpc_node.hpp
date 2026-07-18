@@ -15,9 +15,11 @@
 #include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
+#include "l3_msgs/msg/bc_mpc_health.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/own_ship_state.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -94,6 +96,8 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
+  // P6: SafetyConcernEvent for FINAL_DEGRADE — M7 is the consumer
+  rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr pub_safety_concern_;
   // v2.2 §13.1: publish consecutive_failures so BC-MPC (Phase E2) can take over
   // when the NLP solver is stuck. Best-effort QoS — BC-MPC treats a stale/missing
   // value as 0 (no take-over).
@@ -105,11 +109,18 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr  sub_route_;
   rclcpp::Subscription<l3_external_msgs::msg::SpeedProfile>::SharedPtr  sub_speed_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr                sub_scenario_loaded_;
+  // P6: BC-MPC health metrics — forwarded to committed_route for Condition A
+  rclcpp::Subscription<l3_msgs::msg::BcMpcHealth>::SharedPtr            sub_bc_health_;
   // W2: GNC execution-ODD contract (latched). M5 consumes the actual execution
   // limits to generate reachable avoidance geometry (W4) instead of hardcoding.
   rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_gnc_odd_;
   ship_interfaces::msg::GncExecutionOdd latest_gnc_odd_;
   mutable std::mutex gnc_odd_mutex_;
+
+  // P6: cached BC health (mutex-protected, written from health sub callback,
+  // read from on_solve_cycle_ main thread)
+  l3_msgs::msg::BcMpcHealth last_bc_health_;
+  std::mutex bc_health_mutex_;
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
 
@@ -135,6 +146,9 @@ class MidMpcNode : public rclcpp::Node {
   // than losing the route entirely.
   void publish_keep_last_(rclcpp::Time now, const std::string& reason);
   void publish_trajectory_candidates_(const MidMpcInput& input);
+
+  // P6: publish SafetyConcernEvent with CONCERN_BC_FINAL_DEGRADE on FinalDegrade
+  void publish_safety_concern_final_degrade_();
 
   // Phase 1.4 (G-M5-2/3, spec v2.3 §15): audit-trail emitters for the
   // committed-route reject / tail-gate reject paths. These previously only

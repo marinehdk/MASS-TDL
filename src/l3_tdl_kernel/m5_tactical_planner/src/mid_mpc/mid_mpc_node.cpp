@@ -459,6 +459,18 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   pub_consecutive_failures_ = create_publisher<std_msgs::msg::UInt64>(
       "/l3/m5/mid_mpc/consecutive_failures", rclcpp::QoS(10).reliable());
 
+  // P6: subscribe BC-MPC health metrics for Condition A + FinalDegrade evaluation
+  sub_bc_health_ = create_subscription<l3_msgs::msg::BcMpcHealth>(
+      "/l3/m5/bc_mpc/health", rclcpp::QoS(10).reliable(),
+      [this](const l3_msgs::msg::BcMpcHealth::SharedPtr msg) {
+        std::lock_guard<std::mutex> lk(bc_health_mutex_);
+        last_bc_health_ = *msg;
+      });
+
+  // P6: publisher for SafetyConcernEvent — M7 already subscribes via events QoS
+  pub_safety_concern_ = create_publisher<l3_msgs::msg::SafetyConcernEvent>(
+      "/l3/safety/concern", rclcpp::QoS(10).reliable());
+
   nomoto_cfg_.n_steps = 12;
   nomoto_cfg_.dt_s    = 5.0;
 
@@ -871,6 +883,28 @@ void MidMpcNode::on_solve_cycle_()
   // counter alone (it only increments inside optimized try_revise).
   committed_route_manager_.notify_solver_consecutive_failures(
       static_cast<std::uint32_t>(solver_.consecutive_failures()));
+
+  // P6: snapshot BC health metrics (single lock for consistency) and forward
+  // to committed_route for Condition A + handover hysteresis evaluation.
+  {
+    std::lock_guard<std::mutex> lk(bc_health_mutex_);
+    const bool mid_converged = (sol.status == MidMpcSolution::Status::Converged);
+    committed_route_manager_.notify_bc_mpc_health(
+        last_bc_health_.override_no_improve_count,
+        last_bc_health_.worst_case_cpa_m,
+        last_bc_health_.override_active);
+    committed_route_manager_.notify_handover_inputs(
+        mid_converged,
+        last_bc_health_.predicted_short_horizon_cpa_m);
+  }
+
+  // P6: check FinalDegrade — dual condition (BC failed && Mid unrecovered)
+  if (committed_route_manager_.current().state ==
+          mass_l3::m5::committed_route::LifecycleState::BcMpcFollow &&
+      committed_route_manager_.should_enter_final_degrade()) {
+    committed_route_manager_.enter_final_degrade();
+    publish_safety_concern_final_degrade_();
+  }
 
 
   const double lat = world_state_->own_ship.position.latitude;
@@ -1365,103 +1399,59 @@ void MidMpcNode::publish_avoidance_plan_(
 // keep-last marker rather than a missing topic.
 // ===========================================================================
 void MidMpcNode::publish_keep_last_(rclcpp::Time now, const std::string& reason) {
-  // v2.2 §13.2: BcMpcFollow must NOT republish a stale NLP corridor (Codex
-  // integration blocker 2). When the committed route has transitioned to
-  // BcMpcFollow, BC-MPC owns the maneuver via ReactiveOverrideCmd (架构 §L4)
-  // and drives L4 directly. Republishing the last committed active_geometry
-  // here would resurrect a stale corridor that the NLP could not make feasible
-  // — exactly the failure that triggered the take-over. So emit an empty
-  // BcMpcFollow-status heartbeat (bridge sees no valid NLP plan; BC-MPC
-  // override is the active path) and return BEFORE touching active_geometry.
-  if (committed_route_manager_.current().state ==
-      mass_l3::m5::committed_route::LifecycleState::BcMpcFollow) {
-    l3_msgs::msg::AvoidancePlan bc_plan;
-    bc_plan.schema_version = 116;
-    bc_plan.stamp = now;
-    bc_plan.status = "BcMpcFollow";
-    bc_plan.confidence = 0.0F;
-    bc_plan.command_source = "m5_bcmpc_override";
-    bc_plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_BCMPC_FOLLOW;
-    bc_plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
-    bc_plan.nlp_tail_gate_failed = true;
-    bc_plan.rationale =
-        "BC-MPC take-over active; NLP corridor suppressed (v2.2 §13.2, " +
-        reason + ")";
-    bc_plan.plan_id = "m5_bcmpc_follow";
-    bc_plan.parent_route_id = "nominal";
-    bc_plan.behavior_mode = "collision_avoidance";
-    bc_plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
-    // waypoints left empty — release NLP corridor; BC-MPC override drives L4.
-    spdlog::warn("[M5][CommittedRoute] BcMpcFollow - suppress stale corridor publish (reason={})",
-                 reason);
-    // Phase 1.4 (G-M5-2): audit the BcMpcFollow suppress path too — it is
-    // where takeover signalled but no NLP corridor is published (the R4
-    // chain-break from the V2.3 audit).
-    emit_committed_route_rejected_asdr_(
-        now,
-        reason,
-        committed_route_manager_.current().safety_concern_event,
-        lifecycle_state_name(committed_route_manager_.current().state),
-        committed_route_manager_.consecutive_nlp_failures(),
-        bc_plan.plan_id);
-    publish_avoidance_plan_(bc_plan, std::string{"bcmpc_follow:"} + reason);
-    return;  // CRITICAL: skip the stale active_geometry republish below.
+  // P6: keep-last **abolished** — emit empty-plan heartbeat for ALL non-Committed
+  // states. The stale active_geometry republish is removed. Status string maps
+  // from LifecycleState so downstream consumers see the exact degradation reason.
+  using mass_l3::m5::committed_route::LifecycleState;
+  const auto state = committed_route_manager_.current().state;
+  const char* status_str = "DEGRADED";
+  switch (state) {
+    case LifecycleState::BcMpcFollow:    status_str = "BCMPC_FOLLOW"; break;
+    case LifecycleState::HandoverNeutral: status_str = "HANDOVER_NEUTRAL"; break;
+    case LifecycleState::FinalDegrade:   status_str = "FINAL_DEGRADE"; break;
+    case LifecycleState::DegradedHold:   status_str = "DEGRADED"; break;
+    case LifecycleState::KeepLast:       status_str = "KEEP_LAST"; break;
+    case LifecycleState::Stale:          status_str = "STALE"; break;
+    default:                             status_str = "DEGRADED"; break;
   }
 
   l3_msgs::msg::AvoidancePlan plan;
   plan.schema_version = 116;
   plan.stamp = now;
-  plan.status = "DEGRADED";
-  plan.confidence = 0.5F;
-  plan.command_source = "m5_keep_last";
+  plan.status = status_str;
+  plan.confidence = 0.0F;
+  plan.command_source = "m5_keep_last_abolished";
   plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_KEEP_LAST;
   plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
   plan.nlp_tail_gate_failed = true;
-  plan.rationale = std::string{"keep_last ("} + reason + ")";
+  plan.rationale = std::string{"keep_last_abolished (state="} + status_str + " " + reason + ")";
+  plan.plan_id = std::string{"m5_"} + status_str;
+  plan.parent_route_id = "nominal";
+  plan.behavior_mode = "collision_avoidance";
   plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+  // waypoints left EMPTY — release NLP corridor, no stale geometry republish.
 
-  const auto& committed = committed_route_manager_.current();
-  if (!committed.active_geometry.empty()) {
-    plan.plan_id = committed.plan_id.empty() ? std::string{"m5_keep_last"} : committed.plan_id;
-    plan.parent_route_id = "nominal";
-    plan.behavior_mode = "collision_avoidance";
-    plan.latitude.reserve(committed.active_geometry.size());
-    plan.longitude.reserve(committed.active_geometry.size());
-    plan.command_speed_mps.reserve(committed.active_geometry.size());
-    plan.navigation_mode.reserve(committed.active_geometry.size());
-    for (const auto& wp : committed.active_geometry) {
-      plan.latitude.push_back(wp.lat_deg);
-      plan.longitude.push_back(wp.lon_deg);
-      plan.command_speed_mps.push_back(wp.speed_mps);
-      plan.navigation_mode.push_back(wp.nav_mode.empty() ? std::string{"collision_avoidance"} : wp.nav_mode);
-    }
-    plan.waypoints.clear();
-    plan.waypoints.reserve(plan.latitude.size());
-    for (std::size_t i = 0u; i < plan.latitude.size(); ++i) {
-      const double speed = i < plan.command_speed_mps.size() ? plan.command_speed_mps[i] : 0.0;
-      plan.waypoints.push_back(waypoint_from_route_point(
-          plan.latitude[i], plan.longitude[i], speed, plan.confidence, plan.rationale));
-    }
-  } else {
-    plan.plan_id = "m5_keep_last_empty";
-    plan.parent_route_id = "nominal";
-    plan.behavior_mode = "collision_avoidance";
-    RCLCPP_WARN(get_logger(),
-        "[M5][KeepLast] no prior committed route; publishing empty DEGRADED heartbeat reason=%s",
-        reason.c_str());
-  }
-  // Phase 1.4 (G-M5-2, spec v2.3 §15): audit the keep-last path so the
-  // reject reason lands on the ASDR bus alongside M5's other decisions. The
-  // V2.3 phase 3b probe had to scrape container logs to recover why each
-  // candidate was rejected; this puts the same evidence in /l3/asdr/record.
+  spdlog::warn("[M5][KeepLastAbolished] state={} reason={} — empty plan heartbeat",
+               status_str, reason);
+
   emit_committed_route_rejected_asdr_(
-      now,
-      reason,
+      now, reason,
       committed_route_manager_.current().safety_concern_event,
-      lifecycle_state_name(committed_route_manager_.current().state),
+      lifecycle_state_name(state),
       committed_route_manager_.consecutive_nlp_failures(),
       plan.plan_id);
-  publish_avoidance_plan_(plan, std::string{"keep_last:"} + reason);
+
+  // P6 ASDR audit: explicit keep-last-abolished marker
+  l3_msgs::msg::ASDRRecord audit;
+  audit.stamp = now;
+  audit.source_module = "M5_MID_MPC";
+  audit.decision_type = "keep_last_abolished";
+  audit.decision_json = std::string{"{\"state\":\""} + status_str + "\"}";
+  const auto digest = mass_l3::m5::common::sha256(audit.decision_json);
+  audit.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(audit);
+
+  publish_avoidance_plan_(plan, std::string{"keep_last_abolished:"} + reason);
 }
 
 // ===========================================================================
@@ -2009,6 +1999,20 @@ void MidMpcNode::reset_cross_run_state() {
   last_published_route_hash_.reset();
   last_avoidance_plan_publish_time_.reset();
   last_constraint_signature_ = 0;  // Fix #8: force graph rebuild on next scenario
+}
+
+// P6: publish SafetyConcernEvent with CONCERN_BC_FINAL_DEGRADE
+void MidMpcNode::publish_safety_concern_final_degrade_()
+{
+  l3_msgs::msg::SafetyConcernEvent evt;
+  evt.stamp = this->get_clock()->now();
+  evt.concern_type = l3_msgs::msg::SafetyConcernEvent::CONCERN_BC_FINAL_DEGRADE;
+  evt.severity = 1.0F;
+  evt.suggested_action = "MRM";
+  evt.anchor_hdg = 0.0F;
+  pub_safety_concern_->publish(evt);
+  spdlog::critical("[M5][MidMPC] FINAL_DEGRADE → SafetyConcernEvent published "
+                   "(BC failed + Mid unrecovered)");
 }
 
 }  // namespace mass_l3::m5::mid_mpc

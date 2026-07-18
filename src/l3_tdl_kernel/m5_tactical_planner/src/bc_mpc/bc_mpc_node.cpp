@@ -59,6 +59,9 @@ BcMpcNode::BcMpcNode(const Config& cfg)
       "/l3/m5/reactive_override_cmd", 10);
   pub_asdr_ = create_publisher<l3_msgs::msg::ASDRRecord>(
       "/l3/asdr/record", 10);
+  // P6: health metrics — consumed by mid_mpc_node for Condition A + FinalDegrade
+  pub_health_ = create_publisher<l3_msgs::msg::BcMpcHealth>(
+      "/l3/m5/bc_mpc/health", rclcpp::QoS(10).reliable());
 
   validity_timer_ = rclcpp::create_timer(
       get_node_base_interface(),
@@ -85,12 +88,27 @@ void BcMpcNode::on_world_state_(l3_msgs::msg::WorldState::SharedPtr msg)
   if (sol.status == BcMpcSolution::Status::Override) {
     is_bc_active_          = true;
     remaining_validity_s_  = sol.validity_s;
+
+    // P6 Condition A: count consecutive overrides with no CPA improvement
+    {
+      const double improve = sol.worst_case_cpa_m - last_worst_case_cpa_m_;
+      const double cpa_threshold = input.cpa_safe_m * formulation_.config().override_cpa_multiplier;
+      if (sol.worst_case_cpa_m <= cpa_threshold && improve < kCpaImproveEpsilon_m) {
+        ++consecutive_override_no_improve_;
+      } else {
+        consecutive_override_no_improve_ = 0U;
+      }
+      last_worst_case_cpa_m_ = sol.worst_case_cpa_m;
+    }
+
     publish_override_(sol);
   } else if (is_bc_active_ && sol.status == BcMpcSolution::Status::Resolved) {
     is_bc_active_         = false;
     remaining_validity_s_ = 0.0;
+    consecutive_override_no_improve_ = 0U;  // P6: reset on resolve
     spdlog::info("[M5][BcMPC] CPA resolved; handing back to Mid-MPC");
   }
+  publish_health_(sol);  // P6: every tick
 }
 
 // ===========================================================================
@@ -112,8 +130,18 @@ void BcMpcNode::on_validity_tick_()
 
   remaining_validity_s_ -= kTickInterval_s;
   if (remaining_validity_s_ <= 0.0) {
-    is_bc_active_ = false;
-    spdlog::warn("[M5][BcMPC] validity_s expired; BC-MPC deactivated");
+    // P6: do NOT silent-deactivate — keep is_bc_active_=true and wait for next
+    // WorldState to re-evaluate. This avoids a dead period where BC-MPC is
+    // inactive but Mid-MPC has not yet recovered, leaving the vessel without
+    // override. The flag remains true; on_world_state_ will decide on the next solve.
+    spdlog::warn("[M5][BcMPC] validity expired; will re-resolve on next WorldState");
+    // Publish ASDR audit for the expiry event
+    l3_msgs::msg::ASDRRecord record;
+    record.stamp = this->get_clock()->now();
+    record.source_module = "M5_BC_MPC";
+    record.decision_type = "validity_expired_re_resolve";
+    record.decision_json = "{\"remaining_validity_s\":0.0}";
+    pub_asdr_->publish(record);
     return;
   }
 
@@ -163,6 +191,7 @@ BcMpcInput BcMpcNode::assemble_input_()
     }
   }
   inp.predicted_short_horizon_cpa_m = min_cpa;
+  last_input_predicted_cpa_ = min_cpa;  // P6: cache for health metrics
 
   // v2.2 §13.1: BC-MPC Phase E2 — read the live consecutive_failures from the
   // atomic cache (subscribed from /l3/m5/mid_mpc/consecutive_failures). Replaces
@@ -197,6 +226,25 @@ void BcMpcNode::publish_override_(const BcMpcSolution& sol)
   const auto digest = mass_l3::m5::common::sha256(record.decision_json);
   record.signature.assign(digest.begin(), digest.end());
   pub_asdr_->publish(record);
+}
+
+// ===========================================================================
+// publish_health_ — P6: emit BcMpcHealth on /l3/m5/bc_mpc/health
+// ===========================================================================
+void BcMpcNode::publish_health_(const BcMpcSolution& sol)
+{
+  l3_msgs::msg::BcMpcHealth health;
+  health.stamp = this->get_clock()->now();
+  health.override_active = is_bc_active_;
+  health.worst_case_cpa_m = static_cast<float>(sol.worst_case_cpa_m);
+  health.predicted_short_horizon_cpa_m = static_cast<float>(last_input_predicted_cpa_);
+  health.override_no_improve_count = consecutive_override_no_improve_;
+  health.consecutive_failures = static_cast<std::uint32_t>(solver_.consecutive_failures());
+  health.confidence = static_cast<float>(sol.confidence);
+  health.rationale = is_bc_active_
+      ? "BCMPC_OVERRIDE_ACTIVE"
+      : "BCMPC_RESOLVED";
+  pub_health_->publish(health);
 }
 
 }  // namespace mass_l3::m5::bc_mpc

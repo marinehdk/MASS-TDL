@@ -18,4 +18,13 @@ def generate_launch_description():
             ],
             parameters=[os.path.join(config_dir, "m5_params.yaml")],
         ),
+        # P6: BC-MPC activation — event-driven collision-avoidance override.
+        # Launched alongside Mid-MPC from the same yaml for shared config.
+        Node(
+            package="m5_tactical_planner",
+            executable="m5_bc_mpc_node",
+            name="bc_mpc",
+            output="screen",
+            parameters=[os.path.join(config_dir, "m5_params.yaml")],
+        ),
     ])
