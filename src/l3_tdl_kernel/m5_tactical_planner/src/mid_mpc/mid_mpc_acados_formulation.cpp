@@ -301,7 +301,7 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
   const casadi::MX psi     = x_(2);
   const casadi::MX u_surge = x_(4);
   std::vector<casadi::MX> rows;
-  rows.reserve(static_cast<std::size_t>(2 + Nt + 1 + 1 + 3));
+  rows.reserve(static_cast<std::size_t>(2 + Nt + 1 + 1));  // P4: C10/C11 abolished (was +3)
   // ---- Prefix lock (F2): activation-factor equality rows. ----
   const casadi::MX pact_pre = pact_pre_slot_();
   rows.push_back(pact_pre * (psi     - prefix_psi_at_k_slot_()));  // prefix_psi

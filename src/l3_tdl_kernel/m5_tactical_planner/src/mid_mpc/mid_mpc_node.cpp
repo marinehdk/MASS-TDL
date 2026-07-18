@@ -31,6 +31,10 @@
 #include "m5_tactical_planner/mid_mpc/mid_mpc_route_frame.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
 #include "m5_tactical_planner/tail_builder/tail_builder.hpp"
+#ifdef M5_USE_ACADOS
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_formulation.hpp"
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_solver.hpp"
+#endif
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -377,6 +381,24 @@ MidMpcNode::MidMpcNode(const Config& cfg)
           cfg.waypoint, formulation_.config().dt_s, formulation_.config().n_horizon))
 {
   formulation_.build_symbolic_graph();
+
+#ifdef M5_USE_ACADOS
+  // Wire acados production backend into the dispatch (P4 T8).
+  // Uses the same horizon config as IPOPT formulation.
+  mid_mpc::MidMpcAcadosFormulation::Config acfg;
+  acfg.n_horizon = formulation_.config().n_horizon;
+  acfg.dt_s = formulation_.config().dt_s;
+  acfg.max_targets = formulation_.config().max_targets;
+  auto acados_form = std::make_unique<mid_mpc::MidMpcAcadosFormulation>(acfg);
+  acados_form->build_symbolic_graph();
+  auto acados_slv = std::make_unique<mid_mpc::MidMpcAcadosSolver>(*acados_form);
+  // Transfer ownership: solver_ stores AcadosFormulation + AcadosSolver.
+  // AcadosFormulation must outlive the solver; stored as a member below.
+  acados_formulation_ = std::move(acados_form);
+  solver_.set_acados_solver(std::move(acados_slv));
+#else
+  (void)acados_formulation_;  // unused when acados is OFF
+#endif
 
   nominal_speed_kn_ = declare_parameter<double>("m5.nominal_speed_kn", 10.0);
 

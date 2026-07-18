@@ -28,6 +28,9 @@
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
+#ifdef M5_USE_ACADOS
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_formulation.hpp"
+#endif
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
 #include "m5_tactical_planner/shared/capability_manifest.hpp"
 #include "m5_tactical_planner/shared/vessel_dynamics_model.hpp"
@@ -74,6 +77,9 @@ class MidMpcNode : public rclcpp::Node {
   MidMpcNlpFormulation        formulation_;
   MidMpcSolver                solver_;
   MidMpcWaypointGenerator     wp_gen_;
+#ifdef M5_USE_ACADOS
+  std::unique_ptr<MidMpcAcadosFormulation> acados_formulation_;
+#endif
   std::optional<MidMpcSolution> last_solution_;
   mass_l3::risk::RankingState risk_ranking_state_;
   mass_l3::m5::committed_route::CommittedAvoidanceRoute committed_route_manager_;
