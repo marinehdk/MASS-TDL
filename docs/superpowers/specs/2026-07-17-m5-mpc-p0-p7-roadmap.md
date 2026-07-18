@@ -78,7 +78,7 @@ P0 (config fix) ──► P1 (acados 使能器)
 | **P3** | per-target ξ 行为验证 + ρ 校准 + 测试缺口(formulation 不改,ξ+L1/L2 已 P1b-1b 落地) | P1 | 低-中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p3-slack-validation-design.md` + `plans/2026-07-18-m5-p3-slack-validation.md` |
 | **P4** | horizon 1200s + 废终端 C10/C11 + TailBuilder 拼接淘汰 + timer 60s + 承诺前缀 180s + 切 acados 默认 ON(含 carryover I-1~4) | P1+P2 | 高 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p4-horizon-terminal-tailbuilder-design.md` + `plans/2026-07-18-m5-p4-horizon-terminal-tailbuilder.md` |
 | **P5** | 反 chattering(warm-start shift-init + 转移代价)+ ample-time 验收门/ODD 边界 + IPOPT compiler 清理(M6 几何/Huber 已由 P1b-1b/P2 落地) | (相对独立) | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p5-anti-chatter-ample-time-design.md` + `plans/2026-07-18-m5-p5-anti-chatter-ample-time.md` |
-| **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 | P2/P3/P4 | 中 | ⏳ 待(P6-a/P6-b 子项) | **无 spec(待开)** |
+| **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 + keep-last 废除 + FINAL_DEGRADE 报 M7 + L4 override 接线验证 | P2/P3/P4 | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p6-bcmpc-four-state-handover-design.md` + `plans/2026-07-18-m5-p6-bcmpc-four-state-handover.md` |
 | **P7** | A+ 不确定性(OU) + 意图建模 | P4 | 中 | ⏳ 后置/并行 | **无 spec(待开)** |
 
 ---
@@ -177,20 +177,23 @@ P0 (config fix) ──► P1 (acados 使能器)
 
 ### P6. BC-MPC 激活 + 四状态交接机 + 回退链 [集成,中风险]
 
+> **⚠ 2026-07-18 scope 扩展(brainstorming Q6)**: 原 §P6 写"L4 侧接线归 GNC-P1/P2,本路线图不管 L4 侧"。**用户裁决扩展 P6 范围到 M5 + L4 双侧**。codegraph 探索发现 L4 override consumer 已存在(FCB Simulator + GNC ActiveRouteManager + M7 SafetySupervisor 均已订阅 `/l3/m5/reactive_override_cmd`),P6 实际工作量是 M5 侧正确 publish + L4 侧验证(含 `SafetyConcernEvent` 新增 publish path),不是从零接 L4 consumer。
+
 - **DP/TBD**: DP-01 + DP-01a/b + DP-08 · VR-01/01a/01b/08
-- **scope**:
-  - BC-MPC 激活(清 launch/namespace/bridge 集成债)
-  - Eriksen 标准职责(执行+兜底,验证归 M7)
-  - 四状态机(MID_NORMAL→BC_TAKEOVER→HANDOVER_NEUTRAL→FINAL_DEGRADE)
-  - stale 45s/15°/20% 门控 + 交还 hysteresis 连续 2 周期
-  - 废 keep-last 空 plan;geo 降 BC 后最终层
-  - FINAL_DEGRADE 报 M7(safety_concern_event)
-- **子项**:
-  - **P6-a**: Launch Activation + Rebaseline(加 `bc_mpc_node` 到 `m5_mid_mpc.launch.py`,end-to-end 验证)
-  - **P6-b**: 四状态机(当前是单 boolean 阈值 `consecutive ≥ 3`,无 hysteresis/M7 态,需从零建)
-- **依赖**: P2/P3/P4(BC 跟踪 Mid 输出)
-- **风险**: 中
-- **关联 GNC**: ReactiveOverrideCmd(BC 接管时)→L4 接入路径在 GNC 设计树 DP-10/VR-08 已定义契约,L4 侧接线归 GNC-P1/P2(本路线图不管 L4 侧)
+- **scope(2026-07-18 brainstorming 9 Q&A 裁决后)**:
+  - BC-MPC 激活(`m5_mid_mpc.launch.py` + `m5_params.yaml`,同 launch 同 yaml)
+  - 11 状态机(committed_route 从 9 扩到 11:加 HandoverNeutral + FinalDegrade)
+  - 四状态机语义(MID_NORMAL→BC_TAKEOVER→HANDOVER_NEUTRAL→FINAL_DEGRADE)在 11 状态中实装
+  - stale 45s/15°/20% 门控(已落地)+ 交还 hysteresis 连续 2 周期 × 60s 双条件
+  - **彻底废除 keep-last republish**(所有非 Committed 状态发空 plan heartbeat + ASDR audit)
+  - FINAL_DEGRADE 报 M7(BC 失效 + Mid 未恢复 双条件;`SafetyConcernEvent.concern_type=CONCERN_BC_FINAL_DEGRADE=4`)
+  - **L4 override 接线验证**(M5 + L4 双侧;L4 consumer 已存在,P6 验证 + 补 safety_concern publish)
+  - geo fallback = 转发 M7 MRM(M5 不自生成)
+  - 新增 `BcMpcHealth.msg` + `/l3/m5/bc_mpc/health` 主题(BC 失效检测通道)
+- **依赖**: P2/P3/P4(BC 跟踪 Mid 输出)+ P5(ample-time 边界 ~2000m,BC 负责 <2000m 近距)
+- **风险**: 中(BC-MPC 从未在 SIL 运行过;先 T1 SIL baseline 后改 FSM)
+- **子任务**(单 spec/plan 覆盖,不拆 P6-a/P6-b): T1 SIL baseline → T2 launch+health → T3 11 状态机 → T4 keep-last 废除 → T5 mid 编排 → T6 SIL e2e → T7 codex review
+- **关联 GNC**: ReactiveOverrideCmd 契约在 GNC 设计树 DP-10/VR-08 已定义;P6 覆盖 M5 publish + L4 验证(双侧)
 
 ### P7(后续/并行). A+ 不确定性 + 意图建模 [增强,中风险]
 
