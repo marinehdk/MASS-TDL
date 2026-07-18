@@ -86,14 +86,14 @@ namespace mass_l3::m5::mid_mpc {
 // ===========================================================================
 constexpr int32_t kAcadosNpGlobalHeadScalars = 26;   // kIdx 0-25
 constexpr int32_t kAcadosMaxTargets          = 16;   // == kMaxTargets (nlp_formulation.hpp)
-constexpr int32_t kAcadosTargetStride        = 5;    // == kTargetStride
+constexpr int32_t kAcadosTargetStride        = 8;    // P7: was 5 (intent_conf, compliance, class)
 constexpr int32_t kAcadosNpGlobalTargetBlock =
-    kAcadosMaxTargets * kAcadosTargetStride;         // 80
+    kAcadosMaxTargets * kAcadosTargetStride;         // 128 = 16*8
 constexpr int32_t kAcadosNpGlobal =
-    kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock;  // 106
+    kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock;  // 154 = 26 + 128
 
-// Per-stage parameter layout (T15 F2/F4 + P2 T3 + P5 T2). Each stage k carries
-// only the scalars that stage needs:
+// Per-stage parameter layout (T15 F2/F4 + P2 T3 + P5 T2 + P7 σ_pos). Each stage
+// k carries only the scalars that stage needs:
 //   [0]                       prefix_psi_at_k
 //   [1]                       prefix_u_at_k
 //   [2]                       pact_pre (prefix activation, 1.0 if k<K else 0.0)
@@ -101,9 +101,10 @@ constexpr int32_t kAcadosNpGlobal =
 //   [3+Nt .. 3+2Nt-1]         target_y_at_k[t]
 //   [3+2Nt]                   tb_x (per-stage t_b closest-point x, VR-07b T3)
 //   [3+2Nt+1]                 tb_y (per-stage t_b closest-point y, VR-07b T3)
-//   [37]                      psi_prev_at_k (last cycle ψ at this stage, P5 T2)
-//   [38]                      u_prev_at_k   (last cycle u at this stage, P5 T2)
-//   [39]                      w_trans_active_at_k (1.0 if prev solution exists,
+//   [3+2Nt+2 .. 3+2Nt+1+Nt]  sigma_pos_at_k[t] (P7: per-target σ_pos, Nt=16)
+//   [3+2Nt+2+Nt]              psi_prev_at_k (last cycle ψ at this stage, P5 T2)
+//   [3+2Nt+3+Nt]              u_prev_at_k   (last cycle u at this stage, P5 T2)
+//   [3+2Nt+4+Nt]              w_trans_active_at_k (1.0 if prev solution exists,
 //                              0.0 for first cycle/no cache) (P5 T2)
 constexpr int32_t kAcadosNDefault = 80;               // P4 N=80 dt=15 1200s (was 18)
 constexpr int32_t kAcadosPerStagePrefixPsiOff = 0;
@@ -113,11 +114,15 @@ constexpr int32_t kAcadosPerStageTgtDriftOff  = 3;  // target_x_at_k[0] starts h
 constexpr int32_t kAcadosPerStageTbXOff =
     kAcadosPerStageTgtDriftOff + 2 * kAcadosMaxTargets;  // 3 + 32 = 35 (VR-07b T3)
 constexpr int32_t kAcadosPerStageTbYOff = kAcadosPerStageTbXOff + 1;  // 36
-// P5 T2: transition cost per-stage parameters.
-constexpr int32_t kAcadosPerStagePsiPrevOff = kAcadosPerStageTbYOff + 1;  // 37
-constexpr int32_t kAcadosPerStageUPrevOff   = kAcadosPerStagePsiPrevOff + 1;  // 38
-constexpr int32_t kAcadosPerStageWTransActiveOff = kAcadosPerStageUPrevOff + 1;  // 39
-constexpr int32_t kAcadosNpPerStageDefault = kAcadosPerStageWTransActiveOff + 1;  // 40
+// P7: per-target σ_pos (OU uncertainty) slots, Nt=16
+constexpr int32_t kAcadosPerStageSigmaPosOff = kAcadosPerStageTbYOff + 1;  // 37
+// P5 T2: transition cost per-stage parameters (shifted by P7 σ_pos block).
+constexpr int32_t kAcadosPerStagePsiPrevOff =
+    kAcadosPerStageSigmaPosOff + kAcadosMaxTargets;  // 37 + 16 = 53
+constexpr int32_t kAcadosPerStageUPrevOff = kAcadosPerStagePsiPrevOff + 1;  // 54
+constexpr int32_t kAcadosPerStageWTransActiveOff = kAcadosPerStageUPrevOff + 1;  // 55
+constexpr int32_t kAcadosNpPerStageDefault =
+    kAcadosPerStageWTransActiveOff + 1;  // 56
 
 // PUBLIC global-slot indices for the route-frame scalars the solver pack needs
 // to read by offset (P2 T4): the per-stage t_b computation reads the active-leg
@@ -143,11 +148,11 @@ constexpr int32_t kAcadosGIdxPlannedSpeed      = 5;
 // the per-stage t_b (VR-07b) that IPOPT folds into its flat 142-vector +
 // per-row bounds. See the partition doc above. This asserts the per-stage
 // count is stable.
-static_assert(kAcadosNpPerStageDefault == 40,
-	              "acados np_per_stage(default) = 3 + 2*Nt + 2 tb + 2 transition + "
-	              "1 active = 40; update if params change");
-static_assert(kAcadosNpGlobal == 106,
-              "acados np_global = 26 head + 80 target = 106 (IPOPT-compatible)");
+static_assert(kAcadosNpPerStageDefault == 56,
+	              "acados np_per_stage(P7) = 3 + 2*Nt + 2 tb + Nt sigma + 2 transition + "
+	              "1 active = 56 at Nt=16; update if params change");
+static_assert(kAcadosNpGlobal == 154,
+	              "acados np_global(P7) = 26 head + 128 target = 154 (stride 8)");
 
 // Production acatos OCP symbol graph (MX). Path B 5-dim state, 2-dim control,
 // 6 costs + full constraints + 106-global / 37-per-stage partition.
@@ -158,16 +163,18 @@ static_assert(kAcadosNpGlobal == 106,
 // acados backend; the IPOPT MidMpcNlpFormulation stays the default otherwise.
 class MidMpcAcadosFormulation {
  public:
-  // Parameter dimension accounting (T15 F2/F4 + P2 T3 documented deviation):
-  //   kParamDimGlobal = 106 (IPOPT stage-uniform portion: 26 head + 80 target)
-  //   kParamDimPerStage = 37 (acados per-stage expansion: prefix + act + drift
-  //                          + tb_x/tb_y per-stage closest-point, VR-07b T3)
+  // Parameter dimension accounting (T15 F2/F4 + P2 T3 + P7):
+  //   kParamDimGlobal = 154 (IPOPT stage-uniform portion: 26 head + 128 target
+  //                          with stride 8 for P7 intent/OU fields)
+  //   kParamDimPerStage = 56 (acados per-stage expansion: prefix + act + drift
+  //                          + tb_x/tb_y per-stage closest-point + per-target
+  //                          σ_pos (P7) + psi_prev/u_prev/w_trans (P5 T2))
   // IPOPT's flat kParamDim==142 is preserved in the IPOPT formulation; the
   // acados backend expands per-stage (drift precomputed, activation factor,
   // per-stage t_b) because the single-stage graph cannot index stage k. See
   // partition doc.
-  static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 106
-  static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 37
+  static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 154 (P7)
+  static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 56 (P7)
   // Production default horizon N (P4: horizon_s=1200s / dt_s=15 -> N=80; was 18).
   // RFC-001: 90s locked design overturned 2026-07-16 Step2 (user-authorized).
   // node-config overrides via resolve_mid_mpc_horizon_config.
@@ -219,13 +226,20 @@ class MidMpcAcadosFormulation {
     double w_slack{1.0e8};
     bool   cpa_slack_enabled{true};
     int32_t max_targets{kAcadosMaxTargets};
-    // P5 T2 (TBD-7): transition cost J_transition (anti-chattering layer 2).
-    // Eriksen mixed-norm: w_trans * (K_Δχ·Σ(ψ-ψ_prev)² + K_ΔU·Σ|u-u_prev|).
-    // Default values from Eriksen et al. (2019): K_Δχ≈2.5, K_ΔU≈0.3.
-    // w_trans is a global scaling; typical range 0.2-5 vs collision cost 40.
-    double w_trans{1.0};
-    double k_dchi{2.5};    // K_Δχ: heading-change penalty (L2)
-    double k_du{0.3};      // K_ΔU: speed-change penalty (L1)
+  // P5 T2 (TBD-7): transition cost J_transition (anti-chattering layer 2).
+  // Eriksen mixed-norm: w_trans * (K_Δχ·Σ(ψ-ψ_prev)² + K_ΔU·Σ|u-u_prev|).
+  // Default values from Eriksen et al. (2019): K_Δχ≈2.5, K_ΔU≈0.3.
+  // w_trans is a global scaling; typical range 0.2-5 vs collision cost 40.
+  double w_trans{1.0};
+  double k_dchi{2.5};    // K_Δχ: heading-change penalty (L2)
+  double k_du{0.3};      // K_ΔU: speed-change penalty (L1)
+  // P7: UT expected cost — Unscented Transform alpha (center weight).
+  // α=1e-3 places negligible weight on the center point; the 4 sigma points
+  // each carry (1-α)/4. [RMD] Ch3.7 Stochastic MPC.
+  double ut_alpha{1.0e-3};
+  // P7: intent_confidence scaling factor (T5). Default 1.0 means intent_confidence
+  // at 0.0 doubles the colreg cost; at 1.0, no scaling. [E3] wi(t) heuristic.
+  double k_intent_scale{1.0};
   };
 
   // Default-construct with production defaults, or pass an explicit Config.
@@ -297,9 +311,10 @@ class MidMpcAcadosFormulation {
   std::string solver_name_{"m5_mid_mpc_acados"};
 
   // CasADi MX symbol-graph members. State x=[px,py,psi,r,u_surge] (5),
-  // control u=[delta,n] (2). p_global (106) is stage-uniform; p_stage (37)
+  // control u=[delta,n] (2). p_global (154 P7) is stage-uniform; p_stage (56 P7)
   // is per-stage (prefix psi/u scalars + pact_pre + per-target drift x/y +
-  // per-stage t_b closest-point tb_x/tb_y, VR-07b T3).
+  // per-stage t_b closest-point tb_x/tb_y + per-target sigma_pos(P7) +
+  // psi_prev/u_prev/w_trans_active(P5 T2)).
   casadi::MX x_, u_, p_global_, p_stage_;
   casadi::MX disc_dyn_expr_;  // x[k+1] = f_disc(x[k], u[k], p)  (5 rows)
   casadi::MX con_h_expr_;     // nonlinear path constraint h(x,u,p) (nh rows)
@@ -330,7 +345,7 @@ class MidMpcAcadosFormulation {
 
   // Per-stage param slot helpers (fixed offsets — the single-stage graph reads
   // stage k's value at a fixed offset; pack_parameters writes a different value
-  // to that offset in each stage's per-stage vector). T15 F2/F4 + VR-07b T3 + P5 T2.
+  // to that offset in each stage's per-stage vector). T15 F2/F4 + VR-07b T3 + P5 T2 + P7.
   [[nodiscard]] casadi::MX prefix_psi_at_k_slot_() const;  // p_stage[0]
   [[nodiscard]] casadi::MX prefix_u_at_k_slot_() const;    // p_stage[1]
   [[nodiscard]] casadi::MX pact_pre_slot_() const;         // p_stage[2]
@@ -341,9 +356,12 @@ class MidMpcAcadosFormulation {
   // (long horizon 1200s ensures convergence without terminal set).
   [[nodiscard]] casadi::MX tb_x_at_k_slot_() const;  // p_stage[35] = tb_x
   [[nodiscard]] casadi::MX tb_y_at_k_slot_() const;  // p_stage[36] = tb_y
+  // P7: per-target σ_pos at stage k slot (OU uncertainty).
+  [[nodiscard]] casadi::MX sigma_pos_at_k_slot_(int32_t t) const;  // p_stage[37+t]
   // P5 T2: per-stage transition cost slots (last cycle psi/u for J_transition).
-  [[nodiscard]] casadi::MX psi_prev_at_k_slot_() const;  // p_stage[37] = psi_prev
-  [[nodiscard]] casadi::MX u_prev_at_k_slot_() const;    // p_stage[38] = u_prev
+  // Shifted by P7 σ_pos block: psi_prev at 53, u_prev at 54.
+  [[nodiscard]] casadi::MX psi_prev_at_k_slot_() const;  // p_stage[53] = psi_prev
+  [[nodiscard]] casadi::MX u_prev_at_k_slot_() const;    // p_stage[54] = u_prev
   // Global param slot helper (scalar p_global[i]).
   [[nodiscard]] casadi::MX gslot_(int32_t i) const;
 };

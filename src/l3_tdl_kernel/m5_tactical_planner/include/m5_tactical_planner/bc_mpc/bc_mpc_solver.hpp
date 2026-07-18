@@ -17,10 +17,26 @@ namespace mass_l3::m5::bc_mpc {
 
 class BcMpcSolver {
  public:
-  explicit BcMpcSolver(const BcMpcBranchFormulation& formulation);
+  // P7: BC-MPC speed optimization config (spec §4.6).
+  struct Config {
+    // CPA trigger ratio: when worst_case_cpa < cpa_safe * decel_trigger_ratio,
+    // the solver applies deceleration.
+    double decel_trigger_ratio;
+    // Deceleration factor: optimal_speed = current_speed * decel_factor.
+    double decel_factor;
+  };
+
+  // Factory for default config (avoids NSDMI issue in GCC 11 with nested struct
+  // default argument).
+  [[nodiscard]] static Config default_config() noexcept {
+    return Config{0.7, 0.5};
+  }
+
+  explicit BcMpcSolver(const BcMpcBranchFormulation& formulation,
+                       Config cfg = default_config());
 
   // Solve one BC-MPC cycle: evaluate branches, return BcMpcSolution.
-  // Sets optimal_speed_mps = input.own_ship.u_mps (Phase E1 speed hold).
+  // P7 Phase E2: decelerates when Override + CPA below threshold.
   // Sets solve_duration_us from wall-clock timing.
   [[nodiscard]] BcMpcSolution solve(const BcMpcInput& input);
 
@@ -30,6 +46,7 @@ class BcMpcSolver {
 
  private:
   BcMpcCollisionDetector detector_;
+  Config cfg_;
   int64_t consecutive_failures_{0};
 };
 

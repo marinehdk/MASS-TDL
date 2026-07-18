@@ -29,6 +29,7 @@
 #include <casadi/casadi.hpp>
 
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"  // kIdx* parity
+#include "m5_tactical_planner/mid_mpc/ou_uncertainty.hpp"           // P7 OU
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -79,7 +80,7 @@ constexpr int32_t kGIdxDecelMax          = 25;
 // (note: NOT 62 — the prefix sequence is in the per-stage block, so the target
 // block is packed contiguously after the head scalars here).
 constexpr int32_t kGIdxTargets = kAcadosNpGlobalHeadScalars;  // 26
-constexpr int32_t kGTargetStride = kAcadosTargetStride;       // 5
+constexpr int32_t kGTargetStride = kAcadosTargetStride;       // 8 (P7)
 
 // Smooth-sqrt guard [m^2] (same as IPOPT build_colreg_cost_).
 constexpr double kSqrtGuard = 1.0;
@@ -125,14 +126,16 @@ MidMpcAcadosFormulation::MidMpcAcadosFormulation(Config cfg) : cfg_(std::move(cf
 int MidMpcAcadosFormulation::nx() const noexcept { return 5; }            // Path B
 int MidMpcAcadosFormulation::nu() const noexcept { return 2; }            // [delta, n]
 int MidMpcAcadosFormulation::np_global() const noexcept {
-  return kAcadosNpGlobal;                                                  // 106
+  return kAcadosNpGlobal;                                                  // 154 (P7)
 }
 int MidMpcAcadosFormulation::np_per_stage() const noexcept {
-  // 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y) + 2 (tb_x/tb_y
-  // per-stage t_b closest-point, VR-07b T3) + 2 (psi_prev/u_prev, P5 T2)
-  // + 1 (w_trans_active, P5 T2). 40 at Nt=16.
-  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets + 2  // tb
-         + 3;  // P5 T2: psi_prev, u_prev, w_trans_active
+  // P7: 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y) + 2 (tb_x/tb_y
+  // per-stage t_b closest-point, VR-07b T3) + Nt (sigma_pos per-target, P7)
+  // + 2 (psi_prev/u_prev, P5 T2) + 1 (w_trans_active, P5 T2). 56 at Nt=16.
+  return kAcadosPerStageTgtDriftOff + 2 * cfg_.max_targets  // drift: x + y
+         + 2                                                   // tb: x + y
+         + cfg_.max_targets                                    // sigma_pos (P7)
+         + 3;                                                  // P5 T2: psi_prev, u_prev, w_trans_active
 }
 
 // nh: single-stage constraint row count (the acatos con_h_expr is a per-stage
@@ -190,6 +193,13 @@ casadi::MX MidMpcAcadosFormulation::tb_x_at_k_slot_() const {
 
 casadi::MX MidMpcAcadosFormulation::tb_y_at_k_slot_() const {
   return p_stage_(casadi::Slice(kAcadosPerStageTbYOff, kAcadosPerStageTbYOff + 1));
+}
+
+// P7: per-target σ_pos at stage k slot (OU uncertainty).
+casadi::MX MidMpcAcadosFormulation::sigma_pos_at_k_slot_(int32_t t) const {
+  return p_stage_(casadi::Slice(
+      kAcadosPerStageSigmaPosOff + t,
+      kAcadosPerStageSigmaPosOff + t + 1));
 }
 
 // P5 T2: per-stage transition cost slots (last cycle psi/u for J_transition).
@@ -348,28 +358,72 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
 // The acatos codegen uses EXTERNAL cost with cost_scaling=ones(N+1) (T2/T9).
 // ===========================================================================
 
-// J_colreg: smooth exp barrier per-target at the current stage (averaged over
-// Nt). disc_k is folded in numerically by the codegen script per stage; here
-// the symbol form omits disc_k (it is a stage-dependent numeric coefficient,
-// applied as cost_scaling in the codegen). Mirror IPOPT build_colreg_cost_.
-// T15 F4: target position is the per-stage drifted position (target_x_at_k /
-// target_y_at_k), matching the CPA constraint rows and IPOPT's per-stage drift.
+// J_colreg: P7 expected cost via Unscented Transform (5 sigma points) over
+// per-target OU lateral position uncertainty ([RMD] Ch3.7 Stochastic MPC).
+//   J = Σ_t w_t · Σ_i α_i · exp(-ζ · (||x - (x_t + σ_i)|| - cpa))
+// where σ_i are the 5 UT sigma points (center + 4 axis-aligned at ±σ_pos) and
+// α_i are the UT weights (α_center = ut_alpha, α_edge = (1-ut_alpha)/4).
+// Intent scaling: w_t *= (1 + k_intent_scale * (1 - intent_conf)).
+// When σ_pos=0, the UT degenerates to a single point (deterministic cost),
+// preserving P5 ample-time convergence.
+// T15 F4: target position is per-stage drifted (target_x_at_k / target_y_at_k).
 casadi::MX MidMpcAcadosFormulation::build_colreg_cost_() const {
   const int32_t Nt = std::max(cfg_.max_targets, 1);
   const casadi::MX px = x_(0);
   const casadi::MX py = x_(1);
   const casadi::MX cpa = gslot_(kGIdxCpaSafe);
   const casadi::MX zeta = casadi::DM(kZeta);
+  const casadi::MX alpha_center = casadi::DM(cfg_.ut_alpha);
+  const casadi::MX alpha_edge = casadi::DM((1.0 - cfg_.ut_alpha) / 4.0);
+  const casadi::MX k_intent = casadi::DM(cfg_.k_intent_scale);
   casadi::MX cost(0.0);
   for (int32_t t = 0; t < cfg_.max_targets; ++t) {
     const int32_t base = kGIdxTargets + t * kGTargetStride;
-    const casadi::MX tw = gslot_at(p_global_, base + 4);  // range-ramp weight
+    // P7: base weight (range-ramp) at slot 4
+    const casadi::MX tw_base = gslot_at(p_global_, base + 4);
+    // P7: intent_confidence scaling at slot 5: w = tw_base * (1 + k_intent*(1 - conf))
+    const casadi::MX intent_conf = gslot_at(p_global_, base + 5);
+    const casadi::MX tw = tw_base * (1.0 + k_intent * (1.0 - intent_conf));
+
     const casadi::MX tx_at_k = target_x_at_k_slot_(t);     // F4 per-stage drift
     const casadi::MX ty_at_k = target_y_at_k_slot_(t);
-    const casadi::MX dx = px - tx_at_k;
-    const casadi::MX dy = py - ty_at_k;
-    const casadi::MX d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
-    cost = cost + tw * casadi::MX::exp(-zeta * (d - cpa));
+    // P7: per-target σ_pos at this stage (OU process lateral uncertainty)
+    const casadi::MX sigma = sigma_pos_at_k_slot_(t);
+
+    // UT expected cost over 5 sigma points (center + 4 axis-aligned).
+    // When sigma → 0 (degenerate), all 5 points collapse to center → deterministic.
+    casadi::MX target_cost(0.0);
+
+    // Point 0: center (weight α_center)
+    casadi::MX dx = px - tx_at_k;
+    casadi::MX dy = py - ty_at_k;
+    casadi::MX d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+    target_cost = target_cost + alpha_center * casadi::MX::exp(-zeta * (d - cpa));
+
+    // Points 1-4: axis-aligned ±σ (weight α_edge each)
+    // Point 1: (x_t + σ, y_t) — starboard offset
+    dx = px - (tx_at_k + sigma);
+    dy = py - ty_at_k;
+    d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+    target_cost = target_cost + alpha_edge * casadi::MX::exp(-zeta * (d - cpa));
+
+    // Point 2: (x_t - σ, y_t) — port offset
+    dx = px - (tx_at_k - sigma);
+    d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+    target_cost = target_cost + alpha_edge * casadi::MX::exp(-zeta * (d - cpa));
+
+    // Point 3: (x_t, y_t + σ) — north offset
+    dx = px - tx_at_k;
+    dy = py - (ty_at_k + sigma);
+    d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+    target_cost = target_cost + alpha_edge * casadi::MX::exp(-zeta * (d - cpa));
+
+    // Point 4: (x_t, y_t - σ) — south offset
+    dy = py - (ty_at_k - sigma);
+    d = casadi::MX::sqrt(dx * dx + dy * dy + kSqrtGuard);
+    target_cost = target_cost + alpha_edge * casadi::MX::exp(-zeta * (d - cpa));
+
+    cost = cost + tw * target_cost;
   }
   return cost / casadi::DM(static_cast<double>(Nt));
 }
@@ -583,8 +637,8 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
   g[kGIdxRole] = is_give_way ? 1.0 : 0.0;
   g[kGIdxDecelMax] = (input.decel_max_mps2 > 1.0e-6) ? input.decel_max_mps2 : 0.08;
 
-  // ---- Target block (kGIdxTargets + t*5, t=0..15) — verbatim IPOPT, with the
-  // per-target range-ramp weight computed numerically (no clamp kink in graph).
+  // ---- Target block (kGIdxTargets + t*8, t=0..15) — IPOPT base fields + P7
+  // intent_confidence, target_compliance, classification_code.
   const int32_t n_t = std::min(
       static_cast<int32_t>(input.targets.size()), cfg_.max_targets);
   for (int32_t t = 0; t < n_t; ++t) {
@@ -600,7 +654,12 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
     const double pwt_inner = input.constraints.cpa_safe_m;
     const double span = std::max(kPwtOuterM - pwt_inner, 1.0);
     const double w_range = std::clamp((kPwtOuterM - rng0) / span, 0.0, 1.0);
-    g[base + 4u] = w_range;
+    g[base + 4u] = w_range;                                    // tw (range-ramp weight)
+    // P7: intent/OU fields (per-target stride slot 5-7)
+    g[base + 5u] = tgt.intent_confidence;                      // [0,1]
+    g[base + 6u] = tgt.target_compliance;                      // [0,1]
+    g[base + 7u] = static_cast<double>(                        // classification code
+        static_cast<std::uint8_t>(tgt.classification));        // 0=Unknown, 1=Vessel, 2=FixedObject
   }
 
   // ---- Per-stage block (np_per_stage = 3 + 2*Nt + 2 tb per stage, N+1 rows).
@@ -614,8 +673,8 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
   //   [35]     tb_x             — per-stage t_b closest-point x (VR-07b T3)
   //   [36]     tb_y             — per-stage t_b closest-point y (VR-07b T3)
   // tb_x/tb_y are left at their 0.0 default here (neutral fallback). T4 fills
-  // them with real project_to_segment results in the solver pack; for T3 only
-  // the SHAPE (37) matters.
+  // them with real project_to_segment results in the solver pack.
+  // P7: sigma_pos_at_k[t] is packed per-stage (see loop below).
   // Stages k<K carry the reprojected committed-geometry psi/u (F2 prefix lock);
   // stages k>=K carry pact_pre=0 (row deactivated) and psi/u values that are
   // unused (the activation factor zeroes the row). Target drift matches IPOPT
@@ -644,12 +703,17 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
   std::vector<double> tdy(Nt_sz, 0.0);
   std::vector<double> tx0(Nt_sz, 0.0);
   std::vector<double> ty0(Nt_sz, 0.0);
+  // P7: precompute OU parameters per target (sigma_0, tau) for σ_pos packing.
+  std::vector<OuUncertainty> ou_params(Nt_sz, OuUncertainty{0.0, 1.0});
   for (int32_t t = 0; t < n_t; ++t) {
     const auto& tgt = input.targets[static_cast<std::size_t>(t)];
     tx0[static_cast<std::size_t>(t)] = tgt.x_m;
     ty0[static_cast<std::size_t>(t)] = tgt.y_m;
     tdx[static_cast<std::size_t>(t)] = tgt.sog_mps * std::cos(tgt.cog_rad);
     tdy[static_cast<std::size_t>(t)] = tgt.sog_mps * std::sin(tgt.cog_rad);
+    // P7: derive OU params from target properties
+    ou_params[static_cast<std::size_t>(t)] = derive_ou_params(
+        tgt.classification, tgt.sog_mps, tgt.intent_confidence);
   }
   for (int32_t k = 0; k < N; ++k) {
     const std::size_t kk = static_cast<std::size_t>(k);
@@ -677,6 +741,12 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
           tx0[tt] + tdx[tt] * kdt;
       ps[kk][static_cast<std::size_t>(kAcadosPerStageTgtDriftOff + Nt + t)] =
           ty0[tt] + tdy[tt] * kdt;
+    }
+    // P7: per-target σ_pos at stage k (OU process lateral position uncertainty).
+    for (int32_t t = 0; t < Nt; ++t) {
+      const std::size_t tt = static_cast<std::size_t>(t);
+      ps[kk][static_cast<std::size_t>(kAcadosPerStageSigmaPosOff + t)] =
+          ou_params[tt].sigma_pos_m(kdt);
     }
   }
   // Terminal stage N: repeat stage N-1 (unused by path constraints; fills shape).

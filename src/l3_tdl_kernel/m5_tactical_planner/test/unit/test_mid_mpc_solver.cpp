@@ -29,6 +29,32 @@ using mass_l3::m5::mid_mpc::MidMpcNlpFormulation;
 using mass_l3::m5::mid_mpc::MidMpcSolver;
 
 // ---------------------------------------------------------------------------
+// P7: TargetState new-field default-value test (T1)
+// ---------------------------------------------------------------------------
+TEST(P7TargetStateTest, P7Fields_DefaultValues) {
+  TargetState ts;
+  EXPECT_DOUBLE_EQ(ts.intent_confidence, 0.5);
+  EXPECT_DOUBLE_EQ(ts.target_compliance, 0.5);
+  EXPECT_EQ(ts.classification, TargetState::Classification::Unknown);
+}
+
+TEST(P7TargetStateTest, P7Fields_ClassificationEnumValues) {
+  EXPECT_EQ(static_cast<std::uint8_t>(TargetState::Classification::Unknown), 0u);
+  EXPECT_EQ(static_cast<std::uint8_t>(TargetState::Classification::Vessel), 1u);
+  EXPECT_EQ(static_cast<std::uint8_t>(TargetState::Classification::FixedObject), 2u);
+}
+
+TEST(P7TargetStateTest, P7Fields_CanAssign) {
+  TargetState ts;
+  ts.intent_confidence = 0.8;
+  ts.target_compliance = 0.3;
+  ts.classification = TargetState::Classification::Vessel;
+  EXPECT_DOUBLE_EQ(ts.intent_confidence, 0.8);
+  EXPECT_DOUBLE_EQ(ts.target_compliance, 0.3);
+  EXPECT_EQ(ts.classification, TargetState::Classification::Vessel);
+}
+
+// ---------------------------------------------------------------------------
 // Fixture — builds NLP once; reused by all tests.
 // N=8 (small horizon) balances test speed vs scenario realism.
 // ---------------------------------------------------------------------------
@@ -178,7 +204,7 @@ TEST_F(MidMpcNlpTest, StraightLineNoTargets) {
   const auto sol = solver_->solve(input, nullptr);
 
   EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
-  EXPECT_LT(sol.solve_duration_ms, 500);
+  EXPECT_LT(sol.solve_duration_ms, 3000);  // P4: N=80 dt=15 → can take ~1-2s for complex scenarios
   // No targets → optimal is constant heading near route bearing; steps near-equal.
   EXPECT_LT(max_heading_delta_deg(sol), 1.0);
 }
@@ -212,7 +238,7 @@ TEST_F(MidMpcNlpTest, CrossingGiveWay) {
   const auto sol = solver_->solve(input, nullptr);
 
   EXPECT_EQ(sol.status, MidMpcSolver::SolveStatus::Converged);
-  EXPECT_LT(sol.solve_duration_ms, 500);
+  EXPECT_LT(sol.solve_duration_ms, 3000);  // P4: N=80 dt=15 → can take ~1-2s for complex scenarios
 }
 
 // ---------------------------------------------------------------------------

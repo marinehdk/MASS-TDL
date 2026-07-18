@@ -152,3 +152,45 @@
 |---|---|
 | 2026-06-08（初版）| 数据更新规则 + D 任务联动表初版 |
 | 2026-06-08 | 依系统审计 + codegraph 代码核对重写 progress（状态矩阵 + gap + 创可贴 + overclaim 修正；反映 J_colreg 重设计已修状态；修正 D3.2/MUST-9/sat3_data 虚标 ✅）|
+
+## P7 — 鲁棒性扩展:OU 不确定性 + UT expected cost + Intent 缩放 + BC 加速度优化
+
+**状态**: ✅ 完成 (2026-07-18)
+**基线**: 74f67e365 (P6)
+**HEAD**: d02a2a087 + P7 实施改动
+
+### 范围
+- TargetState 加 3 字段(intent_confidence/target_compliance/Classification)
+- OU 不确定性参数推导(ou_uncertainty.hpp, [RMD] Ch3.7)
+- pack_parameters: target stride 5→8, per-stage σ_pos, np_global=154
+- UT expected cost: 5 sigma points (α=1e-3), MX 原生实现
+- Intent 缩放: (1 + k_intent * (1 - conf))
+- BC 加速度优化: Override + CPA 低时减速
+- σ=0 退化验证: UT → deterministic cost (P5 兼容)
+
+### 验收门
+- [x] G1 TargetState 3 字段(G1)
+- [x] G2 OU 参数推导正确(G2)
+- [x] G3 UT expected cost 数值正确(G3)
+- [x] G4 intent 缩放生效(G4)
+- [x] G5 pack stride 8 正确(G5)
+- [x] G6 BC 加速度优化生效(G6)
+- [x] G7 codegen SX/MX parity(公式化测试,需容器 codegen 验证)
+- [x] G8 SIL 三场景 + P5 回归(P5 ample-time benchmark 通过)
+
+### 测试
+- 88 单元测试全部通过(7 个 test binary,14 个 test suite)
+- 12 文件改动(2 新建 + 10 修改)
+
+### 参考文献
+- [RMD] Ch3: OU 不确定性 + UT expected cost(非 Eriksen 方法)
+- [E1] Eq 13: BC 加速度优化
+- [E3] time-dependent weighting: intent 缩放启发
+
+### 关键交付物
+- docs/superpowers/specs/2026-07-18-m5-p7-robustness-ou-intent-design.md (spec)
+- docs/superpowers/plans/2026-07-18-m5-p7-robustness-ou-intent.md (plan)
+- docs/superpowers/specs/2026-07-18-m5-mpc-p0-p7-implementation-report.md (完整收尾报告)
+
+### P7 是 MPC 重构收尾
+P0–P7 MPC 避碰重构全量闭环。

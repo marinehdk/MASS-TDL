@@ -68,24 +68,20 @@ production J_colreg/J_route/J_dist/J_vel/J_asym do NOT want):
                              |delta| <= delta_max, |n| <= n_max (control).
 
 ====================  Param partition (T15 F2/F4 documented deviation)  =========
-GLOBAL (np_global = 106, stage-uniform): 26 IPOPT head scalars (kIdx 0-25) +
-    16x5 target block (kIdx 62-141, remapped to global 26-105). Slots 0-3
-    (own psi/u/x/y) are RESERVED x0 seeds (F3) -- the solver writes them to
-    ocp.constraints.x0; they are NOT graph-referenced.
-PER-STAGE (np_per_stage = 3 + 2*Nt + 2 = 37 at Nt=16): per-stage scalars stage k
-    needs -- [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre (F2),
+GLOBAL (np_global = 154, P7 stride 8): 26 IPOPT head scalars (kIdx 0-25) +
+    16x8 target block (intent_confidence, target_compliance, classification_code
+    added in stride slots 5-7 per P7). Slots 0-3 (own psi/u/x/y) are RESERVED
+    x0 seeds (F3) -- the solver writes them to ocp.constraints.x0; they are NOT
+    graph-referenced.
+PER-STAGE (np_per_stage = 56 at Nt=16, P7): per-stage scalars stage k needs --
+    [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre (F2),
     [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t] (F4),
-    [35]tb_x_at_k, [36]tb_y_at_k (VR-07b T3/T5 per-stage t_b closest-point,
-    route + terminal COST origin). Set via the generated
-    m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
-Why this is no longer exactly 142: IPOPT packs a single flat 142-vector and
-    computes per-stage target drift symbolically from global (cog,sog). acatos
-    receives a stage-uniform graph that CANNOT index stage k, so per-stage drift
-    (F4), the prefix-equality activation factor (F2), and the per-stage t_b
-    closest-point (VR-07b T3) are precomputed per-stage and delivered via
-    update_params. The GLOBAL block stays 106 (142-compatible for the
-    stage-uniform portion); the per-stage block is the documented acatos
-    expansion (3 + 2*Nt + 2 = 37 at default Nt=16; NP_TOTAL=143).
+    [35]tb_x_at_k, [36]tb_y_at_k (VR-07b T3/T5 per-stage t_b closest-point),
+    [37..37+Nt-1]sigma_pos_at_k[t] (P7: per-target OU sigma, Nt=16),
+    [53]psi_prev_at_k, [54]u_prev_at_k, [55]w_trans_active_at_k (P5 T2).
+    Set via m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
+The GLOBAL block is 154 (P7 expansion from stride 5->8 for intent/OU fields);
+the per-stage block is 56 at Nt=16 (added Nt sigma_pos per P7).
 
 ====================  Solver opts (locked, P1b-1a T9 cost-read-back)  =========
     FULL_CONDENSING_HPIPM, EXACT hessian (F3), DISCRETE integrator, SQP,
@@ -186,14 +182,15 @@ U_SURGE_MIN, U_SURGE_MAX = 0.0, 15.0   # surge box (state idx 4)
 DELTA_MAX = 0.4                        # |delta| <= delta_max (control idx 0), rad
 N_MIN, N_MAX = 0.0, 12.0              # rpm box (control idx 1), rps
 
-# ---- Parameter partition layout (must match .cpp exactly). T15 F2/F4. ----
+# ---- Parameter partition layout (must match .cpp exactly). P7 stride 8 + sigma. ----
 NP_GLOBAL_HEAD = 26                    # kGIdx 0-25 (IPOPT kIdx 0-25)
-NP_GLOBAL_TARGETS = NT * 5             # 80 (IPOPT kIdx 62-141 remapped)
-NP_GLOBAL = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 106
-# Per-stage: [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre,
+NP_GLOBAL_TARGETS = NT * 8             # P7: 128 (was 80, stride 5->8: intent_conf/compliance/class)
+NP_GLOBAL = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 154 (P7)
+# Per-stage (P7): [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre,
 #            [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t],
-#            [35]tb_x_at_k, [36]tb_y_at_k (VR-07b T3/T5 per-stage t_b closest
-#            point -- route + terminal COST origin; constraint rows keep global).
+#            [35]tb_x_at_k, [36]tb_y_at_k,
+#            [37..37+Nt-1]sigma_pos_at_k[t] (P7: per-target OU sigma),
+#            [53]psi_prev_at_k, [54]u_prev_at_k, [55]w_trans_active_at_k.
 PS_PREFIX_PSI_OFF = 0
 PS_PREFIX_U_OFF = 1
 PS_PACT_PRE_OFF = 2
@@ -201,11 +198,13 @@ PS_TGT_DRIFT_OFF = 3                   # target_x_at_k[0] starts here
 # VR-07b T3/T5: per-stage t_b slots appended at the END (non-disruptive).
 PS_TB_X_OFF = PS_TGT_DRIFT_OFF + 2 * NT   # 3 + 32 = 35 (mirror kAcadosPerStageTbXOff)
 PS_TB_Y_OFF = PS_TB_X_OFF + 1             # 36 (mirror kAcadosPerStageTbYOff)
-# P5 T2: transition cost per-stage slots (last cycle psi/u for J_transition).
-PS_PSI_PREV_OFF = PS_TB_Y_OFF + 1         # 37 (mirror kAcadosPerStagePsiPrevOff)
-PS_U_PREV_OFF = PS_PSI_PREV_OFF + 1       # 38 (mirror kAcadosPerStageUPrevOff)
-PS_W_TRANS_ACTIVE_OFF = PS_U_PREV_OFF + 1 # 39 (mirror kAcadosPerStageWTransActiveOff)
-NP_PER_STAGE = PS_W_TRANS_ACTIVE_OFF + 1  # 3 + 32 + 2 + 2 + 1 = 40 (mirror kAcadosNpPerStageDefault)
+# P7: per-target sigma_pos slots (OU uncertainty).
+PS_SIGMA_POS_OFF = PS_TB_Y_OFF + 1        # 37 (mirror kAcadosPerStageSigmaPosOff)
+# P5 T2: transition cost per-stage slots (shifted by P7 sigma_pos block).
+PS_PSI_PREV_OFF = PS_SIGMA_POS_OFF + NT   # 37 + 16 = 53 (mirror kAcadosPerStagePsiPrevOff)
+PS_U_PREV_OFF = PS_PSI_PREV_OFF + 1       # 54 (mirror kAcadosPerStageUPrevOff)
+PS_W_TRANS_ACTIVE_OFF = PS_U_PREV_OFF + 1 # 55 (mirror kAcadosPerStageWTransActiveOff)
+NP_PER_STAGE = PS_W_TRANS_ACTIVE_OFF + 1  # 56 (P7: 3+32+2+16+2+1)
 
 # Global head-scalar indices (IDENTICAL to IPOPT kIdx 0-25 + .cpp kGIdx*).
 # Slots 0-3 (own psi/u/x/y) are RESERVED x0 seeds (F3): the solver writes them
@@ -272,6 +271,10 @@ def build_model() -> AcadosModel:
 
     def target_y_at_k(t):
         return p_stage[PS_TGT_DRIFT_OFF + NT + t]
+
+    # P7: per-target OU sigma at this stage (p_stage[PS_SIGMA_POS_OFF + t]).
+    def sigma_pos_at_k(t):
+        return p_stage[PS_SIGMA_POS_OFF + t]
 
     # VR-07b T3/T5: per-stage t_b closest-point slots (route + terminal COST
     # origin). The CONSTRAINT rows keep the GLOBAL route origin (C10/C11 P4).
@@ -346,16 +349,32 @@ def build_model() -> AcadosModel:
     # CPA range-ramp weight tw is per-target in p_global (slot base+4).
     # T15 F4: target position is the per-stage drifted position (matches CPA rows
     # and IPOPT's per-stage drift).
+    # P7: UT expected cost over 5 sigma points + intent scaling.
+    # alpha_center = UT_ALPHA (1e-3), alpha_edge = (1 - UT_ALPHA) / 4.
+    UT_ALPHA = 1.0e-3
+    K_INTENT = 1.0
     cost_colreg = 0.0
     for t in range(NT):
-        base = G_TARGETS + 5 * t
-        tw = p_global[base + 4]
+        base = G_TARGETS + 8 * t  # P7: stride 8
+        tw_base = p_global[base + 4]            # range-ramp weight
+        intent_conf = p_global[base + 5]        # P7: intent_confidence [0,1]
+        tw = tw_base * (1.0 + K_INTENT * (1.0 - intent_conf))  # intent scaling
         tx_at_k = target_x_at_k(t)
         ty_at_k = target_y_at_k(t)
-        dx = px - tx_at_k
-        dy = py - ty_at_k
-        d_t = ca.sqrt(dx * dx + dy * dy + K_SQRT_GUARD)
-        cost_colreg = cost_colreg + tw * ca.exp(-ZETA * (d_t - cpa_safe))
+        sigma = sigma_pos_at_k(t)               # P7: per-target OU sigma
+        # UT 5 sigma points expected cost
+        def _colreg_cost(dx, dy):
+            d_t = ca.sqrt(dx * dx + dy * dy + K_SQRT_GUARD)
+            return ca.exp(-ZETA * (d_t - cpa_safe))
+        # Point 0: center (weight UT_ALPHA)
+        target_cost = UT_ALPHA * _colreg_cost(px - tx_at_k, py - ty_at_k)
+        # Points 1-4: axis-aligned +/-sigma (weight alpha_edge each)
+        alpha_edge = (1.0 - UT_ALPHA) / 4.0
+        target_cost = target_cost + alpha_edge * _colreg_cost(px - (tx_at_k + sigma), py - ty_at_k)
+        target_cost = target_cost + alpha_edge * _colreg_cost(px - (tx_at_k - sigma), py - ty_at_k)
+        target_cost = target_cost + alpha_edge * _colreg_cost(px - tx_at_k, py - (ty_at_k + sigma))
+        target_cost = target_cost + alpha_edge * _colreg_cost(px - tx_at_k, py - (ty_at_k - sigma))
+        cost_colreg = cost_colreg + tw * target_cost
     cost_colreg = cost_colreg / max(1, NT)
 
     bearing = gslot(G_ROUTE_BEARING)
@@ -552,17 +571,16 @@ def main():
     print(f"CONSTRAINTS: con_h nh={nh} (prefix 2 + CPA per-target={NT} + "
           f"direction + min_alt + terminal 3); ROT via lbx/ubx")
     print(f"  prefix rows 0,1: equality lh=uh=0 (pact_pre activation factor, F2)")
-    print(f"  idxsh={list(ocp.constraints.idxsh)} (per-target xi slack, "
-          f"ns={nsh}/stage)")
-    print(f"  Zl={W_QUAD} zl={RHO_LIN} (mixed L1/L2 exact-penalty)")
+    print(f"  idxsh={list(ocp.constraints.idxsh)} (per-target xi slack)")
     print(f"COST: EXTERNAL 6-cost per-stage (colreg/dist/route/vel/asym) + "
-          f"EXTERNAL terminal (§5.4 softplus)")
+    f"EXTERNAL terminal (\u00a75.4 softplus)")
+    print(f"COLLISION COST: P7 UT expected cost (5 sigma points, alpha=1e-3) "
+          f"+ intent scaling (k_intent=1.0)")
     print(f"  cost_scaling=ones({N+1}) (T2/T9 -- discrete ungated sum)")
     print(f"PARAM PARTITION: global np_global={NP_GLOBAL} "
-          f"(26 head + {NT}x5 target) + per-stage np_per_stage={NP_PER_STAGE} "
-          f"(prefix psi/u + pact_pre + per-stage target drift x/y + tb_x/tb_y) "
-          f"= {NP_GLOBAL+NP_PER_STAGE} (T15 F2/F4 + VR-07b T3 tb: GLOBAL stays "
-          f"142-compatible (106); per-stage expands for drift+activation+t_b)")
+          f"(26 head + {NT}x8 target, P7 stride 8) + per-stage np_per_stage={NP_PER_STAGE} "
+          f"(prefix+drift+tb+sigma_pos(P7)+transition) "
+          f"= {NP_GLOBAL+NP_PER_STAGE} (P7 expansion)")
     print(f"SOLVER OPTS: FULL_CONDENSING_HPIPM, EXACT (F3), DISCRETE, SQP, "
           f"tol 1e-9, max_iter 400, MERIT_BACKTRACKING (F4)")
 

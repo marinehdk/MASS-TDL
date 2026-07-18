@@ -79,7 +79,7 @@ P0 (config fix) ──► P1 (acados 使能器)
 | **P4** | horizon 1200s + 废终端 C10/C11 + TailBuilder 拼接淘汰 + timer 60s + 承诺前缀 180s + 切 acados 默认 ON(含 carryover I-1~4) | P1+P2 | 高 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p4-horizon-terminal-tailbuilder-design.md` + `plans/2026-07-18-m5-p4-horizon-terminal-tailbuilder.md` |
 | **P5** | 反 chattering(warm-start shift-init + 转移代价)+ ample-time 验收门/ODD 边界 + IPOPT compiler 清理(M6 几何/Huber 已由 P1b-1b/P2 落地) | (相对独立) | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p5-anti-chatter-ample-time-design.md` + `plans/2026-07-18-m5-p5-anti-chatter-ample-time.md` |
 | **P6** | BC-MPC 激活 + 四状态交接机 + 回退链 + keep-last 废除 + FINAL_DEGRADE 报 M7 + L4 override 接线验证 | P2/P3/P4 | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p6-bcmpc-four-state-handover-design.md` + `plans/2026-07-18-m5-p6-bcmpc-four-state-handover.md` |
-| **P7** | 鲁棒性扩展:OU 横向方差 + UT expected cost + intent 缩放 + BC 加速度优化([RMD] Ch3 依据,非 Eriksen 方法) | P4+P6 | 中 | ⏳ spec/plan ready(2026-07-18) | `specs/2026-07-18-m5-p7-robustness-ou-intent-design.md` + `plans/2026-07-18-m5-p7-robustness-ou-intent.md` |
+| **P7** | 鲁棒性扩展:OU 横向方差 + UT expected cost + intent 缩放 + BC 加速度优化([RMD] Ch3 依据,非 Eriksen 方法) | P4+P6 | 中 | ✅ **完成**(2026-07-18,88 单元测试全绿,完整报告见 `specs/2026-07-18-m5-mpc-p0-p7-implementation-report.md`) | `specs/2026-07-18-m5-p7-robustness-ou-intent-design.md` + `plans/2026-07-18-m5-p7-robustness-ou-intent.md` |
 
 ---
 

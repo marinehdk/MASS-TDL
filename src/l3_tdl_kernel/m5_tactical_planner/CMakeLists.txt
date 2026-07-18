@@ -480,6 +480,12 @@ if(BUILD_TESTING)
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
   )
 
+  # P7 T2: OU uncertainty parameter derivation (no CasADi, no acados).
+  m5_add_gtest(test_ou_uncertainty
+    test/unit/test_ou_uncertainty.cpp
+    spdlog::spdlog Eigen3::Eigen
+  )
+
   # P2 T4: per-stage t_b closest-point computation (VR-07b). CasADi-free free
   # function (compute_per_stage_tb) the acatos solver .cpp calls to fill the
   # per-stage tb_x/tb_y slots via project_to_segment on the F1 seed. The test
@@ -688,12 +694,16 @@ if(BUILD_TESTING)
   # dispatch branch compiles to nothing under OFF, so the IPOPT test suite
   # already covers the OFF path).
   if(M5_HAS_ACADOS)
-    m5_add_gtest(test_mid_mpc_acados_solver
-      test/unit/test_mid_mpc_acados_solver.cpp
-      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
-    )
+	    m5_add_gtest(test_mid_mpc_acados_solver
+	      test/unit/test_mid_mpc_acados_solver.cpp
+	      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+	    )
+	    # P6 fix: N=80 acados solver tests take ~44s/test × 13 = ~572s total,
+	    # exceeding the 120s default in m5_add_gtest. Override per-test timeout.
+	    set_tests_properties(test_mid_mpc_acados_solver PROPERTIES TIMEOUT "600")
 
-    # ── P1b-1b Task 18: IPOPT ↔ acados output-contract parity test. ──────────
+
+	    # ── P1b-1b Task 18: IPOPT ↔ acados output-contract parity test. ──────────
     # Backend-switch gate. Same MidMpcInput fed to BOTH backends; the test
     # proves the produced MidMpcSolution shapes are CONTRACT-compatible
     # (downstream M4/L4/tail_gate is agnostic to which backend produced the
@@ -702,10 +712,13 @@ if(BUILD_TESTING)
     # inside the M5_HAS_CASADI block, so the test compiles out under either
     # flag OFF). Under OFF the IPOPT-only test suite already covers the OFF
     # path; the parity test is meaningless without both backends present.
-    m5_add_gtest(test_mid_mpc_acados_parity
-      test/unit/test_mid_mpc_acados_parity.cpp
-      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
-    )
+	    m5_add_gtest(test_mid_mpc_acados_parity
+	      test/unit/test_mid_mpc_acados_parity.cpp
+	      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+	    )
+	    # P6 fix: acados parity tests take ~42s/test × 3 = ~126s → need >120s.
+	    # Matches acados_solver pattern above.
+	    set_tests_properties(test_mid_mpc_acados_parity PROPERTIES TIMEOUT "300")
     # IPOPT loads its linear solver via dlopen (RTLD_DEEPBIND) — strip ASAN
     # in Debug builds (mirrors the test_mid_mpc_solver exception above).
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

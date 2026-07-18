@@ -531,6 +531,14 @@ MidMpcInput MidMpcNode::assemble_input_()
     ts.cpa_m    = tgt.cpa_m;
     ts.cpa_sigma_m = std::sqrt(std::max(tgt.cpa_covariance_m2, 0.0));
     ts.tcpa_s   = tgt.tcpa_s;
+    // P7: OU/Intent fields (spec §4.2)
+    ts.intent_confidence  = static_cast<double>(tgt.intent_confidence);
+    ts.target_compliance  = static_cast<double>(tgt.target_compliance);
+    if (tgt.classification == "vessel") {
+      ts.classification = TargetState::Classification::Vessel;
+    } else if (tgt.classification == "fixed_object") {
+      ts.classification = TargetState::Classification::FixedObject;
+    }  // else stays Unknown (default)
     inp.targets.push_back(ts);
     inp.tail_gate_targets.push_back(ts);
   }

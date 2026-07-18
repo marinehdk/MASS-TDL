@@ -5,12 +5,11 @@
 // This test verifies the SYMBOL-GRAPH CONTRACT of the production acados
 // formulation (Path B 5-dim state, 2-dim control, documented global/per-stage
 // parameter partition), NOT a real acatos solve (that is Task 16+).
-// Parameter partition (T15 F2/F4 + P2 T3): global=106 (26 IPOPT head scalars + 80
-// target block, IPOPT-142-compatible for the stage-uniform part) + per-stage=37
-// (prefix psi/u + pact_pre + per-target drifted x/y + tb_x/tb_y per-stage
-// closest-point, VR-07b). The per-stage block is an honest acatos expansion
-// beyond IPOPT's flat kParamDim==142; see mid_mpc_acados_formulation.hpp
-// partition doc + static_assert (np_global==106, np_per_stage==37).
+// Parameter partition (P7): global=154 (26 IPOPT head scalars + 128 target block
+// with stride 8 for P7 intent/OU fields) + per-stage=56 (prefix psi/u + pact_pre
+// + per-target drifted x/y + tb_x/tb_y per-stage closest-point + per-target
+// sigma_pos (P7) + psi_prev/u_prev/w_trans_active (P5 T2)). See
+// mid_mpc_acados_formulation.hpp partition doc + static_assert.
 // State x=[px,py,psi,r,u_surge], control u=[delta,n].
 //
 // The IPOPT formulation (mid_mpc_nlp_formulation.{hpp,cpp}) is READ-ONLY
@@ -57,30 +56,30 @@ TEST_F(AcadosFormulationTest, StateControlDims_MatchPathB) {
 
 // Parameter partition (T15 F2/F4 + P2 T3 + P5 T2 documented deviation from IPOPT
 // flat 142):
-//   global     = 106 (26 IPOPT head scalars + 16x5 target block — the
-//              stage-uniform portion, 142-compatible for the global half).
-//   per-stage  = 40  (prefix psi/u scalars + pact_pre + per-stage target
+//   global     = 154 (P7: 26 IPOPT head scalars + 16x8 target block — the
+//              stage-uniform portion, stride 8 for intent/OU fields).
+//   per-stage  = 56  (P7: prefix psi/u scalars + pact_pre + per-stage target
 //              drift x/y + tb_x/tb_y per-stage closest-point
-//              + psi_prev/u_prev + w_trans_active (P5 T2)). acatos
-//              precomputes per-stage drift (F4), the prefix-equality activation
-//              factor (F2), the per-stage t_b closest point (VR-07b T3), and
-//              per-stage transition cost params (P5 T2) because the single-stage
-//              graph cannot index stage k; IPOPT folds these into its flat
-//              142-vector + per-row bounds. GLOBAL stays 106; per-stage expands.
+//              + per-target sigma_pos (P7) + psi_prev/u_prev + w_trans_active
+//              (P5 T2)). acatos precomputes per-stage drift (F4), the
+//              prefix-equality activation factor (F2), the per-stage t_b closest
+//              point (VR-07b T3), and per-stage transition cost params (P5 T2)
+//              because the single-stage graph cannot index stage k; IPOPT folds
+//              these into its flat 142-vector + per-row bounds.
 TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
-  EXPECT_EQ(form_.np_global(), 106);     // 26 head + 80 target (IPOPT-compatible)
-  EXPECT_EQ(form_.np_per_stage(), 40);   // prefix+act+drift+tb+transition
+  EXPECT_EQ(form_.np_global(), 154);     // P7: 26 head + 128 target (stride 8)
+  EXPECT_EQ(form_.np_per_stage(), 56);   // P7: prefix+act+drift+tb+sigma+transition
   MidMpcInput in{};
   std::pair<std::vector<double>, std::vector<std::vector<double>>> r;
   EXPECT_NO_THROW({ r = form_.pack_parameters(in); });
   const auto& g = r.first;
   const auto& ps = r.second;
   ASSERT_FALSE(ps.empty());
-  EXPECT_EQ(static_cast<int>(g.size()), 106);
+  EXPECT_EQ(static_cast<int>(g.size()), 154);
   // Every per-stage vector has the SAME length (stage-uniform param layout).
   for (const auto& s : ps) {
-    EXPECT_EQ(static_cast<int>(s.size()), 40)
-        << "per-stage param vectors must be stage-uniform length 40";
+    EXPECT_EQ(static_cast<int>(s.size()), 56)
+        << "per-stage param vectors must be stage-uniform length 56 (P7)";
   }
   // N+1 rows (stages 0..N), terminal stage repeats stage N-1.
   EXPECT_EQ(static_cast<int>(ps.size()), form_.n_horizon() + 1);
@@ -244,14 +243,14 @@ TEST_F(AcadosFormulationTest, PackParameters_NoThrow) {
 // that the surge state + rudder/rpm control channel is wired. nh matches the
 // gen script (gen_mid_mpc_acados.py) row count: 2 prefix + Nt CPA + 1 direction
 // + 1 min_alt = 2+16+1+1 = 20 at default Nt=16 (P4: terminal C10/C11 abolished).
-// np_per_stage = 3 + 2*Nt + 2 tb + 2 transition + 1 active = 40 (P5 T2).
+// np_per_stage = 56 (P7: added Nt sigma_pos per-target).
 TEST_F(AcadosFormulationTest, DiscDynExpr_NonNullFiveRows) {
   EXPECT_FALSE(form_.disc_dyn_expr().is_null());
   EXPECT_EQ(form_.disc_dyn_expr().size1(), 5);   // Path B 5-dim dynamics
   EXPECT_FALSE(form_.con_h_expr().is_null());
   EXPECT_EQ(form_.nh(), 20);                      // 2+16+1+1 (P4: abolished terminal C10/C11)
-  EXPECT_EQ(form_.np_global(), 106);              // 26 head + 80 target block
-  EXPECT_EQ(form_.np_per_stage(), 40);            // 3+2*Nt+2 tb+2 transition+1 active
+  EXPECT_EQ(form_.np_global(), 154);              // P7: 26 head + 128 target block
+  EXPECT_EQ(form_.np_per_stage(), 56);            // P7: 3+2*Nt+2 tb+Nt sigma+2 transition+1 active
 }
 
 // Default horizon N: production default (P4: horizon=1200s, dt=15s -> N=80).

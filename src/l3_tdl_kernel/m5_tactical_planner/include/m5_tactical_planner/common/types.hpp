@@ -83,6 +83,17 @@ struct TargetState {
   double tcpa_s{0.0};    // time to CPA [s]; negative = already passed
   double confidence{0.0};  // track confidence ∈ [0, 1]
   Intent predicted_intent{Intent::Unknown};
+
+  // P7: OU/Intent fields (Q7, spec §4.2)
+  double intent_confidence{0.5};      // [0,1], M2 rule-based, def 0.5 for unknown
+  double target_compliance{0.5};      // [0,1], M2 CPA/range trend, def 0.5 for unknown
+
+  enum class Classification : std::uint8_t {
+    Unknown     = 0u,
+    Vessel      = 1u,
+    FixedObject = 2u,
+  };
+  Classification classification{Classification::Unknown};
 };
 
 // ---------------------------------------------------------------------------
