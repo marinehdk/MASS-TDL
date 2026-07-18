@@ -589,9 +589,6 @@ if(BUILD_TESTING)
   endif()
 
   # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
-  m5_add_gtest(test_tail_builder
-    test/unit/test_tail_builder.cpp
-  )
 
   # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
   m5_add_gtest(test_committed_route

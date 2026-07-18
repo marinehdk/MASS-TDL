@@ -68,82 +68,9 @@ constexpr double kReturnToRouteRepublishWindow_s = 30.0;
 // Mapping either to Active was an M5 lifecycle rejudgement that violated spec
 // §10.1 state authority. They now map to Onset, which build() treats as abnormal
 // (neither active nor released) → reject m6_not_past_clear → honest fallback.
-std::uint8_t tail_encounter_state_from_m6(std::uint8_t m6_state) noexcept
-{
-  namespace tb = mass_l3::m5::tail_builder;
-  switch (m6_state) {
-    case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_CLEAR:
-      return static_cast<std::uint8_t>(tb::EncounterState::Clear);
-    case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE:
-      return static_cast<std::uint8_t>(tb::EncounterState::Release);
-    case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ACTIVE:
-      return static_cast<std::uint8_t>(tb::EncounterState::Active);
-    case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ONSET:
-    default:
-      // ONSET / unknown → Onset: NOT active, NOT released. build() rejects it as
-      // m6_not_past_clear rather than assuming ACTIVE (spec §5.2/§10.1/§14.3).
-      return static_cast<std::uint8_t>(tb::EncounterState::Onset);
-  }
-}
-
-mass_l3::m5::tail_builder::ColregSide tail_protected_side_from_preferred(
-    mass_l3::m5::ColregsPreferredDirection pref) noexcept
-{
-  using mass_l3::m5::ColregsPreferredDirection;
-  using mass_l3::m5::tail_builder::ColregSide;
-  if (pref == ColregsPreferredDirection::Starboard) {
-    return ColregSide::STBD;
-  }
-  if (pref == ColregsPreferredDirection::Port) {
-    return ColregSide::PORT;
-  }
-  return ColregSide::NONE;
-}
-
-mass_l3::m5::tail_builder::ColregRole tail_role_from_m6(std::uint8_t primary_role) noexcept
-{
-  // M6 primary_role enum: 0=STAND_ON, 1=GIVE_WAY, 2=BOTH_GIVE_WAY, 3=FREE.
-  using mass_l3::m5::tail_builder::ColregRole;
-  switch (primary_role) {
-    case 0U: return ColregRole::StandOn;
-    case 2U: return ColregRole::BothGiveWay;
-    case 1U: return ColregRole::GiveWay;
-    default: return ColregRole::Free;
-  }
-}
-
-// Build a tail_builder RouteFrame polyline in own-relative NED metres from the
-// L2 planned route. Mirrors assemble_input_'s wp_n/wp_e projection (spec §4.1).
-mass_l3::m5::tail_builder::RouteFrame tail_route_frame_from_l2(
-    const l3_external_msgs::msg::PlannedRoute::SharedPtr& planned_route,
-    double own_lat_deg, double own_lon_deg)
-{
-  namespace tb = mass_l3::m5::tail_builder;
-  tb::RouteFrame frame;
-  if (planned_route == nullptr || planned_route->route.poses.size() < 2u) {
-    return frame;
-  }
-  const double cos_lat = std::cos(own_lat_deg * units::kRadPerDeg);
-  const auto& poses = planned_route->route.poses;
-  frame.waypoints.reserve(poses.size());
-  for (const auto& pose : poses) {
-    const double plat = pose.pose.position.latitude;
-    const double plon = pose.pose.position.longitude;
-    const double n_m = (plat - own_lat_deg) * units::kRadPerDeg * units::kEarthRadiusMean_m;
-    const double e_m = (plon - own_lon_deg) * units::kRadPerDeg * units::kEarthRadiusMean_m * cos_lat;
-    frame.waypoints.push_back(tb::GeoWP{n_m, e_m, 5.0, "L2_NOMINAL"});
-  }
-  return frame;
-}
-
-// flat-earth NED → WGS84 (matches MidMpcWaypointGenerator::ned_to_geopoint_).
-void tail_ned_to_latlon(double dx_m, double dy_m, double lat0_deg, double lon0_deg,
-                        double& out_lat_deg, double& out_lon_deg) noexcept
-{
-  out_lat_deg = lat0_deg + (dx_m / units::kEarthRadiusMean_m) * units::kDegPerRad;
-  out_lon_deg = lon0_deg + (dy_m / (units::kEarthRadiusMean_m *
-      std::cos(lat0_deg * units::kRadPerDeg))) * units::kDegPerRad;
-}
+// P4 VR-02: tail_encounter_state_from_m6, tail_protected_side_from_preferred,
+// tail_role_from_m6, tail_route_frame_from_l2, tail_ned_to_latlon REMOVED.
+// TailBuilder splicing retired; 1200s NLP covers full lifecycle.
 
 l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
     double latitude,
@@ -1327,28 +1254,8 @@ void MidMpcNode::emit_tail_gate_rejected_asdr_(
   pub_asdr_record_->publish(record);
 }
 
-void MidMpcNode::emit_tail_builder_rejected_asdr_(
-    rclcpp::Time now,
-    const std::string& reject_reason,
-    const std::string& plan_id) {
-  l3_msgs::msg::ASDRRecord record;
-  record.stamp = now;
-  record.source_module = "M5_Tactical_Planner";
-  record.decision_type = "tail_builder_rejected";
-  record.decision_json =
-      std::string("{\"reject_reason\":\"") + reject_reason
-      + "\",\"plan_id\":\"" + plan_id + "\"}";
-  record.confidence = 0.0F;
-  // Phase 3.8: distinguish TailBuilder geometry failure from NLP tail-gate
-  // failure. The NLP solver may have converged (nlp_tail_gate_failed=false);
-  // only the geometric tail extension failed. Honest degradation per
-  // spec §14.3 (amended): the optimized body still commits.
-  record.rationale = std::string{"TailBuilder geometry rejected ("} + reject_reason
-      + "); NLP solver verdict unaffected";
-  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
-  record.signature.assign(digest.begin(), digest.end());
-  pub_asdr_record_->publish(record);
-}
+// ===========================================================================
+// emit_tail_builder_rejected_asdr_ REMOVED (P4 VR-02: TailBuilder retired).
 
 void MidMpcNode::emit_empty_plan_handoff_asdr_(
     rclcpp::Time now,
@@ -1565,129 +1472,11 @@ void MidMpcNode::publish_trajectory_candidates_(const MidMpcInput& input)
   }
   sat3.primary_trajectory_idx = static_cast<uint8_t>(sol.primary_branch_idx);
 
-  pub_sat3_data_->publish(sat3);
-}
+	  pub_sat3_data_->publish(sat3);
+	}
 
-// ===========================================================================
-// append_tail_waypoints_ (Slice W1, spec §5.3)
-// ===========================================================================
-std::string MidMpcNode::append_tail_waypoints_(
-    l3_msgs::msg::AvoidancePlan& plan,
-    const MidMpcInput& input,
-    const MidMpcSolution& sol,
-    double lat0_deg,
-    double lon0_deg)
-{
-  // The NLP terminal state (last trajectory point) is the tail's anchor. spec
-  // §5.3: pN ← NLP terminal position. unpack_solution() already dead-reckoned
-  // the trajectory positions (propagate_trajectory_positions, types.hpp), so
-  // sol.trajectory.back() carries the true NLP terminal x/y. Use it directly —
-  // do NOT re-accumulate: re-summing N intervals yields pos[N] (one step beyond
-  // the terminal pos[N-1]) because the propagation sets point[k].pos BEFORE
-  // advancing, so back() is the last command's position (Review High-3 off-by-one).
-  if (sol.trajectory.empty()) {
-    return "tail_empty_trajectory";
-  }
-
-  const auto& term = sol.trajectory.back();
-  const double pN_n_m = term.x_m;
-  const double pN_e_m = term.y_m;
-
-  // Only give-way encounters produce a tail; stand-on/free have no rejoin need.
-  const tb::ColregRole role = (colregs_constraint_ != nullptr)
-      ? tail_role_from_m6(colregs_constraint_->primary_role)
-      : tb::ColregRole::Free;
-  const tb::ColregSide protected_side = tail_protected_side_from_preferred(
-      input.colregs_preferred_direction);
-  if (role == tb::ColregRole::StandOn || role == tb::ColregRole::Free ||
-      protected_side == tb::ColregSide::NONE) {
-    // No tail expected for this role/side — not a gate failure, just a no-op.
-    return {};
-  }
-
-  // M6 lifecycle (spec §5.2): the only fields that decide active vs release.
-  const bool m6_past_clear = (colregs_constraint_ != nullptr) && colregs_constraint_->past_clear;
-  const bool m6_release_predicted =
-      (colregs_constraint_ != nullptr) && colregs_constraint_->release_predicted;
-  const std::uint8_t m6_encounter_state = (colregs_constraint_ != nullptr)
-      ? tail_encounter_state_from_m6(colregs_constraint_->encounter_state)
-      : static_cast<std::uint8_t>(tb::EncounterState::Active);
-
-  // M2 target snapshots for CPA gating / s_clear extrapolation.
-  std::vector<tb::TargetSnapshot> targets;
-  targets.reserve(input.targets.size());
-  for (const auto& tgt : input.targets) {
-    tb::TargetSnapshot snap;
-    snap.id = tgt.id;
-    snap.cpa_m = tgt.cpa_m;
-    snap.tcpa_s = tgt.tcpa_s;
-    snap.cpa_sigma_m = tgt.cpa_sigma_m;
-    snap.relative_bearing_deg = 0.0;
-    targets.push_back(snap);
-  }
-
-  // GNC execution-ODD → TailBuilder kinematic limits. The ODD msg does not yet
-  // carry every field; fill spec defaults and override the available ones.
-  // [TBD-HAZID] wire remaining fields once the ODD msg publishes them.
-  const auto odd_msg = effective_gnc_odd_();
-  tb::GncExecutionOdd gnc_odd;
-  gnc_odd.ship_length_m = 50.0;
-  gnc_odd.max_lateral_offset_m = input.lateral_scale_m > 0.0 ? input.lateral_scale_m : 400.0;
-  gnc_odd.min_segment_length_m = 50.0;
-  gnc_odd.min_turn_radius_m = std::max(odd_msg.emergency_min_turn_radius_m, 1.0);
-  gnc_odd.max_yaw_rate_rad_s = std::max(
-      odd_msg.emergency_max_yaw_rate_deg_s * units::kRadPerDeg, 1.0e-3);
-  gnc_odd.max_lateral_accel_mps2 = std::max(odd_msg.max_lateral_accel_mps2, 1.0e-3);
-  gnc_odd.max_decel_mps2 = std::max(odd_msg.max_decel_mps2, 1.0e-3);
-
-  tb::TailInputs tail_inp;
-  tail_inp.role = role;
-  tail_inp.pN = tb::GeoWP{pN_n_m, pN_e_m, term.u_mps, "MID_MPC"};
-  tail_inp.psiN_rad = term.psi_rad;
-  tail_inp.uN_mps = term.u_mps;
-  tail_inp.protected_side = protected_side;
-  tail_inp.m6_past_clear = m6_past_clear;
-  tail_inp.m6_encounter_state = m6_encounter_state;
-  tail_inp.m6_release_predicted = m6_release_predicted;
-  tail_inp.route_frame = tail_route_frame_from_l2(planned_route_, lat0_deg, lon0_deg);
-  tail_inp.targets = std::move(targets);
-  tail_inp.cpa_release_m = input.constraints.cpa_hard_m > 0.0
-      ? input.constraints.cpa_hard_m : 1852.0;
-  tail_inp.cpa_safe_m = input.constraints.cpa_safe_m;
-  tail_inp.gnc_odd = gnc_odd;
-
-  const auto tail_result = tb::TailBuilder::build(tail_inp);
-  if (!tail_result.hold_then_rejoin.has_value()) {
-    // TailBuilder declined (terminal state not extendable, s_clear unavailable,
-    // etc.). Honest degradation (spec §14.3): caller marks nlp_tail_gate_failed
-    // and falls back to DegradedHold rather than publishing a broken tail.
-    return tail_result.reject_reason.empty() ? std::string("nlp_tail_gate_failed")
-                                             : tail_result.reject_reason;
-  }
-
-  // Append the NED tail waypoints to the AvoidancePlan parallel arrays. They
-  // convert back to lat/lon (flat-earth, matching the generator) and carry the
-  // TailBuilder's source labels (MID_MPC_TERMINAL_HOLD [+ REJOIN_TO_L2]).
-  const auto& segment = tail_result.hold_then_rejoin.value();
-  const std::string navigation_mode = plan.behavior_mode.empty()
-      ? std::string("collision_avoidance") : plan.behavior_mode;
-  for (std::size_t i = 0u; i < segment.waypoints.size(); ++i) {
-    const auto& wp = segment.waypoints[i];
-    double lat_deg = 0.0;
-    double lon_deg = 0.0;
-    tail_ned_to_latlon(wp.x_m, wp.y_m, lat0_deg, lon0_deg, lat_deg, lon_deg);
-    plan.latitude.push_back(lat_deg);
-    plan.longitude.push_back(lon_deg);
-    plan.command_speed_mps.push_back(wp.speed_mps);
-    plan.navigation_mode.push_back(navigation_mode);
-    plan.segment_source.push_back(segment.source_labels[i]);
-  }
-
-  return {};
-}
-
-// ===========================================================================
-// publish_committed_route_ (Slice A: /l3/m5/avoidance_plan is canonical truth)
+	// ===========================================================================
+	// publish_committed_route_ (Slice A: /l3/m5/avoidance_plan is canonical truth)
 // Emits the committed avoidance route on /l3/m5/avoidance_plan — the only M5
 // execution-truth topic. The gnc_bridge translates it to /colav/avoidance_plan
 // for GNC active_route_manager_node. Release authority (spec D4): while M6
@@ -1766,40 +1555,20 @@ void MidMpcNode::publish_committed_route_(
 	    // pairs the incoming route against last_feedback_path_ (L2 nominal in cold
 	    // start) element-by-element. Without the prefix the M5 plan anchors at ownship
 	    // and the first changed waypoint lands behind ownship → perpetual reject.
-	    // Must run AFTER populate_canonical_route_from_selected_plan (which clears the
-	    // parallel arrays) and BEFORE append_tail_waypoints_ / append_l2_nominal_suffix
-	    // (so the suffix closest-L2-pose search starts from the avoidance tail, not
-	    // from the prefix). Prepend failure is honest degradation: publish without
-	    // prefix and let the coord_transform guard reject if it must (audit via trace).
-	    if (!prepend_l2_history_prefix_if_preflight_feasible(
-	            plan, planned_route_, {lat0_deg, lon0_deg}, capped_speed_mps)) {
-	      RCLCPP_WARN(get_logger(),
-	          "[M5][L2HistoryPrefix] reject prepend for plan_id=%s; publishing selected route without prefix",
-	          plan.plan_id.c_str());
-	    }
-	    // Slice W1 (spec §5.3): append the TailBuilder hold[+rejoin] segment between
-	    // the MID_MPC_OPTIMIZED waypoints and the L2 nominal suffix. The tail
-	    // extends the NLP terminal state to the predicted s_clear (active phase,
-	    // hold-only) or to a curvature-limited rejoin (release phase).
-	    //
-	    // Phase 3.8 (spec §14.3 amended): TailBuilder geometry rejection (e.g.
-	    // tail_spacing_invalid) is honest degradation that does NOT affect the NLP
-	    // solver verdict. The legacy code set plan.nlp_tail_gate_failed=true here,
-	    // which made committed_candidate_from_plan pass candidate.nlp_ok=false to
-	    // try_revise, escalating NLP-converged candidates into DegradedHold on
-	    // every cycle where the tail geometry failed (135 spurious escalations on
-	    // rule14-ho). The optimized body still commits — the NLP solver's
-	    // convergence verdict (populate_canonical_route_from_selected_plan sets
-	    // nlp_tail_gate_failed from sol.status, line 75) is authoritative.
-	    const std::string tail_reject = append_tail_waypoints_(plan, input, sol, lat0_deg, lon0_deg);
-	    if (!tail_reject.empty()) {
-	      spdlog::warn("[M5][TailBuilder] reject tail for plan_id={} reason={}",
-	                   plan.plan_id, tail_reject);
-	      emit_tail_builder_rejected_asdr_(
-	          now, tail_reject, plan.plan_id);
-	      plan.rationale += " tail_gate=" + tail_reject;
-	    }
-	    if (!append_l2_nominal_suffix_if_preflight_feasible(
+		    // Must run AFTER populate_canonical_route_from_selected_plan (which clears the
+		    // parallel arrays) and BEFORE append_l2_nominal_suffix
+		    // (so the suffix closest-L2-pose search starts from the optimized body).
+		    // Prepend failure is honest degradation: publish without
+		    // prefix and let the coord_transform guard reject if it must (audit via trace).
+		    if (!prepend_l2_history_prefix_if_preflight_feasible(
+		            plan, planned_route_, {lat0_deg, lon0_deg}, capped_speed_mps)) {
+		      RCLCPP_WARN(get_logger(),
+		          "[M5][L2HistoryPrefix] reject prepend for plan_id=%s; publishing selected route without prefix",
+		          plan.plan_id.c_str());
+		    }
+		    // P4 VR-02: TailBuilder splicing retired. 1200s horizon NLP covers
+		    // avoidance + hold + return-to-route end-to-end (no tail segment needed).
+		    if (!append_l2_nominal_suffix_if_preflight_feasible(
 	            plan, planned_route_, {lat0_deg, lon0_deg}, capped_speed_mps)) {
 	      RCLCPP_WARN(get_logger(),
 	          "[M5][GNCPreflight] reject L2 nominal suffix for optimized plan_id=%s; publishing selected route without suffix",

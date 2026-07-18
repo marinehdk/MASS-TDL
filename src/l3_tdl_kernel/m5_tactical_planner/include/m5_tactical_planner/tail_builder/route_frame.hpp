@@ -31,6 +31,9 @@ struct RouteFrame {
   [[nodiscard]] GeoWP sample(double s_m, double lateral_m, double speed_mps) const;
 };
 
+// route_frame_has_sharp_corner (retained for M6 integration, P4 VR-02).
+[[nodiscard]] bool route_frame_has_sharp_corner(const RouteFrame& route_frame) noexcept;
+
 }  // namespace mass_l3::m5::tail_builder
 
 #endif  // MASS_L3_M5_TAIL_BUILDER_ROUTE_FRAME_HPP_

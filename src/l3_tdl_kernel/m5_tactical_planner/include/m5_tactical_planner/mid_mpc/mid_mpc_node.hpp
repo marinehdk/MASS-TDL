@@ -155,14 +155,10 @@ class MidMpcNode : public rclcpp::Node {
   // failure such as tail_spacing_invalid) is honest degradation and MUST NOT
   // contaminate candidate.nlp_ok. The NLP solver's convergence verdict is
   // authoritative; mixing TailBuilder geometry failures into nlp_tail_gate_failed
-  // caused 135 spurious optimized_committed_rejected escalations on rule14-ho
-  // (DegradedHold → keep_last empty plan → GNC invalid_avoidance_route × 32).
-  // Emit on /l3/asdr/record so future debugging does not require container logs.
-  void emit_tail_builder_rejected_asdr_(
-      rclcpp::Time now,
-      const std::string& reject_reason,
-      const std::string& plan_id);
-  // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
+	  // caused 135 spurious optimized_committed_rejected escalations on rule14-ho
+	  // (DegradedHold → keep_last empty plan → GNC invalid_avoidance_route × 32).
+	  // P4 VR-02: emit_tail_builder_rejected_asdr_ REMOVED (TailBuilder retired).
+	  // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
   // publish an empty-waypoints avoidance_plan. GNC active_route_manager
   // silently rejects plans with fewer than 2 waypoints (size>=2 hard gate),
   // so an empty plan from M5 BcMpcFollow/KeepLast-empty/TRANSIT branches
@@ -190,16 +186,8 @@ class MidMpcNode : public rclcpp::Node {
                                 const l3_msgs::msg::AvoidancePlan& selected_plan,
                                 const MidMpcSolution& sol);
   // Slice W1 (spec §5.3): build the TailBuilder hold[+rejoin] segment from the
-  // NLP terminal state + M6 lifecycle + L2 route-frame and append its NED
-  // waypoints to the AvoidancePlan parallel arrays (between MID_MPC_OPTIMIZED
-  // and L2_NOMINAL_SUFFIX). Returns the reject_reason if TailBuilder declined
-  // (caller marks the candidate nlp_tail_gate_failed); empty on success/no-op.
-  std::string append_tail_waypoints_(l3_msgs::msg::AvoidancePlan& plan,
-                                     const MidMpcInput& input,
-                                     const MidMpcSolution& sol,
-                                     double lat0_deg,
-                                     double lon0_deg);
-  bool last_emitted_conflict_active_{false};
+	  // P4 VR-02: append_tail_waypoints_ retired. 1200s NLP covers full lifecycle.
+	  bool last_emitted_conflict_active_{false};
   std::optional<rclcpp::Time> return_to_route_emit_until_;
   struct AvoidanceCorridorAnchor {
     double lat_deg{0.0};
