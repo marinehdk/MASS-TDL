@@ -66,6 +66,8 @@ struct PrefixReprojectResult {
 //   - When the prefix has <2 points, psi/u default to own_psi/own_u.
 //
 // `guard_distance_m` defaults to kMinFirstChangedDistance_m (100 m).
+// P4 T6: committed prefix duration 180s; callers pass guard_distance computed
+// from kCommittedPrefixDurationS * own_u_mps (e.g. 900m at 5 m/s).
 inline PrefixReprojectResult reproject_prefix_psi_u(
     const std::vector<double>& prefix_lat_deg,
     const std::vector<double>& prefix_lon_deg,

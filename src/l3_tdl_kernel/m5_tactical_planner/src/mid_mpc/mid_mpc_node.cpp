@@ -96,6 +96,9 @@ l3_msgs::msg::AvoidanceWaypoint waypoint_from_route_point(
 // be frozen (frozen_prefix_count).
 constexpr double kMinFirstChangedDistance_m = 100.0;
 
+// P4 T6: committed prefix duration (180s at dt=15 -> ~12 steps).
+constexpr double kCommittedPrefixDurationS = 180.0;
+
 // Risk context sourced from M2 WorldState (spec §6.6.4 / §9.12 Keep-Last risk
 // gate). Used to populate the candidate's risk fields so the manager's
 // current_cpa < cpa_hard gate can trigger (the legacy default 1e9/0 left it
@@ -727,11 +730,16 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.own_lon_deg = own_lon;
   const auto& committed_prefix =
       committed_route_manager_.current().committed_prefix;
-  if (!committed_prefix.empty()) {
-    const PrefixPsiU pp = reproject_committed_prefix(
-        committed_prefix, own_lat, own_lon,
-        inp.own_ship.psi_rad, inp.own_ship.u_mps,
-        formulation_.config().dt_s, formulation_.config().n_horizon);
+	  if (!committed_prefix.empty()) {
+	    // P4 T6: committed prefix 180s. Compute guard distance from duration
+	    // so K ≈ kCommittedPrefixDurationS / dt_s (e.g. 180/15 = 12 at dt=15).
+	    const double u_eff = std::max(inp.own_ship.u_mps, 0.5);
+	    const double guard_180s = kCommittedPrefixDurationS * u_eff;
+	    const PrefixPsiU pp = reproject_committed_prefix(
+	        committed_prefix, own_lat, own_lon,
+	        inp.own_ship.psi_rad, inp.own_ship.u_mps,
+	        formulation_.config().dt_s, formulation_.config().n_horizon,
+	        guard_180s);
     inp.prefix_active_k = pp.K;
     inp.prefix_psi_rad = std::move(pp.psi_rad);
     inp.prefix_u_mps = std::move(pp.u_mps);
